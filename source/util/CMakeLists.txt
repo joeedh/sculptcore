@@ -4,8 +4,12 @@ set(LIB
 
 set(SRC
   PUBLIC string.h
-  map.h
-  set.h
+  PUBLIC map.h
+  PUBLIC set.h
+  PUBLIC alloc.h
+  PUBLIC vector.h
+  PUBLIC compiler_util.h
+  alloc.cc
   util.cc
 )
 

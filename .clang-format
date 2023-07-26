@@ -1,0 +1,23 @@
+AlignAfterOpenBracket: 'Align'
+BinPackArguments: false
+BinPackParameters: false
+ColumnLimit: 90
+BreakBeforeBraces: Custom
+BraceWrapping: {
+    AfterClass: 'false',
+    AfterControlStatement: 'MultiLine',
+    AfterEnum : 'false',
+    AfterFunction : 'true',
+    AfterNamespace : 'false',
+    AfterStruct : 'false',
+    AfterUnion : 'false',
+    AfterObjCDeclaration: 'true',
+    IndentBraces : 'false',
+}
+FixNamespaceComments: true
+UseTab: Never
+TabWidth: 2
+IndentWidth: 2
+AllowShortFunctionsOnASingleLine: 'false'
+
+

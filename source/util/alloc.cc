@@ -1,0 +1,116 @@
+#include "compiler_util.h"
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+#define MAKE_TAG(a, b, c, d) (a | (b << 8) | (c << 16) | d << 24)
+#define TAG1 MAKE_TAG('t', 'a', 'g', '1')
+#define TAG2 MAKE_TAG('t', 'a', 'g', '2')
+#define FREE MAKE_TAG('f', 'r', 'e', 'e')
+
+struct MemList;
+
+struct MemHead {
+  int tag1, tag2;
+  struct MemHead *next, *prev;
+  size_t size;
+  const char *tag;
+  struct MemList *list;
+};
+
+struct MemList {
+  MemHead *first, *last;
+};
+
+std::mutex mem_list_mutex;
+thread_local MemList mem_list;
+
+namespace sculptcore::alloc {
+void print_blocks()
+{
+  MemHead *mem = mem_list.first;
+  while (mem) {
+    printf("%d: %s\n", int(mem->size), mem->tag);
+    mem = mem->next;
+  }
+}
+
+void *alloc(const char *tag, size_t size)
+{
+  size_t newsize = size + sizeof(MemHead);
+  MemHead *mem = reinterpret_cast<MemHead *>(malloc(newsize));
+
+  mem->tag1 = TAG1;
+  mem->tag2 = TAG2;
+  mem->tag = tag;
+  mem->size = size;
+
+  mem->next = mem->prev = nullptr;
+
+  std::lock_guard guard(mem_list_mutex);
+
+  if (!mem_list.first) {
+    mem_list.first = mem_list.last = mem;
+  } else {
+    mem_list.last->next = mem;
+    mem->prev = mem_list.last;
+    mem_list.last = mem;
+  }
+
+  return reinterpret_cast<void *>(mem + 1);
+}
+
+bool check_mem(void *ptr)
+{
+  if (!ptr) {
+    return false;
+  }
+
+  MemHead *mem = static_cast<MemHead *>(ptr);
+  mem--;
+
+  if (mem->tag1 == FREE) {
+    fprintf(stderr, "sculptcore::alloc::release: error: double free");
+    return false;
+  } else if (mem->tag1 != TAG1 || mem->tag2 != TAG2) {
+    fprintf(stderr, "sculptcore::alloc::release: error: invalid memory block");
+    return false;
+  }
+
+  return true;
+}
+
+void release(void *ptr)
+{
+  if (!ptr) {
+    return;
+  }
+
+  if (!check_mem(ptr)) {
+    return;
+  }
+
+  MemHead *mem = static_cast<MemHead *>(ptr);
+  mem--;
+
+  std::lock_guard guard(mem_list_mutex);
+
+  /* Unlink from list. */
+  if (mem_list.last == mem) {
+    mem_list.last = mem->prev;
+  } else {
+    mem->next->prev = mem->prev;
+  }
+
+  if (mem_list.first == mem) {
+    mem_list.first = mem->next;
+  } else {
+    mem->prev->next = mem->next;
+  }
+}
+
+} // namespace sculptcore::alloc
