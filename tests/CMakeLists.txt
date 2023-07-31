@@ -8,3 +8,4 @@ endmacro()
 
 test(test_vector.cc)
 test(test_map.cc)
+test(test_boolvector.cc)
