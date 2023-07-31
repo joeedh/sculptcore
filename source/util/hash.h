@@ -7,7 +7,7 @@ template <typename T> inline HashInt hash(T *ptr)
 {
   return reinterpret_cast<HashInt>(ptr);
 }
-template <typename T> inline HashInt hash(int i)
+inline HashInt hash(int i)
 {
   return HashInt(i);
 }

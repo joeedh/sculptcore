@@ -30,13 +30,15 @@ std::mutex mem_list_mutex;
 thread_local MemList mem_list;
 
 namespace sculptcore::alloc {
-void print_blocks()
+bool print_blocks()
 {
   MemHead *mem = mem_list.first;
   while (mem) {
     printf("%d: %s\n", int(mem->size), mem->tag);
     mem = mem->next;
   }
+
+  return mem_list.first;
 }
 
 void *alloc(const char *tag, size_t size)
@@ -102,12 +104,18 @@ void release(void *ptr)
   /* Unlink from list. */
   if (mem_list.last == mem) {
     mem_list.last = mem->prev;
+    if (mem_list.last) {
+      mem_list.last->next = nullptr;
+    }
   } else {
     mem->next->prev = mem->prev;
   }
 
   if (mem_list.first == mem) {
     mem_list.first = mem->next;
+    if (mem_list.first) {
+      mem_list.first->prev = nullptr;
+    }
   } else {
     mem->prev->next = mem->next;
   }

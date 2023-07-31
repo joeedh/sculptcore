@@ -1,4 +1,5 @@
 #include "alloc.h"
+#include "compiler_util.h"
 #include "hash.h"
 #include <span>
 #include <type_traits>
@@ -6,9 +7,19 @@
 
 namespace sculptcore::util {
 static size_t hashsizes[] = {
-    1,       2,       5,       7,        19,       53,        137,       347,
-    877,     2203,    5519,    13799,    34499,    86249,     215653,    539141,
-    1347877, 3369697, 8424287, 21060731, 52651829, 131629573, 329073937, 536870909};
+    3,         5,         7,         11,        17,        23,        29,
+    37,        47,        59,        79,        101,       127,       163,
+    211,       269,       337,       431,       541,       677,       853,
+    1069,      1361,      1709,      2137,      2677,      3347,      4201,
+    5261,      6577,      8231,      10289,     12889,     16127,     20161,
+    25219,     31531,     39419,     49277,     61603,     77017,     96281,
+    120371,    150473,    188107,    235159,    293957,    367453,    459317,
+    574157,    717697,    897133,    1121423,   1401791,   1752239,   2190299,
+    2737937,   3422429,   4278037,   5347553,   6684443,   8355563,   10444457,
+    13055587,  16319519,  20399411,  25499291,  31874149,  39842687,  49803361,
+    62254207,  77817767,  97272239,  121590311, 151987889, 189984863, 237481091,
+    296851369, 371064217, 463830313, 536870909,
+};
 
 static size_t find_hashsize(int size)
 {
@@ -20,7 +31,9 @@ static size_t find_hashsize(int size)
   return prime;
 }
 
-template <typename Key, typename Value, int static_size = 4> class Map {
+template <typename Key, typename Value, int static_size = 16> class Map {
+  const static int real_static_size = static_size * 3;
+
 public:
   struct Pair {
     Key key;
@@ -34,10 +47,90 @@ public:
     }
   };
 
+  using key_type = Key;
+  using value_type = Value;
+
+  struct iterator {
+    iterator(Map *map, int i) : map_(map), i_(i)
+    {
+      if (i_ == 0) {
+        /* Find first item. */
+        i_ = -1;
+        operator++();
+      }
+    }
+
+    iterator(const iterator &b) : map_(b.map_), i_(b.i_)
+    {
+    }
+
+    bool operator==(const iterator &b)
+    {
+      return b.i_ == i_;
+    }
+    bool operator!=(const iterator &b)
+    {
+      return !operator==(b);
+    }
+
+    const Pair &operator*()
+    {
+      return map_->table_[i_];
+    }
+
+    iterator &operator++()
+    {
+      i_++;
+
+      while (i_ < map_->table_.size() && !map_->used_[i_]) {
+        i_++;
+      }
+
+      return *this;
+    }
+
+  private:
+    int i_;
+    Map *map_;
+  };
+
   Map()
-      : table_(static_storage_, find_hashsize(static_size * 3)),
-        cur_size_(find_hashsize(static_size * 3))
+      : table_(static_storage_, hashsizes[find_hashsize(real_static_size)]),
+        cur_size_(find_hashsize(real_static_size))
   {
+    reserve_usedmap();
+  }
+
+  ~Map()
+  {
+    if (table_.data() == static_storage_) {
+      return;
+    }
+
+    if constexpr (!Pair::is_simple()) {
+      for (int i = 0; i < table_.size(); i++) {
+        if (used_[i]) {
+          table_[i].~Pair();
+        }
+      }
+    }
+
+    alloc::release(static_cast<void *>(table_.data()));
+  }
+
+  iterator begin()
+  {
+    return iterator(this, 0);
+  }
+
+  iterator end()
+  {
+    return iterator(this, table_.size());
+  }
+
+  size_t size()
+  {
+    return size_t(used_count_);
   }
 
   /* Does not check if key already exists. */
@@ -61,13 +154,26 @@ public:
   {
     return add_intern<false>(key, value);
   }
+  bool add(const Key &&key, const Value &&value)
+  {
+    return add_intern<false>(key, value);
+  }
 
   bool add_overwrite(const Key &key, const Value &value)
   {
     return add_intern<true>(key, value);
   }
+  bool add_overwrite(const Key &&key, const Value &&value)
+  {
+    return add_intern<true>(key, value);
+  }
 
   bool contains(const Key &key) const
+  {
+    int i = find_pair<true, false>(key);
+    return i != -1;
+  }
+  bool contains(const Key &&key) const
   {
     int i = find_pair<true, false>(key);
     return i != -1;
@@ -92,7 +198,6 @@ public:
 
     if constexpr (!Pair::is_simple()) {
       table_[i].~Pair();
-      table_[i] = {};
     }
 
     return true;
@@ -100,10 +205,18 @@ public:
 
 private:
   std::span<Pair> table_;
-  Pair static_storage_[static_size * 3];
+  Pair static_storage_[real_static_size];
   std::vector<bool> used_;
   int cur_size_ = 0;
   int used_count_ = 0;
+
+  void reserve_usedmap()
+  {
+    hash::HashInt size = hash::HashInt(hashsizes[cur_size_]);
+    used_.resize(size);
+
+    used_.assign(size, false);
+  }
 
   template <bool overwrite = false> bool add_intern(const Key &key, const Value &value)
   {
@@ -134,11 +247,11 @@ private:
   }
 
   template <bool check_key_equals = true, bool return_unused_cell = false>
-  int find_pair(const Key &key)
+  ATTR_NO_OPT int find_pair(const Key &key) const
   {
-    hash::HashInt hashval = hash::hash(key);
-    hash::HashInt size = hash::HashInt(hashsizes[cur_size_]);
-    hash::HashInt h = hashval % size;
+    const hash::HashInt size = hash::HashInt(table_.size());
+    hash::HashInt hashval = hash::hash(key) % size;
+    hash::HashInt h = hashval, probe = hashval;
 
     while (1) {
       if (!used_[h]) {
@@ -155,45 +268,43 @@ private:
         }
       }
 
-      h = ((h << 1) + hashval + 1) % size;
+      probe++;
+      hashval += probe;
+      h = hashval % size;
     }
   }
 
-  bool check_load()
+  ATTR_NO_OPT bool check_load()
   {
-    if (used_count_ > table_.size() >> 1) {
-      realloc_to_size(table_.size() << 1);
+    if (used_count_ > table_.size() / 3) {
+      realloc_to_size(table_.size() * 3);
       return true;
     }
 
     return false;
   }
 
-  void realloc_to_size(size_t size)
+  ATTR_NO_OPT void realloc_to_size(size_t size)
   {
     size_t old_size = hashsizes[cur_size_];
     while (hashsizes[cur_size_] < size) {
       cur_size_++;
     }
 
-    std::span<Pair> old = table_;
     size_t newsize = hashsizes[cur_size_];
 
-    if constexpr (Pair::is_simple()) {
-      table_ = std::span(static_cast<Pair *>(alloc::alloc("sculpecore::util::map table",
-                                                          newsize * sizeof(Pair))),
-                         newsize);
-    } else {
-      table_ = std::span(alloc::NewArray<Pair>("sculptcore::util::map table", newsize),
-                         newsize);
-    }
+    printf("newsize: %d\n", int(newsize));
 
-    std::vector old_used = used_;
+    std::span<Pair> old = table_;
+    std::vector<bool> old_used = used_;
 
+    table_ = std::span(static_cast<Pair *>(alloc::alloc("sculpecore::util::map table",
+                                                        newsize * sizeof(Pair))),
+                       newsize);
+
+    used_count_ = 0;
     used_.resize(newsize);
-    for (int i = 0; i < used_.size(); i++) {
-      used_[i] = false;
-    }
+    used_.assign(newsize, false);
 
     for (int i = 0; i < old.size(); i++) {
       if (old_used[i]) {
@@ -202,11 +313,7 @@ private:
     }
 
     if (old.data() != static_storage_) {
-      if constexpr (Pair::is_simple()) {
-        alloc::release(static_cast<void *>(old.data()));
-      } else {
-        alloc::DeleteArray<Pair>(old.data());
-      }
+      alloc::release(static_cast<void *>(old.data()));
     }
   }
 };

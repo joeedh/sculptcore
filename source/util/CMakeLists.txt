@@ -9,6 +9,8 @@ set(SRC
   PUBLIC alloc.h
   PUBLIC vector.h
   PUBLIC compiler_util.h
+  PUBLIC rand.h
+  PUBLIC time.h
   alloc.cc
   util.cc
 )

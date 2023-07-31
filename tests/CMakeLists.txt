@@ -1,0 +1,10 @@
+macro(test file)
+set(target "${file}_out")
+add_executable(${target} "${file}")
+target_link_libraries(${target} util)
+target_include_directories(${target} PUBLIC util)
+add_test(NAME ${target} COMMAND ${target})
+endmacro()
+
+test(test_vector.cc)
+test(test_map.cc)

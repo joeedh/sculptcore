@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
 project(sculptcore C CXX)
 
+enable_testing()
+
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)
 
 include("build_files/macros.cmake")
@@ -11,6 +13,7 @@ set(CMAKE_CXX_SOURCE_FILE_EXTENSIONS .cc)
 
 add_subdirectory(extern)
 add_subdirectory(source)
+add_subdirectory(tests)
 
 set(LIB
   util

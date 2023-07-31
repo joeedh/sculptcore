@@ -3,7 +3,7 @@
 namespace sculptcore::alloc {
 
 void *alloc(const char *tag, size_t size);
-void *release(void *mem);
+void release(void *mem);
 
 template <typename T, typename... Args> inline T *New(const char *tag, Args... args)
 {
@@ -47,6 +47,6 @@ template <typename T> inline void DeleteArray(T *arg, size_t size)
     release(static_cast<void *>(arg));
   }
 }
-void print_blocks();
+bool print_blocks();
 
 }; // namespace sculptcore::alloc
