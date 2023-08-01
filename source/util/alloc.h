@@ -9,7 +9,7 @@ template <typename T, typename... Args> inline T *New(const char *tag, Args... a
 {
   void *mem = alloc(tag, sizeof(T));
 
-  return new (mem) T(&args...);
+  return new (mem) T(args...);
 }
 
 template <typename T, typename... Args>

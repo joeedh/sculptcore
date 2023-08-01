@@ -34,7 +34,7 @@ bool print_blocks()
 {
   MemHead *mem = mem_list.first;
   while (mem) {
-    printf("%d: %s\n", int(mem->size), mem->tag);
+    printf("\"%s:%d\"  (%p)\n", mem->tag, int(mem->size), mem + 1);
     mem = mem->next;
   }
 
@@ -76,10 +76,10 @@ bool check_mem(void *ptr)
   mem--;
 
   if (mem->tag1 == FREE) {
-    fprintf(stderr, "sculptcore::alloc::release: error: double free");
+    fprintf(stderr, "sculptcore::alloc::release: error: double free\n");
     return false;
   } else if (mem->tag1 != TAG1 || mem->tag2 != TAG2) {
-    fprintf(stderr, "sculptcore::alloc::release: error: invalid memory block");
+    fprintf(stderr, "sculptcore::alloc::release: error: invalid memory block\n");
     return false;
   }
 
@@ -98,6 +98,8 @@ void release(void *ptr)
 
   MemHead *mem = static_cast<MemHead *>(ptr);
   mem--;
+
+  mem->tag1 = FREE;
 
   std::lock_guard guard(mem_list_mutex);
 

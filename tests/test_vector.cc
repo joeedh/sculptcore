@@ -30,7 +30,7 @@ int main()
 
     list.remove(5);
     list.append_once(5);
-    test_assert(list.size() == size - 1);
+    test_assert(list.size() == size);
   }
 
   return test_end();

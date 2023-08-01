@@ -1,6 +1,7 @@
 #pragma once
 #include "alloc.h"
 #include "compiler_util.h"
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <utility>
@@ -46,7 +47,7 @@ public:
 
   Vector() : capacity_(static_size)
   {
-    data_ = static_storage_;
+    data_ = static_storage();
   }
 
   ~Vector()
@@ -62,7 +63,7 @@ public:
     if (size_ > static_size) {
       data_ = static_cast<T *>(alloc::alloc(sizeof(T) * b.capacity_));
     } else {
-      data_ = static_storage_;
+      data_ = static_storage();
     }
 
     for (int i = 0; i < size_; i++) {
@@ -70,22 +71,35 @@ public:
     }
   }
 
-  Vector(const Vector &&b)
+  Vector &operator=(const Vector &b)
   {
-    size_ = b.size_;
-    capacity_ = b.capacity_;
+    deconstruct_all();
 
-    if (size_ <= static_size) {
-      data_ = static_storage_;
+    resize(b.size());
 
-      for (int i = 0; i < size_; i++) {
-        data_[i] = std::move(b.data_[i]);
-      }
-    } else {
-      data_ = b.data_;
-      b.data_ = nullptr;
+    for (int i = 0; i < size_; i++) {
+      data_[i] = b.data_[i];
     }
+
+    return *this;
   }
+
+  Vector &operator=(Vector &&b)
+  {
+    move_intern(std::forward<Vector>(b));
+    return *this;
+  }
+
+  Vector(Vector &&b)
+  {
+    move_intern(std::forward<Vector>(b));
+  }
+#if 0
+  Vector &operator=(Vector &&b)
+  {
+    *this = b;
+  }
+#endif
 
   iterator begin()
   {
@@ -191,8 +205,8 @@ public:
     /* Construct new elements. */
     if constexpr (construct) {
       for (int i = 0; i < remain; i++) {
-        if constexpr (!is_simple(data_)) {
-          operator new (&data_[size_ - i - 1])();
+        if constexpr (!is_simple<T>()) {
+          new (&data_[size_ - i - 1]) T;
         } else {
           data_[size_ - i - 1] = T(0);
         }
@@ -211,14 +225,46 @@ public:
   }
 
 private:
-  T &append_intern()
+  inline void deconstruct_all()
+  {
+    if constexpr (!is_simple<T>()) {
+      for (int i = 0; i < size_; i++) {
+        data_[i].~T();
+      }
+    }
+  }
+
+  void move_intern(Vector &&b)
+  {
+    deconstruct_all();
+
+    size_ = b.size_;
+    capacity_ = b.capacity_;
+
+    if (size_ <= static_size) {
+      data_ = static_storage();
+
+      for (int i = 0; i < size_; i++) {
+        data_[i] = std::move(b.data_[i]);
+      }
+
+      b.data_ = nullptr;
+      b.size_ = 0;
+    } else {
+      data_ = b.data_;
+      b.data_ = nullptr;
+      b.size_ = 0;
+    }
+  }
+
+  ATTR_NO_OPT T &append_intern()
   {
     ensure_size(size_ + 1);
     size_++;
     return data_[size_ - 1];
   }
 
-  void ensure_size(size_t newsize)
+  ATTR_NO_OPT void ensure_size(size_t newsize)
   {
     if (newsize < capacity_) {
       return;
@@ -243,7 +289,7 @@ private:
     release_data(old, size_);
   }
 
-  void release_data(T *old, int size)
+  ATTR_NO_OPT void release_data(T *old, int size)
   {
     if constexpr (!is_simple<T>()) {
       /* Run destructors. */
@@ -252,13 +298,18 @@ private:
       }
     }
 
-    if (old != static_storage_) {
+    if (old && old != static_storage()) {
       alloc::release(static_cast<void *>(old));
     }
   }
 
+  T *static_storage()
+  {
+    return reinterpret_cast<T *>(static_storage_);
+  }
+
   T *data_ = nullptr;
-  T static_storage_[static_size];
+  uint8_t static_storage_[static_size * sizeof(T)];
 
   size_t capacity_ = 0;
   size_t size_ = 0;
