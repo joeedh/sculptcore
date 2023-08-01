@@ -10,7 +10,7 @@ int main()
   using namespace sculptcore::util;
 
   {
-    volatile BoolVector<int, 32> list;
+    volatile BoolVector<32> list;
 
   }
 

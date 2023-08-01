@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace sculptcore::util {
-template <typename T, int static_size = 32> class BoolVector {
+template <int static_size = 32> class BoolVector {
   using BlockInt = uint32_t;
   static constexpr int block_size = 32;
   static constexpr int block_shift = 5;

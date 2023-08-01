@@ -3,6 +3,8 @@ set(target "${file}_out")
 add_executable(${target} "${file}")
 target_link_libraries(${target} util)
 target_include_directories(${target} PUBLIC util)
+target_include_directories(${target} PUBLIC math)
+target_include_directories(${target} PUBLIC mesh)
 add_test(NAME ${target} COMMAND ${target})
 endmacro()
 

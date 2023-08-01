@@ -116,6 +116,19 @@ public:
     return index_of(value) != -1;
   }
 
+  T pop_back()
+  {
+    size_--;
+
+    T ret = data_[size_];
+
+    if constexpr (!is_simple<T>()) {
+      data_[size_].~T();
+    }
+
+    return ret;
+  }
+
   bool remove(const T &value, bool swap_end_only = false)
   {
     return remove_intern<const T &>(value, swap_end_only);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 namespace sculptcore::alloc {
 
 void *alloc(const char *tag, size_t size);
@@ -9,7 +11,7 @@ template <typename T, typename... Args> inline T *New(const char *tag, Args... a
 {
   void *mem = alloc(tag, sizeof(T));
 
-  return new (mem) T(args...);
+  return new (mem) T(std::forward<Args>(args)...);
 }
 
 template <typename T, typename... Args>
@@ -23,7 +25,7 @@ inline T *NewArray(const char *tag, size_t size, Args... args)
   T *elem = static_cast<T *>(mem);
 
   for (int i = 0; i < size; i++) {
-    new (elem) T(&args...);
+    new (elem) T(std::forward<Args>(args)...);
   }
 
   return static_cast<T *>(elem);

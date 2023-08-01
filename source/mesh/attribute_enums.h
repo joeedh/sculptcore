@@ -10,8 +10,10 @@ enum AttrType {
   ATTR_BOOL = 1 << 4,
   ATTR_INT = 1 << 5,
   ATTR_INT2 = 1 << 6,
-  ATTR_BYTE = 1 << 7,
-  ATTR_SHORT = 1 << 8
+  ATTR_INT3 = 1 << 7,
+  ATTR_INT4 = 1 << 8,
+  ATTR_BYTE = 1 << 9,
+  ATTR_SHORT = 1 << 10
 };
 
 #define ATTR_PAGESIZE 4096

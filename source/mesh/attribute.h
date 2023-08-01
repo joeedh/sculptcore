@@ -140,14 +140,45 @@ template <typename T> struct AttrData : AttrDataBase {
     return pages_[idx >> ATTR_PAGESHIFT].data[idx & ATTR_PAGEMASK];
   }
 
-  void set(int idx, const T &value)
+  void set_default(int elem)
   {
-    operator[](idx) = value;
+    if (util::is_simple<T>()) {
+      operator[](elem) = T(0.0);
+    } else {
+      operator[](elem) = {};
+    }
   }
 
   int size()
   {
     return size_;
+  }
+
+  void resize(size_t newsize, bool materialize_new_pages = true)
+  {
+    int page_count = newsize >> ATTR_PAGESHIFT;
+    int old_page_count = pages_.size();
+
+    if (newsize & ATTR_PAGEMASK) {
+      page_count++;
+    }
+
+    while (page_count < pages_.size()) {
+      pages_.pop_back();
+    }
+
+    if (page_count > pages_.size()) {
+      int new_pages = int(page_count - pages_.size());
+      pages_.resize(page_count);
+
+      if (materialize_new_pages) {
+        for (int i = 0; i < new_pages; i++) {
+          materialize_page(pages_[old_page_count + i]);
+        }
+      }
+    }
+
+    size_ = newsize;
   }
 
   ~AttrData()
@@ -191,6 +222,11 @@ struct AttrRef {
   {
   }
 
+  template <typename T> AttrData<T> *get_data()
+  {
+    return static_cast<AttrData<T> *>(data);
+  }
+
   bool exists()
   {
     return data != nullptr;
@@ -230,6 +266,12 @@ template <typename Lambda> void type_dispatch(AttrType type, Lambda callback)
     break;
   case ATTR_INT2:
     callback.operator()<math::int2>();
+    break;
+  case ATTR_INT3:
+    callback.operator()<math::int3>();
+    break;
+  case ATTR_INT4:
+    callback.operator()<math::int4>();
     break;
   case ATTR_BYTE:
     callback.operator()<uint8_t>();
@@ -283,7 +325,7 @@ struct AttrGroup {
     return false;
   }
 
-  ATTR_NO_OPT AttrRef &ensure(AttrType type, const string name, int element_count)
+  ATTR_NO_OPT AttrRef &ensure(AttrType type, const string name)
   {
     for (AttrRef &attr : attrs) {
       if (attr.type == type && attr.name == name) {
@@ -297,13 +339,13 @@ struct AttrGroup {
       AttrRef attr(type, name);
 
       if constexpr (!std::is_same_v<T, bool>) {
-        AttrData<T> *data = alloc::New<AttrData<T>>("AttrData", name, element_count);
+        AttrData<T> *data = alloc::New<AttrData<T>>("AttrData", name, capacity_);
         attr.data = data;
       } else {
         PackedBoolAttrs::Offset offset = bool_attrs.add(name);
 
         BoolAttrView *data =
-            alloc::New<BoolAttrView>("BoolAttrView", name, bool_attrs, offset);
+            alloc::New<BoolAttrView>("BoolAttrView", name, &bool_attrs, offset);
         attr.data = static_cast<AttrDataBase *>(data);
       }
 
@@ -311,12 +353,58 @@ struct AttrGroup {
       ret = &attrs[attrs.size() - 1];
     });
 
-    if (type == ATTR_BOOL && bool_attrs.size() != element_count) {
-      bool_attrs.resize(element_count);
+    if (type == ATTR_BOOL) {
+      printf("bool\n");
+    }
+
+    if (type == ATTR_BOOL && bool_attrs.size() < capacity_) {
+      bool_attrs.resize(capacity_);
     }
 
     return *ret;
   }
+
+  void ensure_capacity(size_t size)
+  {
+    capacity_ = std::max(capacity_, size);
+
+    if (bool_attrs.size() < size) {
+      bool_attrs.resize(size);
+    }
+
+    for (AttrRef &attr : attrs) {
+      if (attr.type == ATTR_BOOL) {
+        continue;
+      }
+
+      detail::type_dispatch(attr.type, [&]<typename T>() {
+        auto *data = attr.get_data<T>();
+        if (data && data->size() < size) {
+          data->resize(size);
+        }
+      });
+    }
+  }
+
+  void set_default(int elem)
+  {
+    bool_attrs.set_default(elem);
+    for (AttrRef &attr : attrs) {
+      if (attr.type == ATTR_BOOL) {
+        continue;
+      }
+
+      detail::type_dispatch(attr.type, [&]<typename T>() {
+        auto *data = attr.get_data<T>();
+        if (data) {
+          data->set_default(elem);
+        }
+      });
+    }
+  }
+
+private:
+  size_t capacity_ = 0;
 };
 
 } // namespace sculptcore::mesh

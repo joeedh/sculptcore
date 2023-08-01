@@ -29,6 +29,15 @@ public:
   {
   }
 
+  ~PackedBoolAttrs()
+  {
+    printf("~PackedBoolAttrs\n");
+
+    if (blocks_) {
+      alloc::release(static_cast<void *>(blocks_));
+    }
+  }
+
   PackedBoolAttrs(PackedBoolAttrs &b)
   {
     cur_block_ = b.cur_block_;
@@ -38,6 +47,13 @@ public:
     blocksize_ = b.blocksize_;
 
     attrs_ = b.attrs_;
+  }
+
+  void set_default(int elem)
+  {
+    for (AttrInfo &info : attrs_) {
+      set(elem, info.offset, false);
+    }
   }
 
   Offset add(const string &name)
@@ -159,7 +175,7 @@ private:
 
 struct BoolAttrView : public AttrDataBase {
 public:
-  BoolAttrView(const string &name_, PackedBoolAttrs &data, PackedBoolAttrs::Offset offset)
+  BoolAttrView(const string &name_, PackedBoolAttrs *data, PackedBoolAttrs::Offset offset)
       : data_(data), offset_(offset), AttrDataBase(ATTR_BOOL, name_)
   {
   }
@@ -175,27 +191,27 @@ public:
 
   inline bool operator[](int idx)
   {
-    return data_.get(idx, offset_);
+    return data_->get(idx, offset_);
   }
 
   inline bool get(int idx)
   {
-    return data_.get(idx, offset_);
+    return data_->get(idx, offset_);
   }
 
   inline bool set(int idx, bool state)
   {
-    return data_.set(idx, offset_, state);
+    return data_->set(idx, offset_, state);
   }
 
   size_t size()
   {
-    return data_.size();
+    return data_->size();
   }
 
 private:
   PackedBoolAttrs::Offset offset_;
-  PackedBoolAttrs &data_;
+  PackedBoolAttrs *data_;
 };
 
 } // namespace sculptcore::mesh

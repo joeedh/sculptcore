@@ -22,11 +22,11 @@ template <typename T, util::StrLiteral Name> struct BuiltinAttr : protected Attr
   BuiltinAttr &operator=(BuiltinAttr &&b) = delete;
   AttrRef &operator=(AttrRef &&b) = delete;
 
-  bool ensure(AttrGroup &group, int count, bool materialize = true)
+  bool ensure(AttrGroup &group, bool materialize = true)
   {
     bool ret = !group.has(type, name);
 
-    AttrRef &attr = group.ensure(type, name, count);
+    AttrRef &attr = group.ensure(type, name);
     data = attr.data;
 
     if (materialize) {
@@ -54,6 +54,9 @@ template <typename T, util::StrLiteral Name> struct BuiltinAttr : protected Attr
   template <typename T2 = void>
   bool set(int idx, const T &value) requires std::same_as<T, bool>
   {
+    BoolAttrView *bdata = get_data();
+    printf("bview: %p\n", bdata);
+
     return get_data()->set(idx, value);
   }
 

@@ -157,6 +157,11 @@ using float1 = Vec<float, 1>;
 using float2 = Vec<float, 2>;
 using float3 = Vec<float, 3>;
 using float4 = Vec<float, 4>;
+
+using int1 = Vec<int, 1>;
 using int2 = Vec<int, 2>;
+using int3 = Vec<int, 3>;
+using int4 = Vec<int, 4>;
+
 
 } // namespace sculptcore::math

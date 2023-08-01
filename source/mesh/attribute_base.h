@@ -33,6 +33,10 @@ template <typename T> static constexpr AttrType type_to_attrtype()
     return ATTR_INT;
   } else if constexpr (std::is_same_v<T, int2>) {
     return ATTR_INT2;
+  } else if constexpr (std::is_same_v<T, int3>) {
+    return ATTR_INT3;
+  } else if constexpr (std::is_same_v<T, int4>) {
+    return ATTR_INT4;
   }
 
   return ATTR_NONE;

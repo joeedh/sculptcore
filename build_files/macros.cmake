@@ -14,6 +14,10 @@ macro(sc_add_library target src lib lib_type)
       target_link_libraries(${target} ${path})
       target_include_directories(${target} PUBLIC ${path})
 
+      if(MSVC)
+        target_compile_options(${target} PUBLIC /std:c++20)
+      endif()
+
       #Reset back to default scope
       set(SCOPE ${DEFAULT_SCOPE})
     endif()

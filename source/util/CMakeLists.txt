@@ -5,6 +5,7 @@ set(LIB
 set(SRC
   PUBLIC string.h
   PUBLIC map.h
+  PUBLIC boolvector.h
   PUBLIC set.h
   PUBLIC alloc.h
   PUBLIC vector.h
