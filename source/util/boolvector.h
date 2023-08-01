@@ -8,8 +8,9 @@ namespace sculptcore::util {
 template <int static_size = 32> class BoolVector {
   using BlockInt = uint32_t;
   static constexpr int block_size = 32;
-  static constexpr int block_shift = 5;
+  static constexpr int block_shift = 4;
   static constexpr int block_mask = 31;
+  static constexpr int block_bytes = 4;
 
 public:
   BoolVector()

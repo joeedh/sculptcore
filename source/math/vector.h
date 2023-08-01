@@ -14,6 +14,39 @@ public:
   {
   }
 
+  Vec(T a, T b)
+  {
+    vec_[0] = a;
+    vec_[1] = b;
+
+    for (int i = 2; i < size; i++) {
+      vec_[i] = 0.0f;
+    }
+  }
+
+  Vec(T a, T b, T c)
+  {
+    vec_[0] = a;
+    vec_[1] = b;
+    vec_[2] = c;
+
+    for (int i = 3; i < size; i++) {
+      vec_[i] = 0.0f;
+    }
+  }
+
+  Vec(T a, T b, T c, T d)
+  {
+    vec_[0] = a;
+    vec_[1] = b;
+    vec_[2] = c;
+    vec_[3] = d;
+
+    for (int i = 4; i < size; i++) {
+      vec_[i] = 0.0f;
+    }
+  }
+
   Vec(T single)
   {
     for (int i = 0; i < size; i++) {
@@ -162,6 +195,5 @@ using int1 = Vec<int, 1>;
 using int2 = Vec<int, 2>;
 using int3 = Vec<int, 3>;
 using int4 = Vec<int, 4>;
-
 
 } // namespace sculptcore::math

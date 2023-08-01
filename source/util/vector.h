@@ -1,9 +1,13 @@
 #pragma once
 #include "alloc.h"
 #include "compiler_util.h"
+#include <concepts>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
+#include <span>
+#include <type_traits>
 #include <utility>
 
 namespace sculptcore::util {
@@ -45,9 +49,34 @@ public:
     Vector &vec_;
   };
 
+#if 0
+  template <std::same_as<T>... Args> Vector(Args... args)
+  {
+
+  }
+#endif
+
+  Vector(std::initializer_list<T> list)
+  {
+    ensure_size(list.size());
+    size_ = list.size();
+    int i = 0;
+
+    for (auto &&item : list) {
+      data_[i] = item;
+      i++;
+    }
+  }
+
   Vector() : capacity_(static_size)
   {
     data_ = static_storage();
+  }
+
+  /* Make implicitly convertible to std::span. */
+  operator std::span<T>()
+  {
+    return std::span<T>(data_, size_);
   }
 
   ~Vector()
@@ -283,8 +312,8 @@ private:
       return;
     }
 
-    size_t new_capacity = (newsize + 1);
-    new_capacity += new_capacity >> 1;
+    size_t new_capacity = (newsize + 1) << 1;
+    new_capacity -= newsize >> 1;
     capacity_ = new_capacity;
 
     T *old = data_;

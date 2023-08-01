@@ -2,7 +2,7 @@
 
 #include "attribute_base.h"
 #include "attribute_enums.h"
-#include "mesh_types.h"
+#include "mesh_enums.h"
 #include "util/alloc.h"
 #include "util/string.h"
 #include "util/vector.h"
