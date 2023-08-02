@@ -1,11 +1,8 @@
-//#ifdef WIN32
-#if 0
 #include <windows.h>
-extern "C" BOOL WINAPI DllMain(HINSTANCE const instance,
-                               DWORD const reason,
-                               LPVOID const reserved)
+
+namespace sculptcore::time {
+void sleep_ms(int ms)
 {
-  return TRUE;
+  Sleep(ms);
 }
-#endif
-//#endif
+} // namespace sculptcore::time

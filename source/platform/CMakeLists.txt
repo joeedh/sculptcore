@@ -3,6 +3,7 @@ set(LIB
 
 set(SRC
   PUBLIC export.h
+  PUBLIC time.h
   win32.cc
 )
 
