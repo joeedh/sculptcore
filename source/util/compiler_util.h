@@ -13,6 +13,9 @@
 #define ATTR_NO_OPT
 #endif
 
+#define flatten_inline [[msvc::flatten]]
+#define force_inline [[forceinline]]
+
 namespace sculptcore::util {
 template <typename T> static constexpr bool is_simple()
 {

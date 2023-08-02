@@ -13,9 +13,10 @@
 
 namespace sculptcore::mesh {
 struct EdgeOfVertIter {
+  MeshBase *m;
+
   inline EdgeOfVertIter(MeshBase *m_, int v_, int e_) : m(m_), v(v_), e(e_), start_e(e_)
   {
-    e = start_e = m->v.e[v];
   }
 
   inline EdgeOfVertIter(const EdgeOfVertIter &b)
@@ -23,25 +24,32 @@ struct EdgeOfVertIter {
   {
   }
 
-  inline int operator*()
+  inline int operator*() const
   {
     return e;
   }
 
-  inline bool operator==(const EdgeOfVertIter &b)
+  inline bool operator==(const EdgeOfVertIter &b) const
   {
     return b.e == e;
   }
 
-  inline bool operator!=(const EdgeOfVertIter &b)
+  inline bool operator!=(const EdgeOfVertIter &b) const
   {
     return !(operator==(b));
   }
 
   EdgeOfVertIter &operator++()
   {
+    if (e == ELEM_NONE) {
+      return *this;
+    }
+
+    int side = m->e.vs[e][0] == v ? 0 : 1;
+    e = m->e.disk[e][side * 2 + 1]; /* e.next */
+
     if (e == start_e) {
-      if (first) {
+      if (0 && first) {
         first = false;
       } else {
         /* Flag endpoint. */
@@ -50,24 +58,20 @@ struct EdgeOfVertIter {
       }
     }
 
-    int side = m->e.vs[e][0] == v ? 0 : 1;
-    e = m->e.disk[e][side * 2 + 1]; /* e.next */
-
     return *this;
   }
 
-  EdgeOfVertIter begin()
+  EdgeOfVertIter begin() const
   {
     return *this;
   }
 
-  EdgeOfVertIter end()
+  EdgeOfVertIter end() const
   {
     return EdgeOfVertIter(m, v, ELEM_NONE);
   }
 
 private:
-  MeshBase *m;
   int v, e, start_e;
   bool first = true;
 };

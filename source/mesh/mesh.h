@@ -6,8 +6,8 @@
 
 #include "mesh_base.h"
 #include "mesh_enums.h"
-#include "mesh_types.h"
 #include "mesh_proxy.h"
+#include "mesh_types.h"
 
 #include <algorithm>
 #include <concepts>
@@ -23,37 +23,19 @@ struct Mesh : public MeshBase {
   {
   }
 
-  int make_vertex(math::float3 co)
-  {
-    int r = v.alloc();
-
-    v.co[r] = co;
-    v.e[r] = ELEM_NONE;
-
-    return r;
-  }
+  int make_vertex(math::float3 co);
+  int make_edge(int v1, int v2);
+  int make_face(std::span<int> verts, std::span<int> edges);
+  int make_face(std::span<int> verts);
+  
+  void kill_vertex(int v);
+  void kill_edge(int e);
+  void kill_face(int f);
 
   EdgeOfVertIter e_of_v(int v1)
   {
     int e1 = v.e[v1];
     return EdgeOfVertIter(this, v1, e1);
-  }
-
-  int make_edge(int v1, int v2)
-  {
-    int r = e.alloc();
-
-    e.c[r] = ELEM_NONE;
-
-    e.vs[r][0] = v1;
-    e.vs[r][1] = v2;
-
-    e.disk[r] = math::int4(ELEM_NONE);
-
-    disk_insert(r, v1);
-    disk_insert(r, v2);
-
-    return r;
   }
 
   int find_edge(int v1, int v2)
@@ -69,90 +51,63 @@ struct Mesh : public MeshBase {
     return ELEM_NONE;
   }
 
-  int make_face(std::span<int> verts, std::span<int> edges)
-  {
-    int f1 = f.alloc();
-    int list = l.alloc();
-
-    int vlen = verts.size();
-
-    f.l[f1] = list;
-    f.list_count[f1] = 1;
-    l.size[list] = vlen;
-    l.f[list] = f1;
-    l.next[list] = ELEM_NONE;
-    
-    util::Vector<int, 8> corners;
-    for (int i = 0; i < vlen; i++) {
-      int c1 = c.alloc();
-      
-      c.v[c1] = verts[i];
-      c.e[c1] = edges[i];
-      c.l[c1] = list;
-
-      radial_insert(edges[i], c1);
-      corners.append(i);
-    }
-
-    l.c[list] = corners[0];
-
-    for (int i = 0; i < vlen; i++) {
-      int l1 = corners[(i - 1 + vlen) % vlen];
-      int l2 = corners[i];
-      int l3 = corners[(i + 1) % vlen];
-
-      c.prev[l2] = l1;
-      c.next[l2] = l3;
-    }
-
-    return f1;
-  }
-
+private:
   void radial_insert(int e1, int c1)
   {
     if (e.c[e1] == ELEM_NONE) {
+      e.c[e1] = c1;
+      c.radial_next[c1] = c.radial_prev[c1] = c1;
     } else {
+      int c2 = e.c[e1];
+      int c2prev = c.radial_prev[c2];
+
+      c.radial_prev[c1] = c2prev;
+      c.radial_next[c1] = c2;
+
+      c.radial_next[c2prev] = c1;
+      c.radial_prev[c2] = c1;
     }
   }
 
-  int make_face(std::span<int> verts)
+  void radial_remove(int e1, int c1)
   {
-    util::Vector<int, 6> edges;
-
-    int vlen = verts.size();
-    for (int i = 0; i < vlen; i++) {
-      int v1 = verts[i], v2 = verts[(i + 1) % vlen];
-      int e1 = find_edge(v1, v2);
-
-      if (e1 == ELEM_NONE) {
-        e1 = make_edge(v1, v2);
-      }
-
-      edges.append(e1);
+    if (e.c[e1] == c1) {
+      e.c[e1] = c.radial_next[c1];
+    }
+    if (e.c[e1] == c1) {
+      e.c[e1] = ELEM_NONE;
     }
 
-    return make_face(verts, edges);
+    int next = c.radial_next[c1];
+    int prev = c.radial_prev[c1];
+
+    c.radial_next[prev] = next;
+    c.radial_prev[next] = prev;
   }
 
-private:
+  inline int edge_side(int e1, int v1)
+  {
+    return v1 == e.vs[e1][0] ? 0 : 1;
+  }
+
   void disk_insert(int e1, int v1)
   {
-    int side1 = e.vs[e1][0] == v1 ? 0 : 1;
+    int side1 = edge_side(e1, v1);
 
     if (v.e[v1] == ELEM_NONE) {
       v.e[v1] = e1;
 
       e.disk[e1][side1 * 2] = e1;
-      e.disk[e1][side1 * 2] = e1;
+      e.disk[e1][side1 * 2 + 1] = e1;
 
       return;
     }
 
     int e2 = v.e[v1];
-    int side2 = e.vs[e2][0] == v1 ? 0 : 1;
+    int side2 = edge_side(e2, v1);
 
     int prev = e.disk[e2][side2 * 2];
-    int side3 = e.vs[prev][0] == v1 ? 0 : 1;
+    int side3 = edge_side(prev, v1);
 
     e.disk[e2][side2 * 2] = e1; /* e2.prev */
 
@@ -160,6 +115,28 @@ private:
     e.disk[e1][side1 * 2 + 1] = e2; /* e1.next */
 
     e.disk[prev][side3 * 2 + 1] = e1; /* prev.next */
+  }
+
+  void disk_remove(int e1, int v1)
+  {
+    int side1 = edge_side(e1, v1);
+
+    int prev = e.disk[e1][side1 * 2];
+    int next = e.disk[e1][side1 * 2 + 1];
+
+    int sidep = edge_side(prev, v1);
+    int siden = edge_side(next, v1);
+
+    e.disk[prev][sidep * 2 + 1] = next; /* prev->next */
+    e.disk[next][siden * 2] = prev;     /* next->prev */
+
+    if (e1 == v.e[v1]) {
+      v.e[v1] = next;
+    }
+
+    if (e1 == v.e[v1]) {
+      v.e[v1] = ELEM_NONE;
+    }
   }
 };
 }; // namespace sculptcore::mesh

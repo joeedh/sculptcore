@@ -56,7 +56,7 @@ public:
   }
 #endif
 
-  Vector(std::initializer_list<T> list)
+  flatten_inline Vector(std::initializer_list<T> list)
   {
     ensure_size(list.size());
     size_ = list.size();

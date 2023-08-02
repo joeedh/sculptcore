@@ -127,7 +127,7 @@ private:
 
     freemap.resize(capacity_);
 
-    for (int i = 0; i < ATTR_PAGESIZE; i++) {
+    for (int i = ATTR_PAGESIZE - 1; i >= 0; i--) {
       freelist.append(start + i);
       freemap.set(start + i, true);
     }
@@ -137,4 +137,4 @@ private:
 
   int capacity_ = 0;
 };
-}
+} // namespace sculptcore::mesh

@@ -27,7 +27,7 @@ int main()
     if (mesh.v.select[v1]) {
       mesh.v.select.set(v1, false);
     }
-    
+
     test_assert(!mesh.v.select[v1]);
 
     mesh.v.co[v1][0] = 1.0f;
@@ -41,15 +41,39 @@ int main()
     int e2 = mesh.make_edge(v2, v3);
     int e3 = mesh.make_edge(v3, v1);
 
-    //int f = mesh.make_face(util::Vector({v1, v2, v3}));
+    int f = mesh.make_face(util::Vector({v1, v2, v3}));
+
+    printf("face:\n");
+    FaceProxy face(&mesh, f);
+    for (auto list : face.lists()) {
+      for (auto corner : list) {
+        printf("%d\n", corner.v().i);
+      }
+    }
+
     EdgeProxy edge1(&mesh, e1);
     VertProxy vert1(&mesh, v1);
 
     vert1.e() = edge1;
-    
-    edge1 = vert1.e();
 
-    printf("%d\n", edge1.v1().v);
+    CornerProxy c(&mesh, 0);
+    c = 0;
+    c.next() = 2; 
+
+    printf("edges:\n");
+    auto iter = vert1.edges();
+    auto end = iter.end();
+    iter = iter.begin();
+
+    while (iter != end) {
+      printf("  %d\n", (*iter).i);
+      ++iter;
+    }
+
+    printf("edges:\n");
+    for (EdgeProxy e : vert1.edges()) {
+      printf("  %d\n", e.i);
+    }
   }
 
   return test_end();
