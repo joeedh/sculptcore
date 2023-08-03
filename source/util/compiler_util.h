@@ -16,6 +16,36 @@
 #define flatten_inline [[msvc::flatten]]
 #define force_inline [[forceinline]]
 
+#define FlagOperators(T)                                                                 \
+  static constexpr T operator|(T a, T b)                                                 \
+  {                                                                                      \
+    return T(uint64_t(a) | uint64_t(b));                                                 \
+  }                                                                                      \
+  static constexpr T operator&(T a, T b)                                                 \
+  {                                                                                      \
+    return T(uint64_t(a) & uint64_t(b));                                                 \
+  }                                                                                      \
+  static constexpr T operator~(T a)                                                      \
+  {                                                                                      \
+    return T(~uint64_t(a));                                                              \
+  }                                                                                      \
+  static constexpr T operator^(T a, T b)                                                 \
+  {                                                                                      \
+    return T(uint64_t(a) ^ uint64_t(b));                                                 \
+  }                                                                                      \
+  static T operator^=(T a, T flag)                                                       \
+  {                                                                                      \
+    return T(uint64_t(a) ^ uint64_t(flag));                                              \
+  }                                                                                      \
+  static T operator|=(T a, T flag)                                                       \
+  {                                                                                      \
+    return T(uint64_t(a) | uint64_t(flag));                                              \
+  }                                                                                      \
+  static T operator&=(T a, T flag)                                                       \
+  {                                                                                      \
+    return T(uint64_t(a) & uint64_t(flag));                                              \
+  }
+
 namespace sculptcore::util {
 template <typename T> static constexpr bool is_simple()
 {

@@ -83,6 +83,11 @@ struct Proxies {
   template <AssignMode is_inline = ASSIGN_PROXY> struct VertProxy {
     int i;
 
+    inline operator int()
+    {
+      return i;
+    }
+
     inline VertProxy(MeshBase *m_, int v, int *src_idx_ = nullptr)
         : i(v), m(m_), src_idx(src_idx_)
     {
@@ -236,6 +241,11 @@ struct Proxies {
   };
 
   template <typename Derived, AssignMode is_inline> struct ProxyBase {
+    inline operator int() const
+    {
+      return get_this().i;
+    }
+
     ProxyBase(MeshBase *m, int i, int *src_idx_) : src_idx(src_idx_)
     {
       get_this().m = m;
@@ -245,6 +255,11 @@ struct Proxies {
     force_inline Derived &get_this()
     {
       return *(reinterpret_cast<Derived *>(this));
+    }
+
+    force_inline const Derived &get_this() const
+    {
+      return *(reinterpret_cast<const Derived *>(this));
     }
 
     ProxyBase(const ProxyBase &) = delete;
@@ -276,7 +291,7 @@ struct Proxies {
   };
 
   template <AssignMode is_inline = ASSIGN_PROXY>
-  struct CornerProxy : protected ProxyBase<CornerProxy<is_inline>, is_inline> {
+  struct CornerProxy : public ProxyBase<CornerProxy<is_inline>, is_inline> {
     using ProxyBaseCls = ProxyBase<CornerProxy, is_inline>;
 
     int i = ELEM_NONE;
@@ -340,7 +355,7 @@ struct Proxies {
   };
 
   template <AssignMode is_inline = ASSIGN_PROXY>
-  struct ListProxy : protected ProxyBase<ListProxy<is_inline>, is_inline> {
+  struct ListProxy : public ProxyBase<ListProxy<is_inline>, is_inline> {
     struct iterator {
       inline iterator(MeshBase *m_, int c_) : m(m_), c(c_), start_c(c_)
       {
@@ -422,7 +437,7 @@ struct Proxies {
   };
 
   template <AssignMode is_inline = ASSIGN_PROXY>
-  struct FaceProxy : protected ProxyBase<FaceProxy<is_inline>, is_inline> {
+  struct FaceProxy : public ProxyBase<FaceProxy<is_inline>, is_inline> {
     struct FaceListIterator {
       FaceListIterator(MeshBase *m_, int l_) : m(m_), l(l_)
       {
@@ -495,6 +510,20 @@ struct Proxies {
     FaceListIterator lists()
     {
       return FaceListIterator(m, m->f.l[i]);
+    }
+
+    math::float3 calc_center()
+    {
+      float tot = 0.0f;
+      math::float3 cent(0.0f);
+
+      for (auto list : lists()) {
+        for (auto c : list) {
+          cent += c.v().co();
+        }
+      }
+
+      return cent / tot;
     }
   };
 };

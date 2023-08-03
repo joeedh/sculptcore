@@ -214,7 +214,7 @@ public:
     return false;
   }
 
-  bool append_once(T &value)
+  bool append_once(const T &value)
   {
     if (index_of(value) == -1) {
       append(value);
@@ -224,7 +224,7 @@ public:
     return false;
   }
 
-  void append(T &value)
+  void append(const T &value)
   {
     append_intern() = value;
   }
@@ -264,6 +264,11 @@ public:
   size_t size() const
   {
     return size_;
+  }
+
+  T &last()
+  {
+    return data_[size_ - 1];
   }
 
 private:

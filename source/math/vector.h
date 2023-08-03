@@ -128,12 +128,32 @@ public:
   VEC_OP_DEF(+)
   VEC_OP_DEF(-)
 
+  Vec &min(const Vec &b)
+  {
+    for (int i = 0; i < size; i++) {
+      vec_[i] = std::min(vec_[i], b.vec_[i]);
+    }
+
+    return *this;
+  }
+
+  Vec &max(const Vec &b)
+  {
+    for (int i = 0; i < size; i++) {
+      vec_[i] = std::max(vec_[i], b.vec_[i]);
+    }
+
+    return *this;
+  }
+
   T dot(const Vec &b)
   {
     T sum = T(0);
     for (int i = 0; i < size; i++) {
       sum += vec_[i] * b.vec_[i];
     }
+
+    return sum;
   }
 
   T normalize()
@@ -158,11 +178,13 @@ public:
     return std::sqrt(dot(*this));
   }
 
-  void interp(const Vec &b, double factor)
+  Vec &interp(const Vec &b, double factor)
   {
     for (int i = 0; i < size; i++) {
       vec_[i] += T(double(b.vec_[i] - vec_[i]) * factor);
     }
+
+    return *this;
   }
 
   operator T *()

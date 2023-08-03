@@ -1,3 +1,5 @@
+#pragma once
+
 #include "alloc.h"
 #include "compiler_util.h"
 #include "hash.h"
@@ -186,7 +188,7 @@ public:
     return table_[i].value;
   }
 
-  bool remove(const Key &key)
+  bool remove(const Key &key, Value *out_value = nullptr)
   {
     int i = find_pair<true, false>(key);
 
@@ -195,6 +197,10 @@ public:
     }
 
     used_[i] = false;
+
+    if (out_value) {
+      *out_value = std::move(table_[i].value);
+    }
 
     if constexpr (!Pair::is_simple()) {
       table_[i].~Pair();
