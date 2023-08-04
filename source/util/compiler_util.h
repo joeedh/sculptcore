@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <type_traits>
 
+#define array_size(Array) (sizeof(Array) / sizeof(*(Array)))
+
 #ifdef __clang__
 #define ATTR_NO_OPT __attribute__((optnone))
 #elif defined(_MSC_VER)

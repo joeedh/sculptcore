@@ -14,6 +14,8 @@ namespace sculptcore::spatial {
 struct SpatialTree {
   using Mesh = mesh::Mesh;
 
+  int leaf_limit = 512;
+
   mesh::BuiltinAttr<int, ".spatial.v.node"> vert_node;
   mesh::BuiltinAttr<int, ".spatial.f.node"> face_node;
 
@@ -31,6 +33,13 @@ struct SpatialTree {
     vert_node.ensure(m->v.attrs);
     face_node.ensure(m->v.attrs);
   }
+
+  bool node_needs_split(SpatialNode *node)
+  {
+    return node->data->faces.size() >= leaf_limit;
+  }
+
+  void split_node(SpatialNode *node);
 
   ~SpatialTree()
   {
@@ -52,7 +61,11 @@ struct SpatialTree {
     add_face_intern(root, f, fcent);
   }
 
+  util::Vector<SpatialNode *> leaves();
+
 private:
+  void regen_node_bounds(SpatialNode *node, bool recurse);
+
   void add_face_intern(SpatialNode *node, int f, math::float3 &fcent);
 
   SpatialNode *alloc_node()

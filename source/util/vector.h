@@ -260,6 +260,11 @@ public:
   {
     return data_[idx];
   }
+  
+  const T &operator[](int idx) const
+  {
+    return data_[idx];
+  }
 
   size_t size() const
   {

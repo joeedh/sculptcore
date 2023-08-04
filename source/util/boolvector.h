@@ -2,6 +2,7 @@
 
 #include "alloc.h"
 #include "compiler_util.h"
+#include <cmath>
 #include <cstdint>
 
 namespace sculptcore::util {
@@ -24,9 +25,44 @@ public:
     }
   }
 
+  BoolVector(const BoolVector &b)
+  {
+    resize(b.size_);
+
+    int ilen = std::min(vector_size_, b.vector_size_);
+
+    for (int i = 0; i < ilen; i++) {
+      vector_[i] = b.vector_[i];
+    }
+  }
+
+  BoolVector &operator=(BoolVector &&b)
+  {
+    ~BoolVector();
+
+    vector_size_ = b.vector_size_;
+    size_ = b.size_;
+    used_ = b.used_;
+
+    if (b.vector_ == b.static_storage_) {
+      vector_ = static_storage_;
+
+      for (int i = 0; i < vector_size_; i++) {
+        vector_[i] = b.vector_[i];
+      }
+    } else {
+      vector_ = b.vector_;
+    }
+
+    b.vector_ = nullptr;
+    b.size_ = b.vector_size_ = b.used_ = 0;
+
+    return *this;
+  }
+
   ~BoolVector()
   {
-    if (vector_ != static_storage_) {
+    if (vector_ && vector_ != static_storage_) {
       alloc::release(static_cast<void *>(vector_));
     }
   }
@@ -43,7 +79,7 @@ public:
     }
   }
 
-  const bool operator[](int index)
+  const bool operator[](int index) const
   {
     int bit = 1 << (index & block_mask);
     return vector_[index >> block_shift] & bit;
@@ -82,7 +118,7 @@ public:
   }
 
 private:
-  BlockInt *vector_;
+  BlockInt *vector_ = nullptr;
   BlockInt static_storage_[static_size >> block_shift];
   int size_ = 0, vector_size_ = 0;
   int used_ = 0;

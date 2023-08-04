@@ -3,7 +3,7 @@
 #include "math/vector.h"
 #include "util/alloc.h"
 #include "util/map.h"
-#include "util/set.h"
+#include "util/ordered_set.h"
 #include "util/vector.h"
 
 #include "mesh/mesh.h"
@@ -22,9 +22,9 @@ struct NodeTri {
 
 struct SpatialNode {
   struct NodeData {
-    util::Set<int> unique_verts;
-    util::Set<int> other_verts;
-    util::Set<int> faces;
+    util::OrderedSet<int> unique_verts;
+    util::OrderedSet<int> other_verts;
+    util::OrderedSet<int> faces;
 
     util::Vector<NodeTri> tris;
   };
@@ -39,6 +39,7 @@ struct SpatialNode {
   NodeFlags flag = Spatial_None;
   NodeData *data = nullptr;
 
+  /* Node IDs are always > 0. */
   int id = 0;
 
   SpatialNode()
@@ -46,17 +47,17 @@ struct SpatialNode {
     children[0] = children[1] = nullptr;
   }
 
-  util::Set<int> &unique_verts() const
+  util::OrderedSet<int> &unique_verts() const
   {
     return data->unique_verts;
   }
 
-  util::Set<int> &other_verts() const
+  util::OrderedSet<int> &other_verts() const
   {
     return data->other_verts;
   }
 
-  util::Set<int> &faces() const
+  util::OrderedSet<int> &faces() const
   {
     return data->faces;
   }
@@ -83,6 +84,12 @@ struct SpatialNode {
   void create_data()
   {
     data = alloc::New<NodeData>("Spatial Node Data");
+  }
+
+  void delete_data()
+  {
+    alloc::Delete<NodeData>(data);
+    data = nullptr;
   }
 
   void add_face(sculptcore::mesh::Mesh *m, int f);

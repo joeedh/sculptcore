@@ -132,7 +132,7 @@ public:
     const Char *b = vb.data_;
 
     while (*a && *b) {
-      if (*a == *b) {
+      if (*a != *b) {
         return false;
       }
 

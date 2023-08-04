@@ -12,6 +12,8 @@ set(SRC
   PUBLIC compiler_util.h
   PUBLIC rand.h
   PUBLIC time.h
+  PUBLIC task.h
+  PUBLIC ordered_set.h
   alloc.cc
   util.cc
 )
