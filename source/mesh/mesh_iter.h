@@ -75,4 +75,55 @@ private:
   int v, e, start_e;
   bool first = true;
 };
+
+struct CornerOfEdgeIter {
+  MeshBase *m;
+
+  CornerOfEdgeIter(MeshBase *m_, int e_, int c_) : m(m_), e(e_), c(c_)
+  {
+    start_c = c;
+  }
+  CornerOfEdgeIter(const CornerOfEdgeIter &b) : m(b.m), e(b.e), c(b.c), start_c(b.start_c)
+  {
+  }
+  bool operator==(const CornerOfEdgeIter &b) const
+  {
+    return b.c == c;
+  }
+  bool operator!=(const CornerOfEdgeIter &b) const
+  {
+    return !operator==(b);
+  }
+
+  int operator*() const
+  {
+    return c;
+  }
+
+  CornerOfEdgeIter &operator++()
+  {
+    if (c == ELEM_NONE) {
+      return *this;
+    }
+
+    c = m->c.radial_next[c];
+
+    return *this;
+  }
+
+  CornerOfEdgeIter &begin()
+  {
+    return *this;
+  }
+
+  CornerOfEdgeIter end()
+  {
+    return CornerOfEdgeIter(m, e, ELEM_NONE);
+  }
+
+private:
+  int e, c, start_c;
+  bool first = true;
+};
+
 } // namespace sculptcore::mesh

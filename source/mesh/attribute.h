@@ -302,6 +302,24 @@ struct AttrGroup {
     }
   }
 
+  void swap(int a, int b)
+  {
+    for (AttrRef &attr : attrs) {
+      if (attr.type == ATTR_BOOL) {
+        BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
+        bool tmp = (*view)[a];
+        view->set(a, (*view)[b]);
+        view->set(b, tmp);
+      } else {
+        detail::type_dispatch(attr.type, [&]<typename T>() {
+          AttrData<T> *data = static_cast<AttrData<T> *>(attr.data);
+
+          std::swap((*data)[a], (*data)[b]);
+        });
+      }
+    }
+  }
+
   AttrRef find_attribute(AttrType type, string name)
   {
     for (AttrRef &attr : attrs) {

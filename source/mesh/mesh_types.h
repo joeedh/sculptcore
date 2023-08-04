@@ -36,6 +36,8 @@ struct VertexData : public ElemData {
 
   /* Topology attributes. */
   BuiltinAttr<int, "e"> e;
+
+  void swap_elems(int v1, int v2);
 };
 
 struct EdgeData : public ElemData {

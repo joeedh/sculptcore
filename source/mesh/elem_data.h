@@ -119,6 +119,10 @@ struct ElemData {
     return capacity_;
   }
 
+  void swap_attrs(int a, int b)
+  {
+    attrs.swap(a, b);
+  }
 private:
   void add_page()
   {

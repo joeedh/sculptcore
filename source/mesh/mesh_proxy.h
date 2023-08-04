@@ -77,6 +77,47 @@ struct Proxies {
     EdgeOfVertIter iter;
   };
 
+  struct EdgeProxyCornerIter {
+    EdgeProxyCornerIter(MeshBase *m, int e, int c) : iter(m, e, c)
+    {
+    }
+    EdgeProxyCornerIter(const EdgeProxyCornerIter &b) : iter(b.iter)
+    {
+    }
+
+    bool operator==(const EdgeProxyCornerIter &b)
+    {
+      return iter == b.iter;
+    }
+    bool operator!=(const EdgeProxyCornerIter &b)
+    {
+      return iter != b.iter;
+    }
+    CornerProxy<ASSIGN_PROXY> operator*() const
+    {
+      return CornerProxy<ASSIGN_PROXY>(iter.m, *iter);
+    }
+    EdgeProxyCornerIter &operator++()
+    {
+      ++iter;
+      return *this;
+    }
+
+    EdgeProxyCornerIter &begin()
+    {
+      return *this;
+    }
+
+    EdgeProxyCornerIter end()
+    {
+      EdgeProxyCornerIter ret = *this;
+      ret.iter = ret.iter.end();
+      return ret;
+    }
+  private:
+    CornerOfEdgeIter iter;
+  };
+
   /** is_inline: Whether assigning to this proxy should
    *  update the original index it came from (the src_idx pointer).
    */
@@ -213,7 +254,7 @@ struct Proxies {
       return *this;
     }
 
-    inline VertProxy<ASSIGN_PROXY> other_vert(int v)
+    inline VertProxy<ASSIGN_PROXY> other_vert(int v) const
     {
       int v2 = ELEM_NONE;
 
@@ -226,14 +267,19 @@ struct Proxies {
       return VertProxy<ASSIGN_PROXY>(m, v2);
     }
 
-    inline VertProxy<ASSIGN_SRC> v1()
+    inline VertProxy<ASSIGN_SRC> v1() const
     {
       return VertProxy<ASSIGN_SRC>(m, m->e.vs[i][0], &m->e.vs[i][0]);
     }
 
-    inline VertProxy<ASSIGN_SRC> v2()
+    inline VertProxy<ASSIGN_SRC> v2() const
     {
       return VertProxy<ASSIGN_SRC>(m, m->e.vs[i][1], &m->e.vs[i][1]);
+    }
+
+    inline EdgeProxyCornerIter corners() const
+    {
+      return EdgeProxyCornerIter(m, i, m->e.c[i]);
     }
 
   private:
