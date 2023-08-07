@@ -2,6 +2,7 @@ set(LIB
 	util
 	platform
 	math
+	gpu
 )
 
 set(SRC

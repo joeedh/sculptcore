@@ -1,4 +1,5 @@
 #include "window.h"
+#include "gpu/opengl.h"
 
 namespace sculptcore::window {
 void Window::start()
@@ -18,6 +19,14 @@ void Window::start()
   }
 
   glfwMakeContextCurrent(handle_);
+
+  int errorcode = glewInit();
+  if (errorcode != GLEW_OK) {
+    fprintf(stderr,
+            "Failed to initialized glew; error code: %s\n",
+            glewGetErrorString(errorcode));
+    return;
+  }
 
   while (!glfwWindowShouldClose(handle_)) {
     /* Render here */

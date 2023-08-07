@@ -4,11 +4,15 @@
 #include <compare>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <utility>
 
+#include "util/alloc.h"
 #include "util/compiler_util.h"
 
 namespace sculptcore::util {
+template <typename Char, int static_size = 32> struct String;
+
 template <size_t N> struct StrLiteral {
   constexpr StrLiteral(const char (&str)[N])
   {
@@ -19,12 +23,92 @@ template <size_t N> struct StrLiteral {
   char value[N + 1];
 };
 
-template <typename Char, int static_size = 32> class String {
+namespace detail {
+template <typename Char> int strcmp(const Char *a, const Char *b)
+{
+  while (*a && *b) {
+    if (*a < *b) {
+      return -1;
+    } else if (*a > *b) {
+      return 1;
+    }
+
+    a++;
+    b++;
+  }
+
+  if (*a || *b) {
+    return *a ? -1 : 1;
+  }
+
+  return 0;
+}
+} // namespace detail
+
+template <typename Char> struct StringRef {
+  StringRef()
+  {
+  }
+  StringRef(const char *c) : data_(c), size_(strlen(c))
+  {
+  }
+  StringRef(const StringRef &b) : data_(b.data_), size_(b.size_)
+  {
+  }
+
+  operator String<Char>()
+  {
+    return String<Char>(data_);
+  }
+
+  using const_char_star = const char *;
+
+  operator const_char_star()
+  {
+    return data_;
+  }
+
+  const char *c_str() const
+  {
+    return data_;
+  }
+
+  const char operator[](int idx) const
+  {
+    return data_[idx];
+  }
+
+  size_t size()
+  {
+    return size_;
+  }
+
+  bool operator==(StringRef &b) const
+  {
+    return detail::strcmp(data_, b.data_);
+  }
+
+  bool operator!=(StringRef &b) const
+  {
+    return !operator==(b);
+  }
+
+private:
+  const char *data_ = nullptr;
+  int size_ = 0;
+};
+
+template <typename Char, int static_size> class String {
 public:
   String() : size_(0)
   {
     data_ = static_storage_;
     data_[0] = 0;
+  }
+
+  operator StringRef<Char>()
+  {
+    return StringRef(data_);
   }
 
   template <size_t N> String(StrLiteral<N> lit)
@@ -128,23 +212,7 @@ public:
 
   bool operator==(const String &vb) const
   {
-    const Char *a = data_;
-    const Char *b = vb.data_;
-
-    while (*a && *b) {
-      if (*a != *b) {
-        return false;
-      }
-
-      a++;
-      b++;
-    }
-
-    if (*a || *b) {
-      return false;
-    }
-
-    return true;
+    return detail::strcmp<Char>(c_str(), vb.c_str()) == 0;
   }
 
 private:
@@ -194,4 +262,6 @@ private:
 };
 
 using string = String<char>;
+using stringref = StringRef<char>;
+
 } // namespace sculptcore::util
