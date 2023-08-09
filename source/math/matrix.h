@@ -4,12 +4,14 @@
 #include "eigen/include/eigen3/Eigen/LU"
 #include "math/vector.h"
 
+#include <cstdio>
+
 namespace sculptcore::math {
 template <typename Float, int N> struct Matrix {
   using Vector = Vec<Float, N>;
   using Vec3 = Vec<Float, 3>;
   using Vec4 = Vec<float, 4>;
-  using EigenMatrix = Eigen::Matrix<Float, N, N>;
+  using EigenMatrix = Eigen::Matrix<Float, N, N, Eigen::RowMajor>;
 
   Matrix()
   {
@@ -23,8 +25,11 @@ template <typename Float, int N> struct Matrix {
     }
   }
 
-  Matrix(const Matrix &b) : mat_(b.mat_)
+  Matrix(const Matrix &b)
   {
+    for (int i = 0; i < N; i++) {
+      mat_[i] = b.mat_[i];
+    }
   }
 
   Matrix(const EigenMatrix &b)
@@ -83,13 +88,14 @@ template <typename Float, int N> struct Matrix {
     return *this;
 #else
     EigenMatrix m(&mat_[0][0]);
-    m = m.inverse();
-    *this = m;
+    EigenMatrix r = m.inverse();
+    *this = r;
 #endif
 
     return *this;
   }
 
+  /* Vector multiplication. */
   template <int M> inline Vec<Float, M> operator*(const Vec<Float, M> v) const
   {
     Vec<Float, M> r;
@@ -113,6 +119,7 @@ template <typename Float, int N> struct Matrix {
     return r;
   }
 
+  /* Matrix multiplication. */
   Matrix operator*(const Matrix &b) const
   {
     Matrix r;
@@ -120,14 +127,36 @@ template <typename Float, int N> struct Matrix {
     for (int i = 0; i < N; i++) {
       for (int j = 0; j < N; j++) {
         Float sum = Float(0);
-        for (int k = 0; k < N; j++) {
-          sum += mat_[j][k] * b.mat_[k][j];
+
+        for (int k = 0; k < N; k++) {
+          sum += mat_[i][k] * b.mat_[k][j];
         }
+
         r.mat_[i][j] = sum;
       }
     }
 
     return r;
+  }
+
+  Float determinant() const
+  {
+    const EigenMatrix *mat = reinterpret_cast<const EigenMatrix *>(this);
+
+    return mat->determinant();
+  }
+
+  Float dist(const Matrix &b) const
+  {
+    Matrix r = *this;
+    Float sum = Float(0);
+
+    for (int i = 0; i < N; i++) {
+      r.mat_[i] -= b.mat_[i];
+      sum += r[i].dot(r[i]);
+    }
+
+    return std::sqrt(sum);
   }
 
   Matrix &operator*=(const Matrix &b)
@@ -158,6 +187,8 @@ template <typename Float, int N> struct Matrix {
         mat_[i][j] = b(i, j);
       }
     }
+
+    return *this;
   }
 
   Vector &operator[](int idx)
@@ -168,6 +199,46 @@ template <typename Float, int N> struct Matrix {
   int size()
   {
     return N;
+  }
+
+  void print(int dec = 2)
+  {
+    char fmt[32];
+
+    sprintf(fmt, "%%.%df ", dec);
+
+    auto wid = [](double v) {
+      if (std::fabs(v) <= 1.0) {
+        return 1;
+      }
+
+      v += 0.25;
+
+      double size = ceil(log(std::fabs(v)) / log(10.0));
+      return int(size);
+    };
+
+    int maxwid = 0;
+    for (int i = 0; i < N; i++) {
+      for (int j = 0; j < N; j++) {
+        maxwid = std::max(maxwid, wid(mat_[i][j]));
+      }
+    }
+
+    printf("\n");
+    for (int i = 0; i < N; i++) {
+      for (int j = 0; j < N; j++) {
+        int n = maxwid - wid(mat_[i][j]);
+
+        printf(fmt, mat_[i][j]);
+
+        for (int k = 0; k < n; k++) {
+          printf(" ");
+        }
+      }
+
+      printf("\n");
+    }
   }
 
 private:
