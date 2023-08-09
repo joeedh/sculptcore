@@ -1,7 +1,6 @@
 set(LIB
-    eigen
     math
-    util
+    PUBLIC util
 )
 
 set(SRC
