@@ -190,7 +190,6 @@ private:
   {
     page.data =
         static_cast<T *>(alloc::alloc("AttrPage data", sizeof(T) * ATTR_PAGESIZE));
-
     for (int i = 0; i < ATTR_PAGESIZE; i++) {
       page.data[i] = page.value;
     }

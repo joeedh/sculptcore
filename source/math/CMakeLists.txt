@@ -1,5 +1,5 @@
 set(LIB
-    eigen
+    PUBLIC eigen
     util
 )
 

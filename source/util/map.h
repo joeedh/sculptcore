@@ -4,6 +4,8 @@
 #include "compiler_util.h"
 #include "hash.h"
 #include "hashtable_sizes.h"
+#include "boolvector.h"
+
 #include <span>
 #include <type_traits>
 #include <vector>
@@ -17,6 +19,12 @@ public:
   struct Pair {
     Key key;
     Value value;
+
+    Pair &operator=(Pair &&b)
+    {
+      key = std::move(key);
+      value = std::move(value);
+    }
 
     static constexpr bool is_simple()
     {
@@ -74,7 +82,7 @@ public:
   };
 
   Map()
-      : table_(static_storage_, hashsizes[find_hashsize_prev(real_static_size)]),
+      : table_(get_static(), hashsizes[find_hashsize_prev(real_static_size)]),
         cur_size_(find_hashsize(real_static_size))
   {
     reserve_usedmap();
@@ -82,7 +90,7 @@ public:
 
   ~Map()
   {
-    if (table_.data() == static_storage_) {
+    if (table_.data() == get_static()) {
       return;
     }
 
@@ -147,9 +155,19 @@ public:
     return add_intern<true>(key, value);
   }
 
-  bool operator[](const Key &key) const
+  Value &operator[](const Key &key)
   {
-    return contains[key];
+    int i = find_pair<true, true>(key);
+
+    if (!used_[i]) {
+      if constexpr (!is_simple<Value>()) {
+        new (static_cast<void *>(&table_[i].value)) Value();
+      }
+
+      used_.set(i, true);
+    }
+
+    return table_[i].value;
   }
 
   bool contains(const Key &key) const
@@ -193,8 +211,8 @@ public:
 
 private:
   std::span<Pair> table_;
-  Pair static_storage_[real_static_size];
-  std::vector<bool> used_;
+  char *static_storage_[real_static_size * sizeof(Pair)];
+  BoolVector<> used_;
   int cur_size_ = 0;
   int used_count_ = 0;
 
@@ -202,8 +220,7 @@ private:
   {
     hash::HashInt size = hash::HashInt(hashsizes[cur_size_]);
     used_.resize(size);
-
-    used_.assign(size, false);
+    used_.clear();
   }
 
   template <bool overwrite = false> bool add_intern(const Key &key, const Value &value)
@@ -231,7 +248,7 @@ private:
     table_[i].key = key;
     table_[i].value = value;
     used_count_++;
-    used_[i] = true;
+    used_.set(i, true);
   }
 
   template <bool check_key_equals = true, bool return_unused_cell = false>
@@ -284,7 +301,7 @@ private:
     printf("newsize: %d\n", int(newsize));
 
     std::span<Pair> old = table_;
-    std::vector<bool> old_used = used_;
+    BoolVector<> old_used = used_;
 
     table_ = std::span(static_cast<Pair *>(alloc::alloc("sculpecore::util::map table",
                                                         newsize * sizeof(Pair))),
@@ -292,7 +309,7 @@ private:
 
     used_count_ = 0;
     used_.resize(newsize);
-    used_.assign(newsize, false);
+    used_.clear();
 
     for (int i = 0; i < old.size(); i++) {
       if (old_used[i]) {
@@ -300,9 +317,14 @@ private:
       }
     }
 
-    if (old.data() != static_storage_) {
+    if (old.data() != get_static()) {
       alloc::release(static_cast<void *>(old.data()));
     }
+  }
+
+  Pair *get_static()
+  {
+    return reinterpret_cast<Pair *>(static_storage_);
   }
 };
 } // namespace sculptcore::util

@@ -49,6 +49,10 @@
   }
 
 namespace sculptcore::util {
+using uchar = unsigned char;
+using ushort = unsigned short;
+using uint = unsigned int;
+
 template <typename T> static constexpr bool is_simple()
 {
   return std::is_integral_v<T> || std::is_pointer_v<T> || std::is_floating_point_v<T>;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -208,14 +209,24 @@ private:
   T vec_[size];
 };
 
-using float1 = Vec<float, 1>;
-using float2 = Vec<float, 2>;
-using float3 = Vec<float, 3>;
-using float4 = Vec<float, 4>;
+#ifdef DEF_VECS
+#undef DEF_VECS
+#endif
 
-using int1 = Vec<int, 1>;
-using int2 = Vec<int, 2>;
-using int3 = Vec<int, 3>;
-using int4 = Vec<int, 4>;
+#define DEF_VECS(type, name)                                                             \
+  using name##1 = Vec<type, 1>;                                                          \
+  using name##2 = Vec<type, 2>;                                                          \
+  using name##3 = Vec<type, 3>;                                                          \
+  using name##4 = Vec<type, 4>
 
+DEF_VECS(float, float);
+DEF_VECS(double, double);
+DEF_VECS(int32_t, int);
+DEF_VECS(uint32_t, uint);
+DEF_VECS(int16_t, short);
+DEF_VECS(uint16_t, ushort);
+DEF_VECS(int8_t, char);
+DEF_VECS(uint8_t, uchar);
+
+#undef DEF_VECS
 } // namespace sculptcore::math
