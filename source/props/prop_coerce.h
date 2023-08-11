@@ -121,7 +121,16 @@ template <typename T> PropError prop_coerce(Property *prop, T *value_out)
 
     return PROP_ERROR_NONE;
   } else {
-      
+    PropError error = PROP_ERROR_INVALID_TYPE;
+
+    proptype_dispatch(prop->type, [&]<typename PropType>() {
+      PropType *real_prop = reinterpret_cast<PropType *>(prop);
+
+      *value_out = real_prop->get();
+      error = PROP_ERROR_NONE;
+    });
+
+    return error;
   }
 
   return PROP_ERROR_INVALID_TYPE;

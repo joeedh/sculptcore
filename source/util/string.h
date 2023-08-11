@@ -250,7 +250,8 @@ private:
       data_[b.size_] = 0;
     } else {
       data_ = b.data_;
-      b.data_ = nullptr;
+      b.data_ = b.static_storage_;
+      b.data_[0] = 0;
     }
 
     size_ = b.size_;

@@ -77,6 +77,12 @@ template <typename Child, typename ValueType> struct PropBase {
     return childThis();
   }
 
+  template <typename T> Child &Owner(T *owner_)
+  {
+    owner = static_cast<void *>(owner_);
+    return childThis();
+  }
+
   Child &childThis()
   {
     return *static_cast<Child *>(this);

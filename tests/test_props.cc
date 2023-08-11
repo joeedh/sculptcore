@@ -26,6 +26,13 @@ int main()
     StructDef st;
     st.Float32("f", "f", offsetof(Test, f));
 
+    Test test;
+    test.f = 3;
+
+    StructProp sprop(&st);
+    sprop.Owner(&test);
+
+    printf("f value: %f\n", sprop.lookupFloat("f", 0.5f));
   }
 
   return test_end();

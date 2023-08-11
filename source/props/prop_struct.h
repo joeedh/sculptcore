@@ -1,7 +1,7 @@
 #pragma once
 
-#include "prop_types.h"
 #include "prop_coerce.h"
+#include "prop_types.h"
 
 #include "util/alloc.h"
 #include "util/compiler_util.h"
@@ -21,11 +21,20 @@ struct struct_detail {
     {
     }
 
+    StructProp(StructDef *def) : Base(PROP_STRUCT), struct_def(def)
+    {
+    }
+
     StructDef *struct_def = nullptr;
 
     void **internal_value() override
     {
       return &internal_value_;
+    }
+
+    float lookupFloat(util::string name, float default_value)
+    {
+      return lookupValue<float>(name, default_value);
     }
 
     template <typename T> const T lookupValue(util::string name, T default_value)
@@ -36,8 +45,18 @@ struct struct_detail {
         return default_value;
       }
 
-      
+      prop->owner = owner;
+
+      T value;
+      PropError error = prop_coerce<T>(prop, &value);
+
+      if (error != PROP_ERROR_NONE) {
+        return default_value;
+      }
+
+      return value;
     }
+
   private:
     void *internal_value_ = nullptr;
   };
