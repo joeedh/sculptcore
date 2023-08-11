@@ -1,10 +1,10 @@
 #pragma once
 
 #include "alloc.h"
+#include "boolvector.h"
 #include "compiler_util.h"
 #include "hash.h"
 #include "hashtable_sizes.h"
-#include "boolvector.h"
 
 #include <span>
 #include <type_traits>
@@ -179,6 +179,16 @@ public:
   {
     int i = find_pair<true, false>(key);
     return i != -1;
+  }
+
+  Value *lookup_ptr(const Key &key) const
+  {
+    int i = find_pair<true, false>(key);
+    if (i < 0) {
+      return nullptr;
+    }
+
+    return &table_[i].value;
   }
 
   /* Undefined behavior if key is not in map, check existence with .contains(). */

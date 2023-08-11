@@ -3,6 +3,16 @@
 #include <cstdint>
 #include <type_traits>
 
+static inline void *pointer_offset(void *ptr, int n)
+{
+  return static_cast<void *>(static_cast<char *>(ptr) + n);
+}
+
+static inline const void *pointer_offset(const void *ptr, int n)
+{
+  return static_cast<const void *>(static_cast<const char *>(ptr) + n);
+}
+
 #define array_size(Array) (sizeof(Array) / sizeof(*(Array)))
 
 #ifdef __clang__
