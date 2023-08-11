@@ -5,6 +5,7 @@ add_subdirectory(mesh)
 add_subdirectory(spatial)
 add_subdirectory(gpu)
 add_subdirectory(window)
-#add_subdirectory(draw)
+add_subdirectory(props)
+add_subdirectory(draw)
 add_subdirectory(app)
 

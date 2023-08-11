@@ -12,6 +12,7 @@ set(SRC
   PUBLIC mesh_enums.h
   PUBLIC mesh_base.h
   PUBLIC mesh_types.h
+  PUBLIC idmap.h
   attribute.cc
   mesh.cc
 )
