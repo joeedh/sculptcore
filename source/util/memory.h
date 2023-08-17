@@ -2,6 +2,8 @@
 #include "util/compiler_util.h"
 #include "util/vector.h"
 
+#include <cstdio>
+
 namespace sculptcore::util {
 template <typename T> struct weak_ptr;
 
@@ -32,7 +34,7 @@ template <typename T> struct shared_ptr {
   shared_ptr(const shared_ptr &b)
   {
     data_ = b.data_;
-    b.data_->users++;
+    inc();
   }
 
   ~shared_ptr()
@@ -47,7 +49,7 @@ template <typename T> struct shared_ptr {
     data_check_dec(b);
 
     data_ = b.data_;
-    b.data_->users++;
+    inc();
   }
 
   shared_ptr &operator=(shared_ptr &&b)
@@ -79,7 +81,7 @@ private:
   shared_ptr(data *data_ptr)
   {
     data_ = data_ptr;
-    data_->users++;
+    inc();
   }
 
   template <typename Ref> void data_check_dec(Ref b)
@@ -91,9 +93,16 @@ private:
     dec();
   }
 
+  void inc()
+  {
+    data_->users++;
+    // printf("inc: %d (%p)\n", data_->users, data_->ptr);
+  }
+
   void dec()
   {
     data_->users--;
+    // printf("dec: %d (%p)\n", data_->users, data_->ptr);
 
     if (data_->users == 0) {
       for (bool *weak : data_->weak_ptrs) {
@@ -125,7 +134,7 @@ template <typename T> struct weak_ptr {
   {
   }
 
-  weak_ptr(const weak_ptr &b) 
+  weak_ptr(const weak_ptr &b)
   {
     exists_ = b.exists_;
     ptr_ = b.ptr_;
