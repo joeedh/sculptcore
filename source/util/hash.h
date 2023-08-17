@@ -8,7 +8,18 @@ using HashInt = uint64_t;
 
 template <typename T> inline HashInt hash(T *ptr)
 {
-  return reinterpret_cast<HashInt>(ptr);
+  HashInt h = reinterpret_cast<HashInt>(ptr);
+
+  /* Pointers only use the bottom 48 bits. */
+  if constexpr (sizeof(void *) == 8) {
+#if 0 // Paranoia check: add final 16 bits to front
+    return (h << 16) | (h >> 48);
+#else
+    return h << 16;
+#endif
+  } else {
+    return h;
+  }
 }
 
 inline HashInt hash(int i)

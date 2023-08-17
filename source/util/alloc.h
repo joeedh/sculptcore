@@ -2,6 +2,17 @@
 
 #include <utility>
 
+/*
+ * Leak debugger allocator.
+ *
+ * We don't use operator new or delete, instead
+ * we have alloc::New and allow::Delete.  These
+ * take a string tag identifying the allocated object
+ *
+ * All allocated objects (well, memory blocks) are stored in a linked list,
+ * which is used to identify leaks.  This is done by calling alloc::print_blocks,
+ * typically on applicated exist after everything has been deallocated.
+ */
 namespace sculptcore::alloc {
 
 void *alloc(const char *tag, size_t size);

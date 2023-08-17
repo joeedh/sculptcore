@@ -135,4 +135,18 @@ void Mesh::kill_face(int f1)
   f.release(f1);
 }
 
+void Mesh::reorder_verts(util::span<int> vmap)
+{
+  for (int e1 : e) {
+    e.vs[e1][0] = vmap[e.vs[e1][0]];
+    e.vs[e1][1] = vmap[e.vs[e1][1]];
+  }
+
+  for (int c1 : c) {
+    c.v[c1] = vmap[c.v[c1]];
+  }
+
+  v.attrs.reorder(vmap);
+}
+
 } // namespace sculptcore::mesh

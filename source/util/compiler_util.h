@@ -1,7 +1,14 @@
 #pragma once
 
+using uchar = unsigned char;
+using ushort = unsigned short;
+using uint = unsigned int;
+
 #include <cstdint>
 #include <type_traits>
+#include <utility>
+
+#include "type_tags.h"
 
 static inline void *pointer_offset(void *ptr, int n)
 {
@@ -25,8 +32,16 @@ static inline const void *pointer_offset(const void *ptr, int n)
 #define ATTR_NO_OPT
 #endif
 
+#if defined(MSVC) && !defined(__clang__)
 #define flatten_inline [[msvc::flatten]]
 #define force_inline [[forceinline]]
+#elif defined(__clang__)
+#define flatten_inline [[gnu::flatten]]
+#define force_inline [[clang::always_inline]]
+#else
+#define flatten_inline [[gnu::flatten]]
+#define force_inline [[gnu::always_inline]]
+#endif
 
 #define FlagOperators(T)                                                                 \
   static constexpr T operator|(T a, T b)                                                 \
@@ -59,12 +74,17 @@ static inline const void *pointer_offset(const void *ptr, int n)
   }
 
 namespace sculptcore::util {
-using uchar = unsigned char;
-using ushort = unsigned short;
-using uint = unsigned int;
+namespace detail {
+template <typename T> static constexpr bool is_simple(T *)
+{
+  return std::is_integral_v<T> || std::is_pointer_v<T> || std::is_floating_point_v<T> ||
+         is_simple_override<T>::value;
+}
+} // namespace detail
 
 template <typename T> static constexpr bool is_simple()
 {
-  return std::is_integral_v<T> || std::is_pointer_v<T> || std::is_floating_point_v<T>;
+  return detail::is_simple(static_cast<std::remove_cv_t<T> *>(nullptr));
 }
+
 } // namespace sculptcore::util

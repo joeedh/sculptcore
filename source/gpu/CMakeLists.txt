@@ -13,6 +13,7 @@ set(SRC
   PUBLIC texture.h
   PUBLIC types.h
   PUBLIC vbo.h
+  PUBLIC standard_attrs.h
   vbo.cc
 )
 

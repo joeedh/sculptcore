@@ -1,6 +1,8 @@
 set(LIB
-    math
+    PUBLIC math
     PUBLIC util
+    PUBLIC io
+    gpu
 )
 
 set(SRC
@@ -12,9 +14,13 @@ set(SRC
   PUBLIC mesh_enums.h
   PUBLIC mesh_base.h
   PUBLIC mesh_types.h
+  PUBLIC mesh_shapes.h
   PUBLIC idmap.h
   attribute.cc
+  idmap.cc
   mesh.cc
+  mesh_shapes.cc
+  mesh_types.cc
 )
 
 sc_add_library(mesh "${SRC}" "${LIB}" STATIC)

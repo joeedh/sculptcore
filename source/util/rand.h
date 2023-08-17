@@ -5,6 +5,8 @@
 #include <type_traits>
 #include <utility>
 
+/* This is a very bad pseudo-random generator. TODO: use mersenne. */
+
 namespace sculptcore::util {
 class Random {
 public:

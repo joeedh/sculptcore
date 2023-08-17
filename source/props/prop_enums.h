@@ -27,7 +27,8 @@ enum PropType {
   PROP_VEC2F = 17,
   PROP_VEC3F = 18,
   PROP_VEC4F = 19,
-  PROP_MATRIX4F = 20
+  PROP_MATRIX4F = 20,
+  PROP_CURVE2D = 21,
 };
 
 enum PropFlags {

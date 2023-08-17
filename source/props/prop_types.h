@@ -143,7 +143,7 @@ template <typename T, typename Child> struct NumBase : public PropBase<Child, T>
 
   NumBase(PropType type) : Base(type)
   {
-    internal_value_ = T(int(0));
+    internal_value_ = T(double(0));
   }
 
   NumBase(const NumBase &b) : Base(b)
@@ -191,51 +191,33 @@ class Empty {
 
 using Property = detail::PropBase<detail::Empty, void *>;
 
-struct DoubleProp : public detail::NumBase<double, DoubleProp> {
-  using value_type = double;
+#ifdef NUMPROP_DECL
+#undeef NUMPROP_DECL
+#endif
 
-  DoubleProp() : detail::NumBase<double, DoubleProp>(PROP_FLOAT64)
-  {
+#define NUMPROP_DECL(PropName, type, proptype)                                           \
+  struct PropName : public detail::NumBase<type, PropName> {                             \
+    using value_type = type;                                                             \
+    PropName() : detail::NumBase<type, PropName>(proptype)                               \
+    {                                                                                    \
+    }                                                                                    \
   }
-};
 
-struct FloatProp : public detail::NumBase<float, FloatProp> {
-  using value_type = float;
+NUMPROP_DECL(Float64Prop, double, PROP_FLOAT64);
+NUMPROP_DECL(Float32Prop, double, PROP_FLOAT32);
+NUMPROP_DECL(Vec2Prop, math::float2, PROP_VEC2F);
+NUMPROP_DECL(Vec3Prop, math::float3, PROP_VEC3F);
+NUMPROP_DECL(Vec4Prop, math::float4, PROP_VEC4F);
+NUMPROP_DECL(Int64Prop, int64_t, PROP_INT64);
+NUMPROP_DECL(Uint64Prop, uint64_t, PROP_UINT64);
+NUMPROP_DECL(Int32Prop, int32_t, PROP_INT32);
+NUMPROP_DECL(Uint32Prop, uint32_t, PROP_UINT32);
+NUMPROP_DECL(Int16Prop, int16_t, PROP_INT16);
+NUMPROP_DECL(Uint16Prop, uint16_t, PROP_UINT16);
+NUMPROP_DECL(Int8Prop, int8_t, PROP_INT8);
+NUMPROP_DECL(Uint8Prop, uint8_t, PROP_UINT8);
 
-  FloatProp() : detail::NumBase<float, FloatProp>(PROP_FLOAT32)
-  {
-  }
-};
-
-struct Vec2Prop : public detail::NumBase<math::float2, Vec2Prop> {
-  using value_type = math::float2;
-
-  Vec2Prop() : detail::NumBase<math::float2, Vec2Prop>(PROP_VEC2F)
-  {
-  }
-};
-struct Vec3Prop : public detail::NumBase<math::float3, Vec3Prop> {
-  using value_type = math::float3;
-
-  Vec3Prop() : detail::NumBase<math::float3, Vec3Prop>(PROP_VEC3F)
-  {
-  }
-};
-struct Vec4Prop : public detail::NumBase<math::float4, Vec4Prop> {
-  using value_type = math::float4;
-
-  Vec4Prop() : detail::NumBase<math::float4, Vec4Prop>(PROP_VEC4F)
-  {
-  }
-};
-
-struct IntProp : public detail::NumBase<int, IntProp> {
-  using value_type = int;
-
-  IntProp() : detail::NumBase<int, IntProp>(PROP_INT32)
-  {
-  }
-};
+#undef NUMPROP_DECL
 
 /* Property for util::strings */
 struct StringProp : public detail::PropBase<StringProp, util::string> {
@@ -353,6 +335,16 @@ private:
   char *internal_value_ = nullptr;
   char static_storage_[static_size] = "";
   int size_ = 0; /* Includes null terminator. */
+};
+
+struct ArrayBufferProp : public detail::PropBase<ArrayBufferProp, void *> {
+  using Base = detail::PropBase<ArrayBufferProp, void *>;
+
+  PropType subtype = PROP_UINT8;
+
+  ArrayBufferProp() : Base(PROP_ARRAYBUFFER)
+  {
+  }
 };
 
 } // namespace sculptcore::props

@@ -13,10 +13,10 @@ template <typename Callback> static void numtype_dispatch(PropType type, Callbac
 {
   switch (type) {
   case PROP_INT32:
-    cb.operator()<IntProp>();
+    cb.template operator()<Int32Prop>();
     break;
   case PROP_FLOAT32:
-    cb.operator()<FloatProp>();
+    cb.template operator()<Float32Prop>();
     break;
   }
 }
@@ -25,10 +25,10 @@ template <typename Callback> static void proptype_dispatch(PropType type, Callba
 {
   switch (type) {
   case PROP_INT32:
-    cb.operator()<IntProp>();
+    cb.template operator()<Int32Prop>();
     break;
   case PROP_FLOAT32:
-    cb.operator()<FloatProp>();
+    cb.template operator()<Float32Prop>();
     break;
   }
 }

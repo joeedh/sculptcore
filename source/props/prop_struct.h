@@ -93,9 +93,9 @@ struct struct_detail {
     return make_prop<Prop>(name, uiname, binding_offset);                                \
   }
 
-    MAKE_PROP(IntProp, Int32)
-    MAKE_PROP(DoubleProp, Float64)
-    MAKE_PROP(FloatProp, Float32)
+    MAKE_PROP(Int32Prop, Int32)
+    MAKE_PROP(Float64Prop, Float64)
+    MAKE_PROP(Float32Prop, Float32)
     MAKE_PROP(Vec2Prop, Vec2f)
     MAKE_PROP(Vec3Prop, Vec3f)
     MAKE_PROP(Vec4Prop, Vec4f)
@@ -122,6 +122,11 @@ struct struct_detail {
       }
 
       return nullptr;
+    }
+
+    util::Map<util::string, Property *>::value_range properties()
+    {
+      return members_.values();
     }
 
   private:

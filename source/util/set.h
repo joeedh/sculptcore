@@ -1,3 +1,5 @@
+#pragma once
+
 #include "boolvector.h"
 #include "compiler_util.h"
 #include "hash.h"

@@ -2,7 +2,9 @@
 
 #include "attribute.h"
 #include "attribute_builtin.h"
+
 #include "math/vector.h"
+
 #include "util/boolvector.h"
 #include "util/string.h"
 
@@ -16,7 +18,11 @@
 #include <type_traits>
 
 namespace sculptcore::mesh {
+struct Mesh;
+
 struct VertexData : public ElemData {
+  using float3 = math::float3;
+
   VertexData(int count_ = 0) : ElemData(VERTEX, count_)
   {
     co.ensure(attrs);
@@ -29,15 +35,20 @@ struct VertexData : public ElemData {
     }
   }
 
-  BuiltinAttr<math::float3, "positions"> co;
-  BuiltinAttr<math::float3, "normals"> no;
+  BuiltinAttr<float3, "positions"> co;
+  BuiltinAttr<float3, "normals"> no;
 
   BuiltinAttr<bool, "select"> select;
 
   /* Topology attributes. */
-  BuiltinAttr<int, "e"> e;
+  BuiltinAttr<int, ".vert.e", ATTR_TOPO> e;
 
-  void swap_elems(int v1, int v2);
+  /* Move vsrc into vdst; vdst must be freed. */
+  void move_elem(Mesh *m, int vsrc, int vdst);
+  void swap_elems(Mesh *m, int v1, int v2);
+
+  /* if vtarget is -1 then v will be used. */
+  void splice(Mesh *m, int v, int vnew, int vtarget = -1);
 };
 
 struct EdgeData : public ElemData {
@@ -52,13 +63,15 @@ struct EdgeData : public ElemData {
     c.ensure(attrs);
   }
 
-  BuiltinAttr<int, ".edge.c"> c;
+  BuiltinAttr<int, ".edge.c", ATTR_TOPO> c;
 
   BuiltinAttr<bool, "select"> select;
 
   /* Topology attributes. */
-  BuiltinAttr<int2, ".edge.vs"> vs;
-  BuiltinAttr<int4, ".edge.vs.disk"> disk;
+  BuiltinAttr<int2, ".edge.vs", ATTR_TOPO> vs;
+  BuiltinAttr<int4, ".edge.vs.disk", ATTR_TOPO> disk;
+
+  int swap_elems(int e1, int v2);
 };
 
 struct CornerData : public ElemData {
@@ -76,18 +89,19 @@ struct CornerData : public ElemData {
     radial_prev.ensure(attrs);
   }
 
-  BuiltinAttr<int, ".corner.v"> v;
-  BuiltinAttr<int, ".corner.e"> e;
-  BuiltinAttr<int, ".corner.l"> l; /* Owning list. */
-  BuiltinAttr<int, ".corner.next"> next;
-  BuiltinAttr<int, ".corner.prev"> prev;
-  BuiltinAttr<int, ".corner.radial_next"> radial_next;
-  BuiltinAttr<int, ".corner.radial_prev"> radial_prev;
+  BuiltinAttr<int, ".corner.v", ATTR_TOPO> v;
+  BuiltinAttr<int, ".corner.e", ATTR_TOPO> e;
+  BuiltinAttr<int, ".corner.l", ATTR_TOPO> l; /* Owning list. */
+  BuiltinAttr<int, ".corner.next", ATTR_TOPO> next;
+  BuiltinAttr<int, ".corner.prev", ATTR_TOPO> prev;
+  BuiltinAttr<int, ".corner.radial_next", ATTR_TOPO> radial_next;
+  BuiltinAttr<int, ".corner.radial_prev", ATTR_TOPO> radial_prev;
 };
 
 struct ListData : public ElemData {
   using int2 = math::int2;
   using int4 = math::int4;
+
   ListData(int count_ = 0) : ElemData(LIST, count_)
   {
     c.ensure(attrs);
@@ -96,9 +110,9 @@ struct ListData : public ElemData {
     size.ensure(attrs);
   }
 
-  BuiltinAttr<int, ".list.c"> c;
-  BuiltinAttr<int, ".list.f"> f;
-  BuiltinAttr<int, ".list.next"> next;
+  BuiltinAttr<int, ".list.c", ATTR_TOPO> c;
+  BuiltinAttr<int, ".list.f", ATTR_TOPO> f;
+  BuiltinAttr<int, ".list.next", ATTR_TOPO> next;
   BuiltinAttr<int, ".list.size"> size;
 };
 
@@ -115,7 +129,7 @@ struct FaceData : public ElemData {
   }
 
   BuiltinAttr<short, ".face.list_count"> list_count;
-  BuiltinAttr<int, ".face.l"> l;
+  BuiltinAttr<int, ".face.l", ATTR_TOPO> l;
   BuiltinAttr<float3, ".face.normal"> no;
 };
 

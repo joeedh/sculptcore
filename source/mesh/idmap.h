@@ -28,32 +28,14 @@ struct IDMap {
   int max_id = 0;
   Mesh *m;
 
-  IDMap(Mesh *mesh_, ElemType mask_ = VERTEX | EDGE | FACE) : m(mesh_), mask(mask_)
-  {
-    for (int i = 0; i < 32; i++) {
-      id_attrs[i] = nullptr;
-    }
+  IDMap(Mesh *mesh_, ElemType mask_ = VERTEX | EDGE | FACE);
 
-    if (mask & VERTEX) {
-      vert_id.ensure(mesh_->v.attrs);
-      id_attrs[VERTEX] = vert_id.get_data<int>();
-    }
-
-    if (mask & EDGE) {
-      edge_id.ensure(mesh_->e.attrs);
-      id_attrs[EDGE] = edge_id.get_data<int>();
-    }
-
-    if (mask & CORNER) {
-      corner_id.ensure(mesh_->c.attrs);
-      id_attrs[CORNER] = corner_id.get_data<int>();
-    }
-
-    if (mask & FACE) {
-      face_id.ensure(mesh_->f.attrs);
-      id_attrs[FACE] = face_id.get_data<int>();
-    }
-  }
+  /*
+  We do not remove callbacks (e.g. m->v.on_swap)
+  inside the destructor since we cannot assume the Mesh
+  still exists there.
+  */
+  void unlink_callbacks();
 
   template <ElemType elem_type> AttrData<int> &id_attr()
   {
@@ -75,7 +57,7 @@ struct IDMap {
     }
 
     idmap[id] = elem;
-    id_attr<elem_type>[elem] = id;
+    id_attr<elem_type>()[elem] = id;
 
     return id;
   }
@@ -88,59 +70,6 @@ struct IDMap {
     idmap[id] = -1;
   }
 
-  void regen_idmap(ElemType mask)
-  {
-    max_id = 0;
-
-    auto dispatch = [&](auto cb) {
-      if (mask & VERTEX) {
-        cb(VERTEX, m->v);
-      }
-      if (mask & EDGE) {
-        cb(EDGE, m->e);
-      }
-      if (mask & CORNER) {
-        cb(CORNER, m->c);
-      }
-      if (mask & FACE) {
-        cb(FACE, m->f);
-      }
-    };
-
-    dispatch([&](ElemType elem_type, auto &list) {
-      AttrData<int> &idattr = id_attr<elem_type>();
-
-      for (int elem : list) {
-        int id = idattr[elem];
-
-        max_id = std::max(max_id, id);
-      }
-    });
-
-    max_id++;
-    idmap.resize(max_id);
-    for (int i = 0; i < max_id; i++) {
-      idmap[i] = -1;
-    }
-
-    dispatch([&](ElemType elem_type, auto &list) {
-      AttrData<int> &idattr = this->id_attr<elem_type>();
-
-      for (int elem : list) {
-        int id = idattr[elem];
-
-        if (id == ID_NONE) {
-          alloc_id<elem_type>(elem);
-        } else if (idmap[id] != -1) {
-          printf("duplicate id detected\n");
-          idattr[elem] = ID_NONE;
-
-          alloc_id<elem_type>(elem);
-        } else {
-          idmap[id] = elem;
-        }
-      }
-    });
-  }
+  void regen_idmap(ElemType mask);
 };
 } // namespace sculptcore::mesh

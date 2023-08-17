@@ -1,6 +1,7 @@
 #pragma once
 
 #include "attribute.h"
+#include "attribute_enums.h"
 #include "math/vector.h"
 #include "mesh_base.h"
 #include "util/string.h"
@@ -11,11 +12,13 @@
 #include <type_traits>
 
 namespace sculptcore::mesh {
-template <typename T, util::StrLiteral Name> struct BuiltinAttr : protected AttrRef {
+template <typename T, util::StrLiteral Name, AttrFlags Flag = ATTR_FLAG_NONE>
+struct BuiltinAttr : protected AttrRef {
   BuiltinAttr()
   {
     type = type_to_attrtype<T>();
     name = string(Name);
+    flag = Flag;
   }
 
   BuiltinAttr(BuiltinAttr &&b) = delete;
@@ -39,7 +42,7 @@ template <typename T, util::StrLiteral Name> struct BuiltinAttr : protected Attr
   }
 
   template <typename T2 = void>
-  inline AttrData<T> *get_data() const requires !std::same_as<T, bool>
+  inline AttrData<T> *get_data() const requires (!std::same_as<T, bool>)
   {
     return static_cast<AttrData<T> *>(data);
   }
@@ -60,7 +63,7 @@ template <typename T, util::StrLiteral Name> struct BuiltinAttr : protected Attr
     return get_data()->set(idx, value);
   }
 
-  inline T &operator[](int idx) requires !std::same_as<T, bool>
+  inline T &operator[](int idx) requires (!std::same_as<T, bool>)
   {
     return get_data()->operator[](idx);
   }

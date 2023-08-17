@@ -3,6 +3,7 @@
 #include "attribute.h"
 #include "math/vector.h"
 #include "util/string.h"
+#include "util/span.h"
 
 #include "mesh_base.h"
 #include "mesh_enums.h"
@@ -27,7 +28,7 @@ struct Mesh : public MeshBase {
   int make_edge(int v1, int v2);
   int make_face(std::span<int> verts, std::span<int> edges);
   int make_face(std::span<int> verts);
-  
+
   void kill_vertex(int v);
   void kill_edge(int e);
   void kill_face(int f);
@@ -36,6 +37,11 @@ struct Mesh : public MeshBase {
   {
     int e1 = v.e[v1];
     return EdgeOfVertIter(this, v1, e1);
+  }
+
+  inline int edge_side(int e1, int v1)
+  {
+    return v1 == e.vs[e1][0] ? 0 : 1;
   }
 
   int find_edge(int v1, int v2)
@@ -50,6 +56,8 @@ struct Mesh : public MeshBase {
 
     return ELEM_NONE;
   }
+
+  void reorder_verts(util::span<int> vertex_map);
 
 private:
   void radial_insert(int e1, int c1)
@@ -83,11 +91,6 @@ private:
 
     c.radial_next[prev] = next;
     c.radial_prev[next] = prev;
-  }
-
-  inline int edge_side(int e1, int v1)
-  {
-    return v1 == e.vs[e1][0] ? 0 : 1;
   }
 
   void disk_insert(int e1, int v1)

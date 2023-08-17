@@ -3,13 +3,16 @@ set(LIB
 	util
 	math
 	draw
+	gpu
 )
 
 set(SRC
-  PUBLIC spatial.h
   PUBLIC node.h
-  spatial.cc
+  PUBLIC spatial.h
+  PUBLIC spatial_enums.h
   node.cc
+  spatial.cc
+  spatial_gpu.cc
 )
 
 sc_add_library(spatial "${SRC}" "${LIB}" OBJECT)

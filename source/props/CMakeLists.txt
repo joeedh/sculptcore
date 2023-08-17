@@ -9,7 +9,9 @@ set(SRC
   PUBLIC prop_enums.h
   PUBLIC prop_struct.h
   PUBLIC prop_types.h
+  PUBLIC prop_curve.h
   props.cc
+  curve_cache.cc
 )
 
 sc_add_library(props "${SRC}" "${LIB}" STATIC)

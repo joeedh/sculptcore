@@ -63,8 +63,21 @@ struct SpatialTree {
 
   util::Vector<SpatialNode *> leaves();
 
+  bool ensure_node_tris(SpatialNode *node)
+  {
+    if (node->flag & Spatial_RegenTris) {
+      regen_node_tris(node);
+      return true;
+    }
+
+    return false;
+  }
+
 private:
   void regen_node_bounds(SpatialNode *node, bool recurse);
+  void regen_node_tris(SpatialNode *node);
+  void regen_node_gpu_buffers(SpatialNode *node);
+  void update_node_gpu_buffers(SpatialNode *node);
 
   void add_face_intern(SpatialNode *node, int f, math::float3 &fcent);
 

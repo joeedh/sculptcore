@@ -18,9 +18,9 @@ template <typename R, typename... Args> struct function_ref<R(Args...)> {
     ptr_ = reinterpret_cast<void *>(&impl);
   }
 
-  template <typename... Args> R operator()(Args... args)
+  template <typename... Args2> R operator()(Args2... args)
   {
-    return callback_(ptr_, std::forward<Args>(args)...);
+    return callback_(ptr_, std::forward<Args2>(args)...);
   }
 
 private:

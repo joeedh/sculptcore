@@ -1,5 +1,4 @@
 #include "spatial.h"
-#pragma once
 
 #include "node.h"
 
@@ -28,6 +27,33 @@ static inline float3 calc_eps_float3(float3 size)
 }
 
 namespace sculptcore::spatial {
+void SpatialTree::regen_node_tris(SpatialNode *node)
+{
+  node->flag &= ~Spatial_RegenTris;
+
+  /* TODO: use a property CDT for > 4 vert or > 1 hole faces. 
+   * For now just handle triangles and quads. 
+   */
+  node->data->tris.clear_and_contract();
+  for (int f : node->data->faces) {
+    int l = m->f.l[f];
+    int c = m->l.c[l];
+
+    NodeTri &tri = node->data->tris.grow_one();
+    tri.c[0] = c;
+    tri.c[1] = m->c.next[c];
+    tri.c[2] = m->c.next[tri.c[1]];
+
+    if (m->l.size[l] > 3) {
+      NodeTri &tri2 = node->data->tris.grow_one();
+
+      tri2.c[0] = c;
+      tri2.c[1] = m->c.next[m->c.next[c]];
+      tri2.c[2] = m->c.next[tri2.c[1]];
+    }
+  }
+}
+
 void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
 {
   if ((node->flag & Spatial_Leaf) && node_needs_split(node)) {

@@ -6,10 +6,12 @@
 #include <type_traits>
 #include <utility>
 
+#include "util/type_tags.h"
+
 namespace sculptcore::math {
-template <typename T, int size> class Vec {
+template <typename T, int vec_size> class Vec {
 public:
-  static const int size = size;
+  static const int size = vec_size;
 
   Vec()
   {
@@ -20,7 +22,7 @@ public:
     vec_[0] = a;
     vec_[1] = b;
 
-    for (int i = 2; i < size; i++) {
+    for (int i = 2; i < vec_size; i++) {
       vec_[i] = 0.0f;
     }
   }
@@ -31,7 +33,7 @@ public:
     vec_[1] = b;
     vec_[2] = c;
 
-    for (int i = 3; i < size; i++) {
+    for (int i = 3; i < vec_size; i++) {
       vec_[i] = 0.0f;
     }
   }
@@ -43,35 +45,35 @@ public:
     vec_[2] = c;
     vec_[3] = d;
 
-    for (int i = 4; i < size; i++) {
+    for (int i = 4; i < vec_size; i++) {
       vec_[i] = 0.0f;
     }
   }
 
   Vec(T single)
   {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       vec_[i] = single;
     }
   }
 
   Vec(const T *value)
   {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       vec_[i] = value[i];
     }
   }
 
   Vec(const Vec &b)
   {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       vec_[i] = b.vec_[i];
     }
   }
 
   inline Vec &zero()
   {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       vec_[i] = T(0);
     }
 
@@ -96,7 +98,7 @@ public:
   inline Vec operator##op(const Vec &b)                                                  \
   {                                                                                      \
     Vec r;                                                                               \
-    for (int i = 0; i < size; i++) {                                                     \
+    for (int i = 0; i < vec_size; i++) {                                                 \
       r[i] = vec_[i] op b.vec_[i];                                                       \
     }                                                                                    \
     return r;                                                                            \
@@ -104,34 +106,43 @@ public:
   inline Vec operator##op(T b)                                                           \
   {                                                                                      \
     Vec r;                                                                               \
-    for (int i = 0; i < size; i++) {                                                     \
+    for (int i = 0; i < vec_size; i++) {                                                 \
       r[i] = vec_[i] op b;                                                               \
     }                                                                                    \
     return r;                                                                            \
   }                                                                                      \
   inline Vec &operator##op##=(T b)                                                       \
   {                                                                                      \
-    for (int i = 0; i < size; i++) {                                                     \
+    for (int i = 0; i < vec_size; i++) {                                                 \
       vec_[i] op## = b;                                                                  \
     }                                                                                    \
     return *this;                                                                        \
   }                                                                                      \
   inline Vec &operator##op##=(const Vec b)                                               \
   {                                                                                      \
-    for (int i = 0; i < size; i++) {                                                     \
+    for (int i = 0; i < vec_size; i++) {                                                 \
       vec_[i] op## = b.vec_[i];                                                          \
     }                                                                                    \
     return *this;                                                                        \
   }
+
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winvalid-token-paste"
+#endif
 
   VEC_OP_DEF(*)
   VEC_OP_DEF(/)
   VEC_OP_DEF(+)
   VEC_OP_DEF(-)
 
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
   Vec &min(const Vec &b)
   {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       vec_[i] = std::min(vec_[i], b.vec_[i]);
     }
 
@@ -140,7 +151,7 @@ public:
 
   Vec &max(const Vec &b)
   {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       vec_[i] = std::max(vec_[i], b.vec_[i]);
     }
 
@@ -150,7 +161,7 @@ public:
   T dot(const Vec &b)
   {
     T sum = T(0);
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       sum += vec_[i] * b.vec_[i];
     }
 
@@ -163,7 +174,7 @@ public:
     if (len > 0.00000001) {
       double mul = 1.0 / double(len);
 
-      for (int i = 0; i < size; i++) {
+      for (int i = 0; i < vec_size; i++) {
         vec_[i] = T(double(vec_[i]) * mul);
       }
     } else {
@@ -181,7 +192,7 @@ public:
 
   Vec &interp(const Vec &b, double factor)
   {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       vec_[i] += T(double(b.vec_[i] - vec_[i]) * factor);
     }
 
@@ -196,7 +207,7 @@ public:
   void print()
   {
     printf("(");
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < vec_size; i++) {
       if (i > 0) {
         printf(" ");
       }
@@ -206,18 +217,25 @@ public:
   }
 
 private:
-  T vec_[size];
+  T vec_[vec_size];
 };
 
 #ifdef DEF_VECS
 #undef DEF_VECS
 #endif
+} // namespace sculptcore::math
 
 #define DEF_VECS(type, name)                                                             \
+  namespace sculptcore::math {                                                           \
   using name##1 = Vec<type, 1>;                                                          \
   using name##2 = Vec<type, 2>;                                                          \
   using name##3 = Vec<type, 3>;                                                          \
-  using name##4 = Vec<type, 4>
+  using name##4 = Vec<type, 4>;                                                          \
+  }                                                                                      \
+  force_type_is_simple(sculptcore::math::name##1);                                       \
+  force_type_is_simple(sculptcore::math::name##2);                                       \
+  force_type_is_simple(sculptcore::math::name##3);                                       \
+  force_type_is_simple(sculptcore::math::name##4);
 
 DEF_VECS(float, float);
 DEF_VECS(double, double);
@@ -229,4 +247,3 @@ DEF_VECS(int8_t, char);
 DEF_VECS(uint8_t, uchar);
 
 #undef DEF_VECS
-} // namespace sculptcore::math

@@ -2,6 +2,7 @@
 
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
+#include "mesh/mesh_shapes.h"
 
 #include "math/vector.h"
 
@@ -16,6 +17,11 @@ int main()
   using namespace sculptcore::mesh;
 
   {
+    Mesh *cube = createCube(256);
+
+    alloc::Delete<Mesh>(cube);
+
+
     Mesh mesh;
 
     int v1 = mesh.make_vertex(float3(0.0, 0.1, 0.2));

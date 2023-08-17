@@ -23,6 +23,88 @@ template <size_t N> struct StrLiteral {
   char value[N + 1];
 };
 
+template <typename Char, int static_size = 32> struct ConstStr {
+  constexpr ConstStr()
+  {
+    size_ = 0;
+    zero_data();
+  }
+
+  constexpr ConstStr(const ConstStr &b)
+  {
+    for (int i = 0; i < static_size; i++) {
+      data_[i] = b.data_[i];
+    }
+
+    data_[b.size_] = 0;
+    size_ = b.size_;
+  }
+
+  constexpr ConstStr(const char *str)
+  {
+    zero_data();
+
+    const char *c = str;
+    while (*c && size_ < static_size - 1) {
+      data_[size_++] = *c;
+      c++;
+    }
+  }
+
+  template <size_t N> constexpr ConstStr(StrLiteral<N> lit)
+  {
+    size_ = N - 1 > static_size - 1 ? static_size - 1 : N - 1;
+
+    for (int i = 0; i < size_; i++) {
+      data_[i] = lit.value[i];
+    }
+    data_[size_] = 0;
+  }
+
+  constexpr bool operator==(const ConstStr &b)
+  {
+    if (size_ != b.size_) {
+      return false;
+    }
+
+    for (int i = 0; i < size_; i++) {
+      if (data_[i] != b.data_[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  constexpr bool operator!=(const ConstStr &b)
+  {
+    return !operator==(b);
+  }
+
+  constexpr size_t size()
+  {
+    return size_;
+  }
+
+  constexpr Char operator[](int idx)
+  {
+    return data_[idx];
+  }
+
+private:
+  constexpr void zero_data()
+  {
+    for (int i = 0; i < static_size; i++) {
+      data_[i] = 0;
+    }
+  }
+
+  Char data_[static_size];
+  int size_ = 0;
+};
+
+using const_string = ConstStr<char>;
+
 namespace detail {
 template <typename Char> int strcmp(const Char *a, const Char *b)
 {

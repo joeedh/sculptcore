@@ -3,8 +3,13 @@
 #include "attribute_base.h"
 #include "attribute_bool.h"
 #include "attribute_enums.h"
+#include "io/serial.h"
 #include "math/vector.h"
+
 #include "util/alloc.h"
+#include "util/array.h"
+#include "util/index_range.h"
+#include "util/span.h"
 #include "util/string.h"
 #include "util/vector.h"
 
@@ -70,6 +75,14 @@ template <typename T> struct AttrData : AttrDataBase {
 
   AttrData(const string &name_) : AttrDataBase(type_to_attrtype<T>(), name_)
   {
+  }
+
+  AttrData &operator=(AttrData &&b)
+  {
+    pages_ = std::move(b.pages_);
+    size_ = b.size_;
+
+    return *this;
   }
 
   AttrDataBase &operator=(AttrDataBase &&vb) override
@@ -154,6 +167,11 @@ template <typename T> struct AttrData : AttrDataBase {
     return size_;
   }
 
+  int capacity()
+  {
+    return pages_.size() * ATTR_PAGESIZE;
+  }
+
   void resize(size_t newsize, bool materialize_new_pages = true)
   {
     int page_count = newsize >> ATTR_PAGESHIFT;
@@ -204,6 +222,7 @@ struct AttrRef {
   AttrDataBase *data = nullptr;
   string name;
   AttrType type;
+  AttrFlags flag;
 
   AttrRef()
   {
@@ -245,38 +264,40 @@ namespace detail {
 template <typename Lambda> void type_dispatch(AttrType type, Lambda callback)
 {
   switch (type) {
+  case ATTR_NONE:
+    break;
   case ATTR_FLOAT:
-    callback.operator()<float>();
+    callback.template operator()<float>();
     break;
   case ATTR_FLOAT2:
-    callback.operator()<math::float2>();
+    callback.template operator()<math::float2>();
     break;
   case ATTR_FLOAT3:
-    callback.operator()<math::float3>();
+    callback.template operator()<math::float3>();
     break;
   case ATTR_FLOAT4:
-    callback.operator()<math::float4>();
+    callback.template operator()<math::float4>();
     break;
   case ATTR_BOOL:
-    callback.operator()<bool>();
+    callback.template operator()<bool>();
     break;
   case ATTR_INT:
-    callback.operator()<int>();
+    callback.template operator()<int>();
     break;
   case ATTR_INT2:
-    callback.operator()<math::int2>();
+    callback.template operator()<math::int2>();
     break;
   case ATTR_INT3:
-    callback.operator()<math::int3>();
+    callback.template operator()<math::int3>();
     break;
   case ATTR_INT4:
-    callback.operator()<math::int4>();
+    callback.template operator()<math::int4>();
     break;
   case ATTR_BYTE:
-    callback.operator()<uint8_t>();
+    callback.template operator()<uint8_t>();
     break;
   case ATTR_SHORT:
-    callback.operator()<short>();
+    callback.template operator()<short>();
     break;
   }
 }
@@ -301,9 +322,78 @@ struct AttrGroup {
     }
   }
 
+  size_t size()
+  {
+    size_t ret = 0;
+
+    for (AttrRef &attr : attrs) {
+      if (attr.type == ATTR_BOOL) {
+        continue;
+      }
+
+      detail::type_dispatch(attr.type, [&ret, &attr]<typename T>() {
+        ret = static_cast<AttrData<T> *>(attr.data)->size();
+      });
+    }
+
+    return ret;
+  }
+
+  void reorder(util::span<int> elem_map)
+  {
+    util::Array<int> reverse = {size()};
+
+    for (int i : elem_map) {
+      reverse[elem_map[i]] = i;
+    }
+
+    for (AttrRef &attr : attrs) {
+      if (attr.type == ATTR_BOOL) {
+        continue;
+      }
+
+      detail::type_dispatch(attr.type, [&]<typename T>() {
+        //
+        using AttrType = AttrData<T>;
+
+        AttrType *old = static_cast<AttrType *>(attr.data);
+        AttrType newattr(attr.name, old->size());
+
+        for (int i : util::IndexRange(size())) {
+          newattr[i] = std::move(old->operator[](reverse[i]));
+        }
+
+        old->~AttrData();
+        *old = std::move(newattr);
+      });
+    }
+
+    /* Handle bools separately. */
+    PackedBoolAttrs new_bool_attrs = bool_attrs;
+    new_bool_attrs.resize(size());
+
+    int blocksize = bool_attrs.blocksize();
+
+    for (int i : util::IndexRange(size())) {
+      uint8_t *block = new_bool_attrs[i];
+      uint8_t *block_old = bool_attrs[reverse[i]];
+
+      for (int j = 0; j < blocksize; j++) {
+        block[j] = block_old[j];
+      }
+    }
+
+    bool_attrs.~PackedBoolAttrs();
+    bool_attrs = std::move(new_bool_attrs);
+  }
+
   void swap(int a, int b)
   {
     for (AttrRef &attr : attrs) {
+      if (attr.flag & ATTR_TOPO) {
+        continue;
+      }
+
       if (attr.type == ATTR_BOOL) {
         BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
         bool tmp = (*view)[a];

@@ -81,6 +81,71 @@ public:
     Map *map_;
   };
 
+  template <bool is_key, typename T> struct key_value_range {
+    key_value_range(Map *map, int i = 0) : map_(map), i_(i)
+    {
+      if (i == 0) {
+        i_--;
+        operator++();
+      }
+    }
+
+    key_value_range(const key_value_range &b) : map_(b.map_), i_(b.i_)
+    {
+    }
+
+    bool operator==(const key_value_range &b)
+    {
+      return b.i_ == i_;
+    }
+
+    bool operator!=(const key_value_range &b)
+    {
+      return !operator==(b);
+    }
+
+    T &operator*()
+    {
+      if constexpr (is_key) {
+        return map_->table_[i_].key;
+      } else {
+        return map_->table_[i_].value;
+      }
+    }
+
+    key_value_range &operator++()
+    {
+      i_++;
+
+      int table_size = int(map_->table_.size());
+
+      while (i_ < map_->table_.size() && !map_->used_[i_]) {
+        i_++;
+      }
+
+      return *this;
+    }
+
+    key_value_range begin()
+    {
+      return key_range(map_, 0);
+    }
+
+    key_value_range end()
+    {
+      return key_value_range(map_, map_->table_.size());
+    }
+
+  private:
+    Map *map_;
+    int i_ = 0;
+  };
+
+  using key_range = key_value_range<true, Key>;
+  using value_range = key_value_range<false, Value>;
+
+  friend struct key_value_range<true, Key>;
+
   Map()
       : table_(get_static(), hashsizes[find_hashsize_prev(real_static_size)]),
         cur_size_(find_hashsize(real_static_size))
@@ -103,6 +168,16 @@ public:
     }
 
     alloc::release(static_cast<void *>(table_.data()));
+  }
+
+  key_range keys()
+  {
+    return key_range(this);
+  }
+
+  value_range values()
+  {
+    return value_range(this);
   }
 
   iterator begin()
@@ -189,6 +264,25 @@ public:
     }
 
     return &table_[i].value;
+  }
+
+  bool add_uninitialized(const Key &key, Value **value)
+  {
+    check_load();
+
+    int i = find_pair<true, true>(key);
+    
+    if (value) {
+      *value = &table_[i].value;
+    }
+
+    if (!used_[i]) {
+      used_.set(i, true);
+      used_count_++;
+      return true;
+    }
+
+    return false;
   }
 
   /* Undefined behavior if key is not in map, check existence with .contains(). */

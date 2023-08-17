@@ -3,7 +3,9 @@
 #include "attribute.h"
 #include "attribute_builtin.h"
 #include "math/vector.h"
+#include "util/assert.h"
 #include "util/boolvector.h"
+#include "util/callback_list.h"
 #include "util/string.h"
 
 #include "mesh_base.h"
@@ -15,7 +17,7 @@
 #include <type_traits>
 
 namespace sculptcore::mesh {
-
+struct Mesh;
 struct ElemData {
   ElemType domain;
   AttrGroup attrs;
@@ -23,6 +25,7 @@ struct ElemData {
 
   util::BoolVector<> freemap;
   util::Vector<int> freelist;
+  util::CallbackList<void(Mesh *m, int v1, int v2)> on_swap;
 
   struct iterator {
     iterator(ElemData &owner, int i) : owner_(owner), i_(i)
@@ -80,6 +83,20 @@ struct ElemData {
     return iterator(*this, capacity_);
   }
 
+  void alloc(int freed_elem, bool alloc_attrs = true)
+  {
+    assert(freemap[freed_elem], "freed_elem is actually freed");
+
+    freelist.remove(freed_elem);
+    freemap.set(freed_elem, false);
+
+    if (alloc_attrs) {
+      attrs.set_default(freed_elem);
+    }
+
+    count++;
+  }
+
   /* Allocate a new elem */
   int alloc()
   {
@@ -123,6 +140,7 @@ struct ElemData {
   {
     attrs.swap(a, b);
   }
+
 private:
   void add_page()
   {

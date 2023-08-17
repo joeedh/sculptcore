@@ -38,6 +38,11 @@ public:
       return vec_[i_];
     }
 
+    const T &operator*() const
+    {
+      return vec_[i_];
+    }
+
     iterator &operator++()
     {
       i_++;
@@ -100,11 +105,71 @@ public:
     }
   }
 
+  void clear()
+  {
+    resize(0);
+  }
+
+  void clear_and_contract()
+  {
+    deconstruct_all();
+    contract();
+  }
+
+  /** Reallocates vector to have no spare capacity. */
+  void contract()
+  {
+    if (size_ == capacity_) {
+      return;
+    }
+
+    if (size_ == 0) {
+      if (data_ && data_ != static_storage()) {
+        alloc::release(static_cast<void *>(data_));
+      }
+
+      capacity_ = static_size;
+      data_ = static_storage();
+    }
+
+    T *newdata;
+
+    if (size_ < static_size) {
+      capacity_ = static_size;
+
+      if (data_ == static_storage()) {
+        /* We're already inside the static storage, do nothing. */
+        return;
+      }
+
+      newdata = static_storage();
+    } else {
+      capacity_ = size_;
+      newdata = static_cast<T *>(alloc::alloc("Vector", sizeof(T) * size_));
+    }
+
+    if (!is_simple<T>()) {
+      for (int i = 0; i < size_; i++) {
+        newdata[i] = std::move(data_[i]);
+      }
+
+      deconstruct_all();
+    } else {
+      memcpy(static_cast<void *>(newdata), static_cast<void *>(data_), sizeof(T) * size_);
+    }
+
+    if (data_ != static_storage()) {
+      alloc::release(static_cast<void *>(data_));
+    }
+
+    data_ = newdata;
+  }
+
   Vector &operator=(const Vector &b)
   {
     deconstruct_all();
 
-    resize(b.size());
+    resize<false>(b.size());
 
     for (int i = 0; i < size_; i++) {
       data_[i] = b.data_[i];
@@ -224,6 +289,11 @@ public:
     return false;
   }
 
+  T &grow_one()
+  {
+    return append_intern();
+  }
+
   void append(const T &value)
   {
     append_intern() = value;
@@ -234,18 +304,24 @@ public:
     append_intern() = value;
   }
 
-  template <bool construct = true> void resize(size_t newsize)
+  template <bool construct_destruct = true> void resize(size_t newsize)
   {
     size_t remain = 0;
     if (newsize > size_) {
       remain = newsize - size_;
+    } else if (newsize < size_) {
+      if constexpr (construct_destruct && !is_simple<T>()) {
+        for (int i = newsize; i < size_; i++) {
+          data_[i].~T();
+        }
+      }
     }
 
     ensure_size(newsize);
     size_ = newsize;
 
     /* Construct new elements. */
-    if constexpr (construct) {
+    if constexpr (construct_destruct) {
       for (int i = 0; i < remain; i++) {
         if constexpr (!is_simple<T>()) {
           new (&data_[size_ - i - 1]) T;
@@ -260,7 +336,7 @@ public:
   {
     return data_[idx];
   }
-  
+
   const T &operator[](int idx) const
   {
     return data_[idx];
@@ -355,7 +431,7 @@ private:
     }
   }
 
-  T *static_storage()
+  inline T *static_storage()
   {
     return reinterpret_cast<T *>(static_storage_);
   }

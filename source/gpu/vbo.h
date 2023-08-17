@@ -17,6 +17,8 @@
 namespace sculptcore::gpu {
 using namespace sculptcore::util;
 
+struct VBO;
+
 enum GPUBufferHint { HINT_STATIC = GL_STATIC_DRAW, HINT_DYNAMIC = GL_DYNAMIC_DRAW };
 
 enum GPUBufferType {
@@ -35,8 +37,11 @@ struct Buffer {
   int size = 0, elemsize;
   bool uploaded = false;
 
+  VBO *owner_vbo = nullptr;
+
   void *data = nullptr;
   unsigned int gl_buffer;
+  bool update_buffer = true;
 
   void resize(int newsize);
 
@@ -92,8 +97,14 @@ struct Buffer {
     }
   }
 
+  void check_upload();
   void upload();
   void release();
+
+  void dirty()
+  {
+    update_buffer = true;
+  }
 
   ~Buffer();
 
@@ -109,10 +120,16 @@ struct Buffer {
     b.data = nullptr;
     b.uploaded = false;
     b.size = 0;
+
+    return *this;
   }
 
-  template <typename T> T *get_data()
+  template <typename T> T *get_data(bool mark_update = false)
   {
+    if (mark_update) {
+      update_buffer = true;
+    }
+
     return static_cast<T *>(data);
   }
 
@@ -146,14 +163,45 @@ struct VBO {
   {
   }
 
+  ~VBO();
+
   bool contains(stringref name)
   {
     return attrs.contains(name);
   }
 
+  Buffer *find(stringref name)
+  {
+    Buffer **ret = attrs.lookup_ptr(name);
+
+    if (ret) {
+      return *ret;
+    }
+
+    return nullptr;
+  }
+
   void add(stringref name, Buffer *buf)
   {
     attrs[name] = buf;
+  }
+
+  template <typename T>
+  Buffer *ensure(stringref name, int size, GPUBufferType target = BUFFER_INDEX)
+  {
+    Buffer *buf = find(name);
+    if (buf) {
+      return buf;
+    }
+
+    buf = alloc::New<Buffer>(
+        "Buffer", gpu_type_from<T>(), gpu_type_elems<T>(), GPU_FETCH_FLOAT, size);
+    buf->owner_vbo = this;
+    buf->target = target;
+
+    attrs[name] = buf;
+
+    return buf;
   }
 };
 

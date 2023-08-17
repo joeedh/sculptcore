@@ -38,7 +38,7 @@ public:
     }
   }
 
-  PackedBoolAttrs(PackedBoolAttrs &b)
+  PackedBoolAttrs &operator=(PackedBoolAttrs &&b)
   {
     cur_block_ = b.cur_block_;
     cur_bit_ = b.cur_bit_;
@@ -46,7 +46,38 @@ public:
     capacity_ = b.capacity_;
     blocksize_ = b.blocksize_;
 
+    blocks_ = b.blocks_;
+    attrs_ = std::move(b.attrs_);
+
+    b.blocks_ = nullptr;
+    b.size_ = 0;
+
+    return *this;
+  }
+
+  PackedBoolAttrs(const PackedBoolAttrs &b)
+  {
+    cur_block_ = b.cur_block_;
+    cur_bit_ = b.cur_bit_;
+    size_ = b.size_;
+    capacity_ = b.capacity_;
+    blocksize_ = b.blocksize_;
+
+    size_t totalsize = capacity_ * blocksize_;
+    blocks_ = static_cast<uint8_t *>(alloc::alloc("PackedBoolAttrs", totalsize));
+    memcpy(static_cast<void *>(blocks_), static_cast<void *>(b.blocks_), totalsize);
+
     attrs_ = b.attrs_;
+  }
+
+  uint8_t *operator[](int elem)
+  {
+    return blocks_ + elem * blocksize_;
+  }
+
+  int blocksize()
+  {
+    return blocksize_;
   }
 
   void set_default(int elem)

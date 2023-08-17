@@ -19,7 +19,7 @@ int main()
   };
 
   {
-    FloatProp prop;
+    Float32Prop prop;
 
     prop.Name("bleh").Min(0.0f).Max(1.0f);
 

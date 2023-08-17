@@ -20,6 +20,11 @@ void parallel_for(util::IndexRange range, Callback cb, int grain_size = 1)
 #if 0
   cb(range);
 #else
+  if (range.size <= grain_size) {
+    cb(range);
+    return;
+  }
+
   bool have_remain = false;
 
   int task_count = range.size / grain_size;

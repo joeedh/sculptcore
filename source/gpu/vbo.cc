@@ -38,11 +38,34 @@ void Buffer::release()
   }
 }
 
+void Buffer::check_upload()
+{
+  if (!uploaded) {
+    upload();
+  } else if (update_buffer) {
+    glBindBuffer(target, gl_buffer);
+    glBufferData(target, size, data, hint);
+    update_buffer = false;
+  }
+}
+
 void Buffer::upload()
 {
   glCreateBuffers(1, &gl_buffer);
   glBindBuffer(target, gl_buffer);
   glBufferData(target, size, data, hint);
+  update_buffer = false;
+}
+
+VBO::~VBO()
+{
+  for (auto &pair : attrs) {
+    Buffer *buf = pair.value;
+
+    if (buf->owner_vbo == this) {
+      alloc::Delete<Buffer>(buf);
+    }
+  }
 }
 
 } // namespace sculptcore::gpu

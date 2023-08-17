@@ -12,9 +12,13 @@
 
 #include <cfloat>
 
+namespace sculptcore::gpu {
+struct VBO;
+struct Buffer;
+} // namespace sculptcore::gpu
+
 namespace sculptcore::spatial {
 struct NodeTri {
-  int v[3];
   int c[3]; /* corners */
   int f;
   int eflag;
@@ -22,11 +26,21 @@ struct NodeTri {
 
 struct SpatialNode {
   struct NodeData {
+    struct GPUData {
+      sculptcore::gpu::VBO *vbo = nullptr;
+      sculptcore::gpu::Buffer *tris = nullptr;
+      sculptcore::gpu::Buffer *lines = nullptr;
+
+      ~GPUData();
+    };
+
     util::OrderedSet<int> unique_verts;
     util::OrderedSet<int> other_verts;
     util::OrderedSet<int> faces;
 
     util::Vector<NodeTri> tris;
+
+    GPUData gpu;
   };
 
   SpatialNode *children[2];
@@ -45,6 +59,11 @@ struct SpatialNode {
   SpatialNode()
   {
     children[0] = children[1] = nullptr;
+  }
+
+  void update(NodeFlags update_flags)
+  {
+    flag |= update_flags;
   }
 
   util::OrderedSet<int> &unique_verts() const
