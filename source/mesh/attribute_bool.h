@@ -207,12 +207,12 @@ private:
 struct BoolAttrView : public AttrDataBase {
 public:
   BoolAttrView(const string &name_, PackedBoolAttrs *data, PackedBoolAttrs::Offset offset)
-      : data_(data), offset_(offset), AttrDataBase(ATTR_BOOL, name_)
+      : data_(data), offset_(offset), AttrDataBase(AttrType::BOOL, name_)
   {
   }
 
   BoolAttrView(const BoolAttrView &b)
-      : data_(b.data_), offset_(b.offset_), AttrDataBase(ATTR_BOOL, b.name)
+      : data_(b.data_), offset_(b.offset_), AttrDataBase(AttrType::BOOL, b.name)
   {
   }
 

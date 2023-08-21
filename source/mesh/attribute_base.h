@@ -18,30 +18,30 @@ template <typename T> static constexpr AttrType type_to_attrtype()
   using namespace sculptcore::math;
 
   if constexpr (std::is_same_v<T, float>) {
-    return ATTR_FLOAT;
+    return AttrType::FLOAT;
   } else if constexpr (std::is_same_v<T, float2>) {
-    return ATTR_FLOAT2;
+    return AttrType::FLOAT2;
   } else if constexpr (std::is_same_v<T, float3>) {
-    return ATTR_FLOAT3;
+    return AttrType::FLOAT3;
   } else if constexpr (std::is_same_v<T, float4>) {
-    return ATTR_FLOAT4;
+    return AttrType::FLOAT4;
   } else if constexpr (std::is_same_v<T, bool>) {
-    return ATTR_BOOL;
+    return AttrType::BOOL;
   } else if constexpr (std::is_same_v<T, uint8_t>) {
-    return ATTR_BYTE;
+    return AttrType::BYTE;
   } else if constexpr (std::is_same_v<T, int>) {
-    return ATTR_INT;
+    return AttrType::INT;
   } else if constexpr (std::is_same_v<T, int2>) {
-    return ATTR_INT2;
+    return AttrType::INT2;
   } else if constexpr (std::is_same_v<T, int3>) {
-    return ATTR_INT3;
+    return AttrType::INT3;
   } else if constexpr (std::is_same_v<T, int4>) {
-    return ATTR_INT4;
+    return AttrType::INT4;
   } else if constexpr (std::is_same_v<T, short> || std::is_same_v<T, unsigned short>) {
-    return ATTR_SHORT;
+    return AttrType::SHORT;
   }
 
-  return ATTR_NONE;
+  return AttrType::NONE;
 }
 
 /* Main attribute storage class (except for bools). */

@@ -41,7 +41,7 @@ struct VertexData : public ElemData {
   BuiltinAttr<bool, "select"> select;
 
   /* Topology attributes. */
-  BuiltinAttr<int, ".vert.e", ATTR_TOPO> e;
+  BuiltinAttr<int, ".vert.e", AttrFlag::TOPO> e;
 
   /* Move vsrc into vdst; vdst must be freed. */
   void move_elem(Mesh *m, int vsrc, int vdst);
@@ -63,13 +63,13 @@ struct EdgeData : public ElemData {
     c.ensure(attrs);
   }
 
-  BuiltinAttr<int, ".edge.c", ATTR_TOPO> c;
+  BuiltinAttr<int, ".edge.c", AttrFlag::TOPO> c;
 
   BuiltinAttr<bool, "select"> select;
 
   /* Topology attributes. */
-  BuiltinAttr<int2, ".edge.vs", ATTR_TOPO> vs;
-  BuiltinAttr<int4, ".edge.vs.disk", ATTR_TOPO> disk;
+  BuiltinAttr<int2, ".edge.vs", AttrFlag::TOPO> vs;
+  BuiltinAttr<int4, ".edge.vs.disk", AttrFlag::TOPO> disk;
 
   int swap_elems(int e1, int v2);
 };
@@ -89,13 +89,13 @@ struct CornerData : public ElemData {
     radial_prev.ensure(attrs);
   }
 
-  BuiltinAttr<int, ".corner.v", ATTR_TOPO> v;
-  BuiltinAttr<int, ".corner.e", ATTR_TOPO> e;
-  BuiltinAttr<int, ".corner.l", ATTR_TOPO> l; /* Owning list. */
-  BuiltinAttr<int, ".corner.next", ATTR_TOPO> next;
-  BuiltinAttr<int, ".corner.prev", ATTR_TOPO> prev;
-  BuiltinAttr<int, ".corner.radial_next", ATTR_TOPO> radial_next;
-  BuiltinAttr<int, ".corner.radial_prev", ATTR_TOPO> radial_prev;
+  BuiltinAttr<int, ".corner.v", AttrFlag::TOPO> v;
+  BuiltinAttr<int, ".corner.e", AttrFlag::TOPO> e;
+  BuiltinAttr<int, ".corner.l", AttrFlag::TOPO> l; /* Owning list. */
+  BuiltinAttr<int, ".corner.next", AttrFlag::TOPO> next;
+  BuiltinAttr<int, ".corner.prev", AttrFlag::TOPO> prev;
+  BuiltinAttr<int, ".corner.radial_next", AttrFlag::TOPO> radial_next;
+  BuiltinAttr<int, ".corner.radial_prev", AttrFlag::TOPO> radial_prev;
 };
 
 struct ListData : public ElemData {
@@ -110,9 +110,9 @@ struct ListData : public ElemData {
     size.ensure(attrs);
   }
 
-  BuiltinAttr<int, ".list.c", ATTR_TOPO> c;
-  BuiltinAttr<int, ".list.f", ATTR_TOPO> f;
-  BuiltinAttr<int, ".list.next", ATTR_TOPO> next;
+  BuiltinAttr<int, ".list.c", AttrFlag::TOPO> c;
+  BuiltinAttr<int, ".list.f", AttrFlag::TOPO> f;
+  BuiltinAttr<int, ".list.next", AttrFlag::TOPO> next;
   BuiltinAttr<int, ".list.size"> size;
 };
 
@@ -129,7 +129,7 @@ struct FaceData : public ElemData {
   }
 
   BuiltinAttr<short, ".face.list_count"> list_count;
-  BuiltinAttr<int, ".face.l", ATTR_TOPO> l;
+  BuiltinAttr<int, ".face.l", AttrFlag::TOPO> l;
   BuiltinAttr<float3, ".face.normal"> no;
 };
 

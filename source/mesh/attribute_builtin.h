@@ -12,7 +12,7 @@
 #include <type_traits>
 
 namespace sculptcore::mesh {
-template <typename T, util::StrLiteral Name, AttrFlags Flag = ATTR_FLAG_NONE>
+template <typename T, util::StrLiteral Name, AttrFlag Flag = AttrFlag::NONE>
 struct BuiltinAttr : protected AttrRef {
   BuiltinAttr()
   {
@@ -42,7 +42,7 @@ struct BuiltinAttr : protected AttrRef {
   }
 
   template <typename T2 = void>
-  inline AttrData<T> *get_data() const requires (!std::same_as<T, bool>)
+  inline AttrData<T> *get_data() const requires(!std::same_as<T, bool>)
   {
     return static_cast<AttrData<T> *>(data);
   }
@@ -63,7 +63,7 @@ struct BuiltinAttr : protected AttrRef {
     return get_data()->set(idx, value);
   }
 
-  inline T &operator[](int idx) requires (!std::same_as<T, bool>)
+  inline T &operator[](int idx) requires(!std::same_as<T, bool>)
   {
     return get_data()->operator[](idx);
   }

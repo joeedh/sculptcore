@@ -17,11 +17,11 @@ struct struct_detail {
   struct StructProp : detail::PropBase<StructProp, void *> {
     using Base = PropBase<StructProp, void *>;
 
-    StructProp() : Base(PROP_STRUCT)
+    StructProp() : Base(Prop::STRUCT)
     {
     }
 
-    StructProp(StructDef *def) : Base(PROP_STRUCT), struct_def(def)
+    StructProp(StructDef *def) : Base(Prop::STRUCT), struct_def(def)
     {
     }
 
@@ -50,7 +50,7 @@ struct struct_detail {
       T value;
       PropError error = prop_coerce<T>(prop, &value);
 
-      if (error != PROP_ERROR_NONE) {
+      if (error != PropError::ERROR_NONE) {
         return default_value;
       }
 

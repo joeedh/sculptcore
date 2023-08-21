@@ -73,6 +73,56 @@ static inline const void *pointer_offset(const void *ptr, int n)
     return T(uint64_t(a) & uint64_t(flag));                                              \
   }
 
+#define FlagClass(Name, Enum)                                                            \
+  struct Name {                                                                          \
+    using enum Enum;                                                                     \
+    constexpr Name() : val_(Enum(0))                                                     \
+    {                                                                                    \
+    }                                                                                    \
+    constexpr Name(Enum f) : val_(f)                                                     \
+    {                                                                                    \
+    }                                                                                    \
+    constexpr Name(int val) : val_(Enum(val))                                            \
+    {                                                                                    \
+    }                                                                                    \
+    constexpr Name(const Name &b) : val_(b.val_)                                         \
+    {                                                                                    \
+    }                                                                                    \
+    constexpr operator bool() const                                                      \
+    {                                                                                    \
+      return bool(int(val_));                                                            \
+    }                                                                                    \
+    constexpr explicit operator int() const                                              \
+    {                                                                                    \
+      return int(val_);                                                                  \
+    }                                                                                    \
+    constexpr bool operator==(Name b) const                                              \
+    {                                                                                    \
+      return val_ == b.val_;                                                             \
+    }                                                                                    \
+    constexpr bool operator!=(Name b) const                                              \
+    {                                                                                    \
+      return val_ != b.val_;                                                             \
+    }                                                                                    \
+    constexpr Name operator&(Name b) const                                               \
+    {                                                                                    \
+      return Name(int(val_) & int(b.val_));                                              \
+    }                                                                                    \
+    constexpr Name operator|(Name b) const                                               \
+    {                                                                                    \
+      return Name(int(val_) | int(b.val_));                                              \
+    }                                                                                    \
+    constexpr Name operator^(Name b) const                                               \
+    {                                                                                    \
+      return Name(int(val_) ^ int(b.val_));                                              \
+    }                                                                                    \
+    constexpr Name operator~() const                                                     \
+    {                                                                                    \
+      return Name(~int(val_));                                                           \
+    }                                                                                    \
+    Enum val_;                                                                           \
+  }
+
 namespace sculptcore::util {
 namespace detail {
 template <typename T> static constexpr bool is_simple(T *)

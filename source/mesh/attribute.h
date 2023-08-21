@@ -222,7 +222,7 @@ struct AttrRef {
   AttrDataBase *data = nullptr;
   string name;
   AttrType type;
-  AttrFlags flag;
+  AttrFlag flag;
 
   AttrRef()
   {
@@ -264,39 +264,39 @@ namespace detail {
 template <typename Lambda> void type_dispatch(AttrType type, Lambda callback)
 {
   switch (type) {
-  case ATTR_NONE:
+  case AttrType::NONE:
     break;
-  case ATTR_FLOAT:
+  case AttrType::FLOAT:
     callback.template operator()<float>();
     break;
-  case ATTR_FLOAT2:
+  case AttrType::FLOAT2:
     callback.template operator()<math::float2>();
     break;
-  case ATTR_FLOAT3:
+  case AttrType::FLOAT3:
     callback.template operator()<math::float3>();
     break;
-  case ATTR_FLOAT4:
+  case AttrType::FLOAT4:
     callback.template operator()<math::float4>();
     break;
-  case ATTR_BOOL:
+  case AttrType::BOOL:
     callback.template operator()<bool>();
     break;
-  case ATTR_INT:
+  case AttrType::INT:
     callback.template operator()<int>();
     break;
-  case ATTR_INT2:
+  case AttrType::INT2:
     callback.template operator()<math::int2>();
     break;
-  case ATTR_INT3:
+  case AttrType::INT3:
     callback.template operator()<math::int3>();
     break;
-  case ATTR_INT4:
+  case AttrType::INT4:
     callback.template operator()<math::int4>();
     break;
-  case ATTR_BYTE:
+  case AttrType::BYTE:
     callback.template operator()<uint8_t>();
     break;
-  case ATTR_SHORT:
+  case AttrType::SHORT:
     callback.template operator()<short>();
     break;
   }
@@ -327,7 +327,7 @@ struct AttrGroup {
     size_t ret = 0;
 
     for (AttrRef &attr : attrs) {
-      if (attr.type == ATTR_BOOL) {
+      if (attr.type == AttrType::BOOL) {
         continue;
       }
 
@@ -348,7 +348,7 @@ struct AttrGroup {
     }
 
     for (AttrRef &attr : attrs) {
-      if (attr.type == ATTR_BOOL) {
+      if (attr.type == AttrType::BOOL) {
         continue;
       }
 
@@ -390,11 +390,11 @@ struct AttrGroup {
   void swap(int a, int b)
   {
     for (AttrRef &attr : attrs) {
-      if (attr.flag & ATTR_TOPO) {
+      if (attr.flag & AttrFlag::TOPO) {
         continue;
       }
 
-      if (attr.type == ATTR_BOOL) {
+      if (attr.type == AttrType::BOOL) {
         BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
         bool tmp = (*view)[a];
         view->set(a, (*view)[b]);
@@ -432,7 +432,7 @@ struct AttrGroup {
     return false;
   }
 
-  ATTR_NO_OPT AttrRef &ensure(AttrType type, const string name)
+  AttrRef &ensure(AttrType type, const string name)
   {
     for (AttrRef &attr : attrs) {
       if (attr.type == type && attr.name == name) {
@@ -460,11 +460,11 @@ struct AttrGroup {
       ret = &attrs[attrs.size() - 1];
     });
 
-    if (type == ATTR_BOOL) {
+    if (type == AttrType::BOOL) {
       printf("bool\n");
     }
 
-    if (type == ATTR_BOOL && bool_attrs.size() < capacity_) {
+    if (type == AttrType::BOOL && bool_attrs.size() < capacity_) {
       bool_attrs.resize(capacity_);
     }
 
@@ -480,7 +480,7 @@ struct AttrGroup {
     }
 
     for (AttrRef &attr : attrs) {
-      if (attr.type == ATTR_BOOL) {
+      if (attr.type == AttrType::BOOL) {
         continue;
       }
 
@@ -497,7 +497,7 @@ struct AttrGroup {
   {
     bool_attrs.set_default(elem);
     for (AttrRef &attr : attrs) {
-      if (attr.type == ATTR_BOOL) {
+      if (attr.type == AttrType::BOOL) {
         continue;
       }
 

@@ -4,9 +4,9 @@
 #include "props/prop_enums.h"
 
 namespace sculptcore::brush {
-template <util::StrLiteral name_, props::PropType type_> struct StdProp {
+template <util::StrLiteral name_, props::Prop type_> struct StdProp {
   util::string name = name_;
-  props::PropType type = type_;
+  props::Prop type = type_;
 };
 
 template <util::StrLiteral name_, util::StrLiteral struct_name_> struct StdPropStruct {
@@ -14,21 +14,21 @@ template <util::StrLiteral name_, util::StrLiteral struct_name_> struct StdPropS
   util::string struct_name = struct_name_;
 };
 
-using sculptcore::props::PropType;
+using sculptcore::props::Prop;
 
 struct StdPropsBase {
-  StdProp<"strength", PropType::PROP_FLOAT32> strength;
-  StdProp<"radius", PropType::PROP_FLOAT32> radius;
+  StdProp<"strength", Prop::FLOAT32> strength;
+  StdProp<"radius", Prop::FLOAT32> radius;
   StdPropStruct<"falloff", "FalloffCurve"> falloff;
 };
 
 struct StdProp2 {
   util::const_string name;
-  PropType type;
+  Prop type;
 }
 
 static constexpr BaseProps[] = {
-    {"strength", PropType::PROP_FLOAT32}, //
+    {"strength", Prop::FLOAT32}, //
 
 };
 
