@@ -10,6 +10,17 @@ using uint = unsigned int;
 
 #include "type_tags.h"
 
+#define DEFAULT_MOVE_ASSIGNMENT(Type)                                                    \
+  Type &operator=(Type &&b) noexcept                                                     \
+  {                                                                                      \
+    if (this == &b) {                                                                    \
+      return *this;                                                                      \
+    }                                                                                    \
+    this->~Type();                                                                       \
+    new (static_cast<void *>(this)) Type(std::forward<Type>(b));                         \
+    return *this;                                                                        \
+  }
+
 static inline void *pointer_offset(void *ptr, int n)
 {
   return static_cast<void *>(static_cast<char *>(ptr) + n);

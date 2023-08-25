@@ -15,35 +15,35 @@ template <typename T, int static_size = 4> class Vector {
 public:
   using value_type = T;
 
-  struct iterator {
-    iterator(Vector &vec, int i) : i_(i), vec_(vec)
+  template <typename QualifiedVector, typename QualT> struct iterator_base {
+    iterator_base(QualifiedVector &vec, int i) : i_(i), vec_(vec)
     {
     }
 
-    iterator(const iterator &b) : i_(b.i_), vec_(b.vec_)
+    iterator_base(const iterator_base &b) : i_(b.i_), vec_(b.vec_)
     {
     }
 
-    bool operator==(const iterator &b)
+    bool operator==(const iterator_base &b)
     {
       return b.i_ == i_;
     }
-    bool operator!=(const iterator &b)
+    bool operator!=(const iterator_base &b)
     {
       return b.i_ != i_;
     }
 
-    T &operator*()
+    QualT &operator*()
     {
       return vec_[i_];
     }
 
-    const T &operator*() const
+    const QualT &operator*() const
     {
       return vec_[i_];
     }
 
-    iterator &operator++()
+    iterator_base &operator++()
     {
       i_++;
       return *this;
@@ -51,8 +51,11 @@ public:
 
   private:
     int i_;
-    Vector &vec_;
+    QualifiedVector &vec_;
   };
+
+  using iterator = iterator_base<Vector, T>;
+  using const_iterator = iterator_base<const Vector, const T>;
 
 #if 0
   template <std::same_as<T>... Args> Vector(Args... args)
@@ -178,28 +181,42 @@ public:
     return *this;
   }
 
-  Vector &operator=(Vector &&b)
-  {
-    move_intern(std::forward<Vector>(b));
-    return *this;
-  }
-
   Vector(Vector &&b)
   {
-    move_intern(std::forward<Vector>(b));
+    size_ = b.size_;
+    capacity_ = b.capacity_;
+
+    if (size_ <= static_size) {
+      data_ = static_storage();
+
+      for (int i = 0; i < size_; i++) {
+        data_[i] = std::move(b.data_[i]);
+      }
+
+      b.data_ = nullptr;
+      b.size_ = 0;
+    } else {
+      data_ = b.data_;
+      b.data_ = nullptr;
+      b.size_ = 0;
+    }
   }
-#if 0
-  Vector &operator=(Vector &&b)
+
+  DEFAULT_MOVE_ASSIGNMENT(Vector)
+
+  const_iterator begin() const
   {
-    *this = b;
+    return const_iterator(*this, 0);
   }
-#endif
+  const_iterator end() const
+  {
+    return const_iterator(*this, size_);
+  }
 
   iterator begin()
   {
     return iterator(*this, 0);
   }
-
   iterator end()
   {
     return iterator(*this, size_);
@@ -359,29 +376,6 @@ private:
       for (int i = 0; i < size_; i++) {
         data_[i].~T();
       }
-    }
-  }
-
-  void move_intern(Vector &&b)
-  {
-    deconstruct_all();
-
-    size_ = b.size_;
-    capacity_ = b.capacity_;
-
-    if (size_ <= static_size) {
-      data_ = static_storage();
-
-      for (int i = 0; i < size_; i++) {
-        data_[i] = std::move(b.data_[i]);
-      }
-
-      b.data_ = nullptr;
-      b.size_ = 0;
-    } else {
-      data_ = b.data_;
-      b.data_ = nullptr;
-      b.size_ = 0;
     }
   }
 

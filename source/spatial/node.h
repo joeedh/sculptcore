@@ -61,6 +61,21 @@ struct SpatialNode {
     children[0] = children[1] = nullptr;
   }
 
+  SpatialNode(SpatialNode &&b)
+  {
+    min = b.min;
+    max = b.max;
+    flag = b.flag;
+    data = b.data;
+    id = b.id;
+
+    children[0] = b.children[0];
+    children[1] = b.children[1];
+
+    b.flag = Spatial_None;
+    b.data = nullptr;
+  }
+
   void update(NodeFlags update_flags)
   {
     flag |= update_flags;
@@ -87,11 +102,8 @@ struct SpatialNode {
   }
 
   SpatialNode(const SpatialNode &b) = delete;
-  SpatialNode &operator=(SpatialNode &&b)
-  {
-    move_intern(std::forward<SpatialNode>(b));
-    return *this;
-  }
+
+  DEFAULT_MOVE_ASSIGNMENT(SpatialNode)
 
   ~SpatialNode()
   {
@@ -114,18 +126,5 @@ struct SpatialNode {
   void add_face(sculptcore::mesh::Mesh *m, int f);
 
 private:
-  void move_intern(SpatialNode &&b)
-  {
-    min = b.min;
-    max = b.max;
-    flag = b.flag;
-    data = b.data;
-
-    children[0] = b.children[0];
-    children[1] = b.children[1];
-
-    b.flag = Spatial_None;
-    b.data = nullptr;
-  }
 };
 } // namespace sculptcore::spatial

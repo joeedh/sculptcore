@@ -173,6 +173,8 @@ template <typename Float, int N> struct Matrix {
         mat_[i][j] = b.mat_[i][j];
       }
     }
+
+    return *this;
   }
 
   operator EigenMatrix() const

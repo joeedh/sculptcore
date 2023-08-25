@@ -15,6 +15,7 @@ set(SRC
   PUBLIC vbo.h
   PUBLIC standard_attrs.h
   vbo.cc
+  shader.cc
 )
 
 sc_add_library(gpu "${SRC}" "${LIB}" STATIC)

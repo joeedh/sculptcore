@@ -231,13 +231,13 @@ struct CurveGen {
     return gen->operator==(*b.gen);
   }
 
-  CurveGen &operator=(CurveGen &&b)
+  CurveGen(CurveGen &&b)
   {
     gen = b.gen;
     b.gen = nullptr;
-
-    return *this;
   }
+
+  DEFAULT_MOVE_ASSIGNMENT(CurveGen)
 
   PropCurves type()
   {

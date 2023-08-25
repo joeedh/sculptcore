@@ -44,5 +44,8 @@ inline HashInt hash(const util::string &str)
 {
   return hash(str.c_str());
 }
-
+inline HashInt hash(const util::stringref &str)
+{
+  return hash(str.c_str());
+}
 } // namespace sculptcore::hash

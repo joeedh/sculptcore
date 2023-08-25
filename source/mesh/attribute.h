@@ -36,7 +36,7 @@ template <typename T> struct AttrData : AttrDataBase {
     {
     }
 
-    void move_intern(AttrPage &&b)
+    AttrPage(AttrPage &&b) noexcept
     {
       data = b.data;
       exists = b.exists;
@@ -44,17 +44,6 @@ template <typename T> struct AttrData : AttrDataBase {
 
       b.data = nullptr;
       b.exists = false;
-    }
-
-    AttrPage &operator=(AttrPage &&b)
-    {
-      move_intern(std::forward<AttrPage>(b));
-      return *this;
-    }
-
-    AttrPage(AttrPage &&b)
-    {
-      move_intern(std::forward<AttrPage>(b));
     }
 
     AttrPage(const AttrPage &b)
@@ -71,26 +60,33 @@ template <typename T> struct AttrData : AttrDataBase {
       exists = b.exists;
       value = b.value;
     }
+
+    DEFAULT_MOVE_ASSIGNMENT(AttrPage)
   };
 
   AttrData(const string &name_) : AttrDataBase(type_to_attrtype<T>(), name_)
   {
   }
 
-  AttrData &operator=(AttrData &&b)
+  AttrData(AttrData &&b)
   {
     pages_ = std::move(b.pages_);
     size_ = b.size_;
-
-    return *this;
   }
 
-  AttrDataBase &operator=(AttrDataBase &&vb) override
-  {
-    AttrData<T> &&b = static_cast<AttrData<T> &&>(vb);
+  DEFAULT_MOVE_ASSIGNMENT(AttrData)
 
-    pages_ = std::move(b.pages_);
-    size_ = b.size_;
+  AttrDataBase &operator=(AttrDataBase &&vb) noexcept override
+  {
+    if (this == &vb) {
+      return *this;
+    }
+
+    AttrData *this2 = static_cast<AttrData *>(this);
+    this2->~AttrData();
+
+    AttrData &&b = static_cast<AttrData &&>(vb);
+    new (static_cast<void *>(this)) AttrData(std::forward<AttrData>(b));
 
     return *this;
   }

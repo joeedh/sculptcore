@@ -3,14 +3,14 @@
 #include "util/string.h"
 
 namespace sculptcore::gpu {
-template <GPUValueType type_, int elems_> struct StdAttr {
+template <GPUType type_, int elems_> struct StdAttr {
   int elems = elems_;
-  GPUValueType type = type;
+  GPUType type = type;
 };
 
 struct StdAttrs {
-  StdAttr<GPU_FLOAT, 3> pos;
-  StdAttr<GPU_FLOAT, 3> nor;
+  StdAttr<GPUType::FLOAT32, 3> pos;
+  StdAttr<GPUType::FLOAT32, 3> nor;
 };
 
 /* Simple compile-time spell checking. */

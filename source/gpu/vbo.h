@@ -29,8 +29,8 @@ enum GPUBufferType {
 };
 
 struct Buffer {
-  GPUValueType type;
-  GPUValueMode mode;
+  GPUType type;
+  GPUFetchMode mode;
   GPUBufferHint hint = HINT_DYNAMIC;
   GPUBufferType target = BUFFER_ARRAY;
 
@@ -49,9 +49,9 @@ struct Buffer {
   {
   }
 
-  Buffer(GPUValueType type_,
+  Buffer(GPUType type_,
          int elemsize_,
-         GPUValueMode mode_ = GPU_FETCH_FLOAT,
+         GPUFetchMode mode_ = GPUFetchMode::FETCH_FLOAT,
          int elem_count = 0)
       : type(type_), elemsize(elemsize_), mode(mode_)
   {
@@ -87,13 +87,13 @@ struct Buffer {
   }
 
     switch (type) {
-      DEF_CASE(float, GPU_FLOAT)
-      DEF_CASE(int, GPU_INT32)
-      DEF_CASE(uint, GPU_UINT32)
-      DEF_CASE(short, GPU_INT16)
-      DEF_CASE(ushort, GPU_UINT16)
-      DEF_CASE(char, GPU_INT8)
-      DEF_CASE(uchar, GPU_UINT8)
+      DEF_CASE(float, GPUType::FLOAT32)
+      DEF_CASE(int, GPUType::INT32)
+      DEF_CASE(uint, GPUType::UINT32)
+      DEF_CASE(short, GPUType::INT16)
+      DEF_CASE(ushort, GPUType::UINT16)
+      DEF_CASE(char, GPUType::INT8)
+      DEF_CASE(uchar, GPUType::UINT8)
     }
   }
 
@@ -109,7 +109,7 @@ struct Buffer {
   ~Buffer();
 
   Buffer(const Buffer &b) = delete;
-  Buffer &operator=(Buffer &&b)
+  Buffer(Buffer &&b)
   {
     type = b.type;
     hint = b.hint;
@@ -120,7 +120,17 @@ struct Buffer {
     b.data = nullptr;
     b.uploaded = false;
     b.size = 0;
+  }
 
+  Buffer &operator=(Buffer &&b)
+  {
+    if (this == &b) {
+      return *this;
+    }
+
+    this->~Buffer();
+
+    Buffer(std::forward<Buffer>(b));
     return *this;
   }
 
@@ -195,7 +205,7 @@ struct VBO {
     }
 
     buf = alloc::New<Buffer>(
-        "Buffer", gpu_type_from<T>(), gpu_type_elems<T>(), GPU_FETCH_FLOAT, size);
+        "Buffer", gpu_type_from<T>(), gpu_type_elems<T>(), GPUFetchMode::FETCH_FLOAT, size);
     buf->owner_vbo = this;
     buf->target = target;
 

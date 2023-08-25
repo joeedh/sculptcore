@@ -36,10 +36,8 @@ public:
     }
   }
 
-  BoolVector &operator=(BoolVector &&b)
+  BoolVector(BoolVector &&b)
   {
-    ~BoolVector();
-
     vector_size_ = b.vector_size_;
     size_ = b.size_;
     used_ = b.used_;
@@ -56,6 +54,18 @@ public:
 
     b.vector_ = nullptr;
     b.size_ = b.vector_size_ = b.used_ = 0;
+  }
+
+  DEFAULT_MOVE_ASSIGNMENT(BoolVector)
+
+  BoolVector &operator=(const BoolVector &b)
+  {
+    if (this == &b) {
+      return *this;
+    }
+
+    this->~BoolVector();
+    new (static_cast<void *>(this)) BoolVector(b);
 
     return *this;
   }

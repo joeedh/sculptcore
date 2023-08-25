@@ -3,27 +3,83 @@
 #include "alloc.h"
 #include "boolvector.h"
 #include "compiler_util.h"
+#include "concepts.h"
 #include "hash.h"
 #include "hashtable_sizes.h"
 
+#include <concepts>
+#include <initializer_list>
 #include <span>
 #include <type_traits>
-#include <vector>
 
 namespace sculptcore::util {
 
+namespace detail::map {
+
+template <typename Func, typename Key>
+/* clang-format off */
+concept KeyCopier = requires(Func f, Key k)
+{
+  {f(k)} -> IsAnyOf<Key, Key&, Key&&, const Key&>;
+};
+/* clang-format on */
+} // namespace detail::map
+
 template <typename Key, typename Value, int static_size = 16> class Map {
-  const static int real_static_size = static_size * 3;
+  const static int real_static_size = static_size * 3 + 1;
 
 public:
   struct Pair {
     Key key;
     Value value;
 
+    Pair()
+    {
+    }
+
+    Pair(Pair &&b)
+    {
+      key = std::move(b.key);
+      value = std::move(b.value);
+    }
+
+    Pair(const Pair &b) : key(b.key), value(b.value)
+    {
+    }
+
+    Pair(Key &key_, Value &value_)
+    {
+      key = key_;
+      value = value_;
+    }
+    Pair(Key &&key_, Value &&value_)
+    {
+      key = key_;
+      value = value_;
+    }
+
     Pair &operator=(Pair &&b)
     {
+      if (this == &b) {
+        return *this;
+      }
+
       key = std::move(key);
       value = std::move(value);
+
+      return *this;
+    }
+
+    Pair &operator=(const Pair &b)
+    {
+      if (this == &b) {
+        return *this;
+      }
+
+      key = b.key;
+      value = b.value;
+
+      return *this;
     }
 
     static constexpr bool is_simple()
@@ -38,7 +94,7 @@ public:
   using value_type = Value;
 
   struct iterator {
-    iterator(Map *map, int i) : map_(map), i_(i)
+    iterator(const Map *map, int i) : map_(map), i_(i)
     {
       if (i_ == 0) {
         /* Find first item. */
@@ -51,16 +107,16 @@ public:
     {
     }
 
-    bool operator==(const iterator &b)
+    bool operator==(const iterator &b) const
     {
       return b.i_ == i_;
     }
-    bool operator!=(const iterator &b)
+    bool operator!=(const iterator &b) const
     {
       return !operator==(b);
     }
 
-    const Pair &operator*()
+    const Pair &operator*() const
     {
       return map_->table_[i_];
     }
@@ -78,11 +134,11 @@ public:
 
   private:
     int i_;
-    Map *map_;
+    const Map *map_;
   };
 
   template <bool is_key, typename T> struct key_value_range {
-    key_value_range(Map *map, int i = 0) : map_(map), i_(i)
+    key_value_range(const Map *map, int i = 0) : map_(map), i_(i)
     {
       if (i == 0) {
         i_--;
@@ -126,18 +182,18 @@ public:
       return *this;
     }
 
-    key_value_range begin()
+    key_value_range begin() const
     {
       return key_range(map_, 0);
     }
 
-    key_value_range end()
+    key_value_range end() const
     {
       return key_value_range(map_, map_->table_.size());
     }
 
   private:
-    Map *map_;
+    const Map *map_;
     int i_ = 0;
   };
 
@@ -146,11 +202,66 @@ public:
 
   friend struct key_value_range<true, Key>;
 
+  Map(const Map &b) : cur_size_(b.cur_size_)
+  {
+    int size = hashsizes[cur_size_];
+
+    if (size <= real_static_size) {
+      table_ = std::span(get_static(), size);
+    } else {
+      table_ = std::span(
+          static_cast<Pair *>(alloc::alloc("copied map table", sizeof(Pair) * size)),
+          size);
+    }
+
+    used_ = b.used_;
+    used_count_ = b.used_count_;
+
+    for (int i = 0; i < size; i++) {
+      if (used_[i]) {
+        table_[i] = b.table_[i];
+      }
+    }
+  }
+
   Map()
       : table_(get_static(), hashsizes[find_hashsize_prev(real_static_size)]),
         cur_size_(find_hashsize(real_static_size))
   {
     reserve_usedmap();
+  }
+
+  Map(Map &&b)
+  {
+    if (table_.data() == get_static()) {
+      Map(static_cast<const Map &>(b));
+    } else {
+      table_ = std::move(b.table_);
+      used_count_ = b.used_count_;
+      used_ = std::move(b.used_);
+      cur_size_ = b.cur_size_;
+    }
+  }
+
+  DEFAULT_MOVE_ASSIGNMENT(Map)
+
+  Map(std::initializer_list<Pair> list)
+  {
+    cur_size_ = find_hashsize(list.size() * 3 + 1);
+    int size = hashsizes[cur_size_];
+
+    if (size <= real_static_size) {
+      table_ = std::span(get_static(), size);
+    } else {
+      table_ = std::span(
+          static_cast<Pair *>(alloc::alloc("Map table", sizeof(Pair) * size)), size);
+    }
+
+    reserve_usedmap();
+
+    for (auto &&item : list) {
+      add_overwrite(item.key, item.value);
+    }
   }
 
   ~Map()
@@ -170,27 +281,27 @@ public:
     alloc::release(static_cast<void *>(table_.data()));
   }
 
-  key_range keys()
+  key_range keys() const
   {
     return key_range(this);
   }
 
-  value_range values()
+  value_range values() const
   {
     return value_range(this);
   }
 
-  iterator begin()
+  iterator begin() const
   {
     return iterator(this, 0);
   }
 
-  iterator end()
+  iterator end() const
   {
     return iterator(this, table_.size());
   }
 
-  size_t size()
+  size_t size() const
   {
     return size_t(used_count_);
   }
@@ -266,12 +377,30 @@ public:
     return &table_[i].value;
   }
 
+  template <detail::map::KeyCopier<Key> KeyCopyFunc, typename ValueSetFunc>
+  Value &add_callback(const Key &key, KeyCopyFunc copy_key, ValueSetFunc set_value)
+  {
+    check_load();
+
+    int i = find_pair<true, true>(key);
+    if (!used_[i]) {
+      used_.set(i, true);
+      used_count_++;
+
+      /* Use copy/move constructors since we have unallocated memory. */
+      new (static_cast<void *>(&table_[i].key)) Key(copy_key(key));
+      new (static_cast<void *>(&table_[i].value)) Value(set_value());
+    }
+
+    return table_[i].value;
+  }
+
   bool add_uninitialized(const Key &key, Value **value)
   {
     check_load();
 
     int i = find_pair<true, true>(key);
-    
+
     if (value) {
       *value = &table_[i].value;
     }
@@ -313,6 +442,17 @@ public:
     return true;
   }
 
+  void reserve(size_t size)
+  {
+    size = size * 3 + 1;
+
+    if (table_.size() >= size) {
+      return;
+    }
+
+    realloc_to_size(size);
+  }
+
 private:
   std::span<Pair> table_;
   char *static_storage_[real_static_size * sizeof(Pair)];
@@ -349,8 +489,20 @@ private:
   template <typename KeyArg, typename ValueArg>
   void add_finalize(int i, const KeyArg key, const ValueArg value)
   {
-    table_[i].key = key;
-    table_[i].value = value;
+    if constexpr (!Pair::is_simple()) {
+      if (!used_[i]) {
+        /* Use copy/move constructors. */
+        new (static_cast<void *>(&table_[i].key)) Key(key);
+        new (static_cast<void *>(&table_[i].value)) Value(value);
+      } else {
+        table_[i].key = key;
+        table_[i].value = value;
+      }
+    } else {
+      table_[i].key = key;
+      table_[i].value = value;
+    }
+
     used_count_++;
     used_.set(i, true);
   }

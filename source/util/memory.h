@@ -46,18 +46,30 @@ template <typename T> struct shared_ptr {
 
   shared_ptr &operator=(const shared_ptr &b)
   {
+    if (this == &b) {
+      return *this;
+    }
+
     data_check_dec(b);
 
     data_ = b.data_;
     inc();
+
+    return *this;
   }
 
   shared_ptr &operator=(shared_ptr &&b)
   {
+    if (this == &b) {
+      return *this;
+    }
+
     data_check_dec(b);
 
     data_ = b.data_;
     b.data_ = nullptr;
+
+    return *this;
   }
 
   T *operator*()
@@ -146,6 +158,10 @@ template <typename T> struct weak_ptr {
 
   weak_ptr &operator=(const weak_ptr &b)
   {
+    if (this == &b) {
+      return *this;
+    }
+
     remove();
     exists_ = b.exists_;
     ptr_ = b.ptr_;
@@ -159,6 +175,10 @@ template <typename T> struct weak_ptr {
 
   weak_ptr &operator=(weak_ptr &&b)
   {
+    if (this == &b) {
+      return *this;
+    }
+
     remove();
     exists_ = b.exists_;
     ptr_ = b.ptr_;
@@ -175,6 +195,10 @@ template <typename T> struct weak_ptr {
 
   weak_ptr &operator=(weak_ptr &b)
   {
+    if (this == &b) {
+      return *this;
+    }
+
     remove();
 
     exists_ = b.exists_;

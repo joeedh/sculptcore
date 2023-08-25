@@ -20,6 +20,7 @@ set(SRC
   PUBLIC memory.h
   alloc.cc
   util.cc
+  string.cc
 )
 
 sc_add_library(util "${SRC}" "${LIB}" STATIC)

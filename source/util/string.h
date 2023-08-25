@@ -143,6 +143,26 @@ template <typename Char> struct StringRef {
     return String<Char>(data_);
   }
 
+  bool operator!=(const StringRef &vb) const
+  {
+    return !operator==(vb);
+  }
+
+  bool operator==(const StringRef &vb) const
+  {
+    if (size_ != vb.size_) {
+      return false;
+    }
+
+    for (int i = 0; i < size_; i++) {
+      if (this->data_[i] != vb.data_[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   using const_char_star = const char *;
 
   operator const_char_star()
@@ -150,17 +170,17 @@ template <typename Char> struct StringRef {
     return data_;
   }
 
-  const char *c_str() const
+  inline const char *c_str() const
   {
     return data_;
   }
 
-  const char operator[](int idx) const
+  inline const char operator[](int idx) const
   {
     return data_[idx];
   }
 
-  size_t size()
+  inline size_t size() const
   {
     return size_;
   }
@@ -225,8 +245,21 @@ public:
 
   String(String &&b)
   {
-    data_ = static_storage_;
-    move_intern(std::forward<String>(b));
+    if (b.data_ == b.static_storage_) {
+      data_ = static_storage_;
+
+      for (int i = 0; i < b.size_; i++) {
+        data_[i] = b.data_[i];
+      }
+
+      data_[b.size_] = 0;
+    } else {
+      data_ = b.data_;
+      b.data_ = b.static_storage_;
+      b.data_[0] = 0;
+    }
+
+    size_ = b.size_;
   }
 
   String &operator=(const String &b)
@@ -249,11 +282,7 @@ public:
     return data_[idx];
   }
 
-  String &operator=(String &&b)
-  {
-    move_intern(std::forward<String>(b));
-    return *this;
-  }
+  DEFAULT_MOVE_ASSIGNMENT(String)
 
   ~String()
   {
@@ -275,6 +304,11 @@ public:
       data_[i] = str[i];
     }
     data_[len] = 0;
+  }
+
+  String(const StringRef<Char> &ref)
+  {
+    String(ref.c_str());
   }
 
   const char *c_str() const
@@ -320,25 +354,6 @@ private:
     }
   }
 
-  void move_intern(String &&b)
-  {
-    if (b.data_ == b.static_storage_) {
-      data_ = static_storage_;
-
-      for (int i = 0; i < b.size_; i++) {
-        data_[i] = b.data_[i];
-      }
-
-      data_[b.size_] = 0;
-    } else {
-      data_ = b.data_;
-      b.data_ = b.static_storage_;
-      b.data_[0] = 0;
-    }
-
-    size_ = b.size_;
-  }
-
   Char *data_;
   Char static_storage_[static_size];
   int size_ = 0; /* does not include null-terminating byte. */
@@ -346,5 +361,10 @@ private:
 
 using string = String<char>;
 using stringref = StringRef<char>;
+
+using StringKey = int;
+
+/* Get a unique integer key for str. */
+StringKey get_stringkey(const stringref str);
 
 } // namespace sculptcore::util

@@ -38,7 +38,7 @@ public:
     }
   }
 
-  PackedBoolAttrs &operator=(PackedBoolAttrs &&b)
+  PackedBoolAttrs(PackedBoolAttrs &&b)
   {
     cur_block_ = b.cur_block_;
     cur_bit_ = b.cur_bit_;
@@ -51,8 +51,6 @@ public:
 
     b.blocks_ = nullptr;
     b.size_ = 0;
-
-    return *this;
   }
 
   PackedBoolAttrs(const PackedBoolAttrs &b)
@@ -68,6 +66,18 @@ public:
     memcpy(static_cast<void *>(blocks_), static_cast<void *>(b.blocks_), totalsize);
 
     attrs_ = b.attrs_;
+  }
+
+  PackedBoolAttrs &operator=(PackedBoolAttrs &&b)
+  {
+    if (this == &b) {
+      return *this;
+    }
+
+    this->~PackedBoolAttrs();
+    PackedBoolAttrs(std::forward<PackedBoolAttrs>(b));
+
+    return *this;
   }
 
   uint8_t *operator[](int elem)
