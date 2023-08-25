@@ -1,7 +1,26 @@
 #include "shader.h"
 #include "math/vector.h"
+#include "util/map.h"
+
+using sculptcore::util::Map;
+using sculptcore::util::string;
+using sculptcore::util::StringKey;
+using sculptcore::util::stringref;
 
 namespace sculptcore::gpu {
+static Map<StringKey, Shader *> cached_shaders;
+
+Shader *get_cached_shader(const Shader &shader)
+{
+  Shader **ptr = cached_shaders.lookup_ptr(shader.createShaderKey());
+  return ptr ? *ptr : nullptr;
+}
+
+void set_cached_shader(Shader *shader)
+{
+  cached_shaders[shader->createShaderKey()] = shader;
+}
+
 ShaderDef shader = { //
     .vertexSource = R"(
 precision highp float;
@@ -27,4 +46,4 @@ in vec3 a;
     .defines = {
         {"HAS_COLOR", "false"}, //
     }};
-}
+} // namespace sculptcore::gpu

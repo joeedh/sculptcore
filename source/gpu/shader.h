@@ -160,7 +160,43 @@ struct Shader {
       fragmentSource_ = line + fragmentSource_;
     }
 
+    is_final_shader_ = true;
+
     return cpy;
+  }
+
+  util::StringKey createShaderKey() const
+  {
+    // using namespace sculptcore::util;
+    using sculptcore::util::get_stringkey;
+
+    char key[256];
+
+    string ret;
+
+    sprintf(key,
+            "%d:%d:\n",
+            int(get_stringkey(fragmentSource_)),
+            int(get_stringkey(vertexSource_)));
+
+    ret += key;
+
+    auto int2str = [](int d) {
+      char buf[256];
+      sprintf(buf, "%d", d);
+      return string(buf);
+    };
+
+    /* Client code might dynamically add more attributes. */
+    for (auto &pair : attrs_) {
+      ret += int2str(get_stringkey(pair.key)) + ":";
+    }
+
+    for (auto &pair : defines_) {
+      ret += int2str(get_stringkey(pair.key)) + ":";
+    }
+
+    return get_stringkey(ret);
   }
 
 private:
@@ -170,5 +206,8 @@ private:
   util::Map<string, string> defines_;
   bool is_final_shader_ = false;
 };
+
+Shader *get_cached_shader(const Shader &shader);
+void set_cached_shader(Shader *shader);
 
 } // namespace sculptcore::gpu

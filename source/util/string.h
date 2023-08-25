@@ -165,7 +165,7 @@ template <typename Char> struct StringRef {
 
   using const_char_star = const char *;
 
-  operator const_char_star()
+  operator const_char_star() const
   {
     return data_;
   }
@@ -208,9 +208,9 @@ public:
     data_[0] = 0;
   }
 
-  operator StringRef<Char>()
+  operator StringRef<Char>() const
   {
-    return StringRef(data_);
+    return StringRef<Char>(data_);
   }
 
   template <size_t N> String(StrLiteral<N> lit)
@@ -316,7 +316,7 @@ public:
     return data_;
   }
 
-  operator const char *()
+  operator const char *() const
   {
     return data_;
   }
