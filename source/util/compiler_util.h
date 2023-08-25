@@ -73,6 +73,16 @@ static inline const void *pointer_offset(const void *ptr, int n)
     return T(uint64_t(a) & uint64_t(flag));                                              \
   }
 
+/* Example:
+    enum class _AttrFlag {
+      NONE = 0,
+      TOPO = 1 << 0,
+      TEMP = 1 << 1,
+      NOCOPY = 1 << 2,
+      NOINTERP = 1 << 3,
+    };
+    FlagClass(AttrFlag, _AttrFlag);
+ */
 #define FlagClass(Name, Enum)                                                            \
   struct Name {                                                                          \
     using enum Enum;                                                                     \

@@ -8,6 +8,5 @@ add_subdirectory(gpu)
 add_subdirectory(window)
 add_subdirectory(props)
 add_subdirectory(brush)
-add_subdirectory(draw)
 add_subdirectory(app)
 
