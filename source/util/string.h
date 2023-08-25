@@ -331,6 +331,31 @@ public:
     return detail::strcmp<Char>(c_str(), vb.c_str()) == 0;
   }
 
+  String operator+(const String &b) const
+  {
+    return String(*this).operator+=(b);
+  }
+
+  String &operator+=(const String &b)
+  {
+    ensure_size(size_ + b.size_);
+
+    int j = size_;
+    for (int i = 0; i < b.size_; i++) {
+      data_[j++] = b.data_[i];
+    }
+
+    size_ += b.size_;
+    data_[size_] = 0;
+
+    return *this;
+  }
+
+  size_t size() const
+  {
+    return size_;
+  }
+
 private:
   /* Ensures data has at least size+1 elements, does not set size_*/
   void ensure_size(int size)
@@ -358,6 +383,11 @@ private:
   Char static_storage_[static_size];
   int size_ = 0; /* does not include null-terminating byte. */
 };
+
+template <typename Char> String<Char> operator+(const Char *a, const String<Char> &b)
+{
+  return String<Char>(a) + b;
+}
 
 using string = String<char>;
 using stringref = StringRef<char>;

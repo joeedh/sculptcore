@@ -57,13 +57,6 @@ public:
   using iterator = iterator_base<Vector, T>;
   using const_iterator = iterator_base<const Vector, const T>;
 
-#if 0
-  template <std::same_as<T>... Args> Vector(Args... args)
-  {
-
-  }
-#endif
-
   flatten_inline Vector(std::initializer_list<T> list)
   {
     ensure_size(list.size());

@@ -22,25 +22,28 @@ struct Uniform {
 
   Uniform(const Uniform &b)
   {
-    copy_intern(b);
+    type_ = b.type_;
+    size_t size = gpu_sizeof(type_);
+    default_ = alloc::alloc("uniform", size);
+
+    memcpy(default_, b.default_, size);
+    bound_ = false;
   }
 
   Uniform(Uniform &&b)
   {
-    move_intern(std::forward<Uniform>(b));
+    name_ = std::move(name_);
+    default_ = b.default_;
+    type_ = b.type_;
+    bound_ = b.bound_;
+    glLoc_ = b.glLoc_;
+
+    b.default_ = nullptr;
+    b.type_ = GPUType::TYPE_INVALID;
+    b.bound_ = false;
   }
 
-  Uniform &operator=(Uniform &&b) noexcept
-  {
-    if (this == &b) {
-      return *this;
-    }
-
-    this->~Uniform();
-    move_intern(std::forward<Uniform>(b));
-
-    return *this;
-  }
+  DEFAULT_MOVE_ASSIGNMENT(Uniform)
 
   Uniform &operator=(const Uniform &b) noexcept
   {
@@ -49,7 +52,9 @@ struct Uniform {
     }
 
     this->~Uniform();
-    copy_intern(b);
+
+    /* Forward to copy constructor. */
+    new (static_cast<void *>(this)) Uniform(b);
 
     return *this;
   }
@@ -85,29 +90,6 @@ struct Uniform {
   }
 
 private:
-  void copy_intern(const Uniform &b) noexcept
-  {
-    type_ = b.type_;
-    size_t size = gpu_sizeof(type_);
-    default_ = alloc::alloc("uniform", size);
-
-    memcpy(default_, b.default_, size);
-    bound_ = false;
-  }
-
-  void move_intern(Uniform &&b) noexcept
-  {
-    name_ = std::move(name_);
-    default_ = b.default_;
-    type_ = b.type_;
-    bound_ = b.bound_;
-    glLoc_ = b.glLoc_;
-
-    b.default_ = nullptr;
-    b.type_ = GPUType::TYPE_INVALID;
-    b.bound_ = false;
-  }
-
   string name_;
   void *default_ = nullptr;
   GPUType type_ = GPUType::TYPE_INVALID;
@@ -139,7 +121,9 @@ struct Shader {
     vertexSource_ = std::move(b.vertexSource_);
     fragmentSource_ = std::move(b.fragmentSource_);
     attrs_ = std::move(b.attrs_);
-
+    uniforms_ = std::move(b.uniforms_);
+    defines_ = std::move(b.defines_);
+    is_final_shader_ = b.is_final_shader_;
   }
 
   Shader(const ShaderDef &def)
@@ -159,6 +143,24 @@ struct Shader {
     for (auto &pair : def.defines) {
       defines_[pair.key] = pair.value;
     }
+  }
+
+  Shader createFinalShader()
+  {
+    Shader cpy = *this;
+
+    for (auto &pair : defines_) {
+      string line = "#define " + pair.key;
+      if (pair.value.size() > 0) {
+        line += " = " + pair.value;
+      }
+      line += "\n";
+
+      vertexSource_ = line + vertexSource_;
+      fragmentSource_ = line + fragmentSource_;
+    }
+
+    return cpy;
   }
 
 private:
