@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <thread>
+#include <shellapi.h>
 
 namespace sculptcore::time {
 void sleep_ms(int ms)
