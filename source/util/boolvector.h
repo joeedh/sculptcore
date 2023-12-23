@@ -4,6 +4,7 @@
 #include "compiler_util.h"
 #include <cmath>
 #include <cstdint>
+#include <algorithm>
 
 namespace sculptcore::util {
 template <int static_size = 32> class BoolVector {

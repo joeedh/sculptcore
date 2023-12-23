@@ -5,7 +5,14 @@ set(SRC
   PUBLIC export.h
   PUBLIC time.h
   PUBLIC cpu.h
-  win32.cc
+  common.cc
 )
+
+if (NOT BUILD_WASM)
+set(SRC 
+    ${SRC}
+    win32.cc
+)
+endif()
 
 sc_add_library(platform "${SRC}" "${LIB}" OBJECT)

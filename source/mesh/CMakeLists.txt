@@ -16,6 +16,8 @@ set(SRC
   PUBLIC mesh_types.h
   PUBLIC mesh_shapes.h
   PUBLIC idmap.h
+  c-api/mesh_c_api.h
+  c-api/mesh_c_api.cc
   attribute.cc
   idmap.cc
   mesh.cc

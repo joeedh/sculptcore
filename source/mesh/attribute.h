@@ -232,7 +232,7 @@ struct AttrRef {
   {
   }
 
-  AttrRef(const AttrRef &b) : name(b.name), type(b.type)
+  AttrRef(const AttrRef &b) : name(b.name), type(b.type), data(b.data), flag(b.flag)
   {
   }
 

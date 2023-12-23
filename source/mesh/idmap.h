@@ -64,9 +64,9 @@ struct IDMap {
 
   template <ElemType elem_type> void free_id(int elem)
   {
-    int id = id_attr<elem_type>[elem];
+    int id = id_attr<elem_type>()[elem];
 
-    id_attr<elem_type>[elem] = ID_NONE;
+    id_attr<elem_type>()[elem] = ID_NONE;
     idmap[id] = -1;
   }
 

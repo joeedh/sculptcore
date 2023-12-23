@@ -42,7 +42,7 @@ template <typename Child, typename ValueType> struct PropBase {
   }
 
   PropBase(PropBase &&b)
-      : type(b.type), type(b.type), binding_offset(b.binding_offset), flag(b.flag)
+      : type(b.type), binding_offset(b.binding_offset), flag(b.flag)
   {
     name = std::move(b.name);
     ui_name = std::move(b.ui_name);

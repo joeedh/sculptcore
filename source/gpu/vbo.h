@@ -146,7 +146,7 @@ struct Buffer {
 private:
   template <typename T, typename List> int load_data_intern(List &list)
   {
-    T *data = get_data();
+    T *data = get_data<T>();
 
     if constexpr (!is_simple<T>()) {
       for (int i = 0; i < size; i++) {

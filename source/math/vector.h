@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <type_traits>
 #include <utility>
 
@@ -95,7 +96,7 @@ public:
 #endif
 
 #define VEC_OP_DEF(op)                                                                   \
-  inline Vec operator##op(const Vec &b)                                                  \
+  inline Vec operator op(const Vec &b)                                                  \
   {                                                                                      \
     Vec r;                                                                               \
     for (int i = 0; i < vec_size; i++) {                                                 \
@@ -103,7 +104,7 @@ public:
     }                                                                                    \
     return r;                                                                            \
   }                                                                                      \
-  inline Vec operator##op(T b)                                                           \
+  inline Vec operator op(T b)                                                           \
   {                                                                                      \
     Vec r;                                                                               \
     for (int i = 0; i < vec_size; i++) {                                                 \
@@ -111,14 +112,14 @@ public:
     }                                                                                    \
     return r;                                                                            \
   }                                                                                      \
-  inline Vec &operator##op##=(T b)                                                       \
+  inline Vec &operator op##=(T b)                                                       \
   {                                                                                      \
     for (int i = 0; i < vec_size; i++) {                                                 \
       vec_[i] op## = b;                                                                  \
     }                                                                                    \
     return *this;                                                                        \
   }                                                                                      \
-  inline Vec &operator##op##=(const Vec b)                                               \
+  inline Vec &operator op##=(const Vec b)                                               \
   {                                                                                      \
     for (int i = 0; i < vec_size; i++) {                                                 \
       vec_[i] op## = b.vec_[i];                                                          \

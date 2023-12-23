@@ -11,12 +11,13 @@
         "strategy": "external"
       },
       "environment": {
-        "VCPKG_ROOT": "e:/dev/vcpkg",
+        "VCPKG_ROOT": "c:/dev/vcpkg",
         "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/Zi /O2 /Ob1 /DNDEBUG /std:c++20 ",
+        "BUILD_WASM": "false"
       }
     },
     {
@@ -29,14 +30,15 @@
         "strategy": "external"
       },
       "environment": {
-        "VCPKG_ROOT": "e:/dev/vcpkg",
+        "VCPKG_ROOT": "c:/dev/vcpkg",
         "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/Zi /O2 /Ob1 /DNDEBUG /std:c++20 ",
         "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_C_COMPILER": "clang-cl"
+        "CMAKE_C_COMPILER": "clang-cl",
+        "BUILD_WASM": "false"
       }
     },
     {
@@ -49,11 +51,33 @@
         "strategy": "external"
       },
       "environment": {
-        "VCPKG_ROOT": "e:/dev/vcpkg",
+        "VCPKG_ROOT": "c:/dev/vcpkg",
         "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
       },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_WASM": "false"
+      }
+    },
+    {
+      "name": "WASM",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/build/${presetName}/bin",
+      "toolchainFile": "${sourceDir}/build_files/WASM.cmake",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "generator": "Ninja",
+      "environment": {
+        "VCPKG_ROOT": "c:/dev/vcpkg",
+        "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_WASM": "true",
+        "EMSDK_PATH": "c:/dev/emsdk",
+        "EMCC_PATH": "C:\\dev\\emsdk\\upstream\\emscripten\\emcc.bat"
       }
     }
   ]

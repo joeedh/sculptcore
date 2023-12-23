@@ -362,6 +362,11 @@ public:
     return data_[size_ - 1];
   }
 
+  T *data()
+  {
+    return data_;
+  }
+
 private:
   inline void deconstruct_all()
   {

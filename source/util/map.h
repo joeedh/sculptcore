@@ -429,7 +429,7 @@ public:
       return false;
     }
 
-    used_[i] = false;
+    this->used_[i] = false;
 
     if (out_value) {
       *out_value = std::move(table_[i].value);

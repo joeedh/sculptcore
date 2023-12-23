@@ -389,7 +389,7 @@ struct Proxies {
 
     template <typename ProxyImpl> inline void operator=(const ProxyImpl &b)
     {
-      ProxyBaseCls::operator=<ProxyImpl>(b);
+      ProxyBaseCls::template operator=<ProxyImpl>(b);
       return *this;
     }
 
@@ -548,7 +548,7 @@ struct Proxies {
       return m->f.no[i];
     }
 
-    inline int &list_count()
+    inline short &list_count()
     {
       return m->f.list_count[i];
     }
