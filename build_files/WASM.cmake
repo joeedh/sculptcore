@@ -1,7 +1,8 @@
-set(CMAKE_CXX_COMPILER python "${CMAKE_SOURCE_DIR}/build_files/emsdk_env.py" "${EMSDK_PATH}" emcc -DWASM)
+#note: we have debugging info enabled for sourcemaps
+set(CMAKE_CXX_COMPILER python "${CMAKE_SOURCE_DIR}/build_files/emsdk_env.py" "${EMSDK_PATH}" emcc "-g -gsource-map -DWASM" )
 set(CMAKE_CXX_FLAGS CACHE STRING "flags")
 set(CMAKE_CXX_FLAGS_RELEASE "" CACHE STRING "flags")
-set(CMAKE_C_COMPILER python "${CMAKE_SOURCE_DIR}/build_files/emsdk_env.py" "${EMSDK_PATH}" emcc -DWASM)
+set(CMAKE_C_COMPILER python "${CMAKE_SOURCE_DIR}/build_files/emsdk_env.py" "${EMSDK_PATH}" emcc "-g -gsource-map -DWASM" )
 set(CMAKE_C_FLAGS CACHE STRING "flags")
 set(CMAKE_C_FLAGS_RELEASE "" CACHE STRING "flags")
 

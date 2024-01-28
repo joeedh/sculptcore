@@ -24,6 +24,6 @@ for sym in exportSymbols:
 	first = False
 	cmd += "_" + sym
 
-cmd += " -o sculptcore.js" 
+cmd += " -g -gsource-map -o sculptcore.js" 
 print("Linking final WASM/JS files. . .", cmd)
 sys.exit(os.system(cmd))
