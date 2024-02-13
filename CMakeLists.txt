@@ -41,6 +41,8 @@ else()
 	set(LIB
 	  util
 	  mesh
+	  spatial
+	  brush
 	)
 
 	add_library(sculptcore STATIC)

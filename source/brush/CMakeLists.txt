@@ -10,6 +10,9 @@ set(SRC
   PUBLIC test.h
   PUBLIC exec.h
   PUBLIC props.h
+  PUBLIC command.h
+  PUBLIC brush_iter.h
+  command.cc
   brush.cc
 )
 

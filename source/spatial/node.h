@@ -9,8 +9,12 @@
 #include "mesh/mesh.h"
 
 #include "spatial_enums.h"
+#include "spatial_attrs.h"
 
 #include <cfloat>
+
+using namespace sculptcore::math;
+using sculptcore::mesh::Mesh;
 
 namespace sculptcore::gpu {
 struct VBO;
@@ -23,6 +27,8 @@ struct NodeTri {
   int f;
   int eflag;
 };
+
+struct SpatialNode;
 
 struct SpatialNode {
   struct NodeData {
@@ -40,7 +46,47 @@ struct SpatialNode {
 
     util::Vector<NodeTri> tris;
 
+    Mesh *m;
     GPUData gpu;
+  };
+
+  struct VertexIter {
+    float3 *co = nullptr;
+    float3 *no = nullptr;
+    float *mask = nullptr;
+    int index = 0;
+    int nodeIndex = 0;
+    SpatialNode &node;
+
+    VertexIter(SpatialNode &node_)
+        : node(node_), iter(node.data->unique_verts.begin()),
+          end_iter(node.data->unique_verts.end())
+    {
+    }
+
+    bool operator==(const VertexIter &b)
+    {
+      return iter == b.iter;
+    }
+
+    bool operator!=(const VertexIter &b)
+    {
+      return iter != b.iter;
+    }
+
+    VertexIter &operator*()
+    {
+      auto *m = node.data->m;
+      int i = index = *iter;
+
+      co = &m->v.co[i];
+      no = &m->v.no[i];
+      mask = &node.treeMesh->v.mask[i];
+    }
+
+  private:
+    util::OrderedSet<int>::iterator iter;
+    util::OrderedSet<int>::iterator end_iter;
   };
 
   SpatialNode *children[2];
@@ -52,6 +98,7 @@ struct SpatialNode {
 
   NodeFlags flag = Spatial_None;
   NodeData *data = nullptr;
+  SpatialTreeMesh *treeMesh = nullptr;
 
   /* Node IDs are always > 0. */
   int id = 0;
@@ -68,6 +115,8 @@ struct SpatialNode {
     flag = b.flag;
     data = b.data;
     id = b.id;
+
+    treeMesh = b.treeMesh;
 
     children[0] = b.children[0];
     children[1] = b.children[1];
@@ -127,4 +176,5 @@ struct SpatialNode {
 
 private:
 };
+
 } // namespace sculptcore::spatial

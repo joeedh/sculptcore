@@ -83,15 +83,15 @@ void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
   node->flag |= Spatial_RegenTris | Spatial_RegenBounds;
 
   FaceProxy face(m, f);
-  face_node[face] = node->id;
+  treeMesh.f.node[face] = node->id;
 
   for (auto list : face.lists()) {
     for (auto c : list) {
-      if (vert_node[c.v()]) {
+      if (treeMesh.v.node[c.v()]) {
         node->data->other_verts.add(c.v());
       } else {
         node->data->unique_verts.add(c.v());
-        vert_node[c.v()] = node->id;
+        treeMesh.v.node[c.v()] = node->id;
       }
     }
   }
@@ -112,7 +112,7 @@ void SpatialTree::split_node(SpatialNode *node)
     mean += v;
 
     /* Unassign verts. */
-    vert_node[v] = 0;
+    treeMesh.v.node[v] = 0;
   }
 
   mean /= node->data->unique_verts.size();

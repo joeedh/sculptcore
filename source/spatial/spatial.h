@@ -10,14 +10,15 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
 
+#include "spatial_attrs.h"
+
 namespace sculptcore::spatial {
 struct SpatialTree {
   using Mesh = mesh::Mesh;
 
   int leaf_limit = 512;
 
-  mesh::BuiltinAttr<int, ".spatial.v.node"> vert_node;
-  mesh::BuiltinAttr<int, ".spatial.f.node"> face_node;
+  SpatialTreeMesh treeMesh;
 
   Mesh *m;
 
@@ -30,8 +31,7 @@ struct SpatialTree {
 
   void setup()
   {
-    vert_node.ensure(m->v.attrs);
-    face_node.ensure(m->v.attrs);
+    treeMesh.setup(m);
   }
 
   bool node_needs_split(SpatialNode *node)
@@ -85,6 +85,7 @@ private:
   {
     SpatialNode *node = alloc::New<SpatialNode>("Spatial Node");
     node->id = node_idgen++;
+    node->treeMesh = &treeMesh;
     nodes.append(node);
 
     if (node->id >= node_idmap.size()) {
