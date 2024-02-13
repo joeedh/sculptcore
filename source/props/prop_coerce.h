@@ -1,4 +1,5 @@
 #include "prop_enums.h"
+#include "prop_struct.h"
 #include "prop_types.h"
 
 #include "math/matrix.h"
@@ -29,6 +30,9 @@ template <typename Callback> static void proptype_dispatch(Prop type, Callback c
     break;
   case Prop::FLOAT32:
     cb.template operator()<Float32Prop>();
+    break;
+  case Prop::STRUCT:
+    cb.template operator()<StructProp>();
     break;
   }
 }
@@ -89,26 +93,33 @@ void num_prop_from_double(Property *prop, double d)
   });
 }
 
+#define IS_NUM_TYPE(Type)                                                                \
+  ((std::is_integral_v<Type> || std::is_floating_point_v<Type>)&&!std::is_pointer_v<Type>)
+
 /* Does not check type of prop. */
 template <typename T> T prop_value_get(Property *prop)
 {
-  proptype_dispatch(prop->type, [prop]<typename PropType>() {
+  T result = {};
+
+  proptype_dispatch(prop->type, [prop, &result]<typename PropType>() {
     PropType *real_prop = reinterpret_cast<PropType *>(prop);
 
-    return real_prop->get();
+    if constexpr (std::is_same_v<typename PropType::value_type, T>) {
+      result = real_prop->get();
+    }
   });
 
-  return T();
+  return result;
 }
 
 /* Checks type of prop. */
-template <typename T> PropError prop_coerce(Property *prop, T *value_out)
+template <typename Type> PropError prop_coerce(Property *prop, Type *value_out)
 {
-  Prop type1 = type_to_proptype<T>();
+  Prop type1 = type_to_proptype<Type>();
   Prop type2 = prop->type;
 
   if (type1 == type2) {
-    *value_out = prop_value_get<T>(prop);
+    *value_out = prop_value_get<Type>(prop);
     return PropError::ERROR_NONE;
   }
 
@@ -117,7 +128,7 @@ template <typename T> PropError prop_coerce(Property *prop, T *value_out)
       return PropError::ERROR_INVALID_TYPE;
     }
 
-    *value_out = T(num_prop_to_double(prop));
+    *value_out = Type(num_prop_to_double(prop));
 
     return PropError::ERROR_NONE;
   } else {
@@ -126,8 +137,12 @@ template <typename T> PropError prop_coerce(Property *prop, T *value_out)
     proptype_dispatch(prop->type, [&]<typename PropType>() {
       PropType *real_prop = reinterpret_cast<PropType *>(prop);
 
-      *value_out = real_prop->get();
-      error = PropError::ERROR_NONE;
+      if constexpr (!std::is_same_v<decltype(real_prop->get()), Type>) {
+        error = PropError::ERROR_INVALID_TYPE;
+      } else {
+        *value_out = real_prop->get();
+        error = PropError::ERROR_NONE;
+      }
     });
 
     return error;

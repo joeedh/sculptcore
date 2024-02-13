@@ -108,6 +108,10 @@ using const_string = ConstStr<char>;
 namespace detail {
 template <typename Char> int strcmp(const Char *a, const Char *b)
 {
+  if (!a || !b) {
+    return false;
+  }
+
   while (*a && *b) {
     if (*a < *b) {
       return -1;

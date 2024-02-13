@@ -6,6 +6,12 @@ set(LIB
 set(SRC
   PUBLIC vector.h
   PUBLIC color.h
+  PUBLIC lut.h
+  PUBLIC geom.h 
+  PUBLIC quat.h
+  PUBLIC matrix.h
+  PUBLIC bspline.h
+  PUBLIC mix.h
   color.cc
 )
 

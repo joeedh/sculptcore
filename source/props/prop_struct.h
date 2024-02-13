@@ -1,6 +1,5 @@
 #pragma once
 
-#include "prop_coerce.h"
 #include "prop_types.h"
 
 #include "util/alloc.h"
@@ -10,6 +9,12 @@
 #include "util/vector.h"
 
 namespace sculptcore::props {
+
+namespace struct_detail_2 {
+/* very evil attempt to resolve circular reference with prop_coerce.h*/
+template <typename T>
+const T lookupValue(void *struct_def, void *owner, util::string &name, T default_value);
+} // namespace struct_detail_2
 
 struct struct_detail {
   struct StructDef;
@@ -39,22 +44,8 @@ struct struct_detail {
 
     template <typename T> const T lookupValue(util::string name, T default_value)
     {
-      Property *prop = struct_def->lookup(name);
-
-      if (!prop) {
-        return default_value;
-      }
-
-      prop->owner = owner;
-
-      T value;
-      PropError error = prop_coerce<T>(prop, &value);
-
-      if (error != PropError::ERROR_NONE) {
-        return default_value;
-      }
-
-      return value;
+      return sculptcore::props::struct_detail_2::lookupValue<T>(
+          struct_def, owner, name, default_value);
     }
 
   private:
@@ -124,9 +115,25 @@ struct struct_detail {
       return nullptr;
     }
 
+    bool has(util::string name)
+    {
+      return lookup(name) != nullptr;
+    }
+
+    util::Map<util::string, Property *>::key_range keys()
+    {
+      return members_.keys();
+    }
+
     util::Map<util::string, Property *>::value_range properties()
     {
       return members_.values();
+    }
+
+    template <typename Prop> StructDef &add(Prop *prop)
+    {
+      members_[name] = reinterpret_cast<Property *>(prop);
+      return *this;
     }
 
   private:

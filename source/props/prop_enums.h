@@ -34,6 +34,8 @@ enum class Prop {
 enum class PropFlag {
   NONE = 0,
   READ_ONLY = 1 << 0,
+  INHERIT_PARENT = 1 << 1,
+  INHERIT_UNIFIED = 1 << 2
 };
 FlagOperators(PropFlag);
 
@@ -42,5 +44,7 @@ enum class PropError {
   ERROR_INVALID_TYPE = 1 << 0,
   ERROR_NOT_EXISTS = 1 << 1,
 };
+
+FlagOperators(PropError);
 
 } // namespace sculptcore::props

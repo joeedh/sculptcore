@@ -20,6 +20,8 @@
 #include <cstring>
 
 namespace sculptcore::props {
+struct Dynamics;
+
 namespace detail {
 
 template <typename Child, typename ValueType> struct PropBase {
@@ -28,8 +30,12 @@ template <typename Child, typename ValueType> struct PropBase {
   int binding_offset = -1;
   PropFlag flag = PropFlag::NONE;
 
+  Dynamics *dynamics = nullptr;
+
   std::function<ValueType *(ValueType *existing_val, void *owner)> getter;
   std::function<void(ValueType *existing_val, void *owner, ValueType &new_value)> setter;
+
+  using value_type = ValueType;
 
   PropBase(Prop type_) : type(type_)
   {
@@ -41,8 +47,7 @@ template <typename Child, typename ValueType> struct PropBase {
   {
   }
 
-  PropBase(PropBase &&b)
-      : type(b.type), binding_offset(b.binding_offset), flag(b.flag)
+  PropBase(PropBase &&b) : type(b.type), binding_offset(b.binding_offset), flag(b.flag)
   {
     name = std::move(b.name);
     ui_name = std::move(b.ui_name);
@@ -185,8 +190,7 @@ private:
   T internal_value_;
 };
 
-class Empty {
-};
+class Empty {};
 } // namespace detail
 
 using Property = detail::PropBase<detail::Empty, void *>;
@@ -204,7 +208,7 @@ using Property = detail::PropBase<detail::Empty, void *>;
   }
 
 NUMPROP_DECL(Float64Prop, double, Prop::FLOAT64);
-NUMPROP_DECL(Float32Prop, double, Prop::FLOAT32);
+NUMPROP_DECL(Float32Prop, float, Prop::FLOAT32);
 NUMPROP_DECL(Vec2Prop, math::float2, Prop::VEC2F);
 NUMPROP_DECL(Vec3Prop, math::float3, Prop::VEC3F);
 NUMPROP_DECL(Vec4Prop, math::float4, Prop::VEC4F);

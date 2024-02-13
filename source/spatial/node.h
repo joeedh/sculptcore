@@ -8,8 +8,8 @@
 
 #include "mesh/mesh.h"
 
-#include "spatial_enums.h"
 #include "spatial_attrs.h"
+#include "spatial_enums.h"
 
 #include <cfloat>
 
@@ -76,17 +76,31 @@ struct SpatialNode {
 
     VertexIter &operator*()
     {
-      auto *m = node.data->m;
-      int i = index = *iter;
+      return *this;
+    }
 
-      co = &m->v.co[i];
-      no = &m->v.no[i];
-      mask = &node.treeMesh->v.mask[i];
+    VertexIter &operator++()
+    {
+      ++iter;
+
+      if (iter != end_iter) {
+        auto *m = node.data->m;
+        int i = index = *iter;
+
+        co = &m->v.co[i];
+        no = &m->v.no[i];
+        mask = &node.treeMesh->v.mask[i];
+      }
+
+      nodeIndex = _nodeIndex++;
+
+      return *this;
     }
 
   private:
     util::OrderedSet<int>::iterator iter;
     util::OrderedSet<int>::iterator end_iter;
+    int _nodeIndex = 0;
   };
 
   SpatialNode *children[2];

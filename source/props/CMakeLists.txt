@@ -10,6 +10,8 @@ set(SRC
   PUBLIC prop_struct.h
   PUBLIC prop_types.h
   PUBLIC prop_curve.h
+  prop_inherit.cc
+  prop_struct.cc
   props.cc
   curve_cache.cc
 )
