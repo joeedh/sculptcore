@@ -1,6 +1,7 @@
 #pragma once
 
 #include <utility>
+#include <cstddef>
 
 /*
  * Leak debugger allocator.

@@ -91,7 +91,7 @@ public:
     capacity_ = b.capacity_;
 
     if (size_ > static_size) {
-      data_ = static_cast<T *>(alloc::alloc(sizeof(T) * b.capacity_));
+      data_ = static_cast<T *>(alloc::alloc("Vector", sizeof(T) * b.capacity_));
     } else {
       data_ = static_storage();
     }
