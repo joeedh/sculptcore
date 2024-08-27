@@ -183,7 +183,8 @@ public:
       data_ = static_storage();
 
       for (int i = 0; i < size_; i++) {
-        data_[i] = std::move(b.data_[i]);
+        new (static_cast<void*>(data_+i)) T(std::move(b.data_[i]));
+        //data_[i] = std::move(b.data_[i]);
       }
 
       b.data_ = nullptr;
@@ -197,6 +198,7 @@ public:
 
   DEFAULT_MOVE_ASSIGNMENT(Vector)
 
+public:
   const_iterator begin() const
   {
     return const_iterator(*this, 0);
@@ -402,7 +404,8 @@ private:
       memcpy(static_cast<void *>(data_), static_cast<void *>(old), sizeof(T) * size_);
     } else {
       for (int i = 0; i < size_; i++) {
-        data_[i] = std::move(old[i]);
+        //data_[i] = std::move(old[i]);
+        new (static_cast<void*>(data_+i)) T(std::move(old[i]));
       }
     }
 
