@@ -3,9 +3,11 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <memory>
 
 #define MAKE_TAG(a, b, c, d) (a | (b << 8) | (c << 16) | d << 24)
 #define TAG1 MAKE_TAG('t', 'a', 'g', '1')
@@ -20,7 +22,12 @@ struct MemHead {
   size_t size;
   const char *tag;
   struct MemList *list;
+  #ifdef WASM
+  // pad to 8 bytes
+  char _pad[4];
+  #endif
 };
+static_assert(sizeof(MemHead) % 8 == 0);
 
 struct MemList {
   MemHead *first, *last;

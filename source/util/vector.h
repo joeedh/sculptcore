@@ -97,7 +97,8 @@ public:
     }
 
     for (int i = 0; i < size_; i++) {
-      data_[i] = b.data_[i];
+      // use copy constructor
+      new (static_cast<void *>(data_ + i)) T(std::forward<T &>(b.data_[i]));
     }
   }
 
@@ -163,6 +164,10 @@ public:
 
   Vector &operator=(const Vector &b)
   {
+    if (&b == this) {
+      return *this;
+    }
+
     deconstruct_all();
 
     resize<false>(b.size());
@@ -183,8 +188,8 @@ public:
       data_ = static_storage();
 
       for (int i = 0; i < size_; i++) {
-        new (static_cast<void*>(data_+i)) T(std::move(b.data_[i]));
-        //data_[i] = std::move(b.data_[i]);
+        new (static_cast<void *>(data_ + i)) T(std::move(b.data_[i]));
+        // data_[i] = std::move(b.data_[i]);
       }
 
       b.data_ = nullptr;
@@ -301,9 +306,13 @@ public:
     return false;
   }
 
-  T &grow_one()
+  template <typename... Args> T &grow_one(Args... args)
   {
-    return append_intern();
+    T &result = append_intern();
+    if constexpr (!is_simple<T>()) {
+      new (static_cast<void *>(&result)) T(std::forward<Args>(args)...);
+    }
+    return result;
   }
 
   void append(const T &value)
@@ -404,8 +413,8 @@ private:
       memcpy(static_cast<void *>(data_), static_cast<void *>(old), sizeof(T) * size_);
     } else {
       for (int i = 0; i < size_; i++) {
-        //data_[i] = std::move(old[i]);
-        new (static_cast<void*>(data_+i)) T(std::move(old[i]));
+        // data_[i] = std::move(old[i]);
+        new (static_cast<void *>(data_ + i)) T(std::move(old[i]));
       }
     }
 

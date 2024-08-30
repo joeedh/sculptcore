@@ -61,5 +61,5 @@ print("COMMAND:", CMD, cmd)
 
 sys.stdout.flush()
 
-sys.exit(os.system(CMD + " " + cmd + " -g -gsource-map "))
+sys.exit(os.system(CMD + " " + cmd))
 
