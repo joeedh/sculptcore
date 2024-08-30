@@ -380,6 +380,7 @@ private:
       if (data_ != static_storage_) {
         alloc::release(static_cast<void *>(data_));
       }
+      data_ = data2;
     }
   }
 

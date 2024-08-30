@@ -432,10 +432,9 @@ private:
   }
 
   T *data_ = nullptr;
-  uint8_t static_storage_[static_size * sizeof(T)];
-
-  size_t capacity_ = 0;
   size_t size_ = 0;
+  size_t capacity_ = 0;
+  uint8_t static_storage_[static_size * sizeof(T)];
 };
 
 } // namespace sculptcore::util

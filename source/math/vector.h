@@ -96,7 +96,7 @@ public:
 #endif
 
 #define VEC_OP_DEF(op)                                                                   \
-  inline Vec operator op(const Vec &b)                                                  \
+  inline Vec operator op(const Vec &b) const                                                \
   {                                                                                      \
     Vec r;                                                                               \
     for (int i = 0; i < vec_size; i++) {                                                 \
@@ -104,7 +104,7 @@ public:
     }                                                                                    \
     return r;                                                                            \
   }                                                                                      \
-  inline Vec operator op(T b)                                                           \
+  inline Vec operator op(T b) const                                                          \
   {                                                                                      \
     Vec r;                                                                               \
     for (int i = 0; i < vec_size; i++) {                                                 \
@@ -189,6 +189,30 @@ public:
   T length()
   {
     return std::sqrt(dot(*this));
+  }
+
+  T lengthSqr() {
+    return dot(*this);
+  }
+
+  T distance(const Vec &b) {
+    return std::sqrt(distanceSqr(b));
+  }
+
+  T distanceSqr(const Vec &b) {
+    return (b - *this).lengthSqr();
+  }
+
+  Vec &rotate2d(Vec &center, double th) {
+    double cos = std::cos(th);
+    double sin = std::sin(th);
+    double x = vec_[0] - center[0];
+    double y = vec_[1] - center[1];
+
+    this[0] = cos*x - sin*y;
+    this[1] = cos*y + sin*x;
+
+    return *this;
   }
 
   Vec &interp(const Vec &b, double factor)
