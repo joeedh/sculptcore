@@ -103,7 +103,7 @@ static inline const void *pointer_offset(const void *ptr, int n)
     constexpr Name(Enum f) : val_(f)                                                     \
     {                                                                                    \
     }                                                                                    \
-    constexpr Name(int val) : val_(Enum(val))                                            \
+    constexpr Name(int val) : val_(static_cast<Enum>(val))                               \
     {                                                                                    \
     }                                                                                    \
     constexpr Name(const Name &b) : val_(b.val_)                                         \

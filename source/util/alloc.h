@@ -62,5 +62,6 @@ template <typename T> inline void DeleteArray(T *arg, size_t size)
   }
 }
 bool print_blocks();
+int getMemorySize();
 
 }; // namespace sculptcore::alloc

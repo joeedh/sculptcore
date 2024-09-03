@@ -188,8 +188,11 @@ public:
       data_ = static_storage();
 
       for (int i = 0; i < size_; i++) {
-        new (static_cast<void *>(data_ + i)) T(std::move(b.data_[i]));
-        // data_[i] = std::move(b.data_[i]);
+        if constexpr (!is_simple<T>()) {
+          new (static_cast<void *>(data_ + i)) T(std::move(b.data_[i]));
+        } else {
+          data_[i] = std::move(b.data_[i]);
+        }
       }
 
       b.data_ = nullptr;

@@ -203,15 +203,17 @@ public:
     return (b - *this).lengthSqr();
   }
 
-  Vec &rotate2d(Vec &center, double th) {
-    double cos = std::cos(th);
-    double sin = std::sin(th);
-    double x = vec_[0] - center[0];
-    double y = vec_[1] - center[1];
+  Vec &rotate2d(Vec center, double th) {
+    if constexpr(vec_size > 1) {
+      double cosTh = std::cos(th);
+      double sinTh = std::sin(th);
+      double x = vec_[0] - center[0];
+      double y = vec_[1] - center[1];
 
-    this[0] = cos*x - sin*y;
-    this[1] = cos*y + sin*x;
-
+      vec_[0] = cosTh*x - sinTh*y;
+      vec_[1] = cosTh*y + sinTh*x;
+    }
+    
     return *this;
   }
 

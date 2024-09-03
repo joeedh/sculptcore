@@ -7,11 +7,11 @@
 #include <cstdio>
 
 namespace sculptcore::math {
-template <typename Float, int N> struct Matrix {
+template <typename Float, int N, int Options=Eigen::ColMajor> struct Matrix {
   using Vector = Vec<Float, N>;
   using Vec3 = Vec<Float, 3>;
-  using Vec4 = Vec<float, 4>;
-  using EigenMatrix = Eigen::Matrix<Float, N, N, Eigen::RowMajor>;
+  using Vec4 = Vec<Float, 4>;
+  using EigenMatrix = Eigen::Matrix<Float, N, N, Options>;
 
   Matrix()
   {
@@ -109,7 +109,7 @@ template <typename Float, int N> struct Matrix {
         sum += v[j] * mat_[j][i];
       }
 
-      if constexpr (N == 4 && M == 3) {
+      if constexpr (N == 4 && M < 4) {
         sum += mat_[3][i];
       }
 

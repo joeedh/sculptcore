@@ -14,6 +14,7 @@
 #define TAG2 MAKE_TAG('t', 'a', 'g', '2')
 #define FREE MAKE_TAG('f', 'r', 'e', 'e')
 
+int memorySize = 0;
 struct MemList;
 
 struct MemHead {
@@ -48,10 +49,19 @@ bool print_blocks()
   return mem_list.first;
 }
 
+int getMemorySize() {
+  return memorySize;
+}
+
 void *alloc(const char *tag, size_t size)
 {
   size_t newsize = size + sizeof(MemHead);
   MemHead *mem = reinterpret_cast<MemHead *>(malloc(newsize));
+
+  if (mem == nullptr) {
+    fprintf(stderr, "allocation error of size %d\n", int(size));
+    return nullptr;
+  }
 
   mem->tag1 = TAG1;
   mem->tag2 = TAG2;
@@ -69,6 +79,8 @@ void *alloc(const char *tag, size_t size)
     mem->prev = mem_list.last;
     mem_list.last = mem;
   }
+
+  memorySize += mem->size + sizeof(MemHead);
 
   return reinterpret_cast<void *>(mem + 1);
 }
@@ -109,6 +121,8 @@ void release(void *ptr)
   mem->tag1 = FREE;
 
   std::lock_guard guard(mem_list_mutex);
+  
+  memorySize -= mem->size + sizeof(MemHead);
 
   /* Unlink from list. */
   if (mem_list.last == mem) {
