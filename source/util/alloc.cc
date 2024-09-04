@@ -142,6 +142,8 @@ void release(void *ptr)
   } else {
     mem->prev->next = mem->next;
   }
+
+  free(static_cast<void*>(mem));
 }
 
 } // namespace sculptcore::alloc
