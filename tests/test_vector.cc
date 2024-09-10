@@ -1,13 +1,13 @@
 #include "test_util.h"
-#include "util/alloc.h"
-#include "util/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/vector.h"
 #include <cstdio>
 
 test_init;
 
 int main()
 {
-  using namespace sculptcore::util;
+  using namespace litestl::util;
 
   {
     Vector<int, 32> list;

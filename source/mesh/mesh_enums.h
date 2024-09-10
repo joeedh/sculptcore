@@ -2,7 +2,9 @@
 
 #define ELEM_NONE -1
 
-#include "util/compiler_util.h"
+#include "litestl//util/compiler_util.h"
+
+using namespace litestl;
 
 namespace sculptcore::mesh {
 enum ElemType {

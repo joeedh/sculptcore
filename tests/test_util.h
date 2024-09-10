@@ -1,4 +1,4 @@
-#include "util/alloc.h"
+#include "litestl/util/alloc.h"
 
 #define test_init int retval = 0
 
@@ -8,5 +8,5 @@
 extern int retval;
 static bool test_end()
 {
-  return retval || sculptcore::alloc::print_blocks();
+  return retval || litestl::alloc::print_blocks();
 }

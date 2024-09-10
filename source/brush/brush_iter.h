@@ -1,6 +1,6 @@
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 
-using namespace sculptcore::math;
+using namespace litestl::math;
 
 namespace sculptcore::brush {
 struct BrushIterFull {

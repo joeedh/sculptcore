@@ -2,16 +2,17 @@
 
 #include "node.h"
 
-#include "math/vector.h"
-#include "util/map.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/vector.h"
 
 #include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
 
+using namespace litestl;
 using namespace sculptcore::mesh;
-using namespace sculptcore::math;
+using namespace litestl::math;
 
 namespace sculptcore::spatial {
 struct SpatialTreeMesh {

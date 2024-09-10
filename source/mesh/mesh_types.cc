@@ -1,8 +1,10 @@
 #include "mesh_types.h"
 #include "mesh.h"
 
-#include "util/assert.h"
-#include "util/vector.h"
+#include "litestl/util/assert.h"
+#include "litestl/util/vector.h"
+
+using namespace litestl;
 
 namespace sculptcore::mesh {
 using util::Vector;

@@ -1,18 +1,18 @@
 
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 #include "test_util.h"
 #include <cstdio>
 #include <cstring>
 
-#include "util/compiler_util.h"
+#include "litestl/util/compiler_util.h"
 test_init;
 
 int main()
 {
-  using namespace sculptcore;
-  using namespace sculptcore::math;
+  using namespace litestl;
+  using namespace litestl::math;
 
-  static_assert(sculptcore::util::is_simple<sculptcore::math::float3>());
+  static_assert(litestl::util::is_simple<litestl::math::float3>());
 
 #if 1
   {

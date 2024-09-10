@@ -2,15 +2,16 @@
 
 #include "attribute.h"
 #include "attribute_enums.h"
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 #include "mesh_base.h"
-#include "util/string.h"
+#include "litestl/util/string.h"
 
 #include <algorithm>
 #include <concepts>
 #include <cstdio>
 #include <type_traits>
 
+using namespace litestl;
 namespace sculptcore::mesh {
 template <typename T, util::StrLiteral Name, AttrFlag Flag = AttrFlag::NONE>
 struct BuiltinAttr : protected AttrRef {

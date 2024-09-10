@@ -9,9 +9,11 @@
 #include <span>
 #include <utility>
 
-#include "math/vector.h"
-#include "util/compiler_util.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/compiler_util.h"
+#include "litestl/util/vector.h"
+
+using namespace litestl;
 
 namespace sculptcore::mesh {
 

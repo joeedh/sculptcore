@@ -1,6 +1,8 @@
 #include "vbo.h"
 #include "opengl.h"
 
+using namespace litestl;
+
 namespace sculptcore::gpu {
 Buffer::~Buffer()
 {

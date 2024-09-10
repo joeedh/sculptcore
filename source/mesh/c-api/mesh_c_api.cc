@@ -1,16 +1,17 @@
 #include "mesh_c_api.h"
 
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
-#include "util/alloc.h"
-#include "util/string.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/string.h"
 
 #include <cstdio>
 
 using namespace sculptcore::mesh;
-using namespace sculptcore::util;
+using namespace litestl::util;
 using namespace sculptcore;
+using namespace litestl;
 
 using math::float3;
 

@@ -1,13 +1,14 @@
 #pragma once
 
 #include "attribute_enums.h"
-#include "math/vector.h"
-#include "util/alloc.h"
-#include "util/string.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/string.h"
+#include "litestl/util/vector.h"
 
 #include <cmath>
 #include <type_traits>
+using namespace litestl;
 
 namespace sculptcore::mesh {
 
@@ -15,7 +16,7 @@ using util::string;
 
 template <typename T> static constexpr AttrType type_to_attrtype()
 {
-  using namespace sculptcore::math;
+  using namespace litestl::math;
 
   if constexpr (std::is_same_v<T, float>) {
     return AttrType::FLOAT;

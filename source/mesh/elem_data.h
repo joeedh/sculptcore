@@ -2,11 +2,11 @@
 
 #include "attribute.h"
 #include "attribute_builtin.h"
-#include "math/vector.h"
-#include "util/assert.h"
-#include "util/boolvector.h"
-#include "util/callback_list.h"
-#include "util/string.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/assert.h"
+#include "litestl/util/boolvector.h"
+#include "litestl/util/callback_list.h"
+#include "litestl/util/string.h"
 
 #include "mesh_base.h"
 #include "mesh_enums.h"
@@ -16,6 +16,9 @@
 #include <cstdio>
 #include <type_traits>
 
+using litestl::util::assert;
+
+using namespace litestl;
 namespace sculptcore::mesh {
 struct Mesh;
 struct ElemData {

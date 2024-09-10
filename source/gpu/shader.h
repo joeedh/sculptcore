@@ -10,10 +10,11 @@
 #include "util/vector.h"
 
 #include "gpu/types.h"
+using namespace litestl;
 
 namespace sculptcore::gpu {
-using sculptcore::util::string;
-using sculptcore::util::stringref;
+using litestl::util::string;
+using litestl::util::stringref;
 
 struct Uniform {
   Uniform() noexcept
@@ -168,7 +169,7 @@ struct Shader {
   util::StringKey createShaderKey() const
   {
     // using namespace sculptcore::util;
-    using sculptcore::util::get_stringkey;
+    using litestl::util::get_stringkey;
 
     char key[256];
 

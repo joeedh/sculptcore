@@ -1,9 +1,10 @@
 #pragma once
 
-#include "util/compiler_util.h"
+#include "litestl/util/compiler_util.h"
 
 #include <type_traits>
 
+using namespace litestl;
 namespace sculptcore::mesh {
 enum class AttrType {
   NONE = 0,

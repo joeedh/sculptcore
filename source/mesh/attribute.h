@@ -4,14 +4,14 @@
 #include "attribute_bool.h"
 #include "attribute_enums.h"
 #include "io/serial.h"
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 
-#include "util/alloc.h"
-#include "util/array.h"
-#include "util/index_range.h"
-#include "util/span.h"
-#include "util/string.h"
-#include "util/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/array.h"
+#include "litestl/util/index_range.h"
+#include "litestl/util/span.h"
+#include "litestl/util/string.h"
+#include "litestl/util/vector.h"
 
 #include <cmath>
 #include <type_traits>

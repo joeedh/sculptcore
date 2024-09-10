@@ -1,4 +1,4 @@
-#include "util/vector.h"
+#include "litestl/util/vector.h"
 #include "window/window.h"
 #include <cstdio>
 
@@ -8,7 +8,7 @@
 #include "app.h"
 
 using namespace sculptcore;
-using namespace sculptcore::math;
+using namespace litestl::math;
 
 int main(int argc, const char **argv)
 {

@@ -2,20 +2,22 @@
 
 #include "types.h"
 
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 
-#include "util/compiler_util.h"
-#include "util/map.h"
-#include "util/string.h"
-#include "util/vector.h"
+#include "litestl/util/compiler_util.h"
+#include "litestl/util/map.h"
+#include "litestl/util/string.h"
+#include "litestl/util/vector.h"
 
 #include "opengl.h"
 
 #include <functional>
 #include <type_traits>
 
+using namespace litestl;
+using namespace litestl::util;
+
 namespace sculptcore::gpu {
-using namespace sculptcore::util;
 
 struct VBO;
 
@@ -63,10 +65,10 @@ struct Buffer {
   template <typename List> int load_data(List &list)
   {
     /* For ushort, uint, uchar. */
-    using namespace sculptcore::util;
+    using namespace litestl::util;
     /* For math vector types. */
 
-    using namespace sculptcore::math;
+    using namespace litestl::math;
 #ifdef DEF_CASE
 #undef DEF_CASE
 #endif

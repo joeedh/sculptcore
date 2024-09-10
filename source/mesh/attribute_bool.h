@@ -3,14 +3,15 @@
 #include "attribute_base.h"
 #include "attribute_enums.h"
 #include "mesh_enums.h"
-#include "util/alloc.h"
-#include "util/string.h"
-#include "util/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/string.h"
+#include "litestl/util/vector.h"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 
+using namespace litestl;
 namespace sculptcore::mesh {
 using util::string;
 

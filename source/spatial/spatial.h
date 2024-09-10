@@ -2,9 +2,9 @@
 
 #include "node.h"
 
-#include "math/vector.h"
-#include "util/map.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/vector.h"
 
 #include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
@@ -12,6 +12,7 @@
 
 #include "spatial_attrs.h"
 
+using namespace litestl;
 namespace sculptcore::spatial {
 struct SpatialTree {
   using Mesh = mesh::Mesh;

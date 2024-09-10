@@ -1,10 +1,10 @@
 #pragma once
 
-#include "math/vector.h"
-#include "util/alloc.h"
-#include "util/map.h"
-#include "util/ordered_set.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/map.h"
+#include "litestl/util/ordered_set.h"
+#include "litestl/util/vector.h"
 
 #include "mesh/mesh.h"
 
@@ -13,7 +13,8 @@
 
 #include <cfloat>
 
-using namespace sculptcore::math;
+using namespace litestl;
+using namespace litestl::math;
 using sculptcore::mesh::Mesh;
 
 namespace sculptcore::gpu {

@@ -1,8 +1,9 @@
 #include "mesh.h"
 
-#include "util/map.h"
-#include "util/vector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/vector.h"
 
+using namespace litestl;
 namespace sculptcore::mesh {
 
 int Mesh::make_vertex(math::float3 co)

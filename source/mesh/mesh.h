@@ -1,9 +1,9 @@
 #pragma once
 
 #include "attribute.h"
-#include "math/vector.h"
-#include "util/string.h"
-#include "util/span.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/string.h"
+#include "litestl/util/span.h"
 
 #include "mesh_base.h"
 #include "mesh_enums.h"
@@ -17,6 +17,7 @@
 
 #include <span>
 
+using namespace litestl;
 namespace sculptcore::mesh {
 
 struct Mesh : public MeshBase {

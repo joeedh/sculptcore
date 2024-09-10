@@ -1,14 +1,16 @@
-#include "util/alloc.h"
-#include "util/set.h"
-#include "util/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/set.h"
+#include "litestl/util/vector.h"
+
+using namespace litestl;
 
 #include "mesh.h"
 
 namespace sculptcore::mesh {
 Mesh *createCube(int dimen, float size, float sphereFac)
 {
-  using namespace sculptcore::util;
-  using namespace sculptcore::math;
+  using namespace litestl::util;
+  using namespace litestl::math;
 
   Vector<int> grid;
 

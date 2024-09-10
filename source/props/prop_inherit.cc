@@ -3,7 +3,7 @@
 #include "props/prop_coerce.h"
 #include "props/prop_struct.h"
 
-using namespace sculptcore::util;
+using namespace litestl::util;
 
 namespace sculptcore::props {
 Property *cloneProperty(Property *prop)

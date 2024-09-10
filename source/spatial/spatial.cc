@@ -2,18 +2,19 @@
 
 #include "node.h"
 
-#include "math/vector.h"
-#include "util/map.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/vector.h"
 
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
 
 #include <cmath>
 
-using namespace sculptcore::util;
-using namespace sculptcore::math;
+using namespace litestl::util;
+using namespace litestl::math;
 using namespace sculptcore::mesh;
+using namespace litestl;
 
 static inline float3 calc_eps_float3(float3 size)
 {
@@ -102,7 +103,7 @@ void SpatialTree::split_node(SpatialNode *node)
   node->children[0] = alloc_node();
   node->children[1] = alloc_node();
 
-  using namespace sculptcore::math;
+  using namespace litestl::math;
   float3 min(FLT_MAX), max(FLT_MIN);
   float3 mean(0.0f);
 

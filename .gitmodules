@@ -1,0 +1,3 @@
+[submodule "source/litestl"]
+	path = source/litestl
+	url = https://github.com/joeedh/litestl.git

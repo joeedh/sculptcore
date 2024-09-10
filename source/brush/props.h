@@ -1,9 +1,11 @@
-#include "util/compiler_util.h"
-#include "util/string.h"
+#include "litestl/util/compiler_util.h"
+#include "litestl/util/string.h"
 
 #include "props/prop_enums.h"
 
 namespace sculptcore::brush {
+using namespace litestl;
+
 template <util::StrLiteral name_, props::Prop type_> struct StdProp {
   util::string name = name_;
   props::Prop type = type_;

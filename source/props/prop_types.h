@@ -1,14 +1,14 @@
 #pragma once
 
-#include "math/matrix.h"
-#include "math/vector.h"
+#include "litestl/math/matrix.h"
+#include "litestl/math/vector.h"
 #include "prop_enums.h"
-#include "util/alloc.h"
-#include "util/compiler_util.h"
-#include "util/function.h"
-#include "util/map.h"
-#include "util/set.h"
-#include "util/string.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/compiler_util.h"
+#include "litestl/util/function.h"
+#include "litestl/util/map.h"
+#include "litestl/util/set.h"
+#include "litestl/util/string.h"
 
 #include <functional>
 #include <type_traits>
@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 
+using namespace litestl;
 namespace sculptcore::props {
 struct Dynamics;
 

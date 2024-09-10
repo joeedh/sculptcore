@@ -2,10 +2,10 @@
 
 #include "node.h"
 
-#include "math/vector.h"
-#include "util/map.h"
-#include "util/task.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/task.h"
+#include "litestl/util/vector.h"
 
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
@@ -15,10 +15,11 @@
 
 #include <cmath>
 
-using namespace sculptcore::util;
-using namespace sculptcore::math;
+using namespace litestl::util;
+using namespace litestl::math;
 using namespace sculptcore::mesh;
 using namespace sculptcore::gpu;
+using namespace litestl;
 
 namespace sculptcore::spatial {
 SpatialNode::NodeData::GPUData::~GPUData()

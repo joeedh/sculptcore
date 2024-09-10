@@ -2,11 +2,11 @@
 
 #include "prop_types.h"
 
-#include "util/alloc.h"
-#include "util/compiler_util.h"
-#include "util/map.h"
-#include "util/string.h"
-#include "util/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/compiler_util.h"
+#include "litestl/util/map.h"
+#include "litestl/util/string.h"
+#include "litestl/util/vector.h"
 
 namespace sculptcore::props {
 

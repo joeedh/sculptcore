@@ -1,19 +1,19 @@
 
 #include "test_util.h"
-#include "util/index_range.h"
-#include "util/rand.h"
-#include "util/set.h"
-#include "util/string.h"
-#include "util/task.h"
-#include "util/vector.h"
+#include "litestl/util/index_range.h"
+#include "litestl/util/rand.h"
+#include "litestl/util/set.h"
+#include "litestl/util/string.h"
+#include "litestl/util/task.h"
+#include "litestl/util/vector.h"
 #include <cstdio>
 
 test_init;
 
 int main()
 {
-  using namespace sculptcore;
-  using namespace sculptcore::util;
+  using namespace litestl;
+  using namespace litestl::util;
 
   {
     int size = 1 << 25;

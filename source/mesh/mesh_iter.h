@@ -8,9 +8,10 @@
 #include <span>
 #include <utility>
 
-#include "math/vector.h"
-#include "util/vector.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/vector.h"
 
+using namespace litestl;
 namespace sculptcore::mesh {
 struct EdgeOfVertIter {
   MeshBase *m;

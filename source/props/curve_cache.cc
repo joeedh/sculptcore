@@ -1,13 +1,14 @@
 #include "prop_curve.h"
 
-#include "util/hash.h"
-#include "util/map.h"
-#include "util/set.h"
-#include "util/vector.h"
-#include "util/memory.h"
+#include "litestl/util/hash.h"
+#include "litestl/util/map.h"
+#include "litestl/util/set.h"
+#include "litestl/util/vector.h"
+#include "litestl/util/memory.h"
 
-using namespace sculptcore::util;
-using sculptcore::hash::HashInt;
+using namespace litestl;
+using namespace litestl::util;
+using litestl::hash::HashInt;
 
 namespace sculptcore::props::detail::curve {
 Vector<util::weak_ptr<CurveGen>> curves_cache;

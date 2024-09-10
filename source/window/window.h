@@ -1,8 +1,8 @@
 #pragma once
 
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 #include "platform/time.h"
-#include "util/vector.h"
+#include "litestl/util/vector.h"
 
 #include "glew/GL/glew.h"
 #include "GLFW/glfw3.h"
@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 
+using namespace litestl;
 namespace sculptcore::window {
 struct Window {
   using float2 = math::float2;

@@ -1,14 +1,14 @@
 #include "test_util.h"
-#include "util/map.h"
-#include "util/rand.h"
-#include "util/vector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/rand.h"
+#include "litestl/util/vector.h"
 #include <cstdio>
 
 test_init;
 
 int main()
 {
-  using namespace sculptcore::util;
+  using namespace litestl::util;
 
   {
     Map<int, int> imap;

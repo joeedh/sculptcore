@@ -1,5 +1,3 @@
-add_subdirectory(eigen)
-
 if (NOT BUILD_WASM)
 	set(GLFW_BUILD_DOCS OFF)
 	set(GLFW_BUILD_EXAMPLES OFF)

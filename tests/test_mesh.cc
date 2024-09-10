@@ -4,7 +4,7 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
 
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 
 #include <cstdio>
 
@@ -13,7 +13,8 @@ test_init;
 int main()
 {
   using namespace sculptcore;
-  using namespace sculptcore::math;
+  using namespace litestl::math;
+  using namespace litestl;
   using namespace sculptcore::mesh;
 
   {

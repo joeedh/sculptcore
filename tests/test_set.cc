@@ -1,15 +1,15 @@
 #include "test_util.h"
-#include "util/rand.h"
-#include "util/set.h"
-#include "util/string.h"
-#include "util/vector.h"
+#include "litestl/util/rand.h"
+#include "litestl/util/set.h"
+#include "litestl/util/string.h"
+#include "litestl/util/vector.h"
 #include <cstdio>
 
 test_init;
 
 int main()
 {
-  using namespace sculptcore::util;
+  using namespace litestl::util;
 
   {
     static constexpr int size = 512;

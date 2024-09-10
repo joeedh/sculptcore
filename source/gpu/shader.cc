@@ -1,11 +1,11 @@
 #include "shader.h"
-#include "math/vector.h"
-#include "util/map.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/map.h"
 
-using sculptcore::util::Map;
-using sculptcore::util::string;
-using sculptcore::util::StringKey;
-using sculptcore::util::stringref;
+using litestl::util::Map;
+using litestl::util::string;
+using litestl::util::StringKey;
+using litestl::util::stringref;
 
 namespace sculptcore::gpu {
 static Map<StringKey, Shader *> cached_shaders;

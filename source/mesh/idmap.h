@@ -1,14 +1,15 @@
 #include "attribute_builtin.h"
 #include "mesh.h"
 
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 
-#include "util/boolvector.h"
-#include "util/map.h"
-#include "util/vector.h"
+#include "litestl/util/boolvector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/vector.h"
 
 #include "cmath"
 
+using namespace litestl;
 namespace sculptcore::mesh {
 #define ID_NONE 0
 

@@ -1,12 +1,12 @@
 #include "math/matrix.h"
 #include "test_util.h"
-#include "util/function.h"
-#include "util/rand.h"
+#include "litestl/util/function.h"
+#include "litestl/util/rand.h"
 #include <cstdio>
 
 test_init;
 
-using namespace sculptcore;
+using namespace litestl;
 
 int test(util::function_ref<int(int)> cb)
 {

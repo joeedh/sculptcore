@@ -3,10 +3,10 @@
 #include "attribute.h"
 #include "attribute_builtin.h"
 
-#include "math/vector.h"
+#include "litestl/math/vector.h"
 
-#include "util/boolvector.h"
-#include "util/string.h"
+#include "litestl/util/boolvector.h"
+#include "litestl/util/string.h"
 
 #include "elem_data.h"
 #include "mesh_base.h"
@@ -16,6 +16,8 @@
 #include <concepts>
 #include <cstdio>
 #include <type_traits>
+
+using namespace litestl;
 
 namespace sculptcore::mesh {
 struct Mesh;

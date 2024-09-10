@@ -1,7 +1,7 @@
 #include "test_util.h"
-#include "util/map.h"
-#include "util/rand.h"
-#include "util/vector.h"
+#include "litestl/util/map.h"
+#include "litestl/util/rand.h"
+#include "litestl/util/vector.h"
 #include <cstdio>
 #include "props/prop_types.h"
 #include "props/prop_struct.h"
@@ -10,7 +10,7 @@ test_init;
 
 int main()
 {
-  using namespace sculptcore::util;
+  using namespace litestl::util;
   using namespace sculptcore::props;
 
   struct Test {

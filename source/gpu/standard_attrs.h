@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#include "util/string.h"
+#include "litestl/util/string.h"
 
 namespace sculptcore::gpu {
 template <GPUType type_, int elems_> struct StdAttr {

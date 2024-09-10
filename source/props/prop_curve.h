@@ -3,15 +3,16 @@
 #include "prop_enums.h"
 #include "prop_types.h"
 
-#include "math/bspline.h"
-#include "util/alloc.h"
-#include "util/array.h"
-#include "util/hash.h"
+#include "litestl/math/bspline.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/array.h"
+#include "litestl/util/hash.h"
 
 #include <bit>
 #include <cmath>
 #include <utility>
 
+using namespace litestl;
 namespace sculptcore::props {
 enum class PropCurves {
   STEP = 0,
@@ -26,7 +27,7 @@ enum class PropCurves {
 };
 
 namespace detail::curve {
-using sculptcore::util::Array;
+using litestl::util::Array;
 
 struct CurveGenBase {
   PropCurves type;
@@ -40,7 +41,7 @@ struct CurveGenBase {
     return f;
   }
 
-  virtual sculptcore::hash::HashInt hash()
+  virtual litestl::hash::HashInt hash()
   {
     return 0;
   }
@@ -52,7 +53,7 @@ struct CurveGenBase {
 };
 
 template <PropCurves type_> struct CurveGenSimple : public CurveGenBase {
-  using HashInt = sculptcore::hash::HashInt;
+  using HashInt = litestl::hash::HashInt;
 
   CurveGenSimple() : CurveGenBase(type_)
   {
@@ -85,7 +86,7 @@ template <PropCurves type_> struct CurveGenSimple : public CurveGenBase {
 
 struct CurveGenTable : CurveGenBase {
   Array<double> table;
-  using HashInt = sculptcore::hash::HashInt;
+  using HashInt = litestl::hash::HashInt;
 
   CurveGenTable() : CurveGenBase(PropCurves::TABLE)
   {
@@ -249,7 +250,7 @@ struct CurveGen {
     return gen->evaluate(f);
   }
 
-  sculptcore::hash::HashInt hash()
+  litestl::hash::HashInt hash()
   {
     return gen->hash();
   }
@@ -314,9 +315,10 @@ private:
 
 }; // namespace sculptcore::props
 
-namespace sculptcore::hash {
-inline HashInt hash(sculptcore::props::detail::curve::CurveGen &curve)
+namespace litestl::hash
+{
+  inline HashInt hash(sculptcore::props::detail::curve::CurveGen &curve)
 {
   return curve.hash();
 }
-} // namespace sculptcore::hash
+} // namespace litestl::hash

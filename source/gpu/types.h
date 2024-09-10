@@ -1,9 +1,9 @@
 #pragma once
 
-#include "util/compiler_util.h"
+#include "litestl/util/compiler_util.h"
 
-#include "math/matrix.h"
-#include "math/vector.h"
+#include "litestl/math/matrix.h"
+#include "litestl/math/vector.h"
 #include "opengl.h"
 
 #include <type_traits>
@@ -24,7 +24,7 @@ enum class GPUType {
 
 template <typename T> static constexpr GPUType gpu_type_from()
 {
-  using namespace sculptcore::math;
+  using namespace litestl::math;
 
 #ifdef GPU_TYPE_FROM_DEF
 #undef GPU_TYPE_FROM_DEF

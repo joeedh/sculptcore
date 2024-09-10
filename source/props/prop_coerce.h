@@ -2,12 +2,14 @@
 #include "prop_struct.h"
 #include "prop_types.h"
 
-#include "math/matrix.h"
-#include "math/vector.h"
-#include "util/compiler_util.h"
-#include "util/string.h"
+#include "litestl/math/matrix.h"
+#include "litestl/math/vector.h"
+#include "litestl/util/compiler_util.h"
+#include "litestl/util/string.h"
 
 #include <type_traits>
+
+using namespace litestl;
 
 namespace sculptcore::props {
 template <typename Callback> static void numtype_dispatch(Prop type, Callback cb)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "util/compiler_util.h"
+#include "litestl/util/compiler_util.h"
 
 namespace sculptcore::props {
 enum class Prop {

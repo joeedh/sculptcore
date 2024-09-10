@@ -1,5 +1,7 @@
 #include "idmap.h"
 
+using namespace litestl;
+
 namespace sculptcore::mesh {
 IDMap::IDMap(Mesh *mesh_, ElemType mask_) : m(mesh_), mask(mask_)
 {
