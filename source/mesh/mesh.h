@@ -30,7 +30,7 @@ struct Mesh : public MeshBase {
   {
     using binding::types::Struct;
 
-    Struct<Mesh> *st = new Struct<Mesh>("Mesh", sizeof(Mesh));
+    Struct<Mesh> *st = new Struct<Mesh>("sculptcore::mesh::Mesh", sizeof(Mesh));
     BIND_STRUCT_MEMBER(st, v);
     // st->add("v", offsetof(Mesh, v), binding::Bind<VertexData>());
     return st;
