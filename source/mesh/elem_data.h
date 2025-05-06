@@ -160,6 +160,7 @@ private:
     attrs.ensure_capacity(capacity_);
   }
 
+protected:
   int capacity_ = 0;
 };
 } // namespace sculptcore::mesh

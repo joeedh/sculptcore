@@ -1,9 +1,10 @@
 #pragma once
 
 #include "attribute.h"
+#include "litestl/binding/binding.h"
 #include "litestl/math/vector.h"
-#include "litestl/util/string.h"
 #include "litestl/util/span.h"
+#include "litestl/util/string.h"
 
 #include "mesh_base.h"
 #include "mesh_enums.h"
@@ -23,6 +24,16 @@ namespace sculptcore::mesh {
 struct Mesh : public MeshBase {
   Mesh()
   {
+  }
+
+  static binding::types::Struct<Mesh> *defineBindings()
+  {
+    using binding::types::Struct;
+
+    Struct<Mesh> *st = new Struct<Mesh>("Mesh", sizeof(Mesh));
+    BIND_STRUCT_MEMBER(st, v);
+    // st->add("v", offsetof(Mesh, v), binding::Bind<VertexData>());
+    return st;
   }
 
   int make_vertex(math::float3 co);

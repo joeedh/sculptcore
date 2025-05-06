@@ -17,6 +17,8 @@
 #include <cstdio>
 #include <type_traits>
 
+#include "litestl/binding/binding.h"
+
 using namespace litestl;
 
 namespace sculptcore::mesh {
@@ -24,6 +26,15 @@ struct Mesh;
 
 struct VertexData : public ElemData {
   using float3 = math::float3;
+
+  static binding::types::Struct<VertexData> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<VertexData> *st = new Struct<VertexData>("sculptcore::mesh::VertexData", sizeof(VertexData));
+    BIND_STRUCT_MEMBER(st, capacity_);
+
+    return st;
+  }
 
   VertexData(int count_ = 0) : ElemData(VERTEX, count_)
   {
