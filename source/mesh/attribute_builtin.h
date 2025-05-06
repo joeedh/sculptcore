@@ -3,8 +3,9 @@
 #include "attribute.h"
 #include "attribute_enums.h"
 #include "litestl/math/vector.h"
-#include "mesh_base.h"
 #include "litestl/util/string.h"
+#include "litestl/binding/binding.h"
+#include "mesh_base.h"
 
 #include <algorithm>
 #include <concepts>
@@ -12,9 +13,19 @@
 #include <type_traits>
 
 using namespace litestl;
+
 namespace sculptcore::mesh {
 template <typename T, util::StrLiteral Name, AttrFlag Flag = AttrFlag::NONE>
 struct BuiltinAttr : protected AttrRef {
+  static binding::types::Struct<BuiltinAttr> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<BuiltinAttr> *st = new Struct<BuiltinAttr>(
+        string("sculptcore::mesh::BuiltinAttr<'") + Name + string("'>"), sizeof(BuiltinAttr));
+
+    return st;
+  }
+
   BuiltinAttr()
   {
     type = type_to_attrtype<T>();
@@ -43,20 +54,23 @@ struct BuiltinAttr : protected AttrRef {
   }
 
   template <typename T2 = void>
-  inline AttrData<T> *get_data() const requires(!std::same_as<T, bool>)
+  inline AttrData<T> *get_data() const
+    requires(!std::same_as<T, bool>)
   {
     return static_cast<AttrData<T> *>(data);
   }
 
   template <typename T2 = void>
-  inline BoolAttrView *get_data() const requires std::same_as<T, bool>
+  inline BoolAttrView *get_data() const
+    requires std::same_as<T, bool>
   {
     return static_cast<BoolAttrView *>(data);
   }
 
   /* Special boolean setter. */
   template <typename T2 = void>
-  bool set(int idx, const T &value) requires std::same_as<T, bool>
+  bool set(int idx, const T &value)
+    requires std::same_as<T, bool>
   {
     BoolAttrView *bdata = get_data();
     printf("bview: %p\n", bdata);
@@ -64,7 +78,8 @@ struct BuiltinAttr : protected AttrRef {
     return get_data()->set(idx, value);
   }
 
-  inline T &operator[](int idx) requires(!std::same_as<T, bool>)
+  inline T &operator[](int idx)
+    requires(!std::same_as<T, bool>)
   {
     return get_data()->operator[](idx);
   }
