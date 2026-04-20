@@ -1,3 +1,5 @@
+
+#if 0 // do not use opengl
 #include "spatial.h"
 
 #include "node.h"
@@ -76,3 +78,4 @@ void SpatialTree::update_node_gpu_buffers(SpatialNode *node)
 }
 
 } // namespace sculptcore::spatial
+#endif

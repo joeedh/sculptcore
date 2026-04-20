@@ -6,6 +6,7 @@
 #include "litestl/util/span.h"
 #include "litestl/util/string.h"
 
+
 #include "mesh_base.h"
 #include "mesh_enums.h"
 #include "mesh_proxy.h"
@@ -32,7 +33,7 @@ struct Mesh : public MeshBase {
 
     Struct<Mesh> *st = new Struct<Mesh>("sculptcore::mesh::Mesh", sizeof(Mesh));
     BIND_STRUCT_MEMBER(st, v);
-    // st->add("v", offsetof(Mesh, v), binding::Bind<VertexData>());
+    st->add("v", offsetof(Mesh, v), binding::Bind<VertexData>());
     return st;
   }
 

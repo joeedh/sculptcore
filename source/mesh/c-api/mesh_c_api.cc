@@ -1,12 +1,11 @@
-#include "mesh_c_api.h"
-
 #include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
-#include "litestl/util/alloc.h"
-#include "litestl/util/string.h"
 
 #include <cstdio>
+#include <string>
+
 
 using namespace sculptcore::mesh;
 using namespace litestl::util;
@@ -14,6 +13,11 @@ using namespace sculptcore;
 using namespace litestl;
 
 using math::float3;
+
+#ifdef WASM
+#include <emscripten/bind.h>
+using namespace emscripten;
+#endif
 
 extern "C" {
 
@@ -111,4 +115,29 @@ void memRelease(void *mem)
 {
   alloc::release(mem);
 }
+void printMemBlocks()
+{
+  alloc::print_blocks();
 }
+}
+
+void memAlloc2(const std::string &tag, int size)
+{
+  std::string *cpy = new std::string(tag);
+  alloc::alloc(cpy->c_str(), size);
+}
+
+#if 0 //def WASM
+#include "../mesh.h"
+namespace sculptcore::mesh {
+
+EMSCRIPTEN_BINDINGS(mesh)
+{
+  class_<Mesh>("Mesh")
+    .constructor<>()
+    .function("makeVertex", &Mesh::make_vertex, allow_raw_pointers())
+    .function("getAttr", &getAttr, allow_raw_pointers())
+    .function("getAttrs", &getAttrs, allow_raw_pointers());
+}
+}
+#endif

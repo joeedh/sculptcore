@@ -3,7 +3,6 @@ set(LIB
 	util
 	math
 	draw
-	gpu
 )
 
 set(SRC
@@ -13,7 +12,6 @@ set(SRC
   PUBLIC spatial_attrs.h
   node.cc
   spatial.cc
-  spatial_gpu.cc
 )
 
 sc_add_library(spatial "${SRC}" "${LIB}" OBJECT)

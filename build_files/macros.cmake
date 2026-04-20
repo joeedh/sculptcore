@@ -60,3 +60,10 @@ macro(sc_add_library target src lib lib_type)
     endif()
   endforeach()
 endmacro()
+
+
+define_property(GLOBAL PROPERTY WASM_SYMBOLS)
+macro(wasm_add_symbols symbols)
+get_property(existing GLOBAL PROPERTY WASM_SYMBOLS)
+set_property(GLOBAL PROPERTY WASM_SYMBOLS "${existing}\n${symbols}")
+endmacro()

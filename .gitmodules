@@ -1,3 +1,6 @@
 [submodule "source/litestl"]
 	path = source/litestl
 	url = https://github.com/joeedh/litestl.git
+[submodule "emsdk"]
+	path = emsdk
+	url = https://github.com/emscripten-core/emsdk.git

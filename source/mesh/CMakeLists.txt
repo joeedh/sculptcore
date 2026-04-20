@@ -1,8 +1,7 @@
 set(LIB
     PUBLIC math
     PUBLIC util
-    PUBLIC io
-    gpu
+    PUBLIC binding
 )
 
 set(SRC
@@ -26,4 +25,18 @@ set(SRC
 )
 
 sc_add_library(mesh "${SRC}" "${LIB}" STATIC)
-
+wasm_add_symbols("
+  memRelease
+  memAlloc
+  getAttrs
+  getAttrName
+  getAttr
+  freeAttrRef
+  copyAttrRef
+  makeVertex
+  freeMesh
+  createMesh
+  getStrData
+  printMemBlocks
+  "
+)

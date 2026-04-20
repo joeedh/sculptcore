@@ -2,12 +2,9 @@
 
 #include "attribute_enums.h"
 #include "litestl/math/vector.h"
-#include "litestl/util/alloc.h"
 #include "litestl/util/string.h"
-#include "litestl/util/vector.h"
-
-#include <cmath>
 #include <type_traits>
+
 using namespace litestl;
 
 namespace sculptcore::mesh {
