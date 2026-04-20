@@ -1,6 +1,8 @@
 #pragma once
 
+#include "prop_dynamics.h"
 #include "prop_types.h"
+
 
 #include "litestl/util/alloc.h"
 #include "litestl/util/compiler_util.h"
@@ -13,7 +15,11 @@ namespace sculptcore::props {
 namespace struct_detail_2 {
 /* very evil attempt to resolve circular reference with prop_coerce.h*/
 template <typename T>
-const T lookupValue(void *struct_def, void *owner, util::string &name, T default_value);
+const T lookupValue(void *struct_def,
+                    void *owner,
+                    util::string &name,
+                    T default_value,
+                    DeviceInputCtx *ctx);
 } // namespace struct_detail_2
 
 struct struct_detail {
@@ -42,10 +48,11 @@ struct struct_detail {
       return lookupValue<float>(name, default_value);
     }
 
-    template <typename T> const T lookupValue(util::string name, T default_value)
+    template <typename T>
+    const T lookupValue(util::string name, T default_value, DeviceInputCtx *ctx = nullptr)
     {
       return sculptcore::props::struct_detail_2::lookupValue<T>(
-          struct_def, owner, name, default_value);
+          struct_def, owner, name, default_value, ctx);
     }
 
   private:
@@ -84,6 +91,7 @@ struct struct_detail {
     return make_prop<Prop>(name, uiname, binding_offset);                                \
   }
 
+    MAKE_PROP(BoolProp, Bool)
     MAKE_PROP(Int32Prop, Int32)
     MAKE_PROP(Float64Prop, Float64)
     MAKE_PROP(Float32Prop, Float32)

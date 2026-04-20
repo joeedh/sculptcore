@@ -2,11 +2,7 @@
 #include "prop_struct.h"
 #include "prop_types.h"
 
-#include "litestl/math/matrix.h"
-#include "litestl/math/vector.h"
-#include "litestl/util/compiler_util.h"
 #include "litestl/util/string.h"
-
 #include <type_traits>
 
 using namespace litestl;
@@ -96,7 +92,8 @@ void num_prop_from_double(Property *prop, double d)
 }
 
 #define IS_NUM_TYPE(Type)                                                                \
-  ((std::is_integral_v<Type> || std::is_floating_point_v<Type>)&&!std::is_pointer_v<Type>)
+  ((std::is_integral_v<Type> || std::is_floating_point_v<Type>) &&                       \
+   !std::is_pointer_v<Type>)
 
 /* Does not check type of prop. */
 template <typename T> T prop_value_get(Property *prop)

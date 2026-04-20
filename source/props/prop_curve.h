@@ -1,7 +1,7 @@
 #pragma once
 
 #include "prop_enums.h"
-#include "prop_types.h"
+#include "prop_base.h"
 
 #include "litestl/math/bspline.h"
 #include "litestl/util/alloc.h"
@@ -10,7 +10,6 @@
 
 #include <bit>
 #include <cmath>
-#include <utility>
 
 using namespace litestl;
 namespace sculptcore::props {
@@ -31,6 +30,10 @@ using litestl::util::Array;
 
 struct CurveGenBase {
   PropCurves type;
+
+  CurveGenBase() : type(PropCurves::LINEAR)
+  {
+  }
 
   CurveGenBase(PropCurves type_) : type(type_)
   {
@@ -266,6 +269,10 @@ struct CurveGenProp
   double min = 0.0, max = 1.0;
   bool clamp = false;
 
+  CurveGenProp() : PropBase(Prop::CURVE2D)
+  {
+    //
+  }
   CurveGenBase **internal_value() override
   {
     return &internal_data_;
@@ -315,9 +322,8 @@ private:
 
 }; // namespace sculptcore::props
 
-namespace litestl::hash
-{
-  inline HashInt hash(sculptcore::props::detail::curve::CurveGen &curve)
+namespace litestl::hash {
+inline HashInt hash(sculptcore::props::detail::curve::CurveGen &curve)
 {
   return curve.hash();
 }

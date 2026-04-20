@@ -1,19 +1,15 @@
 #pragma once
 
-#include "litestl/math/matrix.h"
 #include "litestl/math/vector.h"
-#include "prop_enums.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/compiler_util.h"
-#include "litestl/util/function.h"
-#include "litestl/util/map.h"
-#include "litestl/util/set.h"
 #include "litestl/util/string.h"
 
-#include <functional>
-#include <type_traits>
+#include "prop_base.h"
+#include "prop_dynamics.h"
+#include "prop_enums.h"
 
-#include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -25,127 +21,9 @@ struct Dynamics;
 
 namespace detail {
 
-template <typename Child, typename ValueType> struct PropBase {
-  Prop type;
-  util::string name, ui_name;
-  int binding_offset = -1;
-  PropFlag flag = PropFlag::NONE;
-
-  Dynamics *dynamics = nullptr;
-
-  std::function<ValueType *(ValueType *existing_val, void *owner)> getter;
-  std::function<void(ValueType *existing_val, void *owner, ValueType &new_value)> setter;
-
-  using value_type = ValueType;
-
-  PropBase(Prop type_) : type(type_)
-  {
-  }
-
-  PropBase(const PropBase &b)
-      : type(b.type), binding_offset(b.binding_offset), flag(b.flag), name(b.name),
-        ui_name(b.ui_name), getter(b.getter), setter(b.setter)
-  {
-  }
-
-  PropBase(PropBase &&b) : type(b.type), binding_offset(b.binding_offset), flag(b.flag)
-  {
-    name = std::move(b.name);
-    ui_name = std::move(b.ui_name);
-    getter = std::move(b.getter);
-    setter = std::move(b.setter);
-  }
-
-  virtual ~PropBase()
-  {
-  }
-
-  virtual size_t sizeOf() const
-  {
-    return 0;
-  }
-
-  Child &Name(util::string s)
-  {
-    name = s;
-    return childThis();
-  }
-
-  Child &UiName(util::string s)
-  {
-    ui_name = s;
-    return childThis();
-  }
-
-  Child &BindingOffset(int offset)
-  {
-    binding_offset = offset;
-    return childThis();
-  }
-
-  template <typename T> Child &Owner(T *owner_)
-  {
-    owner = static_cast<void *>(owner_);
-    return childThis();
-  }
-
-  Child &childThis()
-  {
-    return *static_cast<Child *>(this);
-  }
-
-  ValueType *resolve_binding()
-  {
-    return static_cast<ValueType *>(pointer_offset(owner, binding_offset));
-  }
-
-  virtual const ValueType &get()
-  {
-    ValueType *ptr = nullptr;
-
-    if (binding_offset != -1 && owner) {
-      ptr = resolve_binding();
-    } else {
-      ptr = internal_value();
-    }
-
-    if (getter) {
-      ptr = getter(ptr, owner);
-    }
-
-    return *ptr;
-  }
-
-  virtual const void set(ValueType &value)
-  {
-    ValueType *ptr = nullptr;
-
-    if (binding_offset != -1 && owner) {
-      ptr = resolve_binding();
-    } else {
-      ptr = internal_value();
-    }
-
-    if (setter) {
-      setter(ptr, owner, value);
-    } else if (ptr) {
-      *ptr = value;
-    }
-  }
-
-  virtual ValueType *internal_value()
-  {
-    return nullptr;
-  }
-
-  /* Owning struct */
-  void *owner = nullptr;
-
-private:
-};
-
 template <typename T, typename Child> struct NumBase : public PropBase<Child, T> {
   using Base = PropBase<Child, T>;
+  Dynamics dynamics;
 
   NumBase(Prop type) : Base(type)
   {
@@ -221,8 +99,61 @@ NUMPROP_DECL(Int16Prop, int16_t, Prop::INT16);
 NUMPROP_DECL(Uint16Prop, uint16_t, Prop::UINT16);
 NUMPROP_DECL(Int8Prop, int8_t, Prop::INT8);
 NUMPROP_DECL(Uint8Prop, uint8_t, Prop::UINT8);
+NUMPROP_DECL(BoolProp, bool, Prop::BOOL);
 
 #undef NUMPROP_DECL
+
+template <std::derived_from<detail::PropBaseType> T, typename Func>
+static void getNumProp(T *prop, Func &func)
+{
+  detail::PropBaseType *base = static_cast<detail::PropBaseType *>(prop);
+  switch (base->type) {
+  case Prop::FLOAT32:
+    func(static_cast<Float32Prop *>(prop));
+    break;
+  case Prop::FLOAT64:
+    func(static_cast<Float64Prop *>(prop));
+    break;
+  case Prop::INT64:
+    func(static_cast<Int64Prop *>(prop));
+    break;
+  case Prop::UINT64:
+    func(static_cast<Uint64Prop *>(prop));
+    break;
+  case Prop::INT32:
+    func(static_cast<Int32Prop *>(prop));
+    break;
+  case Prop::UINT32:
+    func(static_cast<Uint32Prop *>(prop));
+    break;
+  case Prop::INT16:
+    func(static_cast<Int16Prop *>(prop));
+    break;
+  case Prop::UINT16:
+    func(static_cast<Uint16Prop *>(prop));
+    break;
+  case Prop::INT8:
+    func(static_cast<Int8Prop *>(prop));
+    break;
+  case Prop::UINT8:
+    func(static_cast<Uint8Prop *>(prop));
+    break;
+  case Prop::BOOL:
+    func(static_cast<BoolProp *>(prop));
+    break;
+  case Prop::VEC2F:
+    func(static_cast<Vec2Prop *>(prop));
+    break;
+  case Prop::VEC3F:
+    func(static_cast<Vec3Prop *>(prop));
+    break;
+  case Prop::VEC4F:
+    func(static_cast<Vec4Prop *>(prop));
+    break;
+  default:
+    break;
+  }
+}
 
 /* Property for util::strings */
 struct StringProp : public detail::PropBase<StringProp, util::string> {

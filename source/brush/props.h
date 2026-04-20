@@ -31,7 +31,8 @@ struct StdProp2 {
 
 static constexpr BaseProps[] = {
     {"strength", Prop::FLOAT32}, //
-
+    {"radius", Prop::FLOAT32},   //
+    {"falloff", Prop::STRUCT},   //
 };
 
 constexpr bool validate_prop(util::const_string name)
