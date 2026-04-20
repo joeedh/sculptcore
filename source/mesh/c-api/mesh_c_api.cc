@@ -6,7 +6,6 @@
 #include <cstdio>
 #include <string>
 
-
 using namespace sculptcore::mesh;
 using namespace litestl::util;
 using namespace sculptcore;
@@ -119,6 +118,14 @@ void printMemBlocks()
 {
   alloc::print_blocks(true);
 }
+void *_rawAlloc(int size)
+{
+  return malloc(size);
+}
+void _rawRelease(void *ptr)
+{
+  free(ptr);
+}
 }
 
 void memAlloc2(const std::string &tag, int size)
@@ -127,7 +134,7 @@ void memAlloc2(const std::string &tag, int size)
   alloc::alloc(cpy->c_str(), size);
 }
 
-#if 0 //def WASM
+#if 0 // def WASM
 #include "../mesh.h"
 namespace sculptcore::mesh {
 

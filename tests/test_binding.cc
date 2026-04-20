@@ -31,7 +31,6 @@ int main()
       printf("\n======= %s =======\n", key.c_str());
       printf(result->lookup(key).c_str());
     }
-    
   }
 #endif
 

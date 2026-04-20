@@ -2,83 +2,28 @@
   "version": 5,
   "configurePresets": [
     {
-      "name": "x64-Debug-MSVC",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/build/${presetName}/bin",
-      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      "environment": {
-        "VCPKG_ROOT": "c:/dev/vcpkg",
-        "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/Zi /O2 /Ob1 /DNDEBUG /std:c++20 ",
-        "BUILD_WASM": "false"
-      }
-    },
-    {
-      "name": "x64-Debug-Clang",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/build/${presetName}/bin",
-      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      "environment": {
-        "VCPKG_ROOT": "c:/dev/vcpkg",
-        "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/Zi /O2 /Ob1 /DNDEBUG /std:c++20 ",
-        "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_C_COMPILER": "clang-cl",
-        "BUILD_WASM": "false"
-      }
-    },
-    {
-      "name": "x64-NoOpt-MSVC",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/build/${presetName}/bin",
-      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      "environment": {
-        "VCPKG_ROOT": "c:/dev/vcpkg",
-        "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_WASM": "false"
-      }
-    },
-    {
-      "name": "WASM",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/build/${presetName}/bin",
-      "toolchainFile": "${sourceDir}/build_files/WASM.cmake",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
+      "name": "native",
+      "binaryDir": "${sourceDir}/build/native",
+      "installDir": "${sourceDir}/build/native/bin",
       "generator": "Ninja",
-      "environment": {
-        "VCPKG_ROOT": "c:/dev/vcpkg",
-        "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching,registries"
-      },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_WASM": "true",
-        "EMSDK_PATH": "c:/dev/emsdk",
-        "EMCC_PATH": "C:\\dev\\emsdk\\upstream\\emscripten\\emcc.bat"
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BUILD_WASM": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "native",
+      "configurePreset": "native"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "native",
+      "configurePreset": "native",
+      "output": { "outputOnFailure": true }
     }
   ]
 }

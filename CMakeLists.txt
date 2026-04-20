@@ -33,6 +33,9 @@ if (BUILD_WASM)
 	  math
 	  mesh
 	  platform
+	  binding
+	  sculptcore_wasm
+	  sculptcore_core
 	)
 
 	add_executable(sculptcore)
@@ -47,6 +50,8 @@ if (BUILD_WASM)
 	message("SYMBOLS = ${wasmsym}")
 
 	target_link_options(sculptcore PRIVATE "-sMODULARIZE=1")
+	target_link_options(sculptcore PRIVATE "-sEXPORTED_RUNTIME_METHODS=HEAPU8")
+	
 	target_link_options(sculptcore PRIVATE "-sEXPORTED_FUNCTIONS=${wasmsym}")
 	target_link_options(sculptcore PRIVATE "--bind")
 else()

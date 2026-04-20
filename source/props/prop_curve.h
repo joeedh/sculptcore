@@ -1,7 +1,8 @@
 #pragma once
 
-#include "prop_enums.h"
 #include "prop_base.h"
+#include "prop_enums.h"
+
 
 #include "litestl/math/bspline.h"
 #include "litestl/util/alloc.h"
@@ -41,6 +42,14 @@ struct CurveGenBase {
 
   virtual double evaluate(double f)
   {
+    switch (type) {
+    case PropCurves::LINEAR:
+      return f;
+    case PropCurves::SHARP:
+      return std::pow(f, 0.5);
+    case PropCurves::SMOOTHSTEP:
+      return f * f * (3.0 - 2.0 * f);
+    }
     return f;
   }
 

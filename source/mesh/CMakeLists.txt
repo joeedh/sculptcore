@@ -15,6 +15,8 @@ set(SRC
   PUBLIC mesh_types.h
   PUBLIC mesh_shapes.h
   PUBLIC idmap.h
+  PUBLIC bindings.h
+
   c-api/mesh_c_api.h
   c-api/mesh_c_api.cc
   attribute.cc
@@ -22,6 +24,7 @@ set(SRC
   mesh.cc
   mesh_shapes.cc
   mesh_types.cc
+  bindings.cc
 )
 
 sc_add_library(mesh "${SRC}" "${LIB}" STATIC)
@@ -38,5 +41,7 @@ wasm_add_symbols("
   createMesh
   getStrData
   printMemBlocks
+  _rawAlloc
+  _rawRelease
   "
 )

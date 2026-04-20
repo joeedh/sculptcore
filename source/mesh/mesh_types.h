@@ -33,6 +33,8 @@ struct VertexData : public ElemData {
     Struct<VertexData> *st = new Struct<VertexData>("sculptcore::mesh::VertexData", sizeof(VertexData));
     BIND_STRUCT_MEMBER(st, capacity_);
     BIND_STRUCT_MEMBER(st, co);
+    BIND_STRUCT_MEMBER(st, no);
+    BIND_STRUCT_MEMBER(st, e);
 
     return st;
   }
