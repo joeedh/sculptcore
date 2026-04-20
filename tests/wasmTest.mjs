@@ -10,5 +10,4 @@ for (let k in wasm) {
     }
 }
 
-const m = new wasm.Mesh();
-console.log(m, m.__proto__, m.getAttrs())
+console.log(wasm)

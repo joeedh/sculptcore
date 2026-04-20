@@ -7,6 +7,10 @@ set(CMAKE_CXX_SOURCE_FILE_EXTENSIONS .cc .cpp)
 
 message("BUILD_WASM = " ${BUILD_WASM})
 
+if (NOT BUILD_WASM) 
+	include(CTest)
+endif()
+
 #enable_testing()
 if (BUILD_WASM)
 	add_compile_options(-DWASM -Wno-invalid-offsetof)
@@ -26,6 +30,7 @@ endif()
 if (BUILD_WASM)
 	set(LIB
 	  util
+	  math
 	  mesh
 	  platform
 	)
