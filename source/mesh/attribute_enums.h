@@ -29,7 +29,7 @@ enum class _AttrFlag {
   NOCOPY = 1 << 2,
   NOINTERP = 1 << 3,
 };
-FlagClass(AttrFlag, _AttrFlag);
+MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 
 #define ATTR_PAGESIZE 4096
 #define ATTR_PAGEMASK 4095

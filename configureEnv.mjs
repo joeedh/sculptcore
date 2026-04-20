@@ -41,7 +41,7 @@ const versions = dir
 
 const version = versions[0];
 if (version === undefined) {
-  sys.stderr.wrote("No Visual Studio version found\n");
+  process.stderr.write("No Visual Studio version found\n");
   process.exit(-1);
 }
 
@@ -64,7 +64,26 @@ if (!fs.existsSync(path)) {
   process.exit(-1);
 }
 
-const result = child_process.execSync(`cmd /c \"call "${path}" && set\"`);
+// vcvars64.bat chokes with "\Windows was unexpected at this time." when
+// the inherited PATH is in Git-Bash form (":"-separated, "/c/..." paths).
+// Give it a clean, minimal Windows PATH — vcvars builds its own PATH from
+// scratch anyway, so this is sufficient. Also drop env var names cmd
+// can't parse.
+const systemRoot = process.env.SystemRoot || "C:\\Windows";
+const childEnv = {};
+for (const [k, v] of Object.entries(process.env)) {
+  if (!k || !/^[A-Za-z_][A-Za-z0-9_()]*$/.test(k)) continue;
+  childEnv[k] = v;
+}
+childEnv.PATH = [
+  `${systemRoot}\\System32`,
+  systemRoot,
+  `${systemRoot}\\System32\\Wbem`,
+].join(";");
+const result = child_process.execSync(
+  `cmd /s /c \"call \"${path}\" && set\"`,
+  { env: childEnv },
+);
 const env = result
   .toString("latin1")
   .split("\n")
@@ -142,29 +161,21 @@ if (process.argv.includes("--output-env-bash")) {
   process.exit(0);
 }
 
-for (const line of env.split("\n")) {
-  const [key, value] = line.split("=");
-  process.env[key] = value;
+for (const line of env.replace(/\r/g, "").split("\n")) {
+  if (!line) continue;
+  const eq = line.indexOf("=");
+  if (eq <= 0) continue;
+  process.env[line.slice(0, eq)] = line.slice(eq + 1);
 }
 
 const proc = child_process.spawn(
   process.argv[2] ?? "cmd",
   [...process.argv.slice(3)],
   {
-    //stdio: ["pipe", "pipe", "pipe"],
+    stdio: 'inherit',
     //shell: true,
   },
 );
-proc.stdout.on("data", (data) => {
-  process.stdout.write(data);
-});
-proc.stderr.on("data", (data) => {
-  process.stderr.write(data);
-});
-process.stdin.on("data", (data) => {
-  proc.stdin.write(data);
-});
-
 proc.on("close", (code, signal) => {
   process.exit(code);
 });

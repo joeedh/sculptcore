@@ -117,7 +117,7 @@ void memRelease(void *mem)
 }
 void printMemBlocks()
 {
-  alloc::print_blocks();
+  alloc::print_blocks(true);
 }
 }
 

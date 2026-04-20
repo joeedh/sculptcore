@@ -61,6 +61,7 @@ template <typename T> struct AttrData : AttrDataBase {
       value = b.value;
     }
 
+    DEFAULT_COPY_ASSIGNMENT(AttrPage)
     DEFAULT_MOVE_ASSIGNMENT(AttrPage)
   };
 

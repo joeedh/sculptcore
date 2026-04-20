@@ -2,7 +2,6 @@ set(LIB
 	mesh
 	util
 	math
-	draw
 )
 
 set(SRC

@@ -17,11 +17,6 @@ using namespace litestl;
 using namespace litestl::math;
 using sculptcore::mesh::Mesh;
 
-namespace sculptcore::gpu {
-struct VBO;
-struct Buffer;
-} // namespace sculptcore::gpu
-
 namespace sculptcore::spatial {
 struct NodeTri {
   int c[3]; /* corners */
@@ -33,14 +28,6 @@ struct SpatialNode;
 
 struct SpatialNode {
   struct NodeData {
-    struct GPUData {
-      sculptcore::gpu::VBO *vbo = nullptr;
-      sculptcore::gpu::Buffer *tris = nullptr;
-      sculptcore::gpu::Buffer *lines = nullptr;
-
-      ~GPUData();
-    };
-
     util::OrderedSet<int> unique_verts;
     util::OrderedSet<int> other_verts;
     util::OrderedSet<int> faces;
@@ -48,7 +35,6 @@ struct SpatialNode {
     util::Vector<NodeTri> tris;
 
     Mesh *m;
-    GPUData gpu;
   };
 
   struct VertexIter {

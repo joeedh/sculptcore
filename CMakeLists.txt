@@ -23,7 +23,7 @@ if (NOT BUILD_WASM)
 	add_subdirectory(tests)
 endif()
 
-#if (NOT BUILD_WASM)
+if (BUILD_WASM)
 	set(LIB
 	  util
 	  mesh
@@ -44,21 +44,15 @@ endif()
 	target_link_options(sculptcore PRIVATE "-sMODULARIZE=1")
 	target_link_options(sculptcore PRIVATE "-sEXPORTED_FUNCTIONS=${wasmsym}")
 	target_link_options(sculptcore PRIVATE "--bind")
-# else()
-# 	set(LIB
-# 	  util
-# 	  mesh
-# 	  spatial
-# 	  brush
-# 	)
+else()
+ 	set(LIB
+ 	  util
+ 	  mesh
+	  spatial
+	  brush
+	)
 
-# 	add_library(sculptcore STATIC)
+	add_library(sculptcore SHARED)
+	target_link_libraries(sculptcore ${LIB})
+endif()
 
-# 	add_custom_command(
-# 		TARGET sculptcore
-# 		POST_BUILD
-# 		COMMAND python ${CMAKE_SOURCE_DIR}/build_files/link_wasm.py ${EMCC_PATH} $<TARGET_FILE:math> $<TARGET_FILE:util> $<TARGET_FILE:mesh> 
-# 	)
-
-# 	target_link_libraries(sculptcore ${LIB})
-# endif()
