@@ -11,19 +11,27 @@ reading it before doing wide exploration.
 Use the Node dispatcher rather than invoking cmake/emcmake directly:
 
 ```
-node make.mjs install-emsdk   # one-time; clones emsdk submodule, installs pinned version
-node make.mjs configure       # emcmake cmake .. -G Ninja -DBUILD_WASM=ON ...
-node make.mjs build           # cmake --build build
-node make.mjs clean
+node make.mjs install-emsdk          # one-time; clones emsdk submodule, installs pinned emsdk + cmake + ninja
+node make.mjs configure [wasm|native]  # default wasm
+node make.mjs build     [wasm|native]
+node make.mjs test      [wasm|native]  # runs ctest in the build dir
+node make.mjs clean     [wasm|native]  # ninja clean
 ```
 
 Notes:
-- `emsdkVersion.txt` pins the Emscripten version.
-- `build/` holds the WASM configuration. The `build` step deletes
-  `build/sculptcore.{js,wasm}` before linking because emcc can silently
-  succeed on compile errors otherwise — don't "optimize" that away.
-- Native (non-WASM) builds enable `tests/` and the `sculptcore` executable
-  still links, but the primary target is WASM.
+- All commands take an optional `target` positional (`wasm` default, or `native`).
+- Build dirs: WASM → `build/`, native → `build/native/`.
+- WASM configure runs `emcmake cmake .. -G Ninja -DBUILD_WASM=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
+  native configure runs plain `cmake ../.. -G Ninja`.
+- Every command runs under `node configureEnv.mjs` (with `--emsdk` for WASM) to set up the
+  emsdk/PATH environment — don't invoke cmake/ninja/ctest directly.
+- `emsdkVersion.txt` pins the Emscripten version. `install-emsdk` also installs pinned
+  `cmake-4.2.0-rc3-64bit` and `ninja-git-release-64bit` via emsdk and activates them
+  `--permanent`, then appends `cmake` to `emsdk/.gitignore` (upstream omits it).
+- The WASM `build` step deletes `build/sculptcore.{js,wasm}` before linking because
+  emcc can silently succeed on compile errors otherwise — don't "optimize" that away.
+- Native (non-WASM) builds enable `tests/` and the `sculptcore` executable still links,
+  but the primary target is WASM.
 - `node serv.mjs` serves `index.html` + the WASM module for browser testing.
 
 ## Language / standard

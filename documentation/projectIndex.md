@@ -7,8 +7,8 @@ A C++20 sculpting/mesh engine that builds natively and to WebAssembly via Emscri
 | Path | Purpose |
 |---|---|
 | `CMakeLists.txt` / `CMakePresets.json` | Root CMake config. Builds `sculptcore` executable; links `util`, `mesh`, `platform`. WASM exports are collected via the `WASM_SYMBOLS` global property. |
-| `make.mjs` | Node build dispatcher (replaces prior emscripten wrappers). Commands: `configure`, `build`, `clean`. |
-| `configureEnv.mjs` | Environment bootstrap for emsdk. |
+| `make.mjs` | Node build dispatcher (replaces prior emscripten wrappers). Commands: `configure`, `build`, `test`, `clean`, `install-emsdk`; each build command takes `[wasm\|native]` (default `wasm`). WASM builds in `build/`, native in `build/native/`. |
+| `configureEnv.mjs` | Environment bootstrap for emsdk / pinned toolchain; wraps every cmake/ninja/ctest invocation from `make.mjs` (with `--emsdk` for WASM targets). |
 | `serv.mjs` | Dev HTTP server for the WASM/browser frontend. |
 | `index.html` | Browser entry that loads the WASM module. |
 | `emsdk/` | Emscripten SDK (git submodule). Version pinned in `emsdkVersion.txt`. |
@@ -85,4 +85,6 @@ Backend: `opengl/` — `shader.h`, `texture.h`, `pipeline.h`, `vbo.h`, `command.
 
 - Browser: `index.html` → loads `build/sculptcore.js` (Emscripten modularized).
 - Native executable: `sculptcore` target (root `CMakeLists.txt`).
-- Dev loop: `node make.mjs configure && node make.mjs build`, then `node serv.mjs`.
+- Dev loop (WASM): `node make.mjs configure && node make.mjs build`, then `node serv.mjs`.
+- Native loop: `node make.mjs configure native && node make.mjs build native && node make.mjs test native`.
+- One-time setup: `node make.mjs install-emsdk` (clones `emsdk` submodule, installs pinned emsdk + cmake + ninja).

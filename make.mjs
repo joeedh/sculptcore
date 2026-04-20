@@ -1,48 +1,66 @@
 #!/usr/bin/env node
 import fs from "fs";
 import child_process from "child_process";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 
-const cmd = process.argv[2] ?? "--help";
 const EMSDK_VERSION = fs.readFileSync("./emsdkVersion.txt", "utf-8").trim();
+const CMAKE_ARGS = `-DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
 
 function run(cmd) {
   try {
     return child_process.execSync(cmd, { shell: true, stdio: "inherit" });
   } catch (error) {
-    process.stderr.write(err.message + "\n");
+    process.stderr.write(error.message + "\n");
     process.exit(1);
   }
 }
 
-const CMAKE_ARGS = `-DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
-switch (cmd) {
-  case "--help":
-    console.log("Usage: node make.mjs <build|clean|configure> [emsdk|native]");
-    break;
-  case "configure":
-    if (!fs.existsSync("build")) {
-      fs.mkdirSync("build");
-    }
-    if (process.argv[3] === "native") {
-      if (!fs.existsSync("build/native")) {
-        fs.mkdirSync("build/native");
+function ensureDir(p) {
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+}
+
+function buildDir(target) {
+  return target === "native" ? "build/native" : "build";
+}
+
+// Returns the `node ../configureEnv.mjs [--emsdk]` prefix used inside buildDir.
+function envPrefix(target) {
+  const rel = target === "native" ? "../.." : "..";
+  const emsdk = target === "native" ? "" : "--emsdk ";
+  return `node ${rel}/configureEnv.mjs ${emsdk}`.trimEnd();
+}
+
+const targetPositional = (y) =>
+  y.positional("target", {
+    choices: ["wasm", "native"],
+    default: "wasm",
+    describe: "Build target",
+  });
+
+yargs(hideBin(process.argv))
+  .scriptName("make.mjs")
+  .command(
+    "configure [target]",
+    "Configure the build",
+    targetPositional,
+    ({ target }) => {
+      ensureDir("build");
+      const dir = buildDir(target);
+      ensureDir(dir);
+      const env = envPrefix(target);
+      if (target === "native") {
+        run(`cd ${dir} && ${env} cmake ../.. -G Ninja `);
+      } else {
+        run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS}`);
       }
-      //run("node configureEnv.mjs --output-env-bat");
-      //run("node configureEnv.mjs --output-env-bash");
-      run(
-        `cd build/native && node ../../configureEnv.mjs cmake ../.. -G Ninja `,
-      );
-    } else {
-      run(
-        `cd build && node ../configureEnv.mjs --emsdk emcmake cmake .. ${CMAKE_ARGS}`,
-      );
-    }
-    break;
-  case "build":
+    },
+  )
+  .command("build [target]", "Build", targetPositional, ({ target }) => {
     console.log("Building...");
-    if (process.argv[3] === "native") {
-      run(`cd build/native && node ../../configureEnv.mjs cmake --build .`);
-    } else {
+    const dir = buildDir(target);
+    const env = envPrefix(target);
+    if (target === "wasm") {
       // ensure final linked files are destroyed
       // since emscripten is not that great at making
       // errors during complication actually be obvious
@@ -52,34 +70,29 @@ switch (cmd) {
       if (fs.existsSync("build/sculptcore.wasm")) {
         fs.rmSync("build/sculptcore.wasm", { force: true });
       }
-      run(`cd build && node ../configureEnv.mjs --emsdk cmake --build . `);
     }
-    break;
-  case "clean":
+    run(`cd ${dir} && ${env} cmake --build . `);
+  })
+  .command("clean [target]", "Clean build dir", targetPositional, ({ target }) => {
     console.log("Cleaning...");
-    if (process.argv[3] === "native") {
-      run(`cd build/native && node ../../configureEnv.mjs ninja clean`);
-    } else {
-      run(`cd build && node ../configureEnv.mjs --emsdk ninja clean`);
-    }
-    break;
-  case "install-emsdk":
+    run(`cd ${buildDir(target)} && ${envPrefix(target)} ninja clean`);
+  })
+  .command("test [target]", "Run ctest", targetPositional, ({ target }) => {
+    console.log("Testing...");
+    run(`cd ${buildDir(target)} && ${envPrefix(target)} ctest .`);
+  })
+  .command("install-emsdk", "Install pinned emsdk", {}, () => {
     console.log("Installing emsdk...");
     run("git submodule init");
     run("git submodule update");
     run(
       `cd emsdk && bash emsdk install ${EMSDK_VERSION} && bash emsdk install cmake-4.2.0-rc3-64bit ninja-git-release-64bit `,
     );
-    break;
-  case "test":
-    console.log("Testing...");
-    if (process.argv[3] === "native") {
-      run(`cd build/native && node ../../configureEnv.mjs ctest .`);
-    } else {
-      run(`cd build && node ../configureEnv.mjs --emsdk ctest .`);
-    }
-    break;
-  default:
-    console.log(`Unknown command: ${cmd}`);
-    break;
-}
+    run(`cd emsdk && bash emsdk activate ${EMSDK_VERSION} cmake-4.2.0-rc3-64bit ninja-git-release-64bit --permanent `)
+    // emsdk annoyingly is missing a .gitignore for their cmake binary folder
+    fs.appendFileSync('emsdk/.gitignore', '\ncmake\n')
+  })
+  .demandCommand(1, "Specify a command (see --help)")
+  .strict()
+  .help()
+  .parse();

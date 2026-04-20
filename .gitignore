@@ -2,3 +2,4 @@ build
 emsdk
 .vs
 .cache
+node_modules
