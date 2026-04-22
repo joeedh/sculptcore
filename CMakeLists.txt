@@ -34,6 +34,7 @@ if (BUILD_WASM)
 	  mesh
 	  platform
 	  binding
+    binding_generators
 	  sculptcore_wasm
 	  sculptcore_core
 	)
