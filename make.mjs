@@ -4,8 +4,9 @@ import child_process from "child_process";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 
+const CMAKE_BUILD_TYPE = "RelWithDebInfo";
 const EMSDK_VERSION = fs.readFileSync("./emsdkVersion.txt", "utf-8").trim();
-const CMAKE_ARGS = `-DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
+const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
 
 function run(cmd) {
   try {
@@ -50,7 +51,7 @@ yargs(hideBin(process.argv))
       ensureDir(dir);
       const env = envPrefix(target);
       if (target === "native") {
-        run(`cd ${dir} && ${env} cmake ../.. -G Ninja `);
+        run(`cd ${dir} && ${env} cmake ../.. -G Ninja CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `);
       } else {
         run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS}`);
       }

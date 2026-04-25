@@ -104,34 +104,6 @@ AttrRef *getAttrs(Mesh *mesh, ElemType domain, int *count_out)
   *count_out = int(attrs->attrs.size());
   return attrs->attrs.data();
 }
-
-void *memAlloc(const char *tag, size_t size)
-{
-  return alloc::alloc(tag, size);
-}
-
-void memRelease(void *mem)
-{
-  alloc::release(mem);
-}
-void printMemBlocks()
-{
-  alloc::print_blocks(true);
-}
-void *_rawAlloc(int size)
-{
-  return malloc(size);
-}
-void _rawRelease(void *ptr)
-{
-  free(ptr);
-}
-}
-
-void memAlloc2(const std::string &tag, int size)
-{
-  std::string *cpy = new std::string(tag);
-  alloc::alloc(cpy->c_str(), size);
 }
 
 #if 0 // def WASM

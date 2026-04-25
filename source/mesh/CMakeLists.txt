@@ -29,8 +29,6 @@ set(SRC
 
 sc_add_library(mesh "${SRC}" "${LIB}" STATIC)
 wasm_add_symbols("
-  memRelease
-  memAlloc
   getAttrs
   getAttrName
   getAttr
@@ -40,8 +38,5 @@ wasm_add_symbols("
   freeMesh
   createMesh
   getStrData
-  printMemBlocks
-  _rawAlloc
-  _rawRelease
   "
 )

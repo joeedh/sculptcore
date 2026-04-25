@@ -19,6 +19,7 @@ endif()
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)
 
 include("build_files/macros.cmake")
+include("source/litestl/build_files/macros.cmake")
 
 add_subdirectory(extern)
 add_subdirectory(source)
@@ -28,6 +29,7 @@ if (NOT BUILD_WASM)
 endif()
 
 if (BUILD_WASM)
+
 	set(LIB
 	  util
 	  math
@@ -39,22 +41,17 @@ if (BUILD_WASM)
 	  sculptcore_core
 	)
 
-	add_executable(sculptcore)
-	target_link_libraries(sculptcore ${LIB})
-	get_property(wasmsym GLOBAL PROPERTY "WASM_SYMBOLS")
-	#string(REPLACE "\n" "," wasmsym "${wasmsym}")
-	string(REPLACE " " "" wasmsym "${wasmsym}")
-	string(REGEX REPLACE "\n\n+" "\n" wasmsym "${wasmsym}")
-	string(STRIP "${wasmsym}" wasmsym)
-	string(REPLACE "\n" ",_"  wasmsym "${wasmsym}")
-	set(wasmsym "_${wasmsym}")
-	message("SYMBOLS = ${wasmsym}")
+	# merge litestl wasm symbols
+	get_property(existing GLOBAL PROPERTY WASM_SYMBOLS)
+	get_property(lt_existing GLOBAL PROPERTY LT_WASM_SYMBOLS)
+	set_property(GLOBAL PROPERTY WASM_SYMBOLS "${existing}\n${lt_existing}")
 
-	target_link_options(sculptcore PRIVATE "-sMODULARIZE=1")
-	target_link_options(sculptcore PRIVATE "-sEXPORTED_RUNTIME_METHODS=HEAPU8")
+	# build final symbol list
+	get_property(wasmsym GLOBAL PROPERTY "WASM_SYMBOLS")
+
 	
-	target_link_options(sculptcore PRIVATE "-sEXPORTED_FUNCTIONS=${wasmsym}")
-	target_link_options(sculptcore PRIVATE "--bind")
+	build_wasm(sculptcore "" "${LIB}" "${wasmsym}")
+
 else()
  	set(LIB
  	  util
