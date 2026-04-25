@@ -29,4 +29,3 @@ export interface AttrRef {
   type: AttrType
   flag: AttrFlag
 }
-
