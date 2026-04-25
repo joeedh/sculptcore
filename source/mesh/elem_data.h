@@ -21,6 +21,7 @@ using litestl::util::assert;
 using namespace litestl;
 namespace sculptcore::mesh {
 struct Mesh;
+
 struct ElemData {
   ElemType domain;
   AttrGroup attrs;
@@ -29,6 +30,19 @@ struct ElemData {
   util::BoolVector<> freemap;
   util::Vector<int> freelist;
   util::CallbackList<void(Mesh *m, int v1, int v2)> on_swap;
+
+  static binding::types::Struct<ElemData> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<ElemData> *st =
+        new Struct<ElemData>("sculptcore::mesh::ElemData", sizeof(ElemData));
+
+    BIND_STRUCT_MEMBER(st, capacity_);
+    BIND_STRUCT_METHOD_SIG(st, alloc, void, (int, bool));
+    BIND_STRUCT_METHOD_SIG(st, alloc, int, (void));
+
+    return st;
+  }
 
   struct iterator {
     iterator(ElemData &owner, int i) : owner_(owner), i_(i)

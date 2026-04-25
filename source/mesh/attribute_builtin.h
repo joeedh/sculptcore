@@ -26,7 +26,6 @@ struct BuiltinAttr : protected AttrRef {
     st->addTemplateParam(binding::Bind<T>(), "Type");
     st->addTemplateParam(new binding::types::StrLitType(string(Name), "name"), "Name");
 
-
     return st;
   }
 

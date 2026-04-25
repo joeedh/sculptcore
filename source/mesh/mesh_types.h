@@ -30,8 +30,10 @@ struct VertexData : public ElemData {
   static binding::types::Struct<VertexData> *defineBindings()
   {
     using binding::types::Struct;
-    Struct<VertexData> *st = new Struct<VertexData>("sculptcore::mesh::VertexData", sizeof(VertexData));
-    BIND_STRUCT_MEMBER(st, capacity_);
+    Struct<VertexData> *st =
+        new Struct<VertexData>("sculptcore::mesh::VertexData", sizeof(VertexData));
+    st->inherit(ElemData::defineBindings());
+
     BIND_STRUCT_MEMBER(st, co);
     BIND_STRUCT_MEMBER(st, no);
     BIND_STRUCT_MEMBER(st, e);
@@ -77,6 +79,20 @@ struct EdgeData : public ElemData {
     disk.ensure(attrs);
     select.ensure(attrs);
     c.ensure(attrs);
+  }
+
+  static binding::types::Struct<EdgeData> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<EdgeData> *st =
+        new Struct<EdgeData>("sculptcore::mesh::EdgeData", sizeof(EdgeData));
+    BIND_STRUCT_MEMBER(st, capacity_);
+    BIND_STRUCT_MEMBER(st, c);
+    BIND_STRUCT_MEMBER(st, vs);
+    BIND_STRUCT_MEMBER(st, select);
+    BIND_STRUCT_MEMBER(st, disk);
+
+    return st;
   }
 
   BuiltinAttr<int, ".edge.c", AttrFlag::TOPO> c;

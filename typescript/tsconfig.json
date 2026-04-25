@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
+    "module": "NodeNext",
     "moduleResolution": "nodenext",
     "strict": true,
     "strictNullChecks": true,
@@ -15,5 +15,5 @@
     "lib": [ "ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable" ],
     "types": [ "node", "jest" ]
   },
-  "include": [ "*.ts", "*.js" ]
+  "include": [ "**/*.ts", "*.js" ]
 }
