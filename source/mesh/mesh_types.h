@@ -110,6 +110,23 @@ struct CornerData : public ElemData {
   using int2 = math::int2;
   using int4 = math::int4;
 
+  static binding::types::Struct<CornerData> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<CornerData> *st =
+        new Struct<CornerData>("sculptcore::mesh::CornerData", sizeof(CornerData));
+    BIND_STRUCT_MEMBER(st, capacity_);
+    BIND_STRUCT_MEMBER(st, v);
+    BIND_STRUCT_MEMBER(st, e);
+    BIND_STRUCT_MEMBER(st, l);
+    BIND_STRUCT_MEMBER(st, next);
+    BIND_STRUCT_MEMBER(st, prev);
+    BIND_STRUCT_MEMBER(st, radial_next);
+    BIND_STRUCT_MEMBER(st, radial_prev);
+
+    return st;
+  }
+
   CornerData(int count_ = 0) : ElemData(CORNER, count_)
   {
     v.ensure(attrs);
@@ -133,6 +150,20 @@ struct CornerData : public ElemData {
 struct ListData : public ElemData {
   using int2 = math::int2;
   using int4 = math::int4;
+
+  static binding::types::Struct<ListData> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<ListData> *st =
+        new Struct<ListData>("sculptcore::mesh::ListData", sizeof(ListData));
+    BIND_STRUCT_MEMBER(st, capacity_);
+    BIND_STRUCT_MEMBER(st, c);
+    BIND_STRUCT_MEMBER(st, f);
+    BIND_STRUCT_MEMBER(st, next);
+    BIND_STRUCT_MEMBER(st, size);
+
+    return st;
+  }
 
   ListData(int count_ = 0) : ElemData(LIST, count_)
   {
@@ -161,7 +192,7 @@ struct FaceData : public ElemData {
   }
 
   BuiltinAttr<short, ".face.list_count"> list_count;
-  BuiltinAttr<int, ".face.l", AttrFlag::TOPO> l;
+  BuiltinAttr<int, ".face.list", AttrFlag::TOPO> l;
   BuiltinAttr<float3, ".face.normal"> no;
 };
 

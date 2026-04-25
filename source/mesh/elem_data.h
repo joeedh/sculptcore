@@ -37,6 +37,7 @@ struct ElemData {
     Struct<ElemData> *st =
         new Struct<ElemData>("sculptcore::mesh::ElemData", sizeof(ElemData));
 
+    BIND_STRUCT_MEMBER(st, attrs);
     BIND_STRUCT_MEMBER(st, capacity_);
     BIND_STRUCT_METHOD_SIG(st, alloc, void, (int, bool));
     BIND_STRUCT_METHOD_SIG(st, alloc, int, (void));

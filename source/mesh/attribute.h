@@ -6,6 +6,7 @@
 #include "io/serial.h"
 #include "litestl/math/vector.h"
 
+#include "litestl/binding/binding.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/array.h"
 #include "litestl/util/index_range.h"
@@ -215,11 +216,60 @@ private:
   int size_ = 0;
 };
 
+static const binding::types::Enum *BindAttrFlags()
+{
+  using namespace litestl::binding;
+  types::Enum *e = new types::Enum("sculptcore::mesh::AttrFlag", sizeof(AttrFlag));
+  e->isBitMask = true;
+  e->addItem("None", static_cast<int>(AttrFlag::NONE));
+  e->addItem("Topo", static_cast<int>(AttrFlag::TOPO));
+  e->addItem("Temp", static_cast<int>(AttrFlag::TEMP));
+  e->addItem("NoCopy", static_cast<int>(AttrFlag::NOCOPY));
+  e->addItem("NoInterp", static_cast<int>(AttrFlag::NOINTERP));
+  return e;
+}
+
+static const binding::types::Enum *BindAttrTypes()
+{
+  using namespace litestl::binding;
+  types::Enum *e = new types::Enum("sculptcore::mesh::AttrType", sizeof(AttrType));
+  e->addItem("Float", static_cast<int>(AttrType::NONE));
+  e->addItem("Int", static_cast<int>(AttrType::INT));
+  e->addItem("Vec2", static_cast<int>(AttrType::FLOAT));
+  e->addItem("Float2", static_cast<int>(AttrType::FLOAT2));
+  e->addItem("Float3", static_cast<int>(AttrType::FLOAT3));
+  e->addItem("Float4", static_cast<int>(AttrType::FLOAT4));
+  e->addItem("Bool", static_cast<int>(AttrType::BOOL));
+  e->addItem("Byte", static_cast<int>(AttrType::BYTE));
+  e->addItem("Short", static_cast<int>(AttrType::SHORT));
+  e->addItem("Int2", static_cast<int>(AttrType::INT2));
+  e->addItem("Int3", static_cast<int>(AttrType::INT3));
+  e->addItem("Int4", static_cast<int>(AttrType::INT4));
+  return e;
+}
+
 struct AttrRef {
   AttrDataBase *data = nullptr;
   string name;
   AttrType type;
   AttrFlag flag;
+
+  static binding::types::Struct<AttrRef> *defineBindings()
+  {
+    using namespace litestl::binding;
+    using binding::types::Struct;
+    Struct<AttrRef> *st =
+        new Struct<AttrRef>("sculptcore::mesh::AttrRef", sizeof(AttrRef));
+    BIND_STRUCT_MEMBER(st, name);
+
+    auto *e = BindAttrTypes();
+    st->add("type", offsetof(AttrRef, type), e);
+
+    auto *e2 = BindAttrFlags();
+    st->add("flag", offsetof(AttrRef, type), e2);
+
+    return st;
+  }
 
   AttrRef()
   {
@@ -303,6 +353,19 @@ template <typename Lambda> void type_dispatch(AttrType type, Lambda callback)
 struct AttrGroup {
   util::Vector<AttrRef> attrs;
   PackedBoolAttrs bool_attrs;
+
+  static binding::types::Struct<AttrGroup> *defineBindings()
+  {
+    using namespace litestl::binding;
+    using binding::types::Struct;
+    Struct<AttrGroup> *st =
+        new Struct<AttrGroup>("sculptcore::mesh::AttrGroup", sizeof(AttrGroup));
+
+    BIND_STRUCT_MEMBER(st, attrs);
+    // BIND_STRUCT_MEMBER(st, bool_attrs);
+
+    return st;
+  }
 
   ~AttrGroup()
   {
