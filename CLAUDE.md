@@ -6,6 +6,10 @@ Emscripten. CMake + Ninja, driven by a small Node dispatcher (`make.mjs`).
 See `documentation/projectIndex.md` for the full source-tree map — prefer
 reading it before doing wide exploration.
 
+## Commit logs
+When suggesting commit logs, do not include additions to the CSpell 
+dictionary.
+
 ## Build
 
 Use the Node dispatcher rather than invoking cmake/emcmake directly:

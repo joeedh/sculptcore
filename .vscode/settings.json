@@ -1,5 +1,8 @@
 {
     "files.associations": {
         "random": "cpp"
-    }
+    },
+    "cSpell.words": [
+        "cstring"
+    ]
 }
