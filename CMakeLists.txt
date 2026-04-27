@@ -5,8 +5,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED true)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_SOURCE_FILE_EXTENSIONS .cc .cpp)
 
-message("BUILD_WASM = " ${BUILD_WASM})
-
 if (NOT BUILD_WASM) 
 	include(CTest)
 endif()
@@ -29,7 +27,6 @@ if (NOT BUILD_WASM)
 endif()
 
 if (BUILD_WASM)
-
 	set(LIB
 	  util
 	  math
@@ -39,6 +36,7 @@ if (BUILD_WASM)
     binding_generators
 	  sculptcore_wasm
 	  sculptcore_core
+    gpu
 	)
 
 	# merge litestl wasm symbols
@@ -59,6 +57,7 @@ else()
  	  mesh
 	  spatial
 	  brush
+    gpu
 	)
 
 	add_library(sculptcore SHARED)

@@ -1,5 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-
 import type {AttrGroup} from "./AttrGroup";
 import type {float3} from "../../litestl/math/float3";
 import type {BuiltinAttr} from "./BuiltinAttr";

@@ -1,5 +1,5 @@
 #include "vbo.h"
-#include "opengl.h"
+#include "litestl/binding/binding.h"
 
 using namespace litestl;
 
@@ -7,6 +7,30 @@ namespace sculptcore::gpu {
 Buffer::~Buffer()
 {
   release();
+}
+
+binding::types::Struct<Buffer> *Buffer::defineBindings()
+{
+  using litestl::binding::types::Constructor;
+  using litestl::binding::types::Struct;
+  using namespace litestl::binding;
+  Struct<Buffer> *st = new Struct<Buffer>("sculptcore::gpu::Buffer", sizeof(Buffer));
+
+  BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+  BIND_STRUCT_CONSTRUCTOR(st, "main", litestl::util::string, GPUType, int, GPUFetchMode, int);
+
+  BIND_STRUCT_MEMBER(st, type);
+  BIND_STRUCT_MEMBER(st, size);
+  BIND_STRUCT_MEMBER(st, elemsize);
+  BIND_STRUCT_MEMBER(st, mode);
+  BIND_STRUCT_MEMBER(st, data);
+  BIND_STRUCT_MEMBER(st, update_buffer);
+
+  return st;
+}
+
+void Buffer::release() {
+  //
 }
 
 void Buffer::resize(int newsize)
@@ -28,35 +52,6 @@ void Buffer::resize(int newsize)
   }
 
   size = newsize;
-}
-
-void Buffer::release()
-{
-  if (uploaded) {
-    GLuint buffers[1] = {gl_buffer};
-    glDeleteBuffers(1, buffers);
-
-    uploaded = false;
-  }
-}
-
-void Buffer::check_upload()
-{
-  if (!uploaded) {
-    upload();
-  } else if (update_buffer) {
-    glBindBuffer(target, gl_buffer);
-    glBufferData(target, size, data, hint);
-    update_buffer = false;
-  }
-}
-
-void Buffer::upload()
-{
-  glCreateBuffers(1, &gl_buffer);
-  glBindBuffer(target, gl_buffer);
-  glBufferData(target, size, data, hint);
-  update_buffer = false;
 }
 
 VBO::~VBO()

@@ -1,5 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-
 import type {AttrRef} from "./AttrRef";
 
 /** Auto-generated file */

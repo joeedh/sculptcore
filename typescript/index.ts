@@ -13,25 +13,27 @@ type ushort = number;
 type char = number;
 type uchar = number;
 
-import type {EdgeData} from "./sculptcore/mesh/EdgeData";
-import type {Mesh} from "./sculptcore/mesh/Mesh";
 import type {BuiltinAttr} from "./sculptcore/mesh/BuiltinAttr";
 import type {VertexData} from "./sculptcore/mesh/VertexData";
+import type {Buffer} from "./sculptcore/gpu/Buffer";
+import type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
+import type {EdgeData} from "./sculptcore/mesh/EdgeData";
+import type {int2} from "./litestl/math/int2";
+import type {int4} from "./litestl/math/int4";
+import type {Mesh} from "./sculptcore/mesh/Mesh";
 import type {AttrRef} from "./sculptcore/mesh/AttrRef";
 import type {float3} from "./litestl/math/float3";
-import type {int4} from "./litestl/math/int4";
-import type {int2} from "./litestl/math/int2";
-import type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 
-export type {EdgeData} from "./sculptcore/mesh/EdgeData";
-export type {Mesh} from "./sculptcore/mesh/Mesh";
 export type {BuiltinAttr} from "./sculptcore/mesh/BuiltinAttr";
 export type {VertexData} from "./sculptcore/mesh/VertexData";
+export type {Buffer} from "./sculptcore/gpu/Buffer";
+export type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
+export type {EdgeData} from "./sculptcore/mesh/EdgeData";
+export type {int2} from "./litestl/math/int2";
+export type {int4} from "./litestl/math/int4";
+export type {Mesh} from "./sculptcore/mesh/Mesh";
 export type {AttrRef} from "./sculptcore/mesh/AttrRef";
 export type {float3} from "./litestl/math/float3";
-export type {int4} from "./litestl/math/int4";
-export type {int2} from "./litestl/math/int2";
-export type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 
 /** Note: Does not include templates */
 export type AllBoundTypes = {
@@ -46,6 +48,7 @@ export type AllBoundTypes = {
   "sculptcore::mesh::BuiltinAttr<float3,\"normals\">": BuiltinAttr<float3,"normals">,
   "sculptcore::mesh::BuiltinAttr<int,\".vert.e\">": BuiltinAttr<int,".vert.e">,
   "litestl::math::int2": int2,
+  "sculptcore::gpu::Buffer": Buffer,
   "sculptcore::mesh::AttrRef": AttrRef,
   "sculptcore::mesh::BuiltinAttr<int,\".edge.c\">": BuiltinAttr<int,".edge.c">,
   "sculptcore::mesh::BuiltinAttr<int2,\".edge.vs\">": BuiltinAttr<int2,".edge.vs">,

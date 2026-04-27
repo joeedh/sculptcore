@@ -9,8 +9,7 @@
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
-#include "opengl.h"
-
+#include "litestl/binding/binding.h"
 #include <functional>
 #include <type_traits>
 
@@ -21,41 +20,74 @@ namespace sculptcore::gpu {
 
 struct VBO;
 
-enum GPUBufferHint { HINT_STATIC = GL_STATIC_DRAW, HINT_DYNAMIC = GL_DYNAMIC_DRAW };
+enum GPUBufferHint { HINT_STATIC = 0, HINT_DYNAMIC = 1 };
 
 enum GPUBufferType {
-  BUFFER_ARRAY = GL_ARRAY_BUFFER,
-  BUFFER_INDEX = GL_ELEMENT_ARRAY_BUFFER,
-  BUFFER_TEXTURE = GL_TEXTURE_BUFFER,
-  BUFFER_UNIFORM = GL_UNIFORM_BUFFER,
+  BUFFER_ARRAY = 0,
+  BUFFER_INDEX = 1,
+  BUFFER_TEXTURE = 2,
+  BUFFER_UNIFORM = 3,
 };
+} // namespace sculptcore::gpu
+
+namespace litestl::binding {
+template <std::same_as<sculptcore::gpu::GPUBufferType> T>
+static const litestl::binding::BindingBase *Bind()
+{
+  using namespace sculptcore::gpu;
+  using namespace litestl::binding;
+  types::Enum *e =
+      new types::Enum("sculptcore::gpu::GPUBufferType", sizeof(GPUBufferType));
+
+  e->addItem("BUFFER_ARRAY", GPUBufferType::BUFFER_ARRAY);
+  e->addItem("BUFFER_INDEX", GPUBufferType::BUFFER_INDEX);
+  e->addItem("BUFFER_TEXTURE", GPUBufferType::BUFFER_TEXTURE);
+  e->addItem("BUFFER_UNIFORM", GPUBufferType::BUFFER_UNIFORM);
+  return e;
+}
+
+template <std::same_as<sculptcore::gpu::GPUBufferHint> T> static const BindingBase *Bind()
+{
+  using namespace sculptcore::gpu;
+  using namespace litestl::binding;
+  types::Enum *e =
+      new types::Enum("sculptcore::gpu::GPUBufferHint", sizeof(GPUBufferHint));
+  e->addItem("HINT_STATIC", GPUBufferHint::HINT_STATIC);
+  e->addItem("HINT_DYNAMIC", GPUBufferHint::HINT_DYNAMIC);
+  return e;
+}
+} // namespace litestl::binding
+
+namespace sculptcore::gpu {
 
 struct Buffer {
+  string name;
   GPUType type;
   GPUFetchMode mode;
   GPUBufferHint hint = HINT_DYNAMIC;
   GPUBufferType target = BUFFER_ARRAY;
 
-  int size = 0, elemsize;
+  int size = 0, elemsize = 0;
   bool uploaded = false;
 
   VBO *owner_vbo = nullptr;
 
   void *data = nullptr;
-  unsigned int gl_buffer;
   bool update_buffer = true;
 
   void resize(int newsize);
+
+  static binding::types::Struct<Buffer> *defineBindings();
 
   Buffer()
   {
   }
 
-  Buffer(GPUType type_,
+  Buffer(string name, GPUType type_,
          int elemsize_,
          GPUFetchMode mode_ = GPUFetchMode::FETCH_FLOAT,
          int elem_count = 0)
-      : type(type_), elemsize(elemsize_), mode(mode_)
+      : type(type_), elemsize(elemsize_), mode(mode_), name(name)
   {
     if (elem_count) {
       resize(elem_count);
@@ -206,8 +238,11 @@ struct VBO {
       return buf;
     }
 
-    buf = alloc::New<Buffer>(
-        "Buffer", gpu_type_from<T>(), gpu_type_elems<T>(), GPUFetchMode::FETCH_FLOAT, size);
+    buf = alloc::New<Buffer>("Buffer",
+                             gpu_type_from<T>(),
+                             gpu_type_elems<T>(),
+                             GPUFetchMode::FETCH_FLOAT,
+                             size);
     buf->owner_vbo = this;
     buf->target = target;
 

@@ -2,8 +2,7 @@ set(LIB
     eigen
     util
     math
-    PUBLIC glfw
-    PUBLIC glew
+    binding
 )
 
 set(SRC
@@ -13,6 +12,7 @@ set(SRC
   PUBLIC texture.h
   PUBLIC types.h
   PUBLIC vbo.h
+  PUBLIC bindings.h
   PUBLIC standard_attrs.h
   vbo.cc
   shader.cc

@@ -4,6 +4,7 @@ set(LIB
     PUBLIC binding
     PUBLIC mesh
     PUBLIC sculptcore_wasm
+    PUBLIC gpu
 )
 
 set(SRC
