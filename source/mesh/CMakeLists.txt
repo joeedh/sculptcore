@@ -38,5 +38,6 @@ wasm_add_symbols("
   freeMesh
   createMesh
   getStrData
+  Mesh_createCube
   "
 )

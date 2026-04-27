@@ -1,3 +1,13 @@
 {
-  "name": "@sculptcore/types"
+  "name": "@sculptcore/api",
+  "type": "module",
+  "scripts": {
+    "typecheck": "npx tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@litestl/typescript-runtime": "workspace:*",
+    "typescript": "^6.0.3",
+    "@typescript/native-preview": "7.0.0-dev.20260406.1"
+  },
+  "packageManager": "pnpm@10.30.3"
 }

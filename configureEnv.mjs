@@ -117,7 +117,7 @@ function getEmsdkEnv() {
 
   const result = child_process.execSync("python emsdk.py construct_env", {
     stdio: "pipe",
-    shell: true,
+    shell: false,
     detached: false,
     env: childEnv,
   });
@@ -191,7 +191,7 @@ for (const line of env.replace(/\r/g, "").split("\n")) {
 
 const proc = child_process.spawn(args[0] ?? "cmd", [...args.slice(1)], {
   stdio: "inherit",
-  shell: true,
+  shell: false,
 });
 proc.on("close", (code, signal) => {
   process.exit(code);

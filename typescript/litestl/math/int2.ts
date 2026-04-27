@@ -1,27 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-export enum AttrFlag {
-  None = 0,
-  Topo = 1,
-  Temp = 2,
-  NoCopy = 4,
-  NoInterp = 8,
-}
-
-export enum AttrType {
-  Float = 0,
-  Int = 32,
-  Vec2 = 1,
-  Float2 = 2,
-  Float3 = 4,
-  Float4 = 8,
-  Bool = 16,
-  Byte = 512,
-  Short = 1024,
-  Int2 = 64,
-  Int3 = 128,
-  Int4 = 256,
-}
-
 
 
 /** Auto-generated file */
@@ -37,9 +14,7 @@ type short = number;
 type ushort = number;
 type char = number;
 type uchar = number;
-export interface AttrRef {
+export interface int2 {
   [Symbol.dispose](): void;
-  name: string
-  type: AttrType
-  flag: AttrFlag
+  vec: int[]
 }

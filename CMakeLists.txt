@@ -50,8 +50,9 @@ if (BUILD_WASM)
 	get_property(wasmsym GLOBAL PROPERTY "WASM_SYMBOLS")
 
 	
+  build_wasm_browser(sculptcore-browser "" "${LIB}" "${wasmsym}")
 	build_wasm(sculptcore "" "${LIB}" "${wasmsym}")
-
+  
 else()
  	set(LIB
  	  util

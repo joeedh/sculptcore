@@ -90,4 +90,10 @@ Mesh *createCube(int dimen, float size, float sphereFac)
 
   return m;
 }
+
+extern "C" Mesh *Mesh_createCube(int dimen, float size, float sphereFac)
+{
+  return createCube(dimen, size, sphereFac);
+}
+
 } // namespace sculptcore::mesh

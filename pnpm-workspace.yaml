@@ -3,3 +3,4 @@ packages:
   - source/litestl/binding/typescriptRuntime
   - tools
   - source/litestl/tests
+  - typescript

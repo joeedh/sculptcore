@@ -10,6 +10,13 @@ reading it before doing wide exploration.
 When suggesting commit logs, do not include additions to the CSpell 
 dictionary.
 
+Keep messages short: a one-line summary of intent, then a few bullets
+calling out the notable changes (with brief sub-bullets for non-obvious
+details). Don't write per-file paragraphs or restate diffs the reader
+can see — mention specific files only when the file *is* the point
+(e.g. a new module). Skip routine churn (lockfiles, formatting,
+generated files) unless it's load-bearing.
+
 ## Build
 
 Use the Node dispatcher rather than invoking cmake/emcmake directly:
