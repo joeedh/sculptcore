@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrType} from "./AttrType";
-import type {AttrFlag} from "./AttrFlag";
+import type {DrawCommand} from "./DrawCommand";
+import type {Buffer} from "./Buffer";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -15,10 +15,9 @@ type short = number;
 type ushort = number;
 type char = number;
 type uchar = number;
-export interface AttrRef {
+export interface DrawBatch {
   [Symbol.dispose](): void;
-  name: string
-  type: AttrType
-  flag: AttrFlag
-  data: unknown
+  commands: pointer[]
+  buffers: pointer[]
+  new(): DrawBatch
 }

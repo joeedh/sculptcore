@@ -6,5 +6,6 @@ namespace sculptcore::mesh {
 void registerBindings(BindingManager &manager)
 {
   manager.add(Bind<Mesh>());
+  manager.add(BindAttrData());
 }
 } // namespace sculptcore::mesh

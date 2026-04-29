@@ -12,6 +12,11 @@
 
 #include "spatial_attrs.h"
 
+namespace sculptcore::gpu {
+struct GPUManager;
+struct DrawBatch;
+} // namespace sculptcore::gpu
+
 using namespace litestl;
 namespace sculptcore::spatial {
 struct SpatialTree {
@@ -73,6 +78,11 @@ struct SpatialTree {
 
     return false;
   }
+
+  void buildAll();
+  sculptcore::gpu::DrawBatch *buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr);
+
+  static binding::types::Struct<SpatialTree> *defineBindings();
 
 private:
   void regen_node_bounds(SpatialNode *node, bool recurse);

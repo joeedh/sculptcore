@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {GPUType} from "./GPUType";
-import type {GPUManager} from "./GPUManager";
+import type {GPUBufferType} from "./GPUBufferType";
 import type {GPUFetchMode} from "./GPUFetchMode";
 
 /** Auto-generated file */
@@ -18,11 +18,14 @@ type char = number;
 type uchar = number;
 export interface Buffer {
   [Symbol.dispose](): void;
+  name: string
   type: GPUType
   size: int
   elemsize: int
   mode: GPUFetchMode
+  target: GPUBufferType
   data: pointer
   update_buffer: boolean
-  new(arg0: GPUManager, arg1: string, arg2: GPUType, arg3: int, arg4: GPUFetchMode, arg5: int): Buffer
+  resize(arg0: int): void
+  dirty(): void
 }

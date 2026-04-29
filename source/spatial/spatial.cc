@@ -6,6 +6,12 @@
 #include "litestl/util/map.h"
 #include "litestl/util/vector.h"
 
+#include "gpu/batch.h"
+#include "gpu/command.h"
+#include "gpu/manager.h"
+#include "gpu/types.h"
+#include "gpu/vbo.h"
+
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
 
@@ -211,6 +217,79 @@ util::Vector<SpatialNode *> SpatialTree::leaves()
   }
 
   return leaves;
+}
+
+void SpatialTree::buildAll()
+{
+  setup();
+
+  int n = m->f.count;
+  for (int i = 0; i < n; i++) {
+    add_face(i);
+  }
+
+  regen_node_bounds(root, true);
+}
+
+sculptcore::gpu::DrawBatch *SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
+{
+  using namespace sculptcore::gpu;
+
+  util::Vector<SpatialNode *> ls = leaves();
+
+  /* 12 edges per box × 2 endpoints = 24 verts per leaf. */
+  const int vertsPerLeaf = 24;
+  int totalVerts = ls.size() * vertsPerLeaf;
+
+  Buffer *posBuf = mgr.createBuffer(
+      litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
+
+  float3 *pos = posBuf->get_data<float3>();
+  int idx = 0;
+
+  for (SpatialNode *node : ls) {
+    float3 mn = node->min;
+    float3 mx = node->max;
+    float3 c[8] = {
+        {mn[0], mn[1], mn[2]},
+        {mx[0], mn[1], mn[2]},
+        {mx[0], mx[1], mn[2]},
+        {mn[0], mx[1], mn[2]},
+        {mn[0], mn[1], mx[2]},
+        {mx[0], mn[1], mx[2]},
+        {mx[0], mx[1], mx[2]},
+        {mn[0], mx[1], mx[2]},
+    };
+
+    /* Bottom quad (z = mn). */
+    pos[idx++] = c[0]; pos[idx++] = c[1];
+    pos[idx++] = c[1]; pos[idx++] = c[2];
+    pos[idx++] = c[2]; pos[idx++] = c[3];
+    pos[idx++] = c[3]; pos[idx++] = c[0];
+
+    /* Top quad (z = mx). */
+    pos[idx++] = c[4]; pos[idx++] = c[5];
+    pos[idx++] = c[5]; pos[idx++] = c[6];
+    pos[idx++] = c[6]; pos[idx++] = c[7];
+    pos[idx++] = c[7]; pos[idx++] = c[4];
+
+    /* Vertical edges. */
+    pos[idx++] = c[0]; pos[idx++] = c[4];
+    pos[idx++] = c[1]; pos[idx++] = c[5];
+    pos[idx++] = c[2]; pos[idx++] = c[6];
+    pos[idx++] = c[3]; pos[idx++] = c[7];
+  }
+
+  posBuf->dirty();
+
+  DrawBatch *batch = mgr.createBatch();
+  batch->buffers.append(posBuf);
+
+  DrawCommand *cmd = mgr.createCommand(
+      batch, GPUCmdType::DRAW_LINES, nullptr, 0, totalVerts, totalVerts / 2);
+  cmd->attrs.append(posBuf);
+
+  return batch;
 }
 
 } // namespace sculptcore::spatial

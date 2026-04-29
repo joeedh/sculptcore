@@ -63,6 +63,8 @@ AttrRef *getAttr(Mesh *mesh, AttrType type, string name, ElemType domain)
     return copyAttrRef(mesh->e.attrs.find_attribute(type, name));
   case CORNER:
     return copyAttrRef(mesh->c.attrs.find_attribute(type, name));
+  case LIST:
+    return copyAttrRef(mesh->l.attrs.find_attribute(type, name));
   case FACE:
     return copyAttrRef(mesh->f.attrs.find_attribute(type, name));
   }
@@ -89,6 +91,9 @@ AttrRef *getAttrs(Mesh *mesh, ElemType domain, int *count_out)
     break;
   case CORNER:
     attrs = &mesh->c.attrs;
+    break;
+  case LIST:
+    attrs = &mesh->l.attrs;
     break;
   case FACE:
     attrs = &mesh->f.attrs;

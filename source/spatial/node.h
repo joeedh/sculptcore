@@ -1,5 +1,6 @@
 #pragma once
 
+#include "litestl/binding/binding.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/map.h"
@@ -174,6 +175,8 @@ struct SpatialNode {
   }
 
   void add_face(sculptcore::mesh::Mesh *m, int f);
+
+  static litestl::binding::types::Struct<SpatialNode> *defineBindings();
 
 private:
 };

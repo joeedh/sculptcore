@@ -28,10 +28,10 @@ template <typename T> struct AttrData : AttrDataBase {
 
     static binding::types::Struct<AttrPage> *defineBindings()
     {
-      using binding::types::Struct;
+      using namespace binding::types;
       Struct<AttrPage> *st =
           new Struct<AttrPage>(string("sculptcore::mesh::AttrPage"), sizeof(AttrPage));
-      st->addTemplateParam(binding::Bind<T>(), "Type");
+      st->addTemplateParam(new ParentTemplateParam("Type", 0), "Type");
 
       // BIND_STRUCT_MEMBER(st, type);
 
@@ -250,17 +250,17 @@ static const binding::types::Union<AttrType> *BindAttrData()
   using namespace litestl::binding;
   types::Union<AttrType> *u = new types::Union<AttrType>("type", Bind<AttrType>());
 
-  u->add("AttrData<float>",
+  u->add("sculptcore::mesh::AttrData<float>",
          AttrType::FLOAT,
          static_cast<const binding::types::_StructBase *>(Bind<AttrData<float>>()));
-  u->add("AttrData<int>",
+  u->add("sculptcore::mesh::AttrData<int>",
          AttrType::INT,
          static_cast<const binding::types::_StructBase *>(Bind<AttrData<int>>()));
   u->add(
-      "AttrData<unsigned char>",
+      "sculptcore::mesh::AttrData<unsigned char>",
       AttrType::BYTE,
       static_cast<const binding::types::_StructBase *>(Bind<AttrData<unsigned char>>()));
-  u->add("AttrData<short>",
+  u->add("sculptcore::mesh::AttrData<short>",
          AttrType::SHORT,
          static_cast<const binding::types::_StructBase *>(Bind<AttrData<short>>()));
   return u;

@@ -5,6 +5,7 @@ set(LIB
     PUBLIC mesh
     PUBLIC sculptcore_wasm
     PUBLIC gpu
+    PUBLIC spatial
 )
 
 set(SRC

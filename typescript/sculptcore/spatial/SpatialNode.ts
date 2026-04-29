@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrType} from "./AttrType";
-import type {AttrFlag} from "./AttrFlag";
+import type {NodeFlags} from "./NodeFlags";
+import type {float3} from "../../litestl/math/float3";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -15,10 +15,10 @@ type short = number;
 type ushort = number;
 type char = number;
 type uchar = number;
-export interface AttrRef {
+export interface SpatialNode {
   [Symbol.dispose](): void;
-  name: string
-  type: AttrType
-  flag: AttrFlag
-  data: unknown
+  min: float3
+  max: float3
+  flag: NodeFlags
+  id: int
 }

@@ -1,6 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrType} from "./AttrType";
-import type {AttrFlag} from "./AttrFlag";
+import type {GPUManager} from "../gpu/GPUManager";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -15,10 +14,16 @@ type short = number;
 type ushort = number;
 type char = number;
 type uchar = number;
-export interface AttrRef {
+export interface SpatialTree {
   [Symbol.dispose](): void;
-  name: string
-  type: AttrType
-  flag: AttrFlag
-  data: unknown
+  leaf_limit: int
+  setup(): void
+  add_face(arg0: int): void
+  split_node(arg0: pointer): void
+  node_from_id(arg0: int): pointer
+  leaves(): pointer[]
+  ensure_node_tris(arg0: pointer): boolean
+  buildAll(): void
+  buildLeafBoundsBatch(arg0: GPUManager): pointer
+  new(arg0: pointer): SpatialTree
 }

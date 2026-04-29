@@ -9,6 +9,8 @@
 #include "util/string.h"
 #include "util/vector.h"
 
+#include "litestl/binding/binding.h"
+
 #include "gpu/types.h"
 using namespace litestl;
 
@@ -104,6 +106,13 @@ struct ShaderDef {
   util::Vector<string> attrs;
   util::Vector<Uniform> uniforms;
   util::Map<string, string> defines;
+
+  static litestl::binding::types::Struct<ShaderDef> *defineBindings()
+  {
+    using namespace litestl::binding;
+    /* ShaderDef bindings deferred — opaque struct for now. */
+    return new types::Struct<ShaderDef>("sculptcore::gpu::ShaderDef", sizeof(ShaderDef));
+  }
 };
 
 struct Shader {

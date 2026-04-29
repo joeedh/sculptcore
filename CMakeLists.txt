@@ -37,6 +37,7 @@ if (BUILD_WASM)
 	  sculptcore_wasm
 	  sculptcore_core
     gpu
+    spatial
 	)
 
 	# merge litestl wasm symbols

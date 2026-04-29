@@ -1,0 +1,58 @@
+#include "bindings.h"
+#include "node.h"
+#include "spatial.h"
+
+#include "gpu/batch.h"
+#include "gpu/command.h"
+#include "gpu/manager.h"
+#include "gpu/vbo.h"
+
+#include "litestl/binding/binding.h"
+
+using namespace litestl::binding;
+
+namespace sculptcore::spatial {
+
+types::Struct<SpatialNode> *SpatialNode::defineBindings()
+{
+  using namespace litestl::binding;
+  types::Struct<SpatialNode> *st =
+      new types::Struct<SpatialNode>("sculptcore::spatial::SpatialNode", sizeof(SpatialNode));
+
+  BIND_STRUCT_MEMBER(st, min);
+  BIND_STRUCT_MEMBER(st, max);
+  BIND_STRUCT_MEMBER(st, flag);
+  BIND_STRUCT_MEMBER(st, id);
+
+  return st;
+}
+
+types::Struct<SpatialTree> *SpatialTree::defineBindings()
+{
+  using namespace litestl::binding;
+  types::Struct<SpatialTree> *st =
+      new types::Struct<SpatialTree>("sculptcore::spatial::SpatialTree", sizeof(SpatialTree));
+
+  BIND_STRUCT_CONSTRUCTOR(st, "main", mesh::Mesh *);
+
+  BIND_STRUCT_MEMBER(st, leaf_limit);
+
+  BIND_STRUCT_METHOD(st, setup);
+  BIND_STRUCT_METHOD(st, add_face);
+  BIND_STRUCT_METHOD(st, split_node);
+  BIND_STRUCT_METHOD(st, node_from_id);
+  BIND_STRUCT_METHOD(st, leaves);
+  BIND_STRUCT_METHOD(st, ensure_node_tris);
+  BIND_STRUCT_METHOD(st, buildAll);
+  BIND_STRUCT_METHOD(st, buildLeafBoundsBatch);
+
+  return st;
+}
+
+void registerBindings(BindingManager &manager)
+{
+  manager.add(Bind<SpatialNode>());
+  manager.add(Bind<SpatialTree>());
+  manager.add(Bind<NodeFlags>());
+}
+} // namespace sculptcore::spatial
