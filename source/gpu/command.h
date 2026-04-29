@@ -1,5 +1,7 @@
 #pragma once
 #include "vbo.h"
+#include "shader.h"
+#include "litestl/util/vector.h"
 namespace sculptcore::gpu {
 
 enum class GPUCmdType {
@@ -9,10 +11,12 @@ enum class GPUCmdType {
   DRAW_POINTS = 3
 };
 
-struct DrawCmd {
+struct DrawCommand {
   GPUCmdType type;
-  
-
+  ShaderDef *shader;
+  litestl::util::Vector<Buffer*> attrs;
+  int start, end;
+  int primCount;
 };
 
 } // namespace sculptcore::gpu

@@ -10,8 +10,10 @@
 #include "litestl/util/vector.h"
 
 #include "litestl/binding/binding.h"
+#include "manager.h"
 #include <functional>
 #include <type_traits>
+
 
 using namespace litestl;
 using namespace litestl::util;
@@ -78,17 +80,18 @@ struct Buffer {
   void resize(int newsize);
 
   static binding::types::Struct<Buffer> *defineBindings();
+  GPUManager &manager;
 
-  Buffer()
-  {
-  }
-
-  Buffer(string name, GPUType type_,
+  Buffer(GPUManager &mgr,
+         string name,
+         GPUType type_,
          int elemsize_,
          GPUFetchMode mode_ = GPUFetchMode::FETCH_FLOAT,
          int elem_count = 0)
-      : type(type_), elemsize(elemsize_), mode(mode_), name(name)
+      : type(type_), elemsize(elemsize_), mode(mode_), name(name), manager(mgr)
   {
+    manager.buffers.append(this);
+
     if (elem_count) {
       resize(elem_count);
     }
@@ -143,13 +146,17 @@ struct Buffer {
   ~Buffer();
 
   Buffer(const Buffer &b) = delete;
-  Buffer(Buffer &&b)
+
+  Buffer(Buffer &&b) : manager(b.manager)
   {
     type = b.type;
     hint = b.hint;
     size = b.size;
     uploaded = b.uploaded;
     data = b.data;
+
+    // transfer ownership within GPUManager from b to this
+    manager.transferOwnership(manager.buffers, this, &b);
 
     b.data = nullptr;
     b.uploaded = false;

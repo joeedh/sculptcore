@@ -4,6 +4,7 @@ import {
   BindingManager as WasmBindingManager,
   createWasmHelpers,
   IWasmBase,
+  int,
 } from '@litestl/typescript-runtime'
 import type {AllBoundTypes, Mesh} from '../index'
 
@@ -12,7 +13,7 @@ import {BindingManager} from './manager'
 interface IWasmMethods extends IWasmBase {
   getBindingManager(): pointer
   initBindings(): void
-  Mesh_createCube(): Mesh
+  Mesh_createCube(dimen: int, size: number, sphereFac: number): Mesh
 }
 export interface IWasmInterface extends INeededWasm, IWasmMethods {
   manager: BindingManager
@@ -40,8 +41,8 @@ export async function loadWasm(): Promise<IWasmInterface> {
   wasm = {
     ...initialWasm,
     manager,
-    Mesh_createCube() {
-      const ptr = _wasm.Mesh_createCube() as unknown as number
+    Mesh_createCube(dimen: int, size: number, sphereFac: number) {
+      const ptr = _wasm.Mesh_createCube(dimen, size, sphereFac) as unknown as number
       const st = manager.getStruct('sculptcore::mesh::Mesh')
       const cls = manager.getBoundClass(st)
       return new cls(wasm!, ptr, manager, st)

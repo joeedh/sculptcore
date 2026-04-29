@@ -18,6 +18,7 @@ import type {VertexData} from "./sculptcore/mesh/VertexData";
 import type {Buffer} from "./sculptcore/gpu/Buffer";
 import type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 import type {EdgeData} from "./sculptcore/mesh/EdgeData";
+import type {GPUManager} from "./sculptcore/gpu/GPUManager";
 import type {int2} from "./litestl/math/int2";
 import type {int4} from "./litestl/math/int4";
 import type {Mesh} from "./sculptcore/mesh/Mesh";
@@ -29,6 +30,7 @@ export type {VertexData} from "./sculptcore/mesh/VertexData";
 export type {Buffer} from "./sculptcore/gpu/Buffer";
 export type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 export type {EdgeData} from "./sculptcore/mesh/EdgeData";
+export type {GPUManager} from "./sculptcore/gpu/GPUManager";
 export type {int2} from "./litestl/math/int2";
 export type {int4} from "./litestl/math/int4";
 export type {Mesh} from "./sculptcore/mesh/Mesh";
@@ -47,8 +49,9 @@ export type AllBoundTypes = {
   "sculptcore::mesh::BuiltinAttr<float3,\"positions\">": BuiltinAttr<float3,"positions">,
   "sculptcore::mesh::BuiltinAttr<float3,\"normals\">": BuiltinAttr<float3,"normals">,
   "sculptcore::mesh::BuiltinAttr<int,\".vert.e\">": BuiltinAttr<int,".vert.e">,
-  "litestl::math::int2": int2,
   "sculptcore::gpu::Buffer": Buffer,
+  "litestl::math::int2": int2,
+  "sculptcore::gpu::GPUManager": GPUManager,
   "sculptcore::mesh::AttrRef": AttrRef,
   "sculptcore::mesh::BuiltinAttr<int,\".edge.c\">": BuiltinAttr<int,".edge.c">,
   "sculptcore::mesh::BuiltinAttr<int2,\".edge.vs\">": BuiltinAttr<int2,".edge.vs">,

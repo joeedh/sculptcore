@@ -11,7 +11,7 @@ endif()
 
 #enable_testing()
 if (BUILD_WASM)
-	add_compile_options(-DWASM -Wno-invalid-offsetof)
+	add_compile_options(-DWASM -Wno-invalid-offsetof -fdelayed-template-parsing -Wno-delayed-template-parsing-in-cxx20 )
 endif()
 
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)

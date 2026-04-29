@@ -1,11 +1,16 @@
 #include "vbo.h"
 #include "litestl/binding/binding.h"
+#include "manager.h"
+
 
 using namespace litestl;
 
 namespace sculptcore::gpu {
 Buffer::~Buffer()
 {
+  if (manager.buffers.contains(this)) {
+    manager.buffers.remove(this);
+  }
   release();
 }
 
@@ -16,8 +21,8 @@ binding::types::Struct<Buffer> *Buffer::defineBindings()
   using namespace litestl::binding;
   Struct<Buffer> *st = new Struct<Buffer>("sculptcore::gpu::Buffer", sizeof(Buffer));
 
-  BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
-  BIND_STRUCT_CONSTRUCTOR(st, "main", litestl::util::string, GPUType, int, GPUFetchMode, int);
+  BIND_STRUCT_CONSTRUCTOR(
+      st, "main", GPUManager &, litestl::util::string, GPUType, int, GPUFetchMode, int);
 
   BIND_STRUCT_MEMBER(st, type);
   BIND_STRUCT_MEMBER(st, size);
@@ -29,7 +34,8 @@ binding::types::Struct<Buffer> *Buffer::defineBindings()
   return st;
 }
 
-void Buffer::release() {
+void Buffer::release()
+{
   //
 }
 

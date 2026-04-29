@@ -14,6 +14,8 @@ set(SRC
   PUBLIC vbo.h
   PUBLIC bindings.h
   PUBLIC standard_attrs.h
+  PUBLIC manager.h
+  manager.cc
   vbo.cc
   shader.cc
 )

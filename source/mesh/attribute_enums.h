@@ -1,5 +1,6 @@
 #pragma once
 
+#include "litestl/binding/binding.h"
 #include "litestl/util/compiler_util.h"
 
 #include <type_traits>
@@ -36,3 +37,40 @@ MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 #define ATTR_PAGESHIFT 12
 
 } // namespace sculptcore::mesh
+
+namespace litestl::binding {
+
+template <std::same_as<sculptcore::mesh::AttrFlag> T>
+static const types::Enum *Bind()
+{
+  using namespace sculptcore::mesh;
+  types::Enum *e = new types::Enum("sculptcore::mesh::AttrFlag", sizeof(AttrFlag));
+  e->isBitMask = true;
+  e->addItem("None", static_cast<int>(AttrFlag::NONE));
+  e->addItem("Topo", static_cast<int>(AttrFlag::TOPO));
+  e->addItem("Temp", static_cast<int>(AttrFlag::TEMP));
+  e->addItem("NoCopy", static_cast<int>(AttrFlag::NOCOPY));
+  e->addItem("NoInterp", static_cast<int>(AttrFlag::NOINTERP));
+  return e;
+}
+
+template <std::same_as<sculptcore::mesh::AttrType> T> static const types::Enum *Bind()
+{
+  using namespace sculptcore::mesh;
+  types::Enum *e = new types::Enum("sculptcore::mesh::AttrType", sizeof(AttrType));
+  e->addItem("Float", static_cast<int>(AttrType::NONE));
+  e->addItem("Int", static_cast<int>(AttrType::INT));
+  e->addItem("Vec2", static_cast<int>(AttrType::FLOAT));
+  e->addItem("Float2", static_cast<int>(AttrType::FLOAT2));
+  e->addItem("Float3", static_cast<int>(AttrType::FLOAT3));
+  e->addItem("Float4", static_cast<int>(AttrType::FLOAT4));
+  e->addItem("Bool", static_cast<int>(AttrType::BOOL));
+  e->addItem("Byte", static_cast<int>(AttrType::BYTE));
+  e->addItem("Short", static_cast<int>(AttrType::SHORT));
+  e->addItem("Int2", static_cast<int>(AttrType::INT2));
+  e->addItem("Int3", static_cast<int>(AttrType::INT3));
+  e->addItem("Int4", static_cast<int>(AttrType::INT4));
+  return e;
+}
+
+} // namespace litestl::binding

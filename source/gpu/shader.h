@@ -99,6 +99,7 @@ private:
 };
 
 struct ShaderDef {
+  string name;
   string vertexSource, fragmentSource;
   util::Vector<string> attrs;
   util::Vector<Uniform> uniforms;

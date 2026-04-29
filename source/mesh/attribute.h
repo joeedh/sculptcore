@@ -26,6 +26,18 @@ template <typename T> struct AttrData : AttrDataBase {
     bool exists = false;
     T value = T();
 
+    static binding::types::Struct<AttrPage> *defineBindings()
+    {
+      using binding::types::Struct;
+      Struct<AttrPage> *st =
+          new Struct<AttrPage>(string("sculptcore::mesh::AttrPage"), sizeof(AttrPage));
+      st->addTemplateParam(binding::Bind<T>(), "Type");
+
+      // BIND_STRUCT_MEMBER(st, type);
+
+      return st;
+    }
+
     ~AttrPage()
     {
       if (data) {
@@ -66,13 +78,27 @@ template <typename T> struct AttrData : AttrDataBase {
     DEFAULT_MOVE_ASSIGNMENT(AttrPage)
   };
 
+  static binding::types::Struct<AttrData> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<AttrData> *st =
+        new Struct<AttrData>(string("sculptcore::mesh::AttrData"), sizeof(AttrData));
+    st->addTemplateParam(binding::Bind<T>(), "Type");
+
+    BIND_STRUCT_MEMBER(st, type);
+    BIND_STRUCT_MEMBER(st, pages);
+    BIND_STRUCT_MEMBER(st, size_);
+
+    return st;
+  }
+
   AttrData(const string &name_) : AttrDataBase(type_to_attrtype<T>(), name_)
   {
   }
 
   AttrData(AttrData &&b)
   {
-    pages_ = std::move(b.pages_);
+    pages = std::move(b.pages);
     size_ = b.size_;
   }
 
@@ -96,16 +122,16 @@ template <typename T> struct AttrData : AttrDataBase {
   AttrData(const string &name_, int size)
       : size_(size), AttrDataBase(type_to_attrtype<T>(), name_)
   {
-    int pages = int(std::ceil(double(size) / double(ATTR_PAGESIZE)));
-    pages_.resize(pages);
+    int pagesCount = int(std::ceil(double(size) / double(ATTR_PAGESIZE)));
+    pages.resize(pagesCount);
   }
 
   AttrData(const string &name_, int size, T value)
       : size_(size), AttrDataBase(type_to_attrtype<T>(), name_)
   {
-    int pages = int(std::ceil(double(size) / double(ATTR_PAGESIZE)));
-    pages_.resize(pages);
-    for (AttrPage &chunk : pages_) {
+    int pagesCount = int(std::ceil(double(size) / double(ATTR_PAGESIZE)));
+    pages.resize(pagesCount);
+    for (AttrPage &chunk : pages) {
       chunk.value = value;
     }
   }
@@ -113,7 +139,7 @@ template <typename T> struct AttrData : AttrDataBase {
   /* Safely read from attribute, checking if a page has data allocated.*/
   T safe_get(int idx)
   {
-    AttrPage &page = pages_[idx >> ATTR_PAGESHIFT];
+    AttrPage &page = pages[idx >> ATTR_PAGESHIFT];
 
     if (!page.exists) {
       return page.value;
@@ -125,7 +151,7 @@ template <typename T> struct AttrData : AttrDataBase {
   /* Ensure page associated with idx is fully allocated. */
   void materialize(int idx)
   {
-    AttrPage &page = pages_[idx >> ATTR_PAGESHIFT];
+    AttrPage &page = pages[idx >> ATTR_PAGESHIFT];
 
     if (!page.exists) {
       materialize_page(page);
@@ -134,7 +160,7 @@ template <typename T> struct AttrData : AttrDataBase {
 
   void materialize_all()
   {
-    for (AttrPage &page : pages_) {
+    for (AttrPage &page : pages) {
       if (!page.exists) {
         materialize_page(page);
       }
@@ -143,12 +169,12 @@ template <typename T> struct AttrData : AttrDataBase {
 
   T &operator[](int idx)
   {
-    return pages_[idx >> ATTR_PAGESHIFT].data[idx & ATTR_PAGEMASK];
+    return pages[idx >> ATTR_PAGESHIFT].data[idx & ATTR_PAGEMASK];
   }
 
   T operator[](int idx) const
   {
-    return pages_[idx >> ATTR_PAGESHIFT].data[idx & ATTR_PAGEMASK];
+    return pages[idx >> ATTR_PAGESHIFT].data[idx & ATTR_PAGEMASK];
   }
 
   void set_default(int elem)
@@ -167,29 +193,29 @@ template <typename T> struct AttrData : AttrDataBase {
 
   int capacity()
   {
-    return pages_.size() * ATTR_PAGESIZE;
+    return pages.size() * ATTR_PAGESIZE;
   }
 
   void resize(size_t newsize, bool materialize_new_pages = true)
   {
     int page_count = newsize >> ATTR_PAGESHIFT;
-    int old_page_count = pages_.size();
+    int old_page_count = pages.size();
 
     if (newsize & ATTR_PAGEMASK) {
       page_count++;
     }
 
-    while (page_count < pages_.size()) {
-      pages_.pop_back();
+    while (page_count < pages.size()) {
+      pages.pop_back();
     }
 
-    if (page_count > pages_.size()) {
-      int new_pages = int(page_count - pages_.size());
-      pages_.resize(page_count);
+    if (page_count > pages.size()) {
+      int new_pages = int(page_count - pages.size());
+      pages.resize(page_count);
 
       if (materialize_new_pages) {
         for (int i = 0; i < new_pages; i++) {
-          materialize_page(pages_[old_page_count + i]);
+          materialize_page(pages[old_page_count + i]);
         }
       }
     }
@@ -201,6 +227,12 @@ template <typename T> struct AttrData : AttrDataBase {
   {
   }
 
+  // cannot use offsetof on private properties
+  // we could calculate this ourselves but that would be undefined behaviour
+  // and thus could break at the whim of compiler optimizers.
+  util::Vector<AttrPage> pages;
+  int size_ = 0;
+
 private:
   void materialize_page(AttrPage &page)
   {
@@ -211,41 +243,27 @@ private:
     }
     page.exists = true;
   }
-
-  util::Vector<AttrPage> pages_;
-  int size_ = 0;
 };
 
-static const binding::types::Enum *BindAttrFlags()
+static const binding::types::Union<AttrType> *BindAttrData()
 {
   using namespace litestl::binding;
-  types::Enum *e = new types::Enum("sculptcore::mesh::AttrFlag", sizeof(AttrFlag));
-  e->isBitMask = true;
-  e->addItem("None", static_cast<int>(AttrFlag::NONE));
-  e->addItem("Topo", static_cast<int>(AttrFlag::TOPO));
-  e->addItem("Temp", static_cast<int>(AttrFlag::TEMP));
-  e->addItem("NoCopy", static_cast<int>(AttrFlag::NOCOPY));
-  e->addItem("NoInterp", static_cast<int>(AttrFlag::NOINTERP));
-  return e;
-}
+  types::Union<AttrType> *u = new types::Union<AttrType>("type", Bind<AttrType>());
 
-static const binding::types::Enum *BindAttrTypes()
-{
-  using namespace litestl::binding;
-  types::Enum *e = new types::Enum("sculptcore::mesh::AttrType", sizeof(AttrType));
-  e->addItem("Float", static_cast<int>(AttrType::NONE));
-  e->addItem("Int", static_cast<int>(AttrType::INT));
-  e->addItem("Vec2", static_cast<int>(AttrType::FLOAT));
-  e->addItem("Float2", static_cast<int>(AttrType::FLOAT2));
-  e->addItem("Float3", static_cast<int>(AttrType::FLOAT3));
-  e->addItem("Float4", static_cast<int>(AttrType::FLOAT4));
-  e->addItem("Bool", static_cast<int>(AttrType::BOOL));
-  e->addItem("Byte", static_cast<int>(AttrType::BYTE));
-  e->addItem("Short", static_cast<int>(AttrType::SHORT));
-  e->addItem("Int2", static_cast<int>(AttrType::INT2));
-  e->addItem("Int3", static_cast<int>(AttrType::INT3));
-  e->addItem("Int4", static_cast<int>(AttrType::INT4));
-  return e;
+  u->add("AttrData<float>",
+         AttrType::FLOAT,
+         static_cast<const binding::types::_StructBase *>(Bind<AttrData<float>>()));
+  u->add("AttrData<int>",
+         AttrType::INT,
+         static_cast<const binding::types::_StructBase *>(Bind<AttrData<int>>()));
+  u->add(
+      "AttrData<unsigned char>",
+      AttrType::BYTE,
+      static_cast<const binding::types::_StructBase *>(Bind<AttrData<unsigned char>>()));
+  u->add("AttrData<short>",
+         AttrType::SHORT,
+         static_cast<const binding::types::_StructBase *>(Bind<AttrData<short>>()));
+  return u;
 }
 
 struct AttrRef {
@@ -260,13 +278,16 @@ struct AttrRef {
     using binding::types::Struct;
     Struct<AttrRef> *st =
         new Struct<AttrRef>("sculptcore::mesh::AttrRef", sizeof(AttrRef));
+
     BIND_STRUCT_MEMBER(st, name);
+    BIND_STRUCT_MEMBER(st, type);
+    BIND_STRUCT_MEMBER(st, flag);
+    st->add("data", offsetof(AttrRef, data), BindAttrData());
+    // auto *e = BindAttrTypes();
+    // st->add("type", offsetof(AttrRef, type), e);
 
-    auto *e = BindAttrTypes();
-    st->add("type", offsetof(AttrRef, type), e);
-
-    auto *e2 = BindAttrFlags();
-    st->add("flag", offsetof(AttrRef, type), e2);
+    // auto *e2 = BindAttrFlags();
+    // st->add("flag", offsetof(AttrRef, type), e2);
 
     return st;
   }
