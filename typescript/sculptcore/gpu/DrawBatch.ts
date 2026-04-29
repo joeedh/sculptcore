@@ -17,7 +17,7 @@ type char = number;
 type uchar = number;
 export interface DrawBatch {
   [Symbol.dispose](): void;
-  commands: pointer[]
-  buffers: pointer[]
+  commands: DrawCommand | undefined[]
+  buffers: Buffer | undefined[]
   new(): DrawBatch
 }

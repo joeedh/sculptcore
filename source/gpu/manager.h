@@ -49,11 +49,3 @@ struct GPUManager {
   static litestl::binding::types::Struct<GPUManager> *defineBindings();
 };
 } // namespace sculptcore::gpu
-
-namespace litestl::binding {
-template <std::same_as<sculptcore::gpu::GPUManager &> T> const BindingBase *Bind()
-{
-  return new types::Reference(Bind<sculptcore::gpu::GPUManager>(),
-                              "sculptcore::gpu::GPUManager");
-}
-} // namespace litestl::binding

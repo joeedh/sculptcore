@@ -23,6 +23,6 @@ export interface VertexData {
   co: BuiltinAttr<float3,"positions">
   no: BuiltinAttr<float3,"normals">
   e: BuiltinAttr<int,".vert.e">
-  alloc(arg0: int, arg1: boolean): void
+  alloc(count: int, clear: boolean): void
   alloc(): int
 }

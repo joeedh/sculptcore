@@ -20,11 +20,11 @@ type char = number;
 type uchar = number;
 export interface GPUManager {
   [Symbol.dispose](): void;
-  buffers: pointer[]
-  batches: pointer[]
-  commands: pointer[]
-  createBuffer(arg0: string, arg1: GPUType, arg2: int, arg3: int): pointer
-  createBatch(): pointer
-  createCommand(arg0: pointer, arg1: GPUCmdType, arg2: pointer, arg3: int, arg4: int, arg5: int): pointer
+  buffers: Buffer | undefined[]
+  batches: DrawBatch | undefined[]
+  commands: DrawCommand | undefined[]
+  createBuffer(name: string, type: GPUType, elemsize: int, elemCount: int): Buffer
+  createBatch(): DrawBatch
+  createCommand(batch: DrawBatch, type: GPUCmdType, shader: ShaderDef | undefined, start: int, end: int, primCount: int): DrawCommand
   new(): GPUManager
 }

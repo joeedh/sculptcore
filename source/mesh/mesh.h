@@ -6,7 +6,6 @@
 #include "litestl/util/span.h"
 #include "litestl/util/string.h"
 
-
 #include "mesh_base.h"
 #include "mesh_enums.h"
 #include "mesh_proxy.h"
@@ -17,6 +16,7 @@
 #include <cstdio>
 #include <type_traits>
 
+#include <cfloat>
 #include <span>
 
 using namespace litestl;
@@ -36,6 +36,16 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_MEMBER(st, e);
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
+  }
+
+  void calcAABB(math::float3 &min, math::float3 &max)
+  {
+    min = math::float3(FLT_MAX);
+    max = math::float3(FLT_MIN);
+    for (int i = 0; i < v.count; i++) {
+      min.min(v.co[i]);
+      max.max(v.co[i]);
+    }
   }
 
   int make_vertex(math::float3 co);

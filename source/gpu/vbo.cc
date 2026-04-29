@@ -33,8 +33,8 @@ binding::types::Struct<Buffer> *Buffer::defineBindings()
   BIND_STRUCT_MEMBER(st, data);
   BIND_STRUCT_MEMBER(st, update_buffer);
 
-  BIND_STRUCT_METHOD(st, resize);
-  BIND_STRUCT_METHOD(st, dirty);
+  BIND_STRUCT_METHOD(st, resize, MARGS("size"));
+  BIND_STRUCT_METHOD(st, dirty, MARGS());
 
   return st;
 }
@@ -80,7 +80,7 @@ VBO::~VBO()
 
 /*
 direct binding Bind function for if the
-generic pointer binding code in sculptcore\source\litestl\binding\binding_utils.h 
+generic pointer binding code in sculptcore\source\litestl\binding\binding_utils.h
 doesn't work:
 
 namespace litestl::binding {

@@ -30,6 +30,7 @@ struct SpatialTree {
 
   SpatialTree(Mesh *m_) : m(m_)
   {
+    
     root = alloc_node();
     root->flag = Spatial_Leaf;
     root->create_data();
@@ -63,6 +64,14 @@ struct SpatialTree {
   {
     mesh::FaceProxy face(m, f);
     math::float3 fcent = face.calc_center();
+
+    if (root->min[0] == FLT_MAX) {
+      root->min = fcent;
+      root->max = fcent;
+    } else {
+      root->min.min(fcent);
+      root->max.max(fcent);
+    }
 
     add_face_intern(root, f, fcent);
   }

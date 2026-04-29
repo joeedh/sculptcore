@@ -541,10 +541,6 @@ struct AttrGroup {
       ret = &attrs[attrs.size() - 1];
     });
 
-    if (type == AttrType::BOOL) {
-      printf("bool\n");
-    }
-
     if (type == AttrType::BOOL && bool_attrs.size() < capacity_) {
       bool_attrs.resize(capacity_);
     }

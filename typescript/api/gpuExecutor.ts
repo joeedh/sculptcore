@@ -153,6 +153,7 @@ export class WebGLBatchExecutor {
 
     if (cached.uploadedSize !== bytes || cached.uploadedDataPtr !== dataPtr || buf.update_buffer) {
       const view = new Uint8Array(this.wasm.HEAPU8.buffer, dataPtr, bytes)
+      const f32view = new Float32Array(this.wasm.HEAPU8.buffer, dataPtr, bytes >> 2)
       const target = bufferTargetGL(gl, buf.target)
       gl.bindBuffer(target, cached.glBuf)
       gl.bufferData(target, view, gl.STATIC_DRAW)

@@ -3,6 +3,7 @@
 #include "node.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/math/geom.h"
 #include "litestl/util/map.h"
 #include "litestl/util/vector.h"
 
@@ -34,12 +35,13 @@ static inline float3 calc_eps_float3(float3 size)
 }
 
 namespace sculptcore::spatial {
+ATTR_NO_OPT
 void SpatialTree::regen_node_tris(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenTris;
 
-  /* TODO: use a property CDT for > 4 vert or > 1 hole faces. 
-   * For now just handle triangles and quads. 
+  /* TODO: use a property CDT for > 4 vert or > 1 hole faces.
+   * For now just handle triangles and quads.
    */
   node->data->tris.clear_and_contract();
   for (int f : node->data->faces) {
@@ -61,6 +63,7 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
   }
 }
 
+[[clang::optnone]]
 void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
 {
   if ((node->flag & Spatial_Leaf) && node_needs_split(node)) {
@@ -70,6 +73,7 @@ void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
   if (!(node->flag & Spatial_Leaf)) {
     float mindis = FLT_MAX;
     SpatialNode *newnode = nullptr;
+    bool ok = false;
 
     for (int i = 0; i < 2; i++) {
       SpatialNode *c = node->children[i];
@@ -104,6 +108,7 @@ void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
   }
 }
 
+ATTR_NO_OPT
 void SpatialTree::split_node(SpatialNode *node)
 {
   node->children[0] = alloc_node();
@@ -169,6 +174,7 @@ void SpatialTree::split_node(SpatialNode *node)
   regen_node_bounds(node, true);
 }
 
+ATTR_NO_OPT
 void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 {
   node->flag &= ~Spatial_RegenBounds;
@@ -186,6 +192,20 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
       node->max.max(node->children[i]->max);
     }
   } else {
+    if (node->data->unique_verts.size() != 0) {
+      node->min = float3(FLT_MAX);
+      node->max = float3(FLT_MIN);
+    }
+
+    for (int v : node->data->unique_verts) {
+      VertProxy vert(m, v);
+
+      float3 &co = vert.co();
+
+      node->min.min(co);
+      node->max.max(co);
+    }
+
     for (int f : node->data->faces) {
       FaceProxy face(m, f);
 
@@ -219,9 +239,15 @@ util::Vector<SpatialNode *> SpatialTree::leaves()
   return leaves;
 }
 
+ATTR_NO_OPT
 void SpatialTree::buildAll()
 {
   setup();
+
+  m->calcAABB(root->min, root->max);
+  float eps = 0.0000001f;
+  root->min -= eps;
+  root->max += eps;
 
   int n = m->f.count;
   for (int i = 0; i < n; i++) {
@@ -231,7 +257,9 @@ void SpatialTree::buildAll()
   regen_node_bounds(root, true);
 }
 
-sculptcore::gpu::DrawBatch *SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
+ATTR_NO_OPT
+sculptcore::gpu::DrawBatch *
+SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 {
   using namespace sculptcore::gpu;
 
@@ -241,6 +269,8 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::G
   const int vertsPerLeaf = 24;
   int totalVerts = ls.size() * vertsPerLeaf;
 
+  printf("mgr: %p\n", &mgr);
+
   Buffer *posBuf = mgr.createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
 
@@ -248,6 +278,8 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::G
   int idx = 0;
 
   for (SpatialNode *node : ls) {
+    printf("node %f %f\n", node->min[0], node->min[1]);
+
     float3 mn = node->min;
     float3 mx = node->max;
     float3 c[8] = {
@@ -262,25 +294,39 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::G
     };
 
     /* Bottom quad (z = mn). */
-    pos[idx++] = c[0]; pos[idx++] = c[1];
-    pos[idx++] = c[1]; pos[idx++] = c[2];
-    pos[idx++] = c[2]; pos[idx++] = c[3];
-    pos[idx++] = c[3]; pos[idx++] = c[0];
+    pos[idx++] = c[0];
+    pos[idx++] = c[1];
+    pos[idx++] = c[1];
+    pos[idx++] = c[2];
+    pos[idx++] = c[2];
+    pos[idx++] = c[3];
+    pos[idx++] = c[3];
+    pos[idx++] = c[0];
 
     /* Top quad (z = mx). */
-    pos[idx++] = c[4]; pos[idx++] = c[5];
-    pos[idx++] = c[5]; pos[idx++] = c[6];
-    pos[idx++] = c[6]; pos[idx++] = c[7];
-    pos[idx++] = c[7]; pos[idx++] = c[4];
+    pos[idx++] = c[4];
+    pos[idx++] = c[5];
+    pos[idx++] = c[5];
+    pos[idx++] = c[6];
+    pos[idx++] = c[6];
+    pos[idx++] = c[7];
+    pos[idx++] = c[7];
+    pos[idx++] = c[4];
 
     /* Vertical edges. */
-    pos[idx++] = c[0]; pos[idx++] = c[4];
-    pos[idx++] = c[1]; pos[idx++] = c[5];
-    pos[idx++] = c[2]; pos[idx++] = c[6];
-    pos[idx++] = c[3]; pos[idx++] = c[7];
+    pos[idx++] = c[0];
+    pos[idx++] = c[4];
+    pos[idx++] = c[1];
+    pos[idx++] = c[5];
+    pos[idx++] = c[2];
+    pos[idx++] = c[6];
+    pos[idx++] = c[3];
+    pos[idx++] = c[7];
   }
 
   posBuf->dirty();
+
+  printf("pos: %d %f %f %f\n", int(pos), pos[0][0], pos[0][1], pos[0][2]);
 
   DrawBatch *batch = mgr.createBatch();
   batch->buffers.append(posBuf);

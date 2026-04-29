@@ -18,8 +18,8 @@ type uchar = number;
 export interface DrawCommand {
   [Symbol.dispose](): void;
   type: GPUCmdType
-  shader: pointer
-  attrs: pointer[]
+  shader: ShaderDef | undefined
+  attrs: Buffer | undefined[]
   start: int
   end: int
   primCount: int

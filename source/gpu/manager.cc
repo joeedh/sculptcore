@@ -41,7 +41,8 @@ Buffer *GPUManager::createBuffer(litestl::util::string name,
    * doesn't bind to GPUManager&; do placement new manually. Buffer constructor
    * adds itself to manager.buffers. */
   void *mem = litestl::alloc::alloc("Buffer", sizeof(Buffer));
-  return new (mem) Buffer(*this, name, type, elemsize, GPUFetchMode::FETCH_FLOAT, elemCount);
+  return new (mem)
+      Buffer(*this, name, type, elemsize, GPUFetchMode::FETCH_FLOAT, elemCount);
 }
 
 DrawBatch *GPUManager::createBatch()
@@ -83,9 +84,14 @@ litestl::binding::types::Struct<GPUManager> *GPUManager::defineBindings()
   BIND_STRUCT_MEMBER(st, batches);
   BIND_STRUCT_MEMBER(st, commands);
 
-  BIND_STRUCT_METHOD(st, createBuffer);
-  BIND_STRUCT_METHOD(st, createBatch);
-  BIND_STRUCT_METHOD(st, createCommand);
+  BIND_STRUCT_METHOD(st, createBuffer, MARGS("name", "type", "elemsize", "elemCount"))
+      .isNeverNull();
+
+  BIND_STRUCT_METHOD(st, createBatch, MARGS()).isNeverNull();
+  BIND_STRUCT_METHOD(
+      st, createCommand, MARGS("batch", "type", "shader", "start", "end", "primCount"))
+      .argIsNullable("shader")
+      .isNeverNull();
 
   return st;
 }

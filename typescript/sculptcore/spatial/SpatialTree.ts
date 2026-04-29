@@ -1,5 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {GPUManager} from "../gpu/GPUManager";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -18,12 +17,12 @@ export interface SpatialTree {
   [Symbol.dispose](): void;
   leaf_limit: int
   setup(): void
-  add_face(arg0: int): void
-  split_node(arg0: pointer): void
-  node_from_id(arg0: int): pointer
-  leaves(): pointer[]
-  ensure_node_tris(arg0: pointer): boolean
+  add_face(face: int): void
+  split_node(node: SpatialNode): void
+  node_from_id(id: int): SpatialNode | undefined
+  leaves(): SpatialNode | undefined[]
+  ensure_node_tris(node: SpatialNode): boolean
   buildAll(): void
-  buildLeafBoundsBatch(arg0: GPUManager): pointer
-  new(arg0: pointer): SpatialTree
+  buildLeafBoundsBatch(batch: reference): DrawBatch | undefined
+  new(arg0: Mesh | undefined): SpatialTree
 }

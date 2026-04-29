@@ -26,6 +26,6 @@ export interface Buffer {
   target: GPUBufferType
   data: pointer
   update_buffer: boolean
-  resize(arg0: int): void
+  resize(size: int): void
   dirty(): void
 }

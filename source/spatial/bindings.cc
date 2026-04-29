@@ -16,8 +16,8 @@ namespace sculptcore::spatial {
 types::Struct<SpatialNode> *SpatialNode::defineBindings()
 {
   using namespace litestl::binding;
-  types::Struct<SpatialNode> *st =
-      new types::Struct<SpatialNode>("sculptcore::spatial::SpatialNode", sizeof(SpatialNode));
+  types::Struct<SpatialNode> *st = new types::Struct<SpatialNode>(
+      "sculptcore::spatial::SpatialNode", sizeof(SpatialNode));
 
   BIND_STRUCT_MEMBER(st, min);
   BIND_STRUCT_MEMBER(st, max);
@@ -30,21 +30,21 @@ types::Struct<SpatialNode> *SpatialNode::defineBindings()
 types::Struct<SpatialTree> *SpatialTree::defineBindings()
 {
   using namespace litestl::binding;
-  types::Struct<SpatialTree> *st =
-      new types::Struct<SpatialTree>("sculptcore::spatial::SpatialTree", sizeof(SpatialTree));
+  types::Struct<SpatialTree> *st = new types::Struct<SpatialTree>(
+      "sculptcore::spatial::SpatialTree", sizeof(SpatialTree));
 
   BIND_STRUCT_CONSTRUCTOR(st, "main", mesh::Mesh *);
 
   BIND_STRUCT_MEMBER(st, leaf_limit);
 
-  BIND_STRUCT_METHOD(st, setup);
-  BIND_STRUCT_METHOD(st, add_face);
-  BIND_STRUCT_METHOD(st, split_node);
-  BIND_STRUCT_METHOD(st, node_from_id);
-  BIND_STRUCT_METHOD(st, leaves);
-  BIND_STRUCT_METHOD(st, ensure_node_tris);
-  BIND_STRUCT_METHOD(st, buildAll);
-  BIND_STRUCT_METHOD(st, buildLeafBoundsBatch);
+  BIND_STRUCT_METHOD(st, setup, MARGS());
+  BIND_STRUCT_METHOD(st, add_face, MARGS("face"));
+  BIND_STRUCT_METHOD(st, split_node, MARGS("node"));
+  BIND_STRUCT_METHOD(st, node_from_id, MARGS("id"));
+  BIND_STRUCT_METHOD(st, leaves, MARGS());
+  BIND_STRUCT_METHOD(st, ensure_node_tris, MARGS("node"));
+  BIND_STRUCT_METHOD(st, buildAll, MARGS());
+  BIND_STRUCT_METHOD(st, buildLeafBoundsBatch, MARGS("batch"));
 
   return st;
 }
