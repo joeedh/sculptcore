@@ -3,15 +3,15 @@
 #include "litestl/util/compiler_util.h"
 
 namespace sculptcore::spatial {
-enum NodeFlags {
+enum _NodeFlags {
   Spatial_None = 0,
-  Spatial_Leaf = 1 << 0,
-  Spatial_RegenBounds = 1 << 1,
-  Spatial_RegenTris = 1 << 2,
-  Spatial_RegenGPU = 1 << 3,
-  Spatial_UpdateGPU = 1 << 4,
+  Spatial_Leaf = 1 << 0,        // 1
+  Spatial_RegenBounds = 1 << 1, // 2
+  Spatial_RegenTris = 1 << 2,   // 4
+  Spatial_RegenGPU = 1 << 3,    // 8
+  Spatial_UpdateGPU = 1 << 4,   // 16
 };
-FlagOperators(NodeFlags);
+MAKE_FLAGS_CLASS(NodeFlags, _NodeFlags, int);
 
 } // namespace sculptcore::spatial
 

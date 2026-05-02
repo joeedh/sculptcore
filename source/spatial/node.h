@@ -92,6 +92,7 @@ struct SpatialNode {
   };
 
   SpatialNode *children[2];
+  int depth = 0;
 
   using float3 = math::float3;
 
@@ -117,6 +118,7 @@ struct SpatialNode {
     flag = b.flag;
     data = b.data;
     id = b.id;
+    depth = b.depth;
 
     treeMesh = b.treeMesh;
 

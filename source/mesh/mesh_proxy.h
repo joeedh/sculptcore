@@ -568,6 +568,7 @@ struct Proxies {
       for (auto list : lists()) {
         for (auto c : list) {
           cent += c.v().co();
+          tot++;
         }
       }
 

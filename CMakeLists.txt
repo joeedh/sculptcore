@@ -12,6 +12,12 @@ endif()
 #enable_testing()
 if (BUILD_WASM)
 	add_compile_options(-DWASM -Wno-invalid-offsetof -fdelayed-template-parsing -Wno-delayed-template-parsing-in-cxx20 )
+
+	if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+		add_compile_options(-fsanitize=address)
+		add_link_options(-fsanitize=address)
+		add_link_options(-sINITIAL_MEMORY=943718400)
+	endif()
 endif()
 
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)

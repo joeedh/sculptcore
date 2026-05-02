@@ -1,6 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {GPUCmdType} from "./GPUCmdType";
 import type {Buffer} from "./Buffer";
+import type {GPUCmdType} from "./GPUCmdType";
+import type {ShaderDef} from "./ShaderDef";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -19,7 +20,7 @@ export interface DrawCommand {
   [Symbol.dispose](): void;
   type: GPUCmdType
   shader: ShaderDef | undefined
-  attrs: Buffer | undefined[]
+  attrs: Buffer[]
   start: int
   end: int
   primCount: int

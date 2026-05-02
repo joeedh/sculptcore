@@ -14,7 +14,7 @@ Mesh *createCube(int dimen, float size, float sphereFac)
 
   Vector<int> grid;
 
-  int totpoint = dimen * dimen * 6;
+  int totpoint = dimen * dimen * dimen * 6;
 
   grid.resize(totpoint);
 
@@ -32,10 +32,12 @@ Mesh *createCube(int dimen, float size, float sphereFac)
   float idimen = 1.0f / float(dimen);
   Map<int, int> vmap;
 
+  printf("createCube in wasm\n");
+
   for (int i = 0; i < 6; i++) {
     for (int j = 0; j < dimen; j++) {
       for (int k = 0; k < dimen; k++) {
-        int ivec[3] = {j, k, i * totpoint};
+        int ivec[3] = {j, k, i};
 
         int x = ivec[axes[i][0]];
         int y = ivec[axes[i][1]];
@@ -50,13 +52,19 @@ Mesh *createCube(int dimen, float size, float sphereFac)
         int key = z * dimen * dimen + y * dimen + x;
         int v, *value = nullptr;
 
-        if (vmap.add_uninitialized(key, &value)) {
+        if (key >= grid.size() || key < 0) {
+          printf("error!! %d (%d %d %d)\n", key, x, y, z);
+          continue;
+        }
+
+        if (!vmap.contains(key)) {
+          // if (vmap.add_uninitialized(key, &value)) {
           v = m->make_vertex(co);
           grid[key] = v;
-
-          *value = v;
+          vmap.add(key, v);
+          //*value = v;
         } else {
-          grid[key] = *value;
+          grid[key] = vmap[key]; //*value;
         }
       }
     }
@@ -69,10 +77,10 @@ Mesh *createCube(int dimen, float size, float sphereFac)
     for (int j = 0; j < dimen - 1; j++) {
       for (int k = 0; k < dimen - 1; k++) {
         int ivecs[4][3] = {
-            {j, k, i * totpoint},         //
-            {j, k + 1, i * totpoint},     //
-            {j + 1, k + 1, i * totpoint}, //
-            {j + 1, k, i * totpoint},     //
+            {j, k, i},         //
+            {j, k + 1, i},     //
+            {j + 1, k + 1, i}, //
+            {j + 1, k, i},     //
         };
 
         for (int l = 0; l < 4; l++) {
@@ -80,7 +88,13 @@ Mesh *createCube(int dimen, float size, float sphereFac)
           int y = ivecs[l][axes[i][1]];
           int z = ivecs[l][axes[i][2]];
 
-          vs[l] = vmap[z * dimen * dimen + y * dimen + x];
+          int key = z * dimen * dimen + y * dimen + x;
+          if (!vmap.contains(key)) {
+            printf("error! %d %d %d %d %d\n", key, x, y, z, dimen);
+            continue;
+          }
+
+          vs[l] = vmap[key];
         }
 
         m->make_face(vs);

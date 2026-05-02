@@ -59,7 +59,7 @@ void Buffer::resize(int newsize)
       alloc::release(data);
     }
 
-    data = alloc::alloc("gpu attribute", size * elemsize * gpu_sizeof(type));
+    data = alloc::alloc("gpu attribute", newsize * elemsize * gpu_sizeof(type));
   }
 
   size = newsize;

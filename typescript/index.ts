@@ -28,6 +28,7 @@ import type {GPUManager} from "./sculptcore/gpu/GPUManager";
 import type {int2} from "./litestl/math/int2";
 import type {int4} from "./litestl/math/int4";
 import type {Mesh} from "./sculptcore/mesh/Mesh";
+import type {MeshBatchManager} from "./sculptcore/mesh/gpu/MeshBatchManager";
 import type {AttrRef} from "./sculptcore/mesh/AttrRef";
 import type {float3} from "./litestl/math/float3";
 import type {AttrPage} from "./sculptcore/mesh/AttrPage";
@@ -47,6 +48,7 @@ export type {GPUManager} from "./sculptcore/gpu/GPUManager";
 export type {int2} from "./litestl/math/int2";
 export type {int4} from "./litestl/math/int4";
 export type {Mesh} from "./sculptcore/mesh/Mesh";
+export type {MeshBatchManager} from "./sculptcore/mesh/gpu/MeshBatchManager";
 export type {AttrRef} from "./sculptcore/mesh/AttrRef";
 export type {float3} from "./litestl/math/float3";
 export type {AttrPage} from "./sculptcore/mesh/AttrPage";
@@ -74,5 +76,6 @@ export type AllBoundTypes = {
   "sculptcore::gpu::Buffer": Buffer,
   "sculptcore::mesh::AttrRef": AttrRef,
   "sculptcore::gpu::ShaderDef": ShaderDef,
+  "sculptcore::mesh::gpu::MeshBatchManager": MeshBatchManager,
   "sculptcore::spatial::SpatialTree": SpatialTree,
 };

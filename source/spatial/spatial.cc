@@ -2,10 +2,10 @@
 
 #include "node.h"
 
-#include "litestl/math/vector.h"
-#include "litestl/math/geom.h"
-#include "litestl/util/map.h"
 #include "litestl/util/vector.h"
+#include "litestl/math/geom.h"
+#include "litestl/math/vector.h"
+//#include "litestl/util/map.h"
 
 #include "gpu/batch.h"
 #include "gpu/command.h"
@@ -74,6 +74,7 @@ void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
     float mindis = FLT_MAX;
     SpatialNode *newnode = nullptr;
     bool ok = false;
+    int newnode_i = 0;
 
     for (int i = 0; i < 2; i++) {
       SpatialNode *c = node->children[i];
@@ -81,9 +82,10 @@ void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
       float3 cent = (c->min + c->max) * 0.5;
       float dis = (cent - fcent).length();
 
-      if (dis < mindis) {
+      if (!newnode || dis < mindis) {
         mindis = dis;
         newnode = c;
+        newnode_i = i;
       }
     }
 
@@ -95,6 +97,8 @@ void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
 
   FaceProxy face(m, f);
   treeMesh.f.node[face] = node->id;
+
+  node->data->faces.add(f);
 
   for (auto list : face.lists()) {
     for (auto c : list) {
@@ -118,10 +122,17 @@ void SpatialTree::split_node(SpatialNode *node)
   float3 min(FLT_MAX), max(FLT_MIN);
   float3 mean(0.0f);
 
+  for (int v : node->data->other_verts) {
+    VertProxy vert(m, v);
+    min.min(vert.co());
+    max.max(vert.co());
+  }
+
   for (int v : node->data->unique_verts) {
-    min.min(v);
-    max.max(v);
-    mean += v;
+    VertProxy vert(m, v);
+    min.min(vert.co());
+    max.max(vert.co());
+    mean += vert.co();
 
     /* Unassign verts. */
     treeMesh.v.node[v] = 0;
@@ -133,11 +144,15 @@ void SpatialTree::split_node(SpatialNode *node)
   float3 eps = calc_eps_float3(size);
   int axis = 0;
 
+  #if 0
   for (int i = 0; i < 3; i++) {
     if (size[i] > size[axis]) {
       axis = i;
     }
   }
+  #else
+  axis = node->depth % 3;
+  #endif
 
   min -= eps;
   max += eps;
@@ -146,6 +161,7 @@ void SpatialTree::split_node(SpatialNode *node)
     SpatialNode *child = node->children[i];
 
     child->flag = Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds;
+    child->depth = node->depth + 1;
 
     if (i == 0) {
       child->min = node->min;
@@ -177,6 +193,7 @@ void SpatialTree::split_node(SpatialNode *node)
 ATTR_NO_OPT
 void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 {
+  return; // XXX
   node->flag &= ~Spatial_RegenBounds;
 
   node->min = float3(FLT_MAX);
@@ -269,13 +286,29 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   const int vertsPerLeaf = 24;
   int totalVerts = ls.size() * vertsPerLeaf;
 
-  printf("mgr: %p\n", &mgr);
-
   Buffer *posBuf = mgr.createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
+  Buffer *colorBuf =
+      mgr.createBuffer(litestl::util::string("uv"), GPUType::FLOAT32, 4, totalVerts);
+  Buffer *uvBuf =
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 2, totalVerts);
 
   float3 *pos = posBuf->get_data<float3>();
+  float4 *color = colorBuf->get_data<float4>();
+  float2 *uv = uvBuf->get_data<float2>();
+
   int idx = 0;
+
+  auto addLine = [pos, color, uv, &idx](const float3 &a, const float3 &b) {
+    pos[idx] = a;
+    color[idx] = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    uv[idx] = float2(0.0f, 0.0f);
+    idx++;
+    pos[idx] = b;
+    color[idx] = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    uv[idx] = float2(1.0f, 1.0f);
+    idx++;
+  };
 
   for (SpatialNode *node : ls) {
     printf("node %f %f\n", node->min[0], node->min[1]);
@@ -294,34 +327,22 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
     };
 
     /* Bottom quad (z = mn). */
-    pos[idx++] = c[0];
-    pos[idx++] = c[1];
-    pos[idx++] = c[1];
-    pos[idx++] = c[2];
-    pos[idx++] = c[2];
-    pos[idx++] = c[3];
-    pos[idx++] = c[3];
-    pos[idx++] = c[0];
+    addLine(c[0], c[1]);
+    addLine(c[1], c[2]);
+    addLine(c[2], c[3]);
+    addLine(c[3], c[0]);
 
     /* Top quad (z = mx). */
-    pos[idx++] = c[4];
-    pos[idx++] = c[5];
-    pos[idx++] = c[5];
-    pos[idx++] = c[6];
-    pos[idx++] = c[6];
-    pos[idx++] = c[7];
-    pos[idx++] = c[7];
-    pos[idx++] = c[4];
+    addLine(c[4], c[5]);
+    addLine(c[5], c[6]);
+    addLine(c[6], c[7]);
+    addLine(c[7], c[4]);
 
     /* Vertical edges. */
-    pos[idx++] = c[0];
-    pos[idx++] = c[4];
-    pos[idx++] = c[1];
-    pos[idx++] = c[5];
-    pos[idx++] = c[2];
-    pos[idx++] = c[6];
-    pos[idx++] = c[3];
-    pos[idx++] = c[7];
+    addLine(c[0], c[4]);
+    addLine(c[1], c[5]);
+    addLine(c[2], c[6]);
+    addLine(c[3], c[7]);
   }
 
   posBuf->dirty();
@@ -330,10 +351,14 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 
   DrawBatch *batch = mgr.createBatch();
   batch->buffers.append(posBuf);
+  batch->buffers.append(uvBuf);
+  batch->buffers.append(colorBuf);
 
   DrawCommand *cmd = mgr.createCommand(
       batch, GPUCmdType::DRAW_LINES, nullptr, 0, totalVerts, totalVerts / 2);
   cmd->attrs.append(posBuf);
+  cmd->attrs.append(uvBuf);
+  cmd->attrs.append(colorBuf);
 
   return batch;
 }

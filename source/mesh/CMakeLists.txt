@@ -2,6 +2,7 @@ set(LIB
     PUBLIC math
     PUBLIC util
     PUBLIC binding
+    PUBLIC gpu
 )
 
 set(SRC
@@ -16,6 +17,8 @@ set(SRC
   PUBLIC mesh_shapes.h
   PUBLIC idmap.h
   PUBLIC bindings.h
+  PUBLIC gpu/mesh_drawbatch.h
+  gpu/mesh_drawbatch.cc
 
   c-api/mesh_c_api.h
   c-api/mesh_c_api.cc

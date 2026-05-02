@@ -23,6 +23,7 @@ struct SpatialTree {
   using Mesh = mesh::Mesh;
 
   int leaf_limit = 512;
+  int depth_limit = 10;
 
   SpatialTreeMesh treeMesh;
 
@@ -30,7 +31,7 @@ struct SpatialTree {
 
   SpatialTree(Mesh *m_) : m(m_)
   {
-    
+
     root = alloc_node();
     root->flag = Spatial_Leaf;
     root->create_data();
@@ -43,7 +44,9 @@ struct SpatialTree {
 
   bool node_needs_split(SpatialNode *node)
   {
-    return node->data->faces.size() >= leaf_limit;
+    return (node->data->faces.size() >= leaf_limit ||
+            node->data->unique_verts.size() >= leaf_limit) &&
+           node->depth < depth_limit;
   }
 
   void split_node(SpatialNode *node);

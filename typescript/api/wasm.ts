@@ -77,6 +77,9 @@ export async function getWasm() {
   return await wasmPromise
 }
 
+export function getWasmImmediate() {
+  return wasm
+}
 const g = globalThis as any
 /** debugging console use only */
 g.getWasm = () => wasm
