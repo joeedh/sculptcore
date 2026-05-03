@@ -1,10 +1,59 @@
-#include "manager.h"
-#include "batch.h"
 #include "command.h"
+
+#include "batch.h"
 #include "litestl/binding/binding.h"
+#include "manager.h"
 #include "pipeline.h"
 #include "shader.h"
 #include "vbo.h"
+
+
+namespace litestl::binding {
+template <std::same_as<sculptcore::gpu::GPUCmdType> T> const BindingBase *Bind()
+{
+  using namespace sculptcore::gpu;
+  using namespace litestl::binding;
+
+  types::Enum *e = new types::Enum("sculptcore::gpu::GPUCmdType", sizeof(GPUCmdType));
+  e->addItem("DRAW_TRIS", GPUCmdType::DRAW_TRIS);
+  e->addItem("DRAW_TRI_STRIP", GPUCmdType::DRAW_TRI_STRIP);
+  e->addItem("DRAW_LINES", GPUCmdType::DRAW_LINES);
+  e->addItem("DRAW_POINTS", GPUCmdType::DRAW_POINTS);
+  return e;
+}
+template const BindingBase *Bind<sculptcore::gpu::GPUCmdType>();
+
+template <std::same_as<sculptcore::gpu::GPUType> T> const BindingBase *Bind()
+{
+  using namespace sculptcore::gpu;
+  types::Enum *e = new types::Enum("sculptcore::gpu::GPUType", sizeof(GPUType));
+
+  e->addItem("TYPE_INVALID", GPUType::TYPE_INVALID);
+  e->addItem("FLOAT16", GPUType::FLOAT16);
+  e->addItem("FLOAT32", GPUType::FLOAT32);
+  e->addItem("FLOAT64", GPUType::FLOAT64);
+  e->addItem("INT32", GPUType::INT32);
+  e->addItem("INT16", GPUType::INT16);
+  e->addItem("INT8", GPUType::INT8);
+  e->addItem("UINT32", GPUType::UINT32);
+  e->addItem("UINT16", GPUType::UINT16);
+  e->addItem("UINT8", GPUType::UINT8);
+  return e;
+}
+template const BindingBase *Bind<sculptcore::gpu::GPUType>();
+
+template <std::same_as<sculptcore::gpu::GPUFetchMode> T> const BindingBase *Bind()
+{
+  using namespace sculptcore::gpu;
+  types::Enum *e = new types::Enum("sculptcore::gpu::GPUFetchMode", sizeof(GPUFetchMode));
+
+  e->addItem("FETCH_NONE", GPUFetchMode::FETCH_NONE);
+  e->addItem("FETCH_FLOAT", GPUFetchMode::FETCH_FLOAT);
+  return e;
+}
+template const BindingBase *Bind<sculptcore::gpu::GPUFetchMode>();
+
+} // namespace litestl::binding
 
 namespace sculptcore::gpu {
 GPUManager::~GPUManager()

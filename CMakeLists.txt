@@ -20,7 +20,11 @@ if (BUILD_WASM)
   else()
     add_link_options(-sINITIAL_MEMORY=943718400)
 	endif()
+else()
+  add_compile_options( /diagnostics:caret /diagnostics:column )
+  add_compile_options( /permissive ) #Zc:twoPhase- )
 endif()
+
 
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)
 

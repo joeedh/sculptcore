@@ -9,10 +9,11 @@
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
-#include "litestl/binding/binding.h"
 #include "manager.h"
 #include <functional>
 #include <type_traits>
+
+#include "litestl/binding/binding.h"
 
 
 using namespace litestl;
@@ -79,7 +80,7 @@ struct Buffer {
 
   void resize(int newsize);
 
-  static binding::types::Struct<Buffer> *defineBindings();
+  static const binding::types::Struct<Buffer> *defineBindings();
   GPUManager &manager;
 
   Buffer(GPUManager &mgr,

@@ -1,5 +1,4 @@
 #include "vbo.h"
-#include "binding/binding_types.h"
 #include "litestl/binding/binding.h"
 #include "manager.h"
 
@@ -14,7 +13,7 @@ Buffer::~Buffer()
   release();
 }
 
-binding::types::Struct<Buffer> *Buffer::defineBindings()
+const binding::types::Struct<Buffer> *Buffer::defineBindings()
 {
   using litestl::binding::types::Constructor;
   using litestl::binding::types::Struct;

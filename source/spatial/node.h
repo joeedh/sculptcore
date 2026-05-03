@@ -179,7 +179,7 @@ struct SpatialNode {
 
   void add_face(sculptcore::mesh::Mesh *m, int f);
 
-  static litestl::binding::types::Struct<SpatialNode> *defineBindings();
+  static const litestl::binding::types::Struct<SpatialNode> *defineBindings();
 
 private:
 };

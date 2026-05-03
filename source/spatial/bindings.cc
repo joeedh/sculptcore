@@ -2,11 +2,12 @@
 #include "node.h"
 #include "spatial.h"
 
-#include "litestl/math/math_bindings.h"
 #include "gpu/batch.h"
 #include "gpu/command.h"
 #include "gpu/manager.h"
 #include "gpu/vbo.h"
+#include "litestl/math/math_bindings.h"
+
 
 #include "litestl/binding/binding.h"
 
@@ -14,7 +15,7 @@ using namespace litestl::binding;
 
 namespace sculptcore::spatial {
 
-types::Struct<SpatialNode> *SpatialNode::defineBindings()
+const types::Struct<SpatialNode> *SpatialNode::defineBindings()
 {
   using namespace litestl::binding;
   types::Struct<SpatialNode> *st = new types::Struct<SpatialNode>(
@@ -52,6 +53,8 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
 
 void registerBindings(BindingManager &manager)
 {
+  using namespace litestl::binding;
+
   manager.add(Bind<SpatialNode>());
   manager.add(Bind<SpatialTree>());
   manager.add(Bind<NodeFlags>());

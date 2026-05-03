@@ -212,14 +212,12 @@ void SpatialTree::split_node(SpatialNode *node)
   }
 
   node->delete_data();
-
-  regen_node_bounds(node, true);
+  node->flag |= Spatial_RegenBounds;
 }
 
 ATTR_NO_OPT
 void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 {
-  return; // XXX
   node->flag &= ~Spatial_RegenBounds;
 
   node->aabb.reset();
@@ -394,8 +392,6 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   }
 
   posBuf->dirty();
-
-  printf("pos: %d %f %f %f\n", int(pos), pos[0][0], pos[0][1], pos[0][2]);
 
   DrawBatch *batch = mgr.createBatch();
   batch->buffers.append(posBuf);

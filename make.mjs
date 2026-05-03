@@ -238,7 +238,7 @@ yargs(hideBin(process.argv))
     ensureDir(dir)
     const env = envPrefix(target)
     if (target === 'native') {
-      run(`cd ${dir} && ${env} cmake ../.. -G Ninja CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `)
+      run(`cd ${dir} && ${env} cmake ../.. -G Ninja -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `)
     } else {
       run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS}`)
     }
@@ -298,7 +298,7 @@ yargs(hideBin(process.argv))
   })
   .command('test [target]', 'Run ctest', targetPositional, ({target}) => {
     console.log('Testing...')
-    run(`cd ${buildDir(target)} && ${envPrefix(target)} ctest .`)
+    run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest .`)
   })
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')
