@@ -34,6 +34,7 @@ struct Mesh : public MeshBase {
     Struct<Mesh> *st = new Struct<Mesh>("sculptcore::mesh::Mesh", sizeof(Mesh));
     BIND_STRUCT_MEMBER(st, v);
     BIND_STRUCT_MEMBER(st, e);
+    BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -83,6 +84,7 @@ struct Mesh : public MeshBase {
 
   void reorder_verts(util::span<int> vertex_map);
 
+  void recalc_normals();
 private:
   void radial_insert(int e1, int c1)
   {

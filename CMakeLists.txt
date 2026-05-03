@@ -17,6 +17,8 @@ if (BUILD_WASM)
 		add_compile_options(-fsanitize=address)
 		add_link_options(-fsanitize=address)
 		add_link_options(-sINITIAL_MEMORY=943718400)
+  else()
+    add_link_options(-sINITIAL_MEMORY=943718400)
 	endif()
 endif()
 

@@ -16,7 +16,7 @@ interface IWasmMethods extends IWasmBase {
   /** create a gridded cube with `dimen` x `dimen` quads on each of the six cubic faces.*/
   Mesh_createCube(dimen: int, size: number, sphereFac: number): Mesh
   /** build a coarse BVH over `mesh`'s faces; pass leafLimit<=0 to keep the default. */
-  Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int): SpatialTree
+  Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int): SpatialTree
   SpatialTree_free(tree: SpatialTree): void
 }
 export interface IWasmInterface extends INeededWasm, IWasmMethods {
@@ -53,9 +53,9 @@ export async function loadWasm(): Promise<IWasmInterface> {
       const ptr = _wasm.Mesh_createCube(dimen, size, sphereFac) as unknown as number
       return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
     },
-    Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int) {
+    Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
-      const ptr = _wasm.Mesh_buildSpatialTree(meshPtr as unknown as Mesh, leafLimit) as unknown as number
+      const ptr = _wasm.Mesh_buildSpatialTree(meshPtr as unknown as Mesh, leafLimit, depthLimit) as unknown as number
       return manager.getBoundPointer('sculptcore::spatial::SpatialTree', ptr) as SpatialTree
     },
     SpatialTree_free(tree: SpatialTree) {

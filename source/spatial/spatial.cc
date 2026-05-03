@@ -2,10 +2,12 @@
 
 #include "node.h"
 
-#include "litestl/util/vector.h"
 #include "litestl/math/geom.h"
 #include "litestl/math/vector.h"
-//#include "litestl/util/map.h"
+#include "litestl/util/vector.h"
+
+// #include "litestl/util/map.h"
+#include "litestl/util/rand.h"
 
 #include "gpu/batch.h"
 #include "gpu/command.h"
@@ -15,6 +17,7 @@
 
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
+#include "mesh/utils/triangulate.h"
 
 #include <cmath>
 
@@ -44,7 +47,7 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
    * For now just handle triangles and quads.
    */
   node->data->tris.clear_and_contract();
-  for (int f : node->data->faces) {
+  for (int f : node->data->unique_faces) {
     int l = m->f.l[f];
     int c = m->l.c[l];
 
@@ -64,41 +67,53 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
 }
 
 [[clang::optnone]]
-void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent)
+void SpatialTree::add_face_intern(SpatialNode *node,
+                                  int f,
+                                  std::span<Tri> &tris,
+                                  float3 &fcent)
 {
   if ((node->flag & Spatial_Leaf) && node_needs_split(node)) {
     split_node(node);
   }
 
+  auto &co = m->v.co;
+
   if (!(node->flag & Spatial_Leaf)) {
     float mindis = FLT_MAX;
     SpatialNode *newnode = nullptr;
     bool ok = false;
-    int newnode_i = 0;
 
     for (int i = 0; i < 2; i++) {
       SpatialNode *c = node->children[i];
 
-      float3 cent = (c->min + c->max) * 0.5;
-      float dis = (cent - fcent).length();
+      for (auto &tri : tris) {
+        auto &co1 = co[tri.v[0]];
+        auto &co2 = co[tri.v[1]];
+        auto &co3 = co[tri.v[2]];
 
-      if (!newnode || dis < mindis) {
-        mindis = dis;
-        newnode = c;
-        newnode_i = i;
+        if (aabbTriOverlaps(c->aabb, co1, co2, co3)) {
+          add_face_intern(c, f, tris, fcent);
+          ok = true;
+          break;
+        }
       }
     }
 
-    add_face_intern(newnode, f, fcent);
+    if (!ok) {
+      printf("not ok! %d (%d tris)\n", f, int(tris.size()));
+    }
     return;
   }
 
   node->flag |= Spatial_RegenTris | Spatial_RegenBounds;
-
   FaceProxy face(m, f);
-  treeMesh.f.node[face] = node->id;
 
-  node->data->faces.add(f);
+  if (treeMesh.f.node[face] == 0) {
+    treeMesh.f.node[face] = node->id;
+    node->data->unique_faces.add(f);
+  } else {
+    node->data->other_faces.add(f);
+  }
 
   for (auto list : face.lists()) {
     for (auto c : list) {
@@ -119,19 +134,11 @@ void SpatialTree::split_node(SpatialNode *node)
   node->children[1] = alloc_node();
 
   using namespace litestl::math;
-  float3 min(FLT_MAX), max(FLT_MIN);
+  const float3 min(node->aabb.min), max(node->aabb.max);
   float3 mean(0.0f);
-
-  for (int v : node->data->other_verts) {
-    VertProxy vert(m, v);
-    min.min(vert.co());
-    max.max(vert.co());
-  }
 
   for (int v : node->data->unique_verts) {
     VertProxy vert(m, v);
-    min.min(vert.co());
-    max.max(vert.co());
     mean += vert.co();
 
     /* Unassign verts. */
@@ -141,21 +148,23 @@ void SpatialTree::split_node(SpatialNode *node)
   mean /= node->data->unique_verts.size();
 
   float3 size = max - min;
-  float3 eps = calc_eps_float3(size);
   int axis = 0;
 
-  #if 0
-  for (int i = 0; i < 3; i++) {
+#if 1
+  for (int i = 1; i < 3; i++) {
     if (size[i] > size[axis]) {
       axis = i;
+    } else if (size[i] == size[axis]) {
+      // axis = node->depth & 1 ? i : axis;
     }
   }
-  #else
+#else
   axis = node->depth % 3;
-  #endif
+#endif
 
-  min -= eps;
-  max += eps;
+  float t = mean[axis] / (max[axis] - min[axis]);
+  t = std::min(std::max(t, 0.01f), 0.99f);
+  t = 0.5; // XXX
 
   for (int i = 0; i < 2; i++) {
     SpatialNode *child = node->children[i];
@@ -163,26 +172,43 @@ void SpatialTree::split_node(SpatialNode *node)
     child->flag = Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds;
     child->depth = node->depth + 1;
 
+    child->aabb.min = node->aabb.min;
+    child->aabb.max = node->aabb.max;
+
     if (i == 0) {
-      child->min = node->min;
-      child->max = node->max;
-      child->max[axis] = child->min[axis] + size[axis] * 0.5f;
+      child->aabb.max[axis] = child->aabb.min[axis] + size[axis] * (1.0 - t);
     } else {
-      child->min = node->min;
-      child->min[axis] = child->min[axis] + size[axis] * 0.5f;
-      child->max = node->max;
+      child->aabb.min[axis] = child->aabb.min[axis] + size[axis] * t;
     }
 
     child->create_data();
   }
 
   node->flag &= ~Spatial_Leaf;
+  Vector<Tri, 16> tris;
 
-  for (int f : node->data->faces) {
+  for (int f : node->data->unique_faces) {
     FaceProxy face(m, f);
     float3 fcent = face.calc_center();
 
-    add_face_intern(node, f, fcent);
+    // unassign face
+    treeMesh.f.node[f] = 0;
+
+    tris.clear();
+    if (triangulateFace(*m, f, tris)) {
+      std::span<Tri> tris_span = tris;
+      add_face_intern(node, f, tris_span, fcent);
+    }
+  }
+  for (int f : node->data->other_faces) {
+    FaceProxy face(m, f);
+    float3 fcent = face.calc_center();
+
+    tris.clear();
+    if (triangulateFace(*m, f, tris)) {
+      std::span<Tri> tris_span = tris;
+      add_face_intern(node, f, tris_span, fcent);
+    }
   }
 
   node->delete_data();
@@ -196,8 +222,7 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
   return; // XXX
   node->flag &= ~Spatial_RegenBounds;
 
-  node->min = float3(FLT_MAX);
-  node->max = float3(FLT_MIN);
+  node->aabb.reset();
 
   if (!(node->flag & Spatial_Leaf)) {
     for (int i = 0; i < 2; i++) {
@@ -205,13 +230,13 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
         regen_node_bounds(node->children[i], true);
       }
 
-      node->min.min(node->children[i]->min);
-      node->max.max(node->children[i]->max);
+      node->aabb.min.min(node->children[i]->aabb.min);
+      node->aabb.max.max(node->children[i]->aabb.max);
     }
   } else {
     if (node->data->unique_verts.size() != 0) {
-      node->min = float3(FLT_MAX);
-      node->max = float3(FLT_MIN);
+      node->aabb.min = float3(FLT_MAX);
+      node->aabb.max = float3(FLT_MIN);
     }
 
     for (int v : node->data->unique_verts) {
@@ -219,27 +244,27 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 
       float3 &co = vert.co();
 
-      node->min.min(co);
-      node->max.max(co);
+      node->aabb.min.min(co);
+      node->aabb.max.max(co);
     }
 
-    for (int f : node->data->faces) {
+    for (int f : node->data->unique_faces) {
       FaceProxy face(m, f);
 
       for (auto list : face.lists()) {
         for (auto c : list) {
           float3 &co = c.v().co();
 
-          node->min.min(co);
-          node->max.max(co);
+          node->aabb.min.min(co);
+          node->aabb.max.max(co);
         }
       }
     }
 
-    float3 eps = calc_eps_float3(node->max - node->min);
+    float3 eps = calc_eps_float3(node->aabb.max - node->aabb.min);
 
-    node->min -= eps;
-    node->max += eps;
+    node->aabb.min -= eps;
+    node->aabb.max += eps;
   }
 }
 
@@ -261,15 +286,30 @@ void SpatialTree::buildAll()
 {
   setup();
 
-  m->calcAABB(root->min, root->max);
+  m->calcAABB(root->aabb.min, root->aabb.max);
   float eps = 0.0000001f;
-  root->min -= eps;
-  root->max += eps;
+  root->aabb.min -= eps;
+  root->aabb.max += eps;
 
   int n = m->f.count;
+
+  // insert faces in random order
+  // to balance tree better
+  litestl::util::Random rnd(0);
+  int *faces = new int[n];
   for (int i = 0; i < n; i++) {
-    add_face(i);
+    faces[i] = i;
   }
+  for (int i = 0; i < (n >> 1); i++) {
+    int ri = rnd.get_int() % n;
+    std::swap(faces[i], faces[ri]);
+  }
+
+  for (int i = 0; i < n; i++) {
+    add_face(faces[i]);
+  }
+
+  delete[] faces;
 
   regen_node_bounds(root, true);
 }
@@ -279,6 +319,7 @@ sculptcore::gpu::DrawBatch *
 SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 {
   using namespace sculptcore::gpu;
+  litestl::util::Random rnd(0);
 
   util::Vector<SpatialNode *> ls = leaves();
 
@@ -289,9 +330,9 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   Buffer *posBuf = mgr.createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
   Buffer *colorBuf =
-      mgr.createBuffer(litestl::util::string("uv"), GPUType::FLOAT32, 4, totalVerts);
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
   Buffer *uvBuf =
-      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 2, totalVerts);
+      mgr.createBuffer(litestl::util::string("uv"), GPUType::FLOAT32, 2, totalVerts);
 
   float3 *pos = posBuf->get_data<float3>();
   float4 *color = colorBuf->get_data<float4>();
@@ -299,22 +340,29 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 
   int idx = 0;
 
-  auto addLine = [pos, color, uv, &idx](const float3 &a, const float3 &b) {
-    pos[idx] = a;
-    color[idx] = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    uv[idx] = float2(0.0f, 0.0f);
-    idx++;
-    pos[idx] = b;
-    color[idx] = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    uv[idx] = float2(1.0f, 1.0f);
-    idx++;
-  };
+  auto addLine =
+      [pos, color, uv, &idx](const float3 &a, const float3 &b, const float4 &clr) {
+        pos[idx] = a;
+        color[idx] = clr;
+        uv[idx] = float2(0.0f, 0.0f);
+        idx++;
+
+        pos[idx] = b;
+        color[idx] = clr;
+        uv[idx] = float2(1.0f, 1.0f);
+        idx++;
+      };
 
   for (SpatialNode *node : ls) {
-    printf("node %f %f\n", node->min[0], node->min[1]);
+    float4 clr(0.0);
+    clr[0] = rnd.get_float();
+    clr[1] = rnd.get_float();
+    clr[2] = rnd.get_float();
+    clr.normalize();
+    clr[3] = 1.0;
 
-    float3 mn = node->min;
-    float3 mx = node->max;
+    float3 mn = node->aabb.min;
+    float3 mx = node->aabb.max;
     float3 c[8] = {
         {mn[0], mn[1], mn[2]},
         {mx[0], mn[1], mn[2]},
@@ -327,22 +375,22 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
     };
 
     /* Bottom quad (z = mn). */
-    addLine(c[0], c[1]);
-    addLine(c[1], c[2]);
-    addLine(c[2], c[3]);
-    addLine(c[3], c[0]);
+    addLine(c[0], c[1], clr);
+    addLine(c[1], c[2], clr);
+    addLine(c[2], c[3], clr);
+    addLine(c[3], c[0], clr);
 
     /* Top quad (z = mx). */
-    addLine(c[4], c[5]);
-    addLine(c[5], c[6]);
-    addLine(c[6], c[7]);
-    addLine(c[7], c[4]);
+    addLine(c[4], c[5], clr);
+    addLine(c[5], c[6], clr);
+    addLine(c[6], c[7], clr);
+    addLine(c[7], c[4], clr);
 
     /* Vertical edges. */
-    addLine(c[0], c[4]);
-    addLine(c[1], c[5]);
-    addLine(c[2], c[6]);
-    addLine(c[3], c[7]);
+    addLine(c[0], c[4], clr);
+    addLine(c[1], c[5], clr);
+    addLine(c[2], c[6], clr);
+    addLine(c[3], c[7], clr);
   }
 
   posBuf->dirty();
@@ -351,14 +399,14 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 
   DrawBatch *batch = mgr.createBatch();
   batch->buffers.append(posBuf);
-  batch->buffers.append(uvBuf);
   batch->buffers.append(colorBuf);
+  batch->buffers.append(uvBuf);
 
   DrawCommand *cmd = mgr.createCommand(
       batch, GPUCmdType::DRAW_LINES, nullptr, 0, totalVerts, totalVerts / 2);
   cmd->attrs.append(posBuf);
-  cmd->attrs.append(uvBuf);
   cmd->attrs.append(colorBuf);
+  cmd->attrs.append(uvBuf);
 
   return batch;
 }

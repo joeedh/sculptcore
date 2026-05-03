@@ -2,6 +2,7 @@
 #include "node.h"
 #include "spatial.h"
 
+#include "litestl/math/math_bindings.h"
 #include "gpu/batch.h"
 #include "gpu/command.h"
 #include "gpu/manager.h"
@@ -19,8 +20,7 @@ types::Struct<SpatialNode> *SpatialNode::defineBindings()
   types::Struct<SpatialNode> *st = new types::Struct<SpatialNode>(
       "sculptcore::spatial::SpatialNode", sizeof(SpatialNode));
 
-  BIND_STRUCT_MEMBER(st, min);
-  BIND_STRUCT_MEMBER(st, max);
+  BIND_STRUCT_MEMBER(st, aabb);
   BIND_STRUCT_MEMBER(st, flag);
   BIND_STRUCT_MEMBER(st, id);
 
@@ -36,6 +36,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_CONSTRUCTOR(st, "main", mesh::Mesh *);
 
   BIND_STRUCT_MEMBER(st, leaf_limit);
+  BIND_STRUCT_MEMBER(st, depth_limit);
 
   BIND_STRUCT_METHOD(st, setup, MARGS());
   BIND_STRUCT_METHOD(st, add_face, MARGS("face"));

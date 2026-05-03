@@ -24,6 +24,7 @@ import type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 import type {EdgeData} from "./sculptcore/mesh/EdgeData";
 import type {SpatialNode} from "./sculptcore/spatial/SpatialNode";
 import type {SpatialTree} from "./sculptcore/spatial/SpatialTree";
+import type {AABB} from "./litestl/math/AABB";
 import type {GPUManager} from "./sculptcore/gpu/GPUManager";
 import type {int2} from "./litestl/math/int2";
 import type {int4} from "./litestl/math/int4";
@@ -44,6 +45,7 @@ export type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 export type {EdgeData} from "./sculptcore/mesh/EdgeData";
 export type {SpatialNode} from "./sculptcore/spatial/SpatialNode";
 export type {SpatialTree} from "./sculptcore/spatial/SpatialTree";
+export type {AABB} from "./litestl/math/AABB";
 export type {GPUManager} from "./sculptcore/gpu/GPUManager";
 export type {int2} from "./litestl/math/int2";
 export type {int4} from "./litestl/math/int4";
@@ -61,6 +63,7 @@ export type AllBoundTypes = {
   "sculptcore::mesh::VertexData": VertexData,
   "sculptcore::mesh::EdgeData": EdgeData,
   "sculptcore::spatial::SpatialNode": SpatialNode,
+  "litestl::math::AABB<litestl::math::float3>": AABB<float3>,
   "litestl::math::int2": int2,
   "sculptcore::mesh::AttrGroup": AttrGroup,
   "litestl::math::int4": int4,

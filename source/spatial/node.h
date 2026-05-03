@@ -1,6 +1,8 @@
 #pragma once
 
 #include "litestl/binding/binding.h"
+#include "litestl/math/aabb.h"
+#include "litestl/math/geom.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/map.h"
@@ -28,10 +30,14 @@ struct NodeTri {
 struct SpatialNode;
 
 struct SpatialNode {
+  using float3 = math::float3;
+  using AABB = litestl::math::AABB<float3>;
+
   struct NodeData {
     util::OrderedSet<int> unique_verts;
     util::OrderedSet<int> other_verts;
-    util::OrderedSet<int> faces;
+    util::OrderedSet<int> unique_faces;
+    util::OrderedSet<int> other_faces;
 
     util::Vector<NodeTri> tris;
 
@@ -94,10 +100,7 @@ struct SpatialNode {
   SpatialNode *children[2];
   int depth = 0;
 
-  using float3 = math::float3;
-
-  float3 min = float3(FLT_MAX);
-  float3 max = float3(FLT_MIN);
+  AABB aabb;
 
   NodeFlags flag = Spatial_None;
   NodeData *data = nullptr;
@@ -111,23 +114,20 @@ struct SpatialNode {
     children[0] = children[1] = nullptr;
   }
 
+  SpatialNode(const SpatialNode &b) = delete;
+
   SpatialNode(SpatialNode &&b)
+      : aabb(b.aabb), flag(b.flag), data(b.data), id(b.id), depth(b.depth),
+        treeMesh(b.treeMesh)
   {
-    min = b.min;
-    max = b.max;
-    flag = b.flag;
-    data = b.data;
-    id = b.id;
-    depth = b.depth;
-
-    treeMesh = b.treeMesh;
-
     children[0] = b.children[0];
     children[1] = b.children[1];
 
     b.flag = Spatial_None;
     b.data = nullptr;
   }
+  
+  DEFAULT_MOVE_ASSIGNMENT(SpatialNode)
 
   void update(NodeFlags update_flags)
   {
@@ -144,19 +144,20 @@ struct SpatialNode {
     return data->other_verts;
   }
 
-  util::OrderedSet<int> &faces() const
+  util::OrderedSet<int> &unique_faces() const
   {
-    return data->faces;
+    return data->unique_faces;
+  }
+
+  util::OrderedSet<int> &other_faces() const
+  {
+    return data->other_faces;
   }
 
   util::Vector<NodeTri> &tris() const
   {
     return data->tris;
   }
-
-  SpatialNode(const SpatialNode &b) = delete;
-
-  DEFAULT_MOVE_ASSIGNMENT(SpatialNode)
 
   ~SpatialNode()
   {

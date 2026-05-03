@@ -1,6 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {NodeFlags} from "./NodeFlags";
 import type {float3} from "../../litestl/math/float3";
+import type {NodeFlags} from "./NodeFlags";
+import type {AABB} from "../../litestl/math/AABB";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -17,8 +18,7 @@ type char = number;
 type uchar = number;
 export interface SpatialNode {
   [Symbol.dispose](): void;
-  min: float3
-  max: float3
+  aabb: AABB<float3>
   flag: NodeFlags
   id: int
 }

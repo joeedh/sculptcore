@@ -9,6 +9,7 @@
 #include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
+#include "mesh/utils/triangulate.h"
 
 #include "spatial_attrs.h"
 
@@ -44,8 +45,8 @@ struct SpatialTree {
 
   bool node_needs_split(SpatialNode *node)
   {
-    return (node->data->faces.size() >= leaf_limit ||
-            node->data->unique_verts.size() >= leaf_limit) &&
+    return ((node->data->unique_verts.size() + node->data->other_verts.size()) >=
+            leaf_limit) &&
            node->depth < depth_limit;
   }
 
@@ -68,15 +69,21 @@ struct SpatialTree {
     mesh::FaceProxy face(m, f);
     math::float3 fcent = face.calc_center();
 
-    if (root->min[0] == FLT_MAX) {
-      root->min = fcent;
-      root->max = fcent;
+    if (root->aabb.min[0] == FLT_MAX) {
+      root->aabb.min = fcent;
+      root->aabb.max = fcent;
     } else {
-      root->min.min(fcent);
-      root->max.max(fcent);
+      root->aabb.min.min(fcent);
+      root->aabb.max.max(fcent);
     }
 
-    add_face_intern(root, f, fcent);
+    util::Vector<Tri, 16> tris;
+    if (triangulateFace(*m, f, tris)) {
+      std::span<Tri> tris_span = tris;
+      add_face_intern(root, f, tris_span, fcent);
+    } else {
+      printf("failed to triangulate face %d\n", f);
+    }
   }
 
   util::Vector<SpatialNode *> leaves();
@@ -102,7 +109,8 @@ private:
   void regen_node_gpu_buffers(SpatialNode *node);
   void update_node_gpu_buffers(SpatialNode *node);
 
-  void add_face_intern(SpatialNode *node, int f, math::float3 &fcent);
+  void
+  add_face_intern(SpatialNode *node, int f, std::span<Tri> &tris, math::float3 &fcent);
 
   SpatialNode *alloc_node()
   {

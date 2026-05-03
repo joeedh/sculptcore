@@ -20,6 +20,7 @@ type uchar = number;
 export interface SpatialTree {
   [Symbol.dispose](): void;
   leaf_limit: int
+  depth_limit: int
   setup(): void
   add_face(face: int): void
   split_node(node: SpatialNode): void

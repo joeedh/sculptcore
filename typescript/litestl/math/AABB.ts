@@ -1,6 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {VertexData} from "./VertexData";
-import type {EdgeData} from "./EdgeData";
+import type {float3} from "./float3";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -15,10 +14,9 @@ type short = number;
 type ushort = number;
 type char = number;
 type uchar = number;
-export interface Mesh {
+export interface AABB<T> {
   [Symbol.dispose](): void;
-  v: VertexData
-  e: EdgeData
-  recalc_normals(): void
-  new(): Mesh
+  min: float3
+  max: float3
+  new(): AABB<float3>
 }

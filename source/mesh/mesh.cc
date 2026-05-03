@@ -1,10 +1,48 @@
 #include "mesh.h"
 
+#include "litestl/math/geom.h"
+#include "litestl/util/index_range.h"
 #include "litestl/util/map.h"
 #include "litestl/util/vector.h"
 
+
 using namespace litestl;
+using namespace litestl::util;
+using namespace litestl::math;
+
 namespace sculptcore::mesh {
+
+void Mesh::recalc_normals()
+{
+  auto &no = f.no;
+  for (int fi : IndexRange(0, v.count)) {
+    int li = f.l[fi];
+    int ci = l.c[li];
+
+    float3 &co1 = v.co[c.v[ci]];
+    float3 &co2 = v.co[c.v[c.next[ci]]];
+    float3 &co3 = v.co[c.v[c.next[c.next[ci]]]];
+
+    f.no[fi] = triNormal(co1, co2, co3);
+  }
+
+  for (int vi : IndexRange(0, v.count)) {
+    v.no[vi] = float3();
+    VertProxy vert(this, vi);
+
+    for (EdgeProxy edge : vert.edges()) {
+      int ci = e.c[edge.i];
+      if (ci == ELEM_NONE) {
+        continue;
+      }
+
+      int fi = l.f[c.l[ci]];
+      v.no[vi] += f.no[fi];
+    }
+
+    v.no[vi].normalize();
+  }
+}
 
 int Mesh::make_vertex(math::float3 co)
 {
@@ -35,31 +73,31 @@ int Mesh::make_edge(int v1, int v2)
 
 int Mesh::make_face(std::span<int> verts, std::span<int> edges)
 {
-  int f1 = f.alloc();
-  int list = l.alloc();
+  int fi = f.alloc();
+  int li = l.alloc();
 
   int vlen = verts.size();
 
-  f.l[f1] = list;
-  f.list_count[f1] = 1;
+  f.l[fi] = li;
+  f.list_count[fi] = 1;
 
-  l.size[list] = vlen;
-  l.f[list] = f1;
-  l.next[list] = ELEM_NONE;
+  l.size[li] = vlen;
+  l.f[li] = fi;
+  l.next[li] = ELEM_NONE;
 
   util::Vector<int, 8> corners;
   for (int i = 0; i < vlen; i++) {
-    int c1 = c.alloc();
+    int ci = c.alloc();
 
-    c.v[c1] = verts[i];
-    c.e[c1] = edges[i];
-    c.l[c1] = list;
+    c.v[ci] = verts[i];
+    c.e[ci] = edges[i];
+    c.l[ci] = li;
 
-    radial_insert(edges[i], c1);
-    corners.append(i);
+    radial_insert(edges[i], ci);
+    corners.append(ci);
   }
 
-  l.c[list] = corners[0];
+  l.c[li] = corners[0];
 
   for (int i = 0; i < vlen; i++) {
     int l1 = corners[(i - 1 + vlen) % vlen];
@@ -70,7 +108,7 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges)
     c.next[l2] = l3;
   }
 
-  return f1;
+  return fi;
 }
 
 int Mesh::make_face(std::span<int> verts)
