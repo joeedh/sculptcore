@@ -15,7 +15,6 @@
 
 #include "litestl/binding/binding.h"
 
-
 using namespace litestl;
 using namespace litestl::util;
 
@@ -31,11 +30,8 @@ enum GPUBufferType {
   BUFFER_TEXTURE = 2,
   BUFFER_UNIFORM = 3,
 };
-} // namespace sculptcore::gpu
 
-namespace litestl::binding {
-template <std::same_as<sculptcore::gpu::GPUBufferType> T>
-static const litestl::binding::BindingBase *Bind()
+static const litestl::binding::BindingBase *Bind(sculptcore::gpu::GPUBufferType *)
 {
   using namespace sculptcore::gpu;
   using namespace litestl::binding;
@@ -49,7 +45,7 @@ static const litestl::binding::BindingBase *Bind()
   return e;
 }
 
-template <std::same_as<sculptcore::gpu::GPUBufferHint> T> static const BindingBase *Bind()
+static const litestl::binding::BindingBase *Bind(sculptcore::gpu::GPUBufferHint *)
 {
   using namespace sculptcore::gpu;
   using namespace litestl::binding;
@@ -59,9 +55,6 @@ template <std::same_as<sculptcore::gpu::GPUBufferHint> T> static const BindingBa
   e->addItem("HINT_DYNAMIC", GPUBufferHint::HINT_DYNAMIC);
   return e;
 }
-} // namespace litestl::binding
-
-namespace sculptcore::gpu {
 
 struct Buffer {
   string name;
@@ -205,6 +198,8 @@ private:
     return 0;
   }
 };
+
+FORWARD_CLS_BINDING(Buffer)
 
 struct VBO {
   Map<string, Buffer *> attrs;

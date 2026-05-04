@@ -1,12 +1,13 @@
 #pragma once
 
+#include "litestl/binding/binding.h"
+
 #include "attribute_base.h"
 #include "attribute_bool.h"
 #include "attribute_enums.h"
 #include "io/serial.h"
 #include "litestl/math/vector.h"
 
-#include "litestl/binding/binding.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/array.h"
 #include "litestl/util/index_range.h"
@@ -21,6 +22,8 @@ namespace sculptcore::mesh {
 
 /* Implements all attributes other than bools. */
 template <typename T> struct AttrData : AttrDataBase {
+  using is_attr_data = std::true_type;
+
   struct AttrPage {
     T *data = nullptr;
     bool exists = false;
@@ -83,7 +86,7 @@ template <typename T> struct AttrData : AttrDataBase {
     using binding::types::Struct;
     Struct<AttrData> *st =
         new Struct<AttrData>(string("sculptcore::mesh::AttrData"), sizeof(AttrData));
-    st->addTemplateParam(binding::Bind<T>(), "Type");
+    st->addTemplateParam(Bind<T>((T *)nullptr), "Type");
 
     BIND_STRUCT_MEMBER(st, type);
     BIND_STRUCT_MEMBER(st, pages);
@@ -245,24 +248,35 @@ private:
   }
 };
 
+template <typename A>
+  requires std::same_as<typename A::is_attr_data, std::true_type>
+static const litestl::binding::types::Struct<A> *Bind(A *)
+{
+  return A::defineBindings();
+}
+
 static const binding::types::Union<AttrType> *BindAttrData()
 {
   using namespace litestl::binding;
-  types::Union<AttrType> *u = new types::Union<AttrType>("type", Bind<AttrType>());
+  types::Union<AttrType> *u =
+      new types::Union<AttrType>("type", Bind((AttrType *)nullptr));
 
-  u->add("sculptcore::mesh::AttrData<float>",
-         AttrType::FLOAT,
-         static_cast<const binding::types::_StructBase *>(Bind<AttrData<float>>()));
-  u->add("sculptcore::mesh::AttrData<int>",
-         AttrType::INT,
-         static_cast<const binding::types::_StructBase *>(Bind<AttrData<int>>()));
   u->add(
-      "sculptcore::mesh::AttrData<unsigned char>",
-      AttrType::BYTE,
-      static_cast<const binding::types::_StructBase *>(Bind<AttrData<unsigned char>>()));
-  u->add("sculptcore::mesh::AttrData<short>",
-         AttrType::SHORT,
-         static_cast<const binding::types::_StructBase *>(Bind<AttrData<short>>()));
+      "sculptcore::mesh::AttrData<float>",
+      AttrType::FLOAT,
+      static_cast<const binding::types::_StructBase *>(Bind((AttrData<float> *)nullptr)));
+  u->add(
+      "sculptcore::mesh::AttrData<int>",
+      AttrType::INT,
+      static_cast<const binding::types::_StructBase *>(Bind((AttrData<int> *)nullptr)));
+  u->add("sculptcore::mesh::AttrData<unsigned char>",
+         AttrType::BYTE,
+         static_cast<const binding::types::_StructBase *>(
+             Bind((AttrData<unsigned char> *)nullptr)));
+  u->add(
+      "sculptcore::mesh::AttrData<short>",
+      AttrType::SHORT,
+      static_cast<const binding::types::_StructBase *>(Bind((AttrData<short> *)nullptr)));
   return u;
 }
 
@@ -275,6 +289,7 @@ struct AttrRef {
   static binding::types::Struct<AttrRef> *defineBindings()
   {
     using namespace litestl::binding;
+    
     using binding::types::Struct;
     Struct<AttrRef> *st =
         new Struct<AttrRef>("sculptcore::mesh::AttrRef", sizeof(AttrRef));

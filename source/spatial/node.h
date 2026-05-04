@@ -184,4 +184,6 @@ struct SpatialNode {
 private:
 };
 
+FORWARD_CLS_BINDING(SpatialNode);
+
 } // namespace sculptcore::spatial

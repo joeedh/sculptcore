@@ -3,8 +3,8 @@
 #include "attribute.h"
 #include "attribute_enums.h"
 #include "litestl/binding/binding.h"
-#include "litestl/math/vector.h"
 #include "litestl/math/math_bindings.h"
+#include "litestl/math/vector.h"
 #include "litestl/util/string.h"
 #include "mesh_base.h"
 
@@ -21,9 +21,11 @@ struct BuiltinAttr : protected AttrRef {
   static binding::types::Struct<BuiltinAttr> *defineBindings()
   {
     using binding::types::Struct;
+    using namespace litestl::binding;
+    
     Struct<BuiltinAttr> *st = new Struct<BuiltinAttr>(
         string("sculptcore::mesh::BuiltinAttr"), sizeof(BuiltinAttr));
-    st->addTemplateParam(binding::Bind<T>(), "Type");
+    st->addTemplateParam(Bind(reinterpret_cast<T *>(nullptr)), "Type");
     st->addTemplateParam(new binding::types::StrLitType(string(Name), "name"), "Name");
 
     return st;

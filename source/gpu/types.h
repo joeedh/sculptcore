@@ -3,20 +3,22 @@
 #include "litestl/util/compiler_util.h"
 
 #include "litestl/binding/binding_base.h"
+#include "litestl/binding/binding_enum.h"
 #include "litestl/math/matrix.h"
 #include "litestl/math/vector.h"
 
 #include <type_traits>
 
 namespace sculptcore::gpu {
-enum class GPUCmdType {
+enum class _GPUCmdType {
   DRAW_TRIS = 0,      //
   DRAW_TRI_STRIP = 1, //
   DRAW_LINES = 2,
   DRAW_POINTS = 3
 };
+MAKE_ENUM_CLASS(GPUCmdType, _GPUCmdType, uint32_t);
 
-enum class GPUType {
+enum class _GPUType {
   TYPE_INVALID = -1,
   FLOAT16,
   FLOAT32,
@@ -28,6 +30,7 @@ enum class GPUType {
   UINT16,
   UINT8,
 };
+MAKE_ENUM_CLASS(GPUType, _GPUType, uint32_t);
 
 template <typename T> static constexpr GPUType gpu_type_from()
 {
@@ -96,10 +99,47 @@ enum class GPUFetchMode {
   FETCH_NONE = 0,
   FETCH_FLOAT = 1,
 };
-} // namespace sculptcore::gpu
 
-namespace litestl::binding {
-template <std::same_as<sculptcore::gpu::GPUCmdType> T> const BindingBase *Bind();
-template <std::same_as<sculptcore::gpu::GPUType> T> const BindingBase *Bind();
-template <std::same_as<sculptcore::gpu::GPUFetchMode> T> const BindingBase *Bind();
-} // namespace litestl::binding
+static const litestl::binding::BindingBase *Bind(GPUCmdType *)
+{
+  using namespace sculptcore::gpu;
+  using namespace litestl::binding;
+
+  types::Enum *e = new types::Enum("sculptcore::gpu::GPUCmdType", sizeof(GPUCmdType));
+  e->addItem("DRAW_TRIS", GPUCmdType::DRAW_TRIS);
+  e->addItem("DRAW_TRI_STRIP", GPUCmdType::DRAW_TRI_STRIP);
+  e->addItem("DRAW_LINES", GPUCmdType::DRAW_LINES);
+  e->addItem("DRAW_POINTS", GPUCmdType::DRAW_POINTS);
+  return e;
+}
+
+static const litestl::binding::BindingBase *Bind(GPUType *)
+{
+  using namespace litestl::binding;
+  using namespace sculptcore::gpu;
+  types::Enum *e = new types::Enum("sculptcore::gpu::GPUType", sizeof(GPUType));
+
+  e->addItem("TYPE_INVALID", GPUType::TYPE_INVALID);
+  e->addItem("FLOAT16", GPUType::FLOAT16);
+  e->addItem("FLOAT32", GPUType::FLOAT32);
+  e->addItem("FLOAT64", GPUType::FLOAT64);
+  e->addItem("INT32", GPUType::INT32);
+  e->addItem("INT16", GPUType::INT16);
+  e->addItem("INT8", GPUType::INT8);
+  e->addItem("UINT32", GPUType::UINT32);
+  e->addItem("UINT16", GPUType::UINT16);
+  e->addItem("UINT8", GPUType::UINT8);
+  return e;
+}
+
+static const litestl::binding::BindingBase *Bind(sculptcore::gpu::GPUFetchMode *)
+{
+  using namespace sculptcore::gpu;
+  using namespace litestl::binding;
+  types::Enum *e = new types::Enum("sculptcore::gpu::GPUFetchMode", sizeof(GPUFetchMode));
+
+  e->addItem("FETCH_NONE", GPUFetchMode::FETCH_NONE);
+  e->addItem("FETCH_FLOAT", GPUFetchMode::FETCH_FLOAT);
+  return e;
+}
+} // namespace sculptcore::gpu

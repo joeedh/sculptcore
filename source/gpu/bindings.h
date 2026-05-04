@@ -1,4 +1,6 @@
 #pragma once
+#include "types.h"
+
 #include "batch.h"
 #include "command.h"
 #include "litestl/binding/binding.h"
@@ -10,13 +12,14 @@ namespace sculptcore::gpu {
 static void registerBindings(litestl::binding::BindingManager &manager)
 {
   using namespace litestl::binding;
-  manager.add(Bind<sculptcore::gpu::GPUType>());
-  manager.add(Bind<sculptcore::gpu::GPUBufferType>());
-  manager.add(Bind<sculptcore::gpu::GPUFetchMode>());
-  manager.add(Bind<sculptcore::gpu::GPUCmdType>());
-  manager.add(Bind<sculptcore::gpu::Buffer>());
-  manager.add(Bind<sculptcore::gpu::DrawCommand>());
-  manager.add(Bind<sculptcore::gpu::DrawBatch>());
-  manager.add(Bind<sculptcore::gpu::GPUManager>());
+
+  manager.add(Bind((GPUType *)nullptr));
+  manager.add(Bind((GPUBufferType *)nullptr));
+  manager.add(Bind((GPUFetchMode *)nullptr));
+  manager.add(Bind((GPUCmdType *)nullptr));
+  manager.add(Bind((Buffer *)nullptr));
+  manager.add(Bind((DrawCommand *)nullptr));
+  manager.add(Bind((DrawBatch *)nullptr));
+  manager.add(Bind((GPUManager *)nullptr));
 }
 } // namespace sculptcore::gpu

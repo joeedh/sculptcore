@@ -168,4 +168,5 @@ private:
     }
   }
 };
+FORWARD_CLS_BINDING(Mesh)
 }; // namespace sculptcore::mesh

@@ -22,4 +22,6 @@ struct DrawBatch {
   }
 };
 
+FORWARD_CLS_BINDING(DrawBatch)
+
 } // namespace sculptcore::gpu

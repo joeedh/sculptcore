@@ -8,7 +8,6 @@
 #include "gpu/vbo.h"
 #include "litestl/math/math_bindings.h"
 
-
 #include "litestl/binding/binding.h"
 
 using namespace litestl::binding;
@@ -55,8 +54,8 @@ void registerBindings(BindingManager &manager)
 {
   using namespace litestl::binding;
 
-  manager.add(Bind<SpatialNode>());
-  manager.add(Bind<SpatialTree>());
-  manager.add(Bind<NodeFlags>());
+  manager.add(Bind((SpatialNode *)nullptr));
+  manager.add(Bind((SpatialTree *)nullptr));
+  manager.add(Bind((NodeFlags *)nullptr));
 }
 } // namespace sculptcore::spatial

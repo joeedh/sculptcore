@@ -21,8 +21,7 @@ if (BUILD_WASM)
     add_link_options(-sINITIAL_MEMORY=943718400)
 	endif()
 else()
-  add_compile_options( /diagnostics:caret /diagnostics:column )
-  add_compile_options( /permissive ) #Zc:twoPhase- )
+  add_compile_options(  -fdelayed-template-parsing )
 endif()
 
 

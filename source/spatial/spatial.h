@@ -133,5 +133,6 @@ private:
   util::Vector<SpatialNode *> node_idmap;
   int node_idgen = 1;
 };
+FORWARD_CLS_BINDING(SpatialTree)
 
 } // namespace sculptcore::spatial

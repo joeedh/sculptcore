@@ -39,8 +39,8 @@ struct ElemData {
 
     BIND_STRUCT_MEMBER(st, attrs);
     BIND_STRUCT_MEMBER(st, capacity_);
-    BIND_STRUCT_METHOD_SIG(st, alloc, void, MARGS("count", "clear"), (int, bool));
-    BIND_STRUCT_METHOD_SIG(st, alloc, int, MARGS(), (void));
+    //BIND_STRUCT_METHOD_SIG(st, alloc, void, MARGS("count", "clear"), (int, bool));
+    //BIND_STRUCT_METHOD_SIG(st, alloc, int, MARGS(), (void));
 
     return st;
   }

@@ -5,7 +5,6 @@
 
 #include <type_traits>
 
-using namespace litestl;
 namespace sculptcore::mesh {
 enum class AttrType {
   NONE = 0,
@@ -36,14 +35,11 @@ MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 #define ATTR_PAGEMASK 4095
 #define ATTR_PAGESHIFT 12
 
-} // namespace sculptcore::mesh
-
-namespace litestl::binding {
-
-template <std::same_as<sculptcore::mesh::AttrFlag> T>
-static const types::Enum *Bind()
+static const litestl::binding::types::Enum *Bind(AttrFlag *)
 {
   using namespace sculptcore::mesh;
+  using namespace litestl::binding;
+
   types::Enum *e = new types::Enum("sculptcore::mesh::AttrFlag", sizeof(AttrFlag));
   e->isBitMask = true;
   e->addItem("None", static_cast<int>(AttrFlag::NONE));
@@ -54,9 +50,11 @@ static const types::Enum *Bind()
   return e;
 }
 
-template <std::same_as<sculptcore::mesh::AttrType> T> static const types::Enum *Bind()
+static const litestl::binding::BindingBase *Bind(sculptcore::mesh::AttrType *)
 {
   using namespace sculptcore::mesh;
+  using namespace litestl::binding;
+
   types::Enum *e = new types::Enum("sculptcore::mesh::AttrType", sizeof(AttrType));
   e->addItem("Float", static_cast<int>(AttrType::NONE));
   e->addItem("Int", static_cast<int>(AttrType::INT));
@@ -73,4 +71,4 @@ template <std::same_as<sculptcore::mesh::AttrType> T> static const types::Enum *
   return e;
 }
 
-} // namespace litestl::binding
+} // namespace sculptcore::mesh

@@ -114,6 +114,7 @@ struct ShaderDef {
     return new types::Struct<ShaderDef>("sculptcore::gpu::ShaderDef", sizeof(ShaderDef));
   }
 };
+FORWARD_CLS_BINDING(ShaderDef)
 
 struct Shader {
   Shader()

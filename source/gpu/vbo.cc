@@ -1,3 +1,5 @@
+#include "types.h"
+
 #include "vbo.h"
 #include "litestl/binding/binding.h"
 #include "manager.h"

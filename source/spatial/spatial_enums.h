@@ -13,12 +13,11 @@ enum _NodeFlags {
 };
 MAKE_FLAGS_CLASS(NodeFlags, _NodeFlags, int);
 
-} // namespace sculptcore::spatial
-
-namespace litestl::binding {
-template <std::same_as<sculptcore::spatial::NodeFlags> T> static const BindingBase *Bind()
+static const litestl::binding::BindingBase *Bind(NodeFlags *)
 {
   using namespace sculptcore::spatial;
+  using namespace litestl::binding;
+  
   types::Enum *e = new types::Enum("sculptcore::spatial::NodeFlags", sizeof(NodeFlags));
   e->isBitMask = true;
   e->addItem("Spatial_None", Spatial_None);
@@ -29,4 +28,4 @@ template <std::same_as<sculptcore::spatial::NodeFlags> T> static const BindingBa
   e->addItem("Spatial_UpdateGPU", Spatial_UpdateGPU);
   return e;
 }
-} // namespace litestl::binding
+} // namespace sculptcore::spatial

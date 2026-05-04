@@ -1,12 +1,13 @@
 #pragma once
 
-#include <concepts>
 #include "types.h"
+
 #include "litestl/binding/binding_base.h"
 #include "litestl/binding/binding_struct.h"
 #include "litestl/util/vector.h"
 #include "shader.h"
 #include "vbo.h"
+#include <concepts>
 
 namespace sculptcore::gpu {
 struct DrawCommand {
@@ -30,10 +31,11 @@ struct DrawCommand {
         "sculptcore::gpu::DrawCommand", sizeof(DrawCommand));
 
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
-    BIND_STRUCT_MEMBER(st, type);
+
+    // BIND_STRUCT_MEMBER(st, type);
+    st->add("type", offsetof(DrawCommand, type), Bind((GPUType *)nullptr));
     // BIND_STRUCT_MEMBER(st, shader);
-    st->add("attrs", offsetof(DrawCommand, attrs), Bind<Buffer *>());
-    // BIND_STRUCT_MEMBER(st, attrs);
+    BIND_STRUCT_MEMBER(st, attrs);
     BIND_STRUCT_MEMBER(st, start);
     BIND_STRUCT_MEMBER(st, end);
     BIND_STRUCT_MEMBER(st, primCount);
@@ -41,5 +43,6 @@ struct DrawCommand {
     return st;
   }
 };
+FORWARD_CLS_BINDING(DrawCommand)
 
 } // namespace sculptcore::gpu

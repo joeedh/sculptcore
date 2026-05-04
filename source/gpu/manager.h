@@ -1,5 +1,5 @@
 #pragma once
-#include "binding/binding_types.h"
+#include "binding/binding.h"
 #include "litestl/binding/binding_struct.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/string.h"
@@ -11,7 +11,6 @@ struct ShaderDef;
 struct Buffer;
 struct DrawBatch;
 struct DrawCommand;
-enum class GPUCmdType;
 
 using litestl::util::Vector;
 struct GPUManager {
@@ -23,10 +22,8 @@ struct GPUManager {
   GPUManager() = default;
   ~GPUManager();
 
-  Buffer *createBuffer(litestl::util::string name,
-                       GPUType type,
-                       int elemsize,
-                       int elemCount);
+  Buffer *
+  createBuffer(litestl::util::string name, GPUType type, int elemsize, int elemCount);
   DrawBatch *createBatch();
   DrawCommand *createCommand(DrawBatch *batch,
                              GPUCmdType type,
@@ -48,4 +45,5 @@ struct GPUManager {
 
   static litestl::binding::types::Struct<GPUManager> *defineBindings();
 };
+FORWARD_CLS_BINDING(GPUManager)
 } // namespace sculptcore::gpu

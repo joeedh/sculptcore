@@ -29,4 +29,7 @@ struct MeshBatchManager {
     return st;
   }
 };
+
+FORWARD_CLS_BINDING(MeshBatchManager)
+
 } // namespace sculptcore::mesh::gpu
