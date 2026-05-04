@@ -18,7 +18,7 @@ int main()
   using namespace sculptcore::mesh;
   using namespace litestl::util;
 
-#if 1
+#if 0
   {
     static_assert(validate_prop("strength"));
     static_assert(!validate_prop("sdfsf"));

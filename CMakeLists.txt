@@ -21,8 +21,7 @@ if (BUILD_WASM)
     add_link_options(-sINITIAL_MEMORY=943718400)
 	endif()
 else()
-  add_compile_options( /diagnostics:caret /diagnostics:column )
-  add_compile_options( /permissive ) #Zc:twoPhase- )
+  add_compile_options( -DWIN32 -fdelayed-template-parsing -Wno-delayed-template-parsing-in-cxx20 -Wno-invalid-offsetof ) #Zc:twoPhase- )
 endif()
 
 
@@ -71,6 +70,7 @@ else()
 	  spatial
 	  brush
     gpu
+    binding
 	)
 
 	add_library(sculptcore SHARED)

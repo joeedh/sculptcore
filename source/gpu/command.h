@@ -31,9 +31,8 @@ struct DrawCommand {
 
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     BIND_STRUCT_MEMBER(st, type);
-    // BIND_STRUCT_MEMBER(st, shader);
-    st->add("attrs", offsetof(DrawCommand, attrs), Bind<Buffer *>());
-    // BIND_STRUCT_MEMBER(st, attrs);
+    BIND_STRUCT_MEMBER(st, shader);
+    BIND_STRUCT_MEMBER(st, attrs);
     BIND_STRUCT_MEMBER(st, start);
     BIND_STRUCT_MEMBER(st, end);
     BIND_STRUCT_MEMBER(st, primCount);

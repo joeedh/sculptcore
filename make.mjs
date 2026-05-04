@@ -238,7 +238,7 @@ yargs(hideBin(process.argv))
     ensureDir(dir)
     const env = envPrefix(target)
     if (target === 'native') {
-      run(`cd ${dir} && ${env} cmake ../.. -G Ninja -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `)
+      run(`cd ${dir} && ${env} cmake ../.. -G Ninja --toolchain ./build_files/native-clang.cmake -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `)
     } else {
       run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS}`)
     }
