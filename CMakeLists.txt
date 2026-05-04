@@ -16,10 +16,16 @@ if (BUILD_WASM)
 	if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 		add_compile_options(-fsanitize=address)
 		add_link_options(-fsanitize=address)
-		add_link_options(-sINITIAL_MEMORY=943718400)
+		#add_link_options(-sINITIAL_MEMORY=943718400)
   else()
-    add_link_options(-sINITIAL_MEMORY=943718400)
+    #add_link_options(-sINITIAL_MEMORY=943718400)
 	endif()
+  add_link_options(-sALLOW_MEMORY_GROWTH=1)
+  add_link_options(-sSHARED_MEMORY=1)
+  add_link_options(-pthread)
+  add_compile_options(-pthread)
+  add_link_options(-sEXPORTED_RUNTIME_METHODS=wasmMemory)
+  add_link_options(-sIMPORTED_MEMORY=1)
 else()
   add_compile_options( -DWIN32 -fdelayed-template-parsing -Wno-delayed-template-parsing-in-cxx20 -Wno-invalid-offsetof ) #Zc:twoPhase- )
 endif()
@@ -49,6 +55,7 @@ if (BUILD_WASM)
 	  sculptcore_core
     gpu
     spatial
+    pthread
 	)
 
 	# merge litestl wasm symbols

@@ -245,10 +245,10 @@ private:
   }
 };
 
-static const binding::types::Union<AttrType> *BindAttrData()
+static const binding::types::Union *BindAttrData()
 {
   using namespace litestl::binding;
-  types::Union<AttrType> *u = new types::Union<AttrType>("type", Bind<AttrType>());
+  types::Union *u = new types::Union("type", Bind<AttrType>());
 
   u->add("sculptcore::mesh::AttrData<float>",
          AttrType::FLOAT,

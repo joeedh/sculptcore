@@ -1,4 +1,5 @@
 #include "spatial.h"
+#include "shaders/spatial_shaders.h"
 
 #include "node.h"
 
@@ -398,8 +399,10 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   batch->buffers.append(colorBuf);
   batch->buffers.append(uvBuf);
 
+  auto *shader = &spatialShaders.basicLineShader;
+
   DrawCommand *cmd = mgr.createCommand(
-      batch, GPUCmdType::DRAW_LINES, nullptr, 0, totalVerts, totalVerts / 2);
+      batch, GPUCmdType::DRAW_LINES, shader, 0, totalVerts, totalVerts / 2);
   cmd->attrs.append(posBuf);
   cmd->attrs.append(colorBuf);
   cmd->attrs.append(uvBuf);

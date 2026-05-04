@@ -12,6 +12,8 @@ set(SRC
   PUBLIC spatial_enums.h
   PUBLIC spatial_attrs.h
   PUBLIC bindings.h
+  PUBLIC shaders/spatial_shaders.h
+  shaders/spatial_shaders.cc
   node.cc
   spatial.cc
   bindings.cc
@@ -22,4 +24,5 @@ sc_add_library(spatial "${SRC}" "${LIB}" OBJECT)
 wasm_add_symbols("
   Mesh_buildSpatialTree
   SpatialTree_free
+  getSpatialShaders
 ")

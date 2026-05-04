@@ -14,6 +14,7 @@ type char = number;
 type uchar = number;
 
 import type {DrawBatch} from "./sculptcore/gpu/DrawBatch";
+import type {SpatialShaders} from "./sculptcore/spatial/SpatialShaders";
 import type {BuiltinAttr} from "./sculptcore/mesh/BuiltinAttr";
 import type {VertexData} from "./sculptcore/mesh/VertexData";
 import type {DrawCommand} from "./sculptcore/gpu/DrawCommand";
@@ -23,6 +24,7 @@ import type {Buffer} from "./sculptcore/gpu/Buffer";
 import type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 import type {EdgeData} from "./sculptcore/mesh/EdgeData";
 import type {SpatialNode} from "./sculptcore/spatial/SpatialNode";
+import type {AttrDef} from "./sculptcore/gpu/AttrDef";
 import type {SpatialTree} from "./sculptcore/spatial/SpatialTree";
 import type {AABB} from "./litestl/math/AABB";
 import type {GPUManager} from "./sculptcore/gpu/GPUManager";
@@ -35,6 +37,7 @@ import type {float3} from "./litestl/math/float3";
 import type {AttrPage} from "./sculptcore/mesh/AttrPage";
 
 export type {DrawBatch} from "./sculptcore/gpu/DrawBatch";
+export type {SpatialShaders} from "./sculptcore/spatial/SpatialShaders";
 export type {BuiltinAttr} from "./sculptcore/mesh/BuiltinAttr";
 export type {VertexData} from "./sculptcore/mesh/VertexData";
 export type {DrawCommand} from "./sculptcore/gpu/DrawCommand";
@@ -44,6 +47,7 @@ export type {Buffer} from "./sculptcore/gpu/Buffer";
 export type {AttrGroup} from "./sculptcore/mesh/AttrGroup";
 export type {EdgeData} from "./sculptcore/mesh/EdgeData";
 export type {SpatialNode} from "./sculptcore/spatial/SpatialNode";
+export type {AttrDef} from "./sculptcore/gpu/AttrDef";
 export type {SpatialTree} from "./sculptcore/spatial/SpatialTree";
 export type {AABB} from "./litestl/math/AABB";
 export type {GPUManager} from "./sculptcore/gpu/GPUManager";
@@ -70,15 +74,17 @@ export type AllBoundTypes = {
   "sculptcore::mesh::BuiltinAttr<litestl::math::float3,positions>": BuiltinAttr<float3,"positions">,
   "sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>": BuiltinAttr<float3,"normals">,
   "sculptcore::mesh::BuiltinAttr<int,.vert.e>": BuiltinAttr<int,".vert.e">,
+  "sculptcore::gpu::DrawBatch": DrawBatch,
   "sculptcore::gpu::GPUManager": GPUManager,
   "sculptcore::mesh::BuiltinAttr<int,.edge.c>": BuiltinAttr<int,".edge.c">,
   "sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>": BuiltinAttr<int2,".edge.vs">,
   "sculptcore::mesh::BuiltinAttr<boolean,select>": BuiltinAttr<boolean,"select">,
   "sculptcore::mesh::BuiltinAttr<litestl::math::int4,.edge.vs.disk>": BuiltinAttr<int4,".edge.vs.disk">,
-  "sculptcore::gpu::DrawBatch": DrawBatch,
+  "sculptcore::gpu::AttrDef": AttrDef,
   "sculptcore::gpu::Buffer": Buffer,
   "sculptcore::mesh::AttrRef": AttrRef,
   "sculptcore::gpu::ShaderDef": ShaderDef,
+  "sculptcore::spatial::SpatialShaders": SpatialShaders,
   "sculptcore::mesh::gpu::MeshBatchManager": MeshBatchManager,
   "sculptcore::spatial::SpatialTree": SpatialTree,
 };

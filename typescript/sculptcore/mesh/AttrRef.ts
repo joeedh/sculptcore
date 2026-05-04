@@ -20,5 +20,5 @@ export interface AttrRef {
   name: string
   type: AttrType
   flag: AttrFlag
-  data: unknown
+  data: AttrData<float>|AttrData<int>|AttrData<unsigned char>|AttrData<short>
 }

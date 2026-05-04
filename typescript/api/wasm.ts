@@ -5,6 +5,7 @@ import {
   createWasmHelpers,
   IWasmBase,
   int,
+  createWasmMemory,
 } from '@litestl/typescript-runtime'
 import type {AllBoundTypes, GPUManager, Mesh, SpatialTree} from '../index'
 
@@ -18,6 +19,7 @@ interface IWasmMethods extends IWasmBase {
   /** build a coarse BVH over `mesh`'s faces; pass leafLimit<=0 to keep the default. */
   Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int): SpatialTree
   SpatialTree_free(tree: SpatialTree): void
+  getSpatialShaders(): pointer
 }
 export interface IWasmInterface extends INeededWasm, IWasmMethods {
   manager: BindingManager
@@ -33,9 +35,9 @@ export async function loadWasm(): Promise<IWasmInterface> {
   wasmPromise = undefined
 
   const mod = await import(insideNode ? '../build/sculptcore.js' : '../build/sculptcore-browser.js')
-  const _wasm = (await mod.default()) as IWasmMethods
+  const _wasm = (await mod.default({wasmMemory: createWasmMemory()})) as IWasmMethods
   const initialWasm = {
-    ...createWasmHelpers(_wasm),
+    ...createWasmHelpers(_wasm, mod.default),
   }
 
   _wasm.initBindings()

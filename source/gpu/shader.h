@@ -1,5 +1,6 @@
 #pragma once
 
+#include "binding/binding_literal.h"
 #include "math/vector.h"
 
 #include "util/alloc.h"
@@ -18,207 +19,192 @@ namespace sculptcore::gpu {
 using litestl::util::string;
 using litestl::util::stringref;
 
-struct Uniform {
-  Uniform() noexcept
+enum class _UniformType {
+  FLOAT = 0,
+  DOUBLE = 1,
+  BYTE = 2,
+  UBYTE = 3,
+  SHORT = 4,
+  USHORT = 5,
+  INT = 6,
+  UINT = 7,
+  FLOAT2 = 8,
+  FLOAT3 = 9,
+  FLOAT4 = 10,
+  INT2 = 11,
+  INT3 = 12,
+  INT4 = 13,
+  UINT2 = 14,
+  UINT3 = 15,
+  UINT4 = 16,
+  DOUBLE2 = 17,
+  DOUBLE3 = 18,
+  DOUBLE4 = 19,
+  SHORT2 = 20,
+  SHORT3 = 21,
+  SHORT4 = 22,
+  USHORT2 = 23,
+  USHORT3 = 24,
+  USHORT4 = 25,
+  BYTE2 = 26,
+  BYTE3 = 27,
+  BYTE4 = 28,
+  UBYTE2 = 29,
+  UBYTE3 = 30,
+  UBYTE4 = 31
+};
+MAKE_ENUM_CLASS(UniformType, _UniformType, int32_t);
+
+struct UniformDefBase {
+  string name;
+  GPUType type;
+  int elemSize;
+
+  UniformDefBase(string name, GPUType type, int elemSize)
+      : name(name), type(type), elemSize(elemSize)
+  {
+  }
+};
+
+template <typename T> struct UniformDef : public UniformDefBase {
+  T defaultValue;
+
+  UniformDef(string name, GPUType type, int elemSize, T defaultValue)
+      : UniformDefBase{name, type, elemSize}, defaultValue(defaultValue)
   {
   }
 
-  Uniform(const Uniform &b)
+  static litestl::binding::types::Struct<UniformDef> *defineBindings()
   {
-    type_ = b.type_;
-    size_t size = gpu_sizeof(type_);
-    default_ = alloc::alloc("uniform", size);
-
-    memcpy(default_, b.default_, size);
-    bound_ = false;
+    using namespace litestl::binding;
+    types::Struct<UniformDef> *st =
+        new types::Struct<UniformDef>("sculptcore::gpu::UniformDef", sizeof(UniformDef));
+    // st->addTempMember("T", Bind<T>());
+    st->addTemplateParam(Bind<T>(), "T");
+    BIND_STRUCT_MEMBER(st, name);
+    BIND_STRUCT_MEMBER(st, type);
+    BIND_STRUCT_MEMBER(st, elemSize);
+    BIND_STRUCT_MEMBER(st, defaultValue);
+    return st;
   }
+};
 
-  Uniform(Uniform &&b)
+struct AttrDef {
+  string name;
+  GPUType type;
+  int elemSize;
+
+  static litestl::binding::types::Struct<AttrDef> *defineBindings()
   {
-    name_ = std::move(name_);
-    default_ = b.default_;
-    type_ = b.type_;
-    bound_ = b.bound_;
-    glLoc_ = b.glLoc_;
-
-    b.default_ = nullptr;
-    b.type_ = GPUType::TYPE_INVALID;
-    b.bound_ = false;
+    using namespace litestl::binding;
+    types::Struct<AttrDef> *st =
+        new types::Struct<AttrDef>("sculptcore::gpu::AttrDef", sizeof(AttrDef));
+    BIND_STRUCT_MEMBER(st, name);
+    BIND_STRUCT_MEMBER(st, type);
+    BIND_STRUCT_MEMBER(st, elemSize);
+    return st;
   }
+};
 
-  DEFAULT_MOVE_ASSIGNMENT(Uniform)
-
-  Uniform &operator=(const Uniform &b) noexcept
-  {
-    if (this == &b) {
-      return *this;
-    }
-
-    this->~Uniform();
-
-    /* Forward to copy constructor. */
-    new (static_cast<void *>(this)) Uniform(b);
-
-    return *this;
-  }
-
-  template <typename T> Uniform(string name, T value) : name_(name)
-  {
-    default_ = alloc::alloc("uniform default", sizeof(T));
-    type_ = gpu_type_from<T>();
-
-    T *val = static_cast<T *>(default_);
-    *val = value;
-  }
-
-  ~Uniform()
-  {
-    if (default_) {
-      alloc::release(default_);
-      default_ = nullptr;
-    }
-  }
-
-  int glLoc() const noexcept
-  {
-    return glLoc_;
-  }
-  GPUType type() const noexcept
-  {
-    return type_;
-  }
-  const string &name() const noexcept
-  {
-    return name_;
-  }
-
-private:
-  string name_;
-  void *default_ = nullptr;
-  GPUType type_ = GPUType::TYPE_INVALID;
-  int glLoc_;
-  bool bound_ = false;
+struct ShaderDefDefine {
+  string key;
+  string value;
+  bool isSetByDefault;
 };
 
 struct ShaderDef {
   string name;
   string vertexSource, fragmentSource;
-  util::Vector<string> attrs;
-  util::Vector<Uniform> uniforms;
+  util::Vector<AttrDef> attrs;
+  util::Vector<UniformDefBase *> uniforms;
   util::Map<string, string> defines;
+
+  ShaderDef()
+  {
+  }
+  ShaderDef(const ShaderDef &b) = default;
+  ShaderDef &operator=(const ShaderDef &b) = default;
+  ShaderDef(string name,
+            string vertexSource,
+            string fragmentSource,
+            util::Vector<AttrDef> attrs,
+            util::Vector<UniformDefBase *> uniforms,
+            util::Vector<ShaderDefDefine> defines)
+  {
+    this->name = name;
+    this->vertexSource = vertexSource;
+    this->fragmentSource = fragmentSource;
+    this->attrs = attrs;
+    this->uniforms = uniforms;
+
+    for (auto &item : defines) {
+      if (!item.isSetByDefault) {
+        continue;
+      }
+      this->defines[item.key] = item.value;
+    }
+  }
+
+  ~ShaderDef()
+  {
+    for (auto *uniform : uniforms) {
+      alloc::Delete(uniform);
+    }
+  }
 
   static litestl::binding::types::Struct<ShaderDef> *defineBindings()
   {
     using namespace litestl::binding;
+    using litestl::util::Vector;
+
     /* ShaderDef bindings deferred — opaque struct for now. */
-    return new types::Struct<ShaderDef>("sculptcore::gpu::ShaderDef", sizeof(ShaderDef));
+    types::Struct<ShaderDef> *st =
+        new types::Struct<ShaderDef>("sculptcore::gpu::ShaderDef", sizeof(ShaderDef));
+
+    BIND_STRUCT_MEMBER(st, name);
+    BIND_STRUCT_MEMBER(st, vertexSource);
+    BIND_STRUCT_MEMBER(st, fragmentSource);
+    BIND_STRUCT_MEMBER(st, attrs);
+    //  deal with defines later
+    //  BIND_STRUCT_MEMBER(st, defines);
+
+#if 0 // TODO afterm more cleanup in union code
+    // build type union of uniformDef
+    types::Union *unionType = new types::Union("type", Bind<GPUType>());
+    unionType->add("FLOAT32",
+                   GPUType::FLOAT32,
+                   static_cast<const types::_StructBase *>(Bind<UniformDef<float>>()));
+    unionType->add("FLOAT64",
+                   GPUType::FLOAT64,
+                   static_cast<const types::_StructBase *>(Bind<UniformDef<double>>()));
+    unionType->add("INT8",
+                   GPUType::INT8,
+                   static_cast<const types::_StructBase *>(Bind<UniformDef<int8_t>>()));
+    unionType->add("UINT8",
+                   GPUType::UINT8,
+                   static_cast<const types::_StructBase *>(Bind<UniformDef<uint8_t>>()));
+    // build uniformDef pointer vector
+    types::Pointer *ptrType = new types::Pointer(unionType);
+    ptrType->isNonNull = true;
+
+    types::Struct<Vector<UniformDefBase *>> *vecSt =
+        new types::Struct<Vector<UniformDefBase *>>("sculptcore::util::Vector",
+                                                    sizeof(Vector<UniformDefBase *>));
+
+    // vector type
+    vecSt->addTemplateParam(ptrType, "T");
+
+    // vector static size
+    vecSt->addTemplateParam(
+        new types::NumLitType(
+            decltype(ShaderDef::uniforms)::staticSize, "N", Bind<int>()),
+        "N");
+
+    st->add("uniforms", offsetof(ShaderDef, uniforms), vecSt);
+
+#endif
+
+    return st;
   }
 };
-
-struct Shader {
-  Shader()
-  {
-  }
-
-  Shader(const Shader &b)
-      : vertexSource_(b.vertexSource_), fragmentSource_(b.fragmentSource_),
-        uniforms_(b.uniforms_), attrs_(b.attrs_), defines_(b.defines_),
-        is_final_shader_(b.is_final_shader_)
-  {
-  }
-
-  Shader(Shader &&b)
-  {
-    vertexSource_ = std::move(b.vertexSource_);
-    fragmentSource_ = std::move(b.fragmentSource_);
-    attrs_ = std::move(b.attrs_);
-    uniforms_ = std::move(b.uniforms_);
-    defines_ = std::move(b.defines_);
-    is_final_shader_ = b.is_final_shader_;
-  }
-
-  Shader(const ShaderDef &def)
-      : vertexSource_(def.vertexSource), fragmentSource_(def.fragmentSource)
-  {
-    attrs_.reserve(def.attrs.size());
-    for (const string &ref : def.attrs) {
-      attrs_[ref] = -1;
-    }
-
-    uniforms_.reserve(def.uniforms.size());
-    for (const Uniform &uniform : def.uniforms) {
-      uniforms_[uniform.name()] = uniform;
-    }
-
-    defines_.reserve(def.defines.size());
-    for (auto &pair : def.defines) {
-      defines_[pair.key] = pair.value;
-    }
-  }
-
-  Shader createFinalShader()
-  {
-    Shader cpy = *this;
-
-    for (auto &pair : defines_) {
-      string line = "#define " + pair.key;
-      if (pair.value.size() > 0) {
-        line += " = " + pair.value;
-      }
-      line += "\n";
-
-      vertexSource_ = line + vertexSource_;
-      fragmentSource_ = line + fragmentSource_;
-    }
-
-    is_final_shader_ = true;
-
-    return cpy;
-  }
-
-  util::StringKey createShaderKey() const
-  {
-    // using namespace sculptcore::util;
-    using litestl::util::get_stringkey;
-
-    char key[256];
-
-    string ret;
-
-    sprintf(key,
-            "%d:%d:\n",
-            int(get_stringkey(fragmentSource_)),
-            int(get_stringkey(vertexSource_)));
-
-    ret += key;
-
-    auto int2str = [](int d) {
-      char buf[256];
-      sprintf(buf, "%d", d);
-      return string(buf);
-    };
-
-    /* Client code might dynamically add more attributes. */
-    for (auto &pair : attrs_) {
-      ret += int2str(get_stringkey(pair.key)) + ":";
-    }
-
-    for (auto &pair : defines_) {
-      ret += int2str(get_stringkey(pair.key)) + ":";
-    }
-
-    return get_stringkey(ret);
-  }
-
-private:
-  string vertexSource_, fragmentSource_;
-  util::Map<string, int> attrs_;
-  util::Map<string, Uniform> uniforms_;
-  util::Map<string, string> defines_;
-  bool is_final_shader_ = false;
-};
-
-Shader *get_cached_shader(const Shader &shader);
-void set_cached_shader(Shader *shader);
-
 } // namespace sculptcore::gpu

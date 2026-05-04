@@ -7,16 +7,15 @@ const staticFiles = new Set(['package.json', 'readme.md', 'tsconfig.json', 'api'
 
 const wasmURL = process.argv[2] ?? '../build/sculptcore.js'
 const _wasm = await import(wasmURL)
-const wasmMod = await _wasm.default()
+const wasmMod = await _wasm.default({wasmMemory: binding.createWasmMemory()})
 
 function setupWasm(wasm: any) {
   for (const k in wasm) {
     if (typeof k === 'string' && k[0] == '_') {
-      wasm[k.slice(1)] = wasm[k]
-    }
+      wasm[k.slice(1)] = wasm[k] }
   }
 
-  const wasm2 = binding.createWasmHelpers(wasm)
+  const wasm2 = binding.createWasmHelpers(wasm, _wasm)
   return wasm2 as unknown as binding.INeededWasm
 }
 
@@ -48,5 +47,6 @@ for (const [path, file] of files) {
   const finalPath = Path.join(baseDir, path)
   fs.writeFileSync(finalPath, header + file + footer)
 }
-import {termColor} from '../source/litestl/tests/termColor'
+//@ts-ignore
+import {termColor} from '../source/litestl/tests/termColor.js'
 console.log(termColor('Generated typescript interfaces', 'blue'))

@@ -15,7 +15,7 @@ async function setupWasm() {
       }
     }
 
-    const wasm2 = binding.createWasmHelpers(module)
+    const wasm2 = binding.createWasmHelpers(module, _wasm.default)
     return wasm2 as unknown as binding.INeededWasm
   }
 

@@ -1,6 +1,8 @@
 #include "litestl/util/alloc.h"
 #include "mesh/mesh.h"
+#include "spatial/shaders/spatial_shaders.h"
 #include "spatial/spatial.h"
+
 
 using namespace sculptcore;
 
@@ -22,5 +24,9 @@ spatial::SpatialTree *Mesh_buildSpatialTree(mesh::Mesh *m, int leafLimit, int de
 void SpatialTree_free(spatial::SpatialTree *t)
 {
   litestl::alloc::Delete<spatial::SpatialTree>(t);
+}
+spatial::SpatialShaders *getSpatialShaders()
+{
+  return &spatial::spatialShaders;
 }
 }

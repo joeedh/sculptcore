@@ -6,10 +6,10 @@
 #include "gpu/command.h"
 #include "gpu/manager.h"
 #include "gpu/vbo.h"
-#include "litestl/math/math_bindings.h"
-
-
 #include "litestl/binding/binding.h"
+#include "litestl/math/math_bindings.h"
+#include "shaders/spatial_shaders.h"
+
 
 using namespace litestl::binding;
 
@@ -58,5 +58,6 @@ void registerBindings(BindingManager &manager)
   manager.add(Bind<SpatialNode>());
   manager.add(Bind<SpatialTree>());
   manager.add(Bind<NodeFlags>());
+  manager.add(Bind<SpatialShaders>());
 }
 } // namespace sculptcore::spatial

@@ -1,5 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrDef} from "./AttrDef";
+import type {GPUType} from "./GPUType";
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -14,10 +14,9 @@ type short = number;
 type ushort = number;
 type char = number;
 type uchar = number;
-export interface ShaderDef {
+export interface AttrDef {
   [Symbol.dispose](): void;
   name: string
-  vertexSource: string
-  fragmentSource: string
-  attrs: AttrDef[]
+  type: GPUType
+  elemSize: int
 }
