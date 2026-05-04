@@ -11,7 +11,7 @@ const CMAKE_BUILD_TYPE = 'RelWithDebInfo'
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
 
-/** 
+/**
  * Ensurse final linked files are destroyed,
  * since emscripten is not that great at making
  * errors during complication actually be obvious
@@ -238,7 +238,9 @@ yargs(hideBin(process.argv))
     ensureDir(dir)
     const env = envPrefix(target)
     if (target === 'native') {
-      run(`cd ${dir} && ${env} cmake ../.. -G Ninja --toolchain ./build_files/native-clang.cmake -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `)
+      run(
+        `cd ${dir} && ${env} cmake ../.. -G Ninja --toolchain ./build_files/native-clang.cmake -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `
+      )
     } else {
       run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS}`)
     }
@@ -296,9 +298,26 @@ yargs(hideBin(process.argv))
     console.log('Cleaning...')
     run(`cd ${buildDir(target)} && ${envPrefix(target)} ninja clean`)
   })
-  .command('test [target]', 'Run ctest', targetPositional, ({target}) => {
-    console.log('Testing...')
-    run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest .`)
+  .command('test [targetTest]', 'Run ctest', targetPositional, ({targetTest}) => {
+    if (!targetTest) {
+      run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest .`)
+    } else {
+      targetTest += '.cc_out.exe'
+
+      const dirs = ['build/native/tests', 'build/native/source/litestl/tests']
+      for (const dir of dirs) {
+        let path = Path.join(dir, targetTest)
+        if (fs.existsSync(path)) {
+          run(path)
+          return
+        } else if (fs.existsSync(path + '.exe')) {
+          run(path + '.exe')
+          return
+        }
+      }
+      process.stderr.write(`Could not find test ${targetTest}\n`)
+      process.exit(-1)
+    }
   })
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')
