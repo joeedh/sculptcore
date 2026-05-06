@@ -32,8 +32,6 @@ public:
 
   ~PackedBoolAttrs()
   {
-    printf("~PackedBoolAttrs\n");
-
     if (blocks_) {
       alloc::release(static_cast<void *>(blocks_));
     }

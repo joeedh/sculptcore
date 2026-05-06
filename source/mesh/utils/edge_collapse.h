@@ -1,0 +1,221 @@
+#pragma once
+
+/* Edge collapse: merges the two endpoints of an edge into a single vertex,
+ * welding adjacent geometry. Faces incident to the collapsed edge that
+ * become degenerate (e.g. triangles, where two corners would coincide)
+ * are removed; their two remaining edges are merged into one shared edge.
+ * Larger faces simply lose one corner.
+ *
+ * The kept vertex is `e.vs[0]` (v_keep); `e.vs[1]` (v_kill) is removed.
+ * Optionally the kept vertex's position can be set to a user-provided
+ * blended location.
+ *
+ * Topology change for a typical interior triangle-mesh collapse:
+ *   dV = -1, dE = -3, dF = -2  -> dchi = 0 (preserves Euler char).
+ * For collapses on a boundary or quad-only mesh the deltas differ but
+ * the change in chi remains consistent with the local topology change.
+ *
+ * No new boundary loops are introduced: when a triangle collapses, its
+ * two non-collapsed edges are merged (their radial cycles spliced),
+ * so any face that was on the far side of one of those edges remains
+ * attached to the surviving merged edge.
+ *
+ * Implementation strategy: we reconstruct rather than splice cycles by
+ * hand. We gather all faces touching either endpoint, kill them, kill
+ * the edges incident to v_kill, kill v_kill, then recreate each face
+ * with v_kill mapped to v_keep (dropping faces that go degenerate or
+ * duplicate). This relies entirely on the public Euler operators in
+ * `Mesh`, so the disk/radial cycles stay self-consistent.
+ */
+
+#include "../mesh.h"
+#include "../mesh_base.h"
+#include "../mesh_iter.h"
+#include "../mesh_proxy.h"
+
+#include "litestl/math/vector.h"
+#include "litestl/util/error.h"
+#include "litestl/util/set.h"
+#include "litestl/util/vector.h"
+
+#include <cstdint>
+#include <optional>
+#include <span>
+
+namespace sculptcore::mesh {
+
+using litestl::util::SuccessOrError;
+
+namespace detail_collapse {
+
+static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
+{
+  /* Order-invariant key: rotate so smallest first, then pick the lexicographically
+   * smaller of forward/reverse. This dedupes faces regardless of starting corner
+   * or winding. */
+  int n = int(verts.size());
+  if (n == 0) return 0;
+  int min_i = 0;
+  for (int i = 1; i < n; i++) {
+    if (verts[i] < verts[min_i]) min_i = i;
+  }
+  litestl::util::Vector<int, 8> fwd, rev;
+  for (int i = 0; i < n; i++) fwd.append(verts[(min_i + i) % n]);
+  rev.append(fwd[0]);
+  for (int i = n - 1; i >= 1; i--) rev.append(fwd[i]);
+  bool useFwd = true;
+  for (int i = 1; i < n; i++) {
+    if (fwd[i] != rev[i]) {
+      useFwd = fwd[i] < rev[i];
+      break;
+    }
+  }
+  uint64_t h = 1469598103934665603ull;
+  const auto &use = useFwd ? fwd : rev;
+  for (int v : use) {
+    h ^= uint64_t(uint32_t(v));
+    h *= 1099511628211ull;
+  }
+  return int64_t(h);
+}
+
+} /* namespace detail_collapse */
+
+/* Collapse `edge`. The vertex at `e.vs[edge][0]` is kept (its position
+ * optionally replaced by `merged_co`); the vertex at `e.vs[edge][1]`
+ * is removed. Returns false if the edge index is invalid. */
+static inline SuccessOrError<"edge_collapse", "failed to collapse edge">
+collapseEdge(Mesh &m, int edge,
+             std::optional<litestl::math::float3> merged_co = std::nullopt)
+{
+  using namespace litestl;
+  using namespace litestl::util;
+
+  if (edge < 0 || edge >= int(m.e.capacity()) || m.e.freemap[edge]) {
+    return false;
+  }
+
+  int v_keep = m.e.vs[edge][0];
+  int v_kill = m.e.vs[edge][1];
+  if (v_keep == v_kill) {
+    /* Self-loop: just remove. */
+    m.kill_edge(edge);
+    return true;
+  }
+
+  /* 1. Gather all faces touching either endpoint, recording their vertex
+   *    sequences. Use a set to avoid adding the same face twice (a face
+   *    can touch both endpoints). */
+  Vector<int> facesToRebuild;
+  Set<int> faceSet;
+
+  auto gatherFaces = [&](int vi) {
+    if (m.v.e[vi] == ELEM_NONE) return;
+    for (int ei : EdgeOfVertIter(&m, vi, m.v.e[vi])) {
+      int c0 = m.e.c[ei];
+      if (c0 == ELEM_NONE) continue;
+      int cc = c0;
+      do {
+        int li = m.c.l[cc];
+        int fi = m.l.f[li];
+        if (faceSet.add(fi)) {
+          facesToRebuild.append(fi);
+        }
+        cc = m.c.radial_next[cc];
+      } while (cc != c0);
+    }
+  };
+  /* Only faces touching v_kill need rebuilding — faces touching only
+   * v_keep are unchanged by the merge. */
+  gatherFaces(v_kill);
+
+  /* Snapshot vertex sequences (outer list only — we don't recreate holes). */
+  Vector<Vector<int, 8>> faceVerts;
+  for (int fi : facesToRebuild) {
+    Vector<int, 8> seq;
+    int li = m.f.l[fi];
+    int c0 = m.l.c[li];
+    int cc = c0;
+    do {
+      seq.append(m.c.v[cc]);
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    faceVerts.append(std::move(seq));
+  }
+
+  /* 2. Kill all gathered faces. */
+  for (int fi : facesToRebuild) {
+    m.kill_face(fi);
+  }
+
+  /* 3. Kill all edges incident to v_kill (including `edge` itself, which
+   *    is now wire). Walking the disk while killing requires care: snapshot
+   *    first. */
+  Vector<int> edgesToKill;
+  if (m.v.e[v_kill] != ELEM_NONE) {
+    for (int ei : EdgeOfVertIter(&m, v_kill, m.v.e[v_kill])) {
+      edgesToKill.append(ei);
+    }
+  }
+  /* Also any wire edges incident to v_keep that go to v_kill (already
+   * captured above since both endpoints are walked). */
+  for (int ei : edgesToKill) {
+    /* Edge may already be gone if collapse reduced something earlier;
+     * guard with freemap. */
+    if (!m.e.freemap[ei]) {
+      m.kill_edge(ei);
+    }
+  }
+
+  /* 4. Kill v_kill (now isolated). */
+  if (!m.v.freemap[v_kill]) {
+    /* kill_vertex iterates v.e until empty. We already cleaned its edges,
+     * so v.e[v_kill] should be ELEM_NONE. */
+    m.v.release(v_kill);
+  }
+
+  /* 5. Optional: update kept vertex position. */
+  if (merged_co.has_value()) {
+    m.v.co[v_keep] = merged_co.value();
+  }
+
+  /* 6. Remap face sequences (v_kill -> v_keep), drop degenerates and
+   *    duplicates, then rebuild. */
+  Set<int64_t, 64> rebuiltKeys;
+  for (auto &seq : faceVerts) {
+    Vector<int, 8> remapped;
+    for (int v : seq) {
+      int rv = (v == v_kill) ? v_keep : v;
+      /* Skip consecutive duplicates. */
+      if (!remapped.isEmpty() && remapped[remapped.size() - 1] == rv) continue;
+      remapped.append(rv);
+    }
+    /* Wrap-around duplicate. */
+    while (remapped.size() >= 2 && remapped[0] == remapped[remapped.size() - 1]) {
+      remapped.pop_back();
+    }
+    /* Also dedupe non-adjacent repeats (a quad with v_keep already adjacent
+     * to v_kill on opposite corners would yield a degenerate). */
+    {
+      Set<int> seen;
+      bool repeat = false;
+      for (int v : remapped) {
+        if (!seen.add(v)) {
+          repeat = true;
+          break;
+        }
+      }
+      if (repeat) continue;
+    }
+    if (remapped.size() < 3) continue;
+
+    int64_t key = detail_collapse::faceKey(remapped);
+    if (!rebuiltKeys.add(key)) continue;
+
+    m.make_face(std::span<int>(remapped.data(), remapped.size()));
+  }
+
+  return true;
+}
+
+} /* namespace sculptcore::mesh */

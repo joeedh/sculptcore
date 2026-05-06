@@ -132,7 +132,7 @@ int Mesh::make_face(std::span<int> verts)
 
 void Mesh::kill_vertex(int v1)
 {
-  while (v.e[v1]) {
+  while (v.e[v1] != ELEM_NONE) {
     kill_edge(v.e[v1]);
   }
 
@@ -141,7 +141,7 @@ void Mesh::kill_vertex(int v1)
 
 void Mesh::kill_edge(int e1)
 {
-  while (e.c[e1]) {
+  while (e.c[e1] != ELEM_NONE) {
     kill_face(l.f[c.l[e.c[e1]]]);
   }
 
