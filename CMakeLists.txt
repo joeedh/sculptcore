@@ -50,12 +50,14 @@ if (BUILD_WASM)
 	  mesh
 	  platform
 	  binding
-    binding_generators
+      binding_generators
 	  sculptcore_wasm
 	  sculptcore_core
-    gpu
-    spatial
-    pthread
+      gpu
+      spatial
+	  brush
+	  props
+      pthread
 	)
 
 	# merge litestl wasm symbols
@@ -73,11 +75,14 @@ if (BUILD_WASM)
 else()
  	set(LIB
  	  util
+	  math
  	  mesh
 	  spatial
 	  brush
-    gpu
-    binding
+	  props
+      gpu
+      binding
+	  binding_generators
 	)
 
 	add_library(sculptcore SHARED)

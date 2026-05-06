@@ -1,8 +1,10 @@
 #pragma once
-#include "../props/prop_struct.h"
-#include "props.h"
 #include "../props/prop_dynamics.h"
+#include "../props/prop_struct.h"
 #include "litestl/util/compiler_util.h"
+#include "litestl/binding/binding.h"
+
+#include "props.h"
 
 namespace sculptcore::brush {
 using litestl::util::StrLiteral;
@@ -11,6 +13,25 @@ struct Brush {
   props::StructProp props;
   props::DeviceInputCtx deviceInputCtx;
 
+  float strength = 1;
+  float radius = 1;
+  bool invert = false;
+
+  static litestl::binding::types::Struct<Brush> *defineBindings()
+  {
+    using namespace litestl::binding;
+    types::Struct<Brush> *st =
+        new types::Struct<Brush>("sculptcore::brush::Brush", sizeof(Brush));
+
+    BIND_STRUCT_MEMBER(st, strength);
+    BIND_STRUCT_MEMBER(st, radius);
+    BIND_STRUCT_MEMBER(st, invert);
+    BIND_STRUCT_MEMBER(st, props);
+    BIND_STRUCT_METHOD(st, loadProps, MARGS());
+
+    return st;
+  }
+
   Brush() : props(&structDef_)
   {
     structDef_.Float32("strength", "strength");
@@ -18,23 +39,11 @@ struct Brush {
     structDef_.Bool("invert", "invert");
   }
 
-  template <size_t N> float getFloat(StrLiteral<N> key)
+  void loadProps()
   {
-  }
-
-  float strength()
-  {
-    return props.lookupValue<float>("strength", 1.0);
-  }
-
-  float radius()
-  {
-    return props.lookupValue<float>("radius", 1.0);
-  }
-
-  bool invert()
-  {
-    return props.lookupValue<bool>("invert", false);
+    strength = props.lookupValue<float>("strength", 1.0);
+    radius = props.lookupValue<float>("radius", 1.0);
+    invert = props.lookupValue<bool>("invert", false);
   }
 
 private:

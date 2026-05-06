@@ -3,7 +3,7 @@
 #include "prop_dynamics.h"
 #include "prop_types.h"
 
-
+#include "litestl/binding/binding.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/compiler_util.h"
 #include "litestl/util/map.h"
@@ -27,6 +27,19 @@ struct struct_detail {
 
   struct StructProp : detail::PropBase<StructProp, void *> {
     using Base = PropBase<StructProp, void *>;
+
+    static litestl::binding::types::Struct<StructProp> *defineBindings()
+    {
+      using namespace litestl::binding;
+
+      types::Struct<StructProp> *st = new types::Struct<StructProp>(
+          "sculptcore::props::StructProp", sizeof(StructProp));
+      st->inherit(detail::PropBaseType::defineBindings());
+
+      BIND_STRUCT_METHOD(st, lookupFloat, MARGS("name", "default_value"));
+      
+      return st;
+    }
 
     StructProp() : Base(Prop::STRUCT)
     {

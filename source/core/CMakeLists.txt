@@ -6,6 +6,8 @@ set(LIB
     PUBLIC sculptcore_wasm
     PUBLIC gpu
     PUBLIC spatial
+    PUBLIC props
+    PUBLIC brush
 )
 
 set(SRC

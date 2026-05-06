@@ -2,6 +2,8 @@
 #include "wasm/wasmManager.h"
 #include "gpu/bindings.h"
 #include "spatial/bindings.h"
+#include "props/bindings.h"
+#include "brush/bindings.h"
 
 extern "C" void initBindings()
 {
@@ -9,4 +11,6 @@ extern "C" void initBindings()
   sculptcore::mesh::registerBindings(manager);
   sculptcore::gpu::registerBindings(manager);
   sculptcore::spatial::registerBindings(manager);
+  sculptcore::props::registerBindings(manager);
+  sculptcore::brush::bindings::registerBindings(manager);
 }

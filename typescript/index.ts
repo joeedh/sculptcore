@@ -18,6 +18,7 @@ import type {SpatialShaders} from "./sculptcore/spatial/SpatialShaders";
 import type {BuiltinAttr} from "./sculptcore/mesh/BuiltinAttr";
 import type {VertexData} from "./sculptcore/mesh/VertexData";
 import type {DrawCommand} from "./sculptcore/gpu/DrawCommand";
+import type {Brush} from "./sculptcore/brush/Brush";
 import type {ShaderDef} from "./sculptcore/gpu/ShaderDef";
 import type {AttrData} from "./sculptcore/mesh/AttrData";
 import type {Buffer} from "./sculptcore/gpu/Buffer";
@@ -27,6 +28,7 @@ import type {SpatialNode} from "./sculptcore/spatial/SpatialNode";
 import type {AttrDef} from "./sculptcore/gpu/AttrDef";
 import type {SpatialTree} from "./sculptcore/spatial/SpatialTree";
 import type {AABB} from "./litestl/math/AABB";
+import type {StructProp} from "./sculptcore/props/StructProp";
 import type {GPUManager} from "./sculptcore/gpu/GPUManager";
 import type {int2} from "./litestl/math/int2";
 import type {int4} from "./litestl/math/int4";
@@ -41,6 +43,7 @@ export type {SpatialShaders} from "./sculptcore/spatial/SpatialShaders";
 export type {BuiltinAttr} from "./sculptcore/mesh/BuiltinAttr";
 export type {VertexData} from "./sculptcore/mesh/VertexData";
 export type {DrawCommand} from "./sculptcore/gpu/DrawCommand";
+export type {Brush} from "./sculptcore/brush/Brush";
 export type {ShaderDef} from "./sculptcore/gpu/ShaderDef";
 export type {AttrData} from "./sculptcore/mesh/AttrData";
 export type {Buffer} from "./sculptcore/gpu/Buffer";
@@ -50,6 +53,7 @@ export type {SpatialNode} from "./sculptcore/spatial/SpatialNode";
 export type {AttrDef} from "./sculptcore/gpu/AttrDef";
 export type {SpatialTree} from "./sculptcore/spatial/SpatialTree";
 export type {AABB} from "./litestl/math/AABB";
+export type {StructProp} from "./sculptcore/props/StructProp";
 export type {GPUManager} from "./sculptcore/gpu/GPUManager";
 export type {int2} from "./litestl/math/int2";
 export type {int4} from "./litestl/math/int4";
@@ -80,6 +84,8 @@ export type AllBoundTypes = {
   "sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>": BuiltinAttr<int2,".edge.vs">,
   "sculptcore::mesh::BuiltinAttr<boolean,select>": BuiltinAttr<boolean,"select">,
   "sculptcore::mesh::BuiltinAttr<litestl::math::int4,.edge.vs.disk>": BuiltinAttr<int4,".edge.vs.disk">,
+  "sculptcore::props::StructProp": StructProp,
+  "sculptcore::brush::Brush": Brush,
   "sculptcore::gpu::AttrDef": AttrDef,
   "sculptcore::gpu::Buffer": Buffer,
   "sculptcore::mesh::AttrRef": AttrRef,

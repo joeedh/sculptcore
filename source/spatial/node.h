@@ -70,59 +70,6 @@ struct SpatialNode {
     Mesh *m;
   };
 
-  struct VertexIter {
-    float3 *co = nullptr;
-    float3 *no = nullptr;
-    float *mask = nullptr;
-    int index = 0;
-    int nodeIndex = 0;
-    SpatialNode &node;
-
-    VertexIter(SpatialNode &node_)
-        : node(node_), iter(node.data->unique_verts.begin()),
-          end_iter(node.data->unique_verts.end())
-    {
-    }
-
-    bool operator==(const VertexIter &b)
-    {
-      return iter == b.iter;
-    }
-
-    bool operator!=(const VertexIter &b)
-    {
-      return iter != b.iter;
-    }
-
-    VertexIter &operator*()
-    {
-      return *this;
-    }
-
-    VertexIter &operator++()
-    {
-      ++iter;
-
-      if (iter != end_iter) {
-        auto *m = node.data->m;
-        int i = index = *iter;
-
-        co = &m->v.co[i];
-        no = &m->v.no[i];
-        mask = &node.treeMesh->v.mask[i];
-      }
-
-      nodeIndex = _nodeIndex++;
-
-      return *this;
-    }
-
-  private:
-    util::OrderedSet<int>::iterator iter;
-    util::OrderedSet<int>::iterator end_iter;
-    int _nodeIndex = 0;
-  };
-
   SpatialNode *parent = nullptr;
   SpatialNode *children[2];
   int depth = 0;

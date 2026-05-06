@@ -1,5 +1,6 @@
 #pragma once
 
+#include "litestl/binding/binding.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/compiler_util.h"
@@ -14,10 +15,35 @@
 #include <cstdlib>
 #include <cstring>
 
+namespace litestl::binding {
+template <std::same_as<sculptcore::props::Prop> T> types::Enum *Bind()
+{
+  types::Enum *en =
+      new types::Enum("sculptcore::props::Prop", sizeof(sculptcore::props::Prop));
+  en->addItem("INVALID_TYPE", sculptcore::props::Prop::INVALID_TYPE);
+  en->addItem("FLOAT32", sculptcore::props::Prop::FLOAT32);
+  en->addItem("FLOAT64", sculptcore::props::Prop::FLOAT64);
+  en->addItem("INT64", sculptcore::props::Prop::INT64);
+  en->addItem("UINT64", sculptcore::props::Prop::UINT64);
+  en->addItem("INT32", sculptcore::props::Prop::INT32);
+  en->addItem("UINT32", sculptcore::props::Prop::UINT32);
+  en->addItem("INT16", sculptcore::props::Prop::INT16);
+  en->addItem("UINT16", sculptcore::props::Prop::UINT16);
+  en->addItem("INT8", sculptcore::props::Prop::INT8);
+  en->addItem("UINT8", sculptcore::props::Prop::UINT8);
+  en->addItem("BOOL", sculptcore::props::Prop::BOOL);
+  en->addItem("STRING", sculptcore::props::Prop::STRING);
+  en->addItem("STATIC_STRING", sculptcore::props::Prop::STATIC_STRING);
+  en->addItem("LIST", sculptcore::props::Prop::LIST);
+  en->addItem("STRUCT", sculptcore::props::Prop::STRUCT);
+  return en;
+}
+} // namespace litestl::binding
 using namespace litestl;
 namespace sculptcore::props {
 
 namespace detail {
+using namespace litestl::binding;
 
 // this little struct here is to avoid
 // any potential weird name or virtual dispatch
@@ -26,6 +52,18 @@ namespace detail {
 struct PropBaseType {
   Prop type;
   util::string name, ui_name;
+
+  static types::Struct<PropBaseType> *defineBindings()
+  {
+    types::Struct<PropBaseType> *st = new types::Struct<PropBaseType>(
+        "sculptcore::props::detail::PropBaseType", sizeof(PropBaseType));
+
+    BIND_STRUCT_MEMBER(st, type);
+    BIND_STRUCT_MEMBER(st, name);
+    BIND_STRUCT_MEMBER(st, ui_name);
+
+    return st;
+  }
 
   PropBaseType(Prop type, util::string name = "", util::string ui_name = "") : type(type)
   {

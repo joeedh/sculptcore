@@ -57,5 +57,9 @@ template const double
 lookupValue<double>(void *, void *, util::string &, double, DeviceInputCtx *);
 template const int
 lookupValue<int>(void *, void *, util::string &, int, DeviceInputCtx *);
+template const bool
+lookupValue<bool>(void *, void *, util::string &, bool, DeviceInputCtx *);
+template const short
+lookupValue<short>(void *, void *, util::string &, short, DeviceInputCtx *);
 
 } // namespace sculptcore::props::struct_detail_2
