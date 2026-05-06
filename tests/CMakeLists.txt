@@ -11,6 +11,7 @@ add_test(NAME ${target} COMMAND ${target})
 endmacro()
 
 test(test_mesh.cc "mesh")
+test(test_delaunay.cc "mesh")
 test(test_props.cc "props")
 test(test_brush.cc "")
 test(test_binding.cc "binding_generators")
