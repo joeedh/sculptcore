@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gpu/command.h"
+#include "gpu/vbo.h"
 #include "litestl/binding/binding.h"
 #include "litestl/math/aabb.h"
 #include "litestl/math/geom.h"
@@ -8,7 +10,6 @@
 #include "litestl/util/map.h"
 #include "litestl/util/ordered_set.h"
 #include "litestl/util/vector.h"
-
 #include "mesh/mesh.h"
 
 #include "spatial_attrs.h"
@@ -40,7 +41,32 @@ struct SpatialNode {
     util::OrderedSet<int> other_faces;
 
     util::Vector<NodeTri> tris;
+    struct GPUData {
+      gpu::Buffer *pos = nullptr;
+      gpu::Buffer *nor = nullptr;
+      gpu::DrawCommand *cmd = nullptr;
 
+      ~GPUData()
+      {
+        dispose();
+      }
+
+      void dispose()
+      {
+        if (pos) {
+          alloc::Delete(pos);
+          pos = nullptr;
+        }
+        if (nor) {
+          alloc::Delete(nor);
+          nor = nullptr;
+        }
+        if (cmd) {
+          alloc::Delete(cmd);
+          cmd = nullptr;
+        }
+      }
+    } gpu;
     Mesh *m;
   };
 
@@ -97,6 +123,7 @@ struct SpatialNode {
     int _nodeIndex = 0;
   };
 
+  SpatialNode *parent = nullptr;
   SpatialNode *children[2];
   int depth = 0;
 
@@ -126,7 +153,7 @@ struct SpatialNode {
     b.flag = Spatial_None;
     b.data = nullptr;
   }
-  
+
   DEFAULT_MOVE_ASSIGNMENT(SpatialNode)
 
   void update(NodeFlags update_flags)

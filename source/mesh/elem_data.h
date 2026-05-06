@@ -1,22 +1,15 @@
 #pragma once
 
 #include "attribute.h"
-#include "attribute_builtin.h"
-#include "litestl/math/vector.h"
 #include "litestl/util/assert.h"
 #include "litestl/util/boolvector.h"
 #include "litestl/util/callback_list.h"
-#include "litestl/util/string.h"
 
-#include "mesh_base.h"
 #include "mesh_enums.h"
 
-#include <algorithm>
-#include <concepts>
 #include <cstdio>
-#include <type_traits>
 
-using litestl::util::assert;
+using litestl::util::Assert;
 
 using namespace litestl;
 namespace sculptcore::mesh {
@@ -103,7 +96,7 @@ struct ElemData {
 
   void alloc(int freed_elem, bool alloc_attrs = true)
   {
-    assert(freemap[freed_elem], "freed_elem is actually freed");
+    Assert(freemap[freed_elem], "freed_elem is actually freed");
 
     freelist.remove(freed_elem);
     freemap.set(freed_elem, false);

@@ -27,5 +27,8 @@ export interface GPUManager {
   createBuffer(name: string, type: GPUType, elemsize: int, elemCount: int): Buffer
   createBatch(): DrawBatch
   createCommand(batch: DrawBatch, type: GPUCmdType, shader: ShaderDef | undefined, start: int, end: int, primCount: int): DrawCommand
+  destroyBatch(batch: DrawBatch, destroy_commands: boolean, destroy_buffers: boolean): void
+  destroyBuffer(buffer: Buffer): void
+  destroyCommand(command: DrawCommand, destroy_buffers: boolean): void
   new(): GPUManager
 }

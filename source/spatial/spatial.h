@@ -12,6 +12,10 @@
 #include "mesh/utils/triangulate.h"
 
 #include "spatial_attrs.h"
+#include "spatial_enums.h"
+
+#include "gpu/batch.h"
+#include "gpu/manager.h"
 
 namespace sculptcore::gpu {
 struct GPUManager;
@@ -34,7 +38,7 @@ struct SpatialTree {
   {
 
     root = alloc_node();
-    root->flag = Spatial_Leaf;
+    root->flag = Spatial_Leaf | Spatial_RegenTris | Spatial_RegenGPU | Spatial_UpdateNormals;
     root->create_data();
   }
 
@@ -42,6 +46,8 @@ struct SpatialTree {
   {
     treeMesh.setup(m);
   }
+
+  void update_node_normals(SpatialNode *node);
 
   bool node_needs_split(SpatialNode *node)
   {
@@ -55,7 +61,10 @@ struct SpatialTree {
   ~SpatialTree()
   {
     for (SpatialNode *node : nodes) {
-      alloc::Delete<SpatialNode>(node);
+      alloc::Delete(node);
+    }
+    if (drawBatch) {
+      alloc::Delete(drawBatch);
     }
   }
 
@@ -99,15 +108,22 @@ struct SpatialTree {
   }
 
   void buildAll();
+  sculptcore::gpu::DrawBatch *getDrawBatch()
+  {
+    return drawBatch;
+  }
   sculptcore::gpu::DrawBatch *buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr);
 
   static binding::types::Struct<SpatialTree> *defineBindings();
 
+  bool update(gpu::GPUManager *gpu);
+
 private:
+  sculptcore::gpu::DrawBatch *drawBatch = nullptr;
   void regen_node_bounds(SpatialNode *node, bool recurse);
   void regen_node_tris(SpatialNode *node);
-  void regen_node_gpu_buffers(SpatialNode *node);
-  void update_node_gpu_buffers(SpatialNode *node);
+  void regen_node_gpu_buffers(SpatialNode *node, gpu::GPUManager *gpu);
+  void update_node_gpu_buffers(SpatialNode *node, gpu::GPUManager *gpu);
 
   void
   add_face_intern(SpatialNode *node, int f, std::span<Tri> &tris, math::float3 &fcent);

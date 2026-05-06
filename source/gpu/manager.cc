@@ -2,11 +2,11 @@
 
 #include "batch.h"
 #include "litestl/binding/binding.h"
+#include "litestl/util/set.h"
 #include "manager.h"
 #include "pipeline.h"
 #include "shader.h"
 #include "vbo.h"
-
 
 namespace litestl::binding {
 template <std::same_as<sculptcore::gpu::GPUCmdType> T> const BindingBase *Bind()
@@ -121,6 +121,53 @@ DrawCommand *GPUManager::createCommand(DrawBatch *batch,
   return c;
 }
 
+void GPUManager::destroyBuffer(Buffer *buffer)
+{
+  buffers.remove(buffer);
+  alloc::Delete(buffer);
+}
+
+void GPUManager::destroyCommand(DrawCommand *cmd, bool destroy_buffers)
+{
+  if (destroy_buffers) {
+    for (Buffer *buf : cmd->attrs) {
+      destroyBuffer(buf);
+    }
+  }
+  commands.remove(cmd);
+  alloc::Delete(cmd);
+}
+
+void GPUManager::destroyBatch(DrawBatch *batch,
+                              bool destroy_commands,
+                              bool destroy_buffers)
+{
+  if (destroy_buffers) {
+    util::Set<Buffer *, 32> buffers;
+    for (DrawCommand *cmd : batch->commands) {
+      for (Buffer *buf : cmd->attrs) {
+        buffers.add(buf);
+      }
+    }
+    for (Buffer *buf : batch->buffers) {
+      buffers.add(buf);
+    }
+
+    for (Buffer *buf : buffers) {
+      destroyBuffer(buf);
+    }
+  }
+
+  if (destroy_commands) {
+    for (auto *cmd : batch->commands) {
+      destroyCommand(cmd, false);
+    }
+  }
+
+  batches.remove(batch);
+  alloc::Delete(batch);
+}
+
 litestl::binding::types::Struct<GPUManager> *GPUManager::defineBindings()
 {
   using namespace litestl::binding;
@@ -141,6 +188,10 @@ litestl::binding::types::Struct<GPUManager> *GPUManager::defineBindings()
       st, createCommand, MARGS("batch", "type", "shader", "start", "end", "primCount"))
       .argIsNullable("shader")
       .isNeverNull();
+  BIND_STRUCT_METHOD(
+      st, destroyBatch, MARGS("batch", "destroy_commands", "destroy_buffers"));
+  BIND_STRUCT_METHOD(st, destroyBuffer, MARGS("buffer"));
+  BIND_STRUCT_METHOD(st, destroyCommand, MARGS("command", "destroy_buffers"));
 
   return st;
 }

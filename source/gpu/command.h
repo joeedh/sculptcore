@@ -21,7 +21,7 @@ struct DrawCommand {
   }
   DrawCommand(DrawCommand &&) = default;
   DrawCommand &operator=(DrawCommand &&) = default;
-
+  
   static const litestl::binding::types::Struct<DrawCommand> *defineBindings()
   {
     using namespace litestl::binding;

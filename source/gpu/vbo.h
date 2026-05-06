@@ -97,7 +97,7 @@ struct Buffer {
       resize(elem_count);
     }
   }
-
+  
   template <typename List> int load_data(List &list)
   {
     /* For ushort, uint, uchar. */

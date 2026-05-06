@@ -1,7 +1,6 @@
 #include "mesh_types.h"
 #include "mesh.h"
 
-#include "litestl/util/assert.h"
 #include "litestl/util/vector.h"
 
 using namespace litestl;

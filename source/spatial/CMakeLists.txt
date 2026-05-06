@@ -16,6 +16,7 @@ set(SRC
   shaders/spatial_shaders.cc
   node.cc
   spatial.cc
+  spatial_gpu.cc
   bindings.cc
   c-api/spatial_c_api.cc
 )

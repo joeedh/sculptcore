@@ -5,11 +5,12 @@
 namespace sculptcore::spatial {
 enum _NodeFlags {
   Spatial_None = 0,
-  Spatial_Leaf = 1 << 0,        // 1
-  Spatial_RegenBounds = 1 << 1, // 2
-  Spatial_RegenTris = 1 << 2,   // 4
-  Spatial_RegenGPU = 1 << 3,    // 8
-  Spatial_UpdateGPU = 1 << 4,   // 16
+  Spatial_Leaf = 1 << 0,          // 1
+  Spatial_RegenBounds = 1 << 1,   // 2
+  Spatial_RegenTris = 1 << 2,     // 4
+  Spatial_RegenGPU = 1 << 3,      // 8
+  Spatial_UpdateGPU = 1 << 4,     // 16
+  Spatial_UpdateNormals = 1 << 5, // 32
 };
 MAKE_FLAGS_CLASS(NodeFlags, _NodeFlags, int);
 

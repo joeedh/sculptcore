@@ -10,7 +10,6 @@
 #include "litestl/math/math_bindings.h"
 #include "shaders/spatial_shaders.h"
 
-
 using namespace litestl::binding;
 
 namespace sculptcore::spatial {
@@ -47,6 +46,8 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, ensure_node_tris, MARGS("node"));
   BIND_STRUCT_METHOD(st, buildAll, MARGS());
   BIND_STRUCT_METHOD(st, buildLeafBoundsBatch, MARGS("batch"));
+  BIND_STRUCT_METHOD(st, update, MARGS("gpu"));
+  BIND_STRUCT_METHOD(st, getDrawBatch, MARGS());
 
   return st;
 }

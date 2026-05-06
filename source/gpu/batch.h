@@ -8,6 +8,13 @@ struct DrawBatch {
   litestl::util::Vector<DrawCommand *> commands;
   litestl::util::Vector<Buffer *> buffers;
 
+  DrawBatch &clear()
+  {
+    commands.clear();
+    buffers.clear();
+    return *this;
+  }
+
   static litestl::binding::types::Struct<DrawBatch> *defineBindings()
   {
     using namespace litestl::binding;

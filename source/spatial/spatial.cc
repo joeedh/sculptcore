@@ -19,6 +19,8 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
 #include "mesh/utils/triangulate.h"
+#include "util/index_range.h"
+#include "util/task.h"
 
 #include <cmath>
 
@@ -56,6 +58,7 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
     tri.c[0] = c;
     tri.c[1] = m->c.next[c];
     tri.c[2] = m->c.next[tri.c[1]];
+    tri.f = f;
 
     if (m->l.size[l] > 3) {
       NodeTri &tri2 = node->data->tris.grow_one();
@@ -63,6 +66,7 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
       tri2.c[0] = c;
       tri2.c[1] = m->c.next[m->c.next[c]];
       tri2.c[2] = m->c.next[tri2.c[1]];
+      tri2.f = f;
     }
   }
 }
@@ -169,8 +173,10 @@ void SpatialTree::split_node(SpatialNode *node)
 
   for (int i = 0; i < 2; i++) {
     SpatialNode *child = node->children[i];
+    child->parent = node;
 
-    child->flag = Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds;
+    child->flag = Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
+                  Spatial_RegenGPU | Spatial_UpdateNormals;
     child->depth = node->depth + 1;
 
     child->aabb.min = node->aabb.min;
@@ -225,7 +231,7 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 
   if (!(node->flag & Spatial_Leaf)) {
     for (int i = 0; i < 2; i++) {
-      if (recurse) {
+      if (recurse && (node->children[i]->flag & Spatial_RegenBounds)) {
         regen_node_bounds(node->children[i], true);
       }
 
@@ -286,6 +292,7 @@ void SpatialTree::buildAll()
   setup();
 
   m->calcAABB(root->aabb.min, root->aabb.max);
+  m->recalc_normals();
   float eps = 0.0000001f;
   root->aabb.min -= eps;
   root->aabb.max += eps;
@@ -410,4 +417,116 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   return batch;
 }
 
+void SpatialTree::update_node_normals(SpatialNode *node)
+{
+  node->flag &= ~Spatial_UpdateNormals;
+}
+
+bool SpatialTree::update(gpu::GPUManager *gpu)
+{
+  bool result = false;
+  bool bounds = false;
+  bool drawBatchUpdated = false;
+
+  for (SpatialNode *node : nodes) {
+    if (node->flag & Spatial_RegenBounds) {
+      while (node) {
+        node->flag |= Spatial_RegenBounds;
+        node = node->parent;
+        bounds = true;
+      }
+    }
+  }
+
+  if (bounds) {
+    printf("SpatialTree::update: bounds\n");
+    regen_node_bounds(root, true);
+    result = true;
+  }
+
+  Vector<SpatialNode *, 256> updateTriNodes;
+  for (SpatialNode *node : nodes) {
+    if (!(node->flag & Spatial_Leaf)) {
+      continue;
+    }
+    if (node->flag & Spatial_RegenTris) {
+      updateTriNodes.append(node);
+      drawBatchUpdated = true;
+    }
+    if (node->flag & Spatial_UpdateNormals) {
+      update_node_normals(node);
+    }
+  }
+
+  if (updateTriNodes.size() > 0) {
+    printf("SpatialTree::update: tris\n");
+  }
+
+#if 0
+  litestl::task::parallel_for(
+      util::IndexRange(updateTriNodes.size()),
+      [&updateTriNodes, this](util::IndexRange range) //
+      {
+        for (int i : range) {
+          SpatialNode *node = updateTriNodes[i];
+          ensure_node_tris(node);
+        }
+      },
+      4);
+#else
+  for (SpatialNode *node : updateTriNodes) {
+    ensure_node_tris(node);
+  }
+#endif
+
+  for (SpatialNode *node : nodes) {
+    if (!(node->flag & Spatial_Leaf)) {
+      continue;
+    }
+
+    if (node->flag & Spatial_RegenGPU) {
+      regen_node_gpu_buffers(node, gpu);
+      printf("SpatialTree::update: regenGPU\n");
+      drawBatchUpdated = true;
+    } else if (node->flag & Spatial_UpdateGPU) {
+      printf("SpatialTree::update: updateGPU\n");
+      update_node_gpu_buffers(node, gpu);
+    }
+  }
+
+  if (drawBatchUpdated || !drawBatch) {
+    printf("SpatialTree::update: batch\n");
+    if (!drawBatch) {
+      drawBatch = gpu->createBatch();
+    } else {
+      drawBatch->clear();
+    }
+
+    for (SpatialNode *node : nodes) {
+      if (!(node->flag & Spatial_Leaf)) {
+        continue;
+      }
+
+      auto &nodeGpu = node->data->gpu;
+      drawBatch->buffers.append(nodeGpu.pos);
+      drawBatch->buffers.append(nodeGpu.nor);
+
+      if (!nodeGpu.cmd) {
+        nodeGpu.cmd = gpu->createCommand(drawBatch,
+                                         gpu::GPUCmdType::DRAW_TRIS,
+                                         &spatialShaders.basicMeshShader,
+                                         0,
+                                         nodeGpu.pos->size,
+                                         nodeGpu.pos->size / 3);
+        nodeGpu.cmd->attrs.append(nodeGpu.pos);
+        nodeGpu.cmd->attrs.append(nodeGpu.nor);
+      }
+      nodeGpu.cmd->primCount = nodeGpu.pos->size / 3;
+      nodeGpu.cmd->end = nodeGpu.pos->size;
+      drawBatch->commands.append(nodeGpu.cmd);
+    }
+  }
+
+  return result;
+}
 } // namespace sculptcore::spatial

@@ -23,10 +23,8 @@ struct GPUManager {
   GPUManager() = default;
   ~GPUManager();
 
-  Buffer *createBuffer(litestl::util::string name,
-                       GPUType type,
-                       int elemsize,
-                       int elemCount);
+  Buffer *
+  createBuffer(litestl::util::string name, GPUType type, int elemsize, int elemCount);
   DrawBatch *createBatch();
   DrawCommand *createCommand(DrawBatch *batch,
                              GPUCmdType type,
@@ -34,6 +32,10 @@ struct GPUManager {
                              int start,
                              int end,
                              int primCount);
+
+  void destroyBuffer(Buffer *buffer);
+  void destroyCommand(DrawCommand *cmd, bool destroy_buffers);
+  void destroyBatch(DrawBatch *batch, bool destroy_commands, bool destroy_buffers);
 
   /** used by move constructors/operators in resource classes */
   template <typename T> void transferOwnership(Vector<T *> &vec, T *dst, T *src)
