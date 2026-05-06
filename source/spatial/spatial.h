@@ -24,6 +24,7 @@ struct DrawBatch;
 
 using namespace litestl;
 namespace sculptcore::spatial {
+
 struct SpatialTree {
   using Mesh = mesh::Mesh;
 
@@ -38,8 +39,42 @@ struct SpatialTree {
   {
 
     root = alloc_node();
-    root->flag = Spatial_Leaf | Spatial_RegenTris | Spatial_RegenGPU | Spatial_UpdateNormals;
+    root->flag =
+        Spatial_Leaf | Spatial_RegenTris | Spatial_RegenGPU | Spatial_UpdateNormals;
     root->create_data();
+  }
+
+  bool castRay(const math::float3 &orig, const math::float3 &dir, CastRayIsect &out)
+  {
+    out.t = std::numeric_limits<float>::min();
+
+    if (root->castRay(orig, dir, out)) {
+      SpatialNode *node = nodes[out.nodeIndex];
+      NodeTri &tri = node->data->tris[out.triIndex];
+      auto *m = node->data->m;
+
+      float w = 1.0 - out.uv[0] - out.uv[1];
+
+      // calculate position/normal
+      int v1 = m->c.v[tri.c[0]];
+      int v2 = m->c.v[tri.c[1]];
+      int v3 = m->c.v[tri.c[2]];
+
+      float3 co1 = m->v.co[v1];
+      float3 co2 = m->v.co[v2];
+      float3 co3 = m->v.co[v3];
+      out.p = co1 * w + co2 * out.uv[0] + co3 * out.uv[1];
+
+      float3 no1 = m->v.no[v1];
+      float3 no2 = m->v.no[v2];
+      float3 no3 = m->v.no[v3];
+
+      out.normal = no1 * w + no2 * out.uv[0] + no3 * out.uv[1];
+      out.normal.normalize();
+
+      return true;
+    }
+    return false;
   }
 
   void setup()
@@ -133,6 +168,7 @@ private:
     SpatialNode *node = alloc::New<SpatialNode>("Spatial Node");
     node->id = node_idgen++;
     node->treeMesh = &treeMesh;
+    node->index = nodes.size();
     nodes.append(node);
 
     if (node->id >= node_idmap.size()) {

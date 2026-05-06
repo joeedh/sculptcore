@@ -48,7 +48,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, buildLeafBoundsBatch, MARGS("batch"));
   BIND_STRUCT_METHOD(st, update, MARGS("gpu"));
   BIND_STRUCT_METHOD(st, getDrawBatch, MARGS());
-
+  BIND_STRUCT_METHOD(st, castRay, MARGS("orig", "dir", "out"));
   return st;
 }
 

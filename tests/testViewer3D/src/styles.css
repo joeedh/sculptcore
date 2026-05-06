@@ -1,0 +1,118 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #1d1f23;
+  color: #ddd;
+  font: 12px/1.4 system-ui, sans-serif;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  grid-template-rows: 36px 1fr 36px;
+  grid-template-areas:
+    'toolbar toolbar'
+    'viewport inspector'
+    'timeline timeline';
+  height: 100%;
+}
+
+#toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: #25282d;
+  border-bottom: 1px solid #111;
+}
+
+#toolbar .sep {
+  width: 1px;
+  height: 20px;
+  background: #444;
+}
+
+#toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+}
+
+#viewport {
+  grid-area: viewport;
+  position: relative;
+  overflow: hidden;
+}
+
+#view {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#inspector {
+  grid-area: inspector;
+  border-left: 1px solid #111;
+  background: #1a1c20;
+  padding: 8px;
+  overflow: auto;
+}
+
+#inspector h3 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: #8aa;
+}
+
+#inspector .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+  font-family: ui-monospace, monospace;
+}
+
+#inspector a.elref {
+  color: #6cf;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+#timeline {
+  grid-area: timeline;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: #25282d;
+  border-top: 1px solid #111;
+}
+
+#timeline #step-slider {
+  flex: 1;
+}
+
+#timeline #op-label {
+  color: #8aa;
+  font-family: ui-monospace, monospace;
+}
+
+button {
+  background: #2f343b;
+  color: #ddd;
+  border: 1px solid #111;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #3a4049;
+}
+
+select {
+  background: #2f343b;
+  color: #ddd;
+  border: 1px solid #111;
+  padding: 3px;
+}

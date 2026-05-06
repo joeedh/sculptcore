@@ -4,3 +4,8 @@ packages:
   - tools
   - source/litestl/tests
   - typescript
+  - tests/testViewer3D
+
+ignoredBuiltDependencies:
+  - electron
+  - esbuild

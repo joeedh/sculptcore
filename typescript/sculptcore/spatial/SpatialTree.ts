@@ -1,5 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {float3} from "../../litestl/math/float3";
 import type {DrawBatch} from "../gpu/DrawBatch";
+import type {CastRayIsect} from "./CastRayIsect";
 import type {GPUManager} from "../gpu/GPUManager";
 import type {Mesh} from "../mesh/Mesh";
 import type {SpatialNode} from "./SpatialNode";
@@ -31,5 +33,6 @@ export interface SpatialTree {
   buildLeafBoundsBatch(batch: reference): DrawBatch | undefined
   update(gpu: GPUManager): boolean
   getDrawBatch(): DrawBatch | undefined
+  castRay(orig: reference, dir: reference, out: reference): boolean
   new(arg0: Mesh): SpatialTree
 }

@@ -13,6 +13,7 @@
 #include "mesh/mesh.h"
 
 #include "spatial_attrs.h"
+#include "spatial_base.h"
 #include "spatial_enums.h"
 
 #include <cfloat>
@@ -82,6 +83,7 @@ struct SpatialNode {
 
   /* Node IDs are always > 0. */
   int id = 0;
+  int index = 0;
 
   SpatialNode()
   {
@@ -154,6 +156,45 @@ struct SpatialNode {
   void add_face(sculptcore::mesh::Mesh *m, int f);
 
   static const litestl::binding::types::Struct<SpatialNode> *defineBindings();
+
+  bool castRay(const math::float3 &orig, const math::float3 &dir, CastRayIsect &out)
+  {
+    if (!(flag & Spatial_Leaf)) {
+      bool ok = false;
+      for (SpatialNode *child : children) {
+        if (math::aabbRayIsects(child->aabb, orig, dir)) {
+          ok = child->castRay(orig, dir, out);
+        }
+      }
+      return ok;
+    }
+
+    bool ok = false;
+    for (int i : util::IndexRange(data->tris.size())) {
+      NodeTri &tri = data->tris[i];
+      int v1 = data->m->c.v[tri.c[0]];
+      int v2 = data->m->c.v[tri.c[1]];
+      int v3 = data->m->c.v[tri.c[2]];
+
+      float3 &co1 = data->m->v.co[v1];
+      float3 &co2 = data->m->v.co[v2];
+      float3 &co3 = data->m->v.co[v3];
+
+      RayTriIsect<float3> rayIsect;
+      if (!math::rayTriIsect(orig, dir, co1, co2, co3, rayIsect)) {
+        continue;
+      }
+
+      if (rayIsect.t > 0 && rayIsect.t < out.t) {
+        ok = true;
+        out.t = rayIsect.t;
+        out.uv = rayIsect.uv;
+        out.triIndex = i;
+        out.nodeIndex = this->index;
+      }
+    }
+    return ok;
+  }
 
 private:
 };

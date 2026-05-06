@@ -1,4 +1,5 @@
 #include "test_util.h"
+#include "mesh_dump.h"
 
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <memory>
 
 test_init;
 
@@ -364,6 +366,12 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
   if (!noDuplicateEdges(m, tag)) return false;
   if (!noDuplicateFaces(m, tag)) return false;
 
+  std::unique_ptr<sculptcore::mesh::dump::MeshLog> meshlog;
+  if (const char *logdir = sculptcore::mesh::dump::MeshLog::envDir()) {
+    meshlog = std::make_unique<sculptcore::mesh::dump::MeshLog>(logdir, tag);
+    meshlog->initial(m);
+  }
+
   Set<int> boundaryVerts = collectBoundaryVerts(m);
   int boundaryLoopsBefore = countBoundaryLoops(m);
 
@@ -424,8 +432,17 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
       }
     }
 
+    sculptcore::mesh::dump::Highlight hl;
+    if (meshlog) {
+      hl.kind = 'e';
+      hl.ids.append(ei);
+    }
+
     auto ok = collapseEdge(m, ei);
     test_assert(bool(ok));
+    if (meshlog) {
+      meshlog->step("collapseEdge", hl, m);
+    }
     if (!validateMesh(m, tag)) {
       fprintf(stderr, "[%s] integrity failed after collapse iter=%d ei=%d\n",
               tag, iter, ei);

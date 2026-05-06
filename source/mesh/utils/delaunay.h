@@ -133,19 +133,19 @@ static inline float3 fitPlaneNormal(litestl::util::span<const float3> pts)
     int alt = (axis + 1) % 3;
     axis_v[alt] = 1.0f;
     float3 n = u;
-    n.cross(axis_v);
+    n.crossSelf(axis_v);
     if (n.length() < 1e-6f) {
       axis_v = float3(0.0f);
       axis_v[(axis + 2) % 3] = 1.0f;
       n = u;
-      n.cross(axis_v);
+      n.crossSelf(axis_v);
     }
     n.normalize();
     return n;
   }
 
   float3 n = u;
-  n.cross(bestPerp);
+  n.crossSelf(bestPerp);
   n.normalize();
   return n;
 }
@@ -158,10 +158,10 @@ static inline void planeBasis(float3 n, float3 &u, float3 &v)
     ref = float3(0.0f, 1.0f, 0.0f);
   }
   u = ref;
-  u.cross(n);
+  u.crossSelf(n);
   u.normalize();
   v = n;
-  v.cross(u);
+  v.crossSelf(u);
   v.normalize();
 }
 

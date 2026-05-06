@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8' />
+  <title>sculptcore mesh viewer</title>
+  <link rel='stylesheet' href='src/styles.css' />
+</head>
+<body>
+  <div id='app'>
+    <div id='toolbar'>
+      <button id='btn-open'>Open log dir</button>
+      <select id='log-select'></select>
+      <span class='sep'></span>
+      <label><input type='checkbox' id='tg-faces' checked /> faces</label>
+      <label><input type='checkbox' id='tg-edges' checked /> edges</label>
+      <label><input type='checkbox' id='tg-verts' checked /> verts</label>
+      <label><input type='checkbox' id='tg-overlay' checked /> topo overlay</label>
+    </div>
+    <div id='viewport'>
+      <canvas id='view'></canvas>
+    </div>
+    <div id='inspector'></div>
+    <div id='timeline'>
+      <button id='step-first'>|&lt;</button>
+      <button id='step-prev'>&lt;</button>
+      <input type='range' id='step-slider' min='0' max='0' value='0' />
+      <button id='step-next'>&gt;</button>
+      <button id='step-last'>&gt;|</button>
+      <span id='step-label'>0 / 0</span>
+      <span id='op-label'></span>
+    </div>
+  </div>
+  <script src='dist/renderer.js'></script>
+</body>
+</html>
