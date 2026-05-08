@@ -24,4 +24,5 @@ export interface Brush {
   invert: boolean
   props: StructProp
   loadProps(): void
+  new (): Brush
 }

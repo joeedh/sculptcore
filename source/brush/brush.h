@@ -1,8 +1,9 @@
 #pragma once
 #include "../props/prop_dynamics.h"
 #include "../props/prop_struct.h"
-#include "litestl/util/compiler_util.h"
 #include "litestl/binding/binding.h"
+#include "litestl/util/compiler_util.h"
+
 
 #include "props.h"
 
@@ -22,6 +23,8 @@ struct Brush {
     using namespace litestl::binding;
     types::Struct<Brush> *st =
         new types::Struct<Brush>("sculptcore::brush::Brush", sizeof(Brush));
+
+    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
 
     BIND_STRUCT_MEMBER(st, strength);
     BIND_STRUCT_MEMBER(st, radius);
