@@ -10,7 +10,8 @@
   },
   "type": "module",
   "scripts": {
-    "test": "tsx wasmTest.ts"
+    "test": "tsx wasmTest.ts",
+    "test:debug": "tsx --inspect-brk wasmTest.ts"
   },
   "packageManager": "pnpm@10.30.3",
   "workspaces": [

@@ -1,6 +1,9 @@
 import * as binding from '@litestl/typescript-runtime'
+import {execSync} from 'child_process'
 import fs from 'fs'
+import os from 'os'
 import Path from 'path'
+import * as prettier from '@pathtx/prettier'
 
 /** Files/folders in typescript/ to not delete when rebuilding. */
 const staticFiles = new Set(['package.json', 'readme.md', 'tsconfig.json', 'api', 'node_modules', 'build'])
@@ -41,11 +44,41 @@ for (const entry of fs.readdirSync(baseDir)) {
   fs.rmSync(Path.join(baseDir, entry), {recursive: true, force: true})
 }
 
+function getNativeEOL(): '\n' | '\r\n' {
+  let autocrlf = ''
+  try {
+    autocrlf = execSync('git config --get core.autocrlf', {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim()
+  } catch {
+    // unset or git unavailable
+  }
+  if (autocrlf === 'input' || autocrlf === 'false') {
+    return '\n'
+  }
+  // 'true' or unset → use OS-native EOL
+  return os.EOL === '\r\n' ? '\r\n' : '\n'
+}
+
+const eol = getNativeEOL()
+const prettierConfig = (await prettier.resolveConfig(baseDir)) ?? {}
+
 for (const [path, file] of files) {
   const dirname = Path.join(baseDir, Path.dirname(path))
   fs.mkdirSync(dirname, {recursive: true})
   const finalPath = Path.join(baseDir, path)
-  fs.writeFileSync(finalPath, header + file + footer)
+  const raw = header + file + footer
+  let formatted: string
+  try {
+    formatted = await prettier.format(raw, {
+      ...prettierConfig,
+      parser:    'typescript',
+      filepath:  finalPath,
+      endOfLine: eol === '\r\n' ? 'crlf' : 'lf',
+    })
+  } catch (err) {
+    console.warn(`prettier failed for ${path}: ${(err as Error).message.split('\n')[0]} — writing unformatted`)
+    formatted = raw.replace(/\r\n?|\n/g, eol)
+  }
+  fs.writeFileSync(finalPath, formatted)
 }
 //@ts-ignore
 import {termColor} from '../source/litestl/tests/termColor.js'

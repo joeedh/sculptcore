@@ -22,6 +22,8 @@ namespace sculptcore::mesh {
 /* Implements all attributes other than bools. */
 template <typename T> struct AttrData : AttrDataBase {
   struct AttrPage {
+    using value_type = T;
+
     T *data = nullptr;
     bool exists = false;
     T value = T();
@@ -31,7 +33,8 @@ template <typename T> struct AttrData : AttrDataBase {
       using namespace binding::types;
       Struct<AttrPage> *st =
           new Struct<AttrPage>(string("sculptcore::mesh::AttrPage"), sizeof(AttrPage));
-      st->addTemplateParam(new ParentTemplateParam("Type", 0), "Type");
+      st->addTemplateParam(
+          new ParentTemplateParam("Type", 0, litestl::binding::Bind<T>()), "Type");
 
       // BIND_STRUCT_MEMBER(st, type);
 

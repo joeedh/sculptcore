@@ -1,8 +1,10 @@
 #pragma once
 
+#include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
 #include "brushes/all.h"
+#include "litestl/binding/binding.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 #include <functional>
@@ -22,14 +24,29 @@ struct CommandExecutor {
   SpatialTree *tree;
   CommandCtxBase ctx;
 
+  static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
+  {
+    using namespace litestl::binding;
+    types::Struct<CommandExecutor> *st = new types::Struct<CommandExecutor>(
+        "sculptcore::brush::CommandExecutor", sizeof(CommandExecutor));
+
+    BIND_STRUCT_CONSTRUCTOR(st, "main", SpatialTree *, Brush &);
+    BIND_STRUCT_MEMBER(st, brush);
+    BIND_STRUCT_MEMBER(st, tree);
+    BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "count"));
+
+    return st;
+  }
+
   CommandExecutor(SpatialTree *tree, Brush &brush) : tree(tree), brush(brush), ctx()
   {
   }
 
   auto createIterFactory()
   {
-    return
-        [this](spatial::SpatialNode &node) -> vertex_iter { return vertex_iter(node, *this); };
+    return [this](spatial::SpatialNode &node) -> vertex_iter {
+      return vertex_iter(node, *this);
+    };
   }
 
   brush_command createCommand(SculptBrushes brushType)
@@ -53,10 +70,10 @@ struct CommandExecutor {
     }
   }
 
-  void execBrush(SculptBrushes brushType, std::span<spatial::SpatialNode *> nodes)
+  void execBrush(SculptBrushes brushType, spatial::SpatialNode **nodes, int count)
   {
     auto cmd = createCommand(brushType);
-    exec(cmd, nodes);
+    exec(cmd, std::span<spatial::SpatialNode *>(nodes, count));
   }
 };
 } // namespace sculptcore::brush

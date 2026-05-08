@@ -44,6 +44,8 @@ struct SpatialTree {
     root->create_data();
   }
 
+  bool filterNodes(float3 origin, float3 ray, float radius, Vector<SpatialNode *> &out);
+
   bool castRay(const math::float3 &orig, const math::float3 &dir, CastRayIsect &out)
   {
     out.t = std::numeric_limits<float>::min();

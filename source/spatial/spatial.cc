@@ -41,7 +41,30 @@ static inline float3 calc_eps_float3(float3 size)
 }
 
 namespace sculptcore::spatial {
-ATTR_NO_OPT
+
+ATTR_NO_OPT bool SpatialTree::filterNodes(float3 origin,
+                                          float3 ray,
+                                          float radius,
+                                          Vector<SpatialNode *> &out)
+{
+
+  CastRayIsect isect;
+  if (!castRay(origin, ray, isect)) {
+    return false;
+  }
+
+  bool ok = false;
+  float3 co = isect.p;
+  for (SpatialNode *node : leaves()) {
+    if (aabbSphereIsect(co, radius, node->aabb)) {
+      out.append(node);
+      ok = true;
+    }
+  }
+  
+  return ok;
+}
+
 void SpatialTree::regen_node_tris(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenTris;

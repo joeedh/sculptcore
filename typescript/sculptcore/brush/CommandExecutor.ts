@@ -1,5 +1,8 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {GPUType} from './GPUType'
+import type {Brush} from './Brush'
+import type {SpatialTree} from '../spatial/SpatialTree'
+import type {SpatialNode} from '../spatial/SpatialNode'
+import type {SculptBrushes} from './SculptBrushes'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -17,9 +20,14 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface AttrDef {
+export interface CommandExecutor {
   [Symbol.dispose](): void
-  name: string
-  type: GPUType
-  elemSize: int32
+  brush: Brush
+  tree: SpatialTree | undefined
+  execBrush(
+    brushType: SculptBrushes,
+    nodes: SpatialNode | undefined,
+    count: int32
+  ): void
+  new (arg0: SpatialTree, arg1: Brush): CommandExecutor
 }

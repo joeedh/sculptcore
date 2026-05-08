@@ -15,9 +15,6 @@ type uint64 = number
 type float = number
 type double = number
 
-export enum GPUCmdType {
-  DRAW_TRIS = 0,
-  DRAW_TRI_STRIP = 1,
-  DRAW_LINES = 2,
-  DRAW_POINTS = 3,
+export enum SculptBrushes {
+  DRAW = 0,
 }
