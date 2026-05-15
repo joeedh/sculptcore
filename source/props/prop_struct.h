@@ -9,6 +9,7 @@
 #include "litestl/util/map.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
+#include "props/prop_types.h"
 
 namespace sculptcore::props {
 
@@ -37,7 +38,7 @@ struct struct_detail {
       st->inherit(detail::PropBaseType::defineBindings());
 
       BIND_STRUCT_METHOD(st, lookupFloat, MARGS("name", "default_value"));
-      
+
       return st;
     }
 
@@ -66,6 +67,32 @@ struct struct_detail {
     {
       return sculptcore::props::struct_detail_2::lookupValue<T>(
           struct_def, owner, name, default_value, ctx);
+    }
+
+    void setFloat(util::string name, float value)
+    {
+      setValue<float>(name, value);
+    }
+
+    template <typename T> void setValue(util::string name, T value)
+    {
+      Property *prop = struct_def->lookup(name);
+      if (prop == nullptr) {
+        fprintf(stderr, "unknown property %s\n", name.c_str());
+        return;
+      }
+
+      if constexpr (std::is_same_v<T, float>) {
+        detail::PropBaseType *base = static_cast<detail::PropBaseType *>(prop);
+        Float32Prop *p = static_cast<Float32Prop *>(base);
+        p->set(value);
+      } else if constexpr (std::is_same_v<T, bool>) {
+        detail::PropBaseType *base = static_cast<detail::PropBaseType *>(prop);
+        BoolProp *p = static_cast<BoolProp *>(base);
+        p->set(value);
+      } else {
+        static_assert(false, "not implemented");
+      }
     }
 
   private:

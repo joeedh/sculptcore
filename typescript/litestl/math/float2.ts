@@ -1,4 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {float2} from './float2'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -19,4 +20,6 @@ type double = number
 export interface float2 {
   [Symbol.dispose](): void
   vec: float[]
+  new (): float2
+  new (b: float2): float2
 }

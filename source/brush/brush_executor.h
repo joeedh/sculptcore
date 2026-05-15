@@ -20,7 +20,7 @@ struct CommandExecutor {
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
   using brush_command = std::function<void(CommandCtx<CommandExecutor> &)>;
 
-  Brush &brush;
+  Brush *brush;
   SpatialTree *tree;
   CommandCtxBase ctx;
 
@@ -30,15 +30,15 @@ struct CommandExecutor {
     types::Struct<CommandExecutor> *st = new types::Struct<CommandExecutor>(
         "sculptcore::brush::CommandExecutor", sizeof(CommandExecutor));
 
-    BIND_STRUCT_CONSTRUCTOR(st, "main", SpatialTree *, Brush &);
+    BIND_STRUCT_CONSTRUCTOR(st, "main", SpatialTree *, Brush *);
     BIND_STRUCT_MEMBER(st, brush);
     BIND_STRUCT_MEMBER(st, tree);
-    BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "count"));
+    BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "origin", "normal"));
 
     return st;
   }
 
-  CommandExecutor(SpatialTree *tree, Brush &brush) : tree(tree), brush(brush), ctx()
+  CommandExecutor(SpatialTree *tree, Brush *brush) : tree(tree), brush(brush), ctx()
   {
   }
 
@@ -65,15 +65,21 @@ struct CommandExecutor {
     vertex_iter_factory vertexIterFactory = createIterFactory();
 
     for (auto *node : nodes) {
-      CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, brush);
+      CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, *brush);
       cmd(finalCtx);
     }
   }
 
-  void execBrush(SculptBrushes brushType, spatial::SpatialNode **nodes, int count)
+  void execBrush(SculptBrushes brushType,
+                 Vector<spatial::SpatialNode *> *nodes,
+                 float3 origin,
+                 float3 normal)
   {
     auto cmd = createCommand(brushType);
-    exec(cmd, std::span<spatial::SpatialNode *>(nodes, count));
+    ctx.surfaceNo = normal;
+    ctx.surfacePos = origin;
+    
+    exec(cmd, std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()));
   }
 };
 } // namespace sculptcore::brush

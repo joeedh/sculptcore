@@ -24,4 +24,5 @@ export interface SpatialNode {
   aabb: AABB<float3>
   flag: NodeFlags
   id: int32
+  debugIdOffset: int32
 }

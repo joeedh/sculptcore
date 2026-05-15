@@ -9,7 +9,7 @@ static void draw(CommandCtx<TYPES> &ctx)
 {
   using namespace sculptcore::spatial;
   for (auto &vi : ctx.vertexIter(ctx.node)) {
-    vi.co += ctx.surfaceNo * ctx.strength(vi.co) * vi.mask;
+    vi.co += ctx.surfaceNo * ctx.strength(vi.co); // * vi.mask;
   }
 
   ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds);

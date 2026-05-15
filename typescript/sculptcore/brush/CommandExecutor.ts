@@ -1,7 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {Brush} from './Brush'
 import type {SpatialTree} from '../spatial/SpatialTree'
-import type {SpatialNode} from '../spatial/SpatialNode'
+import type {float3} from '../../litestl/math/float3'
 import type {SculptBrushes} from './SculptBrushes'
 
 /** Auto-generated file */
@@ -22,12 +22,13 @@ type double = number
 
 export interface CommandExecutor {
   [Symbol.dispose](): void
-  brush: Brush
+  brush: Brush | undefined
   tree: SpatialTree | undefined
   execBrush(
     brushType: SculptBrushes,
-    nodes: SpatialNode | undefined,
-    count: int32
+    nodes: SpatialNode[],
+    origin: float3,
+    normal: float3
   ): void
   new (arg0: SpatialTree, arg1: Brush): CommandExecutor
 }

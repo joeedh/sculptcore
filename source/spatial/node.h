@@ -85,6 +85,8 @@ struct SpatialNode {
   int id = 0;
   int index = 0;
 
+  int debugIdOffset = 0;
+  
   SpatialNode()
   {
     children[0] = children[1] = nullptr;
@@ -145,6 +147,7 @@ struct SpatialNode {
   void create_data()
   {
     data = alloc::New<NodeData>("Spatial Node Data");
+    data->m = treeMesh->m;
   }
 
   void delete_data()
@@ -172,6 +175,14 @@ struct SpatialNode {
     bool ok = false;
     for (int i : util::IndexRange(data->tris.size())) {
       NodeTri &tri = data->tris[i];
+#if 0
+      printf("-- %p %p  %d %d\n",
+             data,
+             data->m,
+             int(data->m->c.count),
+             int(data->m->v.count));
+      printf("%d %d %d\n", tri.c[0], tri.c[1], tri.c[2]);
+#endif
       int v1 = data->m->c.v[tri.c[0]];
       int v2 = data->m->c.v[tri.c[1]];
       int v3 = data->m->c.v[tri.c[2]];

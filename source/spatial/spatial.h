@@ -44,11 +44,13 @@ struct SpatialTree {
     root->create_data();
   }
 
-  bool filterNodes(float3 origin, float3 ray, float radius, Vector<SpatialNode *> &out);
+  bool filterNodes(float3 co, float radius, Vector<SpatialNode *> &out);
 
   bool castRay(const math::float3 &orig, const math::float3 &dir, CastRayIsect &out)
   {
-    out.t = std::numeric_limits<float>::min();
+    printf("%f %f %f  %f %f %f", orig[0], orig[1], orig[2], dir[0], dir[1], dir[2]);
+
+    out.t = std::numeric_limits<float>::max();
 
     if (root->castRay(orig, dir, out)) {
       SpatialNode *node = nodes[out.nodeIndex];
@@ -168,6 +170,7 @@ private:
   SpatialNode *alloc_node()
   {
     SpatialNode *node = alloc::New<SpatialNode>("Spatial Node");
+
     node->id = node_idgen++;
     node->treeMesh = &treeMesh;
     node->index = nodes.size();

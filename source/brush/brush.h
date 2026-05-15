@@ -4,7 +4,6 @@
 #include "litestl/binding/binding.h"
 #include "litestl/util/compiler_util.h"
 
-
 #include "props.h"
 
 namespace sculptcore::brush {
@@ -31,6 +30,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, invert);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
+    BIND_STRUCT_METHOD(st, writeProps, MARGS());
 
     return st;
   }
@@ -47,6 +47,13 @@ struct Brush {
     strength = props.lookupValue<float>("strength", 1.0);
     radius = props.lookupValue<float>("radius", 1.0);
     invert = props.lookupValue<bool>("invert", false);
+  }
+
+  void writeProps()
+  {
+    props.setValue<float>("strength", strength);
+    props.setValue<float>("radius", radius);
+    props.setValue<bool>("invert", invert);
   }
 
 private:

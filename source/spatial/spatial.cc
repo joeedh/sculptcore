@@ -42,26 +42,21 @@ static inline float3 calc_eps_float3(float3 size)
 
 namespace sculptcore::spatial {
 
-ATTR_NO_OPT bool SpatialTree::filterNodes(float3 origin,
-                                          float3 ray,
-                                          float radius,
-                                          Vector<SpatialNode *> &out)
+ATTR_NO_OPT bool
+SpatialTree::filterNodes(float3 co, float radius, Vector<SpatialNode *> &out)
 {
-
-  CastRayIsect isect;
-  if (!castRay(origin, ray, isect)) {
-    return false;
-  }
+  printf("\nco: %f %f %f radius: %f\n", co[0], co[1], co[2], radius);
 
   bool ok = false;
-  float3 co = isect.p;
   for (SpatialNode *node : leaves()) {
-    if (aabbSphereIsect(co, radius, node->aabb)) {
+    if (1 || aabbSphereIsect(co, radius, node->aabb)) {
+      node->debugIdOffset++;
       out.append(node);
       ok = true;
     }
   }
-  
+
+  printf("size: %d\n", int(out.size()));
   return ok;
 }
 
@@ -383,10 +378,13 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
       };
 
   for (SpatialNode *node : ls) {
+    litestl::util::Random rnd2(node->id + node->debugIdOffset);
+
     float4 clr(0.0);
-    clr[0] = rnd.get_float();
-    clr[1] = rnd.get_float();
-    clr[2] = rnd.get_float();
+
+    clr[0] = rnd2.get_float();
+    clr[1] = rnd2.get_float();
+    clr[2] = rnd2.get_float();
     clr.normalize();
     clr[3] = 1.0;
 
@@ -443,6 +441,48 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 void SpatialTree::update_node_normals(SpatialNode *node)
 {
   node->flag &= ~Spatial_UpdateNormals;
+
+  // very simple normal update for now
+
+  for (int v : node->unique_verts()) {
+    m->v.no[v].zero();
+  }
+
+  auto &node_vattr = node->treeMesh->v.node;
+  auto &node_fattr = node->treeMesh->f.node;
+
+  for (int f : node->unique_faces()) {
+    m->f.no[f].zero();
+  }
+
+  for (const auto &tri : node->data->tris) {
+    int v1 = m->c.v[tri.c[0]];
+    int v2 = m->c.v[tri.c[1]];
+    int v3 = m->c.v[tri.c[2]];
+
+    float3 n = triNormal(m->v.co[v1], m->v.co[v2], m->v.co[v3]);
+
+    if (node_fattr[tri.f] == node->id) {
+      m->f.no[tri.f] += n;
+    }
+
+    if (node_vattr[v1] == node->id) {
+      m->v.no[v1] += n;
+    }
+    if (node_vattr[v2] == node->id) {
+      m->v.no[v2] += n;
+    }
+    if (node_vattr[v3] == node->id) {
+      m->v.no[v3] += n;
+    }
+  }
+
+  for (int f : node->data->unique_faces) {
+    m->f.no[f].normalize();
+  }
+  for (int v : node->data->unique_verts) {
+    m->v.no[v].normalize();
+  }
 }
 
 bool SpatialTree::update(gpu::GPUManager *gpu)
@@ -476,9 +516,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       updateTriNodes.append(node);
       drawBatchUpdated = true;
     }
-    if (node->flag & Spatial_UpdateNormals) {
-      update_node_normals(node);
-    }
   }
 
   if (updateTriNodes.size() > 0) {
@@ -501,6 +538,16 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     ensure_node_tris(node);
   }
 #endif
+
+  for (SpatialNode *node : nodes) {
+    if (!(node->flag & Spatial_Leaf)) {
+      continue;
+    }
+    if (node->flag & Spatial_UpdateNormals) {
+      update_node_normals(node);
+      drawBatchUpdated = true;
+    }
+  }
 
   for (SpatialNode *node : nodes) {
     if (!(node->flag & Spatial_Leaf)) {

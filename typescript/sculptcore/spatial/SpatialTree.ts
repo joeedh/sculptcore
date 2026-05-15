@@ -37,11 +37,6 @@ export interface SpatialTree {
   update(gpu: GPUManager): boolean
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean
-  filterNodes(
-    origin: float3,
-    ray: float3,
-    radius: float,
-    out: SpatialNode[]
-  ): boolean
+  filterNodes(co: float3, radius: float, out: SpatialNode[]): boolean
   new (arg0: Mesh): SpatialTree
 }

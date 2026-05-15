@@ -1,4 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {int2} from './int2'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -19,4 +20,6 @@ type double = number
 export interface int2 {
   [Symbol.dispose](): void
   vec: int32[]
+  new (): int2
+  new (b: int2): int2
 }
