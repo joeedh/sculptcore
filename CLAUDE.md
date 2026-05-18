@@ -60,7 +60,7 @@ Notes:
 source/
   litestl/          self-contained foundational lib (util, math, platform, path, binding)
   mesh/             mesh data structures + attributes + utils + C API
-  meshlog/          sculpt undo/redo log (per-node attribute swaps)
+  meshlog/          sculpt undo/redo log (per-node attribute swaps + topology log)
   brush/            sculpt brushes, command executor, brushes/ implementations
   spatial/          spatial acceleration (BVH-style nodes) + C API + shaders
   props/            property / reflection system (runtime-side)
