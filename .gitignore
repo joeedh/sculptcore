@@ -3,3 +3,5 @@ emsdk
 .vs
 .cache
 node_modules
+.claude/settings.local.json
+diff.diff
