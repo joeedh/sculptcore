@@ -1,0 +1,410 @@
+#include "script.h"
+
+#include "scene.h"
+#include "state_dump.h"
+
+#include "brush/brush_executor.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/vector.h"
+#include "mesh/mesh_shapes.h"
+#include "spatial/spatial.h"
+
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <map>
+#include <string>
+
+namespace sculptcore::debug_app::script {
+
+using litestl::math::float3;
+using litestl::util::Vector;
+
+namespace {
+
+using ArgMap = std::map<std::string, std::string>;
+
+std::string trim(const std::string &s)
+{
+  size_t a = 0, b = s.size();
+  while (a < b && std::isspace(static_cast<unsigned char>(s[a]))) {
+    a++;
+  }
+  while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1]))) {
+    b--;
+  }
+  return s.substr(a, b - a);
+}
+
+bool parseLine(const std::string &line, std::string &verb, ArgMap &args)
+{
+  std::string t = trim(line);
+  if (t.empty() || t[0] == '#') {
+    return false;
+  }
+  size_t n = t.size(), i = 0;
+  while (i < n && !std::isspace(static_cast<unsigned char>(t[i]))) {
+    i++;
+  }
+  verb = t.substr(0, i);
+
+  while (i < n) {
+    while (i < n && std::isspace(static_cast<unsigned char>(t[i]))) {
+      i++;
+    }
+    if (i >= n) {
+      break;
+    }
+    size_t key_start = i;
+    while (i < n && t[i] != '=' && !std::isspace(static_cast<unsigned char>(t[i]))) {
+      i++;
+    }
+    std::string key = t.substr(key_start, i - key_start);
+    std::string val;
+    if (i < n && t[i] == '=') {
+      i++;
+      size_t val_start = i;
+      while (i < n && !std::isspace(static_cast<unsigned char>(t[i]))) {
+        i++;
+      }
+      val = t.substr(val_start, i - val_start);
+    }
+    args[key] = val;
+  }
+  return true;
+}
+
+const char *getArg(ArgMap &args, const char *key, const char *defv = nullptr)
+{
+  auto it = args.find(key);
+  return it == args.end() ? defv : it->second.c_str();
+}
+
+int getInt(ArgMap &args, const char *key, int defv)
+{
+  const char *s = getArg(args, key);
+  return s ? std::atoi(s) : defv;
+}
+
+float getFloat(ArgMap &args, const char *key, float defv)
+{
+  const char *s = getArg(args, key);
+  return s ? float(std::atof(s)) : defv;
+}
+
+bool getBool(ArgMap &args, const char *key, bool defv)
+{
+  const char *s = getArg(args, key);
+  if (!s) {
+    return defv;
+  }
+  return s[0] == '1' || s[0] == 't' || s[0] == 'T' || s[0] == 'y' || s[0] == 'Y';
+}
+
+bool parseFloat3(const char *s, float3 &out)
+{
+  if (!s) {
+    return false;
+  }
+  float a = 0, b = 0, c = 0;
+  if (std::sscanf(s, "%f,%f,%f", &a, &b, &c) != 3) {
+    return false;
+  }
+  out = float3(a, b, c);
+  return true;
+}
+
+std::string joinPath(const char *base, const char *rel)
+{
+  if (!rel) {
+    return std::string();
+  }
+  if (!base || base[0] == 0) {
+    return std::string(rel);
+  }
+  if (rel[0] == '/' || rel[0] == '\\' ||
+      (std::strlen(rel) > 1 && rel[1] == ':')) {
+    return std::string(rel);
+  }
+  std::string out(base);
+  if (!out.empty()) {
+    char last = out.back();
+    if (last != '/' && last != '\\') {
+      out += '/';
+    }
+  }
+  out += rel;
+  return out;
+}
+
+bool execVerb(Scene &scene,
+              const std::string &verb,
+              ArgMap &args,
+              const char *out_dir,
+              std::string &err)
+{
+  if (verb == "make_cube") {
+    int dimen = getInt(args, "subdivs", 4);
+    float size = getFloat(args, "size", 0.5f);
+    float sphereFac = getFloat(args, "sphere", 0.0f);
+    mesh::Mesh *m = mesh::createCube(dimen, size, sphereFac);
+    scene.setMesh(m);
+    return true;
+  }
+  if (verb == "build_spatial") {
+    int leaf = getInt(args, "leaf_limit", 512);
+    int depth = getInt(args, "depth_limit", 10);
+    scene.buildSpatial(leaf, depth);
+    return true;
+  }
+  if (verb == "set_brush") {
+    scene.brush.radius = getFloat(args, "radius", scene.brush.radius);
+    scene.brush.strength = getFloat(args, "strength", scene.brush.strength);
+    scene.brush.invert = getBool(args, "invert", scene.brush.invert);
+    scene.brush.writeProps();
+    return true;
+  }
+  if (verb == "stroke") {
+    if (!scene.mesh || !scene.tree) {
+      err = "stroke: no mesh/tree";
+      return false;
+    }
+    float3 origin, normal{0, 0, 1};
+    if (!parseFloat3(getArg(args, "origin"), origin)) {
+      err = "stroke: missing origin=x,y,z";
+      return false;
+    }
+    parseFloat3(getArg(args, "normal"), normal);
+
+    Vector<spatial::SpatialNode *> nodes;
+    scene.tree->filterNodes(origin, scene.brush.radius, nodes);
+    if (nodes.size() != 0) {
+      brush::CommandExecutor exec(scene.tree, &scene.brush);
+      exec.meshLog = &scene.meshLog;
+      exec.beginStep();
+      exec.execBrush(brush::SculptBrushes::DRAW, &nodes, origin, normal);
+      exec.endStep();
+    }
+
+    scene.lastStroke.valid = true;
+    scene.lastStroke.origin = origin;
+    scene.lastStroke.normal = normal;
+    scene.lastStroke.radius = scene.brush.radius;
+    return true;
+  }
+  if (verb == "stroke_path") {
+    if (!scene.mesh || !scene.tree) {
+      err = "stroke_path: no mesh/tree";
+      return false;
+    }
+    float3 p1, p2, normal{0, 0, 1};
+    if (!parseFloat3(getArg(args, "p1"), p1) ||
+        !parseFloat3(getArg(args, "p2"), p2)) {
+      err = "stroke_path: missing p1/p2";
+      return false;
+    }
+    parseFloat3(getArg(args, "normal"), normal);
+    int steps = getInt(args, "steps", 8);
+    if (steps < 1) {
+      steps = 1;
+    }
+    brush::CommandExecutor exec(scene.tree, &scene.brush);
+    exec.meshLog = &scene.meshLog;
+    exec.beginStep();
+    for (int i = 0; i < steps; i++) {
+      float t = (steps == 1) ? 0.0f : float(i) / float(steps - 1);
+      float3 origin = p1 * (1.0f - t) + p2 * t;
+      Vector<spatial::SpatialNode *> nodes;
+      scene.tree->filterNodes(origin, scene.brush.radius, nodes);
+      if (nodes.size() == 0) {
+        continue;
+      }
+      exec.execBrush(brush::SculptBrushes::DRAW, &nodes, origin, normal);
+      exec.clearIsFirstOfStep();
+    }
+    exec.endStep();
+
+    scene.lastStroke.valid = true;
+    scene.lastStroke.origin = p2;
+    scene.lastStroke.normal = normal;
+    scene.lastStroke.radius = scene.brush.radius;
+    return true;
+  }
+  if (verb == "view") {
+    const char *v = getArg(args, "preset", "persp");
+    ViewPreset p = ViewPreset::Persp;
+    if (std::strcmp(v, "front") == 0) p = ViewPreset::Front;
+    else if (std::strcmp(v, "top") == 0) p = ViewPreset::Top;
+    else if (std::strcmp(v, "side") == 0) p = ViewPreset::Side;
+    else if (std::strcmp(v, "persp") == 0) p = ViewPreset::Persp;
+    else if (std::strcmp(v, "free") == 0) p = ViewPreset::Free;
+    scene.applyView(p);
+    return true;
+  }
+  if (verb == "screenshot") {
+    const char *v = getArg(args, "view");
+    if (v) {
+      ArgMap sub;
+      sub["preset"] = v;
+      std::string subErr;
+      execVerb(scene, "view", sub, out_dir, subErr);
+    }
+    scene.showLeafBounds = getBool(args, "leaves", scene.showLeafBounds);
+    scene.renderHeadless();
+    const char *rel = getArg(args, "out");
+    if (!rel) {
+      err = "screenshot: missing out=...";
+      return false;
+    }
+    std::string path = joinPath(out_dir, rel);
+    if (!scene.screenshot(path.c_str())) {
+      err = "screenshot: failed to write " + path;
+      return false;
+    }
+    return true;
+  }
+  if (verb == "dump_state") {
+    const char *rel = getArg(args, "out");
+    if (!rel) {
+      err = "dump_state: missing out=...";
+      return false;
+    }
+    state_dump::Options opts;
+    opts.mesh = getBool(args, "mesh", true);
+    opts.spatial = getBool(args, "spatial", true);
+    opts.brush = getBool(args, "brush", true);
+    std::string path = joinPath(out_dir, rel);
+    if (!state_dump::writeJSON(scene, path.c_str(), opts)) {
+      err = "dump_state: failed to write " + path;
+      return false;
+    }
+    return true;
+  }
+  if (verb == "assert_verts") {
+    int n = getInt(args, "n", -1);
+    int actual = scene.mesh ? scene.mesh->v.count : 0;
+    if (n != actual) {
+      char buf[128];
+      std::snprintf(buf, sizeof(buf), "assert_verts: expected %d got %d", n, actual);
+      err = buf;
+      return false;
+    }
+    return true;
+  }
+  if (verb == "assert_aabb") {
+    if (!scene.mesh) {
+      err = "assert_aabb: no mesh";
+      return false;
+    }
+    float3 emn, emx;
+    if (!parseFloat3(getArg(args, "min"), emn) ||
+        !parseFloat3(getArg(args, "max"), emx)) {
+      err = "assert_aabb: need min=x,y,z max=x,y,z";
+      return false;
+    }
+    float eps = getFloat(args, "eps", 1e-4f);
+    float3 amn, amx;
+    scene.mesh->calcAABB(amn, amx);
+    for (int i = 0; i < 3; i++) {
+      if (std::fabs(amn[i] - emn[i]) > eps || std::fabs(amx[i] - emx[i]) > eps) {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "assert_aabb mismatch: got [%g,%g,%g]..[%g,%g,%g]",
+                      amn[0], amn[1], amn[2], amx[0], amx[1], amx[2]);
+        err = buf;
+        return false;
+      }
+    }
+    return true;
+  }
+  if (verb == "undo") {
+    if (scene.mesh && scene.tree) {
+      scene.meshLog.undo(scene.mesh, scene.tree);
+    }
+    return true;
+  }
+  if (verb == "redo") {
+    if (scene.mesh && scene.tree) {
+      scene.meshLog.redo(scene.mesh, scene.tree);
+    }
+    return true;
+  }
+  if (verb == "checkpoint") {
+    /* Marker only — meshlog step boundaries are managed by stroke verbs.
+     * Useful for human readability of script logs. */
+    return true;
+  }
+  if (verb == "echo") {
+    const char *msg = getArg(args, "msg", "");
+    std::fprintf(stdout, "[script] %s\n", msg);
+    return true;
+  }
+
+  err = "unknown verb: " + verb;
+  return false;
+}
+
+} // namespace
+
+RunResult run(Scene &scene, const char *source, const char *out_dir)
+{
+  RunResult r;
+  if (!source) {
+    r.ok = false;
+    r.error = "null source";
+    return r;
+  }
+  const char *p = source;
+  int line_no = 0;
+  while (*p) {
+    line_no++;
+    const char *eol = std::strchr(p, '\n');
+    size_t len = eol ? size_t(eol - p) : std::strlen(p);
+    std::string line(p, len);
+
+    std::string verb;
+    ArgMap args;
+    if (parseLine(line, verb, args)) {
+      std::string err;
+      if (!execVerb(scene, verb, args, out_dir, err)) {
+        r.ok = false;
+        r.line_no = line_no;
+        r.error = err.c_str();
+        return r;
+      }
+    }
+
+    if (!eol) {
+      break;
+    }
+    p = eol + 1;
+  }
+  return r;
+}
+
+RunResult runFile(Scene &scene, const char *path, const char *out_dir)
+{
+  RunResult r;
+  std::FILE *f = std::fopen(path, "rb");
+  if (!f) {
+    r.ok = false;
+    std::string e = std::string("cannot open script: ") + path;
+    r.error = e.c_str();
+    return r;
+  }
+  std::fseek(f, 0, SEEK_END);
+  long n = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  std::string buf;
+  if (n > 0) {
+    buf.resize(size_t(n));
+    size_t got = std::fread(buf.data(), 1, size_t(n), f);
+    buf.resize(got);
+  }
+  std::fclose(f);
+  return run(scene, buf.c_str(), out_dir);
+}
+
+} // namespace sculptcore::debug_app::script

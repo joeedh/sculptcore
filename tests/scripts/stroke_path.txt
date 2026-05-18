@@ -1,0 +1,7 @@
+# Drag the brush across the +Z face.
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush radius=0.18 strength=0.3
+stroke_path p1=-0.35,0,0.5 p2=0.35,0,0.5 normal=0,0,1 steps=10
+dump_state out=stroke_path.json
+screenshot view=persp out=stroke_path.png

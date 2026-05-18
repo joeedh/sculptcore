@@ -1,0 +1,4 @@
+# Headless: validates vert count + AABB on a fresh cube. No GL needed.
+make_cube subdivs=4 size=1.0
+assert_aabb min=-0.5,-0.5,-0.5 max=0.5,0.5,0.5 eps=1e-5
+dump_state out=smoke_topology.json
