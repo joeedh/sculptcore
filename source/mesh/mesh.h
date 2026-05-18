@@ -7,6 +7,7 @@
 #include "litestl/util/string.h"
 
 #include "mesh_base.h"
+#include "mesh_callbacks.h"
 #include "mesh_enums.h"
 #include "mesh_proxy.h"
 #include "mesh_types.h"
@@ -49,14 +50,14 @@ struct Mesh : public MeshBase {
     }
   }
 
-  int make_vertex(math::float3 co);
-  int make_edge(int v1, int v2);
-  int make_face(std::span<int> verts, std::span<int> edges);
-  int make_face(std::span<int> verts);
+  int make_vertex(math::float3 co, MeshCallbacks *cb = nullptr);
+  int make_edge(int v1, int v2, MeshCallbacks *cb = nullptr);
+  int make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *cb = nullptr);
+  int make_face(std::span<int> verts, MeshCallbacks *cb = nullptr);
 
-  void kill_vertex(int v);
-  void kill_edge(int e);
-  void kill_face(int f);
+  void kill_vertex(int v, MeshCallbacks *cb = nullptr);
+  void kill_edge(int e, MeshCallbacks *cb = nullptr);
+  void kill_face(int f, MeshCallbacks *cb = nullptr);
 
   EdgeOfVertIter e_of_v(int v1)
   {

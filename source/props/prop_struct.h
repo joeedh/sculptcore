@@ -108,6 +108,13 @@ struct struct_detail {
     {
     }
 
+    ~StructDef()
+    {
+      for (Property *prop : members_.values()) {
+        alloc::Delete(prop);
+      }
+    }
+
     StructDef &Struct(string name, string uiname, int binding_offset = 0)
     {
       StructDef *def = alloc::New<StructDef>("StructDef");

@@ -59,14 +59,16 @@ Notes:
 ```
 source/
   litestl/          self-contained foundational lib (util, math, platform, path, binding)
-  mesh/             mesh data structures + attributes + C API
-  brush/            sculpt brushes and commands
-  spatial/          spatial acceleration (BVH-style nodes)
+  mesh/             mesh data structures + attributes + utils + C API
+  meshlog/          sculpt undo/redo log (per-node attribute swaps)
+  brush/            sculpt brushes, command executor, brushes/ implementations
+  spatial/          spatial acceleration (BVH-style nodes) + C API + shaders
   props/            property / reflection system (runtime-side)
   gpu/              GPU abstraction (frontend + opengl/ backend)
-  io/               serialization
+  core/             aggregate binding registration (initBindings)
+  io/               serialization (placeholder)
   window/           GLFW windowing (native only)
-  wasm/jslib.js     Emscripten JS library glue
+  wasm/             Emscripten glue: jslib.js, wasmManager
   app/              application entry (stub)
 extern/             vendored: eigen_dist, glew, glfw
 build_files/        macros.cmake, WASM.cmake, link_wasm.py
@@ -108,7 +110,17 @@ When touching it:
 
 `source/mesh/c-api/` is the external surface used by WASM/JS callers.
 Changes here ripple to both the Embind bindings and any generated TS —
-touch with care and prefer additive changes.
+touch with care and prefer additive changes. `source/spatial/c-api/`
+follows the same convention for spatial-tree construction.
+
+## Binding registration
+
+Module-level reflection registration lives in each module's
+`bindings.{h,cc}` (see `mesh/`, `brush/`, `spatial/`, `props/`, `gpu/`,
+`meshlog/`). `source/core/bindings.cc` provides the single
+`extern "C" initBindings()` entry point that the WASM loader calls; it
+invokes every module's `registerBindings(manager)` and registers the
+primitive `Vector<T>` instantiations exposed to JS.
 
 ## Tests
 
@@ -118,6 +130,31 @@ Native tests (Google Test) live under `tests/` and run only when
 
 When adding a test, match the existing style (`test_<thing>.cc`) and
 wire it through the appropriate `CMakeLists.txt`.
+
+## Debugging with source-line prints
+
+When a test or scenario crashes deep inside a header (heap corruption,
+double-free, segfault in a destructor, etc.) and a debugger is awkward
+to attach — common on the WASM side, but also useful for tracking down
+which template instantiation actually runs — sprinkle `__FILE__` /
+`__LINE__` prints through the suspect code path:
+
+```cpp
+printf("X inside %s\n", __FILE__);
+printf("X at line %d\n", __LINE__);
+```
+
+Pick a one-letter tag per file (`P`, `B`, `T`, ...) so the interleaved
+output is easy to read. In the test's `main()`, call
+`setvbuf(stdout, nullptr, _IONBF, 0)` so output isn't lost when the
+process aborts. Read the trace to find the last line that printed
+before the crash, then narrow from there.
+
+When you're done, **remove every print you added** — these are
+debugging scaffolding, not diagnostics that should live in the tree.
+Also: `litestl::alloc` is a leak-tracking allocator; if a test crashes
+inside `free`/`release` it usually means a real bug, not allocator
+noise — don't paper over it by defining `NO_DEBUG_ALLOC`.
 
 ## Conventions
 

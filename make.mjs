@@ -37,9 +37,9 @@ function deleteFinalWasmFiles() {
   }
 }
 
-function run(cmd) {
+function run(cmd, options = {shell: true}) {
   try {
-    return child_process.execSync(cmd, {shell: true, stdio: 'inherit'})
+    return child_process.execSync(cmd, {shell: options?.shell ?? true, stdio: 'inherit'})
   } catch (error) {
     process.stderr.write(error.message + '\n')
     process.exit(1)
@@ -306,12 +306,13 @@ yargs(hideBin(process.argv))
 
       const dirs = ['build/native/tests', 'build/native/source/litestl/tests']
       for (const dir of dirs) {
-        let path = Path.join(dir, targetTest)
+        const path = Path.join(dir, targetTest)
+
         if (fs.existsSync(path)) {
-          run(path)
+          run(path, {shell: false})
           return
         } else if (fs.existsSync(path + '.exe')) {
-          run(path + '.exe')
+          run(path + '.exe', {shell: false})
           return
         }
       }

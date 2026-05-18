@@ -123,16 +123,6 @@ convention (see top-level `CLAUDE.md`), the runtime allocations inside
 `defineBindings()` are intentional scaffolding for an eventual `consteval`
 form — not a bug to fix.
 
-## ID map
-
-`idmap.{h,cc}` adds stable *external* IDs on top of the (otherwise reusable)
-slot indices. `IDMap` registers `BuiltinAttr<int>` ID columns on the
-selected domains (default: vertex / edge / face), maintains an
-`id → element-index` map plus a freelist of recyclable IDs, and hooks the
-`on_swap` callback so the mapping survives slot swaps. Users that need
-persistent identity across edits / serialization use IDs; users that just
-need fast iteration use raw indices.
-
 ## Mesh shapes
 
 `mesh_shapes.{h,cc}` contains constructive helpers — currently just
@@ -145,6 +135,13 @@ optional spherical projection) for tests and demos.
 walks a face's first list and emits `Tri` records (three vertex indices,
 three corner indices, owning face). `triangulate(range, tris)` is the
 range-based front-end. Used by the GPU batch builder.
+
+`utils/delaunay.h` — Delaunay-related topology helpers operating on the
+mesh's disk/radial cycles.
+
+`utils/edge_collapse.h` — edge-collapse topology operator. Covered by
+`tests/test_edge_collapse.cc`, which exercises it under randomized
+input with integrity checks.
 
 ## GPU draw batch
 
@@ -189,6 +186,9 @@ source/mesh/
   idmap.{h,cc}             Stable external IDs over slot indices
   mesh_shapes.{h,cc}       createCube primitive constructor
   utils/triangulate.h      Fan triangulator (header-only)
+  utils/delaunay.h         Delaunay topology helpers (header-only)
+  utils/edge_collapse.h    Edge-collapse operator (header-only)
+  bindings.{h,cc}          registerBindings(BindingManager&) for the mesh module
   c-api/mesh_c_api.{h,cc}  extern "C" surface for WASM/JS
   gpu/mesh_drawbatch.{h,cc} Mesh -> sculptcore::gpu::DrawBatch builder
 ```

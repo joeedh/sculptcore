@@ -1,3 +1,5 @@
+/** @deprecated -- we'll try to make mesh indices work as ids first */
+#if 0
 #include "idmap.h"
 
 using namespace litestl;
@@ -120,3 +122,4 @@ void IDMap::regen_idmap(ElemType mask)
   });
 }
 } // namespace sculptcore::mesh
+#endif

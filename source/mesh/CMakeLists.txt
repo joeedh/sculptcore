@@ -13,6 +13,7 @@ set(SRC
   PUBLIC mesh.h
   PUBLIC mesh_enums.h
   PUBLIC mesh_base.h
+  PUBLIC mesh_callbacks.h
   PUBLIC mesh_types.h
   PUBLIC mesh_shapes.h
   PUBLIC idmap.h

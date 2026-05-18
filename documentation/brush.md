@@ -14,16 +14,16 @@ template specialization.
 | File | Role |
 |---|---|
 | `brush.h` / `brush.cc` | `Brush` aggregate (strength, radius, invert) + property load/binding |
-| `brush_command.h` / `brush_command.cc` | `CommandCtxBase`, templated `CommandCtx<TYPES>`, falloff |
-| `brush_executor.h` / `brush_executor.cc` | `CommandExecutor`: builds commands and iterates nodes |
+| `brush_command.h` / `brush_command.cc` | `CommandCtxBase`, templated `CommandCtx<TYPES>`, falloff, `BrushCommandDef` |
+| `brush_executor.h` / `brush_executor.cc` | `CommandExecutor`: builds commands, iterates nodes, owns the `MeshLog` pointer used by commands |
 | `brush_iterators.h` | `BasicVertexIter` + `PtrHelper` proxy over node vertices |
 | `brush_concepts.h` | C++20 concepts: `VertexIter`, `VertexIterFactory`, `CommandTypes`, `BrushCommand` |
 | `props.h` | Brush-property templates and validation helpers (partially scaffolded) |
-| `bindings.h` / `bindings.cc` | `registerBindings(BindingManager&)` for litestl/WASM/TS |
-| `exec.h`, `test.h` | Empty stubs reserved for future use |
+| `bindings.h` / `bindings.cc` | `bindings::registerBindings(BindingManager&)` — registers `Brush`, `CommandExecutor`, and `Vector<SpatialNode*>` for the WASM/TS surface |
+| `exec.h`, `test.h` | Reserved (currently unused) |
 | `brushes/types.h` | `SculptBrushes` enum (currently `DRAW`) |
 | `brushes/all.h` | Aggregate include of brush implementations |
-| `brushes/draw.h` | `draw<TYPES>` template command |
+| `brushes/draw.h` | `createDrawBrush(BrushCommandDef&)` factory wiring the `draw` pass |
 
 ## Core types
 
@@ -47,11 +47,24 @@ return brush.strength * t;
 ```
 
 ### `CommandExecutor` (`brush_executor.h`)
-Holds pointers to the active `Brush` and `SpatialTree`. `execBrush(type,
-nodes)` resolves a brush from the `SculptBrushes` enum, builds an
-`std::function`-typed command via `createCommand()`, then iterates the
-provided nodes constructing a `CommandCtx` for each and invoking the
-command.
+Holds pointers to the active `Brush`, `SpatialTree`, an optional
+`meshlog::MeshLog*`, and a shared `CommandCtxBase ctx`. Public entry
+point `execBrush(brushType, nodes, origin, normal)` resolves a brush
+from the `SculptBrushes` enum via `createCommand()` (which returns a
+`BrushCommandDef`), then `exec()` runs:
+
+1. `cmd.execPre(ctx, nodes)` — bulk pre-pass (e.g. pushing undo data
+   into `meshLog` for each node before any vertices are mutated).
+2. Per-node: build `CommandCtx<CommandExecutor>` from the shared base,
+   the node, the vertex-iterator factory, and the `Brush`, then call
+   `cmd.exec(finalCtx)`.
+3. `cmd.execPost(ctx, nodes)` — bulk post-pass.
+
+`beginStep()` / `endStep()` bracket a sculpt stroke and forward to
+`meshLog->beginStep()` / `endStep()`; `isFirstOfStep` is set on the
+first invocation so commands can record undo state lazily.
+`clearIsFirstOfStep()` is exposed to JS so the frontend can clear the
+flag after the first executor call of a stroke.
 
 ### `BasicVertexIter` / `PtrHelper` (`brush_iterators.h`)
 A forward iterator that walks a `SpatialNode`'s vertices and yields a
@@ -86,16 +99,19 @@ command type without changing the command itself.
 
 ## Execution flow
 
-1. Caller invokes `CommandExecutor::execBrush(SculptBrushes type, nodes)`.
-2. `createCommand()` returns a `std::function<void(CommandCtx<TYPES>&)>`
-   for the requested brush (today: `draw`).
-3. For each `SpatialNode` in `nodes`, the executor builds a
+1. Caller invokes `CommandExecutor::execBrush(type, nodes, origin, normal)`.
+2. `createCommand()` returns a `BrushCommandDef` with `execPre`,
+   `exec`, and `execPost` slots wired for the requested brush (today:
+   `draw`).
+3. `execPre` runs once over all nodes — typically used to push undo
+   state into `meshlog::MeshLog` on the first stroke step.
+4. For each `SpatialNode` in `nodes`, the executor builds a
    `CommandCtx` with the shared `CommandCtxBase`, the node, the vertex
-   factory, and the `Brush` reference.
-4. The command runs, mutating vertices through the iterator proxy.
-5. The command marks the node dirty for downstream stages — `draw` uses
-   `Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds`
-   (`brushes/draw.h:15`).
+   factory, and the `Brush` reference, and runs `exec`.
+5. The per-node command mutates vertices through the iterator proxy
+   and marks the node dirty for downstream stages — `draw` uses
+   `Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds`.
+6. `execPost` runs once after all nodes (currently a no-op for `draw`).
 
 ## Strength / falloff
 
@@ -112,10 +128,14 @@ side but not yet wired through `strength()`.
 
 ## Bindings & external surface
 
-`bindings.cc::registerBindings(BindingManager&)` registers the `Brush`
-struct with the litestl binding manager. `Brush::defineBindings()`
-declares the exposed members (`strength`, `radius`, `invert`, `props`).
-The litestl binding system feeds the TypeScript generator
+`bindings::registerBindings(BindingManager&)` (`bindings.cc`) registers
+`Brush`, `CommandExecutor`, and `util::Vector<SpatialNode*>` with the
+litestl binding manager. `Brush::defineBindings()` declares the
+exposed members (`strength`, `radius`, `invert`, `props`).
+`CommandExecutor::defineBindings()` exposes a `(SpatialTree*, Brush*)`
+constructor, the `brush`/`tree`/`meshLog` members, and the
+`execBrush(brushType, nodes, origin, normal)` and `clearIsFirstOfStep()`
+methods. The litestl binding system feeds the TypeScript generator
 (`source/litestl/binding/generators/typescript.cc`), so changes to the
 binding metadata propagate into the generated TS surface used by the
 WASM frontend. There is no separate `c-api/` directory under
@@ -127,18 +147,21 @@ WASM frontend. There is no separate `c-api/` directory under
   (`Spatial_UpdateNormals`, `Spatial_UpdateGPU`, `Spatial_RegenBounds`).
 - `mesh/` — vertex position, normal, and mask attribute arrays accessed
   through `BasicVertexIter`.
+- `meshlog/` — `CommandExecutor` holds a `meshlog::MeshLog*`; commands
+  record per-node undo chunks via `execPre` on the first step of a
+  stroke.
 - `props/` — `StructProp` / `DeviceInputCtx` embedded in `Brush`;
   `props.h` adds brush-specific property templates.
 - `litestl/` — `math` (`float2`, `float3`, `mat4`), `util`, and
   `binding` for reflection.
 
-CMake links `eigen`, `util`, `math`, `props`, `spatial`.
+CMake links `eigen`, `util`, `math`, `props`, `spatial`, `meshlog`.
 
 ## Status & extension points
 
 The subsystem is intentionally minimal scaffolding. Notable open ends:
 
-- `exec.h` and `test.h` are empty placeholders.
+- `exec.h` and `test.h` are reserved (currently unused).
 - `SculptBrushes` only contains `DRAW`.
 - `props.h` defines validation/lookup templates that aren't fully
   consumed yet.

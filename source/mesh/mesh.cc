@@ -44,17 +44,30 @@ void Mesh::recalc_normals()
   }
 }
 
-int Mesh::make_vertex(math::float3 co)
+namespace {
+inline void fire(const util::function<void(int)> &cb, int idx)
+{
+  if (cb) {
+    cb(idx);
+  }
+}
+} // namespace
+
+int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
 {
   int r = v.alloc();
 
   v.co[r] = co;
   v.e[r] = ELEM_NONE;
 
+  if (cb) {
+    fire(cb->onVertCreate, r);
+  }
+
   return r;
 }
 
-int Mesh::make_edge(int v1, int v2)
+int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
 {
   int r = e.alloc();
 
@@ -68,10 +81,16 @@ int Mesh::make_edge(int v1, int v2)
   disk_insert(r, v1);
   disk_insert(r, v2);
 
+  if (cb) {
+    fire(cb->onEdgeCreate, r);
+    fire(cb->onVertChange, v1);
+    fire(cb->onVertChange, v2);
+  }
+
   return r;
 }
 
-int Mesh::make_face(std::span<int> verts, std::span<int> edges)
+int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *cb)
 {
   int fi = f.alloc();
   int li = l.alloc();
@@ -108,10 +127,19 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges)
     c.next[l2] = l3;
   }
 
+  if (cb) {
+    fire(cb->onFaceCreate, fi);
+    fire(cb->onListCreate, li);
+    for (int i = 0; i < vlen; i++) {
+      fire(cb->onCornerCreate, corners[i]);
+      fire(cb->onEdgeChange, edges[i]);
+    }
+  }
+
   return fi;
 }
 
-int Mesh::make_face(std::span<int> verts)
+int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb)
 {
   util::Vector<int, 6> edges;
 
@@ -121,37 +149,50 @@ int Mesh::make_face(std::span<int> verts)
     int e1 = find_edge(v1, v2);
 
     if (e1 == ELEM_NONE) {
-      e1 = make_edge(v1, v2);
+      e1 = make_edge(v1, v2, cb);
     }
 
     edges.append(e1);
   }
 
-  return make_face(verts, edges);
+  return make_face(verts, edges, cb);
 }
 
-void Mesh::kill_vertex(int v1)
+void Mesh::kill_vertex(int v1, MeshCallbacks *cb)
 {
   while (v.e[v1] != ELEM_NONE) {
-    kill_edge(v.e[v1]);
+    kill_edge(v.e[v1], cb);
+  }
+
+  if (cb) {
+    fire(cb->onVertKill, v1);
   }
 
   v.release(v1);
 }
 
-void Mesh::kill_edge(int e1)
+void Mesh::kill_edge(int e1, MeshCallbacks *cb)
 {
   while (e.c[e1] != ELEM_NONE) {
-    kill_face(l.f[c.l[e.c[e1]]]);
+    kill_face(l.f[c.l[e.c[e1]]], cb);
   }
 
-  disk_remove(e1, e.vs[e1][0]);
-  disk_remove(e1, e.vs[e1][1]);
+  int va = e.vs[e1][0];
+  int vb = e.vs[e1][1];
+
+  disk_remove(e1, va);
+  disk_remove(e1, vb);
+
+  if (cb) {
+    fire(cb->onEdgeKill, e1);
+    fire(cb->onVertChange, va);
+    fire(cb->onVertChange, vb);
+  }
 
   e.release(e1);
 }
 
-void Mesh::kill_face(int f1)
+void Mesh::kill_face(int f1, MeshCallbacks *cb)
 {
   int l1 = f.l[f1];
   while (l1 != ELEM_NONE) {
@@ -162,13 +203,27 @@ void Mesh::kill_face(int f1)
     do {
       cnext = c.next[c1];
 
-      radial_remove(c.e[c1], c1);
+      int eid = c.e[c1];
+      radial_remove(eid, c1);
+
+      if (cb) {
+        fire(cb->onCornerKill, c1);
+        fire(cb->onEdgeChange, eid);
+      }
 
       c.release(c1);
     } while ((c1 = cnext) != startc1);
 
+    if (cb) {
+      fire(cb->onListKill, l1);
+    }
+
     l.release(l1);
     l1 = next;
+  }
+
+  if (cb) {
+    fire(cb->onFaceKill, f1);
   }
 
   f.release(f1);

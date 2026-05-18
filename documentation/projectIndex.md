@@ -37,36 +37,54 @@ A C++20 sculpting/mesh engine that builds natively and to WebAssembly via Emscri
 Core: `mesh.cc/.h`, `mesh_base.h`, `mesh_types.cc/.h`, `mesh_shapes.cc/.h`, `mesh_proxy.h`, `mesh_iter.h`, `mesh_enums.h`.
 Attributes: `attribute.cc/.h`, `attribute_base.h`, `attribute_bool.h`, `attribute_builtin.h`, `attribute_enums.h`, `elem_data.h`.
 ID map: `idmap.cc/.h`.
+Bindings: `bindings.cc/.h` — module-level `registerBindings(BindingManager&)`.
+Utils: `utils/triangulate.h`, `utils/delaunay.h`, `utils/edge_collapse.h`.
+GPU bridge: `gpu/mesh_drawbatch.cc/.h` — builds a `sculptcore::gpu::DrawBatch` from a mesh.
 C API: `c-api/mesh_c_api.cc/.h` — external surface for WASM/JS.
+
+See `documentation/mesh.md` for a detailed overview.
+
+### `source/meshlog/` — sculpt undo/redo log
+
+`meshlog.h` (umbrella), `meshlog_base.h` (`MeshLog`, `LogEntry`, `LogChunk`, `LogChunkSimple`, `detail::ChunkElemData`), `bindings.cc/.h`. Per-node attribute swaps stored as undo chunks; integrated with `brush::CommandExecutor` (`meshLog` member).
 
 ### `source/brush/` — sculpt brushes
 
-`brush.cc/.h`, `brush_iter.h`, `command.cc/.h`, `exec.h`, `props.h`, `test.h`.
+Core: `brush.cc/.h` (Brush state + props), `brush_command.cc/.h` (`CommandCtxBase`, `CommandCtx<TYPES>`, falloff), `brush_executor.cc/.h` (`CommandExecutor`: builds + dispatches commands, owns `MeshLog` pointer), `brush_iterators.h` (`BasicVertexIter`, `PtrHelper`), `brush_concepts.h` (C++20 concepts pinning the command ABI).
+Brushes: `brushes/types.h` (`SculptBrushes` enum), `brushes/all.h`, `brushes/draw.h`.
+Bindings: `bindings.cc/.h`.
+Misc: `props.h` (brush-property templates), `exec.h` / `test.h` (reserved).
+
+See `documentation/brush.md` for a detailed overview.
 
 ### `source/spatial/` — spatial acceleration
 
-`spatial.cc/.h`, `node.cc/.h`, `spatial_attrs.h`, `spatial_enums.h`, `spatial_gpu.cc`.
+`spatial.cc/.h`, `spatial_base.h`, `node.cc/.h`, `spatial_attrs.h`, `spatial_enums.h`, `spatial_gpu.cc`. Bindings: `bindings.cc/.h`. C API: `c-api/spatial_c_api.cc` (build/free `SpatialTree`, `getSpatialShaders`). GPU shaders: `shaders/`.
 
 ### `source/props/` — property/reflection system
 
-`props.cc/.h`, `prop_struct.cc/.h`, `prop_curve.h`, `curve_cache.cc`, `prop_coerce.h`, `prop_dynamics.h`, `prop_enums.h`, `prop_types.h`, `prop_inherit.cc`.
+`props.cc/.h`, `prop_base.h`, `prop_struct.cc/.h`, `prop_curve.h`, `curve_cache.cc`, `prop_coerce.h`, `prop_dynamics.h`, `prop_enums.h`, `prop_types.h`, `prop_inherit.cc`. Bindings: `bindings.cc/.h`.
 
 ### `source/gpu/` — GPU abstraction
 
-Frontend: `batch.h`, `command.h`, `pipeline.h`, `shader.cc/.h`, `texture.h`, `vbo.cc/.h`, `types.h`, `standard_attrs.h`, `opengl.h`.
+Frontend: `batch.h`, `command.h`, `pipeline.h`, `shader.cc/.h`, `texture.h`, `vbo.cc/.h`, `types.h`, `standard_attrs.h`, `manager.cc/.h`. Bindings: `bindings.h`.
 Backend: `opengl/` — `shader.h`, `texture.h`, `pipeline.h`, `vbo.h`, `command.h`.
+
+### `source/core/` — aggregate bindings
+
+`bindings.cc` — `extern "C" initBindings()` invokes every module's `registerBindings()` and registers the primitive `util::Vector<T>` instantiations exposed to JS. The single WASM-exported entry point for reflection setup.
 
 ### `source/io/` — serialization
 
-`serial.cc/.h`.
+Currently empty (placeholder).
 
 ### `source/window/` — windowing
 
-`window.cc/.h` (GLFW-based).
+`window.cc/.h` (GLFW-based, native only).
 
 ### `source/wasm/` — WASM glue
 
-`jslib.js` — Emscripten JS library layer.
+`jslib.js` — Emscripten JS library layer. `wasmManager.cc/.h` — C++-side WASM manager singleton (`sculptcore::wasm::manager`).
 
 ### `source/app/` — application entry
 
@@ -74,7 +92,7 @@ Backend: `opengl/` — `shader.h`, `texture.h`, `pipeline.h`, `vbo.h`, `command.
 
 ## Tests (`tests/`)
 
-`test_binding`, `test_boolvector`, `test_brush`, `test_function`, `test_map`, `test_math_vec`, `test_matrix`, `test_mesh`, `test_props`, `test_set`, `test_shared_ptr`, `test_task`, `test_vector`. WASM harness in `wasmTest.mjs`.
+GTest-style C++ tests: `test_binding`, `test_brush`, `test_delaunay`, `test_edge_collapse`, `test_mesh`, `test_props`. Helpers: `mesh_dump.h`, `test_util.h`. TS-side: `wasmTest.ts` (browser harness), `testViewer3D/`. litestl-internal tests live under `source/litestl/tests/`.
 
 ## Build targets
 
