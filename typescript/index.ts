@@ -23,6 +23,7 @@ import type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 import type {Brush} from './sculptcore/brush/Brush'
 import type {float2} from './litestl/math/float2'
 import type {int2} from './litestl/math/int2'
+import type {MeshLog} from './sculptcore/meshlog/MeshLog'
 import type {AttrData} from './sculptcore/mesh/AttrData'
 import type {Buffer} from './sculptcore/gpu/Buffer'
 import type {AttrGroup} from './sculptcore/mesh/AttrGroup'
@@ -51,6 +52,7 @@ export type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 export type {Brush} from './sculptcore/brush/Brush'
 export type {float2} from './litestl/math/float2'
 export type {int2} from './litestl/math/int2'
+export type {MeshLog} from './sculptcore/meshlog/MeshLog'
 export type {AttrData} from './sculptcore/mesh/AttrData'
 export type {Buffer} from './sculptcore/gpu/Buffer'
 export type {AttrGroup} from './sculptcore/mesh/AttrGroup'
@@ -83,11 +85,12 @@ export type AllBoundTypes = {
     boolean,
     'select'
   >
+  'sculptcore::meshlog::MeshLog': MeshLog
   'sculptcore::mesh::AttrGroup': AttrGroup
   'litestl::math::int4': int4
   'sculptcore::mesh::AttrRef': AttrRef
   'sculptcore::gpu::DrawBatch': DrawBatch
-  'sculptcore::gpu::Buffer': Buffer
+  'sculptcore::gpu::GPUManager': GPUManager
   'sculptcore::spatial::SpatialTree': SpatialTree
   'sculptcore::gpu::ShaderDef': ShaderDef
   'sculptcore::props::StructProp': StructProp
@@ -99,7 +102,7 @@ export type AllBoundTypes = {
     int2,
     '.edge.vs'
   >
-  'sculptcore::gpu::GPUManager': GPUManager
+  'sculptcore::gpu::Buffer': Buffer
   'sculptcore::spatial::CastRayIsect': CastRayIsect
   'sculptcore::mesh::VertexData': VertexData
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>': BuiltinAttr<

@@ -17,7 +17,7 @@ using namespace litestl;
 
 namespace sculptcore::mesh {
 template <typename T, util::StrLiteral Name, AttrFlag Flag = AttrFlag::NONE>
-struct BuiltinAttr : protected AttrRef {
+struct BuiltinAttr : public AttrRef {
   static binding::types::Struct<BuiltinAttr> *defineBindings()
   {
     using binding::types::Struct;

@@ -4,6 +4,7 @@ set(LIB
     math
     props
     spatial
+    meshlog
 )
 
 set(SRC

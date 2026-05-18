@@ -2,6 +2,7 @@
 
 #include "brush.h"
 #include "brush_concepts.h"
+#include "meshlog/meshlog.h"
 #include "litestl/math/matrix.h"
 #include "litestl/math/vector.h"
 #include "spatial/node.h"
@@ -23,6 +24,10 @@ struct CommandCtxBase {
   float3 surfaceNo;  // normal of vertex at center of brush dot
   float3 mouseDir;
   mat4 renderMatrix;
+
+  bool isFirstOfStep = false;
+  
+  meshlog::MeshLog *meshLog = nullptr;
 
   CommandCtxBase() = default;
   CommandCtxBase(const CommandCtxBase &) = default;
@@ -54,6 +59,16 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
 
     return brush.strength * t;
   }
+};
+
+enum _BrushFlags { None = 0, Serial = 1 << 0 };
+MAKE_FLAGS_CLASS(BrushFlags, _BrushFlags, int);
+
+template <typename CTX> struct BrushCommandDef {
+  std::function<void(CommandCtxBase &, std::span<SpatialNode *>)> execPre;
+  std::function<void(CTX &)> exec;
+  std::function<void(CommandCtxBase &, std::span<SpatialNode *>)> execPost;
+  BrushFlags flags = BrushFlags::None;
 };
 
 } // namespace sculptcore::brush

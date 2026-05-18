@@ -2,10 +2,10 @@
 
 #include "attribute_base.h"
 #include "attribute_enums.h"
-#include "mesh_enums.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
+#include "mesh_enums.h"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -216,17 +216,31 @@ private:
 struct BoolAttrView : public AttrDataBase {
 public:
   BoolAttrView(const string &name_, PackedBoolAttrs *data, PackedBoolAttrs::Offset offset)
-      : data_(data), offset_(offset), AttrDataBase(AttrType::BOOL, name_)
+      : data_(data), offset_(offset), AttrDataBase(AttrType::BOOL, name_, 1)
   {
   }
 
   BoolAttrView(const BoolAttrView &b)
-      : data_(b.data_), offset_(b.offset_), AttrDataBase(AttrType::BOOL, b.name)
+      : data_(b.data_), offset_(b.offset_), AttrDataBase(AttrType::BOOL, b.name, 1)
   {
   }
 
   ~BoolAttrView()
   {
+  }
+
+  void *getElemData(int i) override
+  {
+    fprintf(stderr, "getElemData called on a bool attribute");
+    abort();
+    return nullptr;
+  }
+
+  const void *getElemData(int i) const override
+  {
+    fprintf(stderr, "getElemData called on a bool attribute");
+    abort();
+    return nullptr;
   }
 
   inline bool operator[](int idx)

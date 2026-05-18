@@ -95,7 +95,7 @@ template <typename T> struct AttrData : AttrDataBase {
     return st;
   }
 
-  AttrData(const string &name_) : AttrDataBase(type_to_attrtype<T>(), name_)
+  AttrData(const string &name_) : AttrDataBase(type_to_attrtype<T>(), name_, sizeof(T))
   {
   }
 
@@ -123,20 +123,38 @@ template <typename T> struct AttrData : AttrDataBase {
   }
 
   AttrData(const string &name_, int size)
-      : size_(size), AttrDataBase(type_to_attrtype<T>(), name_)
+      : size_(size), AttrDataBase(type_to_attrtype<T>(), name_, sizeof(T))
   {
     int pagesCount = int(std::ceil(double(size) / double(ATTR_PAGESIZE)));
     pages.resize(pagesCount);
   }
 
   AttrData(const string &name_, int size, T value)
-      : size_(size), AttrDataBase(type_to_attrtype<T>(), name_)
+      : size_(size), AttrDataBase(type_to_attrtype<T>(), name_, sizeof(T))
   {
     int pagesCount = int(std::ceil(double(size) / double(ATTR_PAGESIZE)));
     pages.resize(pagesCount);
     for (AttrPage &chunk : pages) {
       chunk.value = value;
     }
+  }
+
+  const void *getElemData(int idx) const override
+  {
+    const AttrPage &page = pages[idx >> ATTR_PAGESHIFT];
+    if (!page.exists) {
+      return nullptr;
+    }
+    return static_cast<const void *>(page.data + (idx & ATTR_PAGEMASK));
+  }
+
+  void *getElemData(int idx) override
+  {
+    AttrPage &page = pages[idx >> ATTR_PAGESHIFT];
+    if (!page.exists) {
+      return nullptr;
+    }
+    return static_cast<void *>(page.data + (idx & ATTR_PAGEMASK));
   }
 
   /* Safely read from attribute, checking if a page has data allocated.*/
@@ -516,7 +534,7 @@ struct AttrGroup {
     return false;
   }
 
-  AttrRef &ensure(AttrType type, const string name)
+  AttrRef &ensure(AttrType type, const string name, bool materialize = false)
   {
     for (AttrRef &attr : attrs) {
       if (attr.type == type && attr.name == name) {
@@ -532,6 +550,9 @@ struct AttrGroup {
       if constexpr (!std::is_same_v<T, bool>) {
         AttrData<T> *data = alloc::New<AttrData<T>>("AttrData", name, capacity_);
         attr.data = data;
+        if (materialize) {
+          data->materialize_all();
+        }
       } else {
         PackedBoolAttrs::Offset offset = bool_attrs.add(name);
 

@@ -1,5 +1,5 @@
 set(LIB
-	mesh
+	PUBLIC mesh
 	util
 	math
 	gpu

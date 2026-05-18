@@ -46,25 +46,44 @@ template <typename T> static constexpr AttrType type_to_attrtype()
 struct AttrDataBase {
   AttrType type;
   string name;
+  int elemSize;
 
   AttrDataBase()
   {
   }
 
-  AttrDataBase(AttrType type_, const string &name_) : type(type_), name(name_)
+  AttrDataBase(AttrType type_, const string &name_, int elemSize_)
+      : type(type_), name(name_), elemSize(elemSize_)
   {
   }
 
   virtual AttrDataBase &operator=(AttrDataBase &&b)
   {
+    if (this == &b) {
+      return *this;
+    }
     type = b.type;
     name = std::move(b.name);
+    elemSize = b.elemSize;
 
     return *this;
   }
 
   virtual ~AttrDataBase()
   {
+  }
+
+  virtual void *getElemData(int i)
+  {
+    fprintf(stderr, "default getElemData called in AttrDataBase class\n");
+    abort();
+    return nullptr;
+  }
+  virtual const void *getElemData(int i) const
+  {
+    fprintf(stderr, "default getElemData called in AttrDataBase class\n");
+    abort();
+    return nullptr;
   }
 };
 

@@ -1,10 +1,12 @@
 #include "mesh/bindings.h"
 #include "brush/bindings.h"
 #include "gpu/bindings.h"
+#include "meshlog/bindings.h"
 #include "props/bindings.h"
 #include "spatial/bindings.h"
 #include "util/vector.h"
 #include "wasm/wasmManager.h"
+
 
 extern "C" void initBindings()
 {
@@ -17,6 +19,7 @@ extern "C" void initBindings()
   sculptcore::spatial::registerBindings(manager);
   sculptcore::props::registerBindings(manager);
   sculptcore::brush::bindings::registerBindings(manager);
+  sculptcore::meshlog::registerBindings(manager);
 
   // add various vector types
   manager.add(Bind<Vector<char>>());

@@ -1,9 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {Brush} from './Brush'
 import type {SpatialTree} from '../spatial/SpatialTree'
-import type {float3} from '../../litestl/math/float3'
-import type {SculptBrushes} from './SculptBrushes'
-import type {MeshLog} from '../meshlog/MeshLog'
+import type {Mesh} from '../mesh/Mesh'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -21,17 +18,11 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface CommandExecutor {
+export interface MeshLog {
   [Symbol.dispose](): void
-  brush: Brush | undefined
-  tree: SpatialTree | undefined
-  meshLog: MeshLog | undefined
-  execBrush(
-    brushType: SculptBrushes,
-    nodes: SpatialNode[],
-    origin: float3,
-    normal: float3
-  ): void
-  clearIsFirstOfStep(): void
-  new (arg0: SpatialTree, arg1: Brush): CommandExecutor
+  undo(m: Mesh, tree: SpatialTree): void
+  redo(m: Mesh, tree: SpatialTree): void
+  beginStep(): void
+  endStep(): void
+  new (): MeshLog
 }

@@ -5,6 +5,7 @@
 #include "brush_iterators.h"
 #include "brushes/all.h"
 #include "litestl/binding/binding.h"
+#include "meshlog/meshlog.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 #include <functional>
@@ -18,11 +19,13 @@ using namespace litestl::math;
 struct CommandExecutor {
   using vertex_iter = BasicVertexIter;
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
-  using brush_command = std::function<void(CommandCtx<CommandExecutor> &)>;
+  using brush_command = BrushCommandDef<CommandCtx<CommandExecutor>>;
 
   Brush *brush;
   SpatialTree *tree;
   CommandCtxBase ctx;
+  bool isFirstOfStep = false;
+  meshlog::MeshLog *meshLog = nullptr;
 
   static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
   {
@@ -33,7 +36,9 @@ struct CommandExecutor {
     BIND_STRUCT_CONSTRUCTOR(st, "main", SpatialTree *, Brush *);
     BIND_STRUCT_MEMBER(st, brush);
     BIND_STRUCT_MEMBER(st, tree);
+    BIND_STRUCT_MEMBER(st, meshLog);
     BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "origin", "normal"));
+    BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
 
     return st;
   }
@@ -51,9 +56,12 @@ struct CommandExecutor {
 
   brush_command createCommand(SculptBrushes brushType)
   {
+    brush_command def;
+
     switch (brushType) {
     case SculptBrushes::DRAW:
-      return std::function(sculptcore::brush::command::draw<CommandExecutor>);
+      command::createDrawBrush(def);
+      return def;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
@@ -64,10 +72,14 @@ struct CommandExecutor {
   {
     vertex_iter_factory vertexIterFactory = createIterFactory();
 
+    cmd.execPre(ctx, nodes);
+
     for (auto *node : nodes) {
       CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, *brush);
-      cmd(finalCtx);
+      cmd.exec(finalCtx);
     }
+
+    cmd.execPost(ctx, nodes);
   }
 
   void execBrush(SculptBrushes brushType,
@@ -78,8 +90,31 @@ struct CommandExecutor {
     auto cmd = createCommand(brushType);
     ctx.surfaceNo = normal;
     ctx.surfacePos = origin;
-    
+    ctx.meshLog = meshLog;
+    ctx.isFirstOfStep = isFirstOfStep;
+
     exec(cmd, std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()));
+  }
+
+  void clearIsFirstOfStep()
+  {
+    isFirstOfStep = false;
+  }
+
+  void beginStep()
+  {
+    isFirstOfStep = true;
+    if (meshLog) {
+      meshLog->beginStep();
+    }
+  }
+
+  void endStep()
+  {
+    isFirstOfStep = false;
+    if (meshLog) {
+      meshLog->endStep();
+    }
   }
 };
 } // namespace sculptcore::brush

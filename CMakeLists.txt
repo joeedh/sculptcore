@@ -16,10 +16,11 @@ if (BUILD_WASM)
 	if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 		add_compile_options(-fsanitize=address)
 		add_link_options(-fsanitize=address)
-		#add_link_options(-sINITIAL_MEMORY=943718400)
+		add_link_options(-sINITIAL_MEMORY=943718400)
   else()
     #add_link_options(-sINITIAL_MEMORY=943718400)
 	endif()
+
   add_link_options(-sALLOW_MEMORY_GROWTH=1)
   add_link_options(-sSHARED_MEMORY=1)
   add_link_options(-pthread)
@@ -58,6 +59,7 @@ if (BUILD_WASM)
 	  brush
 	  props
       pthread
+	  meshlog
 	)
 
 	# merge litestl wasm symbols
