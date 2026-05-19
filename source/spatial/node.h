@@ -166,7 +166,9 @@ struct SpatialNode {
       bool ok = false;
       for (SpatialNode *child : children) {
         if (math::aabbRayIsects(child->aabb, orig, dir)) {
-          ok = child->castRay(orig, dir, out);
+          if (child->castRay(orig, dir, out)) {
+            ok = true;
+          }
         }
       }
       return ok;

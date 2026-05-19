@@ -48,8 +48,6 @@ struct SpatialTree {
 
   bool castRay(const math::float3 &orig, const math::float3 &dir, CastRayIsect &out)
   {
-    printf("%f %f %f  %f %f %f", orig[0], orig[1], orig[2], dir[0], dir[1], dir[2]);
-
     out.t = std::numeric_limits<float>::max();
 
     if (root->castRay(orig, dir, out)) {
@@ -84,6 +82,11 @@ struct SpatialTree {
   void setup()
   {
     treeMesh.setup(m);
+    /* Root's data is created before treeMesh.m is assigned (in our ctor),
+     * so its m pointer is stale until we patch it here. */
+    if (root && root->data) {
+      root->data->m = m;
+    }
   }
 
   void update_node_normals(SpatialNode *node);
