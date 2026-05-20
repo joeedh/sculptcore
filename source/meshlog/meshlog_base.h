@@ -142,8 +142,7 @@ struct ChunkElemData {
   }
 
   // TODO: figure out concept for iterator<int>
-  template <typename ITER>
-  ATTR_NO_OPT void cpyFrom(const mesh::AttrGroup &src, ITER &elements)
+  template <typename ITER> void cpyFrom(const mesh::AttrGroup &src, ITER &elements)
   {
     int index = 0;
     for (int i : elements) {
@@ -152,7 +151,7 @@ struct ChunkElemData {
     }
   }
 
-  ATTR_NO_OPT void cpyFrom(const mesh::AttrGroup &src, int src_i, int dst_i)
+  void cpyFrom(const mesh::AttrGroup &src, int src_i, int dst_i)
   {
     using namespace sculptcore::mesh;
 
@@ -177,7 +176,6 @@ struct ChunkElemData {
     }
   };
 
-  ATTR_NO_OPT
   void swapWith(const mesh::AttrGroup &src, int src_i, int dst_i)
   {
     using namespace sculptcore::mesh;
@@ -206,7 +204,6 @@ struct ChunkElemData {
     }
   };
 
-  ATTR_NO_OPT
   void swap(mesh::AttrGroup &src, spatial::SpatialTree *tree)
   {
     for (int i : util::IndexRange(0, size_)) {
@@ -299,9 +296,8 @@ struct ChunkElemRow {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
         dst[0] = view->get(src_idx) ? 1 : 0;
       } else {
-        memcpy(static_cast<void *>(dst),
-               ref.data->getElemData(src_idx),
-               ref.data->elemSize);
+        memcpy(
+            static_cast<void *>(dst), ref.data->getElemData(src_idx), ref.data->elemSize);
       }
     }
   }
@@ -750,7 +746,6 @@ struct MeshLog {
     return entries[curStep_];
   }
 
-  ATTR_NO_OPT
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree)
   {
     if (curStep_ <= 0) {

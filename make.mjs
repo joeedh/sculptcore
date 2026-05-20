@@ -7,7 +7,7 @@ import {hideBin} from 'yargs/helpers'
 import {termColor} from './source/litestl/tests/termColor.js'
 import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
 
-const CMAKE_BUILD_TYPE = 'Debug' //'RelWithDebInfo'
+const CMAKE_BUILD_TYPE = 'RelWithDebInfo'
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
 

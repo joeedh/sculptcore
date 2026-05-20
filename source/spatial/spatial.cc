@@ -42,8 +42,7 @@ static inline float3 calc_eps_float3(float3 size)
 
 namespace sculptcore::spatial {
 
-ATTR_NO_OPT bool
-SpatialTree::filterNodes(float3 co, float radius, Vector<SpatialNode *> &out)
+bool SpatialTree::filterNodes(float3 co, float radius, Vector<SpatialNode *> &out)
 {
   printf("\nco: %f %f %f radius: %f\n", co[0], co[1], co[2], radius);
 
@@ -150,7 +149,6 @@ void SpatialTree::add_face_intern(SpatialNode *node,
   }
 }
 
-ATTR_NO_OPT
 void SpatialTree::split_node(SpatialNode *node)
 {
   node->children[0] = alloc_node();
@@ -240,7 +238,6 @@ void SpatialTree::split_node(SpatialNode *node)
   node->flag |= Spatial_RegenBounds;
 }
 
-ATTR_NO_OPT
 void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 {
   node->flag &= ~Spatial_RegenBounds;
@@ -304,7 +301,6 @@ util::Vector<SpatialNode *> SpatialTree::leaves()
   return leaves;
 }
 
-ATTR_NO_OPT
 void SpatialTree::buildAll()
 {
   setup();
@@ -338,7 +334,6 @@ void SpatialTree::buildAll()
   regen_node_bounds(root, true);
 }
 
-ATTR_NO_OPT
 sculptcore::gpu::DrawBatch *
 SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 {
