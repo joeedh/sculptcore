@@ -1,6 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {Brush} from './Brush'
 import type {SpatialTree} from '../spatial/SpatialTree'
+import type {SpatialNode} from '../spatial/SpatialNode'
 import type {float3} from '../../litestl/math/float3'
 import type {SculptBrushes} from './SculptBrushes'
 import type {MeshLog} from '../meshlog/MeshLog'

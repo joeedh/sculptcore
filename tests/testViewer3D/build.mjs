@@ -20,4 +20,3 @@ if (watch) {
   await ctx.rebuild()
   await ctx.dispose()
 }
-

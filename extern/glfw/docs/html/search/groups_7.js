@@ -1,4 +1,1 @@
-var searchData=
-[
-  ['native_20access_0',['Native access',['../group__native.html',1,'']]]
-];
+var searchData = [['native_20access_0', ['Native access', ['../group__native.html', 1, '']]]]

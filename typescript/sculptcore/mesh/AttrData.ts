@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrType} from './AttrType'
 import type {AttrPage} from './AttrPage'
+import type {AttrType} from './AttrType'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

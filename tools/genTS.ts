@@ -15,7 +15,8 @@ const wasmMod = await _wasm.default({wasmMemory: binding.createWasmMemory()})
 function setupWasm(wasm: any) {
   for (const k in wasm) {
     if (typeof k === 'string' && k[0] == '_') {
-      wasm[k.slice(1)] = wasm[k] }
+      wasm[k.slice(1)] = wasm[k]
+    }
   }
 
   const wasm2 = binding.createWasmHelpers(wasm, _wasm)
@@ -47,7 +48,10 @@ for (const entry of fs.readdirSync(baseDir)) {
 function getNativeEOL(): '\n' | '\r\n' {
   let autocrlf = ''
   try {
-    autocrlf = execSync('git config --get core.autocrlf', {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim()
+    autocrlf = execSync('git config --get core.autocrlf', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
   } catch {
     // unset or git unavailable
   }
@@ -70,8 +74,8 @@ for (const [path, file] of files) {
   try {
     formatted = await prettier.format(raw, {
       ...prettierConfig,
-      parser:    'typescript',
-      filepath:  finalPath,
+      parser   : 'typescript',
+      filepath : finalPath,
       endOfLine: eol === '\r\n' ? 'crlf' : 'lf',
     })
   } catch (err) {

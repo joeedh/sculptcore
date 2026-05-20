@@ -1,4 +1,1 @@
-var searchData=
-[
-  ['notitle_0',['notitle',['../index.html',1,'']]]
-];
+var searchData = [['notitle_0', ['notitle', ['../index.html', 1, '']]]]

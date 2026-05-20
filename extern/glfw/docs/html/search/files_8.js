@@ -1,4 +1,1 @@
-var searchData=
-[
-  ['window_2edox_0',['window.dox',['../window_8dox.html',1,'']]]
-];
+var searchData = [['window_2edox_0', ['window.dox', ['../window_8dox.html', 1, '']]]]
