@@ -1,5 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {float2} from './float2'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

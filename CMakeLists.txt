@@ -15,6 +15,8 @@ if (BUILD_WASM)
 
 	if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 		add_compile_options(-fsanitize=address)
+    # do not use debug allocator together with asan 
+    add_compile_options(-DNO_DEBUG_ALLOC)
 		add_link_options(-fsanitize=address)
 		add_link_options(-sINITIAL_MEMORY=943718400)
   else()

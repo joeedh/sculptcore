@@ -21,8 +21,10 @@ static void drawPre(CommandCtxBase &ctx, span<SpatialNode *> nodes)
 
       simple->v.ensureAttr(m->v.attrs, m->v.co);
       simple->v.ensureAttr(m->v.attrs, m->v.no);
+      simple->f.ensureAttr(m->f.attrs, m->f.no);
 
       simple->v.cpyFrom(node->data->m->v.attrs, node->unique_verts());
+      simple->f.cpyFrom(node->data->m->f.attrs, node->unique_faces());
     }
   }
 }
