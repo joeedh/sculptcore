@@ -144,6 +144,24 @@ over ad-hoc `main()` test programs. Full CLI + verb reference and the
 [`documentation/debugging.md`](documentation/debugging.md) covers the
 Claude-driven workflow that uses it.
 
+## Spatial
+
+`source/spatial/` is a BVH-style tree layered over a `mesh::Mesh`
+that serves two largely independent layers off the same node set:
+*leaves* are the spatial-query / brush-iteration unit (tunable via
+`leaf_limit`), and a *subset of nodes* (the "GPU nodes") owns
+aggregated VBOs covering every triangle of its subtree
+(tunable via `gpu_tri_target`, default 2048). Face/vert ownership is
+recorded on the mesh through the `.spatial.{v,f}.node` builtin
+attributes, which guarantees each face is rendered exactly once
+even when a GPU node aggregates several leaves. The per-frame
+`SpatialTree::update()` pipeline (bounds → tris → normals →
+partition → propagate-dirty → buffer regen/slice update → draw
+batch) is in [`documentation/spatial.md`](documentation/spatial.md),
+which also covers `castRay`, the GPU partition invariants, and the
+ownership-attribute pitfall when reusing a mesh across multiple
+trees in tests.
+
 ## Rendering
 
 `source/gpu/` is a backend-agnostic frame description (shaders,
