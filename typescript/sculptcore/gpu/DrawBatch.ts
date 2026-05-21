@@ -1,6 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {DrawCommand} from './DrawCommand'
 import type {Buffer} from './Buffer'
+import type {UniformBlockInstance} from './UniformBlockInstance'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -22,5 +23,6 @@ export interface DrawBatch {
   [Symbol.dispose](): void
   commands: DrawCommand[]
   buffers: Buffer[]
+  blocks: UniformBlockInstance[]
   new (): DrawBatch
 }

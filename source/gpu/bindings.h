@@ -4,6 +4,8 @@
 #include "litestl/binding/binding.h"
 #include "litestl/binding/manager.h"
 #include "manager.h"
+#include "pipeline.h"
+#include "shader.h"
 #include "vbo.h"
 
 namespace sculptcore::gpu {
@@ -15,8 +17,11 @@ static void registerBindings(litestl::binding::BindingManager &manager)
   manager.add(Bind<sculptcore::gpu::GPUFetchMode>());
   manager.add(Bind<sculptcore::gpu::GPUCmdType>());
   manager.add(Bind<sculptcore::gpu::Buffer>());
+  manager.add(Bind<sculptcore::gpu::UniformBlockDef>());
+  manager.add(Bind<sculptcore::gpu::UniformBlockInstance>());
   manager.add(Bind<sculptcore::gpu::DrawCommand>());
   manager.add(Bind<sculptcore::gpu::DrawBatch>());
+  manager.add(Bind<sculptcore::gpu::DrawPipeline>());
   manager.add(Bind<sculptcore::gpu::GPUManager>());
 }
 } // namespace sculptcore::gpu

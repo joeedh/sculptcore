@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {UniformBlockDef} from './UniformBlockDef'
-import type {AttrDef} from './AttrDef'
+import type {DrawBatch} from './DrawBatch'
+import type {UniformBlockInstance} from './UniformBlockInstance'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -18,10 +18,9 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface ShaderDef {
+export interface DrawPipeline {
   [Symbol.dispose](): void
-  name: string
-  wgslSource: string
-  attrs: AttrDef[]
-  uniforms: UniformBlockDef[]
+  batches: DrawBatch[]
+  blocks: UniformBlockInstance[]
+  new (): DrawPipeline
 }

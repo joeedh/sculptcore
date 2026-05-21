@@ -69,8 +69,10 @@ See `documentation/brush.md` for a detailed overview.
 
 ### `source/gpu/` — GPU abstraction
 
-Frontend: `batch.h`, `command.h`, `pipeline.h`, `shader.cc/.h`, `texture.h`, `vbo.cc/.h`, `types.h`, `standard_attrs.h`, `manager.cc/.h`. Bindings: `bindings.h`.
+Frontend: `batch.h`, `command.h`, `pipeline.h`, `shader.cc/.h`, `texture.h`, `vbo.cc/.h`, `types.h`, `standard_attrs.h`, `manager.cc/.h`, `uniform_link.cc/.h`. Bindings: `bindings.h`.
 Native backend: `source/vulkan/` — `vk_context`, `vk_backend`, `vk_overlay`, `vk_screenshot`. WGSL shaders under `source/spatial/shaders/*.wgsl` are compiled to SPIR-V at build time via `naga` (`tools/wgsl-to-spirv.mjs`).
+
+See `documentation/rendering.md` for the batch/command object model and the uniform-block link pass.
 
 ### `source/core/` — aggregate bindings
 

@@ -1,5 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {Buffer} from './Buffer'
+import type {UniformBlockInstance} from './UniformBlockInstance'
 import type {GPUCmdType} from './GPUCmdType'
 import type {ShaderDef} from './ShaderDef'
 
@@ -27,5 +28,6 @@ export interface DrawCommand {
   start: int32
   end: int32
   primCount: int32
+  blocks: UniformBlockInstance[]
   new (): DrawCommand
 }

@@ -10,6 +10,9 @@ struct DrawBatch {
   litestl::util::Vector<DrawCommand *> commands;
   litestl::util::Vector<Buffer *> buffers;
 
+  /* Per-batch uniform blocks (set=1 by the link pass). Owns the instances. */
+  litestl::util::Vector<UniformBlockInstance *> blocks;
+
   /* Back-pointer set by GPUManager::createBatch — see DrawCommand. */
   GPUManager *manager = nullptr;
 
@@ -24,6 +27,8 @@ struct DrawBatch {
   {
     commands.clear();
     buffers.clear();
+    /* `blocks` is owned — don't clear without deleting; leave to destructor or
+     * an explicit reset path. */
     return *this;
   }
 
@@ -36,6 +41,7 @@ struct DrawBatch {
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     BIND_STRUCT_MEMBER(st, commands);
     BIND_STRUCT_MEMBER(st, buffers);
+    BIND_STRUCT_MEMBER(st, blocks);
 
     return st;
   }

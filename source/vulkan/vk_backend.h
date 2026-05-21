@@ -79,7 +79,9 @@ private:
 
   BufferEntry &ensureBuffer(sculptcore::gpu::Buffer *buf);
   PipelineEntry *ensurePipeline(sculptcore::gpu::ShaderDef *def);
-  void issue(sculptcore::gpu::DrawCommand *cmd, const DrawUniforms &u);
+  void issue(sculptcore::gpu::DrawBatch *batch,
+             sculptcore::gpu::DrawCommand *cmd,
+             const DrawUniforms &u);
 
   sculptcore::gpu::GPUManager *mgr_;
   VkContext *ctx_;

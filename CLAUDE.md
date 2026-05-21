@@ -144,6 +144,21 @@ over ad-hoc `main()` test programs. Full CLI + verb reference and the
 [`documentation/debugging.md`](documentation/debugging.md) covers the
 Claude-driven workflow that uses it.
 
+## Rendering
+
+`source/gpu/` is a backend-agnostic frame description (shaders,
+batches, commands, uniform blocks); `source/vulkan/` is the native
+backend that walks it. Uniform blocks have three cadences encoded by
+which layer owns the instance: `DrawPipeline::blocks` → `set=0` (per
+pass), `DrawBatch::blocks` → `set=1` (per batch),
+`DrawCommand::blocks` → `set=2` (per draw). A link pass
+(`source/gpu/uniform_link.h`) resolves layer instances to shader
+blocks by name, stamps `(set, binding)`, computes std140 offsets, and
+pre-fills field defaults — see
+[`documentation/rendering.md`](documentation/rendering.md) for the
+full object model, link semantics, and the recipe for adding a new
+uniform block.
+
 ## Debugging with source-line prints
 
 When a test or scenario crashes deep inside a header (heap corruption,

@@ -18,6 +18,10 @@ struct DrawCommand {
   int start = 0, end = 0;
   int primCount = 0;
 
+  /* Per-draw uniform blocks (set=2 by the link pass). Each instance owns its
+   * UniformBlockDef and its data blob; the destructor deletes them. */
+  litestl::util::Vector<UniformBlockInstance *> blocks;
+
   /* Back-pointer set by GPUManager::createCommand so the destructor can
    * self-remove from `manager->commands`. Mirrors Buffer's ownership
    * pattern — lets external producers `alloc::Delete` us without leaving
@@ -30,7 +34,7 @@ struct DrawCommand {
   DrawCommand(DrawCommand &&) = delete;
   DrawCommand &operator=(DrawCommand &&) = delete;
   ~DrawCommand();
-  
+
   static const litestl::binding::types::Struct<DrawCommand> *defineBindings()
   {
     using namespace litestl::binding;
@@ -45,6 +49,7 @@ struct DrawCommand {
     BIND_STRUCT_MEMBER(st, start);
     BIND_STRUCT_MEMBER(st, end);
     BIND_STRUCT_MEMBER(st, primCount);
+    BIND_STRUCT_MEMBER(st, blocks);
 
     return st;
   }

@@ -5,6 +5,7 @@
 #include "gpu/command.h"
 #include "gpu/manager.h"
 #include "gpu/shader.h"
+#include "gpu/uniform_link.h"
 #include "gpu/vbo.h"
 
 #include "litestl/util/vector.h"
@@ -16,26 +17,51 @@ namespace sculptcore::vulkan {
 
 using namespace sculptcore::gpu;
 
-/* WGSL layout, std140-equivalent: drawMatrix(64) [+ normalMatrix(64)] + uColor(16).
- * basicLineShader has no normalMatrix; basicMeshShader does. We pick the right
- * layout by inspecting def->name (two shaders, two layouts — fine). */
-struct LineUniforms {
-  float drawMatrix[16];
-  float uColor[4];
-};
-struct MeshUniforms {
-  float drawMatrix[16];
-  float normalMatrix[16];
-  float uColor[4];
-};
-
-static bool shaderIsLine(const ShaderDef *def)
+/* Find a uniform block instance by name in a vector of layer-owned instances. */
+static UniformBlockInstance *findInstanceByName(
+    const litestl::util::Vector<UniformBlockInstance *> &blocks,
+    const litestl::util::string &name)
 {
-  /* Heuristic: if the shader has no normal attribute, it's the line shader. */
-  for (const auto &a : def->attrs) {
-    if (strcmp(a.name, "normal") == 0) return false;
+  for (auto *inst : blocks) {
+    if (inst && inst->def && inst->def->name == name) {
+      return inst;
+    }
   }
-  return true;
+  return nullptr;
+}
+
+/* Backward-compat shim: write `u`'s drawMatrix/normalMatrix/uColor into the
+ * std140 blob `dst` (sized to `block->packedBytes`) at each field's resolved
+ * offset. Fields with unrecognised names are left zero-initialised.
+ *
+ * Called when the caller hasn't yet migrated to attaching a
+ * UniformBlockInstance to its DrawCommand/DrawBatch. Goes away when every
+ * caller provides its own instance. */
+static void writeFromDrawUniforms(const UniformBlockDef *block,
+                                  const DrawUniforms &u,
+                                  void *dst,
+                                  size_t maxBytes)
+{
+  std::memset(dst, 0, maxBytes);
+  for (size_t i = 0; i < block->fields.size(); i++) {
+    const UniformDefBase *f = block->fields[i];
+    uint32_t off = block->fieldOffsets[i];
+    if (off >= maxBytes) {
+      continue;
+    }
+    uint8_t *p = static_cast<uint8_t *>(dst) + off;
+    size_t avail = maxBytes - off;
+    const char *nm = f->name.c_str();
+    if (strcmp(nm, "drawMatrix") == 0 && avail >= sizeof(u.drawMatrix)) {
+      std::memcpy(p, &u.drawMatrix, sizeof(u.drawMatrix));
+    }
+    else if (strcmp(nm, "normalMatrix") == 0 && avail >= sizeof(u.normalMatrix)) {
+      std::memcpy(p, &u.normalMatrix, sizeof(u.normalMatrix));
+    }
+    else if (strcmp(nm, "uColor") == 0 && avail >= sizeof(u.uColor)) {
+      std::memcpy(p, &u.uColor, sizeof(u.uColor));
+    }
+  }
 }
 
 static VkFormat attrFormatVk(GPUType type, int elemSize)
@@ -178,9 +204,23 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
     return nullptr;
   }
 
-  /* Descriptor set layout: one uniform buffer at (set=0, binding=0). */
+  /* Build a descriptor set layout from the shader's first uniform block.
+   * Current shaders declare exactly one block ("DefaultBlock") at
+   * (set=0, binding=0); the layout reflects whatever `block->binding`
+   * the link pass stamped. */
+  if (def->uniforms.size() == 0) {
+    fprintf(stderr,
+            "VulkanBackend: shader '%s' has no uniform blocks\n",
+            def->name.c_str());
+    return nullptr;
+  }
+  UniformBlockDef *block0 = def->uniforms[0];
+  if (block0->packedBytes == 0) {
+    /* Shader wasn't linked at construction — do it lazily. Idempotent. */
+    linkShaderDef(def);
+  }
   VkDescriptorSetLayoutBinding b{};
-  b.binding = 0;
+  b.binding = block0->binding;
   b.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   b.descriptorCount = 1;
   b.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -194,9 +234,8 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
   plci.pSetLayouts = &e.dsLayout;
   vkCreatePipelineLayout(ctx_->device, &plci, nullptr, &e.layout);
 
-  /* Uniform buffer (host-visible coherent). */
-  bool isLine = shaderIsLine(def);
-  e.uboSize = isLine ? sizeof(LineUniforms) : sizeof(MeshUniforms);
+  /* Uniform buffer (host-visible coherent), sized to the linked block. */
+  e.uboSize = block0->packedBytes;
   VkBufferCreateInfo ubi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   ubi.size = e.uboSize;
   ubi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
@@ -226,7 +265,7 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
   dbi.range = e.uboSize;
   VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   w.dstSet = e.descriptorSet;
-  w.dstBinding = 0;
+  w.dstBinding = block0->binding;
   w.descriptorCount = 1;
   w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   w.pBufferInfo = &dbi;
@@ -256,10 +295,21 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
   vi.vertexAttributeDescriptionCount = uint32_t(vattrs.size());
   vi.pVertexAttributeDescriptions = vattrs.data();
 
-  /* Topology is dynamic so we can reuse one pipeline for tris/lines. */
+  /* Topology comes from the DrawCommand type. We bake one pipeline per shader
+   * for now, defaulting to the shader's "natural" topology — line shader has
+   * no normal attribute, mesh shader does. Refactor to dynamic topology when
+   * a shader is used at multiple primitive types in one frame. */
+  bool naturallyLines = true;
+  for (const auto &a : def->attrs) {
+    if (strcmp(a.name, "normal") == 0) {
+      naturallyLines = false;
+      break;
+    }
+  }
   VkPipelineInputAssemblyStateCreateInfo ia{
       VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-  ia.topology = isLine ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  ia.topology = naturallyLines ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST
+                               : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
   VkPipelineViewportStateCreateInfo vps{
       VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -331,30 +381,25 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
   return pipeline_cache_.lookup_ptr(def);
 }
 
-void VulkanBackend::issue(DrawCommand *cmd, const DrawUniforms &u)
+void VulkanBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms &u)
 {
   if (!cmd || !cmd->shader || !activeCb_) return;
   PipelineEntry *pe = ensurePipeline(cmd->shader);
   if (!pe) return;
 
-  /* Update uniform buffer for this pipeline's layout. */
-  if (shaderIsLine(cmd->shader)) {
-    LineUniforms ub;
-    memcpy(ub.drawMatrix, &u.drawMatrix, sizeof(ub.drawMatrix));
-    ub.uColor[0] = u.uColor[0];
-    ub.uColor[1] = u.uColor[1];
-    ub.uColor[2] = u.uColor[2];
-    ub.uColor[3] = u.uColor[3];
-    memcpy(pe->uboMapped, &ub, sizeof(ub));
-  } else {
-    MeshUniforms ub;
-    memcpy(ub.drawMatrix, &u.drawMatrix, sizeof(ub.drawMatrix));
-    memcpy(ub.normalMatrix, &u.normalMatrix, sizeof(ub.normalMatrix));
-    ub.uColor[0] = u.uColor[0];
-    ub.uColor[1] = u.uColor[1];
-    ub.uColor[2] = u.uColor[2];
-    ub.uColor[3] = u.uColor[3];
-    memcpy(pe->uboMapped, &ub, sizeof(ub));
+  /* Resolve the shader's first block against (cmd, batch). If neither layer
+   * provides an instance, synthesize one from `u` for the duration of the
+   * draw — backward-compat shim until callers attach their own. */
+  UniformBlockDef *blockDef = cmd->shader->uniforms[0];
+  UniformBlockInstance *inst = findInstanceByName(cmd->blocks, blockDef->name);
+  if (!inst && batch) {
+    inst = findInstanceByName(batch->blocks, blockDef->name);
+  }
+  if (inst && inst->data.size() == size_t(pe->uboSize)) {
+    memcpy(pe->uboMapped, inst->data.data(), size_t(pe->uboSize));
+  }
+  else {
+    writeFromDrawUniforms(blockDef, u, pe->uboMapped, size_t(pe->uboSize));
   }
 
   vkCmdBindPipeline(activeCb_, VK_PIPELINE_BIND_POINT_GRAPHICS, pe->pipeline);
@@ -438,7 +483,7 @@ void VulkanBackend::draw(DrawBatch *batch, const DrawUniforms &u)
 {
   if (!batch || !inFrame_) return;
   for (DrawCommand *cmd : batch->commands) {
-    issue(cmd, u);
+    issue(batch, cmd, u);
   }
 }
 

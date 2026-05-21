@@ -16,24 +16,27 @@ type float = number
 type double = number
 
 import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
+import type {int2} from './litestl/math/int2'
 import type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 import type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
 import type {VertexData} from './sculptcore/mesh/VertexData'
 import type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 import type {Brush} from './sculptcore/brush/Brush'
 import type {float2} from './litestl/math/float2'
-import type {int2} from './litestl/math/int2'
+import type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 import type {MeshLog} from './sculptcore/meshlog/MeshLog'
 import type {UniformDef} from './sculptcore/gpu/UniformDef'
 import type {AttrData} from './sculptcore/mesh/AttrData'
 import type {Buffer} from './sculptcore/gpu/Buffer'
 import type {AttrGroup} from './sculptcore/mesh/AttrGroup'
+import type {AABB} from './litestl/math/AABB'
 import type {AttrRef} from './sculptcore/mesh/AttrRef'
 import type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 import type {AttrDef} from './sculptcore/gpu/AttrDef'
 import type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
-import type {AABB} from './litestl/math/AABB'
+import type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
+import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 import type {StructProp} from './sculptcore/props/StructProp'
 import type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 import type {GPUManager} from './sculptcore/gpu/GPUManager'
@@ -46,24 +49,27 @@ import type {float3} from './litestl/math/float3'
 import type {AttrPage} from './sculptcore/mesh/AttrPage'
 
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
+export type {int2} from './litestl/math/int2'
 export type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 export type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
 export type {VertexData} from './sculptcore/mesh/VertexData'
 export type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 export type {Brush} from './sculptcore/brush/Brush'
 export type {float2} from './litestl/math/float2'
-export type {int2} from './litestl/math/int2'
+export type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 export type {MeshLog} from './sculptcore/meshlog/MeshLog'
 export type {UniformDef} from './sculptcore/gpu/UniformDef'
 export type {AttrData} from './sculptcore/mesh/AttrData'
 export type {Buffer} from './sculptcore/gpu/Buffer'
 export type {AttrGroup} from './sculptcore/mesh/AttrGroup'
+export type {AABB} from './litestl/math/AABB'
 export type {AttrRef} from './sculptcore/mesh/AttrRef'
 export type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 export type {AttrDef} from './sculptcore/gpu/AttrDef'
 export type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
-export type {AABB} from './litestl/math/AABB'
+export type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
+export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 export type {StructProp} from './sculptcore/props/StructProp'
 export type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 export type {GPUManager} from './sculptcore/gpu/GPUManager'
@@ -82,6 +88,7 @@ export type AllBoundTypes = {
   'sculptcore::gpu::DrawCommand': DrawCommand
   'sculptcore::mesh::Mesh': Mesh
   'sculptcore::mesh::BuiltinAttr<int32,.vert.e>': BuiltinAttr<int32, '.vert.e'>
+  'sculptcore::gpu::DrawPipeline': DrawPipeline
   'sculptcore::spatial::SpatialNode': SpatialNode
   'sculptcore::mesh::BuiltinAttr<boolean,select>': BuiltinAttr<
     boolean,
@@ -91,10 +98,12 @@ export type AllBoundTypes = {
   'sculptcore::mesh::AttrGroup': AttrGroup
   'litestl::math::int4': int4
   'sculptcore::mesh::AttrRef': AttrRef
+  'sculptcore::gpu::UniformBlockInstance': UniformBlockInstance
   'sculptcore::gpu::DrawBatch': DrawBatch
   'sculptcore::gpu::Buffer': Buffer
   'sculptcore::spatial::SpatialTree': SpatialTree
   'sculptcore::gpu::ShaderDef': ShaderDef
+  'sculptcore::gpu::UniformBlockDef': UniformBlockDef
   'sculptcore::props::StructProp': StructProp
   'litestl::math::int2': int2
   'sculptcore::brush::CommandExecutor': CommandExecutor

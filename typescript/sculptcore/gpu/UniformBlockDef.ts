@@ -1,6 +1,8 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {UniformBlockDef} from './UniformBlockDef'
-import type {AttrDef} from './AttrDef'
+import type {float2} from '../../litestl/math/float2'
+import type {float3} from '../../litestl/math/float3'
+import type {UniformBindType} from './UniformBindType'
+import type {UniformDef} from './UniformDef'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -18,10 +20,16 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface ShaderDef {
+export interface UniformBlockDef {
   [Symbol.dispose](): void
   name: string
-  wgslSource: string
-  attrs: AttrDef[]
-  uniforms: UniformBlockDef[]
+  fields: (
+    | UniformDef<float, UniformBindType.FLOAT>
+    | UniformDef<float2, UniformBindType.FLOAT2>
+    | UniformDef<float3, UniformBindType.FLOAT3>
+  )[]
+  set: uint32
+  binding: uint32
+  packedBytes: uint32
+  preferPushConstant: boolean
 }

@@ -59,6 +59,9 @@ namespace sculptcore::gpu {
 
 DrawCommand::~DrawCommand()
 {
+  for (auto *inst : blocks) {
+    litestl::alloc::Delete(inst);
+  }
   if (manager) {
     manager->commands.remove(this);
   }
@@ -66,6 +69,9 @@ DrawCommand::~DrawCommand()
 
 DrawBatch::~DrawBatch()
 {
+  for (auto *inst : blocks) {
+    litestl::alloc::Delete(inst);
+  }
   if (manager) {
     manager->batches.remove(this);
   }

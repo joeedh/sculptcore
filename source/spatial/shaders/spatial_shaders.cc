@@ -1,5 +1,6 @@
 #include "spatial_shaders.h"
 #include "gpu/shader.h"
+#include "gpu/uniform_link.h"
 #include "litestl/binding/binding.h"
 
 /* WGSL source text — generated from basic_line.wgsl / basic_mesh.wgsl by
@@ -31,10 +32,37 @@ litestl::binding::types::Struct<SpatialShaders> *SpatialShaders::defineBindings(
 
 namespace {
 
-gpu::ShaderDef makeBasicLineShader()
+/* Build the single "DefaultBlock" UBO descriptor that the spatial shaders
+ * read. Currently both shaders bind to the same logical UBO at (set=0,
+ * binding=0) in their WGSL; the link pass would normally stamp those slots
+ * but we hard-code them here while the link pass is still in flight. */
+static gpu::UniformBlockDef *makeDefaultBlock(bool withNormalMatrix)
 {
   using namespace litestl::math;
   using litestl::alloc::New;
+
+  litestl::util::Vector<gpu::UniformDefBase *> fields;
+  fields.append(New<gpu::UniformDef<mat4>>(
+      "UniformDef", "drawMatrix", gpu::GPUType::FLOAT32, 16, mat4().identity()));
+  if (withNormalMatrix) {
+    fields.append(New<gpu::UniformDef<mat4>>(
+        "UniformDef", "normalMatrix", gpu::GPUType::FLOAT32, 16, mat4().identity()));
+  }
+  fields.append(New<gpu::UniformDef<float4>>(
+      "UniformDef", "uColor", gpu::GPUType::FLOAT32, 4,
+      float4(1.0f, 1.0f, 1.0f, 1.0f)));
+
+  auto *block = New<gpu::UniformBlockDef>("UniformBlockDef",
+                                          litestl::util::string("DefaultBlock"),
+                                          std::move(fields));
+  block->set = 0;
+  block->binding = 0;
+  return block;
+}
+
+gpu::ShaderDef makeBasicLineShader()
+{
+  using namespace litestl::math;
   /* These ShaderDefs are static-storage globals that outlive every test's
    * test_end()/print_blocks() call. Mark their bootstrap allocations as
    * expected-permanent so they don't show up as leaks. */
@@ -45,26 +73,19 @@ gpu::ShaderDef makeBasicLineShader()
                          {"position", gpu::GPUType::FLOAT32, 3},
                          {"color", gpu::GPUType::FLOAT32, 4},
                      },
-                     {
-                         New<gpu::UniformDef<float4>>(
-                             "UniformDef", "uColor", gpu::GPUType::FLOAT32, 3,
-                             float4(1.0f, 1.0f, 1.0f, 1.0f)),
-                         New<gpu::UniformDef<mat4>>(
-                             "UniformDef", "drawMatrix", gpu::GPUType::FLOAT32, 16,
-                             mat4().identity()),
-                     },
+                     {makeDefaultBlock(/*withNormalMatrix=*/false)},
                      {});
 #ifndef WASM
   def.spirv = shaders::generated::basic_line_spirv;
   def.spirvSize = sizeof(shaders::generated::basic_line_spirv) / sizeof(uint32_t);
 #endif
+  gpu::linkShaderDef(&def);
   return def;
 }
 
 gpu::ShaderDef makeBasicMeshShader()
 {
   using namespace litestl::math;
-  using litestl::alloc::New;
   litestl::alloc::PermanentGuard permGuard;
   gpu::ShaderDef def("Basic Mesh Shader",
                      shaders::generated::basic_mesh_wgsl,
@@ -72,19 +93,13 @@ gpu::ShaderDef makeBasicMeshShader()
                          {"position", gpu::GPUType::FLOAT32, 3},
                          {"normal", gpu::GPUType::FLOAT32, 3},
                      },
-                     {
-                         New<gpu::UniformDef<float4>>(
-                             "UniformDef", "uColor", gpu::GPUType::FLOAT32, 3,
-                             float4(1.0f, 1.0f, 1.0f, 1.0f)),
-                         New<gpu::UniformDef<mat4>>(
-                             "UniformDef", "drawMatrix", gpu::GPUType::FLOAT32, 16,
-                             mat4().identity()),
-                     },
+                     {makeDefaultBlock(/*withNormalMatrix=*/true)},
                      {});
 #ifndef WASM
   def.spirv = shaders::generated::basic_mesh_spirv;
   def.spirvSize = sizeof(shaders::generated::basic_mesh_spirv) / sizeof(uint32_t);
 #endif
+  gpu::linkShaderDef(&def);
   return def;
 }
 

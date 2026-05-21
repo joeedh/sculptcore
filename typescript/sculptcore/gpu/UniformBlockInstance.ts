@@ -1,6 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {UniformBlockDef} from './UniformBlockDef'
-import type {AttrDef} from './AttrDef'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -18,10 +17,8 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface ShaderDef {
+export interface UniformBlockInstance {
   [Symbol.dispose](): void
-  name: string
-  wgslSource: string
-  attrs: AttrDef[]
-  uniforms: UniformBlockDef[]
+  def: UniformBlockDef | undefined
+  data: uint8[]
 }
