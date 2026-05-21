@@ -94,7 +94,7 @@ int main(int argc, char **argv)
   }
 
   if (interactive) {
-    scene.ensureGL();
+    scene.ensureGPU();
     while (scene.window && !scene.window->shouldClose()) {
       scene.window->poll();
       scene.renderWindow();

@@ -31,6 +31,47 @@ struct NodeTri {
 
 struct SpatialNode;
 
+/* Per-leaf slice inside a GPU node's aggregated vertex buffer. */
+struct LeafSlice {
+  SpatialNode *leaf = nullptr;
+  int vert_start = 0; /* offset in verts */
+  int vert_count = 0; /* = tris * 3 */
+};
+
+/* GPU mesh owned by a node selected as a "GPU root" — aggregates the
+ * triangles of every leaf in its subtree into a single VBO + draw command,
+ * so each face is rendered exactly once. */
+struct GpuData {
+  gpu::Buffer *pos = nullptr;
+  gpu::Buffer *nor = nullptr;
+  gpu::DrawCommand *cmd = nullptr;
+  util::Vector<LeafSlice> slices; /* DFS-order leaf list defining the layout */
+  int total_verts = 0;
+
+  ~GpuData()
+  {
+    dispose();
+  }
+
+  void dispose()
+  {
+    if (pos) {
+      alloc::Delete(pos);
+      pos = nullptr;
+    }
+    if (nor) {
+      alloc::Delete(nor);
+      nor = nullptr;
+    }
+    if (cmd) {
+      alloc::Delete(cmd);
+      cmd = nullptr;
+    }
+    slices.clear_and_contract();
+    total_verts = 0;
+  }
+};
+
 struct SpatialNode {
   using float3 = math::float3;
   using AABB = litestl::math::AABB<float3>;
@@ -42,32 +83,6 @@ struct SpatialNode {
     util::OrderedSet<int> other_faces;
 
     util::Vector<NodeTri> tris;
-    struct GPUData {
-      gpu::Buffer *pos = nullptr;
-      gpu::Buffer *nor = nullptr;
-      gpu::DrawCommand *cmd = nullptr;
-
-      ~GPUData()
-      {
-        dispose();
-      }
-
-      void dispose()
-      {
-        if (pos) {
-          alloc::Delete(pos);
-          pos = nullptr;
-        }
-        if (nor) {
-          alloc::Delete(nor);
-          nor = nullptr;
-        }
-        if (cmd) {
-          alloc::Delete(cmd);
-          cmd = nullptr;
-        }
-      }
-    } gpu;
     Mesh *m;
   };
 
@@ -79,14 +94,20 @@ struct SpatialNode {
 
   NodeFlags flag = Spatial_None;
   NodeData *data = nullptr;
+  GpuData *gpu_data = nullptr;
   SpatialTreeMesh *treeMesh = nullptr;
+
+  /* Cached count of tris across all leaves in this subtree. Recomputed
+   * during SpatialTree::update(). Leaves: == data->tris.size(). */
+  int subtree_tri_count = 0;
+  bool is_gpu_node = false;
 
   /* Node IDs are always > 0. */
   int id = 0;
   int index = 0;
 
   int debugIdOffset = 0;
-  
+
   SpatialNode()
   {
     children[0] = children[1] = nullptr;
@@ -95,14 +116,16 @@ struct SpatialNode {
   SpatialNode(const SpatialNode &b) = delete;
 
   SpatialNode(SpatialNode &&b)
-      : aabb(b.aabb), flag(b.flag), data(b.data), id(b.id), depth(b.depth),
-        treeMesh(b.treeMesh)
+      : aabb(b.aabb), flag(b.flag), data(b.data), gpu_data(b.gpu_data), id(b.id),
+        depth(b.depth), subtree_tri_count(b.subtree_tri_count),
+        is_gpu_node(b.is_gpu_node), treeMesh(b.treeMesh)
   {
     children[0] = b.children[0];
     children[1] = b.children[1];
 
     b.flag = Spatial_None;
     b.data = nullptr;
+    b.gpu_data = nullptr;
   }
 
   DEFAULT_MOVE_ASSIGNMENT(SpatialNode)
@@ -141,6 +164,9 @@ struct SpatialNode {
   {
     if (data) {
       alloc::Delete<NodeData>(data);
+    }
+    if (gpu_data) {
+      alloc::Delete<GpuData>(gpu_data);
     }
   }
 

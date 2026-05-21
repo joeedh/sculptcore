@@ -1,5 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -16,10 +15,12 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface Vector {
-  [Symbol.dispose](): void
-  resize(newsize: int32): void
-  resize_no_construct_destruct(newsize: int32): void
-  new (): float[]
-  new (arg0: float, arg1: int32): float[]
+import type {float2} from '../../litestl/math/float2'
+import type {float3} from '../../litestl/math/float3'
+import type {UniformBindType} from './UniformBindType'
+
+export type UniformBindTypeMap = {
+  [UniformBindType.FLOAT]: float
+  [UniformBindType.FLOAT2]: float2
+  [UniformBindType.FLOAT3]: float3
 }

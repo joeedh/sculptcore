@@ -26,6 +26,7 @@ export interface SpatialTree {
   [Symbol.dispose](): void
   leaf_limit: int32
   depth_limit: int32
+  gpu_tri_target: int32
   setup(): void
   add_face(face: int32): void
   split_node(node: SpatialNode): void

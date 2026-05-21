@@ -38,6 +38,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
 
   BIND_STRUCT_MEMBER(st, leaf_limit);
   BIND_STRUCT_MEMBER(st, depth_limit);
+  BIND_STRUCT_MEMBER(st, gpu_tri_target);
 
   BIND_STRUCT_METHOD(st, setup, MARGS());
   BIND_STRUCT_METHOD(st, add_face, MARGS("face"));

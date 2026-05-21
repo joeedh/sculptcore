@@ -4,9 +4,21 @@
 #include "shader.h"
 
 namespace sculptcore::gpu {
+struct GPUManager;
+
 struct DrawBatch {
   litestl::util::Vector<DrawCommand *> commands;
   litestl::util::Vector<Buffer *> buffers;
+
+  /* Back-pointer set by GPUManager::createBatch — see DrawCommand. */
+  GPUManager *manager = nullptr;
+
+  DrawBatch() = default;
+  DrawBatch(const DrawBatch &) = delete;
+  DrawBatch(DrawBatch &&) = delete;
+  DrawBatch &operator=(const DrawBatch &) = delete;
+  DrawBatch &operator=(DrawBatch &&) = delete;
+  ~DrawBatch();
 
   DrawBatch &clear()
   {

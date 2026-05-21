@@ -4,44 +4,20 @@ A scripted native debug app + gdb bundle that lets Claude reproduce, render,
 and diff sculptcore bugs without a human at the keyboard. Native-only;
 WASM is unaffected.
 
-## Build
+The debug app itself — CLI flags, the full verb table, scripting language,
+and how to add new verbs — is documented separately in
+[`debugApp.md`](debugApp.md). This page covers the debugging *workflow*
+that uses it.
+
+## Build & run (quick reference)
 
 ```
 node make.mjs configure native
 node make.mjs build native
+debug_app --script tests/scripts/cube_draw.txt --out build/shots
 ```
 
-Produces `build/native/source/debug/debug_app.exe`.
-
-## Running a script
-
-```
-debug_app --script tests/scripts/cube_draw.txt --out build/shots [--headless] [--width 1024 --height 768] [--interactive]
-```
-
-- `--headless` (default): renders into an offscreen FBO, no visible window.
-- `--no-headless --interactive`: opens a window after the script runs and
-  spins until you close it. Useful for poking around manually.
-
-Scripts are line-oriented, `#` for comments, one verb + `key=value` args
-per line:
-
-| verb            | args                                              | effect |
-|---|---|---|
-| `make_cube`     | `subdivs=N size=F sphere=F`                       | replaces the active mesh |
-| `build_spatial` | `leaf_limit=N depth_limit=N`                      | (re)builds spatial accel |
-| `set_brush`     | `radius=F strength=F invert=0/1`                  | tweaks the brush props |
-| `stroke`        | `origin=x,y,z normal=x,y,z`                       | one-step DRAW stroke through `CommandExecutor::execBrush` |
-| `stroke_path`   | `p1=x,y,z p2=x,y,z normal=... steps=N`            | sweep N draw steps along a segment |
-| `view`          | `preset=front\|top\|side\|persp\|free`            | re-frames the camera on the mesh AABB |
-| `screenshot`    | `view=... out=relpath [leaves=0/1]`               | renders headless + writes PNG |
-| `dump_state`    | `out=relpath [mesh=1 spatial=1 brush=1]`          | writes JSON snapshot |
-| `assert_verts`  | `n=N`                                             | exit 1 on mismatch |
-| `assert_aabb`   | `min=x,y,z max=x,y,z eps=F`                       | exit 1 on mismatch |
-| `undo` / `redo` | -                                                 | drive `meshlog::MeshLog` |
-| `echo`          | `msg=...`                                         | prints to stdout |
-
-Relative `out=` paths join against the `--out` directory.
+See [`debugApp.md`](debugApp.md) for the complete CLI and verb reference.
 
 ## The Claude workflow
 
@@ -71,23 +47,23 @@ Relative `out=` paths join against the `--out` directory.
 
 ## Gotchas
 
-- Scripts that only do mesh + assert work do **not** open a GL context.
-  `ensureGL()` is lazy; only `screenshot` (and `--interactive`) trigger
-  GLFW/GLEW init. Use the headless-only paths for unit-style scripts.
-- The engine's GLSL is GLSL-ES style. `opengl/gl_backend.cc` prepends
-  `#version 120` and strips `precision` qualifiers so a desktop 2.1
-  context accepts the same source. If you add a new shader and see
-  `gl_FragColor` undeclared on desktop, that preamble is the place to
-  look.
-- `glew32s.lib` (static) is linked under `extern/glew`. The vendored
-  static archive was built with an older toolchain so you'll see the
-  benign `LNK4099` "no pdb" warning; ignore it.
+- Scripts that only do mesh + assert work do **not** open a Vulkan
+  device. `ensureGPU()` is lazy; only `screenshot` (and `--interactive`)
+  trigger GLFW + Vulkan init. Use the headless-only paths for unit-style
+  scripts.
+- Engine shaders are authored in WGSL under
+  `source/spatial/shaders/*.wgsl` and compiled to SPIR-V at build time
+  via `naga` (`tools/wgsl-to-spirv.mjs`, pinned in `nagaVersion.txt`).
+  Install the toolchain once with `node make.mjs install-tools`.
+- Vulkan headers + loader come from the system Vulkan SDK. Set
+  `VULKAN_SDK` if CMake's `find_package(Vulkan REQUIRED)` can't locate
+  it.
 
 ## Layout
 
-- `source/opengl/` — minimal GL backend (`gl_backend`, `gl_overlay`,
-  `gl_context`, `gl_screenshot`). Walks `gpu::GPUManager` resources;
-  caches `Buffer*` → VBO and `ShaderDef*` → program.
+- `source/vulkan/` — Vulkan backend (`vk_context`, `vk_backend`,
+  `vk_overlay`, `vk_screenshot`). Walks `gpu::GPUManager` resources;
+  caches `Buffer*` → VkBuffer and `ShaderDef*` → graphics pipeline.
 - `source/debug/` — `Scene` (mesh+tree+brush+GPU+camera+window),
   `script` (parser + verb dispatcher), `state_dump` (JSON writer),
   `debug_app.cc` (CLI entry).

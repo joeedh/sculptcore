@@ -56,27 +56,43 @@ template const BindingBase *Bind<sculptcore::gpu::GPUFetchMode>();
 } // namespace litestl::binding
 
 namespace sculptcore::gpu {
+
+DrawCommand::~DrawCommand()
+{
+  if (manager) {
+    manager->commands.remove(this);
+  }
+}
+
+DrawBatch::~DrawBatch()
+{
+  if (manager) {
+    manager->batches.remove(this);
+  }
+}
+
 GPUManager::~GPUManager()
 {
   using namespace litestl;
 
-  // copy pointers, since resources will remove themselves from
-  // the manager as they are destroyed.
-  auto shadersCpy = shaders;
+  /* Resources are owned by their producers (spatial tree, brush, etc.) which
+   * free them via alloc::Delete directly. Buffer / DrawBatch / DrawCommand
+   * self-remove from the lists below in their destructors, so by the time
+   * we get here these vectors are usually empty. Anything still present is
+   * a stragger we own — Delete it. Shader pointers stored in `shaders` are
+   * owned externally (e.g. spatial::spatialShaders globals) and must NOT be
+   * freed here. */
   auto buffersCpy = buffers;
   auto batchesCpy = batches;
   auto commandsCpy = commands;
 
-  for (auto &shader : shadersCpy) {
-    alloc::Delete(shader);
-  }
-  for (auto &buffer : buffersCpy) {
+  for (auto *buffer : buffersCpy) {
     alloc::Delete(buffer);
   }
-  for (auto &batch : batchesCpy) {
+  for (auto *batch : batchesCpy) {
     alloc::Delete(batch);
   }
-  for (auto &command : commandsCpy) {
+  for (auto *command : commandsCpy) {
     alloc::Delete(command);
   }
 }
@@ -97,6 +113,7 @@ Buffer *GPUManager::createBuffer(litestl::util::string name,
 DrawBatch *GPUManager::createBatch()
 {
   DrawBatch *b = litestl::alloc::New<DrawBatch>("DrawBatch");
+  b->manager = this;
   batches.append(b);
   return b;
 }
@@ -109,6 +126,7 @@ DrawCommand *GPUManager::createCommand(DrawBatch *batch,
                                        int primCount)
 {
   DrawCommand *c = litestl::alloc::New<DrawCommand>("DrawCommand");
+  c->manager = this;
   c->type = type;
   c->shader = shader;
   c->start = start;

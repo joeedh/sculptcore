@@ -9,6 +9,7 @@ import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
 
 const CMAKE_BUILD_TYPE = 'RelWithDebInfo'
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
+const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
 const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
 
 /**
@@ -319,6 +320,28 @@ yargs(hideBin(process.argv))
       process.stderr.write(`Could not find test ${targetTest}\n`)
       process.exit(-1)
     }
+  })
+  .command('install-tools', 'Install host build tools (naga)', {}, () => {
+    console.log(`Installing naga-cli ${NAGA_VERSION}...`)
+    try {
+      const v = child_process.execSync('naga --version', {stdio: 'pipe'}).toString().trim()
+      if (v.includes(NAGA_VERSION)) {
+        console.log(`naga ${v} already on PATH`)
+        return
+      }
+      console.log(`Found ${v}, installing pinned version`)
+    } catch {
+      console.log('naga not found on PATH, installing via cargo')
+    }
+    try {
+      child_process.execSync('cargo --version', {stdio: 'pipe'})
+    } catch {
+      process.stderr.write(
+        `cargo not found. Install Rust (https://rustup.rs/) so 'cargo install naga-cli' is available.\n`
+      )
+      process.exit(1)
+    }
+    run(`cargo install --force --version ${NAGA_VERSION} naga-cli`)
   })
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')

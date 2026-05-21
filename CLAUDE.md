@@ -64,13 +64,14 @@ source/
   brush/            sculpt brushes, command executor, brushes/ implementations
   spatial/          spatial acceleration (BVH-style nodes) + C API + shaders
   props/            property / reflection system (runtime-side)
-  gpu/              GPU abstraction (frontend + opengl/ backend)
+  gpu/              GPU abstraction (frontend; backends are native-only)
+  vulkan/           native Vulkan backend (vk_context/backend/overlay/screenshot)
   core/             aggregate binding registration (initBindings)
   io/               serialization (placeholder)
-  window/           GLFW windowing (native only)
+  window/           GLFW windowing (native only; Vulkan-friendly, no GL context)
   wasm/             Emscripten glue: jslib.js, wasmManager
   app/              application entry (stub)
-extern/             vendored: eigen_dist, glew, glfw
+extern/             vendored: eigen_dist, glfw (Vulkan via system SDK)
 build_files/        macros.cmake, WASM.cmake, link_wasm.py
 tests/              GTest-style; native only (BUILD_WASM=OFF)
 ```
@@ -130,6 +131,18 @@ Native tests (Google Test) live under `tests/` and run only when
 
 When adding a test, match the existing style (`test_<thing>.cc`) and
 wire it through the appropriate `CMakeLists.txt`.
+
+## Debug app
+
+`source/debug/` builds a native scripted harness (`debug_app`) that
+drives mesh + spatial + brush + GL end-to-end from a plain-text script,
+headlessly by default. It's the right tool for reproducing engine bugs,
+running regression scripts, and A/B-testing brush backends — prefer it
+over ad-hoc `main()` test programs. Full CLI + verb reference and the
+"adding a verb" recipe live in
+[`documentation/debugApp.md`](documentation/debugApp.md);
+[`documentation/debugging.md`](documentation/debugging.md) covers the
+Claude-driven workflow that uses it.
 
 ## Debugging with source-line prints
 

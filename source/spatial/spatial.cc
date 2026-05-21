@@ -301,6 +301,112 @@ util::Vector<SpatialNode *> SpatialTree::leaves()
   return leaves;
 }
 
+util::Vector<SpatialNode *> SpatialTree::gpu_nodes()
+{
+  util::Vector<SpatialNode *> out;
+
+  for (SpatialNode *node : nodes) {
+    if (node->is_gpu_node) {
+      out.append(node);
+    }
+  }
+
+  return out;
+}
+
+/* Postorder bottom-up: leaves carry their own tri count, internals sum
+ * children. Called once per update() tick before assign_gpu_nodes. */
+static int recompute_subtree_tri_counts_recurse(SpatialNode *node)
+{
+  if (node->flag & Spatial_Leaf) {
+    node->subtree_tri_count = node->data ? int(node->data->tris.size()) : 0;
+    return node->subtree_tri_count;
+  }
+
+  int total = 0;
+  for (int i = 0; i < 2; i++) {
+    if (node->children[i]) {
+      total += recompute_subtree_tri_counts_recurse(node->children[i]);
+    }
+  }
+  node->subtree_tri_count = total;
+  return total;
+}
+
+void SpatialTree::recompute_subtree_tri_counts()
+{
+  if (root) {
+    recompute_subtree_tri_counts_recurse(root);
+  }
+}
+
+/* Top-down: a node becomes a GPU node when its subtree fits the target —
+ * else descend. Leaves always fit (cannot split further from the GPU
+ * layer's POV). When a node *becomes* a GPU node, any descendants that
+ * were previously GPU nodes get unmarked and their buffers disposed. */
+static void unmark_descendant_gpu_nodes(SpatialNode *node)
+{
+  if (node->flag & Spatial_Leaf) {
+    return;
+  }
+  for (int i = 0; i < 2; i++) {
+    SpatialNode *c = node->children[i];
+    if (!c) {
+      continue;
+    }
+    if (c->is_gpu_node) {
+      c->is_gpu_node = false;
+      if (c->gpu_data) {
+        alloc::Delete<GpuData>(c->gpu_data);
+        c->gpu_data = nullptr;
+      }
+    }
+    unmark_descendant_gpu_nodes(c);
+  }
+}
+
+static void assign_gpu_nodes_recurse(SpatialNode *node, int target)
+{
+  bool fits = (node->flag & Spatial_Leaf) || (node->subtree_tri_count <= target);
+  if (fits) {
+    node->is_gpu_node = true;
+    unmark_descendant_gpu_nodes(node);
+    return;
+  }
+
+  if (node->is_gpu_node) {
+    node->is_gpu_node = false;
+    if (node->gpu_data) {
+      alloc::Delete<GpuData>(node->gpu_data);
+      node->gpu_data = nullptr;
+    }
+  }
+
+  for (int i = 0; i < 2; i++) {
+    if (node->children[i]) {
+      assign_gpu_nodes_recurse(node->children[i], target);
+    }
+  }
+}
+
+void SpatialTree::assign_gpu_nodes()
+{
+  if (!root) {
+    return;
+  }
+  assign_gpu_nodes_recurse(root, gpu_tri_target);
+}
+
+SpatialNode *SpatialTree::find_gpu_owner(SpatialNode *node)
+{
+  for (SpatialNode *n = node; n; n = n->parent) {
+    if (n->is_gpu_node) {
+      return n;
+    }
+  }
+  return nullptr;
+}
+
 void SpatialTree::buildAll()
 {
   setup();
@@ -502,7 +608,9 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     result = true;
   }
 
+  /* Phase: regen leaf tris. */
   Vector<SpatialNode *, 256> updateTriNodes;
+  bool topology_changed = false;
   for (SpatialNode *node : nodes) {
     if (!(node->flag & Spatial_Leaf)) {
       continue;
@@ -510,6 +618,7 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     if (node->flag & Spatial_RegenTris) {
       updateTriNodes.append(node);
       drawBatchUpdated = true;
+      topology_changed = true;
     }
   }
 
@@ -517,23 +626,11 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     printf("SpatialTree::update: tris\n");
   }
 
-#if 0
-  litestl::task::parallel_for(
-      util::IndexRange(updateTriNodes.size()),
-      [&updateTriNodes, this](util::IndexRange range) //
-      {
-        for (int i : range) {
-          SpatialNode *node = updateTriNodes[i];
-          ensure_node_tris(node);
-        }
-      },
-      4);
-#else
   for (SpatialNode *node : updateTriNodes) {
     ensure_node_tris(node);
   }
-#endif
 
+  /* Phase: leaf normals (independent of partition). */
   for (SpatialNode *node : nodes) {
     if (!(node->flag & Spatial_Leaf)) {
       continue;
@@ -544,18 +641,56 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     }
   }
 
+  /* Phase: GPU partition assignment. Cheap walk (O(nodes)). If topology
+   * didn't change we can skip recomputing counts, but the assignment
+   * walk itself is still needed first time around. */
+  if (topology_changed || !root->is_gpu_node) {
+    recompute_subtree_tri_counts();
+    assign_gpu_nodes();
+  }
+
+  /* Phase: propagate per-leaf GPU dirty bits to their owning GPU node
+   * and rebuild/update those nodes' buffers. */
   for (SpatialNode *node : nodes) {
     if (!(node->flag & Spatial_Leaf)) {
       continue;
     }
+    NodeFlags want = node->flag & (Spatial_RegenGPU | Spatial_UpdateGPU);
+    if (!want) {
+      continue;
+    }
 
-    if (node->flag & Spatial_RegenGPU) {
-      regen_node_gpu_buffers(node, gpu);
+    SpatialNode *owner = find_gpu_owner(node);
+    if (!owner) {
+      continue;
+    }
+
+    /* Full regen of the owner if the owner is brand-new (no buffers),
+     * the leaf wants a full regen, or the slice layout is missing. */
+    bool need_full = !owner->gpu_data || !owner->gpu_data->pos ||
+                     owner->gpu_data->slices.size() == 0 ||
+                     (want & Spatial_RegenGPU);
+
+    if (need_full) {
+      regen_gpu_node(owner, gpu);
       printf("SpatialTree::update: regenGPU\n");
       drawBatchUpdated = true;
-    } else if (node->flag & Spatial_UpdateGPU) {
+    } else {
       printf("SpatialTree::update: updateGPU\n");
-      update_node_gpu_buffers(node, gpu);
+      update_gpu_node_slice(owner, node, gpu);
+    }
+  }
+
+  /* Phase: any GPU node still missing buffers (because it transitioned
+   * from non-GPU to GPU this tick and contains no individually-dirty
+   * leaves) needs a full rebuild. */
+  for (SpatialNode *node : nodes) {
+    if (!node->is_gpu_node) {
+      continue;
+    }
+    if (!node->gpu_data || !node->gpu_data->pos) {
+      regen_gpu_node(node, gpu);
+      drawBatchUpdated = true;
     }
   }
 
@@ -568,27 +703,27 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     }
 
     for (SpatialNode *node : nodes) {
-      if (!(node->flag & Spatial_Leaf)) {
+      if (!node->is_gpu_node || !node->gpu_data || !node->gpu_data->pos) {
         continue;
       }
 
-      auto &nodeGpu = node->data->gpu;
-      drawBatch->buffers.append(nodeGpu.pos);
-      drawBatch->buffers.append(nodeGpu.nor);
+      GpuData &gd = *node->gpu_data;
+      drawBatch->buffers.append(gd.pos);
+      drawBatch->buffers.append(gd.nor);
 
-      if (!nodeGpu.cmd) {
-        nodeGpu.cmd = gpu->createCommand(drawBatch,
-                                         gpu::GPUCmdType::DRAW_TRIS,
-                                         &spatialShaders.basicMeshShader,
-                                         0,
-                                         nodeGpu.pos->size,
-                                         nodeGpu.pos->size / 3);
-        nodeGpu.cmd->attrs.append(nodeGpu.pos);
-        nodeGpu.cmd->attrs.append(nodeGpu.nor);
+      if (!gd.cmd) {
+        gd.cmd = gpu->createCommand(drawBatch,
+                                    gpu::GPUCmdType::DRAW_TRIS,
+                                    &spatialShaders.basicMeshShader,
+                                    0,
+                                    gd.pos->size,
+                                    gd.pos->size / 3);
+        gd.cmd->attrs.append(gd.pos);
+        gd.cmd->attrs.append(gd.nor);
       }
-      nodeGpu.cmd->primCount = nodeGpu.pos->size / 3;
-      nodeGpu.cmd->end = nodeGpu.pos->size;
-      drawBatch->commands.append(nodeGpu.cmd);
+      gd.cmd->primCount = gd.pos->size / 3;
+      gd.cmd->end = gd.pos->size;
+      drawBatch->commands.append(gd.cmd);
     }
   }
 

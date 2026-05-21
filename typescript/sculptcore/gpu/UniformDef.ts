@@ -1,9 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {float2} from '../../litestl/math/float2'
-import type {float3} from '../../litestl/math/float3'
-import type {UniformBindType} from './UniformBindType'
-import type {UniformDef} from './UniformDef'
-import type {AttrDef} from './AttrDef'
+import {getTypeSymbol} from '@litestl/typescript-runtime'
+import type {UniformBindTypeMap} from './UniformBindTypeMap'
+import type {GPUType} from './GPUType'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -21,14 +19,11 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface ShaderDef {
+export interface UniformDef<T, K extends keyof UniformBindTypeMap> {
   [Symbol.dispose](): void
+  readonly [getTypeSymbol]: K
   name: string
-  wgslSource: string
-  attrs: AttrDef[]
-  uniforms: (
-    | UniformDef<float, UniformBindType.FLOAT>
-    | UniformDef<float2, UniformBindType.FLOAT2>
-    | UniformDef<float3, UniformBindType.FLOAT3>
-  )[]
+  type: GPUType
+  elemSize: int32
+  defaultValue: UniformBindTypeMap[K]
 }

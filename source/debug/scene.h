@@ -6,10 +6,10 @@
 #include "gpu/manager.h"
 #include "mesh/mesh.h"
 #include "meshlog/meshlog_base.h"
-#include "opengl/gl_backend.h"
-#include "opengl/gl_context.h"
-#include "opengl/gl_overlay.h"
 #include "spatial/spatial.h"
+#include "vulkan/vk_backend.h"
+#include "vulkan/vk_context.h"
+#include "vulkan/vk_overlay.h"
 #include "window/window.h"
 
 #include "litestl/util/string.h"
@@ -26,15 +26,17 @@ struct LastStroke {
 };
 
 /** Owns one full debug-app scene: mesh + spatial accelerator + brush +
- *  GPU manager + GL backend + window. All optional pieces are lazily
+ *  GPU manager + Vulkan backend + window. All optional pieces are lazily
  *  created so a script that never asks for screenshots never opens a
- *  GL context. */
+ *  Vulkan device. Interactive mode currently shares the offscreen target
+ *  with the headless path — a swapchain-presented window is a follow-up. */
 struct Scene {
   Scene(int width, int height, bool headless);
   Scene(const Scene &) = delete;
   ~Scene();
 
-  bool ensureGL();
+  /** Bring up window (if needed), VkContext, OffscreenTarget, and backend. */
+  bool ensureGPU();
 
   mesh::Mesh *mesh = nullptr;
   spatial::SpatialTree *tree = nullptr;
@@ -48,11 +50,12 @@ struct Scene {
   bool showAxes = true;
   bool showCursor = true;
 
-  /* Owned GL bits (created on first ensureGL()). */
+  /* Owned GPU bits (created on first ensureGPU()). */
   window::Window *window = nullptr;
-  opengl::GLBackend *backend = nullptr;
-  opengl::OffscreenTarget offscreen;
-  opengl::Overlay overlay;
+  vulkan::VkContext *context = nullptr;
+  vulkan::VulkanBackend *backend = nullptr;
+  vulkan::OffscreenTarget offscreen;
+  vulkan::Overlay overlay;
 
   int width;
   int height;
@@ -67,10 +70,11 @@ struct Scene {
   /** Render into the offscreen target. */
   void renderHeadless();
 
-  /** Render into the visible window (interactive smoke). */
+  /** Render into the visible window (interactive smoke). Currently rendered
+   *  into the offscreen target only — swapchain presentation is a TODO. */
   void renderWindow();
 
-  /** Helper: write current framebuffer to PNG. Caller must have rendered. */
+  /** Helper: write current offscreen color attachment to PNG. */
   bool screenshot(const char *path);
 };
 

@@ -207,8 +207,155 @@ data structures using existing `litestl::util::Vector` (no STL).
 | OpenCL | OpenCL C | Distinct enough to warrant its own emitter (no templates, address-space qualifiers). |
 
 The C++ emitter is the reference. CI runs every brush through *every*
-backend's syntactic compile, plus the C++ build executes a golden-output test
-on a fixed mesh (`tests/test_brush.cc` already wires this pattern).
+backend's syntactic compile, plus the native debug-app harness
+([`debugApp.md`](debugApp.md)) replays canned scripts and diffs
+`dump_state` JSON + `screenshot` PNGs against golden references. See
+"Verification via the debug app" below for the harness layout.
+
+### Build-system integration
+
+Each backend is gated by an opt-in CMake flag so the default build keeps its
+current footprint and developers can pull in only the toolchains they have
+locally. The native and WASM trees share a single `kernels/` source set and
+a single compiler binary; only the *emitter* and *backend-side validator*
+change per flag.
+
+```
+# CMake options (declared in sculptcore/CMakeLists.txt)
+option(SBRUSH_BACKEND_CPP     "Emit C++ brush kernels (reference)"     ON)
+option(SBRUSH_BACKEND_WGSL    "Emit WGSL kernels + Tint validate"      OFF)
+option(SBRUSH_BACKEND_SPIRV   "Emit SPIR-V kernels + spirv-val"        OFF)
+option(SBRUSH_BACKEND_CUDA    "Emit CUDA kernels + nvcc --cuda --dryrun" OFF)
+option(SBRUSH_BACKEND_HIP     "Emit HIP kernels + hipcc syntax-only"   OFF)
+option(SBRUSH_BACKEND_OPENCL  "Emit OpenCL C kernels + clspv/poclcc"   OFF)
+option(SBRUSH_VALIDATE_ALL    "Run external validators on every emit"  OFF)
+option(SBRUSH_REGEN_ON_BUILD  "Re-run sbrushc during build (vs. checked-in outputs)" ON)
+```
+
+`SBRUSH_BACKEND_CPP` must stay `ON` — it's the only emitter that produces
+linkable code inside `libsculptcore`. The others emit *artifacts* under
+`build/<dir>/sbrush_out/<backend>/` and (when validators are available)
+gate the build on syntactic correctness.
+
+Layout in CMake:
+
+- `source/brush/compiler/CMakeLists.txt` builds a host tool `sbrushc` —
+  the lexer/parser/sema/IR — depending only on `util`, `math`, `binding`.
+  Always built when *any* backend is enabled.
+- `source/brush/kernels/CMakeLists.txt` declares the input `.sbrush` set
+  and one custom command per enabled backend. Each command runs
+  `sbrushc --backend=<name> --out=<dir> <inputs>`, depends on the source
+  files and on `sbrushc` itself, and (when its validator option is on)
+  pipes the output through the external validator and fails the build on
+  non-zero exit.
+- The C++ emitter's output (`*.brush.gen.cc` / `*.brush.gen.h`) is added
+  to a generated source list consumed by `target_sources(brush ...)`.
+  All other backends produce build-only artifacts, not link inputs.
+- `build_files/macros.cmake` gains an `sbrush_backend(name validator
+  [VALIDATOR_ARGS ...])` helper so the boilerplate per backend lives in
+  one place and stays consistent with the existing `build_wasm` helpers.
+
+Backend toolchain probing happens in
+`build_files/sbrush_toolchains.cmake`, included from the root
+`CMakeLists.txt`. For each enabled backend it does a `find_program` /
+`find_package` and either:
+
+- exports a `SBRUSH_<BACKEND>_VALIDATOR` cache variable used by the
+  emitter rule, or
+- emits a `FATAL_ERROR` listing the missing executables (`tint`,
+  `spirv-val`, `nvcc`, `hipcc`, `clspv`/`poclcc`) — never silently
+  downgrade, because that would let CI pass on a half-configured runner.
+
+`SBRUSH_VALIDATE_ALL=ON` is the CI mode: every enabled backend's emitter
+is followed by its validator. Local developers usually want
+`SBRUSH_VALIDATE_ALL=OFF` (faster) and only validate manually with
+`node make.mjs sbrush-validate <backend>`.
+
+`make.mjs` dispatcher additions:
+
+```
+node make.mjs configure native --backends=cpp,wgsl,spirv
+node make.mjs configure wasm   --backends=cpp,wgsl
+node make.mjs sbrush-build               # codegen-only, no C++ compile
+node make.mjs sbrush-validate wgsl       # run external validator pass
+node make.mjs sbrush-clean
+```
+
+`--backends=` translates to `-DSBRUSH_BACKEND_<X>=ON` per token; absent
+the flag, only `SBRUSH_BACKEND_CPP` is on. The default `build` step
+implicitly runs the codegen target as a CMake dependency (controlled by
+`SBRUSH_REGEN_ON_BUILD`) so iteration on `.sbrush` files doesn't need a
+manual codegen step.
+
+WASM-specific notes:
+
+- The C++ emitter respects the same `-DWASM` define gating as the rest of
+  `source/brush/` — no special-case lowering inside the compiler.
+- GPU backends are *not* exercised from the WASM build (no Vulkan/CUDA in
+  the browser). `SBRUSH_BACKEND_WGSL=ON` on WASM only enables the
+  emitter so WGSL can be packaged into the runtime for WebGPU dispatch
+  — validation still runs at host build time, never in the browser.
+
+Tree:
+
+```
+source/brush/
+  compiler/                  # sbrushc host tool
+    CMakeLists.txt
+    lexer.cc parser.cc sema.cc ir.cc emit_cpp.cc emit_wgsl.cc ...
+  kernels/
+    CMakeLists.txt           # per-backend custom commands
+    draw.sbrush kelvinlet.sbrush ...
+build_files/
+  macros.cmake               # adds sbrush_backend() helper
+  sbrush_toolchains.cmake    # find_program for tint/spirv-val/nvcc/...
+ci/
+  versions.env               # pinned tool versions (CI + devcontainer)
+```
+
+The CI image itself lives at `.devcontainer/Dockerfile` (see "CI image"
+below).
+
+### CI image
+
+The repo's existing `.devcontainer/Dockerfile` is the single image used
+both for editor / `claude` work and for CI runs of the sbrush backends —
+maintaining two separate images created drift. The image is sufficient
+to configure and build sculptcore with every backend flag on, and the
+future GitHub Actions workflow (`.github/workflows/brush-backends.yml`,
+not yet written) reuses it via `docker build -f .devcontainer/Dockerfile .`.
+
+The image pins:
+
+- Debian 12 (trixie) base, matching `.devcontainer/Dockerfile`.
+- Node + pnpm + the repo's pinned `emsdkVersion.txt` Emscripten.
+- LLVM/clang 18 for the native-clang toolchain referenced in
+  `make.mjs configure native`.
+- Tint (Dawn standalone) for WGSL validation.
+- `spirv-tools` (`spirv-val`, `spirv-opt`, `spirv-dis`) and `glslang` for
+  the Vulkan/SPIR-V backend.
+- CUDA Toolkit 12.x headers + `nvcc` in `--cuda --dryrun` mode (no GPU
+  needed — we only syntax-check).
+- ROCm `hipcc` in syntax-only mode (no AMD GPU on runners).
+- `clspv` for OpenCL → SPIR-V translation; `pocl` headers for OpenCL C
+  parsing.
+
+Versions are pinned via a single `ci/versions.env` file sourced by both
+the Dockerfile and `make.mjs sbrush-validate`, so a runner upgrade is a
+one-line PR. The workflow invokes:
+
+```
+node make.mjs install-emsdk
+node make.mjs configure native --backends=cpp,wgsl,spirv,cuda,hip,opencl
+node make.mjs build native
+node make.mjs test native
+node make.mjs configure wasm  --backends=cpp,wgsl
+node make.mjs build wasm
+```
+
+Each `build` step runs `sbrushc` for every enabled backend with
+`SBRUSH_VALIDATE_ALL=ON`; failure of any external validator fails the
+job and the offending tool's output appears in the build log.
 
 ### Analytical differentiation (deferred)
 
@@ -249,7 +396,32 @@ Design decisions taken *now* to keep this open:
 - `scripts/editors/view3d/tools/sculptcore_ops.ts:189` — call site stays
   unchanged; backend selection happens inside `execBrush`.
 - `sculptcore/make.mjs` — adds a `codegen` step that runs the `sbrush`
-  compiler over `kernels/*.sbrush` before configure.
+  compiler over `kernels/*.sbrush` before configure, plus
+  `sbrush-build` / `sbrush-validate` / `sbrush-clean` commands and a
+  `--backends=` flag on `configure`.
+- `sculptcore/build_files/macros.cmake` — adds `sbrush_backend()` helper.
+- `sculptcore/build_files/sbrush_toolchains.cmake` (new) — `find_program`
+  for `tint`, `spirv-val`, `nvcc`, `hipcc`, `clspv`.
+- `.devcontainer/Dockerfile` — carries every backend's toolchain
+  (tint, spirv-tools, glslang, nvcc, hipcc, clspv) on top of the existing
+  Node + emsdk setup; reused by CI. See "CI image" above.
+- `sculptcore/ci/versions.env` (new) — single pin file shared between the
+  Dockerfile and `make.mjs`.
+- `sculptcore/source/debug/script.cc` — gains the brush-DSL verbs
+  (`set_backend`, `set_brush_tool`, `set_falloff`, `set_texture`,
+  `set_coord_space`, `assert_dump`, `assert_png`, `set_grab`,
+  `set_kelvinlet_params`); see [`debugApp.md`](debugApp.md) for the
+  authoring recipe.
+- `sculptcore/source/debug/debug_app.cc` — accepts `--backend=...`
+  CLI flag, plumbed into `Scene`.
+- `sculptcore/tests/scripts/brush_backends/` (new) — per-brush A/B
+  scripts that drive every enabled backend through the same sequence.
+- `sculptcore/tests/golden/` (new) — JSON + PNG reference outputs
+  emitted by the C++ reference backend; regenerated via
+  `node make.mjs sbrush-verify --regen`.
+- `sculptcore/tests/test_debug_script.cc` — extended with coverage
+  for each new verb so headless unit-style assertions don't drift from
+  the binary's behavior.
 
 ## Phasing
 
@@ -271,13 +443,110 @@ Design decisions taken *now* to keep this open:
    brushes that want it (e.g. constraint solvers, optimization-based
    smoothing).
 
-## Verification
+## Verification via the debug app
 
-- `node make.mjs test native` runs `test_brush.cc` golden-output checks;
-  extend to a per-backend `test_brush_codegen` that compiles every emitted
-  kernel.
-- TS-side: existing `sculptcore.paint()` modal already exercises the Draw
-  path end-to-end through the WASM module; no UI change required for Wave 1.
+The native debug app ([`debugApp.md`](debugApp.md)) is the primary
+end-to-end harness for this work — it already runs the full brush
+pipeline (`mesh::Mesh` → `spatial::SpatialTree` → `brush::Brush` →
+`brush::CommandExecutor::execBrush`) headlessly from a script and emits
+both `dump_state` JSON and rendered PNGs. The plan extends it rather
+than building a parallel codegen-specific runner; this keeps every
+backend exercised through the same code path that production strokes
+flow through.
+
+### Debug-app changes per wave
+
+The debug app gains new verbs and a single CLI flag. Each addition
+follows the "Adding a verb" recipe in [`debugApp.md`](debugApp.md) and
+must come with coverage in
+[`tests/test_debug_script.cc`](../tests/test_debug_script.cc).
+
+**Wave 1 (C++ emitter only) — no debug-app changes.** Existing
+`stroke` / `dump_state` / `screenshot` are enough to confirm
+`draw.sbrush` produces byte-identical state to handwritten `draw.h`.
+
+**Wave 2 (more brushes, falloff, textures):**
+
+- `set_brush_tool tool=draw|clay|smooth|pinch|sharp|inflate` — selects
+  which compiled kernel `CommandExecutor::execBrush` dispatches.
+- `set_falloff kind=spherical|cube|linear|smoothstep|gaussian [curve=...]`
+  — drives the `Falloff` tagged union.
+- `set_texture image=relpath` / `set_texture proc=name [params...]` —
+  binds an image or procedural texture for `sampleBrushTex`.
+- `set_coord_space mode=global|viewplane|view_repeat|stroke_curved|projected`
+  — exposes the brush-texture coord-space matrix from the design.
+- `assert_dump ref=relpath eps=F` — JSON diff against a checked-in
+  golden under `tests/golden/`.
+- `assert_png ref=relpath eps=F` — PNG diff (per-pixel L∞ with
+  configurable epsilon) against a golden under `tests/golden/`.
+
+**Wave 3 (WGSL backend behind a flag):**
+
+- New CLI flag: `--backend=cpp|wgsl|spirv|cuda|hip|opencl` on
+  `debug_app`. Plumbs into `Scene` and through to
+  `CommandExecutor::execBrush` as a per-call backend selector. Default
+  stays `cpp`.
+- New verb: `set_backend backend=...` so a single script can A/B
+  backends on identical stroke sequences:
+  ```
+  make_cube subdivs=12 size=0.5
+  build_spatial leaf_limit=256 depth_limit=8
+  set_brush radius=0.25 strength=0.5
+
+  set_backend backend=cpp
+  stroke origin=0,0,0.5 normal=0,0,1
+  dump_state out=draw_cpp.json
+  undo
+
+  set_backend backend=wgsl
+  stroke origin=0,0,0.5 normal=0,0,1
+  assert_dump ref=golden/draw.json eps=1e-5
+  ```
+- The verb fails fast (non-zero exit) if the requested backend wasn't
+  compiled in (`SBRUSH_BACKEND_<X>=OFF` at configure time) — never
+  silently fall back to `cpp`, because that would let CI pass on a
+  misconfigured runner.
+
+**Wave 4 (global brushes):** add `set_grab from=x,y,z to=x,y,z` and
+`set_kelvinlet_params mu=F nu=F` so kelvinlet / pose can be exercised
+without bespoke C++ in `script.cc`.
+
+**Wave 5 (SPIR-V / CUDA / HIP / OpenCL):** no new verbs — the existing
+`--backend` flag already covers them. Each emitter ships a script
+under `tests/scripts/brush_backends/<name>/` that re-runs the Wave 3
+A/B pattern with `set_backend backend=<name>`.
+
+### Script harness layout
+
+```
+tests/scripts/
+  brush_backends/
+    draw_baseline.txt        # produces golden/draw.json + golden/draw.png
+    draw_compare.txt         # asserts each enabled backend matches golden
+    clay_compare.txt
+    smooth_compare.txt
+    kelvinlet_compare.txt
+    ...
+  golden/
+    draw.json draw.png clay.json clay.png ...
+```
+
+A new `node make.mjs sbrush-verify` command (added alongside the
+existing `sbrush-build` / `sbrush-validate`) builds native with all
+locally-available backends enabled, then runs every script under
+`tests/scripts/brush_backends/` through `debug_app`. CI calls the same
+target. Golden files are regenerated by running
+`node make.mjs sbrush-verify --regen` against the C++ reference
+backend; review the resulting diff (small JSONs, deterministic PNGs)
+before committing.
+
+### TS-side smoke
+
+- The existing `sculptcore.paint()` modal already exercises the Draw
+  path end-to-end through the WASM module; no UI change required for
+  Wave 1.
 - Wave 3+: a `--sculpt-backend=wgsl|spirv|cpp` debug flag in
-  `scripts/editors/view3d/tools/sculptcore_ops.ts` lets the user A/B
-  backends on the same stroke.
+  `scripts/editors/view3d/tools/sculptcore_ops.ts` mirrors the
+  debug-app `--backend` flag so the same A/B comparison runs in the
+  browser. The debug-app harness remains the gating signal; the TS
+  flag is for interactive exploration.

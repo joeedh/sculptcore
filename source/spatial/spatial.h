@@ -30,6 +30,12 @@ struct SpatialTree {
 
   int leaf_limit = 512;
   int depth_limit = 10;
+  /* Target tri count per GPU mesh. The set of "GPU nodes" is chosen so
+   * each owns a subtree whose tri count is <= this target (a single leaf
+   * exceeding the target becomes its own GPU node). Independent of
+   * leaf_limit, so leaves can stay small for spatial queries / brush
+   * iteration while GPU draws are batched. */
+  int gpu_tri_target = 2048;
 
   SpatialTreeMesh treeMesh;
 
@@ -138,6 +144,12 @@ struct SpatialTree {
   }
 
   util::Vector<SpatialNode *> leaves();
+  util::Vector<SpatialNode *> gpu_nodes();
+
+  /* Public so tests can drive partition assignment without a GPUManager. */
+  void recompute_subtree_tri_counts();
+  void assign_gpu_nodes();
+  SpatialNode *find_gpu_owner(SpatialNode *node);
 
   bool ensure_node_tris(SpatialNode *node)
   {
@@ -164,8 +176,17 @@ private:
   sculptcore::gpu::DrawBatch *drawBatch = nullptr;
   void regen_node_bounds(SpatialNode *node, bool recurse);
   void regen_node_tris(SpatialNode *node);
-  void regen_node_gpu_buffers(SpatialNode *node, gpu::GPUManager *gpu);
-  void update_node_gpu_buffers(SpatialNode *node, gpu::GPUManager *gpu);
+
+  /* GPU node buffer management. A "GPU node" aggregates the triangles of
+   * every leaf in its subtree into one VBO + draw command. */
+  void regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu);
+  void update_gpu_node_slice(SpatialNode *gpu_node,
+                             SpatialNode *leaf,
+                             gpu::GPUManager *gpu);
+  void collect_subtree_leaves(SpatialNode *node, util::Vector<SpatialNode *> &out);
+  void fill_leaf_slice(SpatialNode *leaf,
+                       math::float3 *pos,
+                       math::float3 *nor);
 
   void
   add_face_intern(SpatialNode *node, int f, std::span<Tri> &tris, math::float3 &fcent);

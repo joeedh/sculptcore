@@ -11,19 +11,12 @@ set(LIB_SRC
 set(LIB
   util math platform
   mesh meshlog brush spatial gpu
-  window opengl
-  glew
+  window vulkan
 )
 
 sc_add_library(debug_core "${LIB_SRC}" "${LIB}" STATIC)
 
-if(WIN32)
-  set(GL opengl32.lib)
-else()
-  set(GL GL)
-endif()
-
-target_link_libraries(debug_core glfw ${GL})
+target_link_libraries(debug_core glfw Vulkan::Vulkan)
 target_include_directories(debug_core PUBLIC
   ${CMAKE_SOURCE_DIR}/source
   ${CMAKE_SOURCE_DIR}/extern

@@ -21,7 +21,54 @@ set(SRC
   c-api/spatial_c_api.cc
 )
 
+# Codegen: WGSL -> {.wgsl.h, .spirv.h}
+#
+# We always emit the .wgsl.h text header (zero deps). SPIR-V emission needs the
+# `naga` CLI and is skipped under WASM (the native Vulkan backend is the only
+# consumer).
+set(SHADER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders/generated")
+file(MAKE_DIRECTORY "${SHADER_GEN_DIR}")
+find_program(NODE_EXECUTABLE NAMES node nodejs REQUIRED)
+set(WGSL_TOOL "${CMAKE_SOURCE_DIR}/tools/wgsl-to-spirv.mjs")
+
+if (BUILD_WASM)
+  set(SHADER_EMIT_MODE text)
+else()
+  set(SHADER_EMIT_MODE both)
+endif()
+
+set(SHADER_GEN_OUTPUTS)
+function(_sc_add_shader name)
+  set(_wgsl "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${name}.wgsl")
+  set(_text "${SHADER_GEN_DIR}/${name}.wgsl.h")
+  set(_spv "${SHADER_GEN_DIR}/${name}.spirv.h")
+  if (BUILD_WASM)
+    set(_outs ${_text})
+  else()
+    set(_outs ${_text} ${_spv})
+  endif()
+  add_custom_command(
+    OUTPUT ${_outs}
+    COMMAND ${NODE_EXECUTABLE} ${WGSL_TOOL}
+            --input ${_wgsl}
+            --out-dir ${SHADER_GEN_DIR}
+            --name ${name}
+            --emit ${SHADER_EMIT_MODE}
+    DEPENDS ${_wgsl} ${WGSL_TOOL}
+    COMMENT "WGSL codegen (${SHADER_EMIT_MODE}): ${name}"
+    VERBATIM
+  )
+  set(SHADER_GEN_OUTPUTS ${SHADER_GEN_OUTPUTS} ${_outs} PARENT_SCOPE)
+endfunction()
+
+_sc_add_shader(basic_line)
+_sc_add_shader(basic_mesh)
+
+add_custom_target(spatial_shaders_gen DEPENDS ${SHADER_GEN_OUTPUTS})
+
 sc_add_library(spatial "${SRC}" "${LIB}" OBJECT)
+add_dependencies(spatial spatial_shaders_gen)
+target_include_directories(spatial PRIVATE "${SHADER_GEN_DIR}")
 wasm_add_symbols("
   Mesh_buildSpatialTree
   SpatialTree_free

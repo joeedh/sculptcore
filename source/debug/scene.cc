@@ -2,7 +2,7 @@
 
 #include "gpu/batch.h"
 #include "litestl/util/alloc.h"
-#include "opengl/gl_screenshot.h"
+#include "vulkan/vk_screenshot.h"
 
 #include <cstdio>
 
@@ -15,8 +15,8 @@ Scene::Scene(int w, int h, bool hl) : width(w), height(h), headless(hl) {}
 
 Scene::~Scene()
 {
-  /* Release backend BEFORE the GL context goes away (window destruction).
-   * Otherwise the cached GL handles would dangle. */
+  /* Release backend BEFORE the VkContext goes away. Otherwise the cached
+   * Vulkan handles would dangle. */
   if (backend) {
     backend->invalidate();
     delete backend;
@@ -24,6 +24,10 @@ Scene::~Scene()
   }
   overlay.release();
   offscreen.release();
+  if (context) {
+    delete context;
+    context = nullptr;
+  }
   if (window) {
     delete window;
     window = nullptr;
@@ -38,7 +42,7 @@ Scene::~Scene()
   }
 }
 
-bool Scene::ensureGL()
+bool Scene::ensureGPU()
 {
   if (backend) {
     return true;
@@ -48,15 +52,22 @@ bool Scene::ensureGL()
   opts.resizable = !headless;
   window = new window::Window(litestl::math::float2(float(width), float(height)), opts);
   if (!window->init()) {
-    fprintf(stderr, "Scene::ensureGL: window init failed\n");
+    fprintf(stderr, "Scene::ensureGPU: window init failed\n");
     return false;
   }
-  if (headless) {
-    if (!offscreen.create(width, height)) {
-      return false;
-    }
+  context = new vulkan::VkContext();
+  /* Pass the GLFW window only in interactive mode — surface creation is
+   * required for a future swapchain. Headless skips it. */
+  GLFWwindow *handle = headless ? nullptr : window->handle();
+  if (!context->init(handle, true)) {
+    fprintf(stderr, "Scene::ensureGPU: VkContext init failed\n");
+    return false;
   }
-  backend = new opengl::GLBackend(&gpu);
+  if (!offscreen.create(context, width, height)) {
+    fprintf(stderr, "Scene::ensureGPU: OffscreenTarget create failed\n");
+    return false;
+  }
+  backend = new vulkan::VulkanBackend(&gpu, context, offscreen.renderPass);
   return true;
 }
 
@@ -109,23 +120,22 @@ void Scene::applyView(ViewPreset preset)
 
 void Scene::renderHeadless()
 {
-  if (!ensureGL()) {
+  if (!ensureGPU()) {
     return;
   }
-  window->makeCurrent();
-  offscreen.bind();
-  glEnable(GL_DEPTH_TEST);
-  glClearColor(0.10f, 0.11f, 0.13f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  if (!backend->beginFrame(offscreen, 0.10f, 0.11f, 0.13f, 1.0f)) {
+    return;
+  }
 
   if (!mesh || !tree) {
+    backend->endFrame();
     return;
   }
 
   float aspect = float(width) / float(height);
   mat4 vp = camera.viewProj(aspect);
 
-  opengl::DrawUniforms u;
+  vulkan::DrawUniforms u;
   u.drawMatrix = vp;
   u.normalMatrix.identity();
 
@@ -143,52 +153,23 @@ void Scene::renderHeadless()
   if (showCursor && lastStroke.valid) {
     overlay.drawBrushCursor(vp, lastStroke.origin, lastStroke.normal, lastStroke.radius);
   }
-  glFinish();
+  backend->endFrame();
 }
 
 void Scene::renderWindow()
 {
-  if (!ensureGL()) {
-    return;
-  }
-  window->makeCurrent();
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  glViewport(0, 0, width, height);
-  glEnable(GL_DEPTH_TEST);
-  glClearColor(0.10f, 0.11f, 0.13f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-  if (!mesh || !tree) {
-    return;
-  }
-  float aspect = float(width) / float(height);
-  mat4 vp = camera.viewProj(aspect);
-  opengl::DrawUniforms u;
-  u.drawMatrix = vp;
-  u.normalMatrix.identity();
-
-  tree->update(&gpu);
-  backend->draw(tree->getDrawBatch(), u);
-  if (showAxes) {
-    overlay.drawAxes(vp);
-  }
-  if (showCursor && lastStroke.valid) {
-    overlay.drawBrushCursor(vp, lastStroke.origin, lastStroke.normal, lastStroke.radius);
-  }
-  window->swap();
+  /* Interactive presentation requires a swapchain; not yet wired up. Render
+   * into the offscreen target so the rest of the pipeline exercises Vulkan
+   * end-to-end. The visible GLFW window stays blank for now. */
+  renderHeadless();
 }
 
 bool Scene::screenshot(const char *path)
 {
-  if (!ensureGL()) {
+  if (!ensureGPU()) {
     return false;
   }
-  if (headless) {
-    offscreen.bind();
-  } else {
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  }
-  return opengl::captureToPNG(path, width, height);
+  return vulkan::captureToPNG(path, *context, offscreen);
 }
 
 } // namespace sculptcore::debug_app

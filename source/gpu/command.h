@@ -9,6 +9,8 @@
 #include "vbo.h"
 
 namespace sculptcore::gpu {
+struct GPUManager;
+
 struct DrawCommand {
   GPUCmdType type = GPUCmdType::DRAW_TRIS;
   ShaderDef *shader = nullptr;
@@ -16,11 +18,18 @@ struct DrawCommand {
   int start = 0, end = 0;
   int primCount = 0;
 
+  /* Back-pointer set by GPUManager::createCommand so the destructor can
+   * self-remove from `manager->commands`. Mirrors Buffer's ownership
+   * pattern — lets external producers `alloc::Delete` us without leaving
+   * stale pointers in the manager. */
+  GPUManager *manager = nullptr;
+
   DrawCommand()
   {
   }
-  DrawCommand(DrawCommand &&) = default;
-  DrawCommand &operator=(DrawCommand &&) = default;
+  DrawCommand(DrawCommand &&) = delete;
+  DrawCommand &operator=(DrawCommand &&) = delete;
+  ~DrawCommand();
   
   static const litestl::binding::types::Struct<DrawCommand> *defineBindings()
   {

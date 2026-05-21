@@ -39,6 +39,13 @@ set(CMAKE_OPTIMIZE_DEPENDENCIES true)
 include("build_files/macros.cmake")
 include("source/litestl/build_files/macros.cmake")
 
+if (NOT BUILD_WASM)
+  # Vulkan headers + loader from the system Vulkan SDK. Found here at the
+  # root so the Vulkan::Vulkan imported target is visible to every
+  # subdirectory that links it (source/vulkan/, source/debug/).
+  find_package(Vulkan REQUIRED)
+endif()
+
 add_subdirectory(extern)
 add_subdirectory(source)
 

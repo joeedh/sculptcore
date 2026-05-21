@@ -67,7 +67,14 @@ function getVSEnv() {
     if (!k || !/^[A-Za-z_][A-Za-z0-9_()]*$/.test(k)) continue
     childEnv[k] = v
   }
-  childEnv.PATH = [`${systemRoot}\\System32`, systemRoot, `${systemRoot}\\System32\\Wbem`].join(';')
+  // Keep Node.js on PATH so cmake's find_program(NODE_EXECUTABLE) finds it
+  // (needed for the WGSL->SPIR-V codegen step in source/spatial). Also keep
+  // the user's cargo bin dir so `naga` is reachable during the codegen step.
+  const nodeDir = Path.dirname(process.execPath)
+  const cargoBin = process.env.USERPROFILE ? Path.join(process.env.USERPROFILE, '.cargo', 'bin') : ''
+  childEnv.PATH = [`${systemRoot}\\System32`, systemRoot, `${systemRoot}\\System32\\Wbem`, nodeDir, cargoBin]
+    .filter(Boolean)
+    .join(';')
   const result = child_process.execSync(`cmd /s /c \"call \"${path}\" && set\"`, {env: childEnv})
   const env = result
     .toString('latin1')

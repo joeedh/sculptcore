@@ -1,10 +1,10 @@
 #pragma once
 
 #include "binding/binding_literal.h"
+#include "math/math_bindings.h"
 #include "math/vector.h"
 
 #include "util/alloc.h"
-#include "util/boolvector.h"
 #include "util/compiler_util.h"
 #include "util/map.h"
 #include "util/string.h"
@@ -19,7 +19,7 @@ namespace sculptcore::gpu {
 using litestl::util::string;
 using litestl::util::stringref;
 
-enum class _UniformType {
+enum class _UniformBindType {
   FLOAT = 0,
   DOUBLE = 1,
   BYTE = 2,
@@ -53,7 +53,13 @@ enum class _UniformType {
   UBYTE3 = 30,
   UBYTE4 = 31
 };
-MAKE_ENUM_CLASS(UniformType, _UniformType, int32_t);
+MAKE_ENUM_CLASS(UniformBindType, _UniformBindType, int32_t);
+
+namespace detail {
+
+extern litestl::binding::types::Enum *uniformBindTypeEnum;
+extern litestl::binding::types::Union *uniformBindTypeUnion;
+} // namespace detail
 
 struct UniformDefBase {
   string name;
@@ -84,7 +90,10 @@ template <typename T> struct UniformDef : public UniformDefBase {
     BIND_STRUCT_MEMBER(st, name);
     BIND_STRUCT_MEMBER(st, type);
     BIND_STRUCT_MEMBER(st, elemSize);
-    BIND_STRUCT_MEMBER(st, defaultValue);
+    st->add("defaultValue",
+            offsetof(UniformDef, defaultValue),
+            new types::ParentTemplateParam(
+                "T", 0, Bind<T>(), detail::uniformBindTypeEnum));
     return st;
   }
 };
@@ -114,29 +123,56 @@ struct ShaderDefDefine {
 
 struct ShaderDef {
   string name;
-  string vertexSource, fragmentSource;
+  string wgslSource;
   util::Vector<AttrDef> attrs;
   util::Vector<UniformDefBase *> uniforms;
   util::Map<string, string> defines;
 
+  /* Pre-compiled SPIR-V module containing all entry points from the WGSL
+   * source (typically `vs_main` + `fs_main`). Set by the shader-owning
+   * module when constructing a ShaderDef on native; null on WASM where the
+   * WebGPU backend consumes wgslSource directly. Points at static
+   * constexpr data emitted by tools/wgsl-to-spirv.mjs. */
+  const uint32_t *spirv = nullptr;
+  size_t spirvSize = 0;
+
   ShaderDef()
   {
   }
-  ShaderDef(const ShaderDef &b) = default;
-  ShaderDef &operator=(const ShaderDef &b) = default;
+  /* uniforms is a vector of heap-owned pointers that the destructor frees,
+   * so copying would alias the owned pointers and cause a double-free.
+   * Move-only; consumers always reference ShaderDefs through pointers. */
+  ShaderDef(const ShaderDef &) = delete;
+  ShaderDef &operator=(const ShaderDef &) = delete;
+  ShaderDef(ShaderDef &&b) noexcept
+      : name(std::move(b.name)),
+        wgslSource(std::move(b.wgslSource)),
+        attrs(std::move(b.attrs)),
+        uniforms(std::move(b.uniforms)),
+        defines(std::move(b.defines)),
+        spirv(b.spirv),
+        spirvSize(b.spirvSize)
+  {
+    b.spirv = nullptr;
+    b.spirvSize = 0;
+  }
+  ShaderDef &operator=(ShaderDef &&b) noexcept
+  {
+    if (this == &b) return *this;
+    this->~ShaderDef();
+    new (static_cast<void *>(this)) ShaderDef(std::move(b));
+    return *this;
+  }
   ShaderDef(string name,
-            string vertexSource,
-            string fragmentSource,
+            string wgslSource,
             util::Vector<AttrDef> attrs,
             util::Vector<UniformDefBase *> uniforms,
             util::Vector<ShaderDefDefine> defines)
+      : name(std::move(name)),
+        wgslSource(std::move(wgslSource)),
+        attrs(std::move(attrs)),
+        uniforms(std::move(uniforms))
   {
-    this->name = name;
-    this->vertexSource = vertexSource;
-    this->fragmentSource = fragmentSource;
-    this->attrs = attrs;
-    this->uniforms = uniforms;
-
     for (auto &item : defines) {
       if (!item.isSetByDefault) {
         continue;
@@ -162,33 +198,20 @@ struct ShaderDef {
         new types::Struct<ShaderDef>("sculptcore::gpu::ShaderDef", sizeof(ShaderDef));
 
     BIND_STRUCT_MEMBER(st, name);
-    BIND_STRUCT_MEMBER(st, vertexSource);
-    BIND_STRUCT_MEMBER(st, fragmentSource);
+    BIND_STRUCT_MEMBER(st, wgslSource);
     BIND_STRUCT_MEMBER(st, attrs);
+
     //  deal with defines later
     //  BIND_STRUCT_MEMBER(st, defines);
 
-#if 0 // TODO afterm more cleanup in union code
-    // build type union of uniformDef
-    types::Union *unionType = new types::Union("type", Bind<GPUType>());
-    unionType->add("FLOAT32",
-                   GPUType::FLOAT32,
-                   static_cast<const types::_StructBase *>(Bind<UniformDef<float>>()));
-    unionType->add("FLOAT64",
-                   GPUType::FLOAT64,
-                   static_cast<const types::_StructBase *>(Bind<UniformDef<double>>()));
-    unionType->add("INT8",
-                   GPUType::INT8,
-                   static_cast<const types::_StructBase *>(Bind<UniformDef<int8_t>>()));
-    unionType->add("UINT8",
-                   GPUType::UINT8,
-                   static_cast<const types::_StructBase *>(Bind<UniformDef<uint8_t>>()));
+    using namespace litestl::math;
+
     // build uniformDef pointer vector
-    types::Pointer *ptrType = new types::Pointer(unionType);
+    types::Pointer *ptrType = new types::Pointer(detail::uniformBindTypeUnion);
     ptrType->isNonNull = true;
 
     types::Struct<Vector<UniformDefBase *>> *vecSt =
-        new types::Struct<Vector<UniformDefBase *>>("sculptcore::util::Vector",
+        new types::Struct<Vector<UniformDefBase *>>("litestl::util::Vector",
                                                     sizeof(Vector<UniformDefBase *>));
 
     // vector type
@@ -201,9 +224,6 @@ struct ShaderDef {
         "N");
 
     st->add("uniforms", offsetof(ShaderDef, uniforms), vecSt);
-
-#endif
-
     return st;
   }
 };

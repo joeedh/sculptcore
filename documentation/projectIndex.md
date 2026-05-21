@@ -13,7 +13,7 @@ A C++20 sculpting/mesh engine that builds natively and to WebAssembly via Emscri
 | `index.html` | Browser entry that loads the WASM module. |
 | `emsdk/` | Emscripten SDK (git submodule). Version pinned in `emsdkVersion.txt`. |
 | `build_files/` | `macros.cmake`, `WASM.cmake`, `link_wasm.py`, `emsdk_env.py`. |
-| `extern/` | Vendored deps: `eigen_dist/`, `glew/`, `glfw/`. |
+| `extern/` | Vendored deps: `eigen_dist/`, `glfw/`. Vulkan headers + loader come from the system Vulkan SDK (`find_package(Vulkan)`). |
 | `assets/` | Runtime assets. |
 | `tests/` | GTest-style unit tests (native builds only). |
 | `documentation/` | Project docs (this file). |
@@ -70,7 +70,7 @@ See `documentation/brush.md` for a detailed overview.
 ### `source/gpu/` — GPU abstraction
 
 Frontend: `batch.h`, `command.h`, `pipeline.h`, `shader.cc/.h`, `texture.h`, `vbo.cc/.h`, `types.h`, `standard_attrs.h`, `manager.cc/.h`. Bindings: `bindings.h`.
-Backend: `opengl/` — `shader.h`, `texture.h`, `pipeline.h`, `vbo.h`, `command.h`.
+Native backend: `source/vulkan/` — `vk_context`, `vk_backend`, `vk_overlay`, `vk_screenshot`. WGSL shaders under `source/spatial/shaders/*.wgsl` are compiled to SPIR-V at build time via `naga` (`tools/wgsl-to-spirv.mjs`).
 
 ### `source/core/` — aggregate bindings
 

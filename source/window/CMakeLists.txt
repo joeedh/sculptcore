@@ -3,7 +3,7 @@ set(LIB
   platform
   math
   gpu
-  glew
+  glfw
 )
 
 set(SRC

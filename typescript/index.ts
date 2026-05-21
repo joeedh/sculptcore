@@ -24,6 +24,7 @@ import type {Brush} from './sculptcore/brush/Brush'
 import type {float2} from './litestl/math/float2'
 import type {int2} from './litestl/math/int2'
 import type {MeshLog} from './sculptcore/meshlog/MeshLog'
+import type {UniformDef} from './sculptcore/gpu/UniformDef'
 import type {AttrData} from './sculptcore/mesh/AttrData'
 import type {Buffer} from './sculptcore/gpu/Buffer'
 import type {AttrGroup} from './sculptcore/mesh/AttrGroup'
@@ -53,6 +54,7 @@ export type {Brush} from './sculptcore/brush/Brush'
 export type {float2} from './litestl/math/float2'
 export type {int2} from './litestl/math/int2'
 export type {MeshLog} from './sculptcore/meshlog/MeshLog'
+export type {UniformDef} from './sculptcore/gpu/UniformDef'
 export type {AttrData} from './sculptcore/mesh/AttrData'
 export type {Buffer} from './sculptcore/gpu/Buffer'
 export type {AttrGroup} from './sculptcore/mesh/AttrGroup'
@@ -90,7 +92,7 @@ export type AllBoundTypes = {
   'litestl::math::int4': int4
   'sculptcore::mesh::AttrRef': AttrRef
   'sculptcore::gpu::DrawBatch': DrawBatch
-  'sculptcore::gpu::GPUManager': GPUManager
+  'sculptcore::gpu::Buffer': Buffer
   'sculptcore::spatial::SpatialTree': SpatialTree
   'sculptcore::gpu::ShaderDef': ShaderDef
   'sculptcore::props::StructProp': StructProp
@@ -102,7 +104,7 @@ export type AllBoundTypes = {
     int2,
     '.edge.vs'
   >
-  'sculptcore::gpu::Buffer': Buffer
+  'sculptcore::gpu::GPUManager': GPUManager
   'sculptcore::spatial::CastRayIsect': CastRayIsect
   'sculptcore::mesh::VertexData': VertexData
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>': BuiltinAttr<
@@ -118,8 +120,8 @@ export type AllBoundTypes = {
     'positions'
   >
   'sculptcore::mesh::EdgeData': EdgeData
+  'litestl::math::AABB<litestl::math::float3>': AABB<float3>
   'sculptcore::spatial::SpatialShaders': SpatialShaders
   'sculptcore::mesh::BuiltinAttr<int32,.edge.c>': BuiltinAttr<int32, '.edge.c'>
-  'litestl::math::AABB<litestl::math::float3>': AABB<float3>
   'sculptcore::mesh::gpu::MeshBatchManager': MeshBatchManager
 }
