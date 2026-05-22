@@ -7,4 +7,6 @@ if (NOT BUILD_WASM)
 
   # Vulkan is found at the root via find_package(Vulkan REQUIRED) so the
   # Vulkan::Vulkan imported target is visible to all subdirectories.
+
+  include("${CMAKE_CURRENT_SOURCE_DIR}/imgui_build.cmake")
 endif()

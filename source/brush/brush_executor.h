@@ -5,6 +5,7 @@
 #include "brush_iterators.h"
 #include "brushes/all.h"
 #include "litestl/binding/binding.h"
+#include "litestl/util/task.h"
 #include "meshlog/meshlog.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
@@ -74,10 +75,20 @@ struct CommandExecutor {
 
     cmd.execPre(ctx, nodes);
 
+#ifdef NO_PARALLEL_FOR
     for (auto *node : nodes) {
       CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, *brush);
       cmd.exec(finalCtx);
     }
+#else
+    litestl::task::parallel_for(util::IndexRange(nodes.size()), [&](IndexRange range) {
+      for (int i : range) {
+        SpatialNode *node = nodes[i];
+        CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, *brush);
+        cmd.exec(finalCtx);
+      }
+    }, 4);
+#endif
 
     cmd.execPost(ctx, nodes);
   }

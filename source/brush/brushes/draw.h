@@ -7,7 +7,6 @@ namespace sculptcore::brush::command {
 template <CommandTypes TYPES>
 static void drawPre(CommandCtxBase &ctx, span<SpatialNode *> nodes)
 {
-  printf("drawPre: meshLog=%p isFirstTime=%d\n", ctx.meshLog, ctx.isFirstOfStep);
   if (ctx.meshLog) {
     for (auto *node : nodes) {
       if (ctx.meshLog->hasSimpleChunk(node->id)) {
@@ -32,11 +31,20 @@ static void drawPre(CommandCtxBase &ctx, span<SpatialNode *> nodes)
 template <CommandTypes TYPES> static void draw(CommandCtx<TYPES> &ctx)
 {
   using namespace sculptcore::spatial;
+  bool any_moved = false;
   for (auto &vi : ctx.vertexIter(ctx.node)) {
-    vi.co += ctx.surfaceNo * ctx.strength(vi.co); // * vi.mask;
+    float s = ctx.strength(vi.co); // * vi.mask;
+    if (s == 0.0f) {
+      continue;
+    }
+    vi.co += ctx.surfaceNo * s;
+    ctx.node.affected_verts.append(vi.v);
+    any_moved = true;
   }
 
-  ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds);
+  if (any_moved) {
+    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds);
+  }
 }
 
 template <CommandTypes TYPES>

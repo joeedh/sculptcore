@@ -36,8 +36,8 @@ debug_app --script PATH [--out DIR] [--headless] [--width N] [--height N]
   window. GL is initialized lazily on the first `screenshot` verb.
 - `--no-headless` — opens a window for rendering.
 - `--interactive` — implies `--no-headless`; after the script finishes
-  the window stays open until the user closes it. Useful for visual
-  inspection of an intermediate state.
+  the window stays open and accepts mouse + keyboard input until closed.
+  See [Interactive mode](#interactive-mode) below.
 - `--width N --height N` — framebuffer / window size (default 1024×768).
 
 Exit code is `0` on success, `1` on script error (with line number and
@@ -53,9 +53,9 @@ spaces aren't supported — vectors use `=x,y,z`.
 |---|---|---|
 | `make_cube`     | `subdivs=N size=F sphere=F`                       | replaces the active mesh with a subdivided cube; `sphere` ∈ [0,1] morphs toward a sphere |
 | `build_spatial` | `leaf_limit=N depth_limit=N`                      | (re)builds the spatial accelerator on the current mesh |
-| `set_brush`     | `radius=F strength=F invert=0/1`                  | tweaks the active `brush::Brush` props and re-syncs them through `props::StructProp` |
+| `set_brush`     | `radius=F strength=F spacing=F invert=0/1`        | tweaks the active `brush::Brush` props and re-syncs them through `props::StructProp`; `spacing` is the per-stroke fraction of `radius` between successive dabs (default 0.25) |
 | `stroke`        | `origin=x,y,z normal=x,y,z`                       | one-step `DRAW` stroke through `brush::CommandExecutor::execBrush` |
-| `stroke_path`   | `p1=x,y,z p2=x,y,z normal=... steps=N`            | sweeps N draw steps along the segment, sharing one `beginStep/endStep` |
+| `stroke_path`   | `p1=x,y,z p2=x,y,z normal=... steps=N`<br>or `... spacing=F` | sweeps a segment of `DRAW` dabs. With `steps=N` (default 8): N evenly-distributed dabs by parameter `t`. With `spacing=F`: dabs every `radius * spacing` world-space units, matching what the interactive stroke path does |
 | `view`          | `preset=front\|top\|side\|persp\|free`            | re-frames the camera on the mesh AABB |
 | `screenshot`    | `view=... out=relpath [leaves=0/1]`               | renders headless + writes PNG; `leaves=1` overlays spatial-leaf AABBs |
 | `dump_state`    | `out=relpath [mesh=1 spatial=1 brush=1]`          | writes JSON snapshot of selected sections |
@@ -79,19 +79,56 @@ dump_state out=cube_draw.json
 screenshot view=persp out=cube_draw.png
 ```
 
+## Interactive mode
+
+`--interactive` presents the scene through a Vulkan swapchain attached to
+the GLFW window. The script still drives initial scene setup (mesh,
+spatial tree, brush params, view) — once it finishes the user takes over
+with mouse + keyboard:
+
+| input                          | action |
+|---|---|
+| LMB drag                       | brush stroke; dabs are deposited every `radius * brush.spacing` world-space units along the cursor path. Curve interpolation across dabs is future work — dabs lerp linearly between successive mouse samples. |
+| Shift+LMB drag                 | pan |
+| Alt+LMB drag, RMB drag, MMB drag | orbit around `Camera::target` |
+| scroll                         | zoom (eye→target distance, clamped) |
+| Ctrl+Z                         | undo last brush step (refused mid-stroke) |
+| Ctrl+Y or Ctrl+Shift+Z         | redo |
+| window resize                  | swapchain is recreated automatically |
+
+The brush dabs share one `meshlog::MeshLog::beginStep` / `endStep` pair per
+stroke, so a single undo reverts the whole drag.
+
+There is no in-app UI yet — adjust brush parameters in your `--script`
+before the interactive loop begins. A Dear ImGui panel for live brush
+controls is a follow-up.
+
+Internally, `Scene` keeps two `vulkan::VulkanBackend` instances:
+`backend` (offscreen target, used by `screenshot`) and `backendWindow`
+(swapchain render pass). The interactive loop in `debug_app.cc` attaches
+an `InputDispatcher` to the GLFW window and feeds events to an
+`InteractiveController`; the controller owns the active stroke, casts
+rays via `spatial::SpatialTree::castRay`, and routes Ctrl+Z/Y into
+`meshLog`.
+
 ## Architecture
 
 ```
 source/debug/
-  debug_app.cc      CLI entry, arg parsing, headless/interactive loop.
-  scene.{h,cc}      Owns Mesh + SpatialTree + Brush + MeshLog + GPUManager
-                    + camera + window + Vulkan offscreen target + overlay.
-                    All optional pieces are lazily created — a script that
-                    never asks for screenshots never opens a Vulkan device.
-  script.{h,cc}     Lexer + verb dispatcher. Pure C++; no STL containers
-                    in hot paths (uses litestl::util::Vector).
-  state_dump.{h,cc} JSON writer for mesh / spatial / brush sections.
-  camera.h          View-preset helpers.
+  debug_app.cc       CLI entry, arg parsing, headless/interactive loop.
+  scene.{h,cc}       Owns Mesh + SpatialTree + Brush + MeshLog + GPUManager
+                     + camera + window + Vulkan offscreen target + swapchain
+                     + overlay. All optional pieces are lazily created — a
+                     script that never asks for screenshots never opens a
+                     Vulkan device.
+  script.{h,cc}      Lexer + verb dispatcher. Pure C++; no STL containers
+                     in hot paths (uses litestl::util::Vector).
+  state_dump.{h,cc}  JSON writer for mesh / spatial / brush sections.
+  camera.h           View-preset helpers.
+  input.{h,cc}       GLFW callback trampolines + InputDispatcher
+                     (InputEvent / InputHandler).
+  interactive.{h,cc} InteractiveController — translates mouse/key events
+                     into brush strokes, camera nav, undo/redo.
 ```
 
 Static lib `debug_core` exposes `Scene` / `script::run` to tests;
@@ -167,9 +204,6 @@ and run it through the binary in CI.
 - Vulkan headers and the loader come from the system Vulkan SDK
   (`find_package(Vulkan REQUIRED)`); set `VULKAN_SDK` if CMake can't find
   it.
-- Interactive (`--interactive`) currently renders into the offscreen
-  target only — a swapchain-presented window is a follow-up. The GLFW
-  window appears but stays blank.
 - Relative paths in scripts resolve against `--out`, not against the
   script file's directory — keep that in mind when sharing scripts
   between local runs and CI runs.

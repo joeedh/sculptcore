@@ -48,6 +48,17 @@ struct Window {
   GLFWwindow *handle() { return handle_; }
   float2 size() const { return size_; }
 
+  /** Pixel framebuffer size (may differ from window size on hi-DPI). */
+  void framebufferSize(int &w, int &h) const
+  {
+    if (handle_) {
+      glfwGetFramebufferSize(handle_, &w, &h);
+    } else {
+      w = int(size_[0]);
+      h = int(size_[1]);
+    }
+  }
+
   ~Window();
 
 private:

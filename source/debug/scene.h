@@ -10,6 +10,7 @@
 #include "vulkan/vk_backend.h"
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_overlay.h"
+#include "vulkan/vk_swapchain.h"
 #include "window/window.h"
 
 #include "litestl/util/string.h"
@@ -53,8 +54,10 @@ struct Scene {
   /* Owned GPU bits (created on first ensureGPU()). */
   window::Window *window = nullptr;
   vulkan::VkContext *context = nullptr;
-  vulkan::VulkanBackend *backend = nullptr;
+  vulkan::VulkanBackend *backend = nullptr;        /* offscreen render pass */
+  vulkan::VulkanBackend *backendWindow = nullptr;  /* swapchain render pass; only when !headless */
   vulkan::OffscreenTarget offscreen;
+  vulkan::Swapchain swapchain;
   vulkan::Overlay overlay;
 
   int width;
@@ -62,7 +65,7 @@ struct Scene {
   bool headless;
 
   void setMesh(mesh::Mesh *m);
-  void buildSpatial(int leafLimit, int depthLimit);
+  void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);
 
   /** Center camera + set view direction from preset; uses mesh AABB. */
   void applyView(ViewPreset preset);
@@ -70,12 +73,31 @@ struct Scene {
   /** Render into the offscreen target. */
   void renderHeadless();
 
-  /** Render into the visible window (interactive smoke). Currently rendered
-   *  into the offscreen target only — swapchain presentation is a TODO. */
+  /** Acquire a swapchain image, draw the scene + overlay (+ optional
+   *  pre-pass and ImGui hook), and present. Returns false if the
+   *  swapchain went out-of-date and was recreated. */
   void renderWindow();
+
+  /** Recreate the swapchain to match the GLFW framebuffer size. Called
+   *  from the resize callback and on present-out-of-date. */
+  void handleResize();
+
+  /** Optional hook recorded inside the swapchain render pass, after the
+   *  scene+overlay draw and before vkCmdEndRenderPass. Used to plug in
+   *  ImGui draw data. Pass nullptr to clear. */
+  using PostDrawHook = void (*)(void *user, VkCommandBuffer cb);
+  void setPostDrawHook(PostDrawHook hook, void *user)
+  {
+    postDrawHook_ = hook;
+    postDrawUser_ = user;
+  }
 
   /** Helper: write current offscreen color attachment to PNG. */
   bool screenshot(const char *path);
+
+private:
+  PostDrawHook postDrawHook_ = nullptr;
+  void *postDrawUser_ = nullptr;
 };
 
 } // namespace sculptcore::debug_app

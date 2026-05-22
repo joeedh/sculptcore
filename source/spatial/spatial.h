@@ -38,7 +38,7 @@ struct SpatialTree {
   int gpu_tri_target = 2048;
 
   SpatialTreeMesh treeMesh;
-
+  bool done_gpu_assignment = false;
   Mesh *m;
 
   SpatialTree(Mesh *m_) : m(m_)

@@ -4,6 +4,7 @@
 #include "state_dump.h"
 
 #include "brush/brush_executor.h"
+#include "brush/stroke_spacing.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/mesh_shapes.h"
@@ -155,13 +156,15 @@ bool execVerb(Scene &scene,
   }
   if (verb == "build_spatial") {
     int leaf = getInt(args, "leaf_limit", 512);
-    int depth = getInt(args, "depth_limit", 10);
-    scene.buildSpatial(leaf, depth);
+    int depth = getInt(args, "depth_limit", 16);
+    int gpu_tri_target = getInt(args, "gpu_tri_target", 2048);
+    scene.buildSpatial(leaf, depth, gpu_tri_target);
     return true;
   }
   if (verb == "set_brush") {
     scene.brush.radius = getFloat(args, "radius", scene.brush.radius);
     scene.brush.strength = getFloat(args, "strength", scene.brush.strength);
+    scene.brush.spacing = getFloat(args, "spacing", scene.brush.spacing);
     scene.brush.invert = getBool(args, "invert", scene.brush.invert);
     scene.brush.writeProps();
     return true;
@@ -206,23 +209,39 @@ bool execVerb(Scene &scene,
       return false;
     }
     parseFloat3(getArg(args, "normal"), normal);
-    int steps = getInt(args, "steps", 8);
-    if (steps < 1) {
-      steps = 1;
-    }
+
     brush::CommandExecutor exec(scene.tree, &scene.brush);
     exec.meshLog = &scene.meshLog;
     exec.beginStep();
-    for (int i = 0; i < steps; i++) {
-      float t = (steps == 1) ? 0.0f : float(i) / float(steps - 1);
-      float3 origin = p1 * (1.0f - t) + p2 * t;
+
+    auto emitDab = [&](float3 origin) {
       Vector<spatial::SpatialNode *> nodes;
       scene.tree->filterNodes(origin, scene.brush.radius, nodes);
       if (nodes.size() == 0) {
-        continue;
+        return;
       }
       exec.execBrush(brush::SculptBrushes::DRAW, &nodes, origin, normal);
       exec.clearIsFirstOfStep();
+    };
+
+    const char *spacingArg = getArg(args, "spacing");
+    if (spacingArg) {
+      /* spacing= overrides fixed-step mode: emit dabs every
+       * radius * spacing world-space units along the segment. */
+      float spacingFrac = float(std::atof(spacingArg));
+      brush::StrokeSpacer spacer;
+      spacer.spacing = scene.brush.radius * spacingFrac;
+      spacer.advance(p1, emitDab);
+      spacer.advance(p2, emitDab);
+    } else {
+      int steps = getInt(args, "steps", 8);
+      if (steps < 1) {
+        steps = 1;
+      }
+      for (int i = 0; i < steps; i++) {
+        float t = (steps == 1) ? 0.0f : float(i) / float(steps - 1);
+        emitDab(p1 * (1.0f - t) + p2 * t);
+      }
     }
     exec.endStep();
 

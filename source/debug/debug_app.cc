@@ -1,5 +1,8 @@
+#include "input.h"
+#include "interactive.h"
 #include "scene.h"
 #include "script.h"
+#include "ui.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -94,11 +97,31 @@ int main(int argc, char **argv)
   }
 
   if (interactive) {
-    scene.ensureGPU();
-    while (scene.window && !scene.window->shouldClose()) {
+    if (!scene.ensureGPU() || !scene.window) {
+      std::fprintf(stderr, "interactive: failed to bring up window/GPU\n");
+      return 1;
+    }
+    InputDispatcher dispatcher;
+    Ui ui(&scene);
+    InteractiveController controller(&scene);
+    /* Order matters: Ui runs first and short-circuits the controller when
+     * ImGui has focus. The actual GLFW event delivery to ImGui happens
+     * through its chained callbacks installed inside Ui::init(). */
+    dispatcher.addHandler(&ui);
+    dispatcher.addHandler(&controller);
+    dispatcher.attach(scene.window->handle());
+
+    if (!ui.init()) {
+      std::fprintf(stderr, "interactive: Ui::init failed; continuing without panel\n");
+    }
+
+    while (!scene.window->shouldClose()) {
       scene.window->poll();
+      ui.beginFrame();
       scene.renderWindow();
     }
+    ui.shutdown();
+    dispatcher.detach();
   }
   return 0;
 }

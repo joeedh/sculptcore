@@ -61,5 +61,35 @@ int main()
     test_assert(r.line_no == 2);
   }
 
+  /* stroke_path with `spacing=` walks the segment in world-space at
+   * radius * spacing intervals and must displace at least some verts.
+   * Sanity-checks the new dab-spacing path without locking in an exact
+   * count. */
+  {
+    Scene scene(64, 64, true);
+    const char *src =
+        "make_cube subdivs=16 size=0.5\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_brush radius=0.18 strength=0.3 spacing=0.5\n"
+        "stroke_path p1=-0.35,0,0.5 p2=0.35,0,0.5 normal=0,0,1 spacing=0.5\n";
+    auto r = script::run(scene, src, ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  script line %d: %s\n", r.line_no, r.error.c_str());
+    }
+    test_assert(scene.mesh != nullptr);
+    /* Some +Z vertices should have moved off the original plane. */
+    bool moved = false;
+    if (scene.mesh) {
+      for (int i = 0; i < scene.mesh->v.count; i++) {
+        if (scene.mesh->v.co[i][2] > 0.5f + 1e-4f) {
+          moved = true;
+          break;
+        }
+      }
+    }
+    test_assert(moved);
+  }
+
   return test_end();
 }

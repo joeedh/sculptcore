@@ -65,6 +65,7 @@ DrawCommand::~DrawCommand()
   if (manager) {
     manager->commands.remove(this);
   }
+  manager = nullptr;
 }
 
 DrawBatch::~DrawBatch()
@@ -147,6 +148,11 @@ DrawCommand *GPUManager::createCommand(DrawBatch *batch,
 
 void GPUManager::destroyBuffer(Buffer *buffer)
 {
+  /* Notify backends BEFORE freeing so they can drop cache entries keyed by
+   * `buffer` and defer native-handle destruction to a safe point. */
+  for (auto *obs : observers) {
+    obs->onBufferDestroyed(buffer);
+  }
   buffers.remove(buffer);
   alloc::Delete(buffer);
 }
@@ -158,7 +164,8 @@ void GPUManager::destroyCommand(DrawCommand *cmd, bool destroy_buffers)
       destroyBuffer(buf);
     }
   }
-  commands.remove(cmd);
+  
+  // note: cmd's destructor removes itself from commands
   alloc::Delete(cmd);
 }
 
@@ -183,12 +190,17 @@ void GPUManager::destroyBatch(DrawBatch *batch,
   }
 
   if (destroy_commands) {
+    util::Set<DrawCommand *, 32> commands;
+    // de-duplicate
     for (auto *cmd : batch->commands) {
+      commands.add(cmd);
+    }
+    for (auto *cmd : commands) {
       destroyCommand(cmd, false);
     }
   }
 
-  batches.remove(batch);
+  // note: batch's destructor removes itself from batches
   alloc::Delete(batch);
 }
 

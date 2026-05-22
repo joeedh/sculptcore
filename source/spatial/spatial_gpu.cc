@@ -67,6 +67,8 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor)
  * fills it slice by slice. */
 void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
 {
+  printf("regen gpu node data\n");
+  
   if (!gpu_node->gpu_data) {
     gpu_node->gpu_data = alloc::New<GpuData>("Spatial GpuData");
   }

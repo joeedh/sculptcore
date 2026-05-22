@@ -1,0 +1,226 @@
+#include "ui.h"
+
+#include "scene.h"
+
+#include "vulkan/vk_context.h"
+#include "vulkan/vk_swapchain.h"
+#include "window/window.h"
+
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
+#include <cstdio>
+
+namespace sculptcore::debug_app {
+
+namespace {
+
+VkDescriptorPool createImGuiDescriptorPool(VkDevice device)
+{
+  VkDescriptorPoolSize sizes[] = {
+      {VK_DESCRIPTOR_TYPE_SAMPLER, 64},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
+      {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 64},
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 64},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 64},
+  };
+  VkDescriptorPoolCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  ci.maxSets = 64;
+  ci.poolSizeCount = uint32_t(sizeof(sizes) / sizeof(sizes[0]));
+  ci.pPoolSizes = sizes;
+  VkDescriptorPool pool = VK_NULL_HANDLE;
+  if (vkCreateDescriptorPool(device, &ci, nullptr, &pool) != VK_SUCCESS) {
+    return VK_NULL_HANDLE;
+  }
+  return pool;
+}
+
+} // namespace
+
+Ui::~Ui()
+{
+  shutdown();
+}
+
+bool Ui::init()
+{
+  if (initialized_) {
+    return true;
+  }
+  if (!scene_ || !scene_->context || !scene_->window ||
+      scene_->swapchain.renderPass == VK_NULL_HANDLE) {
+    std::fprintf(stderr, "Ui::init: scene/GPU not ready\n");
+    return false;
+  }
+  auto *ctx = scene_->context;
+
+  descriptorPool_ = createImGuiDescriptorPool(ctx->device);
+  if (descriptorPool_ == VK_NULL_HANDLE) {
+    std::fprintf(stderr, "Ui::init: descriptor pool failed\n");
+    return false;
+  }
+
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+  ImGui::StyleColorsDark();
+
+  ImGui_ImplGlfw_InitForVulkan(scene_->window->handle(), /*install_callbacks=*/true);
+
+  ImGui_ImplVulkan_InitInfo info{};
+  info.Instance = ctx->instance;
+  info.PhysicalDevice = ctx->physicalDevice;
+  info.Device = ctx->device;
+  info.QueueFamily = ctx->graphicsQueueFamily;
+  info.Queue = ctx->graphicsQueue;
+  info.DescriptorPool = descriptorPool_;
+  info.PipelineInfoMain.RenderPass = scene_->swapchain.renderPass;
+  info.PipelineInfoMain.Subpass = 0;
+  info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+  info.MinImageCount = 2;
+  info.ImageCount = uint32_t(scene_->swapchain.images.size());
+  if (info.ImageCount < 2) {
+    info.ImageCount = 2;
+  }
+  if (!ImGui_ImplVulkan_Init(&info)) {
+    std::fprintf(stderr, "Ui::init: ImGui_ImplVulkan_Init failed\n");
+    shutdown();
+    return false;
+  }
+
+  scene_->setPostDrawHook(&Ui::recordHook, this);
+  initialized_ = true;
+  return true;
+}
+
+void Ui::shutdown()
+{
+  if (scene_) {
+    scene_->setPostDrawHook(nullptr, nullptr);
+  }
+  if (initialized_) {
+    /* Drain the device so any in-flight ImGui resources are safe to free. */
+    if (scene_ && scene_->context && scene_->context->device != VK_NULL_HANDLE) {
+      vkDeviceWaitIdle(scene_->context->device);
+    }
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+    initialized_ = false;
+  }
+  if (descriptorPool_ != VK_NULL_HANDLE && scene_ && scene_->context &&
+      scene_->context->device != VK_NULL_HANDLE) {
+    vkDestroyDescriptorPool(scene_->context->device, descriptorPool_, nullptr);
+    descriptorPool_ = VK_NULL_HANDLE;
+  }
+  frameOpen_ = false;
+}
+
+void Ui::beginFrame()
+{
+  if (!initialized_) {
+    return;
+  }
+  ImGui_ImplVulkan_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+  frameOpen_ = true;
+  drawPanel();
+}
+
+void Ui::drawPanel()
+{
+  if (!scene_) {
+    return;
+  }
+  auto &brush = scene_->brush;
+  ImGui::SetNextWindowPos(ImVec2(8, 8), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(280, 280), ImGuiCond_FirstUseEver);
+  ImGui::Begin("Brush");
+
+  bool changed = false;
+  changed |= ImGui::SliderFloat("radius", &brush.radius, 0.01f, 2.0f, "%.3f");
+  changed |= ImGui::SliderFloat("strength", &brush.strength, 0.0f, 2.0f, "%.3f");
+  changed |= ImGui::SliderFloat("spacing", &brush.spacing, 0.05f, 1.0f, "%.3f");
+  changed |= ImGui::Checkbox("invert", &brush.invert);
+  if (changed) {
+    brush.writeProps();
+  }
+
+  ImGui::Separator();
+  ImGui::Checkbox("show axes", &scene_->showAxes);
+  ImGui::Checkbox("show cursor", &scene_->showCursor);
+  ImGui::Checkbox("show leaf bounds", &scene_->showLeafBounds);
+
+  ImGui::Separator();
+  if (ImGui::Button("undo") && scene_->mesh && scene_->tree) {
+    scene_->meshLog.undo(scene_->mesh, scene_->tree);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("redo") && scene_->mesh && scene_->tree) {
+    scene_->meshLog.redo(scene_->mesh, scene_->tree);
+  }
+
+  ImGui::Separator();
+  int vcount = scene_->mesh ? scene_->mesh->v.count : 0;
+  int fcount = scene_->mesh ? scene_->mesh->f.count : 0;
+  ImGui::Text("verts: %d  faces: %d", vcount, fcount);
+  ImGui::Text("%.1f fps", double(ImGui::GetIO().Framerate));
+
+  ImGui::End();
+}
+
+void Ui::recordHook(void *user, VkCommandBuffer cb)
+{
+  Ui *self = static_cast<Ui *>(user);
+  if (!self || !self->initialized_ || !self->frameOpen_) {
+    return;
+  }
+  ImGui::Render();
+  ImDrawData *data = ImGui::GetDrawData();
+  if (data) {
+    ImGui_ImplVulkan_RenderDrawData(data, cb);
+  }
+  self->frameOpen_ = false;
+}
+
+bool Ui::handle(const InputEvent &e)
+{
+  if (!initialized_) {
+    return false;
+  }
+  switch (e.kind) {
+  case InputKind::CursorPos:
+  case InputKind::MouseButton:
+  case InputKind::Scroll:
+    return wantCaptureMouse();
+  case InputKind::Key:
+  case InputKind::Char:
+    return wantCaptureKeyboard();
+  case InputKind::FramebufferSize:
+    return false;
+  }
+  return false;
+}
+
+bool Ui::wantCaptureMouse() const
+{
+  if (!initialized_) {
+    return false;
+  }
+  return ImGui::GetIO().WantCaptureMouse;
+}
+
+bool Ui::wantCaptureKeyboard() const
+{
+  if (!initialized_) {
+    return false;
+  }
+  return ImGui::GetIO().WantCaptureKeyboard;
+}
+
+} // namespace sculptcore::debug_app

@@ -14,14 +14,34 @@ struct DrawCommand;
 enum class GPUCmdType;
 
 using litestl::util::Vector;
+
+/** Interface a backend implements to learn when GPU-side resources owned by
+ *  a GPUManager are destroyed. Lets the backend invalidate its per-resource
+ *  caches before the pointer is freed and (for Vulkan) defer destruction of
+ *  the native handle until it is no longer referenced by an in-flight or
+ *  recording command buffer. */
+struct GPUResourceObserver {
+  virtual ~GPUResourceObserver() = default;
+  virtual void onBufferDestroyed(Buffer *buffer) = 0;
+};
+
 struct GPUManager {
   Vector<ShaderDef *> shaders;
   Vector<Buffer *> buffers;
   Vector<DrawBatch *> batches;
   Vector<DrawCommand *> commands;
+  Vector<GPUResourceObserver *> observers;
 
   GPUManager() = default;
   ~GPUManager();
+
+  void addObserver(GPUResourceObserver *o) { observers.append(o); }
+  void removeObserver(GPUResourceObserver *o)
+  {
+    if (observers.contains(o)) {
+      observers.remove(o);
+    }
+  }
 
   Buffer *
   createBuffer(litestl::util::string name, GPUType type, int elemsize, int elemCount);

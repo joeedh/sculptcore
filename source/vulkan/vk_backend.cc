@@ -1,5 +1,6 @@
 #include "vk_backend.h"
 #include "vk_context.h"
+#include "vk_swapchain.h"
 
 #include "gpu/batch.h"
 #include "gpu/command.h"
@@ -92,9 +93,43 @@ static VkPrimitiveTopology topologyVk(GPUCmdType t)
 VulkanBackend::VulkanBackend(GPUManager *mgr, VkContext *ctx, VkRenderPass rp)
     : mgr_(mgr), ctx_(ctx), renderPass_(rp)
 {
+  if (mgr_) {
+    mgr_->addObserver(this);
+  }
 }
 
-VulkanBackend::~VulkanBackend() { invalidate(); }
+VulkanBackend::~VulkanBackend()
+{
+  if (mgr_) {
+    mgr_->removeObserver(this);
+  }
+  invalidate();
+}
+
+void VulkanBackend::onBufferDestroyed(Buffer *buf)
+{
+  BufferEntry *entry = buffer_cache_.lookup_ptr(buf);
+  if (!entry) {
+    return;
+  }
+  if (entry->buffer != VK_NULL_HANDLE || entry->memory != VK_NULL_HANDLE) {
+    deferred_buffers_.append({entry->buffer, entry->memory});
+  }
+  buffer_cache_.remove(buf);
+}
+
+void VulkanBackend::drainDeferredBuffers_()
+{
+  if (deferred_buffers_.size() == 0 || !ctx_ || !ctx_->device) {
+    deferred_buffers_.clear();
+    return;
+  }
+  for (auto &p : deferred_buffers_) {
+    if (p.buffer) vkDestroyBuffer(ctx_->device, p.buffer, nullptr);
+    if (p.memory) vkFreeMemory(ctx_->device, p.memory, nullptr);
+  }
+  deferred_buffers_.clear();
+}
 
 void VulkanBackend::invalidate()
 {
@@ -104,6 +139,10 @@ void VulkanBackend::invalidate()
 
   /* Make sure the queue is idle before destroying any in-flight resources. */
   vkDeviceWaitIdle(d);
+
+  /* Anything sitting in the deferred-destroy queue from in-frame
+   * destroyBatch / ensureBuffer growth is now safe to release. */
+  drainDeferredBuffers_();
 
   /* litestl::util::Map has no public clear(); collect keys and remove them
    * after destroying the handles. ensureBuffer/ensurePipeline both insert
@@ -142,10 +181,12 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
   VkDeviceSize bytes = VkDeviceSize(buf->size) * buf->elemsize * gpu_sizeof(buf->type);
 
   if (!entry || !entry->buffer || entry->size < bytes) {
-    if (entry) {
-      vkDeviceWaitIdle(ctx_->device);
-      if (entry->buffer) vkDestroyBuffer(ctx_->device, entry->buffer, nullptr);
-      if (entry->memory) vkFreeMemory(ctx_->device, entry->memory, nullptr);
+    if (entry && (entry->buffer || entry->memory)) {
+      /* Defer destruction — the old VkBuffer may still be referenced by the
+       * currently-recording command buffer (we may have bound it in an earlier
+       * issue() call this frame) or by an in-flight one. drainDeferredBuffers_()
+       * runs after vkQueueWaitIdle at the end of the next frame. */
+      deferred_buffers_.append({entry->buffer, entry->memory});
     }
     BufferEntry e;
     e.size = bytes;
@@ -477,6 +518,50 @@ void VulkanBackend::endFrame()
   vkFreeCommandBuffers(ctx_->device, ctx_->commandPool, 1, &activeCb_);
   activeCb_ = VK_NULL_HANDLE;
   inFrame_ = false;
+
+  /* Command buffer just freed; any VkBuffer it referenced is now safe to
+   * destroy. Drain anything queued during the frame. */
+  drainDeferredBuffers_();
+}
+
+bool VulkanBackend::beginFrameSwapchain(Swapchain &sw, uint32_t imageIndex,
+                                        float r, float g, float b, float a)
+{
+  if (inFrame_) return false;
+  VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  ai.commandPool = ctx_->commandPool;
+  ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  ai.commandBufferCount = 1;
+  if (vkAllocateCommandBuffers(ctx_->device, &ai, &activeCb_) != VK_SUCCESS) return false;
+
+  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vkBeginCommandBuffer(activeCb_, &bi);
+  sw.beginRenderPass(activeCb_, imageIndex, r, g, b, a);
+  inFrame_ = true;
+  return true;
+}
+
+bool VulkanBackend::endFrameSwapchain(Swapchain &sw, uint32_t imageIndex)
+{
+  if (!inFrame_) return true;
+  vkCmdEndRenderPass(activeCb_);
+  vkEndCommandBuffer(activeCb_);
+
+  bool ok = sw.submitAndPresent(activeCb_, imageIndex);
+
+  /* The command buffer is referenced by the in-flight fence the
+   * swapchain just signalled — wait on that fence before freeing.
+   * Single-frame-in-flight model, so wait device-idle. */
+  vkQueueWaitIdle(ctx_->graphicsQueue);
+  vkFreeCommandBuffers(ctx_->device, ctx_->commandPool, 1, &activeCb_);
+  activeCb_ = VK_NULL_HANDLE;
+  inFrame_ = false;
+
+  /* Command buffer just freed; any VkBuffer it referenced is now safe to
+   * destroy. Drain anything queued during the frame. */
+  drainDeferredBuffers_();
+  return ok;
 }
 
 void VulkanBackend::draw(DrawBatch *batch, const DrawUniforms &u)

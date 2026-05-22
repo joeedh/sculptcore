@@ -550,3 +550,13 @@ before committing.
   debug-app `--backend` flag so the same A/B comparison runs in the
   browser. The debug-app harness remains the gating signal; the TS
   flag is for interactive exploration.
+
+## Follow-ups to revisit after this plan lands
+
+[`proposed-spatial-speedups.md`](proposed-spatial-speedups.md) captures
+the remaining items from the small-radius-stroke audit (dirty-bounds
+queue, per-vert spatial reject, incremental tri-count propagation, GPU
+node regen, draw-batch caching). Several of these — especially the
+per-vert reject — overlap with the iteration shape the DSL will
+generate, so they want to be designed against the post-DSL executor
+rather than retrofitted into the current C++ path.

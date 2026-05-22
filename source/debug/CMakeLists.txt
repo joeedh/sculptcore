@@ -3,15 +3,21 @@ set(LIB_SRC
   PUBLIC script.h
   PUBLIC state_dump.h
   PUBLIC camera.h
+  PUBLIC input.h
+  PUBLIC interactive.h
+  PUBLIC ui.h
   scene.cc
   script.cc
   state_dump.cc
+  input.cc
+  interactive.cc
+  ui.cc
 )
 
 set(LIB
   util math platform
   mesh meshlog brush spatial gpu
-  window vulkan
+  window vulkan imgui
 )
 
 sc_add_library(debug_core "${LIB_SRC}" "${LIB}" STATIC)

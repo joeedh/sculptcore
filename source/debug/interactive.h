@@ -1,0 +1,71 @@
+#pragma once
+
+#include "input.h"
+
+#include "litestl/math/vector.h"
+
+namespace sculptcore::brush {
+struct CommandExecutor;
+}
+
+namespace sculptcore::debug_app {
+
+struct Scene;
+
+/** Drives interactive sculpting: routes mouse drags into brush strokes,
+ *  orbits/pans/zooms the camera, and handles undo/redo keys. Reads
+ *  framebuffer size from `Scene::swapchain` when projecting screen rays.
+ *
+ *  Modifier precedence for LMB: Shift+LMB pans, Alt+LMB orbits, plain
+ *  LMB strokes. RMB or MMB drag also orbits. Scroll zooms. Ctrl+Z /
+ *  Ctrl+Y route to the scene's MeshLog, refused while a stroke is open. */
+struct InteractiveController : InputHandler {
+  using float2 = litestl::math::float2;
+  using float3 = litestl::math::float3;
+
+  InteractiveController(Scene *scene);
+  ~InteractiveController() override;
+
+  bool handle(const InputEvent &e) override;
+
+private:
+  /* LMB drag intent, decided on press from current modifiers. */
+  enum class DragMode { None, Stroke, Orbit, Pan };
+
+  void beginStroke(float2 cursor);
+  void continueStroke(float2 cursor);
+  void endStroke();
+
+  void doOrbit(float2 delta);
+  void doPan(float2 delta);
+  void doZoom(float deltaY);
+
+  /** Screen→world ray through `cursor` in window pixels. */
+  bool screenRay(float2 cursor, float3 &origin, float3 &dir) const;
+  /** Cast ray through cursor; emits world hit + interpolated normal. */
+  bool pickSurface(float2 cursor, float3 &hit, float3 &normal) const;
+
+  Scene *scene_;
+
+  /* Pointer state. */
+  float2 cursor_{0, 0};
+  float2 dragStart_{0, 0};
+  float2 dragPrev_{0, 0};
+  unsigned int mods_ = 0;
+  bool lmbDown_ = false;
+  bool rmbDown_ = false;
+  bool mmbDown_ = false;
+
+  /* Active drag (set on LMB-press; cleared on LMB-release). */
+  DragMode lmbDrag_ = DragMode::None;
+  /* Orbit/pan triggered by RMB or MMB (independent of LMB). */
+  bool rightOrMiddleOrbit_ = false;
+
+  /* Stroke state. */
+  brush::CommandExecutor *exec_ = nullptr;
+  float3 strokeLastPos_{0, 0, 0};
+  bool strokeHasLast_ = false;
+  float strokeResidual_ = 0.0f;
+};
+
+} // namespace sculptcore::debug_app

@@ -15,6 +15,8 @@ struct Brush {
 
   float strength = 1;
   float radius = 1;
+  /* Fraction of `radius` between successive brush dabs along a stroke. */
+  float spacing = 0.25f;
   bool invert = false;
 
   static litestl::binding::types::Struct<Brush> *defineBindings()
@@ -27,6 +29,7 @@ struct Brush {
 
     BIND_STRUCT_MEMBER(st, strength);
     BIND_STRUCT_MEMBER(st, radius);
+    BIND_STRUCT_MEMBER(st, spacing);
     BIND_STRUCT_MEMBER(st, invert);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
@@ -39,6 +42,7 @@ struct Brush {
   {
     structDef_.Float32("strength", "strength");
     structDef_.Float32("radius", "radius");
+    structDef_.Float32("spacing", "spacing");
     structDef_.Bool("invert", "invert");
   }
 
@@ -46,6 +50,7 @@ struct Brush {
   {
     strength = props.lookupValue<float>("strength", 1.0);
     radius = props.lookupValue<float>("radius", 1.0);
+    spacing = props.lookupValue<float>("spacing", 0.25);
     invert = props.lookupValue<bool>("invert", false);
   }
 
@@ -53,6 +58,7 @@ struct Brush {
   {
     props.setValue<float>("strength", strength);
     props.setValue<float>("radius", radius);
+    props.setValue<float>("spacing", spacing);
     props.setValue<bool>("invert", invert);
   }
 

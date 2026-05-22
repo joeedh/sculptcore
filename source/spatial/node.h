@@ -102,6 +102,13 @@ struct SpatialNode {
   int subtree_tri_count = 0;
   bool is_gpu_node = false;
 
+  /* Verts that moved since the last normals/bounds update for this leaf.
+   * Populated by brush execution (single-writer per node — the parallel_for
+   * over nodes serializes within each node) and consumed + cleared by
+   * SpatialTree::update_node_normals. May contain duplicates; left empty
+   * to request a full rebuild (e.g. on initial build or topology change). */
+  util::Vector<int> affected_verts;
+
   /* Node IDs are always > 0. */
   int id = 0;
   int index = 0;

@@ -5,6 +5,7 @@
 
 #include "litestl/math/geom.h"
 #include "litestl/math/vector.h"
+#include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
 // #include "litestl/util/map.h"
@@ -44,24 +45,27 @@ namespace sculptcore::spatial {
 
 bool SpatialTree::filterNodes(float3 co, float radius, Vector<SpatialNode *> &out)
 {
-  printf("\nco: %f %f %f radius: %f\n", co[0], co[1], co[2], radius);
-
   bool ok = false;
   for (SpatialNode *node : leaves()) {
-    if (1 || aabbSphereIsect(co, radius, node->aabb)) {
+    if (aabbSphereIsect(co, radius, node->aabb)) {
       node->debugIdOffset++;
       out.append(node);
       ok = true;
     }
   }
 
-  printf("size: %d\n", int(out.size()));
   return ok;
 }
 
 void SpatialTree::regen_node_tris(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenTris;
+
+  /* Topology changed — affected_verts no longer captures everything whose
+   * normal needs recomputing (new tris may contribute to verts that didn't
+   * move). Drop the incremental hint so update_node_normals falls back to
+   * a full rebuild for this leaf. */
+  node->affected_verts.clear_and_contract();
 
   /* TODO: use a property CDT for > 4 vert or > 1 hole faces.
    * For now just handle triangles and quads.
@@ -395,6 +399,7 @@ void SpatialTree::assign_gpu_nodes()
     return;
   }
   assign_gpu_nodes_recurse(root, gpu_tri_target);
+  done_gpu_assignment = true;
 }
 
 SpatialNode *SpatialTree::find_gpu_owner(SpatialNode *node)
@@ -543,15 +548,98 @@ void SpatialTree::update_node_normals(SpatialNode *node)
 {
   node->flag &= ~Spatial_UpdateNormals;
 
-  // very simple normal update for now
-
-  for (int v : node->unique_verts()) {
-    m->v.no[v].zero();
-  }
-
   auto &node_vattr = node->treeMesh->v.node;
   auto &node_fattr = node->treeMesh->f.node;
 
+  /* Incremental path: only recompute normals for verts the brush actually
+   * moved, plus their 1-ring (since a moved vert changes the normal of
+   * every face touching it, which in turn changes the normals of the other
+   * verts of those faces). For small brushes on a large leaf this avoids
+   * zeroing + renormalizing hundreds of unaffected verts/faces and skips
+   * the cross-product accumulation for tris that didn't change. */
+  if (node->affected_verts.size() > 0) {
+    Set<int> moved_verts;
+    for (int v : node->affected_verts) {
+      moved_verts.add(v);
+    }
+
+    /* Expand to the 1-ring: any tri that touches a moved vert contributes
+     * to the affected face/vert sets. */
+    Set<int> affected_face_set;
+    Set<int> affected_vert_set;
+    Vector<int, 64> affected_tri_indices;
+
+    for (int ti : IndexRange(node->data->tris.size())) {
+      const auto &tri = node->data->tris[ti];
+      int v1 = m->c.v[tri.c[0]];
+      int v2 = m->c.v[tri.c[1]];
+      int v3 = m->c.v[tri.c[2]];
+
+      if (!moved_verts.contains(v1) && !moved_verts.contains(v2) &&
+          !moved_verts.contains(v3)) {
+        continue;
+      }
+
+      affected_tri_indices.append(ti);
+      affected_face_set.add(tri.f);
+      affected_vert_set.add(v1);
+      affected_vert_set.add(v2);
+      affected_vert_set.add(v3);
+    }
+
+    for (int v : affected_vert_set) {
+      if (node_vattr[v] == node->id) {
+        m->v.no[v].zero();
+      }
+    }
+    for (int f : affected_face_set) {
+      if (node_fattr[f] == node->id) {
+        m->f.no[f].zero();
+      }
+    }
+
+    for (int ti : affected_tri_indices) {
+      const auto &tri = node->data->tris[ti];
+      int v1 = m->c.v[tri.c[0]];
+      int v2 = m->c.v[tri.c[1]];
+      int v3 = m->c.v[tri.c[2]];
+
+      float3 n = triNormal(m->v.co[v1], m->v.co[v2], m->v.co[v3]);
+
+      if (node_fattr[tri.f] == node->id) {
+        m->f.no[tri.f] += n;
+      }
+      if (node_vattr[v1] == node->id) {
+        m->v.no[v1] += n;
+      }
+      if (node_vattr[v2] == node->id) {
+        m->v.no[v2] += n;
+      }
+      if (node_vattr[v3] == node->id) {
+        m->v.no[v3] += n;
+      }
+    }
+
+    for (int f : affected_face_set) {
+      if (node_fattr[f] == node->id) {
+        m->f.no[f].normalize();
+      }
+    }
+    for (int v : affected_vert_set) {
+      if (node_vattr[v] == node->id) {
+        m->v.no[v].normalize();
+      }
+    }
+
+    node->affected_verts.clear();
+    return;
+  }
+
+  /* Full rebuild path: initial build, post-topology-change, or any non-brush
+   * dirty source that didn't populate affected_verts. */
+  for (int v : node->unique_verts()) {
+    m->v.no[v].zero();
+  }
   for (int f : node->unique_faces()) {
     m->f.no[f].zero();
   }
@@ -603,7 +691,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   }
 
   if (bounds) {
-    printf("SpatialTree::update: bounds\n");
     regen_node_bounds(root, true);
     result = true;
   }
@@ -622,13 +709,11 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     }
   }
 
-  if (updateTriNodes.size() > 0) {
-    printf("SpatialTree::update: tris\n");
-  }
-
   for (SpatialNode *node : updateTriNodes) {
     ensure_node_tris(node);
   }
+
+  Vector<SpatialNode *, 256> updateNormalsNodes;
 
   /* Phase: leaf normals (independent of partition). */
   for (SpatialNode *node : nodes) {
@@ -636,21 +721,46 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       continue;
     }
     if (node->flag & Spatial_UpdateNormals) {
-      update_node_normals(node);
+      updateNormalsNodes.append(node);
       drawBatchUpdated = true;
     }
   }
 
+#ifdef NO_PARALLEL_FOR
+  for (SpatialNode *node : updateNormalsNodes) {
+    update_node_normals(node);
+  }
+#else
+  litestl::task::parallel_for(
+      util::IndexRange(updateNormalsNodes.size()),
+      [&](IndexRange range) {
+        for (int i : range) {
+          SpatialNode *node = updateNormalsNodes[i];
+          update_node_normals(node);
+        }
+      },
+      4);
+#endif
+
   /* Phase: GPU partition assignment. Cheap walk (O(nodes)). If topology
    * didn't change we can skip recomputing counts, but the assignment
    * walk itself is still needed first time around. */
-  if (topology_changed || !root->is_gpu_node) {
+  if (topology_changed || !done_gpu_assignment) {
     recompute_subtree_tri_counts();
     assign_gpu_nodes();
   }
 
   /* Phase: propagate per-leaf GPU dirty bits to their owning GPU node
-   * and rebuild/update those nodes' buffers. */
+   * and rebuild/update those nodes' buffers. Full regens stay serial
+   * (they call into gpu::GPUManager to allocate buffers); slice updates
+   * write into disjoint sub-ranges of an already-allocated VBO and run
+   * in parallel below. */
+  struct SliceWork {
+    SpatialNode *owner;
+    SpatialNode *leaf;
+  };
+  Vector<SliceWork, 256> sliceWork;
+
   for (SpatialNode *node : nodes) {
     if (!(node->flag & Spatial_Leaf)) {
       continue;
@@ -668,18 +778,30 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     /* Full regen of the owner if the owner is brand-new (no buffers),
      * the leaf wants a full regen, or the slice layout is missing. */
     bool need_full = !owner->gpu_data || !owner->gpu_data->pos ||
-                     owner->gpu_data->slices.size() == 0 ||
-                     (want & Spatial_RegenGPU);
+                     owner->gpu_data->slices.size() == 0 || (want & Spatial_RegenGPU);
 
     if (need_full) {
       regen_gpu_node(owner, gpu);
-      printf("SpatialTree::update: regenGPU\n");
       drawBatchUpdated = true;
     } else {
-      printf("SpatialTree::update: updateGPU\n");
-      update_gpu_node_slice(owner, node, gpu);
+      sliceWork.append({owner, node});
     }
   }
+
+#ifdef NO_PARALLEL_FOR
+  for (const SliceWork &w : sliceWork) {
+    update_gpu_node_slice(w.owner, w.leaf, gpu);
+  }
+#else
+  litestl::task::parallel_for(
+      util::IndexRange(sliceWork.size()),
+      [&](IndexRange range) {
+        for (int i : range) {
+          update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu);
+        }
+      },
+      4);
+#endif
 
   /* Phase: any GPU node still missing buffers (because it transitioned
    * from non-GPU to GPU this tick and contains no individually-dirty
@@ -695,7 +817,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   }
 
   if (drawBatchUpdated || !drawBatch) {
-    printf("SpatialTree::update: batch\n");
     if (!drawBatch) {
       drawBatch = gpu->createBatch();
     } else {

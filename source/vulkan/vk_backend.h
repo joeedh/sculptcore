@@ -20,6 +20,7 @@ namespace sculptcore::vulkan {
 
 struct VkContext;
 struct OffscreenTarget;
+struct Swapchain;
 
 struct DrawUniforms {
   litestl::math::mat4 drawMatrix;
@@ -34,14 +35,27 @@ struct DrawUniforms {
  *  Lifetime: build the backend after VkContext::init() and after the
  *  OffscreenTarget render pass is created — the pipelines bake in the render
  *  pass handle. Call invalidate() before tearing down VkContext. */
-struct VulkanBackend {
+struct VulkanBackend : public sculptcore::gpu::GPUResourceObserver {
   VulkanBackend(sculptcore::gpu::GPUManager *mgr, VkContext *ctx, VkRenderPass renderPass);
   VulkanBackend(const VulkanBackend &) = delete;
-  ~VulkanBackend();
+  ~VulkanBackend() override;
+
+  /** GPUResourceObserver: invoked from GPUManager::destroyBuffer just before
+   *  the gpu::Buffer is freed. Erases the cache entry keyed by `buf` and
+   *  pushes its VkBuffer / VkDeviceMemory onto the deferred-destroy list so
+   *  they outlive any in-flight or currently-recording command buffer that
+   *  still references them. */
+  void onBufferDestroyed(sculptcore::gpu::Buffer *buf) override;
 
   /** Open a primary command buffer, begin it, and begin the supplied render
    *  pass on `target`. Pair every beginFrame() with one endFrame(). */
   bool beginFrame(OffscreenTarget &target, float r, float g, float b, float a);
+
+  /** Swapchain variant: allocates the command buffer, begins it, and
+   *  begins the swapchain render pass on `imageIndex`. Pair with
+   *  endFrameSwapchain(). */
+  bool beginFrameSwapchain(Swapchain &sw, uint32_t imageIndex,
+                           float r, float g, float b, float a);
 
   /** Issue every command in `batch` with `u` as uniforms. Must be called
    *  between beginFrame() / endFrame(). */
@@ -49,6 +63,16 @@ struct VulkanBackend {
 
   /** End the render pass, close the command buffer, submit, and wait. */
   void endFrame();
+
+  /** Swapchain variant: closes the command buffer and submits via
+   *  Swapchain::submitAndPresent (with image-acquire / render-complete
+   *  semaphores + in-flight fence). Returns false if present reported
+   *  out-of-date — caller should recreate the swapchain. */
+  bool endFrameSwapchain(Swapchain &sw, uint32_t imageIndex);
+
+  /** Command buffer currently being recorded, between beginFrame*() and
+   *  endFrame*(). Returns VK_NULL_HANDLE when not in a frame. */
+  VkCommandBuffer activeCommandBuffer() const { return activeCb_; }
 
   /** Drop all cached Vulkan objects. Call before destroying VkContext. */
   void invalidate();
@@ -89,6 +113,17 @@ private:
 
   litestl::util::Map<sculptcore::gpu::Buffer *, BufferEntry> buffer_cache_;
   litestl::util::Map<sculptcore::gpu::ShaderDef *, PipelineEntry> pipeline_cache_;
+
+  /** VkBuffer / VkDeviceMemory pairs released by onBufferDestroyed() or by
+   *  the grow path in ensureBuffer(). They may still be bound to a recording
+   *  or in-flight command buffer, so destruction is deferred until the
+   *  next frame boundary (after vkQueueWaitIdle in endFrame*) or invalidate(). */
+  struct PendingBuffer {
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+  };
+  litestl::util::Vector<PendingBuffer> deferred_buffers_;
+  void drainDeferredBuffers_();
 
   VkCommandBuffer activeCb_ = VK_NULL_HANDLE;
   bool inFrame_ = false;

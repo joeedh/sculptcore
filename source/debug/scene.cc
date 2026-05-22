@@ -15,14 +15,19 @@ Scene::Scene(int w, int h, bool hl) : width(w), height(h), headless(hl) {}
 
 Scene::~Scene()
 {
-  /* Release backend BEFORE the VkContext goes away. Otherwise the cached
+  /* Release backends BEFORE the VkContext goes away. Otherwise the cached
    * Vulkan handles would dangle. */
+  if (backendWindow) {
+    backendWindow->invalidate();
+    delete backendWindow;
+    backendWindow = nullptr;
+  }
   if (backend) {
     backend->invalidate();
     delete backend;
     backend = nullptr;
   }
-  overlay.release();
+  swapchain.release();
   offscreen.release();
   if (context) {
     delete context;
@@ -56,8 +61,6 @@ bool Scene::ensureGPU()
     return false;
   }
   context = new vulkan::VkContext();
-  /* Pass the GLFW window only in interactive mode — surface creation is
-   * required for a future swapchain. Headless skips it. */
   GLFWwindow *handle = headless ? nullptr : window->handle();
   if (!context->init(handle, true)) {
     fprintf(stderr, "Scene::ensureGPU: VkContext init failed\n");
@@ -68,6 +71,16 @@ bool Scene::ensureGPU()
     return false;
   }
   backend = new vulkan::VulkanBackend(&gpu, context, offscreen.renderPass);
+
+  if (!headless) {
+    int fbw = width, fbh = height;
+    window->framebufferSize(fbw, fbh);
+    if (!swapchain.create(context, fbw, fbh)) {
+      fprintf(stderr, "Scene::ensureGPU: Swapchain create failed\n");
+      return false;
+    }
+    backendWindow = new vulkan::VulkanBackend(&gpu, context, swapchain.renderPass);
+  }
   return true;
 }
 
@@ -84,7 +97,7 @@ void Scene::setMesh(mesh::Mesh *m)
   meshLog.setActiveMesh(m);
 }
 
-void Scene::buildSpatial(int leafLimit, int depthLimit)
+void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
 {
   if (!mesh) {
     fprintf(stderr, "Scene::buildSpatial: no mesh\n");
@@ -96,6 +109,7 @@ void Scene::buildSpatial(int leafLimit, int depthLimit)
   tree = litestl::alloc::New<spatial::SpatialTree>("SpatialTree (debug)", mesh);
   tree->leaf_limit = leafLimit;
   tree->depth_limit = depthLimit;
+  tree->gpu_tri_target = gpuPrimLimit;
   tree->buildAll();
 }
 
@@ -148,20 +162,86 @@ void Scene::renderHeadless()
     gpu.destroyBatch(lines, true, true);
   }
   if (showAxes) {
-    overlay.drawAxes(vp, 1.0f);
+    overlay.drawAxes(gpu, *backend, vp, 1.0f);
   }
   if (showCursor && lastStroke.valid) {
-    overlay.drawBrushCursor(vp, lastStroke.origin, lastStroke.normal, lastStroke.radius);
+    overlay.drawBrushCursor(gpu, *backend, vp,
+                            lastStroke.origin, lastStroke.normal, lastStroke.radius);
   }
   backend->endFrame();
 }
 
+void Scene::handleResize()
+{
+  if (!backendWindow) {
+    return;
+  }
+  int fbw = 0, fbh = 0;
+  window->framebufferSize(fbw, fbh);
+  if (fbw <= 0 || fbh <= 0) {
+    return; /* minimised */
+  }
+  /* The render pass identity might change on recreate, so we have to
+   * rebuild the swapchain backend's pipelines too. */
+  backendWindow->invalidate();
+  delete backendWindow;
+  backendWindow = nullptr;
+  if (!swapchain.recreate(fbw, fbh)) {
+    fprintf(stderr, "Scene::handleResize: swapchain recreate failed\n");
+    return;
+  }
+  backendWindow = new vulkan::VulkanBackend(&gpu, context, swapchain.renderPass);
+  width = swapchain.width;
+  height = swapchain.height;
+}
+
 void Scene::renderWindow()
 {
-  /* Interactive presentation requires a swapchain; not yet wired up. Render
-   * into the offscreen target so the rest of the pipeline exercises Vulkan
-   * end-to-end. The visible GLFW window stays blank for now. */
-  renderHeadless();
+  if (!ensureGPU() || !backendWindow) {
+    return;
+  }
+  uint32_t imageIndex = 0;
+  if (!swapchain.acquireNext(imageIndex)) {
+    handleResize();
+    return;
+  }
+
+  if (!backendWindow->beginFrameSwapchain(swapchain, imageIndex,
+                                          0.10f, 0.11f, 0.13f, 1.0f)) {
+    return;
+  }
+
+  if (mesh && tree) {
+    float aspect = float(swapchain.width) / float(swapchain.height);
+    mat4 vp = camera.viewProj(aspect);
+    vulkan::DrawUniforms u;
+    u.drawMatrix = vp;
+    u.normalMatrix.identity();
+
+    tree->update(&gpu);
+    backendWindow->draw(tree->getDrawBatch(), u);
+
+    if (showLeafBounds) {
+      gpu::DrawBatch *lines = tree->buildLeafBoundsBatch(gpu);
+      backendWindow->draw(lines, u);
+      gpu.destroyBatch(lines, true, true);
+    }
+    if (showAxes) {
+      overlay.drawAxes(gpu, *backendWindow, vp, 1.0f);
+    }
+    if (showCursor && lastStroke.valid) {
+      overlay.drawBrushCursor(gpu, *backendWindow, vp,
+                              lastStroke.origin, lastStroke.normal, lastStroke.radius);
+    }
+  }
+
+  if (postDrawHook_) {
+    postDrawHook_(postDrawUser_, backendWindow->activeCommandBuffer());
+  }
+
+  if (!backendWindow->endFrameSwapchain(swapchain, imageIndex)) {
+    handleResize();
+  }
 }
 
 bool Scene::screenshot(const char *path)
