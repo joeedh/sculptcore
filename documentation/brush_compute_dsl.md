@@ -1,16 +1,21 @@
 # Brush Compute DSL — Design Proposal
 
 *Status: design only. Implementation deferred until the in-flight sculptcore
-refactor lands.*
+refactor lands. The CI image (`.devcontainer/Dockerfile`) and the
+`sculptcore/ci/versions.env` pin file have landed as pre-implementation
+scaffolding; nothing under `source/brush/` has been touched yet.*
 
 ## Context
 
 Sculptcore (`sculptcore/source/brush/`) currently executes brushes as templated
 C++ functors on a per-spatial-node basis (`brush_executor.h` →
-`BrushCommandDef::exec(CommandCtx<TYPES> &)`). The `DRAW` brush is ~5 lines
-(`brushes/draw.h`). Falloff is a hardcoded smoothstep in
-`CommandCtx::strength` (`brush_command.h:55`). Properties flow JS→wasm via
-`props::StructProp` (`brush.h`, `props/prop_struct.h`).
+`BrushCommandDef::exec(CommandCtx<TYPES> &)`). Only the `DRAW` brush is wired
+up today (`brushes/types.h`'s `SculptBrushes` enum has a single `DRAW` entry,
+and `brush_executor.h`'s `createCommand` switch only handles it);
+`brushes/draw.h` is the lone hand-written kernel. Falloff is a hardcoded
+smoothstep in `CommandCtx::strength` (`brush_command.h:55`). Properties flow
+JS→wasm via `props::StructProp` (`brush.h`, `props/prop_struct.h`) — the
+`Brush` struct exposes only `strength`, `radius`, `spacing`, `invert` today.
 
 The TS side declares richer brush data: ~17 sculpt tools
 (`scripts/brush/brush_base.ts:59`), procedural textures with 3 coord modes
@@ -93,8 +98,8 @@ brush Kelvinlet {
 
   // Optional reduce stage runs once per stroke step before vertex stage.
   // Can request host-side BVH queries — these are filled by the runtime
-  // (sculptcore::spatial::SpatialTree::filterNodes / nearest / raycast)
-  // and bound as read-only buffers.
+  // (sculptcore::spatial::SpatialTree::filterNodes / castRay, plus any
+  // future neighborhood queries) and bound as read-only buffers.
   reduce void prep(out KelvinletState s) {
     s.a = (1 + nu) / (2 * mu);
     s.b = s.a / (4 * (1 - nu));
@@ -143,7 +148,7 @@ Three optional stages per brush, called by the host (`brush_executor.h`):
 
 | Stage | When | Maps to |
 |---|---|---|
-| `host` (optional) | Once per stroke dot, on CPU | Runs `BVH.filterNodes` / `nearest` / `raycast`, populates `BVHQueryResult` buffers and `ctx` state. C++ only — never lowered. |
+| `host` (optional) | Once per stroke dot, on CPU | Runs `SpatialTree::filterNodes` / `castRay` (and any future neighborhood queries), populates `BVHQueryResult` buffers and `ctx` state. C++ only — never lowered. |
 | `reduce` | Once before `vertex`, on the selected backend | Single-threaded scalar block; produces a small struct passed to every vertex thread. |
 | `vertex` | Per-vertex parallel | The hot kernel. Lowered to compute shaders on GPU backends; lowered to the existing `vertexIter` loop on CPU. |
 
@@ -320,10 +325,14 @@ below).
 
 The repo's existing `.devcontainer/Dockerfile` is the single image used
 both for editor / `claude` work and for CI runs of the sbrush backends —
-maintaining two separate images created drift. The image is sufficient
-to configure and build sculptcore with every backend flag on, and the
-future GitHub Actions workflow (`.github/workflows/brush-backends.yml`,
-not yet written) reuses it via `docker build -f .devcontainer/Dockerfile .`.
+maintaining two separate images created drift. The image is already
+provisioned with every backend's toolchain (tint, spirv-tools + glslang,
+nvcc, hipcc, clspv/pocl on top of the existing Node + emsdk + clang-18
+setup) so that `node make.mjs configure native
+--backends=cpp,wgsl,spirv,cuda,hip,opencl` will work as soon as the
+`sbrushc` compiler exists. The future GitHub Actions workflow
+(`.github/workflows/brush-backends.yml`, not yet written) reuses the
+image via `docker build -f .devcontainer/Dockerfile .`.
 
 The image pins:
 
@@ -340,9 +349,9 @@ The image pins:
 - `clspv` for OpenCL → SPIR-V translation; `pocl` headers for OpenCL C
   parsing.
 
-Versions are pinned via a single `ci/versions.env` file sourced by both
-the Dockerfile and `make.mjs sbrush-validate`, so a runner upgrade is a
-one-line PR. The workflow invokes:
+Versions are pinned via the existing `sculptcore/ci/versions.env` file,
+sourced by both the Dockerfile and the planned `make.mjs sbrush-validate`,
+so a runner upgrade is a one-line PR. The workflow invokes:
 
 ```
 node make.mjs install-emsdk
@@ -402,11 +411,11 @@ Design decisions taken *now* to keep this open:
 - `sculptcore/build_files/macros.cmake` — adds `sbrush_backend()` helper.
 - `sculptcore/build_files/sbrush_toolchains.cmake` (new) — `find_program`
   for `tint`, `spirv-val`, `nvcc`, `hipcc`, `clspv`.
-- `.devcontainer/Dockerfile` — carries every backend's toolchain
+- `.devcontainer/Dockerfile` — already carries every backend's toolchain
   (tint, spirv-tools, glslang, nvcc, hipcc, clspv) on top of the existing
-  Node + emsdk setup; reused by CI. See "CI image" above.
-- `sculptcore/ci/versions.env` (new) — single pin file shared between the
-  Dockerfile and `make.mjs`.
+  Node + emsdk + clang-18 setup; reused by CI. See "CI image" above.
+- `sculptcore/ci/versions.env` — single pin file shared between the
+  Dockerfile and `make.mjs` (already present in-tree).
 - `sculptcore/source/debug/script.cc` — gains the brush-DSL verbs
   (`set_backend`, `set_brush_tool`, `set_falloff`, `set_texture`,
   `set_coord_space`, `assert_dump`, `assert_png`, `set_grab`,
