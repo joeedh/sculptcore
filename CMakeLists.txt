@@ -36,6 +36,17 @@ endif()
 
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)
 
+# sbrush DSL — brush compute compiler. See documentation/brush_compute_dsl.md
+# and the Wave 1 plan in .claude/plans/.
+option(SBRUSH_BACKEND_CPP    "Emit C++ brush kernels (reference)"                ON)
+option(SBRUSH_BACKEND_WGSL   "Emit WGSL kernels + tint validate"                 OFF)
+option(SBRUSH_BACKEND_SPIRV  "Emit SPIR-V kernels + spirv-val"                   OFF)
+option(SBRUSH_BACKEND_CUDA   "Emit CUDA kernels + nvcc --cuda --dryrun"          OFF)
+option(SBRUSH_BACKEND_HIP    "Emit HIP kernels + hipcc syntax-only"              OFF)
+option(SBRUSH_BACKEND_OPENCL "Emit OpenCL C kernels + clspv/poclcc"              OFF)
+option(SBRUSH_VALIDATE_ALL   "Run external validators on every emit"             OFF)
+option(SBRUSH_REGEN_ON_BUILD "Re-run sbrushc during build (vs. checked-in outputs)" ON)
+
 include("build_files/macros.cmake")
 include("source/litestl/build_files/macros.cmake")
 

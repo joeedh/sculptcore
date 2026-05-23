@@ -1,0 +1,438 @@
+#include "emit_cpp.h"
+#include "../kernels/ir/intrinsics.h"
+#include <cctype>
+#include <cstdio>
+
+namespace sculptcore::brush::sbrush {
+
+using litestl::util::string;
+using litestl::util::Vector;
+using litestl::util::stringref;
+
+namespace {
+
+struct Emit {
+  const Brush *brush;
+  const Stage *vertexStage = nullptr;
+  string vertexParamName;  // e.g. "v"
+
+  string out;
+  Vector<string> errors;
+  int indent = 0;
+
+  // Locals declared in the current body — kept for diagnostics. The
+  // emitter doesn't need to track types because C++ does, but knowing
+  // a name is a local helps us route identifier resolution correctly.
+  Vector<string> locals;
+
+  void err(const char *msg)
+  {
+    errors.append(string(msg));
+  }
+
+  void errf(const char *fmt, const char *arg)
+  {
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), fmt, arg);
+    errors.append(string(buf));
+  }
+
+  void writeIndent()
+  {
+    for (int i = 0; i < indent; i++) out += "  ";
+  }
+
+  void write(const char *s) { out += s; }
+  void write(const string &s) { out += s; }
+
+  bool isLocal(stringref name) const
+  {
+    for (const auto &l : locals) {
+      if (string(l).operator==(string(name.c_str()))) return true;
+    }
+    return false;
+  }
+
+  const Field *findField(stringref name) const
+  {
+    for (const auto &f : brush->fields) {
+      if (string(f.name).operator==(string(name.c_str()))) return &f;
+    }
+    return nullptr;
+  }
+
+  bool isVertexParam(stringref name) const
+  {
+    if (!vertexStage) return false;
+    for (const auto &p : vertexStage->params) {
+      if (string(p.name).operator==(string(name.c_str()))) return true;
+    }
+    return false;
+  }
+
+  // === expression emitter ===
+
+  void emitExpr(const Expr &e)
+  {
+    switch (e.kind) {
+    case ExprKind::LitFloat: {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "%.17g", e.fvalue);
+      // Ensure we look like a float literal — %g can produce "0" or "1e10"
+      // without a decimal point, which then makes "0f" / "1e10f" invalid.
+      bool hasDot = false;
+      for (const char *p = buf; *p; p++) {
+        if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+      }
+      out += buf;
+      if (!hasDot) out += ".0";
+      out += "f";
+      break;
+    }
+    case ExprKind::LitInt: {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "%lld", e.ivalue);
+      out += buf;
+      break;
+    }
+    case ExprKind::LitBool:
+      out += e.bvalue ? "true" : "false";
+      break;
+    case ExprKind::Ident: {
+      stringref nm(e.name.c_str());
+      if (isLocal(nm) || isVertexParam(nm)) {
+        out += e.name;
+      } else if (auto *f = findField(nm)) {
+        if (f->kind == FieldKind::Uniform) {
+          out += "ctx.brush.";
+          out += e.name;
+        } else {
+          out += "ctx.";
+          out += e.name;
+        }
+      } else {
+        // Could be an intrinsic referenced without a call — treat as bare
+        // identifier and let the C++ compiler catch it.
+        out += e.name;
+      }
+      break;
+    }
+    case ExprKind::Member:
+      emitExpr(*e.lhs);
+      out += ".";
+      out += e.name;
+      break;
+    case ExprKind::Binary:
+      out += "(";
+      emitExpr(*e.lhs);
+      out += " ";
+      out += binOpCSym(e.binop);
+      out += " ";
+      emitExpr(*e.rhs);
+      out += ")";
+      break;
+    case ExprKind::Unary:
+      out += "(";
+      out += unaryOpCSym(e.unaryop);
+      emitExpr(*e.lhs);
+      out += ")";
+      break;
+    case ExprKind::Paren:
+      out += "(";
+      emitExpr(*e.lhs);
+      out += ")";
+      break;
+    case ExprKind::Call: {
+      const IntrinsicDef *intr = findIntrinsic(stringref(e.name.c_str()));
+      if (intr) {
+        const char *pat = intr->emit[(int)BackendKind::Cpp].pattern;
+        if (!pat) {
+          errf("intrinsic '%s' has no C++ emit pattern", e.name.c_str());
+          out += "/*missing-intrinsic-pattern*/";
+          break;
+        }
+        // Substitute $0..$N — lower each arg into a temporary string, then
+        // copy with substitution.
+        Vector<string> rendered;
+        for (const auto &a : e.args) {
+          string saved = out;
+          out = string("");
+          emitExpr(*a);
+          rendered.append(out);
+          out = saved;
+        }
+        for (const char *p = pat; *p; ) {
+          if (*p == '$' && std::isdigit((unsigned char)p[1])) {
+            int idx = p[1] - '0';
+            p += 2;
+            if (idx < (int)rendered.size()) {
+              out += rendered[idx];
+            } else {
+              out += "/*bad-arg*/";
+            }
+          } else {
+            char tmp[2] = {*p, 0};
+            out += tmp;
+            p++;
+          }
+        }
+      } else {
+        // No intrinsic — emit a direct call. Used for built-in math
+        // free functions (length, dot, ...) once their intrinsics are
+        // registered; for now any unknown name reaches here.
+        out += e.name;
+        out += "(";
+        for (int i = 0; i < (int)e.args.size(); i++) {
+          if (i > 0) out += ", ";
+          emitExpr(*e.args[i]);
+        }
+        out += ")";
+      }
+      break;
+    }
+    }
+  }
+
+  // === statement emitter ===
+
+  void emitStmt(const Stmt &s)
+  {
+    switch (s.kind) {
+    case StmtKind::Block: {
+      writeIndent(); out += "{\n";
+      indent++;
+      int savedLocals = (int)locals.size();
+      for (const auto &c : s.stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+      indent--;
+      writeIndent(); out += "}\n";
+      break;
+    }
+    case StmtKind::DeclLocal:
+      writeIndent();
+      out += typeKindName(s.declType);
+      out += " ";
+      out += s.name;
+      if (s.expr) {
+        out += " = ";
+        emitExpr(*s.expr);
+      }
+      out += ";\n";
+      locals.append(s.name);
+      break;
+    case StmtKind::Assign:
+      writeIndent();
+      emitExpr(*s.lvalue);
+      out += " ";
+      out += assignOpCSym(s.assignOp);
+      out += " ";
+      emitExpr(*s.rvalue);
+      out += ";\n";
+      break;
+    case StmtKind::If: {
+      writeIndent();
+      out += "if (";
+      emitExpr(*s.cond);
+      out += ") ";
+      if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
+        out += "{\n";
+        indent++;
+        int savedLocals = (int)locals.size();
+        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
+        while ((int)locals.size() > savedLocals) locals.pop_back();
+        indent--;
+        writeIndent(); out += "}";
+      } else if (s.thenBranch) {
+        out += "\n";
+        indent++;
+        emitStmt(*s.thenBranch);
+        indent--;
+        writeIndent();
+      }
+      if (s.elseBranch) {
+        out += " else ";
+        if (s.elseBranch->kind == StmtKind::Block) {
+          out += "{\n";
+          indent++;
+          int savedLocals = (int)locals.size();
+          for (const auto &c : s.elseBranch->stmts) emitStmt(*c);
+          while ((int)locals.size() > savedLocals) locals.pop_back();
+          indent--;
+          writeIndent(); out += "}\n";
+        } else if (s.elseBranch->kind == StmtKind::If) {
+          // else-if chaining
+          emitStmt(*s.elseBranch);
+        } else {
+          out += "\n";
+          indent++;
+          emitStmt(*s.elseBranch);
+          indent--;
+        }
+      } else {
+        out += "\n";
+      }
+      break;
+    }
+    case StmtKind::Continue:
+      writeIndent(); out += "continue;\n";
+      break;
+    case StmtKind::Return:
+      writeIndent();
+      out += "return";
+      if (s.expr) { out += " "; emitExpr(*s.expr); }
+      out += ";\n";
+      break;
+    case StmtKind::ExprStmt:
+      writeIndent();
+      emitExpr(*s.expr);
+      out += ";\n";
+      break;
+    }
+  }
+
+  // === top-level file emitter ===
+
+  static string capitalize(const string &s)
+  {
+    string r = s;
+    if (r.size() > 0) r[0] = (char)std::toupper((unsigned char)r[0]);
+    return r;
+  }
+
+  static string lower(const string &s)
+  {
+    string r = s;
+    for (int i = 0; i < (int)r.size(); i++) {
+      r[i] = (char)std::tolower((unsigned char)r[i]);
+    }
+    return r;
+  }
+
+  void run()
+  {
+    string lowerName = lower(string(brush->attrName.size() > 0 ? brush->attrName : brush->cppName));
+    string camelName = capitalize(lowerName);
+
+    write("// AUTO-GENERATED by sbrushc — DO NOT EDIT.\n");
+    write("// Source: ");
+    write(brush->sourceFile);
+    write("\n");
+    write("#pragma once\n");
+    write("#include \"../brush_command.h\"\n");
+    write("#include \"spatial/spatial_enums.h\"\n\n");
+    write("namespace sculptcore::brush::command {\n\n");
+
+    // pre-stage: meshlog setup. Universal for local-per-vertex brushes.
+    write("template <CommandTypes TYPES>\n");
+    write("static void ");
+    write(lowerName);
+    write("Pre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)\n");
+    write("{\n");
+    write("  if (ctx.meshLog) {\n");
+    write("    for (auto *node : nodes) {\n");
+    write("      if (ctx.meshLog->hasSimpleChunk(node->id)) continue;\n");
+    write("      auto *simple = ctx.meshLog->getSimpleChunk(\n");
+    write("          node->id, node->unique_verts().size(), 0, 0, node->unique_faces().size());\n");
+    write("      auto *m = node->data->m;\n");
+    write("      simple->v.ensureAttr(m->v.attrs, m->v.co);\n");
+    write("      simple->v.ensureAttr(m->v.attrs, m->v.no);\n");
+    write("      simple->f.ensureAttr(m->f.attrs, m->f.no);\n");
+    write("      simple->v.cpyFrom(m->v.attrs, node->unique_verts());\n");
+    write("      simple->f.cpyFrom(m->f.attrs, node->unique_faces());\n");
+    write("    }\n");
+    write("  }\n");
+    write("}\n\n");
+
+    // vertex stage: walks node's verts running the DSL body.
+    if (!vertexStage) {
+      err("brush has no vertex stage");
+      return;
+    }
+    if (vertexStage->params.size() != 1) {
+      err("vertex stage must take exactly one parameter");
+    }
+
+    write("template <CommandTypes TYPES>\n");
+    write("static void ");
+    write(lowerName);
+    write("(CommandCtx<TYPES> &ctx)\n");
+    write("{\n");
+    write("  using namespace sculptcore::spatial;\n");
+    write("  using namespace litestl::math;\n");
+    write("  bool any_moved = false;\n");
+    write("  for (auto &");
+    write(vertexParamName);
+    write(" : ctx.vertexIter(ctx.node)) {\n");
+    indent = 2;
+
+    // user body
+    if (vertexStage->body && vertexStage->body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : vertexStage->body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+
+    // post-iteration side effects: ran only when body did not continue/return.
+    writeIndent();
+    write("ctx.node.affected_verts.append(");
+    write(vertexParamName);
+    write(".v);\n");
+    writeIndent();
+    write("any_moved = true;\n");
+
+    indent = 0;
+    write("  }\n");
+    write("  if (any_moved) {\n");
+    write("    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds);\n");
+    write("  }\n");
+    write("}\n\n");
+
+    // post-stage: empty for Wave 1.
+    write("template <CommandTypes TYPES>\n");
+    write("static void ");
+    write(lowerName);
+    write("Post(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)\n");
+    write("{\n");
+    write("  (void)ctx; (void)nodes;\n");
+    write("}\n\n");
+
+    // wire-up function: identical shape to existing createDrawBrush.
+    write("template <CommandTypes TYPES>\n");
+    write("static void create");
+    write(camelName);
+    write("Brush(BrushCommandDef<CommandCtx<TYPES>> &def)\n");
+    write("{\n");
+    write("  def.execPre  = ");
+    write(lowerName); write("Pre<TYPES>;\n");
+    write("  def.exec     = ");
+    write(lowerName); write("<TYPES>;\n");
+    write("  def.execPost = ");
+    write(lowerName); write("Post<TYPES>;\n");
+    write("}\n\n");
+
+    write("} // namespace sculptcore::brush::command\n");
+  }
+};
+
+} // namespace
+
+EmitResult emitCpp(const Brush &brush)
+{
+  Emit em;
+  em.brush = &brush;
+  for (const auto &st : brush.stages) {
+    if (st.kind == StageKind::Vertex) { em.vertexStage = &st; break; }
+  }
+  if (em.vertexStage && em.vertexStage->params.size() > 0) {
+    em.vertexParamName = em.vertexStage->params[0].name;
+  } else {
+    em.vertexParamName = string("v");
+  }
+  em.run();
+  EmitResult r;
+  r.text = std::move(em.out);
+  r.errors = std::move(em.errors);
+  return r;
+}
+
+} // namespace sculptcore::brush::sbrush

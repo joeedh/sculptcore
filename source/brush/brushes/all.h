@@ -1,3 +1,3 @@
 #pragma once
 #include "types.h"
-#include "draw.h"
+#include "../kernels/generated/draw.brush.gen.h"

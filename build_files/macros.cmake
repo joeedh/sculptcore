@@ -67,3 +67,17 @@ macro(wasm_add_symbols symbols)
 get_property(existing GLOBAL PROPERTY WASM_SYMBOLS)
 set_property(GLOBAL PROPERTY WASM_SYMBOLS "${existing}\n${symbols}")
 endmacro()
+
+# sbrush_backend(<name> <validator-exe-or-NONE> [VALIDATOR_ARGS ...])
+#
+# Per-backend helper that declares one sbrush emitter+validator pair.
+# Wave 1 only has the C++ backend, which is linked directly into
+# libbrush rather than producing standalone artifacts — so this is
+# currently a no-op that records the registration in a global property
+# for later use by Wave 3+ backends. The macro signature is the public
+# contract documented in brush_compute_dsl.md.
+define_property(GLOBAL PROPERTY SBRUSH_BACKENDS)
+macro(sbrush_backend name validator)
+  get_property(existing GLOBAL PROPERTY SBRUSH_BACKENDS)
+  set_property(GLOBAL PROPERTY SBRUSH_BACKENDS "${existing};${name}=${validator}")
+endmacro()

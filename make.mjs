@@ -207,6 +207,58 @@ function envPrefix(target) {
   return `node ${rel}/configureEnv.mjs ${emsdk}`.trimEnd()
 }
 
+// === sbrush DSL codegen ===
+//
+// Builds the host-side `sbrushc` binary (via the existing native CMake
+// tree) and runs it across every .sbrush in source/brush/kernels/,
+// writing outputs to source/brush/kernels/generated/. Idempotent —
+// sbrushc skips writing files whose contents are unchanged so CMake
+// won't churn.
+async function sbrushCodegen() {
+  const kernelsDir = 'source/brush/kernels'
+  const outDir = `${kernelsDir}/generated`
+  ensureDir(outDir)
+
+  const nativeBuild = buildDir('native')
+  const sbrushcCandidates = [
+    `${nativeBuild}/source/brush/compiler/sbrushc`,
+    `${nativeBuild}/source/brush/compiler/sbrushc.exe`,
+    `${nativeBuild}/source/brush/compiler/Debug/sbrushc.exe`,
+    `${nativeBuild}/source/brush/compiler/Release/sbrushc.exe`,
+  ]
+  let sbrushc = sbrushcCandidates.find((p) => fs.existsSync(p))
+
+  if (!sbrushc) {
+    if (!fs.existsSync(`${nativeBuild}/CMakeCache.txt`)) {
+      console.log('codegen: native build not configured; configuring first...')
+      ensureDir(nativeBuild)
+      run(
+        `cd ${nativeBuild} && ${envPrefix('native')} cmake ../.. -G Ninja --toolchain ./build_files/native-clang.cmake -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
+      )
+    }
+    console.log('codegen: building sbrushc...')
+    run(`cd ${nativeBuild} && ${envPrefix('native')} cmake --build . --target sbrushc`)
+    sbrushc = sbrushcCandidates.find((p) => fs.existsSync(p))
+    if (!sbrushc) {
+      process.stderr.write('codegen: sbrushc not found after build\n')
+      process.exit(1)
+    }
+  }
+
+  const inputs = fs.readdirSync(kernelsDir).filter((f) => f.endsWith('.sbrush'))
+  if (inputs.length === 0) {
+    console.log('codegen: no .sbrush inputs found')
+    return
+  }
+  for (const inp of inputs) {
+    const stem = inp.replace(/\.sbrush$/, '')
+    const inPath = `${kernelsDir}/${inp}`
+    const outPath = `${outDir}/${stem}.brush.gen.h`
+    console.log(`codegen: ${inPath} -> ${outPath}`)
+    run(`"${sbrushc}" --backend=cpp --in="${inPath}" --out="${outPath}"`)
+  }
+}
+
 function setupPNPM() {
   const invokePNPM = (str, cmd) => {
     const cwd = process.cwd()
@@ -319,6 +371,19 @@ yargs(hideBin(process.argv))
       }
       process.stderr.write(`Could not find test ${targetTest}\n`)
       process.exit(-1)
+    }
+  })
+  .command('codegen', 'Compile .sbrush kernels to backend sources', {}, async () => {
+    await sbrushCodegen()
+  })
+  .command('sbrush-build', 'Alias for codegen', {}, async () => {
+    await sbrushCodegen()
+  })
+  .command('sbrush-clean', 'Remove generated sbrush outputs', {}, () => {
+    const gen = 'source/brush/kernels/generated'
+    if (fs.existsSync(gen)) {
+      fs.rmSync(gen, {recursive: true, force: true})
+      console.log(`removed ${gen}`)
     }
   })
   .command('install-tools', 'Install host build tools (naga)', {}, () => {
