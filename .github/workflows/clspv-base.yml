@@ -1,0 +1,83 @@
+name: Publish clspv-base image
+
+# Builds the clspv base image (LLVM + Clang + clspv) and pushes it to GHCR
+# tagged by the pinned CLSPV_COMMIT from ci/versions.env. The main
+# devcontainer Dockerfile pulls the published image via `COPY --from=`, so
+# day-to-day devcontainer builds skip the 10-30 minute LLVM compile.
+#
+# This workflow is intentionally idempotent: if the SHA-tagged image
+# already exists in the registry, the build step short-circuits.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.devcontainer/clspv-base.Dockerfile'
+      - 'ci/versions.env'
+      - '.github/workflows/clspv-base.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: clspv-base
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read CLSPV_COMMIT from versions.env
+        id: pin
+        run: |
+          set -euo pipefail
+          . ci/versions.env
+          if [ -z "${CLSPV_COMMIT:-}" ]; then
+            echo "CLSPV_COMMIT is not set in ci/versions.env" >&2
+            exit 1
+          fi
+          echo "commit=${CLSPV_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "short=${CLSPV_COMMIT:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image tag already exists
+        id: exists
+        run: |
+          set +e
+          docker manifest inspect "ghcr.io/joeedh/clspv-base:${{ steps.pin.outputs.commit }}" > /dev/null 2>&1
+          if [ $? -eq 0 ]; then
+            echo "Image already exists; skipping build."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/clspv-base.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/joeedh/clspv-base:${{ steps.pin.outputs.commit }}
+            ghcr.io/joeedh/clspv-base:${{ steps.pin.outputs.short }}
+            ghcr.io/joeedh/clspv-base:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

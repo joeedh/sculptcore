@@ -1,9 +1,11 @@
 # Brush Compute DSL — Design Proposal
 
 *Status: design only. Implementation deferred until the in-flight sculptcore
-refactor lands. The CI image (`.devcontainer/Dockerfile`) and the
-`sculptcore/ci/versions.env` pin file have landed as pre-implementation
-scaffolding; nothing under `source/brush/` has been touched yet.*
+refactor lands. The CI image (sculptcore's `.devcontainer/Dockerfile`),
+the clspv base image (`.devcontainer/clspv-base.Dockerfile` published
+to GHCR), and the `ci/versions.env` pin file have landed as
+pre-implementation scaffolding; nothing under `source/brush/` has been
+touched yet.*
 
 ## Context
 
@@ -319,20 +321,38 @@ ci/
 ```
 
 The CI image itself lives at `.devcontainer/Dockerfile` (see "CI image"
-below).
+below). Paths in this section are relative to the sculptcore repo root
+— the devcontainer moved out of the parent `webgl-app-framework` repo
+and into sculptcore so that the toolchain lives next to the work it
+supports.
 
 ### CI image
 
-The repo's existing `.devcontainer/Dockerfile` is the single image used
+The sculptcore `.devcontainer/Dockerfile` is the single image used
 both for editor / `claude` work and for CI runs of the sbrush backends —
 maintaining two separate images created drift. The image is already
 provisioned with every backend's toolchain (tint, spirv-tools + glslang,
-nvcc, hipcc, clspv/pocl on top of the existing Node + emsdk + clang-18
+nvcc, hipcc, clspv/pocl on top of the existing Node + clang-18
 setup) so that `node make.mjs configure native
 --backends=cpp,wgsl,spirv,cuda,hip,opencl` will work as soon as the
 `sbrushc` compiler exists. The future GitHub Actions workflow
 (`.github/workflows/brush-backends.yml`, not yet written) reuses the
-image via `docker build -f .devcontainer/Dockerfile .`.
+image via `docker build -f .devcontainer/Dockerfile .` run from the
+sculptcore repo root.
+
+**clspv lives in its own published base image.** clspv pins LLVM at a
+specific commit on `llvm-project main` and applies a local patch
+(`patches/0001-SSAF-Fix-MSVC-template-parsing-error...`), so it has to
+compile LLVM + Clang from source — a 10-30 minute long pole on a clean
+build. Splitting it into its own base image
+(`.devcontainer/clspv-base.Dockerfile`, published as
+`ghcr.io/joeedh/clspv-base:<CLSPV_COMMIT>` by
+`.github/workflows/clspv-base.yml`) turns that cost into "once per
+pin bump." The main Dockerfile does a `COPY --from=` of just the
+`clspv` binary out of that base image. An `ARG CLSPV_BASE_TAG` at the
+top of the main Dockerfile must match `CLSPV_COMMIT` in
+`ci/versions.env`; a `RUN` step early in the image compares them and
+fails the build if they've drifted.
 
 The image pins:
 
@@ -413,9 +433,15 @@ Design decisions taken *now* to keep this open:
   for `tint`, `spirv-val`, `nvcc`, `hipcc`, `clspv`.
 - `.devcontainer/Dockerfile` — already carries every backend's toolchain
   (tint, spirv-tools, glslang, nvcc, hipcc, clspv) on top of the existing
-  Node + emsdk + clang-18 setup; reused by CI. See "CI image" above.
-- `sculptcore/ci/versions.env` — single pin file shared between the
-  Dockerfile and `make.mjs` (already present in-tree).
+  Node + clang-18 setup; reused by CI. See "CI image" above.
+- `.devcontainer/clspv-base.Dockerfile` — builds `clspv` (and the
+  LLVM/Clang it embeds) and is published to
+  `ghcr.io/joeedh/clspv-base:<CLSPV_COMMIT>` by
+  `.github/workflows/clspv-base.yml`. The main Dockerfile `COPY
+  --from=`s the binary so day-to-day builds skip the LLVM compile.
+- `ci/versions.env` — single pin file shared between the
+  Dockerfile, the clspv-base Dockerfile, and `make.mjs` (already
+  present in-tree).
 - `sculptcore/source/debug/script.cc` — gains the brush-DSL verbs
   (`set_backend`, `set_brush_tool`, `set_falloff`, `set_texture`,
   `set_coord_space`, `assert_dump`, `assert_png`, `set_grab`,
