@@ -3,6 +3,7 @@
 #include "camera.h"
 
 #include "brush/brush.h"
+#include "brush/brushes/all.h"
 #include "gpu/manager.h"
 #include "mesh/mesh.h"
 #include "meshlog/meshlog_base.h"
@@ -42,6 +43,7 @@ struct Scene {
   mesh::Mesh *mesh = nullptr;
   spatial::SpatialTree *tree = nullptr;
   brush::Brush brush;
+  brush::SculptBrushes currentTool = brush::SculptBrushes::DRAW;
   meshlog::MeshLog meshLog;
   gpu::GPUManager gpu;
   Camera camera;

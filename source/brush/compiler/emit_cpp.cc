@@ -25,6 +25,10 @@ struct Emit {
   // a name is a local helps us route identifier resolution correctly.
   Vector<string> locals;
 
+  // Set when a NeighborLoop is emitted — drives an extra #include in
+  // the generated header so EdgeOfVertIter resolves.
+  bool neighborLoopUsed = false;
+
   void err(const char *msg)
   {
     errors.append(string(msg));
@@ -287,6 +291,47 @@ struct Emit {
       emitExpr(*s.expr);
       out += ";\n";
       break;
+    case StmtKind::NeighborLoop: {
+      // for_neighbor (nb in <outer>) { body }
+      // Expand to a scoped C++ block that walks EdgeOfVertIter around
+      // <outer>'s vertex index, binding nb as a reference-bundle with
+      // .co/.no/.v just like the main vertex iter target.
+      neighborLoopUsed = true;
+      writeIndent(); out += "{\n";
+      indent++;
+      writeIndent(); out += "int __outer_v = ";
+      emitExpr(*s.lvalue);
+      out += ".v;\n";
+      writeIndent(); out += "auto *__m = ctx.node.data->m;\n";
+      writeIndent(); out += "int __e0 = __m->v.e[__outer_v];\n";
+      writeIndent(); out += "if (__e0 != ELEM_NONE) {\n";
+      indent++;
+      writeIndent();
+      out += "for (int __e : sculptcore::mesh::EdgeOfVertIter(__m, __outer_v, __e0)) {\n";
+      indent++;
+      writeIndent();
+      out += "int __nb_v = (__m->e.vs[__e][0] == __outer_v) ? __m->e.vs[__e][1] : __m->e.vs[__e][0];\n";
+      writeIndent();
+      out += "struct { litestl::math::float3 &co; litestl::math::float3 &no; int v; } ";
+      out += s.name;
+      out += " {__m->v.co[__nb_v], __m->v.no[__nb_v], __nb_v};\n";
+      // Body: emit either a Block (inline) or a single statement.
+      int savedLocals = (int)locals.size();
+      locals.append(s.name);
+      if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
+        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
+      } else if (s.thenBranch) {
+        emitStmt(*s.thenBranch);
+      }
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+      indent--;
+      writeIndent(); out += "}\n";
+      indent--;
+      writeIndent(); out += "}\n";
+      indent--;
+      writeIndent(); out += "}\n";
+      break;
+    }
     }
   }
 
@@ -319,7 +364,8 @@ struct Emit {
     write("\n");
     write("#pragma once\n");
     write("#include \"../brush_command.h\"\n");
-    write("#include \"spatial/spatial_enums.h\"\n\n");
+    write("#include \"spatial/spatial_enums.h\"\n");
+    write("#include \"mesh/mesh_iter.h\"\n\n");
     write("namespace sculptcore::brush::command {\n\n");
 
     // pre-stage: meshlog setup. Universal for local-per-vertex brushes.

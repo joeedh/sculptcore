@@ -188,6 +188,7 @@ struct Parser {
   {
     if (check(TokKind::LBrace)) return parseBlock();
     if (check(TokKind::KwIf)) return parseIf();
+    if (check(TokKind::KwForNeighbor)) return parseNeighborLoop();
     if (check(TokKind::KwReturn)) {
       auto s = std::make_unique<Stmt>(StmtKind::Return);
       s->line = peek().line;
@@ -256,6 +257,26 @@ struct Parser {
     expect(TokKind::RParen, "after if-condition");
     s->thenBranch = parseStmt();
     if (match(TokKind::KwElse)) s->elseBranch = parseStmt();
+    return s;
+  }
+
+  StmtPtr parseNeighborLoop()
+  {
+    // for_neighbor (<innerName> in <outer>) <body>
+    auto s = std::make_unique<Stmt>(StmtKind::NeighborLoop);
+    s->line = peek().line;
+    advance(); // for_neighbor
+    expect(TokKind::LParen, "after 'for_neighbor'");
+    if (!check(TokKind::Ident)) {
+      error("expected inner name after 'for_neighbor ('", peek());
+      return s;
+    }
+    s->name = peek().text;
+    advance();
+    expect(TokKind::KwIn, "after inner name");
+    s->lvalue = parseExpr();
+    expect(TokKind::RParen, "after for_neighbor outer expression");
+    s->thenBranch = parseStmt();
     return s;
   }
 

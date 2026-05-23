@@ -1,0 +1,21 @@
+// Clay — push verts toward a target plane defined by (surfacePos, surfaceNo).
+// Only verts below the plane move (so the brush "fills" cavities without
+// piling material on top of bumps). Mirrors the classic Blender clay tool.
+
+@brush("clay")
+brush Clay {
+  ctx float3 surfaceNo;
+  ctx float3 surfacePos;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) {
+      continue;
+    }
+    // Signed distance from v.co to the plane. Negative = below plane.
+    float h = dot(v.co - surfacePos, surfaceNo);
+    if (h < 0.0) {
+      v.co += surfaceNo * s;
+    }
+  }
+}

@@ -99,6 +99,7 @@ enum class StmtKind : int {
   Continue,
   Return,
   ExprStmt,
+  NeighborLoop, // for_neighbor (<name> in <outer>) <body>
 };
 
 struct Stmt {
@@ -120,6 +121,11 @@ struct Stmt {
   ExprPtr cond;
   StmtPtr thenBranch;
   StmtPtr elseBranch;
+  // NeighborLoop
+  // - name: inner binding (becomes a Vertex-like local within body)
+  // - lvalue: the outer Vertex expression to iterate around
+  // - thenBranch: the loop body
+  // (re-uses existing fields to avoid bloating Stmt)
 
   Stmt() = default;
   Stmt(StmtKind k) : kind(k) {}

@@ -31,6 +31,7 @@ static const KW keywords[] = {
   {"continue", TokKind::KwContinue},
   {"true",     TokKind::KwTrue},
   {"false",    TokKind::KwFalse},
+  {"for_neighbor", TokKind::KwForNeighbor},
 };
 
 struct Lexer {
@@ -337,6 +338,7 @@ const char *tokKindName(TokKind k)
   case TokKind::KwContinue: return "continue";
   case TokKind::KwTrue: return "true";
   case TokKind::KwFalse: return "false";
+  case TokKind::KwForNeighbor: return "for_neighbor";
   }
   return "?";
 }

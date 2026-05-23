@@ -1,0 +1,15 @@
+// Inflate — push each vertex along its own normal proportional to
+// brush strength * falloff * mask. Mirrors Draw but uses the per-vert
+// normal instead of the brush surface normal, and respects mask.
+
+@brush("inflate")
+brush Inflate {
+  vertex void apply(inout Vertex v) {
+    // Mask convention: 0 = unmasked (full effect), 1 = locked.
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) {
+      continue;
+    }
+    v.co += v.no * s;
+  }
+}

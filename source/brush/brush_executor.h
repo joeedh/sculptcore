@@ -63,6 +63,24 @@ struct CommandExecutor {
     case SculptBrushes::DRAW:
       command::createDrawBrush(def);
       return def;
+    case SculptBrushes::INFLATE:
+      command::createInflateBrush(def);
+      return def;
+    case SculptBrushes::CLAY:
+      command::createClayBrush(def);
+      return def;
+    case SculptBrushes::PINCH:
+      command::createPinchBrush(def);
+      return def;
+    case SculptBrushes::SHARP:
+      command::createSharpBrush(def);
+      return def;
+    case SculptBrushes::MASK:
+      command::createMaskBrush(def);
+      return def;
+    case SculptBrushes::SMOOTH:
+      command::createSmoothBrush(def);
+      return def;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();

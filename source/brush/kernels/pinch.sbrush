@@ -1,0 +1,21 @@
+// Pinch — pull each vert toward the brush center (surfacePos),
+// proportional to falloff*strength and gated by mask.
+
+@brush("pinch")
+brush Pinch {
+  ctx float3 surfacePos;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) {
+      continue;
+    }
+    float3 dir = surfacePos - v.co;
+    float d = length(dir);
+    // Move toward center by `s` along the unit direction. Guard against
+    // div-by-zero for the lone vert that may sit exactly at surfacePos.
+    if (d > 0.0001) {
+      v.co += dir * (s / d);
+    }
+  }
+}

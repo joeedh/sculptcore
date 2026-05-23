@@ -1,0 +1,17 @@
+@brush("sharp")
+brush Sharp {
+  ctx float3 surfacePos;
+  ctx float3 surfaceNo;
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) { continue; }
+    // Pull along the tangent of the brush plane (slide on the surface,
+    // not into it) — sharpens features without inflating/deflating.
+    float3 d = v.co - surfacePos;
+    float3 t = d - surfaceNo * dot(d, surfaceNo);
+    float tlen = length(t);
+    if (tlen > 0.0001) {
+      v.co -= t * (s / tlen);
+    }
+  }
+}

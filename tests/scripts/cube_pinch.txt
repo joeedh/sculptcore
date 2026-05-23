@@ -1,0 +1,7 @@
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=pinch
+set_brush radius=0.25 strength=0.5
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=cube_pinch.json
+screenshot view=persp out=cube_pinch.png

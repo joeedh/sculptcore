@@ -4,6 +4,12 @@
 namespace sculptcore::brush {
 enum class _SculptBrushes {
   DRAW = 0,
+  INFLATE = 1,
+  CLAY = 2,
+  PINCH = 3,
+  SHARP = 4,
+  MASK = 5,
+  SMOOTH = 6,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -14,6 +20,12 @@ template <std::same_as<sculptcore::brush::SculptBrushes> T> static const types::
   using namespace sculptcore::brush;
   types::Enum *e = new types::Enum("sculptcore::brush::SculptBrushes", sizeof(SculptBrushes));
   e->addItem("DRAW", SculptBrushes::DRAW);
+  e->addItem("INFLATE", SculptBrushes::INFLATE);
+  e->addItem("CLAY", SculptBrushes::CLAY);
+  e->addItem("PINCH", SculptBrushes::PINCH);
+  e->addItem("SHARP", SculptBrushes::SHARP);
+  e->addItem("MASK", SculptBrushes::MASK);
+  e->addItem("SMOOTH", SculptBrushes::SMOOTH);
   return e;
 }
 } // namespace litestl::binding

@@ -169,6 +169,34 @@ bool execVerb(Scene &scene,
     scene.brush.writeProps();
     return true;
   }
+  if (verb == "set_brush_tool") {
+    const char *t = getArg(args, "tool");
+    if (!t) {
+      err = "set_brush_tool: missing tool=";
+      return false;
+    }
+    std::string ts = t;
+    for (auto &c : ts) c = (char)std::tolower((unsigned char)c);
+    if (ts == "draw") {
+      scene.currentTool = brush::SculptBrushes::DRAW;
+    } else if (ts == "inflate") {
+      scene.currentTool = brush::SculptBrushes::INFLATE;
+    } else if (ts == "clay") {
+      scene.currentTool = brush::SculptBrushes::CLAY;
+    } else if (ts == "pinch") {
+      scene.currentTool = brush::SculptBrushes::PINCH;
+    } else if (ts == "sharp") {
+      scene.currentTool = brush::SculptBrushes::SHARP;
+    } else if (ts == "mask") {
+      scene.currentTool = brush::SculptBrushes::MASK;
+    } else if (ts == "smooth") {
+      scene.currentTool = brush::SculptBrushes::SMOOTH;
+    } else {
+      err = std::string("set_brush_tool: unknown tool '") + t + "'";
+      return false;
+    }
+    return true;
+  }
   if (verb == "stroke") {
     if (!scene.mesh || !scene.tree) {
       err = "stroke: no mesh/tree";
@@ -187,7 +215,7 @@ bool execVerb(Scene &scene,
       brush::CommandExecutor exec(scene.tree, &scene.brush);
       exec.meshLog = &scene.meshLog;
       exec.beginStep();
-      exec.execBrush(brush::SculptBrushes::DRAW, &nodes, origin, normal);
+      exec.execBrush(scene.currentTool, &nodes, origin, normal);
       exec.endStep();
     }
 
@@ -220,7 +248,7 @@ bool execVerb(Scene &scene,
       if (nodes.size() == 0) {
         return;
       }
-      exec.execBrush(brush::SculptBrushes::DRAW, &nodes, origin, normal);
+      exec.execBrush(scene.currentTool, &nodes, origin, normal);
       exec.clearIsFirstOfStep();
     };
 

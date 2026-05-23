@@ -1,3 +1,9 @@
 #pragma once
 #include "types.h"
 #include "../kernels/generated/draw.brush.gen.h"
+#include "../kernels/generated/inflate.brush.gen.h"
+#include "../kernels/generated/clay.brush.gen.h"
+#include "../kernels/generated/pinch.brush.gen.h"
+#include "../kernels/generated/sharp.brush.gen.h"
+#include "../kernels/generated/mask.brush.gen.h"
+#include "../kernels/generated/smooth.brush.gen.h"
