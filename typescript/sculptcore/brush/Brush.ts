@@ -21,6 +21,7 @@ export interface Brush {
   [Symbol.dispose](): void
   strength: float
   radius: float
+  spacing: float
   invert: boolean
   props: StructProp
   loadProps(): void
