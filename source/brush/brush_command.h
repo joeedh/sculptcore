@@ -65,6 +65,10 @@ enum _BrushFlags { None = 0, Serial = 1 << 0 };
 MAKE_FLAGS_CLASS(BrushFlags, _BrushFlags, int);
 
 template <typename CTX> struct BrushCommandDef {
+  // Optional `host` stage from the DSL — runs once per dab on CPU before
+  // any per-node work. Used to mutate ctx state / populate query buffers
+  // that the per-vertex stage then reads. Never lowered to GPU backends.
+  std::function<void(CommandCtxBase &, Brush &)> execHost;
   std::function<void(CommandCtxBase &, std::span<SpatialNode *>)> execPre;
   std::function<void(CTX &)> exec;
   std::function<void(CommandCtxBase &, std::span<SpatialNode *>)> execPost;

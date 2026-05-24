@@ -29,6 +29,20 @@ brush Kelvinlet {
     float a, b;
   }
 
+  // Host stage runs once per dab on the CPU before any per-node work.
+  // For kelvinlet, the only thing host needs to do is keep mu/nu inside
+  // the range where the reduce-stage math stays well-defined: nu near
+  // 0.5 sends `4 * (1 - nu)` to zero, and mu near zero blows up the
+  // `(1+nu)/(2*mu)` factor. Clamping here means downstream stages (on
+  // any backend) consume sanitized values without having to repeat the
+  // check per-vertex. Default mu=1.0, nu=0.4 are inside the range, so
+  // this is a no-op for the regression script.
+  host void clampParams() {
+    if (nu > 0.499) nu = 0.499;
+    if (nu < 0.0) nu = 0.0;
+    if (mu < 1e-6) mu = 1e-6;
+  }
+
   reduce void prep(out KelvinletState s) {
     s.a = (1.0 + nu) / (2.0 * mu);
     s.b = s.a / (4.0 * (1.0 - nu));

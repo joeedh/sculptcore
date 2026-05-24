@@ -1,0 +1,21 @@
+# Cube with a single pose-brush dab. Three of the four anchors stay
+# put on the cube faces; the fourth is displaced 0.2 along +Z. With
+# the 1/(1+|d|²) weighting, +Z verts move noticeably toward the moved
+# anchor while the rest stay nearly fixed.
+#
+# Exercises the Wave 4b slice: `Array<float3, 4>` ctx field type plus
+# subscript expressions in the DSL.
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=pose
+set_brush radius=0.6 strength=1.0
+set_pose_cage_rest idx=0 pos=0.5,0,0
+set_pose_cage_rest idx=1 pos=-0.5,0,0
+set_pose_cage_rest idx=2 pos=0,0.5,0
+set_pose_cage_rest idx=3 pos=0,0,0.5
+set_pose_cage_now  idx=0 pos=0.5,0,0
+set_pose_cage_now  idx=1 pos=-0.5,0,0
+set_pose_cage_now  idx=2 pos=0,0.5,0
+set_pose_cage_now  idx=3 pos=0,0,0.7
+stroke origin=0,0,0.5 normal=0,0,1
+dump_state out=cube_pose.json

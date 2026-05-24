@@ -220,6 +220,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::SMOOTH;
     } else if (ts == "kelvinlet") {
       scene.currentTool = brush::SculptBrushes::KELVINLET;
+    } else if (ts == "pose") {
+      scene.currentTool = brush::SculptBrushes::POSE;
     } else {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;
@@ -245,6 +247,26 @@ bool execVerb(Scene &scene,
     const char *nuArg = getArg(args, "nu");
     if (muArg) scene.brush.mu = float(std::atof(muArg));
     if (nuArg) scene.brush.nu = float(std::atof(nuArg));
+    return true;
+  }
+  if (verb == "set_pose_cage_rest" || verb == "set_pose_cage_now") {
+    const char *idxArg = getArg(args, "idx");
+    if (!idxArg) {
+      err = std::string(verb) + ": missing idx=";
+      return false;
+    }
+    int idx = std::atoi(idxArg);
+    if (idx < 0 || idx >= 4) {
+      err = std::string(verb) + ": idx must be in [0, 4)";
+      return false;
+    }
+    float3 pos;
+    if (!parseFloat3(getArg(args, "pos"), pos)) {
+      err = std::string(verb) + ": missing pos=x,y,z";
+      return false;
+    }
+    if (verb == "set_pose_cage_rest") scene.brush.poseCageRest[idx] = pos;
+    else                              scene.brush.poseCageNow[idx]  = pos;
     return true;
   }
   if (verb == "stroke") {

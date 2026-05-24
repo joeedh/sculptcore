@@ -126,8 +126,15 @@ struct Emit {
                          (std::strcmp(n, "renderMatrix") == 0) ||
                          (std::strcmp(n, "isFirstOfStep") == 0) ||
                          (std::strcmp(n, "meshLog") == 0);
+        // Host stages take `(CommandCtxBase &ctx, Brush &brush)` — there
+        // is no `ctx.brush`, so uniforms/non-builtin ctx fields resolve
+        // to bare `brush.X` instead. Builtin ctx-base fields still go
+        // through `ctx.X` either way.
+        bool inHost = (currentStage && currentStage->kind == StageKind::Host);
         if (f->kind == FieldKind::Ctx && isCtxBase) {
           out += "ctx.";
+        } else if (inHost) {
+          out += "brush.";
         } else {
           out += "ctx.brush.";
         }
@@ -143,6 +150,12 @@ struct Emit {
       emitExpr(*e.lhs);
       out += ".";
       out += e.name;
+      break;
+    case ExprKind::Index:
+      emitExpr(*e.lhs);
+      out += "[";
+      emitExpr(*e.rhs);
+      out += "]";
       break;
     case ExprKind::Binary:
       out += "(";
@@ -382,6 +395,32 @@ struct Emit {
     return r;
   }
 
+  // Emit one host stage as a templated free function. Host runs once per
+  // dab on CPU with direct access to ctx (CommandCtxBase) and the Brush
+  // — there's intentionally no per-node CommandCtx here, since the per-
+  // node loop hasn't started yet. Currently host stages take no params;
+  // any param-passing happens via ctx state.
+  void emitHostStage(const Stage &st, const string &lowerBrush)
+  {
+    write("template <CommandTypes TYPES>\n");
+    write("static void ");
+    write(lowerBrush);
+    write(capitalize(st.name));
+    write("(CommandCtxBase &ctx, Brush &brush)\n");
+    write("{\n");
+    write("  (void)ctx; (void)brush;\n");
+    indent = 1;
+    currentStage = &st;
+    if (st.body && st.body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : st.body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+    currentStage = nullptr;
+    indent = 0;
+    write("}\n\n");
+  }
+
   // Emit one reduce stage as a templated free function. The signature
   // mirrors the DSL source: each struct-typed param becomes a C++
   // reference param, scalars stay by-value (in) or by-reference (out/inout).
@@ -473,6 +512,17 @@ struct Emit {
     write("    }\n");
     write("  }\n");
     write("}\n\n");
+
+    // Host stages — CPU-only setup that runs before any per-node work
+    // for a dab. Emitted first so reduce/vertex (which may read ctx
+    // fields the host populated) can rely on its side effects.
+    Vector<const Stage *> hostStages;
+    for (const auto &st : brush->stages) {
+      if (st.kind == StageKind::Host) hostStages.append(&st);
+    }
+    for (const auto *st : hostStages) {
+      emitHostStage(*st, lowerName);
+    }
 
     // Reduce stages — emitted before the vertex stage so the vertex
     // function can call them by name.
@@ -600,6 +650,18 @@ struct Emit {
     write(camelName);
     write("Brush(BrushCommandDef<CommandCtx<TYPES>> &def)\n");
     write("{\n");
+    // Host stages, if any, are composed into a single lambda so multiple
+    // hosts on one brush still flow through one execHost slot.
+    if (hostStages.size() > 0) {
+      write("  def.execHost = [](CommandCtxBase &ctx, Brush &brush) {\n");
+      for (const auto *st : hostStages) {
+        write("    ");
+        write(lowerName);
+        write(capitalize(st->name));
+        write("<TYPES>(ctx, brush);\n");
+      }
+      write("  };\n");
+    }
     write("  def.execPre  = ");
     write(lowerName); write("Pre<TYPES>;\n");
     write("  def.exec     = ");

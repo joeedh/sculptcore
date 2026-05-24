@@ -1,0 +1,56 @@
+// Pose brush — 4-anchor soft-attraction. Each anchor `poseCageRest[i]`
+// pulls nearby verts toward `poseCageNow[i]` with weight 1/(1+|d|²);
+// the per-vertex displacement is the weight-normalized sum. Inverse-
+// distance falloff means the closest anchor dominates without any
+// hard cutoff — gives a smooth posing feel without needing a BVH for
+// rigid-region partitioning (that's a later slice).
+//
+// Wave 4b slice: introduces the DSL's `Array<T, N>` field type plus
+// subscript expressions, so the per-anchor stanzas can be written
+// against indexed cage state instead of four scalar fields.
+//
+// Anchors are unrolled because the DSL has no `for` loop yet. Four is
+// a deliberate compromise: enough to feel like a pose (you can pin a
+// limb and pivot another point), few enough that the unroll stays
+// readable.
+
+@brush("pose")
+brush Pose {
+  uniform float strength, radius;
+
+  // Cage anchors live on Brush (set by script verbs before each dab);
+  // the `ctx Array<float3, 4>` form opts both arrays into DSL
+  // identifier resolution and reserves matching slots in the WGSL
+  // CtxUniforms block for a future GPU dispatch.
+  ctx Array<float3, 4> poseCageRest, poseCageNow;
+
+  vertex void apply(inout Vertex v) {
+    float3 disp = float3(0.0, 0.0, 0.0);
+    float wsum = 0.0;
+
+    float3 d0 = v.co - poseCageRest[0];
+    float w0 = 1.0 / (1.0 + dot(d0, d0));
+    disp += (poseCageNow[0] - poseCageRest[0]) * w0;
+    wsum += w0;
+
+    float3 d1 = v.co - poseCageRest[1];
+    float w1 = 1.0 / (1.0 + dot(d1, d1));
+    disp += (poseCageNow[1] - poseCageRest[1]) * w1;
+    wsum += w1;
+
+    float3 d2 = v.co - poseCageRest[2];
+    float w2 = 1.0 / (1.0 + dot(d2, d2));
+    disp += (poseCageNow[2] - poseCageRest[2]) * w2;
+    wsum += w2;
+
+    float3 d3 = v.co - poseCageRest[3];
+    float w3 = 1.0 / (1.0 + dot(d3, d3));
+    disp += (poseCageNow[3] - poseCageRest[3]) * w3;
+    wsum += w3;
+
+    if (wsum > 0.000001) {
+      float fall = strength(v.co) * (1.0 - v.mask);
+      v.co += (disp / wsum) * fall;
+    }
+  }
+}

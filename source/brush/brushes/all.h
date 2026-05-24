@@ -8,3 +8,4 @@
 #include "../kernels/generated/mask.brush.gen.h"
 #include "../kernels/generated/smooth.brush.gen.h"
 #include "../kernels/generated/kelvinlet.brush.gen.h"
+#include "../kernels/generated/pose.brush.gen.h"

@@ -184,6 +184,12 @@ struct Emit {
       }
       break;
     }
+    case ExprKind::Index:
+      emitExpr(*e.lhs);
+      out += "[";
+      emitExpr(*e.rhs);
+      out += "]";
+      break;
     case ExprKind::Binary:
       out += "(";
       emitExpr(*e.lhs);
@@ -419,6 +425,25 @@ struct Emit {
       return std::strcmp(n, "surfacePos") == 0 || std::strcmp(n, "surfaceNo") == 0;
     };
 
+    // Lowers a DSL field's type to its WGSL uniform-block spelling.
+    // Array<T,N> becomes `array<T, N>`; note that `array<vec3<f32>, N>`
+    // has stride 16 in the uniform address space (vec3 is padded), so
+    // any future C++ marshaling has to match — deferred until a WGSL
+    // dispatcher actually consumes these blocks.
+    auto writeFieldType = [&](const Field &f) {
+      if (f.type == TypeKind::Array) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%d", f.arraySize);
+        out += "array<";
+        out += wgslType(f.arrayElem);
+        out += ", ";
+        out += buf;
+        out += ">";
+      } else {
+        out += wgslType(f.type);
+      }
+    };
+
     write("struct BrushUniforms {\n");
     write("  strength: f32,\n");
     write("  radius: f32,\n");
@@ -434,7 +459,7 @@ struct Emit {
       write("  ");
       write(f.name);
       write(": ");
-      write(wgslType(f.type));
+      writeFieldType(f);
       write(",\n");
     }
     write("};\n\n");
@@ -448,7 +473,7 @@ struct Emit {
       write("  ");
       write(f.name);
       write(": ");
-      write(wgslType(f.type));
+      writeFieldType(f);
       write(",\n");
     }
     write("};\n\n");

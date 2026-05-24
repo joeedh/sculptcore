@@ -129,17 +129,41 @@ struct Parser {
     else { advance(); kind = FieldKind::Ctx; }
 
     if (!check(TokKind::Ident)) { error("expected type in field declaration", peek()); return; }
-    TypeKind ty = parseTypeKind(stringref(peek().text.c_str()));
-    if (ty == TypeKind::Unknown) {
-      errorf(peek(), "unknown type '%s' in field declaration", peek().text.c_str());
+
+    // Optional Array<elem, N> in type position.
+    TypeKind ty = TypeKind::Unknown;
+    TypeKind arrayElem = TypeKind::Unknown;
+    int arraySize = 0;
+    if (string(peek().text.c_str()).operator==(string("Array"))) {
+      advance(); // Array
+      expect(TokKind::Lt, "after 'Array'");
+      if (!check(TokKind::Ident)) { error("expected element type in Array<...>", peek()); return; }
+      arrayElem = parseTypeKind(stringref(peek().text.c_str()));
+      if (arrayElem == TypeKind::Unknown) {
+        errorf(peek(), "unknown element type '%s' in Array<...>", peek().text.c_str());
+      }
+      advance();
+      expect(TokKind::Comma, "between Array element type and size");
+      if (!check(TokKind::IntLit)) { error("expected integer size in Array<...>", peek()); return; }
+      arraySize = (int)peek().ivalue;
+      advance();
+      expect(TokKind::Gt, "to close Array<...>");
+      ty = TypeKind::Array;
+    } else {
+      ty = parseTypeKind(stringref(peek().text.c_str()));
+      if (ty == TypeKind::Unknown) {
+        errorf(peek(), "unknown type '%s' in field declaration", peek().text.c_str());
+      }
+      advance();
     }
-    advance();
     // Multi-var field decl: `uniform float a, b, c;`
     while (true) {
       if (!check(TokKind::Ident)) { error("expected field name", peek()); return; }
       Field f;
       f.kind = kind;
       f.type = ty;
+      f.arrayElem = arrayElem;
+      f.arraySize = arraySize;
       f.name = peek().text;
       advance();
       brush.fields.append(f);
@@ -512,6 +536,15 @@ struct Parser {
         }
         expect(TokKind::RParen, "to close call");
         e = std::move(call);
+      } else if (check(TokKind::LBracket)) {
+        int line = peek().line;
+        advance();
+        auto idx = std::make_unique<Expr>(ExprKind::Index);
+        idx->line = line;
+        idx->lhs = std::move(e);
+        idx->rhs = parseExpr();
+        expect(TokKind::RBracket, "to close subscript");
+        e = std::move(idx);
       } else {
         break;
       }

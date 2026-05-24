@@ -32,6 +32,14 @@ struct Brush {
   float3 grabFrom{0, 0, 0};
   float3 grabTo{0, 0, 0};
 
+  // Pose-brush cage. `poseCageRest` is sampled when the dab starts; the DSL
+  // displaces each vertex by a weighted sum of `poseCageNow[i] - poseCageRest[i]`
+  // with weights = 1 / (1 + |v.co - poseCageRest[i]|²). Four anchors is the
+  // tightest fit that still gives a smooth pose without needing a loop in
+  // the DSL (Wave 4b has no `for`).
+  float3 poseCageRest[4] = {};
+  float3 poseCageNow[4] = {};
+
   static litestl::binding::types::Struct<Brush> *defineBindings()
   {
     using namespace litestl::binding;

@@ -26,6 +26,7 @@ enum class TypeKind : int {
   Float4,
   Vertex, // special: parameter type of vertex stage
   Struct, // user-defined struct; resolve by Param/Field/Local.structName
+  Array,  // fixed-size Array<elem, N>; carrier uses arrayElem/arraySize
   Unknown,
 };
 
@@ -59,6 +60,7 @@ enum class ExprKind : int {
   LitFloat, LitInt, LitBool,
   Ident,
   Member,   // base.field
+  Index,    // base[index]
   Binary,
   Unary,
   Call,
@@ -170,6 +172,9 @@ enum class FieldKind : int {
 struct Field {
   FieldKind kind;
   TypeKind type;
+  // For TypeKind::Array, the element type and fixed length.
+  TypeKind arrayElem = TypeKind::Unknown;
+  int arraySize = 0;
   string name;
 };
 

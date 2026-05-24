@@ -293,5 +293,50 @@ int main()
     test_assert(smoothedZ < spikeZ - 1e-3f);
   }
 
+  /* Pose brush: three cage anchors stay put, the +Z anchor moves to z=0.7.
+   * +Z face verts must lift (closest to the moved anchor); the -Z face
+   * center must stay nearly fixed (closer to the stationary anchors).
+   * Proves Array<float3, 4> ctx fields and subscript exprs lower through
+   * both the emitter and the script verbs. */
+  {
+    Scene scene(64, 64, true);
+    const char *src =
+        "make_cube subdivs=12 size=0.5\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_brush_tool tool=pose\n"
+        "set_brush radius=0.6 strength=1.0\n"
+        "set_pose_cage_rest idx=0 pos=0.5,0,0\n"
+        "set_pose_cage_rest idx=1 pos=-0.5,0,0\n"
+        "set_pose_cage_rest idx=2 pos=0,0.5,0\n"
+        "set_pose_cage_rest idx=3 pos=0,0,0.5\n"
+        "set_pose_cage_now  idx=0 pos=0.5,0,0\n"
+        "set_pose_cage_now  idx=1 pos=-0.5,0,0\n"
+        "set_pose_cage_now  idx=2 pos=0,0.5,0\n"
+        "set_pose_cage_now  idx=3 pos=0,0,0.7\n"
+        "stroke origin=0,0,0.5 normal=0,0,1\n";
+    auto r = script::run(scene, src, ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  pose script line %d: %s\n", r.line_no, r.error.c_str());
+    }
+    /* Max z on the +Z face must rise above the starting 0.25. */
+    float maxZ = -1e9f;
+    /* Min |z + 0.25| on the -Z face — must stay near the original. */
+    float worstBottom = 0.0f;
+    if (scene.mesh) {
+      for (int i = 0; i < scene.mesh->v.count; i++) {
+        float z = scene.mesh->v.co[i][2];
+        if (z > maxZ) maxZ = z;
+        if (z < -0.20f) {
+          float d = z + 0.25f;
+          if (d < 0) d = -d;
+          if (d > worstBottom) worstBottom = d;
+        }
+      }
+    }
+    test_assert(maxZ > 0.25f + 1e-3f);
+    test_assert(worstBottom < 0.05f);
+  }
+
   return test_end();
 }

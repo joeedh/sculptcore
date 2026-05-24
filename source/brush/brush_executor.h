@@ -84,6 +84,9 @@ struct CommandExecutor {
     case SculptBrushes::KELVINLET:
       command::createKelvinletBrush(def);
       return def;
+    case SculptBrushes::POSE:
+      command::createPoseBrush(def);
+      return def;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
@@ -94,6 +97,7 @@ struct CommandExecutor {
   {
     vertex_iter_factory vertexIterFactory = createIterFactory();
 
+    if (cmd.execHost) cmd.execHost(ctx, *brush);
     cmd.execPre(ctx, nodes);
 
 #ifdef NO_PARALLEL_FOR

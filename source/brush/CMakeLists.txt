@@ -83,3 +83,45 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_WGSL)
   sbrush_backend(wgsl tint)
 endif()
 
+# SPIR-V backend: chain sbrushc(WGSL) -> tint(--format=spirv) -> spirv-val.
+# Lives off the WGSL emitter for now (per the design doc's "WGSL+Tint"
+# lowering option); a future slice can swap the tint step for a direct
+# emit_spirv.cc backend without touching this wiring. The .spv artifact
+# is what a future Vulkan dispatcher would consume.
+if (NOT BUILD_WASM AND SBRUSH_BACKEND_SPIRV)
+  target_compile_definitions(brush PUBLIC SBRUSH_BACKEND_SPIRV=1)
+  file(GLOB SBRUSH_INPUTS_SPV "${CMAKE_CURRENT_SOURCE_DIR}/kernels/*.sbrush")
+  set(SPV_OUT_DIR "${CMAKE_BINARY_DIR}/sbrush_out/spirv")
+  file(MAKE_DIRECTORY "${SPV_OUT_DIR}")
+  set(SPV_OUTPUTS)
+  foreach(SRC ${SBRUSH_INPUTS_SPV})
+    get_filename_component(STEM "${SRC}" NAME_WE)
+    set(WGSL "${SPV_OUT_DIR}/${STEM}.wgsl")
+    set(SPV  "${SPV_OUT_DIR}/${STEM}.spv")
+    set(STAMP "${SPV}.validated")
+    if (SBRUSH_VALIDATE_ALL)
+      add_custom_command(
+        OUTPUT "${STAMP}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=wgsl --in=${SRC} --out=${WGSL}
+        COMMAND ${SBRUSH_WGSL_VALIDATOR} ${WGSL} --format=spirv -o ${SPV}
+        COMMAND ${SBRUSH_SPIRV_VALIDATOR} ${SPV}
+        COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush spirv (via tint) + spirv-val: ${STEM}.spv"
+        VERBATIM)
+      list(APPEND SPV_OUTPUTS "${STAMP}")
+    else()
+      add_custom_command(
+        OUTPUT "${SPV}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=wgsl --in=${SRC} --out=${WGSL}
+        COMMAND ${SBRUSH_WGSL_VALIDATOR} ${WGSL} --format=spirv -o ${SPV}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush spirv (via tint): ${STEM}.spv"
+        VERBATIM)
+      list(APPEND SPV_OUTPUTS "${SPV}")
+    endif()
+  endforeach()
+  add_custom_target(sbrush-spirv ALL DEPENDS ${SPV_OUTPUTS})
+  sbrush_backend(spirv spirv-val)
+endif()
+
