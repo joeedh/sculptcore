@@ -600,26 +600,25 @@ struct Emit {
     write("  using namespace litestl::math;\n");
     write("  bool any_moved = false;\n");
 
-    // Struct-typed vertex params get declared as locals and seeded from
-    // matching reduce stages (matched by struct type, then by param
-    // name). The vertex body then sees them as ordinary stage params.
+    // Non-Vertex vertex params get declared as locals and seeded by the
+    // matching reduce-stage output (matched by param name). The vertex
+    // body then sees them as ordinary stage params — struct, scalar,
+    // or vector. Struct locals are default-constructed; scalars stay
+    // uninitialized until the reduce call runs (the executor always
+    // calls every reduce stage before the per-vertex loop).
     for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
       const auto &p = vertexStage->params[pi];
-      if (p.type != TypeKind::Struct) {
-        errf("vertex stage param '%s' must be a struct type (Wave 4 slice)",
-             p.name.c_str());
-        continue;
-      }
       write("  ");
-      write(p.structName);
+      emitTypeRef(p.type, p.structName);
       write(" ");
       write(p.name);
       write(";\n");
     }
     // Call each reduce stage in source order. Argument matching is
-    // positional: each reduce's struct-typed params bind to the
-    // matching-name vertex-stage struct param. Scalars in reduce
-    // signatures are not yet supported here.
+    // by-name to a vertex-stage local declared above; both struct
+    // and scalar params are passed by reference at the C++ level
+    // (the reduce signature already declares scalars as `T &` for
+    // out/inout, by value for in — the call site looks the same).
     for (const auto *st : reduceStages) {
       write("  ");
       write(lowerName);
@@ -627,28 +626,21 @@ struct Emit {
       write("<TYPES>(ctx");
       for (const auto &rp : st->params) {
         write(", ");
-        if (rp.type == TypeKind::Struct) {
-          // Locate same-named vertex-stage struct local.
-          bool found = false;
-          for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
-            const auto &vp = vertexStage->params[pi];
-            if (vp.type == TypeKind::Struct &&
-                string(vp.name).operator==(string(rp.name.c_str())) &&
-                string(vp.structName).operator==(string(rp.structName.c_str()))) {
-              write(vp.name);
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            errf("reduce param '%s' has no matching vertex-stage struct local",
-                 rp.name.c_str());
-            write("/*unmatched*/");
-          }
-        } else {
-          errf("reduce scalar param '%s' not yet supported (Wave 4 slice)",
+        bool found = false;
+        for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+          const auto &vp = vertexStage->params[pi];
+          if (vp.type != rp.type) continue;
+          if (!string(vp.name).operator==(string(rp.name.c_str()))) continue;
+          if (rp.type == TypeKind::Struct &&
+              !string(vp.structName).operator==(string(rp.structName.c_str()))) continue;
+          write(vp.name);
+          found = true;
+          break;
+        }
+        if (!found) {
+          errf("reduce param '%s' has no matching vertex-stage local of the same type",
                rp.name.c_str());
-          write("/*scalar-unsupported*/");
+          write("/*unmatched*/");
         }
       }
       write(");\n");

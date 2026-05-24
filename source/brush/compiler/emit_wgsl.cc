@@ -98,16 +98,16 @@ struct Emit {
     return false;
   }
 
-  // Reduce-stage out/inout struct params are lowered to WGSL `ptr<function, T>`,
-  // so identifier references to them have to be dereferenced inline — e.g.
-  // `s.a = x` lowers to `(*s).a = x`.
-  bool isStructPtrParam(stringref name) const
+  // Reduce-stage out/inout params (struct or scalar) are lowered to WGSL
+  // `ptr<function, T>`, so identifier references to them have to be
+  // dereferenced inline — `s.a = x` becomes `(*s).a = x`, `w = 1.0`
+  // becomes `(*w) = 1.0`.
+  bool isOutPtrParam(stringref name) const
   {
     if (!currentStage) return false;
     for (const auto &p : currentStage->params) {
       if (!string(p.name).operator==(string(name.c_str()))) continue;
-      return p.type == TypeKind::Struct &&
-             (p.dir == ParamDir::Out || p.dir == ParamDir::InOut);
+      return p.dir == ParamDir::Out || p.dir == ParamDir::InOut;
     }
     return false;
   }
@@ -151,7 +151,7 @@ struct Emit {
       break;
     case ExprKind::Ident: {
       stringref nm(e.name.c_str());
-      if (isStructPtrParam(nm)) {
+      if (isOutPtrParam(nm)) {
         out += "(*";
         out += e.name;
         out += ")";
@@ -558,9 +558,10 @@ struct Emit {
     write("@compute @workgroup_size(1) fn nop() {}\n");
   }
 
-  // Emit one reduce stage as a WGSL function. Struct params become `ptr`
-  // params for out/inout (so the callee can write back), value params
-  // for `in`. Scalars unsupported in this slice — error if seen.
+  // Emit one reduce stage as a WGSL function. out/inout params (struct
+  // or scalar) become `ptr<function, T>` so the callee can write back;
+  // `in` params pass by value. The body emitter dereferences ptr params
+  // automatically — see isOutPtrParam.
   void emitReduceStage(const Stage &st)
   {
     write("fn ");
@@ -570,22 +571,18 @@ struct Emit {
     for (const auto &p : st.params) {
       if (!first) write(", ");
       first = false;
-      if (p.type == TypeKind::Struct) {
-        if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut) {
-          write(p.name);
-          write(": ptr<function, ");
-          write(p.structName);
-          write(">");
-        } else {
-          write(p.name);
-          write(": ");
-          write(p.structName);
-        }
-      } else {
-        errf("reduce scalar param '%s' not yet supported in WGSL emit",
-             p.name.c_str());
+      const char *typeSpelling = (p.type == TypeKind::Struct)
+                                     ? p.structName.c_str()
+                                     : wgslType(p.type);
+      if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut) {
         write(p.name);
-        write(": f32");
+        write(": ptr<function, ");
+        write(typeSpelling);
+        write(">");
+      } else {
+        write(p.name);
+        write(": ");
+        write(typeSpelling);
       }
     }
     write(") {\n");
@@ -648,21 +645,17 @@ struct Emit {
     write("  var ");
     write(vertexParamName); write("_mask: f32 = mask_buf[sb_vidx];\n");
 
-    // Declare struct-typed locals for vertex stage's extra params and
-    // call each reduce stage on them. The naive per-thread reduce
-    // matches the C++ executor's one-per-node call: both pay
+    // Declare locals for the vertex stage's extra params (struct or
+    // scalar) and call each reduce stage on them. The naive per-thread
+    // reduce matches the C++ executor's one-per-node call: both pay
     // O(stages*params) ops up-front before the per-vertex code runs.
     for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
       const auto &p = vertexStage->params[pi];
-      if (p.type != TypeKind::Struct) {
-        errf("vertex param '%s' must be a struct type (Wave 4 slice)",
-             p.name.c_str());
-        continue;
-      }
       write("  var ");
       write(p.name);
       write(": ");
-      write(p.structName);
+      if (p.type == TypeKind::Struct) write(p.structName);
+      else write(wgslType(p.type));
       write(";\n");
     }
     for (const auto *st : reduceStages) {
@@ -673,25 +666,25 @@ struct Emit {
       for (const auto &rp : st->params) {
         if (!first) write(", ");
         first = false;
-        if (rp.type == TypeKind::Struct) {
+        // Match by name+type to the vertex-stage local declared above.
+        bool found = false;
+        for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+          const auto &vp = vertexStage->params[pi];
+          if (vp.type != rp.type) continue;
+          if (!string(vp.name).operator==(string(rp.name.c_str()))) continue;
+          if (rp.type == TypeKind::Struct &&
+              !string(vp.structName).operator==(string(rp.structName.c_str()))) continue;
           if (rp.dir == ParamDir::Out || rp.dir == ParamDir::InOut) {
             out += "&";
           }
-          // Match by name+type to the vertex-stage local declared above.
-          bool found = false;
-          for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
-            const auto &vp = vertexStage->params[pi];
-            if (vp.type == TypeKind::Struct &&
-                string(vp.name).operator==(string(rp.name.c_str())) &&
-                string(vp.structName).operator==(string(rp.structName.c_str()))) {
-              write(vp.name);
-              found = true;
-              break;
-            }
-          }
-          if (!found) write("/*unmatched*/");
-        } else {
-          write("/*scalar-unsupported*/");
+          write(vp.name);
+          found = true;
+          break;
+        }
+        if (!found) {
+          errf("reduce param '%s' has no matching vertex-stage local of the same type",
+               rp.name.c_str());
+          write("/*unmatched*/");
         }
       }
       write(");\n");

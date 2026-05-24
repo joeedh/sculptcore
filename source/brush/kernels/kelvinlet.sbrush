@@ -6,8 +6,8 @@
 //
 // Wave 4 slice: introduces the DSL's `reduce` stage so the per-stroke
 // material coefficients are computed once instead of per-vertex; the
-// reduce output struct is passed into `apply` as a value param. Pose
-// brushes (which need BVH queries) wait for Wave 4b.
+// reduce output is passed into `apply` as value params. Pose brushes
+// (which need BVH queries) wait for Wave 4b.
 
 @brush("kelvinlet")
 brush Kelvinlet {
@@ -23,12 +23,6 @@ brush Kelvinlet {
   // what we want here).
   ctx float3 grabFrom, grabTo;
 
-  // Per-stroke (well, per-dab here — the Wave 4 slice computes it once
-  // per node rather than per-step) coefficients derived from mu/nu.
-  struct KelvinletState {
-    float a, b;
-  }
-
   // Host stage runs once per dab on the CPU before any per-node work.
   // For kelvinlet, the only thing host needs to do is keep mu/nu inside
   // the range where the reduce-stage math stays well-defined: nu near
@@ -43,12 +37,15 @@ brush Kelvinlet {
     if (mu < 1e-6) mu = 1e-6;
   }
 
-  reduce void prep(out KelvinletState s) {
-    s.a = (1.0 + nu) / (2.0 * mu);
-    s.b = s.a / (4.0 * (1.0 - nu));
+  // Two scalar `out` reduce outputs — `a` and `b` are the kelvinlet
+  // coefficients derived from mu/nu. The vertex stage receives them as
+  // `in float` params, matched by name.
+  reduce void prep(out float a, out float b) {
+    a = (1.0 + nu) / (2.0 * mu);
+    b = a / (4.0 * (1.0 - nu));
   }
 
-  vertex void apply(inout Vertex v, in KelvinletState s) {
+  vertex void apply(inout Vertex v, in float a, in float b) {
     float3 r = v.co - grabFrom;
     float r2 = dot(r, r);
     // Regularize by the brush radius — keeps the displacement bounded
@@ -56,8 +53,8 @@ brush Kelvinlet {
     float e = sqrt(r2 + radius * radius);
     float invE = 1.0 / e;
     float invE3 = invE * invE * invE;
-    float coef1 = (s.a - s.b) * invE;
-    float coef2 = s.b * dot(grabTo, r) * invE3;
+    float coef1 = (a - b) * invE;
+    float coef2 = b * dot(grabTo, r) * invE3;
     float3 disp = grabTo * coef1 + r * coef2;
     // Brush strength gates the per-vertex effect by the standard
     // distance-to-center falloff so the kelvinlet feels like a brush
