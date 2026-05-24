@@ -10,6 +10,13 @@
 #include "mesh/mesh_shapes.h"
 #include "spatial/spatial.h"
 
+#ifdef SBRUSH_GPU_DISPATCH
+#include "spatial/node.h"
+#include "spatial/spatial_enums.h"
+#include "vulkan/vk_compute.h"
+#include "vulkan/vk_context.h"
+#endif
+
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -139,6 +146,151 @@ std::string joinPath(const char *base, const char *rel)
   out += rel;
   return out;
 }
+
+#ifdef SBRUSH_GPU_DISPATCH
+// Execute a DRAW stroke on the GPU via the SPIR-V compute kernel. Marshals the
+// full mesh co/no/mask once, dispatches one ≤64-vert workgroup per node-chunk
+// per dab (reading the previous dab's result, like the C++ executor), reads co
+// back, and snapshots the touched nodes into the meshlog for undo. Geometry
+// must match the C++ path bit-modulo-fp; that is what `make.mjs sbrush-verify`
+// asserts via the draw_ab.txt A/B script.
+bool runDrawStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 normal,
+                      std::string &err)
+{
+  using litestl::math::float3;
+  if (!scene.ensureGPU() || !scene.context) {
+    err = "stroke(wgsl): GPU device init failed";
+    return false;
+  }
+  mesh::Mesh *m = scene.mesh;
+  const int vcount = m->v.count;
+
+  Vector<float> co, no, mask;
+  co.resize(size_t(vcount) * 3);
+  no.resize(size_t(vcount) * 3);
+  mask.resize(size_t(vcount));
+  for (int i = 0; i < vcount; i++) {
+    float3 c = m->v.co[i], n = m->v.no[i];
+    co[i * 3 + 0] = c[0]; co[i * 3 + 1] = c[1]; co[i * 3 + 2] = c[2];
+    no[i * 3 + 0] = n[0]; no[i * 3 + 1] = n[1]; no[i * 3 + 2] = n[2];
+    mask[i] = 0.0f; // DRAW ignores mask
+  }
+
+  vulkan::BrushComputeDispatch disp(scene.context);
+  std::string spv = std::string(SBRUSH_SPV_DIR) + "/draw.spv";
+  if (!disp.loadSpirv(spv.c_str())) {
+    err = "stroke(wgsl): failed to load " + spv;
+    return false;
+  }
+  if (!disp.beginStroke(co.data(), no.data(), mask.data(), vcount)) {
+    err = "stroke(wgsl): vertex upload failed";
+    return false;
+  }
+
+  scene.meshLog.beginStep();
+  scene.brush.resetStrokePath();
+
+  Vector<spatial::SpatialNode *> touched;
+  for (size_t di = 0; di < origins.size(); di++) {
+    float3 origin = origins[di];
+    Vector<spatial::SpatialNode *> nodes;
+    scene.tree->filterNodes(origin, scene.brush.radius, nodes);
+    if (nodes.size() == 0) {
+      continue;
+    }
+    scene.brush.pushStrokeSample(origin, normal);
+
+    Vector<uint32_t> uverts;
+    Vector<vulkan::ComputeNodeMeta> chunks;
+    for (auto *node : nodes) {
+      auto &uv = node->unique_verts();
+      Vector<int> idx;
+      for (int gi : uv) {
+        idx.append(gi);
+      }
+      int n = int(idx.size());
+      for (int written = 0; written < n; written += 64) {
+        int cnt = (n - written < 64) ? (n - written) : 64;
+        vulkan::ComputeNodeMeta meta;
+        meta.vert_offset = uint32_t(uverts.size());
+        meta.vert_count = uint32_t(cnt);
+        for (int k = 0; k < cnt; k++) {
+          uverts.append(uint32_t(idx[written + k]));
+        }
+        chunks.append(meta);
+      }
+      touched.append(node);
+    }
+
+    vulkan::ComputeBrushUniforms bu;
+    bu.strength = scene.brush.strength;
+    bu.radius = scene.brush.radius;
+    bu.spacing = scene.brush.spacing;
+    bu.invert = scene.brush.invert ? 1u : 0u;
+    bu.falloff_kind = uint32_t(scene.brush.falloff_kind);
+    bu.falloff_shape = uint32_t(scene.brush.falloff_shape);
+    bu.falloff_dir[0] = scene.brush.falloff_dir[0];
+    bu.falloff_dir[1] = scene.brush.falloff_dir[1];
+    bu.falloff_dir[2] = scene.brush.falloff_dir[2];
+    bu.coord_space = uint32_t(scene.brush.coord_space);
+    bu.tex_repeat = scene.brush.tex_repeat;
+    bu.stroke_path_count = uint32_t(scene.brush.strokePathCount);
+
+    vulkan::ComputeCtxUniforms cu;
+    cu.surfacePos[0] = origin[0]; cu.surfacePos[1] = origin[1]; cu.surfacePos[2] = origin[2];
+    cu.surfaceNo[0] = normal[0]; cu.surfaceNo[1] = normal[1]; cu.surfaceNo[2] = normal[2];
+    // render_matrix stays identity — DRAW's Global coord space ignores it.
+
+    Vector<vulkan::ComputeStrokeSample> sp;
+    for (int i = 0; i < scene.brush.strokePathCount; i++) {
+      const auto &s = scene.brush.strokePath[i];
+      vulkan::ComputeStrokeSample o;
+      o.pos[0] = s.pos[0]; o.pos[1] = s.pos[1]; o.pos[2] = s.pos[2];
+      o.normal[0] = s.normal[0]; o.normal[1] = s.normal[1]; o.normal[2] = s.normal[2];
+      o.arclen = s.arclen;
+      sp.append(o);
+    }
+
+    if (!disp.dab(bu, cu, uverts.data(), int(uverts.size()), chunks.data(),
+                  int(chunks.size()), scene.brush.falloff_curve.data(), sp.data(),
+                  int(sp.size()))) {
+      err = "stroke(wgsl): compute dispatch failed";
+      return false;
+    }
+  }
+
+  Vector<float> coOut;
+  coOut.resize(size_t(vcount) * 3);
+  disp.endStroke(coOut.data(), nullptr, nullptr);
+
+  // Snapshot pre-stroke node state for undo (mesh.v.co is still pre-stroke
+  // here), mirroring the emitted `*Pre` stage, then write the GPU result.
+  for (auto *node : touched) {
+    if (scene.meshLog.hasSimpleChunk(node->id)) {
+      continue;
+    }
+    auto *simple = scene.meshLog.getSimpleChunk(
+        node->id, node->unique_verts().size(), 0, 0, node->unique_faces().size());
+    auto *mm = node->data->m;
+    simple->v.ensureAttr(mm->v.attrs, mm->v.co);
+    simple->v.ensureAttr(mm->v.attrs, mm->v.no);
+    simple->f.ensureAttr(mm->f.attrs, mm->f.no);
+    simple->v.cpyFrom(mm->v.attrs, node->unique_verts());
+    simple->f.cpyFrom(mm->f.attrs, node->unique_faces());
+  }
+
+  for (int i = 0; i < vcount; i++) {
+    m->v.co[i] = float3(coOut[i * 3 + 0], coOut[i * 3 + 1], coOut[i * 3 + 2]);
+  }
+  for (auto *node : touched) {
+    node->update(spatial::Spatial_UpdateNormals | spatial::Spatial_UpdateGPU |
+                 spatial::Spatial_RegenBounds);
+  }
+
+  scene.meshLog.endStep();
+  return true;
+}
+#endif // SBRUSH_GPU_DISPATCH
 
 bool execVerb(Scene &scene,
               const std::string &verb,
@@ -426,14 +578,31 @@ bool execVerb(Scene &scene,
     }
     parseFloat3(getArg(args, "normal"), normal);
 
-    Vector<spatial::SpatialNode *> nodes;
-    scene.tree->filterNodes(origin, scene.brush.radius, nodes);
-    if (nodes.size() != 0) {
-      brush::CommandExecutor exec(scene.tree, &scene.brush);
-      exec.meshLog = &scene.meshLog;
-      exec.beginStep();
-      exec.execBrush(scene.currentTool, &nodes, origin, normal);
-      exec.endStep();
+#ifdef SBRUSH_GPU_DISPATCH
+    // GPU dispatch covers untextured DRAW; a bound brush texture still needs
+    // CPU bilinear sampling (the kernel binds a 1x1 white placeholder), so
+    // textured strokes fall back to the C++ executor.
+    bool gpuTextured = scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
+                       scene.brush.tex_pixels.size() > 0;
+    if (scene.currentBackend == BrushBackend::Wgsl &&
+        scene.currentTool == brush::SculptBrushes::DRAW && !gpuTextured) {
+      Vector<float3> origins;
+      origins.append(origin);
+      if (!runDrawStrokeGPU(scene, origins, normal, err)) {
+        return false;
+      }
+    } else
+#endif
+    {
+      Vector<spatial::SpatialNode *> nodes;
+      scene.tree->filterNodes(origin, scene.brush.radius, nodes);
+      if (nodes.size() != 0) {
+        brush::CommandExecutor exec(scene.tree, &scene.brush);
+        exec.meshLog = &scene.meshLog;
+        exec.beginStep();
+        exec.execBrush(scene.currentTool, &nodes, origin, normal);
+        exec.endStep();
+      }
     }
 
     scene.lastStroke.valid = true;
@@ -455,20 +624,8 @@ bool execVerb(Scene &scene,
     }
     parseFloat3(getArg(args, "normal"), normal);
 
-    brush::CommandExecutor exec(scene.tree, &scene.brush);
-    exec.meshLog = &scene.meshLog;
-    exec.beginStep();
-
-    auto emitDab = [&](float3 origin) {
-      Vector<spatial::SpatialNode *> nodes;
-      scene.tree->filterNodes(origin, scene.brush.radius, nodes);
-      if (nodes.size() == 0) {
-        return;
-      }
-      exec.execBrush(scene.currentTool, &nodes, origin, normal);
-      exec.clearIsFirstOfStep();
-    };
-
+    // Collect dab origins first so both backends drive the identical sequence.
+    Vector<float3> origins;
     const char *spacingArg = getArg(args, "spacing");
     if (spacingArg) {
       /* spacing= overrides fixed-step mode: emit dabs every
@@ -476,8 +633,9 @@ bool execVerb(Scene &scene,
       float spacingFrac = float(std::atof(spacingArg));
       brush::StrokeSpacer spacer;
       spacer.spacing = scene.brush.radius * spacingFrac;
-      spacer.advance(p1, emitDab);
-      spacer.advance(p2, emitDab);
+      auto collect = [&](float3 o) { origins.append(o); };
+      spacer.advance(p1, collect);
+      spacer.advance(p2, collect);
     } else {
       int steps = getInt(args, "steps", 8);
       if (steps < 1) {
@@ -485,10 +643,38 @@ bool execVerb(Scene &scene,
       }
       for (int i = 0; i < steps; i++) {
         float t = (steps == 1) ? 0.0f : float(i) / float(steps - 1);
-        emitDab(p1 * (1.0f - t) + p2 * t);
+        origins.append(p1 * (1.0f - t) + p2 * t);
       }
     }
-    exec.endStep();
+
+#ifdef SBRUSH_GPU_DISPATCH
+    // GPU dispatch covers untextured DRAW; a bound brush texture still needs
+    // CPU bilinear sampling (the kernel binds a 1x1 white placeholder), so
+    // textured strokes fall back to the C++ executor.
+    bool gpuTextured = scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
+                       scene.brush.tex_pixels.size() > 0;
+    if (scene.currentBackend == BrushBackend::Wgsl &&
+        scene.currentTool == brush::SculptBrushes::DRAW && !gpuTextured) {
+      if (!runDrawStrokeGPU(scene, origins, normal, err)) {
+        return false;
+      }
+    } else
+#endif
+    {
+      brush::CommandExecutor exec(scene.tree, &scene.brush);
+      exec.meshLog = &scene.meshLog;
+      exec.beginStep();
+      for (size_t i = 0; i < origins.size(); i++) {
+        Vector<spatial::SpatialNode *> nodes;
+        scene.tree->filterNodes(origins[i], scene.brush.radius, nodes);
+        if (nodes.size() == 0) {
+          continue;
+        }
+        exec.execBrush(scene.currentTool, &nodes, origins[i], normal);
+        exec.clearIsFirstOfStep();
+      }
+      exec.endStep();
+    }
 
     scene.lastStroke.valid = true;
     scene.lastStroke.origin = p2;

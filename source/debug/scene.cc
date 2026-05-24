@@ -52,16 +52,20 @@ bool Scene::ensureGPU()
   if (backend) {
     return true;
   }
-  window::WindowOptions opts;
-  opts.visible = !headless;
-  opts.resizable = !headless;
-  window = new window::Window(litestl::math::float2(float(width), float(height)), opts);
-  if (!window->init()) {
-    fprintf(stderr, "Scene::ensureGPU: window init failed\n");
-    return false;
+  // Headless never touches GLFW: a displayless container aborts in glfwInit().
+  // VkContext::init(nullptr) + OffscreenTarget render entirely off-screen.
+  if (!headless) {
+    window::WindowOptions opts;
+    opts.visible = true;
+    opts.resizable = true;
+    window = new window::Window(litestl::math::float2(float(width), float(height)), opts);
+    if (!window->init()) {
+      fprintf(stderr, "Scene::ensureGPU: window init failed\n");
+      return false;
+    }
   }
   context = new vulkan::VkContext();
-  GLFWwindow *handle = headless ? nullptr : window->handle();
+  GLFWwindow *handle = (headless || !window) ? nullptr : window->handle();
   if (!context->init(handle, true)) {
     fprintf(stderr, "Scene::ensureGPU: VkContext init failed\n");
     return false;

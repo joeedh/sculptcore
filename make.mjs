@@ -338,14 +338,16 @@ async function sbrushVerify(regen) {
   const env = envPrefix('native')
   ensureDir(dir)
 
-  // debug_app must accept `set_backend backend=wgsl`, which is gated on
-  // SBRUSH_BACKEND_WGSL — configure native with cpp+wgsl, then build just
-  // the debug_app target.
-  const sbrushFlags = sbrushBackendFlags('cpp,wgsl')
+  // debug_app must accept `set_backend backend=wgsl` (gated on
+  // SBRUSH_BACKEND_WGSL) and, for real GPU dispatch, load the SPIR-V kernels
+  // (gated on SBRUSH_BACKEND_SPIRV). Configure native with cpp+wgsl+spirv,
+  // then build debug_app plus the sbrush-spirv target that emits the .spv the
+  // dispatcher loads at runtime.
+  const sbrushFlags = sbrushBackendFlags('cpp,wgsl,spirv')
   run(
     `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
   )
-  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app`)
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv`)
 
   const debugApp = `${dir}/source/debug/debug_app`
   if (!fs.existsSync(debugApp)) {
