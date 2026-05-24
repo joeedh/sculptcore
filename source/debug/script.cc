@@ -242,6 +242,27 @@ bool execVerb(Scene &scene,
     scene.brush.grabTo = to;
     return true;
   }
+  if (verb == "set_falloff") {
+    const char *k = getArg(args, "kind");
+    if (!k) {
+      err = "set_falloff: missing kind=smoothstep|linear|gaussian";
+      return false;
+    }
+    std::string ks = k;
+    for (auto &c : ks) c = (char)std::tolower((unsigned char)c);
+    if (ks == "smoothstep") {
+      scene.brush.falloff_kind = brush::FalloffKind::Smoothstep;
+    } else if (ks == "linear") {
+      scene.brush.falloff_kind = brush::FalloffKind::Linear;
+    } else if (ks == "gaussian") {
+      scene.brush.falloff_kind = brush::FalloffKind::Gaussian;
+    } else {
+      err = std::string("set_falloff: unknown kind '") + k +
+            "' (valid: smoothstep, linear, gaussian)";
+      return false;
+    }
+    return true;
+  }
   if (verb == "set_kelvinlet_params") {
     const char *muArg = getArg(args, "mu");
     const char *nuArg = getArg(args, "nu");

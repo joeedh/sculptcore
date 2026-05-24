@@ -32,6 +32,14 @@ static IntrinsicDef sIntrinsicsRaw[] = {
   INTR_CW("strength", TypeKind::Float,  1, ARG1(TypeKind::Float3),
           "ctx.strength($0)",         "brush_strength($0)"),
 
+  // falloff(t) — raw curve sample at normalized centerwise input
+  // (1 at brush center, 0 at radius). Dispatches on the brush's
+  // FalloffKind selector. Brushes that just want the standard
+  // strength*falloff*radius blend should keep using strength(co); this
+  // is the lower-level primitive for kernels that compute t themselves.
+  INTR_CW("falloff",  TypeKind::Float,  1, ARG1(TypeKind::Float),
+          "ctx.brush.falloffEval($0)", "brush_falloff($0)"),
+
   // Math — C++ uses litestl::math::Vec<N,T> member calls; WGSL has
   // free-function builtins with matching names.
   INTR_CW("length",    TypeKind::Float,  1, ARG1(TypeKind::Float3),

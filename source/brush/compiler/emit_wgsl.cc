@@ -462,7 +462,8 @@ struct Emit {
     // existing slot rather than getting re-emitted (and tripping tint).
     auto isBuiltinBrushName = [](const char *n) {
       return std::strcmp(n, "strength") == 0 || std::strcmp(n, "radius") == 0 ||
-             std::strcmp(n, "spacing") == 0  || std::strcmp(n, "invert") == 0;
+             std::strcmp(n, "spacing") == 0  || std::strcmp(n, "invert") == 0 ||
+             std::strcmp(n, "falloff_kind") == 0;
     };
     auto isBuiltinCtxName = [](const char *n) {
       return std::strcmp(n, "surfacePos") == 0 || std::strcmp(n, "surfaceNo") == 0;
@@ -492,6 +493,11 @@ struct Emit {
     write("  radius: f32,\n");
     write("  spacing: f32,\n");
     write("  invert: u32,\n");
+    // Selector for `brush_falloff` — values must match the C++ enum
+    // FalloffKind in brush.h. The C++ side packs this as a `u8`; on the
+    // GPU it widens to u32 to keep std140 happy (and the host marshaler,
+    // when it lands, must pad to u32 to match).
+    write("  falloff_kind: u32,\n");
     // Spill brush-uniform fields declared by the DSL into the uniform
     // block so reduce/vertex can reference them. Wave 4 slice keeps the
     // packing trivial — scalars and vec3/vec4 align naturally on 16-byte
@@ -534,13 +540,23 @@ struct Emit {
     write("@group(0) @binding(5) var<uniform>             brush_u: BrushUniforms;\n");
     write("@group(0) @binding(6) var<uniform>             ctx_u: CtxUniforms;\n\n");
 
-    // Inlined falloff: same shape as CommandCtx::strength in
-    // brush_command.h:55. The C++ reference is the source of truth — if
-    // that formula changes, this needs to follow.
+    // Falloff selector — kept in lockstep with Brush::falloffEval in
+    // brush.h. Each branch is the same closed form as its C++ twin;
+    // changing one without the other is a regression on the WGSL/CPU
+    // bit-equality contract that the upcoming backend A/B framework
+    // will rely on.
+    write("fn brush_falloff(t: f32) -> f32 {\n");
+    write("  if (brush_u.falloff_kind == 1u) {\n");
+    write("    return t;\n");
+    write("  } else if (brush_u.falloff_kind == 2u) {\n");
+    write("    let sb_u = 1.0 - t;\n");
+    write("    return exp(-9.0 * sb_u * sb_u);\n");
+    write("  }\n");
+    write("  return t * t * (3.0 - 2.0 * t);\n");
+    write("}\n\n");
     write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
-    write("  let sb_t1 = 1.0 - min(length(p - ctx_u.surfacePos) / brush_u.radius, 1.0);\n");
-    write("  let sb_t = sb_t1 * sb_t1 * (3.0 - 2.0 * sb_t1);\n");
-    write("  return brush_u.strength * sb_t * brush_u.radius * 0.1;\n");
+    write("  let sb_t = 1.0 - min(length(p - ctx_u.surfacePos) / brush_u.radius, 1.0);\n");
+    write("  return brush_u.strength * brush_falloff(sb_t) * brush_u.radius * 0.1;\n");
     write("}\n\n");
   }
 

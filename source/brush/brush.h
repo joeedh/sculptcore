@@ -5,11 +5,27 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/compiler_util.h"
 
+#include <cmath>
+
 #include "props.h"
 
 namespace sculptcore::brush {
 using litestl::util::StrLiteral;
 using litestl::math::float3;
+
+// Falloff curve shapes selectable per brush. All three are analytic
+// (no LUT yet) so the WGSL emit can stay branch-only without storage
+// buffers. `t` is the normalized 0..1 centerwise input — 1 at the brush
+// center, 0 at the radius. Smoothstep is the historical default and
+// keeps the regression dumps bit-identical when no `set_falloff` runs.
+//
+// `Spherical{ Curve1D }` from the design doc lands in a later slice
+// once a Curve LUT buffer is plumbed through the uniform-block path.
+enum class FalloffKind : unsigned char {
+  Smoothstep = 0,
+  Linear = 1,
+  Gaussian = 2,
+};
 
 struct Brush {
   props::StructProp props;
@@ -20,6 +36,7 @@ struct Brush {
   /* Fraction of `radius` between successive brush dabs along a stroke. */
   float spacing = 0.25f;
   bool invert = false;
+  FalloffKind falloff_kind = FalloffKind::Smoothstep;
 
   // Kelvinlet brush uniforms — Lamé-style material constants. Live on Brush
   // (rather than only on CommandCtx) because they're authored alongside
@@ -91,6 +108,26 @@ struct Brush {
     props.setValue<bool>("invert", invert);
     props.setValue<float>("mu", mu);
     props.setValue<float>("nu", nu);
+  }
+
+  // Evaluate the active falloff curve at normalized centerwise `t`
+  // (1 at center, 0 at radius). Source of truth for the C++ side; the
+  // WGSL emitter mirrors the same three branches in `brush_falloff`.
+  // The Gaussian width (9 in the exponent) hits exp(-9) ~= 1.2e-4 at
+  // the edge, so no hard cutoff is needed.
+  float falloffEval(float t) const
+  {
+    switch (falloff_kind) {
+    case FalloffKind::Smoothstep:
+      return t * t * (3.0f - 2.0f * t);
+    case FalloffKind::Linear:
+      return t;
+    case FalloffKind::Gaussian: {
+      float u = 1.0f - t;
+      return std::exp(-9.0f * u * u);
+    }
+    }
+    return t;
   }
 
 private:

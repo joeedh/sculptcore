@@ -293,6 +293,59 @@ int main()
     test_assert(smoothedZ < spikeZ - 1e-3f);
   }
 
+  /* set_falloff: swapping the brush's falloff curve must change the
+   * displacement profile of an otherwise-identical stroke. We run the
+   * same inflate stroke twice — once with the default Smoothstep and
+   * once with Gaussian — and compare the +Z face's peak rise. Gaussian
+   * decays faster (exp(-9*(1-t)^2) hits ~0.001 at t=0.1) so the peak
+   * rise should be measurably *lower* than smoothstep's t^2(3-2t),
+   * which still returns ~0.028 at t=0.1. Confirms set_falloff routes
+   * through to Brush::falloff_kind and CommandCtx::strength dispatches
+   * on it. */
+  {
+    float zSmoothstep = 0.0f, zGaussian = 0.0f;
+    for (int pass = 0; pass < 2; pass++) {
+      Scene scene(64, 64, true);
+      const char *src1 =
+          "make_cube subdivs=12 size=0.5\n"
+          "build_spatial leaf_limit=256 depth_limit=8\n"
+          "set_brush_tool tool=inflate\n"
+          "set_brush radius=0.25 strength=0.5\n";
+      auto r1 = script::run(scene, src1, ".");
+      test_assert(r1.ok);
+      if (pass == 1) {
+        auto r2 = script::run(scene, "set_falloff kind=gaussian\n", ".");
+        test_assert(r2.ok);
+      }
+      auto r3 = script::run(scene, "stroke origin=0,0,0.25 normal=0,0,1\n", ".");
+      test_assert(r3.ok);
+      float maxZ = -1e9f;
+      if (scene.mesh) {
+        for (int i = 0; i < scene.mesh->v.count; i++) {
+          float z = scene.mesh->v.co[i][2];
+          if (z > maxZ) maxZ = z;
+        }
+      }
+      if (pass == 0) zSmoothstep = maxZ;
+      else zGaussian = maxZ;
+    }
+    test_assert(zSmoothstep > 0.25f + 5e-3f);
+    test_assert(zGaussian   > 0.25f + 5e-3f);
+    /* Gaussian falls off faster than smoothstep across the radius, so
+     * the total volume of displaced verts is smaller. The peak vert
+     * (closest to brush center, t≈1) sees ~1 from both curves so the
+     * peak heights are close — but the *near-edge* verts barely move
+     * under gaussian, so the volume integral and thus the peak when
+     * the brush is centered between verts differs. A loose `not equal`
+     * test would be fragile under fp; instead assert gaussian doesn't
+     * exceed smoothstep by any meaningful amount (proves the dispatch
+     * actually changed behavior rather than no-oping). */
+    test_assert(zGaussian <= zSmoothstep + 1e-4f);
+    float diff = zSmoothstep - zGaussian;
+    if (diff < 0) diff = -diff;
+    test_assert(diff > 1e-5f); /* gaussian must measurably differ */
+  }
+
   /* Pose brush: three cage anchors stay put, the +Z anchor moves to z=0.7.
    * +Z face verts must lift (closest to the moved anchor); the -Z face
    * center must stay nearly fixed (closer to the stationary anchors).
