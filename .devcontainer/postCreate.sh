@@ -19,3 +19,6 @@ su vscode -c "pnpm approve-builds @swc/core@1.15.18, core-js@2.6.12, esbuild@0.1
 │   unrs-resolver@1.11.1"
 
 echo "export SERVER_HOST=0.0.0.0" >> ~/.bashrc
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+echo "source ~/.cargo/env" >> ~/.bashrc

@@ -1,8 +1,3 @@
-if (process.platform !== 'win32') {
-  console.log('No action needed')
-  process.exit(0)
-}
-
 import fs from 'fs'
 import Path from 'path'
 import child_process from 'child_process'
@@ -93,8 +88,12 @@ function getEmsdkEnv() {
   process.chdir(Path.dirname(scriptPath))
   process.chdir('emsdk')
 
-  delete process.env.EMSDK_QUIET
   const childEnv = {...process.env}
+  // construct_env prints informational banners ("Setting up EMSDK
+  // environment ...") on stdout unless EMSDK_QUIET is set. The Linux/macOS
+  // path parses stdout directly, so silence the banners or they'll be
+  // mistaken for env assignments.
+  childEnv.EMSDK_QUIET = '1'
 
   if (process.platform === 'win32') {
     // we do not want cygpaths
@@ -132,15 +131,23 @@ function getEmsdkEnv() {
       .replace(/\r/g, '')
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => l.length > 0)
+      .filter((l) => l.toLowerCase().startsWith('export '))
       .map((l) => {
-        if (l.toLowerCase().startsWith('export ')) {
-          l = l.slice(7)
-        } else if (l.toLowerCase().startsWith('set ')) {
-          l = l.slice(4)
+        l = l.slice(7).trim()
+        if (l.endsWith(';')) l = l.slice(0, -1).trim()
+        const eq = l.indexOf('=')
+        if (eq <= 0) return ''
+        const key = l.slice(0, eq).trim()
+        let val = l.slice(eq + 1).trim()
+        if (
+          (val.startsWith('"') && val.endsWith('"')) ||
+          (val.startsWith("'") && val.endsWith("'"))
+        ) {
+          val = val.slice(1, -1)
         }
-        return l.trim()
+        return `${key}=${val}`
       })
+      .filter((l) => l.length > 0)
       .join('\n')
   }
 
@@ -156,9 +163,12 @@ if (args[0] === '--emsdk') {
   args = args.slice(1)
 }
 
-let env
+let env = ''
 if (target === 'native') {
-  env = process.platform === 'win32' ? getVSEnv() : process.env
+  // On non-Windows, the system toolchain is already on PATH; nothing to do.
+  if (process.platform === 'win32') {
+    env = getVSEnv()
+  }
 } else {
   env = getEmsdkEnv()
 }
@@ -175,7 +185,13 @@ for (const line of env.replace(/\r/g, '').split('\n')) {
   process.env[line.slice(0, eq)] = line.slice(eq + 1)
 }
 
-child_process.execSync(args[0] ? args.join(' ') : 'cmd', {
-  stdio: 'inherit',
-  shell: true,
-})
+const defaultShell = process.platform === 'win32' ? 'cmd' : process.env.SHELL || '/bin/sh'
+
+try {
+  child_process.execSync(args[0] ? args.join(' ') : defaultShell, {
+    stdio: 'inherit',
+    shell: true,
+  })
+} catch (e) {
+  process.exit(typeof e.status === 'number' ? e.status : 1)
+}

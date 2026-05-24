@@ -207,6 +207,13 @@ function envPrefix(target) {
   return `node ${rel}/configureEnv.mjs ${emsdk}`.trimEnd()
 }
 
+// Use clang for native builds on every platform; the codebase relies on
+// Clang's delayed-template-parsing extension. Path is written relative
+// to the build dir (build/native).
+function nativeToolchainFlag() {
+  return '--toolchain ../../build_files/native-clang.cmake '
+}
+
 // === sbrush DSL codegen ===
 //
 // Builds the host-side `sbrushc` binary (via the existing native CMake
@@ -233,7 +240,7 @@ async function sbrushCodegen() {
       console.log('codegen: native build not configured; configuring first...')
       ensureDir(nativeBuild)
       run(
-        `cd ${nativeBuild} && ${envPrefix('native')} cmake ../.. -G Ninja --toolchain ./build_files/native-clang.cmake -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
+        `cd ${nativeBuild} && ${envPrefix('native')} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
       )
     }
     console.log('codegen: building sbrushc...')
@@ -292,7 +299,7 @@ yargs(hideBin(process.argv))
     const env = envPrefix(target)
     if (target === 'native') {
       run(
-        `cd ${dir} && ${env} cmake ../.. -G Ninja --toolchain ./build_files/native-clang.cmake -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `
+        `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `
       )
     } else {
       run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS}`)
@@ -355,18 +362,16 @@ yargs(hideBin(process.argv))
     if (!targetTest) {
       run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest .`)
     } else {
-      targetTest += '.cc_out.exe'
-
+      const stem = `${targetTest}.cc_out`
+      const candidates = process.platform === 'win32' ? [stem + '.exe', stem] : [stem, stem + '.exe']
       const dirs = ['build/native/tests', 'build/native/source/litestl/tests']
       for (const dir of dirs) {
-        const path = Path.join(dir, targetTest)
-
-        if (fs.existsSync(path)) {
-          run(path, {shell: false})
-          return
-        } else if (fs.existsSync(path + '.exe')) {
-          run(path + '.exe', {shell: false})
-          return
+        for (const name of candidates) {
+          const path = Path.join(dir, name)
+          if (fs.existsSync(path)) {
+            run(path, {shell: false})
+            return
+          }
         }
       }
       process.stderr.write(`Could not find test ${targetTest}\n`)

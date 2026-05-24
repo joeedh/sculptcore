@@ -223,3 +223,10 @@ RUN for tool in clang node pnpm tint spirv-val spirv-opt spirv-dis glslang nvcc 
         fi; \
         echo "ok: $tool -> $(command -v $tool)"; \
     done
+
+# Vulkan loader + headers for the native build's find_package(Vulkan) in the
+# root CMakeLists.txt. Appended last so existing layers stay cached.
+RUN sudo apt-get update && \
+    sudo apt-get install -y --no-install-recommends libvulkan-dev libx11-dev libxrandr-dev libxinerama-dev\
+    libxi-dev libxcursor-dev && \
+    sudo rm -rf /var/lib/apt/lists/*

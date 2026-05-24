@@ -30,7 +30,10 @@ if (BUILD_WASM)
   add_link_options(-sEXPORTED_RUNTIME_METHODS=wasmMemory)
   add_link_options(-sIMPORTED_MEMORY=1)
 else()
-  add_compile_options( -DWIN32 -fdelayed-template-parsing -Wno-delayed-template-parsing-in-cxx20 -Wno-invalid-offsetof ) #Zc:twoPhase- )
+  add_compile_options( -fdelayed-template-parsing -Wno-delayed-template-parsing-in-cxx20 -Wno-invalid-offsetof ) #Zc:twoPhase- )
+  if (WIN32)
+    add_compile_options( -DWIN32 )
+  endif()
 endif()
 
 
