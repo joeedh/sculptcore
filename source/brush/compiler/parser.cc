@@ -276,6 +276,7 @@ struct Parser {
     if (check(TokKind::LBrace)) return parseBlock();
     if (check(TokKind::KwIf)) return parseIf();
     if (check(TokKind::KwForNeighbor)) return parseNeighborLoop();
+    if (check(TokKind::KwFor)) return parseFor();
     if (check(TokKind::KwReturn)) {
       auto s = std::make_unique<Stmt>(StmtKind::Return);
       s->line = peek().line;
@@ -350,6 +351,54 @@ struct Parser {
     expect(TokKind::RParen, "after if-condition");
     s->thenBranch = parseStmt();
     if (match(TokKind::KwElse)) s->elseBranch = parseStmt();
+    return s;
+  }
+
+  StmtPtr parseFor()
+  {
+    // C-style for: `for (<init>; <cond>; <step>) <body>`.
+    // `<init>` reuses parseStmt so it can be a DeclLocal or an Assign
+    // (each consumes its own trailing semicolon). `<step>` is parsed
+    // inline because the `)` — not a semicolon — terminates it.
+    auto s = std::make_unique<Stmt>(StmtKind::For);
+    s->line = peek().line;
+    advance(); // 'for'
+    expect(TokKind::LParen, "after 'for'");
+
+    s->forInit = parseStmt();
+
+    s->cond = parseExpr();
+    expect(TokKind::Semicolon, "after for-condition");
+
+    // Step is one statement without a trailing semicolon. Mirror the
+    // assignment/expr-stmt branch of parseStmt but skip the semicolon.
+    auto stepLhs = parseExpr();
+    if (stepLhs) {
+      AssignOp op;
+      bool isAssign = true;
+      if (match(TokKind::Assign)) op = AssignOp::Assign;
+      else if (match(TokKind::AddAssign)) op = AssignOp::AddAssign;
+      else if (match(TokKind::SubAssign)) op = AssignOp::SubAssign;
+      else if (match(TokKind::MulAssign)) op = AssignOp::MulAssign;
+      else if (match(TokKind::DivAssign)) op = AssignOp::DivAssign;
+      else isAssign = false;
+      if (isAssign) {
+        auto step = std::make_unique<Stmt>(StmtKind::Assign);
+        step->line = stepLhs->line;
+        step->assignOp = op;
+        step->lvalue = std::move(stepLhs);
+        step->rvalue = parseExpr();
+        s->forStep = std::move(step);
+      } else {
+        auto step = std::make_unique<Stmt>(StmtKind::ExprStmt);
+        step->line = stepLhs->line;
+        step->expr = std::move(stepLhs);
+        s->forStep = std::move(step);
+      }
+    }
+
+    expect(TokKind::RParen, "after for-step");
+    s->thenBranch = parseStmt();
     return s;
   }
 

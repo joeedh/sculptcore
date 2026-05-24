@@ -32,6 +32,7 @@ static const KW keywords[] = {
   {"true",     TokKind::KwTrue},
   {"false",    TokKind::KwFalse},
   {"for_neighbor", TokKind::KwForNeighbor},
+  {"for",      TokKind::KwFor},
   {"struct",   TokKind::KwStruct},
 };
 
@@ -340,6 +341,7 @@ const char *tokKindName(TokKind k)
   case TokKind::KwTrue: return "true";
   case TokKind::KwFalse: return "false";
   case TokKind::KwForNeighbor: return "for_neighbor";
+  case TokKind::KwFor: return "for";
   case TokKind::KwStruct: return "struct";
   }
   return "?";

@@ -99,6 +99,7 @@ enum class StmtKind : int {
   DeclLocal,    // <type> <name> = <init>;
   Assign,       // <lvalue> [op]= <rvalue>;
   If,           // if (<cond>) <then> [else <else>]
+  For,          // for (<init>; <cond>; <step>) <body>
   Continue,
   Return,
   ExprStmt,
@@ -122,10 +123,16 @@ struct Stmt {
   AssignOp assignOp = AssignOp::Assign;
   ExprPtr lvalue;
   ExprPtr rvalue;
-  // If
+  // If / For
+  // - If:  cond, thenBranch, optional elseBranch
+  // - For: init (DeclLocal or Assign or ExprStmt) lives in `forInit`;
+  //        cond uses the same `cond` slot; step uses `forStep`; body is
+  //        `thenBranch`.
   ExprPtr cond;
   StmtPtr thenBranch;
   StmtPtr elseBranch;
+  StmtPtr forInit;
+  StmtPtr forStep;
   // NeighborLoop
   // - name: inner binding (becomes a Vertex-like local within body)
   // - lvalue: the outer Vertex expression to iterate around

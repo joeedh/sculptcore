@@ -7,12 +7,9 @@
 //
 // Wave 4b slice: introduces the DSL's `Array<T, N>` field type plus
 // subscript expressions, so the per-anchor stanzas can be written
-// against indexed cage state instead of four scalar fields.
-//
-// Anchors are unrolled because the DSL has no `for` loop yet. Four is
-// a deliberate compromise: enough to feel like a pose (you can pin a
-// limb and pivot another point), few enough that the unroll stays
-// readable.
+// against indexed cage state instead of four scalar fields. A small
+// `for` loop walks the four anchors — four is enough for a pose
+// (pin one limb, pivot another) and stays cheap in the kernel.
 
 @brush("pose")
 brush Pose {
@@ -28,25 +25,12 @@ brush Pose {
     float3 disp = float3(0.0, 0.0, 0.0);
     float wsum = 0.0;
 
-    float3 d0 = v.co - poseCageRest[0];
-    float w0 = 1.0 / (1.0 + dot(d0, d0));
-    disp += (poseCageNow[0] - poseCageRest[0]) * w0;
-    wsum += w0;
-
-    float3 d1 = v.co - poseCageRest[1];
-    float w1 = 1.0 / (1.0 + dot(d1, d1));
-    disp += (poseCageNow[1] - poseCageRest[1]) * w1;
-    wsum += w1;
-
-    float3 d2 = v.co - poseCageRest[2];
-    float w2 = 1.0 / (1.0 + dot(d2, d2));
-    disp += (poseCageNow[2] - poseCageRest[2]) * w2;
-    wsum += w2;
-
-    float3 d3 = v.co - poseCageRest[3];
-    float w3 = 1.0 / (1.0 + dot(d3, d3));
-    disp += (poseCageNow[3] - poseCageRest[3]) * w3;
-    wsum += w3;
+    for (int i = 0; i < 4; i += 1) {
+      float3 d = v.co - poseCageRest[i];
+      float w = 1.0 / (1.0 + dot(d, d));
+      disp += (poseCageNow[i] - poseCageRest[i]) * w;
+      wsum += w;
+    }
 
     if (wsum > 0.000001) {
       float fall = strength(v.co) * (1.0 - v.mask);

@@ -363,6 +363,49 @@ struct Emit {
       }
       break;
     }
+    case StmtKind::For: {
+      writeIndent();
+      out += "for (";
+      auto renderFrag = [&](const Stmt &child, bool stripSemi) {
+        string saved = out;
+        out = string("");
+        int savedIndent = indent;
+        indent = 0;
+        emitStmt(child);
+        indent = savedIndent;
+        string frag = out;
+        out = saved;
+        int n = (int)frag.size();
+        while (n > 0 && frag[n - 1] == '\n') n--;
+        if (stripSemi && n > 0 && frag[n - 1] == ';') n--;
+        for (int i = 0; i < n; i++) {
+          char tmp[2] = {frag[i], 0};
+          out += tmp;
+        }
+      };
+      if (s.forInit) renderFrag(*s.forInit, /*stripSemi=*/false);
+      out += " ";
+      emitExpr(*s.cond);
+      out += "; ";
+      if (s.forStep) renderFrag(*s.forStep, /*stripSemi=*/true);
+      out += ") ";
+      if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
+        out += "{\n";
+        indent++;
+        int savedLocals = (int)locals.size();
+        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
+        while ((int)locals.size() > savedLocals) locals.pop_back();
+        indent--;
+        writeIndent(); out += "}\n";
+      } else if (s.thenBranch) {
+        out += "{\n";
+        indent++;
+        emitStmt(*s.thenBranch);
+        indent--;
+        writeIndent(); out += "}\n";
+      }
+      break;
+    }
     case StmtKind::Continue:
       writeIndent(); out += "return;\n";
       break;
