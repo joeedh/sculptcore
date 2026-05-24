@@ -538,7 +538,11 @@ struct Emit {
     write("@group(0) @binding(3) var<storage, read>       unique_verts: array<u32>;\n");
     write("@group(0) @binding(4) var<storage, read>       nodes: array<NodeMeta>;\n");
     write("@group(0) @binding(5) var<uniform>             brush_u: BrushUniforms;\n");
-    write("@group(0) @binding(6) var<uniform>             ctx_u: CtxUniforms;\n\n");
+    write("@group(0) @binding(6) var<uniform>             ctx_u: CtxUniforms;\n");
+    // Curve LUT for FalloffKind::Curve. Sized to match Brush::falloff_curve
+    // (kFalloffCurveSize = 256 in brush.h); when the WGSL dispatcher lands,
+    // its marshaler should write exactly that many f32s into this binding.
+    write("@group(0) @binding(7) var<storage, read>       falloff_lut: array<f32, 256>;\n\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
     // brush.h. Each branch is the same closed form as its C++ twin;
@@ -551,6 +555,13 @@ struct Emit {
     write("  } else if (brush_u.falloff_kind == 2u) {\n");
     write("    let sb_u = 1.0 - t;\n");
     write("    return exp(-9.0 * sb_u * sb_u);\n");
+    write("  } else if (brush_u.falloff_kind == 3u) {\n");
+    write("    let sb_c = clamp(t, 0.0, 1.0);\n");
+    write("    let sb_s = sb_c * 255.0;\n");
+    write("    let sb_i = i32(floor(sb_s));\n");
+    write("    if (sb_i >= 255) { return falloff_lut[255]; }\n");
+    write("    let sb_f = sb_s - f32(sb_i);\n");
+    write("    return falloff_lut[sb_i] * (1.0 - sb_f) + falloff_lut[sb_i + 1] * sb_f;\n");
     write("  }\n");
     write("  return t * t * (3.0 - 2.0 * t);\n");
     write("}\n\n");

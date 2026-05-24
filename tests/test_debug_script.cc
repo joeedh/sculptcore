@@ -346,6 +346,53 @@ int main()
     test_assert(diff > 1e-5f); /* gaussian must measurably differ */
   }
 
+  /* FalloffKind::Curve LUT path. Two checks:
+   *  (a) `kind=curve` with the default smoothstep-shaped LUT must
+   *      match `kind=smoothstep` within fp tolerance — verifies the
+   *      LUT default ships in lockstep with the analytic curve.
+   *  (b) overwriting the LUT with the `inverse` preset (1-t) must
+   *      drop the brush-center displacement well below the smoothstep
+   *      run, since the inverse curve gives ~0 strength at t=1
+   *      (center). Confirms the LUT actually drives the kernel rather
+   *      than being shadowed by the analytic fast path. */
+  {
+    auto runInflate = [&](const char *prelude) -> float {
+      Scene scene(64, 64, true);
+      std::string src;
+      src += "make_cube subdivs=12 size=0.5\n";
+      src += "build_spatial leaf_limit=256 depth_limit=8\n";
+      src += "set_brush_tool tool=inflate\n";
+      src += "set_brush radius=0.25 strength=0.5\n";
+      src += prelude;
+      src += "stroke origin=0,0,0.25 normal=0,0,1\n";
+      auto r = script::run(scene, src.c_str(), ".");
+      test_assert(r.ok);
+      float maxZ = -1e9f;
+      if (scene.mesh) {
+        for (int i = 0; i < scene.mesh->v.count; i++) {
+          float z = scene.mesh->v.co[i][2];
+          if (z > maxZ) maxZ = z;
+        }
+      }
+      return maxZ;
+    };
+    float zSmoothstep = runInflate("");
+    float zCurveDefault = runInflate("set_falloff kind=curve\n");
+    float zCurveInverse = runInflate(
+        "set_falloff_curve preset=inverse\n"
+        "set_falloff kind=curve\n");
+    /* (a) Default curve ~= smoothstep. The LUT has 255 segments so
+     * linear-interp samples differ from the analytic curve by at most
+     * the curvature times (1/255)^2; a 2e-3 z-tolerance is well above
+     * that and well below the inverse delta. */
+    float diffDefault = zSmoothstep - zCurveDefault;
+    if (diffDefault < 0) diffDefault = -diffDefault;
+    test_assert(diffDefault < 2e-3f);
+    /* (b) Inverse-LUT brush must lift the center *less* than the
+     * smoothstep brush. Difference well above noise threshold. */
+    test_assert(zSmoothstep - zCurveInverse > 5e-3f);
+  }
+
   /* Pose brush: three cage anchors stay put, the +Z anchor moves to z=0.7.
    * +Z face verts must lift (closest to the moved anchor); the -Z face
    * center must stay nearly fixed (closer to the stationary anchors).

@@ -245,7 +245,7 @@ bool execVerb(Scene &scene,
   if (verb == "set_falloff") {
     const char *k = getArg(args, "kind");
     if (!k) {
-      err = "set_falloff: missing kind=smoothstep|linear|gaussian";
+      err = "set_falloff: missing kind=smoothstep|linear|gaussian|curve";
       return false;
     }
     std::string ks = k;
@@ -256,9 +256,31 @@ bool execVerb(Scene &scene,
       scene.brush.falloff_kind = brush::FalloffKind::Linear;
     } else if (ks == "gaussian") {
       scene.brush.falloff_kind = brush::FalloffKind::Gaussian;
+    } else if (ks == "curve") {
+      scene.brush.falloff_kind = brush::FalloffKind::Curve;
     } else {
       err = std::string("set_falloff: unknown kind '") + k +
-            "' (valid: smoothstep, linear, gaussian)";
+            "' (valid: smoothstep, linear, gaussian, curve)";
+      return false;
+    }
+    return true;
+  }
+  if (verb == "set_falloff_curve") {
+    const char *p = getArg(args, "preset");
+    if (!p) {
+      err = "set_falloff_curve: missing preset=smoothstep|linear|inverse|gaussian";
+      return false;
+    }
+    std::string ps = p;
+    for (auto &c : ps) c = (char)std::tolower((unsigned char)c);
+    using CP = brush::Brush::CurvePreset;
+    if      (ps == "smoothstep") scene.brush.setFalloffCurvePreset(CP::Smoothstep);
+    else if (ps == "linear")     scene.brush.setFalloffCurvePreset(CP::Linear);
+    else if (ps == "inverse")    scene.brush.setFalloffCurvePreset(CP::Inverse);
+    else if (ps == "gaussian")   scene.brush.setFalloffCurvePreset(CP::Gaussian);
+    else {
+      err = std::string("set_falloff_curve: unknown preset '") + p +
+            "' (valid: smoothstep, linear, inverse, gaussian)";
       return false;
     }
     return true;
