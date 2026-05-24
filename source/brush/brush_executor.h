@@ -129,6 +129,11 @@ struct CommandExecutor {
     ctx.meshLog = meshLog;
     ctx.isFirstOfStep = isFirstOfStep;
 
+    // Record this dab center so STROKE_CURVED can map vertices onto the
+    // accumulated stroke polyline. Incremental on purpose: a dab's vertices
+    // see the path up to and including this dab.
+    brush->pushStrokeSample(origin, normal);
+
     exec(cmd, std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()));
   }
 
@@ -140,6 +145,9 @@ struct CommandExecutor {
   void beginStep()
   {
     isFirstOfStep = true;
+    if (brush) {
+      brush->resetStrokePath();
+    }
     if (meshLog) {
       meshLog->beginStep();
     }

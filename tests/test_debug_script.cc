@@ -561,5 +561,82 @@ int main()
     test_assert(sym < 5e-3f);               /* and roughly symmetric */
   }
 
+  /* STROKE_CURVED coord space (Wave 2). A multi-dab stroke_path runs along
+   * +Y on the +Z face; with a `rampx` texture sampled in stroke_curved space
+   * the texel value equals the arc length along the stroke, so displacement
+   * must grow from the -Y end to the +Y end. The discriminator vs GLOBAL: the
+   * stroke moves in Y while co.x stays ~0, so GLOBAL (uv.x = co.x ~= 0) would
+   * lift nothing — only the StrokePath arc-length mapping produces the
+   * gradient. Exercises Brush::strokePath / sampleStrokeUV + the executor
+   * push/reset wiring. */
+  {
+    Scene scene(64, 64, true);
+    const char *src =
+        "make_cube subdivs=16 size=0.5\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_brush_tool tool=draw\n"
+        "set_brush radius=0.15 strength=8.0\n"
+        "set_texture pattern=rampx width=64 height=64\n"
+        "set_coord_space space=stroke_curved\n"
+        "stroke_path p1=0,-0.2,0.25 p2=0,0.2,0.25 steps=8\n";
+    auto r = script::run(scene, src, ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  stroke_curved script line %d: %s\n", r.line_no,
+              r.error.c_str());
+    }
+    /* Peak rise at the far (+Y) end vs the near (-Y) end of the stroke. */
+    float maxZFar = -1e9f, maxZNear = -1e9f;
+    if (scene.mesh) {
+      for (int i = 0; i < scene.mesh->v.count; i++) {
+        float z = scene.mesh->v.co[i][2];
+        if (z < 0.24f) continue; /* +Z face only */
+        float y = scene.mesh->v.co[i][1];
+        if (y > 0.1f) {
+          if (z > maxZFar) maxZFar = z;
+        } else if (y < -0.1f) {
+          if (z > maxZNear) maxZNear = z;
+        }
+      }
+    }
+    /* Arc length ~0 at the -Y end (texel ~0, no lift) and ~0.4 at the +Y
+     * end (texel ~0.4, clear lift): a monotone gradient along the stroke. */
+    test_assert(maxZFar > 0.25f + 1e-3f);
+    test_assert(maxZFar > maxZNear + 1e-3f);
+
+    /* Same stroke under GLOBAL: uv.x = co.x, which is symmetric along the
+     * stroke's Y axis, so the +Y and -Y ends lift equally — no arc-length
+     * gradient. This isolates the STROKE_CURVED behavior above (which is the
+     * only mode whose UV tracks distance *along* the stroke). */
+    Scene scene2(64, 64, true);
+    const char *src2 =
+        "make_cube subdivs=16 size=0.5\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_brush_tool tool=draw\n"
+        "set_brush radius=0.15 strength=8.0\n"
+        "set_texture pattern=rampx width=64 height=64\n"
+        "set_coord_space space=global\n"
+        "stroke_path p1=0,-0.2,0.25 p2=0,0.2,0.25 steps=8\n";
+    auto r2 = script::run(scene2, src2, ".");
+    test_assert(r2.ok);
+    float maxZFarG = -1e9f, maxZNearG = -1e9f;
+    if (scene2.mesh) {
+      for (int i = 0; i < scene2.mesh->v.count; i++) {
+        float z = scene2.mesh->v.co[i][2];
+        if (z < 0.24f) continue;
+        float y = scene2.mesh->v.co[i][1];
+        if (y > 0.1f) {
+          if (z > maxZFarG) maxZFarG = z;
+        } else if (y < -0.1f) {
+          if (z > maxZNearG) maxZNearG = z;
+        }
+      }
+    }
+    float symG = maxZFarG - maxZNearG;
+    if (symG < 0) symG = -symG;
+    test_assert(maxZFarG > 0.25f + 1e-3f); /* the +x verts still lift */
+    test_assert(symG < 5e-3f);             /* but with no Y gradient */
+  }
+
   return test_end();
 }

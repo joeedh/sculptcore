@@ -374,9 +374,11 @@ bool execVerb(Scene &scene,
         scene.brush.coord_space = brush::TexCoordSpace::ViewPlane;
       } else if (ss == "viewrepeat") {
         scene.brush.coord_space = brush::TexCoordSpace::ViewRepeat;
+      } else if (ss == "stroke_curved") {
+        scene.brush.coord_space = brush::TexCoordSpace::StrokeCurved;
       } else {
         err = std::string("set_coord_space: unknown space '") + sp +
-              "' (valid: global, viewplane, viewrepeat)";
+              "' (valid: global, viewplane, viewrepeat, stroke_curved)";
         return false;
       }
     }

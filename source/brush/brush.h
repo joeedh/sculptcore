@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 
 #include "props.h"
 
@@ -48,13 +49,31 @@ enum class FalloffShape : unsigned char {
 //   Global     — uv = co.xy (world plane; stroke-independent, the test mode).
 //   ViewPlane  — uv = (renderMatrix * co).xy (texture pinned to the view).
 //   ViewRepeat — ViewPlane scaled by `tex_repeat` (tiled across the view).
+//   StrokeCurved — uv = (arc length along the stroke, lateral offset from it);
+//                  reads the StrokePath ring buffer of recent dab centers.
 enum class TexCoordSpace : unsigned char {
   Global = 0,
   ViewPlane = 1,
   ViewRepeat = 2,
+  StrokeCurved = 3,
 };
 
 inline constexpr int kFalloffCurveSize = 256;
+
+// One recorded stroke-dab center for the StrokePath ring buffer. `arclen` is
+// the cumulative world-space distance from the first sample to this one, so a
+// projection onto the polyline yields a monotonic curvilinear coordinate.
+struct StrokeSample {
+  float3 pos{0, 0, 0};
+  float3 normal{0, 0, 1};
+  float arclen = 0.0f;
+};
+
+// Capacity of the per-stroke StrokePath ring buffer. STROKE_CURVED projects
+// onto at most this many recent dab centers; 64 covers a long stroke at the
+// default spacing without an allocation. Mirrored as the WGSL storage-buffer
+// length bound by the (future) dispatcher.
+inline constexpr int kStrokePathMax = 64;
 
 struct Brush {
   props::StructProp props;
@@ -80,6 +99,13 @@ struct Brush {
   litestl::util::Vector<float> tex_pixels;
   TexCoordSpace coord_space = TexCoordSpace::Global;
   float tex_repeat = 1.0f;
+
+  // Ring buffer of recent stroke-dab centers, driving STROKE_CURVED texture
+  // mapping. Pushed host-side as dabs advance (CommandExecutor::execBrush),
+  // reset at the start of each stroke (CommandExecutor::beginStep). Uniform-
+  // resident on CPU; the WGSL emitter mirrors it as a storage buffer.
+  StrokeSample strokePath[kStrokePathMax];
+  int strokePathCount = 0;
 
   // Kelvinlet brush uniforms — Lamé-style material constants. Live on Brush
   // (rather than only on CommandCtx) because they're authored alongside
@@ -255,6 +281,65 @@ struct Brush {
     float a = p00 * (1.0f - tx) + p10 * tx;
     float b = p01 * (1.0f - tx) + p11 * tx;
     return a * (1.0f - ty) + b * ty;
+  }
+
+  // Drop all recorded stroke samples — called at the start of each stroke so
+  // STROKE_CURVED arc lengths are measured from the stroke's first dab.
+  void resetStrokePath() { strokePathCount = 0; }
+
+  // Append a dab center to the StrokePath, accumulating arc length from the
+  // previous sample. Once full, the oldest sample is dropped (true ring) so
+  // arc length keeps growing along a long stroke without unbounded storage.
+  void pushStrokeSample(float3 pos, float3 normal)
+  {
+    float arclen = 0.0f;
+    if (strokePathCount > 0) {
+      const StrokeSample &prev = strokePath[strokePathCount - 1];
+      arclen = prev.arclen + (pos - prev.pos).length();
+    }
+    if (strokePathCount < kStrokePathMax) {
+      strokePath[strokePathCount++] = StrokeSample{pos, normal, arclen};
+    } else {
+      for (int i = 1; i < kStrokePathMax; i++) {
+        strokePath[i - 1] = strokePath[i];
+      }
+      strokePath[kStrokePathMax - 1] = StrokeSample{pos, normal, arclen};
+    }
+  }
+
+  // Project `co` onto the StrokePath polyline and return UV for STROKE_CURVED:
+  // uv.x = arc length at the nearest point along the stroke, uv.y = the
+  // (unsigned) lateral distance from the centerline. With no path recorded the
+  // origin is returned. WGSL mirrors this in `brush_stroke_uv`.
+  litestl::math::float2 sampleStrokeUV(float3 co) const
+  {
+    if (strokePathCount == 0) {
+      return litestl::math::float2{0.0f, 0.0f};
+    }
+    if (strokePathCount == 1) {
+      return litestl::math::float2{strokePath[0].arclen,
+                                   (co - strokePath[0].pos).length()};
+    }
+
+    float bestDist = std::numeric_limits<float>::max();
+    float bestArc = 0.0f;
+    float bestLat = 0.0f;
+    for (int i = 0; i + 1 < strokePathCount; i++) {
+      float3 a = strokePath[i].pos;
+      float3 ab = strokePath[i + 1].pos - a;
+      float len2 = ab.dot(ab);
+      float t = len2 > 0.0f ? (co - a).dot(ab) / len2 : 0.0f;
+      t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+      float3 d = co - (a + ab * t);
+      float dist = d.length();
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestArc = strokePath[i].arclen +
+                  (strokePath[i + 1].arclen - strokePath[i].arclen) * t;
+        bestLat = dist;
+      }
+    }
+    return litestl::math::float2{bestArc, bestLat};
   }
 
   // Overwrite `falloff_curve` with a named preset. `inverse` flips the

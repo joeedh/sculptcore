@@ -1,0 +1,21 @@
+# A/B script: STROKE_CURVED texture coord space, cpp vs wgsl backend gate.
+# Exercises the StrokePath ring buffer: a multi-dab stroke_path lays down a
+# polyline, and the rampx texture sampled in stroke_curved space modulates
+# displacement by arc length along that polyline. See draw_ab.txt for the
+# A/B harness pattern.
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=draw
+set_brush radius=0.15 strength=6.0
+set_texture pattern=rampx width=64 height=64
+set_coord_space space=stroke_curved
+
+set_backend backend=cpp
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=stroke_curved_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=stroke_curved_wgsl.json

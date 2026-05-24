@@ -207,7 +207,7 @@ brush needs an independent axial profile.
 | `GLOBAL` | `TexUserModes.GLOBAL` | object-space `p.xy` | done |
 | `VIEWPLANE` | `TexUserModes.VIEWPLANE` | `(renderMatrix * p).xy` | done |
 | `VIEW_REPEAT` | `TexUserModes.VIEW_REPEAT` | tiled viewplane (`* tex_repeat`) | done |
-| `STROKE_CURVED` | `TexUserFlags.CURVED` | nearest-stroke-segment arc-length + lateral offset, from `StrokePath` buffer | deferred |
+| `STROKE_CURVED` | `TexUserFlags.CURVED` | nearest-stroke-segment arc-length + lateral offset, from `StrokePath` buffer | done |
 | `PROJECTED` | new | project along `surfaceNo` onto its tangent plane | deferred |
 
 The three matrix-driven modes are implemented end-to-end. `sampleBrushTex`
@@ -229,11 +229,22 @@ yet) and `set_coord_space space= repeat=` drive it; `test_debug_script`
 asserts a `rampx`+`GLOBAL` draw lifts the +x half of the footprint while
 the −x half (texel ≈ 0) stays put.
 
-`StrokePath` is a uniform-resident ring buffer of recent stroke samples
-(pos, normal, distance-along, frame). `STROKE_CURVED` reads it; the compiler
-legalizes ring-buffer reads per backend (uniform array on CPU/CUDA, storage
-buffer on WGSL/SPIR-V). `STROKE_CURVED`/`PROJECTED`, image decoding, and the
-`@texture` procedural surface below are deferred to a later slice.
+`STROKE_CURVED` is implemented end-to-end. `StrokePath` is a uniform-resident
+ring buffer of recent dab centers (`Brush::strokePath`, `kStrokePathMax = 64`
+`StrokeSample{pos, normal, arclen}`), pushed host-side per dab by
+`CommandExecutor::execBrush` and reset per stroke by `beginStep`. `arclen`
+accumulates world-space distance from the first sample, so
+`Brush::sampleStrokeUV` projects a point onto the polyline to yield
+`uv = (arc length at the nearest point, lateral distance)`.
+`CommandCtx::sampleBrushTex` dispatches the new branch; WGSL mirrors it with a
+`StrokeSample` struct, a `stroke_path` storage buffer (binding 10), a
+`stroke_path_count` uniform, and the `brush_stroke_uv` helper — the compiler's
+per-backend ring-buffer legalization (uniform array on CPU/CUDA, storage buffer
+on WGSL/SPIR-V). `test_debug_script` drives a +Y `stroke_path` with
+`rampx`+`stroke_curved` and asserts the lift grows along the stroke (the +Y end
+rises more than the −Y end) while the GLOBAL control shows no Y gradient.
+`PROJECTED`, image decoding, and the `@texture` procedural surface below are
+deferred to a later slice.
 
 Procedural textures from `proceduralTex.ts` are already GLSL-generating
 (`createShaderClass` → `genGlsl`). The DSL adopts the same generator surface:

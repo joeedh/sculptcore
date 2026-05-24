@@ -81,6 +81,9 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
       uv = float2{p[0] * brush.tex_repeat, p[1] * brush.tex_repeat};
       break;
     }
+    case TexCoordSpace::StrokeCurved:
+      uv = brush.sampleStrokeUV(co);
+      break;
     }
     return brush.sampleTexBilinear(uv);
   }

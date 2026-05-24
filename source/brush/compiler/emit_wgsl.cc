@@ -467,7 +467,8 @@ struct Emit {
              std::strcmp(n, "falloff_shape") == 0 ||
              std::strcmp(n, "falloff_dir") == 0 ||
              std::strcmp(n, "coord_space") == 0 ||
-             std::strcmp(n, "tex_repeat") == 0;
+             std::strcmp(n, "tex_repeat") == 0 ||
+             std::strcmp(n, "stroke_path_count") == 0;
     };
     auto isBuiltinCtxName = [](const char *n) {
       return std::strcmp(n, "surfacePos") == 0 || std::strcmp(n, "surfaceNo") == 0 ||
@@ -514,6 +515,10 @@ struct Emit {
     // branches on coord_space to match CommandCtx::sampleBrushTex.
     write("  coord_space: u32,\n");
     write("  tex_repeat: f32,\n");
+    // Live length of the StrokePath storage buffer for STROKE_CURVED. Mirrors
+    // Brush::strokePathCount; the (future) dispatcher writes exactly this many
+    // StrokeSample entries into the binding-10 buffer.
+    write("  stroke_path_count: u32,\n");
     // Spill brush-uniform fields declared by the DSL into the uniform
     // block so reduce/vertex can reference them. Wave 4 slice keeps the
     // packing trivial — scalars and vec3/vec4 align naturally on 16-byte
@@ -551,6 +556,14 @@ struct Emit {
     write("  vert_count: u32,\n");
     write("};\n\n");
 
+    // One StrokePath sample — mirrors Brush::StrokeSample (pos, normal,
+    // arclen). Consumed by brush_stroke_uv for STROKE_CURVED texture mapping.
+    write("struct StrokeSample {\n");
+    write("  pos: vec3<f32>,\n");
+    write("  normal: vec3<f32>,\n");
+    write("  arclen: f32,\n");
+    write("};\n\n");
+
     write("@group(0) @binding(0) var<storage, read_write> co_buf: array<vec3<f32>>;\n");
     write("@group(0) @binding(1) var<storage, read_write> no_buf: array<vec3<f32>>;\n");
     write("@group(0) @binding(2) var<storage, read_write> mask_buf: array<f32>;\n");
@@ -570,7 +583,10 @@ struct Emit {
     // no-texture path). The sampler is expected to be linear + clamp-to-edge
     // to mirror sampleTexBilinear.
     write("@group(0) @binding(8) var                       brush_tex: texture_2d<f32>;\n");
-    write("@group(0) @binding(9) var                       brush_samp: sampler;\n\n");
+    write("@group(0) @binding(9) var                       brush_samp: sampler;\n");
+    // StrokePath ring buffer for STROKE_CURVED — mirrors Brush::strokePath.
+    // Uniform-resident on CPU; a storage buffer here so the length can vary.
+    write("@group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;\n\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
     // brush.h. Each branch is the same closed form as its C++ twin;
@@ -613,6 +629,33 @@ struct Emit {
     // CommandCtx::sampleBrushTex. `no` is part of the DSL signature but
     // currently unused by the matrix-driven coord spaces; the phony
     // assignment keeps tint from flagging it.
+    // Curvilinear stroke UV — kept in lockstep with Brush::sampleStrokeUV.
+    // Projects `co` onto the StrokePath polyline: uv.x = arc length at the
+    // nearest point, uv.y = lateral distance from the centerline.
+    write("fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {\n");
+    write("  if (brush_u.stroke_path_count == 0u) { return vec2<f32>(0.0, 0.0); }\n");
+    write("  if (brush_u.stroke_path_count == 1u) {\n");
+    write("    return vec2<f32>(stroke_path[0].arclen, length(co - stroke_path[0].pos));\n");
+    write("  }\n");
+    write("  var sb_best_dist = 3.402823e+38;\n");
+    write("  var sb_best_arc = 0.0;\n");
+    write("  var sb_best_lat = 0.0;\n");
+    write("  for (var i = 0u; i + 1u < brush_u.stroke_path_count; i = i + 1u) {\n");
+    write("    let sb_a = stroke_path[i].pos;\n");
+    write("    let sb_ab = stroke_path[i + 1u].pos - sb_a;\n");
+    write("    let sb_len2 = dot(sb_ab, sb_ab);\n");
+    write("    var sb_t = 0.0;\n");
+    write("    if (sb_len2 > 0.0) { sb_t = dot(co - sb_a, sb_ab) / sb_len2; }\n");
+    write("    sb_t = clamp(sb_t, 0.0, 1.0);\n");
+    write("    let sb_d = length(co - (sb_a + sb_ab * sb_t));\n");
+    write("    if (sb_d < sb_best_dist) {\n");
+    write("      sb_best_dist = sb_d;\n");
+    write("      sb_best_arc = stroke_path[i].arclen + (stroke_path[i + 1u].arclen - stroke_path[i].arclen) * sb_t;\n");
+    write("      sb_best_lat = sb_d;\n");
+    write("    }\n");
+    write("  }\n");
+    write("  return vec2<f32>(sb_best_arc, sb_best_lat);\n");
+    write("}\n\n");
     write("fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {\n");
     write("  _ = no;\n");
     write("  var sb_uv: vec2<f32>;\n");
@@ -622,6 +665,8 @@ struct Emit {
     write("  } else if (brush_u.coord_space == 2u) {\n");
     write("    let sb_p = (ctx_u.render_matrix * vec4<f32>(co, 1.0)).xyz;\n");
     write("    sb_uv = sb_p.xy * brush_u.tex_repeat;\n");
+    write("  } else if (brush_u.coord_space == 3u) {\n");
+    write("    sb_uv = brush_stroke_uv(co);\n");
     write("  } else {\n");
     write("    sb_uv = co.xy;\n");
     write("  }\n");
