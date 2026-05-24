@@ -5,6 +5,7 @@
 #include "litestl/binding/binding.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/compiler_util.h"
+#include "litestl/util/vector.h"
 
 #include <array>
 #include <cmath>
@@ -41,6 +42,18 @@ enum class FalloffShape : unsigned char {
   Linear = 2,
 };
 
+// Mapping from a world-space sample point to brush-texture UV. Orthogonal
+// to the texture data itself; the discriminant rides in BrushUniforms so
+// the WGSL `brush_sample_tex` mirrors the same branches.
+//   Global     — uv = co.xy (world plane; stroke-independent, the test mode).
+//   ViewPlane  — uv = (renderMatrix * co).xy (texture pinned to the view).
+//   ViewRepeat — ViewPlane scaled by `tex_repeat` (tiled across the view).
+enum class TexCoordSpace : unsigned char {
+  Global = 0,
+  ViewPlane = 1,
+  ViewRepeat = 2,
+};
+
 inline constexpr int kFalloffCurveSize = 256;
 
 struct Brush {
@@ -57,6 +70,16 @@ struct Brush {
   // Direction for `FalloffShape::Linear` (expected normalized). Unused by
   // the other shapes. Default +Z keeps the value well-defined.
   float3 falloff_dir{0, 0, 1};
+
+  // Brush texture (grayscale, row-major, `tex_width * tex_height` floats).
+  // Empty means "no texture": `sampleTexBilinear` returns 1.0 so a kernel
+  // multiplying by the sample is a no-op. `coord_space` maps a sample point
+  // to UV; `tex_repeat` tiles the UV under `ViewRepeat`.
+  int tex_width = 0;
+  int tex_height = 0;
+  litestl::util::Vector<float> tex_pixels;
+  TexCoordSpace coord_space = TexCoordSpace::Global;
+  float tex_repeat = 1.0f;
 
   // Kelvinlet brush uniforms — Lamé-style material constants. Live on Brush
   // (rather than only on CommandCtx) because they're authored alongside
@@ -195,6 +218,43 @@ struct Brush {
     }
     }
     return t;
+  }
+
+  // Bilinear sample of the brush texture at UV `uv` (clamped to edge).
+  // Returns 1.0 when no texture is bound so callers can multiply
+  // unconditionally. WGSL mirrors this with a clamped textureSampleLevel;
+  // the float math here is the CPU source of truth.
+  float sampleTexBilinear(litestl::math::float2 uv) const
+  {
+    if (tex_width <= 0 || tex_height <= 0 || tex_pixels.size() == 0) {
+      return 1.0f;
+    }
+
+    // Texel-space coords with half-texel offset; clamp to edge.
+    float fx = uv[0] * (float)tex_width - 0.5f;
+    float fy = uv[1] * (float)tex_height - 0.5f;
+
+    int x0 = (int)std::floor(fx);
+    int y0 = (int)std::floor(fy);
+    float tx = fx - (float)x0;
+    float ty = fy - (float)y0;
+
+    auto clampi = [](int v, int lo, int hi) {
+      return v < lo ? lo : (v > hi ? hi : v);
+    };
+    int x0c = clampi(x0, 0, tex_width - 1);
+    int y0c = clampi(y0, 0, tex_height - 1);
+    int x1c = clampi(x0 + 1, 0, tex_width - 1);
+    int y1c = clampi(y0 + 1, 0, tex_height - 1);
+
+    float p00 = tex_pixels[y0c * tex_width + x0c];
+    float p10 = tex_pixels[y0c * tex_width + x1c];
+    float p01 = tex_pixels[y1c * tex_width + x0c];
+    float p11 = tex_pixels[y1c * tex_width + x1c];
+
+    float a = p00 * (1.0f - tx) + p10 * tx;
+    float b = p01 * (1.0f - tx) + p11 * tx;
+    return a * (1.0f - ty) + b * ty;
   }
 
   // Overwrite `falloff_curve` with a named preset. `inverse` flips the

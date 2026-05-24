@@ -172,35 +172,68 @@ Curve1D LUTs ship as a `Buffer<float>` (256 entries) bound automatically; the
 IR exposes `falloff(x)` as a single intrinsic, so backend lowering picks
 LUT-fetch vs. analytic.
 
-**Realization (as of the curve-completion slice):** `Curve1D` is the
-`props::detail::curve::CurveGen` authoring object (analytic kinds + b-spline
-control points; see `source/props/prop_curve.h`). `bake_curve_lut` samples it
-into the 256-entry `float` buffer the GPU reads. On `Brush` today this is
-`falloffCurve` (authoring) → `rebakeFalloff()` → `falloff_curve` (baked LUT),
-consumed by `falloffEval`'s `Curve` branch and mirrored in WGSL at
-`@group(0) @binding(7) falloff_lut`. The current `FalloffKind`
-(`Smoothstep|Linear|Gaussian|Curve`) is the precursor to the full tagged union:
-the three analytic kinds are the `Analytic` arm (branchless fast-path, kept per
-design), and `Curve` is the single-radial `Spherical { Curve1D }` arm. `Cube`
-and `Linear` (spatial-variant falloffs) are still to be built in Wave 2; they
-reuse the same `CurveGen`/bake plumbing for their curve fields.
+**Realization (as of the falloff-shape slice):** the tagged union above was
+realized as **two orthogonal axes** rather than a single union — cleaner
+because any curve shape composes with any spatial metric without duplicating
+the curve field per arm:
+
+- `FalloffKind` (`Smoothstep|Linear|Gaussian|Curve`) — the radial *curve
+  shape* applied to the normalized distance `t`. The three analytic kinds are
+  the old `Analytic` arm (branchless fast-path, kept per design); `Curve` is
+  the LUT path.
+- `FalloffShape` (`Spherical|Cube|Linear`) — the *spatial metric* that maps a
+  3D delta to the scalar fed into the curve, via `Brush::falloffDist(delta)`:
+  `Spherical` = `|delta|/r`, `Cube` = `max(|dx|,|dy|,|dz|)/r` (the old `SQUARE`
+  flag), `Linear` = `|delta·dir|/r` (the `LINE_FALLOFF` case, with
+  `falloff_dir`). Mirrored in WGSL as `brush_falloff_dist` over the
+  `falloff_shape`/`falloff_dir` uniforms.
+
+`Curve1D` is the `props::detail::curve::CurveGen` authoring object (analytic
+kinds + b-spline control points; see `source/props/prop_curve.h`).
+`bake_curve_lut` samples it into the 256-entry `float` buffer the GPU reads. On
+`Brush` this is `falloffCurve` (authoring) → `rebakeFalloff()` →
+`falloff_curve` (baked LUT), consumed by `falloffEval`'s `Curve` branch and
+mirrored in WGSL at `@group(0) @binding(7) falloff_lut`. `set_falloff` exposes
+`kind=`, `shape=`, and `dir=`. The per-arm `axisCurve` the union proposed for
+`Cube` is not implemented — a single curve drives every shape; revisit if a
+brush needs an independent axial profile.
 
 ### Brush textures and coord spaces
 
 `sampleBrushTex(p, n)` is an intrinsic that expands based on `coordSpace`:
 
-| Mode | Source (TS) | Coord computation |
-|---|---|---|
-| `GLOBAL` | `TexUserModes.GLOBAL` | object-space `p` |
-| `VIEWPLANE` | `TexUserModes.VIEWPLANE` | `(renderMatrix * p).xy` |
-| `VIEW_REPEAT` | `TexUserModes.VIEW_REPEAT` | tiled viewplane |
-| `STROKE_CURVED` | `TexUserFlags.CURVED` | nearest-stroke-segment arc-length + lateral offset, from `StrokePath` buffer |
-| `PROJECTED` | new | project along `surfaceNo` onto its tangent plane |
+| Mode | Source (TS) | Coord computation | Status |
+|---|---|---|---|
+| `GLOBAL` | `TexUserModes.GLOBAL` | object-space `p.xy` | done |
+| `VIEWPLANE` | `TexUserModes.VIEWPLANE` | `(renderMatrix * p).xy` | done |
+| `VIEW_REPEAT` | `TexUserModes.VIEW_REPEAT` | tiled viewplane (`* tex_repeat`) | done |
+| `STROKE_CURVED` | `TexUserFlags.CURVED` | nearest-stroke-segment arc-length + lateral offset, from `StrokePath` buffer | deferred |
+| `PROJECTED` | new | project along `surfaceNo` onto its tangent plane | deferred |
+
+The three matrix-driven modes are implemented end-to-end. `sampleBrushTex`
+is an `IntrinsicDef` (arity 2, `Float3,Float3 → Float`) lowering to
+`ctx.sampleBrushTex($0,$1)` (C++) / `brush_sample_tex($0,$1)` (WGSL). The
+texture is implicit brush state — a grayscale `litestl::util::Vector<float>`
+on `Brush` (`tex_width/tex_height/tex_pixels`) plus `coord_space`
+(`TexCoordSpace`) and `tex_repeat`. `Brush::sampleTexBilinear` is the CPU
+source of truth (clamp-to-edge bilinear; returns `1.0` when no texture is
+bound, so kernels multiply unconditionally). `CommandCtx::sampleBrushTex`
+applies the coord-space mapping then samples. WGSL mirrors this with
+`brush_sample_tex` + `textureSampleLevel` (bindings 8/9 `brush_tex`/
+`brush_samp`; the host binds a 1×1 white texel for the no-texture case),
+and `coord_space`/`tex_repeat`/`render_matrix` ride in the Brush/Ctx
+uniform blocks. The `n` (surface normal) arg is reserved for `PROJECTED`
+and currently unused by the matrix modes. Debug verbs `set_texture
+pattern=rampx|rampy|checker|constant|clear` (synthetic, no image decoder
+yet) and `set_coord_space space= repeat=` drive it; `test_debug_script`
+asserts a `rampx`+`GLOBAL` draw lifts the +x half of the footprint while
+the −x half (texel ≈ 0) stays put.
 
 `StrokePath` is a uniform-resident ring buffer of recent stroke samples
 (pos, normal, distance-along, frame). `STROKE_CURVED` reads it; the compiler
 legalizes ring-buffer reads per backend (uniform array on CPU/CUDA, storage
-buffer on WGSL/SPIR-V).
+buffer on WGSL/SPIR-V). `STROKE_CURVED`/`PROJECTED`, image decoding, and the
+`@texture` procedural surface below are deferred to a later slice.
 
 Procedural textures from `proceduralTex.ts` are already GLSL-generating
 (`createShaderClass` → `genGlsl`). The DSL adopts the same generator surface:

@@ -40,6 +40,14 @@ static IntrinsicDef sIntrinsicsRaw[] = {
   INTR_CW("falloff",  TypeKind::Float,  1, ARG1(TypeKind::Float),
           "ctx.brush.falloffEval($0)", "brush_falloff($0)"),
 
+  // sampleBrushTex(co, no) — brush-texture modulation at world point `co`
+  // with surface normal `no`, mapped to UV per the brush's TexCoordSpace.
+  // Returns 1.0 when no texture is bound, so kernels multiply by it freely.
+  // C++ delegates to CommandCtx::sampleBrushTex; WGSL inlines via the
+  // brush_sample_tex helper emit_wgsl writes once per kernel.
+  INTR_CW("sampleBrushTex", TypeKind::Float, 2, ARG2(TypeKind::Float3, TypeKind::Float3),
+          "ctx.sampleBrushTex($0, $1)", "brush_sample_tex($0, $1)"),
+
   // Math — C++ uses litestl::math::Vec<N,T> member calls; WGSL has
   // free-function builtins with matching names.
   INTR_CW("length",    TypeKind::Float,  1, ARG1(TypeKind::Float3),

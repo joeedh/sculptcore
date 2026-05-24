@@ -312,6 +312,79 @@ bool execVerb(Scene &scene,
     }
     return true;
   }
+  if (verb == "set_texture") {
+    // Build a synthetic grayscale brush texture. `pattern=clear` unbinds.
+    // Patterns vary the texel value so a golden test can assert the
+    // displacement tracks UV (e.g. rampx → value grows with co.x under
+    // the Global coord space).
+    const char *pat = getArg(args, "pattern", "rampx");
+    int w = getInt(args, "width", 64);
+    int h = getInt(args, "height", 64);
+    std::string ps = pat;
+    for (auto &c : ps) c = (char)std::tolower((unsigned char)c);
+    if (ps == "clear") {
+      scene.brush.tex_width = 0;
+      scene.brush.tex_height = 0;
+      scene.brush.tex_pixels.clear();
+      return true;
+    }
+    if (w <= 0 || h <= 0) {
+      err = "set_texture: width/height must be positive";
+      return false;
+    }
+    scene.brush.tex_width = w;
+    scene.brush.tex_height = h;
+    scene.brush.tex_pixels.resize(w * h);
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        float u = w > 1 ? (float)x / (float)(w - 1) : 0.0f;
+        float v = h > 1 ? (float)y / (float)(h - 1) : 0.0f;
+        float val;
+        if (ps == "rampx") {
+          val = u;
+        } else if (ps == "rampy") {
+          val = v;
+        } else if (ps == "checker") {
+          val = ((x ^ y) & 1) ? 1.0f : 0.0f;
+        } else if (ps == "constant") {
+          val = 1.0f;
+        } else {
+          err = std::string("set_texture: unknown pattern '") + pat +
+                "' (valid: rampx, rampy, checker, constant, clear)";
+          return false;
+        }
+        scene.brush.tex_pixels[y * w + x] = val;
+      }
+    }
+    return true;
+  }
+  if (verb == "set_coord_space") {
+    const char *sp = getArg(args, "space");
+    const char *rep = getArg(args, "repeat");
+    if (!sp && !rep) {
+      err = "set_coord_space: need space= and/or repeat=";
+      return false;
+    }
+    if (sp) {
+      std::string ss = sp;
+      for (auto &c : ss) c = (char)std::tolower((unsigned char)c);
+      if (ss == "global") {
+        scene.brush.coord_space = brush::TexCoordSpace::Global;
+      } else if (ss == "viewplane") {
+        scene.brush.coord_space = brush::TexCoordSpace::ViewPlane;
+      } else if (ss == "viewrepeat") {
+        scene.brush.coord_space = brush::TexCoordSpace::ViewRepeat;
+      } else {
+        err = std::string("set_coord_space: unknown space '") + sp +
+              "' (valid: global, viewplane, viewrepeat)";
+        return false;
+      }
+    }
+    if (rep) {
+      scene.brush.tex_repeat = (float)std::atof(rep);
+    }
+    return true;
+  }
   if (verb == "set_kelvinlet_params") {
     const char *muArg = getArg(args, "mu");
     const char *nuArg = getArg(args, "nu");

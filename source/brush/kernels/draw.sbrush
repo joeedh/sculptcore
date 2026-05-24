@@ -13,6 +13,9 @@ brush Draw {
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co);
+    // Brush-texture modulation. With no texture bound, sampleBrushTex
+    // returns 1.0, so this leaves the falloff strength bit-identical.
+    s *= sampleBrushTex(v.co, surfaceNo);
     if (s == 0.0) {
       continue;
     }

@@ -490,5 +490,76 @@ int main()
     test_assert(worstBottom < 0.05f);
   }
 
+  /* Brush texture modulation (Wave 2). A draw stroke on the +Z face with a
+   * `rampx` grayscale texture under the GLOBAL coord space (uv = co.xy).
+   * The ramp value grows with co.x and clamps to ~0 for co.x <= 0, so the
+   * +x half of the brush footprint must rise while the -x half stays put.
+   * Exercises the full path: sampleBrushTex intrinsic -> the generated
+   * draw kernel -> CommandCtx::sampleBrushTex -> Brush::sampleTexBilinear,
+   * plus the set_texture / set_coord_space verbs. GLOBAL is the only mode
+   * testable here because the stroke verb leaves renderMatrix unset. */
+  {
+    Scene scene(64, 64, true);
+    const char *src =
+        "make_cube subdivs=12 size=0.5\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_brush_tool tool=draw\n"
+        "set_brush radius=0.25 strength=10.0\n"
+        "set_texture pattern=rampx width=64 height=64\n"
+        "set_coord_space space=global\n"
+        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    auto r = script::run(scene, src, ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  texture script line %d: %s\n", r.line_no, r.error.c_str());
+    }
+    /* Peak rise on the +x half vs the -x half of the +Z face. */
+    float maxZRight = -1e9f, maxZLeft = -1e9f;
+    if (scene.mesh) {
+      for (int i = 0; i < scene.mesh->v.count; i++) {
+        float z = scene.mesh->v.co[i][2];
+        if (z < 0.24f) continue; /* +Z face only */
+        float x = scene.mesh->v.co[i][0];
+        if (x > 0.05f) {
+          if (z > maxZRight) maxZRight = z;
+        } else if (x < -0.05f) {
+          if (z > maxZLeft) maxZLeft = z;
+        }
+      }
+    }
+    /* +x half lifted by the ramp; -x half saw texel value ~0 -> no lift. */
+    test_assert(maxZRight > 0.25f + 1e-3f);
+    test_assert(maxZLeft < 0.25f + 1e-4f);
+
+    /* Same stroke with the texture cleared lifts both halves equally,
+     * proving the asymmetry above came from the texture, not geometry. */
+    Scene scene2(64, 64, true);
+    const char *src2 =
+        "make_cube subdivs=12 size=0.5\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_brush_tool tool=draw\n"
+        "set_brush radius=0.25 strength=10.0\n"
+        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    auto r2 = script::run(scene2, src2, ".");
+    test_assert(r2.ok);
+    float maxZRight2 = -1e9f, maxZLeft2 = -1e9f;
+    if (scene2.mesh) {
+      for (int i = 0; i < scene2.mesh->v.count; i++) {
+        float z = scene2.mesh->v.co[i][2];
+        if (z < 0.24f) continue;
+        float x = scene2.mesh->v.co[i][0];
+        if (x > 0.05f) {
+          if (z > maxZRight2) maxZRight2 = z;
+        } else if (x < -0.05f) {
+          if (z > maxZLeft2) maxZLeft2 = z;
+        }
+      }
+    }
+    float sym = maxZRight2 - maxZLeft2;
+    if (sym < 0) sym = -sym;
+    test_assert(maxZLeft2 > 0.25f + 1e-3f); /* untextured: -x half rises too */
+    test_assert(sym < 5e-3f);               /* and roughly symmetric */
+  }
+
   return test_end();
 }

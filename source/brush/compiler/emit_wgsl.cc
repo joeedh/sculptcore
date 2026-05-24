@@ -465,10 +465,13 @@ struct Emit {
              std::strcmp(n, "spacing") == 0  || std::strcmp(n, "invert") == 0 ||
              std::strcmp(n, "falloff_kind") == 0 ||
              std::strcmp(n, "falloff_shape") == 0 ||
-             std::strcmp(n, "falloff_dir") == 0;
+             std::strcmp(n, "falloff_dir") == 0 ||
+             std::strcmp(n, "coord_space") == 0 ||
+             std::strcmp(n, "tex_repeat") == 0;
     };
     auto isBuiltinCtxName = [](const char *n) {
-      return std::strcmp(n, "surfacePos") == 0 || std::strcmp(n, "surfaceNo") == 0;
+      return std::strcmp(n, "surfacePos") == 0 || std::strcmp(n, "surfaceNo") == 0 ||
+             std::strcmp(n, "render_matrix") == 0;
     };
 
     // Lowers a DSL field's type to its WGSL uniform-block spelling.
@@ -506,6 +509,11 @@ struct Emit {
     // the uniform address space; the host marshaler (when it lands) must
     // match the padding here.
     write("  falloff_dir: vec3<f32>,\n");
+    // Brush-texture UV mapping selector (TexCoordSpace in brush.h), widened
+    // to u32, plus the tiling factor for ViewRepeat. `brush_sample_tex`
+    // branches on coord_space to match CommandCtx::sampleBrushTex.
+    write("  coord_space: u32,\n");
+    write("  tex_repeat: f32,\n");
     // Spill brush-uniform fields declared by the DSL into the uniform
     // block so reduce/vertex can reference them. Wave 4 slice keeps the
     // packing trivial — scalars and vec3/vec4 align naturally on 16-byte
@@ -524,6 +532,9 @@ struct Emit {
     write("struct CtxUniforms {\n");
     write("  surfacePos: vec3<f32>,\n");
     write("  surfaceNo: vec3<f32>,\n");
+    // View/render transform consumed by brush_sample_tex for the ViewPlane
+    // and ViewRepeat coord spaces. Mirrors CommandCtxBase::renderMatrix.
+    write("  render_matrix: mat4x4<f32>,\n");
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Ctx) continue;
       if (isBuiltinCtxName(f.name.c_str())) continue;
@@ -553,7 +564,13 @@ struct Emit {
     // The buffer is bake-produced from Brush::falloffCurve (a props::CurveGen)
     // via bake_curve_lut, so this LUT-fetch is bit-identical to the C++
     // Curve-branch interpolation by construction.
-    write("@group(0) @binding(7) var<storage, read>       falloff_lut: array<f32, 256>;\n\n");
+    write("@group(0) @binding(7) var<storage, read>       falloff_lut: array<f32, 256>;\n");
+    // Brush texture + sampler. When no texture is bound the host binds a 1x1
+    // white texel so `brush_sample_tex` returns 1.0 (matching the C++
+    // no-texture path). The sampler is expected to be linear + clamp-to-edge
+    // to mirror sampleTexBilinear.
+    write("@group(0) @binding(8) var                       brush_tex: texture_2d<f32>;\n");
+    write("@group(0) @binding(9) var                       brush_samp: sampler;\n\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
     // brush.h. Each branch is the same closed form as its C++ twin;
@@ -591,6 +608,24 @@ struct Emit {
     write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
     write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
     write("  return brush_u.strength * brush_falloff(sb_t) * brush_u.radius * 0.1;\n");
+    write("}\n\n");
+    // Brush-texture modulation — kept in lockstep with
+    // CommandCtx::sampleBrushTex. `no` is part of the DSL signature but
+    // currently unused by the matrix-driven coord spaces; the phony
+    // assignment keeps tint from flagging it.
+    write("fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {\n");
+    write("  _ = no;\n");
+    write("  var sb_uv: vec2<f32>;\n");
+    write("  if (brush_u.coord_space == 1u) {\n");
+    write("    let sb_p = (ctx_u.render_matrix * vec4<f32>(co, 1.0)).xyz;\n");
+    write("    sb_uv = sb_p.xy;\n");
+    write("  } else if (brush_u.coord_space == 2u) {\n");
+    write("    let sb_p = (ctx_u.render_matrix * vec4<f32>(co, 1.0)).xyz;\n");
+    write("    sb_uv = sb_p.xy * brush_u.tex_repeat;\n");
+    write("  } else {\n");
+    write("    sb_uv = co.xy;\n");
+    write("  }\n");
+    write("  return textureSampleLevel(brush_tex, brush_samp, sb_uv, 0.0).r;\n");
     write("}\n\n");
   }
 

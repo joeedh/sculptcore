@@ -57,6 +57,33 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
     return brush.strength * brush.falloffEval(t) * brush.radius * 0.1f;
   }
+
+  // Sample the brush texture at world point `co` with surface normal `no`,
+  // mapping to UV per `brush.coord_space`. `no` is currently unused for the
+  // matrix-driven modes but is part of the DSL signature so a future
+  // tangent-space projection can use it without a kernel rewrite. Returns
+  // 1.0 with no texture bound (kernels multiply by this unconditionally).
+  float sampleBrushTex(float3 co, float3 no)
+  {
+    (void)no;
+    float2 uv;
+    switch (brush.coord_space) {
+    case TexCoordSpace::Global:
+      uv = float2{co[0], co[1]};
+      break;
+    case TexCoordSpace::ViewPlane: {
+      float3 p = renderMatrix * co;
+      uv = float2{p[0], p[1]};
+      break;
+    }
+    case TexCoordSpace::ViewRepeat: {
+      float3 p = renderMatrix * co;
+      uv = float2{p[0] * brush.tex_repeat, p[1] * brush.tex_repeat};
+      break;
+    }
+    }
+    return brush.sampleTexBilinear(uv);
+  }
 };
 
 enum _BrushFlags { None = 0, Serial = 1 << 0 };
