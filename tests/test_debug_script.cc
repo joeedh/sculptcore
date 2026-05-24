@@ -71,18 +71,18 @@ int main()
         "make_cube subdivs=16 size=0.5\n"
         "build_spatial leaf_limit=256 depth_limit=8\n"
         "set_brush radius=0.18 strength=0.3 spacing=0.5\n"
-        "stroke_path p1=-0.35,0,0.5 p2=0.35,0,0.5 normal=0,0,1 spacing=0.5\n";
+        "stroke_path p1=-0.35,0,0.25 p2=0.35,0,0.25 normal=0,0,1 spacing=0.5\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
       fprintf(stderr, "  script line %d: %s\n", r.line_no, r.error.c_str());
     }
     test_assert(scene.mesh != nullptr);
-    /* Some +Z vertices should have moved off the original plane. */
+    /* Some +Z face verts should have lifted above the original z=0.25 face. */
     bool moved = false;
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
-        if (scene.mesh->v.co[i][2] > 0.5f + 1e-4f) {
+        if (scene.mesh->v.co[i][2] > 0.25f + 1e-4f) {
           moved = true;
           break;
         }
@@ -272,9 +272,14 @@ int main()
         if (z > spikeZ) spikeZ = z;
       }
     }
+    /* The smooth kernel lerps by s = strength*falloff*radius*0.1, so a
+     * single unit-strength pass barely moves anything (s~0.015). Drive it
+     * hard and repeat so the spike measurably redistributes. */
     const char *src2 =
         "set_brush_tool tool=smooth\n"
-        "set_brush radius=0.15 strength=1.0\n"
+        "set_brush radius=0.15 strength=10.0\n"
+        "stroke origin=0,0,0.25 normal=0,0,1\n"
+        "stroke origin=0,0,0.25 normal=0,0,1\n"
         "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r2 = script::run(scene, src2, ".");
     test_assert(r2.ok);
@@ -367,14 +372,22 @@ int main()
       src += "stroke origin=0,0,0.25 normal=0,0,1\n";
       auto r = script::run(scene, src.c_str(), ".");
       test_assert(r.ok);
-      float maxZ = -1e9f;
+      /* Measure the brush-*center* vert (nearest xy to 0,0 on the +Z
+       * face), not the global max. Inflate lifts along the normal, so
+       * under the inverse curve (≈0 strength at t=1) the edge verts rise
+       * just as high as the center does under smoothstep — a global max
+       * can't tell the two apart. The center vert can. */
+      float bestD = 1e9f, centerZ = 0.0f;
       if (scene.mesh) {
         for (int i = 0; i < scene.mesh->v.count; i++) {
           float z = scene.mesh->v.co[i][2];
-          if (z > maxZ) maxZ = z;
+          if (z < 0.245f) continue;
+          float x = scene.mesh->v.co[i][0], y = scene.mesh->v.co[i][1];
+          float d = x * x + y * y;
+          if (d < bestD) { bestD = d; centerZ = z; }
         }
       }
-      return maxZ;
+      return centerZ;
     };
     float zSmoothstep = runInflate("");
     float zCurveDefault = runInflate("set_falloff kind=curve\n");
@@ -391,6 +404,45 @@ int main()
     /* (b) Inverse-LUT brush must lift the center *less* than the
      * smoothstep brush. Difference well above noise threshold. */
     test_assert(zSmoothstep - zCurveInverse > 5e-3f);
+  }
+
+  /* FalloffShape spatial metric. Inflate at the +Z face center (the face
+   * spans x,y in [-0.25,0.25]; radius 0.25). The cube metric
+   * max(|dx|,|dy|,|dz|) covers a square footprint that strictly contains
+   * the spherical disc — every vert sees t_cube >= t_spherical, and the
+   * corners the disc misses get lifted — so summed +Z is strictly larger.
+   * Linear with dir=X weights only the x-projection, lifting a full band
+   * across y, so it differs measurably from the disc. Confirms
+   * set_falloff shape=/dir= routes through Brush::falloffDist. */
+  {
+    auto sumZ = [&](const char *prelude) -> double {
+      Scene scene(64, 64, true);
+      std::string src;
+      src += "make_cube subdivs=12 size=0.5\n";
+      src += "build_spatial leaf_limit=256 depth_limit=8\n";
+      src += "set_brush_tool tool=inflate\n";
+      src += "set_brush radius=0.25 strength=0.5\n";
+      src += prelude;
+      src += "stroke origin=0,0,0.25 normal=0,0,1\n";
+      auto r = script::run(scene, src.c_str(), ".");
+      test_assert(r.ok);
+      double s = 0.0;
+      if (scene.mesh) {
+        for (int i = 0; i < scene.mesh->v.count; i++) {
+          s += scene.mesh->v.co[i][2];
+        }
+      }
+      return s;
+    };
+    double zSpherical = sumZ("set_falloff shape=spherical\n");
+    double zCube = sumZ("set_falloff shape=cube\n");
+    double zLinear = sumZ("set_falloff shape=linear dir=1,0,0\n");
+    /* cube footprint contains the disc -> strictly more upward lift */
+    test_assert(zCube > zSpherical + 1e-3);
+    /* linear band differs measurably from the spherical disc */
+    double dl = zLinear - zSpherical;
+    if (dl < 0) dl = -dl;
+    test_assert(dl > 1e-3);
   }
 
   /* Pose brush: three cage anchors stay put, the +Z anchor moves to z=0.7.

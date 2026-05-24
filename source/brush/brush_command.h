@@ -54,7 +54,7 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   }
   float strength(float3 co)
   {
-    float t = 1.0f - std::min((co - surfacePos).length() / brush.radius, 1.0f);
+    float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
     return brush.strength * brush.falloffEval(t) * brush.radius * 0.1f;
   }
 };

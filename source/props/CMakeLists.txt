@@ -17,6 +17,8 @@ set(SRC
   prop_struct.cc
   props.cc
   curve_cache.cc
+  curve_bake.cc
+  curve_bspline.cc
   bindings.cc
 )
 

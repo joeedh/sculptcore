@@ -463,7 +463,9 @@ struct Emit {
     auto isBuiltinBrushName = [](const char *n) {
       return std::strcmp(n, "strength") == 0 || std::strcmp(n, "radius") == 0 ||
              std::strcmp(n, "spacing") == 0  || std::strcmp(n, "invert") == 0 ||
-             std::strcmp(n, "falloff_kind") == 0;
+             std::strcmp(n, "falloff_kind") == 0 ||
+             std::strcmp(n, "falloff_shape") == 0 ||
+             std::strcmp(n, "falloff_dir") == 0;
     };
     auto isBuiltinCtxName = [](const char *n) {
       return std::strcmp(n, "surfacePos") == 0 || std::strcmp(n, "surfaceNo") == 0;
@@ -498,6 +500,12 @@ struct Emit {
     // GPU it widens to u32 to keep std140 happy (and the host marshaler,
     // when it lands, must pad to u32 to match).
     write("  falloff_kind: u32,\n");
+    // Spatial falloff metric (FalloffShape in brush.h), widened to u32.
+    write("  falloff_shape: u32,\n");
+    // Direction for FalloffShape::Linear. vec3 needs 16-byte alignment in
+    // the uniform address space; the host marshaler (when it lands) must
+    // match the padding here.
+    write("  falloff_dir: vec3<f32>,\n");
     // Spill brush-uniform fields declared by the DSL into the uniform
     // block so reduce/vertex can reference them. Wave 4 slice keeps the
     // packing trivial — scalars and vec3/vec4 align naturally on 16-byte
@@ -542,6 +550,9 @@ struct Emit {
     // Curve LUT for FalloffKind::Curve. Sized to match Brush::falloff_curve
     // (kFalloffCurveSize = 256 in brush.h); when the WGSL dispatcher lands,
     // its marshaler should write exactly that many f32s into this binding.
+    // The buffer is bake-produced from Brush::falloffCurve (a props::CurveGen)
+    // via bake_curve_lut, so this LUT-fetch is bit-identical to the C++
+    // Curve-branch interpolation by construction.
     write("@group(0) @binding(7) var<storage, read>       falloff_lut: array<f32, 256>;\n\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
@@ -565,8 +576,20 @@ struct Emit {
     write("  }\n");
     write("  return t * t * (3.0 - 2.0 * t);\n");
     write("}\n\n");
+    // Spatial falloff metric — kept in lockstep with Brush::falloffDist.
+    // Values must match the C++ enum FalloffShape in brush.h.
+    write("fn brush_falloff_dist(delta: vec3<f32>) -> f32 {\n");
+    write("  let sb_inv_r = 1.0 / brush_u.radius;\n");
+    write("  if (brush_u.falloff_shape == 1u) {\n");
+    write("    let sb_a = abs(delta);\n");
+    write("    return max(sb_a.x, max(sb_a.y, sb_a.z)) * sb_inv_r;\n");
+    write("  } else if (brush_u.falloff_shape == 2u) {\n");
+    write("    return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;\n");
+    write("  }\n");
+    write("  return length(delta) * sb_inv_r;\n");
+    write("}\n\n");
     write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
-    write("  let sb_t = 1.0 - min(length(p - ctx_u.surfacePos) / brush_u.radius, 1.0);\n");
+    write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
     write("  return brush_u.strength * brush_falloff(sb_t) * brush_u.radius * 0.1;\n");
     write("}\n\n");
   }

@@ -269,10 +269,10 @@ static bool runDelaunayCase(const char *label,
   n.normalize();
   float3 ub(1, 0, 0);
   if (std::fabs(n[0]) > 0.9f) ub = float3(0, 1, 0);
-  ub.cross(n);
+  ub.crossSelf(n);
   ub.normalize();
   float3 vb = n;
-  vb.cross(ub);
+  vb.crossSelf(ub);
   vb.normalize();
 
   Vector<float2> pts2;
@@ -443,10 +443,10 @@ int main()
       nrm.normalize();
       float3 ub(1, 0, 0);
       if (std::fabs(nrm[0]) > 0.9f) ub = float3(0, 1, 0);
-      ub.cross(nrm);
+      ub.crossSelf(nrm);
       ub.normalize();
       float3 vb = nrm;
-      vb.cross(ub);
+      vb.crossSelf(ub);
       vb.normalize();
 
       Vector<float3> pts;
@@ -485,10 +485,10 @@ int main()
     nrm.normalize();
     float3 ub(1, 0, 0);
     if (std::fabs(nrm[0]) > 0.9f) ub = float3(0, 1, 0);
-    ub.cross(nrm);
+    ub.crossSelf(nrm);
     ub.normalize();
     float3 vb = nrm;
-    vb.cross(ub);
+    vb.crossSelf(ub);
     vb.normalize();
 
     Vector<float3> pts;

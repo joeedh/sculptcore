@@ -244,24 +244,51 @@ bool execVerb(Scene &scene,
   }
   if (verb == "set_falloff") {
     const char *k = getArg(args, "kind");
-    if (!k) {
-      err = "set_falloff: missing kind=smoothstep|linear|gaussian|curve";
+    const char *sh = getArg(args, "shape");
+    const char *dir = getArg(args, "dir");
+    if (!k && !sh && !dir) {
+      err = "set_falloff: need at least one of kind=, shape=, dir=";
       return false;
     }
-    std::string ks = k;
-    for (auto &c : ks) c = (char)std::tolower((unsigned char)c);
-    if (ks == "smoothstep") {
-      scene.brush.falloff_kind = brush::FalloffKind::Smoothstep;
-    } else if (ks == "linear") {
-      scene.brush.falloff_kind = brush::FalloffKind::Linear;
-    } else if (ks == "gaussian") {
-      scene.brush.falloff_kind = brush::FalloffKind::Gaussian;
-    } else if (ks == "curve") {
-      scene.brush.falloff_kind = brush::FalloffKind::Curve;
-    } else {
-      err = std::string("set_falloff: unknown kind '") + k +
-            "' (valid: smoothstep, linear, gaussian, curve)";
-      return false;
+    if (k) {
+      std::string ks = k;
+      for (auto &c : ks) c = (char)std::tolower((unsigned char)c);
+      if (ks == "smoothstep") {
+        scene.brush.falloff_kind = brush::FalloffKind::Smoothstep;
+      } else if (ks == "linear") {
+        scene.brush.falloff_kind = brush::FalloffKind::Linear;
+      } else if (ks == "gaussian") {
+        scene.brush.falloff_kind = brush::FalloffKind::Gaussian;
+      } else if (ks == "curve") {
+        scene.brush.falloff_kind = brush::FalloffKind::Curve;
+      } else {
+        err = std::string("set_falloff: unknown kind '") + k +
+              "' (valid: smoothstep, linear, gaussian, curve)";
+        return false;
+      }
+    }
+    if (sh) {
+      std::string ss = sh;
+      for (auto &c : ss) c = (char)std::tolower((unsigned char)c);
+      if (ss == "spherical") {
+        scene.brush.falloff_shape = brush::FalloffShape::Spherical;
+      } else if (ss == "cube") {
+        scene.brush.falloff_shape = brush::FalloffShape::Cube;
+      } else if (ss == "linear") {
+        scene.brush.falloff_shape = brush::FalloffShape::Linear;
+      } else {
+        err = std::string("set_falloff: unknown shape '") + sh +
+              "' (valid: spherical, cube, linear)";
+        return false;
+      }
+    }
+    if (dir) {
+      float3 d;
+      if (!parseFloat3(dir, d)) {
+        err = "set_falloff: dir= must be x,y,z";
+        return false;
+      }
+      scene.brush.falloff_dir = d.normalized();
     }
     return true;
   }

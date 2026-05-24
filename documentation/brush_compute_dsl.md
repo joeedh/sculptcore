@@ -172,6 +172,19 @@ Curve1D LUTs ship as a `Buffer<float>` (256 entries) bound automatically; the
 IR exposes `falloff(x)` as a single intrinsic, so backend lowering picks
 LUT-fetch vs. analytic.
 
+**Realization (as of the curve-completion slice):** `Curve1D` is the
+`props::detail::curve::CurveGen` authoring object (analytic kinds + b-spline
+control points; see `source/props/prop_curve.h`). `bake_curve_lut` samples it
+into the 256-entry `float` buffer the GPU reads. On `Brush` today this is
+`falloffCurve` (authoring) → `rebakeFalloff()` → `falloff_curve` (baked LUT),
+consumed by `falloffEval`'s `Curve` branch and mirrored in WGSL at
+`@group(0) @binding(7) falloff_lut`. The current `FalloffKind`
+(`Smoothstep|Linear|Gaussian|Curve`) is the precursor to the full tagged union:
+the three analytic kinds are the `Analytic` arm (branchless fast-path, kept per
+design), and `Curve` is the single-radial `Spherical { Curve1D }` arm. `Cube`
+and `Linear` (spatial-variant falloffs) are still to be built in Wave 2; they
+reuse the same `CurveGen`/bake plumbing for their curve fields.
+
 ### Brush textures and coord spaces
 
 `sampleBrushTex(p, n)` is an intrinsic that expands based on `coordSpace`:

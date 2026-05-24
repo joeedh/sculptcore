@@ -4,11 +4,13 @@
 #include "prop_enums.h"
 
 
-#include "litestl/math/bspline.h"
+#include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/array.h"
 #include "litestl/util/hash.h"
+#include "litestl/util/vector.h"
 
+#include <array>
 #include <bit>
 #include <cmath>
 
@@ -40,17 +42,81 @@ struct CurveGenBase {
   {
   }
 
-  virtual double evaluate(double f)
+  virtual ~CurveGenBase() = default;
+
+  virtual double evaluate(double f) = 0;
+
+  /* Numeric helpers ported from path.ux curve1d_base.ts. Default bodies
+   * are finite-difference / bisection over evaluate(); analytic kinds may
+   * override for accuracy but are not required to. */
+  virtual double derivative(double s)
   {
-    switch (type) {
-    case PropCurves::LINEAR:
-      return f;
-    case PropCurves::SHARP:
-      return std::pow(f, 0.5);
-    case PropCurves::SMOOTHSTEP:
-      return f * f * (3.0 - 2.0 * f);
+    const double df = 0.0001;
+    if (s > 1.0 - df * 3) {
+      return (evaluate(s) - evaluate(s - df)) / df;
+    } else if (s < df * 3) {
+      return (evaluate(s + df) - evaluate(s)) / df;
     }
-    return f;
+    return (evaluate(s + df) - evaluate(s - df)) / (2.0 * df);
+  }
+
+  virtual double derivative2(double s)
+  {
+    const double df = 0.0001;
+    if (s > 1.0 - df * 3) {
+      return (derivative(s) - derivative(s - df)) / df;
+    } else if (s < df * 3) {
+      return (derivative(s + df) - derivative(s)) / df;
+    }
+    return (derivative(s + df) - derivative(s - df)) / (2.0 * df);
+  }
+
+  virtual double integrate(double s1, int quadSteps = 64)
+  {
+    double ret = 0.0;
+    const double ds = s1 / double(quadSteps);
+    double s = 0.0;
+    for (int i = 0; i < quadSteps; i++, s += ds) {
+      ret += evaluate(s) * ds;
+    }
+    return ret;
+  }
+
+  /* Invert evaluate(): find s such that evaluate(s) ~= y, bisection over
+   * a coarse scan of [0,1]. */
+  virtual double inverse(double y)
+  {
+    const int steps = 9;
+    const double ds = 1.0 / double(steps);
+    double s = 0.0;
+    bool have_best = false;
+    double best = 0.0;
+    double ret = 0.0;
+
+    for (int i = 0; i < steps; i++, s += ds) {
+      double s1 = s, s2 = s + ds, mid = 0.0;
+
+      for (int j = 0; j < 11; j++) {
+        double y1 = evaluate(s1);
+        double y2 = evaluate(s2);
+        mid = (s1 + s2) * 0.5;
+
+        if (std::fabs(y1 - y) < std::fabs(y2 - y)) {
+          s2 = mid;
+        } else {
+          s1 = mid;
+        }
+      }
+
+      double err = std::fabs(y - evaluate(mid));
+      if (!have_best || err < best) {
+        have_best = true;
+        best = err;
+        ret = mid;
+      }
+    }
+
+    return ret;
   }
 
   virtual litestl::hash::HashInt hash()
@@ -163,15 +229,99 @@ private:
   bool have_hash_ = false;
 };
 
-struct CurveGenBSpline : CurveGenBase {
-  CurveGenBSpline() : CurveGenBase(PropCurves::BSPLINE)
-  {
-  }
+enum class SplineTemplate {
+  CONSTANT = 0,
+  LINEAR = 1,
+  SHARP = 2,
+  SQRT = 3,
+  SMOOTH = 4,
+  SMOOTHER = 5,
+  SHARPER = 6,
+  SPHERE = 7,
+  REVERSE_LINEAR = 8,
+  GUASSIAN = 9,
 };
 
+/* 1D curve as a 2D b-spline root-found on x (port of path.ux BSplineCurve).
+ * The 2D-spline trick lets arbitrary control points define a function of x;
+ * evaluate(t) root-finds the parameter whose x == t and returns y. The
+ * path.ux hermite/basis caches are dropped — we bake to a LUT instead. */
+struct CurveGenBSpline : CurveGenBase {
+  using HashInt = litestl::hash::HashInt;
+
+  struct ControlPoint {
+    math::float2 co{0.0f, 0.0f};
+    uint8_t tangent = 1; /* SMOOTH */
+  };
+
+  util::Vector<ControlPoint> points;
+  int deg = 3;
+
+  CurveGenBSpline() : CurveGenBase(PropCurves::BSPLINE)
+  {
+    points.append(ControlPoint{{0.0f, 0.0f}, 1});
+    points.append(ControlPoint{{1.0f, 1.0f}, 1});
+    updateKnots();
+  }
+
+  void add(double x, double y);
+  void reset(bool empty = false);
+  void loadTemplate(SplineTemplate templ);
+  void updateKnots();
+
+  double evaluate(double f) override;
+  HashInt hash() override;
+  bool operator==(const CurveGenBase &b) override;
+
+private:
+  /* Extended control-point set (control points + degree-fold of the last
+   * point), rebuilt by updateKnots(). */
+  util::Vector<math::float2> ps_;
+  int degOffset_ = 0;
+
+  double basis(double t, int i) const;
+  math::float2 evaluate2(double t) const;
+  double evaluateRootfind(double t) const;
+};
+
+/* Centered-bump gaussian (path.ux GuassianCurve form):
+ *   height * exp(-(s-offset)^2 / (2*deviation^2)).
+ * Defaults peak at s=1 (offset=1), so it reads as an edge-weighted bump
+ * over the 0..1 domain. Note this is *not* the brush's analytic gaussian
+ * (exp(-9*(1-t)^2)); the brush keeps that as its own fast path (Q3/Q4). */
 struct CurveGenGuassian : CurveGenBase {
+  using HashInt = litestl::hash::HashInt;
+
+  double height = 1.0;
+  double offset = 1.0;
+  double deviation = 0.3;
+
   CurveGenGuassian() : CurveGenBase(PropCurves::GUASSIAN)
   {
+  }
+
+  double evaluate(double s) override
+  {
+    double d = s - offset;
+    return height * std::exp(-(d * d) / (2.0 * deviation * deviation));
+  }
+
+  HashInt hash() override
+  {
+    HashInt h = HashInt(PropCurves::GUASSIAN);
+    h ^= std::bit_cast<HashInt, double>(height) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    h ^= std::bit_cast<HashInt, double>(offset) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    h ^= std::bit_cast<HashInt, double>(deviation) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    return h;
+  }
+
+  bool operator==(const CurveGenBase &b) override
+  {
+    if (b.type != PropCurves::GUASSIAN) {
+      return false;
+    }
+    const CurveGenGuassian *b2 = static_cast<const CurveGenGuassian *>(&b);
+    return height == b2->height && offset == b2->offset && deviation == b2->deviation;
   }
 };
 
@@ -268,6 +418,19 @@ struct CurveGen {
   }
 };
 
+/* Sample a curve into a flat LUT for GPU/branchless consumers. Samples at
+ * t_i = i/(n-1), storing float(curve.evaluate(t_i)). Deterministic and
+ * host-only: the WGSL LUT-fetch reads this same baked buffer, so the two
+ * paths stay bit-identical by construction. */
+void bake_curve_lut(CurveGenBase &curve, float *out, int n);
+
+template <int N> std::array<float, N> bake_curve_lut(CurveGenBase &curve)
+{
+  std::array<float, N> lut{};
+  bake_curve_lut(curve, lut.data(), N);
+  return lut;
+}
+
 } // namespace detail::curve
 
 struct CurveGenProp
@@ -294,14 +457,14 @@ struct CurveGenProp
 
   double evaluate(double f)
   {
-    CurveGenBase *curve = PropBase::get();
+    CurveGenBase *const curve = PropBase::get();
 
     if (curve) {
       f = curve->evaluate(f);
     }
 
     if (clamp) {
-      f = std::min(std::max(f, max), min);
+      f = std::min(std::max(f, min), max);
     }
 
     return f;
