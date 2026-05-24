@@ -17,7 +17,7 @@ void usage()
 {
   std::fprintf(stderr,
                "debug_app --script PATH [--out DIR] [--headless] [--width N] [--height N]\n"
-               "          [--no-headless] [--interactive]\n");
+               "          [--no-headless] [--interactive] [--backend cpp|wgsl]\n");
 }
 
 bool ensureDir(const char *path)
@@ -46,6 +46,7 @@ int main(int argc, char **argv)
   bool interactive = false;
   int width = 1024;
   int height = 768;
+  const char *backendArg = nullptr;
 
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
@@ -71,6 +72,8 @@ int main(int argc, char **argv)
     } else if (std::strcmp(a, "--interactive") == 0) {
       interactive = true;
       headless = false;
+    } else if (std::strcmp(a, "--backend") == 0) {
+      backendArg = next("--backend");
     } else if (std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0) {
       usage();
       return 0;
@@ -88,6 +91,24 @@ int main(int argc, char **argv)
   ensureDir(outDir);
 
   Scene scene(width, height, headless);
+
+  if (backendArg) {
+    if (std::strcmp(backendArg, "cpp") == 0) {
+      scene.currentBackend = BrushBackend::Cpp;
+    } else if (std::strcmp(backendArg, "wgsl") == 0) {
+#ifdef SBRUSH_BACKEND_WGSL
+      scene.currentBackend = BrushBackend::Wgsl;
+#else
+      std::fprintf(stderr,
+                   "--backend=wgsl: WGSL backend not compiled in "
+                   "(configure with --backends=cpp,wgsl)\n");
+      return 2;
+#endif
+    } else {
+      std::fprintf(stderr, "--backend: unknown value '%s' (valid: cpp, wgsl)\n", backendArg);
+      return 2;
+    }
+  }
 
   auto r = script::runFile(scene, scriptPath, outDir);
   if (!r.ok) {

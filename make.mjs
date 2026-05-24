@@ -289,20 +289,49 @@ const targetPositional = (y) =>
     describe: 'Build target',
   })
 
+// Known sbrush backends, matching the SBRUSH_BACKEND_<X> CMake options.
+const SBRUSH_BACKENDS = ['cpp', 'wgsl', 'spirv', 'cuda', 'hip', 'opencl']
+
+// Parse `--backends=cpp,wgsl,...` into the `-DSBRUSH_BACKEND_<X>=ON`
+// flags consumed by configure. `cpp` is always implicitly on (it's the
+// reference emitter and the only one that links into libbrush).
+function sbrushBackendFlags(backendsArg) {
+  if (!backendsArg) return ''
+  const picked = backendsArg.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+  const unknown = picked.filter((b) => !SBRUSH_BACKENDS.includes(b))
+  if (unknown.length) {
+    process.stderr.write(`unknown sbrush backend(s): ${unknown.join(', ')}\n`)
+    process.stderr.write(`valid: ${SBRUSH_BACKENDS.join(', ')}\n`)
+    process.exit(2)
+  }
+  const flags = []
+  for (const b of SBRUSH_BACKENDS) {
+    if (b === 'cpp') continue  // always on
+    flags.push(`-DSBRUSH_BACKEND_${b.toUpperCase()}=${picked.includes(b) ? 'ON' : 'OFF'}`)
+  }
+  return flags.join(' ')
+}
+
 yargs(hideBin(process.argv))
   .scriptName('make.mjs')
-  .command('configure [target]', 'Configure the build', targetPositional, ({target}) => {
+  .command('configure [target]', 'Configure the build',
+    (y) => targetPositional(y).option('backends', {
+      type: 'string',
+      describe: `comma-separated sbrush backends to enable (subset of: ${SBRUSH_BACKENDS.join(',')}); cpp is always on`,
+    }),
+    ({target, backends}) => {
     setupPNPM()
     ensureDir('build')
     const dir = buildDir(target)
     ensureDir(dir)
     const env = envPrefix(target)
+    const sbrushFlags = sbrushBackendFlags(backends)
     if (target === 'native') {
       run(
-        `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} `
+        `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
       )
     } else {
-      run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS}`)
+      run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS} ${sbrushFlags}`)
     }
   })
   .command('build [target]', 'Build', targetPositional, async ({target}) => {
@@ -315,14 +344,14 @@ yargs(hideBin(process.argv))
 
     await runBuild(`cd ${dir} && ${env} cmake --build . `)
 
-    // copy wasm to typescript/
-    fs.mkdirSync('typescript/build', {recursive: true})
-    fs.copyFileSync('build/sculptcore.js', 'typescript/build/sculptcore.js')
-    fs.copyFileSync('build/sculptcore.wasm', 'typescript/build/sculptcore.wasm')
-    fs.copyFileSync('build/sculptcore-browser.js', 'typescript/build/sculptcore-browser.js')
-    fs.copyFileSync('build/sculptcore-browser.wasm', 'typescript/build/sculptcore-browser.wasm')
-
     if (target === 'wasm') {
+      // copy wasm to typescript/
+      fs.mkdirSync('typescript/build', {recursive: true})
+      fs.copyFileSync('build/sculptcore.js', 'typescript/build/sculptcore.js')
+      fs.copyFileSync('build/sculptcore.wasm', 'typescript/build/sculptcore.wasm')
+      fs.copyFileSync('build/sculptcore-browser.js', 'typescript/build/sculptcore-browser.js')
+      fs.copyFileSync('build/sculptcore-browser.wasm', 'typescript/build/sculptcore-browser.wasm')
+
       run('cd tools && pnpm build')
     }
   })
@@ -390,7 +419,28 @@ yargs(hideBin(process.argv))
       fs.rmSync(gen, {recursive: true, force: true})
       console.log(`removed ${gen}`)
     }
+    const wgslOut = 'build/native/sbrush_out'
+    if (fs.existsSync(wgslOut)) {
+      fs.rmSync(wgslOut, {recursive: true, force: true})
+      console.log(`removed ${wgslOut}`)
+    }
   })
+  .command('sbrush-validate <backend>',
+    'Reconfigure native with the given sbrush backend enabled (with SBRUSH_VALIDATE_ALL=ON) and run its validator pass',
+    (y) => y.positional('backend', {
+      choices: SBRUSH_BACKENDS.filter((b) => b !== 'cpp'),
+      describe: 'sbrush backend to validate (cpp has no external validator)',
+    }),
+    async ({backend}) => {
+      const dir = buildDir('native')
+      ensureDir(dir)
+      const env = envPrefix('native')
+      const flag = `-DSBRUSH_BACKEND_${backend.toUpperCase()}=ON`
+      run(
+        `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${flag} -DSBRUSH_VALIDATE_ALL=ON`
+      )
+      await runBuild(`cd ${dir} && ${env} cmake --build . --target sbrush-${backend}`)
+    })
   .command('install-tools', 'Install host build tools (naga)', {}, () => {
     console.log(`Installing naga-cli ${NAGA_VERSION}...`)
     try {

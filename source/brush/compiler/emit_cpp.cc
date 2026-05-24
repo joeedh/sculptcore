@@ -363,7 +363,7 @@ struct Emit {
     write(brush->sourceFile);
     write("\n");
     write("#pragma once\n");
-    write("#include \"../brush_command.h\"\n");
+    write("#include \"brush/brush_command.h\"\n");
     write("#include \"spatial/spatial_enums.h\"\n");
     write("#include \"mesh/mesh_iter.h\"\n\n");
     write("namespace sculptcore::brush::command {\n\n");

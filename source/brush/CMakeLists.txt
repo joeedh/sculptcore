@@ -42,3 +42,44 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP)
   add_subdirectory(compiler)
 endif()
 
+# WGSL backend: emit one .wgsl per .sbrush into the build dir, and
+# (when SBRUSH_VALIDATE_ALL=ON) gate the build on `tint` accepting it.
+# The .wgsl artifacts are not linked into libbrush — they exist for
+# host-side WebGPU dispatch + CI validation only.
+if (NOT BUILD_WASM AND SBRUSH_BACKEND_WGSL)
+  target_compile_definitions(brush PUBLIC SBRUSH_BACKEND_WGSL=1)
+  file(GLOB SBRUSH_INPUTS "${CMAKE_CURRENT_SOURCE_DIR}/kernels/*.sbrush")
+  set(WGSL_OUT_DIR "${CMAKE_BINARY_DIR}/sbrush_out/wgsl")
+  file(MAKE_DIRECTORY "${WGSL_OUT_DIR}")
+  set(WGSL_OUTPUTS)
+  foreach(SRC ${SBRUSH_INPUTS})
+    get_filename_component(STEM "${SRC}" NAME_WE)
+    set(OUT "${WGSL_OUT_DIR}/${STEM}.wgsl")
+    # Emit pass; the optional validator pass writes a stamp file so
+    # downstream targets can depend on "WGSL produced AND tint-validated"
+    # rather than re-running validation every build.
+    set(STAMP "${OUT}.validated")
+    if (SBRUSH_VALIDATE_ALL)
+      add_custom_command(
+        OUTPUT "${STAMP}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=wgsl --in=${SRC} --out=${OUT}
+        COMMAND ${SBRUSH_WGSL_VALIDATOR} ${OUT} --format=wgsl -o ${OUT}.tint.wgsl
+        COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush wgsl + tint: ${STEM}.wgsl"
+        VERBATIM)
+      list(APPEND WGSL_OUTPUTS "${STAMP}")
+    else()
+      add_custom_command(
+        OUTPUT "${OUT}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=wgsl --in=${SRC} --out=${OUT}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush wgsl: ${STEM}.wgsl"
+        VERBATIM)
+      list(APPEND WGSL_OUTPUTS "${OUT}")
+    endif()
+  endforeach()
+  add_custom_target(sbrush-wgsl ALL DEPENDS ${WGSL_OUTPUTS})
+  sbrush_backend(wgsl tint)
+endif()
+

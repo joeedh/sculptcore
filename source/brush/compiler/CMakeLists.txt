@@ -11,6 +11,7 @@ set(SBRUSHC_SRC
   lexer.cc
   parser.cc
   emit_cpp.cc
+  emit_wgsl.cc
   sbrushc_main.cc
   ../kernels/ir/intrinsics.cc
 )

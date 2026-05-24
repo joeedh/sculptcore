@@ -169,6 +169,33 @@ bool execVerb(Scene &scene,
     scene.brush.writeProps();
     return true;
   }
+  if (verb == "set_backend") {
+    const char *b = getArg(args, "backend");
+    if (!b) {
+      err = "set_backend: missing backend=";
+      return false;
+    }
+    std::string bs = b;
+    for (auto &c : bs) c = (char)std::tolower((unsigned char)c);
+    if (bs == "cpp") {
+      scene.currentBackend = BrushBackend::Cpp;
+    } else if (bs == "wgsl") {
+#ifdef SBRUSH_BACKEND_WGSL
+      // Wave 3: WGSL artifacts exist + tint-validated. There is no
+      // WebGPU runtime native, so brushes still execute through the C++
+      // path — selecting Wgsl here is the artifact-presence gate that
+      // CI uses to verify the WGSL pipeline configured cleanly.
+      scene.currentBackend = BrushBackend::Wgsl;
+#else
+      err = "set_backend: WGSL backend not compiled in (configure with --backends=cpp,wgsl)";
+      return false;
+#endif
+    } else {
+      err = std::string("set_backend: unknown backend '") + b + "' (valid: cpp, wgsl)";
+      return false;
+    }
+    return true;
+  }
   if (verb == "set_brush_tool") {
     const char *t = getArg(args, "tool");
     if (!t) {

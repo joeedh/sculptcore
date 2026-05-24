@@ -7,6 +7,7 @@
 // Wave 2+ extends to multi-backend dispatch and additional emitters.
 
 #include "emit_cpp.h"
+#include "emit_wgsl.h"
 #include "ir.h"
 #include "lexer.h"
 #include "parser.h"
@@ -36,7 +37,7 @@ struct Args {
 void printUsage()
 {
   std::fprintf(stderr,
-    "Usage: sbrushc --backend=<cpp> --in=<input.sbrush> --out=<output.gen.h>\n"
+    "Usage: sbrushc --backend=<cpp|wgsl> --in=<input.sbrush> --out=<output>\n"
     "  --dry-run     do not write output\n"
     "  --dump-tokens print token stream and exit\n");
 }
@@ -149,25 +150,29 @@ int main(int argc, char **argv)
   }
 
   litestl::util::string backend = args.backend;
+  EmitResult er;
   if (litestl::util::string(backend.c_str()) == litestl::util::string("cpp")) {
-    auto er = emitCpp(*parse_r.brush);
-    if (er.errors.size() > 0) {
-      for (const auto &e : er.errors) {
-        std::fprintf(stderr, "sbrushc: emit error: %s\n", e.c_str());
-      }
-      return 1;
-    }
-    if (args.dryRun) {
-      std::fwrite(er.text.c_str(), 1, er.text.size(), stdout);
-      return 0;
-    }
-    if (!writeFileIfChanged(args.outPath.c_str(), er.text)) {
-      std::fprintf(stderr, "sbrushc: cannot write '%s'\n", args.outPath.c_str());
-      return 1;
-    }
-    return 0;
+    er = emitCpp(*parse_r.brush);
+  } else if (litestl::util::string(backend.c_str()) == litestl::util::string("wgsl")) {
+    er = emitWgsl(*parse_r.brush);
+  } else {
+    std::fprintf(stderr, "sbrushc: backend '%s' not implemented yet\n", backend.c_str());
+    return 1;
   }
 
-  std::fprintf(stderr, "sbrushc: backend '%s' not implemented yet\n", backend.c_str());
-  return 1;
+  if (er.errors.size() > 0) {
+    for (const auto &e : er.errors) {
+      std::fprintf(stderr, "sbrushc: emit error: %s\n", e.c_str());
+    }
+    return 1;
+  }
+  if (args.dryRun) {
+    std::fwrite(er.text.c_str(), 1, er.text.size(), stdout);
+    return 0;
+  }
+  if (!writeFileIfChanged(args.outPath.c_str(), er.text)) {
+    std::fprintf(stderr, "sbrushc: cannot write '%s'\n", args.outPath.c_str());
+    return 1;
+  }
+  return 0;
 }

@@ -1,0 +1,18 @@
+# A/B-style script that toggles between the cpp and wgsl backend gates
+# on the same stroke sequence. Wave 3 only validates that both backends
+# are *selectable* (the WGSL kernels exist and tint accepts them) — there
+# is no native WebGPU dispatch yet, so both paths actually execute through
+# the C++ executor. Later waves will diff the rendered state.
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush radius=0.25 strength=0.5
+
+set_backend backend=cpp
+stroke origin=0,0,0.5 normal=0,0,1
+dump_state out=draw_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke origin=0,0,0.5 normal=0,0,1
+dump_state out=draw_wgsl.json

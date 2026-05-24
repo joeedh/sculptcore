@@ -39,6 +39,11 @@ endif()
 
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)
 
+# Native build links the per-module static libs into libsculptcore.so;
+# without -fPIC the static archives can't be relocated into the shared
+# object. (Harmless on WASM, where everything is a static archive.)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # sbrush DSL — brush compute compiler. See documentation/brush_compute_dsl.md
 # and the Wave 1 plan in .claude/plans/.
 option(SBRUSH_BACKEND_CPP    "Emit C++ brush kernels (reference)"                ON)
@@ -52,6 +57,13 @@ option(SBRUSH_REGEN_ON_BUILD "Re-run sbrushc during build (vs. checked-in output
 
 include("build_files/macros.cmake")
 include("source/litestl/build_files/macros.cmake")
+
+# Backend toolchain probes — gated per-backend inside the include so
+# disabling all GPU backends keeps the configure short and offline.
+if (SBRUSH_BACKEND_WGSL OR SBRUSH_BACKEND_SPIRV OR SBRUSH_BACKEND_CUDA
+    OR SBRUSH_BACKEND_HIP OR SBRUSH_BACKEND_OPENCL)
+  include("build_files/sbrush_toolchains.cmake")
+endif()
 
 if (NOT BUILD_WASM)
   # Vulkan headers + loader from the system Vulkan SDK. Found here at the

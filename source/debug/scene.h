@@ -32,6 +32,13 @@ struct LastStroke {
  *  created so a script that never asks for screenshots never opens a
  *  Vulkan device. Interactive mode currently shares the offscreen target
  *  with the headless path — a swapchain-presented window is a follow-up. */
+// Brush backend selector. Wave 3 implements WGSL emit + tint validation
+// but does NOT yet have a WebGPU runtime native — selecting Wgsl is a
+// gate that asserts the .wgsl artifacts exist (i.e. SBRUSH_BACKEND_WGSL
+// was ON at configure time); the actual sculpting still runs through the
+// C++ executor. Later waves replace that with real GPU dispatch.
+enum class BrushBackend { Cpp, Wgsl };
+
 struct Scene {
   Scene(int width, int height, bool headless);
   Scene(const Scene &) = delete;
@@ -44,6 +51,7 @@ struct Scene {
   spatial::SpatialTree *tree = nullptr;
   brush::Brush brush;
   brush::SculptBrushes currentTool = brush::SculptBrushes::DRAW;
+  BrushBackend currentBackend = BrushBackend::Cpp;
   meshlog::MeshLog meshLog;
   gpu::GPUManager gpu;
   Camera camera;
