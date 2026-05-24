@@ -31,6 +31,21 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
   if (m->v.count > 0) {
     m->calcAABB(mn, mx);
   }
+
+  // Order-independent coordinate fingerprint. `co_sum` catches net
+  // translation/displacement; `co_sqsum` catches symmetric deformation
+  // that leaves the centroid put. Together with the aabb this is a
+  // sensitive-but-fp-tolerant golden signature for brush output —
+  // accumulated in double so the reduction itself doesn't lose bits.
+  double sx = 0.0, sy = 0.0, sz = 0.0, sq = 0.0;
+  for (int i = 0; i < m->v.count; i++) {
+    float3 co = m->v.co[i];
+    sx += co[0];
+    sy += co[1];
+    sz += co[2];
+    sq += double(co[0]) * co[0] + double(co[1]) * co[1] + double(co[2]) * co[2];
+  }
+
   std::fprintf(f, "  \"mesh\": {\n");
   std::fprintf(f, "    \"verts\": %d,\n", m->v.count);
   std::fprintf(f, "    \"edges\": %d,\n", m->e.count);
@@ -41,7 +56,10 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
   std::fputs(",\n", f);
   std::fprintf(f, "    \"aabb_max\": ");
   writeFloat3(f, mx);
-  std::fputs("\n  }", f);
+  std::fputs(",\n", f);
+  std::fprintf(f, "    \"co_sum\": [%.9g,%.9g,%.9g],\n", sx, sy, sz);
+  std::fprintf(f, "    \"co_sqsum\": %.9g\n", sq);
+  std::fputs("  }", f);
 }
 
 void dumpSpatial(std::FILE *f, spatial::SpatialTree *tree, bool &first)

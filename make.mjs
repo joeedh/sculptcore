@@ -266,6 +266,173 @@ async function sbrushCodegen() {
   }
 }
 
+// === sbrush cross-backend verification ===
+//
+// Drives every tests/scripts/brush_backends/*_ab.txt script through the
+// native debug_app, which runs the same stroke under the `cpp` then
+// `wgsl` backend gate (both currently execute via the C++ executor — there
+// is no native WebGPU dispatch yet). For each brush we check two things:
+//   1. cross-backend: the cpp and wgsl dumps agree (trivially true today,
+//      but the gate that future real GPU dispatch must keep satisfying).
+//   2. regression: the cpp dump matches tests/golden/<brush>.json within
+//      tolerance. `--regen` (re)writes those goldens from the cpp dump.
+// Comparison is a tolerant recursive numeric diff over the dump JSON, so
+// fp noise across compilers/platforms doesn't trip it but real brush
+// behavior changes do (the dump carries a co_sum/co_sqsum fingerprint).
+const VERIFY_ATOL = 1e-5
+const VERIFY_RTOL = 1e-4
+
+// Dump keys excluded from the verify comparison. `flag` is a spatial-node
+// dirty/update bitmask (pending normals/bounds/GPU regen) that reflects
+// update *history* — e.g. it differs depending on whether an `undo`
+// preceded the stroke — not brush *output*. Equivalence here is about
+// geometry + topology + structure, so these transient fields are skipped.
+const VERIFY_IGNORE_KEYS = new Set(['flag'])
+
+// Recursively diff two parsed-JSON dump values. Returns an array of
+// human-readable mismatch strings (empty == equal). `path` tracks the
+// JSON pointer for messages.
+function diffDump(a, b, path = '') {
+  const out = []
+  if (typeof a === 'number' && typeof b === 'number') {
+    const tol = VERIFY_ATOL + VERIFY_RTOL * Math.max(Math.abs(a), Math.abs(b))
+    if (Math.abs(a - b) > tol) {
+      out.push(`${path || '<root>'}: ${a} != ${b} (|Δ|=${Math.abs(a - b).toExponential(3)} > ${tol.toExponential(3)})`)
+    }
+    return out
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) {
+      out.push(`${path}: array length ${a.length} != ${b.length}`)
+      return out
+    }
+    for (let i = 0; i < a.length; i++) out.push(...diffDump(a[i], b[i], `${path}[${i}]`))
+    return out
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+    for (const k of keys) {
+      if (VERIFY_IGNORE_KEYS.has(k)) continue
+      if (!(k in a) || !(k in b)) {
+        out.push(`${path}/${k}: present in only one dump`)
+        continue
+      }
+      out.push(...diffDump(a[k], b[k], `${path}/${k}`))
+    }
+    return out
+  }
+  if (a !== b) out.push(`${path}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`)
+  return out
+}
+
+function readDumpJson(p) {
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf-8'))
+  } catch (e) {
+    return null
+  }
+}
+
+async function sbrushVerify(regen) {
+  const dir = buildDir('native')
+  const env = envPrefix('native')
+  ensureDir(dir)
+
+  // debug_app must accept `set_backend backend=wgsl`, which is gated on
+  // SBRUSH_BACKEND_WGSL — configure native with cpp+wgsl, then build just
+  // the debug_app target.
+  const sbrushFlags = sbrushBackendFlags('cpp,wgsl')
+  run(
+    `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
+  )
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app`)
+
+  const debugApp = `${dir}/source/debug/debug_app`
+  if (!fs.existsSync(debugApp)) {
+    process.stderr.write(`sbrush-verify: debug_app not found at ${debugApp}\n`)
+    process.exit(1)
+  }
+
+  const scriptDir = 'tests/scripts/brush_backends'
+  const goldenDir = 'tests/golden'
+  ensureDir(goldenDir)
+  const outDir = `${dir}/sbrush_verify_out`
+  ensureDir(outDir)
+
+  const scripts = fs.readdirSync(scriptDir).filter((f) => f.endsWith('_ab.txt')).sort()
+  if (scripts.length === 0) {
+    process.stderr.write(`sbrush-verify: no *_ab.txt scripts in ${scriptDir}\n`)
+    process.exit(1)
+  }
+
+  let failures = 0
+  let regenerated = 0
+  for (const s of scripts) {
+    const brush = s.replace(/_ab\.txt$/, '')
+    const res = child_process.spawnSync(
+      debugApp,
+      ['--script', `${scriptDir}/${s}`, '--out', outDir, '--headless'],
+      {encoding: 'utf-8'}
+    )
+    if (res.status !== 0) {
+      failures++
+      process.stderr.write(`✗ ${brush}: debug_app exited ${res.status}\n`)
+      if (res.stderr) process.stderr.write(res.stderr.split('\n').slice(-8).join('\n') + '\n')
+      continue
+    }
+
+    const cppPath = `${outDir}/${brush}_cpp.json`
+    const wgslPath = `${outDir}/${brush}_wgsl.json`
+    const cpp = readDumpJson(cppPath)
+    const wgsl = readDumpJson(wgslPath)
+    if (!cpp || !wgsl) {
+      failures++
+      process.stderr.write(`✗ ${brush}: missing/invalid dump (cpp=${!!cpp} wgsl=${!!wgsl})\n`)
+      continue
+    }
+
+    // 1. cross-backend equivalence.
+    const ab = diffDump(cpp, wgsl)
+    if (ab.length) {
+      failures++
+      process.stderr.write(`✗ ${brush}: cpp vs wgsl mismatch:\n  ${ab.slice(0, 6).join('\n  ')}\n`)
+      continue
+    }
+
+    // 2. golden regression.
+    const goldenPath = `${goldenDir}/${brush}.json`
+    if (regen) {
+      fs.copyFileSync(cppPath, goldenPath)
+      regenerated++
+      console.log(`↻ ${brush}: golden written`)
+      continue
+    }
+    const golden = readDumpJson(goldenPath)
+    if (!golden) {
+      failures++
+      process.stderr.write(`✗ ${brush}: no golden at ${goldenPath} (run with --regen)\n`)
+      continue
+    }
+    const gd = diffDump(cpp, golden)
+    if (gd.length) {
+      failures++
+      process.stderr.write(`✗ ${brush}: cpp vs golden mismatch:\n  ${gd.slice(0, 6).join('\n  ')}\n`)
+      continue
+    }
+    console.log(`✓ ${brush}: cpp == wgsl, matches golden`)
+  }
+
+  if (regen) {
+    console.log(`\nsbrush-verify: regenerated ${regenerated} golden(s).`)
+    return
+  }
+  if (failures) {
+    process.stderr.write(`\nsbrush-verify: ${failures} brush(es) failed.\n`)
+    process.exit(1)
+  }
+  console.log(`\nsbrush-verify: all ${scripts.length} brush(es) passed.`)
+}
+
 function setupPNPM() {
   const invokePNPM = (str, cmd) => {
     const cwd = process.cwd()
@@ -440,6 +607,16 @@ yargs(hideBin(process.argv))
         `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${flag} -DSBRUSH_VALIDATE_ALL=ON`
       )
       await runBuild(`cd ${dir} && ${env} cmake --build . --target sbrush-${backend}`)
+    })
+  .command('sbrush-verify',
+    'Run per-brush A/B scripts through debug_app: cross-backend (cpp vs wgsl) + golden regression',
+    (y) => y.option('regen', {
+      type: 'boolean',
+      default: false,
+      describe: '(re)write tests/golden/<brush>.json references from the cpp dump',
+    }),
+    async ({regen}) => {
+      await sbrushVerify(regen)
     })
   .command('install-tools', 'Install host build tools (naga)', {}, () => {
     console.log(`Installing naga-cli ${NAGA_VERSION}...`)

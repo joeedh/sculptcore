@@ -1,0 +1,18 @@
+# A/B script: mask stroke, cpp vs wgsl backend gate. See draw_ab.txt.
+# Mask paints the mask attribute rather than moving verts, so the
+# coordinate fingerprint is unchanged — the value here is the cpp==wgsl
+# and no-crash/stable-topology checks.
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=mask
+set_brush radius=0.25 strength=0.5
+
+set_backend backend=cpp
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=mask_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=mask_wgsl.json
