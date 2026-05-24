@@ -530,7 +530,12 @@ Design decisions taken *now* to keep this open:
    `BVHQueryResult`; Kelvinlet + simple pose (hexahedral cage as a uniform
    array of 8 control points).
 5. **Wave 5 — SPIR-V / CUDA / HIP / OpenCL emitters.** One per cycle; CI gates
-   on syntactic compile.
+   on syntactic compile. **SPIR-V done (via tint):** `sbrushc --backend=spirv`
+   emits WGSL (the tint input); CMake chains `tint --format=spirv` → `spirv-val`
+   into the `sbrush-spirv` target. `node make.mjs sbrush-validate spirv` runs it
+   over all kernels; the `sbrush-validate` GitHub workflow gates WGSL + SPIR-V on
+   every brush-DSL change. A direct `emit_spirv.cc` can later replace the tint
+   step without touching the build wiring. CUDA/HIP/OpenCL remain.
 6. **Wave 6 (deferred).** Forward-mode autodiff pass; expose `grad_apply` for
    brushes that want it (e.g. constraint solvers, optimization-based
    smoothing).

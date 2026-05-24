@@ -37,7 +37,7 @@ struct Args {
 void printUsage()
 {
   std::fprintf(stderr,
-    "Usage: sbrushc --backend=<cpp|wgsl> --in=<input.sbrush> --out=<output>\n"
+    "Usage: sbrushc --backend=<cpp|wgsl|spirv> --in=<input.sbrush> --out=<output>\n"
     "  --dry-run     do not write output\n"
     "  --dump-tokens print token stream and exit\n");
 }
@@ -153,7 +153,12 @@ int main(int argc, char **argv)
   EmitResult er;
   if (litestl::util::string(backend.c_str()) == litestl::util::string("cpp")) {
     er = emitCpp(*parse_r.brush);
-  } else if (litestl::util::string(backend.c_str()) == litestl::util::string("wgsl")) {
+  } else if (litestl::util::string(backend.c_str()) == litestl::util::string("wgsl") ||
+             litestl::util::string(backend.c_str()) == litestl::util::string("spirv")) {
+    // SPIR-V is reached by lowering the WGSL through tint (--format=spirv);
+    // sbrushc's job for the spirv backend is to emit the WGSL that tint
+    // consumes, so both backends share emitWgsl. A future slice can swap in a
+    // direct emit_spirv.cc here without touching the build wiring.
     er = emitWgsl(*parse_r.brush);
   } else {
     std::fprintf(stderr, "sbrushc: backend '%s' not implemented yet\n", backend.c_str());

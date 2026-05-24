@@ -1,0 +1,66 @@
+name: sbrush backend validation
+
+# Gates the brush DSL on its external backend validators: sbrushc must emit
+# WGSL that `tint` accepts, and the WGSL->SPIR-V lowering must pass `spirv-val`.
+# Runs inside the project devcontainer (which ships clang/cmake/ninja + the
+# pinned tint and spirv-val), so the toolchain matches local `node make.mjs
+# sbrush-validate` exactly.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'source/brush/**'
+      - 'build_files/sbrush_toolchains.cmake'
+      - 'build_files/macros.cmake'
+      - 'make.mjs'
+      - 'ci/versions.env'
+      - '.devcontainer/**'
+      - '.github/workflows/sbrush-validate.yml'
+  pull_request:
+    paths:
+      - 'source/brush/**'
+      - 'build_files/sbrush_toolchains.cmake'
+      - 'build_files/macros.cmake'
+      - 'make.mjs'
+      - 'ci/versions.env'
+      - '.devcontainer/**'
+      - '.github/workflows/sbrush-validate.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: sbrush-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The devcontainer COPYs from the published clspv-base image on GHCR;
+      # log in so the build can pull it.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Builds .devcontainer and runs the validators inside it. Both backends
+      # share the WGSL emitter; spirv additionally lowers via tint --format=spirv
+      # and checks the result with spirv-val.
+      - name: Validate WGSL + SPIR-V backends
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/${{ github.repository_owner }}/sculptcore-devcontainer
+          push: never
+          runCmd: |
+            set -euo pipefail
+            node make.mjs sbrush-validate wgsl
+            node make.mjs sbrush-validate spirv
