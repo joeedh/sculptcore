@@ -7,3 +7,4 @@
 #include "../kernels/generated/sharp.brush.gen.h"
 #include "../kernels/generated/mask.brush.gen.h"
 #include "../kernels/generated/smooth.brush.gen.h"
+#include "../kernels/generated/kelvinlet.brush.gen.h"

@@ -25,6 +25,7 @@ enum class TypeKind : int {
   Float3,
   Float4,
   Vertex, // special: parameter type of vertex stage
+  Struct, // user-defined struct; resolve by Param/Field/Local.structName
   Unknown,
 };
 
@@ -110,6 +111,8 @@ struct Stmt {
   Vector<StmtPtr> stmts;
   // DeclLocal
   TypeKind declType = TypeKind::Unknown;
+  // For DeclLocal of TypeKind::Struct, the user-defined struct name.
+  string declStructName;
   string name;
   // DeclLocal.init / ExprStmt.expr / Return.value
   ExprPtr expr;
@@ -137,10 +140,18 @@ enum class StageKind : int {
   Host,    // Wave 4
 };
 
+enum class ParamDir : int {
+  In,    // default; read-only
+  Out,   // write-only (caller passes uninitialized storage, callee writes)
+  InOut, // both
+};
+
 struct Param {
   string name;
   TypeKind type = TypeKind::Unknown;
-  bool inOut = false; // `inout` qualifier
+  // For TypeKind::Struct, the user-defined struct name.
+  string structName;
+  ParamDir dir = ParamDir::In;
 };
 
 struct Stage {
@@ -162,10 +173,21 @@ struct Field {
   string name;
 };
 
+struct StructField {
+  TypeKind type;
+  string name;
+};
+
+struct StructDef {
+  string name;
+  Vector<StructField> fields;
+};
+
 struct Brush {
   string attrName;       // from @brush("draw") -> "draw"
   string cppName;        // brush Draw { ... } -> "Draw"
   Vector<Field> fields;
+  Vector<StructDef> structs;
   Vector<Stage> stages;
   string sourceFile;
 };

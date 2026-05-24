@@ -10,6 +10,8 @@ struct Parser {
   int pos = 0;
   string filename;
   Vector<ParseError> errors;
+  // Set during parseBrush so deep-parser helpers can resolve struct names.
+  Brush *currentBrush = nullptr;
 
   const Token &peek(int off = 0) const
   {
@@ -65,10 +67,21 @@ struct Parser {
 
   // === toplevel ===
 
+  // Resolves a user-defined struct name in the current brush, or nullptr.
+  const StructDef *findStruct(stringref name) const
+  {
+    if (!currentBrush) return nullptr;
+    for (const auto &s : currentBrush->structs) {
+      if (string(s.name).operator==(string(name.c_str()))) return &s;
+    }
+    return nullptr;
+  }
+
   std::unique_ptr<Brush> parseBrush()
   {
     auto brush = std::make_unique<Brush>();
     brush->sourceFile = filename;
+    currentBrush = brush.get();
 
     // optional @brush("name")
     if (match(TokKind::At)) {
@@ -95,6 +108,8 @@ struct Parser {
     while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
       if (check(TokKind::KwUniform) || check(TokKind::KwCtx)) {
         parseField(*brush);
+      } else if (check(TokKind::KwStruct)) {
+        parseStruct(*brush);
       } else if (check(TokKind::KwVertex) || check(TokKind::KwReduce) || check(TokKind::KwHost)) {
         parseStage(*brush);
       } else {
@@ -103,26 +118,68 @@ struct Parser {
       }
     }
     expect(TokKind::RBrace, "to close brush body");
+    currentBrush = nullptr;
     return brush;
   }
 
   void parseField(Brush &brush)
   {
-    Field f;
-    if (match(TokKind::KwUniform)) f.kind = FieldKind::Uniform;
-    else { advance(); f.kind = FieldKind::Ctx; }
+    FieldKind kind;
+    if (match(TokKind::KwUniform)) kind = FieldKind::Uniform;
+    else { advance(); kind = FieldKind::Ctx; }
 
     if (!check(TokKind::Ident)) { error("expected type in field declaration", peek()); return; }
-    f.type = parseTypeKind(stringref(peek().text.c_str()));
-    if (f.type == TypeKind::Unknown) {
+    TypeKind ty = parseTypeKind(stringref(peek().text.c_str()));
+    if (ty == TypeKind::Unknown) {
       errorf(peek(), "unknown type '%s' in field declaration", peek().text.c_str());
     }
     advance();
-    if (!check(TokKind::Ident)) { error("expected field name", peek()); return; }
-    f.name = peek().text;
-    advance();
+    // Multi-var field decl: `uniform float a, b, c;`
+    while (true) {
+      if (!check(TokKind::Ident)) { error("expected field name", peek()); return; }
+      Field f;
+      f.kind = kind;
+      f.type = ty;
+      f.name = peek().text;
+      advance();
+      brush.fields.append(f);
+      if (!match(TokKind::Comma)) break;
+    }
     expect(TokKind::Semicolon, "after field declaration");
-    brush.fields.append(f);
+  }
+
+  void parseStruct(Brush &brush)
+  {
+    advance(); // 'struct'
+    if (!check(TokKind::Ident)) { error("expected struct name after 'struct'", peek()); return; }
+    StructDef sd;
+    sd.name = peek().text;
+    advance();
+    if (!expect(TokKind::LBrace, "after struct name")) return;
+    while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+      if (!check(TokKind::Ident)) {
+        errorf(peek(), "expected field type in struct, got '%s'", tokKindName(peek().kind));
+        advance();
+        continue;
+      }
+      TypeKind ty = parseTypeKind(stringref(peek().text.c_str()));
+      if (ty == TypeKind::Unknown) {
+        errorf(peek(), "unknown type '%s' in struct field", peek().text.c_str());
+      }
+      advance();
+      while (true) {
+        if (!check(TokKind::Ident)) { error("expected struct field name", peek()); break; }
+        StructField sf;
+        sf.type = ty;
+        sf.name = peek().text;
+        advance();
+        sd.fields.append(sf);
+        if (!match(TokKind::Comma)) break;
+      }
+      expect(TokKind::Semicolon, "after struct field declaration");
+    }
+    expect(TokKind::RBrace, "to close struct body");
+    brush.structs.append(std::move(sd));
   }
 
   void parseStage(Brush &brush)
@@ -146,14 +203,20 @@ struct Parser {
     expect(TokKind::LParen, "after stage name");
     while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
       Param p;
-      if (match(TokKind::KwInout)) p.inOut = true;
-      else if (match(TokKind::KwIn)) p.inOut = false;
-      else if (match(TokKind::KwOut)) p.inOut = true;
+      if (match(TokKind::KwInout)) p.dir = ParamDir::InOut;
+      else if (match(TokKind::KwIn)) p.dir = ParamDir::In;
+      else if (match(TokKind::KwOut)) p.dir = ParamDir::Out;
 
       if (!check(TokKind::Ident)) { error("expected param type", peek()); break; }
       p.type = parseTypeKind(stringref(peek().text.c_str()));
       if (p.type == TypeKind::Unknown) {
-        errorf(peek(), "unknown param type '%s'", peek().text.c_str());
+        // Maybe a user-defined struct from the current brush.
+        if (const StructDef *sd = findStruct(stringref(peek().text.c_str()))) {
+          p.type = TypeKind::Struct;
+          p.structName = sd->name;
+        } else {
+          errorf(peek(), "unknown param type '%s'", peek().text.c_str());
+        }
       }
       advance();
       if (!check(TokKind::Ident)) { error("expected param name", peek()); break; }
@@ -207,10 +270,16 @@ struct Parser {
     // declaration: <type-ident> <name> [= expr] ;
     if (check(TokKind::Ident)) {
       TypeKind t = parseTypeKind(stringref(peek().text.c_str()));
+      const StructDef *sd = nullptr;
+      if (t == TypeKind::Unknown) {
+        sd = findStruct(stringref(peek().text.c_str()));
+        if (sd) t = TypeKind::Struct;
+      }
       if (t != TypeKind::Unknown && peek(1).kind == TokKind::Ident) {
         auto s = std::make_unique<Stmt>(StmtKind::DeclLocal);
         s->line = peek().line;
         s->declType = t;
+        if (sd) s->declStructName = sd->name;
         advance(); // type
         s->name = peek().text;
         advance(); // name

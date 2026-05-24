@@ -1,0 +1,11 @@
+# Cube with a single kelvinlet (grab) stroke pulling the +Z face center
+# upward. Exercises the Wave 4 slice: DSL `reduce` stage feeding a
+# struct-typed param into the per-vertex stage.
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=kelvinlet
+set_brush radius=0.25 strength=0.5
+set_kelvinlet_params mu=1.0 nu=0.4
+set_grab from=0,0,0.25 to=0,0,0.4
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=cube_kelvinlet.json

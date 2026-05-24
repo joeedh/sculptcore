@@ -81,6 +81,9 @@ struct CommandExecutor {
     case SculptBrushes::SMOOTH:
       command::createSmoothBrush(def);
       return def;
+    case SculptBrushes::KELVINLET:
+      command::createKelvinletBrush(def);
+      return def;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();

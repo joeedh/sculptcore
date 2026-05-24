@@ -14,6 +14,7 @@ const char *typeKindName(TypeKind k)
   case TypeKind::Float3:  return "float3";
   case TypeKind::Float4:  return "float4";
   case TypeKind::Vertex:  return "Vertex";
+  case TypeKind::Struct:  return "<struct>";
   case TypeKind::Unknown: return "<unknown>";
   }
   return "<bad>";

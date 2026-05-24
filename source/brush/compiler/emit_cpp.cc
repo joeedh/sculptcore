@@ -2,6 +2,7 @@
 #include "../kernels/ir/intrinsics.h"
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 
 namespace sculptcore::brush::sbrush {
 
@@ -15,6 +16,10 @@ struct Emit {
   const Brush *brush;
   const Stage *vertexStage = nullptr;
   string vertexParamName;  // e.g. "v"
+
+  // Stage currently being lowered — drives stage-param identifier
+  // resolution (so reduce-body `s` and vertex-body `v` route correctly).
+  const Stage *currentStage = nullptr;
 
   string out;
   Vector<string> errors;
@@ -65,10 +70,10 @@ struct Emit {
     return nullptr;
   }
 
-  bool isVertexParam(stringref name) const
+  bool isStageParam(stringref name) const
   {
-    if (!vertexStage) return false;
-    for (const auto &p : vertexStage->params) {
+    if (!currentStage) return false;
+    for (const auto &p : currentStage->params) {
       if (string(p.name).operator==(string(name.c_str()))) return true;
     }
     return false;
@@ -104,16 +109,29 @@ struct Emit {
       break;
     case ExprKind::Ident: {
       stringref nm(e.name.c_str());
-      if (isLocal(nm) || isVertexParam(nm)) {
+      if (isLocal(nm) || isStageParam(nm)) {
         out += e.name;
       } else if (auto *f = findField(nm)) {
-        if (f->kind == FieldKind::Uniform) {
-          out += "ctx.brush.";
-          out += e.name;
-        } else {
+        // Uniforms live on Brush. Ctx-kind fields default to ctx.brush.X
+        // too, so the DSL can name new per-stroke state without having
+        // to extend CommandCtxBase. The exception is the hardcoded
+        // CommandCtxBase members (surfacePos, surfaceNo, mouse, …),
+        // which keep the legacy `ctx.<name>` spelling.
+        const char *n = e.name.c_str();
+        bool isCtxBase = (std::strcmp(n, "mouse") == 0) ||
+                         (std::strcmp(n, "mousePos") == 0) ||
+                         (std::strcmp(n, "surfacePos") == 0) ||
+                         (std::strcmp(n, "surfaceNo") == 0) ||
+                         (std::strcmp(n, "mouseDir") == 0) ||
+                         (std::strcmp(n, "renderMatrix") == 0) ||
+                         (std::strcmp(n, "isFirstOfStep") == 0) ||
+                         (std::strcmp(n, "meshLog") == 0);
+        if (f->kind == FieldKind::Ctx && isCtxBase) {
           out += "ctx.";
-          out += e.name;
+        } else {
+          out += "ctx.brush.";
         }
+        out += e.name;
       } else {
         // Could be an intrinsic referenced without a call — treat as bare
         // identifier and let the C++ compiler catch it.
@@ -199,6 +217,17 @@ struct Emit {
 
   // === statement emitter ===
 
+  // Emit the C++ spelling of an IR type. Struct types use their
+  // user-defined name; everything else maps to the engine math types.
+  void emitTypeRef(TypeKind ty, const string &structName)
+  {
+    if (ty == TypeKind::Struct) {
+      out += structName;
+    } else {
+      out += typeKindName(ty);
+    }
+  }
+
   void emitStmt(const Stmt &s)
   {
     switch (s.kind) {
@@ -214,7 +243,7 @@ struct Emit {
     }
     case StmtKind::DeclLocal:
       writeIndent();
-      out += typeKindName(s.declType);
+      emitTypeRef(s.declType, s.declStructName);
       out += " ";
       out += s.name;
       if (s.expr) {
@@ -353,6 +382,46 @@ struct Emit {
     return r;
   }
 
+  // Emit one reduce stage as a templated free function. The signature
+  // mirrors the DSL source: each struct-typed param becomes a C++
+  // reference param, scalars stay by-value (in) or by-reference (out/inout).
+  void emitReduceStage(const Stage &st, const string &lowerBrush)
+  {
+    write("template <CommandTypes TYPES>\n");
+    write("static void ");
+    write(lowerBrush);
+    write(capitalize(st.name));
+    write("(CommandCtx<TYPES> &ctx");
+    for (const auto &p : st.params) {
+      write(", ");
+      if (p.type == TypeKind::Struct) {
+        // Pass struct params by reference; const for pure-in to express
+        // intent (and to allow temporaries down the line).
+        if (p.dir == ParamDir::In) write("const ");
+        write(p.structName);
+        write(" &");
+      } else {
+        // Scalars: by-ref for out/inout, by-value for in.
+        write(typeKindName(p.type));
+        if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut) write(" &");
+      }
+      write(" ");
+      write(p.name);
+    }
+    write(")\n");
+    write("{\n");
+    indent = 1;
+    currentStage = &st;
+    if (st.body && st.body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : st.body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+    currentStage = nullptr;
+    indent = 0;
+    write("}\n\n");
+  }
+
   void run()
   {
     string lowerName = lower(string(brush->attrName.size() > 0 ? brush->attrName : brush->cppName));
@@ -367,6 +436,22 @@ struct Emit {
     write("#include \"spatial/spatial_enums.h\"\n");
     write("#include \"mesh/mesh_iter.h\"\n\n");
     write("namespace sculptcore::brush::command {\n\n");
+
+    // Struct decls — at namespace scope so reduce/vertex functions can
+    // both name them. Skip if the brush declared none.
+    for (const auto &sd : brush->structs) {
+      write("struct ");
+      write(sd.name);
+      write(" {\n");
+      for (const auto &f : sd.fields) {
+        write("  ");
+        write(typeKindName(f.type));
+        write(" ");
+        write(f.name);
+        write(";\n");
+      }
+      write("};\n\n");
+    }
 
     // pre-stage: meshlog setup. Universal for local-per-vertex brushes.
     write("template <CommandTypes TYPES>\n");
@@ -389,13 +474,23 @@ struct Emit {
     write("  }\n");
     write("}\n\n");
 
+    // Reduce stages — emitted before the vertex stage so the vertex
+    // function can call them by name.
+    Vector<const Stage *> reduceStages;
+    for (const auto &st : brush->stages) {
+      if (st.kind == StageKind::Reduce) reduceStages.append(&st);
+    }
+    for (const auto *st : reduceStages) {
+      emitReduceStage(*st, lowerName);
+    }
+
     // vertex stage: walks node's verts running the DSL body.
     if (!vertexStage) {
       err("brush has no vertex stage");
       return;
     }
-    if (vertexStage->params.size() != 1) {
-      err("vertex stage must take exactly one parameter");
+    if (vertexStage->params.size() < 1) {
+      err("vertex stage must take at least one parameter (the Vertex bundle)");
     }
 
     write("template <CommandTypes TYPES>\n");
@@ -406,10 +501,66 @@ struct Emit {
     write("  using namespace sculptcore::spatial;\n");
     write("  using namespace litestl::math;\n");
     write("  bool any_moved = false;\n");
+
+    // Struct-typed vertex params get declared as locals and seeded from
+    // matching reduce stages (matched by struct type, then by param
+    // name). The vertex body then sees them as ordinary stage params.
+    for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+      const auto &p = vertexStage->params[pi];
+      if (p.type != TypeKind::Struct) {
+        errf("vertex stage param '%s' must be a struct type (Wave 4 slice)",
+             p.name.c_str());
+        continue;
+      }
+      write("  ");
+      write(p.structName);
+      write(" ");
+      write(p.name);
+      write(";\n");
+    }
+    // Call each reduce stage in source order. Argument matching is
+    // positional: each reduce's struct-typed params bind to the
+    // matching-name vertex-stage struct param. Scalars in reduce
+    // signatures are not yet supported here.
+    for (const auto *st : reduceStages) {
+      write("  ");
+      write(lowerName);
+      write(capitalize(st->name));
+      write("<TYPES>(ctx");
+      for (const auto &rp : st->params) {
+        write(", ");
+        if (rp.type == TypeKind::Struct) {
+          // Locate same-named vertex-stage struct local.
+          bool found = false;
+          for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+            const auto &vp = vertexStage->params[pi];
+            if (vp.type == TypeKind::Struct &&
+                string(vp.name).operator==(string(rp.name.c_str())) &&
+                string(vp.structName).operator==(string(rp.structName.c_str()))) {
+              write(vp.name);
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            errf("reduce param '%s' has no matching vertex-stage struct local",
+                 rp.name.c_str());
+            write("/*unmatched*/");
+          }
+        } else {
+          errf("reduce scalar param '%s' not yet supported (Wave 4 slice)",
+               rp.name.c_str());
+          write("/*scalar-unsupported*/");
+        }
+      }
+      write(");\n");
+    }
+
     write("  for (auto &");
     write(vertexParamName);
     write(" : ctx.vertexIter(ctx.node)) {\n");
     indent = 2;
+    currentStage = vertexStage;
 
     // user body
     if (vertexStage->body && vertexStage->body->kind == StmtKind::Block) {
@@ -426,6 +577,7 @@ struct Emit {
     writeIndent();
     write("any_moved = true;\n");
 
+    currentStage = nullptr;
     indent = 0;
     write("  }\n");
     write("  if (any_moved) {\n");

@@ -218,10 +218,33 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::MASK;
     } else if (ts == "smooth") {
       scene.currentTool = brush::SculptBrushes::SMOOTH;
+    } else if (ts == "kelvinlet") {
+      scene.currentTool = brush::SculptBrushes::KELVINLET;
     } else {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;
     }
+    return true;
+  }
+  if (verb == "set_grab") {
+    float3 from{0, 0, 0}, to{0, 0, 0};
+    if (!parseFloat3(getArg(args, "from"), from)) {
+      err = "set_grab: missing from=x,y,z";
+      return false;
+    }
+    if (!parseFloat3(getArg(args, "to"), to)) {
+      err = "set_grab: missing to=x,y,z";
+      return false;
+    }
+    scene.brush.grabFrom = from;
+    scene.brush.grabTo = to;
+    return true;
+  }
+  if (verb == "set_kelvinlet_params") {
+    const char *muArg = getArg(args, "mu");
+    const char *nuArg = getArg(args, "nu");
+    if (muArg) scene.brush.mu = float(std::atof(muArg));
+    if (nuArg) scene.brush.nu = float(std::atof(nuArg));
     return true;
   }
   if (verb == "stroke") {

@@ -10,6 +10,7 @@ enum class _SculptBrushes {
   SHARP = 4,
   MASK = 5,
   SMOOTH = 6,
+  KELVINLET = 7,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -26,6 +27,7 @@ template <std::same_as<sculptcore::brush::SculptBrushes> T> static const types::
   e->addItem("SHARP", SculptBrushes::SHARP);
   e->addItem("MASK", SculptBrushes::MASK);
   e->addItem("SMOOTH", SculptBrushes::SMOOTH);
+  e->addItem("KELVINLET", SculptBrushes::KELVINLET);
   return e;
 }
 } // namespace litestl::binding

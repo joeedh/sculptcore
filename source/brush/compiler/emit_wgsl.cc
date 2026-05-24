@@ -48,6 +48,10 @@ struct Emit {
   const Stage *vertexStage = nullptr;
   string vertexParamName;  // e.g. "v"
 
+  // Stage currently being lowered — drives stage-param identifier
+  // resolution (so reduce-body `s` and vertex-body `v` route correctly).
+  const Stage *currentStage = nullptr;
+
   string out;
   Vector<string> errors;
   int indent = 0;
@@ -55,6 +59,12 @@ struct Emit {
   Vector<string> locals;
 
   void err(const char *msg) { errors.append(string(msg)); }
+  void errf(const char *fmt, const char *arg)
+  {
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), fmt, arg);
+    errors.append(string(buf));
+  }
 
   void writeIndent()
   {
@@ -79,13 +89,37 @@ struct Emit {
     return nullptr;
   }
 
-  bool isVertexParam(stringref name) const
+  bool isStageParam(stringref name) const
   {
-    if (!vertexStage) return false;
-    for (const auto &p : vertexStage->params) {
+    if (!currentStage) return false;
+    for (const auto &p : currentStage->params) {
       if (string(p.name).operator==(string(name.c_str()))) return true;
     }
     return false;
+  }
+
+  // Reduce-stage out/inout struct params are lowered to WGSL `ptr<function, T>`,
+  // so identifier references to them have to be dereferenced inline — e.g.
+  // `s.a = x` lowers to `(*s).a = x`.
+  bool isStructPtrParam(stringref name) const
+  {
+    if (!currentStage) return false;
+    for (const auto &p : currentStage->params) {
+      if (!string(p.name).operator==(string(name.c_str()))) continue;
+      return p.type == TypeKind::Struct &&
+             (p.dir == ParamDir::Out || p.dir == ParamDir::InOut);
+    }
+    return false;
+  }
+
+  bool isVertexParam(stringref name) const
+  {
+    if (!vertexStage) return false;
+    // Only the first param of the vertex stage is the Vertex bundle; the
+    // rest are struct-typed locals which share the regular ident path.
+    if (vertexStage->params.size() == 0) return false;
+    const auto &p = vertexStage->params[0];
+    return string(p.name).operator==(string(name.c_str()));
   }
 
   // === expression emitter ===
@@ -117,7 +151,11 @@ struct Emit {
       break;
     case ExprKind::Ident: {
       stringref nm(e.name.c_str());
-      if (isLocal(nm) || isVertexParam(nm)) {
+      if (isStructPtrParam(nm)) {
+        out += "(*";
+        out += e.name;
+        out += ")";
+      } else if (isLocal(nm) || isStageParam(nm)) {
         out += e.name;
       } else if (auto *f = findField(nm)) {
         if (f->kind == FieldKind::Uniform) {
@@ -257,7 +295,8 @@ struct Emit {
       out += "var ";
       out += s.name;
       out += ": ";
-      out += wgslType(s.declType);
+      if (s.declType == TypeKind::Struct) out += s.declStructName;
+      else out += wgslType(s.declType);
       if (s.expr) {
         out += " = ";
         emitExpr(*s.expr);
@@ -353,16 +392,65 @@ struct Emit {
     write(brush->sourceFile);
     write("\n\n");
 
+    // User-defined struct decls. WGSL allows them at module scope and
+    // they're nameable from both reduce and vertex functions.
+    for (const auto &sd : brush->structs) {
+      write("struct ");
+      write(sd.name);
+      write(" {\n");
+      for (const auto &f : sd.fields) {
+        write("  ");
+        write(f.name);
+        write(": ");
+        write(wgslType(f.type));
+        write(",\n");
+      }
+      write("};\n\n");
+    }
+
+    // Names that are already members of the fixed BrushUniforms /
+    // CtxUniforms blocks. DSL fields with these names re-bind to the
+    // existing slot rather than getting re-emitted (and tripping tint).
+    auto isBuiltinBrushName = [](const char *n) {
+      return std::strcmp(n, "strength") == 0 || std::strcmp(n, "radius") == 0 ||
+             std::strcmp(n, "spacing") == 0  || std::strcmp(n, "invert") == 0;
+    };
+    auto isBuiltinCtxName = [](const char *n) {
+      return std::strcmp(n, "surfacePos") == 0 || std::strcmp(n, "surfaceNo") == 0;
+    };
+
     write("struct BrushUniforms {\n");
     write("  strength: f32,\n");
     write("  radius: f32,\n");
     write("  spacing: f32,\n");
     write("  invert: u32,\n");
+    // Spill brush-uniform fields declared by the DSL into the uniform
+    // block so reduce/vertex can reference them. Wave 4 slice keeps the
+    // packing trivial — scalars and vec3/vec4 align naturally on 16-byte
+    // boundaries in the uniform address space.
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Uniform) continue;
+      if (isBuiltinBrushName(f.name.c_str())) continue;
+      write("  ");
+      write(f.name);
+      write(": ");
+      write(wgslType(f.type));
+      write(",\n");
+    }
     write("};\n\n");
 
     write("struct CtxUniforms {\n");
     write("  surfacePos: vec3<f32>,\n");
     write("  surfaceNo: vec3<f32>,\n");
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Ctx) continue;
+      if (isBuiltinCtxName(f.name.c_str())) continue;
+      write("  ");
+      write(f.name);
+      write(": ");
+      write(wgslType(f.type));
+      write(",\n");
+    }
     write("};\n\n");
 
     write("struct NodeMeta {\n");
@@ -402,14 +490,57 @@ struct Emit {
     write("@compute @workgroup_size(1) fn nop() {}\n");
   }
 
+  // Emit one reduce stage as a WGSL function. Struct params become `ptr`
+  // params for out/inout (so the callee can write back), value params
+  // for `in`. Scalars unsupported in this slice — error if seen.
+  void emitReduceStage(const Stage &st)
+  {
+    write("fn ");
+    write(st.name);
+    write("(");
+    bool first = true;
+    for (const auto &p : st.params) {
+      if (!first) write(", ");
+      first = false;
+      if (p.type == TypeKind::Struct) {
+        if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut) {
+          write(p.name);
+          write(": ptr<function, ");
+          write(p.structName);
+          write(">");
+        } else {
+          write(p.name);
+          write(": ");
+          write(p.structName);
+        }
+      } else {
+        errf("reduce scalar param '%s' not yet supported in WGSL emit",
+             p.name.c_str());
+        write(p.name);
+        write(": f32");
+      }
+    }
+    write(") {\n");
+    indent = 1;
+    currentStage = &st;
+    if (st.body && st.body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : st.body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+    currentStage = nullptr;
+    indent = 0;
+    write("}\n\n");
+  }
+
   void run()
   {
     if (!vertexStage) {
       err("brush has no vertex stage");
       return;
     }
-    if (vertexStage->params.size() != 1) {
-      err("vertex stage must take exactly one parameter");
+    if (vertexStage->params.size() < 1) {
+      err("vertex stage must take at least one parameter (the Vertex bundle)");
     }
 
     if (hasNeighborLoop(vertexStage->body.get())) {
@@ -418,6 +549,16 @@ struct Emit {
     }
 
     emitPrelude();
+
+    // Reduce stages — WGSL has no templates, so we just name-mangle by
+    // the DSL stage name (which is brush-local in practice).
+    Vector<const Stage *> reduceStages;
+    for (const auto &st : brush->stages) {
+      if (st.kind == StageKind::Reduce) reduceStages.append(&st);
+    }
+    for (const auto *st : reduceStages) {
+      emitReduceStage(*st);
+    }
 
     // Per-thread vertex kernel. Workgroup size 64 is a reasonable WebGPU
     // default; the host dispatches ceil(node.vert_count / 64) workgroups
@@ -438,14 +579,65 @@ struct Emit {
     write(vertexParamName); write("_no: vec3<f32> = no_buf[sb_vidx];\n");
     write("  var ");
     write(vertexParamName); write("_mask: f32 = mask_buf[sb_vidx];\n");
+
+    // Declare struct-typed locals for vertex stage's extra params and
+    // call each reduce stage on them. The naive per-thread reduce
+    // matches the C++ executor's one-per-node call: both pay
+    // O(stages*params) ops up-front before the per-vertex code runs.
+    for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+      const auto &p = vertexStage->params[pi];
+      if (p.type != TypeKind::Struct) {
+        errf("vertex param '%s' must be a struct type (Wave 4 slice)",
+             p.name.c_str());
+        continue;
+      }
+      write("  var ");
+      write(p.name);
+      write(": ");
+      write(p.structName);
+      write(";\n");
+    }
+    for (const auto *st : reduceStages) {
+      write("  ");
+      write(st->name);
+      write("(");
+      bool first = true;
+      for (const auto &rp : st->params) {
+        if (!first) write(", ");
+        first = false;
+        if (rp.type == TypeKind::Struct) {
+          if (rp.dir == ParamDir::Out || rp.dir == ParamDir::InOut) {
+            out += "&";
+          }
+          // Match by name+type to the vertex-stage local declared above.
+          bool found = false;
+          for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+            const auto &vp = vertexStage->params[pi];
+            if (vp.type == TypeKind::Struct &&
+                string(vp.name).operator==(string(rp.name.c_str())) &&
+                string(vp.structName).operator==(string(rp.structName.c_str()))) {
+              write(vp.name);
+              found = true;
+              break;
+            }
+          }
+          if (!found) write("/*unmatched*/");
+        } else {
+          write("/*scalar-unsupported*/");
+        }
+      }
+      write(");\n");
+    }
     write("\n");
 
     indent = 1;
+    currentStage = vertexStage;
     if (vertexStage->body && vertexStage->body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
       for (const auto &c : vertexStage->body->stmts) emitStmt(*c);
       while ((int)locals.size() > savedLocals) locals.pop_back();
     }
+    currentStage = nullptr;
     indent = 0;
 
     write("\n");

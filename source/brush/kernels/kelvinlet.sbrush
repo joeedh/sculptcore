@@ -1,0 +1,54 @@
+// Kelvinlet — soft-body grab with a regularized point-force solution to
+// the linear elasticity equations (de Goes & James, 2017). Pulls a region
+// of the surface from `grabFrom` toward `grabTo`, with the falloff shape
+// determined by the brush radius (used as the regularization epsilon)
+// and the material constants mu (shear modulus) and nu (Poisson ratio).
+//
+// Wave 4 slice: introduces the DSL's `reduce` stage so the per-stroke
+// material coefficients are computed once instead of per-vertex; the
+// reduce output struct is passed into `apply` as a value param. Pose
+// brushes (which need BVH queries) wait for Wave 4b.
+
+@brush("kelvinlet")
+brush Kelvinlet {
+  // Material parameters. Defaults on Brush sit near "soft rubber"
+  // (mu=1, nu=0.4); higher mu = stiffer falloff, nu near 0.5 = nearly
+  // incompressible. `radius` is declared so the DSL can name it
+  // directly as the regularization epsilon (the field already exists
+  // on Brush; this just opts it in to identifier resolution).
+  uniform float mu, nu, radius;
+
+  // Stroke state set by `set_grab` before the dab. Both live on Brush
+  // (so DSL `ctx float3 X` would emit `ctx.brush.X`, which is exactly
+  // what we want here).
+  ctx float3 grabFrom, grabTo;
+
+  // Per-stroke (well, per-dab here — the Wave 4 slice computes it once
+  // per node rather than per-step) coefficients derived from mu/nu.
+  struct KelvinletState {
+    float a, b;
+  }
+
+  reduce void prep(out KelvinletState s) {
+    s.a = (1.0 + nu) / (2.0 * mu);
+    s.b = s.a / (4.0 * (1.0 - nu));
+  }
+
+  vertex void apply(inout Vertex v, in KelvinletState s) {
+    float3 r = v.co - grabFrom;
+    float r2 = dot(r, r);
+    // Regularize by the brush radius — keeps the displacement bounded
+    // as a vertex approaches `grabFrom`.
+    float e = sqrt(r2 + radius * radius);
+    float invE = 1.0 / e;
+    float invE3 = invE * invE * invE;
+    float coef1 = (s.a - s.b) * invE;
+    float coef2 = s.b * dot(grabTo, r) * invE3;
+    float3 disp = grabTo * coef1 + r * coef2;
+    // Brush strength gates the per-vertex effect by the standard
+    // distance-to-center falloff so the kelvinlet feels like a brush
+    // rather than a global field. (1 - v.mask) honors the mask layer.
+    float fall = strength(v.co) * (1.0 - v.mask);
+    v.co += disp * fall;
+  }
+}
