@@ -16,6 +16,8 @@
 
 #include "litestl/util/string.h"
 
+#include <string>
+
 namespace sculptcore::debug_app {
 
 enum class ViewPreset { Front, Top, Side, Persp, Free };
@@ -56,6 +58,10 @@ struct Scene {
    * Identity'd in the ctor; threaded into both the C++ ctx.renderMatrix and the
    * GPU ctx uniform so the matrix-driven coord spaces are deterministic. */
   mat4 renderMatrix;
+  /* When non-empty, the GPU dispatch path (runBrushStrokeGPU) writes a JSON
+   * fixture per wgsl stroke capturing the exact per-binding buffer bytes and
+   * the final readback, for the Dawn/WebGPU replay harness (--gpu-capture). */
+  std::string gpuCapturePrefix;
   meshlog::MeshLog meshLog;
   gpu::GPUManager gpu;
   Camera camera;

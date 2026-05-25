@@ -435,6 +435,98 @@ async function sbrushVerify(regen) {
   console.log(`\nsbrush-verify: all ${scripts.length} brush(es) passed.`)
 }
 
+// Validates the sbrush WGSL kernels on a real WebGPU runtime (Dawn, via
+// @kmamal/gpu — headless on software Vulkan). debug_app --gpu-capture records
+// the exact per-binding buffer bytes and final readback of each native wgsl
+// stroke into a JSON fixture; tests/webgpu/replay.mjs replays those bytes
+// through Dawn and diffs the GPU readback against the native reference. This
+// exercises the SAME WGSL the native SPIR-V path runs (build/native/
+// sbrush_out/spirv/<k>.wgsl) without reimplementing the engine in JS.
+async function webgpuVerify() {
+  const dir = buildDir('native')
+  const env = envPrefix('native')
+  ensureDir(dir)
+
+  // Same configure/build as sbrush-verify: debug_app needs the wgsl backend
+  // and the SPIR-V kernels (whose .wgsl the harness feeds to Dawn).
+  const sbrushFlags = sbrushBackendFlags('cpp,wgsl,spirv')
+  run(
+    `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
+  )
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv`)
+
+  const debugApp = `${dir}/source/debug/debug_app`
+  if (!fs.existsSync(debugApp)) {
+    process.stderr.write(`webgpu-verify: debug_app not found at ${debugApp}\n`)
+    process.exit(1)
+  }
+  const wgslDir = `${dir}/sbrush_out/spirv`
+  if (!fs.existsSync(wgslDir)) {
+    process.stderr.write(`webgpu-verify: WGSL kernels not found at ${wgslDir}\n`)
+    process.exit(1)
+  }
+
+  const harness = 'tests/webgpu/replay.mjs'
+  if (!fs.existsSync(harness)) {
+    process.stderr.write(`webgpu-verify: Dawn harness not found at ${harness}\n`)
+    process.exit(1)
+  }
+
+  const scriptDir = 'tests/scripts/brush_backends'
+  const outDir = `${dir}/webgpu_verify_out`
+  ensureDir(outDir)
+  const scripts = fs.readdirSync(scriptDir).filter((f) => f.endsWith('_ab.txt')).sort()
+  if (scripts.length === 0) {
+    process.stderr.write(`webgpu-verify: no *_ab.txt scripts in ${scriptDir}\n`)
+    process.exit(1)
+  }
+
+  let failures = 0
+  for (const s of scripts) {
+    const brush = s.replace(/_ab\.txt$/, '')
+    // No --backend override: the script's own set_backend drives it, so exactly
+    // the wgsl stroke is captured into <brush>.json.
+    const res = child_process.spawnSync(
+      debugApp,
+      ['--script', `${scriptDir}/${s}`, '--out', outDir, '--headless', '--gpu-capture', brush],
+      {encoding: 'utf-8'}
+    )
+    if (res.status !== 0) {
+      failures++
+      process.stderr.write(`✗ ${brush}: debug_app exited ${res.status}\n`)
+      if (res.stderr) process.stderr.write(res.stderr.split('\n').slice(-8).join('\n') + '\n')
+      continue
+    }
+    const fixture = `${outDir}/${brush}.json`
+    if (!fs.existsSync(fixture)) {
+      failures++
+      process.stderr.write(`✗ ${brush}: no fixture captured at ${fixture}\n`)
+      continue
+    }
+    // One Dawn process per fixture: @kmamal/gpu deadlocks on a second
+    // instance/device in the same process, so isolate each replay.
+    const rep = child_process.spawnSync(
+      'node',
+      [harness, '--wgsl-dir', wgslDir, '--fixture', fixture],
+      {encoding: 'utf-8'}
+    )
+    const pass = (rep.stdout || '').split('\n').find((l) => l.startsWith('PASS'))
+    if (rep.status === 0 && pass) {
+      console.log(`✓ ${brush}: ${pass.replace(/^PASS\s*/, '')}`)
+    } else {
+      failures++
+      const detail = (rep.stderr || '').split('\n').filter((l) => l.trim()).slice(-4).join('\n  ')
+      process.stderr.write(`✗ ${brush}: webgpu replay failed\n  ${detail}\n`)
+    }
+  }
+
+  if (failures) {
+    process.stderr.write(`\nwebgpu-verify: ${failures} brush(es) failed.\n`)
+    process.exit(1)
+  }
+  console.log(`\nwebgpu-verify: all ${scripts.length} brush(es) passed on WebGPU.`)
+}
+
 function setupPNPM() {
   const invokePNPM = (str, cmd) => {
     const cwd = process.cwd()
@@ -619,6 +711,12 @@ yargs(hideBin(process.argv))
     }),
     async ({regen}) => {
       await sbrushVerify(regen)
+    })
+  .command('webgpu-verify',
+    'Replay sbrush WGSL kernels through Dawn (WebGPU) and diff against the native GPU dispatch',
+    {},
+    async () => {
+      await webgpuVerify()
     })
   .command('install-tools', 'Install host build tools (naga)', {}, () => {
     console.log(`Installing naga-cli ${NAGA_VERSION}...`)

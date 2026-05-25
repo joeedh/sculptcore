@@ -12,3 +12,4 @@ ignoredBuiltDependencies:
 
 onlyBuiltDependencies:
   - unrs-resolver
+  - "@kmamal/gpu"

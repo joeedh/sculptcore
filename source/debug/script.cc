@@ -20,11 +20,13 @@
 
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace sculptcore::debug_app::script {
 
@@ -149,6 +151,56 @@ std::string joinPath(const char *base, const char *rel)
 }
 
 #ifdef SBRUSH_GPU_DISPATCH
+// --- GPU fixture capture (--gpu-capture) ----------------------------------
+// Serializes the exact per-binding buffer bytes a wgsl stroke uploads, plus
+// the final readback, into a JSON fixture the Dawn/WebGPU replay harness feeds
+// verbatim (see webgpu-verify). co/no are pre-expanded to the std430 stride-16
+// layout vk_compute.cc binds, so the harness binds them byte-for-byte.
+std::string b64encode(const void *src, size_t len)
+{
+  static const char tbl[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const unsigned char *p = static_cast<const unsigned char *>(src);
+  std::string out;
+  out.reserve(((len + 2) / 3) * 4);
+  size_t i = 0;
+  for (; i + 3 <= len; i += 3) {
+    uint32_t n = (uint32_t(p[i]) << 16) | (uint32_t(p[i + 1]) << 8) | p[i + 2];
+    out.push_back(tbl[(n >> 18) & 63]);
+    out.push_back(tbl[(n >> 12) & 63]);
+    out.push_back(tbl[(n >> 6) & 63]);
+    out.push_back(tbl[n & 63]);
+  }
+  if (len - i == 1) {
+    uint32_t n = uint32_t(p[i]) << 16;
+    out.push_back(tbl[(n >> 18) & 63]);
+    out.push_back(tbl[(n >> 12) & 63]);
+    out.push_back('=');
+    out.push_back('=');
+  } else if (len - i == 2) {
+    uint32_t n = (uint32_t(p[i]) << 16) | (uint32_t(p[i + 1]) << 8);
+    out.push_back(tbl[(n >> 18) & 63]);
+    out.push_back(tbl[(n >> 12) & 63]);
+    out.push_back(tbl[(n >> 6) & 63]);
+    out.push_back('=');
+  }
+  return out;
+}
+
+// Expand n packed xyz triples to the stride-16 (xyz + 0 pad) std430 layout,
+// then base64. Mirrors BrushComputeDispatch::beginStroke's expansion so the
+// harness binds the same bytes the native co/no storage buffers hold.
+std::string b64Stride16(const float *packed, int n)
+{
+  std::vector<float> buf(size_t(n) * 4, 0.0f);
+  for (int i = 0; i < n; i++) {
+    buf[size_t(i) * 4 + 0] = packed[i * 3 + 0];
+    buf[size_t(i) * 4 + 1] = packed[i * 3 + 1];
+    buf[size_t(i) * 4 + 2] = packed[i * 3 + 2];
+  }
+  return b64encode(buf.data(), buf.size() * sizeof(float));
+}
+
 // Execute a brush stroke on the GPU via the SPIR-V compute kernel. Marshals the
 // full mesh co/no/mask once, dispatches one ≤64-vert workgroup per node-chunk
 // per dab (reading the previous dab's result, like the C++ executor), reads co
@@ -189,6 +241,12 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
   mesh::Mesh *m = scene.mesh;
   const int vcount = m->v.count;
 
+  // Fixture capture state (populated only when --gpu-capture is set). Held
+  // until the readback, then written as one JSON fixture for the WebGPU harness.
+  const bool cap = !scene.gpuCapturePrefix.empty();
+  std::string capCo, capNo, capMask, capNbrMeta, capNbrVerts, capTexture;
+  std::vector<std::string> capDabs;
+
   Vector<float> co, no, mask;
   co.resize(size_t(vcount) * 3);
   no.resize(size_t(vcount) * 3);
@@ -198,6 +256,11 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
     co[i * 3 + 0] = c[0]; co[i * 3 + 1] = c[1]; co[i * 3 + 2] = c[2];
     no[i * 3 + 0] = n[0]; no[i * 3 + 1] = n[1]; no[i * 3 + 2] = n[2];
     mask[i] = scene.tree->treeMesh.v.mask[i];
+  }
+  if (cap) {
+    capCo = b64Stride16(co.data(), vcount);
+    capNo = b64Stride16(no.data(), vcount);
+    capMask = b64encode(mask.data(), size_t(vcount) * sizeof(float));
   }
 
   vulkan::BrushComputeDispatch disp(scene.context);
@@ -236,6 +299,10 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
       err = "stroke(wgsl): neighbor upload failed";
       return false;
     }
+    if (cap) {
+      capNbrMeta = b64encode(meta.data(), meta.size() * sizeof(vulkan::ComputeVertNbr));
+      capNbrVerts = b64encode(flat.data(), flat.size() * sizeof(uint32_t));
+    }
   }
 
   // Brush texture (binding 8). The kernel multiplies strength by
@@ -248,6 +315,15 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
                               scene.brush.tex_width, scene.brush.tex_height)) {
       err = "stroke(wgsl): brush texture upload failed";
       return false;
+    }
+    if (cap) {
+      capTexture = "{\"width\":" + std::to_string(scene.brush.tex_width) +
+                   ",\"height\":" + std::to_string(scene.brush.tex_height) +
+                   ",\"pixels\":\"" +
+                   b64encode(scene.brush.tex_pixels.data(),
+                             size_t(scene.brush.tex_width) * scene.brush.tex_height *
+                                 sizeof(float)) +
+                   "\"}";
     }
   }
 
@@ -358,6 +434,24 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
       err = "stroke(wgsl): compute dispatch failed";
       return false;
     }
+
+    if (cap) {
+      // falloff_curve is the 256-entry LUT the dab() contract expects.
+      std::string d = "{\"nodeCount\":" + std::to_string(chunks.size()) +
+                      ",\"unique\":\"" +
+                      b64encode(uverts.data(), uverts.size() * sizeof(uint32_t)) +
+                      "\",\"nodes\":\"" +
+                      b64encode(chunks.data(),
+                                chunks.size() * sizeof(vulkan::ComputeNodeMeta)) +
+                      "\",\"brushU\":\"" + b64encode(&bu, sizeof(bu)) +
+                      "\",\"ctxU\":\"" + b64encode(&cu, sizeof(cu)) +
+                      "\",\"falloff\":\"" +
+                      b64encode(scene.brush.falloff_curve.data(), 256 * sizeof(float)) +
+                      "\",\"stroke\":\"" +
+                      b64encode(sp.data(), sp.size() * sizeof(vulkan::ComputeStrokeSample)) +
+                      "\"}";
+      capDabs.push_back(std::move(d));
+    }
   }
 
   Vector<float> coOut, maskOut;
@@ -366,6 +460,51 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
     maskOut.resize(size_t(vcount));
   }
   disp.endStroke(coOut.data(), nullptr, writesMask ? maskOut.data() : nullptr);
+
+  if (cap) {
+    // One fixture per wgsl stroke; a script with several strokes suffixes
+    // .<n>.json after the first so none clobber the others.
+    static int captureSeq = 0;
+    std::string path = scene.gpuCapturePrefix;
+    if (captureSeq > 0) {
+      path += "." + std::to_string(captureSeq);
+    }
+    path += ".json";
+    captureSeq++;
+
+    std::string j = "{\n";
+    j += "  \"kernel\": \"" + std::string(kernel) + "\",\n";
+    j += "  \"vertCount\": " + std::to_string(vcount) + ",\n";
+    j += "  \"hasNeighbors\": " + std::string(needsNeighbors ? "true" : "false") + ",\n";
+    j += "  \"writesMask\": " + std::string(writesMask ? "true" : "false") + ",\n";
+    j += "  \"co\": \"" + capCo + "\",\n";
+    j += "  \"no\": \"" + capNo + "\",\n";
+    j += "  \"mask\": \"" + capMask + "\",\n";
+    j += "  \"nbrMeta\": " + (capNbrMeta.empty() ? "null" : "\"" + capNbrMeta + "\"") + ",\n";
+    j += "  \"nbrVerts\": " + (capNbrVerts.empty() ? "null" : "\"" + capNbrVerts + "\"") + ",\n";
+    j += "  \"texture\": " + (capTexture.empty() ? "null" : capTexture) + ",\n";
+    j += "  \"dabs\": [";
+    for (size_t i = 0; i < capDabs.size(); i++) {
+      j += (i ? ",\n    " : "\n    ") + capDabs[i];
+    }
+    j += capDabs.empty() ? "]" : "\n  ]";
+    j += ",\n";
+    j += "  \"expectCo\": \"" +
+         b64encode(coOut.data(), size_t(vcount) * 3 * sizeof(float)) + "\",\n";
+    j += "  \"expectMask\": " +
+         (writesMask ? "\"" + b64encode(maskOut.data(), size_t(vcount) * sizeof(float)) + "\""
+                     : std::string("null")) +
+         "\n";
+    j += "}\n";
+
+    std::FILE *fp = std::fopen(path.c_str(), "wb");
+    if (!fp) {
+      err = "stroke(wgsl): cannot open capture fixture " + path;
+      return false;
+    }
+    std::fwrite(j.data(), 1, j.size(), fp);
+    std::fclose(fp);
+  }
 
   // Snapshot pre-stroke node state for undo (mesh.v.co is still pre-stroke
   // here), mirroring the emitted `*Pre` stage, then write the GPU result.

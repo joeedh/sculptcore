@@ -17,7 +17,8 @@ void usage()
 {
   std::fprintf(stderr,
                "debug_app --script PATH [--out DIR] [--headless] [--width N] [--height N]\n"
-               "          [--no-headless] [--interactive] [--backend cpp|wgsl]\n");
+               "          [--no-headless] [--interactive] [--backend cpp|wgsl]\n"
+               "          [--gpu-capture PREFIX]\n");
 }
 
 bool ensureDir(const char *path)
@@ -47,6 +48,7 @@ int main(int argc, char **argv)
   int width = 1024;
   int height = 768;
   const char *backendArg = nullptr;
+  const char *gpuCapture = nullptr;
 
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
@@ -74,6 +76,8 @@ int main(int argc, char **argv)
       headless = false;
     } else if (std::strcmp(a, "--backend") == 0) {
       backendArg = next("--backend");
+    } else if (std::strcmp(a, "--gpu-capture") == 0) {
+      gpuCapture = next("--gpu-capture");
     } else if (std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0) {
       usage();
       return 0;
@@ -108,6 +112,15 @@ int main(int argc, char **argv)
       std::fprintf(stderr, "--backend: unknown value '%s' (valid: cpp, wgsl)\n", backendArg);
       return 2;
     }
+  }
+
+  if (gpuCapture) {
+    /* Fixtures land alongside the JSON dumps in outDir. */
+    std::string p = outDir;
+    if (!p.empty() && p.back() != '/') {
+      p += '/';
+    }
+    scene.gpuCapturePrefix = p + gpuCapture;
   }
 
   auto r = script::runFile(scene, scriptPath, outDir);

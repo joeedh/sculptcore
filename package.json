@@ -2,6 +2,7 @@
   "name": "sculptcore",
   "type": "module",
   "devDependencies": {
+    "@kmamal/gpu": "^0.2.1",
     "@pathtx/prettier": "3.3.0-dev",
     "yargs": "^18.0.0"
   },
