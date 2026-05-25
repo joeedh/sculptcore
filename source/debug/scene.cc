@@ -11,7 +11,10 @@ namespace sculptcore::debug_app {
 using litestl::math::float3;
 using litestl::math::mat4;
 
-Scene::Scene(int w, int h, bool hl) : width(w), height(h), headless(hl) {}
+Scene::Scene(int w, int h, bool hl) : width(w), height(h), headless(hl)
+{
+  renderMatrix.identity();
+}
 
 Scene::~Scene()
 {

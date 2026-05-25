@@ -1,0 +1,26 @@
+# A/B script: VIEWPLANE texture coord space, cpp vs wgsl backend gate.
+# Completes the matrix-driven coord-space coverage (Global is draw_global_tex_ab,
+# StrokeCurved is stroke_curved_ab): here uv = (renderMatrix * co).xy, so the
+# render matrix must marshal identically into the C++ ctx.renderMatrix and the
+# GPU ctx uniform's std140 mat4x4. The matrix below is a 30deg-about-Z rotation
+# + 1.5x scale + (0.5,0.5,0) translate, column-major; a transposed marshal would
+# diverge cpp-vs-wgsl, so parity here proves the layout convention matches.
+# m= is row-major (translation in the last column); the GPU marshal transposes
+# it into column-major std140. See draw_ab.txt for the A/B harness pattern.
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=draw
+set_brush radius=0.15 strength=6.0
+set_texture pattern=rampx width=64 height=64
+set_coord_space space=viewplane
+set_render_matrix m=1.29903811,-0.75,0,0.5,0.75,1.29903811,0,0.5,0,0,1.5,0,0,0,0,1
+
+set_backend backend=cpp
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=draw_viewplane_tex_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=draw_viewplane_tex_wgsl.json

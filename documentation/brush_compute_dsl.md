@@ -227,7 +227,14 @@ and currently unused by the matrix modes. Debug verbs `set_texture
 pattern=rampx|rampy|checker|constant|clear` (synthetic, no image decoder
 yet) and `set_coord_space space= repeat=` drive it; `test_debug_script`
 asserts a `rampx`+`GLOBAL` draw lifts the +x half of the footprint while
-the −x half (texel ≈ 0) stays put.
+the −x half (texel ≈ 0) stays put. The matrix-driven `VIEWPLANE`/`VIEWREPEAT`
+modes are wired end-to-end: the `set_render_matrix m=<16 floats>` verb feeds a
+row-major matrix into both `CommandCtx::renderMatrix` and the GPU ctx uniform
+(transposed into column-major std140 on the way out, since
+`math::Matrix::operator*(vec)` reads its buffer row-major while WGSL
+`mat4x4<f32>` is column-major). `draw_viewplane_tex_ab`/`draw_viewrepeat_tex_ab`
+gate cpp-vs-wgsl parity — a transposed marshal diverges, so parity proves the
+layout convention matches.
 
 `STROKE_CURVED` is implemented end-to-end. `StrokePath` is a uniform-resident
 ring buffer of recent dab centers (`Brush::strokePath`, `kStrokePathMax = 64`

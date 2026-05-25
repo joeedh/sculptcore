@@ -52,6 +52,10 @@ struct Scene {
   brush::Brush brush;
   brush::SculptBrushes currentTool = brush::SculptBrushes::DRAW;
   BrushBackend currentBackend = BrushBackend::Cpp;
+  /* Texture coord-space matrix for VIEWPLANE/VIEWREPEAT (set_render_matrix).
+   * Identity'd in the ctor; threaded into both the C++ ctx.renderMatrix and the
+   * GPU ctx uniform so the matrix-driven coord spaces are deterministic. */
+  mat4 renderMatrix;
   meshlog::MeshLog meshLog;
   gpu::GPUManager gpu;
   Camera camera;

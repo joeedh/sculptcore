@@ -301,7 +301,19 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
     vulkan::ComputeCtxUniforms cu;
     cu.surfacePos[0] = origin[0]; cu.surfacePos[1] = origin[1]; cu.surfacePos[2] = origin[2];
     cu.surfaceNo[0] = normal[0]; cu.surfaceNo[1] = normal[1]; cu.surfaceNo[2] = normal[2];
-    // render_matrix stays identity — DRAW's Global coord space ignores it.
+    // VIEWPLANE/VIEWREPEAT sample brush_tex in render_matrix space; Global/
+    // StrokeCurved ignore it. litestl::math::Matrix::operator*(vec) consumes its
+    // backing buffer row-major (result[i] = dot(row_i, v) + row_i[3]), but WGSL
+    // mat4x4<f32> / std140 storage is column-major — so transpose on the way out
+    // or the two backends read different matrices.
+    {
+      const float *rm = scene.renderMatrix;  // row-major
+      for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+          cu.render_matrix[c * 4 + r] = rm[r * 4 + c];
+        }
+      }
+    }
 
     Vector<vulkan::ComputeStrokeSample> sp;
     for (int i = 0; i < scene.brush.strokePathCount; i++) {
@@ -612,6 +624,30 @@ bool execVerb(Scene &scene,
     }
     return true;
   }
+  if (verb == "set_render_matrix") {
+    // m=<16 comma-separated floats>, column-major (matches mat4 / std140
+    // mat4x4 storage). Drives VIEWPLANE/VIEWREPEAT texture coords on both
+    // backends: uv = (renderMatrix * co).xy. Identity by default.
+    const char *m = getArg(args, "m");
+    if (!m) {
+      err = "set_render_matrix: need m=<16 comma-separated floats>";
+      return false;
+    }
+    float v[16];
+    int n = std::sscanf(
+        m, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f", &v[0], &v[1],
+        &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11],
+        &v[12], &v[13], &v[14], &v[15]);
+    if (n != 16) {
+      err = "set_render_matrix: m= must list exactly 16 floats";
+      return false;
+    }
+    float *dst = scene.renderMatrix;
+    for (int i = 0; i < 16; i++) {
+      dst[i] = v[i];
+    }
+    return true;
+  }
   if (verb == "set_kelvinlet_params") {
     const char *muArg = getArg(args, "mu");
     const char *nuArg = getArg(args, "nu");
@@ -678,6 +714,7 @@ bool execVerb(Scene &scene,
       if (nodes.size() != 0) {
         brush::CommandExecutor exec(scene.tree, &scene.brush);
         exec.meshLog = &scene.meshLog;
+        exec.ctx.renderMatrix = scene.renderMatrix;
         exec.beginStep();
         exec.execBrush(scene.currentTool, &nodes, origin, normal);
         exec.endStep();
@@ -748,6 +785,7 @@ bool execVerb(Scene &scene,
     {
       brush::CommandExecutor exec(scene.tree, &scene.brush);
       exec.meshLog = &scene.meshLog;
+      exec.ctx.renderMatrix = scene.renderMatrix;
       exec.beginStep();
       for (size_t i = 0; i < origins.size(); i++) {
         Vector<spatial::SpatialNode *> nodes;
