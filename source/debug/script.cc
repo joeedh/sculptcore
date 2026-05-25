@@ -170,9 +170,14 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
 
   const char *kernel = nullptr;
   bool needsNeighbors = false;
+  bool writesMask = false;  // Mask paints mask_buf; everyone else leaves it as-is.
   switch (scene.currentTool) {
   case brush::SculptBrushes::DRAW: kernel = "draw"; break;
   case brush::SculptBrushes::CLAY: kernel = "clay"; break;
+  case brush::SculptBrushes::INFLATE: kernel = "inflate"; break;
+  case brush::SculptBrushes::PINCH: kernel = "pinch"; break;
+  case brush::SculptBrushes::SHARP: kernel = "sharp"; break;
+  case brush::SculptBrushes::MASK: kernel = "mask"; writesMask = true; break;
   case brush::SculptBrushes::SMOOTH: kernel = "smooth"; needsNeighbors = true; break;
   default:
     err = "stroke(wgsl): tool has no GPU kernel";
@@ -316,9 +321,12 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
     }
   }
 
-  Vector<float> coOut;
+  Vector<float> coOut, maskOut;
   coOut.resize(size_t(vcount) * 3);
-  disp.endStroke(coOut.data(), nullptr, nullptr);
+  if (writesMask) {
+    maskOut.resize(size_t(vcount));
+  }
+  disp.endStroke(coOut.data(), nullptr, writesMask ? maskOut.data() : nullptr);
 
   // Snapshot pre-stroke node state for undo (mesh.v.co is still pre-stroke
   // here), mirroring the emitted `*Pre` stage, then write the GPU result.
@@ -338,6 +346,14 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
 
   for (int i = 0; i < vcount; i++) {
     m->v.co[i] = float3(coOut[i * 3 + 0], coOut[i * 3 + 1], coOut[i * 3 + 2]);
+  }
+  // Mask paints the .spatial.v.mask attribute, not geometry; write it back to
+  // the tree mesh. (Matches the C++ Mask brush, whose *Pre snapshots co/no but
+  // not mask, so neither path restores mask on undo.)
+  if (writesMask) {
+    for (int i = 0; i < vcount; i++) {
+      scene.tree->treeMesh.v.mask[i] = maskOut[i];
+    }
   }
   for (auto *node : touched) {
     node->update(spatial::Spatial_UpdateNormals | spatial::Spatial_UpdateGPU |
@@ -636,11 +652,18 @@ bool execVerb(Scene &scene,
     parseFloat3(getArg(args, "normal"), normal);
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers the local brushes (DRAW/CLAY/SMOOTH), with or without
-    // a bound brush texture (sampled in-shader to match the C++ bilinear).
-    bool gpuTool = scene.currentTool == brush::SculptBrushes::DRAW ||
-                   scene.currentTool == brush::SculptBrushes::CLAY ||
-                   scene.currentTool == brush::SculptBrushes::SMOOTH;
+    // GPU dispatch covers the local per-vertex brushes, with or without a bound
+    // brush texture (sampled in-shader to match the C++ bilinear). Tools not
+    // listed here fall back to the C++ executor below; the set must stay in
+    // sync with runBrushStrokeGPU's kernel switch.
+    brush::SculptBrushes t = scene.currentTool;
+    bool gpuTool = t == brush::SculptBrushes::DRAW ||
+                   t == brush::SculptBrushes::CLAY ||
+                   t == brush::SculptBrushes::INFLATE ||
+                   t == brush::SculptBrushes::PINCH ||
+                   t == brush::SculptBrushes::SHARP ||
+                   t == brush::SculptBrushes::MASK ||
+                   t == brush::SculptBrushes::SMOOTH;
     if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
       Vector<float3> origins;
       origins.append(origin);
@@ -704,11 +727,18 @@ bool execVerb(Scene &scene,
     }
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers the local brushes (DRAW/CLAY/SMOOTH), with or without
-    // a bound brush texture (sampled in-shader to match the C++ bilinear).
-    bool gpuTool = scene.currentTool == brush::SculptBrushes::DRAW ||
-                   scene.currentTool == brush::SculptBrushes::CLAY ||
-                   scene.currentTool == brush::SculptBrushes::SMOOTH;
+    // GPU dispatch covers the local per-vertex brushes, with or without a bound
+    // brush texture (sampled in-shader to match the C++ bilinear). Tools not
+    // listed here fall back to the C++ executor below; the set must stay in
+    // sync with runBrushStrokeGPU's kernel switch.
+    brush::SculptBrushes t = scene.currentTool;
+    bool gpuTool = t == brush::SculptBrushes::DRAW ||
+                   t == brush::SculptBrushes::CLAY ||
+                   t == brush::SculptBrushes::INFLATE ||
+                   t == brush::SculptBrushes::PINCH ||
+                   t == brush::SculptBrushes::SHARP ||
+                   t == brush::SculptBrushes::MASK ||
+                   t == brush::SculptBrushes::SMOOTH;
     if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;
