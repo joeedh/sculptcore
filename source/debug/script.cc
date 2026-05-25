@@ -179,6 +179,8 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
   case brush::SculptBrushes::SHARP: kernel = "sharp"; break;
   case brush::SculptBrushes::MASK: kernel = "mask"; writesMask = true; break;
   case brush::SculptBrushes::SMOOTH: kernel = "smooth"; needsNeighbors = true; break;
+  case brush::SculptBrushes::KELVINLET: kernel = "kelvinlet"; break;
+  case brush::SculptBrushes::POSE: kernel = "pose"; break;
   default:
     err = "stroke(wgsl): tool has no GPU kernel";
     return false;
@@ -298,6 +300,16 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
     bu.tex_repeat = scene.brush.tex_repeat;
     bu.stroke_path_count = uint32_t(scene.brush.strokePathCount);
 
+    // Kelvinlet host stage (clampParams) is C++-only — never lowered to WGSL —
+    // so replicate it here before marshaling mu/nu (mirrors kelvinlet.sbrush).
+    if (scene.currentTool == brush::SculptBrushes::KELVINLET) {
+      if (scene.brush.nu > 0.499f) scene.brush.nu = 0.499f;
+      if (scene.brush.nu < 0.0f) scene.brush.nu = 0.0f;
+      if (scene.brush.mu < 1e-6f) scene.brush.mu = 1e-6f;
+      bu.mu = scene.brush.mu;
+      bu.nu = scene.brush.nu;
+    }
+
     vulkan::ComputeCtxUniforms cu;
     cu.surfacePos[0] = origin[0]; cu.surfacePos[1] = origin[1]; cu.surfacePos[2] = origin[2];
     cu.surfaceNo[0] = normal[0]; cu.surfaceNo[1] = normal[1]; cu.surfaceNo[2] = normal[2];
@@ -311,6 +323,21 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
       for (int r = 0; r < 4; r++) {
         for (int c = 0; c < 4; c++) {
           cu.render_matrix[c * 4 + r] = rm[r * 4 + c];
+        }
+      }
+    }
+
+    // Global-brush ctx tail (offset 96): kelvinlet grab vectors or pose cage.
+    if (scene.currentTool == brush::SculptBrushes::KELVINLET) {
+      for (int i = 0; i < 3; i++) {
+        cu.global.kelvinlet.grabFrom[i] = scene.brush.grabFrom[i];
+        cu.global.kelvinlet.grabTo[i] = scene.brush.grabTo[i];
+      }
+    } else if (scene.currentTool == brush::SculptBrushes::POSE) {
+      for (int a = 0; a < 4; a++) {
+        for (int i = 0; i < 3; i++) {
+          cu.global.pose.poseCageRest[a][i] = scene.brush.poseCageRest[a][i];
+          cu.global.pose.poseCageNow[a][i] = scene.brush.poseCageNow[a][i];
         }
       }
     }
@@ -699,7 +726,9 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::PINCH ||
                    t == brush::SculptBrushes::SHARP ||
                    t == brush::SculptBrushes::MASK ||
-                   t == brush::SculptBrushes::SMOOTH;
+                   t == brush::SculptBrushes::SMOOTH ||
+                   t == brush::SculptBrushes::KELVINLET ||
+                   t == brush::SculptBrushes::POSE;
     if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
       Vector<float3> origins;
       origins.append(origin);
@@ -775,7 +804,9 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::PINCH ||
                    t == brush::SculptBrushes::SHARP ||
                    t == brush::SculptBrushes::MASK ||
-                   t == brush::SculptBrushes::SMOOTH;
+                   t == brush::SculptBrushes::SMOOTH ||
+                   t == brush::SculptBrushes::KELVINLET ||
+                   t == brush::SculptBrushes::POSE;
     if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;

@@ -26,16 +26,31 @@ struct ComputeBrushUniforms {
   uint32_t coord_space = 0;          // offset 44
   float tex_repeat = 1.0f;           // offset 48
   uint32_t stroke_path_count = 0;    // offset 52
-  uint32_t _pad1[2] = {0, 0};        // round struct to 64
+  float mu = 1.0f;                   // offset 56 — kelvinlet (else unused)
+  float nu = 0.4f;                   // offset 60 — kelvinlet; rounds struct to 64
 };
 
-/* binding 6 — std140, size 96. */
+/* binding 6 — std140. Base block (surfacePos/surfaceNo/render_matrix) is 96
+ * bytes; the global-brush tail starts at offset 96. Kelvinlet's grab vectors
+ * and pose's cage arrays both begin there in their respective kernels'
+ * CtxUniforms, so they alias in a union — only one kernel's view is live per
+ * dispatch (size = 96 + 128 = 224). */
 struct ComputeCtxUniforms {
   float surfacePos[3] = {0, 0, 0};
   uint32_t _pad0 = 0;
   float surfaceNo[3] = {0, 0, 1};
   uint32_t _pad1 = 0;
   float render_matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+  union {
+    struct {                              // kelvinlet.wgsl CtxUniforms tail
+      float grabFrom[3]; uint32_t _kpad0;  // offset 96
+      float grabTo[3];   uint32_t _kpad1;  // offset 112
+    } kelvinlet;
+    struct {                    // pose.wgsl tail — std140 array<vec3> stride 16
+      float poseCageRest[4][4];  // offset 96  ([i][0..2]=xyz, [i][3]=pad)
+      float poseCageNow[4][4];   // offset 160
+    } pose;
+  } global = {};
 };
 
 /* binding 10 element — std430, matching WGSL `struct StrokeSample`. A

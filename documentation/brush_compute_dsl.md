@@ -535,7 +535,17 @@ Design decisions taken *now* to keep this open:
    bit-for-bit-modulo-fp.
 4. **Wave 4 — Global brushes.** `host` stage, `reduce` stage,
    `BVHQueryResult`; Kelvinlet + simple pose (hexahedral cage as a uniform
-   array of 8 control points).
+   array of 8 control points). **GPU dispatch done:** Kelvinlet and Pose now
+   run through the same WGSL→SPIR-V compute path as the per-vertex brushes.
+   The reduce stage (kelvinlet's `prep`) executes in-shader, so the host only
+   marshals uniforms; kelvinlet's `host`/`clampParams` stage is C++-only (never
+   lowered) so the dispatcher replicates the mu/nu clamp before upload. The
+   kernel-specific uniforms ride in the shared host mirror structs: `mu`/`nu`
+   reuse `ComputeBrushUniforms`' former tail padding (offset 56/60), and the
+   per-kernel ctx tails (kelvinlet `grabFrom`/`grabTo`, pose `poseCageRest`/
+   `poseCageNow` as std140-stride-16 `vec3` arrays) alias in a union at ctx
+   offset 96 — only one kernel's view is live per dispatch.
+   `BVHQueryResult` itself is still unbuilt; neither brush needs it yet.
 5. **Wave 5 — SPIR-V / CUDA / HIP / OpenCL emitters.** One per cycle; CI gates
    on syntactic compile. **SPIR-V done (via tint):** `sbrushc --backend=spirv`
    emits WGSL (the tint input); CMake chains `tint --format=spirv` → `spirv-val`
