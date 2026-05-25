@@ -8,6 +8,7 @@
 
 #include "emit_cpp.h"
 #include "emit_cuda.h"
+#include "emit_opencl.h"
 #include "emit_wgsl.h"
 #include "ir.h"
 #include "lexer.h"
@@ -38,7 +39,7 @@ struct Args {
 void printUsage()
 {
   std::fprintf(stderr,
-    "Usage: sbrushc --backend=<cpp|wgsl|spirv|cuda|hip> --in=<input.sbrush> --out=<output>\n"
+    "Usage: sbrushc --backend=<cpp|wgsl|spirv|cuda|hip|opencl> --in=<input.sbrush> --out=<output>\n"
     "  --dry-run     do not write output\n"
     "  --dump-tokens print token stream and exit\n");
 }
@@ -165,6 +166,8 @@ int main(int argc, char **argv)
     er = emitCuda(*parse_r.brush, BackendKind::Cuda);
   } else if (litestl::util::string(backend.c_str()) == litestl::util::string("hip")) {
     er = emitCuda(*parse_r.brush, BackendKind::Hip);
+  } else if (litestl::util::string(backend.c_str()) == litestl::util::string("opencl")) {
+    er = emitOpencl(*parse_r.brush);
   } else {
     std::fprintf(stderr, "sbrushc: backend '%s' not implemented yet\n", backend.c_str());
     return 1;

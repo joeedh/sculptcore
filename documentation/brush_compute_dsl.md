@@ -305,7 +305,7 @@ data structures using existing `litestl::util::Vector` (no STL).
 | WebGPU | WGSL | One workgroup per spatial node; `unique_verts` indirection via storage buffer. Tint not needed — emit directly. |
 | Vulkan | SPIR-V | Emit via `spirv-tools` or via WGSL+Tint+`spirv-cross` round-trip. Direct SPIR-V emit is leaner. |
 | CUDA / HIP | `.cu` / `.hip` | **Implemented** (`emit_cuda.cc`, one lowering for both). Self-contained device source: a generated prelude supplies the `__device__`/`__global__` attribute macros, `float2/3/4` + vector algebra, the `brush_falloff`/`brush_strength`/`brush_sample_tex` helpers, and the uniform/buffer globals. Only the thread-index macros differ per target (nvvm sreg vs. amdgcn builtins). |
-| OpenCL | OpenCL C | Distinct enough to warrant its own emitter (no templates, address-space qualifiers). |
+| OpenCL | OpenCL C | **Implemented** (`emit_opencl.cc`). OpenCL 1.2 has no program-scope global pointers, so buffers + uniforms are kernel args; the `brush_*` helpers are macro-bound to those arg names. clspv lowers to SPIR-V, then `spirv-val`. |
 
 The C++ emitter is the reference. CI runs every brush through *every*
 backend's syntactic compile, plus the native debug-app harness
@@ -588,7 +588,11 @@ Design decisions taken *now* to keep this open:
    `sbrush-hip` CMake targets gate it through `clang -x cuda|hip --cuda-device-only
    -S` (PTX/GCN emit), which needs neither a GPU nor a CUDA/ROCm install
    (`-nogpuinc -nogpulib`, nothing linked). `node make.mjs sbrush-validate
-   cuda|hip` runs it over all kernels. OpenCL remains.
+   cuda|hip` runs it over all kernels. **OpenCL done:** `sbrushc
+   --backend=opencl` emits OpenCL C (buffers/uniforms as kernel args, `brush_*`
+   helpers macro-bound to arg names); the `sbrush-opencl` target lowers via
+   `clspv` to SPIR-V and gates with `spirv-val`. `node make.mjs sbrush-validate
+   opencl` covers all kernels, and CI now gates all six backends.
 6. **Wave 6 (deferred).** Forward-mode autodiff pass; expose `grad_apply` for
    brushes that want it (e.g. constraint solvers, optimization-based
    smoothing).

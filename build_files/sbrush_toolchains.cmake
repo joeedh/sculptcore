@@ -53,5 +53,21 @@ if (SBRUSH_BACKEND_CUDA OR SBRUSH_BACKEND_HIP)
   message(STATUS "sbrush: CUDA/HIP offload compiler = ${SBRUSH_OFFLOAD_COMPILER}")
 endif()
 
-# Wave 5+ hooks live here once their emitters land:
-#   if (SBRUSH_BACKEND_OPENCL) find_program(SBRUSH_OPENCL_VALIDATOR clspv  ...)
+# OpenCL backend: sbrushc emits OpenCL C, clspv lowers it to SPIR-V, and the
+# existing spirv-val gate validates the result. clspv ships in the published
+# clspv-base image the devcontainer COPYs from (pinned by ci/versions.env
+# CLSPV_COMMIT). spirv-val is shared with the SPIRV backend's probe above.
+if (SBRUSH_BACKEND_OPENCL)
+  find_program(SBRUSH_OPENCL_VALIDATOR
+    NAMES clspv
+    DOC "Google clspv OpenCL C -> SPIR-V compiler — https://github.com/google/clspv")
+  if (NOT SBRUSH_OPENCL_VALIDATOR)
+    message(FATAL_ERROR
+      "SBRUSH_BACKEND_OPENCL=ON but 'clspv' was not found on PATH. "
+      "Install clspv (see ci/versions.env CLSPV_COMMIT) or unset the option.")
+  endif()
+  message(STATUS "sbrush: clspv = ${SBRUSH_OPENCL_VALIDATOR}")
+  if (NOT SBRUSH_SPIRV_VALIDATOR)
+    find_program(SBRUSH_SPIRV_VALIDATOR NAMES spirv-val DOC "Khronos SPIR-V validator")
+  endif()
+endif()

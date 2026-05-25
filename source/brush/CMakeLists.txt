@@ -181,3 +181,45 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_HIP)
   sb_gpu_backend(hip hip "--offload-arch=gfx900" hip)
 endif()
 
+# OpenCL backend: chain sbrushc(--backend=opencl) -> clspv (OpenCL C -> SPIR-V)
+# -> spirv-val. OpenCL 1.2 has no program-scope global pointers, so the .cl is
+# all kernel-args; emit_opencl.cc threads uniforms/buffers through and shares
+# the brush_* helper bodies with the other backends. The .spv is what a future
+# OpenCL/Vulkan dispatcher would consume; not linked into libbrush.
+if (NOT BUILD_WASM AND SBRUSH_BACKEND_OPENCL)
+  target_compile_definitions(brush PUBLIC SBRUSH_BACKEND_OPENCL=1)
+  file(GLOB SBRUSH_INPUTS_CL "${CMAKE_CURRENT_SOURCE_DIR}/kernels/*.sbrush")
+  set(CL_OUT_DIR "${CMAKE_BINARY_DIR}/sbrush_out/opencl")
+  file(MAKE_DIRECTORY "${CL_OUT_DIR}")
+  set(CL_OUTPUTS)
+  foreach(SRC ${SBRUSH_INPUTS_CL})
+    get_filename_component(STEM "${SRC}" NAME_WE)
+    set(CL  "${CL_OUT_DIR}/${STEM}.cl")
+    set(SPV "${CL_OUT_DIR}/${STEM}.spv")
+    set(STAMP "${SPV}.validated")
+    if (SBRUSH_VALIDATE_ALL)
+      add_custom_command(
+        OUTPUT "${STAMP}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=opencl --in=${SRC} --out=${CL}
+        COMMAND ${SBRUSH_OPENCL_VALIDATOR} --cl-std=CL1.2 -inline-entry-points ${CL} -o ${SPV}
+        COMMAND ${SBRUSH_SPIRV_VALIDATOR} ${SPV}
+        COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush opencl (via clspv) + spirv-val: ${STEM}.spv"
+        VERBATIM)
+      list(APPEND CL_OUTPUTS "${STAMP}")
+    else()
+      add_custom_command(
+        OUTPUT "${SPV}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=opencl --in=${SRC} --out=${CL}
+        COMMAND ${SBRUSH_OPENCL_VALIDATOR} --cl-std=CL1.2 -inline-entry-points ${CL} -o ${SPV}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush opencl (via clspv): ${STEM}.spv"
+        VERBATIM)
+      list(APPEND CL_OUTPUTS "${SPV}")
+    endif()
+  endforeach()
+  add_custom_target(sbrush-opencl ALL DEPENDS ${CL_OUTPUTS})
+  sbrush_backend(opencl clspv)
+endif()
+
