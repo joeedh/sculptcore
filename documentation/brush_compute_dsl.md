@@ -304,7 +304,7 @@ data structures using existing `litestl::util::Vector` (no STL).
 | C++ (native + wasm) | C++ inline functor matching the existing `template<CTX> static void exec(CTX&)` shape | Drop-in replacement for hand-written brushes under `brushes/`. Build-time codegen, no JIT. |
 | WebGPU | WGSL | One workgroup per spatial node; `unique_verts` indirection via storage buffer. Tint not needed — emit directly. |
 | Vulkan | SPIR-V | Emit via `spirv-tools` or via WGSL+Tint+`spirv-cross` round-trip. Direct SPIR-V emit is leaner. |
-| CUDA / HIP | `.cu` / `.hip.cpp` | Same source modulo `__device__`/`hipLaunchKernel` prelude — one lowering, two prelude headers. |
+| CUDA / HIP | `.cu` / `.hip` | **Implemented** (`emit_cuda.cc`, one lowering for both). Self-contained device source: a generated prelude supplies the `__device__`/`__global__` attribute macros, `float2/3/4` + vector algebra, the `brush_falloff`/`brush_strength`/`brush_sample_tex` helpers, and the uniform/buffer globals. Only the thread-index macros differ per target (nvvm sreg vs. amdgcn builtins). |
 | OpenCL | OpenCL C | Distinct enough to warrant its own emitter (no templates, address-space qualifiers). |
 
 The C++ emitter is the reference. CI runs every brush through *every*
@@ -326,8 +326,8 @@ change per flag.
 option(SBRUSH_BACKEND_CPP     "Emit C++ brush kernels (reference)"     ON)
 option(SBRUSH_BACKEND_WGSL    "Emit WGSL kernels + Tint validate"      OFF)
 option(SBRUSH_BACKEND_SPIRV   "Emit SPIR-V kernels + spirv-val"        OFF)
-option(SBRUSH_BACKEND_CUDA    "Emit CUDA kernels + nvcc --cuda --dryrun" OFF)
-option(SBRUSH_BACKEND_HIP     "Emit HIP kernels + hipcc syntax-only"   OFF)
+option(SBRUSH_BACKEND_CUDA    "Emit CUDA kernels + clang device-only gate" OFF)
+option(SBRUSH_BACKEND_HIP     "Emit HIP kernels + clang device-only gate"  OFF)
 option(SBRUSH_BACKEND_OPENCL  "Emit OpenCL C kernels + clspv/poclcc"   OFF)
 option(SBRUSH_VALIDATE_ALL    "Run external validators on every emit"  OFF)
 option(SBRUSH_REGEN_ON_BUILD  "Re-run sbrushc during build (vs. checked-in outputs)" ON)
@@ -409,7 +409,7 @@ source/brush/
     draw.sbrush kelvinlet.sbrush ...
 build_files/
   macros.cmake               # adds sbrush_backend() helper
-  sbrush_toolchains.cmake    # find_program for tint/spirv-val/nvcc/...
+  sbrush_toolchains.cmake    # find_program for tint/spirv-val/clang (cuda+hip)/...
 ci/
   versions.env               # pinned tool versions (CI + devcontainer)
 ```
@@ -582,7 +582,13 @@ Design decisions taken *now* to keep this open:
    into the `sbrush-spirv` target. `node make.mjs sbrush-validate spirv` runs it
    over all kernels; the `sbrush-validate` GitHub workflow gates WGSL + SPIR-V on
    every brush-DSL change. A direct `emit_spirv.cc` can later replace the tint
-   step without touching the build wiring. CUDA/HIP/OpenCL remain.
+   step without touching the build wiring. **CUDA + HIP done:** `sbrushc
+   --backend=cuda|hip` emits self-contained device source (`emit_cuda.cc`, one
+   lowering, prelude selects nvvm vs. amdgcn thread indices); the `sbrush-cuda` /
+   `sbrush-hip` CMake targets gate it through `clang -x cuda|hip --cuda-device-only
+   -S` (PTX/GCN emit), which needs neither a GPU nor a CUDA/ROCm install
+   (`-nogpuinc -nogpulib`, nothing linked). `node make.mjs sbrush-validate
+   cuda|hip` runs it over all kernels. OpenCL remains.
 6. **Wave 6 (deferred).** Forward-mode autodiff pass; expose `grad_apply` for
    brushes that want it (e.g. constraint solvers, optimization-based
    smoothing).

@@ -7,6 +7,7 @@
 // Wave 2+ extends to multi-backend dispatch and additional emitters.
 
 #include "emit_cpp.h"
+#include "emit_cuda.h"
 #include "emit_wgsl.h"
 #include "ir.h"
 #include "lexer.h"
@@ -37,7 +38,7 @@ struct Args {
 void printUsage()
 {
   std::fprintf(stderr,
-    "Usage: sbrushc --backend=<cpp|wgsl|spirv> --in=<input.sbrush> --out=<output>\n"
+    "Usage: sbrushc --backend=<cpp|wgsl|spirv|cuda|hip> --in=<input.sbrush> --out=<output>\n"
     "  --dry-run     do not write output\n"
     "  --dump-tokens print token stream and exit\n");
 }
@@ -160,6 +161,10 @@ int main(int argc, char **argv)
     // consumes, so both backends share emitWgsl. A future slice can swap in a
     // direct emit_spirv.cc here without touching the build wiring.
     er = emitWgsl(*parse_r.brush);
+  } else if (litestl::util::string(backend.c_str()) == litestl::util::string("cuda")) {
+    er = emitCuda(*parse_r.brush, BackendKind::Cuda);
+  } else if (litestl::util::string(backend.c_str()) == litestl::util::string("hip")) {
+    er = emitCuda(*parse_r.brush, BackendKind::Hip);
   } else {
     std::fprintf(stderr, "sbrushc: backend '%s' not implemented yet\n", backend.c_str());
     return 1;

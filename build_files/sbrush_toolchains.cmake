@@ -34,7 +34,24 @@ if (SBRUSH_BACKEND_SPIRV)
   message(STATUS "sbrush: SPIR-V validator = ${SBRUSH_SPIRV_VALIDATOR}")
 endif()
 
-# Wave 5 hooks live here once their emitters land:
-#   if (SBRUSH_BACKEND_CUDA)  find_program(SBRUSH_CUDA_VALIDATOR  nvcc      ...)
-#   if (SBRUSH_BACKEND_HIP)   find_program(SBRUSH_HIP_VALIDATOR   hipcc     ...)
+# CUDA / HIP backends share one validator: clang in offload mode. Rather
+# than require a full CUDA/ROCm install (and a GPU to run on), the gate is
+# purely syntactic — clang compiles the emitted .cu/.hip device-only and
+# emits PTX/GCN assembly (`-S`). `-nogpuinc -nogpulib` keeps it offline: the
+# emitted source is self-contained (see emit_cuda.cc's prelude), so no CUDA
+# headers or device libs are needed, and nothing is ever linked. This catches
+# every syntax/type error in the lowering without a device present.
+if (SBRUSH_BACKEND_CUDA OR SBRUSH_BACKEND_HIP)
+  find_program(SBRUSH_OFFLOAD_COMPILER
+    NAMES clang
+    DOC "clang with CUDA/HIP offload support (device-only syntactic gate)")
+  if (NOT SBRUSH_OFFLOAD_COMPILER)
+    message(FATAL_ERROR
+      "SBRUSH_BACKEND_CUDA/HIP=ON but 'clang' was not found on PATH. "
+      "Install clang (>= 14) or unset the option.")
+  endif()
+  message(STATUS "sbrush: CUDA/HIP offload compiler = ${SBRUSH_OFFLOAD_COMPILER}")
+endif()
+
+# Wave 5+ hooks live here once their emitters land:
 #   if (SBRUSH_BACKEND_OPENCL) find_program(SBRUSH_OPENCL_VALIDATOR clspv  ...)

@@ -1,10 +1,11 @@
 name: sbrush backend validation
 
-# Gates the brush DSL on its external backend validators: sbrushc must emit
-# WGSL that `tint` accepts, and the WGSL->SPIR-V lowering must pass `spirv-val`.
-# Runs inside the project devcontainer (which ships clang/cmake/ninja + the
-# pinned tint and spirv-val), so the toolchain matches local `node make.mjs
-# sbrush-validate` exactly.
+# Gates the brush DSL on its backend validators: sbrushc must emit WGSL that
+# `tint` accepts, the WGSL->SPIR-V lowering must pass `spirv-val`, and the
+# CUDA/HIP device source must compile device-only under `clang` (PTX/GCN emit,
+# no GPU or CUDA/ROCm install needed). Runs inside the project devcontainer
+# (which ships clang/cmake/ninja + the pinned tint and spirv-val), so the
+# toolchain matches local `node make.mjs sbrush-validate` exactly.
 
 on:
   push:
@@ -52,10 +53,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Builds .devcontainer and runs the validators inside it. Both backends
-      # share the WGSL emitter; spirv additionally lowers via tint --format=spirv
-      # and checks the result with spirv-val.
-      - name: Validate WGSL + SPIR-V backends
+      # Builds .devcontainer and runs the validators inside it. wgsl + spirv
+      # share the WGSL emitter (spirv additionally lowers via tint --format=spirv
+      # and checks the result with spirv-val); cuda + hip share emit_cuda.cc and
+      # are gated by clang's device-only compile.
+      - name: Validate WGSL + SPIR-V + CUDA + HIP backends
         uses: devcontainers/ci@v0.3
         with:
           imageName: ghcr.io/${{ github.repository_owner }}/sculptcore-devcontainer
@@ -64,3 +66,5 @@ jobs:
             set -euo pipefail
             node make.mjs sbrush-validate wgsl
             node make.mjs sbrush-validate spirv
+            node make.mjs sbrush-validate cuda
+            node make.mjs sbrush-validate hip

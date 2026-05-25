@@ -125,3 +125,59 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_SPIRV)
   sbrush_backend(spirv spirv-val)
 endif()
 
+# CUDA / HIP backends: chain sbrushc(--backend=cuda|hip) -> clang device-only
+# syntactic gate. Both share emit_cuda.cc; only the clang offload flags and
+# output extension differ. The gate emits PTX/GCN assembly (`-S`) from the
+# self-contained device source — no GPU, CUDA headers, or device libs needed
+# (-nogpuinc -nogpulib), and nothing is linked. Like the WGSL/SPIR-V backends,
+# the artifacts aren't linked into libbrush; they exist for CI validation (and
+# a future native dispatcher) only.
+#
+# sb_gpu_backend(<name> <clang-lang> <arch-flag> <out-ext>)
+macro(sb_gpu_backend name lang archflag ext)
+  string(TOUPPER "${name}" NAME_UC)
+  target_compile_definitions(brush PUBLIC SBRUSH_BACKEND_${NAME_UC}=1)
+  file(GLOB SB_${NAME_UC}_INPUTS "${CMAKE_CURRENT_SOURCE_DIR}/kernels/*.sbrush")
+  set(SB_${NAME_UC}_OUT_DIR "${CMAKE_BINARY_DIR}/sbrush_out/${name}")
+  file(MAKE_DIRECTORY "${SB_${NAME_UC}_OUT_DIR}")
+  set(SB_${NAME_UC}_OUTPUTS)
+  foreach(SRC ${SB_${NAME_UC}_INPUTS})
+    get_filename_component(STEM "${SRC}" NAME_WE)
+    set(DEV "${SB_${NAME_UC}_OUT_DIR}/${STEM}.${ext}")
+    set(ASM "${DEV}.s")
+    set(STAMP "${DEV}.validated")
+    if (SBRUSH_VALIDATE_ALL)
+      add_custom_command(
+        OUTPUT "${STAMP}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=${name} --in=${SRC} --out=${DEV}
+        COMMAND ${SBRUSH_OFFLOAD_COMPILER} -x ${lang} ${archflag}
+                -nogpuinc -nogpulib --cuda-device-only
+                -Wno-parentheses-equality -Wno-unknown-cuda-version
+                -S -o ${ASM} ${DEV}
+        COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush ${name} + clang device-only: ${STEM}.${ext}"
+        VERBATIM)
+      list(APPEND SB_${NAME_UC}_OUTPUTS "${STAMP}")
+    else()
+      add_custom_command(
+        OUTPUT "${DEV}"
+        COMMAND $<TARGET_FILE:sbrushc> --backend=${name} --in=${SRC} --out=${DEV}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush ${name}: ${STEM}.${ext}"
+        VERBATIM)
+      list(APPEND SB_${NAME_UC}_OUTPUTS "${DEV}")
+    endif()
+  endforeach()
+  add_custom_target(sbrush-${name} ALL DEPENDS ${SB_${NAME_UC}_OUTPUTS})
+  sbrush_backend(${name} clang)
+endmacro()
+
+if (NOT BUILD_WASM AND SBRUSH_BACKEND_CUDA)
+  sb_gpu_backend(cuda cuda "--cuda-gpu-arch=sm_60" cu)
+endif()
+
+if (NOT BUILD_WASM AND SBRUSH_BACKEND_HIP)
+  sb_gpu_backend(hip hip "--offload-arch=gfx900" hip)
+endif()
+

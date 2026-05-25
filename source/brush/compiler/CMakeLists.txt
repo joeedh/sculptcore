@@ -12,6 +12,7 @@ set(SBRUSHC_SRC
   parser.cc
   emit_cpp.cc
   emit_wgsl.cc
+  emit_cuda.cc
   sbrushc_main.cc
   ../kernels/ir/intrinsics.cc
 )
