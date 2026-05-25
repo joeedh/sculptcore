@@ -58,6 +58,40 @@ struct Emit {
 
   Vector<string> locals;
 
+  // True when the vertex stage uses for_neighbor — gates the extra
+  // co_prev / neighbor-CSR bindings (11-13) and the NeighborLoop lowering.
+  bool usesNeighbors = false;
+
+  // Active for_neighbor bundles (name + its WGSL neighbor-index variable),
+  // pushed while lowering a NeighborLoop body so member access on the
+  // bundle (`nb.co`/`nb.no`/`nb.v`) routes to the CSR buffers.
+  struct NbBinding {
+    string name;
+    string idxVar;
+  };
+  Vector<NbBinding> nbStack;
+
+  const NbBinding *findNb(stringref name) const
+  {
+    for (int i = (int)nbStack.size() - 1; i >= 0; i--) {
+      if (string(nbStack[i].name).operator==(string(name.c_str()))) return &nbStack[i];
+    }
+    return nullptr;
+  }
+
+  // Resolve the global vertex-index expression a for_neighbor iterates
+  // around. Only the vertex param (sb_vidx) or an enclosing neighbor
+  // bundle is supported — matching the C++ lowering's `<outer>.v`.
+  string resolveVertIndex(const Expr &e)
+  {
+    if (e.kind == ExprKind::Ident) {
+      if (isVertexParam(stringref(e.name.c_str()))) return string("sb_vidx");
+      if (auto *nb = findNb(stringref(e.name.c_str()))) return nb->idxVar;
+    }
+    err("for_neighbor outer must be the vertex bundle or an enclosing neighbor");
+    return string("sb_vidx");
+  }
+
   void err(const char *msg) { errors.append(string(msg)); }
   void errf(const char *fmt, const char *arg)
   {
@@ -177,6 +211,21 @@ struct Emit {
         out += e.lhs->name;
         out += "_";
         out += e.name;
+      } else if (e.lhs && e.lhs->kind == ExprKind::Ident &&
+                 findNb(stringref(e.lhs->name.c_str()))) {
+        // Neighbor-bundle member: read from the CSR-indexed buffers. co
+        // comes from the pre-dab snapshot (Jacobi); no stays live.
+        const NbBinding *nb = findNb(stringref(e.lhs->name.c_str()));
+        if (std::strcmp(e.name.c_str(), "co") == 0) {
+          out += "co_prev["; out += nb->idxVar; out += "]";
+        } else if (std::strcmp(e.name.c_str(), "no") == 0) {
+          out += "no_buf["; out += nb->idxVar; out += "]";
+        } else if (std::strcmp(e.name.c_str(), "v") == 0) {
+          out += nb->idxVar;
+        } else {
+          errf("neighbor bundle has no member '%s'", e.name.c_str());
+          out += "/*bad-neighbor-member*/";
+        }
       } else {
         emitExpr(*e.lhs);
         out += ".";
@@ -420,11 +469,43 @@ struct Emit {
       emitExpr(*s.expr);
       out += ";\n";
       break;
-    case StmtKind::NeighborLoop:
-      // Should have been caught up-front in run(); reaching here would
-      // mean emit_wgsl was called on a brush we explicitly skip.
-      err("for_neighbor reached WGSL emitter (should have been skipped earlier)");
+    case StmtKind::NeighborLoop: {
+      // for_neighbor (nb in <outer>) { body } — walk the CSR neighbor list
+      // for <outer>'s vertex index. vert_nbr_meta[i] = (offset, count) into
+      // the flat nbr_verts array. Names are suffixed by nesting depth so a
+      // (theoretical) nested for_neighbor doesn't collide.
+      int depth = (int)nbStack.size();
+      char sfx[16];
+      std::snprintf(sfx, sizeof(sfx), "%d", depth);
+      string outerIdx = resolveVertIndex(*s.lvalue);
+      string metaVar = string("sb_nbr_meta") + sfx;
+      string niVar = string("sb_ni") + sfx;
+      string idxVar = string("sb_nb_v") + sfx;
+      writeIndent(); out += "{\n";
+      indent++;
+      writeIndent();
+      out += "let " + metaVar + " = vert_nbr_meta[" + outerIdx + "];\n";
+      writeIndent();
+      out += "for (var " + niVar + " = 0u; " + niVar + " < " + metaVar + ".y; " +
+             niVar + " = " + niVar + " + 1u) {\n";
+      indent++;
+      writeIndent();
+      out += "let " + idxVar + " = nbr_verts[" + metaVar + ".x + " + niVar + "];\n";
+      nbStack.append(NbBinding{s.name, idxVar});
+      if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
+        int savedLocals = (int)locals.size();
+        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
+        while ((int)locals.size() > savedLocals) locals.pop_back();
+      } else if (s.thenBranch) {
+        emitStmt(*s.thenBranch);
+      }
+      nbStack.pop_back();
+      indent--;
+      writeIndent(); out += "}\n";
+      indent--;
+      writeIndent(); out += "}\n";
       break;
+    }
     }
   }
 
@@ -586,7 +667,18 @@ struct Emit {
     write("@group(0) @binding(9) var                       brush_samp: sampler;\n");
     // StrokePath ring buffer for STROKE_CURVED — mirrors Brush::strokePath.
     // Uniform-resident on CPU; a storage buffer here so the length can vary.
-    write("@group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;\n\n");
+    write("@group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;\n");
+    // Neighbor (for_neighbor) bindings — only emitted when the kernel needs
+    // them, so non-neighbor brushes keep the 11-binding layout. The host's
+    // descriptor set layout is a superset, so a single bind-group setup still
+    // works across brushes. co_prev is the pre-dab vertex snapshot (Jacobi);
+    // vert_nbr_meta[i] = (offset, count) into the flat nbr_verts CSR array.
+    if (usesNeighbors) {
+      write("@group(0) @binding(11) var<storage, read>      co_prev: array<vec3<f32>>;\n");
+      write("@group(0) @binding(12) var<storage, read>      vert_nbr_meta: array<vec2<u32>>;\n");
+      write("@group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;\n");
+    }
+    write("\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
     // brush.h. Each branch is the same closed form as its C++ twin;
@@ -738,10 +830,7 @@ struct Emit {
       err("vertex stage must take at least one parameter (the Vertex bundle)");
     }
 
-    if (hasNeighborLoop(vertexStage->body.get())) {
-      emitSkipStub("brush uses for_neighbor — WGSL lowering needs mesh-edge buffers (later wave)");
-      return;
-    }
+    usesNeighbors = hasNeighborLoop(vertexStage->body.get());
 
     emitPrelude();
 

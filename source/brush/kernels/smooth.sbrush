@@ -10,8 +10,8 @@ brush Smooth {
       n += 1.0;
     }
     if (n > 0.0) {
-      float3 target = avg / n;
-      v.co += (target - v.co) * s;
+      float3 mean = avg / n;
+      v.co += (mean - v.co) * s;
     }
   }
 }

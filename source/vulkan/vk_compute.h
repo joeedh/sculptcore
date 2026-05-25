@@ -56,6 +56,13 @@ struct ComputeNodeMeta {
   uint32_t vert_count = 0;
 };
 
+/* binding 12 element — std430 vec2<u32>, stride 8. CSR neighbor index: for
+ * global vertex i, its neighbors are nbr_verts[offset .. offset+count). */
+struct ComputeVertNbr {
+  uint32_t offset = 0;
+  uint32_t count = 0;
+};
+
 /* Runs sbrush WGSL->SPIR-V compute kernels against a mesh's vertex buffers.
  * Self-contained: owns its descriptor pool, pipeline, buffers, and a 1x1
  * white texture/sampler for the (unused-by-DRAW) brush-texture bindings. The
@@ -84,6 +91,14 @@ struct BrushComputeDispatch {
            const uint32_t *uniqueVerts, int uniqueVertCount,
            const ComputeNodeMeta *nodes, int nodeCount, const float *falloffLut,
            const ComputeStrokeSample *strokePath, int strokeCount);
+
+  /* Upload the CSR neighbor topology (binding 12/13) for for_neighbor kernels
+   * like Smooth. `meta` has one entry per global vertex; `nbrVerts` is the
+   * flat neighbor-index array. Static across a stroke — call once after
+   * beginStroke. Untextured non-neighbor kernels (Draw/Clay) never call this;
+   * their bindings stay bound to dummies. */
+  bool setNeighbors(const ComputeVertNbr *meta, int vertCount,
+                    const uint32_t *nbrVerts, int nbrCount);
 
   /* Read co/no/mask back into caller arrays (packed xyz / xyz / f32). Any
    * pointer may be null to skip that readback. */
@@ -123,10 +138,12 @@ private:
   VkSampler sampler_ = VK_NULL_HANDLE;
 
   int vertCount_ = 0;
+  bool hasNeighbors_ = false;
   Buf co_, no_, mask_;             // bindings 0,1,2 (persistent per stroke)
   Buf unique_, nodes_;             // bindings 3,4 (per dab)
   Buf brushU_, ctxU_;             // bindings 5,6
   Buf falloff_, stroke_;          // bindings 7,10
+  Buf coPrev_, nbrMeta_, nbrVerts_;  // bindings 11,12,13 (neighbor kernels)
 };
 
 } // namespace sculptcore::vulkan

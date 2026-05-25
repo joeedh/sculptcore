@@ -27,6 +27,7 @@ struct CommandExecutor {
   CommandCtxBase ctx;
   bool isFirstOfStep = false;
   meshlog::MeshLog *meshLog = nullptr;
+  Vector<float3> coPrevStorage;  // backing store for ctx.co_prev (Jacobi snapshot)
 
   static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
   {
@@ -99,6 +100,17 @@ struct CommandExecutor {
 
     if (cmd.execHost) cmd.execHost(ctx, *brush);
     cmd.execPre(ctx, nodes);
+
+    // Jacobi snapshot: capture pre-dab vertex positions so for_neighbor reads
+    // a consistent state regardless of the parallel node loop's interleaving.
+    if (cmd.needsCoPrev && nodes.size() > 0) {
+      mesh::Mesh *m = nodes[0]->data->m;
+      coPrevStorage.resize(m->v.count);
+      for (int i = 0; i < m->v.count; i++) {
+        coPrevStorage[i] = m->v.co[i];
+      }
+      ctx.co_prev = &coPrevStorage;
+    }
 
 #ifdef NO_PARALLEL_FOR
     for (auto *node : nodes) {

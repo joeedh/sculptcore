@@ -23,6 +23,9 @@ BrushComputeDispatch::~BrushComputeDispatch()
   destroyBuf(ctxU_);
   destroyBuf(falloff_);
   destroyBuf(stroke_);
+  destroyBuf(coPrev_);
+  destroyBuf(nbrMeta_);
+  destroyBuf(nbrVerts_);
   if (sampler_) vkDestroySampler(d, sampler_, nullptr);
   if (whiteView_) vkDestroyImageView(d, whiteView_, nullptr);
   if (whiteImage_) vkDestroyImage(d, whiteImage_, nullptr);
@@ -200,8 +203,11 @@ bool BrushComputeDispatch::loadSpirv(const char *path)
   smi.pCode = reinterpret_cast<const uint32_t *>(bytes.data());
   if (vkCreateShaderModule(d, &smi, nullptr, &module_) != VK_SUCCESS) return false;
 
-  // 11 group-0 bindings, all visible to the compute stage.
-  VkDescriptorSetLayoutBinding lb[11]{};
+  // 14 group-0 bindings, all visible to the compute stage. Bindings 11-13
+  // (co_prev + neighbor CSR) are only referenced by for_neighbor kernels, but
+  // the layout always declares them so one bind-group setup serves every
+  // brush; non-neighbor shaders simply don't use them.
+  VkDescriptorSetLayoutBinding lb[14]{};
   auto set = [&](int i, VkDescriptorType t) {
     lb[i].binding = uint32_t(i);
     lb[i].descriptorType = t;
@@ -219,10 +225,13 @@ bool BrushComputeDispatch::loadSpirv(const char *path)
   set(8, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
   set(9, VK_DESCRIPTOR_TYPE_SAMPLER);
   set(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  set(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  set(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  set(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 
   VkDescriptorSetLayoutCreateInfo lci{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  lci.bindingCount = 11;
+  lci.bindingCount = 14;
   lci.pBindings = lb;
   if (vkCreateDescriptorSetLayout(d, &lci, nullptr, &setLayout_) != VK_SUCCESS)
     return false;
@@ -244,7 +253,7 @@ bool BrushComputeDispatch::loadSpirv(const char *path)
     return false;
 
   VkDescriptorPoolSize ps[4]{};
-  ps[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7};
+  ps[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10};
   ps[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2};
   ps[2] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1};
   ps[3] = {VK_DESCRIPTOR_TYPE_SAMPLER, 1};
@@ -289,10 +298,13 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
                                        const float *mask, int vertCount)
 {
   vertCount_ = vertCount;
+  hasNeighbors_ = false;
   const VkBufferUsageFlags storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   if (!ensureBuf(co_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(no_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
-      !ensureBuf(mask_, VkDeviceSize(vertCount) * sizeof(float), storage)) {
+      !ensureBuf(mask_, VkDeviceSize(vertCount) * sizeof(float), storage) ||
+      !ensureBuf(coPrev_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
+      !ensureBuf(nbrMeta_, 0, storage) || !ensureBuf(nbrVerts_, 0, storage)) {
     return false;
   }
   // Expand packed xyz into 16-byte std430 vec3 slots.
@@ -312,6 +324,32 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
   writeStorage(0, co_);
   writeStorage(1, no_);
   writeStorage(2, mask_);
+  // co_prev / neighbor CSR are always bound so the descriptor set is valid
+  // even for non-neighbor kernels; setNeighbors overwrites 12/13 with real
+  // data. co_prev is filled per dab from the previous result.
+  writeStorage(11, coPrev_);
+  writeStorage(12, nbrMeta_);
+  writeStorage(13, nbrVerts_);
+  return true;
+}
+
+bool BrushComputeDispatch::setNeighbors(const ComputeVertNbr *meta,
+                                        int vertCount, const uint32_t *nbrVerts,
+                                        int nbrCount)
+{
+  const VkBufferUsageFlags storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (!ensureBuf(nbrMeta_, VkDeviceSize(vertCount) * sizeof(ComputeVertNbr), storage) ||
+      !ensureBuf(nbrVerts_, VkDeviceSize(nbrCount < 1 ? 1 : nbrCount) * sizeof(uint32_t),
+                 storage)) {
+    return false;
+  }
+  std::memcpy(nbrMeta_.mapped, meta, size_t(vertCount) * sizeof(ComputeVertNbr));
+  if (nbrCount > 0) {
+    std::memcpy(nbrVerts_.mapped, nbrVerts, size_t(nbrCount) * sizeof(uint32_t));
+  }
+  writeStorage(12, nbrMeta_);
+  writeStorage(13, nbrVerts_);
+  hasNeighbors_ = true;
   return true;
 }
 
@@ -355,6 +393,13 @@ bool BrushComputeDispatch::dab(const ComputeBrushUniforms &brushU,
   writeUniform(6, ctxU_);
   writeStorage(7, falloff_);
   writeStorage(10, stroke_);
+
+  // Jacobi snapshot: capture the pre-dab positions so for_neighbor reads a
+  // consistent state (co_buf is written in place by this dispatch). Cheap
+  // host copy of mapped, coherent memory; matches the C++ executor's snapshot.
+  if (hasNeighbors_) {
+    std::memcpy(coPrev_.mapped, co_.mapped, size_t(vertCount_) * kVec3Stride);
+  }
 
   return ctx_->runOneShot([&](VkCommandBuffer cb) {
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);

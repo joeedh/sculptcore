@@ -11,6 +11,7 @@
 #include "spatial/spatial.h"
 
 #ifdef SBRUSH_GPU_DISPATCH
+#include "mesh/mesh_iter.h"
 #include "spatial/node.h"
 #include "spatial/spatial_enums.h"
 #include "vulkan/vk_compute.h"
@@ -148,20 +149,34 @@ std::string joinPath(const char *base, const char *rel)
 }
 
 #ifdef SBRUSH_GPU_DISPATCH
-// Execute a DRAW stroke on the GPU via the SPIR-V compute kernel. Marshals the
+// Execute a brush stroke on the GPU via the SPIR-V compute kernel. Marshals the
 // full mesh co/no/mask once, dispatches one ≤64-vert workgroup per node-chunk
 // per dab (reading the previous dab's result, like the C++ executor), reads co
 // back, and snapshots the touched nodes into the meshlog for undo. Geometry
 // must match the C++ path bit-modulo-fp; that is what `make.mjs sbrush-verify`
-// asserts via the draw_ab.txt A/B script.
-bool runDrawStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 normal,
-                      std::string &err)
+// asserts via the <brush>_ab.txt A/B scripts. Supports the untextured local
+// brushes wired below (DRAW, CLAY, SMOOTH); SMOOTH uploads a CSR neighbor
+// topology so its for_neighbor kernel can read the Jacobi snapshot.
+bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 normal,
+                       std::string &err)
 {
   using litestl::math::float3;
   if (!scene.ensureGPU() || !scene.context) {
     err = "stroke(wgsl): GPU device init failed";
     return false;
   }
+
+  const char *kernel = nullptr;
+  bool needsNeighbors = false;
+  switch (scene.currentTool) {
+  case brush::SculptBrushes::DRAW: kernel = "draw"; break;
+  case brush::SculptBrushes::CLAY: kernel = "clay"; break;
+  case brush::SculptBrushes::SMOOTH: kernel = "smooth"; needsNeighbors = true; break;
+  default:
+    err = "stroke(wgsl): tool has no GPU kernel";
+    return false;
+  }
+
   mesh::Mesh *m = scene.mesh;
   const int vcount = m->v.count;
 
@@ -173,11 +188,11 @@ bool runDrawStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 normal
     float3 c = m->v.co[i], n = m->v.no[i];
     co[i * 3 + 0] = c[0]; co[i * 3 + 1] = c[1]; co[i * 3 + 2] = c[2];
     no[i * 3 + 0] = n[0]; no[i * 3 + 1] = n[1]; no[i * 3 + 2] = n[2];
-    mask[i] = 0.0f; // DRAW ignores mask
+    mask[i] = scene.tree->treeMesh.v.mask[i];
   }
 
   vulkan::BrushComputeDispatch disp(scene.context);
-  std::string spv = std::string(SBRUSH_SPV_DIR) + "/draw.spv";
+  std::string spv = std::string(SBRUSH_SPV_DIR) + "/" + kernel + ".spv";
   if (!disp.loadSpirv(spv.c_str())) {
     err = "stroke(wgsl): failed to load " + spv;
     return false;
@@ -185,6 +200,33 @@ bool runDrawStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 normal
   if (!disp.beginStroke(co.data(), no.data(), mask.data(), vcount)) {
     err = "stroke(wgsl): vertex upload failed";
     return false;
+  }
+
+  // CSR neighbor topology for for_neighbor kernels. Build it in the same
+  // EdgeOfVertIter order the C++ kernel walks so the per-vertex `avg += nb.co`
+  // accumulates identically — keeping the GPU result bit-modulo-fp identical.
+  if (needsNeighbors) {
+    Vector<vulkan::ComputeVertNbr> meta;
+    Vector<uint32_t> flat;
+    meta.resize(vcount);
+    for (int v = 0; v < vcount; v++) {
+      uint32_t off = uint32_t(flat.size());
+      uint32_t cnt = 0;
+      int e0 = m->v.e[v];
+      if (e0 != ELEM_NONE) {
+        for (int e : mesh::EdgeOfVertIter(m, v, e0)) {
+          int nb = (m->e.vs[e][0] == v) ? m->e.vs[e][1] : m->e.vs[e][0];
+          flat.append(uint32_t(nb));
+          cnt++;
+        }
+      }
+      meta[v].offset = off;
+      meta[v].count = cnt;
+    }
+    if (!disp.setNeighbors(meta.data(), vcount, flat.data(), int(flat.size()))) {
+      err = "stroke(wgsl): neighbor upload failed";
+      return false;
+    }
   }
 
   scene.meshLog.beginStep();
@@ -579,16 +621,18 @@ bool execVerb(Scene &scene,
     parseFloat3(getArg(args, "normal"), normal);
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers untextured DRAW; a bound brush texture still needs
-    // CPU bilinear sampling (the kernel binds a 1x1 white placeholder), so
-    // textured strokes fall back to the C++ executor.
+    // GPU dispatch covers the untextured local brushes (DRAW/CLAY/SMOOTH); a
+    // bound brush texture still needs CPU bilinear sampling (the kernel binds a
+    // 1x1 white placeholder), so textured strokes fall back to the C++ executor.
     bool gpuTextured = scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
                        scene.brush.tex_pixels.size() > 0;
-    if (scene.currentBackend == BrushBackend::Wgsl &&
-        scene.currentTool == brush::SculptBrushes::DRAW && !gpuTextured) {
+    bool gpuTool = scene.currentTool == brush::SculptBrushes::DRAW ||
+                   scene.currentTool == brush::SculptBrushes::CLAY ||
+                   scene.currentTool == brush::SculptBrushes::SMOOTH;
+    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool && !gpuTextured) {
       Vector<float3> origins;
       origins.append(origin);
-      if (!runDrawStrokeGPU(scene, origins, normal, err)) {
+      if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;
       }
     } else
@@ -648,14 +692,16 @@ bool execVerb(Scene &scene,
     }
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers untextured DRAW; a bound brush texture still needs
-    // CPU bilinear sampling (the kernel binds a 1x1 white placeholder), so
-    // textured strokes fall back to the C++ executor.
+    // GPU dispatch covers the untextured local brushes (DRAW/CLAY/SMOOTH); a
+    // bound brush texture still needs CPU bilinear sampling (the kernel binds a
+    // 1x1 white placeholder), so textured strokes fall back to the C++ executor.
     bool gpuTextured = scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
                        scene.brush.tex_pixels.size() > 0;
-    if (scene.currentBackend == BrushBackend::Wgsl &&
-        scene.currentTool == brush::SculptBrushes::DRAW && !gpuTextured) {
-      if (!runDrawStrokeGPU(scene, origins, normal, err)) {
+    bool gpuTool = scene.currentTool == brush::SculptBrushes::DRAW ||
+                   scene.currentTool == brush::SculptBrushes::CLAY ||
+                   scene.currentTool == brush::SculptBrushes::SMOOTH;
+    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool && !gpuTextured) {
+      if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;
       }
     } else

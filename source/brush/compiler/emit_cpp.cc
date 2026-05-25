@@ -402,9 +402,10 @@ struct Emit {
       writeIndent();
       out += "int __nb_v = (__m->e.vs[__e][0] == __outer_v) ? __m->e.vs[__e][1] : __m->e.vs[__e][0];\n";
       writeIndent();
+      // Neighbor co reads the pre-dab snapshot (Jacobi); no/v stay live.
       out += "struct { litestl::math::float3 &co; litestl::math::float3 &no; int v; } ";
       out += s.name;
-      out += " {__m->v.co[__nb_v], __m->v.no[__nb_v], __nb_v};\n";
+      out += " {(*ctx.co_prev)[__nb_v], __m->v.no[__nb_v], __nb_v};\n";
       // Body: emit either a Block (inline) or a single statement.
       int savedLocals = (int)locals.size();
       locals.append(s.name);
@@ -708,6 +709,10 @@ struct Emit {
     write(lowerName); write("<TYPES>;\n");
     write("  def.execPost = ");
     write(lowerName); write("Post<TYPES>;\n");
+    // for_neighbor reads ctx.co_prev — tell the executor to snapshot it.
+    if (neighborLoopUsed) {
+      write("  def.needsCoPrev = true;\n");
+    }
     write("}\n\n");
 
     write("} // namespace sculptcore::brush::command\n");

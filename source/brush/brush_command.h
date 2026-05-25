@@ -26,8 +26,16 @@ struct CommandCtxBase {
   mat4 renderMatrix;
 
   bool isFirstOfStep = false;
-  
+
   meshlog::MeshLog *meshLog = nullptr;
+
+  // Pre-dab snapshot of the whole mesh's vertex positions, owned by the
+  // executor and populated before the parallel per-node loop when a brush
+  // needs it (see BrushCommandDef::needsCoPrev). for_neighbor reads neighbor
+  // positions from here so smoothing is Jacobi — order-independent and
+  // race-free across the parallel node loop, and bit-modulo-fp identical to
+  // the GPU kernel (which reads its own co_prev binding).
+  litestl::util::Vector<litestl::math::float3> *co_prev = nullptr;
 
   CommandCtxBase() = default;
   CommandCtxBase(const CommandCtxBase &) = default;
@@ -101,6 +109,9 @@ template <typename CTX> struct BrushCommandDef {
   std::function<void(CTX &)> exec;
   std::function<void(CommandCtxBase &, std::span<SpatialNode *>)> execPost;
   BrushFlags flags = BrushFlags::None;
+  // Set by codegen for brushes that use for_neighbor: the executor snapshots
+  // the mesh's vertex positions into ctx.co_prev before the per-node loop.
+  bool needsCoPrev = false;
 };
 
 } // namespace sculptcore::brush
