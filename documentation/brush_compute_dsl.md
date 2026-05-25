@@ -208,7 +208,7 @@ brush needs an independent axial profile.
 | `VIEWPLANE` | `TexUserModes.VIEWPLANE` | `(renderMatrix * p).xy` | done |
 | `VIEW_REPEAT` | `TexUserModes.VIEW_REPEAT` | tiled viewplane (`* tex_repeat`) | done |
 | `STROKE_CURVED` | `TexUserFlags.CURVED` | nearest-stroke-segment arc-length + lateral offset, from `StrokePath` buffer | done |
-| `PROJECTED` | new | project along `surfaceNo` onto its tangent plane | deferred |
+| `PROJECTED` | new | `(p - surfacePos)` resolved in an orthonormal tangent basis built from `surfaceNo` | done |
 
 The three matrix-driven modes are implemented end-to-end. `sampleBrushTex`
 is an `IntrinsicDef` (arity 2, `Float3,Float3 → Float`) lowering to
@@ -222,10 +222,14 @@ applies the coord-space mapping then samples. WGSL mirrors this with
 `brush_sample_tex` + `textureSampleLevel` (bindings 8/9 `brush_tex`/
 `brush_samp`; the host binds a 1×1 white texel for the no-texture case),
 and `coord_space`/`tex_repeat`/`render_matrix` ride in the Brush/Ctx
-uniform blocks. The `n` (surface normal) arg is reserved for `PROJECTED`
-and currently unused by the matrix modes. Debug verbs `set_texture
-pattern=rampx|rampy|checker|constant|clear` (synthetic, no image decoder
-yet) and `set_coord_space space= repeat=` drive it; `test_debug_script`
+uniform blocks. The `n` (surface normal) arg of `sampleBrushTex` is unused —
+every mode (including `PROJECTED`) keys off the brush-center `surfaceNo` in the
+ctx uniform so the C++ and WGSL paths share one value; the arg is kept only for
+DSL signature parity. Debug verbs `set_texture
+pattern=rampx|rampy|checker|constant|clear` (synthetic), `set_texture
+proc=radial|sine|gradient` (analytic generators baked onto the UV grid),
+`set_texture image=<path>` (decoded to grayscale via vendored `stb_image`), and
+`set_coord_space space= repeat=` drive it; `test_debug_script`
 asserts a `rampx`+`GLOBAL` draw lifts the +x half of the footprint while
 the −x half (texel ≈ 0) stays put. The matrix-driven `VIEWPLANE`/`VIEWREPEAT`
 modes are wired end-to-end: the `set_render_matrix m=<16 floats>` verb feeds a
@@ -250,8 +254,16 @@ per-backend ring-buffer legalization (uniform array on CPU/CUDA, storage buffer
 on WGSL/SPIR-V). `test_debug_script` drives a +Y `stroke_path` with
 `rampx`+`stroke_curved` and asserts the lift grows along the stroke (the +Y end
 rises more than the −Y end) while the GLOBAL control shows no Y gradient.
-`PROJECTED`, image decoding, and the `@texture` procedural surface below are
-deferred to a later slice.
+
+`PROJECTED` is implemented end-to-end. `CommandCtx::sampleBrushTex` and WGSL
+`brush_sample_tex` build the same orthonormal tangent basis from the ctx
+`surfaceNo` (reference axis flips on `|n.z| < 0.999`, then
+`t1 = normalize(cross(ref, n))`, `t2 = cross(n, t1)`), and project
+`(co - surfacePos)` into it. `draw_projected_tex_ab` strokes the +X cube face so
+the non-degenerate `(0,0,1)` reference branch runs; `draw_image_tex_ab` /
+`draw_proc_tex_ab` gate the `image=`/`proc=` texture sources — all three pass
+cpp-vs-wgsl and the Dawn `webgpu-verify` replay. The in-kernel `@texture`
+procedural surface below remains deferred to a later slice.
 
 Procedural textures from `proceduralTex.ts` are already GLSL-generating
 (`createShaderClass` → `genGlsl`). The DSL adopts the same generator surface:

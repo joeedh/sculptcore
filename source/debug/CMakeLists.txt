@@ -8,6 +8,7 @@ set(LIB_SRC
   PUBLIC ui.h
   scene.cc
   script.cc
+  stb_image_impl.cc
   state_dump.cc
   input.cc
   interactive.cc

@@ -1,0 +1,23 @@
+# A/B script: set_texture image=<path>, cpp vs wgsl backend gate.
+# Loads a 16x16 grayscale TGA (tests/assets/brush_ramp16.tga, a diagonal ramp)
+# via stb_image and samples it in GLOBAL space. Exercises the image-decode path
+# into brush.tex_pixels; both backends read the same decoded texels, so parity
+# proves the decoded buffer marshals to the GPU texture upload identically. Path
+# is relative to the repo root (debug_app's cwd under sbrush/webgpu-verify).
+# See draw_global_tex_ab.txt for the texture A/B pattern.
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=draw
+set_brush radius=0.15 strength=6.0
+set_texture image=tests/assets/brush_ramp16.tga
+set_coord_space space=global
+
+set_backend backend=cpp
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=draw_image_tex_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=draw_image_tex_wgsl.json

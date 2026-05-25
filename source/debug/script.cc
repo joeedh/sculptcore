@@ -9,6 +9,7 @@
 #include "litestl/util/vector.h"
 #include "mesh/mesh_shapes.h"
 #include "spatial/spatial.h"
+#include "stb/stb_image.h"
 
 #ifdef SBRUSH_GPU_DISPATCH
 #include "mesh/mesh_iter.h"
@@ -716,21 +717,48 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "set_texture") {
-    // Build a synthetic grayscale brush texture. `pattern=clear` unbinds.
-    // Patterns vary the texel value so a golden test can assert the
-    // displacement tracks UV (e.g. rampx → value grows with co.x under
-    // the Global coord space).
+    // Bind a grayscale brush texture from one of three sources, checked in
+    // priority order: image=<path> (decoded via stb_image to luminance),
+    // proc=<name> (an analytic function baked onto the UV grid), or
+    // pattern=<name> (the simple synthetic test patterns). `pattern=clear`
+    // unbinds. The texel value varies across the surface so a golden test can
+    // assert the displacement tracks UV (e.g. rampx → value grows with co.x
+    // under the Global coord space).
+    const char *imgPath = getArg(args, "image");
+    const char *proc = getArg(args, "proc");
     const char *pat = getArg(args, "pattern", "rampx");
-    int w = getInt(args, "width", 64);
-    int h = getInt(args, "height", 64);
+
+    if (imgPath) {
+      int iw = 0, ih = 0, comp = 0;
+      // Force a single channel: stb collapses RGB(A) to luminance with its
+      // fixed integer weights, so the result is deterministic across runs.
+      unsigned char *data = stbi_load(imgPath, &iw, &ih, &comp, 1);
+      if (!data) {
+        err = std::string("set_texture: failed to load image '") + imgPath +
+              "': " + stbi_failure_reason();
+        return false;
+      }
+      scene.brush.tex_width = iw;
+      scene.brush.tex_height = ih;
+      scene.brush.tex_pixels.resize(iw * ih);
+      for (int i = 0; i < iw * ih; i++) {
+        scene.brush.tex_pixels[i] = (float)data[i] / 255.0f;
+      }
+      stbi_image_free(data);
+      return true;
+    }
+
     std::string ps = pat;
     for (auto &c : ps) c = (char)std::tolower((unsigned char)c);
-    if (ps == "clear") {
+    if (!proc && ps == "clear") {
       scene.brush.tex_width = 0;
       scene.brush.tex_height = 0;
       scene.brush.tex_pixels.clear();
       return true;
     }
+
+    int w = getInt(args, "width", 64);
+    int h = getInt(args, "height", 64);
     if (w <= 0 || h <= 0) {
       err = "set_texture: width/height must be positive";
       return false;
@@ -738,12 +766,35 @@ bool execVerb(Scene &scene,
     scene.brush.tex_width = w;
     scene.brush.tex_height = h;
     scene.brush.tex_pixels.resize(w * h);
+
+    std::string procName;
+    if (proc) {
+      procName = proc;
+      for (auto &c : procName) c = (char)std::tolower((unsigned char)c);
+    }
+    constexpr float kTwoPi = 6.28318530717958647692f;
     for (int y = 0; y < h; y++) {
       for (int x = 0; x < w; x++) {
         float u = w > 1 ? (float)x / (float)(w - 1) : 0.0f;
         float v = h > 1 ? (float)y / (float)(h - 1) : 0.0f;
         float val;
-        if (ps == "rampx") {
+        if (proc) {
+          // Analytic generators: continuous functions of the normalized UV,
+          // distinct in shape from the discrete `pattern` modes.
+          if (procName == "radial") {
+            float dx = u - 0.5f, dy = v - 0.5f;
+            float d = std::sqrt(dx * dx + dy * dy) * 2.0f;
+            val = std::max(0.0f, 1.0f - d);
+          } else if (procName == "sine") {
+            val = 0.5f + 0.5f * std::sin(kTwoPi * u);
+          } else if (procName == "gradient") {
+            val = 0.5f * (u + v);
+          } else {
+            err = std::string("set_texture: unknown proc '") + proc +
+                  "' (valid: radial, sine, gradient)";
+            return false;
+          }
+        } else if (ps == "rampx") {
           val = u;
         } else if (ps == "rampy") {
           val = v;
@@ -753,7 +804,8 @@ bool execVerb(Scene &scene,
           val = 1.0f;
         } else {
           err = std::string("set_texture: unknown pattern '") + pat +
-                "' (valid: rampx, rampy, checker, constant, clear)";
+                "' (valid: rampx, rampy, checker, constant, clear; or use "
+                "proc=/image=)";
           return false;
         }
         scene.brush.tex_pixels[y * w + x] = val;
@@ -779,9 +831,12 @@ bool execVerb(Scene &scene,
         scene.brush.coord_space = brush::TexCoordSpace::ViewRepeat;
       } else if (ss == "stroke_curved") {
         scene.brush.coord_space = brush::TexCoordSpace::StrokeCurved;
+      } else if (ss == "projected") {
+        scene.brush.coord_space = brush::TexCoordSpace::Projected;
       } else {
         err = std::string("set_coord_space: unknown space '") + sp +
-              "' (valid: global, viewplane, viewrepeat, stroke_curved)";
+              "' (valid: global, viewplane, viewrepeat, stroke_curved, "
+              "projected)";
         return false;
       }
     }

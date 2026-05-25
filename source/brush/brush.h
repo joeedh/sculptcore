@@ -51,11 +51,16 @@ enum class FalloffShape : unsigned char {
 //   ViewRepeat — ViewPlane scaled by `tex_repeat` (tiled across the view).
 //   StrokeCurved — uv = (arc length along the stroke, lateral offset from it);
 //                  reads the StrokePath ring buffer of recent dab centers.
+//   Projected  — project (co - surfacePos) onto the brush-center tangent plane;
+//                uv = its coordinates in a deterministic orthonormal basis built
+//                from surfaceNo. The one mode that actually consumes the surface
+//                normal arg threaded through sampleBrushTex.
 enum class TexCoordSpace : unsigned char {
   Global = 0,
   ViewPlane = 1,
   ViewRepeat = 2,
   StrokeCurved = 3,
+  Projected = 4,
 };
 
 inline constexpr int kFalloffCurveSize = 256;

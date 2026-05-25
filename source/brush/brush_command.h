@@ -67,10 +67,11 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   }
 
   // Sample the brush texture at world point `co` with surface normal `no`,
-  // mapping to UV per `brush.coord_space`. `no` is currently unused for the
-  // matrix-driven modes but is part of the DSL signature so a future
-  // tangent-space projection can use it without a kernel rewrite. Returns
-  // 1.0 with no texture bound (kernels multiply by this unconditionally).
+  // mapping to UV per `brush.coord_space`. The `no` arg is unused — every mode
+  // (including Projected) reads the brush-center ctx surfaceNo so the C++ and
+  // WGSL paths key off the same value; the arg is kept for DSL signature parity
+  // with the generated kernel. Returns 1.0 with no texture bound (kernels
+  // multiply by this unconditionally).
   float sampleBrushTex(float3 co, float3 no)
   {
     (void)no;
@@ -92,6 +93,20 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     case TexCoordSpace::StrokeCurved:
       uv = brush.sampleStrokeUV(co);
       break;
+    case TexCoordSpace::Projected: {
+      // Project onto the tangent plane at the brush center. The reference
+      // axis pick (and thus the basis) must match the WGSL branch bit-for-bit
+      // in structure, so both flip on the same |n.z| < 0.999 test against the
+      // shared ctx surfaceNo.
+      float3 n = surfaceNo.normalized();
+      float3 ref = std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f}
+                                           : float3{1.0f, 0.0f, 0.0f};
+      float3 t1 = ref.cross(n).normalized();
+      float3 t2 = n.cross(t1);
+      float3 rel = co - surfacePos;
+      uv = float2{rel.dot(t1), rel.dot(t2)};
+      break;
+    }
     }
     return brush.sampleTexBilinear(uv);
   }
