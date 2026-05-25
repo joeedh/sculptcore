@@ -59,6 +59,9 @@ struct Emit {
 
   bool usesNeighbors = false;
 
+  bool gradUsed = false;
+  string gradVar;  // float3 var being differentiated, rendered
+
   struct NbBinding {
     string name;
     string idxVar;
@@ -209,6 +212,15 @@ struct Emit {
         out += ")";
         break;
       }
+      // grad(expr, var) — forward-mode gradient, dual-number rewrite. OpenCL C
+      // has no operator overloads, so binary ops map to sbd_add/sub/mul/div.
+      if (std::strcmp(n, "grad") == 0 && e.args.size() == 2) {
+        gradUsed = true;
+        string savedVar = gradVar; gradVar = render(*e.args[1]);
+        out += "("; emitDual(*e.args[0]); out += ").d";
+        gradVar = savedVar;
+        break;
+      }
       if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
         out += texEvalName(*td); out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) { if (i > 0) out += ", "; emitExpr(*e.args[i]); }
@@ -239,6 +251,41 @@ struct Emit {
     }
     }
   }
+
+  // Dual-number rewrite for grad(). Same shape as emit_wgsl — OpenCL C lacks
+  // operator overloads, so binary ops map to sbd_* functions; var seeds the
+  // Jacobian and other terms are zero-deriv constants.
+  string render(const Expr &e) { string saved = out; out = string(""); emitExpr(e); string r = out; out = saved; return r; }
+  bool isGradVar(const Expr &e) { string r = render(e); return string(r).operator==(string(gradVar.c_str())); }
+  void emitDual(const Expr &e)
+  {
+    if (isGradVar(e)) { out += "sb_seed3("; emitExpr(e); out += ")"; return; }
+    switch (e.kind) {
+    case ExprKind::LitFloat: case ExprKind::LitInt: out += "sb_c("; emitExpr(e); out += ")"; break;
+    case ExprKind::Ident: out += "sb_c3("; emitExpr(e); out += ")"; break;
+    case ExprKind::Member:
+      if (e.lhs && isGradVar(*e.lhs)) { out += "sb_comp(sb_seed3("; emitExpr(*e.lhs); out += "), "; out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")"; }
+      else { out += "sb_c("; emitExpr(e); out += ")"; }
+      break;
+    case ExprKind::Paren: out += "("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Binary: {
+      const char *f = e.binop==BinOp::Add?"sbd_add":e.binop==BinOp::Sub?"sbd_sub":e.binop==BinOp::Mul?"sbd_mul":"sbd_div";
+      out += f; out += "("; emitDual(*e.lhs); out += ", "; emitDual(*e.rhs); out += ")"; break;
+    }
+    case ExprKind::Unary: out += "sbd_neg("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Call: {
+      const char *n = e.name.c_str();
+      if (std::strcmp(n,"float3")==0) { out += "sb_v3("; for (int i=0;i<3;i++){if(i)out+=", ";emitDual(*e.args[i]);} out += ")"; break; }
+      out += "sbd_"; out += n; out += "(";
+      for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
+      out += ")"; break;
+    }
+    default: out += "sb_c(0.0f)"; break;
+    }
+  }
+  static bool exprUsesGrad(const Expr *e) { if(!e)return false; if(e->kind==ExprKind::Call&&std::strcmp(e->name.c_str(),"grad")==0)return true; if(exprUsesGrad(e->lhs.get())||exprUsesGrad(e->rhs.get()))return true; for(const auto&a:e->args)if(exprUsesGrad(a.get()))return true; return false; }
+  static bool stmtUsesGrad(const Stmt *s) { if(!s)return false; if(exprUsesGrad(s->expr.get())||exprUsesGrad(s->cond.get())||exprUsesGrad(s->lvalue.get())||exprUsesGrad(s->rvalue.get()))return true; for(const auto&c:s->stmts)if(stmtUsesGrad(c.get()))return true; return stmtUsesGrad(s->thenBranch.get())||stmtUsesGrad(s->elseBranch.get())||stmtUsesGrad(s->forInit.get())||stmtUsesGrad(s->forStep.get()); }
+  bool brushUsesGrad() const { for(const auto&st:brush->stages)if(stmtUsesGrad(st.body.get()))return true; return false; }
 
   // === statement emitter ===
 
@@ -341,6 +388,32 @@ struct Emit {
     write("struct StrokeSample { float3 pos; float3 normal; float arclen; };\n");
     write("typedef struct NodeMeta NodeMeta;\n");
     write("typedef struct StrokeSample StrokeSample;\n\n");
+
+    // Forward-mode dual prelude — emitted only when grad() is used. Mirrors the
+    // cpp/wgsl duals so all backends agree; OpenCL vectors lack [] indexing, so
+    // sb_idx picks components explicitly.
+    if (brushUsesGrad()) {
+      write("typedef struct { float v; float3 d; } sbdual;\n");
+      write("typedef struct { float3 v; float3 dx, dy, dz; } sbdual3;\n");
+      write("inline float sb_idx(float3 a, int i) { return (i==0)?a.x:(i==1)?a.y:a.z; }\n");
+      write("inline sbdual sb_c(float x) { sbdual r; r.v=x; r.d=(float3)(0.0f); return r; }\n");
+      write("inline sbdual3 sb_c3(float3 p) { sbdual3 r; r.v=p; r.dx=(float3)(0.0f); r.dy=(float3)(0.0f); r.dz=(float3)(0.0f); return r; }\n");
+      write("inline sbdual3 sb_seed3(float3 p) { sbdual3 r; r.v=p; r.dx=(float3)(1.0f,0.0f,0.0f); r.dy=(float3)(0.0f,1.0f,0.0f); r.dz=(float3)(0.0f,0.0f,1.0f); return r; }\n");
+      write("inline sbdual sb_comp(sbdual3 a, int i) { sbdual r; r.v=sb_idx(a.v,i); r.d=(float3)(sb_idx(a.dx,i), sb_idx(a.dy,i), sb_idx(a.dz,i)); return r; }\n");
+      write("inline sbdual3 sb_v3(sbdual x, sbdual y, sbdual z) { sbdual3 r; r.v=(float3)(x.v,y.v,z.v); r.dx=(float3)(x.d.x,y.d.x,z.d.x); r.dy=(float3)(x.d.y,y.d.y,z.d.y); r.dz=(float3)(x.d.z,y.d.z,z.d.z); return r; }\n");
+      write("inline sbdual sbd_add(sbdual a, sbdual b) { sbdual r; r.v=a.v+b.v; r.d=a.d+b.d; return r; }\n");
+      write("inline sbdual sbd_sub(sbdual a, sbdual b) { sbdual r; r.v=a.v-b.v; r.d=a.d-b.d; return r; }\n");
+      write("inline sbdual sbd_neg(sbdual a) { sbdual r; r.v=-a.v; r.d=-a.d; return r; }\n");
+      write("inline sbdual sbd_mul(sbdual a, sbdual b) { sbdual r; r.v=a.v*b.v; r.d=a.d*b.v + b.d*a.v; return r; }\n");
+      write("inline sbdual sbd_div(sbdual a, sbdual b) { sbdual r; r.v=a.v/b.v; r.d=(a.d*b.v - b.d*a.v)/(b.v*b.v); return r; }\n");
+      write("inline sbdual sbd_sin(sbdual a) { sbdual r; r.v=sin(a.v); r.d=a.d*cos(a.v); return r; }\n");
+      write("inline sbdual sbd_cos(sbdual a) { sbdual r; r.v=cos(a.v); r.d=a.d*(-sin(a.v)); return r; }\n");
+      write("inline sbdual sbd_sqrt(sbdual a) { float rr=sqrt(a.v); sbdual r; r.v=rr; r.d=a.d*(rr>0.0f?0.5f/rr:0.0f); return r; }\n");
+      write("inline sbdual sbd_abs(sbdual a) { sbdual r; r.v=fabs(a.v); r.d=a.d*(a.v<0.0f?-1.0f:1.0f); return r; }\n");
+      write("inline sbdual sbd_dot(sbdual3 a, sbdual3 b) { sbdual r; r.v=dot(a.v,b.v); r.d=a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z; return r; }\n");
+      write("inline sbdual sbd_length(sbdual3 a) { return sbd_sqrt(sbd_dot(a,a)); }\n");
+      write("inline sbdual sbd_mix(sbdual a, sbdual b, sbdual t) { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }\n\n");
+    }
 
     for (const auto &sd : brush->structs) {
       write("typedef struct {\n");

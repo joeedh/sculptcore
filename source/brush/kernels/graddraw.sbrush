@@ -1,0 +1,21 @@
+// GradDraw — displace each vertex along the gradient of a scalar field,
+// computed by forward-mode autodiff. Demonstrates the `grad(expr, var)`
+// builtin (Wave 6): expr is any scalar expression of the float3 var, and
+// grad returns float3 = (∂expr/∂var.x, ∂expr/∂var.y, ∂expr/∂var.z). Each
+// emitter rewrites the expression into dual-number form inline, so all
+// backends produce the same gradient. Here the field is a concentric
+// ripple in object space; pushing along its gradient ridges the surface.
+
+@brush("graddraw")
+brush GradDraw {
+  ctx float3 surfaceNo;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co);
+    if (s == 0.0) {
+      continue;
+    }
+    float3 g = grad(sin(length(v.co) * 40.0), v.co);
+    v.co += normalize(g) * s;
+  }
+}

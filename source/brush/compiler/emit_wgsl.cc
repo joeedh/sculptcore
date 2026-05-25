@@ -61,6 +61,9 @@ struct Emit {
   // True when the vertex stage uses for_neighbor — gates the extra
   // co_prev / neighbor-CSR bindings (11-13) and the NeighborLoop lowering.
   bool usesNeighbors = false;
+  // Set when grad(expr, var) is used — emits the forward-mode dual prelude.
+  bool gradUsed = false;
+  string gradVar;  // float3 var being differentiated, rendered
 
   // Active for_neighbor bundles (name + its WGSL neighbor-index variable),
   // pushed while lowering a NeighborLoop body so member access on the
@@ -303,6 +306,15 @@ struct Emit {
         break;
       }
 
+      // grad(expr, var) — forward-mode gradient, dual-number rewrite. WGSL has
+      // no operator overloads, so binary ops map to sbd_add/sub/mul/div.
+      if (std::strcmp(n, "grad") == 0 && e.args.size() == 2) {
+        gradUsed = true;
+        string savedVar = gradVar; gradVar = render(*e.args[1]);
+        out += "("; emitDual(*e.args[0]); out += ").d";
+        gradVar = savedVar;
+        break;
+      }
       // Dotted call `Tex.eval(args)` -> inline texture's eval function.
       if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
         out += texEvalName(*td);
@@ -361,6 +373,41 @@ struct Emit {
     }
     }
   }
+
+  // Dual-number rewrite for grad(). Same shape as emit_cpp but WGSL ops are
+  // sbd_* functions, not overloaded operators. var seeds the Jacobian; others
+  // are zero-deriv constants.
+  string render(const Expr &e) { string saved = out; out = string(""); emitExpr(e); string r = out; out = saved; return r; }
+  bool isGradVar(const Expr &e) { string r = render(e); return string(r).operator==(string(gradVar.c_str())); }
+  void emitDual(const Expr &e)
+  {
+    if (isGradVar(e)) { out += "sb_seed3("; emitExpr(e); out += ")"; return; }
+    switch (e.kind) {
+    case ExprKind::LitFloat: case ExprKind::LitInt: out += "sb_c("; emitExpr(e); out += ")"; break;
+    case ExprKind::Ident: out += "sb_c3("; emitExpr(e); out += ")"; break;
+    case ExprKind::Member:
+      if (e.lhs && isGradVar(*e.lhs)) { out += "sb_comp(sb_seed3("; emitExpr(*e.lhs); out += "), "; out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")"; }
+      else { out += "sb_c("; emitExpr(e); out += ")"; }
+      break;
+    case ExprKind::Paren: out += "("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Binary: {
+      const char *f = e.binop==BinOp::Add?"sbd_add":e.binop==BinOp::Sub?"sbd_sub":e.binop==BinOp::Mul?"sbd_mul":"sbd_div";
+      out += f; out += "("; emitDual(*e.lhs); out += ", "; emitDual(*e.rhs); out += ")"; break;
+    }
+    case ExprKind::Unary: out += "sbd_neg("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Call: {
+      const char *n = e.name.c_str();
+      if (std::strcmp(n,"float3")==0) { out += "sb_v3("; for (int i=0;i<3;i++){if(i)out+=", ";emitDual(*e.args[i]);} out += ")"; break; }
+      out += "sbd_"; out += n; out += "(";
+      for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
+      out += ")"; break;
+    }
+    default: out += "sb_c(0.0)"; break;
+    }
+  }
+  static bool exprUsesGrad(const Expr *e) { if(!e)return false; if(e->kind==ExprKind::Call&&std::strcmp(e->name.c_str(),"grad")==0)return true; if(exprUsesGrad(e->lhs.get())||exprUsesGrad(e->rhs.get()))return true; for(const auto&a:e->args)if(exprUsesGrad(a.get()))return true; return false; }
+  static bool stmtUsesGrad(const Stmt *s) { if(!s)return false; if(exprUsesGrad(s->expr.get())||exprUsesGrad(s->cond.get())||exprUsesGrad(s->lvalue.get())||exprUsesGrad(s->rvalue.get()))return true; for(const auto&c:s->stmts)if(stmtUsesGrad(c.get()))return true; return stmtUsesGrad(s->thenBranch.get())||stmtUsesGrad(s->elseBranch.get())||stmtUsesGrad(s->forInit.get())||stmtUsesGrad(s->forStep.get()); }
+  bool brushUsesGrad() const { for(const auto&st:brush->stages)if(stmtUsesGrad(st.body.get()))return true; return false; }
 
   // === statement emitter ===
 
@@ -940,6 +987,30 @@ struct Emit {
     usesNeighbors = hasNeighborLoop(vertexStage->body.get());
 
     emitPrelude();
+
+    // Forward-mode dual prelude — scalar (v, ∂v) and float3 (v + 3-col
+    // Jacobian); chain rules drive grad()'s rewrite. WGSL needs sbd_* fns.
+    if (brushUsesGrad()) {
+      write("struct sbdual { v: f32, d: vec3<f32> };\n");
+      write("struct sbdual3 { v: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>, dz: vec3<f32> };\n");
+      write("fn sb_c(x: f32) -> sbdual { return sbdual(x, vec3<f32>(0.0)); }\n");
+      write("fn sb_c3(p: vec3<f32>) -> sbdual3 { return sbdual3(p, vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0)); }\n");
+      write("fn sb_seed3(p: vec3<f32>) -> sbdual3 { return sbdual3(p, vec3<f32>(1.0,0.0,0.0), vec3<f32>(0.0,1.0,0.0), vec3<f32>(0.0,0.0,1.0)); }\n");
+      write("fn sb_comp(a: sbdual3, i: i32) -> sbdual { return sbdual(a.v[i], vec3<f32>(a.dx[i], a.dy[i], a.dz[i])); }\n");
+      write("fn sb_v3(x: sbdual, y: sbdual, z: sbdual) -> sbdual3 { return sbdual3(vec3<f32>(x.v,y.v,z.v), vec3<f32>(x.d[0],y.d[0],z.d[0]), vec3<f32>(x.d[1],y.d[1],z.d[1]), vec3<f32>(x.d[2],y.d[2],z.d[2])); }\n");
+      write("fn sbd_add(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v+b.v, a.d+b.d); }\n");
+      write("fn sbd_sub(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v-b.v, a.d-b.d); }\n");
+      write("fn sbd_neg(a: sbdual) -> sbdual { return sbdual(-a.v, -a.d); }\n");
+      write("fn sbd_mul(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v*b.v, a.d*b.v + b.d*a.v); }\n");
+      write("fn sbd_div(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v/b.v, (a.d*b.v - b.d*a.v)/(b.v*b.v)); }\n");
+      write("fn sbd_sin(a: sbdual) -> sbdual { return sbdual(sin(a.v), a.d*cos(a.v)); }\n");
+      write("fn sbd_cos(a: sbdual) -> sbdual { return sbdual(cos(a.v), a.d*(-sin(a.v))); }\n");
+      write("fn sbd_sqrt(a: sbdual) -> sbdual { let r = sqrt(a.v); return sbdual(r, select(vec3<f32>(0.0), a.d*(0.5/r), r>0.0)); }\n");
+      write("fn sbd_abs(a: sbdual) -> sbdual { return sbdual(abs(a.v), a.d*select(1.0,-1.0,a.v<0.0)); }\n");
+      write("fn sbd_dot(a: sbdual3, b: sbdual3) -> sbdual { return sbdual(dot(a.v,b.v), a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z); }\n");
+      write("fn sbd_length(a: sbdual3) -> sbdual { return sbd_sqrt(sbd_dot(a,a)); }\n");
+      write("fn sbd_mix(a: sbdual, b: sbdual, t: sbdual) -> sbdual { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }\n\n");
+    }
 
     // Inline texture eval functions — pure, module scope, before the
     // stages that call them.

@@ -61,7 +61,7 @@ source/
   litestl/          self-contained foundational lib (util, math, platform, path, binding)
   mesh/             mesh data structures + attributes + utils + C API
   meshlog/          sculpt undo/redo log (per-node attribute swaps + topology log)
-  brush/            sculpt brushes, command executor, brushes/ implementations
+  brush/            sculpt brushes (sbrush DSL + sbrushc compiler), command executor
   spatial/          spatial acceleration (BVH-style nodes) + C API + shaders
   props/            property / reflection system (runtime-side)
   gpu/              GPU abstraction (frontend; backends are native-only)
@@ -176,6 +176,26 @@ pre-fills field defaults — see
 [`documentation/rendering.md`](documentation/rendering.md) for the
 full object model, link semantics, and the recipe for adding a new
 uniform block.
+
+## Brush
+
+`source/brush/` applies sculpt operations to mesh geometry. Brushes are
+**not hand-written** — each is authored once in the small `sbrush` DSL
+(`kernels/<name>.sbrush`) and compiled by the `sbrushc` host tool
+(`compiler/`) to every backend: the reference C++ executor plus WGSL,
+SPIR-V, CUDA, HIP, and OpenCL. The C++ output is checked into
+`kernels/generated/<name>.brush.gen.h` and consumed directly by the WASM
+build; `brushes/all.h` aggregates them and `CommandExecutor::createCommand()`
+dispatches the `SculptBrushes` enum to the matching factory. At runtime
+`CommandExecutor::execBrush` walks `SpatialNode`s and runs the compiled
+kernel through a vertex-iterator factory. Codegen is
+`node make.mjs codegen`; cross-backend correctness is gated by
+`sbrush-validate` (per-backend compile) and `sbrush-verify` (C++ vs GPU
+A/B, bit-for-bit modulo fp). Three docs cover it:
+[`documentation/brush.md`](documentation/brush.md) (runtime),
+[`documentation/brush_dsl.md`](documentation/brush_dsl.md) (the language),
+and [`documentation/brush_compute.md`](documentation/brush_compute.md)
+(compiler, build wiring, verification).
 
 ## Debugging with source-line prints
 

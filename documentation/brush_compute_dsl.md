@@ -480,14 +480,18 @@ Each `build` step runs `sbrushc` for every enabled backend with
 `SBRUSH_VALIDATE_ALL=ON`; failure of any external validator fails the
 job and the offending tool's output appears in the build log.
 
-### Analytical differentiation (deferred)
+### Analytical differentiation
 
-The IR is in three-address form with pure intrinsics, which makes forward-mode
-dual-number transformation a single IR pass: replace each `float` SSA value
-with `(value, dvalue)` and rewrite ops mechanically. Reverse-mode is a
+Forward-mode `grad` is **implemented** (Wave 6): the dual-number transformation
+is realized directly in each emitter as `emitDual`, which rewrites the `grad`
+argument expression into dual ops (scalars → `sbdual {v, d}`, float3 →
+`sbdual3 {v, dx, dy, dz}`) and reads back `.d`. `var` seeds the identity
+Jacobian; every other term is a zero-derivative constant; intrinsics dispatch to
+`sbd_*` chain-rule helpers. The same rewrite shape is shared by cpp/wgsl/spirv/
+cuda/hip/opencl, so all backends agree. Reverse-mode is still a
 separate pass over the same IR (tape per basic block, brushes have no loops
 over unbounded data except neighbors — neighbor loops get unrolled-by-runtime
-or use accumulator tapes).
+or use accumulator tapes) and remains deferred.
 
 Design decisions taken *now* to keep this open:
 - All intrinsics declare derivatives in a single table
@@ -593,9 +597,18 @@ Design decisions taken *now* to keep this open:
    helpers macro-bound to arg names); the `sbrush-opencl` target lowers via
    `clspv` to SPIR-V and gates with `spirv-val`. `node make.mjs sbrush-validate
    opencl` covers all kernels, and CI now gates all six backends.
-6. **Wave 6 (deferred).** Forward-mode autodiff pass; expose `grad_apply` for
-   brushes that want it (e.g. constraint solvers, optimization-based
-   smoothing).
+6. **Wave 6 — forward-mode autodiff (`grad`). Implemented.** `grad(expr, var)`
+   returns the float3 gradient of a scalar `expr` w.r.t. a `float3 var`
+   (`(∂expr/∂var.x, ∂expr/∂var.y, ∂expr/∂var.z)`). A dual-number rewrite in each
+   emitter (`emitDual`) replaces scalars with `sbdual {v, d}` and float3 with
+   `sbdual3 {v, dx, dy, dz}` (3-column Jacobian); `var` seeds the identity, other
+   terms carry zero derivative, intrinsics map to `sbd_*` chain-rule helpers in a
+   per-backend dual prelude (emitted only when a brush uses `grad`). The rewrite
+   is one shared shape across all six backends, so the gradient is bit-identical
+   modulo fp. Demo: `kernels/graddraw.sbrush` ridges a surface along
+   `grad(sin(length(v.co)*40), v.co)`. See
+   [`plans/sbrush_autodiff.md`](plans/sbrush_autodiff.md). Reverse-mode remains
+   deferred.
 
 ## Verification via the debug app
 

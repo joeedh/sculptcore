@@ -60,6 +60,8 @@ struct Emit {
   // True when the vertex stage uses for_neighbor — gates the extra
   // co_prev / neighbor-CSR globals and the NeighborLoop lowering.
   bool usesNeighbors = false;
+  bool gradUsed = false;
+  string gradVar;
 
   struct NbBinding {
     string name;
@@ -255,6 +257,15 @@ struct Emit {
       out += ")";
       break;
     case ExprKind::Call: {
+      // grad(expr, var) — forward-mode gradient; rewrite the arg inline into
+      // dual form and read back `.d`. CUDA has overloaded sbdual operators.
+      if (std::strcmp(e.name.c_str(), "grad") == 0 && e.args.size() == 2) {
+        gradUsed = true;
+        string savedVar = gradVar; gradVar = render(*e.args[1]);
+        out += "("; emitDual(*e.args[0]); out += ").d";
+        gradVar = savedVar;
+        break;
+      }
       // float2/3/4 type-constructor calls -> sb_make_float* prelude helpers
       // (the prelude has no implicit aggregate constructors).
       const char *n = e.name.c_str();
@@ -329,6 +340,37 @@ struct Emit {
     }
     }
   }
+
+  // grad dual rewrite — CUDA prelude provides overloaded sbdual operators, so
+  // binary/unary emit verbatim; sbd_* use device math + sc_*/float3 helpers.
+  string render(const Expr &e) { string s = out; out = string(""); emitExpr(e); string r = out; out = s; return r; }
+  bool isGradVar(const Expr &e) { string r = render(e); return string(r).operator==(string(gradVar.c_str())); }
+  void emitDual(const Expr &e)
+  {
+    if (isGradVar(e)) { out += "sb_seed3("; emitExpr(e); out += ")"; return; }
+    switch (e.kind) {
+    case ExprKind::LitFloat: case ExprKind::LitInt: out += "sb_c("; emitExpr(e); out += ")"; break;
+    case ExprKind::Ident: out += "sb_c3("; emitExpr(e); out += ")"; break;
+    case ExprKind::Member:
+      if (e.lhs && isGradVar(*e.lhs)) { out += "sb_comp(sb_seed3("; emitExpr(*e.lhs); out += "), "; out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")"; }
+      else { out += "sb_c("; emitExpr(e); out += ")"; }
+      break;
+    case ExprKind::Paren: out += "("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Binary: out += "("; emitDual(*e.lhs); out += " "; out += binOpCSym(e.binop); out += " "; emitDual(*e.rhs); out += ")"; break;
+    case ExprKind::Unary: out += "("; out += unaryOpCSym(e.unaryop); emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Call: {
+      const char *n = e.name.c_str();
+      if (std::strcmp(n,"float3")==0) { out += "sb_v3("; for (int i=0;i<3;i++){if(i)out+=", ";emitDual(*e.args[i]);} out += ")"; break; }
+      out += "sbd_"; out += n; out += "(";
+      for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
+      out += ")"; break;
+    }
+    default: out += "sb_c(0.0f)"; break;
+    }
+  }
+  static bool exprUsesGrad(const Expr *e) { if(!e)return false; if(e->kind==ExprKind::Call&&std::strcmp(e->name.c_str(),"grad")==0)return true; if(exprUsesGrad(e->lhs.get())||exprUsesGrad(e->rhs.get()))return true; for(const auto&a:e->args)if(exprUsesGrad(a.get()))return true; return false; }
+  static bool stmtUsesGrad(const Stmt *s) { if(!s)return false; if(exprUsesGrad(s->expr.get())||exprUsesGrad(s->cond.get())||exprUsesGrad(s->lvalue.get())||exprUsesGrad(s->rvalue.get()))return true; for(const auto&c:s->stmts)if(stmtUsesGrad(c.get()))return true; return stmtUsesGrad(s->thenBranch.get())||stmtUsesGrad(s->elseBranch.get())||stmtUsesGrad(s->forInit.get())||stmtUsesGrad(s->forStep.get()); }
+  bool brushUsesGrad() const { for(const auto&st:brush->stages)if(stmtUsesGrad(st.body.get()))return true; return false; }
 
   // === statement emitter ===
 
@@ -589,6 +631,32 @@ struct Emit {
     write("}\n\n");
     write("struct NodeMeta { unsigned int vert_offset; unsigned int vert_count; };\n");
     write("struct StrokeSample { float3 pos; float3 normal; float arclen; };\n\n");
+
+    // Forward-mode dual prelude — emitted only when grad() is used. Mirrors the
+    // cpp/wgsl duals so all backends produce the same gradient; CUDA float3 has
+    // no operator[], so sb_idx picks components explicitly.
+    if (brushUsesGrad()) {
+      write("struct sbdual { float v; float3 d; };\n");
+      write("struct sbdual3 { float3 v; float3 dx, dy, dz; };\n");
+      write("__device__ __forceinline__ float sb_idx(float3 a, int i) { return (i==0)?a.x:(i==1)?a.y:a.z; }\n");
+      write("__device__ __forceinline__ sbdual sb_c(float x) { return {x, sb_make_float3(0,0,0)}; }\n");
+      write("__device__ __forceinline__ sbdual3 sb_c3(float3 p) { return {p, sb_make_float3(0,0,0), sb_make_float3(0,0,0), sb_make_float3(0,0,0)}; }\n");
+      write("__device__ __forceinline__ sbdual3 sb_seed3(float3 p) { return {p, sb_make_float3(1,0,0), sb_make_float3(0,1,0), sb_make_float3(0,0,1)}; }\n");
+      write("__device__ __forceinline__ sbdual sb_comp(sbdual3 a, int i) { return {sb_idx(a.v,i), sb_make_float3(sb_idx(a.dx,i), sb_idx(a.dy,i), sb_idx(a.dz,i))}; }\n");
+      write("__device__ __forceinline__ sbdual3 sb_v3(sbdual x, sbdual y, sbdual z) { return {sb_make_float3(x.v,y.v,z.v), sb_make_float3(x.d.x,y.d.x,z.d.x), sb_make_float3(x.d.y,y.d.y,z.d.y), sb_make_float3(x.d.z,y.d.z,z.d.z)}; }\n");
+      write("__device__ __forceinline__ sbdual operator+(sbdual a, sbdual b) { return {a.v+b.v, a.d+b.d}; }\n");
+      write("__device__ __forceinline__ sbdual operator-(sbdual a, sbdual b) { return {a.v-b.v, a.d-b.d}; }\n");
+      write("__device__ __forceinline__ sbdual operator-(sbdual a) { return {-a.v, -a.d}; }\n");
+      write("__device__ __forceinline__ sbdual operator*(sbdual a, sbdual b) { return {a.v*b.v, a.d*b.v + b.d*a.v}; }\n");
+      write("__device__ __forceinline__ sbdual operator/(sbdual a, sbdual b) { return {a.v/b.v, (a.d*b.v - b.d*a.v)/(b.v*b.v)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_sin(sbdual a) { return {sinf(a.v), a.d*cosf(a.v)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_cos(sbdual a) { return {cosf(a.v), a.d*(-sinf(a.v))}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_sqrt(sbdual a) { float r=sqrtf(a.v); return {r, a.d*(r>0?0.5f/r:0.0f)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_abs(sbdual a) { return {fabsf(a.v), a.d*(a.v<0?-1.0f:1.0f)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_dot(sbdual3 a, sbdual3 b) { return {sc_dot(a.v,b.v), a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_length(sbdual3 a) { return sbd_sqrt(sbd_dot(a,a)); }\n");
+      write("__device__ __forceinline__ sbdual sbd_mix(sbdual a, sbdual b, sbdual t) { return a+(b-a)*t; }\n\n");
+    }
 
     // User-defined struct decls.
     for (const auto &sd : brush->structs) {
