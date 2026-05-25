@@ -34,6 +34,7 @@ static const KW keywords[] = {
   {"for_neighbor", TokKind::KwForNeighbor},
   {"for",      TokKind::KwFor},
   {"struct",   TokKind::KwStruct},
+  {"texture",  TokKind::KwTexture},
 };
 
 struct Lexer {
@@ -343,6 +344,7 @@ const char *tokKindName(TokKind k)
   case TokKind::KwForNeighbor: return "for_neighbor";
   case TokKind::KwFor: return "for";
   case TokKind::KwStruct: return "struct";
+  case TokKind::KwTexture: return "texture";
   }
   return "?";
 }

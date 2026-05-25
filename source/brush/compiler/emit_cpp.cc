@@ -70,6 +70,16 @@ struct Emit {
     return nullptr;
   }
 
+  // Resolve a dotted call name like "Rings.eval" to its texture def.
+  const TextureDef *findTextureCall(stringref callName) const
+  {
+    for (const auto &t : brush->textures) {
+      string full = t.name + ".eval";
+      if (string(full).operator==(string(callName.c_str()))) return &t;
+    }
+    return nullptr;
+  }
+
   bool isStageParam(stringref name) const
   {
     if (!currentStage) return false;
@@ -178,6 +188,18 @@ struct Emit {
       out += ")";
       break;
     case ExprKind::Call: {
+      // Dotted call `Tex.eval(args)` -> inline texture's free function.
+      if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
+        out += "tex";
+        out += capitalize(td->name);
+        out += "Eval(";
+        for (int i = 0; i < (int)e.args.size(); i++) {
+          if (i > 0) out += ", ";
+          emitExpr(*e.args[i]);
+        }
+        out += ")";
+        break;
+      }
       const IntrinsicDef *intr = findIntrinsic(stringref(e.name.c_str()));
       if (intr) {
         const char *pat = intr->emit[(int)BackendKind::Cpp].pattern;
@@ -510,6 +532,46 @@ struct Emit {
     write("}\n\n");
   }
 
+  // Emit one inline texture's eval as a pure free function. It sees only
+  // its own parameters and intrinsics — no ctx/brush state — so the same
+  // text lowers identically on every backend.
+  void emitTextureFn(const TextureDef &td)
+  {
+    write("static ");
+    write(typeKindName(td.returnType));
+    write(" tex");
+    write(capitalize(td.name));
+    write("Eval(");
+    for (int i = 0; i < (int)td.params.size(); i++) {
+      if (i > 0) write(", ");
+      write(typeKindName(td.params[i].type));
+      write(" ");
+      write(td.params[i].name);
+    }
+    write(")\n{\n");
+    write("  using namespace litestl::math;\n");
+    for (const auto &p : td.params) {
+      write("  (void)");
+      write(p.name);
+      write(";\n");
+    }
+    indent = 1;
+    // A scratch stage so identifier resolution treats the eval params as
+    // stage params (bare names) rather than brush fields.
+    Stage scratch;
+    scratch.kind = StageKind::Reduce;
+    for (const auto &p : td.params) scratch.params.append(p);
+    currentStage = &scratch;
+    if (td.body && td.body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : td.body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+    currentStage = nullptr;
+    indent = 0;
+    write("}\n\n");
+  }
+
   void run()
   {
     string lowerName = lower(string(brush->attrName.size() > 0 ? brush->attrName : brush->cppName));
@@ -539,6 +601,12 @@ struct Emit {
         write(";\n");
       }
       write("};\n\n");
+    }
+
+    // Inline texture eval functions — pure, at namespace scope so the
+    // vertex/reduce bodies can call them.
+    for (const auto &td : brush->textures) {
+      emitTextureFn(td);
     }
 
     // pre-stage: meshlog setup. Universal for local-per-vertex brushes.

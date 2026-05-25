@@ -88,6 +88,9 @@ struct CommandExecutor {
     case SculptBrushes::POSE:
       command::createPoseBrush(def);
       return def;
+    case SculptBrushes::TEXDRAW:
+      command::createTexdrawBrush(def);
+      return def;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();

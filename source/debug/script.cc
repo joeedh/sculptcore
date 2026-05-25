@@ -226,6 +226,7 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
   bool writesMask = false;  // Mask paints mask_buf; everyone else leaves it as-is.
   switch (scene.currentTool) {
   case brush::SculptBrushes::DRAW: kernel = "draw"; break;
+  case brush::SculptBrushes::TEXDRAW: kernel = "texdraw"; break;
   case brush::SculptBrushes::CLAY: kernel = "clay"; break;
   case brush::SculptBrushes::INFLATE: kernel = "inflate"; break;
   case brush::SculptBrushes::PINCH: kernel = "pinch"; break;
@@ -626,6 +627,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::KELVINLET;
     } else if (ts == "pose") {
       scene.currentTool = brush::SculptBrushes::POSE;
+    } else if (ts == "texdraw") {
+      scene.currentTool = brush::SculptBrushes::TEXDRAW;
     } else {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;
@@ -915,6 +918,7 @@ bool execVerb(Scene &scene,
     // sync with runBrushStrokeGPU's kernel switch.
     brush::SculptBrushes t = scene.currentTool;
     bool gpuTool = t == brush::SculptBrushes::DRAW ||
+                   t == brush::SculptBrushes::TEXDRAW ||
                    t == brush::SculptBrushes::CLAY ||
                    t == brush::SculptBrushes::INFLATE ||
                    t == brush::SculptBrushes::PINCH ||
@@ -993,6 +997,7 @@ bool execVerb(Scene &scene,
     // sync with runBrushStrokeGPU's kernel switch.
     brush::SculptBrushes t = scene.currentTool;
     bool gpuTool = t == brush::SculptBrushes::DRAW ||
+                   t == brush::SculptBrushes::TEXDRAW ||
                    t == brush::SculptBrushes::CLAY ||
                    t == brush::SculptBrushes::INFLATE ||
                    t == brush::SculptBrushes::PINCH ||

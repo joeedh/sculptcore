@@ -195,11 +195,23 @@ struct StructDef {
   Vector<StructField> fields;
 };
 
+// An inline procedural texture: `texture <Name> { float eval(float3 p, float3 n) { ... } }`.
+// Callable within the owning brush as `<Name>.eval(p, n)`. Lowered to a free
+// function (tex<Cap>Eval in C++, tex_<name>_eval in WGSL).
+struct TextureDef {
+  string name;                            // e.g. "Rings"
+  TypeKind returnType = TypeKind::Float;  // eval return type
+  Vector<Param> params;                   // eval params
+  StmtPtr body;                           // eval body
+  int line = 0;
+};
+
 struct Brush {
   string attrName;       // from @brush("draw") -> "draw"
   string cppName;        // brush Draw { ... } -> "Draw"
   Vector<Field> fields;
   Vector<StructDef> structs;
+  Vector<TextureDef> textures;
   Vector<Stage> stages;
   string sourceFile;
 };

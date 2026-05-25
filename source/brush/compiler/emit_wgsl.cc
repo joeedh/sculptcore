@@ -132,6 +132,31 @@ struct Emit {
     return false;
   }
 
+  static string lower(const string &s)
+  {
+    string r = s;
+    for (int i = 0; i < (int)r.size(); i++) {
+      r[i] = (char)std::tolower((unsigned char)r[i]);
+    }
+    return r;
+  }
+
+  // Mangled WGSL name for an inline texture's eval function.
+  static string texEvalName(const TextureDef &td)
+  {
+    return string("tex_") + lower(td.name) + "_eval";
+  }
+
+  // Resolve a dotted call name like "Rings.eval" to its texture def.
+  const TextureDef *findTextureCall(stringref callName) const
+  {
+    for (const auto &t : brush->textures) {
+      string full = t.name + ".eval";
+      if (string(full).operator==(string(callName.c_str()))) return &t;
+    }
+    return nullptr;
+  }
+
   // Reduce-stage out/inout params (struct or scalar) are lowered to WGSL
   // `ptr<function, T>`, so identifier references to them have to be
   // dereferenced inline — `s.a = x` becomes `(*s).a = x`, `w = 1.0`
@@ -270,6 +295,18 @@ struct Emit {
         out += "vec";
         out += n[5];
         out += "<f32>(";
+        for (int i = 0; i < (int)e.args.size(); i++) {
+          if (i > 0) out += ", ";
+          emitExpr(*e.args[i]);
+        }
+        out += ")";
+        break;
+      }
+
+      // Dotted call `Tex.eval(args)` -> inline texture's eval function.
+      if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
+        out += texEvalName(*td);
+        out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
           if (i > 0) out += ", ";
           emitExpr(*e.args[i]);
@@ -821,6 +858,39 @@ struct Emit {
   // or scalar) become `ptr<function, T>` so the callee can write back;
   // `in` params pass by value. The body emitter dereferences ptr params
   // automatically — see isOutPtrParam.
+  // Emit one inline texture's eval as a pure WGSL function — sees only
+  // its params and intrinsics, no uniforms/ctx.
+  void emitTextureFn(const TextureDef &td)
+  {
+    write("fn ");
+    write(texEvalName(td));
+    write("(");
+    bool first = true;
+    for (const auto &p : td.params) {
+      if (!first) write(", ");
+      first = false;
+      write(p.name);
+      write(": ");
+      write(wgslType(p.type));
+    }
+    write(") -> ");
+    write(wgslType(td.returnType));
+    write(" {\n");
+    indent = 1;
+    Stage scratch;
+    scratch.kind = StageKind::Reduce;
+    for (const auto &p : td.params) scratch.params.append(p);
+    currentStage = &scratch;
+    if (td.body && td.body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : td.body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+    currentStage = nullptr;
+    indent = 0;
+    write("}\n\n");
+  }
+
   void emitReduceStage(const Stage &st)
   {
     write("fn ");
@@ -870,6 +940,12 @@ struct Emit {
     usesNeighbors = hasNeighborLoop(vertexStage->body.get());
 
     emitPrelude();
+
+    // Inline texture eval functions — pure, module scope, before the
+    // stages that call them.
+    for (const auto &td : brush->textures) {
+      emitTextureFn(td);
+    }
 
     // Reduce stages — WGSL has no templates, so we just name-mangle by
     // the DSL stage name (which is brush-local in practice).

@@ -262,13 +262,31 @@ rises more than the −Y end) while the GLOBAL control shows no Y gradient.
 `(co - surfacePos)` into it. `draw_projected_tex_ab` strokes the +X cube face so
 the non-degenerate `(0,0,1)` reference branch runs; `draw_image_tex_ab` /
 `draw_proc_tex_ab` gate the `image=`/`proc=` texture sources — all three pass
-cpp-vs-wgsl and the Dawn `webgpu-verify` replay. The in-kernel `@texture`
-procedural surface below remains deferred to a later slice.
+cpp-vs-wgsl and the Dawn `webgpu-verify` replay.
 
-Procedural textures from `proceduralTex.ts` are already GLSL-generating
-(`createShaderClass` → `genGlsl`). The DSL adopts the same generator surface:
-a `@texture` declaration whose body is plain `sbrush` code, callable as
-`tex.eval(p, n)` from any brush. Image textures become `Tex2D` with a
+Inline procedural textures are implemented. A brush body may declare
+
+```
+texture Rings {
+  float eval(float3 p, float3 n) { ... }
+}
+```
+
+and call it as `Rings.eval(p, n)` from any stage. The `eval` body is pure
+`sbrush` — it sees only its own parameters plus intrinsics, no ctx/uniform
+state — so it lowers to a free function on every backend (`texRingsEval` in
+C++, `tex_rings_eval` in WGSL) and produces bit-identical results. The lexer
+gains a `texture` keyword; the parser gains a `texture` block (one required
+`eval`) and a dotted-call form (`Ident.method(...)` → `Call` named
+`"Ident.method"`); both emitters resolve that name to the texture's free
+function. The feature adds the `sin`/`cos`/`floor`/`fract` intrinsics
+(`fract` lowers to `x - std::floor(x)` in C++, `fract()` in WGSL). The
+`texdraw` brush (`kernels/texdraw.sbrush`, selectable via
+`set_brush_tool tool=texdraw`) is the demo: a draw variant modulated by a
+concentric-rings `eval` exercising all four new intrinsics. `texdraw_ab`
+passes cpp-vs-wgsl, the golden, tint+spirv-val, and the Dawn `webgpu-verify`
+replay (bit-exact). Cross-brush texture *sharing* (one `@texture` reused
+across brushes) remains deferred. Image textures become `Tex2D` with a
 bilinear sample intrinsic.
 
 ### IR (`BrushIR`)

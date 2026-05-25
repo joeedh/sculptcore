@@ -110,6 +110,8 @@ struct Parser {
         parseField(*brush);
       } else if (check(TokKind::KwStruct)) {
         parseStruct(*brush);
+      } else if (check(TokKind::KwTexture)) {
+        parseTexture(*brush);
       } else if (check(TokKind::KwVertex) || check(TokKind::KwReduce) || check(TokKind::KwHost)) {
         parseStage(*brush);
       } else {
@@ -170,6 +172,64 @@ struct Parser {
       if (!match(TokKind::Comma)) break;
     }
     expect(TokKind::Semicolon, "after field declaration");
+  }
+
+  // texture <Name> { <retType> eval(<params>) { body } }
+  // Exactly one `eval` function is required.
+  void parseTexture(Brush &brush)
+  {
+    advance(); // 'texture'
+    if (!check(TokKind::Ident)) { error("expected texture name after 'texture'", peek()); return; }
+    TextureDef td;
+    td.line = peek().line;
+    td.name = peek().text;
+    advance();
+    if (!expect(TokKind::LBrace, "after texture name")) return;
+
+    // eval function header
+    if (!check(TokKind::Ident)) { error("expected return type in texture eval", peek()); return; }
+    td.returnType = parseTypeKind(stringref(peek().text.c_str()));
+    if (td.returnType == TypeKind::Unknown) {
+      errorf(peek(), "unknown return type '%s' in texture eval", peek().text.c_str());
+    }
+    advance();
+    if (!check(TokKind::Ident) ||
+        !string(peek().text.c_str()).operator==(string("eval"))) {
+      error("texture body must define a single 'eval' function", peek());
+      return;
+    }
+    advance(); // 'eval'
+
+    expect(TokKind::LParen, "after 'eval'");
+    while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
+      Param p;
+      if (match(TokKind::KwInout)) p.dir = ParamDir::InOut;
+      else if (match(TokKind::KwIn)) p.dir = ParamDir::In;
+      else if (match(TokKind::KwOut)) p.dir = ParamDir::Out;
+
+      if (!check(TokKind::Ident)) { error("expected param type", peek()); break; }
+      p.type = parseTypeKind(stringref(peek().text.c_str()));
+      if (p.type == TypeKind::Unknown) {
+        if (const StructDef *sd = findStruct(stringref(peek().text.c_str()))) {
+          p.type = TypeKind::Struct;
+          p.structName = sd->name;
+        } else {
+          errorf(peek(), "unknown param type '%s'", peek().text.c_str());
+        }
+      }
+      advance();
+      if (!check(TokKind::Ident)) { error("expected param name", peek()); break; }
+      p.name = peek().text;
+      advance();
+      td.params.append(p);
+      if (!check(TokKind::RParen)) {
+        if (!expect(TokKind::Comma, "between params")) break;
+      }
+    }
+    expect(TokKind::RParen, "to close eval params");
+    td.body = parseBlock();
+    expect(TokKind::RBrace, "to close texture body");
+    brush.textures.append(std::move(td));
   }
 
   void parseStruct(Brush &brush)
@@ -567,7 +627,16 @@ struct Parser {
         advance();
         e = std::move(m);
       } else if (check(TokKind::LParen)) {
-        if (!e || e->kind != ExprKind::Ident) {
+        // Plain call `foo(...)` or a dotted method call `Tex.eval(...)`
+        // (Member whose lhs is an Ident). The latter resolves to an inline
+        // texture's eval function in the emitters.
+        string callName;
+        if (e && e->kind == ExprKind::Ident) {
+          callName = e->name;
+        } else if (e && e->kind == ExprKind::Member && e->lhs &&
+                   e->lhs->kind == ExprKind::Ident) {
+          callName = e->lhs->name + "." + e->name;
+        } else {
           error("call requires an identifier", peek());
           break;
         }
@@ -575,7 +644,7 @@ struct Parser {
         advance();
         auto call = std::make_unique<Expr>(ExprKind::Call);
         call->line = line;
-        call->name = e->name;
+        call->name = callName;
         e.reset();
         while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
           call->args.append(parseExpr());

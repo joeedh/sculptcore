@@ -73,6 +73,18 @@ static IntrinsicDef sIntrinsicsRaw[] = {
           "std::abs($0)",             "abs($0)"),
   INTR_CW("sqrt",      TypeKind::Float,  1, ARG1(TypeKind::Float),
           "std::sqrt($0)",            "sqrt($0)"),
+
+  // Trig / rounding — needed by inline procedural textures. WGSL has
+  // matching builtins; C++ uses <cmath>. fract has no C++ builtin, so it
+  // lowers to x - floor(x).
+  INTR_CW("sin",       TypeKind::Float,  1, ARG1(TypeKind::Float),
+          "std::sin($0)",             "sin($0)"),
+  INTR_CW("cos",       TypeKind::Float,  1, ARG1(TypeKind::Float),
+          "std::cos($0)",             "cos($0)"),
+  INTR_CW("floor",     TypeKind::Float,  1, ARG1(TypeKind::Float),
+          "std::floor($0)",           "floor($0)"),
+  INTR_CW("fract",     TypeKind::Float,  1, ARG1(TypeKind::Float),
+          "(($0) - std::floor($0))",  "fract($0)"),
 };
 
 #undef ARG1
