@@ -26,6 +26,7 @@ BrushComputeDispatch::~BrushComputeDispatch()
   destroyBuf(coPrev_);
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
+  destroyBrushTexture();
   if (sampler_) vkDestroySampler(d, sampler_, nullptr);
   if (whiteView_) vkDestroyImageView(d, whiteView_, nullptr);
   if (whiteImage_) vkDestroyImage(d, whiteImage_, nullptr);
@@ -179,6 +180,97 @@ bool BrushComputeDispatch::createWhiteTexture()
   sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   return vkCreateSampler(d, &sci, nullptr, &sampler_) == VK_SUCCESS;
+}
+
+void BrushComputeDispatch::destroyBrushTexture()
+{
+  if (!ctx_ || ctx_->device == VK_NULL_HANDLE) return;
+  VkDevice d = ctx_->device;
+  if (texView_) vkDestroyImageView(d, texView_, nullptr);
+  if (texImage_) vkDestroyImage(d, texImage_, nullptr);
+  if (texMem_) vkFreeMemory(d, texMem_, nullptr);
+  texView_ = VK_NULL_HANDLE;
+  texImage_ = VK_NULL_HANDLE;
+  texMem_ = VK_NULL_HANDLE;
+}
+
+bool BrushComputeDispatch::setBrushTexture(const float *pixels, int width,
+                                           int height)
+{
+  if (width <= 0 || height <= 0 || !pixels) return false;
+  VkDevice d = ctx_->device;
+  destroyBrushTexture();  // one texture per stroke; drop any previous.
+
+  VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+  ici.imageType = VK_IMAGE_TYPE_2D;
+  ici.format = VK_FORMAT_R32_SFLOAT;  // exact float match for tex_pixels.
+  ici.extent = {uint32_t(width), uint32_t(height), 1};
+  ici.mipLevels = 1;
+  ici.arrayLayers = 1;
+  ici.samples = VK_SAMPLE_COUNT_1_BIT;
+  ici.tiling = VK_IMAGE_TILING_LINEAR;  // host-writable; no staging buffer.
+  ici.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+  ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  ici.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+  if (vkCreateImage(d, &ici, nullptr, &texImage_) != VK_SUCCESS) return false;
+
+  VkMemoryRequirements mr;
+  vkGetImageMemoryRequirements(d, texImage_, &mr);
+  VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  mai.allocationSize = mr.size;
+  mai.memoryTypeIndex = ctx_->findMemoryType(
+      mr.memoryTypeBits,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (mai.memoryTypeIndex == ~0u ||
+      vkAllocateMemory(d, &mai, nullptr, &texMem_) != VK_SUCCESS) {
+    return false;
+  }
+  vkBindImageMemory(d, texImage_, texMem_, 0);
+
+  // Copy row by row honoring the linear-tiling row pitch (rows may be padded).
+  VkImageSubresource sub{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0};
+  VkSubresourceLayout sl{};
+  vkGetImageSubresourceLayout(d, texImage_, &sub, &sl);
+  uint8_t *base = nullptr;
+  vkMapMemory(d, texMem_, 0, VK_WHOLE_SIZE, 0, reinterpret_cast<void **>(&base));
+  base += sl.offset;
+  for (int y = 0; y < height; y++) {
+    std::memcpy(base + size_t(y) * sl.rowPitch, pixels + size_t(y) * width,
+                size_t(width) * sizeof(float));
+  }
+  vkUnmapMemory(d, texMem_);
+
+  ctx_->runOneShot([&](VkCommandBuffer cb) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+    b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.image = texImage_;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_HOST_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &b);
+  });
+
+  VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  vci.image = texImage_;
+  vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  vci.format = VK_FORMAT_R32_SFLOAT;
+  vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  if (vkCreateImageView(d, &vci, nullptr, &texView_) != VK_SUCCESS) return false;
+
+  VkDescriptorImageInfo ii{};
+  ii.imageView = texView_;
+  ii.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  w.dstSet = set_;
+  w.dstBinding = 8;
+  w.descriptorCount = 1;
+  w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  w.pImageInfo = &ii;
+  vkUpdateDescriptorSets(d, 1, &w, 0, nullptr);
+  return true;
 }
 
 bool BrushComputeDispatch::loadSpirv(const char *path)

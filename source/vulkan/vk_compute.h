@@ -38,14 +38,15 @@ struct ComputeCtxUniforms {
   float render_matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
-/* binding 10 element — std430, stride 48. */
+/* binding 10 element — std430, matching WGSL `struct StrokeSample`. A
+ * vec3<f32> has 16-byte alignment but only 12-byte size, so `arclen` packs
+ * into the tail of `normal`'s 16-byte slot at offset 28, giving stride 32 (NOT
+ * 48 — over-padding here makes the shader read arclen out of the wrong slot). */
 struct ComputeStrokeSample {
-  float pos[3] = {0, 0, 0};
-  uint32_t _pad0 = 0;
-  float normal[3] = {0, 0, 1};
-  uint32_t _pad1 = 0;
-  float arclen = 0.0f;
-  uint32_t _pad2[3] = {0, 0, 0};
+  float pos[3] = {0, 0, 0};     // offset 0
+  uint32_t _pad0 = 0;           // pad to normal's 16-byte alignment
+  float normal[3] = {0, 0, 1};  // offset 16
+  float arclen = 0.0f;          // offset 28
 };
 
 /* One spatial-node chunk: a (offset,count) window into the flattened
@@ -100,6 +101,14 @@ struct BrushComputeDispatch {
   bool setNeighbors(const ComputeVertNbr *meta, int vertCount,
                     const uint32_t *nbrVerts, int nbrCount);
 
+  /* Upload a grayscale brush texture (row-major, w*h floats) and rebind it to
+   * binding 8, replacing the 1x1 white dummy. The WGSL kernel does its own
+   * clamp-to-edge bilinear via textureLoad, so the image is R32_SFLOAT with no
+   * filtering — bit-modulo-fp identical to Brush::sampleTexBilinear. Call once
+   * per stroke after beginStroke when a texture is bound; untextured strokes
+   * skip it and keep the white dummy (sampleBrushTex then returns 1.0). */
+  bool setBrushTexture(const float *pixels, int width, int height);
+
   /* Read co/no/mask back into caller arrays (packed xyz / xyz / f32). Any
    * pointer may be null to skip that readback. */
   bool endStroke(float *coOut, float *noOut, float *maskOut);
@@ -121,6 +130,7 @@ private:
   void writeUniform(uint32_t binding, const Buf &b);
 
   bool createWhiteTexture();
+  void destroyBrushTexture();
 
   VkContext *ctx_ = nullptr;
 
@@ -131,11 +141,18 @@ private:
   VkDescriptorPool pool_ = VK_NULL_HANDLE;
   VkDescriptorSet set_ = VK_NULL_HANDLE;
 
-  /* binding 8/9 — bound once, never used by DRAW but the shader declares them. */
+  /* binding 8/9 — the white dummy is bound at load; setBrushTexture swaps a
+   * real R32_SFLOAT image into binding 8. sampler_ (binding 9) is declared by
+   * every kernel but unused (the kernel filters in-shader via textureLoad). */
   VkImage whiteImage_ = VK_NULL_HANDLE;
   VkDeviceMemory whiteMem_ = VK_NULL_HANDLE;
   VkImageView whiteView_ = VK_NULL_HANDLE;
   VkSampler sampler_ = VK_NULL_HANDLE;
+
+  /* binding 8 real texture (set by setBrushTexture, replacing whiteView_). */
+  VkImage texImage_ = VK_NULL_HANDLE;
+  VkDeviceMemory texMem_ = VK_NULL_HANDLE;
+  VkImageView texView_ = VK_NULL_HANDLE;
 
   int vertCount_ = 0;
   bool hasNeighbors_ = false;

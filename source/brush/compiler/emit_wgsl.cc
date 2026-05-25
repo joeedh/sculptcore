@@ -661,8 +661,9 @@ struct Emit {
     write("@group(0) @binding(7) var<storage, read>       falloff_lut: array<f32, 256>;\n");
     // Brush texture + sampler. When no texture is bound the host binds a 1x1
     // white texel so `brush_sample_tex` returns 1.0 (matching the C++
-    // no-texture path). The sampler is expected to be linear + clamp-to-edge
-    // to mirror sampleTexBilinear.
+    // no-texture path). brush_sample_tex does its own clamp-to-edge bilinear
+    // via textureLoad (see below), so brush_samp is currently unused — it is
+    // kept for descriptor-layout symmetry with the host's 14-binding superset.
     write("@group(0) @binding(8) var                       brush_tex: texture_2d<f32>;\n");
     write("@group(0) @binding(9) var                       brush_samp: sampler;\n");
     // StrokePath ring buffer for STROKE_CURVED — mirrors Brush::strokePath.
@@ -762,7 +763,32 @@ struct Emit {
     write("  } else {\n");
     write("    sb_uv = co.xy;\n");
     write("  }\n");
-    write("  return textureSampleLevel(brush_tex, brush_samp, sb_uv, 0.0).r;\n");
+    // Manual clamp-to-edge bilinear with a half-texel offset, lockstep with
+    // Brush::sampleTexBilinear. textureLoad fetches exact texels (NEAREST), so
+    // the float blend below — not a hardware sampler's reduced-precision
+    // subtexel weights — decides the result; that is what keeps the GPU value
+    // bit-modulo-fp identical to the CPU path. The 1x1 white dummy still yields
+    // 1.0 when no texture is bound.
+    write("  let sb_dim = vec2<f32>(textureDimensions(brush_tex));\n");
+    write("  let sb_fx = sb_uv.x * sb_dim.x - 0.5;\n");
+    write("  let sb_fy = sb_uv.y * sb_dim.y - 0.5;\n");
+    write("  let sb_x0 = floor(sb_fx);\n");
+    write("  let sb_y0 = floor(sb_fy);\n");
+    write("  let sb_tx = sb_fx - sb_x0;\n");
+    write("  let sb_ty = sb_fy - sb_y0;\n");
+    write("  let sb_w = i32(sb_dim.x);\n");
+    write("  let sb_h = i32(sb_dim.y);\n");
+    write("  let sb_x0c = clamp(i32(sb_x0), 0, sb_w - 1);\n");
+    write("  let sb_y0c = clamp(i32(sb_y0), 0, sb_h - 1);\n");
+    write("  let sb_x1c = clamp(i32(sb_x0) + 1, 0, sb_w - 1);\n");
+    write("  let sb_y1c = clamp(i32(sb_y0) + 1, 0, sb_h - 1);\n");
+    write("  let sb_p00 = textureLoad(brush_tex, vec2<i32>(sb_x0c, sb_y0c), 0).r;\n");
+    write("  let sb_p10 = textureLoad(brush_tex, vec2<i32>(sb_x1c, sb_y0c), 0).r;\n");
+    write("  let sb_p01 = textureLoad(brush_tex, vec2<i32>(sb_x0c, sb_y1c), 0).r;\n");
+    write("  let sb_p11 = textureLoad(brush_tex, vec2<i32>(sb_x1c, sb_y1c), 0).r;\n");
+    write("  let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;\n");
+    write("  let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;\n");
+    write("  return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;\n");
     write("}\n\n");
   }
 

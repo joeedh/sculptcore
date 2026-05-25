@@ -154,9 +154,11 @@ std::string joinPath(const char *base, const char *rel)
 // per dab (reading the previous dab's result, like the C++ executor), reads co
 // back, and snapshots the touched nodes into the meshlog for undo. Geometry
 // must match the C++ path bit-modulo-fp; that is what `make.mjs sbrush-verify`
-// asserts via the <brush>_ab.txt A/B scripts. Supports the untextured local
-// brushes wired below (DRAW, CLAY, SMOOTH); SMOOTH uploads a CSR neighbor
-// topology so its for_neighbor kernel can read the Jacobi snapshot.
+// asserts via the <brush>_ab.txt A/B scripts. Supports the local brushes wired
+// below (DRAW, CLAY, SMOOTH), including a bound brush texture (uploaded to
+// binding 8, sampled in-shader with the same bilinear as the C++ path); SMOOTH
+// uploads a CSR neighbor topology so its for_neighbor kernel can read the
+// Jacobi snapshot.
 bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 normal,
                        std::string &err)
 {
@@ -225,6 +227,19 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
     }
     if (!disp.setNeighbors(meta.data(), vcount, flat.data(), int(flat.size()))) {
       err = "stroke(wgsl): neighbor upload failed";
+      return false;
+    }
+  }
+
+  // Brush texture (binding 8). The kernel multiplies strength by
+  // sampleBrushTex; with no texture bound the dummy 1x1 white returns 1.0, so
+  // only upload when one is set. coord_space/tex_repeat ride in on the per-dab
+  // uniforms below.
+  if (scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
+      scene.brush.tex_pixels.size() > 0) {
+    if (!disp.setBrushTexture(scene.brush.tex_pixels.data(),
+                              scene.brush.tex_width, scene.brush.tex_height)) {
+      err = "stroke(wgsl): brush texture upload failed";
       return false;
     }
   }
@@ -621,15 +636,12 @@ bool execVerb(Scene &scene,
     parseFloat3(getArg(args, "normal"), normal);
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers the untextured local brushes (DRAW/CLAY/SMOOTH); a
-    // bound brush texture still needs CPU bilinear sampling (the kernel binds a
-    // 1x1 white placeholder), so textured strokes fall back to the C++ executor.
-    bool gpuTextured = scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
-                       scene.brush.tex_pixels.size() > 0;
+    // GPU dispatch covers the local brushes (DRAW/CLAY/SMOOTH), with or without
+    // a bound brush texture (sampled in-shader to match the C++ bilinear).
     bool gpuTool = scene.currentTool == brush::SculptBrushes::DRAW ||
                    scene.currentTool == brush::SculptBrushes::CLAY ||
                    scene.currentTool == brush::SculptBrushes::SMOOTH;
-    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool && !gpuTextured) {
+    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
       Vector<float3> origins;
       origins.append(origin);
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
@@ -692,15 +704,12 @@ bool execVerb(Scene &scene,
     }
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers the untextured local brushes (DRAW/CLAY/SMOOTH); a
-    // bound brush texture still needs CPU bilinear sampling (the kernel binds a
-    // 1x1 white placeholder), so textured strokes fall back to the C++ executor.
-    bool gpuTextured = scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
-                       scene.brush.tex_pixels.size() > 0;
+    // GPU dispatch covers the local brushes (DRAW/CLAY/SMOOTH), with or without
+    // a bound brush texture (sampled in-shader to match the C++ bilinear).
     bool gpuTool = scene.currentTool == brush::SculptBrushes::DRAW ||
                    scene.currentTool == brush::SculptBrushes::CLAY ||
                    scene.currentTool == brush::SculptBrushes::SMOOTH;
-    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool && !gpuTextured) {
+    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;
       }
