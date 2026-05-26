@@ -31,6 +31,7 @@ GpuNormalPass::~GpuNormalPass()
     if (p->dsLayout) vkDestroyDescriptorSetLayout(d, p->dsLayout, nullptr);
   }
   if (pool_) vkDestroyDescriptorPool(d, pool_, nullptr);
+  if (scatterPool_) vkDestroyDescriptorPool(d, scatterPool_, nullptr);
 }
 
 bool GpuNormalPass::createBuf(Buf &b, VkDeviceSize size)
@@ -178,7 +179,37 @@ bool GpuNormalPass::init()
   vkDestroyShaderModule(d, mFace, nullptr);
   vkDestroyShaderModule(d, mVert, nullptr);
   vkDestroyShaderModule(d, mScatter, nullptr);
-  return ok;
+  if (!ok) return false;
+
+  // Dedicated pool for recordScatter()'s per-node sets. Sized for many nodes
+  // per dab; sets are allocated lazily and reused round-robin across submits.
+  constexpr uint32_t kMaxScatterSets = 256;
+  VkDescriptorPoolSize sps{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kMaxScatterSets * 5};
+  VkDescriptorPoolCreateInfo sdpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  sdpi.maxSets = kMaxScatterSets;
+  sdpi.poolSizeCount = 1;
+  sdpi.pPoolSizes = &sps;
+  if (vkCreateDescriptorPool(d, &sdpi, nullptr, &scatterPool_) != VK_SUCCESS)
+    return false;
+  return true;
+}
+
+VkDescriptorSet GpuNormalPass::nextScatterSet()
+{
+  if (scatterCursor_ < scatterSets_.size()) {
+    return scatterSets_[scatterCursor_++];
+  }
+  VkDescriptorSetAllocateInfo dsi{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  dsi.descriptorPool = scatterPool_;
+  dsi.descriptorSetCount = 1;
+  dsi.pSetLayouts = &scatter_.dsLayout;
+  VkDescriptorSet set = VK_NULL_HANDLE;
+  if (vkAllocateDescriptorSets(ctx_->device, &dsi, &set) != VK_SUCCESS) {
+    return VK_NULL_HANDLE;
+  }
+  scatterSets_.push_back(set);
+  scatterCursor_++;
+  return set;
 }
 
 void GpuNormalPass::bindStorage(VkDescriptorSet set, uint32_t binding,
@@ -331,6 +362,35 @@ bool GpuNormalPass::scatter(VkBuffer co, VkBuffer no, VkBuffer slotVertex,
   bindStorage(scatter_.set, 3, pos);
   bindStorage(scatter_.set, 4, nor);
   return dispatch(scatter_, uint32_t(slotCount));
+}
+
+void GpuNormalPass::beginScatterBatch()
+{
+  scatterCursor_ = 0;
+}
+
+void GpuNormalPass::recordScatter(VkCommandBuffer cb, VkBuffer co, VkBuffer no,
+                                  VkBuffer slotVertex, VkBuffer pos,
+                                  VkBuffer nor, int slotCount)
+{
+  uint32_t count = uint32_t(slotCount);
+  uint32_t groups = (count + 63u) / 64u;
+  if (groups == 0) return;
+
+  VkDescriptorSet set = nextScatterSet();
+  if (set == VK_NULL_HANDLE) return;
+  bindStorage(set, 0, co);
+  bindStorage(set, 1, no);
+  bindStorage(set, 2, slotVertex);
+  bindStorage(set, 3, pos);
+  bindStorage(set, 4, nor);
+
+  vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, scatter_.pipeline);
+  vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, scatter_.layout, 0,
+                          1, &set, 0, nullptr);
+  vkCmdPushConstants(cb, scatter_.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                     sizeof(uint32_t), &count);
+  vkCmdDispatch(cb, groups, 1, 1);
 }
 
 } // namespace sculptcore::vulkan

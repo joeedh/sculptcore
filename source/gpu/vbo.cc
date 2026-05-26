@@ -21,6 +21,13 @@ Buffer::~Buffer()
     manager.buffers.remove(this);
   }
   release();
+
+  /* release() only drops the GPU-side upload; the host-side attribute storage
+   * (alloc'd in resize) is ours to free. A moved-from Buffer has data==null. */
+  if (data) {
+    alloc::release(data);
+    data = nullptr;
+  }
 }
 
 const binding::types::Struct<Buffer> *Buffer::defineBindings()

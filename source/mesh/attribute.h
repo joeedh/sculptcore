@@ -444,50 +444,66 @@ struct AttrGroup {
 
   void reorder(util::span<int> elem_map)
   {
-    util::Array<int> reverse = {size()};
+    const int n = int(size());
 
-    for (int i : elem_map) {
-      reverse[elem_map[i]] = i;
+    /* reverse[new] = old, so each pass below can pull each destination slot
+     * from its source. elem_map[old] = new, so iterate old indices — iterating
+     * elem_map by value would index it by a new-slot number. */
+    util::Array<int> reverse(n);
+    for (int oldi : util::IndexRange(int(elem_map.size()))) {
+      reverse[elem_map[oldi]] = oldi;
     }
 
+    /* Permute each attribute's values in place through a scratch buffer; this
+     * leaves the AttrData object (its pages, name, type) untouched and only
+     * rewrites element contents, sidestepping move/placement-new lifetime
+     * pitfalls. */
     for (AttrRef &attr : attrs) {
       if (attr.type == AttrType::BOOL) {
         continue;
       }
 
       detail::type_dispatch(attr.type, [&]<typename T>() {
-        //
-        using AttrType = AttrData<T>;
+        AttrData<T> *data = static_cast<AttrData<T> *>(attr.data);
 
-        AttrType *old = static_cast<AttrType *>(attr.data);
-        AttrType newattr(attr.name, old->size());
+        /* Pages are allocated lazily; materialize so operator[] is valid for
+         * every slot (including never-written source pages). */
+        data->materialize_all();
 
-        for (int i : util::IndexRange(size())) {
-          newattr[i] = std::move(old->operator[](reverse[i]));
+        /* A sibling AttrData as scratch: it value-inits pages (no ambiguous
+         * T(0) cast that util::Array would force on vector types) and destructs
+         * cleanly at scope end, freeing only its own pages. */
+        AttrData<T> scratch(attr.name, data->size());
+        scratch.materialize_all();
+
+        for (int i = 0; i < n; i++) {
+          scratch[i] = std::move(data->operator[](reverse[i]));
         }
-
-        old->~AttrData();
-        *old = std::move(newattr);
+        for (int i = 0; i < n; i++) {
+          data->operator[](i) = std::move(scratch[i]);
+        }
       });
     }
 
-    /* Handle bools separately. */
-    PackedBoolAttrs new_bool_attrs = bool_attrs;
-    new_bool_attrs.resize(size());
-
+    /* Bools share a packed byte layout; permute the blocks in place via a
+     * scratch copy. */
     int blocksize = bool_attrs.blocksize();
-
-    for (int i : util::IndexRange(size())) {
-      uint8_t *block = new_bool_attrs[i];
-      uint8_t *block_old = bool_attrs[reverse[i]];
-
-      for (int j = 0; j < blocksize; j++) {
-        block[j] = block_old[j];
+    if (blocksize > 0) {
+      util::Array<uint8_t> scratch(size_t(n) * blocksize);
+      for (int i = 0; i < n; i++) {
+        uint8_t *src = bool_attrs[i];
+        for (int j = 0; j < blocksize; j++) {
+          scratch[i * blocksize + j] = src[j];
+        }
+      }
+      for (int i = 0; i < n; i++) {
+        uint8_t *dst = bool_attrs[i];
+        uint8_t *src = &scratch[reverse[i] * blocksize];
+        for (int j = 0; j < blocksize; j++) {
+          dst[j] = src[j];
+        }
       }
     }
-
-    bool_attrs.~PackedBoolAttrs();
-    bool_attrs = std::move(new_bool_attrs);
   }
 
   void swap(int a, int b)

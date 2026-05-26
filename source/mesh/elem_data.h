@@ -4,10 +4,12 @@
 #include "litestl/util/assert.h"
 #include "litestl/util/boolvector.h"
 #include "litestl/util/callback_list.h"
+#include "litestl/util/span.h"
 
 #include "mesh_enums.h"
 
 #include <cstdio>
+#include <utility>
 
 using litestl::util::Assert;
 
@@ -41,9 +43,11 @@ struct ElemData {
   struct iterator {
     iterator(ElemData &owner, int i) : owner_(owner), i_(i)
     {
-      if (i == 0) { /* Find first element. */
-        i--;
-        operator++();
+      if (i == 0) { /* Skip leading free slots so begin() lands on the first
+                     * live element (which may be element 0 itself). */
+        while (i_ < owner_.capacity_ && owner_.freemap[i_]) {
+          i_++;
+        }
       }
     }
 
@@ -150,6 +154,31 @@ struct ElemData {
   void swap_attrs(int a, int b)
   {
     attrs.swap(a, b);
+  }
+
+  /* Permute element storage by @p map (map[old] = new), covering the full
+   * [0, capacity) range — the caller must supply a complete bijection,
+   * including the free slots. Reorders attribute data and rebuilds the
+   * free-slot bookkeeping so holes follow their mapped positions. Reference
+   * fields pointing at this domain are the caller's responsibility (see
+   * Mesh::reorder_*). */
+  void reorder(util::span<int> map)
+  {
+    attrs.reorder(map);
+
+    util::BoolVector<> newfree;
+    newfree.resize(capacity_);
+    for (int i = 0; i < capacity_; i++) {
+      newfree.set(map[i], freemap[i]);
+    }
+    freemap = std::move(newfree);
+
+    freelist.clear();
+    for (int i = capacity_ - 1; i >= 0; i--) {
+      if (freemap[i]) {
+        freelist.append(i);
+      }
+    }
   }
 
 private:

@@ -96,6 +96,9 @@ GpuStrokeSession::~GpuStrokeSession()
 // `make.mjs sbrush-verify` asserts via the <brush>_ab.txt A/B scripts.
 bool GpuStrokeSession::begin(Scene &scene, std::string &err)
 {
+  scene.profiler.beginStroke();
+  auto ptBegin = StrokeProfiler::now();
+
   if (!scene.ensureGPU() || !scene.context) {
     err = "stroke(wgsl): GPU device init failed";
     return false;
@@ -223,10 +226,28 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     }
     scene.tree->gpuStrokeActive = true;
     normalPass_->computeNormals(disp_->coBuffer(), disp_->noBuffer());
+    // One-time initial scatter so every GPU node (even ones no dab touches)
+    // shows GPU-fed data on the first frame. Once-per-stroke, so the simple
+    // submit-per-node scatter() is fine here; per-dab scatter is batched.
     for (spatial::SpatialNode *gn : scene.tree->gpu_nodes()) {
-      scatterGpuNode(scene, gn);
+      if (!gn->gpu_data) {
+        continue;
+      }
+      spatial::GpuData &gd = *gn->gpu_data;
+      if (!gd.pos || !gd.nor || !gd.slotVertex || gd.total_verts <= 0) {
+        continue;
+      }
+      VkBuffer pos = liveBackend_->ensureStorageVkBuffer(gd.pos);
+      VkBuffer nor = liveBackend_->ensureStorageVkBuffer(gd.nor);
+      VkBuffer slotV = liveBackend_->ensureStorageVkBuffer(gd.slotVertex);
+      if (!pos || !nor || !slotV) {
+        continue;
+      }
+      normalPass_->scatter(disp_->coBuffer(), disp_->noBuffer(), slotV, pos, nor,
+                           gd.total_verts);
     }
   }
+  scene.profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
   return true;
 }
 
@@ -322,28 +343,29 @@ void GpuStrokeSession::buildDabWork(const litestl::util::Vector<uint32_t> &uvert
       }
     }
   }
-}
-
-// Recompute GPU normals for one node's verts (already done by the caller's
-// computeNormals) and scatter co/no into that node's render VBOs. Skips nodes
-// without a current GpuData / slot map.
-void GpuStrokeSession::scatterGpuNode(Scene &scene, spatial::SpatialNode *gpuNode)
-{
-  if (!gpuNode || !gpuNode->gpu_data) {
-    return;
+  // The vert pass re-sums each work vert's normal over its *full* incident-face
+  // ring (the CSR), but the face pass above only refreshes triNo for faces that
+  // touch a moved vert. A work vert on the boundary of that region has incident
+  // faces outside workTris_ whose triNo would be stale (or uninitialized garbage
+  // on the first dab) — corrupting the summed vertex normal. Expand workTris_ to
+  // cover every incident face of every work vert so all triNo a work vert reads
+  // are freshly computed. workVerts_ is left unchanged: only verts adjacent to
+  // motion need their normal recomputed; the extra faces exist solely to give
+  // those verts a complete, fresh 1-ring. (Iterate by index — workVerts_ is not
+  // grown here, but appending to workTris_ must not alias the loop range.)
+  int boundaryStart = int(workVerts_.size());
+  for (int i = 0; i < boundaryStart; i++) {
+    uint32_t v = workVerts_[i];
+    uint32_t off = topoMeta_[size_t(v) * 2 + 0];
+    uint32_t cnt = topoMeta_[size_t(v) * 2 + 1];
+    for (uint32_t k = 0; k < cnt; k++) {
+      uint32_t t = topoList_[off + k];
+      if (triStamp_[t] != gen) {
+        triStamp_[t] = gen;
+        workTris_.append(t);
+      }
+    }
   }
-  spatial::GpuData &gd = *gpuNode->gpu_data;
-  if (!gd.pos || !gd.nor || !gd.slotVertex || gd.total_verts <= 0) {
-    return;
-  }
-  VkBuffer pos = liveBackend_->ensureStorageVkBuffer(gd.pos);
-  VkBuffer nor = liveBackend_->ensureStorageVkBuffer(gd.nor);
-  VkBuffer slotV = liveBackend_->ensureStorageVkBuffer(gd.slotVertex);
-  if (!pos || !nor || !slotV) {
-    return;
-  }
-  normalPass_->scatter(disp_->coBuffer(), disp_->noBuffer(), slotV, pos, nor,
-                       gd.total_verts);
 }
 
 // Capture a node's pre-dab co/no/f.no into the meshlog, once per node per
@@ -369,6 +391,12 @@ void GpuStrokeSession::snapshotNode(Scene &scene, spatial::SpatialNode *node)
 bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
                            std::string &err)
 {
+  // Phase timestamps for --profile (now() is cheap; addDab() no-ops when off).
+  // cpu = pt0..ptCpu (marshal/work-list/target resolve), gpu = ptCpu..ptGpu
+  // (the runOneShot submit + queue-wait), read = ptGpu..ptRead (live readback).
+  auto pt0 = StrokeProfiler::now();
+  StrokeProfiler::Clock::time_point ptCpu = pt0, ptGpu = pt0, ptRead = pt0;
+
   Vector<spatial::SpatialNode *> nodes;
   scene.tree->filterNodes(origin, scene.brush.radius, nodes);
   if (nodes.size() == 0) {
@@ -486,37 +514,72 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
     normalPass_->prepareNormals(disp_->coBuffer(), disp_->noBuffer(),
                                 workTris_.data(), int(workTris_.size()),
                                 workVerts_.data(), int(workVerts_.size()));
+
+    // Resolve each touched GPU owner's render VBOs up front (host-side; may
+    // create/upload buffers) so the scatter dispatches can ride this dab's
+    // single submit instead of each costing its own queue-wait.
+    struct ScatterTarget {
+      VkBuffer pos, nor, slotV;
+      int count;
+    };
+    Vector<ScatterTarget> targets;
+    Vector<spatial::SpatialNode *> owners;
+    for (auto *node : nodes) {
+      spatial::SpatialNode *owner = scene.tree->find_gpu_owner(node);
+      if (!owner || owners.contains(owner)) {
+        continue;
+      }
+      owners.append(owner);
+      if (!owner->gpu_data) {
+        continue;
+      }
+      spatial::GpuData &gd = *owner->gpu_data;
+      if (!gd.pos || !gd.nor || !gd.slotVertex || gd.total_verts <= 0) {
+        continue;
+      }
+      VkBuffer pos = liveBackend_->ensureStorageVkBuffer(gd.pos);
+      VkBuffer nor = liveBackend_->ensureStorageVkBuffer(gd.nor);
+      VkBuffer slotV = liveBackend_->ensureStorageVkBuffer(gd.slotVertex);
+      if (!pos || !nor || !slotV) {
+        continue;
+      }
+      targets.append({pos, nor, slotV, gd.total_verts});
+    }
+
+    // dab -> (barrier) -> face/vert normals -> (barrier) -> per-owner scatter,
+    // all in one command buffer / one queue-wait.
+    normalPass_->beginScatterBatch();
+    ptCpu = StrokeProfiler::now();
     scene.context->runOneShot([&](VkCommandBuffer cb) {
       disp_->recordDab(cb);
       vulkan::GpuNormalPass::computeBarrier(cb);
       normalPass_->recordNormals(cb);
+      vulkan::GpuNormalPass::computeBarrier(cb);
+      for (auto &t : targets) {
+        normalPass_->recordScatter(cb, disp_->coBuffer(), disp_->noBuffer(),
+                                   t.slotV, t.pos, t.nor, t.count);
+      }
     });
+    ptGpu = StrokeProfiler::now();
   } else {
+    ptCpu = StrokeProfiler::now();
     if (!disp_->dab(bu, cu, uverts.data(), int(uverts.size()), chunks.data(),
                     int(chunks.size()), scene.brush.falloff_curve.data(),
                     sp.data(), int(sp.size()))) {
       err = "stroke(wgsl): compute dispatch failed";
       return false;
     }
+    ptGpu = StrokeProfiler::now();
   }
+  // Default the readback phase to empty; the live block below extends it.
+  ptRead = ptGpu;
 
-  // Live path: scatter the touched GPU nodes' co/no into their render VBOs (so
-  // the mesh deforms live this frame), then read back only this dab's moved
-  // verts into the CPU mesh so ray-pick + node bounds stay correct for the next
-  // dab. Touched leaves get RegenBounds only — never UpdateGPU/UpdateNormals:
-  // the scatter owns the VBOs and the normals until stroke end.
+  // Live path: the dab/normals/scatter above already deformed the render VBOs
+  // on the GPU this frame. Read back only this dab's moved verts into the CPU
+  // mesh so ray-pick + node bounds stay correct for the next dab. Touched leaves
+  // get RegenBounds only — never UpdateGPU/UpdateNormals: the scatter owns the
+  // VBOs and the normals until stroke end.
   if (liveBackend_) {
-    Vector<spatial::SpatialNode *> owners;
-    for (auto *node : nodes) {
-      spatial::SpatialNode *owner = scene.tree->find_gpu_owner(node);
-      if (owner && !owners.contains(owner)) {
-        owners.append(owner);
-      }
-    }
-    for (auto *owner : owners) {
-      scatterGpuNode(scene, owner);
-    }
-
     int n = int(uverts.size());
     Vector<float> coBack, noBack;
     coBack.resize(size_t(n) * 3);
@@ -532,7 +595,12 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
     for (auto *node : nodes) {
       node->update(spatial::Spatial_RegenBounds);
     }
+    ptRead = StrokeProfiler::now();
   }
+
+  scene.profiler.addDab(StrokeProfiler::ms(pt0, ptCpu),
+                        StrokeProfiler::ms(ptCpu, ptGpu),
+                        StrokeProfiler::ms(ptGpu, ptRead));
 
   if (cap_) {
     // falloff_curve is the 256-entry LUT the dab() contract expects.
@@ -556,6 +624,7 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
 
 void GpuStrokeSession::end(Scene &scene)
 {
+  auto ptEnd0 = StrokeProfiler::now();
   mesh::Mesh *m = scene.mesh;
 
   Vector<float> coOut, maskOut;
@@ -615,6 +684,8 @@ void GpuStrokeSession::end(Scene &scene)
     disp_ = nullptr;
     delete normalPass_;
     normalPass_ = nullptr;
+    scene.profiler.addEnd(StrokeProfiler::ms(ptEnd0, StrokeProfiler::now()));
+    scene.profiler.endStroke();
     return;
   }
 
@@ -644,6 +715,8 @@ void GpuStrokeSession::end(Scene &scene)
 
   delete disp_;
   disp_ = nullptr;
+  scene.profiler.addEnd(StrokeProfiler::ms(ptEnd0, StrokeProfiler::now()));
+  scene.profiler.endStroke();
 }
 
 // Finalize the GPU-resident live stroke: sync the full CPU mesh from the final

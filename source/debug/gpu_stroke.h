@@ -100,9 +100,6 @@ class GpuStrokeSession {
    * Deduped via the per-element stamp arrays so cost scales with the dab, not
    * the mesh. */
   void buildDabWork(const litestl::util::Vector<uint32_t> &uverts);
-  /* Recompute normals on the GPU then scatter co/no into one GPU node's render
-   * VBOs (positions/normals), via liveBackend_. */
-  void scatterGpuNode(Scene &scene, spatial::SpatialNode *gpuNode);
   /* Snapshot a leaf's pre-dab co/no/f.no for undo, once per node per stroke. */
   void snapshotNode(Scene &scene, spatial::SpatialNode *node);
   /* Finalize the live stroke (sync CPU mesh, resolve normals per end-mode, give

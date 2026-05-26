@@ -83,7 +83,17 @@ struct Mesh : public MeshBase {
     return ELEM_NONE;
   }
 
+  /* Reorder one element domain in place. Each map is map[old] = new and must
+   * be a full bijection over that domain's storage capacity (free slots
+   * included — SpatialTree::computeLocalityMaps produces such maps). Every
+   * reference field pointing into the reordered domain is remapped, then the
+   * domain's own storage is permuted; the domains are independent so the five
+   * may be applied in any order. */
   void reorder_verts(util::span<int> vertex_map);
+  void reorder_edges(util::span<int> edge_map);
+  void reorder_corners(util::span<int> corner_map);
+  void reorder_lists(util::span<int> list_map);
+  void reorder_faces(util::span<int> face_map);
 
   void recalc_normals();
 private:

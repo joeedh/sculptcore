@@ -151,6 +151,10 @@ void InteractiveController::beginStroke(float2 cursor)
   }
 #endif
 
+  // C++ backend: profiled here (the WGSL path self-profiles inside the session).
+  scene_->profiler.beginStroke();
+  auto ptBegin = StrokeProfiler::now();
+
   exec_ = new brush::CommandExecutor(scene_->tree, &scene_->brush);
   exec_->meshLog = &scene_->meshLog;
   exec_->beginStep();
@@ -158,9 +162,13 @@ void InteractiveController::beginStroke(float2 cursor)
   Vector<spatial::SpatialNode *> nodes;
   scene_->tree->filterNodes(hit, scene_->brush.radius, nodes);
   if (nodes.size() != 0) {
+    auto ptDab = StrokeProfiler::now();
     exec_->execBrush(scene_->currentTool, &nodes, hit, normal);
     exec_->clearIsFirstOfStep();
+    scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0,
+                            0);
   }
+  scene_->profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
   scene_->lastStroke.valid = true;
   scene_->lastStroke.origin = hit;
   scene_->lastStroke.normal = normal;
@@ -202,8 +210,11 @@ void InteractiveController::continueStroke(float2 cursor)
     if (nodes.size() == 0) {
       return;
     }
+    auto ptDab = StrokeProfiler::now();
     exec_->execBrush(scene_->currentTool, &nodes, p, normal);
     exec_->clearIsFirstOfStep();
+    scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0,
+                            0);
     scene_->lastStroke.origin = p;
     scene_->lastStroke.normal = normal;
   };
@@ -228,11 +239,14 @@ void InteractiveController::endStroke()
   if (!exec_) {
     return;
   }
+  auto ptEnd = StrokeProfiler::now();
   exec_->endStep();
   delete exec_;
   exec_ = nullptr;
   strokeHasLast_ = false;
   strokeResidual_ = 0.0f;
+  scene_->profiler.addEnd(StrokeProfiler::ms(ptEnd, StrokeProfiler::now()));
+  scene_->profiler.endStroke();
 }
 
 void InteractiveController::doOrbit(float2 delta)

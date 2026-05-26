@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <vector>
 
 namespace sculptcore::vulkan {
 
@@ -64,6 +65,17 @@ struct GpuNormalPass {
   bool scatter(VkBuffer co, VkBuffer no, VkBuffer slotVertex, VkBuffer pos,
                VkBuffer nor, int slotCount);
 
+  /* Record-into-cb variant of scatter() so several GPU-node scatters can ride
+   * the dab+normals submit instead of each costing its own queue-wait. Call
+   * beginScatterBatch() once per command buffer, then recordScatter() per node:
+   * each grabs a fresh descriptor set (one cb can't reuse a single set across
+   * dispatches). The caller is responsible for a compute-write->read barrier
+   * before the first scatter (the dab/vert passes write the co/no it reads). */
+  void beginScatterBatch();
+  void recordScatter(VkCommandBuffer cb, VkBuffer co, VkBuffer no,
+                     VkBuffer slotVertex, VkBuffer pos, VkBuffer nor,
+                     int slotCount);
+
   /* A compute-write -> compute-read global memory barrier, for chaining
    * dependent dispatches inside one command buffer (e.g. dab -> normals). */
   static void computeBarrier(VkCommandBuffer cb);
@@ -94,9 +106,17 @@ private:
   bool buildPipe(Pipe &p, VkShaderModule module, int bindingCount);
   void bindStorage(VkDescriptorSet set, uint32_t binding, VkBuffer buf);
   bool dispatch(const Pipe &p, uint32_t count);
+  VkDescriptorSet nextScatterSet();
 
   VkContext *ctx_ = nullptr;
   VkDescriptorPool pool_ = VK_NULL_HANDLE;
+
+  /* Dedicated pool of scatter descriptor sets for recordScatter(): one set per
+   * GPU node touched in a dab, reused round-robin across submits. Grown on
+   * demand from this pool. */
+  VkDescriptorPool scatterPool_ = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet> scatterSets_;
+  size_t scatterCursor_ = 0;
 
   Pipe face_, vert_, scatter_;
 

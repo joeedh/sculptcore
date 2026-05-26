@@ -229,18 +229,90 @@ void Mesh::kill_face(int f1, MeshCallbacks *cb)
   f.release(f1);
 }
 
+namespace {
+inline int remap(util::span<int> map, int idx)
+{
+  return idx == ELEM_NONE ? ELEM_NONE : map[idx];
+}
+} // namespace
+
 void Mesh::reorder_verts(util::span<int> vmap)
 {
   for (int e1 : e) {
-    e.vs[e1][0] = vmap[e.vs[e1][0]];
-    e.vs[e1][1] = vmap[e.vs[e1][1]];
+    e.vs[e1][0] = remap(vmap, e.vs[e1][0]);
+    e.vs[e1][1] = remap(vmap, e.vs[e1][1]);
   }
 
   for (int c1 : c) {
-    c.v[c1] = vmap[c.v[c1]];
+    c.v[c1] = remap(vmap, c.v[c1]);
   }
 
-  v.attrs.reorder(vmap);
+  v.reorder(vmap);
+}
+
+void Mesh::reorder_edges(util::span<int> emap)
+{
+  for (int v1 : v) {
+    v.e[v1] = remap(emap, v.e[v1]);
+  }
+
+  for (int e1 : e) {
+    for (int k = 0; k < 4; k++) {
+      e.disk[e1][k] = remap(emap, e.disk[e1][k]);
+    }
+  }
+
+  for (int c1 : c) {
+    c.e[c1] = remap(emap, c.e[c1]);
+  }
+
+  e.reorder(emap);
+}
+
+void Mesh::reorder_corners(util::span<int> cmap)
+{
+  for (int e1 : e) {
+    e.c[e1] = remap(cmap, e.c[e1]);
+  }
+
+  for (int c1 : c) {
+    c.next[c1] = remap(cmap, c.next[c1]);
+    c.prev[c1] = remap(cmap, c.prev[c1]);
+    c.radial_next[c1] = remap(cmap, c.radial_next[c1]);
+    c.radial_prev[c1] = remap(cmap, c.radial_prev[c1]);
+  }
+
+  for (int l1 : l) {
+    l.c[l1] = remap(cmap, l.c[l1]);
+  }
+
+  c.reorder(cmap);
+}
+
+void Mesh::reorder_lists(util::span<int> lmap)
+{
+  for (int c1 : c) {
+    c.l[c1] = remap(lmap, c.l[c1]);
+  }
+
+  for (int l1 : l) {
+    l.next[l1] = remap(lmap, l.next[l1]);
+  }
+
+  for (int f1 : f) {
+    f.l[f1] = remap(lmap, f.l[f1]);
+  }
+
+  l.reorder(lmap);
+}
+
+void Mesh::reorder_faces(util::span<int> fmap)
+{
+  for (int l1 : l) {
+    l.f[l1] = remap(fmap, l.f[l1]);
+  }
+
+  f.reorder(fmap);
 }
 
 } // namespace sculptcore::mesh

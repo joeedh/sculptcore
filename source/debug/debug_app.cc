@@ -19,7 +19,7 @@ void usage()
       stderr,
       "debug_app --script PATH [--out DIR] [--headless] [--width N] [--height N]\n"
       "          [--no-headless] [--interactive] [--backend cpp|wgsl]\n"
-      "          [--gpu-capture PREFIX]\n");
+      "          [--gpu-capture PREFIX] [--max-undo N] [--profile] [--reorder]\n");
 }
 
 bool ensureDir(const char *path)
@@ -50,6 +50,9 @@ int main(int argc, char **argv)
   int height = 768;
   const char *backendArg = nullptr;
   const char *gpuCapture = nullptr;
+  int maxUndo = -1; // -1 = unbounded undo history
+  bool profile = false;
+  bool reorder = false;
 
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
@@ -79,6 +82,12 @@ int main(int argc, char **argv)
       backendArg = next("--backend");
     } else if (std::strcmp(a, "--gpu-capture") == 0) {
       gpuCapture = next("--gpu-capture");
+    } else if (std::strcmp(a, "--max-undo") == 0) {
+      maxUndo = std::atoi(next("--max-undo"));
+    } else if (std::strcmp(a, "--profile") == 0) {
+      profile = true;
+    } else if (std::strcmp(a, "--reorder") == 0) {
+      reorder = true;
     } else if (std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0) {
       usage();
       return 0;
@@ -98,6 +107,9 @@ int main(int argc, char **argv)
   // create a new scope so we get desctructors called before print leaks
   {
     Scene scene(width, height, headless);
+    scene.meshLog.setMaxUndoSteps(maxUndo);
+    scene.profiler.enabled = profile;
+    scene.reorderOnBuild = reorder;
 
     if (backendArg) {
       if (std::strcmp(backendArg, "cpp") == 0) {
@@ -160,6 +172,8 @@ int main(int argc, char **argv)
       ui.shutdown();
       dispatcher.detach();
     }
+
+    scene.profiler.printSummary();
   }
 
   if (litestl::alloc::getMemorySize() > 0) {

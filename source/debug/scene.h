@@ -1,6 +1,7 @@
 #pragma once
 
 #include "camera.h"
+#include "profile.h"
 
 #include "brush/brush.h"
 #include "brush/brushes/all.h"
@@ -79,6 +80,8 @@ struct Scene {
   bool showLeafBounds = false;
   bool showAxes = true;
   bool showCursor = true;
+  /* Wall-clock stroke/dab timing, enabled by --profile. No-op when disabled. */
+  StrokeProfiler profiler;
 
   /* Owned GPU bits (created on first ensureGPU()). */
   window::Window *window = nullptr;
@@ -93,8 +96,17 @@ struct Scene {
   int height;
   bool headless;
 
+  /* When set, buildSpatial reorders mesh elements for node locality right
+   * after the tree is built (debug --reorder / the UI button). */
+  bool reorderOnBuild = false;
+
   void setMesh(mesh::Mesh *m);
   void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);
+
+  /* Reorder all mesh element domains to be local to their owning spatial
+   * nodes, rebuild the tree, and record an undoable reorder step. No-op
+   * without a tree. */
+  void reorderForLocality();
 
   /** Center camera + set view direction from preset; uses mesh AABB. */
   void applyView(ViewPreset preset);

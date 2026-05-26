@@ -221,6 +221,25 @@ void Ui::drawPanel()
     scene_->meshLog.redo(scene_->mesh, scene_->tree);
   }
 
+  /* Cap on retained undo steps (-1 = unbounded). Lets us measure how much of
+   * the observed memory growth comes from unbounded undo history. */
+  int maxUndo = scene_->meshLog.maxUndoSteps();
+  if (ImGui::InputInt("max undo", &maxUndo)) {
+    if (maxUndo < -1) {
+      maxUndo = -1;
+    }
+    scene_->meshLog.setMaxUndoSteps(maxUndo);
+  }
+
+  ImGui::Separator();
+  if (ImGui::Button("reorder for locality") && scene_->tree) {
+    scene_->reorderForLocality();
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Permute mesh elements local to their spatial nodes "
+                      "(undoable). Rebuilds the tree.");
+  }
+
   ImGui::Separator();
   int vcount = scene_->mesh ? scene_->mesh->v.count : 0;
   int fcount = scene_->mesh ? scene_->mesh->f.count : 0;

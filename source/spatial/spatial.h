@@ -162,6 +162,34 @@ struct SpatialTree {
   }
 
   void buildAll();
+
+  /* Build vert/edge/corner/list/face permutations (map[old] = new) that group
+   * each domain's elements next to the other elements of their owning node,
+   * improving cache locality of brush iteration. Each map is a full bijection
+   * over its domain's storage capacity (free slots land at the tail, so the
+   * mesh is also compacted). Reads ownership from the current node set. */
+  void computeLocalityMaps(util::Vector<int> &vmap,
+                           util::Vector<int> &emap,
+                           util::Vector<int> &cmap,
+                           util::Vector<int> &lmap,
+                           util::Vector<int> &fmap);
+
+  /* Apply precomputed permutations to the mesh, then rebuild the tree (node
+   * data caches stale indices after a reorder). buildAll is deterministic, so
+   * an inverse-permutation reorder reproduces the prior node set exactly — the
+   * property the meshlog reorder chunk relies on for cross-step undo. */
+  void applyReorder(util::span<int> vmap,
+                    util::span<int> emap,
+                    util::span<int> cmap,
+                    util::span<int> lmap,
+                    util::span<int> fmap);
+
+  /* Compute + apply locality maps in one shot (no undo recording). */
+  void reorderForLocality();
+
+  /* Tear down every node and rebuild from the (possibly reordered) mesh. */
+  void rebuild();
+
   sculptcore::gpu::DrawBatch *getDrawBatch()
   {
     return drawBatch;

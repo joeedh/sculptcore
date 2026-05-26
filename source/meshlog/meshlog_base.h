@@ -60,6 +60,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "spatial/spatial.h"
 
 #include <cstdint>
+#include <utility>
 
 namespace sculptcore::meshlog {
 using litestl::math::float3;
@@ -69,6 +70,7 @@ using litestl::util::Vector;
 enum _LogChunkTypes {
   Simple = 0,
   Topo = 1,
+  Reorder = 2,
 };
 MAKE_ENUM_CLASS(LogChunkTypes, _LogChunkTypes, int);
 
@@ -610,6 +612,55 @@ private:
   }
 };
 
+/**
+ * Reorder undo/redo chunk — records the five element permutations
+ * (map[old] = new) applied by SpatialTree::applyReorder. A reorder is a pure
+ * bijection, so undo replays the inverse permutation and redo replays the
+ * forward one; applyReorder rebuilds the tree each way. Because buildAll is
+ * deterministic in the mesh's geometry+topology, an inverse reorder reproduces
+ * the exact node set (and node ids) that existed before the reorder, so simple
+ * chunks recorded in earlier steps still resolve their node ids after undoing
+ * back across this chunk.
+ */
+struct LogChunkReorder : public LogChunk {
+  Vector<int> vmap, emap, cmap, lmap, fmap;
+
+  LogChunkReorder(Vector<int> vmap_,
+                  Vector<int> emap_,
+                  Vector<int> cmap_,
+                  Vector<int> lmap_,
+                  Vector<int> fmap_)
+      : LogChunk(LogChunkTypes::Reorder), vmap(std::move(vmap_)), emap(std::move(emap_)),
+        cmap(std::move(cmap_)), lmap(std::move(lmap_)), fmap(std::move(fmap_))
+  {
+  }
+
+  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
+  {
+    Vector<int> iv, ie, ic, il, iff;
+    invert(vmap, iv);
+    invert(emap, ie);
+    invert(cmap, ic);
+    invert(lmap, il);
+    invert(fmap, iff);
+    tree->applyReorder(iv, ie, ic, il, iff);
+  }
+
+  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
+  {
+    tree->applyReorder(vmap, emap, cmap, lmap, fmap);
+  }
+
+private:
+  static void invert(const Vector<int> &map, Vector<int> &out)
+  {
+    out.resize(map.size());
+    for (int i = 0; i < int(map.size()); i++) {
+      out[map[i]] = i;
+    }
+  }
+};
+
 struct MeshLog {
   /** Each field in LogEntry is processed in reverse
    * order (for undo) and order (for redo).  Undo
@@ -687,6 +738,19 @@ struct MeshLog {
     }
     topo_chunk_ = nullptr;
     curStep_++;
+    trimHistory();
+  }
+
+  /** Cap the retained undo history to @p n committed steps (-1 = unbounded).
+   * Trims immediately so lowering the cap at runtime frees old steps now. */
+  void setMaxUndoSteps(int n)
+  {
+    maxUndoSteps_ = n;
+    trimHistory();
+  }
+  int maxUndoSteps() const
+  {
+    return maxUndoSteps_;
   }
 
   /** Lazily allocates a topo chunk in the current entry. */
@@ -741,6 +805,29 @@ struct MeshLog {
     return simple;
   }
 
+  /** Append a reorder chunk capturing the five permutations to the current
+   * step. Caller applies the reorder itself (via SpatialTree::applyReorder);
+   * the chunk only stores the maps for later undo/redo. */
+  LogChunkReorder *pushReorderChunk(Vector<int> vmap,
+                                    Vector<int> emap,
+                                    Vector<int> cmap,
+                                    Vector<int> lmap,
+                                    Vector<int> fmap)
+  {
+    if (curStep_ < 0 || curStep_ >= entries.size()) {
+      fprintf(stderr, "Error: pushReorderChunk called with no current undo entry\n");
+      abort();
+    }
+    auto *chunk = litestl::alloc::New<LogChunkReorder>("LogChunkReorder",
+                                                       std::move(vmap),
+                                                       std::move(emap),
+                                                       std::move(cmap),
+                                                       std::move(lmap),
+                                                       std::move(fmap));
+    curEntry().chunks.append(chunk);
+    return chunk;
+  }
+
   LogEntry &curEntry()
   {
     return entries[curStep_];
@@ -774,6 +861,20 @@ struct MeshLog {
   }
 
 private:
+  /** Drop oldest committed steps until at most maxUndoSteps_ remain. The popped
+   * LogEntry is destroyed by value, so ~LogEntry frees its chunks. Stops at
+   * curStep_ == 0 so it never discards the current step or pending redo. */
+  void trimHistory()
+  {
+    if (maxUndoSteps_ < 0) {
+      return;
+    }
+    while (int(entries.size()) > maxUndoSteps_ && curStep_ > 0) {
+      entries.pop_front();
+      curStep_--;
+    }
+  }
+
   void installCallbacks()
   {
     auto fwd = [this](LogElemKind kind) {
@@ -826,6 +927,7 @@ private:
   mesh::MeshCallbacks cb_;
   mesh::Mesh *active_mesh_ = nullptr;
   LogChunkTopo *topo_chunk_ = nullptr;
+  int maxUndoSteps_ = -1; // -1 = unbounded
 };
 
 } // namespace sculptcore::meshlog

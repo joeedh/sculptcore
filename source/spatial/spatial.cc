@@ -445,6 +445,153 @@ void SpatialTree::buildAll()
   regen_node_bounds(root, true);
 }
 
+namespace {
+/* Complete a partial locality map into a full bijection over [0, cap).
+ * Live-but-unmapped elements (e.g. faces owned by no leaf, or boundary verts
+ * not reached by the face walk) take the next dense indices so every live
+ * element lands in [0, count); free slots fill the [count, cap) tail. buildAll
+ * iterates faces as [0, count), so live elements MUST be front-packed. */
+void finish_map(mesh::ElemData &ed, util::Vector<int> &map, int cap, int &counter)
+{
+  for (int i : ed) {
+    if (map[i] == -1) {
+      map[i] = counter++;
+    }
+  }
+  for (int i = 0; i < cap; i++) {
+    if (map[i] == -1) {
+      map[i] = counter++;
+    }
+  }
+}
+} // namespace
+
+void SpatialTree::computeLocalityMaps(util::Vector<int> &vmap,
+                                      util::Vector<int> &emap,
+                                      util::Vector<int> &cmap,
+                                      util::Vector<int> &lmap,
+                                      util::Vector<int> &fmap)
+{
+  const int capV = int(m->v.capacity());
+  const int capE = int(m->e.capacity());
+  const int capC = int(m->c.capacity());
+  const int capL = int(m->l.capacity());
+  const int capF = int(m->f.capacity());
+
+  auto init = [](util::Vector<int> &map, int cap) {
+    map.resize(cap);
+    for (int i = 0; i < cap; i++) {
+      map[i] = -1;
+    }
+  };
+  init(vmap, capV);
+  init(emap, capE);
+  init(cmap, capC);
+  init(lmap, capL);
+  init(fmap, capF);
+
+  int nv = 0, ne = 0, nc = 0, nl = 0, nf = 0;
+
+  for (SpatialNode *leaf : leaves()) {
+    /* Verts owned by this leaf first, so a node's verts are contiguous even if
+     * none of its faces reference them in this walk (shared boundary verts). */
+    for (int vrt : leaf->unique_verts()) {
+      if (vmap[vrt] == -1) {
+        vmap[vrt] = nv++;
+      }
+    }
+
+    for (int face : leaf->unique_faces()) {
+      if (fmap[face] != -1) {
+        continue;
+      }
+      fmap[face] = nf++;
+
+      mesh::FaceProxy fp(m, face);
+      for (auto list : fp.lists()) {
+        if (lmap[list.i] == -1) {
+          lmap[list.i] = nl++;
+        }
+        for (auto cnr : list) {
+          int ci = cnr.i;
+          if (cmap[ci] == -1) {
+            cmap[ci] = nc++;
+          }
+          int edge = m->c.e[ci];
+          if (edge != ELEM_NONE && emap[edge] == -1) {
+            emap[edge] = ne++;
+          }
+          int vrt = m->c.v[ci];
+          if (vrt != ELEM_NONE && vmap[vrt] == -1) {
+            vmap[vrt] = nv++;
+          }
+        }
+      }
+    }
+  }
+
+  finish_map(m->v, vmap, capV, nv);
+  finish_map(m->e, emap, capE, ne);
+  finish_map(m->c, cmap, capC, nc);
+  finish_map(m->l, lmap, capL, nl);
+  finish_map(m->f, fmap, capF, nf);
+}
+
+void SpatialTree::applyReorder(util::span<int> vmap,
+                               util::span<int> emap,
+                               util::span<int> cmap,
+                               util::span<int> lmap,
+                               util::span<int> fmap)
+{
+  m->reorder_verts(vmap);
+  m->reorder_edges(emap);
+  m->reorder_corners(cmap);
+  m->reorder_lists(lmap);
+  m->reorder_faces(fmap);
+
+  rebuild();
+}
+
+void SpatialTree::reorderForLocality()
+{
+  util::Vector<int> vmap, emap, cmap, lmap, fmap;
+  computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
+  applyReorder(vmap, emap, cmap, lmap, fmap);
+}
+
+void SpatialTree::rebuild()
+{
+  for (SpatialNode *node : nodes) {
+    alloc::Delete(node);
+  }
+  nodes.clear();
+  node_idmap.clear();
+  node_idgen = 1;
+  done_gpu_assignment = false;
+
+  if (drawBatch) {
+    alloc::Delete(drawBatch);
+    drawBatch = nullptr;
+  }
+
+  /* Ownership attrs rode along with the reorder; reset so add_face re-assigns
+   * against the fresh node set. */
+  treeMesh.setup(m);
+  for (int i = 0; i < int(m->v.capacity()); i++) {
+    treeMesh.v.node[i] = 0;
+  }
+  for (int i = 0; i < int(m->f.capacity()); i++) {
+    treeMesh.f.node[i] = 0;
+  }
+
+  root = alloc_node();
+  root->flag =
+      Spatial_Leaf | Spatial_RegenTris | Spatial_RegenGPU | Spatial_UpdateNormals;
+  root->create_data();
+
+  buildAll();
+}
+
 sculptcore::gpu::DrawBatch *
 SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 {

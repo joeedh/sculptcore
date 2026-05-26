@@ -118,6 +118,25 @@ void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
   tree->depth_limit = depthLimit;
   tree->gpu_tri_target = gpuPrimLimit;
   tree->buildAll();
+
+  if (reorderOnBuild) {
+    reorderForLocality();
+  }
+}
+
+void Scene::reorderForLocality()
+{
+  if (!tree) {
+    return;
+  }
+
+  litestl::util::Vector<int> vmap, emap, cmap, lmap, fmap;
+  tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
+
+  meshLog.beginStep();
+  meshLog.pushReorderChunk(vmap, emap, cmap, lmap, fmap);
+  tree->applyReorder(vmap, emap, cmap, lmap, fmap);
+  meshLog.endStep();
 }
 
 void Scene::applyView(ViewPreset preset)
