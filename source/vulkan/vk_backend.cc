@@ -180,7 +180,12 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
   BufferEntry *entry = buffer_cache_.lookup_ptr(buf);
   VkDeviceSize bytes = VkDeviceSize(buf->size) * buf->elemsize * gpu_sizeof(buf->type);
 
-  if (!entry || !entry->buffer || entry->size < bytes) {
+  /* A buffer cached from an earlier draw lacks STORAGE usage; if gpu_storage
+   * was set since (the GPU-resident stroke path flips it on pos/nor), the
+   * existing VkBuffer can't be bound as a storage descriptor — recreate it. */
+  bool needStorage = buf->gpu_storage;
+  if (!entry || !entry->buffer || entry->size < bytes ||
+      (needStorage && !entry->storage)) {
     if (entry && (entry->buffer || entry->memory)) {
       /* Defer destruction — the old VkBuffer may still be referenced by the
        * currently-recording command buffer (we may have bound it in an earlier
@@ -191,10 +196,14 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
     BufferEntry e;
     e.size = bytes;
     e.hostVisible = true;
+    e.storage = needStorage;
 
     VkBufferUsageFlags usage = (buf->target == BUFFER_INDEX)
                                    ? VK_BUFFER_USAGE_INDEX_BUFFER_BIT
                                    : VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    if (buf->gpu_storage) {
+      usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    }
     VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bci.size = bytes;
     bci.usage = usage;
@@ -215,7 +224,9 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
     buf->update_buffer = true;
   }
 
-  if (buf->update_buffer && entry && entry->memory) {
+  /* gpu_owned buffers are filled GPU-side (compute scatter); never clobber
+   * them with stale host data. The VkBuffer is created/grown above regardless. */
+  if (buf->update_buffer && !buf->gpu_owned && entry && entry->memory) {
     void *p = nullptr;
     vkMapMemory(ctx_->device, entry->memory, 0, bytes, 0, &p);
     memcpy(p, buf->data, size_t(bytes));
@@ -224,6 +235,13 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
     buf->uploaded = true;
   }
   return *entry;
+}
+
+VkBuffer VulkanBackend::ensureStorageVkBuffer(Buffer *buf)
+{
+  if (!buf) return VK_NULL_HANDLE;
+  buf->gpu_storage = true;
+  return ensureBuffer(buf).buffer;
 }
 
 VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)

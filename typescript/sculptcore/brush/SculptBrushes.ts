@@ -17,4 +17,13 @@ type double = number
 
 export enum SculptBrushes {
   DRAW = 0,
+  INFLATE = 1,
+  CLAY = 2,
+  PINCH = 3,
+  SHARP = 4,
+  MASK = 5,
+  SMOOTH = 6,
+  KELVINLET = 7,
+  POSE = 8,
+  TEXDRAW = 9,
 }

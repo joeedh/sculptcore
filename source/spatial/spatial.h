@@ -172,6 +172,18 @@ struct SpatialTree {
 
   bool update(gpu::GPUManager *gpu);
 
+  /* GPU-resident stroke (debug app). While true, update()'s GPU phase leaves a
+   * GPU node's pos/nor untouched when they are gpu_owned — the scatter compute
+   * pass owns their contents for the duration of the stroke. */
+  bool gpuStrokeActive = false;
+
+  /* Build the slot->global-vertex map for one GPU node into gd.slotVertex
+   * (allocated via `gpu`, host-uploaded), matching the gd.pos/gd.nor slot order
+   * exactly so the scatter pass can fan co/no into the render VBOs. Also flips
+   * gd.pos/gd.nor to gpu_storage|gpu_owned. The node's GpuData (slices /
+   * total_verts) must already be current. */
+  void buildGpuNodeSlotVertex(SpatialNode *gpu_node, gpu::GPUManager *gpu);
+
 private:
   sculptcore::gpu::DrawBatch *drawBatch = nullptr;
   void regen_node_bounds(SpatialNode *node, bool recurse);
@@ -187,6 +199,7 @@ private:
   void fill_leaf_slice(SpatialNode *leaf,
                        math::float3 *pos,
                        math::float3 *nor);
+  void fill_leaf_slot_verts(SpatialNode *leaf, uint32_t *out);
 
   void
   add_face_intern(SpatialNode *node, int f, std::span<Tri> &tris, math::float3 &fcent);

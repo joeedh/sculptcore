@@ -108,6 +108,18 @@ struct BrushComputeDispatch {
            const ComputeNodeMeta *nodes, int nodeCount, const float *falloffLut,
            const ComputeStrokeSample *strokePath, int strokeCount);
 
+  /* dab() split into a CPU prepare + a record-into-cb half, so the interactive
+   * path can batch a dab and the dependent normal recompute into one submit.
+   * prepareDab() marshals + binds and stashes the workgroup count; recordDab()
+   * records the dispatch into a caller-supplied command buffer. Call
+   * prepareDab() then recordDab(cb) inside the shared command buffer. */
+  bool prepareDab(const ComputeBrushUniforms &brushU,
+                  const ComputeCtxUniforms &ctxU, const uint32_t *uniqueVerts,
+                  int uniqueVertCount, const ComputeNodeMeta *nodes,
+                  int nodeCount, const float *falloffLut,
+                  const ComputeStrokeSample *strokePath, int strokeCount);
+  void recordDab(VkCommandBuffer cb);
+
   /* Upload the CSR neighbor topology (binding 12/13) for for_neighbor kernels
    * like Smooth. `meta` has one entry per global vertex; `nbrVerts` is the
    * flat neighbor-index array. Static across a stroke — call once after
@@ -127,6 +139,20 @@ struct BrushComputeDispatch {
   /* Read co/no/mask back into caller arrays (packed xyz / xyz / f32). Any
    * pointer may be null to skip that readback. */
   bool endStroke(float *coOut, float *noOut, float *maskOut);
+
+  /* Read back just the listed global vertex indices (packed xyz). Used by the
+   * GPU-resident path to refresh the CPU copy of the verts a dab moved (for
+   * ray-pick + node bounds) without a full-mesh readback. coOut/noOut are
+   * caller arrays of `count*3` floats; either may be null. */
+  bool readbackVerts(const uint32_t *verts, int count, float *coOut, float *noOut);
+
+  /* GPU-resident stroke path (debug app): the persistent stride-16 co/no
+   * STORAGE buffers and the vertex count, so a sibling GpuNormalPass can
+   * recompute normals and scatter into render VBOs with no CPU roundtrip.
+   * Valid between beginStroke() and the dispatcher's destruction. */
+  VkBuffer coBuffer() const { return co_.buffer; }
+  VkBuffer noBuffer() const { return no_.buffer; }
+  int vertCount() const { return vertCount_; }
 
 private:
   struct Buf {
@@ -170,6 +196,7 @@ private:
   VkImageView texView_ = VK_NULL_HANDLE;
 
   int vertCount_ = 0;
+  int dabNodeCount_ = 0;  // workgroup count stashed by prepareDab for recordDab
   bool hasNeighbors_ = false;
   Buf co_, no_, mask_;             // bindings 0,1,2 (persistent per stroke)
   Buf unique_, nodes_;             // bindings 3,4 (per dab)

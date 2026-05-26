@@ -79,12 +79,19 @@ struct VulkanBackend : public sculptcore::gpu::GPUResourceObserver {
 
   VkContext *context() const { return ctx_; }
 
+  /** Force the VkBuffer backing `buf` to exist (creating/growing it) with
+   *  STORAGE usage so a compute pass can write it, and return the handle.
+   *  Used by the GPU-resident stroke path to scatter into render VBOs outside
+   *  the draw loop. Sets buf->gpu_storage. */
+  VkBuffer ensureStorageVkBuffer(sculptcore::gpu::Buffer *buf);
+
 private:
   struct BufferEntry {
     VkBuffer buffer = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkDeviceSize size = 0;
     bool hostVisible = false;
+    bool storage = false;  /* created with STORAGE usage (gpu_storage) */
   };
   struct PipelineEntry {
     VkShaderModule shaderModule = VK_NULL_HANDLE;

@@ -775,6 +775,16 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       continue;
     }
 
+    /* GPU-resident stroke (debug app): this owner's pos/nor are produced by
+     * the scatter compute pass and must not be regenerated or slice-updated
+     * from the CPU mesh mid-stroke (that would clobber the GPU result). The
+     * stroke syncs the CPU mesh + clears gpu_owned at end. */
+    if (gpuStrokeActive && owner->gpu_data && owner->gpu_data->pos &&
+        owner->gpu_data->pos->gpu_owned) {
+      node->flag &= ~(Spatial_RegenGPU | Spatial_UpdateGPU);
+      continue;
+    }
+
     /* Full regen of the owner if the owner is brand-new (no buffers),
      * the leaf wants a full regen, or the slice layout is missing. */
     bool need_full = !owner->gpu_data || !owner->gpu_data->pos ||

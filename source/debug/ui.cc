@@ -2,6 +2,7 @@
 
 #include "scene.h"
 
+#include "brush/brush_executor.h"
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_swapchain.h"
 #include "window/window.h"
@@ -150,6 +151,61 @@ void Ui::drawPanel()
   if (changed) {
     brush.writeProps();
   }
+
+  ImGui::Separator();
+
+  /* Brush type — combo index maps 1:1 to SculptBrushes enum order. */
+  static const brush::SculptBrushes kTools[] = {
+      brush::SculptBrushes::DRAW,      brush::SculptBrushes::INFLATE,
+      brush::SculptBrushes::CLAY,      brush::SculptBrushes::PINCH,
+      brush::SculptBrushes::SHARP,     brush::SculptBrushes::MASK,
+      brush::SculptBrushes::SMOOTH,    brush::SculptBrushes::KELVINLET,
+      brush::SculptBrushes::POSE,      brush::SculptBrushes::TEXDRAW,
+  };
+  static const char *kToolNames[] = {"Draw",  "Inflate",   "Clay", "Pinch",
+                                     "Sharp", "Mask",      "Smooth",
+                                     "Kelvinlet", "Pose",  "TexDraw"};
+  int toolIdx = 0;
+  for (int i = 0; i < int(sizeof(kTools) / sizeof(kTools[0])); i++) {
+    if (kTools[i] == scene_->currentTool) {
+      toolIdx = i;
+      break;
+    }
+  }
+  if (ImGui::Combo("tool", &toolIdx, kToolNames,
+                   int(sizeof(kToolNames) / sizeof(kToolNames[0])))) {
+    scene_->currentTool = kTools[toolIdx];
+  }
+
+  /* Backend — WGSL drives the real Vulkan compute path, only available when
+   * the GPU-dispatch path was compiled in (native + spirv backend). */
+  static const char *kBackendNames[] = {"C++", "WGSL"};
+  int backendIdx = scene_->currentBackend == BrushBackend::Wgsl ? 1 : 0;
+#ifndef SBRUSH_GPU_DISPATCH
+  ImGui::BeginDisabled(true);
+#endif
+  if (ImGui::Combo("backend", &backendIdx, kBackendNames, 2)) {
+    scene_->currentBackend = backendIdx == 1 ? BrushBackend::Wgsl : BrushBackend::Cpp;
+  }
+#ifndef SBRUSH_GPU_DISPATCH
+  ImGui::EndDisabled();
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    ImGui::SetTooltip("GPU dispatch not compiled (needs the spirv backend)");
+  }
+#endif
+
+#ifdef SBRUSH_GPU_DISPATCH
+  /* How the GPU-resident WGSL stroke finalizes normals on release. CPU
+   * (default) recomputes them with the exact per-node algorithm (byte-identical
+   * to the C++ backend); GPU reads back the compute pass's global-sum normals
+   * (cheaper, not bit-identical). Mid-stroke shading always uses GPU normals. */
+  static const char *kEndNormalNames[] = {"CPU (exact)", "GPU (fast)"};
+  int endNormalIdx = scene_->strokeEndNormals == StrokeEndNormals::Gpu ? 1 : 0;
+  if (ImGui::Combo("stroke-end normals", &endNormalIdx, kEndNormalNames, 2)) {
+    scene_->strokeEndNormals =
+        endNormalIdx == 1 ? StrokeEndNormals::Gpu : StrokeEndNormals::Cpu;
+  }
+#endif
 
   ImGui::Separator();
   ImGui::Checkbox("show axes", &scene_->showAxes);

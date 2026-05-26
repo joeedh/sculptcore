@@ -65,6 +65,10 @@ static bool layerAvailable(const char *name)
 
 VkContext::~VkContext()
 {
+  /* The device must be idle before any of its objects are destroyed (Vulkan
+   * spec). runOneShot waits per-submit, but make the teardown invariant
+   * explicit rather than relying on every caller having drained the queue. */
+  if (device) vkDeviceWaitIdle(device);
   if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
   if (commandPool) vkDestroyCommandPool(device, commandPool, nullptr);
   if (device) vkDestroyDevice(device, nullptr);
@@ -383,6 +387,11 @@ void OffscreenTarget::release()
   if (depthImage)  { vkDestroyImage      (d, depthImage,  nullptr); depthImage  = VK_NULL_HANDLE; }
   if (depthMemory) { vkFreeMemory        (d, depthMemory, nullptr); depthMemory = VK_NULL_HANDLE; }
   width = height = 0;
+  /* Null ctx so a second release() hits the early-out instead of reading
+   * ctx->device through a freed pointer: Scene::~Scene calls release()
+   * explicitly, deletes the VkContext, then the ~OffscreenTarget member dtor
+   * calls release() again. Mirrors Swapchain::release. */
+  ctx = nullptr;
 }
 
 void OffscreenTarget::beginRenderPass(VkCommandBuffer cb,

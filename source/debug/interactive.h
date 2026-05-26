@@ -11,6 +11,7 @@ struct CommandExecutor;
 namespace sculptcore::debug_app {
 
 struct Scene;
+class GpuStrokeSession;
 
 /** Drives interactive sculpting: routes mouse drags into brush strokes,
  *  orbits/pans/zooms the camera, and handles undo/redo keys. Reads
@@ -61,8 +62,11 @@ private:
   /* Orbit/pan triggered by RMB or MMB (independent of LMB). */
   bool rightOrMiddleOrbit_ = false;
 
-  /* Stroke state. */
+  /* Stroke state. Exactly one of exec_ (C++ backend) / gpuSession_ (WGSL
+   * backend, GPU compute) is non-null while a stroke is open; the backend is
+   * chosen on press from scene_->currentBackend. */
   brush::CommandExecutor *exec_ = nullptr;
+  GpuStrokeSession *gpuSession_ = nullptr;
   float3 strokeLastPos_{0, 0, 0};
   bool strokeHasLast_ = false;
   float strokeResidual_ = 0.0f;

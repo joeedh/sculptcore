@@ -445,14 +445,16 @@ bool BrushComputeDispatch::setNeighbors(const ComputeVertNbr *meta,
   return true;
 }
 
-bool BrushComputeDispatch::dab(const ComputeBrushUniforms &brushU,
-                               const ComputeCtxUniforms &ctxU,
-                               const uint32_t *uniqueVerts, int uniqueVertCount,
-                               const ComputeNodeMeta *nodes, int nodeCount,
-                               const float *falloffLut,
-                               const ComputeStrokeSample *strokePath,
-                               int strokeCount)
+bool BrushComputeDispatch::prepareDab(const ComputeBrushUniforms &brushU,
+                                      const ComputeCtxUniforms &ctxU,
+                                      const uint32_t *uniqueVerts,
+                                      int uniqueVertCount,
+                                      const ComputeNodeMeta *nodes,
+                                      int nodeCount, const float *falloffLut,
+                                      const ComputeStrokeSample *strokePath,
+                                      int strokeCount)
 {
+  dabNodeCount_ = nodeCount;
   if (nodeCount == 0) return true;
   const VkBufferUsageFlags storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   const VkBufferUsageFlags uniform = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
@@ -492,13 +494,32 @@ bool BrushComputeDispatch::dab(const ComputeBrushUniforms &brushU,
   if (hasNeighbors_) {
     std::memcpy(coPrev_.mapped, co_.mapped, size_t(vertCount_) * kVec3Stride);
   }
+  return true;
+}
 
-  return ctx_->runOneShot([&](VkCommandBuffer cb) {
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeLayout_, 0, 1,
-                            &set_, 0, nullptr);
-    vkCmdDispatch(cb, uint32_t(nodeCount), 1, 1);
-  });
+void BrushComputeDispatch::recordDab(VkCommandBuffer cb)
+{
+  if (dabNodeCount_ == 0) return;
+  vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+  vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeLayout_, 0, 1,
+                          &set_, 0, nullptr);
+  vkCmdDispatch(cb, uint32_t(dabNodeCount_), 1, 1);
+}
+
+bool BrushComputeDispatch::dab(const ComputeBrushUniforms &brushU,
+                               const ComputeCtxUniforms &ctxU,
+                               const uint32_t *uniqueVerts, int uniqueVertCount,
+                               const ComputeNodeMeta *nodes, int nodeCount,
+                               const float *falloffLut,
+                               const ComputeStrokeSample *strokePath,
+                               int strokeCount)
+{
+  if (!prepareDab(brushU, ctxU, uniqueVerts, uniqueVertCount, nodes, nodeCount,
+                  falloffLut, strokePath, strokeCount)) {
+    return false;
+  }
+  if (dabNodeCount_ == 0) return true;
+  return ctx_->runOneShot([&](VkCommandBuffer cb) { recordDab(cb); });
 }
 
 bool BrushComputeDispatch::endStroke(float *coOut, float *noOut, float *maskOut)
@@ -521,6 +542,27 @@ bool BrushComputeDispatch::endStroke(float *coOut, float *noOut, float *maskOut)
   }
   if (maskOut) {
     std::memcpy(maskOut, mask_.mapped, size_t(vertCount_) * sizeof(float));
+  }
+  return true;
+}
+
+bool BrushComputeDispatch::readbackVerts(const uint32_t *verts, int count,
+                                         float *coOut, float *noOut)
+{
+  const auto *coSrc = static_cast<const float *>(co_.mapped);
+  const auto *noSrc = static_cast<const float *>(no_.mapped);
+  for (int i = 0; i < count; i++) {
+    uint32_t v = verts[i];
+    if (coOut) {
+      coOut[i * 3 + 0] = coSrc[v * 4 + 0];
+      coOut[i * 3 + 1] = coSrc[v * 4 + 1];
+      coOut[i * 3 + 2] = coSrc[v * 4 + 2];
+    }
+    if (noOut) {
+      noOut[i * 3 + 0] = noSrc[v * 4 + 0];
+      noOut[i * 3 + 1] = noSrc[v * 4 + 1];
+      noOut[i * 3 + 2] = noSrc[v * 4 + 2];
+    }
   }
   return true;
 }

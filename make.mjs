@@ -349,7 +349,7 @@ async function sbrushVerify(regen) {
   )
   await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv`)
 
-  const debugApp = `${dir}/source/debug/debug_app`
+  const debugApp = `${dir}/source/debug/debug_app${process.platform === 'win32' ? '.exe' : ''}`
   if (!fs.existsSync(debugApp)) {
     process.stderr.write(`sbrush-verify: debug_app not found at ${debugApp}\n`)
     process.exit(1)
@@ -455,7 +455,7 @@ async function webgpuVerify() {
   )
   await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv`)
 
-  const debugApp = `${dir}/source/debug/debug_app`
+  const debugApp = `${dir}/source/debug/debug_app${process.platform === 'win32' ? '.exe' : ''}`
   if (!fs.existsSync(debugApp)) {
     process.stderr.write(`webgpu-verify: debug_app not found at ${debugApp}\n`)
     process.exit(1)

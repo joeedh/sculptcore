@@ -7,6 +7,16 @@ using namespace litestl;
 namespace sculptcore::gpu {
 Buffer::~Buffer()
 {
+  /* Notify backends so they drop cache entries keyed by this pointer and defer
+   * native-handle destruction to a safe point. This must run for EVERY deletion
+   * path, not just GPUManager::destroyBuffer — producers (e.g. spatial GpuData)
+   * free buffers with a raw alloc::Delete, and without this the backend keeps a
+   * stale BufferEntry with a live VkBuffer (leak + double-free once the pointer
+   * is reused). onBufferDestroyed is idempotent, so destroyBuffer's call is
+   * harmless if it also fires. */
+  for (auto *obs : manager.observers) {
+    obs->onBufferDestroyed(this);
+  }
   if (manager.buffers.contains(this)) {
     manager.buffers.remove(this);
   }

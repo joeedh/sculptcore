@@ -67,7 +67,13 @@ function getVSEnv() {
   // the user's cargo bin dir so `naga` is reachable during the codegen step.
   const nodeDir = Path.dirname(process.execPath)
   const cargoBin = process.env.USERPROFILE ? Path.join(process.env.USERPROFILE, '.cargo', 'bin') : ''
-  childEnv.PATH = [`${systemRoot}\\System32`, systemRoot, `${systemRoot}\\System32\\Wbem`, nodeDir, cargoBin]
+  // sbrush WGSL/SPIR-V backends need `tint` and `spirv-val` on PATH. spirv-val
+  // ships in the Vulkan SDK's Bin; tint has no canonical install dir, so accept
+  // extra tool dirs via SBRUSH_TOOL_PATH (";"-separated) as an escape hatch.
+  const vulkanBin = process.env.VULKAN_SDK ? Path.join(process.env.VULKAN_SDK, 'Bin') : ''
+  const toolDirs = process.env.SBRUSH_TOOL_PATH ? process.env.SBRUSH_TOOL_PATH.split(';') : []
+  childEnv.PATH = [`${systemRoot}\\System32`, systemRoot, `${systemRoot}\\System32\\Wbem`,
+    nodeDir, cargoBin, vulkanBin, ...toolDirs]
     .filter(Boolean)
     .join(';')
   const result = child_process.execSync(`cmd /s /c \"call \"${path}\" && set\"`, {env: childEnv})

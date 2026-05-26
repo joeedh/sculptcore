@@ -36,6 +36,8 @@ else()
   endif()
 endif()
 
+add_compile_options(-Wno-parentheses-equality)
+
 
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)
 

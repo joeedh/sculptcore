@@ -6,8 +6,10 @@ set(LIB_SRC
   PUBLIC input.h
   PUBLIC interactive.h
   PUBLIC ui.h
+  PUBLIC gpu_stroke.h
   scene.cc
   script.cc
+  gpu_stroke.cc
   stb_image_impl.cc
   state_dump.cc
   input.cc

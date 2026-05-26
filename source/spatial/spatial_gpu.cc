@@ -1,4 +1,6 @@
 
+#include <cassert>
+
 #include "gpu/types.h"
 #include "spatial.h"
 
@@ -58,6 +60,66 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor)
       pos[vert_i] = m->v.co[v];
       nor[vert_i] = smooth_shading ? m->v.no[v] : no;
     }
+  }
+}
+
+/* Write one leaf's per-slot global vertex indices (slot order == fill_leaf_slice
+ * pos/nor order) into `out` (already offset to the leaf's slice). */
+void SpatialTree::fill_leaf_slot_verts(SpatialNode *leaf, uint32_t *out)
+{
+  Mesh *m = this->m;
+  auto &tris = leaf->data->tris;
+  for (int i : util::IndexRange(tris.size())) {
+    int vert_i = i * 3;
+    auto &tri = tris[i];
+    for (int j = 0; j < 3; j++, vert_i++) {
+      out[vert_i] = uint32_t(m->c.v[tri.c[j]]);
+    }
+  }
+}
+
+/* Build gd.slotVertex for one GPU node from its (current) slices, in the exact
+ * same DFS-leaf / per-tri-corner order regen_gpu_node fills gd.pos/gd.nor — so
+ * the scatter pass writes the right vertex into each render-VBO slot. Also
+ * flips pos/nor to gpu_storage|gpu_owned for the stroke. */
+void SpatialTree::buildGpuNodeSlotVertex(SpatialNode *gpu_node, gpu::GPUManager *gpu)
+{
+  if (!gpu_node->gpu_data) {
+    return;
+  }
+  GpuData &gd = *gpu_node->gpu_data;
+
+  if (gd.slotVertex) {
+    alloc::Delete(gd.slotVertex);
+    gd.slotVertex = nullptr;
+  }
+  if (gd.total_verts <= 0) {
+    return;
+  }
+
+  gd.slotVertex = gpu->createBuffer(
+      litestl::util::string("slotVertex"), GPUType::UINT32, 1, gd.total_verts);
+  gd.slotVertex->gpu_storage = true; /* compute-read; host-uploaded by backend */
+  gd.slotVertex->update_buffer = true;
+
+  uint32_t *out = gd.slotVertex->get_data<uint32_t>();
+  int filled = 0;
+  for (LeafSlice &s : gd.slices) {
+    if (s.vert_count > 0) {
+      fill_leaf_slot_verts(s.leaf, out + s.vert_start);
+    }
+    filled += s.vert_count;
+  }
+  assert(filled == gd.total_verts);
+
+  /* pos/nor are produced GPU-side by the scatter pass for the stroke. */
+  if (gd.pos) {
+    gd.pos->gpu_storage = true;
+    gd.pos->gpu_owned = true;
+  }
+  if (gd.nor) {
+    gd.nor->gpu_storage = true;
+    gd.nor->gpu_owned = true;
   }
 }
 

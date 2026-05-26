@@ -15,10 +15,11 @@ namespace {
 
 void usage()
 {
-  std::fprintf(stderr,
-               "debug_app --script PATH [--out DIR] [--headless] [--width N] [--height N]\n"
-               "          [--no-headless] [--interactive] [--backend cpp|wgsl]\n"
-               "          [--gpu-capture PREFIX]\n");
+  std::fprintf(
+      stderr,
+      "debug_app --script PATH [--out DIR] [--headless] [--width N] [--height N]\n"
+      "          [--no-headless] [--interactive] [--backend cpp|wgsl]\n"
+      "          [--gpu-capture PREFIX]\n");
 }
 
 bool ensureDir(const char *path)
@@ -94,68 +95,78 @@ int main(int argc, char **argv)
   }
   ensureDir(outDir);
 
-  Scene scene(width, height, headless);
+  // create a new scope so we get desctructors called before print leaks
+  {
+    Scene scene(width, height, headless);
 
-  if (backendArg) {
-    if (std::strcmp(backendArg, "cpp") == 0) {
-      scene.currentBackend = BrushBackend::Cpp;
-    } else if (std::strcmp(backendArg, "wgsl") == 0) {
+    if (backendArg) {
+      if (std::strcmp(backendArg, "cpp") == 0) {
+        scene.currentBackend = BrushBackend::Cpp;
+      } else if (std::strcmp(backendArg, "wgsl") == 0) {
 #ifdef SBRUSH_BACKEND_WGSL
-      scene.currentBackend = BrushBackend::Wgsl;
+        scene.currentBackend = BrushBackend::Wgsl;
 #else
-      std::fprintf(stderr,
-                   "--backend=wgsl: WGSL backend not compiled in "
-                   "(configure with --backends=cpp,wgsl)\n");
-      return 2;
+        std::fprintf(stderr,
+                     "--backend=wgsl: WGSL backend not compiled in "
+                     "(configure with --backends=cpp,wgsl)\n");
+        return 2;
 #endif
-    } else {
-      std::fprintf(stderr, "--backend: unknown value '%s' (valid: cpp, wgsl)\n", backendArg);
-      return 2;
+      } else {
+        std::fprintf(
+            stderr, "--backend: unknown value '%s' (valid: cpp, wgsl)\n", backendArg);
+        return 2;
+      }
     }
-  }
 
-  if (gpuCapture) {
-    /* Fixtures land alongside the JSON dumps in outDir. */
-    std::string p = outDir;
-    if (!p.empty() && p.back() != '/') {
-      p += '/';
+    if (gpuCapture) {
+      /* Fixtures land alongside the JSON dumps in outDir. */
+      std::string p = outDir;
+      if (!p.empty() && p.back() != '/') {
+        p += '/';
+      }
+      scene.gpuCapturePrefix = p + gpuCapture;
     }
-    scene.gpuCapturePrefix = p + gpuCapture;
-  }
 
-  auto r = script::runFile(scene, scriptPath, outDir);
-  if (!r.ok) {
-    std::fprintf(stderr, "script error at line %d: %s\n",
-                 r.line_no, r.error.c_str());
-    return 1;
-  }
-
-  if (interactive) {
-    if (!scene.ensureGPU() || !scene.window) {
-      std::fprintf(stderr, "interactive: failed to bring up window/GPU\n");
+    auto r = script::runFile(scene, scriptPath, outDir);
+    if (!r.ok) {
+      std::fprintf(stderr, "script error at line %d: %s\n", r.line_no, r.error.c_str());
       return 1;
     }
-    InputDispatcher dispatcher;
-    Ui ui(&scene);
-    InteractiveController controller(&scene);
-    /* Order matters: Ui runs first and short-circuits the controller when
-     * ImGui has focus. The actual GLFW event delivery to ImGui happens
-     * through its chained callbacks installed inside Ui::init(). */
-    dispatcher.addHandler(&ui);
-    dispatcher.addHandler(&controller);
-    dispatcher.attach(scene.window->handle());
 
-    if (!ui.init()) {
-      std::fprintf(stderr, "interactive: Ui::init failed; continuing without panel\n");
-    }
+    if (interactive) {
+      if (!scene.ensureGPU() || !scene.window) {
+        std::fprintf(stderr, "interactive: failed to bring up window/GPU\n");
+        return 1;
+      }
+      InputDispatcher dispatcher;
+      Ui ui(&scene);
+      InteractiveController controller(&scene);
+      /* Order matters: Ui runs first and short-circuits the controller when
+       * ImGui has focus. The actual GLFW event delivery to ImGui happens
+       * through its chained callbacks installed inside Ui::init(). */
+      dispatcher.addHandler(&ui);
+      dispatcher.addHandler(&controller);
+      dispatcher.attach(scene.window->handle());
 
-    while (!scene.window->shouldClose()) {
-      scene.window->poll();
-      ui.beginFrame();
-      scene.renderWindow();
+      if (!ui.init()) {
+        std::fprintf(stderr, "interactive: Ui::init failed; continuing without panel\n");
+      }
+
+      while (!scene.window->shouldClose()) {
+        scene.window->poll();
+        ui.beginFrame();
+        scene.renderWindow();
+      }
+      ui.shutdown();
+      dispatcher.detach();
     }
-    ui.shutdown();
-    dispatcher.detach();
   }
+
+  if (litestl::alloc::getMemorySize() > 0) {
+    printf("=== memory leaks: ===\n");
+  }
+  litestl::alloc::print_blocks(false);
+  std::fflush(stdout);
+
   return 0;
 }

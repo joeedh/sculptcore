@@ -78,6 +78,14 @@ struct Buffer {
   void *data = nullptr;
   bool update_buffer = true;
 
+  /* When set, the backend allocates the VkBuffer with STORAGE usage in
+   * addition to VERTEX/INDEX so a compute pass can write it directly. */
+  bool gpu_storage = false;
+  /* When set, the backend never memcpys host `data` into the VkBuffer — its
+   * contents are produced GPU-side (e.g. a compute scatter). The VkBuffer is
+   * still created/grown to match `size`. */
+  bool gpu_owned = false;
+
   void resize(int newsize);
 
   static const binding::types::Struct<Buffer> *defineBindings();

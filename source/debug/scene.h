@@ -41,6 +41,14 @@ struct LastStroke {
 // C++ executor. Later waves replace that with real GPU dispatch.
 enum class BrushBackend { Cpp, Wgsl };
 
+// How the GPU-resident WGSL stroke path (debug app, interactive) finalizes
+// vertex normals on stroke release. Cpu (default) recomputes them with the
+// exact per-node CPU algorithm — byte-identical to the C++ backend, so
+// sbrush-verify is unaffected. Gpu reads back the compute pass's global-sum
+// normals (cheaper, skips the CPU 1-ring gather) at the cost of not being
+// bit-identical. Mid-stroke shading always uses the GPU normals regardless.
+enum class StrokeEndNormals { Cpu, Gpu };
+
 struct Scene {
   Scene(int width, int height, bool headless);
   Scene(const Scene &) = delete;
@@ -54,6 +62,7 @@ struct Scene {
   brush::Brush brush;
   brush::SculptBrushes currentTool = brush::SculptBrushes::DRAW;
   BrushBackend currentBackend = BrushBackend::Cpp;
+  StrokeEndNormals strokeEndNormals = StrokeEndNormals::Cpu;
   /* Texture coord-space matrix for VIEWPLANE/VIEWREPEAT (set_render_matrix).
    * Identity'd in the ctor; threaded into both the C++ ctx.renderMatrix and the
    * GPU ctx uniform so the matrix-driven coord spaces are deterministic. */

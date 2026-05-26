@@ -9,6 +9,12 @@
 #include "spatial/spatial.h"
 #include "spatial/spatial_base.h"
 
+#ifdef SBRUSH_GPU_DISPATCH
+#include "gpu_stroke.h"
+
+#include <string>
+#endif
+
 #include "GLFW/glfw3.h"
 
 #include <cmath>
@@ -115,18 +121,44 @@ void InteractiveController::beginStroke(float2 cursor)
   if (!pickSurface(cursor, hit, normal)) {
     return;
   }
-  exec_ = new brush::CommandExecutor(scene_->tree, &scene_->brush);
-  exec_->meshLog = &scene_->meshLog;
-  exec_->beginStep();
 
   strokeLastPos_ = hit;
   strokeHasLast_ = true;
   strokeResidual_ = 0.0f;
 
+#ifdef SBRUSH_GPU_DISPATCH
+  // WGSL backend: drive the stroke through the persistent GPU compute session
+  // (upload once, dab per move, read back on release). begin() fails cleanly
+  // for a tool with no GPU kernel, in which case we fall back to the C++ path.
+  if (scene_->currentBackend == BrushBackend::Wgsl) {
+    std::string err;
+    gpuSession_ = new GpuStrokeSession();
+    // Opt into the GPU-resident live-render path: dabs scatter into the render
+    // VBOs + read back only touched verts, so the mesh deforms during the drag
+    // (the batch/verify path never sets this and stays full-readback-at-end).
+    gpuSession_->enableLiveRender(scene_->backendWindow ? scene_->backendWindow
+                                                        : scene_->backend);
+    if (gpuSession_->begin(*scene_, err)) {
+      gpuSession_->dab(*scene_, hit, normal, err);
+      scene_->lastStroke.valid = true;
+      scene_->lastStroke.origin = hit;
+      scene_->lastStroke.normal = normal;
+      scene_->lastStroke.radius = scene_->brush.radius;
+      return;
+    }
+    delete gpuSession_;
+    gpuSession_ = nullptr;
+  }
+#endif
+
+  exec_ = new brush::CommandExecutor(scene_->tree, &scene_->brush);
+  exec_->meshLog = &scene_->meshLog;
+  exec_->beginStep();
+
   Vector<spatial::SpatialNode *> nodes;
   scene_->tree->filterNodes(hit, scene_->brush.radius, nodes);
   if (nodes.size() != 0) {
-    exec_->execBrush(brush::SculptBrushes::DRAW, &nodes, hit, normal);
+    exec_->execBrush(scene_->currentTool, &nodes, hit, normal);
     exec_->clearIsFirstOfStep();
   }
   scene_->lastStroke.valid = true;
@@ -137,7 +169,7 @@ void InteractiveController::beginStroke(float2 cursor)
 
 void InteractiveController::continueStroke(float2 cursor)
 {
-  if (!exec_ || !strokeHasLast_) {
+  if ((!exec_ && !gpuSession_) || !strokeHasLast_) {
     return;
   }
   float3 hit, normal;
@@ -155,13 +187,22 @@ void InteractiveController::continueStroke(float2 cursor)
    * already deposited). StrokeSpacer's first advance is a no-op since
    * has_last is preset; subsequent advances will emit interior dabs. */
   auto emit = [&](float3 p) {
+#ifdef SBRUSH_GPU_DISPATCH
+    if (gpuSession_) {
+      std::string err;
+      gpuSession_->dab(*scene_, p, normal, err);
+      scene_->lastStroke.origin = p;
+      scene_->lastStroke.normal = normal;
+      return;
+    }
+#endif
     if (!exec_) return;
     Vector<spatial::SpatialNode *> nodes;
     scene_->tree->filterNodes(p, scene_->brush.radius, nodes);
     if (nodes.size() == 0) {
       return;
     }
-    exec_->execBrush(brush::SculptBrushes::DRAW, &nodes, p, normal);
+    exec_->execBrush(scene_->currentTool, &nodes, p, normal);
     exec_->clearIsFirstOfStep();
     scene_->lastStroke.origin = p;
     scene_->lastStroke.normal = normal;
@@ -174,6 +215,16 @@ void InteractiveController::continueStroke(float2 cursor)
 
 void InteractiveController::endStroke()
 {
+#ifdef SBRUSH_GPU_DISPATCH
+  if (gpuSession_) {
+    gpuSession_->end(*scene_);
+    delete gpuSession_;
+    gpuSession_ = nullptr;
+    strokeHasLast_ = false;
+    strokeResidual_ = 0.0f;
+    return;
+  }
+#endif
   if (!exec_) {
     return;
   }

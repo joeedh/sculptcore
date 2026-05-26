@@ -48,6 +48,12 @@ struct GpuData {
   util::Vector<LeafSlice> slices; /* DFS-order leaf list defining the layout */
   int total_verts = 0;
 
+  /* GPU-resident stroke path (debug app): per render-VBO slot, the global
+   * vertex index it draws (slot order == pos/nor). Uploaded host->GPU once at
+   * stroke begin; the scatter compute pass reads it to fan co/no into pos/nor.
+   * Null outside a GPU-resident stroke. */
+  gpu::Buffer *slotVertex = nullptr;
+
   ~GpuData()
   {
     dispose();
@@ -66,6 +72,10 @@ struct GpuData {
     if (cmd) {
       alloc::Delete(cmd);
       cmd = nullptr;
+    }
+    if (slotVertex) {
+      alloc::Delete(slotVertex);
+      slotVertex = nullptr;
     }
     slices.clear_and_contract();
     total_verts = 0;
