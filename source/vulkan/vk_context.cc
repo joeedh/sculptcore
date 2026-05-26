@@ -69,6 +69,7 @@ VkContext::~VkContext()
    * spec). runOneShot waits per-submit, but make the teardown invariant
    * explicit rather than relying on every caller having drained the queue. */
   if (device) vkDeviceWaitIdle(device);
+  if (oneShotFence) vkDestroyFence(device, oneShotFence, nullptr);
   if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
   if (commandPool) vkDestroyCommandPool(device, commandPool, nullptr);
   if (device) vkDestroyDevice(device, nullptr);
@@ -230,6 +231,15 @@ bool VkContext::init(GLFWwindow *glfwWindow, bool validation)
   cpi.queueFamilyIndex = graphicsQueueFamily;
   cpi.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   VK_CHECK(vkCreateCommandPool(device, &cpi, nullptr, &commandPool));
+
+  /* Persistent one-shot command buffer + fence (see runOneShot). */
+  VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  cbai.commandPool = commandPool;
+  cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cbai.commandBufferCount = 1;
+  VK_CHECK(vkAllocateCommandBuffers(device, &cbai, &oneShotCmd));
+  VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+  VK_CHECK(vkCreateFence(device, &fci, nullptr, &oneShotFence));
 
   VkDescriptorPoolSize ps{};
   ps.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;

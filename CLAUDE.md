@@ -222,6 +222,32 @@ Also: `litestl::alloc` is a leak-tracking allocator; if a test crashes
 inside `free`/`release` it usually means a real bug, not allocator
 noise — don't paper over it by defining `NO_DEBUG_ALLOC`.
 
+## Profiling a periodic hitch (temporary scaffolding)
+
+Run-of-the-mill perf regressions — especially ones that only show up in
+the *interactive* live path (e.g. a ~1s stutter while sculpting) — are
+chased the same way: add throwaway, `--profile`-gated instrumentation,
+narrow the cost to a phase, fix it, then **rip the scaffolding back out**.
+The `StrokeProfiler` (`source/debug/profile.h`) phase counters
+(cpu/gpu/read, begin/end) are the permanent part and stay; the temporary
+part is whatever you bolt on to localize a spike:
+
+- A per-event **SPIKE log** in the hot path (print index +
+  time-since-stroke-start + phase split when a dab exceeds a threshold)
+  turns a "lags every second" report into evenly-spaced, phase-labeled
+  lines — that's how the WGSL read-phase regression was pinned to
+  uncached host-visible readback.
+- A **FRAME-SPIKE log** wrapping the interactive frame loop catches
+  stalls that land in render/present rather than a brush dab (so they
+  never reach `addDab`).
+- Gate it all behind `scene.profiler.enabled` (`--profile`) so it's
+  inert in normal runs, and remember scripted/batch runs won't reproduce
+  a live-path-only hitch — hand the user a setup-only script + `--interactive`.
+
+Like the source-line prints above, this instrumentation is **not** meant
+to live in the tree: once the fix is confirmed, delete every SPIKE /
+FRAME-SPIKE counter and printf you added and leave only `StrokeProfiler`.
+
 ## Conventions
 
 - Namespaces: `litestl::util`, `litestl::binding`, etc.

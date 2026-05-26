@@ -52,9 +52,19 @@ bool BrushComputeDispatch::createBuf(Buf &b, VkDeviceSize size,
   vkGetBufferMemoryRequirements(d, b.buffer, &mr);
   VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
   mai.allocationSize = mr.size;
+  // Prefer HOST_CACHED: co_/no_ are read back per dab (readbackVerts), and on a
+  // discrete GPU the plain HOST_VISIBLE|HOST_COHERENT type is write-combined —
+  // uncached CPU reads there crawl, which dominated the per-dab "read" phase.
+  // Fall back to the uncached type if no cached host-visible memory exists.
   mai.memoryTypeIndex = ctx_->findMemoryType(
       mr.memoryTypeBits,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+          VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+  if (mai.memoryTypeIndex == ~0u) {
+    mai.memoryTypeIndex = ctx_->findMemoryType(
+        mr.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  }
   if (mai.memoryTypeIndex == ~0u ||
       vkAllocateMemory(d, &mai, nullptr, &b.mem) != VK_SUCCESS) {
     vkDestroyBuffer(d, b.buffer, nullptr);

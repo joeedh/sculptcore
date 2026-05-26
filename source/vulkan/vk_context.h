@@ -42,6 +42,13 @@ struct VkContext {
   VkCommandPool commandPool = VK_NULL_HANDLE;
   VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
 
+  /* Persistent one-shot command buffer + fence, reused by runOneShot. Allocated
+   * once in init() and reset per call rather than alloc/freed each time — the
+   * per-call churn made the driver periodically reclaim the command pool arena,
+   * producing a ~1s stutter during interactive strokes. */
+  VkCommandBuffer oneShotCmd = VK_NULL_HANDLE;
+  VkFence oneShotFence = VK_NULL_HANDLE;
+
   /* Optional, only set if a window was passed to init(). */
   VkSurfaceKHR surface = VK_NULL_HANDLE;
 
@@ -92,26 +99,25 @@ struct OffscreenTarget {
 
 template <typename F> bool VkContext::runOneShot(F &&record)
 {
-  VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-  ai.commandPool = commandPool;
-  ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  ai.commandBufferCount = 1;
-  VkCommandBuffer cb = VK_NULL_HANDLE;
-  if (vkAllocateCommandBuffers(device, &ai, &cb) != VK_SUCCESS) {
-    return false;
-  }
+  /* Reuse the persistent command buffer + fence rather than alloc/freeing per
+   * call. Reset just this buffer (the pool was created with
+   * RESET_COMMAND_BUFFER_BIT) and wait on the fence instead of draining the
+   * whole queue. Same synchronous contract: results are ready on return. */
+  VkCommandBuffer cb = oneShotCmd;
+  vkResetCommandBuffer(cb, 0);
+
   VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(cb, &bi);
   record(cb);
   vkEndCommandBuffer(cb);
 
+  vkResetFences(device, 1, &oneShotFence);
   VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
   si.commandBufferCount = 1;
   si.pCommandBuffers = &cb;
-  VkResult sr = vkQueueSubmit(graphicsQueue, 1, &si, VK_NULL_HANDLE);
-  vkQueueWaitIdle(graphicsQueue);
-  vkFreeCommandBuffers(device, commandPool, 1, &cb);
+  VkResult sr = vkQueueSubmit(graphicsQueue, 1, &si, oneShotFence);
+  vkWaitForFences(device, 1, &oneShotFence, VK_TRUE, UINT64_MAX);
   return sr == VK_SUCCESS;
 }
 
