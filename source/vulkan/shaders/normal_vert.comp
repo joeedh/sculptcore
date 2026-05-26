@@ -1,0 +1,36 @@
+#version 450
+
+// Per-vertex normal: sum the (already normalized) normals of every incident
+// triangle via a CSR, then normalize. Global over all incident triangles — so
+// not bit-identical to the per-node CPU pass, which is fine for render/pick.
+// One invocation per work item; the work list selects which verts to recompute
+// (a dab's moved verts plus their 1-ring, since a moved vert changes the face
+// normals of its incident tris, which in turn change those tris' other verts).
+// The full-mesh pass (stroke begin) passes an identity list [0..vertCount).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer TriNo { vec4 triNo[]; };
+layout(std430, binding = 1) readonly buffer VtriMeta { uvec2 vtriMeta[]; }; // (offset,count)
+layout(std430, binding = 2) readonly buffer VtriList { uint vtriList[]; };
+layout(std430, binding = 3) writeonly buffer No { vec4 no[]; };            // stride-16
+layout(std430, binding = 4) readonly buffer WorkVerts { uint workVerts[]; };
+
+layout(push_constant) uniform PC { uint count; };  // number of work items
+
+void main()
+{
+  uint gid = gl_GlobalInvocationID.x;
+  if (gid >= count) {
+    return;
+  }
+  uint v = workVerts[gid];
+  uvec2 m = vtriMeta[v];
+  vec3 sum = vec3(0.0);
+  for (uint k = 0u; k < m.y; k++) {
+    sum += triNo[vtriList[m.x + k]].xyz;
+  }
+  // Lone/degenerate verts (no incident tris) keep a stable up normal rather
+  // than producing NaN from normalize(0).
+  vec3 n = (m.y > 0u && dot(sum, sum) > 1e-20) ? normalize(sum) : vec3(0.0, 0.0, 1.0);
+  no[v] = vec4(n, 0.0);
+}

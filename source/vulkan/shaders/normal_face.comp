@@ -1,0 +1,29 @@
+#version 450
+
+// Per-triangle face normal: normalize(cross(b-a, c-a)) into a stride-16 scratch
+// buffer. Mirrors litestl::math::triNormal. One invocation per work item; the
+// work list selects which triangles to (re)compute — a localized stroke only
+// touches the triangles incident to the verts a dab moved, so per dab we pass a
+// small list rather than every triangle. The full-mesh pass (stroke begin) just
+// passes an identity list [0..triCount).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Co { vec4 co[]; };        // stride-16
+layout(std430, binding = 1) readonly buffer TriVerts { uint triVerts[]; }; // 3*T
+layout(std430, binding = 2) writeonly buffer TriNo { vec4 triNo[]; };  // stride-16
+layout(std430, binding = 3) readonly buffer WorkTris { uint workTris[]; };
+
+layout(push_constant) uniform PC { uint count; };  // number of work items
+
+void main()
+{
+  uint gid = gl_GlobalInvocationID.x;
+  if (gid >= count) {
+    return;
+  }
+  uint t = workTris[gid];
+  vec3 a = co[triVerts[t * 3u + 0u]].xyz;
+  vec3 b = co[triVerts[t * 3u + 1u]].xyz;
+  vec3 c = co[triVerts[t * 3u + 2u]].xyz;
+  triNo[t] = vec4(normalize(cross(b - a, c - a)), 0.0);
+}

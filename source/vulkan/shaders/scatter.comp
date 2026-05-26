@@ -1,0 +1,32 @@
+#version 450
+
+// Scatter one GPU node's triangle-soup slice into its render VBOs. For each
+// slot s (a triangle corner): pos[s] = co[slotVertex[s]], nor[s] = no[...].
+// co/no are stride-16 (vec4) compute buffers; pos/nor are tight float3 VBOs
+// (std430 float[] has stride 4, matching the stride-12 vertex layout).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Co { vec4 co[]; };
+layout(std430, binding = 1) readonly buffer No { vec4 no[]; };
+layout(std430, binding = 2) readonly buffer SlotVertex { uint slotVertex[]; };
+layout(std430, binding = 3) writeonly buffer PosVbo { float pos[]; };
+layout(std430, binding = 4) writeonly buffer NorVbo { float nor[]; };
+
+layout(push_constant) uniform PC { uint slotCount; };
+
+void main()
+{
+  uint s = gl_GlobalInvocationID.x;
+  if (s >= slotCount) {
+    return;
+  }
+  uint v = slotVertex[s];
+  vec3 c = co[v].xyz;
+  vec3 n = no[v].xyz;
+  pos[s * 3u + 0u] = c.x;
+  pos[s * 3u + 1u] = c.y;
+  pos[s * 3u + 2u] = c.z;
+  nor[s * 3u + 0u] = n.x;
+  nor[s * 3u + 1u] = n.y;
+  nor[s * 3u + 2u] = n.z;
+}
