@@ -3,6 +3,7 @@ set(LIB
     PUBLIC util
     PUBLIC binding
     PUBLIC gpu
+    PUBLIC io
 )
 
 set(SRC
@@ -15,6 +16,7 @@ set(SRC
   PUBLIC mesh_base.h
   PUBLIC mesh_callbacks.h
   PUBLIC mesh_types.h
+  PUBLIC mesh_serialize.h
   PUBLIC mesh_shapes.h
   PUBLIC idmap.h
   PUBLIC bindings.h
@@ -26,6 +28,7 @@ set(SRC
   attribute.cc
   idmap.cc
   mesh.cc
+  mesh_serialize.cc
   mesh_shapes.cc
   mesh_types.cc
   bindings.cc
@@ -43,5 +46,8 @@ wasm_add_symbols("
   createMesh
   getStrData
   Mesh_createCube
+  serializeMesh
+  deserializeMesh
+  freeMeshBuffer
   "
 )

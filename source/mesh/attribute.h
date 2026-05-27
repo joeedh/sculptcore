@@ -293,6 +293,7 @@ struct AttrRef {
   string name;
   AttrType type;
   AttrFlag flag;
+  AttrUse use = AttrUse::NONE;
 
   static binding::types::Struct<AttrRef> *defineBindings()
   {
@@ -304,6 +305,7 @@ struct AttrRef {
     BIND_STRUCT_MEMBER(st, name);
     BIND_STRUCT_MEMBER(st, type);
     BIND_STRUCT_MEMBER(st, flag);
+    BIND_STRUCT_MEMBER(st, use);
     st->add("data", offsetof(AttrRef, data), BindAttrData());
     // auto *e = BindAttrTypes();
     // st->add("type", offsetof(AttrRef, type), e);
@@ -326,7 +328,8 @@ struct AttrRef {
   {
   }
 
-  AttrRef(const AttrRef &b) : name(b.name), type(b.type), data(b.data), flag(b.flag)
+  AttrRef(const AttrRef &b)
+      : name(b.name), type(b.type), data(b.data), flag(b.flag), use(b.use)
   {
   }
 

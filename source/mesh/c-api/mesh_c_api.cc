@@ -2,8 +2,11 @@
 #include "litestl/util/alloc.h"
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
+#include "mesh/mesh_serialize.h"
 
 #include <cstdio>
+#include <cstring>
+#include <sstream>
 #include <string>
 
 using namespace sculptcore::mesh;
@@ -42,6 +45,45 @@ int makeVertex(Mesh *mesh, float x, float y, float z)
   float3 co(x, y, z);
 
   return mesh->make_vertex(co);
+}
+
+/* Serialize @p mesh into a freshly-allocated buffer; *out_size receives the
+ * byte count. Free the result with freeMeshBuffer. Returns nullptr on failure. */
+uint8_t *serializeMesh(Mesh *mesh, int *out_size)
+{
+  std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+  if (!serial::writeMesh(*mesh, ss)) {
+    *out_size = 0;
+    return nullptr;
+  }
+
+  std::string s = ss.str();
+  uint8_t *buf = static_cast<uint8_t *>(alloc::alloc("mesh serialize buffer", s.size()));
+  std::memcpy(buf, s.data(), s.size());
+  *out_size = int(s.size());
+  return buf;
+}
+
+/* Deserialize a buffer produced by serializeMesh into a fresh Mesh. Returns
+ * nullptr (and frees the partial mesh) on failure. */
+Mesh *deserializeMesh(const uint8_t *data, int size)
+{
+  std::string s(reinterpret_cast<const char *>(data), size_t(size));
+  std::stringstream ss(s, std::ios::in | std::ios::out | std::ios::binary);
+
+  Mesh *mesh = alloc::New<Mesh>("Mesh");
+  if (!serial::readMesh(*mesh, ss)) {
+    alloc::Delete<Mesh>(mesh);
+    return nullptr;
+  }
+  return mesh;
+}
+
+void freeMeshBuffer(uint8_t *buf)
+{
+  if (buf) {
+    alloc::release(static_cast<void *>(buf));
+  }
 }
 
 AttrRef *copyAttrRef(const AttrRef &ref)

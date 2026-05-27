@@ -32,6 +32,23 @@ enum class _AttrFlag {
 };
 MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 
+/**
+ * Usage flags.
+ * UNIT means attribute has unit values (0-1)
+ * (which are mapped for numeric types, e.g. a
+ * (unsigned byte attr is maps 0-255 to 0-1 in shaders,
+ * (a signed byte attr maps to -128-128 to -1-1 in shaders).
+ *
+ * A UV map is a float2 attr with UV set
+ */
+enum class _AttrUse {
+  NONE = 0,
+  UNIT = 1 << 0,  /** attribute has unit values (0-1) */
+  COLOR = 1 << 1, /** for colors */
+  UV = 1 << 2,    /** for uv-maps */
+};
+MAKE_FLAGS_CLASS(AttrUse, _AttrUse, int);
+
 #define ATTR_PAGESIZE 4096
 #define ATTR_PAGEMASK 4095
 #define ATTR_PAGESHIFT 12
@@ -40,8 +57,19 @@ MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 
 namespace litestl::binding {
 
-template <std::same_as<sculptcore::mesh::AttrFlag> T>
-static const types::Enum *Bind()
+template <std::same_as<sculptcore::mesh::AttrUse> T> static const types::Enum *Bind()
+{
+  using namespace sculptcore::mesh;
+  types::Enum *e = new types::Enum("sculptcore::mesh::AttrUse", sizeof(AttrUse));
+  e->isBitMask = true;
+  e->addItem("None", static_cast<int>(AttrUse::NONE));
+  e->addItem("Unit", static_cast<int>(AttrUse::UNIT));
+  e->addItem("Color", static_cast<int>(AttrUse::COLOR));
+  e->addItem("UV", static_cast<int>(AttrUse::UV));
+  return e;
+}
+
+template <std::same_as<sculptcore::mesh::AttrFlag> T> static const types::Enum *Bind()
 {
   using namespace sculptcore::mesh;
   types::Enum *e = new types::Enum("sculptcore::mesh::AttrFlag", sizeof(AttrFlag));

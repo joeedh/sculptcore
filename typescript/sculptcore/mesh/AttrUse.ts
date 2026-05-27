@@ -1,9 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrFlag} from './AttrFlag'
-import type {AttrData} from './AttrData'
-import type {AttrUse} from './AttrUse'
-import type {AttrType} from './AttrType'
-
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -20,11 +15,9 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface AttrRef {
-  [Symbol.dispose](): void
-  name: string
-  type: AttrType
-  flag: AttrFlag
-  use: AttrUse
-  data: AttrData<float> | AttrData<int32> | AttrData<uint8> | AttrData<int16>
+export enum AttrUse {
+  None = 0,
+  Unit = 1,
+  Color = 2,
+  UV = 4,
 }
