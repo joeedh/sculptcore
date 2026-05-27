@@ -1,0 +1,6 @@
+# Prebuilt wgpu-native binaries — not checked in. Run `node fetch.mjs`
+# (or `node make.mjs fetch-wgpu-native` from the repo root) to populate.
+/include/
+/lib/
+# Re-extracted on fetch; only the version pin (wgpu-native-git-tag) is tracked.
+/wgpu-native-meta/webgpu.yml
