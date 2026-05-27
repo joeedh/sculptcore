@@ -16,68 +16,68 @@ type float = number
 type double = number
 
 import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
-import type {int2} from './litestl/math/int2'
 import type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 import type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
+import type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 import type {VertexData} from './sculptcore/mesh/VertexData'
 import type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 import type {Brush} from './sculptcore/brush/Brush'
 import type {float2} from './litestl/math/float2'
-import type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
+import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 import type {MeshLog} from './sculptcore/meshlog/MeshLog'
 import type {UniformDef} from './sculptcore/gpu/UniformDef'
 import type {AttrData} from './sculptcore/mesh/AttrData'
 import type {Buffer} from './sculptcore/gpu/Buffer'
 import type {AttrGroup} from './sculptcore/mesh/AttrGroup'
-import type {AABB} from './litestl/math/AABB'
 import type {AttrRef} from './sculptcore/mesh/AttrRef'
+import type {EdgeData} from './sculptcore/mesh/EdgeData'
 import type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 import type {AttrDef} from './sculptcore/gpu/AttrDef'
-import type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 import type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
-import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 import type {StructProp} from './sculptcore/props/StructProp'
 import type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 import type {GPUManager} from './sculptcore/gpu/GPUManager'
 import type {SpatialTree} from './sculptcore/spatial/SpatialTree'
+import type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 import type {int4} from './litestl/math/int4'
+import type {int2} from './litestl/math/int2'
 import type {Mesh} from './sculptcore/mesh/Mesh'
+import type {AABB} from './litestl/math/AABB'
 import type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
-import type {EdgeData} from './sculptcore/mesh/EdgeData'
 import type {float3} from './litestl/math/float3'
 import type {AttrPage} from './sculptcore/mesh/AttrPage'
 
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
-export type {int2} from './litestl/math/int2'
 export type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 export type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
+export type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 export type {VertexData} from './sculptcore/mesh/VertexData'
 export type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 export type {Brush} from './sculptcore/brush/Brush'
 export type {float2} from './litestl/math/float2'
-export type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
+export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 export type {MeshLog} from './sculptcore/meshlog/MeshLog'
 export type {UniformDef} from './sculptcore/gpu/UniformDef'
 export type {AttrData} from './sculptcore/mesh/AttrData'
 export type {Buffer} from './sculptcore/gpu/Buffer'
 export type {AttrGroup} from './sculptcore/mesh/AttrGroup'
-export type {AABB} from './litestl/math/AABB'
 export type {AttrRef} from './sculptcore/mesh/AttrRef'
+export type {EdgeData} from './sculptcore/mesh/EdgeData'
 export type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 export type {AttrDef} from './sculptcore/gpu/AttrDef'
-export type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 export type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
-export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 export type {StructProp} from './sculptcore/props/StructProp'
 export type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 export type {GPUManager} from './sculptcore/gpu/GPUManager'
 export type {SpatialTree} from './sculptcore/spatial/SpatialTree'
+export type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 export type {int4} from './litestl/math/int4'
+export type {int2} from './litestl/math/int2'
 export type {Mesh} from './sculptcore/mesh/Mesh'
+export type {AABB} from './litestl/math/AABB'
 export type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
-export type {EdgeData} from './sculptcore/mesh/EdgeData'
 export type {float3} from './litestl/math/float3'
 export type {AttrPage} from './sculptcore/mesh/AttrPage'
 
@@ -99,10 +99,8 @@ export type AllBoundTypes = {
   'litestl::math::int4': int4
   'sculptcore::mesh::AttrRef': AttrRef
   'sculptcore::gpu::UniformBlockInstance': UniformBlockInstance
-  'sculptcore::gpu::DrawBatch': DrawBatch
-  'sculptcore::gpu::Buffer': Buffer
+  'sculptcore::mesh::VertexData': VertexData
   'sculptcore::spatial::SpatialTree': SpatialTree
-  'sculptcore::gpu::ShaderDef': ShaderDef
   'sculptcore::gpu::UniformBlockDef': UniformBlockDef
   'sculptcore::props::StructProp': StructProp
   'litestl::math::int2': int2
@@ -113,9 +111,10 @@ export type AllBoundTypes = {
     int2,
     '.edge.vs'
   >
-  'sculptcore::gpu::GPUManager': GPUManager
+  'sculptcore::gpu::Buffer': Buffer
   'sculptcore::spatial::CastRayIsect': CastRayIsect
-  'sculptcore::mesh::VertexData': VertexData
+  'sculptcore::gpu::GPUManager': GPUManager
+  'sculptcore::gpu::DrawBatch': DrawBatch
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>': BuiltinAttr<
     float3,
     'normals'
@@ -128,9 +127,10 @@ export type AllBoundTypes = {
     float3,
     'positions'
   >
+  'sculptcore::gpu::ShaderDef': ShaderDef
   'sculptcore::mesh::EdgeData': EdgeData
-  'litestl::math::AABB<litestl::math::float3>': AABB<float3>
   'sculptcore::spatial::SpatialShaders': SpatialShaders
   'sculptcore::mesh::BuiltinAttr<int32,.edge.c>': BuiltinAttr<int32, '.edge.c'>
+  'litestl::math::AABB<litestl::math::float3>': AABB<float3>
   'sculptcore::mesh::gpu::MeshBatchManager': MeshBatchManager
 }
