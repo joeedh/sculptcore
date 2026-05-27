@@ -123,9 +123,19 @@ int main(int argc, char **argv)
                      "(configure with --backends=cpp,wgsl)\n");
         return 2;
 #endif
+      } else if (std::strcmp(backendArg, "webgpu") == 0) {
+#ifdef SBRUSH_WEBGPU_COMPUTE
+        scene.currentBackend = BrushBackend::WgpuNative;
+#else
+        std::fprintf(stderr,
+                     "--backend=webgpu: WebGPU backend not compiled in "
+                     "(configure with -DSBRUSH_WEBGPU_COMPUTE=ON "
+                     "--backends=cpp,wgsl,spirv)\n");
+        return 2;
+#endif
       } else {
         std::fprintf(
-            stderr, "--backend: unknown value '%s' (valid: cpp, wgsl)\n", backendArg);
+            stderr, "--backend: unknown value '%s' (valid: cpp, wgsl, webgpu)\n", backendArg);
         return 2;
       }
     }
@@ -166,6 +176,9 @@ int main(int argc, char **argv)
 
       while (!scene.window->shouldClose()) {
         scene.window->poll();
+        // Drain a frame's worth of WgpuNative dabs in a single readback (no-op
+        // for other backends / when no stroke is open).
+        controller.flushGpuReadback();
         ui.beginFrame();
         scene.renderWindow();
       }

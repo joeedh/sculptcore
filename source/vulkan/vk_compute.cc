@@ -283,7 +283,7 @@ bool BrushComputeDispatch::setBrushTexture(const float *pixels, int width,
   return true;
 }
 
-bool BrushComputeDispatch::loadSpirv(const char *path)
+bool BrushComputeDispatch::loadKernel(const char *path)
 {
   std::ifstream f(path, std::ios::binary | std::ios::ate);
   if (!f) {

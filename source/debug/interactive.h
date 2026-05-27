@@ -29,6 +29,12 @@ struct InteractiveController : InputHandler {
 
   bool handle(const InputEvent &e) override;
 
+  /* Flush a WgpuNative stroke's per-frame accumulated dab readback (no-op for
+   * other backends / when no stroke is open). The interactive frame loop calls
+   * this once after polling input, so a burst of catch-up dabs costs a single
+   * readback instead of one per dab. */
+  void flushGpuReadback();
+
 private:
   /* LMB drag intent, decided on press from current modifiers. */
   enum class DragMode { None, Stroke, Orbit, Pan };

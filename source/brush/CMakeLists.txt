@@ -16,6 +16,8 @@ set(SRC
   PUBLIC brush_iterators.h
   PUBLIC brush_command.h
   PUBLIC brush_concepts.h
+  PUBLIC compute_layout.h
+  PUBLIC compute_dispatch.h
   PUBLIC stroke_spacing.h
   PUBLIC brushes/all.h
   brush_command.cc

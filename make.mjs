@@ -527,6 +527,91 @@ async function webgpuVerify() {
   console.log(`\nwebgpu-verify: all ${scripts.length} brush(es) passed on WebGPU.`)
 }
 
+// Compute analogue of the Phase-2 render parity: proves the *shipping* C++
+// WebGPU compute backend (source/webgpu/wgpu_compute, run through wgpu-native)
+// is bit-modulo-fp identical to the C++ reference across every brush — now
+// through the real backend the app uses, not the @kmamal/gpu replay. Reuses
+// the existing A/B scripts: each runs its cpp stroke as-is, but the wgsl pass
+// is rewritten to `set_backend backend=webgpu` so the same stroke is dispatched
+// through wgpu_compute; the two dumps are diffed within the verify tolerance.
+async function wgpuNativeVerify() {
+  const dir = buildDir('native')
+  const env = envPrefix('native')
+  ensureDir(dir)
+
+  // The native WebGPU compute path layers on the spirv GPU-dispatch gate, so it
+  // needs cpp+wgsl+spirv plus -DSBRUSH_WEBGPU_COMPUTE=ON. Build debug_app and
+  // both kernel sets (spirv for the dispatch gate; wgsl is what wgpu_compute loads).
+  const sbrushFlags = sbrushBackendFlags('cpp,wgsl,spirv')
+  run(
+    `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags} -DSBRUSH_WEBGPU_COMPUTE=ON`
+  )
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv sbrush-wgsl`)
+
+  const debugApp = `${dir}/source/debug/debug_app${process.platform === 'win32' ? '.exe' : ''}`
+  if (!fs.existsSync(debugApp)) {
+    process.stderr.write(`wgpu-native-verify: debug_app not found at ${debugApp}\n`)
+    process.exit(1)
+  }
+
+  const scriptDir = 'tests/scripts/brush_backends'
+  const outDir = `${dir}/wgpu_native_verify_out`
+  ensureDir(outDir)
+  const tmpDir = `${outDir}/scripts`
+  ensureDir(tmpDir)
+
+  const scripts = fs.readdirSync(scriptDir).filter((f) => f.endsWith('_ab.txt')).sort()
+  if (scripts.length === 0) {
+    process.stderr.write(`wgpu-native-verify: no *_ab.txt scripts in ${scriptDir}\n`)
+    process.exit(1)
+  }
+
+  let failures = 0
+  for (const s of scripts) {
+    const brush = s.replace(/_ab\.txt$/, '')
+    // Rewrite the wgsl pass to the native webgpu backend; cpp pass is untouched.
+    const text = fs
+      .readFileSync(`${scriptDir}/${s}`, 'utf-8')
+      .split('backend=wgsl').join('backend=webgpu')
+      .split('_wgsl.json').join('_webgpu.json')
+    const tmpScript = `${tmpDir}/${brush}_webgpu.txt`
+    fs.writeFileSync(tmpScript, text)
+
+    const res = child_process.spawnSync(
+      debugApp,
+      ['--script', tmpScript, '--out', outDir, '--headless'],
+      {encoding: 'utf-8'}
+    )
+    if (res.status !== 0) {
+      failures++
+      process.stderr.write(`✗ ${brush}: debug_app exited ${res.status}\n`)
+      if (res.stderr) process.stderr.write(res.stderr.split('\n').slice(-8).join('\n') + '\n')
+      continue
+    }
+
+    const cpp = readDumpJson(`${outDir}/${brush}_cpp.json`)
+    const wg = readDumpJson(`${outDir}/${brush}_webgpu.json`)
+    if (!cpp || !wg) {
+      failures++
+      process.stderr.write(`✗ ${brush}: missing/invalid dump (cpp=${!!cpp} webgpu=${!!wg})\n`)
+      continue
+    }
+    const ab = diffDump(cpp, wg)
+    if (ab.length) {
+      failures++
+      process.stderr.write(`✗ ${brush}: cpp vs webgpu mismatch:\n  ${ab.slice(0, 6).join('\n  ')}\n`)
+      continue
+    }
+    console.log(`✓ ${brush}: cpp == webgpu (native wgpu-native compute)`)
+  }
+
+  if (failures) {
+    process.stderr.write(`\nwgpu-native-verify: ${failures} brush(es) failed.\n`)
+    process.exit(1)
+  }
+  console.log(`\nwgpu-native-verify: all ${scripts.length} brush(es) passed on native WebGPU.`)
+}
+
 function setupPNPM() {
   const invokePNPM = (str, cmd) => {
     const cwd = process.cwd()
@@ -717,6 +802,12 @@ yargs(hideBin(process.argv))
     {},
     async () => {
       await webgpuVerify()
+    })
+  .command('wgpu-native-verify',
+    'Run each brush A/B script through the native wgpu-native compute backend and diff cpp vs webgpu',
+    {},
+    async () => {
+      await wgpuNativeVerify()
     })
   .command('install-tools', 'Install host build tools (naga)', {}, () => {
     console.log(`Installing naga-cli ${NAGA_VERSION}...`)

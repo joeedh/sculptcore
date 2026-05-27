@@ -178,14 +178,30 @@ void Ui::drawPanel()
   }
 
   /* Backend — WGSL drives the real Vulkan compute path, only available when
-   * the GPU-dispatch path was compiled in (native + spirv backend). */
+   * the GPU-dispatch path was compiled in (native + spirv backend). WebGPU
+   * (wgpu-native) is added when SBRUSH_WEBGPU_COMPUTE was on at configure. */
+#ifdef SBRUSH_WEBGPU_COMPUTE
+  static const char *kBackendNames[] = {"C++", "WGSL", "WebGPU"};
+  const int kBackendCount = 3;
+  const BrushBackend kBackends[] = {BrushBackend::Cpp, BrushBackend::Wgsl,
+                                    BrushBackend::WgpuNative};
+#else
   static const char *kBackendNames[] = {"C++", "WGSL"};
-  int backendIdx = scene_->currentBackend == BrushBackend::Wgsl ? 1 : 0;
+  const int kBackendCount = 2;
+  const BrushBackend kBackends[] = {BrushBackend::Cpp, BrushBackend::Wgsl};
+#endif
+  int backendIdx = 0;
+  for (int i = 0; i < kBackendCount; i++) {
+    if (kBackends[i] == scene_->currentBackend) {
+      backendIdx = i;
+      break;
+    }
+  }
 #ifndef SBRUSH_GPU_DISPATCH
   ImGui::BeginDisabled(true);
 #endif
-  if (ImGui::Combo("backend", &backendIdx, kBackendNames, 2)) {
-    scene_->currentBackend = backendIdx == 1 ? BrushBackend::Wgsl : BrushBackend::Cpp;
+  if (ImGui::Combo("backend", &backendIdx, kBackendNames, kBackendCount)) {
+    scene_->currentBackend = kBackends[backendIdx];
   }
 #ifndef SBRUSH_GPU_DISPATCH
   ImGui::EndDisabled();

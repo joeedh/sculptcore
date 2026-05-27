@@ -225,8 +225,17 @@ bool execVerb(Scene &scene,
       err = "set_backend: WGSL backend not compiled in (configure with --backends=cpp,wgsl)";
       return false;
 #endif
+    } else if (bs == "webgpu") {
+#ifdef SBRUSH_WEBGPU_COMPUTE
+      // Real GPU compute through webgpu.h / wgpu-native (the .wgsl kernels).
+      scene.currentBackend = BrushBackend::WgpuNative;
+#else
+      err = "set_backend: WebGPU backend not compiled in (configure with "
+            "-DSBRUSH_WEBGPU_COMPUTE=ON --backends=cpp,wgsl,spirv)";
+      return false;
+#endif
     } else {
-      err = std::string("set_backend: unknown backend '") + b + "' (valid: cpp, wgsl)";
+      err = std::string("set_backend: unknown backend '") + b + "' (valid: cpp, wgsl, webgpu)";
       return false;
     }
     return true;
@@ -557,7 +566,9 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::SMOOTH ||
                    t == brush::SculptBrushes::KELVINLET ||
                    t == brush::SculptBrushes::POSE;
-    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
+    if ((scene.currentBackend == BrushBackend::Wgsl ||
+         scene.currentBackend == BrushBackend::WgpuNative) &&
+        gpuTool) {
       Vector<float3> origins;
       origins.append(origin);
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
@@ -636,7 +647,9 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::SMOOTH ||
                    t == brush::SculptBrushes::KELVINLET ||
                    t == brush::SculptBrushes::POSE;
-    if (scene.currentBackend == BrushBackend::Wgsl && gpuTool) {
+    if ((scene.currentBackend == BrushBackend::Wgsl ||
+         scene.currentBackend == BrushBackend::WgpuNative) &&
+        gpuTool) {
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;
       }

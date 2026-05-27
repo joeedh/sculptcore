@@ -56,6 +56,7 @@ option(SBRUSH_BACKEND_HIP    "Emit HIP kernels + clang device-only gate"        
 option(SBRUSH_BACKEND_OPENCL "Emit OpenCL C kernels + clspv/poclcc"              OFF)
 option(SBRUSH_VALIDATE_ALL   "Run external validators on every emit"             OFF)
 option(SBRUSH_REGEN_ON_BUILD "Re-run sbrushc during build (vs. checked-in outputs)" ON)
+option(SBRUSH_WEBGPU_COMPUTE "Build the native WebGPU (wgpu-native) compute brush backend into debug_app" OFF)
 
 include("build_files/macros.cmake")
 include("source/litestl/build_files/macros.cmake")

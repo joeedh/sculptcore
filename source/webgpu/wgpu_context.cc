@@ -117,12 +117,22 @@ bool WgpuContext::initNative()
   }
   if (!areq.adapter) return false;
 
+  // Request the adapter's max storage-buffers-per-stage: the for_neighbor
+  // compute kernels (e.g. smooth) bind 10 storage buffers, over the default
+  // limit of 8. Other limits stay at default (WGPU_LIMIT_*_UNDEFINED).
+  WGPULimits adapterLimits = WGPU_LIMITS_INIT;
+  wgpuAdapterGetLimits(areq.adapter, &adapterLimits);
+  WGPULimits requiredLimits = WGPU_LIMITS_INIT;
+  requiredLimits.maxStorageBuffersPerShaderStage =
+      adapterLimits.maxStorageBuffersPerShaderStage;
+
   DeviceReq dreq;
   WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
   dci.mode = WGPUCallbackMode_AllowProcessEvents;
   dci.callback = onDevice;
   dci.userdata1 = &dreq;
   WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT;
+  dd.requiredLimits = &requiredLimits;
   dd.uncapturedErrorCallbackInfo.callback = onUncapturedError;
   wgpuAdapterRequestDevice(areq.adapter, &dd, dci);
   while (!dreq.done) {

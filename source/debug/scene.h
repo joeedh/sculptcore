@@ -35,12 +35,15 @@ struct LastStroke {
  *  created so a script that never asks for screenshots never opens a
  *  Vulkan device. Interactive mode currently shares the offscreen target
  *  with the headless path — a swapchain-presented window is a follow-up. */
-// Brush backend selector. Wave 3 implements WGSL emit + tint validation
-// but does NOT yet have a WebGPU runtime native — selecting Wgsl is a
-// gate that asserts the .wgsl artifacts exist (i.e. SBRUSH_BACKEND_WGSL
-// was ON at configure time); the actual sculpting still runs through the
-// C++ executor. Later waves replace that with real GPU dispatch.
-enum class BrushBackend { Cpp, Wgsl };
+// Brush backend selector.
+//   Cpp        — reference C++ executor (default).
+//   Wgsl       — real GPU compute through the Vulkan dispatcher (SPIR-V
+//                kernels). Supports the GPU-resident live-render path.
+//   WgpuNative — real GPU compute through webgpu.h / wgpu-native (the .wgsl
+//                kernels). Batch/readback only: it can't share buffers with
+//                the Vulkan renderer, so dabs read back to the CPU mesh and the
+//                Vulkan path redraws. Compiled in only with SBRUSH_WEBGPU_COMPUTE.
+enum class BrushBackend { Cpp, Wgsl, WgpuNative };
 
 // How the GPU-resident WGSL stroke path (debug app, interactive) finalizes
 // vertex normals on stroke release. Cpu (default) recomputes them with the

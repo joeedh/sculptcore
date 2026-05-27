@@ -15,6 +15,11 @@
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_normals.h"
 
+#ifdef SBRUSH_WEBGPU_COMPUTE
+#include "webgpu/wgpu_compute.h"
+#include "webgpu/wgpu_context.h"
+#endif
+
 #include "litestl/math/geom.h"
 #include "litestl/util/index_range.h"
 
@@ -85,8 +90,13 @@ GpuStrokeSession::~GpuStrokeSession()
 {
   delete disp_;
   disp_ = nullptr;
+  vkDisp_ = nullptr;
   delete normalPass_;
   normalPass_ = nullptr;
+#ifdef SBRUSH_WEBGPU_COMPUTE
+  delete wgpuCtx_;
+  wgpuCtx_ = nullptr;
+#endif
 }
 
 // Marshals the full mesh co/no/mask once, loads the SPIR-V kernel, uploads
@@ -141,11 +151,33 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     capMask_ = b64encode(mask.data(), size_t(vcount_) * sizeof(float));
   }
 
-  disp_ = new vulkan::BrushComputeDispatch(scene.context);
-  std::string spv = std::string(SBRUSH_SPV_DIR) + "/" + kernel_ + ".spv";
-  if (!disp_->loadSpirv(spv.c_str())) {
-    err = "stroke(wgsl): failed to load " + spv;
-    return false;
+  // Backend split: WgpuNative runs the .wgsl kernels through webgpu.h on its own
+  // device; everything else (Wgsl) runs the SPIR-V kernels through the Vulkan
+  // dispatcher, which also owns the live-render extras (vkDisp_). All the
+  // marshaling below is backend-agnostic — only the dispatcher differs.
+#ifdef SBRUSH_WEBGPU_COMPUTE
+  if (scene.currentBackend == BrushBackend::WgpuNative) {
+    wgpuCtx_ = new webgpu::WgpuContext();
+    if (!wgpuCtx_->initNative()) {
+      err = "stroke(webgpu): wgpu-native device init failed";
+      return false;
+    }
+    disp_ = new webgpu::WgpuBrushComputeDispatch(wgpuCtx_);
+    std::string wgsl = std::string(SBRUSH_WGSL_DIR) + "/" + kernel_ + ".wgsl";
+    if (!disp_->loadKernel(wgsl.c_str())) {
+      err = "stroke(webgpu): failed to load " + wgsl;
+      return false;
+    }
+  } else
+#endif
+  {
+    vkDisp_ = new vulkan::BrushComputeDispatch(scene.context);
+    disp_ = vkDisp_;
+    std::string spv = std::string(SBRUSH_SPV_DIR) + "/" + kernel_ + ".spv";
+    if (!disp_->loadKernel(spv.c_str())) {
+      err = "stroke(wgsl): failed to load " + spv;
+      return false;
+    }
   }
   if (!disp_->beginStroke(co.data(), no.data(), mask.data(), vcount_)) {
     err = "stroke(wgsl): vertex upload failed";
@@ -225,7 +257,7 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
       scene.tree->buildGpuNodeSlotVertex(gn, &scene.gpu);
     }
     scene.tree->gpuStrokeActive = true;
-    normalPass_->computeNormals(disp_->coBuffer(), disp_->noBuffer());
+    normalPass_->computeNormals(vkDisp_->coBuffer(), vkDisp_->noBuffer());
     // One-time initial scatter so every GPU node (even ones no dab touches)
     // shows GPU-fed data on the first frame. Once-per-stroke, so the simple
     // submit-per-node scatter() is fine here; per-dab scatter is batched.
@@ -243,7 +275,7 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
       if (!pos || !nor || !slotV) {
         continue;
       }
-      normalPass_->scatter(disp_->coBuffer(), disp_->noBuffer(), slotV, pos, nor,
+      normalPass_->scatter(vkDisp_->coBuffer(), vkDisp_->noBuffer(), slotV, pos, nor,
                            gd.total_verts);
     }
   }
@@ -423,9 +455,10 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
       }
       chunks.append(meta);
     }
-    // Live path: capture this node's pre-dab state for undo the first time it
-    // is touched, before the partial readback below overwrites m->v.co.
-    if (liveBackend_) {
+    // Any per-dab readback path (live Vulkan scatter or WgpuNative CPU readback)
+    // captures this node's pre-dab state for undo the first time it is touched,
+    // before the readback below overwrites m->v.co.
+    if (liveBackend_ || interactiveReadback_) {
       snapshotNode(scene, node);
     }
     touched_.append(node);
@@ -503,7 +536,7 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   // keeps the simple one-submit-per-dab dab() call so sbrush-verify is
   // unaffected.
   if (liveBackend_) {
-    if (!disp_->prepareDab(bu, cu, uverts.data(), int(uverts.size()),
+    if (!vkDisp_->prepareDab(bu, cu, uverts.data(), int(uverts.size()),
                            chunks.data(), int(chunks.size()),
                            scene.brush.falloff_curve.data(), sp.data(),
                            int(sp.size()))) {
@@ -511,7 +544,7 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
       return false;
     }
     buildDabWork(uverts);
-    normalPass_->prepareNormals(disp_->coBuffer(), disp_->noBuffer(),
+    normalPass_->prepareNormals(vkDisp_->coBuffer(), vkDisp_->noBuffer(),
                                 workTris_.data(), int(workTris_.size()),
                                 workVerts_.data(), int(workVerts_.size()));
 
@@ -551,12 +584,12 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
     normalPass_->beginScatterBatch();
     ptCpu = StrokeProfiler::now();
     scene.context->runOneShot([&](VkCommandBuffer cb) {
-      disp_->recordDab(cb);
+      vkDisp_->recordDab(cb);
       vulkan::GpuNormalPass::computeBarrier(cb);
       normalPass_->recordNormals(cb);
       vulkan::GpuNormalPass::computeBarrier(cb);
       for (auto &t : targets) {
-        normalPass_->recordScatter(cb, disp_->coBuffer(), disp_->noBuffer(),
+        normalPass_->recordScatter(cb, vkDisp_->coBuffer(), vkDisp_->noBuffer(),
                                    t.slotV, t.pos, t.nor, t.count);
       }
     });
@@ -596,6 +629,22 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
       node->update(spatial::Spatial_RegenBounds);
     }
     ptRead = StrokeProfiler::now();
+  } else if (interactiveReadback_) {
+    // WgpuNative interactive: no cross-API live scatter. Don't read back here —
+    // a readback is a full-buffer copy + device drain, and after a slow frame
+    // one continueStroke segment emits a burst of catch-up dabs, so per-dab
+    // readback turns that burst into N drains (the periodic hitch). Instead
+    // accumulate the moved verts + touched nodes; flushInteractiveReadback()
+    // drains them once per frame. The batch/verify path leaves
+    // interactiveReadback_ false and reads everything back in end().
+    for (uint32_t v : uverts) {
+      pendingVerts_.append(v);
+    }
+    for (auto *node : nodes) {
+      if (!pendingNodes_.contains(node)) {
+        pendingNodes_.append(node);
+      }
+    }
   }
 
   scene.profiler.addDab(StrokeProfiler::ms(pt0, ptCpu),
@@ -682,6 +731,7 @@ void GpuStrokeSession::end(Scene &scene)
     scene.meshLog.endStep();
     delete disp_;
     disp_ = nullptr;
+    vkDisp_ = nullptr;
     delete normalPass_;
     normalPass_ = nullptr;
     scene.profiler.addEnd(StrokeProfiler::ms(ptEnd0, StrokeProfiler::now()));
@@ -715,8 +765,41 @@ void GpuStrokeSession::end(Scene &scene)
 
   delete disp_;
   disp_ = nullptr;
+  vkDisp_ = nullptr;
+#ifdef SBRUSH_WEBGPU_COMPUTE
+  delete wgpuCtx_;
+  wgpuCtx_ = nullptr;
+#endif
   scene.profiler.addEnd(StrokeProfiler::ms(ptEnd0, StrokeProfiler::now()));
   scene.profiler.endStroke();
+}
+
+// Drain a frame's worth of accumulated WgpuNative dabs: one full-buffer readback
+// for every moved vert (cheap on the demo meshes, and amortized over the whole
+// burst now instead of once per dab), then mark the touched nodes for normal
+// recompute + VBO re-upload so the Vulkan renderer redraws them. Called from the
+// interactive frame loop after poll() delivers the dabs.
+void GpuStrokeSession::flushInteractiveReadback(Scene &scene)
+{
+  if (!interactiveReadback_ || pendingVerts_.size() == 0) {
+    return;
+  }
+  int n = int(pendingVerts_.size());
+  Vector<float> coBack;
+  coBack.resize(size_t(n) * 3);
+  if (disp_->readbackVerts(pendingVerts_.data(), n, coBack.data(), nullptr)) {
+    mesh::Mesh *m = scene.mesh;
+    for (int i = 0; i < n; i++) {
+      int v = int(pendingVerts_[i]);
+      m->v.co[v] = float3(coBack[i * 3 + 0], coBack[i * 3 + 1], coBack[i * 3 + 2]);
+    }
+  }
+  for (auto *node : pendingNodes_) {
+    node->update(spatial::Spatial_UpdateNormals | spatial::Spatial_UpdateGPU |
+                 spatial::Spatial_RegenBounds);
+  }
+  pendingVerts_.clear();
+  pendingNodes_.clear();
 }
 
 // Finalize the GPU-resident live stroke: sync the full CPU mesh from the final

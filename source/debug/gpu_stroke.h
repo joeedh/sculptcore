@@ -14,6 +14,12 @@ struct BrushComputeDispatch;
 struct GpuNormalPass;
 struct VulkanBackend;
 }
+namespace sculptcore::brush {
+struct IBrushComputeDispatch;
+}
+namespace sculptcore::webgpu {
+struct WgpuContext;
+}
 namespace sculptcore::spatial {
 struct SpatialNode;
 }
@@ -51,6 +57,13 @@ class GpuStrokeSession {
    * full-readback-at-end code, keeping sbrush-verify byte-identical. */
   void enableLiveRender(vulkan::VulkanBackend *backend) { liveBackend_ = backend; }
 
+  /* Opt into per-dab CPU readback (the WgpuNative backend, interactive mode).
+   * WebGPU compute can't share buffers with the Vulkan renderer, so there is no
+   * live-render path; instead each dab reads its moved verts back to the CPU
+   * mesh and marks the touched nodes dirty so the Vulkan path redraws them. Off
+   * in batch/verify (the full readback at end() suffices there). */
+  void enableInteractiveReadback() { interactiveReadback_ = true; }
+
   /* Resolve the kernel from scene.currentTool, bring up the device, upload the
    * mesh + (if needed) neighbor topology + bound texture, and open a meshlog
    * step. Returns false (with `err` set) if the tool has no GPU kernel or GPU
@@ -67,17 +80,38 @@ class GpuStrokeSession {
    * call once after begin() even if no dab landed. */
   void end(Scene &scene);
 
+  /* WgpuNative interactive: flush all dabs accumulated since the last call —
+   * one full-buffer readback for every touched vert, then mark the touched
+   * nodes dirty. Called once per frame (after window poll delivers a burst of
+   * dabs) so a catch-up burst of N dabs costs one readback, not N. No-op unless
+   * enableInteractiveReadback() was set and a dab has landed. */
+  void flushInteractiveReadback(Scene &scene);
+
  private:
-  vulkan::BrushComputeDispatch *disp_ = nullptr;
+  /* Owned dispatcher — a vulkan::BrushComputeDispatch (Wgsl) or a
+   * webgpu::WgpuBrushComputeDispatch (WgpuNative). vkDisp_ aliases it (non-owning)
+   * only for the Vulkan backend, used by the Vulkan-only live-render extras
+   * (prepareDab/recordDab/coBuffer/noBuffer) that aren't on the shared interface. */
+  brush::IBrushComputeDispatch *disp_ = nullptr;
+  vulkan::BrushComputeDispatch *vkDisp_ = nullptr;
+  /* Owned WebGPU device/queue (WgpuNative only; null otherwise). Created in
+   * begin(), released after disp_ in end()/dtor (disp_ holds WGPU objects). */
+  webgpu::WgpuContext *wgpuCtx_ = nullptr;
   const char *kernel_ = nullptr;
   bool needsNeighbors_ = false;
   bool writesMask_ = false;
   int vcount_ = 0;
   litestl::util::Vector<spatial::SpatialNode *> touched_;
 
-  /* GPU-resident live-render path (interactive only; null in batch/verify). */
+  /* GPU-resident live-render path (Wgsl/interactive only; null in batch/verify). */
   vulkan::VulkanBackend *liveBackend_ = nullptr;
   vulkan::GpuNormalPass *normalPass_ = nullptr;
+  /* Per-dab CPU readback (WgpuNative/interactive only). Mutually exclusive with
+   * liveBackend_. dab() accumulates moved verts + touched nodes here;
+   * flushInteractiveReadback() drains them once per frame. */
+  bool interactiveReadback_ = false;
+  litestl::util::Vector<uint32_t> pendingVerts_;
+  litestl::util::Vector<spatial::SpatialNode *> pendingNodes_;
 
   /* Host copy of the normal topology (see buildNormalTopology) + per-dab work
    * scratch. topoTriVerts_ is 3*topoTriCount_ global vertex indices; topoMeta_

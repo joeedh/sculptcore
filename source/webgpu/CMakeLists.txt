@@ -9,8 +9,10 @@ set(LIB
 set(SRC
   PUBLIC wgpu_context.h
   PUBLIC wgpu_backend.h
+  PUBLIC wgpu_compute.h
   wgpu_context.cc
   wgpu_backend.cc
+  wgpu_compute.cc
   wgpu_demo.cc
   wgpu_screenshot.cc
 )

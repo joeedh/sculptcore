@@ -130,14 +130,22 @@ void InteractiveController::beginStroke(float2 cursor)
   // WGSL backend: drive the stroke through the persistent GPU compute session
   // (upload once, dab per move, read back on release). begin() fails cleanly
   // for a tool with no GPU kernel, in which case we fall back to the C++ path.
-  if (scene_->currentBackend == BrushBackend::Wgsl) {
+  if (scene_->currentBackend == BrushBackend::Wgsl ||
+      scene_->currentBackend == BrushBackend::WgpuNative) {
     std::string err;
     gpuSession_ = new GpuStrokeSession();
-    // Opt into the GPU-resident live-render path: dabs scatter into the render
-    // VBOs + read back only touched verts, so the mesh deforms during the drag
-    // (the batch/verify path never sets this and stays full-readback-at-end).
-    gpuSession_->enableLiveRender(scene_->backendWindow ? scene_->backendWindow
-                                                        : scene_->backend);
+    if (scene_->currentBackend == BrushBackend::WgpuNative) {
+      // WebGPU compute can't share buffers with the Vulkan renderer, so there is
+      // no live scatter: each dab reads its moved verts back to the CPU mesh and
+      // marks the touched nodes dirty so the Vulkan path redraws them.
+      gpuSession_->enableInteractiveReadback();
+    } else {
+      // Wgsl: GPU-resident live-render path — dabs scatter into the render VBOs +
+      // read back only touched verts, so the mesh deforms during the drag (the
+      // batch/verify path never sets this and stays full-readback-at-end).
+      gpuSession_->enableLiveRender(scene_->backendWindow ? scene_->backendWindow
+                                                          : scene_->backend);
+    }
     if (gpuSession_->begin(*scene_, err)) {
       gpuSession_->dab(*scene_, hit, normal, err);
       scene_->lastStroke.valid = true;
@@ -247,6 +255,15 @@ void InteractiveController::endStroke()
   strokeResidual_ = 0.0f;
   scene_->profiler.addEnd(StrokeProfiler::ms(ptEnd, StrokeProfiler::now()));
   scene_->profiler.endStroke();
+}
+
+void InteractiveController::flushGpuReadback()
+{
+#ifdef SBRUSH_GPU_DISPATCH
+  if (gpuSession_) {
+    gpuSession_->flushInteractiveReadback(*scene_);
+  }
+#endif
 }
 
 void InteractiveController::doOrbit(float2 delta)
