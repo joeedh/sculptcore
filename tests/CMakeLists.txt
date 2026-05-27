@@ -24,4 +24,10 @@ test(test_brush.cc "")
 test(test_binding.cc "binding_generators")
 test(test_debug_script.cc "debug_core")
 test(test_uniform_link.cc "gpu")
+test(test_webgpu_render.cc "webgpu;spatial;mesh;gpu")
+# wgpu-native ships as a DLL — copy it next to the test exe so it loads at run.
+add_custom_command(TARGET test_webgpu_render.cc_out POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:test_webgpu_render.cc_out>
+  VERBATIM)
 #test(test_constexpr_bug.cc "")

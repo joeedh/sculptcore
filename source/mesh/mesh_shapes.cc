@@ -33,8 +33,6 @@ Mesh *createCube(int dimen, float size, float sphereFac)
 
   float idimen = 1.0f / float(std::max(dimen, 2) - 1);
 
-  printf("createCube in wasm\n");
-
   for (int i = 0; i < 6; i++) {
     for (int j = 0; j < dimen; j++) {
       for (int k = 0; k < dimen; k++) {

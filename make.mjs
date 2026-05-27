@@ -740,6 +740,9 @@ yargs(hideBin(process.argv))
     }
     run(`cargo install --force --version ${NAGA_VERSION} naga-cli`)
   })
+  .command('fetch-wgpu-native', 'Download the pinned wgpu-native prebuilt (native WebGPU backend)', {}, () => {
+    run('node extern/wgpu_native/fetch.mjs')
+  })
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')
     run('git submodule init')

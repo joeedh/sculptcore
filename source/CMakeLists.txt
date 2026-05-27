@@ -7,6 +7,9 @@ add_subdirectory(brush)
 add_subdirectory(core)
 add_subdirectory(gpu)
 add_subdirectory(meshlog)
+# WebGPU backend builds for both targets: emdawnwebgpu under WASM, the
+# prebuilt wgpu-native impl natively (extern/wgpu_native).
+add_subdirectory(webgpu)
 if (NOT BUILD_WASM)
   add_subdirectory(window)
   add_subdirectory(vulkan)

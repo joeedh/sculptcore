@@ -97,6 +97,7 @@ if (BUILD_WASM)
 	  props
       pthread
 	  meshlog
+      webgpu
 	)
 
 	# merge litestl wasm symbols

@@ -13,4 +13,7 @@ if (NOT BUILD_WASM)
   # Vulkan::Vulkan imported target is visible to all subdirectories.
 
   include("${CMAKE_CURRENT_SOURCE_DIR}/imgui_build.cmake")
+
+  # Native WebGPU backend impl (prebuilt). emdawnwebgpu covers the WASM side.
+  add_subdirectory(wgpu_native)
 endif()
