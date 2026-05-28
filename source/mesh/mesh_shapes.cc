@@ -118,4 +118,9 @@ extern "C" Mesh *Mesh_createCube(int dimen, float size, float sphereFac)
   return createCube(dimen, size, sphereFac);
 }
 
+extern "C" void Mesh_free(Mesh *m)
+{
+  litestl::alloc::Delete<Mesh>(m);
+}
+
 } // namespace sculptcore::mesh

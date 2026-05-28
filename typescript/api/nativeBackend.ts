@@ -47,6 +47,8 @@ export interface NativeAddon {
   meshCreateCube(dimen: number, size: number, sphereFac: number): NativeBound
   meshBuildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number): NativeBound
   spatialTreeFree(tree: NativeBound): void
+  /** Free a Mesh created by meshCreateCube. Nulls the wrapper's pointer. */
+  meshFree(mesh: NativeBound): void
 }
 
 // Candidate locations for the built addon, relative to common runtime cwds.

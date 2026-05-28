@@ -66,6 +66,18 @@ app.whenReady().then(() => {
       break
     }
 
+    // Native factory + free lifecycle (no leak / no crash on free).
+    try {
+      const mesh = addon.meshCreateCube(8, 1, 1)
+      const cap = (mesh.v && typeof mesh.v === 'object') ? mesh.v.capacity_ : undefined
+      const tree = addon.meshBuildSpatialTree(mesh, 0, 0)
+      addon.spatialTreeFree(tree)
+      addon.meshFree(mesh)
+      result.meshLifecycle = {createdCapacity: cap, freed: true}
+    } catch (e) {
+      result.meshLifecycle = {error: String(e && e.stack || e)}
+    }
+
     result.ok = true
   } catch (err) {
     result.error = String(err && err.stack || err)

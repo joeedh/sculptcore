@@ -19,6 +19,7 @@ extern "C" {
 void *Mesh_createCube(int dimen, float size, float sphereFac);
 void *Mesh_buildSpatialTree(void *mesh, int leafLimit, int depthLimit);
 void SpatialTree_free(void *tree);
+void Mesh_free(void *mesh);
 }
 
 namespace sculptcore::napi {
@@ -911,6 +912,23 @@ napi_value NapiRuntime::SpatialTreeFree(napi_env env, napi_callback_info info) {
   return undef;
 }
 
+napi_value NapiRuntime::MeshFree(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *mw = nullptr;
+  if (argc >= 1 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok && mw &&
+      mw->ptr) {
+    Mesh_free(mw->ptr);
+    // The wrapper no longer owns valid memory; null it so a later member access
+    // or finalizer can't dereference freed storage.
+    mw->ptr = nullptr;
+  }
+  return undef;
+}
+
 // vectorGet(vec, i) — i-th element as a bound value/wrapper, via getBoundPointer
 // on the element's storage. Enables iteration of a bound Vector (what the
 // getBoundVector use site in sculptcore_ops needs).
@@ -958,6 +976,7 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "meshCreateCube", &NapiRuntime::MeshCreateCube);
   define(exports, "meshBuildSpatialTree", &NapiRuntime::MeshBuildSpatialTree);
   define(exports, "spatialTreeFree", &NapiRuntime::SpatialTreeFree);
+  define(exports, "meshFree", &NapiRuntime::MeshFree);
 }
 
 }  // namespace sculptcore::napi

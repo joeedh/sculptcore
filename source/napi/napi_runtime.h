@@ -89,6 +89,7 @@ class NapiRuntime {
   static napi_value MeshCreateCube(napi_env, napi_callback_info);
   static napi_value MeshBuildSpatialTree(napi_env, napi_callback_info);
   static napi_value SpatialTreeFree(napi_env, napi_callback_info);
+  static napi_value MeshFree(napi_env, napi_callback_info);
 
   void define(napi_value exports, const char *name, napi_callback cb);
 };

@@ -74,6 +74,9 @@ export class NativeManager {
   SpatialTree_free(tree: NativeBound): void {
     this.addon.spatialTreeFree(tree)
   }
+  Mesh_free(mesh: NativeBound): void {
+    this.addon.meshFree(mesh)
+  }
   float3(co: ArrayLike<number>): NativeBound {
     const v = this.f3ring.next() as {vec: number[]}
     const vec = v.vec // capture the array wrapper once (one wrapper, not three)
