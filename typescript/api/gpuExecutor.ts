@@ -213,9 +213,24 @@ export class WebGLBatchExecutor {
     }
   }
 
+  /**
+   * A bound `Vector` *member* as an array-like (`.length` + numeric index). WASM
+   * member getters already hand back array-like Vectors; the native (N-API)
+   * member getter returns a plain bound-`Vector` instance with no `.length`/`[i]`,
+   * so route it through `getBoundVector` (the `NativeBoundVector` proxy — its
+   * `vectorLength`/`vectorGet` just unwrap the member wrapper). Without this the
+   * native draw loop silently iterates zero commands.
+   */
+  private vecMember<T>(v: unknown): ArrayLike<T> {
+    if (this.wasm.HEAPU8 !== undefined) {
+      return v as ArrayLike<T>
+    }
+    return this.wasm.getBoundVector('', v as SculptHandle) as ArrayLike<T>
+  }
+
   dispatch(batch: DrawBatch, mvp: Float32Array, color: Float32Array = new Float32Array([1, 1, 1, 1])) {
     const gl = this.gl
-    const commands = batch.commands
+    const commands = this.vecMember<DrawCommand>(batch.commands)
     if (commands.length === 0) {
       return
     }
@@ -227,7 +242,7 @@ export class WebGLBatchExecutor {
 
     for (let i = 0; i < commands.length; i++) {
       const cmd = commands[i] as unknown as DrawCommand
-      const attrs = cmd.attrs
+      const attrs = this.vecMember<Buffer | undefined>(cmd.attrs)
       for (let a = 0; a < attrs.length; a++) {
         const attr = attrs[a] as unknown as Buffer | undefined
         if (attr === undefined) continue
