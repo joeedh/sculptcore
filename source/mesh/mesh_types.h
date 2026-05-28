@@ -138,7 +138,7 @@ struct CornerData : public ElemData {
     radial_prev.ensure(attrs);
   }
 
-  BuiltinAttr<int, ".corner.v", AttrFlag::TOPO> v;
+  BuiltinAttr<int, ".corner.v", AttrFlag::TOPO | AttrFlag::TOPO_KEEP_FROZEN> v;
   BuiltinAttr<int, ".corner.e", AttrFlag::TOPO> e;
   BuiltinAttr<int, ".corner.l", AttrFlag::TOPO> l; /* Owning list. */
   BuiltinAttr<int, ".corner.next", AttrFlag::TOPO> next;

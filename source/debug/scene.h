@@ -66,6 +66,10 @@ struct Scene {
   brush::Brush brush;
   brush::SculptBrushes currentTool = brush::SculptBrushes::DRAW;
   BrushBackend currentBackend = BrushBackend::Cpp;
+  /* When set, the C++ executor enumerates 1-ring neighbors from the cached CSR
+   * (MeshTopoCache) rather than the live disk walk — selects the CsrNbr kernel
+   * instantiation. Used by the A/B harness to verify the two sources agree. */
+  bool useCsrNeighbors = false;
   StrokeEndNormals strokeEndNormals = StrokeEndNormals::Cpu;
   /* Texture coord-space matrix for VIEWPLANE/VIEWREPEAT (set_render_matrix).
    * Identity'd in the ctor; threaded into both the C++ ctx.renderMatrix and the

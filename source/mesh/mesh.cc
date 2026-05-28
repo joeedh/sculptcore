@@ -14,6 +14,10 @@ namespace sculptcore::mesh {
 
 void Mesh::recalc_normals()
 {
+  /* Walks the live loop/disk links; thaw if frozen. Not in the sculpt hot path
+   * (the spatial tree owns per-frame normals), so the thaw cost is irrelevant. */
+  if (topo_frozen) thawTopo();
+
   auto &no = f.no;
   for (int fi : IndexRange(0, v.count)) {
     int li = f.l[fi];
@@ -53,8 +57,46 @@ inline void fire(const util::function<void(int)> &cb, int idx)
 }
 } // namespace
 
+void Mesh::freezeTopo()
+{
+  if (topo_frozen) {
+    return;
+  }
+
+  /* Snapshot the live topology, then keep the brush 1-ring CSR current so the
+   * sculpt path is served from cached data while the live links are gone. */
+  topo_cache.frozen.build(*this);
+  topo_cache.ensureRing1(*this);
+
+  v.attrs.freeTopoPages();
+  e.attrs.freeTopoPages();
+  c.attrs.freeTopoPages();
+  l.attrs.freeTopoPages();
+  f.attrs.freeTopoPages();
+
+  topo_frozen = true;
+}
+
+void Mesh::thawTopo()
+{
+  if (!topo_frozen) {
+    return;
+  }
+
+  v.attrs.materializeTopoPages();
+  e.attrs.materializeTopoPages();
+  c.attrs.materializeTopoPages();
+  l.attrs.materializeTopoPages();
+  f.attrs.materializeTopoPages();
+
+  topo_cache.frozen.rebuildLinks(*this);
+  topo_frozen = false;
+}
+
 int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   int r = v.alloc();
 
   v.co[r] = co;
@@ -69,6 +111,8 @@ int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
 
 int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   int r = e.alloc();
 
   e.c[r] = ELEM_NONE;
@@ -92,6 +136,8 @@ int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
 
 int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *cb)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   int fi = f.alloc();
   int li = l.alloc();
 
@@ -141,6 +187,9 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *c
 
 int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb)
 {
+  /* find_edge below walks live disks, so thaw before touching connectivity. */
+  if (topo_frozen) thawTopo();
+
   util::Vector<int, 6> edges;
 
   int vlen = verts.size();
@@ -160,6 +209,8 @@ int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb)
 
 void Mesh::kill_vertex(int v1, MeshCallbacks *cb)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   while (v.e[v1] != ELEM_NONE) {
     kill_edge(v.e[v1], cb);
   }
@@ -173,6 +224,8 @@ void Mesh::kill_vertex(int v1, MeshCallbacks *cb)
 
 void Mesh::kill_edge(int e1, MeshCallbacks *cb)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   while (e.c[e1] != ELEM_NONE) {
     kill_face(l.f[c.l[e.c[e1]]], cb);
   }
@@ -194,6 +247,8 @@ void Mesh::kill_edge(int e1, MeshCallbacks *cb)
 
 void Mesh::kill_face(int f1, MeshCallbacks *cb)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   int l1 = f.l[f1];
   while (l1 != ELEM_NONE) {
     int next = l.next[l1];
@@ -238,6 +293,8 @@ inline int remap(util::span<int> map, int idx)
 
 void Mesh::reorder_verts(util::span<int> vmap)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   for (int e1 : e) {
     e.vs[e1][0] = remap(vmap, e.vs[e1][0]);
     e.vs[e1][1] = remap(vmap, e.vs[e1][1]);
@@ -252,6 +309,8 @@ void Mesh::reorder_verts(util::span<int> vmap)
 
 void Mesh::reorder_edges(util::span<int> emap)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   for (int v1 : v) {
     v.e[v1] = remap(emap, v.e[v1]);
   }
@@ -271,6 +330,8 @@ void Mesh::reorder_edges(util::span<int> emap)
 
 void Mesh::reorder_corners(util::span<int> cmap)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   for (int e1 : e) {
     e.c[e1] = remap(cmap, e.c[e1]);
   }
@@ -291,6 +352,8 @@ void Mesh::reorder_corners(util::span<int> cmap)
 
 void Mesh::reorder_lists(util::span<int> lmap)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   for (int c1 : c) {
     c.l[c1] = remap(lmap, c.l[c1]);
   }
@@ -308,6 +371,8 @@ void Mesh::reorder_lists(util::span<int> lmap)
 
 void Mesh::reorder_faces(util::span<int> fmap)
 {
+  if (topo_frozen) thawTopo();
+  topo_stamp++;
   for (int l1 : l) {
     l.f[l1] = remap(fmap, l.f[l1]);
   }

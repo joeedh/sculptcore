@@ -240,6 +240,25 @@ bool execVerb(Scene &scene,
     }
     return true;
   }
+  if (verb == "set_neighbor_mode") {
+    const char *mode = getArg(args, "mode");
+    if (!mode) {
+      err = "set_neighbor_mode: missing mode= (livedisk|csr)";
+      return false;
+    }
+    std::string ms = mode;
+    for (auto &c : ms) c = (char)std::tolower((unsigned char)c);
+    if (ms == "livedisk") {
+      scene.useCsrNeighbors = false;
+    } else if (ms == "csr") {
+      scene.useCsrNeighbors = true;
+    } else {
+      err = std::string("set_neighbor_mode: unknown mode '") + mode +
+            "' (valid: livedisk, csr)";
+      return false;
+    }
+    return true;
+  }
   if (verb == "set_brush_tool") {
     const char *t = getArg(args, "tool");
     if (!t) {
@@ -583,6 +602,9 @@ bool execVerb(Scene &scene,
         brush::CommandExecutor exec(scene.tree, &scene.brush);
         exec.meshLog = &scene.meshLog;
         exec.ctx.renderMatrix = scene.renderMatrix;
+        if (scene.useCsrNeighbors) {
+          exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
+        }
         exec.beginStep();
         exec.execBrush(scene.currentTool, &nodes, origin, normal);
         exec.endStep();

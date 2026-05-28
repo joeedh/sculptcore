@@ -10,6 +10,7 @@
 #include "mesh_callbacks.h"
 #include "mesh_enums.h"
 #include "mesh_proxy.h"
+#include "mesh_topo_cache.h"
 #include "mesh_types.h"
 
 #include <algorithm>
@@ -27,6 +28,35 @@ struct Mesh : public MeshBase {
   Mesh()
   {
   }
+
+  /* Monotonic topology-edit counter. Bumped by every primitive topology
+   * mutator (the make_, kill_ and reorder_ families); MeshTopoCache keys its
+   * validity on it so any edit forces a rebuild. */
+  uint64_t topo_stamp = 1;
+  MeshTopoCache topo_cache;
+
+  /* Frozen-topology mode: the live TOPO link columns are dropped and
+   * topo_cache.frozen is authoritative. A RAM-saving cache state, never lossy
+   * — any topology mutator auto-thaws (rebuilds the live links) first, so the
+   * mode is invisible to *mutating* callers. See freezeTopo()/thawTopo().
+   *
+   * What stays valid while frozen (the sculpt-loop contract):
+   *   - geometry attrs (v.co, v.no, ...) — never TOPO, always live.
+   *   - the 1-ring CSR (topo_cache.ring1) — serves brush for_neighbor.
+   *   - .corner.v — flagged TOPO_KEEP_FROZEN so the per-frame spatial path
+   *     (tri bounds/normals/GPU upload, which reads c.v through cached corner
+   *     indices) keeps working without a thaw.
+   * The pure-iteration links (disk/radial/loop, v.e, e.c, c.next/prev/e/l,
+   * l.*, f.l) are gone; any code that walks them must go through a mutator
+   * (auto-thaws) or call thawTopo() first (recalc_normals does). */
+  bool topo_frozen = false;
+
+  /* Build the frozen snapshot and release the live TOPO pages. Ensures the
+   * 1-ring CSR is current first so the brush path stays served while frozen. */
+  void freezeTopo();
+  /* Re-materialize the TOPO pages and rebuild the live links from the snapshot.
+   * Idempotent; a no-op when not frozen. */
+  void thawTopo();
 
   static binding::types::Struct<Mesh> *defineBindings()
   {

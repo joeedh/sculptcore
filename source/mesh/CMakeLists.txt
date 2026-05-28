@@ -16,6 +16,7 @@ set(SRC
   PUBLIC mesh_base.h
   PUBLIC mesh_callbacks.h
   PUBLIC mesh_types.h
+  PUBLIC mesh_topo_cache.h
   PUBLIC mesh_serialize.h
   PUBLIC mesh_shapes.h
   PUBLIC idmap.h
@@ -28,6 +29,7 @@ set(SRC
   attribute.cc
   idmap.cc
   mesh.cc
+  mesh_topo_cache.cc
   mesh_serialize.cc
   mesh_shapes.cc
   mesh_types.cc

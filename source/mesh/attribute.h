@@ -188,6 +188,21 @@ template <typename T> struct AttrData : AttrDataBase {
     }
   }
 
+  /* Release every page's backing buffer while keeping the page structs (and
+   * thus size_ / capacity) intact, so materialize_all() can re-allocate later.
+   * Used by frozen-topology mode to drop link columns without destroying the
+   * AttrData object the builtin handles point at. */
+  void free_pages()
+  {
+    for (AttrPage &page : pages) {
+      if (page.data) {
+        alloc::release(static_cast<void *>(page.data));
+        page.data = nullptr;
+        page.exists = false;
+      }
+    }
+  }
+
   T &operator[](int idx)
   {
     return pages[idx >> ATTR_PAGESHIFT].data[idx & ATTR_PAGEMASK];
@@ -528,6 +543,37 @@ struct AttrGroup {
           std::swap((*data)[a], (*data)[b]);
         });
       }
+    }
+  }
+
+  /* Frozen-topology support: free / re-allocate the backing pages of every
+   * TOPO-flagged column. The AttrData objects (and the builtin handles bound
+   * to them) survive; only the page buffers are dropped and later rebuilt. */
+  void freeTopoPages()
+  {
+    for (AttrRef &attr : attrs) {
+      if (!(attr.flag & AttrFlag::TOPO) || attr.type == AttrType::BOOL ||
+          (attr.flag & AttrFlag::TOPO_KEEP_FROZEN))
+      {
+        continue;
+      }
+      detail::type_dispatch(attr.type, [&]<typename T>() {
+        static_cast<AttrData<T> *>(attr.data)->free_pages();
+      });
+    }
+  }
+
+  void materializeTopoPages()
+  {
+    for (AttrRef &attr : attrs) {
+      if (!(attr.flag & AttrFlag::TOPO) || attr.type == AttrType::BOOL ||
+          (attr.flag & AttrFlag::TOPO_KEEP_FROZEN))
+      {
+        continue;
+      }
+      detail::type_dispatch(attr.type, [&]<typename T>() {
+        static_cast<AttrData<T> *>(attr.data)->materialize_all();
+      });
     }
   }
 

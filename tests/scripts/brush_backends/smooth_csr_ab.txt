@@ -1,0 +1,25 @@
+# A/B script: smooth stroke, C++ live-disk vs C++ cached-CSR neighbor source.
+# Both passes run the reference C++ executor; the only difference is how
+# for_neighbor enumerates the 1-ring (LiveDiskNbr vs CsrNbr). The CSR is built
+# from the same EdgeOfVertIter disk walk, so the two must be bit-identical.
+# Reuses the harness's cpp/"wgsl" dump slots: the "wgsl" dump is actually the
+# cpp+CSR pass. Setup mirrors smooth_ab.txt (inflate spike, then relax).
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=inflate
+set_brush radius=0.05 strength=4.0
+stroke origin=0,0,0.25 normal=0,0,1
+
+set_brush_tool tool=smooth
+set_brush radius=0.15 strength=1.0
+
+set_backend backend=cpp
+set_neighbor_mode mode=livedisk
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=smooth_csr_cpp.json
+
+undo
+
+set_neighbor_mode mode=csr
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=smooth_csr_wgsl.json

@@ -29,6 +29,11 @@ enum class _AttrFlag {
   TEMP = 1 << 1,
   NOCOPY = 1 << 2,
   NOINTERP = 1 << 3,
+  /* A TOPO column that the per-frame spatial/render path reads directly, so it
+   * must stay materialized in frozen-topology mode rather than being dropped
+   * with the pure-iteration links. Currently only .corner.v (triangle vert
+   * lookup for bounds/normals/GPU upload). */
+  TOPO_KEEP_FROZEN = 1 << 4,
 };
 MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 
@@ -79,6 +84,7 @@ template <std::same_as<sculptcore::mesh::AttrFlag> T> static const types::Enum *
   e->addItem("Temp", static_cast<int>(AttrFlag::TEMP));
   e->addItem("NoCopy", static_cast<int>(AttrFlag::NOCOPY));
   e->addItem("NoInterp", static_cast<int>(AttrFlag::NOINTERP));
+  e->addItem("TopoKeepFrozen", static_cast<int>(AttrFlag::TOPO_KEEP_FROZEN));
   return e;
 }
 

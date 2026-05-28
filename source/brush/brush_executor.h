@@ -3,6 +3,7 @@
 #include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
+#include "neighbor_source.h"
 #include "brushes/all.h"
 #include "litestl/binding/binding.h"
 #include "litestl/util/task.h"
@@ -22,10 +23,17 @@ struct CommandExecutor {
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
   using brush_command = BrushCommandDef<CommandCtx<CommandExecutor>>;
 
+  // Selects how for_neighbor kernels enumerate the 1-ring: the live disk walk
+  // (default) or the cached CSR adjacency (MeshTopoCache::ring1). The choice is
+  // made once here and lowered into the kernel instantiation, so the inner loop
+  // has no per-neighbor branch.
+  enum class NeighborMode { LiveDisk, Csr };
+
   Brush *brush;
   SpatialTree *tree;
   CommandCtxBase ctx;
   bool isFirstOfStep = false;
+  NeighborMode neighborMode = NeighborMode::LiveDisk;
   meshlog::MeshLog *meshLog = nullptr;
   Vector<float3> coPrevStorage;  // backing store for ctx.co_prev (Jacobi snapshot)
 
@@ -80,7 +88,11 @@ struct CommandExecutor {
       command::createMaskBrush(def);
       return def;
     case SculptBrushes::SMOOTH:
-      command::createSmoothBrush(def);
+      if (neighborMode == NeighborMode::Csr) {
+        command::createSmoothBrush<CommandExecutor, CsrNbr>(def);
+      } else {
+        command::createSmoothBrush(def);
+      }
       return def;
     case SculptBrushes::KELVINLET:
       command::createKelvinletBrush(def);
@@ -113,6 +125,12 @@ struct CommandExecutor {
         coPrevStorage[i] = m->v.co[i];
       }
       ctx.co_prev = &coPrevStorage;
+
+      // CSR neighbor source is static across the stroke — (re)build once,
+      // single-threaded, before the parallel node loop reads it.
+      if (neighborMode == NeighborMode::Csr) {
+        m->topo_cache.ensureRing1(*m);
+      }
     }
 
 #ifdef NO_PARALLEL_FOR
@@ -133,11 +151,35 @@ struct CommandExecutor {
     cmd.execPost(ctx, nodes);
   }
 
+  // SMOOTH is the only brush with a for_neighbor loop, and only its CSR
+  // instantiation reads neighbors from the cache rather than the live disk.
+  // Every other brush (and CSR-mode smooth) touches no live TOPO link during a
+  // dab, so the mesh can sit topology-frozen — dropping the link pages — for
+  // the whole stroke. A live-disk smooth dab is the lone case that needs the
+  // links back.
+  bool brushNeedsLiveLinks(SculptBrushes brushType) const
+  {
+    return brushType == SculptBrushes::SMOOTH && neighborMode != NeighborMode::Csr;
+  }
+
   void execBrush(SculptBrushes brushType,
                  Vector<spatial::SpatialNode *> *nodes,
                  float3 origin,
                  float3 normal)
   {
+    // Enter/leave frozen-topology mode per dab (both calls early-out when
+    // already in the target state, so this is cheap to re-check every dab).
+    // Note: this is the C++ executor path only; the GPU dispatch in gpu_stroke
+    // has its own neighbor handling and is unaffected.
+    if (nodes->size() > 0) {
+      mesh::Mesh *m = (*nodes)[0]->data->m;
+      if (brushNeedsLiveLinks(brushType)) {
+        if (m->topo_frozen) m->thawTopo();
+      } else if (!m->topo_frozen) {
+        m->freezeTopo();
+      }
+    }
+
     auto cmd = createCommand(brushType);
     ctx.surfaceNo = normal;
     ctx.surfacePos = origin;

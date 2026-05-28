@@ -184,34 +184,31 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     return false;
   }
 
-  // CSR neighbor topology for for_neighbor kernels. Build it in the same
-  // EdgeOfVertIter order the C++ kernel walks so the per-vertex `avg += nb.co`
-  // accumulates identically — keeping the GPU result bit-modulo-fp identical.
+  // CSR neighbor topology for for_neighbor kernels. Sourced from the shared,
+  // frozen-topology MeshTopoCache (built via the same EdgeOfVertIter walk as
+  // the C++ kernel), so the per-vertex `avg += nb.co` accumulates identically —
+  // keeping the GPU result bit-modulo-fp identical and amortizing the build
+  // across strokes. Derive the per-vert {offset,count} meta from the cache's
+  // prefix-sum offsets.
   if (needsNeighbors_) {
+    m->topo_cache.ensureRing1(*m);
+    mesh::VertNbrCSR &csr = m->topo_cache.ring1;
     Vector<vulkan::ComputeVertNbr> meta;
-    Vector<uint32_t> flat;
     meta.resize(vcount_);
     for (int v = 0; v < vcount_; v++) {
-      uint32_t off = uint32_t(flat.size());
-      uint32_t cnt = 0;
-      int e0 = m->v.e[v];
-      if (e0 != ELEM_NONE) {
-        for (int e : mesh::EdgeOfVertIter(m, v, e0)) {
-          int nb = (m->e.vs[e][0] == v) ? m->e.vs[e][1] : m->e.vs[e][0];
-          flat.append(uint32_t(nb));
-          cnt++;
-        }
-      }
+      uint32_t off = csr.offsets[v];
       meta[v].offset = off;
-      meta[v].count = cnt;
+      meta[v].count = csr.offsets[v + 1] - off;
     }
-    if (!disp_->setNeighbors(meta.data(), vcount_, flat.data(), int(flat.size()))) {
+    const uint32_t *flat = reinterpret_cast<const uint32_t *>(csr.nbr_verts.data());
+    int flatCount = int(csr.nbr_verts.size());
+    if (!disp_->setNeighbors(meta.data(), vcount_, flat, flatCount)) {
       err = "stroke(wgsl): neighbor upload failed";
       return false;
     }
     if (cap_) {
       capNbrMeta_ = b64encode(meta.data(), meta.size() * sizeof(vulkan::ComputeVertNbr));
-      capNbrVerts_ = b64encode(flat.data(), flat.size() * sizeof(uint32_t));
+      capNbrVerts_ = b64encode(csr.nbr_verts.data(), size_t(flatCount) * sizeof(int));
     }
   }
 
