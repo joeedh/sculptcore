@@ -137,6 +137,22 @@ export class WebGLBatchExecutor {
     this.vao = gl.createVertexArray()!
   }
 
+  /**
+   * The `bytes`-long byte view of a GPU buffer's backing storage — the single
+   * backend-dependent seam (TODO.md "native-electron: de-numbering"). WASM
+   * returns a zero-copy view straight over the linear-memory heap; the native
+   * (N-API) backend has no `HEAPU8` and must route through the addon's
+   * bulk-data path (`vectorView`, a copy under the V8 sandbox) once the native
+   * GPU manager exists.
+   */
+  private bufferBytes(dataPtr: number, bytes: number): Uint8Array {
+    const heap = this.wasm.HEAPU8
+    if (heap === undefined) {
+      throw new Error('gpuExecutor: native bulk-data path not wired yet (see TODO.md)')
+    }
+    return new Uint8Array(heap.buffer, dataPtr, bytes)
+  }
+
   private uploadBuffer(buf: Buffer): WebGLBuffer {
     const gl = this.gl
     const ptr = (buf as unknown as BoundLike).ptr
@@ -152,8 +168,7 @@ export class WebGLBatchExecutor {
     }
 
     if (cached.uploadedSize !== bytes || cached.uploadedDataPtr !== dataPtr || buf.update_buffer) {
-      const view = new Uint8Array(this.wasm.HEAPU8.buffer, dataPtr, bytes)
-      const f32view = new Float32Array(this.wasm.HEAPU8.buffer, dataPtr, bytes >> 2)
+      const view = this.bufferBytes(dataPtr, bytes)
       const target = bufferTargetGL(gl, buf.target)
       gl.bindBuffer(target, cached.glBuf)
       gl.bufferData(target, view, gl.STATIC_DRAW)
