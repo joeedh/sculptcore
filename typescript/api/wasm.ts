@@ -34,7 +34,11 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
 let wasmPromise: Promise<IWasmInterface> | undefined = undefined
 let wasm: IWasmInterface | undefined
 
-const insideNode = typeof process !== 'undefined' && typeof process?.platform !== 'undefined'
+// Electron's renderer (nodeIntegration) exposes `process`, but it's a browser
+// context with fetch/DOM and must use the browser wasm build, not the Node one.
+const insideElectron = typeof process !== 'undefined' && !!process?.versions?.electron
+const insideNode =
+  typeof process !== 'undefined' && typeof process?.platform !== 'undefined' && !insideElectron
 
 class cachering<T> extends Array<T> {
   cur = 0
