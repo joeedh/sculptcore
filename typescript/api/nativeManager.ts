@@ -111,6 +111,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     get gpu(): NativeBound {
       return (gpu ??= nm.construct('sculptcore::gpu::GPUManager'))
     },
+    getBoundVector: (name: string, bound: NativeBound) => nm.getBoundVector(name, bound),
     Mesh_createCube: (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
     Mesh_buildSpatialTree: (m: NativeBound, l: number, dp: number) =>
       nm.Mesh_buildSpatialTree(m, l, dp),

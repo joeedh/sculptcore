@@ -23,9 +23,27 @@ interface IWasmMethods extends IWasmBase {
   SpatialTree_free(tree: SpatialTree): void
   getSpatialShaders(): pointer
 }
+/**
+ * An opaque sculptcore object reference. The WASM backend represents it as a
+ * numeric heap pointer; the native (N-API) backend as a wrapped C++ object.
+ * App code must treat it as opaque — never read `.ptr` as a number — and pass
+ * it back through the backend-agnostic helpers on `IWasmInterface`
+ * (`getBoundVector`, the `Mesh_*`/`SpatialTree_free` factories, …) so neither
+ * backend's pointer representation leaks across the boundary.
+ */
+export type SculptHandle = object
+
 export interface IWasmInterface extends INeededWasm, IWasmMethods {
   manager: BindingManager
   gpu: GPUManager
+
+  /**
+   * Wrap a bound `litestl::util::Vector` as an array-like (`.length`, numeric
+   * index, iterator). Backend-agnostic: pass the bound vector handle itself,
+   * not its `.ptr` — WASM unwraps the numeric pointer internally, native
+   * forwards the wrapper.
+   */
+  getBoundVector(vecTypeName: string, bound: SculptHandle): unknown
 
   /** uses a large cache ring */
   float3(src: ArrayLike<number | undefined>): float3
@@ -110,6 +128,12 @@ export async function loadWasm(): Promise<IWasmInterface> {
     ...initialWasm,
     manager,
     gpu,
+    getBoundVector(vecTypeName: string, bound: SculptHandle) {
+      // WASM keeps a numeric heap pointer on the bound object; unwrap it here so
+      // callers never have to know the representation.
+      const ptr = (bound as unknown as {ptr: pointer}).ptr
+      return manager.getBoundVector(vecTypeName, ptr)
+    },
     Mesh_createCube(dimen: int, size: number, sphereFac: number) {
       const ptr = _wasm.Mesh_createCube(dimen, size, sphereFac) as unknown as number
       return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
