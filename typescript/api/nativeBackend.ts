@@ -49,6 +49,19 @@ export interface NativeAddon {
   spatialTreeFree(tree: NativeBound): void
   /** Free a Mesh created by meshCreateCube. Nulls the wrapper's pointer. */
   meshFree(mesh: NativeBound): void
+  /**
+   * Bytes a raw-pointer member of a bound object points at — the native
+   * bulk-data read (e.g. gpu::Buffer.data). The pointer never crosses to JS as
+   * a number; C++ reads it off the descriptor. A *copy* under Electron's V8
+   * sandbox (like vectorView). The bound object must outlive the view.
+   */
+  pointerBytes(bound: NativeBound, member: string, byteLen: number): Uint8Array | undefined
+  /**
+   * The bound C++ object's address as an opaque identity key (never
+   * dereferenced) — for caches keyed by object identity (gpuExecutor's
+   * per-Buffer GL-buffer cache). WASM uses the numeric `.ptr` for this.
+   */
+  objectAddress(bound: NativeBound): number | undefined
 }
 
 // Candidate locations for the built addon, relative to common runtime cwds.

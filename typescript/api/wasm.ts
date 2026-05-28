@@ -45,6 +45,18 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    */
   getBoundVector(vecTypeName: string, bound: SculptHandle): unknown
 
+  /**
+   * Native-backend bulk-data read: the bytes a bound object's raw-pointer
+   * member points at (e.g. gpu::Buffer.data). Absent on WASM, which reads the
+   * linear-memory heap (`HEAPU8`) directly. A copy under the V8 sandbox.
+   */
+  pointerBytes?(bound: SculptHandle, member: string, byteLen: number): Uint8Array | undefined
+  /**
+   * Native-backend stable identity key for a bound object (its C++ address,
+   * never dereferenced). Absent on WASM, which uses the numeric `.ptr`.
+   */
+  objectAddress?(bound: SculptHandle): number | undefined
+
   /** uses a large cache ring */
   float3(src: ArrayLike<number | undefined>): float3
   /** uses a large cache ring */

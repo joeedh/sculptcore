@@ -84,6 +84,13 @@ class NapiRuntime {
   // Indexed element access: vectorGet(vec, i) -> the i-th element as a bound
   // value/wrapper (number/bool by value; struct/pointer as a wrapper).
   static napi_value VectorGet(napi_env, napi_callback_info);
+  // pointerBytes(boundObj, memberName, byteLen) -> Uint8Array over the bytes a
+  // raw-pointer member (e.g. gpu::Buffer.data) points at — the native bulk-data
+  // read (the pointer never crosses to JS as a number).
+  static napi_value PointerBytes(napi_env, napi_callback_info);
+  // objectAddress(boundObj) -> the wrapped C++ address as an opaque JS-number
+  // identity key (never dereferenced; for caches keyed by object identity).
+  static napi_value ObjectAddress(napi_env, napi_callback_info);
   // Native factory free-functions (Workstream C): create/operate on real engine
   // objects, wrapping the returned pointers as bound objects.
   static napi_value MeshCreateCube(napi_env, napi_callback_info);

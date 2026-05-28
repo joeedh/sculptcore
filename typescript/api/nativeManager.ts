@@ -77,6 +77,14 @@ export class NativeManager {
   Mesh_free(mesh: NativeBound): void {
     this.addon.meshFree(mesh)
   }
+  /** Bytes of a bound object's raw-pointer member (e.g. gpu::Buffer.data). */
+  pointerBytes(bound: NativeBound, member: string, byteLen: number): Uint8Array | undefined {
+    return this.addon.pointerBytes(bound, member, byteLen)
+  }
+  /** Stable opaque identity key for a bound object (its C++ address). */
+  objectAddress(bound: NativeBound): number | undefined {
+    return this.addon.objectAddress(bound)
+  }
   float3(co: ArrayLike<number>): NativeBound {
     const v = this.f3ring.next() as {vec: number[]}
     const vec = v.vec // capture the array wrapper once (one wrapper, not three)
@@ -115,6 +123,8 @@ export function makeNativeInterface(nm: NativeManager): unknown {
       return (gpu ??= nm.construct('sculptcore::gpu::GPUManager'))
     },
     getBoundVector: (name: string, bound: NativeBound) => nm.getBoundVector(name, bound),
+    pointerBytes: (b: NativeBound, m: string, n: number) => nm.pointerBytes(b, m, n),
+    objectAddress: (b: NativeBound) => nm.objectAddress(b),
     Mesh_createCube: (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
     Mesh_buildSpatialTree: (m: NativeBound, l: number, dp: number) =>
       nm.Mesh_buildSpatialTree(m, l, dp),

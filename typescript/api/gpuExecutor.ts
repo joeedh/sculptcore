@@ -1,4 +1,4 @@
-import type {IWasmInterface} from './wasm'
+import type {IWasmInterface, SculptHandle} from './wasm'
 import type {Buffer, DrawBatch, DrawCommand} from '../index'
 import {GPUType} from '../sculptcore/gpu/GPUType'
 import {GPUBufferType} from '../sculptcore/gpu/GPUBufferType'
@@ -138,42 +138,66 @@ export class WebGLBatchExecutor {
   }
 
   /**
-   * The `bytes`-long byte view of a GPU buffer's backing storage — the single
-   * backend-dependent seam (TODO.md "native-electron: de-numbering"). WASM
-   * returns a zero-copy view straight over the linear-memory heap; the native
-   * (N-API) backend has no `HEAPU8` and must route through the addon's
-   * bulk-data path (`vectorView`, a copy under the V8 sandbox) once the native
-   * GPU manager exists.
+   * Stable per-Buffer identity for the GL-buffer cache (TODO.md "native-electron:
+   * de-numbering"). WASM keeps a numeric heap `.ptr` on the bound object; the
+   * native backend's wrappers aren't identity-stable (a fresh wrapper per
+   * access), so we key on the C++ object address via `objectAddress` (an opaque
+   * key, never dereferenced).
    */
-  private bufferBytes(dataPtr: number, bytes: number): Uint8Array {
+  private bufferKey(buf: Buffer): number {
+    const wasmKey = (buf as unknown as BoundLike).ptr
+    if (typeof wasmKey === 'number') return wasmKey
+    const addr = this.wasm.objectAddress?.(buf as unknown as SculptHandle)
+    if (typeof addr === 'number') return addr
+    throw new Error('gpuExecutor: no stable buffer identity (objectAddress missing)')
+  }
+
+  /**
+   * The `bytes`-long byte view of a GPU buffer's backing storage — the single
+   * backend-dependent seam. WASM returns a zero-copy view straight over the
+   * linear-memory heap at `buf.data`; the native (N-API) backend has no
+   * `HEAPU8`, so it reads `gpu::Buffer.data` through the addon's `pointerBytes`
+   * (the pointer stays in C++; a copy under Electron's V8 sandbox).
+   */
+  private bufferBytes(buf: Buffer, bytes: number): Uint8Array {
     const heap = this.wasm.HEAPU8
-    if (heap === undefined) {
-      throw new Error('gpuExecutor: native bulk-data path not wired yet (see TODO.md)')
+    if (heap !== undefined) {
+      const dataPtr = (buf as unknown as {data: number}).data
+      return new Uint8Array(heap.buffer, dataPtr, bytes)
     }
-    return new Uint8Array(heap.buffer, dataPtr, bytes)
+    const view = this.wasm.pointerBytes?.(buf as unknown as SculptHandle, 'data', bytes)
+    if (view) return view
+    throw new Error('gpuExecutor: native bulk-data path not wired (pointerBytes missing)')
   }
 
   private uploadBuffer(buf: Buffer): WebGLBuffer {
     const gl = this.gl
-    const ptr = (buf as unknown as BoundLike).ptr
-    const dataPtr = buf.data
-    const size = buf.size
-    const elemsize = buf.elemsize
-    const bytes = size * elemsize * gpuTypeBytes(buf.type)
+    const key = this.bufferKey(buf)
+    const bytes = buf.size * buf.elemsize * gpuTypeBytes(buf.type)
 
-    let cached = this.bufferCache.get(ptr)
+    let cached = this.bufferCache.get(key)
     if (cached === undefined) {
       cached = {glBuf: gl.createBuffer()!, uploadedSize: -1, uploadedDataPtr: -1}
-      this.bufferCache.set(ptr, cached)
+      this.bufferCache.set(key, cached)
     }
 
-    if (cached.uploadedSize !== bytes || cached.uploadedDataPtr !== dataPtr || buf.update_buffer) {
-      const view = this.bufferBytes(dataPtr, bytes)
+    // WASM additionally detects a realloc (data pointer moved while size is
+    // unchanged); the native backend relies on the engine's `update_buffer`
+    // dirty flag since the data pointer stays in C++.
+    const dataPtr =
+      this.wasm.HEAPU8 !== undefined ? (buf as unknown as {data: number}).data : undefined
+    const needsUpload =
+      cached.uploadedSize !== bytes ||
+      (dataPtr !== undefined && cached.uploadedDataPtr !== dataPtr) ||
+      buf.update_buffer
+
+    if (needsUpload) {
+      const view = this.bufferBytes(buf, bytes)
       const target = bufferTargetGL(gl, buf.target)
       gl.bindBuffer(target, cached.glBuf)
       gl.bufferData(target, view, gl.STATIC_DRAW)
       cached.uploadedSize = bytes
-      cached.uploadedDataPtr = dataPtr
+      if (dataPtr !== undefined) cached.uploadedDataPtr = dataPtr
       buf.update_buffer = false
     }
 
@@ -181,11 +205,11 @@ export class WebGLBatchExecutor {
   }
 
   releaseBuffer(buf: Buffer) {
-    const ptr = (buf as unknown as BoundLike).ptr
-    const cached = this.bufferCache.get(ptr)
+    const key = this.bufferKey(buf)
+    const cached = this.bufferCache.get(key)
     if (cached) {
       this.gl.deleteBuffer(cached.glBuf)
-      this.bufferCache.delete(ptr)
+      this.bufferCache.delete(key)
     }
   }
 

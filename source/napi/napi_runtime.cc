@@ -843,6 +843,86 @@ napi_value NapiRuntime::VectorView(napi_env env, napi_callback_info info) {
   return out;
 }
 
+// pointerBytes(boundObj, memberName, byteLen) -> a Uint8Array over the bytes a
+// raw-pointer member points at. The native equivalent of the WASM
+// `new Uint8Array(HEAPU8.buffer, buf.data, n)` bulk-data read (gpuExecutor.ts):
+// the pointer (e.g. gpu::Buffer.data, a void*) deliberately never crosses into
+// JS as a number, so C++ reads it off the descriptor here and views it. Same
+// external->copy fallback as VectorView (V8 sandbox forbids external buffers in
+// Electron). The C++ object owns the storage; the caller must keep the bound
+// object alive while the view is used.
+napi_value NapiRuntime::PointerBytes(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+  if (argc < 3) return out;
+
+  Wrapped *w = nullptr;
+  if (napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok || !w || !w->ptr ||
+      !w->st) {
+    return out;
+  }
+
+  char nameBuf[128] = {};
+  size_t nameLen = 0;
+  if (napi_get_value_string_utf8(env, argv[1], nameBuf, sizeof(nameBuf), &nameLen) != napi_ok) {
+    return out;
+  }
+  double dBytes = 0;
+  napi_get_value_double(env, argv[2], &dBytes);
+  const size_t byteLen = static_cast<size_t>(dBytes);
+  if (byteLen == 0) return out;
+
+  // Resolve the member offset by name from the descriptor (same source the
+  // member accessors use), then read the pointer field directly.
+  const types::StructMember *found = nullptr;
+  for (const auto &m : w->st->members) {
+    if (std::strcmp(m.name.c_str(), nameBuf) == 0) {
+      found = &m;
+      break;
+    }
+  }
+  if (!found) return out;
+
+  void *dataPtr = *reinterpret_cast<void **>(static_cast<char *>(w->ptr) + found->offset);
+  if (!dataPtr) return out;
+
+  napi_value ab;
+  napi_status st = napi_create_external_arraybuffer(env, dataPtr, byteLen, nullptr, nullptr, &ab);
+  if (st != napi_ok) {
+    bool pending = false;
+    napi_is_exception_pending(env, &pending);
+    if (pending) {
+      napi_value e;
+      napi_get_and_clear_last_exception(env, &e);
+    }
+    void *abData = nullptr;
+    napi_create_arraybuffer(env, byteLen, &abData, &ab);
+    if (abData) std::memcpy(abData, dataPtr, byteLen);
+  }
+  napi_create_typedarray(env, napi_uint8_array, byteLen, ab, 0, &out);
+  return out;
+}
+
+// objectAddress(boundObj) -> the wrapped C++ object's address as a JS number, an
+// *opaque identity key* only (e.g. gpuExecutor's per-Buffer GL-buffer cache).
+// It is never dereferenced in JS; the address is < 2^48 on win64 so a double is
+// exact. WASM uses the numeric `.ptr` for the same purpose.
+napi_value NapiRuntime::ObjectAddress(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+  if (argc < 1) return out;
+  Wrapped *w = nullptr;
+  if (napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok || !w) return out;
+  napi_create_double(env, static_cast<double>(reinterpret_cast<uintptr_t>(w->ptr)), &out);
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Native factory free-functions: create/operate on real engine objects and
 // hand JS bound wrappers. The engine owns the returned objects (non-owning
@@ -973,6 +1053,8 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "vectorLength", &NapiRuntime::VectorLength);
   define(exports, "vectorView", &NapiRuntime::VectorView);
   define(exports, "vectorGet", &NapiRuntime::VectorGet);
+  define(exports, "pointerBytes", &NapiRuntime::PointerBytes);
+  define(exports, "objectAddress", &NapiRuntime::ObjectAddress);
   define(exports, "meshCreateCube", &NapiRuntime::MeshCreateCube);
   define(exports, "meshBuildSpatialTree", &NapiRuntime::MeshBuildSpatialTree);
   define(exports, "spatialTreeFree", &NapiRuntime::SpatialTreeFree);

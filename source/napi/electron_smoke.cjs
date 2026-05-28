@@ -71,6 +71,50 @@ app.whenReady().then(() => {
       const mesh = addon.meshCreateCube(8, 1, 1)
       const cap = (mesh.v && typeof mesh.v === 'object') ? mesh.v.capacity_ : undefined
       const tree = addon.meshBuildSpatialTree(mesh, 0, 0)
+
+      // Native GPU bulk-data path: run the real frontend pipeline
+      // (tree.update(gpu) allocates + fills host vertex buffers C++-side), then
+      // read a buffer's bytes via pointerBytes + identity via objectAddress —
+      // exactly what gpuExecutor needs on the native backend.
+      try {
+        const gpu = addon.construct('sculptcore::gpu::GPUManager')
+        const updated = tree.update(gpu)
+        const buffers = gpu.buffers
+        const nbuf = addon.vectorLength(buffers) | 0
+        let bufInfo = null
+        for (let i = 0; i < nbuf; i++) {
+          const buf = addon.vectorGet(buffers, i)
+          if (!buf || typeof buf !== 'object') continue
+          const size = buf.size | 0
+          const elemsize = buf.elemsize | 0
+          if (size <= 0 || elemsize <= 0) continue
+          // Position/normal attrs are float3 (FLOAT32). Request that many bytes.
+          const bytes = size * elemsize * 4
+          const addr = addon.objectAddress(buf)
+          const addr2 = addon.objectAddress(buf) // stability: same object -> same key
+          const view = addon.pointerBytes(buf, 'data', bytes)
+          let nonzero = 0
+          if (view) for (let k = 0; k < view.length; k++) if (view[k] !== 0) nonzero++
+          bufInfo = {
+            index: i,
+            name: typeof buf.name === 'string' ? buf.name : undefined,
+            size,
+            elemsize,
+            requestedBytes: bytes,
+            viewIsUint8: view instanceof Uint8Array,
+            viewLength: view ? view.length : 0,
+            viewLenOk: !!view && view.length === bytes,
+            nonzeroBytes: nonzero,
+            addr,
+            addrStable: typeof addr === 'number' && addr !== 0 && addr === addr2,
+          }
+          break
+        }
+        result.gpuBulkData = {updated, bufferCount: nbuf, sample: bufInfo}
+      } catch (e) {
+        result.gpuBulkData = {error: String(e && e.stack || e)}
+      }
+
       addon.spatialTreeFree(tree)
       addon.meshFree(mesh)
       result.meshLifecycle = {createdCapacity: cap, freed: true}
