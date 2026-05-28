@@ -171,9 +171,25 @@ napi_value NapiRuntime::getBoundPointer(const binding::BindingBase *binding, voi
       // Enums are stored int-wide; report the underlying value.
       napi_create_int32(env_, *static_cast<int32_t *>(addr), &out);
       return out;
-    case BindingType::Struct:
+    case BindingType::Struct: {
+      const types::_StructBase *sb = static_cast<const types::_StructBase *>(binding);
+      // litestl::util::String<char> is bound as a member-less Struct
+      // ("litestl::util::String", see binding.h). Read its null-terminated
+      // contents (Char *data_ at offset 0) directly as a JS string rather than
+      // handing back an opaque empty wrapper. Needed e.g. for gpu::Buffer.name /
+      // ShaderDef attr names, which the renderer matches by string equality.
+      if (std::strcmp(sb->name.c_str(), "litestl::util::String") == 0) {
+        const char *s = *reinterpret_cast<const char *const *>(addr);
+        if (!s) {
+          napi_get_undefined(env_, &out);
+          return out;
+        }
+        napi_create_string_utf8(env_, s, NAPI_AUTO_LENGTH, &out);
+        return out;
+      }
       // Embedded struct: a non-owning wrapper over the inline storage.
-      return instantiate(static_cast<const types::_StructBase *>(binding), addr, false);
+      return instantiate(sb, addr, false);
+    }
     case BindingType::Pointer: {
       void *indirect = *static_cast<void **>(addr);
       if (!indirect) {
