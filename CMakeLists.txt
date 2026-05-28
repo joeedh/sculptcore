@@ -128,5 +128,37 @@ else()
 
 	add_library(sculptcore SHARED)
 	target_link_libraries(sculptcore ${LIB})
+
+	# --- Node / Electron N-API addon ----------------------------------------
+	# Built only when CMake is configured by cmake-js, which injects CMAKE_JS_*
+	# (headers, node.lib import lib, win delay-load hook) for the chosen runtime
+	# (--runtime electron). A plain `make.mjs configure native` never defines
+	# CMAKE_JS_VERSION, so this target is invisible to the normal native build;
+	# it's driven by `make.mjs node`. See documentation/plans/native-electron.md
+	# (Workstream A) and sculptcore/spike/napi/RESULTS.md.
+	if (DEFINED CMAKE_JS_VERSION)
+	  # cmake-js puts "/DELAYLOAD:NODE.EXE" (link.exe syntax) in the global
+	  # CMAKE_SHARED_LINKER_FLAGS; the clang++ driver reads a bare "/DELAYLOAD:.."
+	  # as an input filename. Strip it and re-add it on the addon in clang
+	  # passthrough form below. (Spike A.5 finding.)
+	  string(REPLACE "/DELAYLOAD:NODE.EXE" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+
+	  # sculptcore_core pulls in initBindings() + getBindingManager() and links
+	  # every module lib transitively; ${LIB} is listed too to be explicit. The
+	  # raw C N-API entry is in source/napi/. ${CMAKE_JS_SRC} is the Windows
+	  # delay-load hook that rebinds node imports to the host (electron.exe).
+	  add_library(sculptcore_node MODULE
+	    source/napi/napi_entry.cc
+	    source/napi/napi_runtime.cc
+	    ${CMAKE_JS_SRC})
+	  set_target_properties(sculptcore_node PROPERTIES PREFIX "" SUFFIX ".node")
+	  target_include_directories(sculptcore_node PRIVATE ${CMAKE_JS_INC})
+	  target_link_libraries(sculptcore_node sculptcore_core ${LIB} ${CMAKE_JS_LIB})
+	  target_compile_definitions(sculptcore_node PRIVATE NAPI_VERSION=8)
+	  if (WIN32)
+	    target_link_options(sculptcore_node PRIVATE "LINKER:/DELAYLOAD:node.exe")
+	    target_link_libraries(sculptcore_node delayimp.lib)
+	  endif()
+	endif()
 endif()
 

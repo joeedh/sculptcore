@@ -5,3 +5,4 @@ emsdk
 node_modules
 .claude/settings.local.json
 diff.diff
+source/napi/smoke-result.json

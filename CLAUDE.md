@@ -28,11 +28,21 @@ node make.mjs configure [wasm|native]  # default wasm
 node make.mjs build     [wasm|native]
 node make.mjs test      [wasm|native]  # runs ctest in the build dir
 node make.mjs clean     [wasm|native]  # ninja clean
+node make.mjs node      [--smoke]      # build the Node/Electron N-API addon (.node)
 ```
 
 Notes:
 - All commands take an optional `target` positional (`wasm` default, or `native`).
-- Build dirs: WASM → `build/`, native → `build/native/`.
+- Build dirs: WASM → `build/`, native → `build/native/`, Node addon → `build/native-node/`.
+- `node make.mjs node` builds `sculptcore_node.node` for the Electron ABI:
+  cmake-js downloads the Electron headers + `node.lib` and injects `CMAKE_JS_*`
+  during configure, then the addon target (root `CMakeLists.txt`, gated on
+  `DEFINED CMAKE_JS_VERSION`) is built with the clang toolchain. The entry is
+  `source/napi/napi_entry.cc` (raw C N-API). `--smoke` loads the result in
+  Electron and calls `version()`/`bindingCount()`. Electron version is read from
+  `../electron/package.json` (override with `--electron-version`). This is the
+  native-addon path from `documentation/plans/native-electron.md`; the
+  clang↔Electron link was de-risked in `spike/napi/` (`RESULTS.md`).
 - WASM configure runs `emcmake cmake .. -G Ninja -DBUILD_WASM=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
   native configure runs plain `cmake ../.. -G Ninja`.
 - Every command runs under `node configureEnv.mjs` (with `--emsdk` for WASM) to set up the

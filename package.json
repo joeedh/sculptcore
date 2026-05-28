@@ -4,6 +4,7 @@
   "devDependencies": {
     "@kmamal/gpu": "^0.2.1",
     "@pathtx/prettier": "3.3.0-dev",
+    "cmake-js": "^8.0.0",
     "yargs": "^18.0.0"
   },
   "packageManager": "pnpm@10.30.3"

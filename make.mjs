@@ -214,6 +214,80 @@ function nativeToolchainFlag() {
   return '--toolchain ../../build_files/native-clang.cmake '
 }
 
+// === Node / Electron N-API addon ===
+//
+// Builds sculptcore_node.node (Workstream A of documentation/plans/
+// native-electron.md). cmake-js drives the *configure* step — it downloads the
+// Electron headers + node.lib and injects CMAKE_JS_* — then we build only the
+// addon target with the repo's clang toolchain. A dedicated build dir keeps the
+// normal build/native (default CRT) untouched. The clang↔Electron link was
+// de-risked in sculptcore/spike/napi/ (see RESULTS.md).
+
+// The electron/ app package lives one level above sculptcore/ (repo root).
+function readElectronVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync('../electron/package.json', 'utf-8'))
+    const v = pkg.devDependencies?.electron ?? pkg.dependencies?.electron ?? ''
+    const m = v.match(/\d+\.\d+\.\d+/)
+    if (m) return m[0]
+  } catch {
+    /* fall through to default */
+  }
+  return '41.1.1'
+}
+
+// Resolve the Electron executable path (require('electron') returns it when
+// required outside Electron). cwd = the repo's electron/ app.
+function resolveElectronExe() {
+  try {
+    return child_process
+      .execSync(`node -p "require('electron')"`, {cwd: '../electron', encoding: 'utf-8'})
+      .trim()
+  } catch {
+    return undefined
+  }
+}
+
+async function buildNodeAddon(electronVersion, smoke) {
+  const dir = 'build/native-node'
+  ensureDir(dir)
+  const ev = electronVersion || readElectronVersion()
+  const toolchain = Path.resolve('build_files/native-clang.cmake').replace(/\\/g, '/')
+  const cmakeJs = 'node node_modules/cmake-js/bin/cmake-js'
+  // Native env prefix, run from the sculptcore root (where configureEnv.mjs is).
+  const env = 'node configureEnv.mjs'
+
+  console.log(`Building Node addon for Electron ${ev} -> ${dir}/sculptcore_node.node`)
+
+  // 1. Configure via cmake-js: downloads the Electron headers + node.lib and
+  //    injects CMAKE_JS_INC/LIB/SRC. Clang toolchain + Ninja, like the rest of
+  //    the native tree.
+  run(
+    `${env} "${cmakeJs} configure -O ${dir} -G Ninja --CDCMAKE_TOOLCHAIN_FILE=${toolchain} -r electron -v ${ev} -a x64"`
+  )
+
+  // 2. Build ONLY the addon target. Its static deps come along; the SHARED
+  //    `sculptcore` lib is intentionally not built here (see the CMakeLists
+  //    note about the global /DELAYLOAD flag under the clang driver).
+  await runBuild(`${env} "cmake --build ${dir} --target sculptcore_node"`)
+
+  const out = Path.resolve(dir, 'sculptcore_node.node').replace(/\\/g, '/')
+  if (!fs.existsSync(out)) {
+    process.stderr.write(`node: addon not found at ${out}\n`)
+    process.exit(1)
+  }
+  console.log(`node: built ${out}`)
+
+  if (smoke) {
+    const electronExe = resolveElectronExe()
+    if (!electronExe) {
+      process.stderr.write('node: --smoke needs electron installed under ../electron\n')
+      process.exit(1)
+    }
+    run(`"${electronExe}" source/napi/electron_smoke.cjs --no-sandbox`)
+  }
+}
+
 // === sbrush DSL codegen ===
 //
 // Builds the host-side `sbrushc` binary (via the existing native CMake
@@ -808,6 +882,20 @@ yargs(hideBin(process.argv))
     {},
     async () => {
       await wgpuNativeVerify()
+    })
+  .command('node', 'Build the Node/Electron N-API addon (.node) via cmake-js + clang',
+    (y) => y
+      .option('electron-version', {
+        type: 'string',
+        describe: 'Electron version to target (default: read from ../electron/package.json)',
+      })
+      .option('smoke', {
+        type: 'boolean',
+        default: false,
+        describe: 'After building, load the .node in Electron and call version()/bindingCount()',
+      }),
+    async ({electronVersion, smoke}) => {
+      await buildNodeAddon(electronVersion, smoke)
     })
   .command('install-tools', 'Install host build tools (naga)', {}, () => {
     console.log(`Installing naga-cli ${NAGA_VERSION}...`)

@@ -10,6 +10,8 @@ import {
 import type {AllBoundTypes, float2, float3, GPUManager, Mesh, SpatialTree} from '../index'
 
 import {BindingManager} from './manager'
+import {loadNativeAddon, nativeBackendRequested} from './nativeBackend'
+import {buildNativeManager, makeNativeInterface} from './nativeManager'
 
 interface IWasmMethods extends IWasmBase {
   getBindingManager(): pointer
@@ -57,6 +59,36 @@ class cachering<T> extends Array<T> {
 
 export async function loadWasm(): Promise<IWasmInterface> {
   wasmPromise = undefined
+
+  // Workstream C seam (documentation/plans/native-electron.md). Opt-in via
+  // globalThis.__SCULPTCORE_BACKEND === 'native' (e.g. the test harness's
+  // `--backend native`); default and the entire browser path are untouched. The
+  // native N-API reflection runtime (source/napi/) loads and works, but is not
+  // yet a drop-in IWasmInterface — that needs native factory free-functions
+  // (Mesh_createCube, …) and a manager that doesn't read the WASM linear-memory
+  // heap (HEAPF32/_rawAlloc), which litemesh.ts/gpuExecutor.ts use today. Until
+  // that lands we detect + report, then fall back to WASM so the app keeps
+  // working. See TODO.md ("native-electron de-numbering / Workstream C").
+  if (nativeBackendRequested()) {
+    const native = loadNativeAddon()
+    if (native) {
+      // Run the app on the native backend: build the NativeManager-backed
+      // interface and return it instead of loading WASM. This boots the
+      // default (sculptcore-free) scene; sculpt/heap paths (litemesh rayCast,
+      // gpuExecutor) still need their reworks and will throw on the absent
+      // HEAP* fields (see TODO.md / native-electron.md Workstream C).
+      const nm = buildNativeManager()!
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalThis as any).__nativeManager = nm
+      wasm = makeNativeInterface(nm) as unknown as IWasmInterface
+      console.warn(
+        `[sculptcore] using NATIVE backend (${native.version()}, ${native.bindingCount()} bindings). ` +
+          `Partial: sculpt/heap paths not yet wired. See native-electron.md Workstream C.`,
+      )
+      return wasm
+    }
+    console.warn('[sculptcore] native backend requested but sculptcore_node.node not found; using WASM.')
+  }
 
   const mod = await import(insideNode ? '../build/sculptcore.js' : '../build/sculptcore-browser.js')
   const _wasm = (await mod.default({wasmMemory: createWasmMemory()})) as IWasmMethods
