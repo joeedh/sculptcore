@@ -165,9 +165,11 @@ export class WebGLBatchExecutor {
       const dataPtr = (buf as unknown as {data: number}).data
       return new Uint8Array(heap.buffer, dataPtr, bytes)
     }
-    const view = this.wasm.pointerBytes?.(buf as unknown as SculptHandle, 'data', bytes)
-    if (view) return view
-    throw new Error('gpuExecutor: native bulk-data path not wired (pointerBytes missing)')
+    // Empty view for a not-yet-filled buffer (bytes === 0 / null data) — the
+    // WASM path yields a zero-length view there too; never throw, or the first
+    // frame (before the spatial tree fills its buffers) would abort the draw.
+    if (bytes === 0) return new Uint8Array(0)
+    return this.wasm.pointerBytes?.(buf as unknown as SculptHandle, 'data', bytes) ?? new Uint8Array(0)
   }
 
   private uploadBuffer(buf: Buffer): WebGLBuffer {
