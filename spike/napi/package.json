@@ -1,0 +1,10 @@
+{
+  "name": "sculptcore-napi-spike",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Spike A.5: clang-built N-API addon loaded in Electron (native-electron plan).",
+  "devDependencies": {
+    "cmake-js": "^8.0.0",
+    "node-addon-api": "^8.8.0"
+  }
+}

@@ -1,0 +1,4 @@
+node_modules/
+build/
+spike-result.json
+package-lock.json
