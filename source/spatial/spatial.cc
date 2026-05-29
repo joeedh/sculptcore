@@ -43,18 +43,36 @@ static inline float3 calc_eps_float3(float3 size)
 
 namespace sculptcore::spatial {
 
-bool SpatialTree::filterNodes(float3 co, float radius, Vector<SpatialNode *> &out)
+/* Descend from the root, pruning any subtree whose AABB misses the brush
+ * sphere; collect the surviving leaves. Internal-node AABBs are the union of
+ * their children (maintained by regen_node_bounds), so a node that misses the
+ * sphere cannot contain an overlapping leaf — this returns exactly the same
+ * leaf set as a linear scan of every leaf, but visits O(log n + hits) nodes
+ * instead of all of them, and allocates nothing per call. */
+static void filterNodes_recurse(SpatialNode *node,
+                                float3 co,
+                                float radius,
+                                Vector<SpatialNode *> &out)
 {
-  bool ok = false;
-  for (SpatialNode *node : leaves()) {
-    if (aabbSphereIsect(co, radius, node->aabb)) {
-      node->debugIdOffset++;
-      out.append(node);
-      ok = true;
+  if (!aabbSphereIsect(co, radius, node->aabb)) {
+    return;
+  }
+  if (node->flag & Spatial_Leaf) {
+    node->debugIdOffset++;
+    out.append(node);
+    return;
+  }
+  for (int i = 0; i < 2; i++) {
+    if (node->children[i]) {
+      filterNodes_recurse(node->children[i], co, radius, out);
     }
   }
+}
 
-  return ok;
+bool SpatialTree::filterNodes(float3 co, float radius, Vector<SpatialNode *> &out)
+{
+  filterNodes_recurse(root, co, radius, out);
+  return out.size() != 0;
 }
 
 void SpatialTree::regen_node_tris(SpatialNode *node)
@@ -102,32 +120,28 @@ void SpatialTree::add_face_intern(SpatialNode *node,
     split_node(node);
   }
 
-  auto &co = m->v.co;
-
   if (!(node->flag & Spatial_Leaf)) {
-    float mindis = FLT_MAX;
-    SpatialNode *newnode = nullptr;
-    bool ok = false;
-
-    for (int i = 0; i < 2; i++) {
-      SpatialNode *c = node->children[i];
-
-      for (auto &tri : tris) {
-        auto &co1 = co[tri.v[0]];
-        auto &co2 = co[tri.v[1]];
-        auto &co3 = co[tri.v[2]];
-
-        if (aabbTriOverlaps(c->aabb, co1, co2, co3)) {
-          add_face_intern(c, f, tris, fcent);
-          ok = true;
-          break;
-        }
+    /* Route the face to the single child it belongs in, by its centroid.
+     * split_node partitions the parent AABB along one axis at a midplane, so
+     * the two children meet at child[0].max == child[1].min on that axis and
+     * the centroid falls in exactly one of them. This is a single scalar
+     * compare, replacing the old per-triangle triangle/AABB SAT overlap test
+     * run against both children (the build's dominant cost). Faces are no
+     * longer replicated into every overlapped leaf; each is owned by one leaf,
+     * which is all the render/brush paths consume (unique_faces/unique_verts).
+     * Leaf bounds still cover neighbour-owned boundary verts via the tris loop
+     * in regen_node_bounds. */
+    SpatialNode *c0 = node->children[0];
+    SpatialNode *c1 = node->children[1];
+    int axis = 0;
+    for (int i = 0; i < 3; i++) {
+      if (c0->aabb.max[i] != c1->aabb.max[i]) {
+        axis = i;
+        break;
       }
     }
-
-    if (!ok) {
-      printf("not ok! %d (%d tris)\n", f, int(tris.size()));
-    }
+    SpatialNode *child = fcent[axis] <= c0->aabb.max[axis] ? c0 : c1;
+    add_face_intern(child, f, tris, fcent);
     return;
   }
 
@@ -187,9 +201,14 @@ void SpatialTree::split_node(SpatialNode *node)
   axis = node->depth % 3;
 #endif
 
-  float t = mean[axis] / (max[axis] - min[axis]);
+  /* Split at the geometric mean of the node's verts along the longest axis,
+   * as a fraction of the box. Both children meet at that one plane
+   * (min + size*t), so add_face_intern's centroid router partitions faces
+   * cleanly there; a mean split keeps the two children's vert counts closer to
+   * even than a fixed midpoint, reducing depth and empty leaves. Clamped off
+   * the box edges to avoid a degenerate all-in-one-child split. */
+  float t = (mean[axis] - min[axis]) / size[axis];
   t = std::min(std::max(t, 0.01f), 0.99f);
-  t = 0.5; // XXX
 
   for (int i = 0; i < 2; i++) {
     SpatialNode *child = node->children[i];
@@ -203,7 +222,7 @@ void SpatialTree::split_node(SpatialNode *node)
     child->aabb.max = node->aabb.max;
 
     if (i == 0) {
-      child->aabb.max[axis] = child->aabb.min[axis] + size[axis] * (1.0 - t);
+      child->aabb.max[axis] = child->aabb.min[axis] + size[axis] * t;
     } else {
       child->aabb.min[axis] = child->aabb.min[axis] + size[axis] * t;
     }
@@ -294,28 +313,30 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 
 util::Vector<SpatialNode *> SpatialTree::leaves()
 {
-  util::Vector<SpatialNode *> leaves;
-
-  for (SpatialNode *node : nodes) {
-    if (node->flag & Spatial_Leaf) {
-      leaves.append(node);
+  if (leafCacheDirty_) {
+    leafCache_.clear();
+    for (SpatialNode *node : nodes) {
+      if (node->flag & Spatial_Leaf) {
+        leafCache_.append(node);
+      }
     }
+    leafCacheDirty_ = false;
   }
-
-  return leaves;
+  return leafCache_;
 }
 
 util::Vector<SpatialNode *> SpatialTree::gpu_nodes()
 {
-  util::Vector<SpatialNode *> out;
-
-  for (SpatialNode *node : nodes) {
-    if (node->is_gpu_node) {
-      out.append(node);
+  if (gpuNodeCacheDirty_) {
+    gpuNodeCache_.clear();
+    for (SpatialNode *node : nodes) {
+      if (node->is_gpu_node) {
+        gpuNodeCache_.append(node);
+      }
     }
+    gpuNodeCacheDirty_ = false;
   }
-
-  return out;
+  return gpuNodeCache_;
 }
 
 /* Postorder bottom-up: leaves carry their own tri count, internals sum
@@ -400,6 +421,8 @@ void SpatialTree::assign_gpu_nodes()
   }
   assign_gpu_nodes_recurse(root, gpu_tri_target);
   done_gpu_assignment = true;
+  /* is_gpu_node flags just changed across the tree. */
+  gpuNodeCacheDirty_ = true;
 }
 
 SpatialNode *SpatialTree::find_gpu_owner(SpatialNode *node)
@@ -412,9 +435,43 @@ SpatialNode *SpatialTree::find_gpu_owner(SpatialNode *node)
   return nullptr;
 }
 
+void SpatialTree::autoTuneLimits()
+{
+  const int verts = m->v.count;
+  /* Quads triangulate to ~2 tris; good enough before tris are built. */
+  const long tris = (long)m->f.count * 2;
+
+  /* leaf_limit ~512 (the sweet spot), but small meshes shrink it so they still
+   * produce ~16+ leaves rather than one giant leaf. */
+  int byVerts = verts / 16;
+  leaf_limit = byVerts < 64 ? 64 : (byVerts > 512 ? 512 : byVerts);
+
+  /* Aim for ~256 GPU nodes (== draw calls): coarse enough for low draw
+   * overhead, fine enough for frustum culling and bounded per-node regen. */
+  long byBudget = tris / 256;
+  if (byBudget < 2048) {
+    byBudget = 2048;
+  } else if (byBudget > 65536) {
+    byBudget = 65536;
+  }
+  gpu_tri_target = (int)byBudget;
+}
+
 void SpatialTree::buildAll()
 {
   setup();
+
+  /* Clear any leaf-ownership a previous tree left on the mesh: the
+   * .spatial.{v,f}.node attrs outlive the tree, and a fresh tree's node ids
+   * restart at 1, so stale ids are meaningless here. Without this, building a
+   * second tree on the same mesh sees every elem already owned -> unique_verts
+   * stays 0 -> nothing splits -> a single empty leaf. */
+  for (int i = 0; i < int(m->v.capacity()); i++) {
+    treeMesh.v.node[i] = 0;
+  }
+  for (int i = 0; i < int(m->f.capacity()); i++) {
+    treeMesh.f.node[i] = 0;
+  }
 
   m->calcAABB(root->aabb.min, root->aabb.max);
   m->recalc_normals();
@@ -576,6 +633,11 @@ void SpatialTree::rebuild()
   node_idmap.clear();
   node_idgen = 1;
   done_gpu_assignment = false;
+  /* Drop dangling pointers into the freed node set; buildAll repopulates. */
+  leafCache_.clear();
+  gpuNodeCache_.clear();
+  leafCacheDirty_ = true;
+  gpuNodeCacheDirty_ = true;
 
   if (drawBatch) {
     alloc::Delete(drawBatch);

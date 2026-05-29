@@ -99,12 +99,26 @@ struct SpatialTree {
 
   bool node_needs_split(SpatialNode *node)
   {
-    return ((node->data->unique_verts.size() + node->data->other_verts.size()) >=
-            leaf_limit) &&
+    /* Size the leaf by the verts it actually *owns*. other_verts are boundary
+     * verts owned by neighbouring leaves (via the global treeMesh.v.node map);
+     * counting them made a leaf trip leaf_limit while owning only a fraction of
+     * that many verts, over-splitting the tree several-fold and inflating build
+     * descent/overlap cost. */
+    return node->data->unique_verts.size() >= leaf_limit &&
            node->depth < depth_limit;
   }
 
   void split_node(SpatialNode *node);
+
+  /* Pick leaf_limit / gpu_tri_target from the mesh size instead of fixed
+   * constants. Call before buildAll(). Derived from the bench_spatial sweep:
+   *   - leaf_limit: ~512 is the build-time/culling sweet spot and is flat in
+   *     vertex terms across mesh sizes; shrink it only so a small mesh still
+   *     yields enough leaves for parallel update + brush culling.
+   *   - gpu_tri_target: sized to a target draw-call count (draw calls ~=
+   *     total_tris / gpu_tri_target), clamped so tiny meshes don't fragment and
+   *     a single node's VBO regen stays bounded. */
+  void autoTuneLimits();
 
   ~SpatialTree()
   {
@@ -241,6 +255,11 @@ private:
     node->index = nodes.size();
     nodes.append(node);
 
+    /* The leaf set changed (a new leaf, or split children). Both the leaf and
+     * gpu-node caches are now stale. */
+    leafCacheDirty_ = true;
+    gpuNodeCacheDirty_ = true;
+
     if (node->id >= node_idmap.size()) {
       node_idmap.resize(node->id + 1);
     }
@@ -254,6 +273,15 @@ private:
   util::Vector<SpatialNode *> nodes;
   util::Vector<SpatialNode *> node_idmap;
   int node_idgen = 1;
+
+  /* Cached results of leaves()/gpu_nodes(), rebuilt lazily only when the node
+   * set / GPU partition changes (see alloc_node, assign_gpu_nodes, rebuild).
+   * Avoids rescanning all `nodes` on every call — leaves() in particular was
+   * hit once per brush dab via the old filterNodes. */
+  util::Vector<SpatialNode *> leafCache_;
+  util::Vector<SpatialNode *> gpuNodeCache_;
+  bool leafCacheDirty_ = true;
+  bool gpuNodeCacheDirty_ = true;
 };
 
 } // namespace sculptcore::spatial

@@ -16,6 +16,7 @@
 #endif
 
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -111,6 +112,25 @@ bool getBool(ArgMap &args, const char *key, bool defv)
   return s[0] == '1' || s[0] == 't' || s[0] == 'T' || s[0] == 'y' || s[0] == 'Y';
 }
 
+/* Parse "a,b,c" into ints; returns defv when the arg is absent/empty. */
+std::vector<int> parseCsvInts(const char *s, std::vector<int> defv)
+{
+  if (!s || !s[0]) {
+    return defv;
+  }
+  std::vector<int> out;
+  for (const char *p = s; *p;) {
+    out.push_back(std::atoi(p));
+    while (*p && *p != ',') {
+      p++;
+    }
+    if (*p == ',') {
+      p++;
+    }
+  }
+  return out.empty() ? defv : out;
+}
+
 bool parseFloat3(const char *s, float3 &out)
 {
   if (!s) {
@@ -190,9 +210,11 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "build_spatial") {
-    int leaf = getInt(args, "leaf_limit", 512);
+    /* 0 => auto-derive from mesh size (SpatialTree::autoTuneLimits); any
+     * positive value overrides that knob. */
+    int leaf = getInt(args, "leaf_limit", 0);
     int depth = getInt(args, "depth_limit", 16);
-    int gpu_tri_target = getInt(args, "gpu_tri_target", 2048);
+    int gpu_tri_target = getInt(args, "gpu_tri_target", 0);
     scene.buildSpatial(leaf, depth, gpu_tri_target);
     return true;
   }
@@ -807,6 +829,99 @@ bool execVerb(Scene &scene,
   if (verb == "echo") {
     const char *msg = getArg(args, "msg", "");
     std::fprintf(stdout, "[script] %s\n", msg);
+    return true;
+  }
+  if (verb == "bench_spatial") {
+    /* Sweep (leaf_limit x gpu_tri_target) on the current mesh and report the
+     * cost curves that drive the two tunables:
+     *   build_ms   — tree build time (depends on leaf_limit; gpu_tri irrelevant)
+     *   leaves     — leaf count (query granularity)
+     *   gpunodes   — GPU node count == draw-call count (depends on gpu_tri_target)
+     *   filter_us  — avg filterNodes() time per query
+     *   wset_v     — avg verts in the brush working set (sum of hit leaves'
+     *                unique_verts) — the brush kernel touches all of these
+     *   inr_v      — avg verts actually within the brush radius
+     *   waste      — wset_v / inr_v: culling tightness (1.0 = perfect; lower
+     *                leaf_limit -> tighter -> less wasted brush work)
+     * Pure query benchmark — does not sculpt, so the mesh stays pristine and
+     * every config is measured against identical geometry. */
+    if (!scene.mesh) {
+      err = "bench_spatial: no mesh (run make_cube first)";
+      return false;
+    }
+    std::vector<int> leafs =
+        parseCsvInts(getArg(args, "leafs"), {64, 128, 256, 512, 1024});
+    std::vector<int> gputris =
+        parseCsvInts(getArg(args, "gputris"), {512, 2048, 8192, 32768});
+    int depth = getInt(args, "depth", 22);
+    int dabs = getInt(args, "dabs", 16);
+    float radius = getFloat(args, "radius", scene.brush.radius);
+    if (radius <= 0.0f) {
+      radius = 0.25f;
+    }
+
+    int vc = scene.mesh->v.count;
+    if (vc <= 0 || dabs <= 0) {
+      err = "bench_spatial: empty mesh or dabs<1";
+      return false;
+    }
+    /* Sample dab origins from verts spread across the index range. */
+    Vector<float3> origins;
+    for (int k = 0; k < dabs; k++) {
+      int idx = int((long long)k * vc / dabs);
+      if (idx >= vc) {
+        idx = vc - 1;
+      }
+      origins.append(scene.mesh->v.co[idx]);
+    }
+    float r2 = radius * radius;
+
+    std::printf("[bench] mesh verts=%d faces=%d  radius=%.4f dabs=%d depth=%d\n",
+                scene.mesh->v.count, scene.mesh->f.count, radius, dabs, depth);
+    std::printf("[bench] %-6s %-7s | %9s %7s %8s | %10s %9s %9s %6s\n", "leaf",
+                "gputri", "build_ms", "leaves", "gpunodes", "filter_us",
+                "wset_v", "inr_v", "waste");
+
+    for (int leaf : leafs) {
+      for (int gt : gputris) {
+        auto t0 = std::chrono::steady_clock::now();
+        scene.buildSpatial(leaf, depth, gt);
+        double build_ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - t0)
+                              .count();
+
+        int leafCount = int(scene.tree->leaves().size());
+        /* buildAll doesn't assign GPU nodes (update() does); drive it here. */
+        scene.tree->recompute_subtree_tri_counts();
+        scene.tree->assign_gpu_nodes();
+        int gpuNodeCount = int(scene.tree->gpu_nodes().size());
+
+        long wset = 0, inr = 0;
+        auto q0 = std::chrono::steady_clock::now();
+        for (const float3 &o : origins) {
+          Vector<spatial::SpatialNode *> hit;
+          scene.tree->filterNodes(o, radius, hit);
+          for (spatial::SpatialNode *nd : hit) {
+            for (int v : nd->unique_verts()) {
+              wset++;
+              float3 d = scene.mesh->v.co[v] - o;
+              if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= r2) {
+                inr++;
+              }
+            }
+          }
+        }
+        double filter_us = std::chrono::duration<double, std::micro>(
+                               std::chrono::steady_clock::now() - q0)
+                               .count() /
+                           dabs;
+        double waste = inr > 0 ? double(wset) / double(inr) : 0.0;
+        std::printf("[bench] %-6d %-7d | %9.2f %7d %8d | %10.1f %9ld %9ld %6.2f\n",
+                    leaf, gt, build_ms, leafCount, gpuNodeCount, filter_us,
+                    wset / dabs, inr / dabs, waste);
+        std::fflush(stdout);
+      }
+    }
     return true;
   }
 

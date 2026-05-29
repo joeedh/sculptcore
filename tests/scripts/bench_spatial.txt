@@ -1,0 +1,5 @@
+# Sweep leaf_limit x gpu_tri_target on a large sphere and report cost curves.
+# Pure query benchmark (no sculpt) — see the bench_spatial verb in script.cc.
+make_cube subdivs=350 size=2.0 sphere=1
+set_brush radius=0.25 strength=0.5
+bench_spatial leafs=64,128,256,512,1024,2048 gputris=512,2048,8192,32768 dabs=24 radius=0.25

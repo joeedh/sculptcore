@@ -114,9 +114,18 @@ void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
     litestl::alloc::Delete(tree);
   }
   tree = litestl::alloc::New<spatial::SpatialTree>("SpatialTree (debug)", mesh);
-  tree->leaf_limit = leafLimit;
-  tree->depth_limit = depthLimit;
-  tree->gpu_tri_target = gpuPrimLimit;
+  /* Mesh-size-derived defaults; any positive explicit arg overrides. A <=0 arg
+   * means "auto" for that knob. */
+  tree->autoTuneLimits();
+  if (leafLimit > 0) {
+    tree->leaf_limit = leafLimit;
+  }
+  if (depthLimit > 0) {
+    tree->depth_limit = depthLimit;
+  }
+  if (gpuPrimLimit > 0) {
+    tree->gpu_tri_target = gpuPrimLimit;
+  }
   tree->buildAll();
 
   if (reorderOnBuild) {
