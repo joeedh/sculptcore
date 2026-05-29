@@ -22,6 +22,18 @@ interface IWasmMethods extends IWasmBase {
   Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int): SpatialTree
   SpatialTree_free(tree: SpatialTree): void
   getSpatialShaders(): pointer
+
+  // Raw mesh-serialization exports (mesh/c-api/mesh_c_api.cc). Pointer-level;
+  // the `Mesh_serialize`/`Mesh_deserialize`/`Mesh_free` helpers on
+  // IWasmInterface wrap these with heap marshalling.
+  /** serialize `mesh` into a fresh malloc'd blob; writes the byte count to `outSizePtr` (int*). Free the returned ptr with `freeMeshBuffer`. */
+  serializeMesh(mesh: pointer, outSizePtr: pointer): pointer
+  /** reconstruct a Mesh from a `serializeMesh` blob; returns a `Mesh*`. */
+  deserializeMesh(dataPtr: pointer, size: int): pointer
+  /** free a Mesh (`alloc::Delete`) — created by `Mesh_createCube`/`deserializeMesh`. */
+  freeMesh(mesh: pointer): void
+  /** free a blob returned by `serializeMesh`. */
+  freeMeshBuffer(buf: pointer): void
 }
 /**
  * An opaque sculptcore object reference. The WASM backend represents it as a
@@ -44,6 +56,21 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * forwards the wrapper.
    */
   getBoundVector(vecTypeName: string, bound: SculptHandle): unknown
+
+  /**
+   * Serialize a mesh to a versioned, lz4hc-compressed blob (the C++
+   * `serial::writeMesh` format). Backend-agnostic: WASM copies out of the
+   * linear-memory heap, native copies out of a sandbox-internal ArrayBuffer.
+   */
+  Mesh_serialize(mesh: Mesh): Uint8Array
+  /** Reconstruct a mesh from a `Mesh_serialize` blob. */
+  Mesh_deserialize(bytes: Uint8Array): Mesh
+  /**
+   * Free a mesh handle (allocator-correct: routes to the C++ `alloc::Delete`
+   * disposer). Do NOT free meshes via `[Symbol.dispose]` — that path is absent
+   * natively and mismatches the engine allocator on WASM.
+   */
+  Mesh_free(mesh: Mesh): void
 
   /**
    * Native-backend bulk-data read: the bytes a bound object's raw-pointer
@@ -158,6 +185,42 @@ export async function loadWasm(): Promise<IWasmInterface> {
     SpatialTree_free(tree: SpatialTree) {
       const treePtr = (tree as unknown as {ptr: number}).ptr
       _wasm.SpatialTree_free(treePtr as unknown as SpatialTree)
+    },
+    Mesh_serialize(mesh: Mesh): Uint8Array {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      // Scratch int* for the out-size; serializeMesh malloc's the blob.
+      const sizePtr = _wasm._rawAlloc(4)
+      try {
+        const bufPtr = _wasm.serializeMesh(meshPtr, sizePtr) as unknown as number
+        // Read the heap *after* serializeMesh — a malloc can grow (and rebind)
+        // the memory views.
+        const heap = _wasm.HEAPU8
+        const len = new DataView(heap.buffer, sizePtr, 4).getInt32(0, true)
+        if (!bufPtr || len <= 0) {
+          if (bufPtr) _wasm.freeMeshBuffer(bufPtr)
+          return new Uint8Array()
+        }
+        // Copy out of the heap before freeing the C++ buffer.
+        const bytes = heap.slice(bufPtr, bufPtr + len)
+        _wasm.freeMeshBuffer(bufPtr)
+        return bytes
+      } finally {
+        _wasm._rawRelease(sizePtr)
+      }
+    },
+    Mesh_deserialize(bytes: Uint8Array): Mesh {
+      const dataPtr = _wasm._rawAlloc(bytes.length)
+      try {
+        _wasm.HEAPU8.set(bytes, dataPtr)
+        const ptr = _wasm.deserializeMesh(dataPtr, bytes.length) as unknown as number
+        return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
+      } finally {
+        _wasm._rawRelease(dataPtr)
+      }
+    },
+    Mesh_free(mesh: Mesh) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.freeMesh(meshPtr)
     },
     /** uses a large cache ring */
     float3(co: ArrayLike<number>) {

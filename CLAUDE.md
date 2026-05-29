@@ -26,13 +26,17 @@ Use the Node dispatcher rather than invoking cmake/emcmake directly:
 node make.mjs install-emsdk          # one-time; clones emsdk submodule, installs pinned emsdk + cmake + ninja
 node make.mjs configure [wasm|native]  # default wasm
 node make.mjs build     [wasm|native]
-node make.mjs test      [wasm|native]  # runs ctest in the build dir
+node make.mjs test      [testName]     # no arg: ctest in build/native; arg: run that one test binary
 node make.mjs clean     [wasm|native]  # ninja clean
 node make.mjs node      [--smoke]      # build the Node/Electron N-API addon (.node)
 ```
 
 Notes:
-- All commands take an optional `target` positional (`wasm` default, or `native`).
+- `configure`, `build`, and `clean` take an optional `target` positional (`wasm`
+  default, or `native`). `test` instead takes an optional test *name* and always
+  uses the native build dir (`build/native`): with no name it runs `ctest`; with a
+  name it runs that single `<name>.cc_out[.exe]` binary under `build/native/tests`
+  or `build/native/source/litestl/tests`.
 - Build dirs: WASM → `build/`, native → `build/native/`, Node addon → `build/native-node/`.
 - `node make.mjs node` builds `sculptcore_node.node` for the Electron ABI:
   cmake-js downloads the Electron headers + `node.lib` and injects `CMAKE_JS_*`
@@ -44,7 +48,9 @@ Notes:
   native-addon path from `documentation/plans/native-electron.md`; the
   clang↔Electron link was de-risked in `spike/napi/` (`RESULTS.md`).
 - WASM configure runs `emcmake cmake .. -G Ninja -DBUILD_WASM=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
-  native configure runs plain `cmake ../.. -G Ninja`.
+  native configure runs `cmake ../.. -G Ninja --toolchain ../../build_files/native-clang.cmake`
+  (clang is required everywhere — the code relies on Clang's delayed-template-parsing
+  extension). Both also pass `-DCMAKE_BUILD_TYPE=RelWithDebInfo`.
 - Every command runs under `node configureEnv.mjs` (with `--emsdk` for WASM) to set up the
   emsdk/PATH environment — don't invoke cmake/ninja/ctest directly.
 - `emsdkVersion.txt` pins the Emscripten version. `install-emsdk` also installs pinned

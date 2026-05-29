@@ -17,7 +17,7 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface Vector {
+export interface Vector<T = any> {
   [Symbol.dispose](): void
   resize(newsize: int32): void
   resize_no_construct_destruct(newsize: int32): void

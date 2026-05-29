@@ -55,7 +55,11 @@ class GpuStrokeSession {
    * the GPU and read back only the touched verts per dab, so the mesh deforms
    * live. When NOT set (the batch/verify path), begin/dab/end run the original
    * full-readback-at-end code, keeping sbrush-verify byte-identical. */
-  void enableLiveRender(vulkan::VulkanBackend *backend) { liveBackend_ = backend; }
+  void enableLiveRender(vulkan::VulkanBackend *backend)
+  {
+    liveRender_ = true;
+    liveBackend_ = backend;
+  }
 
   /* Opt into per-dab CPU readback (the WgpuNative backend, interactive mode).
    * WebGPU compute can't share buffers with the Vulkan renderer, so there is no
@@ -103,7 +107,12 @@ class GpuStrokeSession {
   int vcount_ = 0;
   litestl::util::Vector<spatial::SpatialNode *> touched_;
 
-  /* GPU-resident live-render path (Wgsl/interactive only; null in batch/verify). */
+  /* GPU-resident live-render path (Wgsl/interactive only; both unset in
+   * batch/verify). liveRender_ is the stable "this is a live session" flag;
+   * liveBackend_ is the backend that owns the render VBOs, re-resolved from the
+   * scene each dab because a window resize / out-of-date swapchain recreates it
+   * mid-stroke (Scene::handleResize) — caching it once would dangle. */
+  bool liveRender_ = false;
   vulkan::VulkanBackend *liveBackend_ = nullptr;
   vulkan::GpuNormalPass *normalPass_ = nullptr;
   /* Per-dab CPU readback (WgpuNative/interactive only). Mutually exclusive with
@@ -136,6 +145,11 @@ class GpuStrokeSession {
   void buildDabWork(const litestl::util::Vector<uint32_t> &uverts);
   /* Snapshot a leaf's pre-dab co/no/f.no for undo, once per node per stroke. */
   void snapshotNode(Scene &scene, spatial::SpatialNode *node);
+  /* Scatter every GPU node's current compute-pass co/no into its render VBOs on
+   * liveBackend_. Run once at begin() (so all nodes show GPU data on frame 1)
+   * and again whenever the backend is recreated mid-stroke (its VkBuffer cache
+   * for the GPU-owned VBOs died with it). Assumes normals were just computed. */
+  void liveScatterAll(Scene &scene);
   /* Finalize the live stroke (sync CPU mesh, resolve normals per end-mode, give
    * the render VBOs back to the CPU path). coOut/maskOut are the final readback
    * end() already fetched. */

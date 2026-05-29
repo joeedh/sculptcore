@@ -101,6 +101,9 @@ importers:
       '@litestl/typescript-runtime':
         specifier: workspace:*
         version: link:../source/litestl/binding/typescriptRuntime
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260406.1
         version: 7.0.0-dev.20260406.1

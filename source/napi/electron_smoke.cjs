@@ -66,6 +66,38 @@ app.whenReady().then(() => {
       break
     }
 
+    // [Symbol.dispose]() on a bound owning instance: present, callable, and
+    // idempotent (a second call is a safe no-op — the pointer was nulled).
+    // Mirrors the WASM bound-class dispose (destructor + free). Use a struct
+    // with a real destructor (MeshLog owns Vectors) when available.
+    try {
+      let firstCtor = null
+      for (const name of ['sculptcore::meshlog::MeshLog']) {
+        const info = addon.structInfo(name)
+        if (info && info.hasDefaultCtor) { firstCtor = name; break }
+      }
+      if (!firstCtor) {
+        for (const name of names) {
+          const info = addon.structInfo(name)
+          if (info && info.hasDefaultCtor) { firstCtor = name; break }
+        }
+      }
+      if (firstCtor) {
+        const obj = addon.construct(firstCtor)
+        const hasDispose = typeof obj[Symbol.dispose] === 'function'
+        let threw = false
+        try {
+          obj[Symbol.dispose]() // destruct + free
+          obj[Symbol.dispose]() // idempotent: no double-free / crash
+        } catch (e) {
+          threw = true
+        }
+        result.dispose = {struct: firstCtor, hasDispose, idempotent: !threw}
+      }
+    } catch (e) {
+      result.dispose = {error: String(e && e.stack || e)}
+    }
+
     // Native factory + free lifecycle (no leak / no crash on free).
     try {
       const mesh = addon.meshCreateCube(8, 1, 1)

@@ -21,4 +21,5 @@ export enum AttrFlag {
   Temp = 2,
   NoCopy = 4,
   NoInterp = 8,
+  TopoKeepFrozen = 16,
 }

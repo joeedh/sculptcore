@@ -133,6 +133,17 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   mesh::Mesh *m = scene.mesh;
   vcount_ = m->v.count;
 
+  // A prior C++-backend stroke leaves the mesh in frozen-topology mode (it
+  // drops f.l/l.c/c.next/l.size, keeping only .corner.v, and re-freezes on its
+  // next dab rather than thawing at stroke end). The GPU path then walks the
+  // live links — buildNormalTopology() triangulates the whole mesh, and the
+  // neighbor build below walks the 1-ring — both of which read those dropped
+  // pages and segfault. Thaw once up front; the mesh is static for the GPU
+  // stroke, so it stays valid, and a later C++ stroke re-freezes as needed.
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
   cap_ = !capturePrefix_.empty();
 
   Vector<float> co, no, mask;
@@ -256,25 +267,8 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     scene.tree->gpuStrokeActive = true;
     normalPass_->computeNormals(vkDisp_->coBuffer(), vkDisp_->noBuffer());
     // One-time initial scatter so every GPU node (even ones no dab touches)
-    // shows GPU-fed data on the first frame. Once-per-stroke, so the simple
-    // submit-per-node scatter() is fine here; per-dab scatter is batched.
-    for (spatial::SpatialNode *gn : scene.tree->gpu_nodes()) {
-      if (!gn->gpu_data) {
-        continue;
-      }
-      spatial::GpuData &gd = *gn->gpu_data;
-      if (!gd.pos || !gd.nor || !gd.slotVertex || gd.total_verts <= 0) {
-        continue;
-      }
-      VkBuffer pos = liveBackend_->ensureStorageVkBuffer(gd.pos);
-      VkBuffer nor = liveBackend_->ensureStorageVkBuffer(gd.nor);
-      VkBuffer slotV = liveBackend_->ensureStorageVkBuffer(gd.slotVertex);
-      if (!pos || !nor || !slotV) {
-        continue;
-      }
-      normalPass_->scatter(vkDisp_->coBuffer(), vkDisp_->noBuffer(), slotV, pos, nor,
-                           gd.total_verts);
-    }
+    // shows GPU-fed data on the first frame.
+    liveScatterAll(scene);
   }
   scene.profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
   return true;
@@ -397,6 +391,30 @@ void GpuStrokeSession::buildDabWork(const litestl::util::Vector<uint32_t> &uvert
   }
 }
 
+// Scatter every GPU node's compute-pass co/no into its render VBOs on the
+// current liveBackend_. Submit-per-node is fine here — it runs once at begin()
+// and (rarely) again after a mid-stroke backend recreation, not per dab.
+void GpuStrokeSession::liveScatterAll(Scene &scene)
+{
+  for (spatial::SpatialNode *gn : scene.tree->gpu_nodes()) {
+    if (!gn->gpu_data) {
+      continue;
+    }
+    spatial::GpuData &gd = *gn->gpu_data;
+    if (!gd.pos || !gd.nor || !gd.slotVertex || gd.total_verts <= 0) {
+      continue;
+    }
+    VkBuffer pos = liveBackend_->ensureStorageVkBuffer(gd.pos);
+    VkBuffer nor = liveBackend_->ensureStorageVkBuffer(gd.nor);
+    VkBuffer slotV = liveBackend_->ensureStorageVkBuffer(gd.slotVertex);
+    if (!pos || !nor || !slotV) {
+      continue;
+    }
+    normalPass_->scatter(vkDisp_->coBuffer(), vkDisp_->noBuffer(), slotV, pos, nor,
+                         gd.total_verts);
+  }
+}
+
 // Capture a node's pre-dab co/no/f.no into the meshlog, once per node per
 // stroke (live path). Mirrors the snapshot block the batch path runs in end(),
 // but here it must fire before the per-dab partial readback overwrites
@@ -425,6 +443,22 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   // (the runOneShot submit + queue-wait), read = ptGpu..ptRead (live readback).
   auto pt0 = StrokeProfiler::now();
   StrokeProfiler::Clock::time_point ptCpu = pt0, ptGpu = pt0, ptRead = pt0;
+
+  // Re-resolve the live backend: a window resize / out-of-date swapchain
+  // recreates backendWindow mid-stroke (Scene::handleResize), freeing the
+  // backend we cached at begin(). Using the stale pointer here is a
+  // use-after-free. When the backend changed, its VkBuffer cache for the
+  // GPU-owned render VBOs died with it, so recompute normals + re-scatter every
+  // GPU node into the new backend's buffers (mirrors begin's initial scatter).
+  if (liveRender_) {
+    vulkan::VulkanBackend *cur =
+        scene.backendWindow ? scene.backendWindow : scene.backend;
+    if (cur != liveBackend_) {
+      liveBackend_ = cur;
+      normalPass_->computeNormals(vkDisp_->coBuffer(), vkDisp_->noBuffer());
+      liveScatterAll(scene);
+    }
+  }
 
   Vector<spatial::SpatialNode *> nodes;
   scene.tree->filterNodes(origin, scene.brush.radius, nodes);
