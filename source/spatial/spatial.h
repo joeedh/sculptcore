@@ -4,6 +4,7 @@
 
 #include "litestl/math/vector.h"
 #include "litestl/util/map.h"
+#include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
 #include "mesh/attribute_builtin.h"
@@ -51,6 +52,66 @@ struct SpatialTree {
   }
 
   bool filterNodes(float3 co, float radius, Vector<SpatialNode *> &out);
+
+  /* Brush/circle select: faces + verts inside a view cone (object-local), built
+   * JS-side exactly like the WebGL BVH path. Face indices are deduped (a face
+   * spans 2 tris). Out-params are appended to; returns true if anything hit. */
+  bool castScreenCircle(const math::float3 &co,
+                        const math::float3 &ray,
+                        float r1,
+                        float r2,
+                        util::Vector<int> &faces_out,
+                        util::Vector<int> &verts_out)
+  {
+    util::Set<int> faceSet, vertSet;
+
+    root->collectConeFaces(co, ray, r1, r2, faceSet);
+    root->collectConeVerts(co, ray, r1, r2, vertSet);
+
+    for (int f : faceSet) {
+      faces_out.append(f);
+    }
+    for (int v : vertSet) {
+      verts_out.append(v);
+    }
+
+    return faces_out.size() > 0 || verts_out.size() > 0;
+  }
+
+  /* Box select: faces + verts inside a screen-rectangle frustum. The volume is
+   * given as its 8 unprojected corners (object-local: 0..3 near plane, 4..7 far
+   * plane) passed as individual float3 args — float3 arrays can't cross the WASM
+   * boundary, and individual float3 params marshal cleanly (like castRay). The 6
+   * inward planes are built (auto-oriented) in C++ via buildScreenRectPlanes. */
+  bool castScreenRect(const math::float3 &near0,
+                      const math::float3 &near1,
+                      const math::float3 &near2,
+                      const math::float3 &near3,
+                      const math::float3 &far0,
+                      const math::float3 &far1,
+                      const math::float3 &far2,
+                      const math::float3 &far3,
+                      util::Vector<int> &faces_out,
+                      util::Vector<int> &verts_out)
+  {
+    const math::float3 corners[8] = {near0, near1, near2, near3, far0, far1, far2, far3};
+    math::float4 planes[6];
+    buildScreenRectPlanes(corners, planes);
+
+    util::Set<int> faceSet, vertSet;
+
+    root->collectFrustumFaces(planes, 6, faceSet);
+    root->collectFrustumVerts(planes, 6, vertSet);
+
+    for (int f : faceSet) {
+      faces_out.append(f);
+    }
+    for (int v : vertSet) {
+      verts_out.append(v);
+    }
+
+    return faces_out.size() > 0 || verts_out.size() > 0;
+  }
 
   bool castRay(const math::float3 &orig, const math::float3 &dir, CastRayIsect &out)
   {

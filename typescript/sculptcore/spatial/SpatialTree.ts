@@ -39,5 +39,25 @@ export interface SpatialTree {
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean
   filterNodes(co: float3, radius: float, out: SpatialNode[]): boolean
+  castScreenCircle(
+    co: float3,
+    ray: float3,
+    r1: float,
+    r2: float,
+    faces: int32[],
+    verts: int32[]
+  ): boolean
+  castScreenRect(
+    near0: float3,
+    near1: float3,
+    near2: float3,
+    near3: float3,
+    far0: float3,
+    far1: float3,
+    far2: float3,
+    far3: float3,
+    faces: int32[],
+    verts: int32[]
+  ): boolean
   new (arg0: Mesh): SpatialTree
 }

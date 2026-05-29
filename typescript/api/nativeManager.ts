@@ -71,7 +71,8 @@ export class NativeManager {
    * C++ pointer params.
    */
   constructWith(ctor: unknown, ...args: unknown[]): NativeBound {
-    const c = ctor as {__struct?: string; __ctor?: string; __nodeVector?: boolean}
+    const c = ctor as {__struct?: string; __ctor?: string; __nodeVector?: boolean; __intVector?: boolean}
+    if (c && c.__intVector) return this.addon.makeIntVector()
     if (c && c.__nodeVector) return this.addon.makeNodeVector()
     if (c && typeof c.__struct === 'string' && typeof c.__ctor === 'string') {
       return this.addon.constructWith(c.__struct, c.__ctor, ...args)
@@ -91,15 +92,17 @@ export class NativeManager {
     }
   }
   /**
-   * The Vector-class handle the sculpt path needs (`findDefaultConstructor` +
-   * `buildFullName`). Only `Vector<SpatialNode*>` is ever requested — the
-   * addon's `makeNodeVector` recovers exactly that specialization, so the
-   * default-ctor shim just flags it.
+   * The Vector-class handle the sculpt/pick paths need (`findDefaultConstructor`
+   * + `buildFullName`). Two specializations are requested: `Vector<SpatialNode*>`
+   * (brush filterNodes) and `Vector<int>` (screen-pick faces/verts). The addon's
+   * makeNodeVector / makeIntVector recover each from a method descriptor, so the
+   * default-ctor shim just flags which one.
    */
   findVectorClass(elemName: string): unknown {
+    const isInt = elemName === 'int' || elemName === 'int32'
     return {
       buildFullName: () => `litestl::util::Vector<${elemName}>`,
-      findDefaultConstructor: () => ({__nodeVector: true}),
+      findDefaultConstructor: () => (isInt ? {__intVector: true} : {__nodeVector: true}),
     }
   }
   getBoundVector(_name: string, vec: NativeBound): unknown {
@@ -116,6 +119,12 @@ export class NativeManager {
   }
   Mesh_free(mesh: NativeBound): void {
     this.addon.meshFree(mesh)
+  }
+  Mesh_serialize(mesh: NativeBound): Uint8Array {
+    return this.addon.meshSerialize(mesh)
+  }
+  Mesh_deserialize(bytes: Uint8Array): NativeBound {
+    return this.addon.meshDeserialize(bytes)
   }
   /** Bytes of a bound object's raw-pointer member (e.g. gpu::Buffer.data). */
   pointerBytes(bound: NativeBound, member: string, byteLen: number): Uint8Array | undefined {
@@ -169,6 +178,9 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Mesh_buildSpatialTree: (m: NativeBound, l: number, dp: number) =>
       nm.Mesh_buildSpatialTree(m, l, dp),
     SpatialTree_free: (t: NativeBound) => nm.SpatialTree_free(t),
+    Mesh_free: (m: NativeBound) => nm.Mesh_free(m),
+    Mesh_serialize: (m: NativeBound) => nm.Mesh_serialize(m),
+    Mesh_deserialize: (b: Uint8Array) => nm.Mesh_deserialize(b),
     float2: (c: ArrayLike<number>) => nm.float2(c),
     float3: (c: ArrayLike<number>) => nm.float3(c),
     /** marker so callers/tests can confirm the native backend is active. */
