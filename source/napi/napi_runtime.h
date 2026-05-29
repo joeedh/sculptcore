@@ -65,6 +65,10 @@ class NapiRuntime {
   // --- napi callbacks (static; receive the runtime / descriptor via data) ---
   static napi_value ctorCb(napi_env, napi_callback_info);
   static void finalizeWrapped(napi_env, void *data, void *hint);
+  // [Symbol.dispose]() — deterministic teardown mirroring the WASM runtime's
+  // bound-class dispose: destructs + frees an owning instance and nulls the
+  // pointer so the GC finalizer can't double-free. No-op on non-owning wrappers.
+  static napi_value disposeCb(napi_env, napi_callback_info);
   static napi_value memberGetter(napi_env, napi_callback_info);
   static napi_value memberSetter(napi_env, napi_callback_info);
   static napi_value methodInvoker(napi_env, napi_callback_info);
@@ -84,6 +88,9 @@ class NapiRuntime {
   // makeNodeVector() -> a fresh owning, empty Vector<SpatialNode*> (the brush
   // path's filterNodes out-param; descriptor recovered from leaves()'s return).
   static napi_value MakeNodeVector(napi_env, napi_callback_info);
+  // makeIntVector() -> a fresh owning, empty Vector<int> (the screen-pick
+  // faces/verts out-params; descriptor recovered from castScreenCircle's param).
+  static napi_value MakeIntVector(napi_env, napi_callback_info);
   // Bulk-data fast path / minimal Vector surface (litestl::util::Vector).
   static napi_value VectorLength(napi_env, napi_callback_info);
   static napi_value VectorView(napi_env, napi_callback_info);
@@ -103,6 +110,10 @@ class NapiRuntime {
   static napi_value MeshBuildSpatialTree(napi_env, napi_callback_info);
   static napi_value SpatialTreeFree(napi_env, napi_callback_info);
   static napi_value MeshFree(napi_env, napi_callback_info);
+  // meshSerialize(mesh) -> Uint8Array; meshDeserialize(bytes) -> Mesh wrapper.
+  // The versioned, lz4hc-compressed blob (mesh/c-api serializeMesh/deserializeMesh).
+  static napi_value MeshSerialize(napi_env, napi_callback_info);
+  static napi_value MeshDeserialize(napi_env, napi_callback_info);
 
   void define(napi_value exports, const char *name, napi_callback cb);
 };

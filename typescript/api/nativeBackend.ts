@@ -46,6 +46,12 @@ export interface NativeAddon {
    * recovers it from SpatialTree::leaves()'s return descriptor.)
    */
   makeNodeVector(): NativeBound
+  /**
+   * A fresh owning, empty Vector<int> — the out-param for
+   * SpatialTree.castScreenCircle / castScreenRect (recovered from
+   * castScreenCircle's param descriptor, since no method returns it by value).
+   */
+  makeIntVector(): NativeBound
   /** length (size_) of a bound litestl::util::Vector. */
   vectorLength(vec: NativeBound): number | undefined
   /** i-th element of a bound Vector as a bound value/wrapper. */
@@ -62,6 +68,10 @@ export interface NativeAddon {
   spatialTreeFree(tree: NativeBound): void
   /** Free a Mesh created by meshCreateCube. Nulls the wrapper's pointer. */
   meshFree(mesh: NativeBound): void
+  /** Serialize a Mesh to a versioned, lz4hc-compressed blob (copied into a sandbox ArrayBuffer). */
+  meshSerialize(mesh: NativeBound): Uint8Array
+  /** Reconstruct a Mesh from a meshSerialize blob (Uint8Array). Returns a non-owning wrapper. */
+  meshDeserialize(bytes: Uint8Array): NativeBound
   /**
    * Bytes a raw-pointer member of a bound object points at — the native
    * bulk-data read (e.g. gpu::Buffer.data). The pointer never crosses to JS as

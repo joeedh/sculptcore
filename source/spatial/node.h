@@ -9,6 +9,7 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/map.h"
 #include "litestl/util/ordered_set.h"
+#include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 #include "mesh/mesh.h"
 
@@ -250,6 +251,115 @@ struct SpatialNode {
       }
     }
     return ok;
+  }
+
+  /* Faces whose triangles intersect the cone (co, ray=base->tip, r1->r2). */
+  void collectConeFaces(const float3 &co,
+                        const float3 &ray,
+                        float r1,
+                        float r2,
+                        util::Set<int> &out)
+  {
+    if (!(flag & Spatial_Leaf)) {
+      for (SpatialNode *child : children) {
+        if (math::aabbConeIsects(co, ray, r1, r2, child->aabb)) {
+          child->collectConeFaces(co, ray, r1, r2, out);
+        }
+      }
+      return;
+    }
+
+    float3 tip = co + ray;
+    for (NodeTri &tri : data->tris) {
+      float3 &c1 = data->m->v.co[data->m->c.v[tri.c[0]]];
+      float3 &c2 = data->m->v.co[data->m->c.v[tri.c[1]]];
+      float3 &c3 = data->m->v.co[data->m->c.v[tri.c[2]]];
+
+      if (math::triConeIsects(co, tip, r1, r2, c1, c2, c3)) {
+        out.add(tri.f);
+      }
+    }
+  }
+
+  /* Verts inside the cone. */
+  void collectConeVerts(const float3 &co,
+                        const float3 &ray,
+                        float r1,
+                        float r2,
+                        util::Set<int> &out)
+  {
+    if (!(flag & Spatial_Leaf)) {
+      for (SpatialNode *child : children) {
+        if (math::aabbConeIsects(co, ray, r1, r2, child->aabb)) {
+          child->collectConeVerts(co, ray, r1, r2, out);
+        }
+      }
+      return;
+    }
+
+    float raylen = ray.length();
+    if (raylen < 1e-8f) {
+      return;
+    }
+    float3 nray = ray * (1.0f / raylen);
+
+    for (int v : data->unique_verts) {
+      float3 &vco = data->m->v.co[v];
+      float t = (vco - co).dot(nray);
+
+      if (t < 0.0f || t >= raylen) {
+        continue;
+      }
+
+      float3 proj = co + nray * t;
+      float r = r1 + (r2 - r1) * (t / raylen);
+
+      if (proj.distanceSqr(vco) < r * r) {
+        out.add(v);
+      }
+    }
+  }
+
+  /* Faces whose triangles intersect the frustum (n inward planes). */
+  void collectFrustumFaces(const float4 *planes, int n, util::Set<int> &out)
+  {
+    if (!(flag & Spatial_Leaf)) {
+      for (SpatialNode *child : children) {
+        if (math::aabbFrustumIsects(planes, n, child->aabb)) {
+          child->collectFrustumFaces(planes, n, out);
+        }
+      }
+      return;
+    }
+
+    for (NodeTri &tri : data->tris) {
+      float3 &c1 = data->m->v.co[data->m->c.v[tri.c[0]]];
+      float3 &c2 = data->m->v.co[data->m->c.v[tri.c[1]]];
+      float3 &c3 = data->m->v.co[data->m->c.v[tri.c[2]]];
+
+      if (math::triFrustumIsects(planes, n, c1, c2, c3)) {
+        out.add(tri.f);
+      }
+    }
+  }
+
+  /* Verts inside the frustum (n inward planes). */
+  void collectFrustumVerts(const float4 *planes, int n, util::Set<int> &out)
+  {
+    if (!(flag & Spatial_Leaf)) {
+      for (SpatialNode *child : children) {
+        if (math::aabbFrustumIsects(planes, n, child->aabb)) {
+          child->collectFrustumVerts(planes, n, out);
+        }
+      }
+      return;
+    }
+
+    for (int v : data->unique_verts) {
+      if (math::pointInFrustum(planes, n, data->m->v.co[v])) {
+        out.add(v);
+      }
+    }
   }
 
 private:

@@ -20,6 +20,10 @@ void *Mesh_createCube(int dimen, float size, float sphereFac);
 void *Mesh_buildSpatialTree(void *mesh, int leafLimit, int depthLimit);
 void SpatialTree_free(void *tree);
 void Mesh_free(void *mesh);
+// Versioned, lz4hc-compressed mesh blob (source/mesh/c-api/mesh_c_api.cc).
+uint8_t *serializeMesh(void *mesh, int *out_size);
+void *deserializeMesh(const uint8_t *data, int size);
+void freeMeshBuffer(uint8_t *buf);
 }
 
 namespace sculptcore::napi {
@@ -268,6 +272,28 @@ napi_value NapiRuntime::getBoundClass(const types::_StructBase *st) {
     props.push_back(d);
   }
 
+  // [Symbol.dispose]() for deterministic teardown (mirrors the WASM bound-class
+  // dispose). Keyed by the well-known symbol via the descriptor's `name` field;
+  // skipped on runtimes too old to expose Symbol.dispose.
+  napi_value disposeSym = nullptr;
+  {
+    napi_value global, symbolCtor;
+    napi_get_global(env_, &global);
+    if (napi_get_named_property(env_, global, "Symbol", &symbolCtor) == napi_ok) {
+      napi_get_named_property(env_, symbolCtor, "dispose", &disposeSym);
+      napi_valuetype t = napi_undefined;
+      if (disposeSym) napi_typeof(env_, disposeSym, &t);
+      if (t == napi_symbol) {
+        napi_property_descriptor d = {};
+        d.name = disposeSym;
+        d.method = &NapiRuntime::disposeCb;
+        d.attributes = napi_default;
+        d.data = this;
+        props.push_back(d);
+      }
+    }
+  }
+
   CtorCtx *cctx = new CtorCtx{this, st};
   napi_value cls;
   napi_define_class(env_, key.c_str(), NAPI_AUTO_LENGTH, &NapiRuntime::ctorCb, cctx,
@@ -460,6 +486,33 @@ void NapiRuntime::finalizeWrapped(napi_env, void *data, void *) {
     std::free(w->ptr);
   }
   delete w;
+}
+
+// [Symbol.dispose]() on a bound instance: the deterministic counterpart of the
+// GC finalizer above, matching the WASM runtime's bound-class dispose
+// (manager.destroyInstance -> destructor + free). Destructs + frees an owning
+// instance now and clears the wrapper so neither a later access nor the
+// finalizer touches freed storage. A no-op for non-owning wrappers (engine-owned
+// objects, embedded-struct/member views) — those must be released by their owner.
+napi_value NapiRuntime::disposeCb(napi_env env, napi_callback_info info) {
+  napi_value thisArg;
+  napi_get_cb_info(env, info, nullptr, nullptr, &thisArg, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+
+  Wrapped *w = nullptr;
+  if (napi_unwrap(env, thisArg, reinterpret_cast<void **>(&w)) != napi_ok || !w) {
+    return undef;
+  }
+  if (w->owning && w->ptr) {
+    if (w->st->destructorThunk) {
+      (*w->st->destructorThunk)(w->ptr);
+    }
+    std::free(w->ptr);
+  }
+  w->ptr = nullptr;
+  w->owning = false;
+  return undef;
 }
 
 // ---------------------------------------------------------------------------
@@ -872,6 +925,64 @@ napi_value NapiRuntime::MakeNodeVector(napi_env env, napi_callback_info info) {
   return rt->instantiate(vecSt, bufobj, /*owning=*/true);
 }
 
+// makeIntVector() -> a fresh owning, empty Vector<int>, ready to pass as a
+// faces/verts out-param to SpatialTree.castScreenCircle / castScreenRect. Same
+// recovery trick as MakeNodeVector, but the Vector<int> specialization is
+// recovered from castScreenCircle's out-param type (a Reference/Pointer to the
+// Vector<int> Struct) since no method returns Vector<int> by value.
+napi_value NapiRuntime::MakeIntVector(napi_env env, napi_callback_info info) {
+  void *data;
+  napi_get_cb_info(env, info, nullptr, nullptr, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  const binding::BindingBase *tb = rt->lookup("sculptcore::spatial::SpatialTree");
+  if (!tb || tb->type != BindingType::Struct) return out;
+  const types::_StructBase *ts = static_cast<const types::_StructBase *>(tb);
+
+  const types::Method *method = nullptr;
+  for (const types::Method *m : ts->methods) {
+    if (std::strcmp(m->name.c_str(), "castScreenCircle") == 0) {
+      method = m;
+      break;
+    }
+  }
+  if (!method) return out;
+
+  // Find a param resolving to a Vector struct (faces/verts are Vector<int>&).
+  const types::_StructBase *vecSt = nullptr;
+  for (const auto &param : method->params) {
+    const binding::BindingBase *t = param.type;
+    if (t && t->type == BindingType::Pointer) {
+      t = static_cast<const types::Pointer *>(t)->ptrType;
+    } else if (t && t->type == BindingType::Reference) {
+      t = static_cast<const types::Reference *>(t)->refType;
+    }
+    if (t && t->type == BindingType::Struct) {
+      const types::_StructBase *st = static_cast<const types::_StructBase *>(t);
+      if (std::strcmp(st->name.c_str(), "litestl::util::Vector") == 0) {
+        vecSt = st;
+        break;
+      }
+    }
+  }
+  if (!vecSt) return out;
+
+  const types::Constructor *ctor = nullptr;
+  for (const auto *c : vecSt->constructors) {
+    if (c->params.size() == 0) {
+      ctor = c;
+      break;
+    }
+  }
+  if (!ctor || !ctor->thunk) return out;
+
+  void *bufobj = std::malloc(vecSt->getSize());
+  ctor->thunk(bufobj, nullptr);
+  return rt->instantiate(vecSt, bufobj, /*owning=*/true);
+}
+
 // ---------------------------------------------------------------------------
 // Bulk-data fast path / minimal Vector surface.
 // litestl::util::Vector layout (native): T* data_ @0, size_t size_ @8.
@@ -1059,8 +1170,9 @@ napi_value NapiRuntime::ObjectAddress(napi_env env, napi_callback_info info) {
 // ---------------------------------------------------------------------------
 // Native factory free-functions: create/operate on real engine objects and
 // hand JS bound wrappers. The engine owns the returned objects (non-owning
-// wrappers); SpatialTree is freed via spatialTreeFree, the Mesh leaks for now
-// (no extern "C" Mesh_free yet — see TODO/plan).
+// wrappers); SpatialTree is freed via spatialTreeFree and Mesh via meshFree
+// (both extern "C" disposers — the binding system's GC finalizer only frees
+// `owning` wrappers, and these factory wrappers are non-owning).
 // ---------------------------------------------------------------------------
 napi_value NapiRuntime::MeshCreateCube(napi_env env, napi_callback_info info) {
   size_t argc = 3;
@@ -1142,6 +1254,83 @@ napi_value NapiRuntime::MeshFree(napi_env env, napi_callback_info info) {
   return undef;
 }
 
+// meshSerialize(mesh) -> Uint8Array of the versioned, lz4hc-compressed blob.
+// Always copies into a sandbox-internal ArrayBuffer (no zero-copy external view
+// like PointerBytes/VectorView attempt): V8 forbids external buffers in Electron,
+// and the freshly-malloc'd C++ buffer is transient — freed here on the next line.
+napi_value NapiRuntime::MeshSerialize(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  Wrapped *mw = nullptr;
+  if (argc < 1 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok || !mw ||
+      !mw->ptr) {
+    return out;
+  }
+
+  int size = 0;
+  uint8_t *buf = serializeMesh(mw->ptr, &size);
+  if (!buf) {
+    return out;
+  }
+  if (size <= 0) {
+    freeMeshBuffer(buf);
+    return out;
+  }
+
+  napi_value ab;
+  void *abData = nullptr;
+  napi_create_arraybuffer(env, static_cast<size_t>(size), &abData, &ab);
+  if (abData) std::memcpy(abData, buf, static_cast<size_t>(size));
+  freeMeshBuffer(buf);
+
+  napi_create_typedarray(env, napi_uint8_array, static_cast<size_t>(size), ab, 0, &out);
+  return out;
+}
+
+// meshDeserialize(bytes) -> a fresh, non-owning Mesh wrapper. Accepts a
+// Uint8Array (what the TS Mesh_deserialize helper passes) or an ArrayBuffer.
+napi_value NapiRuntime::MeshDeserialize(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+  napi_value out;
+  napi_get_undefined(env, &out);
+  if (argc < 1) return out;
+
+  void *bytes = nullptr;
+  size_t byteLen = 0;
+  bool isTa = false;
+  napi_is_typedarray(env, argv[0], &isTa);
+  if (isTa) {
+    // get_typedarray_info returns `length` in elements and a `data` pointer that
+    // already has byte_offset applied; for a Uint8Array element size is 1.
+    napi_typedarray_type t;
+    napi_value ab;
+    size_t off = 0;
+    napi_get_typedarray_info(env, argv[0], &t, &byteLen, &bytes, &ab, &off);
+  } else {
+    bool isAb = false;
+    napi_is_arraybuffer(env, argv[0], &isAb);
+    if (isAb) {
+      napi_get_arraybuffer_info(env, argv[0], &bytes, &byteLen);
+    }
+  }
+  if (!bytes || byteLen == 0) return out;
+
+  void *m = deserializeMesh(static_cast<const uint8_t *>(bytes), static_cast<int>(byteLen));
+  const binding::BindingBase *st = rt->lookup("sculptcore::mesh::Mesh");
+  if (!m || !st || st->type != BindingType::Struct) {
+    return out;
+  }
+  return rt->instantiate(static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
+}
+
 // vectorGet(vec, i) — i-th element as a bound value/wrapper, via getBoundPointer
 // on the element's storage. Enables iteration of a bound Vector (what the
 // getBoundVector use site in sculptcore_ops needs).
@@ -1185,6 +1374,7 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "construct", &NapiRuntime::Construct);
   define(exports, "constructWith", &NapiRuntime::ConstructWith);
   define(exports, "makeNodeVector", &NapiRuntime::MakeNodeVector);
+  define(exports, "makeIntVector", &NapiRuntime::MakeIntVector);
   define(exports, "vectorLength", &NapiRuntime::VectorLength);
   define(exports, "vectorView", &NapiRuntime::VectorView);
   define(exports, "vectorGet", &NapiRuntime::VectorGet);
@@ -1194,6 +1384,8 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "meshBuildSpatialTree", &NapiRuntime::MeshBuildSpatialTree);
   define(exports, "spatialTreeFree", &NapiRuntime::SpatialTreeFree);
   define(exports, "meshFree", &NapiRuntime::MeshFree);
+  define(exports, "meshSerialize", &NapiRuntime::MeshSerialize);
+  define(exports, "meshDeserialize", &NapiRuntime::MeshDeserialize);
 }
 
 }  // namespace sculptcore::napi
