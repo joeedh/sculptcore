@@ -62,6 +62,46 @@ export class NativeManager {
   construct(name: string): NativeBound {
     return this.addon.construct(name)
   }
+  /**
+   * Build with a named, parameterized constructor. `ctor` is one of the shims
+   * minted by `get(...).findConstructor` / `findVectorClass(...)
+   * .findDefaultConstructor` below (the native backend has no rich Constructor
+   * objects; the shim just carries the names the addon needs). Bound-object
+   * args (e.g. the SpatialTree + Brush for CommandExecutor 'main') marshal to
+   * C++ pointer params.
+   */
+  constructWith(ctor: unknown, ...args: unknown[]): NativeBound {
+    const c = ctor as {__struct?: string; __ctor?: string; __nodeVector?: boolean}
+    if (c && c.__nodeVector) return this.addon.makeNodeVector()
+    if (c && typeof c.__struct === 'string' && typeof c.__ctor === 'string') {
+      return this.addon.constructWith(c.__struct, c.__ctor, ...args)
+    }
+    throw new Error('NativeManager.constructWith: unrecognized constructor shim')
+  }
+  /**
+   * The BindingManager.get surface the sculpt path uses: a struct handle whose
+   * `findConstructor(name)` yields a shim for `constructWith`. (We don't model
+   * the full StructType — only what `sculptcore_bindings.ts` reads.)
+   */
+  get(name: string): unknown {
+    return {
+      name,
+      buildFullName: () => name,
+      findConstructor: (ctorName: string) => ({__struct: name, __ctor: ctorName}),
+    }
+  }
+  /**
+   * The Vector-class handle the sculpt path needs (`findDefaultConstructor` +
+   * `buildFullName`). Only `Vector<SpatialNode*>` is ever requested — the
+   * addon's `makeNodeVector` recovers exactly that specialization, so the
+   * default-ctor shim just flags it.
+   */
+  findVectorClass(elemName: string): unknown {
+    return {
+      buildFullName: () => `litestl::util::Vector<${elemName}>`,
+      findDefaultConstructor: () => ({__nodeVector: true}),
+    }
+  }
   getBoundVector(_name: string, vec: NativeBound): unknown {
     return makeNativeBoundVector(this.addon, vec)
   }

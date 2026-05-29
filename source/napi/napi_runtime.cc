@@ -500,13 +500,66 @@ napi_value NapiRuntime::memberSetter(napi_env env, napi_callback_info info) {
     *static_cast<bool *>(addr) = v;
     return undef;
   }
+  if (b->type == BindingType::Pointer) {
+    // Rebind the pointer member to another bound object's address (e.g.
+    // CommandExecutor.meshLog = meshLog). The pointee stays C++-owned; we only
+    // overwrite the stored void*.
+    *reinterpret_cast<void **>(addr) = unwrapPtr(env, argv[0]);
+    return undef;
+  }
+  if (b->type == BindingType::Enum) {
+    int32_t v = 0;
+    napi_get_value_int32(env, argv[0], &v);
+    *reinterpret_cast<int32_t *>(addr) = v;
+    return undef;
+  }
   if (b->type != BindingType::Number) {
-    // set on pointer/struct/etc. is a later slice (needs copy-ctor semantics).
+    // set on a by-value struct member is a later slice (needs copy-ctor).
     return undef;
   }
 
   writeNumberValue(env, argv[0], asNumber(b), addr);
   return undef;
+}
+
+// Marshal one JS arg into the C++ thunk ABI, per the param's binding type, and
+// return the void* to store in args[i]. `slot` is the 8-byte backing storage for
+// by-value scalars / enums / pointer params (the returned pointer points into
+// it); reference and by-value-struct params return the wrapped object's address
+// directly (the thunk reads *(T*)args[i]). Shared by methodInvoker and
+// ConstructWith — the constructor thunk uses the identical arg_t ABI.
+static void *marshalArg(napi_env env, const binding::BindingBase *pt, napi_value a,
+                        uint64_t *slot) {
+  switch (pt->type) {
+    case BindingType::Number:
+      if (a) writeNumberValue(env, a, asNumber(pt), slot);
+      return slot;
+    case BindingType::Enum: {
+      // Enums cross as their integer value (backing type is int); the thunk
+      // reads *(EnumClass*)args[i], a 4-byte int, so point at the slot.
+      int32_t v = 0;
+      if (a) napi_get_value_int32(env, a, &v);
+      *reinterpret_cast<int32_t *>(slot) = v;
+      return slot;
+    }
+    case BindingType::Boolean: {
+      bool bv = false;
+      if (a) napi_get_value_bool(env, a, &bv);
+      *reinterpret_cast<bool *>(slot) = bv;
+      return slot;
+    }
+    case BindingType::Pointer:
+      // arg_t is T*: the thunk reads *(T**)args[i], so args[i] -> a void* slot.
+      *slot = reinterpret_cast<uint64_t>(unwrapPtr(env, a));
+      return slot;
+    case BindingType::Reference:
+    case BindingType::Struct:
+      // arg_t is T& / T (by value): the thunk reads *(T*)args[i], so args[i] is
+      // the object address itself.
+      return unwrapPtr(env, a);
+    default:
+      return nullptr;  // unsupported param kind (later slice)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -537,35 +590,8 @@ napi_value NapiRuntime::methodInvoker(napi_env env, napi_callback_info info) {
   std::vector<uint64_t> slots(nparams, 0);
 
   for (size_t i = 0; i < nparams; i++) {
-    const binding::BindingBase *pt = m->params[i].type;
     napi_value a = (i < argc) ? argv[i] : nullptr;
-    switch (pt->type) {
-      case BindingType::Number:
-        if (a) writeNumberValue(env, a, asNumber(pt), &slots[i]);
-        args[i] = &slots[i];
-        break;
-      case BindingType::Boolean: {
-        bool bv = false;
-        if (a) napi_get_value_bool(env, a, &bv);
-        *reinterpret_cast<bool *>(&slots[i]) = bv;
-        args[i] = &slots[i];
-        break;
-      }
-      case BindingType::Pointer:
-        // arg_t is T*: the thunk reads *(T**)args[i], so args[i] -> a void* slot.
-        slots[i] = reinterpret_cast<uint64_t>(unwrapPtr(env, a));
-        args[i] = &slots[i];
-        break;
-      case BindingType::Reference:
-      case BindingType::Struct:
-        // arg_t is T& / T (by value): the thunk reads *(T*)args[i], so args[i]
-        // is the object address itself.
-        args[i] = unwrapPtr(env, a);
-        break;
-      default:
-        args[i] = nullptr;  // unsupported param kind (later slice)
-        break;
-    }
+    args[i] = marshalArg(env, m->params[i].type, a, &slots[i]);
   }
 
   napi_value undef;
@@ -753,6 +779,97 @@ napi_value NapiRuntime::Construct(napi_env env, napi_callback_info info) {
   void *bufobj = std::malloc(st->getSize());
   ctor->thunk(bufobj, nullptr);
   return rt->instantiate(st, bufobj, /*owning=*/true);
+}
+
+// constructWith(structName, ctorName, ...args) -> bound owning instance built
+// with a *named, parameterized* constructor (e.g.
+// CommandExecutor "main"(SpatialTree*, Brush*)). Marshals args via the shared
+// thunk ABI (marshalArg); the constructor thunk reads them identically to a
+// method thunk (ConstructorBuilder::invokeImpl). Up to 6 ctor args.
+napi_value NapiRuntime::ConstructWith(napi_env env, napi_callback_info info) {
+  size_t argc = 8;
+  napi_value argv[8];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+
+  if (argc < 2) {
+    napi_throw_error(env, nullptr, "constructWith: need (structName, ctorName, ...args)");
+    return nullptr;
+  }
+  char structName[512] = {0}, ctorName[256] = {0};
+  size_t len = 0;
+  napi_get_value_string_utf8(env, argv[0], structName, sizeof(structName), &len);
+  napi_get_value_string_utf8(env, argv[1], ctorName, sizeof(ctorName), &len);
+
+  const binding::BindingBase *b = rt->lookup(structName);
+  if (!b || b->type != BindingType::Struct) {
+    napi_throw_error(env, nullptr, "constructWith: unknown struct type");
+    return nullptr;
+  }
+  const types::_StructBase *st = static_cast<const types::_StructBase *>(b);
+  const types::Constructor *ctor = st->findConstructor(ctorName);
+  if (!ctor || !ctor->thunk) {
+    napi_throw_error(env, nullptr, "constructWith: no such constructor");
+    return nullptr;
+  }
+
+  const size_t nparams = ctor->params.size();
+  std::vector<void *> args(nparams, nullptr);
+  std::vector<uint64_t> slots(nparams, 0);
+  for (size_t i = 0; i < nparams; i++) {
+    // ctor args start at argv[2].
+    napi_value a = (i + 2 < argc) ? argv[i + 2] : nullptr;
+    args[i] = marshalArg(env, ctor->params[i].type, a, &slots[i]);
+  }
+
+  void *bufobj = std::malloc(st->getSize());
+  ctor->thunk(bufobj, args.data());
+  return rt->instantiate(st, bufobj, /*owning=*/true);
+}
+
+// makeNodeVector() -> a fresh owning, empty Vector<SpatialNode*>, ready to pass
+// to SpatialTree.filterNodes(co, radius, &out) and then CommandExecutor.execBrush.
+// The Vector<SpatialNode*> descriptor (bare name "litestl::util::Vector", shared
+// across specializations) can't be looked up by element type, so we recover the
+// exact specialization from SpatialTree::leaves()'s by-value return type and use
+// its default constructor. instantiate(owning) runs ~Vector() on finalize.
+napi_value NapiRuntime::MakeNodeVector(napi_env env, napi_callback_info info) {
+  void *data;
+  napi_get_cb_info(env, info, nullptr, nullptr, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  const binding::BindingBase *tb = rt->lookup("sculptcore::spatial::SpatialTree");
+  if (!tb || tb->type != BindingType::Struct) return out;
+  const types::_StructBase *ts = static_cast<const types::_StructBase *>(tb);
+
+  const types::Method *leaves = nullptr;
+  for (const types::Method *m : ts->methods) {
+    if (std::strcmp(m->name.c_str(), "leaves") == 0) {
+      leaves = m;
+      break;
+    }
+  }
+  if (!leaves || !leaves->returnType || leaves->returnType->type != BindingType::Struct) {
+    return out;
+  }
+  const types::_StructBase *vecSt =
+      static_cast<const types::_StructBase *>(leaves->returnType);
+
+  const types::Constructor *ctor = nullptr;
+  for (const auto *c : vecSt->constructors) {
+    if (c->params.size() == 0) {
+      ctor = c;
+      break;
+    }
+  }
+  if (!ctor || !ctor->thunk) return out;
+
+  void *bufobj = std::malloc(vecSt->getSize());
+  ctor->thunk(bufobj, nullptr);
+  return rt->instantiate(vecSt, bufobj, /*owning=*/true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,6 +1183,8 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "structNames", &NapiRuntime::StructNames);
   define(exports, "structInfo", &NapiRuntime::StructInfo);
   define(exports, "construct", &NapiRuntime::Construct);
+  define(exports, "constructWith", &NapiRuntime::ConstructWith);
+  define(exports, "makeNodeVector", &NapiRuntime::MakeNodeVector);
   define(exports, "vectorLength", &NapiRuntime::VectorLength);
   define(exports, "vectorView", &NapiRuntime::VectorView);
   define(exports, "vectorGet", &NapiRuntime::VectorGet);

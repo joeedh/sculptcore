@@ -78,6 +78,12 @@ class NapiRuntime {
   static napi_value StructNames(napi_env, napi_callback_info);
   static napi_value StructInfo(napi_env, napi_callback_info);
   static napi_value Construct(napi_env, napi_callback_info);
+  // constructWith(structName, ctorName, ...args) -> bound owning instance built
+  // with a named, parameterized constructor (e.g. CommandExecutor "main").
+  static napi_value ConstructWith(napi_env, napi_callback_info);
+  // makeNodeVector() -> a fresh owning, empty Vector<SpatialNode*> (the brush
+  // path's filterNodes out-param; descriptor recovered from leaves()'s return).
+  static napi_value MakeNodeVector(napi_env, napi_callback_info);
   // Bulk-data fast path / minimal Vector surface (litestl::util::Vector).
   static napi_value VectorLength(napi_env, napi_callback_info);
   static napi_value VectorView(napi_env, napi_callback_info);

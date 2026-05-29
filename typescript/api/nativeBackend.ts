@@ -33,6 +33,19 @@ export interface NativeAddon {
       }
     | undefined
   construct(name: string): NativeBound
+  /**
+   * Build a bound owning instance with a named, parameterized constructor
+   * (e.g. constructWith('sculptcore::brush::CommandExecutor', 'main', tree,
+   * brush)). Bound-object args marshal to C++ pointer/reference params.
+   */
+  constructWith(structName: string, ctorName: string, ...args: unknown[]): NativeBound
+  /**
+   * A fresh owning, empty Vector<SpatialNode*> — the out-param for
+   * SpatialTree.filterNodes and the nodes arg for CommandExecutor.execBrush.
+   * (The specialization can't be looked up by element type, so the addon
+   * recovers it from SpatialTree::leaves()'s return descriptor.)
+   */
+  makeNodeVector(): NativeBound
   /** length (size_) of a bound litestl::util::Vector. */
   vectorLength(vec: NativeBound): number | undefined
   /** i-th element of a bound Vector as a bound value/wrapper. */
