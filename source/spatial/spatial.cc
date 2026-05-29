@@ -272,16 +272,16 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
       node->aabb.max.max(co);
     }
 
-    for (int f : node->data->unique_faces) {
-      FaceProxy face(m, f);
+    /* Cover verts referenced by this leaf's faces but owned by a neighbour
+     * (not in unique_verts). Read them through the node's tris + the .corner.v
+     * column, which stays materialized in frozen-topology mode — walking the
+     * live face/loop links here would read freed pages mid-stroke. */
+    for (const NodeTri &tri : node->data->tris) {
+      for (int i = 0; i < 3; i++) {
+        float3 &co = m->v.co[m->c.v[tri.c[i]]];
 
-      for (auto list : face.lists()) {
-        for (auto c : list) {
-          float3 &co = c.v().co();
-
-          node->aabb.min.min(co);
-          node->aabb.max.max(co);
-        }
+        node->aabb.min.min(co);
+        node->aabb.max.max(co);
       }
     }
 
@@ -441,6 +441,14 @@ void SpatialTree::buildAll()
   }
 
   delete[] faces;
+
+  /* regen_node_bounds derives leaf AABBs from each node's tris (read via the
+   * frozen-safe .corner.v column), so the tris must be built first. */
+  for (SpatialNode *node : nodes) {
+    if (node->flag & Spatial_Leaf) {
+      ensure_node_tris(node);
+    }
+  }
 
   regen_node_bounds(root, true);
 }
@@ -827,22 +835,9 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   bool bounds = false;
   bool drawBatchUpdated = false;
 
-  for (SpatialNode *node : nodes) {
-    if (node->flag & Spatial_RegenBounds) {
-      while (node) {
-        node->flag |= Spatial_RegenBounds;
-        node = node->parent;
-        bounds = true;
-      }
-    }
-  }
-
-  if (bounds) {
-    regen_node_bounds(root, true);
-    result = true;
-  }
-
-  /* Phase: regen leaf tris. */
+  /* Phase: regen leaf tris. Must run before the bounds phase: regen_node_bounds
+   * derives leaf AABBs from node->data->tris (via the frozen-safe .corner.v
+   * column), so the tris have to be current first. */
   Vector<SpatialNode *, 256> updateTriNodes;
   bool topology_changed = false;
   for (SpatialNode *node : nodes) {
@@ -856,8 +851,33 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     }
   }
 
+  /* regen_node_tris walks the live face/loop/corner link columns (f.l, l.c,
+   * c.next, l.size). Those pages are dropped in frozen-topology mode (only
+   * .corner.v is kept). A brush dab freezes topology, so if a stroke runs
+   * before the first tri regen (e.g. a script strokes before the initial
+   * render), the pending RegenTris would read freed pages. Thaw first; the
+   * next dab re-freezes. */
+  if (updateTriNodes.size() > 0 && m->topo_frozen) {
+    m->thawTopo();
+  }
+
   for (SpatialNode *node : updateTriNodes) {
     ensure_node_tris(node);
+  }
+
+  for (SpatialNode *node : nodes) {
+    if (node->flag & Spatial_RegenBounds) {
+      while (node) {
+        node->flag |= Spatial_RegenBounds;
+        node = node->parent;
+        bounds = true;
+      }
+    }
+  }
+
+  if (bounds) {
+    regen_node_bounds(root, true);
+    result = true;
   }
 
   Vector<SpatialNode *, 256> updateNormalsNodes;
