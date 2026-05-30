@@ -7,6 +7,7 @@ void registerBindings(litestl::binding::BindingManager &manager)
 {
   using namespace litestl::binding;
   manager.add(Bind<Brush>());
+  manager.add(Bind<BrushProgram>());
   manager.add(Bind<CommandExecutor>());
   manager.add(Bind<util::Vector<spatial::SpatialNode *>>());
 }

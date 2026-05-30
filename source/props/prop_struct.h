@@ -104,6 +104,11 @@ struct struct_detail {
 
     string name;
 
+    // Inheritance parent (Stage 4): `lookup` falls back here for any key not
+    // defined locally, so a child resolves inherited property values from a
+    // category/scene default. Null = no parent. Set via props::resolveStruct.
+    StructDef *parent = nullptr;
+
     StructDef()
     {
     }
@@ -167,6 +172,12 @@ struct struct_detail {
         return *prop;
       }
 
+      // Inheritance fallback: resolve from the parent default for any key the
+      // child does not define locally.
+      if (parent) {
+        return parent->lookup(name);
+      }
+
       return nullptr;
     }
 
@@ -208,5 +219,10 @@ struct struct_detail {
 
 using StructProp = struct_detail::StructProp;
 using StructDef = struct_detail::StructDef;
+
+// Inheritance helpers (prop_inherit.cc). `resolveStruct` links `child` to
+// `parent` so unset child properties resolve from the parent default.
+Property *cloneProperty(Property *prop);
+void resolveStruct(StructProp &parent, StructProp &child);
 
 }; // namespace sculptcore::props

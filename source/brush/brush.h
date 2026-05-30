@@ -37,10 +37,14 @@ enum class FalloffKind : unsigned char {
 //   Spherical — euclidean radius (historical default, bit-identical).
 //   Cube      — max(|dx|,|dy|,|dz|), the legacy SQUARE-brush metric.
 //   Linear    — distance projected onto `falloff_dir` (stroke-line falloff).
+//   Box       — oriented cuboid: max-norm in an orthonormal frame built from
+//               `falloff_dir` (primary axis = stroke direction), with
+//               independent per-axis half-extents in `falloff_extent`.
 enum class FalloffShape : unsigned char {
   Spherical = 0,
   Cube = 1,
   Linear = 2,
+  Box = 3,
 };
 
 // Mapping from a world-space sample point to brush-texture UV. Orthogonal
@@ -80,6 +84,31 @@ struct StrokeSample {
 // length bound by the (future) dispatcher.
 inline constexpr int kStrokePathMax = 64;
 
+// Stable small ids for the float props the bridge configures across the TS
+// boundary. Used instead of `util::string` prop-name args: the TS binding
+// runtime can't marshal a JS string into a bound `util::string` parameter
+// (no String copy-ctor / cstring path — it expects a pre-built String handle).
+// The C++ side maps the id back to the prop name (string literals never cross
+// the boundary). Mirror in sculptcore_bindings.ts (`BrushProp`).
+enum class BrushProp : int {
+  Strength = 0,
+  Radius = 1,
+  Autosmooth = 2,
+  Planeoff = 3,
+  Spacing = 4,
+};
+inline const char *brushPropName(int propId)
+{
+  switch (propId) {
+  case 0: return "strength";
+  case 1: return "radius";
+  case 2: return "autosmooth";
+  case 3: return "planeoff";
+  case 4: return "spacing";
+  default: return "";
+  }
+}
+
 struct Brush {
   props::StructProp props;
   props::DeviceInputCtx deviceInputCtx;
@@ -88,12 +117,42 @@ struct Brush {
   float radius = 1;
   /* Fraction of `radius` between successive brush dabs along a stroke. */
   float spacing = 0.25f;
+  /* Plane-brush offset along surfaceNo as a fraction of radius — places the
+   * projection plane above/below the stroke surface point for the clay-family
+   * (plane) kernels. Unused by the non-plane brushes. */
+  float planeoff = 0.0f;
+  /* Autosmooth amount. Synced from the TS brush for prop parity / inheritance,
+   * but not read C++-side yet: the chained SMOOTH command is built bridge-side
+   * (buildBrushProgram reads the TS value and emits a SMOOTH BrushProgram entry
+   * — see brush_executor.h). 0 disables the chained smooth. */
+  float autosmooth = 0.0f;
+  /* Plane-brush active side: +1 pulls verts below the projection plane up onto
+   * it (clay / fill), -1 pulls verts above it down onto it (scrape). Set per
+   * tool by the bridge; read by the plane kernel as `ctx.brush.planeSide`. */
+  float planeSide = 1.0f;
   bool invert = false;
   FalloffKind falloff_kind = FalloffKind::Smoothstep;
   FalloffShape falloff_shape = FalloffShape::Spherical;
-  // Direction for `FalloffShape::Linear` (expected normalized). Unused by
-  // the other shapes. Default +Z keeps the value well-defined.
+  // Direction for `FalloffShape::Linear` and the primary axis of
+  // `FalloffShape::Box` (expected normalized). Unused by the other shapes.
+  // Default +Z keeps the value well-defined.
   float3 falloff_dir{0, 0, 1};
+  // Per-axis half-extents (×radius) for `FalloffShape::Box`, in the oriented
+  // frame built from `falloff_dir` (extent[0] is along the stroke direction).
+  // {1,1,1} makes Box an oriented cube. Unused by the other shapes.
+  float3 falloff_extent{1, 1, 1};
+
+  // Stroke tangent (current dab origin − previous dab center), set host-side by
+  // the executor each dab. Drives wing-scrape wing orientation and can feed the
+  // oriented Box falloff via `falloff_dir`. Default +Z keeps it well-defined.
+  float3 strokeDir{0, 0, 1};
+
+  // Wing-scrape: half-angle (radians) of each wing plane off the surface, plus
+  // the two wing-plane normals (surfaceNo rotated ±wingAngle about strokeDir),
+  // recomputed per dab by the wingscrape kernel's host stage.
+  float wingAngle = 0.3f;
+  float3 wingNormalA{0, 0, 1};
+  float3 wingNormalB{0, 0, 1};
 
   // Brush texture (grayscale, row-major, `tex_width * tex_height` floats).
   // Empty means "no texture": `sampleTexBilinear` returns 1.0 so a kernel
@@ -154,16 +213,146 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, strength);
     BIND_STRUCT_MEMBER(st, radius);
     BIND_STRUCT_MEMBER(st, spacing);
+    BIND_STRUCT_MEMBER(st, planeoff);
+    BIND_STRUCT_MEMBER(st, autosmooth);
     BIND_STRUCT_MEMBER(st, invert);
     BIND_STRUCT_MEMBER(st, mu);
     BIND_STRUCT_MEMBER(st, nu);
     BIND_STRUCT_MEMBER(st, grabFrom);
     BIND_STRUCT_MEMBER(st, grabTo);
+    BIND_STRUCT_MEMBER(st, falloff_dir);
+    BIND_STRUCT_MEMBER(st, falloff_extent);
+    BIND_STRUCT_MEMBER(st, planeSide);
+    BIND_STRUCT_MEMBER(st, strokeDir);
+    BIND_STRUCT_MEMBER(st, wingAngle);
+    BIND_STRUCT_MEMBER(st, wingNormalA);
+    BIND_STRUCT_MEMBER(st, wingNormalB);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());
+    BIND_STRUCT_METHOD(st, setFalloffShape, MARGS("shape"));
+    BIND_STRUCT_METHOD(st, setFalloffKind, MARGS("kind"));
+    BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));
+    BIND_STRUCT_METHOD(st, clearDeviceInputs, MARGS());
+    BIND_STRUCT_METHOD(st, clearPropDynamics, MARGS("propId"));
+    BIND_STRUCT_METHOD(st, addPropDynamic,
+                       MARGS("propId", "deviceType", "mixMode", "mixFactor"));
+    BIND_STRUCT_METHOD(st, setPropDynamicSample,
+                       MARGS("propId", "deviceType", "i", "n", "value"));
+    BIND_STRUCT_METHOD(st, setPropsParent, MARGS("parentProps"));
+    BIND_STRUCT_METHOD(st, clearPropsParent, MARGS());
 
     return st;
+  }
+
+  // --- Property inheritance (Stage 4, bounded) ---------------------------
+  // Link this brush's props to a parent default (e.g. a category-default
+  // Brush's `props`) so any property this brush does not define locally
+  // resolves from the parent. Takes the parent's `StructProp` (not a `Brush*`)
+  // so `Brush::defineBindings` never references its own type — a self-reference
+  // would re-enter defineBindings infinitely at init.
+  void setPropsParent(props::StructProp *parentProps)
+  {
+    if (parentProps) {
+      props::resolveStruct(*parentProps, props);
+    }
+  }
+  void clearPropsParent()
+  {
+    if (props.struct_def) {
+      props.struct_def->parent = nullptr;
+    }
+  }
+
+  // --- Device (pen) dynamics configuration (Stage 3) ---------------------
+  // The bridge configures a property's dynamics once per stroke, then pushes
+  // device samples each dab; loadProps() applies them via the prop's Dynamics.
+
+  // Resolve a float property's device-dynamics stack by prop id, or null.
+  props::Dynamics *propDynamics(int propId)
+  {
+    const char *name = brushPropName(propId);
+    if (!name[0] || !props.struct_def) {
+      return nullptr;
+    }
+    props::Property *p = props.struct_def->lookup(name);
+    if (!p) {
+      return nullptr;
+    }
+    props::detail::PropBaseType *base = static_cast<props::detail::PropBaseType *>(p);
+    if (p->type == props::Prop::FLOAT32) {
+      return &static_cast<props::Float32Prop *>(base)->dynamics;
+    }
+    if (p->type == props::Prop::FLOAT64) {
+      return &static_cast<props::Float64Prop *>(base)->dynamics;
+    }
+    return nullptr;
+  }
+
+  // Per-dab device samples. The bridge currently pushes pressure/tilt/twist; the
+  // computed DeviceTypes (speed/angle/curvature) are reserved but not yet pushed.
+  void pushDeviceInput(int type, float value)
+  {
+    deviceInputCtx.push(type, value);
+  }
+  void clearDeviceInputs()
+  {
+    deviceInputCtx.clear();
+  }
+
+  // Drop all device layers from a property's dynamics (reconfigure per stroke).
+  void clearPropDynamics(int propId)
+  {
+    props::Dynamics *dyn = propDynamics(propId);
+    if (dyn) {
+      dyn->devices.clear();
+    }
+  }
+  // Add a device layer (identity curve) to a property; fill its response curve
+  // with setPropDynamicSample.
+  void addPropDynamic(int propId, int deviceType, int mixMode, float mixFactor)
+  {
+    props::Dynamics *dyn = propDynamics(propId);
+    if (!dyn) {
+      return;
+    }
+    props::DynamicDevice dev;
+    dev.type = static_cast<props::DeviceType>(deviceType);
+    dev.mixMode = static_cast<litestl::math::BasicMix>(mixMode);
+    dev.mixFactor = mixFactor;
+    dyn->devices.append(std::move(dev));
+  }
+  // Set sample `i` of an `n`-entry response curve for the (propId, deviceType)
+  // device layer — the baked form of the TS channel's Curve1D.
+  void setPropDynamicSample(int propId, int deviceType, int i, int n, float value)
+  {
+    props::Dynamics *dyn = propDynamics(propId);
+    if (!dyn) {
+      return;
+    }
+    for (auto &dev : dyn->devices) {
+      if ((int)dev.type == deviceType) {
+        if (n > 0 && int(dev.curveTable.size()) != n) {
+          dev.curveTable.resize(n);
+        }
+        if (i >= 0 && i < int(dev.curveTable.size())) {
+          dev.curveTable[i] = value;
+        }
+        return;
+      }
+    }
+  }
+
+  // Setters for the (u8) falloff enums — exposed as plain int methods so the
+  // TS bridge can pick FalloffShape::Box / a FalloffKind without the binding
+  // system needing the enum types registered.
+  void setFalloffShape(int shape)
+  {
+    falloff_shape = static_cast<FalloffShape>(shape);
+  }
+  void setFalloffKind(int kind)
+  {
+    falloff_kind = static_cast<FalloffKind>(kind);
   }
 
   Brush() : props(&structDef_)
@@ -171,19 +360,32 @@ struct Brush {
     structDef_.Float32("strength", "strength");
     structDef_.Float32("radius", "radius");
     structDef_.Float32("spacing", "spacing");
+    structDef_.Float32("planeoff", "planeoff");
+    structDef_.Float32("autosmooth", "autosmooth");
     structDef_.Bool("invert", "invert");
     structDef_.Float32("mu", "mu");
     structDef_.Float32("nu", "nu");
   }
 
+  // Resolve the authored property values into the cached scalar members the
+  // kernels read. The no-arg form applies this brush's device-dynamics stack
+  // (`deviceInputCtx`); with no devices configured / no inputs pushed it is a
+  // bit-identical no-op, so it is safe to always route through it.
   void loadProps()
   {
-    strength = props.lookupValue<float>("strength", 1.0);
-    radius = props.lookupValue<float>("radius", 1.0);
-    spacing = props.lookupValue<float>("spacing", 0.25);
+    loadPropsWithDevices(&deviceInputCtx);
+  }
+
+  void loadPropsWithDevices(props::DeviceInputCtx *ctx)
+  {
+    strength = props.lookupValue<float>("strength", 1.0, ctx);
+    radius = props.lookupValue<float>("radius", 1.0, ctx);
+    spacing = props.lookupValue<float>("spacing", 0.25, ctx);
+    planeoff = props.lookupValue<float>("planeoff", 0.0, ctx);
+    autosmooth = props.lookupValue<float>("autosmooth", 0.0, ctx);
     invert = props.lookupValue<bool>("invert", false);
-    mu = props.lookupValue<float>("mu", 1.0);
-    nu = props.lookupValue<float>("nu", 0.4);
+    mu = props.lookupValue<float>("mu", 1.0, ctx);
+    nu = props.lookupValue<float>("nu", 0.4, ctx);
   }
 
   void writeProps()
@@ -191,6 +393,8 @@ struct Brush {
     props.setValue<float>("strength", strength);
     props.setValue<float>("radius", radius);
     props.setValue<float>("spacing", spacing);
+    props.setValue<float>("planeoff", planeoff);
+    props.setValue<float>("autosmooth", autosmooth);
     props.setValue<bool>("invert", invert);
     props.setValue<float>("mu", mu);
     props.setValue<float>("nu", nu);
@@ -217,6 +421,24 @@ struct Brush {
     }
     case FalloffShape::Linear:
       return std::fabs(delta.dot(falloff_dir)) * inv_r;
+    case FalloffShape::Box: {
+      // Oriented cuboid. Build an orthonormal frame whose primary axis is
+      // `falloff_dir` (the stroke direction); project `delta` onto it, divide
+      // each component by the matching per-axis extent, take the max-norm.
+      // The reference-axis pick mirrors sampleBrushTex and the WGSL branch
+      // bit-for-bit (same |n.z| < 0.999 test) to keep CPU/GPU equal.
+      float3 n = falloff_dir.normalized();
+      float3 ref = std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f}
+                                           : float3{1.0f, 0.0f, 0.0f};
+      float3 t1 = ref.cross(n).normalized();
+      float3 t2 = n.cross(t1);
+      float dn = std::fabs(delta.dot(n)) / falloff_extent[0];
+      float d1 = std::fabs(delta.dot(t1)) / falloff_extent[1];
+      float d2 = std::fabs(delta.dot(t2)) / falloff_extent[2];
+      float m = dn > d1 ? dn : d1;
+      m = m > d2 ? m : d2;
+      return m * inv_r;
+    }
     }
     return delta.length() * inv_r;
   }

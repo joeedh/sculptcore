@@ -505,6 +505,9 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   bu.falloff_dir[0] = scene.brush.falloff_dir[0];
   bu.falloff_dir[1] = scene.brush.falloff_dir[1];
   bu.falloff_dir[2] = scene.brush.falloff_dir[2];
+  bu.falloff_extent[0] = scene.brush.falloff_extent[0];
+  bu.falloff_extent[1] = scene.brush.falloff_extent[1];
+  bu.falloff_extent[2] = scene.brush.falloff_extent[2];
   bu.coord_space = uint32_t(scene.brush.coord_space);
   bu.tex_repeat = scene.brush.tex_repeat;
   bu.stroke_path_count = uint32_t(scene.brush.strokePathCount);

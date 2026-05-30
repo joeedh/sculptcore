@@ -363,9 +363,11 @@ bool execVerb(Scene &scene,
         scene.brush.falloff_shape = brush::FalloffShape::Cube;
       } else if (ss == "linear") {
         scene.brush.falloff_shape = brush::FalloffShape::Linear;
+      } else if (ss == "box") {
+        scene.brush.falloff_shape = brush::FalloffShape::Box;
       } else {
         err = std::string("set_falloff: unknown shape '") + sh +
-              "' (valid: spherical, cube, linear)";
+              "' (valid: spherical, cube, linear, box)";
         return false;
       }
     }
@@ -376,6 +378,14 @@ bool execVerb(Scene &scene,
         return false;
       }
       scene.brush.falloff_dir = d.normalized();
+    }
+    if (const char *ext = getArg(args, "extent")) {
+      float3 e;
+      if (!parseFloat3(ext, e)) {
+        err = "set_falloff: extent= must be x,y,z";
+        return false;
+      }
+      scene.brush.falloff_extent = e;
     }
     return true;
   }

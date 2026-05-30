@@ -20,16 +20,14 @@ Property *cloneProperty(Property *prop)
   return result;
 }
 
-/* Handles inheritance between parent and child. */
+/* Link `child` to `parent` so StructDef::lookup falls back to the parent's
+ * properties for any key the child does not define locally. This is the
+ * "category default → instance" layer; deeper chains (scene/user) are formed by
+ * linking parents to their own parents. */
 void resolveStruct(StructProp &parent, StructProp &child)
 {
-  for (string &key : parent.struct_def->keys()) {
-    Property *prop = parent.struct_def->lookup(key);
-
-    if (!child.struct_def->has(key)) {
-
-      // child.struct_def->add(
-    }
+  if (child.struct_def && parent.struct_def) {
+    child.struct_def->parent = parent.struct_def;
   }
 }
 } // namespace sculptcore::props

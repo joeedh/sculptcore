@@ -18,6 +18,81 @@ namespace sculptcore::brush {
 using namespace litestl::util;
 using namespace litestl::math;
 
+// One sparse float override applied on top of a brush's authored props for the
+// duration of a single sub-command. Keyed by `BrushProp` id (not a string —
+// the TS binding runtime can't marshal a JS string into a `util::string` arg).
+struct BrushFloatOverride {
+  int propId = 0;
+  float value = 0.0f;
+};
+
+// A single sub-command in a composite brush program: a brush type plus a set of
+// sparse property overrides. Overrides are pushed onto the brush's authored
+// props before the command runs and rolled back after, so the brush's base
+// props survive the dab unmodified.
+struct BrushCommandEntry {
+  SculptBrushes type = SculptBrushes::DRAW;
+  Vector<BrushFloatOverride> floatOverrides;
+  bool overrideInvert = false;
+  bool invertValue = false;
+};
+
+// An ordered list of brush sub-commands run over the *same* node set per dab —
+// the composite-brush ("command list") abstraction the brush executor doc
+// describes. Autosmooth is a `[main, SMOOTH]` program; a future dyntopo pass is
+// just an entry prepended to `commands` with no API change. Built from TS via
+// the bound methods below and handed to `CommandExecutor::execProgram`.
+struct BrushProgram {
+  Vector<BrushCommandEntry> commands;
+
+  void clear()
+  {
+    commands.clear();
+  }
+
+  // Append a command for the given SculptBrushes value (passed as int so the
+  // binding stays a plain scalar method); returns its index.
+  int addCommand(int type)
+  {
+    BrushCommandEntry entry;
+    entry.type = static_cast<SculptBrushes>(type);
+    commands.append(std::move(entry));
+    return int(commands.size()) - 1;
+  }
+
+  void setCommandFloat(int idx, int propId, float v)
+  {
+    if (idx < 0 || idx >= int(commands.size())) {
+      return;
+    }
+    commands[idx].floatOverrides.append(BrushFloatOverride{propId, v});
+  }
+
+  void setCommandInvert(int idx, bool inv)
+  {
+    if (idx < 0 || idx >= int(commands.size())) {
+      return;
+    }
+    commands[idx].overrideInvert = true;
+    commands[idx].invertValue = inv;
+  }
+
+  static litestl::binding::types::Struct<BrushProgram> *defineBindings()
+  {
+    using namespace litestl::binding;
+    types::Struct<BrushProgram> *st = new types::Struct<BrushProgram>(
+        "sculptcore::brush::BrushProgram", sizeof(BrushProgram));
+
+    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+    BIND_STRUCT_METHOD(st, clear, MARGS());
+    BIND_STRUCT_METHOD(st, addCommand, MARGS("type"));
+    BIND_STRUCT_METHOD(st, setCommandFloat, MARGS("idx", "propId", "v"));
+    BIND_STRUCT_METHOD(st, setCommandInvert, MARGS("idx", "inv"));
+
+    return st;
+  }
+};
+
 struct CommandExecutor {
   using vertex_iter = BasicVertexIter;
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
@@ -48,13 +123,25 @@ struct CommandExecutor {
     BIND_STRUCT_MEMBER(st, tree);
     BIND_STRUCT_MEMBER(st, meshLog);
     BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "origin", "normal"));
+    BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
+    BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
 
     return st;
   }
 
   CommandExecutor(SpatialTree *tree, Brush *brush) : tree(tree), brush(brush), ctx()
   {
+  }
+
+  // Select the SMOOTH for_neighbor source: 0 = LiveDisk (live topology links),
+  // 1 = Csr (the cached ring1 adjacency). The LiteMesh sculpt path uses Csr —
+  // a freshly built mesh doesn't maintain live disk links, so LiveDisk smooth
+  // finds no neighbors and no-ops. Exposed as an int (NeighborMode is an
+  // unbound enum).
+  void setNeighborMode(int mode)
+  {
+    neighborMode = static_cast<NeighborMode>(mode);
   }
 
   auto createIterFactory()
@@ -76,7 +163,14 @@ struct CommandExecutor {
       command::createInflateBrush(def);
       return def;
     case SculptBrushes::CLAY:
-      command::createClayBrush(def);
+    case SculptBrushes::SCRAPE:
+    case SculptBrushes::FILL:
+      // Clay-family plane brushes share one kernel; the bridge sets
+      // planeoff/planeSide per tool to select build-up / cut / fill.
+      command::createPlaneBrush(def);
+      return def;
+    case SculptBrushes::WINGSCRAPE:
+      command::createWingscrapeBrush(def);
       return def;
     case SculptBrushes::PINCH:
       command::createPinchBrush(def);
@@ -192,6 +286,98 @@ struct CommandExecutor {
     brush->pushStrokeSample(origin, normal);
 
     exec(cmd, std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()));
+  }
+
+  // Run a composite brush program over one node set per dab. Each sub-command
+  // resolves the brush's props (with its sparse overrides applied) into the
+  // cached scalars, then runs like a standalone brush. Used for autosmooth
+  // (`[main, SMOOTH]`): SMOOTH is a second `exec()` whose `co_prev` snapshot is
+  // re-taken *after* the main pass mutated positions, so it smooths the result.
+  void execProgram(BrushProgram *prog,
+                   Vector<spatial::SpatialNode *> *nodes,
+                   float3 origin,
+                   float3 normal)
+  {
+    if (!prog || prog->commands.size() == 0) {
+      return;
+    }
+
+    // Topology freeze/thaw is decided once for the whole dab: thaw if *any*
+    // sub-command needs live disk links (a live-disk smooth), otherwise freeze
+    // for the program's duration. Mixed programs (e.g. DRAW + SMOOTH) thaw,
+    // which is harmless for the link-agnostic commands.
+    if (nodes->size() > 0) {
+      bool needsLive = false;
+      for (auto &entry : prog->commands) {
+        if (brushNeedsLiveLinks(entry.type)) {
+          needsLive = true;
+          break;
+        }
+      }
+      mesh::Mesh *m = (*nodes)[0]->data->m;
+      if (needsLive) {
+        if (m->topo_frozen) m->thawTopo();
+      } else if (!m->topo_frozen) {
+        m->freezeTopo();
+      }
+    }
+
+    // Stroke tangent for this dab (Route A): direction from the previous dab
+    // center to this one. Must be read *before* pushStrokeSample appends the
+    // current origin. Drives wing-scrape and the oriented Box falloff.
+    if (brush->strokePathCount > 0) {
+      float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
+      float len = d.length();
+      if (len > 1e-7f) {
+        brush->strokeDir = d / len;
+      }
+    }
+
+    // The oriented Box falloff follows the stroke: align its primary axis with
+    // the stroke tangent (the bridge only flips the shape to Box; the direction
+    // is owned here so it stays consistent with wing-scrape's strokeDir).
+    if (brush->falloff_shape == FalloffShape::Box) {
+      brush->falloff_dir = brush->strokeDir;
+    }
+
+    // One stroke sample per dab (not per sub-command): the stroke advances once.
+    brush->pushStrokeSample(origin, normal);
+
+    for (auto &entry : prog->commands) {
+      // Apply this command's sparse overrides onto the authored props,
+      // snapshotting the prior values so the brush's base props survive the
+      // dab unmodified (the next dab re-syncs them from the bridge regardless).
+      Vector<BrushFloatOverride> savedFloats;
+      for (auto &ov : entry.floatOverrides) {
+        const char *nm = brushPropName(ov.propId);
+        savedFloats.append(
+            BrushFloatOverride{ov.propId, brush->props.lookupFloat(nm, 0.0f)});
+        brush->props.setFloat(nm, ov.value);
+      }
+      bool savedInvert = brush->invert;
+      if (entry.overrideInvert) {
+        brush->props.setValue<bool>("invert", entry.invertValue);
+      }
+
+      // Resolve authored props → cached scalars (applies device dynamics).
+      brush->loadProps();
+
+      auto cmd = createCommand(entry.type);
+      ctx.surfaceNo = normal;
+      ctx.surfacePos = origin;
+      ctx.meshLog = meshLog;
+      ctx.isFirstOfStep = isFirstOfStep;
+
+      exec(cmd, std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()));
+
+      // Roll the base props back.
+      for (auto &s : savedFloats) {
+        brush->props.setFloat(brushPropName(s.propId), s.value);
+      }
+      if (entry.overrideInvert) {
+        brush->props.setValue<bool>("invert", savedInvert);
+      }
+    }
   }
 
   void clearIsFirstOfStep()

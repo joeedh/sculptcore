@@ -68,7 +68,7 @@ static constexpr bool is_num_type(Prop type)
   }
 }
 
-double num_prop_to_double(Property *prop)
+inline double num_prop_to_double(Property *prop)
 {
   double retval = 0;
 
@@ -81,7 +81,7 @@ double num_prop_to_double(Property *prop)
   return retval;
 }
 
-void num_prop_from_double(Property *prop, double d)
+inline void num_prop_from_double(Property *prop, double d)
 {
   numtype_dispatch(prop->type, [&]<typename PropType>() {
     PropType *real_prop = reinterpret_cast<PropType *>(prop);

@@ -631,6 +631,7 @@ struct Emit {
              std::strcmp(n, "falloff_kind") == 0 ||
              std::strcmp(n, "falloff_shape") == 0 ||
              std::strcmp(n, "falloff_dir") == 0 ||
+             std::strcmp(n, "falloff_extent") == 0 ||
              std::strcmp(n, "coord_space") == 0 ||
              std::strcmp(n, "tex_repeat") == 0 ||
              std::strcmp(n, "stroke_path_count") == 0;
@@ -671,10 +672,14 @@ struct Emit {
     write("  falloff_kind: u32,\n");
     // Spatial falloff metric (FalloffShape in brush.h), widened to u32.
     write("  falloff_shape: u32,\n");
-    // Direction for FalloffShape::Linear. vec3 needs 16-byte alignment in
-    // the uniform address space; the host marshaler (when it lands) must
-    // match the padding here.
+    // Direction for FalloffShape::Linear / primary axis of FalloffShape::Box.
+    // vec3 needs 16-byte alignment in the uniform address space; the host
+    // marshaler (ComputeBrushUniforms) must match the padding here.
     write("  falloff_dir: vec3<f32>,\n");
+    // Per-axis half-extents for FalloffShape::Box (mirrors Brush::falloff_extent
+    // and ComputeBrushUniforms::falloff_extent). std140 pads this vec3 to the
+    // next 16-byte slot after falloff_dir.
+    write("  falloff_extent: vec3<f32>,\n");
     // Brush-texture UV mapping selector (TexCoordSpace in brush.h), widened
     // to u32, plus the tiling factor for ViewRepeat. `brush_sample_tex`
     // branches on coord_space to match CommandCtx::sampleBrushTex.
@@ -795,6 +800,17 @@ struct Emit {
     write("    return max(sb_a.x, max(sb_a.y, sb_a.z)) * sb_inv_r;\n");
     write("  } else if (brush_u.falloff_shape == 2u) {\n");
     write("    return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;\n");
+    write("  } else if (brush_u.falloff_shape == 3u) {\n");
+    // Oriented cuboid — mirrors Brush::falloffDist's Box case bit-for-bit
+    // (same reference-axis pick: |n.z| < 0.999).
+    write("    let sb_n = normalize(brush_u.falloff_dir);\n");
+    write("    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);\n");
+    write("    let sb_t1 = normalize(cross(sb_ref, sb_n));\n");
+    write("    let sb_t2 = cross(sb_n, sb_t1);\n");
+    write("    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;\n");
+    write("    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;\n");
+    write("    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;\n");
+    write("    return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;\n");
     write("  }\n");
     write("  return length(delta) * sb_inv_r;\n");
     write("}\n\n");

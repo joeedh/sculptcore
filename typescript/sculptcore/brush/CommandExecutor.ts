@@ -1,5 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {Brush} from './Brush'
+import type {BrushProgram} from './BrushProgram'
 import type {SpatialTree} from '../spatial/SpatialTree'
 import type {SpatialNode} from '../spatial/SpatialNode'
 import type {float3} from '../../litestl/math/float3'
@@ -33,6 +34,13 @@ export interface CommandExecutor {
     origin: float3,
     normal: float3
   ): void
+  execProgram(
+    prog: BrushProgram,
+    nodes: SpatialNode[],
+    origin: float3,
+    normal: float3
+  ): void
   clearIsFirstOfStep(): void
+  setNeighborMode(mode: int32): void
   new (arg0: SpatialTree, arg1: Brush): CommandExecutor
 }

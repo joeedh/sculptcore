@@ -35,6 +35,7 @@ import type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 import type {AttrDef} from './sculptcore/gpu/AttrDef'
 import type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
+import type {BrushProgram} from './sculptcore/brush/BrushProgram'
 import type {StructProp} from './sculptcore/props/StructProp'
 import type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 import type {GPUManager} from './sculptcore/gpu/GPUManager'
@@ -68,6 +69,7 @@ export type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 export type {AttrDef} from './sculptcore/gpu/AttrDef'
 export type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
+export type {BrushProgram} from './sculptcore/brush/BrushProgram'
 export type {StructProp} from './sculptcore/props/StructProp'
 export type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 export type {GPUManager} from './sculptcore/gpu/GPUManager'
@@ -90,6 +92,7 @@ export type AllBoundTypes = {
   'sculptcore::mesh::BuiltinAttr<int32,.vert.e>': BuiltinAttr<int32, '.vert.e'>
   'sculptcore::gpu::DrawPipeline': DrawPipeline
   'sculptcore::spatial::SpatialNode': SpatialNode
+  'sculptcore::brush::BrushProgram': BrushProgram
   'sculptcore::mesh::BuiltinAttr<boolean,select>': BuiltinAttr<
     boolean,
     'select'

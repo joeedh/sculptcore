@@ -23,13 +23,42 @@ export interface Brush {
   strength: float
   radius: float
   spacing: float
+  planeoff: float
+  autosmooth: float
   invert: boolean
   mu: float
   nu: float
   grabFrom: float3
   grabTo: float3
+  falloff_dir: float3
+  falloff_extent: float3
+  planeSide: float
+  strokeDir: float3
+  wingAngle: float
+  wingNormalA: float3
+  wingNormalB: float3
   props: StructProp
   loadProps(): void
   writeProps(): void
+  setFalloffShape(shape: int32): void
+  setFalloffKind(kind: int32): void
+  pushDeviceInput(type: int32, value: float): void
+  clearDeviceInputs(): void
+  clearPropDynamics(propId: int32): void
+  addPropDynamic(
+    propId: int32,
+    deviceType: int32,
+    mixMode: int32,
+    mixFactor: float
+  ): void
+  setPropDynamicSample(
+    propId: int32,
+    deviceType: int32,
+    i: int32,
+    n: int32,
+    value: float
+  ): void
+  setPropsParent(parentProps: StructProp): void
+  clearPropsParent(): void
   new (): Brush
 }

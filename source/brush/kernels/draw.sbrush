@@ -10,6 +10,7 @@
 @brush("draw")
 brush Draw {
   ctx float3 surfaceNo;
+  uniform float radius;
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co);
@@ -19,6 +20,6 @@ brush Draw {
     if (s == 0.0) {
       continue;
     }
-    v.co += surfaceNo * s;
+    v.co += surfaceNo * s * radius * 0.5;
   }
 }

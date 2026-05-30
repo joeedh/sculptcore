@@ -1,4 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -15,18 +16,11 @@ type uint64 = number
 type float = number
 type double = number
 
-export enum SculptBrushes {
-  DRAW = 0,
-  INFLATE = 1,
-  CLAY = 2,
-  PINCH = 3,
-  SHARP = 4,
-  MASK = 5,
-  SMOOTH = 6,
-  KELVINLET = 7,
-  POSE = 8,
-  TEXDRAW = 9,
-  SCRAPE = 10,
-  FILL = 11,
-  WINGSCRAPE = 12,
+export interface BrushProgram {
+  [Symbol.dispose](): void
+  clear(): void
+  addCommand(type: int32): int32
+  setCommandFloat(idx: int32, propId: int32, v: float): void
+  setCommandInvert(idx: int32, inv: boolean): void
+  new (): BrushProgram
 }

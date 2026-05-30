@@ -10,7 +10,7 @@ namespace sculptcore::brush {
  * layout independent of the C++ ABI. Shared by every GPU compute backend
  * (vk_compute, wgpu_compute) so there is one source of truth. */
 
-/* binding 5 — std140, size 64. */
+/* binding 5 — std140, size 80. */
 struct ComputeBrushUniforms {
   float strength = 0.0f;
   float radius = 1.0f;
@@ -18,13 +18,15 @@ struct ComputeBrushUniforms {
   uint32_t invert = 0;
   uint32_t falloff_kind = 0;
   uint32_t falloff_shape = 0;
-  uint32_t _pad0[2] = {0, 0};        // pad so falloff_dir (vec3) lands at 32
-  float falloff_dir[3] = {0, 0, 1};  // offset 32
-  uint32_t coord_space = 0;          // offset 44
-  float tex_repeat = 1.0f;           // offset 48
-  uint32_t stroke_path_count = 0;    // offset 52
-  float mu = 1.0f;                   // offset 56 — kelvinlet (else unused)
-  float nu = 0.4f;                   // offset 60 — kelvinlet; rounds struct to 64
+  uint32_t _pad0[2] = {0, 0};          // pad so falloff_dir (vec3) lands at 32
+  float falloff_dir[3] = {0, 0, 1};    // offset 32
+  uint32_t _pad1 = 0;                  // pad so falloff_extent (vec3) lands at 48
+  float falloff_extent[3] = {1, 1, 1}; // offset 48 — FalloffShape::Box extents
+  uint32_t coord_space = 0;            // offset 60
+  float tex_repeat = 1.0f;             // offset 64
+  uint32_t stroke_path_count = 0;      // offset 68
+  float mu = 1.0f;                     // offset 72 — kelvinlet (else unused)
+  float nu = 0.4f;                     // offset 76 — kelvinlet; rounds struct to 80
 };
 
 /* binding 6 — std140. Base block (surfacePos/surfaceNo/render_matrix) is 96

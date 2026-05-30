@@ -1,0 +1,37 @@
+// Plane brush family — Clay / Scrape / Fill. Projects vertices onto a plane
+// offset from the stroke surface point along the surface normal. The bridge
+// sets `planeoff` (signed, a fraction of radius) and `planeSide` (+1 / -1)
+// per TS tool, so one kernel serves all three:
+//
+//   Clay   : plane *above* the surface (planeoff > 0), planeSide = +1 — pulls
+//            verts below the plane up onto it (builds material up).
+//   Scrape : plane *below* the surface (planeoff < 0), planeSide = -1 — pulls
+//            verts above the plane down onto it (cuts material away).
+//   Fill   : plane *at* the surface (planeoff ~ 0), planeSide = +1 — fills
+//            cavities behind the plane up to it.
+//
+// Replaces the old clay.sbrush, whose unconditional `h < 0` push was a
+// fill, not the build-up-above-surface clay the UI expects.
+
+@brush("plane")
+brush Plane {
+  ctx float3 surfacePos;
+  ctx float3 surfaceNo;
+  uniform float planeoff, planeSide, radius;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) {
+      continue;
+    }
+    // Plane point P = surfacePos + surfaceNo * (planeoff * radius); h is the
+    // signed height of the vertex above that plane along the surface normal.
+    float3 P = surfacePos + surfaceNo * (planeoff * radius);
+    float h = dot(v.co - P, surfaceNo);
+    // Only verts on the active side (planeSide) move; project them onto the
+    // plane by the falloff-scaled strength.
+    if (h * planeSide < 0.0) {
+      v.co += surfaceNo * (-h * s) * radius;
+    }
+  }
+}

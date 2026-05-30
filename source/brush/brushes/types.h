@@ -13,6 +13,11 @@ enum class _SculptBrushes {
   KELVINLET = 7,
   POSE = 8,
   TEXDRAW = 9,
+  // Clay-family plane brushes. CLAY/SCRAPE/FILL all run the `plane` kernel
+  // (the bridge sets planeoff/planeSide per tool); WINGSCRAPE runs its own.
+  SCRAPE = 10,
+  FILL = 11,
+  WINGSCRAPE = 12,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -32,6 +37,9 @@ template <std::same_as<sculptcore::brush::SculptBrushes> T> static const types::
   e->addItem("KELVINLET", SculptBrushes::KELVINLET);
   e->addItem("POSE", SculptBrushes::POSE);
   e->addItem("TEXDRAW", SculptBrushes::TEXDRAW);
+  e->addItem("SCRAPE", SculptBrushes::SCRAPE);
+  e->addItem("FILL", SculptBrushes::FILL);
+  e->addItem("WINGSCRAPE", SculptBrushes::WINGSCRAPE);
   return e;
 }
 } // namespace litestl::binding

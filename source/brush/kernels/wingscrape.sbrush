@@ -1,0 +1,53 @@
+// Wing Scrape — like Scrape, but two stroke-aligned 'wing' planes that meet at
+// the stroke line in a shallow V. Each vertex is projected down onto the wing
+// on its own lateral side of the stroke, so dragging the brush carves a
+// V-shaped channel that follows the stroke direction.
+//
+// The two wing normals are surfaceNo rotated ±wingAngle about the stroke
+// tangent (strokeDir). They are recomputed once per dab in the `host` stage
+// (Rodrigues rotation) and read per-vertex. `strokeDir` is set host-side by
+// the executor before the dab; `wingAngle` comes from the brush.
+
+@brush("wingscrape")
+brush WingScrape {
+  ctx float3 surfacePos;
+  ctx float3 surfaceNo;
+  ctx float3 strokeDir;
+  ctx float3 wingNormalA, wingNormalB;
+  uniform float wingAngle;
+
+  // Compute the two wing-plane normals once per dab: surfaceNo rotated
+  // ±wingAngle about the (normalized) stroke tangent, via Rodrigues' formula
+  //   V*cos + (K×V)*sin + K*(K·V)*(1-cos).
+  host void computeWings() {
+    float3 K = normalize(strokeDir);
+    float3 V = surfaceNo;
+    float c = cos(wingAngle);
+    float sn = sin(wingAngle);
+    float3 KxV = cross(K, V);
+    float kv = dot(K, V);
+    wingNormalA = V * c + KxV * sn + K * (kv * (1.0 - c));
+    wingNormalB = V * c - KxV * sn + K * (kv * (1.0 - c));
+  }
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) {
+      continue;
+    }
+    // Lateral axis: perpendicular to the stroke, in the tangent plane. Its sign
+    // picks which wing this vertex belongs to.
+    float3 lat = cross(surfaceNo, strokeDir);
+    float side = dot(v.co - surfacePos, lat);
+    float3 wn = wingNormalB;
+    if (side > 0.0) {
+      wn = wingNormalA;
+    }
+    // Project verts above the chosen wing plane (through surfacePos) down onto
+    // it — a scrape into the wing.
+    float h = dot(v.co - surfacePos, wn);
+    if (h > 0.0) {
+      v.co -= wn * (h * s);
+    }
+  }
+}
