@@ -18,6 +18,7 @@ other backend matches it bit-for-bit modulo floating point.
 @brush("draw")
 brush Draw {
   ctx float3 surfaceNo;
+  uniform float radius;
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co);
@@ -25,7 +26,7 @@ brush Draw {
     if (s == 0.0) {
       continue;                            // skip this vertex
     }
-    v.co += surfaceNo * s;
+    v.co += surfaceNo * s * radius * 0.5;
   }
 }
 ```
@@ -161,7 +162,7 @@ compile error. Current set:
 
 | Intrinsic | Signature | Notes |
 |---|---|---|
-| `strength(co)` | `float3 → float` | brush falloff strength at a world position (the standard `strength*falloff*radius` blend) |
+| `strength(co)` | `float3 → float` | brush falloff strength at a world position — the `strength*falloff` blend (`brush.strength × falloffEval(t)`). Radius is **not** folded in; a kernel that wants radius-proportional displacement multiplies by the `radius` uniform itself (e.g. `draw` does `… * radius * 0.5`) |
 | `falloff(t)` | `float → float` | raw curve sample of normalized distance `t`; lower-level than `strength` |
 | `sampleBrushTex(co, no)` | `float3, float3 → float` | brush-texture modulation per the brush's coord space; returns `1.0` when no texture is bound |
 | `length` / `distance` | `float3[,float3] → float` | |

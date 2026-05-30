@@ -4,6 +4,7 @@
 @brush("pinch")
 brush Pinch {
   ctx float3 surfacePos;
+  uniform float radius;
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * (1.0 - v.mask);
@@ -15,7 +16,7 @@ brush Pinch {
     // Move toward center by `s` along the unit direction. Guard against
     // div-by-zero for the lone vert that may sit exactly at surfacePos.
     if (d > 0.0001) {
-      v.co += dir * (s / d);
+      v.co += dir * (s / d) * radius * 0.5;
     }
   }
 }

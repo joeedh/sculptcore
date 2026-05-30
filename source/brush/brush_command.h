@@ -63,7 +63,7 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   float strength(float3 co)
   {
     float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
-    return brush.strength * brush.falloffEval(t) * brush.radius * 0.1f;
+    return brush.strength * brush.falloffEval(t);
   }
 
   // Sample the brush texture at world point `co` with surface normal `no`,

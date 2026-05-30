@@ -1,11 +1,5 @@
 // Draw — push the surface along the surface normal proportional to
 // brush strength * falloff(distance to center).
-//
-// Wave 1: source-level rewrite of source/brush/brushes/draw.h. The
-// strength/falloff computation stays inside CommandCtx::strength(co)
-// (exposed as the `strength` intrinsic), so behavior matches the
-// hand-written kernel byte-for-byte. Wave 2 inlines the falloff into
-// the IR so non-C++ backends can lower it.
 
 @brush("draw")
 brush Draw {

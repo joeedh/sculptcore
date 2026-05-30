@@ -31,7 +31,7 @@ brush Plane {
     // Only verts on the active side (planeSide) move; project them onto the
     // plane by the falloff-scaled strength.
     if (h * planeSide < 0.0) {
-      v.co += surfaceNo * (-h * s) * radius;
+      v.co += surfaceNo * (-h * s);
     }
   }
 }

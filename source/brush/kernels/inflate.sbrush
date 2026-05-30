@@ -4,12 +4,14 @@
 
 @brush("inflate")
 brush Inflate {
+  uniform float radius;
+  
   vertex void apply(inout Vertex v) {
     // Mask convention: 0 = unmasked (full effect), 1 = locked.
     float s = strength(v.co) * (1.0 - v.mask);
     if (s == 0.0) {
       continue;
     }
-    v.co += v.no * s;
+    v.co += v.no * s * radius * 0.5;
   }
 }

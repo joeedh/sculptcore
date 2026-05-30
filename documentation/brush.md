@@ -66,12 +66,17 @@ factory. It computes per-vertex falloff through `strength(co)`
 
 ```cpp
 float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
-return brush.strength * brush.falloffEval(t) * brush.radius * 0.1f;
+return brush.strength * brush.falloffEval(t);
 ```
 
 `falloffDist` applies the spatial metric (`FalloffShape`:
 spherical / cube / linear) and `falloffEval` the curve shape (`FalloffKind`:
-smoothstep / linear / gaussian / curve-LUT). `sampleBrushTex(co, no)` maps the
+smoothstep / linear / gaussian / curve-LUT). Note `strength(co)` is now **just**
+`strength · falloff` — radius is *not* baked in here. A kernel that wants
+radius-proportional displacement multiplies by its own `radius` uniform
+(`draw`/`inflate`/`pinch` use `… * radius * 0.5`; `smooth`/`sharp`/`mask` are
+relative or radius-independent; the `plane` family scales through its
+`planeoff · radius` offset). `sampleBrushTex(co, no)` maps the
 point to UV per `brush.coord_space` (Global / ViewPlane / ViewRepeat /
 StrokeCurved / Projected) and samples; it returns `1.0` with no texture bound.
 These two methods back the `strength` and `sampleBrushTex` DSL intrinsics — see
