@@ -22,5 +22,6 @@ export interface BrushProgram {
   addCommand(type: int32): int32
   setCommandFloat(idx: int32, propId: int32, v: float): void
   setCommandInvert(idx: int32, inv: boolean): void
+  setCommandAttrLayer(idx: int32, attrIdx: int32, layerIndex: int32): void
   new (): BrushProgram
 }

@@ -26,6 +26,18 @@ struct BrushFloatOverride {
   float value = 0.0f;
 };
 
+// Redirects one of a kernel's declared attribute handles (by its 0-based index
+// in the kernel's attr manifest) to a specific existing mesh layer (by its
+// index in that domain's AttrGroup), instead of the codegen default of
+// ensure-by-handle-name. This is how the TS attribute manager points the
+// color/poly-group/UV brushes at the user-selected "active" layer per category
+// — all ints, since the TS binding runtime can't marshal a JS string into a
+// `util::string` method arg (same reason BrushFloatOverride is propId-keyed).
+struct BrushAttrLayerOverride {
+  int attrIdx = 0;    // index into BrushCommandDef::attrs (the manifest)
+  int layerIndex = 0; // index into the domain's AttrGroup::attrs
+};
+
 // A single sub-command in a composite brush program: a brush type plus a set of
 // sparse property overrides. Overrides are pushed onto the brush's authored
 // props before the command runs and rolled back after, so the brush's base
@@ -33,6 +45,7 @@ struct BrushFloatOverride {
 struct BrushCommandEntry {
   SculptBrushes type = SculptBrushes::DRAW;
   Vector<BrushFloatOverride> floatOverrides;
+  Vector<BrushAttrLayerOverride> attrLayerOverrides;
   bool overrideInvert = false;
   bool invertValue = false;
 };
@@ -77,6 +90,17 @@ struct BrushProgram {
     commands[idx].invertValue = inv;
   }
 
+  // Redirect declared attr handle `attrIdx` of command `idx` to the mesh layer
+  // at `layerIndex` in that attr's domain group (see BrushAttrLayerOverride).
+  void setCommandAttrLayer(int idx, int attrIdx, int layerIndex)
+  {
+    if (idx < 0 || idx >= int(commands.size())) {
+      return;
+    }
+    commands[idx].attrLayerOverrides.append(
+        BrushAttrLayerOverride{attrIdx, layerIndex});
+  }
+
   static litestl::binding::types::Struct<BrushProgram> *defineBindings()
   {
     using namespace litestl::binding;
@@ -88,6 +112,7 @@ struct BrushProgram {
     BIND_STRUCT_METHOD(st, addCommand, MARGS("type"));
     BIND_STRUCT_METHOD(st, setCommandFloat, MARGS("idx", "propId", "v"));
     BIND_STRUCT_METHOD(st, setCommandInvert, MARGS("idx", "inv"));
+    BIND_STRUCT_METHOD(st, setCommandAttrLayer, MARGS("idx", "attrIdx", "layerIndex"));
 
     return st;
   }
@@ -251,7 +276,9 @@ struct CommandExecutor {
     return 0;
   }
 
-  void exec(brush_command &cmd, std::span<spatial::SpatialNode *> nodes)
+  void exec(brush_command &cmd,
+            std::span<spatial::SpatialNode *> nodes,
+            std::span<const BrushAttrLayerOverride> attrOverrides = {})
   {
     vertex_iter_factory vertexIterFactory = createIterFactory();
     face_iter_factory faceIterFactory = createFaceIterFactory();
@@ -262,10 +289,33 @@ struct CommandExecutor {
     ctx.attrBindings = nullptr;
     if (cmd.attrs.size() > 0 && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
-      for (auto &entry : cmd.attrs) {
-        string layer = entry.boundName.size() ? entry.boundName : entry.handle;
+      for (int ai = 0; ai < int(cmd.attrs.size()); ai++) {
+        auto &entry = cmd.attrs[ai];
         mesh::AttrGroup *grp = attrGroupForDomain(m, entry.domain);
         if (!grp) continue;
+
+        // An override redirects this handle to the user-selected "active"
+        // layer (by index). Honour it only when the layer exists and its type
+        // matches the handle's declared type (the TS attribute manager already
+        // constrains categories by type, so a mismatch means a stale index —
+        // fall through to the default by-name binding rather than corrupt the
+        // wrong-typed layer).
+        int ovLayer = -1;
+        for (const auto &ov : attrOverrides) {
+          if (ov.attrIdx == ai) { ovLayer = ov.layerIndex; break; }
+        }
+        if (ovLayer >= 0 && ovLayer < int(grp->attrs.size()) &&
+            grp->attrs[ovLayer].type == entry.type) {
+          // Materialize the chosen layer by its (type,name) and bind it. Copy
+          // the name first — ensure() of an existing layer won't realloc, but a
+          // local keeps the AttrRef& from dangling regardless.
+          string nm = grp->attrs[ovLayer].name;
+          mesh::AttrRef ref = grp->ensure(entry.type, nm, /*materialize=*/true);
+          attrBindingStorage.items.append(BrushAttrBinding{entry.handle, ref});
+          continue;
+        }
+
+        string layer = entry.boundName.size() ? entry.boundName : entry.handle;
         bool existed = grp->has(entry.type, layer);
         mesh::AttrRef ref = grp->ensure(entry.type, layer, /*materialize=*/true);
         if (!existed) {
@@ -450,7 +500,10 @@ struct CommandExecutor {
       ctx.meshLog = meshLog;
       ctx.isFirstOfStep = isFirstOfStep;
 
-      exec(cmd, std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()));
+      exec(cmd,
+           std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()),
+           std::span<const BrushAttrLayerOverride>(entry.attrLayerOverrides.data(),
+                                                   entry.attrLayerOverrides.size()));
 
       // Roll the base props back.
       for (auto &s : savedFloats) {
