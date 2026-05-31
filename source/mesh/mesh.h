@@ -69,8 +69,37 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
+    BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
+  }
+
+  /* AttrGroup for a TS-side AttrDomain bitflag (VERTEX=1, EDGE=2, CORNER=4,
+   * FACE=16; LIST=8 has no AttrGroup here). Mirrors the LiteMesh AttrDomain
+   * enum so TS can address any domain's layers by the same int. */
+  AttrGroup *attrGroupForDomainFlag(int domain)
+  {
+    switch (domain) {
+    case 1:  return &v.attrs;
+    case 2:  return &e.attrs;
+    case 4:  return &c.attrs;
+    case 16: return &f.attrs;
+    }
+    return nullptr;
+  }
+
+  /* Set the AttrUse (category) of the layer at `index` in `domain`'s group.
+   * The category write primitive for the TS attribute manager — `AttrRef.use`
+   * is read-only through the native binding proxy, and a layer can only be
+   * addressed by index (names don't marshal). `use` is an AttrUse bitflag int
+   * (NONE=0, COLOR=2, UV=4, POLYGROUP=8). Out-of-range index is a no-op. */
+  void setAttrUse(int domain, int index, int use)
+  {
+    AttrGroup *grp = attrGroupForDomainFlag(domain);
+    if (!grp || index < 0 || index >= int(grp->attrs.size())) {
+      return;
+    }
+    grp->attrs[index].use = AttrUse(use);
   }
 
   /* Poly-group id of a face (the "group" int attr the polygroup brush writes).
