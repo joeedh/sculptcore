@@ -38,6 +38,11 @@ struct SpatialTree {
    * iteration while GPU draws are batched. */
   int gpu_tri_target = 2048;
 
+  /* Which attribute feeds the per-vertex `gd.color` render stream:
+   * 0 = vertex `color` attr (white default), 1 = per-face `group` id (hashed).
+   * Set via setColorDisplayMode(), which re-fills every GPU node's color. */
+  int displayColorMode = 0;
+
   SpatialTreeMesh treeMesh;
   bool done_gpu_assignment = false;
   Mesh *m;
@@ -52,6 +57,10 @@ struct SpatialTree {
   }
 
   bool filterNodes(float3 co, float radius, Vector<SpatialNode *> &out);
+
+  /* Switch which attribute the mesh render colors by (see displayColorMode)
+   * and flag every leaf so the next update() re-fills the color stream. */
+  void setColorDisplayMode(int mode);
 
   /* Brush/circle select: faces + verts inside a view cone (object-local), built
    * JS-side exactly like the WebGL BVH path. Face indices are deduped (a face

@@ -52,6 +52,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, getDrawBatch, MARGS());
   BIND_STRUCT_METHOD(st, castRay, MARGS("orig", "dir", "out"));
   BIND_STRUCT_METHOD(st, filterNodes, MARGS("co", "radius", "out"));
+  BIND_STRUCT_METHOD(st, setColorDisplayMode, MARGS("mode"));
   BIND_STRUCT_METHOD(st, castScreenCircle, MARGS("co", "ray", "r1", "r2", "faces", "verts"));
   BIND_STRUCT_METHOD(st,
                      castScreenRect,

@@ -39,6 +39,7 @@ export interface SpatialTree {
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean
   filterNodes(co: float3, radius: float, out: SpatialNode[]): boolean
+  setColorDisplayMode(mode: int32): void
   castScreenCircle(
     co: float3,
     ray: float3,

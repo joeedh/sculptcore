@@ -75,6 +75,19 @@ bool SpatialTree::filterNodes(float3 co, float radius, Vector<SpatialNode *> &ou
   return out.size() != 0;
 }
 
+void SpatialTree::setColorDisplayMode(int mode)
+{
+  if (mode == displayColorMode) {
+    return;
+  }
+  displayColorMode = mode;
+  /* The color stream is filled per-leaf-slice; flag every leaf so the next
+   * update() re-runs fill_leaf_slice with the new source attribute. */
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_UpdateGPU;
+  }
+}
+
 void SpatialTree::regen_node_tris(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenTris;

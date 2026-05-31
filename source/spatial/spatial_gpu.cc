@@ -35,21 +35,45 @@ void SpatialTree::collect_subtree_leaves(SpatialNode *node,
   }
 }
 
-/* Write one leaf's tris into the given pos/nor pointers (already offset to
+/* Map a poly-group id to a stable, visually-distinct color. Group 0 (the
+ * default/unassigned id) stays neutral grey so unpainted faces read as
+ * "no group". */
+static float4 polyGroupColor(int group)
+{
+  if (group == 0) {
+    return float4(0.7f, 0.7f, 0.7f, 1.0f);
+  }
+  uint32_t h = uint32_t(group) * 2654435761u; /* Knuth multiplicative hash */
+  float r = float((h >> 0) & 0xFFu) / 255.0f;
+  float g = float((h >> 8) & 0xFFu) / 255.0f;
+  float b = float((h >> 16) & 0xFFu) / 255.0f;
+  /* Bias toward brighter colors so adjacent groups are easy to tell apart. */
+  return float4(0.25f + 0.7f * r, 0.25f + 0.7f * g, 0.25f + 0.7f * b, 1.0f);
+}
+
+/* Write one leaf's tris into the given pos/nor/col pointers (already offset to
  * the leaf's slice). Mirrors the per-tri body of the old per-leaf gpu
- * buffer fill. */
+ * buffer fill. The color source depends on displayColorMode. */
 void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, float4 *col)
 {
   const bool smooth_shading = false;
   Mesh *m = this->m;
   auto &tris = leaf->data->tris;
 
-  /* Per-vertex color layer is created lazily by the `color` paint brush; until
-   * then every slot defaults to white. Once it exists the executor has
-   * materialized it mesh-wide, so operator[] is safe for any vert. */
+  /* Resolve the color source for the active display mode. Both layers are
+   * created lazily by the paint brushes; until then we default to white (mode
+   * 0) / grey group-0 (mode 1). Once a layer exists the executor has
+   * materialized it mesh-wide, so operator[] is safe for any element. */
   AttrData<float4> *cdata = nullptr;
-  if (col && m->v.attrs.has(AttrType::FLOAT4, "color")) {
-    cdata = m->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+  AttrData<int> *gdata = nullptr;
+  if (col) {
+    if (displayColorMode == 1) {
+      if (m->f.attrs.has(AttrType::INT, "group")) {
+        gdata = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+      }
+    } else if (m->v.attrs.has(AttrType::FLOAT4, "color")) {
+      cdata = m->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    }
   }
 
   float3 no;
@@ -61,6 +85,12 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
       no = m->f.no[tri.f];
     }
 
+    /* Per-face color (poly-group mode): same for all 3 corners of the tri. */
+    float4 fgcol;
+    if (col && displayColorMode == 1) {
+      fgcol = polyGroupColor(gdata ? (*gdata)[tri.f] : 0);
+    }
+
     for (int j = 0; j < 3; j++, vert_i++) {
       int c = tri.c[j];
       int v = m->c.v[c];
@@ -68,7 +98,11 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
       pos[vert_i] = m->v.co[v];
       nor[vert_i] = smooth_shading ? m->v.no[v] : no;
       if (col) {
-        col[vert_i] = cdata ? (*cdata)[v] : float4(1.0f, 1.0f, 1.0f, 1.0f);
+        if (displayColorMode == 1) {
+          col[vert_i] = fgcol;
+        } else {
+          col[vert_i] = cdata ? (*cdata)[v] : float4(1.0f, 1.0f, 1.0f, 1.0f);
+        }
       }
     }
   }
