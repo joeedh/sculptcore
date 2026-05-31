@@ -240,6 +240,7 @@ void populate_attrs(Mesh &m)
   m.v.attrs.ensure(AttrType::FLOAT, "vfloat");
   m.v.attrs.ensure(AttrType::INT, "vint");
   m.v.attrs.ensure(AttrType::FLOAT3, "vf3");
+  m.v.attrs.ensure(AttrType::FLOAT4, "vf4");
   m.v.attrs.ensure(AttrType::BOOL, "vbool");
   m.v.attrs.ensure(AttrType::INT, "sparse_unset"); /* left at page default */
   m.f.attrs.ensure(AttrType::INT, "fint");
@@ -247,6 +248,7 @@ void populate_attrs(Mesh &m)
   auto vfloat = m.v.attrs.find_attribute(AttrType::FLOAT, "vfloat");
   auto vint = m.v.attrs.find_attribute(AttrType::INT, "vint");
   auto vf3 = m.v.attrs.find_attribute(AttrType::FLOAT3, "vf3");
+  auto vf4 = m.v.attrs.find_attribute(AttrType::FLOAT4, "vf4");
   auto vbool = m.v.attrs.find_attribute(AttrType::BOOL, "vbool");
   auto fint = m.f.attrs.find_attribute(AttrType::INT, "fint");
 
@@ -258,6 +260,9 @@ void populate_attrs(Mesh &m)
     (*vint.get_data<int>())[vi] = vInt(c);
     vf3.get_data<float3>()->materialize(vi);
     (*vf3.get_data<float3>())[vi] = vF3(c);
+    vf4.get_data<math::float4>()->materialize(vi);
+    (*vf4.get_data<math::float4>())[vi] =
+        math::float4(c[0], c[1], c[2], vFloat(c));
     static_cast<BoolAttrView *>(vbool.data)->set(vi, vBool(c));
     static_cast<BoolAttrView *>(
         m.v.attrs.find_attribute(AttrType::BOOL, "select").data)
@@ -308,12 +313,14 @@ void check_attrs(Mesh &m, const char *tag)
   auto vfloat = m.v.attrs.find_attribute(AttrType::FLOAT, "vfloat");
   auto vint = m.v.attrs.find_attribute(AttrType::INT, "vint");
   auto vf3 = m.v.attrs.find_attribute(AttrType::FLOAT3, "vf3");
+  auto vf4 = m.v.attrs.find_attribute(AttrType::FLOAT4, "vf4");
   auto vbool = m.v.attrs.find_attribute(AttrType::BOOL, "vbool");
   auto vsel = m.v.attrs.find_attribute(AttrType::BOOL, "select");
   auto sparse = m.v.attrs.find_attribute(AttrType::INT, "sparse_unset");
   auto fint = m.f.attrs.find_attribute(AttrType::INT, "fint");
 
   TASSERT(vfloat.exists() && vint.exists() && vf3.exists() && vbool.exists());
+  TASSERT(vf4.exists());
   TASSERT(vsel.exists() && sparse.exists() && fint.exists());
 
   for (int vi : m.v) {
@@ -323,6 +330,9 @@ void check_attrs(Mesh &m, const char *tag)
     float3 e3 = vF3(c);
     float3 g3 = vf3.get_data<float3>()->safe_get(vi);
     TASSERT(g3[0] == e3[0] && g3[1] == e3[1] && g3[2] == e3[2]);
+    math::float4 e4(c[0], c[1], c[2], vFloat(c));
+    math::float4 g4 = vf4.get_data<math::float4>()->safe_get(vi);
+    TASSERT(g4[0] == e4[0] && g4[1] == e4[1] && g4[2] == e4[2] && g4[3] == e4[3]);
     TASSERT(static_cast<BoolAttrView *>(vbool.data)->get(vi) == vBool(c));
     TASSERT(static_cast<BoolAttrView *>(vsel.data)->get(vi) == vSelect(c));
     TASSERT(sparse.get_data<int>()->safe_get(vi) == 0);
@@ -385,6 +395,38 @@ void test_full_roundtrip(int N)
   check_attrs(m2, tag);
 }
 
+/* A frozen-topology mesh is the post-sculpt-stroke state: the live TOPO link
+ * columns (.edge.vs.disk, .vert.e, …) are freed. writeMesh must thaw first;
+ * before that fix this case hung reading the freed disk column. Custom attrs
+ * (incl. the FLOAT4 from populate_attrs) must survive the freeze→serialize. */
+void test_frozen_roundtrip(int N)
+{
+  char tag[64];
+  snprintf(tag, sizeof(tag), "frozen-N%d", N);
+
+  Mesh m;
+  build_grid(m, N);
+  populate_attrs(m);
+
+  int vc = m.v.count, ec = m.e.count, cc = m.c.count, lc = m.l.count, fc = m.f.count;
+  Vector<int64_t> origSig = geomEdgeSignature(m);
+
+  m.freezeTopo();
+  TASSERT(m.topo_frozen);
+
+  Mesh m2;
+  if (!roundTrip(m, m2, tag)) {
+    retval = 1;
+    return;
+  }
+
+  TASSERT(m2.v.count == vc && m2.e.count == ec && m2.c.count == cc);
+  TASSERT(m2.l.count == lc && m2.f.count == fc);
+  TASSERT(validateMesh(m2, tag));
+  TASSERT(sigEqual(origSig, geomEdgeSignature(m2)));
+  check_attrs(m2, tag);
+}
+
 void test_empty()
 {
   Mesh m, m2;
@@ -426,6 +468,7 @@ int main()
   for (int N : {1, 4, 8, 16}) {
     test_full_roundtrip(N);
   }
+  test_frozen_roundtrip(8);
   test_empty();
   test_verts_only();
 

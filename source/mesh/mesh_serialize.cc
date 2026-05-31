@@ -370,6 +370,15 @@ namespace serial {
 
 bool writeMesh(Mesh &mesh, std::ostream &out)
 {
+  /* The live TOPO link columns (.edge.vs.disk, .vert.e, .corner.*, …) are freed
+   * while the mesh is topo_frozen — the state a mesh is left in after a sculpt
+   * stroke (the brush executor freezes for non-live brushes). The column gather
+   * below reads those layers, so thaw first to re-materialize them from the
+   * frozen snapshot (mirrors the auto-thaw every topology mutator does). */
+  if (mesh.topo_frozen) {
+    mesh.thawTopo();
+  }
+
   ElemData *eds[5] = {&mesh.v, &mesh.e, &mesh.c, &mesh.l, &mesh.f};
 
   /* Compaction maps: maps[d][old] = dense new index, ELEM_NONE for free slots. */
