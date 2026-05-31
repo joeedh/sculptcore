@@ -1,0 +1,13 @@
+// Poly-group paint — assign a group id to faces under the brush. This is the
+// boundary-conditions wave's bring-up of the DSL face stage (a `face` kernel +
+// `attr face int`). The active id, shift-to-sample-existing-id, and bit-depth
+// (8/16/64) selection arrive in the paint-brush wave; the id is a fixed test
+// value here.
+@brush("polygroup")
+brush PolyGroup {
+  attr face int group;
+
+  face void apply(inout Face f) {
+    if (strength(f.center) > 0.0) { f.group = 7; }
+  }
+}

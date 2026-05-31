@@ -96,6 +96,8 @@ struct BrushProgram {
 struct CommandExecutor {
   using vertex_iter = BasicVertexIter;
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
+  using face_iter = BasicFaceIter;
+  using face_iter_factory = std::function<face_iter(spatial::SpatialNode &)>;
   using brush_command = BrushCommandDef<CommandCtx<CommandExecutor>>;
 
   // Selects how for_neighbor kernels enumerate the 1-ring: the live disk walk
@@ -111,6 +113,9 @@ struct CommandExecutor {
   NeighborMode neighborMode = NeighborMode::LiveDisk;
   meshlog::MeshLog *meshLog = nullptr;
   Vector<float3> coPrevStorage;  // backing store for ctx.co_prev (Jacobi snapshot)
+  // Backing store for resolved DSL attribute bindings (ctx.attrBindings),
+  // rebuilt per dab in exec().
+  BrushAttrBindings attrBindingStorage;
 
   static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
   {
@@ -148,6 +153,13 @@ struct CommandExecutor {
   {
     return [this](spatial::SpatialNode &node) -> vertex_iter {
       return vertex_iter(node, *this);
+    };
+  }
+
+  auto createFaceIterFactory()
+  {
+    return [this](spatial::SpatialNode &node) -> face_iter {
+      return face_iter(node, *this);
     };
   }
 
@@ -197,15 +209,75 @@ struct CommandExecutor {
     case SculptBrushes::TEXDRAW:
       command::createTexdrawBrush(def);
       return def;
+    case SculptBrushes::COLOR:
+      command::createColorBrush(def);
+      return def;
+    case SculptBrushes::POLYGROUP:
+      command::createPolygroupBrush(def);
+      return def;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
     }
   }
 
+  // Map a declared attribute domain to the mesh's element AttrGroup.
+  static mesh::AttrGroup *attrGroupForDomain(mesh::Mesh *m, AttrElemDomain d)
+  {
+    switch (d) {
+    case AttrElemDomain::Vertex: return &m->v.attrs;
+    case AttrElemDomain::Face:   return &m->f.attrs;
+    case AttrElemDomain::Edge:   return &m->e.attrs;
+    case AttrElemDomain::Corner: return &m->c.attrs;
+    }
+    return nullptr;
+  }
+
+  static int elemCountForDomain(mesh::Mesh *m, AttrElemDomain d)
+  {
+    switch (d) {
+    case AttrElemDomain::Vertex: return m->v.count;
+    case AttrElemDomain::Face:   return m->f.count;
+    case AttrElemDomain::Edge:   return m->e.count;
+    case AttrElemDomain::Corner: return m->c.count;
+    }
+    return 0;
+  }
+
   void exec(brush_command &cmd, std::span<spatial::SpatialNode *> nodes)
   {
     vertex_iter_factory vertexIterFactory = createIterFactory();
+    face_iter_factory faceIterFactory = createFaceIterFactory();
+
+    // Resolve declared attribute layers once per dab (shared across all nodes;
+    // the AttrData pointers are mesh-wide and stable for the dab's duration).
+    attrBindingStorage.clear();
+    ctx.attrBindings = nullptr;
+    if (cmd.attrs.size() > 0 && nodes.size() > 0) {
+      mesh::Mesh *m = nodes[0]->data->m;
+      for (auto &entry : cmd.attrs) {
+        string layer = entry.boundName.size() ? entry.boundName : entry.handle;
+        mesh::AttrGroup *grp = attrGroupForDomain(m, entry.domain);
+        if (!grp) continue;
+        bool existed = grp->has(entry.type, layer);
+        mesh::AttrRef ref = grp->ensure(entry.type, layer, /*materialize=*/true);
+        if (!existed) {
+          // Value-init a freshly created layer so unpainted elements are
+          // deterministic: paint reads+writes the layer, and an uninitialized
+          // page would make output depend on heap garbage (breaking GPU A/B +
+          // goldens). set_default zeroes simple/vector types.
+          int n = elemCountForDomain(m, entry.domain);
+          mesh::detail::type_dispatch(entry.type, [&]<typename T>() {
+            if constexpr (!std::is_same_v<T, bool>) {
+              auto *dd = static_cast<mesh::AttrData<T> *>(ref.data);
+              for (int i = 0; i < n; i++) dd->set_default(i);
+            }
+          });
+        }
+        attrBindingStorage.items.append(BrushAttrBinding{entry.handle, ref});
+      }
+      ctx.attrBindings = &attrBindingStorage;
+    }
 
     if (cmd.execHost) cmd.execHost(ctx, *brush);
     cmd.execPre(ctx, nodes);
@@ -229,14 +301,14 @@ struct CommandExecutor {
 
 #ifdef NO_PARALLEL_FOR
     for (auto *node : nodes) {
-      CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, *brush);
+      CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, faceIterFactory, *brush);
       cmd.exec(finalCtx);
     }
 #else
     litestl::task::parallel_for(util::IndexRange(nodes.size()), [&](IndexRange range) {
       for (int i : range) {
         SpatialNode *node = nodes[i];
-        CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, *brush);
+        CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, faceIterFactory, *brush);
         cmd.exec(finalCtx);
       }
     }, 4);
@@ -253,7 +325,9 @@ struct CommandExecutor {
   // links back.
   bool brushNeedsLiveLinks(SculptBrushes brushType) const
   {
-    return brushType == SculptBrushes::SMOOTH && neighborMode != NeighborMode::Csr;
+    // Face-stage brushes walk the face loop (live links) to compute centroids.
+    return (brushType == SculptBrushes::SMOOTH && neighborMode != NeighborMode::Csr) ||
+           brushType == SculptBrushes::POLYGROUP;
   }
 
   void execBrush(SculptBrushes brushType,

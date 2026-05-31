@@ -29,6 +29,7 @@ enum class TokKind : int {
   KwInout, KwIn, KwOut,
   KwIf, KwElse, KwReturn, KwContinue, KwTrue, KwFalse,
   KwForNeighbor, KwStruct, KwFor, KwTexture,
+  KwAttr, KwFace, KwEdge, KwCorner,
 };
 
 const char *tokKindName(TokKind k);

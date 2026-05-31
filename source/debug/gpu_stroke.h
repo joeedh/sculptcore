@@ -104,6 +104,7 @@ class GpuStrokeSession {
   const char *kernel_ = nullptr;
   bool needsNeighbors_ = false;
   bool writesMask_ = false;
+  bool writesColor_ = false;  // COLOR kernel: float4 vertex "color" attr at slot 14
   int vcount_ = 0;
   litestl::util::Vector<spatial::SpatialNode *> touched_;
 

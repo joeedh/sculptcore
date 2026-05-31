@@ -11,3 +11,5 @@
 #include "../kernels/generated/kelvinlet.brush.gen.h"
 #include "../kernels/generated/pose.brush.gen.h"
 #include "../kernels/generated/texdraw.brush.gen.h"
+#include "../kernels/generated/color.brush.gen.h"
+#include "../kernels/generated/polygroup.brush.gen.h"

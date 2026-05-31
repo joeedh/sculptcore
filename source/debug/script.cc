@@ -309,6 +309,10 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::POSE;
     } else if (ts == "texdraw") {
       scene.currentTool = brush::SculptBrushes::TEXDRAW;
+    } else if (ts == "color") {
+      scene.currentTool = brush::SculptBrushes::COLOR;
+    } else if (ts == "polygroup") {
+      scene.currentTool = brush::SculptBrushes::POLYGROUP;
     } else {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;
@@ -616,7 +620,8 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::MASK ||
                    t == brush::SculptBrushes::SMOOTH ||
                    t == brush::SculptBrushes::KELVINLET ||
-                   t == brush::SculptBrushes::POSE;
+                   t == brush::SculptBrushes::POSE ||
+                   t == brush::SculptBrushes::COLOR;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
         gpuTool) {
@@ -700,7 +705,8 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::MASK ||
                    t == brush::SculptBrushes::SMOOTH ||
                    t == brush::SculptBrushes::KELVINLET ||
-                   t == brush::SculptBrushes::POSE;
+                   t == brush::SculptBrushes::POSE ||
+                   t == brush::SculptBrushes::COLOR;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
         gpuTool) {

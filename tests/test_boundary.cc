@@ -1,0 +1,110 @@
+// Wave 4: boundary flag model + lazy dirty classification.
+//
+// Two quads sharing edge v1-v4, painted into different poly groups. After
+// markAllDirty + recomputeDirty:
+//   * the shared edge is a derived poly-group boundary; outer edges are not,
+//   * its endpoint verts carry BC_POLYGROUP in their classification,
+// and the source-flag path (mark an edge sharp -> its verts get BC_SHARP)
+// flows through the same lazy recompute.
+#include "test_util.h"
+
+#include "mesh/attribute.h"
+#include "mesh/boundary.h"
+#include "mesh/mesh.h"
+#include "mesh/mesh_path.h"
+
+#include "litestl/util/vector.h"
+
+#include <cstdio>
+#include <span>
+
+test_init;
+
+using namespace sculptcore::mesh;
+using namespace litestl::math;
+namespace bnd = sculptcore::mesh::boundary;
+
+int main()
+{
+  {
+    Mesh m;
+    int v0 = m.make_vertex(float3(0, 0, 0));
+    int v1 = m.make_vertex(float3(1, 0, 0));
+    int v2 = m.make_vertex(float3(2, 0, 0));
+    int v3 = m.make_vertex(float3(0, 1, 0));
+    int v4 = m.make_vertex(float3(1, 1, 0));
+    int v5 = m.make_vertex(float3(2, 1, 0));
+
+    auto edge = [&](int a, int b) {
+      if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+    };
+    edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
+    edge(v1, v2); edge(v2, v5); edge(v5, v4);
+
+    int fa[4] = {v0, v1, v4, v3};
+    int fb[4] = {v1, v2, v5, v4};
+    int faceA = m.make_face(std::span<int>(fa, 4));
+    int faceB = m.make_face(std::span<int>(fb, 4));
+
+    // Paint two poly groups (faceA=0, faceB=1).
+    AttrRef &gref = m.f.attrs.ensure(AttrType::INT, bnd::FACE_GROUP, /*materialize=*/true);
+    AttrData<int> *g = gref.get_data<int>();
+    (*g)[faceA] = 0;
+    (*g)[faceB] = 1;
+
+    bnd::markAllDirty(&m);
+    bnd::recomputeDirty(&m);
+
+    int eShared = m.find_edge(v1, v4);
+    int eOuter = m.find_edge(v0, v1);
+    test_assert(eShared != ELEM_NONE && eOuter != ELEM_NONE);
+
+    // Derived poly-group boundary: only the shared edge.
+    test_assert(bnd::edgeFlag(&m, bnd::EDGE_POLYGROUP, eShared) == true);
+    test_assert(bnd::edgeFlag(&m, bnd::EDGE_POLYGROUP, eOuter) == false);
+
+    // Endpoint verts of the shared edge are classified poly-group boundary.
+    test_assert((bnd::vertClass(&m, v1) & bnd::BC_POLYGROUP) != 0);
+    test_assert((bnd::vertClass(&m, v4) & bnd::BC_POLYGROUP) != 0);
+    // A vert away from the group boundary is not.
+    test_assert((bnd::vertClass(&m, v0) & bnd::BC_POLYGROUP) == 0);
+
+    // Source-flag path: mark an outer edge sharp; lazy recompute reflects it on
+    // the edge and its endpoint vert classes.
+    bnd::setEdgeFlag(&m, bnd::EDGE_SHARP, eOuter, true);
+    bnd::recomputeDirty(&m);
+    test_assert(bnd::edgeFlag(&m, bnd::EDGE_SHARP, eOuter) == true);
+    test_assert((bnd::vertClass(&m, v0) & bnd::BC_SHARP) != 0);
+    test_assert((bnd::vertClass(&m, v1) & bnd::BC_SHARP) != 0);
+    // v1 now carries both poly-group and sharp bits.
+    test_assert((bnd::vertClass(&m, v1) & bnd::BC_POLYGROUP) != 0);
+
+    fprintf(stderr, "boundary: vclass v0=%d v1=%d v4=%d\n", bnd::vertClass(&m, v0),
+            bnd::vertClass(&m, v1), bnd::vertClass(&m, v4));
+
+    // --- shortest edge path (seam-tool compute core) ---
+    // v0=(0,0) to v5=(2,1): the minimal path is 3 unit edges (no diagonals),
+    // e.g. v0-v1-v2-v5. Assert endpoints, edge-connectivity, and minimal weight.
+    litestl::util::Vector<int> path;
+    bool ok = shortestEdgePath(&m, v0, v5, path);
+    test_assert(ok);
+    test_assert(path.size() >= 2);
+    test_assert(path[0] == v0);
+    test_assert(path[path.size() - 1] == v5);
+    double plen = 0.0;
+    bool connected = true;
+    for (int i = 1; i < (int)path.size(); i++) {
+      int e = m.find_edge(path[i - 1], path[i]);
+      if (e == ELEM_NONE) {
+        connected = false;
+      } else {
+        plen += double((m.v.co[path[i]] - m.v.co[path[i - 1]]).length());
+      }
+    }
+    test_assert(connected);
+    test_assert(plen > 3.0 - 1e-4 && plen < 3.0 + 1e-4); // minimal = 3 unit edges
+    fprintf(stderr, "path: verts=%d weight=%g\n", (int)path.size(), plen);
+  }
+
+  return test_end();
+}

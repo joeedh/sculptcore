@@ -2,6 +2,7 @@
 
 #include "brush.h"
 #include "brush_concepts.h"
+#include "mesh/mesh.h"
 #include "meshlog/meshlog.h"
 #include "litestl/math/matrix.h"
 #include "litestl/math/vector.h"
@@ -16,6 +17,46 @@ namespace sculptcore::brush {
 using litestl::math::float2;
 using litestl::math::float3;
 using litestl::math::mat4;
+
+// === DSL attribute bindings (boundary-conditions wave) ===
+//
+// A kernel that declares `attr <domain> <type> <name>` fields opts those mesh
+// attribute layers into the per-dab binding set. Codegen emits one
+// BrushAttrManifestEntry per declared attr into BrushCommandDef::attrs; the
+// executor resolves each to a live mesh layer (ensuring it exists) once per dab
+// and exposes it through CommandCtxBase::boundAttr<T>().
+
+// Which mesh element domain an attribute lives on (runtime mirror of the
+// compiler-side sbrush::AttrDomain — kept separate so the runtime never depends
+// on the DSL compiler headers).
+enum class AttrElemDomain : int { Vertex, Face, Edge, Corner };
+
+// Codegen-emitted descriptor of one attribute a kernel touches.
+struct BrushAttrManifestEntry {
+  string handle;                                 // DSL field name (the handle)
+  string boundName;                              // fixed layer, or "" => handle
+  mesh::AttrType type = mesh::AttrType::FLOAT;
+  AttrElemDomain domain = AttrElemDomain::Vertex;
+  bool write = false;                            // writes => ensure materialized
+};
+
+// A resolved binding: a kernel handle -> the live mesh AttrRef for this dab.
+struct BrushAttrBinding {
+  string handle;
+  mesh::AttrRef ref;
+};
+
+struct BrushAttrBindings {
+  Vector<BrushAttrBinding> items;
+  void clear() { items.clear(); }
+  const mesh::AttrRef *find(const char *handle) const
+  {
+    for (const auto &b : items) {
+      if (b.handle == string(handle)) return &b.ref;
+    }
+    return nullptr;
+  }
+};
 
 struct CommandCtxBase {
   float2 mouse;
@@ -37,6 +78,20 @@ struct CommandCtxBase {
   // the GPU kernel (which reads its own co_prev binding).
   litestl::util::Vector<litestl::math::float3> *co_prev = nullptr;
 
+  // Resolved DSL attribute bindings for this dab (owned by the executor),
+  // looked up by handle in generated kernels via boundAttr<T>().
+  const BrushAttrBindings *attrBindings = nullptr;
+
+  // Fetch a bound non-bool attribute's data by kernel handle. Returns nullptr
+  // when unbound (an optional layer that was absent); write kernels always
+  // declare their target, so it's non-null there.
+  template <typename T> mesh::AttrData<T> *boundAttr(const char *handle) const
+  {
+    if (!attrBindings) return nullptr;
+    const mesh::AttrRef *ref = attrBindings->find(handle);
+    return ref ? static_cast<mesh::AttrData<T> *>(ref->data) : nullptr;
+  }
+
   CommandCtxBase() = default;
   CommandCtxBase(const CommandCtxBase &) = default;
   CommandCtxBase(CommandCtxBase &&) = default;
@@ -48,16 +103,20 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   Brush &brush;
   spatial::SpatialNode &node;
   TYPES::vertex_iter_factory &vertexIter;
+  TYPES::face_iter_factory &faceIter;
 
   CommandCtx(const CommandCtxBase &base,
              spatial::SpatialNode &node,
              TYPES::vertex_iter_factory &vertexIter,
+             TYPES::face_iter_factory &faceIter,
              Brush &brush)
-      : CommandCtxBase(base), node(node), vertexIter(vertexIter), brush(brush)
+      : CommandCtxBase(base), node(node), vertexIter(vertexIter), faceIter(faceIter),
+        brush(brush)
   {
   }
   CommandCtx(const CommandCtx &b)
-      : CommandCtxBase(b), node(b.node), vertexIter(b.vertexIter), brush(b.brush)
+      : CommandCtxBase(b), node(b.node), vertexIter(b.vertexIter), faceIter(b.faceIter),
+        brush(b.brush)
   {
   }
   float strength(float3 co)
@@ -127,6 +186,9 @@ template <typename CTX> struct BrushCommandDef {
   // Set by codegen for brushes that use for_neighbor: the executor snapshots
   // the mesh's vertex positions into ctx.co_prev before the per-node loop.
   bool needsCoPrev = false;
+  // Attribute layers this kernel reads/writes, emitted by codegen. The executor
+  // resolves these to live mesh layers and binds them before the per-node loop.
+  Vector<BrushAttrManifestEntry> attrs;
 };
 
 } // namespace sculptcore::brush

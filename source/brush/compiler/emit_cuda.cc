@@ -948,7 +948,8 @@ struct Emit {
   void run()
   {
     if (!vertexStage) {
-      err("brush has no vertex stage");
+      // Face/non-vertex stages have no GPU dispatch yet; emit a valid stub.
+      emitSkipStub("non-vertex (e.g. face) stage: GPU dispatch not yet implemented");
       return;
     }
     if (vertexStage->params.size() < 1) {

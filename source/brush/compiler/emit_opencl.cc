@@ -567,7 +567,7 @@ struct Emit {
 
   void run()
   {
-    if (!vertexStage) { err("brush has no vertex stage"); return; }
+    if (!vertexStage) { emitSkipStub("non-vertex (e.g. face) stage: GPU dispatch not yet implemented"); return; }
     if (vertexStage->params.size() < 1) err("vertex stage must take at least one parameter (the Vertex bundle)");
     usesNeighbors = hasNeighborLoop(vertexStage->body.get());
 

@@ -26,6 +26,8 @@ BrushComputeDispatch::~BrushComputeDispatch()
   destroyBuf(coPrev_);
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
+  destroyBuf(attrDummy_);
+  for (int i = 0; i < kMaxAttrBindings; i++) destroyBuf(attrBuf_[i]);
   destroyBrushTexture();
   if (sampler_) vkDestroySampler(d, sampler_, nullptr);
   if (whiteView_) vkDestroyImageView(d, whiteView_, nullptr);
@@ -309,7 +311,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   // (co_prev + neighbor CSR) are only referenced by for_neighbor kernels, but
   // the layout always declares them so one bind-group setup serves every
   // brush; non-neighbor shaders simply don't use them.
-  VkDescriptorSetLayoutBinding lb[14]{};
+  VkDescriptorSetLayoutBinding lb[kAttrBase + kMaxAttrBindings]{};
   auto set = [&](int i, VkDescriptorType t) {
     lb[i].binding = uint32_t(i);
     lb[i].descriptorType = t;
@@ -330,10 +332,15 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   set(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   set(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   set(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  // Custom attribute slots (>=14): declared as a superset so one pipeline
+  // layout serves attr and non-attr kernels alike; unused slots bind a dummy.
+  for (int i = 0; i < kMaxAttrBindings; i++) {
+    set(kAttrBase + i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  }
 
   VkDescriptorSetLayoutCreateInfo lci{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  lci.bindingCount = 14;
+  lci.bindingCount = kAttrBase + kMaxAttrBindings;
   lci.pBindings = lb;
   if (vkCreateDescriptorSetLayout(d, &lci, nullptr, &setLayout_) != VK_SUCCESS)
     return false;
@@ -355,7 +362,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
     return false;
 
   VkDescriptorPoolSize ps[4]{};
-  ps[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10};
+  ps[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 + kMaxAttrBindings};
   ps[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2};
   ps[2] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1};
   ps[3] = {VK_DESCRIPTOR_TYPE_SAMPLER, 1};
@@ -432,6 +439,12 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
   writeStorage(11, coPrev_);
   writeStorage(12, nbrMeta_);
   writeStorage(13, nbrVerts_);
+  // Bind every custom-attribute slot to a dummy so the descriptor set is
+  // complete for non-attr kernels; setAttr overwrites the slots a kernel uses.
+  if (!ensureBuf(attrDummy_, 0, storage)) return false;
+  for (int i = 0; i < kMaxAttrBindings; i++) {
+    writeStorage(uint32_t(kAttrBase + i), attrDummy_);
+  }
   return true;
 }
 
@@ -574,6 +587,27 @@ bool BrushComputeDispatch::readbackVerts(const uint32_t *verts, int count,
       noOut[i * 3 + 2] = noSrc[v * 4 + 2];
     }
   }
+  return true;
+}
+
+bool BrushComputeDispatch::setAttr(uint32_t slot, const void *data, size_t byteSize)
+{
+  int idx = int(slot) - kAttrBase;
+  if (idx < 0 || idx >= kMaxAttrBindings) return false;
+  if (!ensureBuf(attrBuf_[idx], VkDeviceSize(byteSize),
+                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)) {
+    return false;
+  }
+  std::memcpy(attrBuf_[idx].mapped, data, byteSize);
+  writeStorage(slot, attrBuf_[idx]);
+  return true;
+}
+
+bool BrushComputeDispatch::readbackAttr(uint32_t slot, void *out, size_t byteSize)
+{
+  int idx = int(slot) - kAttrBase;
+  if (idx < 0 || idx >= kMaxAttrBindings || !attrBuf_[idx].mapped) return false;
+  std::memcpy(out, attrBuf_[idx].mapped, byteSize);
   return true;
 }
 

@@ -58,6 +58,28 @@ struct IBrushComputeDispatch {
    * are caller arrays of count*3 floats; either may be null. */
   virtual bool readbackVerts(const uint32_t *verts, int count, float *coOut,
                              float *noOut) = 0;
+
+  /* Upload a custom per-vertex attribute layer into the storage buffer at the
+   * given binding slot (>=14, assigned by the kernel's attr manifest in
+   * declaration order). `data` is `byteSize` bytes already in the kernel's GPU
+   * layout (e.g. tightly packed float4 for a color attr). Persists across dabs
+   * like co/no; call once per stroke after beginStroke. Default no-op for
+   * backends without attribute support (only the Vulkan path implements it). */
+  virtual bool setAttr(uint32_t slot, const void *data, size_t byteSize)
+  {
+    (void)slot;
+    (void)data;
+    (void)byteSize;
+    return false;
+  }
+  /* Read a custom attribute layer back (byteSize bytes). Default no-op. */
+  virtual bool readbackAttr(uint32_t slot, void *out, size_t byteSize)
+  {
+    (void)slot;
+    (void)out;
+    (void)byteSize;
+    return false;
+  }
 };
 
 } // namespace sculptcore::brush

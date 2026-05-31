@@ -1,0 +1,15 @@
+// Color paint — lerp a per-vertex color layer toward a target color by brush
+// strength*falloff (mask-gated). This is the boundary-conditions wave's bring-up
+// of DSL attribute writes (`attr vertex float4 color`); the brush-color uniform,
+// blend modes, and per-corner colors arrive in the paint-brush wave.
+@brush("color")
+brush Color {
+  attr vertex float4 color;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) { continue; }
+    float4 tcol = float4(1.0, 0.0, 0.0, 1.0);
+    v.color = v.color + (tcol - v.color) * s;
+  }
+}

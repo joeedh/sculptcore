@@ -104,4 +104,106 @@ private:
   sub_iterator end_iter;
   int _nodeIndex = 0;
 };
+
+// Per-face iteration for `face` stage kernels. Yields one bundle per face the
+// node owns (unique_faces), exposing the face index `f`, the area-agnostic
+// centroid `center` (used for the brush falloff test), and the face normal
+// `no`. Walking the face loop needs live topo links, so face-stage brushes run
+// with topology thawed (see CommandExecutor::brushNeedsLiveLinks).
+struct BasicFaceIter {
+  using sub_iterator = util::OrderedSet<int>::iterator;
+
+  static float3 computeCentroid(mesh::Mesh *m, int f)
+  {
+    float3 c(0.0f, 0.0f, 0.0f);
+    int n = 0;
+    int l = m->f.l[f];
+    while (l != -1) {
+      int start = m->l.c[l];
+      int corner = start;
+      if (corner != -1) {
+        do {
+          c += m->v.co[m->c.v[corner]];
+          n++;
+          corner = m->c.next[corner];
+        } while (corner != start && corner != -1);
+      }
+      l = m->l.next[l];
+    }
+    if (n > 0) c /= float(n);
+    return c;
+  }
+
+  struct FacePtr {
+    int f;
+    float3 center;
+    float3 &no;
+    int indexInNode = 0;
+    CommandExecutor &ctx;
+
+    FacePtr(int f_, float3 center_, float3 &no_, CommandExecutor &ctx_)
+        : f(f_), center(center_), no(no_), ctx(ctx_)
+    {
+    }
+    FacePtr(const FacePtr &b)
+        : f(b.f), center(b.center), no(b.no), indexInNode(b.indexInNode), ctx(b.ctx)
+    {
+    }
+  };
+
+  CommandExecutor &ctx;
+  FacePtr ptrs;
+  spatial::SpatialNode &node;
+
+  /** Note: do not create a face iter on a node with no faces. */
+  BasicFaceIter(spatial::SpatialNode &node, CommandExecutor &ctx)
+      : node(node), iter(node.data->unique_faces.begin()),
+        start_iter(node.data->unique_faces.begin()),
+        end_iter(node.data->unique_faces.end()),
+        ptrs(*node.data->unique_faces.begin(),
+             computeCentroid(node.data->m, *node.data->unique_faces.begin()),
+             node.data->m->f.no[*node.data->unique_faces.begin()],
+             ctx),
+        ctx(ctx)
+  {
+  }
+
+  BasicFaceIter(const BasicFaceIter &b)
+      : node(b.node), iter(b.iter), start_iter(b.start_iter), end_iter(b.end_iter),
+        _nodeIndex(b._nodeIndex), ptrs(b.ptrs), ctx(b.ctx)
+  {
+  }
+
+  BasicFaceIter(spatial::SpatialNode &node, sub_iterator iter, CommandExecutor &ctx)
+      : BasicFaceIter(node, ctx)
+  {
+    this->iter = iter;
+  }
+
+  bool operator==(const BasicFaceIter &b) { return iter == b.iter; }
+  bool operator!=(const BasicFaceIter &b) { return iter != b.iter; }
+  FacePtr &operator*() { return ptrs; }
+
+  BasicFaceIter &operator++()
+  {
+    ++iter;
+    if (iter != end_iter) {
+      auto *m = node.data->m;
+      int i = *iter;
+      ptrs.~FacePtr();
+      new (&ptrs) FacePtr(i, computeCentroid(m, i), m->f.no[i], ctx);
+      ptrs.indexInNode = _nodeIndex++;
+    }
+    return *this;
+  }
+
+  BasicFaceIter begin() { return BasicFaceIter(node, start_iter, ctx); }
+  BasicFaceIter end() { return BasicFaceIter(node, end_iter, ctx); }
+
+private:
+  sub_iterator iter;
+  sub_iterator start_iter;
+  sub_iterator end_iter;
+  int _nodeIndex = 0;
+};
 }; // namespace sculptcore::brush

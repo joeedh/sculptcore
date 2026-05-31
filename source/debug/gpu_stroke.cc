@@ -125,6 +125,7 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   case brush::SculptBrushes::SMOOTH: kernel_ = "smooth"; needsNeighbors_ = true; break;
   case brush::SculptBrushes::KELVINLET: kernel_ = "kelvinlet"; break;
   case brush::SculptBrushes::POSE: kernel_ = "pose"; break;
+  case brush::SculptBrushes::COLOR: kernel_ = "color"; writesColor_ = true; break;
   default:
     err = "stroke(wgsl): tool has no GPU kernel";
     return false;
@@ -242,6 +243,33 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
                               size_t(scene.brush.tex_width) * scene.brush.tex_height *
                                   sizeof(float)) +
                     "\"}";
+    }
+  }
+
+  // Custom attribute layer(s). COLOR paints a per-vertex float4 "color" attr at
+  // binding 14. Ensure + value-init (deterministic A/B start, matching the C++
+  // executor's resolve), then upload the current values; the kernel accumulates
+  // across dabs in the GPU buffer and we read it back in end().
+  if (writesColor_) {
+    mesh::AttrGroup &g = m->v.attrs;
+    bool existed = g.has(mesh::AttrType::FLOAT4, "color");
+    mesh::AttrRef cref = g.ensure(mesh::AttrType::FLOAT4, "color", /*materialize=*/true);
+    auto *cd = cref.get_data<litestl::math::float4>();
+    if (!existed) {
+      for (int i = 0; i < vcount_; i++) cd->set_default(i);
+    }
+    Vector<float> cbuf;
+    cbuf.resize(size_t(vcount_) * 4);
+    for (int i = 0; i < vcount_; i++) {
+      litestl::math::float4 c = (*cd)[i];
+      cbuf[i * 4 + 0] = c[0];
+      cbuf[i * 4 + 1] = c[1];
+      cbuf[i * 4 + 2] = c[2];
+      cbuf[i * 4 + 3] = c[3];
+    }
+    if (!disp_->setAttr(14, cbuf.data(), size_t(vcount_) * 4 * sizeof(float))) {
+      err = "stroke(wgsl): color attr upload failed";
+      return false;
     }
   }
 
@@ -788,6 +816,21 @@ void GpuStrokeSession::end(Scene &scene)
   if (writesMask_) {
     for (int i = 0; i < vcount_; i++) {
       scene.tree->treeMesh.v.mask[i] = maskOut[i];
+    }
+  }
+  // Read the painted color layer back into the mesh attr (binding 14).
+  if (writesColor_) {
+    mesh::AttrRef cref = m->v.attrs.find_attribute(mesh::AttrType::FLOAT4, "color");
+    if (cref.exists()) {
+      auto *cd = cref.get_data<litestl::math::float4>();
+      Vector<float> cbuf;
+      cbuf.resize(size_t(vcount_) * 4);
+      if (disp_->readbackAttr(14, cbuf.data(), size_t(vcount_) * 4 * sizeof(float))) {
+        for (int i = 0; i < vcount_; i++) {
+          (*cd)[i] = litestl::math::float4(cbuf[i * 4 + 0], cbuf[i * 4 + 1],
+                                           cbuf[i * 4 + 2], cbuf[i * 4 + 3]);
+        }
+      }
     }
   }
   for (auto *node : touched_) {

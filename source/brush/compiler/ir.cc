@@ -14,6 +14,7 @@ const char *typeKindName(TypeKind k)
   case TypeKind::Float3:  return "float3";
   case TypeKind::Float4:  return "float4";
   case TypeKind::Vertex:  return "Vertex";
+  case TypeKind::Face:    return "Face";
   case TypeKind::Struct:  return "<struct>";
   case TypeKind::Array:   return "<array>";
   case TypeKind::Unknown: return "<unknown>";
@@ -32,6 +33,7 @@ TypeKind parseTypeKind(litestl::util::stringref name)
   if (std::strcmp(s, "float3") == 0) return TypeKind::Float3;
   if (std::strcmp(s, "float4") == 0) return TypeKind::Float4;
   if (std::strcmp(s, "Vertex") == 0) return TypeKind::Vertex;
+  if (std::strcmp(s, "Face")   == 0) return TypeKind::Face;
   return TypeKind::Unknown;
 }
 

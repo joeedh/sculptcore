@@ -8,6 +8,8 @@
 #include "spatial/spatial.h"
 
 #include <cstdio>
+#include <cstring>
+#include <string>
 
 namespace sculptcore::debug_app::state_dump {
 
@@ -58,8 +60,65 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
   writeFloat3(f, mx);
   std::fputs(",\n", f);
   std::fprintf(f, "    \"co_sum\": [%.9g,%.9g,%.9g],\n", sx, sy, sz);
-  std::fprintf(f, "    \"co_sqsum\": %.9g\n", sq);
-  std::fputs("  }", f);
+  std::fprintf(f, "    \"co_sqsum\": %.9g", sq);
+
+  // Order-independent fingerprint of user float attribute layers (e.g. a paint
+  // brush's "color"). Skips builtins (positions/normals/select and any
+  // '.'-prefixed internal layer) so meshes with no user attrs dump byte-for-byte
+  // as before — keeping existing brush goldens stable.
+  std::string attrsJson;
+  for (mesh::AttrRef &a : m->v.attrs.attrs) {
+    const char *nm = a.name.c_str();
+    if (nm[0] == '.' || std::strcmp(nm, "positions") == 0 ||
+        std::strcmp(nm, "normals") == 0 || std::strcmp(nm, "select") == 0) {
+      continue;
+    }
+    int comps = 0;
+    switch (a.type) {
+    case mesh::AttrType::FLOAT:  comps = 1; break;
+    case mesh::AttrType::FLOAT2: comps = 2; break;
+    case mesh::AttrType::FLOAT3: comps = 3; break;
+    case mesh::AttrType::FLOAT4: comps = 4; break;
+    default: continue;
+    }
+    double sum = 0.0, sqs = 0.0;
+    for (int i = 0; i < m->v.count; i++) {
+      float c[4] = {0, 0, 0, 0};
+      switch (a.type) {
+      case mesh::AttrType::FLOAT:
+        c[0] = static_cast<mesh::AttrData<float> *>(a.data)->safe_get(i);
+        break;
+      case mesh::AttrType::FLOAT2: {
+        auto v = static_cast<mesh::AttrData<litestl::math::float2> *>(a.data)->safe_get(i);
+        c[0] = v[0]; c[1] = v[1];
+        break;
+      }
+      case mesh::AttrType::FLOAT3: {
+        auto v = static_cast<mesh::AttrData<float3> *>(a.data)->safe_get(i);
+        c[0] = v[0]; c[1] = v[1]; c[2] = v[2];
+        break;
+      }
+      case mesh::AttrType::FLOAT4: {
+        auto v = static_cast<mesh::AttrData<litestl::math::float4> *>(a.data)->safe_get(i);
+        c[0] = v[0]; c[1] = v[1]; c[2] = v[2]; c[3] = v[3];
+        break;
+      }
+      default: break;
+      }
+      for (int k = 0; k < comps; k++) {
+        sum += c[k];
+        sqs += double(c[k]) * c[k];
+      }
+    }
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%s\"%s\":{\"sum\":%.9g,\"sqsum\":%.9g}",
+                  attrsJson.empty() ? "" : ",", nm, sum, sqs);
+    attrsJson += buf;
+  }
+  if (!attrsJson.empty()) {
+    std::fprintf(f, ",\n    \"attrs\": {%s}", attrsJson.c_str());
+  }
+  std::fputs("\n  }", f);
 }
 
 void dumpSpatial(std::FILE *f, spatial::SpatialTree *tree, bool &first)

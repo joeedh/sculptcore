@@ -15,7 +15,9 @@ namespace {
 struct Emit {
   const Brush *brush;
   const Stage *vertexStage = nullptr;
+  const Stage *faceStage = nullptr;
   string vertexParamName;  // e.g. "v"
+  string faceParamName;    // e.g. "f"
 
   // Stage currently being lowered — drives stage-param identifier
   // resolution (so reduce-body `s` and vertex-body `v` route correctly).
@@ -37,6 +39,11 @@ struct Emit {
   bool gradUsed = false;
   // When rewriting a grad body, the float3 variable being differentiated.
   string gradVar;
+
+  // Element-bundle identifiers currently in scope (active for_neighbor
+  // bindings) — used together with the vertex param to recognize
+  // v.<attr>/nb.<attr> attribute access.
+  Vector<string> nbrBundles;
 
   void err(const char *msg)
   {
@@ -72,6 +79,35 @@ struct Emit {
       if (string(f.name).operator==(string(name.c_str()))) return &f;
     }
     return nullptr;
+  }
+
+  // Find a declared `attr` field by handle name (any domain).
+  const Field *findAttrField(stringref name) const
+  {
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr) continue;
+      if (string(f.name).operator==(string(name.c_str()))) return &f;
+    }
+    return nullptr;
+  }
+
+  // If `name` binds a per-element bundle (vertex-stage param, an active
+  // for_neighbor binding, or the face-stage param), set its index-field
+  // ("v"/"f") and the generated handle-local prefix and return true.
+  bool bundleInfo(stringref name, const char *&idxField, const char *&prefix) const
+  {
+    if (string(vertexParamName).operator==(string(name.c_str()))) {
+      idxField = "v"; prefix = "__attr_"; return true;
+    }
+    for (const auto &b : nbrBundles) {
+      if (string(b).operator==(string(name.c_str()))) {
+        idxField = "v"; prefix = "__attr_"; return true;
+      }
+    }
+    if (faceParamName.size() && string(faceParamName).operator==(string(name.c_str()))) {
+      idxField = "f"; prefix = "__fattr_"; return true;
+    }
+    return false;
   }
 
   // Resolve a dotted call name like "Rings.eval" to its texture def.
@@ -161,6 +197,23 @@ struct Emit {
       break;
     }
     case ExprKind::Member:
+      // Attribute access on an element bundle (v.<attr> / nb.<attr> / f.<attr>)
+      // lowers to an indexed read/write of the bound layer.
+      if (e.lhs->kind == ExprKind::Ident) {
+        const char *bidx = nullptr, *bprefix = nullptr;
+        if (bundleInfo(stringref(e.lhs->name.c_str()), bidx, bprefix) &&
+            findAttrField(stringref(e.name.c_str()))) {
+          out += "(*";
+          out += bprefix;
+          out += e.name;
+          out += ")[";
+          out += e.lhs->name;
+          out += ".";
+          out += bidx;
+          out += "]";
+          break;
+        }
+      }
       emitExpr(*e.lhs);
       out += ".";
       out += e.name;
@@ -478,11 +531,13 @@ struct Emit {
       // Body: emit either a Block (inline) or a single statement.
       int savedLocals = (int)locals.size();
       locals.append(s.name);
+      nbrBundles.append(s.name);
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
         for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
       } else if (s.thenBranch) {
         emitStmt(*s.thenBranch);
       }
+      nbrBundles.pop_back();
       while ((int)locals.size() > savedLocals) locals.pop_back();
       indent--;
       writeIndent(); out += "}\n";
@@ -509,6 +564,45 @@ struct Emit {
       r[i] = (char)std::tolower((unsigned char)r[i]);
     }
     return r;
+  }
+
+  // DSL attr type -> C++ element type. Used inside the vertex fn, which opens
+  // `using namespace litestl::math;`, so the bare vector names resolve.
+  static const char *attrCppType(TypeKind t)
+  {
+    switch (t) {
+    case TypeKind::Float:  return "float";
+    case TypeKind::Float2: return "float2";
+    case TypeKind::Float3: return "float3";
+    case TypeKind::Float4: return "float4";
+    case TypeKind::Int:    return "int";
+    default:               return "float";
+    }
+  }
+
+  // DSL attr type -> mesh::AttrType enum spelling (for the codegen manifest).
+  static const char *attrTypeEnum(TypeKind t)
+  {
+    switch (t) {
+    case TypeKind::Float:  return "sculptcore::mesh::AttrType::FLOAT";
+    case TypeKind::Float2: return "sculptcore::mesh::AttrType::FLOAT2";
+    case TypeKind::Float3: return "sculptcore::mesh::AttrType::FLOAT3";
+    case TypeKind::Float4: return "sculptcore::mesh::AttrType::FLOAT4";
+    case TypeKind::Int:    return "sculptcore::mesh::AttrType::INT";
+    case TypeKind::Bool:   return "sculptcore::mesh::AttrType::BOOL";
+    default:               return "sculptcore::mesh::AttrType::FLOAT";
+    }
+  }
+
+  static const char *attrDomainEnum(AttrDomain d)
+  {
+    switch (d) {
+    case AttrDomain::Vertex: return "sculptcore::brush::AttrElemDomain::Vertex";
+    case AttrDomain::Face:   return "sculptcore::brush::AttrElemDomain::Face";
+    case AttrDomain::Edge:   return "sculptcore::brush::AttrElemDomain::Edge";
+    case AttrDomain::Corner: return "sculptcore::brush::AttrElemDomain::Corner";
+    }
+    return "sculptcore::brush::AttrElemDomain::Vertex";
   }
 
   // Emit one host stage as a templated free function. Host runs once per
@@ -646,6 +740,54 @@ struct Emit {
   }
   bool brushUsesNeighbor() const { for (const auto &st : brush->stages) if (stmtUsesNeighbor(st.body.get())) return true; return false; }
 
+  // Emit a `face` stage as the brush's primary kernel: walk the node's faces
+  // (BasicFaceIter, which exposes f.center/f.no + bound face attrs) and run the
+  // DSL body. Face attribute writes don't move geometry, so the node is flagged
+  // for GPU re-upload only. Reduce/host/neighbor are not supported on the face
+  // stage yet (poly-group paint needs none).
+  void emitFaceKernel(const string &lowerName)
+  {
+    write("template <CommandTypes TYPES>\n");
+    write("static void ");
+    write(lowerName);
+    write("(CommandCtx<TYPES> &ctx)\n");
+    write("{\n");
+    write("  using namespace sculptcore::spatial;\n");
+    write("  using namespace litestl::math;\n");
+    write("  bool any_changed = false;\n");
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face) continue;
+      write("  auto *__fattr_");
+      write(f.name);
+      write(" = ctx.template boundAttr<");
+      write(attrCppType(f.type));
+      write(">(\"");
+      write(f.name);
+      write("\"); (void)__fattr_");
+      write(f.name);
+      write(";\n");
+    }
+    write("  for (auto &");
+    write(faceParamName);
+    write(" : ctx.faceIter(ctx.node)) {\n");
+    indent = 2;
+    currentStage = faceStage;
+    if (faceStage->body && faceStage->body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : faceStage->body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+    writeIndent();
+    write("any_changed = true;\n");
+    currentStage = nullptr;
+    indent = 0;
+    write("  }\n");
+    write("  if (any_changed) {\n");
+    write("    ctx.node.update(Spatial_UpdateGPU | Spatial_RegenBounds);\n");
+    write("  }\n");
+    write("}\n\n");
+  }
+
   void run()
   {
     string lowerName = lower(string(brush->attrName.size() > 0 ? brush->attrName : brush->cppName));
@@ -757,11 +899,15 @@ struct Emit {
       emitReduceStage(*st, lowerName);
     }
 
-    // vertex stage: walks node's verts running the DSL body.
-    if (!vertexStage) {
-      err("brush has no vertex stage");
+    // Primary stage: a vertex kernel (walks the node's verts) or — for face
+    // brushes like poly-group paint — a face kernel (walks the node's faces).
+    if (!vertexStage && !faceStage) {
+      err("brush has no vertex or face stage");
       return;
     }
+    if (faceStage && !vertexStage) {
+      emitFaceKernel(lowerName);
+    } else {
     if (vertexStage->params.size() < 1) {
       err("vertex stage must take at least one parameter (the Vertex bundle)");
     }
@@ -778,6 +924,23 @@ struct Emit {
     write("  using namespace sculptcore::spatial;\n");
     write("  using namespace litestl::math;\n");
     write("  bool any_moved = false;\n");
+
+    // Bound attribute handles (resolved per-dab in the executor). A handle is
+    // null only for an optional layer that was absent; write kernels declare
+    // their target attr so it's always present here.
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr) continue;
+      if (f.domain != AttrDomain::Vertex) continue;  // vertex stage: vertex attrs
+      write("  auto *__attr_");
+      write(f.name);
+      write(" = ctx.template boundAttr<");
+      write(attrCppType(f.type));
+      write(">(\"");
+      write(f.name);
+      write("\"); (void)__attr_");
+      write(f.name);
+      write(";\n");
+    }
 
     // Non-Vertex vertex params get declared as locals and seeded by the
     // matching reduce-stage output (matched by param name). The vertex
@@ -853,6 +1016,7 @@ struct Emit {
     write("    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds);\n");
     write("  }\n");
     write("}\n\n");
+    }  // end vertex/face primary-kernel branch
 
     // post-stage: empty for Wave 1.
     write("template <CommandTypes TYPES>\n");
@@ -900,6 +1064,19 @@ struct Emit {
     if (neighborLoopUsed) {
       write("  def.needsCoPrev = true;\n");
     }
+    // Declared attribute layers — resolved + bound per dab by the executor.
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr) continue;
+      write("  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{\"");
+      write(f.name);
+      write("\", \"");
+      write(f.boundName);
+      write("\", ");
+      write(attrTypeEnum(f.type));
+      write(", ");
+      write(attrDomainEnum(f.domain));
+      write(", true});\n");
+    }
     write("}\n\n");
 
     write("} // namespace sculptcore::brush::command\n");
@@ -915,10 +1092,18 @@ EmitResult emitCpp(const Brush &brush)
   for (const auto &st : brush.stages) {
     if (st.kind == StageKind::Vertex) { em.vertexStage = &st; break; }
   }
+  for (const auto &st : brush.stages) {
+    if (st.kind == StageKind::Face) { em.faceStage = &st; break; }
+  }
   if (em.vertexStage && em.vertexStage->params.size() > 0) {
     em.vertexParamName = em.vertexStage->params[0].name;
   } else {
     em.vertexParamName = string("v");
+  }
+  if (em.faceStage && em.faceStage->params.size() > 0) {
+    em.faceParamName = em.faceStage->params[0].name;
+  } else {
+    em.faceParamName = string("f");
   }
   em.run();
   EmitResult r;

@@ -88,6 +88,11 @@ struct BrushComputeDispatch : brush::IBrushComputeDispatch {
   bool readbackVerts(const uint32_t *verts, int count, float *coOut,
                      float *noOut) override;
 
+  /* Custom attribute layers (binding >=14): upload once after beginStroke,
+   * read back at end. byteSize bytes in the kernel's GPU layout. */
+  bool setAttr(uint32_t slot, const void *data, size_t byteSize) override;
+  bool readbackAttr(uint32_t slot, void *out, size_t byteSize) override;
+
   /* GPU-resident stroke path (debug app): the persistent stride-16 co/no
    * STORAGE buffers and the vertex count, so a sibling GpuNormalPass can
    * recompute normals and scatter into render VBOs with no CPU roundtrip.
@@ -145,6 +150,15 @@ private:
   Buf brushU_, ctxU_;             // bindings 5,6
   Buf falloff_, stroke_;          // bindings 7,10
   Buf coPrev_, nbrMeta_, nbrVerts_;  // bindings 11,12,13 (neighbor kernels)
+
+  /* Custom DSL attribute layers. The descriptor layout always declares a
+   * superset of attr slots (kAttrBase..kAttrBase+kMaxAttrBindings-1) so one
+   * pipeline layout serves attr and non-attr kernels; unused slots bind to
+   * attrDummy_. setAttr fills the used ones, persistent across dabs. */
+  static constexpr int kAttrBase = 14;
+  static constexpr int kMaxAttrBindings = 8;
+  Buf attrDummy_;
+  Buf attrBuf_[kMaxAttrBindings];
 };
 
 } // namespace sculptcore::vulkan

@@ -19,6 +19,9 @@ set(SRC
   PUBLIC mesh_topo_cache.h
   PUBLIC mesh_serialize.h
   PUBLIC mesh_shapes.h
+  PUBLIC boundary.h
+  PUBLIC mesh_path.h
+  PUBLIC uvgen.h
   PUBLIC idmap.h
   PUBLIC bindings.h
   PUBLIC gpu/mesh_drawbatch.h
@@ -27,6 +30,9 @@ set(SRC
   c-api/mesh_c_api.h
   c-api/mesh_c_api.cc
   attribute.cc
+  boundary.cc
+  mesh_path.cc
+  uvgen.cc
   idmap.cc
   mesh.cc
   mesh_topo_cache.cc

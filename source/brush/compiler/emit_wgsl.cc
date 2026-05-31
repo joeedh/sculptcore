@@ -250,6 +250,16 @@ struct Emit {
           out += "no_buf["; out += nb->idxVar; out += "]";
         } else if (std::strcmp(e.name.c_str(), "v") == 0) {
           out += nb->idxVar;
+        } else if (const Field *af = findField(stringref(e.name.c_str()));
+                   af && af->kind == FieldKind::Attr) {
+          // Neighbor attribute read (e.g. nb.color / nb.vclass): index the
+          // bound storage buffer directly at the neighbor's vertex index,
+          // matching the CPU lowering (*__attr_<name>)[nb.v].
+          out += "attr_";
+          out += e.name;
+          out += "[";
+          out += nb->idxVar;
+          out += "]";
         } else {
           errf("neighbor bundle has no member '%s'", e.name.c_str());
           out += "/*bad-neighbor-member*/";
@@ -768,6 +778,25 @@ struct Emit {
       write("@group(0) @binding(12) var<storage, read>      vert_nbr_meta: array<vec2<u32>>;\n");
       write("@group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;\n");
     }
+    // Custom DSL attribute layers — one read_write storage buffer each, at
+    // fixed slots >=14 so they never collide with the neighbor bindings
+    // (11-13). The host dispatcher binds these from the kernel's attr manifest
+    // in this same declaration order.
+    {
+      int slot = 14;
+      for (const auto &f : brush->fields) {
+        if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex) continue;
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%d", slot++);
+        write("@group(0) @binding(");
+        write(buf);
+        write(") var<storage, read_write> attr_");
+        write(f.name);
+        write(": array<");
+        write(wgslType(f.type));
+        write(">;\n");
+      }
+    }
     write("\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
@@ -993,7 +1022,9 @@ struct Emit {
   void run()
   {
     if (!vertexStage) {
-      err("brush has no vertex stage");
+      // Face/non-vertex stages have no GPU dispatch yet; emit a valid stub so
+      // tint validation passes (the CPU executor runs these brushes).
+      emitSkipStub("non-vertex (e.g. face) stage: GPU dispatch not yet implemented");
       return;
     }
     if (vertexStage->params.size() < 1) {
@@ -1064,6 +1095,18 @@ struct Emit {
     write("  var ");
     write(vertexParamName); write("_mask: f32 = mask_buf[sb_vidx];\n");
 
+    // Seed a mutable local for each vertex attribute from its storage buffer;
+    // member access (v.<attr>) routes to these (<param>_<attr>), and they're
+    // written back after the body.
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex) continue;
+      write("  var ");
+      write(vertexParamName); write("_"); write(f.name);
+      write(": ");
+      write(wgslType(f.type));
+      write(" = attr_"); write(f.name); write("[sb_vidx];\n");
+    }
+
     // Declare locals for the vertex stage's extra params (struct or
     // scalar) and call each reduce stage on them. The naive per-thread
     // reduce matches the C++ executor's one-per-node call: both pay
@@ -1127,6 +1170,11 @@ struct Emit {
     write(vertexParamName); write("_no;\n");
     write("  mask_buf[sb_vidx] = ");
     write(vertexParamName); write("_mask;\n");
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex) continue;
+      write("  attr_"); write(f.name); write("[sb_vidx] = ");
+      write(vertexParamName); write("_"); write(f.name); write(";\n");
+    }
     write("}\n");
   }
 };

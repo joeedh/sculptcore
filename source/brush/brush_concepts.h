@@ -26,9 +26,17 @@ concept VertexIterFactory = requires(T factory) {
 };
 
 template <typename T>
+concept FaceIter = requires(T fi) {
+  { fi.center } -> std::convertible_to<float3>;
+  { fi.no } -> std::convertible_to<float3>;
+  { fi.f } -> std::same_as<int>;
+};
+
+template <typename T>
 concept CommandTypes = requires() {
   VertexIter<typename T::vertex_iter>;
   VertexIterFactory<typename T::vertex_iter_factory, typename T::vertex_iter_factory>;
+  FaceIter<typename T::face_iter>;
 };
 
 template <CommandTypes TYPES> struct CommandCtx;

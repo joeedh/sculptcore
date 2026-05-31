@@ -25,6 +25,7 @@ enum class TypeKind : int {
   Float3,
   Float4,
   Vertex, // special: parameter type of vertex stage
+  Face,   // special: parameter type of face stage
   Struct, // user-defined struct; resolve by Param/Field/Local.structName
   Array,  // fixed-size Array<elem, N>; carrier uses arrayElem/arraySize
   Unknown,
@@ -147,6 +148,7 @@ enum class StageKind : int {
   Vertex,
   Reduce,  // Wave 4
   Host,    // Wave 4
+  Face,    // per-face stage (boundary-conditions wave)
 };
 
 enum class ParamDir : int {
@@ -174,6 +176,15 @@ struct Stage {
 enum class FieldKind : int {
   Uniform,
   Ctx,
+  Attr,    // typed mesh attribute, bound to a layer by name at runtime
+};
+
+// Which mesh element domain an `attr` field lives on.
+enum class AttrDomain : int {
+  Vertex,
+  Face,
+  Edge,
+  Corner,
 };
 
 struct Field {
@@ -183,6 +194,12 @@ struct Field {
   TypeKind arrayElem = TypeKind::Unknown;
   int arraySize = 0;
   string name;
+  // FieldKind::Attr only: which element domain the attribute lives on, and an
+  // optional fixed layer name (`attr vertex float4 color = "Col";`). When
+  // boundName is empty the runtime binds the layer named by the handle (`name`)
+  // via the Brush attrBindings map.
+  AttrDomain domain = AttrDomain::Vertex;
+  string boundName;
 };
 
 struct StructField {

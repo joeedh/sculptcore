@@ -108,11 +108,14 @@ struct Parser {
     while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
       if (check(TokKind::KwUniform) || check(TokKind::KwCtx)) {
         parseField(*brush);
+      } else if (check(TokKind::KwAttr)) {
+        parseAttrField(*brush);
       } else if (check(TokKind::KwStruct)) {
         parseStruct(*brush);
       } else if (check(TokKind::KwTexture)) {
         parseTexture(*brush);
-      } else if (check(TokKind::KwVertex) || check(TokKind::KwReduce) || check(TokKind::KwHost)) {
+      } else if (check(TokKind::KwVertex) || check(TokKind::KwReduce) ||
+                 check(TokKind::KwHost) || check(TokKind::KwFace)) {
         parseStage(*brush);
       } else {
         errorf(peek(), "unexpected token '%s' in brush body", tokKindName(peek().kind));
@@ -172,6 +175,43 @@ struct Parser {
       if (!match(TokKind::Comma)) break;
     }
     expect(TokKind::Semicolon, "after field declaration");
+  }
+
+  // attr <domain> <type> <name> [= "layerName"] ;
+  // A typed mesh attribute bound to a layer at runtime. <domain> is one of
+  // vertex/face/edge/corner; the optional string fixes the mesh-layer name
+  // (otherwise the handle name is bound via Brush::attrBindings).
+  void parseAttrField(Brush &brush)
+  {
+    advance(); // 'attr'
+    Field f;
+    f.kind = FieldKind::Attr;
+    if (match(TokKind::KwVertex)) f.domain = AttrDomain::Vertex;
+    else if (match(TokKind::KwFace)) f.domain = AttrDomain::Face;
+    else if (match(TokKind::KwEdge)) f.domain = AttrDomain::Edge;
+    else if (match(TokKind::KwCorner)) f.domain = AttrDomain::Corner;
+    else {
+      error("expected attribute domain (vertex/face/edge/corner) after 'attr'", peek());
+      return;
+    }
+
+    if (!check(TokKind::Ident)) { error("expected type in attr declaration", peek()); return; }
+    f.type = parseTypeKind(stringref(peek().text.c_str()));
+    if (f.type == TypeKind::Unknown) {
+      errorf(peek(), "unknown type '%s' in attr declaration", peek().text.c_str());
+    }
+    advance();
+
+    if (!check(TokKind::Ident)) { error("expected attr name", peek()); return; }
+    f.name = peek().text;
+    advance();
+
+    if (match(TokKind::Assign)) {
+      if (check(TokKind::StringLit)) { f.boundName = peek().text; advance(); }
+      else error("expected string layer name after '=' in attr declaration", peek());
+    }
+    expect(TokKind::Semicolon, "after attr declaration");
+    brush.fields.append(f);
   }
 
   // texture <Name> { <retType> eval(<params>) { body } }
@@ -271,6 +311,7 @@ struct Parser {
     Stage st;
     if (match(TokKind::KwVertex)) st.kind = StageKind::Vertex;
     else if (match(TokKind::KwReduce)) st.kind = StageKind::Reduce;
+    else if (match(TokKind::KwFace)) st.kind = StageKind::Face;
     else { advance(); st.kind = StageKind::Host; }
 
     if (!check(TokKind::Ident)) { error("expected return type in stage declaration", peek()); return; }
