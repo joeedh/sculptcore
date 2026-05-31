@@ -30,5 +30,7 @@ export interface Mesh {
   setAttrUse(domain: int32, index: int32, use: int32): void
   addAttr(domain: int32, type: int32, use: int32): int32
   removeAttr(domain: int32, index: int32): void
+  detachAttr(domain: int32, index: int32): int32
+  reattachAttr(stashId: int32): int32
   new (): Mesh
 }

@@ -24,10 +24,41 @@
 using namespace litestl;
 namespace sculptcore::mesh {
 
+/* A detached attribute layer parked by detachAttr() for undo. Holds the live
+ * AttrRef (including its AttrData pointer) out of the element group without
+ * freeing it; reattachAttr() moves it back. `ref.data == nullptr` marks an
+ * entry whose data has been reattached (the group owns it again). */
+struct StashedAttr {
+  AttrRef ref;
+  int domain = 0;
+};
+
 struct Mesh : public MeshBase {
   Mesh()
   {
   }
+
+  /* Free any still-detached (un-reattached) stash entries' AttrData — they are
+   * not in any element group, so nothing else frees them. Reattached entries
+   * have ref.data nulled (the group owns them) and are skipped. */
+  ~Mesh()
+  {
+    for (StashedAttr &st : attrStash) {
+      if (!st.ref.data) {
+        continue;
+      }
+      detail::type_dispatch(st.ref.type, [&]<typename T>() {
+        if constexpr (std::is_same_v<T, bool>) {
+          alloc::Delete(static_cast<BoolAttrView *>(st.ref.data));
+        } else {
+          alloc::Delete(static_cast<AttrData<T> *>(st.ref.data));
+        }
+      });
+    }
+  }
+
+  /* Detached-attr stash for undoable removes (see detachAttr/reattachAttr). */
+  util::Vector<StashedAttr> attrStash;
 
   /* Monotonic topology-edit counter. Bumped by every primitive topology
    * mutator (the make_, kill_ and reorder_ families); MeshTopoCache keys its
@@ -72,6 +103,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
     BIND_STRUCT_METHOD(st, addAttr, MARGS("domain", "type", "use"));
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
+    BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
+    BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -186,6 +219,55 @@ struct Mesh : public MeshBase {
       return;
     }
     grp->remove_attr(index);
+  }
+
+  /* Detach the layer at `index` into the stash WITHOUT freeing its data, and
+   * return a stash id (reattachAttr undoes it). Unlike removeAttr this preserves
+   * the AttrData so a remove can be undone with its contents intact — the
+   * undoable-remove path uses this instead of mesh serialization (which is the
+   * heavyweight, and currently broken-on-custom-layers, alternative). Refuses
+   * builtins and bool layers (the latter live in packed storage). -1 on error. */
+  int detachAttr(int domain, int index)
+  {
+    AttrGroup *grp = attrGroupForDomainFlag(domain);
+    if (!grp || index < 0 || index >= int(grp->attrs.size())) {
+      return -1;
+    }
+    const string &nm = grp->attrs[index].name;
+    if (nm.size() > 0 && (nm[0] == '.' || nm == string("positions") ||
+                          nm == string("normals") || nm == string("select"))) {
+      return -1;
+    }
+    if (grp->attrs[index].type == AttrType::BOOL) {
+      return -1;
+    }
+    StashedAttr st;
+    st.ref = grp->attrs[index]; // copies the AttrRef, including its data pointer
+    st.domain = domain;
+    // Drop the slot without freeing data — the stash now owns the AttrData.
+    grp->attrs.remove_at(index, /*swap_end_only=*/false);
+    attrStash.append(st);
+    return int(attrStash.size()) - 1;
+  }
+
+  /* Move a stashed layer back into its element group (undo of detachAttr).
+   * Returns the new index, or -1 if the id is invalid / already reattached. */
+  int reattachAttr(int stashId)
+  {
+    if (stashId < 0 || stashId >= int(attrStash.size())) {
+      return -1;
+    }
+    StashedAttr &st = attrStash[stashId];
+    if (!st.ref.data) {
+      return -1; // already reattached
+    }
+    AttrGroup *grp = attrGroupForDomainFlag(st.domain);
+    if (!grp) {
+      return -1;
+    }
+    grp->attrs.append(st.ref);
+    st.ref.data = nullptr; // the group owns the AttrData again
+    return int(grp->attrs.size()) - 1;
   }
 
   /* Poly-group id of a face (the "group" int attr the polygroup brush writes).
