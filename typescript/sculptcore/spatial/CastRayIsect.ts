@@ -26,5 +26,6 @@ export interface CastRayIsect {
   uv: float2
   triIndex: int32
   nodeIndex: int32
+  faceIndex: int32
   new (): CastRayIsect
 }

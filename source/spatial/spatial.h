@@ -131,6 +131,8 @@ struct SpatialTree {
       NodeTri &tri = node->data->tris[out.triIndex];
       auto *m = node->data->m;
 
+      out.faceIndex = tri.f;
+
       float w = 1.0 - out.uv[0] - out.uv[1];
 
       // calculate position/normal

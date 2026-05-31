@@ -66,8 +66,48 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_MEMBER(st, v);
     BIND_STRUCT_MEMBER(st, e);
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
+    BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
+    BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
+  }
+
+  /* Poly-group id of a face (the "group" int attr the polygroup brush writes).
+   * 0 = unassigned / attr absent / out of range. Int-only signature so it
+   * marshals across both the WASM and native binding backends (string params
+   * don't marshal). Used by the polygroup brush's shift-to-extend sampling. */
+  int faceGroup(int face)
+  {
+    if (face < 0 || face >= f.count) {
+      return 0;
+    }
+    if (!f.attrs.has(AttrType::INT, "group")) {
+      return 0;
+    }
+    AttrData<int> *data = f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+    return data ? (*data)[face] : 0;
+  }
+
+  /* Largest poly-group id assigned to any face (0 if none). The paint layer
+   * allocates a fresh group as maxFaceGroup()+1, so each new stroke gets an
+   * incrementing id without storing a counter (survives reload). */
+  int maxFaceGroup()
+  {
+    if (!f.attrs.has(AttrType::INT, "group")) {
+      return 0;
+    }
+    AttrData<int> *data = f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+    if (!data) {
+      return 0;
+    }
+    int mx = 0;
+    for (int i = 0; i < f.count; i++) {
+      int g = (*data)[i];
+      if (g > mx) {
+        mx = g;
+      }
+    }
+    return mx;
   }
 
   void calcAABB(math::float3 &min, math::float3 &max)

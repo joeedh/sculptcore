@@ -16,6 +16,9 @@ struct CastRayIsect {
   float2 uv;
   int triIndex;
   int nodeIndex;
+  // Mesh face index of the hit triangle (tri.f). -1 if no hit; lets callers map
+  // a ray hit back to a face attr (e.g. poly-group shift-to-extend sampling).
+  int faceIndex = -1;
 
   CastRayIsect() = default;
   CastRayIsect(const CastRayIsect &b) = default;
@@ -36,6 +39,7 @@ struct CastRayIsect {
     BIND_STRUCT_MEMBER(st, uv);
     BIND_STRUCT_MEMBER(st, triIndex);
     BIND_STRUCT_MEMBER(st, nodeIndex);
+    BIND_STRUCT_MEMBER(st, faceIndex);
 
     return st;
   }

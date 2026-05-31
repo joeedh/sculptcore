@@ -6,8 +6,12 @@
 @brush("polygroup")
 brush PolyGroup {
   attr face int group;
+  // Active group id, set host-side per stroke: a fresh incremented id for a
+  // new group, or a sampled existing id when extending (shift). Read as
+  // ctx.brush.activeGroup.
+  uniform int activeGroup;
 
   face void apply(inout Face f) {
-    if (strength(f.center) > 0.0) { f.group = 7; }
+    if (strength(f.center) > 0.0) { f.group = activeGroup; }
   }
 }

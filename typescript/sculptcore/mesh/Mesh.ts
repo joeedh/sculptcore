@@ -23,5 +23,7 @@ export interface Mesh {
   v: VertexData
   e: EdgeData
   recalc_normals(): void
+  faceGroup(face: int32): int32
+  maxFaceGroup(): int32
   new (): Mesh
 }

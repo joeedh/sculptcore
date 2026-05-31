@@ -154,6 +154,11 @@ struct Brush {
   float3 wingNormalA{0, 0, 1};
   float3 wingNormalB{0, 0, 1};
 
+  // Poly-group paint: the group id the polygroup kernel writes to faces under
+  // the brush this stroke (read as the `activeGroup` uniform). Set host-side
+  // per stroke; a plain member loadProps leaves untouched.
+  int activeGroup = 1;
+
   // Brush texture (grayscale, row-major, `tex_width * tex_height` floats).
   // Empty means "no texture": `sampleTexBilinear` returns 1.0 so a kernel
   // multiplying by the sample is a no-op. `coord_space` maps a sample point
@@ -227,6 +232,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, wingAngle);
     BIND_STRUCT_MEMBER(st, wingNormalA);
     BIND_STRUCT_MEMBER(st, wingNormalB);
+    BIND_STRUCT_MEMBER(st, activeGroup);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());

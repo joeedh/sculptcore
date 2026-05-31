@@ -37,6 +37,7 @@ export interface Brush {
   wingAngle: float
   wingNormalA: float3
   wingNormalB: float3
+  activeGroup: int32
   props: StructProp
   loadProps(): void
   writeProps(): void
