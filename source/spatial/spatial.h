@@ -38,10 +38,11 @@ struct SpatialTree {
    * iteration while GPU draws are batched. */
   int gpu_tri_target = 2048;
 
-  /* Which attribute feeds the per-vertex `gd.color` render stream:
-   * 0 = vertex `color` attr (white default), 1 = per-face `group` id (hashed).
-   * Set via setColorDisplayMode(), which re-fills every GPU node's color. */
-  int displayColorMode = 0;
+  /* Bitmask of attributes feeding the per-vertex `gd.color` render stream:
+   * bit 0 (1) = vertex `color` attr, bit 1 (2) = per-face `group` id (hashed).
+   * Both bits composite; 0 = plain white. Set via setColorDisplayMode(), which
+   * re-fills every GPU node's color. */
+  int displayColorMode = 1;
 
   SpatialTreeMesh treeMesh;
   bool done_gpu_assignment = false;

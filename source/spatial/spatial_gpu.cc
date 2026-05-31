@@ -53,26 +53,31 @@ static float4 polyGroupColor(int group)
 
 /* Write one leaf's tris into the given pos/nor/col pointers (already offset to
  * the leaf's slice). Mirrors the per-tri body of the old per-leaf gpu
- * buffer fill. The color source depends on displayColorMode. */
+ * buffer fill. The color source depends on displayColorMode, a bitmask:
+ *   bit 0 (1) = vertex `color` attr, bit 1 (2) = per-face `group` id (hashed).
+ * Both bits set composites them (painted color modulated by the group color).
+ * Neither set renders plain white. */
 void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, float4 *col)
 {
   const bool smooth_shading = false;
   Mesh *m = this->m;
   auto &tris = leaf->data->tris;
 
-  /* Resolve the color source for the active display mode. Both layers are
-   * created lazily by the paint brushes; until then we default to white (mode
-   * 0) / grey group-0 (mode 1). Once a layer exists the executor has
+  const bool show_vcol = (displayColorMode & 1) != 0;
+  const bool show_group = (displayColorMode & 2) != 0;
+
+  /* Resolve the color source(s) for the active display mode. Both layers are
+   * created lazily by the paint brushes; until then vertex color defaults to
+   * white and group to grey (group 0). Once a layer exists the executor has
    * materialized it mesh-wide, so operator[] is safe for any element. */
   AttrData<float4> *cdata = nullptr;
   AttrData<int> *gdata = nullptr;
   if (col) {
-    if (displayColorMode == 1) {
-      if (m->f.attrs.has(AttrType::INT, "group")) {
-        gdata = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
-      }
-    } else if (m->v.attrs.has(AttrType::FLOAT4, "color")) {
+    if (show_vcol && m->v.attrs.has(AttrType::FLOAT4, "color")) {
       cdata = m->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    }
+    if (show_group && m->f.attrs.has(AttrType::INT, "group")) {
+      gdata = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
     }
   }
 
@@ -85,9 +90,9 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
       no = m->f.no[tri.f];
     }
 
-    /* Per-face color (poly-group mode): same for all 3 corners of the tri. */
+    /* Per-face group color (same for all 3 corners of the tri). */
     float4 fgcol;
-    if (col && displayColorMode == 1) {
+    if (col && show_group) {
       fgcol = polyGroupColor(gdata ? (*gdata)[tri.f] : 0);
     }
 
@@ -98,17 +103,22 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
       pos[vert_i] = m->v.co[v];
       nor[vert_i] = smooth_shading ? m->v.no[v] : no;
       if (col) {
-        if (displayColorMode == 1) {
-          col[vert_i] = fgcol;
-        } else {
+        // Start from white; layer each enabled source on top.
+        float4 out(1.0f, 1.0f, 1.0f, 1.0f);
+        if (show_vcol) {
           // The paint brush stores premultiplied RGBA and leaves unpainted
           // verts at (0,0,0,0). Composite over an opaque white base so
-          // unpainted reads white (not transparent black) and the surface
-          // always renders opaque.
-          float4 c = cdata ? (*cdata)[v] : float4(1.0f, 1.0f, 1.0f, 1.0f);
-          float inv = 1.0f - c[3];
-          col[vert_i] = float4(c[0] + inv, c[1] + inv, c[2] + inv, 1.0f);
+          // unpainted reads white (not transparent black).
+          float4 cc = cdata ? (*cdata)[v] : float4(1.0f, 1.0f, 1.0f, 1.0f);
+          float inv = 1.0f - cc[3];
+          out = float4(cc[0] + inv, cc[1] + inv, cc[2] + inv, 1.0f);
         }
+        if (show_group) {
+          // Modulate by the group color (so both-on shows painted color
+          // tinted per group; group-only shows the flat group color).
+          out = float4(out[0] * fgcol[0], out[1] * fgcol[1], out[2] * fgcol[2], 1.0f);
+        }
+        col[vert_i] = out;
       }
     }
   }
