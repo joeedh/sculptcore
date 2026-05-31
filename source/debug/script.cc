@@ -313,6 +313,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::COLOR;
     } else if (ts == "polygroup") {
       scene.currentTool = brush::SculptBrushes::POLYGROUP;
+    } else if (ts == "bsmooth") {
+      scene.currentTool = brush::SculptBrushes::BSMOOTH;
     } else {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;

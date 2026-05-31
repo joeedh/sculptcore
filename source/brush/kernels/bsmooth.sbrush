@@ -1,0 +1,40 @@
+// Boundary-aware smooth (boundary.md). A boundary vertex — one whose lazily
+// recomputed .boundary.vert.class bitmask is non-zero — averages only the
+// neighbors that share a boundary type with it, and its displacement is
+// projected into the surface tangent plane so the boundary stays put. Interior
+// verts (class 0) smooth normally, so this reduces to plain Laplacian smoothing
+// when no boundaries are marked.
+//
+// Consumers must run boundary::recomputeDirty before the stroke so vclass is
+// current. Slide UV reprojection and the single-projected-edge exception are
+// follow-ups; GPU dispatch of the vclass attr is wired separately (CPU for now).
+@brush("bsmooth")
+brush BSmooth {
+  attr vertex int vclass = ".boundary.vert.class";
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) { continue; }
+    int vc = v.vclass;
+    float3 avg = float3(0.0, 0.0, 0.0);
+    float n = 0.0;
+    for_neighbor (nb in v) {
+      // Skip neighbors that share no boundary type with a boundary vert by
+      // weighting them 0 — `continue` inside for_neighbor skips the whole
+      // vertex on the WGSL backend, so it can't be used to skip one neighbor.
+      float w = 1.0;
+      if (vc != 0) {
+        if ((vc & nb.vclass) == 0) { w = 0.0; }
+      }
+      avg = avg + nb.co * w;
+      n = n + w;
+    }
+    if (n > 0.0) {
+      float3 disp = (avg / n - v.co) * s;
+      if (vc != 0) {
+        disp = disp - v.no * dot(disp, v.no);
+      }
+      v.co = v.co + disp;
+    }
+  }
+}

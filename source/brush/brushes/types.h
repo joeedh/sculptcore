@@ -20,6 +20,7 @@ enum class _SculptBrushes {
   WINGSCRAPE = 12,
   COLOR = 13,
   POLYGROUP = 14,
+  BSMOOTH = 15,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -44,6 +45,7 @@ template <std::same_as<sculptcore::brush::SculptBrushes> T> static const types::
   e->addItem("WINGSCRAPE", SculptBrushes::WINGSCRAPE);
   e->addItem("COLOR", SculptBrushes::COLOR);
   e->addItem("POLYGROUP", SculptBrushes::POLYGROUP);
+  e->addItem("BSMOOTH", SculptBrushes::BSMOOTH);
   return e;
 }
 } // namespace litestl::binding

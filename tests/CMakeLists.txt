@@ -30,6 +30,7 @@ test(test_binding.cc "binding_generators")
 test(test_debug_script.cc "debug_core")
 test(test_live_stroke.cc "debug_core")
 test(test_brush_attr.cc "debug_core")
+test(test_bsmooth.cc "debug_core")
 test(test_uniform_link.cc "gpu")
 test(test_webgpu_render.cc "webgpu;spatial;mesh;gpu")
 # wgpu-native ships as a DLL — copy it next to the test exe so it loads at run.

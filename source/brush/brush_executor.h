@@ -215,6 +215,13 @@ struct CommandExecutor {
     case SculptBrushes::POLYGROUP:
       command::createPolygroupBrush(def);
       return def;
+    case SculptBrushes::BSMOOTH:
+      if (neighborMode == NeighborMode::Csr) {
+        command::createBsmoothBrush<CommandExecutor, CsrNbr>(def);
+      } else {
+        command::createBsmoothBrush(def);
+      }
+      return def;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
@@ -326,7 +333,8 @@ struct CommandExecutor {
   bool brushNeedsLiveLinks(SculptBrushes brushType) const
   {
     // Face-stage brushes walk the face loop (live links) to compute centroids.
-    return (brushType == SculptBrushes::SMOOTH && neighborMode != NeighborMode::Csr) ||
+    return ((brushType == SculptBrushes::SMOOTH || brushType == SculptBrushes::BSMOOTH) &&
+            neighborMode != NeighborMode::Csr) ||
            brushType == SculptBrushes::POLYGROUP;
   }
 
