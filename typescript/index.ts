@@ -48,6 +48,7 @@ import type {AABB} from './litestl/math/AABB'
 import type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
 import type {float3} from './litestl/math/float3'
 import type {AttrPage} from './sculptcore/mesh/AttrPage'
+import type {FaceData} from './sculptcore/mesh/FaceData'
 
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
 export type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
@@ -82,6 +83,7 @@ export type {AABB} from './litestl/math/AABB'
 export type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
 export type {float3} from './litestl/math/float3'
 export type {AttrPage} from './sculptcore/mesh/AttrPage'
+export type {FaceData} from './sculptcore/mesh/FaceData'
 
 /** Note: Does not include templates */
 export type AllBoundTypes = {
@@ -93,6 +95,10 @@ export type AllBoundTypes = {
   'sculptcore::gpu::DrawPipeline': DrawPipeline
   'sculptcore::spatial::SpatialNode': SpatialNode
   'sculptcore::brush::BrushProgram': BrushProgram
+  'sculptcore::mesh::BuiltinAttr<litestl::math::float3,.face.normal>': BuiltinAttr<
+    float3,
+    '.face.normal'
+  >
   'sculptcore::mesh::BuiltinAttr<boolean,select>': BuiltinAttr<
     boolean,
     'select'
@@ -103,12 +109,20 @@ export type AllBoundTypes = {
   'sculptcore::mesh::AttrRef': AttrRef
   'sculptcore::gpu::UniformBlockInstance': UniformBlockInstance
   'sculptcore::mesh::VertexData': VertexData
+  'sculptcore::mesh::BuiltinAttr<int16,.face.list_count>': BuiltinAttr<
+    int16,
+    '.face.list_count'
+  >
   'sculptcore::spatial::SpatialTree': SpatialTree
   'sculptcore::gpu::UniformBlockDef': UniformBlockDef
   'sculptcore::props::StructProp': StructProp
   'litestl::math::int2': int2
   'sculptcore::brush::CommandExecutor': CommandExecutor
   'sculptcore::brush::Brush': Brush
+  'sculptcore::mesh::BuiltinAttr<int32,.face.list>': BuiltinAttr<
+    int32,
+    '.face.list'
+  >
   'sculptcore::gpu::AttrDef': AttrDef
   'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
     int2,
@@ -130,6 +144,7 @@ export type AllBoundTypes = {
     float3,
     'positions'
   >
+  'sculptcore::mesh::FaceData': FaceData
   'sculptcore::gpu::ShaderDef': ShaderDef
   'sculptcore::mesh::EdgeData': EdgeData
   'sculptcore::spatial::SpatialShaders': SpatialShaders

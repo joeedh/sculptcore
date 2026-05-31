@@ -1,4 +1,8 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {AttrGroup} from './AttrGroup'
+import type {float3} from '../../litestl/math/float3'
+import type {BuiltinAttr} from './BuiltinAttr'
+
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -15,10 +19,13 @@ type uint64 = number
 type float = number
 type double = number
 
-export enum AttrUse {
-  None = 0,
-  Unit = 1,
-  Color = 2,
-  UV = 4,
-  PolyGroup = 8,
+export interface FaceData {
+  [Symbol.dispose](): void
+  attrs: AttrGroup
+  capacity_: int32
+  list_count: BuiltinAttr<int16, '.face.list_count'>
+  l: BuiltinAttr<int32, '.face.list'>
+  no: BuiltinAttr<float3, '.face.normal'>
+  alloc(count: int32, clear: boolean): void
+  alloc(): int32
 }

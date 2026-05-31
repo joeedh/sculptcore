@@ -65,6 +65,7 @@ struct Mesh : public MeshBase {
     Struct<Mesh> *st = new Struct<Mesh>("sculptcore::mesh::Mesh", sizeof(Mesh));
     BIND_STRUCT_MEMBER(st, v);
     BIND_STRUCT_MEMBER(st, e);
+    BIND_STRUCT_MEMBER(st, f);
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());

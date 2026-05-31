@@ -184,6 +184,17 @@ struct FaceData : public ElemData {
   using int4 = math::int4;
   using float3 = math::float3;
 
+  static binding::types::Struct<FaceData> *defineBindings()
+  {
+    using binding::types::Struct;
+    Struct<FaceData> *st = new Struct<FaceData>("sculptcore::mesh::FaceData", sizeof(FaceData));
+    st->inherit(ElemData::defineBindings());
+    BIND_STRUCT_MEMBER(st, list_count);
+    BIND_STRUCT_MEMBER(st, l);
+    BIND_STRUCT_MEMBER(st, no);
+    return st;
+  }
+
   FaceData(int count_ = 0) : ElemData(FACE, count_)
   {
     list_count.ensure(attrs);

@@ -1,6 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {VertexData} from './VertexData'
 import type {EdgeData} from './EdgeData'
+import type {VertexData} from './VertexData'
+import type {FaceData} from './FaceData'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -22,6 +23,7 @@ export interface Mesh {
   [Symbol.dispose](): void
   v: VertexData
   e: EdgeData
+  f: FaceData
   recalc_normals(): void
   faceGroup(face: int32): int32
   maxFaceGroup(): int32

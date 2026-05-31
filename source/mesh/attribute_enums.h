@@ -48,9 +48,10 @@ MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
  */
 enum class _AttrUse {
   NONE = 0,
-  UNIT = 1 << 0,  /** attribute has unit values (0-1) */
-  COLOR = 1 << 1, /** for colors */
-  UV = 1 << 2,    /** for uv-maps */
+  UNIT = 1 << 0,      /** attribute has unit values (0-1) */
+  COLOR = 1 << 1,     /** for colors */
+  UV = 1 << 2,        /** for uv-maps */
+  POLYGROUP = 1 << 3, /** per-face poly-group id */
 };
 MAKE_FLAGS_CLASS(AttrUse, _AttrUse, int);
 
@@ -71,6 +72,7 @@ template <std::same_as<sculptcore::mesh::AttrUse> T> static const types::Enum *B
   e->addItem("Unit", static_cast<int>(AttrUse::UNIT));
   e->addItem("Color", static_cast<int>(AttrUse::COLOR));
   e->addItem("UV", static_cast<int>(AttrUse::UV));
+  e->addItem("PolyGroup", static_cast<int>(AttrUse::POLYGROUP));
   return e;
 }
 
