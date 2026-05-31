@@ -257,13 +257,12 @@ struct Lexer {
       case '<': t.kind = match('=') ? TokKind::Le : TokKind::Lt; break;
       case '>': t.kind = match('=') ? TokKind::Ge : TokKind::Gt; break;
       case '&':
-        if (match('&')) { t.kind = TokKind::AndAnd; }
-        else { err("expected '&&'", sl, sc); continue; }
+        t.kind = match('&') ? TokKind::AndAnd : TokKind::Amp;
         break;
       case '|':
-        if (match('|')) { t.kind = TokKind::OrOr; }
-        else { err("expected '||'", sl, sc); continue; }
+        t.kind = match('|') ? TokKind::OrOr : TokKind::Pipe;
         break;
+      case '^': t.kind = TokKind::Caret; break;
       default:
         {
           char buf[64];
@@ -330,6 +329,9 @@ const char *tokKindName(TokKind k)
   case TokKind::AndAnd: return "&&";
   case TokKind::OrOr: return "||";
   case TokKind::Not: return "!";
+  case TokKind::Amp: return "&";
+  case TokKind::Pipe: return "|";
+  case TokKind::Caret: return "^";
   case TokKind::KwBrush: return "brush";
   case TokKind::KwUniform: return "uniform";
   case TokKind::KwCtx: return "ctx";

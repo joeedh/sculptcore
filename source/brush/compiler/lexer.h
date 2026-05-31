@@ -24,6 +24,7 @@ enum class TokKind : int {
   Eq, Ne, Lt, Le, Gt, Ge,
   AddAssign, SubAssign, MulAssign, DivAssign,
   AndAnd, OrOr, Not,
+  Amp, Pipe, Caret,   // bitwise & | ^ (on int)
   // keywords
   KwBrush, KwUniform, KwCtx, KwVertex, KwReduce, KwHost,
   KwInout, KwIn, KwOut,

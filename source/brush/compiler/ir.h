@@ -38,6 +38,7 @@ enum class BinOp : int {
   Add, Sub, Mul, Div,
   Eq, Ne, Lt, Le, Gt, Ge,
   And, Or,
+  BitAnd, BitOr, BitXor,
 };
 
 enum class UnaryOp : int {

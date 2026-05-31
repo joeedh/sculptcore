@@ -546,14 +546,66 @@ struct Parser {
 
   ExprPtr parseAnd()
   {
-    auto lhs = parseEquality();
+    auto lhs = parseBitOr();
     while (check(TokKind::AndAnd)) {
+      int line = peek().line;
+      advance();
+      auto rhs = parseBitOr();
+      auto e = std::make_unique<Expr>(ExprKind::Binary);
+      e->line = line;
+      e->binop = BinOp::And;
+      e->lhs = std::move(lhs);
+      e->rhs = std::move(rhs);
+      lhs = std::move(e);
+    }
+    return lhs;
+  }
+
+  // Bitwise levels (C precedence: below && / ||, above ==): | then ^ then &.
+  ExprPtr parseBitOr()
+  {
+    auto lhs = parseBitXor();
+    while (check(TokKind::Pipe)) {
+      int line = peek().line;
+      advance();
+      auto rhs = parseBitXor();
+      auto e = std::make_unique<Expr>(ExprKind::Binary);
+      e->line = line;
+      e->binop = BinOp::BitOr;
+      e->lhs = std::move(lhs);
+      e->rhs = std::move(rhs);
+      lhs = std::move(e);
+    }
+    return lhs;
+  }
+
+  ExprPtr parseBitXor()
+  {
+    auto lhs = parseBitAnd();
+    while (check(TokKind::Caret)) {
+      int line = peek().line;
+      advance();
+      auto rhs = parseBitAnd();
+      auto e = std::make_unique<Expr>(ExprKind::Binary);
+      e->line = line;
+      e->binop = BinOp::BitXor;
+      e->lhs = std::move(lhs);
+      e->rhs = std::move(rhs);
+      lhs = std::move(e);
+    }
+    return lhs;
+  }
+
+  ExprPtr parseBitAnd()
+  {
+    auto lhs = parseEquality();
+    while (check(TokKind::Amp)) {
       int line = peek().line;
       advance();
       auto rhs = parseEquality();
       auto e = std::make_unique<Expr>(ExprKind::Binary);
       e->line = line;
-      e->binop = BinOp::And;
+      e->binop = BinOp::BitAnd;
       e->lhs = std::move(lhs);
       e->rhs = std::move(rhs);
       lhs = std::move(e);

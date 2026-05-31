@@ -52,6 +52,9 @@ const char *binOpCSym(BinOp op)
   case BinOp::Ge:  return ">=";
   case BinOp::And: return "&&";
   case BinOp::Or:  return "||";
+  case BinOp::BitAnd: return "&";
+  case BinOp::BitOr:  return "|";
+  case BinOp::BitXor: return "^";
   }
   return "?";
 }
