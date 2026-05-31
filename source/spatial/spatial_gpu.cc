@@ -38,11 +38,19 @@ void SpatialTree::collect_subtree_leaves(SpatialNode *node,
 /* Write one leaf's tris into the given pos/nor pointers (already offset to
  * the leaf's slice). Mirrors the per-tri body of the old per-leaf gpu
  * buffer fill. */
-void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor)
+void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, float4 *col)
 {
   const bool smooth_shading = false;
   Mesh *m = this->m;
   auto &tris = leaf->data->tris;
+
+  /* Per-vertex color layer is created lazily by the `color` paint brush; until
+   * then every slot defaults to white. Once it exists the executor has
+   * materialized it mesh-wide, so operator[] is safe for any vert. */
+  AttrData<float4> *cdata = nullptr;
+  if (col && m->v.attrs.has(AttrType::FLOAT4, "color")) {
+    cdata = m->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+  }
 
   float3 no;
   for (int i : util::IndexRange(tris.size())) {
@@ -59,6 +67,9 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor)
 
       pos[vert_i] = m->v.co[v];
       nor[vert_i] = smooth_shading ? m->v.no[v] : no;
+      if (col) {
+        col[vert_i] = cdata ? (*cdata)[v] : float4(1.0f, 1.0f, 1.0f, 1.0f);
+      }
     }
   }
 }
@@ -145,6 +156,10 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     alloc::Delete(gd.nor);
     gd.nor = nullptr;
   }
+  if (gd.color) {
+    alloc::Delete(gd.color);
+    gd.color = nullptr;
+  }
   if (gd.cmd) {
     alloc::Delete(gd.cmd);
     gd.cmd = nullptr;
@@ -167,11 +182,15 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
       litestl::util::string("position"), GPUType::FLOAT32, 3, total_verts);
   gd.nor = gpu->createBuffer(
       litestl::util::string("normal"), GPUType::FLOAT32, 3, total_verts);
+  gd.color = gpu->createBuffer(
+      litestl::util::string("color"), GPUType::FLOAT32, 4, total_verts);
   gd.pos->update_buffer = true;
   gd.nor->update_buffer = true;
+  gd.color->update_buffer = true;
 
   float3 *pos = gd.pos->get_data<float3>();
   float3 *nor = gd.nor->get_data<float3>();
+  float4 *col = gd.color->get_data<float4>();
 
   int offset = 0;
   for (SpatialNode *leaf : leaves_v) {
@@ -182,7 +201,7 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     slice.vert_count = vcount;
 
     if (vcount > 0) {
-      fill_leaf_slice(leaf, pos + offset, nor + offset);
+      fill_leaf_slice(leaf, pos + offset, nor + offset, col + offset);
     }
     offset += vcount;
 
@@ -224,9 +243,13 @@ void SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
   if (slice->vert_count > 0) {
     float3 *pos = gd.pos->get_data<float3>() + slice->vert_start;
     float3 *nor = gd.nor->get_data<float3>() + slice->vert_start;
-    fill_leaf_slice(leaf, pos, nor);
+    float4 *col = gd.color ? gd.color->get_data<float4>() + slice->vert_start : nullptr;
+    fill_leaf_slice(leaf, pos, nor, col);
     gd.pos->update_buffer = true;
     gd.nor->update_buffer = true;
+    if (gd.color) {
+      gd.color->update_buffer = true;
+    }
   }
 
   leaf->flag &= ~Spatial_UpdateGPU;

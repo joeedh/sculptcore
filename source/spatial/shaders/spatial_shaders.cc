@@ -92,6 +92,7 @@ gpu::ShaderDef makeBasicMeshShader()
                      {
                          {"position", gpu::GPUType::FLOAT32, 3},
                          {"normal", gpu::GPUType::FLOAT32, 3},
+                         {"color", gpu::GPUType::FLOAT32, 4},
                      },
                      {makeDefaultBlock(/*withNormalMatrix=*/true)},
                      {});

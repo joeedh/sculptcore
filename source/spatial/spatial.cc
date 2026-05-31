@@ -1070,6 +1070,9 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       GpuData &gd = *node->gpu_data;
       drawBatch->buffers.append(gd.pos);
       drawBatch->buffers.append(gd.nor);
+      if (gd.color) {
+        drawBatch->buffers.append(gd.color);
+      }
 
       if (!gd.cmd) {
         gd.cmd = gpu->createCommand(drawBatch,
@@ -1080,6 +1083,10 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
                                     gd.pos->size / 3);
         gd.cmd->attrs.append(gd.pos);
         gd.cmd->attrs.append(gd.nor);
+        /* @location(2): per-vertex color (always present after regen). */
+        if (gd.color) {
+          gd.cmd->attrs.append(gd.color);
+        }
       }
       gd.cmd->primCount = gd.pos->size / 3;
       gd.cmd->end = gd.pos->size;

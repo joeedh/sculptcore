@@ -45,6 +45,10 @@ struct LeafSlice {
 struct GpuData {
   gpu::Buffer *pos = nullptr;
   gpu::Buffer *nor = nullptr;
+  /* Per-vertex color (float4), written by the `color` paint brush. Always
+   * allocated (defaults to white when the mesh has no `color` attr yet) so the
+   * mesh shader's @location(2) is never left unbound. */
+  gpu::Buffer *color = nullptr;
   gpu::DrawCommand *cmd = nullptr;
   util::Vector<LeafSlice> slices; /* DFS-order leaf list defining the layout */
   int total_verts = 0;
@@ -69,6 +73,10 @@ struct GpuData {
     if (nor) {
       alloc::Delete(nor);
       nor = nullptr;
+    }
+    if (color) {
+      alloc::Delete(color);
+      color = nullptr;
     }
     if (cmd) {
       alloc::Delete(cmd);

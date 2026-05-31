@@ -301,7 +301,8 @@ private:
   void collect_subtree_leaves(SpatialNode *node, util::Vector<SpatialNode *> &out);
   void fill_leaf_slice(SpatialNode *leaf,
                        math::float3 *pos,
-                       math::float3 *nor);
+                       math::float3 *nor,
+                       math::float4 *col = nullptr);
   void fill_leaf_slot_verts(SpatialNode *leaf, uint32_t *out);
 
   void
