@@ -40,5 +40,6 @@ fn fs_main(in : VsOut) -> @location(0) vec4f {
     vcolor.z = vcolor.z * 0.8;
     vcolor.x = vcolor.x * 0.5;
   }
-  return vec4f(vcolor.rgb * f, vcolor.a);
+  // Surface is opaque — never let a per-vertex attr alpha make it transparent.
+  return vec4f(vcolor.rgb * f, 1.0);
 }

@@ -101,7 +101,13 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
         if (displayColorMode == 1) {
           col[vert_i] = fgcol;
         } else {
-          col[vert_i] = cdata ? (*cdata)[v] : float4(1.0f, 1.0f, 1.0f, 1.0f);
+          // The paint brush stores premultiplied RGBA and leaves unpainted
+          // verts at (0,0,0,0). Composite over an opaque white base so
+          // unpainted reads white (not transparent black) and the surface
+          // always renders opaque.
+          float4 c = cdata ? (*cdata)[v] : float4(1.0f, 1.0f, 1.0f, 1.0f);
+          float inv = 1.0f - c[3];
+          col[vert_i] = float4(c[0] + inv, c[1] + inv, c[2] + inv, 1.0f);
         }
       }
     }
