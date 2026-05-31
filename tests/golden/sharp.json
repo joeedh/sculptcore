@@ -4,24 +4,20 @@
     "edges": 1452,
     "corners": 2904,
     "faces": 726,
-    "aabb_min": [-0.25,-0.25,-0.25],
-    "aabb_max": [0.25,0.25,0.25],
-    "co_sum": [3.26894224e-06,3.26894224e-06,3.27825546e-06],
-    "co_sqsum": 76.4231841
+    "aabb_min": [-0.314797,-0.314797,-0.25],
+    "aabb_max": [0.314797,0.314797,0.25],
+    "co_sum": [3.39373946e-06,3.39373946e-06,3.27825546e-06],
+    "co_sqsum": 77.3981319
   },
   "spatial": {
     "leaf_limit": 256,
     "depth_limit": 8,
-    "leaf_count": 8,
+    "leaf_count": 4,
     "leaves": [
-      {"id":8,"depth":3,"flag":45,"aabb_min":[-0.25001,-0.25001,-0.25001],"aabb_max":[0.0227373,0.0227373,0.0227373],"unique_verts":113,"other_verts":126,"tris":0},
-      {"id":9,"depth":3,"flag":63,"aabb_min":[-0.25001,-0.25001,0.0227173],"aabb_max":[0.0227373,0.0227373,0.25001],"unique_verts":99,"other_verts":126,"tris":0},
-      {"id":10,"depth":3,"flag":45,"aabb_min":[0.0227173,-0.25001,-0.25001],"aabb_max":[0.25001,0.0227373,0.0227373],"unique_verts":99,"other_verts":127,"tris":0},
-      {"id":11,"depth":3,"flag":63,"aabb_min":[0.0227173,-0.25001,0.0227173],"aabb_max":[0.25001,0.0227373,0.25001],"unique_verts":82,"other_verts":127,"tris":0},
-      {"id":12,"depth":3,"flag":45,"aabb_min":[-0.25001,0.0227173,-0.25001],"aabb_max":[0.0227373,0.25001,0.0227373],"unique_verts":95,"other_verts":127,"tris":0},
-      {"id":13,"depth":3,"flag":63,"aabb_min":[-0.25001,0.0227173,0.0227173],"aabb_max":[0.0227373,0.25001,0.25001],"unique_verts":75,"other_verts":127,"tris":0},
-      {"id":14,"depth":3,"flag":45,"aabb_min":[0.0227173,0.0227173,-0.25001],"aabb_max":[0.25001,0.25001,0.0227373],"unique_verts":89,"other_verts":127,"tris":0},
-      {"id":15,"depth":3,"flag":63,"aabb_min":[0.0227173,0.0227173,0.0227173],"aabb_max":[0.25001,0.25001,0.25001],"unique_verts":76,"other_verts":127,"tris":0}
+      {"id":4,"depth":2,"flag":59,"aabb_min":[-0.25001,-0.25001,-0.25001],"aabb_max":[1e-05,1e-05,0.25001],"unique_verts":153,"other_verts":182,"tris":320},
+      {"id":5,"depth":2,"flag":59,"aabb_min":[-0.25001,-0.0227373,-0.25001],"aabb_max":[1e-05,0.25001,0.25001],"unique_verts":188,"other_verts":203,"tris":362},
+      {"id":6,"depth":2,"flag":59,"aabb_min":[-0.0227373,-0.25001,-0.25001],"aabb_max":[0.25001,1e-05,0.25001],"unique_verts":184,"other_verts":204,"tris":362},
+      {"id":7,"depth":2,"flag":59,"aabb_min":[-0.0227373,-0.0227373,-0.25001],"aabb_max":[0.25001,0.25001,0.25001],"unique_verts":203,"other_verts":227,"tris":408}
     ]
   },
   "brush": {
