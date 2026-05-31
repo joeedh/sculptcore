@@ -47,6 +47,14 @@ function run(cmd, options = {shell: true}) {
   }
 }
 
+/* Max parallel compile jobs for `cmake --build`, set from the global -j/--jobs
+ * flag (see the yargs middleware). Undefined = let the generator use all cores.
+ * Lower it (e.g. `-j 2`) when clang OOMs on the heavy template files. */
+let JOBS = undefined
+function parallelFlag() {
+  return JOBS && JOBS > 0 ? ` --parallel ${JOBS}` : ''
+}
+
 function summarizeErrors(buf) {
   return new Promise((accept, reject) => {
     if (buf.length < 2048) {
@@ -269,7 +277,7 @@ async function buildNodeAddon(electronVersion, smoke) {
   // 2. Build ONLY the addon target. Its static deps come along; the SHARED
   //    `sculptcore` lib is intentionally not built here (see the CMakeLists
   //    note about the global /DELAYLOAD flag under the clang driver).
-  await runBuild(`${env} "cmake --build ${dir} --target sculptcore_node"`)
+  await runBuild(`${env} "cmake --build ${dir} --target sculptcore_node${parallelFlag()}"`)
 
   const out = Path.resolve(dir, 'sculptcore_node.node').replace(/\\/g, '/')
   if (!fs.existsSync(out)) {
@@ -421,7 +429,7 @@ async function sbrushVerify(regen) {
   run(
     `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
   )
-  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv`)
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv${parallelFlag()}`)
 
   const debugApp = `${dir}/source/debug/debug_app${process.platform === 'win32' ? '.exe' : ''}`
   if (!fs.existsSync(debugApp)) {
@@ -527,7 +535,7 @@ async function webgpuVerify() {
   run(
     `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
   )
-  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv`)
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv${parallelFlag()}`)
 
   const debugApp = `${dir}/source/debug/debug_app${process.platform === 'win32' ? '.exe' : ''}`
   if (!fs.existsSync(debugApp)) {
@@ -620,7 +628,7 @@ async function wgpuNativeVerify() {
   run(
     `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags} -DSBRUSH_WEBGPU_COMPUTE=ON`
   )
-  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv sbrush-wgsl`)
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target debug_app sbrush-spirv sbrush-wgsl${parallelFlag()}`)
 
   const debugApp = `${dir}/source/debug/debug_app${process.platform === 'win32' ? '.exe' : ''}`
   if (!fs.existsSync(debugApp)) {
@@ -734,6 +742,17 @@ function sbrushBackendFlags(backendsArg) {
 
 yargs(hideBin(process.argv))
   .scriptName('make.mjs')
+  .option('jobs', {
+    alias: 'j',
+    type: 'number',
+    describe:
+      'Max parallel compile jobs for cmake --build (default: all cores). Lower it (e.g. -j 2) if clang OOMs.',
+  })
+  .middleware((argv) => {
+    if (argv.jobs && argv.jobs > 0) {
+      JOBS = argv.jobs
+    }
+  })
   .command('configure [target]', 'Configure the build',
     (y) => targetPositional(y).option('backends', {
       type: 'string',
@@ -762,7 +781,7 @@ yargs(hideBin(process.argv))
       deleteFinalWasmFiles()
     }
 
-    await runBuild(`cd ${dir} && ${env} cmake --build . `)
+    await runBuild(`cd ${dir} && ${env} cmake --build .${parallelFlag()} `)
 
     if (target === 'wasm') {
       // copy wasm to typescript/
@@ -859,7 +878,7 @@ yargs(hideBin(process.argv))
       run(
         `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${flag} -DSBRUSH_VALIDATE_ALL=ON`
       )
-      await runBuild(`cd ${dir} && ${env} cmake --build . --target sbrush-${backend}`)
+      await runBuild(`cd ${dir} && ${env} cmake --build . --target sbrush-${backend}${parallelFlag()}`)
     })
   .command('sbrush-verify',
     'Run per-brush A/B scripts through debug_app: cross-backend (cpp vs wgsl) + golden regression',
