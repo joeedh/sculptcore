@@ -70,6 +70,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
     BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
+    BIND_STRUCT_METHOD(st, addAttr, MARGS("domain", "type", "use"));
+    BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -100,6 +102,90 @@ struct Mesh : public MeshBase {
       return;
     }
     grp->attrs[index].use = AttrUse(use);
+  }
+
+  /* Element count for a TS AttrDomain flag (used to value-init a new layer). */
+  int elemCountForDomainFlag(int domain)
+  {
+    switch (domain) {
+    case 1:  return v.count;
+    case 2:  return e.count;
+    case 4:  return c.count;
+    case 16: return f.count;
+    }
+    return 0;
+  }
+
+  /* Add a new attribute layer to `domain` with category `use` (AttrUse int) and
+   * a unique auto-generated name (base from the category — color/uv/group, else
+   * "attr" — with a `.NNN` suffix when taken). Names can't be passed across the
+   * binding, so C++ owns naming; the index is returned and TS reads the name
+   * back through the AttrRef proxy. Value-inits the layer for determinism.
+   * Returns the new layer's index in its group, or -1 on bad domain. */
+  int addAttr(int domain, int type, int use)
+  {
+    AttrGroup *grp = attrGroupForDomainFlag(domain);
+    if (!grp) {
+      return -1;
+    }
+    AttrType ty = AttrType(type);
+    AttrUse u = AttrUse(use);
+
+    const char *base = "attr";
+    if (u & AttrUse::COLOR) base = "color";
+    else if (u & AttrUse::UV) base = "uv";
+    else if (u & AttrUse::POLYGROUP) base = "group";
+
+    char buf[64];
+    auto taken = [&](const string &nm) {
+      for (AttrRef &a : grp->attrs) {
+        if (a.name == nm) return true;
+      }
+      return false;
+    };
+    string name = string(base);
+    if (taken(string(base))) {
+      for (int i = 1;; i++) {
+        snprintf(buf, sizeof(buf), "%s.%03d", base, i);
+        if (!taken(string(buf))) {
+          name = string(buf);
+          break;
+        }
+      }
+    }
+
+    AttrRef &ref = grp->ensure(ty, name, /*materialize=*/true);
+    ref.use = u;
+
+    int n = elemCountForDomainFlag(domain);
+    detail::type_dispatch(ty, [&]<typename T>() {
+      if constexpr (!std::is_same_v<T, bool>) {
+        auto *dd = static_cast<AttrData<T> *>(ref.data);
+        for (int i = 0; i < n; i++) dd->set_default(i);
+      }
+    });
+
+    for (int i = 0; i < int(grp->attrs.size()); i++) {
+      if (grp->attrs[i].name == name) return i;
+    }
+    return int(grp->attrs.size()) - 1;
+  }
+
+  /* Remove the attribute layer at `index` in `domain`. Refuses builtins
+   * (`.`-prefixed internal layers and the geometry layers positions/normals/
+   * select) so the UI can't delete load-bearing data. No-op on bad index. */
+  void removeAttr(int domain, int index)
+  {
+    AttrGroup *grp = attrGroupForDomainFlag(domain);
+    if (!grp || index < 0 || index >= int(grp->attrs.size())) {
+      return;
+    }
+    const string &nm = grp->attrs[index].name;
+    if (nm.size() > 0 && (nm[0] == '.' || nm == string("positions") ||
+                          nm == string("normals") || nm == string("select"))) {
+      return;
+    }
+    grp->remove_attr(index);
   }
 
   /* Poly-group id of a face (the "group" int attr the polygroup brush writes).

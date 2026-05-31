@@ -638,6 +638,27 @@ struct AttrGroup {
     return *ret;
   }
 
+  /* Delete the layer at `index` (frees its AttrData and drops it from `attrs`,
+   * shifting later layers down by one — callers holding indices must refresh).
+   * No-op if out of range. */
+  void remove_attr(int index)
+  {
+    if (index < 0 || index >= int(attrs.size())) {
+      return;
+    }
+    AttrRef &attr = attrs[index];
+    detail::type_dispatch(attr.type, [&]<typename T>() {
+      if (attr.data) {
+        if constexpr (std::is_same_v<T, bool>) {
+          alloc::Delete(static_cast<BoolAttrView *>(attr.data));
+        } else {
+          alloc::Delete(static_cast<AttrData<T> *>(attr.data));
+        }
+      }
+    });
+    attrs.remove_at(index, /*swap_end_only=*/false);
+  }
+
   void ensure_capacity(size_t size)
   {
     capacity_ = std::max(capacity_, size);

@@ -28,5 +28,7 @@ export interface Mesh {
   faceGroup(face: int32): int32
   maxFaceGroup(): int32
   setAttrUse(domain: int32, index: int32, use: int32): void
+  addAttr(domain: int32, type: int32, use: int32): int32
+  removeAttr(domain: int32, index: int32): void
   new (): Mesh
 }
