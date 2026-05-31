@@ -4,6 +4,7 @@
 
 #include "scene.h"
 
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/triangulate.h"
@@ -126,6 +127,8 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   case brush::SculptBrushes::KELVINLET: kernel_ = "kelvinlet"; break;
   case brush::SculptBrushes::POSE: kernel_ = "pose"; break;
   case brush::SculptBrushes::COLOR: kernel_ = "color"; writesColor_ = true; break;
+  case brush::SculptBrushes::BSMOOTH:
+    kernel_ = "bsmooth"; needsNeighbors_ = true; readsVclass_ = true; break;
   default:
     err = "stroke(wgsl): tool has no GPU kernel";
     return false;
@@ -269,6 +272,25 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     }
     if (!disp_->setAttr(14, cbuf.data(), size_t(vcount_) * 4 * sizeof(float))) {
       err = "stroke(wgsl): color attr upload failed";
+      return false;
+    }
+  }
+
+  // Boundary-aware smooth reads the per-vertex classification (int) at slot 14
+  // (read-only). Upload the recomputed mesh attr, or zeros (= plain smooth) when
+  // no boundaries are present, so the kernel's attr_vclass binding is full-size.
+  if (readsVclass_) {
+    Vector<int> vc;
+    vc.resize(vcount_);
+    for (int i = 0; i < vcount_; i++) vc[i] = 0;
+    if (m->v.attrs.has(mesh::AttrType::INT, mesh::boundary::VERT_CLASS)) {
+      mesh::AttrRef ref =
+          m->v.attrs.find_attribute(mesh::AttrType::INT, mesh::boundary::VERT_CLASS);
+      auto *cd = ref.get_data<int>();
+      for (int i = 0; i < vcount_; i++) vc[i] = (*cd)[i];
+    }
+    if (!disp_->setAttr(14, vc.data(), size_t(vcount_) * sizeof(int))) {
+      err = "stroke(wgsl): vclass attr upload failed";
       return false;
     }
   }

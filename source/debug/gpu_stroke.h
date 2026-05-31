@@ -105,6 +105,7 @@ class GpuStrokeSession {
   bool needsNeighbors_ = false;
   bool writesMask_ = false;
   bool writesColor_ = false;  // COLOR kernel: float4 vertex "color" attr at slot 14
+  bool readsVclass_ = false;  // BSMOOTH kernel: int vertex boundary-class attr at slot 14 (read-only)
   int vcount_ = 0;
   litestl::util::Vector<spatial::SpatialNode *> touched_;
 

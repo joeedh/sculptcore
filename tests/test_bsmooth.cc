@@ -108,5 +108,47 @@ int main()
   fprintf(stderr, "sharp-vs-bsmooth maxdiff=%g diffVerts=%d\n", maxd2, diffVerts);
   test_assert(diffVerts > 0);
 
+  // C) GPU parity: bsmooth with a boundary (all edges sharp) must match cpp vs
+  // wgsl bit-modulo-fp — exercising the GPU vclass upload + neighbor-attr +
+  // bitwise + projection path.
+  std::vector<float3> cppB, wgslB;
+  {
+    Scene s(128, 128, /*headless=*/true);
+    auto r = script::run(s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
+    test_assert(r.ok);
+    Mesh *m = s.mesh;
+    for (int e = 0; e < m->e.count; e++) bnd::setEdgeFlag(m, bnd::EDGE_SHARP, e, true);
+    bnd::recomputeDirty(m);
+    auto r2 = script::run(
+        s, "set_backend backend=cpp\nstroke origin=0.25,0.25,0.25 normal=1,1,1\n", ".");
+    test_assert(r2.ok);
+    capture(m, cppB);
+  }
+  {
+    Scene s(128, 128, /*headless=*/true);
+    auto r = script::run(s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
+    test_assert(r.ok);
+    if (!s.ensureGPU()) {
+      fprintf(stderr, "no GPU; skipping bsmooth GPU parity\n");
+    } else {
+      Mesh *m = s.mesh;
+      for (int e = 0; e < m->e.count; e++) bnd::setEdgeFlag(m, bnd::EDGE_SHARP, e, true);
+      bnd::recomputeDirty(m);
+      auto r2 = script::run(
+          s, "set_backend backend=wgsl\nstroke origin=0.25,0.25,0.25 normal=1,1,1\n", ".");
+      test_assert(r2.ok);
+      capture(m, wgslB);
+    }
+  }
+  if (!wgslB.empty() && wgslB.size() == cppB.size()) {
+    double maxd3 = 0.0;
+    for (size_t i = 0; i < cppB.size(); i++) {
+      double d = double((cppB[i] - wgslB[i]).length());
+      if (d > maxd3) maxd3 = d;
+    }
+    fprintf(stderr, "bsmooth cpp-vs-wgsl maxdiff=%g\n", maxd3);
+    test_assert(maxd3 < 1e-3);
+  }
+
   return test_end();
 }
