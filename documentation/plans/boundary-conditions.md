@@ -16,6 +16,7 @@ to preserve UVs / poly groups / boundaries while it retopologizes under the dab.
 |---|------|-----------|
 | 1 | DSL: typed attribute access + face stage (all backends + A/B) | — |
 | 2 | Attribute visualization infrastructure (overlays + `Spatial_UpdateAttrs`) | — |
+| 2b | Attribute management UI (ObData panel: list / add / remove / categorize + per-category active attr) | 2, 3 |
 | 3 | Paint brushes: Color (per-vertex) + Poly group (per-face) | 1, 2 |
 | 4 | Boundary flag model + lazy dirty classification | — |
 | 5 | Seam/boundary marking tool (shortest path) | 2, 4 |
@@ -129,3 +130,82 @@ with write-back at kernel exit.
 `attrtest.sbrush` (vertex writes a `float4` attr; face stage writes an `int`
 attr) compiles on all backends (`sbrush-validate`) and A/B bit-matches C++ vs
 GPU via the new generic readback (`sbrush-verify`).
+
+## Wave 2b design — attribute management UI (ObData panel)
+
+Builds on the ObData properties tab (Wave 2, `LiteMesh.buildPropertiesTab` +
+`api_define_litemesh`). Gives the user a pathux **ListBox** (the DataList-bound
+widget) to inspect, categorize, activate, add, and remove mesh attributes — and
+generalizes the brushes' currently-hardcoded layer names (`color`, `group`) to a
+per-category **active attribute**.
+
+### Concepts
+- **Category** — an attribute's *role*: `COLOR`, `UV`, `POLYGROUP`, `MASK`, or
+  `NONE`. Stored as attr metadata in sculptcore (a small `category` enum on the
+  attr layer descriptor, serialized with the mesh) so the brushes and the UI
+  agree and it survives save/load. Allowed categories are constrained by
+  (type, domain) — see the table.
+- **Active attribute per category** — per-mesh, the layer name currently used
+  for each role (the COLOR brush paints the active COLOR attr, slide reprojects
+  the active UV attr, …). Stored on the mesh; clicking a categorized attr in the
+  list sets that category's active attr to it. Feeds the brushes through Wave 1's
+  `Brush.attrBindings`: the bridge sets `attrBindings[handle] =
+  mesh.activeAttr(category)` per stroke, replacing the hardcoded `color`/`group`
+  in `sculptcore_bindings`/`sculptcore_ops`.
+
+### Valid categories per type / domain
+| Category | Domain | Type | Consumed by |
+|----------|--------|------|-------------|
+| COLOR | vertex (corner later) | FLOAT4 / BYTE4 | color brush |
+| UV | corner (vertex for now) | FLOAT2 | slide reprojection (W6), UV gen (W7) |
+| POLYGROUP | face | INT | polygroup brush |
+| MASK | vertex | FLOAT | (builtin-adjacent) |
+| NONE | any | any | — (unset) |
+
+`validCategories(type, domain)` returns the allowed set + `NONE`; the dropdown
+shows exactly that.
+
+### Data-API + UI
+- **Attribute list** — a data-API `list` on the litemesh struct
+  (`api_define_litemesh`), mirroring `api_define_mesh`'s element lists: each
+  element is an "attribute" struct exposing `name` (string, read-only), `domain`
+  (enum), `type` (enum), `category` (enum, writable). Backed by a C-API
+  enumeration (extends `getAttrs`/`getAttrName` in `mesh_c_api.cc`) returning a
+  stable per-mesh snapshot of (name, domain, type, category) over all five
+  domains.
+- **ListBox** — pathux `ListBox` (DataList binding) bound to that list via
+  `datapath`; the row shows name + domain + category. Selecting a row that has a
+  category sets the per-category active attr (the list's `setActive`, routed by
+  the row's category).
+- **Builtin filter** — a `Show builtin attributes` bool, default **off**.
+  Builtins = names starting with `.` (e.g. `.spatial.*`) or the geometry
+  builtins (`co`/`no`/`mask`). The list iterator skips them unless the toggle is
+  on; the brushable user attrs (`color`, a UV layer, `group`) show by default.
+- **Category dropdown** — an enum prop for the selected attr; options =
+  `validCategories(attr.type, attr.domain)` + `None`. Setting it writes the
+  attr's category (and activates it for that category); `None` clears it.
+- **Add / Remove** — buttons (Add via a small type + domain picker). Add
+  `ensure`s a new layer with a **unique** name (base from the type/category, a
+  numeric `.NNN` suffix when taken — `uniqueAttrName` helper); Remove deletes the
+  selected layer (disabled for builtins). Both run through ToolOps so they undo
+  and mark the mesh dirty (+ a display re-fill when the added/removed attr is the
+  one being shown).
+
+### Cross-backend / sculptcore touchpoints
+- Attr `category` enum on the layer descriptor + (de)serialization; the
+  active-per-category map on the mesh. Exposed to TS by **index** (string params
+  don't marshal as bound-method args — enumerate by index, fetch names through
+  the string-returning C-API like `getAttrName`); `category` get/set +
+  `activeAttr(category)` get/set as int-keyed bound methods or C-API.
+- Add/remove/ensure a layer from TS: a C-API creating/removing by (domain, type,
+  name) and returning the new index; mirrors `getAttr`.
+- The paint bridge reads `activeAttr(category)` → `Brush.attrBindings` before
+  each stroke (color → active COLOR, polygroup → active POLYGROUP, slide → active
+  UV), so a stroke always targets the user-selected layer.
+
+### Wave 2b done = green
+In the ObData panel: the ListBox lists user attributes with domain + category
+(builtins hidden by default, revealable); Add yields a uniquely-named layer; the
+category dropdown offers only type-valid roles + None; clicking a COLOR attr
+makes the color brush paint *that* layer (likewise UV / poly-group); Remove
+deletes it. Undoable; verified live in the Electron app.
