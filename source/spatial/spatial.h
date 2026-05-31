@@ -44,6 +44,15 @@ struct SpatialTree {
    * re-fills every GPU node's color. */
   int displayColorMode = 1;
 
+  /* Which layer (by index in its element AttrGroup) feeds each display source,
+   * so the viewport can show the user-selected *active* color/group attr rather
+   * than always the layer literally named "color"/"group". -1 = fall back to
+   * the by-name default. Set via setDisplayColorAttr/setDisplayGroupAttr (both
+   * flag every leaf for a color re-fill). Index-addressed because layer names
+   * can't cross the binding. */
+  int displayColorAttr = -1;
+  int displayGroupAttr = -1;
+
   SpatialTreeMesh treeMesh;
   bool done_gpu_assignment = false;
   Mesh *m;
@@ -62,6 +71,11 @@ struct SpatialTree {
   /* Switch which attribute the mesh render colors by (see displayColorMode)
    * and flag every leaf so the next update() re-fills the color stream. */
   void setColorDisplayMode(int mode);
+
+  /* Point the color / poly-group display source at a specific layer index
+   * (-1 = by-name default). Each flags every leaf for a color re-fill. */
+  void setDisplayColorAttr(int index);
+  void setDisplayGroupAttr(int index);
 
   /* Brush/circle select: faces + verts inside a view cone (object-local), built
    * JS-side exactly like the WebGL BVH path. Face indices are deduped (a face

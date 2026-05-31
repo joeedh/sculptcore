@@ -88,6 +88,28 @@ void SpatialTree::setColorDisplayMode(int mode)
   }
 }
 
+void SpatialTree::setDisplayColorAttr(int index)
+{
+  if (index == displayColorAttr) {
+    return;
+  }
+  displayColorAttr = index;
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_UpdateGPU;
+  }
+}
+
+void SpatialTree::setDisplayGroupAttr(int index)
+{
+  if (index == displayGroupAttr) {
+    return;
+  }
+  displayGroupAttr = index;
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_UpdateGPU;
+  }
+}
+
 void SpatialTree::regen_node_tris(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenTris;

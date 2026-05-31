@@ -73,11 +73,26 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
   AttrData<float4> *cdata = nullptr;
   AttrData<int> *gdata = nullptr;
   if (col) {
-    if (show_vcol && m->v.attrs.has(AttrType::FLOAT4, "color")) {
-      cdata = m->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    if (show_vcol) {
+      // Prefer the active layer index (displayColorAttr); fall back to the
+      // layer literally named "color" when unset (-1) or the index is stale /
+      // wrong-typed.
+      int ci = displayColorAttr;
+      if (ci >= 0 && ci < int(m->v.attrs.attrs.size()) &&
+          m->v.attrs.attrs[ci].type == AttrType::FLOAT4) {
+        cdata = m->v.attrs.attrs[ci].get_data<float4>();
+      } else if (m->v.attrs.has(AttrType::FLOAT4, "color")) {
+        cdata = m->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+      }
     }
-    if (show_group && m->f.attrs.has(AttrType::INT, "group")) {
-      gdata = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+    if (show_group) {
+      int gi = displayGroupAttr;
+      if (gi >= 0 && gi < int(m->f.attrs.attrs.size()) &&
+          m->f.attrs.attrs[gi].type == AttrType::INT) {
+        gdata = m->f.attrs.attrs[gi].get_data<int>();
+      } else if (m->f.attrs.has(AttrType::INT, "group")) {
+        gdata = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+      }
     }
   }
 
