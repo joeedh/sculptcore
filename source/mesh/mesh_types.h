@@ -115,6 +115,7 @@ struct CornerData : public ElemData {
     using binding::types::Struct;
     Struct<CornerData> *st =
         new Struct<CornerData>("sculptcore::mesh::CornerData", sizeof(CornerData));
+    st->inherit(ElemData::defineBindings());
     BIND_STRUCT_MEMBER(st, capacity_);
     BIND_STRUCT_MEMBER(st, v);
     BIND_STRUCT_MEMBER(st, e);

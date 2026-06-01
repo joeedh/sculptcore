@@ -2,6 +2,7 @@
 
 #include "boundary.h"
 #include "mesh_path.h"
+#include "uvgen.h"
 
 #include "litestl/math/geom.h"
 #include "litestl/util/index_range.h"
@@ -130,11 +131,43 @@ void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
     return;
   }
   for (int vi : path) {
-    math::float3 c = v.co[vi];
-    out.append(c[0]);
-    out.append(c[1]);
-    out.append(c[2]);
+    math::float3 co = v.co[vi];
+    out.append(co[0]);
+    out.append(co[1]);
+    out.append(co[2]);
   }
+}
+
+int Mesh::generateUVFromSeams(int marginMilli)
+{
+  // The unwrapper flood-fills + walks live loop/disk links, so thaw first.
+  if (topo_frozen) {
+    thawTopo();
+  }
+  // Names don't marshal, so own naming here: a unique "uv[.NNN]" corner layer
+  // (mirrors addAttr's scheme). generateUVFromSeams ensures the layer + tags it
+  // AttrUse::UV.
+  auto taken = [&](const util::string &nm) {
+    for (AttrRef &a : c.attrs.attrs) {
+      if (a.name == nm) {
+        return true;
+      }
+    }
+    return false;
+  };
+  util::string name("uv");
+  if (taken(name)) {
+    char buf[64];
+    for (int i = 1;; i++) {
+      snprintf(buf, sizeof(buf), "uv.%03d", i);
+      if (!taken(util::string(buf))) {
+        name = util::string(buf);
+        break;
+      }
+    }
+  }
+  float margin = float(marginMilli) / 1000.0f;
+  return mesh::generateUVFromSeams(this, name.c_str(), margin);
 }
 
 int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)

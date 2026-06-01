@@ -96,6 +96,7 @@ struct Mesh : public MeshBase {
     Struct<Mesh> *st = new Struct<Mesh>("sculptcore::mesh::Mesh", sizeof(Mesh));
     BIND_STRUCT_MEMBER(st, v);
     BIND_STRUCT_MEMBER(st, e);
+    BIND_STRUCT_MEMBER(st, c);
     BIND_STRUCT_MEMBER(st, f);
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
@@ -107,6 +108,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
     BIND_STRUCT_METHOD(st, markSeamPath, MARGS("vStart", "vEnd", "state"));
     BIND_STRUCT_METHOD(st, edgePathCoords, MARGS("vStart", "vEnd", "out"));
+    BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -237,6 +239,15 @@ struct Mesh : public MeshBase {
    * candidate/marked seam without per-vertex cross-backend reads. `out` is a
    * bound Vector<float> out-param (marshal-safe, like castScreenCircle). */
   void edgePathCoords(int vStart, int vEnd, util::Vector<float> &out);
+
+  /* Wave 7: generate a per-corner UV map from EDGE_SEAM-bounded charts (the
+   * boundary-conditions unwrapper). Owns naming C++-side (a unique "uv[.NNN]"
+   * corner layer, like addAttr) since names don't marshal; the created FLOAT2
+   * layer is tagged AttrUse::UV by the unwrapper. `marginMilli` is the [0,1] pack
+   * margin in thousandths (int so it marshals). Thaws frozen topology (the
+   * unwrapper walks live links). Returns the chart count. Defined in mesh.cc
+   * (needs uvgen.h). */
+  int generateUVFromSeams(int marginMilli);
 
   /* Detach the layer at `index` into the stash WITHOUT freeing its data, and
    * return a stash id (reattachAttr undoes it). Unlike removeAttr this preserves

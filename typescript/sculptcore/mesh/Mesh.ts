@@ -1,6 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {EdgeData} from './EdgeData'
 import type {VertexData} from './VertexData'
+import type {CornerData} from './CornerData'
 import type {FaceData} from './FaceData'
 
 /** Auto-generated file */
@@ -23,6 +24,7 @@ export interface Mesh {
   [Symbol.dispose](): void
   v: VertexData
   e: EdgeData
+  c: CornerData
   f: FaceData
   recalc_normals(): void
   faceGroup(face: int32): int32
@@ -34,5 +36,6 @@ export interface Mesh {
   reattachAttr(stashId: int32): int32
   markSeamPath(vStart: int32, vEnd: int32, state: int32): int32
   edgePathCoords(vStart: int32, vEnd: int32, out: float[]): void
+  generateUVFromSeams(marginMilli: int32): int32
   new (): Mesh
 }

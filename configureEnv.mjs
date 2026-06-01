@@ -29,18 +29,23 @@ function getVSEnv() {
 
   const getVersion = (d) => versionMap.get(d) ?? d
 
-  const versions = dir
-    .map((d) => parseInt(d))
-    .filter((d) => !isNaN(d))
-    .sort((a, b) => getVersion(b) - getVersion(a))
+  // Released VS installs put their year in the folder name (2019/2022/2026);
+  // Insiders/preview builds instead use a bare IDE major (e.g. "18"), and that
+  // env doesn't surface a bundled cmake the way a stable install does. Prefer a
+  // year-named (stable) folder, newest first, and only fall back to a bare-major
+  // folder if no stable one exists.
+  const isYear = (d) => /^\d{4}$/.test(d)
+  const sorted = dir
+    .filter((d) => !isNaN(parseInt(d)))
+    .sort((a, b) => getVersion(parseInt(b)) - getVersion(parseInt(a)))
 
-  const version = versions[0]
+  const version = sorted.filter(isYear)[0] ?? sorted[0]
   if (version === undefined) {
     process.stderr.write('No Visual Studio version found\n')
     process.exit(-1)
   }
 
-  //C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build
+  //C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build
 
   const path = join(VSPath, '' + version, 'Community', 'VC', 'Auxiliary', 'Build', 'vcvars64.bat')
   process.chdir(join(VSPath, '' + version, 'Community'))

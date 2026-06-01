@@ -89,11 +89,18 @@ and 2 are independent and may be parallelized.
   EDGE_SEAM overlay that redraws from flags (survives reselect/reload), and
   seam-marking for the non-LiteMesh mesh types.
 
-- **Wave 7: core DONE & verified (2026-05-30).** `source/mesh/uvgen.{h,cc}`
+- **Wave 7: DONE & verified (2026-05-31).** Core `source/mesh/uvgen.{h,cc}`
   `generateUVFromSeams`: flood-fill charts bounded by `EDGE_SEAM`, group-normal
-  projection, shelf box-pack into [0,1], per-corner FLOAT2. Test:
-  `tests/test_uvgen.cc`. Remaining: a TS ToolOp to invoke it + pick the source
-  flag set + name the layer (app-side).
+  projection, shelf box-pack into [0,1], per-corner FLOAT2 (`tests/test_uvgen.cc`).
+  App-side: `Mesh::generateUVFromSeams(int marginMilli)` (owns C++-side naming —
+  unique `uv[.NNN]` corner layer — since names don't marshal; returns chart
+  count), bound the corner group `c` on `Mesh` (+ `CornerData` inherits
+  `ElemData` so its `attrs` enumerate); LiteMesh `_domainGroup`/`attrItems`
+  extended to CORNER so UV layers show in the ObData manager; `GenerateUVOp`
+  (`litemesh.generate_uv`, margin input, sculptcore-toolmode button) with
+  detach/reattach undo. Live-verified native: gen -> {charts:1, name:"uv"} corner
+  layer tagged UV + listed in the manager; second gen -> "uv.001"; undo removes
+  it, redo restores it.
 
 ## Wave 1 design (approved)
 
