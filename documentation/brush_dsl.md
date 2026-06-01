@@ -43,6 +43,10 @@ A `.sbrush` file declares exactly one `brush`. Inside it, in any order:
 - **`texture`** blocks — inline procedural textures.
 - **stages** — `vertex`, `reduce`, `host`.
 
+> **Reserved words.** The attribute-domain keywords `vertex`, `face`, `edge`,
+> and `corner` are reserved by the lexer — you can't name a local, uniform, or
+> attribute handle `face`/`edge`/`corner` (no current kernel does).
+
 ### Fields: `uniform` and `ctx`
 
 ```sbrush

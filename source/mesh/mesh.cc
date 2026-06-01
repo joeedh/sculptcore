@@ -120,6 +120,42 @@ int Mesh::markSeamPath(int vStart, int vEnd, int state)
   return marked;
 }
 
+void Mesh::edgePathEdges(int vStart, int vEnd, util::Vector<int> &out)
+{
+  out.clear();
+  if (topo_frozen) {
+    thawTopo();
+  }
+  util::Vector<int> path;
+  if (!shortestEdgePath(this, vStart, vEnd, path)) {
+    return;
+  }
+  for (int i = 0; i + 1 < int(path.size()); i++) {
+    int e = find_edge(path[i], path[i + 1]);
+    if (e != ELEM_NONE) {
+      out.append(e);
+    }
+  }
+}
+
+int Mesh::edgeSeam(int e)
+{
+  return boundary::edgeFlag(this, boundary::EDGE_SEAM, e) ? 1 : 0;
+}
+
+void Mesh::setEdgeSeam(int e, int state)
+{
+  boundary::setEdgeFlag(this, boundary::EDGE_SEAM, e, state != 0);
+}
+
+void Mesh::recomputeBoundary()
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  boundary::recomputeDirty(this);
+}
+
 void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
 {
   out.clear();
@@ -145,27 +181,9 @@ int Mesh::generateUVFromSeams(int marginMilli)
     thawTopo();
   }
   // Names don't marshal, so own naming here: a unique "uv[.NNN]" corner layer
-  // (mirrors addAttr's scheme). generateUVFromSeams ensures the layer + tags it
+  // (shares addAttr's helper). generateUVFromSeams ensures the layer + tags it
   // AttrUse::UV.
-  auto taken = [&](const util::string &nm) {
-    for (AttrRef &a : c.attrs.attrs) {
-      if (a.name == nm) {
-        return true;
-      }
-    }
-    return false;
-  };
-  util::string name("uv");
-  if (taken(name)) {
-    char buf[64];
-    for (int i = 1;; i++) {
-      snprintf(buf, sizeof(buf), "uv.%03d", i);
-      if (!taken(util::string(buf))) {
-        name = util::string(buf);
-        break;
-      }
-    }
-  }
+  util::string name = uniqueAttrName(&c.attrs, "uv");
   float margin = float(marginMilli) / 1000.0f;
   return mesh::generateUVFromSeams(this, name.c_str(), margin);
 }

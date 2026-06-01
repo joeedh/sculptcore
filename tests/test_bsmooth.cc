@@ -140,6 +140,12 @@ int main()
       capture(m, wgslB);
     }
   }
+  // GPU parity is only checked when a device was available above (wgslB is empty
+  // otherwise — the GPU section self-skips and this test still "passes", so a
+  // green run on a deviceless box does NOT mean cpp==wgsl was verified). The
+  // tolerance is 1e-3 (per-vertex position L2): the boundary-aware path is
+  // close but not bit-identical across backends, so this is a behavioural
+  // bound, not an exactness check.
   if (!wgslB.empty() && wgslB.size() == cppB.size()) {
     double maxd3 = 0.0;
     for (size_t i = 0; i < cppB.size(); i++) {

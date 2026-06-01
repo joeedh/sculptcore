@@ -49,14 +49,9 @@ struct EdgeOfVertIter {
     int side = m->e.vs[e][0] == v ? 0 : 1;
     e = m->e.disk[e][side * 2 + 1]; /* e.next */
 
+    /* Back at the disk-cycle start → exhausted; flag the end sentinel. */
     if (e == start_e) {
-      if (0 && first) {
-        first = false;
-      } else {
-        /* Flag endpoint. */
-        e = ELEM_NONE;
-        return *this;
-      }
+      e = ELEM_NONE;
     }
 
     return *this;
@@ -74,7 +69,6 @@ struct EdgeOfVertIter {
 
 private:
   int v, e, start_e;
-  bool first = true;
 };
 
 struct CornerOfEdgeIter {
@@ -124,7 +118,6 @@ struct CornerOfEdgeIter {
 
 private:
   int e, c, start_c;
-  bool first = true;
 };
 
 } // namespace sculptcore::mesh

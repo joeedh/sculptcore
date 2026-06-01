@@ -459,6 +459,62 @@ void test_verts_only()
   TASSERT(validateMesh(m2, "verts-only"));
 }
 
+/* B2 (audit): an attribute's category (AttrUse) must survive save/load — the
+ * Wave 2b active-attr bridge depends on it. Before the fix only name/type/flag
+ * were serialized, so categories reverted to NONE on load. */
+void test_attr_use_roundtrip()
+{
+  Mesh m;
+  build_grid(m, 4);
+  AttrRef &cref = m.v.attrs.ensure(AttrType::FLOAT4, "color", /*materialize=*/true);
+  cref.use = AttrUse::COLOR;
+  AttrRef &gref = m.f.attrs.ensure(AttrType::INT, "group", /*materialize=*/true);
+  gref.use = AttrUse::POLYGROUP;
+
+  Mesh m2;
+  if (!roundTrip(m, m2, "attr-use")) {
+    retval = 1;
+    return;
+  }
+  AttrRef lc = m2.v.attrs.find_attribute(AttrType::FLOAT4, "color");
+  AttrRef lg = m2.f.attrs.find_attribute(AttrType::INT, "group");
+  TASSERT(lc.exists() && lg.exists());
+  TASSERT(int(lc.use) == int(AttrUse::COLOR));
+  TASSERT(int(lg.use) == int(AttrUse::POLYGROUP));
+}
+
+/* T4 / C2 (audit): detachAttr parks a layer (data preserved) for undo and
+ * reattachAttr restores it intact — the undo primitive behind RemoveAttrOp /
+ * GenerateUVOp. */
+void test_detach_reattach()
+{
+  Mesh m;
+  build_grid(m, 4);
+  AttrRef &uref = m.v.attrs.ensure(AttrType::INT, "udata", /*materialize=*/true);
+  for (int vi : m.v) {
+    uref.get_data<int>()->materialize(vi);
+    (*uref.get_data<int>())[vi] = vInt(m.v.co[vi]);
+  }
+  // Find its index in the vertex group.
+  int idx = -1;
+  for (int i = 0; i < int(m.v.attrs.attrs.size()); i++) {
+    if (m.v.attrs.attrs[i].name == util::string("udata")) idx = i;
+  }
+  TASSERT(idx >= 0);
+
+  int stashId = m.detachAttr(/*domain=*/1, idx);
+  TASSERT(stashId >= 0);
+  TASSERT(m.v.attrs.has(AttrType::INT, "udata") == false); // gone from the group
+
+  int newIdx = m.reattachAttr(stashId);
+  TASSERT(newIdx >= 0);
+  TASSERT(m.v.attrs.has(AttrType::INT, "udata") == true); // back in the group
+  AttrRef back = m.v.attrs.find_attribute(AttrType::INT, "udata");
+  for (int vi : m.v) {
+    TASSERT(back.get_data<int>()->safe_get(vi) == vInt(m.v.co[vi])); // data preserved
+  }
+}
+
 } // namespace
 
 int main()
@@ -471,6 +527,8 @@ int main()
   test_frozen_roundtrip(8);
   test_empty();
   test_verts_only();
+  test_attr_use_roundtrip();
+  test_detach_reattach();
 
   printf("mesh_serialize test done (retval=%d)\n", retval);
   return retval;

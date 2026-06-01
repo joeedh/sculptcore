@@ -1113,6 +1113,10 @@ struct Emit {
     indent = 0;
     write("\n");
 
+    // Write each declared face attr back unconditionally. This is correct even
+    // when the kernel body only conditionally assigns it (e.g. polygroup's
+    // `if (strength>0)`): the local was seeded from the buffer at entry, so an
+    // unwritten attr round-trips its original value rather than being clobbered.
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face) continue;
       write("  attr_"); write(f.name); write("[sb_fidx] = ");

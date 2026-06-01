@@ -5,6 +5,8 @@
 #include "brush_iterators.h"
 #include "neighbor_source.h"
 #include "brushes/all.h"
+#include "mesh/attribute_bool.h"
+#include "mesh/boundary.h"
 #include "litestl/binding/binding.h"
 #include "litestl/util/task.h"
 #include "meshlog/meshlog.h"
@@ -325,7 +327,12 @@ struct CommandExecutor {
           // goldens). set_default zeroes simple/vector types.
           int n = elemCountForDomain(m, entry.domain);
           mesh::detail::type_dispatch(entry.type, [&]<typename T>() {
-            if constexpr (!std::is_same_v<T, bool>) {
+            if constexpr (std::is_same_v<T, bool>) {
+              // BoolAttrView has no set_default; clear it explicitly so a fresh
+              // bool layer isn't read as heap garbage (was previously skipped).
+              auto *bv = static_cast<mesh::BoolAttrView *>(ref.data);
+              for (int i = 0; i < n; i++) bv->set(i, false);
+            } else {
               auto *dd = static_cast<mesh::AttrData<T> *>(ref.data);
               for (int i = 0; i < n; i++) dd->set_default(i);
             }
@@ -388,6 +395,39 @@ struct CommandExecutor {
            brushType == SculptBrushes::POLYGROUP;
   }
 
+  // The boundary-aware smooth brush reads the lazily-derived
+  // `.boundary.vert.class`. Fold any pending boundary edits (seam marking,
+  // poly-group paint) into it once at stroke start, while topology links are
+  // live — recomputeDirty walks the disk/radial cycles and would touch freed
+  // pages under frozen topology.
+  //
+  // Gated on m->boundaryDirty: when nothing changed since the last recompute
+  // (the common case — e.g. plain smoothing with no boundaries marked) this is a
+  // no-op and, crucially, does NOT thaw. An unconditional thaw here perturbs the
+  // frozen-topology CSR neighbor set the stroke relies on, making bsmooth
+  // diverge from plain smooth even with zero boundaries.
+  void refreshBoundaryClassForBSmooth(mesh::Mesh *m)
+  {
+    if (!m->boundaryDirty) return;
+    if (m->topo_frozen) m->thawTopo();
+    mesh::boundary::recomputeDirty(m);
+  }
+
+  // After a poly-group dab, mark every face the touched nodes own boundary-dirty
+  // so the next recomputeDirty reclassifies their inter-group edges. A superset
+  // of the actually-repainted faces (bounded by the dab's node coverage), which
+  // only costs extra recompute, never wrong results. Runs while topology is live
+  // (POLYGROUP is a live-links brush).
+  void markPolygroupDirty(std::span<spatial::SpatialNode *> nodes)
+  {
+    for (spatial::SpatialNode *node : nodes) {
+      mesh::Mesh *m = node->data->m;
+      for (int f : node->data->unique_faces) {
+        mesh::boundary::markFaceDirty(m, f);
+      }
+    }
+  }
+
   void execBrush(SculptBrushes brushType,
                  Vector<spatial::SpatialNode *> *nodes,
                  float3 origin,
@@ -399,6 +439,9 @@ struct CommandExecutor {
     // has its own neighbor handling and is unaffected.
     if (nodes->size() > 0) {
       mesh::Mesh *m = (*nodes)[0]->data->m;
+      if (brushType == SculptBrushes::BSMOOTH && isFirstOfStep) {
+        refreshBoundaryClassForBSmooth(m);
+      }
       if (brushNeedsLiveLinks(brushType)) {
         if (m->topo_frozen) m->thawTopo();
       } else if (!m->topo_frozen) {
@@ -417,7 +460,12 @@ struct CommandExecutor {
     // see the path up to and including this dab.
     brush->pushStrokeSample(origin, normal);
 
-    exec(cmd, std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()));
+    std::span<spatial::SpatialNode *> nodeSpan(nodes->data(), nodes->size());
+    exec(cmd, nodeSpan);
+
+    if (brushType == SculptBrushes::POLYGROUP) {
+      markPolygroupDirty(nodeSpan);
+    }
   }
 
   // Run a composite brush program over one node set per dab. Each sub-command
@@ -440,13 +488,16 @@ struct CommandExecutor {
     // which is harmless for the link-agnostic commands.
     if (nodes->size() > 0) {
       bool needsLive = false;
+      bool hasBSmooth = false;
       for (auto &entry : prog->commands) {
-        if (brushNeedsLiveLinks(entry.type)) {
-          needsLive = true;
-          break;
-        }
+        if (brushNeedsLiveLinks(entry.type)) needsLive = true;
+        if (entry.type == SculptBrushes::BSMOOTH) hasBSmooth = true;
       }
       mesh::Mesh *m = (*nodes)[0]->data->m;
+      // Must precede the freeze below — recomputeDirty needs live links.
+      if (hasBSmooth && isFirstOfStep) {
+        refreshBoundaryClassForBSmooth(m);
+      }
       if (needsLive) {
         if (m->topo_frozen) m->thawTopo();
       } else if (!m->topo_frozen) {
@@ -500,10 +551,14 @@ struct CommandExecutor {
       ctx.meshLog = meshLog;
       ctx.isFirstOfStep = isFirstOfStep;
 
-      exec(cmd,
-           std::span<spatial::SpatialNode *>(nodes->data(), nodes->size()),
+      std::span<spatial::SpatialNode *> nodeSpan(nodes->data(), nodes->size());
+      exec(cmd, nodeSpan,
            std::span<const BrushAttrLayerOverride>(entry.attrLayerOverrides.data(),
                                                    entry.attrLayerOverrides.size()));
+
+      if (entry.type == SculptBrushes::POLYGROUP) {
+        markPolygroupDirty(nodeSpan);
+      }
 
       // Roll the base props back.
       for (auto &s : savedFloats) {

@@ -104,6 +104,55 @@ int main()
     test_assert(connected);
     test_assert(plen > 3.0 - 1e-4 && plen < 3.0 + 1e-4); // minimal = 3 unit edges
     fprintf(stderr, "path: verts=%d weight=%g\n", (int)path.size(), plen);
+
+    // --- shortestEdgePath edge cases ---
+    // Disconnected target: an isolated vertex is unreachable.
+    int vIso = m.make_vertex(float3(9, 9, 9));
+    litestl::util::Vector<int> pathU;
+    test_assert(shortestEdgePath(&m, v0, vIso, pathU) == false);
+    // Out-of-range indices are rejected, not crashed.
+    litestl::util::Vector<int> pathBad;
+    test_assert(shortestEdgePath(&m, -1, v0, pathBad) == false);
+    test_assert(shortestEdgePath(&m, v0, 999999, pathBad) == false);
+  }
+
+  // T1 (audit): the *incremental* dirty path — markFaceDirty + recomputeDirty
+  // with NO markAllDirty. Guards the B3 fix: the poly-group brush marks painted
+  // faces dirty so the derived boundary refreshes without a full rescan.
+  {
+    Mesh m;
+    int v0 = m.make_vertex(float3(0, 0, 0));
+    int v1 = m.make_vertex(float3(1, 0, 0));
+    int v2 = m.make_vertex(float3(2, 0, 0));
+    int v3 = m.make_vertex(float3(0, 1, 0));
+    int v4 = m.make_vertex(float3(1, 1, 0));
+    int v5 = m.make_vertex(float3(2, 1, 0));
+    auto edge = [&](int a, int b) {
+      if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+    };
+    edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
+    edge(v1, v2); edge(v2, v5); edge(v5, v4);
+    int fa[4] = {v0, v1, v4, v3};
+    int fb[4] = {v1, v2, v5, v4};
+    int faceA = m.make_face(std::span<int>(fa, 4));
+    int faceB = m.make_face(std::span<int>(fb, 4));
+
+    AttrRef &gref = m.f.attrs.ensure(AttrType::INT, bnd::FACE_GROUP, /*materialize=*/true);
+    AttrData<int> *g = gref.get_data<int>();
+    (*g)[faceA] = 0;
+    (*g)[faceB] = 1;
+
+    // Only mark the painted faces dirty (what the polygroup brush now does),
+    // then recompute — without markAllDirty.
+    bnd::markFaceDirty(&m, faceA);
+    bnd::markFaceDirty(&m, faceB);
+    bnd::recomputeDirty(&m);
+
+    int eShared = m.find_edge(v1, v4);
+    test_assert(eShared != ELEM_NONE);
+    test_assert(bnd::edgeFlag(&m, bnd::EDGE_POLYGROUP, eShared) == true);
+    test_assert((bnd::vertClass(&m, v1) & bnd::BC_POLYGROUP) != 0);
+    test_assert((bnd::vertClass(&m, v4) & bnd::BC_POLYGROUP) != 0);
   }
 
   return test_end();

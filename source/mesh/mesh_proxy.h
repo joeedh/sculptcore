@@ -572,6 +572,12 @@ struct Proxies {
         }
       }
 
+      // Guard a degenerate (zero-corner) face so it returns the origin rather
+      // than NaN — matches BasicFaceIter::computeCentroid's `if (n>0)` guard, so
+      // the C++ and GPU face-centroid paths agree even on broken faces.
+      if (tot == 0.0f) {
+        return cent;
+      }
       return cent / tot;
     }
   };

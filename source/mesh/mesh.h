@@ -27,10 +27,17 @@ namespace sculptcore::mesh {
 /* A detached attribute layer parked by detachAttr() for undo. Holds the live
  * AttrRef (including its AttrData pointer) out of the element group without
  * freeing it; reattachAttr() moves it back. `ref.data == nullptr` marks an
- * entry whose data has been reattached (the group owns it again). */
+ * entry whose data has been reattached (the group owns it again).
+ *
+ * INVARIANT: no topology edit may happen between detach and reattach. The
+ * stashed AttrData keeps its detach-time element count (`count`); a make_/kill_
+ * on the domain while detached would desync it from the group, so reattachAttr
+ * verifies the count is unchanged. The undo flow (detach → immediate reattach,
+ * no intervening topo edit) upholds this. */
 struct StashedAttr {
   AttrRef ref;
   int domain = 0;
+  int count = 0;
 };
 
 struct Mesh : public MeshBase {
@@ -107,6 +114,10 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
     BIND_STRUCT_METHOD(st, markSeamPath, MARGS("vStart", "vEnd", "state"));
+    BIND_STRUCT_METHOD(st, edgePathEdges, MARGS("vStart", "vEnd", "out"));
+    BIND_STRUCT_METHOD(st, edgeSeam, MARGS("e"));
+    BIND_STRUCT_METHOD(st, setEdgeSeam, MARGS("e", "state"));
+    BIND_STRUCT_METHOD(st, recomputeBoundary, MARGS());
     BIND_STRUCT_METHOD(st, edgePathCoords, MARGS("vStart", "vEnd", "out"));
     BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
@@ -153,6 +164,29 @@ struct Mesh : public MeshBase {
     return 0;
   }
 
+  /* Pick a unique layer name within `grp`: `base` if free, else the first free
+   * `base.NNN`. Shared by addAttr and the UV-gen naming — names can't cross the
+   * TS binding, so C++ owns them. */
+  static util::string uniqueAttrName(AttrGroup *grp, const char *base)
+  {
+    auto taken = [&](const string &nm) {
+      for (AttrRef &a : grp->attrs) {
+        if (a.name == nm) return true;
+      }
+      return false;
+    };
+    if (!taken(string(base))) {
+      return string(base);
+    }
+    char buf[64];
+    for (int i = 1;; i++) {
+      snprintf(buf, sizeof(buf), "%s.%03d", base, i);
+      if (!taken(string(buf))) {
+        return string(buf);
+      }
+    }
+  }
+
   /* Add a new attribute layer to `domain` with category `use` (AttrUse int) and
    * a unique auto-generated name (base from the category — color/uv/group, else
    * "attr" — with a `.NNN` suffix when taken). Names can't be passed across the
@@ -173,23 +207,7 @@ struct Mesh : public MeshBase {
     else if (u & AttrUse::UV) base = "uv";
     else if (u & AttrUse::POLYGROUP) base = "group";
 
-    char buf[64];
-    auto taken = [&](const string &nm) {
-      for (AttrRef &a : grp->attrs) {
-        if (a.name == nm) return true;
-      }
-      return false;
-    };
-    string name = string(base);
-    if (taken(string(base))) {
-      for (int i = 1;; i++) {
-        snprintf(buf, sizeof(buf), "%s.%03d", base, i);
-        if (!taken(string(buf))) {
-          name = string(buf);
-          break;
-        }
-      }
-    }
+    string name = uniqueAttrName(grp, base);
 
     AttrRef &ref = grp->ensure(ty, name, /*materialize=*/true);
     ref.use = u;
@@ -234,6 +252,21 @@ struct Mesh : public MeshBase {
    * + boundary.h). */
   int markSeamPath(int vStart, int vEnd, int state);
 
+  /* Wave 5 (undo support): fill `out` with the edge indices along the shortest
+   * vStart→vEnd path (the edges markSeamPath would flag), so the marking ToolOp
+   * can snapshot their prior EDGE_SEAM bits and restore them exactly on undo —
+   * rather than blanket-clearing the path (which would also unset seams that
+   * pre-existed on overlapping edges). Marshal-safe Vector<int> out-param. */
+  void edgePathEdges(int vStart, int vEnd, util::Vector<int> &out);
+
+  /* Read/write a single edge's EDGE_SEAM bit (0/1). setEdgeSeam marks the edge
+   * boundary-dirty but does NOT recompute — batch several, then call
+   * recomputeBoundary once. Used by the marking ToolOp's undo to restore a
+   * snapshot. */
+  int edgeSeam(int e);
+  void setEdgeSeam(int e, int state);
+  void recomputeBoundary();
+
   /* Wave 5: fill `out` with the shortest edge-path vertex positions as flat xyz
    * triples ([vStart..vEnd], 3 floats each), so the marking tool can draw the
    * candidate/marked seam without per-vertex cross-backend reads. `out` is a
@@ -272,6 +305,7 @@ struct Mesh : public MeshBase {
     StashedAttr st;
     st.ref = grp->attrs[index]; // copies the AttrRef, including its data pointer
     st.domain = domain;
+    st.count = elemCountForDomainFlag(domain); // snapshot for the reattach guard
     // Drop the slot without freeing data — the stash now owns the AttrData.
     grp->attrs.remove_at(index, /*swap_end_only=*/false);
     attrStash.append(st);
@@ -291,6 +325,15 @@ struct Mesh : public MeshBase {
     }
     AttrGroup *grp = attrGroupForDomainFlag(st.domain);
     if (!grp) {
+      return -1;
+    }
+    // Guard the no-topology-edits-between invariant: the stashed layer was sized
+    // for `st.count` elements; reattaching it to a domain that has since grown/
+    // shrunk would alias out-of-range elements. Refuse rather than corrupt.
+    if (elemCountForDomainFlag(st.domain) != st.count) {
+      printf("reattachAttr: domain element count changed while detached "
+             "(%d -> %d); refusing to reattach a stale-sized layer\n",
+             st.count, elemCountForDomainFlag(st.domain));
       return -1;
     }
     grp->attrs.append(st.ref);

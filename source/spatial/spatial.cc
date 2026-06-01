@@ -714,25 +714,20 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
   Buffer *colorBuf =
       mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
-  Buffer *uvBuf =
-      mgr.createBuffer(litestl::util::string("uv"), GPUType::FLOAT32, 2, totalVerts);
 
   float3 *pos = posBuf->get_data<float3>();
   float4 *color = colorBuf->get_data<float4>();
-  float2 *uv = uvBuf->get_data<float2>();
 
   int idx = 0;
 
   auto addLine =
-      [pos, color, uv, &idx](const float3 &a, const float3 &b, const float4 &clr) {
+      [pos, color, &idx](const float3 &a, const float3 &b, const float4 &clr) {
         pos[idx] = a;
         color[idx] = clr;
-        uv[idx] = float2(0.0f, 0.0f);
         idx++;
 
         pos[idx] = b;
         color[idx] = clr;
-        uv[idx] = float2(1.0f, 1.0f);
         idx++;
       };
 
@@ -784,7 +779,6 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   DrawBatch *batch = mgr.createBatch();
   batch->buffers.append(posBuf);
   batch->buffers.append(colorBuf);
-  batch->buffers.append(uvBuf);
 
   auto *shader = &spatialShaders.basicLineShader;
 
@@ -792,7 +786,6 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
       batch, GPUCmdType::DRAW_LINES, shader, 0, totalVerts, totalVerts / 2);
   cmd->attrs.append(posBuf);
   cmd->attrs.append(colorBuf);
-  cmd->attrs.append(uvBuf);
 
   return batch;
 }
@@ -807,55 +800,60 @@ SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
     m->thawTopo();
   }
 
+  // Resolve the seam bool view once instead of a string-keyed lookup per edge.
+  mesh::BoolAttrView *seam =
+      mesh::boundary::findBoolEdgeView(m, mesh::boundary::EDGE_SEAM);
+  if (!seam) {
+    return nullptr;
+  }
+
   int nseam = 0;
+  float seamLenSum = 0.0f;
   for (int e : m->e) {
-    if (mesh::boundary::edgeFlag(m, mesh::boundary::EDGE_SEAM, e)) {
+    if (seam->get(e)) {
       nseam++;
+      seamLenSum += (m->v.co[m->e.vs[e][1]] - m->v.co[m->e.vs[e][0]]).length();
     }
   }
   if (nseam == 0) {
     return nullptr;
   }
 
+  // A single uniform push-out distance (a fraction of the *average* seam-edge
+  // length), not a per-edge one: a vertex shared by two seam edges of different
+  // lengths must land at the same offset position from both, or the polyline
+  // kinks/gaps at every shared vertex. Assumes m->v.no is unit-length (true
+  // after update_node_normals, which runs before drawQ rebuilds this batch).
+  const float off = (seamLenSum / float(nseam)) * 0.25f;
+
   const int totalVerts = nseam * 2;
   Buffer *posBuf = mgr.createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
   Buffer *colorBuf =
       mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
-  Buffer *uvBuf =
-      mgr.createBuffer(litestl::util::string("uv"), GPUType::FLOAT32, 2, totalVerts);
 
   float3 *pos = posBuf->get_data<float3>();
   float4 *color = colorBuf->get_data<float4>();
-  float2 *uv = uvBuf->get_data<float2>();
 
   const float4 clr(1.0f, 0.4f, 0.0f, 1.0f); // orange, matching the marking-tool preview
   int idx = 0;
   for (int e : m->e) {
-    if (!mesh::boundary::edgeFlag(m, mesh::boundary::EDGE_SEAM, e)) {
+    if (!seam->get(e)) {
       continue;
     }
     int v1 = m->e.vs[e][0];
     int v2 = m->e.vs[e][1];
 
     // Seam edges lie exactly on the surface, so they z-fight with / are hidden
-    // behind the mesh. Float each endpoint out along its vertex normal by a
-    // fraction of the edge length so the line hovers just above the surface
-    // (visible from outside, still occluded by geometry in front of it).
-    float3 a = m->v.co[v1];
-    float3 b = m->v.co[v2];
-    float off = (b - a).length() * 0.25f;
-    a = a + m->v.no[v1] * off;
-    b = b + m->v.no[v2] * off;
-
-    pos[idx] = a;
+    // behind the mesh. Float each endpoint out along its vertex normal by the
+    // uniform `off` so the line hovers just above the surface (visible from
+    // outside, still occluded by geometry in front of it).
+    pos[idx] = m->v.co[v1] + m->v.no[v1] * off;
     color[idx] = clr;
-    uv[idx] = float2(0.0f, 0.0f);
     idx++;
 
-    pos[idx] = b;
+    pos[idx] = m->v.co[v2] + m->v.no[v2] * off;
     color[idx] = clr;
-    uv[idx] = float2(1.0f, 1.0f);
     idx++;
   }
 
@@ -864,7 +862,6 @@ SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
   DrawBatch *batch = mgr.createBatch();
   batch->buffers.append(posBuf);
   batch->buffers.append(colorBuf);
-  batch->buffers.append(uvBuf);
 
   auto *shader = &spatialShaders.basicLineShader;
 
@@ -872,7 +869,6 @@ SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
       batch, GPUCmdType::DRAW_LINES, shader, 0, totalVerts, totalVerts / 2);
   cmd->attrs.append(posBuf);
   cmd->attrs.append(colorBuf);
-  cmd->attrs.append(uvBuf);
 
   return batch;
 }

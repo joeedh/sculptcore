@@ -167,6 +167,25 @@ with write-back at kernel exit.
   (CPU knows the edge; GPU needs the `nbr_verts` CSR widened with edge index).
 - `corner`/`edge` as first-class iterated stages — only declaration + reserved.
 
+### GPU-attr implementation scope (as built — audit 2026-05-31)
+The design above is the approved target; what actually shipped is narrower, so
+the "all-backend parity" bar holds only for the backends/types listed:
+- **32-bit attr types only.** The GPU attr seam carries `INT` and `FLOAT4`
+  today. The `BYTE`/`SHORT`/packed-`BOOL` → `u32`/`f32` narrowing is **not**
+  implemented — packing is done per-brush in `debug/gpu_stroke.cc` (hardcoded
+  `group`/`color`/`vclass` layouts), not by a generic type-driven dispatcher.
+  `vk_compute.cc setAttr`/`readbackAttr` are byte-level `memcpy`. A non-32-bit
+  attr would need that packing added before it works on the GPU. (The CPU
+  executor now zero-inits a fresh `bool` layer, which it previously skipped.)
+- **Verified backends: C++, WGSL, SPIR-V (Vulkan/Dawn).** Attr A/B parity
+  (`sbrush-verify`, `webgpu-verify`/`replay.mjs`) covers these.
+- **CUDA/HIP/OpenCL: attr support not emitted.** `emit_cuda.cc`/`emit_opencl.cc`
+  gained no `FieldKind::Attr` handling, so `color`/`bsmooth` won't compile there
+  (those backends are off by default). Implement or keep scoped out.
+- **WgpuNative (`source/webgpu`): no attr/face dispatch.** It doesn't override
+  `setAttr`/`readbackAttr`, so attr brushes abort on it; `wgpu-native-verify`
+  should skip the `color_ab`/`polygroup_ab` scripts until it does.
+
 ### Wave 1 done = green
 `attrtest.sbrush` (vertex writes a `float4` attr; face stage writes an `int`
 attr) compiles on all backends (`sbrush-validate`) and A/B bit-matches C++ vs

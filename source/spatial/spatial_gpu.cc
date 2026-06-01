@@ -76,7 +76,10 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
     if (show_vcol) {
       // Prefer the active layer index (displayColorAttr); fall back to the
       // layer literally named "color" when unset (-1) or the index is stale /
-      // wrong-typed.
+      // wrong-typed. NOTE: the index is resolved by position only — C++ can't
+      // validate it by identity. If a same-typed layer is added/removed/reordered
+      // ahead of the active one, this silently targets the wrong layer; the app
+      // must re-set displayColorAttr (via _syncDisplayAttrs) after any such edit.
       int ci = displayColorAttr;
       if (ci >= 0 && ci < int(m->v.attrs.attrs.size()) &&
           m->v.attrs.attrs[ci].type == AttrType::FLOAT4) {

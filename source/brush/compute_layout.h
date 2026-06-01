@@ -63,9 +63,14 @@ struct ComputeStrokeSample {
   float arclen = 0.0f;          // offset 28
 };
 
-/* One spatial-node chunk: a (offset,count) window into the flattened
- * unique_verts array. count must be <= 64 (the kernel's workgroup size);
- * the host splits larger nodes into multiple chunks. */
+/* One spatial-node chunk: a (offset,count) window into the flattened element
+ * array. count must be <= 64 (the kernel's workgroup size); the host splits
+ * larger nodes into multiple chunks.
+ *
+ * NOTE: the fields are named `vert_*` but the face-stage dispatch reuses this
+ * same struct generically — for a face kernel they index the flattened
+ * `unique_faces` array, not verts. Read them as elem_offset/elem_count when the
+ * dispatch is in face mode (see gpu_stroke.cc faceMode_). */
 struct ComputeNodeMeta {
   uint32_t vert_offset = 0;
   uint32_t vert_count = 0;

@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstddef>
 #include <cstring>
 
 namespace sculptcore::debug_app {
@@ -616,8 +617,16 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   bu.stroke_path_count = uint32_t(scene.brush.strokePathCount);
 
   // POLYGROUP custom uniform `activeGroup` (the id painted under the brush). In
-  // the WGSL BrushUniforms it's the first appended field, at offset 72 — the
-  // same slot the host struct gives `mu`, so write the int bits there.
+  // the WGSL BrushUniforms it's the first appended DSL uniform, at offset 72 —
+  // the same slot the host struct gives kelvinlet's `mu` (the first field after
+  // the fixed block). The two are mutually exclusive brushes, so we reuse the
+  // slot, writing the i32 bits into the f32 `mu` as a bit-reinterpret (WGSL
+  // reads `activeGroup` as i32). FRAGILE: this only works while `mu` is the
+  // first post-fixed field — the static_assert pins that. If another DSL-uniform
+  // brush is added, give it its own named slot instead of aliasing `mu`.
+  static_assert(offsetof(vulkan::ComputeBrushUniforms, mu) == 72,
+                "polygroup activeGroup aliases the first appended DSL uniform "
+                "slot (offset 72); update this if the layout changes");
   if (faceMode_) {
     int ag = scene.brush.activeGroup;
     std::memcpy(&bu.mu, &ag, sizeof(int));

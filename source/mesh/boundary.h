@@ -19,6 +19,7 @@
 
 namespace sculptcore::mesh {
 struct MeshBase;
+struct BoolAttrView;
 }
 
 namespace sculptcore::mesh::boundary {
@@ -62,10 +63,21 @@ void setEdgeFlag(MeshBase *m, const char *flagName, int e, bool state);
 // Read a source/derived edge flag (false if the layer doesn't exist).
 bool edgeFlag(MeshBase *m, const char *flagName, int e);
 
+// Resolve an edge-flag bool view by name (nullptr if the layer doesn't exist),
+// so a hot loop can read flags via the view instead of a string-keyed lookup
+// per element (what `edgeFlag` does each call).
+BoolAttrView *findBoolEdgeView(MeshBase *m, const char *flagName);
+
 // Mark elements boundary-dirty so the next recomputeDirty refreshes them.
 void markEdgeDirty(MeshBase *m, int e);
 void markVertDirty(MeshBase *m, int v);
 void markAllDirty(MeshBase *m);
+
+// Mark every edge + vertex of face @p f boundary-dirty. Used by the poly-group
+// brush: painting a face can change the inter-group boundary on any of its
+// edges, so its incident edges/verts must be reclassified. Walks the face loop
+// — requires live topology.
+void markFaceDirty(MeshBase *m, int f);
 
 // Recompute derived edge flags (poly-group; UV-chart is a follow-up) and the
 // per-vertex classification for every dirty element, clearing the markers.

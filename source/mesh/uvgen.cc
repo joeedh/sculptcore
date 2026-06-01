@@ -1,6 +1,7 @@
 #include "uvgen.h"
 
 #include "attribute.h"
+#include "attribute_bool.h"
 #include "boundary.h"
 #include "mesh.h"
 #include "mesh_iter.h"
@@ -47,7 +48,9 @@ int generateUVFromSeams(MeshBase *m, const char *uvName, float margin)
   const int nf = m->f.count;
   const int nc = m->c.count;
 
-  // 1. Flood-fill faces into charts, not crossing seam edges.
+  // 1. Flood-fill faces into charts, not crossing seam edges. Resolve the seam
+  // bool view once instead of a string-keyed lookup per corner per face.
+  BoolAttrView *seam = boundary::findBoolEdgeView(m, boundary::EDGE_SEAM);
   Vector<int> chartId;
   chartId.resize(nf);
   for (int f = 0; f < nf; f++) chartId[f] = -1;
@@ -67,7 +70,7 @@ int generateUVFromSeams(MeshBase *m, const char *uvName, float margin)
         int c = cstart;
         do {
           int e = m->c.e[c];
-          if (!boundary::edgeFlag(m, boundary::EDGE_SEAM, e)) {
+          if (!(seam && seam->get(e))) {
             int rc0 = m->e.c[e];
             if (rc0 != ELEM_NONE) {
               int rc = rc0;

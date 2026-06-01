@@ -70,11 +70,13 @@ bool computePolygroupBoundary(MeshBase *m, int e, AttrData<int> *faceGroup)
 void markEdgeDirty(MeshBase *m, int e)
 {
   ensureBoolEdge(m, EDGE_DIRTY, true)->set(e, true);
+  m->boundaryDirty = true;
 }
 
 void markVertDirty(MeshBase *m, int v)
 {
   ensureBoolVert(m, VERT_DIRTY, true)->set(v, true);
+  m->boundaryDirty = true;
 }
 
 void setEdgeFlag(MeshBase *m, const char *flagName, int e, bool state)
@@ -91,12 +93,37 @@ bool edgeFlag(MeshBase *m, const char *flagName, int e)
   return v ? v->get(e) : false;
 }
 
+BoolAttrView *findBoolEdgeView(MeshBase *m, const char *flagName)
+{
+  return findBoolEdge(m, flagName);
+}
+
+void markFaceDirty(MeshBase *m, int f)
+{
+  // Walk the face's boundary/hole lists and their corner cycles, marking each
+  // corner's edge + vertex dirty (mirrors BasicFaceIter::computeCentroid).
+  int l = m->f.l[f];
+  while (l != ELEM_NONE) {
+    int start = m->l.c[l];
+    int c = start;
+    if (c != ELEM_NONE) {
+      do {
+        markEdgeDirty(m, m->c.e[c]);
+        markVertDirty(m, m->c.v[c]);
+        c = m->c.next[c];
+      } while (c != start && c != ELEM_NONE);
+    }
+    l = m->l.next[l];
+  }
+}
+
 void markAllDirty(MeshBase *m)
 {
   BoolAttrView *eDirty = ensureBoolEdge(m, EDGE_DIRTY, true);
   for (int e = 0; e < m->e.count; e++) eDirty->set(e, true);
   BoolAttrView *vDirty = ensureBoolVert(m, VERT_DIRTY, true);
   for (int v = 0; v < m->v.count; v++) vDirty->set(v, true);
+  m->boundaryDirty = true;
 }
 
 void recomputeDirty(MeshBase *m)
@@ -138,6 +165,8 @@ void recomputeDirty(MeshBase *m)
     (*vClass)[v] = cls;
     vDirty->set(v, false);
   }
+
+  m->boundaryDirty = false; // classification is now current
 }
 
 int vertClass(MeshBase *m, int v)

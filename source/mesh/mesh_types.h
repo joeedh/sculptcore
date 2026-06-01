@@ -214,6 +214,13 @@ struct MeshBase {
   CornerData c;
   ListData l;
   FaceData f;
+
+  /* Set when any boundary source/derived flag is marked dirty (boundary::mark*
+   * / setEdgeFlag), cleared by boundary::recomputeDirty. An O(1) "is the derived
+   * vertex classification stale?" check so consumers (the boundary-aware smooth
+   * brush) can skip the recompute — and its topology thaw — when nothing changed
+   * since the last recompute. */
+  bool boundaryDirty = false;
 };
 
 } // namespace sculptcore::mesh

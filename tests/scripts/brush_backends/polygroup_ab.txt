@@ -1,9 +1,11 @@
 # A/B script: poly-group paint, cpp vs wgsl backend gate. The polygroup brush
 # is a per-FACE kernel that writes an int "group" attribute (no vertex motion),
 # so the meaningful signal is the face_attrs fingerprint state_dump emits — it
-# must match across backends, exercising the DSL face-stage path. (sbrush-verify's
-# wgsl backend executes the C++ kernel and gates that polygroup.wgsl emitted +
-# tint-validated; webgpu-verify exercises the real GPU face dispatch.)
+# must match across backends, exercising the DSL face-stage path. (`backend=wgsl`
+# loads the compiled polygroup SPIR-V and dispatches it on Vulkan when a device
+# is present — a genuine SPIR-V-vs-C++ A/B; with no device debug_app exits
+# non-zero, so the test fails rather than silently passing. webgpu-verify runs
+# the same over the real GPU face dispatch.)
 #
 # Full reset between backends (re-make_cube) rather than `undo`: undo doesn't
 # restore a painted attr (meshlog snapshots co/no, not custom layers), but a

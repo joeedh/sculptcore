@@ -30,7 +30,8 @@ namespace sculptcore::mesh {
  *
  * payload (uncompressed) is five domains in fixed order V,E,C,L,F, each:
  *   uint32 domain; uint32 count; uint32 attrCount
- *   per attr: string name; uint32 type; uint32 flag; uint32 elemSize
+ *   per attr: string name; uint32 type; uint32 flag; uint32 elemSize;
+ *             uint32 use (category — v2+; absent in v1, defaults to NONE)
  *             column bytes (count*elemSize; bool = count*1; TOPO ints remapped)
  */
 namespace {
@@ -45,6 +46,7 @@ struct SerialColumn {
   AttrType type = AttrType::NONE;
   AttrFlag flag;
   uint32_t elemSize = 0;
+  AttrUse use = AttrUse::NONE;
   Vector<uint8_t> bytes;
 };
 
@@ -212,6 +214,7 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
     pbf.writeUint32(uint32_t(attr.type));
     pbf.writeUint32(uint32_t(int(attr.flag)));
     pbf.writeUint32(elemSize);
+    pbf.writeUint32(uint32_t(int(attr.use))); // category (v2+)
 
     if (attr.type == AttrType::BOOL) {
       buf.resize(count);
@@ -259,7 +262,7 @@ void swapColumn(SerialColumn &col)
   }
 }
 
-void readDomain(io::BinFile &pbf, SerialMesh &sm, bool needSwap)
+void readDomain(io::BinFile &pbf, SerialMesh &sm, bool needSwap, uint32_t version)
 {
   uint32_t domRaw = pbf.readUint32();
   uint32_t count = pbf.readUint32();
@@ -276,6 +279,9 @@ void readDomain(io::BinFile &pbf, SerialMesh &sm, bool needSwap)
     col.type = AttrType(pbf.readUint32());
     col.flag = AttrFlag(int(pbf.readUint32()));
     col.elemSize = pbf.readUint32();
+    if (version >= 2) {
+      col.use = AttrUse(int(pbf.readUint32())); // category (v2+); else NONE
+    }
 
     size_t nbytes = size_t(count) * col.elemSize;
     col.bytes.resize(nbytes);
@@ -301,12 +307,14 @@ void buildDomain(ElemData &ed, SerialDomain &sd)
     ed.attrs.ensure(col.type, col.name);
   }
 
-  /* Preserve attr flags from the file (builtins keep their ctor flag). */
+  /* Preserve attr flags + category from the file (builtins keep their ctor
+   * flag; use defaults to NONE for v1 files). */
   for (AttrRef &attr : ed.attrs.attrs) {
     for (SerialColumn &col : sd.cols) {
       if (attr.type == col.type &&
           std::strcmp(attr.name.c_str(), col.name.c_str()) == 0) {
         attr.flag = col.flag;
+        attr.use = col.use;
       }
     }
   }
@@ -357,6 +365,11 @@ bool migrate(SerialMesh &sm)
 {
   while (sm.version < serial::kMeshFormatVersion) {
     switch (sm.version) {
+    case 1:
+      /* v1 → v2 added the per-attr `use` (category) field. Old files have no
+       * categories; readDomain already left every col.use == NONE. */
+      sm.version = 2;
+      break;
     default:
       return false;
     }
@@ -467,7 +480,7 @@ bool readMesh(Mesh &mesh, std::istream &in)
 
   SerialMesh sm;
   for (int d = 0; d < 5; d++) {
-    readDomain(pbf, sm, needSwap);
+    readDomain(pbf, sm, needSwap, version);
   }
   sm.version = version;
 

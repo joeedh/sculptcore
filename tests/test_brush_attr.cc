@@ -96,8 +96,10 @@ int main()
 
   // --- face stage: poly-group paint writes a per-face int "group" attr ---
   // Exercises the DSL `face` kernel, BasicFaceIter (centroid + face-attr
-  // lowering), and the executor's face dispatch. The kernel sets group=7 on
-  // faces whose centroid is under the dab; the executor value-inits the rest.
+  // lowering), and the executor's face dispatch. The kernel writes the stroke's
+  // `activeGroup` id on faces whose centroid is under the dab (a single nonzero
+  // id per stroke — maxFaceGroup()+1 for a fresh mesh); the executor value-inits
+  // the rest to 0.
   {
   Scene scene(256, 256, /*headless=*/true);
   auto r = script::run(scene,
@@ -120,17 +122,27 @@ int main()
   AttrData<int> *gd = gref.get_data<int>();
   test_assert(gd != nullptr);
 
+  // The stroke paints a single nonzero id; discover it (don't hardcode — it's
+  // the per-stroke activeGroup, not a fixed constant) and require every painted
+  // face to carry exactly that id.
+  int paintedId = 0;
+  for (int i = 0; i < m->f.count; i++) {
+    int g = (*gd)[i];
+    if (g != 0) { paintedId = g; break; }
+  }
   int painted = 0, unpainted = 0, other = 0;
   for (int i = 0; i < m->f.count; i++) {
     int g = (*gd)[i];
-    if (g == 7) painted++;
+    if (g == paintedId) painted++;
     else if (g == 0) unpainted++;
     else other++;
   }
-  fprintf(stderr, "poly painted=%d unpainted=%d other=%d\n", painted, unpainted, other);
-  test_assert(painted > 0);    // faces under the dab got the id
+  fprintf(stderr, "poly id=%d painted=%d unpainted=%d other=%d\n", paintedId, painted,
+          unpainted, other);
+  test_assert(paintedId != 0); // a stroke assigned some nonzero group id
+  test_assert(painted > 0);    // faces under the dab got that id
   test_assert(unpainted > 0);  // far faces were value-inited and untouched
-  test_assert(other == 0);     // no spurious ids
+  test_assert(other == 0);     // no spurious second id
   }
 
   return test_end();

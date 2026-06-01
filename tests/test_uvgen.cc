@@ -77,6 +77,27 @@ int main()
     fprintf(stderr, "uvgen seam charts=%d\n", charts);
     test_assert(charts == 2);
     test_assert(uvsInUnit(m, "uv"));
+    // The created layer is tagged AttrUse::UV (the unwrapper's contract).
+    AttrRef ref = m.c.attrs.find_attribute(AttrType::FLOAT2, "uv");
+    test_assert(ref.exists() && int(ref.use) == int(AttrUse::UV));
+  }
+  {
+    // Empty mesh (no faces): 0 charts and NO layer created.
+    Mesh m;
+    int charts = generateUVFromSeams(&m, "uv");
+    test_assert(charts == 0);
+    test_assert(m.c.attrs.has(AttrType::FLOAT2, "uv") == false);
+  }
+  {
+    // Every shared edge seamed → each quad is its own chart (packing stress).
+    Mesh m;
+    int v1, v4;
+    buildTwoQuads(m, v1, v4);
+    for (int e : m.e) bnd::setEdgeFlag(&m, bnd::EDGE_SEAM, e, true);
+    int charts = generateUVFromSeams(&m, "uv");
+    fprintf(stderr, "uvgen all-seam charts=%d\n", charts);
+    test_assert(charts == 2); // 2 faces, fully cut
+    test_assert(uvsInUnit(m, "uv"));
   }
   return test_end();
 }

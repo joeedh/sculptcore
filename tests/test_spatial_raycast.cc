@@ -90,6 +90,37 @@ int main()
     float t = 0.0f;
     TASSERT(cast_down_hits(tree, 0.5f, 0.5f, t));
     TASSERT(std::fabs(t - 1.0f) < 1e-4f);
+
+    /* nearestVert (Wave 5 click-to-vertex): the hit triangle's
+     * max-barycentric-weight corner — i.e. the vertex of the hit *face* nearest
+     * the hit point. Verify it's populated and is indeed the closest of the hit
+     * face's corners to isect.p (no assumption about how the quad tessellates). */
+    auto nearestFaceCorner = [&](int fi, const float3 &p) -> int {
+      int best = ELEM_NONE;
+      float bestD = 1e30f;
+      int li = m.f.l[fi];
+      while (li != ELEM_NONE) {
+        int c0 = m.l.c[li], cc = c0;
+        do {
+          int v = m.c.v[cc];
+          float d = (m.v.co[v] - p).length();
+          if (d < bestD) { bestD = d; best = v; }
+          cc = m.c.next[cc];
+        } while (cc != c0 && cc != ELEM_NONE);
+        li = m.l.next[li];
+      }
+      return best;
+    };
+    auto checkNearestVert = [&](float x, float y) {
+      CastRayIsect isect;
+      bool ok = tree.castRay(float3(x, y, 1.0f), float3(0, 0, -1.0f), isect);
+      TASSERT(ok);
+      TASSERT(isect.nearestVert != ELEM_NONE);
+      TASSERT(isect.faceIndex != ELEM_NONE);
+      TASSERT(isect.nearestVert == nearestFaceCorner(isect.faceIndex, isect.p));
+    };
+    checkNearestVert(0.49f, 0.49f);
+    checkNearestVert(0.02f, 0.02f);
   }
 
   /* Multi-leaf grid: the regression case. With leaf_limit forced low the

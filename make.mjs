@@ -648,9 +648,20 @@ async function wgpuNativeVerify() {
     process.exit(1)
   }
 
+  // The WgpuNative dispatcher (source/webgpu/wgpu_compute) does not yet
+  // implement setAttr/readbackAttr or the face-stage buffers, so attr/face
+  // brushes abort on it. Skip those scripts here (they're covered by the
+  // Vulkan/Dawn path) until WgpuNative grows attr support — see the GPU-attr
+  // implementation-scope note in documentation/plans/boundary-conditions.md.
+  const ATTR_BRUSHES = new Set(['color', 'polygroup', 'bsmooth'])
+
   let failures = 0
   for (const s of scripts) {
     const brush = s.replace(/_ab\.txt$/, '')
+    if (ATTR_BRUSHES.has(brush)) {
+      console.log(`⊘ ${brush}: skipped (WgpuNative lacks attr/face dispatch)`)
+      continue
+    }
     // Rewrite the wgsl pass to the native webgpu backend; cpp pass is untouched.
     const text = fs
       .readFileSync(`${scriptDir}/${s}`, 'utf-8')
