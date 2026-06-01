@@ -59,7 +59,8 @@ struct EdgeSplitResult {
  * driver / meshlog undo). Returns false if the edge index is invalid or
  * any incident face is not a triangle. */
 static inline SuccessOrError<"edge_split", "failed to split edge">
-splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr)
+splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
+          MeshCallbacks *cb = nullptr)
 {
   using namespace litestl::util;
 
@@ -104,7 +105,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr)
   }
 
   /* Create the midpoint vertex and interpolate all vertex attrs. */
-  int vm = m.make_vertex((m.v.co[v0] + m.v.co[v1]) * 0.5f);
+  int vm = m.make_vertex((m.v.co[v0] + m.v.co[v1]) * 0.5f, cb);
   interpAttrs(m.v.attrs, vm, v0, v1, 0.5f);
 
   if (out) {
@@ -118,7 +119,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr)
     if (out) {
       out->killed_faces.append(fi);
     }
-    m.kill_face(fi);
+    m.kill_face(fi, cb);
   }
 
   bool wire = incidentFaces.isEmpty();
@@ -128,7 +129,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr)
    * edge and so the edge-count delta matches the documented Euler change.
    * In the wire case the edge is killed in the branch below. */
   if (!wire && !m.e.freemap[edge]) {
-    m.kill_edge(edge);
+    m.kill_edge(edge, cb);
   }
 
   /* Snapshot edge counts to detect newly created edges/faces for `out`. */
@@ -144,10 +145,10 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr)
   if (wire) {
     /* Wire edge: replace v0-v1 with v0-vm and vm-v1. */
     if (!m.e.freemap[edge]) {
-      m.kill_edge(edge);
+      m.kill_edge(edge, cb);
     }
-    int e0 = m.make_edge(v0, vm);
-    int e1 = m.make_edge(vm, v1);
+    int e0 = m.make_edge(v0, vm, cb);
+    int e1 = m.make_edge(vm, v1, cb);
     if (out) {
       out->created_edges.append(e0);
       out->created_edges.append(e1);
@@ -182,8 +183,8 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr)
     /* Winding a -> b -> opp. Bisect: (a, vm, opp) and (vm, b, opp). */
     int tri0[3] = {a, vm, opp};
     int tri1[3] = {vm, b, opp};
-    int f0 = m.make_face(std::span<int>(tri0, 3));
-    int f1 = m.make_face(std::span<int>(tri1, 3));
+    int f0 = m.make_face(std::span<int>(tri0, 3), cb);
+    int f1 = m.make_face(std::span<int>(tri1, 3), cb);
     if (out) {
       out->created_faces.append(f0);
       out->created_faces.append(f1);

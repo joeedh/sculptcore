@@ -114,7 +114,8 @@ static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
 static inline SuccessOrError<"edge_collapse", "failed to collapse edge">
 collapseEdge(Mesh &m, int edge,
              std::optional<litestl::math::float3> merged_co = std::nullopt,
-             float blend = 0.0f, EdgeCollapseResult *out = nullptr)
+             float blend = 0.0f, EdgeCollapseResult *out = nullptr,
+             MeshCallbacks *cb = nullptr)
 {
   using namespace litestl;
   using namespace litestl::util;
@@ -135,7 +136,7 @@ collapseEdge(Mesh &m, int edge,
       out->killed_vert = ELEM_NONE;
       out->killed_edges.append(edge);
     }
-    m.kill_edge(edge);
+    m.kill_edge(edge, cb);
     return true;
   }
 
@@ -221,7 +222,7 @@ collapseEdge(Mesh &m, int edge,
     if (out) {
       out->killed_faces.append(fi);
     }
-    m.kill_face(fi);
+    m.kill_face(fi, cb);
   }
 
   /* 3. Kill all edges incident to v_kill (including `edge` itself, which
@@ -242,15 +243,14 @@ collapseEdge(Mesh &m, int edge,
       if (out) {
         out->killed_edges.append(ei);
       }
-      m.kill_edge(ei);
+      m.kill_edge(ei, cb);
     }
   }
 
-  /* 4. Kill v_kill (now isolated). */
+  /* 4. Kill v_kill (now isolated). Its edges are already gone, so kill_vertex
+   *    just fires onVertKill (for the meshlog) and releases. */
   if (!m.v.freemap[v_kill]) {
-    /* kill_vertex iterates v.e until empty. We already cleaned its edges,
-     * so v.e[v_kill] should be ELEM_NONE. */
-    m.v.release(v_kill);
+    m.kill_vertex(v_kill, cb);
   }
 
   /* 5. Optional: update kept vertex position. */
@@ -301,7 +301,7 @@ collapseEdge(Mesh &m, int edge,
     int64_t key = detail_collapse::faceKey(remapped);
     if (!rebuiltKeys.add(key)) continue;
 
-    int f = m.make_face(std::span<int>(remapped.data(), remapped.size()));
+    int f = m.make_face(std::span<int>(remapped.data(), remapped.size()), cb);
     if (out) {
       out->created_faces.append(f);
     }

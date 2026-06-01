@@ -21,6 +21,7 @@
  */
 
 #include "mesh/mesh.h"
+#include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/edge_collapse.h"
 #include "mesh/utils/edge_split.h"
@@ -128,7 +129,7 @@ inline bool collapseFree(mesh::Mesh &m, int e, const litestl::util::Set<int> &lo
  * Deterministic given `seed`. Does not touch spatial/meshlog state. */
 inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
                                   float radius, const DynTopoParams &p,
-                                  uint32_t seed)
+                                  uint32_t seed, mesh::MeshCallbacks *cb = nullptr)
 {
   using namespace litestl;
   using namespace litestl::util;
@@ -204,14 +205,14 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       }
       if (c.split) {
         mesh::EdgeSplitResult res;
-        if (mesh::splitEdge(m, c.edge, &res)) {
+        if (mesh::splitEdge(m, c.edge, &res, cb)) {
           stats.splits++;
           applied++;
         }
       } else {
         math::float3 mid = detail::edgeMid(m, c.edge);
         mesh::EdgeCollapseResult res;
-        if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res)) {
+        if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb)) {
           stats.collapses++;
           applied++;
         }
