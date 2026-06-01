@@ -19,6 +19,11 @@ struct CastRayIsect {
   // Mesh face index of the hit triangle (tri.f). -1 if no hit; lets callers map
   // a ray hit back to a face attr (e.g. poly-group shift-to-extend sampling).
   int faceIndex = -1;
+  // Mesh vertex index of the hit triangle's corner with the largest barycentric
+  // weight (i.e. the vertex nearest the hit point). -1 if no hit; lets callers
+  // resolve a click to a vertex for the seam-marking tool, in C++ (no per-vert
+  // cross-backend reads).
+  int nearestVert = -1;
 
   CastRayIsect() = default;
   CastRayIsect(const CastRayIsect &b) = default;
@@ -40,6 +45,7 @@ struct CastRayIsect {
     BIND_STRUCT_MEMBER(st, triIndex);
     BIND_STRUCT_MEMBER(st, nodeIndex);
     BIND_STRUCT_MEMBER(st, faceIndex);
+    BIND_STRUCT_MEMBER(st, nearestVert);
 
     return st;
   }

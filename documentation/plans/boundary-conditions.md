@@ -72,12 +72,15 @@ and 2 are independent and may be parallelized.
   Deferred (fill when consumed): UV-chart derived flag, one-projected-edge count,
   C-API/TS accessors (Wave 5), meshlog undo of flags, dirty-list.
 
-- **Wave 5: compute core DONE & verified (2026-05-30).**
+- **Wave 5: compute core + engine entry DONE & verified (2026-05-31).**
   `source/mesh/mesh_path.{h,cc}` `shortestEdgePath` (Dijkstra over edges,
   weighted by 3D length, via `litestl::BinaryHeap`); tested in
-  `tests/test_boundary.cc`. Remaining (app-side): the TS modal marking tool +
-  overlay + C-API binding + writing `boundary` seam/projected/sharp flags along
-  the path.
+  `tests/test_boundary.cc`. App-side: `Mesh::markSeamPath`/`edgePathCoords`
+  (bound C-API, thaw-frozen-topo + `setEdgeFlag(EDGE_SEAM)` + `recomputeDirty`),
+  LiteMesh TS wrappers, and `MarkSeamOp` (`litemesh.mark_seam`, vStart/vEnd) with
+  overlay draw + state=0 undo. Live-verified native (44-vert path -> 43 seam
+  edges). Remaining (UX): interactive click-to-pick modal (resolve clicks to
+  verts + live candidate-path preview) + persistent seam overlay.
 
 - **Wave 7: core DONE & verified (2026-05-30).** `source/mesh/uvgen.{h,cc}`
   `generateUVFromSeams`: flood-fill charts bounded by `EDGE_SEAM`, group-normal

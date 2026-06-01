@@ -27,5 +27,6 @@ export interface CastRayIsect {
   triIndex: int32
   nodeIndex: int32
   faceIndex: int32
+  nearestVert: int32
   new (): CastRayIsect
 }

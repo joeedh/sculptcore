@@ -167,6 +167,16 @@ struct SpatialTree {
       out.normal = no1 * w + no2 * out.uv[0] + no3 * out.uv[1];
       out.normal.normalize();
 
+      // Vertex nearest the hit point = the corner with the largest barycentric
+      // weight (w, uv[0], uv[1] for v1, v2, v3).
+      if (w >= out.uv[0] && w >= out.uv[1]) {
+        out.nearestVert = v1;
+      } else if (out.uv[0] >= out.uv[1]) {
+        out.nearestVert = v2;
+      } else {
+        out.nearestVert = v3;
+      }
+
       return true;
     }
     return false;
