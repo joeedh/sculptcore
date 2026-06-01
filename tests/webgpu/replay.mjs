@@ -13,6 +13,7 @@
 import gpu from '@kmamal/gpu'
 import fs from 'node:fs'
 import path from 'node:path'
+import {pathToFileURL} from 'node:url'
 
 // @kmamal/gpu does not inject the WebGPU enum globals; use the numeric values.
 const BufferUsage = { MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 0x40, STORAGE: 0x80 }
@@ -288,6 +289,10 @@ async function main() {
   process.exit(1)
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run main() when invoked as a CLI. Compare via pathToFileURL so this matches
+// on Windows too (raw `file://${argv[1]}` keeps backslashes + drops the third
+// slash, so it never equals import.meta.url's file:///C:/… form → main() never
+// ran and the harness saw an empty result).
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main()
 }
