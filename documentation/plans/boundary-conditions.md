@@ -47,10 +47,24 @@ and 2 are independent and may be parallelized.
 
 - **Wave 1: DONE & verified (2026-05-30).** Vertex attribute path complete on
   CPU + WGSL/SPIR-V with cross-backend A/B (`sbrush-verify` ✓ `color`); face
-  stage done on the C++ executor (`polygroup`), GPU emitters stubbed. CPU
-  regression test: `tests/test_brush_attr.cc`. Remaining: real GPU face dispatch
-  (deferred — "Wave 1b") and the pre-existing stale-golden refresh
-  (`sbrush-verify --regen`, a separate housekeeping commit).
+  stage done on the C++ executor (`polygroup`). CPU regression test:
+  `tests/test_brush_attr.cc`.
+
+- **Wave 1b: DONE & verified (2026-05-31).** Real GPU per-face dispatch: WGSL
+  face-stage codegen (`emit_wgsl.cc emitFaceKernel`, was a stub), `GpuStrokeSession`
+  face path (centroids/normals + `unique_faces` + slot-14 int `group`, binding-
+  generic Vulkan dispatcher), `polygroup_ab.txt` + `state_dump` face-attr
+  fingerprint. `sbrush-verify` 20/20; `webgpu-verify` 19/20 on real GPU (Dawn),
+  polygroup bit-exact (97 faces). Also fixed: `replay.mjs` Windows CLI guard +
+  attr-slot binding (color was a false positive), and refreshed the stale goldens
+  (`sbrush-verify --regen`).
+
+- **Wave 2 / 2b: DONE & verified (2026-05-31).** Vertex-color + poly-group
+  overlays (combinable `displayColorMode` bitmask, C++ composite); ObData
+  attribute manager — ListBox + builtin filter, category dropdown
+  (`setAttrUse`/`validCategories`), brush bridge to the active per-category attr
+  (`setCommandAttrLayer`), add/remove ToolOps (detach/reattach undo), display
+  follows the active color/group layer. All live-verified on the native backend.
 
 - **Wave 4: core DONE & verified (2026-05-30).** `source/mesh/boundary.{h,cc}`:
   per-type source edge flags + lazy dirty markers + derived poly-group boundary +
