@@ -32,5 +32,7 @@ export interface Mesh {
   removeAttr(domain: int32, index: int32): void
   detachAttr(domain: int32, index: int32): int32
   reattachAttr(stashId: int32): int32
+  markSeamPath(vStart: int32, vEnd: int32, state: int32): int32
+  edgePathCoords(vStart: int32, vEnd: int32, out: float[]): void
   new (): Mesh
 }

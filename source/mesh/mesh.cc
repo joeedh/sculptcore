@@ -1,5 +1,8 @@
 #include "mesh.h"
 
+#include "boundary.h"
+#include "mesh_path.h"
+
 #include "litestl/math/geom.h"
 #include "litestl/util/index_range.h"
 #include "litestl/util/map.h"
@@ -91,6 +94,47 @@ void Mesh::thawTopo()
 
   topo_cache.frozen.rebuildLinks(*this);
   topo_frozen = false;
+}
+
+int Mesh::markSeamPath(int vStart, int vEnd, int state)
+{
+  // shortestEdgePath + find_edge walk the live disk links; thaw if a prior
+  // sculpt stroke left the mesh frozen.
+  if (topo_frozen) {
+    thawTopo();
+  }
+  util::Vector<int> path;
+  if (!shortestEdgePath(this, vStart, vEnd, path) || path.size() < 2) {
+    return -1;
+  }
+  int marked = 0;
+  for (int i = 0; i + 1 < int(path.size()); i++) {
+    int e = find_edge(path[i], path[i + 1]);
+    if (e != ELEM_NONE) {
+      boundary::setEdgeFlag(this, boundary::EDGE_SEAM, e, state != 0);
+      marked++;
+    }
+  }
+  boundary::recomputeDirty(this);
+  return marked;
+}
+
+void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
+{
+  out.clear();
+  if (topo_frozen) {
+    thawTopo();
+  }
+  util::Vector<int> path;
+  if (!shortestEdgePath(this, vStart, vEnd, path)) {
+    return;
+  }
+  for (int vi : path) {
+    math::float3 c = v.co[vi];
+    out.append(c[0]);
+    out.append(c[1]);
+    out.append(c[2]);
+  }
 }
 
 int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)

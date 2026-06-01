@@ -105,6 +105,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
+    BIND_STRUCT_METHOD(st, markSeamPath, MARGS("vStart", "vEnd", "state"));
+    BIND_STRUCT_METHOD(st, edgePathCoords, MARGS("vStart", "vEnd", "out"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -220,6 +222,21 @@ struct Mesh : public MeshBase {
     }
     grp->remove_attr(index);
   }
+
+  /* Wave 5: mark the shortest edge-path from vStart to vEnd as a seam. Runs
+   * shortestEdgePath (Dijkstra over live edges), sets the EDGE_SEAM flag on each
+   * edge along the path, and recomputes derived boundary state. Returns the
+   * number of edges marked, or -1 when no path exists / the verts are invalid.
+   * `state` nonzero sets the seam flag, 0 clears it (the marking tool's undo
+   * re-runs the same path with state=0). Defined in mesh.cc (needs mesh_path.h
+   * + boundary.h). */
+  int markSeamPath(int vStart, int vEnd, int state);
+
+  /* Wave 5: fill `out` with the shortest edge-path vertex positions as flat xyz
+   * triples ([vStart..vEnd], 3 floats each), so the marking tool can draw the
+   * candidate/marked seam without per-vertex cross-backend reads. `out` is a
+   * bound Vector<float> out-param (marshal-safe, like castScreenCircle). */
+  void edgePathCoords(int vStart, int vEnd, util::Vector<float> &out);
 
   /* Detach the layer at `index` into the stash WITHOUT freeing its data, and
    * return a stash id (reattachAttr undoes it). Unlike removeAttr this preserves
