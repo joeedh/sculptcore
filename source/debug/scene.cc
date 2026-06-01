@@ -113,6 +113,9 @@ void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
   if (tree) {
     litestl::alloc::Delete(tree);
   }
+  spatialLeaf_ = leafLimit;
+  spatialDepth_ = depthLimit;
+  spatialGpuTri_ = gpuPrimLimit;
   tree = litestl::alloc::New<spatial::SpatialTree>("SpatialTree (debug)", mesh);
   /* Mesh-size-derived defaults; any positive explicit arg overrides. A <=0 arg
    * means "auto" for that knob. */
@@ -131,6 +134,24 @@ void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
   if (reorderOnBuild) {
     reorderForLocality();
   }
+}
+
+int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t seed)
+{
+  if (!dyntopoEnabled || !mesh) {
+    return 0;
+  }
+  /* dyntopo walks live disk/radial links; a prior stroke may have frozen the
+   * topology (TOPO pages freed). Thaw first (no-op when not frozen). */
+  mesh->thawTopo();
+  dyntopo::DynTopoStats st =
+      dyntopo::applyBrushDab(*mesh, center, radius, dyntopoParams, seed);
+  /* Topology changed underneath the tree; rebuild it with the same settings
+   * the last buildSpatial used so subsequent queries see fresh geometry. */
+  if (tree) {
+    buildSpatial(spatialLeaf_, spatialDepth_, spatialGpuTri_);
+  }
+  return st.splits + st.collapses;
 }
 
 void Scene::reorderForLocality()

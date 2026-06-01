@@ -8,6 +8,7 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/mesh_shapes.h"
+#include "mesh/utils/triangulate.h"
 #include "spatial/spatial.h"
 #include "stb/stb_image.h"
 
@@ -195,6 +196,79 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
 }
 #endif // SBRUSH_GPU_DISPATCH
 
+/* Manifold / cycle-integrity check on a mesh: disk + radial + loop cycles
+ * close, corner edge/vert agree, faces are triangles, no freed refs. Mirrors
+ * the validators in the topology-operator tests. Fills `err` on the first
+ * problem found. */
+static bool checkManifold(mesh::Mesh &m, std::string &err)
+{
+  char buf[160];
+  for (int ei : m.e) {
+    int v1 = m.e.vs[ei][0], v2 = m.e.vs[ei][1];
+    if (v1 < 0 || v2 < 0 || v1 >= int(m.v.capacity()) || v2 >= int(m.v.capacity()) ||
+        m.v.freemap[v1] || m.v.freemap[v2] || v1 == v2) {
+      snprintf(buf, sizeof(buf), "edge %d bad/degenerate vert refs %d %d", ei, v1, v2);
+      err = buf;
+      return false;
+    }
+  }
+  for (int vi : m.v) {
+    int e0 = m.v.e[vi];
+    if (e0 == ELEM_NONE) continue;
+    int steps = 0, ec = e0;
+    do {
+      int side = m.e.vs[ec][0] == vi ? 0 : 1;
+      int next = m.e.disk[ec][side * 2 + 1], prev = m.e.disk[ec][side * 2];
+      int sn = m.e.vs[next][0] == vi ? 0 : 1, sp = m.e.vs[prev][0] == vi ? 0 : 1;
+      if (m.e.disk[next][sn * 2] != ec || m.e.disk[prev][sp * 2 + 1] != ec) {
+        snprintf(buf, sizeof(buf), "disk prev/next mismatch v=%d e=%d", vi, ec);
+        err = buf;
+        return false;
+      }
+      ec = next;
+      if (++steps > 4000000) { err = "vert disk did not close"; return false; }
+    } while (ec != e0);
+  }
+  for (int ei : m.e) {
+    int c0 = m.e.c[ei];
+    if (c0 == ELEM_NONE) continue;
+    int steps = 0, cc = c0;
+    do {
+      if (m.c.e[cc] != ei) { err = "radial corner c.e mismatch"; return false; }
+      int rn = m.c.radial_next[cc], rp = m.c.radial_prev[cc];
+      if (m.c.radial_prev[rn] != cc || m.c.radial_next[rp] != cc) {
+        snprintf(buf, sizeof(buf), "radial prev/next mismatch e=%d c=%d", ei, cc);
+        err = buf;
+        return false;
+      }
+      cc = rn;
+      if (++steps > 4000000) { err = "edge radial did not close"; return false; }
+    } while (cc != c0);
+  }
+  for (int fi : m.f) {
+    if (m.f.list_count[fi] != 1 || m.l.size[m.f.l[fi]] != 3) {
+      snprintf(buf, sizeof(buf), "face %d is not a triangle", fi);
+      err = buf;
+      return false;
+    }
+    int li = m.f.l[fi], c0 = m.l.c[li], cc = c0, n = 0;
+    do {
+      if (m.c.l[cc] != li) { err = "corner c.l != list"; return false; }
+      int cn = m.c.next[cc];
+      if (m.c.prev[cn] != cc) { err = "corner prev/next mismatch"; return false; }
+      int ce = m.c.e[cc], vh = m.c.v[cc], vn = m.c.v[cn];
+      int ev0 = m.e.vs[ce][0], ev1 = m.e.vs[ce][1];
+      if (!((ev0 == vh && ev1 == vn) || (ev1 == vh && ev0 == vn))) {
+        err = "corner edge-vert mismatch";
+        return false;
+      }
+      cc = cn;
+      if (++n > 4000000) { err = "face loop did not close"; return false; }
+    } while (cc != c0);
+  }
+  return true;
+}
+
 bool execVerb(Scene &scene,
               const std::string &verb,
               ArgMap &args,
@@ -207,6 +281,15 @@ bool execVerb(Scene &scene,
     float sphereFac = getFloat(args, "sphere", 0.0f);
     mesh::Mesh *m = mesh::createCube(dimen, size, sphereFac);
     scene.setMesh(m);
+    return true;
+  }
+  if (verb == "triangulate") {
+    if (!scene.mesh) {
+      err = "triangulate: no mesh";
+      return false;
+    }
+    scene.mesh->thawTopo();
+    mesh::triangulateMesh(*scene.mesh);
     return true;
   }
   if (verb == "build_spatial") {
@@ -224,6 +307,50 @@ bool execVerb(Scene &scene,
     scene.brush.spacing = getFloat(args, "spacing", scene.brush.spacing);
     scene.brush.invert = getBool(args, "invert", scene.brush.invert);
     scene.brush.writeProps();
+    return true;
+  }
+  if (verb == "dyntopo") {
+    /* Configure dynamic topology for subsequent strokes:
+     *   dyntopo enabled=1 detail=F [min=F] [mode=both|subdivide|collapse]
+     *           [max_rounds=N] [seed=N]
+     * detail sets the target (l_max); min defaults to 0.4*detail. */
+    scene.dyntopoEnabled = getBool(args, "enabled", true);
+    float detail = getFloat(args, "detail", scene.dyntopoParams.l_max);
+    scene.dyntopoParams.l_max = detail;
+    scene.dyntopoParams.l_min = getFloat(args, "min", detail * 0.4f);
+    scene.dyntopoParams.max_rounds =
+        getInt(args, "max_rounds", scene.dyntopoParams.max_rounds);
+    scene.dyntopoSeed = (uint32_t)getInt(args, "seed", (int)scene.dyntopoSeed);
+    const char *mode = getArg(args, "mode", "both");
+    std::string ms = mode;
+    for (auto &c : ms) c = (char)std::tolower((unsigned char)c);
+    if (ms == "subdivide") {
+      scene.dyntopoParams.mode = dyntopo::DynTopoMode::Subdivide;
+    } else if (ms == "collapse") {
+      scene.dyntopoParams.mode = dyntopo::DynTopoMode::Collapse;
+    } else if (ms == "both") {
+      scene.dyntopoParams.mode = dyntopo::DynTopoMode::Both;
+    } else {
+      err = std::string("dyntopo: unknown mode '") + mode +
+            "' (both|subdivide|collapse)";
+      return false;
+    }
+    return true;
+  }
+  if (verb == "assert_manifold") {
+    if (!scene.mesh) {
+      err = "assert_manifold: no mesh";
+      return false;
+    }
+    /* A brush stroke leaves the mesh topo-frozen (live disk/radial link pages
+     * freed, CSR snapshot kept). Walking those links would dereference freed
+     * pages, so thaw first (a no-op when not frozen). */
+    scene.mesh->thawTopo();
+    std::string why;
+    if (!checkManifold(*scene.mesh, why)) {
+      err = "assert_manifold failed: " + why;
+      return false;
+    }
     return true;
   }
   if (verb == "set_backend") {
@@ -637,6 +764,11 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
+      /* Dyntopo pre-pass: remesh under the dab (rebuilds the tree) before the
+       * brush filters nodes, so the brush operates on the refined geometry. */
+      if (scene.dyntopoEnabled) {
+        scene.applyDynTopoDab(origin, scene.brush.radius, scene.dyntopoSeed);
+      }
       Vector<spatial::SpatialNode *> nodes;
       scene.tree->filterNodes(origin, scene.brush.radius, nodes);
       if (nodes.size() != 0) {
@@ -722,6 +854,16 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
+      /* Dyntopo pre-pass: remesh under every dab along the path (each call
+       * rebuilds the tree) before the brush runs, so the executor below drives
+       * the refined geometry. Per-dab interleaving with incremental spatial
+       * updates is the follow-up (plan M2 integration #5). */
+      if (scene.dyntopoEnabled) {
+        for (size_t i = 0; i < origins.size(); i++) {
+          scene.applyDynTopoDab(origins[i], scene.brush.radius,
+                                scene.dyntopoSeed + uint32_t(i));
+        }
+      }
       brush::CommandExecutor exec(scene.tree, &scene.brush);
       exec.meshLog = &scene.meshLog;
       exec.ctx.renderMatrix = scene.renderMatrix;

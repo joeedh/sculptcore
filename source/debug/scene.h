@@ -5,6 +5,7 @@
 
 #include "brush/brush.h"
 #include "brush/brushes/all.h"
+#include "dyntopo/dyntopo.h"
 #include "gpu/manager.h"
 #include "mesh/mesh.h"
 #include "meshlog/meshlog_base.h"
@@ -107,8 +108,21 @@ struct Scene {
    * after the tree is built (debug --reorder / the UI button). */
   bool reorderOnBuild = false;
 
+  /* Dynamic-topology config (the `dyntopo` script verb). When enabled, the
+   * C++ stroke path remeshes the mesh under each dab before brushing. */
+  bool dyntopoEnabled = false;
+  dyntopo::DynTopoParams dyntopoParams;
+  uint32_t dyntopoSeed = 1;
+
   void setMesh(mesh::Mesh *m);
   void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);
+
+  /* Remesh the mesh under one dab (sphere center/radius) and rebuild the
+   * spatial tree with the last buildSpatial settings. Returns split+collapse
+   * count; no-op when dyntopo is disabled or there is no mesh. This is the
+   * debug-app integration; the in-executor incremental-spatial path is a
+   * follow-up (plan M2 integration #5). */
+  int applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t seed);
 
   /* Reorder all mesh element domains to be local to their owning spatial
    * nodes, rebuild the tree, and record an undoable reorder step. No-op
@@ -146,6 +160,10 @@ struct Scene {
 private:
   PostDrawHook postDrawHook_ = nullptr;
   void *postDrawUser_ = nullptr;
+  /* Last buildSpatial args, replayed by applyDynTopoDab's tree rebuild. */
+  int spatialLeaf_ = 0;
+  int spatialDepth_ = 16;
+  int spatialGpuTri_ = 0;
 };
 
 } // namespace sculptcore::debug_app

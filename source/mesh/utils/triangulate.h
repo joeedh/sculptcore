@@ -49,6 +49,42 @@ triangulateFace(Mesh &m, int f, litestl::util::Vector<Tri, VecStaticSize> &tris)
   return true;
 }
 
+/* Triangulate every face of the mesh in place: each n-gon (single outer loop)
+ * is replaced by a triangle fan from its first corner via the public Euler
+ * operators. Triangles and the unsupported multi-loop faces are left alone.
+ * Used to feed triangle-only consumers (dyntopo) from quad generators. */
+static inline SuccessOrError<"triangulate", "failed to triangulate faces">
+triangulateMesh(Mesh &m)
+{
+  using namespace litestl::util;
+
+  Vector<int> faces;
+  for (int f : m.f) {
+    faces.append(f);
+  }
+  for (int f : faces) {
+    if (m.f.freemap[f] || m.f.list_count[f] != 1) {
+      continue;
+    }
+    int li = m.f.l[f];
+    if (m.l.size[li] == 3) {
+      continue;
+    }
+    Vector<int, 16> vs;
+    int c0 = m.l.c[li], cc = c0;
+    do {
+      vs.append(m.c.v[cc]);
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    m.kill_face(f);
+    for (int i = 1; i + 1 < int(vs.size()); i++) {
+      int tri[3] = {vs[0], vs[i], vs[i + 1]};
+      m.make_face(std::span<int>(tri, 3));
+    }
+  }
+  return true;
+}
+
 template <std::ranges::range FaceIndexRange, int VecStaticSize>
   requires std::same_as<std::ranges::range_value_t<FaceIndexRange>, int>
 static SuccessOrError<"triangulate", "failed to triangulate faces"> triangulate(
