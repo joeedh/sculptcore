@@ -32,6 +32,7 @@
 #include "../mesh_base.h"
 #include "../mesh_iter.h"
 #include "../mesh_proxy.h"
+#include "attr_interp.h"
 
 #include "litestl/math/vector.h"
 #include "litestl/util/error.h"
@@ -46,7 +47,33 @@ namespace sculptcore::mesh {
 
 using litestl::util::SuccessOrError;
 
+/* Created / killed element ids, for the dyntopo driver and the meshlog. */
+struct EdgeCollapseResult {
+  int v_keep = ELEM_NONE;
+  int killed_vert = ELEM_NONE;
+  litestl::util::Vector<int> created_faces;
+  litestl::util::Vector<int> created_edges; /* edges incident to v_keep that are new */
+  litestl::util::Vector<int> killed_faces;
+  litestl::util::Vector<int> killed_edges;
+};
+
 namespace detail_collapse {
+
+/* Number of faces on the radial cycle of `edge` (0 = wire, 1 = boundary,
+ * 2 = interior manifold, >2 = non-manifold). */
+static inline int edgeRadialFaceCount(Mesh &m, int edge)
+{
+  int c0 = m.e.c[edge];
+  if (c0 == ELEM_NONE) {
+    return 0;
+  }
+  int n = 0, cc = c0;
+  do {
+    n++;
+    cc = m.c.radial_next[cc];
+  } while (cc != c0);
+  return n;
+}
 
 static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
 {
@@ -86,7 +113,8 @@ static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
  * is removed. Returns false if the edge index is invalid. */
 static inline SuccessOrError<"edge_collapse", "failed to collapse edge">
 collapseEdge(Mesh &m, int edge,
-             std::optional<litestl::math::float3> merged_co = std::nullopt)
+             std::optional<litestl::math::float3> merged_co = std::nullopt,
+             float blend = 0.0f, EdgeCollapseResult *out = nullptr)
 {
   using namespace litestl;
   using namespace litestl::util;
@@ -97,10 +125,55 @@ collapseEdge(Mesh &m, int edge,
 
   int v_keep = m.e.vs[edge][0];
   int v_kill = m.e.vs[edge][1];
+  if (out) {
+    out->v_keep = v_keep;
+    out->killed_vert = v_kill;
+  }
   if (v_keep == v_kill) {
     /* Self-loop: just remove. */
+    if (out) {
+      out->killed_vert = ELEM_NONE;
+      out->killed_edges.append(edge);
+    }
     m.kill_edge(edge);
     return true;
+  }
+
+  /* Link condition: an excess of vertices common to the one-rings of v_keep
+   * and v_kill (more than the number of faces on the edge) means a triangle
+   * not incident to the edge would fold onto itself, producing a non-manifold
+   * result. Refuse such collapses (leaving the mesh untouched). */
+  {
+    int faceCount = detail_collapse::edgeRadialFaceCount(m, edge);
+    Set<int> nbrKeep;
+    if (m.v.e[v_keep] != ELEM_NONE) {
+      for (int e2 : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
+        int o = (m.e.vs[e2][0] == v_keep) ? m.e.vs[e2][1] : m.e.vs[e2][0];
+        nbrKeep.add(o);
+      }
+    }
+    int common = 0;
+    if (m.v.e[v_kill] != ELEM_NONE) {
+      for (int e2 : EdgeOfVertIter(&m, v_kill, m.v.e[v_kill])) {
+        int o = (m.e.vs[e2][0] == v_kill) ? m.e.vs[e2][1] : m.e.vs[e2][0];
+        if (o == v_keep) {
+          continue;
+        }
+        if (nbrKeep.contains(o)) {
+          common++;
+        }
+      }
+    }
+    if (common > faceCount) {
+      return false;
+    }
+  }
+
+  /* Optionally blend the survivor's attributes toward v_kill before the merge
+   * (0 = keep v_keep unchanged, 0.5 = midpoint). Reads v_kill, so it must run
+   * before v_kill is killed below. Position is overridden by merged_co if set. */
+  if (blend > 0.0f) {
+    interpAttrs(m.v.attrs, v_keep, v_keep, v_kill, blend);
   }
 
   /* 1. Gather all faces touching either endpoint, recording their vertex
@@ -145,6 +218,9 @@ collapseEdge(Mesh &m, int edge,
 
   /* 2. Kill all gathered faces. */
   for (int fi : facesToRebuild) {
+    if (out) {
+      out->killed_faces.append(fi);
+    }
     m.kill_face(fi);
   }
 
@@ -163,6 +239,9 @@ collapseEdge(Mesh &m, int edge,
     /* Edge may already be gone if collapse reduced something earlier;
      * guard with freemap. */
     if (!m.e.freemap[ei]) {
+      if (out) {
+        out->killed_edges.append(ei);
+      }
       m.kill_edge(ei);
     }
   }
@@ -177,6 +256,16 @@ collapseEdge(Mesh &m, int edge,
   /* 5. Optional: update kept vertex position. */
   if (merged_co.has_value()) {
     m.v.co[v_keep] = merged_co.value();
+  }
+
+  /* Snapshot edge liveness so created_edges can be reported by diff. */
+  int eCapBefore = int(m.e.capacity());
+  BoolVector<> eLiveBefore;
+  if (out) {
+    eLiveBefore.resize(eCapBefore);
+    for (int i = 0; i < eCapBefore; i++) {
+      eLiveBefore.set(i, !m.e.freemap[i]);
+    }
   }
 
   /* 6. Remap face sequences (v_kill -> v_keep), drop degenerates and
@@ -212,7 +301,22 @@ collapseEdge(Mesh &m, int edge,
     int64_t key = detail_collapse::faceKey(remapped);
     if (!rebuiltKeys.add(key)) continue;
 
-    m.make_face(std::span<int>(remapped.data(), remapped.size()));
+    int f = m.make_face(std::span<int>(remapped.data(), remapped.size()));
+    if (out) {
+      out->created_faces.append(f);
+    }
+  }
+
+  /* Report edges that became live during the rebuild (the merged/new edges
+   * incident to v_keep). */
+  if (out) {
+    int eCapAfter = int(m.e.capacity());
+    for (int i = 0; i < eCapAfter; i++) {
+      bool wasLive = (i < eCapBefore) && eLiveBefore[i];
+      if (!m.e.freemap[i] && !wasLive) {
+        out->created_edges.append(i);
+      }
+    }
   }
 
   return true;

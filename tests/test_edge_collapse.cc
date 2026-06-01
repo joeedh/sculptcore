@@ -496,6 +496,49 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
   return true;
 }
 
+static int findEdge(Mesh &m, int a, int b)
+{
+  for (int ei : m.e) {
+    int v0 = m.e.vs[ei][0], v1 = m.e.vs[ei][1];
+    if ((v0 == a && v1 == b) || (v0 == b && v1 == a)) return ei;
+  }
+  return ELEM_NONE;
+}
+
+/* Seed a float4 "color" vertex attr from position so blends are verifiable. */
+static AttrData<float4> *addColorAttr(Mesh &m)
+{
+  AttrRef &ref = m.v.attrs.ensure(AttrType::FLOAT4, "color", /*materialize=*/true);
+  auto *data = static_cast<AttrData<float4> *>(ref.data);
+  data->materialize_all();
+  for (int vi : m.v) {
+    float3 co = m.v.co[vi];
+    (*data)[vi] = float4(co[0], co[1], co[2], 1.0f);
+  }
+  return data;
+}
+
+/* Build a regular octahedron (closed, every vertex interior, valence 4). */
+static Mesh *makeOctahedron()
+{
+  Mesh *m = alloc::New<Mesh>("octahedron");
+  int t = m->make_vertex(float3(0, 0, 1));
+  int b = m->make_vertex(float3(0, 0, -1));
+  int e0 = m->make_vertex(float3(1, 0, 0));
+  int e1 = m->make_vertex(float3(0, 1, 0));
+  int e2 = m->make_vertex(float3(-1, 0, 0));
+  int e3 = m->make_vertex(float3(0, -1, 0));
+  int eq[4] = {e0, e1, e2, e3};
+  for (int i = 0; i < 4; i++) {
+    int a = eq[i], c = eq[(i + 1) % 4];
+    int top[3] = {t, a, c};
+    int bot[3] = {b, c, a};
+    m->make_face(std::span<int>(top, 3));
+    m->make_face(std::span<int>(bot, 3));
+  }
+  return m;
+}
+
 int main()
 {
   Stats stats;
@@ -531,6 +574,82 @@ int main()
     test_assert(m.v.count == 1);
     test_assert(m.e.count == 0);
     test_assert(validateMesh(m, "wire"));
+  }
+
+  /* Result-struct id reporting + survivor attribute blend, on a clean
+   * interior collapse (octahedron edge, both endpoints interior). */
+  {
+    Mesh *m = makeOctahedron();
+    AttrData<float4> *cd = addColorAttr(*m);
+    int ei = findEdge(*m, 2, 3); /* equator e0-e1 */
+    test_assert(ei != ELEM_NONE);
+
+    int v_keep = m->e.vs[ei][0];
+    int v_kill = m->e.vs[ei][1];
+    float4 ckeep = (*cd)[v_keep];
+    float4 ckill = (*cd)[v_kill];
+
+    int V0 = m->v.count, E0 = m->e.count, F0 = m->f.count;
+
+    EdgeCollapseResult res;
+    auto ok = collapseEdge(*m, ei, std::nullopt, /*blend=*/0.5f, &res);
+    test_assert(bool(ok));
+    test_assert(validateMesh(*m, "octa-collapse"));
+
+    /* Reported ids are consistent with the actual count deltas. */
+    test_assert(res.v_keep == v_keep);
+    test_assert(res.killed_vert == v_kill);
+    test_assert(V0 - m->v.count == 1);
+    test_assert(F0 - m->f.count ==
+                int(res.killed_faces.size()) - int(res.created_faces.size()));
+    test_assert(E0 - m->e.count ==
+                int(res.killed_edges.size()) - int(res.created_edges.size()));
+    /* The collapsed edge is among the killed edges. */
+    {
+      bool found = false;
+      for (int e : res.killed_edges) {
+        if (e == ei) found = true;
+      }
+      test_assert(found);
+    }
+    /* blend=0.5 -> survivor color is the midpoint of the two endpoints. */
+    {
+      float4 cm = (*cd)[v_keep];
+      float4 expect = ckeep * 0.5f + ckill * 0.5f;
+      for (int i = 0; i < 4; i++) {
+        test_assert(std::fabs(cm[i] - expect[i]) < 1e-5f);
+      }
+    }
+    alloc::Delete<Mesh>(m);
+  }
+
+  /* Link-condition refusal: an edge whose endpoints share a common neighbor
+   * not formed by a face (here vertex E, joined by wire edges) would collapse
+   * to a non-manifold result. collapseEdge must refuse and leave the mesh
+   * untouched. */
+  {
+    Mesh m;
+    int a = m.make_vertex(float3(0, 0, 0));
+    int b = m.make_vertex(float3(1, 0, 0));
+    int c = m.make_vertex(float3(0.5f, 1, 0));
+    int d = m.make_vertex(float3(0.5f, -1, 0));
+    int e = m.make_vertex(float3(0.5f, 0, 1));
+    int f0[3] = {a, b, c};
+    int f1[3] = {b, a, d};
+    m.make_face(std::span<int>(f0, 3));
+    m.make_face(std::span<int>(f1, 3));
+    m.make_edge(a, e); /* extra common neighbor of a,b, with no face */
+    m.make_edge(b, e);
+
+    int ab = findEdge(m, a, b);
+    test_assert(ab != ELEM_NONE);
+    int V0 = m.v.count, E0 = m.e.count, F0 = m.f.count;
+
+    EdgeCollapseResult res;
+    auto ok = collapseEdge(m, ab, std::nullopt, 0.0f, &res);
+    test_assert(!bool(ok)); /* refused */
+    test_assert(m.v.count == V0 && m.e.count == E0 && m.f.count == F0);
+    test_assert(validateMesh(m, "link-refusal"));
   }
 
   printf("edge_collapse test: %d meshes, %d collapses, %d rejected\n",
