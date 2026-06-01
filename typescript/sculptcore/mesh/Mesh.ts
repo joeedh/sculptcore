@@ -35,6 +35,10 @@ export interface Mesh {
   detachAttr(domain: int32, index: int32): int32
   reattachAttr(stashId: int32): int32
   markSeamPath(vStart: int32, vEnd: int32, state: int32): int32
+  edgePathEdges(vStart: int32, vEnd: int32, out: int32[]): void
+  edgeSeam(e: int32): int32
+  setEdgeSeam(e: int32, state: int32): void
+  recomputeBoundary(): void
   edgePathCoords(vStart: int32, vEnd: int32, out: float[]): void
   generateUVFromSeams(marginMilli: int32): int32
   new (): Mesh
