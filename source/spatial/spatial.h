@@ -307,6 +307,13 @@ struct SpatialTree {
   }
   sculptcore::gpu::DrawBatch *buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr);
 
+  /* Build a DRAW_LINES batch of the mesh's marked seam edges (boundary
+   * EDGE_SEAM) for the persistent viewport overlay. Returns nullptr when no
+   * edge is flagged (caller skips the dispatch). Thaws frozen topology to read
+   * live edge endpoints; the batch is a static VBO, so callers rebuild it only
+   * when the seam set / geometry changes, not per frame. */
+  sculptcore::gpu::DrawBatch *buildSeamBatch(sculptcore::gpu::GPUManager &mgr);
+
   static binding::types::Struct<SpatialTree> *defineBindings();
 
   bool update(gpu::GPUManager *gpu);

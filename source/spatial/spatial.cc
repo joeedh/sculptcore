@@ -17,6 +17,7 @@
 #include "gpu/types.h"
 #include "gpu/vbo.h"
 
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
 #include "mesh/utils/triangulate.h"
@@ -776,6 +777,86 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
     addLine(c[1], c[5], clr);
     addLine(c[2], c[6], clr);
     addLine(c[3], c[7], clr);
+  }
+
+  posBuf->dirty();
+
+  DrawBatch *batch = mgr.createBatch();
+  batch->buffers.append(posBuf);
+  batch->buffers.append(colorBuf);
+  batch->buffers.append(uvBuf);
+
+  auto *shader = &spatialShaders.basicLineShader;
+
+  DrawCommand *cmd = mgr.createCommand(
+      batch, GPUCmdType::DRAW_LINES, shader, 0, totalVerts, totalVerts / 2);
+  cmd->attrs.append(posBuf);
+  cmd->attrs.append(colorBuf);
+  cmd->attrs.append(uvBuf);
+
+  return batch;
+}
+
+sculptcore::gpu::DrawBatch *
+SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
+{
+  using namespace sculptcore::gpu;
+
+  // Need live edge endpoints; the sculpt path may have left topology frozen.
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  int nseam = 0;
+  for (int e : m->e) {
+    if (mesh::boundary::edgeFlag(m, mesh::boundary::EDGE_SEAM, e)) {
+      nseam++;
+    }
+  }
+  if (nseam == 0) {
+    return nullptr;
+  }
+
+  const int totalVerts = nseam * 2;
+  Buffer *posBuf = mgr.createBuffer(
+      litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
+  Buffer *colorBuf =
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+  Buffer *uvBuf =
+      mgr.createBuffer(litestl::util::string("uv"), GPUType::FLOAT32, 2, totalVerts);
+
+  float3 *pos = posBuf->get_data<float3>();
+  float4 *color = colorBuf->get_data<float4>();
+  float2 *uv = uvBuf->get_data<float2>();
+
+  const float4 clr(1.0f, 0.4f, 0.0f, 1.0f); // orange, matching the marking-tool preview
+  int idx = 0;
+  for (int e : m->e) {
+    if (!mesh::boundary::edgeFlag(m, mesh::boundary::EDGE_SEAM, e)) {
+      continue;
+    }
+    int v1 = m->e.vs[e][0];
+    int v2 = m->e.vs[e][1];
+
+    // Seam edges lie exactly on the surface, so they z-fight with / are hidden
+    // behind the mesh. Float each endpoint out along its vertex normal by a
+    // fraction of the edge length so the line hovers just above the surface
+    // (visible from outside, still occluded by geometry in front of it).
+    float3 a = m->v.co[v1];
+    float3 b = m->v.co[v2];
+    float off = (b - a).length() * 0.25f;
+    a = a + m->v.no[v1] * off;
+    b = b + m->v.no[v2] * off;
+
+    pos[idx] = a;
+    color[idx] = clr;
+    uv[idx] = float2(0.0f, 0.0f);
+    idx++;
+
+    pos[idx] = b;
+    color[idx] = clr;
+    uv[idx] = float2(1.0f, 1.0f);
+    idx++;
   }
 
   posBuf->dirty();

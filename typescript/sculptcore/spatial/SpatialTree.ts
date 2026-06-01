@@ -35,6 +35,7 @@ export interface SpatialTree {
   ensure_node_tris(node: SpatialNode): boolean
   buildAll(): void
   buildLeafBoundsBatch(batch: GPUManager): DrawBatch | undefined
+  buildSeamBatch(mgr: GPUManager): DrawBatch | undefined
   update(gpu: GPUManager): boolean
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean

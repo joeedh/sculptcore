@@ -85,9 +85,14 @@ and 2 are independent and may be parallelized.
   a chain/knife modal: click verts to chain shortest-path seams with live hover
   preview, Enter/RMB finish (single undo step), Esc cancel. Live-verified native
   (center click -> vert 49775; chain of 3 -> 347 overlay segments; finish keeps
-  the overlay; undo clears chain + overlay). Remaining (deferred): a persistent
-  EDGE_SEAM overlay that redraws from flags (survives reselect/reload), and
-  seam-marking for the non-LiteMesh mesh types.
+  the overlay; undo clears chain + overlay). Persistent overlay DONE:
+  `SpatialTree::buildSeamBatch` builds a DRAW_LINES GPU batch from the EDGE_SEAM
+  edges (orange, pushed out along vertex normals so it hovers above the surface
+  instead of z-fighting), dispatched every frame in `LiteMesh.drawQ` alongside
+  the mesh (mirrors the drawBVH `treeBatch`); rebuilt only when the seam set
+  changes (`markSeamsDirty`), not per geometry update, since `.edge.vs` is freed
+  under frozen topology. Live-verified native (orange seams render on the mesh
+  surface). Remaining (deferred): seam-marking for the non-LiteMesh mesh types.
 
 - **Wave 7: DONE & verified (2026-05-31).** Core `source/mesh/uvgen.{h,cc}`
   `generateUVFromSeams`: flood-fill charts bounded by `EDGE_SEAM`, group-normal
