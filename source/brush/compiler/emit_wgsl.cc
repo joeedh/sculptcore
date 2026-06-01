@@ -47,6 +47,10 @@ struct Emit {
   const Brush *brush;
   const Stage *vertexStage = nullptr;
   string vertexParamName;  // e.g. "v"
+  // Wave 1b: per-face GPU dispatch. A brush with a `face` stage and no vertex
+  // stage (e.g. polygroup) emits a face kernel instead of the vertex kernel.
+  const Stage *faceStage = nullptr;
+  string faceParamName;  // e.g. "f"
 
   // Stage currently being lowered — drives stage-param identifier
   // resolution (so reduce-body `s` and vertex-body `v` route correctly).
@@ -184,6 +188,19 @@ struct Emit {
     return string(p.name).operator==(string(name.c_str()));
   }
 
+  // True when emitting a face kernel (a `face` stage, no vertex stage). Gates
+  // the face binding layout + compute entry; the vertex path is untouched.
+  bool faceMode() const { return faceStage && !vertexStage; }
+
+  // The Face bundle param (`f`) of the face stage — its member access routes to
+  // per-thread locals (f_center / f_no / f_group), mirroring the vertex param.
+  bool isFaceParam(stringref name) const
+  {
+    if (!faceStage || faceStage->params.size() == 0) return false;
+    const auto &p = faceStage->params[0];
+    return string(p.name).operator==(string(name.c_str()));
+  }
+
   // === expression emitter ===
 
   void emitExpr(const Expr &e)
@@ -236,6 +253,14 @@ struct Emit {
       // Vertex-param member access (`v.co`, `v.no`, `v.mask`) targets
       // local mutable vars seeded from the per-thread storage loads.
       if (e.lhs && e.lhs->kind == ExprKind::Ident && isVertexParam(stringref(e.lhs->name.c_str()))) {
+        out += e.lhs->name;
+        out += "_";
+        out += e.name;
+      } else if (e.lhs && e.lhs->kind == ExprKind::Ident &&
+                 isFaceParam(stringref(e.lhs->name.c_str()))) {
+        // Face-param member (`f.center`, `f.no`, `f.group`, `f.f`) → the
+        // per-thread locals seeded in the face kernel main (same scheme as the
+        // vertex param). `f.f` (the face index) maps to its own local.
         out += e.lhs->name;
         out += "_";
         out += e.name;
@@ -731,10 +756,19 @@ struct Emit {
     }
     write("};\n\n");
 
-    write("struct NodeMeta {\n");
-    write("  vert_offset: u32,\n");
-    write("  vert_count: u32,\n");
-    write("};\n\n");
+    // NodeMeta indexes a workgroup's slice of the per-domain unique-element
+    // array (verts for the vertex kernel, faces for the face kernel).
+    if (faceMode()) {
+      write("struct NodeMeta {\n");
+      write("  face_offset: u32,\n");
+      write("  face_count: u32,\n");
+      write("};\n\n");
+    } else {
+      write("struct NodeMeta {\n");
+      write("  vert_offset: u32,\n");
+      write("  vert_count: u32,\n");
+      write("};\n\n");
+    }
 
     // One StrokePath sample — mirrors Brush::StrokeSample (pos, normal,
     // arclen). Consumed by brush_stroke_uv for STROKE_CURVED texture mapping.
@@ -744,11 +778,22 @@ struct Emit {
     write("  arclen: f32,\n");
     write("};\n\n");
 
-    write("@group(0) @binding(0) var<storage, read_write> co_buf: array<vec3<f32>>;\n");
-    write("@group(0) @binding(1) var<storage, read_write> no_buf: array<vec3<f32>>;\n");
-    write("@group(0) @binding(2) var<storage, read_write> mask_buf: array<f32>;\n");
-    write("@group(0) @binding(3) var<storage, read>       unique_verts: array<u32>;\n");
-    write("@group(0) @binding(4) var<storage, read>       nodes: array<NodeMeta>;\n");
+    // Geometry bindings 0-4 are domain-specific. The face kernel reads
+    // precomputed face centroids/normals (faces don't move) + a unique_faces
+    // index array; the vertex kernel has read_write co/no/mask. Bindings 5+ are
+    // shared so one host bind-group layout covers both.
+    if (faceMode()) {
+      write("@group(0) @binding(0) var<storage, read>       face_centroid: array<vec3<f32>>;\n");
+      write("@group(0) @binding(1) var<storage, read>       face_no: array<vec3<f32>>;\n");
+      write("@group(0) @binding(3) var<storage, read>       unique_faces: array<u32>;\n");
+      write("@group(0) @binding(4) var<storage, read>       nodes: array<NodeMeta>;\n");
+    } else {
+      write("@group(0) @binding(0) var<storage, read_write> co_buf: array<vec3<f32>>;\n");
+      write("@group(0) @binding(1) var<storage, read_write> no_buf: array<vec3<f32>>;\n");
+      write("@group(0) @binding(2) var<storage, read_write> mask_buf: array<f32>;\n");
+      write("@group(0) @binding(3) var<storage, read>       unique_verts: array<u32>;\n");
+      write("@group(0) @binding(4) var<storage, read>       nodes: array<NodeMeta>;\n");
+    }
     write("@group(0) @binding(5) var<uniform>             brush_u: BrushUniforms;\n");
     write("@group(0) @binding(6) var<uniform>             ctx_u: CtxUniforms;\n");
     // Curve LUT for FalloffKind::Curve. Sized to match Brush::falloff_curve
@@ -783,9 +828,10 @@ struct Emit {
     // (11-13). The host dispatcher binds these from the kernel's attr manifest
     // in this same declaration order.
     {
+      AttrDomain wantDomain = faceMode() ? AttrDomain::Face : AttrDomain::Vertex;
       int slot = 14;
       for (const auto &f : brush->fields) {
-        if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex) continue;
+        if (f.kind != FieldKind::Attr || f.domain != wantDomain) continue;
         char buf[16];
         std::snprintf(buf, sizeof(buf), "%d", slot++);
         write("@group(0) @binding(");
@@ -1019,12 +1065,72 @@ struct Emit {
     write("}\n\n");
   }
 
+  // Per-face compute kernel (Wave 1b) — the GPU twin of emit_cpp's
+  // emitFaceKernel. One workgroup per node, threads strided over the node's
+  // covered faces (unique_faces[face_offset + lid]). Faces don't move, so the
+  // centroid/normal are read-only precomputed buffers; only the declared face
+  // attrs (e.g. polygroup `group`) are written back. Reduce/host/neighbor on a
+  // face stage are unsupported (poly-group needs none).
+  void emitFaceKernel()
+  {
+    if (faceStage->params.size() < 1) {
+      err("face stage must take at least one parameter (the Face bundle)");
+    }
+    emitPrelude();
+    for (const auto &td : brush->textures) {
+      emitTextureFn(td);
+    }
+
+    write("@compute @workgroup_size(64)\n");
+    write("fn main(\n");
+    write("    @builtin(local_invocation_index) lid: u32,\n");
+    write("    @builtin(workgroup_id) gid: vec3<u32>)\n");
+    write("{\n");
+    write("  let sb_node = nodes[gid.x];\n");
+    write("  if (lid >= sb_node.face_count) { return; }\n");
+    write("  let sb_fidx = unique_faces[sb_node.face_offset + lid];\n");
+    write("  var "); write(faceParamName); write("_center: vec3<f32> = face_centroid[sb_fidx];\n");
+    write("  var "); write(faceParamName); write("_no: vec3<f32> = face_no[sb_fidx];\n");
+    write("  var "); write(faceParamName); write("_f: i32 = i32(sb_fidx);\n");
+    // Seed a mutable local per face attr from its storage buffer; member access
+    // (f.<attr>) routes to <param>_<attr>, written back after the body.
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face) continue;
+      write("  var "); write(faceParamName); write("_"); write(f.name);
+      write(": "); write(wgslType(f.type));
+      write(" = attr_"); write(f.name); write("[sb_fidx];\n");
+    }
+    write("\n");
+
+    indent = 1;
+    currentStage = faceStage;
+    if (faceStage->body && faceStage->body->kind == StmtKind::Block) {
+      int savedLocals = (int)locals.size();
+      for (const auto &c : faceStage->body->stmts) emitStmt(*c);
+      while ((int)locals.size() > savedLocals) locals.pop_back();
+    }
+    currentStage = nullptr;
+    indent = 0;
+    write("\n");
+
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face) continue;
+      write("  attr_"); write(f.name); write("[sb_fidx] = ");
+      write(faceParamName); write("_"); write(f.name); write(";\n");
+    }
+    write("}\n");
+  }
+
   void run()
   {
     if (!vertexStage) {
-      // Face/non-vertex stages have no GPU dispatch yet; emit a valid stub so
-      // tint validation passes (the CPU executor runs these brushes).
-      emitSkipStub("non-vertex (e.g. face) stage: GPU dispatch not yet implemented");
+      if (faceStage) {
+        emitFaceKernel();
+        return;
+      }
+      // No vertex or face stage — emit a valid stub so tint validation passes
+      // (the CPU executor runs these brushes).
+      emitSkipStub("non-vertex/face stage: GPU dispatch not yet implemented");
       return;
     }
     if (vertexStage->params.size() < 1) {
@@ -1188,10 +1294,18 @@ EmitResult emitWgsl(const Brush &brush)
   for (const auto &st : brush.stages) {
     if (st.kind == StageKind::Vertex) { em.vertexStage = &st; break; }
   }
+  for (const auto &st : brush.stages) {
+    if (st.kind == StageKind::Face) { em.faceStage = &st; break; }
+  }
   if (em.vertexStage && em.vertexStage->params.size() > 0) {
     em.vertexParamName = em.vertexStage->params[0].name;
   } else {
     em.vertexParamName = string("v");
+  }
+  if (em.faceStage && em.faceStage->params.size() > 0) {
+    em.faceParamName = em.faceStage->params[0].name;
+  } else {
+    em.faceParamName = string("f");
   }
   em.run();
   EmitResult r;
