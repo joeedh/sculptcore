@@ -1,7 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {EdgeData} from './EdgeData'
-import type {VertexData} from './VertexData'
 import type {CornerData} from './CornerData'
+import type {VertexData} from './VertexData'
 import type {FaceData} from './FaceData'
 
 /** Auto-generated file */

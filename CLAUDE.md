@@ -264,6 +264,15 @@ Like the source-line prints above, this instrumentation is **not** meant
 to live in the tree: once the fix is confirmed, delete every SPIKE /
 FRAME-SPIKE counter and printf you added and leave only `StrokeProfiler`.
 
+## Dynamic topology (future goal)
+
+A planned feature: geometry under sculpt dabs is decimated or subdivided on
+the fly to match a target edge length, with custom attributes interpolated as
+appropriate. **Performance target:** usable sculpting (≥25fps on a laptop) on a
+5-million-triangle mesh carrying 2 custom `float4` attributes that must be
+interpolated during retopology. This budget drives the design of the brush,
+spatial (BVH node refinement), meshlog, and attribute-interpolation hot paths.
+
 ## Conventions
 
 - Namespaces: `litestl::util`, `litestl::binding`, etc.
