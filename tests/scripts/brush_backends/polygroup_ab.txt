@@ -1,0 +1,26 @@
+# A/B script: poly-group paint, cpp vs wgsl backend gate. The polygroup brush
+# is a per-FACE kernel that writes an int "group" attribute (no vertex motion),
+# so the meaningful signal is the face_attrs fingerprint state_dump emits — it
+# must match across backends, exercising the DSL face-stage path. (sbrush-verify's
+# wgsl backend executes the C++ kernel and gates that polygroup.wgsl emitted +
+# tint-validated; webgpu-verify exercises the real GPU face dispatch.)
+#
+# Full reset between backends (re-make_cube) rather than `undo`: undo doesn't
+# restore a painted attr (meshlog snapshots co/no, not custom layers), but a
+# fresh mesh + default-zeroed group layer gives both strokes the same
+# deterministic start, so cpp == wgsl and the golden is reproducible.
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=polygroup
+set_brush radius=0.25 strength=1.0
+set_backend backend=cpp
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=polygroup_cpp.json
+
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=polygroup
+set_brush radius=0.25 strength=1.0
+set_backend backend=wgsl
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=polygroup_wgsl.json

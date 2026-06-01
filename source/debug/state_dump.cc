@@ -118,6 +118,49 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
   if (!attrsJson.empty()) {
     std::fprintf(f, ",\n    \"attrs\": {%s}", attrsJson.c_str());
   }
+
+  // Order-independent fingerprint of user FACE attribute layers (e.g. the
+  // polygroup brush's int "group"). Mirrors the vertex-attr block above but
+  // iterates faces and handles INT (the poly-group id). Skips builtins so
+  // meshes with no user face attrs dump byte-for-byte as before.
+  std::string fattrsJson;
+  for (mesh::AttrRef &a : m->f.attrs.attrs) {
+    const char *nm = a.name.c_str();
+    if (nm[0] == '.') {
+      continue;
+    }
+    double sum = 0.0, sqs = 0.0;
+    bool handled = true;
+    for (int i = 0; i < m->f.count; i++) {
+      double v = 0.0;
+      switch (a.type) {
+      case mesh::AttrType::INT:
+        v = double(static_cast<mesh::AttrData<int> *>(a.data)->safe_get(i));
+        break;
+      case mesh::AttrType::FLOAT:
+        v = double(static_cast<mesh::AttrData<float> *>(a.data)->safe_get(i));
+        break;
+      default:
+        handled = false;
+        break;
+      }
+      if (!handled) {
+        break;
+      }
+      sum += v;
+      sqs += v * v;
+    }
+    if (!handled) {
+      continue;
+    }
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%s\"%s\":{\"sum\":%.9g,\"sqsum\":%.9g}",
+                  fattrsJson.empty() ? "" : ",", nm, sum, sqs);
+    fattrsJson += buf;
+  }
+  if (!fattrsJson.empty()) {
+    std::fprintf(f, ",\n    \"face_attrs\": {%s}", fattrsJson.c_str());
+  }
   std::fputs("\n  }", f);
 }
 
