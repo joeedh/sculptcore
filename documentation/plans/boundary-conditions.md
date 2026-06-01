@@ -45,6 +45,11 @@ and 2 are independent and may be parallelized.
 
 ## Status
 
+**All waves (1, 1b, 2/2b, 3, 4, 5, 6, 7) are DONE & verified as of 2026-05-31.**
+The one intentionally-deferred item (decided 2026-05-31) is seam/boundary marking
+for the **non-LiteMesh** mesh types — the LiteMesh path (the dynamic-topology
+target) is complete end to end. Pick that up when another mesh type needs seams.
+
 - **Wave 1: DONE & verified (2026-05-30).** Vertex attribute path complete on
   CPU + WGSL/SPIR-V with cross-backend A/B (`sbrush-verify` ✓ `color`); face
   stage done on the C++ executor (`polygroup`). CPU regression test:
