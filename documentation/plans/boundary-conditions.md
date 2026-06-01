@@ -79,8 +79,15 @@ and 2 are independent and may be parallelized.
   (bound C-API, thaw-frozen-topo + `setEdgeFlag(EDGE_SEAM)` + `recomputeDirty`),
   LiteMesh TS wrappers, and `MarkSeamOp` (`litemesh.mark_seam`, vStart/vEnd) with
   overlay draw + state=0 undo. Live-verified native (44-vert path -> 43 seam
-  edges). Remaining (UX): interactive click-to-pick modal (resolve clicks to
-  verts + live candidate-path preview) + persistent seam overlay.
+  edges). Interactive UX DONE: `CastRayIsect.nearestVert` + `LiteMesh.pickVert`
+  (click->vertex, C++-side), and `MarkSeamInteractiveOp`
+  (`litemesh.mark_seam_interactive`, sculptcore toolmode `K` + header button) -
+  a chain/knife modal: click verts to chain shortest-path seams with live hover
+  preview, Enter/RMB finish (single undo step), Esc cancel. Live-verified native
+  (center click -> vert 49775; chain of 3 -> 347 overlay segments; finish keeps
+  the overlay; undo clears chain + overlay). Remaining (deferred): a persistent
+  EDGE_SEAM overlay that redraws from flags (survives reselect/reload), and
+  seam-marking for the non-LiteMesh mesh types.
 
 - **Wave 7: core DONE & verified (2026-05-30).** `source/mesh/uvgen.{h,cc}`
   `generateUVFromSeams`: flood-fill charts bounded by `EDGE_SEAM`, group-normal
