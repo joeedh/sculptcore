@@ -624,6 +624,7 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::KELVINLET ||
                    t == brush::SculptBrushes::POSE ||
                    t == brush::SculptBrushes::COLOR ||
+                   t == brush::SculptBrushes::POLYGROUP ||
                    t == brush::SculptBrushes::BSMOOTH;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
@@ -710,6 +711,7 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::KELVINLET ||
                    t == brush::SculptBrushes::POSE ||
                    t == brush::SculptBrushes::COLOR ||
+                   t == brush::SculptBrushes::POLYGROUP ||
                    t == brush::SculptBrushes::BSMOOTH;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&

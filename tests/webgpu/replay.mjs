@@ -140,6 +140,28 @@ function diff(actual, expected) {
   return { maxAbs, bad, badIdx }
 }
 
+// Exact (integer) diff for int attr layers like the poly-group `group` id.
+function diffInt(actual, expected) {
+  let bad = 0, badIdx = -1, maxAbs = 0
+  for (let i = 0; i < expected.length; i++) {
+    const d = Math.abs(actual[i] - expected[i])
+    if (d > maxAbs) maxAbs = d
+    if (actual[i] !== expected[i]) {
+      if (bad === 0) badIdx = i
+      bad++
+    }
+  }
+  return { maxAbs, bad, badIdx }
+}
+
+// Element stride (bytes) of a WGSL storage `array<T>` attr binding, for sizing
+// the replay buffer + readback. scalars/i32/u32/f32 = 4; vec2 = 8; vec3/vec4 = 16.
+function wgslElemSize(type) {
+  if (/vec[34]/.test(type)) return 16
+  if (/vec2/.test(type)) return 8
+  return 4
+}
+
 export async function replayFixture(fixturePath, wgslDir) {
   const fx = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
   const hasTexture = !!fx.texture
@@ -197,6 +219,25 @@ export async function replayFixture(fixturePath, wgslDir) {
   if (has(12)) nbrMetaBuf = makeBuffer(device, b64bytes(fx.nbrMeta), BufferUsage.STORAGE)
   if (has(13)) nbrVertsBuf = makeBuffer(device, b64bytes(fx.nbrVerts), BufferUsage.STORAGE)
 
+  // Custom attribute layer (binding >=14, e.g. color's float4 or polygroup's
+  // int "group"). Persistent across dabs like co/no — the kernel accumulates.
+  // Seed from the captured input (fx.attrIn) or zeros; read back + diffed at the
+  // end when the fixture carries expectAttr (attr-output kernels). Before this,
+  // attr bindings were never bound, so attr kernels failed bind-group validation
+  // and silently no-op'd (their unchanged co trivially passing).
+  const attrSlot = fx.attrSlot ?? 14
+  let attrBuf = null
+  let attrElemSize = 0
+  if (has(attrSlot)) {
+    const ab = bindings.find((b) => b.binding === attrSlot)
+    attrElemSize = wgslElemSize(ab ? ab.type : 'f32')
+    const initBytes = fx.attrIn
+      ? b64bytes(fx.attrIn)
+      : Buffer.alloc(vc * attrElemSize)
+    attrBuf = makeBuffer(device, initBytes,
+      BufferUsage.STORAGE | BufferUsage.COPY_SRC | BufferUsage.COPY_DST)
+  }
+
   for (const dab of fx.dabs) {
     const uniqueBuf = makeBuffer(device, b64bytes(dab.unique), BufferUsage.STORAGE)
     const nodesBuf = makeBuffer(device, b64bytes(dab.nodes), BufferUsage.STORAGE)
@@ -221,6 +262,7 @@ export async function replayFixture(fixturePath, wgslDir) {
     add(11, { buffer: coPrevBuf })
     add(12, { buffer: nbrMetaBuf })
     add(13, { buffer: nbrVertsBuf })
+    if (attrBuf) entries.push({ binding: attrSlot, resource: { buffer: attrBuf } })
     const bindGroup = device.createBindGroup({ layout: bgl, entries })
 
     const enc = device.createCommandEncoder()
@@ -247,10 +289,15 @@ export async function replayFixture(fixturePath, wgslDir) {
     return copy
   }
 
-  const coBack = await readback(coBuf, vc * 16)
-  const actualCo = packVec3(coBack, vc)
-  const expectCo = new Float32Array(b64bytes(fx.expectCo).buffer.slice(0), 0, vc * 3)
-  const coDiff = diff(actualCo, expectCo)
+  // Face/attr-output kernels (polygroup) don't move geometry — they carry no
+  // expectCo, only expectAttr (checked below). Geometry kernels diff co.
+  let coDiff = { maxAbs: 0, bad: 0, badIdx: -1 }
+  if (fx.expectCo) {
+    const coBack = await readback(coBuf, vc * 16)
+    const actualCo = packVec3(coBack, vc)
+    const expectCo = new Float32Array(b64bytes(fx.expectCo).buffer.slice(0), 0, vc * 3)
+    coDiff = diff(actualCo, expectCo)
+  }
 
   let maskDiff = null
   if (fx.writesMask) {
@@ -261,8 +308,28 @@ export async function replayFixture(fixturePath, wgslDir) {
     maskDiff = diff(actualMask, expectMask)
   }
 
-  const ok = coDiff.bad === 0 && (!maskDiff || maskDiff.bad === 0)
-  return { ok, kernel: fx.kernel, vertCount: vc, dabs: fx.dabs.length, coDiff, maskDiff }
+  // Attr-output kernels (e.g. polygroup's int group) carry expectAttr: read the
+  // slot back and compare. Int layers compare exactly; float layers (color) use
+  // the fp tolerance. This is the actual GPU correctness check for face kernels.
+  let attrDiff = null
+  if (attrBuf && fx.expectAttr) {
+    const back = await readback(attrBuf, vc * attrElemSize)
+    const exp = b64bytes(fx.expectAttr)
+    if (attrElemSize === 4 && /i32|u32/.test(bindings.find((b) => b.binding === attrSlot).type)) {
+      const a = new Int32Array(back.buffer, back.byteOffset, vc)
+      const e = new Int32Array(exp.buffer, exp.byteOffset, vc)
+      attrDiff = diffInt(a, e)
+    } else {
+      const n = (vc * attrElemSize) / 4
+      const a = new Float32Array(back.buffer, back.byteOffset, n)
+      const e = new Float32Array(exp.buffer, exp.byteOffset, n)
+      attrDiff = diff(a, e)
+    }
+  }
+
+  const ok = coDiff.bad === 0 && (!maskDiff || maskDiff.bad === 0) &&
+             (!attrDiff || attrDiff.bad === 0)
+  return { ok, kernel: fx.kernel, vertCount: vc, dabs: fx.dabs.length, coDiff, maskDiff, attrDiff }
 }
 
 async function main() {
@@ -286,6 +353,7 @@ async function main() {
   console.error(`FAIL ${tag}`)
   console.error(`  co:   ${r.coDiff.bad} bad, maxAbsErr=${r.coDiff.maxAbs.toExponential(2)} (first at idx ${r.coDiff.badIdx})`)
   if (r.maskDiff) console.error(`  mask: ${r.maskDiff.bad} bad, maxAbsErr=${r.maskDiff.maxAbs.toExponential(2)}`)
+  if (r.attrDiff) console.error(`  attr: ${r.attrDiff.bad} bad, maxAbsErr=${r.attrDiff.maxAbs.toExponential(2)} (first at idx ${r.attrDiff.badIdx})`)
   process.exit(1)
 }
 

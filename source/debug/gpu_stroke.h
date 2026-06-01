@@ -106,6 +106,12 @@ class GpuStrokeSession {
   bool writesMask_ = false;
   bool writesColor_ = false;  // COLOR kernel: float4 vertex "color" attr at slot 14
   bool readsVclass_ = false;  // BSMOOTH kernel: int vertex boundary-class attr at slot 14 (read-only)
+  // POLYGROUP (Wave 1b): a per-FACE kernel. The dispatch threads over faces, not
+  // verts — bindings 0/1/3 carry face centroids/normals/unique_faces and the int
+  // "group" attr (slot 14) is the read+write target. faceCount_ is the element
+  // count handed to the (binding-generic) dispatcher in place of vcount_.
+  bool faceMode_ = false;
+  int faceCount_ = 0;
   int vcount_ = 0;
   litestl::util::Vector<spatial::SpatialNode *> touched_;
 
@@ -163,6 +169,7 @@ class GpuStrokeSession {
   std::string capturePrefix_;
   bool cap_ = false;
   std::string capCo_, capNo_, capMask_, capNbrMeta_, capNbrVerts_, capTexture_;
+  std::string capAttrIn_;  // face: initial slot-14 attr (group) bytes for replay
   std::vector<std::string> capDabs_;
 };
 

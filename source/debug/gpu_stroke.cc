@@ -127,6 +127,7 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   case brush::SculptBrushes::KELVINLET: kernel_ = "kelvinlet"; break;
   case brush::SculptBrushes::POSE: kernel_ = "pose"; break;
   case brush::SculptBrushes::COLOR: kernel_ = "color"; writesColor_ = true; break;
+  case brush::SculptBrushes::POLYGROUP: kernel_ = "polygroup"; faceMode_ = true; break;
   case brush::SculptBrushes::BSMOOTH:
     kernel_ = "bsmooth"; needsNeighbors_ = true; readsVclass_ = true; break;
   default:
@@ -150,20 +151,41 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
 
   cap_ = !capturePrefix_.empty();
 
+  // The dispatcher is binding-generic: bindings 0/1/2 are just "geometry"
+  // storage buffers. The vertex path fills them with co/no/mask; the face path
+  // (polygroup) fills 0/1 with face centroids/normals and 2 with a zero dummy,
+  // and the per-dab unique/nodes arrays then carry faces instead of verts. The
+  // element count handed to beginStroke is the face count in face mode.
+  int uploadCount = vcount_;
   Vector<float> co, no, mask;
-  co.resize(size_t(vcount_) * 3);
-  no.resize(size_t(vcount_) * 3);
-  mask.resize(size_t(vcount_));
-  for (int i = 0; i < vcount_; i++) {
-    float3 c = m->v.co[i], n = m->v.no[i];
-    co[i * 3 + 0] = c[0]; co[i * 3 + 1] = c[1]; co[i * 3 + 2] = c[2];
-    no[i * 3 + 0] = n[0]; no[i * 3 + 1] = n[1]; no[i * 3 + 2] = n[2];
-    mask[i] = scene.tree->treeMesh.v.mask[i];
+  if (faceMode_) {
+    faceCount_ = m->f.count;
+    uploadCount = faceCount_;
+    co.resize(size_t(faceCount_) * 3);
+    no.resize(size_t(faceCount_) * 3);
+    mask.resize(size_t(faceCount_)); // dummy: binding 2 is unread by the face kernel
+    for (int fi = 0; fi < faceCount_; fi++) {
+      mesh::FaceProxy fp(m, fi);
+      float3 ctr = fp.calc_center();
+      float3 fn = m->f.no[fi];
+      co[fi * 3 + 0] = ctr[0]; co[fi * 3 + 1] = ctr[1]; co[fi * 3 + 2] = ctr[2];
+      no[fi * 3 + 0] = fn[0];  no[fi * 3 + 1] = fn[1];  no[fi * 3 + 2] = fn[2];
+    }
+  } else {
+    co.resize(size_t(vcount_) * 3);
+    no.resize(size_t(vcount_) * 3);
+    mask.resize(size_t(vcount_));
+    for (int i = 0; i < vcount_; i++) {
+      float3 c = m->v.co[i], n = m->v.no[i];
+      co[i * 3 + 0] = c[0]; co[i * 3 + 1] = c[1]; co[i * 3 + 2] = c[2];
+      no[i * 3 + 0] = n[0]; no[i * 3 + 1] = n[1]; no[i * 3 + 2] = n[2];
+      mask[i] = scene.tree->treeMesh.v.mask[i];
+    }
   }
   if (cap_) {
-    capCo_ = b64Stride16(co.data(), vcount_);
-    capNo_ = b64Stride16(no.data(), vcount_);
-    capMask_ = b64encode(mask.data(), size_t(vcount_) * sizeof(float));
+    capCo_ = b64Stride16(co.data(), uploadCount);
+    capNo_ = b64Stride16(no.data(), uploadCount);
+    capMask_ = b64encode(mask.data(), size_t(uploadCount) * sizeof(float));
   }
 
   // Backend split: WgpuNative runs the .wgsl kernels through webgpu.h on its own
@@ -194,9 +216,37 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
       return false;
     }
   }
-  if (!disp_->beginStroke(co.data(), no.data(), mask.data(), vcount_)) {
-    err = "stroke(wgsl): vertex upload failed";
+  if (!disp_->beginStroke(co.data(), no.data(), mask.data(), uploadCount)) {
+    err = "stroke(wgsl): geometry upload failed";
     return false;
+  }
+
+  // POLYGROUP (face kernel): ensure + value-init the int "group" face attr and
+  // upload it to slot 14 (read+write). Mirrors the color-attr path but per-face;
+  // the kernel writes group=activeGroup under the brush and we read it back in
+  // end(). No neighbor/texture/color setup applies to the face kernel.
+  if (faceMode_) {
+    mesh::AttrGroup &g = m->f.attrs;
+    bool existed = g.has(mesh::AttrType::INT, "group");
+    mesh::AttrRef gref = g.ensure(mesh::AttrType::INT, "group", /*materialize=*/true);
+    auto *gd = gref.get_data<int>();
+    if (!existed) {
+      for (int i = 0; i < faceCount_; i++) gd->set_default(i);
+    }
+    Vector<int> gbuf;
+    gbuf.resize(faceCount_);
+    for (int i = 0; i < faceCount_; i++) gbuf[i] = (*gd)[i];
+    if (!disp_->setAttr(14, gbuf.data(), size_t(faceCount_) * sizeof(int))) {
+      err = "stroke(wgsl): group attr upload failed";
+      return false;
+    }
+    if (cap_) {
+      capAttrIn_ = b64encode(gbuf.data(), size_t(faceCount_) * sizeof(int));
+    }
+    scene.meshLog.beginStep();
+    scene.brush.resetStrokePath();
+    scene.profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
+    return true;
   }
 
   // CSR neighbor topology for for_neighbor kernels. Sourced from the shared,
@@ -520,7 +570,10 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   Vector<uint32_t> uverts;
   Vector<vulkan::ComputeNodeMeta> chunks;
   for (auto *node : nodes) {
-    auto &uv = node->unique_verts();
+    // Face kernel threads over the node's covered faces; vertex kernels over its
+    // verts. Both are OrderedSet<int> of global indices flattened into uverts +
+    // 64-wide NodeMeta chunks (the field is named vert_* but is just offset/count).
+    auto &uv = faceMode_ ? node->unique_faces() : node->unique_verts();
     Vector<int> idx;
     for (int gi : uv) {
       idx.append(gi);
@@ -561,6 +614,14 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   bu.coord_space = uint32_t(scene.brush.coord_space);
   bu.tex_repeat = scene.brush.tex_repeat;
   bu.stroke_path_count = uint32_t(scene.brush.strokePathCount);
+
+  // POLYGROUP custom uniform `activeGroup` (the id painted under the brush). In
+  // the WGSL BrushUniforms it's the first appended field, at offset 72 — the
+  // same slot the host struct gives `mu`, so write the int bits there.
+  if (faceMode_) {
+    int ag = scene.brush.activeGroup;
+    std::memcpy(&bu.mu, &ag, sizeof(int));
+  }
 
   // Kelvinlet host stage (clampParams) is C++-only — never lowered to WGSL —
   // so replicate it here before marshaling mu/nu (mirrors kelvinlet.sbrush).
@@ -759,6 +820,65 @@ void GpuStrokeSession::end(Scene &scene)
 {
   auto ptEnd0 = StrokeProfiler::now();
   mesh::Mesh *m = scene.mesh;
+
+  // POLYGROUP (face kernel): the output is the int "group" attr at slot 14, not
+  // geometry. Read it back into the mesh face attr, write the capture fixture
+  // (face inputs + expectAttr), and tear down — no co/no/mask readback applies.
+  if (faceMode_) {
+    Vector<int> gout;
+    gout.resize(faceCount_);
+    bool got = disp_->readbackAttr(14, gout.data(), size_t(faceCount_) * sizeof(int));
+    if (got) {
+      mesh::AttrRef gref = m->f.attrs.find_attribute(mesh::AttrType::INT, "group");
+      if (gref.exists()) {
+        auto *gd = gref.get_data<int>();
+        for (int i = 0; i < faceCount_; i++) (*gd)[i] = gout[i];
+      }
+    }
+    if (cap_) {
+      std::string path = capturePrefix_ + ".json";
+      std::string j = "{\n";
+      j += "  \"kernel\": \"" + std::string(kernel_) + "\",\n";
+      j += "  \"faceMode\": true,\n";
+      j += "  \"vertCount\": " + std::to_string(faceCount_) + ",\n";
+      j += "  \"hasNeighbors\": false,\n";
+      j += "  \"writesMask\": false,\n";
+      j += "  \"co\": \"" + capCo_ + "\",\n";
+      j += "  \"no\": \"" + capNo_ + "\",\n";
+      j += "  \"mask\": \"" + capMask_ + "\",\n";
+      j += "  \"nbrMeta\": null,\n  \"nbrVerts\": null,\n  \"texture\": null,\n";
+      j += "  \"attrSlot\": 14,\n";
+      j += "  \"attrIn\": \"" + capAttrIn_ + "\",\n";
+      j += "  \"dabs\": [";
+      for (size_t i = 0; i < capDabs_.size(); i++) {
+        j += (i ? ",\n    " : "\n    ") + capDabs_[i];
+      }
+      j += capDabs_.empty() ? "]" : "\n  ]";
+      j += ",\n";
+      j += "  \"expectAttr\": \"" +
+           b64encode(gout.data(), size_t(faceCount_) * sizeof(int)) + "\"\n";
+      j += "}\n";
+      std::FILE *fp = std::fopen(path.c_str(), "wb");
+      if (fp) {
+        std::fwrite(j.data(), 1, j.size(), fp);
+        std::fclose(fp);
+      }
+    }
+    for (auto *node : touched_) {
+      node->update(spatial::Spatial_UpdateGPU | spatial::Spatial_RegenBounds);
+    }
+    scene.meshLog.endStep();
+    delete disp_;
+    disp_ = nullptr;
+    vkDisp_ = nullptr;
+#ifdef SBRUSH_WEBGPU_COMPUTE
+    delete wgpuCtx_;
+    wgpuCtx_ = nullptr;
+#endif
+    scene.profiler.addEnd(StrokeProfiler::ms(ptEnd0, StrokeProfiler::now()));
+    scene.profiler.endStroke();
+    return;
+  }
 
   Vector<float> coOut, maskOut;
   coOut.resize(size_t(vcount_) * 3);
