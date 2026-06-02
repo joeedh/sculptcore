@@ -177,11 +177,26 @@ int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t 
     cb = ml ? ml : sp;
   }
 
+  /* Round-0 seed: the verts of the tree's in-region leaves, so dyntopo examines
+   * only the brush region instead of scanning the whole mesh. The caller owns
+   * the spatial query; dyntopo stays spatial-free (it just receives the set). */
+  litestl::util::Vector<int> seedVerts;
+  if (tree) {
+    litestl::util::Vector<spatial::SpatialNode *> hit;
+    tree->filterNodes(center, radius, hit);
+    for (spatial::SpatialNode *n : hit) {
+      for (int v : n->unique_verts()) {
+        seedVerts.append(v);
+      }
+    }
+  }
+
   if (log) {
     meshLog.beginStep();
   }
-  dyntopo::DynTopoStats st =
-      dyntopo::applyBrushDab(*mesh, center, radius, dyntopoParams, seed, cb);
+  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+      *mesh, center, radius, dyntopoParams, seed, cb,
+      litestl::util::span<const int>(seedVerts.data(), seedVerts.size()));
   if (log) {
     meshLog.endStep();
   }

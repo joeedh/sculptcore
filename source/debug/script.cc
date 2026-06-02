@@ -1133,11 +1133,24 @@ bool execVerb(Scene &scene,
      * node ownership (local to the brush) vs tree->update() (whose partition +
      * draw-batch phases are currently global). */
     bool useSpatial = getBool(args, "spatial", true);
+    /* seed=1 (default): round-0 seed from the tree's in-region leaves (local);
+     * seed=0: full-mesh scan. A/B confirms split-count parity + the round-0 win. */
+    Vector<int> seedVerts;
+    if (getBool(args, "seed", true)) {
+      Vector<spatial::SpatialNode *> hit;
+      scene.tree->filterNodes(center, radius, hit);
+      for (spatial::SpatialNode *n : hit) {
+        for (int v : n->unique_verts()) {
+          seedVerts.append(v);
+        }
+      }
+    }
     scene.mesh->thawTopo();
     auto t1 = std::chrono::steady_clock::now();
     dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
         *scene.mesh, center, radius, scene.dyntopoParams, 7u,
-        useSpatial ? scene.tree->getSpatialCallbacks() : nullptr);
+        useSpatial ? scene.tree->getSpatialCallbacks() : nullptr,
+        litestl::util::span<const int>(seedVerts.data(), seedVerts.size()));
     double ops_ms = std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - t1)
                         .count();
@@ -1148,10 +1161,26 @@ bool execVerb(Scene &scene,
                            .count();
     double dab_ms = ops_ms + update_ms;
 
-    std::printf("[bench_dyntopo] faces %d->%d  splits=%d | full_rebuild=%.2fms | "
-                "incremental: ops=%.2fms update=%.2fms total=%.2fms  speedup=%.1fx\n",
-                fBefore, scene.mesh->f.count, st.splits, rebuild_ms, ops_ms,
-                update_ms, dab_ms, dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
+    /* Convergence check: any in-region edge still longer than l_max means the
+     * dab under-refined (e.g. a seed that missed boundary edges). */
+    int leftover = 0;
+    float r2 = radius * radius;
+    for (int e : scene.mesh->e) {
+      if (scene.mesh->e.c[e] == ELEM_NONE) continue;
+      float3 a = scene.mesh->v.co[scene.mesh->e.vs[e][0]];
+      float3 b = scene.mesh->v.co[scene.mesh->e.vs[e][1]];
+      float3 mid = (a + b) * 0.5f;
+      if ((mid - center).lengthSqr() <= r2 && (a - b).length() > detail * 1.001f) {
+        leftover++;
+      }
+    }
+
+    std::printf("[bench_dyntopo] faces %d->%d  splits=%d leftover=%d%s | "
+                "full_rebuild=%.2fms | incremental: ops=%.2fms update=%.2fms "
+                "total=%.2fms  speedup=%.1fx\n",
+                fBefore, scene.mesh->f.count, st.splits, leftover,
+                st.capped ? " CAPPED" : "", rebuild_ms, ops_ms, update_ms, dab_ms,
+                dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);
     return true;
   }

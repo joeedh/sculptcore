@@ -29,6 +29,7 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/rand.h"
 #include "litestl/util/set.h"
+#include "litestl/util/span.h"
 #include "litestl/util/vector.h"
 
 #include <cmath>
@@ -126,10 +127,18 @@ inline bool collapseFree(mesh::Mesh &m, int e, const litestl::util::Set<int> &lo
 } // namespace detail
 
 /* Remesh the region of `m` within sphere(center, radius). Returns op counts.
- * Deterministic given `seed`. Does not touch spatial/meshlog state. */
+ * Deterministic given `seed`. Does not touch spatial/meshlog state.
+ *
+ * `seedVerts` is an optional set of verts known to cover the brush region (the
+ * caller derives it from the spatial tree's in-region leaves). When given, round
+ * 0 examines only the edges incident to those verts instead of scanning the
+ * whole mesh — keeping the dab O(brush region) without a spatial dependency here
+ * (inversion of control). Empty (the default) falls back to a full scan, which
+ * the bare-mesh unit tests and any caller without a tree rely on. */
 inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
                                   float radius, const DynTopoParams &p,
-                                  uint32_t seed, mesh::MeshCallbacks *cb = nullptr)
+                                  uint32_t seed, mesh::MeshCallbacks *cb = nullptr,
+                                  litestl::util::span<const int> seedVerts = {})
 {
   using namespace litestl;
   using namespace litestl::util;
@@ -173,19 +182,29 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         cands.append({e, false});
       }
     };
-    if (firstRound) {
-      for (int e : m.e) {
+    auto considerVertEdges = [&](int v) {
+      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
+          m.v.e[v] == ELEM_NONE) {
+        return;
+      }
+      for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
         consider(e);
+      }
+    };
+    if (firstRound) {
+      if (seedVerts.size() > 0) {
+        for (int v : seedVerts) {
+          considerVertEdges(v); /* round 0, seeded: local to the brush */
+        }
+      } else {
+        for (int e : m.e) {
+          consider(e); /* round 0, unseeded: one full-mesh scan */
+        }
       }
       firstRound = false;
     } else {
       for (int v : frontier) {
-        if (m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
-          continue;
-        }
-        for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
-          consider(e);
-        }
+        considerVertEdges(v);
       }
     }
     if (cands.isEmpty()) {
