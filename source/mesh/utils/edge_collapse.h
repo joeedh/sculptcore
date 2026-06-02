@@ -177,6 +177,26 @@ collapseEdge(Mesh &m, int edge,
     interpAttrs(m.v.attrs, v_keep, v_keep, v_kill, blend);
   }
 
+  /* Snapshot the attrs of every edge incident to either endpoint (keyed by the
+   * far vertex) so the merged/recreated edges can re-inherit them — collapse
+   * kills v_kill's edges and rebuilds, which would otherwise drop boundary source
+   * flags (seam/sharp) on a feature curve being coarsened. */
+  Vector<int, 16> edgeFlagOther;
+  Vector<AttrRowSnapshot, 16> edgeFlagSnap;
+  auto recordEdgeFlags = [&](int vi) {
+    if (m.v.e[vi] == ELEM_NONE) return;
+    for (int ei : EdgeOfVertIter(&m, vi, m.v.e[vi])) {
+      int o = (m.e.vs[ei][0] == vi) ? m.e.vs[ei][1] : m.e.vs[ei][0];
+      if (o == v_kill || o == v_keep) continue; /* the collapsed/cross edge */
+      AttrRowSnapshot s;
+      snapshotAttrRow(m.e.attrs, ei, s);
+      edgeFlagOther.append(o);
+      edgeFlagSnap.append(std::move(s));
+    }
+  };
+  recordEdgeFlags(v_keep);
+  recordEdgeFlags(v_kill);
+
   /* 1. Gather all faces touching either endpoint, recording their vertex
    *    sequences. Use a set to avoid adding the same face twice (a face
    *    can touch both endpoints). */
@@ -203,18 +223,33 @@ collapseEdge(Mesh &m, int edge,
    * v_keep are unchanged by the merge. */
   gatherFaces(v_kill);
 
-  /* Snapshot vertex sequences (outer list only — we don't recreate holes). */
+  /* Snapshot vertex sequences (outer list only — we don't recreate holes) plus
+   * each face's attr row and per-corner rows (keyed by vertex), so the rebuilt
+   * faces keep their `group` / `uv` / etc. instead of make_face's value-init. */
+  struct FaceSnap {
+    AttrRowSnapshot face;
+    Vector<int, 8> cverts;
+    Vector<AttrRowSnapshot, 8> csnaps;
+  };
   Vector<Vector<int, 8>> faceVerts;
+  Vector<FaceSnap> faceSnaps;
   for (int fi : facesToRebuild) {
     Vector<int, 8> seq;
+    FaceSnap fs;
+    snapshotAttrRow(m.f.attrs, fi, fs.face);
     int li = m.f.l[fi];
     int c0 = m.l.c[li];
     int cc = c0;
     do {
       seq.append(m.c.v[cc]);
+      fs.cverts.append(m.c.v[cc]);
+      AttrRowSnapshot cs;
+      snapshotAttrRow(m.c.attrs, cc, cs);
+      fs.csnaps.append(std::move(cs));
       cc = m.c.next[cc];
     } while (cc != c0);
     faceVerts.append(std::move(seq));
+    faceSnaps.append(std::move(fs));
   }
 
   /* 2. Kill all gathered faces. */
@@ -272,7 +307,9 @@ collapseEdge(Mesh &m, int edge,
   /* 6. Remap face sequences (v_kill -> v_keep), drop degenerates and
    *    duplicates, then rebuild. */
   Set<int64_t, 64> rebuiltKeys;
-  for (auto &seq : faceVerts) {
+  for (int fidx = 0; fidx < int(faceVerts.size()); fidx++) {
+    auto &seq = faceVerts[fidx];
+    FaceSnap &fs = faceSnaps[fidx];
     Vector<int, 8> remapped;
     for (int v : seq) {
       int rv = (v == v_kill) ? v_keep : v;
@@ -303,8 +340,42 @@ collapseEdge(Mesh &m, int edge,
     if (!rebuiltKeys.add(key)) continue;
 
     int f = m.make_face(std::span<int>(remapped.data(), remapped.size()), cb);
+
+    /* Carry the original face's attrs + corners. A rebuilt corner now at v_keep
+     * was originally v_kill (faces with both endpoints went degenerate above),
+     * so look its snapshot up by the original vertex. */
+    restoreAttrRow(m.f.attrs, f, fs.face);
+    int li = m.f.l[f];
+    int cc0 = m.l.c[li], cc = cc0;
+    do {
+      int nv = m.c.v[cc];
+      int orig = (nv == v_keep) ? v_kill : nv;
+      for (int i = 0; i < int(fs.cverts.size()); i++) {
+        if (fs.cverts[i] == orig) {
+          restoreAttrRow(m.c.attrs, cc, fs.csnaps[i]);
+          break;
+        }
+      }
+      cc = m.c.next[cc];
+    } while (cc != cc0);
+
     if (out) {
       out->created_faces.append(f);
+    }
+  }
+
+  /* Re-apply the snapshotted edge attrs (boundary source flags) onto v_keep's
+   * edges, matched by the far vertex — restores flags onto merged/recreated
+   * feature-curve edges. */
+  if (m.v.e[v_keep] != ELEM_NONE) {
+    for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
+      int o = (m.e.vs[ei][0] == v_keep) ? m.e.vs[ei][1] : m.e.vs[ei][0];
+      for (int k = 0; k < int(edgeFlagOther.size()); k++) {
+        if (edgeFlagOther[k] == o) {
+          restoreAttrRow(m.e.attrs, ei, edgeFlagSnap[k]);
+          break;
+        }
+      }
     }
   }
 

@@ -97,6 +97,7 @@ if (BUILD_WASM)
 	  brush
 	  props
       pthread
+	  dyntopo
 	  meshlog
       webgpu
 	)
@@ -124,6 +125,7 @@ else()
       gpu
       binding
 	  binding_generators
+	  dyntopo
 	)
 
 	add_library(sculptcore SHARED)

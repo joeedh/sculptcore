@@ -8,6 +8,7 @@ set(LIB
     PUBLIC spatial
     PUBLIC props
     PUBLIC brush
+    PUBLIC dyntopo
     PUBLIC meshlog
 )
 

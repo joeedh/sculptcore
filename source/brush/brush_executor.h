@@ -5,6 +5,7 @@
 #include "brush_iterators.h"
 #include "neighbor_source.h"
 #include "brushes/all.h"
+#include "dyntopo/dyntopo.h"
 #include "mesh/attribute_bool.h"
 #include "mesh/boundary.h"
 #include "litestl/binding/binding.h"
@@ -161,6 +162,8 @@ struct CommandExecutor {
     BIND_STRUCT_MEMBER(st, meshLog);
     BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
+    BIND_STRUCT_METHOD(st, applyDynTopoDab, MARGS("center", "radius", "params", "seed"));
+    BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
 
@@ -573,6 +576,101 @@ struct CommandExecutor {
         brush->props.setValue<bool>("invert", savedInvert);
       }
     }
+  }
+
+  // Run one dynamic-topology dab under the cursor. Reproduces the native
+  // debug harness's Scene::applyDynTopoDab wiring (thaw + combined meshlog/
+  // spatial callbacks + in-region seed) MINUS tree->update() and the meshlog
+  // step: the TS sculpt path already drives spatial.update() each frame
+  // (LiteMesh.drawQ) and wraps the whole stroke in one meshlog step. Returns
+  // splits+collapses applied (DynTopoStats.splits + .collapses).
+  int applyDynTopoDab(float3 center, float radius, dyntopo::DynTopoParams *params,
+                      uint32_t seed)
+  {
+    if (!tree || !params || !tree->m) {
+      return 0;
+    }
+    mesh::Mesh *m = tree->m;
+
+    // A dyntopo dab mutates topology and walks live disk/radial links; keep the
+    // mesh thawed for the whole stroke (endDynTopoStroke releases it).
+    keepTopoThawed = true;
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+
+    // Fold any pending boundary edits (seam marking / poly-group paint, and the
+    // flags propagated by in-stroke splits) into the derived flags + per-vert
+    // class while links are live (recomputeDirty walks the disk/radial cycles).
+    // Self-limiting: recomputeDirty processes only dirty elements and clears
+    // m->boundaryDirty, so this is a no-op on dabs that changed nothing.
+    if (params->preserve_features && m->boundaryDirty) {
+      mesh::boundary::recomputeDirty(m);
+    }
+
+    // Combined callbacks: meshlog (undo) fanned with the spatial tree's
+    // incremental-ownership handlers. getSpatialCallbacks() returns a shared
+    // persistent member, so copy its three std::functions by value before
+    // composing — never alias it across dabs.
+    mesh::MeshCallbacks combined;
+    mesh::MeshCallbacks *cb = nullptr;
+    mesh::MeshCallbacks *sp = tree->getSpatialCallbacks();
+    mesh::MeshCallbacks *ml = meshLog ? meshLog->callbacks() : nullptr;
+    if (sp && ml) {
+      combined = *ml;
+      auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;
+      combined.onFaceCreate = [mlFC, spFC](int f) {
+        if (mlFC) mlFC(f);
+        if (spFC) spFC(f);
+      };
+      auto mlFK = combined.onFaceKill, spFK = sp->onFaceKill;
+      combined.onFaceKill = [mlFK, spFK](int f) {
+        if (mlFK) mlFK(f); /* meshlog snapshots before the tree drops it */
+        if (spFK) spFK(f);
+      };
+      auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
+      combined.onVertKill = [mlVK, spVK](int v) {
+        if (mlVK) mlVK(v);
+        if (spVK) spVK(v);
+      };
+      cb = &combined;
+    } else {
+      cb = ml ? ml : sp;
+    }
+
+    // Round-0 seed: verts of the in-region leaves, so the dab is O(brush region)
+    // rather than O(mesh). The caller owns the spatial query; dyntopo stays
+    // spatial-free and just receives the set.
+    Vector<spatial::SpatialNode *> hit;
+    tree->filterNodes(center, radius, hit);
+    Vector<int> seedVerts;
+    for (spatial::SpatialNode *n : hit) {
+      for (int v : n->unique_verts()) {
+        seedVerts.append(v);
+      }
+    }
+
+    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+        *m, center, radius, *params, seed, cb,
+        span<const int>(seedVerts.data(), seedVerts.size()));
+
+    return st.splits + st.collapses;
+  }
+
+  // Release the stroke-long topology thaw set by applyDynTopoDab. Call once at
+  // stroke end; the next non-dyntopo dab re-freezes on its own. Also folds in the
+  // final dab's pending boundary marks (the per-dab recompute runs at the *next*
+  // dab's start, so the last dab's new geometry would otherwise stay unclassified
+  // until the next stroke) while topology links are still live.
+  void endDynTopoStroke()
+  {
+    if (tree && tree->m && tree->m->boundaryDirty) {
+      if (tree->m->topo_frozen) {
+        tree->m->thawTopo();
+      }
+      mesh::boundary::recomputeDirty(tree->m);
+    }
+    keepTopoThawed = false;
   }
 
   void clearIsFirstOfStep()

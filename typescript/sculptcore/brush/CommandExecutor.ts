@@ -6,6 +6,7 @@ import type {SpatialNode} from '../spatial/SpatialNode'
 import type {float3} from '../../litestl/math/float3'
 import type {SculptBrushes} from './SculptBrushes'
 import type {MeshLog} from '../meshlog/MeshLog'
+import type {DynTopoParams} from '../dyntopo/DynTopoParams'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -40,6 +41,13 @@ export interface CommandExecutor {
     origin: float3,
     normal: float3
   ): void
+  applyDynTopoDab(
+    center: float3,
+    radius: float,
+    params: DynTopoParams,
+    seed: uint32
+  ): int32
+  endDynTopoStroke(): void
   clearIsFirstOfStep(): void
   setNeighborMode(mode: int32): void
   new (arg0: SpatialTree, arg1: Brush): CommandExecutor

@@ -24,12 +24,15 @@
  * tests and cross-backend parity.
  */
 
+#include "mesh/attribute_bool.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/edge_collapse.h"
 #include "mesh/utils/edge_flip.h"
 #include "mesh/utils/edge_split.h"
+#include "mesh/utils/triangulate.h"
 
 #include "litestl/math/vector.h"
 #include "litestl/util/rand.h"
@@ -40,6 +43,13 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+
+// Forward-declared so the param/stats structs can carry a `defineBindings()`
+// hook without pulling the whole binding system into this hot header — the
+// bodies live out-of-line in `dyntopo/bindings.cc`.
+namespace litestl::binding::types {
+template <typename CLS> struct Struct;
+}
 
 namespace sculptcore::dyntopo {
 
@@ -90,6 +100,18 @@ struct DynTopoParams {
    * fold a triangle. */
   bool do_smooth = false;
   float smooth_lambda = 0.5f; /* relaxation step (0..1) */
+  /* Boundary-condition preservation. When true, the operators consult the
+   * mesh's boundary overlays (seam / sharp / projected / poly-group / UV-chart
+   * edge flags + the per-vert class) so a dab never tears a feature: feature
+   * edges may still SPLIT (the flag is propagated to both children), but feature
+   * verts are pinned against flip/smooth and only collapse *along* their own
+   * collinear feature curve. Off = the original feature-agnostic remesh. */
+  bool preserve_features = true;
+
+  /* Bound out-of-line in dyntopo/bindings.cc (keeps binding headers out of this
+   * hot header). Crosses the WASM/N-API seam by value, so the struct registers a
+   * copy constructor there. */
+  static litestl::binding::types::Struct<DynTopoParams> *defineBindings();
 };
 
 struct DynTopoStats {
@@ -100,6 +122,8 @@ struct DynTopoStats {
   int rounds = 0;
   bool capped = false;     /* hit max_rounds with work still pending */
   bool budget_hit = false; /* stopped early on max_splits (more work remains) */
+
+  static litestl::binding::types::Struct<DynTopoStats> *defineBindings();
 };
 
 namespace detail {
@@ -307,6 +331,88 @@ inline bool smoothTangent(mesh::Mesh &m, int v, float lambda,
   return true;
 }
 
+/* Resolved boundary-overlay edge views + per-vert class, for feature-preserving
+ * remeshing. `init` is a no-op (and `active` stays false) when the caller didn't
+ * ask to preserve features, so every query is a cheap early-out. */
+struct FeatureViews {
+  mesh::Mesh *m = nullptr;
+  mesh::BoolAttrView *proj = nullptr, *sharp = nullptr, *seam = nullptr;
+  mesh::BoolAttrView *pg = nullptr, *uv = nullptr;
+  bool active = false;
+
+  void init(mesh::Mesh &mesh, bool preserve)
+  {
+    m = &mesh;
+    active = preserve;
+    if (!preserve) {
+      return;
+    }
+    using namespace mesh::boundary;
+    proj = findBoolEdgeView(&mesh, EDGE_PROJECTED);
+    sharp = findBoolEdgeView(&mesh, EDGE_SHARP);
+    seam = findBoolEdgeView(&mesh, EDGE_SEAM);
+    pg = findBoolEdgeView(&mesh, EDGE_POLYGROUP);
+    uv = findBoolEdgeView(&mesh, EDGE_UVCHART);
+  }
+
+  /* The feature-type bitmask (boundary::BoundaryClass bits) carried by edge e. */
+  int edgeMask(int e) const
+  {
+    using namespace mesh::boundary;
+    int mask = 0;
+    if (proj && (*proj)[e]) mask |= BC_PROJECTED;
+    if (sharp && (*sharp)[e]) mask |= BC_SHARP;
+    if (seam && (*seam)[e]) mask |= BC_SEAM;
+    if (pg && (*pg)[e]) mask |= BC_POLYGROUP;
+    if (uv && (*uv)[e]) mask |= BC_UVCHART;
+    return mask;
+  }
+
+  bool isFeatureEdge(int e) const
+  {
+    return active && edgeMask(e) != 0;
+  }
+
+  bool isFeatureVert(int v) const
+  {
+    return active && mesh::boundary::vertClass(m, v) != 0;
+  }
+};
+
+/* A feature edge may collapse only *along its own collinear curve*: both
+ * endpoints must be simple interior points of one uniform feature curve (exactly
+ * two incident feature edges, all sharing e's exact feature-type signature, no
+ * junction/corner). This lets a feature line coarsen without tearing or eroding
+ * corners. (Decision B: pin + collinear collapse.) */
+inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat)
+{
+  int em = feat.edgeMask(e);
+  if (em == 0) {
+    return false;
+  }
+  for (int side = 0; side < 2; side++) {
+    int v = m.e.vs[e][side];
+    if (m.v.e[v] == ELEM_NONE) {
+      return false;
+    }
+    int sameType = 0;
+    for (int ei : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+      int eim = feat.edgeMask(ei);
+      if (eim == 0) {
+        continue;
+      }
+      if (eim != em) {
+        return false; /* junction / mixed feature types -> corner, don't collapse */
+      }
+      sameType++;
+    }
+    if (sameType != 2) {
+      return false; /* endpoint is a feature end / corner, not a clean interior */
+    }
+  }
+  return true;
+}
+
 } // namespace detail
 
 /* Remesh the region of `m` within sphere(center, radius). Returns op counts.
@@ -331,6 +437,59 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   const bool doCollapse =
       p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
   const float r2 = radius * radius;
+
+  /* Boundary-overlay views for feature-preserving remeshing (inert when
+   * p.preserve_features is false). */
+  detail::FeatureViews feat;
+  feat.init(m, p.preserve_features);
+
+  /* Split / flip / smooth are triangle-only; dyntopo dynamically triangulates any
+   * non-triangle face it encounters in the region first (incl. the graded-target
+   * faces — already tris — and any imported/procedural n-gon). Fan-triangulate
+   * with the callbacks so spatial/meshlog stay in sync; attrs are carried. Cheap
+   * no-op on an all-triangle region (the common case). */
+  {
+    Set<int> triFaces;
+    auto considerFaceTri = [&](int f) {
+      if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] ||
+          m.f.list_count[f] != 1) {
+        return;
+      }
+      if (m.l.size[m.f.l[f]] == 3) {
+        return;
+      }
+      triFaces.add(f);
+    };
+    auto considerVertFaces = [&](int v) {
+      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
+          m.v.e[v] == ELEM_NONE) {
+        return;
+      }
+      for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+        int rc0 = m.e.c[e];
+        if (rc0 == ELEM_NONE) {
+          continue;
+        }
+        int rcc = rc0;
+        do {
+          considerFaceTri(m.l.f[m.c.l[rcc]]);
+          rcc = m.c.radial_next[rcc];
+        } while (rcc != rc0);
+      }
+    };
+    if (seedVerts.size() > 0) {
+      for (int v : seedVerts) {
+        considerVertFaces(v);
+      }
+    } else {
+      for (int f : m.f) {
+        considerFaceTri(f);
+      }
+    }
+    for (int f : triFaces) {
+      mesh::triangulateFaceFanCb(m, f, cb);
+    }
+  }
 
   DynTopoStats stats;
 
@@ -369,8 +528,23 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       }
       float L = detail::edgeLen(m, e);
       if (doSplit && L > tmax) {
-        cands.append({e, true});
+        cands.append({e, true}); /* split always allowed; flags propagate */
       } else if (doCollapse && L < tmin) {
+        /* Feature preservation (Decision B): pin feature verts, but allow a
+         * feature edge to collapse along its own collinear curve. */
+        if (feat.active) {
+          bool fv0 = feat.isFeatureVert(m.e.vs[e][0]);
+          bool fv1 = feat.isFeatureVert(m.e.vs[e][1]);
+          if (fv0 || fv1) {
+            if (feat.isFeatureEdge(e)) {
+              if (!detail::featureCollapseOk(m, e, feat)) {
+                return; /* corner / junction / mixed curve: don't collapse */
+              }
+            } else {
+              return; /* non-feature edge touching a feature vert: would tear */
+            }
+          }
+        }
         cands.append({e, false});
       }
     };
@@ -447,6 +621,13 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         if (!m.e.freemap[e]) {
           nextFrontier.add(m.e.vs[e][0]);
           nextFrontier.add(m.e.vs[e][1]);
+          /* New geometry carries split-propagated source flags; mark it so the
+           * caller's recomputeDirty refreshes the derived flags + vert class. */
+          if (feat.active) {
+            mesh::boundary::markEdgeDirty(&m, e);
+            mesh::boundary::markVertDirty(&m, m.e.vs[e][0]);
+            mesh::boundary::markVertDirty(&m, m.e.vs[e][1]);
+          }
         }
       }
     };
@@ -501,6 +682,9 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
           if ((detail::edgeMid(m, e) - center).lengthSqr() > r2) {
             continue;
           }
+          if (feat.isFeatureEdge(e)) {
+            continue; /* never flip a feature edge (would destroy the curve) */
+          }
           flipCands.append(e);
         }
       }
@@ -533,6 +717,9 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         if ((m.v.co[v] - center).lengthSqr() > r2) {
           continue;
         }
+        if (feat.isFeatureVert(v)) {
+          continue; /* pin feature verts on their curve (v1: no tangent slide) */
+        }
         math::float3 np;
         if (detail::smoothTangent(m, v, p.smooth_lambda, np)) {
           sverts.append(v);
@@ -559,6 +746,14 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
     if (round == p.max_rounds - 1) {
       stats.capped = true;
     }
+  }
+
+  /* Topology near features changed: the split-propagated source flags need the
+   * derived poly-group / UV-chart flags + per-vert class recomputed. Flag it; the
+   * caller folds it in (recomputeDirty) at the next dab / stroke end while links
+   * are live. */
+  if (feat.active && (stats.splits + stats.collapses) > 0) {
+    m.boundaryDirty = true;
   }
 
   return stats;

@@ -1,5 +1,6 @@
 #include "mesh/bindings.h"
 #include "brush/bindings.h"
+#include "dyntopo/bindings.h"
 #include "gpu/bindings.h"
 #include "meshlog/bindings.h"
 #include "props/bindings.h"
@@ -19,6 +20,7 @@ extern "C" void initBindings()
   sculptcore::spatial::registerBindings(manager);
   sculptcore::props::registerBindings(manager);
   sculptcore::brush::bindings::registerBindings(manager);
+  sculptcore::dyntopo::registerBindings(manager);
   sculptcore::meshlog::registerBindings(manager);
 
   // add various vector types

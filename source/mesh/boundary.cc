@@ -2,12 +2,78 @@
 
 #include "attribute.h"
 #include "attribute_bool.h"
+#include "attribute_enums.h"
 #include "mesh.h"
 #include "mesh_iter.h"
+
+#include "litestl/math/vector.h"
 
 namespace sculptcore::mesh::boundary {
 
 namespace {
+
+using litestl::math::float2;
+
+// The mesh's active UV corner layer (first FLOAT2 corner attr tagged AttrUse::UV),
+// or null if the mesh carries no UVs.
+AttrData<float2> *findUvCorner(MeshBase *m)
+{
+  for (AttrRef &attr : m->c.attrs.attrs) {
+    if (attr.type == AttrType::FLOAT2 && attr.data &&
+        (static_cast<int>(attr.use) & static_cast<int>(AttrUse::UV)) != 0) {
+      return static_cast<AttrData<float2> *>(attr.data);
+    }
+  }
+  return nullptr;
+}
+
+// Corner of face `f` sitting at vertex `v` (ELEM_NONE if none).
+int cornerOfFaceVert(MeshBase *m, int f, int v)
+{
+  int l = m->f.l[f];
+  if (l == ELEM_NONE) return ELEM_NONE;
+  int c0 = m->l.c[l], c = c0;
+  do {
+    if (m->c.v[c] == v) return c;
+    c = m->c.next[c];
+  } while (c != c0 && c != ELEM_NONE);
+  return ELEM_NONE;
+}
+
+// True if the UVs are discontinuous across interior edge `e` (its two faces
+// assign different UVs to a shared endpoint) — i.e. e is a UV-chart boundary.
+bool computeUvChartBoundary(MeshBase *m, int e, AttrData<float2> *uv)
+{
+  if (!uv) return false;
+  int c0 = m->e.c[e];
+  if (c0 == ELEM_NONE) return false; // wire edge
+  // Collect the (up to) two incident faces.
+  int fA = ELEM_NONE, fB = ELEM_NONE;
+  int c = c0;
+  do {
+    int f = m->l.f[m->c.l[c]];
+    if (f != fA && f != fB) {
+      if (fA == ELEM_NONE) fA = f;
+      else if (fB == ELEM_NONE) fB = f;
+    }
+    c = m->c.radial_next[c];
+  } while (c != c0 && c != ELEM_NONE);
+  if (fA == ELEM_NONE || fB == ELEM_NONE) {
+    return false; // mesh-boundary edge (1 face): handled topologically elsewhere
+  }
+  const float eps2 = 1e-10f;
+  int verts[2] = {m->e.vs[e][0], m->e.vs[e][1]};
+  for (int vi = 0; vi < 2; vi++) {
+    int v = verts[vi];
+    int ca = cornerOfFaceVert(m, fA, v);
+    int cb = cornerOfFaceVert(m, fB, v);
+    if (ca == ELEM_NONE || cb == ELEM_NONE) continue;
+    if (((*uv)[ca] - (*uv)[cb]).lengthSqr() > eps2) {
+      return true;
+    }
+  }
+  return false;
+}
 
 BoolAttrView *ensureBoolEdge(MeshBase *m, const char *name, bool temp)
 {
@@ -138,13 +204,19 @@ void recomputeDirty(MeshBase *m)
   BoolAttrView *ePoly = ensureBoolEdge(m, EDGE_POLYGROUP, true);
   AttrData<int> *faceGroup = findIntFace(m, FACE_GROUP);
   AttrData<int> *vClass = ensureIntVert(m, VERT_CLASS, true);
+  AttrData<float2> *uvCorner = findUvCorner(m);
+  // The UV-chart layer is only needed (and only materialized) when the mesh has
+  // UVs to derive it from.
+  BoolAttrView *eUvDerive = uvCorner ? ensureBoolEdge(m, EDGE_UVCHART, true) : nullptr;
 
   // Pass 1: recompute derived flags for dirty edges, and dirty their endpoints
   // so the affected vertex classifications refresh too.
   for (int e = 0; e < m->e.count; e++) {
     if (!eDirty->get(e)) continue;
     ePoly->set(e, computePolygroupBoundary(m, e, faceGroup));
-    // (UV-chart derived flag is a follow-up: compare per-corner UVs across e.)
+    if (eUvDerive) {
+      eUvDerive->set(e, computeUvChartBoundary(m, e, uvCorner));
+    }
     eDirty->set(e, false);
     vDirty->set(m->e.vs[e][0], true);
     vDirty->set(m->e.vs[e][1], true);
@@ -160,7 +232,8 @@ void recomputeDirty(MeshBase *m)
       if (eSharp && eSharp->get(e)) cls |= BC_SHARP;
       if (eSeam && eSeam->get(e)) cls |= BC_SEAM;
       if (ePoly->get(e)) cls |= BC_POLYGROUP;
-      if (eUv && eUv->get(e)) cls |= BC_UVCHART;
+      BoolAttrView *uvView = eUvDerive ? eUvDerive : eUv;
+      if (uvView && uvView->get(e)) cls |= BC_UVCHART;
     }
     (*vClass)[v] = cls;
     vDirty->set(v, false);

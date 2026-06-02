@@ -139,8 +139,14 @@ public:
 
       uint8_t *old = blocks_;
 
-      blocks_ =
-          static_cast<uint8_t *>(alloc::alloc("PackedBoolAttrs", capacity_ * blocksize_));
+      size_t totalbytes = capacity_ * blocksize_;
+      blocks_ = static_cast<uint8_t *>(alloc::alloc("PackedBoolAttrs", totalbytes));
+      /* Zero the whole buffer (incl. the over-allocated tail) so newly-exposed
+       * element slots read as false. Without this, adding a bool layer to a mesh
+       * that already has elements leaves their bits uninitialized — a brand-new
+       * edge/vert created later (dyntopo) then reads garbage flags. The tail stays
+       * zeroed for future within-capacity size growth too. */
+      memset(static_cast<void *>(blocks_), 0, totalbytes);
 
       if (size_) {
         memcpy(

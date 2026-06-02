@@ -15,6 +15,7 @@ type uint64 = number
 type float = number
 type double = number
 
+import type {DynTopoParams} from './sculptcore/dyntopo/DynTopoParams'
 import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
 import type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 import type {CornerData} from './sculptcore/mesh/CornerData'
@@ -33,6 +34,7 @@ import type {AttrGroup} from './sculptcore/mesh/AttrGroup'
 import type {AttrRef} from './sculptcore/mesh/AttrRef'
 import type {EdgeData} from './sculptcore/mesh/EdgeData'
 import type {SpatialNode} from './sculptcore/spatial/SpatialNode'
+import type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 import type {AttrDef} from './sculptcore/gpu/AttrDef'
 import type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
@@ -51,6 +53,7 @@ import type {float3} from './litestl/math/float3'
 import type {AttrPage} from './sculptcore/mesh/AttrPage'
 import type {FaceData} from './sculptcore/mesh/FaceData'
 
+export type {DynTopoParams} from './sculptcore/dyntopo/DynTopoParams'
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
 export type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 export type {CornerData} from './sculptcore/mesh/CornerData'
@@ -69,6 +72,7 @@ export type {AttrGroup} from './sculptcore/mesh/AttrGroup'
 export type {AttrRef} from './sculptcore/mesh/AttrRef'
 export type {EdgeData} from './sculptcore/mesh/EdgeData'
 export type {SpatialNode} from './sculptcore/spatial/SpatialNode'
+export type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 export type {AttrDef} from './sculptcore/gpu/AttrDef'
 export type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
@@ -89,6 +93,7 @@ export type {FaceData} from './sculptcore/mesh/FaceData'
 
 /** Note: Does not include templates */
 export type AllBoundTypes = {
+  'sculptcore::dyntopo::DynTopoStats': DynTopoStats
   'sculptcore::mesh::BuiltinAttr<int32,.corner.next>': BuiltinAttr<
     int32,
     '.corner.next'
@@ -98,6 +103,7 @@ export type AllBoundTypes = {
     '.corner.radial_prev'
   >
   'sculptcore::gpu::AttrDef': AttrDef
+  'sculptcore::dyntopo::DynTopoParams': DynTopoParams
   'sculptcore::mesh::FaceData': FaceData
   'sculptcore::props::StructProp': StructProp
   'sculptcore::gpu::UniformBlockInstance': UniformBlockInstance

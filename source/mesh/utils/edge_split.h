@@ -74,10 +74,26 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
     return false;
   }
 
+  /* Snapshot the parent edge's attrs (boundary source flags sharp/seam/projected,
+   * etc.) so the two child edges can inherit them — make_face creates fresh,
+   * value-initialized edges otherwise, which would silently drop a seam. */
+  AttrRowSnapshot edgeSnap;
+  snapshotAttrRow(m.e.attrs, edge, edgeSnap);
+
+  /* Per-incident-face captured attrs: the face row (e.g. poly-group `group`) and
+   * each corner's row (e.g. `uv`), so the rebuilt triangles keep them and the new
+   * midpoint corner interpolates. */
+  struct FaceSnap {
+    AttrRowSnapshot face;
+    Vector<int, 4> cverts;
+    Vector<AttrRowSnapshot, 4> csnaps;
+  };
+
   /* Gather incident faces (dedup across the radial cycle) and snapshot
-   * their vertex sequences. Require triangles. */
+   * their vertex sequences + attrs. Require triangles. */
   Vector<int, 8> incidentFaces;
   Vector<Vector<int, 4>, 8> faceVerts;
+  Vector<FaceSnap, 8> faceSnaps;
   Set<int> faceSet;
 
   int c0 = m.e.c[edge];
@@ -91,14 +107,21 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
           return false; /* non-triangle incident face */
         }
         Vector<int, 4> seq;
+        FaceSnap fs;
+        snapshotAttrRow(m.f.attrs, fi, fs.face);
         int lc0 = m.l.c[li];
         int lcc = lc0;
         do {
           seq.append(m.c.v[lcc]);
+          fs.cverts.append(m.c.v[lcc]);
+          AttrRowSnapshot cs;
+          snapshotAttrRow(m.c.attrs, lcc, cs);
+          fs.csnaps.append(std::move(cs));
           lcc = m.c.next[lcc];
         } while (lcc != lc0);
         incidentFaces.append(fi);
         faceVerts.append(std::move(seq));
+        faceSnaps.append(std::move(fs));
       }
       cc = m.c.radial_next[cc];
     } while (cc != c0);
@@ -139,6 +162,8 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
     }
     int e0 = m.make_edge(v0, vm, cb);
     int e1 = m.make_edge(vm, v1, cb);
+    restoreAttrRow(m.e.attrs, e0, edgeSnap); /* inherit parent edge flags */
+    restoreAttrRow(m.e.attrs, e1, edgeSnap);
     if (out) {
       out->created_edges.append(e0);
       out->created_edges.append(e1);
@@ -146,11 +171,26 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
     return true;
   }
 
+  /* Locate the corner of face `f` whose vertex is `vert` (ELEM_NONE if absent). */
+  auto cornerOf = [&](int f, int vert) -> int {
+    int li = m.f.l[f];
+    int lc0 = m.l.c[li], lcc = lc0;
+    do {
+      if (m.c.v[lcc] == vert) {
+        return lcc;
+      }
+      lcc = m.c.next[lcc];
+    } while (lcc != lc0);
+    return ELEM_NONE;
+  };
+
   /* Rebuild each incident triangle as two triangles through vm. For a
    * triangle whose vertex loop contains the consecutive pair (v0,v1) or
    * (v1,v0), insert vm between them; the resulting 4-vertex loop fans
    * into two triangles preserving the original winding. */
-  for (auto &seq : faceVerts) {
+  for (int fidx = 0; fidx < int(faceVerts.size()); fidx++) {
+    auto &seq = faceVerts[fidx];
+    FaceSnap &fs = faceSnaps[fidx];
     int n = int(seq.size()); /* == 3 */
     /* Find the index i where (seq[i], seq[i+1]) is the split edge. */
     int splitI = -1;
@@ -175,9 +215,47 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
     int tri1[3] = {vm, b, opp};
     int f0 = m.make_face(std::span<int>(tri0, 3), cb);
     int f1 = m.make_face(std::span<int>(tri1, 3), cb);
+
+    /* Carry the original face's attrs onto both halves, the original corners
+     * onto the matching corners, and interpolate the midpoint corner from the
+     * split edge's two endpoint corners. */
+    auto snapForVert = [&](int vert) -> const AttrRowSnapshot * {
+      for (int i = 0; i < int(fs.cverts.size()); i++) {
+        if (fs.cverts[i] == vert) {
+          return &fs.csnaps[i];
+        }
+      }
+      return nullptr;
+    };
+    restoreAttrRow(m.f.attrs, f0, fs.face);
+    restoreAttrRow(m.f.attrs, f1, fs.face);
+    const AttrRowSnapshot *snA = snapForVert(a), *snB = snapForVert(b),
+                          *snO = snapForVert(opp);
+    int cA = cornerOf(f0, a), cVm0 = cornerOf(f0, vm), cO0 = cornerOf(f0, opp);
+    int cVm1 = cornerOf(f1, vm), cB = cornerOf(f1, b), cO1 = cornerOf(f1, opp);
+    if (snA && cA != ELEM_NONE) restoreAttrRow(m.c.attrs, cA, *snA);
+    if (snO && cO0 != ELEM_NONE) restoreAttrRow(m.c.attrs, cO0, *snO);
+    if (snB && cB != ELEM_NONE) restoreAttrRow(m.c.attrs, cB, *snB);
+    if (snO && cO1 != ELEM_NONE) restoreAttrRow(m.c.attrs, cO1, *snO);
+    if (snA && snB && cVm0 != ELEM_NONE)
+      interpAttrRows(m.c.attrs, cVm0, *snA, *snB, 0.5f);
+    if (snA && snB && cVm1 != ELEM_NONE)
+      interpAttrRows(m.c.attrs, cVm1, *snA, *snB, 0.5f);
+
     if (out) {
       out->created_faces.append(f0);
       out->created_faces.append(f1);
+    }
+  }
+
+  /* The two child edges (v0-vm, vm-v1) inherit the parent edge's attrs (boundary
+   * source flags). The spoke edges vm-opp are genuinely new (no flag). */
+  if (m.v.e[vm] != ELEM_NONE) {
+    for (int ei : EdgeOfVertIter(&m, vm, m.v.e[vm])) {
+      int o = (m.e.vs[ei][0] == vm) ? m.e.vs[ei][1] : m.e.vs[ei][0];
+      if (o == v0 || o == v1) {
+        restoreAttrRow(m.e.attrs, ei, edgeSnap);
+      }
     }
   }
 

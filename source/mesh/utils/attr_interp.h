@@ -16,9 +16,149 @@
 
 #include "../attribute.h"
 
+#include <cstring>
 #include <type_traits>
 
 namespace sculptcore::mesh {
+
+/* A captured copy of one element's non-topology/non-temp attribute values, so a
+ * value can survive the kill→recreate cycle that edge split / collapse /
+ * triangulate use to rebuild faces (make_face value-inits the new element, so a
+ * face's `group`, a corner's `uv`, etc. would otherwise be lost). Cells are kept
+ * index-aligned with `grp.attrs` (a placeholder is stored for skipped layers);
+ * the group's layer set must not change between snapshot and restore (the topo
+ * operators only add/remove elements, never layers, so this holds). */
+struct AttrRowSnapshot {
+  struct Cell {
+    bool present = false;
+    bool isBool = false;
+    bool bval = false;
+    uint8_t bytes[16] = {};
+  };
+  litestl::util::Vector<Cell, 8> cells;
+};
+
+static inline void snapshotAttrRow(AttrGroup &grp, int elem, AttrRowSnapshot &snap)
+{
+  snap.cells.clear();
+  for (AttrRef &attr : grp.attrs) {
+    AttrRowSnapshot::Cell cell;
+    if (attr.flag & (AttrFlag::TOPO | AttrFlag::TEMP)) {
+      snap.cells.append(cell); /* placeholder: keep index alignment */
+      continue;
+    }
+    if (attr.type == AttrType::BOOL) {
+      BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
+      if (view) {
+        cell.isBool = true;
+        cell.bval = (*view)[elem];
+        cell.present = true;
+      }
+      snap.cells.append(cell);
+      continue;
+    }
+    detail::type_dispatch(attr.type, [&]<typename T>() {
+      if constexpr (std::is_same_v<T, bool>) {
+        return;
+      } else {
+        auto *data = static_cast<AttrData<T> *>(attr.data);
+        if (data) {
+          static_assert(sizeof(T) <= 16, "attr cell too large for snapshot");
+          std::memcpy(cell.bytes, &(*data)[elem], sizeof(T));
+          cell.present = true;
+        }
+      }
+    });
+    snap.cells.append(cell);
+  }
+}
+
+static inline void restoreAttrRow(AttrGroup &grp, int elem, const AttrRowSnapshot &snap)
+{
+  int i = 0;
+  for (AttrRef &attr : grp.attrs) {
+    if (i >= int(snap.cells.size())) {
+      break;
+    }
+    const AttrRowSnapshot::Cell &cell = snap.cells[i++];
+    if (!cell.present) {
+      continue;
+    }
+    if (attr.type == AttrType::BOOL) {
+      BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
+      if (view) {
+        view->set(elem, cell.bval);
+      }
+      continue;
+    }
+    detail::type_dispatch(attr.type, [&]<typename T>() {
+      if constexpr (std::is_same_v<T, bool>) {
+        return;
+      } else {
+        auto *data = static_cast<AttrData<T> *>(attr.data);
+        if (data) {
+          std::memcpy(&(*data)[elem], cell.bytes, sizeof(T));
+        }
+      }
+    });
+  }
+}
+
+/* Blend two captured rows into a live element (weights (1-t)/t), matching
+ * interpAttrs' rules: float/float-vector lerp, integer/bool copy s0. Used for the
+ * midpoint corner of an edge split, whose two sources (the split edge's endpoints
+ * on one face) were captured before the face was killed. */
+static inline void interpAttrRows(AttrGroup &grp, int dst, const AttrRowSnapshot &s0,
+                                  const AttrRowSnapshot &s1, float t)
+{
+  int i = 0;
+  for (AttrRef &attr : grp.attrs) {
+    if (i >= int(s0.cells.size())) {
+      break;
+    }
+    const AttrRowSnapshot::Cell &c0 = s0.cells[i];
+    const AttrRowSnapshot::Cell &c1 = (i < int(s1.cells.size())) ? s1.cells[i] : c0;
+    i++;
+    if (!c0.present) {
+      continue;
+    }
+    if (attr.type == AttrType::BOOL) {
+      BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
+      if (view) {
+        view->set(dst, c0.bval);
+      }
+      continue;
+    }
+    detail::type_dispatch(attr.type, [&]<typename T>() {
+      if constexpr (std::is_same_v<T, bool>) {
+        return;
+      } else {
+        auto *data = static_cast<AttrData<T> *>(attr.data);
+        if (!data) {
+          return;
+        }
+        T a;
+        std::memcpy(&a, c0.bytes, sizeof(T));
+        if constexpr (std::is_floating_point_v<T>) {
+          T b;
+          std::memcpy(&b, c1.bytes, sizeof(T));
+          (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
+        } else if constexpr (requires { typename T::value_type; }) {
+          using Scalar = typename T::value_type;
+          if constexpr (std::is_floating_point_v<Scalar>) {
+            T b;
+            std::memcpy(&b, c1.bytes, sizeof(T));
+            (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
+          } else {
+            (*data)[dst] = a;
+          }
+        } else {
+          (*data)[dst] = a;
+        }
+      }
+    });
+  }
+}
 
 static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, float t)
 {
