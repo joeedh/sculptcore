@@ -181,7 +181,11 @@ void SpatialTree::add_face_intern(SpatialNode *node,
     return;
   }
 
-  node->flag |= Spatial_RegenTris | Spatial_RegenBounds;
+  /* RegenGPU too: a leaf that gains a face needs its GPU node's VBO rebuilt
+   * with the new tris (the incremental dyntopo path relies on this — without it
+   * the new geometry never reaches the renderer). split_node already sets it on
+   * fresh child leaves; this covers adding into an existing leaf. */
+  node->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
   FaceProxy face(m, f);
 
   if (treeMesh.f.node[face] == 0) {

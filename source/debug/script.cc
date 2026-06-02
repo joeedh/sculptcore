@@ -1124,6 +1124,10 @@ bool execVerb(Scene &scene,
                             std::chrono::steady_clock::now() - t0)
                             .count();
 
+    /* Warm-up: build the GPU buffers once so the measured update() below is an
+     * INCREMENTAL one (per-frame in the real app), not the cold first build. */
+    scene.tree->update(&scene.gpu);
+
     int fBefore = scene.mesh->f.count;
     scene.dyntopoParams.l_max = detail;
     scene.dyntopoParams.l_min = detail * 0.4f;

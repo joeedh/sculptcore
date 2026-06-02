@@ -270,7 +270,7 @@ struct SpatialTree {
       return;
     }
     node->data->unique_faces.remove(f);
-    node->flag |= Spatial_RegenTris | Spatial_RegenBounds;
+    node->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
     for (SpatialNode *p = node->parent; p; p = p->parent) {
       p->flag |= Spatial_RegenBounds;
     }
