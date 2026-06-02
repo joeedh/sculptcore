@@ -232,9 +232,75 @@ struct SpatialTree {
     return node_idmap[id];
   }
 
+  /* A leaf that already owns one of `face`'s verts, or null if none is owned
+   * yet (the build path). Dyntopo's new geometry is spatially adjacent to
+   * existing geometry, so such a vert pins the new face to the right
+   * neighbourhood without a root→leaf descent (M7.6 locality shortcut). */
+  SpatialNode *find_anchor_leaf(mesh::FaceProxy &face)
+  {
+    for (auto list : face.lists()) {
+      for (auto c : list) {
+        int nid = treeMesh.v.node[c.v()];
+        if (nid == 0) {
+          continue;
+        }
+        SpatialNode *n = node_from_id(nid);
+        if (n && (n->flag & Spatial_Leaf) && n->data) {
+          return n;
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  /* O(1) placement: file `f` directly into `leaf` (no centroid descent), and do
+   * NOT split inline — over-full leaves are recorded in rebalanceCandidates_ and
+   * split once, batched, by applyDeferredRebalance() at the next update(). The
+   * leaf's AABB is left loose until then (regen_node_bounds tightens it from the
+   * new tris during update). Mirrors add_face_intern's leaf body. */
+  void add_face_at(SpatialNode *leaf, int f)
+  {
+    leaf->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
+    for (SpatialNode *p = leaf->parent; p; p = p->parent) {
+      p->flag |= Spatial_RegenBounds;
+    }
+
+    mesh::FaceProxy face(m, f);
+    if (treeMesh.f.node[face] == 0) {
+      treeMesh.f.node[face] = leaf->id;
+      leaf->data->unique_faces.add(f);
+    } else {
+      leaf->data->other_faces.add(f);
+    }
+
+    for (auto list : face.lists()) {
+      for (auto c : list) {
+        if (treeMesh.v.node[c.v()]) {
+          leaf->data->other_verts.add(c.v());
+        } else {
+          leaf->data->unique_verts.add(c.v());
+          treeMesh.v.node[c.v()] = leaf->id;
+        }
+      }
+    }
+
+    if (node_needs_split(leaf)) {
+      rebalanceCandidates_.add(leaf->id);
+    }
+  }
+
   void add_face(int f)
   {
     mesh::FaceProxy face(m, f);
+
+    /* Incremental (dyntopo) fast path: pin the new face to a neighbour's leaf in
+     * O(1) and defer the split. The build path (no owned neighbour yet) falls
+     * back to the root→leaf centroid descent. */
+    if (SpatialNode *anchor = find_anchor_leaf(face)) {
+      add_face_at(anchor, f);
+      return;
+    }
+
     math::float3 fcent = face.calc_center();
 
     if (root->aabb.min[0] == FLT_MAX) {
@@ -304,6 +370,12 @@ struct SpatialTree {
 
   util::Vector<SpatialNode *> leaves();
   util::Vector<SpatialNode *> gpu_nodes();
+
+  /* Split the leaves that grew past leaf_limit during incremental add_face_at
+   * placement, once each, batched (M7.6 deferred rebalance). Called at the top
+   * of update(); public so tests can drive it without a GPUManager. Thaws
+   * topology if frozen (split_node re-triangulates via live links). */
+  void applyDeferredRebalance();
 
   /* Public so tests can drive partition assignment without a GPUManager. */
   void recompute_subtree_tri_counts();
@@ -438,6 +510,17 @@ private:
   util::Vector<SpatialNode *> gpuNodeCache_;
   bool leafCacheDirty_ = true;
   bool gpuNodeCacheDirty_ = true;
+
+  /* Leaves that crossed leaf_limit during incremental add_face_at placement and
+   * await a batched split in applyDeferredRebalance() (M7.6). Brush queries on an
+   * over-full leaf just iterate a few extra verts until the next update().
+   *
+   * NOTE (future, per user): the rebalance pass must eventually also MERGE
+   * under-full sibling leaves (after collapse-heavy strokes shrink a region) and
+   * possibly re-split — but on a slower cadence than every dab. The merge side
+   * would track shrunk leaves the way this set tracks grown ones and fold each
+   * pair of under-full siblings back into their parent. Not every-dab work. */
+  util::Set<int> rebalanceCandidates_;
 };
 
 } // namespace sculptcore::spatial

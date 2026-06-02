@@ -307,6 +307,34 @@ void SpatialTree::split_node(SpatialNode *node)
   node->flag |= Spatial_RegenBounds;
 }
 
+void SpatialTree::applyDeferredRebalance()
+{
+  if (rebalanceCandidates_.size() == 0) {
+    return;
+  }
+
+  /* split_node re-triangulates the leaf's faces through the live face/loop links,
+   * which are dropped in frozen-topology mode — thaw first (one thaw covers the
+   * whole pass; the next dab re-freezes). */
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  /* Each over-full leaf is split exactly once here; split_node itself recurses
+   * (its re-insert goes through add_face_intern's inline-split path), so one call
+   * turns a leaf that gained ~1500 verts in a dab into a balanced subtree —
+   * replacing the N threshold-crossing re-inserts the inline path used to do. */
+  for (int leafId : rebalanceCandidates_) {
+    SpatialNode *node = node_from_id(leafId);
+    if (node && (node->flag & Spatial_Leaf) && node->data && node_needs_split(node)) {
+      split_node(node);
+    }
+  }
+
+  rebalanceCandidates_.clear();
+  leafCacheDirty_ = true;
+}
+
 void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 {
   node->flag &= ~Spatial_RegenBounds;
@@ -1018,6 +1046,12 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   bool result = false;
   bool bounds = false;
   bool drawBatchUpdated = false;
+
+  /* Phase 0: deferred rebalance. Incremental add_face_at placement skips the
+   * inline split, so leaves that grew past leaf_limit during the dab are split
+   * here, once each. Runs before the tris phase so the fresh child leaves (which
+   * carry Spatial_RegenTris) are picked up by the collection loop below. */
+  applyDeferredRebalance();
 
   /* Phase: regen leaf tris. Must run before the bounds phase: regen_node_bounds
    * derives leaf AABBs from node->data->tris (via the frozen-safe .corner.v

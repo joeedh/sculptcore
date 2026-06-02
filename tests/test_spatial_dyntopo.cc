@@ -128,9 +128,16 @@ int main()
   int fAfter = m->f.count;
   test_assert(fAfter > fBefore); /* refined under the dab */
 
-  /* Ownership is still complete + consistent after the incremental updates. */
+  /* Ownership is complete + consistent immediately after the dab — placement
+   * (add_face_at) is O(1) and eager; only the leaf SPLIT is deferred (M7.6), so
+   * the region's verts are correctly owned even though they pile into a few
+   * over-full leaves until the rebalance pass runs. */
   int owned1 = validateOwnership(tree, m, "incremental");
   test_assert(owned1 == fAfter);
+
+  /* Deferred batched rebalance: split the over-full leaves once each (what
+   * update() does at the top, here without a GPUManager). */
+  tree->applyDeferredRebalance();
 
   /* Per-leaf tris regen from the updated unique_faces (no GPU). Touched leaves
    * carry Spatial_RegenTris from add_face/remove_face. */
@@ -140,8 +147,8 @@ int main()
   int owned2 = validateOwnership(tree, m, "post-regen");
   test_assert(owned2 == fAfter);
 
-  /* The refinement pushed the region's leaves well past leaf_limit, so the tree
-   * must have rebalanced (split) incrementally — not stayed one giant leaf. */
+  /* The refinement pushed the region's leaves well past leaf_limit, so the
+   * deferred rebalance must have split them — not left one giant leaf. */
   int leavesAfter = int(tree->leaves().size());
   test_assert(leavesAfter > leavesBefore);
 

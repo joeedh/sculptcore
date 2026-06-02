@@ -102,7 +102,27 @@ free) or a **hidden O(mesh)** op (fix that directly — likely a freeze/thaw or 
 accidental full-mesh walk). Acceptance: a one-paragraph finding + the offending
 cost named. Remove all scaffolding.
 
-### M7.1a — Graded target edge length / sizing field (suggested — try before flips)
+### M7.1a — Graded target edge length / sizing field — DONE (commit ce69b76)
+
+**Implemented and it works.** `DynTopoParams.grade` relaxes `l_max`/`l_min`
+outward by `(1 + grade * dist/radius)` in the `consider` candidate test; the
+frontier loop already expands outward so it was a few lines. `grade=0` = uniform
+(default, tests unchanged). Exposed on the `dyntopo`/`bench_dyntopo` verbs + a UI
+slider; `bench_dyntopo` gained `maxValence` + a graded `leftover` check.
+Measured (subdivs 120, r=0.05, detail=0.005, still `leftover=0`):
+
+| grade | splits | max valence |
+|---|---|---|
+| 0 (uniform) | 1512 | 27 |
+| 2 | 117 (13×↓) | 15 |
+| 4 | 21 (72×↓) | 10 (regular = 6) |
+
+Cuts over-refinement 13–72× *and* removes the high-valence hubs — the cascade at
+its source. Open follow-ups: tune the default grade for sculpting feel; the grade
+shape is linear in `dist/radius` (try smoothstep/quadratic); and flips (M7.2) may
+still help the residual rim slivers. Original write-up below.
+
+
 
 The over-refinement and the high-valence hubs come largely from the **hard
 boundary** between the uniformly-fine brush region and the coarse surrounding
@@ -177,7 +197,43 @@ cost stays local and the stroke holds **≥25 fps** on the reference laptop. Thi
 is the milestone the whole feature targets. Also wire a `bench_dyntopo`-style
 A/B into CI so the cascade can't silently regress.
 
-### M7.6 — Spatial-tree currency (keep the tree correct + cheap to update)
+### M7.6 — Spatial-tree currency (keep the tree correct + cheap to update) — DONE (split side)
+
+**Both halves of the locality shortcut implemented and measured.**
+
+1. **O(1) anchor placement** — `add_face` now calls `find_anchor_leaf` (a leaf
+   already owning one of the new face's verts) and files the face directly into
+   it via `add_face_at`, skipping the root→leaf centroid descent. The build path
+   (no owned neighbour yet) still descends. The anchor vert is by construction
+   within ~half an edge of the new geometry, so placement lands in the right leaf
+   or an immediate neighbour; `regen_node_bounds` tightens the loosened AABB from
+   the new tris during `update()`.
+2. **Deferred batched rebalance** — `add_face_at` does **not** split inline; it
+   records over-full leaves in `rebalanceCandidates_`. `applyDeferredRebalance()`
+   (top of `update()`, before the tris phase) splits each once. `split_node`
+   already recurses, so one call turns a leaf that gained ~1500 verts into a
+   balanced subtree — replacing N threshold-crossing re-inserts.
+
+Measured (`bench_dyntopo`, leaf_limit 256, r 0.05, **grade 2** = converged so the
+comparison is clean):
+
+| mesh | baseline ops/total | M7.6 ops/total |
+|---|---|---|
+| 170 k | 8.9 / 10.4 ms | **5.3 / 6.2 ms** |
+| 475 k | 8.8 / 9.5 ms | **7.8 / 8.1 ms** |
+
+`update` time *fell* too (one batched split beats repeated inline splits +
+intermediate GPU regens). Both scale with the brush region, not total mesh.
+`test_spatial_dyntopo` updated: placement is eager/correct immediately after the
+dab (ownership complete), the split is driven by `applyDeferredRebalance()`.
+
+**Still TODO (user-flagged, deliberately deferred — not every-dab work):** the
+rebalance pass must eventually also **merge** under-full sibling leaves (after
+collapse-heavy strokes shrink a region) and possibly **re-split**, on a slower
+cadence than per-dab. The merge side would track shrunk leaves the way
+`rebalanceCandidates_` tracks grown ones and fold each pair of under-full
+siblings back into their parent. Design note at the `rebalanceCandidates_`
+declaration in `spatial.h`. Original write-up below.
 
 Dyntopo must keep the spatial tree current as it adds/removes geometry — node
 ownership (`.spatial.{v,f}.node`, each leaf's `unique_verts`/`unique_faces`),
