@@ -17,6 +17,65 @@ interpolated `float4` attributes.
 
 ---
 
+## Status — post-M7 re-evaluation (2026-06)
+
+**The CPU path is built and the 5 M-tri / ≥25 fps target is met with no GPU
+offload.** Dynamic topology shipped through milestones M1–M7 (see
+[`plans/dyntopo-m7-cascade.md`](plans/dyntopo-m7-cascade.md)). The sections below
+are the original design and remain a faithful record of the reasoning; this
+banner records where *measurement* corrected that reasoning and what it means for
+the GPU work — which is now **optional**, not required.
+
+**What held.** "Work is local and small per dab" ✓. "CPU mutation stays
+authoritative" ✓. "Profile before reaching for the GPU" ✓ — and vindicated: every
+a-priori bottleneck guess was wrong.
+
+**What measurement changed:**
+
+1. **The bottleneck was the edge surgery, not the spatial bookkeeping.** §7 named
+   "spatial node-ownership updates and VBO repack" as the prime suspects; in fact
+   incremental `SpatialTree::update()` is **2–11 ms at 5 M** (M7.6), while the
+   round loop dominated. The driver is **cascade depth × per-split cost**, and
+   per-split cost is **valence-driven and cache-bound**, not arithmetic.
+
+2. **Edge *flip* is load-bearing for performance, not "optional, quality."** A
+   length-criterion flip sweep (M7.2) broke the refinement cascade: a 5 M
+   aggressive dab went **1600 → 171 ms**, per-split cost **~16×** lower, max
+   valence **30 → 9**, and deep cascades that never converged now converge. It is
+   the single biggest lever in the feature — and it is pure CPU. The real-time
+   levers are **graded target + flips + tangential smoothing + a per-dab split
+   budget** (M7.1a/M7.2/M7.4 + the valve), none of them GPU.
+
+3. **The stages the plan calls cheap-to-offload aren't the bottleneck; the one it
+   calls hardest is the one you'd need.** Stage A/B (mark/compact) is cheap once
+   localized (round-0 spatial seeding), so offloading it (Wave 1) doesn't touch
+   the dominant mutation+cascade cost. Only Stage C (mutation, the "build last"
+   wave) is on the hot path — and three facts make GPU mutation a net negative
+   now: the **split-budget valve** already bounds per-frame work on the CPU; GPU
+   atomic-append ordering is **nondeterministic**, breaking the seeded tests and
+   `sculptcore_parity`; and a GPU mutation that bypasses `MeshCallbacks` loses the
+   **incremental spatial ownership** (M7.6) and pays a **~68 s** full tree rebuild
+   at 5 M instead of 2–11 ms.
+
+**Forward GPU guidance (supersedes the §7 staging and §8 bottom line):**
+
+- GPU offload is **no longer a performance requirement.** Treat it as an
+  optimization for one scenario only: the Vulkan compute-brush path where the mesh
+  is already GPU-resident and a CPU round-trip is *measured* as a stall.
+- If you build anything, build **Stage D (attribute interpolation for new verts)
+  first, and maybe only** — embarrassingly parallel, **deterministic** (no
+  atomics), no new infra, and it directly serves the "2 × `float4` interpolated"
+  goal. Still gate it on a measured stall; it is cheap on the CPU too.
+- **Demote Wave 1** (GPU mark/compact) to "only if `co_`/`mask_` readback is a
+  measured stall on the resident-mesh path." If built, **sort the compacted list
+  by edge id** before independent-set selection or determinism/parity is lost.
+- **Do not build Wave 2** (GPU mutation) outside a throwaway spike: unnecessary,
+  determinism-breaking, and unable to feed M7.6's incremental ownership without
+  re-implementing it on the GPU (else the 68 s rebuild).
+- The highest-ROI optimization left is **CPU, not GPU: data locality — see §9.**
+
+---
+
 ## 1. Framing: the workload is local and small
 
 The single most important design fact: **dyntopo only remeshes geometry the
@@ -130,8 +189,18 @@ it (see §6) don't support free-form collapse.
   satisfy the **link condition** (the intersection of the two endpoints'
   vertex-link must be exactly the two opposite verts) to stay manifold.
   Adjacent collapses conflict heavily.
-- **Edge flip** (optional, quality): Delaunay-style flip to improve valence/
-  triangle shape after split+collapse. Reuse `delaunay.h`.
+- **Edge flip** — **load-bearing for performance, not optional** (see the post-M7
+  banner). A length-criterion flip (flip the shared edge to its shorter diagonal
+  when the quad stays convex) run each round breaks the split-spoke cascade; M7.2
+  measured it as the single biggest perf lever (5 M dab 1600 → 171 ms, valence
+  30 → 9). The monotone length criterion was chosen over the Delaunay one
+  (`delaunay.h::inCircumcircle`) because it can never *lengthen* an edge and so
+  can't manufacture split work — the valence criterion did, and was rejected.
+- **Tangential smoothing** (M7.4): after the flips, slide region verts toward
+  their 1-ring's area-weighted centroid in the **tangent plane only** — equalizes
+  triangle sizes / kills slivers without shrinking the surface, and by evening
+  edge lengths actually *reduces* split work. Boundary verts fixed; each move
+  clamped so a thin triangle can't fold. Completes the Botsch-Kobbelt quartet.
 - **Triangulate**: any non-tri face an operation produces is triangulated via
   `triangulate.h`.
 
@@ -155,20 +224,29 @@ CPU first means the hard correctness work is done once and reused.
 
 ### Per-dab control flow
 
+As built (M7), with the cascade-taming operators the original sketch omitted:
+
 ```
 begin dab:
   thawTopo() once
   open LogChunkTopo
-  while queue not empty:
-    select independent set
-    parallel: split / collapse / flip (collapseEdge, edge_split, delaunay)
-    interpolate attrs on new verts
-    update node ownership incrementally (unique_verts/faces, .spatial.*.node)
+  seed round 0 from the in-region spatial leaves' verts (local, not a mesh scan)
+  while frontier not empty and rounds < max_rounds:
+    gather candidates over the frontier; target edge len is GRADED (M7.1a)
+    select a maximal independent set
+    split / collapse the set (edge_split, collapseEdge); interpolate attrs
+    FLIP sweep over the touched edges        ← M7.2, breaks the cascade
+    tangential SMOOTH the touched verts       ← M7.4, evens triangle sizes
+    incrementally update node ownership (add_face_at / merge — M7.6)
+    if splits >= max_splits: stop (budget valve); the next dab finishes the region
+    frontier ← endpoints touched this round
   close LogChunkTopo
-  refreeze (or stay thawed for the stroke; measure)
-  mark touched nodes Spatial_RegenTris / Spatial_RegenGPU
-SpatialTree::update()  → tris, normals, VBO repack
+  stay thawed for the stroke (keepTopoThawed); refreeze at stroke end
+SpatialTree::update()  → deferred leaf rebalance, tris, normals, VBO repack
 ```
+
+The flip + smooth + graded-target + budget were *not* in the original sketch and
+are exactly what made the 5 M target reachable — the GPU was not.
 
 ---
 
@@ -197,6 +275,18 @@ Both the codebase survey and the literature converge here.
   (§6) — neither of which is a mutable half-edge graph. Note our spatial VBOs
   are *already* expanded triangle soup, convenient for the renderer but **not**
   the structure you'd mutate.
+- **Determinism (post-M7).** The seeded independent-set selection, the per-op
+  tests, and `sculptcore_parity` all require reproducible results. GPU
+  atomic-append yields **nondeterministic ordering**, which changes the selected
+  set and therefore the resulting mesh. Even a GPU *compaction* (Stage B) reorders
+  the candidate list and would have to be **re-sorted by edge id** before
+  selection to stay reproducible.
+- **Incremental spatial ownership (post-M7).** What makes a dab cost 2-11 ms
+  instead of a **~68 s** full rebuild at 5 M is the incremental ownership
+  maintenance (M7.6: `add_face_at` / deferred rebalance / merge) driven by CPU
+  `MeshCallbacks`. A GPU mutation path bypasses those callbacks and must either
+  re-implement ownership maintenance on the GPU or eat the rebuild — a cost the
+  original Stage E ("spatial regen - GPU-resident already") badly understates.
 
 ### Backend asymmetry (important)
 
@@ -251,7 +341,11 @@ implementation; GPU assist is opt-in per backend (mirroring the existing
 
 ## 7. Staged plan
 
-### Wave 0 — CPU-only, correct first
+> **Post-M7:** the staging below is superseded by the banner at the top. Wave 0 is
+> **DONE** and **met the target on its own**; Wave 1 is demoted to a measured-stall
+> gate; Wave 2 is not recommended. The wave text is kept for the record, annotated.
+
+### Wave 0 — CPU-only, correct first — **DONE (met the target)**
 
 Independent-set split/collapse/flip queue; batch-per-dab (thaw once);
 re-triangulate affected faces; interpolate attrs on new verts; `LogChunkTopo`
@@ -261,12 +355,25 @@ integrity-checked test per operator under `tests/` (the `mesh-topo-op` agent
 scaffolds operator + test together).
 
 **This wave alone may hit the perf target**, because the work is local. Do not
-assume the GPU is needed — **profile first** with `StrokeProfiler`
-(`--profile`). The prime suspects are spatial node-ownership updates and VBO
-repack, *not* the edge surgery. If a node-granular regen dominates, add
-incremental ownership maintenance before reaching for the GPU.
+assume the GPU is needed — **profile first** with `StrokeProfiler` (`--profile`).
 
-### Wave 1 — GPU the decision + attributes (stages A/B/D)
+> **Post-M7 correction.** This wave *did* hit the target — but the suspect named
+> here was wrong. Spatial node-ownership / VBO repack turned out **cheap**
+> (incremental `update()` 2–11 ms @5 M, M7.6); **the edge surgery — the round
+> loop — was the cost**, dominated by the split-spoke *cascade*. The fixes were
+> all CPU and none were in this original sketch: graded target (M7.1a), the
+> **flip sweep** (M7.2, the big one), tangential smoothing (M7.4), incremental
+> ownership + deferred rebalance/merge (M7.6), and a per-dab split-budget valve.
+> The "profile first" discipline was right; the a-priori guess was not.
+
+### Wave 1 — GPU the decision + attributes (stages A/B/D) — **demoted**
+
+> **Post-M7.** Marking/compaction (A/B) is cheap once round 0 is seeded from the
+> spatial leaves, so offloading it does **not** touch the dominant mutation+cascade
+> cost — only the **Stage D** attribute interpolation is worth keeping, and only
+> on the Vulkan resident-mesh path where the readback is a *measured* stall. If you
+> do compact on the GPU, **sort the candidate list by edge id** before selection or
+> the seeded determinism (and `sculptcore_parity`) is lost.
 
 Add an `atomicAdd` / append-buffer capability. Two options from the brush-
 compute survey:
@@ -284,7 +391,14 @@ the GPU since the attrs are already resident. This removes the
 new-vert payload cross the bus. Gate the whole assist behind the Vulkan backend
 (WebGPU keeps the CPU round-trip; see §5).
 
-### Wave 2 — GPU-assisted mutation (only if profiling demands it)
+### Wave 2 — GPU-assisted mutation — **not recommended (post-M7)**
+
+> **Post-M7.** Don't build this outside a throwaway research spike. It is
+> unnecessary (the target is met on CPU and the split-budget valve already bounds
+> per-frame work), determinism-breaking (atomic ordering vs. seeded selection +
+> parity), and it cannot feed M7.6's incremental ownership without a GPU
+> re-implementation — otherwise it pays the ~68 s full rebuild. Collapse was never
+> the bottleneck anyway; the split *cascade* was, and flips fixed it on the CPU.
 
 Push collapse-set selection (independent set / coloring) or a lazy-update-table
 collapse pass onto the GPU. This is where the literature's conflict-resolution
@@ -296,15 +410,182 @@ regardless.
 
 ## 8. Bottom line
 
-- Build the **straight C++ version first**; per-dab remeshing is local and
-  small, and it may well suffice.
-- "Offload to the GPU" really means **GPU for mark/compact/interpolate/normals
-  (mostly already there), CPU for topology mutation** — a hybrid, using both.
-- **Full-GPU topology mutation is the only genuinely hard piece**, blocked on
-  (a) missing atomics/append infra and (b) parallel conflict resolution for
-  collapse; build it last, behind profiling.
-- **CBT/LEB is the reference for a pure-GPU adaptive layer but does not fit
-  free-form tri remeshing** — note it, don't adopt it as the core.
+Updated after M7 shipped (the original bullets held except where measurement
+corrected them — see the banner):
+
+- The **straight C++ version was built and sufficed.** Per-dab remeshing is local
+  and small, and the 5 M / ≥25 fps target is met with **no GPU offload**.
+- The real-time levers were all **CPU and all in the operator/round design**, not
+  the bus: a **graded target** (M7.1a), a **length-criterion flip sweep** (M7.2 —
+  the single biggest win, it breaks the spoke cascade), **tangential smoothing**
+  (M7.4), **incremental spatial ownership + deferred rebalance/merge** (M7.6), and
+  a **per-dab split-budget valve** for graceful degradation. Flip is *not*
+  optional — it is load-bearing.
+- **GPU offload is now optional**, justified only by the Vulkan resident-mesh
+  round-trip, and only when *measured*. If anything: **Stage D (attr interp)
+  first** — deterministic, no atomics, serves the `float4` goal. **Stage A/B**
+  only behind a measured readback stall, with a determinism-preserving sort.
+  **Full-GPU mutation: don't** — unnecessary, nondeterministic (breaks parity),
+  and it forfeits the incremental ownership that turns a 68 s rebuild into 2–11 ms.
+- **CBT/LEB** remains the reference for a *separate* pure-GPU uniform-tessellation/
+  LOD layer over a fixed base — a renderer concern, **not** free-form sculpt
+  dyntopo. Note it; keep it off this critical path.
 - Mind the **Vulkan-vs-WebGPU asymmetry**: the browser path can't share buffers
-  or scatter-read, so the CPU mutation path must remain authoritative and
-  always available.
+  or scatter-read, so the CPU mutation path must remain authoritative and always
+  available (it now *is* the whole path).
+- **The optimization that's actually left is CPU data locality** (§9): per-split
+  cost is cache-bound on a 5 M mesh, and a GPU can't help pointer-chasing. That is
+  where the next perf attention should go.
+
+---
+
+## 9. Data locality & incremental defragmentation
+
+### 9.0 Why this is the optimization that's left
+
+M7's per-split cost was **erratic — 0.03–1.0 ms for structurally similar work** on
+the 5 M mesh, with no correlation to split count. That variance is a **DRAM
+locality** signal, not an algorithmic one. The mesh is paged SoA
+(`ATTR_PAGESIZE = 4096`); `make_*` draws each new element from a global freelist,
+so a split drops the new vert/edges/faces into whatever holes exist — typically
+far from the parent. After a stroke, a spatial leaf's geometry is smeared across
+distant pages, and every disk/radial walk and `find_edge` (the per-split hot ops,
+both O(valence) pointer chases) straddles cache lines. **A GPU cannot help a
+pointer-chasing, cache-bound workload; tightening locality is the highest-ROI
+lever remaining, and it is pure CPU.**
+
+Two distinct wins hide here, and they want different tactics:
+
+- **Clustering** — put a leaf's elements on shared/adjacent pages so a brush
+  iteration or a split's 1-ring walk stays in-cache.
+- **Hole reclaim** — collapses leave dead slots; reclaiming them shrinks the
+  working set (fewer pages touched, better TLB/cache reach).
+
+The existing `reorderForLocality()` / `computeLocalityMaps()` / `applyReorder()`
+(`source/spatial/spatial.{h,cc}`) already do the **global** version: build a
+per-domain permutation grouping each element next to its node-mates, apply it, and
+rebuild the tree. It is **O(mesh) and deterministic** — the meshlog reorder chunk
+replays it for undo — so it is the off-the-hot-path baseline, **not** a per-dab
+tool. Everything below is about getting most of its benefit *incrementally*.
+
+### 9.1 The hard constraint: moving an element means fixing every reference to it
+
+Relocating element `x → x'` requires rewriting **every index that points at `x`**.
+Those indices live in a dense web:
+
+- **TOPO links** — `vert.e`, `edge.vs[2]`, `edge.disk[4]`, `corner.{v,next,prev,
+  radial_next,radial_prev,l}`, `list.f`, `face.l`.
+- **Spatial ownership** — each leaf's `unique_verts/faces` + `other_verts/faces`
+  `OrderedSet`s hold element indices (the `.spatial.*.node` attrs hold **node
+  ids**, not element indices, so they are *immune* to element moves — a useful
+  asymmetry).
+- **Snapshots** — meshlog `LogChunkTopo` rows and the frozen-topology CSR 1-ring
+  cache hold indices.
+
+This web is why the global reorder rebuilds the tree (drops + regenerates the
+`OrderedSet`s) and runs outside frozen state, logged. The practical unit of
+incremental work is therefore **"remap a *closed* set atomically,"** and the
+spatial leaf is the natural closed set: a leaf's **interior** (`unique_`) elements
+reference only other interior elements or the leaf's **boundary** (`other_`)
+elements. So you can relocate a leaf's interior into a contiguous range and patch:
+
+1. interior↔interior links — covered by the remap itself;
+2. links **from boundary elements into** the moved interior — bounded by the leaf
+   *perimeter*, O(√leaf), the only non-trivial part;
+3. the leaf's own `OrderedSet`s.
+
+Everything else (the `.node` attrs, other leaves' interiors) is untouched. That
+O(√leaf) boundary patch is what makes per-leaf compaction affordable, and it is
+the same bookkeeping M7.6's `merge_node`/`split_node` already perform when they
+re-file a leaf — which is the key to the cheapest cadence below. Any in-stroke
+move must be **logged** (extend the reorder chunk) and must **invalidate or update
+the CSR snapshot** if topology is frozen.
+
+### 9.2 Prevention beats cure — locality-aware allocation (do this first)
+
+The cheapest defrag is to not fragment. Give the allocators a **placement hint**:
+
+- **Parent-adjacent allocation.** `splitEdge` knows the parent vert/edge; allocate
+  the new element from the nearest free slot **on the parent's page** (or an
+  adjacent one), falling back to the global freelist head only when that
+  neighborhood is full. A split's new geometry then lands beside the geometry it
+  subdivides — automatically, at ~zero cost (a hint + a short local scan of a
+  per-page free bitmap).
+- **Per-leaf page arenas.** Each spatial leaf owns a small set of pages and a free
+  cursor; its splits draw from that arena. The deferred-rebalance split (M7.6) is
+  the natural moment to assign/refresh a leaf's arena (it is already re-filing the
+  leaf). When an arena fills, grab a fresh page rather than scattering.
+
+Prevention can't reclaim *existing* fragmentation or collapse holes, but it
+sharply slows the accrual — so it is the foundation the cures sit on.
+
+### 9.3 Cure, by cadence — and defrag can run essentially whenever
+
+Because a remap is just data movement with reference fixup, it can be scheduled
+freely. The menu, cheapest/most-local first:
+
+- **During the dab — piggyback on the M7.6 rebalance (cheapest real defrag).**
+  `split_node`/`merge_node` already walk and rewrite a leaf's whole geometry when
+  they re-file it. Relocating those elements into a fresh contiguous range *at the
+  same time* is nearly free — the references are already in hand and the boundary
+  patch is already being done. This defrags exactly where churn concentrates,
+  exactly when the structure is already being touched. Strongly recommended.
+
+- **At dab end — region compaction.** The dab's dirty leaves are known
+  (`rebalanceCandidates_` + the touched frontier). Run the per-leaf remap (§9.1)
+  over just those, **gated on a fragmentation metric** (e.g. the page-span of a
+  leaf's `unique_verts` ÷ its element count) so it fires only for genuinely
+  scattered leaves. O(dab region); fits inside the frame the split-budget valve
+  already bounded.
+
+- **At stroke end — stroke-region compaction.** The mesh thaws at stroke end; the
+  union of stroke-touched leaves is a natural, larger batch with a little slack (no
+  per-frame deadline). Amortizes the per-element move cost once per stroke and logs
+  **one** reorder chunk for the whole region. A good default if per-dab proves too
+  granular or its logging churn is undesirable.
+
+- **Idle / background — amortized GC cursor.** Between strokes, advance a
+  persistent cursor that relocates a *bounded* number of elements per idle frame
+  toward the global `reorderForLocality` target, pausing/aborting cleanly when a
+  stroke begins. Trends the entire mesh toward optimal locality without ever
+  blocking. The cursor order must be **deterministic** (so the result is
+  independent of how it was sliced across frames) and stroke-safe. This is the
+  classic incremental/GC compaction and the right home for *global* drift that the
+  local cadences don't reach.
+
+- **Page-hole compaction — footprint reclaim.** Track per-page live count; when a
+  page falls below a threshold (collapse holes), evacuate its few survivors into
+  the partial page nearest each survivor's leaf, then free the page. Reduces page
+  count + working set and composes with clustering (pick the *nearest* target page,
+  not just any). Runs incrementally — one sparse page per idle frame.
+
+- **Scheduled full reorder — the nuclear fallback.** The existing
+  `reorderForLocality` on an explicit "optimize," on load, or every N strokes,
+  ideally off the interactive thread. The backstop when incremental upkeep drifts.
+
+### 9.4 Recommended layering & what to measure
+
+A practical stack, in priority order:
+
+1. **Locality-aware allocation (§9.2)** — ~free, prevents most new fragmentation.
+   Do this before any cure; it changes the slope, not just the level.
+2. **Piggyback compaction on the M7.6 rebalance (§9.3a)** — near-zero marginal
+   cost, defrags where churn is highest.
+3. **Idle GC cursor + page-hole reclaim (§9.3 d/e)** — mops up global drift and
+   collapse holes without touching the interactive path.
+4. Hold the explicit **dab-end / stroke-end** passes (§9.3 b/c) in reserve for if a
+   metric shows 1–3 aren't keeping up.
+
+**Gate every layer on measurement — locality work is invisible except in the
+tail.** Bring back the throwaway per-dab/per-frame SPIKE instrumentation
+(`StrokeProfiler`, the temporary-scaffolding pattern) plus a cheap per-leaf
+**page-span** metric. Defrag is working when **per-split time *variance* collapses**
+and **mean per-split cost stops creeping up with stroke length**. Don't add any of
+this blind; add the metric first, confirm the locality signal, then turn on the
+cheapest layer that flattens it.
+
+**Determinism & undo apply throughout:** every relocation must keep results
+reproducible (the `reorderForLocality`/`buildAll` determinism the parity test and
+the meshlog reorder chunk depend on) and be logged if it happens inside an
+undoable stroke. The split-budget valve pairs naturally here — it frees frame
+headroom that a bounded locality pass can spend.
