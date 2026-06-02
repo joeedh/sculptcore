@@ -1,11 +1,29 @@
 # Dyntopo M7 — Taming the Densification Cascade
 
+## Status (updated)
+
+The per-dab **O(mesh) terms are fixed** — the dab is now O(brush region)
+end-to-end (~15–18 ms flat vs a full rebuild's 195 ms → 751 ms, speedup growing
+with mesh size). Three were found by diagnose-first profiling and one was a
+spatial bug:
+- per-split `created_edges` O(total-edges) scan → O(valence) (`e1268fe`);
+- round-0 candidate scan → caller-injected spatial seed (`9a0ebc2`);
+- `tree->update()` regenerated *all* GPU buffers because the incremental
+  callbacks never set `RegenGPU` → only the affected GPU nodes now (`c8ddece`);
+- `interpAttrs` copied `.spatial.v.node` onto new verts → the tree never split
+  → fixed by skipping TEMP attrs (`fc8c7e6`, see **M7.6**).
+
+What remains: **M7.6** (cheaper tree placement — optional optimization), **M7.5**
+(real 5 M-tri gate), and the **cascade quality** work below (now a triangle-
+budget issue, not a speed one). The original "diagnose P2" framing is resolved:
+the cost was these dumb O(mesh) scans, *not* valence or the cascade.
+
 ## Context
 
 Dynamic topology is functionally complete (M1–M4 + M3 integration: local refine,
 manifold, fully undoable, incremental spatial — see
-[`dynamic-topology.md`](dynamic-topology.md)). What remains is the **perf** work
-needed for the 5 M-triangle / ≥25 fps target. This subplan covers it.
+[`dynamic-topology.md`](dynamic-topology.md)). The remaining **perf** work for
+the 5 M-triangle / ≥25 fps target is below.
 
 Profiling (the `bench_dyntopo` debug-app verb, with a `spatial=0/1` toggle)
 established three things, two of them negative results that sharpen the path:
@@ -123,6 +141,68 @@ interactive stroke with `--profile` (`StrokeProfiler`), and confirm the per-dab
 cost stays local and the stroke holds **≥25 fps** on the reference laptop. This
 is the milestone the whole feature targets. Also wire a `bench_dyntopo`-style
 A/B into CI so the cascade can't silently regress.
+
+### M7.6 — Spatial-tree currency (keep the tree correct + cheap to update)
+
+Dyntopo must keep the spatial tree current as it adds/removes geometry — node
+ownership (`.spatial.{v,f}.node`, each leaf's `unique_verts`/`unique_faces`),
+leaf AABBs, and the GPU VBOs. This is wired through `SpatialTree::
+getSpatialCallbacks()` (`onFaceCreate` → `add_face`, `onFaceKill`/`onVertKill` →
+`remove_face`/`remove_vert`), with `tree->update()` regenerating the dirty
+leaves' tris/bounds/GPU afterward.
+
+**Bug found and fixed (commit fc8c7e6).** `interpAttrs` (used by `splitEdge` to
+seed the new midpoint vertex's attributes) skipped TOPO links but *not* TEMP
+attrs, so it **copied `.spatial.v.node` from a parent vertex**. Every new vert
+inherited the parent's leaf id, so `add_face` filed it under `other_verts`
+instead of `unique_verts`; `node_needs_split` counts `unique_verts`, undercounted
+forever, and **the tree never split** — the whole refined region collapsed into
+one giant leaf (no spatial locality; the "tree isn't updating" symptom). Fix:
+`interpAttrs` skips TEMP as well as TOPO. The latent gap: `test_spatial_dyntopo`
+only checked *face* ownership; it now also checks vert ownership + that the tree
+rebalanced. **Lesson for the cheap path below: the new vert's node id is
+authoritative tree state — it must be *set deliberately by the placement logic*,
+never inherited from interpolation.**
+
+**Current placement cost.** `add_face` descends root→leaf by centroid
+(`add_face_intern`, O(log n) per face) and calls `split_node` inline when a leaf
+crosses `leaf_limit` (re-inserting the leaf's faces, O(leaf_limit) each — and a
+leaf gaining ~1500 verts in one dab crosses the threshold repeatedly, so it
+splits several times, re-inserting each time). This is correct and currently
+~part of the ~15 ms/dab "ops", but it is the descent + repeated-split cost the
+next optimization targets.
+
+**Cheap approach to explore (the locality shortcut).** Dyntopo's new geometry is
+spatially adjacent to existing geometry whose node is already known, so the
+root descent is avoidable:
+
+1. **O(1) anchor placement.** A new vert `vm = midpoint(A,B)`; `A`,`B` already
+   carry `.spatial.v.node`. Add `vm` *directly* to `A`'s leaf (a
+   `tree->add_face_at(f, anchorLeaf)` that updates `unique_*` + sets the node id
+   + marks the leaf dirty), skipping `add_face_intern`'s descent. The anchor for
+   a new face is the leaf of any of its already-owned verts. Placement is
+   "rough" (the parent's leaf, not the geometrically tightest one — leaf AABBs
+   loosen slightly), but `vm` is by construction within ~half an edge of `A`, so
+   it's the right leaf or an immediate neighbour. This is the *intentional*
+   version of what the bug did by accident (set `vm.node = A.node`) — except it
+   also files `vm` in that leaf's `unique_verts`, keeping the accounting correct.
+   The build path (`buildAll`, no existing neighbours) keeps the root descent.
+2. **Deferred / batched rebalance.** Do **not** `split_node` inline during the
+   dab. Let leaves grow past `leaf_limit`, then run one rebalance pass over the
+   touched leaves at dab (or stroke) end — split each over-full leaf once into a
+   balanced subtree. This replaces N threshold-crossing re-inserts with one
+   `O(leaf_size log leaf_size)` split, and batches the cost. Over-full leaves
+   during the dab just make brush queries on them iterate a few more verts —
+   bounded, and gone after the pass.
+
+**Cost / tradeoffs.** O(1) placement removes the O(log n) descent per face;
+deferred rebalance turns repeated inline splits into one batched split per
+touched leaf — both scale with the brush region, not total mesh or dab density.
+Risks: looser leaf AABBs until the rebalance pass (mitigated by it running every
+dab); the rebalance pass must stay seed-deterministic (parity goal); and
+`remove_*` already needs no descent, so collapses are unaffected. Gate behind a
+measurement: only adopt if `bench_dyntopo`'s ops time drops without regressing
+`test_spatial_dyntopo`'s ownership + rebalance assertions.
 
 ## Measurement protocol
 
