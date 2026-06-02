@@ -319,6 +319,7 @@ bool execVerb(Scene &scene,
     scene.dyntopoParams.l_max = detail;
     scene.dyntopoParams.l_min = getFloat(args, "min", detail * 0.4f);
     scene.dyntopoParams.grade = getFloat(args, "grade", scene.dyntopoParams.grade);
+    scene.dyntopoParams.do_flips = getBool(args, "flip", scene.dyntopoParams.do_flips);
     scene.dyntopoParams.max_rounds =
         getInt(args, "max_rounds", scene.dyntopoParams.max_rounds);
     scene.dyntopoSeed = (uint32_t)getInt(args, "seed", (int)scene.dyntopoSeed);
@@ -1141,6 +1142,7 @@ bool execVerb(Scene &scene,
     scene.dyntopoParams.l_max = detail;
     scene.dyntopoParams.l_min = detail * 0.4f;
     scene.dyntopoParams.grade = getFloat(args, "grade", 0.0f);
+    scene.dyntopoParams.do_flips = getBool(args, "flip", true);
     scene.dyntopoParams.mode = dyntopo::DynTopoMode::Subdivide;
 
     /* Break the incremental dab into its two phases: the remesh + incremental
@@ -1213,12 +1215,12 @@ bool execVerb(Scene &scene,
       if (n > maxVal) maxVal = n;
     }
 
-    std::printf("[bench_dyntopo] faces %d->%d  splits=%d rounds=%d leftover=%d "
-                "maxValence=%d%s | full_rebuild=%.2fms | incremental: ops=%.2fms "
-                "update=%.2fms total=%.2fms  speedup=%.1fx\n",
-                fBefore, scene.mesh->f.count, st.splits, st.rounds, leftover, maxVal,
-                st.capped ? " CAPPED" : "", rebuild_ms, ops_ms, update_ms, dab_ms,
-                dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
+    std::printf("[bench_dyntopo] faces %d->%d  splits=%d flips=%d rounds=%d "
+                "leftover=%d maxValence=%d%s | full_rebuild=%.2fms | incremental: "
+                "ops=%.2fms update=%.2fms total=%.2fms  speedup=%.1fx\n",
+                fBefore, scene.mesh->f.count, st.splits, st.flips, st.rounds,
+                leftover, maxVal, st.capped ? " CAPPED" : "", rebuild_ms, ops_ms,
+                update_ms, dab_ms, dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);
     return true;
   }

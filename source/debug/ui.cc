@@ -247,6 +247,12 @@ void Ui::drawPanel()
                         "center (sizing field).\n0 = uniform; higher = finer "
                         "center, coarser rim, far fewer triangles.");
     }
+    ImGui::Checkbox("geometric flips", &scene_->dyntopoParams.do_flips);
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Flip long split-spokes to their shorter diagonal each "
+                        "round (M7.2).\nBreaks the refinement cascade: far fewer "
+                        "splits, near-regular valence. Leave on.");
+    }
     static const char *kModes[] = {"Subdivide", "Collapse", "Both"};
     int modeIdx = int(scene_->dyntopoParams.mode);
     if (ImGui::Combo("dyntopo mode", &modeIdx, kModes, 3)) {

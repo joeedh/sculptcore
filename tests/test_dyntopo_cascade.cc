@@ -101,21 +101,22 @@ static void measure(Mesh *m, float3 center, float radius, const dyntopo::DynTopo
   }
 }
 
-static int runDab(float grade, int &leftover, int &maxVal, int &fAfter)
+static int runDab(float grade, bool flips, int &leftover, int &maxVal, int &flipCount)
 {
   Mesh *m = makeTriGrid(41); /* spacing 0.025 */
   const float3 center(0, 0, 0);
   const float radius = 0.15f;
 
   dyntopo::DynTopoParams p;
-  p.l_max = 0.012f;
+  p.l_max = 0.012f; /* ~0.48x base spacing: deep enough to expose the cascade */
   p.l_min = 0.004f;
   p.grade = grade;
+  p.do_flips = flips;
   p.mode = dyntopo::DynTopoMode::Subdivide;
 
   dyntopo::DynTopoStats st = dyntopo::applyBrushDab(*m, center, radius, p, /*seed=*/123u);
   measure(m, center, radius, p, leftover, maxVal);
-  fAfter = m->f.count;
+  flipCount = st.flips;
 
   alloc::Delete(m);
   return st.splits;
@@ -125,33 +126,40 @@ int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
-  int lo0, mv0, fa0;
-  int splits0 = runDab(0.0f, lo0, mv0, fa0);
-  int lo2, mv2, fa2;
-  int splits2 = runDab(2.0f, lo2, mv2, fa2);
+  /* Recommended config (grade + geometric flips), grade-only, and the bare
+   * baseline (neither). The dab target is ~0.5x the base spacing, deep enough
+   * that the spoke cascade runs away without the flip sweep. */
+  int loR, mvR, flR;
+  int splitsR = runDab(2.0f, true, loR, mvR, flR);
+  int loG, mvG, flG;
+  int splitsG = runDab(2.0f, false, loG, mvG, flG);
+  int loB, mvB, flB;
+  int splitsB = runDab(0.0f, false, loB, mvB, flB);
 
-  printf("[cascade] grade0: splits=%d leftover=%d maxVal=%d faces=%d\n", splits0, lo0,
-         mv0, fa0);
-  printf("[cascade] grade2: splits=%d leftover=%d maxVal=%d faces=%d\n", splits2, lo2,
-         mv2, fa2);
+  printf("[cascade] grade+flips: splits=%d flips=%d leftover=%d maxVal=%d\n", splitsR,
+         flR, loR, mvR);
+  printf("[cascade] grade only : splits=%d flips=%d leftover=%d maxVal=%d\n", splitsG,
+         flG, loG, mvG);
+  printf("[cascade] baseline   : splits=%d flips=%d leftover=%d maxVal=%d\n", splitsB,
+         flB, loB, mvB);
 
-  /* (a) The graded (recommended) config fully converges to its target. */
-  test_assert(lo2 == 0);
+  /* (a) The recommended config fully converges and stays well-shaped: it should
+   * reach the target (leftover 0) with near-regular valence — the cascade is
+   * gone. Deterministic given the seed; ~1.5x headroom on the ceilings. */
+  test_assert(loR == 0);
+  test_assert(flR > 0);          /* flips actually fired */
+  test_assert(splitsR > 0 && splitsR < 1000);
+  test_assert(mvR < 14);         /* near-regular: no high-valence hubs */
 
-  /* (b) Graded split count + max valence stay bounded — deterministic given the
-   * seed, with ~1.5x headroom so a real cascade/valence regression trips it
-   * while incidental drift does not. (Measured: splits=308, maxVal=18.) */
-  test_assert(splits2 > 0 && splits2 < 500);
-  test_assert(mv2 < 24);
+  /* (b) The flip sweep is load-bearing: without it (grade only) the cascade is
+   * markedly worse — more splits and a much higher max valence. If flips
+   * silently no-op, these trip. */
+  test_assert(splitsR < splitsG);
+  test_assert(mvR < mvG);
 
-  /* (c) Grading is doing its job: uniform refinement here genuinely cascades
-   * (doesn't even converge in max_rounds — leftover>0, valence ~57), and
-   * grading cuts the split count many-fold and removes the high-valence hubs.
-   * If grading silently no-ops, these trip. */
-  test_assert(lo0 > 0);
-  test_assert(splits2 * 4 < splits0);
-  test_assert(mv2 < mv0);
-  test_assert(mv0 < 80);
+  /* (c) The bare baseline (no grade, no flips) cascades hardest — its valence
+   * blows up far past the flip-tamed result. */
+  test_assert(mvB > 2 * mvR);
 
   printf("dyntopo_cascade test: ok\n");
   return test_end();

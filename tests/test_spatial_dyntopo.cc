@@ -107,6 +107,10 @@ int main()
   Mesh *m = makeTriGrid(13); /* spacing ~0.083 */
   spatial::SpatialTree *tree =
       alloc::New<spatial::SpatialTree>("test tree", m);
+  /* Small leaf_limit so the (flip-leaned) refinement still crosses it and forces
+   * a rebalance — dyntopo's geometric flips (M7.2) cut the split count, so the
+   * default 512 would leave the refined region in a single leaf. */
+  tree->leaf_limit = 96;
   tree->buildAll();
 
   int fBefore = m->f.count;

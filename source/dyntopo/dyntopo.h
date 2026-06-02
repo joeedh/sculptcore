@@ -24,6 +24,7 @@
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/edge_collapse.h"
+#include "mesh/utils/edge_flip.h"
 #include "mesh/utils/edge_split.h"
 
 #include "litestl/math/vector.h"
@@ -52,11 +53,24 @@ struct DynTopoParams {
    * needs more independent-set rounds than a naive length-halving estimate.
    * 50 converges small/medium dabs; M7 will tune round efficiency for 5M tris. */
   int max_rounds = 50;
+  /* M7.2: after each round, flip an interior edge to its opposite diagonal when
+   * that diagonal is strictly shorter and the quad stays convex. The split
+   * scheme connects each new midpoint to the triangle apex, and on slivers /
+   * right-isoceles grid triangles that spoke is *longer* than the edge it
+   * split, so it splits again — the cascade. Flipping the long spoke to the
+   * short diagonal keeps triangles well-shaped during refinement and breaks the
+   * chain. Length-only + convex is monotone (never lengthens an edge), so unlike
+   * the rejected valence criterion it cannot create work. On by default: the
+   * M7.2 A/B showed it makes aggressive refinement converge (vs hitting the
+   * round cap), cuts splits ~3x, and drops the cascade's max valence from ~60-97
+   * back to ~9-10. Set false for the pre-M7.2 baseline. */
+  bool do_flips = true;
 };
 
 struct DynTopoStats {
   int splits = 0;
   int collapses = 0;
+  int flips = 0;
   int rounds = 0;
   bool capped = false; /* hit max_rounds with work still pending */
 };
@@ -127,6 +141,69 @@ inline bool collapseFree(mesh::Mesh &m, int e, const litestl::util::Set<int> &lo
     }
   }
   return true;
+}
+
+/* Recover the flip quad of edge `e`: endpoints a,b and the two triangle apexes
+ * c,d. False unless `e` is an interior manifold edge bounded by exactly two
+ * triangles — the only shape flipEdge accepts (re-checks at apply, so a stale
+ * candidate from an earlier flip this round is harmless). */
+inline bool flipQuad(mesh::Mesh &m, int e, int &a, int &b, int &c, int &d)
+{
+  if (m.e.freemap[e]) {
+    return false;
+  }
+  int c0 = m.e.c[e];
+  if (c0 == ELEM_NONE) {
+    return false; /* wire edge */
+  }
+  a = m.e.vs[e][0];
+  b = m.e.vs[e][1];
+  if (a == b) {
+    return false;
+  }
+  c = d = ELEM_NONE;
+  int nfaces = 0, cc = c0;
+  do {
+    int li = m.c.l[cc];
+    if (m.l.size[li] != 3 || m.f.list_count[m.l.f[li]] != 1) {
+      return false; /* non-triangle incident face */
+    }
+    int cn = m.c.next[cc];
+    int cnn = m.c.next[cn];
+    int va = m.c.v[cc], vb = m.c.v[cn], apex = m.c.v[cnn];
+    if (va == a && vb == b) {
+      c = apex;
+    } else if (va == b && vb == a) {
+      d = apex;
+    }
+    nfaces++;
+    cc = m.c.radial_next[cc];
+  } while (cc != c0);
+  return nfaces == 2 && c != ELEM_NONE && d != ELEM_NONE && c != d;
+}
+
+/* Flip a-b -> c-d improves the mesh iff the new diagonal is strictly shorter
+ * (monotone: tames the cascade, can't create longer edges) AND the quad
+ * a-c-b-d is convex in its average plane (else the flip folds geometry — the
+ * topological flipEdge doesn't check this). Convex iff a,b lie on opposite
+ * sides of the c-d line (c,d are already on opposite sides of a-b, being apexes
+ * of the two faces). The 0.998 epsilon makes flips strictly length-decreasing
+ * so a pass can't cycle. */
+inline bool flipShortens(mesh::Mesh &m, int a, int b, int c, int d)
+{
+  using litestl::math::float3;
+  float3 A = m.v.co[a], B = m.v.co[b], C = m.v.co[c], D = m.v.co[d];
+  if ((C - D).lengthSqr() >= (A - B).lengthSqr() * 0.998f) {
+    return false;
+  }
+  float3 n = (B - A).cross(C - A) + (A - B).cross(D - B); /* avg face normal */
+  if (n.normalize() == 0.0f) {
+    return false; /* folded / degenerate quad */
+  }
+  float3 cd = D - C;
+  float sa = cd.cross(A - C).dot(n);
+  float sb = cd.cross(B - C).dot(n);
+  return sa * sb < 0.0f; /* a,b strictly opposite sides of c-d => convex */
 }
 
 } // namespace detail
@@ -292,6 +369,49 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         }
       }
     }
+
+    /* 5. Geometric flip sweep (M7.2): shorten the long spokes this round's
+     *    splits just created, before they cascade into more splits. Collect the
+     *    in-region interior edges around the touched verts first (read-only),
+     *    then apply — flipping mutates disks, so we never flip while walking
+     *    one. Each helper re-validates, so a flip invalidating a later candidate
+     *    is safe. Flipped apexes re-enter the frontier (their lengths changed). */
+    if (p.do_flips) {
+      Vector<int> fverts;
+      for (int v : nextFrontier) {
+        fverts.append(v);
+      }
+      Vector<int> flipCands;
+      Set<int> eseen;
+      for (int v : fverts) {
+        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
+            m.v.e[v] == ELEM_NONE) {
+          continue;
+        }
+        for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+          if (m.e.freemap[e] || !eseen.add(e)) {
+            continue;
+          }
+          if ((detail::edgeMid(m, e) - center).lengthSqr() > r2) {
+            continue;
+          }
+          flipCands.append(e);
+        }
+      }
+      for (int e : flipCands) {
+        int a, b, cc, dd;
+        if (!detail::flipQuad(m, e, a, b, cc, dd) ||
+            !detail::flipShortens(m, a, b, cc, dd)) {
+          continue;
+        }
+        if (mesh::flipEdge(m, e, nullptr, cb)) {
+          stats.flips++;
+          nextFrontier.add(cc);
+          nextFrontier.add(dd);
+        }
+      }
+    }
+
     frontier = std::move(nextFrontier);
 
     stats.rounds = round + 1;

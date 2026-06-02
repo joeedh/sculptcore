@@ -157,18 +157,45 @@ refines a wider area. Gate with `bench_dyntopo` (split count + a min-angle
 readout). May pair with M7.2 flips for the residual rim slivers, or make them
 unnecessary.
 
-### M7.2 — Geometric (Delaunay) flip sweep
+### M7.2 — Geometric flip sweep — DONE (it works; cascade broken)
 
-Replace the rejected valence criterion with a **length/Delaunay** one: flip the
-shared edge `a-b` (apexes `c,d`) iff the local quad is convex (so the flip can't
-invert) **and** the flip improves it — either `|c-d| < |a-b|` (simple, directly
-shortens spokes) or the Delaunay empty-circumcircle test via
-`delaunay.h::inCircumcircle` on the 2D-projected quad (the principled
-min-angle-maximizing choice). Interleave one greedy sweep per round over the
-frontier region (the structure the valence version already had), threading `cb`
-so spatial/meshlog stay consistent. **Accept only if `bench_dyntopo` shows the
-split count and `ops` time drop** vs the committed baseline; otherwise revert and
-go to M7.3.
+Implemented the **length criterion** (the simple, monotone half of the plan):
+each round, after the splits, sweep the in-region interior edges around the
+touched (frontier) verts and flip `a-b`→`c-d` iff the new diagonal is strictly
+shorter (`|c-d| < |a-b|`, 0.998 eps so a pass can't cycle) **and** the quad
+`a-c-b-d` is convex in its average plane (`a,b` on opposite sides of `c-d` — else
+the flip folds geometry; `flipEdge` is purely topological and doesn't check
+this). Length-only is monotone: it can never lengthen an edge, so unlike the
+rejected *valence* criterion it cannot manufacture split work. Collect-then-apply
+(never flip while walking a disk); each helper re-validates so a flip
+invalidating a later candidate is safe; flipped apexes re-enter the frontier.
+Lives in `dyntopo.h` (`detail::flipQuad` / `detail::flipShortens` + the round
+loop); `DynTopoParams.do_flips` (default **on**), `DynTopoStats.flips`, a
+`bench_dyntopo flip=` knob + `flips=` readout, the `dyntopo` verb `flip=`, and a
+UI checkbox.
+
+**Measured (A/B, flip off→on).** It doesn't just trim splits — by keeping
+triangles well-shaped it holds valence near-regular, which makes the cascade
+*converge* and cuts per-split cost too:
+
+| mesh / target | splits | rounds | leftover | maxValence | ops |
+|---|---|---|---|---|---|
+| 475 k, 0.3× sp — off | 5069 | 50 (CAP) | 197 | 60 | 41 ms |
+| 475 k, 0.3× sp — **on** | 1771 | 16 | **0** | **9** | 21 ms |
+| 475 k, 0.2× sp — off | 16875 | 50 (CAP) | 2199 | 97 | 168 ms |
+| 475 k, 0.2× sp — **on** | 4536 | 21 | **0** | **10** | 58 ms |
+| **5 M**, 0.5× sp — off | 6664 | 30 | 0 | 30 | 1600 ms |
+| **5 M**, 0.5× sp — **on** | 4197 | 11 | **0** | **9** | **171 ms** |
+
+The off rows below the cliff hit `max_rounds` and never converge (leftover
+grows, valence 60–97); the on rows converge in a third the rounds with valence
+~9–10. At 5 M the aggressive dab drops **9.3×** (1600→171 ms) and per-split cost
+**~16×** (0.65→0.04 ms/split — low valence makes every disk/`find_edge` op
+cheap). Gated by `test_dyntopo_cascade` (now an off/on/baseline comparison) so
+the flip pass can't silently regress.
+
+M7.3 (longest-edge bisection) is **not needed** for the cascade — flips resolved
+it. The remaining 5 M item is only the per-dab split-budget safety valve (below).
 
 ### M7.3 — Longest-edge bisection (if flips are insufficient)
 
@@ -188,7 +215,18 @@ centroid of their 1-ring, projected back onto the tangent plane (keep them on
 the surface). Equalizes triangle sizes and further suppresses slivers. Gate it
 behind a param; verify it doesn't fight the brush deform.
 
-### M7.5 — 5 M-tri acceptance gate — MEASURED (mixed verdict; cascade is the remaining blocker)
+### M7.5 — 5 M-tri acceptance gate — MEASURED (cliff since resolved by M7.2)
+
+> **Update (post-M7.2):** the "cascade cliff" below was the geometric spoke
+> cascade, and the M7.2 flip sweep removed it. The same 5 M aggressive dab that
+> hit the cliff now converges in 11 rounds at valence 9, **171 ms** (was 1600 ms
+> flip-off / never-converging deeper). Steady-state sculpting (tens–hundreds of
+> splits/dab) is comfortably real-time at 5 M; a one-shot heavy refine (~4 k
+> splits) is 171 ms — bounded and convergent, and the per-dab split budget below
+> is the only remaining lever to pin it under one frame. The original mixed
+> verdict and the diagnosis that led to M7.2 are kept below for the record.
+
+
 
 Gate built and run. A real **5.05 M-tri** mesh (`make_cube subdivs=650` +
 `triangulate`; the flat face is fine — geometry shape doesn't affect remesh cost)
