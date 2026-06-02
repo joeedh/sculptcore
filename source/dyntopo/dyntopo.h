@@ -5,8 +5,11 @@
  * Given a sphere (center, radius), split edges longer than `l_max` and
  * collapse edges shorter than `l_min` until the region's edge lengths fall
  * within the band, keeping the mesh triangulated and manifold. This is the
- * CPU core of the dynamic-topology feature (plan: documentation/plans/
- * dynamic-topology.md, milestone M2). It is intentionally free of spatial /
+ * CPU core of the dynamic-topology feature (design: documentation/
+ * dynamic-topology.md; plan: documentation/plans/dyntopo-m7-cascade.md). It
+ * grew the graded target (M7.1a), a geometric flip sweep (M7.2), a per-dab
+ * split budget, and tangential smoothing (M7.4); see the params below. It is
+ * intentionally free of spatial /
  * brush / meshlog dependencies: it mutates only the `mesh::Mesh`. The caller
  * (the brush dab loop) is responsible for thawing/refreezing topology around
  * a stroke, opening a meshlog topo chunk, and marking touched spatial nodes
@@ -14,10 +17,11 @@
  *
  * Parallelism model: each round selects a maximal independent set of
  * candidate edges (no two sharing affected geometry) and applies them. This
- * is overkill for a single-threaded apply, but it is the structure that maps
- * directly onto the future GPU / multi-threaded path, and it keeps each
- * round's edits non-interfering and deterministic. Determinism is seeded so
- * the per-op trace and CPU/GPU parity (plan M5/M7) are reproducible.
+ * is overkill for a single-threaded apply, but it keeps each round's edits
+ * non-interfering and deterministic, and is the structure a multi-threaded (or
+ * the now-optional GPU-assist; see the design doc's post-M7 re-evaluation) path
+ * would build on. Determinism is seeded so results are reproducible for the
+ * tests and cross-backend parity.
  */
 
 #include "mesh/mesh.h"
@@ -52,7 +56,8 @@ struct DynTopoParams {
   float grade = 0.0f;
   /* The 1-triangle -> 2 split scheme cascades through spoke edges, so a dab
    * needs more independent-set rounds than a naive length-halving estimate.
-   * 50 converges small/medium dabs; M7 will tune round efficiency for 5M tris. */
+   * With do_flips on (M7.2) the spoke cascade is broken, so even aggressive 5M
+   * dabs converge in well under 50 rounds (vs hitting this cap without flips). */
   int max_rounds = 50;
   /* M7.2: after each round, flip an interior edge to its opposite diagonal when
    * that diagonal is strictly shorter and the quad stays convex. The split

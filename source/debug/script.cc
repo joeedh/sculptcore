@@ -772,9 +772,10 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
-      /* Dyntopo pre-pass: remesh under the dab (rebuilds the tree) before the
-       * brush filters nodes. Logged as its own undo step (the brush deform is a
-       * separate step below; merging them is a follow-up). */
+      /* Dyntopo pre-pass: remesh under the dab before the brush filters nodes;
+       * the tree is updated incrementally via the mesh callbacks (M7.6), not
+       * rebuilt. Logged as its own undo step (the brush deform is a separate step
+       * below; merging them is a follow-up). */
       if (scene.dyntopoEnabled) {
         scene.applyDynTopoDab(origin, scene.brush.radius, scene.dyntopoSeed,
                               /*log=*/true);
@@ -864,10 +865,11 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
-      /* Dyntopo pre-pass: remesh under every dab along the path (each call
-       * rebuilds the tree) before the brush runs, so the executor below drives
-       * the refined geometry. Per-dab interleaving with incremental spatial
-       * updates is the follow-up (plan M2 integration #5). */
+      /* Dyntopo pre-pass: remesh under every dab along the path before the brush
+       * runs, so the executor below drives the refined geometry. Each dab updates
+       * the spatial tree incrementally via the mesh callbacks (M7.6), not a
+       * rebuild. Folding this pre-pass and the brush deform into one undo step
+       * (they are two steps today) is the remaining follow-up. */
       if (scene.dyntopoEnabled) {
         for (size_t i = 0; i < origins.size(); i++) {
           scene.applyDynTopoDab(origins[i], scene.brush.radius,

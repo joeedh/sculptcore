@@ -79,6 +79,7 @@ source/
   meshlog/          sculpt undo/redo log (per-node attribute swaps + topology log)
   brush/            sculpt brushes (sbrush DSL + sbrushc compiler), command executor
   spatial/          spatial acceleration (BVH-style nodes) + C API + shaders
+  dyntopo/          dynamic-topology remesh under a sculpt dab (CPU core; M1-M7 done)
   props/            property / reflection system (runtime-side)
   gpu/              GPU abstraction (frontend; backends are native-only)
   vulkan/           native Vulkan backend (vk_context/backend/overlay/screenshot)
@@ -264,14 +265,34 @@ Like the source-line prints above, this instrumentation is **not** meant
 to live in the tree: once the fix is confirmed, delete every SPIKE /
 FRAME-SPIKE counter and printf you added and leave only `StrokeProfiler`.
 
-## Dynamic topology (future goal)
+## Dynamic topology
 
-A planned feature: geometry under sculpt dabs is decimated or subdivided on
-the fly to match a target edge length, with custom attributes interpolated as
-appropriate. **Performance target:** usable sculpting (≥25fps on a laptop) on a
-5-million-triangle mesh carrying 2 custom `float4` attributes that must be
-interpolated during retopology. This budget drives the design of the brush,
-spatial (BVH node refinement), meshlog, and attribute-interpolation hot paths.
+Geometry under a sculpt dab is subdivided where edges exceed a target length and
+collapsed where they fall below it, tracking the brush radius — triangles only,
+attributes interpolated onto new geometry. **Built and shipped through M1–M7;
+the 5 M-tri / ≥25 fps target is met on the CPU with no GPU offload.** Design +
+post-M7 re-evaluation: [`documentation/dynamic-topology.md`](documentation/dynamic-topology.md);
+the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentation/plans/dyntopo-m7-cascade.md).
+
+- **Core** is `source/dyntopo/dyntopo.h` — `applyBrushDab(mesh, center, radius,
+  params, seed, cb?, seedVerts?)`. It is spatial/brush/meshlog-free (mutates only
+  the `mesh::Mesh`); the caller threads `MeshCallbacks` to keep the spatial tree
+  and meshlog current, and passes `seedVerts` (the in-region leaves' verts) so a
+  dab is O(brush region), not O(mesh).
+- **The round loop** is the Botsch-Kobbelt quartet over maximal independent sets:
+  split / collapse / **flip** / **smooth**, with a **graded** target. The
+  performance levers are all here and all CPU — chiefly the **length-criterion
+  flip sweep** (`do_flips`, M7.2), which breaks the split-spoke cascade (it is
+  *not* optional). `DynTopoParams` also has `grade` (sizing field), `do_smooth`
+  (tangential, default off), and `max_splits` (per-dab safety valve).
+- **Spatial currency** is incremental (`source/spatial/`, M7.6): `add_face_at`
+  O(1) anchor placement, deferred batched leaf rebalance, and cadenced merge of
+  under-full leaves — `tree->update()` is 2–11 ms at 5 M vs a ~68 s full rebuild.
+- **The GPU offload is now optional**, not required — see the design doc's
+  post-M7 banner before touching it.
+- Regression gates (ctest): `test_dyntopo_cascade` / `_budget` / `_smooth`,
+  `test_spatial_dyntopo` / `_merge`. The `bench_dyntopo` debug-app verb is the
+  A/B measurement tool (`flip=`, `grade=`, `smooth=`, `max_splits=`, `rebuild=`).
 
 ## Conventions
 

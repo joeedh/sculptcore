@@ -61,7 +61,11 @@ See `documentation/brush.md` for a detailed overview.
 
 ### `source/spatial/` — spatial acceleration
 
-`spatial.cc/.h`, `spatial_base.h`, `node.cc/.h`, `spatial_attrs.h`, `spatial_enums.h`, `spatial_gpu.cc`. Bindings: `bindings.cc/.h`. C API: `c-api/spatial_c_api.cc` (build/free `SpatialTree`, `getSpatialShaders`). GPU shaders: `shaders/`.
+`spatial.cc/.h`, `spatial_base.h`, `node.cc/.h`, `spatial_attrs.h`, `spatial_enums.h`, `spatial_gpu.cc`. Bindings: `bindings.cc/.h`. C API: `c-api/spatial_c_api.cc` (build/free `SpatialTree`, `getSpatialShaders`). GPU shaders: `shaders/`. Incremental dyntopo currency (M7.6) lives here: `add_face_at` (O(1) anchor placement), `applyDeferredRebalance`, `applyDeferredMerge`/`merge_node`, `free_node`.
+
+### `source/dyntopo/` — dynamic-topology remesh
+
+`dyntopo.h` (header-only). `applyBrushDab(...)` runs the per-dab remesh as independent-set rounds of split/collapse/flip/smooth with a graded target and a per-dab split budget. Spatial/brush/meshlog-free — the caller threads `MeshCallbacks`. Design + plan: `documentation/dynamic-topology.md`, `documentation/plans/dyntopo-m7-cascade.md`.
 
 ### `source/props/` — property/reflection system
 

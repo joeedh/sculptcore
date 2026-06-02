@@ -67,12 +67,27 @@ Notable methods:
 * `add_face(int)` / `add_face_intern(...)` — descends into children
   whose AABB overlaps the face's triangles, splitting leaves on the
   way down when `node_needs_split` is true. Leaf-level work records
-  face/vertex ownership into `treeMesh.{f,v}.node`.
-* `split_node(SpatialNode*)` — picks the longest-axis midpoint
-  (currently forced to `t = 0.5`, see *Design notes*), allocates two
-  children with halves of the parent's AABB, unassigns the parent's
+  face/vertex ownership into `treeMesh.{f,v}.node`. **Incremental
+  (dyntopo, M7.6):** if a new face already has an owned vert,
+  `add_face` skips the root descent and files it straight into that
+  neighbour's leaf via `add_face_at` (O(1) anchor placement), deferring
+  the leaf split — see the incremental-currency methods below.
+* `split_node(SpatialNode*)` — splits along the longest axis at the
+  geometric **mean** of the node's verts (a fraction `t` of the box,
+  clamped off the edges to `[0.01, 0.99]` so a degenerate all-in-one
+  child can't happen), allocates two children, unassigns the parent's
   faces/verts on the live mesh, and re-inserts them through
   `add_face_intern`.
+* **Incremental dyntopo currency (M7.6).** `add_face_at` defers the
+  inline split, recording over-full leaves in `rebalanceCandidates_`;
+  `applyDeferredRebalance()` (top of `update()`) splits each once.
+  `remove_vert` records shrinking leaves' parents in `mergeCandidates_`;
+  `applyDeferredMerge()` (every `mergeCadence_`-th `update()`) folds
+  under-full sibling leaves back into their parent via `merge_node`,
+  cascading up, with `free_node` doing an O(1) swap-remove that keeps
+  the `node->index == nodes[index]` invariant `castRay` relies on. This
+  keeps a dab's tree maintenance O(brush region) (2–11 ms at 5 M) rather
+  than a full rebuild.
 * `castRay(orig, dir, out)` — defers to `SpatialNode::castRay`, which
   descends to leaves for triangle-level precision, then resolves
   hit position/normal from the matching mesh corners.

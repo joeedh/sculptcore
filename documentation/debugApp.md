@@ -52,9 +52,13 @@ spaces aren't supported — vectors use `=x,y,z`.
 | verb            | args                                              | effect |
 |---|---|---|
 | `make_cube`     | `subdivs=N size=F sphere=F`                       | replaces the active mesh with a subdivided cube; `sphere` ∈ [0,1] morphs toward a sphere |
+| `triangulate`   | -                                                 | triangulates the active mesh (dyntopo operators are triangle-only; `make_cube` builds quads) |
 | `build_spatial` | `leaf_limit=N depth_limit=N`                      | (re)builds the spatial accelerator on the current mesh |
 | `set_brush`     | `radius=F strength=F spacing=F invert=0/1`        | tweaks the active `brush::Brush` props and re-syncs them through `props::StructProp`; `spacing` is the per-stroke fraction of `radius` between successive dabs (default 0.25) |
-| `stroke`        | `origin=x,y,z normal=x,y,z`                       | one-step `DRAW` stroke through `brush::CommandExecutor::execBrush` |
+| `set_brush_tool`| `tool=draw\|clay\|inflate\|pinch\|...`            | selects the active sculpt brush |
+| `dyntopo`       | `enabled=0/1 detail=F [min=F] [grade=F] [flip=0/1]`<br>`[smooth=0/1] [max_splits=N] [mode=both\|subdivide\|collapse]` | configures dynamic-topology remesh applied as a pre-pass to subsequent strokes (`source/dyntopo/`) |
+| `bench_dyntopo` | `detail=F radius=F center=x,y,z [grade=F flip=0/1`<br>`smooth=0/1 max_splits=N spatial=0/1 rebuild=0/1]` | A/B one dyntopo dab vs a full tree rebuild; prints splits/flips/rounds/leftover/maxValence/CV + ops/update/total ms. The M7 measurement tool |
+| `stroke`        | `origin=x,y,z normal=x,y,z`                       | one-step stroke (current `set_brush_tool`) through `brush::CommandExecutor::execBrush`; runs the dyntopo pre-pass first when `dyntopo enabled=1` |
 | `stroke_path`   | `p1=x,y,z p2=x,y,z normal=... steps=N`<br>or `... spacing=F` | sweeps a segment of `DRAW` dabs. With `steps=N` (default 8): N evenly-distributed dabs by parameter `t`. With `spacing=F`: dabs every `radius * spacing` world-space units, matching what the interactive stroke path does |
 | `view`          | `preset=front\|top\|side\|persp\|free`            | re-frames the camera on the mesh AABB |
 | `screenshot`    | `view=... out=relpath [leaves=0/1]`               | renders headless + writes PNG; `leaves=1` overlays spatial-leaf AABBs |
@@ -99,9 +103,11 @@ with mouse + keyboard:
 The brush dabs share one `meshlog::MeshLog::beginStep` / `endStep` pair per
 stroke, so a single undo reverts the whole drag.
 
-There is no in-app UI yet — adjust brush parameters in your `--script`
-before the interactive loop begins. A Dear ImGui panel for live brush
-controls is a follow-up.
+A Dear ImGui panel (`source/debug/ui.cc`) gives live controls for brush
+params and the dynamic-topology settings (enable, goal edge length, grade,
+geometric flips, tangential smoothing, split budget, mode, and a
+`triangulate` button) — so a dyntopo stroke can be tuned interactively, not
+just from the `--script`.
 
 Internally, `Scene` keeps two `vulkan::VulkanBackend` instances:
 `backend` (offscreen target, used by `screenshot`) and `backendWindow`
