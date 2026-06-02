@@ -35,6 +35,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace sculptcore::dyntopo {
 
@@ -73,12 +74,24 @@ struct DynTopoParams {
    * multi-hundred-ms frame. Calibrate to the frame budget: ~frame_ms / ms-per-
    * split (≈0.04ms/split at 5M with flips on). */
   int max_splits = 0;
+  /* M7.4: tangential smoothing — the 4th Botsch-Kobbelt operator. After the
+   * flips each round, slide region verts toward their 1-ring's area-weighted
+   * centroid *in the tangent plane only* (the normal component is removed, so it
+   * equalizes triangle sizes / kills residual slivers without shrinking the
+   * surface or smoothing away sculpted detail). Off by default: it's a quality
+   * nicety, not a perf/correctness fix, and it nudges geometry so it wants
+   * interactive validation against the brush deform. Boundary verts are left
+   * fixed; each move is clamped to half the shortest incident edge so it can't
+   * fold a triangle. */
+  bool do_smooth = false;
+  float smooth_lambda = 0.5f; /* relaxation step (0..1) */
 };
 
 struct DynTopoStats {
   int splits = 0;
   int collapses = 0;
   int flips = 0;
+  int smooths = 0;
   int rounds = 0;
   bool capped = false;     /* hit max_rounds with work still pending */
   bool budget_hit = false; /* stopped early on max_splits (more work remains) */
@@ -213,6 +226,80 @@ inline bool flipShortens(mesh::Mesh &m, int a, int b, int c, int d)
   float sa = cd.cross(A - C).dot(n);
   float sb = cd.cross(B - C).dot(n);
   return sa * sb < 0.0f; /* a,b strictly opposite sides of c-d => convex */
+}
+
+/* Tangential-smoothing target for vertex v (M7.4): slide v toward the
+ * area-weighted centroid of its incident triangles, keeping only the in-tangent-
+ * plane component (so the surface isn't shrunk / flattened). Vertex normal and
+ * centroid are computed live from the 1-ring (stored normals go stale across
+ * splits). Returns false (no move) for a vertex touching a boundary / non-
+ * manifold / non-triangle edge, or a degenerate ring; otherwise `out` is the new
+ * position, with the move clamped to half the shortest incident edge so a thin
+ * triangle can't fold. Reads positions only — caller writes simultaneously. */
+inline bool smoothTangent(mesh::Mesh &m, int v, float lambda,
+                          litestl::math::float3 &out)
+{
+  using litestl::math::float3;
+  int e0 = m.v.e[v];
+  if (e0 == ELEM_NONE) {
+    return false;
+  }
+  float3 P = m.v.co[v];
+  float3 nAccum(0.0f), cAccum(0.0f);
+  float areaSum = 0.0f;
+  float minLen2 = std::numeric_limits<float>::max();
+
+  for (int e : mesh::EdgeOfVertIter(&m, v, e0)) {
+    int cc = m.e.c[e];
+    if (cc == ELEM_NONE) {
+      return false; /* wire edge in the ring */
+    }
+    int o = (m.e.vs[e][0] == v) ? m.e.vs[e][1] : m.e.vs[e][0];
+    float l2 = (m.v.co[o] - P).lengthSqr();
+    if (l2 < minLen2) {
+      minLen2 = l2;
+    }
+    /* Walk the edge's radial: require exactly two triangle faces (interior
+     * manifold). Each incident face is reached from both of v's edges that
+     * touch it, so it's counted twice — uniform, and cancels in the ratios. */
+    int nf = 0, c = cc;
+    do {
+      int li = m.c.l[c];
+      if (m.l.size[li] != 3 || m.f.list_count[m.l.f[li]] != 1) {
+        return false; /* non-triangle incident face */
+      }
+      int c2 = m.c.next[c], c3 = m.c.next[c2];
+      float3 A = m.v.co[m.c.v[c]], B = m.v.co[m.c.v[c2]], C = m.v.co[m.c.v[c3]];
+      float3 fn = (B - A).cross(C - A); /* |fn| = 2 * area, dir = face normal */
+      float area = fn.length();
+      nAccum += fn;
+      cAccum += (A + B + C) * (area * (1.0f / 3.0f));
+      areaSum += area;
+      nf++;
+      c = m.c.radial_next[c];
+    } while (c != cc);
+    if (nf != 2) {
+      return false; /* boundary / non-manifold edge -> leave v fixed */
+    }
+  }
+
+  if (areaSum < 1e-20f) {
+    return false;
+  }
+  float3 n = nAccum;
+  if (n.normalize() == 0.0f) {
+    return false;
+  }
+  float3 delta = (cAccum / areaSum) - P;
+  delta -= n * delta.dot(n); /* tangential only */
+  delta *= lambda;
+  float move2 = delta.lengthSqr();
+  float cap2 = minLen2 * 0.25f; /* <= half the shortest incident edge */
+  if (move2 > cap2 && move2 > 0.0f) {
+    delta *= std::sqrt(cap2 / move2);
+  }
+  out = P + delta;
+  return true;
 }
 
 } // namespace detail
@@ -424,6 +511,33 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
           nextFrontier.add(dd);
         }
       }
+    }
+
+    /* 6. Tangential smoothing (M7.4): relax the touched in-region verts toward
+     *    their 1-ring centroid, in-plane. Simultaneous (Jacobi) update — all
+     *    targets are read from current positions, then written — so it's
+     *    order-independent and deterministic. Position-only: no topology event,
+     *    so no cb; the region's leaves are already bounds-dirty from the splits. */
+    if (p.do_smooth) {
+      Vector<int> sverts;
+      Vector<math::float3> spos;
+      for (int v : nextFrontier) {
+        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v]) {
+          continue;
+        }
+        if ((m.v.co[v] - center).lengthSqr() > r2) {
+          continue;
+        }
+        math::float3 np;
+        if (detail::smoothTangent(m, v, p.smooth_lambda, np)) {
+          sverts.append(v);
+          spos.append(np);
+        }
+      }
+      for (int i = 0; i < int(sverts.size()); i++) {
+        m.v.co[sverts[i]] = spos[i];
+      }
+      stats.smooths += int(sverts.size());
     }
 
     frontier = std::move(nextFrontier);

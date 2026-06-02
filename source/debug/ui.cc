@@ -261,6 +261,16 @@ void Ui::drawPanel()
                         "heavy refine that exceeds the cap finishes over the "
                         "next dabs, keeping each frame bounded.");
     }
+    ImGui::Checkbox("tangential smooth", &scene_->dyntopoParams.do_smooth);
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Relax verts toward their 1-ring centroid in-plane each "
+                        "round (M7.4).\nEqualizes triangle sizes / kills slivers "
+                        "without shrinking the surface. Quality nicety.");
+    }
+    if (scene_->dyntopoParams.do_smooth) {
+      ImGui::SliderFloat("smooth strength", &scene_->dyntopoParams.smooth_lambda,
+                         0.0f, 1.0f, "%.2f");
+    }
     static const char *kModes[] = {"Subdivide", "Collapse", "Both"};
     int modeIdx = int(scene_->dyntopoParams.mode);
     if (ImGui::Combo("dyntopo mode", &modeIdx, kModes, 3)) {

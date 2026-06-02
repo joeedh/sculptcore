@@ -222,12 +222,37 @@ M7.2 but the provably-bounded option. Reference: the CBT/LEB literature in
 [`../dynamic-topology.md`](../dynamic-topology.md) §6 (note: pure-GPU CBT is *not*
 the goal — only the LEB *refinement rule* transfers).
 
-### M7.4 — Tangential smoothing (optional, completes Botsch-Kobbelt)
+### M7.4 — Tangential smoothing — DONE (completes Botsch-Kobbelt)
 
-After split/collapse/flip, relocate region verts toward the area-weighted
-centroid of their 1-ring, projected back onto the tangent plane (keep them on
-the surface). Equalizes triangle sizes and further suppresses slivers. Gate it
-behind a param; verify it doesn't fight the brush deform.
+The 4th operator. After the flip sweep each round, region verts slide toward the
+**area-weighted centroid of their 1-ring, with the normal component removed**
+(tangential only — equalizes triangle sizes / kills slivers without shrinking the
+surface or smoothing away sculpted detail). Vertex normal + centroid are computed
+live from the 1-ring (`detail::smoothTangent` — stored normals go stale across
+splits); the update is simultaneous (Jacobi, order-independent → deterministic);
+each move is clamped to half the shortest incident edge so a thin triangle can't
+fold; **boundary / non-manifold verts are left fixed**. Position-only, so no
+callback — the region's leaves are already bounds-dirty from the splits.
+
+`DynTopoParams.do_smooth` (default **off** — it's a quality nicety, not a
+perf/correctness fix, and it nudges geometry so it wants interactive validation
+against the brush deform) + `smooth_lambda` (0.5). `DynTopoStats.smooths`;
+`bench_dyntopo smooth=`/`smooth_lambda=` knobs + an edge-length **CV** readout
+(stddev/mean — the uniformity metric); `dyntopo` verb knobs; UI checkbox +
+strength slider.
+
+**Measured (flips on, smooth off→on).** It improves uniformity and, by
+equalizing edge lengths, actually does *less* split work:
+
+| | edge-len CV | min tri area | splits | maxValence | leftover |
+|---|---|---|---|---|---|
+| off | 0.302 | 1.95e-5 | 1760 | 10 | 0 |
+| **on** | **0.262** | **3.30e-5** | 1351 | 8 | 0 |
+
+Lower CV = more even triangles; the **larger min area** confirms slivers shrank
+(not folded — the clamp holds). Still converges (leftover 0), in fewer rounds.
+Gated by `test_dyntopo_smooth` (CV-on < CV-off, both converge, min area > 0 so no
+fold). The Botsch-Kobbelt quartet (split / collapse / flip / smooth) is complete.
 
 ### M7.5 — 5 M-tri acceptance gate — MEASURED (cliff since resolved by M7.2)
 

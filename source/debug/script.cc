@@ -322,6 +322,10 @@ bool execVerb(Scene &scene,
     scene.dyntopoParams.do_flips = getBool(args, "flip", scene.dyntopoParams.do_flips);
     scene.dyntopoParams.max_splits =
         getInt(args, "max_splits", scene.dyntopoParams.max_splits);
+    scene.dyntopoParams.do_smooth =
+        getBool(args, "smooth", scene.dyntopoParams.do_smooth);
+    scene.dyntopoParams.smooth_lambda =
+        getFloat(args, "smooth_lambda", scene.dyntopoParams.smooth_lambda);
     scene.dyntopoParams.max_rounds =
         getInt(args, "max_rounds", scene.dyntopoParams.max_rounds);
     scene.dyntopoSeed = (uint32_t)getInt(args, "seed", (int)scene.dyntopoSeed);
@@ -1146,6 +1150,8 @@ bool execVerb(Scene &scene,
     scene.dyntopoParams.grade = getFloat(args, "grade", 0.0f);
     scene.dyntopoParams.do_flips = getBool(args, "flip", true);
     scene.dyntopoParams.max_splits = getInt(args, "max_splits", 0);
+    scene.dyntopoParams.do_smooth = getBool(args, "smooth", false);
+    scene.dyntopoParams.smooth_lambda = getFloat(args, "smooth_lambda", 0.5f);
     scene.dyntopoParams.mode = dyntopo::DynTopoMode::Subdivide;
 
     /* Break the incremental dab into its two phases: the remesh + incremental
@@ -1181,10 +1187,14 @@ bool execVerb(Scene &scene,
     double dab_ms = ops_ms + update_ms;
 
     /* Convergence check: any in-region edge still longer than its (graded)
-     * target means the dab under-refined. */
+     * target means the dab under-refined. Also accumulate edge-length mean/var
+     * over the region for a uniformity metric (CV = stddev/mean; lower = more
+     * even triangles — the thing tangential smoothing improves). */
     int leftover = 0;
     float grade = scene.dyntopoParams.grade;
     float r2 = radius * radius;
+    double lsum = 0.0, lsq = 0.0;
+    int lcount = 0;
     for (int e : scene.mesh->e) {
       if (scene.mesh->e.c[e] == ELEM_NONE) continue;
       float3 a = scene.mesh->v.co[scene.mesh->e.vs[e][0]];
@@ -1196,10 +1206,17 @@ bool execVerb(Scene &scene,
       if (grade > 0.0f && radius > 0.0f) {
         target *= 1.0f + grade * (std::sqrt(d2) / radius);
       }
-      if ((a - b).length() > target * 1.001f) {
+      float len = (a - b).length();
+      if (len > target * 1.001f) {
         leftover++;
       }
+      lsum += len;
+      lsq += double(len) * len;
+      lcount++;
     }
+    double lmean = lcount > 0 ? lsum / lcount : 0.0;
+    double lvar = lcount > 0 ? lsq / lcount - lmean * lmean : 0.0;
+    double lcv = lmean > 0.0 ? std::sqrt(lvar > 0.0 ? lvar : 0.0) / lmean : 0.0;
 
     /* Max valence over in-region verts (the cascade's high-valence symptom —
      * grading should keep this near the regular-mesh value of 6). */
@@ -1218,11 +1235,12 @@ bool execVerb(Scene &scene,
       if (n > maxVal) maxVal = n;
     }
 
-    std::printf("[bench_dyntopo] faces %d->%d  splits=%d flips=%d rounds=%d "
-                "leftover=%d maxValence=%d%s%s | full_rebuild=%.2fms | incremental: "
-                "ops=%.2fms update=%.2fms total=%.2fms  speedup=%.1fx\n",
-                fBefore, scene.mesh->f.count, st.splits, st.flips, st.rounds,
-                leftover, maxVal, st.budget_hit ? " BUDGET" : "",
+    std::printf("[bench_dyntopo] faces %d->%d  splits=%d flips=%d smooths=%d "
+                "rounds=%d leftover=%d maxValence=%d cv=%.3f%s%s | "
+                "full_rebuild=%.2fms | incremental: ops=%.2fms update=%.2fms "
+                "total=%.2fms  speedup=%.1fx\n",
+                fBefore, scene.mesh->f.count, st.splits, st.flips, st.smooths,
+                st.rounds, leftover, maxVal, lcv, st.budget_hit ? " BUDGET" : "",
                 (st.capped && !st.budget_hit) ? " CAPPED" : "", rebuild_ms, ops_ms,
                 update_ms, dab_ms, dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);
