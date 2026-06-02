@@ -258,13 +258,14 @@ collapseEdge(Mesh &m, int edge,
     m.v.co[v_keep] = merged_co.value();
   }
 
-  /* Snapshot edge liveness so created_edges can be reported by diff. */
-  int eCapBefore = int(m.e.capacity());
-  BoolVector<> eLiveBefore;
-  if (out) {
-    eLiveBefore.resize(eCapBefore);
-    for (int i = 0; i < eCapBefore; i++) {
-      eLiveBefore.set(i, !m.e.freemap[i]);
+  /* Snapshot v_keep's neighbors (by the other endpoint, so slot reuse can't
+   * fool it) so created_edges can be reported by an O(valence) diff rather than
+   * an O(total edges) freemap scan. All new edges of a collapse are incident to
+   * v_keep. */
+  Set<int> keepBefore;
+  if (out && m.v.e[v_keep] != ELEM_NONE) {
+    for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
+      keepBefore.add((m.e.vs[ei][0] == v_keep) ? m.e.vs[ei][1] : m.e.vs[ei][0]);
     }
   }
 
@@ -309,12 +310,11 @@ collapseEdge(Mesh &m, int edge,
 
   /* Report edges that became live during the rebuild (the merged/new edges
    * incident to v_keep). */
-  if (out) {
-    int eCapAfter = int(m.e.capacity());
-    for (int i = 0; i < eCapAfter; i++) {
-      bool wasLive = (i < eCapBefore) && eLiveBefore[i];
-      if (!m.e.freemap[i] && !wasLive) {
-        out->created_edges.append(i);
+  if (out && m.v.e[v_keep] != ELEM_NONE) {
+    for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
+      int o = (m.e.vs[ei][0] == v_keep) ? m.e.vs[ei][1] : m.e.vs[ei][0];
+      if (!keepBefore.contains(o)) {
+        out->created_edges.append(ei);
       }
     }
   }

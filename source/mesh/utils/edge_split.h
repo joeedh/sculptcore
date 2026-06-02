@@ -132,16 +132,6 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
     m.kill_edge(edge, cb);
   }
 
-  /* Snapshot edge counts to detect newly created edges/faces for `out`. */
-  int eCapBefore = int(m.e.capacity());
-  BoolVector<> eLiveBefore;
-  if (out) {
-    eLiveBefore.resize(eCapBefore);
-    for (int i = 0; i < eCapBefore; i++) {
-      eLiveBefore.set(i, !m.e.freemap[i]);
-    }
-  }
-
   if (wire) {
     /* Wire edge: replace v0-v1 with v0-vm and vm-v1. */
     if (!m.e.freemap[edge]) {
@@ -191,13 +181,11 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
     }
   }
 
-  if (out) {
-    int eCapAfter = int(m.e.capacity());
-    for (int i = 0; i < eCapAfter; i++) {
-      bool wasLive = (i < eCapBefore) && eLiveBefore[i];
-      if (!m.e.freemap[i] && !wasLive) {
-        out->created_edges.append(i);
-      }
+  /* Every edge incident to the new midpoint is new (vm did not exist before),
+   * so gather them locally — O(valence), not an O(total edges) freemap diff. */
+  if (out && m.v.e[vm] != ELEM_NONE) {
+    for (int ei : EdgeOfVertIter(&m, vm, m.v.e[vm])) {
+      out->created_edges.append(ei);
     }
   }
 
