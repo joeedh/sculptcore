@@ -68,8 +68,29 @@ static int validateOwnership(spatial::SpatialTree *tree, Mesh *m, const char *ta
       }
       owned++;
     }
+    /* Vert ownership: a regression here (new verts mis-attributed to a parent's
+     * leaf) makes node_needs_split undercount, so the tree never rebalances. */
+    for (int v : leaf->data->unique_verts) {
+      if (m->v.freemap[v]) {
+        fprintf(stderr, "[%s] leaf %d owns dead vert %d\n", tag, leaf->id, v);
+        return -1;
+      }
+      if (tree->treeMesh.v.node[v] != leaf->id) {
+        fprintf(stderr, "[%s] vert %d owner %d != leaf %d\n", tag, v,
+                tree->treeMesh.v.node[v], leaf->id);
+        return -1;
+      }
+    }
   }
-  /* Every live face is owned (complete coverage). */
+  /* Every live face and vert is owned by exactly one leaf (complete coverage). */
+  int ownedV = 0;
+  for (auto *leaf : leaves) {
+    if (leaf->data) ownedV += int(leaf->data->unique_verts.size());
+  }
+  if (ownedV != m->v.count) {
+    fprintf(stderr, "[%s] %d verts owned but mesh has %d\n", tag, ownedV, m->v.count);
+    return -1;
+  }
   for (int f : m->f) {
     if (tree->treeMesh.f.node[f] == 0) {
       fprintf(stderr, "[%s] live face %d is unowned\n", tag, f);
@@ -89,6 +110,7 @@ int main()
   tree->buildAll();
 
   int fBefore = m->f.count;
+  int leavesBefore = int(tree->leaves().size());
   int owned0 = validateOwnership(tree, m, "build");
   test_assert(owned0 == fBefore); /* a fresh build owns every face exactly once */
 
@@ -118,8 +140,13 @@ int main()
   int owned2 = validateOwnership(tree, m, "post-regen");
   test_assert(owned2 == fAfter);
 
-  printf("spatial_dyntopo test: ok (%d -> %d faces, %d splits, incremental)\n",
-         fBefore, fAfter, st.splits);
+  /* The refinement pushed the region's leaves well past leaf_limit, so the tree
+   * must have rebalanced (split) incrementally — not stayed one giant leaf. */
+  int leavesAfter = int(tree->leaves().size());
+  test_assert(leavesAfter > leavesBefore);
+
+  printf("spatial_dyntopo test: ok (%d -> %d faces, %d splits, %d -> %d leaves)\n",
+         fBefore, fAfter, st.splits, leavesBefore, leavesAfter);
 
   alloc::Delete(tree);
   alloc::Delete(m);

@@ -23,8 +23,11 @@ namespace sculptcore::mesh {
 static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, float t)
 {
   for (AttrRef &attr : grp.attrs) {
-    /* Topology links are indices, not interpolable data. */
-    if (attr.flag & AttrFlag::TOPO) {
+    /* Topology links are indices, not interpolable data; TEMP attrs (e.g.
+     * .spatial.{v,f}.node) are derived state owned by the spatial tree — copying
+     * a parent's node id onto a new vert would mis-attribute it (it would land
+     * in the wrong leaf's other_verts and the tree would never rebalance). */
+    if (attr.flag & (AttrFlag::TOPO | AttrFlag::TEMP)) {
       continue;
     }
     if (attr.type == AttrType::BOOL) {
