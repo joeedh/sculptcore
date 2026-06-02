@@ -292,6 +292,12 @@ struct ChunkElemRow {
     layoutFor(src);
     for (int i = 0; i < src.attrs.size(); i++) {
       mesh::AttrRef &ref = src.attrs[i];
+      /* TEMP attrs (e.g. .spatial.*.node) are derived state owned by the
+       * spatial tree, not authoritative undo data — skip them so incremental
+       * tree updates during a logged step don't taint replay. */
+      if (ref.flag & mesh::AttrFlag::TEMP) {
+        continue;
+      }
       uint8_t *dst = data_.data() + offsets_[i];
 
       if (ref.type == mesh::AttrType::BOOL) {
@@ -308,6 +314,9 @@ struct ChunkElemRow {
   {
     for (int i = 0; i < dst.attrs.size(); i++) {
       mesh::AttrRef &ref = dst.attrs[i];
+      if (ref.flag & mesh::AttrFlag::TEMP) {
+        continue; /* see captureFrom: TEMP attrs are tree-owned, not logged */
+      }
       uint8_t *src = data_.data() + offsets_[i];
 
       if (ref.type == mesh::AttrType::BOOL) {
@@ -326,6 +335,9 @@ struct ChunkElemRow {
     uint8_t buf[64];
     for (int i = 0; i < live.attrs.size(); i++) {
       mesh::AttrRef &ref = live.attrs[i];
+      if (ref.flag & mesh::AttrFlag::TEMP) {
+        continue; /* see captureFrom: TEMP attrs are tree-owned, not logged */
+      }
       uint8_t *slot = data_.data() + offsets_[i];
 
       if (ref.type == mesh::AttrType::BOOL) {

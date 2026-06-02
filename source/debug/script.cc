@@ -982,6 +982,10 @@ bool execVerb(Scene &scene,
        * mismatch the recorded links during replay. Thaw first. */
       scene.mesh->thawTopo();
       scene.meshLog.undo(scene.mesh, scene.tree);
+      /* meshlog replay restores mesh topology but does not drive the spatial
+       * callbacks, so the incrementally-maintained tree is now stale — rebuild
+       * it (undo is a cold path). */
+      scene.tree->rebuild();
     }
     return true;
   }
@@ -989,6 +993,7 @@ bool execVerb(Scene &scene,
     if (scene.mesh && scene.tree) {
       scene.mesh->thawTopo();
       scene.meshLog.redo(scene.mesh, scene.tree);
+      scene.tree->rebuild();
     }
     return true;
   }

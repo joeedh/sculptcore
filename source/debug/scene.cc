@@ -146,21 +146,51 @@ int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t 
    * topology (TOPO pages freed). Thaw first (no-op when not frozen). */
   mesh->thawTopo();
 
-  /* The topology mutation alone is logged (meshlog replay of the split/collapse
-   * cascade is correct — see tests/test_dyntopo_undo.cc). The tree rebuild must
-   * happen AFTER the step closes: it writes .spatial.* attrs that, if captured
-   * into the topo chunk, corrupt undo replay. */
+  /* Drive both the spatial tree (incremental node ownership, so no full rebuild)
+   * and, when logging, the meshlog (undo). The meshlog skips TEMP attrs, so the
+   * spatial callbacks' .spatial.*.node writes don't taint replay. Fan the three
+   * spatial events out alongside the meshlog's; reuse the meshlog handlers for
+   * the rest. */
+  mesh::MeshCallbacks combined;
+  mesh::MeshCallbacks *cb = nullptr;
+  mesh::MeshCallbacks *sp = tree ? tree->getSpatialCallbacks() : nullptr;
+  mesh::MeshCallbacks *ml = log ? meshLog.callbacks() : nullptr;
+  if (sp && ml) {
+    combined = *ml;
+    auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;
+    combined.onFaceCreate = [mlFC, spFC](int f) {
+      if (mlFC) mlFC(f);
+      if (spFC) spFC(f);
+    };
+    auto mlFK = combined.onFaceKill, spFK = sp->onFaceKill;
+    combined.onFaceKill = [mlFK, spFK](int f) {
+      if (mlFK) mlFK(f); /* meshlog snapshots before the tree drops it */
+      if (spFK) spFK(f);
+    };
+    auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
+    combined.onVertKill = [mlVK, spVK](int v) {
+      if (mlVK) mlVK(v);
+      if (spVK) spVK(v);
+    };
+    cb = &combined;
+  } else {
+    cb = ml ? ml : sp;
+  }
+
   if (log) {
     meshLog.beginStep();
   }
-  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
-      *mesh, center, radius, dyntopoParams, seed, log ? meshLog.callbacks() : nullptr);
+  dyntopo::DynTopoStats st =
+      dyntopo::applyBrushDab(*mesh, center, radius, dyntopoParams, seed, cb);
   if (log) {
     meshLog.endStep();
   }
 
+  /* Incremental: node ownership is already current via the spatial callbacks;
+   * update() just regens the dirty leaves' tris/bounds (+ GPU descriptors). No
+   * full rebuild. */
   if (tree) {
-    buildSpatial(spatialLeaf_, spatialDepth_, spatialGpuTri_);
+    tree->update(&gpu);
   }
   return st.splits + st.collapses;
 }
