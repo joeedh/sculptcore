@@ -335,6 +335,144 @@ void SpatialTree::applyDeferredRebalance()
   leafCacheDirty_ = true;
 }
 
+void SpatialTree::free_node(SpatialNode *n)
+{
+  /* Swap-remove from `nodes` so castRay's node->index == position invariant
+   * (node.h: out.nodeIndex = index; spatial.h: nodes[out.nodeIndex]) holds for
+   * the node moved into the gap. */
+  int idx = n->index;
+  int last = int(nodes.size()) - 1;
+  if (idx != last) {
+    nodes[idx] = nodes[last];
+    nodes[idx]->index = idx;
+  }
+  nodes.remove_at(last, /*swap_end_only=*/true);
+
+  if (n->id < int(node_idmap.size())) {
+    node_idmap[n->id] = nullptr;
+  }
+  leafCacheDirty_ = true;
+  gpuNodeCacheDirty_ = true;
+
+  alloc::Delete(n);
+}
+
+void SpatialTree::merge_node(SpatialNode *parent)
+{
+  SpatialNode *c0 = parent->children[0];
+  SpatialNode *c1 = parent->children[1];
+
+  /* Unassign the subtree's owned geometry, collecting the owned faces and the
+   * owned verts. Verts owned by neighbours *outside* the subtree (the children's
+   * other_verts) keep their owner — the re-file below re-sorts them into the
+   * merged leaf's other_verts. */
+  Vector<int> faces, verts;
+  for (SpatialNode *c : {c0, c1}) {
+    for (int v : c->data->unique_verts) {
+      treeMesh.v.node[v] = 0;
+      verts.append(v);
+    }
+    for (int f : c->data->unique_faces) {
+      treeMesh.f.node[f] = 0;
+      if (!m->f.freemap[f]) {
+        faces.append(f);
+      }
+    }
+  }
+
+  /* Parent becomes a leaf again and re-absorbs the faces through the build path
+   * (add_face_intern's leaf body re-derives unique/other ownership). It won't
+   * re-split: the caller only merges when the combined vert count is under the
+   * low watermark, well below leaf_limit. */
+  parent->create_data();
+  parent->children[0] = parent->children[1] = nullptr;
+  parent->flag |= Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
+                  Spatial_RegenGPU | Spatial_UpdateNormals;
+
+  Vector<Tri, 16> tris;
+  for (int f : faces) {
+    FaceProxy face(m, f);
+    float3 fcent = face.calc_center();
+    tris.clear();
+    if (triangulateFace(*m, f, tris)) {
+      std::span<Tri> tris_span = tris;
+      add_face_intern(parent, f, tris_span, fcent);
+    }
+  }
+
+  /* A vert the subtree owned but that no re-filed face referenced (it is only
+   * touched by faces owned *outside* the subtree) would otherwise be orphaned.
+   * It still belongs to the merged region geometrically, so give it to the
+   * parent leaf — keeps ownership coverage complete (sum unique_verts == count). */
+  for (int v : verts) {
+    if (!m->v.freemap[v] && treeMesh.v.node[v] == 0) {
+      treeMesh.v.node[v] = parent->id;
+      parent->data->unique_verts.add(v);
+    }
+  }
+
+  for (SpatialNode *p = parent->parent; p; p = p->parent) {
+    p->flag |= Spatial_RegenBounds;
+  }
+
+  free_node(c0);
+  free_node(c1);
+}
+
+void SpatialTree::applyDeferredMerge()
+{
+  if (mergeCandidates_.size() == 0) {
+    return;
+  }
+
+  /* merge_node re-triangulates through the live face/loop links (frozen-dropped
+   * in stroke mode) — thaw once for the whole pass. */
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  /* Hysteresis: only merge when the pair owns well under leaf_limit, so the
+   * merged leaf doesn't immediately re-cross the split threshold. */
+  const int watermark = leaf_limit / 2;
+
+  /* Worklist (not a range-for: merging pushes the grandparent, which may now be
+   * mergeable too, so merges cascade up a chain in one pass). */
+  Vector<int> work;
+  for (int id : mergeCandidates_) {
+    work.append(id);
+  }
+  mergeCandidates_.clear();
+
+  for (int wi = 0; wi < int(work.size()); wi++) {
+    int id = work[wi];
+    if (id >= int(node_idmap.size())) {
+      continue;
+    }
+    SpatialNode *parent = node_idmap[id];
+    if (!parent || (parent->flag & Spatial_Leaf)) {
+      continue; /* freed, or already a leaf */
+    }
+    SpatialNode *c0 = parent->children[0];
+    SpatialNode *c1 = parent->children[1];
+    if (!c0 || !c1 || !(c0->flag & Spatial_Leaf) || !(c1->flag & Spatial_Leaf) ||
+        !c0->data || !c1->data) {
+      continue; /* not a two-leaf-children node */
+    }
+    int combined =
+        int(c0->data->unique_verts.size() + c1->data->unique_verts.size());
+    if (combined >= watermark) {
+      continue;
+    }
+    SpatialNode *gp = parent->parent;
+    merge_node(parent);
+    if (gp) {
+      work.append(gp->id); /* grandparent may now have two under-full leaves */
+    }
+  }
+
+  leafCacheDirty_ = true;
+}
+
 void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 {
   node->flag &= ~Spatial_RegenBounds;
@@ -1052,6 +1190,15 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
    * here, once each. Runs before the tris phase so the fresh child leaves (which
    * carry Spatial_RegenTris) are picked up by the collection loop below. */
   applyDeferredRebalance();
+
+  /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th update),
+   * NOT per dab. Folds under-full sibling leaves left by collapse-heavy strokes
+   * back into their parent; the fresh parent leaf carries Spatial_RegenTris and
+   * is picked up below, same as a rebalance split. */
+  if (++updatesSinceMerge_ >= mergeCadence_) {
+    applyDeferredMerge();
+    updatesSinceMerge_ = 0;
+  }
 
   /* Phase: regen leaf tris. Must run before the bounds phase: regen_node_bounds
    * derives leaf AABBs from node->data->tris (via the frozen-safe .corner.v

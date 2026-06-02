@@ -353,6 +353,13 @@ struct SpatialTree {
     SpatialNode *node = node_from_id(node_id);
     if (node && node->data) {
       node->data->unique_verts.remove(v);
+      /* This leaf shrank; its parent may now have two under-full leaf children.
+       * Record it for the periodic merge pass (M7.6b) — eligibility (both
+       * children still leaves, combined verts under the low watermark) is
+       * re-checked there, so a stale candidate is harmless. */
+      if (node->parent) {
+        mergeCandidates_.add(node->parent->id);
+      }
     }
   }
 
@@ -376,6 +383,15 @@ struct SpatialTree {
    * of update(); public so tests can drive it without a GPUManager. Thaws
    * topology if frozen (split_node re-triangulates via live links). */
   void applyDeferredRebalance();
+
+  /* Fold under-full sibling leaves back into their parent after collapse-heavy
+   * strokes shrink a region (M7.6b), cascading up the chain. The inverse of the
+   * deferred split: a parent whose two leaf children together own fewer than
+   * leaf_limit/2 verts becomes a leaf again and re-absorbs their geometry; the
+   * children are freed. Runs on a slow cadence inside update() (mergeCadence_),
+   * NOT every dab; public so tests / a stroke-end hook can force it. Thaws
+   * topology if frozen (re-files via live links). */
+  void applyDeferredMerge();
 
   /* Public so tests can drive partition assignment without a GPUManager. */
   void recompute_subtree_tri_counts();
@@ -471,6 +487,15 @@ private:
   void
   add_face_intern(SpatialNode *node, int f, std::span<Tri> &tris, math::float3 &fcent);
 
+  /* Re-absorb both (leaf) children of `parent` back into `parent` and free them
+   * (M7.6b merge). Preconditions checked by the caller. */
+  void merge_node(SpatialNode *parent);
+
+  /* O(1) node removal: swap the node out of `nodes` (fixing the swapped node's
+   * index, which castRay resolves through nodes[]), drop it from node_idmap, and
+   * delete it (its dtor frees data/gpu_data). Invalidates the leaf/gpu caches. */
+  void free_node(SpatialNode *n);
+
   SpatialNode *alloc_node()
   {
     SpatialNode *node = alloc::New<SpatialNode>("Spatial Node");
@@ -513,14 +538,19 @@ private:
 
   /* Leaves that crossed leaf_limit during incremental add_face_at placement and
    * await a batched split in applyDeferredRebalance() (M7.6). Brush queries on an
-   * over-full leaf just iterate a few extra verts until the next update().
-   *
-   * NOTE (future, per user): the rebalance pass must eventually also MERGE
-   * under-full sibling leaves (after collapse-heavy strokes shrink a region) and
-   * possibly re-split — but on a slower cadence than every dab. The merge side
-   * would track shrunk leaves the way this set tracks grown ones and fold each
-   * pair of under-full siblings back into their parent. Not every-dab work. */
+   * over-full leaf just iterate a few extra verts until the next update(). The
+   * merge counterpart (under-full siblings folded back up) is mergeCandidates_
+   * below, on a slower cadence. */
   util::Set<int> rebalanceCandidates_;
+
+  /* Parents of leaves that shrank since the last merge pass (M7.6b), drained by
+   * applyDeferredMerge(). It runs every mergeCadence_-th update() rather than per
+   * dab — merging is cheap but pointless to chase on every collapse, and the low
+   * watermark (leaf_limit/2) plus this cadence keep the tree off a split/merge
+   * thrash boundary. */
+  util::Set<int> mergeCandidates_;
+  int mergeCadence_ = 8;
+  int updatesSinceMerge_ = 0;
 };
 
 } // namespace sculptcore::spatial

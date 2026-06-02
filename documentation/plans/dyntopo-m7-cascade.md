@@ -227,13 +227,23 @@ intermediate GPU regens). Both scale with the brush region, not total mesh.
 `test_spatial_dyntopo` updated: placement is eager/correct immediately after the
 dab (ownership complete), the split is driven by `applyDeferredRebalance()`.
 
-**Still TODO (user-flagged, deliberately deferred — not every-dab work):** the
-rebalance pass must eventually also **merge** under-full sibling leaves (after
-collapse-heavy strokes shrink a region) and possibly **re-split**, on a slower
-cadence than per-dab. The merge side would track shrunk leaves the way
-`rebalanceCandidates_` tracks grown ones and fold each pair of under-full
-siblings back into their parent. Design note at the `rebalanceCandidates_`
-declaration in `spatial.h`. Original write-up below.
+**Merge side — DONE (M7.6b).** The rebalance pass now also folds **under-full
+sibling leaves** back up after collapse-heavy strokes. `remove_vert` records a
+shrinking leaf's parent in `mergeCandidates_` (the inverse of
+`rebalanceCandidates_`); `applyDeferredMerge()` runs every `mergeCadence_`-th
+`update()` (default 8 — **not** per dab, per the user) and, for each parent whose
+two leaf children together own fewer than `leaf_limit/2` verts (hysteresis vs the
+split threshold, so no split/merge thrash), turns the parent back into a leaf,
+re-absorbs the subtree's faces via `add_face_intern`, and frees the children.
+Merges **cascade up** the chain in one pass (the worklist re-pushes the
+grandparent). Node removal is O(1) swap-remove (`free_node`) preserving castRay's
+`node->index == nodes[index]` invariant; an orphan-recovery step re-assigns any
+subtree vert referenced only by faces outside the subtree to the merged leaf, so
+ownership coverage stays complete. Verified by `test_spatial_merge` (625→37 verts,
+13→3 leaves, ownership complete + idempotent) and a 10-stroke debug-app session
+(manifold intact, no crash). `re-split` of a stale split-plane after merges is
+still future and low-priority (the normal `add_face_at` path re-splits on growth).
+Original write-up below.
 
 Dyntopo must keep the spatial tree current as it adds/removes geometry — node
 ownership (`.spatial.{v,f}.node`, each leaf's `unique_verts`/`unique_faces`),
