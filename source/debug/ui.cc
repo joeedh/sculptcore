@@ -240,6 +240,13 @@ void Ui::drawPanel()
       scene_->dyntopoParams.l_max = detail;
       scene_->dyntopoParams.l_min = detail * 0.4f; /* collapse below 0.4x */
     }
+    ImGui::SliderFloat("grade (rim relax)", &scene_->dyntopoParams.grade, 0.0f,
+                       6.0f, "%.1f");
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Relax the goal edge length outward from the brush "
+                        "center (sizing field).\n0 = uniform; higher = finer "
+                        "center, coarser rim, far fewer triangles.");
+    }
     static const char *kModes[] = {"Subdivide", "Collapse", "Both"};
     int modeIdx = int(scene_->dyntopoParams.mode);
     if (ImGui::Combo("dyntopo mode", &modeIdx, kModes, 3)) {

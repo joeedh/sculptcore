@@ -318,6 +318,7 @@ bool execVerb(Scene &scene,
     float detail = getFloat(args, "detail", scene.dyntopoParams.l_max);
     scene.dyntopoParams.l_max = detail;
     scene.dyntopoParams.l_min = getFloat(args, "min", detail * 0.4f);
+    scene.dyntopoParams.grade = getFloat(args, "grade", scene.dyntopoParams.grade);
     scene.dyntopoParams.max_rounds =
         getInt(args, "max_rounds", scene.dyntopoParams.max_rounds);
     scene.dyntopoSeed = (uint32_t)getInt(args, "seed", (int)scene.dyntopoSeed);
@@ -1131,6 +1132,7 @@ bool execVerb(Scene &scene,
     int fBefore = scene.mesh->f.count;
     scene.dyntopoParams.l_max = detail;
     scene.dyntopoParams.l_min = detail * 0.4f;
+    scene.dyntopoParams.grade = getFloat(args, "grade", 0.0f);
     scene.dyntopoParams.mode = dyntopo::DynTopoMode::Subdivide;
 
     /* Break the incremental dab into its two phases: the remesh + incremental
@@ -1165,24 +1167,48 @@ bool execVerb(Scene &scene,
                            .count();
     double dab_ms = ops_ms + update_ms;
 
-    /* Convergence check: any in-region edge still longer than l_max means the
-     * dab under-refined (e.g. a seed that missed boundary edges). */
+    /* Convergence check: any in-region edge still longer than its (graded)
+     * target means the dab under-refined. */
     int leftover = 0;
+    float grade = scene.dyntopoParams.grade;
     float r2 = radius * radius;
     for (int e : scene.mesh->e) {
       if (scene.mesh->e.c[e] == ELEM_NONE) continue;
       float3 a = scene.mesh->v.co[scene.mesh->e.vs[e][0]];
       float3 b = scene.mesh->v.co[scene.mesh->e.vs[e][1]];
       float3 mid = (a + b) * 0.5f;
-      if ((mid - center).lengthSqr() <= r2 && (a - b).length() > detail * 1.001f) {
+      float d2 = (mid - center).lengthSqr();
+      if (d2 > r2) continue;
+      float target = detail;
+      if (grade > 0.0f && radius > 0.0f) {
+        target *= 1.0f + grade * (std::sqrt(d2) / radius);
+      }
+      if ((a - b).length() > target * 1.001f) {
         leftover++;
       }
     }
 
-    std::printf("[bench_dyntopo] faces %d->%d  splits=%d leftover=%d%s | "
-                "full_rebuild=%.2fms | incremental: ops=%.2fms update=%.2fms "
+    /* Max valence over in-region verts (the cascade's high-valence symptom —
+     * grading should keep this near the regular-mesh value of 6). */
+    int maxVal = 0;
+    mesh::Mesh &mm = *scene.mesh;
+    for (int v : mm.v) {
+      if ((mm.v.co[v] - center).lengthSqr() > r2 || mm.v.e[v] == ELEM_NONE) {
+        continue;
+      }
+      int n = 0, e0 = mm.v.e[v], e = e0;
+      do {
+        n++;
+        int side = mm.e.vs[e][0] == v ? 0 : 1;
+        e = mm.e.disk[e][side * 2 + 1];
+      } while (e != e0 && n < 100000);
+      if (n > maxVal) maxVal = n;
+    }
+
+    std::printf("[bench_dyntopo] faces %d->%d  splits=%d leftover=%d maxValence=%d%s "
+                "| full_rebuild=%.2fms | incremental: ops=%.2fms update=%.2fms "
                 "total=%.2fms  speedup=%.1fx\n",
-                fBefore, scene.mesh->f.count, st.splits, leftover,
+                fBefore, scene.mesh->f.count, st.splits, leftover, maxVal,
                 st.capped ? " CAPPED" : "", rebuild_ms, ops_ms, update_ms, dab_ms,
                 dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);

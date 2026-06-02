@@ -1,0 +1,7 @@
+# Interactive dyntopo testbed: sets up a cube + spatial tree + brush, then the
+# window opens. In the Brush panel: click "triangulate", check "dyntopo", set
+# the goal edge length, and paint with LMB to remesh under the cursor.
+make_cube subdivs=8 size=1.0
+build_spatial leaf_limit=256 depth_limit=8
+set_brush radius=0.15 strength=0.3
+view preset=persp

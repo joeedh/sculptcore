@@ -40,9 +40,14 @@ namespace sculptcore::dyntopo {
 enum class DynTopoMode { Subdivide, Collapse, Both };
 
 struct DynTopoParams {
-  float l_max = 0.10f;  /* split edges longer than this */
+  float l_max = 0.10f;  /* split edges longer than this (at the brush center) */
   float l_min = 0.04f;  /* collapse edges shorter than this (keep < l_max) */
   DynTopoMode mode = DynTopoMode::Both;
+  /* Graded target (sizing field, plan M7.1a): relax l_max/l_min outward from the
+   * brush center by (1 + grade * dist/radius), so the refinement grades smoothly
+   * into the surrounding mesh instead of cliffing at the brush rim — fewer
+   * splits and no high-valence boundary hubs. 0 = uniform (original behavior). */
+  float grade = 0.0f;
   /* The 1-triangle -> 2 split scheme cascades through spoke edges, so a dab
    * needs more independent-set rounds than a naive length-halving estimate.
    * 50 converges small/medium dabs; M7 will tune round efficiency for 5M tris. */
@@ -172,13 +177,21 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       if (m.e.freemap[e] || m.e.c[e] == ELEM_NONE || !seen.add(e)) {
         return; /* freed, wire, or already considered this round */
       }
-      if ((detail::edgeMid(m, e) - center).lengthSqr() > r2) {
+      float d2 = (detail::edgeMid(m, e) - center).lengthSqr();
+      if (d2 > r2) {
         return; /* outside the dab */
       }
+      /* Graded target: relax the goal outward from the center (sizing field). */
+      float tmax = p.l_max, tmin = p.l_min;
+      if (p.grade > 0.0f && radius > 0.0f) {
+        float scale = 1.0f + p.grade * (std::sqrt(d2) / radius);
+        tmax *= scale;
+        tmin *= scale;
+      }
       float L = detail::edgeLen(m, e);
-      if (doSplit && L > p.l_max) {
+      if (doSplit && L > tmax) {
         cands.append({e, true});
-      } else if (doCollapse && L < p.l_min) {
+      } else if (doCollapse && L < tmin) {
         cands.append({e, false});
       }
     };
