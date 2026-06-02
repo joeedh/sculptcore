@@ -195,7 +195,21 @@ cheap). Gated by `test_dyntopo_cascade` (now an off/on/baseline comparison) so
 the flip pass can't silently regress.
 
 M7.3 (longest-edge bisection) is **not needed** for the cascade — flips resolved
-it. The remaining 5 M item is only the per-dab split-budget safety valve (below).
+it.
+
+**Split-budget safety valve — DONE.** `DynTopoParams.max_splits` (0 = unlimited;
+default) caps the splits a single dab applies; on reaching it the dab stops and
+sets `DynTopoStats.budget_hit`, leaving the still-out-of-band edges for the next
+dab (a moving brush re-touches the region). So a one-shot heavy refine degrades
+to bounded latency instead of a long frame, and the region still fully converges
+across dabs. Verified by `test_dyntopo_budget` (a 201-split refine at budget 50
+spreads over 6 dabs, ≤50 each, converging to the same mesh) and the bench
+(475 k aggressive dab: unbudgeted 55 ms ops → `max_splits=1000` **15 ms**, BUDGET
+flagged, valence still ~10). Calibrate the budget to the frame target:
+≈frame_ms / ms-per-split (~0.04 ms/split at 5 M with flips). Exposed as a
+`bench_dyntopo max_splits=` knob (+ `BUDGET` readout), the `dyntopo` verb
+`max_splits=`, and a UI slider. With flips + this valve, **≥25 fps @ 5 M is
+reachable for both steady-state sculpting and a budgeted heavy refine.**
 
 ### M7.3 — Longest-edge bisection (if flips are insufficient)
 
@@ -222,9 +236,10 @@ behind a param; verify it doesn't fight the brush deform.
 > hit the cliff now converges in 11 rounds at valence 9, **171 ms** (was 1600 ms
 > flip-off / never-converging deeper). Steady-state sculpting (tens–hundreds of
 > splits/dab) is comfortably real-time at 5 M; a one-shot heavy refine (~4 k
-> splits) is 171 ms — bounded and convergent, and the per-dab split budget below
-> is the only remaining lever to pin it under one frame. The original mixed
-> verdict and the diagnosis that led to M7.2 are kept below for the record.
+> splits) is 171 ms — bounded and convergent, and the per-dab split budget
+> (`max_splits`, now implemented — see M7.2) pins it under one frame by spreading
+> the refine across dabs. The original mixed verdict and the diagnosis that led
+> to M7.2 are kept below for the record.
 
 
 

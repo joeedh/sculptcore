@@ -253,6 +253,14 @@ void Ui::drawPanel()
                         "round (M7.2).\nBreaks the refinement cascade: far fewer "
                         "splits, near-regular valence. Leave on.");
     }
+    ImGui::SliderInt("split budget/dab", &scene_->dyntopoParams.max_splits, 0,
+                     8000, scene_->dyntopoParams.max_splits == 0 ? "unlimited"
+                                                                 : "%d");
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Cap splits per dab (safety valve). 0 = unlimited.\nA "
+                        "heavy refine that exceeds the cap finishes over the "
+                        "next dabs, keeping each frame bounded.");
+    }
     static const char *kModes[] = {"Subdivide", "Collapse", "Both"};
     int modeIdx = int(scene_->dyntopoParams.mode);
     if (ImGui::Combo("dyntopo mode", &modeIdx, kModes, 3)) {

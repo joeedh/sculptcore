@@ -65,6 +65,14 @@ struct DynTopoParams {
    * round cap), cuts splits ~3x, and drops the cascade's max valence from ~60-97
    * back to ~9-10. Set false for the pre-M7.2 baseline. */
   bool do_flips = true;
+  /* Per-dab split budget (safety valve). 0 = unlimited (default; the bench /
+   * tests rely on a dab fully converging). When > 0, the dab stops once it has
+   * applied this many splits and sets stats.budget_hit; the still-out-of-band
+   * edges are simply refined by the next dab (a moving brush re-touches the
+   * region), so a one-shot heavy refine degrades to bounded latency instead of a
+   * multi-hundred-ms frame. Calibrate to the frame budget: ~frame_ms / ms-per-
+   * split (≈0.04ms/split at 5M with flips on). */
+  int max_splits = 0;
 };
 
 struct DynTopoStats {
@@ -72,7 +80,8 @@ struct DynTopoStats {
   int collapses = 0;
   int flips = 0;
   int rounds = 0;
-  bool capped = false; /* hit max_rounds with work still pending */
+  bool capped = false;     /* hit max_rounds with work still pending */
+  bool budget_hit = false; /* stopped early on max_splits (more work remains) */
 };
 
 namespace detail {
@@ -245,6 +254,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
    * bench_dyntopo profiling finding). */
   Set<int> frontier;
   bool firstRound = true;
+  bool budgetHit = false;
 
   for (int round = 0; round < p.max_rounds; round++) {
     /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
@@ -358,6 +368,10 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
           stats.splits++;
           applied++;
           addCreated(res.created_edges);
+          if (p.max_splits > 0 && stats.splits >= p.max_splits) {
+            budgetHit = true;
+            break; /* stop applying; flip sweep below still runs on what we did */
+          }
         }
       } else {
         math::float3 mid = detail::edgeMid(m, c.edge);
@@ -415,6 +429,11 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
     frontier = std::move(nextFrontier);
 
     stats.rounds = round + 1;
+    if (budgetHit) {
+      stats.budget_hit = true;
+      stats.capped = true;
+      break; /* hit the per-dab split budget — rest is the next dab's work */
+    }
     if (applied == 0) {
       break; /* nothing progressed (all refused) — avoid spinning */
     }
