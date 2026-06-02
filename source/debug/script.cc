@@ -1101,6 +1101,60 @@ bool execVerb(Scene &scene,
     return true;
   }
 
+  if (verb == "bench_dyntopo") {
+    /* A/B the per-dab spatial cost: a full tree rebuild (what the pre-M3 path
+     * paid every dab) vs one incremental dyntopo dab (ops + incremental node
+     * ownership + tree->update of only the dirty leaves). Run on increasingly
+     * large meshes to see the rebuild cost grow while the incremental dab stays
+     * roughly flat (local to the brush). */
+    if (!scene.mesh || !scene.tree) {
+      err = "bench_dyntopo: no mesh/tree (make_cube; triangulate; build_spatial)";
+      return false;
+    }
+    int leaf = getInt(args, "leaf_limit", 0);
+    int depth = getInt(args, "depth_limit", 16);
+    float radius = getFloat(args, "radius", 0.2f);
+    float detail = getFloat(args, "detail", 0.02f);
+    float3 center{0, 0, 0};
+    parseFloat3(getArg(args, "center"), center);
+
+    auto t0 = std::chrono::steady_clock::now();
+    scene.buildSpatial(leaf, depth, 0);
+    double rebuild_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+
+    int fBefore = scene.mesh->f.count;
+    scene.dyntopoParams.l_max = detail;
+    scene.dyntopoParams.l_min = detail * 0.4f;
+    scene.dyntopoParams.mode = dyntopo::DynTopoMode::Subdivide;
+
+    /* Break the incremental dab into its two phases: the remesh + incremental
+     * node ownership (local to the brush) vs tree->update() (whose partition +
+     * draw-batch phases are currently global). */
+    scene.mesh->thawTopo();
+    auto t1 = std::chrono::steady_clock::now();
+    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+        *scene.mesh, center, radius, scene.dyntopoParams, 7u,
+        scene.tree->getSpatialCallbacks());
+    double ops_ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - t1)
+                        .count();
+    auto t2 = std::chrono::steady_clock::now();
+    scene.tree->update(&scene.gpu);
+    double update_ms = std::chrono::duration<double, std::milli>(
+                           std::chrono::steady_clock::now() - t2)
+                           .count();
+    double dab_ms = ops_ms + update_ms;
+
+    std::printf("[bench_dyntopo] faces %d->%d  splits=%d | full_rebuild=%.2fms | "
+                "incremental: ops=%.2fms update=%.2fms total=%.2fms  speedup=%.1fx\n",
+                fBefore, scene.mesh->f.count, st.splits, rebuild_ms, ops_ms,
+                update_ms, dab_ms, dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
+    std::fflush(stdout);
+    return true;
+  }
+
   err = "unknown verb: " + verb;
   return false;
 }
