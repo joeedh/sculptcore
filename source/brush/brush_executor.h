@@ -145,6 +145,9 @@ struct CommandExecutor {
   bool keepTopoThawed = false;
   NeighborMode neighborMode = NeighborMode::LiveDisk;
   meshlog::MeshLog *meshLog = nullptr;
+  /* Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
+   * dab and accumulated per stroke). */
+  dyntopo::DynTopoStats lastDynTopoStats;
   Vector<float3> coPrevStorage;  // backing store for ctx.co_prev (Jacobi snapshot)
   // Backing store for resolved DSL attribute bindings (ctx.attrBindings),
   // rebuilt per dab in exec().
@@ -160,6 +163,7 @@ struct CommandExecutor {
     BIND_STRUCT_MEMBER(st, brush);
     BIND_STRUCT_MEMBER(st, tree);
     BIND_STRUCT_MEMBER(st, meshLog);
+    BIND_STRUCT_MEMBER(st, lastDynTopoStats);
     BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, applyDynTopoDab, MARGS("center", "radius", "params", "seed"));
@@ -654,6 +658,7 @@ struct CommandExecutor {
         *m, center, radius, *params, seed, cb,
         span<const int>(seedVerts.data(), seedVerts.size()));
 
+    lastDynTopoStats = st;
     return st.splits + st.collapses;
   }
 

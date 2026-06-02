@@ -3,6 +3,7 @@ import type {Brush} from './Brush'
 import type {BrushProgram} from './BrushProgram'
 import type {SpatialTree} from '../spatial/SpatialTree'
 import type {SpatialNode} from '../spatial/SpatialNode'
+import type {DynTopoStats} from '../dyntopo/DynTopoStats'
 import type {float3} from '../../litestl/math/float3'
 import type {SculptBrushes} from './SculptBrushes'
 import type {MeshLog} from '../meshlog/MeshLog'
@@ -29,6 +30,7 @@ export interface CommandExecutor {
   brush: Brush | undefined
   tree: SpatialTree | undefined
   meshLog: MeshLog | undefined
+  lastDynTopoStats: DynTopoStats
   execBrush(
     brushType: SculptBrushes,
     nodes: SpatialNode[],
