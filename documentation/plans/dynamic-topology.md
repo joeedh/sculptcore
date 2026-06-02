@@ -1,5 +1,24 @@
 # Dynamic Topology — Implementation Plan
 
+## Status (2026-06-01)
+
+The whole CPU correctness path is **done and tested**:
+
+- **M1–M4 complete.** Operators (`edge_split`/`edge_collapse`), the CPU driver
+  (`source/dyntopo/dyntopo.h`), debug-app verbs, attribute interpolation,
+  incremental spatial node-ownership, and meshlog undo/redo across topology
+  churn — all committed with unit tests. Three latent upstream bugs were fixed
+  along the way (mesh disk/radial change-events, `OrderedSet::remove`, the
+  meshlog TEMP-attr leak into undo).
+- **M5** (debugging protocol) and **M6** (GPU-assist) — not started; both
+  independent of the perf work below.
+- **M7** — partial. Profiling is done (`bench_dyntopo` verb) and identified the
+  cascade as the perf wall; the `edge_flip` operator landed as its foundation.
+  The **perf + tuning** half of M7 is expanded in its own subplan,
+  [`dyntopo-m7-cascade.md`](dyntopo-m7-cascade.md), and is the next runnable
+  work (the *parity* half of M7 is blocked on M6). `edge_flip` and
+  `bench_dyntopo` are profiling-driven additions not in the original M7 below.
+
 ## Context
 
 This is the build-out plan for the dynamic-topology (dyntopo) feature whose
@@ -169,6 +188,11 @@ agree on the same scene; per-dab bus traffic is a compact list, not a region
 re-upload (verify via buffer-size counters).
 
 ### M7 — Parity, perf, and tuning
+
+> The **perf + tuning** track is expanded, with profiling findings, into
+> [`dyntopo-m7-cascade.md`](dyntopo-m7-cascade.md) (the per-dab cost is dominated
+> by an ~8× over-refinement cascade, not the spatial tree). The **parity** track
+> below is blocked on M6.
 
 - **Parity**: `sbrush-verify`-style A/B — run identical strokes through
   CPU-only and GPU-assisted dyntopo, canonicalize the result mesh (sorted
