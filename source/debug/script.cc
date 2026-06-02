@@ -1132,11 +1132,12 @@ bool execVerb(Scene &scene,
     /* Break the incremental dab into its two phases: the remesh + incremental
      * node ownership (local to the brush) vs tree->update() (whose partition +
      * draw-batch phases are currently global). */
+    bool useSpatial = getBool(args, "spatial", true);
     scene.mesh->thawTopo();
     auto t1 = std::chrono::steady_clock::now();
     dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
         *scene.mesh, center, radius, scene.dyntopoParams, 7u,
-        scene.tree->getSpatialCallbacks());
+        useSpatial ? scene.tree->getSpatialCallbacks() : nullptr);
     double ops_ms = std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - t1)
                         .count();

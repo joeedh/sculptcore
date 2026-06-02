@@ -147,15 +147,24 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
     bool split;
   };
 
+  /* Frontier of verts whose incident edges might have fallen out of band since
+   * last round (the previous round's candidate + created-edge endpoints). Round
+   * 0 scans the whole mesh once to seed; later rounds stay local to the brush,
+   * so a dab is O(brush region) per round rather than O(total edges) (see the
+   * bench_dyntopo profiling finding). */
+  Set<int> frontier;
+  bool firstRound = true;
+
   for (int round = 0; round < p.max_rounds; round++) {
     /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
     Vector<Cand> cands;
-    for (int e : m.e) {
-      if (m.e.c[e] == ELEM_NONE) {
-        continue; /* skip wire edges */
+    Set<int> seen;
+    auto consider = [&](int e) {
+      if (m.e.freemap[e] || m.e.c[e] == ELEM_NONE || !seen.add(e)) {
+        return; /* freed, wire, or already considered this round */
       }
       if ((detail::edgeMid(m, e) - center).lengthSqr() > r2) {
-        continue; /* outside the dab */
+        return; /* outside the dab */
       }
       float L = detail::edgeLen(m, e);
       if (doSplit && L > p.l_max) {
@@ -163,9 +172,32 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       } else if (doCollapse && L < p.l_min) {
         cands.append({e, false});
       }
+    };
+    if (firstRound) {
+      for (int e : m.e) {
+        consider(e);
+      }
+      firstRound = false;
+    } else {
+      for (int v : frontier) {
+        if (m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
+          continue;
+        }
+        for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+          consider(e);
+        }
+      }
     }
     if (cands.isEmpty()) {
       break; /* converged */
+    }
+
+    /* Seed next frontier with this round's candidate endpoints so deferred
+     * (unpicked) candidates are re-examined next round. */
+    Set<int> nextFrontier;
+    for (const Cand &c : cands) {
+      nextFrontier.add(m.e.vs[c.edge][0]);
+      nextFrontier.add(m.e.vs[c.edge][1]);
     }
 
     /* 2. Deterministic shuffle so selection isn't biased by edge index and
@@ -199,6 +231,14 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
      *    index is impossible; an op may still no-op (e.g. a collapse the link
      *    condition refuses) — that just doesn't count. */
     int applied = 0;
+    auto addCreated = [&](const Vector<int> &edges) {
+      for (int e : edges) {
+        if (!m.e.freemap[e]) {
+          nextFrontier.add(m.e.vs[e][0]);
+          nextFrontier.add(m.e.vs[e][1]);
+        }
+      }
+    };
     for (const Cand &c : picked) {
       if (m.e.freemap[c.edge]) {
         continue;
@@ -208,6 +248,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         if (mesh::splitEdge(m, c.edge, &res, cb)) {
           stats.splits++;
           applied++;
+          addCreated(res.created_edges);
         }
       } else {
         math::float3 mid = detail::edgeMid(m, c.edge);
@@ -215,9 +256,11 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb)) {
           stats.collapses++;
           applied++;
+          addCreated(res.created_edges);
         }
       }
     }
+    frontier = std::move(nextFrontier);
 
     stats.rounds = round + 1;
     if (applied == 0) {
