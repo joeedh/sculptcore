@@ -765,9 +765,11 @@ bool execVerb(Scene &scene,
 #endif
     {
       /* Dyntopo pre-pass: remesh under the dab (rebuilds the tree) before the
-       * brush filters nodes, so the brush operates on the refined geometry. */
+       * brush filters nodes. Logged as its own undo step (the brush deform is a
+       * separate step below; merging them is a follow-up). */
       if (scene.dyntopoEnabled) {
-        scene.applyDynTopoDab(origin, scene.brush.radius, scene.dyntopoSeed);
+        scene.applyDynTopoDab(origin, scene.brush.radius, scene.dyntopoSeed,
+                              /*log=*/true);
       }
       Vector<spatial::SpatialNode *> nodes;
       scene.tree->filterNodes(origin, scene.brush.radius, nodes);
@@ -861,7 +863,7 @@ bool execVerb(Scene &scene,
       if (scene.dyntopoEnabled) {
         for (size_t i = 0; i < origins.size(); i++) {
           scene.applyDynTopoDab(origins[i], scene.brush.radius,
-                                scene.dyntopoSeed + uint32_t(i));
+                                scene.dyntopoSeed + uint32_t(i), /*log=*/true);
         }
       }
       brush::CommandExecutor exec(scene.tree, &scene.brush);
@@ -975,12 +977,17 @@ bool execVerb(Scene &scene,
   }
   if (verb == "undo") {
     if (scene.mesh && scene.tree) {
+      /* The meshlog recorded topology in the thawed state; a brush stroke
+       * leaves the mesh frozen (live links freed/CSR-rebuilt), which would
+       * mismatch the recorded links during replay. Thaw first. */
+      scene.mesh->thawTopo();
       scene.meshLog.undo(scene.mesh, scene.tree);
     }
     return true;
   }
   if (verb == "redo") {
     if (scene.mesh && scene.tree) {
+      scene.mesh->thawTopo();
       scene.meshLog.redo(scene.mesh, scene.tree);
     }
     return true;

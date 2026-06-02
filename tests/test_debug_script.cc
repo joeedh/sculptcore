@@ -50,6 +50,32 @@ int main()
     test_assert(scene.mesh->f.count > 600);
   }
 
+  /* Dyntopo undo (M4): a dyntopo stroke (refine + deform) is fully undoable
+   * back to the pre-stroke triangulated cube (152 v / 300 f), staying manifold.
+   * The deform and the topology edit are separate steps, hence two undos. */
+  {
+    Scene scene(64, 64, /*headless=*/true);
+    const char *src =
+        "make_cube subdivs=6 size=0.5\n"
+        "triangulate\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_brush radius=0.2 strength=0.5\n"
+        "dyntopo enabled=1 detail=0.04 mode=subdivide\n"
+        "stroke origin=0,0,0.25 normal=0,0,1\n"
+        "assert_manifold\n"
+        "undo\n"
+        "undo\n"
+        "assert_manifold\n";
+    auto r = script::run(scene, src, ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  dyntopo-undo line %d: %s\n", r.line_no, r.error.c_str());
+    }
+    test_assert(scene.mesh != nullptr);
+    test_assert(scene.mesh->v.count == 152); /* restored to the triangulated cube */
+    test_assert(scene.mesh->f.count == 300);
+  }
+
   /* Parser: unknown verb → ok=false with a line number. */
   {
     Scene scene(64, 64, true);

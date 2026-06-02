@@ -136,7 +136,8 @@ void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
   }
 }
 
-int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t seed)
+int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t seed,
+                           bool log)
 {
   if (!dyntopoEnabled || !mesh) {
     return 0;
@@ -144,10 +145,20 @@ int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t 
   /* dyntopo walks live disk/radial links; a prior stroke may have frozen the
    * topology (TOPO pages freed). Thaw first (no-op when not frozen). */
   mesh->thawTopo();
-  dyntopo::DynTopoStats st =
-      dyntopo::applyBrushDab(*mesh, center, radius, dyntopoParams, seed);
-  /* Topology changed underneath the tree; rebuild it with the same settings
-   * the last buildSpatial used so subsequent queries see fresh geometry. */
+
+  /* The topology mutation alone is logged (meshlog replay of the split/collapse
+   * cascade is correct — see tests/test_dyntopo_undo.cc). The tree rebuild must
+   * happen AFTER the step closes: it writes .spatial.* attrs that, if captured
+   * into the topo chunk, corrupt undo replay. */
+  if (log) {
+    meshLog.beginStep();
+  }
+  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+      *mesh, center, radius, dyntopoParams, seed, log ? meshLog.callbacks() : nullptr);
+  if (log) {
+    meshLog.endStep();
+  }
+
   if (tree) {
     buildSpatial(spatialLeaf_, spatialDepth_, spatialGpuTri_);
   }

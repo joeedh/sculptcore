@@ -217,6 +217,24 @@ int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
 
   e.disk[r] = math::int4(ELEM_NONE);
 
+  if (cb) {
+    /* disk_insert rewires the existing disk neighbors at each endpoint; snapshot
+     * their pre-insert links for the meshlog BEFORE they change, or undo leaves
+     * those neighbors pointing at the (released) new edge. */
+    int ends[2] = {v1, v2};
+    for (int vv : ends) {
+      if (v.e[vv] == ELEM_NONE) {
+        continue;
+      }
+      int e2 = v.e[vv];
+      int prevn = e.disk[e2][edge_side(e2, vv) * 2];
+      fire(cb->onEdgeChange, e2);
+      if (prevn != e2) {
+        fire(cb->onEdgeChange, prevn);
+      }
+    }
+  }
+
   disk_insert(r, v1);
   disk_insert(r, v2);
 
@@ -252,6 +270,17 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *c
     c.v[ci] = verts[i];
     c.e[ci] = edges[i];
     c.l[ci] = li;
+
+    if (cb && e.c[edges[i]] != ELEM_NONE) {
+      /* radial_insert rewires the edge's existing radial neighbors; snapshot
+       * their pre-insert links for the meshlog before they change. */
+      int c2 = e.c[edges[i]];
+      int c2prev = c.radial_prev[c2];
+      fire(cb->onCornerChange, c2);
+      if (c2prev != c2) {
+        fire(cb->onCornerChange, c2prev);
+      }
+    }
 
     radial_insert(edges[i], ci);
     corners.append(ci);
@@ -328,6 +357,23 @@ void Mesh::kill_edge(int e1, MeshCallbacks *cb)
   int va = e.vs[e1][0];
   int vb = e.vs[e1][1];
 
+  if (cb) {
+    /* disk_remove rewires e1's disk neighbors at each endpoint; snapshot them
+     * before they change (same reason as make_edge). */
+    int ends[2] = {va, vb};
+    for (int vv : ends) {
+      int side1 = edge_side(e1, vv);
+      int prevn = e.disk[e1][side1 * 2];
+      int nextn = e.disk[e1][side1 * 2 + 1];
+      if (prevn != e1) {
+        fire(cb->onEdgeChange, prevn);
+      }
+      if (nextn != e1 && nextn != prevn) {
+        fire(cb->onEdgeChange, nextn);
+      }
+    }
+  }
+
   disk_remove(e1, va);
   disk_remove(e1, vb);
 
@@ -354,11 +400,24 @@ void Mesh::kill_face(int f1, MeshCallbacks *cb)
       cnext = c.next[c1];
 
       int eid = c.e[c1];
+      if (cb) {
+        /* radial_remove rewires c1's radial neighbors and may change the edge's
+         * first-corner pointer; snapshot them before the change. */
+        int rnext = c.radial_next[c1];
+        int rprev = c.radial_prev[c1];
+        if (rnext != c1) {
+          fire(cb->onCornerChange, rnext);
+        }
+        if (rprev != c1 && rprev != rnext) {
+          fire(cb->onCornerChange, rprev);
+        }
+        fire(cb->onEdgeChange, eid);
+      }
+
       radial_remove(eid, c1);
 
       if (cb) {
         fire(cb->onCornerKill, c1);
-        fire(cb->onEdgeChange, eid);
       }
 
       c.release(c1);

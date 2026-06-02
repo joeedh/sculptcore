@@ -119,10 +119,14 @@ struct Scene {
 
   /* Remesh the mesh under one dab (sphere center/radius) and rebuild the
    * spatial tree with the last buildSpatial settings. Returns split+collapse
-   * count; no-op when dyntopo is disabled or there is no mesh. This is the
+   * count; no-op when dyntopo is disabled or there is no mesh. When `log` is
+   * set the topology edits are wrapped in a meshlog step (one undoable step
+   * per dab) — the tree rebuild stays OUTSIDE that step, because capturing the
+   * tree's .spatial.* attrs into the topo chunk corrupts replay. This is the
    * debug-app integration; the in-executor incremental-spatial path is a
-   * follow-up (plan M2 integration #5). */
-  int applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t seed);
+   * follow-up (plan M3). */
+  int applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t seed,
+                      bool log = false);
 
   /* Reorder all mesh element domains to be local to their owning spatial
    * nodes, rebuild the tree, and record an undoable reorder step. No-op
