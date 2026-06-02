@@ -102,6 +102,41 @@ free) or a **hidden O(mesh)** op (fix that directly — likely a freeze/thaw or 
 accidental full-mesh walk). Acceptance: a one-paragraph finding + the offending
 cost named. Remove all scaffolding.
 
+### M7.1a — Graded target edge length / sizing field (suggested — try before flips)
+
+The over-refinement and the high-valence hubs come largely from the **hard
+boundary** between the uniformly-fine brush region and the coarse surrounding
+mesh: an edge straddling that cliff keeps getting split trying to reach the fine
+goal while its far end stays coarse, spawning slivers and piling valence onto the
+boundary verts. Removing the cliff attacks the cascade at its *source* (it cuts
+the number of splits), rather than repairing slivers after the fact (M7.2/M7.3) —
+so evaluate it first.
+
+**Idea (suggested):** make the target edge length a spatially-graded field that
+is fine at the brush center and **relaxes (grows) outward**, blending into the
+surrounding mesh's natural edge length. Equivalently: recursively expand the
+affected vertex set outward and **relax the edge-length goal at each recursion
+step**, so each successive ring is refined to a coarser target. The refinement
+then self-terminates once the relaxed goal matches the ambient edge length, and
+the result is a smooth size gradient instead of a fine/coarse step.
+
+**Cheap to implement** — it falls out of the structure already in
+`applyBrushDab`: the `frontier` set already expands outward one ring per round.
+Replace the constant `p.l_max` in the candidate test with a per-edge
+`targetAt(edgeMidpoint)` that grows with distance from `center` (or step `l_max`
+up per frontier wave / round). Almost no new code — the round loop already *is*
+the recursive outward expansion the idea wants; it just needs the goal to relax
+as it goes.
+
+**Why it helps**: far fewer splits than uniform-fine (the relaxed outer rings
+need little); no high-valence boundary hubs (the gradient spreads the new verts);
+and a smooth blend into the surrounding mesh, which also makes consecutive
+overlapping dabs compose cleanly. **Knob**: the gradient slope is a
+density/quality trade — too steep still slivers at the brush rim, too shallow
+refines a wider area. Gate with `bench_dyntopo` (split count + a min-angle
+readout). May pair with M7.2 flips for the residual rim slivers, or make them
+unnecessary.
+
 ### M7.2 — Geometric (Delaunay) flip sweep
 
 Replace the rejected valence criterion with a **length/Delaunay** one: flip the
