@@ -3,6 +3,7 @@
 #include "scene.h"
 
 #include "brush/brush_executor.h"
+#include "mesh/utils/triangulate.h"
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_swapchain.h"
 #include "window/window.h"
@@ -222,6 +223,37 @@ void Ui::drawPanel()
         endNormalIdx == 1 ? StrokeEndNormals::Gpu : StrokeEndNormals::Cpu;
   }
 #endif
+
+  ImGui::Separator();
+  /* Dynamic topology: remesh under each dab toward a goal edge length. The
+   * operators are triangle-only, so offer a one-click triangulate (make_cube
+   * builds quads). */
+  ImGui::Checkbox("dyntopo", &scene_->dyntopoEnabled);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Remesh under the brush toward the goal edge length.\n"
+                      "Mesh must be triangles — use 'triangulate' first.");
+  }
+  {
+    float detail = scene_->dyntopoParams.l_max;
+    if (ImGui::SliderFloat("goal edge len", &detail, 0.005f, 0.5f, "%.4f",
+                           ImGuiSliderFlags_Logarithmic)) {
+      scene_->dyntopoParams.l_max = detail;
+      scene_->dyntopoParams.l_min = detail * 0.4f; /* collapse below 0.4x */
+    }
+    static const char *kModes[] = {"Subdivide", "Collapse", "Both"};
+    int modeIdx = int(scene_->dyntopoParams.mode);
+    if (ImGui::Combo("dyntopo mode", &modeIdx, kModes, 3)) {
+      scene_->dyntopoParams.mode = dyntopo::DynTopoMode(modeIdx);
+    }
+    if (ImGui::Button("triangulate") && scene_->mesh && scene_->tree) {
+      scene_->mesh->thawTopo();
+      mesh::triangulateMesh(*scene_->mesh);
+      scene_->tree->rebuild();
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Triangulate the whole mesh in place + rebuild the tree.");
+    }
+  }
 
   ImGui::Separator();
   ImGui::Checkbox("show axes", &scene_->showAxes);

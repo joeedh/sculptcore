@@ -167,6 +167,13 @@ void InteractiveController::beginStroke(float2 cursor)
   exec_->meshLog = &scene_->meshLog;
   exec_->beginStep();
 
+  /* Dyntopo pre-pass: remesh under the dab (incremental; updates the tree in
+   * place, so exec_'s tree pointer stays valid). Unlogged for now — undo
+   * reverts the deform but keeps the topology (interactive-testing path). */
+  if (scene_->dyntopoEnabled) {
+    scene_->applyDynTopoDab(hit, scene_->brush.radius, dyntopoSeed_++, /*log=*/false);
+  }
+
   Vector<spatial::SpatialNode *> nodes;
   scene_->tree->filterNodes(hit, scene_->brush.radius, nodes);
   if (nodes.size() != 0) {
@@ -213,6 +220,9 @@ void InteractiveController::continueStroke(float2 cursor)
     }
 #endif
     if (!exec_) return;
+    if (scene_->dyntopoEnabled) {
+      scene_->applyDynTopoDab(p, scene_->brush.radius, dyntopoSeed_++, /*log=*/false);
+    }
     Vector<spatial::SpatialNode *> nodes;
     scene_->tree->filterNodes(p, scene_->brush.radius, nodes);
     if (nodes.size() == 0) {

@@ -76,6 +76,7 @@ private:
   float3 strokeLastPos_{0, 0, 0};
   bool strokeHasLast_ = false;
   float strokeResidual_ = 0.0f;
+  uint32_t dyntopoSeed_ = 1; /* per-dab seed for the dyntopo pre-pass */
 };
 
 } // namespace sculptcore::debug_app
