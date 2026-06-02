@@ -254,6 +254,54 @@ struct SpatialTree {
     }
   }
 
+  /* Incremental removal: drop face `f` from its owning leaf (the inverse of
+   * add_face), marking the leaf for tris/bounds regen. Stale other_faces refs
+   * on neighbour leaves are tolerated — split_node skips freed faces. Used by
+   * the dyntopo callbacks so the tree need not be fully rebuilt per dab. */
+  void remove_face(int f)
+  {
+    int node_id = treeMesh.f.node[f];
+    if (node_id == 0) {
+      return; /* not the unique owner (at most an other_faces ref) */
+    }
+    SpatialNode *node = node_from_id(node_id);
+    treeMesh.f.node[f] = 0;
+    if (!node || !node->data) {
+      return;
+    }
+    node->data->unique_faces.remove(f);
+    node->flag |= Spatial_RegenTris | Spatial_RegenBounds;
+    for (SpatialNode *p = node->parent; p; p = p->parent) {
+      p->flag |= Spatial_RegenBounds;
+    }
+  }
+
+  /* Incremental removal of a killed vertex from its owning leaf. */
+  void remove_vert(int v)
+  {
+    int node_id = treeMesh.v.node[v];
+    treeMesh.v.node[v] = 0;
+    if (node_id == 0) {
+      return;
+    }
+    SpatialNode *node = node_from_id(node_id);
+    if (node && node->data) {
+      node->data->unique_verts.remove(v);
+    }
+  }
+
+  /* MeshCallbacks that keep node ownership current as topology changes, so the
+   * tree need not be fully rebuilt after a dyntopo dab — call update()
+   * afterward to process the accumulated dirty flags. Pass to the mesh
+   * topology ops (or fan out alongside the meshlog callbacks). */
+  mesh::MeshCallbacks *getSpatialCallbacks()
+  {
+    spatialCallbacks_.onFaceCreate = [this](int f) { this->add_face(f); };
+    spatialCallbacks_.onFaceKill = [this](int f) { this->remove_face(f); };
+    spatialCallbacks_.onVertKill = [this](int v) { this->remove_vert(v); };
+    return &spatialCallbacks_;
+  }
+
   util::Vector<SpatialNode *> leaves();
   util::Vector<SpatialNode *> gpu_nodes();
 
@@ -378,6 +426,9 @@ private:
   util::Vector<SpatialNode *> nodes;
   util::Vector<SpatialNode *> node_idmap;
   int node_idgen = 1;
+
+  /* Persistent callback bundle returned by getSpatialCallbacks(). */
+  mesh::MeshCallbacks spatialCallbacks_;
 
   /* Cached results of leaves()/gpu_nodes(), rebuilt lazily only when the node
    * set / GPU partition changes (see alloc_node, assign_gpu_nodes, rebuild).

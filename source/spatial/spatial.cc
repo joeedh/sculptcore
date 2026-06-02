@@ -270,6 +270,9 @@ void SpatialTree::split_node(SpatialNode *node)
   Vector<Tri, 16> tris;
 
   for (int f : node->data->unique_faces) {
+    if (m->f.freemap[f]) {
+      continue; /* tolerate a stale entry from incremental removal */
+    }
     FaceProxy face(m, f);
     float3 fcent = face.calc_center();
 
@@ -283,6 +286,9 @@ void SpatialTree::split_node(SpatialNode *node)
     }
   }
   for (int f : node->data->other_faces) {
+    if (m->f.freemap[f]) {
+      continue; /* stale other_faces ref to a killed face (incremental remove) */
+    }
     FaceProxy face(m, f);
     float3 fcent = face.calc_center();
 
