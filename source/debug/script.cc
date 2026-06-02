@@ -1119,15 +1119,23 @@ bool execVerb(Scene &scene,
     float3 center{0, 0, 0};
     parseFloat3(getArg(args, "center"), center);
 
-    auto t0 = std::chrono::steady_clock::now();
-    scene.buildSpatial(leaf, depth, 0);
-    double rebuild_ms = std::chrono::duration<double, std::milli>(
-                            std::chrono::steady_clock::now() - t0)
-                            .count();
+    /* rebuild=0 skips the full tree rebuild + its A/B baseline, reusing the
+     * current tree (kept current by the dyntopo callbacks). Lets a script fire
+     * several independent dabs on one (expensive) large build to map ops vs
+     * split count without paying the O(mesh) rebuild each time. */
+    bool doRebuild = getBool(args, "rebuild", true);
+    double rebuild_ms = 0.0;
+    if (doRebuild) {
+      auto t0 = std::chrono::steady_clock::now();
+      scene.buildSpatial(leaf, depth, 0);
+      rebuild_ms = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - t0)
+                       .count();
 
-    /* Warm-up: build the GPU buffers once so the measured update() below is an
-     * INCREMENTAL one (per-frame in the real app), not the cold first build. */
-    scene.tree->update(&scene.gpu);
+      /* Warm-up: build the GPU buffers once so the measured update() below is an
+       * INCREMENTAL one (per-frame in the real app), not the cold first build. */
+      scene.tree->update(&scene.gpu);
+    }
 
     int fBefore = scene.mesh->f.count;
     scene.dyntopoParams.l_max = detail;
@@ -1205,10 +1213,10 @@ bool execVerb(Scene &scene,
       if (n > maxVal) maxVal = n;
     }
 
-    std::printf("[bench_dyntopo] faces %d->%d  splits=%d leftover=%d maxValence=%d%s "
-                "| full_rebuild=%.2fms | incremental: ops=%.2fms update=%.2fms "
-                "total=%.2fms  speedup=%.1fx\n",
-                fBefore, scene.mesh->f.count, st.splits, leftover, maxVal,
+    std::printf("[bench_dyntopo] faces %d->%d  splits=%d rounds=%d leftover=%d "
+                "maxValence=%d%s | full_rebuild=%.2fms | incremental: ops=%.2fms "
+                "update=%.2fms total=%.2fms  speedup=%.1fx\n",
+                fBefore, scene.mesh->f.count, st.splits, st.rounds, leftover, maxVal,
                 st.capped ? " CAPPED" : "", rebuild_ms, ops_ms, update_ms, dab_ms,
                 dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);

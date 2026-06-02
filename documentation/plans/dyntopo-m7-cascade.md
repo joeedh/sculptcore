@@ -188,14 +188,53 @@ centroid of their 1-ring, projected back onto the tangent plane (keep them on
 the surface). Equalizes triangle sizes and further suppresses slivers. Gate it
 behind a param; verify it doesn't fight the brush deform.
 
-### M7.5 — 5 M-tri acceptance gate
+### M7.5 — 5 M-tri acceptance gate — MEASURED (mixed verdict; cascade is the remaining blocker)
 
-Build a genuine ~5 M-triangle test scene (a high-`subdivs` triangulated cube is
-too slow to build; use a procedural sphere/terrain or load one), drive an
-interactive stroke with `--profile` (`StrokeProfiler`), and confirm the per-dab
-cost stays local and the stroke holds **≥25 fps** on the reference laptop. This
-is the milestone the whole feature targets. Also wire a `bench_dyntopo`-style
-A/B into CI so the cascade can't silently regress.
+Gate built and run. A real **5.05 M-tri** mesh (`make_cube subdivs=650` +
+`triangulate`; the flat face is fine — geometry shape doesn't affect remesh cost)
+benched with `bench_dyntopo` (new `rebuild=0` flag fires several independent dabs
+on one expensive build; new `rounds` readout). Two clear results:
+
+**1. Spatial maintenance scales — PASS.** Incremental `tree->update()` is
+**2–11 ms at 5 M**, fully local (M7.6 confirmed). The tree is never the
+bottleneck.
+
+**2. The dyntopo remesh has a hard cascade cliff — PARTIAL.** Per-dab cost tracks
+**cascade depth (round count)**, NOT split count, and is super-linear and erratic.
+Mapping `ops` vs the target/spacing ratio (base spacing ≈ 0.0015 at 5 M; 0.005 at
+475 k) shows a cliff at **target ≈ 0.5× base spacing**:
+
+| target / spacing | rounds | leftover | maxValence | ops |
+|---|---|---|---|---|
+| ≈0.6× | 17 | 0 (converged) | 17 | **7 ms** |
+| ≈0.3× | 50 (CAP) | 299 | 69 | 37 ms |
+| ≈0.2× | 50 (CAP) | 2416 | 115 | 182 ms |
+| ≈0.16× | 50 (CAP) | 5943 | 140 | 524 ms |
+
+(475 k figures; the same cliff reproduces at 5 M — a radius-0.05 / 0.0008 dab is
+6.5 k splits / **7 s**.) Below the cliff the spoke cascade (P1) runs away: the dab
+hits `max_rounds`, never converges (leftover *grows*), and valence explodes to
+140 — **even with grade=2**. Grading tames *moderate* refinement but cannot rescue
+an aggressive *refine-from-coarse* dab.
+
+**Verdict.** ≥25 fps @ 5 M holds for **steady-state sculpting** — a dab that
+maintains an existing target edge length does moderate per-dab refinement
+(target ≳ 0.6× current spacing) and stays real-time (7–45 ms). It does **not**
+hold for a one-shot *aggressive refine* (target ≪ spacing), which cascades. That
+one-shot case is the remaining blocker and is squarely **M7.2 (geometric/Delaunay
+flips)** / **M7.3 (longest-edge bisection)** — the spoke-shape fixes — plus a
+safety valve: a **per-dab split/round budget** that defers overflow refinement to
+later dabs so a pathological dab degrades to bounded latency instead of a 7 s
+freeze (the `max_rounds` cap bounds rounds but still allows 500 ms+ and leaves the
+region under-refined).
+
+**CI regression gate — DONE.** `tests/test_dyntopo_cascade.cc` (ctest, no GPU): a
+seeded dab on a fixed grid asserts the graded config converges (leftover 0), its
+split count + max valence stay under deterministic ceilings (308 / 18 today,
+~1.5× headroom), and that grading cuts splits >4× and removes the high-valence
+hubs vs uniform (which here cascades, leftover>0, valence ~57). Catches a silent
+cascade/grading regression. (A perf-ms gate would be flaky; the split count is
+deterministic given the seed.)
 
 ### M7.6 — Spatial-tree currency (keep the tree correct + cheap to update) — DONE (split side)
 
