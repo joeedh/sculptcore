@@ -290,6 +290,20 @@ struct CommandExecutor {
     return 0;
   }
 
+  // Per-domain element *capacity*. Use this (not the count) when iterating by raw
+  // element id — dyntopo leaves freelist gaps, so a live element's id can exceed
+  // the live count.
+  static int elemCapacityForDomain(mesh::Mesh *m, AttrElemDomain d)
+  {
+    switch (d) {
+    case AttrElemDomain::Vertex: return int(m->v.capacity());
+    case AttrElemDomain::Face:   return int(m->f.capacity());
+    case AttrElemDomain::Edge:   return int(m->e.capacity());
+    case AttrElemDomain::Corner: return int(m->c.capacity());
+    }
+    return 0;
+  }
+
   void exec(brush_command &cmd,
             std::span<spatial::SpatialNode *> nodes,
             std::span<const BrushAttrLayerOverride> attrOverrides = {})
@@ -336,8 +350,10 @@ struct CommandExecutor {
           // Value-init a freshly created layer so unpainted elements are
           // deterministic: paint reads+writes the layer, and an uninitialized
           // page would make output depend on heap garbage (breaking GPU A/B +
-          // goldens). set_default zeroes simple/vector types.
-          int n = elemCountForDomain(m, entry.domain);
+          // goldens). set_default zeroes simple/vector types. Span capacity (not
+          // count): value-init by raw id so dyntopo's freelist-gap slots aren't
+          // left as heap garbage for a paint that reads them.
+          int n = elemCapacityForDomain(m, entry.domain);
           mesh::detail::type_dispatch(entry.type, [&]<typename T>() {
             if constexpr (std::is_same_v<T, bool>) {
               // BoolAttrView has no set_default; clear it explicitly so a fresh
@@ -360,10 +376,15 @@ struct CommandExecutor {
 
     // Jacobi snapshot: capture pre-dab vertex positions so for_neighbor reads
     // a consistent state regardless of the parallel node loop's interleaving.
+    // Indexed by RAW vertex id (so are co[] and the CSR neighbor ids), so it must
+    // span the full capacity, not v.count: dyntopo leaves freelist gaps, so a live
+    // vertex's id can exceed v.count — a count-sized snapshot would be read
+    // out-of-bounds for those verts/neighbors (garbage → smooth spikes).
     if (cmd.needsCoPrev && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
-      coPrevStorage.resize(m->v.count);
-      for (int i = 0; i < m->v.count; i++) {
+      int cap = int(m->v.capacity());
+      coPrevStorage.resize(cap);
+      for (int i = 0; i < cap; i++) {
         coPrevStorage[i] = m->v.co[i];
       }
       ctx.co_prev = &coPrevStorage;
