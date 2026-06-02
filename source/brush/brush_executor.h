@@ -137,6 +137,11 @@ struct CommandExecutor {
   SpatialTree *tree;
   CommandCtxBase ctx;
   bool isFirstOfStep = false;
+  /* Keep topology thawed across the stroke (don't freeze per dab). Set by the
+   * dyntopo path: a dyntopo dab mutates topology and needs live disk/radial
+   * links, so the per-dab freeze would otherwise force an O(mesh) thaw every
+   * dab. Brushes that already need live links thaw regardless. */
+  bool keepTopoThawed = false;
   NeighborMode neighborMode = NeighborMode::LiveDisk;
   meshlog::MeshLog *meshLog = nullptr;
   Vector<float3> coPrevStorage;  // backing store for ctx.co_prev (Jacobi snapshot)
@@ -442,7 +447,7 @@ struct CommandExecutor {
       if (brushType == SculptBrushes::BSMOOTH && isFirstOfStep) {
         refreshBoundaryClassForBSmooth(m);
       }
-      if (brushNeedsLiveLinks(brushType)) {
+      if (brushNeedsLiveLinks(brushType) || keepTopoThawed) {
         if (m->topo_frozen) m->thawTopo();
       } else if (!m->topo_frozen) {
         m->freezeTopo();
@@ -498,7 +503,7 @@ struct CommandExecutor {
       if (hasBSmooth && isFirstOfStep) {
         refreshBoundaryClassForBSmooth(m);
       }
-      if (needsLive) {
+      if (needsLive || keepTopoThawed) {
         if (m->topo_frozen) m->thawTopo();
       } else if (!m->topo_frozen) {
         m->freezeTopo();

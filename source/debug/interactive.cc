@@ -165,6 +165,9 @@ void InteractiveController::beginStroke(float2 cursor)
 
   exec_ = new brush::CommandExecutor(scene_->tree, &scene_->brush);
   exec_->meshLog = &scene_->meshLog;
+  /* Keep topology thawed for the whole stroke when dyntopo is on, so the per-dab
+   * remesh doesn't fight the brush's per-dab freeze (an O(mesh) thaw each dab). */
+  exec_->keepTopoThawed = scene_->dyntopoEnabled;
   exec_->beginStep();
 
   /* Dyntopo pre-pass: remesh under the dab (incremental; updates the tree in
