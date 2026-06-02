@@ -3,6 +3,28 @@ import Path from 'path'
 import child_process from 'child_process'
 import {fileURLToPath} from 'url'
 
+// PATH as inherited from the user's shell, captured before getVSEnv() rebuilds
+// it from vcvars. Used to relocate an on-PATH sccache (below).
+const INHERITED_PATH = process.env.PATH || ''
+
+// Return the directory of `name` on `pathStr`, or null. Used to keep sccache
+// reachable after the Windows PATH is rebuilt from scratch by vcvars.
+function findExeDir(name, pathStr) {
+  if (!pathStr) return null
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : ['']
+  for (const dir of pathStr.split(Path.delimiter)) {
+    if (!dir) continue
+    for (const ext of exts) {
+      try {
+        if (fs.existsSync(Path.join(dir, name + ext))) return dir
+      } catch {
+        /* unreadable dir entry on PATH; skip */
+      }
+    }
+  }
+  return null
+}
+
 function getVSEnv() {
   const PROGFILES = process.env.ProgramFiles
   const APPDATA = process.env.APPDATA
@@ -194,6 +216,20 @@ for (const line of env.replace(/\r/g, '').split('\n')) {
   const eq = line.indexOf('=')
   if (eq <= 0) continue
   process.env[line.slice(0, eq)] = line.slice(eq + 1)
+}
+
+// vcvars rebuilds PATH from scratch on Windows, dropping anything that was on
+// the user's PATH (including sccache). Re-add sccache's dir so the native
+// toolchain's find_program(sccache) can find it. SCCACHE_* env vars
+// (SCCACHE_DIR, SCCACHE_BASEDIRS, ...) survive untouched — we never strip the
+// inherited environment, only PATH gets overwritten above.
+if (target === 'native' && process.platform === 'win32') {
+  const sccacheDir = findExeDir('sccache', INHERITED_PATH)
+  const curPath = process.env.PATH || ''
+  const already = curPath.split(';').some((p) => p && p.toLowerCase() === sccacheDir?.toLowerCase())
+  if (sccacheDir && !already) {
+    process.env.PATH = curPath ? `${curPath};${sccacheDir}` : sccacheDir
+  }
 }
 
 const defaultShell = process.platform === 'win32' ? 'cmd' : process.env.SHELL || '/bin/sh'
