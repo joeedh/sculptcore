@@ -777,6 +777,13 @@ yargs(hideBin(process.argv))
     const env = envPrefix(target)
     const sbrushFlags = sbrushBackendFlags(backends)
     if (target === 'native') {
+      // Build + register the cross-worktree sccache launcher before cmake
+      // resolves it (build_files/native-clang.cmake). Best-effort: a no-op when
+      // the superproject's tools dir is absent (sculptcore built standalone).
+      const sccacheSetup = Path.resolve('../tools/sccache-wrapper/setup.mjs')
+      if (fs.existsSync(sccacheSetup)) {
+        run(`node "${sccacheSetup}"`)
+      }
       run(
         `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
       )
