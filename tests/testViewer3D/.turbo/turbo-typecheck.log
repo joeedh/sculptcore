@@ -1,4 +1,0 @@
-
-> @sculptcore/test-viewer-3d@ typecheck C:\dev\webgl-app-framework\sculptcore\tests\testViewer3D
-> bash ./node_modules/.bin/tsgo --noEmit
-
