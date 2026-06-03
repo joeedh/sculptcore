@@ -57,7 +57,7 @@ function parallelFlag() {
 
 function summarizeErrors(buf) {
   return new Promise((accept, reject) => {
-    if (buf.length < 2048) {
+    if (buf.length < 2048*80) {
       return
     }
     console.log('\n\nSummarizing errors...\n')

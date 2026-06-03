@@ -29,6 +29,12 @@
 #include <cstddef>
 #include <cstring>
 
+// The SBRUSH_*_DIR build paths are passed unquoted by CMake (a quoted value can
+// lose its quotes through the compiler-launcher/response-file plumbing on
+// Windows), so stringize them here into a real C string literal.
+#define SBRUSH_STRINGIZE_(x) #x
+#define SBRUSH_STRINGIZE(x) SBRUSH_STRINGIZE_(x)
+
 namespace sculptcore::debug_app {
 
 using litestl::math::float3;
@@ -201,7 +207,8 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
       return false;
     }
     disp_ = new webgpu::WgpuBrushComputeDispatch(wgpuCtx_);
-    std::string wgsl = std::string(SBRUSH_WGSL_DIR) + "/" + kernel_ + ".wgsl";
+    std::string wgsl =
+        std::string(SBRUSH_STRINGIZE(SBRUSH_WGSL_DIR)) + "/" + kernel_ + ".wgsl";
     if (!disp_->loadKernel(wgsl.c_str())) {
       err = "stroke(webgpu): failed to load " + wgsl;
       return false;
@@ -211,7 +218,8 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   {
     vkDisp_ = new vulkan::BrushComputeDispatch(scene.context);
     disp_ = vkDisp_;
-    std::string spv = std::string(SBRUSH_SPV_DIR) + "/" + kernel_ + ".spv";
+    std::string spv =
+        std::string(SBRUSH_STRINGIZE(SBRUSH_SPV_DIR)) + "/" + kernel_ + ".spv";
     if (!disp_->loadKernel(spv.c_str())) {
       err = "stroke(wgsl): failed to load " + spv;
       return false;

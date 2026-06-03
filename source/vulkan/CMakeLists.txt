@@ -62,5 +62,8 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_SPIRV)
   add_custom_target(vk_compute_shaders ALL DEPENDS ${_vk_spv_outputs})
   add_dependencies(vulkan vk_compute_shaders)
 
-  target_compile_definitions(vulkan PRIVATE VK_COMPUTE_SPV_DIR="${VK_SPV_DIR}")
+  # Escape backslashes so the path survives as a C string literal (Windows
+  # paths can contain '\', which would otherwise be read as escape sequences).
+  string(REPLACE "\\" "/" _vk_spv_dir_escaped "${VK_SPV_DIR}")
+  target_compile_definitions(vulkan PRIVATE VK_COMPUTE_SPV_DIR=${_vk_spv_dir_escaped})
 endif()

@@ -31,7 +31,7 @@ sc_add_library(debug_core "${LIB_SRC}" "${LIB}" STATIC)
 if (NOT BUILD_WASM AND SBRUSH_BACKEND_SPIRV)
   target_compile_definitions(debug_core PRIVATE
     SBRUSH_GPU_DISPATCH=1
-    SBRUSH_SPV_DIR="${CMAKE_BINARY_DIR}/sbrush_out/spirv")
+    SBRUSH_SPV_DIR=${CMAKE_BINARY_DIR}/sbrush_out/spirv)
 
   # Native WebGPU (wgpu-native) compute backend: adds the WgpuNative brush
   # backend that runs the .wgsl kernels through webgpu.h. Layers on top of the
@@ -41,9 +41,14 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_SPIRV)
     # PUBLIC: debug_app.cc (separate executable target) gates its --backend
     # webgpu parser on SBRUSH_WEBGPU_COMPUTE, so the define must propagate
     # transitively through the link, not stay private to debug_core.
+    
+    # Escape backslashes so the path survives as a C string literal (Windows
+    # paths can contain '\', which would otherwise be read as escape sequences).
+    string(REPLACE "\\" "/" _sbrush_wgsl_dir "${CMAKE_BINARY_DIR}/sbrush_out/wgsl")
+
     target_compile_definitions(debug_core PUBLIC
       SBRUSH_WEBGPU_COMPUTE=1
-      SBRUSH_WGSL_DIR="${CMAKE_BINARY_DIR}/sbrush_out/wgsl")
+      SBRUSH_WGSL_DIR=${_sbrush_wgsl_dir})
     target_link_libraries(debug_core webgpu)
   endif()
 endif()

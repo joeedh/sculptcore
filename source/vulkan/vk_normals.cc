@@ -8,8 +8,14 @@
 #include <vector>
 
 #ifndef VK_COMPUTE_SPV_DIR
-#define VK_COMPUTE_SPV_DIR ""
+#define VK_COMPUTE_SPV_DIR
 #endif
+
+// VK_COMPUTE_SPV_DIR is passed unquoted by CMake (a quoted value can lose its
+// quotes through the compiler-launcher/response-file plumbing on Windows), so
+// stringize it here into a real C string literal.
+#define VK_SPV_STRINGIZE_(x) #x
+#define VK_SPV_STRINGIZE(x) VK_SPV_STRINGIZE_(x)
 
 namespace sculptcore::vulkan {
 
@@ -88,7 +94,7 @@ bool GpuNormalPass::ensureBuf(Buf &b, VkDeviceSize size)
 
 bool GpuNormalPass::loadModule(const char *name, VkShaderModule &out)
 {
-  std::string path = std::string(VK_COMPUTE_SPV_DIR) + "/" + name;
+  std::string path = std::string(VK_SPV_STRINGIZE(VK_COMPUTE_SPV_DIR)) + "/" + name;
   std::ifstream f(path, std::ios::binary | std::ios::ate);
   if (!f) {
     std::fprintf(stderr, "GpuNormalPass: cannot open '%s'\n", path.c_str());

@@ -1,3 +1,4 @@
+
 macro(sc_add_library target src lib lib_type)
   add_library(${target} ${lib_type})
 
