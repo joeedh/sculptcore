@@ -118,8 +118,21 @@ function getEmsdkEnv() {
   const CWD = process.cwd()
   const scriptPath = fileURLToPath(import.meta.url)
 
+  // SCULPTCORE_EMSDK_DIR lets a worktree borrow another worktree's emsdk install
+  // instead of re-running the expensive `install-emsdk`. construct_env records
+  // absolute paths into whichever emsdk dir it runs in, so pointing here at e.g.
+  // the main worktree's emsdk makes emcc/node/etc. resolve there. The
+  // create-worktree skill sets this; unset, the in-tree ./emsdk is used.
   process.chdir(Path.dirname(scriptPath))
-  process.chdir('emsdk')
+  if (process.env.SCULPTCORE_EMSDK_DIR) {
+    if (!fs.existsSync(process.env.SCULPTCORE_EMSDK_DIR)) {
+      process.stderr.write(`SCULPTCORE_EMSDK_DIR does not exist: ${process.env.SCULPTCORE_EMSDK_DIR}\n`)
+      process.exit(-1)
+    }
+    process.chdir(process.env.SCULPTCORE_EMSDK_DIR)
+  } else {
+    process.chdir('emsdk')
+  }
 
   const childEnv = {...process.env}
   // construct_env prints informational banners ("Setting up EMSDK
