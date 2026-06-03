@@ -21,7 +21,11 @@ importers:
         specifier: ^18.0.0
         version: 18.0.0
 
-  source/litestl/binding/typescriptRuntime: {}
+  source/litestl/binding/typescriptRuntime:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
 
   source/litestl/tests:
     dependencies:

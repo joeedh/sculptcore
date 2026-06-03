@@ -6,12 +6,16 @@
 #include "test_util.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
 #include "dyntopo/dyntopo.h"
+#include "mesh/attribute.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/edge_collapse.h"
 #include "mesh/utils/edge_split.h"
 #include "meshlog/meshlog_base.h"
+#include "spatial/spatial.h"
 
 #include <cstdio>
 
@@ -127,6 +131,75 @@ void buildTwoTris(Mesh &m, int &sharedEdge, int &v0_, int &v2_)
   sharedEdge = findEdge(m, v0, v2);
   v0_ = v0;
   v2_ = v2;
+}
+
+/* Triangulated n*n grid in z=0, spanning [-0.5, 0.5]. */
+Mesh *makeTriGrid(int n)
+{
+  Mesh *m = litestl::alloc::New<Mesh>("undo grid");
+  litestl::util::Vector<int> grid;
+  grid.resize(n * n);
+  for (int y = 0; y < n; y++) {
+    for (int x = 0; x < n; x++) {
+      float fx = float(x) / float(n - 1) - 0.5f;
+      float fy = float(y) / float(n - 1) - 0.5f;
+      grid[y * n + x] = m->make_vertex(float3(fx, fy, 0.0f));
+    }
+  }
+  for (int y = 0; y < n - 1; y++) {
+    for (int x = 0; x < n - 1; x++) {
+      int a = grid[y * n + x], b = grid[y * n + x + 1];
+      int c = grid[(y + 1) * n + x + 1], d = grid[(y + 1) * n + x];
+      int t0[3] = {a, b, c};
+      int t1[3] = {a, c, d};
+      m->make_face(std::span<int>(t0, 3));
+      m->make_face(std::span<int>(t1, 3));
+    }
+  }
+  return m;
+}
+
+/* Every live face is owned by exactly one leaf, owner ids agree, the per-leaf
+ * unique_faces hold only live faces, and every live face/vert is covered.
+ * Returns the owned-face count, or -1 on any inconsistency. (Mirrors
+ * test_spatial_dyntopo's validator — the invariant the tree must hold after an
+ * undo/redo that reconciles ownership.) */
+int validateOwnership(spatial::SpatialTree *tree, Mesh *m, const char *tag)
+{
+  int owned = 0, ownedV = 0;
+  for (auto *leaf : tree->leaves()) {
+    if (!leaf->data) continue;
+    for (int f : leaf->data->unique_faces) {
+      if (m->f.freemap[f]) {
+        fprintf(stderr, "[%s] leaf %d owns dead face %d\n", tag, leaf->id, f);
+        return -1;
+      }
+      if (tree->treeMesh.f.node[f] != leaf->id) {
+        fprintf(stderr, "[%s] face %d owner %d != leaf %d\n", tag, f,
+                tree->treeMesh.f.node[f], leaf->id);
+        return -1;
+      }
+      owned++;
+    }
+    for (int v : leaf->data->unique_verts) {
+      if (m->v.freemap[v]) {
+        fprintf(stderr, "[%s] leaf %d owns dead vert %d\n", tag, leaf->id, v);
+        return -1;
+      }
+      ownedV++;
+    }
+  }
+  for (int f : m->f) {
+    if (tree->treeMesh.f.node[f] == 0) {
+      fprintf(stderr, "[%s] live face %d is unowned\n", tag, f);
+      return -1;
+    }
+  }
+  if (ownedV != m->v.count) {
+    fprintf(stderr, "[%s] %d verts owned but mesh has %d\n", tag, ownedV, m->v.count);
+    return -1;
+  }
+  return owned;
 }
 
 } // namespace
@@ -262,6 +335,153 @@ int main()
     pr("dab redo", counts(m));
     TASSERT(manifold(m, "dab-redo"));
     TASSERT(eq(counts(m), after));
+  }
+
+  /* --- polygroup preservation across a dab + undo/redo.
+   *     Paint a uniform face "group" = 7, run a full dab (split + collapse +
+   *     flip), and require every face to still read 7. A flip that rebuilds its
+   *     two faces via make_face without carrying the face attr row would zero
+   *     their group — so a uniform group is an unambiguous detector (no
+   *     poly-group boundary edges exist, so the flip sweep is unconstrained).
+   *     Then round-trip the meshlog topo chunk and require the group survives
+   *     undo and redo. --- */
+  {
+    Mesh m;
+    const int N = 7;
+    int grid[N * N];
+    for (int y = 0; y < N; y++) {
+      for (int x = 0; x < N; x++) {
+        float fx = float(x) / float(N - 1) - 0.5f;
+        float fy = float(y) / float(N - 1) - 0.5f;
+        grid[y * N + x] = m.make_vertex(float3(fx, fy, 0.0f));
+      }
+    }
+    for (int y = 0; y < N - 1; y++) {
+      for (int x = 0; x < N - 1; x++) {
+        int a = grid[y * N + x], b = grid[y * N + x + 1];
+        int c = grid[(y + 1) * N + x + 1], d = grid[(y + 1) * N + x];
+        int t0[3] = {a, b, c};
+        int t1[3] = {a, c, d};
+        m.make_face(std::span<int>(t0, 3));
+        m.make_face(std::span<int>(t1, 3));
+      }
+    }
+
+    /* Paint a single uniform polygroup. */
+    AttrRef &gref = m.f.attrs.ensure(AttrType::INT, boundary::FACE_GROUP, true);
+    auto *group = static_cast<AttrData<int> *>(gref.data);
+    for (int fi : m.f) {
+      (*group)[fi] = 7;
+    }
+
+    auto allSeven = [&](const char *tag) -> bool {
+      auto *g = static_cast<AttrData<int> *>(
+          m.f.attrs.find_attribute(AttrType::INT, boundary::FACE_GROUP).data);
+      int bad = 0, total = 0;
+      for (int fi : m.f) {
+        total++;
+        if ((*g)[fi] != 7) bad++;
+      }
+      if (bad) {
+        fprintf(stderr, "[%s] %d/%d faces lost their polygroup\n", tag, bad, total);
+      }
+      return bad == 0;
+    };
+
+    MeshLog log;
+    log.setActiveMesh(&m);
+    Counts before = counts(m);
+
+    dyntopo::DynTopoParams p;
+    p.l_max = 0.08f;
+    p.l_min = 0.01f;
+    p.mode = dyntopo::DynTopoMode::Both; /* default; exercises the flip sweep */
+
+    log.beginStep();
+    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+        m, float3(0, 0, 0), 0.3f, p, /*seed=*/123u, log.callbacks());
+    log.endStep();
+    pr("pg dab after", counts(m));
+    printf("  pg dab: %d splits, %d collapses, %d flips\n", st.splits, st.collapses,
+           st.flips);
+    TASSERT(st.flips > 0); /* the test only detects the bug if flips ran */
+    TASSERT(manifold(m, "pg-dab"));
+    TASSERT(allSeven("pg-dab")); /* the flip-preservation check */
+
+    log.undo(&m, nullptr);
+    TASSERT(manifold(m, "pg-undo"));
+    TASSERT(eq(counts(m), before));
+    TASSERT(allSeven("pg-undo")); /* topo log must restore face attrs */
+
+    log.redo(&m, nullptr);
+    TASSERT(manifold(m, "pg-redo"));
+    TASSERT(allSeven("pg-redo"));
+  }
+
+  /* --- meshlog undo/redo WITH a live spatial tree.
+   *     The topo log restores mesh elements, but the tree's incremental face
+   *     ownership (`.spatial.f.node`, a TEMP attr) is NOT logged — so undo/redo
+   *     must reconcile it via add_face/remove_face, or the tree (and the GPU
+   *     buffers / rendering) go stale and the undo is invisible. Run a dab
+   *     through the combined meshlog+spatial callbacks, then undo + redo, and
+   *     require the tree to own every live face exactly once at each step. --- */
+  /* Subdivide-only and Both (split + collapse + flip): both kill & recreate
+   * faces, so both exercise the ownership reconcile; Both also flips (faces
+   * rewired in place) and collapses (verts killed). */
+  for (dyntopo::DynTopoMode mode :
+       {dyntopo::DynTopoMode::Subdivide, dyntopo::DynTopoMode::Both}) {
+    Mesh *m = makeTriGrid(13); /* spacing ~0.083 */
+    auto *tree = litestl::alloc::New<spatial::SpatialTree>("undo tree", m);
+    tree->leaf_limit = 96;
+    tree->buildAll();
+
+    int fBefore = m->f.count;
+    TASSERT(validateOwnership(tree, m, "tree-build") == fBefore);
+
+    MeshLog log;
+    log.setActiveMesh(m);
+
+    /* Combined callbacks: meshlog first (snapshots), then the tree's
+     * incremental-ownership handlers — mirrors brush_executor's fan-out. */
+    mesh::MeshCallbacks combined = *log.callbacks();
+    mesh::MeshCallbacks *sp = tree->getSpatialCallbacks();
+    {
+      auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;
+      combined.onFaceCreate = [mlFC, spFC](int f) { if (mlFC) mlFC(f); if (spFC) spFC(f); };
+      auto mlFK = combined.onFaceKill, spFK = sp->onFaceKill;
+      combined.onFaceKill = [mlFK, spFK](int f) { if (mlFK) mlFK(f); if (spFK) spFK(f); };
+      auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
+      combined.onVertKill = [mlVK, spVK](int v) { if (mlVK) mlVK(v); if (spVK) spVK(v); };
+    }
+
+    dyntopo::DynTopoParams p;
+    p.l_max = 0.05f;
+    p.l_min = 0.02f; /* > spacing/2 so post-split edges collapse in Both mode */
+    p.mode = mode;
+
+    log.beginStep();
+    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+        *m, float3(0, 0, 0), 0.3f, p, /*seed=*/42u, &combined);
+    log.endStep();
+    TASSERT(st.splits > 0);
+    int fAfter = m->f.count;
+    tree->applyDeferredRebalance();
+    TASSERT(validateOwnership(tree, m, "tree-dab") == fAfter);
+
+    log.undo(m, tree);
+    tree->applyDeferredRebalance();
+    printf("  tree undo (mode %d): %d -> %d faces (%d splits, %d collapses, %d flips)\n",
+           int(mode), fAfter, m->f.count, st.splits, st.collapses, st.flips);
+    TASSERT(m->f.count == fBefore);
+    TASSERT(validateOwnership(tree, m, "tree-undo") == fBefore); /* fails pre-fix */
+
+    log.redo(m, tree);
+    tree->applyDeferredRebalance();
+    TASSERT(m->f.count == fAfter);
+    TASSERT(validateOwnership(tree, m, "tree-redo") == fAfter);
+
+    litestl::alloc::Delete(tree);
+    litestl::alloc::Delete(m);
   }
 
   printf("dyntopo_undo test: done\n");

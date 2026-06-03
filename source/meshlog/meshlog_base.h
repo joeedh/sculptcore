@@ -523,6 +523,28 @@ struct LogChunkTopo : public LogChunk {
 
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    /* The raw alloc/release below bypass make_face/kill_face, so the spatial
+     * tree's incremental face ownership (`.spatial.f.node`, a TEMP attr that
+     * ChunkElemRow does NOT log) is never updated by the restore itself. Drive
+     * the tree's add_face/remove_face here so its leaf face-sets + GPU buffers
+     * track the restored mesh; without it undo leaves a stale tree (nothing
+     * redrawn). No-op when undoing with no tree (the isolated operator tests). */
+    if (tree) {
+      /* Pre-pass (mesh still in post-step state, so connectivity is valid):
+       * drop ownership of faces about to be released or rewired, and of verts
+       * about to be released (else their leaf keeps a dangling unique_verts ref
+       * — the forward kill path never owned-removed them via callbacks). */
+      for (LogElem *e : records) {
+        if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
+          if (e->kind == LogElemKind::Face) tree->remove_face(e->end_mesh_index);
+          else if (e->kind == LogElemKind::Vert) tree->remove_vert(e->end_mesh_index);
+        } else if (e->kind == LogElemKind::Face && e->origin == LogOrigin::Existed &&
+                   e->fate == LogFate::Live) {
+          tree->remove_face(e->begin_mesh_index);
+        }
+      }
+    }
+
     /* Reverse order: undo dependents before underlying elements. */
     for (int i = records.size() - 1; i >= 0; i--) {
       LogElem *e = records[i];
@@ -542,10 +564,39 @@ struct LogChunkTopo : public LogChunk {
       }
       /* (Created && Dead) records were dropped at kill time. */
     }
+
+    if (tree) {
+      /* Post-pass (mesh now fully in pre-step state): re-own faces that came
+       * back or were rewired. add_face re-derives the leaf and flags it for
+       * tris/bounds/GPU regen. */
+      for (LogElem *e : records) {
+        if (e->kind != LogElemKind::Face) continue;
+        if (e->origin == LogOrigin::Existed &&
+            (e->fate == LogFate::Dead || e->fate == LogFate::Live)) {
+          tree->add_face(e->begin_mesh_index);
+        }
+      }
+    }
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    if (tree) {
+      /* Pre-pass (mesh in pre-step state): drop ownership of faces about to be
+       * released or rewired, and of verts about to be released — else their
+       * leaf keeps a dangling unique_verts ref that an index-reusing recreate
+       * would resurrect into a double-owned vert. */
+      for (LogElem *e : records) {
+        if (e->origin != LogOrigin::Existed) continue;
+        if (e->kind == LogElemKind::Face &&
+            (e->fate == LogFate::Dead || e->fate == LogFate::Live)) {
+          tree->remove_face(e->begin_mesh_index);
+        } else if (e->kind == LogElemKind::Vert && e->fate == LogFate::Dead) {
+          tree->remove_vert(e->begin_mesh_index);
+        }
+      }
+    }
+
     /* Forward order: allocate underlying before dependents reference them. */
     for (int i = 0; i < records.size(); i++) {
       LogElem *e = records[i];
@@ -563,6 +614,18 @@ struct LogChunkTopo : public LogChunk {
       } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
         /* It was killed during the step. */
         ed->release(e->begin_mesh_index);
+      }
+    }
+
+    if (tree) {
+      /* Post-pass (mesh in post-step state): re-own recreated/rewired faces. */
+      for (LogElem *e : records) {
+        if (e->kind != LogElemKind::Face) continue;
+        if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
+          tree->add_face(e->end_mesh_index);
+        } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
+          tree->add_face(e->begin_mesh_index);
+        }
       }
     }
   }
@@ -856,8 +919,17 @@ struct MeshLog {
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       return;
     }
-    for (LogChunk *chunk : curEntry().chunks) {
-      chunk->undo(m, tree);
+    /* Undo chunks in REVERSE creation order. A folded sculpt step (TS sculpt op)
+     * holds the dyntopo topo chunk (created first) followed by the brush's
+     * per-node position LogChunkSimple chunks (created during the deform that ran
+     * after dyntopo). They overlap on the verts dyntopo moved: the topo chunk
+     * holds the true pre-step position, the simple chunk a mid-stroke
+     * (post-dyntopo) one. Replaying newest-first lets the topo chunk's pre-step
+     * value win (and keeps the simple swap operating on the still-post-step
+     * topology, where its captured indices are all live). */
+    auto &chunks = curEntry().chunks;
+    for (int i = int(chunks.size()) - 1; i >= 0; i--) {
+      chunks[i]->undo(m, tree);
     }
   }
 
@@ -866,6 +938,8 @@ struct MeshLog {
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       return;
     }
+    /* Forward creation order: re-apply topology (topo chunk) before the brush
+     * positions (simple chunks) that were captured against it. */
     for (LogChunk *chunk : curEntry().chunks) {
       chunk->redo(m, tree);
     }

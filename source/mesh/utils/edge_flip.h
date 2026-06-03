@@ -19,6 +19,7 @@
 #include "../mesh.h"
 #include "../mesh_base.h"
 #include "../mesh_iter.h"
+#include "attr_interp.h"
 
 #include "litestl/util/error.h"
 #include "litestl/util/vector.h"
@@ -100,6 +101,45 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
     out->killed_faces.append(f_ba);
   }
 
+  /* Snapshot both faces' attr rows and their per-corner rows (keyed by vertex)
+   * before the kill, so the rebuilt faces keep their `group` / `uv` / etc.
+   * instead of make_face's value-init — otherwise every interior flip would
+   * zero the polygroup of the two faces it touches. dyntopo refuses to flip
+   * feature edges (seam / sharp / poly-group / UV-chart boundaries), so the two
+   * faces share a value across any layer that could differ at a boundary; the
+   * f_ab->nf0 / f_ba->nf1 assignment is therefore unambiguous in practice. */
+  AttrRowSnapshot snapFab, snapFba;
+  snapshotAttrRow(m.f.attrs, f_ab, snapFab);
+  snapshotAttrRow(m.f.attrs, f_ba, snapFba);
+  struct CornerSnap {
+    int vert;
+    AttrRowSnapshot snap;
+  };
+  litestl::util::Vector<CornerSnap, 6> csnaps;
+  auto snapCorners = [&](int f) {
+    int li = m.f.l[f];
+    int lc0 = m.l.c[li], lcc = lc0;
+    do {
+      int v = m.c.v[lcc];
+      bool have = false;
+      for (CornerSnap &cs : csnaps) {
+        if (cs.vert == v) {
+          have = true;
+          break;
+        }
+      }
+      if (!have) {
+        CornerSnap cs;
+        cs.vert = v;
+        snapshotAttrRow(m.c.attrs, lcc, cs.snap);
+        csnaps.append(std::move(cs));
+      }
+      lcc = m.c.next[lcc];
+    } while (lcc != lc0);
+  };
+  snapCorners(f_ab);
+  snapCorners(f_ba);
+
   m.kill_face(f_ab, cb);
   m.kill_face(f_ba, cb);
   m.kill_edge(edge, cb); /* now wire */
@@ -108,6 +148,25 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
   int t1[3] = {d, b, c};
   int nf0 = m.make_face(std::span<int>(t0, 3), cb);
   int nf1 = m.make_face(std::span<int>(t1, 3), cb);
+
+  restoreAttrRow(m.f.attrs, nf0, snapFab);
+  restoreAttrRow(m.f.attrs, nf1, snapFba);
+  auto restoreCorners = [&](int f) {
+    int li = m.f.l[f];
+    int lc0 = m.l.c[li], lcc = lc0;
+    do {
+      int v = m.c.v[lcc];
+      for (CornerSnap &cs : csnaps) {
+        if (cs.vert == v) {
+          restoreAttrRow(m.c.attrs, lcc, cs.snap);
+          break;
+        }
+      }
+      lcc = m.c.next[lcc];
+    } while (lcc != lc0);
+  };
+  restoreCorners(nf0);
+  restoreCorners(nf1);
 
   if (out) {
     out->created_faces.append(nf0);

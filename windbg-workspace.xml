@@ -1,0 +1,283 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Settings>
+  <Setting Name="EulaState" Value="accepted" />
+  <Setting Name="LaunchExecutableDialog.Executable" Value="C:\dev\webgl-app-framework\sculptcore\build\native\source\debug\debug_app.exe" />
+  <Setting Name="LaunchExecutableDialog.StartDirectory" Value="C:\dev\webgl-app-framework\sculptcore" />
+  <Setting Name="LaunchExecutableDialog.Arguments" Value="--script tests/scripts/sphere_draw.txt --interactive" />
+  <XmlSetting Name="WindowPreferences">
+    <WindowProfile xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns="clr-namespace:Microsoft.VisualStudio.PlatformUI.Shell;assembly=Microsoft.Performance.Shell">
+      <MainSite IsVisible="True">
+        <AutoHideRoot IsVisible="True" DockedHeight="*" DockedWidth="*">
+          <AutoHideChannel Orientation="Vertical" IsVisible="True">
+            <AutoHideGroup IsVisible="True">
+              <ToolWindowInstance IsPersisted="True" ToolWindowName="DisassemblyToolWindow" Name="2c684bec-2263-4c79-a1c2-fb17f381eb74" IsVisible="True" DockedHeight="192" DockedWidth="762" AutoHideWidth="762" FloatingTop="744" FloatingLeft="-28" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+            </AutoHideGroup>
+            <AutoHideGroup IsVisible="True">
+              <ToolWindowInstance IsPersisted="True" ToolWindowName="RegistersToolWindow" Name="6159273f-28c4-4008-88ed-73f7a4f837ea" IsVisible="True" DockedHeight="131" DockedWidth="292" FloatingTop="756" FloatingLeft="-59" FloatingHeight="139" FloatingWidth="1920" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+            </AutoHideGroup>
+            <AutoHideGroup IsVisible="True">
+              <ToolWindowInstance IsPersisted="True" ToolWindowName="MemoryToolWindow" Name="d4e028e8-4686-4719-90ae-9d11444f73e3" IsVisible="True" DockedHeight="192" DockedWidth="480" AutoHideWidth="480" FloatingTop="747" FloatingLeft="-101" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+            </AutoHideGroup>
+          </AutoHideChannel>
+          <AutoHideChannel Dock="Right" Orientation="Vertical" />
+          <AutoHideChannel Dock="Top" />
+          <AutoHideChannel Dock="Bottom" />
+          <DockRoot IsVisible="True" DockedHeight="*" DockedWidth="*">
+            <DockGroup IsVisible="True" DockedHeight="*" DockedWidth="*">
+              <ViewBookmark Name="d4e028e8-4686-4719-90ae-9d11444f73e3" />
+              <ViewBookmark Name="6159273f-28c4-4008-88ed-73f7a4f837ea" />
+              <ViewBookmark Name="2c684bec-2263-4c79-a1c2-fb17f381eb74" />
+              <DockGroup Orientation="Vertical" IsVisible="True" DockedHeight="*" DockedWidth="*">
+                <DocumentGroupContainer IsVisible="True" DockedHeight="*" DockedWidth="*">
+                  <DocumentGroup IsVisible="True">
+                    <ViewBookmark ToolWindowName="SourceToolWindow" ViewBookmarkType="OpenLocation" />
+                  </DocumentGroup>
+                </DocumentGroupContainer>
+                <DockGroup IsVisible="True" DockedHeight="266" DockedWidth="1274">
+                  <TabGroup IsVisible="True" DockedHeight="266" DockedWidth="358.67758871958">
+                    <ViewBookmark Name="0b67f917-a3f3-4d00-8a1c-4ae94dc42a14" DockedHeight="266" DockedWidth="358.67758871958" />
+                    <ViewBookmark ToolWindowName="TimelinesToolWindow" ViewBookmarkType="OpenLocation" DockedHeight="266" DockedWidth="358.67758871958" />
+                    <ToolWindowInstance IsPersisted="True" ToolWindowName="LocalsToolWindow" Name="aaf2a0bf-67cb-4364-b5b2-80539b27871d" IsSelected="True" IsVisible="True" DockedHeight="266" DockedWidth="358.67758871958" FloatingTop="857" FloatingLeft="443" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+                    <ToolWindowInstance IsPersisted="True" ToolWindowName="WatchToolWindow" Name="ff139909-0942-4f41-b240-5ae037aa8378" IsVisible="True" DockedHeight="266" DockedWidth="358.67758871958" FloatingTop="906" FloatingLeft="357" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+                  </TabGroup>
+                  <TabGroup IsVisible="True" DockedHeight="266" DockedWidth="373.576911185284">
+                    <ToolWindowInstance IsPersisted="True" ToolWindowName="ThreadsToolWindow" Name="4985131c-d462-4755-9d79-6599291ca0bd" IsVisible="True" DockedHeight="266" DockedWidth="373.576911185284" AutoHideWidth="551" FloatingTop="883" FloatingLeft="1526" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+                    <ToolWindowInstance IsPersisted="True" ToolWindowName="StackToolWindow" Name="6a0741ff-3382-4617-b606-b6591a5d0130" IsSelected="True" IsVisible="True" DockedHeight="266" DockedWidth="373.576911185284" FloatingTop="847" FloatingLeft="1285" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+                    <ToolWindowInstance IsPersisted="True" ToolWindowName="BreakpointsToolWindow" Name="318ab8ea-0d50-4216-81b2-5496fc305b16" IsVisible="True" DockedHeight="266" DockedWidth="373.576911185284" FloatingTop="854" FloatingLeft="1337" FloatingHeight="320" FloatingWidth="1282" xmlns="clr-namespace:DbgX.Shell;assembly=DbgX.Shell" />
+                  </TabGroup>
+                </DockGroup>
+              </DockGroup>
+            </DockGroup>
+          </DockRoot>
+        </AutoHideRoot>
+      </MainSite>
+    </WindowProfile>
+  </XmlSetting>
+  <XmlSetting Name="MainWindowPlacement">
+    <MainWindowPlacement>
+      <NormalBounds>
+        <Property name="Left" value="96" />
+        <Property name="Top" value="96" />
+        <Property name="Right" value="1221" />
+        <Property name="Bottom" value="971" />
+      </NormalBounds>
+      <ArrangeBounds>
+        <Property name="Left" value="0" />
+        <Property name="Top" value="0" />
+        <Property name="Right" value="0" />
+        <Property name="Bottom" value="0" />
+      </ArrangeBounds>
+      <WorkAreaBounds>
+        <Property name="Left" value="0" />
+        <Property name="Top" value="0" />
+        <Property name="Right" value="1920" />
+        <Property name="Bottom" value="1200" />
+      </WorkAreaBounds>
+      <Property name="Dpi" value="120" />
+      <Property name="ShowBehavior" value="ShowMaximized" />
+      <Property name="Flags" value="None" />
+      <Property name="DeviceName" value="\\.\DISPLAY1" />
+    </MainWindowPlacement>
+  </XmlSetting>
+  <XmlSetting Name="RecentTargetsServiceV2">
+    <RecentTargetsServiceV2>
+      <Property name="RecentTargets">
+        <Property>
+          <Property name="FileName" value="C:\Users\joeed\AppData\Local\dbg\Targets\LaunchProcess0296182360.debugtarget" />
+          <Property name="IsPinned" value="false" />
+          <Property name="LastUsed" value="5250836697071255309" />
+        </Property>
+      </Property>
+    </RecentTargetsServiceV2>
+  </XmlSetting>
+  <XmlSetting Name="RecentTargetsService">
+    <RecentTargetsService>
+      <Property name="RecentTargets" />
+    </RecentTargetsService>
+  </XmlSetting>
+  <XmlSetting Name="RecentTargetsDialog">
+    <RecentTargetsDialog>
+      <Property name="PinnedTargets" />
+    </RecentTargetsDialog>
+  </XmlSetting>
+  <XmlSetting Name="ModulesWindowSettings">
+    <ModulesWindowSettings>
+      <GridConfiguration>
+        <Property name="ColumnConfigs" />
+      </GridConfiguration>
+    </ModulesWindowSettings>
+  </XmlSetting>
+  <XmlSetting Name="StackWindowSettings">
+    <StackWindowSettings>
+      <GridConfiguration>
+        <Property name="ColumnConfigs" />
+      </GridConfiguration>
+    </StackWindowSettings>
+  </XmlSetting>
+  <XmlSetting Name="ThreadsWindowSettings">
+    <ThreadsWindowSettings>
+      <GridConfiguration>
+        <Property name="ColumnConfigs">
+          <Property>
+            <Property name="ColumnName" value="Id" />
+            <Property name="Order" value="0" />
+            <Property name="Width" value="75" />
+            <Property name="IsVisible" value="true" />
+          </Property>
+          <Property>
+            <Property name="ColumnName" value="Index" />
+            <Property name="Order" value="1" />
+            <Property name="Width" value="50" />
+            <Property name="IsVisible" value="true" />
+          </Property>
+          <Property>
+            <Property name="ColumnName" value="Value" />
+            <Property name="Order" value="2" />
+            <Property name="Width" value="300" />
+            <Property name="IsVisible" value="true" />
+          </Property>
+          <Property>
+            <Property name="ColumnName" value="Name" />
+            <Property name="Order" value="3" />
+            <Property name="Width" value="300" />
+            <Property name="IsVisible" value="true" />
+          </Property>
+        </Property>
+      </GridConfiguration>
+    </ThreadsWindowSettings>
+  </XmlSetting>
+  <XmlSetting Name="DmoExperimentalSettings">
+    <DmoExperimentalSettings>
+      <Property name="AutomaticallyShowSuggestedDataModelQueryCompletions" value="false" />
+    </DmoExperimentalSettings>
+  </XmlSetting>
+  <XmlSetting Name="OpenLocalTraceSettings">
+    <OpenLocalTraceSettings>
+      <Property name="TraceFilePath" value="" />
+    </OpenLocalTraceSettings>
+  </XmlSetting>
+  <XmlSetting Name="OutputDirectoryOptionSettings">
+    <OutputDirectoryOptionSettings>
+      <Property name="OutputDirectory" value="C:\Users\joeed\OneDrive\Documents" />
+    </OutputDirectoryOptionSettings>
+  </XmlSetting>
+  <XmlSetting Name="EngineSettings">
+    <Settings Version="2">
+      <Namespace Name="Debug">
+        <Namespace Name="Advanced">
+          <Setting Name="AutoDetectGuestMachine" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="AllowHardwareBreakpoints" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="BreakOnTargetRequestedCommand" Type="VT_BOOL" Value="false"></Setting>
+          <Setting Name="MapImageMemoryForKernelDumps" Type="VT_BOOL" Value="false"></Setting>
+          <Setting Name="MaxClrModules" Type="VT_INT" Value="1000"></Setting>
+          <Setting Name="PackLinuxSignalToExceptionCode" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="PerThreadKernelBreakpointTracking" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="PerformSymbolSearchSubstitution" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="SupportRecursiveStepOver" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="VadBasedModuleEnumeration" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="RestartKdNetUsbDebugDevice" Type="VT_BOOL" Value="false"></Setting>
+          <Setting Name="DisableKdNetRebootPoke" Type="VT_BOOL" Value="false"></Setting>
+        </Namespace>
+      </Namespace>
+      <Namespace Name="Display">
+        <Namespace Name="Disassembly">
+          <Setting Name="IgnoreOutputWidth" Type="VT_BOOL" Value="false"></Setting>
+          <Setting Name="DisplayRawBytes" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="DisplaySourceLines" Type="VT_BOOL" Value="false"></Setting>
+        </Namespace>
+        <Setting Name="StackTraceDepth" Type="VT_INT" Value="256"></Setting>
+        <Setting Name="UnicodeStrings" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="DefaultRecursionDepth" Type="VT_INT" Value="1"></Setting>
+        <Setting Name="DefaultDisplayRadix" Type="VT_INT" Value="16"></Setting>
+        <Setting Name="PrintIntegersInDefaultRadix" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="PrintLongIntegersInDefaultRadix" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="UseDataModelForLocalsAndWatch" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="MaxSymbolDisplayLength" Type="VT_INT" Value="0"></Setting>
+        <Setting Name="MaxStringConversionDisplayLength" Type="VT_INT" Value="512"></Setting>
+        <Setting Name="DisplayShadowedVariablesWithSuffixes" Type="VT_BOOL" Value="false"></Setting>
+      </Namespace>
+      <Namespace Name="EngineInitialization">
+        <Setting Name="AllowNetworkPaths" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="AllowShellCommands" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="SendTelemetry" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="VerifyFunctionTableCallbacks" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="UseReptTargetSupport" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="AllowSignExtensionMasmEvalExpression" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="PreferOpenTraceFilesFromDumps" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="UseRangeDumpFormatForKernelMemDump" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="SecureLoadDotNetExtensions" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="UseRangeDumpFormatForFullMemDump" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="ResolveAmbiguousBreakpoints" Type="VT_BOOL" Value="false"></Setting>
+      </Namespace>
+      <Namespace Name="Extensions">
+        <Setting Name="ExtensionRepository" Type="VT_BSTR" Value="Implicit"></Setting>
+        <Setting Name="UseExperimentalFeatureForNugetShare" Type="VT_BOOL" Value="true" IsDefaultValue="true"></Setting>
+        <Setting Name="AllowNugetExeUpdate" Type="VT_BOOL" Value="true" IsDefaultValue="true"></Setting>
+        <Setting Name="NonInteractiveNuget" Type="VT_BOOL" Value="true" IsDefaultValue="true"></Setting>
+        <Setting Name="AllowNugetMSCredentialProviderInstall" Type="VT_BOOL" Value="true" IsDefaultValue="true"></Setting>
+        <Setting Name="AllowParallelInitializationOfLocalRepositories" Type="VT_BOOL" Value="true" IsDefaultValue="true"></Setting>
+        <Setting Name="ConsiderLoadTriggersWhenSearchingForBangCommands" Type="VT_BOOL" Value="true" IsDefaultValue="true"></Setting>
+        <Setting Name="EnableRedirectToChakraJsProvider" Type="VT_BOOL" Value="false"></Setting>
+        <Namespace Name="DisabledExtensions"></Namespace>
+        <Namespace Name="TimeConstraints">
+          <Setting Name="LockRetryCount" Type="VT_INT" Value="6000"></Setting>
+          <Setting Name="LockRetryDelay" Type="VT_INT" Value="10"></Setting>
+          <Setting Name="RepositoryInitializeTime" Type="VT_INT" Value="120000"></Setting>
+        </Namespace>
+        <Namespace Name="ExtensionRepositories">
+          <Namespace Name="LocalInstalled">
+            <Setting Name="IsEnabled" Type="VT_BOOL" Value="true"></Setting>
+          </Namespace>
+          <Namespace Name="UserExtensions">
+            <Setting Name="LocalCacheRootFolder" Type="VT_BSTR" Value="C:\Users\joeed\AppData\Local\Dbg\UserExtensions"></Setting>
+            <Setting Name="IsUserExtensions" Type="VT_BOOL" Value="true"></Setting>
+            <Setting Name="IsEnabled" Type="VT_BOOL" Value="true"></Setting>
+          </Namespace>
+        </Namespace>
+      </Namespace>
+      <Namespace Name="Input">
+        <Setting Name="UseExtensionEvaluatorForCpp" Type="VT_BOOL" Value="false"></Setting>
+      </Namespace>
+      <Namespace Name="MCP">
+        <Setting Name="EnableMcpServerFeature" Type="VT_BOOL" Value="true" IsDefaultValue="true"></Setting>
+      </Namespace>
+      <Namespace Name="Plugins">
+        <Setting Name="DefaultDiagnosticLogLevel" Type="VT_INT" Value="1"></Setting>
+        <Setting Name="EchoDiagnosticLogs" Type="VT_BOOL" Value="false"></Setting>
+      </Namespace>
+      <Namespace Name="Sources">
+        <Setting Name="DisplaySourceLines" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="SourceSearchPath" Type="VT_BSTR" Value="C:\dev\webgl-app-framework\sculptcore;C:\dev\webgl-app-framework\sculptcore\source\litestl;C:\dev\webgl-app-framework\sculptcore\source\litestl\util"></Setting>
+        <Setting Name="SkipCompilerIndicatedGlue" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="SkipCrtCode" Type="VT_BOOL" Value="false"></Setting>
+        <Setting Name="SkipSCPCode" Type="VT_BOOL" Value="true"></Setting>
+        <Setting Name="EnableExperimentalRemappings" Type="VT_INT" Value="0"></Setting>
+        <Setting Name="DisabledRemappingTools" Type="VT_BSTR" Value=""></Setting>
+        <Setting Name="SourceCodeDebugging" Type="VT_BOOL" Value="true"></Setting>
+      </Namespace>
+      <Namespace Name="Symbols">
+        <Setting Name="Sympath" Type="VT_BSTR" Value="srv*"></Setting>
+        <Namespace Name="Advanced">
+          <Setting Name="MultithreadedSymbolLoading" Type="VT_BOOL" Value="true"></Setting>
+          <Setting Name="PreferLastValidDebugDirectory" Type="VT_BOOL" Value="false"></Setting>
+          <Setting Name="Arm64XSymbolFiltering" Type="VT_BSTR" Value="Automatic"></Setting>
+        </Namespace>
+        <Namespace Name="DisabledSymbolsDownload"></Namespace>
+        <Namespace Name="NegativeAuthenticationCache">
+          <Setting Name="Enabled" Type="VT_BOOL" Value="false" IsDefaultValue="true"></Setting>
+        </Namespace>
+      </Namespace>
+      <Setting Name="AutoSaveSettings" Type="VT_BOOL" Value="false"></Setting>
+    </Settings>
+  </XmlSetting>
+  <XmlSetting Name="DebuggingSettings">
+    <DebuggingSettings>
+      <EnableSymSrv2>
+        <Property name="Value" value="Default (enabled)" />
+      </EnableSymSrv2>
+      <EnableNegativeAuthCacheFeature>
+        <Property name="Value" value="Default (disabled)" />
+      </EnableNegativeAuthCacheFeature>
+    </DebuggingSettings>
+  </XmlSetting>
+</Settings>

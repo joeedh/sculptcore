@@ -1,0 +1,36 @@
+[profile] stroke 1: 475.42 ms wall, 1 dabs (begin 435.14, end 38.78)
+[profile]   dab      avg 1.224  min 1.224  max 1.224  ms
+[profile]     cpu   n=1     total     0.47  avg   0.473  min   0.473  max   0.473  ms
+[profile]     gpu   n=1     total     0.75  avg   0.751  min   0.751  max   0.751  ms
+[RENDER-SPIKE] acquire 0.24  update 0.12  draw 26.18  present 2.63  ms
+[FRAME-SPIKE] 42.20ms  (poll 7.67  ui+render 34.53)  dabs=0  dabCpu=0.0 dabGpu=0.0 dabRead=0.0
+[RENDER-SPIKE] acquire 0.07  update 0.08  draw 0.48  present 32.16  ms
+[FRAME-SPIKE] 37.78ms  (poll 0.01  ui+render 37.77)  dabs=0  dabCpu=0.0 dabGpu=0.0 dabRead=0.0
+[FRAME-SPIKE] 136.76ms  (poll 130.10  ui+render 6.66)  dabs=8  dabCpu=13.3 dabGpu=3.4 dabRead=0.0
+[profile] stroke 2: 969.36 ms wall, 152 dabs (begin 100.94, end 17.90)
+[profile]   dab      avg 0.985  min 0.227  max 5.156  ms
+[profile]     cpu   n=152   total   124.94  avg   0.822  min   0.134  max   4.795  ms
+[profile]     gpu   n=152   total    24.75  avg   0.163  min   0.066  max   1.163  ms
+[FRAME-SPIKE] 34.59ms  (poll 21.76  ui+render 12.83)  dabs=1  dabCpu=0.3 dabGpu=0.2 dabRead=0.0
+[FRAME-SPIKE] 128.18ms  (poll 121.31  ui+render 6.87)  dabs=7  dabCpu=11.4 dabGpu=2.8 dabRead=0.0
+[profile] stroke 3: 1815.24 ms wall, 363 dabs (begin 95.91, end 19.75)
+[profile]   dab      avg 0.485  min 0.174  max 7.339  ms
+[profile]     cpu   n=363   total   127.38  avg   0.351  min   0.112  max   6.492  ms
+[profile]     gpu   n=363   total    48.59  avg   0.134  min   0.060  max   1.024  ms
+[FRAME-SPIKE] 34.84ms  (poll 22.30  ui+render 12.54)  dabs=1  dabCpu=0.3 dabGpu=0.2 dabRead=0.0
+[SPIKE] dab 12 @     132ms    9.37ms  (cpu  9.16  gpu  0.21  read  0.00)  nodes=302 uverts=12240
+[FRAME-SPIKE] 161.61ms  (poll 153.18  ui+render 8.43)  dabs=20  dabCpu=32.8 dabGpu=4.8 dabRead=0.0
+[profile] stroke 4: 2070.48 ms wall, 486 dabs (begin 101.67, end 33.91)
+[profile]   dab      avg 0.494  min 0.168  max 9.366  ms
+[profile]     cpu   n=486   total   173.99  avg   0.358  min   0.103  max   9.161  ms
+[profile]     gpu   n=486   total    66.00  avg   0.136  min   0.063  max   1.159  ms
+[FRAME-SPIKE] 49.96ms  (poll 37.14  ui+render 12.82)  dabs=2  dabCpu=0.5 dabGpu=0.4 dabRead=0.0
+[FRAME-SPIKE] 91.23ms  (poll 85.70  ui+render 5.53)  dabs=0  dabCpu=0.0 dabGpu=0.0 dabRead=0.0
+
+[profile] === session summary: 4 strokes ===
+[profile]   stroke  n=4     total  5330.50  avg 1332.626  min 475.422  max 2070.483  ms
+[profile]   begin   n=4     total   733.65  avg 183.412  min  95.908  max 435.138  ms
+[profile]   end     n=4     total   110.34  avg  27.586  min  17.897  max  38.785  ms
+[profile]   dab     n=1002  total   566.86  avg   0.566  min   0.168  max   9.366  ms
+[profile]     cpu   n=1002  total   426.77  avg   0.426  min   0.103  max   9.161  ms
+[profile]     gpu   n=1002  total   140.09  avg   0.140  min   0.060  max   1.163  ms
