@@ -33,7 +33,7 @@ export function makeNativeBoundVector(addon: NativeAddon, vec: NativeBound): unk
         }
         return undefined
       },
-    },
+    }
   )
 }
 
@@ -88,7 +88,7 @@ export class NativeManager {
   get(name: string): unknown {
     return {
       name,
-      buildFullName: () => name,
+      buildFullName  : () => name,
       findConstructor: (ctorName: string) => ({__struct: name, __ctor: ctorName}),
     }
   }
@@ -102,7 +102,7 @@ export class NativeManager {
   findVectorClass(elemName: string): unknown {
     const isInt = elemName === 'int' || elemName === 'int32'
     return {
-      buildFullName: () => `litestl::util::Vector<${elemName}>`,
+      buildFullName         : () => `litestl::util::Vector<${elemName}>`,
       findDefaultConstructor: () => (isInt ? {__intVector: true} : {__nodeVector: true}),
     }
   }
@@ -146,7 +146,7 @@ export class NativeManager {
         new Int32Array(0),
         new Int32Array(0),
         new Int32Array(0),
-        new Int32Array(0),
+        new Int32Array(0)
       )
       return
     }
@@ -164,16 +164,7 @@ export class NativeManager {
       domains[i] = r.domain
       defaultKinds[i] = r.defaultKind ?? 0
     }
-    this.addon.spatialTreeSetRequestedAttrs(
-      tree,
-      count,
-      names,
-      srcTypes,
-      elemSizes,
-      slots,
-      domains,
-      defaultKinds,
-    )
+    this.addon.spatialTreeSetRequestedAttrs(tree, count, names, srcTypes, elemSizes, slots, domains, defaultKinds)
   }
   SpatialTree_setDrawShader(tree: NativeBound, wgsl: string): void {
     this.addon.spatialTreeSetDrawShader(tree, wgsl)
@@ -221,24 +212,23 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     get gpu(): NativeBound {
       return (gpu ??= nm.construct('sculptcore::gpu::GPUManager'))
     },
-    getBoundVector: (name: string, bound: NativeBound) => nm.getBoundVector(name, bound),
-    pointerBytes: (b: NativeBound, m: string, n: number) => nm.pointerBytes(b, m, n),
-    objectAddress: (b: NativeBound) => nm.objectAddress(b),
-    Mesh_createCube: (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
-    Mesh_buildSpatialTree: (m: NativeBound, l: number, dp: number) =>
-      nm.Mesh_buildSpatialTree(m, l, dp),
-    SpatialTree_free: (t: NativeBound) => nm.SpatialTree_free(t),
-    Mesh_free: (m: NativeBound) => nm.Mesh_free(m),
-    Mesh_serialize: (m: NativeBound) => nm.Mesh_serialize(m),
-    Mesh_deserialize: (b: Uint8Array) => nm.Mesh_deserialize(b),
+    getBoundVector                   : (name: string, bound: NativeBound) => nm.getBoundVector(name, bound),
+    pointerBytes                     : (b: NativeBound, m: string, n: number) => nm.pointerBytes(b, m, n),
+    objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
+    Mesh_createCube                  : (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
+    Mesh_buildSpatialTree            : (m: NativeBound, l: number, dp: number) => nm.Mesh_buildSpatialTree(m, l, dp),
+    SpatialTree_free                 : (t: NativeBound) => nm.SpatialTree_free(t),
+    Mesh_free                        : (m: NativeBound) => nm.Mesh_free(m),
+    Mesh_serialize                   : (m: NativeBound) => nm.Mesh_serialize(m),
+    Mesh_deserialize                 : (b: Uint8Array) => nm.Mesh_deserialize(b),
     SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>
       nm.SpatialTree_setRequestedAttrs(t, reqs),
-    SpatialTree_setDrawShader: (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),
-    SpatialTree_getMissingAttrSlots: (t: NativeBound) => nm.SpatialTree_getMissingAttrSlots(t),
+    SpatialTree_setDrawShader        : (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),
+    SpatialTree_getMissingAttrSlots  : (t: NativeBound) => nm.SpatialTree_getMissingAttrSlots(t),
     SpatialTree_refreshRequestedAttrs: (t: NativeBound) => nm.SpatialTree_refreshRequestedAttrs(t),
-    float2: (c: ArrayLike<number>) => nm.float2(c),
-    float3: (c: ArrayLike<number>) => nm.float3(c),
+    float2                           : (c: ArrayLike<number>) => nm.float2(c),
+    float3                           : (c: ArrayLike<number>) => nm.float3(c),
     /** marker so callers/tests can confirm the native backend is active. */
-    __backend: 'native',
+    __backend                        : 'native',
   }
 }

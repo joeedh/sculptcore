@@ -99,8 +99,15 @@ function getVSEnv() {
   // extra tool dirs via SBRUSH_TOOL_PATH (";"-separated) as an escape hatch.
   const vulkanBin = process.env.VULKAN_SDK ? Path.join(process.env.VULKAN_SDK, 'Bin') : ''
   const toolDirs = process.env.SBRUSH_TOOL_PATH ? process.env.SBRUSH_TOOL_PATH.split(';') : []
-  childEnv.PATH = [`${systemRoot}\\System32`, systemRoot, `${systemRoot}\\System32\\Wbem`,
-    nodeDir, cargoBin, vulkanBin, ...toolDirs]
+  childEnv.PATH = [
+    `${systemRoot}\\System32`,
+    systemRoot,
+    `${systemRoot}\\System32\\Wbem`,
+    nodeDir,
+    cargoBin,
+    vulkanBin,
+    ...toolDirs,
+  ]
     .filter(Boolean)
     .join(';')
   const result = child_process.execSync(`cmd /s /c \"call \"${path}\" && set\"`, {env: childEnv})
@@ -185,10 +192,7 @@ function getEmsdkEnv() {
         if (eq <= 0) return ''
         const key = l.slice(0, eq).trim()
         let val = l.slice(eq + 1).trim()
-        if (
-          (val.startsWith('"') && val.endsWith('"')) ||
-          (val.startsWith("'") && val.endsWith("'"))
-        ) {
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
           val = val.slice(1, -1)
         }
         return `${key}=${val}`

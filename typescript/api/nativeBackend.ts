@@ -101,7 +101,7 @@ export interface NativeAddon {
     elemSizes: Int32Array,
     slots: Int32Array,
     domains: Int32Array,
-    defaultKinds: Int32Array,
+    defaultKinds: Int32Array
   ): void
   /** Set the material WGSL for a bound SpatialTree's requested-attr draw shader. */
   spatialTreeSetDrawShader(tree: NativeBound, wgsl: string): void

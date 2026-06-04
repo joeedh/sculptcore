@@ -26,8 +26,7 @@ export async function bootAndRender(width, height) {
   // deterministically across machines, so the golden PNG is portable. Falls
   // back to whatever adapter exists if no fallback is advertised.
   const adapter =
-    (await navigator.gpu.requestAdapter({ forceFallbackAdapter: true })) ||
-    (await navigator.gpu.requestAdapter())
+    (await navigator.gpu.requestAdapter({forceFallbackAdapter: true})) || (await navigator.gpu.requestAdapter())
   if (!adapter) {
     throw new Error('navigator.gpu.requestAdapter() returned null')
   }
@@ -35,8 +34,8 @@ export async function bootAndRender(width, height) {
 
   // emdawnwebgpu reads this off the Module arg and exposes it to C++ via
   // emscripten_webgpu_get_device().
-  const module = await createModule({ preinitializedWebGPUDevice: device })
+  const module = await createModule({preinitializedWebGPUDevice: device})
 
   const ok = module._webgpuRenderScene(width, height) === 1
-  return { module, ok }
+  return {module, ok}
 }

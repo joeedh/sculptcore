@@ -57,7 +57,7 @@ function parallelFlag() {
 
 function summarizeErrors(buf) {
   return new Promise((accept, reject) => {
-    if (buf.length < 2048*80) {
+    if (buf.length < 2048 * 80) {
       return
     }
     console.log('\n\nSummarizing errors...\n')
@@ -248,9 +248,7 @@ function readElectronVersion() {
 // required outside Electron). cwd = the repo's electron/ app.
 function resolveElectronExe() {
   try {
-    return child_process
-      .execSync(`node -p "require('electron')"`, {cwd: '../electron', encoding: 'utf-8'})
-      .trim()
+    return child_process.execSync(`node -p "require('electron')"`, {cwd: '../electron', encoding: 'utf-8'}).trim()
   } catch {
     return undefined
   }
@@ -443,7 +441,10 @@ async function sbrushVerify(regen) {
   const outDir = `${dir}/sbrush_verify_out`
   ensureDir(outDir)
 
-  const scripts = fs.readdirSync(scriptDir).filter((f) => f.endsWith('_ab.txt')).sort()
+  const scripts = fs
+    .readdirSync(scriptDir)
+    .filter((f) => f.endsWith('_ab.txt'))
+    .sort()
   if (scripts.length === 0) {
     process.stderr.write(`sbrush-verify: no *_ab.txt scripts in ${scriptDir}\n`)
     process.exit(1)
@@ -453,11 +454,9 @@ async function sbrushVerify(regen) {
   let regenerated = 0
   for (const s of scripts) {
     const brush = s.replace(/_ab\.txt$/, '')
-    const res = child_process.spawnSync(
-      debugApp,
-      ['--script', `${scriptDir}/${s}`, '--out', outDir, '--headless'],
-      {encoding: 'utf-8'}
-    )
+    const res = child_process.spawnSync(debugApp, ['--script', `${scriptDir}/${s}`, '--out', outDir, '--headless'], {
+      encoding: 'utf-8',
+    })
     if (res.status !== 0) {
       failures++
       process.stderr.write(`✗ ${brush}: debug_app exited ${res.status}\n`)
@@ -557,7 +556,10 @@ async function webgpuVerify() {
   const scriptDir = 'tests/scripts/brush_backends'
   const outDir = `${dir}/webgpu_verify_out`
   ensureDir(outDir)
-  const scripts = fs.readdirSync(scriptDir).filter((f) => f.endsWith('_ab.txt')).sort()
+  const scripts = fs
+    .readdirSync(scriptDir)
+    .filter((f) => f.endsWith('_ab.txt'))
+    .sort()
   if (scripts.length === 0) {
     process.stderr.write(`webgpu-verify: no *_ab.txt scripts in ${scriptDir}\n`)
     process.exit(1)
@@ -587,17 +589,19 @@ async function webgpuVerify() {
     }
     // One Dawn process per fixture: @kmamal/gpu deadlocks on a second
     // instance/device in the same process, so isolate each replay.
-    const rep = child_process.spawnSync(
-      'node',
-      [harness, '--wgsl-dir', wgslDir, '--fixture', fixture],
-      {encoding: 'utf-8'}
-    )
+    const rep = child_process.spawnSync('node', [harness, '--wgsl-dir', wgslDir, '--fixture', fixture], {
+      encoding: 'utf-8',
+    })
     const pass = (rep.stdout || '').split('\n').find((l) => l.startsWith('PASS'))
     if (rep.status === 0 && pass) {
       console.log(`✓ ${brush}: ${pass.replace(/^PASS\s*/, '')}`)
     } else {
       failures++
-      const detail = (rep.stderr || '').split('\n').filter((l) => l.trim()).slice(-4).join('\n  ')
+      const detail = (rep.stderr || '')
+        .split('\n')
+        .filter((l) => l.trim())
+        .slice(-4)
+        .join('\n  ')
       process.stderr.write(`✗ ${brush}: webgpu replay failed\n  ${detail}\n`)
     }
   }
@@ -642,7 +646,10 @@ async function wgpuNativeVerify() {
   const tmpDir = `${outDir}/scripts`
   ensureDir(tmpDir)
 
-  const scripts = fs.readdirSync(scriptDir).filter((f) => f.endsWith('_ab.txt')).sort()
+  const scripts = fs
+    .readdirSync(scriptDir)
+    .filter((f) => f.endsWith('_ab.txt'))
+    .sort()
   if (scripts.length === 0) {
     process.stderr.write(`wgpu-native-verify: no *_ab.txt scripts in ${scriptDir}\n`)
     process.exit(1)
@@ -665,16 +672,16 @@ async function wgpuNativeVerify() {
     // Rewrite the wgsl pass to the native webgpu backend; cpp pass is untouched.
     const text = fs
       .readFileSync(`${scriptDir}/${s}`, 'utf-8')
-      .split('backend=wgsl').join('backend=webgpu')
-      .split('_wgsl.json').join('_webgpu.json')
+      .split('backend=wgsl')
+      .join('backend=webgpu')
+      .split('_wgsl.json')
+      .join('_webgpu.json')
     const tmpScript = `${tmpDir}/${brush}_webgpu.txt`
     fs.writeFileSync(tmpScript, text)
 
-    const res = child_process.spawnSync(
-      debugApp,
-      ['--script', tmpScript, '--out', outDir, '--headless'],
-      {encoding: 'utf-8'}
-    )
+    const res = child_process.spawnSync(debugApp, ['--script', tmpScript, '--out', outDir, '--headless'], {
+      encoding: 'utf-8',
+    })
     if (res.status !== 0) {
       failures++
       process.stderr.write(`✗ ${brush}: debug_app exited ${res.status}\n`)
@@ -736,7 +743,10 @@ const SBRUSH_BACKENDS = ['cpp', 'wgsl', 'spirv', 'cuda', 'hip', 'opencl']
 // reference emitter and the only one that links into libbrush).
 function sbrushBackendFlags(backendsArg) {
   if (!backendsArg) return ''
-  const picked = backendsArg.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+  const picked = backendsArg
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
   const unknown = picked.filter((b) => !SBRUSH_BACKENDS.includes(b))
   if (unknown.length) {
     process.stderr.write(`unknown sbrush backend(s): ${unknown.join(', ')}\n`)
@@ -745,7 +755,7 @@ function sbrushBackendFlags(backendsArg) {
   }
   const flags = []
   for (const b of SBRUSH_BACKENDS) {
-    if (b === 'cpp') continue  // always on
+    if (b === 'cpp') continue // always on
     flags.push(`-DSBRUSH_BACKEND_${b.toUpperCase()}=${picked.includes(b) ? 'ON' : 'OFF'}`)
   }
   return flags.join(' ')
@@ -754,43 +764,46 @@ function sbrushBackendFlags(backendsArg) {
 yargs(hideBin(process.argv))
   .scriptName('make.mjs')
   .option('jobs', {
-    alias: 'j',
-    type: 'number',
-    describe:
-      'Max parallel compile jobs for cmake --build (default: all cores). Lower it (e.g. -j 2) if clang OOMs.',
+    alias   : 'j',
+    type    : 'number',
+    describe: 'Max parallel compile jobs for cmake --build (default: all cores). Lower it (e.g. -j 2) if clang OOMs.',
   })
   .middleware((argv) => {
     if (argv.jobs && argv.jobs > 0) {
       JOBS = argv.jobs
     }
   })
-  .command('configure [target]', 'Configure the build',
-    (y) => targetPositional(y).option('backends', {
-      type: 'string',
-      describe: `comma-separated sbrush backends to enable (subset of: ${SBRUSH_BACKENDS.join(',')}); cpp is always on`,
-    }),
+  .command(
+    'configure [target]',
+    'Configure the build',
+    (y) =>
+      targetPositional(y).option('backends', {
+        type    : 'string',
+        describe: `comma-separated sbrush backends to enable (subset of: ${SBRUSH_BACKENDS.join(',')}); cpp is always on`,
+      }),
     ({target, backends}) => {
-    setupPNPM()
-    ensureDir('build')
-    const dir = buildDir(target)
-    ensureDir(dir)
-    const env = envPrefix(target)
-    const sbrushFlags = sbrushBackendFlags(backends)
-    if (target === 'native') {
-      // Build + register the cross-worktree sccache launcher before cmake
-      // resolves it (build_files/native-clang.cmake). Best-effort: a no-op when
-      // the superproject's tools dir is absent (sculptcore built standalone).
-      const sccacheSetup = Path.resolve('../tools/sccache-wrapper/setup.mjs')
-      if (fs.existsSync(sccacheSetup)) {
-        run(`node "${sccacheSetup}"`)
+      setupPNPM()
+      ensureDir('build')
+      const dir = buildDir(target)
+      ensureDir(dir)
+      const env = envPrefix(target)
+      const sbrushFlags = sbrushBackendFlags(backends)
+      if (target === 'native') {
+        // Build + register the cross-worktree sccache launcher before cmake
+        // resolves it (build_files/native-clang.cmake). Best-effort: a no-op when
+        // the superproject's tools dir is absent (sculptcore built standalone).
+        const sccacheSetup = Path.resolve('../tools/sccache-wrapper/setup.mjs')
+        if (fs.existsSync(sccacheSetup)) {
+          run(`node "${sccacheSetup}"`)
+        }
+        run(
+          `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
+        )
+      } else {
+        run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS} ${sbrushFlags}`)
       }
-      run(
-        `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
-      )
-    } else {
-      run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS} ${sbrushFlags}`)
     }
-  })
+  )
   .command('build [target]', 'Build', targetPositional, async ({target}) => {
     console.log('Building...')
     const dir = buildDir(target)
@@ -882,12 +895,14 @@ yargs(hideBin(process.argv))
       console.log(`removed ${wgslOut}`)
     }
   })
-  .command('sbrush-validate <backend>',
+  .command(
+    'sbrush-validate <backend>',
     'Reconfigure native with the given sbrush backend enabled (with SBRUSH_VALIDATE_ALL=ON) and run its validator pass',
-    (y) => y.positional('backend', {
-      choices: SBRUSH_BACKENDS.filter((b) => b !== 'cpp'),
-      describe: 'sbrush backend to validate (cpp has no external validator)',
-    }),
+    (y) =>
+      y.positional('backend', {
+        choices : SBRUSH_BACKENDS.filter((b) => b !== 'cpp'),
+        describe: 'sbrush backend to validate (cpp has no external validator)',
+      }),
     async ({backend}) => {
       const dir = buildDir('native')
       ensureDir(dir)
@@ -897,43 +912,55 @@ yargs(hideBin(process.argv))
         `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${flag} -DSBRUSH_VALIDATE_ALL=ON`
       )
       await runBuild(`cd ${dir} && ${env} cmake --build . --target sbrush-${backend}${parallelFlag()}`)
-    })
-  .command('sbrush-verify',
+    }
+  )
+  .command(
+    'sbrush-verify',
     'Run per-brush A/B scripts through debug_app: cross-backend (cpp vs wgsl) + golden regression',
-    (y) => y.option('regen', {
-      type: 'boolean',
-      default: false,
-      describe: '(re)write tests/golden/<brush>.json references from the cpp dump',
-    }),
+    (y) =>
+      y.option('regen', {
+        type    : 'boolean',
+        default : false,
+        describe: '(re)write tests/golden/<brush>.json references from the cpp dump',
+      }),
     async ({regen}) => {
       await sbrushVerify(regen)
-    })
-  .command('webgpu-verify',
+    }
+  )
+  .command(
+    'webgpu-verify',
     'Replay sbrush WGSL kernels through Dawn (WebGPU) and diff against the native GPU dispatch',
     {},
     async () => {
       await webgpuVerify()
-    })
-  .command('wgpu-native-verify',
+    }
+  )
+  .command(
+    'wgpu-native-verify',
     'Run each brush A/B script through the native wgpu-native compute backend and diff cpp vs webgpu',
     {},
     async () => {
       await wgpuNativeVerify()
-    })
-  .command('node', 'Build the Node/Electron N-API addon (.node) via cmake-js + clang',
-    (y) => y
-      .option('electron-version', {
-        type: 'string',
-        describe: 'Electron version to target (default: read from ../electron/package.json)',
-      })
-      .option('smoke', {
-        type: 'boolean',
-        default: false,
-        describe: 'After building, load the .node in Electron and call version()/bindingCount()',
-      }),
+    }
+  )
+  .command(
+    'node',
+    'Build the Node/Electron N-API addon (.node) via cmake-js + clang',
+    (y) =>
+      y
+        .option('electron-version', {
+          type    : 'string',
+          describe: 'Electron version to target (default: read from ../electron/package.json)',
+        })
+        .option('smoke', {
+          type    : 'boolean',
+          default : false,
+          describe: 'After building, load the .node in Electron and call version()/bindingCount()',
+        }),
     async ({electronVersion, smoke}) => {
       await buildNodeAddon(electronVersion, smoke)
-    })
+    }
+  )
   .command('install-tools', 'Install host build tools (naga)', {}, () => {
     console.log(`Installing naga-cli ${NAGA_VERSION}...`)
     try {

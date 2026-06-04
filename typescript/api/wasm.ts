@@ -50,7 +50,7 @@ interface IWasmMethods extends IWasmBase {
     elemSizesPtr: pointer,
     slotsPtr: pointer,
     domainsPtr: pointer,
-    defaultKindsPtr: pointer,
+    defaultKindsPtr: pointer
   ): void
   /** set the material WGSL for the requested-attr draw shader. */
   setTreeDrawShader(tree: pointer, wgslPtr: pointer): void
@@ -168,8 +168,7 @@ let wasm: IWasmInterface | undefined
 // Electron's renderer (nodeIntegration) exposes `process`, but it's a browser
 // context with fetch/DOM and must use the browser wasm build, not the Node one.
 const insideElectron = typeof process !== 'undefined' && !!process?.versions?.electron
-const insideNode =
-  typeof process !== 'undefined' && typeof process?.platform !== 'undefined' && !insideElectron
+const insideNode = typeof process !== 'undefined' && typeof process?.platform !== 'undefined' && !insideElectron
 
 class cachering<T> extends Array<T> {
   cur = 0
@@ -212,7 +211,7 @@ export async function loadWasm(): Promise<IWasmInterface> {
       wasm = makeNativeInterface(nm) as unknown as IWasmInterface
       console.warn(
         `[sculptcore] using NATIVE backend (${native.version()}, ${native.bindingCount()} bindings). ` +
-          `Partial: sculpt/heap paths not yet wired. See native-electron.md Workstream C.`,
+          `Partial: sculpt/heap paths not yet wired. See native-electron.md Workstream C.`
       )
       return wasm
     }
@@ -330,7 +329,7 @@ export async function loadWasm(): Promise<IWasmInterface> {
           elemSizesPtr,
           slotsPtr,
           domainsPtr,
-          defaultKindsPtr,
+          defaultKindsPtr
         )
       } finally {
         _wasm._rawRelease(srcTypesPtr)

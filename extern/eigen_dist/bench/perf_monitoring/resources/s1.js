@@ -16,7 +16,7 @@
   }
   function u(n) {
     return {
-      left : function (t, e, r, i) {
+      left: function (t, e, r, i) {
         for (arguments.length < 3 && (r = 0), arguments.length < 4 && (i = t.length); i > r; ) {
           var u = (r + i) >>> 1
           n(t[u], e) < 0 ? (r = u + 1) : (i = u)
@@ -698,7 +698,7 @@
   function Un(n, t) {
     var e = Math.pow(10, 3 * xo(8 - t))
     return {
-      scale :
+      scale:
         t > 8
           ? function (n) {
               return n / e
@@ -992,95 +992,95 @@
       M.set(n.toLowerCase(), t)
     })
     var A = {
-        a  : function (n) {
+        a: function (n) {
           return d[n.getDay()]
         },
-        A  : function (n) {
+        A: function (n) {
           return v[n.getDay()]
         },
-        b  : function (n) {
+        b: function (n) {
           return m[n.getMonth()]
         },
-        B  : function (n) {
+        B: function (n) {
           return y[n.getMonth()]
         },
-        c: t(s),
-        d  : function (n, t) {
+        c  : t(s),
+        d: function (n, t) {
           return Zn(n.getDate(), t, 2)
         },
-        e  : function (n, t) {
+        e: function (n, t) {
           return Zn(n.getDate(), t, 2)
         },
-        H  : function (n, t) {
+        H: function (n, t) {
           return Zn(n.getHours(), t, 2)
         },
-        I  : function (n, t) {
+        I: function (n, t) {
           return Zn(n.getHours() % 12 || 12, t, 2)
         },
-        j  : function (n, t) {
+        j: function (n, t) {
           return Zn(1 + ga.dayOfYear(n), t, 3)
         },
-        L  : function (n, t) {
+        L: function (n, t) {
           return Zn(n.getMilliseconds(), t, 3)
         },
-        m  : function (n, t) {
+        m: function (n, t) {
           return Zn(n.getMonth() + 1, t, 2)
         },
-        M  : function (n, t) {
+        M: function (n, t) {
           return Zn(n.getMinutes(), t, 2)
         },
-        p  : function (n) {
+        p: function (n) {
           return g[+(n.getHours() >= 12)]
         },
-        S  : function (n, t) {
+        S: function (n, t) {
           return Zn(n.getSeconds(), t, 2)
         },
-        U  : function (n, t) {
+        U: function (n, t) {
           return Zn(ga.sundayOfYear(n), t, 2)
         },
-        w  : function (n) {
+        w: function (n) {
           return n.getDay()
         },
-        W  : function (n, t) {
+        W: function (n, t) {
           return Zn(ga.mondayOfYear(n), t, 2)
         },
-        x: t(h),
-        X: t(p),
-        y  : function (n, t) {
+        x  : t(h),
+        X  : t(p),
+        y: function (n, t) {
           return Zn(n.getFullYear() % 100, t, 2)
         },
-        Y  : function (n, t) {
+        Y: function (n, t) {
           return Zn(n.getFullYear() % 1e4, t, 4)
         },
-        Z: at,
+        Z  : at,
         '%': function () {
           return '%'
         },
       },
       C = {
-        a: r,
-        A: i,
-        b: u,
-        B: o,
-        c: a,
-        d: tt,
-        e: tt,
-        H: rt,
-        I: rt,
-        j: et,
-        L: ot,
-        m: nt,
-        M: it,
-        p: f,
-        S: ut,
-        U: Bn,
-        w: $n,
-        W: Wn,
-        x: l,
-        X: c,
-        y: Gn,
-        Y: Jn,
-        Z: Kn,
+        a  : r,
+        A  : i,
+        b  : u,
+        B  : o,
+        c  : a,
+        d  : tt,
+        e  : tt,
+        H  : rt,
+        I  : rt,
+        j  : et,
+        L  : ot,
+        m  : nt,
+        M  : it,
+        p  : f,
+        S  : ut,
+        U  : Bn,
+        w  : $n,
+        W  : Wn,
+        x  : l,
+        X  : c,
+        y  : Gn,
+        Y  : Jn,
+        Z  : Kn,
         '%': lt,
       }
     return t
@@ -1445,13 +1445,13 @@
         d = t(u),
         y = i.invert(r[0], r[1]),
         m = {
-          point: o,
-          lineStart: l,
-          lineEnd: c,
+          point       : o,
+          lineStart   : l,
+          lineEnd     : c,
           polygonStart: function () {
             ;(m.point = f), (m.lineStart = s), (m.lineEnd = h), (p = []), (g = [])
           },
-          polygonEnd  : function () {
+          polygonEnd: function () {
             ;(m.point = o), (m.lineStart = l), (m.lineEnd = c), (p = ao.merge(p))
             var n = Ot(y, g)
             p.length
@@ -1460,7 +1460,7 @@
               b && (u.polygonEnd(), (b = !1)),
               (p = g = null)
           },
-          sphere      : function () {
+          sphere: function () {
             u.polygonStart(), u.lineStart(), e(null, null, 1, u), u.lineEnd(), u.polygonEnd()
           },
         },
@@ -1480,15 +1480,15 @@
       lineStart: function () {
         t.push((n = []))
       },
-      point    : function (t, e) {
+      point: function (t, e) {
         n.push([t, e])
       },
-      lineEnd: b,
-      buffer   : function () {
+      lineEnd  : b,
+      buffer: function () {
         var e = t
         return (t = []), (n = null), e
       },
-      rejoin   : function () {
+      rejoin: function () {
         t.length > 1 && t.push(t.pop().concat(t.shift()))
       },
     }
@@ -1505,7 +1505,7 @@
       lineStart: function () {
         n.lineStart(), (t = 1)
       },
-      point    : function (u, o) {
+      point: function (u, o) {
         var a = u > 0 ? Fo : -Fo,
           l = xo(u - e)
         xo(l - Fo) < Uo
@@ -1529,10 +1529,10 @@
           n.point((e = u), (r = o)),
           (i = a)
       },
-      lineEnd  : function () {
+      lineEnd: function () {
         n.lineEnd(), (e = r = NaN)
       },
-      clean    : function () {
+      clean: function () {
         return 2 - t
       },
     }
@@ -1615,7 +1615,7 @@
         lineStart: function () {
           ;(c = l = !1), (f = 1)
         },
-        point    : function (s, h) {
+        point: function (s, h) {
           var p,
             g = [s, h],
             v = t(s, h),
@@ -1641,10 +1641,10 @@
           }
           !v || (e && wt(e, g)) || n.point(g[0], g[1]), (e = g), (l = v), (u = d)
         },
-        lineEnd  : function () {
+        lineEnd: function () {
           l && n.lineEnd(), (e = null)
         },
-        clean    : function () {
+        clean: function () {
           return f | ((c && l) << 1)
         },
       }
@@ -1838,13 +1838,13 @@
         E = Pt(),
         A = Yt(n, t, e, r),
         C = {
-          point: s,
-          lineStart: h,
-          lineEnd: p,
+          point       : s,
+          lineStart   : h,
+          lineEnd     : p,
           polygonStart: function () {
             ;(a = E), (v = []), (d = []), (k = !0)
           },
-          polygonEnd  : function () {
+          polygonEnd: function () {
             ;(a = N), (v = ao.merge(v))
             var t = l([n, r]),
               e = k && t,
@@ -1923,21 +1923,21 @@
     var u = Jt(4.5),
       o = [],
       a = {
-        point: n,
-        lineStart   : function () {
+        point       : n,
+        lineStart: function () {
           a.point = t
         },
-        lineEnd: r,
+        lineEnd     : r,
         polygonStart: function () {
           a.lineEnd = i
         },
-        polygonEnd  : function () {
+        polygonEnd: function () {
           ;(a.lineEnd = r), (a.point = n)
         },
-        pointRadius : function (n) {
+        pointRadius: function (n) {
           return (u = Jt(n)), a
         },
-        result      : function () {
+        result: function () {
           if (o.length) {
             var n = o.join('')
             return (o = []), n
@@ -2007,21 +2007,21 @@
     }
     var o = 4.5,
       a = {
-        point: t,
-        lineStart   : function () {
+        point       : t,
+        lineStart: function () {
           a.point = e
         },
-        lineEnd: i,
+        lineEnd     : i,
         polygonStart: function () {
           a.lineEnd = u
         },
-        polygonEnd  : function () {
+        polygonEnd: function () {
           ;(a.lineEnd = i), (a.point = t)
         },
-        pointRadius : function (n) {
+        pointRadius: function (n) {
           return (o = n), a
         },
-        result: b,
+        result      : b,
       }
     return a
   }
@@ -2072,13 +2072,13 @@
         _,
         w,
         S = {
-          point: e,
-          lineStart: r,
-          lineEnd: o,
+          point       : e,
+          lineStart   : r,
+          lineEnd     : o,
           polygonStart: function () {
             t.polygonStart(), (S.lineStart = l)
           },
-          polygonEnd  : function () {
+          polygonEnd: function () {
             t.polygonEnd(), (S.lineStart = r)
           },
         }
@@ -2130,20 +2130,20 @@
   }
   function ue(n, t) {
     return {
-      point: t,
-      sphere      : function () {
+      point       : t,
+      sphere: function () {
         n.sphere()
       },
-      lineStart   : function () {
+      lineStart: function () {
         n.lineStart()
       },
-      lineEnd     : function () {
+      lineEnd: function () {
         n.lineEnd()
       },
       polygonStart: function () {
         n.polygonStart()
       },
-      polygonEnd  : function () {
+      polygonEnd: function () {
         n.polygonEnd()
       },
     }
@@ -3437,7 +3437,7 @@
           floor: function (t) {
             return Math.floor(t / n) * n
           },
-          ceil : function (t) {
+          ceil: function (t) {
             return Math.ceil(t / n) * n
           },
         }
@@ -4308,7 +4308,7 @@
                       for (; e((t = n.floor(t))); ) t = io(t - 1)
                       return t
                     },
-                    ceil : function (t) {
+                    ceil: function (t) {
                       for (; e((t = n.ceil(t))); ) t = io(+t + 1)
                       return t
                     },
@@ -4591,16 +4591,16 @@
   var bo = '__proto__',
     _o = '\x00'
   l(c, {
-    has: h,
-    get    : function (n) {
+    has    : h,
+    get: function (n) {
       return this._[f(n)]
     },
-    set    : function (n, t) {
+    set: function (n, t) {
       return (this._[f(n)] = t)
     },
-    remove: p,
-    keys: g,
-    values : function () {
+    remove : p,
+    keys   : g,
+    values: function () {
       var n = []
       for (var t in this._) n.push(this._[t])
       return n
@@ -4610,8 +4610,8 @@
       for (var t in this._) n.push({key: s(t), value: this._[t]})
       return n
     },
-    size: v,
-    empty: d,
+    size   : v,
+    empty  : d,
     forEach: function (n) {
       for (var t in this._) n.call(this, s(t), this._[t])
     },
@@ -4683,14 +4683,14 @@
       return t
     }),
     l(y, {
-      has: h,
-      add    : function (n) {
+      has    : h,
+      add: function (n) {
         return (this._[f((n += ''))] = !0), n
       },
-      remove: p,
-      values: g,
-      size: v,
-      empty: d,
+      remove : p,
+      values : g,
+      size   : v,
+      empty  : d,
       forEach: function (n) {
         for (var t in this._) n.call(this, s(t))
       },
@@ -4777,14 +4777,14 @@
     })
   var zo = 'http://www.w3.org/1999/xhtml',
     Lo = {
-      svg: 'http://www.w3.org/2000/svg',
+      svg  : 'http://www.w3.org/2000/svg',
       xhtml: zo,
       xlink: 'http://www.w3.org/1999/xlink',
-      xml: 'http://www.w3.org/XML/1998/namespace',
+      xml  : 'http://www.w3.org/XML/1998/namespace',
       xmlns: 'http://www.w3.org/2000/xmlns/',
     }
   ;(ao.ns = {
-    prefix: Lo,
+    prefix : Lo,
     qualify: function (n) {
       var t = n.indexOf(':'),
         e = n
@@ -5500,154 +5500,154 @@
       return '#' + bn(this.r) + bn(this.g) + bn(this.b)
     })
   var ua = ao.map({
-    aliceblue: 15792383,
-    antiquewhite: 16444375,
-    aqua: 65535,
-    aquamarine: 8388564,
-    azure: 15794175,
-    beige: 16119260,
-    bisque: 16770244,
-    black: 0,
-    blanchedalmond: 16772045,
-    blue: 255,
-    blueviolet: 9055202,
-    brown: 10824234,
-    burlywood: 14596231,
-    cadetblue: 6266528,
-    chartreuse: 8388352,
-    chocolate: 13789470,
-    coral: 16744272,
-    cornflowerblue: 6591981,
-    cornsilk: 16775388,
-    crimson: 14423100,
-    cyan: 65535,
-    darkblue: 139,
-    darkcyan: 35723,
-    darkgoldenrod: 12092939,
-    darkgray: 11119017,
-    darkgreen: 25600,
-    darkgrey: 11119017,
-    darkkhaki: 12433259,
-    darkmagenta: 9109643,
-    darkolivegreen: 5597999,
-    darkorange: 16747520,
-    darkorchid: 10040012,
-    darkred: 9109504,
-    darksalmon: 15308410,
-    darkseagreen: 9419919,
-    darkslateblue: 4734347,
-    darkslategray: 3100495,
-    darkslategrey: 3100495,
-    darkturquoise: 52945,
-    darkviolet: 9699539,
-    deeppink: 16716947,
-    deepskyblue: 49151,
-    dimgray: 6908265,
-    dimgrey: 6908265,
-    dodgerblue: 2003199,
-    firebrick: 11674146,
-    floralwhite: 16775920,
-    forestgreen: 2263842,
-    fuchsia: 16711935,
-    gainsboro: 14474460,
-    ghostwhite: 16316671,
-    gold: 16766720,
-    goldenrod: 14329120,
-    gray: 8421504,
-    green: 32768,
-    greenyellow: 11403055,
-    grey: 8421504,
-    honeydew: 15794160,
-    hotpink: 16738740,
-    indianred: 13458524,
-    indigo: 4915330,
-    ivory: 16777200,
-    khaki: 15787660,
-    lavender: 15132410,
-    lavenderblush: 16773365,
-    lawngreen: 8190976,
-    lemonchiffon: 16775885,
-    lightblue: 11393254,
-    lightcoral: 15761536,
-    lightcyan: 14745599,
+    aliceblue           : 15792383,
+    antiquewhite        : 16444375,
+    aqua                : 65535,
+    aquamarine          : 8388564,
+    azure               : 15794175,
+    beige               : 16119260,
+    bisque              : 16770244,
+    black               : 0,
+    blanchedalmond      : 16772045,
+    blue                : 255,
+    blueviolet          : 9055202,
+    brown               : 10824234,
+    burlywood           : 14596231,
+    cadetblue           : 6266528,
+    chartreuse          : 8388352,
+    chocolate           : 13789470,
+    coral               : 16744272,
+    cornflowerblue      : 6591981,
+    cornsilk            : 16775388,
+    crimson             : 14423100,
+    cyan                : 65535,
+    darkblue            : 139,
+    darkcyan            : 35723,
+    darkgoldenrod       : 12092939,
+    darkgray            : 11119017,
+    darkgreen           : 25600,
+    darkgrey            : 11119017,
+    darkkhaki           : 12433259,
+    darkmagenta         : 9109643,
+    darkolivegreen      : 5597999,
+    darkorange          : 16747520,
+    darkorchid          : 10040012,
+    darkred             : 9109504,
+    darksalmon          : 15308410,
+    darkseagreen        : 9419919,
+    darkslateblue       : 4734347,
+    darkslategray       : 3100495,
+    darkslategrey       : 3100495,
+    darkturquoise       : 52945,
+    darkviolet          : 9699539,
+    deeppink            : 16716947,
+    deepskyblue         : 49151,
+    dimgray             : 6908265,
+    dimgrey             : 6908265,
+    dodgerblue          : 2003199,
+    firebrick           : 11674146,
+    floralwhite         : 16775920,
+    forestgreen         : 2263842,
+    fuchsia             : 16711935,
+    gainsboro           : 14474460,
+    ghostwhite          : 16316671,
+    gold                : 16766720,
+    goldenrod           : 14329120,
+    gray                : 8421504,
+    green               : 32768,
+    greenyellow         : 11403055,
+    grey                : 8421504,
+    honeydew            : 15794160,
+    hotpink             : 16738740,
+    indianred           : 13458524,
+    indigo              : 4915330,
+    ivory               : 16777200,
+    khaki               : 15787660,
+    lavender            : 15132410,
+    lavenderblush       : 16773365,
+    lawngreen           : 8190976,
+    lemonchiffon        : 16775885,
+    lightblue           : 11393254,
+    lightcoral          : 15761536,
+    lightcyan           : 14745599,
     lightgoldenrodyellow: 16448210,
-    lightgray: 13882323,
-    lightgreen: 9498256,
-    lightgrey: 13882323,
-    lightpink: 16758465,
-    lightsalmon: 16752762,
-    lightseagreen: 2142890,
-    lightskyblue: 8900346,
-    lightslategray: 7833753,
-    lightslategrey: 7833753,
-    lightsteelblue: 11584734,
-    lightyellow: 16777184,
-    lime: 65280,
-    limegreen: 3329330,
-    linen: 16445670,
-    magenta: 16711935,
-    maroon: 8388608,
-    mediumaquamarine: 6737322,
-    mediumblue: 205,
-    mediumorchid: 12211667,
-    mediumpurple: 9662683,
-    mediumseagreen: 3978097,
-    mediumslateblue: 8087790,
-    mediumspringgreen: 64154,
-    mediumturquoise: 4772300,
-    mediumvioletred: 13047173,
-    midnightblue: 1644912,
-    mintcream: 16121850,
-    mistyrose: 16770273,
-    moccasin: 16770229,
-    navajowhite: 16768685,
-    navy: 128,
-    oldlace: 16643558,
-    olive: 8421376,
-    olivedrab: 7048739,
-    orange: 16753920,
-    orangered: 16729344,
-    orchid: 14315734,
-    palegoldenrod: 15657130,
-    palegreen: 10025880,
-    paleturquoise: 11529966,
-    palevioletred: 14381203,
-    papayawhip: 16773077,
-    peachpuff: 16767673,
-    peru: 13468991,
-    pink: 16761035,
-    plum: 14524637,
-    powderblue: 11591910,
-    purple: 8388736,
-    rebeccapurple: 6697881,
-    red: 16711680,
-    rosybrown: 12357519,
-    royalblue: 4286945,
-    saddlebrown: 9127187,
-    salmon: 16416882,
-    sandybrown: 16032864,
-    seagreen: 3050327,
-    seashell: 16774638,
-    sienna: 10506797,
-    silver: 12632256,
-    skyblue: 8900331,
-    slateblue: 6970061,
-    slategray: 7372944,
-    slategrey: 7372944,
-    snow: 16775930,
-    springgreen: 65407,
-    steelblue: 4620980,
-    tan: 13808780,
-    teal: 32896,
-    thistle: 14204888,
-    tomato: 16737095,
-    turquoise: 4251856,
-    violet: 15631086,
-    wheat: 16113331,
-    white: 16777215,
-    whitesmoke: 16119285,
-    yellow: 16776960,
-    yellowgreen: 10145074,
+    lightgray           : 13882323,
+    lightgreen          : 9498256,
+    lightgrey           : 13882323,
+    lightpink           : 16758465,
+    lightsalmon         : 16752762,
+    lightseagreen       : 2142890,
+    lightskyblue        : 8900346,
+    lightslategray      : 7833753,
+    lightslategrey      : 7833753,
+    lightsteelblue      : 11584734,
+    lightyellow         : 16777184,
+    lime                : 65280,
+    limegreen           : 3329330,
+    linen               : 16445670,
+    magenta             : 16711935,
+    maroon              : 8388608,
+    mediumaquamarine    : 6737322,
+    mediumblue          : 205,
+    mediumorchid        : 12211667,
+    mediumpurple        : 9662683,
+    mediumseagreen      : 3978097,
+    mediumslateblue     : 8087790,
+    mediumspringgreen   : 64154,
+    mediumturquoise     : 4772300,
+    mediumvioletred     : 13047173,
+    midnightblue        : 1644912,
+    mintcream           : 16121850,
+    mistyrose           : 16770273,
+    moccasin            : 16770229,
+    navajowhite         : 16768685,
+    navy                : 128,
+    oldlace             : 16643558,
+    olive               : 8421376,
+    olivedrab           : 7048739,
+    orange              : 16753920,
+    orangered           : 16729344,
+    orchid              : 14315734,
+    palegoldenrod       : 15657130,
+    palegreen           : 10025880,
+    paleturquoise       : 11529966,
+    palevioletred       : 14381203,
+    papayawhip          : 16773077,
+    peachpuff           : 16767673,
+    peru                : 13468991,
+    pink                : 16761035,
+    plum                : 14524637,
+    powderblue          : 11591910,
+    purple              : 8388736,
+    rebeccapurple       : 6697881,
+    red                 : 16711680,
+    rosybrown           : 12357519,
+    royalblue           : 4286945,
+    saddlebrown         : 9127187,
+    salmon              : 16416882,
+    sandybrown          : 16032864,
+    seagreen            : 3050327,
+    seashell            : 16774638,
+    sienna              : 10506797,
+    silver              : 12632256,
+    skyblue             : 8900331,
+    slateblue           : 6970061,
+    slategray           : 7372944,
+    slategrey           : 7372944,
+    snow                : 16775930,
+    springgreen         : 65407,
+    steelblue           : 4620980,
+    tan                 : 13808780,
+    teal                : 32896,
+    thistle             : 14204888,
+    tomato              : 16737095,
+    turquoise           : 4251856,
+    violet              : 15631086,
+    wheat               : 16113331,
+    white               : 16777215,
+    whitesmoke          : 16119285,
+    yellow              : 16776960,
+    yellowgreen         : 10145074,
   })
   ua.forEach(function (n, t) {
     ua.set(n, Mn(t))
@@ -5829,64 +5829,64 @@
     ga = (ao.time = {}),
     va = Date
   Hn.prototype = {
-    getDate          : function () {
+    getDate: function () {
       return this._.getUTCDate()
     },
-    getDay           : function () {
+    getDay: function () {
       return this._.getUTCDay()
     },
-    getFullYear      : function () {
+    getFullYear: function () {
       return this._.getUTCFullYear()
     },
-    getHours         : function () {
+    getHours: function () {
       return this._.getUTCHours()
     },
-    getMilliseconds  : function () {
+    getMilliseconds: function () {
       return this._.getUTCMilliseconds()
     },
-    getMinutes       : function () {
+    getMinutes: function () {
       return this._.getUTCMinutes()
     },
-    getMonth         : function () {
+    getMonth: function () {
       return this._.getUTCMonth()
     },
-    getSeconds       : function () {
+    getSeconds: function () {
       return this._.getUTCSeconds()
     },
-    getTime          : function () {
+    getTime: function () {
       return this._.getTime()
     },
     getTimezoneOffset: function () {
       return 0
     },
-    valueOf          : function () {
+    valueOf: function () {
       return this._.valueOf()
     },
-    setDate          : function () {
+    setDate: function () {
       da.setUTCDate.apply(this._, arguments)
     },
-    setDay           : function () {
+    setDay: function () {
       da.setUTCDay.apply(this._, arguments)
     },
-    setFullYear      : function () {
+    setFullYear: function () {
       da.setUTCFullYear.apply(this._, arguments)
     },
-    setHours         : function () {
+    setHours: function () {
       da.setUTCHours.apply(this._, arguments)
     },
-    setMilliseconds  : function () {
+    setMilliseconds: function () {
       da.setUTCMilliseconds.apply(this._, arguments)
     },
-    setMinutes       : function () {
+    setMinutes: function () {
       da.setUTCMinutes.apply(this._, arguments)
     },
-    setMonth         : function () {
+    setMonth: function () {
       da.setUTCMonth.apply(this._, arguments)
     },
-    setSeconds       : function () {
+    setSeconds: function () {
       da.setUTCSeconds.apply(this._, arguments)
     },
-    setTime          : function () {
+    setTime: function () {
       da.setTime.apply(this._, arguments)
     },
   }
@@ -5954,17 +5954,17 @@
     return {numberFormat: jn(n), timeFormat: Yn(n)}
   }
   var xa = ao.locale({
-    decimal: '.',
-    thousands: ',',
-    grouping: [3],
-    currency: ['$', ''],
-    dateTime: '%a %b %e %X %Y',
-    date: '%m/%d/%Y',
-    time: '%H:%M:%S',
-    periods: ['AM', 'PM'],
-    days: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
-    shortDays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-    months     : [
+    decimal    : '.',
+    thousands  : ',',
+    grouping   : [3],
+    currency   : ['$', ''],
+    dateTime   : '%a %b %e %X %Y',
+    date       : '%m/%d/%Y',
+    time       : '%H:%M:%S',
+    periods    : ['AM', 'PM'],
+    days       : ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    shortDays  : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    months: [
       'January',
       'February',
       'March',
@@ -5983,12 +5983,12 @@
   ;(ao.format = xa.numberFormat),
     (ao.geo = {}),
     (ft.prototype = {
-      s: 0,
-      t: 0,
-      add    : function (n) {
+      s      : 0,
+      t      : 0,
+      add: function (n) {
         st(n, this.t, ba), st(ba.s, this.s, this), this.s ? (this.t += ba.t) : (this.s = ba.t)
       },
-      reset  : function () {
+      reset: function () {
         this.s = this.t = 0
       },
       valueOf: function () {
@@ -6000,7 +6000,7 @@
     n && _a.hasOwnProperty(n.type) ? _a[n.type](n, t) : ht(n, t)
   }
   var _a = {
-      Feature          : function (n, t) {
+      Feature: function (n, t) {
         ht(n.geometry, t)
       },
       FeatureCollection: function (n, t) {
@@ -6008,25 +6008,25 @@
       },
     },
     wa = {
-      Sphere            : function (n, t) {
+      Sphere: function (n, t) {
         t.sphere()
       },
-      Point             : function (n, t) {
+      Point: function (n, t) {
         ;(n = n.coordinates), t.point(n[0], n[1], n[2])
       },
-      MultiPoint        : function (n, t) {
+      MultiPoint: function (n, t) {
         for (var e = n.coordinates, r = -1, i = e.length; ++r < i; ) (n = e[r]), t.point(n[0], n[1], n[2])
       },
-      LineString        : function (n, t) {
+      LineString: function (n, t) {
         pt(n.coordinates, t, 0)
       },
-      MultiLineString   : function (n, t) {
+      MultiLineString: function (n, t) {
         for (var e = n.coordinates, r = -1, i = e.length; ++r < i; ) pt(e[r], t, 0)
       },
-      Polygon           : function (n, t) {
+      Polygon: function (n, t) {
         gt(n.coordinates, t)
       },
-      MultiPolygon      : function (n, t) {
+      MultiPolygon: function (n, t) {
         for (var e = n.coordinates, r = -1, i = e.length; ++r < i; ) gt(e[r], t)
       },
       GeometryCollection: function (n, t) {
@@ -6039,16 +6039,16 @@
   var Sa,
     ka = new ft(),
     Na = {
-      sphere      : function () {
+      sphere: function () {
         Sa += 4 * Fo
       },
-      point: b,
-      lineStart: b,
-      lineEnd: b,
+      point       : b,
+      lineStart   : b,
+      lineEnd     : b,
       polygonStart: function () {
         ka.reset(), (Na.lineStart = vt)
       },
-      polygonEnd  : function () {
+      polygonEnd: function () {
         var n = 2 * ka
         ;(Sa += 0 > n ? 4 * Fo + n : n), (Na.lineStart = Na.lineEnd = Na.point = b)
       },
@@ -6127,13 +6127,13 @@
       M,
       x,
       b = {
-        point: n,
-        lineStart: e,
-        lineEnd: r,
+        point       : n,
+        lineStart   : e,
+        lineEnd     : r,
         polygonStart: function () {
           ;(b.point = i), (b.lineStart = u), (b.lineEnd = o), (m = 0), Na.polygonStart()
         },
-        polygonEnd  : function () {
+        polygonEnd: function () {
           Na.polygonEnd(),
             (b.point = n),
             (b.lineStart = e),
@@ -6193,14 +6193,14 @@
     Pa,
     Ua,
     ja = {
-      sphere: b,
-      point: St,
-      lineStart: Nt,
-      lineEnd: Et,
+      sphere      : b,
+      point       : St,
+      lineStart   : Nt,
+      lineEnd     : Et,
       polygonStart: function () {
         ja.lineStart = At
       },
-      polygonEnd  : function () {
+      polygonEnd: function () {
         ja.lineStart = Nt
       },
     },
@@ -6276,22 +6276,22 @@
             e = o.stream(n),
             r = a.stream(n)
           return {
-            point       : function (n, i) {
+            point: function (n, i) {
               t.point(n, i), e.point(n, i), r.point(n, i)
             },
-            sphere      : function () {
+            sphere: function () {
               t.sphere(), e.sphere(), r.sphere()
             },
-            lineStart   : function () {
+            lineStart: function () {
               t.lineStart(), e.lineStart(), r.lineStart()
             },
-            lineEnd     : function () {
+            lineEnd: function () {
               t.lineEnd(), e.lineEnd(), r.lineEnd()
             },
             polygonStart: function () {
               t.polygonStart(), e.polygonStart(), r.polygonStart()
             },
-            polygonEnd  : function () {
+            polygonEnd: function () {
               t.polygonEnd(), e.polygonEnd(), r.polygonEnd()
             },
           }
@@ -6342,25 +6342,25 @@
     Va,
     Xa,
     $a = {
-      point: b,
-      lineStart: b,
-      lineEnd: b,
+      point       : b,
+      lineStart   : b,
+      lineEnd     : b,
       polygonStart: function () {
         ;(Ia = 0), ($a.lineStart = $t)
       },
-      polygonEnd  : function () {
+      polygonEnd: function () {
         ;($a.lineStart = $a.lineEnd = $a.point = b), (Oa += xo(Ia / 2))
       },
     },
     Ba = {point: Bt, lineStart: b, lineEnd: b, polygonStart: b, polygonEnd: b},
     Wa = {
-      point: Gt,
-      lineStart: Kt,
-      lineEnd: Qt,
+      point       : Gt,
+      lineStart   : Kt,
+      lineEnd     : Qt,
       polygonStart: function () {
         Wa.lineStart = ne
       },
-      polygonEnd  : function () {
+      polygonEnd: function () {
         ;(Wa.point = Gt), (Wa.lineStart = Kt), (Wa.lineEnd = Qt)
       },
     }
@@ -6428,22 +6428,22 @@
       }
     }),
     (ie.prototype = {
-      point       : function (n, t) {
+      point: function (n, t) {
         this.stream.point(n, t)
       },
-      sphere      : function () {
+      sphere: function () {
         this.stream.sphere()
       },
-      lineStart   : function () {
+      lineStart: function () {
         this.stream.lineStart()
       },
-      lineEnd     : function () {
+      lineEnd: function () {
         this.stream.lineEnd()
       },
       polygonStart: function () {
         this.stream.polygonStart()
       },
-      polygonEnd  : function () {
+      polygonEnd: function () {
         this.stream.polygonEnd()
       },
     }),
@@ -6561,7 +6561,7 @@
         }),
         (n.outline = function () {
           return {
-            type: 'Polygon',
+            type       : 'Polygon',
             coordinates: [h(u).concat(p(l).slice(1), h(i).reverse().slice(1), p(c).reverse().slice(1))],
           }
         }),
@@ -6802,7 +6802,7 @@
       start: function () {
         return this.edge.l === this.site ? this.edge.a : this.edge.b
       },
-      end  : function () {
+      end: function () {
         return this.edge.l === this.site ? this.edge.b : this.edge.a
       },
     }),
@@ -7120,32 +7120,32 @@
       return m
     },
     vl = ao.map({
-      linear: gl,
-      poly: Er,
-      quad   : function () {
+      linear : gl,
+      poly   : Er,
+      quad: function () {
         return Sr
       },
-      cubic  : function () {
+      cubic: function () {
         return kr
       },
-      sin    : function () {
+      sin: function () {
         return Ar
       },
-      exp    : function () {
+      exp: function () {
         return Cr
       },
-      circle : function () {
+      circle: function () {
         return zr
       },
       elastic: Lr,
-      back: qr,
-      bounce : function () {
+      back   : qr,
+      bounce: function () {
         return Tr
       },
     }),
     dl = ao.map({
-      in: m,
-      out: _r,
+      in      : m,
+      out     : _r,
       'in-out': wr,
       'out-in': function (n) {
         return wr(_r(n))
@@ -7660,10 +7660,10 @@
         for (t = 0; r > t; ++t) (e = o[t]), l > a ? ((a += u[e]), c.push(e)) : ((l += u[e]), f.push(e))
         return f.reverse().concat(c)
       },
-      reverse     : function (n) {
+      reverse: function (n) {
         return ao.range(n.length).reverse()
       },
-      default: gi,
+      default     : gi,
     }),
     wl = ao.map({
       silhouette: function (n) {
@@ -7682,7 +7682,7 @@
         for (e = 0; u > e; ++e) l[e] = (a - o[e]) / 2
         return l
       },
-      wiggle    : function (n) {
+      wiggle: function (n) {
         var t,
           e,
           r,
@@ -7707,7 +7707,7 @@
         for (e = 0; h > e; ++e) p[e] -= c
         return p
       },
-      expand    : function (n) {
+      expand: function (n) {
         var t,
           e,
           r,
@@ -7723,7 +7723,7 @@
         for (e = 0; u > e; ++e) a[e] = 0
         return a
       },
-      zero: vi,
+      zero      : vi,
     })
   ;(ao.layout.histogram = function () {
     function n(n, u) {
@@ -7853,17 +7853,17 @@
             r.push(
               ((u[o] = i =
                 {
-                  _: u[o],
-                  parent: t,
+                  _       : u[o],
+                  parent  : t,
                   children: ((i = u[o].children) && i.slice()) || [],
-                  A: null,
-                  a: null,
-                  z: 0,
-                  m: 0,
-                  c: 0,
-                  s: 0,
-                  t: null,
-                  i: o,
+                  A       : null,
+                  a       : null,
+                  z       : 0,
+                  m       : 0,
+                  c       : 0,
+                  s       : 0,
+                  t       : null,
+                  i       : o,
                 }).a = i)
             )
         return e.children[0]
@@ -8099,7 +8099,7 @@
       )
     }),
     (ao.random = {
-      normal   : function (n, t) {
+      normal: function (n, t) {
         var e = arguments.length
         return (
           2 > e && (t = 1),
@@ -8118,7 +8118,7 @@
           return Math.exp(n())
         }
       },
-      bates    : function (n) {
+      bates: function (n) {
         var t = ao.random.irwinHall(n)
         return function () {
           return t() / n
@@ -8145,7 +8145,7 @@
       floor: function (n) {
         return -Math.ceil(-n)
       },
-      ceil : function (n) {
+      ceil: function (n) {
         return -Math.floor(-n)
       },
     }
@@ -8381,19 +8381,19 @@
     return Mu(m)
   }
   var Tl = ao.map({
-    linear: xu,
-    'linear-closed': bu,
-    step: _u,
-    'step-before': wu,
-    'step-after': Su,
-    basis: zu,
-    'basis-open': Lu,
-    'basis-closed': qu,
-    bundle: Tu,
-    cardinal: Eu,
-    'cardinal-open': ku,
+    linear           : xu,
+    'linear-closed'  : bu,
+    step             : _u,
+    'step-before'    : wu,
+    'step-after'     : Su,
+    basis            : zu,
+    'basis-open'     : Lu,
+    'basis-closed'   : qu,
+    bundle           : Tu,
+    cardinal         : Eu,
+    'cardinal-open'  : ku,
     'cardinal-closed': Nu,
-    monotone: Fu,
+    monotone         : Fu,
   })
   Tl.forEach(function (n, t) {
     ;(t.key = n), (t.closed = /-closed$/.test(n))
@@ -8534,8 +8534,8 @@
       )
     })
   var Ul = ao.map({
-    circle: $u,
-    cross          : function (n) {
+    circle         : $u,
+    cross: function (n) {
       var t = Math.sqrt(n / 5) / 2
       return (
         'M' +
@@ -8567,12 +8567,12 @@
         'Z'
       )
     },
-    diamond        : function (n) {
+    diamond: function (n) {
       var t = Math.sqrt(n / (2 * Fl)),
         e = t * Fl
       return 'M0,' + -t + 'L' + e + ',0 0,' + t + ' ' + -e + ',0Z'
     },
-    square         : function (n) {
+    square: function (n) {
       var t = Math.sqrt(n) / 2
       return 'M' + -t + ',' + -t + 'L' + t + ',' + -t + ' ' + t + ',' + t + ' ' + -t + ',' + t + 'Z'
     },
@@ -8581,7 +8581,7 @@
         e = (t * jl) / 2
       return 'M0,' + e + 'L' + t + ',' + -e + ' ' + -t + ',' + -e + 'Z'
     },
-    'triangle-up'  : function (n) {
+    'triangle-up': function (n) {
       var t = Math.sqrt(n / jl),
         e = (t * jl) / 2
       return 'M0,' + -e + 'L' + t + ',' + e + ' ' + -t + ',' + e + 'Z'
@@ -9239,10 +9239,10 @@
     )
   }
   var $l = {
-      n: 'ns-resize',
-      e: 'ew-resize',
-      s: 'ns-resize',
-      w: 'ew-resize',
+      n : 'ns-resize',
+      e : 'ew-resize',
+      s : 'ns-resize',
+      w : 'ew-resize',
       nw: 'nwse-resize',
       ne: 'nesw-resize',
       se: 'nwse-resize',
@@ -9385,7 +9385,7 @@
         return ao.range(Math.ceil(n / e) * e, +t, e).map(io)
       },
       floor: m,
-      ceil: m,
+      ceil : m,
     }
   ;(Ql.year = ga.year),
     (ga.scale = function () {

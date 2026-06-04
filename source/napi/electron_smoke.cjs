@@ -23,7 +23,10 @@ app.whenReady().then(() => {
       const info = addon.structInfo(name)
       if (!info || !info.hasDefaultCtor) continue
       const arr = (info.members || []).find((m) => m.type === 'array')
-      if (arr) { pick = {name, info, arrayMember: arr.name}; break }
+      if (arr) {
+        pick = {name, info, arrayMember: arr.name}
+        break
+      }
     }
     result.arrayPick = pick && {name: pick.name, member: pick.arrayMember}
 
@@ -46,7 +49,7 @@ app.whenReady().then(() => {
         after,
         expected,
         firstElementOk: after.length > 0 && after[0] === expected[0],
-        allOk: after.every((v, i) => v === expected[i]),
+        allOk         : after.every((v, i) => v === expected[i]),
       }
     }
 
@@ -74,12 +77,18 @@ app.whenReady().then(() => {
       let firstCtor = null
       for (const name of ['sculptcore::meshlog::MeshLog']) {
         const info = addon.structInfo(name)
-        if (info && info.hasDefaultCtor) { firstCtor = name; break }
+        if (info && info.hasDefaultCtor) {
+          firstCtor = name
+          break
+        }
       }
       if (!firstCtor) {
         for (const name of names) {
           const info = addon.structInfo(name)
-          if (info && info.hasDefaultCtor) { firstCtor = name; break }
+          if (info && info.hasDefaultCtor) {
+            firstCtor = name
+            break
+          }
         }
       }
       if (firstCtor) {
@@ -95,13 +104,13 @@ app.whenReady().then(() => {
         result.dispose = {struct: firstCtor, hasDispose, idempotent: !threw}
       }
     } catch (e) {
-      result.dispose = {error: String(e && e.stack || e)}
+      result.dispose = {error: String((e && e.stack) || e)}
     }
 
     // Native factory + free lifecycle (no leak / no crash on free).
     try {
       const mesh = addon.meshCreateCube(8, 1, 1)
-      const cap = (mesh.v && typeof mesh.v === 'object') ? mesh.v.capacity_ : undefined
+      const cap = mesh.v && typeof mesh.v === 'object' ? mesh.v.capacity_ : undefined
       const tree = addon.meshBuildSpatialTree(mesh, 0, 0)
       // One GPUManager shared by both the bulk-data read and the sculpt-stroke
       // verification: the tree fills buffers for the manager that owns the
@@ -133,14 +142,14 @@ app.whenReady().then(() => {
           if (view) for (let k = 0; k < view.length; k++) if (view[k] !== 0) nonzero++
           bufInfo = {
             index: i,
-            name: typeof buf.name === 'string' ? buf.name : undefined,
+            name : typeof buf.name === 'string' ? buf.name : undefined,
             size,
             elemsize,
             requestedBytes: bytes,
-            viewIsUint8: view instanceof Uint8Array,
-            viewLength: view ? view.length : 0,
-            viewLenOk: !!view && view.length === bytes,
-            nonzeroBytes: nonzero,
+            viewIsUint8   : view instanceof Uint8Array,
+            viewLength    : view ? view.length : 0,
+            viewLenOk     : !!view && view.length === bytes,
+            nonzeroBytes  : nonzero,
             addr,
             addrStable: typeof addr === 'number' && addr !== 0 && addr === addr2,
           }
@@ -148,7 +157,7 @@ app.whenReady().then(() => {
         }
         result.gpuBulkData = {updated, bufferCount: nbuf, sample: bufInfo}
       } catch (e) {
-        result.gpuBulkData = {error: String(e && e.stack || e)}
+        result.gpuBulkData = {error: String((e && e.stack) || e)}
       }
 
       // Native sculpt-stroke primitives: constructWith (parameterized ctor with
@@ -165,7 +174,9 @@ app.whenReady().then(() => {
         }
         const f3 = (x, y, z) => {
           const v = addon.construct('litestl::math::float3')
-          v.vec[0] = x; v.vec[1] = y; v.vec[2] = z
+          v.vec[0] = x
+          v.vec[1] = y
+          v.vec[2] = z
           return v
         }
         // Checksum of every populated GPU buffer's bytes — a vertex move shows up
@@ -178,8 +189,8 @@ app.whenReady().then(() => {
           let sum = 0
           for (let i = 0; i < nbuf; i++) {
             const buf = addon.vectorGet(buffers, i)
-            const size = buf && (buf.size | 0)
-            const elemsize = buf && (buf.elemsize | 0)
+            const size = buf && buf.size | 0
+            const elemsize = buf && buf.elemsize | 0
             if (!size || !elemsize) continue
             const view = addon.pointerBytes(buf, 'data', size * elemsize * 4)
             if (view) for (let k = 0; k < view.length; k++) sum = (sum + view[k] * (k + 1)) >>> 0
@@ -237,19 +248,19 @@ app.whenReady().then(() => {
           geometryChanged: checksumBefore !== checksumAfter,
         }
       } catch (e) {
-        result.sculptStroke = {error: String(e && e.stack || e)}
+        result.sculptStroke = {error: String((e && e.stack) || e)}
       }
 
       addon.spatialTreeFree(tree)
       addon.meshFree(mesh)
       result.meshLifecycle = {createdCapacity: cap, freed: true}
     } catch (e) {
-      result.meshLifecycle = {error: String(e && e.stack || e)}
+      result.meshLifecycle = {error: String((e && e.stack) || e)}
     }
 
     result.ok = true
   } catch (err) {
-    result.error = String(err && err.stack || err)
+    result.error = String((err && err.stack) || err)
     result.ok = false
   }
 

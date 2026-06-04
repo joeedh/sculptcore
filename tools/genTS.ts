@@ -50,7 +50,7 @@ function getNativeEOL(): '\n' | '\r\n' {
   try {
     autocrlf = execSync('git config --get core.autocrlf', {
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio   : ['ignore', 'pipe', 'ignore'],
     }).trim()
   } catch {
     // unset or git unavailable

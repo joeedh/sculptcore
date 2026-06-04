@@ -16,8 +16,8 @@ import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 
 // @kmamal/gpu does not inject the WebGPU enum globals; use the numeric values.
-const BufferUsage = { MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 0x40, STORAGE: 0x80 }
-const MapMode = { READ: 1 }
+const BufferUsage = {MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 0x40, STORAGE: 0x80}
+const MapMode = {READ: 1}
 
 const ATOL = 1e-5
 const RTOL = 1e-4
@@ -45,7 +45,7 @@ function parseBindings(wgsl) {
     else if (/^texture_2d/.test(type)) kind = 'texture'
     else if (/^sampler/.test(type)) kind = 'sampler'
     else throw new Error(`unhandled binding decl @binding(${binding}): ${decl} ${type}`)
-    out.push({ binding, kind })
+    out.push({binding, kind})
   }
   return out.sort((a, b) => a.binding - b.binding)
 }
@@ -54,21 +54,21 @@ function layoutEntry(b) {
   const visibility = 4 // GPUShaderStage.COMPUTE
   switch (b.kind) {
     case 'uniform':
-      return { binding: b.binding, visibility, buffer: { type: 'uniform' } }
+      return {binding: b.binding, visibility, buffer: {type: 'uniform'}}
     case 'storage-rw':
-      return { binding: b.binding, visibility, buffer: { type: 'storage' } }
+      return {binding: b.binding, visibility, buffer: {type: 'storage'}}
     case 'storage-ro':
-      return { binding: b.binding, visibility, buffer: { type: 'read-only-storage' } }
+      return {binding: b.binding, visibility, buffer: {type: 'read-only-storage'}}
     case 'texture':
-      return { binding: b.binding, visibility, texture: { sampleType: 'unfilterable-float', viewDimension: '2d' } }
+      return {binding: b.binding, visibility, texture: {sampleType: 'unfilterable-float', viewDimension: '2d'}}
     case 'sampler':
-      return { binding: b.binding, visibility, sampler: { type: 'non-filtering' } }
+      return {binding: b.binding, visibility, sampler: {type: 'non-filtering'}}
   }
 }
 
 function makeBuffer(device, bytes, usage) {
   const size = Math.max(4, (bytes.byteLength + 3) & ~3)
-  const buf = device.createBuffer({ size, usage, mappedAtCreation: true })
+  const buf = device.createBuffer({size, usage, mappedAtCreation: true})
   new Uint8Array(buf.getMappedRange()).set(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))
   buf.unmap()
   return buf
@@ -93,19 +93,16 @@ function transformWgsl(wgsl, hasTexture, w, h) {
   if (hasTexture) {
     let out = wgsl.replace(
       /@group\(0\)\s*@binding\(8\)\s*var\s+brush_tex:\s*texture_2d<f32>;/,
-      '@group(0) @binding(8) var<storage, read> brush_tex: array<f32>;',
+      '@group(0) @binding(8) var<storage, read> brush_tex: array<f32>;'
     )
     out = out.replace(/textureDimensions\(brush_tex\)/g, `vec2<u32>(${w}u, ${h}u)`)
     out = out.replace(
       /textureLoad\(brush_tex,\s*vec2<i32>\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\),\s*0\)\.r/g,
-      (_m, x, y) => `brush_tex[u32(${y}) * ${w}u + u32(${x})]`,
+      (_m, x, y) => `brush_tex[u32(${y}) * ${w}u + u32(${x})]`
     )
     return out
   }
-  let out = wgsl.replace(
-    /@group\(0\)\s*@binding\(8\)\s*var\s+brush_tex:\s*texture_2d<f32>;\s*\n/,
-    '',
-  )
+  let out = wgsl.replace(/@group\(0\)\s*@binding\(8\)\s*var\s+brush_tex:\s*texture_2d<f32>;\s*\n/, '')
   out = out.replace(/textureDimensions\(brush_tex\)/g, 'vec2<u32>(1u, 1u)')
   out = out.replace(/textureLoad\(brush_tex,\s*vec2<i32>\([^)]*\),\s*0\)\.r/g, '1.0')
   return out
@@ -137,12 +134,14 @@ function diff(actual, expected) {
       bad++
     }
   }
-  return { maxAbs, bad, badIdx }
+  return {maxAbs, bad, badIdx}
 }
 
 // Exact (integer) diff for int attr layers like the poly-group `group` id.
 function diffInt(actual, expected) {
-  let bad = 0, badIdx = -1, maxAbs = 0
+  let bad = 0,
+    badIdx = -1,
+    maxAbs = 0
   for (let i = 0; i < expected.length; i++) {
     const d = Math.abs(actual[i] - expected[i])
     if (d > maxAbs) maxAbs = d
@@ -151,7 +150,7 @@ function diffInt(actual, expected) {
       bad++
     }
   }
-  return { maxAbs, bad, badIdx }
+  return {maxAbs, bad, badIdx}
 }
 
 // Element stride (bytes) of a WGSL storage `array<T>` attr binding, for sizing
@@ -182,12 +181,12 @@ export async function replayFixture(fixturePath, wgslDir) {
     },
   })
 
-  const module = device.createShaderModule({ code: wgsl })
-  const bgl = device.createBindGroupLayout({ entries: bindings.map(layoutEntry) })
-  const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl] })
+  const module = device.createShaderModule({code: wgsl})
+  const bgl = device.createBindGroupLayout({entries: bindings.map(layoutEntry)})
+  const pipelineLayout = device.createPipelineLayout({bindGroupLayouts: [bgl]})
   const pipeline = device.createComputePipeline({
-    layout: pipelineLayout,
-    compute: { module, entryPoint: 'main' },
+    layout : pipelineLayout,
+    compute: {module, entryPoint: 'main'},
   })
 
   const vc = fx.vertCount
@@ -195,7 +194,11 @@ export async function replayFixture(fixturePath, wgslDir) {
   // previous dab's result into the next), matching the C++ executor.
   const coBuf = makeBuffer(device, b64bytes(fx.co), BufferUsage.STORAGE | BufferUsage.COPY_SRC | BufferUsage.COPY_DST)
   const noBuf = makeBuffer(device, b64bytes(fx.no), BufferUsage.STORAGE | BufferUsage.COPY_SRC | BufferUsage.COPY_DST)
-  const maskBuf = makeBuffer(device, b64bytes(fx.mask), BufferUsage.STORAGE | BufferUsage.COPY_SRC | BufferUsage.COPY_DST)
+  const maskBuf = makeBuffer(
+    device,
+    b64bytes(fx.mask),
+    BufferUsage.STORAGE | BufferUsage.COPY_SRC | BufferUsage.COPY_DST
+  )
 
   // binding 8 is now a storage buffer (see transformWgsl): the row-major R32
   // pixels, or a single 1.0 standing in for the native 1x1 white dummy.
@@ -205,14 +208,14 @@ export async function replayFixture(fixturePath, wgslDir) {
   const texBuf = has(8) ? makeBuffer(device, texBytes, BufferUsage.STORAGE) : null
   // binding 9 (sampler) is declared by every kernel but unused (no
   // textureSample); bind a real one so the explicit layout is satisfied.
-  const sampler = has(9) ? device.createSampler({ magFilter: 'nearest', minFilter: 'nearest' }) : null
+  const sampler = has(9) ? device.createSampler({magFilter: 'nearest', minFilter: 'nearest'}) : null
 
   let coPrevBuf = null
   let nbrMetaBuf = null
   let nbrVertsBuf = null
   if (has(11)) {
     coPrevBuf = device.createBuffer({
-      size: vc * 16,
+      size : vc * 16,
       usage: BufferUsage.STORAGE | BufferUsage.COPY_DST,
     })
   }
@@ -231,11 +234,8 @@ export async function replayFixture(fixturePath, wgslDir) {
   if (has(attrSlot)) {
     const ab = bindings.find((b) => b.binding === attrSlot)
     attrElemSize = wgslElemSize(ab ? ab.type : 'f32')
-    const initBytes = fx.attrIn
-      ? b64bytes(fx.attrIn)
-      : Buffer.alloc(vc * attrElemSize)
-    attrBuf = makeBuffer(device, initBytes,
-      BufferUsage.STORAGE | BufferUsage.COPY_SRC | BufferUsage.COPY_DST)
+    const initBytes = fx.attrIn ? b64bytes(fx.attrIn) : Buffer.alloc(vc * attrElemSize)
+    attrBuf = makeBuffer(device, initBytes, BufferUsage.STORAGE | BufferUsage.COPY_SRC | BufferUsage.COPY_DST)
   }
 
   for (const dab of fx.dabs) {
@@ -247,23 +247,25 @@ export async function replayFixture(fixturePath, wgslDir) {
     const strokeBuf = makeBuffer(device, b64bytes(dab.stroke), BufferUsage.STORAGE)
 
     const entries = []
-    const add = (n, resource) => { if (has(n)) entries.push({ binding: n, resource }) }
-    add(0, { buffer: coBuf })
-    add(1, { buffer: noBuf })
-    add(2, { buffer: maskBuf })
-    add(3, { buffer: uniqueBuf })
-    add(4, { buffer: nodesBuf })
-    add(5, { buffer: brushUBuf })
-    add(6, { buffer: ctxUBuf })
-    add(7, { buffer: falloffBuf })
-    add(8, { buffer: texBuf })
-    if (has(9)) entries.push({ binding: 9, resource: sampler })
-    add(10, { buffer: strokeBuf })
-    add(11, { buffer: coPrevBuf })
-    add(12, { buffer: nbrMetaBuf })
-    add(13, { buffer: nbrVertsBuf })
-    if (attrBuf) entries.push({ binding: attrSlot, resource: { buffer: attrBuf } })
-    const bindGroup = device.createBindGroup({ layout: bgl, entries })
+    const add = (n, resource) => {
+      if (has(n)) entries.push({binding: n, resource})
+    }
+    add(0, {buffer: coBuf})
+    add(1, {buffer: noBuf})
+    add(2, {buffer: maskBuf})
+    add(3, {buffer: uniqueBuf})
+    add(4, {buffer: nodesBuf})
+    add(5, {buffer: brushUBuf})
+    add(6, {buffer: ctxUBuf})
+    add(7, {buffer: falloffBuf})
+    add(8, {buffer: texBuf})
+    if (has(9)) entries.push({binding: 9, resource: sampler})
+    add(10, {buffer: strokeBuf})
+    add(11, {buffer: coPrevBuf})
+    add(12, {buffer: nbrMetaBuf})
+    add(13, {buffer: nbrVertsBuf})
+    if (attrBuf) entries.push({binding: attrSlot, resource: {buffer: attrBuf}})
+    const bindGroup = device.createBindGroup({layout: bgl, entries})
 
     const enc = device.createCommandEncoder()
     // for_neighbor kernels read the previous-dab snapshot from co_prev; the
@@ -279,7 +281,7 @@ export async function replayFixture(fixturePath, wgslDir) {
 
   // Read co (and mask, for mask kernels) back and diff against the reference.
   async function readback(buf, byteLen) {
-    const staging = device.createBuffer({ size: byteLen, usage: BufferUsage.MAP_READ | BufferUsage.COPY_DST })
+    const staging = device.createBuffer({size: byteLen, usage: BufferUsage.MAP_READ | BufferUsage.COPY_DST})
     const enc = device.createCommandEncoder()
     enc.copyBufferToBuffer(buf, 0, staging, 0, byteLen)
     device.queue.submit([enc.finish()])
@@ -291,7 +293,7 @@ export async function replayFixture(fixturePath, wgslDir) {
 
   // Face/attr-output kernels (polygroup) don't move geometry — they carry no
   // expectCo, only expectAttr (checked below). Geometry kernels diff co.
-  let coDiff = { maxAbs: 0, bad: 0, badIdx: -1 }
+  let coDiff = {maxAbs: 0, bad: 0, badIdx: -1}
   if (fx.expectCo) {
     const coBack = await readback(coBuf, vc * 16)
     const actualCo = packVec3(coBack, vc)
@@ -327,9 +329,8 @@ export async function replayFixture(fixturePath, wgslDir) {
     }
   }
 
-  const ok = coDiff.bad === 0 && (!maskDiff || maskDiff.bad === 0) &&
-             (!attrDiff || attrDiff.bad === 0)
-  return { ok, kernel: fx.kernel, vertCount: vc, dabs: fx.dabs.length, coDiff, maskDiff, attrDiff }
+  const ok = coDiff.bad === 0 && (!maskDiff || maskDiff.bad === 0) && (!attrDiff || attrDiff.bad === 0)
+  return {ok, kernel: fx.kernel, vertCount: vc, dabs: fx.dabs.length, coDiff, maskDiff, attrDiff}
 }
 
 async function main() {
@@ -351,9 +352,14 @@ async function main() {
     process.exit(0)
   }
   console.error(`FAIL ${tag}`)
-  console.error(`  co:   ${r.coDiff.bad} bad, maxAbsErr=${r.coDiff.maxAbs.toExponential(2)} (first at idx ${r.coDiff.badIdx})`)
+  console.error(
+    `  co:   ${r.coDiff.bad} bad, maxAbsErr=${r.coDiff.maxAbs.toExponential(2)} (first at idx ${r.coDiff.badIdx})`
+  )
   if (r.maskDiff) console.error(`  mask: ${r.maskDiff.bad} bad, maxAbsErr=${r.maskDiff.maxAbs.toExponential(2)}`)
-  if (r.attrDiff) console.error(`  attr: ${r.attrDiff.bad} bad, maxAbsErr=${r.attrDiff.maxAbs.toExponential(2)} (first at idx ${r.attrDiff.badIdx})`)
+  if (r.attrDiff)
+    console.error(
+      `  attr: ${r.attrDiff.bad} bad, maxAbsErr=${r.attrDiff.maxAbs.toExponential(2)} (first at idx ${r.attrDiff.badIdx})`
+    )
   process.exit(1)
 }
 

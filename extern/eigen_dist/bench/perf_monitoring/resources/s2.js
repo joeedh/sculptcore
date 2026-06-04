@@ -445,7 +445,7 @@
         (c._options = Object.create(
           {},
           {
-            duration        : {
+            duration: {
               get: function () {
                 return o
               },
@@ -453,7 +453,7 @@
                 o = a
               },
             },
-            gravity         : {
+            gravity: {
               get: function () {
                 return f
               },
@@ -461,7 +461,7 @@
                 f = a
               },
             },
-            distance        : {
+            distance: {
               get: function () {
                 return g
               },
@@ -469,7 +469,7 @@
                 g = a
               },
             },
-            snapDistance    : {
+            snapDistance: {
               get: function () {
                 return h
               },
@@ -477,7 +477,7 @@
                 h = a
               },
             },
-            classes         : {
+            classes: {
               get: function () {
                 return i
               },
@@ -485,7 +485,7 @@
                 i = a
               },
             },
-            enabled         : {
+            enabled: {
               get: function () {
                 return n
               },
@@ -493,7 +493,7 @@
                 n = a
               },
             },
-            hideDelay       : {
+            hideDelay: {
               get: function () {
                 return k
               },
@@ -509,7 +509,7 @@
                 u = a
               },
             },
-            valueFormatter  : {
+            valueFormatter: {
               get: function () {
                 return r
               },
@@ -517,7 +517,7 @@
                 r = a
               },
             },
-            headerFormatter : {
+            headerFormatter: {
               get: function () {
                 return s
               },
@@ -525,7 +525,7 @@
                 s = a
               },
             },
-            keyFormatter    : {
+            keyFormatter: {
               get: function () {
                 return t
               },
@@ -533,7 +533,7 @@
                 t = a
               },
             },
-            headerEnabled   : {
+            headerEnabled: {
               get: function () {
                 return p
               },
@@ -541,7 +541,7 @@
                 p = a
               },
             },
-            position        : {
+            position: {
               get: function () {
                 return v
               },
@@ -549,7 +549,7 @@
                 v = a
               },
             },
-            chartContainer  : {
+            chartContainer: {
               get: function () {
                 return document.body
               },
@@ -557,7 +557,7 @@
                 a.deprecated('chartContainer', 'feature removed after 1.8.3')
               },
             },
-            fixedTop        : {
+            fixedTop: {
               get: function () {
                 return null
               },
@@ -565,7 +565,7 @@
                 a.deprecated('fixedTop', 'feature removed after 1.8.1')
               },
             },
-            offset          : {
+            offset: {
               get: function () {
                 return {left: 0, top: 0}
               },
@@ -573,7 +573,7 @@
                 a.deprecated('offset', 'use chart.tooltip.distance() instead')
               },
             },
-            hidden          : {
+            hidden: {
               get: function () {
                 return j
               },
@@ -581,7 +581,7 @@
                 j != a && ((j = !!a), c())
               },
             },
-            data            : {
+            data: {
               get: function () {
                 return e
               },
@@ -594,13 +594,13 @@
                   (e = a)
               },
             },
-            node            : {
+            node: {
               get: function () {
                 return l.node()
               },
               set: function (a) {},
             },
-            id              : {
+            id: {
               get: function () {
                 return d
               },
@@ -642,7 +642,7 @@
           : a.log('ERROR: Failed to bind to window.resize with: ', b),
         {
           callback: b,
-          clear   : function () {
+          clear: function () {
             window.removeEventListener('resize', b)
           },
         }
@@ -1276,7 +1276,7 @@
                 o = a
               },
             },
-            staggerLabels    : {
+            staggerLabels: {
               get: function () {
                 return l
               },
@@ -1284,7 +1284,7 @@
                 l = a
               },
             },
-            rotateLabels     : {
+            rotateLabels: {
               get: function () {
                 return j
               },
@@ -1292,7 +1292,7 @@
                 j = a
               },
             },
-            rotateYLabel     : {
+            rotateYLabel: {
               get: function () {
                 return k
               },
@@ -1300,7 +1300,7 @@
                 k = a
               },
             },
-            showMaxMin       : {
+            showMaxMin: {
               get: function () {
                 return i
               },
@@ -1308,7 +1308,7 @@
                 i = a
               },
             },
-            axisLabel        : {
+            axisLabel: {
               get: function () {
                 return h
               },
@@ -1316,7 +1316,7 @@
                 h = a
               },
             },
-            height           : {
+            height: {
               get: function () {
                 return g
               },
@@ -1324,7 +1324,7 @@
                 g = a
               },
             },
-            ticks            : {
+            ticks: {
               get: function () {
                 return n
               },
@@ -1332,7 +1332,7 @@
                 n = a
               },
             },
-            width            : {
+            width: {
               get: function () {
                 return f
               },
@@ -1340,7 +1340,7 @@
                 f = a
               },
             },
-            fontSize         : {
+            fontSize: {
               get: function () {
                 return p
               },
@@ -1348,7 +1348,7 @@
                 p = a
               },
             },
-            margin           : {
+            margin: {
               get: function () {
                 return e
               },
@@ -1359,7 +1359,7 @@
                   (e.left = void 0 !== a.left ? a.left : e.left)
               },
             },
-            duration         : {
+            duration: {
               get: function () {
                 return q
               },
@@ -1367,7 +1367,7 @@
                 ;(q = a), t.reset(q)
               },
             },
-            scale            : {
+            scale: {
               get: function () {
                 return d
               },
@@ -1529,31 +1529,31 @@
                 .on('mouseover', function (a, b) {
                   d3.select(this).classed('hover', !0),
                     B.elementMouseover({
-                      key: o(a),
-                      value: o(a),
+                      key   : o(a),
+                      value : o(a),
                       series: [
                         {key: 'Q3', value: r(a), color: u(a) || z(a, b)},
                         {key: 'Q2', value: q(a), color: u(a) || z(a, b)},
                         {key: 'Q1', value: p(a), color: u(a) || z(a, b)},
                       ],
-                      data: a,
-                      index: b,
-                      e: d3.event,
+                      data  : a,
+                      index : b,
+                      e     : d3.event,
                     })
                 })
                 .on('mouseout', function (a, b) {
                   d3.select(this).classed('hover', !1),
                     B.elementMouseout({
-                      key: o(a),
-                      value: o(a),
+                      key   : o(a),
+                      value : o(a),
                       series: [
                         {key: 'Q3', value: r(a), color: u(a) || z(a, b)},
                         {key: 'Q2', value: q(a), color: u(a) || z(a, b)},
                         {key: 'Q1', value: p(a), color: u(a) || z(a, b)},
                       ],
-                      data: a,
-                      index: b,
-                      e: d3.event,
+                      data  : a,
+                      index : b,
+                      e     : d3.event,
                     })
                 })
                 .on('mousemove', function (a, b) {
@@ -1681,7 +1681,7 @@
         (b._options = Object.create(
           {},
           {
-            width       : {
+            width: {
               get: function () {
                 return j
               },
@@ -1689,7 +1689,7 @@
                 j = a
               },
             },
-            height      : {
+            height: {
               get: function () {
                 return k
               },
@@ -1697,7 +1697,7 @@
                 k = a
               },
             },
-            maxBoxWidth : {
+            maxBoxWidth: {
               get: function () {
                 return D
               },
@@ -1705,7 +1705,7 @@
                 D = a
               },
             },
-            x           : {
+            x: {
               get: function () {
                 return o
               },
@@ -1713,7 +1713,7 @@
                 o = a
               },
             },
-            q1          : {
+            q1: {
               get: function () {
                 return p
               },
@@ -1721,7 +1721,7 @@
                 p = a
               },
             },
-            q2          : {
+            q2: {
               get: function () {
                 return q
               },
@@ -1729,7 +1729,7 @@
                 q = a
               },
             },
-            q3          : {
+            q3: {
               get: function () {
                 return r
               },
@@ -1737,7 +1737,7 @@
                 r = a
               },
             },
-            wl          : {
+            wl: {
               get: function () {
                 return s
               },
@@ -1745,7 +1745,7 @@
                 s = a
               },
             },
-            wh          : {
+            wh: {
               get: function () {
                 return t
               },
@@ -1753,7 +1753,7 @@
                 t = a
               },
             },
-            itemColor   : {
+            itemColor: {
               get: function () {
                 return u
               },
@@ -1761,7 +1761,7 @@
                 u = a
               },
             },
-            outliers    : {
+            outliers: {
               get: function () {
                 return v
               },
@@ -1793,7 +1793,7 @@
                 y = a
               },
             },
-            xScale      : {
+            xScale: {
               get: function () {
                 return m
               },
@@ -1801,7 +1801,7 @@
                 m = a
               },
             },
-            yScale      : {
+            yScale: {
               get: function () {
                 return n
               },
@@ -1809,7 +1809,7 @@
                 n = a
               },
             },
-            xDomain     : {
+            xDomain: {
               get: function () {
                 return c
               },
@@ -1817,7 +1817,7 @@
                 c = a
               },
             },
-            yDomain     : {
+            yDomain: {
               get: function () {
                 return e
               },
@@ -1825,7 +1825,7 @@
                 e = a
               },
             },
-            xRange      : {
+            xRange: {
               get: function () {
                 return d
               },
@@ -1833,7 +1833,7 @@
                 d = a
               },
             },
-            yRange      : {
+            yRange: {
               get: function () {
                 return f
               },
@@ -1841,7 +1841,7 @@
                 f = a
               },
             },
-            id          : {
+            id: {
               get: function () {
                 return l
               },
@@ -1849,7 +1849,7 @@
                 l = a
               },
             },
-            y           : {
+            y: {
               get: function () {
                 return console.warn("BoxPlot 'y' chart option is deprecated. Please use model overrides instead."), {}
               },
@@ -1857,7 +1857,7 @@
                 console.warn("BoxPlot 'y' chart option is deprecated. Please use model overrides instead.")
               },
             },
-            margin      : {
+            margin: {
               get: function () {
                 return i
               },
@@ -1868,7 +1868,7 @@
                   (i.left = void 0 !== a.left ? a.left : i.left)
               },
             },
-            color       : {
+            color: {
               get: function () {
                 return z
               },
@@ -1876,7 +1876,7 @@
                 z = a.utils.getColor(b)
               },
             },
-            duration    : {
+            duration: {
               get: function () {
                 return C
               },
@@ -2025,7 +2025,7 @@
         (b._options = Object.create(
           {},
           {
-            width          : {
+            width: {
               get: function () {
                 return i
               },
@@ -2033,7 +2033,7 @@
                 i = a
               },
             },
-            height         : {
+            height: {
               get: function () {
                 return j
               },
@@ -2041,7 +2041,7 @@
                 j = a
               },
             },
-            staggerLabels  : {
+            staggerLabels: {
               get: function () {
                 return o
               },
@@ -2049,7 +2049,7 @@
                 o = a
               },
             },
-            showXAxis      : {
+            showXAxis: {
               get: function () {
                 return l
               },
@@ -2057,7 +2057,7 @@
                 l = a
               },
             },
-            showYAxis      : {
+            showYAxis: {
               get: function () {
                 return m
               },
@@ -2065,7 +2065,7 @@
                 m = a
               },
             },
-            tooltipContent : {
+            tooltipContent: {
               get: function () {
                 return p
               },
@@ -2073,7 +2073,7 @@
                 p = a
               },
             },
-            noData         : {
+            noData: {
               get: function () {
                 return q
               },
@@ -2081,7 +2081,7 @@
                 q = a
               },
             },
-            margin         : {
+            margin: {
               get: function () {
                 return h
               },
@@ -2092,7 +2092,7 @@
                   (h.left = void 0 !== a.left ? a.left : h.left)
               },
             },
-            duration       : {
+            duration: {
               get: function () {
                 return s
               },
@@ -2100,7 +2100,7 @@
                 ;(s = a), t.reset(s), e.duration(s), f.duration(s), g.duration(s)
               },
             },
-            color          : {
+            color: {
               get: function () {
                 return k
               },
@@ -2221,7 +2221,7 @@
                   value: a.value,
                   label: a.label || 'Previous',
                   color: d3.select(this).style('fill'),
-                  pos: [G(a.value), x / 2],
+                  pos  : [G(a.value), x / 2],
                 })
               })
               .on('mousemove', function (a) {
@@ -2257,7 +2257,7 @@
                   value: a.value,
                   label: a.label || 'Previous',
                   color: d3.select(this).style('fill'),
-                  pos: [G(a.value), x / 2],
+                  pos  : [G(a.value), x / 2],
                 })
               })
               .on('mousemove', function (a) {
@@ -2329,7 +2329,7 @@
         (c._options = Object.create(
           {},
           {
-            ranges    : {
+            ranges: {
               get: function () {
                 return g
               },
@@ -2337,7 +2337,7 @@
                 g = a
               },
             },
-            markers   : {
+            markers: {
               get: function () {
                 return h
               },
@@ -2345,7 +2345,7 @@
                 h = a
               },
             },
-            measures  : {
+            measures: {
               get: function () {
                 return j
               },
@@ -2353,7 +2353,7 @@
                 j = a
               },
             },
-            forceX    : {
+            forceX: {
               get: function () {
                 return o
               },
@@ -2361,7 +2361,7 @@
                 o = a
               },
             },
-            width     : {
+            width: {
               get: function () {
                 return p
               },
@@ -2369,7 +2369,7 @@
                 p = a
               },
             },
-            height    : {
+            height: {
               get: function () {
                 return q
               },
@@ -2385,7 +2385,7 @@
                 s = a
               },
             },
-            margin    : {
+            margin: {
               get: function () {
                 return d
               },
@@ -2396,7 +2396,7 @@
                   (d.left = void 0 !== a.left ? a.left : d.left)
               },
             },
-            orient    : {
+            orient: {
               get: function () {
                 return e
               },
@@ -2404,7 +2404,7 @@
                 ;(e = a), (f = 'right' == e || 'bottom' == e)
               },
             },
-            color     : {
+            color: {
               get: function () {
                 return t
               },
@@ -2555,7 +2555,7 @@
         (b._options = Object.create(
           {},
           {
-            ranges    : {
+            ranges: {
               get: function () {
                 return h
               },
@@ -2563,7 +2563,7 @@
                 h = a
               },
             },
-            markers   : {
+            markers: {
               get: function () {
                 return i
               },
@@ -2571,7 +2571,7 @@
                 i = a
               },
             },
-            measures  : {
+            measures: {
               get: function () {
                 return j
               },
@@ -2579,7 +2579,7 @@
                 j = a
               },
             },
-            width     : {
+            width: {
               get: function () {
                 return k
               },
@@ -2587,7 +2587,7 @@
                 k = a
               },
             },
-            height    : {
+            height: {
               get: function () {
                 return l
               },
@@ -2603,7 +2603,7 @@
                 m = a
               },
             },
-            ticks     : {
+            ticks: {
               get: function () {
                 return n
               },
@@ -2611,7 +2611,7 @@
                 n = a
               },
             },
-            noData    : {
+            noData: {
               get: function () {
                 return o
               },
@@ -2619,7 +2619,7 @@
                 o = a
               },
             },
-            margin    : {
+            margin: {
               get: function () {
                 return g
               },
@@ -2630,7 +2630,7 @@
                   (g.left = void 0 !== a.left ? a.left : g.left)
               },
             },
-            orient    : {
+            orient: {
               get: function () {
                 return e
               },
@@ -2823,7 +2823,7 @@
         (b._options = Object.create(
           {},
           {
-            width      : {
+            width: {
               get: function () {
                 return i
               },
@@ -2831,7 +2831,7 @@
                 i = a
               },
             },
-            height     : {
+            height: {
               get: function () {
                 return j
               },
@@ -2839,7 +2839,7 @@
                 j = a
               },
             },
-            xScale     : {
+            xScale: {
               get: function () {
                 return l
               },
@@ -2847,7 +2847,7 @@
                 l = a
               },
             },
-            yScale     : {
+            yScale: {
               get: function () {
                 return m
               },
@@ -2855,7 +2855,7 @@
                 m = a
               },
             },
-            xDomain    : {
+            xDomain: {
               get: function () {
                 return d
               },
@@ -2863,7 +2863,7 @@
                 d = a
               },
             },
-            yDomain    : {
+            yDomain: {
               get: function () {
                 return e
               },
@@ -2871,7 +2871,7 @@
                 e = a
               },
             },
-            xRange     : {
+            xRange: {
               get: function () {
                 return f
               },
@@ -2879,7 +2879,7 @@
                 f = a
               },
             },
-            yRange     : {
+            yRange: {
               get: function () {
                 return g
               },
@@ -2887,7 +2887,7 @@
                 g = a
               },
             },
-            forceX     : {
+            forceX: {
               get: function () {
                 return t
               },
@@ -2895,7 +2895,7 @@
                 t = a
               },
             },
-            forceY     : {
+            forceY: {
               get: function () {
                 return u
               },
@@ -2903,7 +2903,7 @@
                 u = a
               },
             },
-            padData    : {
+            padData: {
               get: function () {
                 return v
               },
@@ -2911,7 +2911,7 @@
                 v = a
               },
             },
-            clipEdge   : {
+            clipEdge: {
               get: function () {
                 return w
               },
@@ -2919,7 +2919,7 @@
                 w = a
               },
             },
-            id         : {
+            id: {
               get: function () {
                 return k
               },
@@ -2935,7 +2935,7 @@
                 y = a
               },
             },
-            x          : {
+            x: {
               get: function () {
                 return n
               },
@@ -2943,7 +2943,7 @@
                 n = a
               },
             },
-            y          : {
+            y: {
               get: function () {
                 return o
               },
@@ -2951,7 +2951,7 @@
                 o = a
               },
             },
-            open       : {
+            open: {
               get: function () {
                 return p()
               },
@@ -2959,7 +2959,7 @@
                 p = a
               },
             },
-            close      : {
+            close: {
               get: function () {
                 return q()
               },
@@ -2967,7 +2967,7 @@
                 q = a
               },
             },
-            high       : {
+            high: {
               get: function () {
                 return r
               },
@@ -2975,7 +2975,7 @@
                 r = a
               },
             },
-            low        : {
+            low: {
               get: function () {
                 return s
               },
@@ -2983,7 +2983,7 @@
                 s = a
               },
             },
-            margin     : {
+            margin: {
               get: function () {
                 return h
               },
@@ -2994,7 +2994,7 @@
                   (h.left = void 0 != a.left ? a.left : h.left)
               },
             },
-            color      : {
+            color: {
               get: function () {
                 return x
               },
@@ -3362,10 +3362,10 @@
         I = function (a) {
           return function () {
             return {
-              active  : a.map(function (a) {
+              active: a.map(function (a) {
                 return !a.disabled
               }),
-              index: G.i,
+              index   : G.i,
               rescaleY: w,
             }
           }
@@ -3402,7 +3402,7 @@
         (b._options = Object.create(
           {},
           {
-            width                  : {
+            width: {
               get: function () {
                 return o
               },
@@ -3410,7 +3410,7 @@
                 o = a
               },
             },
-            height                 : {
+            height: {
               get: function () {
                 return p
               },
@@ -3418,7 +3418,7 @@
                 p = a
               },
             },
-            rescaleY               : {
+            rescaleY: {
               get: function () {
                 return w
               },
@@ -3426,7 +3426,7 @@
                 w = a
               },
             },
-            showControls           : {
+            showControls: {
               get: function () {
                 return u
               },
@@ -3434,7 +3434,7 @@
                 u = a
               },
             },
-            showLegend             : {
+            showLegend: {
               get: function () {
                 return q
               },
@@ -3442,7 +3442,7 @@
                 q = a
               },
             },
-            average                : {
+            average: {
               get: function () {
                 return B
               },
@@ -3450,7 +3450,7 @@
                 B = a
               },
             },
-            defaultState           : {
+            defaultState: {
               get: function () {
                 return z
               },
@@ -3458,7 +3458,7 @@
                 z = a
               },
             },
-            noData                 : {
+            noData: {
               get: function () {
                 return A
               },
@@ -3466,7 +3466,7 @@
                 A = a
               },
             },
-            showXAxis              : {
+            showXAxis: {
               get: function () {
                 return r
               },
@@ -3474,7 +3474,7 @@
                 r = a
               },
             },
-            showYAxis              : {
+            showYAxis: {
               get: function () {
                 return s
               },
@@ -3482,7 +3482,7 @@
                 s = a
               },
             },
-            noErrorCheck           : {
+            noErrorCheck: {
               get: function () {
                 return E
               },
@@ -3490,7 +3490,7 @@
                 E = a
               },
             },
-            margin                 : {
+            margin: {
               get: function () {
                 return m
               },
@@ -3501,7 +3501,7 @@
                   (m.left = void 0 !== a.left ? a.left : m.left)
               },
             },
-            color                  : {
+            color: {
               get: function () {
                 return n
               },
@@ -3517,7 +3517,7 @@
                 ;(v = a), a === !0 && (b.interactive(!1), b.useVoronoi(!1))
               },
             },
-            rightAlignYAxis        : {
+            rightAlignYAxis: {
               get: function () {
                 return t
               },
@@ -3525,7 +3525,7 @@
                 ;(t = a), h.orient(a ? 'right' : 'left')
               },
             },
-            duration               : {
+            duration: {
               get: function () {
                 return D
               },
@@ -3726,7 +3726,7 @@
         (b._options = Object.create(
           {},
           {
-            width      : {
+            width: {
               get: function () {
                 return k
               },
@@ -3734,7 +3734,7 @@
                 k = a
               },
             },
-            height     : {
+            height: {
               get: function () {
                 return l
               },
@@ -3742,7 +3742,7 @@
                 l = a
               },
             },
-            forceY     : {
+            forceY: {
               get: function () {
                 return r
               },
@@ -3750,7 +3750,7 @@
                 r = a
               },
             },
-            showValues : {
+            showValues: {
               get: function () {
                 return t
               },
@@ -3758,7 +3758,7 @@
                 t = a
               },
             },
-            x          : {
+            x: {
               get: function () {
                 return p
               },
@@ -3766,7 +3766,7 @@
                 p = a
               },
             },
-            y          : {
+            y: {
               get: function () {
                 return q
               },
@@ -3774,7 +3774,7 @@
                 q = a
               },
             },
-            xScale     : {
+            xScale: {
               get: function () {
                 return n
               },
@@ -3782,7 +3782,7 @@
                 n = a
               },
             },
-            yScale     : {
+            yScale: {
               get: function () {
                 return o
               },
@@ -3790,7 +3790,7 @@
                 o = a
               },
             },
-            xDomain    : {
+            xDomain: {
               get: function () {
                 return d
               },
@@ -3798,7 +3798,7 @@
                 d = a
               },
             },
-            yDomain    : {
+            yDomain: {
               get: function () {
                 return e
               },
@@ -3806,7 +3806,7 @@
                 e = a
               },
             },
-            xRange     : {
+            xRange: {
               get: function () {
                 return f
               },
@@ -3814,7 +3814,7 @@
                 f = a
               },
             },
-            yRange     : {
+            yRange: {
               get: function () {
                 return g
               },
@@ -3830,7 +3830,7 @@
                 u = a
               },
             },
-            id         : {
+            id: {
               get: function () {
                 return m
               },
@@ -3838,7 +3838,7 @@
                 m = a
               },
             },
-            rectClass  : {
+            rectClass: {
               get: function () {
                 return w
               },
@@ -3846,7 +3846,7 @@
                 w = a
               },
             },
-            margin     : {
+            margin: {
               get: function () {
                 return j
               },
@@ -3857,7 +3857,7 @@
                   (j.left = void 0 !== a.left ? a.left : j.left)
               },
             },
-            color      : {
+            color: {
               get: function () {
                 return s
               },
@@ -3865,7 +3865,7 @@
                 s = a.utils.getColor(b)
               },
             },
-            duration   : {
+            duration: {
               get: function () {
                 return x
               },
@@ -4034,7 +4034,7 @@
         (b._options = Object.create(
           {},
           {
-            width          : {
+            width: {
               get: function () {
                 return k
               },
@@ -4042,7 +4042,7 @@
                 k = a
               },
             },
-            height         : {
+            height: {
               get: function () {
                 return l
               },
@@ -4050,7 +4050,7 @@
                 l = a
               },
             },
-            showLegend     : {
+            showLegend: {
               get: function () {
                 return n
               },
@@ -4058,7 +4058,7 @@
                 n = a
               },
             },
-            staggerLabels  : {
+            staggerLabels: {
               get: function () {
                 return r
               },
@@ -4066,7 +4066,7 @@
                 r = a
               },
             },
-            rotateLabels   : {
+            rotateLabels: {
               get: function () {
                 return t
               },
@@ -4074,7 +4074,7 @@
                 t = a
               },
             },
-            wrapLabels     : {
+            wrapLabels: {
               get: function () {
                 return s
               },
@@ -4082,7 +4082,7 @@
                 s = !!a
               },
             },
-            showXAxis      : {
+            showXAxis: {
               get: function () {
                 return o
               },
@@ -4090,7 +4090,7 @@
                 o = a
               },
             },
-            showYAxis      : {
+            showYAxis: {
               get: function () {
                 return p
               },
@@ -4098,7 +4098,7 @@
                 p = a
               },
             },
-            noData         : {
+            noData: {
               get: function () {
                 return u
               },
@@ -4106,7 +4106,7 @@
                 u = a
               },
             },
-            margin         : {
+            margin: {
               get: function () {
                 return j
               },
@@ -4117,7 +4117,7 @@
                   (j.left = void 0 !== a.left ? a.left : j.left)
               },
             },
-            duration       : {
+            duration: {
               get: function () {
                 return w
               },
@@ -4125,7 +4125,7 @@
                 ;(w = a), x.reset(w), e.duration(w), f.duration(w), g.duration(w)
               },
             },
-            color          : {
+            color: {
               get: function () {
                 return m
               },
@@ -4440,7 +4440,7 @@
         (c._options = Object.create(
           {},
           {
-            width          : {
+            width: {
               get: function () {
                 return k
               },
@@ -4448,7 +4448,7 @@
                 k = a
               },
             },
-            height         : {
+            height: {
               get: function () {
                 return l
               },
@@ -4456,7 +4456,7 @@
                 l = a
               },
             },
-            showXAxis      : {
+            showXAxis: {
               get: function () {
                 return m
               },
@@ -4464,7 +4464,7 @@
                 m = a
               },
             },
-            showYAxis      : {
+            showYAxis: {
               get: function () {
                 return n
               },
@@ -4472,7 +4472,7 @@
                 n = a
               },
             },
-            brushExtent    : {
+            brushExtent: {
               get: function () {
                 return p
               },
@@ -4480,7 +4480,7 @@
                 p = a
               },
             },
-            margin         : {
+            margin: {
               get: function () {
                 return i
               },
@@ -4491,7 +4491,7 @@
                   (i.left = void 0 !== a.left ? a.left : i.left)
               },
             },
-            duration       : {
+            duration: {
               get: function () {
                 return q
               },
@@ -4499,7 +4499,7 @@
                 ;(q = a), s.reset(q), b.duration(q), f.duration(q), g.duration(q)
               },
             },
-            color          : {
+            color: {
               get: function () {
                 return j
               },
@@ -4507,7 +4507,7 @@
                 ;(j = a.utils.getColor(c)), b.color(j)
               },
             },
-            interpolate    : {
+            interpolate: {
               get: function () {
                 return b.interpolate()
               },
@@ -4515,7 +4515,7 @@
                 b.interpolate(a)
               },
             },
-            xTickFormat    : {
+            xTickFormat: {
               get: function () {
                 return f.tickFormat()
               },
@@ -4523,7 +4523,7 @@
                 f.tickFormat(a)
               },
             },
-            yTickFormat    : {
+            yTickFormat: {
               get: function () {
                 return g.tickFormat()
               },
@@ -4531,7 +4531,7 @@
                 g.tickFormat(a)
               },
             },
-            x              : {
+            x: {
               get: function () {
                 return b.x()
               },
@@ -4539,7 +4539,7 @@
                 b.x(a)
               },
             },
-            y              : {
+            y: {
               get: function () {
                 return b.y()
               },
@@ -4673,7 +4673,7 @@
         (b._options = Object.create(
           {},
           {
-            width       : {
+            width: {
               get: function () {
                 return d
               },
@@ -4681,7 +4681,7 @@
                 d = a
               },
             },
-            height      : {
+            height: {
               get: function () {
                 return e
               },
@@ -4697,7 +4697,7 @@
                 k = a
               },
             },
-            friction    : {
+            friction: {
               get: function () {
                 return l
               },
@@ -4705,7 +4705,7 @@
                 l = a
               },
             },
-            linkDist    : {
+            linkDist: {
               get: function () {
                 return m
               },
@@ -4713,7 +4713,7 @@
                 m = a
               },
             },
-            charge      : {
+            charge: {
               get: function () {
                 return n
               },
@@ -4721,7 +4721,7 @@
                 n = a
               },
             },
-            gravity     : {
+            gravity: {
               get: function () {
                 return o
               },
@@ -4729,7 +4729,7 @@
                 o = a
               },
             },
-            theta       : {
+            theta: {
               get: function () {
                 return p
               },
@@ -4737,7 +4737,7 @@
                 p = a
               },
             },
-            alpha       : {
+            alpha: {
               get: function () {
                 return q
               },
@@ -4745,7 +4745,7 @@
                 q = a
               },
             },
-            radius      : {
+            radius: {
               get: function () {
                 return r
               },
@@ -4753,7 +4753,7 @@
                 r = a
               },
             },
-            x           : {
+            x: {
               get: function () {
                 return getX
               },
@@ -4761,7 +4761,7 @@
                 getX = d3.functor(a)
               },
             },
-            y           : {
+            y: {
               get: function () {
                 return getY
               },
@@ -4769,7 +4769,7 @@
                 getY = d3.functor(a)
               },
             },
-            margin      : {
+            margin: {
               get: function () {
                 return c
               },
@@ -4780,7 +4780,7 @@
                   (c.left = void 0 !== a.left ? a.left : c.left)
               },
             },
-            color       : {
+            color: {
               get: function () {
                 return h
               },
@@ -4788,7 +4788,7 @@
                 h = a.utils.getColor(b)
               },
             },
-            noData      : {
+            noData: {
               get: function () {
                 return j
               },
@@ -4796,7 +4796,7 @@
                 j = a
               },
             },
-            nodeExtras  : {
+            nodeExtras: {
               get: function () {
                 return s
               },
@@ -4804,7 +4804,7 @@
                 s = a
               },
             },
-            linkExtras  : {
+            linkExtras: {
               get: function () {
                 return t
               },
@@ -4923,7 +4923,7 @@
                         })
                     }
                   p.stateChange({
-                    disabled  : c.map(function (a) {
+                    disabled: c.map(function (a) {
                       return !!a.disabled
                     }),
                     disengaged: c.map(function (a) {
@@ -5059,7 +5059,7 @@
         (b._options = Object.create(
           {},
           {
-            width          : {
+            width: {
               get: function () {
                 return d
               },
@@ -5067,7 +5067,7 @@
                 d = a
               },
             },
-            height         : {
+            height: {
               get: function () {
                 return e
               },
@@ -5075,7 +5075,7 @@
                 e = a
               },
             },
-            key            : {
+            key: {
               get: function () {
                 return f
               },
@@ -5083,7 +5083,7 @@
                 f = a
               },
             },
-            keyFormatter   : {
+            keyFormatter: {
               get: function () {
                 return g
               },
@@ -5091,7 +5091,7 @@
                 g = a
               },
             },
-            align          : {
+            align: {
               get: function () {
                 return j
               },
@@ -5099,7 +5099,7 @@
                 j = a
               },
             },
-            rightAlign     : {
+            rightAlign: {
               get: function () {
                 return l
               },
@@ -5107,7 +5107,7 @@
                 l = a
               },
             },
-            maxKeyLength   : {
+            maxKeyLength: {
               get: function () {
                 return i
               },
@@ -5115,7 +5115,7 @@
                 i = a
               },
             },
-            padding        : {
+            padding: {
               get: function () {
                 return k
               },
@@ -5123,7 +5123,7 @@
                 k = a
               },
             },
-            updateState    : {
+            updateState: {
               get: function () {
                 return m
               },
@@ -5139,7 +5139,7 @@
                 n = a
               },
             },
-            expanded       : {
+            expanded: {
               get: function () {
                 return o
               },
@@ -5147,7 +5147,7 @@
                 o = a
               },
             },
-            vers           : {
+            vers: {
               get: function () {
                 return q
               },
@@ -5155,7 +5155,7 @@
                 q = a
               },
             },
-            margin         : {
+            margin: {
               get: function () {
                 return c
               },
@@ -5166,7 +5166,7 @@
                   (c.left = void 0 !== a.left ? a.left : c.left)
               },
             },
-            color          : {
+            color: {
               get: function () {
                 return h
               },
@@ -5339,7 +5339,7 @@
         (b._options = Object.create(
           {},
           {
-            width      : {
+            width: {
               get: function () {
                 return h
               },
@@ -5347,7 +5347,7 @@
                 h = a
               },
             },
-            height     : {
+            height: {
               get: function () {
                 return i
               },
@@ -5355,7 +5355,7 @@
                 i = a
               },
             },
-            forceX     : {
+            forceX: {
               get: function () {
                 return p
               },
@@ -5363,7 +5363,7 @@
                 p = a
               },
             },
-            forceY     : {
+            forceY: {
               get: function () {
                 return q
               },
@@ -5371,7 +5371,7 @@
                 q = a
               },
             },
-            padData    : {
+            padData: {
               get: function () {
                 return r
               },
@@ -5379,7 +5379,7 @@
                 r = a
               },
             },
-            x          : {
+            x: {
               get: function () {
                 return n
               },
@@ -5387,7 +5387,7 @@
                 n = a
               },
             },
-            y          : {
+            y: {
               get: function () {
                 return o
               },
@@ -5395,7 +5395,7 @@
                 o = a
               },
             },
-            xScale     : {
+            xScale: {
               get: function () {
                 return l
               },
@@ -5403,7 +5403,7 @@
                 l = a
               },
             },
-            yScale     : {
+            yScale: {
               get: function () {
                 return m
               },
@@ -5411,7 +5411,7 @@
                 m = a
               },
             },
-            xDomain    : {
+            xDomain: {
               get: function () {
                 return c
               },
@@ -5419,7 +5419,7 @@
                 c = a
               },
             },
-            yDomain    : {
+            yDomain: {
               get: function () {
                 return d
               },
@@ -5427,7 +5427,7 @@
                 d = a
               },
             },
-            xRange     : {
+            xRange: {
               get: function () {
                 return e
               },
@@ -5435,7 +5435,7 @@
                 e = a
               },
             },
-            yRange     : {
+            yRange: {
               get: function () {
                 return f
               },
@@ -5443,7 +5443,7 @@
                 f = a
               },
             },
-            clipEdge   : {
+            clipEdge: {
               get: function () {
                 return s
               },
@@ -5451,7 +5451,7 @@
                 s = a
               },
             },
-            id         : {
+            id: {
               get: function () {
                 return j
               },
@@ -5467,7 +5467,7 @@
                 v = a
               },
             },
-            margin     : {
+            margin: {
               get: function () {
                 return g
               },
@@ -5478,7 +5478,7 @@
                   (g.left = void 0 !== a.left ? a.left : g.left)
               },
             },
-            color      : {
+            color: {
               get: function () {
                 return t
               },
@@ -5697,7 +5697,7 @@
         (c._options = Object.create(
           {},
           {
-            width                  : {
+            width: {
               get: function () {
                 return n
               },
@@ -5705,7 +5705,7 @@
                 n = a
               },
             },
-            height                 : {
+            height: {
               get: function () {
                 return o
               },
@@ -5713,7 +5713,7 @@
                 o = a
               },
             },
-            showLegend             : {
+            showLegend: {
               get: function () {
                 return p
               },
@@ -5721,7 +5721,7 @@
                 p = a
               },
             },
-            showXAxis              : {
+            showXAxis: {
               get: function () {
                 return q
               },
@@ -5729,7 +5729,7 @@
                 q = a
               },
             },
-            showYAxis              : {
+            showYAxis: {
               get: function () {
                 return r
               },
@@ -5737,7 +5737,7 @@
                 r = a
               },
             },
-            defaultState           : {
+            defaultState: {
               get: function () {
                 return v
               },
@@ -5745,7 +5745,7 @@
                 v = a
               },
             },
-            noData                 : {
+            noData: {
               get: function () {
                 return w
               },
@@ -5753,7 +5753,7 @@
                 w = a
               },
             },
-            margin                 : {
+            margin: {
               get: function () {
                 return l
               },
@@ -5764,7 +5764,7 @@
                   (l.left = void 0 !== a.left ? a.left : l.left)
               },
             },
-            color                  : {
+            color: {
               get: function () {
                 return m
               },
@@ -5772,7 +5772,7 @@
                 ;(m = a.utils.getColor(b)), i.color(m), f.color(m)
               },
             },
-            duration               : {
+            duration: {
               get: function () {
                 return y
               },
@@ -5780,7 +5780,7 @@
                 ;(y = a), z.reset(y), h.duration(y), g.duration(y)
               },
             },
-            rightAlignYAxis        : {
+            rightAlignYAxis: {
               get: function () {
                 return s
               },
@@ -5966,7 +5966,7 @@
                         })
                     }
                   p.stateChange({
-                    disabled  : c.map(function (a) {
+                    disabled: c.map(function (a) {
                       return !!a.disabled
                     }),
                     disengaged: c.map(function (a) {
@@ -6106,7 +6106,7 @@
         (b._options = Object.create(
           {},
           {
-            width          : {
+            width: {
               get: function () {
                 return d
               },
@@ -6114,7 +6114,7 @@
                 d = a
               },
             },
-            height         : {
+            height: {
               get: function () {
                 return e
               },
@@ -6122,7 +6122,7 @@
                 e = a
               },
             },
-            key            : {
+            key: {
               get: function () {
                 return f
               },
@@ -6130,7 +6130,7 @@
                 f = a
               },
             },
-            keyFormatter   : {
+            keyFormatter: {
               get: function () {
                 return g
               },
@@ -6138,7 +6138,7 @@
                 g = a
               },
             },
-            align          : {
+            align: {
               get: function () {
                 return j
               },
@@ -6146,7 +6146,7 @@
                 j = a
               },
             },
-            maxKeyLength   : {
+            maxKeyLength: {
               get: function () {
                 return i
               },
@@ -6154,7 +6154,7 @@
                 i = a
               },
             },
-            rightAlign     : {
+            rightAlign: {
               get: function () {
                 return l
               },
@@ -6162,7 +6162,7 @@
                 l = a
               },
             },
-            padding        : {
+            padding: {
               get: function () {
                 return k
               },
@@ -6170,7 +6170,7 @@
                 k = a
               },
             },
-            updateState    : {
+            updateState: {
               get: function () {
                 return m
               },
@@ -6186,7 +6186,7 @@
                 n = a
               },
             },
-            expanded       : {
+            expanded: {
               get: function () {
                 return o
               },
@@ -6194,7 +6194,7 @@
                 o = a
               },
             },
-            vers           : {
+            vers: {
               get: function () {
                 return q
               },
@@ -6202,7 +6202,7 @@
                 q = a
               },
             },
-            margin         : {
+            margin: {
               get: function () {
                 return c
               },
@@ -6213,7 +6213,7 @@
                   (c.left = void 0 !== a.left ? a.left : c.left)
               },
             },
-            color          : {
+            color: {
               get: function () {
                 return h
               },
@@ -6418,7 +6418,7 @@
         (b._options = Object.create(
           {},
           {
-            width      : {
+            width: {
               get: function () {
                 return g
               },
@@ -6426,7 +6426,7 @@
                 g = a
               },
             },
-            height     : {
+            height: {
               get: function () {
                 return h
               },
@@ -6434,7 +6434,7 @@
                 h = a
               },
             },
-            defined    : {
+            defined: {
               get: function () {
                 return n
               },
@@ -6450,7 +6450,7 @@
                 q = a
               },
             },
-            clipEdge   : {
+            clipEdge: {
               get: function () {
                 return p
               },
@@ -6458,7 +6458,7 @@
                 p = a
               },
             },
-            margin     : {
+            margin: {
               get: function () {
                 return f
               },
@@ -6469,7 +6469,7 @@
                   (f.left = void 0 !== a.left ? a.left : f.left)
               },
             },
-            duration   : {
+            duration: {
               get: function () {
                 return r
               },
@@ -6477,7 +6477,7 @@
                 ;(r = a), v.reset(r), e.duration(r)
               },
             },
-            isArea     : {
+            isArea: {
               get: function () {
                 return o
               },
@@ -6485,7 +6485,7 @@
                 o = d3.functor(a)
               },
             },
-            x          : {
+            x: {
               get: function () {
                 return l
               },
@@ -6493,7 +6493,7 @@
                 ;(l = a), e.x(a)
               },
             },
-            y          : {
+            y: {
               get: function () {
                 return m
               },
@@ -6501,7 +6501,7 @@
                 ;(m = a), e.y(a)
               },
             },
-            color      : {
+            color: {
               get: function () {
                 return k
               },
@@ -6539,10 +6539,10 @@
                   })
                   .map(function (b, c) {
                     return {
-                      key: b.key,
-                      area: b.area,
-                      classed: b.classed,
-                      values        : b.values.filter(function (b, c) {
+                      key           : b.key,
+                      area          : b.area,
+                      classed       : b.classed,
+                      values: b.values.filter(function (b, c) {
                         return e.x()(b, c) >= a[0] && e.x()(b, c) <= a[1]
                       }),
                       disableTooltip: b.disableTooltip,
@@ -6825,7 +6825,7 @@
         (b._options = Object.create(
           {},
           {
-            width                  : {
+            width: {
               get: function () {
                 return n
               },
@@ -6833,7 +6833,7 @@
                 n = a
               },
             },
-            height                 : {
+            height: {
               get: function () {
                 return o
               },
@@ -6841,7 +6841,7 @@
                 o = a
               },
             },
-            showLegend             : {
+            showLegend: {
               get: function () {
                 return p
               },
@@ -6849,7 +6849,7 @@
                 p = a
               },
             },
-            legendPosition         : {
+            legendPosition: {
               get: function () {
                 return q
               },
@@ -6857,7 +6857,7 @@
                 q = a
               },
             },
-            showXAxis              : {
+            showXAxis: {
               get: function () {
                 return r
               },
@@ -6865,7 +6865,7 @@
                 r = a
               },
             },
-            showYAxis              : {
+            showYAxis: {
               get: function () {
                 return s
               },
@@ -6873,7 +6873,7 @@
                 s = a
               },
             },
-            defaultState           : {
+            defaultState: {
               get: function () {
                 return x
               },
@@ -6881,7 +6881,7 @@
                 x = a
               },
             },
-            noData                 : {
+            noData: {
               get: function () {
                 return y
               },
@@ -6889,7 +6889,7 @@
                 y = a
               },
             },
-            focusEnable            : {
+            focusEnable: {
               get: function () {
                 return v
               },
@@ -6897,7 +6897,7 @@
                 v = a
               },
             },
-            focusHeight            : {
+            focusHeight: {
               get: function () {
                 return k.height()
               },
@@ -6905,7 +6905,7 @@
                 k.height(a)
               },
             },
-            focusShowAxisX         : {
+            focusShowAxisX: {
               get: function () {
                 return k.showXAxis()
               },
@@ -6913,7 +6913,7 @@
                 k.showXAxis(a)
               },
             },
-            focusShowAxisY         : {
+            focusShowAxisY: {
               get: function () {
                 return k.showYAxis()
               },
@@ -6921,7 +6921,7 @@
                 k.showYAxis(a)
               },
             },
-            brushExtent            : {
+            brushExtent: {
               get: function () {
                 return k.brushExtent()
               },
@@ -6929,7 +6929,7 @@
                 k.brushExtent(a)
               },
             },
-            focusMargin            : {
+            focusMargin: {
               get: function () {
                 return k.margin
               },
@@ -6940,7 +6940,7 @@
                   (k.margin.left = void 0 !== a.left ? a.left : k.margin.left)
               },
             },
-            margin                 : {
+            margin: {
               get: function () {
                 return l
               },
@@ -6951,7 +6951,7 @@
                   (l.left = void 0 !== a.left ? a.left : l.left)
               },
             },
-            duration               : {
+            duration: {
               get: function () {
                 return A
               },
@@ -6959,7 +6959,7 @@
                 ;(A = a), B.reset(A), e.duration(A), k.duration(A), f.duration(A), g.duration(A)
               },
             },
-            color                  : {
+            color: {
               get: function () {
                 return m
               },
@@ -6967,7 +6967,7 @@
                 ;(m = a.utils.getColor(b)), h.color(m), e.color(m), k.color(m)
               },
             },
-            interpolate            : {
+            interpolate: {
               get: function () {
                 return e.interpolate()
               },
@@ -6975,7 +6975,7 @@
                 e.interpolate(a), k.interpolate(a)
               },
             },
-            xTickFormat            : {
+            xTickFormat: {
               get: function () {
                 return f.tickFormat()
               },
@@ -6983,7 +6983,7 @@
                 f.tickFormat(a), k.xTickFormat(a)
               },
             },
-            yTickFormat            : {
+            yTickFormat: {
               get: function () {
                 return g.tickFormat()
               },
@@ -6991,7 +6991,7 @@
                 g.tickFormat(a), k.yTickFormat(a)
               },
             },
-            x                      : {
+            x: {
               get: function () {
                 return e.x()
               },
@@ -6999,7 +6999,7 @@
                 e.x(a), k.x(a)
               },
             },
-            y                      : {
+            y: {
               get: function () {
                 return e.y()
               },
@@ -7007,7 +7007,7 @@
                 e.y(a), k.y(a)
               },
             },
-            rightAlignYAxis        : {
+            rightAlignYAxis: {
               get: function () {
                 return t
               },
@@ -7124,7 +7124,7 @@
                   _.length
                     ? _.map(function (a, b) {
                         return {
-                          key: a.key,
+                          key   : a.key,
                           values: a.values.filter(function (a, b) {
                             return l.x()(a, b) >= c[0] && l.x()(a, b) <= c[1]
                           }),
@@ -7141,11 +7141,11 @@
                         })
                         .map(function (a, b) {
                           return {
-                            area: a.area,
+                            area       : a.area,
                             fillOpacity: a.fillOpacity,
                             strokeWidth: a.strokeWidth,
-                            key: a.key,
-                            values     : a.values.filter(function (a, b) {
+                            key        : a.key,
+                            values: a.values.filter(function (a, b) {
                               return j.x()(a, b) >= c[0] && j.x()(a, b) <= c[1]
                             }),
                           }
@@ -7509,7 +7509,7 @@
         (b._options = Object.create(
           {},
           {
-            width              : {
+            width: {
               get: function () {
                 return y
               },
@@ -7517,7 +7517,7 @@
                 y = a
               },
             },
-            height             : {
+            height: {
               get: function () {
                 return z
               },
@@ -7525,7 +7525,7 @@
                 z = a
               },
             },
-            showLegend         : {
+            showLegend: {
               get: function () {
                 return D
               },
@@ -7533,7 +7533,7 @@
                 D = a
               },
             },
-            brushExtent        : {
+            brushExtent: {
               get: function () {
                 return I
               },
@@ -7541,7 +7541,7 @@
                 I = a
               },
             },
-            noData             : {
+            noData: {
               get: function () {
                 return J
               },
@@ -7549,7 +7549,7 @@
                 J = a
               },
             },
-            focusEnable        : {
+            focusEnable: {
               get: function () {
                 return E
               },
@@ -7557,7 +7557,7 @@
                 E = a
               },
             },
-            focusHeight        : {
+            focusHeight: {
               get: function () {
                 return H
               },
@@ -7565,7 +7565,7 @@
                 H = a
               },
             },
-            focusShowAxisX     : {
+            focusShowAxisX: {
               get: function () {
                 return G
               },
@@ -7573,7 +7573,7 @@
                 G = a
               },
             },
-            focusShowAxisY     : {
+            focusShowAxisY: {
               get: function () {
                 return F
               },
@@ -7581,7 +7581,7 @@
                 F = a
               },
             },
-            legendLeftAxisHint : {
+            legendLeftAxisHint: {
               get: function () {
                 return O
               },
@@ -7597,7 +7597,7 @@
                 P = a
               },
             },
-            margin             : {
+            margin: {
               get: function () {
                 return w
               },
@@ -7608,7 +7608,7 @@
                   (w.left = void 0 !== a.left ? a.left : w.left)
               },
             },
-            focusMargin        : {
+            focusMargin: {
               get: function () {
                 return x
               },
@@ -7619,7 +7619,7 @@
                   (x.left = void 0 !== a.left ? a.left : x.left)
               },
             },
-            duration           : {
+            duration: {
               get: function () {
                 return L
               },
@@ -7627,7 +7627,7 @@
                 L = a
               },
             },
-            color              : {
+            color: {
               get: function () {
                 return C
               },
@@ -7635,7 +7635,7 @@
                 ;(C = a.utils.getColor(b)), t.color(C)
               },
             },
-            x                  : {
+            x: {
               get: function () {
                 return A
               },
@@ -7643,7 +7643,7 @@
                 ;(A = a), j.x(a), k.x(a), l.x(a), m.x(a)
               },
             },
-            y                  : {
+            y: {
               get: function () {
                 return B
               },
@@ -7651,7 +7651,7 @@
                 ;(B = a), j.y(a), k.y(a), l.y(a), m.y(a)
               },
             },
-            switchYAxisOrder   : {
+            switchYAxisOrder: {
               get: function () {
                 return Q
               },
@@ -8004,7 +8004,7 @@
         (b._options = Object.create(
           {},
           {
-            width       : {
+            width: {
               get: function () {
                 return k
               },
@@ -8012,7 +8012,7 @@
                 k = a
               },
             },
-            height      : {
+            height: {
               get: function () {
                 return l
               },
@@ -8020,7 +8020,7 @@
                 l = a
               },
             },
-            x           : {
+            x: {
               get: function () {
                 return q
               },
@@ -8028,7 +8028,7 @@
                 q = a
               },
             },
-            y           : {
+            y: {
               get: function () {
                 return r
               },
@@ -8036,7 +8036,7 @@
                 r = a
               },
             },
-            xScale      : {
+            xScale: {
               get: function () {
                 return m
               },
@@ -8044,7 +8044,7 @@
                 m = a
               },
             },
-            yScale      : {
+            yScale: {
               get: function () {
                 return n
               },
@@ -8052,7 +8052,7 @@
                 n = a
               },
             },
-            xDomain     : {
+            xDomain: {
               get: function () {
                 return d
               },
@@ -8060,7 +8060,7 @@
                 d = a
               },
             },
-            yDomain     : {
+            yDomain: {
               get: function () {
                 return e
               },
@@ -8068,7 +8068,7 @@
                 e = a
               },
             },
-            xRange      : {
+            xRange: {
               get: function () {
                 return f
               },
@@ -8076,7 +8076,7 @@
                 f = a
               },
             },
-            yRange      : {
+            yRange: {
               get: function () {
                 return g
               },
@@ -8084,7 +8084,7 @@
                 g = a
               },
             },
-            forceY      : {
+            forceY: {
               get: function () {
                 return s
               },
@@ -8092,7 +8092,7 @@
                 s = a
               },
             },
-            stacked     : {
+            stacked: {
               get: function () {
                 return u
               },
@@ -8100,7 +8100,7 @@
                 u = a
               },
             },
-            stackOffset : {
+            stackOffset: {
               get: function () {
                 return v
               },
@@ -8108,7 +8108,7 @@
                 v = a
               },
             },
-            clipEdge    : {
+            clipEdge: {
               get: function () {
                 return t
               },
@@ -8116,7 +8116,7 @@
                 t = a
               },
             },
-            disabled    : {
+            disabled: {
               get: function () {
                 return c
               },
@@ -8124,7 +8124,7 @@
                 c = a
               },
             },
-            id          : {
+            id: {
               get: function () {
                 return o
               },
@@ -8132,7 +8132,7 @@
                 o = a
               },
             },
-            hideable    : {
+            hideable: {
               get: function () {
                 return x
               },
@@ -8148,7 +8148,7 @@
                 A = a
               },
             },
-            fillOpacity : {
+            fillOpacity: {
               get: function () {
                 return B
               },
@@ -8156,7 +8156,7 @@
                 B = a
               },
             },
-            margin      : {
+            margin: {
               get: function () {
                 return j
               },
@@ -8167,7 +8167,7 @@
                   (j.left = void 0 !== a.left ? a.left : j.left)
               },
             },
-            duration    : {
+            duration: {
               get: function () {
                 return z
               },
@@ -8175,7 +8175,7 @@
                 ;(z = a), D.reset(z)
               },
             },
-            color       : {
+            color: {
               get: function () {
                 return w
               },
@@ -8183,7 +8183,7 @@
                 w = a.utils.getColor(b)
               },
             },
-            barColor    : {
+            barColor: {
               get: function () {
                 return y
               },
@@ -8461,7 +8461,7 @@
         I = function (a) {
           return function () {
             return {
-              active : a.map(function (a) {
+              active: a.map(function (a) {
                 return !a.disabled
               }),
               stacked: H,
@@ -8491,7 +8491,7 @@
         (b._options = Object.create(
           {},
           {
-            width                  : {
+            width: {
               get: function () {
                 return m
               },
@@ -8499,7 +8499,7 @@
                 m = a
               },
             },
-            height                 : {
+            height: {
               get: function () {
                 return n
               },
@@ -8507,7 +8507,7 @@
                 n = a
               },
             },
-            showLegend             : {
+            showLegend: {
               get: function () {
                 return r
               },
@@ -8515,7 +8515,7 @@
                 r = a
               },
             },
-            showControls           : {
+            showControls: {
               get: function () {
                 return p
               },
@@ -8523,7 +8523,7 @@
                 p = a
               },
             },
-            controlLabels          : {
+            controlLabels: {
               get: function () {
                 return q
               },
@@ -8531,7 +8531,7 @@
                 q = a
               },
             },
-            showXAxis              : {
+            showXAxis: {
               get: function () {
                 return s
               },
@@ -8539,7 +8539,7 @@
                 s = a
               },
             },
-            showYAxis              : {
+            showYAxis: {
               get: function () {
                 return t
               },
@@ -8547,7 +8547,7 @@
                 t = a
               },
             },
-            defaultState           : {
+            defaultState: {
               get: function () {
                 return A
               },
@@ -8555,7 +8555,7 @@
                 A = a
               },
             },
-            noData                 : {
+            noData: {
               get: function () {
                 return B
               },
@@ -8563,7 +8563,7 @@
                 B = a
               },
             },
-            reduceXTicks           : {
+            reduceXTicks: {
               get: function () {
                 return v
               },
@@ -8571,7 +8571,7 @@
                 v = a
               },
             },
-            rotateLabels           : {
+            rotateLabels: {
               get: function () {
                 return y
               },
@@ -8579,7 +8579,7 @@
                 y = a
               },
             },
-            staggerLabels          : {
+            staggerLabels: {
               get: function () {
                 return w
               },
@@ -8587,7 +8587,7 @@
                 w = a
               },
             },
-            wrapLabels             : {
+            wrapLabels: {
               get: function () {
                 return x
               },
@@ -8595,7 +8595,7 @@
                 x = !!a
               },
             },
-            margin                 : {
+            margin: {
               get: function () {
                 return l
               },
@@ -8606,7 +8606,7 @@
                   (l.left = void 0 !== a.left ? a.left : l.left)
               },
             },
-            duration               : {
+            duration: {
               get: function () {
                 return E
               },
@@ -8614,7 +8614,7 @@
                 ;(E = a), e.duration(E), f.duration(E), g.duration(E), G.reset(E)
               },
             },
-            color                  : {
+            color: {
               get: function () {
                 return o
               },
@@ -8622,7 +8622,7 @@
                 ;(o = a.utils.getColor(b)), i.color(o)
               },
             },
-            rightAlignYAxis        : {
+            rightAlignYAxis: {
               get: function () {
                 return u
               },
@@ -8638,7 +8638,7 @@
                 F = a
               },
             },
-            barColor               : {
+            barColor: {
               get: function () {
                 return e.barColor
               },
@@ -8794,10 +8794,10 @@
                 .on('click', function (a, b) {
                   var c = this
                   E.elementClick({
-                    data: a,
-                    index: b,
-                    color: d3.select(this).style('fill'),
-                    event: d3.event,
+                    data   : a,
+                    index  : b,
+                    color  : d3.select(this).style('fill'),
+                    event  : d3.event,
                     element: c,
                   }),
                     d3.event.stopPropagation()
@@ -8992,7 +8992,7 @@
         (b._options = Object.create(
           {},
           {
-            width       : {
+            width: {
               get: function () {
                 return k
               },
@@ -9000,7 +9000,7 @@
                 k = a
               },
             },
-            height      : {
+            height: {
               get: function () {
                 return l
               },
@@ -9008,7 +9008,7 @@
                 l = a
               },
             },
-            x           : {
+            x: {
               get: function () {
                 return q
               },
@@ -9016,7 +9016,7 @@
                 q = a
               },
             },
-            y           : {
+            y: {
               get: function () {
                 return r
               },
@@ -9024,7 +9024,7 @@
                 r = a
               },
             },
-            yErr        : {
+            yErr: {
               get: function () {
                 return s
               },
@@ -9032,7 +9032,7 @@
                 s = a
               },
             },
-            xScale      : {
+            xScale: {
               get: function () {
                 return o
               },
@@ -9040,7 +9040,7 @@
                 o = a
               },
             },
-            yScale      : {
+            yScale: {
               get: function () {
                 return p
               },
@@ -9048,7 +9048,7 @@
                 p = a
               },
             },
-            xDomain     : {
+            xDomain: {
               get: function () {
                 return d
               },
@@ -9056,7 +9056,7 @@
                 d = a
               },
             },
-            yDomain     : {
+            yDomain: {
               get: function () {
                 return e
               },
@@ -9064,7 +9064,7 @@
                 e = a
               },
             },
-            xRange      : {
+            xRange: {
               get: function () {
                 return f
               },
@@ -9072,7 +9072,7 @@
                 f = a
               },
             },
-            yRange      : {
+            yRange: {
               get: function () {
                 return g
               },
@@ -9080,7 +9080,7 @@
                 g = a
               },
             },
-            forceY      : {
+            forceY: {
               get: function () {
                 return t
               },
@@ -9088,7 +9088,7 @@
                 t = a
               },
             },
-            stacked     : {
+            stacked: {
               get: function () {
                 return w
               },
@@ -9096,7 +9096,7 @@
                 w = a
               },
             },
-            showValues  : {
+            showValues: {
               get: function () {
                 return x
               },
@@ -9104,7 +9104,7 @@
                 x = a
               },
             },
-            disabled    : {
+            disabled: {
               get: function () {
                 return c
               },
@@ -9112,7 +9112,7 @@
                 c = a
               },
             },
-            id          : {
+            id: {
               get: function () {
                 return m
               },
@@ -9120,7 +9120,7 @@
                 m = a
               },
             },
-            valueFormat : {
+            valueFormat: {
               get: function () {
                 return C
               },
@@ -9144,7 +9144,7 @@
                 A = a
               },
             },
-            fillOpacity : {
+            fillOpacity: {
               get: function () {
                 return B
               },
@@ -9152,7 +9152,7 @@
                 B = a
               },
             },
-            margin      : {
+            margin: {
               get: function () {
                 return j
               },
@@ -9163,7 +9163,7 @@
                   (j.left = void 0 !== a.left ? a.left : j.left)
               },
             },
-            duration    : {
+            duration: {
               get: function () {
                 return D
               },
@@ -9171,7 +9171,7 @@
                 ;(D = a), F.reset(D)
               },
             },
-            color       : {
+            color: {
               get: function () {
                 return u
               },
@@ -9179,7 +9179,7 @@
                 u = a.utils.getColor(b)
               },
             },
-            barColor    : {
+            barColor: {
               get: function () {
                 return v
               },
@@ -9386,7 +9386,7 @@
       var A = function (a) {
           return function () {
             return {
-              active : a.map(function (a) {
+              active: a.map(function (a) {
                 return !a.disabled
               }),
               stacked: t,
@@ -9427,7 +9427,7 @@
         (b._options = Object.create(
           {},
           {
-            width        : {
+            width: {
               get: function () {
                 return l
               },
@@ -9435,7 +9435,7 @@
                 l = a
               },
             },
-            height       : {
+            height: {
               get: function () {
                 return m
               },
@@ -9443,7 +9443,7 @@
                 m = a
               },
             },
-            showLegend   : {
+            showLegend: {
               get: function () {
                 return q
               },
@@ -9451,7 +9451,7 @@
                 q = a
               },
             },
-            showControls : {
+            showControls: {
               get: function () {
                 return o
               },
@@ -9467,7 +9467,7 @@
                 p = a
               },
             },
-            showXAxis    : {
+            showXAxis: {
               get: function () {
                 return r
               },
@@ -9475,7 +9475,7 @@
                 r = a
               },
             },
-            showYAxis    : {
+            showYAxis: {
               get: function () {
                 return s
               },
@@ -9483,7 +9483,7 @@
                 s = a
               },
             },
-            defaultState : {
+            defaultState: {
               get: function () {
                 return v
               },
@@ -9491,7 +9491,7 @@
                 v = a
               },
             },
-            noData       : {
+            noData: {
               get: function () {
                 return w
               },
@@ -9499,7 +9499,7 @@
                 w = a
               },
             },
-            margin       : {
+            margin: {
               get: function () {
                 return k
               },
@@ -9510,7 +9510,7 @@
                   (k.left = void 0 !== a.left ? a.left : k.left)
               },
             },
-            duration     : {
+            duration: {
               get: function () {
                 return z
               },
@@ -9518,7 +9518,7 @@
                 ;(z = a), C.reset(z), e.duration(z), f.duration(z), g.duration(z)
               },
             },
-            color        : {
+            color: {
               get: function () {
                 return n
               },
@@ -9526,7 +9526,7 @@
                 ;(n = a.utils.getColor(b)), h.color(n)
               },
             },
-            barColor     : {
+            barColor: {
               get: function () {
                 return e.barColor
               },
@@ -9933,10 +9933,10 @@
                           (void 0 === d && (d = m),
                           void 0 === g && (g = r(b.x()(m, e))),
                           h.push({
-                            key: i.key,
+                            key  : i.key,
                             value: n,
                             color: f(i, i.seriesIndex),
-                            data: m,
+                            data : m,
                             yAxis: 2 == i.yAxis ? E : D,
                           }))
                     })
@@ -10054,7 +10054,7 @@
         (b._options = Object.create(
           {},
           {
-            width                  : {
+            width: {
               get: function () {
                 return g
               },
@@ -10062,7 +10062,7 @@
                 g = a
               },
             },
-            height                 : {
+            height: {
               get: function () {
                 return h
               },
@@ -10070,7 +10070,7 @@
                 h = a
               },
             },
-            showLegend             : {
+            showLegend: {
               get: function () {
                 return i
               },
@@ -10078,7 +10078,7 @@
                 i = a
               },
             },
-            yDomain1               : {
+            yDomain1: {
               get: function () {
                 return c
               },
@@ -10086,7 +10086,7 @@
                 c = a
               },
             },
-            yDomain2               : {
+            yDomain2: {
               get: function () {
                 return d
               },
@@ -10094,7 +10094,7 @@
                 d = a
               },
             },
-            noData                 : {
+            noData: {
               get: function () {
                 return j
               },
@@ -10102,7 +10102,7 @@
                 j = a
               },
             },
-            interpolate            : {
+            interpolate: {
               get: function () {
                 return m
               },
@@ -10110,7 +10110,7 @@
                 m = a
               },
             },
-            legendRightAxisHint    : {
+            legendRightAxisHint: {
               get: function () {
                 return q
               },
@@ -10118,7 +10118,7 @@
                 q = a
               },
             },
-            margin                 : {
+            margin: {
               get: function () {
                 return e
               },
@@ -10129,7 +10129,7 @@
                   (e.left = void 0 !== a.left ? a.left : e.left)
               },
             },
-            color                  : {
+            color: {
               get: function () {
                 return f
               },
@@ -10137,7 +10137,7 @@
                 f = a.utils.getColor(b)
               },
             },
-            x                      : {
+            x: {
               get: function () {
                 return k
               },
@@ -10145,7 +10145,7 @@
                 ;(k = a), u.x(a), v.x(a), w.x(a), x.x(a), y.x(a), z.x(a), A.x(a), B.x(a)
               },
             },
-            y                      : {
+            y: {
               get: function () {
                 return l
               },
@@ -10153,7 +10153,7 @@
                 ;(l = a), u.y(a), v.y(a), w.y(a), x.y(a), A.y(a), B.y(a), y.y(a), z.y(a)
               },
             },
-            useVoronoi             : {
+            useVoronoi: {
               get: function () {
                 return n
               },
@@ -10364,7 +10364,7 @@
         (b._options = Object.create(
           {},
           {
-            width      : {
+            width: {
               get: function () {
                 return h
               },
@@ -10372,7 +10372,7 @@
                 h = a
               },
             },
-            height     : {
+            height: {
               get: function () {
                 return i
               },
@@ -10380,7 +10380,7 @@
                 i = a
               },
             },
-            xScale     : {
+            xScale: {
               get: function () {
                 return l
               },
@@ -10388,7 +10388,7 @@
                 l = a
               },
             },
-            yScale     : {
+            yScale: {
               get: function () {
                 return m
               },
@@ -10396,7 +10396,7 @@
                 m = a
               },
             },
-            xDomain    : {
+            xDomain: {
               get: function () {
                 return c
               },
@@ -10404,7 +10404,7 @@
                 c = a
               },
             },
-            yDomain    : {
+            yDomain: {
               get: function () {
                 return d
               },
@@ -10412,7 +10412,7 @@
                 d = a
               },
             },
-            xRange     : {
+            xRange: {
               get: function () {
                 return e
               },
@@ -10420,7 +10420,7 @@
                 e = a
               },
             },
-            yRange     : {
+            yRange: {
               get: function () {
                 return f
               },
@@ -10428,7 +10428,7 @@
                 f = a
               },
             },
-            forceX     : {
+            forceX: {
               get: function () {
                 return t
               },
@@ -10436,7 +10436,7 @@
                 t = a
               },
             },
-            forceY     : {
+            forceY: {
               get: function () {
                 return u
               },
@@ -10444,7 +10444,7 @@
                 u = a
               },
             },
-            padData    : {
+            padData: {
               get: function () {
                 return v
               },
@@ -10452,7 +10452,7 @@
                 v = a
               },
             },
-            clipEdge   : {
+            clipEdge: {
               get: function () {
                 return w
               },
@@ -10460,7 +10460,7 @@
                 w = a
               },
             },
-            id         : {
+            id: {
               get: function () {
                 return j
               },
@@ -10476,7 +10476,7 @@
                 y = a
               },
             },
-            x          : {
+            x: {
               get: function () {
                 return n
               },
@@ -10484,7 +10484,7 @@
                 n = a
               },
             },
-            y          : {
+            y: {
               get: function () {
                 return o
               },
@@ -10492,7 +10492,7 @@
                 o = a
               },
             },
-            open       : {
+            open: {
               get: function () {
                 return p()
               },
@@ -10500,7 +10500,7 @@
                 p = a
               },
             },
-            close      : {
+            close: {
               get: function () {
                 return q()
               },
@@ -10508,7 +10508,7 @@
                 q = a
               },
             },
-            high       : {
+            high: {
               get: function () {
                 return r
               },
@@ -10516,7 +10516,7 @@
                 r = a
               },
             },
-            low        : {
+            low: {
               get: function () {
                 return s
               },
@@ -10524,7 +10524,7 @@
                 s = a
               },
             },
-            margin     : {
+            margin: {
               get: function () {
                 return g
               },
@@ -10535,7 +10535,7 @@
                   (g.left = void 0 != a.left ? a.left : g.left)
               },
             },
-            color      : {
+            color: {
               get: function () {
                 return x
               },
@@ -10918,7 +10918,7 @@
         (b._options = Object.create(
           {},
           {
-            width               : {
+            width: {
               get: function () {
                 return g
               },
@@ -10926,7 +10926,7 @@
                 g = a
               },
             },
-            height              : {
+            height: {
               get: function () {
                 return h
               },
@@ -10934,7 +10934,7 @@
                 h = a
               },
             },
-            dimensionData       : {
+            dimensionData: {
               get: function () {
                 return n
               },
@@ -10942,7 +10942,7 @@
                 n = a
               },
             },
-            displayBrush        : {
+            displayBrush: {
               get: function () {
                 return q
               },
@@ -10950,7 +10950,7 @@
                 q = a
               },
             },
-            filters             : {
+            filters: {
               get: function () {
                 return s
               },
@@ -10958,7 +10958,7 @@
                 s = a
               },
             },
-            active              : {
+            active: {
               get: function () {
                 return t
               },
@@ -10966,7 +10966,7 @@
                 t = a
               },
             },
-            lineTension         : {
+            lineTension: {
               get: function () {
                 return w
               },
@@ -10982,7 +10982,7 @@
                 m = a
               },
             },
-            dimensions          : {
+            dimensions: {
               get: function () {
                 return n.map(function (a) {
                   return a.key
@@ -10999,7 +10999,7 @@
                       })
               },
             },
-            dimensionNames      : {
+            dimensionNames: {
               get: function () {
                 return n.map(function (a) {
                   return a.key
@@ -11017,7 +11017,7 @@
                       })
               },
             },
-            dimensionFormats    : {
+            dimensionFormats: {
               get: function () {
                 return n.map(function (a) {
                   return a.format
@@ -11034,7 +11034,7 @@
                       })
               },
             },
-            margin              : {
+            margin: {
               get: function () {
                 return f
               },
@@ -11045,7 +11045,7 @@
                   (f.left = void 0 !== a.left ? a.left : f.left)
               },
             },
-            color               : {
+            color: {
               get: function () {
                 return r
               },
@@ -11243,7 +11243,7 @@
         (b._options = Object.create(
           {},
           {
-            width        : {
+            width: {
               get: function () {
                 return g
               },
@@ -11251,7 +11251,7 @@
                 g = a
               },
             },
-            height       : {
+            height: {
               get: function () {
                 return h
               },
@@ -11259,7 +11259,7 @@
                 h = a
               },
             },
-            showLegend   : {
+            showLegend: {
               get: function () {
                 return i
               },
@@ -11267,7 +11267,7 @@
                 i = a
               },
             },
-            defaultState : {
+            defaultState: {
               get: function () {
                 return n
               },
@@ -11283,7 +11283,7 @@
                 l = a
               },
             },
-            displayBrush : {
+            displayBrush: {
               get: function () {
                 return m
               },
@@ -11291,7 +11291,7 @@
                 m = a
               },
             },
-            noData       : {
+            noData: {
               get: function () {
                 return o
               },
@@ -11299,7 +11299,7 @@
                 o = a
               },
             },
-            nanValue     : {
+            nanValue: {
               get: function () {
                 return p
               },
@@ -11307,7 +11307,7 @@
                 p = a
               },
             },
-            margin       : {
+            margin: {
               get: function () {
                 return f
               },
@@ -11318,7 +11318,7 @@
                   (f.left = void 0 !== a.left ? a.left : f.left)
               },
             },
-            color        : {
+            color: {
               get: function () {
                 return j
               },
@@ -11438,9 +11438,9 @@
                 d3.select(this).classed('hover', !0),
                   r && d3.select(this).select('path').transition().duration(70).attr('d', D[b]),
                   B.elementMouseover({
-                    data: a.data,
-                    index: b,
-                    color: d3.select(this).style('fill'),
+                    data   : a.data,
+                    index  : b,
+                    color  : d3.select(this).style('fill'),
                     percent: (a.endAngle - a.startAngle) / (2 * Math.PI),
                   })
               }),
@@ -11455,10 +11455,10 @@
               Y.on('click', function (a, b) {
                 var c = this
                 B.elementClick({
-                  data: a.data,
-                  index: b,
-                  color: d3.select(this).style('fill'),
-                  event: d3.event,
+                  data   : a.data,
+                  index  : b,
+                  color  : d3.select(this).style('fill'),
+                  event  : d3.event,
                   element: c,
                 })
               }),
@@ -11619,7 +11619,7 @@
         (b._options = Object.create(
           {},
           {
-            arcsRadius        : {
+            arcsRadius: {
               get: function () {
                 return A
               },
@@ -11627,7 +11627,7 @@
                 A = a
               },
             },
-            width             : {
+            width: {
               get: function () {
                 return d
               },
@@ -11635,7 +11635,7 @@
                 d = a
               },
             },
-            height            : {
+            height: {
               get: function () {
                 return e
               },
@@ -11643,7 +11643,7 @@
                 e = a
               },
             },
-            showLabels        : {
+            showLabels: {
               get: function () {
                 return l
               },
@@ -11651,7 +11651,7 @@
                 l = a
               },
             },
-            title             : {
+            title: {
               get: function () {
                 return q
               },
@@ -11659,7 +11659,7 @@
                 q = a
               },
             },
-            titleOffset       : {
+            titleOffset: {
               get: function () {
                 return s
               },
@@ -11667,7 +11667,7 @@
                 s = a
               },
             },
-            labelThreshold    : {
+            labelThreshold: {
               get: function () {
                 return o
               },
@@ -11675,7 +11675,7 @@
                 o = a
               },
             },
-            valueFormat       : {
+            valueFormat: {
               get: function () {
                 return k
               },
@@ -11683,7 +11683,7 @@
                 k = a
               },
             },
-            x                 : {
+            x: {
               get: function () {
                 return f
               },
@@ -11691,7 +11691,7 @@
                 f = a
               },
             },
-            id                : {
+            id: {
               get: function () {
                 return h
               },
@@ -11699,7 +11699,7 @@
                 h = a
               },
             },
-            endAngle          : {
+            endAngle: {
               get: function () {
                 return w
               },
@@ -11707,7 +11707,7 @@
                 w = a
               },
             },
-            startAngle        : {
+            startAngle: {
               get: function () {
                 return u
               },
@@ -11715,7 +11715,7 @@
                 u = a
               },
             },
-            padAngle          : {
+            padAngle: {
               get: function () {
                 return v
               },
@@ -11723,7 +11723,7 @@
                 v = a
               },
             },
-            cornerRadius      : {
+            cornerRadius: {
               get: function () {
                 return x
               },
@@ -11731,7 +11731,7 @@
                 x = a
               },
             },
-            donutRatio        : {
+            donutRatio: {
               get: function () {
                 return y
               },
@@ -11739,7 +11739,7 @@
                 y = a
               },
             },
-            labelsOutside     : {
+            labelsOutside: {
               get: function () {
                 return m
               },
@@ -11755,7 +11755,7 @@
                 t = a
               },
             },
-            donut             : {
+            donut: {
               get: function () {
                 return p
               },
@@ -11763,7 +11763,7 @@
                 p = a
               },
             },
-            growOnHover       : {
+            growOnHover: {
               get: function () {
                 return r
               },
@@ -11771,7 +11771,7 @@
                 r = a
               },
             },
-            pieLabelsOutside  : {
+            pieLabelsOutside: {
               get: function () {
                 return m
               },
@@ -11787,7 +11787,7 @@
                 ;(m = b), a.deprecated('donutLabelsOutside', 'use labelsOutside instead')
               },
             },
-            labelFormat       : {
+            labelFormat: {
               get: function () {
                 return k
               },
@@ -11795,7 +11795,7 @@
                 ;(k = b), a.deprecated('labelFormat', 'use valueFormat instead')
               },
             },
-            margin            : {
+            margin: {
               get: function () {
                 return c
               },
@@ -11806,7 +11806,7 @@
                   (c.left = 'undefined' != typeof a.left ? a.left : c.left)
               },
             },
-            duration          : {
+            duration: {
               get: function () {
                 return z
               },
@@ -11814,7 +11814,7 @@
                 ;(z = a), E.reset(z)
               },
             },
-            y                 : {
+            y: {
               get: function () {
                 return g
               },
@@ -11822,7 +11822,7 @@
                 g = d3.functor(a)
               },
             },
-            color             : {
+            color: {
               get: function () {
                 return j
               },
@@ -11830,7 +11830,7 @@
                 j = a.utils.getColor(b)
               },
             },
-            labelType         : {
+            labelType: {
               get: function () {
                 return n
               },
@@ -11972,7 +11972,7 @@
         (b._options = Object.create(
           {},
           {
-            width             : {
+            width: {
               get: function () {
                 return g
               },
@@ -11980,7 +11980,7 @@
                 g = a
               },
             },
-            height            : {
+            height: {
               get: function () {
                 return h
               },
@@ -11988,7 +11988,7 @@
                 h = a
               },
             },
-            noData            : {
+            noData: {
               get: function () {
                 return o
               },
@@ -12004,7 +12004,7 @@
                 i = a
               },
             },
-            showLegend        : {
+            showLegend: {
               get: function () {
                 return j
               },
@@ -12012,7 +12012,7 @@
                 j = a
               },
             },
-            legendPosition    : {
+            legendPosition: {
               get: function () {
                 return k
               },
@@ -12020,7 +12020,7 @@
                 k = a
               },
             },
-            defaultState      : {
+            defaultState: {
               get: function () {
                 return n
               },
@@ -12028,7 +12028,7 @@
                 n = a
               },
             },
-            color             : {
+            color: {
               get: function () {
                 return l
               },
@@ -12036,7 +12036,7 @@
                 ;(l = a), d.color(l), c.color(l)
               },
             },
-            duration          : {
+            duration: {
               get: function () {
                 return p
               },
@@ -12044,7 +12044,7 @@
                 ;(p = a), r.reset(p), c.duration(p)
               },
             },
-            margin            : {
+            margin: {
               get: function () {
                 return f
               },
@@ -12169,15 +12169,15 @@
                       h = window.pageXOffset || document.documentElement.scrollLeft,
                       i = {
                         left: p(s(e, a.point)) + f.left + h + j.left + 10,
-                        top: q(t(e, a.point)) + f.top + g + j.top + 10,
+                        top : q(t(e, a.point)) + f.top + g + j.top + 10,
                       }
                     c({
-                      point: e,
-                      series: d,
-                      pos: i,
+                      point      : e,
+                      series     : d,
+                      pos        : i,
                       relativePos: [p(s(e, a.point)) + j.left, q(t(e, a.point)) + j.top],
                       seriesIndex: a.series,
-                      pointIndex: a.point,
+                      pointIndex : a.point,
                     })
                   }
                 }
@@ -12203,14 +12203,14 @@
                       e = d.values[c],
                       f = this
                     O.elementClick({
-                      point: e,
-                      series: d,
-                      pos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
+                      point      : e,
+                      series     : d,
+                      pos        : [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       relativePos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       seriesIndex: a.series,
-                      pointIndex: c,
-                      event: d3.event,
-                      element: f,
+                      pointIndex : c,
+                      event      : d3.event,
+                      element    : f,
                     })
                   })
                   .on('dblclick', function (a, c) {
@@ -12218,12 +12218,12 @@
                     var d = b[a.series],
                       e = d.values[c]
                     O.elementDblClick({
-                      point: e,
-                      series: d,
-                      pos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
+                      point      : e,
+                      series     : d,
+                      pos        : [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       relativePos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       seriesIndex: a.series,
-                      pointIndex: c,
+                      pointIndex : c,
                     })
                   })
                   .on('mouseover', function (a, c) {
@@ -12231,13 +12231,13 @@
                     var d = b[a.series],
                       e = d.values[c]
                     O.elementMouseover({
-                      point: e,
-                      series: d,
-                      pos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
+                      point      : e,
+                      series     : d,
+                      pos        : [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       relativePos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       seriesIndex: a.series,
-                      pointIndex: c,
-                      color: m(a, c),
+                      pointIndex : c,
+                      color      : m(a, c),
                     })
                   })
                   .on('mouseout', function (a, c) {
@@ -12245,13 +12245,13 @@
                     var d = b[a.series],
                       e = d.values[c]
                     O.elementMouseout({
-                      point: e,
-                      series: d,
-                      pos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
+                      point      : e,
+                      series     : d,
+                      pos        : [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       relativePos: [p(s(e, c)) + j.left, q(t(e, c)) + j.top],
                       seriesIndex: a.series,
-                      pointIndex: c,
-                      color: m(a, c),
+                      pointIndex : c,
+                      color      : m(a, c),
                     })
                   })
             }
@@ -12603,7 +12603,7 @@
         (d._options = Object.create(
           {},
           {
-            width                 : {
+            width: {
               get: function () {
                 return k
               },
@@ -12611,7 +12611,7 @@
                 k = a
               },
             },
-            height                : {
+            height: {
               get: function () {
                 return l
               },
@@ -12619,7 +12619,7 @@
                 l = a
               },
             },
-            xScale                : {
+            xScale: {
               get: function () {
                 return p
               },
@@ -12627,7 +12627,7 @@
                 p = a
               },
             },
-            yScale                : {
+            yScale: {
               get: function () {
                 return q
               },
@@ -12635,7 +12635,7 @@
                 q = a
               },
             },
-            pointScale            : {
+            pointScale: {
               get: function () {
                 return r
               },
@@ -12643,7 +12643,7 @@
                 r = a
               },
             },
-            xDomain               : {
+            xDomain: {
               get: function () {
                 return H
               },
@@ -12651,7 +12651,7 @@
                 H = a
               },
             },
-            yDomain               : {
+            yDomain: {
               get: function () {
                 return I
               },
@@ -12659,7 +12659,7 @@
                 I = a
               },
             },
-            pointDomain           : {
+            pointDomain: {
               get: function () {
                 return L
               },
@@ -12667,7 +12667,7 @@
                 L = a
               },
             },
-            xRange                : {
+            xRange: {
               get: function () {
                 return J
               },
@@ -12675,7 +12675,7 @@
                 J = a
               },
             },
-            yRange                : {
+            yRange: {
               get: function () {
                 return K
               },
@@ -12683,7 +12683,7 @@
                 K = a
               },
             },
-            pointRange            : {
+            pointRange: {
               get: function () {
                 return M
               },
@@ -12691,7 +12691,7 @@
                 M = a
               },
             },
-            forceX                : {
+            forceX: {
               get: function () {
                 return w
               },
@@ -12699,7 +12699,7 @@
                 w = a
               },
             },
-            forceY                : {
+            forceY: {
               get: function () {
                 return x
               },
@@ -12707,7 +12707,7 @@
                 x = a
               },
             },
-            forcePoint            : {
+            forcePoint: {
               get: function () {
                 return y
               },
@@ -12715,7 +12715,7 @@
                 y = a
               },
             },
-            interactive           : {
+            interactive: {
               get: function () {
                 return z
               },
@@ -12723,7 +12723,7 @@
                 z = a
               },
             },
-            pointActive           : {
+            pointActive: {
               get: function () {
                 return A
               },
@@ -12731,7 +12731,7 @@
                 A = a
               },
             },
-            padDataOuter          : {
+            padDataOuter: {
               get: function () {
                 return C
               },
@@ -12739,7 +12739,7 @@
                 C = a
               },
             },
-            padData               : {
+            padData: {
               get: function () {
                 return B
               },
@@ -12747,7 +12747,7 @@
                 B = a
               },
             },
-            clipEdge              : {
+            clipEdge: {
               get: function () {
                 return D
               },
@@ -12755,7 +12755,7 @@
                 D = a
               },
             },
-            clipVoronoi           : {
+            clipVoronoi: {
               get: function () {
                 return E
               },
@@ -12763,7 +12763,7 @@
                 E = a
               },
             },
-            clipRadius            : {
+            clipRadius: {
               get: function () {
                 return G
               },
@@ -12771,7 +12771,7 @@
                 G = a
               },
             },
-            showVoronoi           : {
+            showVoronoi: {
               get: function () {
                 return F
               },
@@ -12779,7 +12779,7 @@
                 F = a
               },
             },
-            id                    : {
+            id: {
               get: function () {
                 return n
               },
@@ -12795,7 +12795,7 @@
                 R = a
               },
             },
-            showLabels            : {
+            showLabels: {
               get: function () {
                 return S
               },
@@ -12803,7 +12803,7 @@
                 S = a
               },
             },
-            x                     : {
+            x: {
               get: function () {
                 return s
               },
@@ -12811,7 +12811,7 @@
                 s = d3.functor(a)
               },
             },
-            y                     : {
+            y: {
               get: function () {
                 return t
               },
@@ -12819,7 +12819,7 @@
                 t = d3.functor(a)
               },
             },
-            pointSize             : {
+            pointSize: {
               get: function () {
                 return u
               },
@@ -12827,7 +12827,7 @@
                 u = d3.functor(a)
               },
             },
-            pointShape            : {
+            pointShape: {
               get: function () {
                 return v
               },
@@ -12835,7 +12835,7 @@
                 v = d3.functor(a)
               },
             },
-            margin                : {
+            margin: {
               get: function () {
                 return j
               },
@@ -12846,7 +12846,7 @@
                   (j.left = void 0 !== a.left ? a.left : j.left)
               },
             },
-            duration              : {
+            duration: {
               get: function () {
                 return Q
               },
@@ -12854,7 +12854,7 @@
                 ;(Q = a), U.reset(Q)
               },
             },
-            color                 : {
+            color: {
               get: function () {
                 return m
               },
@@ -12862,7 +12862,7 @@
                 m = a.utils.getColor(b)
               },
             },
-            useVoronoi            : {
+            useVoronoi: {
               get: function () {
                 return P
               },
@@ -13155,7 +13155,7 @@
         (b._options = Object.create(
           {},
           {
-            width          : {
+            width: {
               get: function () {
                 return k
               },
@@ -13163,7 +13163,7 @@
                 k = a
               },
             },
-            height         : {
+            height: {
               get: function () {
                 return l
               },
@@ -13171,7 +13171,7 @@
                 l = a
               },
             },
-            container      : {
+            container: {
               get: function () {
                 return m
               },
@@ -13179,7 +13179,7 @@
                 m = a
               },
             },
-            showDistX      : {
+            showDistX: {
               get: function () {
                 return q
               },
@@ -13187,7 +13187,7 @@
                 q = a
               },
             },
-            showDistY      : {
+            showDistY: {
               get: function () {
                 return r
               },
@@ -13195,7 +13195,7 @@
                 r = a
               },
             },
-            showLegend     : {
+            showLegend: {
               get: function () {
                 return s
               },
@@ -13203,7 +13203,7 @@
                 s = a
               },
             },
-            showXAxis      : {
+            showXAxis: {
               get: function () {
                 return t
               },
@@ -13211,7 +13211,7 @@
                 t = a
               },
             },
-            showYAxis      : {
+            showYAxis: {
               get: function () {
                 return u
               },
@@ -13219,7 +13219,7 @@
                 u = a
               },
             },
-            defaultState   : {
+            defaultState: {
               get: function () {
                 return x
               },
@@ -13227,7 +13227,7 @@
                 x = a
               },
             },
-            noData         : {
+            noData: {
               get: function () {
                 return z
               },
@@ -13235,7 +13235,7 @@
                 z = a
               },
             },
-            duration       : {
+            duration: {
               get: function () {
                 return A
               },
@@ -13243,7 +13243,7 @@
                 A = a
               },
             },
-            showLabels     : {
+            showLabels: {
               get: function () {
                 return B
               },
@@ -13251,7 +13251,7 @@
                 B = a
               },
             },
-            margin         : {
+            margin: {
               get: function () {
                 return j
               },
@@ -13270,7 +13270,7 @@
                 ;(v = a), e.orient(a ? 'right' : 'left')
               },
             },
-            color          : {
+            color: {
               get: function () {
                 return n
               },
@@ -13388,7 +13388,7 @@
         (b._options = Object.create(
           {},
           {
-            width           : {
+            width: {
               get: function () {
                 return h
               },
@@ -13396,7 +13396,7 @@
                 h = a
               },
             },
-            height          : {
+            height: {
               get: function () {
                 return i
               },
@@ -13404,7 +13404,7 @@
                 i = a
               },
             },
-            xDomain         : {
+            xDomain: {
               get: function () {
                 return c
               },
@@ -13412,7 +13412,7 @@
                 c = a
               },
             },
-            yDomain         : {
+            yDomain: {
               get: function () {
                 return d
               },
@@ -13420,7 +13420,7 @@
                 d = a
               },
             },
-            xRange          : {
+            xRange: {
               get: function () {
                 return e
               },
@@ -13428,7 +13428,7 @@
                 e = a
               },
             },
-            yRange          : {
+            yRange: {
               get: function () {
                 return f
               },
@@ -13436,7 +13436,7 @@
                 f = a
               },
             },
-            xScale          : {
+            xScale: {
               get: function () {
                 return l
               },
@@ -13444,7 +13444,7 @@
                 l = a
               },
             },
-            yScale          : {
+            yScale: {
               get: function () {
                 return m
               },
@@ -13452,7 +13452,7 @@
                 m = a
               },
             },
-            animate         : {
+            animate: {
               get: function () {
                 return k
               },
@@ -13476,7 +13476,7 @@
                 r = a
               },
             },
-            x               : {
+            x: {
               get: function () {
                 return n
               },
@@ -13484,7 +13484,7 @@
                 n = d3.functor(a)
               },
             },
-            y               : {
+            y: {
               get: function () {
                 return o
               },
@@ -13492,7 +13492,7 @@
                 o = d3.functor(a)
               },
             },
-            margin          : {
+            margin: {
               get: function () {
                 return g
               },
@@ -13503,7 +13503,7 @@
                   (g.left = void 0 !== a.left ? a.left : g.left)
               },
             },
-            color           : {
+            color: {
               get: function () {
                 return p
               },
@@ -13664,7 +13664,7 @@
         (b._options = Object.create(
           {},
           {
-            width          : {
+            width: {
               get: function () {
                 return g
               },
@@ -13672,7 +13672,7 @@
                 g = a
               },
             },
-            height         : {
+            height: {
               get: function () {
                 return h
               },
@@ -13680,7 +13680,7 @@
                 h = a
               },
             },
-            xTickFormat    : {
+            xTickFormat: {
               get: function () {
                 return k
               },
@@ -13688,7 +13688,7 @@
                 k = a
               },
             },
-            yTickFormat    : {
+            yTickFormat: {
               get: function () {
                 return l
               },
@@ -13696,7 +13696,7 @@
                 l = a
               },
             },
-            showLastValue  : {
+            showLastValue: {
               get: function () {
                 return m
               },
@@ -13704,7 +13704,7 @@
                 m = a
               },
             },
-            alignValue     : {
+            alignValue: {
               get: function () {
                 return n
               },
@@ -13720,7 +13720,7 @@
                 o = a
               },
             },
-            noData         : {
+            noData: {
               get: function () {
                 return p
               },
@@ -13728,7 +13728,7 @@
                 p = a
               },
             },
-            margin         : {
+            margin: {
               get: function () {
                 return f
               },
@@ -13850,27 +13850,27 @@
               .on('mouseover', function (a, b) {
                 d3.select(this).classed('hover', !0),
                   u.areaMouseover({
-                    point: a,
-                    series: a.key,
-                    pos: [d3.event.pageX, d3.event.pageY],
+                    point      : a,
+                    series     : a.key,
+                    pos        : [d3.event.pageX, d3.event.pageY],
                     seriesIndex: a.seriesIndex,
                   })
               })
               .on('mouseout', function (a, b) {
                 d3.select(this).classed('hover', !1),
                   u.areaMouseout({
-                    point: a,
-                    series: a.key,
-                    pos: [d3.event.pageX, d3.event.pageY],
+                    point      : a,
+                    series     : a.key,
+                    pos        : [d3.event.pageX, d3.event.pageY],
                     seriesIndex: a.seriesIndex,
                   })
               })
               .on('click', function (a, b) {
                 d3.select(this).classed('hover', !1),
                   u.areaClick({
-                    point: a,
-                    series: a.key,
-                    pos: [d3.event.pageX, d3.event.pageY],
+                    point      : a,
+                    series     : a.key,
+                    pos        : [d3.event.pageX, d3.event.pageY],
                     seriesIndex: a.seriesIndex,
                   })
               }),
@@ -13968,7 +13968,7 @@
         (b._options = Object.create(
           {},
           {
-            width      : {
+            width: {
               get: function () {
                 return f
               },
@@ -13976,7 +13976,7 @@
                 f = a
               },
             },
-            height     : {
+            height: {
               get: function () {
                 return g
               },
@@ -13984,7 +13984,7 @@
                 g = a
               },
             },
-            defined    : {
+            defined: {
               get: function () {
                 return m
               },
@@ -13992,7 +13992,7 @@
                 m = a
               },
             },
-            clipEdge   : {
+            clipEdge: {
               get: function () {
                 return r
               },
@@ -14000,7 +14000,7 @@
                 r = a
               },
             },
-            offset     : {
+            offset: {
               get: function () {
                 return o
               },
@@ -14008,7 +14008,7 @@
                 o = a
               },
             },
-            order      : {
+            order: {
               get: function () {
                 return p
               },
@@ -14024,7 +14024,7 @@
                 q = a
               },
             },
-            x          : {
+            x: {
               get: function () {
                 return k
               },
@@ -14032,7 +14032,7 @@
                 k = d3.functor(a)
               },
             },
-            y          : {
+            y: {
               get: function () {
                 return l
               },
@@ -14040,7 +14040,7 @@
                 l = d3.functor(a)
               },
             },
-            margin     : {
+            margin: {
               get: function () {
                 return e
               },
@@ -14051,7 +14051,7 @@
                   (e.left = void 0 !== a.left ? a.left : e.left)
               },
             },
-            color      : {
+            color: {
               get: function () {
                 return h
               },
@@ -14059,7 +14059,7 @@
                 h = a.utils.getColor(b)
               },
             },
-            style      : {
+            style: {
               get: function () {
                 return n
               },
@@ -14082,7 +14082,7 @@
                 }
               },
             },
-            duration   : {
+            duration: {
               get: function () {
                 return t
               },
@@ -14131,10 +14131,10 @@
                   })
                   .map(function (b, c) {
                     return {
-                      key: b.key,
-                      area: b.area,
-                      classed: b.classed,
-                      values        : b.values.filter(function (b, c) {
+                      key           : b.key,
+                      area          : b.area,
+                      classed       : b.classed,
+                      values: b.values.filter(function (b, c) {
                         return e.x()(b, c) >= a[0] && e.x()(b, c) <= a[1]
                       }),
                       disableTooltip: b.disableTooltip,
@@ -14198,10 +14198,10 @@
                 {key: F.stream || 'Stream', metaKey: 'Stream', disabled: 'stream' != e.style(), style: 'stream'},
                 {key: F.expanded || 'Expanded', metaKey: 'Expanded', disabled: 'expand' != e.style(), style: 'expand'},
                 {
-                  key: F.stack_percent || 'Stack %',
-                  metaKey: 'Stack_Percent',
+                  key     : F.stack_percent || 'Stack %',
+                  metaKey : 'Stack_Percent',
                   disabled: 'stack_percent' != e.style(),
-                  style: 'stack_percent',
+                  style   : 'stack_percent',
                 },
               ]
               ;(D = (E.length / 3) * 260),
@@ -14419,7 +14419,7 @@
               active: a.map(function (a) {
                 return !a.disabled
               }),
-              style: e.style(),
+              style : e.style(),
             }
           }
         },
@@ -14456,7 +14456,7 @@
         (b._options = Object.create(
           {},
           {
-            width                  : {
+            width: {
               get: function () {
                 return n
               },
@@ -14464,7 +14464,7 @@
                 n = a
               },
             },
-            height                 : {
+            height: {
               get: function () {
                 return o
               },
@@ -14472,7 +14472,7 @@
                 o = a
               },
             },
-            showLegend             : {
+            showLegend: {
               get: function () {
                 return r
               },
@@ -14480,7 +14480,7 @@
                 r = a
               },
             },
-            showXAxis              : {
+            showXAxis: {
               get: function () {
                 return s
               },
@@ -14488,7 +14488,7 @@
                 s = a
               },
             },
-            showYAxis              : {
+            showYAxis: {
               get: function () {
                 return t
               },
@@ -14496,7 +14496,7 @@
                 t = a
               },
             },
-            defaultState           : {
+            defaultState: {
               get: function () {
                 return A
               },
@@ -14504,7 +14504,7 @@
                 A = a
               },
             },
-            noData                 : {
+            noData: {
               get: function () {
                 return B
               },
@@ -14512,7 +14512,7 @@
                 B = a
               },
             },
-            showControls           : {
+            showControls: {
               get: function () {
                 return q
               },
@@ -14520,7 +14520,7 @@
                 q = a
               },
             },
-            controlLabels          : {
+            controlLabels: {
               get: function () {
                 return F
               },
@@ -14528,7 +14528,7 @@
                 F = a
               },
             },
-            controlOptions         : {
+            controlOptions: {
               get: function () {
                 return E
               },
@@ -14536,7 +14536,7 @@
                 E = a
               },
             },
-            showTotalInTooltip     : {
+            showTotalInTooltip: {
               get: function () {
                 return x
               },
@@ -14544,7 +14544,7 @@
                 x = a
               },
             },
-            totalLabel             : {
+            totalLabel: {
               get: function () {
                 return y
               },
@@ -14552,7 +14552,7 @@
                 y = a
               },
             },
-            focusEnable            : {
+            focusEnable: {
               get: function () {
                 return v
               },
@@ -14560,7 +14560,7 @@
                 v = a
               },
             },
-            focusHeight            : {
+            focusHeight: {
               get: function () {
                 return l.height()
               },
@@ -14568,7 +14568,7 @@
                 l.height(a)
               },
             },
-            brushExtent            : {
+            brushExtent: {
               get: function () {
                 return l.brushExtent()
               },
@@ -14576,7 +14576,7 @@
                 l.brushExtent(a)
               },
             },
-            margin                 : {
+            margin: {
               get: function () {
                 return m
               },
@@ -14587,7 +14587,7 @@
                   (m.left = void 0 !== a.left ? a.left : m.left)
               },
             },
-            focusMargin            : {
+            focusMargin: {
               get: function () {
                 return l.margin
               },
@@ -14598,7 +14598,7 @@
                   (l.margin.left = void 0 !== a.left ? a.left : l.margin.left)
               },
             },
-            duration               : {
+            duration: {
               get: function () {
                 return G
               },
@@ -14606,7 +14606,7 @@
                 ;(G = a), J.reset(G), e.duration(G), f.duration(G), g.duration(G)
               },
             },
-            color                  : {
+            color: {
               get: function () {
                 return p
               },
@@ -14614,7 +14614,7 @@
                 ;(p = a.utils.getColor(b)), h.color(p), e.color(p), l.color(p)
               },
             },
-            x                      : {
+            x: {
               get: function () {
                 return e.x()
               },
@@ -14622,7 +14622,7 @@
                 e.x(a), l.x(a)
               },
             },
-            y                      : {
+            y: {
               get: function () {
                 return e.y()
               },
@@ -14630,7 +14630,7 @@
                 e.y(a), l.y(a)
               },
             },
-            rightAlignYAxis        : {
+            rightAlignYAxis: {
               get: function () {
                 return u
               },
@@ -14848,7 +14848,7 @@
           value: function (a) {
             return a.value || a.size
           },
-          size : function (a) {
+          size: function (a) {
             return a.value || a.size
           },
         },
@@ -14902,7 +14902,7 @@
         (k._options = Object.create(
           {},
           {
-            width             : {
+            width: {
               get: function () {
                 return q
               },
@@ -14910,7 +14910,7 @@
                 q = a
               },
             },
-            height            : {
+            height: {
               get: function () {
                 return r
               },
@@ -14918,7 +14918,7 @@
                 r = a
               },
             },
-            mode              : {
+            mode: {
               get: function () {
                 return s
               },
@@ -14926,7 +14926,7 @@
                 s = a
               },
             },
-            id                : {
+            id: {
               get: function () {
                 return u
               },
@@ -14934,7 +14934,7 @@
                 u = a
               },
             },
-            duration          : {
+            duration: {
               get: function () {
                 return D
               },
@@ -14950,7 +14950,7 @@
                 C = !!a
               },
             },
-            showLabels        : {
+            showLabels: {
               get: function () {
                 return x
               },
@@ -14958,7 +14958,7 @@
                 x = !!a
               },
             },
-            labelFormat       : {
+            labelFormat: {
               get: function () {
                 return y
               },
@@ -14966,7 +14966,7 @@
                 y = a
               },
             },
-            labelThreshold    : {
+            labelThreshold: {
               get: function () {
                 return z
               },
@@ -14974,7 +14974,7 @@
                 z = a
               },
             },
-            sort              : {
+            sort: {
               get: function () {
                 return A
               },
@@ -14982,7 +14982,7 @@
                 A = a
               },
             },
-            key               : {
+            key: {
               get: function () {
                 return B
               },
@@ -14990,7 +14990,7 @@
                 B = a
               },
             },
-            margin            : {
+            margin: {
               get: function () {
                 return p
               },
@@ -15001,7 +15001,7 @@
                   (p.left = void 0 != a.left ? a.left : p.left)
               },
             },
-            color             : {
+            color: {
               get: function () {
                 return w
               },
@@ -15077,7 +15077,7 @@
         (b._options = Object.create(
           {},
           {
-            noData            : {
+            noData: {
               get: function () {
                 return k
               },
@@ -15085,7 +15085,7 @@
                 k = a
               },
             },
-            defaultState      : {
+            defaultState: {
               get: function () {
                 return j
               },
@@ -15101,7 +15101,7 @@
                 i = a
               },
             },
-            color             : {
+            color: {
               get: function () {
                 return h
               },
@@ -15109,7 +15109,7 @@
                 ;(h = a), c.color(h)
               },
             },
-            duration          : {
+            duration: {
               get: function () {
                 return l
               },
@@ -15117,7 +15117,7 @@
                 ;(l = a), n.reset(l), c.duration(l)
               },
             },
-            margin            : {
+            margin: {
               get: function () {
                 return e
               },

@@ -89,8 +89,7 @@ function emitSpirv({input, outDir, name, naga}) {
   const tool = resolveNaga(naga)
   if (!tool) {
     process.stderr.write(
-      `wgsl-to-spirv: cannot find 'naga' CLI on PATH or via $NAGA.\n` +
-        `  Install with: node make.mjs install-tools\n`
+      `wgsl-to-spirv: cannot find 'naga' CLI on PATH or via $NAGA.\n` + `  Install with: node make.mjs install-tools\n`
     )
     process.exit(3)
   }

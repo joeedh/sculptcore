@@ -186,8 +186,7 @@ export class WebGLBatchExecutor {
     // WASM additionally detects a realloc (data pointer moved while size is
     // unchanged); the native backend relies on the engine's `update_buffer`
     // dirty flag since the data pointer stays in C++.
-    const dataPtr =
-      this.wasm.HEAPU8 !== undefined ? (buf as unknown as {data: number}).data : undefined
+    const dataPtr = this.wasm.HEAPU8 !== undefined ? (buf as unknown as {data: number}).data : undefined
     const needsUpload =
       cached.uploadedSize !== bytes ||
       (dataPtr !== undefined && cached.uploadedDataPtr !== dataPtr) ||

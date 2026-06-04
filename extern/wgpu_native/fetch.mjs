@@ -23,8 +23,11 @@ function assetName() {
 }
 
 const stamp = path.join(here, 'lib', '.fetched-tag')
-if (fs.existsSync(stamp) && fs.readFileSync(stamp, 'utf-8').trim() === TAG &&
-    fs.existsSync(path.join(here, 'include/webgpu/webgpu.h'))) {
+if (
+  fs.existsSync(stamp) &&
+  fs.readFileSync(stamp, 'utf-8').trim() === TAG &&
+  fs.existsSync(path.join(here, 'include/webgpu/webgpu.h'))
+) {
   console.log(`wgpu-native ${TAG} already present`)
   process.exit(0)
 }
@@ -36,20 +39,22 @@ console.log(`Fetching wgpu-native ${TAG}\n  ${url}`)
 function download(u, dest, redirects = 0) {
   return new Promise((accept, reject) => {
     if (redirects > 10) return reject(new Error('too many redirects'))
-    https.get(u, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume()
-        return accept(download(res.headers.location, dest, redirects + 1))
-      }
-      if (res.statusCode !== 200) {
-        res.resume()
-        return reject(new Error(`HTTP ${res.statusCode} for ${u}`))
-      }
-      const out = fs.createWriteStream(dest)
-      res.pipe(out)
-      out.on('finish', () => out.close(accept))
-      out.on('error', reject)
-    }).on('error', reject)
+    https
+      .get(u, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume()
+          return accept(download(res.headers.location, dest, redirects + 1))
+        }
+        if (res.statusCode !== 200) {
+          res.resume()
+          return reject(new Error(`HTTP ${res.statusCode} for ${u}`))
+        }
+        const out = fs.createWriteStream(dest)
+        res.pipe(out)
+        out.on('finish', () => out.close(accept))
+        out.on('error', reject)
+      })
+      .on('error', reject)
   })
 }
 

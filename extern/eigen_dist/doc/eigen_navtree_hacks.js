@@ -238,7 +238,6 @@ function selectAndHighlight(hash, n) {
 
 $(document).ready(function () {
   generate_autotoc()
-
   ;(function () {
     // wait until the first "selected" element has been created
     try {
