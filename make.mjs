@@ -11,6 +11,7 @@ const CMAKE_BUILD_TYPE = 'RelWithDebInfo'
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
 const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
+const EMSDK_COMMIT = '2a9b4692ab24a0497249eeaa696ac1153d22e07e'
 
 /**
  * Ensurse final linked files are destroyed,
@@ -988,8 +989,8 @@ yargs(hideBin(process.argv))
   })
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')
-    run('git submodule init')
-    run('git submodule update')
+    run('git clone https://github.com/emscripten-core/emsdk.git emsdk')
+    run(`cd emsdk && git checkout ${EMSDK_COMMIT}`)
     run(
       `cd emsdk && bash emsdk install ${EMSDK_VERSION} && bash emsdk install cmake-4.2.0-rc3-64bit ninja-git-release-64bit `
     )
