@@ -309,6 +309,13 @@ the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentati
   `extern/imgui`) are excluded — bump those deliberately, never as part of a
   co-commit. The same rule applies one level up: when sculptcore's branch matches
   its parent superproject's, they are committed together too.
+- **Parent on a branch, submodule on its default branch:** do not silently commit
+  or advance the submodule's shared default branch. Ask the user whether they want
+  to commit and/or push the submodule's default branch (and bump the gitlink)
+  before doing so.
+- **Worktree teardown:** before removing a worktree, every submodule sitting on its
+  default branch — except the pinned `emsdk` / `extern/imgui` — must be committed
+  and pushed, so no work is lost when the checkout goes away.
 
 ## Conventions
 
