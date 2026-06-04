@@ -124,6 +124,8 @@ class NapiRuntime {
   static napi_value SpatialTreeSetDrawShader(napi_env, napi_callback_info);
   // spatialTreeGetMissingAttrSlots(tree) -> number[]
   static napi_value SpatialTreeGetMissingAttrSlots(napi_env, napi_callback_info);
+  // spatialTreeRefreshRequestedAttrs(tree) -> void (force buffer rebuild on layer change)
+  static napi_value SpatialTreeRefreshRequestedAttrs(napi_env, napi_callback_info);
 
   void define(napi_value exports, const char *name, napi_callback cb);
 };

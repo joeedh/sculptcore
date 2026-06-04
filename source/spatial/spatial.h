@@ -121,6 +121,17 @@ struct SpatialTree {
     return missingAttrSlots;
   }
 
+  /* Force a rebuild of the per-attribute vertex buffers against the *current*
+   * mesh layers, even when the requested descriptor set is byte-identical.
+   * setRequestedAttrs short-circuits on an unchanged set, but adding/removing a
+   * mesh layer whose domain matches the category default leaves the descriptors
+   * unchanged while the buffer contents (default-fill vs real data) must change.
+   * Recomputes missingAttrSlots, bumps requestedAttrsVersion, drops the draw
+   * batch, and reflags every leaf Spatial_RegenGPU. The renderengine calls this
+   * (instead of re-issuing setDrawShader) when only the mesh's attribute layers
+   * changed. */
+  void refreshRequestedAttrs();
+
   /* Brush/circle select: faces + verts inside a view cone (object-local), built
    * JS-side exactly like the WebGL BVH path. Face indices are deduped (a face
    * spans 2 tris). Out-params are appended to; returns true if anything hit. */

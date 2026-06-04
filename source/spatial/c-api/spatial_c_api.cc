@@ -113,4 +113,17 @@ int getTreeMissingAttrSlots(spatial::SpatialTree *t, int *out, int maxOut)
   }
   return n;
 }
+
+/* Force a rebuild of the per-attribute buffers against the current mesh layers
+ * even when the requested set is byte-identical (a layer add/remove that leaves
+ * the descriptors unchanged). The renderengine calls this — instead of
+ * re-issuing setTreeDrawShader — when only the mesh's attribute layers changed.
+ * Never throws. */
+void refreshTreeRequestedAttrs(spatial::SpatialTree *t)
+{
+  if (!t) {
+    return;
+  }
+  t->refreshRequestedAttrs();
+}
 }

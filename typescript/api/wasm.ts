@@ -56,6 +56,8 @@ interface IWasmMethods extends IWasmBase {
   setTreeDrawShader(tree: pointer, wgslPtr: pointer): void
   /** copy the advisory missing-slot list into `outPtr` (cap `maxOut`); returns the full count. Pass (0,0) to query the count. */
   getTreeMissingAttrSlots(tree: pointer, outPtr: pointer, maxOut: int): int
+  /** force a per-attribute buffer rebuild against current mesh layers (layer add/remove with byte-identical descriptors). */
+  refreshTreeRequestedAttrs(tree: pointer): void
 }
 
 /**
@@ -133,6 +135,14 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * (default-filled). Returns a plain `number[]`; never throws.
    */
   SpatialTree_getMissingAttrSlots(tree: SpatialTree): number[]
+  /**
+   * Force a rebuild of the per-attribute vertex buffers against the *current*
+   * mesh layers even when the requested descriptor set is byte-identical (a
+   * layer add/remove whose domain matches the category default). The
+   * renderengine calls this — instead of re-issuing `SpatialTree_setDrawShader`
+   * — when only the mesh's attribute layers changed. Never throws.
+   */
+  SpatialTree_refreshRequestedAttrs(tree: SpatialTree): void
 
   /**
    * Native-backend bulk-data read: the bytes a bound object's raw-pointer
@@ -366,6 +376,10 @@ export async function loadWasm(): Promise<IWasmInterface> {
       } finally {
         _wasm._rawRelease(outPtr)
       }
+    },
+    SpatialTree_refreshRequestedAttrs(tree: SpatialTree) {
+      const treePtr = (tree as unknown as {ptr: number}).ptr
+      _wasm.refreshTreeRequestedAttrs(treePtr)
     },
     /** uses a large cache ring */
     float3(co: ArrayLike<number>) {

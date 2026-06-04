@@ -181,6 +181,9 @@ export class NativeManager {
   SpatialTree_getMissingAttrSlots(tree: NativeBound): number[] {
     return this.addon.spatialTreeGetMissingAttrSlots(tree)
   }
+  SpatialTree_refreshRequestedAttrs(tree: NativeBound): void {
+    this.addon.spatialTreeRefreshRequestedAttrs(tree)
+  }
   float3(co: ArrayLike<number>): NativeBound {
     const v = this.f3ring.next() as {vec: number[]}
     const vec = v.vec // capture the array wrapper once (one wrapper, not three)
@@ -232,6 +235,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
       nm.SpatialTree_setRequestedAttrs(t, reqs),
     SpatialTree_setDrawShader: (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),
     SpatialTree_getMissingAttrSlots: (t: NativeBound) => nm.SpatialTree_getMissingAttrSlots(t),
+    SpatialTree_refreshRequestedAttrs: (t: NativeBound) => nm.SpatialTree_refreshRequestedAttrs(t),
     float2: (c: ArrayLike<number>) => nm.float2(c),
     float3: (c: ArrayLike<number>) => nm.float3(c),
     /** marker so callers/tests can confirm the native backend is active. */

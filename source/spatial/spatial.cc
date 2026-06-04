@@ -147,7 +147,32 @@ void SpatialTree::computeMissingAttrSlots()
 
 void SpatialTree::setRequestedAttrs(const util::Vector<gpu::RequestedAttr> &reqs)
 {
-  if (requested_attrs_equal(requestedAttrs, reqs)) {
+  /* Store canonically in slot order. The per-attribute buffers are built and
+   * filled in requestedAttrs *index* order (regen_gpu_node / fill paths in
+   * spatial_gpu.cc) and bound to cmd->attrs in that same order, while the
+   * ShaderDef vertex layout is in *slot* order. Sorting here makes index order
+   * == slot order, so the two agree by construction no matter what order the
+   * caller passes the set in (it never depends on the caller pre-sorting). */
+  util::Vector<gpu::RequestedAttr> sorted;
+  for (const gpu::RequestedAttr &req : reqs) {
+    sorted.append(req);
+  }
+  /* selection sort by slot — the set is tiny (one entry per material attr) */
+  for (int n = 0; n < int(sorted.size()); n++) {
+    int best = n;
+    for (int i = n + 1; i < int(sorted.size()); i++) {
+      if (sorted[i].slot < sorted[best].slot) {
+        best = i;
+      }
+    }
+    if (best != n) {
+      gpu::RequestedAttr tmp = sorted[n];
+      sorted[n] = sorted[best];
+      sorted[best] = tmp;
+    }
+  }
+
+  if (requested_attrs_equal(requestedAttrs, sorted)) {
     /* Unchanged — refresh the missing-attr advisory (mesh layers may have come
      * or gone) but do not force a GPU rebuild. */
     computeMissingAttrSlots();
@@ -155,7 +180,7 @@ void SpatialTree::setRequestedAttrs(const util::Vector<gpu::RequestedAttr> &reqs
   }
 
   requestedAttrs.clear();
-  for (const gpu::RequestedAttr &req : reqs) {
+  for (const gpu::RequestedAttr &req : sorted) {
     requestedAttrs.append(req);
   }
   requestedAttrsVersion++;
@@ -176,29 +201,14 @@ void SpatialTree::setRequestedAttrs(const util::Vector<gpu::RequestedAttr> &reqs
 
 void SpatialTree::setDrawShader(const char *wgsl)
 {
-  /* Attr layout: position@0, normal@1, then requestedAttrs in slot order. */
+  /* Attr layout: position@0, normal@1, then requestedAttrs. The set is stored
+   * slot-ordered by setRequestedAttrs (and the buffers are bound in that same
+   * order), so a straight append already lands each attr at its @location. */
   util::Vector<gpu::AttrDef> attrs;
   attrs.append({util::string("position"), gpu::GPUType::FLOAT32, 3});
   attrs.append({util::string("normal"), gpu::GPUType::FLOAT32, 3});
 
-  /* Append requested attrs in slot order (selection sort — the set is tiny). */
-  util::Vector<bool> used;
-  for (int i : util::IndexRange(requestedAttrs.size())) {
-    (void)i;
-    used.append(false);
-  }
-  for (int n = 0; n < int(requestedAttrs.size()); n++) {
-    int best = -1;
-    for (int i : util::IndexRange(requestedAttrs.size())) {
-      if (used[i]) {
-        continue;
-      }
-      if (best < 0 || requestedAttrs[i].slot < requestedAttrs[best].slot) {
-        best = i;
-      }
-    }
-    used[best] = true;
-    const gpu::RequestedAttr &req = requestedAttrs[best];
+  for (const gpu::RequestedAttr &req : requestedAttrs) {
     attrs.append({req.name, req.gpuType, req.elemSize});
   }
 
@@ -229,6 +239,26 @@ void SpatialTree::setDrawShader(const char *wgsl)
   drawShaderReady = true;
 
   /* Commands hold the old shader pointer; force them to rebuild. */
+  if (drawBatch) {
+    alloc::Delete(drawBatch);
+    drawBatch = nullptr;
+  }
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_RegenGPU;
+  }
+}
+
+void SpatialTree::refreshRequestedAttrs()
+{
+  /* Force a rebuild even when the requested descriptor set is byte-identical:
+   * adding/removing a mesh layer whose domain matches the category default
+   * leaves the descriptors unchanged, so setRequestedAttrs would short-circuit
+   * and the per-attribute buffers would stay default-filled. The shader/ShaderDef
+   * is unaffected (the layout depends only on the descriptors), so we do *not*
+   * relink it — only the buffer contents need to re-gather. */
+  computeMissingAttrSlots();
+  requestedAttrsVersion++;
+
   if (drawBatch) {
     alloc::Delete(drawBatch);
     drawBatch = nullptr;

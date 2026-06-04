@@ -125,13 +125,25 @@ Per-leaf payload. Four `OrderedSet<int>`s for verts/faces, a
 `Mesh*`. Recreated/destroyed as nodes turn into leaves or split.
 
 ### `GpuData`
-Per-GPU-node payload. Owns its `gpu::Buffer *pos`/`*nor` and the
-`gpu::DrawCommand *cmd`. `slices: Vector<LeafSlice>` is the
-DFS-order leaf list defining the buffer layout — each entry records
+Per-GPU-node payload. Owns its `gpu::Buffer *pos`/`*nor`, a
+`Vector<gpu::Buffer *> attrBufs` (one per *requested attribute*, see
+below), and the `gpu::DrawCommand *cmd`. `slices: Vector<LeafSlice>` is
+the DFS-order leaf list defining the buffer layout — each entry records
 `(leaf*, vert_start, vert_count = tris*3)`. `total_verts` is the sum
-of all `vert_count`s.
+of all `vert_count`s. `builtAttrsVersion` records the
+`SpatialTree::requestedAttrsVersion` these `attrBufs` were filled
+against, so the slice fast-path can detect a stale set and fall back to
+a full regen.
 
-`dispose()` `Delete`s the buffers and clears `slices`; the destructor
+`attrBufs` is index-aligned with `SpatialTree::requestedAttrs` (slot
+order, after the implicit `pos@0`/`nor@1`). When no requested set is
+installed it instead holds a single legacy `color` stream (float4,
+default white) so the basic mesh shader's `@location(2)` is never left
+unbound — the dynamic path only kicks in once `setDrawShader` has marked
+the tree's material shader ready.
+
+`dispose()` `Delete`s `pos`/`nor`, every `attrBufs` entry, and `cmd`,
+then clears `slices` and resets `builtAttrsVersion`; the destructor
 calls `dispose()` so the leak-tracking allocator stays happy when a
 GPU node loses GPU-node status mid-update.
 
@@ -193,15 +205,70 @@ SpatialTree::update(gpu)
 ```
 
 `regen_gpu_node` collects subtree leaves, sums `tris.size() * 3` for
-`total_verts`, allocates `pos`/`nor` buffers, and fills them slice by
-slice via `fill_leaf_slice`. The `DrawCommand` is recreated by the
-draw-batch loop when needed.
+`total_verts`, allocates `pos`/`nor` plus one buffer per requested
+attribute, and fills them slice by slice (`fill_leaf_slice` for
+pos/nor, `fill_leaf_attr` for each attribute). It stamps
+`builtAttrsVersion` from the tree's current `requestedAttrsVersion`. The
+`DrawCommand` is recreated by the draw-batch loop when needed.
 
 `update_gpu_node_slice` finds the leaf's `LeafSlice` in the owner's
 `slices`. If the leaf's current tri count no longer matches the
-recorded `vert_count`, it falls back to a full `regen_gpu_node` —
-that means the leaf's topology shifted since the partition was built
-and per-slice offsets are stale.
+recorded `vert_count`, **or** `gd.builtAttrsVersion` has drifted from
+the tree's `requestedAttrsVersion`, it falls back to a full
+`regen_gpu_node` — that means the leaf's topology shifted since the
+partition was built (stale per-slice offsets) or the requested-attribute
+set changed under it.
+
+## Requested attributes & the material draw shader
+
+By default a GPU node draws with the tree's built-in `basicMeshShader`
+(pos/nor + a legacy color stream). To render a leaf with a *material's*
+shader instead, the renderengine pushes two things down the C API
+(`setTreeRequestedAttrs` / `setTreeDrawShader`, see
+`source/spatial/c-api/spatial_c_api.cc`):
+
+* **`setRequestedAttrs(span<RequestedAttr>)`** — the set of named mesh
+  attributes the material reads (`gpu::RequestedAttr` in
+  `source/gpu/gpu_attr_request.h`: `name`, `srcType`, `gpuType`,
+  `elemSize`, `slot`, `domain`, `defaultKind`). It **stores the set
+  canonically in `slot` order** (sorting the caller's array), bumps
+  `requestedAttrsVersion`, and re-flags every leaf `Spatial_RegenGPU` so
+  the next `update()` rebuilds buffers to the new layout. Slot-ordering
+  here is load-bearing: the per-attribute buffers are built/filled in
+  `requestedAttrs` *index* order and bound to `cmd->attrs` in that order,
+  so storing slot-ordered makes index order == slot order regardless of
+  how the caller passed the set.
+* **`setDrawShader(wgsl)`** — installs the material's WGSL and builds a
+  tree-owned dynamic `ShaderDef` whose vertex attributes are
+  `pos@0, nor@1`, then `requestedAttrs` in stored (slot) order — a
+  straight append, since the set is already canonical. This must match
+  the TS-side contract (`slot = 2 + index`, see
+  `documentation/shader-attributes.md` in the app repo): the i-th
+  `cmd->attrs` buffer binds to the i-th `ShaderDef` attribute, i.e. to
+  `@location(slot)`.
+* **`refreshRequestedAttrs()`** — forces a per-attribute buffer rebuild
+  against the *current* mesh layers without touching the `ShaderDef`.
+  Needed because `setRequestedAttrs` **short-circuits when the incoming
+  set is byte-identical** to the stored one: adding or removing a mesh
+  layer whose `domain` happens to match the requested attribute's
+  category default leaves every `RequestedAttr` field unchanged, so the
+  version never bumps and the buffers stay default-filled even though the
+  real data is now present (or gone). The renderengine watches a cheap
+  attribute-layer signature (`LiteMesh.attrLayersSignature`) and calls
+  this — instead of re-issuing `setDrawShader` — when only the layers
+  moved. It recomputes `missingAttrSlots`, bumps
+  `requestedAttrsVersion`, drops the draw batch, and re-flags every leaf
+  `Spatial_RegenGPU`.
+
+`fill_leaf_attr` gathers each attribute per corner: VERTEX-domain layers
+are read through the corner's vertex (`c.v`), CORNER/FACE layers read
+directly. **It never throws** — a missing or non-float source layer is
+default-filled (zero, or white for color) so the frame is never blank.
+`computeMissingAttrSlots()` reports which requested slots had no backing
+layer, but it is **advisory only**: the draw always proceeds with the
+default-filled buffers. The dynamic path engages only once
+`requestedAttrs` is non-empty *and* `setDrawShader` has marked the
+material shader ready; until then the legacy color stream is used.
 
 ## GPU partition algorithm
 

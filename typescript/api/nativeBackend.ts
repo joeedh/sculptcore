@@ -107,6 +107,8 @@ export interface NativeAddon {
   spatialTreeSetDrawShader(tree: NativeBound, wgsl: string): void
   /** The advisory missing-slot list for a bound SpatialTree, as a plain number[]. */
   spatialTreeGetMissingAttrSlots(tree: NativeBound): number[]
+  /** Force a per-attribute buffer rebuild against current mesh layers (byte-identical descriptor set). */
+  spatialTreeRefreshRequestedAttrs(tree: NativeBound): void
 }
 
 // Candidate locations for the built addon, relative to common runtime cwds.

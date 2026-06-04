@@ -30,6 +30,7 @@ void setTreeRequestedAttrs(void *tree, int count, const char *namesJoined,
                            const int *domains, const int *defaultKinds);
 void setTreeDrawShader(void *tree, const char *wgsl);
 int getTreeMissingAttrSlots(void *tree, int *out, int maxOut);
+void refreshTreeRequestedAttrs(void *tree);
 }
 
 namespace sculptcore::napi {
@@ -1433,6 +1434,25 @@ napi_value NapiRuntime::SpatialTreeGetMissingAttrSlots(napi_env env, napi_callba
   return out;
 }
 
+// spatialTreeRefreshRequestedAttrs(tree) -> void. Forces a per-attribute buffer
+// rebuild against the current mesh layers when only the layer set changed (the
+// requested descriptors are byte-identical, so setRequestedAttrs would no-op).
+napi_value NapiRuntime::SpatialTreeRefreshRequestedAttrs(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  if (argc < 1) return undef;
+
+  Wrapped *tw = nullptr;
+  if (napi_unwrap(env, argv[0], reinterpret_cast<void **>(&tw)) != napi_ok || !tw || !tw->ptr) {
+    return undef;
+  }
+  refreshTreeRequestedAttrs(tw->ptr);
+  return undef;
+}
+
 // vectorGet(vec, i) — i-th element as a bound value/wrapper, via getBoundPointer
 // on the element's storage. Enables iteration of a bound Vector (what the
 // getBoundVector use site in sculptcore_ops needs).
@@ -1491,6 +1511,7 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "spatialTreeSetRequestedAttrs", &NapiRuntime::SpatialTreeSetRequestedAttrs);
   define(exports, "spatialTreeSetDrawShader", &NapiRuntime::SpatialTreeSetDrawShader);
   define(exports, "spatialTreeGetMissingAttrSlots", &NapiRuntime::SpatialTreeGetMissingAttrSlots);
+  define(exports, "spatialTreeRefreshRequestedAttrs", &NapiRuntime::SpatialTreeRefreshRequestedAttrs);
 }
 
 }  // namespace sculptcore::napi

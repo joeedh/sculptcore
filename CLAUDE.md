@@ -175,9 +175,11 @@ even when a GPU node aggregates several leaves. The per-frame
 `SpatialTree::update()` pipeline (bounds → tris → normals →
 partition → propagate-dirty → buffer regen/slice update → draw
 batch) is in [`documentation/spatial.md`](documentation/spatial.md),
-which also covers `castRay`, the GPU partition invariants, and the
+which also covers `castRay`, the GPU partition invariants, the
 ownership-attribute pitfall when reusing a mesh across multiple
-trees in tests.
+trees in tests, and the **material draw-shader / requested-attribute**
+interface (`setRequestedAttrs` / `setDrawShader`, per-attribute vertex
+buffers built by `fill_leaf_attr`, default-filled and never throwing).
 
 ## Rendering
 
