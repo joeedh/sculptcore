@@ -34,6 +34,49 @@ interface IWasmMethods extends IWasmBase {
   freeMesh(mesh: pointer): void
   /** free a blob returned by `serializeMesh`. */
   freeMeshBuffer(buf: pointer): void
+
+  // M5 requested-attribute bridge (spatial/c-api/spatial_c_api.cc). Pointer-level
+  // C exports; the `SpatialTree_setRequestedAttrs`/`setDrawShader`/
+  // `getMissingAttrSlots` helpers on IWasmInterface wrap these with heap
+  // marshalling. Strings + JS arrays can't cross the generic method binding, so
+  // the requested set routes through these dedicated calls (like the Mesh_*
+  // factories) rather than `tree.setRequestedAttrs(...)`.
+  /** install the requested attr set: `count` entries; names '\n'-joined in `namesPtr`; each int array (`count` ints) in slot order. */
+  setTreeRequestedAttrs(
+    tree: pointer,
+    count: int,
+    namesPtr: pointer,
+    srcTypesPtr: pointer,
+    elemSizesPtr: pointer,
+    slotsPtr: pointer,
+    domainsPtr: pointer,
+    defaultKindsPtr: pointer,
+  ): void
+  /** set the material WGSL for the requested-attr draw shader. */
+  setTreeDrawShader(tree: pointer, wgslPtr: pointer): void
+  /** copy the advisory missing-slot list into `outPtr` (cap `maxOut`); returns the full count. Pass (0,0) to query the count. */
+  getTreeMissingAttrSlots(tree: pointer, outPtr: pointer, maxOut: int): int
+}
+
+/**
+ * One geometry attribute a material's shader reads, in the backend-agnostic
+ * shape the `SpatialTree_setRequestedAttrs` bridge marshals. Built by the
+ * renderengine (M6) from the shader graph's `RequestedAttrDesc`; sculptcore
+ * builds one vertex buffer per entry, default-filling absent layers.
+ */
+export interface RequestedAttrBridge {
+  /** Source attribute name on the mesh (e.g. `uv`, `color`). */
+  name: string
+  /** sculptcore `AttrType` bitflag (FLOAT2=2, FLOAT3=4, FLOAT4=8). */
+  srcType: number
+  /** Component count (2 / 3 / 4). */
+  elemSize: number
+  /** Vertex `@location` slot (2 + index; after position@0 / normal@1). */
+  slot: number
+  /** `AttrDomain` flag the layer lives on: VERTEX=1, EDGE=2, CORNER=4, FACE=16. */
+  domain: number
+  /** Missing-layer fill: 0 = zero (default), 1 = white. */
+  defaultKind?: number
 }
 /**
  * An opaque sculptcore object reference. The WASM backend represents it as a
@@ -71,6 +114,25 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * natively and mismatches the engine allocator on WASM.
    */
   Mesh_free(mesh: Mesh): void
+
+  /**
+   * Install the material's requested attribute set on a spatial tree (M5/M6).
+   * Backend-agnostic: marshals `reqs` into the flat parallel-array wire format
+   * (a '\n'-joined name string + Int32Arrays) and calls the dedicated
+   * `setTreeRequestedAttrs` C export. Never throws — an empty/bad set yields the
+   * legacy single-color path. Pass the tree handle itself, not its `.ptr`.
+   */
+  SpatialTree_setRequestedAttrs(tree: SpatialTree, reqs: RequestedAttrBridge[]): void
+  /**
+   * Set the material WGSL the tree's draw batches render with (M5/M6). C++
+   * rebuilds + links the tree ShaderDef and flags leaves for a GPU regen.
+   */
+  SpatialTree_setDrawShader(tree: SpatialTree, wgsl: string): void
+  /**
+   * Read the advisory list of requested slots with no matching mesh layer
+   * (default-filled). Returns a plain `number[]`; never throws.
+   */
+  SpatialTree_getMissingAttrSlots(tree: SpatialTree): number[]
 
   /**
    * Native-backend bulk-data read: the bytes a bound object's raw-pointer
@@ -221,6 +283,89 @@ export async function loadWasm(): Promise<IWasmInterface> {
     Mesh_free(mesh: Mesh) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
       _wasm.freeMesh(meshPtr)
+    },
+    SpatialTree_setRequestedAttrs(tree: SpatialTree, reqs: RequestedAttrBridge[]) {
+      const treePtr = (tree as unknown as {ptr: number}).ptr
+      const count = reqs.length
+      if (count === 0) {
+        _wasm.setTreeRequestedAttrs(treePtr, 0, 0, 0, 0, 0, 0, 0)
+        return
+      }
+      // '\n'-joined names (identifiers never contain newlines, so the join is
+      // unambiguous) + five parallel Int32Arrays in slot order.
+      const namesPtr = initialWasm.cstring(reqs.map((r) => r.name).join('\n'))
+      const bytes = count * 4
+      const srcTypesPtr = _wasm._rawAlloc(bytes)
+      const elemSizesPtr = _wasm._rawAlloc(bytes)
+      const slotsPtr = _wasm._rawAlloc(bytes)
+      const domainsPtr = _wasm._rawAlloc(bytes)
+      const defaultKindsPtr = _wasm._rawAlloc(bytes)
+      try {
+        // Re-fetch the heap *after* the allocs (a malloc can grow + rebind the
+        // buffer); a DataView avoids needing the HEAP32 view on the _wasm type.
+        const dv = new DataView(_wasm.HEAPU8.buffer)
+        for (let i = 0; i < count; i++) {
+          const r = reqs[i]
+          dv.setInt32(srcTypesPtr + i * 4, r.srcType, true)
+          dv.setInt32(elemSizesPtr + i * 4, r.elemSize, true)
+          dv.setInt32(slotsPtr + i * 4, r.slot, true)
+          dv.setInt32(domainsPtr + i * 4, r.domain, true)
+          dv.setInt32(defaultKindsPtr + i * 4, r.defaultKind ?? 0, true)
+        }
+        _wasm.setTreeRequestedAttrs(
+          treePtr,
+          count,
+          namesPtr,
+          srcTypesPtr,
+          elemSizesPtr,
+          slotsPtr,
+          domainsPtr,
+          defaultKindsPtr,
+        )
+      } finally {
+        _wasm._rawRelease(srcTypesPtr)
+        _wasm._rawRelease(elemSizesPtr)
+        _wasm._rawRelease(slotsPtr)
+        _wasm._rawRelease(domainsPtr)
+        _wasm._rawRelease(defaultKindsPtr)
+      }
+    },
+    SpatialTree_setDrawShader(tree: SpatialTree, wgsl: string) {
+      const treePtr = (tree as unknown as {ptr: number}).ptr
+      // WGSL blobs are large + unique — don't pool them via cstring (which never
+      // frees). Manually alloc, write ASCII (WGSL is ASCII), NUL-terminate, free.
+      const len = wgsl.length
+      const ptr = _wasm._rawAlloc(len + 1)
+      try {
+        const data = _wasm.HEAPU8
+        for (let i = 0; i < len; i++) {
+          data[ptr + i] = wgsl.charCodeAt(i)
+        }
+        data[ptr + len] = 0
+        _wasm.setTreeDrawShader(treePtr, ptr)
+      } finally {
+        _wasm._rawRelease(ptr)
+      }
+    },
+    SpatialTree_getMissingAttrSlots(tree: SpatialTree): number[] {
+      const treePtr = (tree as unknown as {ptr: number}).ptr
+      // Two-call: query the count, then alloc + read.
+      const n = _wasm.getTreeMissingAttrSlots(treePtr, 0, 0)
+      if (n <= 0) {
+        return []
+      }
+      const outPtr = _wasm._rawAlloc(n * 4)
+      try {
+        _wasm.getTreeMissingAttrSlots(treePtr, outPtr, n)
+        const dv = new DataView(_wasm.HEAPU8.buffer)
+        const out: number[] = []
+        for (let i = 0; i < n; i++) {
+          out.push(dv.getInt32(outPtr + i * 4, true))
+        }
+        return out
+      } finally {
+        _wasm._rawRelease(outPtr)
+      }
     },
     /** uses a large cache ring */
     float3(co: ArrayLike<number>) {

@@ -114,6 +114,16 @@ class NapiRuntime {
   // The versioned, lz4hc-compressed blob (mesh/c-api serializeMesh/deserializeMesh).
   static napi_value MeshSerialize(napi_env, napi_callback_info);
   static napi_value MeshDeserialize(napi_env, napi_callback_info);
+  // M5 requested-attribute bridge (spatial/c-api setTree*). Strings + JS arrays
+  // can't cross the generic method binding (marshalArg), so these route through
+  // dedicated extern "C" calls like the Mesh_* factories.
+  // spatialTreeSetRequestedAttrs(tree, count, namesJoined, srcTypes, elemSizes,
+  //   slots, domains, defaultKinds) — the int args are Int32Arrays.
+  static napi_value SpatialTreeSetRequestedAttrs(napi_env, napi_callback_info);
+  // spatialTreeSetDrawShader(tree, wgsl:string)
+  static napi_value SpatialTreeSetDrawShader(napi_env, napi_callback_info);
+  // spatialTreeGetMissingAttrSlots(tree) -> number[]
+  static napi_value SpatialTreeGetMissingAttrSlots(napi_env, napi_callback_info);
 
   void define(napi_value exports, const char *name, napi_callback cb);
 };

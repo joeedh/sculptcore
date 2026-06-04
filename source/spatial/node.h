@@ -45,10 +45,15 @@ struct LeafSlice {
 struct GpuData {
   gpu::Buffer *pos = nullptr;
   gpu::Buffer *nor = nullptr;
-  /* Per-vertex color (float4), written by the `color` paint brush. Always
-   * allocated (defaults to white when the mesh has no `color` attr yet) so the
-   * mesh shader's @location(2) is never left unbound. */
-  gpu::Buffer *color = nullptr;
+  /* One vertex buffer per requested attribute, index-aligned with
+   * SpatialTree::requestedAttrs (slot order, after the implicit pos@0/nor@1).
+   * When the tree has no requested set this holds a single legacy `color`
+   * stream (float4, default white) so the basic mesh shader's @location(2) is
+   * never left unbound. */
+  util::Vector<gpu::Buffer *> attrBufs;
+  /* SpatialTree::requestedAttrsVersion these attrBufs were built against. The
+   * slice fast-path falls back to a full regen when it has drifted. */
+  uint64_t builtAttrsVersion = 0;
   gpu::DrawCommand *cmd = nullptr;
   util::Vector<LeafSlice> slices; /* DFS-order leaf list defining the layout */
   int total_verts = 0;
@@ -74,10 +79,13 @@ struct GpuData {
       alloc::Delete(nor);
       nor = nullptr;
     }
-    if (color) {
-      alloc::Delete(color);
-      color = nullptr;
+    for (gpu::Buffer *b : attrBufs) {
+      if (b) {
+        alloc::Delete(b);
+      }
     }
+    attrBufs.clear_and_contract();
+    builtAttrsVersion = 0;
     if (cmd) {
       alloc::Delete(cmd);
       cmd = nullptr;

@@ -41,5 +41,7 @@ export interface Mesh {
   recomputeBoundary(): void
   edgePathCoords(vStart: int32, vEnd: int32, out: float[]): void
   generateUVFromSeams(marginMilli: int32): int32
+  markAllSeams(): void
+  fillVertexColorFromPosition(): void
   new (): Mesh
 }

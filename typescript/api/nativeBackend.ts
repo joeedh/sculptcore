@@ -85,6 +85,28 @@ export interface NativeAddon {
    * per-Buffer GL-buffer cache). WASM uses the numeric `.ptr` for this.
    */
   objectAddress(bound: NativeBound): number | undefined
+  // M5 requested-attribute bridge (spatial/c-api setTree*). Strings + JS arrays
+  // can't cross the generic method binding, so these are dedicated exports.
+  /**
+   * Install the requested attr set on a bound SpatialTree: `count` entries;
+   * `namesJoined` is the '\n'-joined name string; the five int arrays are
+   * `Int32Array`s of length `count` in slot order (any may be empty/undefined
+   * to default). Never throws.
+   */
+  spatialTreeSetRequestedAttrs(
+    tree: NativeBound,
+    count: number,
+    namesJoined: string,
+    srcTypes: Int32Array,
+    elemSizes: Int32Array,
+    slots: Int32Array,
+    domains: Int32Array,
+    defaultKinds: Int32Array,
+  ): void
+  /** Set the material WGSL for a bound SpatialTree's requested-attr draw shader. */
+  spatialTreeSetDrawShader(tree: NativeBound, wgsl: string): void
+  /** The advisory missing-slot list for a bound SpatialTree, as a plain number[]. */
+  spatialTreeGetMissingAttrSlots(tree: NativeBound): number[]
 }
 
 // Candidate locations for the built addon, relative to common runtime cwds.

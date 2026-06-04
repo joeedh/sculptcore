@@ -24,6 +24,12 @@ void Mesh_free(void *mesh);
 uint8_t *serializeMesh(void *mesh, int *out_size);
 void *deserializeMesh(const uint8_t *data, int size);
 void freeMeshBuffer(uint8_t *buf);
+// M5 requested-attribute bridge (source/spatial/c-api/spatial_c_api.cc).
+void setTreeRequestedAttrs(void *tree, int count, const char *namesJoined,
+                           const int *srcTypes, const int *elemSizes, const int *slots,
+                           const int *domains, const int *defaultKinds);
+void setTreeDrawShader(void *tree, const char *wgsl);
+int getTreeMissingAttrSlots(void *tree, int *out, int maxOut);
 }
 
 namespace sculptcore::napi {
@@ -1331,6 +1337,102 @@ napi_value NapiRuntime::MeshDeserialize(napi_env env, napi_callback_info info) {
   return rt->instantiate(static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
 }
 
+// spatialTreeSetRequestedAttrs(tree, count, namesJoined, srcTypes, elemSizes,
+// slots, domains, defaultKinds) -> void. Routes the requested-attr set to the
+// extern "C" bridge (setTreeRequestedAttrs). Strings/JS arrays can't cross the
+// generic method binding (marshalArg has no string/typed-array case), so this
+// reads them directly: the names are one '\n'-joined string, each int field an
+// Int32Array whose backing pointer we hand straight to C (read-only there).
+napi_value NapiRuntime::SpatialTreeSetRequestedAttrs(napi_env env, napi_callback_info info) {
+  size_t argc = 8;
+  napi_value argv[8];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  if (argc < 8) return undef;
+
+  Wrapped *tw = nullptr;
+  if (napi_unwrap(env, argv[0], reinterpret_cast<void **>(&tw)) != napi_ok || !tw || !tw->ptr) {
+    return undef;
+  }
+
+  int32_t count = 0;
+  napi_get_value_int32(env, argv[1], &count);
+  if (count < 0) count = 0;
+
+  size_t nameLen = 0;
+  napi_get_value_string_utf8(env, argv[2], nullptr, 0, &nameLen);
+  std::vector<char> nameBuf(nameLen + 1, 0);
+  napi_get_value_string_utf8(env, argv[2], nameBuf.data(), nameLen + 1, &nameLen);
+
+  // Int32Array backing pointer (already byte-offset applied), or null if the arg
+  // isn't a typed array — the C side then treats that field as defaulted.
+  auto getInts = [&](napi_value v) -> const int * {
+    bool isTa = false;
+    napi_is_typedarray(env, v, &isTa);
+    if (!isTa) return nullptr;
+    napi_typedarray_type t;
+    size_t len = 0;
+    void *data = nullptr;
+    napi_value ab;
+    size_t off = 0;
+    napi_get_typedarray_info(env, v, &t, &len, &data, &ab, &off);
+    return static_cast<const int *>(data);
+  };
+
+  setTreeRequestedAttrs(tw->ptr, count, nameBuf.data(), getInts(argv[3]), getInts(argv[4]),
+                        getInts(argv[5]), getInts(argv[6]), getInts(argv[7]));
+  return undef;
+}
+
+// spatialTreeSetDrawShader(tree, wgsl) -> void. Copies the (possibly large) WGSL
+// string inbound and hands it to the extern "C" bridge.
+napi_value NapiRuntime::SpatialTreeSetDrawShader(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  if (argc < 2) return undef;
+
+  Wrapped *tw = nullptr;
+  if (napi_unwrap(env, argv[0], reinterpret_cast<void **>(&tw)) != napi_ok || !tw || !tw->ptr) {
+    return undef;
+  }
+  size_t len = 0;
+  napi_get_value_string_utf8(env, argv[1], nullptr, 0, &len);
+  std::vector<char> buf(len + 1, 0);
+  napi_get_value_string_utf8(env, argv[1], buf.data(), len + 1, &len);
+  setTreeDrawShader(tw->ptr, buf.data());
+  return undef;
+}
+
+// spatialTreeGetMissingAttrSlots(tree) -> number[]. Two-call pattern: query the
+// count, then copy into a temp and build a JS array (advisory; small).
+napi_value NapiRuntime::SpatialTreeGetMissingAttrSlots(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_create_array(env, &out);
+  if (argc < 1) return out;
+
+  Wrapped *tw = nullptr;
+  if (napi_unwrap(env, argv[0], reinterpret_cast<void **>(&tw)) != napi_ok || !tw || !tw->ptr) {
+    return out;
+  }
+  int n = getTreeMissingAttrSlots(tw->ptr, nullptr, 0);
+  if (n <= 0) return out;
+  std::vector<int> tmp(static_cast<size_t>(n), 0);
+  getTreeMissingAttrSlots(tw->ptr, tmp.data(), n);
+  for (int i = 0; i < n; i++) {
+    napi_value e;
+    napi_create_int32(env, tmp[i], &e);
+    napi_set_element(env, out, static_cast<uint32_t>(i), e);
+  }
+  return out;
+}
+
 // vectorGet(vec, i) — i-th element as a bound value/wrapper, via getBoundPointer
 // on the element's storage. Enables iteration of a bound Vector (what the
 // getBoundVector use site in sculptcore_ops needs).
@@ -1386,6 +1488,9 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "meshFree", &NapiRuntime::MeshFree);
   define(exports, "meshSerialize", &NapiRuntime::MeshSerialize);
   define(exports, "meshDeserialize", &NapiRuntime::MeshDeserialize);
+  define(exports, "spatialTreeSetRequestedAttrs", &NapiRuntime::SpatialTreeSetRequestedAttrs);
+  define(exports, "spatialTreeSetDrawShader", &NapiRuntime::SpatialTreeSetDrawShader);
+  define(exports, "spatialTreeGetMissingAttrSlots", &NapiRuntime::SpatialTreeGetMissingAttrSlots);
 }
 
 }  // namespace sculptcore::napi

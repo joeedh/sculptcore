@@ -142,6 +142,80 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
   }
 }
 
+/* Generic per-corner gather of one requested attribute into `dst` (req.elemSize
+ * floats per render vertex, already offset to the leaf's slice). `src` is the
+ * resolved mesh layer (nullptr => default-fill). Domains: CORNER indexes by
+ * corner, FACE broadcasts the face value across its 3 corners, VERTEX (default)
+ * gathers by the corner's vertex. Only float-family source types are gathered;
+ * anything else default-fills (never throws / emits garbage). */
+void SpatialTree::fill_leaf_attr(SpatialNode *leaf,
+                                 const gpu::RequestedAttr &req,
+                                 AttrRef *src,
+                                 float *dst)
+{
+  Mesh *m = this->m;
+  auto &tris = leaf->data->tris;
+  const int dn = req.elemSize;
+
+  /* Value written to missing/out-of-range channels. */
+  float def[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  if (req.defaultKind == gpu::AttrDefaultKind::White) {
+    for (int k = 0; k < dn && k < 4; k++) {
+      def[k] = 1.0f;
+    }
+  }
+
+  auto writeDefault = [&]() {
+    int vert_i = 0;
+    for (int i : util::IndexRange(tris.size())) {
+      (void)i;
+      for (int j = 0; j < 3; j++, vert_i++) {
+        float *o = dst + vert_i * dn;
+        for (int k = 0; k < dn; k++) {
+          o[k] = def[k];
+        }
+      }
+    }
+  };
+
+  if (!src || !src->exists()) {
+    writeDefault();
+    return;
+  }
+
+  bool handled = false;
+  mesh::detail::type_dispatch(AttrType(req.srcType), [&]<typename T>() {
+    if constexpr (std::is_same_v<T, float> || std::is_same_v<T, math::float2> ||
+                  std::is_same_v<T, math::float3> || std::is_same_v<T, math::float4>) {
+      AttrData<T> *data = src->get_data<T>();
+      const int sn = int(sizeof(T) / sizeof(float));
+      int vert_i = 0;
+      for (int i : util::IndexRange(tris.size())) {
+        auto &tri = tris[i];
+        for (int j = 0; j < 3; j++, vert_i++) {
+          int idx;
+          switch (req.domain) {
+          case 4:  idx = tri.c[j];          break; /* CORNER */
+          case 16: idx = tri.f;             break; /* FACE */
+          default: idx = m->c.v[tri.c[j]];  break; /* VERTEX */
+          }
+          T val = data->safe_get(idx);
+          const float *s = reinterpret_cast<const float *>(&val);
+          float *o = dst + vert_i * dn;
+          for (int k = 0; k < dn; k++) {
+            o[k] = (k < sn) ? s[k] : def[k];
+          }
+        }
+      }
+      handled = true;
+    }
+  });
+
+  if (!handled) {
+    writeDefault();
+  }
+}
+
 /* Write one leaf's per-slot global vertex indices (slot order == fill_leaf_slice
  * pos/nor order) into `out` (already offset to the leaf's slice). */
 void SpatialTree::fill_leaf_slot_verts(SpatialNode *leaf, uint32_t *out)
@@ -224,10 +298,12 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     alloc::Delete(gd.nor);
     gd.nor = nullptr;
   }
-  if (gd.color) {
-    alloc::Delete(gd.color);
-    gd.color = nullptr;
+  for (gpu::Buffer *b : gd.attrBufs) {
+    if (b) {
+      alloc::Delete(b);
+    }
   }
+  gd.attrBufs.clear_and_contract();
   if (gd.cmd) {
     alloc::Delete(gd.cmd);
     gd.cmd = nullptr;
@@ -250,15 +326,44 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
       litestl::util::string("position"), GPUType::FLOAT32, 3, total_verts);
   gd.nor = gpu->createBuffer(
       litestl::util::string("normal"), GPUType::FLOAT32, 3, total_verts);
-  gd.color = gpu->createBuffer(
-      litestl::util::string("color"), GPUType::FLOAT32, 4, total_verts);
   gd.pos->update_buffer = true;
   gd.nor->update_buffer = true;
-  gd.color->update_buffer = true;
+
+  /* Gate the dynamic path on the draw shader being ready too, so a
+   * setRequestedAttrs() not yet followed by setDrawShader() keeps rendering the
+   * legacy color stream (matching basicMeshShader) rather than handing
+   * mismatched buffers to it for a frame. setDrawShader() re-flags every leaf. */
+  const bool dynamic = requestedAttrs.size() > 0 && drawShaderReady;
+
+  /* Per-attribute vertex buffers. Legacy path (no requested set): a single
+   * float4 `color` stream filled by the vcol/poly-group compositor. Dynamic
+   * path: one buffer per requested attribute, in slot order. */
+  if (!dynamic) {
+    gpu::Buffer *color = gpu->createBuffer(
+        litestl::util::string("color"), GPUType::FLOAT32, 4, total_verts);
+    color->update_buffer = true;
+    gd.attrBufs.append(color);
+  } else {
+    for (const gpu::RequestedAttr &req : requestedAttrs) {
+      gpu::Buffer *b = gpu->createBuffer(req.name, req.gpuType, req.elemSize, total_verts);
+      b->update_buffer = true;
+      gd.attrBufs.append(b);
+    }
+  }
+  gd.builtAttrsVersion = requestedAttrsVersion;
+
+  /* Resolve each requested source layer once for this node (dynamic path). */
+  util::Vector<AttrRef> srcRefs;
+  if (dynamic) {
+    for (const gpu::RequestedAttr &req : requestedAttrs) {
+      AttrGroup *grp = m->attrGroupForDomainFlag(req.domain);
+      srcRefs.append(grp ? grp->find_attribute(AttrType(req.srcType), req.name) : AttrRef());
+    }
+  }
 
   float3 *pos = gd.pos->get_data<float3>();
   float3 *nor = gd.nor->get_data<float3>();
-  float4 *col = gd.color->get_data<float4>();
+  float4 *col = dynamic ? nullptr : gd.attrBufs[0]->get_data<float4>();
 
   int offset = 0;
   for (SpatialNode *leaf : leaves_v) {
@@ -269,7 +374,15 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     slice.vert_count = vcount;
 
     if (vcount > 0) {
-      fill_leaf_slice(leaf, pos + offset, nor + offset, col + offset);
+      fill_leaf_slice(leaf, pos + offset, nor + offset, col ? col + offset : nullptr);
+      if (dynamic) {
+        for (int ai : util::IndexRange(requestedAttrs.size())) {
+          const gpu::RequestedAttr &req = requestedAttrs[ai];
+          float *adst = gd.attrBufs[ai]->get_data<float>() + offset * req.elemSize;
+          AttrRef &ref = srcRefs[ai];
+          fill_leaf_attr(leaf, req, ref.exists() ? &ref : nullptr, adst);
+        }
+      }
     }
     offset += vcount;
 
@@ -285,6 +398,13 @@ void SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
                                         gpu::GPUManager *gpu)
 {
   GpuData &gd = *gpu_node->gpu_data;
+
+  /* The requested attribute set changed since these buffers were built — their
+   * count/layout no longer matches. Fall back to a full rebuild. */
+  if (gd.builtAttrsVersion != requestedAttrsVersion) {
+    regen_gpu_node(gpu_node, gpu);
+    return;
+  }
 
   LeafSlice *slice = nullptr;
   for (LeafSlice &s : gd.slices) {
@@ -309,14 +429,27 @@ void SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
   }
 
   if (slice->vert_count > 0) {
+    const bool dynamic = requestedAttrs.size() > 0 && drawShaderReady;
     float3 *pos = gd.pos->get_data<float3>() + slice->vert_start;
     float3 *nor = gd.nor->get_data<float3>() + slice->vert_start;
-    float4 *col = gd.color ? gd.color->get_data<float4>() + slice->vert_start : nullptr;
+    float4 *col = (!dynamic && gd.attrBufs.size() > 0)
+                      ? gd.attrBufs[0]->get_data<float4>() + slice->vert_start
+                      : nullptr;
     fill_leaf_slice(leaf, pos, nor, col);
     gd.pos->update_buffer = true;
     gd.nor->update_buffer = true;
-    if (gd.color) {
-      gd.color->update_buffer = true;
+    if (col) {
+      gd.attrBufs[0]->update_buffer = true;
+    }
+    if (dynamic) {
+      for (int ai : util::IndexRange(requestedAttrs.size())) {
+        const gpu::RequestedAttr &req = requestedAttrs[ai];
+        AttrGroup *grp = m->attrGroupForDomainFlag(req.domain);
+        AttrRef ref = grp ? grp->find_attribute(AttrType(req.srcType), req.name) : AttrRef();
+        float *adst = gd.attrBufs[ai]->get_data<float>() + slice->vert_start * req.elemSize;
+        fill_leaf_attr(leaf, req, ref.exists() ? &ref : nullptr, adst);
+        gd.attrBufs[ai]->update_buffer = true;
+      }
     }
   }
 

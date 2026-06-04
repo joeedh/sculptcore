@@ -11,6 +11,7 @@
  */
 
 import {NativeAddon, NativeBound, loadNativeAddon} from './nativeBackend'
+import type {RequestedAttrBridge} from './wasm'
 
 /**
  * Array-like view over a bound litestl::util::Vector, presenting `.length` and
@@ -134,6 +135,52 @@ export class NativeManager {
   objectAddress(bound: NativeBound): number | undefined {
     return this.addon.objectAddress(bound)
   }
+  SpatialTree_setRequestedAttrs(tree: NativeBound, reqs: RequestedAttrBridge[]): void {
+    const count = reqs.length
+    if (count === 0) {
+      this.addon.spatialTreeSetRequestedAttrs(
+        tree,
+        0,
+        '',
+        new Int32Array(0),
+        new Int32Array(0),
+        new Int32Array(0),
+        new Int32Array(0),
+        new Int32Array(0),
+      )
+      return
+    }
+    const names = reqs.map((r) => r.name).join('\n')
+    const srcTypes = new Int32Array(count)
+    const elemSizes = new Int32Array(count)
+    const slots = new Int32Array(count)
+    const domains = new Int32Array(count)
+    const defaultKinds = new Int32Array(count)
+    for (let i = 0; i < count; i++) {
+      const r = reqs[i]
+      srcTypes[i] = r.srcType
+      elemSizes[i] = r.elemSize
+      slots[i] = r.slot
+      domains[i] = r.domain
+      defaultKinds[i] = r.defaultKind ?? 0
+    }
+    this.addon.spatialTreeSetRequestedAttrs(
+      tree,
+      count,
+      names,
+      srcTypes,
+      elemSizes,
+      slots,
+      domains,
+      defaultKinds,
+    )
+  }
+  SpatialTree_setDrawShader(tree: NativeBound, wgsl: string): void {
+    this.addon.spatialTreeSetDrawShader(tree, wgsl)
+  }
+  SpatialTree_getMissingAttrSlots(tree: NativeBound): number[] {
+    return this.addon.spatialTreeGetMissingAttrSlots(tree)
+  }
   float3(co: ArrayLike<number>): NativeBound {
     const v = this.f3ring.next() as {vec: number[]}
     const vec = v.vec // capture the array wrapper once (one wrapper, not three)
@@ -181,6 +228,10 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Mesh_free: (m: NativeBound) => nm.Mesh_free(m),
     Mesh_serialize: (m: NativeBound) => nm.Mesh_serialize(m),
     Mesh_deserialize: (b: Uint8Array) => nm.Mesh_deserialize(b),
+    SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>
+      nm.SpatialTree_setRequestedAttrs(t, reqs),
+    SpatialTree_setDrawShader: (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),
+    SpatialTree_getMissingAttrSlots: (t: NativeBound) => nm.SpatialTree_getMissingAttrSlots(t),
     float2: (c: ArrayLike<number>) => nm.float2(c),
     float3: (c: ArrayLike<number>) => nm.float3(c),
     /** marker so callers/tests can confirm the native backend is active. */

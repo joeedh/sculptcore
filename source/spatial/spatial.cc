@@ -14,7 +14,9 @@
 #include "gpu/batch.h"
 #include "gpu/command.h"
 #include "gpu/manager.h"
+#include "gpu/shader.h"
 #include "gpu/types.h"
+#include "gpu/uniform_link.h"
 #include "gpu/vbo.h"
 
 #include "mesh/boundary.h"
@@ -108,6 +110,131 @@ void SpatialTree::setDisplayGroupAttr(int index)
   displayGroupAttr = index;
   for (SpatialNode *leaf : leaves()) {
     leaf->flag |= Spatial_UpdateGPU;
+  }
+}
+
+/* True if two requested sets are identical (same slots/names/types/order) — so
+ * setRequestedAttrs can early-return and avoid a per-frame rebuild. */
+static bool requested_attrs_equal(const util::Vector<gpu::RequestedAttr> &a,
+                                  const util::Vector<gpu::RequestedAttr> &b)
+{
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (int i : util::IndexRange(a.size())) {
+    const gpu::RequestedAttr &x = a[i];
+    const gpu::RequestedAttr &y = b[i];
+    if (x.name != y.name || x.srcType != y.srcType || x.gpuType != y.gpuType ||
+        x.elemSize != y.elemSize || x.slot != y.slot || x.domain != y.domain ||
+        x.defaultKind != y.defaultKind)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+void SpatialTree::computeMissingAttrSlots()
+{
+  missingAttrSlots.clear();
+  for (const gpu::RequestedAttr &req : requestedAttrs) {
+    AttrGroup *grp = m->attrGroupForDomainFlag(req.domain);
+    if (!grp || !grp->has(AttrType(req.srcType), req.name)) {
+      missingAttrSlots.append(req.slot);
+    }
+  }
+}
+
+void SpatialTree::setRequestedAttrs(const util::Vector<gpu::RequestedAttr> &reqs)
+{
+  if (requested_attrs_equal(requestedAttrs, reqs)) {
+    /* Unchanged — refresh the missing-attr advisory (mesh layers may have come
+     * or gone) but do not force a GPU rebuild. */
+    computeMissingAttrSlots();
+    return;
+  }
+
+  requestedAttrs.clear();
+  for (const gpu::RequestedAttr &req : reqs) {
+    requestedAttrs.append(req);
+  }
+  requestedAttrsVersion++;
+
+  computeMissingAttrSlots();
+
+  /* Existing draw commands reference stale buffers/shader; drop the batch so it
+   * rebuilds, and flag every leaf for a full GPU regen (rare — only on material
+   * edits). */
+  if (drawBatch) {
+    alloc::Delete(drawBatch);
+    drawBatch = nullptr;
+  }
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_RegenGPU;
+  }
+}
+
+void SpatialTree::setDrawShader(const char *wgsl)
+{
+  /* Attr layout: position@0, normal@1, then requestedAttrs in slot order. */
+  util::Vector<gpu::AttrDef> attrs;
+  attrs.append({util::string("position"), gpu::GPUType::FLOAT32, 3});
+  attrs.append({util::string("normal"), gpu::GPUType::FLOAT32, 3});
+
+  /* Append requested attrs in slot order (selection sort — the set is tiny). */
+  util::Vector<bool> used;
+  for (int i : util::IndexRange(requestedAttrs.size())) {
+    (void)i;
+    used.append(false);
+  }
+  for (int n = 0; n < int(requestedAttrs.size()); n++) {
+    int best = -1;
+    for (int i : util::IndexRange(requestedAttrs.size())) {
+      if (used[i]) {
+        continue;
+      }
+      if (best < 0 || requestedAttrs[i].slot < requestedAttrs[best].slot) {
+        best = i;
+      }
+    }
+    used[best] = true;
+    const gpu::RequestedAttr &req = requestedAttrs[best];
+    attrs.append({req.name, req.gpuType, req.elemSize});
+  }
+
+  /* DefaultBlock UBO (drawMatrix + normalMatrix + uColor), mirroring the basic
+   * mesh shader's block. The material's own uniform schema is refined when the
+   * renderengine wiring lands (M6); this keeps the def linkable meanwhile. */
+  util::Vector<gpu::UniformDefBase *> fields;
+  fields.append(alloc::New<gpu::UniformDef<mat4>>(
+      "UniformDef", "drawMatrix", gpu::GPUType::FLOAT32, 16, mat4().identity()));
+  fields.append(alloc::New<gpu::UniformDef<mat4>>(
+      "UniformDef", "normalMatrix", gpu::GPUType::FLOAT32, 16, mat4().identity()));
+  fields.append(alloc::New<gpu::UniformDef<float4>>(
+      "UniformDef", "uColor", gpu::GPUType::FLOAT32, 4, float4(1.0f, 1.0f, 1.0f, 1.0f)));
+  auto *block = alloc::New<gpu::UniformBlockDef>(
+      "UniformBlockDef", util::string("DefaultBlock"), std::move(fields));
+  block->set = 0;
+  block->binding = 0;
+
+  util::Vector<gpu::UniformBlockDef *> uniforms;
+  uniforms.append(block);
+
+  drawShader = gpu::ShaderDef(util::string("Spatial Material Shader"),
+                              util::string(wgsl),
+                              std::move(attrs),
+                              std::move(uniforms),
+                              {});
+  gpu::linkShaderDef(&drawShader);
+  drawShaderReady = true;
+
+  /* Commands hold the old shader pointer; force them to rebuild. */
+  if (drawBatch) {
+    alloc::Delete(drawBatch);
+    drawBatch = nullptr;
+  }
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_RegenGPU;
   }
 }
 
@@ -1392,22 +1519,29 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       GpuData &gd = *node->gpu_data;
       drawBatch->buffers.append(gd.pos);
       drawBatch->buffers.append(gd.nor);
-      if (gd.color) {
-        drawBatch->buffers.append(gd.color);
+      for (gpu::Buffer *b : gd.attrBufs) {
+        drawBatch->buffers.append(b);
       }
+
+      /* Dynamic requested-attr path draws with the material's `drawShader`
+       * (once setDrawShader has built it); otherwise the legacy basic mesh
+       * shader (position, normal, color). */
+      gpu::ShaderDef *shader = (requestedAttrs.size() > 0 && drawShaderReady)
+                                   ? &drawShader
+                                   : &spatialShaders.basicMeshShader;
 
       if (!gd.cmd) {
         gd.cmd = gpu->createCommand(drawBatch,
                                     gpu::GPUCmdType::DRAW_TRIS,
-                                    &spatialShaders.basicMeshShader,
+                                    shader,
                                     0,
                                     gd.pos->size,
                                     gd.pos->size / 3);
         gd.cmd->attrs.append(gd.pos);
         gd.cmd->attrs.append(gd.nor);
-        /* @location(2): per-vertex color (always present after regen). */
-        if (gd.color) {
-          gd.cmd->attrs.append(gd.color);
+        /* @location(2+): per-attribute streams (always present after regen). */
+        for (gpu::Buffer *b : gd.attrBufs) {
+          gd.cmd->attrs.append(b);
         }
       }
       gd.cmd->primCount = gd.pos->size / 3;

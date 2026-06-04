@@ -188,6 +188,57 @@ int Mesh::generateUVFromSeams(int marginMilli)
   return mesh::generateUVFromSeams(this, name.c_str(), margin);
 }
 
+void Mesh::markAllSeams()
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  // Seam every edge so each face becomes its own UV chart — generateUVFromSeams
+  // then planar-projects per face, i.e. a cuboid map. A test/demo helper.
+  for (int e0 : IndexRange(0, e.count)) {
+    boundary::setEdgeFlag(this, boundary::EDGE_SEAM, e0, true);
+  }
+  boundary::recomputeDirty(this);
+}
+
+void Mesh::fillVertexColorFromPosition()
+{
+  // Fill the first vertex-domain FLOAT4 layer tagged COLOR with a deterministic
+  // position->rgb gradient (normalized into the mesh bbox, alpha 1). Gives the
+  // vertex-color attribute meaningful, backend-identical values without a brush
+  // stroke. No-op if no such layer exists.
+  AttrData<math::float4> *cdata = nullptr;
+  for (AttrRef &a : v.attrs.attrs) {
+    if (a.type == AttrType::FLOAT4 && (a.use & AttrUse::COLOR)) {
+      cdata = a.get_data<math::float4>();
+      break;
+    }
+  }
+  if (!cdata || v.count == 0) {
+    return;
+  }
+
+  math::float3 mn(1e30f, 1e30f, 1e30f), mx(-1e30f, -1e30f, -1e30f);
+  for (int i : IndexRange(0, v.count)) {
+    math::float3 &co = v.co[i];
+    for (int k = 0; k < 3; k++) {
+      if (co[k] < mn[k]) mn[k] = co[k];
+      if (co[k] > mx[k]) mx[k] = co[k];
+    }
+  }
+  math::float3 size = mx - mn;
+  for (int k = 0; k < 3; k++) {
+    if (size[k] < 1e-6f) size[k] = 1.0f;
+  }
+  for (int i : IndexRange(0, v.count)) {
+    math::float3 &co = v.co[i];
+    float r = (co[0] - mn[0]) / size[0];
+    float g = (co[1] - mn[1]) / size[1];
+    float b = (co[2] - mn[2]) / size[2];
+    (*cdata)[i] = math::float4(r, g, b, 1.0f);
+  }
+}
+
 int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
 {
   if (topo_frozen) thawTopo();

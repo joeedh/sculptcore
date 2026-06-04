@@ -120,6 +120,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, recomputeBoundary, MARGS());
     BIND_STRUCT_METHOD(st, edgePathCoords, MARGS("vStart", "vEnd", "out"));
     BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
+    BIND_STRUCT_METHOD(st, markAllSeams, MARGS());
+    BIND_STRUCT_METHOD(st, fillVertexColorFromPosition, MARGS());
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -281,6 +283,13 @@ struct Mesh : public MeshBase {
    * unwrapper walks live links). Returns the chart count. Defined in mesh.cc
    * (needs uvgen.h). */
   int generateUVFromSeams(int marginMilli);
+
+  /* Test/demo helpers (deterministic, backend-identical). markAllSeams flags
+   * every edge EDGE_SEAM so generateUVFromSeams yields a per-face (cuboid) UV
+   * map; fillVertexColorFromPosition writes a position->rgb gradient into the
+   * first vertex FLOAT4 COLOR layer. Defined in mesh.cc. */
+  void markAllSeams();
+  void fillVertexColorFromPosition();
 
   /* Detach the layer at `index` into the stash WITHOUT freeing its data, and
    * return a stash id (reattachAttr undoes it). Unlike removeAttr this preserves

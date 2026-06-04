@@ -73,4 +73,7 @@ wasm_add_symbols("
   Mesh_buildSpatialTree
   SpatialTree_free
   getSpatialShaders
+  setTreeRequestedAttrs
+  setTreeDrawShader
+  getTreeMissingAttrSlots
 ")

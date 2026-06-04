@@ -16,7 +16,9 @@
 #include "spatial_enums.h"
 
 #include "gpu/batch.h"
+#include "gpu/gpu_attr_request.h"
 #include "gpu/manager.h"
+#include "gpu/shader.h"
 
 namespace sculptcore::gpu {
 struct GPUManager;
@@ -53,6 +55,24 @@ struct SpatialTree {
   int displayColorAttr = -1;
   int displayGroupAttr = -1;
 
+  /* Dynamic attribute set requested by the active material's shader (M4). Empty
+   * => legacy single-color render stream + basicMeshShader (sculpt/paint
+   * display, behaviour-identical to before). Non-empty => one vertex buffer per
+   * entry (slot order) gathered from the mesh, drawn with `drawShader` (the
+   * material's WGSL). Set via setRequestedAttrs(); bumps requestedAttrsVersion
+   * and flags every leaf for a GPU regen. */
+  util::Vector<gpu::RequestedAttr> requestedAttrs;
+  uint64_t requestedAttrsVersion = 0;
+  /* Slots (RequestedAttr::slot) whose source layer is absent from the mesh, so
+   * their buffer was default-filled. Advisory feedback for the renderengine;
+   * recomputed by computeMissingAttrSlots(). Never causes a throw. */
+  util::Vector<int> missingAttrSlots;
+  /* Material draw shader for the requested-attr path (attrs = position, normal,
+   * + requestedAttrs by slot; WGSL from setDrawShader). Default-constructed and
+   * unused until setDrawShader() runs (drawShaderReady). */
+  gpu::ShaderDef drawShader;
+  bool drawShaderReady = false;
+
   SpatialTreeMesh treeMesh;
   bool done_gpu_assignment = false;
   Mesh *m;
@@ -76,6 +96,30 @@ struct SpatialTree {
    * (-1 = by-name default). Each flags every leaf for a color re-fill. */
   void setDisplayColorAttr(int index);
   void setDisplayGroupAttr(int index);
+
+  /* Install the material's requested attribute set (M4). Early-returns when the
+   * set is unchanged (so nothing rebuilds per frame); otherwise bumps
+   * requestedAttrsVersion, recomputes missingAttrSlots, clears the draw batch,
+   * and flags every leaf Spatial_RegenGPU so the next update() rebuilds the
+   * per-attribute vertex buffers. Pass an empty set to return to the legacy
+   * single-color path. */
+  void setRequestedAttrs(const util::Vector<gpu::RequestedAttr> &reqs);
+
+  /* Set the WGSL source for the requested-attr draw shader and (re)build +
+   * link its ShaderDef (attrs = position, normal, + requestedAttrs by slot).
+   * Flags every leaf for a GPU regen so draw commands repoint at it. No-op-safe
+   * before setRequestedAttrs (the shader just goes unused until the set is
+   * non-empty). */
+  void setDrawShader(const char *wgsl);
+
+  /* Re-resolve which requested slots have no matching mesh layer (advisory).
+   * Called by setRequestedAttrs; the renderengine can call it again after a
+   * mesh attribute edit. */
+  void computeMissingAttrSlots();
+  util::Vector<int> &getMissingAttrSlots()
+  {
+    return missingAttrSlots;
+  }
 
   /* Brush/circle select: faces + verts inside a view cone (object-local), built
    * JS-side exactly like the WebGL BVH path. Face indices are deduped (a face
@@ -482,6 +526,15 @@ private:
                        math::float3 *pos,
                        math::float3 *nor,
                        math::float4 *col = nullptr);
+  /* Generic per-corner gather of one requested attribute into `dst` (a packed
+   * float buffer, req.elemSize floats per render vertex, already offset to the
+   * leaf's slice). `src` resolved once by the caller against the mesh (nullptr
+   * => default-fill by req.defaultKind). VERTEX/CORNER/FACE domains index by
+   * vertex / corner / face respectively. */
+  void fill_leaf_attr(SpatialNode *leaf,
+                      const gpu::RequestedAttr &req,
+                      mesh::AttrRef *src,
+                      float *dst);
   void fill_leaf_slot_verts(SpatialNode *leaf, uint32_t *out);
 
   void
