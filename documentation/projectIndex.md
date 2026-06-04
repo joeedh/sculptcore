@@ -11,7 +11,7 @@ A C++20 sculpting/mesh engine that builds natively and to WebAssembly via Emscri
 | `configureEnv.mjs` | Environment bootstrap for emsdk / pinned toolchain; wraps every cmake/ninja/ctest invocation from `make.mjs` (with `--emsdk` for WASM targets). |
 | `serv.mjs` | Dev HTTP server for the WASM/browser frontend. |
 | `index.html` | Browser entry that loads the WASM module. |
-| `emsdk/` | Emscripten SDK (git submodule). Version pinned in `emsdkVersion.txt`. |
+| `emsdk/` | Emscripten SDK (git-cloned + pinned by `make.mjs install-emsdk`, gitignored — not a submodule). Version pinned in `emsdkVersion.txt`. |
 | `build_files/` | `macros.cmake`, `WASM.cmake`, `link_wasm.py`, `emsdk_env.py`. |
 | `extern/` | Vendored deps: `eigen_dist/`, `glfw/`. Vulkan headers + loader come from the system Vulkan SDK (`find_package(Vulkan)`). |
 | `assets/` | Runtime assets. |
@@ -113,4 +113,4 @@ GTest-style C++ tests: `test_binding`, `test_brush`, `test_delaunay`, `test_edge
 - Native executable: `sculptcore` target (root `CMakeLists.txt`).
 - Dev loop (WASM): `node make.mjs configure && node make.mjs build`, then `node serv.mjs`.
 - Native loop: `node make.mjs configure native && node make.mjs build native && node make.mjs test native`.
-- One-time setup: `node make.mjs install-emsdk` (clones `emsdk` submodule, installs pinned emsdk + cmake + ninja).
+- One-time setup: `node make.mjs install-emsdk` (git-clones `emsdk` at its pinned commit, installs pinned emsdk + cmake + ninja).

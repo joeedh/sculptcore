@@ -23,7 +23,7 @@ reading it before doing wide exploration.
 Use the Node dispatcher rather than invoking cmake/emcmake directly:
 
 ```
-node make.mjs install-emsdk          # one-time; clones emsdk submodule, installs pinned emsdk + cmake + ninja
+node make.mjs install-emsdk          # one-time; git-clones emsdk (pinned commit), installs pinned emsdk + cmake + ninja
 node make.mjs configure [wasm|native]  # default wasm
 node make.mjs build     [wasm|native]
 node make.mjs test      [testName]     # no arg: ctest in build/native; arg: run that one test binary
@@ -53,9 +53,12 @@ Notes:
   extension). Both also pass `-DCMAKE_BUILD_TYPE=RelWithDebInfo`.
 - Every command runs under `node configureEnv.mjs` (with `--emsdk` for WASM) to set up the
   emsdk/PATH environment — don't invoke cmake/ninja/ctest directly.
-- `emsdkVersion.txt` pins the Emscripten version. `install-emsdk` also installs pinned
-  `cmake-4.2.0-rc3-64bit` and `ninja-git-release-64bit` via emsdk and activates them
-  `--permanent`, then appends `cmake` to `emsdk/.gitignore` (upstream omits it).
+- `emsdk` is **not a submodule** — `install-emsdk` `git clone`s it and checks out the
+  pinned `EMSDK_COMMIT` (hardcoded in `make.mjs`); the resulting `emsdk/` directory is
+  gitignored. `emsdkVersion.txt` pins the Emscripten version. `install-emsdk` also
+  installs pinned `cmake-4.2.0-rc3-64bit` and `ninja-git-release-64bit` via emsdk and
+  activates them `--permanent`, then appends `cmake` to `emsdk/.gitignore` (upstream
+  omits it).
 - The WASM `build` step deletes `build/sculptcore.{js,wasm}` before linking because
   emcc can silently succeed on compile errors otherwise — don't "optimize" that away.
 - Native (non-WASM) builds enable `tests/` and the `sculptcore` executable still links,
@@ -299,23 +302,24 @@ the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentati
 ## Submodules
 
 - Keep submodules checked out at the HEADs of their current branches, pulling and
-  merging as needed — **except** `emsdk` and `extern/imgui`, which stay pinned at
-  their recorded commits (third-party, version-locked).
+  merging as needed — **except** `extern/imgui`, which stays pinned at its recorded
+  commit (third-party, version-locked). (`emsdk` is no longer a submodule — it is
+  git-cloned and pinned by `make.mjs install-emsdk` and is gitignored.)
 - The default branch must always link submodules at their default-branch commits
   (never pin the default branch's gitlinks to a submodule feature branch).
 - **Commit this repo and its submodules together** whenever their branch names
   match, or both are on their default branches: make the submodule commit, then
-  bump the gitlink, as one logical change. The pinned exceptions (`emsdk`,
-  `extern/imgui`) are excluded — bump those deliberately, never as part of a
-  co-commit. The same rule applies one level up: when sculptcore's branch matches
+  bump the gitlink, as one logical change. The pinned exception (`extern/imgui`)
+  is excluded — bump it deliberately, never as part of a co-commit. The same rule
+  applies one level up: when sculptcore's branch matches
   its parent superproject's, they are committed together too.
 - **Parent on a branch, submodule on its default branch:** do not silently commit
   or advance the submodule's shared default branch. Ask the user whether they want
   to commit and/or push the submodule's default branch (and bump the gitlink)
   before doing so.
 - **Worktree teardown:** before removing a worktree, every submodule sitting on its
-  default branch — except the pinned `emsdk` / `extern/imgui` — must be committed
-  and pushed, so no work is lost when the checkout goes away.
+  default branch — except the pinned `extern/imgui` — must be committed and pushed,
+  so no work is lost when the checkout goes away.
 
 ## Conventions
 
