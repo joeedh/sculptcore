@@ -296,6 +296,20 @@ the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentati
   `test_spatial_dyntopo` / `_merge`. The `bench_dyntopo` debug-app verb is the
   A/B measurement tool (`flip=`, `grade=`, `smooth=`, `max_splits=`, `rebuild=`).
 
+## Submodules
+
+- Keep submodules checked out at the HEADs of their current branches, pulling and
+  merging as needed — **except** `emsdk` and `extern/imgui`, which stay pinned at
+  their recorded commits (third-party, version-locked).
+- The default branch must always link submodules at their default-branch commits
+  (never pin the default branch's gitlinks to a submodule feature branch).
+- **Commit this repo and its submodules together** whenever their branch names
+  match, or both are on their default branches: make the submodule commit, then
+  bump the gitlink, as one logical change. The pinned exceptions (`emsdk`,
+  `extern/imgui`) are excluded — bump those deliberately, never as part of a
+  co-commit. The same rule applies one level up: when sculptcore's branch matches
+  its parent superproject's, they are committed together too.
+
 ## Conventions
 
 - Namespaces: `litestl::util`, `litestl::binding`, etc.
