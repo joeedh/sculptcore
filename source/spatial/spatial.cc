@@ -1553,12 +1553,12 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
         drawBatch->buffers.append(b);
       }
 
-      /* Dynamic requested-attr path draws with the material's `drawShader`
-       * (once setDrawShader has built it); otherwise the legacy basic mesh
-       * shader (position, normal, color). */
-      gpu::ShaderDef *shader = (requestedAttrs.size() > 0 && drawShaderReady)
-                                   ? &drawShader
-                                   : &spatialShaders.basicMeshShader;
+      /* Once setDrawShader has built the material `drawShader`, draw with it —
+       * even with zero requested attrs (a constant-color material reads no mesh
+       * attributes; its VsIn is just position/normal). Otherwise the legacy
+       * basic mesh shader (position, normal, color). */
+      gpu::ShaderDef *shader =
+          drawShaderReady ? &drawShader : &spatialShaders.basicMeshShader;
 
       if (!gd.cmd) {
         gd.cmd = gpu->createCommand(drawBatch,
