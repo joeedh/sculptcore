@@ -43,14 +43,7 @@ export interface SpatialTree {
   setColorDisplayMode(mode: int32): void
   setDisplayColorAttr(index: int32): void
   setDisplayGroupAttr(index: int32): void
-  castScreenCircle(
-    co: float3,
-    ray: float3,
-    r1: float,
-    r2: float,
-    faces: int32[],
-    verts: int32[]
-  ): boolean
+  castScreenCircle(co: float3, ray: float3, r1: float, r2: float, faces: int32[], verts: int32[]): boolean
   castScreenRect(
     near0: float3,
     near1: float3,
