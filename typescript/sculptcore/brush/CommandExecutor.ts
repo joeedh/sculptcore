@@ -31,9 +31,24 @@ export interface CommandExecutor {
   tree: SpatialTree | undefined
   meshLog: MeshLog | undefined
   lastDynTopoStats: DynTopoStats
-  execBrush(brushType: SculptBrushes, nodes: SpatialNode[], origin: float3, normal: float3): void
-  execProgram(prog: BrushProgram, nodes: SpatialNode[], origin: float3, normal: float3): void
-  applyDynTopoDab(center: float3, radius: float, params: DynTopoParams, seed: uint32): int32
+  execBrush(
+    brushType: SculptBrushes,
+    nodes: SpatialNode[],
+    origin: float3,
+    normal: float3
+  ): void
+  execProgram(
+    prog: BrushProgram,
+    nodes: SpatialNode[],
+    origin: float3,
+    normal: float3
+  ): void
+  applyDynTopoDab(
+    center: float3,
+    radius: float,
+    params: DynTopoParams,
+    seed: uint32
+  ): int32
   endDynTopoStroke(): void
   clearIsFirstOfStep(): void
   setNeighborMode(mode: int32): void

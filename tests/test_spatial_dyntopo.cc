@@ -12,6 +12,7 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 
+#include <algorithm>
 #include <cstdio>
 
 test_init;
@@ -156,8 +157,43 @@ int main()
   int leavesAfter = int(tree->leaves().size());
   test_assert(leavesAfter > leavesBefore);
 
-  printf("spatial_dyntopo test: ok (%d -> %d faces, %d splits, %d -> %d leaves)\n",
-         fBefore, fAfter, st.splits, leavesBefore, leavesAfter);
+  /* End-to-end rebalance guard (M7.6c): many alternating subdivide/collapse dabs,
+   * each followed by the deferred rebalance + merge passes. Ownership must stay
+   * valid every cycle, and the leaf count must not grow without bound — the merge/
+   * rebalance pass keeps the tree from accreting wasted split levels as the region
+   * is repeatedly refined and gutted. */
+  int leavesCap = 0;
+  for (int i = 0; i < 6; i++) {
+    dyntopo::DynTopoParams dp;
+    if (i & 1) {
+      dp.mode = dyntopo::DynTopoMode::Collapse;
+      dp.l_min = 0.06f;
+      dp.l_max = 0.12f;
+    } else {
+      dp.mode = dyntopo::DynTopoMode::Subdivide;
+      dp.l_max = 0.05f;
+      dp.l_min = 0.005f;
+    }
+    float fx = (i % 3 - 1) * 0.2f;
+    dyntopo::applyBrushDab(*m, float3(fx, 0, 0), 0.25f, dp,
+                           /*seed=*/100u + i, tree->getSpatialCallbacks());
+    tree->applyDeferredRebalance();
+    tree->applyDeferredMerge();
+    for (auto *leaf : tree->leaves()) {
+      tree->ensure_node_tris(leaf);
+    }
+    int ownedN = validateOwnership(tree, m, "e2e-cycle");
+    test_assert(ownedN == m->f.count);
+    leavesCap = std::max(leavesCap, int(tree->leaves().size()));
+  }
+  /* The tree never exploded: peak leaf count stays bounded relative to faces
+   * (a corrupt merge/rebalance would either fail validation above or leak leaves). */
+  test_assert(leavesCap > 0);
+  test_assert(leavesCap < m->f.count); /* far fewer leaves than faces */
+
+  printf("spatial_dyntopo test: ok (%d -> %d faces, %d splits, %d -> %d leaves, "
+         "e2e peak %d)\n",
+         fBefore, fAfter, st.splits, leavesBefore, leavesAfter, leavesCap);
 
   alloc::Delete(tree);
   alloc::Delete(m);

@@ -9,7 +9,7 @@ struct GLFWwindow;
 namespace sculptcore::vulkan {
 
 /** Owns the Vulkan instance + device + queue + command pool that all other
- *  vulkan/* helpers borrow. Single-queue, single-physical-device — enough for
+ *  vulkan/XXX helpers borrow. Single-queue, single-physical-device — enough for
  *  the debug app. Validation layers are enabled by default in Debug builds;
  *  set `validation = false` to suppress. */
 struct VkContext {

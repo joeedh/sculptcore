@@ -97,7 +97,7 @@ static inline void restoreAttrRow(AttrGroup &grp, int elem, const AttrRowSnapsho
       } else {
         auto *data = static_cast<AttrData<T> *>(attr.data);
         if (data) {
-          std::memcpy(&(*data)[elem], cell.bytes, sizeof(T));
+          std::memcpy(static_cast<void*>(&(*data)[elem]), cell.bytes, sizeof(T));
         }
       }
     });
@@ -138,16 +138,16 @@ static inline void interpAttrRows(AttrGroup &grp, int dst, const AttrRowSnapshot
           return;
         }
         T a;
-        std::memcpy(&a, c0.bytes, sizeof(T));
+        std::memcpy(static_cast<void*>(&a), c0.bytes, sizeof(T));
         if constexpr (std::is_floating_point_v<T>) {
           T b;
-          std::memcpy(&b, c1.bytes, sizeof(T));
+          std::memcpy(static_cast<void*>(&b), c1.bytes, sizeof(T));
           (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
         } else if constexpr (requires { typename T::value_type; }) {
           using Scalar = typename T::value_type;
           if constexpr (std::is_floating_point_v<Scalar>) {
             T b;
-            std::memcpy(&b, c1.bytes, sizeof(T));
+            std::memcpy(static_cast<void*>(&b), c1.bytes, sizeof(T));
             (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
           } else {
             (*data)[dst] = a;

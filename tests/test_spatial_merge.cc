@@ -128,6 +128,64 @@ int main()
   printf("spatial_merge test: ok (%d verts -> %d, leaves %d -> %d)\n", vBefore,
          m->v.count, leavesPeak, leavesAfter);
 
+  /* M7.6c rebalance: a lopsided subtree (one near-empty child + a fuller sibling,
+   * combined still above the under-full watermark) must be folded/collapsed back
+   * by applyDeferredMerge, WITHOUT corrupting ownership and WITHOUT oscillating
+   * against the deferred split. Build a one-sided refine, then collapse only part
+   * of the refined region so its leaves shrink unevenly. */
+  Mesh *m2 = makeTriGrid(25);
+  spatial::SpatialTree *tree2 = alloc::New<spatial::SpatialTree>("test tree 2", m2);
+  tree2->leaf_limit = 48;
+  tree2->buildAll();
+
+  /* Refine an interior region into a deep multi-leaf subtree (kept off the mesh
+   * boundary, where split_node's lack of orphan-recovery is a separate concern). */
+  dyntopo::DynTopoParams sub;
+  sub.mode = dyntopo::DynTopoMode::Subdivide;
+  sub.l_max = 0.03f;
+  sub.l_min = 0.005f;
+  dyntopo::applyBrushDab(*m2, float3(0, 0, 0), 0.28f, sub, /*seed=*/3u,
+                         tree2->getSpatialCallbacks());
+  tree2->applyDeferredRebalance();
+  test_assert(validateOwnership(tree2, m2, "r-refine"));
+  int leavesRefined = int(tree2->leaves().size());
+  test_assert(leavesRefined > 2);
+
+  /* Collapse an interior sub-region, gutting some refined leaves while their
+   * siblings stay populated -> lopsided parents in the [watermark, limit) band. */
+  dyntopo::DynTopoParams col;
+  col.mode = dyntopo::DynTopoMode::Collapse;
+  col.l_min = 0.25f;
+  col.l_max = 0.5f;
+  dyntopo::applyBrushDab(*m2, float3(0.12f, 0.05f, 0), 0.12f, col, /*seed=*/4u,
+                         tree2->getSpatialCallbacks());
+  test_assert(validateOwnership(tree2, m2, "r-collapse"));
+
+  /* Alternating rebalance/merge cycles: must reach a stable leaf count (the
+   * mean-split predictor refuses merges the split would just recreate) and keep
+   * ownership valid every cycle — the anti-thrash / no-corruption guarantee. */
+  int prevLeaves = int(tree2->leaves().size());
+  int stable = 0;
+  for (int i = 0; i < 8 && stable < 2; i++) {
+    tree2->applyDeferredRebalance();
+    tree2->applyDeferredMerge();
+    for (auto *leaf : tree2->leaves()) {
+      tree2->ensure_node_tris(leaf);
+    }
+    test_assert(validateOwnership(tree2, m2, "r-cycle"));
+    int now = int(tree2->leaves().size());
+    stable = (now == prevLeaves) ? stable + 1 : 0;
+    prevLeaves = now;
+  }
+  test_assert(stable >= 2); /* converged, no split<->merge oscillation */
+  int leavesRebalanced = int(tree2->leaves().size());
+  test_assert(leavesRebalanced <= leavesRefined); /* rebalance never grew the tree */
+
+  printf("spatial_rebalance test: ok (leaves refined %d -> rebalanced %d)\n",
+         leavesRefined, leavesRebalanced);
+
+  alloc::Delete(tree2);
+  alloc::Delete(m2);
   alloc::Delete(tree);
   alloc::Delete(m);
   return test_end();

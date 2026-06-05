@@ -341,6 +341,12 @@ struct SpatialTree {
 
     if (node_needs_split(leaf)) {
       rebalanceCandidates_.add(leaf->id);
+      /* Growth-skew hint: a filling leaf is where a lopsided pair forms (its
+       * sibling may never grow). Record the parent; node_is_skewed re-checks,
+       * so a non-skewed hint is discarded cheaply. */
+      if (leaf->parent) {
+        mergeCandidates_.add(leaf->parent->id);
+      }
     }
   }
 
@@ -554,6 +560,27 @@ private:
   /* Re-absorb both (leaf) children of `parent` back into `parent` and free them
    * (M7.6b merge). Preconditions checked by the caller. */
   void merge_node(SpatialNode *parent);
+
+  /* True when `parent`'s two leaf children are so lopsided that the split level is
+   * wasted and re-splitting at a fresh plane would help: one child near-empty
+   * (count skew), or — past leaf_limit/2 but under leaf_limit — their AABBs
+   * interpenetrate (deformation skew). Gated by a mean-split predictor so we never
+   * merge into a split that would just reproduce the skew (thrash). */
+  bool node_is_skewed(SpatialNode *parent);
+
+  /* Collapse a whole subtree (one near-empty leaf child + a populated internal
+   * child, which merge_node can't handle) back into `node` as a single leaf and
+   * re-insert its geometry through add_face_intern, which re-splits at a fresh
+   * plane. Caller gates on a bounded subtree size + the mean-split predictor. */
+  void collapse_subtree(SpatialNode *node);
+
+  /* True when `parent` (at least one non-leaf child) holds a subtree that now fits
+   * under leaf_limit yet is split lopsidedly — a stale level worth collapsing.
+   * Predictor-gated like node_is_skewed. */
+  bool subtree_wants_collapse(SpatialNode *parent);
+
+  /* Free `n` and its whole descendant subtree (post-order, via free_node). */
+  void free_subtree(SpatialNode *n);
 
   /* O(1) node removal: swap the node out of `nodes` (fixing the swapped node's
    * index, which castRay resolves through nodes[]), drop it from node_idmap, and

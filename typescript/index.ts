@@ -94,37 +94,70 @@ export type {FaceData} from './sculptcore/mesh/FaceData'
 /** Note: Does not include templates */
 export type AllBoundTypes = {
   'sculptcore::dyntopo::DynTopoStats': DynTopoStats
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.next>': BuiltinAttr<int32, '.corner.next'>
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.radial_prev>': BuiltinAttr<int32, '.corner.radial_prev'>
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.next>': BuiltinAttr<
+    int32,
+    '.corner.next'
+  >
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.radial_prev>': BuiltinAttr<
+    int32,
+    '.corner.radial_prev'
+  >
   'sculptcore::gpu::AttrDef': AttrDef
   'sculptcore::dyntopo::DynTopoParams': DynTopoParams
   'sculptcore::mesh::FaceData': FaceData
   'sculptcore::props::StructProp': StructProp
   'sculptcore::gpu::UniformBlockInstance': UniformBlockInstance
-  'sculptcore::mesh::BuiltinAttr<litestl::math::float3,positions>': BuiltinAttr<float3, 'positions'>
+  'sculptcore::mesh::BuiltinAttr<litestl::math::float3,positions>': BuiltinAttr<
+    float3,
+    'positions'
+  >
   'sculptcore::gpu::DrawBatch': DrawBatch
   'litestl::math::float2': float2
-  'sculptcore::mesh::BuiltinAttr<int16,.face.list_count>': BuiltinAttr<int16, '.face.list_count'>
-  'sculptcore::mesh::BuiltinAttr<litestl::math::float3,.face.normal>': BuiltinAttr<float3, '.face.normal'>
+  'sculptcore::mesh::BuiltinAttr<int16,.face.list_count>': BuiltinAttr<
+    int16,
+    '.face.list_count'
+  >
+  'sculptcore::mesh::BuiltinAttr<litestl::math::float3,.face.normal>': BuiltinAttr<
+    float3,
+    '.face.normal'
+  >
   'litestl::math::AABB<litestl::math::float3>': AABB<float3>
-  'sculptcore::mesh::BuiltinAttr<int32,.face.list>': BuiltinAttr<int32, '.face.list'>
+  'sculptcore::mesh::BuiltinAttr<int32,.face.list>': BuiltinAttr<
+    int32,
+    '.face.list'
+  >
   'sculptcore::mesh::CornerData': CornerData
   'sculptcore::mesh::VertexData': VertexData
   'sculptcore::spatial::SpatialNode': SpatialNode
   'sculptcore::gpu::GPUManager': GPUManager
   'litestl::math::int2': int2
-  'sculptcore::mesh::BuiltinAttr<boolean,select>': BuiltinAttr<boolean, 'select'>
+  'sculptcore::mesh::BuiltinAttr<boolean,select>': BuiltinAttr<
+    boolean,
+    'select'
+  >
   'sculptcore::spatial::CastRayIsect': CastRayIsect
   'sculptcore::mesh::gpu::MeshBatchManager': MeshBatchManager
   'litestl::math::int4': int4
   'sculptcore::brush::CommandExecutor': CommandExecutor
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.radial_next>': BuiltinAttr<int32, '.corner.radial_next'>
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.radial_next>': BuiltinAttr<
+    int32,
+    '.corner.radial_next'
+  >
   'litestl::math::float3': float3
   'sculptcore::gpu::ShaderDef': ShaderDef
   'sculptcore::gpu::DrawPipeline': DrawPipeline
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.prev>': BuiltinAttr<int32, '.corner.prev'>
-  'sculptcore::mesh::BuiltinAttr<litestl::math::int4,.edge.vs.disk>': BuiltinAttr<int4, '.edge.vs.disk'>
-  'sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>': BuiltinAttr<float3, 'normals'>
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.prev>': BuiltinAttr<
+    int32,
+    '.corner.prev'
+  >
+  'sculptcore::mesh::BuiltinAttr<litestl::math::int4,.edge.vs.disk>': BuiltinAttr<
+    int4,
+    '.edge.vs.disk'
+  >
+  'sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>': BuiltinAttr<
+    float3,
+    'normals'
+  >
   'sculptcore::mesh::AttrRef': AttrRef
   'sculptcore::mesh::BuiltinAttr<int32,.vert.e>': BuiltinAttr<int32, '.vert.e'>
   'sculptcore::brush::Brush': Brush
@@ -132,15 +165,27 @@ export type AllBoundTypes = {
   'sculptcore::gpu::Buffer': Buffer
   'sculptcore::mesh::BuiltinAttr<int32,.edge.c>': BuiltinAttr<int32, '.edge.c'>
   'sculptcore::gpu::DrawCommand': DrawCommand
-  'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<int2, '.edge.vs'>
+  'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
+    int2,
+    '.edge.vs'
+  >
   'sculptcore::mesh::AttrGroup': AttrGroup
   'sculptcore::gpu::UniformBlockDef': UniformBlockDef
   'sculptcore::mesh::EdgeData': EdgeData
   'sculptcore::spatial::SpatialTree': SpatialTree
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.v>': BuiltinAttr<int32, '.corner.v'>
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.v>': BuiltinAttr<
+    int32,
+    '.corner.v'
+  >
   'sculptcore::mesh::Mesh': Mesh
   'sculptcore::brush::BrushProgram': BrushProgram
   'sculptcore::spatial::SpatialShaders': SpatialShaders
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.e>': BuiltinAttr<int32, '.corner.e'>
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.l>': BuiltinAttr<int32, '.corner.l'>
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.e>': BuiltinAttr<
+    int32,
+    '.corner.e'
+  >
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.l>': BuiltinAttr<
+    int32,
+    '.corner.l'
+  >
 }

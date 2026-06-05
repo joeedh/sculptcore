@@ -538,9 +538,11 @@ void SpatialTree::merge_node(SpatialNode *parent)
   }
 
   /* Parent becomes a leaf again and re-absorbs the faces through the build path
-   * (add_face_intern's leaf body re-derives unique/other ownership). It won't
-   * re-split: the caller only merges when the combined vert count is under the
-   * low watermark, well below leaf_limit. */
+   * (add_face_intern's leaf body re-derives unique/other ownership). In the
+   * under-full/skew bands the combined count stays below leaf_limit, so the merged
+   * leaf does not re-split; the skew path's win is removing the wasted level. (A
+   * caller that merged an over-full pair would auto re-split here via
+   * add_face_intern — the mean-split predictor guards that against thrash.) */
   parent->create_data();
   parent->children[0] = parent->children[1] = nullptr;
   parent->flag |= Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
@@ -574,6 +576,208 @@ void SpatialTree::merge_node(SpatialNode *parent)
 
   free_node(c0);
   free_node(c1);
+}
+
+/* Predict split_node's clamp decision for a fresh split of `verts` inside `box`:
+ * mirrors split_node's longest-axis + mean t (spatial.cc split_node). Returns true
+ * when t lands comfortably interior (re-splitting would rebalance), false when it
+ * clamps (the skew is the best a mean split can do — collapsing it just invites the
+ * split path to recreate it, i.e. thrash). Tighter bound than split's 0.01/0.99. */
+static bool mean_split_interior(Mesh *m,
+                                const SpatialNode::AABB &box,
+                                const Vector<int> &verts)
+{
+  if (verts.size() == 0) {
+    return false;
+  }
+  float3 size = box.size();
+  int axis = 0;
+  for (int i = 1; i < 3; i++) {
+    if (size[i] > size[axis]) {
+      axis = i;
+    }
+  }
+  if (size[axis] <= 0.0f) {
+    return false;
+  }
+  float sum = 0.0f;
+  for (int v : verts) {
+    sum += VertProxy(m, v).co()[axis];
+  }
+  float t = (sum / float(verts.size()) - box.min[axis]) / size[axis];
+  return t > 0.02f && t < 0.98f;
+}
+
+/* Sum a subtree's owned (unique) verts, stopping early once `cap` is reached. */
+static int subtree_vert_count_capped(SpatialNode *n, int cap)
+{
+  if (n->flag & Spatial_Leaf) {
+    return n->data ? int(n->data->unique_verts.size()) : 0;
+  }
+  int a = subtree_vert_count_capped(n->children[0], cap);
+  if (a >= cap) {
+    return a;
+  }
+  return a + subtree_vert_count_capped(n->children[1], cap);
+}
+
+/* Collect a subtree's owned (unique) faces and verts into `faces` / `verts`. */
+static void gather_subtree(SpatialNode *n, Vector<int> &faces, Vector<int> &verts)
+{
+  if (n->flag & Spatial_Leaf) {
+    if (n->data) {
+      for (int v : n->data->unique_verts) {
+        verts.append(v);
+      }
+      for (int f : n->data->unique_faces) {
+        faces.append(f);
+      }
+    }
+    return;
+  }
+  gather_subtree(n->children[0], faces, verts);
+  gather_subtree(n->children[1], faces, verts);
+}
+
+bool SpatialTree::node_is_skewed(SpatialNode *parent)
+{
+  SpatialNode *c0 = parent->children[0];
+  SpatialNode *c1 = parent->children[1];
+  if (!c0 || !c1 || !(c0->flag & Spatial_Leaf) || !(c1->flag & Spatial_Leaf) ||
+      !c0->data || !c1->data) {
+    return false; /* internal child: subtree_wants_collapse handles that */
+  }
+
+  int n0 = int(c0->data->unique_verts.size());
+  int n1 = int(c1->data->unique_verts.size());
+  int total = n0 + n1;
+  int lo = std::min(n0, n1);
+
+  /* Band between the under-full watermark (which the existing merge owns) and
+   * leaf_limit (at/above which a merged leaf re-splits unconditionally). */
+  if (total < leaf_limit / 2 || total >= leaf_limit) {
+    return false;
+  }
+
+  /* H1 count skew: one child near-empty, absolutely (leaf_limit/8) and
+   * relatively (< 15% of the pair). */
+  bool skewed = lo <= leaf_limit / 8 && lo * 20 < total * 3;
+
+  /* H2 deformation skew: child AABBs interpenetrate, so the split plane no longer
+   * separates the geometry (verts drifted across it). Reads last frame's tightened
+   * bounds — applyDeferredMerge runs before this frame's regen_node_bounds. */
+  if (!skewed) {
+    float3 s0 = c0->aabb.size(), s1 = c1->aabb.size();
+    float vol0 = s0[0] * s0[1] * s0[2], vol1 = s1[0] * s1[1] * s1[2];
+    float ov = 1.0f;
+    for (int i = 0; i < 3; i++) {
+      float a = std::max(c0->aabb.min[i], c1->aabb.min[i]);
+      float b = std::min(c0->aabb.max[i], c1->aabb.max[i]);
+      ov *= std::max(0.0f, b - a);
+    }
+    skewed = ov > 0.5f * std::min(vol0, vol1);
+  }
+
+  if (!skewed) {
+    return false;
+  }
+
+  /* Thrash guard: only act if a fresh mean split of the combined verts would land
+   * interior (bounded: total < leaf_limit). */
+  Vector<int> verts;
+  for (SpatialNode *c : {c0, c1}) {
+    for (int v : c->data->unique_verts) {
+      verts.append(v);
+    }
+  }
+  return mean_split_interior(m, parent->aabb, verts);
+}
+
+bool SpatialTree::subtree_wants_collapse(SpatialNode *parent)
+{
+  SpatialNode *c0 = parent->children[0];
+  SpatialNode *c1 = parent->children[1];
+  if (!c0 || !c1) {
+    return false;
+  }
+
+  int n0 = subtree_vert_count_capped(c0, leaf_limit);
+  if (n0 >= leaf_limit) {
+    return false; /* a child already too large; never collapse to rebuild it */
+  }
+  int n1 = subtree_vert_count_capped(c1, leaf_limit);
+  int total = n0 + n1;
+  if (total >= leaf_limit || total < leaf_limit / 2) {
+    return false;
+  }
+
+  int lo = std::min(n0, n1);
+  if (!(lo <= leaf_limit / 8 && lo * 20 < total * 3)) {
+    return false;
+  }
+
+  Vector<int> faces, verts;
+  gather_subtree(parent, faces, verts);
+  return mean_split_interior(m, parent->aabb, verts);
+}
+
+void SpatialTree::free_subtree(SpatialNode *n)
+{
+  if (!(n->flag & Spatial_Leaf)) {
+    free_subtree(n->children[0]);
+    free_subtree(n->children[1]);
+  }
+  free_node(n);
+}
+
+void SpatialTree::collapse_subtree(SpatialNode *node)
+{
+  /* Gather the subtree's owned geometry before freeing it (mirrors merge_node:
+   * only unique_* — other_* are owned outside and stay there). */
+  Vector<int> faces, verts;
+  gather_subtree(node, faces, verts);
+
+  for (int v : verts) {
+    treeMesh.v.node[v] = 0;
+  }
+  for (int f : faces) {
+    treeMesh.f.node[f] = 0;
+  }
+
+  free_subtree(node->children[0]);
+  free_subtree(node->children[1]);
+
+  node->create_data();
+  node->children[0] = node->children[1] = nullptr;
+  node->flag |= Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
+                Spatial_RegenGPU | Spatial_UpdateNormals;
+
+  Vector<Tri, 16> tris;
+  for (int f : faces) {
+    if (m->f.freemap[f]) {
+      continue;
+    }
+    FaceProxy face(m, f);
+    float3 fcent = face.calc_center();
+    tris.clear();
+    if (triangulateFace(*m, f, tris)) {
+      std::span<Tri> tris_span = tris;
+      add_face_intern(node, f, tris_span, fcent);
+    }
+  }
+
+  /* Orphan-recovery, as in merge_node: a vert no re-filed face referenced still
+   * belongs to the collapsed region. */
+  for (int v : verts) {
+    if (!m->v.freemap[v] && treeMesh.v.node[v] == 0) {
+      treeMesh.v.node[v] = node->id;
+      node->data->unique_verts.add(v);
+    }
+  }
+
+  for (SpatialNode *p = node->parent; p; p = p->parent) {
+    p->flag |= Spatial_RegenBounds;
+  }
 }
 
 void SpatialTree::applyDeferredMerge()
@@ -611,19 +815,34 @@ void SpatialTree::applyDeferredMerge()
     }
     SpatialNode *c0 = parent->children[0];
     SpatialNode *c1 = parent->children[1];
-    if (!c0 || !c1 || !(c0->flag & Spatial_Leaf) || !(c1->flag & Spatial_Leaf) ||
-        !c0->data || !c1->data) {
-      continue; /* not a two-leaf-children node */
-    }
-    int combined =
-        int(c0->data->unique_verts.size() + c1->data->unique_verts.size());
-    if (combined >= watermark) {
+    if (!c0 || !c1) {
       continue;
     }
     SpatialNode *gp = parent->parent;
-    merge_node(parent);
-    if (gp) {
-      work.append(gp->id); /* grandparent may now have two under-full leaves */
+
+    bool twoLeaves = (c0->flag & Spatial_Leaf) && (c1->flag & Spatial_Leaf) &&
+                     c0->data && c1->data;
+    if (twoLeaves) {
+      int combined =
+          int(c0->data->unique_verts.size() + c1->data->unique_verts.size());
+      /* Under-full pair (existing merge), or a lopsided/deformed one whose split
+       * level is wasted (rebalance, M7.6c). Either way fold into one leaf. */
+      if (combined < watermark || node_is_skewed(parent)) {
+        merge_node(parent);
+        if (gp) {
+          work.append(gp->id); /* grandparent may now be mergeable too */
+        }
+      }
+      continue;
+    }
+
+    /* Deep case: a child is internal, so merge_node can't act. Collapse the whole
+     * subtree back to a leaf when it now fits under leaf_limit and is lopsided. */
+    if (subtree_wants_collapse(parent)) {
+      collapse_subtree(parent);
+      if (gp) {
+        work.append(gp->id);
+      }
     }
   }
 
