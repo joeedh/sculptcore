@@ -11,12 +11,15 @@
 
 @brush("kelvinlet")
 brush Kelvinlet {
-  // Material parameters. Defaults on Brush sit near "soft rubber"
-  // (mu=1, nu=0.4); higher mu = stiffer falloff, nu near 0.5 = nearly
-  // incompressible. `radius` is declared so the DSL can name it
-  // directly as the regularization epsilon (the field already exists
-  // on Brush; this just opts it in to identifier resolution).
-  uniform float mu, nu, radius;
+  // Material parameters near "soft rubber" (mu=1, nu=0.4); higher mu =
+  // stiffer falloff, nu near 0.5 = nearly incompressible. The `@range`s
+  // mirror the clampParams bounds below so a device-driven value stays in
+  // the well-defined region. `radius` is declared so the DSL can name it
+  // directly as the regularization epsilon (the field already exists on
+  // Brush; this just opts it in to identifier resolution).
+  uniform float mu = 1.0 @range(1e-6, 100.0);
+  uniform float nu = 0.4 @range(0.0, 0.499);
+  uniform float radius;
 
   // Stroke state set by `set_grab` before the dab. Both live on Brush
   // (so DSL `ctx float3 X` would emit `ctx.brush.X`, which is exactly

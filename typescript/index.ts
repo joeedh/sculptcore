@@ -22,6 +22,7 @@ import type {CornerData} from './sculptcore/mesh/CornerData'
 import type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
 import type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 import type {VertexData} from './sculptcore/mesh/VertexData'
+import type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
 import type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 import type {Brush} from './sculptcore/brush/Brush'
 import type {float2} from './litestl/math/float2'
@@ -60,6 +61,7 @@ export type {CornerData} from './sculptcore/mesh/CornerData'
 export type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
 export type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 export type {VertexData} from './sculptcore/mesh/VertexData'
+export type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
 export type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 export type {Brush} from './sculptcore/brush/Brush'
 export type {float2} from './litestl/math/float2'
@@ -129,6 +131,7 @@ export type AllBoundTypes = {
   'sculptcore::mesh::CornerData': CornerData
   'sculptcore::mesh::VertexData': VertexData
   'sculptcore::spatial::SpatialNode': SpatialNode
+  'sculptcore::brush::BrushUniformManifestEntry': BrushUniformManifestEntry
   'sculptcore::gpu::GPUManager': GPUManager
   'litestl::math::int2': int2
   'sculptcore::mesh::BuiltinAttr<boolean,select>': BuiltinAttr<

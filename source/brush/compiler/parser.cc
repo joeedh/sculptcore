@@ -65,6 +65,18 @@ struct Parser {
     return false;
   }
 
+  // Parse an optionally-signed numeric literal (int or float) into `out`.
+  bool parseSignedNumber(double &out)
+  {
+    double sign = 1.0;
+    if (match(TokKind::Minus)) sign = -1.0;
+    else match(TokKind::Plus);
+    if (check(TokKind::FloatLit)) { out = sign * peek().fvalue; advance(); return true; }
+    if (check(TokKind::IntLit))   { out = sign * (double)peek().ivalue; advance(); return true; }
+    error("expected numeric literal", peek());
+    return false;
+  }
+
   // === toplevel ===
 
   // Resolves a user-defined struct name in the current brush, or nullptr.
@@ -161,7 +173,10 @@ struct Parser {
       }
       advance();
     }
-    // Multi-var field decl: `uniform float a, b, c;`
+    // Multi-var field decl: `uniform float a, b, c;`. Each name may carry an
+    // optional `= <n>` default and trailing `@range(a, b)` / `@static` /
+    // `@dynamic` metadata, attached per-name (consumed for scalar-float
+    // uniforms; harmless elsewhere).
     while (true) {
       if (!check(TokKind::Ident)) { error("expected field name", peek()); return; }
       Field f;
@@ -171,6 +186,29 @@ struct Parser {
       f.arraySize = arraySize;
       f.name = peek().text;
       advance();
+      if (match(TokKind::Assign)) {
+        if (parseSignedNumber(f.defaultValue)) f.hasDefault = true;
+      }
+      while (match(TokKind::At)) {
+        if (!check(TokKind::Ident)) { error("expected attribute name after '@'", peek()); break; }
+        const Token &attrTok = peek();
+        string attr = attrTok.text;
+        advance();
+        if (attr.operator==(string("range"))) {
+          expect(TokKind::LParen, "after @range");
+          parseSignedNumber(f.rangeMin);
+          expect(TokKind::Comma, "between @range bounds");
+          parseSignedNumber(f.rangeMax);
+          expect(TokKind::RParen, "to close @range(...)");
+          f.hasRange = true;
+        } else if (attr.operator==(string("static"))) {
+          f.dynamicCapable = false;
+        } else if (attr.operator==(string("dynamic"))) {
+          f.dynamicCapable = true;
+        } else {
+          errorf(attrTok, "unknown field attribute '%s'", attr.c_str());
+        }
+      }
       brush.fields.append(f);
       if (!match(TokKind::Comma)) break;
     }

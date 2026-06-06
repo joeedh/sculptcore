@@ -62,6 +62,12 @@ template <typename T, typename Child> struct NumBase : public PropBase<Child, T>
     return Base::childThis();
   }
 
+  Child &Default(T value)
+  {
+    internal_value_ = value;
+    return Base::childThis();
+  }
+
   T min, max;
   T step;
 

@@ -40,6 +40,42 @@ struct BrushAttrManifestEntry {
   bool write = false;                            // writes => ensure materialized
 };
 
+// Codegen-emitted descriptor of one `uniform` a kernel declares. The executor
+// uses the active brush's manifest to register props, apply device dynamics in
+// loadProps, and validate dynamic bindings before a stroke. See
+// documentation/plans/sbrush-dynamic-uniforms.md.
+struct BrushUniformManifestEntry {
+  string name;             // DSL uniform field name
+  bool isFloat = false;    // scalar float — the only dynamic-capable kind
+  bool dynamic = false;    // may be driven by device dynamics (float, non-@static)
+  float def = 0.0f;        // authored default (DSL `= <n>`), Wave 1
+  bool hasRange = false;   // DSL `@range(min, max)` present, Wave 1
+  float rangeMin = 0.0f;
+  float rangeMax = 0.0f;
+
+  // Bound read-only so the TS bridge (Wave 5) can enumerate the active brush's
+  // manifest by index and read each entry's name/range/dynamic flag. Returned
+  // by pointer from CommandExecutor::queriedUniformEntry — never marshalled by
+  // value, so a copy constructor is unneeded.
+  static litestl::binding::types::Struct<BrushUniformManifestEntry> *defineBindings()
+  {
+    using namespace litestl::binding;
+    types::Struct<BrushUniformManifestEntry> *st =
+        new types::Struct<BrushUniformManifestEntry>(
+            "sculptcore::brush::BrushUniformManifestEntry",
+            sizeof(BrushUniformManifestEntry));
+    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+    BIND_STRUCT_MEMBER(st, name);
+    BIND_STRUCT_MEMBER(st, isFloat);
+    BIND_STRUCT_MEMBER(st, dynamic);
+    BIND_STRUCT_MEMBER(st, def);
+    BIND_STRUCT_MEMBER(st, hasRange);
+    BIND_STRUCT_MEMBER(st, rangeMin);
+    BIND_STRUCT_MEMBER(st, rangeMax);
+    return st;
+  }
+};
+
 // A resolved binding: a kernel handle -> the live mesh AttrRef for this dab.
 struct BrushAttrBinding {
   string handle;
@@ -189,6 +225,17 @@ template <typename CTX> struct BrushCommandDef {
   // Attribute layers this kernel reads/writes, emitted by codegen. The executor
   // resolves these to live mesh layers and binds them before the per-node loop.
   Vector<BrushAttrManifestEntry> attrs;
+  // Scalar uniforms this kernel declares, emitted by codegen. The executor
+  // registers these as props, applies device dynamics in loadProps, and
+  // validates dynamic bindings before a stroke.
+  Vector<BrushUniformManifestEntry> uniforms;
+  // Generated per-brush prop wiring (see sbrush-dynamic-uniforms plan).
+  // registerProps registers this kernel's scalar-float uniforms as props with
+  // their authored defaults (idempotent — guarded by name); loadUniformProps
+  // resolves them each dab (applying device dynamics) into the cached Brush
+  // members the kernel reads. The fixed common props live on Brush directly.
+  std::function<void(props::StructDef &)> registerProps;
+  std::function<void(Brush &, props::DeviceInputCtx *)> loadUniformProps;
 };
 
 } // namespace sculptcore::brush

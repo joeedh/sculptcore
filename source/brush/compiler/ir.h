@@ -201,6 +201,15 @@ struct Field {
   // via the Brush attrBindings map.
   AttrDomain domain = AttrDomain::Vertex;
   string boundName;
+  // FieldKind::Uniform metadata (scalar floats): `= <n>` default, `@range(a,b)`,
+  // and `@static` to opt out of device dynamics. dynamicCapable defaults true so
+  // any plain float uniform is drivable; non-float uniforms are never dynamic.
+  bool hasDefault = false;
+  double defaultValue = 0.0;
+  bool hasRange = false;
+  double rangeMin = 0.0;
+  double rangeMax = 0.0;
+  bool dynamicCapable = true;
 };
 
 struct StructField {

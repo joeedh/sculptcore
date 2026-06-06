@@ -59,6 +59,20 @@ export interface Brush {
     n: int32,
     value: float
   ): void
+  clearPropDynamicsByName(name: string): void
+  addPropDynamicByName(
+    name: string,
+    deviceType: int32,
+    mixMode: int32,
+    mixFactor: float
+  ): void
+  setPropDynamicSampleByName(
+    name: string,
+    deviceType: int32,
+    i: int32,
+    n: int32,
+    value: float
+  ): void
   setPropsParent(parentProps: StructProp): void
   clearPropsParent(): void
   new (): Brush

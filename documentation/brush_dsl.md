@@ -66,6 +66,35 @@ identifier resolution; the field must already exist on the host side
 (`Brush` / `CommandCtxBase`). The GPU backends pack these into fixed-schema
 uniform blocks so every kernel shares one bind-group layout.
 
+#### Uniform metadata: default, `@range`, `@static`
+
+A scalar `float uniform` may carry an authored default and bounds, written
+**after** the name (per-name in a comma list):
+
+```sbrush
+uniform float mu = 1.0 @range(1e-6, 100.0);   // default + clamp bounds
+uniform float nu = 0.4  @range(0.0, 0.499);
+uniform float wingAngle @static;              // opt OUT of device dynamics
+uniform float planeoff, planeSide @static, radius;   // annotate one of many
+```
+
+| Syntax | Meaning |
+|---|---|
+| `= <number>` | authored default; codegen emits `.Default(n)` when it auto-registers the prop |
+| `@range(a, b)` | inclusive bounds; the default must lie inside, `a ≤ b`, neither NaN (checked at stroke start) |
+| `@static` | the uniform is **not** dynamic-capable — it registers as a prop but rejects any device dynamic bound to it |
+
+Every non-`@static` `float uniform` is automatically registered as a brush
+**property** and is drivable by a device dynamic (pen pressure/tilt/etc.),
+keyed by the uniform's name. This registration, the manifest, and the
+pre-invocation validation are all generated from these declarations — see
+[`addingSBrushUniforms.md`](addingSBrushUniforms.md) and the plan in
+[`plans/sbrush-dynamic-uniforms.md`](plans/sbrush-dynamic-uniforms.md).
+
+> **Adding a new field?** See
+> [`addingSBrushUniforms.md`](addingSBrushUniforms.md) for the step-by-step
+> (host member, prop registration, and the GPU host-mirror/marshal seam).
+
 ### Stages
 
 | Stage | Cadence | Lowering |

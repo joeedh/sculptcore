@@ -9,6 +9,7 @@ void registerBindings(litestl::binding::BindingManager &manager)
   manager.add(Bind<Brush>());
   manager.add(Bind<BrushProgram>());
   manager.add(Bind<CommandExecutor>());
+  manager.add(Bind<BrushUniformManifestEntry>());
   manager.add(Bind<util::Vector<spatial::SpatialNode *>>());
 }
 } // namespace sculptcore::brush::bindings

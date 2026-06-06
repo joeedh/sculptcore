@@ -13,6 +13,8 @@
 #include "meshlog/meshlog.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
+#include <cmath>
+#include <cstdio>
 #include <functional>
 #include <span>
 
@@ -21,12 +23,23 @@ namespace sculptcore::brush {
 using namespace litestl::util;
 using namespace litestl::math;
 
+// Result of the per-stroke uniform-dynamics validation (Wave 4). `ok == false`
+// means the active brush's dynamic bindings are misconfigured and the stroke is
+// skipped without mutating the mesh; `messages` carries one line per problem.
+struct UniformValidationResult {
+  bool ok = true;
+  Vector<string> messages;
+};
+
 // One sparse float override applied on top of a brush's authored props for the
-// duration of a single sub-command. Keyed by `BrushProp` id (not a string —
-// the TS binding runtime can't marshal a JS string into a `util::string` arg).
+// duration of a single sub-command. Resolved by `name` when set (the generated
+// per-kernel uniforms — `mu`, `planeoff`, ...), else by `BrushProp` id for the
+// common props (the TS binding runtime can't marshal a JS string into a
+// `util::string` arg, so the int path stays for that bridge surface).
 struct BrushFloatOverride {
   int propId = 0;
   float value = 0.0f;
+  util::string name;
 };
 
 // Redirects one of a kernel's declared attribute handles (by its 0-based index
@@ -84,6 +97,20 @@ struct BrushProgram {
     commands[idx].floatOverrides.append(BrushFloatOverride{propId, v});
   }
 
+  // Override a kernel uniform by its declared name (the generated per-kernel
+  // props: `mu`, `nu`, `planeoff`, ...). Distinct from setCommandFloat, which
+  // keys the common props by int id.
+  void setCommandFloatByName(int idx, util::string name, float v)
+  {
+    if (idx < 0 || idx >= int(commands.size())) {
+      return;
+    }
+    BrushFloatOverride ov;
+    ov.value = v;
+    ov.name = name;
+    commands[idx].floatOverrides.append(std::move(ov));
+  }
+
   void setCommandInvert(int idx, bool inv)
   {
     if (idx < 0 || idx >= int(commands.size())) {
@@ -114,6 +141,7 @@ struct BrushProgram {
     BIND_STRUCT_METHOD(st, clear, MARGS());
     BIND_STRUCT_METHOD(st, addCommand, MARGS("type"));
     BIND_STRUCT_METHOD(st, setCommandFloat, MARGS("idx", "propId", "v"));
+    BIND_STRUCT_METHOD(st, setCommandFloatByName, MARGS("idx", "name", "v"));
     BIND_STRUCT_METHOD(st, setCommandInvert, MARGS("idx", "inv"));
     BIND_STRUCT_METHOD(st, setCommandAttrLayer, MARGS("idx", "attrIdx", "layerIndex"));
 
@@ -152,6 +180,19 @@ struct CommandExecutor {
   // Backing store for resolved DSL attribute bindings (ctx.attrBindings),
   // rebuilt per dab in exec().
   BrushAttrBindings attrBindingStorage;
+  // Uniform-dynamics validation (Wave 4): run once per stroke (first dab) against
+  // the active brush's manifest. On failure the whole stroke is skipped so the
+  // mesh is never mutated by a misconfigured binding. `lastValidation` is the
+  // most recent result (readable by the bridge); `strokeValidationFailed` gates
+  // every dab of a failed stroke.
+  UniformValidationResult lastValidation;
+  bool strokeValidationFailed = false;
+  // Wave 5: the active brush's uniform manifest, cached by queryUniformManifest
+  // so the TS bridge can enumerate it by index (the binding runtime can't pass a
+  // JS string into a `util::string` method arg). queriedUniformEntry hands each
+  // entry back by pointer; the *UniformDynamics methods resolve index -> name and
+  // delegate to the Brush by-name dynamics API.
+  Vector<BrushUniformManifestEntry> queriedUniforms;
 
   static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
   {
@@ -170,8 +211,23 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
+    BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
+    BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
+    BIND_STRUCT_METHOD(st, queriedUniformEntry, MARGS("idx"));
+    BIND_STRUCT_METHOD(st, clearUniformDynamics, MARGS("idx"));
+    BIND_STRUCT_METHOD(st, addUniformDynamic,
+                       MARGS("idx", "deviceType", "mixMode", "mixFactor"));
+    BIND_STRUCT_METHOD(st, setUniformDynamicSample,
+                       MARGS("idx", "deviceType", "i", "n", "value"));
 
     return st;
+  }
+
+  // Whether the most recent stroke's uniform-dynamics validation passed (Wave 4).
+  // The bridge reads this after the first dab to surface a skipped stroke.
+  bool lastUniformValidationOk() const
+  {
+    return lastValidation.ok;
   }
 
   CommandExecutor(SpatialTree *tree, Brush *brush) : tree(tree), brush(brush), ctx()
@@ -461,11 +517,181 @@ struct CommandExecutor {
     }
   }
 
+  // The fixed common float props are valid dynamics targets for any brush (the
+  // bridge drives strength/radius/... by pressure regardless of the active
+  // kernel), so they're exempt from the active-manifest membership check.
+  static bool isCommonFloatProp(const string &name)
+  {
+    return name == string("strength") || name == string("radius") ||
+           name == string("spacing") || name == string("planeoff") ||
+           name == string("autosmooth");
+  }
+
+  static const BrushUniformManifestEntry *findUniformEntry(brush_command &cmd,
+                                                           const string &name)
+  {
+    for (const auto &u : cmd.uniforms) {
+      if (u.name == name) return &u;
+    }
+    return nullptr;
+  }
+
+  // Validate the active brush's uniform dynamics once at stroke start, scoped to
+  // its manifest. Catches the shared-`Brush`-struct traps (a stray dynamic left
+  // over from another kernel, a dynamic on a `@static`/non-float uniform), an
+  // unbaked 1-entry response curve, an out-of-range authored default, and an
+  // inverted/NaN `@range`. Returns a structured result; the caller skips the
+  // stroke on `!ok` so a misconfigured binding never mutates the mesh.
+  UniformValidationResult validateUniformDynamics(brush_command &cmd)
+  {
+    UniformValidationResult res;
+    char buf[256];
+
+    // (A) Static manifest checks — independent of any configured dynamic.
+    for (const auto &u : cmd.uniforms) {
+      if (!u.hasRange) continue;
+      if (std::isnan(u.rangeMin) || std::isnan(u.rangeMax) ||
+          u.rangeMin > u.rangeMax) {
+        res.ok = false;
+        snprintf(buf, sizeof(buf),
+                 "uniform '%s': invalid @range [%g, %g]", u.name.c_str(),
+                 u.rangeMin, u.rangeMax);
+        res.messages.append(string(buf));
+        continue;  // a broken range makes the default check meaningless
+      }
+      if (u.isFloat && (u.def < u.rangeMin || u.def > u.rangeMax)) {
+        res.ok = false;
+        snprintf(buf, sizeof(buf),
+                 "uniform '%s': default %g outside @range [%g, %g]",
+                 u.name.c_str(), u.def, u.rangeMin, u.rangeMax);
+        res.messages.append(string(buf));
+      }
+    }
+
+    // (B) Dynamics checks — every prop carrying a configured device stack must
+    // be a valid, dynamic-capable target of the active brush.
+    if (brush && brush->props.struct_def) {
+      for (props::Property *p : brush->props.struct_def->properties()) {
+        props::Dynamics *dyn = brush->propDynamics(p->name);
+        if (!dyn || dyn->devices.size() == 0) continue;
+
+        const BrushUniformManifestEntry *entry = findUniformEntry(cmd, p->name);
+        if (!entry && !isCommonFloatProp(p->name)) {
+          res.ok = false;
+          snprintf(buf, sizeof(buf),
+                   "stray dynamic on '%s': not a uniform of the active brush",
+                   p->name.c_str());
+          res.messages.append(string(buf));
+          continue;
+        }
+        if (entry && !(entry->isFloat && entry->dynamic)) {
+          res.ok = false;
+          snprintf(buf, sizeof(buf),
+                   "dynamic on '%s': uniform is @static / non-float (not "
+                   "dynamic-capable)",
+                   p->name.c_str());
+          res.messages.append(string(buf));
+          continue;
+        }
+        for (const auto &dev : dyn->devices) {
+          if (dev.curveTable.size() == 1) {
+            res.ok = false;
+            snprintf(buf, sizeof(buf),
+                     "uniform '%s': device response curve has 1 entry "
+                     "(unbaked; need 0 or >=2)",
+                     p->name.c_str());
+            res.messages.append(string(buf));
+          }
+          int dt = (int)dev.type;
+          if (dt < 0 || dt > (int)props::DeviceType::TWIST) {
+            res.ok = false;
+            snprintf(buf, sizeof(buf), "uniform '%s': invalid device type %d",
+                     p->name.c_str(), dt);
+            res.messages.append(string(buf));
+          }
+        }
+      }
+    }
+
+    return res;
+  }
+
+  // --- Wave 5: per-kernel uniform manifest query for the TS bridge -----------
+  // The binding runtime can't marshal a JS string into a `util::string` method
+  // arg, so the bridge enumerates the active brush's manifest by index instead
+  // of by name. queryUniformManifest caches the kernel's manifest (and registers
+  // its props so propDynamics(name) resolves) and returns the entry count;
+  // queriedUniformEntry exposes each entry as a bound read-only struct; the
+  // *UniformDynamics methods resolve the index -> name and delegate to the Brush
+  // by-name dynamics API (Wave 3).
+
+  int queryUniformManifest(int brushType)
+  {
+    queriedUniforms.clear();
+    auto cmd = createCommand(static_cast<SculptBrushes>(brushType));
+    if (cmd.registerProps && brush && brush->props.struct_def) {
+      cmd.registerProps(*brush->props.struct_def);
+    }
+    for (const auto &u : cmd.uniforms) {
+      queriedUniforms.append(u);
+    }
+    return int(queriedUniforms.size());
+  }
+
+  BrushUniformManifestEntry *queriedUniformEntry(int idx)
+  {
+    if (idx < 0 || idx >= int(queriedUniforms.size())) {
+      return nullptr;
+    }
+    return &queriedUniforms[idx];
+  }
+
+  void clearUniformDynamics(int idx)
+  {
+    if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
+      return;
+    }
+    brush->clearPropDynamicsByName(queriedUniforms[idx].name);
+  }
+  void addUniformDynamic(int idx, int deviceType, int mixMode, float mixFactor)
+  {
+    if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
+      return;
+    }
+    brush->addPropDynamicByName(queriedUniforms[idx].name, deviceType, mixMode,
+                                mixFactor);
+  }
+  void setUniformDynamicSample(int idx, int deviceType, int i, int n, float value)
+  {
+    if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
+      return;
+    }
+    brush->setPropDynamicSampleByName(queriedUniforms[idx].name, deviceType, i, n,
+                                      value);
+  }
+
   void execBrush(SculptBrushes brushType,
                  Vector<spatial::SpatialNode *> *nodes,
                  float3 origin,
                  float3 normal)
   {
+    auto cmd = createCommand(brushType);
+
+    // Validate uniform dynamics once per stroke (first dab), before any mesh or
+    // topology state is touched: a misconfigured binding skips the whole stroke
+    // so the mesh is never mutated. Subsequent dabs of a failed stroke re-skip
+    // via the persisted flag.
+    if (isFirstOfStep) {
+      lastValidation = validateUniformDynamics(cmd);
+      strokeValidationFailed = !lastValidation.ok;
+      for (const auto &msg : lastValidation.messages) {
+        fprintf(stderr, "brush uniform validation: %s\n", msg.c_str());
+      }
+    }
+    if (strokeValidationFailed) {
+      return;
+    }
+
     // Enter/leave frozen-topology mode per dab (both calls early-out when
     // already in the target state, so this is cheap to re-check every dab).
     // Note: this is the C++ executor path only; the GPU dispatch in gpu_stroke
@@ -482,7 +708,6 @@ struct CommandExecutor {
       }
     }
 
-    auto cmd = createCommand(brushType);
     ctx.surfaceNo = normal;
     ctx.surfacePos = origin;
     ctx.meshLog = meshLog;
@@ -512,6 +737,32 @@ struct CommandExecutor {
                    float3 normal)
   {
     if (!prog || prog->commands.size() == 0) {
+      return;
+    }
+
+    // Validate every sub-command's uniform dynamics once per stroke, before any
+    // mesh/topology state is touched. registerProps first so the manifest props
+    // exist to inspect (idempotent — the per-command loop re-registers). Any
+    // failure skips the whole program so the mesh is never mutated.
+    if (isFirstOfStep) {
+      lastValidation = UniformValidationResult{};
+      for (auto &entry : prog->commands) {
+        auto cmd = createCommand(entry.type);
+        if (cmd.registerProps && brush && brush->props.struct_def) {
+          cmd.registerProps(*brush->props.struct_def);
+        }
+        UniformValidationResult r = validateUniformDynamics(cmd);
+        if (!r.ok) {
+          lastValidation.ok = false;
+          for (auto &msg : r.messages) lastValidation.messages.append(msg);
+        }
+      }
+      strokeValidationFailed = !lastValidation.ok;
+      for (const auto &msg : lastValidation.messages) {
+        fprintf(stderr, "brush uniform validation: %s\n", msg.c_str());
+      }
+    }
+    if (strokeValidationFailed) {
       return;
     }
 
@@ -565,20 +816,35 @@ struct CommandExecutor {
       // dab unmodified (the next dab re-syncs them from the bridge regardless).
       Vector<BrushFloatOverride> savedFloats;
       for (auto &ov : entry.floatOverrides) {
-        const char *nm = brushPropName(ov.propId);
-        savedFloats.append(
-            BrushFloatOverride{ov.propId, brush->props.lookupFloat(nm, 0.0f)});
-        brush->props.setFloat(nm, ov.value);
+        // Name-keyed overrides target a generated kernel uniform; id-keyed ones
+        // target a common prop. Resolve to the prop name either way and snapshot
+        // the prior value under that same name for an exact rollback.
+        util::string nm = ov.name.size() ? ov.name : util::string(brushPropName(ov.propId));
+        BrushFloatOverride saved;
+        saved.name = nm;
+        saved.value = brush->props.lookupFloat(nm.c_str(), 0.0f);
+        savedFloats.append(std::move(saved));
+        brush->props.setFloat(nm.c_str(), ov.value);
       }
       bool savedInvert = brush->invert;
       if (entry.overrideInvert) {
         brush->props.setValue<bool>("invert", entry.invertValue);
       }
 
-      // Resolve authored props → cached scalars (applies device dynamics).
-      brush->loadProps();
-
       auto cmd = createCommand(entry.type);
+
+      // Register this kernel's scalar-float uniforms as props (idempotent,
+      // defaults seeded), then resolve common props + the kernel's uniforms
+      // into cached scalars (applies device dynamics). The uniform half is
+      // generated per brush from its `uniform` declarations.
+      if (cmd.registerProps && brush->props.struct_def) {
+        cmd.registerProps(*brush->props.struct_def);
+      }
+      brush->loadCommonProps(&brush->deviceInputCtx);
+      if (cmd.loadUniformProps) {
+        cmd.loadUniformProps(*brush, &brush->deviceInputCtx);
+      }
+
       ctx.surfaceNo = normal;
       ctx.surfacePos = origin;
       ctx.meshLog = meshLog;
@@ -593,9 +859,9 @@ struct CommandExecutor {
         markPolygroupDirty(nodeSpan);
       }
 
-      // Roll the base props back.
+      // Roll the base props back (saved under the resolved prop name).
       for (auto &s : savedFloats) {
-        brush->props.setFloat(brushPropName(s.propId), s.value);
+        brush->props.setFloat(s.name.c_str(), s.value);
       }
       if (entry.overrideInvert) {
         brush->props.setValue<bool>("invert", savedInvert);
@@ -707,6 +973,7 @@ struct CommandExecutor {
   void beginStep()
   {
     isFirstOfStep = true;
+    strokeValidationFailed = false;
     if (brush) {
       brush->resetStrokePath();
     }

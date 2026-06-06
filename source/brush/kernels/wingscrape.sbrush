@@ -14,7 +14,7 @@ brush WingScrape {
   ctx float3 surfaceNo;
   ctx float3 strokeDir;
   ctx float3 wingNormalA, wingNormalB;
-  uniform float wingAngle;
+  uniform float wingAngle @static;
 
   // Compute the two wing-plane normals once per dab: surfaceNo rotated
   // ±wingAngle about the (normalized) stroke tangent, via Rodrigues' formula

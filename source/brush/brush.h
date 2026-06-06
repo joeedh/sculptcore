@@ -245,6 +245,14 @@ struct Brush {
                        MARGS("propId", "deviceType", "mixMode", "mixFactor"));
     BIND_STRUCT_METHOD(st, setPropDynamicSample,
                        MARGS("propId", "deviceType", "i", "n", "value"));
+    // Name-keyed dynamics for any registered float uniform (custom kernel
+    // uniforms the BrushProp ids can't reach). The bridge enumerates the
+    // uniform manifest and routes its configure calls through these.
+    BIND_STRUCT_METHOD(st, clearPropDynamicsByName, MARGS("name"));
+    BIND_STRUCT_METHOD(st, addPropDynamicByName,
+                       MARGS("name", "deviceType", "mixMode", "mixFactor"));
+    BIND_STRUCT_METHOD(st, setPropDynamicSampleByName,
+                       MARGS("name", "deviceType", "i", "n", "value"));
     BIND_STRUCT_METHOD(st, setPropsParent, MARGS("parentProps"));
     BIND_STRUCT_METHOD(st, clearPropsParent, MARGS());
 
@@ -274,11 +282,12 @@ struct Brush {
   // The bridge configures a property's dynamics once per stroke, then pushes
   // device samples each dab; loadProps() applies them via the prop's Dynamics.
 
-  // Resolve a float property's device-dynamics stack by prop id, or null.
-  props::Dynamics *propDynamics(int propId)
+  // Resolve a float property's device-dynamics stack by name, or null. This is
+  // the name-keyed core; any registered float uniform (common or per-kernel) is
+  // reachable, not just the 5 `BrushProp` ids.
+  props::Dynamics *propDynamics(util::string name)
   {
-    const char *name = brushPropName(propId);
-    if (!name[0] || !props.struct_def) {
+    if (!props.struct_def) {
       return nullptr;
     }
     props::Property *p = props.struct_def->lookup(name);
@@ -294,6 +303,11 @@ struct Brush {
     }
     return nullptr;
   }
+  // Back-compat int-keyed overload for the bridge's fixed common props.
+  props::Dynamics *propDynamics(int propId)
+  {
+    return propDynamics(util::string(brushPropName(propId)));
+  }
 
   // Per-dab device samples. The bridge currently pushes pressure/tilt/twist; the
   // computed DeviceTypes (speed/angle/curvature) are reserved but not yet pushed.
@@ -307,18 +321,18 @@ struct Brush {
   }
 
   // Drop all device layers from a property's dynamics (reconfigure per stroke).
-  void clearPropDynamics(int propId)
+  void clearPropDynamicsByName(util::string name)
   {
-    props::Dynamics *dyn = propDynamics(propId);
+    props::Dynamics *dyn = propDynamics(name);
     if (dyn) {
       dyn->devices.clear();
     }
   }
   // Add a device layer (identity curve) to a property; fill its response curve
-  // with setPropDynamicSample.
-  void addPropDynamic(int propId, int deviceType, int mixMode, float mixFactor)
+  // with setPropDynamicSampleByName.
+  void addPropDynamicByName(util::string name, int deviceType, int mixMode, float mixFactor)
   {
-    props::Dynamics *dyn = propDynamics(propId);
+    props::Dynamics *dyn = propDynamics(name);
     if (!dyn) {
       return;
     }
@@ -328,11 +342,11 @@ struct Brush {
     dev.mixFactor = mixFactor;
     dyn->devices.append(std::move(dev));
   }
-  // Set sample `i` of an `n`-entry response curve for the (propId, deviceType)
+  // Set sample `i` of an `n`-entry response curve for the (name, deviceType)
   // device layer — the baked form of the TS channel's Curve1D.
-  void setPropDynamicSample(int propId, int deviceType, int i, int n, float value)
+  void setPropDynamicSampleByName(util::string name, int deviceType, int i, int n, float value)
   {
-    props::Dynamics *dyn = propDynamics(propId);
+    props::Dynamics *dyn = propDynamics(name);
     if (!dyn) {
       return;
     }
@@ -347,6 +361,20 @@ struct Brush {
         return;
       }
     }
+  }
+
+  // Int-keyed wrappers for the bridge's fixed common props (BrushProp ids).
+  void clearPropDynamics(int propId)
+  {
+    clearPropDynamicsByName(brushPropName(propId));
+  }
+  void addPropDynamic(int propId, int deviceType, int mixMode, float mixFactor)
+  {
+    addPropDynamicByName(brushPropName(propId), deviceType, mixMode, mixFactor);
+  }
+  void setPropDynamicSample(int propId, int deviceType, int i, int n, float value)
+  {
+    setPropDynamicSampleByName(brushPropName(propId), deviceType, i, n, value);
   }
 
   // Setters for the (u8) falloff enums — exposed as plain int methods so the
@@ -369,20 +397,22 @@ struct Brush {
     structDef_.Float32("planeoff", "planeoff");
     structDef_.Float32("autosmooth", "autosmooth");
     structDef_.Bool("invert", "invert");
-    structDef_.Float32("mu", "mu");
-    structDef_.Float32("nu", "nu");
+    // Per-kernel scalar uniforms (mu/nu/...) are registered on demand by the
+    // active brush's generated registerProps — see sbrush-dynamic-uniforms.
   }
 
   // Resolve the authored property values into the cached scalar members the
   // kernels read. The no-arg form applies this brush's device-dynamics stack
   // (`deviceInputCtx`); with no devices configured / no inputs pushed it is a
-  // bit-identical no-op, so it is safe to always route through it.
+  // bit-identical no-op, so it is safe to always route through it. Loads only
+  // the fixed common props — the active kernel's scalar uniforms are resolved
+  // by its generated loadUniformProps (see sbrush-dynamic-uniforms plan).
   void loadProps()
   {
-    loadPropsWithDevices(&deviceInputCtx);
+    loadCommonProps(&deviceInputCtx);
   }
 
-  void loadPropsWithDevices(props::DeviceInputCtx *ctx)
+  void loadCommonProps(props::DeviceInputCtx *ctx)
   {
     strength = props.lookupValue<float>("strength", 1.0, ctx);
     radius = props.lookupValue<float>("radius", 1.0, ctx);
@@ -390,8 +420,6 @@ struct Brush {
     planeoff = props.lookupValue<float>("planeoff", 0.0, ctx);
     autosmooth = props.lookupValue<float>("autosmooth", 0.0, ctx);
     invert = props.lookupValue<bool>("invert", false);
-    mu = props.lookupValue<float>("mu", 1.0, ctx);
-    nu = props.lookupValue<float>("nu", 0.4, ctx);
   }
 
   void writeProps()
@@ -402,8 +430,6 @@ struct Brush {
     props.setValue<float>("planeoff", planeoff);
     props.setValue<float>("autosmooth", autosmooth);
     props.setValue<bool>("invert", invert);
-    props.setValue<float>("mu", mu);
-    props.setValue<float>("nu", nu);
   }
 
   // Normalized 0..1+ distance from the brush center for a vertex offset

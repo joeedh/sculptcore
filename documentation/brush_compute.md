@@ -80,7 +80,7 @@ The "IR" is the parsed tree itself — plain C++ structs using
 | Type | Role |
 |---|---|
 | `Brush` | root: `attrName` (`@brush("draw")`), `cppName`, `fields`, `structs`, `textures`, `stages` |
-| `Field` (`FieldKind` Uniform/Ctx) | a `uniform`/`ctx` declaration |
+| `Field` (`FieldKind` Uniform/Ctx) | a `uniform`/`ctx` declaration; floats also carry `hasDefault`/`defaultValue`, `hasRange`/`rangeMin`/`rangeMax`, and `dynamicCapable` (from `= n` / `@range` / `@static`) |
 | `Stage` (`StageKind` Vertex/Reduce/Host) | a stage body + params |
 | `Param` (`ParamDir` In/Out/InOut) | stage/texture parameter |
 | `StructDef`, `TextureDef` | user `struct` / inline `texture` block |
@@ -142,6 +142,14 @@ to the matching template. So a new brush is wired by codegen + an enum entry
 + a dispatch case (see [`brush.md`](brush.md)). The `.gen.h` files are
 committed because the WASM build consumes them directly — it never runs
 `sbrushc`.
+
+From the float-uniform metadata the cpp emitter also fills, per brush, a
+uniform **manifest** and the `registerProps` / `loadUniformProps` closures on
+`BrushCommandDef`. These drive automatic prop registration, name-keyed device
+dynamics, and the pre-invocation `validateUniformDynamics` pass — so a new
+authorable uniform needs no hand-written registration. See
+[`addingSBrushUniforms.md`](addingSBrushUniforms.md) (Part C) and
+[`plans/sbrush-dynamic-uniforms.md`](plans/sbrush-dynamic-uniforms.md).
 
 ## Build-system integration
 

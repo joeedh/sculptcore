@@ -566,6 +566,21 @@ struct Emit {
     return r;
   }
 
+  // Format a double as a valid C++ float literal (mirrors the LitFloat case).
+  static string floatLit(double v)
+  {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.17g", v);
+    bool hasDot = false;
+    for (const char *p = buf; *p; p++) {
+      if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+    }
+    string r = buf;
+    if (!hasDot) r += ".0";
+    r += "f";
+    return r;
+  }
+
   // DSL attr type -> C++ element type. Used inside the vertex fn, which opens
   // `using namespace litestl::math;`, so the bare vector names resolve.
   static const char *attrCppType(TypeKind t)
@@ -1077,6 +1092,69 @@ struct Emit {
       write(attrDomainEnum(f.domain));
       write(", true});\n");
     }
+    // Declared uniforms — the executor registers these as props and applies
+    // device dynamics each dab (see sbrush-dynamic-uniforms plan). Carries the
+    // DSL `= <n>` default, `@range(a,b)`, and `@static` opt-out.
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Uniform) continue;
+      bool isFloat = f.type == TypeKind::Float;
+      bool dynamic = isFloat && f.dynamicCapable;
+      double def = f.hasDefault ? f.defaultValue : 0.0;
+      write("  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{\"");
+      write(f.name);
+      write("\", ");
+      write(isFloat ? "true" : "false");        // isFloat
+      write(", ");
+      write(dynamic ? "true" : "false");        // dynamic
+      write(", ");
+      write(floatLit(def));                     // def
+      write(", ");
+      write(f.hasRange ? "true" : "false");      // hasRange
+      write(", ");
+      write(floatLit(f.hasRange ? f.rangeMin : 0.0));
+      write(", ");
+      write(floatLit(f.hasRange ? f.rangeMax : 0.0));
+      write("});\n");
+    }
+    // Generated prop wiring: register this kernel's scalar-float uniforms as
+    // props (idempotent, authored default seeded) and resolve them each dab
+    // applying device dynamics into the cached Brush members the kernel reads.
+    // Replaces the hand-written structDef_/loadProps lists for these fields; the
+    // fixed common props (strength/radius/...) stay on Brush. Non-float uniforms
+    // remain plain host-set members (no prop).
+    write("  def.registerProps = [](sculptcore::props::StructDef &sd) {\n");
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float ||
+          !f.dynamicCapable)
+        continue;
+      double def = f.hasDefault ? f.defaultValue : 0.0;
+      write("    if (!sd.has(\"");
+      write(f.name);
+      write("\")) sd.Float32(\"");
+      write(f.name);
+      write("\", \"");
+      write(f.name);
+      write("\").Default(");
+      write(floatLit(def));
+      write(");\n");
+    }
+    write("  };\n");
+    write("  def.loadUniformProps = [](sculptcore::brush::Brush &brush, "
+          "sculptcore::props::DeviceInputCtx *ctx) {\n");
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float ||
+          !f.dynamicCapable)
+        continue;
+      double def = f.hasDefault ? f.defaultValue : 0.0;
+      write("    brush.");
+      write(f.name);
+      write(" = brush.props.lookupValue<float>(\"");
+      write(f.name);
+      write("\", ");
+      write(floatLit(def));
+      write(", ctx);\n");
+    }
+    write("  };\n");
     write("}\n\n");
 
     write("} // namespace sculptcore::brush::command\n");
