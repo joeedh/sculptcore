@@ -4,6 +4,7 @@
 // (8/16/64) selection arrive in the paint-brush wave; the id is a fixed test
 // value here.
 @brush("polygroup")
+@paint
 brush PolyGroup {
   attr face int group;
   // Active group id, set host-side per stroke: a fresh incremented id for a

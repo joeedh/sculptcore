@@ -1,4 +1,5 @@
 @brush("mask")
+@paint
 brush Mask {
   vertex void apply(inout Vertex v) {
     float s = strength(v.co);

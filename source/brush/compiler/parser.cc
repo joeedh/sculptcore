@@ -95,20 +95,34 @@ struct Parser {
     brush->sourceFile = filename;
     currentBrush = brush.get();
 
-    // optional @brush("name")
-    if (match(TokKind::At)) {
-      // `brush` is a keyword, so the lexer emits KwBrush here, not Ident.
-      if (!match(TokKind::KwBrush)) {
-        error("expected 'brush' after '@'", peek());
-      }
-      expect(TokKind::LParen, "after @brush");
-      if (check(TokKind::StringLit)) {
-        brush->attrName = peek().text;
+    // Leading brush attributes: `@brush("name")` plus optional `@global` /
+    // `@paint` markers (see plans/nonAccumMode.md). `brush` is a keyword so
+    // it lexes as KwBrush; `global`/`paint` lex as plain Ident.
+    while (match(TokKind::At)) {
+      if (match(TokKind::KwBrush)) {
+        expect(TokKind::LParen, "after @brush");
+        if (check(TokKind::StringLit)) {
+          brush->attrName = peek().text;
+          advance();
+        } else {
+          error("expected string after @brush(", peek());
+        }
+        expect(TokKind::RParen, "after @brush(...");
+      } else if (check(TokKind::Ident)) {
+        const Token &attrTok = peek();
+        string attr = attrTok.text;
         advance();
+        if (attr.operator==(string("global"))) {
+          brush->isGlobal = true;
+        } else if (attr.operator==(string("paint"))) {
+          brush->isPaint = true;
+        } else {
+          errorf(attrTok, "unknown brush attribute '%s'", attr.c_str());
+        }
       } else {
-        error("expected string after @brush(", peek());
+        error("expected 'brush', 'global', or 'paint' after '@'", peek());
+        break;
       }
-      expect(TokKind::RParen, "after @brush(...");
     }
 
     if (!expect(TokKind::KwBrush, "at start of brush declaration")) return brush;

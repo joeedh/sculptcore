@@ -3,6 +3,7 @@
 // of DSL attribute writes (`attr vertex float4 color`); the brush-color uniform,
 // blend modes, and per-corner colors arrive in the paint-brush wave.
 @brush("color")
+@paint
 brush Color {
   attr vertex float4 color;
 

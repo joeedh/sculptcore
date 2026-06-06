@@ -1,5 +1,6 @@
 #pragma once
 
+#include "accum_mode.h"
 #include "brush.h"
 #include "brush_concepts.h"
 #include "mesh/mesh.h"
@@ -118,6 +119,14 @@ struct CommandCtxBase {
   // looked up by handle in generated kernels via boundAttr<T>().
   const BrushAttrBindings *attrBindings = nullptr;
 
+  // Non-accumulate cache (see plans/nonAccumMode.md). When a stroke runs in
+  // non-accumulate mode, `origCo`/`origGen` are the `.brush.orig.*` TEMP vertex
+  // attrs that snapshot each vert's stroke-start position; a vert's cached pos
+  // is valid iff origGen[v] == strokeGen. Null in accumulate mode.
+  mesh::AttrData<litestl::math::float3> *origCo = nullptr;
+  mesh::AttrData<int> *origGen = nullptr;
+  uint32_t strokeGen = 0;
+
   // Fetch a bound non-bool attribute's data by kernel handle. Returns nullptr
   // when unbound (an optional layer that was absent); write kernels always
   // declare their target, so it's non-null there.
@@ -138,23 +147,28 @@ struct CommandCtxBase {
 template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   Brush &brush;
   spatial::SpatialNode &node;
-  TYPES::vertex_iter_factory &vertexIter;
-  TYPES::face_iter_factory &faceIter;
+  TYPES &executor;
 
   CommandCtx(const CommandCtxBase &base,
              spatial::SpatialNode &node,
-             TYPES::vertex_iter_factory &vertexIter,
-             TYPES::face_iter_factory &faceIter,
+             TYPES &executor,
              Brush &brush)
-      : CommandCtxBase(base), node(node), vertexIter(vertexIter), faceIter(faceIter),
-        brush(brush)
+      : CommandCtxBase(base), node(node), executor(executor), brush(brush)
   {
   }
   CommandCtx(const CommandCtx &b)
-      : CommandCtxBase(b), node(b.node), vertexIter(b.vertexIter), faceIter(b.faceIter),
-        brush(b.brush)
+      : CommandCtxBase(b), node(b.node), executor(b.executor), brush(b.brush)
   {
   }
+
+  // Per-call iterator factories. The vertex iterator is parameterized by the
+  // AccumMode policy so a generated kernel reads stroke-start positions
+  // (AccumOrig) or live positions (AccumLive) with no per-vertex branch.
+  template <class AccMode> auto vertexIter(spatial::SpatialNode &node)
+  {
+    return executor.template makeVertexIter<AccMode>(node);
+  }
+  auto faceIter(spatial::SpatialNode &node) { return executor.makeFaceIter(node); }
   float strength(float3 co)
   {
     float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
@@ -222,6 +236,10 @@ template <typename CTX> struct BrushCommandDef {
   // Set by codegen for brushes that use for_neighbor: the executor snapshots
   // the mesh's vertex positions into ctx.co_prev before the per-node loop.
   bool needsCoPrev = false;
+  // Set by codegen: true for local deformation brushes (neither @global nor
+  // @paint), which are eligible for non-accumulate mode. See
+  // plans/nonAccumMode.md.
+  bool accumulable = false;
   // Attribute layers this kernel reads/writes, emitted by codegen. The executor
   // resolves these to live mesh layers and binds them before the per-node loop.
   Vector<BrushAttrManifestEntry> attrs;

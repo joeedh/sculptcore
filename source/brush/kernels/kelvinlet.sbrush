@@ -10,6 +10,7 @@
 // (which need BVH queries) wait for Wave 4b.
 
 @brush("kelvinlet")
+@global
 brush Kelvinlet {
   // Material parameters near "soft rubber" (mu=1, nu=0.4); higher mu =
   // stiffer falloff, nu near 0.5 = nearly incompressible. The `@range`s

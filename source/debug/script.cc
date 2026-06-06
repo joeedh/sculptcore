@@ -306,6 +306,7 @@ bool execVerb(Scene &scene,
     scene.brush.strength = getFloat(args, "strength", scene.brush.strength);
     scene.brush.spacing = getFloat(args, "spacing", scene.brush.spacing);
     scene.brush.invert = getBool(args, "invert", scene.brush.invert);
+    scene.nonAccum = getBool(args, "nonaccum", scene.nonAccum);
     scene.brush.writeProps();
     return true;
   }
@@ -772,6 +773,13 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
+      /* One stroke verb = one stroke: bump the non-accumulate generation once so
+       * `repeat`ed dabs below share a stamp (and converge), while a later stroke
+       * verb re-stamps. nonAccumGen also keeps dyntopo's snapshot coherent. */
+      uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
+      scene.dyntopoParams.nonAccumGen = gen;
+      int repeat = getInt(args, "repeat", 1);
+      if (repeat < 1) repeat = 1;
       /* Dyntopo pre-pass: remesh under the dab before the brush filters nodes;
        * the tree is updated incrementally via the mesh callbacks (M7.6), not
        * rebuilt. Logged as its own undo step (the brush deform is a separate step
@@ -789,8 +797,13 @@ bool execVerb(Scene &scene,
         if (scene.useCsrNeighbors) {
           exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
         }
+        exec.setNonAccum(scene.nonAccum);
+        exec.setStrokeGen(int(gen));
         exec.beginStep();
-        exec.execBrush(scene.currentTool, &nodes, origin, normal);
+        for (int i = 0; i < repeat; i++) {
+          exec.execBrush(scene.currentTool, &nodes, origin, normal);
+          exec.clearIsFirstOfStep();
+        }
         exec.endStep();
       }
     }
@@ -870,6 +883,10 @@ bool execVerb(Scene &scene,
        * the spatial tree incrementally via the mesh callbacks (M7.6), not a
        * rebuild. Folding this pre-pass and the brush deform into one undo step
        * (they are two steps today) is the remaining follow-up. */
+      /* A path is one stroke: bump the non-accumulate generation once for the
+       * whole sequence so every dab measures from the same stroke-start snapshot. */
+      uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
+      scene.dyntopoParams.nonAccumGen = gen;
       if (scene.dyntopoEnabled) {
         for (size_t i = 0; i < origins.size(); i++) {
           scene.applyDynTopoDab(origins[i], scene.brush.radius,
@@ -879,6 +896,8 @@ bool execVerb(Scene &scene,
       brush::CommandExecutor exec(scene.tree, &scene.brush);
       exec.meshLog = &scene.meshLog;
       exec.ctx.renderMatrix = scene.renderMatrix;
+      exec.setNonAccum(scene.nonAccum);
+      exec.setStrokeGen(int(gen));
       exec.beginStep();
       for (size_t i = 0; i < origins.size(); i++) {
         Vector<spatial::SpatialNode *> nodes;

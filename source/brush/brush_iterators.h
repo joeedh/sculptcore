@@ -1,16 +1,24 @@
 #pragma once
 
+#include "accum_mode.h"
 #include "brush_concepts.h"
 #include "spatial/node.h"
 
 namespace sculptcore::brush {
 
 struct CommandExecutor;
-struct BasicVertexIter {
+
+// Per-vertex iteration for `vertex` stage kernels, parameterized by the
+// AccumMode policy (see accum_mode.h). The bundle's `co` is a CoProxy<AccMode>:
+// under AccumLive it is a thin reference to the live position; under AccumOrig
+// it reads each vert's stroke-start snapshot until the first write. The
+// stroke-start cache (`origCo`/`origGen` TEMP attrs + `strokeGen`) is threaded
+// in from the executor; all three are null/0 under AccumLive.
+template <class AccMode> struct BasicVertexIter {
   using sub_iterator = util::OrderedSet<int>::iterator;
 
   struct PtrHelper {
-    float3 &co;
+    CoProxy<AccMode> co;
     float3 &no;
     float &mask;
     int v;
@@ -18,8 +26,9 @@ struct BasicVertexIter {
 
     CommandExecutor &ctx;
 
-    PtrHelper(float3 &co_, float3 &no_, float &mask_, int v, CommandExecutor &ctx)
-        : co(co_), no(no_), mask(mask_), v(v), ctx(ctx)
+    PtrHelper(float3 &co_, const float3 *base_, float3 &no_, float &mask_, int v,
+              CommandExecutor &ctx)
+        : co{co_, base_}, no(no_), mask(mask_), v(v), ctx(ctx)
     {
     }
     PtrHelper(const PtrHelper &b)
@@ -29,30 +38,52 @@ struct BasicVertexIter {
   };
 
   CommandExecutor &ctx;
+  mesh::AttrData<float3> *origCo;
+  mesh::AttrData<int> *origGen;
+  uint32_t strokeGen;
   PtrHelper ptrs;
   spatial::SpatialNode &node;
 
+  // The non-accumulate base position for vert v: its stroke-start snapshot when
+  // stamped this stroke (origGen[v] == strokeGen), else the live position.
+  // Compiles to just the live position under AccumLive.
+  const float3 *baseFor(mesh::Mesh *m, int v)
+  {
+    if constexpr (AccMode::reads_base) {
+      if (origGen && origGen->safe_get(v) == int(strokeGen)) {
+        return &(*origCo)[v];
+      }
+    }
+    return &m->v.co[v];
+  }
+
   /** Note: do not ever create a vertex iter on an empty node with no vertices! */
-  BasicVertexIter(spatial::SpatialNode &node, CommandExecutor &ctx)
-      : node(node), iter(node.data->unique_verts.begin()),
-        start_iter(node.data->unique_verts.begin()),
-        end_iter(node.data->unique_verts.end()),
+  BasicVertexIter(spatial::SpatialNode &node, CommandExecutor &ctx,
+                  mesh::AttrData<float3> *origCo, mesh::AttrData<int> *origGen,
+                  uint32_t strokeGen)
+      : ctx(ctx), origCo(origCo), origGen(origGen), strokeGen(strokeGen),
         ptrs(node.data->m->v.co[*node.data->unique_verts.begin()],
+             baseFor(node.data->m, *node.data->unique_verts.begin()),
              node.data->m->v.no[*node.data->unique_verts.begin()],
              node.treeMesh->v.mask[*node.data->unique_verts.begin()],
-             *node.data->unique_verts.begin(),
-             ctx),
-        ctx(ctx)
+             *node.data->unique_verts.begin(), ctx),
+        node(node), iter(node.data->unique_verts.begin()),
+        start_iter(node.data->unique_verts.begin()),
+        end_iter(node.data->unique_verts.end())
   {
   }
 
   BasicVertexIter(const BasicVertexIter &b)
-      : node(b.node), iter(b.iter), start_iter(b.start_iter), end_iter(b.end_iter),
-        _nodeIndex(b._nodeIndex), ptrs(b.ptrs), ctx(b.ctx)
+      : ctx(b.ctx), origCo(b.origCo), origGen(b.origGen), strokeGen(b.strokeGen),
+        ptrs(b.ptrs), node(b.node), iter(b.iter), start_iter(b.start_iter),
+        end_iter(b.end_iter), _nodeIndex(b._nodeIndex)
   {
   }
 
-  BasicVertexIter(spatial::SpatialNode &node, sub_iterator iter, CommandExecutor &ctx) : BasicVertexIter(node, ctx)
+  BasicVertexIter(spatial::SpatialNode &node, sub_iterator iter, CommandExecutor &ctx,
+                  mesh::AttrData<float3> *origCo, mesh::AttrData<int> *origGen,
+                  uint32_t strokeGen)
+      : BasicVertexIter(node, ctx, origCo, origGen, strokeGen)
   {
     this->iter = iter;
   }
@@ -81,7 +112,8 @@ struct BasicVertexIter {
       int i = *iter;
 
       ptrs.~PtrHelper();
-      new (&ptrs) PtrHelper(m->v.co[i], m->v.no[i], node.treeMesh->v.mask[i], i, ctx);
+      new (&ptrs) PtrHelper(m->v.co[i], baseFor(m, i), m->v.no[i],
+                            node.treeMesh->v.mask[i], i, ctx);
       ptrs.indexInNode = _nodeIndex++;
     }
 
@@ -90,12 +122,12 @@ struct BasicVertexIter {
 
   BasicVertexIter begin()
   {
-    return BasicVertexIter(node, start_iter, ctx);
+    return BasicVertexIter(node, start_iter, ctx, origCo, origGen, strokeGen);
   }
 
   BasicVertexIter end()
   {
-    return BasicVertexIter(node, end_iter, ctx);
+    return BasicVertexIter(node, end_iter, ctx, origCo, origGen, strokeGen);
   }
 
 private:

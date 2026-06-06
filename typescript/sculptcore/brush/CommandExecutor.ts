@@ -53,6 +53,8 @@ export interface CommandExecutor {
   endDynTopoStroke(): void
   clearIsFirstOfStep(): void
   setNeighborMode(mode: int32): void
+  setNonAccum(nonAccum: boolean): void
+  setStrokeGen(gen: int32): void
   lastUniformValidationOk(): boolean
   queryUniformManifest(brushType: int32): int32
   queriedUniformEntry(idx: int32): BrushUniformManifestEntry | undefined

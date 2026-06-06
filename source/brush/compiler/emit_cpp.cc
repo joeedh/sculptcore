@@ -524,10 +524,11 @@ struct Emit {
       out += "for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {\n";
       indent++;
       writeIndent();
-      // Neighbor co reads the pre-dab snapshot (Jacobi); no/v stay live.
-      out += "struct { litestl::math::float3 &co; litestl::math::float3 &no; int v; } ";
+      // Neighbor co reads via the AccumMode policy: the pre-dab Jacobi snapshot
+      // (AccumLive) or the stroke-start position (AccumOrig); no/v stay live.
+      out += "struct { const litestl::math::float3 &co; litestl::math::float3 &no; int v; } ";
       out += s.name;
-      out += " {(*ctx.co_prev)[__nb_v], __m->v.no[__nb_v], __nb_v};\n";
+      out += " {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};\n";
       // Body: emit either a Block (inline) or a single statement.
       int savedLocals = (int)locals.size();
       locals.append(s.name);
@@ -762,7 +763,9 @@ struct Emit {
   // stage yet (poly-group paint needs none).
   void emitFaceKernel(const string &lowerName)
   {
-    write("template <CommandTypes TYPES>\n");
+    // AccMode is unused by the face stage (no vertex proxy / for_neighbor) but
+    // is part of the signature so the create-fn can stamp def.exec uniformly.
+    write("template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>\n");
     write("static void ");
     write(lowerName);
     write("(CommandCtx<TYPES> &ctx)\n");
@@ -928,9 +931,10 @@ struct Emit {
     }
 
     if (usesNbr) {
-      write("template <CommandTypes TYPES, sculptcore::brush::NbrSource NbrSrc>\n");
+      write("template <CommandTypes TYPES, sculptcore::brush::NbrSource NbrSrc, "
+            "sculptcore::brush::AccumMode AccMode>\n");
     } else {
-      write("template <CommandTypes TYPES>\n");
+      write("template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>\n");
     }
     write("static void ");
     write(lowerName);
@@ -1005,7 +1009,7 @@ struct Emit {
 
     write("  for (auto &");
     write(vertexParamName);
-    write(" : ctx.vertexIter(ctx.node)) {\n");
+    write(" : ctx.template vertexIter<AccMode>(ctx.node)) {\n");
     indent = 2;
     currentStage = vertexStage;
 
@@ -1047,9 +1051,11 @@ struct Emit {
     // walk) through to the kernel instantiation assigned to def.exec.
     if (usesNbr) {
       write("template <CommandTypes TYPES, sculptcore::brush::NbrSource NbrSrc = "
-            "sculptcore::brush::LiveDiskNbr>\n");
+            "sculptcore::brush::LiveDiskNbr, "
+            "sculptcore::brush::AccumMode AccMode = sculptcore::brush::AccumLive>\n");
     } else {
-      write("template <CommandTypes TYPES>\n");
+      write("template <CommandTypes TYPES, "
+            "sculptcore::brush::AccumMode AccMode = sculptcore::brush::AccumLive>\n");
     }
     write("static void create");
     write(camelName);
@@ -1071,14 +1077,20 @@ struct Emit {
     write(lowerName); write("Pre<TYPES>;\n");
     write("  def.exec     = ");
     write(lowerName);
-    if (usesNbr) write("<TYPES, NbrSrc>;\n");
-    else write("<TYPES>;\n");
+    if (usesNbr) write("<TYPES, NbrSrc, AccMode>;\n");
+    else write("<TYPES, AccMode>;\n");
     write("  def.execPost = ");
     write(lowerName); write("Post<TYPES>;\n");
     // for_neighbor reads ctx.co_prev — tell the executor to snapshot it.
     if (neighborLoopUsed) {
       write("  def.needsCoPrev = true;\n");
     }
+    // Non-accumulate eligibility (see plans/nonAccumMode.md): a local deformation
+    // brush (neither @global nor @paint) is accumulable; the executor runs its
+    // AccumOrig instantiation when non-accumulate mode is on for the stroke.
+    write("  def.accumulable = ");
+    write((!brush->isGlobal && !brush->isPaint) ? "true" : "false");
+    write(";\n");
     // Declared attribute layers — resolved + bound per dab by the executor.
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Attr) continue;

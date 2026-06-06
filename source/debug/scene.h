@@ -114,6 +114,13 @@ struct Scene {
   dyntopo::DynTopoParams dyntopoParams;
   uint32_t dyntopoSeed = 1;
 
+  /* Non-accumulate sculpt mode (plans/nonAccumMode.md): deform dabs measure from
+   * each vert's stroke-start position. `strokeGen` is bumped once per stroke verb
+   * (so prior strokes' `.brush.orig.*` snapshots never collide) and pushed to the
+   * executor + DynTopoParams.nonAccumGen. */
+  bool nonAccum = false;
+  uint32_t strokeGen = 0;
+
   void setMesh(mesh::Mesh *m);
   void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);
 

@@ -1,0 +1,173 @@
+// Non-accumulate brush mode (plans/nonAccumMode.md): within a stroke, deform
+// dabs measure from each vertex's stroke-start position, so repeated passes
+// converge instead of stacking. This drives the C++ executor's AccumOrig path
+// through the debug-app script harness (`set_brush nonaccum=1`, `stroke
+// repeat=N`) and asserts the three plan invariants:
+//   (a) saturation   — non-accum repeat=8 ~= repeat=1 (one dab's push), while
+//                       accumulate repeat=8 grows well past it;
+//   (b) base fallback — a non-accum smooth stroke leaves unstamped neighbors
+//                       reading their live position (no collapse toward origin);
+//   (c) cross-stroke  — four separate non-accum strokes (generation bumps each)
+//                       grow past a single repeat=4 stroke (old stamps ignored).
+#include "test_util.h"
+
+#include "debug/scene.h"
+#include "debug/script.h"
+
+#include "mesh/mesh.h"
+
+#include <cmath>
+#include <cstdio>
+#include <string>
+
+test_init;
+
+using namespace sculptcore::debug_app;
+using namespace sculptcore::mesh;
+using namespace litestl::math;
+
+// Build a fresh subdivided cube, run `strokeScript` (the per-test stroke lines),
+// and return the peak outward push of a +Z draw stroke: the +Z face rests at
+// z=0.25, so the answer is max(co.z) - 0.25.
+static float drawPush(const char *strokeScript)
+{
+  Scene scene(256, 256, /*headless=*/true);
+  std::string src =
+      "make_cube subdivs=12 size=0.5\n"
+      "build_spatial leaf_limit=256 depth_limit=8\n"
+      "set_brush_tool tool=draw\n"
+      "set_backend backend=cpp\n";
+  src += strokeScript;
+  auto r = script::run(scene, src.c_str(), ".");
+  test_assert(r.ok);
+  if (!r.ok) {
+    fprintf(stderr, "  line %d: %s\n", r.line_no, r.error.c_str());
+    return 0.0f;
+  }
+  Mesh *m = scene.mesh;
+  float maxz = -1e30f;
+  for (int i = 0; i < m->v.count; i++) {
+    maxz = std::fmax(maxz, m->v.co[i][2]);
+  }
+  return maxz - 0.25f;
+}
+
+int main()
+{
+  setvbuf(stdout, nullptr, _IONBF, 0);
+
+  // (a) Saturation. The draw kernel pushes v.co by surfaceNo*strength(v.co)*r/2.
+  // Under AccumOrig, strength() reads the stroke-start position, so every dab in
+  // one stroke computes the same offset from the same base => repeated dabs land
+  // on the identical result (exact convergence). Accumulate re-reads the live
+  // (already-pushed) position each dab, so it keeps climbing.
+  float na1 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1 repeat=1\n");
+  float na8 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1 repeat=8\n");
+  float ac8 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=0\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1 repeat=8\n");
+  fprintf(stderr, "(a) na1=%.5f na8=%.5f ac8=%.5f\n", na1, na8, ac8);
+  test_assert(na1 > 0.0f);                       // the dab actually pushed
+  test_assert(std::fabs(na8 - na1) < 1e-4f);     // non-accum saturates
+  test_assert(ac8 > na8 * 1.5f);                 // accumulate keeps growing
+
+  // (c) Cross-stroke. Each `stroke` verb bumps the non-accumulate generation, so
+  // a fresh stroke re-stamps every vert at its current (already-pushed) position
+  // and measures anew from there. Four separate strokes therefore grow past one
+  // repeat=4 stroke (which shares a single generation and saturates like (a)).
+  float na_rep4 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                           "stroke origin=0,0,0.25 normal=0,0,1 repeat=4\n");
+  float na_x4 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                         "stroke origin=0,0,0.25 normal=0,0,1\n"
+                         "stroke origin=0,0,0.25 normal=0,0,1\n"
+                         "stroke origin=0,0,0.25 normal=0,0,1\n"
+                         "stroke origin=0,0,0.25 normal=0,0,1\n");
+  fprintf(stderr, "(c) na_rep4=%.5f na_x4=%.5f\n", na_rep4, na_x4);
+  test_assert(std::fabs(na_rep4 - na1) < 1e-4f); // one stroke still saturates
+  test_assert(na_x4 > na_rep4 * 1.5f);           // old stamps ignored across strokes
+
+  // (b) Base fallback. A non-accum smooth on the flat +Z face: stamped verts
+  // hold orig==live==0.25 and unstamped neighbors (outside the dab) must read
+  // their live z=0.25. If the fallback wrongly returned the unmaterialized
+  // orig.co (0), the neighbor average would drag the face inward toward the
+  // origin. Confirm the interior face verts stay put (no collapse) and finite.
+  {
+    Scene scene(256, 256, /*headless=*/true);
+    auto r = script::run(scene,
+                         "make_cube subdivs=12 size=0.5\n"
+                         "build_spatial leaf_limit=256 depth_limit=8\n"
+                         "set_backend backend=cpp\n"
+                         "set_brush_tool tool=smooth\n"
+                         "set_brush radius=0.25 strength=0.9 nonaccum=1\n"
+                         "stroke origin=0,0,0.25 normal=0,0,1 repeat=4\n",
+                         ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  (b) line %d: %s\n", r.line_no, r.error.c_str());
+      return 1;
+    }
+    Mesh *m = scene.mesh;
+    float minInteriorZ = 1e30f;
+    bool allFinite = true;
+    int interior = 0;
+    for (int i = 0; i < m->v.count; i++) {
+      float3 co = m->v.co[i];
+      allFinite &= std::isfinite(co[0]) && std::isfinite(co[1]) && std::isfinite(co[2]);
+      // Interior +Z-face verts: well inside the dab, away from the cube edges.
+      if (std::fabs(co[0]) < 0.18f && std::fabs(co[1]) < 0.18f && co[2] > 0.15f) {
+        minInteriorZ = std::fmin(minInteriorZ, co[2]);
+        interior++;
+      }
+    }
+    fprintf(stderr, "(b) interior=%d minInteriorZ=%.5f finite=%d\n", interior,
+            minInteriorZ, int(allFinite));
+    test_assert(allFinite);            // no NaN/inf from a bad base read
+    test_assert(interior > 0);         // we actually sampled the face
+    test_assert(minInteriorZ > 0.2f);  // face held its z (no inward collapse)
+  }
+
+  // (d) Dyntopo coherence. detail=0.08 is coarser than the base cube's ~0.042
+  // edges, so dyntopo *collapses* under the dab; with tangential smooth on too,
+  // both the collapse-survivor and smooth coherence shifts in dyntopo.h fire.
+  // Each shifts a stamped vert's stroke-start snapshot by the same delta the op
+  // moves it, so the non-accum draw keeps measuring from a coherent surface. If
+  // those shifts were missing the verts would "snap back" each dab and the push
+  // would run away (or NaN). Assert the dab remeshed the surface yet the push
+  // stays finite and bounded well under the accumulate envelope from (a) — in
+  // fact it lands on the same saturated push as the non-dyntopo run.
+  {
+    Scene scene(256, 256, /*headless=*/true);
+    auto r = script::run(scene,
+                         "make_cube subdivs=12 size=0.5\n"
+                         "build_spatial leaf_limit=256 depth_limit=8\n"
+                         "set_backend backend=cpp\n"
+                         "dyntopo enabled=1 detail=0.08 flip=1 smooth=1\n"
+                         "set_brush_tool tool=draw\n"
+                         "set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                         "stroke origin=0,0,0.25 normal=0,0,1 repeat=6\n",
+                         ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  (d) line %d: %s\n", r.line_no, r.error.c_str());
+      return 1;
+    }
+    Mesh *m = scene.mesh;
+    float maxz = -1e30f;
+    bool allFinite = true;
+    for (int i = 0; i < m->v.count; i++) {
+      float3 co = m->v.co[i];
+      allFinite &= std::isfinite(co[0]) && std::isfinite(co[1]) && std::isfinite(co[2]);
+      maxz = std::fmax(maxz, co[2]);
+    }
+    float push = maxz - 0.25f;
+    fprintf(stderr, "(d) verts=%d push=%.5f finite=%d\n", m->v.count, push,
+            int(allFinite));
+    test_assert(allFinite);            // coherent snapshot => no NaN/runaway
+    test_assert(m->v.count < 866);     // dab remeshed (collapsed; cube starts at 866)
+    test_assert(push > 0.0f);          // the draw moved the surface out
+    test_assert(push < ac8);           // bounded: no snap-back accumulation
+  }
+
+  return test_end();
+}

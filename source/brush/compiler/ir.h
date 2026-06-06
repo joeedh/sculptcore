@@ -241,6 +241,12 @@ struct Brush {
   Vector<TextureDef> textures;
   Vector<Stage> stages;
   string sourceFile;
+  // Leading `@global` / `@paint` brush attributes. A brush that is neither is a
+  // local deformation brush and is non-accumulate-eligible (codegen emits
+  // def.accumulable); global (whole-mesh) and paint (attribute-write) brushes
+  // always take the accumulate path. See plans/nonAccumMode.md.
+  bool isGlobal = false;
+  bool isPaint = false;
 };
 
 } // namespace sculptcore::brush::sbrush

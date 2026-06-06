@@ -109,6 +109,14 @@ struct DynTopoParams {
    * collinear feature curve. Off = the original feature-agnostic remesh. */
   bool preserve_features = true;
 
+  /* Non-accumulate coherence (see plans/nonAccumMode.md). 0 = off. When non-zero
+   * this is the active stroke's generation stamp: remesh operators that move a
+   * stamped vert (smooth Jacobi step, collapse-into-survivor) also shift its
+   * `.brush.orig.co` snapshot by the same delta, so the brush keeps measuring
+   * from a coherent stroke-start surface as topology changes under the dab. New
+   * verts created mid-dab are left unstamped (gen 0) so they read live. */
+  uint32_t nonAccumGen = 0;
+
   /* Bound out-of-line in dyntopo/bindings.cc (keeps binding headers out of this
    * hot header). Crosses the WASM/N-API seam by value, so the struct registers a
    * copy constructor there. */
@@ -515,6 +523,27 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   detail::FeatureViews feat;
   feat.init(m, p.preserve_features);
 
+  /* Non-accumulate coherence (plans/nonAccumMode.md). When this dab is part of a
+   * non-accumulate stroke (p.nonAccumGen != 0), the brush command owns the
+   * stroke-start snapshot attrs; look them up (non-creating) so the smooth /
+   * collapse ops below can shift a stamped vert's snapshot by the same delta they
+   * move the vert. Verts split/collapse creates are zero-defaulted by ElemData::
+   * alloc (gen 0 = unstamped), so they read live with no work here. */
+  mesh::AttrData<litestl::math::float3> *origCo = nullptr;
+  mesh::AttrData<int> *origGen = nullptr;
+  if (p.nonAccumGen != 0 && m.v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
+      m.v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen")) {
+    origCo = m.v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co")
+                 .get_data<litestl::math::float3>();
+    origGen = m.v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen")
+                  .get_data<int>();
+  }
+  auto shiftOrig = [&](int v, litestl::math::float3 delta) {
+    if (origGen && origGen->safe_get(v) == int(p.nonAccumGen)) {
+      (*origCo)[v] += delta;
+    }
+  };
+
   /* Split / flip / smooth are triangle-only; dyntopo dynamically triangulates any
    * non-triangle face it encounters in the region first (incl. the graded-target
    * faces — already tris — and any imported/procedural n-gon). Fan-triangulate
@@ -731,10 +760,16 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         }
       } else {
         math::float3 mid = detail::edgeMid(m, c.edge);
+        /* The survivor (e.vs[0]) moves to `mid`; shift its stroke-start snapshot
+         * by the same delta so a non-accumulate brush keeps measuring from a
+         * coherent surface across the collapse (no-op unless stamped). */
+        int v_keep = m.e.vs[c.edge][0];
+        math::float3 keepOld = m.v.co[v_keep];
         mesh::EdgeCollapseResult res;
         if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb)) {
           stats.collapses++;
           applied++;
+          shiftOrig(v_keep, mid - keepOld);
           addCreated(res.created_edges);
         }
       }
@@ -807,6 +842,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         }
       }
       for (int i = 0; i < int(sverts.size()); i++) {
+        shiftOrig(sverts[i], spos[i] - m.v.co[sverts[i]]);
         m.v.co[sverts[i]] = spos[i];
       }
       stats.smooths += int(sverts.size());

@@ -6,6 +6,9 @@
 // backends produce the same gradient. Here the field is a concentric
 // ripple in object space; pushing along its gradient ridges the surface.
 
+// Not in the SculptBrushes enum (compiler-only demo), so its `accumulable` bit is
+// never dispatched. If promoted, exclude it from non-accumulate mode: grad() over
+// v.co is incompatible with the base-read proxy (plans/nonAccumMode.md).
 @brush("graddraw")
 brush GradDraw {
   ctx float3 surfaceNo;

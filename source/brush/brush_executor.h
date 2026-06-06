@@ -150,7 +150,10 @@ struct BrushProgram {
 };
 
 struct CommandExecutor {
-  using vertex_iter = BasicVertexIter;
+  // vertex_iter names the AccumLive instantiation so the CommandTypes concept
+  // and the factory typedefs are valid type-ids; the generated kernels pick the
+  // AccumMode per command via makeVertexIter<AccMode>.
+  using vertex_iter = BasicVertexIter<AccumLive>;
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
   using face_iter = BasicFaceIter;
   using face_iter_factory = std::function<face_iter(spatial::SpatialNode &)>;
@@ -172,6 +175,12 @@ struct CommandExecutor {
    * dab. Brushes that already need live links thaw regardless. */
   bool keepTopoThawed = false;
   NeighborMode neighborMode = NeighborMode::LiveDisk;
+  // Non-accumulate mode (see plans/nonAccumMode.md). When `nonAccum` is set and a
+  // command is accumulable, the executor stamps each in-region vert's stroke-start
+  // position into `.brush.orig.*` (keyed by `strokeGen`) and runs the AccumOrig
+  // kernel instantiation so deformation is measured from that snapshot.
+  bool nonAccum = false;
+  uint32_t strokeGen = 0;
   meshlog::MeshLog *meshLog = nullptr;
   /* Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
    * dab and accumulated per stroke). */
@@ -211,6 +220,8 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
+    BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
+    BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
     BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
     BIND_STRUCT_METHOD(st, queriedUniformEntry, MARGS("idx"));
@@ -244,83 +255,100 @@ struct CommandExecutor {
     neighborMode = static_cast<NeighborMode>(mode);
   }
 
-  auto createIterFactory()
+  // Enable non-accumulate mode for the upcoming stroke, and set its generation
+  // stamp (a monotonic per-stroke counter; must be non-zero, since the
+  // `.brush.orig.gen` attr defaults to 0 = "not stamped this stroke").
+  void setNonAccum(bool v) { nonAccum = v; }
+  void setStrokeGen(int gen) { strokeGen = uint32_t(gen); }
+
+  // Per-call iterator factories used by CommandCtx::vertexIter/faceIter. The
+  // vertex iterator is parameterized by the AccumMode policy and threaded the
+  // stroke-start cache (null/0 unless non-accumulate is active for this dab).
+  template <class AccMode> BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
   {
-    return [this](spatial::SpatialNode &node) -> vertex_iter {
-      return vertex_iter(node, *this);
-    };
+    return BasicVertexIter<AccMode>(node, *this, ctx.origCo, ctx.origGen, ctx.strokeGen);
+  }
+  BasicFaceIter makeFaceIter(spatial::SpatialNode &node)
+  {
+    return BasicFaceIter(node, *this);
   }
 
-  auto createFaceIterFactory()
+  // Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
+  // calls this once for AccumLive, then again for AccumOrig when non-accumulate
+  // is active and the brush is accumulable — the second call overwrites def.exec
+  // with the AccumOrig kernel while keeping the rest of the (identical) manifest.
+  template <class AccMode>
+  void createCommandImpl(SculptBrushes brushType, brush_command &def)
   {
-    return [this](spatial::SpatialNode &node) -> face_iter {
-      return face_iter(node, *this);
-    };
-  }
-
-  brush_command createCommand(SculptBrushes brushType)
-  {
-    brush_command def;
-
     switch (brushType) {
     case SculptBrushes::DRAW:
-      command::createDrawBrush(def);
-      return def;
+      command::createDrawBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::INFLATE:
-      command::createInflateBrush(def);
-      return def;
+      command::createInflateBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::CLAY:
     case SculptBrushes::SCRAPE:
     case SculptBrushes::FILL:
       // Clay-family plane brushes share one kernel; the bridge sets
       // planeoff/planeSide per tool to select build-up / cut / fill.
-      command::createPlaneBrush(def);
-      return def;
+      command::createPlaneBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::WINGSCRAPE:
-      command::createWingscrapeBrush(def);
-      return def;
+      command::createWingscrapeBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::PINCH:
-      command::createPinchBrush(def);
-      return def;
+      command::createPinchBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::SHARP:
-      command::createSharpBrush(def);
-      return def;
+      command::createSharpBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::MASK:
-      command::createMaskBrush(def);
-      return def;
+      command::createMaskBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::SMOOTH:
       if (neighborMode == NeighborMode::Csr) {
-        command::createSmoothBrush<CommandExecutor, CsrNbr>(def);
+        command::createSmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
       } else {
-        command::createSmoothBrush(def);
+        command::createSmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
       }
-      return def;
+      return;
     case SculptBrushes::KELVINLET:
-      command::createKelvinletBrush(def);
-      return def;
+      command::createKelvinletBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::POSE:
-      command::createPoseBrush(def);
-      return def;
+      command::createPoseBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::TEXDRAW:
-      command::createTexdrawBrush(def);
-      return def;
+      command::createTexdrawBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::COLOR:
-      command::createColorBrush(def);
-      return def;
+      command::createColorBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::POLYGROUP:
-      command::createPolygroupBrush(def);
-      return def;
+      command::createPolygroupBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::BSMOOTH:
       if (neighborMode == NeighborMode::Csr) {
-        command::createBsmoothBrush<CommandExecutor, CsrNbr>(def);
+        command::createBsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
       } else {
-        command::createBsmoothBrush(def);
+        command::createBsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
       }
-      return def;
+      return;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
     }
+  }
+
+  brush_command createCommand(SculptBrushes brushType)
+  {
+    brush_command def;
+    createCommandImpl<AccumLive>(brushType, def);
+    if (nonAccum && def.accumulable) {
+      createCommandImpl<AccumOrig>(brushType, def);
+    }
+    return def;
   }
 
   // Map a declared attribute domain to the mesh's element AttrGroup.
@@ -364,9 +392,6 @@ struct CommandExecutor {
             std::span<spatial::SpatialNode *> nodes,
             std::span<const BrushAttrLayerOverride> attrOverrides = {})
   {
-    vertex_iter_factory vertexIterFactory = createIterFactory();
-    face_iter_factory faceIterFactory = createFaceIterFactory();
-
     // Resolve declared attribute layers once per dab (shared across all nodes;
     // the AttrData pointers are mesh-wide and stable for the dab's duration).
     attrBindingStorage.clear();
@@ -452,16 +477,45 @@ struct CommandExecutor {
       }
     }
 
+    // Non-accumulate setup (see plans/nonAccumMode.md): ensure the `.brush.orig.*`
+    // TEMP attrs and stamp each in-region vert's stroke-start position under the
+    // current generation, single-threaded before the parallel loop. A vert is
+    // stamped once per stroke (first contact); later dabs leave the snapshot
+    // alone, so the AccumOrig kernel always measures from the stroke start.
+    ctx.origCo = nullptr;
+    ctx.origGen = nullptr;
+    ctx.strokeGen = 0;
+    if (nonAccum && cmd.accumulable && nodes.size() > 0) {
+      mesh::Mesh *m = nodes[0]->data->m;
+      mesh::AttrRef &coRef = m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.co", false);
+      coRef.flag |= mesh::AttrFlag::TEMP;
+      mesh::AttrRef &genRef = m->v.attrs.ensure(mesh::AttrType::INT, ".brush.orig.gen", false);
+      genRef.flag |= mesh::AttrFlag::TEMP;
+      ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
+      ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
+      ctx.strokeGen = strokeGen;
+      for (auto *node : nodes) {
+        for (int v : node->data->unique_verts) {
+          ctx.origGen->materialize(v);
+          if ((*ctx.origGen)[v] != int(strokeGen)) {
+            ctx.origCo->materialize(v);
+            (*ctx.origCo)[v] = m->v.co[v];
+            (*ctx.origGen)[v] = int(strokeGen);
+          }
+        }
+      }
+    }
+
 #ifdef NO_PARALLEL_FOR
     for (auto *node : nodes) {
-      CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, faceIterFactory, *brush);
+      CommandCtx<CommandExecutor> finalCtx(ctx, *node, *this, *brush);
       cmd.exec(finalCtx);
     }
 #else
     litestl::task::parallel_for(util::IndexRange(nodes.size()), [&](IndexRange range) {
       for (int i : range) {
         SpatialNode *node = nodes[i];
-        CommandCtx<CommandExecutor> finalCtx(ctx, *node, vertexIterFactory, faceIterFactory, *brush);
+        CommandCtx<CommandExecutor> finalCtx(ctx, *node, *this, *brush);
         cmd.exec(finalCtx);
       }
     }, 4);
@@ -882,6 +936,12 @@ struct CommandExecutor {
       return 0;
     }
     mesh::Mesh *m = tree->m;
+
+    // Non-accumulate coherence: tell the remesh ops the active stroke's gen so
+    // they keep each stamped vert's stroke-start snapshot coherent as topology
+    // changes (nonAccumMode.md). Derived from this executor's stroke state, so it
+    // can't drift from the brush command's stamp (both key off strokeGen).
+    params->nonAccumGen = nonAccum ? strokeGen : 0;
 
     // A dyntopo dab mutates topology and walks live disk/radial links; keep the
     // mesh thawed for the whole stroke (endDynTopoStroke releases it).
