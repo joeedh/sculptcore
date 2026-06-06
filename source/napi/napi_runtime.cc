@@ -20,6 +20,7 @@ void *Mesh_createCube(int dimen, float size, float sphereFac);
 void *Mesh_buildSpatialTree(void *mesh, int leafLimit, int depthLimit);
 void SpatialTree_free(void *tree);
 void Mesh_free(void *mesh);
+void Mesh_triangulate(void *mesh);
 // Versioned, lz4hc-compressed mesh blob (source/mesh/c-api/mesh_c_api.cc).
 uint8_t *serializeMesh(void *mesh, int *out_size);
 void *deserializeMesh(const uint8_t *data, int size);
@@ -1261,6 +1262,23 @@ napi_value NapiRuntime::MeshFree(napi_env env, napi_callback_info info) {
   return undef;
 }
 
+// meshTriangulate(mesh) -> void. Fan-triangulates every n-gon in place (the
+// triangulate button / dyntopo-on-quads prep). The caller rebuilds the spatial
+// tree afterwards.
+napi_value NapiRuntime::MeshTriangulate(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *mw = nullptr;
+  if (argc >= 1 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok && mw &&
+      mw->ptr) {
+    Mesh_triangulate(mw->ptr);
+  }
+  return undef;
+}
+
 // meshSerialize(mesh) -> Uint8Array of the versioned, lz4hc-compressed blob.
 // Always copies into a sandbox-internal ArrayBuffer (no zero-copy external view
 // like PointerBytes/VectorView attempt): V8 forbids external buffers in Electron,
@@ -1506,6 +1524,7 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "meshBuildSpatialTree", &NapiRuntime::MeshBuildSpatialTree);
   define(exports, "spatialTreeFree", &NapiRuntime::SpatialTreeFree);
   define(exports, "meshFree", &NapiRuntime::MeshFree);
+  define(exports, "meshTriangulate", &NapiRuntime::MeshTriangulate);
   define(exports, "meshSerialize", &NapiRuntime::MeshSerialize);
   define(exports, "meshDeserialize", &NapiRuntime::MeshDeserialize);
   define(exports, "spatialTreeSetRequestedAttrs", &NapiRuntime::SpatialTreeSetRequestedAttrs);

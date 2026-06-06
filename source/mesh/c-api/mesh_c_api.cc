@@ -3,6 +3,7 @@
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_serialize.h"
+#include "mesh/utils/triangulate.h"
 
 #include <cstdio>
 #include <cstring>
@@ -38,6 +39,25 @@ Mesh *createMesh()
 void freeMesh(Mesh *mesh)
 {
   alloc::Delete<Mesh>(mesh);
+}
+
+/* Fan-triangulate every n-gon of @p mesh in place (via the public Euler ops, so
+ * n_ngon_faces stays current). Triangle-only consumers (dyntopo) then skip their
+ * per-dab triangulate prepass. Does NOT thread MeshCallbacks — callers rebuild
+ * the spatial tree afterwards. No-op-safe on null / already-triangle meshes. */
+void Mesh_triangulate(Mesh *mesh)
+{
+  if (mesh) {
+    (void)triangulateMesh(*mesh);
+  }
+}
+
+/* Live n-gon (>3-sided face) count; 0 == all-triangles. Exact — the counter is
+ * maintained at make_face/kill_face and resynced by recountNgons() on bulk load.
+ * Lets JS gate the triangulate button / dyntopo tip with no face scan. */
+int Mesh_ngonFaceCount(Mesh *mesh)
+{
+  return mesh ? mesh->ngonFaceCount() : 0;
 }
 
 int makeVertex(Mesh *mesh, float x, float y, float z)

@@ -57,6 +57,27 @@ a-priori bottleneck guess was wrong.
    **incremental spatial ownership** (M7.6) and pays a **~68 s** full tree rebuild
    at 5 M instead of 2–11 ms.
 
+4. **Quad input — not dyntopo — is the remaining penalty; the fix is a manual
+   triangulate, not auto-triangulation.** Validated in the native Electron backend
+   on a real ~5 M-tri mesh: an all-triangle mesh sculpts at **~32 fps (≈31.7 ms/
+   dab)**, but a *quad/n-gon* mesh is far slower for two structural reasons — (a)
+   each dab runs a per-region triangulate prepass, and (b) the all-triangles gate
+   (`mesh.n_ngon_faces == 0`, an exact live counter) only fires once the *whole*
+   mesh is triangle, so until then every dab scans its region to find n-gons; on
+   top of that, incrementally triangulating under the dab leaves the quad-built
+   BVH unbalanced. Auto-triangulating on first contact was rejected — a silent,
+   whole-mesh topology change mid-stroke is surprising and not cleanly undoable per
+   dab. Instead triangulation is a **manual, undoable `litemesh.triangulate` ToolOp
+   + header button** that does one clean, *balanced* tree rebuild; a planned
+   viewport footer tip ("large mesh would be faster if triangulated") will surface
+   it on large non-tri meshes (see the TODO in `tools/sculptcore.ts`). Two CPU
+   micro-opts landed alongside: a generation-stamped dense-int membership set
+   (`detail::GenSet`) replaced the per-round `Set<int>` hash sets the profiling
+   pinned as scan/flip/MIS rehash spikes (zero per-dab allocation), and the
+   `n_ngon_faces == 0` gate skips the triangulate prepass wholesale on the common
+   all-triangle dab. The app's default per-dab split budget was also corrected
+   `0` (unlimited — triggered the round-2 cascade) → **1024**.
+
 **Forward GPU guidance (supersedes the §7 staging and §8 bottom line):**
 
 - GPU offload is **no longer a performance requirement.** Treat it as an

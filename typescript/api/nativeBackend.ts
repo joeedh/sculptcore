@@ -68,6 +68,8 @@ export interface NativeAddon {
   spatialTreeFree(tree: NativeBound): void
   /** Free a Mesh created by meshCreateCube. Nulls the wrapper's pointer. */
   meshFree(mesh: NativeBound): void
+  /** Fan-triangulate every n-gon of a Mesh in place (n_ngon_faces -> 0). Rebuild any spatial tree afterwards. */
+  meshTriangulate(mesh: NativeBound): void
   /** Serialize a Mesh to a versioned, lz4hc-compressed blob (copied into a sandbox ArrayBuffer). */
   meshSerialize(mesh: NativeBound): Uint8Array
   /** Reconstruct a Mesh from a meshSerialize blob (Uint8Array). Returns a non-owning wrapper. */

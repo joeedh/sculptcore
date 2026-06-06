@@ -110,6 +110,8 @@ class NapiRuntime {
   static napi_value MeshBuildSpatialTree(napi_env, napi_callback_info);
   static napi_value SpatialTreeFree(napi_env, napi_callback_info);
   static napi_value MeshFree(napi_env, napi_callback_info);
+  // meshTriangulate(mesh) -> void; fan-triangulate every n-gon in place.
+  static napi_value MeshTriangulate(napi_env, napi_callback_info);
   // meshSerialize(mesh) -> Uint8Array; meshDeserialize(bytes) -> Mesh wrapper.
   // The versioned, lz4hc-compressed blob (mesh/c-api serializeMesh/deserializeMesh).
   static napi_value MeshSerialize(napi_env, napi_callback_info);

@@ -492,6 +492,9 @@ bool readMesh(Mesh &mesh, std::istream &in)
   for (int d = 0; d < 5; d++) {
     buildDomain(*eds[d], sm.domains[d]);
   }
+  /* buildDomain bulk-loads faces without make_face, so resync the n-gon counter
+   * dyntopo's triangulate-prepass skip relies on. */
+  mesh.recountNgons();
   return true;
 }
 

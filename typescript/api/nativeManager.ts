@@ -121,6 +121,14 @@ export class NativeManager {
   Mesh_free(mesh: NativeBound): void {
     this.addon.meshFree(mesh)
   }
+  Mesh_triangulate(mesh: NativeBound): void {
+    this.addon.meshTriangulate(mesh)
+  }
+  /** Reflection runtime exposes the `ngonFaceCount()` struct method directly on
+   * the bound mesh wrapper, so this needs no dedicated C-API export. */
+  Mesh_ngonFaceCount(mesh: NativeBound): number {
+    return (mesh as unknown as {ngonFaceCount(): number}).ngonFaceCount()
+  }
   Mesh_serialize(mesh: NativeBound): Uint8Array {
     return this.addon.meshSerialize(mesh)
   }
@@ -219,6 +227,8 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Mesh_buildSpatialTree            : (m: NativeBound, l: number, dp: number) => nm.Mesh_buildSpatialTree(m, l, dp),
     SpatialTree_free                 : (t: NativeBound) => nm.SpatialTree_free(t),
     Mesh_free                        : (m: NativeBound) => nm.Mesh_free(m),
+    Mesh_triangulate                 : (m: NativeBound) => nm.Mesh_triangulate(m),
+    Mesh_ngonFaceCount               : (m: NativeBound) => nm.Mesh_ngonFaceCount(m),
     Mesh_serialize                   : (m: NativeBound) => nm.Mesh_serialize(m),
     Mesh_deserialize                 : (b: Uint8Array) => nm.Mesh_deserialize(b),
     SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>

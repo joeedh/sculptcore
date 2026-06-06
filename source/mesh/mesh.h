@@ -96,6 +96,21 @@ struct Mesh : public MeshBase {
    * Idempotent; a no-op when not frozen. */
   void thawTopo();
 
+  /* Live count of faces with >3 sides. Maintained incrementally by make_face /
+   * kill_face (the only per-face create/destroy choke points), so == 0 is an
+   * exact "mesh is all-triangles" predicate. Bulk loaders (readMesh) bypass
+   * those primitives and must call recountNgons() to resync. dyntopo skips its
+   * triangulate prepass when this is 0 (a self-maintained tri mesh never needs
+   * it). */
+  int64_t n_ngon_faces = 0;
+  /* Rescan all live faces and reset n_ngon_faces. O(faces); call once after a
+   * bulk build that doesn't route through make_face. */
+  void recountNgons();
+  /* Live count of n-gon (>3 sided) faces, as an int for the JS binding (the
+   * count never approaches INT_MAX). == 0 means the mesh is all-triangles;
+   * the UI uses it to offer/guard the triangulate op. */
+  int ngonFaceCount() const { return int(n_ngon_faces); }
+
   static binding::types::Struct<Mesh> *defineBindings()
   {
     using binding::types::Struct;
@@ -108,6 +123,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
+    BIND_STRUCT_METHOD(st, ngonFaceCount, MARGS());
     BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
     BIND_STRUCT_METHOD(st, addAttr, MARGS("domain", "type", "use"));
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));

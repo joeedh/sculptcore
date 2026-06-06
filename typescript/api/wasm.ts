@@ -34,6 +34,13 @@ interface IWasmMethods extends IWasmBase {
   freeMesh(mesh: pointer): void
   /** free a blob returned by `serializeMesh`. */
   freeMeshBuffer(buf: pointer): void
+  /** fan-triangulate every n-gon of `mesh` in place (n_ngon_faces -> 0). The
+   * arg is a `Mesh*` (the high-level helper unwraps it); rebuild any spatial
+   * tree built over the mesh afterwards. */
+  Mesh_triangulate(mesh: Mesh): void
+  /** live n-gon (>3-sided face) count; 0 == all-triangles. Gates the
+   * triangulate button / dyntopo tip with no face scan. */
+  Mesh_ngonFaceCount(mesh: Mesh): number
 
   // M5 requested-attribute bridge (spatial/c-api/spatial_c_api.cc). Pointer-level
   // C exports; the `SpatialTree_setRequestedAttrs`/`setDrawShader`/
@@ -292,6 +299,14 @@ export async function loadWasm(): Promise<IWasmInterface> {
     Mesh_free(mesh: Mesh) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
       _wasm.freeMesh(meshPtr)
+    },
+    Mesh_triangulate(mesh: Mesh) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_triangulate(meshPtr as unknown as Mesh)
+    },
+    Mesh_ngonFaceCount(mesh: Mesh): number {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      return _wasm.Mesh_ngonFaceCount(meshPtr as unknown as Mesh)
     },
     SpatialTree_setRequestedAttrs(tree: SpatialTree, reqs: RequestedAttrBridge[]) {
       const treePtr = (tree as unknown as {ptr: number}).ptr

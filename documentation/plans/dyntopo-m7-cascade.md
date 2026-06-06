@@ -211,6 +211,31 @@ flagged, valence still ~10). Calibrate the budget to the frame target:
 `max_splits=`, and a UI slider. With flips + this valve, **≥25 fps @ 5 M is
 reachable for both steady-state sculpting and a budgeted heavy refine.**
 
+> **App default — leave the *engine* default at 0, set the *app* default to 1024.**
+> `DynTopoParams::max_splits == 0` (unlimited) is the right C++ struct default (a
+> library shouldn't silently cap), but the app passing 0 was the bug: an unlimited
+> dab triggers the round-2 cascade (~110 ms/dab at 5 M). The TS app default
+> (`DynTopoSettingsSC.maxSplits`, `scripts/brush/brush_dyntopo_sc.ts`) is now
+> **1024**, which keeps a large/dense dab single-round; the slider still allows 0.
+
+**Post-M7 (2026-06) — native Electron validation + the quad penalty.** Confirmed
+in the native N-API backend on a real ~5 M-tri mesh: an **all-triangle** mesh
+sculpts at **~32 fps (≈31.7 ms/dab)**. A **quad/n-gon** mesh is much slower — each
+dab runs a per-region triangulate prepass, the all-triangles gate
+(`mesh.n_ngon_faces == 0`, an exact live counter on `mesh::Mesh`) only fires once
+the *whole* mesh is triangle (so every dab scans its region until then), and
+incremental triangulation leaves the quad-built BVH unbalanced. Resolved **not**
+by auto-triangulating (a silent whole-mesh topo change mid-stroke, not cleanly
+per-dab undoable) but by a manual, undoable **`litemesh.triangulate` ToolOp +
+header button** doing one clean *balanced* tree rebuild (a viewport "faster if
+triangulated" tip on large non-tri meshes is a TODO in `tools/sculptcore.ts`).
+Two CPU micro-opts landed with it: `detail::GenSet` (a generation-stamped
+dense-int membership set, zero per-dab allocation) replaced the per-round
+`Set<int>` hash sets the profiling pinned as scan/flip/MIS rehash spikes, and the
+`n_ngon_faces == 0` gate skips the triangulate prepass wholesale on the common
+all-triangle dab. The temporary `DynTopoProfile`/`DtTimer`/`prof_*`/`[dt-phases]`
+profiling scaffolding used to find these has been removed.
+
 ### M7.3 — Longest-edge bisection (if flips are insufficient)
 
 Rivara longest-edge bisection: split the **longest** edge of a triangle first,

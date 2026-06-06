@@ -35,6 +35,7 @@
 #include "mesh/utils/triangulate.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
 #include "litestl/util/rand.h"
 #include "litestl/util/set.h"
 #include "litestl/util/span.h"
@@ -138,19 +139,90 @@ inline litestl::math::float3 edgeMid(mesh::Mesh &m, int e)
   return (m.v.co[m.e.vs[e][0]] + m.v.co[m.e.vs[e][1]]) * 0.5f;
 }
 
+/* Generation-stamped dense-integer membership set. O(1) add/contains with no
+ * hashing and zero per-dab allocation: a persistent (thread-local, see the
+ * accessors) stamp buffer is reused across dabs and "cleared" each round by a
+ * single generation bump. Replaces the per-round litestl Set<int> hash sets the
+ * dyntopo profiling pinned as the scan/flip/MIS cost (and the 500ms+ rehash
+ * spikes). Keys are dense element indices; add() auto-grows so a split creating
+ * new verts/edges mid-round can never index out of bounds. */
+struct GenSet {
+  litestl::util::Vector<uint32_t> stamp;
+  uint32_t gen = 0;
+
+  void growTo(int n)
+  {
+    int old = int(stamp.size());
+    if (old >= n) {
+      return;
+    }
+    litestl::alloc::PermanentGuard guard; /* persistent buffer: not a leak */
+    stamp.resize(n);
+    for (int i = old; i < n; i++) {
+      stamp[i] = 0;
+    }
+  }
+  /* Pre-size to `n` and start a fresh generation. O(1) unless the buffer must
+   * grow (rare) or the 32-bit generation wraps (re-zero, ~never). */
+  void reset(int n)
+  {
+    growTo(n);
+    if (++gen == 0) {
+      for (int i = 0; i < int(stamp.size()); i++) {
+        stamp[i] = 0;
+      }
+      gen = 1;
+    }
+  }
+  bool add(int i) /* true iff newly added this generation */
+  {
+    if (uint32_t(i) >= uint32_t(stamp.size())) {
+      growTo(i + 1);
+    }
+    if (stamp[i] == gen) {
+      return false;
+    }
+    stamp[i] = gen;
+    return true;
+  }
+  bool contains(int i) const
+  {
+    return uint32_t(i) < uint32_t(stamp.size()) && stamp[i] == gen;
+  }
+};
+
+/* Persistent per-phase membership sets (one stamp buffer each, reused across
+ * every dab of a stroke). Single-threaded per dab; thread_local guards against a
+ * future parallel-dab caller without forcing a shared lock. */
+inline GenSet &scanSeenSet()
+{
+  static thread_local GenSet s;
+  return s;
+}
+inline GenSet &flipSeenSet()
+{
+  static thread_local GenSet s;
+  return s;
+}
+inline GenSet &misLockedSet()
+{
+  static thread_local GenSet s;
+  return s;
+}
+
 /* Lock the verts a split affects: just the two edge endpoints. Any two edges
  * of one triangle share an endpoint, so endpoint-locking already makes the
  * round's splits face-disjoint (no two touch the same triangle) and
  * disk-race-free (no two write the same vertex's disk), without the apex
  * over-conservatism that would defer most edges to later rounds. */
-inline void lockSplit(mesh::Mesh &m, int e, litestl::util::Set<int> &locked)
+inline void lockSplit(mesh::Mesh &m, int e, GenSet &locked)
 {
   locked.add(m.e.vs[e][0]);
   locked.add(m.e.vs[e][1]);
 }
 
 /* Lock the verts a collapse affects: the full one-ring of both endpoints. */
-inline void lockCollapse(mesh::Mesh &m, int e, litestl::util::Set<int> &locked)
+inline void lockCollapse(mesh::Mesh &m, int e, GenSet &locked)
 {
   for (int side = 0; side < 2; side++) {
     int v = m.e.vs[e][side];
@@ -166,7 +238,7 @@ inline void lockCollapse(mesh::Mesh &m, int e, litestl::util::Set<int> &locked)
 }
 
 /* True if none of the verts a candidate would affect are already locked. */
-inline bool splitFree(mesh::Mesh &m, int e, const litestl::util::Set<int> &locked)
+inline bool splitFree(mesh::Mesh &m, int e, const GenSet &locked)
 {
   if (m.e.c[e] == ELEM_NONE) {
     return false; /* wire edge: no triangle to split */
@@ -174,7 +246,7 @@ inline bool splitFree(mesh::Mesh &m, int e, const litestl::util::Set<int> &locke
   return !locked.contains(m.e.vs[e][0]) && !locked.contains(m.e.vs[e][1]);
 }
 
-inline bool collapseFree(mesh::Mesh &m, int e, const litestl::util::Set<int> &locked)
+inline bool collapseFree(mesh::Mesh &m, int e, const GenSet &locked)
 {
   for (int side = 0; side < 2; side++) {
     int v = m.e.vs[e][side];
@@ -446,9 +518,10 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   /* Split / flip / smooth are triangle-only; dyntopo dynamically triangulates any
    * non-triangle face it encounters in the region first (incl. the graded-target
    * faces — already tris — and any imported/procedural n-gon). Fan-triangulate
-   * with the callbacks so spatial/meshlog stay in sync; attrs are carried. Cheap
-   * no-op on an all-triangle region (the common case). */
-  {
+   * with the callbacks so spatial/meshlog stay in sync; attrs are carried.
+   * Skipped wholesale when the mesh is known all-triangle (n_ngon_faces == 0),
+   * the common dyntopo case (dyntopo never creates n-gons). */
+  if (m.n_ngon_faces != 0) {
     Set<int> triFaces;
     auto considerFaceTri = [&](int f) {
       if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] ||
@@ -510,7 +583,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   for (int round = 0; round < p.max_rounds; round++) {
     /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
     Vector<Cand> cands;
-    Set<int> seen;
+    detail::GenSet &seen = detail::scanSeenSet();
+    seen.reset(int(m.e.capacity()));
     auto consider = [&](int e) {
       if (m.e.freemap[e] || m.e.c[e] == ELEM_NONE || !seen.add(e)) {
         return; /* freed, wire, or already considered this round */
@@ -596,7 +670,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
     }
 
     /* 3. Greedily select a maximal independent set. */
-    Set<int> locked;
+    detail::GenSet &locked = detail::misLockedSet();
+    locked.reset(int(m.v.capacity()));
     Vector<Cand> picked;
     for (const Cand &c : cands) {
       bool free = c.split ? detail::splitFree(m, c.edge, locked)
@@ -616,11 +691,19 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
      *    index is impossible; an op may still no-op (e.g. a collapse the link
      *    condition refuses) — that just doesn't count. */
     int applied = 0;
+    /* Verts whose 1-ring the flip sweep must re-examine: only the geometry an
+     * applied split/collapse actually created — NOT every unpicked candidate
+     * endpoint (those didn't change this round). Driving the flip sweep from
+     * this set instead of the whole frontier cuts flip-candidate collection
+     * ~4-5x (the dominant per-dab phase). */
+    Set<int> touched;
     auto addCreated = [&](const Vector<int> &edges) {
       for (int e : edges) {
         if (!m.e.freemap[e]) {
           nextFrontier.add(m.e.vs[e][0]);
           nextFrontier.add(m.e.vs[e][1]);
+          touched.add(m.e.vs[e][0]);
+          touched.add(m.e.vs[e][1]);
           /* New geometry carries split-propagated source flags; mark it so the
            * caller's recomputeDirty refreshes the derived flags + vert class. */
           if (feat.active) {
@@ -664,13 +747,10 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
      *    one. Each helper re-validates, so a flip invalidating a later candidate
      *    is safe. Flipped apexes re-enter the frontier (their lengths changed). */
     if (p.do_flips) {
-      Vector<int> fverts;
-      for (int v : nextFrontier) {
-        fverts.append(v);
-      }
       Vector<int> flipCands;
-      Set<int> eseen;
-      for (int v : fverts) {
+      detail::GenSet &eseen = detail::flipSeenSet();
+      eseen.reset(int(m.e.capacity()));
+      for (int v : touched) {
         if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
             m.v.e[v] == ELEM_NONE) {
           continue;

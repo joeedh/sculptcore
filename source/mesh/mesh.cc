@@ -306,6 +306,9 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *c
   int li = l.alloc();
 
   int vlen = verts.size();
+  if (vlen > 3) {
+    n_ngon_faces++;
+  }
 
   f.l[fi] = li;
   f.list_count[fi] = 1;
@@ -442,6 +445,9 @@ void Mesh::kill_face(int f1, MeshCallbacks *cb)
   if (topo_frozen) thawTopo();
   topo_stamp++;
   int l1 = f.l[f1];
+  if (l1 != ELEM_NONE && l.size[l1] > 3) {
+    n_ngon_faces--;
+  }
   while (l1 != ELEM_NONE) {
     int next = l.next[l1];
 
@@ -487,6 +493,21 @@ void Mesh::kill_face(int f1, MeshCallbacks *cb)
   }
 
   f.release(f1);
+}
+
+void Mesh::recountNgons()
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  int64_t n = 0;
+  for (int fi : f) {
+    int li = f.l[fi];
+    if (li != ELEM_NONE && l.size[li] > 3) {
+      n++;
+    }
+  }
+  n_ngon_faces = n;
 }
 
 namespace {

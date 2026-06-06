@@ -54,6 +54,8 @@ wasm_add_symbols("
   createMesh
   getStrData
   Mesh_createCube
+  Mesh_triangulate
+  Mesh_ngonFaceCount
   serializeMesh
   deserializeMesh
   freeMeshBuffer
