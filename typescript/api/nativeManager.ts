@@ -1,9 +1,10 @@
 /**
  * NativeManager — assembles the native N-API addon's primitives into the
  * `BindingManager`-shaped surface the app consumes (Workstream C of
- * documentation/plans/native-electron.md). The remaining gap to a full drop-in
- * `IWasmInterface` is the WASM-heap-bound paths (`litemesh.ts rayCast`,
- * `gpuExecutor`) and the `gpu` manager — see TODO.md.
+ * documentation/plans/native-electron.md, now functionally landed). It is a
+ * drop-in `IWasmInterface`: the formerly WASM-heap-bound paths (`litemesh.ts
+ * rayCast`, `gpuExecutor`) were de-numbered onto backend-agnostic seams
+ * (float3 rings, pointerBytes/objectAddress) — see TODO.md.
  *
  * Built on the addon's proven primitives: construct / meshCreateCube /
  * meshBuildSpatialTree / spatialTreeFree / vectorLength / vectorGet, plus
@@ -207,11 +208,12 @@ export function buildNativeManager(): NativeManager | undefined {
 }
 
 /**
- * A partial `IWasmInterface` backed by the NativeManager — enough to boot the
- * default (sculptcore-free) scene under `--backend native`. `gpu` is lazy so
- * boot never constructs `GPUManager`; the WASM-heap fields (HEAPF32, _rawAlloc,
- * …) are intentionally absent and will throw if a sculpt/heap path touches them
- * (those are the remaining reworks — litemesh rayCast, gpuExecutor; see TODO.md).
+ * An `IWasmInterface` backed by the NativeManager — boots the default scene and
+ * runs the native litemesh scene (build, render, sculpt) under `--backend
+ * native`. `gpu` is lazy so boot never constructs `GPUManager`; the WASM-heap
+ * fields (HEAPF32, _rawAlloc, …) are intentionally absent because nothing reads
+ * them anymore — the sculpt/heap paths (litemesh rayCast, gpuExecutor) go
+ * through backend-agnostic seams instead (see TODO.md).
  */
 export function makeNativeInterface(nm: NativeManager): unknown {
   let gpu: NativeBound | undefined

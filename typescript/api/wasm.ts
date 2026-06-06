@@ -198,27 +198,26 @@ export async function loadWasm(): Promise<IWasmInterface> {
   // Workstream C seam (documentation/plans/native-electron.md). Opt-in via
   // globalThis.__SCULPTCORE_BACKEND === 'native' (e.g. the test harness's
   // `--backend native`); default and the entire browser path are untouched. The
-  // native N-API reflection runtime (source/napi/) loads and works, but is not
-  // yet a drop-in IWasmInterface — that needs native factory free-functions
-  // (Mesh_createCube, …) and a manager that doesn't read the WASM linear-memory
-  // heap (HEAPF32/_rawAlloc), which litemesh.ts/gpuExecutor.ts use today. Until
-  // that lands we detect + report, then fall back to WASM so the app keeps
-  // working. See TODO.md ("native-electron de-numbering / Workstream C").
+  // native N-API reflection runtime (source/napi/) backs a real IWasmInterface
+  // via native factory free-functions (Mesh_createCube, …) and a manager that
+  // never reads the WASM linear-memory heap — the litemesh/gpuExecutor paths
+  // were de-numbered onto backend-agnostic seams (float3 rings, pointerBytes/
+  // objectAddress). We detect + report, then fall back to WASM if the .node is
+  // absent. See TODO.md ("native-electron de-numbering / Workstream C").
   if (nativeBackendRequested()) {
     const native = loadNativeAddon()
     if (native) {
       // Run the app on the native backend: build the NativeManager-backed
-      // interface and return it instead of loading WASM. This boots the
-      // default (sculptcore-free) scene; sculpt/heap paths (litemesh rayCast,
-      // gpuExecutor) still need their reworks and will throw on the absent
-      // HEAP* fields (see TODO.md / native-electron.md Workstream C).
+      // interface and return it instead of loading WASM. Boots the default
+      // scene and runs the native litemesh scene end-to-end (build, render,
+      // sculpt); see TODO.md / native-electron.md Workstream C.
       const nm = buildNativeManager()!
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(globalThis as any).__nativeManager = nm
       wasm = makeNativeInterface(nm) as unknown as IWasmInterface
       console.warn(
         `[sculptcore] using NATIVE backend (${native.version()}, ${native.bindingCount()} bindings). ` +
-          `Partial: sculpt/heap paths not yet wired. See native-electron.md Workstream C.`
+          `Workstream C landed: litemesh scene builds, renders + sculpts natively. See native-electron.md.`
       )
       return wasm
     }
