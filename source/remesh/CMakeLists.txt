@@ -5,6 +5,7 @@ set(LIB
     binding
     mesh
     spatial
+    sculptcore_core
 )
 
 set(SRC

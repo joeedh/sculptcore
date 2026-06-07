@@ -11,16 +11,16 @@
 #include <vector>
 
 namespace {
-void stderrSink(const char *msg) {
-  std::fputs(msg, stderr);
-  std::fputc('\n', stderr);
-  std::fflush(stderr);
+void stdoutSink(const char *msg) {
+  std::fputs(msg, stdout);
+  std::fputc('\n', stdout);
+  std::fflush(stdout);
 }
-sc_napi_log_fn g_sink = &stderrSink;
+sc_napi_log_fn g_sink = &stdoutSink;
 }  // namespace
 
 extern "C" void sc_napi_set_sink(sc_napi_log_fn sink) {
-  g_sink = sink ? sink : &stderrSink;
+  g_sink = sink ? sink : &stdoutSink;
 }
 
 extern "C" void sc_napi_log(const char *msg) { g_sink(msg ? msg : ""); }
