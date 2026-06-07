@@ -54,6 +54,10 @@ wasm_add_symbols("
   createMesh
   getStrData
   Mesh_createCube
+  Mesh_makeGrid
+  Mesh_makeCylinder
+  Mesh_makeTorus
+  Mesh_makeUVSphere
   Mesh_triangulate
   Mesh_ngonFaceCount
   serializeMesh

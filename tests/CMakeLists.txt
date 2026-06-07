@@ -1,8 +1,17 @@
+# Embed the assets dir as a string literal via a generated header rather than a
+# command-line -D"..." define: the cross-worktree sccache launcher mangles the
+# quote escaping of string-literal defines on Windows, so the macro would expand
+# unquoted and fail to compile.
+set(SCULPTCORE_ASSETS_DIR_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test_config.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/test_config.h @ONLY)
+
 macro(test file extra_lib)
 set(target "${file}_out")
 add_executable(${target} "${file}")
 target_link_libraries(${target} util platform ${extra_lib} math)
 target_compile_options(${target} PRIVATE -DNO_PARALLEL_FOR)
+target_include_directories(${target} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(${target} PUBLIC util)
 target_include_directories(${target} PUBLIC math)
 target_include_directories(${target} PUBLIC mesh)
@@ -36,6 +45,13 @@ test(test_dyntopo_budget.cc "mesh")
 test(test_dyntopo_smooth.cc "mesh")
 test(test_dyntopo_features.cc "mesh")
 test(test_edge_split_boundary.cc "mesh")
+test(test_remesh_scaffold.cc "remesh;mesh;spatial")
+test(test_remesh_curvature.cc "remesh;mesh;spatial")
+test(test_remesh_field.cc "remesh;mesh;spatial")
+test(test_remesh_singularity.cc "remesh;mesh;spatial")
+test(test_remesh_param.cc "remesh;mesh;spatial")
+test(test_remesh_quantize.cc "remesh;mesh;spatial")
+test(test_remesh_extract.cc "remesh;mesh;spatial")
 test(test_brush.cc "")
 test(test_binding.cc "binding_generators")
 test(test_debug_script.cc "debug_core")

@@ -15,7 +15,7 @@ if (BUILD_WASM)
 
 	if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 		add_compile_options(-fsanitize=address)
-    # do not use debug allocator together with asan 
+    # do not use debug allocator together with asan
     add_compile_options(-DNO_DEBUG_ALLOC)
 		add_link_options(-fsanitize=address)
 		add_link_options(-sINITIAL_MEMORY=943718400)
@@ -24,6 +24,10 @@ if (BUILD_WASM)
 	endif()
 
   add_link_options(-sALLOW_MEMORY_GROWTH=1)
+  # Emscripten's default main-thread stack is 64KB, which the Eigen-heavy quad
+  # remesher overflows — silently (no STACK_OVERFLOW_CHECK), corrupting the static
+  # data below __stack_low. 8MB is a standard stack and stays < INITIAL_MEMORY.
+  add_link_options(-sSTACK_SIZE=8388608)
   add_link_options(-sSHARED_MEMORY=1)
   add_link_options(-pthread)
   add_compile_options(-pthread)
@@ -98,6 +102,7 @@ if (BUILD_WASM)
 	  props
       pthread
 	  dyntopo
+	  remesh
 	  meshlog
       webgpu
 	)
@@ -126,6 +131,7 @@ else()
       binding
 	  binding_generators
 	  dyntopo
+	  remesh
 	)
 
 	add_library(sculptcore SHARED)

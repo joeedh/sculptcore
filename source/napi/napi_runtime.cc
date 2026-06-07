@@ -17,10 +17,14 @@
 // identical for an extern "C" pointer.
 extern "C" {
 void *Mesh_createCube(int dimen, float size, float sphereFac);
+void *Mesh_makeUVSphere(int rings, int segs, float radius);
 void *Mesh_buildSpatialTree(void *mesh, int leafLimit, int depthLimit);
 void SpatialTree_free(void *tree);
 void Mesh_free(void *mesh);
 void Mesh_triangulate(void *mesh);
+// Feature-aligned quad remesh (source/remesh/c-api/remesh_c_api.cc). Returns a
+// new Mesh* (input untouched); null on clean failure.
+void *Mesh_quadRemesh(void *mesh, void *params);
 // Versioned, lz4hc-compressed mesh blob (source/mesh/c-api/mesh_c_api.cc).
 uint8_t *serializeMesh(void *mesh, int *out_size);
 void *deserializeMesh(const uint8_t *data, int size);
@@ -1205,6 +1209,32 @@ napi_value NapiRuntime::MeshCreateCube(napi_env env, napi_callback_info info) {
   return rt->instantiate(static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
 }
 
+// meshMakeUVSphere(rings, segs, radius) -> Mesh. A clean all-quad UV sphere
+// (poles are the only singularities) — the remesh-friendly primitive the host's
+// quad-remesh parity test drives, paralleling MeshCreateCube's wrapping.
+napi_value NapiRuntime::MeshMakeUVSphere(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value argv[3];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+
+  int32_t rings = 0, segs = 0;
+  double radius = 1.0;
+  if (argc >= 1) napi_get_value_int32(env, argv[0], &rings);
+  if (argc >= 2) napi_get_value_int32(env, argv[1], &segs);
+  if (argc >= 3) napi_get_value_double(env, argv[2], &radius);
+
+  void *m = Mesh_makeUVSphere(rings, segs, static_cast<float>(radius));
+  const binding::BindingBase *st = rt->lookup("sculptcore::mesh::Mesh");
+  napi_value out;
+  if (!m || !st || st->type != BindingType::Struct) {
+    napi_get_undefined(env, &out);
+    return out;
+  }
+  return rt->instantiate(static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
+}
+
 napi_value NapiRuntime::MeshBuildSpatialTree(napi_env env, napi_callback_info info) {
   size_t argc = 3;
   napi_value argv[3];
@@ -1277,6 +1307,34 @@ napi_value NapiRuntime::MeshTriangulate(napi_env env, napi_callback_info info) {
     Mesh_triangulate(mw->ptr);
   }
   return undef;
+}
+
+// meshQuadRemesh(mesh, params) -> Mesh. params is a bound RemeshParams struct
+// wrapper. Returns a new non-owning Mesh wrapper (freed via meshFree, like
+// meshCreateCube); the input mesh is left untouched (host snapshots it for undo).
+napi_value NapiRuntime::MeshQuadRemesh(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+
+  napi_value out;
+  Wrapped *mw = nullptr, *pw = nullptr;
+  if (argc < 2 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok ||
+      napi_unwrap(env, argv[1], reinterpret_cast<void **>(&pw)) != napi_ok || !mw || !pw ||
+      !mw->ptr || !pw->ptr) {
+    napi_get_undefined(env, &out);
+    return out;
+  }
+
+  void *m = Mesh_quadRemesh(mw->ptr, pw->ptr);
+  const binding::BindingBase *st = rt->lookup("sculptcore::mesh::Mesh");
+  if (!m || !st || st->type != BindingType::Struct) {
+    napi_get_undefined(env, &out);
+    return out;
+  }
+  return rt->instantiate(static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
 }
 
 // meshSerialize(mesh) -> Uint8Array of the versioned, lz4hc-compressed blob.
@@ -1521,10 +1579,12 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "pointerBytes", &NapiRuntime::PointerBytes);
   define(exports, "objectAddress", &NapiRuntime::ObjectAddress);
   define(exports, "meshCreateCube", &NapiRuntime::MeshCreateCube);
+  define(exports, "meshMakeUVSphere", &NapiRuntime::MeshMakeUVSphere);
   define(exports, "meshBuildSpatialTree", &NapiRuntime::MeshBuildSpatialTree);
   define(exports, "spatialTreeFree", &NapiRuntime::SpatialTreeFree);
   define(exports, "meshFree", &NapiRuntime::MeshFree);
   define(exports, "meshTriangulate", &NapiRuntime::MeshTriangulate);
+  define(exports, "meshQuadRemesh", &NapiRuntime::MeshQuadRemesh);
   define(exports, "meshSerialize", &NapiRuntime::MeshSerialize);
   define(exports, "meshDeserialize", &NapiRuntime::MeshDeserialize);
   define(exports, "spatialTreeSetRequestedAttrs", &NapiRuntime::SpatialTreeSetRequestedAttrs);

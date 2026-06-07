@@ -1,0 +1,6 @@
+# Full quad-remesh pipeline smoke (M6): the `remesh` verb runs QuadRemesh end to
+# end (M2 cross field -> M3 adjust -> M5 quantize -> M6 extract + reproject) and
+# replaces the scene mesh; assert the result is a structurally-valid all-quad mesh.
+make_shape kind=sphere n=24 m=32 radius=1.0
+remesh target=0.15 curvature=1
+remesh_validate all_quad=1 assert=1

@@ -18,6 +18,10 @@ interface IWasmMethods extends IWasmBase {
   initBindings(): void
   /** create a gridded cube with `dimen` x `dimen` quads on each of the six cubic faces.*/
   Mesh_createCube(dimen: int, size: number, sphereFac: number): Mesh
+  /** create an all-quad UV sphere: `rings` latitudinal bands, `segs` longitudinal
+   * segments, `radius`. Poles are the only singularities — the remesh-friendly
+   * primitive the quad-remesh parity test drives. */
+  Mesh_makeUVSphere(rings: int, segs: int, radius: number): Mesh
   /** build a coarse BVH over `mesh`'s faces; pass leafLimit<=0 to keep the default. */
   Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int): SpatialTree
   SpatialTree_free(tree: SpatialTree): void
@@ -41,6 +45,12 @@ interface IWasmMethods extends IWasmBase {
   /** live n-gon (>3-sided face) count; 0 == all-triangles. Gates the
    * triangulate button / dyntopo tip with no face scan. */
   Mesh_ngonFaceCount(mesh: Mesh): number
+  /** quad-remesh `mesh` into a fresh all-quad Mesh (input untouched); `params`
+   * is a bound `sculptcore::remesh::RemeshParams`. Returns `undefined` on a
+   * clean failure (Gauss-Bonnet-infeasible field / >10% folded faces). Free the
+   * result with `Mesh_free`. The high-level helper unwraps both handles per
+   * backend (WASM → numeric `.ptr`; native → the wrapper). */
+  Mesh_quadRemesh(mesh: Mesh, params: SculptHandle): Mesh | undefined
 
   // M5 requested-attribute bridge (spatial/c-api/spatial_c_api.cc). Pointer-level
   // C exports; the `SpatialTree_setRequestedAttrs`/`setDrawShader`/
@@ -254,6 +264,10 @@ export async function loadWasm(): Promise<IWasmInterface> {
       const ptr = _wasm.Mesh_createCube(dimen, size, sphereFac) as unknown as number
       return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
     },
+    Mesh_makeUVSphere(rings: int, segs: int, radius: number) {
+      const ptr = _wasm.Mesh_makeUVSphere(rings, segs, radius) as unknown as number
+      return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
+    },
     Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
       const ptr = _wasm.Mesh_buildSpatialTree(meshPtr as unknown as Mesh, leafLimit, depthLimit) as unknown as number
@@ -306,6 +320,18 @@ export async function loadWasm(): Promise<IWasmInterface> {
     Mesh_ngonFaceCount(mesh: Mesh): number {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
       return _wasm.Mesh_ngonFaceCount(meshPtr as unknown as Mesh)
+    },
+    Mesh_quadRemesh(mesh: Mesh, params: SculptHandle): Mesh | undefined {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      const paramsPtr = (params as unknown as {ptr: number}).ptr
+      const ptr = _wasm.Mesh_quadRemesh(
+        meshPtr as unknown as Mesh,
+        paramsPtr as unknown as SculptHandle
+      ) as unknown as number
+      if (!ptr) {
+        return undefined // clean failure: infeasible field / too many folds
+      }
+      return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
     },
     SpatialTree_setRequestedAttrs(tree: SpatialTree, reqs: RequestedAttrBridge[]) {
       const treePtr = (tree as unknown as {ptr: number}).ptr

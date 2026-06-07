@@ -1,0 +1,344 @@
+// M6 test: quad extraction + reprojection + the end-to-end QuadRemesh pipeline.
+//
+// Each case runs M2-M5 (cross field -> seamless param -> quantization) on a
+// triangulated input, extracts the quad mesh that is the preimage of the integer
+// lattice, and validates it structurally with remeshValidate:
+//
+//  - Grid: a flat disk; a clean all-quad grid (Euler 1, valence-4 interior).
+//  - Cylinder (uncapped): a tube; all-quad, manifold, Euler 0, singularity-free.
+//  - Torus: the genus-1 case; all-quad, manifold, Euler 0, singularity-free.
+//  - Sphere: 8 valence-3/5 singularities are expected; all-quad + manifold +
+//    Euler 2 must still hold (the local-injectivity stiffening flattens the
+//    cone-1-ring folds the linear MIQ map leaves behind).
+//  - Capped cylinder: a closed genus-0 solid whose cap rims can quantize to an
+//    *odd* grid-loop. A pure-quad mesher cannot fan-close an odd ring, so such a
+//    cap is left open by design; the gate is all-quad + manifold + no-inversions
+//    + no-spirals (NOT Euler 2 — see the cap-pass note in quad_extract.cc).
+//  - AnimeGirl2.obj: the dense organic spiral-elimination stress fixture. Opt-in
+//    (REMESH_ANIME=1) because it is ~800k faces; gates the headline no-spiral +
+//    all-quad guarantee on real-world input.
+#include "test_util.h"
+
+#include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
+#include "mesh/mesh.h"
+#include "mesh/mesh_iter.h"
+#include "mesh/mesh_shapes.h"
+#include "mesh/utils/mesh_validate.h"
+#include "mesh/utils/triangulate.h"
+#include "remesh/extract/quad_extract.h"
+#include "remesh/extract/reproject.h"
+#include "remesh/field/cross_field.h"
+#include "remesh/field/singularity_adjust.h"
+#include "remesh/quantize/quantize_ilp.h"
+#include "remesh/remesh.h"
+#include "remesh/remesh_params.h"
+
+#include "obj_load.h"
+#include "test_config.h"
+
+#include <cstdio>
+#include <cstdlib>
+
+test_init;
+
+#define TASSERT(expr)                                                                     \
+  do {                                                                                    \
+    if (!(expr)) {                                                                        \
+      retval = 1;                                                                         \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
+      fflush(stderr);                                                                     \
+    }                                                                                     \
+  } while (0)
+
+using namespace sculptcore;
+using namespace sculptcore::mesh;
+
+namespace {
+
+// Run M2-M5 on m (in place), then extract. Returns the heap quad mesh (caller
+// frees) and fills `st`. Returns nullptr on extraction failure.
+Mesh *runExtract(Mesh *m, float target, remesh::ExtractStats &st,
+                 bool sharp = false, bool curvature = false)
+{
+  m->thawTopo();
+  mesh::triangulateMesh(*m);
+  remesh::CrossFieldParams cp;
+  cp.use_sharp_features = sharp;
+  cp.use_curvature = curvature;
+  remesh::computeCrossField(*m, cp);
+  remesh::SingularityAdjustParams sap;
+  remesh::adjustSingularities(*m, sap);
+  remesh::QuantizeParams qp;
+  qp.target_edge_length = target;
+  remesh::computeQuantization(*m, qp);
+  remesh::ExtractParams ep;
+  return remesh::extractQuadMesh(*m, ep, st);
+}
+
+void report(const char *name, const RemeshReport &r)
+{
+  fprintf(stderr,
+          "[%s] V=%d E=%d F=%d euler=%d tri=%d quad=%d ngon=%d allquad=%d "
+          "manifold=%d winding=%d nme=%d bnd=%d degen=%d inv=%d irr=%d | "
+          "iso(chk=%d close=%d closed=%d open=%d spiral=%d)\n",
+          name, r.vert_count, r.edge_count, r.face_count, r.euler, r.tri_count,
+          r.quad_count, r.ngon_count, r.all_quad, r.manifold,
+          r.consistent_winding, r.non_manifold_edges, r.boundary_edges,
+          r.degenerate_faces, r.inverted_faces, r.irregular_interior_verts,
+          r.isolines_checked, r.isolines_close, r.closed_isolines,
+          r.open_isolines, r.spiral_isolines);
+  if (!r.manifold)
+    fprintf(stderr, "  manifold_error: %s\n", r.manifold_error.c_str());
+}
+
+void testGridExtract()
+{
+  Mesh *g = mesh::makeGrid(16, 16, 1.0f);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(g, 0.1f, st);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("grid", r);
+    TASSERT(st.ok);
+    TASSERT(r.all_quad);
+    TASSERT(r.structurallyOk());
+    TASSERT(r.euler == 1); // disk
+    TASSERT(r.irregular_interior_verts == 0);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(g);
+}
+
+void testCylinderExtract()
+{
+  Mesh *c = mesh::makeCylinder(32, 8, 0.5f, 2.0f, /*capped=*/false);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(c, 0.15f, st);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("cylinder", r);
+    TASSERT(st.ok);
+    TASSERT(r.all_quad);
+    TASSERT(r.structurallyOk());
+    TASSERT(r.euler == 0); // open tube
+    TASSERT(r.irregular_interior_verts == 0);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(c);
+}
+
+void testTorusExtract()
+{
+  Mesh *t = mesh::makeTorus(48, 32, 1.0f, 0.35f);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(t, 0.1f, st, /*sharp=*/false, /*curvature=*/true);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("torus", r);
+    TASSERT(st.ok);
+    TASSERT(r.all_quad);
+    TASSERT(r.structurallyOk());
+    TASSERT(r.euler == 0); // genus 1
+    TASSERT(r.irregular_interior_verts == 0);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(t);
+}
+
+void testSphereExtract()
+{
+  Mesh *s = mesh::makeUVSphere(24, 32, 1.0f);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(s, 0.15f, st, /*sharp=*/false, /*curvature=*/true);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("sphere", r);
+    TASSERT(st.ok);
+    TASSERT(r.all_quad);
+    TASSERT(r.structurallyOk());
+    TASSERT(r.euler == 2); // genus 0 closed
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(s);
+}
+
+// A capped cylinder is a closed genus-0 solid, but its two flat caps each meet
+// the curved wall at a sharp rim that the cross field resolves with four index-1
+// cones. Those cones make the cap's grid boundary loop come out *odd* often
+// enough that a pure-quad fan cannot close it (see quad_extract.cc cap pass), so
+// the cap is left as a hole. The all-quad guarantee is the priority: assert
+// all-quad + manifold + no-inversions + no-spirals, and accept Euler < 2.
+void testCappedCylinderExtract()
+{
+  Mesh *c = mesh::makeCylinder(24, 8, 0.5f, 2.0f, /*capped=*/true);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(c, 0.15f, st, /*sharp=*/true, /*curvature=*/true);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("capcyl", r);
+    TASSERT(st.ok);
+    TASSERT(r.all_quad);
+    TASSERT(r.manifold);
+    TASSERT(r.consistent_winding);
+    TASSERT(r.inverted_faces == 0);
+    TASSERT(r.degenerate_faces == 0);
+    TASSERT(r.spiral_isolines == 0); // quantization killed every spiral
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(c);
+}
+
+// Reprojection (M6c): snap an extracted quad mesh back onto the input surface,
+// with and without Laplacian smoothing, and verify it stays a valid quad mesh.
+void testReproject()
+{
+  Mesh *s = mesh::makeUVSphere(24, 32, 1.0f);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(s, 0.15f, st, /*sharp=*/false, /*curvature=*/true);
+  TASSERT(out != nullptr);
+  if (out) {
+    // Push every vertex uniformly off-surface (radial scale), then snap back. A
+    // uniform offset is locally consistent, so a clean snap must not invert.
+    for (int v : out->v) {
+      litestl::math::float3 p = out->v.co[v];
+      out->v.co[v] = litestl::math::float3(p[0] * 1.03f, p[1] * 1.03f, p[2] * 1.03f);
+    }
+
+    remesh::ReprojectParams rp; // pure snap (no smoothing)
+    remesh::ReprojectStats rs = remesh::reprojectToSurface(*out, *s, rp);
+    fprintf(stderr, "[reproject] verts=%d max=%.4f mean=%.4f\n", rs.num_verts, rs.max_dist,
+            rs.mean_dist);
+    TASSERT(rs.max_dist > 0.005f); // the offset really moved verts off-surface
+
+    // After one snap every vertex lies on the surface; a second pure snap moves ~0.
+    remesh::ReprojectStats rs2 = remesh::reprojectToSurface(*out, *s, rp);
+    TASSERT(rs2.max_dist < 1e-3f);
+
+    RemeshReport r = remeshValidate(*out);
+    TASSERT(r.all_quad);
+    TASSERT(r.manifold);
+    TASSERT(r.euler == 2);
+    TASSERT(r.inverted_faces == 0);
+
+    // Laplacian-smooth + snap; result must remain a valid closed quad sphere.
+    remesh::ReprojectParams sp;
+    sp.iterations = 2;
+    sp.smooth_iterations = 2;
+    sp.smooth_lambda = 0.3f;
+    remesh::reprojectToSurface(*out, *s, sp);
+    RemeshReport r2 = remeshValidate(*out);
+    TASSERT(r2.all_quad);
+    TASSERT(r2.manifold);
+    TASSERT(r2.euler == 2);
+    TASSERT(r2.inverted_faces == 0);
+
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(s);
+}
+
+// End-to-end (M6d): the top-level QuadRemesh orchestrates M2->M6 on a triangulated
+// copy and returns a reprojected all-quad mesh, leaving the caller's input intact.
+void testQuadRemeshPipeline()
+{
+  // Mirror the host litemesh-uvsphere scene exactly: radius-2 UV sphere at the
+  // ToolOp default target 0.1 (target/radius 0.05 lands in the valid band; the
+  // radius-1 sphere at 0.1 is twice as fine and hits an odd-cone-rim parity hole).
+  Mesh *s = mesh::makeUVSphere(24, 32, 2.0f);
+  int in_v = s->v.count, in_f = s->f.count;
+
+  remesh::RemeshParams params; // defaults: curvature+sharp on, reproject+smooth on
+  params.target_edge_length = 0.1f;
+  Mesh *out = remesh::QuadRemesh(*s, params);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("pipeline:sphere", r);
+    TASSERT(r.all_quad);
+    TASSERT(r.manifold);
+    TASSERT(r.euler == 2);
+    TASSERT(r.inverted_faces == 0);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  // Contract: the input mesh is untouched (run on a copy, never triangulated).
+  TASSERT(s->v.count == in_v);
+  TASSERT(s->f.count == in_f);
+  litestl::alloc::Delete<Mesh>(s);
+
+  // Zero-singularity case + the no-reproject path (extracted positions kept).
+  Mesh *t = mesh::makeTorus(48, 32, 1.0f, 0.35f);
+  remesh::RemeshParams tp;
+  tp.target_edge_length = 0.1f;
+  tp.reproject = false;
+  Mesh *tout = remesh::QuadRemesh(*t, tp);
+  TASSERT(tout != nullptr);
+  if (tout) {
+    RemeshReport r = remeshValidate(*tout);
+    report("pipeline:torus", r);
+    TASSERT(r.all_quad);
+    TASSERT(r.manifold);
+    TASSERT(r.euler == 0);
+    TASSERT(r.inverted_faces == 0);
+    litestl::alloc::Delete<Mesh>(tout);
+  }
+  litestl::alloc::Delete<Mesh>(t);
+}
+
+// AnimeGirl2.obj — the organic spiral-elimination stress fixture. Naive cross
+// field + parametrization spirals on dense real-world detail; M5's integer
+// quantization is what kills it, so the headline assertion is no-spiral. This is
+// opt-in (REMESH_ANIME=1): the mesh is ~800k triangles and a full solve is far
+// too heavy for the default suite. Euler/inversions are reported but not gated —
+// an organic surface produces odd-loop cap holes (left open, like the capped
+// cylinder) and occasional reprojection drift, both accepted; the guarantees the
+// pipeline owns are all-quad and no-spiral.
+void testAnimeGirlSpiral()
+{
+  if (!std::getenv("REMESH_ANIME")) {
+    fprintf(stderr, "[anime] skipped (set REMESH_ANIME=1; ~800k-face stress case)\n");
+    return;
+  }
+  char path[2048];
+  std::snprintf(path, sizeof(path), "%s/AnimeGirl2.obj", SCULPTCORE_ASSETS_DIR);
+  Mesh *obj = mesh::loadObj(path);
+  if (!obj) {
+    fprintf(stderr, "[anime] skipped (could not open %s)\n", path);
+    return;
+  }
+  fprintf(stderr, "[anime] loaded V=%d F=%d\n", obj->v.count, obj->f.count);
+  remesh::RemeshParams p;
+  p.target_edge_length = 0.05f;
+  if (const char *e = std::getenv("REMESH_TARGET"))
+    p.target_edge_length = float(std::atof(e));
+  Mesh *out = remesh::QuadRemesh(*obj, p);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("anime", r);
+    TASSERT(r.all_quad);
+    TASSERT(r.spiral_isolines == 0); // the guarantee quantization exists to make
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(obj);
+}
+
+} // namespace
+
+int main()
+{
+  testGridExtract();
+  testCylinderExtract();
+  testTorusExtract();
+  testSphereExtract();
+  testCappedCylinderExtract();
+  testReproject();
+  testQuadRemeshPipeline();
+  testAnimeGirlSpiral();
+  return retval;
+}
