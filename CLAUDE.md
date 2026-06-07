@@ -65,6 +65,31 @@ Notes:
   but the primary target is WASM.
 - `node serv.mjs` serves `index.html` + the WASM module for browser testing.
 
+## Native deps (OpenBLAS + SuiteSparse/CHOLMOD)
+
+Native builds use prebuilt OpenBLAS (LAPACK on) and SuiteSparse/CHOLMOD,
+**owned by sculptcore** (not litestl). They are cached per
+`{platform}/{toolchain-key}/{config}` in the separate repo
+`https://github.com/joeedh/sculptcore-deps.git`, checked out as a **gitignored
+sparse clone** at `extern/sculptcore-deps`.
+
+- `node make.mjs deps [config]` fetch-or-builds the combo for `config`
+  (`release|relwithdebinfo|debug|asan`, default `RelWithDebInfo`). `configure
+  native` runs it automatically and passes the combo dir to cmake as
+  `-DSCULPTCORE_DEPS_DIR`.
+- Pins live in `openblasVersion.txt` / `suitesparseVersion.txt` (mirroring
+  `emsdkVersion.txt`). Driver: `tools/deps.mjs`. CHOLMOD is consumed via the
+  `cholmod` INTERFACE target in `extern/CMakeLists.txt` (linked by `source/remesh`).
+- **Cache miss → build locally, push manually.** A missing combo is built from
+  the pinned tags into `extern/sculptcore-deps/<combo>/{openblas,suitesparse}`
+  with a `manifest.json`; the script then **prints** the `git add/commit/push`
+  for sculptcore-deps (it does not push). To add a combo by hand the flow is the
+  same the script uses: `git -C extern/sculptcore-deps sparse-checkout add
+  <platform>/<toolchain>/<config>` (cone mode lets you add new combos to a sparse
+  clone), drop the install trees in, commit, push.
+- WASM is unaffected: no CHOLMOD there (`cholmod` target only exists native), the
+  Eigen `SimplicialLDLT` solver works without it.
+
 ## Language / standard
 
 - C++20, extensions `.cc` / `.cpp` (headers `.h`).

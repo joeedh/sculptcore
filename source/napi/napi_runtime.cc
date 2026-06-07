@@ -1,10 +1,13 @@
 #include "napi_runtime.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 #include <vector>
+
+#include "napi_log.h"
 
 #include "litestl/binding/binding_constructor.h"
 #include "litestl/binding/binding_method.h"
@@ -37,6 +40,59 @@ void setTreeDrawShader(void *tree, const char *wgsl);
 int getTreeMissingAttrSlots(void *tree, int *out, int maxOut);
 void refreshTreeRequestedAttrs(void *tree);
 }
+
+// --- console.log sink for sc_napi_log (napi_log.h) --------------------------
+// Installed at module init (NapiRuntime::installExports) via sc_napi_set_sink.
+// N-API calls must happen on the JS thread; the brush/remesh/host paths run
+// synchronously there. We fall back to stderr if env/console are unavailable or
+// an exception is already in flight (which would swallow the console.log call).
+namespace {
+napi_env g_logEnv = nullptr;
+napi_ref g_consoleRef = nullptr;  // strong ref to the global `console`
+
+void logToStderr(const char *msg) {
+  std::fputs(msg, stderr);
+  std::fputc('\n', stderr);
+  std::fflush(stderr);
+}
+
+void consoleSink(const char *msg) {
+  napi_env env = g_logEnv;
+  if (!env || !g_consoleRef) {
+    logToStderr(msg);
+    return;
+  }
+  napi_handle_scope scope;
+  if (napi_open_handle_scope(env, &scope) != napi_ok) {
+    logToStderr(msg);
+    return;
+  }
+  bool pending = false;
+  napi_is_exception_pending(env, &pending);
+  if (pending) {
+    logToStderr(msg);
+    napi_close_handle_scope(env, scope);
+    return;
+  }
+  napi_value console = nullptr, logFn = nullptr;
+  napi_get_reference_value(env, g_consoleRef, &console);
+  if (console && napi_get_named_property(env, console, "log", &logFn) == napi_ok) {
+    napi_value arg = nullptr, ret = nullptr;
+    napi_create_string_utf8(env, msg, NAPI_AUTO_LENGTH, &arg);
+    napi_call_function(env, console, logFn, 1, &arg, &ret);
+    // Don't let a logging failure poison the caller's env.
+    bool threw = false;
+    napi_is_exception_pending(env, &threw);
+    if (threw) {
+      napi_value err = nullptr;
+      napi_get_and_clear_last_exception(env, &err);
+    }
+  } else {
+    logToStderr(msg);
+  }
+  napi_close_handle_scope(env, scope);
+}
+}  // namespace
 
 namespace sculptcore::napi {
 
@@ -1565,6 +1621,18 @@ void NapiRuntime::define(napi_value exports, const char *name, napi_callback cb)
 }
 
 void NapiRuntime::installExports(napi_value exports) {
+  // Route sc_napi_log / sc_napi_logf (napi_log.h) to the renderer's DevTools
+  // console — visible regardless of how Electron plumbs child-process stdout.
+  g_logEnv = env_;
+  {
+    napi_value global = nullptr, console = nullptr;
+    napi_get_global(env_, &global);
+    if (napi_get_named_property(env_, global, "console", &console) == napi_ok) {
+      napi_create_reference(env_, console, 1, &g_consoleRef);
+    }
+  }
+  sc_napi_set_sink(&consoleSink);
+
   define(exports, "version", &NapiRuntime::Version);
   define(exports, "bindingCount", &NapiRuntime::BindingCount);
   define(exports, "structNames", &NapiRuntime::StructNames);

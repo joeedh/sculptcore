@@ -7,3 +7,6 @@ node_modules
 diff.diff
 source/napi/smoke-result.json
 .turbo
+extern/sculptcore-deps
+build/deps-src
+build/deps-build

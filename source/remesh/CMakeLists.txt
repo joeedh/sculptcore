@@ -40,6 +40,12 @@ set(SRC
   c-api/remesh_c_api.cc
 )
 
+# Prebuilt SuiteSparse/CHOLMOD (+ OpenBLAS), native-only; see
+# sculptcore/extern/CMakeLists.txt. Enables Eigen/CholmodSupport in the solver.
+if(TARGET cholmod)
+  list(APPEND LIB cholmod)
+endif()
+
 sc_add_library(remesh "${SRC}" "${LIB}" STATIC)
 
 # Global quad-remesh op, exposed like Mesh_triangulate. Hand-wrapped natively in

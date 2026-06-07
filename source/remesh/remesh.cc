@@ -71,7 +71,7 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
   int _i = 0;
   printf("copy mesh\n");
   Mesh *work = buildTriCopy(input);
-
+  fflush(stdout);
   // M2 cross field -> M3 singularity adjust -> M5 quantization (M5 rebuilds the
   // cut graph / seamless map internally). Mirrors test_remesh_extract's proven
   // sequence.

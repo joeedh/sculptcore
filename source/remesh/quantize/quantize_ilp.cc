@@ -12,7 +12,10 @@
 
 #include "eigen/include/eigen5/Eigen/Sparse"
 #include "eigen/include/eigen5/Eigen/SparseCholesky"
+
+#ifndef WASM
 #include <eigen/include/eigen5/Eigen/CholmodSupport>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -62,7 +65,9 @@ inline M2 negM(const M2 &m)
 }
 inline M2 mul(const M2 &A, const M2 &B)
 {
-  return {A.a * B.a + A.b * B.c, A.a * B.b + A.b * B.d, A.c * B.a + A.d * B.c,
+  return {A.a * B.a + A.b * B.c,
+          A.a * B.b + A.b * B.d,
+          A.c * B.a + A.d * B.c,
           A.c * B.b + A.d * B.d};
 }
 inline void mv(const M2 &A, double x, double y, double &rx, double &ry)
@@ -79,8 +84,11 @@ inline float2 rotc(double ang, float2 p)
 }
 
 // Add scale * m into the 2x2 block at (class row, class col) of the 2M system.
-inline void addBlock(std::vector<Eigen::Triplet<double>> &trips, int rcl, int ccl,
-                     const M2 &m, double scale)
+inline void addBlock(std::vector<Eigen::Triplet<double>> &trips,
+                     int rcl,
+                     int ccl,
+                     const M2 &m,
+                     double scale)
 {
   trips.emplace_back(2 * rcl + 0, 2 * ccl + 0, m.a * scale);
   trips.emplace_back(2 * rcl + 0, 2 * ccl + 1, m.b * scale);
@@ -88,6 +96,8 @@ inline void addBlock(std::vector<Eigen::Triplet<double>> &trips, int rcl, int cc
   trips.emplace_back(2 * rcl + 1, 2 * ccl + 1, m.d * scale);
 }
 } // namespace
+
+extern "C" void sc_napi_logf(const char *fmt, ...);
 
 QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
 {
@@ -98,7 +108,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   spp.use_density = params.use_density;
   spp.gauge_eps = params.gauge_eps;
 
-  printf("build seamless params\n");
+  sc_napi_logf("build seamless params\n");
   SeamlessSystem sys;
   if (!buildSeamlessSystem(m, spp, sys)) {
     return stats;
@@ -107,7 +117,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   stats.num_corners = sys.num_corners;
   stats.num_classes = M;
 
-  printf("build quant graph\n");
+  sc_napi_logf("build quant graph\n");
   QuantGraph g = buildQuantGraph(m, sys.cornerClass, sys.gauge, sys.periodEC);
   const int S = g.num_sides();
   stats.num_cut_edges = S;
@@ -135,8 +145,13 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // Add lam * || sum_i C[i] x_{cls[i]} - d ||^2 to (trips, rhs): Hessian block
   // (i,j) is C[i]^T C[j]; the rhs gets C[i]^T d.
   auto addQuadPenalty = [](std::vector<Eigen::Triplet<double>> &trips,
-                           Eigen::VectorXd &rhs, int n, const int *cls,
-                           const M2 *C, double dx, double dy, double lam) {
+                           Eigen::VectorXd &rhs,
+                           int n,
+                           const int *cls,
+                           const M2 *C,
+                           double dx,
+                           double dy,
+                           double lam) {
     for (int i = 0; i < n; i++) {
       for (int j = 0; j < n; j++) {
         addBlock(trips, cls[i], cls[j], mul(transp(C[i]), C[j]), lam);
@@ -207,24 +222,31 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     Lout.makeCompressed();
   };
 
+  sc_napi_logf("create solver\n");
+  fflush(stdout);
+
+#ifdef WASM
+  Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver;
+#else
   Eigen::CholmodSupernodalLLT<Eigen::SparseMatrix<double>> solver;
+#endif
   Eigen::VectorXd x = Eigen::VectorXd::Zero(N);
   bool all_solved = true;
 
   auto solveAll = [&]() -> bool {
     Eigen::SparseMatrix<double> L;
     Eigen::VectorXd rhs;
-    printf("assemble\n");
+    sc_napi_logf("assemble\n");
     assemble(L, rhs);
-    printf("compute\n");
+    sc_napi_logf("compute\n");
     solver.compute(L);
     if (solver.info() != Eigen::Success) {
-      printf("solver failed\n");
+      sc_napi_logf("solver failed\n");
       return false;
     }
-    printf("solve\n");
+    sc_napi_logf("solve\n");
     x = solver.solve(rhs);
-    printf(solver.info() == Eigen::Success ? "success\n" : "failure\n");
+    sc_napi_logf(solver.info() == Eigen::Success ? "success\n" : "failure\n");
     return solver.info() == Eigen::Success;
   };
 
@@ -397,7 +419,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // together. Most-confident-first within each round, re-solve, repeat.
   all_solved &= solveAll();
 
-  printf("postsolve\n");
+  sc_napi_logf("postsolve\n");
   stats.iters = 0;
   if (S > 0 && all_solved) {
     // Endpoint vertices of each side, for the vertex-independence test.
@@ -422,7 +444,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     // case is one side per round; cap generously above S.
     const int max_rounds = S + 8;
     for (int iter = 1; iter <= max_rounds && remaining > 0; iter++) {
-      printf("round %d of %d\n", iter, max_rounds);
+      sc_napi_logf("round %d of %d remaining=%d\n", iter, max_rounds, remaining);
       stats.iters = iter;
       int nun = 0;
       for (int s = 0; s < S; s++) {
@@ -435,8 +457,9 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         order[nun++] = s;
       }
       // Most-confident first; greedily lock a vertex-independent batch.
-      std::sort(order.data(), order.data() + nun,
-                [&](int a, int b) { return frac[a] < frac[b]; });
+      std::sort(order.data(), order.data() + nun, [&](int a, int b) {
+        return frac[a] < frac[b];
+      });
       usedV.clear();
       int locked = 0;
       for (int i = 0; i < nun; i++) {
@@ -573,7 +596,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   stats.solved = all_solved;
   stats.max_integer_residual = residual;
   stats.feasible = all_solved && (residual < params.integer_tol);
-  printf("postsolve2\n");
+  sc_napi_logf("postsolve2\n");
 
   // Write the snapped per-corner (u, v) and the integer per-edge translations.
   BuiltinAttr<float2, ".remesh.c.uv", AttrFlag::TEMP> uv;
@@ -621,7 +644,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       cs.append(cc);
       cc = m.c.next[cc];
       if (_loopguard++ > 10000) {
-        printf("mesh error infinite loop\n");
+        sc_napi_logf("mesh error infinite loop\n");
         break;
       }
     } while (cc != c0);

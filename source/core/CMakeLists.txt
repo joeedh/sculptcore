@@ -14,6 +14,7 @@ set(LIB
 
 set(SRC
   bindings.cc
+  napi_log.cc
 )
 
 sc_add_library(sculptcore_core "${SRC}" "${LIB}" STATIC)
