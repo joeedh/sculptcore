@@ -7,8 +7,8 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
 
-#include "eigen/include/eigen3/Eigen/Core"
-#include "eigen/include/eigen3/Eigen/Eigenvalues"
+#include "eigen/include/eigen5/Eigen/Core"
+#include "eigen/include/eigen5/Eigen/Eigenvalues"
 
 #include <cmath>
 

@@ -11,7 +11,7 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
 
-#include "eigen/include/eigen3/Eigen/Sparse"
+#include "eigen/include/eigen5/Eigen/Sparse"
 
 #include <vector>
 

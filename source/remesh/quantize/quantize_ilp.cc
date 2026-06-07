@@ -10,8 +10,9 @@
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
-#include "eigen/include/eigen3/Eigen/Sparse"
-#include "eigen/include/eigen3/Eigen/SparseCholesky"
+#include "eigen/include/eigen5/Eigen/Sparse"
+#include "eigen/include/eigen5/Eigen/SparseCholesky"
+#include <eigen/include/eigen5/Eigen/CholmodSupport>
 
 #include <algorithm>
 #include <cmath>
@@ -97,6 +98,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   spp.use_density = params.use_density;
   spp.gauge_eps = params.gauge_eps;
 
+  printf("build seamless params\n");
   SeamlessSystem sys;
   if (!buildSeamlessSystem(m, spp, sys)) {
     return stats;
@@ -105,6 +107,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   stats.num_corners = sys.num_corners;
   stats.num_classes = M;
 
+  printf("build quant graph\n");
   QuantGraph g = buildQuantGraph(m, sys.cornerClass, sys.gauge, sys.periodEC);
   const int S = g.num_sides();
   stats.num_cut_edges = S;
@@ -204,19 +207,24 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     Lout.makeCompressed();
   };
 
-  Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+  Eigen::CholmodSupernodalLLT<Eigen::SparseMatrix<double>> solver;
   Eigen::VectorXd x = Eigen::VectorXd::Zero(N);
   bool all_solved = true;
 
   auto solveAll = [&]() -> bool {
     Eigen::SparseMatrix<double> L;
     Eigen::VectorXd rhs;
+    printf("assemble\n");
     assemble(L, rhs);
+    printf("compute\n");
     solver.compute(L);
     if (solver.info() != Eigen::Success) {
+      printf("solver failed\n");
       return false;
     }
+    printf("solve\n");
     x = solver.solve(rhs);
+    printf(solver.info() == Eigen::Success ? "success\n" : "failure\n");
     return solver.info() == Eigen::Success;
   };
 
@@ -389,6 +397,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // together. Most-confident-first within each round, re-solve, repeat.
   all_solved &= solveAll();
 
+  printf("postsolve\n");
   stats.iters = 0;
   if (S > 0 && all_solved) {
     // Endpoint vertices of each side, for the vertex-independence test.
@@ -413,6 +422,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     // case is one side per round; cap generously above S.
     const int max_rounds = S + 8;
     for (int iter = 1; iter <= max_rounds && remaining > 0; iter++) {
+      printf("round %d of %d\n", iter, max_rounds);
       stats.iters = iter;
       int nun = 0;
       for (int s = 0; s < S; s++) {
@@ -563,6 +573,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   stats.solved = all_solved;
   stats.max_integer_residual = residual;
   stats.feasible = all_solved && (residual < params.integer_tol);
+  printf("postsolve2\n");
 
   // Write the snapped per-corner (u, v) and the integer per-edge translations.
   BuiltinAttr<float2, ".remesh.c.uv", AttrFlag::TEMP> uv;
@@ -601,6 +612,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   int num_faces = 0;
   double min_jac = 0.0;
   bool first_jac = true;
+  int _loopguard = 0;
   for (int f : m.f) {
     cs.clear();
     loc.clear();
@@ -608,6 +620,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     do {
       cs.append(cc);
       cc = m.c.next[cc];
+      if (_loopguard++ > 10000) {
+        printf("mesh error infinite loop\n");
+        break;
+      }
     } while (cc != c0);
     int n = int(cs.size());
     if (n < 3) {

@@ -110,7 +110,7 @@ in the codebase *since the plan was first written*:
   added for picking) but there is **still no closest-point query** — M1's
   `findClosest` task is genuinely still needed.
 - **Eigen path confirmed.** The build-wired copy is
-  `source/litestl/extern/eigen/include/eigen3/Eigen/` (the one
+  `source/litestl/extern/eigen/include/eigen5/Eigen/` (the one
   `source/litestl/math/matrix.h` includes from); it has the full module set
   (`Sparse`, `SparseLU`, `SparseCholesky`/`SimplicialLDLT`,
   `IterativeLinearSolvers`). The top-level `extern/eigen_dist/` is an **unwired
@@ -168,9 +168,9 @@ From the exploration of the codebase:
   barycentric attribute transfer when extracting new quad vertices instead
   of hand-rolling per-layer blending.
 - **Eigen sparse**: vendored at
-  `source/litestl/extern/eigen/include/eigen3/Eigen/` — the build-wired copy
+  `source/litestl/extern/eigen/include/eigen5/Eigen/` — the build-wired copy
   (`source/litestl/math/matrix.h` already includes from it, e.g.
-  `#include "eigen/include/eigen3/Eigen/Core"`). It carries the full module
+  `#include "eigen/include/eigen5/Eigen/Core"`). It carries the full module
   set: use `Eigen::SparseMatrix<double>` + `SimplicialLDLT`
   (`Eigen/Sparse` → `Eigen/SparseCholesky`) for SPD field/param solves,
   `SparseLU` where needed, `IterativeLinearSolvers` if a CG fallback helps.

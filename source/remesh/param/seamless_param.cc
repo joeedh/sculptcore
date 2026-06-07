@@ -8,8 +8,8 @@
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
-#include "eigen/include/eigen3/Eigen/Sparse"
-#include "eigen/include/eigen3/Eigen/SparseCholesky"
+#include "eigen/include/eigen5/Eigen/Sparse"
+#include "eigen/include/eigen5/Eigen/SparseCholesky"
 
 #include <cmath>
 #include <vector>

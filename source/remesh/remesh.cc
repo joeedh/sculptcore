@@ -68,6 +68,8 @@ Mesh *buildTriCopy(Mesh &src)
 
 mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
 {
+  int _i = 0;
+  printf("copy mesh\n");
   Mesh *work = buildTriCopy(input);
 
   // M2 cross field -> M3 singularity adjust -> M5 quantization (M5 rebuilds the
@@ -78,20 +80,24 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
   cp.use_sharp_features = params.use_sharp_features;
   cp.sharp_angle = params.sharp_angle;
   cp.seed = params.seed;
+  printf("compute cross field\n");
   computeCrossField(*work, cp);
 
   SingularityAdjustParams sap;
   sap.seed = params.seed;
+  printf("adjust singularities\n");
   adjustSingularities(*work, sap);
 
   QuantizeParams qp;
   qp.target_edge_length = params.target_edge_length;
   qp.use_density = params.use_density;
+  printf("compute quantization\n");
   computeQuantization(*work, qp);
 
   // M6: extract the integer-lattice preimage, then snap onto the input surface.
   ExtractParams ep;
   ExtractStats st;
+  printf("extract quad mesh\n");
   Mesh *out = extractQuadMesh(*work, ep, st);
   if (!out) {
     alloc::Delete<Mesh>(work);
@@ -104,10 +110,13 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
     rp.smooth_lambda = params.smooth_strength;
     // One extra [smooth -> snap] pass when smoothing, else a single pure snap.
     rp.iterations = params.smooth_iterations > 0 ? 2 : 1;
+    printf("reproject to surface\n");
     reprojectToSurface(*out, *work, rp);
   }
 
+  printf("delete temp mesh\n");
   alloc::Delete<Mesh>(work);
+  printf("done\n");
   return out;
 }
 
