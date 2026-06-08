@@ -67,6 +67,19 @@ public:
   // Principal-curvature overlay line length, as a fraction of the mesh bbox
   // diagonal (scale-independent so the slider reads the same across assets).
   float curvatureScale = 0.02f;
+
+  // Cross-field (4-RoSy) overlay: per-face "+" glyphs + singularity dots.
+  bool showCrossField = false;
+  float crossScale = 0.02f;     // glyph arm length, fraction of bbox diagonal
+  bool crossAnisotropy = false; // scale glyph length/alpha by curvature anisotropy
+  // Per-edge field colouring: 0 = period jump (0..3), 1 = curl residual.
+  bool showFieldEdges = false;
+  int fieldEdgeMode = 0;
+  // Streamlines traced along the field across faces.
+  bool showStreamlines = false;
+  float streamlineScale = 0.01f; // integration step, fraction of bbox diagonal
+  int streamlineSeeds = 200;
+
   std::string meshyPrompt;
 
   // Live job feedback.

@@ -345,6 +345,9 @@ void Scene::renderWindow()
       overlay.drawBrushCursor(gpu, *backendWindow, vp,
                               lastStroke.origin, lastStroke.normal, lastStroke.radius);
     }
+    if (overlayCB_) {
+      overlayCB_(overlayUser_, gpu, *backendWindow, vp);
+    }
   }
 
   if (postDrawHook_) {

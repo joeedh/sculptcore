@@ -30,6 +30,17 @@ struct Overlay {
                        litestl::math::float3 normal,
                        float radius,
                        litestl::math::float4 color = {1.0f, 1.0f, 0.0f, 1.0f});
+
+  /** Draw a caller-supplied world-space line list (vertCount = 2× segments,
+   *  one color per vertex). Rounded down to an even count. Goes through the
+   *  same depth-tested line pipeline as the axes, so segments behind nearer
+   *  geometry are occluded. Colors are opaque (the pipeline has no blending). */
+  void drawLines(sculptcore::gpu::GPUManager &mgr,
+                 VulkanBackend &backend,
+                 const litestl::math::mat4 &drawMatrix,
+                 const litestl::math::float3 *positions,
+                 const litestl::math::float4 *colors,
+                 int vertCount);
 };
 
 } // namespace sculptcore::vulkan

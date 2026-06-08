@@ -324,6 +324,11 @@ the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentati
   `test_spatial_dyntopo` / `_merge`. The `bench_dyntopo` debug-app verb is the
   A/B measurement tool (`flip=`, `grade=`, `smooth=`, `max_splits=`, `rebuild=`).
 
+## Quad remeshing
+
+See [`documentation/quad-remeshing.md`](documentation/quad-remeshing.md) for the
+design, pipeline, and status of the quad-remesh module (`source/remesh/`).
+
 ## Submodules
 
 - Keep submodules checked out at the HEADs of their current branches, pulling and

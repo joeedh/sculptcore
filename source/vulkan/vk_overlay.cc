@@ -89,6 +89,26 @@ void Overlay::drawAxes(sculptcore::gpu::GPUManager &mgr,
   mgr.destroyBatch(batch, true, true);
 }
 
+void Overlay::drawLines(sculptcore::gpu::GPUManager &mgr,
+                        VulkanBackend &backend,
+                        const mat4 &drawMatrix,
+                        const float3 *positions,
+                        const float4 *colors,
+                        int vertCount)
+{
+  vertCount &= ~1; // line-list: drop a dangling odd vertex
+  if (vertCount < 2) {
+    return;
+  }
+  auto *batch = buildLineBatch(mgr, positions, colors, vertCount);
+  DrawUniforms u;
+  u.drawMatrix = drawMatrix;
+  u.normalMatrix.identity();
+  u.uColor = float4(1, 1, 1, 1);
+  backend.draw(batch, u);
+  mgr.destroyBatch(batch, true, true);
+}
+
 void Overlay::drawBrushCursor(sculptcore::gpu::GPUManager &mgr,
                               VulkanBackend &backend,
                               const mat4 &drawMatrix,

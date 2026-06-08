@@ -288,6 +288,28 @@ void RemeshUi::drawPanel()
   ImGui::SameLine();
   ImGui::TextDisabled("(blue=kmin, red=kmax)");
   ImGui::SliderFloat("field line scale", &app_->curvatureScale, 0.0f, 0.2f, "%.3f");
+
+  ImGui::Checkbox("cross field", &app_->showCrossField);
+  ImGui::SameLine();
+  ImGui::TextDisabled("(4-RoSy + singularities)");
+  if (app_->showCrossField) {
+    ImGui::SliderFloat("cross scale", &app_->crossScale, 0.0f, 0.2f, "%.3f");
+    ImGui::Checkbox("anisotropy weighting", &app_->crossAnisotropy);
+  }
+
+  ImGui::Checkbox("field edges", &app_->showFieldEdges);
+  if (app_->showFieldEdges) {
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(110);
+    ImGui::Combo("edge mode", &app_->fieldEdgeMode, "period\0curl\0");
+  }
+
+  ImGui::Checkbox("streamlines", &app_->showStreamlines);
+  if (app_->showStreamlines) {
+    ImGui::SliderFloat("stream step", &app_->streamlineScale, 0.001f, 0.05f, "%.3f");
+    ImGui::SliderInt("stream seeds", &app_->streamlineSeeds, 10, 2000);
+  }
+
   int vc = scene_->mesh ? scene_->mesh->v.count : 0;
   int fc = scene_->mesh ? scene_->mesh->f.count : 0;
   ImGui::Text("verts: %d  faces: %d", vc, fc);
