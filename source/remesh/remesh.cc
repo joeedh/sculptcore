@@ -1,6 +1,7 @@
 #include "remesh/remesh.h"
 #include "remesh/remesh_params.h"
 #include "remesh/remesh_report.h"
+#include "remesh/triage.h"
 
 #include "remesh/extract/quad_extract.h"
 #include "remesh/extract/reproject.h"
@@ -9,6 +10,7 @@
 #include "remesh/quantize/quantize_ilp.h"
 
 #include "dyntopo/dyntopo.h"
+#include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
 #include "mesh/utils/mesh_validate.h"
 #include "mesh/utils/triangulate.h"
@@ -25,27 +27,58 @@ using mesh::Mesh;
 
 namespace {
 
-/* Deep-copy @p src's positions + face topology into a fresh triangle mesh. The
- * pipeline mutates its working mesh (thaw, TEMP field/param attrs, triangulation,
+/* Deep-copy @p src's positions + face topology into a fresh triangle mesh, and
+ * (Tier 1b) carry the input constraint layers across by vertex map. The pipeline
+ * mutates its working mesh (thaw, TEMP field/param attrs, triangulation,
  * recomputed normals), but QuadRemesh's contract is that the caller's input is
  * left intact for undo — so the stages run on this copy, never on `input`.
  *
- * Only geometry is copied: the auto-only v1 reads no user-painted constraint
- * layers. TODO(M6h): when the host writes .remesh.v.density/.pole_index /
- * .remesh.f.stroke_dir, copy those layers here too (and barycentrically transfer
- * the input's per-vertex attrs onto the output at extraction's source face/bary,
- * float/vec lerp + int/bool copy a la attr_interp.h — interpAttrs itself is
- * within-mesh, so the cross-mesh transfer needs its own pass). */
+ * Copied constraint layers (INPUT layers only, never the computed
+ * .remesh.v.pole_index): .remesh.v.density (float) + .remesh.v.pole_pinned (bool)
+ * by vmap, and .remesh.f.stroke_dir (float3) onto the 1:1 work faces, preserved
+ * through the fan via triangulateFaceFanCb. Absent layers add nothing — a
+ * geometry-only input takes the plain triangulateMesh path (byte-identical to
+ * pre-Tier-1). TODO(M6h): barycentrically transfer the input's per-vertex attrs
+ * onto the OUTPUT at extraction's source face/bary (a separate cross-mesh pass). */
 Mesh *buildTriCopy(Mesh &src)
 {
   src.thawTopo();
 
   Mesh *work = alloc::New<Mesh>("Mesh QuadRemesh work");
 
+  // Tier 1b: input constraint layers (copy input layers only).
+  bool have_density =
+      src.v.attrs.has(mesh::AttrType::FLOAT, util::string(".remesh.v.density"));
+  bool have_pinned =
+      src.v.attrs.has(mesh::AttrType::BOOL, util::string(".remesh.v.pole_pinned"));
+  bool have_stroke =
+      src.f.attrs.has(mesh::AttrType::FLOAT3, util::string(".remesh.f.stroke_dir"));
+
+  mesh::BuiltinAttr<float, ".remesh.v.density"> srcDensity, dstDensity;
+  mesh::BuiltinAttr<bool, ".remesh.v.pole_pinned"> srcPinned, dstPinned;
+  mesh::BuiltinAttr<math::float3, ".remesh.f.stroke_dir"> srcStroke, dstStroke;
+  if (have_density) {
+    srcDensity.ensure(src.v.attrs);
+    dstDensity.ensure(work->v.attrs);
+  }
+  if (have_pinned) {
+    srcPinned.ensure(src.v.attrs);
+    dstPinned.ensure(work->v.attrs);
+  }
+  if (have_stroke) {
+    srcStroke.ensure(src.f.attrs);
+    dstStroke.ensure(work->f.attrs);
+  }
+
   util::Vector<int> vmap;
   vmap.resize(int(src.v.capacity()));
   for (int v : src.v) {
-    vmap[v] = work->make_vertex(src.v.co[v]);
+    int nv = work->make_vertex(src.v.co[v]);
+    vmap[v] = nv;
+    if (have_density)
+      dstDensity[nv] = srcDensity[v];
+    if (have_pinned)
+      dstPinned.set(nv, srcPinned[v]);
   }
 
   util::Vector<int> vs;
@@ -60,11 +93,26 @@ Mesh *buildTriCopy(Mesh &src)
       cc = src.c.next[cc];
     } while (cc != c0);
     if (vs.size() >= 3) {
-      work->make_face(vs);
+      int nf = work->make_face(vs);
+      if (have_stroke)
+        dstStroke[nf] = srcStroke[f];
     }
   }
 
-  mesh::triangulateMesh(*work);
+  if (have_stroke) {
+    // Fan each face with the attr-preserving path so stroke_dir survives onto
+    // every fan triangle. Same fan topology as triangulateMesh ⇒ geometry is
+    // unchanged; only the carried face attr differs.
+    util::Vector<int> faces;
+    for (int f : work->f) {
+      faces.append(f);
+    }
+    for (int f : faces) {
+      mesh::triangulateFaceFanCb(*work, f);
+    }
+  } else {
+    mesh::triangulateMesh(*work);
+  }
   work->recalc_normals();
   return work;
 }
@@ -194,6 +242,22 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   Mesh *work = buildTriCopy(input);
   if (report)
     report->copy = StageStatus::Ok;
+
+  // Tier 1: optional input triage (weld near-coincident verts, drop degenerate
+  // faces / tiny components, detect non-manifold). Defaults off; on clean input
+  // it is a no-op (byte-identical), so the merge stays behavior-preserving.
+  if (params.triage) {
+    PROG(6, "triage");
+    TriageParams tp;
+    tp.weld_rel = params.triage_weld_rel;
+    tp.min_component_frac = params.triage_min_component_frac;
+    TriageReport tr;
+    triageMesh(*work, tp, tr);
+    if (report) {
+      report->triage = StageStatus::Ok;
+      report->triage_report = tr;
+    }
+  }
 
   // Optional decimation pre-pass: coarsen the SOLVE mesh so dense inputs stay
   // tractable. The reprojection below still snaps onto the full-res original.

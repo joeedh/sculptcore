@@ -68,6 +68,17 @@ struct RemeshParams {
    * prerequisite). */
   uint32_t seed = 1u;
 
+  /* Tier 1: run input triage on the working copy before any field math — weld
+   * near-coincident verts, drop degenerate faces / tiny components, detect
+   * non-manifold. Defaults ON (review gate 1): a no-op on clean input
+   * (byte-identical), and unblocks messy/Meshy/scanned input. */
+  bool triage = true;
+  /* Tier 1: weld tolerance as a fraction of the mesh bbox diagonal. */
+  float triage_weld_rel = 1e-5f;
+  /* Tier 1: drop disconnected components below this fraction of total verts
+   * (0 = keep all). */
+  float triage_min_component_frac = 0.0f;
+
   /* Bound out-of-line in remesh/bindings.cc (keeps the binding headers out of
    * this header). Crosses the seam by value → registers a copy constructor. */
   static litestl::binding::types::Struct<RemeshParams> *defineBindings();

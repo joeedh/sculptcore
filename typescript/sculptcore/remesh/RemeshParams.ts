@@ -28,6 +28,9 @@ export interface RemeshParams {
   smooth_iterations: int32
   smooth_strength: float
   seed: uint32
+  triage: boolean
+  triage_weld_rel: float
+  triage_min_component_frac: float
   new (): RemeshParams
   new (b: RemeshParams): RemeshParams
 }

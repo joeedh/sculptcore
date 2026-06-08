@@ -17,6 +17,13 @@
 // Usage:
 //   node tools/remesh_corpus.mjs [--corpus <json>] [--cli <exe>] [--out <dir>]
 //                                [--seed <uint>] [--list] [--only name,name]
+//                                [--triage] [--triage-weld-rel <f>]
+//                                [--triage-min-component-frac <f>]
+//
+// Triage defaults ON in the engine (review gate 1), so a plain run already
+// triages. The --triage* flags force/tune it explicitly on EVERY asset
+// (per-asset corpus.json `params` still override); pass `--triage-weld-rel` etc.
+// to sweep tolerances, or a per-asset `params.triage=0` to A/B a single asset.
 import fs from 'fs'
 import path from 'path'
 import child_process from 'child_process'
@@ -32,6 +39,9 @@ const DEFAULTS = {
   assetsDir: path.join(ROOT, 'tests', 'assets'),
   out: path.join(ROOT, 'tests', 'remesher-results', 'corpus'),
   seed: null, // null => take from corpus.json
+  triage: false, // apply Tier-1 triage to every asset
+  triageWeldRel: null, // null => CLI default
+  triageMinComponentFrac: null,
 }
 
 function parseArgs(argv) {
@@ -48,6 +58,9 @@ function parseArgs(argv) {
     else if (k === '--assets') a.assetsDir = path.resolve(next())
     else if (k === '--seed') a.seed = parseInt(next(), 10)
     else if (k === '--only') a.only = next().split(',').map(s => s.trim()).filter(Boolean)
+    else if (k === '--triage') a.triage = true
+    else if (k === '--triage-weld-rel') a.triageWeldRel = parseFloat(next())
+    else if (k === '--triage-min-component-frac') a.triageMinComponentFrac = parseFloat(next())
     else if (k === '--list') a.list = true
     else if (k === '--help' || k === '-h') { usage(); process.exit(0) }
     else { console.error(`unknown arg ${k}`); usage(); process.exit(2) }
@@ -63,6 +76,9 @@ function usage() {
   --assets <dir>    base dir for relative asset names (default tests/assets)
   --seed <uint>     override the corpus-wide determinism seed
   --only a,b,c      run only the named assets
+  --triage          apply Tier-1 input triage to every asset
+  --triage-weld-rel <f>            triage weld tol (frac of bbox diag)
+  --triage-min-component-frac <f>  triage drop-component threshold
   --list            list the corpus and resolution status, then exit`)
 }
 
@@ -118,6 +134,16 @@ const COLUMNS = [
   ['spiral_isolines', m => m.validation.spiral_isolines],
   ['open_isolines', m => m.validation.open_isolines],
   ['closed_isolines', m => m.validation.closed_isolines],
+  // Tier-1 triage counts (manifest "triage" block; absent on pre-Tier-1 runs).
+  ['triage_ran', m => m.triage?.ran ?? false],
+  ['triage_welded', m => m.triage?.welded_verts ?? 0],
+  ['triage_degenerate', m => m.triage?.removed_degenerate_faces ?? 0],
+  ['triage_dup_faces', m => m.triage?.removed_duplicate_faces ?? 0],
+  ['triage_wire_edges', m => m.triage?.removed_wire_edges ?? 0],
+  ['triage_components', m => m.triage?.removed_components ?? 0],
+  ['triage_comp_verts', m => m.triage?.removed_component_verts ?? 0],
+  ['triage_nm_edges', m => m.triage?.non_manifold_edges ?? 0],
+  ['triage_nm_verts', m => m.triage?.non_manifold_verts ?? 0],
 ]
 
 function csvCell(v) {
@@ -127,10 +153,12 @@ function csvCell(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-function runOne(cli, asset, name, outdir, seed, params) {
+function runOne(cli, asset, name, outdir, seed, params, globalParams) {
   const args = ['--input', asset, '--name', name, '--outdir', outdir,
                 '--seed', String(seed)]
-  for (const [k, v] of Object.entries(params || {})) {
+  // Global flags first, per-asset params second — the CLI is last-wins, so a
+  // corpus.json `params` entry overrides a global --triage* flag.
+  for (const [k, v] of Object.entries({...globalParams, ...(params || {})})) {
     if (k === 'seed') continue // seed is the runner's job
     args.push(`--${k}`, String(v))
   }
@@ -174,6 +202,14 @@ function main() {
   }
   fs.mkdirSync(args.out, {recursive: true})
 
+  // Triage flags applied to every asset (keys are CLI flag names; --triage takes
+  // a 0|1 value). Per-asset corpus.json `params` override these (last-wins).
+  const globalParams = {}
+  if (args.triage) globalParams['triage'] = 1
+  if (args.triageWeldRel != null) globalParams['triage-weld-rel'] = args.triageWeldRel
+  if (args.triageMinComponentFrac != null)
+    globalParams['triage-min-component-frac'] = args.triageMinComponentFrac
+
   const results = []
   const skipped = []
   for (const a of assets) {
@@ -189,7 +225,7 @@ function main() {
       continue
     }
     console.log(`RUN  ${a.name}  (${a.asset}, seed=${seed})`)
-    const r = runOne(args.cli, resolved, a.name, args.out, seed, a.params)
+    const r = runOne(args.cli, resolved, a.name, args.out, seed, a.params, globalParams)
     if (!r.manifestPath || !fs.existsSync(r.manifestPath)) {
       skipped.push({name: a.name, reason: `no manifest (exit ${r.code})`})
       console.log(`FAIL ${a.name} — no manifest emitted (exit ${r.code})`)

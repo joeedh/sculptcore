@@ -249,6 +249,12 @@ void RemeshUi::drawPanel()
       P.seed = uint32_t(seed < 0 ? 0 : seed);
     }
   }
+  ImGui::Checkbox("triage", &P.triage);
+  ImGui::BeginDisabled(!P.triage);
+  ImGui::SliderFloat("triage weld rel", &P.triage_weld_rel, 0.0f, 1e-3f, "%.6f");
+  ImGui::SliderFloat("triage min comp frac", &P.triage_min_component_frac, 0.0f,
+                     0.5f, "%.3f");
+  ImGui::EndDisabled();
 
   // --- Run ---
   ImGui::SeparatorText("Run");

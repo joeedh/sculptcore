@@ -235,6 +235,9 @@ bool RemeshApp::runRemesh(std::string &err)
       L"--smooth",         widen(std::to_string(params.smooth_iterations)),
       L"--smooth-strength", wf(params.smooth_strength),
       L"--seed",           widen(std::to_string((unsigned long)params.seed)),
+      L"--triage",         wb(params.triage),
+      L"--triage-weld-rel", wf(params.triage_weld_rel),
+      L"--triage-min-component-frac", wf(params.triage_min_component_frac),
   };
   if (!startJob(Job::Remesh, remeshCliPath(), args, "remeshing " + name)) {
     err = status;
@@ -418,7 +421,10 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "cap_odd_holes=" << int(params.cap_odd_holes) << "\n"
       << "smooth_iterations=" << params.smooth_iterations << "\n"
       << "smooth_strength=" << params.smooth_strength << "\n"
-      << "seed=" << params.seed;
+      << "seed=" << params.seed << "\n"
+      << "triage=" << int(params.triage) << "\n"
+      << "triage_weld_rel=" << params.triage_weld_rel << "\n"
+      << "triage_min_component_frac=" << params.triage_min_component_frac;
     return o.str();
   }
   if (cmd == "set_param") {
@@ -451,6 +457,12 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.smooth_strength = float(d);
     } else if (name == "seed") {
       params.seed = uint32_t(std::strtoul(val.c_str(), nullptr, 10));
+    } else if (name == "triage") {
+      params.triage = iv != 0;
+    } else if (name == "triage_weld_rel") {
+      params.triage_weld_rel = float(d);
+    } else if (name == "triage_min_component_frac") {
+      params.triage_min_component_frac = float(d);
     } else {
       return "ERROR unknown param: " + name;
     }

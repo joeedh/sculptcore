@@ -11,6 +11,8 @@ set(LIB
 set(SRC
   PUBLIC remesh.h
   PUBLIC remesh_params.h
+  PUBLIC remesh_report.h
+  PUBLIC triage.h
   PUBLIC bindings.h
   PUBLIC field/curvature.h
   PUBLIC field/feature_tag.h
@@ -25,6 +27,7 @@ set(SRC
   PUBLIC extract/quad_extract.h
   PUBLIC extract/reproject.h
   remesh.cc
+  triage.cc
   bindings.cc
   field/curvature.cc
   field/feature_tag.cc

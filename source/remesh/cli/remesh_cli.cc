@@ -178,7 +178,11 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"cap_odd_holes\": %s,\n", jb(p.cap_odd_holes));
   std::fprintf(f, "    \"smooth_iterations\": %d,\n", p.smooth_iterations);
   std::fprintf(f, "    \"smooth_strength\": %.9g,\n", p.smooth_strength);
-  std::fprintf(f, "    \"seed\": %u\n", p.seed);
+  std::fprintf(f, "    \"seed\": %u,\n", p.seed);
+  std::fprintf(f, "    \"triage\": %s,\n", jb(p.triage));
+  std::fprintf(f, "    \"triage_weld_rel\": %.9g,\n", p.triage_weld_rel);
+  std::fprintf(f, "    \"triage_min_component_frac\": %.9g\n",
+               p.triage_min_component_frac);
   std::fprintf(f, "  },\n");
 
   std::fprintf(f, "  \"output\": {\n");
@@ -245,6 +249,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"quantize_feasible\": %s,\n", jb(rep.quantize_feasible));
   std::fprintf(f, "    \"stages\": {\n");
   std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
+  std::fprintf(f, "      \"triage\": \"%s\",\n", ssName(rep.triage));
   std::fprintf(f, "      \"decimate\": \"%s\",\n", ssName(rep.decimate));
   std::fprintf(f, "      \"cross_field\": \"%s\",\n", ssName(rep.cross_field));
   std::fprintf(f, "      \"singularity\": \"%s\",\n", ssName(rep.singularity));
@@ -252,6 +257,24 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"extract\": \"%s\",\n", ssName(rep.extract));
   std::fprintf(f, "      \"reproject\": \"%s\"\n", ssName(rep.reproject));
   std::fprintf(f, "    }\n");
+  std::fprintf(f, "  },\n");
+
+  // Tier-1 input-triage counts (remesh/triage.h). `ran` is false when triage was
+  // gated off; the count fields are then all zero.
+  const remesh::TriageReport &tg = rep.triage_report;
+  std::fprintf(f, "  \"triage\": {\n");
+  std::fprintf(f, "    \"ran\": %s,\n", jb(tg.ran));
+  std::fprintf(f, "    \"welded_verts\": %d,\n", tg.welded_verts);
+  std::fprintf(f, "    \"removed_degenerate_faces\": %d,\n",
+               tg.removed_degenerate_faces);
+  std::fprintf(f, "    \"removed_duplicate_faces\": %d,\n",
+               tg.removed_duplicate_faces);
+  std::fprintf(f, "    \"removed_wire_edges\": %d,\n", tg.removed_wire_edges);
+  std::fprintf(f, "    \"removed_components\": %d,\n", tg.removed_components);
+  std::fprintf(f, "    \"removed_component_verts\": %d,\n",
+               tg.removed_component_verts);
+  std::fprintf(f, "    \"non_manifold_edges\": %d,\n", tg.non_manifold_edges);
+  std::fprintf(f, "    \"non_manifold_verts\": %d\n", tg.non_manifold_verts);
   std::fprintf(f, "  }\n");
   std::fprintf(f, "}\n");
 
@@ -276,7 +299,11 @@ void usage()
       "  --cap-odd <0|1>         close odd holes w/ one tri each (default 0)\n"
       "  --smooth <int>          reprojection smoothing iterations (default 2)\n"
       "  --smooth-strength <f>   per-iteration smoothing step 0..1 (default 0.5)\n"
-      "  --seed <uint>           determinism seed (default 1)\n");
+      "  --seed <uint>           determinism seed (default 1)\n"
+      "  --triage <0|1>          run input triage before solve (default 0)\n"
+      "  --triage-weld-rel <f>   weld tol as frac of bbox diag (default 1e-5)\n"
+      "  --triage-min-component-frac <f>  drop components below frac of verts "
+      "(default 0)\n");
 }
 
 bool toBool(const char *s) { return std::atoi(s) != 0; }
@@ -330,6 +357,13 @@ int main(int argc, char **argv)
       params.smooth_strength = float(std::atof(next("--smooth-strength")));
     else if (a == "--seed")
       params.seed = uint32_t(std::strtoul(next("--seed"), nullptr, 10));
+    else if (a == "--triage")
+      params.triage = toBool(next("--triage"));
+    else if (a == "--triage-weld-rel")
+      params.triage_weld_rel = float(std::atof(next("--triage-weld-rel")));
+    else if (a == "--triage-min-component-frac")
+      params.triage_min_component_frac =
+          float(std::atof(next("--triage-min-component-frac")));
     else {
       std::fprintf(stderr, "ERROR unknown arg %s\n", a.c_str());
       return 2;
@@ -415,16 +449,22 @@ int main(int argc, char **argv)
   else
     std::printf("ERROR could not write %s\n", jsonPath.c_str());
 
+  const remesh::TriageReport &tg = rep.triage_report;
   std::printf("STATS verts=%d edges=%d faces=%d quads=%d tris=%d ngons=%d "
               "allquad=%d manifold=%d euler=%d inverted=%d boundary=%d "
               "spiral=%d irr=%d regular_frac=%.4g components=%d holes=%d "
-              "folds=%d min_angle=%.4g area_ratio=%.4g duration_ms=%lld\n",
+              "folds=%d min_angle=%.4g area_ratio=%.4g "
+              "triage=%d triage_welded=%d triage_degenerate=%d "
+              "triage_components=%d triage_nonmanifold_edges=%d "
+              "duration_ms=%lld\n",
               r.vert_count, r.edge_count, r.face_count, r.quad_count,
               r.tri_count, r.ngon_count, int(r.all_quad), int(r.manifold),
               r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
               r.irregular_interior_verts, r.regular_interior_frac,
               r.component_count, r.boundary_loop_count, r.parametrization_folds,
-              r.min_interior_angle, r.max_adjacent_area_ratio, durationMs);
+              r.min_interior_angle, r.max_adjacent_area_ratio, int(tg.ran),
+              tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
+              tg.non_manifold_edges, durationMs);
 
   litestl::alloc::Delete<mesh::Mesh>(out);
   litestl::alloc::Delete<mesh::Mesh>(in);

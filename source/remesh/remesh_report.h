@@ -9,6 +9,7 @@
  * query, not this struct. See documentation/plans/quad-remeshing-filtering.md. */
 
 #include "mesh/utils/mesh_validate.h"
+#include "remesh/triage.h"
 
 #include <string>
 
@@ -23,6 +24,7 @@ enum class StageStatus : unsigned char {
 struct RemeshRunReport {
   // Per-stage execution status, in pipeline order.
   StageStatus copy = StageStatus::Skipped;
+  StageStatus triage = StageStatus::Skipped;
   StageStatus decimate = StageStatus::Skipped;
   StageStatus cross_field = StageStatus::Skipped;
   StageStatus singularity = StageStatus::Skipped;
@@ -56,6 +58,10 @@ struct RemeshRunReport {
   // are gated on validation_filled.
   bool validation_filled = false;
   mesh::RemeshReport validation;
+
+  // Tier-1 input triage counts (weld / degenerate-face / tiny-component drops +
+  // detect-only non-manifold). triage_report.ran reflects whether triage ran.
+  TriageReport triage_report;
 };
 
 } // namespace sculptcore::remesh
