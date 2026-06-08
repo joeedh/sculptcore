@@ -34,6 +34,12 @@ struct ExtractParams {
    * same grid vertex (the map is continuous, so a shared point computed from two
    * triangles agrees to float precision — well below this). */
   double weld_tol = 1e-5;
+  /* Close *odd*-length cap rims too. An odd loop is unquadable (a quad disk has
+   * even boundary), so closing it costs one cap triangle — trading the all-quad
+   * guarantee for a watertight surface. Default off: odd rims are left open (the
+   * all-quad pipeline contract). On organic inputs with fold tangles this fills
+   * the residual odd holes. Even rims are always capped regardless. */
+  bool cap_odd_holes = false;
 };
 
 struct ExtractStats {

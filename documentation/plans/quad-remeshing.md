@@ -33,7 +33,8 @@ inline below where they motivate a specific implementation choice.
 **M1–M6h complete** (the feature is end-to-end). The C++ core (`source/remesh/`)
 is green under `node make.mjs test` (`tests/test_remesh_extract.cc` is the M6
 gate: grid / cylinder / torus / sphere / capped-cylinder + reprojection +
-end-to-end `QuadRemesh`), and runs on both backends (WASM export + native N-API
+end-to-end `QuadRemesh` + `Simple.obj` (the ARAP-untangle fixture)), and runs on
+both backends (WASM export + native N-API
 wrapper). **M6h — host-side TS integration — is now done:** `LiteMesh.quadRemesh`
 constructs a `RemeshParams`, calls `Mesh_quadRemesh`, and swaps in the result;
 the `litemesh.quad_remesh()` ToolOp makes it undoable. It is guarded by
@@ -45,7 +46,7 @@ match within tolerance (6/6 green). The auto-only v1 ships now; the user-painted
 constraint layers (density / poles / strokes) remain deferred (see the M6h notes
 and `buildTriCopy`'s TODO).
 
-Four findings worth recording before the milestone bodies are read:
+Five findings worth recording before the milestone bodies are read:
 
 - **The WASM main-thread stack must be enlarged (`-sSTACK_SIZE=8388608`).** This
   was the single hardest bug in M6h and is *not* obvious from the C++. Emscripten
@@ -81,6 +82,29 @@ Four findings worth recording before the milestone bodies are read:
   fold, `extractQuadMesh` returns `nullptr` (clean failure) rather than
   rasterizing runaway non-manifold output — the plan's "gate M5 behind a
   feasibility check, fall back rather than hard-fail" risk mitigation.
+- **Rounded organic blobs need an ARAP untangle continuation.** The
+  injectivity-stiffening pass above clears the *isolated* cone-1-ring folds of a
+  sphere/cone, but on a rounded organic surface (`tests/assets/Simple.obj`) the
+  *exactly-seamless* map folds **~a third of all faces** at once — too many for
+  local stiffening, and past the 10% gate, so extraction returned `nullptr`. Root
+  cause: M5's seam-consistency penalty (`lam_seam·||B·x_b − A·x_a||²`,
+  `lam_seam=1e6`) fights the cross field wherever the field curls; the fold
+  fraction scales directly with `lam_seam` (~0% at 0.1, ~34% at 1e6). A single
+  low-`lam_seam` solve is injective but not seamless (integers can't lock). The
+  fix (`QuantizeParams::untangle_fold_threshold`, default 0.10): after the initial
+  seamless solve, if the fold fraction exceeds the threshold, **walk `lam_seam`
+  geometrically up from 0.1 → 1e6** (16 steps × 3 inner solves), retargeting every
+  face's RHS to the nearest proper rotation of its *realized* gauged Jacobian at
+  each step (`rot_all`, pure ARAP). The map starts injective at low seam weight
+  and stays injective as the seams tighten back to seamless. Simple.obj then folds
+  ~1.5% and extracts a clean all-quad, spiral-free mesh. The fallback is inert on
+  inputs already under the threshold (the sphere/cylinder/torus/capcyl fixtures
+  never trigger it), so it is a pure rescue path, not a behavior change.
+  **Geometry prefiltering is the wrong lever here** (tried and reverted): smoothing
+  / decimating / cleaning the *input triangles* does not move the fold fraction,
+  because the folds are a property of the field-aligned *parametrization*, not of
+  the input tessellation — the cure has to act at the parametrization level (the
+  ARAP continuation), not on the mesh going in.
 
 The corrections below are folded into the relevant sections; the headline changes
 in the codebase *since the plan was first written*:

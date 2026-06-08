@@ -23,6 +23,14 @@ struct RemeshParams {
    * scale (M4) and therefore the output face count. */
   float target_edge_length = 0.1f;
 
+  /* Optional solve-mesh edge length (world units). 0 = off (solve on the raw
+   * input). When > 0, a dyntopo uniform-remesh pre-pass coarsens the working
+   * copy to roughly this edge length before the heavy global solve, so dense
+   * inputs (100s of k of triangles) stay tractable. The final reprojection
+   * always targets the full-res original, so detail is preserved. Pick it a
+   * touch finer than target_edge_length (a few solve-triangles per output quad). */
+  float solve_edge_length = 0.0f;
+
   /* M1/M2: align the cross field to principal-curvature directions, weighted by
    * local anisotropy. Off = a pure-smoothness field (strokes/features only). */
   bool use_curvature = true;
@@ -42,6 +50,12 @@ struct RemeshParams {
   /* M6: snap each output vertex back onto the input surface via the BVH
    * closest-point query. Off = leave extracted positions as-is (debugging). */
   bool reproject = true;
+
+  /* M6: also close odd-length cap rims (one cap triangle each). An odd rim is
+   * unquadable, so this trades the all-quad guarantee for a watertight result.
+   * Off = leave odd holes open (strict all-quad). Useful on organic inputs whose
+   * singularity tangles leave a handful of residual odd holes. */
+  bool cap_odd_holes = false;
 
   /* M6: Laplacian-smoothing passes interleaved with reprojection to relax kinks
    * without inverting quads. */

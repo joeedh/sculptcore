@@ -97,8 +97,6 @@ inline void addBlock(std::vector<Eigen::Triplet<double>> &trips,
 }
 } // namespace
 
-extern "C" void sc_napi_logf(const char *fmt, ...);
-
 QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
 {
   QuantizeStats stats;
@@ -108,7 +106,6 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   spp.use_density = params.use_density;
   spp.gauge_eps = params.gauge_eps;
 
-  sc_napi_logf("build seamless params\n");
   SeamlessSystem sys;
   if (!buildSeamlessSystem(m, spp, sys)) {
     return stats;
@@ -117,7 +114,6 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   stats.num_corners = sys.num_corners;
   stats.num_classes = M;
 
-  sc_napi_logf("build quant graph\n");
   QuantGraph g = buildQuantGraph(m, sys.cornerClass, sys.gauge, sys.periodEC);
   const int S = g.num_sides();
   stats.num_cut_edges = S;
@@ -129,7 +125,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // Seam penalty makes each cut transition seamless (translation equal at both
   // endpoints); fix penalty locks a side onto its chosen integer. Capping the fix
   // penalty at max_lambda is what the over-constrained fallback starves.
-  const double lam_seam = 1.0e6;
+  double lam_seam = 1.0e6;
   const double lam_fix = params.max_lambda < 1.0e6 ? params.max_lambda : 1.0e6;
 
   // Per-side affine operators A = R(period - ga), B = R(-gb): the un-gauged seam
@@ -222,33 +218,186 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     Lout.makeCompressed();
   };
 
-  sc_napi_logf("create solver\n");
-  fflush(stdout);
-
-#ifdef WASM
-  Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver;
-#else
-  Eigen::CholmodSupernodalLLT<Eigen::SparseMatrix<double>> solver;
-#endif
   Eigen::VectorXd x = Eigen::VectorXd::Zero(N);
   bool all_solved = true;
 
-  auto solveAll = [&]() -> bool {
+#ifdef WASM
+  // WASM: Eigen SimplicialLLT has no rank update, so analyze once (the pattern is
+  // invariant — fix penalties land where the seam penalty already has entries and
+  // the injectivity pass only rescales) and factorize per round.
+  Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver;
+  bool analyzed = false;
+  auto solveAll = [&](bool /*fullRefactor*/) -> bool {
     Eigen::SparseMatrix<double> L;
     Eigen::VectorXd rhs;
-    sc_napi_logf("assemble\n");
     assemble(L, rhs);
-    sc_napi_logf("compute\n");
-    solver.compute(L);
+    if (!analyzed) {
+      solver.analyzePattern(L);
+      if (solver.info() != Eigen::Success) {
+        return false;
+      }
+      analyzed = true;
+    }
+    solver.factorize(L);
     if (solver.info() != Eigen::Success) {
-      sc_napi_logf("solver failed\n");
       return false;
     }
-    sc_napi_logf("solve\n");
     x = solver.solve(rhs);
-    sc_napi_logf(solver.info() == Eigen::Success ? "success\n" : "failure\n");
     return solver.info() == Eigen::Success;
   };
+#else
+  // Native: CHOLMOD simplicial LDL'. Analyze the (pattern-invariant) system once,
+  // then maintain the factor incrementally. The greedy rounding loop's only
+  // per-round change is the newly-locked sides' fix penalty — a rank<=4 PSD term
+  // whose nonzeros are a subset of the always-present seam pattern — so each lock
+  // is a cholmod_updown(+1) instead of a full re-factorization. The initial L0 and
+  // the injectivity-pass refactors (base stiffness rescaled, not low-rank) stay
+  // full numeric factorizations of the assembled matrix.
+  cholmod_common cc;
+  cholmod_start(&cc);
+  cc.supernodal = CHOLMOD_SIMPLICIAL; // updown requires a simplicial factor
+  cc.final_ll = 0;                    // keep LDL' form (updown updates LDL')
+  cholmod_factor *Lf = nullptr;
+  Vector<int> Pinv; // original row -> factor-permuted row (cholmod_updown ordering)
+  Vector<char> factored;
+  factored.resize(S);
+  for (int s = 0; s < S; s++) {
+    factored[s] = 0;
+  }
+  // A rank-k cholmod_updown costs ~O(k * etree-path); above some k a full
+  // re-factorization is cheaper. Early rounds lock large vertex-independent
+  // batches (high rank) -> refactor; the grind tail locks ~1 side/round -> updown.
+  const int updown_max_cols = 256; // 4 cols/side -> updown when <=64 sides/round
+
+  // RHS-only assembly (base field + each locked side's fix penalty; the seam
+  // penalty, pins and Tikhonov shift contribute zero RHS). Cheap — no sparse build.
+  auto assembleRhs = [&](Eigen::VectorXd &rhs) {
+    rhs = Eigen::VectorXd::Zero(N);
+    for (int i = 0; i < M; i++) {
+      rhs[2 * i + 0] = baseBu[i];
+      rhs[2 * i + 1] = baseBv[i];
+    }
+    for (int s = 0; s < S; s++) {
+      if (!fixed[s]) {
+        continue;
+      }
+      double kx = double(g.t_int[s][0]), ky = double(g.t_int[s][1]);
+      double rx, ry;
+      mv(transp(Bop[s]), kx, ky, rx, ry); // B^T k at both clb endpoints
+      rhs[2 * g.clb[s] + 0] += lam_fix * rx;
+      rhs[2 * g.clb[s] + 1] += lam_fix * ry;
+      rhs[2 * g.clb2[s] + 0] += lam_fix * rx;
+      rhs[2 * g.clb2[s] + 1] += lam_fix * ry;
+      mv(transp(negM(Aop[s])), kx, ky, rx, ry); // -A^T k at both cla endpoints
+      rhs[2 * g.cla[s] + 0] += lam_fix * rx;
+      rhs[2 * g.cla[s] + 1] += lam_fix * ry;
+      rhs[2 * g.cla2[s] + 0] += lam_fix * rx;
+      rhs[2 * g.cla2[s] + 1] += lam_fix * ry;
+    }
+  };
+
+  // Full numeric factorization of the assembled matrix L (analyze only the first
+  // time; the pattern never changes). Records the permutation the rank updates
+  // must follow and marks every currently-locked side as resident in the factor.
+  auto factorFull = [&](const Eigen::SparseMatrix<double> &L) -> bool {
+    auto sym = L.selfadjointView<Eigen::Lower>();
+    cholmod_sparse Ac = Eigen::viewAsCholmod(sym);
+    if (!Lf) {
+      Lf = cholmod_analyze(&Ac, &cc);
+      if (!Lf || cc.status < CHOLMOD_OK) {
+        return false;
+      }
+      Pinv.resize(N);
+      const int *Perm = reinterpret_cast<const int *>(Lf->Perm);
+      for (int k = 0; k < N; k++) {
+        Pinv[Perm[k]] = k;
+      }
+    }
+    cholmod_factorize(&Ac, Lf, &cc);
+    if (cc.status < CHOLMOD_OK) {
+      return false;
+    }
+    for (int s = 0; s < S; s++) {
+      factored[s] = fixed[s];
+    }
+    return true;
+  };
+
+  // cholmod_updown(+1) for every side locked since the last factor/update. Each
+  // side contributes two rank-2 columns C = sqrt(lam_fix)*[B,-A]^T over its two
+  // endpoint class-pairs; rows are permuted into the factor's ordering (Pinv).
+  auto applyPendingLocks = [&]() -> bool {
+    std::vector<Eigen::Triplet<double>> ct;
+    const double sq = std::sqrt(lam_fix);
+    int col = 0;
+    auto emitPair = [&](int clb, int cla, const M2 &B, const M2 &A) {
+      ct.emplace_back(Pinv[2 * clb + 0], col + 0, sq * B.a);
+      ct.emplace_back(Pinv[2 * clb + 1], col + 0, sq * B.b);
+      ct.emplace_back(Pinv[2 * cla + 0], col + 0, -sq * A.a);
+      ct.emplace_back(Pinv[2 * cla + 1], col + 0, -sq * A.b);
+      ct.emplace_back(Pinv[2 * clb + 0], col + 1, sq * B.c);
+      ct.emplace_back(Pinv[2 * clb + 1], col + 1, sq * B.d);
+      ct.emplace_back(Pinv[2 * cla + 0], col + 1, -sq * A.c);
+      ct.emplace_back(Pinv[2 * cla + 1], col + 1, -sq * A.d);
+      col += 2;
+    };
+    for (int s = 0; s < S; s++) {
+      if (!fixed[s] || factored[s]) {
+        continue;
+      }
+      emitPair(g.clb[s], g.cla[s], Bop[s], Aop[s]);
+      emitPair(g.clb2[s], g.cla2[s], Bop[s], Aop[s]);
+      factored[s] = 1;
+    }
+    if (col == 0) {
+      return true;
+    }
+    Eigen::SparseMatrix<double> C(N, col);
+    C.setFromTriplets(ct.begin(), ct.end());
+    C.makeCompressed();
+    cholmod_sparse Cc = Eigen::viewAsCholmod(C);
+    int ok = cholmod_updown(1, &Cc, Lf, &cc);
+    return ok && cc.status >= CHOLMOD_OK;
+  };
+
+  auto solveCurrent = [&]() -> bool {
+    Eigen::VectorXd rhs;
+    assembleRhs(rhs);
+    cholmod_dense bc = Eigen::viewAsCholmod(rhs);
+    cholmod_dense *xc = cholmod_solve(CHOLMOD_A, Lf, &bc, &cc);
+    if (!xc || cc.status < CHOLMOD_OK) {
+      return false;
+    }
+    const double *xd = reinterpret_cast<const double *>(xc->x);
+    x.resize(N);
+    for (int i = 0; i < N; i++) {
+      x[i] = xd[i];
+    }
+    cholmod_free_dense(&xc, &cc);
+    return true;
+  };
+
+  auto solveAll = [&](bool fullRefactor) -> bool {
+    // Pending = sides locked since the last factor/update; each costs 4 updown
+    // columns. A big batch (early rounds) refactors faster than it updowns.
+    int pending = 0;
+    for (int s = 0; s < S; s++) {
+      pending += (fixed[s] && !factored[s]) ? 1 : 0;
+    }
+    bool refactor = fullRefactor || !Lf || 4 * pending > updown_max_cols;
+    if (refactor) {
+      Eigen::SparseMatrix<double> L;
+      Eigen::VectorXd rhs;
+      assemble(L, rhs);
+      if (!factorFull(L)) {
+        return false;
+      }
+    } else if (!applyPendingLocks()) {
+      return false;
+    }
+    return solveCurrent();
+  };
+#endif
 
   // Per-face stiffening weight for the injectivity pass (1 = unweighted M4).
   Vector<double> faceW;
@@ -265,6 +414,71 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   }
   BuiltinAttr<float, ".remesh.f.theta"> theta;
   theta.ensure(m.f.attrs);
+
+  // When set, the base-RHS rebuild retargets every face to the nearest proper
+  // rotation of its realized Jacobian instead of the rigid field angle. Off by
+  // default (field-aligned); the ARAP untangle fallback below turns it on when
+  // the field-aligned map folds too much. The rotation target sits beside
+  // wherever the solver already is, so it relaxes folds without fighting the
+  // locked seams — whereas the field angle is what folds the exactly-seamless map.
+  bool rot_all = false;
+
+  // Area-weighted gauged gradient (grad u, grad v) of the current solution x on f.
+  auto faceGradX = [&](int f, double &gux, double &guy, double &gvx,
+                       double &gvy) -> bool {
+    Vector<int> cs;
+    int c0 = m.l.c[m.f.l[f]], cc = c0;
+    do {
+      cs.append(cc);
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    int n = int(cs.size());
+    if (n < 3) {
+      return false;
+    }
+    float3 X = sys.FX[f], Y = sys.FY[f];
+    float3 p0 = m.v.co[m.c.v[cs[0]]];
+    Vector<float2> loc;
+    for (int i = 0; i < n; i++) {
+      float3 d = m.v.co[m.c.v[cs[i]]] - p0;
+      loc.append(float2(d.dot(X), d.dot(Y)));
+    }
+    double Gux = 0, Guy = 0, Gvx = 0, Gvy = 0, totA = 0;
+    for (int t = 1; t + 1 < n; t++) {
+      int idx[3] = {0, t, t + 1};
+      float2 q0 = loc[0], q1 = loc[t], q2 = loc[t + 1];
+      double r1x = q1[0] - q0[0], r1y = q1[1] - q0[1];
+      double r2x = q2[0] - q0[0], r2y = q2[1] - q0[1];
+      double det = r1x * r2y - r1y * r2x;
+      if (std::fabs(det) < 1e-20) {
+        continue;
+      }
+      double area = 0.5 * std::fabs(det);
+      double Gx[3] = {(r1y - r2y) / det, r2y / det, -r1y / det};
+      double Gy[3] = {(r2x - r1x) / det, -r2x / det, r1x / det};
+      double dux = 0, duy = 0, dvx = 0, dvy = 0;
+      for (int a = 0; a < 3; a++) {
+        int ca = sys.cornerClass[cs[idx[a]]];
+        dux += Gx[a] * x[2 * ca + 0];
+        duy += Gy[a] * x[2 * ca + 0];
+        dvx += Gx[a] * x[2 * ca + 1];
+        dvy += Gy[a] * x[2 * ca + 1];
+      }
+      Gux += area * dux;
+      Guy += area * duy;
+      Gvx += area * dvx;
+      Gvy += area * dvy;
+      totA += area;
+    }
+    if (totA <= 1e-20) {
+      return false;
+    }
+    gux = Gux / totA;
+    guy = Guy / totA;
+    gvx = Gvx / totA;
+    gvy = Gvy / totA;
+    return true;
+  };
 
   // Rebuild the class-space base stiffness + field RHS, scaling each face by
   // faceW[f]. Identical to buildSeamlessSystem's assembly (so faceW==1 reproduces
@@ -304,9 +518,20 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         davg /= double(n);
         mag = inv_len * std::sqrt(davg > 1e-12 ? davg : 1e-12);
       }
-      double alpha = double(theta[f]) + double(sys.gauge[f]) * HALF_PI;
-      float2 tgt_u(float(mag * std::cos(alpha)), float(mag * std::sin(alpha)));
-      float2 tgt_v(float(-mag * std::sin(alpha)), float(mag * std::cos(alpha)));
+      float2 tgt_u, tgt_v;
+      double gux, guy, gvx, gvy;
+      if (rot_all && faceGradX(f, gux, guy, gvx, gvy)) {
+        // Nearest proper rotation R to the realized gauged Jacobian
+        // J=[[gux,guy],[gvx,gvy]]: angle=atan2(c-b,a+d), det(R)=+1.
+        double th = std::atan2(gvx - guy, gux + gvy);
+        double C = std::cos(th), S = std::sin(th);
+        tgt_u = float2(float(mag * C), float(-mag * S));
+        tgt_v = float2(float(mag * S), float(mag * C));
+      } else {
+        double alpha = double(theta[f]) + double(sys.gauge[f]) * HALF_PI;
+        tgt_u = float2(float(mag * std::cos(alpha)), float(mag * std::sin(alpha)));
+        tgt_v = float2(float(-mag * std::sin(alpha)), float(mag * std::cos(alpha)));
+      }
       double w = faceW[f];
       for (int t = 1; t + 1 < n; t++) {
         int idx[3] = {0, t, t + 1};
@@ -417,9 +642,46 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // cocycle); the batch must be *vertex-independent* (no two sides share an
   // endpoint vertex) so no interior one-ring loop has two of its spokes rounded
   // together. Most-confident-first within each round, re-solve, repeat.
-  all_solved &= solveAll();
+  const double tau = params.confidence_radius; // only lock sides this close to int
+  all_solved &= solveAll(true); // initial seamless solve -> builds L0 (no locks)
 
-  sc_napi_logf("postsolve\n");
+  // ARAP untangle fallback (see QuantizeParams::untangle_fold_threshold). The
+  // seam-consistency penalty folds the field-aligned map where the field curls
+  // (folds scale directly with lam_seam: ~0% at 0.1, ~34% at 1e6 on a rounded
+  // blob). A single low-lam_seam solve is injective but not seamless (integers
+  // can't lock). So when the field-aligned solve folds too much, walk lam_seam up
+  // geometrically from a low weight, re-solving and ARAP-retargeting every face to
+  // the nearest rotation of its realized Jacobian at each step: the map starts
+  // injective and stays injective as the seams tighten back to seamless.
+  const double untangle_thresh = params.untangle_fold_threshold;
+  int initFolds = 0;
+  if (all_solved && untangle_thresh > 0.0) {
+    for (int f : m.f) {
+      if (faceJac(f) <= 0.0) {
+        initFolds++;
+      }
+    }
+  }
+  double initFoldFrac = m.f.count ? double(initFolds) / m.f.count : 0.0;
+  if (all_solved && untangle_thresh > 0.0 && initFoldFrac > untangle_thresh) {
+    const double lam_hi = lam_seam, lam_lo = 0.1;
+    const int steps = 16, inner = 3;
+    rot_all = true; // retarget every face to nearest rotation (pure ARAP)
+    double mult = std::pow(lam_hi / lam_lo, 1.0 / steps);
+    double lam = lam_lo;
+    for (int sIdx = 0; sIdx <= steps && all_solved; sIdx++) {
+      lam_seam = (sIdx < steps) ? lam : lam_hi;
+      for (int k = 0; k < inner && all_solved; k++) {
+        rebuildBase();
+        all_solved &= solveAll(true);
+      }
+      lam *= mult;
+    }
+    lam_seam = lam_hi;
+    // rot_all stays on so the post-rounding injectivity pass keeps retargeting
+    // residual folds to rotations rather than the (re-folding) field angle.
+  }
+
   stats.iters = 0;
   if (S > 0 && all_solved) {
     // Endpoint vertices of each side, for the vertex-independence test.
@@ -439,12 +701,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     avg.resize(S);
     std::unordered_set<int> usedV;
     int remaining = S;
-    const double tau = 0.1; // confidence radius: only lock sides this close to int
     // Each round locks an independent set (a vertex can't repeat), so the worst
     // case is one side per round; cap generously above S.
     const int max_rounds = S + 8;
     for (int iter = 1; iter <= max_rounds && remaining > 0; iter++) {
-      sc_napi_logf("round %d of %d remaining=%d\n", iter, max_rounds, remaining);
       stats.iters = iter;
       int nun = 0;
       for (int s = 0; s < S; s++) {
@@ -483,7 +743,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       if (locked == 0) {
         break;
       }
-      if (!solveAll()) {
+      if (!solveAll(false)) { // incremental: updown the sides locked this round
         all_solved = false;
         break;
       }
@@ -500,7 +760,122 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       }
     }
     if (leftover && all_solved) {
-      all_solved &= solveAll();
+      all_solved &= solveAll(false); // incremental: updown the leftover locks
+    }
+  }
+
+  // Allocation-free per-triangle fold test (the solve mesh is triangulated). The
+  // gauge is uniform per face, so the raw-class signed uv area times the reference
+  // (material) orientation has the same sign as faceJac's det; <= 0 means folded.
+  // Falls back to faceJac for any non-triangle face.
+  auto isFolded = [&](int f) -> bool {
+    int c0 = m.l.c[m.f.l[f]], cc = c0, n = 0, cs[3] = {0, 0, 0};
+    do {
+      if (n < 3) {
+        cs[n] = cc;
+      }
+      n++;
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    if (n != 3) {
+      return faceJac(f) <= 0.0;
+    }
+    float3 X = sys.FX[f], Y = sys.FY[f];
+    float3 p0 = m.v.co[m.c.v[cs[0]]];
+    float3 d1 = m.v.co[m.c.v[cs[1]]] - p0, d2 = m.v.co[m.c.v[cs[2]]] - p0;
+    double refDet = double(d1.dot(X)) * double(d2.dot(Y)) -
+                    double(d1.dot(Y)) * double(d2.dot(X));
+    int a0 = sys.cornerClass[cs[0]], a1 = sys.cornerClass[cs[1]], a2 = sys.cornerClass[cs[2]];
+    double u0 = x[2 * a0], v0 = x[2 * a0 + 1];
+    double uvDet = (x[2 * a1] - u0) * (x[2 * a2 + 1] - v0) -
+                   (x[2 * a1 + 1] - v0) * (x[2 * a2] - u0);
+    return uvDet * refDet <= 0.0;
+  };
+
+  // Tier-1b seam-integer relaxation. The greedy rounding froze every cut-edge
+  // translation onto an integer; a fold wedged at a cut frequently clears if one
+  // incident translation is bumped by a unit. We try each fold-adjacent side's four
+  // unit moves with a cheap RHS-only re-solve (the factor already holds every lock),
+  // keeping a move only when it strictly cuts the fold count *and* leaves the map
+  // feasible (max integer residual within tol) -- so the integer cocycle stays
+  // valid and the no-spiral guarantee is never traded away. Runs before the
+  // injectivity stiffening so the re-solves use the clean (faceW == 1) factor.
+  auto maxResidual = [&]() -> double {
+    double r = 0.0;
+    for (int s = 0; s < S; s++) {
+      double t1x, t1y, t2x, t2y;
+      realizedT(s, t1x, t1y, t2x, t2y);
+      double kx = double(g.t_int[s][0]), ky = double(g.t_int[s][1]);
+      double d1 = std::sqrt((t1x - kx) * (t1x - kx) + (t1y - ky) * (t1y - ky));
+      double d2 = std::sqrt((t2x - kx) * (t2x - kx) + (t2y - ky) * (t2y - ky));
+      r = std::fmax(r, std::fmax(d1, d2));
+    }
+    return r;
+  };
+  if (all_solved && S > 0 && params.seam_relax_iters > 0) {
+    auto countF = [&]() {
+      int nf = 0;
+      for (int f : m.f) {
+        if (isFolded(f)) {
+          nf++;
+        }
+      }
+      return nf;
+    };
+    const float2 moves[4] = {float2(1, 0), float2(-1, 0), float2(0, 1), float2(0, -1)};
+    int curFold = countF();
+    for (int round = 0; round < params.seam_relax_iters &&
+                        curFold >= params.seam_relax_min_folds && all_solved;
+         round++) {
+      // Collect the cut-edge sides bordering a folded face (deterministic order).
+      std::unordered_set<int> candSet;
+      Vector<int> cand;
+      for (int f : m.f) {
+        if (!isFolded(f)) {
+          continue;
+        }
+        int c0 = m.l.c[m.f.l[f]], cc = c0;
+        do {
+          int s = g.sideOfEdge[m.c.e[cc]];
+          if (s >= 0 && candSet.insert(s).second) {
+            cand.append(s);
+          }
+          cc = m.c.next[cc];
+        } while (cc != c0);
+      }
+      std::sort(cand.data(), cand.data() + cand.size());
+      bool anyAccept = false;
+      for (int ci = 0; ci < int(cand.size()) && all_solved; ci++) {
+        int s = cand[ci];
+        float2 base_k = g.t_int[s];
+        int bestM = -1, bestFold = curFold;
+        for (int mi = 0; mi < 4; mi++) {
+          g.t_int[s] = base_k + moves[mi];
+          if (!solveAll(false)) {
+            all_solved = false;
+            break;
+          }
+          if (maxResidual() <= params.integer_tol) {
+            int f = countF();
+            if (f < bestFold) {
+              bestFold = f;
+              bestM = mi;
+            }
+          }
+        }
+        if (!all_solved) {
+          break;
+        }
+        g.t_int[s] = bestM >= 0 ? base_k + moves[bestM] : base_k;
+        all_solved &= solveAll(false); // settle x at the chosen integer
+        if (bestM >= 0) {
+          curFold = bestFold;
+          anyAccept = true;
+        }
+      }
+      if (!anyAccept) {
+        break;
+      }
     }
   }
 
@@ -563,7 +938,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         }
       }
       rebuildBase();
-      if (!solveAll()) {
+      if (!solveAll(true)) { // base stiffness rescaled -> full re-factorization
         all_solved = false;
         break;
       }
@@ -577,6 +952,272 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       }
     }
     x = bestX;
+  }
+
+  // Tier-3 local fold-patch re-parametrization. The global injectivity pass above
+  // stiffens folded 1-rings toward the field, but a fold wedged between two locked
+  // seams cannot flatten that way. Here we instead *move* the fold patch's interior
+  // classes directly: collect each folded face plus a few neighbor rings, pin that
+  // patch's boundary (and every seam-endpoint / gauge-pinned class, so the locked
+  // integer translations and iso-line continuity are untouched), and minimize the
+  // convex fold-removal energy  sum_t max(0, delta - area_t)^2  over the movable
+  // interior classes. area_t (the per-triangle signed uv area, sign-matched to
+  // faceJac via the reference orientation) is linear in each class, so the energy
+  // is convex and plain gradient descent reaches the global optimum for the fixed
+  // boundary. Accept only if the total fold count drops. This never re-solves the
+  // global system and never moves a seam endpoint -> seamlessness is preserved.
+  if (all_solved && params.local_untangle_iters > 0) {
+    auto countFolds = [&]() {
+      int nf = 0;
+      for (int f : m.f) {
+        if (faceJac(f) <= 0.0) {
+          nf++;
+        }
+      }
+      return nf;
+    };
+    int fold0 = countFolds();
+    if (fold0 > 0) {
+      const int grow = params.local_untangle_grow;
+      // 1. Mark folded faces, then grow the patch by `grow` vertex-rings so the
+      //    pinned boundary sits a few faces away from the inversion.
+      Vector<char> fmark, vmk;
+      fmark.resize(int(m.f.capacity()));
+      vmk.resize(int(m.v.capacity()));
+      for (int i = 0; i < int(m.f.capacity()); i++) {
+        fmark[i] = 0;
+      }
+      for (int f : m.f) {
+        if (faceJac(f) <= 0.0) {
+          fmark[f] = 1;
+        }
+      }
+      for (int r = 0; r < grow; r++) {
+        for (int i = 0; i < int(m.v.capacity()); i++) {
+          vmk[i] = 0;
+        }
+        for (int f : m.f) {
+          if (!fmark[f]) {
+            continue;
+          }
+          int c0 = m.l.c[m.f.l[f]], cc = c0;
+          do {
+            vmk[m.c.v[cc]] = 1;
+            cc = m.c.next[cc];
+          } while (cc != c0);
+        }
+        for (int f : m.f) {
+          if (fmark[f]) {
+            continue;
+          }
+          int c0 = m.l.c[m.f.l[f]], cc = c0;
+          bool touch = false;
+          do {
+            if (vmk[m.c.v[cc]]) {
+              touch = true;
+              break;
+            }
+            cc = m.c.next[cc];
+          } while (cc != c0);
+          if (touch) {
+            fmark[f] = 1;
+          }
+        }
+      }
+      // 2. Pin every seam-endpoint and gauge-pin class (moving these would shift a
+      //    locked cut translation or the gauge anchor and tear the IGM).
+      Vector<char> pinned;
+      pinned.resize(M);
+      for (int i = 0; i < M; i++) {
+        pinned[i] = 0;
+      }
+      for (int i = 0; i < int(sys.pinClass.size()); i++) {
+        pinned[sys.pinClass[i]] = 1;
+      }
+      for (int s = 0; s < S; s++) {
+        pinned[g.cla[s]] = 1;
+        pinned[g.clb[s]] = 1;
+        pinned[g.cla2[s]] = 1;
+        pinned[g.clb2[s]] = 1;
+      }
+      // 3. A class is movable iff every corner that maps to it lies in the patch
+      //    (so the surrounding map stays C0) and it is not pinned.
+      Vector<int> cin, cout;
+      cin.resize(M);
+      cout.resize(M);
+      for (int i = 0; i < M; i++) {
+        cin[i] = 0;
+        cout[i] = 0;
+      }
+      for (int f : m.f) {
+        int c0 = m.l.c[m.f.l[f]], cc = c0;
+        do {
+          int cl = sys.cornerClass[cc];
+          if (fmark[f]) {
+            cin[cl]++;
+          } else {
+            cout[cl]++;
+          }
+          cc = m.c.next[cc];
+        } while (cc != c0);
+      }
+      Vector<char> movable;
+      movable.resize(M);
+      int nmov = 0;
+      for (int i = 0; i < M; i++) {
+        movable[i] = (cin[i] > 0 && cout[i] == 0 && !pinned[i]) ? 1 : 0;
+        if (movable[i]) {
+          nmov++;
+        }
+      }
+      if (nmov > 0) {
+        // 4. Fan-triangulate the patch faces into class-space triangles. `sgn` is
+        //    the reference (material) orientation, so sgn*uvArea has the same sign
+        //    as faceJac; targeting sgn*uvArea >= delta removes the inversion.
+        struct Tri {
+          int a, b, c;
+          double sgn;
+        };
+        std::vector<Tri> tris;
+        double areaAcc = 0.0;
+        int areaN = 0;
+        Vector<int> cs;
+        Vector<float2> loc;
+        for (int f : m.f) {
+          if (!fmark[f]) {
+            continue;
+          }
+          cs.clear();
+          loc.clear();
+          int c0 = m.l.c[m.f.l[f]], cc = c0;
+          do {
+            cs.append(cc);
+            cc = m.c.next[cc];
+          } while (cc != c0);
+          int n = int(cs.size());
+          if (n < 3) {
+            continue;
+          }
+          float3 X = sys.FX[f], Y = sys.FY[f];
+          float3 p0 = m.v.co[m.c.v[cs[0]]];
+          for (int i = 0; i < n; i++) {
+            float3 d = m.v.co[m.c.v[cs[i]]] - p0;
+            loc.append(float2(d.dot(X), d.dot(Y)));
+          }
+          for (int t = 1; t + 1 < n; t++) {
+            float2 q0 = loc[0], q1 = loc[t], q2 = loc[t + 1];
+            double refDet =
+                (q1[0] - q0[0]) * (q2[1] - q0[1]) - (q1[1] - q0[1]) * (q2[0] - q0[0]);
+            if (std::fabs(refDet) < 1e-20) {
+              continue;
+            }
+            Tri tr;
+            tr.a = sys.cornerClass[cs[0]];
+            tr.b = sys.cornerClass[cs[t]];
+            tr.c = sys.cornerClass[cs[t + 1]];
+            tr.sgn = refDet > 0.0 ? 1.0 : -1.0;
+            tris.push_back(tr);
+            double ua = x[2 * tr.a], va = x[2 * tr.a + 1];
+            double ub = x[2 * tr.b], vb = x[2 * tr.b + 1];
+            double uc = x[2 * tr.c], vc = x[2 * tr.c + 1];
+            areaAcc += std::fabs((ub - ua) * (vc - va) - (vb - va) * (uc - ua));
+            areaN++;
+          }
+        }
+        double meanA = areaN ? areaAcc / areaN : 1.0;
+        double delta = 0.05 * meanA; // gentle positive injectivity margin
+        auto sa = [&](const Tri &t, const Eigen::VectorXd &xx) -> double {
+          double ua = xx[2 * t.a], va = xx[2 * t.a + 1];
+          double ub = xx[2 * t.b], vb = xx[2 * t.b + 1];
+          double uc = xx[2 * t.c], vc = xx[2 * t.c + 1];
+          return t.sgn * ((ub - ua) * (vc - va) - (vb - va) * (uc - ua));
+        };
+        auto energy = [&](const Eigen::VectorXd &xx) -> double {
+          double E = 0.0;
+          for (const Tri &t : tris) {
+            double s = sa(t, xx);
+            if (s < delta) {
+              double rr = delta - s;
+              E += rr * rr;
+            }
+          }
+          return E;
+        };
+        Eigen::VectorXd xc = x;
+        Eigen::VectorXd grad = Eigen::VectorXd::Zero(N);
+        double E = energy(xc);
+        double step = -1.0;
+        for (int it = 0; it < params.local_untangle_iters && E > 0.0; it++) {
+          grad.setZero();
+          for (const Tri &t : tris) {
+            double s = sa(t, xc);
+            if (s >= delta) {
+              continue;
+            }
+            // dE/dpos = -2(delta - s) * sgn * d(uvArea)/dpos.
+            double gc = 2.0 * (delta - s) * (-1.0) * t.sgn;
+            double ua = xc[2 * t.a], va = xc[2 * t.a + 1];
+            double ub = xc[2 * t.b], vb = xc[2 * t.b + 1];
+            double uc = xc[2 * t.c], vc = xc[2 * t.c + 1];
+            if (movable[t.a]) {
+              grad[2 * t.a + 0] += gc * (vb - vc);
+              grad[2 * t.a + 1] += gc * (uc - ub);
+            }
+            if (movable[t.b]) {
+              grad[2 * t.b + 0] += gc * (vc - va);
+              grad[2 * t.b + 1] += gc * (ua - uc);
+            }
+            if (movable[t.c]) {
+              grad[2 * t.c + 0] += gc * (va - vb);
+              grad[2 * t.c + 1] += gc * (ub - ua);
+            }
+          }
+          double gnorm2 = 0.0;
+          for (int i = 0; i < M; i++) {
+            if (movable[i]) {
+              gnorm2 += grad[2 * i] * grad[2 * i] + grad[2 * i + 1] * grad[2 * i + 1];
+            }
+          }
+          if (gnorm2 < 1e-30) {
+            break;
+          }
+          if (step < 0.0) {
+            step = meanA / std::sqrt(gnorm2); // scale-aware first guess
+          }
+          Eigen::VectorXd xt = xc;
+          double Et = E;
+          bool improved = false;
+          for (int ls = 0; ls < 30; ls++) {
+            xt = xc;
+            for (int i = 0; i < M; i++) {
+              if (movable[i]) {
+                xt[2 * i + 0] -= step * grad[2 * i + 0];
+                xt[2 * i + 1] -= step * grad[2 * i + 1];
+              }
+            }
+            Et = energy(xt);
+            if (Et < E - 1e-12 * E) {
+              improved = true;
+              break;
+            }
+            step *= 0.5;
+          }
+          if (!improved) {
+            break;
+          }
+          xc = xt;
+          E = Et;
+          step *= 1.5; // convex: creep the step back up between iterations
+        }
+        // Accept the re-parametrized patch only if it strictly reduces folds.
+        Eigen::VectorXd xsave = x;
+        x = xc;
+        int fold1 = countFolds();
+        if (fold1 >= fold0) {
+          x = xsave;
+        }
+      }
+    }
   }
 
   // Final integer residual: max over all sides of how far each endpoint's
@@ -596,7 +1237,6 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   stats.solved = all_solved;
   stats.max_integer_residual = residual;
   stats.feasible = all_solved && (residual < params.integer_tol);
-  sc_napi_logf("postsolve2\n");
 
   // Write the snapped per-corner (u, v) and the integer per-edge translations.
   BuiltinAttr<float2, ".remesh.c.uv", AttrFlag::TEMP> uv;
@@ -635,7 +1275,6 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   int num_faces = 0;
   double min_jac = 0.0;
   bool first_jac = true;
-  int _loopguard = 0;
   for (int f : m.f) {
     cs.clear();
     loc.clear();
@@ -643,10 +1282,6 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     do {
       cs.append(cc);
       cc = m.c.next[cc];
-      if (_loopguard++ > 10000) {
-        sc_napi_logf("mesh error infinite loop\n");
-        break;
-      }
     } while (cc != c0);
     int n = int(cs.size());
     if (n < 3) {
@@ -701,6 +1336,13 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   }
   stats.num_faces = num_faces;
   stats.min_jacobian = first_jac ? 0.0 : min_jac;
+
+#ifndef WASM
+  if (Lf) {
+    cholmod_free_factor(&Lf, &cc);
+  }
+  cholmod_finish(&cc);
+#endif
 
   return stats;
 }

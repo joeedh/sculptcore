@@ -584,13 +584,18 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       } while (e != e0 && ++guard < 100000);
       loops.append(loop);
     }
+    // A real hole rim (cone 1-ring / over-scaled cap) is small; a loop in the
+    // thousands is a non-manifold artifact of a surviving fold tangle. Fanning it
+    // would emit ~n/2 overlapping garbage quads, so leave it open (a hole) instead.
+    const int kMaxCapLoop = 2048;
     for (int li = 0; li < int(loops.size()); li++) {
       Vector<int> &loop = loops[li];
       int n = int(loop.size());
-      // An odd ring cannot be closed by a pure-quad fan, so leave it open; the
-      // result stays all-quad at the cost of a hole (rare: a cap whose grid
-      // boundary length came out odd, e.g. a singular cone rim on a flat cap).
-      if (n < 4 || (n & 1)) continue;
+      // Center-fan cap: an even rim closes with pure quads. An odd rim is
+      // unquadable, so it needs one trailing triangle — only do that when
+      // cap_odd_holes is set (else leave it open to keep the all-quad contract).
+      if (n < 4 || n > kMaxCapLoop) continue;
+      if ((n & 1) && !params.cap_odd_holes) continue;
       float3 cen(0, 0, 0);
       for (int v : loop)
         cen = float3(cen[0] + o.v.co[v][0], cen[1] + o.v.co[v][1], cen[2] + o.v.co[v][2]);
@@ -614,8 +619,10 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       for (int i = 0; i < n; i += 2) {
         Vector<int> q;
         q.append(C);
-        q.append(loop[(i + 2) % n]);
-        q.append(loop[(i + 1) % n]);
+        if (i + 2 <= n) {
+          q.append(loop[(i + 2) % n]); // spans two rim edges -> quad
+        }
+        q.append(loop[(i + 1) % n]); // odd remainder spans one edge -> triangle
         q.append(loop[i]);
         o.make_face(q);
       }
@@ -623,6 +630,15 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   }
 
   out->recalc_normals();
+
+  // Backstop: a trustworthy grid map welds to a quad mesh with F ~ V (Euler).
+  // If anything above still produced F >> V the map tangled beyond repair; bail
+  // cleanly so the caller retries coarser rather than handing back garbage.
+  if (out->v.count > 0 && double(out->f.count) > 4.0 * double(out->v.count)) {
+    stats.ok = false;
+    litestl::alloc::Delete<Mesh>(out);
+    return nullptr;
+  }
 
   stats.ok = stats.num_quads > 0;
   return out;

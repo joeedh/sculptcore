@@ -7,6 +7,7 @@
 #include "remesh/field/singularity_adjust.h"
 #include "remesh/quantize/quantize_ilp.h"
 
+#include "dyntopo/dyntopo.h"
 #include "mesh/mesh.h"
 #include "mesh/utils/triangulate.h"
 
@@ -64,14 +65,122 @@ Mesh *buildTriCopy(Mesh &src)
   return work;
 }
 
+/* Global uniform-remesh pre-pass: coarsen `m` toward edge length `L` so the
+ * heavy global solve runs on a tractable triangle count. Reuses dyntopo's
+ * Botsch-Kobbelt operators (collapse short / split long / flip / tangential
+ * smooth) over a whole-mesh sphere. Geometry only — the quads are reprojected
+ * onto the full-res original afterward, so mild tangential drift here is fine. */
+void decimateForSolve(Mesh &m, float L, uint32_t seed)
+{
+  m.thawTopo();
+
+  bool have = false;
+  math::float3 bmin{}, bmax{};
+  for (int v : m.v) {
+    math::float3 co = m.v.co[v];
+    if (!have) {
+      bmin = bmax = co;
+      have = true;
+      continue;
+    }
+    for (int i = 0; i < 3; i++) {
+      if (co[i] < bmin[i]) bmin[i] = co[i];
+      if (co[i] > bmax[i]) bmax[i] = co[i];
+    }
+  }
+  if (!have) {
+    return;
+  }
+  math::float3 center = (bmin + bmax) * 0.5f;
+  float radius = (bmax - bmin).length(); // > half-diagonal: covers the whole mesh
+
+  dyntopo::DynTopoParams dp;
+  dp.l_max = L * (4.0f / 3.0f);
+  dp.l_min = L * (4.0f / 5.0f);
+  dp.mode = dyntopo::DynTopoMode::Both;
+  dp.do_flips = true;
+  dp.do_smooth = true;
+  dp.preserve_features = false; // the tri copy carries no boundary overlays
+  dp.max_rounds = 100;
+  dyntopo::applyBrushDab(m, center, radius, dp, seed);
+
+  // Extra tangential relaxation of the decimated copy. The global solve folds
+  // where curvature concentrates; a few smoothing sweeps even out the
+  // triangulation (smaller curvature gradients -> fewer parametrization folds).
+  // Each vertex moves toward its one-ring centroid, projected onto the ring's
+  // own best-fit plane (Newell normal) so only the tangential component applies
+  // -- no volume shrinkage, and no dependence on stored vertex normals. The
+  // displacement is clamped to the local edge scale, so irregular dyntopo
+  // connectivity can never blow positions up.
+  const int smooth_iters = 5;
+  const float smooth_lambda = 0.5f;
+  m.thawTopo();
+  util::Vector<math::float3> nco;
+  nco.resize(int(m.v.capacity()));
+  util::Vector<math::float3> ring;
+  for (int it = 0; it < smooth_iters; it++) {
+    for (int v : m.v) {
+      math::float3 vco = m.v.co[v];
+      int e0 = m.v.e[v];
+      if (e0 == ELEM_NONE) {
+        nco[v] = vco;
+        continue;
+      }
+      ring.clear();
+      int ec = e0, guard = 0;
+      do {
+        int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
+        ring.append(m.v.co[ov]);
+        int side = m.e.vs[ec][0] == v ? 0 : 1;
+        ec = m.e.disk[ec][side * 2 + 1];
+      } while (ec != e0 && ++guard < 256);
+      int k = int(ring.size());
+      if (k < 3) {
+        nco[v] = vco;
+        continue;
+      }
+      math::float3 cen{};
+      for (int i = 0; i < k; i++) cen += ring[i];
+      cen = cen * (1.0f / float(k));
+      math::float3 nrm{}; // Newell normal of the ordered ring polygon about cen
+      float minlen = 1e30f;
+      for (int i = 0; i < k; i++) {
+        math::float3 a = ring[i] - cen, b = ring[(i + 1) % k] - cen;
+        nrm += a.cross(b);
+        float el = (ring[i] - vco).length();
+        if (el < minlen) minlen = el;
+      }
+      math::float3 d = cen - vco;
+      float nl = nrm.length();
+      if (nl > 1e-20f) {
+        math::float3 un = nrm * (1.0f / nl);
+        d = d - un * d.dot(un); // tangent-plane component only
+      }
+      float dl = d.length();
+      if (dl > minlen && dl > 1e-20f) d = d * (minlen / dl); // clamp to edge scale
+      nco[v] = vco + d * smooth_lambda;
+    }
+    for (int v : m.v) {
+      m.v.co[v] = nco[v];
+    }
+  }
+  m.recalc_normals();
+}
+
 } // namespace
 
 mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
 {
-  int _i = 0;
-  printf("copy mesh\n");
   Mesh *work = buildTriCopy(input);
-  fflush(stdout);
+
+  // Optional decimation pre-pass: coarsen the SOLVE mesh so dense inputs stay
+  // tractable. The reprojection below still snaps onto the full-res original.
+  bool decimated = false;
+  if (params.solve_edge_length > 0.0f) {
+    decimateForSolve(*work, params.solve_edge_length, params.seed);
+    decimated = true;
+  }
+
   // M2 cross field -> M3 singularity adjust -> M5 quantization (M5 rebuilds the
   // cut graph / seamless map internally). Mirrors test_remesh_extract's proven
   // sequence.
@@ -80,24 +189,21 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
   cp.use_sharp_features = params.use_sharp_features;
   cp.sharp_angle = params.sharp_angle;
   cp.seed = params.seed;
-  printf("compute cross field\n");
   computeCrossField(*work, cp);
 
   SingularityAdjustParams sap;
   sap.seed = params.seed;
-  printf("adjust singularities\n");
   adjustSingularities(*work, sap);
 
   QuantizeParams qp;
   qp.target_edge_length = params.target_edge_length;
   qp.use_density = params.use_density;
-  printf("compute quantization\n");
   computeQuantization(*work, qp);
 
   // M6: extract the integer-lattice preimage, then snap onto the input surface.
   ExtractParams ep;
+  ep.cap_odd_holes = params.cap_odd_holes;
   ExtractStats st;
-  printf("extract quad mesh\n");
   Mesh *out = extractQuadMesh(*work, ep, st);
   if (!out) {
     alloc::Delete<Mesh>(work);
@@ -110,13 +216,18 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
     rp.smooth_lambda = params.smooth_strength;
     // One extra [smooth -> snap] pass when smoothing, else a single pure snap.
     rp.iterations = params.smooth_iterations > 0 ? 2 : 1;
-    printf("reproject to surface\n");
-    reprojectToSurface(*out, *work, rp);
+    if (decimated) {
+      // Snap onto the ORIGINAL full-res surface, not the coarsened solve mesh,
+      // so the output recovers detail the decimation dropped.
+      Mesh *full = buildTriCopy(input);
+      reprojectToSurface(*out, *full, rp);
+      alloc::Delete<Mesh>(full);
+    } else {
+      reprojectToSurface(*out, *work, rp);
+    }
   }
 
-  printf("delete temp mesh\n");
   alloc::Delete<Mesh>(work);
-  printf("done\n");
   return out;
 }
 

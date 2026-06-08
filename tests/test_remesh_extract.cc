@@ -14,6 +14,11 @@
 //    *odd* grid-loop. A pure-quad mesher cannot fan-close an odd ring, so such a
 //    cap is left open by design; the gate is all-quad + manifold + no-inversions
 //    + no-spirals (NOT Euler 2 — see the cap-pass note in quad_extract.cc).
+//  - Simple.obj: a small rounded organic blob whose cross field curls enough to
+//    fold the exactly-seamless map (~1/3 of faces) and break extraction. The
+//    fixture for the ARAP untangle fallback (QuantizeParams::untangle_fold_
+//    threshold): it walks the seam penalty up from a low injective weight so the
+//    final map folds ~1.5% and extracts a clean all-quad, no-spiral mesh.
 //  - AnimeGirl2.obj: the dense organic spiral-elimination stress fixture. Opt-in
 //    (REMESH_ANIME=1) because it is ~800k faces; gates the headline no-spiral +
 //    all-quad guarantee on real-world input.
@@ -290,6 +295,39 @@ void testQuadRemeshPipeline()
   litestl::alloc::Delete<Mesh>(t);
 }
 
+// Simple.obj — a small, rounded organic blob. Its cross field curls enough that
+// the exactly-seamless map folds about a third of its faces, which breaks
+// extraction (the >10% fold gate). It is the fixture for the ARAP untangle
+// fallback (QuantizeParams::untangle_fold_threshold): the fallback walks the seam
+// penalty up from a low injective weight so the final map folds ~1.5% and
+// extracts a valid all-quad mesh with no spirals. REMESH_TARGET overrides the
+// spacing; 0.2 is mid-band (small input, no GPU offload — runs by default).
+void testSimpleObj()
+{
+  char path[2048];
+  std::snprintf(path, sizeof(path), "%s/Simple.obj", SCULPTCORE_ASSETS_DIR);
+  Mesh *obj = mesh::loadObj(path);
+  if (!obj) {
+    fprintf(stderr, "[simple] skipped (could not open %s)\n", path);
+    return;
+  }
+  fprintf(stderr, "[simple] loaded V=%d F=%d\n", obj->v.count, obj->f.count);
+  remesh::RemeshParams p;
+  p.target_edge_length = 0.2f;
+  if (const char *e = std::getenv("REMESH_TARGET"))
+    p.target_edge_length = float(std::atof(e));
+  Mesh *out = remesh::QuadRemesh(*obj, p);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("simple", r);
+    TASSERT(r.all_quad);
+    TASSERT(r.spiral_isolines == 0);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(obj);
+}
+
 // AnimeGirl2.obj — the organic spiral-elimination stress fixture. Naive cross
 // field + parametrization spirals on dense real-world detail; M5's integer
 // quantization is what kills it, so the headline assertion is no-spiral. This is
@@ -316,12 +354,21 @@ void testAnimeGirlSpiral()
   p.target_edge_length = 0.05f;
   if (const char *e = std::getenv("REMESH_TARGET"))
     p.target_edge_length = float(std::atof(e));
+  // REMESH_DECIMATE=<L> coarsens the solve mesh to ~L first (0 = solve raw);
+  // makes the ~800k-tri input tractable, reproject still uses the original.
+  if (const char *e = std::getenv("REMESH_DECIMATE"))
+    p.solve_edge_length = float(std::atof(e));
+  // REMESH_CAPODD=1 closes residual odd holes with one cap triangle each (trades
+  // strict all-quad for watertight); off keeps the all-quad contract.
+  bool cap_odd = std::getenv("REMESH_CAPODD") != nullptr;
+  p.cap_odd_holes = cap_odd;
   Mesh *out = remesh::QuadRemesh(*obj, p);
   TASSERT(out != nullptr);
   if (out) {
     RemeshReport r = remeshValidate(*out);
     report("anime", r);
-    TASSERT(r.all_quad);
+    if (!cap_odd)
+      TASSERT(r.all_quad); // strict all-quad only when odd holes are left open
     TASSERT(r.spiral_isolines == 0); // the guarantee quantization exists to make
     litestl::alloc::Delete<Mesh>(out);
   }
@@ -332,6 +379,13 @@ void testAnimeGirlSpiral()
 
 int main()
 {
+  // REMESH_ANIME=1 is the opt-in ~800k-tri stress mode: run only that fixture so
+  // REMESH_TARGET/REMESH_DECIMATE tune it in isolation (the light fixtures share
+  // REMESH_TARGET and would mis-scale). The default suite (env unset) is unchanged.
+  if (std::getenv("REMESH_ANIME")) {
+    testAnimeGirlSpiral();
+    return retval;
+  }
   testGridExtract();
   testCylinderExtract();
   testTorusExtract();
@@ -339,6 +393,7 @@ int main()
   testCappedCylinderExtract();
   testReproject();
   testQuadRemeshPipeline();
+  testSimpleObj();
   testAnimeGirlSpiral();
   return retval;
 }
