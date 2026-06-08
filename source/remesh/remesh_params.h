@@ -79,6 +79,13 @@ struct RemeshParams {
    * (0 = keep all). */
   float triage_min_component_frac = 0.0f;
 
+  /* Tier 2a: Jacobi-diffuse the per-vertex shape operator over the one-ring
+   * before eigendecomposition, denoising the principal-curvature field without
+   * touching geometry. 0 = today's raw 1-ring estimate (no smoothing). */
+  int curvature_smooth_iters = 0;
+  /* Tier 2a: per-sweep blend in [0,1] for the curvature tensor diffusion. */
+  float curvature_smooth_lambda = 0.5f;
+
   /* Bound out-of-line in remesh/bindings.cc (keeps the binding headers out of
    * this header). Crosses the seam by value → registers a copy constructor. */
   static litestl::binding::types::Struct<RemeshParams> *defineBindings();

@@ -238,6 +238,9 @@ bool RemeshApp::runRemesh(std::string &err)
       L"--triage",         wb(params.triage),
       L"--triage-weld-rel", wf(params.triage_weld_rel),
       L"--triage-min-component-frac", wf(params.triage_min_component_frac),
+      L"--curvature-smooth-iters",
+      widen(std::to_string(params.curvature_smooth_iters)),
+      L"--curvature-smooth-lambda", wf(params.curvature_smooth_lambda),
   };
   if (!startJob(Job::Remesh, remeshCliPath(), args, "remeshing " + name)) {
     err = status;
@@ -424,7 +427,9 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "seed=" << params.seed << "\n"
       << "triage=" << int(params.triage) << "\n"
       << "triage_weld_rel=" << params.triage_weld_rel << "\n"
-      << "triage_min_component_frac=" << params.triage_min_component_frac;
+      << "triage_min_component_frac=" << params.triage_min_component_frac << "\n"
+      << "curvature_smooth_iters=" << params.curvature_smooth_iters << "\n"
+      << "curvature_smooth_lambda=" << params.curvature_smooth_lambda;
     return o.str();
   }
   if (cmd == "set_param") {
@@ -463,6 +468,10 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.triage_weld_rel = float(d);
     } else if (name == "triage_min_component_frac") {
       params.triage_min_component_frac = float(d);
+    } else if (name == "curvature_smooth_iters") {
+      params.curvature_smooth_iters = iv;
+    } else if (name == "curvature_smooth_lambda") {
+      params.curvature_smooth_lambda = float(d);
     } else {
       return "ERROR unknown param: " + name;
     }

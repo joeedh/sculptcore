@@ -255,6 +255,11 @@ void RemeshUi::drawPanel()
   ImGui::SliderFloat("triage min comp frac", &P.triage_min_component_frac, 0.0f,
                      0.5f, "%.3f");
   ImGui::EndDisabled();
+  ImGui::SliderInt("curv smooth iters", &P.curvature_smooth_iters, 0, 20);
+  ImGui::BeginDisabled(P.curvature_smooth_iters <= 0);
+  ImGui::SliderFloat("curv smooth lambda", &P.curvature_smooth_lambda, 0.0f, 1.0f,
+                     "%.2f");
+  ImGui::EndDisabled();
 
   // --- Run ---
   ImGui::SeparatorText("Run");

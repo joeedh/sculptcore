@@ -31,6 +31,8 @@ struct CrossFieldParams {
   float sharp_angle = 0.7853982f;  // dihedral threshold for "sharp" (radians)
   float curvature_weight = 1.0f;   // soft constraint scale (× anisotropy)
   uint32_t seed = 1u;              // determinism for the eigen-fallback seed
+  int curvature_smooth_iters = 0;       // Tier 2a: tensor-field Jacobi sweeps (0 = today)
+  float curvature_smooth_lambda = 0.5f; // Tier 2a: per-sweep blend 0..1
 };
 
 struct CrossFieldStats {

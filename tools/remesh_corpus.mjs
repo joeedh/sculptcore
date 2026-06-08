@@ -42,6 +42,8 @@ const DEFAULTS = {
   triage: false, // apply Tier-1 triage to every asset
   triageWeldRel: null, // null => CLI default
   triageMinComponentFrac: null,
+  curvatureSmoothIters: null, // Tier-2a: null => CLI default (0, no smoothing)
+  curvatureSmoothLambda: null,
 }
 
 function parseArgs(argv) {
@@ -61,6 +63,8 @@ function parseArgs(argv) {
     else if (k === '--triage') a.triage = true
     else if (k === '--triage-weld-rel') a.triageWeldRel = parseFloat(next())
     else if (k === '--triage-min-component-frac') a.triageMinComponentFrac = parseFloat(next())
+    else if (k === '--curvature-smooth-iters') a.curvatureSmoothIters = parseInt(next(), 10)
+    else if (k === '--curvature-smooth-lambda') a.curvatureSmoothLambda = parseFloat(next())
     else if (k === '--list') a.list = true
     else if (k === '--help' || k === '-h') { usage(); process.exit(0) }
     else { console.error(`unknown arg ${k}`); usage(); process.exit(2) }
@@ -79,6 +83,8 @@ function usage() {
   --triage          apply Tier-1 input triage to every asset
   --triage-weld-rel <f>            triage weld tol (frac of bbox diag)
   --triage-min-component-frac <f>  triage drop-component threshold
+  --curvature-smooth-iters <int>   Tier-2a curvature tensor Jacobi sweeps
+  --curvature-smooth-lambda <f>    Tier-2a per-sweep blend 0..1
   --list            list the corpus and resolution status, then exit`)
 }
 
@@ -209,6 +215,10 @@ function main() {
   if (args.triageWeldRel != null) globalParams['triage-weld-rel'] = args.triageWeldRel
   if (args.triageMinComponentFrac != null)
     globalParams['triage-min-component-frac'] = args.triageMinComponentFrac
+  if (args.curvatureSmoothIters != null)
+    globalParams['curvature-smooth-iters'] = args.curvatureSmoothIters
+  if (args.curvatureSmoothLambda != null)
+    globalParams['curvature-smooth-lambda'] = args.curvatureSmoothLambda
 
   const results = []
   const skipped = []

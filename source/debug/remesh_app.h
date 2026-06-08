@@ -67,6 +67,11 @@ public:
   // Principal-curvature overlay line length, as a fraction of the mesh bbox
   // diagonal (scale-independent so the slider reads the same across assets).
   float curvatureScale = 0.02f;
+  // Tier 2: smoothing knobs the curvature overlay's TEMP layer was last computed
+  // with; prepareOverlays recomputes when these change (or the layer is new), so
+  // a slider change re-denoises the displayed field.
+  int curvatureOverlayIters = -1;
+  float curvatureOverlayLambda = -1.0f;
 
   // Cross-field (4-RoSy) overlay: per-face "+" glyphs + singularity dots.
   bool showCrossField = false;

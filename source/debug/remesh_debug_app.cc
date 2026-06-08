@@ -654,8 +654,16 @@ void prepareOverlays(Scene &scene, RemeshApp &app)
   // ensure-gate on kmin_dir covers both the curvature overlay and anisotropy.
   if (app.showCurvature || (app.showCrossField && app.crossAnisotropy)) {
     BuiltinAttr<float3, ".remesh.v.kmin_dir", AttrFlag::TEMP> kmin_dir;
-    if (kmin_dir.ensure(m.v.attrs)) {
-      sculptcore::remesh::computeCurvature(m);
+    bool created = kmin_dir.ensure(m.v.attrs);
+    if (created ||
+        app.curvatureOverlayIters != app.params.curvature_smooth_iters ||
+        app.curvatureOverlayLambda != app.params.curvature_smooth_lambda) {
+      sculptcore::remesh::computeCurvature(
+          m, sculptcore::remesh::CurvatureParams{
+                 app.params.curvature_smooth_iters,
+                 app.params.curvature_smooth_lambda});
+      app.curvatureOverlayIters = app.params.curvature_smooth_iters;
+      app.curvatureOverlayLambda = app.params.curvature_smooth_lambda;
     }
   }
 }

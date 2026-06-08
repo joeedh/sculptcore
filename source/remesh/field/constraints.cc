@@ -63,7 +63,8 @@ void gatherConstraints(Mesh &m, const CrossFieldParams &params,
 
   // M1 inputs, computed on demand.
   if (params.use_curvature) {
-    computeCurvature(m);
+    computeCurvature(m, CurvatureParams{params.curvature_smooth_iters,
+                                        params.curvature_smooth_lambda});
   }
   if (params.use_sharp_features) {
     computeFeatureTags(m, params.sharp_angle);

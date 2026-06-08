@@ -181,8 +181,12 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"seed\": %u,\n", p.seed);
   std::fprintf(f, "    \"triage\": %s,\n", jb(p.triage));
   std::fprintf(f, "    \"triage_weld_rel\": %.9g,\n", p.triage_weld_rel);
-  std::fprintf(f, "    \"triage_min_component_frac\": %.9g\n",
+  std::fprintf(f, "    \"triage_min_component_frac\": %.9g,\n",
                p.triage_min_component_frac);
+  std::fprintf(f, "    \"curvature_smooth_iters\": %d,\n",
+               p.curvature_smooth_iters);
+  std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g\n",
+               p.curvature_smooth_lambda);
   std::fprintf(f, "  },\n");
 
   std::fprintf(f, "  \"output\": {\n");
@@ -300,10 +304,12 @@ void usage()
       "  --smooth <int>          reprojection smoothing iterations (default 2)\n"
       "  --smooth-strength <f>   per-iteration smoothing step 0..1 (default 0.5)\n"
       "  --seed <uint>           determinism seed (default 1)\n"
-      "  --triage <0|1>          run input triage before solve (default 0)\n"
+      "  --triage <0|1>          run input triage before solve (default 1)\n"
       "  --triage-weld-rel <f>   weld tol as frac of bbox diag (default 1e-5)\n"
       "  --triage-min-component-frac <f>  drop components below frac of verts "
-      "(default 0)\n");
+      "(default 0)\n"
+      "  --curvature-smooth-iters <int>   tensor-field Jacobi sweeps (default 0)\n"
+      "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n");
 }
 
 bool toBool(const char *s) { return std::atoi(s) != 0; }
@@ -364,6 +370,11 @@ int main(int argc, char **argv)
     else if (a == "--triage-min-component-frac")
       params.triage_min_component_frac =
           float(std::atof(next("--triage-min-component-frac")));
+    else if (a == "--curvature-smooth-iters")
+      params.curvature_smooth_iters = std::atoi(next("--curvature-smooth-iters"));
+    else if (a == "--curvature-smooth-lambda")
+      params.curvature_smooth_lambda =
+          float(std::atof(next("--curvature-smooth-lambda")));
     else {
       std::fprintf(stderr, "ERROR unknown arg %s\n", a.c_str());
       return 2;

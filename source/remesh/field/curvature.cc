@@ -34,7 +34,14 @@ using sculptcore::mesh::Mesh;
  * (large eigenvalue) is the principal direction of MINIMUM surface curvature.
  * Hence kmax_dir = eigenvector(small eigenvalue), kmin_dir = eigenvector(large)
  * — verified on a cylinder (kmax ~ 1/R circumferential, kmin ~ 0 axial). */
-void computeCurvature(Mesh &m)
+namespace {
+// Symmetric 3x3 shape-operator tensor, stored per vertex for Tier 2 diffusion.
+struct Tensor3 {
+  double m[3][3];
+};
+} // namespace
+
+void computeCurvature(Mesh &m, const CurvatureParams &params)
 {
   m.recalc_normals(); // thaws topology, ensures m.v.no
 
@@ -89,6 +96,21 @@ void computeCurvature(Mesh &m)
     } while (cc != c0);
   }
 
+  // Accumulate the area-normalized shape operator per vertex into a tensor
+  // field, so Tier 2 can diffuse it before the eigendecomposition. Stored as
+  // M = T / varea[v] (the historical normalization), zero where the vertex has
+  // no area so degenerate verts fall through to the tangent fallback as before.
+  Vector<Tensor3> field, scratch;
+  field.resize(vcap);
+  scratch.resize(vcap);
+  for (int i = 0; i < vcap; i++) {
+    for (int a = 0; a < 3; a++) {
+      for (int b = 0; b < 3; b++) {
+        field[i].m[a][b] = 0.0;
+      }
+    }
+  }
+
   for (int v : m.v) {
     // Accumulate the shape operator over incident manifold edges (disk walk).
     double T[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
@@ -129,6 +151,59 @@ void computeCurvature(Mesh &m)
       } while (ec != e0);
     }
 
+    if (varea[v] > 1e-20f) {
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+          field[v].m[i][j] = T[i][j] / double(varea[v]);
+        }
+      }
+    }
+  }
+
+  // Tier 2a: Jacobi-diffuse the tensor field over the one-ring to denoise it.
+  // Uniform neighbour weights (w_vn = 1; documented choice — mass / cotangent
+  // weights over-smooth or re-inject noise). Averaging is linear so tensors stay
+  // symmetric; they are NOT PSD (beta is a signed dihedral), but the solver
+  // below only needs symmetry. iters = 0 leaves the field untouched (today).
+  const int iters = params.smooth_iters > 0 ? params.smooth_iters : 0;
+  const double lambda = double(params.smooth_lambda);
+  for (int it = 0; it < iters; it++) {
+    for (int v : m.v) {
+      double acc[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
+      int cnt = 0;
+      int e0 = m.v.e[v];
+      if (e0 != ELEM_NONE) {
+        int ec = e0;
+        do {
+          int vn2 = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
+          for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+              acc[i][j] += field[vn2].m[i][j];
+            }
+          }
+          cnt++;
+          int side = m.e.vs[ec][0] == v ? 0 : 1;
+          ec = m.e.disk[ec][side * 2 + 1];
+        } while (ec != e0);
+      }
+      if (cnt > 0) {
+        double inv = 1.0 / double(cnt);
+        for (int i = 0; i < 3; i++) {
+          for (int j = 0; j < 3; j++) {
+            scratch[v].m[i][j] =
+                (1.0 - lambda) * field[v].m[i][j] + lambda * acc[i][j] * inv;
+          }
+        }
+      } else {
+        scratch[v] = field[v];
+      }
+    }
+    for (int v : m.v) {
+      field[v] = scratch[v];
+    }
+  }
+
+  for (int v : m.v) {
     float3 vn = m.v.no[v];
     float3 dmin(0.0f, 0.0f, 0.0f), dmax(0.0f, 0.0f, 0.0f);
     float kmin = 0.0f, kmax = 0.0f;
@@ -137,7 +212,7 @@ void computeCurvature(Mesh &m)
       Eigen::Matrix3d M;
       for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
-          M(i, j) = T[i][j] / double(varea[v]);
+          M(i, j) = field[v].m[i][j];
         }
       }
       Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(M);
