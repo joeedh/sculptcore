@@ -63,6 +63,10 @@ public:
   std::vector<std::string> assets;
   int selected = -1;          // index into `assets`, or -1
   bool showWireframe = true;
+  bool showCurvature = false;
+  // Principal-curvature overlay line length, as a fraction of the mesh bbox
+  // diagonal (scale-independent so the slider reads the same across assets).
+  float curvatureScale = 0.02f;
   std::string meshyPrompt;
 
   // Live job feedback.

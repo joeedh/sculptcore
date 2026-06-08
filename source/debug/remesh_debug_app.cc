@@ -10,7 +10,9 @@
 #include "remesh_ui.h"
 #include "scene.h"
 
+#include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
+#include "remesh/field/curvature.h"
 #include "window/window.h"
 
 #include "litestl/util/alloc.h"
@@ -26,10 +28,13 @@ using namespace sculptcore::debug_app;
 using litestl::math::float2;
 using litestl::math::float3;
 using litestl::math::mat4;
+using sculptcore::mesh::AttrFlag;
+using sculptcore::mesh::BuiltinAttr;
 
 namespace {
 
 constexpr int kMaxWireEdges = 250000; // keep the per-frame ImGui overlay bounded
+constexpr int kMaxFieldVerts = 200000; // bound the per-frame curvature overlay
 
 // Orbit/pan/zoom controller for the read-only remesh viewer: plain LMB or RMB
 // orbits, Shift+LMB or MMB pans, scroll zooms. No sculpting (unlike debug_app's
@@ -214,6 +219,85 @@ void drawQuadWireframe(Scene &scene, bool enabled)
   }
 }
 
+// Draw the per-vertex principal-curvature cross field as short centered segments
+// (blue = kmin direction, red = kmax direction). Auto-computes the field into the
+// .remesh.v.k{min,max}_dir TEMP layers when absent — the same estimator the
+// remesher's cross-field stage runs. Non-depth-tested ImGui overlay; vertices
+// facing away from the eye are skipped to declutter.
+void drawCurvatureField(Scene &scene, RemeshApp &app)
+{
+  if (!app.showCurvature || !scene.mesh) {
+    return;
+  }
+  auto &m = *scene.mesh;
+
+  BuiltinAttr<float3, ".remesh.v.kmin_dir", AttrFlag::TEMP> kmin_dir;
+  BuiltinAttr<float3, ".remesh.v.kmax_dir", AttrFlag::TEMP> kmax_dir;
+  // ensure() returns true when it just created the layer — i.e. the field isn't
+  // there yet (fresh mesh / first toggle), so compute it. computeCurvature fills
+  // both directions (and runs recalc_normals, so m.v.no is valid below).
+  bool missing = kmin_dir.ensure(m.v.attrs);
+  kmax_dir.ensure(m.v.attrs);
+  if (missing) {
+    sculptcore::remesh::computeCurvature(m);
+  }
+
+  ImGuiIO &io = ImGui::GetIO();
+  float Wd = io.DisplaySize.x, Hd = io.DisplaySize.y;
+  if (Wd <= 0 || Hd <= 0) {
+    return;
+  }
+  int sw = scene.swapchain.width > 0 ? scene.swapchain.width : scene.width;
+  int sh = scene.swapchain.height > 0 ? scene.swapchain.height : scene.height;
+  float aspect = sh > 0 ? float(sw) / float(sh) : 1.0f;
+  mat4 vp = scene.camera.viewProj(aspect);
+
+  // Length scales with the mesh size so the slider reads the same across assets.
+  float3 bmin(0, 0, 0), bmax(0, 0, 0);
+  bool have = false;
+  for (int v : m.v) {
+    float3 c = m.v.co[v];
+    if (!have) {
+      bmin = bmax = c;
+      have = true;
+      continue;
+    }
+    for (int i = 0; i < 3; i++) {
+      bmin[i] = c[i] < bmin[i] ? c[i] : bmin[i];
+      bmax[i] = c[i] > bmax[i] ? c[i] : bmax[i];
+    }
+  }
+  float diag = have ? (bmax - bmin).length() : 0.0f;
+  float half = 0.5f * app.curvatureScale * (diag > 1e-8f ? diag : 1.0f);
+  if (half <= 0.0f) {
+    return;
+  }
+
+  ImDrawList *dl = ImGui::GetBackgroundDrawList();
+  const ImU32 colMin = IM_COL32(60, 120, 255, 220); // kmin: blue
+  const ImU32 colMax = IM_COL32(255, 70, 50, 220);  // kmax: red
+  float3 eye = scene.camera.eye;
+  int drawn = 0;
+  for (int v : m.v) {
+    float3 p = m.v.co[v];
+    if ((eye - p).dot(m.v.no[v]) < 0.0f) {
+      continue; // backface: declutter the non-depth-tested overlay
+    }
+    auto seg = [&](float3 dir, ImU32 col) {
+      float ax, ay, bx, by;
+      if (projectClip(vp, p - dir * half, ax, ay, Wd, Hd) &&
+          projectClip(vp, p + dir * half, bx, by, Wd, Hd)) {
+        dl->AddLine(ImVec2(ax, ay), ImVec2(bx, by), col, 1.0f);
+      }
+    };
+    seg(kmin_dir[v], colMin);
+    seg(kmax_dir[v], colMax);
+    if (++drawn >= kMaxFieldVerts) {
+      break;
+    }
+  }
+}
+
 void usage()
 {
   std::fprintf(stderr,
@@ -302,6 +386,7 @@ int main(int argc, char **argv)
       app.update();                // parse subprocess stdout, apply results
       ui.beginFrame();
       drawQuadWireframe(scene, app.showWireframe);
+      drawCurvatureField(scene, app);
       scene.renderWindow();
     }
 

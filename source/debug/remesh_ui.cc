@@ -284,6 +284,10 @@ void RemeshUi::drawPanel()
   }
   ImGui::SameLine();
   ImGui::Checkbox("axes", &scene_->showAxes);
+  ImGui::Checkbox("curvature field", &app_->showCurvature);
+  ImGui::SameLine();
+  ImGui::TextDisabled("(blue=kmin, red=kmax)");
+  ImGui::SliderFloat("field line scale", &app_->curvatureScale, 0.0f, 0.2f, "%.3f");
   int vc = scene_->mesh ? scene_->mesh->v.count : 0;
   int fc = scene_->mesh ? scene_->mesh->f.count : 0;
   ImGui::Text("verts: %d  faces: %d", vc, fc);
