@@ -169,14 +169,23 @@ void decimateForSolve(Mesh &m, float L, uint32_t seed)
 
 } // namespace
 
-mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
+mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
+                       RemeshProgressFn progress, void *user)
 {
+#define PROG(pct, stage)                                                        \
+  do {                                                                          \
+    if (progress)                                                               \
+      progress(user, (pct), (stage));                                           \
+  } while (0)
+
+  PROG(0, "copy");
   Mesh *work = buildTriCopy(input);
 
   // Optional decimation pre-pass: coarsen the SOLVE mesh so dense inputs stay
   // tractable. The reprojection below still snaps onto the full-res original.
   bool decimated = false;
   if (params.solve_edge_length > 0.0f) {
+    PROG(10, "decimate");
     decimateForSolve(*work, params.solve_edge_length, params.seed);
     decimated = true;
   }
@@ -184,6 +193,7 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
   // M2 cross field -> M3 singularity adjust -> M5 quantization (M5 rebuilds the
   // cut graph / seamless map internally). Mirrors test_remesh_extract's proven
   // sequence.
+  PROG(25, "cross_field");
   CrossFieldParams cp;
   cp.use_curvature = params.use_curvature;
   cp.use_sharp_features = params.use_sharp_features;
@@ -191,26 +201,31 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
   cp.seed = params.seed;
   computeCrossField(*work, cp);
 
+  PROG(45, "singularity");
   SingularityAdjustParams sap;
   sap.seed = params.seed;
   adjustSingularities(*work, sap);
 
+  PROG(65, "quantize");
   QuantizeParams qp;
   qp.target_edge_length = params.target_edge_length;
   qp.use_density = params.use_density;
   computeQuantization(*work, qp);
 
   // M6: extract the integer-lattice preimage, then snap onto the input surface.
+  PROG(80, "extract");
   ExtractParams ep;
   ep.cap_odd_holes = params.cap_odd_holes;
   ExtractStats st;
   Mesh *out = extractQuadMesh(*work, ep, st);
   if (!out) {
+    PROG(100, "failed");
     alloc::Delete<Mesh>(work);
     return nullptr; // clean failure: no integer-grid map / no lattice points
   }
 
   if (params.reproject) {
+    PROG(92, "reproject");
     ReprojectParams rp;
     rp.smooth_iterations = params.smooth_iterations;
     rp.smooth_lambda = params.smooth_strength;
@@ -227,8 +242,10 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params)
     }
   }
 
+  PROG(100, "done");
   alloc::Delete<Mesh>(work);
   return out;
+#undef PROG
 }
 
 } // namespace sculptcore::remesh

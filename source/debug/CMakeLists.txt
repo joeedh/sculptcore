@@ -77,3 +77,65 @@ if (NOT BUILD_WASM AND SBRUSH_WEBGPU_COMPUTE AND SBRUSH_BACKEND_WGSL AND SBRUSH_
       $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:debug_app>
     VERBATIM)
 endif()
+
+# --- Standalone quad-remesh debug app ---------------------------------------
+# A second exe that loads/imports/generates assets, runs remesh_cli as a
+# subprocess (rebuildable without restarting this app), and shows the shaded
+# result + quad wireframe. Driven by ImGui or the named-pipe control channel.
+if(NOT BUILD_WASM)
+  get_filename_component(_sc_root "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+  get_filename_component(_repo_root "${_sc_root}/.." ABSOLUTE)
+
+  # find_package resolves git from common install locations (bare `git` in
+  # execute_process can miss it depending on the configure-time PATH).
+  find_package(Git QUIET)
+  if(GIT_EXECUTABLE)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+      WORKING_DIRECTORY ${_sc_root}
+      OUTPUT_VARIABLE REMESH_DBG_GIT_COMMIT
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET)
+  endif()
+  if(NOT REMESH_DBG_GIT_COMMIT)
+    set(REMESH_DBG_GIT_COMMIT "unknown")
+  endif()
+
+  set(REMESH_DBG_ASSETS_DIR  "${_sc_root}/tests/assets")
+  set(REMESH_DBG_RESULTS_DIR "${_sc_root}/tests/remesher-results")
+  set(REMESH_DBG_TOOLS_DIR   "${_repo_root}/tools")
+  set(REMESH_DBG_KEYS_DIR    "${_repo_root}/keys")
+  # The cli's own build output, so a `remesh_cli`-only rebuild is picked up live.
+  set(REMESH_DBG_CLI_PATH
+      "${CMAKE_BINARY_DIR}/source/remesh/cli/remesh_cli${CMAKE_EXECUTABLE_SUFFIX}")
+  configure_file(remesh_debug_config.h.in remesh_debug_config.h @ONLY)
+
+  add_executable(remesh_debug_app
+    remesh_debug_app.cc
+    remesh_app.cc
+    remesh_ui.cc
+    remesh_pipe_server.cc
+    subprocess_win.cc)
+  target_link_libraries(remesh_debug_app debug_core comdlg32)
+  target_include_directories(remesh_debug_app PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_SOURCE_DIR}/source
+    ${CMAKE_SOURCE_DIR}/extern)
+  if(MSVC)
+    target_compile_options(remesh_debug_app PRIVATE /std:c++20)
+  endif()
+
+  # Build remesh_cli first and stage it next to the app, so the app spawns
+  # <own-dir>/remesh_cli.exe. Rebuilding just `remesh_cli` later refreshes it.
+  add_dependencies(remesh_debug_app remesh_cli)
+  add_custom_command(TARGET remesh_debug_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:remesh_cli> $<TARGET_FILE_DIR:remesh_debug_app>
+    VERBATIM)
+  if (SBRUSH_WEBGPU_COMPUTE AND SBRUSH_BACKEND_WGSL AND SBRUSH_BACKEND_SPIRV)
+    add_custom_command(TARGET remesh_debug_app POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:remesh_debug_app>
+      VERBATIM)
+  endif()
+endif()

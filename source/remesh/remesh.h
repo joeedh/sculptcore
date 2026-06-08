@@ -23,10 +23,20 @@ namespace sculptcore::remesh {
 
 struct RemeshParams;
 
+/* Optional coarse-stage progress hook. @p pct is 0..100 (monotonic across the
+ * synchronous pipeline stages), @p stage a stable lowercase tag ("copy",
+ * "cross_field", "extract", "done", "failed", …). Kept out of RemeshParams (a
+ * reflected/bound struct) so the binding system never sees a function pointer;
+ * the standalone CLI passes a stdout-streaming callback, the app/N-API path
+ * passes none. */
+using RemeshProgressFn = void (*)(void *user, int pct, const char *stage);
+
 /* Produce a new all-quad mesh from @p input. Returns a heap-allocated Mesh
  * (caller owns; free via mesh::Mesh's allocator / the freeMesh C-API), or
  * nullptr on a clean failure (e.g. Gauss-Bonnet-infeasible pole pins — the
- * error is surfaced rather than producing a garbage field). */
-mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params);
+ * error is surfaced rather than producing a garbage field). @p progress (if
+ * non-null) is invoked at each coarse stage boundary. */
+mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
+                       RemeshProgressFn progress = nullptr, void *user = nullptr);
 
 } // namespace sculptcore::remesh

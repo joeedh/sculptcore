@@ -55,3 +55,10 @@ wasm_add_symbols("
   Mesh_quadRemesh
   "
 )
+
+# Standalone remesh CLI: a native exe (std::filesystem + platform lib), not a
+# WASM target. The debug app spawns it as a subprocess so it can be rebuilt
+# (--target remesh_cli) without restarting the app.
+if(NOT BUILD_WASM)
+  add_subdirectory(cli)
+endif()
