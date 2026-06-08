@@ -248,8 +248,11 @@ PROGRESS <pct> <stage>   monotonic 0..100; stages copy..done, or "failed"
 RESULT <obj-path>        the written quad mesh
 MANIFEST <json-path>     the written manifest
 STATS k=v k=v ...        verts/edges/faces/quads/tris/ngons/allquad/manifold/
-                         euler/inverted/boundary/spiral/irr/duration_ms
-ERROR <message>          fatal (also exit != 0)
+                         euler/inverted/boundary/spiral/irr + the Tier-0 metrics
+                         regular_frac/components/holes/folds/min_angle/
+                         area_ratio + duration_ms
+ERROR <message>          fatal (also exit != 0; carries reason=<tag> on a clean
+                         pipeline failure, which still writes a manifest)
 ```
 
 Output files are `<name>_<YYYYMMDD-HHMMSS>.{obj,json}` in the output dir. Paths are
@@ -261,16 +264,53 @@ Written by hand (no JSON lib in the deps). One file per run next to the OBJ, sam
 stem. Top-level keys: `schema`, `timestamp`, `git_commit` (baked at configure
 time), `duration_ms`, and the blocks:
 
-- `input` — `name`, `path`, `verts`, `faces`, `aabb_min`, `aabb_max`
+- `input` — `name`, `path`, `verts`, `faces`, `components`, `holes`, `manifold`,
+  `aabb_min`, `aabb_max` (the input is itself run through `remeshValidate` so the
+  manifest can compare input vs output topology)
 - `params` — every `RemeshParams` field
 - `output` — `path`, `verts`, `edges`, `faces`, `quads`, `tris`, `ngons`
 - `validation` — `manifold`(+`manifold_error`), `euler`, `consistent_winding`,
   `non_manifold_edges`, `boundary_edges`, `degenerate_faces`, `inverted_faces`,
-  `all_quad`, `irregular_interior_verts`, `isolines_checked`, `spiral_isolines`,
-  `open_isolines`, `closed_isolines`
+  `all_quad`, `irregular_interior_verts`, plus the **Tier-0 quality metrics**
+  (`plans/quad-remeshing-filtering.md`): `interior_vert_count`,
+  `regular_interior_frac`, `component_count`, `boundary_loop_count`,
+  `max_component_irregular`, `max_adjacent_area_ratio`, `max_adjacent_edge_ratio`,
+  `min_interior_angle`, `min_angle_hist` (9 bins), `parametrization_folds`, then
+  `isolines_checked`, `spiral_isolines`, `open_isolines`, `closed_isolines`
+- `run` — the `RemeshRunReport` (`remesh/remesh_report.h`): `success`,
+  `failure_reason`, `pipeline_ms`, the cross-field stats (`num_singularities`,
+  `index_sum`, `field_solved_eigen`), the quantize stats
+  (`parametrization_folds`, `min_jacobian`, `quantize_feasible`), and a `stages`
+  map of per-stage status (`copy`/`decimate`/.../`reproject` → `ok`/`failed`/`skipped`)
+
+A clean pipeline failure (no output mesh, e.g. `extract_no_lattice`) still writes
+a manifest: the `validation`/`output` blocks are default-valued and the `run`
+block carries the `failure_reason` + per-stage status, so a batch run records the
+failed attempt rather than losing it.
+
+The metric definitions (what counts as a "component" vs a "boundary loop" vs a
+"fold") live next to the fields in `mesh/utils/mesh_validate.h`; read those before
+comparing numbers across runs.
 
 The input AABB is computed with an explicit min/max loop, **not** `mesh::calcAABB`
 (which seeds max to `FLT_MIN` and mis-handles all-negative meshes).
+
+### Corpus batch runner (`tools/remesh_corpus.mjs`)
+
+Tier 0c. Runs `remesh_cli` over every available asset in
+`tests/corpus/corpus.json` and aggregates the manifests into a metrics table so
+each tier's review gate has a baseline to diff. Two artifacts in
+`tests/remesher-results/corpus/`: `metrics.csv` (one row per asset, the
+*deterministic* quality columns only — fixed seed reproduces it byte-for-byte)
+and `results.json` (the full per-asset manifests). Assets that don't resolve (the
+`available:false` placeholders) are logged as skipped, never silently dropped. See
+[`tests/corpus/README.md`](../tests/corpus/README.md).
+
+```
+node tools/remesh_corpus.mjs            # run every available asset
+node tools/remesh_corpus.mjs --list     # corpus + which assets resolve
+node tools/remesh_corpus.mjs --only simple-closed
+```
 
 ---
 

@@ -1,5 +1,6 @@
 #include "remesh/remesh.h"
 #include "remesh/remesh_params.h"
+#include "remesh/remesh_report.h"
 
 #include "remesh/extract/quad_extract.h"
 #include "remesh/extract/reproject.h"
@@ -9,10 +10,13 @@
 
 #include "dyntopo/dyntopo.h"
 #include "mesh/mesh.h"
+#include "mesh/utils/mesh_validate.h"
 #include "mesh/utils/triangulate.h"
 
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
+
+#include <chrono>
 
 namespace sculptcore::remesh {
 
@@ -170,7 +174,8 @@ void decimateForSolve(Mesh &m, float L, uint32_t seed)
 } // namespace
 
 mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
-                       RemeshProgressFn progress, void *user)
+                       RemeshProgressFn progress, void *user,
+                       RemeshRunReport *report)
 {
 #define PROG(pct, stage)                                                        \
   do {                                                                          \
@@ -178,8 +183,17 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
       progress(user, (pct), (stage));                                           \
   } while (0)
 
+  auto t_start = std::chrono::steady_clock::now();
+  auto elapsedMs = [&]() -> long long {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - t_start)
+        .count();
+  };
+
   PROG(0, "copy");
   Mesh *work = buildTriCopy(input);
+  if (report)
+    report->copy = StageStatus::Ok;
 
   // Optional decimation pre-pass: coarsen the SOLVE mesh so dense inputs stay
   // tractable. The reprojection below still snaps onto the full-res original.
@@ -188,6 +202,8 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     PROG(10, "decimate");
     decimateForSolve(*work, params.solve_edge_length, params.seed);
     decimated = true;
+    if (report)
+      report->decimate = StageStatus::Ok;
   }
 
   // M2 cross field -> M3 singularity adjust -> M5 quantization (M5 rebuilds the
@@ -199,18 +215,32 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   cp.use_sharp_features = params.use_sharp_features;
   cp.sharp_angle = params.sharp_angle;
   cp.seed = params.seed;
-  computeCrossField(*work, cp);
+  CrossFieldStats cfs = computeCrossField(*work, cp);
+  if (report) {
+    report->cross_field = StageStatus::Ok;
+    report->num_singularities = cfs.num_singularities;
+    report->index_sum = cfs.index_sum;
+    report->field_solved_eigen = cfs.solved_eigen;
+  }
 
   PROG(45, "singularity");
   SingularityAdjustParams sap;
   sap.seed = params.seed;
   adjustSingularities(*work, sap);
+  if (report)
+    report->singularity = StageStatus::Ok;
 
   PROG(65, "quantize");
   QuantizeParams qp;
   qp.target_edge_length = params.target_edge_length;
   qp.use_density = params.use_density;
-  computeQuantization(*work, qp);
+  QuantizeStats qs = computeQuantization(*work, qp);
+  if (report) {
+    report->quantize = StageStatus::Ok;
+    report->parametrization_folds = qs.parametrization_folds;
+    report->min_jacobian = qs.min_jacobian;
+    report->quantize_feasible = qs.feasible;
+  }
 
   // M6: extract the integer-lattice preimage, then snap onto the input surface.
   PROG(80, "extract");
@@ -220,9 +250,16 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   Mesh *out = extractQuadMesh(*work, ep, st);
   if (!out) {
     PROG(100, "failed");
+    if (report) {
+      report->extract = StageStatus::Failed;
+      report->failure_reason = "extract_no_lattice";
+      report->duration_ms = elapsedMs();
+    }
     alloc::Delete<Mesh>(work);
     return nullptr; // clean failure: no integer-grid map / no lattice points
   }
+  if (report)
+    report->extract = StageStatus::Ok;
 
   if (params.reproject) {
     PROG(92, "reproject");
@@ -240,9 +277,21 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     } else {
       reprojectToSurface(*out, *work, rp);
     }
+    if (report)
+      report->reproject = StageStatus::Ok;
   }
 
   PROG(100, "done");
+  if (report) {
+    report->success = true;
+    report->duration_ms = elapsedMs();
+    // Self-contained validation for Tier-8's in-process retry (skipped on the
+    // no-report path). The pre-extraction fold count can't be derived from the
+    // output, so copy it in from the quantize stats.
+    report->validation = mesh::remeshValidate(*out);
+    report->validation.parametrization_folds = qs.parametrization_folds;
+    report->validation_filled = true;
+  }
   alloc::Delete<Mesh>(work);
   return out;
 #undef PROG

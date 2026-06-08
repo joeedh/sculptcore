@@ -88,6 +88,7 @@ struct QuantizeStats {
   double max_integer_residual = 0.0; // max ||t_e - round(t_e)|| over cut edges
   double max_loop_closure = 0.0;     // max one-ring closure residual (no-spiral)
   double min_jacobian = 0.0;         // min per-face det(grad u, grad v)
+  int parametrization_folds = 0;     // faces with det(grad u, grad v) <= 0 (pre-extract)
   int iters = 0;
   bool solved = false;   // linear solves succeeded
   bool feasible = false; // integrality reached within integer_tol (no spirals)

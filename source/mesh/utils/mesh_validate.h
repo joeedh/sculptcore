@@ -46,6 +46,43 @@ struct RemeshReport {
   int irregular_interior_verts = 0; // interior verts with valence != 4
   int valence_hist[17] = {0};       // index = min(valence, 16)
 
+  // --- Tier-0 extended quality metrics (plans/quad-remeshing-filtering.md) ---
+  // valence_hist[] / irregular_interior_verts count interior verts, but %regular
+  // on an OPEN character mesh needs the interior denominator, not total verts:
+  //   regular_interior_frac = 1 - irregular_interior_verts / interior_vert_count.
+  int interior_vert_count = 0;        // non-boundary verts (the %regular denominator)
+  float regular_interior_frac = 1.0f; // 1.0 when there are no interior verts
+
+  // Connectivity (definitions fixed so cross-run comparisons are meaningful):
+  //  component_count     = connected components over the FACE-adjacency graph
+  //                        (two faces adjacent iff they share an edge; verts with
+  //                        no incident face are ignored).
+  //  boundary_loop_count = number of boundary LOOPS ("holes") = connected
+  //                        components of the boundary-edge graph (manifold edges
+  //                        with exactly one incident face). NOT genus handles and
+  //                        NOT the M6 output residual cap loops.
+  int component_count = 0;
+  int boundary_loop_count = 0;
+  // Worst single component's irregular-interior count (per-component singularity
+  // clustering). 0 on a regular or empty mesh.
+  int max_component_irregular = 0;
+
+  // Quad-shape / size-transition geometry (computed for any face size). The two
+  // "ratios" are >= 1 (max/min over an edge-shared face pair); 1.0 = uniform.
+  float max_adjacent_area_ratio = 1.0f; // worst neighbour-quad area ratio
+  float max_adjacent_edge_ratio = 1.0f; // worst neighbour mean-edge-length ratio
+  // Skinny-quad proxy: smallest interior corner angle over all faces (radians),
+  // plus a histogram of each face's MIN corner angle in 10-degree bins over
+  // [0,90) (bin 8 also catches >= 80; a quad's min angle is <= 90 by angle-sum).
+  float min_interior_angle = 0.0f;
+  int min_angle_hist[9] = {0};
+
+  // Pre-extraction parametrization fold count (QuantizeStats::parametrization_
+  // folds): folded faces in the seamless (u,v) on the SOLVE mesh, distinct from
+  // the output mesh's inverted_faces. remeshValidate cannot derive it (the (u,v)
+  // lives on the solve mesh, not the output), so the caller sets it. -1 = unset.
+  int parametrization_folds = -1;
+
   // M6 no-spiral guarantee — edge-strip (isoline) closure on the all-quad
   // output. Filled by checkIsolineClosure (auto-run from remeshValidate when the
   // mesh is all-quad + manifold); isolines_checked stays false otherwise.
@@ -264,6 +301,167 @@ static inline void checkIsolineClosure(Mesh &m, RemeshReport &r)
   r.isolines_close = r.open_isolines == 0 && r.spiral_isolines == 0;
 }
 
+/* Tier-0 extended quality metrics (plans/quad-remeshing-filtering.md): face-
+ * component / boundary-loop counts, per-component singularity clustering, the
+ * adjacent-quad size-transition ratios, and the skinny-quad min-angle proxy.
+ * Split out of remeshValidate to keep that function readable. @p irrFaces is one
+ * incident face per irregular interior vert (collected by the caller) so the
+ * per-component tally needs no second boundary-detection pass. One pass each
+ * over faces and edges — not a hot path. */
+static inline void computeTier0Metrics(Mesh &m, RemeshReport &r,
+                                       const litestl::util::Vector<int> &irrFaces)
+{
+  using litestl::util::Vector;
+  using math::float3;
+
+  int fcap = int(m.f.capacity());
+  int vcap = int(m.v.capacity());
+  if (fcap == 0)
+    return;
+
+  // Per-face area + mean edge length + min interior angle (binned). Area is the
+  // Newell normal's half-length; the min angle is the smallest corner angle.
+  Vector<double> faceArea, faceMeanEdge;
+  faceArea.resize(fcap);
+  faceMeanEdge.resize(fcap);
+  for (int i = 0; i < fcap; i++) {
+    faceArea[i] = -1.0;
+    faceMeanEdge[i] = -1.0;
+  }
+  double minAngle = 0.0;
+  bool firstAngle = true;
+  for (int fi : m.f) {
+    faceArea[fi] = 0.5 * double(faceNewellNormal(m, fi).length());
+
+    int li = m.f.l[fi], c0 = m.l.c[li], cc = c0;
+    double sumLen = 0.0, faceMin = 1e30;
+    int ne = 0;
+    do {
+      int cn = m.c.next[cc], cp = m.c.prev[cc];
+      float3 p = m.v.co[m.c.v[cc]];
+      float3 toNext = m.v.co[m.c.v[cn]] - p;
+      float3 toPrev = m.v.co[m.c.v[cp]] - p;
+      double l1 = double(toNext.length()), l2 = double(toPrev.length());
+      sumLen += l1;
+      ne++;
+      if (l1 > 1e-20 && l2 > 1e-20) {
+        double cosa = double(toNext.dot(toPrev)) / (l1 * l2);
+        cosa = cosa < -1.0 ? -1.0 : (cosa > 1.0 ? 1.0 : cosa);
+        double ang = std::acos(cosa);
+        if (ang < faceMin)
+          faceMin = ang;
+      }
+      cc = cn;
+    } while (cc != c0);
+    faceMeanEdge[fi] = ne > 0 ? sumLen / double(ne) : 0.0;
+    if (faceMin < 1e29) {
+      if (firstAngle || faceMin < minAngle) {
+        minAngle = faceMin;
+        firstAngle = false;
+      }
+      int bin = int(faceMin * (180.0 / 3.14159265358979323846) / 10.0);
+      r.min_angle_hist[bin < 0 ? 0 : (bin > 8 ? 8 : bin)]++;
+    }
+  }
+  if (!firstAngle)
+    r.min_interior_angle = float(minAngle);
+
+  // One edge pass: face-component union-find (shared edge), boundary-vert
+  // union-find (boundary edge), and the adjacent-pair area/edge size ratios.
+  Vector<int> fuf, vuf;
+  Vector<char> vBnd;
+  fuf.resize(fcap);
+  vuf.resize(vcap);
+  vBnd.resize(vcap);
+  for (int i = 0; i < fcap; i++)
+    fuf[i] = i;
+  for (int i = 0; i < vcap; i++) {
+    vuf[i] = i;
+    vBnd[i] = 0;
+  }
+  auto find = [](Vector<int> &uf, int x) {
+    while (uf[x] != x) {
+      uf[x] = uf[uf[x]];
+      x = uf[x];
+    }
+    return x;
+  };
+  auto unite = [&](Vector<int> &uf, int a, int b) {
+    a = find(uf, a);
+    b = find(uf, b);
+    if (a != b)
+      uf[a] = b;
+  };
+
+  double maxAreaRatio = 1.0, maxEdgeRatio = 1.0;
+  for (int ei : m.e) {
+    int c0 = m.e.c[ei];
+    if (c0 == ELEM_NONE)
+      continue; // wire edge: neither a face-adjacency nor a boundary-loop edge
+    int corners[2] = {ELEM_NONE, ELEM_NONE}, radial = 0, cc = c0;
+    do {
+      if (radial < 2)
+        corners[radial] = cc;
+      radial++;
+      cc = m.c.radial_next[cc];
+    } while (cc != c0 && radial < 1000000);
+
+    if (radial == 1) {
+      int v0 = m.e.vs[ei][0], v1 = m.e.vs[ei][1];
+      unite(vuf, v0, v1);
+      vBnd[v0] = vBnd[v1] = 1;
+    } else if (radial == 2) {
+      int fa = m.l.f[m.c.l[corners[0]]], fb = m.l.f[m.c.l[corners[1]]];
+      unite(fuf, fa, fb);
+      double aA = faceArea[fa], aB = faceArea[fb];
+      if (aA > 1e-20 && aB > 1e-20) {
+        double rr = aA > aB ? aA / aB : aB / aA;
+        if (rr > maxAreaRatio)
+          maxAreaRatio = rr;
+      }
+      double eA = faceMeanEdge[fa], eB = faceMeanEdge[fb];
+      if (eA > 1e-20 && eB > 1e-20) {
+        double rr = eA > eB ? eA / eB : eB / eA;
+        if (rr > maxEdgeRatio)
+          maxEdgeRatio = rr;
+      }
+    }
+  }
+  r.max_adjacent_area_ratio = float(maxAreaRatio);
+  r.max_adjacent_edge_ratio = float(maxEdgeRatio);
+
+  // Distinct face-component roots; per-component irregular-vert tally → worst.
+  Vector<int> compIrr;
+  compIrr.resize(fcap);
+  for (int i = 0; i < fcap; i++)
+    compIrr[i] = 0;
+  int comps = 0;
+  for (int fi : m.f) {
+    if (find(fuf, fi) == fi)
+      comps++;
+  }
+  r.component_count = comps;
+  for (int i = 0; i < int(irrFaces.size()); i++) {
+    int f = irrFaces[i];
+    if (f != ELEM_NONE)
+      compIrr[find(fuf, f)]++;
+  }
+  int maxIrr = 0;
+  for (int fi : m.f) {
+    if (compIrr[fi] > maxIrr)
+      maxIrr = compIrr[fi];
+  }
+  r.max_component_irregular = maxIrr;
+
+  // Distinct boundary-loop roots over verts touched by a boundary edge.
+  int loops = 0;
+  for (int vi = 0; vi < vcap; vi++) {
+    if (vBnd[vi] && find(vuf, vi) == vi)
+      loops++;
+  }
+  r.boundary_loop_count = loops;
+}
+
 /* Full structural report. One pass each over edges / faces / verts; cycle
  * integrity delegated to checkTopology (the manifold gate). On an all-quad
  * manifold mesh it also runs checkIsolineClosure (the no-spiral gate); the
@@ -342,7 +540,10 @@ static inline RemeshReport remeshValidate(Mesh &m)
   r.consistent_winding = winding_ok && r.non_manifold_edges == 0;
 
   // Per-vert valence + interior-irregular count. A vert is boundary if any
-  // incident edge is a boundary/wire edge.
+  // incident edge is a boundary/wire edge. `irrFaces` records one incident face
+  // per irregular interior vert so the Tier-0 block below can tally singularities
+  // per face-component without a second boundary-detection pass.
+  Vector<int> irrFaces;
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
     if (e0 == ELEM_NONE)
@@ -369,9 +570,21 @@ static inline RemeshReport remeshValidate(Mesh &m)
     } while (ec != e0);
 
     r.valence_hist[valence < 17 ? valence : 16]++;
-    if (!boundary && valence != 4)
-      r.irregular_interior_verts++;
+    if (!boundary) {
+      r.interior_vert_count++;
+      if (valence != 4) {
+        r.irregular_interior_verts++;
+        int c = m.e.c[e0]; // interior vert ⇒ e0 has a face
+        irrFaces.append(c != ELEM_NONE ? m.l.f[m.c.l[c]] : ELEM_NONE);
+      }
+    }
   }
+  r.regular_interior_frac =
+      r.interior_vert_count > 0
+          ? 1.0f - float(r.irregular_interior_verts) / float(r.interior_vert_count)
+          : 1.0f;
+
+  computeTier0Metrics(m, r, irrFaces);
 
   checkIsolineClosure(m, r);
   return r;

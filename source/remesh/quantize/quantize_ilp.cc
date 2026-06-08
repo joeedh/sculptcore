@@ -1269,10 +1269,14 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
 
   stats.max_loop_closure = loopClosureResidual(m, g, sys.periodEC);
 
-  // Diagnostic: min per-face det(grad u, grad v) of the snapped map.
+  // Diagnostic: min per-face det(grad u, grad v) of the snapped map, plus the
+  // pre-extraction fold count (faces whose map Jacobian is non-positive). This is
+  // the parametrization fold count Tier-0's run report surfaces — distinct from
+  // the output mesh's `inverted_faces`.
   Vector<int> cs;
   Vector<float2> loc;
   int num_faces = 0;
+  int num_folds = 0;
   double min_jac = 0.0;
   bool first_jac = true;
   for (int f : m.f) {
@@ -1329,6 +1333,9 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     gvx /= totA;
     gvy /= totA;
     double jac = gux * gvy - guy * gvx;
+    if (jac <= 0.0) {
+      num_folds++;
+    }
     if (first_jac || jac < min_jac) {
       min_jac = jac;
       first_jac = false;
@@ -1336,6 +1343,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   }
   stats.num_faces = num_faces;
   stats.min_jacobian = first_jac ? 0.0 : min_jac;
+  stats.parametrization_folds = num_folds;
 
 #ifndef WASM
   if (Lf) {

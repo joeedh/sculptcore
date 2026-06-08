@@ -22,6 +22,7 @@
 
 #include "remesh/remesh.h"
 #include "remesh/remesh_params.h"
+#include "remesh/remesh_report.h"
 
 #include "remesh_cli_config.h"
 
@@ -91,6 +92,18 @@ void inputAABB(mesh::Mesh &m, float3 &bmin, float3 &bmax)
 
 const char *jb(bool b) { return b ? "true" : "false"; }
 
+const char *ssName(remesh::StageStatus s)
+{
+  switch (s) {
+  case remesh::StageStatus::Ok:
+    return "ok";
+  case remesh::StageStatus::Failed:
+    return "failed";
+  default:
+    return "skipped";
+  }
+}
+
 // Escape a string for embedding in a JSON double-quoted value. Critically this
 // turns Windows path backslashes into `\\` (a bare `\s` is an invalid JSON
 // escape that breaks strict parsers like JS JSON.parse).
@@ -122,8 +135,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
                    const std::string &objPath, const std::string &inName,
                    const std::string &inPath, int inVerts, int inFaces,
                    const float3 &amin, const float3 &amax,
-                   const remesh::RemeshParams &p, mesh::Mesh &out,
-                   const mesh::RemeshReport &r, long long durationMs)
+                   const remesh::RemeshParams &p, const mesh::RemeshReport &r,
+                   const mesh::RemeshReport &rin,
+                   const remesh::RemeshRunReport &rep, long long durationMs)
 {
   std::FILE *f = std::fopen(path, "wb");
   if (!f)
@@ -144,6 +158,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"path\": \"%s\",\n", jstr(inPath).c_str());
   std::fprintf(f, "    \"verts\": %d,\n", inVerts);
   std::fprintf(f, "    \"faces\": %d,\n", inFaces);
+  std::fprintf(f, "    \"components\": %d,\n", rin.component_count);
+  std::fprintf(f, "    \"holes\": %d,\n", rin.boundary_loop_count);
+  std::fprintf(f, "    \"manifold\": %s,\n", jb(rin.manifold));
   std::fprintf(f, "    \"aabb_min\": ");
   f3(amin);
   std::fprintf(f, ",\n    \"aabb_max\": ");
@@ -186,15 +203,59 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"all_quad\": %s,\n", jb(r.all_quad));
   std::fprintf(f, "    \"irregular_interior_verts\": %d,\n",
                r.irregular_interior_verts);
+  std::fprintf(f, "    \"interior_vert_count\": %d,\n", r.interior_vert_count);
+  std::fprintf(f, "    \"regular_interior_frac\": %.9g,\n",
+               r.regular_interior_frac);
+  std::fprintf(f, "    \"component_count\": %d,\n", r.component_count);
+  std::fprintf(f, "    \"boundary_loop_count\": %d,\n", r.boundary_loop_count);
+  std::fprintf(f, "    \"max_component_irregular\": %d,\n",
+               r.max_component_irregular);
+  std::fprintf(f, "    \"max_adjacent_area_ratio\": %.9g,\n",
+               r.max_adjacent_area_ratio);
+  std::fprintf(f, "    \"max_adjacent_edge_ratio\": %.9g,\n",
+               r.max_adjacent_edge_ratio);
+  std::fprintf(f, "    \"min_interior_angle\": %.9g,\n", r.min_interior_angle);
+  std::fprintf(f, "    \"min_angle_hist\": [");
+  for (int i = 0; i < 9; i++)
+    std::fprintf(f, "%s%d", i ? ", " : "", r.min_angle_hist[i]);
+  std::fprintf(f, "],\n");
+  std::fprintf(f, "    \"parametrization_folds\": %d,\n",
+               r.parametrization_folds);
   std::fprintf(f, "    \"isolines_checked\": %s,\n", jb(r.isolines_checked));
   std::fprintf(f, "    \"spiral_isolines\": %d,\n", r.spiral_isolines);
   std::fprintf(f, "    \"open_isolines\": %d,\n", r.open_isolines);
   std::fprintf(f, "    \"closed_isolines\": %d\n", r.closed_isolines);
+  std::fprintf(f, "  },\n");
+
+  // Run report: per-stage status + solver stats (see remesh_report.h). The
+  // pre-extraction fold count and min Jacobian come from the solve mesh, so they
+  // live here (and are mirrored into validation.parametrization_folds).
+  std::fprintf(f, "  \"run\": {\n");
+  std::fprintf(f, "    \"success\": %s,\n", jb(rep.success));
+  std::fprintf(f, "    \"failure_reason\": \"%s\",\n",
+               jstr(rep.failure_reason).c_str());
+  std::fprintf(f, "    \"pipeline_ms\": %lld,\n", rep.duration_ms);
+  std::fprintf(f, "    \"num_singularities\": %d,\n", rep.num_singularities);
+  std::fprintf(f, "    \"index_sum\": %d,\n", rep.index_sum);
+  std::fprintf(f, "    \"field_solved_eigen\": %s,\n",
+               jb(rep.field_solved_eigen));
+  std::fprintf(f, "    \"parametrization_folds\": %d,\n",
+               rep.parametrization_folds);
+  std::fprintf(f, "    \"min_jacobian\": %.9g,\n", rep.min_jacobian);
+  std::fprintf(f, "    \"quantize_feasible\": %s,\n", jb(rep.quantize_feasible));
+  std::fprintf(f, "    \"stages\": {\n");
+  std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
+  std::fprintf(f, "      \"decimate\": \"%s\",\n", ssName(rep.decimate));
+  std::fprintf(f, "      \"cross_field\": \"%s\",\n", ssName(rep.cross_field));
+  std::fprintf(f, "      \"singularity\": \"%s\",\n", ssName(rep.singularity));
+  std::fprintf(f, "      \"quantize\": \"%s\",\n", ssName(rep.quantize));
+  std::fprintf(f, "      \"extract\": \"%s\",\n", ssName(rep.extract));
+  std::fprintf(f, "      \"reproject\": \"%s\"\n", ssName(rep.reproject));
+  std::fprintf(f, "    }\n");
   std::fprintf(f, "  }\n");
   std::fprintf(f, "}\n");
 
   std::fclose(f);
-  (void)out;
   return true;
 }
 
@@ -302,19 +363,17 @@ int main(int argc, char **argv)
   float3 amin, amax;
   inputAABB(*in, amin, amax);
 
+  // Validate the input too (component + hole counts for the input/output
+  // comparison in the manifest). Cheap, and QuadRemesh leaves `in` intact —
+  // run it before the pipeline, which thaws/triangulates its own copy.
+  mesh::RemeshReport rin = mesh::remeshValidate(*in);
+
+  remesh::RemeshRunReport rep;
   auto t0 = std::chrono::steady_clock::now();
-  mesh::Mesh *out = remesh::QuadRemesh(*in, params, progressCb, nullptr);
+  mesh::Mesh *out = remesh::QuadRemesh(*in, params, progressCb, nullptr, &rep);
   auto t1 = std::chrono::steady_clock::now();
   long long durationMs =
       std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-
-  if (!out) {
-    std::printf("ERROR QuadRemesh returned no mesh (extraction failed)\n");
-    litestl::alloc::Delete<mesh::Mesh>(in);
-    return 1;
-  }
-
-  mesh::RemeshReport r = mesh::remeshValidate(*out);
 
   std::string ts = timestamp();
   std::string base = name + "_" + ts;
@@ -325,24 +384,47 @@ int main(int argc, char **argv)
   std::string objPath = (fs::path(outdir) / (base + ".obj")).generic_string();
   std::string jsonPath = (fs::path(outdir) / (base + ".json")).generic_string();
 
+  // Clean failure (e.g. no integer lattice): no output mesh, but still emit a
+  // manifest with an empty validation block + populated run block so the corpus
+  // runner records the run instead of losing it, then exit non-zero.
+  if (!out) {
+    mesh::RemeshReport r;
+    if (writeManifest(jsonPath.c_str(), ts, objPath, name, inPath, inVerts,
+                      inFaces, amin, amax, params, r, rin, rep, durationMs))
+      std::printf("MANIFEST %s\n", jsonPath.c_str());
+    std::printf("ERROR QuadRemesh produced no mesh reason=%s\n",
+                rep.failure_reason.empty() ? "unknown"
+                                           : rep.failure_reason.c_str());
+    litestl::alloc::Delete<mesh::Mesh>(in);
+    return 1;
+  }
+
+  // Reuse the validation QuadRemesh already ran on the report path (it carries
+  // the pre-extraction fold count copied in from quantize) rather than a second
+  // remeshValidate pass.
+  mesh::RemeshReport r = rep.validation;
+
   if (!mesh::writeObj(*out, objPath.c_str()))
     std::printf("ERROR could not write %s\n", objPath.c_str());
   else
     std::printf("RESULT %s\n", objPath.c_str());
 
   if (writeManifest(jsonPath.c_str(), ts, objPath, name, inPath, inVerts,
-                    inFaces, amin, amax, params, *out, r, durationMs))
+                    inFaces, amin, amax, params, r, rin, rep, durationMs))
     std::printf("MANIFEST %s\n", jsonPath.c_str());
   else
     std::printf("ERROR could not write %s\n", jsonPath.c_str());
 
   std::printf("STATS verts=%d edges=%d faces=%d quads=%d tris=%d ngons=%d "
               "allquad=%d manifold=%d euler=%d inverted=%d boundary=%d "
-              "spiral=%d irr=%d duration_ms=%lld\n",
+              "spiral=%d irr=%d regular_frac=%.4g components=%d holes=%d "
+              "folds=%d min_angle=%.4g area_ratio=%.4g duration_ms=%lld\n",
               r.vert_count, r.edge_count, r.face_count, r.quad_count,
               r.tri_count, r.ngon_count, int(r.all_quad), int(r.manifold),
               r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
-              r.irregular_interior_verts, durationMs);
+              r.irregular_interior_verts, r.regular_interior_frac,
+              r.component_count, r.boundary_loop_count, r.parametrization_folds,
+              r.min_interior_angle, r.max_adjacent_area_ratio, durationMs);
 
   litestl::alloc::Delete<mesh::Mesh>(out);
   litestl::alloc::Delete<mesh::Mesh>(in);

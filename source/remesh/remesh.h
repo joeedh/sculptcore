@@ -22,6 +22,7 @@ struct Mesh;
 namespace sculptcore::remesh {
 
 struct RemeshParams;
+struct RemeshRunReport;
 
 /* Optional coarse-stage progress hook. @p pct is 0..100 (monotonic across the
  * synchronous pipeline stages), @p stage a stable lowercase tag ("copy",
@@ -35,8 +36,12 @@ using RemeshProgressFn = void (*)(void *user, int pct, const char *stage);
  * (caller owns; free via mesh::Mesh's allocator / the freeMesh C-API), or
  * nullptr on a clean failure (e.g. Gauss-Bonnet-infeasible pole pins — the
  * error is surfaced rather than producing a garbage field). @p progress (if
- * non-null) is invoked at each coarse stage boundary. */
+ * non-null) is invoked at each coarse stage boundary. @p report (if non-null)
+ * is filled with per-stage status, solver stats, the pre-extraction fold count,
+ * a duration + failure reason, and (on success) the output validation block —
+ * see remesh_report.h; passing it adds one remeshValidate pass on success. */
 mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
-                       RemeshProgressFn progress = nullptr, void *user = nullptr);
+                       RemeshProgressFn progress = nullptr, void *user = nullptr,
+                       RemeshRunReport *report = nullptr);
 
 } // namespace sculptcore::remesh
