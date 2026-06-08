@@ -156,9 +156,18 @@ low-risk subset):
 ### 1b. Copy/remap input constraint attrs onto the working mesh (unblocks Tier 3)
 `buildTriCopy` (`remesh.cc:35`) copies **only positions + topology**, so **no
 host-painted constraint reaches the solver** and Tier 3's "host supplied a density
-map" branch is undecidable. Add a pass copying the **input** constraint layers by
-vertex map (and, after triangulation, transferring face-domain `stroke_dir` to the
-split faces).
+map" branch is undecidable. Add a pass copying the **input** constraint layers by vertex map.
+
+> **Face-domain `stroke_dir` needs the attr-preserving triangulation path.**
+> `buildTriCopy` triangulates with `triangulateMesh` (`triangulate.h:121`), which
+> rebuilds n-gons via Euler ops and **drops face attrs**. The attr-preserving
+> helper is `triangulateFaceFanCb` (`triangulate.h:21`, snapshots/restores face +
+> corner attrs). So `stroke_dir` copied **before** `triangulateMesh` is lost on
+> the split faces, and copied **after** has no source-face mapping. Fix: switch
+> `buildTriCopy` to the **`triangulateFaceFanCb`** path (per-face, preserves
+> `stroke_dir` onto each fan triangle) — or record a source-face→split-face map
+> and transfer afterward. Vertex/edge layers (`density`, `pole_pinned`) are
+> unaffected (verts are preserved by the vmap); only the **face** layer needs this.
 
 > **Copy the input layers, NOT the computed ones.** The `remesh.cc:24` TODO says
 > "`pole_index`", but `.remesh.v.pole_index` is **computed output** (written by
@@ -167,8 +176,15 @@ split faces).
 > with / be overwritten by** the computed field. The actual **user-pin input**
 > layer is `.remesh.v.pole_pinned` (bool, `singularity_adjust.cc:200`). So 1b
 > copies **`.remesh.v.density` + `.remesh.v.pole_pinned` + `.remesh.f.stroke_dir`**
-> only. (If users ever need to pin a *specific index value*, that is a new
-> dedicated input layer — never the computed `pole_index`.)
+> only.
+>
+> **`pole_pinned` v1 semantics = "protect a computed pole," not "author one."**
+> `singularity_adjust.cc:230` freezes the *prior* (solver-computed) index at a
+> pinned vertex — so a user can only **keep whatever singularity the field put
+> there**, not request a specific +1/−1. State this limitation explicitly. If
+> authored pole *targets* are wanted later, add a dedicated input layer
+> `.remesh.v.pole_target_index` (short) — separate from both the bool
+> `pole_pinned` and the computed `pole_index`. Out of scope for v1.
 
 Until this lands, **auto-density (Tier 3) is the only supported density path** —
 state that explicitly rather than implying painted maps work.
@@ -337,6 +353,13 @@ to `1.0`. The alignment side is already exposed via `curvature_weight`
 ### Changes
 - Add `field_smoothness` → `CrossFieldParams`; use for `wsmooth`
   (`cross_field.cc:122`). Default `1.0f` reproduces current output.
+- **`curvature_weight` is the other half of the knob and is not yet a
+  `RemeshParams` field.** It exists only in `CrossFieldParams` (`cross_field.h:32`,
+  used at `constraints.cc:220`) and `QuadRemesh` never sets it (`remesh.cc:196`
+  threads only `use_curvature`/`use_sharp_features`/`sharp_angle`/`seed`). To
+  "surface both together" it must become a real `RemeshParams` field with the full
+  binding/CLI/UI/TS surface — **or** the plan declares it stays internal/debug-only.
+  Since the tradeoff *is* the point of this tier, add it.
 - Document: effective regularization ≈ `field_smoothness / curvature_weight`;
   surface both together in the UI.
 
@@ -344,6 +367,7 @@ to `1.0`. The alignment side is already exposed via `curvature_weight`
 | field | default | meaning |
 |-------|---------|---------|
 | `field_smoothness` | `1.0f` | per-edge smoothness weight; higher = smoother field, fewer singularities |
+| `curvature_weight` | `1.0f` | soft curvature-alignment scale (promote from `CrossFieldParams`; thread through `remesh.cc` + bindings) |
 
 ### Verification
 - **gtest (hard assert):** Gauss–Bonnet `index_sum == 4χ` at **every** setting.
@@ -514,8 +538,13 @@ A bounded loop around `QuadRemesh` driven by Tier 0 metrics:
   `singularity_cancel`), retry;
 - adjacent size ratio too steep → raise `density_gradation`, retry;
 - too many residual odd holes / tri caps → coarser `target_edge_length`, retry.
-Hard cap on attempts; record **which fallback won** and final metrics in the
-manifest. Default attempts = 1 (today's behavior) unless `auto_retry` is on.
+Hard cap on attempts. **Record the full attempt trail, not just the winner** —
+the `RemeshRunReport` (Tier 0a) carries a per-attempt array: the params used, the
+failure reason, validation stats, fold count, singularity count, and **whether the
+attempt started from the original input or a mutated intermediate**. Without the
+trail, auto-retry can improve a result while making its failures unreproducible.
+The manifest emits the trail + which fallback won; the host gets the compact
+summary. Default attempts = 1 (today's behavior) unless `auto_retry` is on.
 
 ### 8b. Presets
 Named bundles setting the whole knob vector: **Organic Clean**, **Organic Noisy**,
