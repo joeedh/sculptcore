@@ -63,6 +63,19 @@ std::string narrow(const std::wstring &w)
   return s;
 }
 
+// Wrapped hover tooltip for the immediately-preceding widget. BeginItemTooltip
+// uses the ForTooltip hover flags (stationary + short delay + allow-when-disabled),
+// so the conditionally-disabled sliders still explain themselves on hover.
+void tip(const char *text)
+{
+  if (ImGui::BeginItemTooltip()) {
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+  }
+}
+
 } // namespace
 
 RemeshUi::~RemeshUi()
@@ -199,6 +212,8 @@ void RemeshUi::drawPanel()
     }
     ImGui::EndCombo();
   }
+  tip("Pick an OBJ discovered in the assets dir. Use Rescan if you dropped a new "
+      "file in while the app was open.");
   ImGui::BeginDisabled(app_->busy());
   if (ImGui::Button("Load") && app_->selected >= 0) {
     std::string err;
@@ -206,20 +221,24 @@ void RemeshUi::drawPanel()
       app_->status = "ERROR " + err;
     }
   }
+  tip("Load the selected asset as the working mesh (replaces the current one).");
   ImGui::SameLine();
   if (ImGui::Button("Import...")) {
     doImport();
   }
+  tip("Browse for an .obj anywhere on disk and load it as the working mesh.");
   ImGui::SameLine();
   if (ImGui::Button("Rescan")) {
     app_->rescanAssets();
   }
+  tip("Re-scan the assets dir for .obj files and refresh the asset list.");
   ImGui::EndDisabled();
 
   // --- Meshy generation ---
   ImGui::SeparatorText("Generate (Meshy text-to-3D)");
   static char prompt[256] = "";
   ImGui::InputText("prompt", prompt, sizeof(prompt));
+  tip("Text prompt describing the mesh to generate, e.g. \"an anime girl\".");
   ImGui::BeginDisabled(app_->busy());
   if (ImGui::Button("Generate")) {
     std::string err;
@@ -227,38 +246,98 @@ void RemeshUi::drawPanel()
       app_->status = "ERROR " + err;
     }
   }
+  tip("Generate a mesh from the prompt via the Meshy text-to-3D API, then load "
+      "it. Requires an API key in keys/meshy.txt.");
   ImGui::EndDisabled();
 
   // --- Params ---
   ImGui::SeparatorText("Params");
   ImGui::SliderFloat("target edge len", &P.target_edge_length, 0.005f, 1.0f,
                      "%.4f", ImGuiSliderFlags_Logarithmic);
+  tip("Nominal output quad edge length, in the mesh's world units. Smaller = "
+      "denser mesh. This is the size auto density modulates around.");
   ImGui::SliderFloat("solve edge len (0=off)", &P.solve_edge_length, 0.0f, 1.0f,
                      "%.4f");
+  tip("If > 0, decimate to roughly this edge length before solving the field and "
+      "parametrization, then reproject the quads onto the original surface. "
+      "Speeds up heavy inputs. 0 = solve on the full-resolution input.");
   ImGui::Checkbox("use curvature", &P.use_curvature);
+  tip("Align the cross field to principal-curvature directions so quad rows "
+      "follow surface flow. Off = a smoothness-only field (boundaries/sharp "
+      "edges still constrain it).");
   ImGui::Checkbox("use sharp features", &P.use_sharp_features);
+  tip("Pin the field to sharp edges and open boundaries so quad edges run along "
+      "creases instead of crossing them.");
   ImGui::SliderFloat("sharp angle (rad)", &P.sharp_angle, 0.0f, 3.14159f, "%.3f");
+  tip("Dihedral angle (radians) above which an edge is treated as sharp. Lower = "
+      "more edges count as creases. Default 0.785 = 45 degrees.");
   ImGui::Checkbox("use density", &P.use_density);
+  tip("Honor a per-vertex .remesh.v.density map for local sizing "
+      "(quad size is proportional to 1/sqrt(density)). 'auto density' below "
+      "turns this on implicitly and fills the map from curvature.");
   ImGui::Checkbox("reproject", &P.reproject);
+  tip("Snap the extracted quad mesh back onto the input surface so it matches "
+      "the original shape. Off leaves it on the (smoother) solve surface.");
   ImGui::Checkbox("cap odd holes", &P.cap_odd_holes);
+  tip("Close boundary loops with an odd edge count using one triangle each, so "
+      "the rest of the mesh can stay all-quad.");
   ImGui::SliderInt("smooth iters", &P.smooth_iterations, 0, 20);
+  tip("Number of post-reprojection smoothing passes that relax vertices along "
+      "the surface to even out quad shapes.");
   ImGui::SliderFloat("smooth strength", &P.smooth_strength, 0.0f, 1.0f, "%.2f");
+  tip("Per-iteration smoothing step (0..1). Higher relaxes faster but can pull "
+      "the mesh off sharp detail.");
   {
     int seed = int(P.seed);
     if (ImGui::InputInt("seed", &seed)) {
       P.seed = uint32_t(seed < 0 ? 0 : seed);
     }
   }
+  tip("Seed for the randomized stages (independent-set ordering, etc.). Fixed "
+      "seed = deterministic output; change it to sample a different result.");
   ImGui::Checkbox("triage", &P.triage);
+  tip("Run input cleanup before solving: weld near-duplicate verts, drop tiny "
+      "components, and fix inconsistent winding. Recommended for scanned / "
+      "messy meshes.");
   ImGui::BeginDisabled(!P.triage);
   ImGui::SliderFloat("triage weld rel", &P.triage_weld_rel, 0.0f, 1e-3f, "%.6f");
+  tip("Weld tolerance as a fraction of the bounding-box diagonal. Verts closer "
+      "than this are merged.");
   ImGui::SliderFloat("triage min comp frac", &P.triage_min_component_frac, 0.0f,
                      0.5f, "%.3f");
+  tip("Drop connected components with fewer than this fraction of the total "
+      "verts (removes specks / floaters). 0 = keep every component.");
   ImGui::EndDisabled();
   ImGui::SliderInt("curv smooth iters", &P.curvature_smooth_iters, 0, 20);
+  tip("Tier 2a: Jacobi sweeps that smooth the curvature tensor field before "
+      "directions are extracted, reducing noisy field alignment. 0 = off (raw "
+      "per-vertex curvature).");
   ImGui::BeginDisabled(P.curvature_smooth_iters <= 0);
   ImGui::SliderFloat("curv smooth lambda", &P.curvature_smooth_lambda, 0.0f, 1.0f,
                      "%.2f");
+  tip("Per-sweep blend toward the neighbor-averaged tensor (0..1). Higher = more "
+      "smoothing per iteration.");
+  ImGui::EndDisabled();
+  ImGui::Checkbox("auto density", &P.auto_density);
+  tip("Tier 3: derive the density map from curvature (s = curvature x target, "
+      "density = clamp(s^2, min, max)) so curved regions get finer quads and "
+      "flat regions coarser. Implies 'use density'.");
+  ImGui::BeginDisabled(!P.auto_density);
+  ImGui::SliderFloat("density min", &P.density_min, 0.05f, 1.0f, "%.2f");
+  tip("Lower clamp on auto density: the coarsest sizing (largest quads) allowed "
+      "on flat regions.");
+  ImGui::SliderFloat("density max", &P.density_max, 1.0f, 16.0f, "%.2f");
+  tip("Upper clamp on auto density: the finest sizing (smallest quads) allowed "
+      "on high-curvature regions; also acts as the minimum-feature-size floor.");
+  ImGui::EndDisabled();
+  ImGui::SliderFloat("density gradation", &P.density_gradation, 0.0f, 2.0f, "%.2f");
+  tip("Tier 3: bound how fast quad size may change between neighboring verts "
+      "(Alauzet limiter), smearing sharp size jumps over several rings. 0 = off; "
+      "~0.5 = gentle; larger allows sharper transitions.");
+  ImGui::BeginDisabled(P.density_gradation <= 0.0f);
+  ImGui::SliderInt("density grad iters", &P.density_gradation_iters, 1, 30);
+  tip("Maximum Gauss-Seidel sweeps for the gradation limiter (it stops early "
+      "once the size field converges).");
   ImGui::EndDisabled();
 
   // --- Run ---
@@ -270,9 +349,12 @@ void RemeshUi::drawPanel()
       app_->status = "ERROR " + err;
     }
   }
+  tip("Run the full quad-remesh pipeline on the loaded mesh with the params "
+      "above. Progress and result stats appear below.");
   ImGui::EndDisabled();
   ImGui::SameLine();
   ImGui::Checkbox("quad wireframe", &app_->showWireframe);
+  tip("Overlay the output quad edges on the rendered mesh.");
 
   if (app_->busy() || app_->progress > 0.0f) {
     ImGui::ProgressBar(app_->progress, ImVec2(-1, 0),
@@ -293,32 +375,50 @@ void RemeshUi::drawPanel()
   if (ImGui::Button("Fit camera")) {
     app_->cameraFit();
   }
+  tip("Frame the camera to the bounds of the current mesh.");
   ImGui::SameLine();
   ImGui::Checkbox("axes", &scene_->showAxes);
+  tip("Show the world-axis gizmo at the origin.");
   ImGui::Checkbox("curvature field", &app_->showCurvature);
+  tip("Draw per-vertex principal-curvature direction lines (blue = minimum "
+      "curvature kmin, red = maximum kmax). The field 'use curvature' aligns to.");
   ImGui::SameLine();
   ImGui::TextDisabled("(blue=kmin, red=kmax)");
   ImGui::SliderFloat("field line scale", &app_->curvatureScale, 0.0f, 0.2f, "%.3f");
+  tip("Length of the drawn curvature direction lines (display only).");
 
   ImGui::Checkbox("cross field", &app_->showCrossField);
+  tip("Draw the solved 4-RoSy cross field and its singularities (the quad-flow "
+      "directions the parametrization integrates).");
   ImGui::SameLine();
   ImGui::TextDisabled("(4-RoSy + singularities)");
   if (app_->showCrossField) {
     ImGui::SliderFloat("cross scale", &app_->crossScale, 0.0f, 0.2f, "%.3f");
+    tip("Length of the drawn cross-field crosses (display only).");
     ImGui::Checkbox("anisotropy weighting", &app_->crossAnisotropy);
+    tip("Scale each cross arm by the local field anisotropy when drawing, so "
+        "stretched regions read as stretched.");
   }
 
   ImGui::Checkbox("field edges", &app_->showFieldEdges);
+  tip("Color mesh edges by a per-edge cross-field diagnostic (see edge mode).");
   if (app_->showFieldEdges) {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(110);
     ImGui::Combo("edge mode", &app_->fieldEdgeMode, "period\0curl\0");
+    tip("period = integer period (matching) jump across the edge; "
+        "curl = field curl residual across the edge.");
   }
 
   ImGui::Checkbox("streamlines", &app_->showStreamlines);
+  tip("Trace integral curves of the cross field across the surface to preview "
+      "the quad flow.");
   if (app_->showStreamlines) {
     ImGui::SliderFloat("stream step", &app_->streamlineScale, 0.001f, 0.05f, "%.3f");
+    tip("Integration step length for streamline tracing. Smaller = smoother "
+        "but slower curves.");
     ImGui::SliderInt("stream seeds", &app_->streamlineSeeds, 10, 2000);
+    tip("Number of seed points streamlines are traced from.");
   }
 
   int vc = scene_->mesh ? scene_->mesh->v.count : 0;

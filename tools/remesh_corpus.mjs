@@ -44,6 +44,11 @@ const DEFAULTS = {
   triageMinComponentFrac: null,
   curvatureSmoothIters: null, // Tier-2a: null => CLI default (0, no smoothing)
   curvatureSmoothLambda: null,
+  autoDensity: null, // Tier-3a: null => CLI default (off)
+  densityMin: null,
+  densityMax: null,
+  densityGradation: null, // Tier-3b: null => CLI default (0, off)
+  densityGradationIters: null,
 }
 
 function parseArgs(argv) {
@@ -65,6 +70,11 @@ function parseArgs(argv) {
     else if (k === '--triage-min-component-frac') a.triageMinComponentFrac = parseFloat(next())
     else if (k === '--curvature-smooth-iters') a.curvatureSmoothIters = parseInt(next(), 10)
     else if (k === '--curvature-smooth-lambda') a.curvatureSmoothLambda = parseFloat(next())
+    else if (k === '--auto-density') a.autoDensity = next() !== '0'
+    else if (k === '--density-min') a.densityMin = parseFloat(next())
+    else if (k === '--density-max') a.densityMax = parseFloat(next())
+    else if (k === '--density-gradation') a.densityGradation = parseFloat(next())
+    else if (k === '--density-gradation-iters') a.densityGradationIters = parseInt(next(), 10)
     else if (k === '--list') a.list = true
     else if (k === '--help' || k === '-h') { usage(); process.exit(0) }
     else { console.error(`unknown arg ${k}`); usage(); process.exit(2) }
@@ -85,6 +95,11 @@ function usage() {
   --triage-min-component-frac <f>  triage drop-component threshold
   --curvature-smooth-iters <int>   Tier-2a curvature tensor Jacobi sweeps
   --curvature-smooth-lambda <f>    Tier-2a per-sweep blend 0..1
+  --auto-density <0|1>             Tier-3a curvature-driven sizing field
+  --density-min <f>                Tier-3a density clamp floor
+  --density-max <f>                Tier-3a density clamp ceiling
+  --density-gradation <f>          Tier-3b bound size growth rate (0=off)
+  --density-gradation-iters <int>  Tier-3b limiter sweep cap
   --list            list the corpus and resolution status, then exit`)
 }
 
@@ -219,6 +234,14 @@ function main() {
     globalParams['curvature-smooth-iters'] = args.curvatureSmoothIters
   if (args.curvatureSmoothLambda != null)
     globalParams['curvature-smooth-lambda'] = args.curvatureSmoothLambda
+  if (args.autoDensity != null)
+    globalParams['auto-density'] = args.autoDensity ? 1 : 0
+  if (args.densityMin != null) globalParams['density-min'] = args.densityMin
+  if (args.densityMax != null) globalParams['density-max'] = args.densityMax
+  if (args.densityGradation != null)
+    globalParams['density-gradation'] = args.densityGradation
+  if (args.densityGradationIters != null)
+    globalParams['density-gradation-iters'] = args.densityGradationIters
 
   const results = []
   const skipped = []

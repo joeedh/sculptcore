@@ -33,6 +33,11 @@ export interface RemeshParams {
   triage_min_component_frac: float
   curvature_smooth_iters: int32
   curvature_smooth_lambda: float
+  auto_density: boolean
+  density_min: float
+  density_max: float
+  density_gradation: float
+  density_gradation_iters: int32
   new (): RemeshParams
   new (b: RemeshParams): RemeshParams
 }

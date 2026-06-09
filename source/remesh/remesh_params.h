@@ -86,6 +86,24 @@ struct RemeshParams {
   /* Tier 2a: per-sweep blend in [0,1] for the curvature tensor diffusion. */
   float curvature_smooth_lambda = 0.5f;
 
+  /* Tier 3a: generate the per-vertex .remesh.v.density sizing field from the
+   * (Tier-2-smoothed) principal curvature — small quads at high curvature, large
+   * on flat regions. Implies density consumption (the pipeline ORs this into
+   * QuantizeParams.use_density). Off = no auto field (today). */
+  bool auto_density = false;
+  /* Tier 3a: clamp on the generated density (size range). density_max also acts
+   * as the minimum-feature-size floor. */
+  float density_min = 0.25f;
+  float density_max = 4.0f;
+
+  /* Tier 3b: bound the spatial growth rate of the size field (Alauzet) so quad
+   * size never shears across a steep density step. Max world-space size growth
+   * per unit distance; 0 = off. Typical 0.3–1.0. Applies to auto OR painted
+   * density. */
+  float density_gradation = 0.0f;
+  /* Tier 3b: gradation-limiter relaxation sweep cap. */
+  int density_gradation_iters = 10;
+
   /* Bound out-of-line in remesh/bindings.cc (keeps the binding headers out of
    * this header). Crosses the seam by value → registers a copy constructor. */
   static litestl::binding::types::Struct<RemeshParams> *defineBindings();

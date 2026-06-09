@@ -241,6 +241,12 @@ bool RemeshApp::runRemesh(std::string &err)
       L"--curvature-smooth-iters",
       widen(std::to_string(params.curvature_smooth_iters)),
       L"--curvature-smooth-lambda", wf(params.curvature_smooth_lambda),
+      L"--auto-density",   wb(params.auto_density),
+      L"--density-min",    wf(params.density_min),
+      L"--density-max",    wf(params.density_max),
+      L"--density-gradation", wf(params.density_gradation),
+      L"--density-gradation-iters",
+      widen(std::to_string(params.density_gradation_iters)),
   };
   if (!startJob(Job::Remesh, remeshCliPath(), args, "remeshing " + name)) {
     err = status;
@@ -429,7 +435,12 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "triage_weld_rel=" << params.triage_weld_rel << "\n"
       << "triage_min_component_frac=" << params.triage_min_component_frac << "\n"
       << "curvature_smooth_iters=" << params.curvature_smooth_iters << "\n"
-      << "curvature_smooth_lambda=" << params.curvature_smooth_lambda;
+      << "curvature_smooth_lambda=" << params.curvature_smooth_lambda << "\n"
+      << "auto_density=" << (params.auto_density ? 1 : 0) << "\n"
+      << "density_min=" << params.density_min << "\n"
+      << "density_max=" << params.density_max << "\n"
+      << "density_gradation=" << params.density_gradation << "\n"
+      << "density_gradation_iters=" << params.density_gradation_iters;
     return o.str();
   }
   if (cmd == "set_param") {
@@ -472,6 +483,16 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.curvature_smooth_iters = iv;
     } else if (name == "curvature_smooth_lambda") {
       params.curvature_smooth_lambda = float(d);
+    } else if (name == "auto_density") {
+      params.auto_density = iv != 0;
+    } else if (name == "density_min") {
+      params.density_min = float(d);
+    } else if (name == "density_max") {
+      params.density_max = float(d);
+    } else if (name == "density_gradation") {
+      params.density_gradation = float(d);
+    } else if (name == "density_gradation_iters") {
+      params.density_gradation_iters = iv;
     } else {
       return "ERROR unknown param: " + name;
     }

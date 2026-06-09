@@ -6,6 +6,7 @@
 #include "remesh/extract/quad_extract.h"
 #include "remesh/extract/reproject.h"
 #include "remesh/field/cross_field.h"
+#include "remesh/field/density.h"
 #include "remesh/field/singularity_adjust.h"
 #include "remesh/quantize/quantize_ilp.h"
 
@@ -296,10 +297,31 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   if (report)
     report->singularity = StageStatus::Ok;
 
+  // Tier 3: build / bound the sizing field before the seamless param reads it.
+  // 3a auto-density generates .remesh.v.density from the smoothed curvature; 3b
+  // bounds its gradient. Both default off (no field / no limiting). auto_density
+  // implies density consumption (ORed into qp.use_density below).
+  if (params.auto_density) {
+    DensityParams dpa;
+    dpa.target_edge_length = params.target_edge_length;
+    dpa.density_min = params.density_min;
+    dpa.density_max = params.density_max;
+    dpa.curvature_smooth_iters = params.curvature_smooth_iters;
+    dpa.curvature_smooth_lambda = params.curvature_smooth_lambda;
+    generateAutoDensity(*work, dpa);
+  }
+  if (params.density_gradation > 0.0f) {
+    limitDensityGradation(*work, params.target_edge_length,
+                          params.density_gradation, params.density_gradation_iters,
+                          params.density_min, params.density_max);
+  }
+
   PROG(65, "quantize");
   QuantizeParams qp;
   qp.target_edge_length = params.target_edge_length;
-  qp.use_density = params.use_density;
+  // auto_density implies use_density — the seamless param / quantizer are gated
+  // on use_density, so a generated field would otherwise be silently ignored.
+  qp.use_density = params.use_density || params.auto_density;
   QuantizeStats qs = computeQuantization(*work, qp);
   if (report) {
     report->quantize = StageStatus::Ok;

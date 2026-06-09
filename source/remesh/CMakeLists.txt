@@ -18,6 +18,7 @@ set(SRC
   PUBLIC field/feature_tag.h
   PUBLIC field/cross_field.h
   PUBLIC field/constraints.h
+  PUBLIC field/density.h
   PUBLIC field/singularity_adjust.h
   PUBLIC param/cut_graph.h
   PUBLIC param/seamless_param.h
@@ -33,6 +34,7 @@ set(SRC
   field/feature_tag.cc
   field/cross_field.cc
   field/constraints.cc
+  field/density.cc
   field/singularity_adjust.cc
   param/cut_graph.cc
   param/seamless_param.cc

@@ -185,8 +185,14 @@ bool writeManifest(const char *path, const std::string &jsonName,
                p.triage_min_component_frac);
   std::fprintf(f, "    \"curvature_smooth_iters\": %d,\n",
                p.curvature_smooth_iters);
-  std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g\n",
+  std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g,\n",
                p.curvature_smooth_lambda);
+  std::fprintf(f, "    \"auto_density\": %s,\n", jb(p.auto_density));
+  std::fprintf(f, "    \"density_min\": %.9g,\n", p.density_min);
+  std::fprintf(f, "    \"density_max\": %.9g,\n", p.density_max);
+  std::fprintf(f, "    \"density_gradation\": %.9g,\n", p.density_gradation);
+  std::fprintf(f, "    \"density_gradation_iters\": %d\n",
+               p.density_gradation_iters);
   std::fprintf(f, "  },\n");
 
   std::fprintf(f, "  \"output\": {\n");
@@ -309,7 +315,12 @@ void usage()
       "  --triage-min-component-frac <f>  drop components below frac of verts "
       "(default 0)\n"
       "  --curvature-smooth-iters <int>   tensor-field Jacobi sweeps (default 0)\n"
-      "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n");
+      "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n"
+      "  --auto-density <0|1>     curvature-driven sizing field (default 0)\n"
+      "  --density-min <f>        density clamp floor (default 0.25)\n"
+      "  --density-max <f>        density clamp ceiling (default 4)\n"
+      "  --density-gradation <f>  bound size growth rate; 0=off (default 0)\n"
+      "  --density-gradation-iters <int>  limiter sweep cap (default 10)\n");
 }
 
 bool toBool(const char *s) { return std::atoi(s) != 0; }
@@ -375,6 +386,17 @@ int main(int argc, char **argv)
     else if (a == "--curvature-smooth-lambda")
       params.curvature_smooth_lambda =
           float(std::atof(next("--curvature-smooth-lambda")));
+    else if (a == "--auto-density")
+      params.auto_density = toBool(next("--auto-density"));
+    else if (a == "--density-min")
+      params.density_min = float(std::atof(next("--density-min")));
+    else if (a == "--density-max")
+      params.density_max = float(std::atof(next("--density-max")));
+    else if (a == "--density-gradation")
+      params.density_gradation = float(std::atof(next("--density-gradation")));
+    else if (a == "--density-gradation-iters")
+      params.density_gradation_iters =
+          std::atoi(next("--density-gradation-iters"));
     else {
       std::fprintf(stderr, "ERROR unknown arg %s\n", a.c_str());
       return 2;
