@@ -33,6 +33,7 @@ dominate quality and so come first: you can't tell if a filter helped without
 | **6** | Boundary / thin-part / component policy | topology policy | Eyelids, mouth holes, cuffs, accessories, double-sided sheets — a big character lever. |
 | **7** | Feature-graph hysteresis + pruning | field filter | **Last filter tier** (CAD off-target). Cleans noisy hard constraints. |
 | **8** | Retry/robustness policy + presets | orchestration | Capstone: turns knobs into an automatic policy; needs Tier 0 metrics + all knobs. |
+| **9** | Field-aligned input pre-remesh | geometry (input) | The only tier that remeshes the *input triangulation* — cleans its flow before the field solve. **Exec order: early** (after Tier 1, before Tier 2); numbered last to avoid renumbering in-flight tiers and so it can use Tier 2's smoothed curvature + Tier 0's metrics. |
 
 ## Per-param surface area (repeats whenever a `RemeshParams` field is added)
 
@@ -537,6 +538,9 @@ A bounded loop around `QuadRemesh` driven by Tier 0 metrics:
 - singularity count too high → raise `curvature_smooth_iters` (and/or enable
   `singularity_cancel`), retry;
 - adjacent size ratio too steep → raise `density_gradation`, retry;
+- field/folds still noisy after the above → enable/strengthen the Tier 9
+  pre-remesh (`pre_remesh`, more `pre_remesh_iters`), retry from the **original**
+  input;
 - too many residual odd holes / tri caps → coarser `target_edge_length`, retry.
 Hard cap on attempts. **Record the full attempt trail, not just the winner** —
 the `RemeshRunReport` (Tier 0a) carries a per-attempt array: the params used, the
@@ -570,6 +574,141 @@ CLI flag that pre-fills the params (still individually overridable).
 ### Review gate 8 (final)
 Inspect: retry behavior + manifest fallback log, preset metrics table over the
 corpus. Then the cross-tier closeout.
+
+---
+
+## Tier 9 — Field-aligned input pre-remesh
+
+**Goal:** clean the *input triangulation itself* before any of the real field
+math — produce isotropic, feature-following triangle flow so the cross field (the
+noisiest stage) starts from low-noise geometry. This is the **only** tier that
+remeshes the input; every other tier keeps the triangulation fixed and filters a
+*derived* quantity. It attacks the fold-fraction at its source: the
+"stuck-in-quantize" cliff on dense organic assets (e.g.
+`an-elegant-fox-character`) is ~30% folded faces driven by a noisy field driven
+by noisy input — clean the input and the field, folds, and quantize cost all fall
+together.
+
+> **Execution order vs. ladder order.** In the *pipeline* this runs **early** — on
+> `work` after Tier 1 triage, before Tier 2 curvature / `computeCrossField`. It is
+> *numbered* last only to avoid renumbering the in-flight Tiers 0–8 and so it can
+> lean on Tier 2's smoothed curvature for a better rough field and Tier 0's metrics
+> to prove it. Implement after the tiers it depends on; place it early at runtime.
+
+> **It generalizes the existing `--solve` pre-pass — don't duplicate it.**
+> `decimateForSolve` (`remesh.cc:126`) already reuses dyntopo's Botsch-Kobbelt
+> quartet over a whole-mesh sphere (`applyBrushDab`) **plus** an extra *isotropic*
+> tangential relaxation (`remesh.cc:160–218`: one-ring centroid → Newell-plane
+> tangent → edge-scale clamp). Tier 9 is the same loop with two differences: the
+> smooth is **field-aligned** (9a) instead of isotropic, and it can run **at the
+> target resolution** (not only coarsen). Refactor the shared BK-loop body so
+> `decimateForSolve` and the Tier-9 pre-pass call one routine; the isotropic
+> relaxation tail becomes the `pre_remesh_align = 0` case of 9a.
+
+### 9a. Field-aligned (anisotropic) tangential smooth — the one new primitive
+The two existing smooths are isotropic (pull each vertex to its one-ring
+centroid): dyntopo `do_smooth` (`dyntopo.h:398–410`) and the decimate relaxation
+(`remesh.cc:160–218`). Both *wash out* feature flow. The new operator steers the
+tangential move with the rough cross field:
+- Lift the per-face field (`.remesh.f.theta` → the `(u,v)` cross directions) to a
+  per-vertex tangent frame (average the incident faces' nearest representative,
+  handling the 4-RoSy period ambiguity).
+- Replace the isotropic Laplacian with a **field-steered** update: decompose the
+  one-ring tangential delta into the `(u,v)` cross-frame and reshape so vertices
+  relax toward straightened `u`/`v` isolines (directional / edge-aligned
+  weighting, à la Jakob et al. instant-meshes). Keep the existing **tangent-plane
+  projection + edge-scale clamp** (`remesh.cc:206–213`) verbatim as the safety
+  rail — no volume shrink, bounded move, no dependence on stored normals.
+- A scalar `pre_remesh_align ∈ [0,1]` blends isotropic↔field-aligned (`0`
+  reproduces today's relaxation; `1` fully field-aligned) for A/B + tuning.
+- **Where:** a new `remesh/preremesh.{h,cc}` (it needs both dyntopo and the field).
+
+### 9b. The convergence driver
+Outer loop on `work`, to `pre_remesh_iters` or until max vertex move < ε:
+1. **Bootstrap** (`pre_remesh_bootstrap_iters`): a few *isotropic* sweeps first — a
+   field-aligned smooth driven by a still-noisy field over-regularizes toward its
+   own noise; denoise the geometry a little before trusting the field.
+2. **Rough field** (cheap, throwaway): `computeCrossField` with a cheap params set
+   (curvature constraints; no quantize). The field solve is the Eigen
+   `SimplicialLDLT` — *not* the expensive stage — so recomputing every
+   `pre_remesh_field_cadence` outer iters (field is stable once geometry settles)
+   is affordable.
+3. **Botsch-Kobbelt to target:** split long / collapse short / flip — reuse the
+   shared BK-loop body (see the blockquote above).
+4. **Field-aligned smooth (9a).**
+
+### 9c. Feature pinning
+`decimateForSolve` sets `preserve_features=false` and the tri copy carries no
+boundary overlays — fine for blind coarsening, **wrong** for feature-following
+flow (vertices slide off creases, collapses cross features). The pre-pass must
+pin boundary + dihedral-sharp edges in **both** collapse and smooth.
+`gatherConstraints` already reads those tags for the field; reuse the same
+classification (compute sharp on `work`, or consume Tier 1b's copied constraint
+layers / Tier 7's feature tags if present). v1: boundary loops + a dihedral-sharp
+threshold computed on `work`.
+
+### 9d. Pipeline integration
+New pre-pass on `work` in `remesh.cc`, after triage, before `computeCrossField`,
+gated on `pre_remesh`. Two integration points to get right:
+- **Reproject must fire.** Output fidelity relies on the final reproject onto the
+  full-res original (`remesh.cc:359–362`), today gated on the `decimated` flag.
+  Generalize the gate to "`work` geometry diverged from input" so a pre-remesh
+  *without* `--solve` decimation still reprojects.
+- **Compose with `--solve`.** When both are on, decimate first (coarsen), then
+  field-align at that resolution; the isotropic relaxation tail of
+  `decimateForSolve` becomes 9a (`pre_remesh_align`-controlled).
+
+### New params (all default to a no-op: `pre_remesh=false`)
+| field | default | meaning |
+|-------|---------|---------|
+| `pre_remesh` | `false` | run the field-aligned input pre-remesh on `work` before the field solve |
+| `pre_remesh_iters` | `5` | outer convergence iterations |
+| `pre_remesh_target` | `0.0f` | pre-pass edge length; `0` = use `target_edge_length` (remesh at output res, don't coarsen). Distinct from `solve_edge_length` |
+| `pre_remesh_align` | `1.0f` | isotropic(`0`)↔field-aligned(`1`) smooth blend |
+| `pre_remesh_field_cadence` | `2` | recompute the rough field every N outer iters |
+| `pre_remesh_bootstrap_iters` | `2` | isotropic denoise sweeps before field-aligned begins |
+
+(Full per-param surface area for each: the 9-step list at the top of this doc.)
+
+### 9e. Debug-app pre-pass mode + rough-field visualization
+- **Run-just-the-pre-pass:** a `pre_remesh` command (the `remesh_app.cc` dispatch,
+  alongside `set_param` / `run_remesh`) and a UI button that runs **only** 9b on
+  the current asset and shows the resulting *triangle* mesh — inspect the cleaned
+  flow without the full quad pipeline. Add an "isotropic vs field-aligned" toggle
+  (drives `pre_remesh_align`) for side-by-side.
+- **Rough-field overlay (mostly free):** the app's cross-field overlay already
+  reads `.remesh.f.theta` (`emitCrossField`, `remesh_debug_app.cc:399`; gated by
+  `app.showCrossField`, computed via `ensureCrossField`, `:340`). The pre-pass
+  writes its rough field into the **same** `.remesh.f.theta` on `work`, so the
+  existing overlay visualizes it directly — the work is (a) leaving the
+  intermediate field in place after the pre-pass mode runs, and (b) optionally
+  re-emitting the overlay **per outer iteration** to animate convergence (a
+  `pre_remesh_show_field` toggle + a step/▶ control). The curvature and streamline
+  overlays come along for free since they read the same TEMP layers.
+- New `RemeshApp` flags + UI widgets (with hover tooltips, per the app
+  convention) for the pre-pass knobs and the show-rough-field toggle.
+
+### Verification
+- **gtest** `tests/test_remesh_preremesh.cc`: (1) a noised but smooth organic patch
+  (bumpy plane / low-res sphere) — assert the pre-pass **raises** triangle quality
+  (min-angle proxy up, edge-length variance down) and, on a feature box, that
+  pinned sharp edges survive (vertices don't migrate off the crease). (2) **No-op
+  guarantee:** `pre_remesh=false` ⇒ `work` byte-identical through the stage. (3)
+  Field-noise drop: assert `crossFieldCurl` (already in `singularity_adjust.cc:55`)
+  on the post-pre-pass field is **lower** than on the raw input's field.
+- **Fox A/B (the motivating case):** `an-elegant-fox-character` with `pre_remesh`
+  on vs off — Tier 0 metrics must show `parametrization_folds` and quantize wall
+  time both fall sharply (the cliff was ~30% folds, N≈62,682; target: folds well
+  under the seam-relax gate so quantize stops thrashing **without** `--solve`).
+- **Debug-app visual:** pre-pass mode on an organic asset, rough-field overlay at
+  iter `0` vs final — flow visibly straightens along features.
+
+### Review gate 9
+Inspect: the quality/curl gtest, the no-op guarantee, the fox folds+time A/B (does
+the pre-pass remove the quantize cliff at full resolution?), and pre-pass mode
+screenshots (isotropic vs field-aligned, rough-field overlay). Decide whether
+`pre_remesh` should join the "Messy Generated Character" / "Scan" presets (Tier
+8b) and whether the Tier-8 retry loop enables it automatically.
 
 ---
 
