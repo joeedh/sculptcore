@@ -341,6 +341,229 @@ void testSizeFieldGrades()
   }
 }
 
+// A prolate ellipsoid (unit sphere stretched along +X by @p ax): closed, so it is
+// stable under the driver's iterated collapse (an open grid's unpinned boundary
+// would migrate inward each round — the Tier 9c feature-pinning gap). Curvature is
+// high at the two tips and low around the equatorial belt — the varying-curvature,
+// feature-scale (~target) field the adaptive size field must grade.
+Mesh *prolateEllipsoid(int nlat, int nlon, float ax)
+{
+  Mesh *e = mesh::makeUVSphere(nlat, nlon, 1.0f);
+  e->thawTopo();
+  mesh::triangulateMesh(*e);
+  for (int v : e->v) {
+    float3 p = e->v.co[v];
+    p[0] *= ax;
+    e->v.co[v] = p;
+  }
+  e->recalc_normals();
+  return e;
+}
+
+
+// 9b driver, validity + convergence: the full bootstrap → field → BK → smooth loop
+// on a noised sphere produces a finite, bounded mesh near the target edge length,
+// and the converge_eps early-out path runs without exploding.
+//
+// Feature preservation is OFF here on purpose: this gates the 9b convergence
+// mechanism in isolation. On a *noised* sphere a 45° dihedral test classifies the
+// noise itself as sharp features, which would pin the noise and defeat the very
+// denoise this test checks; 9c feature survival is gated by testDriverPreservesFeatures.
+void testDriverConverges()
+{
+  Mesh *sph = noisedSphere(2024u, false); // driver solves its own rough field
+  float3 lo0, hi0;
+  bbox(*sph, lo0, hi0);
+  float diag0 = (hi0 - lo0).length();
+  float L = 0.18f;
+
+  remesh::PreRemeshParams p;
+  p.target = L;
+  p.iters = 5;
+  p.align = 1.0f;
+  p.density = false;
+  p.preserve_features = false; // isolate 9b convergence (see note above)
+  p.converge_eps = 1e-3f; // exercise the early-out measure
+  remesh::preRemesh(*sph, p);
+
+  float3 lo1, hi1;
+  bbox(*sph, lo1, hi1);
+  float diag1 = (hi1 - lo1).length();
+  double mean = meanEdgeLen(*sph);
+  fprintf(stderr, "[driver] verts=%d diag0=%.3f diag1=%.3f mean=%.4f L=%.3f\n",
+          sph->v.count, diag0, diag1, mean, L);
+
+  TASSERT(finiteCo(*sph));
+  TASSERT(sph->v.count > 0);
+  TASSERT(diag1 < diag0 * 1.20f + 1e-4f); // BK + smooth don't blow the mesh up
+  TASSERT(mean > L * 0.5 && mean < L * 1.6); // tracks the uniform target band
+  litestl::alloc::Delete<Mesh>(sph);
+}
+
+// 9b adaptive sizing — the mechanism: with density on, the curvature size field the
+// driver regenerates each round actually grades the triangulation. Bin the final
+// edges by the regenerated .remesh.v.density and assert (i) the field has real
+// contrast (both a high- and a low-density population exist) and (ii) edges over
+// high-density (high-curvature) verts are clearly finer than over low-density ones.
+//
+// Binning by the field (not by geometry) makes this robust to the global shape
+// erosion an *unpinned* iterated smooth causes on a sharp fixture (the prolate
+// tips migrate inward). Feature preservation is OFF so the size field is the only
+// thing under test (the tips would otherwise pin into the high-density bin and
+// confound the contrast). The shape-preservation ladder and the adaptive-vs-uniform
+// A/B (fox) are Tier-9 step-8 deliverables; here we only gate the size field.
+void testDriverDensityGrades()
+{
+  const int nlat = 24, nlon = 40;
+  const float ax = 4.0f; // 4:1:1 prolate — strong tip/equator curvature contrast
+  float L = 0.35f;
+
+  Mesh *g = prolateEllipsoid(nlat, nlon, ax);
+  remesh::PreRemeshParams p;
+  p.target = L;
+  p.iters = 6;
+  p.align = 1.0f;
+  p.density = true;
+  remesh::preRemesh(*g, p);
+
+  BuiltinAttr<float, ".remesh.v.density"> dens;
+  dens.ensure(g->v.attrs); // driver leaves the final size field in place
+  double hiSum = 0.0, loSum = 0.0;
+  int hiN = 0, loN = 0;
+  for (int e : g->e) {
+    int v0 = g->e.vs[e][0], v1 = g->e.vs[e][1];
+    float d = 0.5f * (dens[v0] + dens[v1]);
+    float len = (g->v.co[v0] - g->v.co[v1]).length();
+    if (d > 1.5f) {
+      hiSum += len;
+      hiN++;
+    } else if (d < 0.7f) {
+      loSum += len;
+      loN++;
+    }
+  }
+  double hiMean = hiN ? hiSum / hiN : 0.0, loMean = loN ? loSum / loN : 0.0;
+  fprintf(stderr,
+          "[driver/density] verts=%d hiN=%d hiMean=%.4f loN=%d loMean=%.4f\n",
+          g->v.count, hiN, hiMean, loN, loMean);
+  TASSERT(finiteCo(*g));
+  TASSERT(hiN > 0 && loN > 0);            // the field genuinely graded (contrast)
+  TASSERT(hiMean < loMean * 0.8);         // and edges track it: denser ⇒ finer
+  litestl::alloc::Delete<Mesh>(g);
+}
+
+// A triangulated cube of `dimen` cells/side: its 12 edges are 90° dihedral-sharp
+// and its 8 corners are feature corners — the Tier-9c feature-pinning fixture.
+Mesh *triCube(int dimen, float size)
+{
+  Mesh *c = mesh::createCube(dimen, size);
+  c->thawTopo();
+  mesh::triangulateMesh(*c);
+  c->recalc_normals();
+  return c;
+}
+
+// 9c feature preservation: an iterated pre-pass on a cube must keep its sharp
+// silhouette — the 8 corners stay put and the bounding box doesn't erode — because
+// boundary/dihedral creases are pinned in both the BK collapse and the smooth. A
+// cube corner has three sharp edges meeting (a junction), so it can neither collapse
+// nor smooth: it is immortal and fixed. The A/B leg runs the identical flow with
+// pinning off, where the same smoothing rounds the cube inward — confirming the
+// pinning, not the fixture, is what preserves the extent.
+void testDriverPreservesFeatures()
+{
+  const int dimen = 6;
+  const float size = 0.5f;
+  Mesh *cube = triCube(dimen, size);
+  float3 lo0, hi0;
+  bbox(*cube, lo0, hi0);
+  float diag0 = (hi0 - lo0).length();
+  float L = 0.6f * float(meanEdgeLen(*cube)); // sub-nominal ⇒ real collapse activity
+
+  // The 8 cube corners (extreme in all three axes) — pinned ⇒ immortal + fixed.
+  float3 corners[8];
+  for (int i = 0; i < 8; i++) {
+    corners[i] = float3((i & 1) ? hi0[0] : lo0[0], (i & 2) ? hi0[1] : lo0[1],
+                        (i & 4) ? hi0[2] : lo0[2]);
+  }
+
+  // How many of the 8 original corners still have a vertex essentially on them.
+  auto countCorners = [&](Mesh &m) {
+    int kept = 0;
+    for (int i = 0; i < 8; i++) {
+      float best = 1e30f;
+      for (int v : m.v) {
+        float dd = (m.v.co[v] - corners[i]).length();
+        if (dd < best) best = dd;
+      }
+      if (best < 1e-3f) kept++;
+    }
+    return kept;
+  };
+
+  remesh::PreRemeshParams p;
+  p.target = L;
+  p.iters = 5;
+  p.align = 1.0f;
+  p.bootstrap_iters = 0;       // clean input: keep features crisp from iter 0
+  p.preserve_features = true;
+  remesh::preRemesh(*cube, p);
+  float3 lo1, hi1;
+  bbox(*cube, lo1, hi1);
+  float diag1 = (hi1 - lo1).length();
+  int cornersKept = countCorners(*cube);
+
+  // A/B: identical flow with pinning off → the smooth slides the corners off and
+  // collapse rounds them away, so the unpinned run keeps fewer of the 8 corners.
+  Mesh *cube2 = triCube(dimen, size);
+  remesh::PreRemeshParams p2 = p;
+  p2.preserve_features = false;
+  remesh::preRemesh(*cube2, p2);
+  int cornersKept2 = countCorners(*cube2);
+
+  fprintf(stderr,
+          "[driver/features] verts=%d diag0=%.4f diag1=%.4f corners pinned=%d/8 unpinned=%d/8\n",
+          cube->v.count, diag0, diag1, cornersKept, cornersKept2);
+
+  TASSERT(finiteCo(*cube));
+  TASSERT(cube->v.count > 0);
+  TASSERT(cornersKept == 8);          // every corner pinned in place (immortal + fixed)
+  TASSERT(diag1 > diag0 * 0.98f);     // pinned silhouette never collapses inward
+  TASSERT(cornersKept2 < cornersKept); // pinning preserves corners the plain flow loses
+  litestl::alloc::Delete<Mesh>(cube);
+  litestl::alloc::Delete<Mesh>(cube2);
+}
+
+// 9b no-op guard: target <= 0 (or iters <= 0) leaves the mesh untouched, so a
+// disabled pre-pass never perturbs the pipeline.
+void testDriverNoOp()
+{
+  Mesh *g = mesh::makeGrid(12, 12, 1.0f);
+  g->thawTopo();
+  mesh::triangulateMesh(*g);
+  int vcount0 = g->v.count;
+  litestl::util::Vector<float3> co0;
+  co0.resize(int(g->v.capacity()));
+  for (int v : g->v) {
+    co0[v] = g->v.co[v];
+  }
+
+  remesh::PreRemeshParams p;
+  p.target = 0.0f; // disabled
+  p.iters = 5;
+  remesh::preRemesh(*g, p);
+
+  double d = 0.0;
+  for (int v : g->v) {
+    d = std::fmax(d, double((g->v.co[v] - co0[v]).length()));
+  }
+  fprintf(stderr, "[driver/noop] vcount %d->%d maxdelta=%.3e\n", vcount0,
+          g->v.count, d);
+  TASSERT(g->v.count == vcount0);
+  TASSERT(d == 0.0); // target <= 0 returns before any edit
+  litestl::alloc::Delete<Mesh>(g);
+}
+
 } // namespace
 
 int main()
@@ -350,5 +573,9 @@ int main()
   testFieldChangesResult();
   testFieldAlignedSteers();
   testSizeFieldGrades();
+  testDriverConverges();
+  testDriverDensityGrades();
+  testDriverPreservesFeatures();
+  testDriverNoOp();
   return retval;
 }

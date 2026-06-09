@@ -9,7 +9,6 @@
 #include "litestl/util/map.h"
 #include "litestl/util/vector.h"
 
-
 using namespace litestl;
 using namespace litestl::util;
 using namespace litestl::math;
@@ -20,10 +19,15 @@ void Mesh::recalc_normals()
 {
   /* Walks the live loop/disk links; thaw if frozen. Not in the sculpt hot path
    * (the spatial tree owns per-frame normals), so the thaw cost is irrelevant. */
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
 
   auto &no = f.no;
-  for (int fi : IndexRange(0, v.count)) {
+  for (int fi : IndexRange(0, f.capacity())) {
+    if (f.freemap[fi]) {
+      continue;
+    }
+
     int li = f.l[fi];
     int ci = l.c[li];
 
@@ -34,7 +38,10 @@ void Mesh::recalc_normals()
     f.no[fi] = triNormal(co1, co2, co3);
   }
 
-  for (int vi : IndexRange(0, v.count)) {
+  for (int vi : IndexRange(0, v.capacity())) {
+    if (v.freemap[vi]) {
+      continue;
+    }
     v.no[vi] = float3();
     VertProxy vert(this, vi);
 
@@ -222,13 +229,16 @@ void Mesh::fillVertexColorFromPosition()
   for (int i : IndexRange(0, v.count)) {
     math::float3 &co = v.co[i];
     for (int k = 0; k < 3; k++) {
-      if (co[k] < mn[k]) mn[k] = co[k];
-      if (co[k] > mx[k]) mx[k] = co[k];
+      if (co[k] < mn[k])
+        mn[k] = co[k];
+      if (co[k] > mx[k])
+        mx[k] = co[k];
     }
   }
   math::float3 size = mx - mn;
   for (int k = 0; k < 3; k++) {
-    if (size[k] < 1e-6f) size[k] = 1.0f;
+    if (size[k] < 1e-6f)
+      size[k] = 1.0f;
   }
   for (int i : IndexRange(0, v.count)) {
     math::float3 &co = v.co[i];
@@ -241,7 +251,8 @@ void Mesh::fillVertexColorFromPosition()
 
 int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   int r = v.alloc();
 
@@ -257,7 +268,8 @@ int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
 
 int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   int r = e.alloc();
 
@@ -300,7 +312,8 @@ int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
 
 int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *cb)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   int fi = f.alloc();
   int li = l.alloc();
@@ -366,7 +379,8 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *c
 int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb)
 {
   /* find_edge below walks live disks, so thaw before touching connectivity. */
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
 
   util::Vector<int, 6> edges;
 
@@ -387,7 +401,8 @@ int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb)
 
 void Mesh::kill_vertex(int v1, MeshCallbacks *cb)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   while (v.e[v1] != ELEM_NONE) {
     kill_edge(v.e[v1], cb);
@@ -402,7 +417,8 @@ void Mesh::kill_vertex(int v1, MeshCallbacks *cb)
 
 void Mesh::kill_edge(int e1, MeshCallbacks *cb)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   while (e.c[e1] != ELEM_NONE) {
     kill_face(l.f[c.l[e.c[e1]]], cb);
@@ -442,7 +458,8 @@ void Mesh::kill_edge(int e1, MeshCallbacks *cb)
 
 void Mesh::kill_face(int f1, MeshCallbacks *cb)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   int l1 = f.l[f1];
   if (l1 != ELEM_NONE && l.size[l1] > 3) {
@@ -519,7 +536,8 @@ inline int remap(util::span<int> map, int idx)
 
 void Mesh::reorder_verts(util::span<int> vmap)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   for (int e1 : e) {
     e.vs[e1][0] = remap(vmap, e.vs[e1][0]);
@@ -535,7 +553,8 @@ void Mesh::reorder_verts(util::span<int> vmap)
 
 void Mesh::reorder_edges(util::span<int> emap)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   for (int v1 : v) {
     v.e[v1] = remap(emap, v.e[v1]);
@@ -556,7 +575,8 @@ void Mesh::reorder_edges(util::span<int> emap)
 
 void Mesh::reorder_corners(util::span<int> cmap)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   for (int e1 : e) {
     e.c[e1] = remap(cmap, e.c[e1]);
@@ -578,7 +598,8 @@ void Mesh::reorder_corners(util::span<int> cmap)
 
 void Mesh::reorder_lists(util::span<int> lmap)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   for (int c1 : c) {
     c.l[c1] = remap(lmap, c.l[c1]);
@@ -597,7 +618,8 @@ void Mesh::reorder_lists(util::span<int> lmap)
 
 void Mesh::reorder_faces(util::span<int> fmap)
 {
-  if (topo_frozen) thawTopo();
+  if (topo_frozen)
+    thawTopo();
   topo_stamp++;
   for (int l1 : l) {
     l.f[l1] = remap(fmap, l.f[l1]);

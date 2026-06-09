@@ -1,9 +1,12 @@
 #include "remesh/preremesh.h"
 #include "remesh/field/cross_field.h"
+#include "remesh/field/density.h"
 
 #include "dyntopo/dyntopo.h"
 #include "mesh/attribute_builtin.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
+#include "mesh/utils/mesh_validate.h" // faceNewellNormal
 
 #include "litestl/math/vector.h"
 #include "litestl/util/string.h"
@@ -17,7 +20,41 @@ using namespace litestl;
 using math::float3;
 using mesh::Mesh;
 
-void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr)
+void classifyFeatures(Mesh &m, float sharp_angle)
+{
+  m.thawTopo();
+  namespace bnd = mesh::boundary;
+
+  const float cos_thresh = std::cos(sharp_angle);
+  for (int e : m.e) {
+    int c1 = m.e.c[e];
+    bool feature = false;
+    if (c1 == ELEM_NONE) {
+      feature = true; // wire edge (no incident face)
+    } else {
+      int c2 = m.c.radial_next[c1];
+      if (c2 == c1 || m.c.radial_next[c2] != c1) {
+        feature = true; // open boundary (1 face) or non-manifold (>2)
+      } else {
+        float3 n1 = mesh::faceNewellNormal(m, m.l.f[m.c.l[c1]]);
+        float3 n2 = mesh::faceNewellNormal(m, m.l.f[m.c.l[c2]]);
+        float l1 = n1.length(), l2 = n2.length();
+        if (l1 > 1e-20f && l2 > 1e-20f) {
+          float d = n1.dot(n2) / (l1 * l2);
+          d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
+          feature = d < cos_thresh; // dihedral exceeds the threshold
+        }
+      }
+    }
+    // Tag boundary + dihedral-sharp creases into the same overlay so the feature
+    // views treat them uniformly (a topological boundary is geometrically sharp).
+    bnd::setEdgeFlag(&m, bnd::EDGE_SHARP, e, feature);
+  }
+  bnd::recomputeDirty(&m); // build the per-vertex class the smooth/collapse pin on
+}
+
+void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
+                      bool preserve_features)
 {
   m.thawTopo();
 
@@ -46,8 +83,11 @@ void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr)
   dp.l_min = L * (4.0f / 5.0f);
   dp.mode = dyntopo::DynTopoMode::Both;
   dp.do_flips = true;
-  dp.do_smooth = true;
-  dp.preserve_features = false; // callers that need pinning set it up first
+  // Pinned mode hands relaxation to the caller's feature-aware smooth: BK's own
+  // smooth can't pin freshly-split midpoints (unclassified until recomputeDirty),
+  // so it would drift them off a crease. Geometry-only mode keeps it on.
+  dp.do_smooth = !preserve_features;
+  dp.preserve_features = preserve_features; // caller ran classifyFeatures first
   dp.max_rounds = 100;
   dp.size_attr = size_attr; // null = uniform; set = per-vertex curvature sizing
   dyntopo::applyBrushDab(m, center, radius, dp, seed);
@@ -192,12 +232,26 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align)
     liftFieldToVerts(m, vU, vW);
   }
 
+  // Tier 9c: pin feature verts (boundary/sharp class != 0). Resolved once — absent
+  // overlay (geometry-only callers like --solve decimation) ⇒ no pinning, so the
+  // isotropic path stays byte-identical.
+  bool have_feat =
+      m.v.attrs.has(mesh::AttrType::INT, util::string(mesh::boundary::VERT_CLASS));
+  mesh::BuiltinAttr<int, ".boundary.vert.class"> vclass;
+  if (have_feat) {
+    vclass.ensure(m.v.attrs);
+  }
+
   util::Vector<float3> nco;
   nco.resize(int(m.v.capacity()));
   util::Vector<float3> ring;
   for (int it = 0; it < iters; it++) {
     for (int v : m.v) {
       float3 vco = m.v.co[v];
+      if (have_feat && vclass[v] != 0) {
+        nco[v] = vco; // pinned feature vert — don't slide it off its curve
+        continue;
+      }
       int e0 = m.v.e[v];
       if (e0 == ELEM_NONE) {
         nco[v] = vco;
@@ -245,17 +299,26 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align)
       }
 
       math::float3 nrm{}; // Newell normal of the ordered ring polygon about cen
+      math::float3 fan{}; // incident-triangle normal about v (field path, see below)
       float minlen = 1e30f;
       for (int i = 0; i < k; i++) {
         math::float3 a = ring[i] - cen, b = ring[(i + 1) % k] - cen;
         nrm += a.cross(b);
+        fan += (ring[i] - vco).cross(ring[(i + 1) % k] - vco);
         float el = (ring[i] - vco).length();
         if (el < minlen) minlen = el;
       }
+      // Project out the off-surface component. The field path uses the fan normal
+      // (sum of v's incident-triangle normals): for a flat-face vert whose 1-ring
+      // reaches across a crease the ring-polygon Newell tents diagonally and would
+      // let the aligned target pull v off-surface (a coarse cube then bulges),
+      // whereas the fan normal stays on the face. align==0 keeps the ring Newell so
+      // the isotropic path is byte-identical to the classic relaxation.
       math::float3 d = cen - vco;
-      float nl = nrm.length();
+      const math::float3 &pnrm = align > 0.0f ? fan : nrm;
+      float nl = pnrm.length();
       if (nl > 1e-20f) {
-        math::float3 un = nrm * (1.0f / nl);
+        math::float3 un = pnrm * (1.0f / nl);
         d = d - un * d.dot(un); // tangent-plane component only
       }
       float dl = d.length();
@@ -267,6 +330,117 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align)
     }
   }
   m.recalc_normals();
+}
+
+namespace {
+
+// Internal per-vertex size-scale layer the driver feeds to bkRemeshToTarget. Maps
+// Tier 3's .remesh.v.density d(v) to the dimensionless scale s(v) = 1/sqrt(d) the
+// BK band consumes (d > 1 → s < 1 → refine high-curvature; d < 1 → coarsen flat).
+constexpr const char *kSizeAttr = ".remesh.v.presize";
+
+void writeSizeScale(Mesh &m, float dmin, float dmax)
+{
+  if (!m.v.attrs.has(mesh::AttrType::FLOAT, util::string(".remesh.v.density"))) {
+    return;
+  }
+  mesh::BuiltinAttr<float, ".remesh.v.density"> density;
+  mesh::BuiltinAttr<float, ".remesh.v.presize"> size;
+  density.ensure(m.v.attrs);
+  size.ensure(m.v.attrs);
+  for (int v : m.v) {
+    float d = density[v];
+    if (d < dmin) d = dmin;
+    if (d > dmax) d = dmax;
+    size[v] = d > 1e-12f ? 1.0f / std::sqrt(d) : 1.0f;
+  }
+}
+
+} // namespace
+
+void preRemesh(Mesh &m, const PreRemeshParams &p)
+{
+  m.thawTopo();
+  const float L = p.target;
+  if (L <= 0.0f || p.iters <= 0) {
+    return; // no-op guard (the pipeline resolves target == 0 → target_edge_length)
+  }
+
+  // 1. Bootstrap: isotropic denoise sweeps before the field is trusted — a
+  //    field-aligned smooth over a still-noisy field over-regularizes to its noise.
+  //    9c: features are classified AFTER this, inside the loop, so the bootstrap
+  //    removes high-frequency noise before it can be mistaken for sharp features
+  //    (on a noisy input a 45° dihedral test would otherwise pin the noise). Clean
+  //    input that should keep crisp features from the start sets bootstrap_iters=0.
+  if (p.bootstrap_iters > 0) {
+    tangentialSmooth(m, p.bootstrap_iters, p.smooth_lambda, 0.0f);
+  }
+
+  const int cadence = p.field_cadence > 0 ? p.field_cadence : 1;
+  util::Vector<float3> preSmooth;
+
+  for (int it = 0; it < p.iters; it++) {
+    // 2. Rough cross field (cheap SimplicialLDLT; cadenced — the field is stable
+    //    once the geometry settles, so it need not be resolved every iter).
+    if (p.align > 0.0f && (it % cadence) == 0) {
+      CrossFieldParams cp;
+      cp.use_curvature = true;
+      cp.use_sharp_features = true;
+      cp.seed = p.seed;
+      computeCrossField(m, cp);
+    }
+
+    // Size field: regenerate Tier-3 density on the current triangulation and map it
+    // to the scale layer the BK band reads. null size_attr ⇒ uniform target L.
+    const char *size_attr = nullptr;
+    if (p.density) {
+      DensityParams dpa;
+      dpa.target_edge_length = L;
+      dpa.density_min = p.density_min;
+      dpa.density_max = p.density_max;
+      generateAutoDensity(m, dpa);
+      writeSizeScale(m, p.density_min, p.density_max);
+      size_attr = kSizeAttr;
+    }
+
+    // 9c: reclassify on the current geometry so BK pins the features the smoothed
+    //     mesh actually has (a crease the field-smooth softened drops out; the BK
+    //     pass then sees the up-to-date overlay).
+    if (p.preserve_features) {
+      classifyFeatures(m, p.sharp_angle);
+    }
+
+    // 3. Botsch-Kobbelt to the size field (split long / collapse short / flip).
+    bkRemeshToTarget(m, L, p.seed + uint32_t(it) + 1u, size_attr,
+                     p.preserve_features);
+
+    // 9c: BK split/collapse marked the geometry it created boundary-dirty but did
+    //     not reclassify — refresh the per-vertex class so the smooth below pins
+    //     the fresh split midpoints sitting on a crease.
+    if (p.preserve_features) {
+      mesh::boundary::recomputeDirty(&m);
+    }
+
+    // 4. Field-aligned smooth (9a). The smooth preserves topology, so capturing
+    //    positions across it gives a well-defined convergence measure.
+    const bool measure = p.converge_eps > 0.0f;
+    if (measure) {
+      preSmooth.resize(int(m.v.capacity()));
+      for (int v : m.v) {
+        preSmooth[v] = m.v.co[v];
+      }
+    }
+    tangentialSmooth(m, p.smooth_iters, p.smooth_lambda, p.align);
+    if (measure) {
+      double mv = 0.0;
+      for (int v : m.v) {
+        mv = std::fmax(mv, double((m.v.co[v] - preSmooth[v]).length()));
+      }
+      if (mv < double(p.converge_eps) * double(L)) {
+        break; // the relaxation has settled
+      }
+    }
+  }
 }
 
 } // namespace sculptcore::remesh

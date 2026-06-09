@@ -462,9 +462,23 @@ struct FeatureViews {
     return active && edgeMask(e) != 0;
   }
 
+  /* A vertex is a feature vert iff it carries any incident feature edge. Derived
+   * from the LIVE edge overlay (split/collapse propagate edge flags immediately),
+   * not the persistent per-vertex class — that attr is only rebuilt by the caller's
+   * recomputeDirty after the dab, so a freshly-split crease midpoint would read as
+   * stale non-feature and let a non-feature edge collapse pinch the crease. */
   bool isFeatureVert(int v) const
   {
-    return active && mesh::boundary::vertClass(m, v) != 0;
+    if (!active || v < 0 || v >= int(m->v.capacity()) || m->v.freemap[v] ||
+        m->v.e[v] == ELEM_NONE) {
+      return false;
+    }
+    for (int e : mesh::EdgeOfVertIter(m, v, m->v.e[v])) {
+      if (edgeMask(e) != 0) {
+        return true;
+      }
+    }
+    return false;
   }
 };
 

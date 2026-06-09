@@ -366,14 +366,21 @@ collapseEdge(Mesh &m, int edge,
 
   /* Re-apply the snapshotted edge attrs (boundary source flags) onto v_keep's
    * edges, matched by the far vertex — restores flags onto merged/recreated
-   * feature-curve edges. */
+   * feature-curve edges. When a triangle collapses, the v_keep–C and v_kill–C
+   * edges weld into one survivor (both keyed by far=C): restore the first row,
+   * then UNION the bool feature flags of the rest so a sharp/seam carried by
+   * v_kill–C isn't dropped in favor of a plain v_keep–C. */
   if (m.v.e[v_keep] != ELEM_NONE) {
     for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
       int o = (m.e.vs[ei][0] == v_keep) ? m.e.vs[ei][1] : m.e.vs[ei][0];
+      bool first = true;
       for (int k = 0; k < int(edgeFlagOther.size()); k++) {
-        if (edgeFlagOther[k] == o) {
+        if (edgeFlagOther[k] != o) continue;
+        if (first) {
           restoreAttrRow(m.e.attrs, ei, edgeFlagSnap[k]);
-          break;
+          first = false;
+        } else {
+          unionBoolAttrRow(m.e.attrs, ei, edgeFlagSnap[k]);
         }
       }
     }
