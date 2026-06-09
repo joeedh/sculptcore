@@ -633,9 +633,26 @@ Outer loop on `work`, to `pre_remesh_iters` or until max vertex move < ε:
    `SimplicialLDLT` — *not* the expensive stage — so recomputing every
    `pre_remesh_field_cadence` outer iters (field is stable once geometry settles)
    is affordable.
-3. **Botsch-Kobbelt to target:** split long / collapse short / flip — reuse the
-   shared BK-loop body (see the blockquote above).
+3. **Botsch-Kobbelt to a size field:** split long / collapse short / flip — reuse
+   the shared BK-loop body (see the blockquote above), with the split/collapse band
+   driven by a **per-vertex size field** (below) rather than one global length.
 4. **Field-aligned smooth (9a).**
+
+**Adaptive (non-uniform) sizing — and `grade` is *not* the mechanism.** dyntopo's
+existing `grade` (`dyntopo.h:63–67`) relaxes the band *radially* by
+`(1 + grade·dist/radius)` from the dab center — meaningless over a whole-mesh dab
+(it would only coarsen away from the bbox center), so it does **not** give
+curvature-adaptive triangles. Instead extend the BK candidate loop
+(`dyntopo.h:613–628`) to read a **per-vertex size field**, setting the local target
+to `L(v) = pre_remesh_target / sqrt(density(v))` — refine where the field turns
+fastest (high curvature), coarsen flat regions. Feed it from **Tier 3's
+`.remesh.v.density`**, recomputed on `work` each rebuild (auto-density is
+curvature-driven, so it regenerates on the new triangulation) — the *same* size
+field that drives the final quad sizing, so pre-pass and output stay coherent. This
+isn't cosmetic: a uniform pre-remesh too coarse where the cross field bends
+*aliases* the field and can manufacture the very folds this tier exists to kill.
+`pre_remesh_density = false` falls back to the single global `pre_remesh_target`
+(today's uniform behavior, the additive default).
 
 ### 9c. Feature pinning
 `decimateForSolve` sets `preserve_features=false` and the tri copy carries no
@@ -663,7 +680,8 @@ gated on `pre_remesh`. Two integration points to get right:
 |-------|---------|---------|
 | `pre_remesh` | `false` | run the field-aligned input pre-remesh on `work` before the field solve |
 | `pre_remesh_iters` | `5` | outer convergence iterations |
-| `pre_remesh_target` | `0.0f` | pre-pass edge length; `0` = use `target_edge_length` (remesh at output res, don't coarsen). Distinct from `solve_edge_length` |
+| `pre_remesh_target` | `0.0f` | **base** pre-pass edge length (scaled per-vertex by `1/sqrt(density)` when `pre_remesh_density`); `0` = use `target_edge_length` (remesh at output res, don't coarsen). Distinct from `solve_edge_length` |
+| `pre_remesh_density` | `false` | drive the split/collapse band from a per-vertex curvature size field (Tier 3 `.remesh.v.density`, recomputed on `work`) instead of one global length; `false` = uniform |
 | `pre_remesh_align` | `1.0f` | isotropic(`0`)↔field-aligned(`1`) smooth blend |
 | `pre_remesh_field_cadence` | `2` | recompute the rough field every N outer iters |
 | `pre_remesh_bootstrap_iters` | `2` | isotropic denoise sweeps before field-aligned begins |
@@ -689,24 +707,36 @@ gated on `pre_remesh`. Two integration points to get right:
   convention) for the pre-pass knobs and the show-rough-field toggle.
 
 ### Verification
+- **Primary test config = non-uniform on.** Run the quality gates with
+  `pre_remesh_density=true` (the realistic intended use); the uniform path is a
+  secondary A/B point, and the no-op guarantee covers the default-off case.
 - **gtest** `tests/test_remesh_preremesh.cc`: (1) a noised but smooth organic patch
-  (bumpy plane / low-res sphere) — assert the pre-pass **raises** triangle quality
-  (min-angle proxy up, edge-length variance down) and, on a feature box, that
-  pinned sharp edges survive (vertices don't migrate off the crease). (2) **No-op
-  guarantee:** `pre_remesh=false` ⇒ `work` byte-identical through the stage. (3)
-  Field-noise drop: assert `crossFieldCurl` (already in `singularity_adjust.cc:55`)
-  on the post-pre-pass field is **lower** than on the raw input's field.
+  (bumpy plane / low-res sphere), density on — assert the pre-pass **raises**
+  triangle quality (min-angle proxy up, edge-length variance *within a size class*
+  down) and, on a feature box, that pinned sharp edges survive (vertices don't
+  migrate off the crease). (2) **No-op guarantee:** `pre_remesh=false` ⇒ `work`
+  byte-identical through the stage. (3) Field-noise drop: assert `crossFieldCurl`
+  (already in `singularity_adjust.cc:55`) on the post-pre-pass field is **lower**
+  than on the raw input's field. (4) **Adaptive grading:** with
+  `pre_remesh_density=true` on a curvature-varying fixture (sphere-with-a-bump /
+  plane-with-a-crease), assert local edge length is **shorter in the high-curvature
+  region than on the flat region** (the size field actually grades the
+  triangulation), while flat regions stay near `pre_remesh_target`.
 - **Fox A/B (the motivating case):** `an-elegant-fox-character` with `pre_remesh`
-  on vs off — Tier 0 metrics must show `parametrization_folds` and quantize wall
-  time both fall sharply (the cliff was ~30% folds, N≈62,682; target: folds well
-  under the seam-relax gate so quantize stops thrashing **without** `--solve`).
+  on (`pre_remesh_density=true`) vs off — Tier 0 metrics must show
+  `parametrization_folds` and quantize wall time both fall sharply (the cliff was
+  ~30% folds, N≈62,682; target: folds well under the seam-relax gate so quantize
+  stops thrashing **without** `--solve`). Record the **uniform-density** run too,
+  to show adaptive sizing helps beyond plain field-alignment.
 - **Debug-app visual:** pre-pass mode on an organic asset, rough-field overlay at
   iter `0` vs final — flow visibly straightens along features.
 
 ### Review gate 9
-Inspect: the quality/curl gtest, the no-op guarantee, the fox folds+time A/B (does
-the pre-pass remove the quantize cliff at full resolution?), and pre-pass mode
-screenshots (isotropic vs field-aligned, rough-field overlay). Decide whether
+Inspect: the quality/curl/adaptive-grading gtest, the no-op guarantee, the fox
+folds+time A/B **uniform vs adaptive density** (does the pre-pass remove the
+quantize cliff at full resolution, and does adaptive sizing beat uniform?), and
+pre-pass mode screenshots (isotropic vs field-aligned, rough-field overlay). Decide
+whether
 `pre_remesh` should join the "Messy Generated Character" / "Scan" presets (Tier
 8b) and whether the Tier-8 retry loop enables it automatically.
 
