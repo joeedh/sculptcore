@@ -797,6 +797,7 @@ int main(int argc, char **argv)
       scene.window->poll();
       pipe.drainMainThreadQueue(); // run queued pipe commands on this thread
       app.update();                // parse subprocess stdout, apply results
+      app.preStepAdvance();        // Tier 9e: one pre-pass outer iter/frame if armed
       ui.beginFrame();             // build the ImGui panel (rendered in renderWindow)
       prepareOverlays(scene, app); // heavy field compute, outside the render pass
       scene.renderWindow();        // shaded mesh + depth-tested overlays + panel

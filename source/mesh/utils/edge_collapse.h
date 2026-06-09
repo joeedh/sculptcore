@@ -33,6 +33,7 @@
 #include "../mesh_iter.h"
 #include "../mesh_proxy.h"
 #include "attr_interp.h"
+#include "collapse_debug.h"
 
 #include "litestl/math/vector.h"
 #include "litestl/util/error.h"
@@ -110,12 +111,18 @@ static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
 
 /* Collapse `edge`. The vertex at `e.vs[edge][0]` is kept (its position
  * optionally replaced by `merged_co`); the vertex at `e.vs[edge][1]`
- * is removed. Returns false if the edge index is invalid. */
+ * is removed. Returns false if the edge index is invalid.
+ *
+ * When `prevent_inversion` is set, the collapse is refused (returning false,
+ * mesh untouched) if welding the two endpoints to the merged position would
+ * flip the orientation of any surviving incident face — a purely geometric
+ * defect the topological link condition cannot see. Defaults off so existing
+ * callers are unchanged; the dyntopo remesh path opts in. */
 static inline SuccessOrError<"edge_collapse", "failed to collapse edge">
 collapseEdge(Mesh &m, int edge,
              std::optional<litestl::math::float3> merged_co = std::nullopt,
              float blend = 0.0f, EdgeCollapseResult *out = nullptr,
-             MeshCallbacks *cb = nullptr)
+             MeshCallbacks *cb = nullptr, bool prevent_inversion = false)
 {
   using namespace litestl;
   using namespace litestl::util;
@@ -169,6 +176,75 @@ collapseEdge(Mesh &m, int edge,
       return false;
     }
   }
+
+  /* Geometric inversion guard: refuse the collapse if welding both endpoints to
+   * the merged position P flips any surviving incident face. P is merged_co if
+   * given, else v_keep stays put. A face touching both endpoints collapses to a
+   * sliver and is removed, so it is exempt; every other incident face has its
+   * v_keep/v_kill corner(s) moved to P, and a sign flip of its Newell normal
+   * (before vs after) means it folded over its far edge. */
+  if (prevent_inversion) {
+    using litestl::math::float3;
+    float3 P = merged_co.has_value() ? merged_co.value() : m.v.co[v_keep];
+    auto faceWouldFlip = [&](int f) -> bool {
+      int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+      bool hasKeep = false, hasKill = false;
+      do {
+        int vv = m.c.v[cc];
+        hasKeep |= (vv == v_keep);
+        hasKill |= (vv == v_kill);
+        cc = m.c.next[cc];
+      } while (cc != c0);
+      if (hasKeep && hasKill) {
+        return false; /* collapses to a sliver and is removed */
+      }
+      float3 nb(0.0f, 0.0f, 0.0f), na(0.0f, 0.0f, 0.0f);
+      cc = c0;
+      do {
+        int cn = m.c.next[cc];
+        int v1 = m.c.v[cc], v2 = m.c.v[cn];
+        float3 b1 = m.v.co[v1], b2 = m.v.co[v2];
+        float3 a1 = (v1 == v_keep || v1 == v_kill) ? P : b1;
+        float3 a2 = (v2 == v_keep || v2 == v_kill) ? P : b2;
+        nb[0] += (b1[1] - b2[1]) * (b1[2] + b2[2]);
+        nb[1] += (b1[2] - b2[2]) * (b1[0] + b2[0]);
+        nb[2] += (b1[0] - b2[0]) * (b1[1] + b2[1]);
+        na[0] += (a1[1] - a2[1]) * (a1[2] + a2[2]);
+        na[1] += (a1[2] - a2[2]) * (a1[0] + a2[0]);
+        na[2] += (a1[0] - a2[0]) * (a1[1] + a2[1]);
+        cc = cn;
+      } while (cc != c0);
+      return (nb[0] * na[0] + nb[1] * na[1] + nb[2] * na[2]) < 0.0f;
+    };
+    Set<int> checked;
+    for (int side = 0; side < 2; side++) {
+      int v = side == 0 ? v_keep : v_kill;
+      if (m.v.e[v] == ELEM_NONE) {
+        continue;
+      }
+      for (int ei2 : EdgeOfVertIter(&m, v, m.v.e[v])) {
+        int cc0 = m.e.c[ei2];
+        if (cc0 == ELEM_NONE) {
+          continue;
+        }
+        int cc = cc0;
+        do {
+          int f = m.l.f[m.c.l[cc]];
+          if (checked.add(f) && faceWouldFlip(f)) {
+            return false;
+          }
+          cc = m.c.radial_next[cc];
+        } while (cc != cc0);
+      }
+    }
+  }
+
+#if SCULPTCORE_COLLAPSE_DEBUG
+  /* Snapshot the 2-ring patch around the edge before mutating, so a collapse
+   * that introduces a hole/non-manifold edge can be replayed in isolation. */
+  collapse_debug::PatchSnapshot _cdbg_snap;
+  collapse_debug::capture(m, edge, _cdbg_snap);
+#endif
 
   /* Optionally blend the survivor's attributes toward v_kill before the merge
    * (0 = keep v_keep unchanged, 0.5 = midpoint). Reads v_kill, so it must run
@@ -396,6 +472,12 @@ collapseEdge(Mesh &m, int edge,
       }
     }
   }
+
+#if SCULPTCORE_COLLAPSE_DEBUG
+  /* Compare the post-collapse neighborhood against the captured before-census;
+   * dump a replayable OBJ if a hole or non-manifold edge appeared. */
+  collapse_debug::checkAndDump(m, _cdbg_snap);
+#endif
 
   return true;
 }

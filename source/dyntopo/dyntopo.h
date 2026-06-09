@@ -57,8 +57,8 @@ namespace sculptcore::dyntopo {
 enum class DynTopoMode { Subdivide, Collapse, Both };
 
 struct DynTopoParams {
-  float l_max = 0.10f;  /* split edges longer than this (at the brush center) */
-  float l_min = 0.04f;  /* collapse edges shorter than this (keep < l_max) */
+  float l_max = 0.10f; /* split edges longer than this (at the brush center) */
+  float l_min = 0.04f; /* collapse edges shorter than this (keep < l_max) */
   DynTopoMode mode = DynTopoMode::Both;
   /* Graded target (sizing field, plan M7.1a): relax l_max/l_min outward from the
    * brush center by (1 + grade * dist/radius), so the refinement grades smoothly
@@ -354,8 +354,7 @@ inline bool flipShortens(mesh::Mesh &m, int a, int b, int c, int d)
  * manifold / non-triangle edge, or a degenerate ring; otherwise `out` is the new
  * position, with the move clamped to half the shortest incident edge so a thin
  * triangle can't fold. Reads positions only — caller writes simultaneously. */
-inline bool smoothTangent(mesh::Mesh &m, int v, float lambda,
-                          litestl::math::float3 &out)
+inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::float3 &out)
 {
   using litestl::math::float3;
   int e0 = m.v.e[v];
@@ -449,11 +448,16 @@ struct FeatureViews {
   {
     using namespace mesh::boundary;
     int mask = 0;
-    if (proj && (*proj)[e]) mask |= BC_PROJECTED;
-    if (sharp && (*sharp)[e]) mask |= BC_SHARP;
-    if (seam && (*seam)[e]) mask |= BC_SEAM;
-    if (pg && (*pg)[e]) mask |= BC_POLYGROUP;
-    if (uv && (*uv)[e]) mask |= BC_UVCHART;
+    if (proj && (*proj)[e])
+      mask |= BC_PROJECTED;
+    if (sharp && (*sharp)[e])
+      mask |= BC_SHARP;
+    if (seam && (*seam)[e])
+      mask |= BC_SEAM;
+    if (pg && (*pg)[e])
+      mask |= BC_POLYGROUP;
+    if (uv && (*uv)[e])
+      mask |= BC_UVCHART;
     return mask;
   }
 
@@ -470,7 +474,8 @@ struct FeatureViews {
   bool isFeatureVert(int v) const
   {
     if (!active || v < 0 || v >= int(m->v.capacity()) || m->v.freemap[v] ||
-        m->v.e[v] == ELEM_NONE) {
+        m->v.e[v] == ELEM_NONE)
+    {
       return false;
     }
     for (int e : mesh::EdgeOfVertIter(m, v, m->v.e[v])) {
@@ -527,18 +532,19 @@ inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat)
  * whole mesh — keeping the dab O(brush region) without a spatial dependency here
  * (inversion of control). Empty (the default) falls back to a full scan, which
  * the bare-mesh unit tests and any caller without a tree rely on. */
-inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
-                                  float radius, const DynTopoParams &p,
-                                  uint32_t seed, mesh::MeshCallbacks *cb = nullptr,
+inline DynTopoStats applyBrushDab(mesh::Mesh &m,
+                                  litestl::math::float3 center,
+                                  float radius,
+                                  const DynTopoParams &p,
+                                  uint32_t seed,
+                                  mesh::MeshCallbacks *cb = nullptr,
                                   litestl::util::span<const int> seedVerts = {})
 {
   using namespace litestl;
   using namespace litestl::util;
 
-  const bool doSplit =
-      p.mode == DynTopoMode::Subdivide || p.mode == DynTopoMode::Both;
-  const bool doCollapse =
-      p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
+  const bool doSplit = p.mode == DynTopoMode::Subdivide || p.mode == DynTopoMode::Both;
+  const bool doCollapse = p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
   const float r2 = radius * radius;
 
   /* Boundary-overlay views for feature-preserving remeshing (inert when
@@ -555,11 +561,12 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   mesh::AttrData<litestl::math::float3> *origCo = nullptr;
   mesh::AttrData<int> *origGen = nullptr;
   if (p.nonAccumGen != 0 && m.v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
-      m.v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen")) {
+      m.v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen"))
+  {
     origCo = m.v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co")
                  .get_data<litestl::math::float3>();
-    origGen = m.v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen")
-                  .get_data<int>();
+    origGen =
+        m.v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
   }
   auto shiftOrig = [&](int v, litestl::math::float3 delta) {
     if (origGen && origGen->safe_get(v) == int(p.nonAccumGen)) {
@@ -572,8 +579,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
    * of its endpoints' s; new verts get an interpolated s from splitEdge. */
   mesh::AttrData<float> *sizeField = nullptr;
   if (p.size_attr && m.v.attrs.has(mesh::AttrType::FLOAT, p.size_attr)) {
-    sizeField = m.v.attrs.find_attribute(mesh::AttrType::FLOAT, p.size_attr)
-                    .get_data<float>();
+    sizeField =
+        m.v.attrs.find_attribute(mesh::AttrType::FLOAT, p.size_attr).get_data<float>();
   }
 
   /* Split / flip / smooth are triangle-only; dyntopo dynamically triangulates any
@@ -585,8 +592,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   if (m.n_ngon_faces != 0) {
     Set<int> triFaces;
     auto considerFaceTri = [&](int f) {
-      if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] ||
-          m.f.list_count[f] != 1) {
+      if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] || m.f.list_count[f] != 1) {
         return;
       }
       if (m.l.size[m.f.l[f]] == 3) {
@@ -595,8 +601,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       triFaces.add(f);
     };
     auto considerVertFaces = [&](int v) {
-      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-          m.v.e[v] == ELEM_NONE) {
+      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
         return;
       }
       for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -658,8 +663,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
        * size-scale attr (Tier 9) takes precedence over the radial `grade`. */
       float tmax = p.l_max, tmin = p.l_min;
       if (sizeField) {
-        float s = 0.5f * (sizeField->safe_get(m.e.vs[e][0]) +
-                          sizeField->safe_get(m.e.vs[e][1]));
+        float s = 0.5f *
+                  (sizeField->safe_get(m.e.vs[e][0]) + sizeField->safe_get(m.e.vs[e][1]));
         if (s > 1e-6f) {
           tmax *= s;
           tmin *= s;
@@ -692,8 +697,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       }
     };
     auto considerVertEdges = [&](int v) {
-      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-          m.v.e[v] == ELEM_NONE) {
+      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
         return;
       }
       for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -806,7 +810,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         int v_keep = m.e.vs[c.edge][0];
         math::float3 keepOld = m.v.co[v_keep];
         mesh::EdgeCollapseResult res;
-        if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb)) {
+        if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb,
+                               /*prevent_inversion=*/true)) {
           stats.collapses++;
           applied++;
           shiftOrig(v_keep, mid - keepOld);
@@ -826,8 +831,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       detail::GenSet &eseen = detail::flipSeenSet();
       eseen.reset(int(m.e.capacity()));
       for (int v : touched) {
-        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-            m.v.e[v] == ELEM_NONE) {
+        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE)
+        {
           continue;
         }
         for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -846,7 +851,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       for (int e : flipCands) {
         int a, b, cc, dd;
         if (!detail::flipQuad(m, e, a, b, cc, dd) ||
-            !detail::flipShortens(m, a, b, cc, dd)) {
+            !detail::flipShortens(m, a, b, cc, dd))
+        {
           continue;
         }
         if (mesh::flipEdge(m, e, nullptr, cb)) {

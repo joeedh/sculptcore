@@ -4,6 +4,9 @@
 
 #include "mesh/mesh.h"
 #include "mesh/utils/obj_io.h"
+#include "mesh/utils/triangulate.h"
+
+#include "remesh/preremesh.h"
 
 #include "litestl/util/alloc.h"
 
@@ -339,6 +342,144 @@ void RemeshApp::update()
   }
 }
 
+std::string RemeshApp::reprojectToInput()
+{
+  if (!preReproject || !scene_.mesh) {
+    return "";
+  }
+  if (currentAssetName_.empty()) {
+    return " (reproject skipped: no source asset)";
+  }
+  std::string path = assetPath(currentAssetName_);
+  if (!fs::exists(path)) {
+    return " (reproject skipped: source asset missing)";
+  }
+  mesh::Mesh *input = mesh::loadObj(path.c_str(), /*keepNgons=*/true);
+  if (!input) {
+    return " (reproject skipped: source reload failed)";
+  }
+  input->thawTopo();
+  mesh::triangulateMesh(*input); // SpatialTree closest-point needs triangles
+  remesh::ReprojectParams rp;    // pure snap, no extra smoothing
+  remesh::reprojectToSurface(*scene_.mesh, *input, rp);
+  litestl::alloc::Delete<mesh::Mesh>(input);
+  return "";
+}
+
+bool RemeshApp::runPreRemesh(std::string &err)
+{
+  if (!scene_.mesh) {
+    err = "no mesh loaded";
+    return false;
+  }
+  preStepping = false;
+  remesh::PreRemeshParams base = preParams;
+  if (base.target <= 0.0f) {
+    base.target = params.target_edge_length; // mirror 9d's target==0 resolution
+  }
+  // dyntopo (under preRemesh -> bkRemeshToTarget) is triangle-only, but assets
+  // load with keepNgons=true; triangulate first, mirroring the gtest.
+  mesh::triangulateMesh(*scene_.mesh);
+  int v0 = scene_.mesh->v.count, f0 = scene_.mesh->f.count;
+  std::string note;
+  if (preReproject) {
+    // Canonical Botsch-Kobbelt: alternate ONE field-aligned remesh iter with a
+    // snap back onto the input surface, so tangential drift never accumulates
+    // far enough to cross surface sheets. A single end-snap instead hard-flips
+    // triangles where the bulk drift crossed a thin/curved feature (measured: a
+    // single end-snap leaves ~3% of edges back-folded >150deg; interleaving with
+    // a gentle smooth drops that to ~0.2%). Mirrors the per-frame stepping path.
+    const int outer = base.iters > 0 ? base.iters : 1;
+    for (int it = 0; it < outer; it++) {
+      remesh::PreRemeshParams p = base;
+      p.iters = 1;
+      p.bootstrap_iters = it == 0 ? base.bootstrap_iters : 0;
+      p.seed = base.seed + uint32_t(it);
+      p.converge_eps = 0.0f; // the app, not the driver, owns the outer loop
+      remesh::preRemesh(*scene_.mesh, p);
+      note = reprojectToInput();
+    }
+  } else {
+    remesh::preRemesh(*scene_.mesh, base);
+  }
+  scene_.buildSpatial(0, 0, 0); // the pre-pass mutated topology in place
+  if (preShowField && base.align > 0.0f) {
+    showCrossField = true; // .remesh.f.theta now holds the pre-pass field
+  }
+  char buf[224];
+  std::snprintf(
+      buf, sizeof(buf),
+      "pre-pass: %d->%d verts, %d->%d faces (align=%.2f density=%d feat=%d)%s", v0,
+      scene_.mesh->v.count, f0, scene_.mesh->f.count, base.align, int(base.density),
+      int(base.preserve_features), note.c_str());
+  status = buf;
+  return true;
+}
+
+void RemeshApp::preStepStart()
+{
+  if (!scene_.mesh) {
+    status = "ERROR no mesh loaded";
+    return;
+  }
+  preStepping = true;
+  preStepIter = 0;
+  status = "pre-pass stepping armed";
+}
+
+void RemeshApp::preStepAdvance()
+{
+  if (!preStepping || !scene_.mesh) {
+    return;
+  }
+  const int total = preParams.iters > 0 ? preParams.iters : 1;
+  if (preStepIter >= total) {
+    preStepping = false;
+    return;
+  }
+  // One outer iter: bootstrap only on the first, seed bumped per iter to mirror
+  // the driver's per-iter BK seed, no internal early-out (the app drives the loop).
+  remesh::PreRemeshParams p = preParams;
+  if (p.target <= 0.0f) {
+    p.target = params.target_edge_length;
+  }
+  p.iters = 1;
+  p.bootstrap_iters = preStepIter == 0 ? preParams.bootstrap_iters : 0;
+  p.seed = preParams.seed + uint32_t(preStepIter);
+  p.converge_eps = 0.0f;
+  if (preStepIter == 0) {
+    mesh::triangulateMesh(*scene_.mesh); // dyntopo is triangle-only (see runPreRemesh)
+  }
+  remesh::preRemesh(*scene_.mesh, p);
+  // Snap per-step so each frame shows on-surface geometry; this also matches the
+  // canonical BK loop (remesh then reproject every iteration), not just at end.
+  std::string note = reprojectToInput();
+  scene_.buildSpatial(0, 0, 0);
+  if (preShowField && p.align > 0.0f) {
+    showCrossField = true;
+  }
+  preStepIter++;
+  char buf[192];
+  std::snprintf(buf, sizeof(buf), "pre-pass step %d/%d: %d verts %d faces%s",
+                preStepIter, total, scene_.mesh->v.count, scene_.mesh->f.count,
+                note.c_str());
+  status = buf;
+  if (preStepIter >= total) {
+    preStepping = false;
+  }
+}
+
+bool RemeshApp::preStepReset(std::string &err)
+{
+  preStepping = false;
+  preStepIter = 0;
+  if (currentAssetName_.empty()) {
+    err = "no asset loaded to reset to";
+    return false;
+  }
+  return loadAsset(currentAssetName_, err);
+}
+
 void RemeshApp::cameraFit()
 {
   if (!scene_.mesh) {
@@ -393,11 +534,14 @@ std::string RemeshApp::handleCommand(const std::string &line)
          "  get_params            current remesh params (name=value)\n"
          "  set_param <name> <v>  set one remesh param\n"
          "  run_remesh            remesh the selected asset (async)\n"
+         "  pre_remesh            run the input pre-pass in-process (Tier 9)\n"
+         "  pre_step start|stop|reset  step the pre-pass one outer iter/frame\n"
          "  last_result           obj/manifest/stats of the last run\n"
          "  get_state             JSON: mesh, camera, job, last result\n"
          "  camera_fit            frame the camera to the mesh AABB\n"
          "  camera_get            eye/target/up/fov\n"
          "  screenshot <path>     write a shaded PNG of the offscreen view\n"
+         "  save_mesh <path.obj>  write the current mesh to an OBJ\n"
          "  quit                  close the app";
     return o.str();
   }
@@ -440,7 +584,18 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "density_min=" << params.density_min << "\n"
       << "density_max=" << params.density_max << "\n"
       << "density_gradation=" << params.density_gradation << "\n"
-      << "density_gradation_iters=" << params.density_gradation_iters;
+      << "density_gradation_iters=" << params.density_gradation_iters << "\n"
+      << "pre_iters=" << preParams.iters << "\n"
+      << "pre_target=" << preParams.target << "\n"
+      << "pre_density=" << int(preParams.density) << "\n"
+      << "pre_align=" << preParams.align << "\n"
+      << "pre_field_cadence=" << preParams.field_cadence << "\n"
+      << "pre_bootstrap_iters=" << preParams.bootstrap_iters << "\n"
+      << "pre_smooth_iters=" << preParams.smooth_iters << "\n"
+      << "pre_smooth_lambda=" << preParams.smooth_lambda << "\n"
+      << "pre_preserve_features=" << int(preParams.preserve_features) << "\n"
+      << "pre_sharp_angle=" << preParams.sharp_angle << "\n"
+      << "pre_reproject=" << int(preReproject);
     return o.str();
   }
   if (cmd == "set_param") {
@@ -493,6 +648,28 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.density_gradation = float(d);
     } else if (name == "density_gradation_iters") {
       params.density_gradation_iters = iv;
+    } else if (name == "pre_iters") {
+      preParams.iters = iv;
+    } else if (name == "pre_target") {
+      preParams.target = float(d);
+    } else if (name == "pre_density") {
+      preParams.density = iv != 0;
+    } else if (name == "pre_align") {
+      preParams.align = float(d);
+    } else if (name == "pre_field_cadence") {
+      preParams.field_cadence = iv;
+    } else if (name == "pre_bootstrap_iters") {
+      preParams.bootstrap_iters = iv;
+    } else if (name == "pre_smooth_iters") {
+      preParams.smooth_iters = iv;
+    } else if (name == "pre_smooth_lambda") {
+      preParams.smooth_lambda = float(d);
+    } else if (name == "pre_preserve_features") {
+      preParams.preserve_features = iv != 0;
+    } else if (name == "pre_sharp_angle") {
+      preParams.sharp_angle = float(d);
+    } else if (name == "pre_reproject") {
+      preReproject = iv != 0;
     } else {
       return "ERROR unknown param: " + name;
     }
@@ -501,6 +678,25 @@ std::string RemeshApp::handleCommand(const std::string &line)
   if (cmd == "run_remesh") {
     std::string err;
     return runRemesh(err) ? "OK started" : ("ERROR " + err);
+  }
+  if (cmd == "pre_remesh") {
+    std::string err;
+    return runPreRemesh(err) ? ("OK " + status) : ("ERROR " + err);
+  }
+  if (cmd == "pre_step") {
+    if (rest == "start" || rest.empty()) {
+      preStepStart();
+      return "OK " + status;
+    }
+    if (rest == "stop") {
+      preStepping = false;
+      return "OK stopped";
+    }
+    if (rest == "reset") {
+      std::string err;
+      return preStepReset(err) ? "OK reset" : ("ERROR " + err);
+    }
+    return "ERROR usage: pre_step start|stop|reset";
   }
   if (cmd == "last_result") {
     o << "obj=" << lastObj << "\nmanifest=" << lastManifest
@@ -545,6 +741,20 @@ std::string RemeshApp::handleCommand(const std::string &line)
     }
     std::string err;
     return screenshot(rest, err) ? ("OK " + rest) : ("ERROR " + err);
+  }
+  if (cmd == "save_mesh") {
+    if (rest.empty()) {
+      return "ERROR usage: save_mesh <path.obj>";
+    }
+    if (!scene_.mesh) {
+      return "ERROR no mesh loaded";
+    }
+    if (!mesh::writeObj(*scene_.mesh, rest.c_str())) {
+      return "ERROR could not write " + rest;
+    }
+    o << "OK wrote " << rest << " (" << scene_.mesh->v.count << " verts, "
+      << scene_.mesh->f.count << " faces)";
+    return o.str();
   }
   if (cmd == "quit") {
     if (scene_.window) {

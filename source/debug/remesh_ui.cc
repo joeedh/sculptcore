@@ -340,6 +340,92 @@ void RemeshUi::drawPanel()
       "once the size field converges).");
   ImGui::EndDisabled();
 
+  // --- Pre-remesh (Tier 9 input pre-pass) ---
+  ImGui::SeparatorText("Pre-remesh (input pre-pass)");
+  auto &PR = app_->preParams;
+  ImGui::SliderFloat("pre align (iso<->field)", &PR.align, 0.0f, 1.0f, "%.2f");
+  tip("Blend the pre-pass tangential smooth between isotropic relaxation (0) and "
+      "cross-field-aligned (1). Field-aligned straightens quad rows along the "
+      "rough field; isotropic just evens out triangle sizes.");
+  ImGui::SliderInt("pre iters", &PR.iters, 1, 20);
+  tip("Outer convergence iterations of the pre-pass (cross field -> Botsch-Kobbelt "
+      "remesh -> field-aligned smooth). Also the step count for the Step button.");
+  ImGui::SliderFloat("pre target (0=edge len)", &PR.target, 0.0f, 1.0f, "%.4f",
+                     ImGuiSliderFlags_Logarithmic);
+  tip("Base pre-pass edge length. 0 = use the main 'target edge len' above. With "
+      "'pre density' on it is scaled per-vertex by 1/sqrt(density).");
+  ImGui::Checkbox("pre density", &PR.density);
+  tip("Grade the pre-pass split/collapse band by a per-vertex curvature size field "
+      "(finer where curved) instead of one global length.");
+  ImGui::BeginDisabled(!PR.density);
+  ImGui::SliderFloat("pre density min", &PR.density_min, 0.05f, 1.0f, "%.2f");
+  tip("Lower clamp on the pre-pass size field (coarsest sizing on flat regions).");
+  ImGui::SliderFloat("pre density max", &PR.density_max, 1.0f, 16.0f, "%.2f");
+  tip("Upper clamp on the pre-pass size field (finest sizing on curved regions).");
+  ImGui::EndDisabled();
+  ImGui::SliderInt("pre field cadence", &PR.field_cadence, 1, 8);
+  tip("Recompute the rough cross field every N outer iters (it is stable once the "
+      "geometry settles, so it need not be re-solved every iteration).");
+  ImGui::SliderInt("pre bootstrap iters", &PR.bootstrap_iters, 0, 8);
+  tip("Isotropic denoise sweeps before the field-aligned smooth begins, so a noisy "
+      "input isn't over-regularized to its noise (and 45-degree noise isn't mistaken "
+      "for a sharp feature). 0 = keep crisp features from the start.");
+  ImGui::SliderInt("pre smooth iters", &PR.smooth_iters, 0, 20);
+  tip("Inner field-aligned smooth sweeps per outer iter.");
+  ImGui::SliderFloat("pre smooth lambda", &PR.smooth_lambda, 0.0f, 1.0f, "%.2f");
+  tip("Per-sweep relaxation factor for the pre-pass smooth.");
+  ImGui::Checkbox("pre preserve features", &PR.preserve_features);
+  tip("Pin open boundaries and dihedral-sharp creases so the iterated flow follows "
+      "features instead of eroding them.");
+  ImGui::BeginDisabled(!PR.preserve_features);
+  ImGui::SliderFloat("pre sharp angle (rad)", &PR.sharp_angle, 0.0f, 3.14159f, "%.3f");
+  tip("Dihedral angle (radians) above which a pre-pass edge counts as a sharp "
+      "feature to pin. Default 0.785 = 45 degrees.");
+  ImGui::EndDisabled();
+  ImGui::Checkbox("show rough field after run", &app_->preShowField);
+  tip("After a pre-pass run, turn on the cross-field overlay so the rough field it "
+      "wrote into .remesh.f.theta is visible (field-aligned runs only).");
+  ImGui::Checkbox("reproject onto input", &app_->preReproject);
+  tip("Snap the pre-pass result back onto the original input surface (reloaded "
+      "from disk) so tangential smoothing can't drift verts off the surface into "
+      "spikes. The full quad pipeline reprojects too; toggle off to see raw drift.");
+
+  ImGui::BeginDisabled(app_->busy() || !scene_->mesh);
+  if (ImGui::Button("Run pre-pass")) {
+    std::string err;
+    if (!app_->runPreRemesh(err)) {
+      app_->status = "ERROR " + err;
+    }
+  }
+  tip("Run the whole input pre-pass in-process on the loaded mesh and show the "
+      "cleaned triangle result. Does not run the full quad pipeline.");
+  ImGui::SameLine();
+  if (!app_->preStepping) {
+    if (ImGui::Button("Step >")) {
+      app_->preStepStart();
+    }
+    tip("Animate convergence: apply one outer pre-pass iter per frame so the mesh "
+        "and rough field update live. Runs 'pre iters' steps.");
+  } else {
+    if (ImGui::Button("Stop")) {
+      app_->preStepping = false;
+    }
+    tip("Stop the per-iteration stepping animation.");
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Reset")) {
+    std::string err;
+    if (!app_->preStepReset(err)) {
+      app_->status = "ERROR " + err;
+    }
+  }
+  tip("Reload the current asset from disk (undo the pre-pass to inspect again).");
+  ImGui::EndDisabled();
+  if (app_->preStepping) {
+    ImGui::SameLine();
+    ImGui::Text("step %d/%d", app_->preStepIter, PR.iters);
+  }
+
   // --- Run ---
   ImGui::SeparatorText("Run");
   ImGui::BeginDisabled(app_->busy() || app_->selected < 0);

@@ -9,6 +9,8 @@
 
 #include "subprocess_win.h"
 
+#include "remesh/extract/reproject.h"
+#include "remesh/preremesh.h"
 #include "remesh/remesh_params.h"
 
 #include <string>
@@ -22,7 +24,16 @@ class RemeshApp {
 public:
   enum class Job { None, Remesh, Meshy };
 
-  RemeshApp(Scene &scene) : scene_(scene) {}
+  RemeshApp(Scene &scene) : scene_(scene)
+  {
+    // App default diverges from the core PreRemeshParams default (5): with the
+    // per-iter snap-back in runPreRemesh, 5 inner smooth passes between snaps
+    // over-drift and the snap then hard-flips triangles; 2 keeps drift sub-
+    // feature-size so the result stays on-surface (measured >150deg folds 3.3%
+    // -> 0.2%). The proper home is a gentler core default once Tier 9 reproject
+    // lands in the driver — flag for review, don't treat as the final value.
+    preParams.smooth_iters = 2;
+  }
 
   /* Scan the assets dir for *.obj and refresh `assets`. Keeps the current
    * selection if its name still exists. */
@@ -37,6 +48,19 @@ public:
   bool runRemesh(std::string &err);
   /* Spawn `node meshy_gen.mjs --prompt <prompt>` to generate a new asset. */
   bool meshyGen(const std::string &prompt, std::string &err);
+
+  /* Tier 9e: run the whole input pre-pass (preRemesh) in-process on the loaded
+   * mesh, rebuild the spatial tree, and leave the rough cross field in
+   * .remesh.f.theta so the existing overlay visualizes it. In-process (not via
+   * remesh_cli) so the cleaned triangle mesh is inspectable before the full quad
+   * pipeline. preParams.target <= 0 resolves to params.target_edge_length. */
+  bool runPreRemesh(std::string &err);
+  /* Frame-driven per-iteration stepping: animate convergence by applying one
+   * outer pre-pass iter per frame. start arms it; advance() (called each frame)
+   * applies the next iter and rebuilds; reset() reloads the asset from disk. */
+  void preStepStart();
+  void preStepAdvance();
+  bool preStepReset(std::string &err);
 
   /* Drain the running subprocess's stdout, parse the protocol lines, and apply
    * results (load the output mesh on RESULT). Call once per frame. */
@@ -85,6 +109,23 @@ public:
   float streamlineScale = 0.01f; // integration step, fraction of bbox diagonal
   int streamlineSeeds = 200;
 
+  // Tier 9e input pre-pass (field-aligned pre-remesh) state. App-side standalone
+  // params; Tier 9d maps RemeshParams.pre_remesh_* onto these for the real
+  // pipeline. The UI edits these fields directly.
+  remesh::PreRemeshParams preParams;
+  // After a pre-pass run, auto-enable the cross-field overlay so the rough field
+  // it left in .remesh.f.theta is visible (only meaningful when align > 0).
+  bool preShowField = true;
+  // Reproject the pre-pass result back onto the original input surface (the
+  // canonical Botsch-Kobbelt "remesh then snap" step) so field-aligned
+  // tangential smoothing can't drift verts off the surface into spikes. The
+  // real QuadRemesh pipeline already reprojects (buildTriCopy + M6); this mirrors
+  // it for the standalone pre-pass. Default on; toggle off to inspect raw drift.
+  bool preReproject = true;
+  // Frame-driven convergence stepping (one outer iter per frame while armed).
+  bool preStepping = false;
+  int preStepIter = 0; // outer iters already applied in the current step run
+
   std::string meshyPrompt;
 
   // Live job feedback.
@@ -99,6 +140,11 @@ public:
 
 private:
   bool loadObjFile(const std::string &path, std::string &err);
+  /* Tier 9e: snap the current (pre-passed) mesh back onto the original input
+   * surface, reloaded fresh from disk. No-op when preReproject is off; returns a
+   * parenthetical status note ("" if nothing to report, e.g. reprojected or
+   * disabled; " (reproject skipped: ...)" when it couldn't run). */
+  std::string reprojectToInput();
   bool startJob(Job kind, const std::wstring &exe,
                 const std::vector<std::wstring> &args, const std::string &label);
   void handleLine(const std::string &line);

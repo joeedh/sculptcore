@@ -62,6 +62,15 @@ option(SBRUSH_VALIDATE_ALL   "Run external validators on every emit"            
 option(SBRUSH_REGEN_ON_BUILD "Re-run sbrushc during build (vs. checked-in outputs)" ON)
 option(SBRUSH_WEBGPU_COMPUTE "Build the native WebGPU (wgpu-native) compute brush backend into debug_app" OFF)
 
+# Permanent #if-guarded edge-collapse self-check + neighborhood capture
+# (source/mesh/utils/collapse_debug.h). OFF = inert. ON makes every collapse
+# snapshot its 2-ring patch and dump a replayable OBJ when a hole/non-manifold
+# edge appears. Dump dir via $SCULPTCORE_COLLAPSE_DEBUG_DIR (default cwd).
+option(SCULPTCORE_COLLAPSE_DEBUG "Edge-collapse defect capture (debug only)" OFF)
+if (SCULPTCORE_COLLAPSE_DEBUG)
+  add_compile_definitions(SCULPTCORE_COLLAPSE_DEBUG=1)
+endif()
+
 include("build_files/macros.cmake")
 include("source/litestl/build_files/macros.cmake")
 
