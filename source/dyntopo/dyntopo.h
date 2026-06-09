@@ -65,6 +65,15 @@ struct DynTopoParams {
    * into the surrounding mesh instead of cliffing at the brush rim — fewer
    * splits and no high-valence boundary hubs. 0 = uniform (original behavior). */
   float grade = 0.0f;
+  /* Tier 9 adaptive sizing: name of an optional per-vertex FLOAT attribute
+   * holding a relative size scale s(v) (1 = nominal). When present each edge's
+   * [l_min, l_max] band is multiplied by the mean of its endpoints' s, so the BK
+   * loop refines where s < 1 and coarsens where s > 1 — a curvature size field,
+   * not the radial `grade` (which is meaningless over a whole-mesh dab). Split
+   * interpolates the attr onto the midpoint vert, so grading survives refinement.
+   * null/absent = uniform band (default; takes precedence over `grade`). Aliases
+   * caller storage (a string literal / longer-lived buffer); never bound to JS. */
+  const char *size_attr = nullptr;
   /* The 1-triangle -> 2 split scheme cascades through spoke edges, so a dab
    * needs more independent-set rounds than a naive length-halving estimate.
    * With do_flips on (M7.2) the spoke cascade is broken, so even aggressive 5M
@@ -544,6 +553,15 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
     }
   };
 
+  /* Tier 9 adaptive sizing: resolve the optional per-vertex size-scale attr once
+   * (non-creating). When set, the candidate band is scaled per edge by the mean
+   * of its endpoints' s; new verts get an interpolated s from splitEdge. */
+  mesh::AttrData<float> *sizeField = nullptr;
+  if (p.size_attr && m.v.attrs.has(mesh::AttrType::FLOAT, p.size_attr)) {
+    sizeField = m.v.attrs.find_attribute(mesh::AttrType::FLOAT, p.size_attr)
+                    .get_data<float>();
+  }
+
   /* Split / flip / smooth are triangle-only; dyntopo dynamically triangulates any
    * non-triangle face it encounters in the region first (incl. the graded-target
    * faces — already tris — and any imported/procedural n-gon). Fan-triangulate
@@ -622,9 +640,17 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       if (d2 > r2) {
         return; /* outside the dab */
       }
-      /* Graded target: relax the goal outward from the center (sizing field). */
+      /* Graded target: relax the goal per edge (sizing field). The per-vertex
+       * size-scale attr (Tier 9) takes precedence over the radial `grade`. */
       float tmax = p.l_max, tmin = p.l_min;
-      if (p.grade > 0.0f && radius > 0.0f) {
+      if (sizeField) {
+        float s = 0.5f * (sizeField->safe_get(m.e.vs[e][0]) +
+                          sizeField->safe_get(m.e.vs[e][1]));
+        if (s > 1e-6f) {
+          tmax *= s;
+          tmin *= s;
+        }
+      } else if (p.grade > 0.0f && radius > 0.0f) {
         float scale = 1.0f + p.grade * (std::sqrt(d2) / radius);
         tmax *= scale;
         tmin *= scale;

@@ -1,4 +1,5 @@
 #include "remesh/remesh.h"
+#include "remesh/preremesh.h"
 #include "remesh/remesh_params.h"
 #include "remesh/remesh_report.h"
 #include "remesh/triage.h"
@@ -10,7 +11,6 @@
 #include "remesh/field/singularity_adjust.h"
 #include "remesh/quantize/quantize_ilp.h"
 
-#include "dyntopo/dyntopo.h"
 #include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
 #include "mesh/utils/mesh_validate.h"
@@ -119,105 +119,16 @@ Mesh *buildTriCopy(Mesh &src)
 }
 
 /* Global uniform-remesh pre-pass: coarsen `m` toward edge length `L` so the
- * heavy global solve runs on a tractable triangle count. Reuses dyntopo's
- * Botsch-Kobbelt operators (collapse short / split long / flip / tangential
- * smooth) over a whole-mesh sphere. Geometry only — the quads are reprojected
- * onto the full-res original afterward, so mild tangential drift here is fine. */
+ * heavy global solve runs on a tractable triangle count. BK remesh + a few
+ * tangential relaxation sweeps (the global solve folds where curvature
+ * concentrates; smoothing evens the triangulation -> fewer parametrization
+ * folds). align=0 = classic isotropic relaxation (Tier 9 lifts it to a
+ * field-aligned blend). Geometry only — the quads are reprojected onto the
+ * full-res original afterward, so mild tangential drift here is fine. */
 void decimateForSolve(Mesh &m, float L, uint32_t seed)
 {
-  m.thawTopo();
-
-  bool have = false;
-  math::float3 bmin{}, bmax{};
-  for (int v : m.v) {
-    math::float3 co = m.v.co[v];
-    if (!have) {
-      bmin = bmax = co;
-      have = true;
-      continue;
-    }
-    for (int i = 0; i < 3; i++) {
-      if (co[i] < bmin[i]) bmin[i] = co[i];
-      if (co[i] > bmax[i]) bmax[i] = co[i];
-    }
-  }
-  if (!have) {
-    return;
-  }
-  math::float3 center = (bmin + bmax) * 0.5f;
-  float radius = (bmax - bmin).length(); // > half-diagonal: covers the whole mesh
-
-  dyntopo::DynTopoParams dp;
-  dp.l_max = L * (4.0f / 3.0f);
-  dp.l_min = L * (4.0f / 5.0f);
-  dp.mode = dyntopo::DynTopoMode::Both;
-  dp.do_flips = true;
-  dp.do_smooth = true;
-  dp.preserve_features = false; // the tri copy carries no boundary overlays
-  dp.max_rounds = 100;
-  dyntopo::applyBrushDab(m, center, radius, dp, seed);
-
-  // Extra tangential relaxation of the decimated copy. The global solve folds
-  // where curvature concentrates; a few smoothing sweeps even out the
-  // triangulation (smaller curvature gradients -> fewer parametrization folds).
-  // Each vertex moves toward its one-ring centroid, projected onto the ring's
-  // own best-fit plane (Newell normal) so only the tangential component applies
-  // -- no volume shrinkage, and no dependence on stored vertex normals. The
-  // displacement is clamped to the local edge scale, so irregular dyntopo
-  // connectivity can never blow positions up.
-  const int smooth_iters = 5;
-  const float smooth_lambda = 0.5f;
-  m.thawTopo();
-  util::Vector<math::float3> nco;
-  nco.resize(int(m.v.capacity()));
-  util::Vector<math::float3> ring;
-  for (int it = 0; it < smooth_iters; it++) {
-    for (int v : m.v) {
-      math::float3 vco = m.v.co[v];
-      int e0 = m.v.e[v];
-      if (e0 == ELEM_NONE) {
-        nco[v] = vco;
-        continue;
-      }
-      ring.clear();
-      int ec = e0, guard = 0;
-      do {
-        int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
-        ring.append(m.v.co[ov]);
-        int side = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = m.e.disk[ec][side * 2 + 1];
-      } while (ec != e0 && ++guard < 256);
-      int k = int(ring.size());
-      if (k < 3) {
-        nco[v] = vco;
-        continue;
-      }
-      math::float3 cen{};
-      for (int i = 0; i < k; i++) cen += ring[i];
-      cen = cen * (1.0f / float(k));
-      math::float3 nrm{}; // Newell normal of the ordered ring polygon about cen
-      float minlen = 1e30f;
-      for (int i = 0; i < k; i++) {
-        math::float3 a = ring[i] - cen, b = ring[(i + 1) % k] - cen;
-        nrm += a.cross(b);
-        float el = (ring[i] - vco).length();
-        if (el < minlen) minlen = el;
-      }
-      math::float3 d = cen - vco;
-      float nl = nrm.length();
-      if (nl > 1e-20f) {
-        math::float3 un = nrm * (1.0f / nl);
-        d = d - un * d.dot(un); // tangent-plane component only
-      }
-      float dl = d.length();
-      if (dl > minlen && dl > 1e-20f) d = d * (minlen / dl); // clamp to edge scale
-      nco[v] = vco + d * smooth_lambda;
-    }
-    for (int v : m.v) {
-      m.v.co[v] = nco[v];
-    }
-  }
-  m.recalc_normals();
+  bkRemeshToTarget(m, L, seed);
+  tangentialSmooth(m, 5, 0.5f, 0.0f);
 }
 
 } // namespace

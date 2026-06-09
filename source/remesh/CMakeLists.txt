@@ -10,6 +10,7 @@ set(LIB
 
 set(SRC
   PUBLIC remesh.h
+  PUBLIC preremesh.h
   PUBLIC remesh_params.h
   PUBLIC remesh_report.h
   PUBLIC triage.h
@@ -28,6 +29,7 @@ set(SRC
   PUBLIC extract/quad_extract.h
   PUBLIC extract/reproject.h
   remesh.cc
+  preremesh.cc
   triage.cc
   bindings.cc
   field/curvature.cc
