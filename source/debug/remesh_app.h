@@ -24,16 +24,7 @@ class RemeshApp {
 public:
   enum class Job { None, Remesh, Meshy };
 
-  RemeshApp(Scene &scene) : scene_(scene)
-  {
-    // App default diverges from the core PreRemeshParams default (5): with the
-    // per-iter snap-back in runPreRemesh, 5 inner smooth passes between snaps
-    // over-drift and the snap then hard-flips triangles; 2 keeps drift sub-
-    // feature-size so the result stays on-surface (measured >150deg folds 3.3%
-    // -> 0.2%). The proper home is a gentler core default once Tier 9 reproject
-    // lands in the driver — flag for review, don't treat as the final value.
-    preParams.smooth_iters = 2;
-  }
+  RemeshApp(Scene &scene) : scene_(scene) {}
 
   /* Scan the assets dir for *.obj and refresh `assets`. Keeps the current
    * selection if its name still exists. */

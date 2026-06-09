@@ -34,6 +34,8 @@
 #include "mesh/utils/edge_split.h"
 #include "mesh/utils/triangulate.h"
 
+#include "dyntopo/dyntopo_trace.h"
+
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/rand.h"
@@ -125,6 +127,12 @@ struct DynTopoParams {
    * from a coherent stroke-start surface as topology changes under the dab. New
    * verts created mid-dab are left unstamped (gen 0) so they read live. */
   uint32_t nonAccumGen = 0;
+
+  /* Optional per-round triangle-quality trace (split-sliver oscillation
+   * detection, dyntopo_trace.h). Null (default) = no tracing, zero cost; when
+   * set, each round appends a RoundQuality snapshot. Native-only diagnostic —
+   * deliberately NOT registered in bindings.cc, so it never crosses the seam. */
+  DynTopoTrace *trace = nullptr;
 
   /* Bound out-of-line in dyntopo/bindings.cc (keeps binding headers out of this
    * hot header). Crosses the WASM/N-API seam by value, so the struct registers a
@@ -225,6 +233,79 @@ inline GenSet &misLockedSet()
 {
   static thread_local GenSet s;
   return s;
+}
+inline GenSet &traceFaceSeenSet() /* only used when DynTopoParams::trace is set */
+{
+  static thread_local GenSet s;
+  return s;
+}
+
+/* Smallest interior angle (radians) of triangle face f. Matches the survey
+ * metric in mesh_validate.h (computeTier0Metrics) so the per-round trace and the
+ * final whole-mesh survey are directly comparable. */
+inline float triMinAngle(mesh::Mesh &m, int f)
+{
+  int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+  float amin = 3.14159265f;
+  do {
+    int cn = m.c.next[cc], cp = m.c.prev[cc];
+    litestl::math::float3 pco = m.v.co[m.c.v[cc]];
+    litestl::math::float3 a = m.v.co[m.c.v[cn]] - pco;
+    litestl::math::float3 b = m.v.co[m.c.v[cp]] - pco;
+    float la = a.length(), lb = b.length();
+    if (la > 1e-12f && lb > 1e-12f) {
+      float cosa = a.dot(b) / (la * lb);
+      cosa = cosa < -1.0f ? -1.0f : (cosa > 1.0f ? 1.0f : cosa);
+      float ang = std::acos(cosa);
+      if (ang < amin) {
+        amin = ang;
+      }
+    }
+    cc = cn;
+  } while (cc != c0);
+  return amin;
+}
+
+/* Snapshot the triangle quality of the faces incident to `verts` whose centroid
+ * lies inside the dab (center, r2), into `q`. Each face is measured once. */
+inline void measureRoundQuality(mesh::Mesh &m, litestl::util::Set<int> &verts,
+                                litestl::math::float3 center, float r2,
+                                float thin_angle, RoundQuality &q)
+{
+  GenSet &fseen = traceFaceSeenSet();
+  fseen.reset(int(m.f.capacity()));
+  double angSum = 0.0;
+  for (int v : verts) {
+    if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
+      continue;
+    }
+    for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+      int rc0 = m.e.c[e];
+      if (rc0 == ELEM_NONE) {
+        continue;
+      }
+      int rcc = rc0;
+      do {
+        int f = m.l.f[m.c.l[rcc]];
+        if (fseen.add(f)) {
+          litestl::math::float3 c0co = m.v.co[m.c.v[m.l.c[m.f.l[f]]]];
+          if ((c0co - center).lengthSqr() <= r2) {
+            float ang = triMinAngle(m, f);
+            if (q.tri_count == 0 || ang < q.min_angle) {
+              q.min_angle = ang;
+            }
+            q.tri_count++;
+            angSum += ang;
+            if (ang < thin_angle) {
+              q.thin_count++;
+            }
+          }
+        }
+        rcc = m.c.radial_next[rcc];
+      } while (rcc != rc0);
+    }
+  }
+  q.mean_min_angle = q.tri_count > 0 ? float(angSum / double(q.tri_count)) : 0.0f;
 }
 
 /* Lock the verts a split affects: just the two edge endpoints. Any two edges
@@ -646,7 +727,17 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
   bool firstRound = true;
   bool budgetHit = false;
 
+  /* Cumulative op counts at the start of the round, for per-round trace deltas
+   * (only written when tracing). */
+  int traceS0 = 0, traceC0 = 0, traceF0 = 0, traceSm0 = 0;
+
   for (int round = 0; round < p.max_rounds; round++) {
+    if (p.trace) {
+      traceS0 = stats.splits;
+      traceC0 = stats.collapses;
+      traceF0 = stats.flips;
+      traceSm0 = stats.smooths;
+    }
     /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
     Vector<Cand> cands;
     detail::GenSet &seen = detail::scanSeenSet();
@@ -897,6 +988,20 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
     frontier = std::move(nextFrontier);
 
     stats.rounds = round + 1;
+
+    /* Granular split-sliver detection: snapshot this round's frontier-face
+     * quality so an oscillation that a final survey would miss is visible. */
+    if (p.trace) {
+      RoundQuality q;
+      q.round = round;
+      q.splits = stats.splits - traceS0;
+      q.collapses = stats.collapses - traceC0;
+      q.flips = stats.flips - traceF0;
+      q.smooths = stats.smooths - traceSm0;
+      detail::measureRoundQuality(m, frontier, center, r2, p.trace->thin_angle, q);
+      p.trace->rounds.append(q);
+    }
+
     if (budgetHit) {
       stats.budget_hit = true;
       stats.capped = true;

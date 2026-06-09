@@ -381,27 +381,8 @@ bool RemeshApp::runPreRemesh(std::string &err)
   // load with keepNgons=true; triangulate first, mirroring the gtest.
   mesh::triangulateMesh(*scene_.mesh);
   int v0 = scene_.mesh->v.count, f0 = scene_.mesh->f.count;
-  std::string note;
-  if (preReproject) {
-    // Canonical Botsch-Kobbelt: alternate ONE field-aligned remesh iter with a
-    // snap back onto the input surface, so tangential drift never accumulates
-    // far enough to cross surface sheets. A single end-snap instead hard-flips
-    // triangles where the bulk drift crossed a thin/curved feature (measured: a
-    // single end-snap leaves ~3% of edges back-folded >150deg; interleaving with
-    // a gentle smooth drops that to ~0.2%). Mirrors the per-frame stepping path.
-    const int outer = base.iters > 0 ? base.iters : 1;
-    for (int it = 0; it < outer; it++) {
-      remesh::PreRemeshParams p = base;
-      p.iters = 1;
-      p.bootstrap_iters = it == 0 ? base.bootstrap_iters : 0;
-      p.seed = base.seed + uint32_t(it);
-      p.converge_eps = 0.0f; // the app, not the driver, owns the outer loop
-      remesh::preRemesh(*scene_.mesh, p);
-      note = reprojectToInput();
-    }
-  } else {
-    remesh::preRemesh(*scene_.mesh, base);
-  }
+  remesh::preRemesh(*scene_.mesh, base);
+  std::string note = reprojectToInput(); // Tier 9 end-snap back onto the input
   scene_.buildSpatial(0, 0, 0); // the pre-pass mutated topology in place
   if (preShowField && base.align > 0.0f) {
     showCrossField = true; // .remesh.f.theta now holds the pre-pass field
