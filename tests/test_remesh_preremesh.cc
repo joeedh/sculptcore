@@ -16,6 +16,7 @@
 // primitive in isolation.
 #include "test_util.h"
 
+#include "dyntopo/dyntopo_trace.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "mesh/attribute_builtin.h"
@@ -534,6 +535,78 @@ void testDriverPreservesFeatures()
   litestl::alloc::Delete<Mesh>(cube2);
 }
 
+// Pre-pass-scale granular trace (dyntopo_trace.h): attaching a DynTopoTrace to the
+// driver accumulates every outer iter's BK dab rounds into one continuous series,
+// each stamped with its outer iter, so the split bug's sliver behavior is visible
+// at multi-iter scale (not just within a single dab). This gates the threading +
+// stamping mechanism and reports the observed oscillation for review.
+void testPrepassTrace()
+{
+  Mesh *sph = noisedSphere(2024u, false);
+  const int iters = 6;
+
+  dyntopo::DynTopoTrace trace;
+  remesh::PreRemeshParams p;
+  p.target = 0.18f;
+  p.iters = iters;
+  p.align = 1.0f;
+  p.density = false;
+  p.preserve_features = false;
+  p.converge_eps = 0.0f; // run all outer iters so the full series is captured
+  p.trace = &trace;
+  remesh::preRemesh(*sph, p);
+
+  dyntopo::OscillationReport r = dyntopo::detectOscillation(trace, /*min_swing=*/2);
+
+  // Confirm the iter stamps are contiguous 0..maxIter and in order (every outer
+  // iter that ran contributed >= 1 round, no gaps), and print a per-iter summary.
+  const float k = 180.0f / 3.14159265358979323846f;
+  int n = int(trace.rounds.size());
+  int maxIter = -1, prevIter = -1;
+  bool ordered = true, contiguous = true;
+  for (int i = 0; i < n; i++) {
+    int it = trace.rounds[i].iter;
+    if (it < prevIter) ordered = false;
+    if (it > maxIter + 1) contiguous = false;
+    if (it > maxIter) maxIter = it;
+    prevIter = it;
+  }
+  for (int it = 0; it <= maxIter; it++) {
+    int rounds = 0, maxThin = 0, churn = 0, churnRun = 0;
+    float worstAng = 6.2832f;
+    for (int i = 0; i < n; i++) {
+      if (trace.rounds[i].iter != it) continue;
+      const dyntopo::RoundQuality &q = trace.rounds[i];
+      rounds++;
+      if (q.thin_count > maxThin) maxThin = q.thin_count;
+      if (q.min_angle < worstAng) worstAng = q.min_angle;
+      churn = (q.splits + q.collapses) <= 2 ? churn + 1 : 0;
+      if (churn > churnRun) churnRun = churn;
+    }
+    fprintf(stderr,
+            "[prepass] iter=%d rounds=%-3d maxThin=%-2d worstMinAng=%5.1f "
+            "churnRun=%d\n",
+            it, rounds, maxThin, worstAng * k, churnRun);
+  }
+  fprintf(stderr,
+          "[prepass/trace] rounds=%d iters=%d peak_thin=%d worstMinAng=%.1f "
+          "swings=%d healed=%d churn_run=%d@iter%d\n",
+          n, maxIter + 1, r.peak_thin, r.worst_min_angle * k, r.swings,
+          int(r.healed), r.churn_run, r.churn_iter);
+
+  TASSERT(n > 0);          // the trace captured rounds
+  TASSERT(maxIter >= 1);   // genuinely multi-iter (more than one dab)
+  TASSERT(ordered);        // rounds appended in outer-iter order
+  TASSERT(contiguous);     // every outer iter contributed at least one round
+  TASSERT(finiteCo(*sph));
+  // Regression gate for the limit-cycle early-out (DynTopoParams::max_stall_rounds,
+  // default 16): no dab may churn longer than the cap before bailing. Pre-fix this
+  // run spun iter0 to the round cap with a 77-round split<->collapse churn tail; the
+  // early-out bounds every dab's churn to the cap, so the worst run is <= 16.
+  TASSERT(r.churn_run <= 16);
+  litestl::alloc::Delete<Mesh>(sph);
+}
+
 // 9b no-op guard: target <= 0 (or iters <= 0) leaves the mesh untouched, so a
 // disabled pre-pass never perturbs the pipeline.
 void testDriverNoOp()
@@ -576,6 +649,7 @@ int main()
   testDriverConverges();
   testDriverDensityGrades();
   testDriverPreservesFeatures();
+  testPrepassTrace();
   testDriverNoOp();
   return retval;
 }

@@ -9,6 +9,9 @@
 namespace sculptcore::mesh {
 struct Mesh;
 }
+namespace sculptcore::dyntopo {
+struct DynTopoTrace;
+}
 
 namespace sculptcore::remesh {
 
@@ -35,10 +38,14 @@ void classifyFeatures(mesh::Mesh &m, float sharp_angle);
  * a feature edge collapses only along its own collinear curve. Also disables BK's
  * internal tangential smooth (fresh split midpoints aren't yet classified, so it
  * would drift them off a crease) — the feature-preserving caller relaxes with its
- * own pinned smooth instead. Default false = the plain geometry-only decimation. */
+ * own pinned smooth instead. Default false = the plain geometry-only decimation.
+ *
+ * @p trace optional granular per-round quality trace (dyntopo_trace.h); the dab
+ * appends one RoundQuality per round. null (default) = no tracing, zero cost. */
 void bkRemeshToTarget(mesh::Mesh &m, float L, uint32_t seed,
                       const char *size_attr = nullptr,
-                      bool preserve_features = false);
+                      bool preserve_features = false,
+                      dyntopo::DynTopoTrace *trace = nullptr);
 
 /* Tangential smooth blending isotropic and field-aligned relaxation.
  *
@@ -81,6 +88,11 @@ struct PreRemeshParams {
    * (radians; default 45°, matching the cross field). */
   bool preserve_features = true;
   float sharp_angle = 0.785398f;
+  /* Optional granular per-round quality trace (dyntopo_trace.h). When set, every
+   * outer iter's BK dab appends its rounds, each stamped with the outer `iter`, so
+   * the whole pre-pass is one continuous time-series — the place to see the split
+   * bug's sliver oscillation at multi-iter scale. null (default) = no tracing. */
+  dyntopo::DynTopoTrace *trace = nullptr;
 };
 
 /* Tier 9b convergence driver: iterate bootstrap → rough cross field (cadenced) →

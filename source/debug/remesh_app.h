@@ -124,11 +124,14 @@ public:
   std::string stage;          // last PROGRESS stage tag
   std::string status;         // human-readable status line (errors land here)
 
+  std::string stats;
+
   // Last completed run.
   std::string lastObj;
   std::string lastManifest;
   std::string lastStats;
-
+  
+  void updateStats();
 private:
   bool loadObjFile(const std::string &path, std::string &err);
   /* Tier 9e: snap the current (pre-passed) mesh back onto the original input

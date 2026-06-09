@@ -54,7 +54,7 @@ void classifyFeatures(Mesh &m, float sharp_angle)
 }
 
 void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
-                      bool preserve_features)
+                      bool preserve_features, dyntopo::DynTopoTrace *trace)
 {
   m.thawTopo();
 
@@ -90,6 +90,7 @@ void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
   dp.preserve_features = preserve_features; // caller ran classifyFeatures first
   dp.max_rounds = 100;
   dp.size_attr = size_attr; // null = uniform; set = per-vertex curvature sizing
+  dp.trace = trace;         // null = no tracing; set = append this dab's rounds
   dyntopo::applyBrushDab(m, center, radius, dp, seed);
 }
 
@@ -411,8 +412,16 @@ void preRemesh(Mesh &m, const PreRemeshParams &p)
     }
 
     // 3. Botsch-Kobbelt to the size field (split long / collapse short / flip).
+    //    With a trace attached, stamp this dab's rounds with the outer iter so the
+    //    accumulated series reads as one continuous multi-iter time-line.
+    size_t trace0 = p.trace ? p.trace->rounds.size() : 0;
     bkRemeshToTarget(m, L, p.seed + uint32_t(it) + 1u, size_attr,
-                     p.preserve_features);
+                     p.preserve_features, p.trace);
+    if (p.trace) {
+      for (size_t i = trace0; i < p.trace->rounds.size(); i++) {
+        p.trace->rounds[i].iter = it;
+      }
+    }
 
     // 9c: BK split/collapse marked the geometry it created boundary-dirty but did
     //     not reclassify — refresh the per-vertex class so the smooth below pins

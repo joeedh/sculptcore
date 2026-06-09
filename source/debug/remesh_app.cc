@@ -50,7 +50,10 @@ std::wstring wf(float v)
   return widen(buf);
 }
 
-std::wstring wb(bool b) { return b ? L"1" : L"0"; }
+std::wstring wb(bool b)
+{
+  return b ? L"1" : L"0";
+}
 
 // First whitespace-delimited token + the (trimmed) remainder.
 void splitFirst(const std::string &line, std::string &cmd, std::string &rest)
@@ -68,13 +71,49 @@ void splitFirst(const std::string &line, std::string &cmd, std::string &rest)
     j++;
   }
   rest = line.substr(j);
-  while (!rest.empty() && (rest.back() == '\r' || rest.back() == '\n' ||
-                           rest.back() == ' ')) {
+  while (!rest.empty() &&
+         (rest.back() == '\r' || rest.back() == '\n' || rest.back() == ' '))
+  {
     rest.pop_back();
   }
 }
 
 } // namespace
+
+void RemeshApp::updateStats()
+{
+  if (scene_.mesh) {
+    Mesh *m = scene_.mesh;
+    int open = 0;
+    int nonmanifold = 0;
+
+    for (int e : m->e) {
+      if (m->e.c[e] == ELEM_NONE) {
+        open++;
+        continue;
+      }
+      int c = m->e.c[e];
+      int faces = 0;
+      int _guard = 0;
+      do {
+        faces++;
+        if (_guard++ > 10000) {
+          printf("infinite loop in mesh\n");
+          break;
+        }
+        c = m->c.radial_next[c];
+      } while (c != m->e.c[e]);
+
+      if (faces > 2) {
+        nonmanifold++;
+      }
+    }
+
+    char buf[512];
+    sprintf(buf, "open:%d nonmanifold:%d faces:%d", open, nonmanifold, m->f.count);
+    stats = std::string(buf);
+  }
+}
 
 std::wstring RemeshApp::remeshCliPath()
 {
@@ -100,9 +139,8 @@ std::string RemeshApp::assetPath(const std::string &name) const
 
 void RemeshApp::rescanAssets()
 {
-  std::string keep = (selected >= 0 && selected < (int)assets.size())
-                         ? assets[selected]
-                         : std::string();
+  std::string keep =
+      (selected >= 0 && selected < (int)assets.size()) ? assets[selected] : std::string();
   assets.clear();
   std::error_code ec;
   for (auto &de : fs::directory_iterator(REMESH_DBG_ASSETS_DIR, ec)) {
@@ -139,6 +177,7 @@ bool RemeshApp::loadObjFile(const std::string &path, std::string &err)
   scene_.setMesh(m);
   scene_.buildSpatial(0, 0, 0);
   cameraFit();
+  updateStats();
   return true;
 }
 
@@ -191,7 +230,8 @@ bool RemeshApp::importAsset(const std::string &srcPath, std::string &err)
   return loadAsset(name, err);
 }
 
-bool RemeshApp::startJob(Job kind, const std::wstring &exe,
+bool RemeshApp::startJob(Job kind,
+                         const std::wstring &exe,
                          const std::vector<std::wstring> &args,
                          const std::string &label)
 {
@@ -224,30 +264,52 @@ bool RemeshApp::runRemesh(std::string &err)
   std::string name = assets[selected];
   currentAssetName_ = name;
   std::vector<std::wstring> args = {
-      L"--input",          widen(assetPath(name)),
-      L"--name",           widen(name),
-      L"--outdir",         widen(REMESH_DBG_RESULTS_DIR),
-      L"--target",         wf(params.target_edge_length),
-      L"--solve",          wf(params.solve_edge_length),
-      L"--curvature",      wb(params.use_curvature),
-      L"--sharp",          wb(params.use_sharp_features),
-      L"--sharp-angle",    wf(params.sharp_angle),
-      L"--density",        wb(params.use_density),
-      L"--reproject",      wb(params.reproject),
-      L"--cap-odd",        wb(params.cap_odd_holes),
-      L"--smooth",         widen(std::to_string(params.smooth_iterations)),
-      L"--smooth-strength", wf(params.smooth_strength),
-      L"--seed",           widen(std::to_string((unsigned long)params.seed)),
-      L"--triage",         wb(params.triage),
-      L"--triage-weld-rel", wf(params.triage_weld_rel),
-      L"--triage-min-component-frac", wf(params.triage_min_component_frac),
+      L"--input",
+      widen(assetPath(name)),
+      L"--name",
+      widen(name),
+      L"--outdir",
+      widen(REMESH_DBG_RESULTS_DIR),
+      L"--target",
+      wf(params.target_edge_length),
+      L"--solve",
+      wf(params.solve_edge_length),
+      L"--curvature",
+      wb(params.use_curvature),
+      L"--sharp",
+      wb(params.use_sharp_features),
+      L"--sharp-angle",
+      wf(params.sharp_angle),
+      L"--density",
+      wb(params.use_density),
+      L"--reproject",
+      wb(params.reproject),
+      L"--cap-odd",
+      wb(params.cap_odd_holes),
+      L"--smooth",
+      widen(std::to_string(params.smooth_iterations)),
+      L"--smooth-strength",
+      wf(params.smooth_strength),
+      L"--seed",
+      widen(std::to_string((unsigned long)params.seed)),
+      L"--triage",
+      wb(params.triage),
+      L"--triage-weld-rel",
+      wf(params.triage_weld_rel),
+      L"--triage-min-component-frac",
+      wf(params.triage_min_component_frac),
       L"--curvature-smooth-iters",
       widen(std::to_string(params.curvature_smooth_iters)),
-      L"--curvature-smooth-lambda", wf(params.curvature_smooth_lambda),
-      L"--auto-density",   wb(params.auto_density),
-      L"--density-min",    wf(params.density_min),
-      L"--density-max",    wf(params.density_max),
-      L"--density-gradation", wf(params.density_gradation),
+      L"--curvature-smooth-lambda",
+      wf(params.curvature_smooth_lambda),
+      L"--auto-density",
+      wb(params.auto_density),
+      L"--density-min",
+      wf(params.density_min),
+      L"--density-max",
+      wf(params.density_max),
+      L"--density-gradation",
+      wf(params.density_gradation),
       L"--density-gradation-iters",
       widen(std::to_string(params.density_gradation_iters)),
   };
@@ -305,6 +367,7 @@ void RemeshApp::handleLine(const std::string &line)
           }
         }
       }
+      updateStats();
       status = "loaded result " + fs::path(path).filename().string();
     } else {
       status = "ERROR " + err;
@@ -383,17 +446,24 @@ bool RemeshApp::runPreRemesh(std::string &err)
   int v0 = scene_.mesh->v.count, f0 = scene_.mesh->f.count;
   remesh::preRemesh(*scene_.mesh, base);
   std::string note = reprojectToInput(); // Tier 9 end-snap back onto the input
-  scene_.buildSpatial(0, 0, 0); // the pre-pass mutated topology in place
+  scene_.buildSpatial(0, 0, 0);          // the pre-pass mutated topology in place
   if (preShowField && base.align > 0.0f) {
     showCrossField = true; // .remesh.f.theta now holds the pre-pass field
   }
   char buf[224];
-  std::snprintf(
-      buf, sizeof(buf),
-      "pre-pass: %d->%d verts, %d->%d faces (align=%.2f density=%d feat=%d)%s", v0,
-      scene_.mesh->v.count, f0, scene_.mesh->f.count, base.align, int(base.density),
-      int(base.preserve_features), note.c_str());
+  std::snprintf(buf,
+                sizeof(buf),
+                "pre-pass: %d->%d verts, %d->%d faces (align=%.2f density=%d feat=%d)%s",
+                v0,
+                scene_.mesh->v.count,
+                f0,
+                scene_.mesh->f.count,
+                base.align,
+                int(base.density),
+                int(base.preserve_features),
+                note.c_str());
   status = buf;
+  updateStats();
   return true;
 }
 
@@ -441,13 +511,19 @@ void RemeshApp::preStepAdvance()
   }
   preStepIter++;
   char buf[192];
-  std::snprintf(buf, sizeof(buf), "pre-pass step %d/%d: %d verts %d faces%s",
-                preStepIter, total, scene_.mesh->v.count, scene_.mesh->f.count,
+  std::snprintf(buf,
+                sizeof(buf),
+                "pre-pass step %d/%d: %d verts %d faces%s",
+                preStepIter,
+                total,
+                scene_.mesh->v.count,
+                scene_.mesh->f.count,
                 note.c_str());
   status = buf;
   if (preStepIter >= total) {
     preStepping = false;
   }
+  updateStats();
 }
 
 bool RemeshApp::preStepReset(std::string &err)
@@ -680,8 +756,7 @@ std::string RemeshApp::handleCommand(const std::string &line)
     return "ERROR usage: pre_step start|stop|reset";
   }
   if (cmd == "last_result") {
-    o << "obj=" << lastObj << "\nmanifest=" << lastManifest
-      << "\nstats=" << lastStats;
+    o << "obj=" << lastObj << "\nmanifest=" << lastManifest << "\nstats=" << lastStats;
     return o.str();
   }
   if (cmd == "get_state") {
@@ -692,13 +767,12 @@ std::string RemeshApp::handleCommand(const std::string &line)
     o << "  \"asset\": \"" << (selected >= 0 ? assets[selected] : "") << "\",\n";
     o << "  \"mesh\": { \"verts\": " << vc << ", \"faces\": " << fc << " },\n";
     o << "  \"job\": { \"running\": " << (busy() ? "true" : "false")
-      << ", \"progress\": " << progress << ", \"stage\": \"" << stage
-      << "\" },\n";
-    o << "  \"camera\": { \"eye\": [" << c.eye[0] << ", " << c.eye[1] << ", "
-      << c.eye[2] << "], \"target\": [" << c.target[0] << ", " << c.target[1]
-      << ", " << c.target[2] << "] },\n";
-    o << "  \"last\": { \"obj\": \"" << lastObj << "\", \"manifest\": \""
-      << lastManifest << "\", \"stats\": \"" << lastStats << "\" },\n";
+      << ", \"progress\": " << progress << ", \"stage\": \"" << stage << "\" },\n";
+    o << "  \"camera\": { \"eye\": [" << c.eye[0] << ", " << c.eye[1] << ", " << c.eye[2]
+      << "], \"target\": [" << c.target[0] << ", " << c.target[1] << ", " << c.target[2]
+      << "] },\n";
+    o << "  \"last\": { \"obj\": \"" << lastObj << "\", \"manifest\": \"" << lastManifest
+      << "\", \"stats\": \"" << lastStats << "\" },\n";
     o << "  \"status\": \"" << status << "\"\n";
     o << "}";
     return o.str();
@@ -710,8 +784,7 @@ std::string RemeshApp::handleCommand(const std::string &line)
   if (cmd == "camera_get") {
     auto &c = scene_.camera;
     o << "eye=" << c.eye[0] << "," << c.eye[1] << "," << c.eye[2] << "\n"
-      << "target=" << c.target[0] << "," << c.target[1] << "," << c.target[2]
-      << "\n"
+      << "target=" << c.target[0] << "," << c.target[1] << "," << c.target[2] << "\n"
       << "up=" << c.up[0] << "," << c.up[1] << "," << c.up[2] << "\n"
       << "fovy=" << c.fovy;
     return o.str();

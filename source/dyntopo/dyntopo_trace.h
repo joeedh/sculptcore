@@ -23,7 +23,8 @@ namespace sculptcore::dyntopo {
  * Angles are radians; the op counts are the ops *applied that round* (deltas,
  * not cumulative), so a sliver burst can be correlated with the split spike. */
 struct RoundQuality {
-  int round = 0;
+  int iter = 0;  // outer pre-pass iteration (0 for a bare dab); stamped by the caller
+  int round = 0; // dab-local round index (resets each dab / outer iter)
   int splits = 0, collapses = 0, flips = 0, smooths = 0;
   int tri_count = 0;          // frontier triangles measured this round
   int thin_count = 0;         // tris with min interior angle < thin_angle
@@ -39,11 +40,21 @@ struct DynTopoTrace {
   void clear() { rounds.clear(); }
 };
 
-/* Verdict over a completed trace. `swings` counts thin-triangle bursts that
- * appeared and then healed (a rise then fall in thin_count, each leg at least
- * `min_swing` triangles); `oscillated` is swings >= 1. `peak_round`/`peak_thin`
- * mark the worst burst and `worst_min_angle` the global worst angle; `healed` is
- * end thin_count <= the first round's (the region recovered by the end). */
+/* Verdict over a completed trace, covering the two oscillation modes the split bug
+ * produces:
+ *
+ *  - thin-triangle (sliver) oscillation: `swings` counts thin-triangle bursts that
+ *    appeared and then healed (a rise then fall in thin_count, each leg at least
+ *    `min_swing` triangles); `oscillated` is swings >= 1. `peak_round`/`peak_thin`
+ *    mark the worst burst and `worst_min_angle` the global worst angle; `healed` is
+ *    end thin_count <= the first round's (the region recovered by the end).
+ *
+ *  - split<->collapse limit cycle (wasted work): `churn_run` is the longest run of
+ *    consecutive "churn" rounds within one dab — rounds doing only a few
+ *    vertex-count-changing ops (split+collapse <= churn_op_max) so they make no net
+ *    topological progress. A healthy dab nibbles briefly then terminates (short
+ *    run); a dab stuck ping-ponging one edge churns until the round cap (long run).
+ *    `churn_iter` is the outer pre-pass iter that run occurred in. */
 struct OscillationReport {
   bool oscillated = false;
   bool healed = false;
@@ -53,11 +64,17 @@ struct OscillationReport {
   int start_thin = 0;
   int end_thin = 0;
   float worst_min_angle = 0.0f;
+  int churn_run = 0;   // longest run of low-op churn rounds within one dab
+  int churn_iter = -1; // outer iter that run fell in (0 for a bare dab)
 };
 
 /* Hysteresis turning-point counter over the thin_count series: a confirmed rise
- * of >= min_swing then a confirmed fall of >= min_swing is one healed burst. */
-inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing = 1)
+ * of >= min_swing then a confirmed fall of >= min_swing is one healed burst. Also
+ * scans for the split<->collapse limit cycle: the longest run of consecutive rounds
+ * doing <= churn_op_max split+collapse ops (no net topological progress) within one
+ * dab — dabs are delimited by round==0, so a churn tail never spans dab/iter ends. */
+inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing = 1,
+                                           int churn_op_max = 2)
 {
   OscillationReport r;
   int n = int(t.rounds.size());
@@ -108,6 +125,22 @@ inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing 
   }
   r.oscillated = r.swings >= 1;
   r.healed = r.end_thin <= r.start_thin;
+
+  // Limit-cycle scan: longest run of consecutive churn rounds, reset at each dab
+  // boundary (round==0). A round is churn when it moves few verts (split+collapse
+  // <= churn_op_max) — productive decimation/refinement rounds do many more.
+  int run = 0;
+  for (int i = 0; i < n; i++) {
+    const RoundQuality &q = t.rounds[i];
+    if (q.round == 0) {
+      run = 0; // new dab / outer iter: don't bridge a churn tail across the break
+    }
+    run = (q.splits + q.collapses) <= churn_op_max ? run + 1 : 0;
+    if (run > r.churn_run) {
+      r.churn_run = run;
+      r.churn_iter = q.iter;
+    }
+  }
   return r;
 }
 
@@ -117,9 +150,9 @@ inline void printTrace(const DynTopoTrace &t, const char *tag)
   const float k = 180.0f / 3.14159265358979323846f;
   for (const RoundQuality &q : t.rounds) {
     std::fprintf(stderr,
-                 "[%s] r%-2d s=%-3d c=%-3d f=%-3d sm=%-3d  tris=%-4d thin=%-3d "
-                 "minAng=%5.1f meanMin=%5.1f\n",
-                 tag, q.round, q.splits, q.collapses, q.flips, q.smooths,
+                 "[%s] it%-2d r%-2d s=%-3d c=%-3d f=%-3d sm=%-3d  tris=%-4d "
+                 "thin=%-3d minAng=%5.1f meanMin=%5.1f\n",
+                 tag, q.iter, q.round, q.splits, q.collapses, q.flips, q.smooths,
                  q.tri_count, q.thin_count, q.min_angle * k, q.mean_min_angle * k);
   }
 }

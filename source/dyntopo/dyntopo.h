@@ -120,6 +120,16 @@ struct DynTopoParams {
    * collinear feature curve. Off = the original feature-agnostic remesh. */
   bool preserve_features = true;
 
+  /* Limit-cycle early-out. Stops a dab once it has run this many *consecutive*
+   * low-progress rounds (<= 2 split+collapse ops each) — the signature of a
+   * split<->collapse ping-pong that never reaches a fixed point: a freshly split
+   * edge-half can land below l_min and be recollapsed, recreating the long edge,
+   * so cands never empties and the dab spins to max_rounds. A healthy dab's churn
+   * tail is only a handful of rounds, so 16 sits well clear of real convergence
+   * (a no-op on it) and only trims the wasted tail of a genuine cycle. 0 =
+   * disabled (the pre-fix spin-to-cap behavior, for A/B). */
+  int max_stall_rounds = 16;
+
   /* Non-accumulate coherence (see plans/nonAccumMode.md). 0 = off. When non-zero
    * this is the active stroke's generation stamp: remesh operators that move a
    * stamped vert (smooth Jacobi step, collapse-into-survivor) also shift its
@@ -148,6 +158,9 @@ struct DynTopoStats {
   int rounds = 0;
   bool capped = false;     /* hit max_rounds with work still pending */
   bool budget_hit = false; /* stopped early on max_splits (more work remains) */
+  /* Bailed out of a split<->collapse limit cycle (max_stall_rounds). Native-only
+   * diagnostic — deliberately NOT bound in bindings.cc, like DynTopoParams::trace. */
+  bool stalled = false;
 
   static litestl::binding::types::Struct<DynTopoStats> *defineBindings();
 };
@@ -726,6 +739,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
   Set<int> frontier;
   bool firstRound = true;
   bool budgetHit = false;
+  int stallRun = 0; /* consecutive low-progress rounds (limit-cycle early-out) */
 
   /* Cumulative op counts at the start of the round, for per-round trace deltas
    * (only written when tracing). */
@@ -1009,6 +1023,18 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
     }
     if (applied == 0) {
       break; /* nothing progressed (all refused) — avoid spinning */
+    }
+    /* Limit-cycle early-out: a long run of low-progress rounds is a split<->
+     * collapse ping-pong, not convergence (convergence empties cands and breaks
+     * above), so bail before the dab spins to max_rounds. See max_stall_rounds. */
+    if (p.max_stall_rounds > 0) {
+      constexpr int kStallOpMax = 2; /* matches dyntopo_trace's churn_op_max */
+      stallRun = applied <= kStallOpMax ? stallRun + 1 : 0;
+      if (stallRun >= p.max_stall_rounds) {
+        stats.stalled = true;
+        stats.capped = true;
+        break;
+      }
     }
     if (round == p.max_rounds - 1) {
       stats.capped = true;

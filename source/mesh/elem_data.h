@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef __SANITIZE_ADDRESS__
+//#include <sanitizer/asan_interface.h> 
+#endif
+
 #include "attribute.h"
 #include "litestl/util/assert.h"
 #include "litestl/util/boolvector.h"

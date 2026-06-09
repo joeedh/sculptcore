@@ -123,6 +123,7 @@ struct Scene {
 
   void setMesh(mesh::Mesh *m);
   void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);
+  void smoothMesh();
 
   /* Remesh the mesh under one dab (sphere center/radius) and rebuild the
    * spatial tree with the last buildSpatial settings. Returns split+collapse

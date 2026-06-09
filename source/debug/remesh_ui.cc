@@ -419,6 +419,10 @@ void RemeshUi::drawPanel()
       app_->status = "ERROR " + err;
     }
   }
+  ImGui::SeparatorText(app_->stats.c_str());
+  if (ImGui::Button("Laplacian Smooth")) {
+    app_->scene().smoothMesh();
+  }
   tip("Reload the current asset from disk (undo the pre-pass to inspect again).");
   ImGui::EndDisabled();
   if (app_->preStepping) {

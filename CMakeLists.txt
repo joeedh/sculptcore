@@ -40,6 +40,15 @@ else()
   endif()
 endif()
 
+option(WITH_ASAN "Enable Address Sanitizer" OFF)
+
+if (WITH_ASAN)
+		add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+    add_link_options(-fms-runtime-lib=dll_dbg -shared-libsan)
+    add_compile_options(-fms-runtime-lib=dll_dbg -shared-libsan)
+endif()
+
 add_compile_options(-Wno-parentheses-equality)
 
 
