@@ -47,6 +47,43 @@ if (WITH_ASAN)
     add_link_options(-fsanitize=address)
     add_link_options(-fms-runtime-lib=dll_dbg -shared-libsan)
     add_compile_options(-fms-runtime-lib=dll_dbg -shared-libsan)
+
+    # -shared-libsan links against the asan runtime DLL; stage it next to every
+    # binary we build so they run without a separate install / PATH entry. Ask
+    # the active clang for the DLL path so it tracks the toolchain version.
+    if (WIN32)
+      execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" --print-file-name=clang_rt.asan_dynamic-x86_64.dll
+        OUTPUT_VARIABLE SCULPTCORE_ASAN_DLL
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+      if (NOT EXISTS "${SCULPTCORE_ASAN_DLL}")
+        message(WARNING "WITH_ASAN: clang_rt.asan_dynamic-x86_64.dll not found (got '${SCULPTCORE_ASAN_DLL}')")
+        set(SCULPTCORE_ASAN_DLL "")
+      else()
+        message(STATUS "WITH_ASAN: shared asan runtime = ${SCULPTCORE_ASAN_DLL}")
+      endif()
+    endif()
+
+    if (SCULPTCORE_ASAN_DLL)
+      # Copy the runtime beside a target's output after it links.
+      function(sculptcore_stage_asan_dll target)
+        add_custom_command(TARGET ${target} POST_BUILD
+          COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                  "${SCULPTCORE_ASAN_DLL}" "$<TARGET_FILE_DIR:${target}>"
+          VERBATIM)
+      endfunction()
+
+      # Override add_executable so every executable (defined in any
+      # subdirectory) gets the DLL staged in its own output dir — a top-level
+      # POST_BUILD can only attach to same-directory targets, so we hook at
+      # creation time instead. Shared/module libs are staged explicitly below.
+      function(add_executable name)
+        _add_executable(${name} ${ARGN})
+        if (NOT "IMPORTED" IN_LIST ARGN AND NOT "ALIAS" IN_LIST ARGN)
+          sculptcore_stage_asan_dll(${name})
+        endif()
+      endfunction()
+    endif()
 endif()
 
 add_compile_options(-Wno-parentheses-equality)
@@ -155,6 +192,10 @@ else()
 	add_library(sculptcore SHARED)
 	target_link_libraries(sculptcore ${LIB})
 
+	if (COMMAND sculptcore_stage_asan_dll)
+	  sculptcore_stage_asan_dll(sculptcore)
+	endif()
+
 	# --- Node / Electron N-API addon ----------------------------------------
 	# Built only when CMake is configured by cmake-js, which injects CMAKE_JS_*
 	# (headers, node.lib import lib, win delay-load hook) for the chosen runtime
@@ -184,6 +225,10 @@ else()
 	  if (WIN32)
 	    target_link_options(sculptcore_node PRIVATE "LINKER:/DELAYLOAD:node.exe")
 	    target_link_libraries(sculptcore_node delayimp.lib)
+	  endif()
+
+	  if (COMMAND sculptcore_stage_asan_dll)
+	    sculptcore_stage_asan_dll(sculptcore_node)
 	  endif()
 	endif()
 endif()

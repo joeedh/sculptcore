@@ -9,7 +9,7 @@ import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
 import {ensureDeps, configName} from './tools/deps.mjs'
 
 const CMAKE_BUILD_TYPE = 'RelWithDebInfo'
-const WITH_ASAN = true
+const WITH_ASAN = false
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
 const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
