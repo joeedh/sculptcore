@@ -1462,7 +1462,8 @@ bool execVerb(Scene &scene,
 
   if (verb == "remesh_quantize") {
     /* remesh_quantize [target_edge_length=..] [use_density=..] [gauge_eps=..]
-     *   [integer_tol=..] [max_lambda=..] [local_gs=..] [direct=..] —
+     *   [integer_tol=..] [max_lambda=..] [local_gs=..] [direct=..]
+     *   [updown_max_cols=..] [supernodal=..] —
      * integer-grid quantization (M5); builds the field/cut/seamless system
      * internally. Prints the integer residual, one-ring loop-closure residual,
      * feasibility and phase/op profile lines (local_gs=0 disables the Q1 GS
@@ -1481,6 +1482,9 @@ bool execVerb(Scene &scene,
     qp.use_local_gs = getBool(args, "local_gs", qp.use_local_gs);
     qp.rounding = getBool(args, "direct", false) ? remesh::RoundingStrategy::DIRECT
                                                  : remesh::RoundingStrategy::GREEDY;
+    qp.updown_max_cols =
+        int(getFloat(args, "updown_max_cols", float(qp.updown_max_cols)));
+    qp.use_supernodal = getBool(args, "supernodal", qp.use_supernodal);
     remesh::QuantizeStats st = remesh::computeQuantization(m, qp);
     std::printf("[remesh_quantize] faces=%d corners=%d classes=%d cut_edges=%d "
                 "int_residual=%.6e loop_closure=%.6e min_jacobian=%.6f iters=%d "
@@ -1490,13 +1494,14 @@ bool execVerb(Scene &scene,
                 st.iters, st.solved, st.feasible);
     std::printf("[remesh_quantize:profile] total_ms=%.1f setup=%.1f init=%.1f "
                 "arap=%.1f rounding=%.1f (assemble=%.1f refactor=%.1f "
-                "updown=%.1f backsolve=%.1f) tier1b=%.1f stiffen=%.1f "
-                "tier3=%.1f refactors=%d updowns=%d back_solves=%d probes=%d\n",
+                "updown=%.1f backsolve=%.1f) convert=%.1f tier1b=%.1f "
+                "stiffen=%.1f tier3=%.1f refactors=%d updowns=%d refreshes=%d "
+                "back_solves=%d probes=%d\n",
                 st.total_ms, st.setup_ms, st.initial_factor_ms, st.arap_ms,
                 st.rounding_ms, st.round_assemble_ms, st.round_refactor_ms,
-                st.round_updown_ms, st.round_backsolve_ms, st.tier1b_ms,
-                st.stiffen_ms, st.tier3_ms, st.full_refactors, st.updowns,
-                st.back_solves, st.tier1b_probes);
+                st.round_updown_ms, st.round_backsolve_ms, st.convert_ms,
+                st.tier1b_ms, st.stiffen_ms, st.tier3_ms, st.full_refactors,
+                st.updowns, st.simp_refreshes, st.back_solves, st.tier1b_probes);
     std::printf("[remesh_quantize:gs] rounds=%d converged=%d visits=%d "
                 "touched_total=%d touched_max=%d gs_ms=%.1f resort_full=%d "
                 "resort_incr=%d resort_keys=%d\n",

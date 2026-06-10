@@ -94,6 +94,16 @@ struct QuantizeParams {
   // See RoundingStrategy. DIRECT skips the greedy round loop entirely: all
   // sides lock at once off the seamless/ARAP-settled solve, one re-solve.
   RoundingStrategy rounding = RoundingStrategy::GREEDY;
+  // Native rounding: a rank-k cholmod_updown costs ~O(k * etree-path); above
+  // this many pending update columns (4 per locked side) a full numeric
+  // re-factorization is cheaper than the incremental update.
+  int updown_max_cols = 256;
+  // Native: let CHOLMOD_AUTO pick supernodal (BLAS-3) factorization, keeping a
+  // lazy simplicial clone for cholmod_updown. Off by default: with the current
+  // single-threaded OpenBLAS the supernodal path measured ~2.7x slower per
+  // refactor than simplicial LDL' at corpus scale (~18k unknowns), and AUTO's
+  // analyze alone costs more. Re-measure once the BLAS is threaded (plan item E).
+  bool use_supernodal = false;
 };
 
 struct QuantizeStats {
@@ -114,6 +124,7 @@ struct QuantizeStats {
   // surfaced via the manifest "run" block / results.json only).
   int full_refactors = 0; // full numeric factorizations (analyze excluded)
   int updowns = 0;        // incremental rank-update applications (native only)
+  int simp_refreshes = 0; // supernodal->simplicial factor clones (native only)
   int back_solves = 0;    // RHS solves against the current factor
   int tier1b_probes = 0;  // Tier-1b +/-1 trial solves (settles excluded)
   // Local-GS tier (Q1): the Q5 decision data. touched = distinct components a
@@ -138,6 +149,7 @@ struct QuantizeStats {
   double round_refactor_ms = 0.0; //   full refactors within rounding
   double round_updown_ms = 0.0;   //   rank updates within rounding
   double round_backsolve_ms = 0.0; //  RHS solves within rounding
+  double convert_ms = 0.0; // supernodal->simplicial refreshes (whole call)
   double gs_ms = 0.0;              //   local-GS attempts within rounding
   double tier1b_ms = 0.0;          // seam-integer relaxation
   double stiffen_ms = 0.0;         // injectivity stiffening rounds

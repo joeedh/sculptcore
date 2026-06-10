@@ -606,28 +606,37 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     return solver.info() == Eigen::Success;
   };
 #else
-  // Native: CHOLMOD simplicial LDL'. Analyze the (pattern-invariant) system once,
-  // then maintain the factor incrementally. The greedy rounding loop's only
-  // per-round change is the newly-locked sides' fix penalty — a rank<=4 PSD term
-  // whose nonzeros are a subset of the always-present seam pattern — so each lock
-  // is a cholmod_updown(+1) instead of a full re-factorization. The initial L0 and
+  // Native: CHOLMOD. Analyze the (pattern-invariant) system once, then maintain
+  // the factor incrementally. The greedy rounding loop's only per-round change
+  // is the newly-locked sides' fix penalty — a rank<=4 PSD term whose nonzeros
+  // are a subset of the always-present seam pattern — so each lock is a
+  // cholmod_updown(+1) instead of a full re-factorization. The initial L0 and
   // the injectivity-pass refactors (base stiffness rescaled, not low-rank) stay
   // full numeric factorizations of the assembled matrix.
+  //
+  // Dual-factor scheme (opt-in, params.use_supernodal): full refactors run on
+  // Lsuper, supernodal (BLAS-3) when CHOLMOD_AUTO picks it; cholmod_updown
+  // needs a simplicial LDL', so locks apply to Lsimp, a lazy simplicial clone
+  // refreshed once per refactor->updown transition. Lsolve = whichever factor
+  // holds every lock. Default is forced-simplicial (see use_supernodal).
   cholmod_common cc;
   cholmod_start(&cc);
-  cc.supernodal = CHOLMOD_SIMPLICIAL; // updown requires a simplicial factor
-  cc.final_ll = 0;                    // keep LDL' form (updown updates LDL')
-  cholmod_factor *Lf = nullptr;
+  cc.supernodal = params.use_supernodal ? CHOLMOD_AUTO : CHOLMOD_SIMPLICIAL;
+  cc.final_ll = 0; // keep simplicial factorizations LDL' (updown updates LDL')
+  cholmod_factor *Lsuper = nullptr; // analyzed once; numeric-refactorized
+  cholmod_factor *Lsimp = nullptr;  // simplicial clone; receives updowns
+  cholmod_factor *Lsolve = nullptr; // factor holding all locks; solve target
+  bool dualFactor = false;          // Lsuper is supernodal (AUTO's decision)
+  bool simpCurrent = false;         // Lsimp matches Lsuper's current numerics
+  double convert_acc = 0.0;
   Vector<int> Pinv; // original row -> factor-permuted row (cholmod_updown ordering)
   Vector<char> factored;
   factored.resize(S);
   for (int s = 0; s < S; s++) {
     factored[s] = 0;
   }
-  // A rank-k cholmod_updown costs ~O(k * etree-path); above some k a full
-  // re-factorization is cheaper. Early rounds lock large vertex-independent
-  // batches (high rank) -> refactor; the grind tail locks ~1 side/round -> updown.
-  const int updown_max_cols = 256; // 4 cols/side -> updown when <=64 sides/round
+  // 4 updown cols/side -> updown when <= updown_max_cols/4 sides/round.
+  const int updown_max_cols = params.updown_max_cols;
 
   // Full numeric factorization of the assembled Acur (analyze only the first
   // time; the pattern never changes). Records the permutation the rank updates
@@ -636,24 +645,50 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     const Eigen::SparseMatrix<double> &Aref = Acur; // const view for viewAsCholmod
     auto sym = Aref.selfadjointView<Eigen::Lower>();
     cholmod_sparse Ac = Eigen::viewAsCholmod(sym);
-    if (!Lf) {
-      Lf = cholmod_analyze(&Ac, &cc);
-      if (!Lf || cc.status < CHOLMOD_OK) {
+    auto analyze = [&]() -> bool {
+      Lsuper = cholmod_analyze(&Ac, &cc);
+      if (!Lsuper || cc.status < CHOLMOD_OK) {
         return false;
       }
+      dualFactor = Lsuper->is_super != 0;
       Pinv.resize(N);
-      const int *Perm = reinterpret_cast<const int *>(Lf->Perm);
+      const int *Perm = reinterpret_cast<const int *>(Lsuper->Perm);
       for (int k = 0; k < N; k++) {
         Pinv[Perm[k]] = k;
       }
+      return true;
+    };
+    if (!Lsuper && !analyze()) {
+      return false;
     }
     Clock::time_point t0 = Clock::now();
-    cholmod_factorize(&Ac, Lf, &cc);
+    cholmod_factorize(&Ac, Lsuper, &cc);
     refactor_acc += msSince(t0);
     stats.full_refactors++;
     if (cc.status < CHOLMOD_OK) {
       return false;
     }
+    if (dualFactor && Lsuper->minor < size_t(N)) {
+      // Supernodal LL' breakdown (the system spans 1e-9..1e6 scales): fall back
+      // to the simplicial LDL' single-factor path for the rest of the run.
+      cholmod_free_factor(&Lsuper, &cc);
+      if (Lsimp) {
+        cholmod_free_factor(&Lsimp, &cc);
+      }
+      cc.supernodal = CHOLMOD_SIMPLICIAL;
+      if (!analyze()) {
+        return false;
+      }
+      Clock::time_point t1 = Clock::now();
+      cholmod_factorize(&Ac, Lsuper, &cc);
+      refactor_acc += msSince(t1);
+      stats.full_refactors++;
+      if (cc.status < CHOLMOD_OK) {
+        return false;
+      }
+    }
+    simpCurrent = false;
+    Lsolve = Lsuper;
     for (int s = 0; s < S; s++) {
       factored[s] = fixed[s];
     }
@@ -663,7 +698,36 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // cholmod_updown(+1) for every side locked since the last factor/update. Each
   // side contributes two rank-2 columns C = sqrt(lam_fix)*[B,-A]^T over its two
   // endpoint class-pairs; rows are permuted into the factor's ordering (Pinv).
+  // A false return means the caller must fall back to a full refactor.
   auto applyPendingLocks = [&]() -> bool {
+    int pending = 0;
+    for (int s = 0; s < S; s++) {
+      pending += (fixed[s] && !factored[s]) ? 1 : 0;
+    }
+    if (pending == 0) {
+      return true;
+    }
+    if (dualFactor && !simpCurrent) {
+      // Refresh the simplicial clone off Lsuper's current numerics: one
+      // copy + LL'->LDL' convert per refactor->updown transition.
+      Clock::time_point tc = Clock::now();
+      if (Lsimp) {
+        cholmod_free_factor(&Lsimp, &cc);
+      }
+      Lsimp = cholmod_copy_factor(Lsuper, &cc);
+      if (!Lsimp || cc.status < CHOLMOD_OK) {
+        return false;
+      }
+      if (!cholmod_change_factor(CHOLMOD_REAL, /*to_ll=*/0, /*to_super=*/0,
+                                 /*to_packed=*/1, /*to_monotonic=*/1, Lsimp, &cc) ||
+          cc.status < CHOLMOD_OK) {
+        return false;
+      }
+      convert_acc += msSince(tc);
+      stats.simp_refreshes++;
+      simpCurrent = true;
+    }
+    cholmod_factor *Lt = dualFactor ? Lsimp : Lsuper;
     Clock::time_point t0 = Clock::now();
     std::vector<Eigen::Triplet<double>> ct;
     const double sq = std::sqrt(lam_fix);
@@ -687,17 +751,18 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       emitPair(g.clb2[s], g.cla2[s], Bop[s], Aop[s]);
       factored[s] = 1;
     }
-    if (col == 0) {
-      return true;
-    }
     Eigen::SparseMatrix<double> C(N, col);
     C.setFromTriplets(ct.begin(), ct.end());
     C.makeCompressed();
     cholmod_sparse Cc = Eigen::viewAsCholmod(C);
-    int ok = cholmod_updown(1, &Cc, Lf, &cc);
+    int ok = cholmod_updown(1, &Cc, Lt, &cc);
     updown_acc += msSince(t0);
     stats.updowns++;
-    return ok && cc.status >= CHOLMOD_OK;
+    if (!ok || cc.status < CHOLMOD_OK) {
+      return false;
+    }
+    Lsolve = Lt;
+    return true;
   };
 
   auto solveCurrent = [&]() -> bool {
@@ -705,7 +770,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     Eigen::VectorXd rhs;
     assembleRhs(rhs);
     cholmod_dense bc = Eigen::viewAsCholmod(rhs);
-    cholmod_dense *xc = cholmod_solve(CHOLMOD_A, Lf, &bc, &cc);
+    cholmod_dense *xc = cholmod_solve(CHOLMOD_A, Lsolve, &bc, &cc);
     if (!xc || cc.status < CHOLMOD_OK) {
       return false;
     }
@@ -727,14 +792,15 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     for (int s = 0; s < S; s++) {
       pending += (fixed[s] && !factored[s]) ? 1 : 0;
     }
-    bool refactor = fullRefactor || !Lf || 4 * pending > updown_max_cols;
+    bool refactor = fullRefactor || !Lsuper || 4 * pending > updown_max_cols;
+    if (!refactor && !applyPendingLocks()) {
+      refactor = true; // clone/convert/updown failed -> rebuild from scratch
+    }
     if (refactor) {
       assembleSystem();
       if (!factorFull()) {
         return false;
       }
-    } else if (!applyPendingLocks()) {
-      return false;
     }
     return solveCurrent();
   };
@@ -1853,10 +1919,14 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   stats.parametrization_folds = num_folds;
 
 #ifndef WASM
-  if (Lf) {
-    cholmod_free_factor(&Lf, &cc);
+  if (Lsuper) {
+    cholmod_free_factor(&Lsuper, &cc);
+  }
+  if (Lsimp) {
+    cholmod_free_factor(&Lsimp, &cc);
   }
   cholmod_finish(&cc);
+  stats.convert_ms = convert_acc;
 #endif
 
   stats.total_ms = msSince(t_total);

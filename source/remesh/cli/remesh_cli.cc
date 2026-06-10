@@ -301,6 +301,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"residual\": %.9g,\n", qz.max_integer_residual);
   std::fprintf(f, "      \"full_refactors\": %d,\n", qz.full_refactors);
   std::fprintf(f, "      \"updowns\": %d,\n", qz.updowns);
+  std::fprintf(f, "      \"simp_refreshes\": %d,\n", qz.simp_refreshes);
   std::fprintf(f, "      \"back_solves\": %d,\n", qz.back_solves);
   std::fprintf(f, "      \"tier1b_probes\": %d,\n", qz.tier1b_probes);
   std::fprintf(f, "      \"gs_rounds\": %d,\n", qz.gs_rounds);
@@ -320,6 +321,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"round_refactor_ms\": %.9g,\n", qz.round_refactor_ms);
   std::fprintf(f, "      \"round_updown_ms\": %.9g,\n", qz.round_updown_ms);
   std::fprintf(f, "      \"round_backsolve_ms\": %.9g,\n", qz.round_backsolve_ms);
+  std::fprintf(f, "      \"convert_ms\": %.9g,\n", qz.convert_ms);
   std::fprintf(f, "      \"gs_ms\": %.9g,\n", qz.gs_ms);
   std::fprintf(f, "      \"tier1b_ms\": %.9g,\n", qz.tier1b_ms);
   std::fprintf(f, "      \"stiffen_ms\": %.9g,\n", qz.stiffen_ms);
