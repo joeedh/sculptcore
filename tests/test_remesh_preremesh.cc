@@ -732,6 +732,40 @@ void testPipelineCountMode()
   litestl::alloc::Delete<Mesh>(s);
 }
 
+// Edge budget: an auto-resolved pre-pass target may not coarsen away more than
+// 20% of the input's edges (L <= mean/sqrt(0.8)). A dense sphere with a coarse
+// count target previously bootstrap-decimated several-fold; the clamp must hold
+// the solve mesh near input resolution and keep the bootstrap from firing.
+void testPipelinePreRemeshEdgeBudget()
+{
+  Mesh *s = mesh::makeUVSphere(48, 64, 2.0f);
+
+  remesh::RemeshParams p;
+  p.target_quad_count = 500; // coarse: unclamped L_pre would be ~2x mean edge
+  p.pre_remesh = true;
+  remesh::RemeshRunReport rep;
+  Mesh *out = remesh::QuadRemesh(*s, p, nullptr, nullptr, &rep);
+
+  const auto &pe = rep.pre_remesh_effect;
+  fprintf(stderr,
+          "[pipeline/budget] ok=%d F=%d->%d mean=%.4f->%.4f target=%.4f "
+          "bootstrap=%d\n",
+          int(rep.success), pe.faces_in, pe.faces_out, pe.mean_edge_in,
+          pe.mean_edge_out, pe.target_resolved, int(pe.coarsen_bootstrap));
+
+  TASSERT(rep.success);
+  TASSERT(pe.ran);
+  TASSERT(pe.target_resolved <= 1.01f * pe.mean_edge_in / std::sqrt(0.8f));
+  TASSERT(!pe.coarsen_bootstrap);
+  // Realized retention: faces track edges on a closed tri mesh; 0.7 leaves
+  // slack for the BK band around the clamped target.
+  TASSERT(pe.faces_out >= int(0.7f * float(pe.faces_in)));
+  if (out) {
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(s);
+}
+
 // 9d pipeline integration, noisy input: the auto heuristics resolve the sentinel
 // knobs from the measured input, the run report carries the before/after A/B
 // effect block, and gating the stage off leaves it skipped with an empty block.
@@ -974,6 +1008,7 @@ int main()
   testDriverNoOp();
   testPipelinePreRemeshClean();
   testPipelineCountMode();
+  testPipelinePreRemeshEdgeBudget();
   testPipelinePreRemeshNoisy();
   testFoldDiagnostic();
   return retval;

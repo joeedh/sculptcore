@@ -311,14 +311,18 @@ float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
   if (params.solve_edge_length > 0.0f) {
     return params.solve_edge_length;
   }
-  if (params.target_edge_length > 0.0f) {
-    return params.target_edge_length;
-  }
   // Count mode: a touch finer than the quad edge (a few solve tris per output
   // quad), floored at half the median input edge so the pre-pass never
   // refines the input more than ~4x — finer quads come from the lattice.
-  float L = resolveTargetEdgeLength(m, params);
-  return std::fmax(0.7f * L, 0.5f * measureEdges(m).median);
+  EdgeStats es = measureEdges(m);
+  float L = params.target_edge_length > 0.0f
+                ? params.target_edge_length
+                : std::fmax(0.7f * resolveTargetEdgeLength(m, params),
+                            0.5f * es.median);
+  // Edge budget: an auto target may not coarsen away more than 20% of the
+  // input edges. E scales ~1/L^2, so E_out/E_in >= 0.8 ==> L <= mean/sqrt(0.8).
+  float L_budget = es.mean > 0.0f ? es.mean / std::sqrt(0.8f) : 0.0f;
+  return L_budget > 0.0f ? std::fmin(L, L_budget) : L;
 }
 
 mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
@@ -396,6 +400,15 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
                       ? params.solve_edge_length
                       : (count_mode ? std::fmax(0.7f * L_quad, 0.5f * es.median)
                                     : params.target_edge_length);
+    // Edge budget (auto targets only — explicit pre_remesh_target/solve win):
+    // the pre-pass may not coarsen away more than 20% of the edges it
+    // receives. E scales ~1/L^2, so E_out/E_in >= 0.8 ==> L <= mean/sqrt(0.8).
+    const bool budgeted = params.pre_remesh_target <= 0.0f &&
+                          params.solve_edge_length <= 0.0f && es.mean > 0.0f;
+    float L_budget = budgeted ? es.mean / std::sqrt(0.8f) : 0.0f;
+    if (budgeted) {
+      L_pre = std::fmin(L_pre, L_budget);
+    }
     mesh::FoldCounts fin = mesh::countGeometricFolds(*work);
     int verts_in = work->v.count, faces_in = work->f.count;
 
@@ -444,6 +457,12 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     pp.smooth_iters = params.pre_remesh_smooth_iters;
     pp.smooth_lambda = params.pre_remesh_smooth_lambda;
     pp.density_min = params.density_min;
+    if (budgeted) {
+      // Same budget for local coarsening: the density floor bounds the largest
+      // local BK target (L_pre / sqrt(density_min)) at L_budget.
+      float r = L_pre / L_budget;
+      pp.density_min = std::fmax(params.density_min, r * r);
+    }
     pp.density_max = params.density_max;
     pp.converge_eps = params.pre_remesh_converge_eps;
     pp.preserve_features = params.pre_remesh_preserve_features;

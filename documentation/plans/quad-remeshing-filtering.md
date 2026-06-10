@@ -104,6 +104,10 @@ of this is **surface what exists**, not build from scratch:
 - **surface** the existing structural/isoline fields to STATS;
 - **add**: **max adjacent-quad area ratio** + **max edge-length ratio**;
 - **add**: skinny-quad / **min-interior-angle** proxy (worst + histogram);
+- **add**: **min scaled Jacobian per quad** (worst + mean) and **max inner angle**
+  — the headline metrics of the layout-embedding literature
+  ([research/layout-embedding-optimization.md](../research/layout-embedding-optimization.md)),
+  so corpus numbers are comparable to published results;
 - **add**: **component count** + **hole count** (input vs output) — **define these
   precisely**: *component count* = connected components over the face-adjacency
   graph; *hole count* = number of **boundary loops** (NOT genus-derived handles,
@@ -207,7 +211,7 @@ Until this lands, **auto-density (Tier 3) is the only supported density path** �
 state that explicitly rather than implying painted maps work.
 
 **Where:** a new helper (e.g. `remesh/triage.{h,cc}`) + the attr-copy folded into
-`buildTriCopy`, invoked right after the copy, before decimation/curvature.
+`buildTriCopy`, invoked right after the copy, before the pre-remesh/curvature.
 `mesh_validate.h` for detection.
 
 ### New params
@@ -505,6 +509,12 @@ limits, don't over-promise.**
   double-close a legitimately-open rim.
 - **Boundary preservation:** keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
+- **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in
+  collapse + smooth, so a dense input rim stays dense and rim triangle quality
+  can't improve. Upgrade to **constrain-to-polyline**: collapses along a boundary
+  loop and tangential smoothing *along* it (1D BK on the rim) — the
+  layout-embedding treatment, where boundary nodes slide along the boundary
+  ([research/layout-embedding-optimization.md](../research/layout-embedding-optimization.md)).
 - **Thin double-sided sheets:** the hardest case (cross-field/param degenerate on
   near-zero-thickness shells). For v1, **detect and document as known-poor**;
   optionally route to a fallback or flag in the report rather than silently
@@ -602,7 +612,7 @@ summary. Default attempts = 1 (today's behavior) unless `auto_retry` is on.
 ### 8b. Presets
 Named bundles setting the whole knob vector: **Organic Clean**, **Organic Noisy**,
 **Messy Generated Character**, **Scan**, **Hard Surface**. A preset sets curvature
-smoothing, solve-edge length, field smoothness, auto-density + gradation, hole/cap
+smoothing, pre-remesh target, field smoothness, auto-density + gradation, hole/cap
 policy, and retry policy. Expose as a single dropdown in the UI / a `--preset`
 CLI flag that pre-fills the params (still individually overridable).
 
@@ -644,15 +654,25 @@ together.
 > lean on Tier 2's smoothed curvature for a better rough field and Tier 0's metrics
 > to prove it. Implement after the tiers it depends on; place it early at runtime.
 
-> **It generalizes the existing `--solve` pre-pass — don't duplicate it.**
-> `decimateForSolve` (`remesh.cc:126`) already reuses dyntopo's Botsch-Kobbelt
-> quartet over a whole-mesh sphere (`applyBrushDab`) **plus** an extra *isotropic*
-> tangential relaxation (`remesh.cc:160–218`: one-ring centroid → Newell-plane
-> tangent → edge-scale clamp). Tier 9 is the same loop with two differences: the
-> smooth is **field-aligned** (9a) instead of isotropic, and it can run **at the
-> target resolution** (not only coarsen). Refactor the shared BK-loop body so
-> `decimateForSolve` and the Tier-9 pre-pass call one routine; the isotropic
-> relaxation tail becomes the `pre_remesh_align = 0` case of 9a.
+> **Decided 2026-06: the separate `--solve` decimation stage is removed — the
+> pre-remesher is the only input-geometry stage.** `decimateForSolve`
+> (`remesh.cc:224`) was already the BK quartet plus an isotropic relaxation tail,
+> and the pre-pass is a strict superset (field-aligned smooth, feature pinning,
+> adaptive sizing, fold-safe collapse), so deleting it loses nothing. This is the
+> paper-endorsed shape — the layout-embedding evaluation isotropically
+> retriangulates every input and never decimates; near-equilateral triangles are
+> what every downstream cotan solve wants
+> ([research/layout-embedding-optimization.md](../research/layout-embedding-optimization.md)).
+> Removal follow-ons: `solve_edge_length` and its CLI/UI/TS surface go away —
+> `pre_remesh_target` becomes the one explicit deep-coarsening route, exempt from
+> the auto-target **20% edge budget** (auto-resolved targets are clamped to
+> `L ≤ mean_in/√0.8` so the pre-pass never coarsens away more than 20% of the
+> input's edges, with the density floor capped at the same budget). The budget
+> clamp's `solve_edge_length <= 0` exemption clause dies with the param, and the
+> dense-input coarsen bootstrap (`remesh.cc:442`) *calls* `decimateForSolve`, so
+> it must be replaced (budgeted auto paths provably never fire it —
+> `0.5·L_pre ≤ 0.56·mean < mean`; explicit-target paths coarsen directly via the
+> BK band).
 
 ### 9a. Field-aligned (anisotropic) tangential smooth — the one new primitive
 The two existing smooths are isotropic (pull each vertex to its one-ring
@@ -768,9 +788,10 @@ gated on `pre_remesh`. Two integration points to get right:
   rejects any collapse where a not-folded pair (`n_i·n_j ≥ 0`) becomes folded
   (`< 0`). Shared with sculpt dyntopo (same `prevent_inversion=true` path);
   dyntopo regression gates stay green.
-- **Compose with `--solve`.** When both are on, decimate first (coarsen), then
-  field-align at that resolution; the isotropic relaxation tail of
-  `decimateForSolve` becomes 9a (`pre_remesh_align`-controlled).
+- **`--solve` is removed, not composed with.** Deep coarsening *is* the pre-pass
+  with an explicit `pre_remesh_target` (see the removal blockquote above); the
+  `decimated` flag and its reproject gating die with the stage — the reproject
+  gate reduces to "the pre-pass ran".
 
 ### New params (mirrors `PreRemeshParams`, `remesh/preremesh.h`)
 The pipeline gate `pre_remesh=false` keeps the pipeline unchanged; the knobs
@@ -780,7 +801,7 @@ below take effect only when it's on (or in the debug app's pre-pass mode).
 |-------|---------|---------|
 | `pre_remesh` | `false` | run the field-aligned input pre-remesh on `work` before the field solve |
 | `pre_remesh_iters` | `5` | outer convergence iterations |
-| `pre_remesh_target` | `0.0f` | **base** pre-pass edge length (scaled per-vertex by `1/sqrt(density)` when `pre_remesh_density`); `0` = use `target_edge_length` (remesh at output res, don't coarsen). Distinct from `solve_edge_length` |
+| `pre_remesh_target` | `0.0f` | **base** pre-pass edge length (scaled per-vertex by `1/sqrt(density)` when `pre_remesh_density`); `0` = auto (`target_edge_length` or the count-mode formula, clamped to the 20% edge budget). The one explicit deep-coarsening route once `solve_edge_length` is removed |
 | `pre_remesh_density` | `true` | drive the split/collapse band from the per-vertex curvature size field (Tier 3 sizing chain, recomputed on `work`); `false` = uniform (A/B only) |
 | `pre_remesh_gradation` | `0.5f` | per-edge-hop size growth cap on the pre-pass field (3b); `0` disables (A/B only) |
 | `pre_remesh_gradation_iters` | `10` | gradation work cap (pops per vertex) |
@@ -826,6 +847,23 @@ toward uniform-*area* triangles, not just uniform edge lengths. Build only if
 the min-angle / edge-variance metrics stall after 9a–9e; A/B against the
 standard smooth on the corpus.
 
+### 9g. Source-anchor correspondence transport (pairs with the `--solve` removal)
+Reproject is a *global* closest-point snap, patched by the `sheet_min_dot`
+normal-compatibility heuristic (9d) because closest-point can land on the
+opposite sheet of a thin part. The layout-embedding paper restores fidelity by
+**transport** instead: nodes live intrinsically as `(face, barycentric)` on the
+input and cross resolutions by transporting the map and re-tracing (§7.3 —
+"optimization on coarse meshes can be prolongated to high-resolution inputs").
+Adopt that: the pre-pass maintains a per-vertex **source anchor** (input face id
++ barycentric), updated through split (interpolate the edge's two anchors),
+collapse (survivor keeps its anchor), and tangential smooth (local re-walk via
+`closestPointWalk` from the previous anchor). Reproject then starts as a **local
+walk from a valid anchor** — structurally unable to sheet-jump — and
+`sheet_min_dot` demotes to a safety net. With the decimation stage gone the
+pre-remesher is the sole owner of input correspondence, and this pre-builds the
+intrinsic representation the layout milestone needs from day one
+([research/layout-embedding-optimization.md](../research/layout-embedding-optimization.md)).
+
 ### Verification
 - **Primary test config = non-uniform on.** Run the quality gates with
   `pre_remesh_density=true` (the realistic intended use); the uniform path is a
@@ -857,8 +895,12 @@ standard smooth on the corpus.
 Inspect: the quality/curl/adaptive-grading gtest, the no-op guarantee, the fox
 folds+time A/B **uniform vs adaptive density** (does the pre-pass remove the
 quantize cliff at full resolution, and does adaptive sizing beat uniform?), and
-pre-pass mode screenshots (isotropic vs field-aligned, rough-field overlay). Decide
-whether
+pre-pass mode screenshots (isotropic vs field-aligned, rough-field overlay).
+Include an intermediate `pre_remesh_align ≈ 0.5` corpus point: the
+layout-embedding paper keeps field alignment a small bias over the distortion
+driver (`ω_align ≈ 0.1`), and full alignment against a noisy rough field can
+regularize toward the field's own noise — verify `1.0` actually beats `0.5`
+before keeping it as the default. Decide whether
 `pre_remesh` should join the "Messy Generated Character" / "Scan" presets (Tier
 8b) and whether the Tier-8 retry loop enables it automatically.
 
