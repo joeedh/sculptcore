@@ -186,7 +186,10 @@ collapseEdge(Mesh &m, int edge,
   if (prevent_inversion) {
     using litestl::math::float3;
     float3 P = merged_co.has_value() ? merged_co.value() : m.v.co[v_keep];
-    auto faceWouldFlip = [&](int f) -> bool {
+    /* Newell normals of f before (nb) and after (na) welding both endpoints to
+     * P. Returns false for a sliver (touches both endpoints — removed by the
+     * collapse, so it has no "after"). */
+    auto faceNormals = [&](int f, float3 &nb, float3 &na) -> bool {
       int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
       bool hasKeep = false, hasKill = false;
       do {
@@ -198,7 +201,8 @@ collapseEdge(Mesh &m, int edge,
       if (hasKeep && hasKill) {
         return false; /* collapses to a sliver and is removed */
       }
-      float3 nb(0.0f, 0.0f, 0.0f), na(0.0f, 0.0f, 0.0f);
+      nb = float3(0.0f, 0.0f, 0.0f);
+      na = float3(0.0f, 0.0f, 0.0f);
       cc = c0;
       do {
         int cn = m.c.next[cc];
@@ -214,9 +218,11 @@ collapseEdge(Mesh &m, int edge,
         na[2] += (a1[0] - a2[0]) * (a1[1] + a2[1]);
         cc = cn;
       } while (cc != c0);
-      return (nb[0] * na[0] + nb[1] * na[1] + nb[2] * na[2]) < 0.0f;
+      return true;
     };
     Set<int> checked;
+    Vector<int> star; /* surviving (non-sliver) faces touching either endpoint */
+    Vector<float3> star_nb, star_na;
     for (int side = 0; side < 2; side++) {
       int v = side == 0 ? v_keep : v_kill;
       if (m.v.e[v] == ELEM_NONE) {
@@ -230,11 +236,75 @@ collapseEdge(Mesh &m, int edge,
         int cc = cc0;
         do {
           int f = m.l.f[m.c.l[cc]];
-          if (checked.add(f) && faceWouldFlip(f)) {
-            return false;
+          if (checked.add(f)) {
+            float3 nb, na;
+            if (faceNormals(f, nb, na)) {
+              if (nb.dot(na) < 0.0f) {
+                return false; /* face folds over its own far edge */
+              }
+              star.append(f);
+              star_nb.append(nb);
+              star_na.append(na);
+            }
           }
           cc = m.c.radial_next[cc];
         } while (cc != cc0);
+      }
+    }
+
+    /* Inter-face fold guard: a collapse can crease the surface between two
+     * faces without flipping either one's own normal. Group every surviving
+     * face around each post-collapse edge — mapping v_kill→v_keep merges edges
+     * (v_kill,x) into (v_keep,x), so the two neighbors of a removed sliver
+     * land in one group — and reject if any pair that wasn't folded before
+     * (normal dot >= 0) is folded after. Faces outside the star keep their
+     * current normal (they contain neither endpoint, so they don't move). */
+    struct FoldEntry {
+      uint64_t key;
+      int face;
+      float3 nb, na;
+    };
+    Vector<FoldEntry> ents;
+    auto mapv = [&](int vv) { return vv == v_kill ? v_keep : vv; };
+    for (int si = 0; si < int(star.size()); si++) {
+      int f = star[si];
+      int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+      do {
+        int v1 = mapv(m.c.v[cc]), v2 = mapv(m.c.v[m.c.next[cc]]);
+        if (v1 != v2) {
+          uint64_t key = v1 < v2 ? (uint64_t(uint32_t(v1)) << 32) | uint32_t(v2)
+                                 : (uint64_t(uint32_t(v2)) << 32) | uint32_t(v1);
+          ents.append({key, f, star_nb[si], star_na[si]});
+          for (int cc2 = m.c.radial_next[cc]; cc2 != cc;
+               cc2 = m.c.radial_next[cc2]) {
+            int g = m.l.f[m.c.l[cc2]];
+            if (!checked.contains(g)) {
+              float3 ng(0.0f, 0.0f, 0.0f);
+              int gli = m.f.l[g], gc0 = m.l.c[gli], gc = gc0;
+              do {
+                int gn = m.c.next[gc];
+                float3 b1 = m.v.co[m.c.v[gc]], b2 = m.v.co[m.c.v[gn]];
+                ng[0] += (b1[1] - b2[1]) * (b1[2] + b2[2]);
+                ng[1] += (b1[2] - b2[2]) * (b1[0] + b2[0]);
+                ng[2] += (b1[0] - b2[0]) * (b1[1] + b2[1]);
+                gc = gn;
+              } while (gc != gc0);
+              ents.append({key, g, ng, ng});
+            }
+          }
+        }
+        cc = m.c.next[cc];
+      } while (cc != c0);
+    }
+    for (int i = 0; i < int(ents.size()); i++) {
+      for (int j = i + 1; j < int(ents.size()); j++) {
+        if (ents[i].key != ents[j].key || ents[i].face == ents[j].face) {
+          continue;
+        }
+        if (ents[i].nb.dot(ents[j].nb) >= 0.0f &&
+            ents[i].na.dot(ents[j].na) < 0.0f) {
+          return false;
+        }
       }
     }
   }

@@ -14,6 +14,11 @@ struct ReprojectParams {
   int smooth_iterations = 0;  // Laplacian passes before each snap (0 = pure snap)
   float smooth_lambda = 0.5f; // Laplacian step in [0,1]
   bool pin_boundary = true;   // keep boundary-loop vertices fixed while smoothing
+  /* Sheet filter: a snap candidate triangle is rejected when its unit normal
+   * dots with the vertex normal below this. -0.5 rejects only clearly-opposite
+   * sheets (the thin-feature fold-back) while tolerating noisy vertex normals
+   * near singularities; <= -1 disables the filter. */
+  float sheet_min_dot = -0.5f;
 };
 
 struct ReprojectStats {

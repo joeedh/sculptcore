@@ -44,6 +44,20 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, density_max);
   BIND_STRUCT_MEMBER(st, density_gradation);
   BIND_STRUCT_MEMBER(st, density_gradation_iters);
+  BIND_STRUCT_MEMBER(st, pre_remesh);
+  BIND_STRUCT_MEMBER(st, pre_remesh_target);
+  BIND_STRUCT_MEMBER(st, pre_remesh_iters);
+  BIND_STRUCT_MEMBER(st, pre_remesh_density);
+  BIND_STRUCT_MEMBER(st, pre_remesh_gradation);
+  BIND_STRUCT_MEMBER(st, pre_remesh_gradation_iters);
+  BIND_STRUCT_MEMBER(st, pre_remesh_align);
+  BIND_STRUCT_MEMBER(st, pre_remesh_field_cadence);
+  BIND_STRUCT_MEMBER(st, pre_remesh_bootstrap_iters);
+  BIND_STRUCT_MEMBER(st, pre_remesh_smooth_iters);
+  BIND_STRUCT_MEMBER(st, pre_remesh_smooth_lambda);
+  BIND_STRUCT_MEMBER(st, pre_remesh_converge_eps);
+  BIND_STRUCT_MEMBER(st, pre_remesh_preserve_features);
+  BIND_STRUCT_MEMBER(st, pre_remesh_sharp_angle);
 
   return st;
 }

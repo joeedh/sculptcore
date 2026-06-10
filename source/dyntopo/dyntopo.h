@@ -60,7 +60,7 @@ enum class DynTopoMode { Subdivide, Collapse, Both };
 
 struct DynTopoParams {
   float l_max = 0.10f; /* split edges longer than this (at the brush center) */
-  float l_min = 0.04f; /* collapse edges shorter than this (keep < l_max) */
+  float l_min = 0.04f; /* collapse edges shorter than this (clamped to l_max/2) */
   DynTopoMode mode = DynTopoMode::Both;
   /* Graded target (sizing field, plan M7.1a): relax l_max/l_min outward from the
    * brush center by (1 + grade * dist/radius), so the refinement grades smoothly
@@ -640,6 +640,10 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
   const bool doSplit = p.mode == DynTopoMode::Subdivide || p.mode == DynTopoMode::Both;
   const bool doCollapse = p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
   const float r2 = radius * radius;
+  /* Band-overlap guard: split children land at exactly l_max/2, so any l_min
+   * above that feeds fresh children straight into the collapse band and the dab
+   * churns split<->collapse instead of converging. Clamp every caller's band. */
+  const float l_min = p.l_min > 0.5f * p.l_max ? 0.5f * p.l_max : p.l_min;
 
   /* Boundary-overlay views for feature-preserving remeshing (inert when
    * p.preserve_features is false). */
@@ -752,6 +756,10 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
       traceF0 = stats.flips;
       traceSm0 = stats.smooths;
     }
+    /* Per-round band pressure (trace only): candidate counts + worst band
+     * overshoot/undershoot, accumulated as `consider` queues them. */
+    int trSplitCands = 0, trCollapseCands = 0;
+    float trMaxOver = 0.0f, trMinUnder = 0.0f;
     /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
     Vector<Cand> cands;
     detail::GenSet &seen = detail::scanSeenSet();
@@ -766,7 +774,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
       }
       /* Graded target: relax the goal per edge (sizing field). The per-vertex
        * size-scale attr (Tier 9) takes precedence over the radial `grade`. */
-      float tmax = p.l_max, tmin = p.l_min;
+      float tmax = p.l_max, tmin = l_min;
       if (sizeField) {
         float s = 0.5f *
                   (sizeField->safe_get(m.e.vs[e][0]) + sizeField->safe_get(m.e.vs[e][1]));
@@ -782,6 +790,13 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
       float L = detail::edgeLen(m, e);
       if (doSplit && L > tmax) {
         cands.append({e, true}); /* split always allowed; flags propagate */
+        if (p.trace) {
+          trSplitCands++;
+          float over = L / tmax;
+          if (over > trMaxOver) {
+            trMaxOver = over;
+          }
+        }
       } else if (doCollapse && L < tmin) {
         /* Feature preservation (Decision B): pin feature verts, but allow a
          * feature edge to collapse along its own collinear curve. */
@@ -799,6 +814,13 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
           }
         }
         cands.append({e, false});
+        if (p.trace) {
+          trCollapseCands++;
+          float under = tmin > 1e-20f ? L / tmin : 0.0f;
+          if (trCollapseCands == 1 || under < trMinUnder) {
+            trMinUnder = under;
+          }
+        }
       }
     };
     auto considerVertEdges = [&](int v) {
@@ -1012,6 +1034,10 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
       q.collapses = stats.collapses - traceC0;
       q.flips = stats.flips - traceF0;
       q.smooths = stats.smooths - traceSm0;
+      q.split_cands = trSplitCands;
+      q.collapse_cands = trCollapseCands;
+      q.max_over = trMaxOver;
+      q.min_under = trMinUnder;
       detail::measureRoundQuality(m, frontier, center, r2, p.trace->thin_angle, q);
       p.trace->rounds.append(q);
     }

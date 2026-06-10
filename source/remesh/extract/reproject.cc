@@ -51,6 +51,51 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
     }
   }
 
+  /* The output's winding may be globally flipped relative to the input (quad
+   * extraction does not inherit orientation), which would aim the sheet filter
+   * below at the far surface. Calibrate the filter sign once by voting normal
+   * agreement at unfiltered closest points over a vertex sample. */
+  const bool filtered = params.sheet_min_dot > -1.0f;
+  out.recalc_normals();
+  float orient = 1.0f;
+  if (filtered) {
+    double vote = 0.0;
+    int step = out.v.count > 256 ? out.v.count / 256 : 1, k = 0;
+    for (int v : out.v) {
+      if (k++ % step) continue;
+      ClosestPointResult r = findClosestPoint(tree, out.v.co[v]);
+      if (!r.hit) continue;
+      float3 a = input.v.co[input.c.v[r.tri_c[0]]];
+      float3 b = input.v.co[input.c.v[r.tri_c[1]]];
+      float3 c = input.v.co[input.c.v[r.tri_c[2]]];
+      vote += out.v.no[v].dot((b - a).cross(c - a)) >= 0.0f ? 1.0 : -1.0;
+    }
+    if (vote < 0.0) orient = -1.0f;
+  }
+
+  /* Normal-coherence of v's 1-ring (|mean of unit face normals|): ~1 where the
+   * umbrella is flat/clean, small where it folds. The sheet filter only engages
+   * above kCoherence — a folded umbrella's vertex normal is the likelier liar,
+   * and redirecting its snap manufactures the very fold-backs the filter is
+   * meant to prevent. */
+  auto vertCoherence = [&](int v) -> float {
+    int e0 = out.v.e[v];
+    if (e0 == ELEM_NONE) return 1.0f;
+    float3 sum(0.0f, 0.0f, 0.0f);
+    int cnt = 0, ec = e0, guard = 0;
+    do {
+      int ci = out.e.c[ec];
+      if (ci != ELEM_NONE) {
+        sum += out.f.no[out.l.f[out.c.l[ci]]];
+        cnt++;
+      }
+      int side = out.e.vs[ec][0] == v ? 0 : 1;
+      ec = out.e.disk[ec][side * 2 + 1];
+    } while (ec != e0 && ++guard < 256);
+    return cnt ? sum.length() / float(cnt) : 1.0f;
+  };
+  constexpr float kCoherence = 0.7f;
+
   int iters = params.iterations < 1 ? 1 : params.iterations;
   for (int it = 0; it < iters; it++) {
     if (smoothing) {
@@ -72,9 +117,32 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
     double sum = 0.0;
     float mx = 0.0f;
     int n = 0;
+    // Normal-compatible snap: when the plain closest point lies on an opposite
+    // sheet (thin feature — snapping there folds the output back on itself),
+    // re-query with the sheet filter. The filtered hit is only trusted while it
+    // stays within kSheetRatio of the plain one; past that the vertex's own
+    // normal is the likelier liar (extraction fold near a singularity), and the
+    // plain snap irons such folds flat like it always did.
+    constexpr float kSheetRatio = 3.0f;
+    out.recalc_normals();
     for (int v : out.v) {
       ClosestPointResult r = findClosestPoint(tree, out.v.co[v]);
       if (!r.hit) continue;
+      if (filtered) {
+        float3 vn = out.v.no[v] * orient;
+        float3 a = input.v.co[input.c.v[r.tri_c[0]]];
+        float3 b = input.v.co[input.c.v[r.tri_c[1]]];
+        float3 c = input.v.co[input.c.v[r.tri_c[2]]];
+        float3 tn = (b - a).cross(c - a);
+        if (tn.dot(vn) < params.sheet_min_dot * tn.length() &&
+            vertCoherence(v) > kCoherence) {
+          ClosestPointResult rf =
+              findClosestPoint(tree, out.v.co[v], &vn, params.sheet_min_dot);
+          if (rf.hit && rf.dist <= kSheetRatio * r.dist) {
+            r = rf;
+          }
+        }
+      }
       if (last) {
         sum += r.dist;
         if (r.dist > mx) mx = r.dist;

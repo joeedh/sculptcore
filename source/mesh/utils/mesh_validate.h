@@ -41,6 +41,11 @@ struct RemeshReport {
   // Geometry health (the M6 reprojection-drift guards).
   int degenerate_faces = 0; // ~zero-area
   int inverted_faces = 0;   // Newell normal opposes the incident vertex normals
+  // Tier-0d interior-edge geometric folds (countGeometricFolds): fold90 =
+  // adjacent unit face normals dot < 0 (pathological crease); fold180 = dot
+  // < -0.95 (true fold-back; a subset of fold90).
+  int fold90_edges = 0;
+  int fold180_edges = 0;
 
   // Valence / singularity inventory (meaningful on all-quad output).
   int irregular_interior_verts = 0; // interior verts with valence != 4
@@ -228,6 +233,59 @@ static inline math::float3 faceNewellNormal(Mesh &m, int f)
     cc = cn;
   } while (cc != c0);
   return n;
+}
+
+/* Tier-0d geometric fold counts over interior manifold edges, from per-face
+ * Newell normals (vertex normals lie in folded regions, so they can't be the
+ * reference). fold90 = adjacent unit normals dot < 0; fold180 = dot < -0.95.
+ * Wire/boundary/non-manifold edges and edges touching a degenerate face are
+ * skipped. Sampled on the input, the Tier-9 pre-pass output, and (via
+ * remeshValidate) the final output. */
+struct FoldCounts {
+  int fold90 = 0;
+  int fold180 = 0;
+  int degenerate_faces = 0;
+};
+
+static inline FoldCounts countGeometricFolds(Mesh &m)
+{
+  using litestl::util::Vector;
+  using math::float3;
+
+  FoldCounts fc;
+  Vector<float3> fno;
+  Vector<char> fok;
+  fno.resize(int(m.f.capacity()));
+  fok.resize(int(m.f.capacity()));
+  for (int f : m.f) {
+    float3 n = faceNewellNormal(m, f);
+    float len = n.length();
+    if (len < 1e-12f) {
+      fc.degenerate_faces++;
+      fok[f] = 0;
+      continue;
+    }
+    fno[f] = n * (1.0f / len);
+    fok[f] = 1;
+  }
+  for (int e : m.e) {
+    int c0 = m.e.c[e];
+    if (c0 == ELEM_NONE)
+      continue; // wire
+    int c1 = m.c.radial_next[c0];
+    if (c1 == c0 || m.c.radial_next[c1] != c0)
+      continue; // boundary or non-manifold
+    int f0 = m.l.f[m.c.l[c0]], f1 = m.l.f[m.c.l[c1]];
+    if (!fok[f0] || !fok[f1])
+      continue;
+    float d = fno[f0].dot(fno[f1]);
+    if (d < 0.0f) {
+      fc.fold90++;
+      if (d < -0.95f)
+        fc.fold180++;
+    }
+  }
+  return fc;
 }
 
 /* Isoline (edge-strip) closure — the pipeline's headline no-spiral guarantee,
@@ -506,6 +564,10 @@ static inline RemeshReport remeshValidate(Mesh &m)
       r.inverted_faces++;
   }
   r.all_quad = (r.face_count > 0 && r.tri_count == 0 && r.ngon_count == 0);
+
+  FoldCounts fc = countGeometricFolds(m);
+  r.fold90_edges = fc.fold90;
+  r.fold180_edges = fc.fold180;
 
   // Per-edge: radial multiplicity + winding consistency across each manifold
   // edge (its two corners must traverse it in opposite directions).

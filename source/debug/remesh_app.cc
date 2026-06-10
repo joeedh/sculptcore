@@ -312,6 +312,34 @@ bool RemeshApp::runRemesh(std::string &err)
       wf(params.density_gradation),
       L"--density-gradation-iters",
       widen(std::to_string(params.density_gradation_iters)),
+      L"--pre-remesh",
+      wb(params.pre_remesh),
+      L"--pre-remesh-target",
+      wf(params.pre_remesh_target),
+      L"--pre-remesh-iters",
+      widen(std::to_string(params.pre_remesh_iters)),
+      L"--pre-remesh-density",
+      wb(params.pre_remesh_density),
+      L"--pre-remesh-gradation",
+      wf(params.pre_remesh_gradation),
+      L"--pre-remesh-gradation-iters",
+      widen(std::to_string(params.pre_remesh_gradation_iters)),
+      L"--pre-remesh-align",
+      wf(params.pre_remesh_align),
+      L"--pre-remesh-field-cadence",
+      widen(std::to_string(params.pre_remesh_field_cadence)),
+      L"--pre-remesh-bootstrap-iters",
+      widen(std::to_string(params.pre_remesh_bootstrap_iters)),
+      L"--pre-remesh-smooth-iters",
+      widen(std::to_string(params.pre_remesh_smooth_iters)),
+      L"--pre-remesh-smooth-lambda",
+      wf(params.pre_remesh_smooth_lambda),
+      L"--pre-remesh-converge-eps",
+      wf(params.pre_remesh_converge_eps),
+      L"--pre-remesh-preserve-features",
+      wb(params.pre_remesh_preserve_features),
+      L"--pre-remesh-sharp-angle",
+      wf(params.pre_remesh_sharp_angle),
   };
   if (!startJob(Job::Remesh, remeshCliPath(), args, "remeshing " + name)) {
     err = status;
@@ -642,6 +670,21 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "density_max=" << params.density_max << "\n"
       << "density_gradation=" << params.density_gradation << "\n"
       << "density_gradation_iters=" << params.density_gradation_iters << "\n"
+      << "pre_remesh=" << int(params.pre_remesh) << "\n"
+      << "pre_remesh_target=" << params.pre_remesh_target << "\n"
+      << "pre_remesh_iters=" << params.pre_remesh_iters << "\n"
+      << "pre_remesh_density=" << int(params.pre_remesh_density) << "\n"
+      << "pre_remesh_gradation=" << params.pre_remesh_gradation << "\n"
+      << "pre_remesh_gradation_iters=" << params.pre_remesh_gradation_iters << "\n"
+      << "pre_remesh_align=" << params.pre_remesh_align << "\n"
+      << "pre_remesh_field_cadence=" << params.pre_remesh_field_cadence << "\n"
+      << "pre_remesh_bootstrap_iters=" << params.pre_remesh_bootstrap_iters << "\n"
+      << "pre_remesh_smooth_iters=" << params.pre_remesh_smooth_iters << "\n"
+      << "pre_remesh_smooth_lambda=" << params.pre_remesh_smooth_lambda << "\n"
+      << "pre_remesh_converge_eps=" << params.pre_remesh_converge_eps << "\n"
+      << "pre_remesh_preserve_features=" << int(params.pre_remesh_preserve_features)
+      << "\n"
+      << "pre_remesh_sharp_angle=" << params.pre_remesh_sharp_angle << "\n"
       << "pre_iters=" << preParams.iters << "\n"
       << "pre_target=" << preParams.target << "\n"
       << "pre_density=" << int(preParams.density) << "\n"
@@ -705,6 +748,34 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.density_gradation = float(d);
     } else if (name == "density_gradation_iters") {
       params.density_gradation_iters = iv;
+    } else if (name == "pre_remesh") {
+      params.pre_remesh = iv != 0;
+    } else if (name == "pre_remesh_target") {
+      params.pre_remesh_target = float(d);
+    } else if (name == "pre_remesh_iters") {
+      params.pre_remesh_iters = iv;
+    } else if (name == "pre_remesh_density") {
+      params.pre_remesh_density = iv != 0;
+    } else if (name == "pre_remesh_gradation") {
+      params.pre_remesh_gradation = float(d);
+    } else if (name == "pre_remesh_gradation_iters") {
+      params.pre_remesh_gradation_iters = iv;
+    } else if (name == "pre_remesh_align") {
+      params.pre_remesh_align = float(d);
+    } else if (name == "pre_remesh_field_cadence") {
+      params.pre_remesh_field_cadence = iv;
+    } else if (name == "pre_remesh_bootstrap_iters") {
+      params.pre_remesh_bootstrap_iters = iv;
+    } else if (name == "pre_remesh_smooth_iters") {
+      params.pre_remesh_smooth_iters = iv;
+    } else if (name == "pre_remesh_smooth_lambda") {
+      params.pre_remesh_smooth_lambda = float(d);
+    } else if (name == "pre_remesh_converge_eps") {
+      params.pre_remesh_converge_eps = float(d);
+    } else if (name == "pre_remesh_preserve_features") {
+      params.pre_remesh_preserve_features = iv != 0;
+    } else if (name == "pre_remesh_sharp_angle") {
+      params.pre_remesh_sharp_angle = float(d);
     } else if (name == "pre_iters") {
       preParams.iters = iv;
     } else if (name == "pre_target") {

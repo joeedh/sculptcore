@@ -191,8 +191,30 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"density_min\": %.9g,\n", p.density_min);
   std::fprintf(f, "    \"density_max\": %.9g,\n", p.density_max);
   std::fprintf(f, "    \"density_gradation\": %.9g,\n", p.density_gradation);
-  std::fprintf(f, "    \"density_gradation_iters\": %d\n",
+  std::fprintf(f, "    \"density_gradation_iters\": %d,\n",
                p.density_gradation_iters);
+  std::fprintf(f, "    \"pre_remesh\": %s,\n", jb(p.pre_remesh));
+  std::fprintf(f, "    \"pre_remesh_target\": %.9g,\n", p.pre_remesh_target);
+  std::fprintf(f, "    \"pre_remesh_iters\": %d,\n", p.pre_remesh_iters);
+  std::fprintf(f, "    \"pre_remesh_density\": %s,\n", jb(p.pre_remesh_density));
+  std::fprintf(f, "    \"pre_remesh_gradation\": %.9g,\n", p.pre_remesh_gradation);
+  std::fprintf(f, "    \"pre_remesh_gradation_iters\": %d,\n",
+               p.pre_remesh_gradation_iters);
+  std::fprintf(f, "    \"pre_remesh_align\": %.9g,\n", p.pre_remesh_align);
+  std::fprintf(f, "    \"pre_remesh_field_cadence\": %d,\n",
+               p.pre_remesh_field_cadence);
+  std::fprintf(f, "    \"pre_remesh_bootstrap_iters\": %d,\n",
+               p.pre_remesh_bootstrap_iters);
+  std::fprintf(f, "    \"pre_remesh_smooth_iters\": %d,\n",
+               p.pre_remesh_smooth_iters);
+  std::fprintf(f, "    \"pre_remesh_smooth_lambda\": %.9g,\n",
+               p.pre_remesh_smooth_lambda);
+  std::fprintf(f, "    \"pre_remesh_converge_eps\": %.9g,\n",
+               p.pre_remesh_converge_eps);
+  std::fprintf(f, "    \"pre_remesh_preserve_features\": %s,\n",
+               jb(p.pre_remesh_preserve_features));
+  std::fprintf(f, "    \"pre_remesh_sharp_angle\": %.9g\n",
+               p.pre_remesh_sharp_angle);
   std::fprintf(f, "  },\n");
 
   std::fprintf(f, "  \"output\": {\n");
@@ -261,6 +283,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
   std::fprintf(f, "      \"triage\": \"%s\",\n", ssName(rep.triage));
   std::fprintf(f, "      \"decimate\": \"%s\",\n", ssName(rep.decimate));
+  std::fprintf(f, "      \"pre_remesh\": \"%s\",\n", ssName(rep.pre_remesh));
   std::fprintf(f, "      \"cross_field\": \"%s\",\n", ssName(rep.cross_field));
   std::fprintf(f, "      \"singularity\": \"%s\",\n", ssName(rep.singularity));
   std::fprintf(f, "      \"quantize\": \"%s\",\n", ssName(rep.quantize));
@@ -285,6 +308,33 @@ bool writeManifest(const char *path, const std::string &jsonName,
                tg.removed_component_verts);
   std::fprintf(f, "    \"non_manifold_edges\": %d,\n", tg.non_manifold_edges);
   std::fprintf(f, "    \"non_manifold_verts\": %d\n", tg.non_manifold_verts);
+  std::fprintf(f, "  },\n");
+
+  // Tier-9 pre-remesh A/B effect (remesh_report.h::PreRemeshEffect). `ran` is
+  // false when the pre-pass was gated off; the fields are then all zero.
+  const remesh::RemeshRunReport::PreRemeshEffect &pe = rep.pre_remesh_effect;
+  std::fprintf(f, "  \"pre_remesh\": {\n");
+  std::fprintf(f, "    \"ran\": %s,\n", jb(pe.ran));
+  std::fprintf(f, "    \"verts_in\": %d,\n", pe.verts_in);
+  std::fprintf(f, "    \"verts_out\": %d,\n", pe.verts_out);
+  std::fprintf(f, "    \"faces_in\": %d,\n", pe.faces_in);
+  std::fprintf(f, "    \"faces_out\": %d,\n", pe.faces_out);
+  std::fprintf(f, "    \"mean_edge_in\": %.9g,\n", pe.mean_edge_in);
+  std::fprintf(f, "    \"mean_edge_out\": %.9g,\n", pe.mean_edge_out);
+  std::fprintf(f, "    \"edge_cv_in\": %.9g,\n", pe.edge_cv_in);
+  std::fprintf(f, "    \"fold90_in\": %d,\n", pe.fold90_in);
+  std::fprintf(f, "    \"fold90_out\": %d,\n", pe.fold90_out);
+  std::fprintf(f, "    \"fold180_in\": %d,\n", pe.fold180_in);
+  std::fprintf(f, "    \"fold180_out\": %d,\n", pe.fold180_out);
+  std::fprintf(f, "    \"degen_in\": %d,\n", pe.degen_in);
+  std::fprintf(f, "    \"degen_out\": %d,\n", pe.degen_out);
+  std::fprintf(f, "    \"iters_run\": %d,\n", pe.iters_run);
+  std::fprintf(f, "    \"converged\": %s,\n", jb(pe.converged));
+  std::fprintf(f, "    \"coarsen_bootstrap\": %s,\n", jb(pe.coarsen_bootstrap));
+  std::fprintf(f, "    \"target_resolved\": %.9g,\n", pe.target_resolved);
+  std::fprintf(f, "    \"iters_resolved\": %d,\n", pe.iters_resolved);
+  std::fprintf(f, "    \"bootstrap_resolved\": %d,\n", pe.bootstrap_resolved);
+  std::fprintf(f, "    \"duration_ms\": %lld\n", pe.duration_ms);
   std::fprintf(f, "  }\n");
   std::fprintf(f, "}\n");
 
@@ -320,7 +370,28 @@ void usage()
       "  --density-min <f>        density clamp floor (default 0.25)\n"
       "  --density-max <f>        density clamp ceiling (default 4)\n"
       "  --density-gradation <f>  bound size growth rate; 0=off (default 0)\n"
-      "  --density-gradation-iters <int>  limiter sweep cap (default 10)\n");
+      "  --density-gradation-iters <int>  limiter sweep cap (default 10)\n"
+      "  --pre-remesh <0|1>       field-aligned input pre-remesh (default 0)\n"
+      "  --pre-remesh-target <f>  pre-pass edge length; 0=auto (default 0)\n"
+      "  --pre-remesh-iters <int> outer iterations; 0=auto (default 0)\n"
+      "  --pre-remesh-density <0|1>  curvature size field drives BK band "
+      "(default 1)\n"
+      "  --pre-remesh-gradation <f>  size-field growth cap; 0=off (default 0.5)\n"
+      "  --pre-remesh-gradation-iters <int>  limiter sweep cap (default 10)\n"
+      "  --pre-remesh-align <f>   smooth blend isotropic 0..1 aligned (default 1)\n"
+      "  --pre-remesh-field-cadence <int>  field refresh every N iters "
+      "(default 2)\n"
+      "  --pre-remesh-bootstrap-iters <int>  isotropic denoise sweeps; -1=auto "
+      "(default -1)\n"
+      "  --pre-remesh-smooth-iters <int>  smooth sweeps per outer iter "
+      "(default 5)\n"
+      "  --pre-remesh-smooth-lambda <f>   smooth relaxation 0..1 (default 0.5)\n"
+      "  --pre-remesh-converge-eps <f>    early-out threshold; 0=off "
+      "(default 0.05)\n"
+      "  --pre-remesh-preserve-features <0|1>  pin boundaries+creases "
+      "(default 1)\n"
+      "  --pre-remesh-sharp-angle <f>     crease dihedral, radians "
+      "(default 0.785)\n");
 }
 
 bool toBool(const char *s) { return std::atoi(s) != 0; }
@@ -397,6 +468,43 @@ int main(int argc, char **argv)
     else if (a == "--density-gradation-iters")
       params.density_gradation_iters =
           std::atoi(next("--density-gradation-iters"));
+    else if (a == "--pre-remesh")
+      params.pre_remesh = toBool(next("--pre-remesh"));
+    else if (a == "--pre-remesh-target")
+      params.pre_remesh_target = float(std::atof(next("--pre-remesh-target")));
+    else if (a == "--pre-remesh-iters")
+      params.pre_remesh_iters = std::atoi(next("--pre-remesh-iters"));
+    else if (a == "--pre-remesh-density")
+      params.pre_remesh_density = toBool(next("--pre-remesh-density"));
+    else if (a == "--pre-remesh-gradation")
+      params.pre_remesh_gradation =
+          float(std::atof(next("--pre-remesh-gradation")));
+    else if (a == "--pre-remesh-gradation-iters")
+      params.pre_remesh_gradation_iters =
+          std::atoi(next("--pre-remesh-gradation-iters"));
+    else if (a == "--pre-remesh-align")
+      params.pre_remesh_align = float(std::atof(next("--pre-remesh-align")));
+    else if (a == "--pre-remesh-field-cadence")
+      params.pre_remesh_field_cadence =
+          std::atoi(next("--pre-remesh-field-cadence"));
+    else if (a == "--pre-remesh-bootstrap-iters")
+      params.pre_remesh_bootstrap_iters =
+          std::atoi(next("--pre-remesh-bootstrap-iters"));
+    else if (a == "--pre-remesh-smooth-iters")
+      params.pre_remesh_smooth_iters =
+          std::atoi(next("--pre-remesh-smooth-iters"));
+    else if (a == "--pre-remesh-smooth-lambda")
+      params.pre_remesh_smooth_lambda =
+          float(std::atof(next("--pre-remesh-smooth-lambda")));
+    else if (a == "--pre-remesh-converge-eps")
+      params.pre_remesh_converge_eps =
+          float(std::atof(next("--pre-remesh-converge-eps")));
+    else if (a == "--pre-remesh-preserve-features")
+      params.pre_remesh_preserve_features =
+          toBool(next("--pre-remesh-preserve-features"));
+    else if (a == "--pre-remesh-sharp-angle")
+      params.pre_remesh_sharp_angle =
+          float(std::atof(next("--pre-remesh-sharp-angle")));
     else {
       std::fprintf(stderr, "ERROR unknown arg %s\n", a.c_str());
       return 2;
@@ -498,6 +606,22 @@ int main(int argc, char **argv)
               r.min_interior_angle, r.max_adjacent_area_ratio, int(tg.ran),
               tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
               tg.non_manifold_edges, durationMs);
+
+  // Pre-remesh A/B one-liner (only when the pre-pass ran); full record is in
+  // the manifest "pre_remesh" block.
+  const remesh::RemeshRunReport::PreRemeshEffect &pe = rep.pre_remesh_effect;
+  if (pe.ran) {
+    std::printf("PRESTATS verts=%d/%d faces=%d/%d mean_edge=%.4g/%.4g "
+                "edge_cv_in=%.4g fold90=%d/%d fold180=%d/%d degen=%d/%d "
+                "iters=%d/%d converged=%d coarsen=%d target=%.4g bootstrap=%d "
+                "duration_ms=%lld\n",
+                pe.verts_in, pe.verts_out, pe.faces_in, pe.faces_out,
+                pe.mean_edge_in, pe.mean_edge_out, pe.edge_cv_in, pe.fold90_in,
+                pe.fold90_out, pe.fold180_in, pe.fold180_out, pe.degen_in,
+                pe.degen_out, pe.iters_run, pe.iters_resolved,
+                int(pe.converged), int(pe.coarsen_bootstrap),
+                pe.target_resolved, pe.bootstrap_resolved, pe.duration_ms);
+  }
 
   litestl::alloc::Delete<mesh::Mesh>(out);
   litestl::alloc::Delete<mesh::Mesh>(in);

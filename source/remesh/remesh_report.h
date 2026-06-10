@@ -26,6 +26,7 @@ struct RemeshRunReport {
   StageStatus copy = StageStatus::Skipped;
   StageStatus triage = StageStatus::Skipped;
   StageStatus decimate = StageStatus::Skipped;
+  StageStatus pre_remesh = StageStatus::Skipped;
   StageStatus cross_field = StageStatus::Skipped;
   StageStatus singularity = StageStatus::Skipped;
   StageStatus quantize = StageStatus::Skipped;
@@ -62,6 +63,29 @@ struct RemeshRunReport {
   // Tier-1 input triage counts (weld / degenerate-face / tiny-component drops +
   // detect-only non-manifold). triage_report.ran reflects whether triage ran.
   TriageReport triage_report;
+
+  // Tier-9 pre-remesh effect: the working mesh before vs after the pre-pass
+  // (geometry census, edge statistics, 0d fold metrics), the driver's run
+  // outcome, and what the auto-sentinel knobs resolved to — the A/B record for
+  // "how did the pre-pass change what the field solve saw". The "_in" side is
+  // measured after triage/decimate, i.e. exactly what the pre-pass received.
+  struct PreRemeshEffect {
+    bool ran = false;
+    int verts_in = 0, faces_in = 0;
+    int verts_out = 0, faces_out = 0;
+    float mean_edge_in = 0.0f, mean_edge_out = 0.0f;
+    float edge_cv_in = 0.0f; // edge-length coeff. of variation (irregularity)
+    int fold90_in = 0, fold180_in = 0, degen_in = 0;
+    int fold90_out = 0, fold180_out = 0, degen_out = 0;
+    int iters_run = 0;
+    bool converged = false;       // converge_eps early-out fired
+    bool coarsen_bootstrap = false; // dense input BK-coarsened before the loop
+    float target_resolved = 0.0f; // what the pre_remesh_target sentinel became
+    int iters_resolved = 0;
+    int bootstrap_resolved = 0;
+    long long duration_ms = 0;
+  };
+  PreRemeshEffect pre_remesh_effect;
 };
 
 } // namespace sculptcore::remesh

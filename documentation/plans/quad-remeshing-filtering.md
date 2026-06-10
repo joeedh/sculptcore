@@ -11,8 +11,10 @@ Background and trade-off analysis:
 Shipped pipeline being extended: [quad-remeshing.md](../quad-remeshing.md).
 
 **Process:** each tier is implemented, tested, then **paused for review** before
-the next begins. Tiers are additive; every new knob defaults to current behavior,
-so a half-finished ladder never changes existing output.
+the next begins. Tiers are additive. Knob defaults are decided per knob on merit
+at the tier's review gate — correctness-critical passes (e.g. Tier 3b gradation)
+default **on**; destructive cleanup (Tier 1 triage) defaults **off** until
+validated. Each tier's param table records the chosen default.
 
 ## Roadmap & rationale
 
@@ -27,7 +29,7 @@ dominate quality and so come first: you can't tell if a filter helped without
 | **0** | Quality metrics + ugly-char corpus + stats plumbing | measurement | Can't evaluate any later tier without it; unblocks the capstone's retry decisions. |
 | **1** | Input triage / repair (scoped) | topology | Garbage topology poisons curvature→field→param. Biggest lever for *messy* inputs. |
 | **2** | Curvature tensor filtering + integration radius | field filter | Highest-leverage low-risk denoise for organic+scanned; no geometry change. |
-| **3** | Auto curvature-density + gradation limiting | sizing | Generates a size field (small at face/folds, large on torso) + bounds its gradient. |
+| **3** | Auto curvature-density + gradation limiting | sizing | Generates a size field (small at face/folds, large on torso) + bounds its per-edge growth ratio. |
 | **4** | Smoothness/alignment master knob | field filter | Dial smoothness up to suppress noise-born singularities. |
 | **5** | Singularity pair cancellation | field cleanup | Removes residual +k/−k clutter Tier 2 didn't eliminate. Gated on whether it's needed. |
 | **6** | Boundary / thin-part / component policy | topology policy | Eyelids, mouth holes, cuffs, accessories, double-sided sheets — a big character lever. |
@@ -55,10 +57,10 @@ dominate quality and so come first: you can't tell if a filter helped without
    for each new knob explicitly decide whether the **C++ default** or an
    **app-UI default** is authoritative, and document it inline.
 
-**Default rule (with one carve-out):** every new knob defaults so each merge is a
-no-op until turned — **except Tier 1**, the intentionally behavior-changing
-robustness tier, whose destructive cleanup defaults **off** until review gate 1
-validates it on the corpus, then flips on.
+**Defaults:** decided per knob at its tier's review gate, not by blanket rule.
+Destructive cleanup (Tier 1 triage) stays **off** until gate 1 validates it on
+the corpus; correctness-critical filters (e.g. Tier 3b gradation in the pre-pass)
+default **on**.
 
 ---
 
@@ -110,6 +112,10 @@ of this is **surface what exists**, not build from scratch:
 - **add**: per-component singularity count;
 - **add**: pre-extraction **parametrization fold count** (distinct from output
   `inverted_faces`);
+- **add**: interior-edge **geometric fold counts** — fold90 (adjacent unit face
+  normals dot < 0, pathological crease) and fold180 (dot < −0.95, true
+  fold-back) — plus degenerate-face count, sampled on the input, the Tier 9
+  pre-pass output, and the final output;
 - runtime + failure reason come from 0a's report.
 
 ### 0c. Corpus + tracker
@@ -118,6 +124,16 @@ raw scan, thin-sheet clothing, holed face, multi-component accessory). Add a
 debug-app/CLI batch verb that runs all of them and writes a metrics table
 (CSV/JSON) so tiers can be compared run-over-run. Keep assets out of git if large;
 reference by path.
+
+### 0d. Early slice (pulled forward by Tier 9's early execution)
+Tier 9 executes before the rest of the ladder, so the minimum measurement it
+needs is promoted ahead of the corpus: (1) the **geometric fold metrics** above
+as permanent debug-app/CLI stats, and (2) the dyntopo **convergence trace**
+(`dyntopo_trace.h`: per-round op counts, thin-triangle quality, split/collapse
+candidate counts, worst band overshoot/undershoot, and the oscillation/churn
+report) surfaced the same way. Both are already prototyped as test scaffolding
+in `tests/test_remesh_preremesh.cc`; promote them when 9d lands. The
+corpus/tracker (0c) can land later without blocking gate 9.
 
 ### Verification
 A batch run over the corpus emits the metrics table; spot-check a couple of
@@ -201,9 +217,9 @@ state that explicitly rather than implying painted maps work.
 | `triage_weld_rel` | `1e-5f` | weld tolerance as a fraction of bbox diagonal |
 | `triage_min_component_frac` | `0.0f` | drop components below this fraction of total verts (0 = keep all) |
 
-(`triage` defaults **off** to keep merges no-op; gate 1 decides whether to flip it
-on by default. The attr-copy of 1b is unconditional — it only *adds* layers, never
-destroys.)
+(`triage` defaults **off** — destructive cleanup stays opt-in until gate 1
+validates it on the corpus. The attr-copy of 1b is unconditional — it only *adds*
+layers, never destroys.)
 
 ### Verification
 - **gtest** `tests/test_remesh_triage.cc`: build meshes with injected duplicate
@@ -308,27 +324,43 @@ auto-generation is what makes adaptive density useful without a painted map.
   only meaningful **after Tier 1b** lands the attr-copy; until then auto-density
   is the sole density source (state this in the docs).
 
-### 3b. Gradation limiting (Alauzet bounded gradation)
-**Where — get this right:** density has two consumers and the *earlier* one sets
-local size:
-- **M4 seamless param** — `buildSeamlessSystem` reads `.remesh.v.density` and
-  folds `1/sqrt(density)` into the FEM target-gradient (`seamless_internal.cc:166`).
-  **This sets local size.**
-- M5 quantize re-reads it at `quantize_ilp.cc:513` (secondary).
+### 3b. Gradation limiting (bounded per-edge growth ratio)
+**Algorithm — hop/ratio-based, NOT geometric distance (implemented,
+`field/density.cc`).** Convert density→goal length `h = L/sqrt(density)`, then
+cap `h` to grow by at most `(1 + gradation)` across **any single edge**:
+worklist min-propagation expanding outward from fine regions with geometrically
+relaxed goals (`h[n] ← min(h[n], h[v]·(1+gradation))`) to a fixed point.
+Distance-based (Alauzet `h[n] + beta·dist(v,n)`) is the wrong currency here —
+the allowed step scales with the *current* edge's world length, so on a coarse
+input one long edge legally spans a huge size step and a per-edge cliff
+survives, exactly where the BK band then overlaps pathologically. Only ever
+refines (raises density); `density_gradation_iters` caps total work (pops per
+vertex), not convergence.
 
-So the limiter runs as a **prepass before `buildSeamlessSystem`** (before
-`computeQuantization` in `remesh.cc`), writing the limited values back so **both**
-reads see the filtered field. Algorithm: convert density→size `h`, iterate
-`h[v] ← min over neighbors n of (h[n] + beta·dist(v,n))` to a fixed point / `N`
-sweeps, convert back. Confirm both call sites consume the filtered values.
+**Where (two call sites):**
+- **Main pipeline** — prepass before `buildSeamlessSystem` (before
+  `computeQuantization` in `remesh.cc`), writing limited values back so both
+  consumers see the filtered field: the M4 seamless read
+  (`seamless_internal.cc:166`, folds `1/sqrt(density)` into the FEM
+  target-gradient — **this sets local size**) and the M5 quantize re-read
+  (`quantize_ilp.cc:513`, secondary).
+- **Tier 9 pre-pass** — before every BK dab (`preremesh.cc`), between
+  `generateAutoDensity` and the size-scale write, so the split/collapse band
+  never steps sharply across an edge. **Non-optional there** — defaults on
+  (`PreRemeshParams::gradation = 0.5`); `0` disables for A/B only.
+
+**Open decision (gate 3):** the main pipeline's `density_gradation` still
+defaults `0.0` (off) while the pre-pass defaults on. Decide whether the main
+default flips on too (gradation is a correctness filter, not a style knob) — or
+document why the main pipeline differs.
 
 ### New params
 | field | default | meaning |
 |-------|---------|---------|
 | `auto_density` | `false` | generate `.remesh.v.density` from curvature |
 | `density_min` / `density_max` | `0.25f` / `4.0f` | clamp on generated density (size range) |
-| `density_gradation` | `0.0f` | max size growth rate; `0` = off. Typical `0.3–1.0` |
-| `density_gradation_iters` | `10` | limiter sweep cap |
+| `density_gradation` | `0.0f` | max per-edge-hop goal-length growth ratio − 1; `0` = off (main pipeline; the pre-pass has its own default-on knob). Typical `0.3–1.0` |
+| `density_gradation_iters` | `10` | work cap (pops per vertex); termination is natural |
 
 ### Verification
 - **gtest:** steep density step (1.0 vs 8.0 across a plane/cylinder) — assert
@@ -397,6 +429,9 @@ comes from M5's quantization regardless**. So the marginal value is only
 *aesthetic* singularity reduction, not correctness. Build this **only if** Tier
 2/4 corpus metrics still show clutter that hurts the valence/skinny-quad numbers —
 otherwise skip it. The fundamental fix is reducing the source (noise, Tier 2).
+Tier 0d's convergence/band-pressure trace helps make that call: it separates
+field singularity clutter from BK split/collapse churn, which look alike in the
+final valence numbers.
 
 ### Approach (this is genuinely hard — not a `pole_index` edit)
 M3 holds **period jumps fixed**; cancelling a pair is a **cohomology edit**:
@@ -616,9 +651,18 @@ tangential move with the rough cross field:
 - Replace the isotropic Laplacian with a **field-steered** update: decompose the
   one-ring tangential delta into the `(u,v)` cross-frame and reshape so vertices
   relax toward straightened `u`/`v` isolines (directional / edge-aligned
-  weighting, à la Jakob et al. instant-meshes). Keep the existing **tangent-plane
-  projection + edge-scale clamp** (`remesh.cc:206–213`) verbatim as the safety
-  rail — no volume shrink, bounded move, no dependence on stored normals.
+  weighting, à la Jakob et al. instant-meshes). Keep the **tangent-plane
+  projection + edge-scale clamp** (`remesh.cc:206–213`) — but the clamp alone is
+  **not fold-safe**: a move up to the full shortest incident edge can invert an
+  incident triangle (dyntopo's own `smoothTangent` clamps to **half** the
+  shortest edge for exactly this reason). **Implemented:** `tangentialSmooth`
+  now clamps to half the shortest incident edge unconditionally, plus an
+  **opt-in** `fold_guard` param that cancels only *good→bad* fan transitions
+  (a tri agreeing with the fan normal flipping against the fan-after, or an
+  unfolded adjacent fan-tri pair creasing past 90°) — already-folded fans stay
+  free to relax flat. Off by default because binary move-cancellation breaks
+  the exact iso/field equivalence contracts the unit tests pin; the 9b driver
+  opts in at both call sites.
 - A scalar `pre_remesh_align ∈ [0,1]` blends isotropic↔field-aligned (`0`
   reproduces today's relaxation; `1` fully field-aligned) for A/B + tuning.
 - **Where:** a new `remesh/preremesh.{h,cc}` (it needs both dyntopo and the field).
@@ -645,14 +689,31 @@ existing `grade` (`dyntopo.h:63–67`) relaxes the band *radially* by
 curvature-adaptive triangles. Instead extend the BK candidate loop
 (`dyntopo.h:613–628`) to read a **per-vertex size field**, setting the local target
 to `L(v) = pre_remesh_target / sqrt(density(v))` — refine where the field turns
-fastest (high curvature), coarsen flat regions. Feed it from **Tier 3's
-`.remesh.v.density`**, recomputed on `work` each rebuild (auto-density is
+fastest (high curvature), coarsen flat regions. Feed it through **the full Tier 3
+sizing chain each outer iter**: `generateAutoDensity → limitDensityGradation →
+size-scale write` (gradation sits between generation and consumption — see 3b;
+it is non-optional here), recomputed on `work` each rebuild (auto-density is
 curvature-driven, so it regenerates on the new triangulation) — the *same* size
 field that drives the final quad sizing, so pre-pass and output stay coherent. This
 isn't cosmetic: a uniform pre-remesh too coarse where the cross field bends
 *aliases* the field and can manufacture the very folds this tier exists to kill.
 `pre_remesh_density = false` falls back to the single global `pre_remesh_target`
-(today's uniform behavior, the additive default).
+(A/B only; the default is **on**).
+
+**BK band overlap (structural churn source — fixed).** With the classic
+`4/3·L` / `4/5·L` band, a split's child edges (`l_max/2 = 0.667·L`) land *below*
+the collapse threshold (`0.8·L`): splits directly feed collapse candidates. The
+`max_stall_rounds` early-out bounds the damage but doesn't remove the cycle.
+**Implemented** as the band-widening option: `bkRemeshToTarget` sets
+`l_min = (2/3)·L` (= `l_max/2`; the strict `< l_min` compare keeps exact split
+children out of the collapse band), and `applyBrushDab` itself clamps every
+caller's effective `l_min` to `l_max/2`, so the sculpt path can't be handed an
+overlapping band either (all current callers already pass ratios ≤ 0.5 — the
+clamp is a no-op for them).
+Measured on the fox at target 0.1: per-iter rounds 77/45/22/31/21 vs the
+baseline pinned at the 100-round cap every iter; op counts decay 12k→~400 vs a
+steady ~2400/iter churn; vert count settles instead of oscillating. (At target
+0.05 iters 0–1 still hit the cap — residual churn, not the band cycle.)
 
 ### 9c. Feature pinning
 `decimateForSolve` sets `preserve_features=false` and the tri copy carries no
@@ -671,22 +732,59 @@ gated on `pre_remesh`. Two integration points to get right:
   full-res original (`remesh.cc:359–362`), today gated on the `decimated` flag.
   Generalize the gate to "`work` geometry diverged from input" so a pre-remesh
   *without* `--solve` decimation still reprojects.
+- **Reproject must be fold-safe.** `reprojectToSurface` (`extract/reproject.cc`)
+  is a pure closest-point snap; on thin features it snaps vertices to the
+  **opposite sheet**, manufacturing fold-backs. **Implemented** as a
+  normal-compatible re-query (`ReprojectParams::sheet_min_dot`, default `-0.5` =
+  reject only clearly-opposite sheets; `<= -1` disables): when the plain closest
+  point's face normal opposes the vertex normal, re-query through the
+  `closestPointWalk` sheet filter and accept the filtered hit only within 3× the
+  plain distance. Two structural facts forced the shape: quad extraction does
+  **not** inherit input winding (a one-time orientation vote over ≤256 sampled
+  unfiltered hits calibrates the sign), and vertex normals *lie* in folded
+  umbrellas (the filter engages only where 1-ring normal coherence > 0.7, else
+  the plain snap keeps ironing extraction folds flat). Fox at target 0.05:
+  post-reproject fold180 ends at 41 vs the input's 39 — ≈ zero net fold-back
+  added (baseline 261). Intersects Tier 6's thin-sheet case.
+- **Collapse must be fold-safe (found via the Tier 0d diagnostic, fixed at the
+  source).** `edge_collapse.h`'s `prevent_inversion` only rejected a collapse
+  that flipped a *single* star face; it let a collapse fold two faces across
+  their shared post-collapse edge. The guard now also groups surviving star
+  faces (plus their outside-star radial neighbors) by post-collapse edge key and
+  rejects any collapse where a not-folded pair (`n_i·n_j ≥ 0`) becomes folded
+  (`< 0`). Shared with sculpt dyntopo (same `prevent_inversion=true` path);
+  dyntopo regression gates stay green.
 - **Compose with `--solve`.** When both are on, decimate first (coarsen), then
   field-align at that resolution; the isotropic relaxation tail of
   `decimateForSolve` becomes 9a (`pre_remesh_align`-controlled).
 
-### New params (all default to a no-op: `pre_remesh=false`)
+### New params (mirrors `PreRemeshParams`, `remesh/preremesh.h`)
+The pipeline gate `pre_remesh=false` keeps the pipeline unchanged; the knobs
+below take effect only when it's on (or in the debug app's pre-pass mode).
+
 | field | default | meaning |
 |-------|---------|---------|
 | `pre_remesh` | `false` | run the field-aligned input pre-remesh on `work` before the field solve |
 | `pre_remesh_iters` | `5` | outer convergence iterations |
 | `pre_remesh_target` | `0.0f` | **base** pre-pass edge length (scaled per-vertex by `1/sqrt(density)` when `pre_remesh_density`); `0` = use `target_edge_length` (remesh at output res, don't coarsen). Distinct from `solve_edge_length` |
-| `pre_remesh_density` | `false` | drive the split/collapse band from a per-vertex curvature size field (Tier 3 `.remesh.v.density`, recomputed on `work`) instead of one global length; `false` = uniform |
+| `pre_remesh_density` | `true` | drive the split/collapse band from the per-vertex curvature size field (Tier 3 sizing chain, recomputed on `work`); `false` = uniform (A/B only) |
+| `pre_remesh_gradation` | `0.5f` | per-edge-hop size growth cap on the pre-pass field (3b); `0` disables (A/B only) |
+| `pre_remesh_gradation_iters` | `10` | gradation work cap (pops per vertex) |
 | `pre_remesh_align` | `1.0f` | isotropic(`0`)↔field-aligned(`1`) smooth blend |
 | `pre_remesh_field_cadence` | `2` | recompute the rough field every N outer iters |
 | `pre_remesh_bootstrap_iters` | `2` | isotropic denoise sweeps before field-aligned begins |
+| `pre_remesh_smooth_iters` | `5` | inner field-aligned smooth sweeps per outer iter |
+| `pre_remesh_smooth_lambda` | `0.5f` | per-sweep relaxation factor |
+| `pre_remesh_converge_eps` | `0.0f` | early-out: stop when max smooth move < eps·target (`0` = run all iters) |
+| `pre_remesh_preserve_features` | `true` | 9c: pin boundary + dihedral-sharp creases |
+| `pre_remesh_sharp_angle` | `0.785f` | 9c dihedral threshold (rad) |
 
-(Full per-param surface area for each: the 9-step list at the top of this doc.)
+(`density_min`/`density_max` reuse Tier 3's fields. Full per-param surface area
+for each: the 9-step list at the top of this doc.)
+
+Reproject fold-safety adds one knob on `ReprojectParams` (not a pre-pass param —
+it guards every reproject): `sheet_min_dot`, default `-0.5` (reject only
+clearly-opposite sheets; `<= -1` disables the filter entirely).
 
 ### 9e. Debug-app pre-pass mode + rough-field visualization
 - **Run-just-the-pre-pass:** a `pre_remesh` command (the `remesh_app.cc` dispatch,
@@ -704,7 +802,15 @@ gated on `pre_remesh`. Two integration points to get right:
   `pre_remesh_show_field` toggle + a step/▶ control). The curvature and streamline
   overlays come along for free since they read the same TEMP layers.
 - New `RemeshApp` flags + UI widgets (with hover tooltips, per the app
-  convention) for the pre-pass knobs and the show-rough-field toggle.
+  convention) for the pre-pass knobs and the show-rough-field toggle. The
+  pre-pass UI block (`remesh_ui.cc`) exposes density min/max but **no gradation
+  widget yet** — add `pre_remesh_gradation` (+ iters).
+
+### 9f. (Optional, A/B last) Area-weighted tangential smooth
+Weight the one-ring centroid by incident-triangle areas so the relaxation pushes
+toward uniform-*area* triangles, not just uniform edge lengths. Build only if
+the min-angle / edge-variance metrics stall after 9a–9e; A/B against the
+standard smooth on the corpus.
 
 ### Verification
 - **Primary test config = non-uniform on.** Run the quality gates with
@@ -721,7 +827,9 @@ gated on `pre_remesh`. Two integration points to get right:
   `pre_remesh_density=true` on a curvature-varying fixture (sphere-with-a-bump /
   plane-with-a-crease), assert local edge length is **shorter in the high-curvature
   region than on the flat region** (the size field actually grades the
-  triangulation), while flat regions stay near `pre_remesh_target`.
+  triangulation), while flat regions stay near `pre_remesh_target`. (5) **Fold
+  safety:** fold90/fold180 counts (Tier 0d) after pre-pass + reproject must not
+  exceed the input's.
 - **Fox A/B (the motivating case):** `an-elegant-fox-character` with `pre_remesh`
   on (`pre_remesh_density=true`) vs off — Tier 0 metrics must show
   `parametrization_folds` and quantize wall time both fall sharply (the cliff was

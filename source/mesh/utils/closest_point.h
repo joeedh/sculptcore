@@ -61,7 +61,9 @@ static inline math::float3 closestPointBary(const math::float3 &p,
 static inline void closestPointWalk(spatial::SpatialTree &tree,
                                     spatial::SpatialNode *node,
                                     const math::float3 &p,
-                                    ClosestPointResult &best)
+                                    ClosestPointResult &best,
+                                    const math::float3 *normal = nullptr,
+                                    float min_dot = 0.0f)
 {
   if (!node) {
     return;
@@ -79,10 +81,10 @@ static inline void closestPointWalk(spatial::SpatialTree &tree,
     float dfirst = da <= db ? da : db;
     float dsecond = da <= db ? db : da;
     if (first && dfirst <= best.dist * best.dist) {
-      closestPointWalk(tree, first, p, best);
+      closestPointWalk(tree, first, p, best, normal, min_dot);
     }
     if (second && dsecond <= best.dist * best.dist) {
-      closestPointWalk(tree, second, p, best);
+      closestPointWalk(tree, second, p, best, normal, min_dot);
     }
     return;
   }
@@ -96,6 +98,14 @@ static inline void closestPointWalk(spatial::SpatialTree &tree,
     math::float3 a = m->v.co[m->c.v[tri.c[0]]];
     math::float3 b = m->v.co[m->c.v[tri.c[1]]];
     math::float3 c = m->v.co[m->c.v[tri.c[2]]];
+    if (normal) {
+      // Sheet filter: skip triangles facing away from the query normal so a
+      // thin-feature query can't snap to the opposite surface sheet.
+      math::float3 tn = (b - a).cross(c - a);
+      if (tn.dot(*normal) < min_dot * tn.length()) {
+        continue;
+      }
+    }
     math::float3 cp = math::closestPointOnTri(p, a, b, c);
     float d = (cp - p).length();
     if (d < best.dist) {
@@ -115,12 +125,18 @@ static inline void closestPointWalk(spatial::SpatialTree &tree,
 
 /* Nearest surface point to `p` over the tree's triangles. BVH-pruned
  * (nearer-child-first), so amortized O(log n) per query on a static tree —
- * the M6 reprojection of every output vertex. */
+ * the M6 reprojection of every output vertex.
+ *
+ * @p normal optional sheet filter: only triangles whose (unit) face normal dots
+ * with it >= @p min_dot are candidates (0 = same hemisphere). May return no hit
+ * if every nearby triangle faces away. null = unfiltered (default). */
 static inline ClosestPointResult findClosestPoint(spatial::SpatialTree &tree,
-                                                   const math::float3 &p)
+                                                  const math::float3 &p,
+                                                  const math::float3 *normal = nullptr,
+                                                  float min_dot = 0.0f)
 {
   ClosestPointResult best;
-  detail::closestPointWalk(tree, tree.getRoot(), p, best);
+  detail::closestPointWalk(tree, tree.getRoot(), p, best, normal, min_dot);
   return best;
 }
 

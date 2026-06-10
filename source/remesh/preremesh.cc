@@ -80,7 +80,10 @@ void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
 
   dyntopo::DynTopoParams dp;
   dp.l_max = L * (4.0f / 3.0f);
-  dp.l_min = L * (4.0f / 5.0f);
+  /* l_min = l_max/2, not BK's classic 4/5·L: a split's children land at exactly
+   * l_max/2, so any l_min above that puts fresh children inside the collapse band
+   * and the pass churns split↔collapse forever instead of converging. */
+  dp.l_min = L * (2.0f / 3.0f);
   dp.mode = dyntopo::DynTopoMode::Both;
   dp.do_flips = true;
   // Pinned mode hands relaxation to the caller's feature-aware smooth: BK's own
@@ -221,7 +224,7 @@ void liftFieldToVerts(Mesh &m, util::Vector<float3> &vU, util::Vector<float3> &v
 
 } // namespace
 
-void tangentialSmooth(Mesh &m, int iters, float lambda, float align)
+void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_guard)
 {
   m.thawTopo();
 
@@ -246,6 +249,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align)
   util::Vector<float3> nco;
   nco.resize(int(m.v.capacity()));
   util::Vector<float3> ring;
+  util::Vector<float3> fan_nb, fan_na; // per-fan-tri Newell normals (fold guard)
   for (int it = 0; it < iters; it++) {
     for (int v : m.v) {
       float3 vco = m.v.co[v];
@@ -279,7 +283,8 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align)
       // smooth straightens u/v rows instead of washing flow out. Weighted ring
       // centroid favouring neighbours aligned with the local cross arms; lerp by
       // `align`. No field at this vertex ⇒ stays isotropic.
-      if (align > 0.0f && vU[v].lengthSqr() > 0.25f) {
+      const bool field_here = align > 0.0f && vU[v].lengthSqr() > 0.25f;
+      if (field_here) {
         float3 u = vU[v], w = vW[v];
         math::float3 facc{};
         float wsum = 0.0f;
@@ -313,18 +318,106 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align)
       // (sum of v's incident-triangle normals): for a flat-face vert whose 1-ring
       // reaches across a crease the ring-polygon Newell tents diagonally and would
       // let the aligned target pull v off-surface (a coarse cube then bulges),
-      // whereas the fan normal stays on the face. align==0 keeps the ring Newell so
-      // the isotropic path is byte-identical to the classic relaxation.
+      // whereas the fan normal stays on the face. Field-less verts (incl. all of
+      // align==0) keep the ring Newell so the isotropic path stays byte-identical
+      // to the classic relaxation — and no-field align>0 degrades to exactly it.
       math::float3 d = cen - vco;
-      const math::float3 &pnrm = align > 0.0f ? fan : nrm;
+      const math::float3 &pnrm = field_here ? fan : nrm;
       float nl = pnrm.length();
       if (nl > 1e-20f) {
         math::float3 un = pnrm * (1.0f / nl);
         d = d - un * d.dot(un); // tangent-plane component only
       }
       float dl = d.length();
-      if (dl > minlen && dl > 1e-20f) d = d * (minlen / dl); // clamp to edge scale
-      nco[v] = vco + d * lambda;
+      // Clamp to half the shortest incident edge (matching dyntopo's
+      // smoothTangent): a full-edge move can land past a neighbor and fold the fan.
+      float dmax = 0.5f * minlen;
+      if (dl > dmax && dl > 1e-20f) d = d * (dmax / dl);
+      math::float3 np = vco + d * lambda;
+      // Fold guard (opt-in): cancel a move that NEWLY folds the fan — a tri that
+      // agreed with the fan normal flipping against it, or a previously-unfolded
+      // pair of consecutive fan tris creasing past 90°. Only good→bad transitions
+      // are blocked, so already-folded fans stay free to relax themselves flat.
+      if (fold_guard) {
+        bool flips = false;
+        fan_nb.clear();
+        fan_na.clear();
+        math::float3 fan_after{};
+        for (int i = 0; i < k; i++) {
+          math::float3 r0 = ring[i], r1 = ring[(i + 1) % k];
+          fan_nb.append((r0 - vco).cross(r1 - vco));
+          fan_na.append((r0 - np).cross(r1 - np));
+          fan_after += fan_na[i];
+        }
+        for (int i = 0; i < k && !flips; i++) {
+          int j = (i + 1) % k;
+          flips = (fan_nb[i].dot(fan) >= 0.0f && fan_na[i].dot(fan_after) < 0.0f) ||
+                  (fan_nb[i].dot(fan_nb[j]) >= 0.0f &&
+                   fan_na[i].dot(fan_na[j]) < 0.0f);
+        }
+        if (flips) {
+          np = vco;
+        }
+      }
+      nco[v] = np;
+    }
+    // The per-vertex guard is predictive against FIXED neighbors, but the update
+    // is Jacobi — combined moves can fold a fan no single move would. Revert any
+    // vert whose fan goes good→bad in the all-moved state (plus its ring — one of
+    // them caused it) and re-sweep; reverting only shrinks the moved set, so a
+    // fixed point exists (at worst the fold-free before-state).
+    if (fold_guard) {
+      util::Vector<int> ringv;
+      auto fanFolded = [&](int v, auto &&co) -> bool {
+        int e0 = m.v.e[v];
+        if (e0 == ELEM_NONE) {
+          return false;
+        }
+        ringv.clear();
+        int ec = e0, guard = 0;
+        do {
+          int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
+          ringv.append(ov);
+          int side = m.e.vs[ec][0] == v ? 0 : 1;
+          ec = m.e.disk[ec][side * 2 + 1];
+        } while (ec != e0 && ++guard < 256);
+        int k = int(ringv.size());
+        if (k < 3) {
+          return false;
+        }
+        float3 vc = co(v);
+        fan_nb.clear();
+        math::float3 fsum{};
+        for (int i = 0; i < k; i++) {
+          math::float3 n = (co(ringv[i]) - vc).cross(co(ringv[(i + 1) % k]) - vc);
+          fan_nb.append(n);
+          fsum += n;
+        }
+        for (int i = 0; i < k; i++) {
+          if (fan_nb[i].dot(fsum) < 0.0f ||
+              fan_nb[i].dot(fan_nb[(i + 1) % k]) < 0.0f) {
+            return true;
+          }
+        }
+        return false;
+      };
+      auto before = [&](int v) -> float3 { return m.v.co[v]; };
+      auto after = [&](int v) -> float3 { return nco[v]; };
+      bool any = true;
+      for (int pass = 0; pass < 100 && any; pass++) {
+        any = false;
+        for (int v : m.v) {
+          if (!fanFolded(v, after) || fanFolded(v, before)) {
+            continue;
+          }
+          // ringv still holds v's ring from the `before` call above
+          nco[v] = m.v.co[v];
+          for (int ov : ringv) {
+            nco[ov] = m.v.co[ov];
+          }
+          any = true;
+        }
+      }
     }
     for (int v : m.v) {
       m.v.co[v] = nco[v];
@@ -359,7 +452,7 @@ void writeSizeScale(Mesh &m, float dmin, float dmax)
 
 } // namespace
 
-void preRemesh(Mesh &m, const PreRemeshParams &p)
+void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
 {
   m.thawTopo();
   const float L = p.target;
@@ -374,7 +467,8 @@ void preRemesh(Mesh &m, const PreRemeshParams &p)
   //    (on a noisy input a 45° dihedral test would otherwise pin the noise). Clean
   //    input that should keep crisp features from the start sets bootstrap_iters=0.
   if (p.bootstrap_iters > 0) {
-    tangentialSmooth(m, p.bootstrap_iters, p.smooth_lambda, 0.0f);
+    tangentialSmooth(m, p.bootstrap_iters, p.smooth_lambda, 0.0f,
+                     /*fold_guard=*/true);
   }
 
   const int cadence = p.field_cadence > 0 ? p.field_cadence : 1;
@@ -400,6 +494,11 @@ void preRemesh(Mesh &m, const PreRemeshParams &p)
       dpa.density_min = p.density_min;
       dpa.density_max = p.density_max;
       generateAutoDensity(m, dpa);
+      // Tier 3b gradation limit: bound the size field's growth rate so the BK
+      // band never steps sharply across an edge (a size cliff makes the
+      // split/collapse loop churn pathologically at the boundary).
+      limitDensityGradation(m, L, p.gradation, p.gradation_iters, p.density_min,
+                            p.density_max);
       writeSizeScale(m, p.density_min, p.density_max);
       size_attr = kSizeAttr;
     }
@@ -439,13 +538,20 @@ void preRemesh(Mesh &m, const PreRemeshParams &p)
         preSmooth[v] = m.v.co[v];
       }
     }
-    tangentialSmooth(m, p.smooth_iters, p.smooth_lambda, p.align);
+    tangentialSmooth(m, p.smooth_iters, p.smooth_lambda, p.align,
+                     /*fold_guard=*/true);
+    if (stats) {
+      stats->iters_run = it + 1;
+    }
     if (measure) {
       double mv = 0.0;
       for (int v : m.v) {
         mv = std::fmax(mv, double((m.v.co[v] - preSmooth[v]).length()));
       }
       if (mv < double(p.converge_eps) * double(L)) {
+        if (stats) {
+          stats->converged = true;
+        }
         break; // the relaxation has settled
       }
     }

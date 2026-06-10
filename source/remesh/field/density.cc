@@ -5,6 +5,7 @@
 #include "mesh/mesh.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/util/boolvector.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
@@ -15,6 +16,7 @@ namespace sculptcore::remesh {
 
 using litestl::math::float2;
 using litestl::math::float3;
+using litestl::util::BoolVector;
 using litestl::util::Vector;
 using sculptcore::mesh::AttrFlag;
 using sculptcore::mesh::AttrType;
@@ -69,10 +71,13 @@ void limitDensityGradation(Mesh &m, float target_edge_length, float gradation,
   density.ensure(m.v.attrs);
 
   const float L = target_edge_length > 1e-12f ? target_edge_length : 1e-12f;
+  /* Per-edge-hop ratio bound: across any single edge the goal length may grow by
+   * at most beta, regardless of the edge's current world length. World-distance
+   * (Alauzet) gradation is the wrong currency here — on a coarse input one long
+   * edge legally spans a huge size step, so a per-edge cliff survives and the BK
+   * band overlaps pathologically across it. */
+  const float beta = 1.0f + gradation;
 
-  // Work in world-space size h = L / sqrt(density); the limiter bounds |∇h| by
-  // gradation. Gauss-Seidel min-propagation (in place) converges to the unique
-  // gradation-Lipschitz envelope and only ever lowers h (raises density).
   const int vcap = int(m.v.capacity());
   Vector<float> h;
   h.resize(vcap);
@@ -81,32 +86,40 @@ void limitDensityGradation(Mesh &m, float target_edge_length, float gradation,
     h[v] = L / std::sqrt(d);
   }
 
-  const int N = iters > 0 ? iters : 0;
-  for (int it = 0; it < N; it++) {
-    bool changed = false;
-    for (int v : m.v) {
-      float hv = h[v];
-      int e0 = m.v.e[v];
-      if (e0 == ELEM_NONE) {
-        continue;
-      }
-      int ec = e0;
-      do {
-        int vn = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
-        float dist = (m.v.co[vn] - m.v.co[v]).length();
-        float cand = h[vn] + gradation * dist;
-        if (cand < hv) {
-          hv = cand;
-          changed = true;
+  // Worklist min-propagation: expand the edge set outward from every vertex,
+  // relaxing each neighbor to h[v]·beta and re-queueing the ones that tightened.
+  // Fine regions spread ring by ring with geometrically relaxed goals; only ever
+  // lowers h (raises density). Terminates at the per-hop-Lipschitz envelope;
+  // `iters` only caps total work (pops per vertex) as a safety valve.
+  BoolVector<> queued;
+  queued.resize(vcap);
+  Vector<int> queue;
+  queue.ensure_capacity(m.v.count);
+  for (int v : m.v) {
+    queue.append(v);
+    queued.set(v, true);
+  }
+  size_t pop_cap = size_t(m.v.count) * size_t(iters > 0 ? iters : 10);
+  for (size_t head = 0; head < queue.size() && pop_cap > 0; head++, pop_cap--) {
+    int v = queue[head];
+    queued.set(v, false);
+    int e0 = m.v.e[v];
+    if (e0 == ELEM_NONE) {
+      continue;
+    }
+    float cand = h[v] * beta;
+    int ec = e0;
+    do {
+      int vn = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
+      if (cand < h[vn]) {
+        h[vn] = cand;
+        if (!queued.set(vn, true)) {
+          queue.append(vn);
         }
-        int side = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = m.e.disk[ec][side * 2 + 1];
-      } while (ec != e0);
-      h[v] = hv;
-    }
-    if (!changed) {
-      break;
-    }
+      }
+      int side = m.e.vs[ec][0] == v ? 0 : 1;
+      ec = m.e.disk[ec][side * 2 + 1];
+    } while (ec != e0);
   }
 
   for (int v : m.v) {

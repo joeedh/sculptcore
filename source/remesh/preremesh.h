@@ -54,14 +54,22 @@ void bkRemeshToTarget(mesh::Mesh &m, float L, uint32_t seed,
  * steers the move with the per-face cross field (.remesh.f.theta) so vertices
  * relax toward straightened u/v isolines. Intermediate values lerp the two target
  * centroids. A tangent-plane projection + edge-scale clamp safety rail bounds the
- * move in both. align == 0 projects against the ring-polygon Newell normal (the
- * classic relaxation, byte-identical); align > 0 projects against the vertex fan
- * normal (sum of incident-triangle normals) instead, which stays on the surface
- * for a flat-face vert whose 1-ring reaches across a crease — the ring Newell tents
- * there and would let the aligned target push it off-surface. With align > 0 the
- * field is read from .remesh.f.theta; where a vertex has no field (attr absent or
- * no incident face contributed) it degrades to isotropic at that vertex. */
-void tangentialSmooth(mesh::Mesh &m, int iters, float lambda, float align);
+ * move in both. A vertex where the field engages projects against the vertex fan
+ * normal (sum of incident-triangle normals), which stays on the surface for a
+ * flat-face vert whose 1-ring reaches across a crease — the ring Newell tents
+ * there and would let the aligned target push it off-surface. Field-less verts
+ * (including all of align == 0) project against the ring-polygon Newell normal:
+ * the classic relaxation, byte-identical. With align > 0 the field is read from
+ * .remesh.f.theta; where a vertex has no field (attr absent or no incident face
+ * contributed) it degrades exactly to the isotropic move at that vertex.
+ *
+ * @p fold_guard cancels any per-vertex move that NEWLY folds the vertex fan (a
+ * tri flipping against the fan normal, or an unfolded adjacent fan-tri pair
+ * creasing past 90°); already-folded fans stay free to relax flat. Off by
+ * default — it trades smoothing progress for fold safety and breaks the exact
+ * iso/field equivalence contracts, so only the 9b driver opts in. */
+void tangentialSmooth(mesh::Mesh &m, int iters, float lambda, float align,
+                      bool fold_guard = false);
 
 /* Tier 9b convergence-driver parameters. The driver runs entirely on its mesh
  * argument; the pipeline maps RemeshParams onto this in Tier 9d. Defaults match
@@ -71,7 +79,14 @@ void tangentialSmooth(mesh::Mesh &m, int iters, float lambda, float align);
 struct PreRemeshParams {
   int iters = 5;             // outer convergence iterations
   float target = 0.0f;      // base pre-pass edge length; <= 0 ⇒ no-op
-  bool density = false;     // grade the BK band by a per-vertex curvature size field
+  bool density = true;      // grade the BK band by a per-vertex curvature size field
+  /* Bounded-gradation cap on the size field (Tier 3b): the goal length may grow
+   * by at most (1 + gradation) per edge hop, applied to the density before every
+   * BK pass. A steep size step between neighboring verts makes BK split/collapse
+   * pathologically at the cliff (out-of-band edges it can never settle), so this
+   * is on by default; 0 disables (A/B only). Typical range 0.3–1.0. */
+  float gradation = 0.5f;
+  int gradation_iters = 10;
   float align = 1.0f;       // isotropic(0) ↔ field-aligned(1) smooth blend
   int field_cadence = 2;    // recompute the rough cross field every N outer iters
   int bootstrap_iters = 2;  // isotropic denoise sweeps before field-aligned begins
@@ -95,6 +110,14 @@ struct PreRemeshParams {
   dyntopo::DynTopoTrace *trace = nullptr;
 };
 
+/* Driver-run stats (an optional out-param; the pipeline copies these into its
+ * RemeshRunReport). iters_run counts outer iterations actually executed;
+ * converged = the converge_eps early-out fired before p.iters. */
+struct PreRemeshStats {
+  int iters_run = 0;
+  bool converged = false;
+};
+
 /* Tier 9b convergence driver: iterate bootstrap → rough cross field (cadenced) →
  * Botsch-Kobbelt to a size field → field-aligned smooth, until @p p.iters or the
  * smooth's max vertex move falls below converge_eps·target. With p.preserve_features
@@ -104,6 +127,7 @@ struct PreRemeshParams {
  * size field into .remesh.v.density + an internal scale attr, and (when preserving)
  * the .boundary.* feature overlays — left in place for the caller to inspect. The
  * geometry-only pre-pass for Tier 9; reproject restores detail afterward. */
-void preRemesh(mesh::Mesh &m, const PreRemeshParams &p);
+void preRemesh(mesh::Mesh &m, const PreRemeshParams &p,
+               PreRemeshStats *stats = nullptr);
 
 } // namespace sculptcore::remesh

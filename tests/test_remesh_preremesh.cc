@@ -20,14 +20,25 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "mesh/attribute_builtin.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
+#include "mesh/utils/mesh_validate.h"
 #include "mesh/utils/triangulate.h"
+#include "obj_load.h"
+#include "remesh/extract/reproject.h"
+#include "test_config.h"
 #include "remesh/field/cross_field.h"
+#include "remesh/field/density.h"
 #include "remesh/preremesh.h"
+#include "remesh/remesh.h"
+#include "remesh/remesh_params.h"
+#include "remesh/remesh_report.h"
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 test_init;
 
@@ -637,6 +648,336 @@ void testDriverNoOp()
   litestl::alloc::Delete<Mesh>(g);
 }
 
+// 9d pipeline integration, clean input: QuadRemesh with pre_remesh=true on a
+// smooth radius-2 sphere (the testQuadRemeshPipeline fixture) must succeed, run
+// the stage, introduce no folds on the working mesh, and still extract a valid
+// all-quad result downstream.
+void testPipelinePreRemeshClean()
+{
+  Mesh *s = mesh::makeUVSphere(24, 32, 2.0f);
+
+  remesh::RemeshParams p;
+  p.target_edge_length = 0.1f;
+  p.pre_remesh = true; // all pre_remesh_* knobs left at auto/defaults
+  remesh::RemeshRunReport rep;
+  Mesh *out = remesh::QuadRemesh(*s, p, nullptr, nullptr, &rep);
+
+  const auto &pe = rep.pre_remesh_effect;
+  fprintf(stderr,
+          "[pipeline/clean] ok=%d V=%d->%d mean=%.4f->%.4f fold90=%d->%d "
+          "iters=%d/%d conv=%d ms=%lld\n",
+          int(rep.success), pe.verts_in, pe.verts_out, pe.mean_edge_in,
+          pe.mean_edge_out, pe.fold90_in, pe.fold90_out, pe.iters_run,
+          pe.iters_resolved, int(pe.converged), pe.duration_ms);
+
+  TASSERT(out != nullptr);
+  TASSERT(rep.success);
+  TASSERT(rep.pre_remesh == remesh::StageStatus::Ok);
+  TASSERT(pe.ran);
+  TASSERT(pe.fold90_in == 0 && pe.fold90_out == 0); // clean stays clean
+  TASSERT(pe.degen_out == 0);
+  if (out) {
+    RemeshReport r = mesh::remeshValidate(*out);
+    fprintf(stderr, "[pipeline/clean] out V=%d F=%d allquad=%d manifold=%d "
+            "inverted=%d\n", r.vert_count, r.face_count, int(r.all_quad),
+            int(r.manifold), r.inverted_faces);
+    TASSERT(r.all_quad);
+    TASSERT(r.manifold);
+    // TODO: extraction folds a handful of quads (~0.2%) on ANY irregular (non-
+    // UV-grid) triangulation — pre-existing downstream fragility, not 9d's (the
+    // pre-pass's own output is fold-free, and align-0/density-off configs fare
+    // WORSE; the no-pre-pass baseline on a noised sphere inverts 52 and goes
+    // non-manifold). Tighten to == 0 when extraction robustness lands (Tier 4+).
+    TASSERT(r.inverted_faces * 100 <= r.face_count);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(s);
+}
+
+// 9d pipeline integration, noisy input: the auto heuristics resolve the sentinel
+// knobs from the measured input, the run report carries the before/after A/B
+// effect block, and gating the stage off leaves it skipped with an empty block.
+// Output-quality gates live in the clean test above — this noised fixture is
+// hard for the pipeline with or without the pre-pass (the no-pre-pass baseline
+// also extracts non-manifold here), so this case asserts the integration/stats
+// contract and prints the A/B record.
+void testPipelinePreRemeshNoisy()
+{
+  Mesh *s = mesh::makeUVSphere(24, 32, 2.0f);
+  s->thawTopo();
+  mesh::triangulateMesh(*s);
+  Lcg rng(7);
+  for (int v : s->v) {
+    float3 c = s->v.co[v];
+    for (int i = 0; i < 3; i++) {
+      c[i] += 0.02f * rng.next();
+    }
+    s->v.co[v] = c;
+  }
+
+  remesh::RemeshParams p;
+  p.target_edge_length = 0.1f;
+  p.pre_remesh = true; // all pre_remesh_* knobs left at auto/defaults
+  remesh::RemeshRunReport rep;
+  Mesh *out = remesh::QuadRemesh(*s, p, nullptr, nullptr, &rep);
+
+  const auto &pe = rep.pre_remesh_effect;
+  fprintf(stderr,
+          "[pipeline/pre] ok=%d stage=%d V=%d->%d F=%d->%d mean=%.4f->%.4f "
+          "cv=%.3f fold90=%d->%d degen=%d->%d iters=%d/%d conv=%d coarsen=%d "
+          "target=%.4f bootstrap=%d ms=%lld\n",
+          int(rep.success), int(rep.pre_remesh), pe.verts_in, pe.verts_out,
+          pe.faces_in, pe.faces_out, pe.mean_edge_in, pe.mean_edge_out,
+          pe.edge_cv_in, pe.fold90_in, pe.fold90_out, pe.degen_in, pe.degen_out,
+          pe.iters_run, pe.iters_resolved, int(pe.converged),
+          int(pe.coarsen_bootstrap), pe.target_resolved, pe.bootstrap_resolved,
+          pe.duration_ms);
+
+  TASSERT(out != nullptr);
+  TASSERT(rep.success);
+  TASSERT(rep.pre_remesh == remesh::StageStatus::Ok);
+  TASSERT(pe.ran);
+  TASSERT(pe.verts_in > 0 && pe.verts_out > 0);
+  TASSERT(pe.mean_edge_in > 0.0f && pe.mean_edge_out > 0.0f);
+  TASSERT(pe.iters_run >= 1 && pe.iters_run <= pe.iters_resolved);
+  TASSERT(pe.iters_resolved >= 3 && pe.iters_resolved <= 6);
+  TASSERT(pe.target_resolved == p.target_edge_length); // no solve len set
+  TASSERT(pe.bootstrap_resolved >= 0);
+  // degen in/out are recorded (printed above) but not gated: on this hard noised
+  // fixture a stray degenerate face is run-order-sensitive (pointer-ordered BK).
+  if (out) {
+    RemeshReport r = mesh::remeshValidate(*out);
+    fprintf(stderr, "[pipeline/pre]  out manifold=%d inverted=%d fold90=%d\n",
+            int(r.manifold), r.inverted_faces, r.fold90_edges);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+
+  // Gated off: the stage is skipped and the effect block stays empty. Print the
+  // baseline output quality next to the pre-pass run's for the A/B record.
+  remesh::RemeshParams p0;
+  p0.target_edge_length = 0.1f;
+  remesh::RemeshRunReport rep0;
+  Mesh *out0 = remesh::QuadRemesh(*s, p0, nullptr, nullptr, &rep0);
+  TASSERT(rep0.pre_remesh == remesh::StageStatus::Skipped);
+  TASSERT(!rep0.pre_remesh_effect.ran);
+  if (out0) {
+    RemeshReport r0 = mesh::remeshValidate(*out0);
+    fprintf(stderr, "[pipeline/base] ok=%d manifold=%d inverted=%d fold90=%d\n",
+            int(rep0.success), int(r0.manifold), r0.inverted_faces,
+            r0.fold90_edges);
+    litestl::alloc::Delete<Mesh>(out0);
+  }
+  litestl::alloc::Delete<Mesh>(s);
+}
+
+// CLAUDENOTE: fold diagnostic scaffolding for the "pre-remesher still produces
+// folding" investigation. Counts geometric fold-overs: interior manifold edges
+// whose two unit face normals point away from each other. fold90 (dot < 0) is a
+// pathologically sharp crease; fold180 (dot < -0.95) is a genuine fold-back where
+// the surface doubles over itself. Also tracks degenerate (near-zero-area) faces.
+struct FoldStats {
+  int fold90 = 0;
+  int fold180 = 0;
+  int degen = 0;
+  float min_dot = 1.0f;
+  float3 worst_pos{};
+};
+
+FoldStats foldStats(Mesh &m)
+{
+  FoldStats fs;
+  for (int f : m.f) {
+    float3 n = mesh::faceNewellNormal(m, f);
+    // Degeneracy is scale-relative: compare 2·area to the squared longest edge.
+    float lmax2 = 0.0f;
+    int c0 = m.l.c[m.f.l[f]], cc = c0;
+    do {
+      float3 a = m.v.co[m.c.v[cc]], b = m.v.co[m.c.v[m.c.next[cc]]];
+      float l2 = (b - a).lengthSqr();
+      if (l2 > lmax2) lmax2 = l2;
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    if (n.length() < 1e-6f * lmax2) {
+      fs.degen++;
+    }
+  }
+  for (int e : m.e) {
+    int c1 = m.e.c[e];
+    if (c1 == ELEM_NONE) {
+      continue;
+    }
+    int c2 = m.c.radial_next[c1];
+    if (c2 == c1 || m.c.radial_next[c2] != c1) {
+      continue; // boundary / non-manifold
+    }
+    float3 n1 = mesh::faceNewellNormal(m, m.l.f[m.c.l[c1]]);
+    float3 n2 = mesh::faceNewellNormal(m, m.l.f[m.c.l[c2]]);
+    float l1 = n1.length(), l2 = n2.length();
+    if (l1 < 1e-20f || l2 < 1e-20f) {
+      continue;
+    }
+    float d = n1.dot(n2) / (l1 * l2);
+    if (d < 0.0f) fs.fold90++;
+    if (d < -0.95f) fs.fold180++;
+    if (d < fs.min_dot) {
+      fs.min_dot = d;
+      fs.worst_pos = (m.v.co[m.e.vs[e][0]] + m.v.co[m.e.vs[e][1]]) * 0.5f;
+    }
+  }
+  return fs;
+}
+
+void printFolds(const char *stage, Mesh &m)
+{
+  FoldStats fs = foldStats(m);
+  fprintf(stderr,
+          "[fold] %-22s V=%-6d F=%-6d fold90=%-4d fold180=%-4d degen=%-3d "
+          "min_dot=%7.4f worst=(%.4f %.4f %.4f)\n",
+          stage, m.v.count, m.f.count, fs.fold90, fs.fold180, fs.degen,
+          fs.min_dot, fs.worst_pos[0], fs.worst_pos[1], fs.worst_pos[2]);
+}
+
+// CLAUDENOTE: opt-in (REMESH_FOLD_DIAG=<asset name or abs path>) stage-by-stage
+// fold trace of the pre-pass on a real asset. Replicates preRemesh's loop with
+// public primitives (density off) so fold counts can be sampled after every
+// stage, then the debug app's end reproject. REMESH_TARGET overrides the edge
+// target (default 0.1, the app default).
+void testFoldDiagnostic()
+{
+  const char *spec = std::getenv("REMESH_FOLD_DIAG");
+  if (!spec) {
+    fprintf(stderr, "[fold] skipped (set REMESH_FOLD_DIAG=<asset|path>)\n");
+    return;
+  }
+  char path[2048];
+  if (std::strchr(spec, '/') || std::strchr(spec, '\\')) {
+    std::snprintf(path, sizeof(path), "%s", spec);
+  } else {
+    std::snprintf(path, sizeof(path), "%s/%s.obj", SCULPTCORE_ASSETS_DIR, spec);
+  }
+  Mesh *m = mesh::loadObj(path, /*keepNgons=*/true);
+  if (!m) {
+    fprintf(stderr, "[fold] skipped (could not open %s)\n", path);
+    return;
+  }
+  m->thawTopo();
+  mesh::triangulateMesh(*m); // mirror runPreRemesh
+  Mesh *input = mesh::loadObj(path, /*keepNgons=*/true);
+  input->thawTopo();
+  mesh::triangulateMesh(*input);
+
+  double mean_e = 0.0;
+  int ne = 0;
+  for (int e : m->e) {
+    mean_e += double((m->v.co[m->e.vs[e][0]] - m->v.co[m->e.vs[e][1]]).length());
+    ne++;
+  }
+  mean_e = ne ? mean_e / ne : 0.0;
+
+  remesh::PreRemeshParams p; // defaults = app defaults
+  p.target = 0.1f;
+  if (const char *e = std::getenv("REMESH_TARGET")) {
+    p.target = float(std::atof(e));
+  }
+  fprintf(stderr, "[fold] asset=%s mean_edge=%.5f target=%.4f\n", path, mean_e,
+          p.target);
+  printFolds("input", *m);
+
+  if (p.bootstrap_iters > 0) {
+    remesh::tangentialSmooth(*m, p.bootstrap_iters, p.smooth_lambda, 0.0f,
+                             /*fold_guard=*/true);
+    printFolds("bootstrap-smooth", *m);
+  }
+  const int cadence = p.field_cadence > 0 ? p.field_cadence : 1;
+  const bool dumpRounds = std::getenv("REMESH_FOLD_TRACE") != nullptr;
+  dyntopo::DynTopoTrace trace;
+  for (int it = 0; it < p.iters; it++) {
+    if (p.align > 0.0f && (it % cadence) == 0) {
+      remesh::CrossFieldParams cp;
+      cp.use_curvature = true;
+      cp.use_sharp_features = true;
+      cp.seed = p.seed;
+      remesh::computeCrossField(*m, cp);
+    }
+    // Mirror preRemesh's (now default) density + gradation sizing path;
+    // writeSizeScale is internal so its 1/sqrt(d) mapping is replicated here.
+    const char *size_attr = nullptr;
+    if (p.density) {
+      remesh::DensityParams dpa;
+      dpa.target_edge_length = p.target;
+      dpa.density_min = p.density_min;
+      dpa.density_max = p.density_max;
+      remesh::generateAutoDensity(*m, dpa);
+      remesh::limitDensityGradation(*m, p.target, p.gradation, p.gradation_iters,
+                                    p.density_min, p.density_max);
+      mesh::BuiltinAttr<float, ".remesh.v.density"> density;
+      mesh::BuiltinAttr<float, ".remesh.v.presize"> size;
+      density.ensure(m->v.attrs);
+      size.ensure(m->v.attrs);
+      for (int v : m->v) {
+        float d = density[v];
+        if (d < p.density_min) d = p.density_min;
+        if (d > p.density_max) d = p.density_max;
+        size[v] = d > 1e-12f ? 1.0f / std::sqrt(d) : 1.0f;
+      }
+      size_attr = ".remesh.v.presize";
+    }
+    if (p.preserve_features) {
+      remesh::classifyFeatures(*m, p.sharp_angle);
+    }
+    size_t r0 = trace.rounds.size();
+    remesh::bkRemeshToTarget(*m, p.target, p.seed + uint32_t(it) + 1u, size_attr,
+                             p.preserve_features, &trace);
+    for (size_t i = r0; i < trace.rounds.size(); i++) {
+      trace.rounds[i].iter = it;
+    }
+    {
+      // Convergence summary: how the candidate frontier decayed this iter. A
+      // healthy BK pass decays sc/cc geometrically; sustained flat tails are the
+      // split<->collapse pathology.
+      int rounds = 0, s = 0, c = 0;
+      float worstOver = 0.0f, worstUnder = 1e30f;
+      const dyntopo::RoundQuality *last = nullptr;
+      for (size_t i = r0; i < trace.rounds.size(); i++) {
+        const dyntopo::RoundQuality &q = trace.rounds[i];
+        rounds++;
+        s += q.splits;
+        c += q.collapses;
+        if (q.max_over > worstOver) worstOver = q.max_over;
+        if (q.min_under > 0.0f && q.min_under < worstUnder) worstUnder = q.min_under;
+        last = &q;
+      }
+      fprintf(stderr,
+              "[conv] iter=%d rounds=%-3d splits=%-5d collapses=%-5d "
+              "worstOver=%.2f worstUnder=%.2f endCands=%d/%d\n",
+              it, rounds, s, c, worstOver, worstUnder < 1e29f ? worstUnder : 0.0f,
+              last ? last->split_cands : 0, last ? last->collapse_cands : 0);
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "iter%d-bk", it);
+      printFolds(buf, *m);
+    }
+    if (p.preserve_features) {
+      mesh::boundary::recomputeDirty(m);
+    }
+    remesh::tangentialSmooth(*m, p.smooth_iters, p.smooth_lambda, p.align,
+                             /*fold_guard=*/true);
+    {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "iter%d-smooth", it);
+      printFolds(buf, *m);
+    }
+  }
+  remesh::ReprojectParams rp;
+  remesh::reprojectToSurface(*m, *input, rp);
+  printFolds("reproject", *m);
+  if (dumpRounds) {
+    dyntopo::printTrace(trace, "fold");
+  }
+
+  litestl::alloc::Delete<Mesh>(input);
+  litestl::alloc::Delete<Mesh>(m);
+}
+
 } // namespace
 
 int main()
@@ -651,5 +992,8 @@ int main()
   testDriverPreservesFeatures();
   testPrepassTrace();
   testDriverNoOp();
+  testPipelinePreRemeshClean();
+  testPipelinePreRemeshNoisy();
+  testFoldDiagnostic();
   return retval;
 }

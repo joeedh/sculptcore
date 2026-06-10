@@ -158,9 +158,28 @@ CrossFieldStats computeCrossField(Mesh &m, const CrossFieldParams &params)
   Eigen::VectorXcd c(N);
   bool constrained = (num_hard > 0) || (soft_total > 1e-6);
 
+  // The system is near-singular when constraints fade (smooth geometry: only the
+  // 1e-8 Tikhonov shift holds it up), so a direct solve can break down into
+  // NaN/zero — validate and fall back to the eigenvector path instead of letting
+  // a dead field propagate NaN into every downstream consumer.
+  auto usable = [&](const Eigen::VectorXcd &x) -> bool {
+    double n2 = 0.0;
+    for (int i = 0; i < N; i++) {
+      double re = x[i].real(), im = x[i].imag();
+      if (!std::isfinite(re) || !std::isfinite(im)) {
+        return false;
+      }
+      n2 += re * re + im * im;
+    }
+    return n2 > 1e-60;
+  };
+
+  bool solved = false;
   if (constrained && solver.info() == Eigen::Success) {
     c = solver.solve(b);
-  } else {
+    solved = usable(c);
+  }
+  if (!solved) {
     // No data term (e.g. an umbilic sphere): the smoothest non-trivial field is
     // the smallest-eigenvalue eigenvector of the smoothness operator. Recover it
     // by inverse power iteration on A (= smoothness + εI here).
@@ -186,10 +205,18 @@ CrossFieldStats computeCrossField(Mesh &m, const CrossFieldParams &params)
       for (int it = 0; it < 400; it++) {
         Eigen::VectorXcd y = solver.solve(x);
         double yn = y.norm();
-        if (yn < 1e-20) {
-          break;
+        if (yn < 1e-20 || !std::isfinite(yn)) {
+          break; // keep the last good iterate
         }
         x = y / yn;
+        if (!usable(x)) {
+          x = Eigen::VectorXcd::Zero(N);
+          for (int i = 0; i < N; i++) {
+            x[i] = cd(rnd(), rnd());
+          }
+          x /= x.norm();
+          break;
+        }
         double rq = x.dot(A * x).real();
         if (it > 2 && std::fabs(rq - prev_rq) <= 1e-11 * (1.0 + std::fabs(rq))) {
           break;

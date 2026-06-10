@@ -30,6 +30,14 @@ struct RoundQuality {
   int thin_count = 0;         // tris with min interior angle < thin_angle
   float min_angle = 0.0f;     // worst per-tri min interior angle this round
   float mean_min_angle = 0.0f; // mean of the per-tri min angles
+  /* Band pressure: the candidates queued this round (before independent-set
+   * filtering) and how far the worst one sits outside its own graded band. A
+   * healthy dab's counts decay geometrically toward 0; pathological splitting
+   * shows up as split candidates feeding collapse candidates round after round
+   * (max_over pinned near l_max/l_min·0.5, the band-overlap signature). */
+  int split_cands = 0, collapse_cands = 0;
+  float max_over = 0.0f;  // worst split overshoot, edge_len/tmax (0 = none)
+  float min_under = 0.0f; // worst collapse undershoot, edge_len/tmin (0 = none)
 };
 
 struct DynTopoTrace {
@@ -151,9 +159,11 @@ inline void printTrace(const DynTopoTrace &t, const char *tag)
   for (const RoundQuality &q : t.rounds) {
     std::fprintf(stderr,
                  "[%s] it%-2d r%-2d s=%-3d c=%-3d f=%-3d sm=%-3d  tris=%-4d "
-                 "thin=%-3d minAng=%5.1f meanMin=%5.1f\n",
+                 "thin=%-3d minAng=%5.1f meanMin=%5.1f  sc=%-4d cc=%-4d "
+                 "over=%5.2f under=%5.2f\n",
                  tag, q.iter, q.round, q.splits, q.collapses, q.flips, q.smooths,
-                 q.tri_count, q.thin_count, q.min_angle * k, q.mean_min_angle * k);
+                 q.tri_count, q.thin_count, q.min_angle * k, q.mean_min_angle * k,
+                 q.split_cands, q.collapse_cands, q.max_over, q.min_under);
   }
 }
 

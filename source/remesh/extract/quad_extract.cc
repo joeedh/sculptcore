@@ -563,6 +563,28 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     Vector<char> seen;
     seen.resize(int(o.e.capacity()));
     for (int i = 0; i < int(o.e.capacity()); i++) seen[i] = 0;
+    // The next rim edge after `e` at vertex `v`, found by pivoting through v's
+    // face fan from e's wedge (cross interior edges radially until the wedge's
+    // far boundary edge). Disk-order "first boundary edge" is ambiguous at a
+    // pinch vertex shared by two rims and can jump rims mid-trace.
+    auto nextRim = [&](int e, int v) -> int {
+      int cc = o.e.c[e]; // boundary edge: its single incident corner
+      if (cc == ELEM_NONE) return -1;
+      for (int guard = 0; guard < 100; guard++) {
+        // The face's other edge at v (one of the two corner-edges at v is the
+        // edge we arrived through).
+        int ca = cc, fguard = 0;
+        while (o.c.v[ca] != v && ++fguard < 100) ca = o.c.next[ca];
+        if (fguard >= 100) return -1;
+        int cb = o.c.prev[ca];
+        int cnext = o.c.e[ca] == e ? cb : ca;
+        int cand = o.c.e[cnext];
+        if (isBnd(cand)) return cand;
+        cc = o.c.radial_next[cnext]; // cross into the adjacent face, keep pivoting
+        e = cand;
+      }
+      return -1;
+    };
     // Collect ordered boundary loops first (capping mutates the mesh topology).
     Vector<Vector<int>> loops;
     for (int e0 : o.e) {
@@ -572,17 +594,13 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       do {
         seen[e] = 1;
         loop.append(v);
-        int e0v = o.v.e[v], ec = e0v, nxt = -1;
-        do {
-          if (ec != e && isBnd(ec)) { nxt = ec; break; }
-          int side = o.e.vs[ec][0] == v ? 0 : 1;
-          ec = o.e.disk[ec][side * 2 + 1];
-        } while (ec != e0v);
-        if (nxt < 0) break;
+        int nxt = nextRim(e, v);
+        if (nxt < 0) { loop.clear(); break; }
         e = nxt;
         v = o.e.vs[e][0] == v ? o.e.vs[e][1] : o.e.vs[e][0];
       } while (e != e0 && ++guard < 100000);
-      loops.append(loop);
+      if (e != e0) loop.clear(); // unclosed trace: not a cappable rim
+      if (loop.size()) loops.append(loop);
     }
     // A real hole rim (cone 1-ring / over-scaled cap) is small; a loop in the
     // thousands is a non-manifold artifact of a surviving fold tangle. Fanning it
@@ -596,6 +614,15 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       // cap_odd_holes is set (else leave it open to keep the all-quad contract).
       if (n < 4 || n > kMaxCapLoop) continue;
       if ((n & 1) && !params.cap_odd_holes) continue;
+      // A rim that visits a vertex twice is pinched; a fan over it would make the
+      // pinch (and its center spokes) non-manifold. Leave it open instead.
+      {
+        bool pinched = false;
+        for (int i = 0; i < n && !pinched; i++)
+          for (int j = i + 1; j < n; j++)
+            if (loop[i] == loop[j]) { pinched = true; break; }
+        if (pinched) continue;
+      }
       float3 cen(0, 0, 0);
       for (int v : loop)
         cen = float3(cen[0] + o.v.co[v][0], cen[1] + o.v.co[v][1], cen[2] + o.v.co[v][2]);

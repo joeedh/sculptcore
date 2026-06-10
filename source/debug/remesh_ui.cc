@@ -339,6 +339,50 @@ void RemeshUi::drawPanel()
   tip("Maximum Gauss-Seidel sweeps for the gradation limiter (it stops early "
       "once the size field converges).");
   ImGui::EndDisabled();
+  ImGui::Checkbox("pre-remesh in pipeline", &P.pre_remesh);
+  tip("Tier 9d: run the field-aligned input pre-pass inside the quad pipeline "
+      "(after triage/decimate, before the field solve), cleaning the working "
+      "triangulation's flow. The standalone section below is for inspecting the "
+      "pre-pass alone; this gate is what 'Run Remesh' uses.");
+  ImGui::BeginDisabled(!P.pre_remesh);
+  ImGui::SliderFloat("pl target (0=auto)", &P.pre_remesh_target, 0.0f, 1.0f,
+                     "%.4f", ImGuiSliderFlags_Logarithmic);
+  tip("Pipeline pre-pass edge length. 0 = auto: solve edge len when set, else "
+      "target edge len.");
+  ImGui::SliderInt("pl iters (0=auto)", &P.pre_remesh_iters, 0, 20);
+  tip("Outer convergence iterations. 0 = auto from the measured input "
+      "(resolution travel + fold/irregularity level, clamped to 3..6).");
+  ImGui::SliderInt("pl bootstrap (-1=auto)", &P.pre_remesh_bootstrap_iters, -1, 8);
+  tip("Isotropic denoise sweeps before the field is trusted. -1 = auto from "
+      "input noise (1 clean / 2 default / 4 noisy); 0 = none.");
+  ImGui::Checkbox("pl density", &P.pre_remesh_density);
+  tip("Grade the pipeline pre-pass band by the curvature size field. Note: "
+      "regenerating it overwrites a painted density map on the working copy.");
+  ImGui::SliderFloat("pl gradation (0=off)", &P.pre_remesh_gradation, 0.0f, 2.0f,
+                     "%.2f");
+  tip("Per-edge-hop growth cap on the pipeline pre-pass size field.");
+  ImGui::SliderFloat("pl align (iso<->field)", &P.pre_remesh_align, 0.0f, 1.0f,
+                     "%.2f");
+  tip("Pipeline pre-pass smooth blend: isotropic (0) to field-aligned (1).");
+  ImGui::SliderInt("pl field cadence", &P.pre_remesh_field_cadence, 1, 8);
+  tip("Recompute the rough cross field every N outer iters.");
+  ImGui::SliderInt("pl smooth iters", &P.pre_remesh_smooth_iters, 0, 20);
+  tip("Inner field-aligned smooth sweeps per outer iter.");
+  ImGui::SliderFloat("pl smooth lambda", &P.pre_remesh_smooth_lambda, 0.0f, 1.0f,
+                     "%.2f");
+  tip("Per-sweep relaxation factor for the pipeline pre-pass smooth.");
+  ImGui::SliderFloat("pl converge eps (0=off)", &P.pre_remesh_converge_eps, 0.0f,
+                     0.2f, "%.3f");
+  tip("Early-out: stop once an outer iter moves every vertex less than "
+      "eps x target. Clean inputs settle in 2-3 iters.");
+  ImGui::Checkbox("pl preserve features", &P.pre_remesh_preserve_features);
+  tip("Pin boundaries and dihedral-sharp creases through the pipeline pre-pass.");
+  ImGui::BeginDisabled(!P.pre_remesh_preserve_features);
+  ImGui::SliderFloat("pl sharp angle (rad)", &P.pre_remesh_sharp_angle, 0.0f,
+                     3.14159f, "%.3f");
+  tip("Crease dihedral threshold for the pipeline pre-pass feature pinning.");
+  ImGui::EndDisabled();
+  ImGui::EndDisabled();
 
   // --- Pre-remesh (Tier 9 input pre-pass) ---
   ImGui::SeparatorText("Pre-remesh (input pre-pass)");

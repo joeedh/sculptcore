@@ -7,9 +7,9 @@
  * as 1/sqrt(density), so density > 1 → smaller quads, density < 1 → larger.
  *
  *   generateAutoDensity  — map (Tier-2-smoothed) principal curvature to density.
- *   limitDensityGradation — Alauzet bounded-gradation prepass: cap the spatial
- *                           growth rate of the size field so neighbouring quads
- *                           never shear across a steep size step.
+ *   limitDensityGradation — bounded-gradation prepass: cap the per-edge growth
+ *                           ratio of the size field so neighbouring quads never
+ *                           shear across a steep size step.
  *
  * Kept Eigen-free; curvature.cc owns the eigensolver. See
  * documentation/plans/quad-remeshing-filtering.md (Tier 3). */
@@ -40,11 +40,13 @@ struct DensityParams {
  * use_curvature was off). Creates the density layer; never throws. */
 void generateAutoDensity(mesh::Mesh &m, const DensityParams &params);
 
-/* Bounded-gradation limiter (Alauzet): make the size field h = L/sqrt(density)
- * gradation-Lipschitz by relaxing h[v] ← min over 1-ring n of (h[n] + gradation ·
- * dist(v,n)) to a fixed point (≤ iters sweeps), then writing density back. Only
- * ever refines (raises density) to widen size transitions; coarse/fine regions
- * are preserved. No-op when gradation ≤ 0 or no density layer exists. */
+/* Bounded-gradation limiter: cap the goal-length field h = L/sqrt(density) to
+ * grow by at most a factor (1 + gradation) across any single edge, by expanding
+ * worklist rings outward from fine regions with geometrically relaxed goals
+ * (h[n] ← min(h[n], h[v]·(1+gradation)) to a fixed point). Hop/ratio-based, not
+ * geometric-distance-based, so a per-edge size cliff is always widened even on a
+ * coarse input mesh. Only ever refines (raises density); `iters` caps total work
+ * (pops per vertex). No-op when gradation ≤ 0 or no density layer exists. */
 void limitDensityGradation(mesh::Mesh &m, float target_edge_length,
                            float gradation, int iters, float density_min,
                            float density_max);

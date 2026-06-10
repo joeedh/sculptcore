@@ -20,6 +20,7 @@
 #include "litestl/util/vector.h"
 
 #include <chrono>
+#include <cmath>
 
 namespace sculptcore::remesh {
 
@@ -131,6 +132,36 @@ void decimateForSolve(Mesh &m, float L, uint32_t seed)
   tangentialSmooth(m, 5, 0.5f, 0.0f);
 }
 
+/* Edge-length statistics feeding the Tier-9 auto heuristics + run report:
+ * mean and coefficient of variation (std/mean — triangulation irregularity). */
+struct EdgeStats {
+  float mean = 0.0f;
+  float cv = 0.0f;
+};
+
+EdgeStats measureEdges(Mesh &m)
+{
+  double sum = 0.0, sum2 = 0.0;
+  int n = 0;
+  for (int e : m.e) {
+    float l = (m.v.co[m.e.vs[e][0]] - m.v.co[m.e.vs[e][1]]).length();
+    sum += l;
+    sum2 += double(l) * double(l);
+    n++;
+  }
+  EdgeStats s;
+  if (!n) {
+    return s;
+  }
+  double mean = sum / n;
+  s.mean = float(mean);
+  if (mean > 1e-20) {
+    double var = sum2 / n - mean * mean;
+    s.cv = float(std::sqrt(std::fmax(var, 0.0)) / mean);
+  }
+  return s;
+}
+
 } // namespace
 
 mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
@@ -180,6 +211,108 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     decimated = true;
     if (report)
       report->decimate = StageStatus::Ok;
+  }
+
+  // Tier 9 (9d): field-aligned input pre-remesh — clean the working
+  // triangulation's flow before the field solve. Sentinel knobs (target=0,
+  // iters=0, bootstrap=-1) auto-resolve from the measured input; explicit
+  // values always win. With --solve the decimate above already coarsened, so
+  // the pre-pass field-aligns at that resolution.
+  bool pre_remeshed = false;
+  if (params.pre_remesh) {
+    PROG(14, "pre_remesh");
+    auto t_pre = std::chrono::steady_clock::now();
+
+    // Target: explicit > solve resolution > output resolution.
+    float L_pre = params.pre_remesh_target > 0.0f ? params.pre_remesh_target
+                  : params.solve_edge_length > 0.0f ? params.solve_edge_length
+                                                    : params.target_edge_length;
+
+    EdgeStats es = measureEdges(*work);
+    mesh::FoldCounts fin = mesh::countGeometricFolds(*work);
+    int verts_in = work->v.count, faces_in = work->f.count;
+
+    // "Noisy" = measurable fold density or degenerate faces: distrust the
+    // input's features/field longer (more bootstrap), expect more settle iters.
+    bool noisy = fin.fold90 > work->e.count / 100 || fin.degenerate_faces > 0;
+    float ratio = es.mean > 1e-20f ? es.mean / L_pre : 1.0f;
+    float travel = std::fabs(std::log2(ratio < 1e-6f ? 1e-6f : ratio));
+
+    int iters = params.pre_remesh_iters;
+    if (iters <= 0) {
+      // More resolution travel (|log2(mean/L)|) and more noise ⇒ more outer
+      // iters; converge_eps stops clean inputs earlier regardless.
+      iters = 3;
+      if (travel > 1.0f)
+        iters++;
+      if (travel > 2.0f)
+        iters++;
+      if (noisy || es.cv > 0.6f)
+        iters++;
+    }
+    int bootstrap = params.pre_remesh_bootstrap_iters;
+    if (bootstrap < 0) {
+      bootstrap = noisy ? 4 : (fin.fold90 == 0 && es.cv < 0.3f ? 1 : 2);
+    }
+
+    // Dense-input coarsen bootstrap: the rough field solve is the expensive
+    // piece (it scales with V), so when the input sits far below the pre-pass
+    // target, BK-coarsen once field-free before the loop — exactly what the
+    // --solve decimate does (skipped when that already ran).
+    bool coarsen = !decimated && es.mean > 0.0f && es.mean < 0.5f * L_pre;
+    if (coarsen) {
+      decimateForSolve(*work, L_pre, params.seed);
+    }
+
+    PreRemeshParams pp;
+    pp.iters = iters;
+    pp.target = L_pre;
+    pp.density = params.pre_remesh_density;
+    pp.gradation = params.pre_remesh_gradation;
+    pp.gradation_iters = params.pre_remesh_gradation_iters;
+    pp.align = params.pre_remesh_align;
+    pp.field_cadence = params.pre_remesh_field_cadence;
+    pp.bootstrap_iters = bootstrap;
+    pp.seed = params.seed;
+    pp.smooth_iters = params.pre_remesh_smooth_iters;
+    pp.smooth_lambda = params.pre_remesh_smooth_lambda;
+    pp.density_min = params.density_min;
+    pp.density_max = params.density_max;
+    pp.converge_eps = params.pre_remesh_converge_eps;
+    pp.preserve_features = params.pre_remesh_preserve_features;
+    pp.sharp_angle = params.pre_remesh_sharp_angle;
+    PreRemeshStats ps;
+    preRemesh(*work, pp, &ps);
+    pre_remeshed = true;
+
+    if (report) {
+      report->pre_remesh = StageStatus::Ok;
+      auto &pe = report->pre_remesh_effect;
+      pe.ran = true;
+      pe.verts_in = verts_in;
+      pe.faces_in = faces_in;
+      pe.verts_out = work->v.count;
+      pe.faces_out = work->f.count;
+      pe.mean_edge_in = es.mean;
+      pe.edge_cv_in = es.cv;
+      pe.mean_edge_out = measureEdges(*work).mean;
+      pe.fold90_in = fin.fold90;
+      pe.fold180_in = fin.fold180;
+      pe.degen_in = fin.degenerate_faces;
+      mesh::FoldCounts fout = mesh::countGeometricFolds(*work);
+      pe.fold90_out = fout.fold90;
+      pe.fold180_out = fout.fold180;
+      pe.degen_out = fout.degenerate_faces;
+      pe.iters_run = ps.iters_run;
+      pe.converged = ps.converged;
+      pe.coarsen_bootstrap = coarsen;
+      pe.target_resolved = L_pre;
+      pe.iters_resolved = iters;
+      pe.bootstrap_resolved = bootstrap;
+      pe.duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now() - t_pre)
+                           .count();
+    }
   }
 
   // M2 cross field -> M3 singularity adjust -> M5 quantization (M5 rebuilds the
@@ -267,9 +400,10 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     rp.smooth_lambda = params.smooth_strength;
     // One extra [smooth -> snap] pass when smoothing, else a single pure snap.
     rp.iterations = params.smooth_iterations > 0 ? 2 : 1;
-    if (decimated) {
-      // Snap onto the ORIGINAL full-res surface, not the coarsened solve mesh,
-      // so the output recovers detail the decimation dropped.
+    if (decimated || pre_remeshed) {
+      // The work geometry diverged from the input (decimate and/or pre-remesh
+      // moved every vertex) — snap onto the ORIGINAL full-res surface so the
+      // output recovers the detail those passes smoothed away.
       Mesh *full = buildTriCopy(input);
       reprojectToSurface(*out, *full, rp);
       alloc::Delete<Mesh>(full);

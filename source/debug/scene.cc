@@ -127,7 +127,7 @@ void Scene::smoothMesh()
 
     if (sumw != 0.0f) {
       sum /= sumw;
-      vp.co() += (sum - vp.co()) * 0.5f;
+      vp.co() += (sum - vp.co()) * 0.05f;
     }
   }
 
