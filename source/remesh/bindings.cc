@@ -23,6 +23,7 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
   BIND_STRUCT_COPY_CONSTRUCTOR(st); // crosses the seam by value
 
+  BIND_STRUCT_MEMBER(st, target_quad_count);
   BIND_STRUCT_MEMBER(st, target_edge_length);
   BIND_STRUCT_MEMBER(st, solve_edge_length);
   BIND_STRUCT_MEMBER(st, use_curvature);
@@ -39,6 +40,8 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, triage_min_component_frac);
   BIND_STRUCT_MEMBER(st, curvature_smooth_iters);
   BIND_STRUCT_MEMBER(st, curvature_smooth_lambda);
+  BIND_STRUCT_MEMBER(st, field_smoothness);
+  BIND_STRUCT_MEMBER(st, curvature_weight);
   BIND_STRUCT_MEMBER(st, auto_density);
   BIND_STRUCT_MEMBER(st, density_min);
   BIND_STRUCT_MEMBER(st, density_max);
@@ -58,6 +61,7 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, pre_remesh_converge_eps);
   BIND_STRUCT_MEMBER(st, pre_remesh_preserve_features);
   BIND_STRUCT_MEMBER(st, pre_remesh_sharp_angle);
+  BIND_STRUCT_MEMBER(st, pre_remesh_trace);
 
   return st;
 }

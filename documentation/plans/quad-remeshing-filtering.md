@@ -414,6 +414,20 @@ to `1.0`. The alignment side is already exposed via `curvature_weight`
 Inspect: invariant check, singularity-vs-smoothness curve, screenshots. Confirm
 high smoothness doesn't collapse the field (empty extract).
 
+### Results (implemented; awaiting gate review)
+- `test_remesh_field.cc:testSmoothnessSweep` — Gauss–Bonnet `index_sum == 4χ`
+  holds at all 10 settings on a noised sphere (hard assert). Diagnostic curve is
+  cleanly monotone: singularities 86→78→56→46→38→28 for smoothness
+  0.25→8 (weight 1), and 20→38→56→86 for weight 0→4 (smoothness 1) —
+  confirming effective regularization ≈ `field_smoothness / curvature_weight`.
+- `tests/scripts/remesh_tier4_smoothness.txt` (debug_app): clean torus extracts
+  the identical valid 1920-quad mesh at smoothness 0.5 and 8 (no collapse, no
+  empty extract). On a dab-noised sphere the extremes both degrade the
+  *extract* even though the field stays valid: smoothness 0.5 → 12 boundary
+  edges / 5 inverted (field inherits noise), 1.0 → 6 / 4 (best), 4.0 → 84 / 45
+  with visible radial slivers (field stops tracking local curvature).
+  Screenshots: `tests/remesher-results/tier4/`.
+
 ---
 
 ## Tier 5 — Singularity pair cancellation

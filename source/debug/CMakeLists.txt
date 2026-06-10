@@ -115,7 +115,9 @@ if(NOT BUILD_WASM)
     remesh_app.cc
     remesh_ui.cc
     remesh_pipe_server.cc
-    subprocess_win.cc)
+    subprocess_win.cc
+    # Shared with remesh_cli: the per-asset quad-count manifest reader/writer.
+    ../remesh/cli/asset_quads.cc)
   target_link_libraries(remesh_debug_app debug_core comdlg32)
   target_include_directories(remesh_debug_app PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}

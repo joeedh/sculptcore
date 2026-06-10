@@ -252,10 +252,30 @@ void RemeshUi::drawPanel()
 
   // --- Params ---
   ImGui::SeparatorText("Params");
-  ImGui::SliderFloat("target edge len", &P.target_edge_length, 0.005f, 1.0f,
-                     "%.4f", ImGuiSliderFlags_Logarithmic);
-  tip("Nominal output quad edge length, in the mesh's world units. Smaller = "
-      "denser mesh. This is the size auto density modulates around.");
+  ImGui::InputInt("target quads", &P.target_quad_count, 100, 1000);
+  if (P.target_quad_count < 1) {
+    P.target_quad_count = 1;
+  }
+  tip("Target output quad count: the pipeline derives the quad edge length from "
+      "it (L = sqrt(area/N), density-weighted) and re-quantizes once if the "
+      "extracted count misses by >20%. Ignored when an explicit edge length is "
+      "set below. Loading an asset applies its quad-counts.txt entry.");
+  ImGui::BeginDisabled(app_->busy() || app_->selected < 0);
+  if (ImGui::Button("Save asset quad count")) {
+    std::string err;
+    if (!app_->saveAssetQuadCount(err)) {
+      app_->status = "ERROR " + err;
+    }
+  }
+  tip("Record the target quad count as the selected asset's default in the "
+      "assets dir's quad-counts.txt — read back by Load and by the CLI when no "
+      "explicit sizing is given.");
+  ImGui::EndDisabled();
+  ImGui::SliderFloat("target edge len (0=auto)", &P.target_edge_length, 0.0f,
+                     1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+  tip("Explicit output quad edge length, in the mesh's world units; overrides "
+      "the quad count above and disables the count correction. 0 = derive from "
+      "target quads. This is the size auto density modulates around.");
   ImGui::SliderFloat("solve edge len (0=off)", &P.solve_edge_length, 0.0f, 1.0f,
                      "%.4f");
   tip("If > 0, decimate to roughly this edge length before solving the field and "
@@ -318,6 +338,14 @@ void RemeshUi::drawPanel()
   tip("Per-sweep blend toward the neighbor-averaged tensor (0..1). Higher = more "
       "smoothing per iteration.");
   ImGui::EndDisabled();
+  ImGui::SliderFloat("field smoothness", &P.field_smoothness, 0.1f, 8.0f, "%.2f",
+                     ImGuiSliderFlags_Logarithmic);
+  tip("Tier 4: per-edge smoothness weight of the cross-field solve. Higher = "
+      "globally smoother field with fewer noise-born singularities, at the cost "
+      "of curvature tracking. Regularization ~ smoothness / curvature weight.");
+  ImGui::SliderFloat("curvature weight", &P.curvature_weight, 0.0f, 8.0f, "%.2f");
+  tip("Tier 4: soft curvature-alignment scale (x local anisotropy) — the other "
+      "half of the smoothness/alignment tradeoff.");
   ImGui::Checkbox("auto density", &P.auto_density);
   tip("Tier 3: derive the density map from curvature (s = curvature x target, "
       "density = clamp(s^2, min, max)) so curved regions get finer quads and "
@@ -347,8 +375,8 @@ void RemeshUi::drawPanel()
   ImGui::BeginDisabled(!P.pre_remesh);
   ImGui::SliderFloat("pl target (0=auto)", &P.pre_remesh_target, 0.0f, 1.0f,
                      "%.4f", ImGuiSliderFlags_Logarithmic);
-  tip("Pipeline pre-pass edge length. 0 = auto: solve edge len when set, else "
-      "target edge len.");
+  tip("Pipeline pre-pass edge length. 0 = auto: solve edge len when set; else "
+      "0.7x the resolved quad edge, floored at half the median input edge.");
   ImGui::SliderInt("pl iters (0=auto)", &P.pre_remesh_iters, 0, 20);
   tip("Outer convergence iterations. 0 = auto from the measured input "
       "(resolution travel + fold/irregularity level, clamped to 3..6).");
@@ -361,6 +389,10 @@ void RemeshUi::drawPanel()
   ImGui::SliderFloat("pl gradation (0=off)", &P.pre_remesh_gradation, 0.0f, 2.0f,
                      "%.2f");
   tip("Per-edge-hop growth cap on the pipeline pre-pass size field.");
+  ImGui::BeginDisabled(P.pre_remesh_gradation <= 0.0f);
+  ImGui::SliderInt("pl gradation iters", &P.pre_remesh_gradation_iters, 1, 30);
+  tip("Work cap for the pipeline pre-pass gradation limiter (pops per vertex).");
+  ImGui::EndDisabled();
   ImGui::SliderFloat("pl align (iso<->field)", &P.pre_remesh_align, 0.0f, 1.0f,
                      "%.2f");
   tip("Pipeline pre-pass smooth blend: isotropic (0) to field-aligned (1).");
@@ -382,6 +414,9 @@ void RemeshUi::drawPanel()
                      3.14159f, "%.3f");
   tip("Crease dihedral threshold for the pipeline pre-pass feature pinning.");
   ImGui::EndDisabled();
+  ImGui::Checkbox("pl convergence trace", &P.pre_remesh_trace);
+  tip("Print the pre-pass per-iter convergence summary + oscillation verdict to "
+      "the CLI job's stderr.");
   ImGui::EndDisabled();
 
   // --- Pre-remesh (Tier 9 input pre-pass) ---
@@ -394,10 +429,11 @@ void RemeshUi::drawPanel()
   ImGui::SliderInt("pre iters", &PR.iters, 1, 20);
   tip("Outer convergence iterations of the pre-pass (cross field -> Botsch-Kobbelt "
       "remesh -> field-aligned smooth). Also the step count for the Step button.");
-  ImGui::SliderFloat("pre target (0=edge len)", &PR.target, 0.0f, 1.0f, "%.4f",
+  ImGui::SliderFloat("pre target (0=auto)", &PR.target, 0.0f, 1.0f, "%.4f",
                      ImGuiSliderFlags_Logarithmic);
-  tip("Base pre-pass edge length. 0 = use the main 'target edge len' above. With "
-      "'pre density' on it is scaled per-vertex by 1/sqrt(density).");
+  tip("Base pre-pass edge length. 0 = the pipeline's auto resolution (explicit "
+      "edge len, else 0.7x the count-derived quad edge with a median floor). "
+      "With 'pre density' on it is scaled per-vertex by 1/sqrt(density).");
   ImGui::Checkbox("pre density", &PR.density);
   tip("Grade the pre-pass split/collapse band by a per-vertex curvature size field "
       "(finer where curved) instead of one global length.");
@@ -406,6 +442,15 @@ void RemeshUi::drawPanel()
   tip("Lower clamp on the pre-pass size field (coarsest sizing on flat regions).");
   ImGui::SliderFloat("pre density max", &PR.density_max, 1.0f, 16.0f, "%.2f");
   tip("Upper clamp on the pre-pass size field (finest sizing on curved regions).");
+  ImGui::SliderFloat("pre gradation (0=off)", &PR.gradation, 0.0f, 2.0f, "%.2f");
+  tip("Per-edge-hop growth cap on the pre-pass size field (Alauzet limiter): the "
+      "goal length may grow by at most (1 + gradation) per hop, so BK doesn't "
+      "thrash at sharp size cliffs. 0 = off (A/B only).");
+  ImGui::BeginDisabled(PR.gradation <= 0.0f);
+  ImGui::SliderInt("pre gradation iters", &PR.gradation_iters, 1, 30);
+  tip("Work cap for the gradation limiter (pops per vertex; it stops early once "
+      "the size field converges).");
+  ImGui::EndDisabled();
   ImGui::EndDisabled();
   ImGui::SliderInt("pre field cadence", &PR.field_cadence, 1, 8);
   tip("Recompute the rough cross field every N outer iters (it is stable once the "
@@ -426,6 +471,9 @@ void RemeshUi::drawPanel()
   tip("Dihedral angle (radians) above which a pre-pass edge counts as a sharp "
       "feature to pin. Default 0.785 = 45 degrees.");
   ImGui::EndDisabled();
+  ImGui::Checkbox("pre convergence trace", &app_->preTrace);
+  tip("Print the per-iter convergence summary + oscillation verdict to stderr "
+      "after Run pre-pass.");
   ImGui::Checkbox("show rough field after run", &app_->preShowField);
   tip("After a pre-pass run, turn on the cross-field overlay so the rough field it "
       "wrote into .remesh.f.theta is visible (field-aligned runs only).");
@@ -463,11 +511,13 @@ void RemeshUi::drawPanel()
       app_->status = "ERROR " + err;
     }
   }
+  tip("Reload the current asset from disk (undo the pre-pass to inspect again).");
   ImGui::SeparatorText(app_->stats.c_str());
   if (ImGui::Button("Laplacian Smooth")) {
     app_->scene().smoothMesh();
   }
-  tip("Reload the current asset from disk (undo the pre-pass to inspect again).");
+  tip("Apply one plain Laplacian smooth pass to the loaded mesh (quick visual "
+      "comparison against the pre-pass's tangential smooth).");
   ImGui::EndDisabled();
   if (app_->preStepping) {
     ImGui::SameLine();

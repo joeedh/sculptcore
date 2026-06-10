@@ -78,6 +78,59 @@ void testSphereField()
   litestl::alloc::Delete<Mesh>(sph);
 }
 
+// Tier 4: field_smoothness / curvature_weight sweep on a noised sphere.
+// Hard invariant: Gauss-Bonnet (Σindex == 4χ) holds at every setting. The
+// singularity counts are logged as a diagnostic only — the expected trend is
+// non-increasing with smoothness, but it is not a reliable invariant.
+void testSmoothnessSweep()
+{
+  // Fresh mesh per setting: radial position noise creates curvature noise the
+  // smoothness term has to fight (deterministic LCG, same seed → same geometry).
+  auto makeNoisySphere = []() {
+    Mesh *sph = mesh::makeUVSphere(24, 36, 1.0f);
+    sph->thawTopo();
+    mesh::triangulateMesh(*sph);
+    uint32_t s = 9001u;
+    auto noise = [&s]() {
+      s = s * 1664525u + 1013904223u;
+      return double((s >> 8) & 0xffffffu) / double(0x1000000) * 2.0 - 1.0;
+    };
+    for (int v : sph->v) {
+      float3 p = sph->v.co[v];
+      if (p.length() > 1e-6f) {
+        p *= 1.0f + 0.03f * float(noise());
+        sph->v.co[v] = p;
+      }
+    }
+    return sph;
+  };
+
+  struct Setting {
+    float smoothness, weight;
+  };
+  const Setting settings[] = {
+      {0.25f, 1.0f}, {0.5f, 1.0f}, {1.0f, 1.0f}, {2.0f, 1.0f}, {4.0f, 1.0f},
+      {8.0f, 1.0f},  {1.0f, 0.0f}, {1.0f, 0.25f}, {1.0f, 4.0f}, {4.0f, 0.25f},
+  };
+
+  for (const Setting &set : settings) {
+    Mesh *sph = makeNoisySphere();
+    remesh::CrossFieldParams p;
+    p.field_smoothness = set.smoothness;
+    p.curvature_weight = set.weight;
+    remesh::CrossFieldStats st = remesh::computeCrossField(*sph, p);
+
+    long chi = chiOf(*sph);
+    fprintf(stderr,
+            "[sweep] smoothness=%.2f weight=%.2f sing=%d index_sum=%d 4chi=%ld\n",
+            set.smoothness, set.weight, st.num_singularities, st.index_sum, 4 * chi);
+    TASSERT(chi == 2);
+    TASSERT(st.index_sum == int(4 * chi)); // Gauss-Bonnet at every setting
+    TASSERT(st.num_singularities > 0);     // sphere can't be combed
+    litestl::alloc::Delete<Mesh>(sph);
+  }
+}
+
 void testStrokeAlignment()
 {
   Mesh *grid = mesh::makeGrid(12, 12, 1.0f);
@@ -127,6 +180,7 @@ int main()
 {
   testTorusField();
   testSphereField();
+  testSmoothnessSweep();
   testStrokeAlignment();
   return retval;
 }

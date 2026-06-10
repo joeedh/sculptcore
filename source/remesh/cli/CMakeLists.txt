@@ -23,7 +23,7 @@ set(REMESH_CLI_RESULTS_DIR "${_sc_root}/tests/remesher-results")
 
 configure_file(remesh_cli_config.h.in remesh_cli_config.h @ONLY)
 
-add_executable(remesh_cli remesh_cli.cc)
+add_executable(remesh_cli remesh_cli.cc asset_quads.cc)
 target_link_libraries(remesh_cli remesh mesh spatial util platform math)
 # The configured config header (paths + git commit).
 target_include_directories(remesh_cli PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

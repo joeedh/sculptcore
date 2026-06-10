@@ -1241,7 +1241,8 @@ bool execVerb(Scene &scene,
   }
 
   if (verb == "remesh") {
-    /* remesh [target=..] [curvature=1] [sharp=1] [sharp_angle=..] [density=0]
+    /* remesh [target=..] [target_quads=N] [curvature=1] [sharp=1]
+     *        [sharp_angle=..] [smoothness=..] [curvature_weight=..] [density=0]
      *        [reproject=1] [smooth=N] [smooth_strength=..] [seed=N]
      * Replaces scene.mesh with the feature-aligned quad remesh of it. */
     if (!scene.mesh) {
@@ -1251,9 +1252,13 @@ bool execVerb(Scene &scene,
     scene.mesh->thawTopo();
     remesh::RemeshParams params;
     params.target_edge_length = getFloat(args, "target", params.target_edge_length);
+    params.target_quad_count = getInt(args, "target_quads", params.target_quad_count);
     params.use_curvature = getBool(args, "curvature", params.use_curvature);
     params.use_sharp_features = getBool(args, "sharp", params.use_sharp_features);
     params.sharp_angle = getFloat(args, "sharp_angle", params.sharp_angle);
+    params.field_smoothness = getFloat(args, "smoothness", params.field_smoothness);
+    params.curvature_weight =
+        getFloat(args, "curvature_weight", params.curvature_weight);
     params.use_density = getBool(args, "density", params.use_density);
     params.reproject = getBool(args, "reproject", params.reproject);
     params.smooth_iterations = getInt(args, "smooth", params.smooth_iterations);
@@ -1383,8 +1388,9 @@ bool execVerb(Scene &scene,
 
   if (verb == "remesh_cross_field") {
     /* remesh_cross_field [curvature=..] [sharp=..] [sharp_angle=..]
-     * [curvature_weight=..] — solve the 4-RoSy cross field; prints face count,
-     * singularity count, Σ index (== 4χ) and whether the eigen fallback ran. */
+     * [curvature_weight=..] [smoothness=..] — solve the 4-RoSy cross field;
+     * prints face count, singularity count, Σ index (== 4χ) and whether the
+     * eigen fallback ran. */
     if (!scene.mesh) {
       err = "remesh_cross_field: no mesh";
       return false;
@@ -1395,6 +1401,7 @@ bool execVerb(Scene &scene,
     cfp.use_sharp_features = getBool(args, "sharp", cfp.use_sharp_features);
     cfp.sharp_angle = getFloat(args, "sharp_angle", cfp.sharp_angle);
     cfp.curvature_weight = getFloat(args, "curvature_weight", cfp.curvature_weight);
+    cfp.field_smoothness = getFloat(args, "smoothness", cfp.field_smoothness);
     cfp.seed = (uint32_t)getInt(args, "seed", (int)cfp.seed);
     remesh::CrossFieldStats st = remesh::computeCrossField(m, cfp);
     long chi = long(m.v.count) - long(m.e.count) + long(m.f.count);

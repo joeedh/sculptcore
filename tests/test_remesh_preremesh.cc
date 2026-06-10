@@ -694,6 +694,44 @@ void testPipelinePreRemeshClean()
   litestl::alloc::Delete<Mesh>(s);
 }
 
+// Count-mode sizing: target_edge_length = 0 derives the quad edge from
+// target_quad_count (L = sqrt(area/N)); the extracted count is best-effort
+// (no corrective re-quantize when it misses).
+void testPipelineCountMode()
+{
+  Mesh *s = mesh::makeUVSphere(24, 32, 2.0f);
+
+  remesh::RemeshParams p;
+  p.target_quad_count = 2000; // target_edge_length stays 0 = count mode
+  remesh::RemeshRunReport rep;
+  Mesh *out = remesh::QuadRemesh(*s, p, nullptr, nullptr, &rep);
+
+  fprintf(stderr,
+          "[pipeline/count] ok=%d target=%d actual=%d derived_edge=%.4f "
+          "ms=%lld\n",
+          int(rep.success), p.target_quad_count, rep.quad_count_actual,
+          rep.derived_edge_length, rep.duration_ms);
+
+  TASSERT(out != nullptr);
+  TASSERT(rep.success);
+  TASSERT(rep.derived_edge_length > 0.0f);
+  // Sphere area ~16*pi -> L0 = sqrt(A/2000) ~ 0.16; sanity-band the derivation.
+  TASSERT(rep.derived_edge_length > 0.05f && rep.derived_edge_length < 0.5f);
+  TASSERT(rep.quad_count_actual == (out ? out->f.count : 0));
+  // The count contract: single-pass derivation, no corrective re-quantize, and
+  // extraction yield can run well under the ideal lattice count — assert only
+  // the right ballpark (within 3x either way).
+  TASSERT(rep.quad_count_actual >= p.target_quad_count / 3 &&
+          rep.quad_count_actual <= p.target_quad_count * 3);
+  if (out) {
+    RemeshReport r = mesh::remeshValidate(*out);
+    TASSERT(r.all_quad);
+    TASSERT(r.manifold);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(s);
+}
+
 // 9d pipeline integration, noisy input: the auto heuristics resolve the sentinel
 // knobs from the measured input, the run report carries the before/after A/B
 // effect block, and gating the stage off leaves it skipped with an empty block.
@@ -770,78 +808,20 @@ void testPipelinePreRemeshNoisy()
   litestl::alloc::Delete<Mesh>(s);
 }
 
-// CLAUDENOTE: fold diagnostic scaffolding for the "pre-remesher still produces
-// folding" investigation. Counts geometric fold-overs: interior manifold edges
-// whose two unit face normals point away from each other. fold90 (dot < 0) is a
-// pathologically sharp crease; fold180 (dot < -0.95) is a genuine fold-back where
-// the surface doubles over itself. Also tracks degenerate (near-zero-area) faces.
-struct FoldStats {
-  int fold90 = 0;
-  int fold180 = 0;
-  int degen = 0;
-  float min_dot = 1.0f;
-  float3 worst_pos{};
-};
-
-FoldStats foldStats(Mesh &m)
-{
-  FoldStats fs;
-  for (int f : m.f) {
-    float3 n = mesh::faceNewellNormal(m, f);
-    // Degeneracy is scale-relative: compare 2·area to the squared longest edge.
-    float lmax2 = 0.0f;
-    int c0 = m.l.c[m.f.l[f]], cc = c0;
-    do {
-      float3 a = m.v.co[m.c.v[cc]], b = m.v.co[m.c.v[m.c.next[cc]]];
-      float l2 = (b - a).lengthSqr();
-      if (l2 > lmax2) lmax2 = l2;
-      cc = m.c.next[cc];
-    } while (cc != c0);
-    if (n.length() < 1e-6f * lmax2) {
-      fs.degen++;
-    }
-  }
-  for (int e : m.e) {
-    int c1 = m.e.c[e];
-    if (c1 == ELEM_NONE) {
-      continue;
-    }
-    int c2 = m.c.radial_next[c1];
-    if (c2 == c1 || m.c.radial_next[c2] != c1) {
-      continue; // boundary / non-manifold
-    }
-    float3 n1 = mesh::faceNewellNormal(m, m.l.f[m.c.l[c1]]);
-    float3 n2 = mesh::faceNewellNormal(m, m.l.f[m.c.l[c2]]);
-    float l1 = n1.length(), l2 = n2.length();
-    if (l1 < 1e-20f || l2 < 1e-20f) {
-      continue;
-    }
-    float d = n1.dot(n2) / (l1 * l2);
-    if (d < 0.0f) fs.fold90++;
-    if (d < -0.95f) fs.fold180++;
-    if (d < fs.min_dot) {
-      fs.min_dot = d;
-      fs.worst_pos = (m.v.co[m.e.vs[e][0]] + m.v.co[m.e.vs[e][1]]) * 0.5f;
-    }
-  }
-  return fs;
-}
-
+// Fold counts per pre-pass stage, via the promoted Tier-0d metric
+// (mesh::countGeometricFolds).
 void printFolds(const char *stage, Mesh &m)
 {
-  FoldStats fs = foldStats(m);
+  mesh::FoldCounts fc = mesh::countGeometricFolds(m);
   fprintf(stderr,
-          "[fold] %-22s V=%-6d F=%-6d fold90=%-4d fold180=%-4d degen=%-3d "
-          "min_dot=%7.4f worst=(%.4f %.4f %.4f)\n",
-          stage, m.v.count, m.f.count, fs.fold90, fs.fold180, fs.degen,
-          fs.min_dot, fs.worst_pos[0], fs.worst_pos[1], fs.worst_pos[2]);
+          "[fold] %-22s V=%-6d F=%-6d fold90=%-4d fold180=%-4d degen=%-3d\n",
+          stage, m.v.count, m.f.count, fc.fold90, fc.fold180,
+          fc.degenerate_faces);
 }
 
-// CLAUDENOTE: opt-in (REMESH_FOLD_DIAG=<asset name or abs path>) stage-by-stage
-// fold trace of the pre-pass on a real asset. Replicates preRemesh's loop with
-// public primitives (density off) so fold counts can be sampled after every
-// stage, then the debug app's end reproject. REMESH_TARGET overrides the edge
-// target (default 0.1, the app default).
+// Opt-in (REMESH_FOLD_DIAG=<asset name or abs path>) stage-by-stage fold trace
+// of the pre-pass on a real asset, replicating preRemesh's loop with public
+// primitives. REMESH_TARGET overrides the edge target (default 0.1).
 void testFoldDiagnostic()
 {
   const char *spec = std::getenv("REMESH_FOLD_DIAG");
@@ -993,6 +973,7 @@ int main()
   testPrepassTrace();
   testDriverNoOp();
   testPipelinePreRemeshClean();
+  testPipelineCountMode();
   testPipelinePreRemeshNoisy();
   testFoldDiagnostic();
   return retval;

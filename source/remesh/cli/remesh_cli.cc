@@ -24,6 +24,7 @@
 #include "remesh/remesh_params.h"
 #include "remesh/remesh_report.h"
 
+#include "asset_quads.h"
 #include "remesh_cli_config.h"
 
 #include <chrono>
@@ -168,6 +169,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "\n  },\n");
 
   std::fprintf(f, "  \"params\": {\n");
+  std::fprintf(f, "    \"target_quad_count\": %d,\n", p.target_quad_count);
   std::fprintf(f, "    \"target_edge_length\": %.9g,\n", p.target_edge_length);
   std::fprintf(f, "    \"solve_edge_length\": %.9g,\n", p.solve_edge_length);
   std::fprintf(f, "    \"use_curvature\": %s,\n", jb(p.use_curvature));
@@ -187,6 +189,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
                p.curvature_smooth_iters);
   std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g,\n",
                p.curvature_smooth_lambda);
+  std::fprintf(f, "    \"field_smoothness\": %.9g,\n", p.field_smoothness);
+  std::fprintf(f, "    \"curvature_weight\": %.9g,\n", p.curvature_weight);
   std::fprintf(f, "    \"auto_density\": %s,\n", jb(p.auto_density));
   std::fprintf(f, "    \"density_min\": %.9g,\n", p.density_min);
   std::fprintf(f, "    \"density_max\": %.9g,\n", p.density_max);
@@ -213,8 +217,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
                p.pre_remesh_converge_eps);
   std::fprintf(f, "    \"pre_remesh_preserve_features\": %s,\n",
                jb(p.pre_remesh_preserve_features));
-  std::fprintf(f, "    \"pre_remesh_sharp_angle\": %.9g\n",
+  std::fprintf(f, "    \"pre_remesh_sharp_angle\": %.9g,\n",
                p.pre_remesh_sharp_angle);
+  std::fprintf(f, "    \"pre_remesh_trace\": %s\n", jb(p.pre_remesh_trace));
   std::fprintf(f, "  },\n");
 
   std::fprintf(f, "  \"output\": {\n");
@@ -275,10 +280,14 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"index_sum\": %d,\n", rep.index_sum);
   std::fprintf(f, "    \"field_solved_eigen\": %s,\n",
                jb(rep.field_solved_eigen));
+  std::fprintf(f, "    \"field_close_pairs\": %d,\n", rep.field_close_pairs);
+  std::fprintf(f, "    \"field_clutter_verts\": %d,\n", rep.field_clutter_verts);
   std::fprintf(f, "    \"parametrization_folds\": %d,\n",
                rep.parametrization_folds);
   std::fprintf(f, "    \"min_jacobian\": %.9g,\n", rep.min_jacobian);
   std::fprintf(f, "    \"quantize_feasible\": %s,\n", jb(rep.quantize_feasible));
+  std::fprintf(f, "    \"derived_edge_length\": %.9g,\n", rep.derived_edge_length);
+  std::fprintf(f, "    \"quad_count_actual\": %d,\n", rep.quad_count_actual);
   std::fprintf(f, "    \"stages\": {\n");
   std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
   std::fprintf(f, "      \"triage\": \"%s\",\n", ssName(rep.triage));
@@ -349,7 +358,11 @@ void usage()
       "  --input <path>          input OBJ (bare name resolves against assets dir)\n"
       "  --outdir <dir>          output dir (default: tests/remesher-results)\n"
       "  --name <base>           output basename (default: input stem)\n"
-      "  --target <float>        target quad edge length (default 0.1)\n"
+      "  --target-quads <int>    target quad count (default 15000; per-asset\n"
+      "                          quad-counts.txt overrides when neither this\n"
+      "                          nor --target is given)\n"
+      "  --target <float>        explicit quad edge length; overrides\n"
+      "                          --target-quads (default 0 = derive from count)\n"
       "  --solve <float>         solve-mesh edge length, 0=off (default 0)\n"
       "  --curvature <0|1>       align field to curvature (default 1)\n"
       "  --sharp <0|1>           pin field to sharp edges/boundaries (default 1)\n"
@@ -366,10 +379,12 @@ void usage()
       "(default 0)\n"
       "  --curvature-smooth-iters <int>   tensor-field Jacobi sweeps (default 0)\n"
       "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n"
+      "  --field-smoothness <f>   cross-field smoothness weight (default 1)\n"
+      "  --curvature-weight <f>   soft curvature-alignment scale (default 1)\n"
       "  --auto-density <0|1>     curvature-driven sizing field (default 0)\n"
       "  --density-min <f>        density clamp floor (default 0.25)\n"
       "  --density-max <f>        density clamp ceiling (default 4)\n"
-      "  --density-gradation <f>  bound size growth rate; 0=off (default 0)\n"
+      "  --density-gradation <f>  bound size growth rate; 0=off (default 0.5)\n"
       "  --density-gradation-iters <int>  limiter sweep cap (default 10)\n"
       "  --pre-remesh <0|1>       field-aligned input pre-remesh (default 0)\n"
       "  --pre-remesh-target <f>  pre-pass edge length; 0=auto (default 0)\n"
@@ -391,7 +406,9 @@ void usage()
       "  --pre-remesh-preserve-features <0|1>  pin boundaries+creases "
       "(default 1)\n"
       "  --pre-remesh-sharp-angle <f>     crease dihedral, radians "
-      "(default 0.785)\n");
+      "(default 0.785)\n"
+      "  --pre-remesh-trace <0|1>  print per-iter convergence summary to "
+      "stderr (default 0)\n");
 }
 
 bool toBool(const char *s) { return std::atoi(s) != 0; }
@@ -404,6 +421,7 @@ int main(int argc, char **argv)
 
   std::string input, outdir = REMESH_CLI_RESULTS_DIR, name;
   remesh::RemeshParams params;
+  bool sizing_given = false; // --target or --target-quads on the command line
 
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -423,9 +441,13 @@ int main(int argc, char **argv)
       outdir = next("--outdir");
     else if (a == "--name")
       name = next("--name");
-    else if (a == "--target")
+    else if (a == "--target") {
       params.target_edge_length = float(std::atof(next("--target")));
-    else if (a == "--solve")
+      sizing_given = true;
+    } else if (a == "--target-quads") {
+      params.target_quad_count = std::atoi(next("--target-quads"));
+      sizing_given = true;
+    } else if (a == "--solve")
       params.solve_edge_length = float(std::atof(next("--solve")));
     else if (a == "--curvature")
       params.use_curvature = toBool(next("--curvature"));
@@ -457,6 +479,10 @@ int main(int argc, char **argv)
     else if (a == "--curvature-smooth-lambda")
       params.curvature_smooth_lambda =
           float(std::atof(next("--curvature-smooth-lambda")));
+    else if (a == "--field-smoothness")
+      params.field_smoothness = float(std::atof(next("--field-smoothness")));
+    else if (a == "--curvature-weight")
+      params.curvature_weight = float(std::atof(next("--curvature-weight")));
     else if (a == "--auto-density")
       params.auto_density = toBool(next("--auto-density"));
     else if (a == "--density-min")
@@ -505,6 +531,8 @@ int main(int argc, char **argv)
     else if (a == "--pre-remesh-sharp-angle")
       params.pre_remesh_sharp_angle =
           float(std::atof(next("--pre-remesh-sharp-angle")));
+    else if (a == "--pre-remesh-trace")
+      params.pre_remesh_trace = toBool(next("--pre-remesh-trace"));
     else {
       std::fprintf(stderr, "ERROR unknown arg %s\n", a.c_str());
       return 2;
@@ -526,6 +554,15 @@ int main(int argc, char **argv)
   }
   if (name.empty())
     name = stem(inPath);
+
+  // No explicit sizing → the asset's recorded quad count (quad-counts.txt in
+  // the assets dir) overrides the default target_quad_count.
+  if (!sizing_given) {
+    int rec = remesh::cli::lookupAssetQuadCount(REMESH_CLI_ASSETS_DIR,
+                                                stem(inPath));
+    if (rec > 0)
+      params.target_quad_count = rec;
+  }
 
   // Load with quads preserved so the manifest records the asset's real face
   // count; QuadRemesh triangulates its own internal copy anyway.
@@ -597,7 +634,7 @@ int main(int argc, char **argv)
               "folds=%d min_angle=%.4g area_ratio=%.4g "
               "triage=%d triage_welded=%d triage_degenerate=%d "
               "triage_components=%d triage_nonmanifold_edges=%d "
-              "duration_ms=%lld\n",
+              "derived_edge=%.4g duration_ms=%lld\n",
               r.vert_count, r.edge_count, r.face_count, r.quad_count,
               r.tri_count, r.ngon_count, int(r.all_quad), int(r.manifold),
               r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
@@ -605,7 +642,7 @@ int main(int argc, char **argv)
               r.component_count, r.boundary_loop_count, r.parametrization_folds,
               r.min_interior_angle, r.max_adjacent_area_ratio, int(tg.ran),
               tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
-              tg.non_manifold_edges, durationMs);
+              tg.non_manifold_edges, rep.derived_edge_length, durationMs);
 
   // Pre-remesh A/B one-liner (only when the pre-pass ran); full record is in
   // the manifest "pre_remesh" block.

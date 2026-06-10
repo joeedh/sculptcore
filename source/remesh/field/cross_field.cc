@@ -98,7 +98,7 @@ CrossFieldStats computeCrossField(Mesh &m, const CrossFieldParams &params)
   // |c_a·exp(i4ρ) − c_b|², plus per-face data terms (hard pin / soft pull) and
   // a tiny Tikhonov shift to keep it SPD.
   std::vector<Eigen::Triplet<cd>> trips;
-  const double wsmooth = 1.0;
+  const double wsmooth = double(params.field_smoothness);
   int num_interior_edges = 0;
 
   for (int e : m.e) {

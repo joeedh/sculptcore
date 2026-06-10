@@ -19,9 +19,15 @@ template <typename CLS> struct Struct;
 namespace sculptcore::remesh {
 
 struct RemeshParams {
-  /* Target quad edge length (world units). Drives the seamless-parametrization
-   * scale (M4) and therefore the output face count. */
-  float target_edge_length = 0.1f;
+  /* Target output quad count. The pipeline derives the quad edge length from
+   * it: L = sqrt(integral of density dA / N). Ignored when target_edge_length
+   * is set explicitly. */
+  int target_quad_count = 15000;
+
+  /* Explicit quad edge length (world units), overriding target_quad_count.
+   * 0 = derive from target_quad_count (count mode, with corrective
+   * re-quantize); > 0 = legacy fixed-length mode, no count correction. */
+  float target_edge_length = 0.0f;
 
   /* Optional solve-mesh edge length (world units). 0 = off (solve on the raw
    * input). When > 0, a dyntopo uniform-remesh pre-pass coarsens the working
@@ -86,6 +92,14 @@ struct RemeshParams {
   /* Tier 2a: per-sweep blend in [0,1] for the curvature tensor diffusion. */
   float curvature_smooth_lambda = 0.5f;
 
+  /* Tier 4: per-edge smoothness weight of the cross-field solve. Higher =
+   * globally smoother field with fewer noise-born singularities, at the cost
+   * of curvature tracking (regularization ~ field_smoothness/curvature_weight). */
+  float field_smoothness = 1.0f;
+  /* Tier 4: soft curvature-alignment scale (x local anisotropy) — the other
+   * half of the smoothness/alignment tradeoff. */
+  float curvature_weight = 1.0f;
+
   /* Tier 3a: generate the per-vertex .remesh.v.density sizing field from the
    * (Tier-2-smoothed) principal curvature — small quads at high curvature, large
    * on flat regions. Implies density consumption (the pipeline ORs this into
@@ -100,7 +114,7 @@ struct RemeshParams {
    * size never shears across a steep density step. Max world-space size growth
    * per unit distance; 0 = off. Typical 0.3–1.0. Applies to auto OR painted
    * density. */
-  float density_gradation = 0.0f;
+  float density_gradation = 0.5f;
   /* Tier 3b: gradation-limiter relaxation sweep cap. */
   int density_gradation_iters = 10;
 
@@ -110,7 +124,8 @@ struct RemeshParams {
    * back onto the full-res original. Off = pipeline unchanged. */
   bool pre_remesh = false;
   /* Pre-pass edge length. 0 = auto: solve_edge_length when set (field-align at
-   * the solve resolution), else target_edge_length (remesh at output res). */
+   * the solve resolution); else 0.7x the resolved quad edge length, floored at
+   * half the input's median edge so the pre-pass never over-refines. */
   float pre_remesh_target = 0.0f;
   /* Outer convergence iterations. 0 = auto from the measured input (resolution
    * ratio + fold/irregularity level, clamped to [3,6]); converge_eps usually
@@ -143,6 +158,9 @@ struct RemeshParams {
    * smooth so the iterated flow follows features instead of eroding them. */
   bool pre_remesh_preserve_features = true;
   float pre_remesh_sharp_angle = 0.7853982f;
+  /* Print the pre-pass per-iter convergence summary + oscillation verdict
+   * (dyntopo::printTraceSummary) to stderr. */
+  bool pre_remesh_trace = false;
 
   /* Bound out-of-line in remesh/bindings.cc (keeps the binding headers out of
    * this header). Crosses the seam by value → registers a copy constructor. */

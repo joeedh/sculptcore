@@ -152,6 +152,48 @@ inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing 
   return r;
 }
 
+/* Per-outer-iter rollup of a trace + the oscillation verdict (the Tier-0d
+ * convergence stat the CLI/debug app print; printTrace below is the per-round
+ * dump). A healthy run decays rounds/ops geometrically across iters. */
+inline void printTraceSummary(const DynTopoTrace &t, const char *tag)
+{
+  const float k = 180.0f / 3.14159265358979323846f;
+  int n = int(t.rounds.size());
+  for (int i = 0; i < n;) {
+    int iter = t.rounds[i].iter;
+    int rounds = 0, s = 0, c = 0, fl = 0, thin_peak = 0;
+    float worstOver = 0.0f, worstUnder = 1e30f, worstAng = 1e30f;
+    const RoundQuality *last = nullptr;
+    for (; i < n && t.rounds[i].iter == iter; i++) {
+      const RoundQuality &q = t.rounds[i];
+      rounds++;
+      s += q.splits;
+      c += q.collapses;
+      fl += q.flips;
+      if (q.thin_count > thin_peak) thin_peak = q.thin_count;
+      if (q.max_over > worstOver) worstOver = q.max_over;
+      if (q.min_under > 0.0f && q.min_under < worstUnder) worstUnder = q.min_under;
+      // rounds that measured no frontier tris leave min_angle at 0 — skip them
+      if (q.tri_count > 0 && q.min_angle < worstAng) worstAng = q.min_angle;
+      last = &q;
+    }
+    std::fprintf(stderr,
+                 "[%s] iter=%-2d rounds=%-3d splits=%-5d collapses=%-5d "
+                 "flips=%-5d thinPeak=%-3d worstAng=%5.1f over=%.2f under=%.2f "
+                 "endCands=%d/%d\n",
+                 tag, iter, rounds, s, c, fl, thin_peak,
+                 worstAng < 1e29f ? worstAng * k : 0.0f, worstOver,
+                 worstUnder < 1e29f ? worstUnder : 0.0f,
+                 last ? last->split_cands : 0, last ? last->collapse_cands : 0);
+  }
+  OscillationReport r = detectOscillation(t);
+  std::fprintf(stderr,
+               "[%s] oscillated=%d healed=%d swings=%d peakThin=%d(r%d) "
+               "worstAng=%.1f churnRun=%d(it%d)\n",
+               tag, int(r.oscillated), int(r.healed), r.swings, r.peak_thin,
+               r.peak_round, r.worst_min_angle * k, r.churn_run, r.churn_iter);
+}
+
 /* Dump the per-round trace (debug-app / test diagnostic). */
 inline void printTrace(const DynTopoTrace &t, const char *tag)
 {

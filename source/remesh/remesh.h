@@ -44,4 +44,17 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
                        RemeshProgressFn progress = nullptr, void *user = nullptr,
                        RemeshRunReport *report = nullptr);
 
+/* The operative quad edge length for @p params on @p m: the explicit
+ * target_edge_length when > 0, else derived from target_quad_count as
+ * L = sqrt(integral of density dA / N) (density-weighted only when params
+ * consume a density field; d = 1 otherwise). The pipeline refines this further
+ * in count mode (auto-density fixed point, corrective re-quantize); this is
+ * the estimate UIs / standalone drivers should mirror. */
+float resolveTargetEdgeLength(mesh::Mesh &m, const RemeshParams &params);
+
+/* What the pre_remesh_target = 0 sentinel resolves to on @p m: explicit >
+ * solve_edge_length > (count mode) 0.7x the resolved quad edge floored at half
+ * the median input edge > explicit target_edge_length. */
+float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params);
+
 } // namespace sculptcore::remesh

@@ -11,14 +11,18 @@
 #include "remesh/field/singularity_adjust.h"
 #include "remesh/quantize/quantize_ilp.h"
 
+#include "dyntopo/dyntopo_trace.h"
+
 #include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
 #include "mesh/utils/mesh_validate.h"
 #include "mesh/utils/triangulate.h"
 
 #include "litestl/util/alloc.h"
+#include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 
@@ -28,6 +32,62 @@ using namespace litestl;
 using mesh::Mesh;
 
 namespace {
+
+/* Tier-5 gate diagnostic: count opposite-index singularity pairs within 2
+ * vertex hops (each pair once) — the clutter a pair-cancellation pass could
+ * annihilate — plus the poles participating in at least one such pair. */
+void countSingularityClutter(Mesh &m, int &pairs, int &clutter_verts)
+{
+  mesh::BuiltinAttr<short, ".remesh.v.pole_index"> pole;
+  pole.ensure(m.v.attrs);
+
+  pairs = 0;
+  clutter_verts = 0;
+
+  auto eachNeighbor = [&m](int v, auto &&fn) {
+    int e0 = m.v.e[v];
+    if (e0 == ELEM_NONE) {
+      return;
+    }
+    int ec = e0;
+    do {
+      int side = m.e.vs[ec][0] == v ? 0 : 1;
+      fn(m.e.vs[ec][side ^ 1]);
+      ec = m.e.disk[ec][side * 2 + 1];
+    } while (ec != e0);
+  };
+
+  util::Set<int> in_pair;
+  for (int v : m.v) {
+    if (pole[v] == 0) {
+      continue;
+    }
+    util::Set<int> seen;
+    util::Vector<int> ring;
+    seen.add(v);
+    eachNeighbor(v, [&](int vn) {
+      if (seen.add(vn)) {
+        ring.append(vn);
+      }
+    });
+    int ring1 = int(ring.size());
+    for (int i = 0; i < ring1; i++) {
+      eachNeighbor(ring[i], [&](int vn) {
+        if (seen.add(vn)) {
+          ring.append(vn);
+        }
+      });
+    }
+    for (int w : ring) {
+      if (w > v && int(pole[v]) * int(pole[w]) < 0) {
+        pairs++;
+        in_pair.add(v);
+        in_pair.add(w);
+      }
+    }
+  }
+  clutter_verts = int(in_pair.size());
+}
 
 /* Deep-copy @p src's positions + face topology into a fresh triangle mesh, and
  * (Tier 1b) carry the input constraint layers across by vertex map. The pipeline
@@ -119,37 +179,27 @@ Mesh *buildTriCopy(Mesh &src)
   return work;
 }
 
-/* Global uniform-remesh pre-pass: coarsen `m` toward edge length `L` so the
- * heavy global solve runs on a tractable triangle count. BK remesh + a few
- * tangential relaxation sweeps (the global solve folds where curvature
- * concentrates; smoothing evens the triangulation -> fewer parametrization
- * folds). align=0 = classic isotropic relaxation (Tier 9 lifts it to a
- * field-aligned blend). Geometry only — the quads are reprojected onto the
- * full-res original afterward, so mild tangential drift here is fine. */
-void decimateForSolve(Mesh &m, float L, uint32_t seed)
-{
-  bkRemeshToTarget(m, L, seed);
-  tangentialSmooth(m, 5, 0.5f, 0.0f);
-}
-
 /* Edge-length statistics feeding the Tier-9 auto heuristics + run report:
- * mean and coefficient of variation (std/mean — triangulation irregularity). */
+ * mean, median, and coefficient of variation (std/mean — irregularity). */
 struct EdgeStats {
   float mean = 0.0f;
+  float median = 0.0f;
   float cv = 0.0f;
 };
 
 EdgeStats measureEdges(Mesh &m)
 {
   double sum = 0.0, sum2 = 0.0;
-  int n = 0;
+  util::Vector<float> lens;
+  lens.ensure_capacity(m.e.count);
   for (int e : m.e) {
     float l = (m.v.co[m.e.vs[e][0]] - m.v.co[m.e.vs[e][1]]).length();
     sum += l;
     sum2 += double(l) * double(l);
-    n++;
+    lens.append(l);
   }
   EdgeStats s;
+  int n = lens.size();
   if (!n) {
     return s;
   }
@@ -159,10 +209,117 @@ EdgeStats measureEdges(Mesh &m)
     double var = sum2 / n - mean * mean;
     s.cv = float(std::sqrt(std::fmax(var, 0.0)) / mean);
   }
+  std::nth_element(lens.begin(), lens.begin() + n / 2, lens.end());
+  s.median = lens[n / 2];
   return s;
 }
 
+/* Global uniform-remesh pre-pass: coarsen `m` toward edge length `L` so the
+ * heavy global solve runs on a tractable triangle count. BK remesh + a few
+ * tangential relaxation sweeps (the global solve folds where curvature
+ * concentrates; smoothing evens the triangulation -> fewer parametrization
+ * folds). align=0 = classic isotropic relaxation (Tier 9 lifts it to a
+ * field-aligned blend). Geometry only — the quads are reprojected onto the
+ * full-res original afterward, so mild tangential drift here is fine. */
+void decimateForSolve(Mesh &m, float L, uint32_t seed)
+{
+  // Step toward L in <=2.5x jumps: one giant leap (dense scan -> coarse solve
+  // res) collapses through features faster than relaxation can recover,
+  // folding the surface the field solve then has to live with.
+  float mean = measureEdges(m).mean;
+  while (mean > 0.0f && 2.5f * mean < L) {
+    bkRemeshToTarget(m, 2.5f * mean, seed);
+    float next = measureEdges(m).mean;
+    if (next <= mean) {
+      break;
+    }
+    mean = next;
+  }
+  bkRemeshToTarget(m, L, seed);
+  tangentialSmooth(m, 5, 0.5f, 0.0f);
+}
+
+/* L = sqrt(integral of density dA / N): the edge length at which an
+ * integer-grid lattice over `m` yields ~@p target_quads faces (density scales
+ * quad size as 1/sqrt(d), so N = integral(d dA) / L^2). Face fan areas are
+ * weighted by the mean corner density when @p use_density and the layer
+ * exists; d = 1 otherwise. Returns 0 on degenerate input. */
+float countDerivedLength(Mesh &m, int target_quads, bool use_density)
+{
+  if (target_quads <= 0) {
+    return 0.0f;
+  }
+  bool weight = use_density && m.v.attrs.has(mesh::AttrType::FLOAT,
+                                             util::string(".remesh.v.density"));
+  mesh::BuiltinAttr<float, ".remesh.v.density"> density;
+  if (weight) {
+    density.ensure(m.v.attrs);
+  }
+
+  double A = 0.0;
+  util::Vector<int> vs;
+  for (int f : m.f) {
+    int li = m.f.l[f];
+    int c0 = m.l.c[li];
+    vs.clear();
+    int cc = c0;
+    do {
+      vs.append(m.c.v[cc]);
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    if (vs.size() < 3) {
+      continue;
+    }
+    double area2 = 0.0;
+    const math::float3 &p0 = m.v.co[vs[0]];
+    for (int i = 1; i + 1 < vs.size(); i++) {
+      area2 += double((m.v.co[vs[i]] - p0).cross(m.v.co[vs[i + 1]] - p0).length());
+    }
+    double d = 1.0;
+    if (weight) {
+      double dsum = 0.0;
+      for (int v : vs) {
+        dsum += double(density[v]);
+      }
+      d = dsum / vs.size();
+    }
+    A += 0.5 * area2 * d;
+  }
+  if (A <= 0.0) {
+    return 0.0f;
+  }
+  return float(std::sqrt(A / double(target_quads)));
+}
+
 } // namespace
+
+float resolveTargetEdgeLength(mesh::Mesh &m, const RemeshParams &params)
+{
+  if (params.target_edge_length > 0.0f) {
+    return params.target_edge_length;
+  }
+  float L = countDerivedLength(m, params.target_quad_count,
+                               params.use_density || params.auto_density);
+  return L > 0.0f ? L : 0.1f;
+}
+
+float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
+{
+  if (params.pre_remesh_target > 0.0f) {
+    return params.pre_remesh_target;
+  }
+  if (params.solve_edge_length > 0.0f) {
+    return params.solve_edge_length;
+  }
+  if (params.target_edge_length > 0.0f) {
+    return params.target_edge_length;
+  }
+  // Count mode: a touch finer than the quad edge (a few solve tris per output
+  // quad), floored at half the median input edge so the pre-pass never
+  // refines the input more than ~4x — finer quads come from the lattice.
+  float L = resolveTargetEdgeLength(m, params);
+  return std::fmax(0.7f * L, 0.5f * measureEdges(m).median);
+}
 
 mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
                        RemeshProgressFn progress, void *user,
@@ -202,6 +359,12 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     }
   }
 
+  // Resolve the operative quad edge length: explicit target_edge_length, or
+  // derived from target_quad_count (L = sqrt(integral of density dA / N)).
+  // Count mode refines L further below as the work mesh / density evolve.
+  const bool count_mode = params.target_edge_length <= 0.0f;
+  float L_quad = resolveTargetEdgeLength(*work, params);
+
   // Optional decimation pre-pass: coarsen the SOLVE mesh so dense inputs stay
   // tractable. The reprojection below still snaps onto the full-res original.
   bool decimated = false;
@@ -223,12 +386,16 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     PROG(14, "pre_remesh");
     auto t_pre = std::chrono::steady_clock::now();
 
-    // Target: explicit > solve resolution > output resolution.
-    float L_pre = params.pre_remesh_target > 0.0f ? params.pre_remesh_target
-                  : params.solve_edge_length > 0.0f ? params.solve_edge_length
-                                                    : params.target_edge_length;
-
     EdgeStats es = measureEdges(*work);
+
+    // Target: explicit > solve resolution > output resolution (count mode:
+    // 0.7x the quad edge, floored at half the median input edge — see
+    // resolvePreRemeshTarget; inlined here to reuse L_quad and es).
+    float L_pre = params.pre_remesh_target > 0.0f ? params.pre_remesh_target
+                  : params.solve_edge_length > 0.0f
+                      ? params.solve_edge_length
+                      : (count_mode ? std::fmax(0.7f * L_quad, 0.5f * es.median)
+                                    : params.target_edge_length);
     mesh::FoldCounts fin = mesh::countGeometricFolds(*work);
     int verts_in = work->v.count, faces_in = work->f.count;
 
@@ -281,9 +448,16 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     pp.converge_eps = params.pre_remesh_converge_eps;
     pp.preserve_features = params.pre_remesh_preserve_features;
     pp.sharp_angle = params.pre_remesh_sharp_angle;
+    dyntopo::DynTopoTrace trace;
+    if (params.pre_remesh_trace) {
+      pp.trace = &trace;
+    }
     PreRemeshStats ps;
     preRemesh(*work, pp, &ps);
     pre_remeshed = true;
+    if (params.pre_remesh_trace) {
+      dyntopo::printTraceSummary(trace, "pre-conv");
+    }
 
     if (report) {
       report->pre_remesh = StageStatus::Ok;
@@ -326,12 +500,16 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   cp.seed = params.seed;
   cp.curvature_smooth_iters = params.curvature_smooth_iters;
   cp.curvature_smooth_lambda = params.curvature_smooth_lambda;
+  cp.field_smoothness = params.field_smoothness;
+  cp.curvature_weight = params.curvature_weight;
   CrossFieldStats cfs = computeCrossField(*work, cp);
   if (report) {
     report->cross_field = StageStatus::Ok;
     report->num_singularities = cfs.num_singularities;
     report->index_sum = cfs.index_sum;
     report->field_solved_eigen = cfs.solved_eigen;
+    countSingularityClutter(*work, report->field_close_pairs,
+                            report->field_clutter_verts);
   }
 
   PROG(45, "singularity");
@@ -345,33 +523,68 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   // 3a auto-density generates .remesh.v.density from the smoothed curvature; 3b
   // bounds its gradient. Both default off (no field / no limiting). auto_density
   // implies density consumption (ORed into qp.use_density below).
+  const bool consume_density = params.use_density || params.auto_density;
   if (params.auto_density) {
     DensityParams dpa;
-    dpa.target_edge_length = params.target_edge_length;
+    dpa.target_edge_length = L_quad;
     dpa.density_min = params.density_min;
     dpa.density_max = params.density_max;
     dpa.curvature_smooth_iters = params.curvature_smooth_iters;
     dpa.curvature_smooth_lambda = params.curvature_smooth_lambda;
     generateAutoDensity(*work, dpa);
+    if (count_mode) {
+      // L and the auto field are mutually dependent (s = k*L vs
+      // L = sqrt(integral d dA / N)) — iterate the scalar fixed point.
+      for (int it = 0; it < 3; it++) {
+        float L_new = countDerivedLength(*work, params.target_quad_count, true);
+        if (L_new <= 0.0f) {
+          break;
+        }
+        bool settled = std::fabs(L_new - L_quad) <= 0.02f * L_quad;
+        L_quad = L_new;
+        if (settled) {
+          break;
+        }
+        dpa.target_edge_length = L_quad;
+        generateAutoDensity(*work, dpa);
+      }
+    }
+  } else if (count_mode) {
+    // Re-derive on the current geometry: decimate / pre-remesh shifted the
+    // surface area (and a painted density field) the initial estimate used.
+    float L_new = countDerivedLength(*work, params.target_quad_count,
+                                     consume_density);
+    if (L_new > 0.0f) {
+      L_quad = L_new;
+    }
   }
   if (params.density_gradation > 0.0f) {
-    limitDensityGradation(*work, params.target_edge_length,
-                          params.density_gradation, params.density_gradation_iters,
-                          params.density_min, params.density_max);
+    limitDensityGradation(*work, L_quad, params.density_gradation,
+                          params.density_gradation_iters, params.density_min,
+                          params.density_max);
+    // The limiter only ever raises density — recompute L once so the count
+    // target still holds under the gradation-widened field.
+    if (count_mode && consume_density) {
+      float L_new = countDerivedLength(*work, params.target_quad_count, true);
+      if (L_new > 0.0f) {
+        L_quad = L_new;
+      }
+    }
   }
 
   PROG(65, "quantize");
   QuantizeParams qp;
-  qp.target_edge_length = params.target_edge_length;
+  qp.target_edge_length = L_quad;
   // auto_density implies use_density — the seamless param / quantizer are gated
   // on use_density, so a generated field would otherwise be silently ignored.
-  qp.use_density = params.use_density || params.auto_density;
+  qp.use_density = consume_density;
   QuantizeStats qs = computeQuantization(*work, qp);
   if (report) {
     report->quantize = StageStatus::Ok;
     report->parametrization_folds = qs.parametrization_folds;
     report->min_jacobian = qs.min_jacobian;
     report->quantize_feasible = qs.feasible;
+    report->derived_edge_length = L_quad;
   }
 
   // M6: extract the integer-lattice preimage, then snap onto the input surface.
@@ -380,6 +593,7 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   ep.cap_odd_holes = params.cap_odd_holes;
   ExtractStats st;
   Mesh *out = extractQuadMesh(*work, ep, st);
+
   if (!out) {
     PROG(100, "failed");
     if (report) {
@@ -390,8 +604,10 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     alloc::Delete<Mesh>(work);
     return nullptr; // clean failure: no integer-grid map / no lattice points
   }
-  if (report)
+  if (report) {
     report->extract = StageStatus::Ok;
+    report->quad_count_actual = out->f.count;
+  }
 
   if (params.reproject) {
     PROG(92, "reproject");

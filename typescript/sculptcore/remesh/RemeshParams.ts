@@ -18,6 +18,7 @@ type double = number
 
 export interface RemeshParams {
   [Symbol.dispose](): void
+  target_quad_count: int32
   target_edge_length: float
   solve_edge_length: float
   use_curvature: boolean
@@ -34,6 +35,8 @@ export interface RemeshParams {
   triage_min_component_frac: float
   curvature_smooth_iters: int32
   curvature_smooth_lambda: float
+  field_smoothness: float
+  curvature_weight: float
   auto_density: boolean
   density_min: float
   density_max: float
@@ -53,6 +56,7 @@ export interface RemeshParams {
   pre_remesh_converge_eps: float
   pre_remesh_preserve_features: boolean
   pre_remesh_sharp_angle: float
+  pre_remesh_trace: boolean
   new (): RemeshParams
   new (b: RemeshParams): RemeshParams
 }

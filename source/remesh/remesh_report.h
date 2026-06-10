@@ -39,12 +39,25 @@ struct RemeshRunReport {
   int index_sum = 0;
   bool field_solved_eigen = false;
 
+  // Singularity clutter (Tier-5 gate diagnostic): opposite-index pole pairs
+  // within 2 vertex hops — what a pair-cancellation pass could annihilate —
+  // and the number of poles participating in at least one such pair.
+  int field_close_pairs = 0;
+  int field_clutter_verts = 0;
+
   // Quantization stats (M5). parametrization_folds = pre-extraction folded faces
   // on the solve mesh's (u,v); quantize_feasible = the integer-grid map was
   // reached (no spirals). min_jacobian <= 0 ⇒ folds remain.
   int parametrization_folds = 0;
   double min_jacobian = 0.0;
   bool quantize_feasible = false;
+
+  // Count-mode sizing (target_edge_length == 0): the edge length derived from
+  // target_quad_count and the extracted face count. derived_edge_length is also
+  // filled in explicit mode (= target_edge_length) so manifests always record
+  // the operative scale.
+  float derived_edge_length = 0.0f;
+  int quad_count_actual = 0;
 
   // Outcome + timing. failure_reason is a stable lowercase tag on failure
   // ("extract_no_lattice", ...), empty on success. duration_ms is the QuadRemesh

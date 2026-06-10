@@ -6,7 +6,11 @@
 #include "mesh/utils/obj_io.h"
 #include "mesh/utils/triangulate.h"
 
+#include "remesh/cli/asset_quads.h"
 #include "remesh/preremesh.h"
+#include "remesh/remesh.h"
+
+#include "dyntopo/dyntopo_trace.h"
 
 #include "litestl/util/alloc.h"
 
@@ -199,7 +203,33 @@ bool RemeshApp::loadAsset(const std::string &name, std::string &err)
       break;
     }
   }
+  // The asset's recorded target quad count (quad-counts.txt) overrides the
+  // session default, mirroring the CLI's no-explicit-sizing lookup.
+  int rec = remesh::cli::lookupAssetQuadCount(REMESH_DBG_ASSETS_DIR, name);
+  if (rec > 0) {
+    params.target_quad_count = rec;
+  }
   status = "loaded " + name;
+  return true;
+}
+
+bool RemeshApp::saveAssetQuadCount(std::string &err)
+{
+  if (selected < 0 || selected >= (int)assets.size()) {
+    err = "no asset selected";
+    return false;
+  }
+  if (params.target_quad_count <= 0) {
+    err = "target_quad_count must be > 0";
+    return false;
+  }
+  if (!remesh::cli::saveAssetQuadCount(REMESH_DBG_ASSETS_DIR, assets[selected],
+                                       params.target_quad_count)) {
+    err = "could not write quad-counts.txt";
+    return false;
+  }
+  status = "saved " + assets[selected] + " quads=" +
+           std::to_string(params.target_quad_count);
   return true;
 }
 
@@ -272,6 +302,8 @@ bool RemeshApp::runRemesh(std::string &err)
       widen(REMESH_DBG_RESULTS_DIR),
       L"--target",
       wf(params.target_edge_length),
+      L"--target-quads",
+      widen(std::to_string(params.target_quad_count)),
       L"--solve",
       wf(params.solve_edge_length),
       L"--curvature",
@@ -302,6 +334,10 @@ bool RemeshApp::runRemesh(std::string &err)
       widen(std::to_string(params.curvature_smooth_iters)),
       L"--curvature-smooth-lambda",
       wf(params.curvature_smooth_lambda),
+      L"--field-smoothness",
+      wf(params.field_smoothness),
+      L"--curvature-weight",
+      wf(params.curvature_weight),
       L"--auto-density",
       wb(params.auto_density),
       L"--density-min",
@@ -340,6 +376,8 @@ bool RemeshApp::runRemesh(std::string &err)
       wb(params.pre_remesh_preserve_features),
       L"--pre-remesh-sharp-angle",
       wf(params.pre_remesh_sharp_angle),
+      L"--pre-remesh-trace",
+      wb(params.pre_remesh_trace),
   };
   if (!startJob(Job::Remesh, remeshCliPath(), args, "remeshing " + name)) {
     err = status;
@@ -464,15 +502,23 @@ bool RemeshApp::runPreRemesh(std::string &err)
     return false;
   }
   preStepping = false;
-  remesh::PreRemeshParams base = preParams;
-  if (base.target <= 0.0f) {
-    base.target = params.target_edge_length; // mirror 9d's target==0 resolution
-  }
   // dyntopo (under preRemesh -> bkRemeshToTarget) is triangle-only, but assets
   // load with keepNgons=true; triangulate first, mirroring the gtest.
   mesh::triangulateMesh(*scene_.mesh);
+  remesh::PreRemeshParams base = preParams;
+  if (base.target <= 0.0f) {
+    // Mirror 9d's target==0 resolution (count mode: 0.7x quad edge w/ floor).
+    base.target = remesh::resolvePreRemeshTarget(*scene_.mesh, params);
+  }
   int v0 = scene_.mesh->v.count, f0 = scene_.mesh->f.count;
+  dyntopo::DynTopoTrace trace;
+  if (preTrace) {
+    base.trace = &trace;
+  }
   remesh::preRemesh(*scene_.mesh, base);
+  if (preTrace) {
+    dyntopo::printTraceSummary(trace, "pre-conv");
+  }
   std::string note = reprojectToInput(); // Tier 9 end-snap back onto the input
   scene_.buildSpatial(0, 0, 0);          // the pre-pass mutated topology in place
   if (preShowField && base.align > 0.0f) {
@@ -519,15 +565,15 @@ void RemeshApp::preStepAdvance()
   // One outer iter: bootstrap only on the first, seed bumped per iter to mirror
   // the driver's per-iter BK seed, no internal early-out (the app drives the loop).
   remesh::PreRemeshParams p = preParams;
-  if (p.target <= 0.0f) {
-    p.target = params.target_edge_length;
-  }
   p.iters = 1;
   p.bootstrap_iters = preStepIter == 0 ? preParams.bootstrap_iters : 0;
   p.seed = preParams.seed + uint32_t(preStepIter);
   p.converge_eps = 0.0f;
   if (preStepIter == 0) {
     mesh::triangulateMesh(*scene_.mesh); // dyntopo is triangle-only (see runPreRemesh)
+  }
+  if (p.target <= 0.0f) {
+    p.target = remesh::resolvePreRemeshTarget(*scene_.mesh, params);
   }
   remesh::preRemesh(*scene_.mesh, p);
   // Snap per-step so each frame shows on-surface geometry; this also matches the
@@ -618,6 +664,7 @@ std::string RemeshApp::handleCommand(const std::string &line)
          "  meshy_gen <prompt>    text-to-3D a new asset (async)\n"
          "  get_params            current remesh params (name=value)\n"
          "  set_param <name> <v>  set one remesh param\n"
+         "  save_quad_count       record target_quad_count in quad-counts.txt\n"
          "  run_remesh            remesh the selected asset (async)\n"
          "  pre_remesh            run the input pre-pass in-process (Tier 9)\n"
          "  pre_step start|stop|reset  step the pre-pass one outer iter/frame\n"
@@ -644,12 +691,17 @@ std::string RemeshApp::handleCommand(const std::string &line)
     std::string err;
     return importAsset(rest, err) ? ("OK imported") : ("ERROR " + err);
   }
+  if (cmd == "save_quad_count") {
+    std::string err;
+    return saveAssetQuadCount(err) ? ("OK " + status) : ("ERROR " + err);
+  }
   if (cmd == "meshy_gen") {
     std::string err;
     return meshyGen(rest, err) ? "OK started" : ("ERROR " + err);
   }
   if (cmd == "get_params") {
-    o << "target_edge_length=" << params.target_edge_length << "\n"
+    o << "target_quad_count=" << params.target_quad_count << "\n"
+      << "target_edge_length=" << params.target_edge_length << "\n"
       << "solve_edge_length=" << params.solve_edge_length << "\n"
       << "use_curvature=" << int(params.use_curvature) << "\n"
       << "use_sharp_features=" << int(params.use_sharp_features) << "\n"
@@ -665,6 +717,8 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "triage_min_component_frac=" << params.triage_min_component_frac << "\n"
       << "curvature_smooth_iters=" << params.curvature_smooth_iters << "\n"
       << "curvature_smooth_lambda=" << params.curvature_smooth_lambda << "\n"
+      << "field_smoothness=" << params.field_smoothness << "\n"
+      << "curvature_weight=" << params.curvature_weight << "\n"
       << "auto_density=" << (params.auto_density ? 1 : 0) << "\n"
       << "density_min=" << params.density_min << "\n"
       << "density_max=" << params.density_max << "\n"
@@ -685,9 +739,16 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "pre_remesh_preserve_features=" << int(params.pre_remesh_preserve_features)
       << "\n"
       << "pre_remesh_sharp_angle=" << params.pre_remesh_sharp_angle << "\n"
+      << "pre_remesh_trace=" << int(params.pre_remesh_trace) << "\n"
       << "pre_iters=" << preParams.iters << "\n"
       << "pre_target=" << preParams.target << "\n"
       << "pre_density=" << int(preParams.density) << "\n"
+      << "pre_gradation=" << preParams.gradation << "\n"
+      << "pre_gradation_iters=" << preParams.gradation_iters << "\n"
+      << "pre_density_min=" << preParams.density_min << "\n"
+      << "pre_density_max=" << preParams.density_max << "\n"
+      << "pre_converge_eps=" << preParams.converge_eps << "\n"
+      << "pre_seed=" << preParams.seed << "\n"
       << "pre_align=" << preParams.align << "\n"
       << "pre_field_cadence=" << preParams.field_cadence << "\n"
       << "pre_bootstrap_iters=" << preParams.bootstrap_iters << "\n"
@@ -695,6 +756,7 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "pre_smooth_lambda=" << preParams.smooth_lambda << "\n"
       << "pre_preserve_features=" << int(preParams.preserve_features) << "\n"
       << "pre_sharp_angle=" << preParams.sharp_angle << "\n"
+      << "pre_trace=" << int(preTrace) << "\n"
       << "pre_reproject=" << int(preReproject);
     return o.str();
   }
@@ -706,7 +768,9 @@ std::string RemeshApp::handleCommand(const std::string &line)
     }
     double d = std::atof(val.c_str());
     int iv = std::atoi(val.c_str());
-    if (name == "target_edge_length") {
+    if (name == "target_quad_count") {
+      params.target_quad_count = iv;
+    } else if (name == "target_edge_length") {
       params.target_edge_length = float(d);
     } else if (name == "solve_edge_length") {
       params.solve_edge_length = float(d);
@@ -738,6 +802,10 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.curvature_smooth_iters = iv;
     } else if (name == "curvature_smooth_lambda") {
       params.curvature_smooth_lambda = float(d);
+    } else if (name == "field_smoothness") {
+      params.field_smoothness = float(d);
+    } else if (name == "curvature_weight") {
+      params.curvature_weight = float(d);
     } else if (name == "auto_density") {
       params.auto_density = iv != 0;
     } else if (name == "density_min") {
@@ -776,12 +844,26 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.pre_remesh_preserve_features = iv != 0;
     } else if (name == "pre_remesh_sharp_angle") {
       params.pre_remesh_sharp_angle = float(d);
+    } else if (name == "pre_remesh_trace") {
+      params.pre_remesh_trace = iv != 0;
     } else if (name == "pre_iters") {
       preParams.iters = iv;
     } else if (name == "pre_target") {
       preParams.target = float(d);
     } else if (name == "pre_density") {
       preParams.density = iv != 0;
+    } else if (name == "pre_gradation") {
+      preParams.gradation = float(d);
+    } else if (name == "pre_gradation_iters") {
+      preParams.gradation_iters = iv;
+    } else if (name == "pre_density_min") {
+      preParams.density_min = float(d);
+    } else if (name == "pre_density_max") {
+      preParams.density_max = float(d);
+    } else if (name == "pre_converge_eps") {
+      preParams.converge_eps = float(d);
+    } else if (name == "pre_seed") {
+      preParams.seed = uint32_t(std::strtoul(val.c_str(), nullptr, 10));
     } else if (name == "pre_align") {
       preParams.align = float(d);
     } else if (name == "pre_field_cadence") {
@@ -796,6 +878,8 @@ std::string RemeshApp::handleCommand(const std::string &line)
       preParams.preserve_features = iv != 0;
     } else if (name == "pre_sharp_angle") {
       preParams.sharp_angle = float(d);
+    } else if (name == "pre_trace") {
+      preTrace = iv != 0;
     } else if (name == "pre_reproject") {
       preReproject = iv != 0;
     } else {

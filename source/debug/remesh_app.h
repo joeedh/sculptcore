@@ -30,10 +30,14 @@ public:
    * selection if its name still exists. */
   void rescanAssets();
 
-  /* Load an asset by bare name (no extension) from the assets dir. */
+  /* Load an asset by bare name (no extension) from the assets dir. Applies the
+   * asset's quad-counts.txt entry to params.target_quad_count when present. */
   bool loadAsset(const std::string &name, std::string &err);
   /* Copy an external file into the assets dir, rescan, and select it. */
   bool importAsset(const std::string &srcPath, std::string &err);
+  /* Record the selected asset's params.target_quad_count in the assets dir's
+   * quad-counts.txt (the per-asset default the CLI / loadAsset read back). */
+  bool saveAssetQuadCount(std::string &err);
 
   /* Spawn remesh_cli on the selected asset with the current params. */
   bool runRemesh(std::string &err);
@@ -44,7 +48,7 @@ public:
    * mesh, rebuild the spatial tree, and leave the rough cross field in
    * .remesh.f.theta so the existing overlay visualizes it. In-process (not via
    * remesh_cli) so the cleaned triangle mesh is inspectable before the full quad
-   * pipeline. preParams.target <= 0 resolves to params.target_edge_length. */
+   * pipeline. preParams.target <= 0 resolves via resolvePreRemeshTarget. */
   bool runPreRemesh(std::string &err);
   /* Frame-driven per-iteration stepping: animate convergence by applying one
    * outer pre-pass iter per frame. start arms it; advance() (called each frame)
@@ -113,6 +117,9 @@ public:
   // real QuadRemesh pipeline already reprojects (buildTriCopy + M6); this mirrors
   // it for the standalone pre-pass. Default on; toggle off to inspect raw drift.
   bool preReproject = true;
+  // Print the standalone pre-pass's per-iter convergence summary + oscillation
+  // verdict (dyntopo::printTraceSummary) to stderr.
+  bool preTrace = false;
   // Frame-driven convergence stepping (one outer iter per frame while armed).
   bool preStepping = false;
   int preStepIter = 0; // outer iters already applied in the current step run
