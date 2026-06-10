@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <unordered_set>
 #include <vector>
 
@@ -150,26 +152,29 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     Bop[s] = rotM(-g.gb[s]);
   }
 
-  // Add lam * || sum_i C[i] x_{cls[i]} - d ||^2 to (trips, rhs): Hessian block
-  // (i,j) is C[i]^T C[j]; the rhs gets C[i]^T d.
+  // Hessian of lam * || sum_i C[i] x_{cls[i]} - d ||^2: block (i,j) is C[i]^T C[j].
   auto addQuadPenalty = [](std::vector<Eigen::Triplet<double>> &trips,
-                           Eigen::VectorXd &rhs,
                            int n,
                            const int *cls,
                            const M2 *C,
-                           double dx,
-                           double dy,
                            double lam) {
     for (int i = 0; i < n; i++) {
       for (int j = 0; j < n; j++) {
         addBlock(trips, cls[i], cls[j], mul(transp(C[i]), C[j]), lam);
       }
-      double rx, ry;
-      mv(transp(C[i]), dx, dy, rx, ry);
-      rhs[2 * cls[i] + 0] += lam * rx;
-      rhs[2 * cls[i] + 1] += lam * ry;
     }
   };
+  // The matching RHS term: lam * C[i]^T d per i.
+  auto rhsQuadPenalty =
+      [](Eigen::VectorXd &rhs, int n, const int *cls, const M2 *C, double dx,
+         double dy, double lam) {
+        for (int i = 0; i < n; i++) {
+          double rx, ry;
+          mv(transp(C[i]), dx, dy, rx, ry);
+          rhs[2 * cls[i] + 0] += lam * rx;
+          rhs[2 * cls[i] + 1] += lam * ry;
+        }
+      };
 
   // Sides locked to an integer (g.t_int[s]) so far.
   Vector<char> fixed;
@@ -194,9 +199,117 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   Eigen::SparseMatrix<double> Acur;
   Eigen::VectorXd bcur;
 
+  // Slot maps for value-only re-assembly. The pattern never changes, so after
+  // the first assemble every contribution stream's nnz slots are recorded once;
+  // assembleValues() then scatter-adds in assemble()'s exact emission order,
+  // reproducing setFromTriplets' duplicate-collapse bit-for-bit.
+  bool patternReady = false;
+  Vector<int> baseSlotU, baseSlotV; // per baseTripsW entry: (2r,2c) / (2r+1,2c+1)
+  Vector<int> pinSlots, diagSlots;  // pin diagonal images; full diagonal (eps)
+  Vector<int> seamSlots, fixSlots;  // 64 / 32 slots per side
+  Vector<double> seamUnit, fixUnit; // unit-lam values for those slots
+
+  auto slotOf = [&](int row, int col) -> int {
+    const int *Ap = Acur.outerIndexPtr();
+    const int *Ai = Acur.innerIndexPtr();
+    const int *b = Ai + Ap[col];
+    const int *e = Ai + Ap[col + 1];
+    return int(std::lower_bound(b, e, row) - Ai);
+  };
+
+  auto recordSlots = [&]() {
+    const int nb = int(baseTripsW.size());
+    baseSlotU.resize(nb);
+    baseSlotV.resize(nb);
+    for (int i = 0; i < nb; i++) {
+      int r = baseTripsW[i].row(), c = baseTripsW[i].col();
+      baseSlotU[i] = slotOf(2 * r + 0, 2 * c + 0);
+      baseSlotV[i] = slotOf(2 * r + 1, 2 * c + 1);
+    }
+    pinSlots.resize(int(sys.pinClass.size()) * 2);
+    for (int i = 0; i < int(sys.pinClass.size()); i++) {
+      int c = sys.pinClass[i];
+      pinSlots[2 * i + 0] = slotOf(2 * c + 0, 2 * c + 0);
+      pinSlots[2 * i + 1] = slotOf(2 * c + 1, 2 * c + 1);
+    }
+    diagSlots.resize(N);
+    for (int c = 0; c < N; c++) {
+      diagSlots[c] = slotOf(c, c);
+    }
+    seamSlots.resize(64 * S);
+    seamUnit.resize(64 * S);
+    fixSlots.resize(32 * S);
+    fixUnit.resize(32 * S);
+    for (int s = 0; s < S; s++) {
+      M2 A = Aop[s], B = Bop[s];
+      int seamCls[4] = {g.clb[s], g.clb2[s], g.cla[s], g.cla2[s]};
+      M2 seamC[4] = {B, negM(B), negM(A), A};
+      int k = 64 * s;
+      for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+          M2 mb = mul(transp(seamC[i]), seamC[j]);
+          int rcl = seamCls[i], ccl = seamCls[j];
+          seamSlots[k] = slotOf(2 * rcl + 0, 2 * ccl + 0);
+          seamUnit[k++] = mb.a;
+          seamSlots[k] = slotOf(2 * rcl + 0, 2 * ccl + 1);
+          seamUnit[k++] = mb.b;
+          seamSlots[k] = slotOf(2 * rcl + 1, 2 * ccl + 0);
+          seamUnit[k++] = mb.c;
+          seamSlots[k] = slotOf(2 * rcl + 1, 2 * ccl + 1);
+          seamUnit[k++] = mb.d;
+        }
+      }
+      int pcls[2][2] = {{g.clb[s], g.cla[s]}, {g.clb2[s], g.cla2[s]}};
+      M2 pc[2] = {B, negM(A)};
+      k = 32 * s;
+      for (int p = 0; p < 2; p++) {
+        for (int i = 0; i < 2; i++) {
+          for (int j = 0; j < 2; j++) {
+            M2 mb = mul(transp(pc[i]), pc[j]);
+            int rcl = pcls[p][i], ccl = pcls[p][j];
+            fixSlots[k] = slotOf(2 * rcl + 0, 2 * ccl + 0);
+            fixUnit[k++] = mb.a;
+            fixSlots[k] = slotOf(2 * rcl + 0, 2 * ccl + 1);
+            fixUnit[k++] = mb.b;
+            fixSlots[k] = slotOf(2 * rcl + 1, 2 * ccl + 0);
+            fixUnit[k++] = mb.c;
+            fixSlots[k] = slotOf(2 * rcl + 1, 2 * ccl + 1);
+            fixUnit[k++] = mb.d;
+          }
+        }
+      }
+    }
+    patternReady = true;
+  };
+
+  // bcur = base field RHS + each side's seam/fix penalty RHS, in assemble()'s
+  // historical accumulation order (the seam term contributes exact zeros).
+  auto assembleBcur = [&]() {
+    bcur = Eigen::VectorXd::Zero(N);
+    for (int i = 0; i < M; i++) {
+      bcur[2 * i + 0] = baseBu[i];
+      bcur[2 * i + 1] = baseBv[i];
+    }
+    for (int s = 0; s < S; s++) {
+      M2 A = Aop[s], B = Bop[s];
+      int seamCls[4] = {g.clb[s], g.clb2[s], g.cla[s], g.cla2[s]};
+      M2 seamC[4] = {B, negM(B), negM(A), A};
+      rhsQuadPenalty(bcur, 4, seamCls, seamC, 0.0, 0.0, lam_seam);
+      if (fixed[s]) {
+        double kx = double(g.t_int[s][0]), ky = double(g.t_int[s][1]);
+        int p1[2] = {g.clb[s], g.cla[s]};
+        int p2[2] = {g.clb2[s], g.cla2[s]};
+        M2 pc[2] = {B, negM(A)};
+        rhsQuadPenalty(bcur, 2, p1, pc, kx, ky, lam_fix);
+        rhsQuadPenalty(bcur, 2, p2, pc, kx, ky, lam_fix);
+      }
+    }
+  };
+
   // Base block-diagonal system (M4 stiffness on U and on V) + per-component pins
   // + Tikhonov shift + the always-on seam penalty + the fix penalty for sides
-  // already locked. Writes Acur/bcur.
+  // already locked. Writes Acur/bcur. First-call path only; later assembles go
+  // through assembleValues().
   auto assemble = [&]() {
     Clock::time_point t0 = Clock::now();
     std::vector<Eigen::Triplet<double>> trips;
@@ -204,11 +317,6 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     for (const auto &tr : baseTripsW) {
       trips.emplace_back(2 * tr.row() + 0, 2 * tr.col() + 0, tr.value());
       trips.emplace_back(2 * tr.row() + 1, 2 * tr.col() + 1, tr.value());
-    }
-    bcur = Eigen::VectorXd::Zero(N);
-    for (int i = 0; i < M; i++) {
-      bcur[2 * i + 0] = baseBu[i];
-      bcur[2 * i + 1] = baseBv[i];
     }
     for (int i = 0; i < int(sys.pinClass.size()); i++) {
       int c = sys.pinClass[i];
@@ -224,20 +332,87 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       // endpoint pairs to one shared translation.
       int seamCls[4] = {g.clb[s], g.clb2[s], g.cla[s], g.cla2[s]};
       M2 seamC[4] = {B, negM(B), negM(A), A};
-      addQuadPenalty(trips, bcur, 4, seamCls, seamC, 0.0, 0.0, lam_seam);
+      addQuadPenalty(trips, 4, seamCls, seamC, lam_seam);
       if (fixed[s]) {
-        double kx = double(g.t_int[s][0]), ky = double(g.t_int[s][1]);
         int p1[2] = {g.clb[s], g.cla[s]};
         int p2[2] = {g.clb2[s], g.cla2[s]};
         M2 pc[2] = {B, negM(A)};
-        addQuadPenalty(trips, bcur, 2, p1, pc, kx, ky, lam_fix);
-        addQuadPenalty(trips, bcur, 2, p2, pc, kx, ky, lam_fix);
+        addQuadPenalty(trips, 2, p1, pc, lam_fix);
+        addQuadPenalty(trips, 2, p2, pc, lam_fix);
       }
     }
+    assembleBcur();
     Acur.resize(N, N);
     Acur.setFromTriplets(trips.begin(), trips.end());
     Acur.makeCompressed();
+    if (!patternReady) {
+      recordSlots();
+    }
     assemble_acc += msSince(t0);
+  };
+
+  // Value-only re-assembly over the recorded slots, replaying assemble()'s
+  // triplet-stream order so every slot accumulates identically.
+  auto assembleValues = [&]() {
+    Clock::time_point t0 = Clock::now();
+    double *Av = Acur.valuePtr();
+    std::memset(Av, 0, sizeof(double) * size_t(Acur.nonZeros()));
+    const int nb = int(baseSlotU.size());
+    for (int i = 0; i < nb; i++) {
+      double v = baseTripsW[i].value();
+      Av[baseSlotU[i]] += v;
+      Av[baseSlotV[i]] += v;
+    }
+    for (int i = 0; i < int(pinSlots.size()); i++) {
+      Av[pinSlots[i]] += 1.0e6;
+    }
+    for (int c = 0; c < N; c++) {
+      Av[diagSlots[c]] += eps;
+    }
+    for (int s = 0; s < S; s++) {
+      const int o = 64 * s;
+      for (int k = 0; k < 64; k++) {
+        Av[seamSlots[o + k]] += seamUnit[o + k] * lam_seam;
+      }
+      if (fixed[s]) {
+        const int of = 32 * s;
+        for (int k = 0; k < 32; k++) {
+          Av[fixSlots[of + k]] += fixUnit[of + k] * lam_fix;
+        }
+      }
+    }
+    assembleBcur();
+    assemble_acc += msSince(t0);
+  };
+
+  // CLAUDENOTE: bring-up gate aid for Item A — set true to re-run the
+  // setFromTriplets path after every assembleValues() and memcmp the value
+  // arrays (signed-zero-only diffs counted separately). Remove with the
+  // CLAUDENOTE cleanup pass.
+  constexpr bool kVerifyAssemble = false;
+
+  auto assembleSystem = [&]() {
+    if (!patternReady) {
+      assemble();
+      return;
+    }
+    assembleValues();
+    if constexpr (kVerifyAssemble) {
+      Eigen::VectorXd fast =
+          Eigen::Map<Eigen::VectorXd>(Acur.valuePtr(), Acur.nonZeros());
+      assemble(); // reference path; Acur keeps the reference values after this
+      const double *a = Acur.valuePtr();
+      int mism = 0, zmism = 0;
+      for (int i = 0; i < int(Acur.nonZeros()); i++) {
+        if (std::memcmp(&a[i], &fast[i], sizeof(double)) != 0) {
+          (a[i] == 0.0 && fast[i] == 0.0) ? zmism++ : mism++;
+        }
+      }
+      if (mism + zmism > 0) {
+        printf("[assemble-verify] value mismatches=%d signed-zero=%d nnz=%d\n",
+               mism, zmism, int(Acur.nonZeros()));
+      }
+    }
   };
 
   // RHS-only assembly (base field + each locked side's fix penalty; the seam
@@ -272,22 +447,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
 
   // Fold a newly-locked side's fix penalty into the kept Acur. Values only: the
   // fix-penalty pattern is a subset of the always-present seam pattern, so every
-  // coeffRef below hits an existing (possibly explicit-zero) entry.
-  auto addBlockRef = [&](int rcl, int ccl, const M2 &mb, double scale) {
-    Acur.coeffRef(2 * rcl + 0, 2 * ccl + 0) += mb.a * scale;
-    Acur.coeffRef(2 * rcl + 0, 2 * ccl + 1) += mb.b * scale;
-    Acur.coeffRef(2 * rcl + 1, 2 * ccl + 0) += mb.c * scale;
-    Acur.coeffRef(2 * rcl + 1, 2 * ccl + 1) += mb.d * scale;
-  };
+  // slot was recorded off the first assemble.
   auto appendLockToSystem = [&](int s) {
-    int pcls[2][2] = {{g.clb[s], g.cla[s]}, {g.clb2[s], g.cla2[s]}};
-    M2 pc[2] = {Bop[s], negM(Aop[s])};
-    for (int p = 0; p < 2; p++) {
-      for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < 2; j++) {
-          addBlockRef(pcls[p][i], pcls[p][j], mul(transp(pc[i]), pc[j]), lam_fix);
-        }
-      }
+    double *Av = Acur.valuePtr();
+    const int o = 32 * s;
+    for (int k = 0; k < 32; k++) {
+      Av[fixSlots[o + k]] += fixUnit[o + k] * lam_fix;
     }
   };
 
@@ -409,7 +574,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver;
   bool analyzed = false;
   auto solveAll = [&](bool /*fullRefactor*/) -> bool {
-    assemble();
+    assembleSystem();
     if (!analyzed) {
       solver.analyzePattern(Acur);
       if (solver.info() != Eigen::Success) {
@@ -425,6 +590,16 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       return false;
     }
     t0 = Clock::now();
+    x = solver.solve(bcur);
+    backsolve_acc += msSince(t0);
+    stats.back_solves++;
+    return solver.info() == Eigen::Success;
+  };
+  // RHS-only solve against the kept factor (matrix unchanged since the last
+  // solveAll). Used by the ARAP inner iterations.
+  auto solveRhs = [&]() -> bool {
+    Clock::time_point t0 = Clock::now();
+    assembleBcur();
     x = solver.solve(bcur);
     backsolve_acc += msSince(t0);
     stats.back_solves++;
@@ -554,7 +729,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
     bool refactor = fullRefactor || !Lf || 4 * pending > updown_max_cols;
     if (refactor) {
-      assemble();
+      assembleSystem();
       if (!factorFull()) {
         return false;
       }
@@ -563,6 +738,9 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
     return solveCurrent();
   };
+  // RHS-only solve against the kept factor (matrix unchanged since the last
+  // solveAll). Used by the ARAP inner iterations.
+  auto solveRhs = [&]() -> bool { return solveCurrent(); };
 #endif
 
   // Per-round solve after locking a batch: fold the new locks into the kept
@@ -672,8 +850,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // sys.baseTrips/bu/bv); heavily weighting a folded face pulls it toward its
   // (det>0) field-aligned target. Because the target uses the gauge-consistent
   // field angle it never fights the locked seams (unlike a free per-face rotation).
-  auto rebuildBase = [&]() {
-    baseTripsW.clear();
+  // matrixToo=false rebuilds only the RHS (ARAP: faceW == 1 and geometry static,
+  // so the stiffness stream is invariant there).
+  auto rebuildBase = [&](bool matrixToo) {
+    if (matrixToo) {
+      baseTripsW.clear();
+    }
     baseBu.setZero();
     baseBv.setZero();
     Vector<int> cs;
@@ -734,9 +916,11 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         double Gy[3] = {(r2x - r1x) / det, -r2x / det, r1x / det};
         for (int a = 0; a < 3; a++) {
           int ca = sys.cornerClass[cs[idx[a]]];
-          for (int b = 0; b < 3; b++) {
-            int cb = sys.cornerClass[cs[idx[b]]];
-            baseTripsW.emplace_back(ca, cb, w * area * (Gx[a] * Gx[b] + Gy[a] * Gy[b]));
+          if (matrixToo) {
+            for (int b = 0; b < 3; b++) {
+              int cb = sys.cornerClass[cs[idx[b]]];
+              baseTripsW.emplace_back(ca, cb, w * area * (Gx[a] * Gx[b] + Gy[a] * Gy[b]));
+            }
           }
           baseBu[ca] += w * area * (Gx[a] * double(tgt_u[0]) + Gy[a] * double(tgt_u[1]));
           baseBv[ca] += w * area * (Gx[a] * double(tgt_v[0]) + Gy[a] * double(tgt_v[1]));
@@ -862,9 +1046,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     double lam = lam_lo;
     for (int sIdx = 0; sIdx <= steps && all_solved; sIdx++) {
       lam_seam = (sIdx < steps) ? lam : lam_hi;
+      // faceW == 1 and geometry static here: the matrix changes only with
+      // lam_seam, so refactor once per lam step (k == 0) and re-solve the
+      // retargeted RHS against the kept factor for the inner iterations.
       for (int k = 0; k < inner && all_solved; k++) {
-        rebuildBase();
-        all_solved &= solveAll(true);
+        rebuildBase(sIdx == 0 && k == 0);
+        all_solved &= (k == 0) ? solveAll(true) : solveRhs();
       }
       lam *= mult;
     }
@@ -1254,7 +1441,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
           faceW[f] = std::min(faceW[f] * 4.0, 1.0e4);
         }
       }
-      rebuildBase();
+      rebuildBase(true);
       if (!solveAll(true)) { // base stiffness rescaled -> full re-factorization
         all_solved = false;
         break;
