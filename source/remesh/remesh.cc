@@ -597,12 +597,15 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   // auto_density implies use_density — the seamless param / quantizer are gated
   // on use_density, so a generated field would otherwise be silently ignored.
   qp.use_density = consume_density;
+  qp.rounding = params.quantize_direct_rounding ? RoundingStrategy::DIRECT
+                                                : RoundingStrategy::GREEDY;
   QuantizeStats qs = computeQuantization(*work, qp);
   if (report) {
     report->quantize = StageStatus::Ok;
     report->parametrization_folds = qs.parametrization_folds;
     report->min_jacobian = qs.min_jacobian;
     report->quantize_feasible = qs.feasible;
+    report->quantize_stats = qs;
     report->derived_edge_length = L_quad;
   }
 

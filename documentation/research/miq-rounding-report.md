@@ -1,3 +1,16 @@
+> **Annotation (2026-06-10).** This report drove [`plans/miq.md`](../plans/miq.md)
+> — see its Q0–Q4 result blocks for what was adopted, measured, and rejected.
+> One causal claim below is **corrected by measurement**: Lesson 1 expects exact
+> seam elimination to make "most folds disappear at the source." Our data says
+> the opposite — folds scale *with* the seam penalty (~0% at `lam_seam = 0.1`,
+> ~34% at `1e6`; the ARAP-fallback comment in `quantize_ilp.cc`), and exact
+> elimination is the stiff limit of that penalty, so the folds are
+> **constraint-induced, not penalty-induced**: elimination keeps (or worsens)
+> them, and the untangle tiers are not self-inflicted machinery. Also measured:
+> Lesson 5's error budget lost to the confidence radius and was rejected
+> (miq.md Q3); Lesson 6's local GS does not stay local under the `1e6` coupling
+> (miq.md Q1). The report text below is preserved unedited.
+
 I've now read both our quantizer and the full CoMISo mixed-integer stack (the greedy MISolver, the exact
   ConstrainedSolver elimination, the integer-preserving Gauss elimination in ConstraintTools, and the local Gauss-Seidel
   updater). Here's what I found.

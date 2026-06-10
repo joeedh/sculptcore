@@ -176,6 +176,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"use_sharp_features\": %s,\n", jb(p.use_sharp_features));
   std::fprintf(f, "    \"sharp_angle\": %.9g,\n", p.sharp_angle);
   std::fprintf(f, "    \"use_density\": %s,\n", jb(p.use_density));
+  std::fprintf(f, "    \"quantize_direct_rounding\": %s,\n",
+               jb(p.quantize_direct_rounding));
   std::fprintf(f, "    \"reproject\": %s,\n", jb(p.reproject));
   std::fprintf(f, "    \"cap_odd_holes\": %s,\n", jb(p.cap_odd_holes));
   std::fprintf(f, "    \"smooth_iterations\": %d,\n", p.smooth_iterations);
@@ -288,6 +290,41 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"quantize_feasible\": %s,\n", jb(rep.quantize_feasible));
   std::fprintf(f, "    \"derived_edge_length\": %.9g,\n", rep.derived_edge_length);
   std::fprintf(f, "    \"quad_count_actual\": %d,\n", rep.quad_count_actual);
+  // Quantize-stage profile (plans/miq.md Q0): rounding rounds, solver-primitive
+  // counts, and per-phase wall-clocks. Timing lives here (results.json), never
+  // in the corpus metrics.csv (deterministic columns only).
+  const remesh::QuantizeStats &qz = rep.quantize_stats;
+  std::fprintf(f, "    \"quantize\": {\n");
+  std::fprintf(f, "      \"rounds\": %d,\n", qz.iters);
+  std::fprintf(f, "      \"classes\": %d,\n", qz.num_classes);
+  std::fprintf(f, "      \"cut_sides\": %d,\n", qz.num_cut_edges);
+  std::fprintf(f, "      \"residual\": %.9g,\n", qz.max_integer_residual);
+  std::fprintf(f, "      \"full_refactors\": %d,\n", qz.full_refactors);
+  std::fprintf(f, "      \"updowns\": %d,\n", qz.updowns);
+  std::fprintf(f, "      \"back_solves\": %d,\n", qz.back_solves);
+  std::fprintf(f, "      \"tier1b_probes\": %d,\n", qz.tier1b_probes);
+  std::fprintf(f, "      \"gs_rounds\": %d,\n", qz.gs_rounds);
+  std::fprintf(f, "      \"gs_converged\": %d,\n", qz.gs_converged);
+  std::fprintf(f, "      \"gs_visits\": %d,\n", qz.gs_visits);
+  std::fprintf(f, "      \"gs_touched_total\": %d,\n", qz.gs_touched_total);
+  std::fprintf(f, "      \"gs_touched_max\": %d,\n", qz.gs_touched_max);
+  std::fprintf(f, "      \"resort_full\": %d,\n", qz.resort_full);
+  std::fprintf(f, "      \"resort_incr\": %d,\n", qz.resort_incr);
+  std::fprintf(f, "      \"resort_keys\": %d,\n", qz.resort_keys);
+  std::fprintf(f, "      \"total_ms\": %.9g,\n", qz.total_ms);
+  std::fprintf(f, "      \"setup_ms\": %.9g,\n", qz.setup_ms);
+  std::fprintf(f, "      \"initial_factor_ms\": %.9g,\n", qz.initial_factor_ms);
+  std::fprintf(f, "      \"arap_ms\": %.9g,\n", qz.arap_ms);
+  std::fprintf(f, "      \"rounding_ms\": %.9g,\n", qz.rounding_ms);
+  std::fprintf(f, "      \"round_assemble_ms\": %.9g,\n", qz.round_assemble_ms);
+  std::fprintf(f, "      \"round_refactor_ms\": %.9g,\n", qz.round_refactor_ms);
+  std::fprintf(f, "      \"round_updown_ms\": %.9g,\n", qz.round_updown_ms);
+  std::fprintf(f, "      \"round_backsolve_ms\": %.9g,\n", qz.round_backsolve_ms);
+  std::fprintf(f, "      \"gs_ms\": %.9g,\n", qz.gs_ms);
+  std::fprintf(f, "      \"tier1b_ms\": %.9g,\n", qz.tier1b_ms);
+  std::fprintf(f, "      \"stiffen_ms\": %.9g,\n", qz.stiffen_ms);
+  std::fprintf(f, "      \"tier3_ms\": %.9g\n", qz.tier3_ms);
+  std::fprintf(f, "    },\n");
   std::fprintf(f, "    \"stages\": {\n");
   std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
   std::fprintf(f, "      \"triage\": \"%s\",\n", ssName(rep.triage));
@@ -368,6 +405,8 @@ void usage()
       "  --sharp <0|1>           pin field to sharp edges/boundaries (default 1)\n"
       "  --sharp-angle <float>   sharp dihedral threshold, radians (default 0.785)\n"
       "  --density <0|1>         use per-vertex density map (default 0)\n"
+      "  --quant-direct <0|1>    one-shot DIRECT rounding, no greedy rounds "
+      "(default 0)\n"
       "  --reproject <0|1>       snap output onto input surface (default 1)\n"
       "  --cap-odd <0|1>         close odd holes w/ one tri each (default 0)\n"
       "  --smooth <int>          reprojection smoothing iterations (default 2)\n"
@@ -457,6 +496,8 @@ int main(int argc, char **argv)
       params.sharp_angle = float(std::atof(next("--sharp-angle")));
     else if (a == "--density")
       params.use_density = toBool(next("--density"));
+    else if (a == "--quant-direct")
+      params.quantize_direct_rounding = toBool(next("--quant-direct"));
     else if (a == "--reproject")
       params.reproject = toBool(next("--reproject"));
     else if (a == "--cap-odd")

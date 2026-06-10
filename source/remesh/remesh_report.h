@@ -9,6 +9,7 @@
  * query, not this struct. See documentation/plans/quad-remeshing-filtering.md. */
 
 #include "mesh/utils/mesh_validate.h"
+#include "remesh/quantize/quantize_ilp.h"
 #include "remesh/triage.h"
 
 #include <string>
@@ -51,6 +52,10 @@ struct RemeshRunReport {
   int parametrization_folds = 0;
   double min_jacobian = 0.0;
   bool quantize_feasible = false;
+
+  // Full quantize-stage profile (plans/miq.md Q0): rounds, solver-primitive
+  // counts, and per-phase wall-clocks. Surfaced via the manifest "run" block.
+  QuantizeStats quantize_stats;
 
   // Count-mode sizing (target_edge_length == 0): the edge length derived from
   // target_quad_count and the extracted face count. derived_edge_length is also

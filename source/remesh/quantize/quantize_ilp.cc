@@ -18,6 +18,7 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <unordered_set>
 #include <vector>
@@ -101,6 +102,16 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
 {
   QuantizeStats stats;
 
+  using Clock = std::chrono::steady_clock;
+  auto msSince = [](Clock::time_point t0) {
+    return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+  };
+  const Clock::time_point t_total = Clock::now();
+  // Solver-primitive time accumulators (filled by the solve lambdas below); the
+  // rounding-phase split in stats is the delta of these around the rounding loop.
+  double assemble_acc = 0.0, refactor_acc = 0.0, updown_acc = 0.0,
+         backsolve_acc = 0.0;
+
   SeamlessParamParams spp;
   spp.target_edge_length = params.target_edge_length;
   spp.use_density = params.use_density;
@@ -108,6 +119,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
 
   SeamlessSystem sys;
   if (!buildSeamlessSystem(m, spp, sys)) {
+    stats.total_ms = msSince(t_total);
     return stats;
   }
   const int M = sys.M;
@@ -174,20 +186,29 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   Eigen::VectorXd baseBv = sys.bv;
   std::vector<Eigen::Triplet<double>> baseTripsW = sys.baseTrips;
 
+  // The assembled system is kept alongside the factor (plans/miq.md Q1): every
+  // full assemble rewrites Acur/bcur, and newly-locked sides fold their fix
+  // penalty into Acur incrementally between assembles. The full symmetric
+  // pattern is stored, so Eigen's compressed columns double as CSR rows for the
+  // local GS tier.
+  Eigen::SparseMatrix<double> Acur;
+  Eigen::VectorXd bcur;
+
   // Base block-diagonal system (M4 stiffness on U and on V) + per-component pins
   // + Tikhonov shift + the always-on seam penalty + the fix penalty for sides
-  // already locked.
-  auto assemble = [&](Eigen::SparseMatrix<double> &Lout, Eigen::VectorXd &rhs) {
+  // already locked. Writes Acur/bcur.
+  auto assemble = [&]() {
+    Clock::time_point t0 = Clock::now();
     std::vector<Eigen::Triplet<double>> trips;
     trips.reserve(baseTripsW.size() * 2 + S * 96 + N);
     for (const auto &tr : baseTripsW) {
       trips.emplace_back(2 * tr.row() + 0, 2 * tr.col() + 0, tr.value());
       trips.emplace_back(2 * tr.row() + 1, 2 * tr.col() + 1, tr.value());
     }
-    rhs = Eigen::VectorXd::Zero(N);
+    bcur = Eigen::VectorXd::Zero(N);
     for (int i = 0; i < M; i++) {
-      rhs[2 * i + 0] = baseBu[i];
-      rhs[2 * i + 1] = baseBv[i];
+      bcur[2 * i + 0] = baseBu[i];
+      bcur[2 * i + 1] = baseBv[i];
     }
     for (int i = 0; i < int(sys.pinClass.size()); i++) {
       int c = sys.pinClass[i];
@@ -203,71 +224,21 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       // endpoint pairs to one shared translation.
       int seamCls[4] = {g.clb[s], g.clb2[s], g.cla[s], g.cla2[s]};
       M2 seamC[4] = {B, negM(B), negM(A), A};
-      addQuadPenalty(trips, rhs, 4, seamCls, seamC, 0.0, 0.0, lam_seam);
+      addQuadPenalty(trips, bcur, 4, seamCls, seamC, 0.0, 0.0, lam_seam);
       if (fixed[s]) {
         double kx = double(g.t_int[s][0]), ky = double(g.t_int[s][1]);
         int p1[2] = {g.clb[s], g.cla[s]};
         int p2[2] = {g.clb2[s], g.cla2[s]};
         M2 pc[2] = {B, negM(A)};
-        addQuadPenalty(trips, rhs, 2, p1, pc, kx, ky, lam_fix);
-        addQuadPenalty(trips, rhs, 2, p2, pc, kx, ky, lam_fix);
+        addQuadPenalty(trips, bcur, 2, p1, pc, kx, ky, lam_fix);
+        addQuadPenalty(trips, bcur, 2, p2, pc, kx, ky, lam_fix);
       }
     }
-    Lout.resize(N, N);
-    Lout.setFromTriplets(trips.begin(), trips.end());
-    Lout.makeCompressed();
+    Acur.resize(N, N);
+    Acur.setFromTriplets(trips.begin(), trips.end());
+    Acur.makeCompressed();
+    assemble_acc += msSince(t0);
   };
-
-  Eigen::VectorXd x = Eigen::VectorXd::Zero(N);
-  bool all_solved = true;
-
-#ifdef WASM
-  // WASM: Eigen SimplicialLLT has no rank update, so analyze once (the pattern is
-  // invariant — fix penalties land where the seam penalty already has entries and
-  // the injectivity pass only rescales) and factorize per round.
-  Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver;
-  bool analyzed = false;
-  auto solveAll = [&](bool /*fullRefactor*/) -> bool {
-    Eigen::SparseMatrix<double> L;
-    Eigen::VectorXd rhs;
-    assemble(L, rhs);
-    if (!analyzed) {
-      solver.analyzePattern(L);
-      if (solver.info() != Eigen::Success) {
-        return false;
-      }
-      analyzed = true;
-    }
-    solver.factorize(L);
-    if (solver.info() != Eigen::Success) {
-      return false;
-    }
-    x = solver.solve(rhs);
-    return solver.info() == Eigen::Success;
-  };
-#else
-  // Native: CHOLMOD simplicial LDL'. Analyze the (pattern-invariant) system once,
-  // then maintain the factor incrementally. The greedy rounding loop's only
-  // per-round change is the newly-locked sides' fix penalty — a rank<=4 PSD term
-  // whose nonzeros are a subset of the always-present seam pattern — so each lock
-  // is a cholmod_updown(+1) instead of a full re-factorization. The initial L0 and
-  // the injectivity-pass refactors (base stiffness rescaled, not low-rank) stay
-  // full numeric factorizations of the assembled matrix.
-  cholmod_common cc;
-  cholmod_start(&cc);
-  cc.supernodal = CHOLMOD_SIMPLICIAL; // updown requires a simplicial factor
-  cc.final_ll = 0;                    // keep LDL' form (updown updates LDL')
-  cholmod_factor *Lf = nullptr;
-  Vector<int> Pinv; // original row -> factor-permuted row (cholmod_updown ordering)
-  Vector<char> factored;
-  factored.resize(S);
-  for (int s = 0; s < S; s++) {
-    factored[s] = 0;
-  }
-  // A rank-k cholmod_updown costs ~O(k * etree-path); above some k a full
-  // re-factorization is cheaper. Early rounds lock large vertex-independent
-  // batches (high rank) -> refactor; the grind tail locks ~1 side/round -> updown.
-  const int updown_max_cols = 256; // 4 cols/side -> updown when <=64 sides/round
 
   // RHS-only assembly (base field + each locked side's fix penalty; the seam
   // penalty, pins and Tikhonov shift contribute zero RHS). Cheap — no sparse build.
@@ -296,11 +267,199 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
   };
 
-  // Full numeric factorization of the assembled matrix L (analyze only the first
+  Eigen::VectorXd x = Eigen::VectorXd::Zero(N);
+  bool all_solved = true;
+
+  // Fold a newly-locked side's fix penalty into the kept Acur. Values only: the
+  // fix-penalty pattern is a subset of the always-present seam pattern, so every
+  // coeffRef below hits an existing (possibly explicit-zero) entry.
+  auto addBlockRef = [&](int rcl, int ccl, const M2 &mb, double scale) {
+    Acur.coeffRef(2 * rcl + 0, 2 * ccl + 0) += mb.a * scale;
+    Acur.coeffRef(2 * rcl + 0, 2 * ccl + 1) += mb.b * scale;
+    Acur.coeffRef(2 * rcl + 1, 2 * ccl + 0) += mb.c * scale;
+    Acur.coeffRef(2 * rcl + 1, 2 * ccl + 1) += mb.d * scale;
+  };
+  auto appendLockToSystem = [&](int s) {
+    int pcls[2][2] = {{g.clb[s], g.cla[s]}, {g.clb2[s], g.cla2[s]}};
+    M2 pc[2] = {Bop[s], negM(Aop[s])};
+    for (int p = 0; p < 2; p++) {
+      for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) {
+          addBlockRef(pcls[p][i], pcls[p][j], mul(transp(pc[i]), pc[j]), lam_fix);
+        }
+      }
+    }
+  };
+
+  // Local Gauss-Seidel re-solve tier (plans/miq.md Q1, CoMISo Lesson 4).
+  // Active-set GS over the kept Acur, seeded at the newly-locked sides' class
+  // components: relax in index-sorted sweeps (deterministic — no hash-set
+  // order), push a component's structural neighbors whenever it moved by more
+  // than gs_tol, drain -> accept x, hit the visit cap -> escalate to the direct
+  // path. The system is SPD so GS always converges; the cap only decides where
+  // the local tier is worth it (the escalation rate is the Q5 decision data).
+  // gs_tol is decision-grade, not metric-grade: rounding only consumes x via
+  // sideAvg against tau ~ 0.3, and the loop's final solve is always direct.
+  Eigen::VectorXd gsRhs;
+  Vector<int> gsQ0, gsQ1, gsSeenList;
+  Vector<char> gsInQ, gsSeen;
+  gsInQ.resize(N);
+  gsSeen.resize(N);
+  for (int i = 0; i < N; i++) {
+    gsInQ[i] = 0;
+    gsSeen[i] = 0;
+  }
+  const double gs_tol = 1.0e-7;
+  // x is the exact direct solution unless the last accepted solve was local.
+  bool xIsLocal = false;
+
+  auto tryLocalSolve = [&](const Vector<int> &newLocks) -> bool {
+    Clock::time_point t0 = Clock::now();
+    stats.gs_rounds++;
+    gsQ0.clear();
+    for (int li = 0; li < int(newLocks.size()); li++) {
+      int s = newLocks[li];
+      int cls[4] = {g.cla[s], g.cla2[s], g.clb[s], g.clb2[s]};
+      for (int c = 0; c < 4; c++) {
+        for (int k = 0; k < 2; k++) {
+          int idx = 2 * cls[c] + k;
+          if (!gsInQ[idx]) {
+            gsInQ[idx] = 1;
+            gsQ0.append(idx);
+          }
+        }
+      }
+    }
+    std::sort(gsQ0.data(), gsQ0.data() + gsQ0.size());
+    // Generous per-seed budget, hard-capped near one back-solve's work.
+    const int cap = int(std::min<long long>(256ll * int(gsQ0.size()), 4ll * N));
+    assembleRhs(gsRhs);
+    const int *Ap = Acur.outerIndexPtr();
+    const int *Ai = Acur.innerIndexPtr();
+    const double *Av = Acur.valuePtr();
+    gsSeenList.clear();
+    Vector<int> *cur = &gsQ0, *nxt = &gsQ1;
+    int visits = 0;
+    bool converged = true;
+    while (cur->size() > 0 && converged) {
+      nxt->clear();
+      for (int qi = 0; qi < int(cur->size()); qi++) {
+        int i = (*cur)[qi];
+        if (++visits > cap) {
+          converged = false;
+          break;
+        }
+        gsInQ[i] = 0;
+        if (!gsSeen[i]) {
+          gsSeen[i] = 1;
+          gsSeenList.append(i);
+        }
+        // r_i = b_i - A_i . x over the symmetric column (== row) i.
+        double r = gsRhs[i], diag = 0.0;
+        for (int p = Ap[i]; p < Ap[i + 1]; p++) {
+          int j = Ai[p];
+          double a = Av[p];
+          r -= a * x[j];
+          if (j == i) {
+            diag = a;
+          }
+        }
+        if (diag <= 0.0) {
+          continue; // never happens: Tikhonov shift keeps every diagonal > 0
+        }
+        double dx = r / diag;
+        if (std::fabs(dx) <= gs_tol) {
+          continue;
+        }
+        x[i] += dx;
+        for (int p = Ap[i]; p < Ap[i + 1]; p++) {
+          int j = Ai[p];
+          if (j != i && !gsInQ[j]) {
+            gsInQ[j] = 1;
+            nxt->append(j);
+          }
+        }
+      }
+      std::sort(nxt->data(), nxt->data() + nxt->size());
+      std::swap(cur, nxt);
+    }
+    // Reset the scratch flags (mid-sweep leftovers on escalation included).
+    for (int qi = 0; qi < int(cur->size()); qi++) {
+      gsInQ[(*cur)[qi]] = 0;
+    }
+    for (int qi = 0; qi < int(nxt->size()); qi++) {
+      gsInQ[(*nxt)[qi]] = 0;
+    }
+    int touched = int(gsSeenList.size());
+    for (int qi = 0; qi < touched; qi++) {
+      gsSeen[gsSeenList[qi]] = 0;
+    }
+    stats.gs_visits += visits;
+    stats.gs_touched_total += touched;
+    stats.gs_touched_max = std::max(stats.gs_touched_max, touched);
+    stats.gs_converged += converged ? 1 : 0;
+    stats.gs_ms += msSince(t0);
+    return converged;
+  };
+
+#ifdef WASM
+  // WASM: Eigen SimplicialLLT has no rank update, so analyze once (the pattern is
+  // invariant — fix penalties land where the seam penalty already has entries and
+  // the injectivity pass only rescales) and factorize per round.
+  Eigen::SimplicialLLT<Eigen::SparseMatrix<double>> solver;
+  bool analyzed = false;
+  auto solveAll = [&](bool /*fullRefactor*/) -> bool {
+    assemble();
+    if (!analyzed) {
+      solver.analyzePattern(Acur);
+      if (solver.info() != Eigen::Success) {
+        return false;
+      }
+      analyzed = true;
+    }
+    Clock::time_point t0 = Clock::now();
+    solver.factorize(Acur);
+    refactor_acc += msSince(t0);
+    stats.full_refactors++;
+    if (solver.info() != Eigen::Success) {
+      return false;
+    }
+    t0 = Clock::now();
+    x = solver.solve(bcur);
+    backsolve_acc += msSince(t0);
+    stats.back_solves++;
+    return solver.info() == Eigen::Success;
+  };
+#else
+  // Native: CHOLMOD simplicial LDL'. Analyze the (pattern-invariant) system once,
+  // then maintain the factor incrementally. The greedy rounding loop's only
+  // per-round change is the newly-locked sides' fix penalty — a rank<=4 PSD term
+  // whose nonzeros are a subset of the always-present seam pattern — so each lock
+  // is a cholmod_updown(+1) instead of a full re-factorization. The initial L0 and
+  // the injectivity-pass refactors (base stiffness rescaled, not low-rank) stay
+  // full numeric factorizations of the assembled matrix.
+  cholmod_common cc;
+  cholmod_start(&cc);
+  cc.supernodal = CHOLMOD_SIMPLICIAL; // updown requires a simplicial factor
+  cc.final_ll = 0;                    // keep LDL' form (updown updates LDL')
+  cholmod_factor *Lf = nullptr;
+  Vector<int> Pinv; // original row -> factor-permuted row (cholmod_updown ordering)
+  Vector<char> factored;
+  factored.resize(S);
+  for (int s = 0; s < S; s++) {
+    factored[s] = 0;
+  }
+  // A rank-k cholmod_updown costs ~O(k * etree-path); above some k a full
+  // re-factorization is cheaper. Early rounds lock large vertex-independent
+  // batches (high rank) -> refactor; the grind tail locks ~1 side/round -> updown.
+  const int updown_max_cols = 256; // 4 cols/side -> updown when <=64 sides/round
+
+  // Full numeric factorization of the assembled Acur (analyze only the first
   // time; the pattern never changes). Records the permutation the rank updates
   // must follow and marks every currently-locked side as resident in the factor.
-  auto factorFull = [&](const Eigen::SparseMatrix<double> &L) -> bool {
-    auto sym = L.selfadjointView<Eigen::Lower>();
+  auto factorFull = [&]() -> bool {
+    const Eigen::SparseMatrix<double> &Aref = Acur; // const view for viewAsCholmod
+    auto sym = Aref.selfadjointView<Eigen::Lower>();
     cholmod_sparse Ac = Eigen::viewAsCholmod(sym);
     if (!Lf) {
       Lf = cholmod_analyze(&Ac, &cc);
@@ -313,7 +472,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         Pinv[Perm[k]] = k;
       }
     }
+    Clock::time_point t0 = Clock::now();
     cholmod_factorize(&Ac, Lf, &cc);
+    refactor_acc += msSince(t0);
+    stats.full_refactors++;
     if (cc.status < CHOLMOD_OK) {
       return false;
     }
@@ -327,6 +489,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // side contributes two rank-2 columns C = sqrt(lam_fix)*[B,-A]^T over its two
   // endpoint class-pairs; rows are permuted into the factor's ordering (Pinv).
   auto applyPendingLocks = [&]() -> bool {
+    Clock::time_point t0 = Clock::now();
     std::vector<Eigen::Triplet<double>> ct;
     const double sq = std::sqrt(lam_fix);
     int col = 0;
@@ -357,10 +520,13 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     C.makeCompressed();
     cholmod_sparse Cc = Eigen::viewAsCholmod(C);
     int ok = cholmod_updown(1, &Cc, Lf, &cc);
+    updown_acc += msSince(t0);
+    stats.updowns++;
     return ok && cc.status >= CHOLMOD_OK;
   };
 
   auto solveCurrent = [&]() -> bool {
+    Clock::time_point t0 = Clock::now();
     Eigen::VectorXd rhs;
     assembleRhs(rhs);
     cholmod_dense bc = Eigen::viewAsCholmod(rhs);
@@ -374,6 +540,8 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       x[i] = xd[i];
     }
     cholmod_free_dense(&xc, &cc);
+    backsolve_acc += msSince(t0);
+    stats.back_solves++;
     return true;
   };
 
@@ -386,10 +554,8 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
     bool refactor = fullRefactor || !Lf || 4 * pending > updown_max_cols;
     if (refactor) {
-      Eigen::SparseMatrix<double> L;
-      Eigen::VectorXd rhs;
-      assemble(L, rhs);
-      if (!factorFull(L)) {
+      assemble();
+      if (!factorFull()) {
         return false;
       }
     } else if (!applyPendingLocks()) {
@@ -398,6 +564,27 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     return solveCurrent();
   };
 #endif
+
+  // Per-round solve after locking a batch: fold the new locks into the kept
+  // system, try the local GS tier, escalate to the direct path on a cap. The
+  // direct path overwrites x wholesale, so a partial GS pass never leaks.
+  auto solveRound = [&](Vector<int> &newLocks) -> bool {
+    std::sort(newLocks.data(), newLocks.data() + newLocks.size());
+    if (params.use_local_gs) {
+      for (int i = 0; i < int(newLocks.size()); i++) {
+        appendLockToSystem(newLocks[i]);
+      }
+      if (tryLocalSolve(newLocks)) {
+        xIsLocal = true;
+        return true;
+      }
+    }
+    if (!solveAll(false)) {
+      return false;
+    }
+    xIsLocal = false;
+    return true;
+  };
 
   // Per-face stiffening weight for the injectivity pass (1 = unweighted M4).
   Vector<double> faceW;
@@ -643,7 +830,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // endpoint vertex) so no interior one-ring loop has two of its spokes rounded
   // together. Most-confident-first within each round, re-solve, repeat.
   const double tau = params.confidence_radius; // only lock sides this close to int
+  stats.setup_ms = msSince(t_total);
+  Clock::time_point t_phase = Clock::now();
   all_solved &= solveAll(true); // initial seamless solve -> builds L0 (no locks)
+  stats.initial_factor_ms = msSince(t_phase);
 
   // ARAP untangle fallback (see QuantizeParams::untangle_fold_threshold). The
   // seam-consistency penalty folds the field-aligned map where the field curls
@@ -663,6 +853,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
   }
   double initFoldFrac = m.f.count ? double(initFolds) / m.f.count : 0.0;
+  t_phase = Clock::now();
   if (all_solved && untangle_thresh > 0.0 && initFoldFrac > untangle_thresh) {
     const double lam_hi = lam_seam, lam_lo = 0.1;
     const int steps = 16, inner = 3;
@@ -681,8 +872,13 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     // rot_all stays on so the post-rounding injectivity pass keeps retargeting
     // residual folds to rotations rather than the (re-folding) field angle.
   }
+  stats.arap_ms = msSince(t_phase);
 
   stats.iters = 0;
+  // Rounding-phase solver split = deltas of the primitive accumulators.
+  const double snap_assemble = assemble_acc, snap_refactor = refactor_acc,
+               snap_updown = updown_acc, snap_backsolve = backsolve_acc;
+  t_phase = Clock::now();
   if (S > 0 && all_solved) {
     // Endpoint vertices of each side, for the vertex-independence test.
     Vector<int> sv0, sv1;
@@ -693,76 +889,193 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       sv0[s] = m.e.vs[e][0];
       sv1[s] = m.e.vs[e][1];
     }
-    Vector<int> order;
+    Vector<int> newLocks;
     Vector<double> frac;
     Vector<float2> avg;
-    order.resize(S);
     frac.resize(S);
     avg.resize(S);
     std::unordered_set<int> usedV;
     int remaining = S;
+    // Sides incident to each class (CSR; per-side duplicates harmless). After a
+    // converged GS round only sides reading a visited class can have moved, so
+    // the confidence re-sort is incremental (plans/miq.md Q2).
+    Vector<int> clsOfs, clsSides;
+    clsOfs.resize(M + 1);
+    for (int c = 0; c <= M; c++) {
+      clsOfs[c] = 0;
+    }
+    for (int s = 0; s < S; s++) {
+      clsOfs[g.cla[s] + 1]++;
+      clsOfs[g.clb[s] + 1]++;
+      clsOfs[g.cla2[s] + 1]++;
+      clsOfs[g.clb2[s] + 1]++;
+    }
+    for (int c = 0; c < M; c++) {
+      clsOfs[c + 1] += clsOfs[c];
+    }
+    clsSides.resize(clsOfs[M]);
+    {
+      Vector<int> fill;
+      fill.resize(M);
+      for (int c = 0; c < M; c++) {
+        fill[c] = 0;
+      }
+      for (int s = 0; s < S; s++) {
+        int cls[4] = {g.cla[s], g.clb[s], g.cla2[s], g.clb2[s]};
+        for (int k = 0; k < 4; k++) {
+          clsSides[clsOfs[cls[k]] + fill[cls[k]]++] = s;
+        }
+      }
+    }
+    // Confidence priority queue (Q2): lazy min-heap keyed (frac, side) — the
+    // side tie-break replaces std::sort's unspecified tie order. An entry is
+    // current iff its gen matches sgen[side]; stale pops drop silently.
+    struct HeapEnt {
+      double frac;
+      int side, gen;
+    };
+    auto heapAfter = [](const HeapEnt &a, const HeapEnt &b) {
+      return a.frac != b.frac ? a.frac > b.frac : a.side > b.side;
+    };
+    Vector<HeapEnt> heap, stash;
+    Vector<int> sgen, sdirtyList;
+    Vector<char> sdirty;
+    sgen.resize(S);
+    sdirty.resize(S);
+    for (int s = 0; s < S; s++) {
+      sgen[s] = 0;
+      sdirty[s] = 0;
+    }
+    auto pushSide = [&](int s) {
+      double ax, ay;
+      frac[s] = sideAvg(s, ax, ay);
+      avg[s] = float2(float(ax), float(ay));
+      heap.append(HeapEnt{frac[s], s, ++sgen[s]});
+      std::push_heap(heap.data(), heap.data() + heap.size(), heapAfter);
+      stats.resort_keys++;
+    };
+    auto rebuildHeap = [&]() { // direct solves rewrite x: re-key everything
+      heap.clear();
+      for (int s = 0; s < S; s++) {
+        if (!fixed[s]) {
+          double ax, ay;
+          frac[s] = sideAvg(s, ax, ay);
+          avg[s] = float2(float(ax), float(ay));
+          heap.append(HeapEnt{frac[s], s, ++sgen[s]});
+          stats.resort_keys++;
+        }
+      }
+      std::make_heap(heap.data(), heap.data() + heap.size(), heapAfter);
+      stats.resort_full++;
+    };
+    auto dirtyTouched = [&]() { // converged GS round: re-key visited classes only
+      for (int qi = 0; qi < int(gsSeenList.size()); qi++) {
+        int cls = gsSeenList[qi] / 2;
+        for (int p = clsOfs[cls]; p < clsOfs[cls + 1]; p++) {
+          int s = clsSides[p];
+          if (!fixed[s] && !sdirty[s]) {
+            sdirty[s] = 1;
+            sdirtyList.append(s);
+          }
+        }
+      }
+      for (int qi = 0; qi < int(sdirtyList.size()); qi++) {
+        pushSide(sdirtyList[qi]);
+        sdirty[sdirtyList[qi]] = 0;
+      }
+      sdirtyList.clear();
+      stats.resort_incr++;
+    };
     // Each round locks an independent set (a vertex can't repeat), so the worst
-    // case is one side per round; cap generously above S.
-    const int max_rounds = S + 8;
+    // case is one side per round; cap generously above S. DIRECT strategy runs
+    // zero greedy rounds — everything locks at once in the block below.
+    const bool greedy = params.rounding == RoundingStrategy::GREEDY;
+    const int max_rounds = greedy ? S + 8 : 0;
+    if (greedy) {
+      rebuildHeap(); // round 1 keys against the initial/ARAP-settled x
+    }
     for (int iter = 1; iter <= max_rounds && remaining > 0; iter++) {
       stats.iters = iter;
-      int nun = 0;
-      for (int s = 0; s < S; s++) {
-        if (fixed[s]) {
-          continue;
-        }
-        double ax, ay;
-        frac[s] = sideAvg(s, ax, ay);
-        avg[s] = float2(float(ax), float(ay));
-        order[nun++] = s;
-      }
       // Most-confident first; greedily lock a vertex-independent batch.
-      std::sort(order.data(), order.data() + nun, [&](int a, int b) {
-        return frac[a] < frac[b];
-      });
       usedV.clear();
+      newLocks.clear();
+      stash.clear();
       int locked = 0;
-      for (int i = 0; i < nun; i++) {
-        int s = order[i];
+      while (heap.size() > 0) {
+        std::pop_heap(heap.data(), heap.data() + heap.size(), heapAfter);
+        HeapEnt e = heap.pop_back();
+        int s = e.side;
+        if (fixed[s] || e.gen != sgen[s]) {
+          continue; // stale: locked earlier or re-keyed since this push
+        }
         // Lock only confident sides (within tau); always allow the single most
         // confident (locked==0) so a round with nothing within tau still
-        // progresses. order is ascending, so once past tau the rest are too.
-        if (locked > 0 && frac[s] > tau) {
+        // progresses. Pops ascend, so once past tau the rest are too.
+        if (locked > 0 && e.frac > tau) {
+          stash.append(e);
           break;
         }
         if (usedV.count(sv0[s]) || usedV.count(sv1[s])) {
-          continue; // shares a one-ring with a side already locked this round
+          stash.append(e); // shares a one-ring with a side locked this round
+          continue;
         }
         g.t_int[s] = float2(std::round(avg[s][0]), std::round(avg[s][1]));
         fixed[s] = 1;
+        newLocks.append(s);
         usedV.insert(sv0[s]);
         usedV.insert(sv1[s]);
         remaining--;
         locked++;
       }
+      for (int qi = 0; qi < int(stash.size()); qi++) { // unlocked pops persist
+        heap.append(stash[qi]);
+        std::push_heap(heap.data(), heap.data() + heap.size(), heapAfter);
+      }
       if (locked == 0) {
         break;
       }
-      if (!solveAll(false)) { // incremental: updown the sides locked this round
+      if (!solveRound(newLocks)) { // local GS tier, else updown + back-solve
         all_solved = false;
         break;
       }
+      if (remaining > 0) {
+        if (xIsLocal) {
+          dirtyTouched();
+        }
+        else {
+          rebuildHeap();
+        }
+      }
     }
-    // Lock any sides the round budget never reached, then realize once more.
-    bool leftover = false;
+    // Lock any sides the rounds never reached (all of them under DIRECT), then
+    // realize once more. This final solve is always direct: everything
+    // downstream (fold tests, Tier-1b residuals, the reported residual) must
+    // see the exact solution, never a GS approximation.
+    newLocks.clear();
     for (int s = 0; s < S; s++) {
       if (!fixed[s]) {
         double ax, ay;
         sideAvg(s, ax, ay);
         g.t_int[s] = float2(float(std::round(ax)), float(std::round(ay)));
         fixed[s] = 1;
-        leftover = true;
+        newLocks.append(s);
       }
     }
-    if (leftover && all_solved) {
-      all_solved &= solveAll(false); // incremental: updown the leftover locks
+    if (params.use_local_gs) {
+      for (int i = 0; i < int(newLocks.size()); i++) {
+        appendLockToSystem(newLocks[i]);
+      }
+    }
+    if (all_solved && (newLocks.size() > 0 || xIsLocal)) {
+      all_solved &= solveAll(false); // incremental: updown all pending locks
+      xIsLocal = false;
     }
   }
+  stats.rounding_ms = msSince(t_phase);
+  stats.round_assemble_ms = assemble_acc - snap_assemble;
+  stats.round_refactor_ms = refactor_acc - snap_refactor;
+  stats.round_updown_ms = updown_acc - snap_updown;
+  stats.round_backsolve_ms = backsolve_acc - snap_backsolve;
 
   // Allocation-free per-triangle fold test (the solve mesh is triangulated). The
   // gauge is uniform per face, so the raw-class signed uv area times the reference
@@ -812,6 +1125,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
     return r;
   };
+  t_phase = Clock::now();
   if (all_solved && S > 0 && params.seam_relax_iters > 0) {
     auto countF = [&]() {
       int nf = 0;
@@ -851,6 +1165,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         int bestM = -1, bestFold = curFold;
         for (int mi = 0; mi < 4; mi++) {
           g.t_int[s] = base_k + moves[mi];
+          stats.tier1b_probes++;
           if (!solveAll(false)) {
             all_solved = false;
             break;
@@ -878,6 +1193,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       }
     }
   }
+  stats.tier1b_ms = msSince(t_phase);
 
   // Local-stiffening injectivity pass (Bommes 2013 IGM). The integer grid is now
   // frozen by the seam/fix/singularity penalties; the linear MIQ map has no
@@ -886,6 +1202,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // weight (capped below the 1e6 penalties so it never breaks the locked grid),
   // pulling it toward its det>0 field-aligned target. Keep the lowest-fold result.
   int inj_iters = params.inj_iters;
+  t_phase = Clock::now();
   if (all_solved && inj_iters > 0) {
     auto countFolds = [&]() {
       int nf = 0;
@@ -953,6 +1270,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
     x = bestX;
   }
+  stats.stiffen_ms = msSince(t_phase);
 
   // Tier-3 local fold-patch re-parametrization. The global injectivity pass above
   // stiffens folded 1-rings toward the field, but a fold wedged between two locked
@@ -966,6 +1284,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // is convex and plain gradient descent reaches the global optimum for the fixed
   // boundary. Accept only if the total fold count drops. This never re-solves the
   // global system and never moves a seam endpoint -> seamlessness is preserved.
+  t_phase = Clock::now();
   if (all_solved && params.local_untangle_iters > 0) {
     auto countFolds = [&]() {
       int nf = 0;
@@ -1219,6 +1538,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       }
     }
   }
+  stats.tier3_ms = msSince(t_phase);
 
   // Final integer residual: max over all sides of how far each endpoint's
   // realized translation sits from its locked integer (a side the budget could
@@ -1352,6 +1672,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   cholmod_finish(&cc);
 #endif
 
+  stats.total_ms = msSince(t_total);
   return stats;
 }
 

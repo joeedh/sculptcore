@@ -25,6 +25,7 @@ export interface RemeshParams {
   use_sharp_features: boolean
   sharp_angle: float
   use_density: boolean
+  quantize_direct_rounding: boolean
   reproject: boolean
   cap_odd_holes: boolean
   smooth_iterations: int32

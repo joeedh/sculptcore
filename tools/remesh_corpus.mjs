@@ -75,6 +75,7 @@ function parseArgs(argv) {
     else if (k === '--density-max') a.densityMax = parseFloat(next())
     else if (k === '--density-gradation') a.densityGradation = parseFloat(next())
     else if (k === '--density-gradation-iters') a.densityGradationIters = parseInt(next(), 10)
+    else if (k === '--quant-direct') a.quantDirect = next() !== '0'
     else if (k === '--list') a.list = true
     else if (k === '--help' || k === '-h') { usage(); process.exit(0) }
     else { console.error(`unknown arg ${k}`); usage(); process.exit(2) }
@@ -100,6 +101,7 @@ function usage() {
   --density-max <f>                Tier-3a density clamp ceiling
   --density-gradation <f>          Tier-3b bound size growth rate (0=off)
   --density-gradation-iters <int>  Tier-3b limiter sweep cap
+  --quant-direct <0|1>             M5 one-shot DIRECT rounding (miq.md Q4)
   --list            list the corpus and resolution status, then exit`)
 }
 
@@ -242,6 +244,8 @@ function main() {
     globalParams['density-gradation'] = args.densityGradation
   if (args.densityGradationIters != null)
     globalParams['density-gradation-iters'] = args.densityGradationIters
+  if (args.quantDirect != null)
+    globalParams['quant-direct'] = args.quantDirect ? 1 : 0
 
   const results = []
   const skipped = []

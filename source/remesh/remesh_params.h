@@ -53,6 +53,11 @@ struct RemeshParams {
    * the per-vertex `.remesh.v.density` map. Off = uniform spacing. */
   bool use_density = false;
 
+  /* M5: round every cut translation at once off the seamless solve (one
+   * re-solve) instead of greedy most-confident-first batches. Fast path for
+   * clean inputs and the quality oracle greedy must beat (plans/miq.md Q4). */
+  bool quantize_direct_rounding = false;
+
   /* M6: snap each output vertex back onto the input surface via the BVH
    * closest-point query. Off = leave extracted positions as-is (debugging). */
   bool reproject = true;

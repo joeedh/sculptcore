@@ -2,7 +2,22 @@
 
 ## Status
 
-Planned; nothing landed. Source analysis:
+**Plan complete** (2026-06-10): **Q0 + Q1 + Q2 + Q4 + Q6 landed; Q3 measured
+and rejected; Q5 remains gated** (its entry conditions are unmet — revisit only
+if the corpus ever shows `feasible=false` at a rate that matters *and* the
+T-mesh/QGP strategic fork resolves in favor of staying MIQ). Q0 baseline
+archived at `tests/remesher-results/miq-q0-baseline/`; Q1 A/B at
+`miq-q1-run1` (GS on) / `miq-q1-gsoff` (same-session direct path); Q2 runs at
+`miq-q2-run{1,2}`; Q3 budget A/B at `miq-q3-budget-run{1,2}` + `miq-q3-control`;
+Q4 at `miq-q4-run1` (default, byte-identical to Q2) + `miq-q4-direct`.
+Q1's measurement: GS propagates globally under the `1e6` coupling and
+escalates 43–61% of rounds — see the Q1 result block; Q5 stays gated. Q2's
+lazy heap + touched-set re-key cut sideAvg evaluations ~4× with byte-identical
+metrics — see the Q2 result block. Q3's cumulative error budget lost to the
+confidence radius on rounds, wall-clock, and quality — measured, rejected,
+removed; see the Q3 result block. Q4's GREEDY/DIRECT strategy enum landed with
+the oracle ctest; DIRECT confirmed fast-but-infeasible on the corpus — see the
+Q4 result block. Q6 docs cleanup done. Source analysis:
 [`research/miq-rounding-report.md`](../research/miq-rounding-report.md)
 (a read of the CoMISo mixed-integer stack at `c:/dev/CoMISo` — `MISolver`,
 `ConstrainedSolver`, `ConstraintTools`, `IterativeSolverT`) against our
@@ -117,6 +132,39 @@ Decision output: **GS converges locally** → Q5 demoted to optional/strategic.
 **GS propagates globally or escalates constantly** → that measurement is the
 case for Q5.
 
+**Q1 result (landed 2026-06-10).** Implemented as `QuantizeParams::use_local_gs`
+(default on): the assembled system is kept (`Acur`/`bcur`) alongside the factor,
+new locks fold in value-only (the fix-penalty pattern is a subset of the
+always-present seam pattern), sweep GS over sorted work queues, visit cap
+`min(256·nseed, 4N)`, and the exact direct solve always re-runs before anything
+downstream reads `x` (fold tests, Tier-1b, the reported residual). Gates: ctest
+green incl. a new GS-vs-direct parity test; corpus `metrics.csv` **byte-identical
+to the Q0 baseline** (zero decision changes) and byte-stable across two runs;
+WASM links. Measurement:
+
+- *Convergence:* 16/28 attempts drained within cap (simple-closed), 41/105
+  (anime-girl) — escalation 43% / 61%.
+- *Locality:* none. `touched_max` ≈ the whole system (7201 of N=7204, 2322 of
+  N=2380); mean touched per attempt 16% / 8.7% of N; revisit factor 5.4 / 8.3.
+  The `1e6` seam coupling propagates every lock globally, as the risk note
+  anticipated.
+- *Native wall-clock (same-session A/B):* rounding phase −4% on simple-closed
+  (16 ms of GS replaced ~27 ms of direct work), +64% (+23 ms) on anime-girl,
+  whose N=2380 makes the replaced per-round direct work nearly free. Quantize
+  total stays ARAP-dominated either way — no corpus-scale native win.
+- *Where the tier actually pays:* the WASM round structure (each converged round
+  removes a full refactorize+solve — 39–57% of rounds) and large-N native (the
+  cap is O(batch) while the replaced back-solve is O(nnz(L))). At corpus N the
+  caps admit several full-system sweeps, which is where the anime-girl loss
+  comes from.
+
+Decision: by the rule above the measurement is nominally *the case for Q5* —
+but it equally shows that at corpus scale the per-round direct cost Q5 would
+eliminate is marginal (rounding is 7–16% of quantize; ARAP dominates), and the
+corpus has zero `feasible=false`. Q5's entry gate is **not** satisfied (condition
+1's second clause fails; condition 2 unresolved); it stays gated pending
+multi-100k-class assets or the strategic fork. Q2 proceeds on the touched-set.
+
 ### Q2 — Incremental confidence re-sort (Lesson 6)
 
 Every round currently recomputes `sideAvg` for all unfixed sides and
@@ -131,6 +179,32 @@ endpoint classes the GS queue actually relaxed can have changed `sideAvg`:
 Gate: corpus metrics identical to Q1 (this is bookkeeping, not behavior;
 untouched sides' keys are unchanged by construction). Wall-clock neutral-to-
 better on assets with large S.
+
+**Q2 result (landed 2026-06-10).** Implemented as a generation-validated lazy
+min-heap (`std::push_heap`/`pop_heap` over a `util::Vector<HeapEnt{frac, side,
+gen}>`; an entry is current iff `gen == sgen[side]`, stale pops drop silently)
+plus a class→sides CSR (`clsOfs`/`clsSides`) so a converged GS round re-keys
+only sides incident to `gsSeenList` classes; any direct-solve round (back-solve
+rewrites all of x) and round 1 do a full `rebuildHeap()`. Entries popped but not
+locked (vertex conflict / past `tau`) are stashed and reinserted with their gen
+unchanged. Counters: `resort_full` / `resort_incr` / `resort_keys` (stats +
+manifest + `[remesh_quantize:gs]` debug-verb print); `testLocalGsParity` now
+asserts the GS run takes the incremental path and the direct control never does.
+
+- **Gates**: native build, both targeted ctests, full suite (the 3 known
+  pre-existing failures only), WASM canary all pass. Corpus ×2: metrics.csv
+  byte-identical run1 == run2 == `miq-q1-run1` == Q0 baseline — the explicit
+  `(frac, side)` tie-break flipped no decisions on the corpus, and round
+  structure is unchanged (`gs_rounds`/`gs_converged` identical to Q1).
+- **Bookkeeping won**: re-keys (`sideAvg` evals) dropped ~4.6× on anime-girl
+  (6 693 vs ~31 k old-scheme estimate; S=592, 105 rounds) and ~3.6× on
+  simple-closed (6 994 vs ~25 k; S=1801, 28 rounds), and the per-round
+  O(S log S) sort is gone. `resort_incr = gs_converged − 1` on both assets
+  (the final round empties `remaining` and skips re-key by construction).
+- **Wall-clock**: neutral-to-better — rounding_ms 58.2 → 48.8/57.6
+  (anime-girl), 204.9 → 182.6/148.4 (simple-closed) vs `miq-q1-run1`; within
+  cross-run noise, no regression. The deterministic counters are the real
+  evidence; runs at `tests/remesher-results/miq-q2-run{1,2}/`.
 
 ### Q3 — Error-budget batching (Lesson 5, modified)
 
@@ -149,6 +223,38 @@ residue stays under ~0.5, always taking at least one.
 Gate: corpus quality non-regression; rounds (and therefore solves) reduced on
 assets where the baseline grinds the tail.
 
+**Q3 result (measured and REJECTED, 2026-06-10).** Implemented exactly per
+spec (`round_error_budget = 0.5`, summed-residue cap over the Q2 heap scan,
+always ≥ 1, vertex-independence kept; conflicted pops consume no budget) and
+A/B'd on the corpus same-session against the Q2 tree; deterministic
+(budget run1 == run2, archived `miq-q3-budget-run{1,2}`). Both gate clauses
+failed:
+
+- **Rounds/solves up where it matters.** anime-girl — the tail-grinder (105
+  rounds, S=592) — went to 113 rounds, back-solves 122 → 147, GS convergence
+  41/105 → 22/113, rounding_ms 48.8 → 94.4 (+93 %). simple-closed: rounds
+  28 → 24 but back-solves 70 → 74 and rounding_ms 182.6 → 231.8 (+27 %).
+  ctest torus: 4 → 9 rounds.
+- **Quality regressed on anime-girl**: param folds 47 → 57, inverted 3 → 4, a
+  degenerate sliver quad (max_area_ratio 22.6 → 4.2e5, min_angle → 0),
+  components 6 → 8. simple-closed moved mixed-better (holes 8 → 6, inverted
+  5 → 3, open isolines 120 → 97) with worse shape extremes.
+- **Why, structurally**: a 0.5 cumulative budget is strictly ⊆ the tau = 0.3
+  batch whenever fracs ≤ 0.3 (no two sides > 0.25 can share a round), so it
+  only shrinks confident batches; the single ambiguous (frac > tau) side it
+  pulls forward per round locks low-confidence decisions early — which is
+  exactly what collapsed GS convergence and produced the sliver. CoMISo's
+  multiple-rounding threshold wins against their *one-variable-per-round*
+  baseline, not against a confidence-radius batch.
+
+Decision (the mirror of the keep-until-dominates clause): the budget code is
+removed, `confidence_radius = 0.3` stays the criterion, no dead param left
+behind. Final tree re-gated: quantize/extract ctests reproduce Q2 outputs,
+full suite (3 known pre-existing failures only), WASM canary, and a control
+corpus run byte-identical to `miq-q2-run1` (and Q0). Revisit only if a future
+asset class shows tail rounds with many *sub-tau* sides left unbatched — the
+one regime where a budget could admit more than tau does.
+
 ### Q4 — Rounding strategy enum (Lessons 7/8)
 
 `QuantizeParams::rounding ∈ {GREEDY (default), DIRECT}`:
@@ -165,6 +271,41 @@ assets where the baseline grinds the tail.
 Gate: corpus runner can select per-asset; a new ctest case asserts
 greedy ≥ direct on the standard fixtures; DIRECT on grid/cylinder/torus is
 feasible with `max_loop_closure < 1e-6`.
+
+**Q4 result (landed 2026-06-10).** `RoundingStrategy {GREEDY, DIRECT}` on
+`QuantizeParams`; DIRECT is realized as *zero greedy rounds* (`max_rounds = 0`,
+no heap build) — the existing leftover block already locks every unfixed side
+off the seamless/ARAP-settled solve and re-solves once, so the strategy is a
+two-line guard, not a second code path. `stats.iters == 0` self-describes a
+DIRECT run. Plumbed end-to-end: `RemeshParams::quantize_direct_rounding`
+(bound, manifest-recorded), `remesh_cli --quant-direct`, corpus `--quant-direct`
+global (per-asset `params` override last-wins), debug verb
+`remesh_quantize direct=1`. The exact-fallback tier (CoMISo's Gurobi/CPLEX
+slot) is documented at the enum and deliberately unbuilt.
+
+- **Gates, all pass**: `testDirectRounding` — DIRECT on grid/cylinder/torus
+  feasible, `max_loop_closure = 0 < 1e-6`, `iters = 0`, and greedy folds ≤
+  direct folds on every fixture (0 ≤ 0). Existing quantize/extract cases
+  byte-identical; full suite (3 known pre-existing failures only); WASM
+  canary (TS bindings regenerate with the new member). Default-path corpus
+  run `miq-q4-run1` **byte-identical** to `miq-q2-run1` (→ Q1 → Q0): the
+  enum is invisible until selected.
+- **DIRECT corpus A/B** (`miq-q4-direct`, same-session): greedy dominates the
+  messy asset on every axis — anime-girl: feasible true vs **false** (residual
+  2.7e-6 vs 0.43), folds 47 vs 70, inverted 3 vs 8, irregular interior 42
+  vs 56 (regular 72.4 % vs 62.7 %), min_jacobian −494 vs −4533, max area
+  ratio 22.6 vs 57.3. simple-closed is a statistical tie of two different
+  quantizations: greedy a hair worse on folds (54 vs 53) and irregular (66
+  vs 63), better on inverted (5 vs 10), components (1 vs 2), and feasibility
+  (true, 2.4e-5 vs **false**, 0.37). Treat sub-5 % mixed deltas on a clean
+  asset as a tie; the regression the oracle exists to catch is greedy losing
+  *decisively* anywhere.
+- **Role confirmed**: DIRECT's single 1e6-penalty re-solve cannot reach
+  integrality on either corpus asset (both `feasible=false`) — it is the
+  clean-input fast path and test oracle, never the quality default. Rounding
+  wall-clock 10×/7.8× faster (6.0 vs 60.6 ms; 28.1 vs 220.6 ms) but total
+  quantize moves only 2–18 % — ARAP dominates. Greedy machinery verifiably
+  skipped: rounds/updowns/gs_*/resort_* all 0 under DIRECT.
 
 ### Q5 — Exact constraint route (Lessons 2 + 3 + 1) — **gated**
 
@@ -226,6 +367,18 @@ Strip `CLAUDENOTE:`s, remove superseded params (`confidence_radius` if Q3
 removed it), update `documentation/quad-remeshing.md` (quantize stage
 description + stats), and annotate the research report with a pointer to this
 plan and the Lesson-1 correction.
+
+**Q6 result (done 2026-06-10).** No `CLAUDENOTE:`s existed in the tree;
+`confidence_radius` **stays** (the removal clause was conditional on Q3
+winning — Q3 was rejected and tau = 0.3 remains the criterion, with no
+`round_error_budget` residue). `documentation/quad-remeshing.md` gained a
+*Quantization rounding (M5)* subsection (penalty formulation, greedy + lazy
+heap, local-GS tier, GREEDY/DIRECT strategy, stats counters), the
+`quantize_direct_rounding` param row, and an accurate `run.quantize` manifest
+description; `research/miq-rounding-report.md` now opens with the annotation
+block (plan pointer + the Lesson-1 correction + the Q1/Q3 measured verdicts).
+Docs-only — the Q4 gate results (full suite, byte-identical corpus) stand as
+the current-tree evidence.
 
 ## Measurement protocol
 

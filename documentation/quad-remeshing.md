@@ -59,6 +59,45 @@ swap**: the most-bent edge direction (large eigenvalue) is the direction of
 from the cross-field stage (`field/constraints.cc`) gated on `use_curvature`, and
 also directly by the debug app's curvature overlay (below).
 
+### Quantization rounding (M5)
+
+`computeQuantization` (`quantize/quantize_ilp.cc`) is a **penalty-formulation
+MIQ rounder**: seam consistency and integer locks are `1e6` soft quadratics on
+the `2M` corner-class system, solved with CHOLMOD LDL' + incremental
+`cholmod_updown` rank updates natively, or per-round Eigen `SimplicialLLT`
+refactorization under WASM. Design rationale, A/B history, and the measured
+rejections live in [`plans/miq.md`](plans/miq.md) (the CoMISo comparison) — read
+it before touching the rounding loop. The moving parts:
+
+- **Greedy rounding (default).** Vertex-independent, most-confident-first
+  batches: every unfixed cut side whose fractional distance to its nearest
+  integer is within `confidence_radius` (`tau = 0.3` — measured better than
+  CoMISo's cumulative error budget, miq.md Q3) locks per round, then the system
+  re-solves. Side keys live in a generation-validated lazy min-heap with an
+  explicit `(frac, side)` tie-break; after a converged local-GS round only
+  sides incident to touched classes are re-keyed (a class→sides CSR), full
+  re-keys happen only on direct-solve rounds (miq.md Q2).
+- **Local Gauss-Seidel tier** (`QuantizeParams::use_local_gs`, default on).
+  Each lock batch first tries a local GS relaxation seeded at the locked
+  classes, escalating to a direct solve when it can't drain within the visit
+  cap; the final solve is always direct. Under the `1e6` coupling the
+  relaxation in practice spreads globally (miq.md Q1) — the tier's payoff is
+  removing per-round refactorizations, chiefly under WASM.
+- **`RoundingStrategy {GREEDY, DIRECT}`** (`QuantizeParams::rounding`, surfaced
+  as `RemeshParams::quantize_direct_rounding`, miq.md Q4). DIRECT runs zero
+  greedy rounds — every side locks at once off the initial seamless/ARAP-settled
+  solve, one re-solve (`stats.iters == 0`). It is a fast path for clean inputs
+  and the quality oracle GREEDY must never lose to (ctest
+  `testDirectRounding`); on messy corpus inputs its single re-solve does not
+  reach integrality (`feasible=false`) — it is never the quality default. A
+  third, exact tier (CoMISo's Gurobi/CPLEX slot) is deliberately unbuilt; the
+  enum comment in `quantize_ilp.h` documents the slot.
+- **Stats.** `QuantizeStats` carries deterministic counters (`full_refactors`,
+  `updowns`, `back_solves`, `tier1b_probes`, the `gs_*` local-GS profile, the
+  `resort_*` re-key profile) plus volatile `*_ms` phase wall-clocks; both are
+  written to the CLI manifest's `run.quantize` block, and only the counters may
+  ever feed `metrics.csv`.
+
 ## Parameters (`RemeshParams`, `remesh/remesh_params.h`)
 
 | field | default | meaning |
@@ -69,6 +108,7 @@ also directly by the debug app's curvature overlay (below).
 | `use_sharp_features` | `true` | hard-pin the field to sharp edges + open boundaries |
 | `sharp_angle`        | `0.785` (~45°) | dihedral threshold (radians) for "sharp" |
 | `use_density`        | `false` | scale quad spacing by the per-vertex `.remesh.v.density` map |
+| `quantize_direct_rounding` | `false` | one-shot DIRECT rounding instead of greedy batches (see *Quantization rounding* below) |
 | `reproject`          | `true` | snap output back onto the input surface (off = debugging) |
 | `cap_odd_holes`      | `false` | close odd-length cap rims with one triangle each (trades the all-quad guarantee for watertightness on organic inputs) |
 | `smooth_iterations`  | `2` | Laplacian passes interleaved with reprojection |
@@ -280,7 +320,12 @@ time), `duration_ms`, and the blocks:
 - `run` — the `RemeshRunReport` (`remesh/remesh_report.h`): `success`,
   `failure_reason`, `pipeline_ms`, the cross-field stats (`num_singularities`,
   `index_sum`, `field_solved_eigen`), the quantize stats
-  (`parametrization_folds`, `min_jacobian`, `quantize_feasible`), and a `stages`
+  (`parametrization_folds`, `min_jacobian`, `quantize_feasible`, plus a
+  `quantize` sub-block with the deterministic rounding-loop counters —
+  `rounds`, `residual`, `full_refactors`, `updowns`, `back_solves`,
+  `tier1b_probes`, the local-GS profile `gs_*`, the re-sort profile
+  `resort_*` — and the volatile `*_ms` phase wall-clocks, which stay
+  manifest-only, never in `metrics.csv`), and a `stages`
   map of per-stage status (`copy`/`decimate`/.../`reproject` → `ok`/`failed`/`skipped`)
 
 A clean pipeline failure (no output mesh, e.g. `extract_no_lattice`) still writes

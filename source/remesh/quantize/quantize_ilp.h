@@ -27,17 +27,25 @@ struct Mesh;
 
 namespace sculptcore::remesh {
 
+/* Rounding strategy (plans/miq.md Q4). GREEDY is Bommes most-confident-first
+ * batching with re-solves — the quality default. DIRECT rounds every side off
+ * the initial seamless solve in one shot ("fast but far from optimal"): a fast
+ * path for clean inputs and the oracle GREEDY must never lose to. A third,
+ * exact tier (CoMISo's Gurobi/CPLEX slot) is deliberately unbuilt — Tier-1b's
+ * ±1 search is its embryonic local form; add it here if it ever pays. */
+enum class RoundingStrategy { GREEDY = 0, DIRECT = 1 };
+
 struct QuantizeParams {
   float target_edge_length = 0.1f; // world-space target quad spacing
   bool use_density = false;        // scale spacing by 1/sqrt(.remesh.v.density)
   float gauge_eps = 1e-9f;         // Tikhonov shift for solver conditioning
   double integer_tol = 1e-4;       // max ||t - round(t)|| accepted as integral
   double max_lambda = 1e8;         // penalty ceiling; small values force fallback
-  int max_iters = 28;              // lambda-ramp / re-round rounds
   // Greedy-rounding confidence radius: lock a side only once its realized
   // translation is within this of an integer. Larger = fewer rounds/solves (the
   // dominant cost); past ~0.3 it adds a few irregular vertices. 0.3 is the
-  // quality-neutral knee (bit-identical to the old per-side 0.1).
+  // quality-neutral knee (bit-identical to the old per-side 0.1). Measured
+  // better than CoMISo's cumulative error budget here (plans/miq.md Q3).
   double confidence_radius = 0.3;
   // Local-injectivity stiffening rounds, run after the integers lock. The linear
   // MIQ map can fold where curvature concentrates (cap/crease cones); each round
@@ -78,6 +86,14 @@ struct QuantizeParams {
   // step, so the map starts injective and stays injective as the seams tighten.
   // 0 disables (field-aligned only). 0.10 matches the extraction fold gate.
   double untangle_fold_threshold = 0.10;
+  // Local Gauss-Seidel re-solve tier (plans/miq.md Q1). After each rounding
+  // batch, try a work-queue GS relaxation seeded at the locked sides' classes
+  // before paying for the direct path; escalate on a visit cap. Backend-agnostic
+  // (the bigger win is WASM, which otherwise refactorizes every round).
+  bool use_local_gs = true;
+  // See RoundingStrategy. DIRECT skips the greedy round loop entirely: all
+  // sides lock at once off the seamless/ARAP-settled solve, one re-solve.
+  RoundingStrategy rounding = RoundingStrategy::GREEDY;
 };
 
 struct QuantizeStats {
@@ -89,9 +105,43 @@ struct QuantizeStats {
   double max_loop_closure = 0.0;     // max one-ring closure residual (no-spiral)
   double min_jacobian = 0.0;         // min per-face det(grad u, grad v)
   int parametrization_folds = 0;     // faces with det(grad u, grad v) <= 0 (pre-extract)
-  int iters = 0;
+  int iters = 0;         // greedy rounding rounds run
   bool solved = false;   // linear solves succeeded
   bool feasible = false; // integrality reached within integer_tol (no spirals)
+
+  // Rounding-loop profile (plans/miq.md Q0). Counts are deterministic; the _ms
+  // wall-clocks are volatile and must stay out of corpus metrics.csv (they are
+  // surfaced via the manifest "run" block / results.json only).
+  int full_refactors = 0; // full numeric factorizations (analyze excluded)
+  int updowns = 0;        // incremental rank-update applications (native only)
+  int back_solves = 0;    // RHS solves against the current factor
+  int tier1b_probes = 0;  // Tier-1b +/-1 trial solves (settles excluded)
+  // Local-GS tier (Q1): the Q5 decision data. touched = distinct components a
+  // single attempt visited (how far the lock's influence spread); visits/touched
+  // is the mean revisit factor (GS convergence rate vs the 1e6 seam coupling).
+  int gs_rounds = 0;        // lock batches attempted on the local tier
+  int gs_converged = 0;     // attempts that drained within the visit cap
+  int gs_visits = 0;        // component relaxations summed over attempts
+  int gs_touched_total = 0; // distinct touched components summed over attempts
+  int gs_touched_max = 0;   // largest single-attempt touched set
+  // Confidence re-sort (Q2): rounds that re-keyed everything (direct solves)
+  // vs incrementally from the GS touched-set, and total side re-keys.
+  int resort_full = 0;
+  int resort_incr = 0;
+  int resort_keys = 0;
+  double total_ms = 0.0;    // whole computeQuantization call
+  double setup_ms = 0.0;  // seamless system + quant graph build
+  double initial_factor_ms = 0.0; // first seamless solve (analyze+factor+solve)
+  double arap_ms = 0.0;           // ARAP untangle continuation
+  double rounding_ms = 0.0;       // greedy rounding loop incl. leftover locks
+  double round_assemble_ms = 0.0; //   matrix assembly within rounding
+  double round_refactor_ms = 0.0; //   full refactors within rounding
+  double round_updown_ms = 0.0;   //   rank updates within rounding
+  double round_backsolve_ms = 0.0; //  RHS solves within rounding
+  double gs_ms = 0.0;              //   local-GS attempts within rounding
+  double tier1b_ms = 0.0;          // seam-integer relaxation
+  double stiffen_ms = 0.0;         // injectivity stiffening rounds
+  double tier3_ms = 0.0;           // local fold-patch re-parametrization
 };
 
 /* Quantize the seamless parametrization to an integer-grid map. Builds the
