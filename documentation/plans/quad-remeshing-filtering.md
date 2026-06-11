@@ -301,6 +301,41 @@ struct/args.
 Inspect: overlay screenshots, regression numbers, corpus before/after. Decide if
 2b (radius) is needed.
 
+### Results — iters sweep on the pair/fold bench set (lambda 0.5)
+
+Sequential same-session sweep over `curvature_smooth_iters` ∈ {0,2,4,8} on the
+three fold benches (`tests/scripts/remesh_pairs_{sphere,dabsphere}.txt` +
+AnimeGirl2 via `remesh_cli --triage 1 --target-quads 30000`). Diagnostics from
+`[remesh_quantize:pairs]` / manifest `run.quantize`.
+
+**Scan-like input (anime girl, 148,953 classes) — monotone win on the pair axis:**
+
+| iters | singularities | spurious pairs | folds near pairs | final param folds | extract irr / regular | holes | quantize total |
+|---|---|---|---|---|---|---|---|
+| 0 | 1480 | 1151 | 27% | 1226 | 809 / 0.9677 | 276 | 642 s |
+| 2 | 1270 | 1049 | 19% | 1152 | 664 / 0.9729 | 252 | 474 s |
+| 4 | 1179 | 991 | 21% | 1103 | 626 / 0.9746 | 223 | 590 s |
+| 8 | 1067 | 942 | 18% | 1060 | 570 / 0.9773 | 193 | 484 s |
+
+No saturation by 8; quantize also gets *cheaper* (fewer singularities → fewer
+rounding/tier-1b iterations). Raw `seamless_folds` is noisy run-to-run
+(29.7k–34.7k, non-monotone) — judge by final param folds + extract metrics.
+
+**Feature-driven input (dab-sphere, 108,300 faces) — harmful:** singularities
+pinned at the topological minimum 8 / 0 spurious pairs at every setting, but
+seamless folds 21,792 → ~48,500 (any iters ≥ 2), final param folds 49 → 260–755,
+quantize total +35–80%. The dab curvature is *signal*; smoothing washes the
+sizing/alignment cues into the flat regions.
+
+**Analytic sphere (73,344 faces) — no-op:** 2 singularities / 0 pairs / ~75
+seamless folds either way; its 27k+ param folds and `feasible=0` are pure
+quantize-side (tier-1b grind ≈ 95% of its 12–15 min) and out of Tier-2 reach.
+
+**Conclusion:** Tier 2 attacks the *spurious-pair* axis (noisy scan-like
+curvature) and does nothing for — or actively harms — the *fold* axis on clean
+or feature-driven inputs. Keep default `0`; enable (≈4–8) via the scan/messy
+presets, not unconditionally.
+
 ---
 
 ## Tier 3 — Automatic curvature-density + gradation limiting
@@ -431,6 +466,26 @@ high smoothness doesn't collapse the field (empty extract).
   edges / 5 inverted (field inherits noise), 1.0 → 6 / 4 (best), 4.0 → 84 / 45
   with visible radial slivers (field stops tracking local curvature).
   Screenshots: `tests/remesher-results/tier4/`.
+- **Joint grid with Tier 2** (`field_smoothness` {1,2} ×
+  `curvature_smooth_iters` {0,4}, lambda 0.5, same bench set as Tier 2's
+  Results). Anime girl (148,953 classes, triage ON):
+
+  | fs | iters | singularities | spurious pairs | final param folds | extract irr / regular | quantize total |
+  |---|---|---|---|---|---|---|
+  | 1 | 0 | 1480 | 1151 | 1226 | 809 / 0.9677 | 642 s |
+  | 1 | 4 | 1179 | 991 | 1103 | 626 / 0.9746 | 590 s |
+  | 2 | 0 | 1256 | 1026 | 1161 | 658 / 0.9737 | 497 s |
+  | 2 | 4 | 1084 | 975 | 1087 | 641 / 0.9738 | 537 s |
+
+  The knobs compose (1480 → 1084 singularities) but with diminishing returns on
+  the pair axis — even max dosing (iters 8, Tier 2 Results) leaves ~82% of the
+  spurious pairs. fs=2 alone is a straight perf win on the dab-sphere (quantize
+  137 s vs 235 s, final folds 49 → 53, quality flat) — the smoother field gives
+  ARAP/rounding easier systems. Outlier worth knowing: on the analytic sphere,
+  fs=2 + iters=4 broke the degenerate 2-pole field configuration (16
+  distributed singularities, `index_sum` preserved) and final param folds
+  collapsed 29,865 → 194 with quantize 9× faster — singularity *placement*,
+  not count, drove that mesh's fold pathology.
 
 ---
 
@@ -478,6 +533,28 @@ flags, not a bolt-on).
 
 ### Review gate 5
 Inspect: planted-pair test, corpus deltas, confirm required poles survive.
+
+### Gate decision (items 1–4 bench sweeps, 2026-06-11)
+
+**Build it — for the scan/messy input class.** The source-reduction knobs
+saturate well above zero: at max dosing (Tier 2 iters 8 / Tier 4 fs 2) the
+anime-girl bench still carries 942–975 spurious pairs (only −18% from the 1151
+baseline), ~19% of seamless folds co-locate with them, and extract regularity
+plateaus at ~0.977. That residual clutter is exactly what this tier exists for.
+Two qualifiers from the same sweeps:
+
+- **It is not a fold fix for clean inputs.** The fold-heavy benches with zero
+  spurious pairs (192-sphere, dab-sphere) are untouchable from the field side;
+  their cost is quantize-side — the 192-sphere spends ~95% of its 11–15 min in
+  tier-1b (~17k batched 4-probe triangular solves). That axis belongs to the
+  tier-1b probe budget / solver work, not to this tier.
+- **Configuration edits have fold leverage too.** The sphere fs=2/iters=4
+  outlier (param folds 29,865 → 194 once the degenerate 2-pole configuration
+  broke into 16 distributed singularities) shows singularity *placement* can
+  dominate fold count — supporting the rollback-guarded cancellation/relocation
+  design over a pure-aesthetics framing, and suggesting the validation metric
+  set (folds, feasibility) will sometimes *reward* relocation on near-umbilic
+  regions.
 
 ---
 
