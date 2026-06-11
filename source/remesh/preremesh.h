@@ -96,8 +96,9 @@ struct PreRemeshParams {
   float density_min = 0.25f;   // size-field clamps (mirror Tier 3) when density=true
   float density_max = 4.0f;
   /* Early-out: stop once an outer iter's field-aligned smooth moves every vertex
-   * less than converge_eps · target. 0 = run all `iters`. */
-  float converge_eps = 0.0f;
+   * less than converge_eps · target. 0 = run all `iters`. Default mirrors the
+   * pipeline's pre_remesh_converge_eps. */
+  float converge_eps = 0.05f;
   /* Tier 9c: pin boundary loops + dihedral-sharp creases (classifyFeatures) so the
    * iterated flow doesn't erode features. sharp_angle is the dihedral threshold
    * (radians; default 45°, matching the cross field). */

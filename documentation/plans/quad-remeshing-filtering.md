@@ -1017,17 +1017,17 @@ below take effect only when it's on (or in the debug app's pre-pass mode).
 | field | default | meaning |
 |-------|---------|---------|
 | `pre_remesh` | `false` | run the field-aligned input pre-remesh on `work` before the field solve |
-| `pre_remesh_iters` | `5` | outer convergence iterations |
+| `pre_remesh_iters` | `0` | outer convergence iterations; `0` = auto from the measured input (clamped to [3,6]) |
 | `pre_remesh_target` | `0.0f` | **base** pre-pass edge length (scaled per-vertex by `1/sqrt(density)` when `pre_remesh_density`); `0` = auto (`target_edge_length` or the count-mode formula, clamped to the 20% edge budget). The one explicit deep-coarsening route once `solve_edge_length` is removed |
 | `pre_remesh_density` | `true` | drive the split/collapse band from the per-vertex curvature size field (Tier 3 sizing chain, recomputed on `work`); `false` = uniform (A/B only) |
 | `pre_remesh_gradation` | `0.5f` | per-edge-hop size growth cap on the pre-pass field (3b); `0` disables (A/B only) |
 | `pre_remesh_gradation_iters` | `10` | gradation work cap (pops per vertex) |
 | `pre_remesh_align` | `1.0f` | isotropic(`0`)↔field-aligned(`1`) smooth blend |
 | `pre_remesh_field_cadence` | `2` | recompute the rough field every N outer iters |
-| `pre_remesh_bootstrap_iters` | `2` | isotropic denoise sweeps before field-aligned begins |
+| `pre_remesh_bootstrap_iters` | `-1` | isotropic denoise sweeps before field-aligned begins; `-1` = auto from input noise (1/2/4) |
 | `pre_remesh_smooth_iters` | `5` | inner field-aligned smooth sweeps per outer iter |
 | `pre_remesh_smooth_lambda` | `0.5f` | per-sweep relaxation factor |
-| `pre_remesh_converge_eps` | `0.0f` | early-out: stop when max smooth move < eps·target (`0` = run all iters) |
+| `pre_remesh_converge_eps` | `0.05f` | early-out: stop when max smooth move < eps·target (`0` = run all iters); `PreRemeshParams::converge_eps` mirrors this default |
 | `pre_remesh_preserve_features` | `true` | 9c: pin boundary + dihedral-sharp creases |
 | `pre_remesh_sharp_angle` | `0.785f` | 9c dihedral threshold (rad) |
 
