@@ -37,6 +37,11 @@ const SUITESPARSE_REPO = 'https://github.com/DrTimothyAldenDavis/SuiteSparse.git
 export const OPENBLAS_TAG = fs.readFileSync(path.join(ROOT, 'openblasVersion.txt'), 'utf-8').trim()
 export const SUITESPARSE_TAG = fs.readFileSync(path.join(ROOT, 'suitesparseVersion.txt'), 'utf-8').trim()
 
+// Bump when the build flags below change: combos whose manifest records an
+// older revision are rebuilt (same-tag artifacts would otherwise be reused).
+// rev 2: threaded OpenBLAS (USE_THREAD+USE_OPENMP, NUM_THREADS=16 cap).
+export const DEPS_REVISION = 2
+
 // CHOLMOD + the packages it depends on.
 const SUITESPARSE_PROJECTS = 'suitesparse_config;amd;colamd;camd;ccolamd;cholmod'
 
@@ -204,6 +209,10 @@ function buildOpenBLAS(config, installDir) {
     `-DBINARY=64`, // 64-bit build; stops getarch misdetecting -m32
     `-DDYNAMIC_ARCH=ON`, // runtime CPU dispatch -> portable across the toolchain key
     `-DBUILD_TESTING=OFF`,
+    '-DUSE_THREAD=ON',
+    '-DUSE_OPENMP=ON', // share CHOLMOD's OpenMP runtime -> one thread-count knob
+    '-DNUM_THREADS=16', // compile-time pool cap (default bakes the build host's core count)
+    '-DUSE_LOCKING=ON', // thread-safe when the caller drops to 1 BLAS thread
     `-DBUILD_SHARED_LIBS=OFF`,
     `-DBUILD_STATIC_LIBS=ON`,
     flags ? `-DCMAKE_C_FLAGS="${flags}"` : '',
@@ -250,8 +259,10 @@ function buildSuiteSparse(config, installDir, openblasLib) {
     `-DSUITESPARSE_DEMOS=OFF`,
     `-DSUITESPARSE_USE_FORTRAN=OFF`,
     `-DSUITESPARSE_USE_CUDA=OFF`,
+    '-DSUITESPARSE_USE_OPENMP=ON',
     `-DBLA_VENDOR=OpenBLAS`,
     `-DBLAS_LIBRARIES="${blasLib}"`,
+    `-DBLAS_LINKER_FLAGS="-llibomp"`,
     `-DLAPACK_LIBRARIES="${blasLib}"`,
     `-DBLAS_FOUND=TRUE`,
     `-DLAPACK_FOUND=TRUE`,
@@ -272,14 +283,32 @@ function buildSuiteSparse(config, installDir, openblasLib) {
   return lib
 }
 
-function manifestMatches(comboDir) {
+function readManifest(comboDir) {
   const file = path.join(comboDir, 'manifest.json')
-  if (!fs.existsSync(file)) return false
+  if (!fs.existsSync(file)) return null
   try {
-    const m = JSON.parse(fs.readFileSync(file, 'utf-8'))
-    return m.openblas === OPENBLAS_TAG && m.suitesparse === SUITESPARSE_TAG
+    return JSON.parse(fs.readFileSync(file, 'utf-8'))
   } catch {
-    return false
+    return null
+  }
+}
+
+function manifestMatches(m) {
+  return (
+    !!m && m.openblas === OPENBLAS_TAG && m.suitesparse === SUITESPARSE_TAG && m.revision === DEPS_REVISION
+  )
+}
+
+// A stale manifest (pin or revision bump) must clear the install trees and the
+// cmake build dirs: the per-lib findLib reuse short-circuit and stale CMake
+// caches would otherwise resurrect the old artifacts.
+function clearStaleCombo(comboDir, cfg) {
+  console.log('deps: manifest stale (pin/revision changed); clearing cached combo')
+  for (const sub of ['openblas', 'suitesparse', 'manifest.json']) {
+    fs.rmSync(path.join(comboDir, sub), {recursive: true, force: true})
+  }
+  for (const sub of [`openblas-${cfg}`, `suitesparse-${cfg}`]) {
+    fs.rmSync(path.join(BUILD_CACHE, sub), {recursive: true, force: true})
   }
 }
 
@@ -304,9 +333,13 @@ export async function ensureDeps({config} = {}) {
   ensureLfs()
   checkoutCombo(comboRel)
 
-  if (manifestMatches(comboDir)) {
+  const cached = readManifest(comboDir)
+  if (manifestMatches(cached)) {
     console.log(`deps: cache hit ${comboRel} (OpenBLAS ${OPENBLAS_TAG}, SuiteSparse ${SUITESPARSE_TAG})`)
     return comboDir
+  }
+  if (cached) {
+    clearStaleCombo(comboDir, cfg)
   }
 
   console.log(`deps: building ${comboRel} from source`)
@@ -317,6 +350,7 @@ export async function ensureDeps({config} = {}) {
   const manifest = {
     openblas: OPENBLAS_TAG,
     suitesparse: SUITESPARSE_TAG,
+    revision: DEPS_REVISION,
     platform: platformDir(),
     toolchain: toolchainKey(),
     config: cfg,

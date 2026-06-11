@@ -16,6 +16,8 @@
 
 #ifndef WASM
 #include <eigen/include/eigen5/Eigen/CholmodSupport>
+#include <omp.h>
+extern "C" void openblas_set_num_threads(int);
 #endif
 
 #include <algorithm>
@@ -730,6 +732,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // holds every lock. Default is forced-simplicial (see use_supernodal).
   cholmod_common cc;
   cholmod_start(&cc);
+  // Quantize-scale supernodal fronts are too small for wide BLAS fan-out (16
+  // threads measured 2.3x slower than 1-4 at ~18k classes): cap CHOLMOD's and
+  // OpenBLAS's OpenMP thread counts, still honoring a lower OMP_NUM_THREADS.
+  const int blas_threads = std::max(1, std::min(4, omp_get_max_threads()));
+  cc.nthreads_max = blas_threads;
+  openblas_set_num_threads(blas_threads);
   cc.supernodal = params.use_supernodal ? CHOLMOD_AUTO : CHOLMOD_SIMPLICIAL;
   cc.final_ll = 0; // keep simplicial factorizations LDL' (updown updates LDL')
   cholmod_factor *Lsuper = nullptr; // analyzed once; numeric-refactorized

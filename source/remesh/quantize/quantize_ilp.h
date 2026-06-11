@@ -99,10 +99,11 @@ struct QuantizeParams {
   // re-factorization is cheaper than the incremental update.
   int updown_max_cols = 256;
   // Native: let CHOLMOD_AUTO pick supernodal (BLAS-3) factorization, keeping a
-  // lazy simplicial clone for cholmod_updown. Off by default: with the current
-  // single-threaded OpenBLAS the supernodal path measured ~2.7x slower per
-  // refactor than simplicial LDL' at corpus scale (~18k unknowns), and AUTO's
-  // analyze alone costs more. Re-measure once the BLAS is threaded (plan item E).
+  // lazy simplicial clone for cholmod_updown. Off by default: even with the
+  // threaded OpenBLAS (+ the blas_threads cap) it measured ~4x slower on
+  // corpus-scale systems (refactor-heavy ARAP/stiffening, fronts too small to
+  // amortize BLAS-3); it wins ~2.3x end-to-end only from ~18k classes up
+  // (synthetic sphere sweep). Flip per-run for large systems.
   bool use_supernodal = false;
 };
 
