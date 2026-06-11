@@ -721,9 +721,19 @@ limits, don't over-promise.**
   the field solve so they don't seed spurious boundary constraints, while
   **preserving large boundaries** (mouth, sleeve cuffs, eyelids) as open. This is
   new pre-solve patching, distinct from the output cap path.
-- **Output residual cap (existing):** keep `cap_odd_holes` / the extraction cap
-  as-is for spurious *output* loops; just make sure the two policies don't
-  double-close a legitimately-open rim.
+- **Better output hole capping** (the extraction cap, `quad_extract.cc:530`):
+  today every cap is a center fan — acceptable for small even rims (center
+  valence n/2) but a single high-valence pole on large ones — and an *odd* rim
+  gets either one triangle (opt-in `cap_odd_holes`) or stays open. Parity
+  (4F = 2E_int + E_bnd) says a disk with an odd boundary can never be all-quad,
+  so a real odd-hole cap must touch the surrounding mesh: split one rim edge
+  (rim becomes even; the adjacent quad becomes a pentagon) and propagate the
+  quad-strip split a few faces, terminating in a valence 3-5 pair, then cap the
+  even rim normally. Large even rims (n ≳ 12) should bridge / recursively split
+  into smaller rims (or grid-fill when the rim decomposes into 4 sides) instead
+  of fanning. Once the odd cap is all-quad, revisit `cap_odd_holes`'s default —
+  the all-quad-contract reason for off disappears. Keep this distinct from the
+  input hole policy above; the two must not double-close a legitimately-open rim.
 - **Boundary preservation:** keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
 - **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in
@@ -746,12 +756,16 @@ limits, don't over-promise.**
 ### Verification
 - **gtest:** a plane with one tiny hole + one large hole — assert tiny capped,
   large preserved. Two-component mesh — assert independent remesh when enabled.
+  Odd-rim cap — assert the patch is all-quad and watertight (3-5 pair
+  termination, no triangle), and an even large rim caps without a high-valence
+  pole.
 - **Corpus:** holed-face and multi-accessory assets — hole-count and
   boundary-preservation-error metrics behave as intended.
 
 ### Review gate 6
-Inspect: hole-policy test, component handling, corpus boundary metrics, and the
-thin-sheet detection/report.
+Inspect: hole-policy test, the all-quad odd-rim cap (+ `cap_odd_holes` default
+decision), component handling, corpus boundary metrics, and the thin-sheet
+detection/report.
 
 ---
 
