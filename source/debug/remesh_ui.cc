@@ -346,6 +346,17 @@ void RemeshUi::drawPanel()
   ImGui::SliderFloat("curvature weight", &P.curvature_weight, 0.0f, 8.0f, "%.2f");
   tip("Tier 4: soft curvature-alignment scale (x local anisotropy) — the other "
       "half of the smoothness/alignment tradeoff.");
+  ImGui::Checkbox("singularity cancel", &P.singularity_cancel);
+  tip("Tier 5: cancel +1/-1 pole pairs closer than the gate below by flipping "
+      "edge periods along the geodesic path between them, then re-solving the "
+      "phase field. Targets noise-born pairs on scan/messy inputs.");
+  ImGui::BeginDisabled(!P.singularity_cancel);
+  ImGui::SliderFloat("cancel max sep", &P.singularity_cancel_max_sep, 0.5f, 4.0f,
+                     "%.2f");
+  tip("Pair-separation gate in quad-edge-length units: only pole pairs within "
+      "this geodesic distance are cancelled. Larger merges farther pairs but "
+      "distorts the field over a wider area.");
+  ImGui::EndDisabled();
   ImGui::Checkbox("auto density", &P.auto_density);
   tip("Tier 3: derive the density map from curvature (s = curvature x target, "
       "density = clamp(s^2, min, max)) so curved regions get finer quads and "

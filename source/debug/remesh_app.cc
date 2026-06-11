@@ -338,6 +338,10 @@ bool RemeshApp::runRemesh(std::string &err)
       wf(params.field_smoothness),
       L"--curvature-weight",
       wf(params.curvature_weight),
+      L"--singularity-cancel",
+      wb(params.singularity_cancel),
+      L"--singularity-cancel-max-sep",
+      wf(params.singularity_cancel_max_sep),
       L"--auto-density",
       wb(params.auto_density),
       L"--density-min",
@@ -719,6 +723,8 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "curvature_smooth_lambda=" << params.curvature_smooth_lambda << "\n"
       << "field_smoothness=" << params.field_smoothness << "\n"
       << "curvature_weight=" << params.curvature_weight << "\n"
+      << "singularity_cancel=" << (params.singularity_cancel ? 1 : 0) << "\n"
+      << "singularity_cancel_max_sep=" << params.singularity_cancel_max_sep << "\n"
       << "auto_density=" << (params.auto_density ? 1 : 0) << "\n"
       << "density_min=" << params.density_min << "\n"
       << "density_max=" << params.density_max << "\n"
@@ -806,6 +812,10 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.field_smoothness = float(d);
     } else if (name == "curvature_weight") {
       params.curvature_weight = float(d);
+    } else if (name == "singularity_cancel") {
+      params.singularity_cancel = iv != 0;
+    } else if (name == "singularity_cancel_max_sep") {
+      params.singularity_cancel_max_sep = float(d);
     } else if (name == "auto_density") {
       params.auto_density = iv != 0;
     } else if (name == "density_min") {

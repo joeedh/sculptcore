@@ -38,6 +38,8 @@ export interface RemeshParams {
   curvature_smooth_lambda: float
   field_smoothness: float
   curvature_weight: float
+  singularity_cancel: boolean
+  singularity_cancel_max_sep: float
   auto_density: boolean
   density_min: float
   density_max: float
