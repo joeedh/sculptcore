@@ -49,8 +49,39 @@ CutGraphStats buildCutGraph(Mesh &m)
     }
   }
 
-  // Root the tree at a singular face when we have an index field.
-  int root = ELEM_NONE;
+  // Dual spanning forest (DFS per component): tree edges are freed (non-cut),
+  // cotree stays cut. A single-rooted tree would leave every other component
+  // fully cut, exploding the quantize side count.
+  Vector<char> visited;
+  visited.resize(fcap);
+  for (int i = 0; i < fcap; i++) {
+    visited[i] = 0;
+  }
+  Vector<int> stack;
+  auto spanComponent = [&](int root) {
+    visited[root] = 1;
+    stack.clear();
+    stack.append(root);
+    while (stack.size() > 0) {
+      int f = stack.pop_back();
+      int c0 = m.l.c[m.f.l[f]], cc = c0;
+      do {
+        int e = m.c.e[cc];
+        int cr = m.c.radial_next[cc];
+        if (cr != cc && m.c.radial_next[cr] == cc) {
+          int fb = m.l.f[m.c.l[cr]];
+          if (fb != f && !visited[fb]) {
+            is_cut.set(e, false);
+            visited[fb] = 1;
+            stack.append(fb);
+          }
+        }
+        cc = m.c.next[cc];
+      } while (cc != c0);
+    }
+  };
+
+  // Components with singularities root at their first singular vertex's face.
   bool have_pole =
       m.v.attrs.has(AttrType::SHORT, litestl::util::string(".remesh.v.pole_index"));
   if (have_pole) {
@@ -61,54 +92,26 @@ CutGraphStats buildCutGraph(Mesh &m)
         continue;
       }
       stats.num_singularities++;
-      if (root != ELEM_NONE) {
-        continue;
-      }
       int e0 = m.v.e[v];
       if (e0 == ELEM_NONE) {
         continue;
       }
       int c = m.e.c[e0];
-      if (c != ELEM_NONE) {
-        root = m.l.f[m.c.l[c]];
+      if (c == ELEM_NONE) {
+        continue;
+      }
+      int froot = m.l.f[m.c.l[c]];
+      if (!visited[froot]) {
+        spanComponent(froot);
       }
     }
-  }
-  if (root == ELEM_NONE) {
-    for (int f : m.f) {
-      root = f;
-      break;
-    }
-  }
-  if (root == ELEM_NONE) {
-    return stats; // empty mesh
   }
 
-  // Dual spanning tree (DFS): tree edges are freed (non-cut), cotree stays cut.
-  Vector<char> visited;
-  visited.resize(fcap);
-  for (int i = 0; i < fcap; i++) {
-    visited[i] = 0;
-  }
-  Vector<int> stack;
-  visited[root] = 1;
-  stack.append(root);
-  while (stack.size() > 0) {
-    int f = stack.pop_back();
-    int c0 = m.l.c[m.f.l[f]], cc = c0;
-    do {
-      int e = m.c.e[cc];
-      int cr = m.c.radial_next[cc];
-      if (cr != cc && m.c.radial_next[cr] == cc) {
-        int fb = m.l.f[m.c.l[cr]];
-        if (fb != f && !visited[fb]) {
-          is_cut.set(e, false);
-          visited[fb] = 1;
-          stack.append(fb);
-        }
-      }
-      cc = m.c.next[cc];
-    } while (cc != c0);
+  // Singularity-free components root at their lowest-index face.
+  for (int f : m.f) {
+    if (!visited[f]) {
+      spanComponent(f);
+    }
   }
 
   for (int e : m.e) {

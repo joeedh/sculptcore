@@ -15,10 +15,12 @@
 
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
+#include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
 #include "mesh/utils/triangulate.h"
 #include "remesh/field/cross_field.h"
+#include "remesh/param/cut_graph.h"
 #include "remesh/param/seamless_param.h"
 
 #include <cmath>
@@ -117,6 +119,78 @@ void testTorusParam()
   litestl::alloc::Delete<Mesh>(t);
 }
 
+// Regression: the cut graph must be a dual spanning *forest* — a single-rooted
+// DFS left every other component fully cut, and a pole in a small accessory
+// component used to leave the main body fully cut (3x the quantize sides).
+void testCutGraphSpansComponents()
+{
+  using litestl::math::float3;
+
+  Mesh *m = mesh::makeGrid(8, 8, 1.0f);
+  m->thawTopo();
+
+  // Far-away second component: a 4x4-quad patch.
+  const int N = 5;
+  int vid[N][N];
+  for (int i = 0; i < N; i++) {
+    for (int j = 0; j < N; j++) {
+      vid[i][j] = m->make_vertex(float3(100.0f + float(i), float(j), 0.0f));
+    }
+  }
+  for (int i = 0; i + 1 < N; i++) {
+    for (int j = 0; j + 1 < N; j++) {
+      litestl::util::Vector<int> vs;
+      vs.append(vid[i][j]);
+      vs.append(vid[i + 1][j]);
+      vs.append(vid[i + 1][j + 1]);
+      vs.append(vid[i][j + 1]);
+      m->make_face(vs);
+    }
+  }
+  mesh::triangulateMesh(*m);
+
+  int interior = 0;
+  for (int e : m->e) {
+    int c1 = m->e.c[e];
+    if (c1 == ELEM_NONE) {
+      continue;
+    }
+    int c2 = m->c.radial_next[c1];
+    if (c2 == c1 || m->c.radial_next[c2] != c1) {
+      continue;
+    }
+    if (m->l.f[m->c.l[c1]] != m->l.f[m->c.l[c2]]) {
+      interior++;
+    }
+  }
+  const int want_tree = m->f.count - 2; // one tree per component
+
+  // No pole field: pass-2 rooting must still span both components.
+  remesh::CutGraphStats st = remesh::buildCutGraph(*m);
+  fprintf(stderr, "[cutgraph] interior=%d tree=%d cut=%d (no poles)\n", interior,
+          st.num_tree_edges, st.num_cut_edges);
+  TASSERT(st.num_tree_edges == want_tree);
+  TASSERT(st.num_tree_edges + st.num_cut_edges == interior);
+
+  // The regression case: the only singular vertex sits in the small far
+  // component; rooting there must not leave the main grid fully cut.
+  BuiltinAttr<short, ".remesh.v.pole_index"> pole;
+  pole.ensure(m->v.attrs);
+  for (int v : m->v) {
+    pole[v] = 0;
+  }
+  pole[vid[2][2]] = 1;
+  st = remesh::buildCutGraph(*m);
+  fprintf(stderr,
+          "[cutgraph] interior=%d tree=%d cut=%d sing=%d (pole in far component)\n",
+          interior, st.num_tree_edges, st.num_cut_edges, st.num_singularities);
+  TASSERT(st.num_singularities == 1);
+  TASSERT(st.num_tree_edges == want_tree);
+  TASSERT(st.num_tree_edges + st.num_cut_edges == interior);
+
+  litestl::alloc::Delete<Mesh>(m);
+}
+
 void testDeterminism()
 {
   Mesh *a = mesh::makeGrid(16, 16, 1.0f);
@@ -153,6 +227,7 @@ int main()
   testGridParam();
   testCylinderParam();
   testTorusParam();
+  testCutGraphSpansComponents();
   testDeterminism();
   return retval;
 }
