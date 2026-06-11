@@ -353,10 +353,10 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"nonquad_cells\": %d,\n", ex.nonquad_cells);
   std::fprintf(f, "      \"holes_capped\": %d,\n", ex.holes_capped);
   std::fprintf(f, "      \"holes_capped_odd\": %d,\n", ex.holes_capped_odd);
+  std::fprintf(f, "      \"holes_pinched_split\": %d,\n", ex.holes_pinched_split);
   std::fprintf(f, "      \"holes_open\": %d,\n", ex.holes_open);
   std::fprintf(f, "      \"holes_open_border\": %d,\n", ex.holes_open_border);
   std::fprintf(f, "      \"holes_open_odd\": %d,\n", ex.holes_open_odd);
-  std::fprintf(f, "      \"holes_open_pinched\": %d,\n", ex.holes_open_pinched);
   std::fprintf(f, "      \"holes_open_size\": %d,\n", ex.holes_open_size);
   std::fprintf(f, "      \"holes_open_untraced\": %d\n", ex.holes_open_untraced);
   std::fprintf(f, "    },\n");

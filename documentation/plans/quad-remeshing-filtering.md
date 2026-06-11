@@ -742,6 +742,20 @@ limits, don't over-promise.**
     are: cap/weld tiny rims (n=2 zip, n=3 triangle or split-to-4 quad), split
     pinched rims at their pinch vertices into simple sub-loops, and per-loop
     input-rim correspondence to replace the global `inputClosed` heuristic.
+  - **DONE (6.1):** all three landed in `quad_extract.cc` — n=3 triangle cap
+    (no digons exist; n<3 stays in the size bucket), pinch-split worklist
+    (`holes_pinched_split`; the pinch vert becomes an edge-manifold bowtie), and
+    a per-loop real-border classifier: mean rim-vert distance to the input
+    boundary polyline ≤ 1.0 × mean rim edge (`kBorderTol`; real borders measure
+    ~0.7 cells — the extracted rim is the outermost full lattice line — vs ≥ 1.6
+    for spurious rims; fox's 4 "holes" are single-edge sub-grid cracks, so none
+    are real). **Fox @ 15k, cap_odd=1: boundary loops 94 → 0** (watertight;
+    1598 → 0 boundary edges), 253 rims capped (158 odd → tris, was 52), 0 open.
+    Plane-with-hole unchanged (2 rims classified border, kept open); gtest
+    `testPlaneHoleBorders` pins it. Known limitation → 6.3: an input hole
+    within ~1 cell of an output rim would classify as border; sub-grid input
+    cracks (fox) are now capped in the *output* — the input-side fill
+    (`input_hole_fill_max_frac`) remains the principled fix.
 - **Boundary preservation:** keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
 - **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in

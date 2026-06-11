@@ -5,6 +5,8 @@
 // lattice, and validates it structurally with remeshValidate:
 //
 //  - Grid: a flat disk; a clean all-quad grid (Euler 1, valence-4 interior).
+//  - Plane with hole: an annulus; both rims (outer + hole) must classify as
+//    real input borders in the cap pass and stay open — nothing capped.
 //  - Cylinder (uncapped): a tube; all-quad, manifold, Euler 0, singularity-free.
 //  - Torus: the genus-1 case; all-quad, manifold, Euler 0, singularity-free.
 //  - Sphere: 8 valence-3/5 singularities are expected; all-quad + manifold +
@@ -114,6 +116,74 @@ void testGridExtract()
     litestl::alloc::Delete<Mesh>(out);
   }
   litestl::alloc::Delete<Mesh>(g);
+}
+
+// An n x n grid plane with a circular hole punched out of the middle (faces
+// whose center falls inside `holeR` are skipped; verts created on demand).
+Mesh *makeGridWithHole(int n, float size, float holeR)
+{
+  using litestl::math::float3;
+  using litestl::util::Vector;
+  Mesh *m = litestl::alloc::New<Mesh>("Mesh GridHole");
+  Vector<int> verts;
+  verts.resize(n * n);
+  for (int i = 0; i < n * n; i++)
+    verts[i] = -1;
+  float inv = 1.0f / float(n - 1);
+  auto vat = [&](int i, int j) {
+    int &v = verts[i * n + j];
+    if (v < 0)
+      v = m->make_vertex(
+          float3((float(i) * inv - 0.5f) * size, (float(j) * inv - 0.5f) * size, 0.0f));
+    return v;
+  };
+  Vector<int> vs;
+  for (int i = 0; i < n - 1; i++) {
+    for (int j = 0; j < n - 1; j++) {
+      float cx = ((float(i) + 0.5f) * inv - 0.5f) * size;
+      float cy = ((float(j) + 0.5f) * inv - 0.5f) * size;
+      if (cx * cx + cy * cy < holeR * holeR)
+        continue;
+      vs.clear();
+      vs.append(vat(i, j));
+      vs.append(vat(i + 1, j));
+      vs.append(vat(i + 1, j + 1));
+      vs.append(vat(i, j + 1));
+      m->make_face(vs);
+    }
+  }
+  m->recalc_normals();
+  return m;
+}
+
+// Real-border preservation: every output rim of the annulus must classify as a
+// real input border in the cap pass (holes_open_border) and stay open. Capping
+// one would weld the plane shut — the failure mode the rim classifier exists to
+// prevent (spurious rims cap, borders don't; see quad_extract.cc).
+void testPlaneHoleBorders()
+{
+  // Hole radius vs target keeps the annulus >= 4 grid cells wide everywhere, so
+  // the two rims extract pinch-free (sharing a vert would union-find as 1 loop).
+  Mesh *p = makeGridWithHole(17, 1.0f, 0.2f);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(p, 0.07f, st);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("planehole", r);
+    fprintf(stderr, "[planehole] capped=%d open=%d border=%d pinched=%d\n",
+            st.holes_capped, st.holes_open, st.holes_open_border, st.holes_pinched_split);
+    TASSERT(st.ok);
+    TASSERT(r.all_quad);
+    TASSERT(r.structurallyOk());
+    TASSERT(st.holes_capped == 0);          // nothing spurious to cap
+    TASSERT(st.holes_pinched_split == 0);   // rims must not touch
+    TASSERT(st.holes_open_border == 2);     // outer rim + the hole rim, both open
+    TASSERT(st.holes_open == 2);
+    TASSERT(r.boundary_loop_count == 2);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(p);
 }
 
 void testCylinderExtract()
@@ -387,6 +457,7 @@ int main()
     return retval;
   }
   testGridExtract();
+  testPlaneHoleBorders();
   testCylinderExtract();
   testTorusExtract();
   testSphereExtract();

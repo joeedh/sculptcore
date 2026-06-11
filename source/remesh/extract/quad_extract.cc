@@ -43,6 +43,18 @@ inline float3 cross3(float3 a, float3 b)
                 a[0] * b[1] - a[1] * b[0]);
 }
 inline float3 sub3(float3 a, float3 b) { return float3(a[0] - b[0], a[1] - b[1], a[2] - b[2]); }
+inline double distPtSeg3(float3 p, float3 a, float3 b)
+{
+  float3 ab = sub3(b, a), ap = sub3(p, a);
+  double L2 = double(ab[0]) * ab[0] + double(ab[1]) * ab[1] + double(ab[2]) * ab[2];
+  double t = L2 > 0.0
+                 ? (double(ap[0]) * ab[0] + double(ap[1]) * ab[1] + double(ap[2]) * ab[2]) / L2
+                 : 0.0;
+  t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+  return std::sqrt(std::pow(double(p[0]) - (a[0] + t * ab[0]), 2.0) +
+                   std::pow(double(p[1]) - (a[1] + t * ab[1]), 2.0) +
+                   std::pow(double(p[2]) - (a[2] + t * ab[2]), 2.0));
+}
 inline double len3(float3 a)
 {
   return std::sqrt(double(a[0]) * a[0] + double(a[1]) * a[1] + double(a[2]) * a[2]);
@@ -527,13 +539,12 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
 
   out->recalc_normals();
 
-  // ---- close holes: cap each even boundary loop with a quad fan ----
-  // Skipping the folded (degenerate) face 1-rings leaves a clean even ring at each
-  // unresolved cone / over-scaled cap; close it with a fan of quads so the result
-  // stays watertight and all-quad. A closed input has no legitimate boundary, so
-  // every output loop is a spurious hole and is capped (cone center if one is
-  // enclosed, else the loop centroid); an open input keeps loops that don't
-  // encircle a cone, preserving its real borders (grid edge, open tube end).
+  // ---- close holes: classify each boundary rim, cap the spurious ones ----
+  // Output rims are spurious holes (fold tangles, unresolved cones) unless they
+  // track the input mesh's real boundary. Each rim — pinched ones first split at
+  // repeated verts into simple cycles — is left open when it lies on the input
+  // boundary polyline, else capped: a quad fan at the enclosed cone (or the rim
+  // centroid); an odd rim costs one cap triangle, gated on cap_odd_holes.
   {
     Mesh &o = *out;
     auto isBndIn = [&](int e) {
@@ -543,9 +554,13 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       do { r++; cc = m.c.radial_next[cc]; } while (cc != c0 && r < 100);
       return r == 1;
     };
-    bool inputClosed = true;
+    // Input boundary polyline segments, for per-loop real-border classification.
+    Vector<float3> bndA, bndB;
     for (int e : m.e)
-      if (isBndIn(e)) { inputClosed = false; break; }
+      if (isBndIn(e)) {
+        bndA.append(m.v.co[m.e.vs[e][0]]);
+        bndB.append(m.v.co[m.e.vs[e][1]]);
+      }
     auto isBnd = [&](int e) {
       int c0 = o.e.c[e];
       if (c0 == ELEM_NONE) return true;
@@ -611,34 +626,79 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     // thousands is a non-manifold artifact of a surviving fold tangle. Fanning it
     // would emit ~n/2 overlapping garbage quads, so leave it open (a hole) instead.
     const int kMaxCapLoop = 2048;
+    // A rim that revisits a vertex is pinched (a fan over it would be
+    // non-manifold); split it at the repeated verts into simple cycles, each
+    // classified and capped on its own (the pinch vert becomes a bowtie).
+    Vector<Vector<int>> simple;
     for (int li = 0; li < int(loops.size()); li++) {
-      Vector<int> &loop = loops[li];
-      int n = int(loop.size());
-      // Center-fan cap: an even rim closes with pure quads. An odd rim is
-      // unquadable, so it needs one trailing triangle — only do that when
-      // cap_odd_holes is set (else leave it open to keep the all-quad contract).
-      if (n < 4 || n > kMaxCapLoop) {
+      if (int(loops[li].size()) > kMaxCapLoop) { // skip the O(n^2) repeat scan
         stats.holes_open++;
         stats.holes_open_size++;
         continue;
       }
+      int firstSub = int(simple.size());
+      simple.append(loops[li]);
+      for (int wi = firstSub; wi < int(simple.size()); wi++) {
+        Vector<int> cur = simple[wi]; // copy: appends may reallocate `simple`
+        int cn = int(cur.size()), pi = -1, pj = -1;
+        for (int i = 0; i < cn && pi < 0; i++)
+          for (int j = i + 1; j < cn; j++)
+            if (cur[i] == cur[j]) { pi = i; pj = j; break; }
+        if (pi < 0) continue; // simple: leave in place
+        Vector<int> a, b;
+        for (int t = pi; t < pj; t++) a.append(cur[t]);
+        for (int t = 0; t < pi; t++) b.append(cur[t]);
+        for (int t = pj; t < cn; t++) b.append(cur[t]);
+        simple[wi] = a;
+        simple.append(b);
+        wi--; // re-scan `a` (and later `b`) for further repeats
+      }
+      if (int(simple.size()) > firstSub + 1) stats.holes_pinched_split++;
+    }
+    // Real-border test: a preserved input border extracts as the outermost full
+    // lattice line, ~0.7 cells inside the input boundary; spurious rims measure
+    // >= 1.6 cells away (fox/plane corpus), so threshold at 1 rim edge length.
+    const double kBorderTol = 1.0;
+    for (int li = 0; li < int(simple.size()); li++) {
+      Vector<int> &loop = simple[li];
+      int n = int(loop.size());
+      if (n < 3 || n > kMaxCapLoop) {
+        stats.holes_open++;
+        stats.holes_open_size++;
+        continue;
+      }
+      if (bndA.size()) {
+        double meanD = 0.0, rimEdge = 0.0;
+        for (int i = 0; i < n; i++) {
+          float3 p = o.v.co[loop[i]];
+          double bdist = 1e30;
+          for (int s = 0; s < int(bndA.size()); s++)
+            bdist = std::min(bdist, distPtSeg3(p, bndA[s], bndB[s]));
+          meanD += bdist;
+          rimEdge += len3(sub3(o.v.co[loop[(i + 1) % n]], p));
+        }
+        if (meanD <= kBorderTol * rimEdge) { // real border: keep it open
+          stats.holes_open++;
+          stats.holes_open_border++;
+          continue;
+        }
+      }
+      // An odd rim is unquadable (a quad disk has an even boundary), so closing
+      // it costs one cap triangle — only when cap_odd_holes allows.
       if ((n & 1) && !params.cap_odd_holes) {
         stats.holes_open++;
         stats.holes_open_odd++;
         continue;
       }
-      // A rim that visits a vertex twice is pinched; a fan over it would make the
-      // pinch (and its center spokes) non-manifold. Leave it open instead.
-      {
-        bool pinched = false;
-        for (int i = 0; i < n && !pinched; i++)
-          for (int j = i + 1; j < n; j++)
-            if (loop[i] == loop[j]) { pinched = true; break; }
-        if (pinched) {
-          stats.holes_open++;
-          stats.holes_open_pinched++;
-          continue;
-        }
+      if (n == 3) { // triangular rim: one triangle, no center vertex
+        Vector<int> q;
+        q.append(loop[2]);
+        q.append(loop[1]);
+        q.append(loop[0]);
+        o.make_face(q);
+        stats.holes_capped++;
+        stats.holes_capped_odd++;
+        continue;
       }
       float3 cen(0, 0, 0);
       for (int v : loop)
@@ -647,22 +707,15 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       double radius = 0;
       for (int v : loop) radius += len3(sub3(o.v.co[v], cen));
       radius /= n;
-      // Cap centered on the enclosed cone; on a closed input a loop that encircles
-      // no cone is still a spurious hole, so cap it at its own centroid instead.
+      // Cap centered on the enclosed cone when one is; else the rim centroid.
       float3 cpos = cen;
       double bd = 1e30;
       for (int s = 0; s < int(singPos.size()); s++) {
         double d = len3(sub3(singPos[s], cen));
         if (d < bd) { bd = d; cpos = singPos[s]; }
       }
-      if (bd > radius) {
-        if (!inputClosed) { // open-input border: leave it open
-          stats.holes_open++;
-          stats.holes_open_border++;
-          continue;
-        }
-        cpos = cen; // closed-input hole: cap at the centroid
-      }
+      if (bd > radius)
+        cpos = cen;
       int C = o.make_vertex(cpos);
       for (int i = 0; i < n; i += 2) {
         Vector<int> q;

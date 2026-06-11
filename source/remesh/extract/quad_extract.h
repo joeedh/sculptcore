@@ -48,15 +48,16 @@ struct ExtractStats {
   int num_arcs = 0;          // directed grid arcs traced
   int open_arcs = 0;         // arcs that ran off a boundary (no neighbour quad)
   int nonquad_cells = 0;     // cell walks that did not close in 4 steps
-  // Cap-path hole accounting: every output boundary rim lands in exactly one
+  // Cap-path hole accounting: every output boundary rim (pinched rims first
+  // split into simple sub-loops, counted individually) lands in exactly one
   // bucket — capped, or one open_* skip reason (holes_open sums the open_*).
   int holes_capped = 0;
   int holes_capped_odd = 0;    // subset closed with one cap triangle
+  int holes_pinched_split = 0; // rims split at repeated verts into simple loops
   int holes_open = 0;
-  int holes_open_border = 0;   // presumed real border (open-input heuristic)
+  int holes_open_border = 0;   // real border: rim tracks the input boundary
   int holes_open_odd = 0;      // odd rim with cap_odd_holes off
-  int holes_open_pinched = 0;  // rim revisits a vertex
-  int holes_open_size = 0;     // n < 4 or n > the cap-loop limit
+  int holes_open_size = 0;     // n < 3 or n > the cap-loop limit
   int holes_open_untraced = 0; // rim trace failed (tangled boundary)
   bool ok = false;
 };
