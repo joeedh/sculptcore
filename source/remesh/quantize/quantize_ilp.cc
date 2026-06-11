@@ -1,4 +1,5 @@
 #include "remesh/quantize/quantize_ilp.h"
+#include "remesh/field/singularity_adjust.h"
 #include "remesh/param/seamless_internal.h"
 #include "remesh/param/seamless_param.h"
 #include "remesh/quantize/t_mesh.h"
@@ -7,6 +8,7 @@
 #include "mesh/mesh.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/util/boolvector.h"
 #include "litestl/util/string.h"
 #include "litestl/util/task.h"
 #include "litestl/util/vector.h"
@@ -1380,8 +1382,72 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // injective and stays injective as the seams tighten back to seamless.
   const double untangle_thresh = params.untangle_fold_threshold;
   int initFolds = 0;
-  if (all_solved && untangle_thresh > 0.0) {
-    initFolds = countFoldsJ();
+  if (all_solved) {
+    // Tier-5 gate diagnostic (see QuantizeStats): do the raw seamless solve's
+    // folds co-locate with spurious singularity pairs? The folded list's count
+    // feeds the (unchanged) ARAP gate below.
+    Vector<int> foldedInit;
+    collectFoldedPar([&](int f) { return faceJacFast(f) <= 0.0; }, foldedInit);
+    initFolds = int(foldedInit.size());
+    stats.seamless_folds = initFolds;
+
+    Vector<int> pairVerts;
+    SingularityPairStats sps = findSingularityPairs(m, 2, &pairVerts);
+    stats.num_singularities = sps.num_singularities;
+    stats.spurious_pairs = sps.close_pairs;
+
+    if (initFolds > 0 && pairVerts.size() > 0) {
+      auto eachNeighbor = [&](int v, auto &&fn) {
+        int e0 = m.v.e[v];
+        if (e0 == ELEM_NONE) {
+          return;
+        }
+        int ec = e0;
+        do {
+          int side = m.e.vs[ec][0] == v ? 0 : 1;
+          fn(m.e.vs[ec][side ^ 1]);
+          ec = m.e.disk[ec][side * 2 + 1];
+        } while (ec != e0);
+      };
+      // Multi-source BFS: mark verts within kFoldHops of any paired pole,
+      // then count folded faces touching a marked vert.
+      constexpr int kFoldHops = 3;
+      litestl::util::BoolVector<> nearPair;
+      nearPair.resize(int(m.v.capacity()));
+      nearPair.clear();
+      Vector<int> front;
+      for (int v : pairVerts) {
+        if (!nearPair.set(v, true)) {
+          front.append(v);
+        }
+      }
+      int frontier = 0;
+      for (int hop = 0; hop < kFoldHops; hop++) {
+        int end = int(front.size());
+        for (int i = frontier; i < end; i++) {
+          eachNeighbor(front[i], [&](int vn) {
+            if (!nearPair.set(vn, true)) {
+              front.append(vn);
+            }
+          });
+        }
+        frontier = end;
+      }
+      int near = 0;
+      for (int f : foldedInit) {
+        int c0 = m.l.c[m.f.l[f]], cc = c0;
+        bool hit = false;
+        do {
+          if (nearPair[m.c.v[cc]]) {
+            hit = true;
+            break;
+          }
+          cc = m.c.next[cc];
+        } while (cc != c0);
+        near += hit ? 1 : 0;
+      }
+      stats.seamless_folds_near_pairs = near;
+    }
   }
   double initFoldFrac = m.f.count ? double(initFolds) / m.f.count : 0.0;
   t_phase = Clock::now();

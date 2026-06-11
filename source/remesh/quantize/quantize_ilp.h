@@ -120,6 +120,14 @@ struct QuantizeStats {
   bool solved = false;   // linear solves succeeded
   bool feasible = false; // integrality reached within integer_tol (no spirals)
 
+  // Tier-5 gate diagnostic, measured on the raw seamless solve: pairs =
+  // opposite-index poles within 2 vertex hops; near_pairs = folded faces
+  // touching a vert within 3 hops of a paired pole (fold/pair co-location).
+  int num_singularities = 0;
+  int spurious_pairs = 0;
+  int seamless_folds = 0;
+  int seamless_folds_near_pairs = 0;
+
   // Rounding-loop profile (plans/miq.md Q0). Counts are deterministic; the _ms
   // wall-clocks are volatile and must stay out of corpus metrics.csv (they are
   // surfaced via the manifest "run" block / results.json only).

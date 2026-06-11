@@ -20,6 +20,8 @@
  * Honors the optional .remesh.v.pole_pinned (bool) user-pin layer. Eigen is kept
  * out of the header; the sparse solve lives in singularity_adjust.cc. */
 
+#include "litestl/util/vector.h"
+
 #include <cstdint>
 
 namespace sculptcore::mesh {
@@ -45,6 +47,19 @@ struct SingularityAdjustStats {
  * residual reduce(θ_b − θ_a − ρ) over interior manifold edges) for the current
  * .remesh.f.theta. */
 double crossFieldCurl(mesh::Mesh &m);
+
+struct SingularityPairStats {
+  int num_singularities = 0; // verts with nonzero pole index
+  int close_pairs = 0;       // opposite-index pairs within max_hops (each once)
+  int clutter_verts = 0;     // poles participating in at least one such pair
+};
+
+/* Tier-5 gate diagnostic: opposite-index singularity pairs within @p max_hops
+ * vertex hops — the spurious clutter a pair-cancellation pass could annihilate.
+ * Reads .remesh.v.pole_index (computeCrossField must have run). @p pair_verts,
+ * when given, receives the participating pole verts (deterministic order). */
+SingularityPairStats findSingularityPairs(mesh::Mesh &m, int max_hops,
+                                          litestl::util::Vector<int> *pair_verts = nullptr);
 
 /* Re-solve the smoothest phase field for the M2 period jumps and rewrite
  * .remesh.f.theta / .remesh.e.period / .remesh.v.pole_index. Runs

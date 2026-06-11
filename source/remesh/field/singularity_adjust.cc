@@ -5,6 +5,7 @@
 #include "mesh/mesh.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/util/set.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
@@ -83,6 +84,76 @@ double crossFieldCurl(Mesh &m)
     sum += r * r;
   }
   return std::sqrt(sum);
+}
+
+SingularityPairStats findSingularityPairs(Mesh &m, int max_hops,
+                                          litestl::util::Vector<int> *pair_verts)
+{
+  SingularityPairStats stats;
+
+  BuiltinAttr<short, ".remesh.v.pole_index"> pole;
+  pole.ensure(m.v.attrs);
+
+  if (pair_verts) {
+    pair_verts->clear();
+  }
+
+  auto eachNeighbor = [&m](int v, auto &&fn) {
+    int e0 = m.v.e[v];
+    if (e0 == ELEM_NONE) {
+      return;
+    }
+    int ec = e0;
+    do {
+      int side = m.e.vs[ec][0] == v ? 0 : 1;
+      fn(m.e.vs[ec][side ^ 1]);
+      ec = m.e.disk[ec][side * 2 + 1];
+    } while (ec != e0);
+  };
+
+  litestl::util::Set<int> in_pair;
+  for (int v : m.v) {
+    if (pole[v] == 0) {
+      continue;
+    }
+    stats.num_singularities++;
+
+    // BFS ring expansion to max_hops; pair each pole with higher-index
+    // opposite-sign poles in the ring so every pair is counted once.
+    litestl::util::Set<int> seen;
+    Vector<int> ring;
+    seen.add(v);
+    eachNeighbor(v, [&](int vn) {
+      if (seen.add(vn)) {
+        ring.append(vn);
+      }
+    });
+    int frontier = 0;
+    for (int hop = 1; hop < max_hops; hop++) {
+      int end = int(ring.size());
+      for (int i = frontier; i < end; i++) {
+        eachNeighbor(ring[i], [&](int vn) {
+          if (seen.add(vn)) {
+            ring.append(vn);
+          }
+        });
+      }
+      frontier = end;
+    }
+    for (int w : ring) {
+      if (w > v && int(pole[v]) * int(pole[w]) < 0) {
+        stats.close_pairs++;
+        if (in_pair.add(v) && pair_verts) {
+          pair_verts->append(v);
+        }
+        if (in_pair.add(w) && pair_verts) {
+          pair_verts->append(w);
+        }
+      }
+    }
+  }
+  stats.clutter_verts = int(in_pair.size());
+  return stats;
 }
 
 SingularityAdjustStats adjustSingularities(Mesh &m,

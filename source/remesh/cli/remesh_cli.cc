@@ -299,6 +299,11 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"classes\": %d,\n", qz.num_classes);
   std::fprintf(f, "      \"cut_sides\": %d,\n", qz.num_cut_edges);
   std::fprintf(f, "      \"residual\": %.9g,\n", qz.max_integer_residual);
+  std::fprintf(f, "      \"num_singularities\": %d,\n", qz.num_singularities);
+  std::fprintf(f, "      \"spurious_pairs\": %d,\n", qz.spurious_pairs);
+  std::fprintf(f, "      \"seamless_folds\": %d,\n", qz.seamless_folds);
+  std::fprintf(f, "      \"seamless_folds_near_pairs\": %d,\n",
+               qz.seamless_folds_near_pairs);
   std::fprintf(f, "      \"full_refactors\": %d,\n", qz.full_refactors);
   std::fprintf(f, "      \"updowns\": %d,\n", qz.updowns);
   std::fprintf(f, "      \"simp_refreshes\": %d,\n", qz.simp_refreshes);

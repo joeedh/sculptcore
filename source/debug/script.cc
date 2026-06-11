@@ -1517,6 +1517,10 @@ bool execVerb(Scene &scene,
                 st.gs_rounds, st.gs_converged, st.gs_visits, st.gs_touched_total,
                 st.gs_touched_max, st.gs_ms, st.resort_full, st.resort_incr,
                 st.resort_keys);
+    std::printf("[remesh_quantize:pairs] singularities=%d spurious_pairs=%d "
+                "seamless_folds=%d near_pairs=%d\n",
+                st.num_singularities, st.spurious_pairs, st.seamless_folds,
+                st.seamless_folds_near_pairs);
     std::fflush(stdout);
     return true;
   }

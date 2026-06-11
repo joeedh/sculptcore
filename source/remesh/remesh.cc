@@ -19,7 +19,6 @@
 #include "mesh/utils/triangulate.h"
 
 #include "litestl/util/alloc.h"
-#include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
 #include <algorithm>
@@ -32,62 +31,6 @@ using namespace litestl;
 using mesh::Mesh;
 
 namespace {
-
-/* Tier-5 gate diagnostic: count opposite-index singularity pairs within 2
- * vertex hops (each pair once) — the clutter a pair-cancellation pass could
- * annihilate — plus the poles participating in at least one such pair. */
-void countSingularityClutter(Mesh &m, int &pairs, int &clutter_verts)
-{
-  mesh::BuiltinAttr<short, ".remesh.v.pole_index"> pole;
-  pole.ensure(m.v.attrs);
-
-  pairs = 0;
-  clutter_verts = 0;
-
-  auto eachNeighbor = [&m](int v, auto &&fn) {
-    int e0 = m.v.e[v];
-    if (e0 == ELEM_NONE) {
-      return;
-    }
-    int ec = e0;
-    do {
-      int side = m.e.vs[ec][0] == v ? 0 : 1;
-      fn(m.e.vs[ec][side ^ 1]);
-      ec = m.e.disk[ec][side * 2 + 1];
-    } while (ec != e0);
-  };
-
-  util::Set<int> in_pair;
-  for (int v : m.v) {
-    if (pole[v] == 0) {
-      continue;
-    }
-    util::Set<int> seen;
-    util::Vector<int> ring;
-    seen.add(v);
-    eachNeighbor(v, [&](int vn) {
-      if (seen.add(vn)) {
-        ring.append(vn);
-      }
-    });
-    int ring1 = int(ring.size());
-    for (int i = 0; i < ring1; i++) {
-      eachNeighbor(ring[i], [&](int vn) {
-        if (seen.add(vn)) {
-          ring.append(vn);
-        }
-      });
-    }
-    for (int w : ring) {
-      if (w > v && int(pole[v]) * int(pole[w]) < 0) {
-        pairs++;
-        in_pair.add(v);
-        in_pair.add(w);
-      }
-    }
-  }
-  clutter_verts = int(in_pair.size());
-}
 
 /* Deep-copy @p src's positions + face topology into a fresh triangle mesh, and
  * (Tier 1b) carry the input constraint layers across by vertex map. The pipeline
@@ -527,8 +470,9 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     report->num_singularities = cfs.num_singularities;
     report->index_sum = cfs.index_sum;
     report->field_solved_eigen = cfs.solved_eigen;
-    countSingularityClutter(*work, report->field_close_pairs,
-                            report->field_clutter_verts);
+    SingularityPairStats sps = findSingularityPairs(*work, 2);
+    report->field_close_pairs = sps.close_pairs;
+    report->field_clutter_verts = sps.clutter_verts;
   }
 
   PROG(45, "singularity");
