@@ -586,6 +586,33 @@ flows through the rounding-round count. The Tier-5 bench gate should weigh
 quality metrics first, `rounds`/`round_s` second, and total wall-clock not at
 all (same-session A/B only).
 
+### Decimate-for-solve A/B (research/singularity-merging.md rec 2, 2026-06-11)
+
+Same bench (agirl 148k tris, mean input edge ≈0.0037, 30k quads → L_quad =
+0.00583, triage on), adding `--solve` decimation before the field solve:
+
+| config | solve mesh | pairs | param_folds | rounds | total_s |
+|--------|-----------|------:|------------:|-------:|--------:|
+| full-res (fs1 cs0) | 148k tris | 1151 | 1226 | 1634 | 641.8 |
+| `--solve 0.00583` (1.0×L_quad) | ~60k tris | 869 | 572 | 1056 | 345 |
+| `--solve 0.00408` (0.7×L_quad) | ~120k tris | — | — | — | **DNF, killed at 3 h** |
+
+- **At quad scale the win is real and broad**: pairs −25%, param folds −53%,
+  rounds −35% — counter deltas, hence attributable. Solving the field on a
+  coarser, BK-relaxed triangulation reduces the *source* noise, not just cost.
+- **0.7×L_quad is lose-lose.** 0.00408 vs input mean 0.0037 is barely 1.1×
+  coarsening — a near-full-res mesh whose triangle quality decimation made
+  *worse*. The run spent ~2.9 h of CPU inside quantize (vs 642 s full-res,
+  ≥17×, far beyond the ±20% noise band) and never reached extraction. The cost
+  curve is **not monotone in solve resolution**: triangulation quality
+  dominates triangle count in the fold/tier-1b regime.
+- **Practical rule:** decimate-for-solve pays only at/near the quad scale.
+  This reinforces the Tier-9 decision (`--solve` removed): the 1.0×L win comes
+  from solving on fewer *and cleaner* triangles, which the field-aligned
+  pre-remesh delivers strictly better than quality-blind decimation.
+- The 3 h black box is also why quantize now streams `[quantize_progress]`
+  running counters (the killed leg yielded only a wall-clock).
+
 ### Implementation (landed 2026-06-11)
 
 `cancelSingularityPairs` (`field/singularity_adjust.{h,cc}`) — bounded rounds
@@ -608,7 +635,9 @@ of find → flip → re-solve, exactly the cohomology edit sketched above:
 - **Wiring:** `RemeshParams.singularity_cancel{,_max_sep}` → hook in
   `remesh.cc` after the singularity stage (gated on the derived `L_quad`
   scale); `cancel_*` counters in `RemeshRunReport` + CLI manifest; bindings;
-  debug-app `remesh_adjust_singularities cancel=1` verb extension.
+  debug-app `remesh_adjust_singularities cancel=1` verb extension. All nine
+  per-param surfaces are wired (incl. `remesh_app.cc`/`remesh_ui.cc` and the
+  host `litemesh{,_ops}.ts`; the C++ default `false` is authoritative).
 - **gtests** (`test_remesh_singularity`, all green): planted analytic ±1 pair
   on a flat grid — gate below the separation is inert, gate above annihilates
   it in 1 round / 0 reverts and the curl drops to the flat ground state
@@ -616,9 +645,56 @@ of find → flip → re-solve, exactly the cohomology edit sketched above:
   targets); pinning one endpoint blocks the pair; cancellation is
   byte-deterministic.
 
-Remaining for review gate 5: corpus/bench deltas (`--singularity-cancel 1`
-same-session A/B on agirl) — does cancelled-pair count translate into the
-predicted rounds reduction and valence/fold quality wins.
+### Bench A/B + gate 5 verdict (2026-06-11)
+
+The first `--singularity-cancel 1` agirl leg exploded (quantize sides 71,784
+→ 211,392, killed mid-grind) and exposed a latent **multi-component cut-graph
+bug**: `buildCutGraph` grew a *single-rooted* dual spanning tree, leaving
+every component but the root's fully cut. The cancel pass legitimately moved
+the first pole into a small accessory component, rooting the lone tree there
+and leaving the main body (~139.6k faces) fully cut — the 139,608-side delta
+is exactly F_main − 1. Even the off leg had silently carried its 47 accessory
+components fully cut. Fixed in `b7a4bf2` (dual spanning **forest**, pole
+components root at their first pole's face; regression test in
+`test_remesh_param`), and **both legs re-ran on the fixed binary**
+(same-session, legs concurrent):
+
+| metric | off (buggy, ref) | off (fixed) | on (fixed) | on vs off |
+|--------|---:|---:|---:|---:|
+| cut_sides | 71,784 | 69,962 | 69,962 | = |
+| singularities | 1,480 | 1,480 | **732** | −51% |
+| spurious_pairs | 1,151 | 1,151 | **490** | −57% |
+| rounding rounds | 1,634 | 1,580 | **752** | −52% |
+| tier1b_probes | 19,072 | 14,244 | 8,080 | −43% |
+| seamless folds near pairs | 8,468 | 8,399 | **1,377** | −84% |
+| seamless_folds | 31,283 | 31,214 | 34,666 | +11% |
+| param_folds (validation) | 1,226 | 1,102 | **739** | −33% |
+| irregular interior verts | 809 | 656 | **538** | −18% |
+| regular_interior_frac | 0.9677 | 0.9735 | **0.9779** | +0.44 pt |
+| inverted_faces | 28 | 11 | 14 | +3 |
+| output quads | 26,415 | 26,307 | 25,542 | −3% |
+| quantize total_s | 991 | 588 | 416 | −29% |
+
+- **Cancel pass: 373 of 384 attempted pairs cancelled, 0 reverted rounds**
+  (sing 1,480 → 732 ✓ = 1,480 − 2·373 − 2 net-zero strays).
+- `cut_sides`/`classes` are byte-equal off-vs-on as expected — the cotree
+  size is topology-determined (tree = F − #components); rooting only picks
+  *which* edges, which is what the buggy single root got wrong.
+- **Gate 5: PASS.** Cancelled pairs translate ~1:1 into the predicted wins:
+  rounds −52% tracks sing −51% (confirming the linear coupling measured
+  above), realized param folds −33%, near-pair seamless folds −84%, irregular
+  verts −18%. Raw `seamless_folds` ticks up +11% but the realized fold count
+  after tier-1b/stiffening drops by a third — the pass removes precisely the
+  *stubborn* (pair-co-located) folds. `inverted_faces` 11 → 14 is noise-scale.
+- The cut-graph fix alone (off-buggy → off-fixed) was worth −41% quantize
+  wall, param_folds −10%, inverted 28 → 11, and output components 48 → 16:
+  the fully-cut accessories had been quantizing into garbage shards. Of 61
+  input components only 16 (off) / 12 (on) survive to extraction — tiny
+  components below quad scale now honestly produce zero quads (a Tier-6
+  component-policy item, not a quantize bug).
+- Recommendation: flip `singularity_cancel` **default on** (left off pending
+  review sign-off; the C++ default in `RemeshParams` is the single
+  authoritative switch across all nine wired surfaces).
 
 ---
 
