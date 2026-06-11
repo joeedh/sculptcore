@@ -600,7 +600,12 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         v = o.e.vs[e][0] == v ? o.e.vs[e][1] : o.e.vs[e][0];
       } while (e != e0 && ++guard < 100000);
       if (e != e0) loop.clear(); // unclosed trace: not a cappable rim
-      if (loop.size()) loops.append(loop);
+      if (loop.size()) {
+        loops.append(loop);
+      } else {
+        stats.holes_open++;
+        stats.holes_open_untraced++;
+      }
     }
     // A real hole rim (cone 1-ring / over-scaled cap) is small; a loop in the
     // thousands is a non-manifold artifact of a surviving fold tangle. Fanning it
@@ -612,8 +617,16 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       // Center-fan cap: an even rim closes with pure quads. An odd rim is
       // unquadable, so it needs one trailing triangle — only do that when
       // cap_odd_holes is set (else leave it open to keep the all-quad contract).
-      if (n < 4 || n > kMaxCapLoop) continue;
-      if ((n & 1) && !params.cap_odd_holes) continue;
+      if (n < 4 || n > kMaxCapLoop) {
+        stats.holes_open++;
+        stats.holes_open_size++;
+        continue;
+      }
+      if ((n & 1) && !params.cap_odd_holes) {
+        stats.holes_open++;
+        stats.holes_open_odd++;
+        continue;
+      }
       // A rim that visits a vertex twice is pinched; a fan over it would make the
       // pinch (and its center spokes) non-manifold. Leave it open instead.
       {
@@ -621,7 +634,11 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         for (int i = 0; i < n && !pinched; i++)
           for (int j = i + 1; j < n; j++)
             if (loop[i] == loop[j]) { pinched = true; break; }
-        if (pinched) continue;
+        if (pinched) {
+          stats.holes_open++;
+          stats.holes_open_pinched++;
+          continue;
+        }
       }
       float3 cen(0, 0, 0);
       for (int v : loop)
@@ -639,8 +656,12 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         if (d < bd) { bd = d; cpos = singPos[s]; }
       }
       if (bd > radius) {
-        if (!inputClosed) continue; // open-input border: leave it open
-        cpos = cen;                 // closed-input hole: cap at the centroid
+        if (!inputClosed) { // open-input border: leave it open
+          stats.holes_open++;
+          stats.holes_open_border++;
+          continue;
+        }
+        cpos = cen; // closed-input hole: cap at the centroid
       }
       int C = o.make_vertex(cpos);
       for (int i = 0; i < n; i += 2) {
@@ -653,6 +674,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         q.append(loop[i]);
         o.make_face(q);
       }
+      stats.holes_capped++;
+      if (n & 1) stats.holes_capped_odd++;
     }
   }
 

@@ -734,6 +734,14 @@ limits, don't over-promise.**
   of fanning. Once the odd cap is all-quad, revisit `cap_odd_holes`'s default —
   the all-quad-contract reason for off disappears. Keep this distinct from the
   input hole policy above; the two must not double-close a legitimately-open rim.
+  - **Measured (6.0 diagnostics, fox @ 15k quads, cap_odd=1):** 198 output rims →
+    103 capped (52 odd = the 52 output tris), 95 open: **48 size** (all n < 4 —
+    tiny 2–3-edge slits; the >2048 side is impossible at 1598 boundary edges),
+    **34 pinched** (rim revisits a vertex), **13 border-heuristic** (input has 4
+    real holes → ~9 spurious), 0 odd-skipped, 0 untraced. So the dominant fixes
+    are: cap/weld tiny rims (n=2 zip, n=3 triangle or split-to-4 quad), split
+    pinched rims at their pinch vertices into simple sub-loops, and per-loop
+    input-rim correspondence to replace the global `inputClosed` heuristic.
 - **Boundary preservation:** keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
 - **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in

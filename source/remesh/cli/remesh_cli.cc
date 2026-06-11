@@ -343,6 +343,23 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"stiffen_ms\": %.9g,\n", qz.stiffen_ms);
   std::fprintf(f, "      \"tier3_ms\": %.9g\n", qz.tier3_ms);
   std::fprintf(f, "    },\n");
+  // Extraction hole accounting (Tier 6): why each residual output boundary rim
+  // was capped or left open.
+  const remesh::ExtractStats &ex = rep.extract_stats;
+  std::fprintf(f, "    \"extract\": {\n");
+  std::fprintf(f, "      \"grid_verts\": %d,\n", ex.num_grid_verts);
+  std::fprintf(f, "      \"arcs\": %d,\n", ex.num_arcs);
+  std::fprintf(f, "      \"open_arcs\": %d,\n", ex.open_arcs);
+  std::fprintf(f, "      \"nonquad_cells\": %d,\n", ex.nonquad_cells);
+  std::fprintf(f, "      \"holes_capped\": %d,\n", ex.holes_capped);
+  std::fprintf(f, "      \"holes_capped_odd\": %d,\n", ex.holes_capped_odd);
+  std::fprintf(f, "      \"holes_open\": %d,\n", ex.holes_open);
+  std::fprintf(f, "      \"holes_open_border\": %d,\n", ex.holes_open_border);
+  std::fprintf(f, "      \"holes_open_odd\": %d,\n", ex.holes_open_odd);
+  std::fprintf(f, "      \"holes_open_pinched\": %d,\n", ex.holes_open_pinched);
+  std::fprintf(f, "      \"holes_open_size\": %d,\n", ex.holes_open_size);
+  std::fprintf(f, "      \"holes_open_untraced\": %d\n", ex.holes_open_untraced);
+  std::fprintf(f, "    },\n");
   std::fprintf(f, "    \"stages\": {\n");
   std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
   std::fprintf(f, "      \"triage\": \"%s\",\n", ssName(rep.triage));

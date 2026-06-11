@@ -589,6 +589,7 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   if (report) {
     report->extract = StageStatus::Ok;
     report->quad_count_actual = out->f.count;
+    report->extract_stats = st;
   }
 
   if (params.reproject) {

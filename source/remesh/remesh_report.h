@@ -9,6 +9,7 @@
  * query, not this struct. See documentation/plans/quad-remeshing-filtering.md. */
 
 #include "mesh/utils/mesh_validate.h"
+#include "remesh/extract/quad_extract.h"
 #include "remesh/quantize/quantize_ilp.h"
 #include "remesh/triage.h"
 
@@ -64,6 +65,10 @@ struct RemeshRunReport {
   // Full quantize-stage profile (plans/miq.md Q0): rounds, solver-primitive
   // counts, and per-phase wall-clocks. Surfaced via the manifest "run" block.
   QuantizeStats quantize_stats;
+
+  // Extraction stats (M6), incl. the cap-path hole accounting (Tier 6) — why
+  // each residual output boundary rim was capped or left open.
+  ExtractStats extract_stats;
 
   // Count-mode sizing (target_edge_length == 0): the edge length derived from
   // target_quad_count and the extracted face count. derived_edge_length is also
