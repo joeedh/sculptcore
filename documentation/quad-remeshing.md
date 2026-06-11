@@ -92,6 +92,20 @@ it before touching the rounding loop. The moving parts:
   reach integrality (`feasible=false`) — it is never the quality default. A
   third, exact tier (CoMISo's Gurobi/CPLEX slot) is deliberately unbuilt; the
   enum comment in `quantize_ilp.h` documents the slot.
+- **Solver fast paths** (the 2026-06 parallelization pass). The sparse pattern
+  is assembled once; later assemblies scatter-add through precomputed nnz slot
+  maps (`assembleValues`, bit-identical to the `setFromTriplets` path), and the
+  ARAP inner iterations are RHS-only solves against the kept factor. Natively
+  the factor is dual: `Lsuper` is numeric-refactorized in place and a
+  simplicial LDL' clone is spun off lazily for `cholmod_updown`
+  (`simp_refreshes` / `convert_ms`). Supernodal BLAS-3 factorization is opt-in
+  (`QuantizeParams::use_supernodal`): with the threaded OpenBLAS dep and the
+  4-thread cap it wins ~2.3x from ~18k classes up but loses ~4x at corpus
+  scale (refactor-heavy, small fronts), so simplicial stays the default.
+  Per-face sweeps (fold scans, base rebuild, final uv write) run under
+  `litestl::task::parallel_for` with chunk-ordered merges that keep run-to-run
+  byte-stability. Tier-1b probes batch each candidate side's 4 unit moves into
+  one multi-RHS solve plus a fused 4-counter fold scan.
 - **Stats.** `QuantizeStats` carries deterministic counters (`full_refactors`,
   `updowns`, `back_solves`, `tier1b_probes`, the `gs_*` local-GS profile, the
   `resort_*` re-key profile) plus volatile `*_ms` phase wall-clocks; both are

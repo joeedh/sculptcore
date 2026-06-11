@@ -478,34 +478,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     assemble_acc += msSince(t0);
   };
 
-  // CLAUDENOTE: bring-up gate aid for Item A — set true to re-run the
-  // setFromTriplets path after every assembleValues() and memcmp the value
-  // arrays (signed-zero-only diffs counted separately). Remove with the
-  // CLAUDENOTE cleanup pass.
-  constexpr bool kVerifyAssemble = false;
-
   auto assembleSystem = [&]() {
     if (!patternReady) {
       assemble();
       return;
     }
     assembleValues();
-    if constexpr (kVerifyAssemble) {
-      Eigen::VectorXd fast =
-          Eigen::Map<Eigen::VectorXd>(Acur.valuePtr(), Acur.nonZeros());
-      assemble(); // reference path; Acur keeps the reference values after this
-      const double *a = Acur.valuePtr();
-      int mism = 0, zmism = 0;
-      for (int i = 0; i < int(Acur.nonZeros()); i++) {
-        if (std::memcmp(&a[i], &fast[i], sizeof(double)) != 0) {
-          (a[i] == 0.0 && fast[i] == 0.0) ? zmism++ : mism++;
-        }
-      }
-      if (mism + zmism > 0) {
-        printf("[assemble-verify] value mismatches=%d signed-zero=%d nnz=%d\n",
-               mism, zmism, int(Acur.nonZeros()));
-      }
-    }
   };
 
   // RHS-only assembly (base field + each locked side's fix penalty; the seam
