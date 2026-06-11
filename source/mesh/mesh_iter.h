@@ -74,9 +74,8 @@ private:
 struct CornerOfEdgeIter {
   MeshBase *m;
 
-  CornerOfEdgeIter(MeshBase *m_, int e_, int c_) : m(m_), e(e_), c(c_)
+  CornerOfEdgeIter(MeshBase *m_, int e_, int c_) : m(m_), e(e_), c(c_), start_c(c_)
   {
-    start_c = c;
   }
   CornerOfEdgeIter(const CornerOfEdgeIter &b) : m(b.m), e(b.e), c(b.c), start_c(b.start_c)
   {
@@ -106,14 +105,14 @@ struct CornerOfEdgeIter {
     return *this;
   }
 
-  CornerOfEdgeIter &begin()
+  CornerOfEdgeIter begin()
   {
-    return *this;
+    return CornerOfEdgeIter(m, e, start_c);
   }
 
   CornerOfEdgeIter end()
   {
-    return CornerOfEdgeIter(m, e, ELEM_NONE);
+    return CornerOfEdgeIter(m, e, c = m->c.radial_prev[start_c]);
   }
 
 private:

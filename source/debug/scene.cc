@@ -2,7 +2,9 @@
 
 #include "gpu/batch.h"
 #include "litestl/util/alloc.h"
+#include "mesh/utils/mesh_validate.h"
 #include "vulkan/vk_screenshot.h"
+
 
 #include <cstdio>
 
@@ -117,17 +119,35 @@ void Scene::smoothMesh()
     VertProxy vp(mesh, v);
     float sumw = 0.0f;
     float3 sum = {0.0f, 0.0f, 0.0f};
+    float3 cent = mesh->v.co[v];
+    float3 no = mesh->v.no[v];
 
     for (auto e : vp.edges()) {
       int v2 = e.other_vert(v);
-      float w = 1.0f;
-      sum += mesh->v.co[v2] * w;
+      float w = 0.0f;
+
+      for (auto c : e.corners()) {
+        int list = mesh->c.l[c];
+        int f = mesh->l.f[list];
+        float area = mesh::faceNewellNormal(*mesh, f).length();
+        w += area;
+      }
+
+      if (w == 0.0f) {
+        w = e.v1().co().distance(e.v2().co());
+        w = w * w * 0.5f;
+      }
+
+      float3 delta = mesh->v.co[v2] - cent;
+      delta -= no * no.dot(delta);
+
+      sum += (delta + cent) * w;
       sumw += w;
     }
 
     if (sumw != 0.0f) {
       sum /= sumw;
-      vp.co() += (sum - vp.co()) * 0.05f;
+      vp.co() += (sum - vp.co()) * 0.25f;
     }
   }
 
