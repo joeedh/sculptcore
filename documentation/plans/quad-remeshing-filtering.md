@@ -388,17 +388,17 @@ vertex), not convergence.
   never steps sharply across an edge. **Non-optional there** — defaults on
   (`PreRemeshParams::gradation = 0.5`); `0` disables for A/B only.
 
-**Open decision (gate 3):** the main pipeline's `density_gradation` still
-defaults `0.0` (off) while the pre-pass defaults on. Decide whether the main
-default flips on too (gradation is a correctness filter, not a style knob) — or
-document why the main pipeline differs.
+**Gate-3 decision (resolved):** the main pipeline's `density_gradation` now
+defaults `0.5` (on, matching the pre-pass) — gradation is a correctness filter,
+not a style knob. Inert unless a density field is in play (`auto_density` or
+painted + `use_density`), so default runs are unaffected.
 
 ### New params
 | field | default | meaning |
 |-------|---------|---------|
 | `auto_density` | `false` | generate `.remesh.v.density` from curvature |
 | `density_min` / `density_max` | `0.25f` / `4.0f` | clamp on generated density (size range) |
-| `density_gradation` | `0.0f` | max per-edge-hop goal-length growth ratio − 1; `0` = off (main pipeline; the pre-pass has its own default-on knob). Typical `0.3–1.0` |
+| `density_gradation` | `0.5f` | max per-edge-hop goal-length growth ratio − 1; `0` = off. Typical `0.3–1.0` (the pre-pass has its own knob, same default) |
 | `density_gradation_iters` | `10` | work cap (pops per vertex); termination is natural |
 
 ### Verification
