@@ -8,6 +8,7 @@
 
 #include "litestl/math/vector.h"
 #include "litestl/util/string.h"
+#include "litestl/util/task.h"
 #include "litestl/util/vector.h"
 
 #include "eigen/include/eigen5/Eigen/Sparse"
@@ -21,6 +22,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 #include <vector>
@@ -183,6 +185,95 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     fixed[s] = 0;
     g.t_int[s] = float2(0.0f, 0.0f);
   }
+
+  // Frozen face list for the chunked parallel sweeps below. Topology is frozen
+  // for the whole call and chunk boundaries are a pure function of (count,
+  // grain), so per-chunk partials merged in ascending order are deterministic.
+  Vector<int> faceIds;
+  for (int f : m.f) {
+    faceIds.append(f);
+  }
+  const int FN = int(faceIds.size());
+  auto faceChunkCount = [&](int grain) {
+    return FN > grain ? (FN + grain - 1) / grain : 1;
+  };
+  // body(chunk, begin, end) over faceIds[begin..end); chunks run concurrently.
+  auto forFaces = [&](int grain, auto &&body) {
+#ifdef NO_PARALLEL_FOR
+    const int nchunk = faceChunkCount(grain);
+    for (int c = 0; c < nchunk; c++) {
+      int b = c * grain;
+      body(c, b, std::min(FN, b + grain));
+    }
+#else
+    litestl::task::parallel_for(
+        litestl::util::IndexRange(FN),
+        [&](litestl::util::IndexRange range) {
+          body(range.start / grain, range.start, range.start + range.size);
+        },
+        grain);
+#endif
+  };
+  // body(begin, end) over [0, count); chunked like forFaces (no chunk index).
+  auto forRange = [&](int count, int grain, auto &&body) {
+#ifdef NO_PARALLEL_FOR
+    (void)grain;
+    body(0, count);
+#else
+    litestl::task::parallel_for(
+        litestl::util::IndexRange(count),
+        [&](litestl::util::IndexRange range) {
+          body(int(range.start), int(range.start + range.size));
+        },
+        grain);
+#endif
+  };
+  constexpr int kFoldGrain = 512;
+  constexpr int kBaseGrain = 256;
+  // Shared parallel fold counter; `folded(f)` decides the per-face test.
+  auto countFoldsPar = [&](auto &&folded) -> int {
+    Vector<int> partial;
+    partial.resize(faceChunkCount(kFoldGrain));
+    for (int c = 0; c < int(partial.size()); c++) {
+      partial[c] = 0;
+    }
+    forFaces(kFoldGrain, [&](int c, int b, int e) {
+      int nf = 0;
+      for (int i = b; i < e; i++) {
+        nf += folded(faceIds[i]) ? 1 : 0;
+      }
+      partial[c] = nf;
+    });
+    int total = 0;
+    for (int c = 0; c < int(partial.size()); c++) {
+      total += partial[c];
+    }
+    return total;
+  };
+  // Parallel folded-face collection, ascending face order (chunks compact into
+  // disjoint scratch regions; the merge walks chunks in order).
+  Vector<int> foldedScratch, foldedChunkN;
+  auto collectFoldedPar = [&](auto &&folded, Vector<int> &out) {
+    const int nchunk = faceChunkCount(kFoldGrain);
+    foldedScratch.resize(FN);
+    foldedChunkN.resize(nchunk);
+    forFaces(kFoldGrain, [&](int c, int b, int e) {
+      int w = b;
+      for (int i = b; i < e; i++) {
+        if (folded(faceIds[i])) {
+          foldedScratch[w++] = faceIds[i];
+        }
+      }
+      foldedChunkN[c] = w - b;
+    });
+    out.clear();
+    for (int c = 0; c < nchunk; c++) {
+      const int b = c * kFoldGrain;
+      for (int k = 0; k < foldedChunkN[c]; k++) {
+        out.append(foldedScratch[b + k]);
+      }
+    }
+  };
 
   // Base field RHS + base stiffness in class space. The injectivity untangling
   // pass recomputes both with per-face stiffening weights; they start as the
@@ -911,22 +1002,22 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     return true;
   };
 
-  // Rebuild the class-space base stiffness + field RHS, scaling each face by
-  // faceW[f]. Identical to buildSeamlessSystem's assembly (so faceW==1 reproduces
-  // sys.baseTrips/bu/bv); heavily weighting a folded face pulls it toward its
-  // (det>0) field-aligned target. Because the target uses the gauge-consistent
-  // field angle it never fights the locked seams (unlike a free per-face rotation).
-  // matrixToo=false rebuilds only the RHS (ARAP: faceW == 1 and geometry static,
-  // so the stiffness stream is invariant there).
-  auto rebuildBase = [&](bool matrixToo) {
-    if (matrixToo) {
-      baseTripsW.clear();
-    }
-    baseBu.setZero();
-    baseBv.setZero();
+  // Per-face segments of the base stiffness/RHS streams. Geometry + topology
+  // are frozen for the whole call, so each face's triplet/RHS counts (and the
+  // class each RHS entry feeds) never change; the layout mirrors
+  // buildSeamlessSystem's emission order exactly.
+  Vector<int> faceTripOfs, faceRhsOfs, rhsCls;
+  Vector<double> buStream, bvStream;
+  Vector<int> clsRhsOfs, clsRhsIdx;
+  {
+    faceTripOfs.resize(FN + 1);
+    faceRhsOfs.resize(FN + 1);
+    faceTripOfs[0] = 0;
+    faceRhsOfs[0] = 0;
     Vector<int> cs;
     Vector<float2> loc;
-    for (int f : m.f) {
+    for (int i = 0; i < FN; i++) {
+      int f = faceIds[i];
       cs.clear();
       loc.clear();
       int c0 = m.l.c[m.f.l[f]], cc = c0;
@@ -935,69 +1026,177 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         cc = m.c.next[cc];
       } while (cc != c0);
       int n = int(cs.size());
-      if (n < 3) {
-        continue;
-      }
-      float3 X = sys.FX[f], Y = sys.FY[f];
-      float3 p0 = m.v.co[m.c.v[cs[0]]];
-      for (int i = 0; i < n; i++) {
-        float3 d = m.v.co[m.c.v[cs[i]]] - p0;
-        loc.append(float2(d.dot(X), d.dot(Y)));
-      }
-      double mag = inv_len;
-      if (have_density) {
-        double davg = 0.0;
-        for (int i = 0; i < n; i++) {
-          davg += double(density[m.c.v[cs[i]]]);
+      int ntri = 0;
+      if (n >= 3) {
+        float3 X = sys.FX[f], Y = sys.FY[f];
+        float3 p0 = m.v.co[m.c.v[cs[0]]];
+        for (int k = 0; k < n; k++) {
+          float3 d = m.v.co[m.c.v[cs[k]]] - p0;
+          loc.append(float2(d.dot(X), d.dot(Y)));
         }
-        davg /= double(n);
-        mag = inv_len * std::sqrt(davg > 1e-12 ? davg : 1e-12);
+        for (int t = 1; t + 1 < n; t++) {
+          float2 q0 = loc[0], q1 = loc[t], q2 = loc[t + 1];
+          double r1x = q1[0] - q0[0], r1y = q1[1] - q0[1];
+          double r2x = q2[0] - q0[0], r2y = q2[1] - q0[1];
+          if (std::fabs(r1x * r2y - r1y * r2x) < 1e-20) {
+            continue;
+          }
+          ntri++;
+          rhsCls.append(sys.cornerClass[cs[0]]);
+          rhsCls.append(sys.cornerClass[cs[t]]);
+          rhsCls.append(sys.cornerClass[cs[t + 1]]);
+        }
       }
-      float2 tgt_u, tgt_v;
-      double gux, guy, gvx, gvy;
-      if (rot_all && faceGradX(f, gux, guy, gvx, gvy)) {
-        // Nearest proper rotation R to the realized gauged Jacobian
-        // J=[[gux,guy],[gvx,gvy]]: angle=atan2(c-b,a+d), det(R)=+1.
-        double th = std::atan2(gvx - guy, gux + gvy);
-        double C = std::cos(th), S = std::sin(th);
-        tgt_u = float2(float(mag * C), float(-mag * S));
-        tgt_v = float2(float(mag * S), float(mag * C));
-      } else {
-        double alpha = double(theta[f]) + double(sys.gauge[f]) * HALF_PI;
-        tgt_u = float2(float(mag * std::cos(alpha)), float(mag * std::sin(alpha)));
-        tgt_v = float2(float(-mag * std::sin(alpha)), float(mag * std::cos(alpha)));
-      }
-      double w = faceW[f];
-      for (int t = 1; t + 1 < n; t++) {
-        int idx[3] = {0, t, t + 1};
-        float2 q0 = loc[0], q1 = loc[t], q2 = loc[t + 1];
-        double r1x = q1[0] - q0[0], r1y = q1[1] - q0[1];
-        double r2x = q2[0] - q0[0], r2y = q2[1] - q0[1];
-        double det = r1x * r2y - r1y * r2x;
-        if (std::fabs(det) < 1e-20) {
+      faceTripOfs[i + 1] = faceTripOfs[i] + 9 * ntri;
+      faceRhsOfs[i + 1] = faceRhsOfs[i] + 3 * ntri;
+    }
+    const int nrhs = faceRhsOfs[FN];
+    buStream.resize(nrhs);
+    bvStream.resize(nrhs);
+    // Class -> ascending RHS-stream indices (CSR): the per-class gather in
+    // rebuildBase then sums contributions in the serial loop's exact order.
+    clsRhsOfs.resize(M + 1);
+    for (int c = 0; c <= M; c++) {
+      clsRhsOfs[c] = 0;
+    }
+    for (int k = 0; k < nrhs; k++) {
+      clsRhsOfs[rhsCls[k] + 1]++;
+    }
+    for (int c = 0; c < M; c++) {
+      clsRhsOfs[c + 1] += clsRhsOfs[c];
+    }
+    clsRhsIdx.resize(nrhs);
+    Vector<int> fillN;
+    fillN.resize(M);
+    for (int c = 0; c < M; c++) {
+      fillN[c] = 0;
+    }
+    for (int k = 0; k < nrhs; k++) {
+      int c = rhsCls[k];
+      clsRhsIdx[clsRhsOfs[c] + fillN[c]++] = k;
+    }
+    if (faceTripOfs[FN] != int(baseTripsW.size())) {
+      // Layout must mirror buildSeamlessSystem exactly or the recorded slot
+      // maps would silently corrupt. Should be unreachable.
+      fprintf(stderr,
+              "quantize: base-trip stream mismatch (%d vs %d)\n",
+              faceTripOfs[FN],
+              int(baseTripsW.size()));
+      abort();
+    }
+  }
+
+  // Rebuild the class-space base stiffness + field RHS, scaling each face by
+  // faceW[f]. Identical to buildSeamlessSystem's assembly (so faceW==1 reproduces
+  // sys.baseTrips/bu/bv); heavily weighting a folded face pulls it toward its
+  // (det>0) field-aligned target. Because the target uses the gauge-consistent
+  // field angle it never fights the locked seams (unlike a free per-face rotation).
+  // matrixToo=false rebuilds only the RHS (ARAP: faceW == 1 and geometry static,
+  // so the stiffness stream is invariant there).
+  // Two passes: faces write their disjoint stream segments concurrently, then a
+  // per-class gather sums each class in ascending stream order — bitwise-identical
+  // to the serial face-order accumulation.
+  auto rebuildBase = [&](bool matrixToo) {
+    if (matrixToo) {
+      baseTripsW.resize(size_t(faceTripOfs[FN]));
+    }
+    forFaces(kBaseGrain, [&](int, int i0, int i1) {
+      Vector<int> cs;
+      Vector<float2> loc;
+      for (int i = i0; i < i1; i++) {
+        int f = faceIds[i];
+        cs.clear();
+        loc.clear();
+        int c0 = m.l.c[m.f.l[f]], cc = c0;
+        do {
+          cs.append(cc);
+          cc = m.c.next[cc];
+        } while (cc != c0);
+        int n = int(cs.size());
+        if (n < 3) {
           continue;
         }
-        double area = 0.5 * std::fabs(det);
-        double Gx[3] = {(r1y - r2y) / det, r2y / det, -r1y / det};
-        double Gy[3] = {(r2x - r1x) / det, -r2x / det, r1x / det};
-        for (int a = 0; a < 3; a++) {
-          int ca = sys.cornerClass[cs[idx[a]]];
-          if (matrixToo) {
-            for (int b = 0; b < 3; b++) {
-              int cb = sys.cornerClass[cs[idx[b]]];
-              baseTripsW.emplace_back(ca, cb, w * area * (Gx[a] * Gx[b] + Gy[a] * Gy[b]));
-            }
+        float3 X = sys.FX[f], Y = sys.FY[f];
+        float3 p0 = m.v.co[m.c.v[cs[0]]];
+        for (int k = 0; k < n; k++) {
+          float3 d = m.v.co[m.c.v[cs[k]]] - p0;
+          loc.append(float2(d.dot(X), d.dot(Y)));
+        }
+        double mag = inv_len;
+        if (have_density) {
+          double davg = 0.0;
+          for (int k = 0; k < n; k++) {
+            davg += double(density[m.c.v[cs[k]]]);
           }
-          baseBu[ca] += w * area * (Gx[a] * double(tgt_u[0]) + Gy[a] * double(tgt_u[1]));
-          baseBv[ca] += w * area * (Gx[a] * double(tgt_v[0]) + Gy[a] * double(tgt_v[1]));
+          davg /= double(n);
+          mag = inv_len * std::sqrt(davg > 1e-12 ? davg : 1e-12);
+        }
+        float2 tgt_u, tgt_v;
+        double gux, guy, gvx, gvy;
+        if (rot_all && faceGradX(f, gux, guy, gvx, gvy)) {
+          // Nearest proper rotation R to the realized gauged Jacobian
+          // J=[[gux,guy],[gvx,gvy]]: angle=atan2(c-b,a+d), det(R)=+1.
+          double th = std::atan2(gvx - guy, gux + gvy);
+          double C = std::cos(th), S = std::sin(th);
+          tgt_u = float2(float(mag * C), float(-mag * S));
+          tgt_v = float2(float(mag * S), float(mag * C));
+        } else {
+          double alpha = double(theta[f]) + double(sys.gauge[f]) * HALF_PI;
+          tgt_u = float2(float(mag * std::cos(alpha)), float(mag * std::sin(alpha)));
+          tgt_v = float2(float(-mag * std::sin(alpha)), float(mag * std::cos(alpha)));
+        }
+        double w = faceW[f];
+        int kt = faceTripOfs[i];
+        int kr = faceRhsOfs[i];
+        for (int t = 1; t + 1 < n; t++) {
+          int idx[3] = {0, t, t + 1};
+          float2 q0 = loc[0], q1 = loc[t], q2 = loc[t + 1];
+          double r1x = q1[0] - q0[0], r1y = q1[1] - q0[1];
+          double r2x = q2[0] - q0[0], r2y = q2[1] - q0[1];
+          double det = r1x * r2y - r1y * r2x;
+          if (std::fabs(det) < 1e-20) {
+            continue;
+          }
+          double area = 0.5 * std::fabs(det);
+          double Gx[3] = {(r1y - r2y) / det, r2y / det, -r1y / det};
+          double Gy[3] = {(r2x - r1x) / det, -r2x / det, r1x / det};
+          for (int a = 0; a < 3; a++) {
+            int ca = sys.cornerClass[cs[idx[a]]];
+            if (matrixToo) {
+              for (int b = 0; b < 3; b++) {
+                int cb = sys.cornerClass[cs[idx[b]]];
+                baseTripsW[kt++] = Eigen::Triplet<double>(
+                    ca, cb, w * area * (Gx[a] * Gx[b] + Gy[a] * Gy[b]));
+              }
+            }
+            buStream[kr] =
+                w * area * (Gx[a] * double(tgt_u[0]) + Gy[a] * double(tgt_u[1]));
+            bvStream[kr] =
+                w * area * (Gx[a] * double(tgt_v[0]) + Gy[a] * double(tgt_v[1]));
+            kr++;
+          }
         }
       }
-    }
+    });
+    forRange(M, 2048, [&](int cls0, int cls1) {
+      for (int c = cls0; c < cls1; c++) {
+        double su = 0.0, sv = 0.0;
+        for (int k = clsRhsOfs[c]; k < clsRhsOfs[c + 1]; k++) {
+          int j = clsRhsIdx[k];
+          su += buStream[j];
+          sv += bvStream[j];
+        }
+        baseBu[c] = su;
+        baseBv[c] = sv;
+      }
+    });
   };
 
   // Area-weighted det(grad u, grad v) of face f from the current gauged x (det is
   // gauge-invariant, so this equals the un-gauged Jacobian). <= 0 means folded.
-  auto faceJac = [&](int f) -> double {
+  // xv overrides the solution vector read (defaults to x).
+  auto faceJac = [&](int f, const double *xv = nullptr) -> double {
+    const double *xp = xv ? xv : x.data();
     int c0 = m.l.c[m.f.l[f]], cc = c0;
     Vector<int> cs;
     do {
@@ -1030,10 +1229,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       double dux = 0, duy = 0, dvx = 0, dvy = 0;
       for (int a = 0; a < 3; a++) {
         int ca = sys.cornerClass[cs[idx[a]]];
-        dux += Gx[a] * x[2 * ca + 0];
-        duy += Gy[a] * x[2 * ca + 0];
-        dvx += Gx[a] * x[2 * ca + 1];
-        dvy += Gy[a] * x[2 * ca + 1];
+        dux += Gx[a] * xp[2 * ca + 0];
+        duy += Gy[a] * xp[2 * ca + 0];
+        dvx += Gx[a] * xp[2 * ca + 1];
+        dvy += Gy[a] * xp[2 * ca + 1];
       }
       gux += area * dux;
       guy += area * duy;
@@ -1046,17 +1245,76 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     return (gux * gvy - guy * gvx) / (totA * totA);
   };
 
+  // Allocation-free triangle copy of faceJac — identical arithmetic, so the
+  // chunked parallel fold sweeps stay bitwise-identical. Ngons fall back.
+  auto faceJacFast = [&](int f) -> double {
+    int c0 = m.l.c[m.f.l[f]], cc = c0, n = 0;
+    int cs[3] = {0, 0, 0};
+    do {
+      if (n < 3) {
+        cs[n] = cc;
+      }
+      n++;
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    if (n != 3) {
+      return faceJac(f);
+    }
+    float3 X = sys.FX[f], Y = sys.FY[f];
+    float3 p0 = m.v.co[m.c.v[cs[0]]];
+    float2 loc[3];
+    for (int i = 0; i < 3; i++) {
+      float3 d = m.v.co[m.c.v[cs[i]]] - p0;
+      loc[i] = float2(d.dot(X), d.dot(Y));
+    }
+    double gux = 0, guy = 0, gvx = 0, gvy = 0, totA = 0;
+    float2 q0 = loc[0], q1 = loc[1], q2 = loc[2];
+    double r1x = q1[0] - q0[0], r1y = q1[1] - q0[1];
+    double r2x = q2[0] - q0[0], r2y = q2[1] - q0[1];
+    double det = r1x * r2y - r1y * r2x;
+    if (std::fabs(det) >= 1e-20) {
+      double area = 0.5 * std::fabs(det);
+      double Gx[3] = {(r1y - r2y) / det, r2y / det, -r1y / det};
+      double Gy[3] = {(r2x - r1x) / det, -r2x / det, r1x / det};
+      double dux = 0, duy = 0, dvx = 0, dvy = 0;
+      for (int a = 0; a < 3; a++) {
+        int ca = sys.cornerClass[cs[a]];
+        dux += Gx[a] * x[2 * ca + 0];
+        duy += Gy[a] * x[2 * ca + 0];
+        dvx += Gx[a] * x[2 * ca + 1];
+        dvy += Gy[a] * x[2 * ca + 1];
+      }
+      gux += area * dux;
+      guy += area * duy;
+      gvx += area * dvx;
+      gvy += area * dvy;
+      totA += area;
+    }
+    if (totA <= 1e-20) {
+      return 1.0;
+    }
+    return (gux * gvy - guy * gvx) / (totA * totA);
+  };
+
+  // The faceJac fold count (ARAP gate / stiffening / tier-3), parallel.
+  auto countFoldsJ = [&]() {
+    return countFoldsPar([&](int f) { return faceJacFast(f) <= 0.0; });
+  };
+
   // Realized translation of side s for both endpoint corner-pairs, t = B x_b -
   // A x_a (equals the un-gauged seam translation uv_b - R(p) uv_a).
-  auto realizedT = [&](int s, double &t1x, double &t1y, double &t2x, double &t2y) {
+  // xv overrides the solution vector read (defaults to x).
+  auto realizedT = [&](int s, double &t1x, double &t1y, double &t2x, double &t2y,
+                       const double *xv = nullptr) {
+    const double *xp = xv ? xv : x.data();
     M2 A = Aop[s], B = Bop[s];
     double ax, ay, bx, by;
-    mv(A, x[2 * g.cla[s] + 0], x[2 * g.cla[s] + 1], ax, ay);
-    mv(B, x[2 * g.clb[s] + 0], x[2 * g.clb[s] + 1], bx, by);
+    mv(A, xp[2 * g.cla[s] + 0], xp[2 * g.cla[s] + 1], ax, ay);
+    mv(B, xp[2 * g.clb[s] + 0], xp[2 * g.clb[s] + 1], bx, by);
     t1x = bx - ax;
     t1y = by - ay;
-    mv(A, x[2 * g.cla2[s] + 0], x[2 * g.cla2[s] + 1], ax, ay);
-    mv(B, x[2 * g.clb2[s] + 0], x[2 * g.clb2[s] + 1], bx, by);
+    mv(A, xp[2 * g.cla2[s] + 0], xp[2 * g.cla2[s] + 1], ax, ay);
+    mv(B, xp[2 * g.clb2[s] + 0], xp[2 * g.clb2[s] + 1], bx, by);
     t2x = bx - ax;
     t2y = by - ay;
   };
@@ -1064,9 +1322,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // Endpoint-averaged translation of side s and its distance to the nearest
   // integer (the seam penalty makes the two endpoints agree, so the average is
   // the well-defined per-edge translation).
-  auto sideAvg = [&](int s, double &ax, double &ay) -> double {
+  auto sideAvg = [&](int s, double &ax, double &ay,
+                     const double *xv = nullptr) -> double {
     double t1x, t1y, t2x, t2y;
-    realizedT(s, t1x, t1y, t2x, t2y);
+    realizedT(s, t1x, t1y, t2x, t2y, xv);
     ax = 0.5 * (t1x + t2x);
     ay = 0.5 * (t1y + t2y);
     double dx = ax - std::round(ax), dy = ay - std::round(ay);
@@ -1096,11 +1355,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   const double untangle_thresh = params.untangle_fold_threshold;
   int initFolds = 0;
   if (all_solved && untangle_thresh > 0.0) {
-    for (int f : m.f) {
-      if (faceJac(f) <= 0.0) {
-        initFolds++;
-      }
-    }
+    initFolds = countFoldsJ();
   }
   double initFoldFrac = m.f.count ? double(initFolds) / m.f.count : 0.0;
   t_phase = Clock::now();
@@ -1334,7 +1589,8 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // gauge is uniform per face, so the raw-class signed uv area times the reference
   // (material) orientation has the same sign as faceJac's det; <= 0 means folded.
   // Falls back to faceJac for any non-triangle face.
-  auto isFolded = [&](int f) -> bool {
+  auto isFolded = [&](int f, const double *xv = nullptr) -> bool {
+    const double *xp = xv ? xv : x.data();
     int c0 = m.l.c[m.f.l[f]], cc = c0, n = 0, cs[3] = {0, 0, 0};
     do {
       if (n < 3) {
@@ -1344,7 +1600,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       cc = m.c.next[cc];
     } while (cc != c0);
     if (n != 3) {
-      return faceJac(f) <= 0.0;
+      return faceJac(f, xv) <= 0.0;
     }
     float3 X = sys.FX[f], Y = sys.FY[f];
     float3 p0 = m.v.co[m.c.v[cs[0]]];
@@ -1352,9 +1608,9 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     double refDet = double(d1.dot(X)) * double(d2.dot(Y)) -
                     double(d1.dot(Y)) * double(d2.dot(X));
     int a0 = sys.cornerClass[cs[0]], a1 = sys.cornerClass[cs[1]], a2 = sys.cornerClass[cs[2]];
-    double u0 = x[2 * a0], v0 = x[2 * a0 + 1];
-    double uvDet = (x[2 * a1] - u0) * (x[2 * a2 + 1] - v0) -
-                   (x[2 * a1 + 1] - v0) * (x[2 * a2] - u0);
+    double u0 = xp[2 * a0], v0 = xp[2 * a0 + 1];
+    double uvDet = (xp[2 * a1] - u0) * (xp[2 * a2 + 1] - v0) -
+                   (xp[2 * a1 + 1] - v0) * (xp[2 * a2] - u0);
     return uvDet * refDet <= 0.0;
   };
 
@@ -1366,11 +1622,11 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // feasible (max integer residual within tol) -- so the integer cocycle stays
   // valid and the no-spiral guarantee is never traded away. Runs before the
   // injectivity stiffening so the re-solves use the clean (faceW == 1) factor.
-  auto maxResidual = [&]() -> double {
+  auto maxResidual = [&](const double *xv = nullptr) -> double {
     double r = 0.0;
     for (int s = 0; s < S; s++) {
       double t1x, t1y, t2x, t2y;
-      realizedT(s, t1x, t1y, t2x, t2y);
+      realizedT(s, t1x, t1y, t2x, t2y, xv);
       double kx = double(g.t_int[s][0]), ky = double(g.t_int[s][1]);
       double d1 = std::sqrt((t1x - kx) * (t1x - kx) + (t1y - ky) * (t1y - ky));
       double d2 = std::sqrt((t2x - kx) * (t2x - kx) + (t2y - ky) * (t2y - ky));
@@ -1381,27 +1637,20 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   t_phase = Clock::now();
   if (all_solved && S > 0 && params.seam_relax_iters > 0) {
     auto countF = [&]() {
-      int nf = 0;
-      for (int f : m.f) {
-        if (isFolded(f)) {
-          nf++;
-        }
-      }
-      return nf;
+      return countFoldsPar([&](int f) { return isFolded(f); });
     };
     const float2 moves[4] = {float2(1, 0), float2(-1, 0), float2(0, 1), float2(0, -1)};
     int curFold = countF();
+    Vector<int> foldedFaces;
     for (int round = 0; round < params.seam_relax_iters &&
                         curFold >= params.seam_relax_min_folds && all_solved;
          round++) {
       // Collect the cut-edge sides bordering a folded face (deterministic order).
       std::unordered_set<int> candSet;
       Vector<int> cand;
-      for (int f : m.f) {
-        if (!isFolded(f)) {
-          continue;
-        }
-        int c0 = m.l.c[m.f.l[f]], cc = c0;
+      collectFoldedPar([&](int f) { return isFolded(f); }, foldedFaces);
+      for (int i = 0; i < int(foldedFaces.size()); i++) {
+        int c0 = m.l.c[m.f.l[foldedFaces[i]]], cc = c0;
         do {
           int s = g.sideOfEdge[m.c.e[cc]];
           if (s >= 0 && candSet.insert(s).second) {
@@ -1457,19 +1706,11 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   int inj_iters = params.inj_iters;
   t_phase = Clock::now();
   if (all_solved && inj_iters > 0) {
-    auto countFolds = [&]() {
-      int nf = 0;
-      for (int f : m.f) {
-        if (faceJac(f) <= 0.0) {
-          nf++;
-        }
-      }
-      return nf;
-    };
     Eigen::VectorXd bestX = x;
-    int bestFold = countFolds();
+    int bestFold = countFoldsJ();
     Vector<char> vmark;
     vmark.resize(int(m.v.capacity()));
+    Vector<int> foldedFaces;
     int stale = 0;
     for (int it = 0; it < inj_iters && bestFold > 0; it++) {
       // Mark every folded face's vertices, then stiffen the whole 1-ring around
@@ -1479,40 +1720,40 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       for (int i = 0; i < int(m.v.capacity()); i++) {
         vmark[i] = 0;
       }
-      int nb = 0;
-      for (int f : m.f) {
-        if (faceJac(f) <= 0.0) {
-          nb++;
-          int c0 = m.l.c[m.f.l[f]], cc = c0;
-          do {
-            vmark[m.c.v[cc]] = 1;
-            cc = m.c.next[cc];
-          } while (cc != c0);
-        }
-      }
-      if (nb == 0) {
+      collectFoldedPar([&](int f) { return faceJacFast(f) <= 0.0; }, foldedFaces);
+      if (foldedFaces.size() == 0) {
         break;
       }
-      for (int f : m.f) {
-        int c0 = m.l.c[m.f.l[f]], cc = c0;
-        bool touches = false;
+      for (int i = 0; i < int(foldedFaces.size()); i++) {
+        int c0 = m.l.c[m.f.l[foldedFaces[i]]], cc = c0;
         do {
-          if (vmark[m.c.v[cc]]) {
-            touches = true;
-            break;
-          }
+          vmark[m.c.v[cc]] = 1;
           cc = m.c.next[cc];
         } while (cc != c0);
-        if (touches) {
-          faceW[f] = std::min(faceW[f] * 4.0, 1.0e4);
-        }
       }
+      forFaces(kFoldGrain, [&](int, int i0, int i1) {
+        for (int i = i0; i < i1; i++) {
+          int f = faceIds[i];
+          int c0 = m.l.c[m.f.l[f]], cc = c0;
+          bool touches = false;
+          do {
+            if (vmark[m.c.v[cc]]) {
+              touches = true;
+              break;
+            }
+            cc = m.c.next[cc];
+          } while (cc != c0);
+          if (touches) {
+            faceW[f] = std::min(faceW[f] * 4.0, 1.0e4);
+          }
+        }
+      });
       rebuildBase(true);
       if (!solveAll(true)) { // base stiffness rescaled -> full re-factorization
         all_solved = false;
         break;
       }
-      int fold = countFolds();
+      int fold = countFoldsJ();
       if (fold < bestFold) {
         bestFold = fold;
         bestX = x;
@@ -1539,16 +1780,9 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // global system and never moves a seam endpoint -> seamlessness is preserved.
   t_phase = Clock::now();
   if (all_solved && params.local_untangle_iters > 0) {
-    auto countFolds = [&]() {
-      int nf = 0;
-      for (int f : m.f) {
-        if (faceJac(f) <= 0.0) {
-          nf++;
-        }
-      }
-      return nf;
-    };
-    int fold0 = countFolds();
+    Vector<int> foldedFaces;
+    collectFoldedPar([&](int f) { return faceJacFast(f) <= 0.0; }, foldedFaces);
+    int fold0 = int(foldedFaces.size());
     if (fold0 > 0) {
       const int grow = params.local_untangle_grow;
       // 1. Mark folded faces, then grow the patch by `grow` vertex-rings so the
@@ -1559,10 +1793,8 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       for (int i = 0; i < int(m.f.capacity()); i++) {
         fmark[i] = 0;
       }
-      for (int f : m.f) {
-        if (faceJac(f) <= 0.0) {
-          fmark[f] = 1;
-        }
+      for (int i = 0; i < fold0; i++) {
+        fmark[foldedFaces[i]] = 1;
       }
       for (int r = 0; r < grow; r++) {
         for (int i = 0; i < int(m.v.capacity()); i++) {
@@ -1784,7 +2016,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         // Accept the re-parametrized patch only if it strictly reduces folds.
         Eigen::VectorXd xsave = x;
         x = xc;
-        int fold1 = countFolds();
+        int fold1 = countFoldsJ();
         if (fold1 >= fold0) {
           x = xsave;
         }
@@ -1818,16 +2050,19 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // gauged chart (the un-gauged uv below spirals on curved, non-trivial topology).
   BuiltinAttr<short, ".remesh.f.gauge_rot", AttrFlag::TEMP> gauge_rot;
   gauge_rot.ensure(m.f.attrs);
-  for (int f : m.f) {
-    gauge_rot[f] = short(sys.gauge[f]);
-    double ang = -double(sys.gauge[f]) * HALF_PI;
-    int c0 = m.l.c[m.f.l[f]], cc = c0;
-    do {
-      int cl = sys.cornerClass[cc];
-      uv[cc] = rotc(ang, float2(float(x[2 * cl + 0]), float(x[2 * cl + 1])));
-      cc = m.c.next[cc];
-    } while (cc != c0);
-  }
+  forFaces(kFoldGrain, [&](int, int i0, int i1) {
+    for (int i = i0; i < i1; i++) {
+      int f = faceIds[i];
+      gauge_rot[f] = short(sys.gauge[f]);
+      double ang = -double(sys.gauge[f]) * HALF_PI;
+      int c0 = m.l.c[m.f.l[f]], cc = c0;
+      do {
+        int cl = sys.cornerClass[cc];
+        uv[cc] = rotc(ang, float2(float(x[2 * cl + 0]), float(x[2 * cl + 1])));
+        cc = m.c.next[cc];
+      } while (cc != c0);
+    }
+  });
 
   BuiltinAttr<int2, ".remesh.e.translation_q", AttrFlag::TEMP> tq;
   tq.ensure(m.e.attrs);
@@ -1845,73 +2080,102 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // Diagnostic: min per-face det(grad u, grad v) of the snapped map, plus the
   // pre-extraction fold count (faces whose map Jacobian is non-positive). This is
   // the parametrization fold count Tier-0's run report surfaces — distinct from
-  // the output mesh's `inverted_faces`.
-  Vector<int> cs;
-  Vector<float2> loc;
+  // the output mesh's `inverted_faces`. Counts and the min-jac merge are
+  // order-independent, so the chunked parallel sweep is deterministic.
   int num_faces = 0;
   int num_folds = 0;
   double min_jac = 0.0;
   bool first_jac = true;
-  for (int f : m.f) {
-    cs.clear();
-    loc.clear();
-    int c0 = m.l.c[m.f.l[f]], cc = c0;
-    do {
-      cs.append(cc);
-      cc = m.c.next[cc];
-    } while (cc != c0);
-    int n = int(cs.size());
-    if (n < 3) {
-      continue;
-    }
-    num_faces++;
-    float3 X = sys.FX[f], Y = sys.FY[f];
-    float3 p0 = m.v.co[m.c.v[cs[0]]];
-    for (int i = 0; i < n; i++) {
-      float3 d = m.v.co[m.c.v[cs[i]]] - p0;
-      loc.append(float2(d.dot(X), d.dot(Y)));
-    }
-    double gux = 0, guy = 0, gvx = 0, gvy = 0, totA = 0;
-    for (int t = 1; t + 1 < n; t++) {
-      int idx[3] = {0, t, t + 1};
-      float2 q0 = loc[0], q1 = loc[t], q2 = loc[t + 1];
-      double r1x = q1[0] - q0[0], r1y = q1[1] - q0[1];
-      double r2x = q2[0] - q0[0], r2y = q2[1] - q0[1];
-      double det = r1x * r2y - r1y * r2x;
-      if (std::fabs(det) < 1e-20) {
-        continue;
+  {
+    const int nchunk = faceChunkCount(kFoldGrain);
+    Vector<int> pNFace, pNFold;
+    Vector<double> pMinJ;
+    Vector<char> pHasJ;
+    pNFace.resize(nchunk);
+    pNFold.resize(nchunk);
+    pMinJ.resize(nchunk);
+    pHasJ.resize(nchunk);
+    forFaces(kFoldGrain, [&](int ch, int i0, int i1) {
+      Vector<int> cs;
+      Vector<float2> loc;
+      int nfc = 0, nfo = 0;
+      double mj = 0.0;
+      bool first = true;
+      for (int i = i0; i < i1; i++) {
+        int f = faceIds[i];
+        cs.clear();
+        loc.clear();
+        int c0 = m.l.c[m.f.l[f]], cc = c0;
+        do {
+          cs.append(cc);
+          cc = m.c.next[cc];
+        } while (cc != c0);
+        int n = int(cs.size());
+        if (n < 3) {
+          continue;
+        }
+        nfc++;
+        float3 X = sys.FX[f], Y = sys.FY[f];
+        float3 p0 = m.v.co[m.c.v[cs[0]]];
+        for (int k = 0; k < n; k++) {
+          float3 d = m.v.co[m.c.v[cs[k]]] - p0;
+          loc.append(float2(d.dot(X), d.dot(Y)));
+        }
+        double gux = 0, guy = 0, gvx = 0, gvy = 0, totA = 0;
+        for (int t = 1; t + 1 < n; t++) {
+          int idx[3] = {0, t, t + 1};
+          float2 q0 = loc[0], q1 = loc[t], q2 = loc[t + 1];
+          double r1x = q1[0] - q0[0], r1y = q1[1] - q0[1];
+          double r2x = q2[0] - q0[0], r2y = q2[1] - q0[1];
+          double det = r1x * r2y - r1y * r2x;
+          if (std::fabs(det) < 1e-20) {
+            continue;
+          }
+          double area = 0.5 * std::fabs(det);
+          double Gx[3] = {(r1y - r2y) / det, r2y / det, -r1y / det};
+          double Gy[3] = {(r2x - r1x) / det, -r2x / det, r1x / det};
+          double dux = 0, duy = 0, dvx = 0, dvy = 0;
+          for (int a = 0; a < 3; a++) {
+            float2 c = uv[cs[idx[a]]];
+            dux += Gx[a] * double(c[0]);
+            duy += Gy[a] * double(c[0]);
+            dvx += Gx[a] * double(c[1]);
+            dvy += Gy[a] * double(c[1]);
+          }
+          gux += area * dux;
+          guy += area * duy;
+          gvx += area * dvx;
+          gvy += area * dvy;
+          totA += area;
+        }
+        if (totA <= 1e-20) {
+          continue;
+        }
+        gux /= totA;
+        guy /= totA;
+        gvx /= totA;
+        gvy /= totA;
+        double jac = gux * gvy - guy * gvx;
+        if (jac <= 0.0) {
+          nfo++;
+        }
+        if (first || jac < mj) {
+          mj = jac;
+          first = false;
+        }
       }
-      double area = 0.5 * std::fabs(det);
-      double Gx[3] = {(r1y - r2y) / det, r2y / det, -r1y / det};
-      double Gy[3] = {(r2x - r1x) / det, -r2x / det, r1x / det};
-      double dux = 0, duy = 0, dvx = 0, dvy = 0;
-      for (int a = 0; a < 3; a++) {
-        float2 c = uv[cs[idx[a]]];
-        dux += Gx[a] * double(c[0]);
-        duy += Gy[a] * double(c[0]);
-        dvx += Gx[a] * double(c[1]);
-        dvy += Gy[a] * double(c[1]);
+      pNFace[ch] = nfc;
+      pNFold[ch] = nfo;
+      pMinJ[ch] = mj;
+      pHasJ[ch] = first ? 0 : 1;
+    });
+    for (int ch = 0; ch < nchunk; ch++) {
+      num_faces += pNFace[ch];
+      num_folds += pNFold[ch];
+      if (pHasJ[ch] && (first_jac || pMinJ[ch] < min_jac)) {
+        min_jac = pMinJ[ch];
+        first_jac = false;
       }
-      gux += area * dux;
-      guy += area * duy;
-      gvx += area * dvx;
-      gvy += area * dvy;
-      totA += area;
-    }
-    if (totA <= 1e-20) {
-      continue;
-    }
-    gux /= totA;
-    guy /= totA;
-    gvx /= totA;
-    gvy /= totA;
-    double jac = gux * gvy - guy * gvx;
-    if (jac <= 0.0) {
-      num_folds++;
-    }
-    if (first_jac || jac < min_jac) {
-      min_jac = jac;
-      first_jac = false;
     }
   }
   stats.num_faces = num_faces;
