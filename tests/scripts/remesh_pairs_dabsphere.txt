@@ -1,0 +1,15 @@
+# Fold-heavy bench B: dab-noised sphere (tier-4 dab pattern) — sculpt dabs
+# add curvature noise that seeds spurious singularity pairs. Same stage order
+# and sweep surface as remesh_pairs_sphere.txt.
+make_cube subdivs=96 size=2.0 sphere=1
+build_spatial
+set_brush radius=0.2 strength=0.7
+stroke origin=0,0,0.5 normal=0,0,1
+stroke origin=0.5,0,0 normal=1,0,0
+stroke origin=0,0.5,0 normal=0,1,0
+stroke origin=-0.354,0,0.354 normal=-0.707,0,0.707
+stroke origin=0,-0.354,-0.354 normal=0,-0.707,-0.707
+triangulate
+remesh_cross_field smoothness=1 curvature_smooth_iters=0 curvature_smooth_lambda=0.5
+remesh_adjust_singularities
+remesh_quantize target_edge_length=0.05

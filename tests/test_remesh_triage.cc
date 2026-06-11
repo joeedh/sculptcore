@@ -19,6 +19,8 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/mesh_shapes.h"
+#include "mesh/utils/mesh_validate.h"
+#include "mesh/utils/triangulate.h"
 
 #include "remesh/triage.h"
 
@@ -205,6 +207,47 @@ void testNonManifoldDetect()
   litestl::alloc::Delete<Mesh>(m);
 }
 
+// Polygon-soup stress: rebuild a triangulated sphere with every face authored
+// from its own 3 verts, so weld merges ~2/3 of all verts and the rebuild path
+// (kill-all faces/verts + make_face survivors) runs at scale.
+void testWeldStressSoup()
+{
+  Mesh *src = makeUVSphere(96, 96, 1.0f);
+  (void)triangulateMesh(*src);
+  int srcV = src->v.count, srcF = src->f.count;
+
+  Mesh *m = litestl::alloc::New<Mesh>("test soup");
+  for (int f : src->f) {
+    Vector<int> vs;
+    int c0 = src->l.c[src->f.l[f]], cc = c0;
+    do {
+      vs.append(m->make_vertex(src->v.co[src->c.v[cc]]));
+      cc = src->c.next[cc];
+    } while (cc != c0);
+    m->make_face(vs);
+  }
+  m->recalc_normals();
+  litestl::alloc::Delete<Mesh>(src);
+  int soupV = m->v.count;
+  fprintf(stderr, "[soup] authored verts=%d faces=%d (target %d verts)\n",
+          m->v.count, m->f.count, srcV);
+
+  TriageParams p;
+  TriageReport r;
+  triageMesh(*m, p, r);
+
+  fprintf(stderr, "[soup] welded=%d verts=%d faces=%d degen=%d dup=%d\n",
+          r.welded_verts, m->v.count, m->f.count, r.removed_degenerate_faces,
+          r.removed_duplicate_faces);
+  TASSERT(r.welded_verts == soupV - srcV);
+  TASSERT(m->v.count == srcV);
+  TASSERT(m->f.count == srcF);
+  RemeshReport health = remeshValidate(*m);
+  TASSERT(health.manifold);
+  TASSERT(health.non_manifold_edges == 0);
+  litestl::alloc::Delete<Mesh>(m);
+}
+
 } // namespace
 
 int main()
@@ -214,5 +257,6 @@ int main()
   testDegenerateFace();
   testTinyComponent();
   testNonManifoldDetect();
+  testWeldStressSoup();
   return retval;
 }
