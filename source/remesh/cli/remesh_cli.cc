@@ -353,6 +353,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"nonquad_cells\": %d,\n", ex.nonquad_cells);
   std::fprintf(f, "      \"holes_capped\": %d,\n", ex.holes_capped);
   std::fprintf(f, "      \"holes_capped_odd\": %d,\n", ex.holes_capped_odd);
+  std::fprintf(f, "      \"odd_rims_paired\": %d,\n", ex.odd_rims_paired);
   std::fprintf(f, "      \"holes_pinched_split\": %d,\n", ex.holes_pinched_split);
   std::fprintf(f, "      \"holes_open\": %d,\n", ex.holes_open);
   std::fprintf(f, "      \"holes_open_border\": %d,\n", ex.holes_open_border);
@@ -443,7 +444,7 @@ void usage()
       "  --quant-direct <0|1>    one-shot DIRECT rounding, no greedy rounds "
       "(default 0)\n"
       "  --reproject <0|1>       snap output onto input surface (default 1)\n"
-      "  --cap-odd <0|1>         close odd holes w/ one tri each (default 0)\n"
+      "  --cap-odd <0|1>         close odd holes too, paired all-quad (default 0)\n"
       "  --smooth <int>          reprojection smoothing iterations (default 2)\n"
       "  --smooth-strength <f>   per-iteration smoothing step 0..1 (default 0.5)\n"
       "  --seed <uint>           determinism seed (default 1)\n"

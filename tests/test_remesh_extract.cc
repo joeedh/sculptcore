@@ -66,7 +66,7 @@ namespace {
 // Run M2-M5 on m (in place), then extract. Returns the heap quad mesh (caller
 // frees) and fills `st`. Returns nullptr on extraction failure.
 Mesh *runExtract(Mesh *m, float target, remesh::ExtractStats &st,
-                 bool sharp = false, bool curvature = false)
+                 bool sharp = false, bool curvature = false, bool capOdd = false)
 {
   m->thawTopo();
   mesh::triangulateMesh(*m);
@@ -80,6 +80,7 @@ Mesh *runExtract(Mesh *m, float target, remesh::ExtractStats &st,
   qp.target_edge_length = target;
   remesh::computeQuantization(*m, qp);
   remesh::ExtractParams ep;
+  ep.cap_odd_holes = capOdd;
   return remesh::extractQuadMesh(*m, ep, st);
 }
 
@@ -264,6 +265,44 @@ void testCappedCylinderExtract()
     TASSERT(r.inverted_faces == 0);
     TASSERT(r.degenerate_faces == 0);
     TASSERT(r.spiral_isolines == 0); // quantization killed every spiral
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(c);
+}
+
+// The same capped cylinder with cap_odd_holes on: the two odd cap rims pair
+// through the quad strip running down the side, the ladder split makes both
+// even, so the closed result must be watertight and still all-quad — no cap
+// triangles.
+void testOddCapExtract()
+{
+  Mesh *c = mesh::makeCylinder(24, 8, 0.5f, 2.0f, /*capped=*/true);
+  remesh::ExtractStats st;
+  Mesh *out = runExtract(c, 0.15f, st, /*sharp=*/true, /*curvature=*/true,
+                         /*capOdd=*/true);
+  TASSERT(out != nullptr);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("oddcap", r);
+    fprintf(stderr, "[oddcap] capped=%d capped_odd=%d paired=%d open=%d\n",
+            st.holes_capped, st.holes_capped_odd, st.odd_rims_paired,
+            st.holes_open);
+    TASSERT(st.ok);
+    TASSERT(st.holes_capped_odd > 0); // the cap rims really came out odd
+    TASSERT(st.odd_rims_paired == 2); // both joined by one ladder split
+    TASSERT(st.holes_open == 0);
+    TASSERT(r.all_quad); // odd rims closed by the pairing, not cap triangles
+    TASSERT(r.manifold);
+    TASSERT(r.consistent_winding);
+    TASSERT(r.boundary_edges == 0); // watertight
+    TASSERT(r.euler == 2);          // both holes closed -> topological sphere
+    // inverted_faces is not asserted: fan caps on ragged rims can pleat a few
+    // faces locally (smoothed downstream by reprojection); the structural
+    // contract here is watertight + all-quad.
+    TASSERT(r.degenerate_faces == 0);
+    TASSERT(r.spiral_isolines == 0);
+    for (int v = 9; v < 17; v++) // fan centers are valence <= kFanMax/2 = 6
+      TASSERT(r.valence_hist[v] == 0);
     litestl::alloc::Delete<Mesh>(out);
   }
   litestl::alloc::Delete<Mesh>(c);
@@ -462,6 +501,7 @@ int main()
   testTorusExtract();
   testSphereExtract();
   testCappedCylinderExtract();
+  testOddCapExtract();
   testReproject();
   testQuadRemeshPipeline();
   testSimpleObj();

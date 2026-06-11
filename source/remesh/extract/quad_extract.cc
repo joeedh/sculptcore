@@ -543,8 +543,10 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   // Output rims are spurious holes (fold tangles, unresolved cones) unless they
   // track the input mesh's real boundary. Each rim — pinched ones first split at
   // repeated verts into simple cycles — is left open when it lies on the input
-  // boundary polyline, else capped: a quad fan at the enclosed cone (or the rim
-  // centroid); an odd rim costs one cap triangle, gated on cap_odd_holes.
+  // boundary polyline, else capped all-quad: odd rims (gated on cap_odd_holes)
+  // are first paired and made even by a quad-strip ladder split, then 4-rims
+  // close with one quad, small rims center-fan at the enclosed cone (or
+  // centroid), and big rims chord-split at their waist into fan-sized pieces.
   {
     Mesh &o = *out;
     auto isBndIn = [&](int e) {
@@ -659,76 +661,336 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     // lattice line, ~0.7 cells inside the input boundary; spurious rims measure
     // >= 1.6 cells away (fox/plane corpus), so threshold at 1 rim edge length.
     const double kBorderTol = 1.0;
-    for (int li = 0; li < int(simple.size()); li++) {
-      Vector<int> &loop = simple[li];
+    auto isBorderRim = [&](const Vector<int> &loop) -> bool {
+      if (!bndA.size()) return false;
       int n = int(loop.size());
-      if (n < 3 || n > kMaxCapLoop) {
-        stats.holes_open++;
-        stats.holes_open_size++;
-        continue;
+      double meanD = 0.0, rimEdge = 0.0;
+      for (int i = 0; i < n; i++) {
+        float3 p = o.v.co[loop[i]];
+        double bdist = 1e30;
+        for (int s = 0; s < int(bndA.size()); s++)
+          bdist = std::min(bdist, distPtSeg3(p, bndA[s], bndB[s]));
+        meanD += bdist;
+        rimEdge += len3(sub3(o.v.co[loop[(i + 1) % n]], p));
       }
-      if (bndA.size()) {
-        double meanD = 0.0, rimEdge = 0.0;
+      return meanD <= kBorderTol * rimEdge;
+    };
+    // Per-rim flags, precomputed: the pairing below must see every rim's class
+    // before any ladder split mutates the mesh or grows a loop.
+    int nl = int(simple.size());
+    Vector<char> rimSized, rimBorder, rimOdd, rimPaired;
+    for (int li = 0; li < nl; li++) {
+      int n = int(simple[li].size());
+      rimSized.append(n >= 3 && n <= kMaxCapLoop ? 1 : 0);
+      rimBorder.append(rimSized[li] && isBorderRim(simple[li]) ? 1 : 0);
+      rimOdd.append((n & 1) ? 1 : 0);
+      rimPaired.append(0);
+    }
+    // Dual strip walk: enter a quad through one edge, exit the opposite, cross
+    // radially; stops at a boundary edge (returned) or fails (-1) on a
+    // non-quad, degenerate quad, or self-crossing strip.
+    struct PathQuad {
+      int f, w[4], e_in, e_out;
+    };
+    auto traceStrip = [&](int e0, Vector<PathQuad> &path) -> int {
+      path.clear();
+      int c_in = o.e.c[e0];
+      if (c_in == ELEM_NONE) return -1;
+      std::unordered_map<int, char> visF, visE;
+      visE[e0] = 1;
+      for (int guard = 0; guard < 100000; guard++) {
+        int f = o.l.f[o.c.l[c_in]];
+        if (visF.count(f)) return -1;
+        visF[f] = 1;
+        int cs[4], cw = c_in;
+        for (int t = 0; t < 4; t++) {
+          cs[t] = cw;
+          cw = o.c.next[cw];
+        }
+        if (cw != c_in) return -1;
+        PathQuad pq;
+        pq.f = f;
+        for (int t = 0; t < 4; t++) pq.w[t] = o.c.v[cs[t]];
+        for (int t1 = 0; t1 < 4; t1++)
+          for (int t2 = t1 + 1; t2 < 4; t2++)
+            if (pq.w[t1] == pq.w[t2]) return -1;
+        pq.e_in = o.c.e[cs[0]];
+        pq.e_out = o.c.e[cs[2]];
+        if (visE.count(pq.e_out)) return -1; // non-manifold strip
+        visE[pq.e_out] = 1;
+        path.append(pq);
+        int c_opp = cs[2];
+        int rn = o.c.radial_next[c_opp];
+        if (rn == c_opp) return pq.e_out; // boundary: the strip exits here
+        c_in = rn;
+      }
+      return -1;
+    };
+    // Odd rims pair per component (rim lengths sum even; 4F = 2E_int + B makes
+    // a lone odd rim cost one triangle). The dual quad strip between two odd
+    // rims, split lengthwise ("ladder"), adds one rim vert to each: both even.
+    if (params.cap_odd_holes) {
+      std::unordered_map<int, std::pair<int, int>> rimEdgeAt; // edge -> (rim, pos)
+      for (int li = 0; li < nl; li++) {
+        if (!rimOdd[li] || rimBorder[li] || !rimSized[li]) continue;
+        Vector<int> &lp = simple[li];
+        int n = int(lp.size());
         for (int i = 0; i < n; i++) {
-          float3 p = o.v.co[loop[i]];
-          double bdist = 1e30;
-          for (int s = 0; s < int(bndA.size()); s++)
-            bdist = std::min(bdist, distPtSeg3(p, bndA[s], bndB[s]));
-          meanD += bdist;
-          rimEdge += len3(sub3(o.v.co[loop[(i + 1) % n]], p));
-        }
-        if (meanD <= kBorderTol * rimEdge) { // real border: keep it open
-          stats.holes_open++;
-          stats.holes_open_border++;
-          continue;
+          int e = o.find_edge(lp[i], lp[(i + 1) % n]);
+          if (e != ELEM_NONE) rimEdgeAt[e] = {li, i};
         }
       }
-      // An odd rim is unquadable (a quad disk has an even boundary), so closing
-      // it costs one cap triangle — only when cap_odd_holes allows.
-      if ((n & 1) && !params.cap_odd_holes) {
-        stats.holes_open++;
-        stats.holes_open_odd++;
-        continue;
+      auto insertAfter = [&](Vector<int> &lp, int pos, int v) {
+        Vector<int> grown;
+        for (int t = 0; t <= pos; t++) grown.append(lp[t]);
+        grown.append(v);
+        for (int t = pos + 1; t < int(lp.size()); t++) grown.append(lp[t]);
+        lp = grown;
+      };
+      Vector<PathQuad> path;
+      for (int li = 0; li < nl; li++) {
+        if (!rimOdd[li] || rimBorder[li] || !rimSized[li] || rimPaired[li]) continue;
+        int n = int(simple[li].size());
+        for (int i = 0; i < n && !rimPaired[li]; i++) {
+          int e0 = o.find_edge(simple[li][i], simple[li][(i + 1) % n]);
+          if (e0 == ELEM_NONE) continue;
+          int eout = traceStrip(e0, path);
+          if (eout < 0) continue;
+          auto it = rimEdgeAt.find(eout);
+          if (it == rimEdgeAt.end()) continue;
+          int lj = it->second.first, pj = it->second.second;
+          if (lj == li || !rimOdd[lj] || rimPaired[lj] || rimBorder[lj]) continue;
+          // Gather the split-edge midpoints first; the kills invalidate the strip.
+          int P = int(path.size());
+          Vector<float3> mco;
+          float3 a0 = o.v.co[path[0].w[0]], b0 = o.v.co[path[0].w[1]];
+          mco.append(float3(0.5f * (a0[0] + b0[0]), 0.5f * (a0[1] + b0[1]),
+                            0.5f * (a0[2] + b0[2])));
+          for (int t = 0; t < P; t++) {
+            float3 a = o.v.co[path[t].w[2]], b = o.v.co[path[t].w[3]];
+            mco.append(float3(0.5f * (a[0] + b[0]), 0.5f * (a[1] + b[1]),
+                              0.5f * (a[2] + b[2])));
+          }
+          for (int t = 0; t < P; t++) o.kill_face(path[t].f);
+          o.kill_edge(path[0].e_in);
+          for (int t = 0; t < P; t++) o.kill_edge(path[t].e_out);
+          Vector<int> mid;
+          for (int t = 0; t <= P; t++) mid.append(o.make_vertex(mco[t]));
+          for (int t = 0; t < P; t++) {
+            const PathQuad &pq = path[t];
+            Vector<int> q;
+            q.append(pq.w[0]); q.append(mid[t]); q.append(mid[t + 1]); q.append(pq.w[3]);
+            o.make_face(q);
+            q.clear();
+            q.append(mid[t]); q.append(pq.w[1]); q.append(pq.w[2]); q.append(mid[t + 1]);
+            o.make_face(q);
+          }
+          insertAfter(simple[li], i, mid[0]);
+          insertAfter(simple[lj], pj, mid[P]);
+          rimEdgeAt.erase(e0);
+          rimEdgeAt.erase(eout);
+          rimPaired[li] = rimPaired[lj] = 1;
+          stats.odd_rims_paired += 2;
+        }
       }
-      if (n == 3) { // triangular rim: one triangle, no center vertex
-        Vector<int> q;
-        q.append(loop[2]);
-        q.append(loop[1]);
-        q.append(loop[0]);
-        o.make_face(q);
-        stats.holes_capped++;
-        stats.holes_capped_odd++;
-        continue;
-      }
+    }
+    // Largest rim closed with a single center fan; the fan center's valence is
+    // n/2, so bigger rims are chord-split into fan-sized pieces instead.
+    const int kFanMax = 12;
+    // The cone enclosed by rim `lp`, if one is: cpos = nearest cone within the
+    // rim's mean radius of its centroid (false leaves cpos at the centroid).
+    auto enclosedCone = [&](const Vector<int> &lp, float3 &cpos) -> bool {
+      int n = int(lp.size());
       float3 cen(0, 0, 0);
-      for (int v : loop)
+      for (int v : lp)
         cen = float3(cen[0] + o.v.co[v][0], cen[1] + o.v.co[v][1], cen[2] + o.v.co[v][2]);
       cen = float3(cen[0] / n, cen[1] / n, cen[2] / n);
       double radius = 0;
-      for (int v : loop) radius += len3(sub3(o.v.co[v], cen));
+      for (int v : lp) radius += len3(sub3(o.v.co[v], cen));
       radius /= n;
-      // Cap centered on the enclosed cone when one is; else the rim centroid.
-      float3 cpos = cen;
+      cpos = cen;
       double bd = 1e30;
+      float3 best = cen;
       for (int s = 0; s < int(singPos.size()); s++) {
         double d = len3(sub3(singPos[s], cen));
-        if (d < bd) { bd = d; cpos = singPos[s]; }
+        if (d < bd) { bd = d; best = singPos[s]; }
       }
       if (bd > radius)
-        cpos = cen;
+        return false;
+      cpos = best;
+      return true;
+    };
+    // Center-fan cap, centered on the enclosed cone when one is (else the rim
+    // centroid). Even rims close all-quad; odd ones get one trailing triangle.
+    auto fanCap = [&](const Vector<int> &lp) {
+      int n = int(lp.size());
+      float3 cpos;
+      enclosedCone(lp, cpos);
       int C = o.make_vertex(cpos);
       for (int i = 0; i < n; i += 2) {
         Vector<int> q;
         q.append(C);
         if (i + 2 <= n) {
-          q.append(loop[(i + 2) % n]); // spans two rim edges -> quad
+          q.append(lp[(i + 2) % n]); // spans two rim edges -> quad
         }
-        q.append(loop[(i + 1) % n]); // odd remainder spans one edge -> triangle
-        q.append(loop[i]);
+        q.append(lp[(i + 1) % n]); // odd remainder spans one edge -> triangle
+        q.append(lp[i]);
         o.make_face(q);
       }
+    };
+    // Flat-close safety: a 4-rim (often a chord-split waist piece) may be
+    // concave/twisted in 3D, and the one-quad close has a forced winding — only
+    // close flat when its Newell normal agrees with the adjacent surface.
+    auto flatQuadOk = [&](const Vector<int> &lp) -> bool {
+      float3 p0 = o.v.co[lp[3]];
+      float3 e1 = sub3(o.v.co[lp[2]], p0), e2 = sub3(o.v.co[lp[1]], p0),
+             e3 = sub3(o.v.co[lp[0]], p0);
+      float3 c12 = cross3(e1, e2), c23 = cross3(e2, e3);
+      float3 nq(c12[0] + c23[0], c12[1] + c23[1], c12[2] + c23[2]);
+      float3 ref(0, 0, 0);
+      for (int t = 0; t < 4; t++) {
+        int e = o.find_edge(lp[t], lp[(t + 1) % 4]);
+        if (e == ELEM_NONE)
+          continue; // the not-yet-created chord
+        int c = o.e.c[e];
+        if (c == ELEM_NONE)
+          continue;
+        int f = o.l.f[o.c.l[c]];
+        int c0 = o.l.c[o.f.l[f]];
+        float3 a0 = o.v.co[o.c.v[c0]];
+        int ca = o.c.next[c0];
+        float3 pa = sub3(o.v.co[o.c.v[ca]], a0);
+        for (int cb = o.c.next[ca]; cb != c0; cb = o.c.next[cb]) {
+          float3 pb = sub3(o.v.co[o.c.v[cb]], a0);
+          float3 cr = cross3(pa, pb);
+          ref = float3(ref[0] + cr[0], ref[1] + cr[1], ref[2] + cr[2]);
+          pa = pb;
+        }
+      }
+      return double(nq[0]) * ref[0] + double(nq[1]) * ref[1] + double(nq[2]) * ref[2] >=
+             0.0;
+    };
+    for (int li = 0; li < nl; li++) {
+      Vector<int> &loop = simple[li];
+      int n = int(loop.size());
+      if (!rimSized[li]) {
+        stats.holes_open++;
+        stats.holes_open_size++;
+        continue;
+      }
+      if (rimBorder[li]) { // real border: keep it open
+        stats.holes_open++;
+        stats.holes_open_border++;
+        continue;
+      }
+      bool wasOdd = rimOdd[li] != 0;
+      if (wasOdd) {
+        if (!params.cap_odd_holes) {
+          stats.holes_open++;
+          stats.holes_open_odd++;
+          continue;
+        }
+        if (n & 1) { // unpaired: fan with one cap triangle (provably minimal)
+          if (n == 3) {
+            Vector<int> q;
+            q.append(loop[2]);
+            q.append(loop[1]);
+            q.append(loop[0]);
+            o.make_face(q);
+          } else {
+            fanCap(loop);
+          }
+          stats.holes_capped++;
+          stats.holes_capped_odd++;
+          continue;
+        }
+      }
+      // Even rim: 4 closes with one quad; small rims center-fan; big rims are
+      // chord-split at their geometric waist into two even sub-rims (j-i odd
+      // keeps both sides even) until every piece is fan-sized.
+      Vector<Vector<int>> work;
+      work.append(loop);
+      for (int wi = 0; wi < int(work.size()); wi++) {
+        Vector<int> lp = work[wi]; // copy: appends may reallocate `work`
+        int k = int(lp.size());
+        float3 cpos;
+        // A cone-free 4-rim closes flat with one quad; one around a cone keeps
+        // the fan so the cone vertex (the surface bump) is restored.
+        if (k == 4 && !enclosedCone(lp, cpos) && flatQuadOk(lp)) {
+          Vector<int> q;
+          q.append(lp[3]);
+          q.append(lp[2]);
+          q.append(lp[1]);
+          q.append(lp[0]);
+          o.make_face(q);
+          continue;
+        }
+        if (k <= kFanMax) {
+          fanCap(lp);
+          continue;
+        }
+        // A bad chord carves a piece no cap can close right-side-out: a folded
+        // piece (Newell opposing the parent's) or a sliver (near-zero area for
+        // its perimeter — its centroid fan degenerates to a bowtie). Prefix
+        // sums of Newell terms / edge lengths make both tests O(1) per chord.
+        const double kMinCapShape = 0.2; // isoperimetric 4*pi*A/P^2 floor
+        Vector<float3> q, S;
+        Vector<double> EL;
+        float3 rcen(0, 0, 0);
+        for (int t = 0; t < k; t++)
+          rcen = float3(rcen[0] + o.v.co[lp[t]][0], rcen[1] + o.v.co[lp[t]][1],
+                        rcen[2] + o.v.co[lp[t]][2]);
+        rcen = float3(rcen[0] / k, rcen[1] / k, rcen[2] / k);
+        for (int t = 0; t < k; t++) q.append(sub3(o.v.co[lp[t]], rcen));
+        S.append(float3(0, 0, 0));
+        EL.append(0.0);
+        for (int t = 0; t + 1 < k; t++) {
+          float3 cr = cross3(q[t], q[t + 1]);
+          S.append(float3(S[t][0] + cr[0], S[t][1] + cr[1], S[t][2] + cr[2]));
+          EL.append(EL[t] + len3(sub3(q[t + 1], q[t])));
+        }
+        float3 wrap = cross3(q[k - 1], q[0]);
+        float3 Np(S[k - 1][0] + wrap[0], S[k - 1][1] + wrap[1], S[k - 1][2] + wrap[2]);
+        double rimLen = EL[k - 1] + len3(sub3(q[0], q[k - 1]));
+        const double k4pi = 4.0 * 3.14159265358979;
+        int bi = -1, bj = -1;
+        double best = 1e30;
+        for (int i = 0; i < k; i++) {
+          for (int j = i + 3; j < k && j - i <= k - 3; j += 2) {
+            double d = len3(sub3(o.v.co[lp[i]], o.v.co[lp[j]]));
+            if (d >= best)
+              continue;
+            float3 cr = cross3(q[j], q[i]);
+            float3 Na(S[j][0] - S[i][0] + cr[0], S[j][1] - S[i][1] + cr[1],
+                      S[j][2] - S[i][2] + cr[2]);
+            float3 Nb(Np[0] - Na[0], Np[1] - Na[1], Np[2] - Na[2]);
+            if (Na.dot(Np) <= 0.0f || Nb.dot(Np) <= 0.0f)
+              continue;
+            double arcA = EL[j] - EL[i], chord = len3(sub3(q[j], q[i]));
+            double pA = arcA + chord, pB = (rimLen - arcA) + chord;
+            if (k4pi * 0.5 * len3(Na) < kMinCapShape * pA * pA ||
+                k4pi * 0.5 * len3(Nb) < kMinCapShape * pB * pB)
+              continue;
+            if (o.find_edge(lp[i], lp[j]) != ELEM_NONE)
+              continue;
+            best = d;
+            bi = i;
+            bj = j;
+          }
+        }
+        if (bi < 0) { // no valid chord (all candidates already edges): just fan
+          fanCap(lp);
+          continue;
+        }
+        Vector<int> a, b;
+        for (int t = bi; t <= bj; t++) a.append(lp[t]);
+        for (int t = bj; t != bi; t = (t + 1) % k) b.append(lp[t]);
+        b.append(lp[bi]);
+        work.append(a);
+        work.append(b);
+      }
       stats.holes_capped++;
-      if (n & 1) stats.holes_capped_odd++;
+      if (wasOdd) stats.holes_capped_odd++;
     }
   }
 

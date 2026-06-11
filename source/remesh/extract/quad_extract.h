@@ -34,11 +34,12 @@ struct ExtractParams {
    * same grid vertex (the map is continuous, so a shared point computed from two
    * triangles agrees to float precision — well below this). */
   double weld_tol = 1e-5;
-  /* Close *odd*-length cap rims too. An odd loop is unquadable (a quad disk has
-   * even boundary), so closing it costs one cap triangle — trading the all-quad
-   * guarantee for a watertight surface. Default off: odd rims are left open (the
-   * all-quad pipeline contract). On organic inputs with fold tangles this fills
-   * the residual odd holes. Even rims are always capped regardless. */
+  /* Close *odd*-length cap rims too. An odd rim is unquadable alone (a quad
+   * patch has even boundary), but odd rims come in pairs per component: each
+   * pair is joined by splitting the quad strip between them lengthwise, growing
+   * both rims one vert (even) — all-quad, at the cost of valence defects along
+   * the strip. Unpairable odd rims fall back to a fan with one cap triangle.
+   * Default off: odd rims are left open. Even rims are always capped. */
   bool cap_odd_holes = false;
 };
 
@@ -52,7 +53,9 @@ struct ExtractStats {
   // split into simple sub-loops, counted individually) lands in exactly one
   // bucket — capped, or one open_* skip reason (holes_open sums the open_*).
   int holes_capped = 0;
-  int holes_capped_odd = 0;    // subset closed with one cap triangle
+  int holes_capped_odd = 0;    // odd rims closed (paired ones all-quad; one
+                               // cap triangle each on the unpaired fallback)
+  int odd_rims_paired = 0;     // odd rims made even by a strip ladder split
   int holes_pinched_split = 0; // rims split at repeated verts into simple loops
   int holes_open = 0;
   int holes_open_border = 0;   // real border: rim tracks the input boundary

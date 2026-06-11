@@ -756,6 +756,27 @@ limits, don't over-promise.**
     within ~1 cell of an output rim would classify as border; sub-grid input
     cracks (fox) are now capped in the *output* — the input-side fill
     (`input_hole_fill_max_frac`) remains the principled fix.
+  - **DONE (6.2):** the all-quad odd cap landed as **odd-rim pairing**, not the
+    single rim-edge split sketched above — that termination is impossible: the
+    same parity argument (4F = 2E_int + B) applied to the split's patch shows a
+    lone odd rim always costs ≥ 1 triangle, while Σ rim lengths even per
+    component means odd rims come in *pairs*. So `quad_extract.cc` traces the
+    dual quad strip from each odd rim edge (in one edge, out the opposite);
+    when it exits at another unpaired odd non-border rim, every strip quad is
+    split in two lengthwise (a "ladder" split off the entry/exit edge
+    midpoints) — both rims gain one vert, turn even, and cap all-quad
+    (`odd_rims_paired` in `ExtractStats` + manifest). Unpairable odd rims fall
+    back to a fan with one cap triangle (provably minimal). Even-rim emission
+    hardened alongside: chord-split candidates rejected when a sub-piece folds
+    (Newell vs parent) or is a sliver (isoperimetric `4πA/P² < 0.2` — its
+    centroid fan degenerates to a bowtie), and the 4-rim single-quad close is
+    gated on agreeing with the adjacent faces' Newell sum (`flatQuadOk`); fixes
+    sphere/reproject `inv 1 → 0`, simple.obj `inv 5 → 2`. **Fox @ 15k,
+    cap_odd=1: output tris 158 → 48** (110/158 odd rims paired; the 48 are
+    unpaired-rim fallbacks), still watertight (0 holes), inverted 70 → 93 vs
+    cap_odd=0 across all 253 caps (fan pleats on ragged rims; smoothed by
+    reprojection). gtest `testOddCapExtract` pins the capped-cylinder pair:
+    watertight, all-quad, euler 2, `odd_rims_paired == 2`.
 - **Boundary preservation:** keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
 - **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in
