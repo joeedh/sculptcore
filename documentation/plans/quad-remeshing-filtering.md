@@ -777,6 +777,25 @@ limits, don't over-promise.**
     cap_odd=0 across all 253 caps (fan pleats on ragged rims; smoothed by
     reprojection). gtest `testOddCapExtract` pins the capped-cylinder pair:
     watertight, all-quad, euler 2, `odd_rims_paired == 2`.
+  - **DONE (6.3):** `input_hole_fill_max_frac` landed as `fillInputHoles`
+    (`triage.cc`), run on the work copy right after triage and before any field
+    math: trace input boundary loops opposite the face winding (per-vert
+    boundary-edge incidence; != 2 = pinch → preserve), then triangulate every
+    simple loop whose rim length < frac × total boundary length — single
+    triangle at n=3, centroid fan (attrs row-copied from a rim vert) above.
+    Counts land in `TriageReport` (`input_holes_{filled,kept}` +
+    `input_hole_fill_faces`), the manifest triage block, and the STATS line;
+    CLI `--hole-fill <f>`. No double-close by construction: filled loops
+    vanish from the input boundary before the solve, and preserved loops reach
+    the extract cap path as border-classified rims (never capped). gtest
+    `testHoleFill` pins the plan's plane fixture (tiny 4-rim filled by a
+    4-tri fan, large 12-rim + 32-border preserved, manifold + consistent
+    winding, idempotent re-run); CLI e2e on the same fixture: `holes 3 → 2`,
+    euler −1 → 0, all-quad, inverted 0. **Fox finding:** its 4 input "holes"
+    are *not* loops at all — each is an isolated single boundary edge
+    (dead-end slit off the 13 non-manifold edges, both endpoints with exactly
+    one incident boundary edge), so no input-side fill can close them;
+    `input_holes_kept=4` and the 6.1 *output* border cap remains the fox fix.
 - **Boundary preservation:** keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
 - **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in

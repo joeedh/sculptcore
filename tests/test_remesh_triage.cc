@@ -248,6 +248,91 @@ void testWeldStressSoup()
   litestl::alloc::Delete<Mesh>(m);
 }
 
+// Tier 6.3 input hole policy: a triangulated plane with one tiny hole (1 cell,
+// rim 4) and one large hole (3x3 cells, rim 12), outer boundary 32. With
+// max_frac between them (thresh 0.15*48 = 7.2) the tiny hole is filled by a
+// centroid fan; the large hole and the outer boundary are preserved.
+void testHoleFill()
+{
+  Mesh *m = makeGrid(9, 9, 8.0f); // unit cells over [-4,4]^2
+  (void)triangulateMesh(*m);
+
+  // Punch the holes: kill faces whose centroid lands in either box, then clean
+  // up like triage would (orphan interior verts, wire edges).
+  auto inBox = [&](const float3 &p, float x0, float y0, float x1, float y1) {
+    return p[0] > x0 && p[0] < x1 && p[1] > y0 && p[1] < y1;
+  };
+  Vector<int> kill;
+  for (int f : m->f) {
+    float3 cen(0, 0, 0);
+    int c0 = m->l.c[m->f.l[f]], cc = c0, n = 0;
+    do {
+      cen += m->v.co[m->c.v[cc]];
+      n++;
+      cc = m->c.next[cc];
+    } while (cc != c0);
+    cen *= 1.0f / float(n);
+    if (inBox(cen, -3, -3, -2, -2) || inBox(cen, 0, 0, 3, 3))
+      kill.append(f);
+  }
+  TASSERT(int(kill.size()) == 2 + 18);
+  for (int f : kill)
+    m->kill_face(f);
+  Vector<int> orphans;
+  for (int v : m->v) {
+    if (inBox(m->v.co[v], 0.5f, 0.5f, 2.5f, 2.5f))
+      orphans.append(v);
+  }
+  TASSERT(int(orphans.size()) == 4);
+  for (int v : orphans)
+    m->kill_vertex(v);
+  Vector<int> wire;
+  for (int e : m->e) {
+    if (m->e.c[e] == ELEM_NONE)
+      wire.append(e);
+  }
+  for (int e : wire)
+    m->kill_edge(e);
+  m->recalc_normals();
+
+  auto boundaryEdges = [&]() {
+    int n = 0;
+    for (int e : m->e) {
+      int c = m->e.c[e];
+      if (c != ELEM_NONE && m->c.radial_next[c] == c)
+        n++;
+    }
+    return n;
+  };
+  TASSERT(boundaryEdges() == 4 + 12 + 32);
+  int v0 = m->v.count, f0 = m->f.count;
+
+  TriageReport r;
+  fillInputHoles(*m, 0.15f, r);
+
+  fprintf(stderr, "[hole-fill] filled=%d kept=%d fillFaces=%d bnd=%d\n",
+          r.input_holes_filled, r.input_holes_kept, r.input_hole_fill_faces,
+          boundaryEdges());
+  TASSERT(r.input_holes_filled == 1);
+  TASSERT(r.input_holes_kept == 2);
+  TASSERT(r.input_hole_fill_faces == 4); // rim 4 -> centroid fan of 4 tris
+  TASSERT(m->v.count == v0 + 1);
+  TASSERT(m->f.count == f0 + 4);
+  TASSERT(boundaryEdges() == 12 + 32); // large hole + outer border preserved
+
+  RemeshReport health = remeshValidate(*m);
+  TASSERT(health.manifold);
+  TASSERT(health.consistent_winding);
+  TASSERT(health.boundary_loop_count == 2);
+
+  // Idempotent: nothing left under the threshold.
+  TriageReport r2;
+  fillInputHoles(*m, 0.15f, r2);
+  TASSERT(r2.input_holes_filled == 0);
+  TASSERT(r2.input_holes_kept == 2);
+  litestl::alloc::Delete<Mesh>(m);
+}
+
 } // namespace
 
 int main()
@@ -258,5 +343,6 @@ int main()
   testTinyComponent();
   testNonManifoldDetect();
   testWeldStressSoup();
+  testHoleFill();
   return retval;
 }

@@ -291,20 +291,28 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     report->copy = StageStatus::Ok;
 
   // Tier 1: optional input triage (weld near-coincident verts, drop degenerate
-  // faces / tiny components, detect non-manifold). Defaults off; on clean input
+  // faces / tiny components, detect non-manifold). Defaults on; on clean input
   // it is a no-op (byte-identical), so the merge stays behavior-preserving.
+  TriageReport tr;
   if (params.triage) {
     PROG(6, "triage");
     TriageParams tp;
     tp.weld_rel = params.triage_weld_rel;
     tp.min_component_frac = params.triage_min_component_frac;
-    TriageReport tr;
     triageMesh(*work, tp, tr);
-    if (report) {
+    if (report)
       report->triage = StageStatus::Ok;
-      report->triage_report = tr;
-    }
   }
+
+  // Tier 6.3: pre-solve input hole policy — fill tiny input boundary loops so
+  // they don't seed spurious boundary constraints in the field solve. Large
+  // boundaries stay open (the extract cap path classifies them as border).
+  if (params.input_hole_fill_max_frac > 0.0f) {
+    PROG(7, "hole_fill");
+    fillInputHoles(*work, params.input_hole_fill_max_frac, tr);
+  }
+  if (report)
+    report->triage_report = tr;
 
   // Resolve the operative quad edge length: explicit target_edge_length, or
   // derived from target_quad_count (L = sqrt(integral of density dA / N)).

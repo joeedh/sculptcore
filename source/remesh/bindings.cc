@@ -39,6 +39,7 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, triage);
   BIND_STRUCT_MEMBER(st, triage_weld_rel);
   BIND_STRUCT_MEMBER(st, triage_min_component_frac);
+  BIND_STRUCT_MEMBER(st, input_hole_fill_max_frac);
   BIND_STRUCT_MEMBER(st, curvature_smooth_iters);
   BIND_STRUCT_MEMBER(st, curvature_smooth_lambda);
   BIND_STRUCT_MEMBER(st, field_smoothness);

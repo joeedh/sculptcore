@@ -187,6 +187,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"triage_weld_rel\": %.9g,\n", p.triage_weld_rel);
   std::fprintf(f, "    \"triage_min_component_frac\": %.9g,\n",
                p.triage_min_component_frac);
+  std::fprintf(f, "    \"input_hole_fill_max_frac\": %.9g,\n",
+               p.input_hole_fill_max_frac);
   std::fprintf(f, "    \"curvature_smooth_iters\": %d,\n",
                p.curvature_smooth_iters);
   std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g,\n",
@@ -389,7 +391,10 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"removed_component_verts\": %d,\n",
                tg.removed_component_verts);
   std::fprintf(f, "    \"non_manifold_edges\": %d,\n", tg.non_manifold_edges);
-  std::fprintf(f, "    \"non_manifold_verts\": %d\n", tg.non_manifold_verts);
+  std::fprintf(f, "    \"non_manifold_verts\": %d,\n", tg.non_manifold_verts);
+  std::fprintf(f, "    \"input_holes_filled\": %d,\n", tg.input_holes_filled);
+  std::fprintf(f, "    \"input_holes_kept\": %d,\n", tg.input_holes_kept);
+  std::fprintf(f, "    \"input_hole_fill_faces\": %d\n", tg.input_hole_fill_faces);
   std::fprintf(f, "  },\n");
 
   // Tier-9 pre-remesh A/B effect (remesh_report.h::PreRemeshEffect). `ran` is
@@ -452,6 +457,8 @@ void usage()
       "  --triage-weld-rel <f>   weld tol as frac of bbox diag (default 1e-5)\n"
       "  --triage-min-component-frac <f>  drop components below frac of verts "
       "(default 0)\n"
+      "  --hole-fill <f>         fill input holes with rim < frac of total "
+      "boundary (default 0)\n"
       "  --curvature-smooth-iters <int>   tensor-field Jacobi sweeps (default 0)\n"
       "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n"
       "  --field-smoothness <f>   cross-field smoothness weight (default 1)\n"
@@ -554,6 +561,8 @@ int main(int argc, char **argv)
     else if (a == "--triage-min-component-frac")
       params.triage_min_component_frac =
           float(std::atof(next("--triage-min-component-frac")));
+    else if (a == "--hole-fill")
+      params.input_hole_fill_max_frac = float(std::atof(next("--hole-fill")));
     else if (a == "--curvature-smooth-iters")
       params.curvature_smooth_iters = std::atoi(next("--curvature-smooth-iters"));
     else if (a == "--curvature-smooth-lambda")
@@ -719,7 +728,7 @@ int main(int argc, char **argv)
               "folds=%d min_angle=%.4g area_ratio=%.4g "
               "triage=%d triage_welded=%d triage_degenerate=%d "
               "triage_components=%d triage_nonmanifold_edges=%d "
-              "derived_edge=%.4g duration_ms=%lld\n",
+              "holes_filled=%d derived_edge=%.4g duration_ms=%lld\n",
               r.vert_count, r.edge_count, r.face_count, r.quad_count,
               r.tri_count, r.ngon_count, int(r.all_quad), int(r.manifold),
               r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
@@ -727,7 +736,8 @@ int main(int argc, char **argv)
               r.component_count, r.boundary_loop_count, r.parametrization_folds,
               r.min_interior_angle, r.max_adjacent_area_ratio, int(tg.ran),
               tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
-              tg.non_manifold_edges, rep.derived_edge_length, durationMs);
+              tg.non_manifold_edges, tg.input_holes_filled,
+              rep.derived_edge_length, durationMs);
 
   // Pre-remesh A/B one-liner (only when the pre-pass ran); full record is in
   // the manifest "pre_remesh" block.

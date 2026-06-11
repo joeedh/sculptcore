@@ -15,7 +15,13 @@
  * Every step is targeted + gated: on clean input nothing is welded, no face is
  * degenerate, no edge is wire, tiny-component drop is opt-in — so the mesh is
  * left byte-identical (the Tier-1 no-op-on-good-input contract). Operates on the
- * triangulated work mesh (dedup keys triangles). */
+ * triangulated work mesh (dedup keys triangles).
+ *
+ * fillInputHoles is the separate Tier-6.3 pre-solve input hole policy: close
+ * tiny input boundary loops (punctures, nostrils) by triangulating them before
+ * the field solve, preserving large boundaries (cuffs, mouths) as open. It is
+ * distinct from the output cap path in extract/quad_extract.cc, which closes
+ * residual rims of the *extracted* quad mesh. */
 
 #include "mesh/mesh.h"
 
@@ -40,10 +46,19 @@ struct TriageReport {
   // Detect-only (no repair in v1): counts on the post-cleanup mesh.
   int non_manifold_edges = 0; // edges with radial multiplicity > 2
   int non_manifold_verts = 0; // verts with > 2 incident boundary edges (pinch)
+  // Tier 6.3 input hole policy (fillInputHoles).
+  int input_holes_filled = 0;    // tiny boundary loops triangulated closed
+  int input_holes_kept = 0;      // boundary loops preserved (large/untraceable)
+  int input_hole_fill_faces = 0; // triangles added by the fill
 };
 
 /* Clean @p m in place per @p params, recording what was removed in @p report.
  * Recomputes normals only if a mutation actually occurred. */
 void triageMesh(mesh::Mesh &m, const TriageParams &params, TriageReport &report);
+
+/* Tier 6.3: fill (triangulate) input boundary loops whose rim length is below
+ * @p max_frac of the total boundary length; longer loops, and loops touching a
+ * pinch vert, are preserved. Counts into @p report's input_holes_* fields. */
+void fillInputHoles(mesh::Mesh &m, float max_frac, TriageReport &report);
 
 } // namespace sculptcore::remesh

@@ -318,4 +318,142 @@ void triageMesh(Mesh &m, const TriageParams &params, TriageReport &report)
   }
 }
 
+void fillInputHoles(Mesh &m, float max_frac, TriageReport &report)
+{
+  if (max_frac <= 0.0f) {
+    return;
+  }
+
+  // Boundary edges (radial 1) + per-vert boundary incidence. A vert with != 2
+  // incident boundary edges is a pinch; loops through one are preserved.
+  int vcap = int(m.v.capacity());
+  util::Vector<int> bcount, bedge0, bedge1;
+  bcount.resize(vcap);
+  bedge0.resize(vcap);
+  bedge1.resize(vcap);
+  for (int i = 0; i < vcap; i++) {
+    bcount[i] = 0;
+    bedge0[i] = bedge1[i] = ELEM_NONE;
+  }
+
+  auto edgeLen = [&](int e) {
+    return double((m.v.co[m.e.vs[e][0]] - m.v.co[m.e.vs[e][1]]).length());
+  };
+
+  util::Vector<int> bedges;
+  double totalLen = 0.0;
+  for (int e : m.e) {
+    int c = m.e.c[e];
+    if (c == ELEM_NONE || m.c.radial_next[c] != c) {
+      continue;
+    }
+    bedges.append(e);
+    totalLen += edgeLen(e);
+    for (int s = 0; s < 2; s++) {
+      int v = m.e.vs[e][s];
+      if (bcount[v] == 0)
+        bedge0[v] = e;
+      else if (bcount[v] == 1)
+        bedge1[v] = e;
+      bcount[v]++;
+    }
+  }
+  if (!bedges.size() || totalLen <= 0.0) {
+    return;
+  }
+  const double thresh = double(max_frac) * totalLen;
+
+  util::Vector<char> evisited;
+  evisited.resize(int(m.e.capacity()));
+  for (int i = 0; i < int(evisited.size()); i++)
+    evisited[i] = 0;
+
+  util::Vector<int> loop, fan;
+  int filled = 0;
+  for (int e0 : bedges) {
+    if (evisited[e0]) {
+      continue;
+    }
+    // Trace the loop opposite the face winding (sole radial corner c0 runs
+    // a->b face-wise, so the cap traverses b->a): cap faces emitted in trace
+    // order then wind consistently with their existing neighbours.
+    int c0 = m.e.c[e0];
+    int vStart = m.c.v[m.c.next[c0]];
+    int vCur = m.c.v[c0];
+    int eCur = e0;
+    loop.clear();
+    loop.append(vStart);
+    evisited[e0] = 1;
+    double rimLen = edgeLen(e0);
+    bool simple = bcount[vStart] == 2;
+    while (vCur != vStart) {
+      loop.append(vCur);
+      if (bcount[vCur] != 2) {
+        simple = false;
+        break;
+      }
+      int eNext = bedge0[vCur] == eCur ? bedge1[vCur] : bedge0[vCur];
+      if (eNext == ELEM_NONE || evisited[eNext]) {
+        simple = false;
+        break;
+      }
+      evisited[eNext] = 1;
+      rimLen += edgeLen(eNext);
+      vCur = m.e.vs[eNext][0] == vCur ? m.e.vs[eNext][1] : m.e.vs[eNext][0];
+      eCur = eNext;
+    }
+    if (!simple) {
+      // Consume the rest of this pinched/tangled chain backward from vStart so
+      // it is counted (and preserved) exactly once.
+      vCur = vStart;
+      eCur = e0;
+      while (bcount[vCur] == 2) {
+        int eNext = bedge0[vCur] == eCur ? bedge1[vCur] : bedge0[vCur];
+        if (eNext == ELEM_NONE || evisited[eNext])
+          break;
+        evisited[eNext] = 1;
+        vCur = m.e.vs[eNext][0] == vCur ? m.e.vs[eNext][1] : m.e.vs[eNext][0];
+        eCur = eNext;
+      }
+      report.input_holes_kept++;
+      continue;
+    }
+
+    int n = int(loop.size());
+    if (n < 3 || rimLen >= thresh) {
+      report.input_holes_kept++;
+      continue;
+    }
+
+    if (n == 3) {
+      m.make_face(std::span<int>(loop.data(), 3));
+      report.input_hole_fill_faces++;
+    }
+    else {
+      // Centroid fan: robust on the non-convex tiny rims this targets.
+      float3 cen(0.0f, 0.0f, 0.0f);
+      for (int i = 0; i < n; i++)
+        cen += m.v.co[loop[i]];
+      cen *= 1.0f / float(n);
+      int nc = m.make_vertex(cen);
+      mesh::interpAttrs(m.v.attrs, nc, loop[0], loop[0], 0.0f);
+      m.v.co[nc] = cen;
+      for (int i = 0; i < n; i++) {
+        fan.clear();
+        fan.append(loop[i]);
+        fan.append(loop[(i + 1) % n]);
+        fan.append(nc);
+        m.make_face(fan);
+        report.input_hole_fill_faces++;
+      }
+    }
+    report.input_holes_filled++;
+    filled++;
+  }
+
+  if (filled > 0) {
+    m.recalc_normals();
+  }
+}
+
 } // namespace sculptcore::remesh

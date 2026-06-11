@@ -62,10 +62,10 @@ struct RemeshParams {
    * closest-point query. Off = leave extracted positions as-is (debugging). */
   bool reproject = true;
 
-  /* M6: also close odd-length cap rims (one cap triangle each). An odd rim is
-   * unquadable, so this trades the all-quad guarantee for a watertight result.
-   * Off = leave odd holes open (strict all-quad). Useful on organic inputs whose
-   * singularity tangles leave a handful of residual odd holes. */
+  /* M6: also close odd-length cap rims. Odd rims pair up per component; each
+   * pair is made even by a lengthwise quad-strip ladder split, keeping the cap
+   * all-quad. Unpairable rims fall back to a fan with one cap triangle.
+   * Off = leave odd holes open (strict all-quad). */
   bool cap_odd_holes = false;
 
   /* M6: Laplacian-smoothing passes interleaved with reprojection to relax kinks
@@ -89,6 +89,12 @@ struct RemeshParams {
   /* Tier 1: drop disconnected components below this fraction of total verts
    * (0 = keep all). */
   float triage_min_component_frac = 0.0f;
+
+  /* Tier 6: pre-solve input hole policy — triangulate-fill input boundary
+   * loops whose rim length is under this fraction of the total boundary
+   * length, so tiny punctures don't seed spurious boundary constraints; larger
+   * boundaries stay open. 0 = fill nothing. */
+  float input_hole_fill_max_frac = 0.0f;
 
   /* Tier 2a: Jacobi-diffuse the per-vertex shape operator over the one-ring
    * before eigendecomposition, denoising the principal-curvature field without

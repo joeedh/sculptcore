@@ -34,6 +34,7 @@ export interface RemeshParams {
   triage: boolean
   triage_weld_rel: float
   triage_min_component_frac: float
+  input_hole_fill_max_frac: float
   curvature_smooth_iters: int32
   curvature_smooth_lambda: float
   field_smoothness: float
