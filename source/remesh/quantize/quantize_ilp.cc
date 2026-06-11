@@ -120,6 +120,17 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   double assemble_acc = 0.0, refactor_acc = 0.0, updown_acc = 0.0,
          backsolve_acc = 0.0;
 
+  // Liveness: long phases stream throttled running sums to stdout so an
+  // early-killed run still yields usable counters (the manifest is exit-only).
+  Clock::time_point t_prog = Clock::now();
+  auto progressDue = [&]() {
+    if (msSince(t_prog) < 5000.0) {
+      return false;
+    }
+    t_prog = Clock::now();
+    return true;
+  };
+
   SeamlessParamParams spp;
   spp.target_edge_length = params.target_edge_length;
   spp.use_density = params.use_density;
@@ -1466,6 +1477,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         rebuildBase(sIdx == 0 && k == 0);
         all_solved &= (k == 0) ? solveAll(true) : solveRhs();
       }
+      if (progressDue()) {
+        std::printf("[quantize_progress] phase=arap step=%d/%d refactors=%d "
+                    "elapsed=%.1fs\n",
+                    sIdx + 1, steps + 1, stats.full_refactors,
+                    msSince(t_total) / 1000.0);
+      }
       lam *= mult;
     }
     lam_seam = lam_hi;
@@ -1637,6 +1654,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       if (!solveRound(newLocks)) { // local GS tier, else updown + back-solve
         all_solved = false;
         break;
+      }
+      if (progressDue()) {
+        std::printf("[quantize_progress] phase=round iter=%d locked=%d/%d "
+                    "updowns=%d refactors=%d gs_rounds=%d elapsed=%.1fs\n",
+                    iter, S - remaining, S, stats.updowns, stats.full_refactors,
+                    stats.gs_rounds, msSince(t_total) / 1000.0);
       }
       if (remaining > 0) {
         if (xIsLocal) {
@@ -1827,6 +1850,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
           curFold = bestFold;
           anyAccept = true;
         }
+        if (progressDue()) {
+          std::printf("[quantize_progress] phase=tier1b round=%d cand=%d/%d "
+                      "probes=%d folds=%d elapsed=%.1fs\n",
+                      round, ci + 1, int(cand.size()), stats.tier1b_probes,
+                      curFold, msSince(t_total) / 1000.0);
+        }
       }
       if (!anyAccept) {
         break;
@@ -1898,6 +1927,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         stale = 0;
       } else if (++stale >= 4) {
         break;
+      }
+      if (progressDue()) {
+        std::printf("[quantize_progress] phase=stiffen iter=%d/%d folds=%d "
+                    "best=%d elapsed=%.1fs\n",
+                    it + 1, inj_iters, fold, bestFold,
+                    msSince(t_total) / 1000.0);
       }
     }
     x = bestX;
