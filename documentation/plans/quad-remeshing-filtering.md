@@ -521,7 +521,7 @@ flags, not a bolt-on).
 ### New params
 | field | default | meaning |
 |-------|---------|---------|
-| `singularity_cancel` | `false` | enable opposite-pair (±1) cancellation |
+| `singularity_cancel` | `true` | enable opposite-pair (±1) cancellation (default-on since gate 5; both the C++ default and the app-op `BoolProperty` are `true`) |
 | `singularity_cancel_max_sep` | `1.5` | pair-separation gate, in units of the target quad edge length (geodesic, not hops — "sub-resolution" = what the output lattice can't represent as distinct irregular verts) |
 
 ### Verification
@@ -692,9 +692,9 @@ components root at their first pole's face; regression test in
   input components only 16 (off) / 12 (on) survive to extraction — tiny
   components below quad scale now honestly produce zero quads (a Tier-6
   component-policy item, not a quantize bug).
-- Recommendation: flip `singularity_cancel` **default on** (left off pending
-  review sign-off; the C++ default in `RemeshParams` is the single
-  authoritative switch across all nine wired surfaces).
+- Per the gate verdict, `singularity_cancel` is now **default on** (the C++
+  `RemeshParams` default plus the one diverging surface, the app op's
+  `singularityCancel` `BoolProperty` in `litemesh_ops.ts`).
 
 ---
 

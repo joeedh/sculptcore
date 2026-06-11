@@ -108,7 +108,7 @@ struct RemeshParams {
   /* Tier 5: after the M3 re-solve, annihilate opposite-index singularity pairs
    * closer than singularity_cancel_max_sep quad-edge-lengths (geodesic) — noise
    * pairs the output lattice can't represent anyway. Index-sum-checked. */
-  bool singularity_cancel = false;
+  bool singularity_cancel = true;
   float singularity_cancel_max_sep = 1.5f;
 
   /* Tier 3a: generate the per-vertex .remesh.v.density sizing field from the
