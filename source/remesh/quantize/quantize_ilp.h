@@ -125,7 +125,7 @@ struct QuantizeStats {
   int full_refactors = 0; // full numeric factorizations (analyze excluded)
   int updowns = 0;        // incremental rank-update applications (native only)
   int simp_refreshes = 0; // supernodal->simplicial factor clones (native only)
-  int back_solves = 0;    // RHS solves against the current factor
+  int back_solves = 0;    // RHS solves against the factor (a probe batch = 1)
   int tier1b_probes = 0;  // Tier-1b +/-1 trial solves (settles excluded)
   // Local-GS tier (Q1): the Q5 decision data. touched = distinct components a
   // single attempt visited (how far the lock's influence spread); visits/touched

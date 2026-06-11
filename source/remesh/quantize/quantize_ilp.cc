@@ -696,6 +696,24 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     stats.back_solves++;
     return solver.info() == Eigen::Success;
   };
+  // Multi-RHS solve against the kept factor (matrix unchanged); columns are
+  // replaced by their solutions. Used by the Tier-1b probe batch.
+  auto solveBatch = [&](Eigen::MatrixXd &B) -> bool {
+    Clock::time_point t0 = Clock::now();
+    Eigen::MatrixXd X = solver.solve(B);
+    backsolve_acc += msSince(t0);
+    stats.back_solves++;
+    if (solver.info() != Eigen::Success) {
+      return false;
+    }
+    B = X;
+    return true;
+  };
+  // Probe-column RHS for the current g.t_int (same values solveAll would see).
+  auto probeRhs = [&](Eigen::VectorXd &out) {
+    assembleBcur();
+    out = bcur;
+  };
 #else
   // Native: CHOLMOD. Analyze the (pattern-invariant) system once, then maintain
   // the factor incrementally. The greedy rounding loop's only per-round change
@@ -898,6 +916,28 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // RHS-only solve against the kept factor (matrix unchanged since the last
   // solveAll). Used by the ARAP inner iterations.
   auto solveRhs = [&]() -> bool { return solveCurrent(); };
+  // Multi-RHS solve against Lsolve (matrix unchanged); columns are replaced by
+  // their solutions. Used by the Tier-1b probe batch.
+  auto solveBatch = [&](Eigen::MatrixXd &B) -> bool {
+    Clock::time_point t0 = Clock::now();
+    cholmod_dense bc = Eigen::viewAsCholmod(B);
+    cholmod_dense *xc = cholmod_solve(CHOLMOD_A, Lsolve, &bc, &cc);
+    if (!xc || cc.status < CHOLMOD_OK) {
+      return false;
+    }
+    const double *xd = reinterpret_cast<const double *>(xc->x);
+    for (int j = 0; j < int(B.cols()); j++) {
+      for (int i = 0; i < int(B.rows()); i++) {
+        B(i, j) = xd[size_t(j) * xc->d + i];
+      }
+    }
+    cholmod_free_dense(&xc, &cc);
+    backsolve_acc += msSince(t0);
+    stats.back_solves++;
+    return true;
+  };
+  // Probe-column RHS for the current g.t_int (same values solveCurrent uses).
+  auto probeRhs = [&](Eigen::VectorXd &out) { assembleRhs(out); };
 #endif
 
   // Per-round solve after locking a batch: fold the new locks into the kept
@@ -1639,9 +1679,41 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     auto countF = [&]() {
       return countFoldsPar([&](int f) { return isFolded(f); });
     };
+    // Fused fold count for the 4 probe solutions in one chunked face sweep.
+    Vector<int> foldPart;
+    auto countFolds4 = [&](const double *xs[4], const bool feas[4], int nf[4]) {
+      const int nchunk = faceChunkCount(kFoldGrain);
+      foldPart.resize(nchunk * 4);
+      for (int i = 0; i < nchunk * 4; i++) {
+        foldPart[i] = 0;
+      }
+      forFaces(kFoldGrain, [&](int c, int b, int e) {
+        int cnt[4] = {0, 0, 0, 0};
+        for (int i = b; i < e; i++) {
+          for (int k = 0; k < 4; k++) {
+            if (feas[k] && isFolded(faceIds[i], xs[k])) {
+              cnt[k]++;
+            }
+          }
+        }
+        for (int k = 0; k < 4; k++) {
+          foldPart[4 * c + k] = cnt[k];
+        }
+      });
+      for (int k = 0; k < 4; k++) {
+        nf[k] = 0;
+      }
+      for (int c = 0; c < nchunk; c++) {
+        for (int k = 0; k < 4; k++) {
+          nf[k] += foldPart[4 * c + k];
+        }
+      }
+    };
     const float2 moves[4] = {float2(1, 0), float2(-1, 0), float2(0, 1), float2(0, -1)};
     int curFold = countF();
     Vector<int> foldedFaces;
+    Eigen::MatrixXd probeB(N, 4);
+    Eigen::VectorXd probeCol;
     for (int round = 0; round < params.seam_relax_iters &&
                         curFold >= params.seam_relax_min_folds && all_solved;
          round++) {
@@ -1664,28 +1736,42 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       for (int ci = 0; ci < int(cand.size()) && all_solved; ci++) {
         int s = cand[ci];
         float2 base_k = g.t_int[s];
-        int bestM = -1, bestFold = curFold;
+        // All four unit moves solve as one multi-RHS batch against the kept
+        // factor (the matrix never changes here); x stays untouched until a
+        // move is accepted, so no settle re-solve is needed.
         for (int mi = 0; mi < 4; mi++) {
           g.t_int[s] = base_k + moves[mi];
           stats.tier1b_probes++;
-          if (!solveAll(false)) {
-            all_solved = false;
-            break;
-          }
-          if (maxResidual() <= params.integer_tol) {
-            int f = countF();
-            if (f < bestFold) {
-              bestFold = f;
-              bestM = mi;
-            }
-          }
+          probeRhs(probeCol);
+          probeB.col(mi) = probeCol;
         }
-        if (!all_solved) {
+        g.t_int[s] = base_k;
+        if (!solveBatch(probeB)) {
+          all_solved = false;
           break;
         }
-        g.t_int[s] = bestM >= 0 ? base_k + moves[bestM] : base_k;
-        all_solved &= solveAll(false); // settle x at the chosen integer
+        // Each column's residual is measured against its own probe integer at
+        // side s (maxResidual reads g.t_int), exactly like the serial probes.
+        const double *xs[4];
+        bool feas[4];
+        for (int mi = 0; mi < 4; mi++) {
+          xs[mi] = probeB.col(mi).data();
+          g.t_int[s] = base_k + moves[mi];
+          feas[mi] = maxResidual(xs[mi]) <= params.integer_tol;
+        }
+        g.t_int[s] = base_k;
+        int nf[4];
+        countFolds4(xs, feas, nf);
+        int bestM = -1, bestFold = curFold;
+        for (int mi = 0; mi < 4; mi++) {
+          if (feas[mi] && nf[mi] < bestFold) {
+            bestFold = nf[mi];
+            bestM = mi;
+          }
+        }
         if (bestM >= 0) {
+          g.t_int[s] = base_k + moves[bestM];
+          x = probeB.col(bestM); // == the settle solve: same factor, same RHS
           curFold = bestFold;
           anyAccept = true;
         }

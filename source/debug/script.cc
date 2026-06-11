@@ -1463,11 +1463,14 @@ bool execVerb(Scene &scene,
   if (verb == "remesh_quantize") {
     /* remesh_quantize [target_edge_length=..] [use_density=..] [gauge_eps=..]
      *   [integer_tol=..] [max_lambda=..] [local_gs=..] [direct=..]
-     *   [updown_max_cols=..] [supernodal=..] —
+     *   [updown_max_cols=..] [supernodal=..] [seam_relax_iters=..]
+     *   [seam_relax_min_folds=..] [untangle_threshold=..] —
      * integer-grid quantization (M5); builds the field/cut/seamless system
      * internally. Prints the integer residual, one-ring loop-closure residual,
      * feasibility and phase/op profile lines (local_gs=0 disables the Q1 GS
-     * tier for A/B; direct=1 selects one-shot DIRECT rounding, miq.md Q4). */
+     * tier for A/B; direct=1 selects one-shot DIRECT rounding, miq.md Q4;
+     * seam_relax_min_folds=1 + untangle_threshold=1 force the Tier-1b probe
+     * path for A/B). */
     if (!scene.mesh) {
       err = "remesh_quantize: no mesh";
       return false;
@@ -1485,13 +1488,19 @@ bool execVerb(Scene &scene,
     qp.updown_max_cols =
         int(getFloat(args, "updown_max_cols", float(qp.updown_max_cols)));
     qp.use_supernodal = getBool(args, "supernodal", qp.use_supernodal);
+    qp.seam_relax_iters =
+        int(getFloat(args, "seam_relax_iters", float(qp.seam_relax_iters)));
+    qp.seam_relax_min_folds = int(
+        getFloat(args, "seam_relax_min_folds", float(qp.seam_relax_min_folds)));
+    qp.untangle_fold_threshold = getFloat(args, "untangle_threshold",
+                                          float(qp.untangle_fold_threshold));
     remesh::QuantizeStats st = remesh::computeQuantization(m, qp);
     std::printf("[remesh_quantize] faces=%d corners=%d classes=%d cut_edges=%d "
-                "int_residual=%.6e loop_closure=%.6e min_jacobian=%.6f iters=%d "
-                "solved=%d feasible=%d\n",
+                "int_residual=%.6e loop_closure=%.6e min_jacobian=%.6f folds=%d "
+                "iters=%d solved=%d feasible=%d\n",
                 st.num_faces, st.num_corners, st.num_classes, st.num_cut_edges,
                 st.max_integer_residual, st.max_loop_closure, st.min_jacobian,
-                st.iters, st.solved, st.feasible);
+                st.parametrization_folds, st.iters, st.solved, st.feasible);
     std::printf("[remesh_quantize:profile] total_ms=%.1f setup=%.1f init=%.1f "
                 "arap=%.1f rounding=%.1f (assemble=%.1f refactor=%.1f "
                 "updown=%.1f backsolve=%.1f) convert=%.1f tier1b=%.1f "
