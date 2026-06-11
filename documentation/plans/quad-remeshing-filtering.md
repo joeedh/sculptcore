@@ -521,8 +521,8 @@ flags, not a bolt-on).
 ### New params
 | field | default | meaning |
 |-------|---------|---------|
-| `singularity_cancel` | `false` | enable adjacent +k/−k pair cancellation/relocation |
-| `singularity_cancel_radius` | `2` | max dual-graph hops for a "nearby" pair |
+| `singularity_cancel` | `false` | enable opposite-pair (±1) cancellation |
+| `singularity_cancel_max_sep` | `1.5` | pair-separation gate, in units of the target quad edge length (geodesic, not hops — "sub-resolution" = what the output lattice can't represent as distinct irregular verts) |
 
 ### Verification
 - **gtest:** synthetic field with a planted adjacent +1/−1 pair on a flat region;
@@ -555,6 +555,70 @@ Two qualifiers from the same sweeps:
   design over a pure-aesthetics framing, and suggesting the validation metric
   set (folds, feasibility) will sometimes *reward* relocation on near-umbilic
   regions.
+
+### Quantize-cost correlation (Tier-2/4 sweep manifests, 2026-06-11)
+
+Cross-referencing the six agirl sweep manifests (fs ∈ {1,2} × cs ∈ {0,2,4,8};
+pairs 1151 → 942 across the dose range) against their quantize profiles:
+
+| config | pairs | sing | rounds | round_s | t1b_s | total_s |
+|--------|------:|-----:|-------:|--------:|------:|--------:|
+| fs1 cs0 | 1151 | 1480 | 1634 | 203.6 | 395.7 | 641.8 |
+| fs1 cs2 | 1049 | 1270 | 1314 | 158.0 | 274.7 | 473.8 |
+| fs1 cs4 |  991 | 1179 | 1261 | 180.3 | 368.4 | 589.7 |
+| fs1 cs8 |  942 | 1067 | 1213 | 176.6 | 263.7 | 484.0 |
+| fs2 cs0 | 1026 | 1256 | 1339 | 183.0 | 274.2 | 497.2 |
+| fs2 cs4 |  975 | 1084 | 1168 | 152.0 | 345.9 | 537.4 |
+
+- **Rounding rounds track singularity count ≈ linearly** (sing −28% → rounds
+  −26% across the cs sweep) — the one real perf coupling: fewer poles means
+  fewer integer classes to round.
+- **Tier-1b is fold-regime-driven, not pair-count-driven.** The 192-sphere has
+  zero spurious pairs yet spends ~926 s in tier-1b; on agirl, t1b swings
+  264–396 s with no monotone relation to pairs (probes follow folds).
+- **Wall-clock noise swamps config deltas**: an identical-config rerun
+  (triage_on, byte-identical counters to fs1 cs0) landed at 772.8 s vs 641.8 s
+  (+20%) — only counter deltas are attributable, never cross-session totals.
+
+**Verdict:** noise pairs are primarily a *quality* problem (clutter, ~19%
+co-located seamless folds, valence); their perf contribution is modest and
+flows through the rounding-round count. The Tier-5 bench gate should weigh
+quality metrics first, `rounds`/`round_s` second, and total wall-clock not at
+all (same-session A/B only).
+
+### Implementation (landed 2026-06-11)
+
+`cancelSingularityPairs` (`field/singularity_adjust.{h,cc}`) — bounded rounds
+of find → flip → re-solve, exactly the cohomology edit sketched above:
+
+- **Pairing:** one bounded Dijkstra per +1 pole over interior, manifold,
+  orientation-consistent regions (pinned verts excluded), pruned at
+  `max_sep · target_edge_length` geodesic distance; greedy vertex-disjoint
+  shortest-path selection so each edge flips at most once per round.
+- **The flip:** a ±1 implied-period delta chained along the path with
+  `periodSignAt` (the sign with which a period flip on edge e moves vertex v's
+  pole walk), so every intermediate vertex's index transfer nets zero and the
+  endpoints absorb ∓1. Deltas are added to the implied periods inside the
+  fixed-period Poisson re-solve (`solvePhaseField`'s `edge_delta` hook).
+- **Acceptance:** a round is kept only if the solver succeeded, `index_sum` is
+  conserved, and the pole count strictly drops; otherwise θ/period/pole are
+  restored from snapshots and the pass stops (net-improvement-only, as
+  specified). Deterministic by construction (tie-broken extract-min, sorted
+  candidates, no RNG).
+- **Wiring:** `RemeshParams.singularity_cancel{,_max_sep}` → hook in
+  `remesh.cc` after the singularity stage (gated on the derived `L_quad`
+  scale); `cancel_*` counters in `RemeshRunReport` + CLI manifest; bindings;
+  debug-app `remesh_adjust_singularities cancel=1` verb extension.
+- **gtests** (`test_remesh_singularity`, all green): planted analytic ±1 pair
+  on a flat grid — gate below the separation is inert, gate above annihilates
+  it in 1 round / 0 reverts and the curl drops to the flat ground state
+  (~7e-6); a sphere's 8 required +1 poles are untouched (no opposite-sign
+  targets); pinning one endpoint blocks the pair; cancellation is
+  byte-deterministic.
+
+Remaining for review gate 5: corpus/bench deltas (`--singularity-cancel 1`
+same-session A/B on agirl) — does cancelled-pair count translate into the
+predicted rounds reduction and valence/fold quality wins.
 
 ---
 

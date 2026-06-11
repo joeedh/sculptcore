@@ -193,6 +193,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
                p.curvature_smooth_lambda);
   std::fprintf(f, "    \"field_smoothness\": %.9g,\n", p.field_smoothness);
   std::fprintf(f, "    \"curvature_weight\": %.9g,\n", p.curvature_weight);
+  std::fprintf(f, "    \"singularity_cancel\": %s,\n", jb(p.singularity_cancel));
+  std::fprintf(f, "    \"singularity_cancel_max_sep\": %.9g,\n",
+               p.singularity_cancel_max_sep);
   std::fprintf(f, "    \"auto_density\": %s,\n", jb(p.auto_density));
   std::fprintf(f, "    \"density_min\": %.9g,\n", p.density_min);
   std::fprintf(f, "    \"density_max\": %.9g,\n", p.density_max);
@@ -284,6 +287,14 @@ bool writeManifest(const char *path, const std::string &jsonName,
                jb(rep.field_solved_eigen));
   std::fprintf(f, "    \"field_close_pairs\": %d,\n", rep.field_close_pairs);
   std::fprintf(f, "    \"field_clutter_verts\": %d,\n", rep.field_clutter_verts);
+  std::fprintf(f, "    \"cancel_attempted_pairs\": %d,\n",
+               rep.cancel_attempted_pairs);
+  std::fprintf(f, "    \"cancel_cancelled_pairs\": %d,\n",
+               rep.cancel_cancelled_pairs);
+  std::fprintf(f, "    \"cancel_reverted_rounds\": %d,\n",
+               rep.cancel_reverted_rounds);
+  std::fprintf(f, "    \"cancel_singularities_after\": %d,\n",
+               rep.cancel_singularities_after);
   std::fprintf(f, "    \"parametrization_folds\": %d,\n",
                rep.parametrization_folds);
   std::fprintf(f, "    \"min_jacobian\": %.9g,\n", rep.min_jacobian);
@@ -427,6 +438,9 @@ void usage()
       "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n"
       "  --field-smoothness <f>   cross-field smoothness weight (default 1)\n"
       "  --curvature-weight <f>   soft curvature-alignment scale (default 1)\n"
+      "  --singularity-cancel <0|1>  cancel sub-resolution pole pairs (default 0)\n"
+      "  --singularity-cancel-max-sep <f>  pair gate, quad-edge units "
+      "(default 1.5)\n"
       "  --auto-density <0|1>     curvature-driven sizing field (default 0)\n"
       "  --density-min <f>        density clamp floor (default 0.25)\n"
       "  --density-max <f>        density clamp ceiling (default 4)\n"
@@ -531,6 +545,11 @@ int main(int argc, char **argv)
       params.field_smoothness = float(std::atof(next("--field-smoothness")));
     else if (a == "--curvature-weight")
       params.curvature_weight = float(std::atof(next("--curvature-weight")));
+    else if (a == "--singularity-cancel")
+      params.singularity_cancel = toBool(next("--singularity-cancel"));
+    else if (a == "--singularity-cancel-max-sep")
+      params.singularity_cancel_max_sep =
+          float(std::atof(next("--singularity-cancel-max-sep")));
     else if (a == "--auto-density")
       params.auto_density = toBool(next("--auto-density"));
     else if (a == "--density-min")

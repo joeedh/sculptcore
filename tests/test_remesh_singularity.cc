@@ -9,6 +9,13 @@
 //    re-solve only has to *decrease* curl monotonically and preserve Σindex==4χ.
 //  - Pin honored: a user-pinned singular vertex keeps its index across the
 //    adjustment even though the field is re-solved.
+//
+// Tier-5 pair cancellation (cancelSingularityPairs):
+//  - Planted pair: an analytic ±1 pole pair on the grid is annihilated when the
+//    separation gate covers it, and untouched when it doesn't.
+//  - Inert: a field with no −1 poles (sphere) yields zero attempted pairs.
+//  - Pinned: pinning one endpoint blocks the pair (no flip reaches through it).
+//  - Determinism: two identical planted grids cancel to identical θ / stats.
 #include "test_util.h"
 
 #include "litestl/math/vector.h"
@@ -84,6 +91,65 @@ Mesh *makeNoisyGrid(float amp, uint32_t seed)
 
   injectPhaseNoise(*g, amp, seed);
   return g;
+}
+
+// Analytic ±1 quarter-index pole pair: θ_world(p) = 0.25·(arg(p−a) − arg(p−b)),
+// expressed in each face's frame at its centroid. The atan2 branch jumps are
+// 2π/4 = π/2 — invisible mod the cross symmetry — so the implied periods are
+// smooth except for the pair they encode.
+void plantPairField(Mesh &m, double ax, double ay, double bx, double by)
+{
+  BuiltinAttr<float, ".remesh.f.theta"> theta;
+  theta.ensure(m.f.attrs);
+  for (int f : m.f) {
+    double cx = 0.0, cy = 0.0;
+    int n = 0;
+    int c0 = m.l.c[m.f.l[f]], cc = c0;
+    do {
+      cx += double(m.v.co[m.c.v[cc]][0]);
+      cy += double(m.v.co[m.c.v[cc]][1]);
+      n++;
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    cx /= double(n);
+    cy /= double(n);
+
+    float3 X, Y, N;
+    remesh::faceFrame(m, f, X, Y, N);
+    double alpha = std::atan2(double(X[1]), double(X[0]));
+    double phi = 0.25 * (std::atan2(cy - ay, cx - ax) - std::atan2(cy - by, cx - bx));
+    theta[f] = float(phi - alpha);
+  }
+}
+
+// 16×16 unit grid (spacing 1/15 ≈ 0.0667) with a planted pair ~0.2 apart.
+Mesh *makePlantedGrid()
+{
+  Mesh *g = mesh::makeGrid(16, 16, 1.0f);
+  g->thawTopo();
+  mesh::triangulateMesh(*g);
+  plantPairField(*g, -0.1, 0.0, 0.1, 0.0);
+  return g;
+}
+
+// Count nonzero-index poles; fills the first two found.
+int collectPoles(Mesh &m, int &v0, int &v1)
+{
+  BuiltinAttr<short, ".remesh.v.pole_index"> pole;
+  pole.ensure(m.v.attrs);
+  int count = 0;
+  v0 = v1 = ELEM_NONE;
+  for (int v : m.v) {
+    if (pole[v] != 0) {
+      if (count == 0) {
+        v0 = v;
+      } else if (count == 1) {
+        v1 = v;
+      }
+      count++;
+    }
+  }
+  return count;
 }
 
 void testGridCurlDrop()
@@ -196,6 +262,162 @@ void testPinHonored()
   litestl::alloc::Delete<Mesh>(sph);
 }
 
+void testPlantedPairCancel()
+{
+  Mesh *g = makePlantedGrid();
+
+  remesh::SingularityAdjustParams sap;
+  remesh::SingularityAdjustStats ast = remesh::adjustSingularities(*g, sap);
+
+  BuiltinAttr<short, ".remesh.v.pole_index"> pole;
+  pole.ensure(g->v.attrs);
+  int v0, v1;
+  int npoles = collectPoles(*g, v0, v1);
+  fprintf(stderr, "[planted] sing=%d index_sum=%d poles=(%d:%d, %d:%d)\n",
+          ast.num_singularities, ast.index_sum, v0,
+          v0 != ELEM_NONE ? int(pole[v0]) : 0, v1,
+          v1 != ELEM_NONE ? int(pole[v1]) : 0);
+  // Sign-agnostic — frame handedness may flip both indices together.
+  TASSERT(npoles == 2);
+  TASSERT(ast.index_sum == 0);
+  TASSERT(v0 != ELEM_NONE && v1 != ELEM_NONE && int(pole[v0]) * int(pole[v1]) == -1);
+
+  // Gate below the pair separation (~0.2): the pass must not touch it.
+  remesh::SingularityCancelParams tight;
+  tight.target_edge_length = 0.02f; // max_dist = 0.03
+  remesh::SingularityCancelStats ts = remesh::cancelSingularityPairs(*g, tight);
+  fprintf(stderr, "[cancel_tight] attempted=%d cancelled=%d sing=%d\n",
+          ts.attempted_pairs, ts.cancelled_pairs, ts.num_singularities);
+  TASSERT(ts.attempted_pairs == 0);
+  TASSERT(ts.num_singularities == 2);
+
+  // Gate above it: the pair must annihilate.
+  remesh::SingularityCancelParams wide;
+  wide.target_edge_length = 0.2f; // max_dist = 0.3
+  remesh::SingularityCancelStats ws = remesh::cancelSingularityPairs(*g, wide);
+  fprintf(stderr,
+          "[cancel_wide] rounds=%d attempted=%d cancelled=%d reverted=%d "
+          "sing=%d index_sum=%d curl_after=%.6f\n",
+          ws.rounds, ws.attempted_pairs, ws.cancelled_pairs, ws.reverted_rounds,
+          ws.num_singularities, ws.index_sum, ws.curl_after);
+  TASSERT(ws.cancelled_pairs >= 1);
+  TASSERT(ws.reverted_rounds == 0);
+  TASSERT(ws.num_singularities == 0);
+  TASSERT(ws.index_sum == 0);
+  litestl::alloc::Delete<Mesh>(g);
+}
+
+void testCancelInertNoTargets()
+{
+  Mesh *sph = mesh::makeUVSphere(24, 36, 1.0f);
+  sph->thawTopo();
+  mesh::triangulateMesh(*sph);
+
+  remesh::CrossFieldParams p;
+  p.use_curvature = false;
+  p.use_sharp_features = false;
+  remesh::computeCrossField(*sph, p);
+
+  remesh::SingularityAdjustParams sap;
+  remesh::SingularityAdjustStats ast = remesh::adjustSingularities(*sph, sap);
+
+  // Smoothest field on a sphere: all-positive poles (Σ == 8) — no pair targets.
+  BuiltinAttr<short, ".remesh.v.pole_index"> pole;
+  pole.ensure(sph->v.attrs);
+  int minus = 0;
+  for (int v : sph->v) {
+    if (pole[v] < 0) {
+      minus++;
+    }
+  }
+
+  remesh::SingularityCancelParams scp;
+  scp.target_edge_length = 1.0f; // generous gate: max_dist = 1.5
+  remesh::SingularityCancelStats cs = remesh::cancelSingularityPairs(*sph, scp);
+  fprintf(stderr,
+          "[cancel_inert] minus=%d sing_before=%d sing_after=%d attempted=%d "
+          "index_sum=%d\n",
+          minus, ast.num_singularities, cs.num_singularities, cs.attempted_pairs,
+          cs.index_sum);
+  TASSERT(minus == 0);
+  TASSERT(cs.attempted_pairs == 0);
+  TASSERT(cs.num_singularities == ast.num_singularities);
+  TASSERT(cs.index_sum == 8);
+  litestl::alloc::Delete<Mesh>(sph);
+}
+
+void testCancelPinnedSkip()
+{
+  Mesh *g = makePlantedGrid();
+
+  remesh::SingularityAdjustParams sap;
+  remesh::adjustSingularities(*g, sap);
+
+  BuiltinAttr<short, ".remesh.v.pole_index"> pole;
+  pole.ensure(g->v.attrs);
+  int v0, v1;
+  int npoles = collectPoles(*g, v0, v1);
+  TASSERT(npoles == 2);
+  if (npoles != 2) {
+    litestl::alloc::Delete<Mesh>(g);
+    return;
+  }
+
+  // Pin the −1 pole: it can be neither traversed through nor consumed.
+  int vneg = pole[v0] < 0 ? v0 : v1;
+  BuiltinAttr<bool, ".remesh.v.pole_pinned"> pinned;
+  pinned.ensure(g->v.attrs);
+  for (int v : g->v) {
+    pinned.set(v, false);
+  }
+  pinned.set(vneg, true);
+  short before0 = pole[v0], before1 = pole[v1];
+
+  remesh::SingularityCancelParams scp;
+  scp.target_edge_length = 0.2f;
+  remesh::SingularityCancelStats cs = remesh::cancelSingularityPairs(*g, scp);
+  fprintf(stderr, "[cancel_pin] vneg=%d attempted=%d sing=%d poles=(%d,%d)\n", vneg,
+          cs.attempted_pairs, cs.num_singularities, int(pole[v0]), int(pole[v1]));
+  TASSERT(cs.attempted_pairs == 0);
+  TASSERT(cs.num_singularities == 2);
+  TASSERT(pole[v0] == before0 && pole[v1] == before1);
+  litestl::alloc::Delete<Mesh>(g);
+}
+
+void testCancelDeterminism()
+{
+  Mesh *a = makePlantedGrid();
+  Mesh *b = makePlantedGrid();
+
+  remesh::SingularityAdjustParams sap;
+  remesh::adjustSingularities(*a, sap);
+  remesh::adjustSingularities(*b, sap);
+
+  remesh::SingularityCancelParams scp;
+  scp.target_edge_length = 0.2f;
+  remesh::SingularityCancelStats ca = remesh::cancelSingularityPairs(*a, scp);
+  remesh::SingularityCancelStats cb = remesh::cancelSingularityPairs(*b, scp);
+
+  BuiltinAttr<float, ".remesh.f.theta"> ta, tb;
+  ta.ensure(a->f.attrs);
+  tb.ensure(b->f.attrs);
+  double maxdiff = 0.0;
+  for (int f : a->f) {
+    maxdiff = std::fmax(maxdiff, std::fabs(double(ta[f]) - double(tb[f])));
+  }
+  fprintf(stderr,
+          "[cancel_determinism] attempted=(%d,%d) cancelled=(%d,%d) sing=(%d,%d) "
+          "maxdiff=%.3e\n",
+          ca.attempted_pairs, cb.attempted_pairs, ca.cancelled_pairs,
+          cb.cancelled_pairs, ca.num_singularities, cb.num_singularities, maxdiff);
+  TASSERT(ca.attempted_pairs == cb.attempted_pairs);
+  TASSERT(ca.cancelled_pairs == cb.cancelled_pairs);
+  TASSERT(ca.num_singularities == cb.num_singularities);
+  TASSERT(maxdiff < 1e-6);
+  litestl::alloc::Delete<Mesh>(a);
+  litestl::alloc::Delete<Mesh>(b);
+}
+
 } // namespace
 
 int main()
@@ -204,5 +426,9 @@ int main()
   testDeterminism();
   testTorusMonotone();
   testPinHonored();
+  testPlantedPairCancel();
+  testCancelInertNoTargets();
+  testCancelPinnedSkip();
+  testCancelDeterminism();
   return retval;
 }

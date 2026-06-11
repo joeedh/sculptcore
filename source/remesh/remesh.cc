@@ -482,6 +482,22 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   if (report)
     report->singularity = StageStatus::Ok;
 
+  // Tier 5: annihilate sub-resolution noise pairs while the field is still
+  // cheap to edit. L_quad is the pre-density estimate; the gate needs scale only.
+  if (params.singularity_cancel) {
+    SingularityCancelParams scp;
+    scp.target_edge_length = L_quad;
+    scp.max_sep = params.singularity_cancel_max_sep;
+    scp.seed = params.seed;
+    SingularityCancelStats scs = cancelSingularityPairs(*work, scp);
+    if (report) {
+      report->cancel_attempted_pairs = scs.attempted_pairs;
+      report->cancel_cancelled_pairs = scs.cancelled_pairs;
+      report->cancel_reverted_rounds = scs.reverted_rounds;
+      report->cancel_singularities_after = scs.num_singularities;
+    }
+  }
+
   // Tier 3: build / bound the sizing field before the seamless param reads it.
   // 3a auto-density generates .remesh.v.density from the smoothed curvature; 3b
   // bounds its gradient. Both default off (no field / no limiting). auto_density

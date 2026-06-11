@@ -105,6 +105,12 @@ struct RemeshParams {
    * half of the smoothness/alignment tradeoff. */
   float curvature_weight = 1.0f;
 
+  /* Tier 5: after the M3 re-solve, annihilate opposite-index singularity pairs
+   * closer than singularity_cancel_max_sep quad-edge-lengths (geodesic) — noise
+   * pairs the output lattice can't represent anyway. Index-sum-checked. */
+  bool singularity_cancel = false;
+  float singularity_cancel_max_sep = 1.5f;
+
   /* Tier 3a: generate the per-vertex .remesh.v.density sizing field from the
    * (Tier-2-smoothed) principal curvature — small quads at high curvature, large
    * on flat regions. Implies density consumption (the pipeline ORs this into

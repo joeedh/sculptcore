@@ -10,12 +10,10 @@
  * solve on the face dual graph — which provably lowers the per-edge curl. See
  * documentation/plans/quad-remeshing.md (Liu et al. 2024).
  *
- * XXX: full iterative singularity *relocation* / merge / split (coordinated
- * multi-edge period moves) is deferred — after the fixed-period Poisson re-solve
- * the field already sits at the integer-optimum for its current singularities,
- * so no single-edge move improves it, and the no-spiral guarantee comes from
- * M5's quantization regardless. Pins are read so the relocation pass can honor
- * them once added.
+ * XXX: singularity *relocation* and same-sign *merge* (general coordinated
+ * period moves) are still deferred; opposite-pair *cancellation* exists below
+ * (cancelSingularityPairs) and is built on the same period-flip-along-a-path
+ * primitive a future relocation pass needs. Pins are honored by both.
  *
  * Honors the optional .remesh.v.pole_pinned (bool) user-pin layer. Eigen is kept
  * out of the header; the sparse solve lives in singularity_adjust.cc. */
@@ -67,5 +65,33 @@ SingularityPairStats findSingularityPairs(mesh::Mesh &m, int max_hops,
  * normals. */
 SingularityAdjustStats adjustSingularities(mesh::Mesh &m,
                                            const SingularityAdjustParams &params);
+
+struct SingularityCancelParams {
+  float target_edge_length = 0.0f; // quad-grid edge length; <= 0 disables the pass
+  float max_sep = 1.5f;            // pair-separation gate, in target_edge_length units
+  int max_rounds = 3;              // bounded find → flip → re-solve rounds
+  float gauge_eps = 1e-6f;         // Tikhonov gauge fix for the re-solves
+  uint32_t seed = 1u;              // reserved (selection is deterministic)
+};
+
+struct SingularityCancelStats {
+  int rounds = 0;            // rounds that ran a re-solve
+  int attempted_pairs = 0;   // pairs selected for period flips
+  int cancelled_pairs = 0;   // pole pairs actually annihilated
+  int reverted_rounds = 0;   // rounds rolled back by the acceptance check
+  int num_singularities = 0; // final count (pinned poles included)
+  int index_sum = 0;         // final Σ quarter-index (conserved, == 4χ)
+  double curl_after = 0.0;
+};
+
+/* Tier-5 noise-pair cancellation: annihilate opposite-index (±1) pole pairs
+ * within max_sep·target_edge_length geodesic distance — sub-resolution pairs
+ * the output lattice cannot represent as distinct irregular vertices. Flips
+ * the implied periods along the shortest vertex path between the poles, then
+ * re-runs the fixed-period Poisson; a round is reverted unless the index sum
+ * is conserved and the singularity count strictly drops. Skips pinned poles.
+ * Runs adjustSingularities first when the field/pole attributes are absent. */
+SingularityCancelStats cancelSingularityPairs(mesh::Mesh &m,
+                                              const SingularityCancelParams &params);
 
 } // namespace sculptcore::remesh

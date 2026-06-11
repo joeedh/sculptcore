@@ -46,6 +46,14 @@ struct RemeshRunReport {
   int field_close_pairs = 0;
   int field_clutter_verts = 0;
 
+  // Tier-5 pair cancellation (singularity_cancel): pairs flipped / annihilated /
+  // rounds rolled back, and the post-cancel pole count (num_singularities above
+  // keeps the M2 count so the before/after delta is readable from one report).
+  int cancel_attempted_pairs = 0;
+  int cancel_cancelled_pairs = 0;
+  int cancel_reverted_rounds = 0;
+  int cancel_singularities_after = 0;
+
   // Quantization stats (M5). parametrization_folds = pre-extraction folded faces
   // on the solve mesh's (u,v); quantize_feasible = the integer-grid map was
   // reached (no spirals). min_jacobian <= 0 ⇒ folds remain.

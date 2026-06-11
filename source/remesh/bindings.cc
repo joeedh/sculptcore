@@ -43,6 +43,8 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, curvature_smooth_lambda);
   BIND_STRUCT_MEMBER(st, field_smoothness);
   BIND_STRUCT_MEMBER(st, curvature_weight);
+  BIND_STRUCT_MEMBER(st, singularity_cancel);
+  BIND_STRUCT_MEMBER(st, singularity_cancel_max_sep);
   BIND_STRUCT_MEMBER(st, auto_density);
   BIND_STRUCT_MEMBER(st, density_min);
   BIND_STRUCT_MEMBER(st, density_max);

@@ -1424,9 +1424,11 @@ bool execVerb(Scene &scene,
   }
 
   if (verb == "remesh_adjust_singularities") {
-    /* remesh_adjust_singularities [gauge_eps=..] [seed=..] — fixed-period curl
-     * reduction (M3); runs computeCrossField first if no field is present.
-     * Prints face/singularity/index totals and the curl before/after. */
+    /* remesh_adjust_singularities [gauge_eps=..] [seed=..] [cancel=0|1]
+     * [target_edge_length=..] [cancel_max_sep=..] — fixed-period curl reduction
+     * (M3); runs computeCrossField first if no field is present. cancel=1 then
+     * runs the Tier-5 pair cancellation (needs target_edge_length for its
+     * geodesic gate). Prints totals and the curl before/after. */
     if (!scene.mesh) {
       err = "remesh_adjust_singularities: no mesh";
       return false;
@@ -1441,6 +1443,20 @@ bool execVerb(Scene &scene,
                 "index_sum=%d 4chi=%ld curl_before=%.6f curl_after=%.6f\n",
                 st.num_faces, st.num_singularities, st.index_sum, 4 * chi,
                 st.curl_before, st.curl_after);
+    if (getBool(args, "cancel", false)) {
+      remesh::SingularityCancelParams scp;
+      scp.target_edge_length =
+          getFloat(args, "target_edge_length", scp.target_edge_length);
+      scp.max_sep = getFloat(args, "cancel_max_sep", scp.max_sep);
+      scp.gauge_eps = sap.gauge_eps;
+      scp.seed = sap.seed;
+      remesh::SingularityCancelStats cs = remesh::cancelSingularityPairs(m, scp);
+      std::printf("[remesh_cancel_pairs] rounds=%d attempted=%d cancelled=%d "
+                  "reverted=%d singularities=%d index_sum=%d curl_after=%.6f\n",
+                  cs.rounds, cs.attempted_pairs, cs.cancelled_pairs,
+                  cs.reverted_rounds, cs.num_singularities, cs.index_sum,
+                  cs.curl_after);
+    }
     std::fflush(stdout);
     return true;
   }
