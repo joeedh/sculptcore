@@ -17,6 +17,7 @@
 #include "litestl/util/vector.h"
 #include "mesh/attribute_builtin.h"
 #include "mesh/mesh.h"
+#include "remesh/field/cross_field.h"
 #include "remesh/field/feature_tag.h"
 
 #include <cmath>
@@ -299,11 +300,76 @@ void testSpurPruning()
   litestl::alloc::Delete<Mesh>(cube);
 }
 
+// Flat n x n vert grid, every quad split along the (j,i)->(j+1,i+1) diagonal,
+// with the two verts of the quad (jA,iA) diagonal lifted by h. That diagonal's
+// dihedral is acos((1-2h^2)/(1+2h^2)) (60 deg at h=sqrt(1/6)); every edge
+// around the lift stays under ~31 deg, so the tagger sees one isolated sharp
+// edge at 45 deg to the axis-aligned rim - a worst-case noise spur.
+Mesh *makeSpurGrid(int n, int jA, int iA, float h)
+{
+  Mesh *m = litestl::alloc::New<Mesh>("SpurGrid");
+  Vector<int> verts;
+  verts.resize(n * n);
+  for (int j = 0; j < n; j++) {
+    for (int i = 0; i < n; i++) {
+      bool lifted = (j == jA && i == iA) || (j == jA + 1 && i == iA + 1);
+      verts[j * n + i] = m->make_vertex(float3(float(i), float(j), lifted ? h : 0.0f));
+    }
+  }
+  Vector<int> vs;
+  auto tri = [&](int a, int b, int c) {
+    vs.clear();
+    vs.append(verts[a]);
+    vs.append(verts[b]);
+    vs.append(verts[c]);
+    m->make_face(vs);
+  };
+  for (int j = 0; j < n - 1; j++) {
+    for (int i = 0; i < n - 1; i++) {
+      int A = j * n + i, B = j * n + i + 1;
+      int C = (j + 1) * n + i + 1, D = (j + 1) * n + i;
+      tri(A, B, C);
+      tri(A, C, D);
+    }
+  }
+  m->recalc_normals();
+  return m;
+}
+
+// E2E gate assert: the unfiltered noise spur hard-pins two faces 45 deg off
+// the rim-pinned field and forces singularities; pruning it (min_chain=2)
+// leaves a uniform field with none.
+void testSpurSingularities()
+{
+  const float SHARP = 45.0f * DEG;
+  const float H = std::sqrt(1.0f / 6.0f); // lifted-diagonal dihedral = 60 deg
+  Mesh *grid = makeSpurGrid(13, 6, 6, H);
+
+  remesh::computeFeatureTags(*grid, SHARP);
+  int n = countSharp(*grid);
+  fprintf(stderr, "[sing/tags] sharp=%d\n", n);
+  TASSERT(n == 1); // fixture self-check: exactly the isolated spur
+
+  remesh::CrossFieldParams cp;
+  cp.use_curvature = false; // no flat-face gate: hard pins apply everywhere
+  cp.use_sharp_features = true;
+  cp.feature_min_chain = 0;
+  remesh::CrossFieldStats s0 = remesh::computeCrossField(*grid, cp);
+  cp.feature_min_chain = 2;
+  remesh::CrossFieldStats s1 = remesh::computeCrossField(*grid, cp);
+  fprintf(stderr, "[sing/field] unfiltered=%d filtered=%d\n", s0.num_singularities,
+          s1.num_singularities);
+  TASSERT(s0.num_singularities > 0);
+  TASSERT(s1.num_singularities == 0);
+  litestl::alloc::Delete<Mesh>(grid);
+}
+
 } // namespace
 
 int main()
 {
   testHysteresis();
   testSpurPruning();
+  testSpurSingularities();
   return retval;
 }

@@ -980,12 +980,32 @@ authoritative knob:
   (shared vertex) to a strong edge. Tag strong set, flood weak neighbors.
 - `feature_hysteresis = 0` ⇒ exactly today's tagging; `--sharp-angle` keeps its
   current behavior.
+- **DONE (7a):** landed in `feature_tag.cc` as specified (clamped relative band,
+  strong-seeded stack flood through shared vertices; `do_hyst=false` skips all
+  new work). Param plumbed `RemeshParams` → `CrossFieldParams` →
+  `computeFeatureTags`, bound in `bindings.cc`, CLI `--feature-hysteresis`,
+  manifest field. gtest tent fixture: strong-only rows tag exactly; a weak row
+  vertex-adjacent to a strong run is flooded in; an all-weak ridge tags nothing.
+  Commit `b1e2233`.
 
 ### 7b. Spur pruning
 Build the sharp-edge graph; drop chains/components shorter than
 `feature_min_chain` that don't terminate at a true corner/junction (degree ≠ 2).
 `feature_min_chain = 0` = off. (Gap bridging: skip in v1 unless 7a/7b review shows
 leakage.)
+
+- **DONE (7b):** landed in `feature_tag.cc` after the 7a flood: walk maximal
+  sharp chains, continuing through a vertex only when its sharp∪boundary
+  union-degree is exactly 2 with no incident boundary edge; a chain shorter
+  than `feature_min_chain` is dropped iff it has a dangling end (union-degree
+  ≤ 1) or is an isolated loop — junction- (degree ≥ 3) and boundary-anchored
+  ends keep their chain regardless of length. Boundary edges anchor but are
+  never walked or pruned. Iterated to fixpoint (removing a chain can demote a
+  junction and expose new spurs). Same plumbing as 7a
+  (`--feature-min-chain`). gtest: isolated spur dropped / kept at
+  min_chain 2/0, 4-edge chain kept at 4 dropped at 5, half-anchored spur
+  dropped, fully boundary-anchored ridge kept at min_chain 20. Commit
+  `b15adde`.
 
 ### New params
 | field | default | meaning |
@@ -1001,6 +1021,54 @@ leakage.)
 
 ### Review gate 7
 Inspect: retained-vs-dropped correctness, singularity delta, cube no-op.
+
+### Gate decision (Tier 7, 2026-06-11)
+
+**Gate 7 PASS; both knobs land default-off (`0`/`0`).** Defaults are exactly
+the legacy tagger: corpus ×2 byte-identical to the tier6-gate baseline
+(`DCAC2018…`) after both sub-tiers, and the fandisk A/B legs below produce
+byte-identical OBJs. Full ctest 66/69 (the 3 pre-existing failures only);
+WASM canary clean.
+
+**Singularity delta (gtest, `test_remesh_feature_filter.cc`):** a 13×13
+spur-grid — flat except one quad's lifted diagonal, giving a single 60°-dihedral
+sharp edge at 45° to the rim (worst-case 4-RoSy frustration) — drives the
+cross-field E2E: unfiltered the lone spur hard-pins two faces against the
+rim-aligned field and forces **4 singularities; `feature_min_chain=2` prunes it
+and the field solves with 0**. Cube no-op: 12 sharp edges unchanged under
+(hysteresis 15°, min_chain 10).
+
+A/B at `--feature-hysteresis 0.2618` (15°) / `--feature-min-chain 3`,
+target-quads 15000 (field singularities raw → after cancel):
+
+| asset / leg | sing | irr | reg_frac | inverted | folds | min_angle | area_ratio | comps |
+|-------------|-----:|----:|---------:|---------:|------:|----------:|-----------:|------:|
+| fandisk all 4 legs | 96 → 82 | 190 | 0.9845 | 12 | 51 | 1.7e-4 | 23.6 | 2 |
+| rockerarm base | 114 → 70 | 271 | 0.9775 | 11 | 99 | 0 | 352.9 | 4 |
+| rockerarm hyst | 186 → 86 | 226 | 0.9818 | 18 | 156 | 1.3e-4 | 194.5 | 3 |
+| rockerarm chain | 106 → 68 | 193 | 0.9841 | 4 | 101 | 0 | 30.3 | 3 |
+| rockerarm both | 158 → 84 | 159 | 0.9882 | 2 | 82 | **0.041** | 30.1 | **1** |
+
+- **Retained-vs-dropped correctness:** fandisk (clean CAD, junction-anchored
+  feature network) is an exact no-op under both knobs — byte-identical output.
+  No legitimate feature is disturbed.
+- **Spur pruning is the safe quality knob:** on rockerarm (noisy near-threshold
+  dihedrals) `min_chain=3` alone cuts irregular verts 271 → 193, inverted
+  11 → 4, and the skinny-quad score (max area_ratio) 352.9 → 30.3, while
+  *reducing* field singularities (114 → 106) — the plan's predicted direction.
+- **Hysteresis is a recall knob, mixed alone:** it completes broken feature
+  chains (more constraints → singularities 114 → 186, folds 99 → 156 alone),
+  but **combined** the pair is synergistic — hysteresis extends real chains,
+  min-chain prunes the rest: best leg on every output metric (irr 159,
+  inverted 2, folds 82, min_angle 0 → 0.041 — the degenerate quad is gone —
+  and a single component instead of 4).
+- Spec note: "fewer singularities than unfiltered" holds for noise (gtest
+  4 → 0; rockerarm chain-only 114 → 106). On scanned data hysteresis can
+  legitimately *raise* the count while extraction improves — completed feature
+  chains put singularities where the geometry demands them instead of where
+  noise frustrates the solve.
+- **Gap bridging stays skipped** (the v1 condition): review shows no leakage —
+  the hysteresis flood already provides near-threshold chain continuation.
 
 ---
 
