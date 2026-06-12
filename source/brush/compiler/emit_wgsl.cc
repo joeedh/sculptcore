@@ -1307,6 +1307,21 @@ struct Emit {
     indent = 0;
 
     write("\n");
+    // Non-accumulate write-back is a max-magnitude displacement envelope: the
+    // dab's result lands only if it displaces farther from the stroke-start
+    // base than what is already applied — the WGSL twin of CoProxy::commit
+    // (accum_mode.h). Stops trailing-edge snap-back on moving strokes.
+    if (!brush->isGlobal && !brush->isPaint) {
+      write("  if (brush_u.nonaccum != 0u) {\n");
+      write("    let sb_base = orig_co[sb_vidx];\n");
+      write("    let sb_d_cand = "); write(vertexParamName); write("_co - sb_base;\n");
+      write("    let sb_d_prev = co_buf[sb_vidx] - sb_base;\n");
+      write("    "); write(vertexParamName);
+      write("_co = select(co_buf[sb_vidx], ");
+      write(vertexParamName);
+      write("_co, dot(sb_d_cand, sb_d_cand) > dot(sb_d_prev, sb_d_prev));\n");
+      write("  }\n");
+    }
     write("  co_buf[sb_vidx] = ");
     write(vertexParamName); write("_co;\n");
     write("  no_buf[sb_vidx] = ");

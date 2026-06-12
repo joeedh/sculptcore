@@ -54,6 +54,12 @@ struct AccumOrig {
 // operators are required because litestl's Vec arithmetic operators are members
 // (so `proxy - float3` would otherwise need an implicit conversion the compiler
 // won't chain through the member operator).
+//
+// AccumOrig writes are a max-magnitude displacement *envelope*: a dab's write
+// lands only if its displacement from base exceeds the one already applied
+// (live - base, valid because dyntopo coherence moves orig_co in lockstep).
+// Without this, a moving stroke's trailing edge snaps verts back toward base
+// as the falloff fades. Mirrored in WGSL by emit_wgsl.cc's write-back.
 template <class AccMode> struct CoProxy {
   float3 &live;
   const float3 *basePtr;
@@ -62,22 +68,33 @@ template <class AccMode> struct CoProxy {
   float3 cur() const { return (AccMode::reads_base && !written) ? *basePtr : live; }
   operator float3() const { return cur(); }
 
+  void commit(const float3 &want)
+  {
+    if constexpr (AccMode::reads_base) {
+      const float3 d_cand = want - *basePtr;
+      const float3 d_prev = live - *basePtr;
+      if (d_cand.dot(d_cand) > d_prev.dot(d_prev)) {
+        live = want;
+      }
+    } else {
+      live = want;
+    }
+    written = true;
+  }
+
   CoProxy &operator=(const float3 &r)
   {
-    live = r;
-    written = true;
+    commit(r);
     return *this;
   }
   CoProxy &operator+=(const float3 &r)
   {
-    live = cur() + r;
-    written = true;
+    commit(cur() + r);
     return *this;
   }
   CoProxy &operator-=(const float3 &r)
   {
-    live = cur() - r;
-    written = true;
+    commit(cur() - r);
     return *this;
   }
 

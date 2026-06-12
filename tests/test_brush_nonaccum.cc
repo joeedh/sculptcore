@@ -169,5 +169,40 @@ int main()
     test_assert(push < ac8);           // bounded: no snap-back accumulation
   }
 
+  // (e) Envelope retention. A moving non-accum stroke (left to right across the
+  // +Z face): mid-path verts get their full push while the brush is over them,
+  // then later dabs only cover them weakly. The max-magnitude envelope keeps
+  // the strongest displacement; without it each later dab rewrites live from
+  // base with its (fading) falloff and the trailing edge snaps back (~10% of
+  // the full push instead of ~100%).
+  {
+    Scene scene(256, 256, /*headless=*/true);
+    auto r = script::run(scene,
+                         "make_cube subdivs=12 size=0.5\n"
+                         "build_spatial leaf_limit=256 depth_limit=8\n"
+                         "set_backend backend=cpp\n"
+                         "set_brush_tool tool=draw\n"
+                         "set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                         "stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=6 "
+                         "normal=0,0,1\n",
+                         ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  (e) line %d: %s\n", r.line_no, r.error.c_str());
+      return 1;
+    }
+    Mesh *m = scene.mesh;
+    float pushMid = 0.0f, pushEnd = 0.0f;
+    for (int i = 0; i < m->v.count; i++) {
+      float3 co = m->v.co[i];
+      if (co[2] < 0.2f || std::fabs(co[1]) > 0.1f) continue;
+      if (std::fabs(co[0]) < 0.05f) pushMid = std::fmax(pushMid, co[2] - 0.25f);
+      if (std::fabs(co[0] - 0.2f) < 0.05f) pushEnd = std::fmax(pushEnd, co[2] - 0.25f);
+    }
+    fprintf(stderr, "(e) pushMid=%.5f pushEnd=%.5f\n", pushMid, pushEnd);
+    test_assert(pushEnd > 0.0f);             // the stroke reached the far end
+    test_assert(pushMid > 0.7f * pushEnd);   // trailing edge held its push
+  }
+
   return test_end();
 }

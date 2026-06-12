@@ -117,6 +117,22 @@ Proxy must support implicit `→ float3`, `operator+=`, `operator-=`, `operator=
 (verified sufficient for draw / inflate / pinch / plane / sharp / smooth /
 bsmooth / texdraw / wingscrape).
 
+**Displacement envelope (the moving-stroke fix).** A bare overwrite-from-base
+snaps the trailing edge back: as the brush moves on, later dabs still cover a
+vert weakly and rewrite `live = base + small_disp`, discarding the full push it
+got when the brush was centered on it. `AccumOrig` writes are therefore a
+**max-magnitude envelope**: a write lands only if its displacement from base
+exceeds the one already applied. No accumulator attribute is needed — since
+dyntopo coherence (§5) moves `orig_co` in lockstep with `co`, the applied
+displacement is always recoverable as `live − base`:
+`if |want − base|² > |live − base|² then live = want` (`CoProxy::commit`).
+Repeated dabs over one spot still converge (the envelope saturates at the
+single-dab maximum); the trailing edge of a moving stroke holds its peak. The
+WGSL write-back mirrors this with the same compare against `co_buf − orig_co`
+under `brush_u.nonaccum` — and that also fixes a latent GPU-only hazard where a
+kernel taking its no-write path (e.g. plane's gated side) would have written the
+re-seeded orig back over prior dabs' displacement.
+
 **Codegen** (`emit_cpp.cc`): emit `AccumMode AccMode` on every kernel +
 create-fn signature; change the vertex loop to
 `ctx.template vertexIter<AccMode>(ctx.node)`; change the neighbor-co emission to
@@ -268,7 +284,9 @@ inert when the cache is absent or non-accumulate is off.
   (a) a small mesh, repeated identical dabs over the same area: assert max
   displacement **converges/saturates** in non-accum vs **grows** in accumulate;
   (b) base-fallback: an untouched neighbor contributes its live position;
-  (c) cross-stroke: bump the generation, confirm old stamps are ignored.
+  (c) cross-stroke: bump the generation, confirm old stamps are ignored;
+  (e) envelope retention: a moving `stroke_path` keeps mid-path verts at their
+  peak push (≥ 70% of the stroke-end push) instead of snapping back.
 - **ctest (dyntopo):** extend `test_spatial_dyntopo`/`_smooth` — with dyntopo +
   non-accum, a stamped vert moved by tangential smooth does **not** snap back on
   the next dab (orig_co tracked the delta); same for a collapse survivor.
