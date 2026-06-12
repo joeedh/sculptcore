@@ -40,6 +40,7 @@ export interface Mesh {
   edgeSeam(e: int32): int32
   setEdgeSeam(e: int32, state: int32): void
   recomputeBoundary(): void
+  boundaryGraphStats(out: int32[]): void
   edgePathCoords(vStart: int32, vEnd: int32, out: float[]): void
   generateUVFromSeams(marginMilli: int32): int32
   markAllSeams(): void

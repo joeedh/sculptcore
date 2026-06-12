@@ -91,6 +91,9 @@ class NapiRuntime {
   // makeIntVector() -> a fresh owning, empty Vector<int> (the screen-pick
   // faces/verts out-params; descriptor recovered from castScreenCircle's param).
   static napi_value MakeIntVector(napi_env, napi_callback_info);
+  // makeFloatVector() -> a fresh owning, empty Vector<float> (edgePathCoords'
+  // out-param; descriptor recovered from that method's param).
+  static napi_value MakeFloatVector(napi_env, napi_callback_info);
   // Bulk-data fast path / minimal Vector surface (litestl::util::Vector).
   static napi_value VectorLength(napi_env, napi_callback_info);
   static napi_value VectorView(napi_env, napi_callback_info);

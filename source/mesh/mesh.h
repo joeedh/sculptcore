@@ -134,6 +134,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, edgeSeam, MARGS("e"));
     BIND_STRUCT_METHOD(st, setEdgeSeam, MARGS("e", "state"));
     BIND_STRUCT_METHOD(st, recomputeBoundary, MARGS());
+    BIND_STRUCT_METHOD(st, boundaryGraphStats, MARGS("out"));
     BIND_STRUCT_METHOD(st, edgePathCoords, MARGS("vStart", "vEnd", "out"));
     BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
     BIND_STRUCT_METHOD(st, markAllSeams, MARGS());
@@ -284,6 +285,11 @@ struct Mesh : public MeshBase {
   int edgeSeam(int e);
   void setEdgeSeam(int e, int state);
   void recomputeBoundary();
+
+  /* Boundary polyline-graph stats (integration-test seam): out =
+   * [flaggedEdges, graphVerts, non2ValenceVerts, components] over the union of
+   * all boundary edge flags. Thaws topo + recomputes derived state first. */
+  void boundaryGraphStats(util::Vector<int> &out);
 
   /* Wave 5: fill `out` with the shortest edge-path vertex positions as flat xyz
    * triples ([vStart..vEnd], 3 floats each), so the marking tool can draw the

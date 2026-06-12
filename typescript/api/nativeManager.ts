@@ -73,8 +73,15 @@ export class NativeManager {
    * C++ pointer params.
    */
   constructWith(ctor: unknown, ...args: unknown[]): NativeBound {
-    const c = ctor as {__struct?: string; __ctor?: string; __nodeVector?: boolean; __intVector?: boolean}
+    const c = ctor as {
+      __struct?: string
+      __ctor?: string
+      __nodeVector?: boolean
+      __intVector?: boolean
+      __floatVector?: boolean
+    }
     if (c && c.__intVector) return this.addon.makeIntVector()
+    if (c && c.__floatVector) return this.addon.makeFloatVector()
     if (c && c.__nodeVector) return this.addon.makeNodeVector()
     if (c && typeof c.__struct === 'string' && typeof c.__ctor === 'string') {
       return this.addon.constructWith(c.__struct, c.__ctor, ...args)
@@ -95,16 +102,19 @@ export class NativeManager {
   }
   /**
    * The Vector-class handle the sculpt/pick paths need (`findDefaultConstructor`
-   * + `buildFullName`). Two specializations are requested: `Vector<SpatialNode*>`
-   * (brush filterNodes) and `Vector<int>` (screen-pick faces/verts). The addon's
-   * makeNodeVector / makeIntVector recover each from a method descriptor, so the
-   * default-ctor shim just flags which one.
+   * + `buildFullName`). Three specializations are requested: `Vector<SpatialNode*>`
+   * (brush filterNodes), `Vector<int>` (screen-pick faces/verts, graph stats) and
+   * `Vector<float>` (edgePathCoords). The addon's makeNodeVector / makeIntVector /
+   * makeFloatVector recover each from a method descriptor, so the default-ctor
+   * shim just flags which one.
    */
   findVectorClass(elemName: string): unknown {
     const isInt = elemName === 'int' || elemName === 'int32'
+    const isFloat = elemName === 'float' || elemName === 'float32'
     return {
       buildFullName         : () => `litestl::util::Vector<${elemName}>`,
-      findDefaultConstructor: () => (isInt ? {__intVector: true} : {__nodeVector: true}),
+      findDefaultConstructor: () =>
+        isInt ? {__intVector: true} : isFloat ? {__floatVector: true} : {__nodeVector: true},
     }
   }
   getBoundVector(_name: string, vec: NativeBound): unknown {

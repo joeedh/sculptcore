@@ -260,4 +260,68 @@ int vertClass(MeshBase *m, int v)
   return (*static_cast<AttrData<int> *>(ref.data))[v];
 }
 
+void graphStats(MeshBase *m, litestl::util::Vector<int> &out)
+{
+  out.clear();
+  BoolAttrView *views[] = {
+      findBoolEdge(m, EDGE_PROJECTED),
+      findBoolEdge(m, EDGE_SHARP),
+      findBoolEdge(m, EDGE_SEAM),
+      findBoolEdge(m, EDGE_POLYGROUP),
+      findBoolEdge(m, EDGE_UVCHART),
+  };
+
+  const int vcap = int(m->v.capacity());
+  litestl::util::Vector<int> valence, parent;
+  valence.resize(vcap);
+  parent.resize(vcap);
+  for (int v = 0; v < vcap; v++) {
+    valence[v] = 0;
+    parent[v] = v;
+  }
+  // Union-find with path halving; only flagged-edge endpoints ever get unioned.
+  auto find = [&parent](int x) {
+    while (parent[x] != x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  };
+
+  int flagged = 0;
+  const int ecap = int(m->e.capacity());
+  for (int e = 0; e < ecap; e++) {
+    if (m->e.freemap[e]) continue;
+    bool on = false;
+    for (BoolAttrView *view : views) {
+      if (view && view->get(e)) {
+        on = true;
+        break;
+      }
+    }
+    if (!on) continue;
+    flagged++;
+    int v0 = m->e.vs[e][0], v1 = m->e.vs[e][1];
+    valence[v0]++;
+    valence[v1]++;
+    int r0 = find(v0), r1 = find(v1);
+    if (r0 != r1) {
+      parent[r0] = r1;
+    }
+  }
+
+  int graphVerts = 0, non2 = 0, components = 0;
+  for (int v = 0; v < vcap; v++) {
+    if (valence[v] == 0) continue;
+    graphVerts++;
+    if (valence[v] != 2) non2++;
+    if (find(v) == v) components++;
+  }
+
+  out.append(flagged);
+  out.append(graphVerts);
+  out.append(non2);
+  out.append(components);
+}
+
 } // namespace sculptcore::mesh::boundary

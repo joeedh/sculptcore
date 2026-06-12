@@ -52,6 +52,11 @@ export interface NativeAddon {
    * castScreenCircle's param descriptor, since no method returns it by value).
    */
   makeIntVector(): NativeBound
+  /**
+   * A fresh owning, empty Vector<float> — the out-param for
+   * Mesh.edgePathCoords (recovered from that method's param descriptor).
+   */
+  makeFloatVector(): NativeBound
   /** length (size_) of a bound litestl::util::Vector. */
   vectorLength(vec: NativeBound): number | undefined
   /** i-th element of a bound Vector as a bound value/wrapper. */

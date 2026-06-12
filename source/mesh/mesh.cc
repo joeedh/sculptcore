@@ -163,6 +163,15 @@ void Mesh::recomputeBoundary()
   boundary::recomputeDirty(this);
 }
 
+void Mesh::boundaryGraphStats(util::Vector<int> &out)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  boundary::recomputeDirty(this);
+  boundary::graphStats(this, out);
+}
+
 void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
 {
   out.clear();
