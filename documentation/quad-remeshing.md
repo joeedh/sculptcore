@@ -434,6 +434,14 @@ prints the key. Never commit, echo, or log the key.
 
 ## Conventions / gotchas
 
+- **Thin double-sided sheets are known-poor.** Near-zero-thickness shells —
+  opposing-normal surfaces stacked closer than half a quad edge (0.5 ×
+  resolved target length) — degenerate the cross field / parametrization: the
+  solve sees both sides inside one quad cell. Triage detects this
+  (`detectThinSheets`, detect-only): the manifest `triage` block's `thin_*`
+  fields and the CLI STATS `thin_frac=` / `thin_sheet=` report it. A set
+  `thin_sheet` flag means expect poor output on the affected area; there is no
+  repair or fallback in v1.
 - Overlays are **window-only**; `screenshot` captures the shaded offscreen mesh
   without them.
 - The **solve/reproject split** is deliberate: `solve_edge_length` coarsens only

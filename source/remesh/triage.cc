@@ -4,6 +4,7 @@
 #include "mesh/utils/attr_interp.h"
 #include "mesh/utils/mesh_validate.h" // faceNewellNormal
 
+#include "litestl/math/geom.h" // closestPointOnTri
 #include "litestl/util/hash.h"
 #include "litestl/util/map.h"
 #include "litestl/util/set.h"
@@ -454,6 +455,144 @@ void fillInputHoles(Mesh &m, float max_frac, TriageReport &report)
   if (filled > 0) {
     m.recalc_normals();
   }
+}
+
+void detectThinSheets(Mesh &m, float thickness, TriageReport &report)
+{
+  report.thin_thickness = thickness;
+  if (thickness <= 0.0f || m.f.count == 0) {
+    return;
+  }
+  m.thawTopo();
+
+  // Per-triangle verts / unit normal / centroid / area from current geometry
+  // (Newell — no dependency on cached normals). Non-tris and degenerates skip.
+  util::Vector<int> tv;
+  util::Vector<float3> tno, tcen;
+  util::Vector<float> tarea;
+  double esum = 0.0;
+  int ecount = 0;
+  for (int f : m.f) {
+    int c0 = m.l.c[m.f.l[f]], cc = c0, n = 0;
+    int vs[3];
+    do {
+      if (n < 3) {
+        vs[n] = m.c.v[cc];
+      }
+      n++;
+      cc = m.c.next[cc];
+    } while (cc != c0);
+    if (n != 3) {
+      continue;
+    }
+    float3 nrm = mesh::faceNewellNormal(m, f);
+    float len = nrm.length();
+    if (len < 1e-20f) {
+      continue;
+    }
+    for (int k = 0; k < 3; k++) {
+      tv.append(vs[k]);
+      esum += double((m.v.co[vs[(k + 1) % 3]] - m.v.co[vs[k]]).length());
+      ecount++;
+    }
+    tno.append(nrm * (1.0f / len));
+    tcen.append((m.v.co[vs[0]] + m.v.co[vs[1]] + m.v.co[vs[2]]) * (1.0f / 3.0f));
+    tarea.append(0.5f * len);
+  }
+  int nt = int(tarea.size());
+  if (nt == 0) {
+    return;
+  }
+
+  // Triangles smear into every cell their AABB overlaps; with cell >= max of
+  // (thickness, 2x mean edge) both the smear and the query box stay O(1) cells.
+  float mean_edge = ecount > 0 ? float(esum / ecount) : 0.0f;
+  const float cell = std::fmax(thickness, 2.0f * mean_edge);
+  const float inv = 1.0f / cell;
+  util::Map<CellKey, util::Vector<int>> grid;
+  for (int i = 0; i < nt; i++) {
+    float3 a = m.v.co[tv[i * 3]], b = m.v.co[tv[i * 3 + 1]],
+           c = m.v.co[tv[i * 3 + 2]];
+    int lo[3], hi[3];
+    for (int k = 0; k < 3; k++) {
+      float mn = std::fmin(a[k], std::fmin(b[k], c[k]));
+      float mx = std::fmax(a[k], std::fmax(b[k], c[k]));
+      lo[k] = int(std::floor(mn * inv));
+      hi[k] = int(std::floor(mx * inv));
+    }
+    for (int x = lo[0]; x <= hi[0]; x++) {
+      for (int y = lo[1]; y <= hi[1]; y++) {
+        for (int z = lo[2]; z <= hi[2]; z++) {
+          grid[CellKey{x, y, z}].append(i);
+        }
+      }
+    }
+  }
+
+  const int stride = nt > 4096 ? (nt + 4095) / 4096 : 1;
+  const float t2 = thickness * thickness;
+  double area_sampled = 0.0, area_thin = 0.0;
+  for (int i = 0; i < nt; i += stride) {
+    report.thin_sampled_faces++;
+    area_sampled += double(tarea[i]);
+    const float3 cen = tcen[i], nf = tno[i];
+    bool thin = false;
+    int lo[3], hi[3];
+    for (int k = 0; k < 3; k++) {
+      lo[k] = int(std::floor((cen[k] - thickness) * inv));
+      hi[k] = int(std::floor((cen[k] + thickness) * inv));
+    }
+    for (int x = lo[0]; x <= hi[0] && !thin; x++) {
+      for (int y = lo[1]; y <= hi[1] && !thin; y++) {
+        for (int z = lo[2]; z <= hi[2] && !thin; z++) {
+          util::Vector<int> *cand = grid.lookup_ptr(CellKey{x, y, z});
+          if (!cand) {
+            continue;
+          }
+          for (int j : *cand) {
+            if (j == i || nf.dot(tno[j]) >= -0.5f) {
+              continue;
+            }
+            bool shared = false;
+            for (int p = 0; p < 3 && !shared; p++) {
+              for (int q = 0; q < 3; q++) {
+                if (tv[i * 3 + p] == tv[j * 3 + q]) {
+                  shared = true;
+                  break;
+                }
+              }
+            }
+            if (shared) {
+              continue;
+            }
+            float3 cp = math::closestPointOnTri(cen, m.v.co[tv[j * 3]],
+                                                m.v.co[tv[j * 3 + 1]],
+                                                m.v.co[tv[j * 3 + 2]]);
+            float3 d = cp - cen;
+            float d2 = d.lengthSqr();
+            if (d2 >= t2) {
+              continue;
+            }
+            // Stacked along the normal (front/behind), not laterally adjacent
+            // across a groove; a near-coincident hit is stacked by definition.
+            float dl = std::sqrt(d2);
+            if (dl > 1e-6f * thickness && std::fabs(d.dot(nf)) < 0.5f * dl) {
+              continue;
+            }
+            thin = true;
+            break;
+          }
+        }
+      }
+    }
+    if (thin) {
+      report.thin_paired_faces++;
+      area_thin += double(tarea[i]);
+    }
+  }
+  report.thin_area_frac =
+      area_sampled > 0.0 ? float(area_thin / area_sampled) : 0.0f;
+  report.thin_sheet = report.thin_area_frac > 0.5f;
 }
 
 } // namespace sculptcore::remesh

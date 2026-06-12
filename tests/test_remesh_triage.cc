@@ -333,6 +333,76 @@ void testHoleFill()
   litestl::alloc::Delete<Mesh>(m);
 }
 
+// Tier 6.6 thin double-sided sheet detection (detect-only). Two parallel 5x5
+// sheets with opposing winding: 0.05 apart at a 0.2 threshold every face pairs
+// (frac 1.0, thin_sheet set); 1.0 apart nothing pairs. A closed unit sphere at
+// the same threshold has no opposing partner in range (antipodes are 2r away;
+// same-cap neighbors fail the opposing-normal filter).
+void testThinSheetDetect()
+{
+  auto addSheet = [](Mesh *m, int n, float size, float z, bool flip) {
+    Vector<int> ids;
+    float h = size / float(n - 1);
+    for (int j = 0; j < n; j++) {
+      for (int i = 0; i < n; i++) {
+        ids.append(m->make_vertex(float3(float(i) * h, float(j) * h, z)));
+      }
+    }
+    for (int j = 0; j < n - 1; j++) {
+      for (int i = 0; i < n - 1; i++) {
+        int a = ids[j * n + i], b = ids[j * n + i + 1];
+        int c = ids[(j + 1) * n + i + 1], d = ids[(j + 1) * n + i];
+        if (flip) {
+          tri(m, a, c, b);
+          tri(m, a, d, c);
+        }
+        else {
+          tri(m, a, b, c);
+          tri(m, a, c, d);
+        }
+      }
+    }
+  };
+
+  auto runSheets = [&](float gap, const char *tag) {
+    Mesh *m = litestl::alloc::New<Mesh>("test thin");
+    addSheet(m, 5, 1.0f, 0.0f, false); // +z normals
+    addSheet(m, 5, 1.0f, gap, true);   // -z normals: a double-sided shell
+    m->recalc_normals();
+    TriageReport r;
+    detectThinSheets(*m, 0.2f, r);
+    fprintf(stderr, "[thin/%s] sampled=%d paired=%d frac=%.3f sheet=%d\n", tag,
+            r.thin_sampled_faces, r.thin_paired_faces, r.thin_area_frac,
+            int(r.thin_sheet));
+    litestl::alloc::Delete<Mesh>(m);
+    return r;
+  };
+
+  TriageReport rThin = runSheets(0.05f, "stacked");
+  TASSERT(rThin.thin_sampled_faces == 64); // 2 sheets x 2 tris x 4^2 cells
+  TASSERT(rThin.thin_paired_faces == rThin.thin_sampled_faces);
+  TASSERT(rThin.thin_area_frac > 0.99f);
+  TASSERT(rThin.thin_sheet);
+
+  TriageReport rFar = runSheets(1.0f, "apart");
+  TASSERT(rFar.thin_sampled_faces == 64);
+  TASSERT(rFar.thin_paired_faces == 0);
+  TASSERT(!rFar.thin_sheet);
+
+  Mesh *s = makeUVSphere(16, 16, 1.0f);
+  (void)triangulateMesh(*s);
+  s->recalc_normals();
+  TriageReport rs;
+  detectThinSheets(*s, 0.2f, rs);
+  fprintf(stderr, "[thin/sphere] sampled=%d paired=%d frac=%.3f sheet=%d\n",
+          rs.thin_sampled_faces, rs.thin_paired_faces, rs.thin_area_frac,
+          int(rs.thin_sheet));
+  TASSERT(rs.thin_sampled_faces > 0);
+  TASSERT(rs.thin_paired_faces == 0);
+  TASSERT(!rs.thin_sheet);
+  litestl::alloc::Delete<Mesh>(s);
+}
+
 } // namespace
 
 int main()
@@ -344,5 +414,6 @@ int main()
   testNonManifoldDetect();
   testWeldStressSoup();
   testHoleFill();
+  testThinSheetDetect();
   return retval;
 }

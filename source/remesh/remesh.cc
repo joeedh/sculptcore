@@ -642,14 +642,21 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
     PROG(7, "hole_fill");
     fillInputHoles(*work, params.input_hole_fill_max_frac, tr);
   }
-  if (report)
-    report->triage_report = tr;
 
   // Resolve the operative quad edge length: explicit target_edge_length, or
   // derived from target_quad_count (L = sqrt(integral of density dA / N)).
   // Count mode refines L further below as the work mesh / density evolve.
   const bool count_mode = params.target_edge_length <= 0.0f;
   float L_quad = resolveTargetEdgeLength(*work, params);
+
+  // Tier 6.6: detect-only thin double-sided sheet check. Opposing sheets closer
+  // than half a quad edge can't be resolved at L_quad (the field/param see both
+  // sides in one cell) — flagged as known-poor in the report, never repaired.
+  if (params.triage) {
+    detectThinSheets(*work, 0.5f * L_quad, tr);
+  }
+  if (report)
+    report->triage_report = tr;
 
   // Tier 6.4: remesh disconnected components independently so one component's
   // field/singularities can't leak into another's solve. Sub-runs inherit the

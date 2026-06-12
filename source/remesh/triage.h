@@ -50,6 +50,12 @@ struct TriageReport {
   int input_holes_filled = 0;    // tiny boundary loops triangulated closed
   int input_holes_kept = 0;      // boundary loops preserved (large/untraceable)
   int input_hole_fill_faces = 0; // triangles added by the fill
+  // Tier 6.6 thin double-sided sheet detection (detectThinSheets) — detect-only.
+  int thin_sampled_faces = 0;  // tri faces probed (stride-sampled, max 4096)
+  int thin_paired_faces = 0;   // probed faces with an opposing face within range
+  float thin_area_frac = 0.0f; // area-weighted thin fraction of the sample
+  float thin_thickness = 0.0f; // distance threshold used (caller-derived)
+  bool thin_sheet = false;     // majority of sampled area is double-sided
 };
 
 /* Clean @p m in place per @p params, recording what was removed in @p report.
@@ -60,5 +66,14 @@ void triageMesh(mesh::Mesh &m, const TriageParams &params, TriageReport &report)
  * @p max_frac of the total boundary length; longer loops, and loops touching a
  * pinch vert, are preserved. Counts into @p report's input_holes_* fields. */
 void fillInputHoles(mesh::Mesh &m, float max_frac, TriageReport &report);
+
+/* Tier 6.6: detect thin double-sided sheets — detect-only, no repair. A face is
+ * "thin-paired" when an opposing-normal triangle (unit-normal dot < -0.5, no
+ * shared vertex) passes within @p thickness of its centroid, stacked along its
+ * normal — the near-zero-thickness-shell configuration the cross field / param
+ * cannot resolve at quad scale. Probes a deterministic stride sample (<= 4096
+ * tri faces) against a uniform triangle grid; fills @p report's thin_* fields
+ * (thin_sheet = over half the sampled area is paired). Triangle faces only. */
+void detectThinSheets(mesh::Mesh &m, float thickness, TriageReport &report);
 
 } // namespace sculptcore::remesh

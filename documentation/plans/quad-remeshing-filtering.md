@@ -860,6 +860,25 @@ limits, don't over-promise.**
   near-zero-thickness shells). For v1, **detect and document as known-poor**;
   optionally route to a fallback or flag in the report rather than silently
   emitting garbage.
+  - **DONE (6.6):** detect-only `detectThinSheets(m, thickness, report)` in
+    `triage.{h,cc}`, no repair, no new params. A sampled face is *thin-paired*
+    when an opposing-normal triangle (unit-Newell dot < −0.5, no shared vert)
+    passes within `thickness` of its centroid (`closestPointOnTri`) *stacked
+    along its normal* (|d·n̂| ≥ 0.5|d|; near-coincident hits count) — the
+    direction check rejects lateral V-groove opposition. Triangles smear into
+    a uniform grid (cell = max(thickness, 2× mean edge), CellKey pattern) so
+    insertion fan-out and query both stay O(1) cells even when triangles are
+    large relative to the threshold; deterministic stride sample caps probes
+    at 4096 with the sample size reported (`thin_sampled_faces` — no silent
+    cap). Area-weighted `thin_area_frac` > 0.5 ⇒ `thin_sheet`. Wired in
+    `QuadRemesh` after target-length resolution at **thickness = 0.5 ×
+    L_quad** (sheets thinner than half a quad edge are unrepresentable at
+    quad scale; threshold echoed in `thin_thickness`), global-only
+    (per-component sub-runs have triage off). Manifest gains the five
+    `thin_*` fields; CLI STATS prints `thin_frac=`/`thin_sheet=`. gtest:
+    stacked 5×5 sheets gap 0.05 @ t=0.2 → 64/64 paired, frac 1.000,
+    flagged; gap 1.0 → 0 paired; UV-sphere negative control → 480 sampled,
+    0 paired. Known-poor note added to `documentation/quad-remeshing.md`.
 
 ### New params
 | field | default | meaning |

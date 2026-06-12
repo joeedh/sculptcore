@@ -398,7 +398,12 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"non_manifold_verts\": %d,\n", tg.non_manifold_verts);
   std::fprintf(f, "    \"input_holes_filled\": %d,\n", tg.input_holes_filled);
   std::fprintf(f, "    \"input_holes_kept\": %d,\n", tg.input_holes_kept);
-  std::fprintf(f, "    \"input_hole_fill_faces\": %d\n", tg.input_hole_fill_faces);
+  std::fprintf(f, "    \"input_hole_fill_faces\": %d,\n", tg.input_hole_fill_faces);
+  std::fprintf(f, "    \"thin_sampled_faces\": %d,\n", tg.thin_sampled_faces);
+  std::fprintf(f, "    \"thin_paired_faces\": %d,\n", tg.thin_paired_faces);
+  std::fprintf(f, "    \"thin_area_frac\": %.9g,\n", tg.thin_area_frac);
+  std::fprintf(f, "    \"thin_thickness\": %.9g,\n", tg.thin_thickness);
+  std::fprintf(f, "    \"thin_sheet\": %s\n", jb(tg.thin_sheet));
   std::fprintf(f, "  },\n");
 
   // Tier-9 pre-remesh A/B effect (remesh_report.h::PreRemeshEffect). `ran` is
@@ -736,8 +741,8 @@ int main(int argc, char **argv)
               "folds=%d min_angle=%.4g area_ratio=%.4g "
               "triage=%d triage_welded=%d triage_degenerate=%d "
               "triage_components=%d triage_nonmanifold_edges=%d "
-              "holes_filled=%d comp_runs=%d/%d derived_edge=%.4g "
-              "duration_ms=%lld\n",
+              "holes_filled=%d comp_runs=%d/%d thin_frac=%.3g thin_sheet=%d "
+              "derived_edge=%.4g duration_ms=%lld\n",
               r.vert_count, r.edge_count, r.face_count, r.quad_count,
               r.tri_count, r.ngon_count, int(r.all_quad), int(r.manifold),
               r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
@@ -746,8 +751,8 @@ int main(int argc, char **argv)
               r.min_interior_angle, r.max_adjacent_area_ratio, int(tg.ran),
               tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
               tg.non_manifold_edges, tg.input_holes_filled,
-              rep.components_remeshed, rep.components_total,
-              rep.derived_edge_length, durationMs);
+              rep.components_remeshed, rep.components_total, tg.thin_area_frac,
+              int(tg.thin_sheet), rep.derived_edge_length, durationMs);
 
   // Pre-remesh A/B one-liner (only when the pre-pass ran); full record is in
   // the manifest "pre_remesh" block.
