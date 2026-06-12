@@ -33,6 +33,7 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, feature_min_chain);
   BIND_STRUCT_MEMBER(st, use_density);
   BIND_STRUCT_MEMBER(st, quantize_direct_rounding);
+  BIND_STRUCT_MEMBER(st, untangle_field_max_dev);
   BIND_STRUCT_MEMBER(st, reproject);
   BIND_STRUCT_MEMBER(st, cap_odd_holes);
   BIND_STRUCT_MEMBER(st, smooth_iterations);

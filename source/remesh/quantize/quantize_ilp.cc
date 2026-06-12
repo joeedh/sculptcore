@@ -45,6 +45,13 @@ using sculptcore::mesh::Mesh;
 namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr double HALF_PI = PI * 0.5;
+constexpr double QUARTER_PI = PI * 0.25;
+
+// Reduce an angle to the cross field's fundamental domain (−π/4, π/4].
+inline double reduceQuarter(double x)
+{
+  return x - HALF_PI * std::round(x / HALF_PI);
+}
 
 // A 2x2 matrix [[a, b], [c, d]] for the gauge/period 90-degree rotations.
 struct M2 {
@@ -982,7 +989,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // the field-aligned map folds too much. The rotation target sits beside
   // wherever the solver already is, so it relaxes folds without fighting the
   // locked seams — whereas the field angle is what folds the exactly-seamless map.
+  // rot_max_dev caps how far the rotation target may sit from the nearest
+  // field-aligned representative; QUARTER_PI = unclamped (legacy ARAP).
   bool rot_all = false;
+  double rot_max_dev = QUARTER_PI;
 
   // Area-weighted gauged gradient (grad u, grad v) of the current solution x on f.
   auto faceGradX = [&](int f, double &gux, double &guy, double &gvx,
@@ -1176,6 +1186,13 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
           // Nearest proper rotation R to the realized gauged Jacobian
           // J=[[gux,guy],[gvx,gvy]]: angle=atan2(c-b,a+d), det(R)=+1.
           double th = std::atan2(gvx - guy, gux + gvy);
+          if (rot_max_dev < QUARTER_PI - 1e-12) {
+            // Field-aligned rotations sit at th = -alpha (mod 90 deg); snap to
+            // the nearest one and keep at most rot_max_dev of deviation.
+            double alpha = double(theta[f]) + double(sys.gauge[f]) * HALF_PI;
+            double dev = reduceQuarter(th + alpha);
+            th += std::clamp(dev, -rot_max_dev, rot_max_dev) - dev;
+          }
           double C = std::cos(th), S = std::sin(th);
           tgt_u = float2(float(mag * C), float(-mag * S));
           tgt_v = float2(float(mag * S), float(mag * C));
@@ -1466,10 +1483,18 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     const double lam_hi = lam_seam, lam_lo = 0.1;
     const int steps = 16, inner = 3;
     rot_all = true; // retarget every face to nearest rotation (pure ARAP)
+    const double dev_end =
+        std::clamp(params.untangle_field_max_dev, 0.0, QUARTER_PI);
     double mult = std::pow(lam_hi / lam_lo, 1.0 / steps);
     double lam = lam_lo;
     for (int sIdx = 0; sIdx <= steps && all_solved; sIdx++) {
       lam_seam = (sIdx < steps) ? lam : lam_hi;
+      // Budget schedule: free (45 deg) for the first quarter of the
+      // continuation (the low-lam retarget needs full untangling power —
+      // tightening earlier re-folds the map), then linear to dev_end by the
+      // final step (tightening only at the end can no longer realign).
+      double tfrac = std::clamp((double(sIdx) / steps - 0.25) / 0.75, 0.0, 1.0);
+      rot_max_dev = QUARTER_PI + (dev_end - QUARTER_PI) * tfrac;
       // faceW == 1 and geometry static here: the matrix changes only with
       // lam_seam, so refactor once per lam step (k == 0) and re-solve the
       // retargeted RHS against the kept factor for the inner iterations.
@@ -1486,6 +1511,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       lam *= mult;
     }
     lam_seam = lam_hi;
+    rot_max_dev = dev_end;
     // rot_all stays on so the post-rounding injectivity pass keeps retargeting
     // residual folds to rotations rather than the (re-folding) field angle.
   }
@@ -2259,21 +2285,30 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   int num_folds = 0;
   double min_jac = 0.0;
   bool first_jac = true;
+  // Field-alignment accumulators: area-weighted |angle(grad u) - theta| mod
+  // 90 deg (uv is un-gauged, so plain theta is the reference).
+  double dev_area = 0.0, dev_sum = 0.0, dev_max = 0.0, dev_bad = 0.0;
   {
     const int nchunk = faceChunkCount(kFoldGrain);
     Vector<int> pNFace, pNFold;
     Vector<double> pMinJ;
     Vector<char> pHasJ;
+    Vector<double> pDevA, pDevS, pDevM, pDevB;
     pNFace.resize(nchunk);
     pNFold.resize(nchunk);
     pMinJ.resize(nchunk);
     pHasJ.resize(nchunk);
+    pDevA.resize(nchunk);
+    pDevS.resize(nchunk);
+    pDevM.resize(nchunk);
+    pDevB.resize(nchunk);
     forFaces(kFoldGrain, [&](int ch, int i0, int i1) {
       Vector<int> cs;
       Vector<float2> loc;
       int nfc = 0, nfo = 0;
       double mj = 0.0;
       bool first = true;
+      double dA = 0.0, dS = 0.0, dM = 0.0, dB = 0.0;
       for (int i = i0; i < i1; i++) {
         int f = faceIds[i];
         cs.clear();
@@ -2336,11 +2371,25 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
           mj = jac;
           first = false;
         }
+        if (gux * gux + guy * guy > 1e-20) {
+          double dev =
+              std::fabs(reduceQuarter(std::atan2(guy, gux) - double(theta[f])));
+          dA += totA;
+          dS += totA * dev;
+          dM = std::fmax(dM, dev);
+          if (dev > PI / 8.0) {
+            dB += totA;
+          }
+        }
       }
       pNFace[ch] = nfc;
       pNFold[ch] = nfo;
       pMinJ[ch] = mj;
       pHasJ[ch] = first ? 0 : 1;
+      pDevA[ch] = dA;
+      pDevS[ch] = dS;
+      pDevM[ch] = dM;
+      pDevB[ch] = dB;
     });
     for (int ch = 0; ch < nchunk; ch++) {
       num_faces += pNFace[ch];
@@ -2349,11 +2398,19 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         min_jac = pMinJ[ch];
         first_jac = false;
       }
+      dev_area += pDevA[ch];
+      dev_sum += pDevS[ch];
+      dev_max = std::fmax(dev_max, pDevM[ch]);
+      dev_bad += pDevB[ch];
     }
   }
   stats.num_faces = num_faces;
   stats.min_jacobian = first_jac ? 0.0 : min_jac;
   stats.parametrization_folds = num_folds;
+  const double rad2deg = 180.0 / PI;
+  stats.field_dev_mean_deg = dev_area > 0.0 ? (dev_sum / dev_area) * rad2deg : 0.0;
+  stats.field_dev_max_deg = dev_max * rad2deg;
+  stats.field_dev_frac = dev_area > 0.0 ? dev_bad / dev_area : 0.0;
 
 #ifndef WASM
   if (Lsuper) {

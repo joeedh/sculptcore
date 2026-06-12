@@ -68,6 +68,11 @@ struct RemeshParams {
    * clean inputs and the quality oracle greedy must beat (plans/miq.md Q4). */
   bool quantize_direct_rounding = false;
 
+  /* M5: max angular deviation (radians) the ARAP untangle retarget may keep
+   * from the nearest field-aligned rotation; >= pi/4 = legacy unclamped
+   * (quads may sit up to 45 degrees off the cross field). */
+  float untangle_field_max_dev = 0.17453293f;
+
   /* M6: snap each output vertex back onto the input surface via the BVH
    * closest-point query. Off = leave extracted positions as-is (debugging). */
   bool reproject = true;

@@ -182,6 +182,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"use_density\": %s,\n", jb(p.use_density));
   std::fprintf(f, "    \"quantize_direct_rounding\": %s,\n",
                jb(p.quantize_direct_rounding));
+  std::fprintf(f, "    \"untangle_field_max_dev\": %.9g,\n",
+               p.untangle_field_max_dev);
   std::fprintf(f, "    \"reproject\": %s,\n", jb(p.reproject));
   std::fprintf(f, "    \"cap_odd_holes\": %s,\n", jb(p.cap_odd_holes));
   std::fprintf(f, "    \"smooth_iterations\": %d,\n", p.smooth_iterations);
@@ -330,6 +332,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"seamless_folds\": %d,\n", qz.seamless_folds);
   std::fprintf(f, "      \"seamless_folds_near_pairs\": %d,\n",
                qz.seamless_folds_near_pairs);
+  std::fprintf(f, "      \"field_dev_mean_deg\": %.9g,\n", qz.field_dev_mean_deg);
+  std::fprintf(f, "      \"field_dev_max_deg\": %.9g,\n", qz.field_dev_max_deg);
+  std::fprintf(f, "      \"field_dev_frac\": %.9g,\n", qz.field_dev_frac);
   std::fprintf(f, "      \"full_refactors\": %d,\n", qz.full_refactors);
   std::fprintf(f, "      \"updowns\": %d,\n", qz.updowns);
   std::fprintf(f, "      \"simp_refreshes\": %d,\n", qz.simp_refreshes);
@@ -502,6 +507,8 @@ void usage()
       "  --density <0|1>         use per-vertex density map (default 0)\n"
       "  --quant-direct <0|1>    one-shot DIRECT rounding, no greedy rounds "
       "(default 0)\n"
+      "  --untangle-max-dev <deg>  max ARAP-untangle deviation from the field, "
+      "degrees; >=45 = legacy unclamped (default 10)\n"
       "  --reproject <0|1>       snap output onto input surface (default 1)\n"
       "  --cap-odd <0|1>         close odd holes too, paired all-quad (default 0)\n"
       "  --smooth <int>          reprojection smoothing iterations (default 2)\n"
@@ -623,6 +630,9 @@ int main(int argc, char **argv)
       params.use_density = toBool(next("--density"));
     else if (a == "--quant-direct")
       params.quantize_direct_rounding = toBool(next("--quant-direct"));
+    else if (a == "--untangle-max-dev")
+      params.untangle_field_max_dev =
+          float(std::atof(next("--untangle-max-dev")) * (3.14159265358979323846 / 180.0));
     else if (a == "--reproject")
       params.reproject = toBool(next("--reproject"));
     else if (a == "--cap-odd")

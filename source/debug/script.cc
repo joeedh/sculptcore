@@ -1490,7 +1490,8 @@ bool execVerb(Scene &scene,
     /* remesh_quantize [target_edge_length=..] [use_density=..] [gauge_eps=..]
      *   [integer_tol=..] [max_lambda=..] [local_gs=..] [direct=..]
      *   [updown_max_cols=..] [supernodal=..] [seam_relax_iters=..]
-     *   [seam_relax_min_folds=..] [untangle_threshold=..] —
+     *   [seam_relax_min_folds=..] [untangle_threshold=..]
+     *   [untangle_max_dev=..] (radians) —
      * integer-grid quantization (M5); builds the field/cut/seamless system
      * internally. Prints the integer residual, one-ring loop-closure residual,
      * feasibility and phase/op profile lines (local_gs=0 disables the Q1 GS
@@ -1520,6 +1521,8 @@ bool execVerb(Scene &scene,
         getFloat(args, "seam_relax_min_folds", float(qp.seam_relax_min_folds)));
     qp.untangle_fold_threshold = getFloat(args, "untangle_threshold",
                                           float(qp.untangle_fold_threshold));
+    qp.untangle_field_max_dev =
+        getFloat(args, "untangle_max_dev", float(qp.untangle_field_max_dev));
     remesh::QuantizeStats st = remesh::computeQuantization(m, qp);
     std::printf("[remesh_quantize] faces=%d corners=%d classes=%d cut_edges=%d "
                 "int_residual=%.6e loop_closure=%.6e min_jacobian=%.6f folds=%d "
@@ -1547,6 +1550,9 @@ bool execVerb(Scene &scene,
                 "seamless_folds=%d near_pairs=%d\n",
                 st.num_singularities, st.spurious_pairs, st.seamless_folds,
                 st.seamless_folds_near_pairs);
+    std::printf("[remesh_quantize:align] field_dev_mean_deg=%.2f "
+                "field_dev_max_deg=%.2f field_dev_frac=%.4f\n",
+                st.field_dev_mean_deg, st.field_dev_max_deg, st.field_dev_frac);
     std::fflush(stdout);
     return true;
   }

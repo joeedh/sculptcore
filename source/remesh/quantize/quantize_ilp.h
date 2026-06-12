@@ -86,6 +86,11 @@ struct QuantizeParams {
   // step, so the map starts injective and stays injective as the seams tighten.
   // 0 disables (field-aligned only). 0.10 matches the extraction fold gate.
   double untangle_fold_threshold = 0.10;
+  // Max angular deviation (radians) the ARAP untangle retarget may keep from
+  // the nearest field-aligned rotation. Scheduled from free (45 deg) at the low
+  // seam weight down to this by the final step, so the map untangles first and
+  // realigns as the seams tighten. >= pi/4 = legacy unclamped retarget.
+  double untangle_field_max_dev = 0.17453293; // 10 degrees
   // Local Gauss-Seidel re-solve tier (plans/miq.md Q1). After each rounding
   // batch, try a work-queue GS relaxation seeded at the locked sides' classes
   // before paying for the direct path; escalate on a visit cap. Backend-agnostic
@@ -116,6 +121,12 @@ struct QuantizeStats {
   double max_loop_closure = 0.0;     // max one-ring closure residual (no-spiral)
   double min_jacobian = 0.0;         // min per-face det(grad u, grad v)
   int parametrization_folds = 0;     // faces with det(grad u, grad v) <= 0 (pre-extract)
+  // Field alignment of the final map: |angle(grad u) - theta| mod 90 deg,
+  // area-weighted over faces with a usable gradient. frac = area fraction
+  // beyond 22.5 deg (closer to the diagonal than to the field).
+  double field_dev_mean_deg = 0.0;
+  double field_dev_max_deg = 0.0;
+  double field_dev_frac = 0.0;
   int iters = 0;         // greedy rounding rounds run
   bool solved = false;   // linear solves succeeded
   bool feasible = false; // integrality reached within integer_tol (no spirals)

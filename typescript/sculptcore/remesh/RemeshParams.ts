@@ -28,6 +28,7 @@ export interface RemeshParams {
   feature_min_chain: int32
   use_density: boolean
   quantize_direct_rounding: boolean
+  untangle_field_max_dev: float
   reproject: boolean
   cap_odd_holes: boolean
   smooth_iterations: int32

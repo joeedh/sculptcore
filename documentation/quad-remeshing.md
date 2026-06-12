@@ -92,6 +92,21 @@ it before touching the rounding loop. The moving parts:
   reach integrality (`feasible=false`) — it is never the quality default. A
   third, exact tier (CoMISo's Gurobi/CPLEX slot) is deliberately unbuilt; the
   enum comment in `quantize_ilp.h` documents the slot.
+- **Field-clamped ARAP untangle.** When the seamless solve's fold fraction
+  exceeds `untangle_fold_threshold` the solver enters an ARAP retarget
+  continuation (`rot_all`): each face targets the nearest rotation to its
+  realized Jacobian. That energy is rotation-invariant per face, so flat
+  regions could settle up to 45° off the cross field — the visible
+  "diagonal quads" failure. `untangle_field_max_dev` (surfaced as
+  `RemeshParams::untangle_field_max_dev`, default 10°) clamps each retarget's
+  deviation from the nearest field-aligned rotation, scheduled free for the
+  first quarter of the continuation (tightening earlier re-folds the map),
+  then linearly down to the clamp by the final step (tightening only at the
+  end can no longer realign). `>= 45°` is bit-identical legacy behavior.
+  Alignment is reported as `field_dev_mean_deg` / `field_dev_max_deg` /
+  `field_dev_frac` (area-weighted `|∠grad u − θ| mod 90°`; frac = area beyond
+  22.5°) in `QuantizeStats`, the CLI manifest, and the
+  `[remesh_quantize:align]` verb print.
 - **Solver fast paths** (the 2026-06 parallelization pass). The sparse pattern
   is assembled once; later assemblies scatter-add through precomputed nnz slot
   maps (`assembleValues`, bit-identical to the `setFromTriplets` path), and the
@@ -177,6 +192,7 @@ Extraction / output (M5/M6):
 | field | default | meaning |
 |-------|---------|---------|
 | `quantize_direct_rounding` | `false` | one-shot DIRECT rounding instead of greedy batches (see *Quantization rounding* below) |
+| `untangle_field_max_dev` | `0.1745` (10°) | max angle (radians) the ARAP untangle retarget may keep off the nearest field-aligned rotation; `>= π/4` = legacy unclamped (quads may sit 45° off the field) |
 | `reproject`           | `true` | snap output back onto the input surface (off = debugging) |
 | `cap_odd_holes`       | `false` | close odd-length cap rims too: rims pair up per component via quad-strip ladder splits, unpairable rims fall back to a fan with one cap triangle (watertightness over strict all-quad) |
 | `smooth_iterations`   | `2` | Laplacian passes interleaved with reprojection |

@@ -295,6 +295,16 @@ void RemeshUi::drawPanel()
   tip("Honor a per-vertex .remesh.v.density map for local sizing "
       "(quad size is proportional to 1/sqrt(density)). 'auto density' below "
       "turns this on implicitly and fills the map from curvature.");
+  {
+    float dev_deg = P.untangle_field_max_dev * (180.0f / 3.14159265f);
+    if (ImGui::SliderFloat("untangle max dev (deg)", &dev_deg, 0.0f, 45.0f,
+                           "%.1f")) {
+      P.untangle_field_max_dev = dev_deg * (3.14159265f / 180.0f);
+    }
+  }
+  tip("Max angle the ARAP fold-untangle may leave quads rotated off the cross "
+      "field. 45 = legacy unclamped (quads can sit diagonal to the field); "
+      "lower realigns the map as the untangle finishes. Default 10.");
   ImGui::Checkbox("reproject", &P.reproject);
   tip("Snap the extracted quad mesh back onto the input surface so it matches "
       "the original shape. Off leaves it on the (smoother) solve surface.");

@@ -1006,6 +1006,7 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
   qp.use_density = consume_density;
   qp.rounding = params.quantize_direct_rounding ? RoundingStrategy::DIRECT
                                                 : RoundingStrategy::GREEDY;
+  qp.untangle_field_max_dev = double(params.untangle_field_max_dev);
   QuantizeStats qs = computeQuantization(*work, qp);
   if (report) {
     report->quantize = StageStatus::Ok;
