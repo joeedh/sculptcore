@@ -67,7 +67,7 @@ void gatherConstraints(Mesh &m, const CrossFieldParams &params,
                                         params.curvature_smooth_lambda});
   }
   if (params.use_sharp_features) {
-    computeFeatureTags(m, params.sharp_angle);
+    computeFeatureTags(m, params.sharp_angle, params.feature_hysteresis);
   }
 
   BuiltinAttr<float3, ".remesh.v.kmax_dir"> kmax_dir;

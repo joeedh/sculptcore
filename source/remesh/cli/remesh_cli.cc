@@ -175,6 +175,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"use_curvature\": %s,\n", jb(p.use_curvature));
   std::fprintf(f, "    \"use_sharp_features\": %s,\n", jb(p.use_sharp_features));
   std::fprintf(f, "    \"sharp_angle\": %.9g,\n", p.sharp_angle);
+  std::fprintf(f, "    \"feature_hysteresis\": %.9g,\n", p.feature_hysteresis);
   std::fprintf(f, "    \"use_density\": %s,\n", jb(p.use_density));
   std::fprintf(f, "    \"quantize_direct_rounding\": %s,\n",
                jb(p.quantize_direct_rounding));
@@ -456,6 +457,8 @@ void usage()
       "  --curvature <0|1>       align field to curvature (default 1)\n"
       "  --sharp <0|1>           pin field to sharp edges/boundaries (default 1)\n"
       "  --sharp-angle <float>   sharp dihedral threshold, radians (default 0.785)\n"
+      "  --feature-hysteresis <f>  weak-tag band below sharp-angle, radians "
+      "(default 0)\n"
       "  --density <0|1>         use per-vertex density map (default 0)\n"
       "  --quant-direct <0|1>    one-shot DIRECT rounding, no greedy rounds "
       "(default 0)\n"
@@ -553,6 +556,8 @@ int main(int argc, char **argv)
       params.use_sharp_features = toBool(next("--sharp"));
     else if (a == "--sharp-angle")
       params.sharp_angle = float(std::atof(next("--sharp-angle")));
+    else if (a == "--feature-hysteresis")
+      params.feature_hysteresis = float(std::atof(next("--feature-hysteresis")));
     else if (a == "--density")
       params.use_density = toBool(next("--density"));
     else if (a == "--quant-direct")

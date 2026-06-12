@@ -24,6 +24,7 @@ export interface RemeshParams {
   use_curvature: boolean
   use_sharp_features: boolean
   sharp_angle: float
+  feature_hysteresis: float
   use_density: boolean
   quantize_direct_rounding: boolean
   reproject: boolean

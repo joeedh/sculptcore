@@ -5,17 +5,21 @@
 #include "mesh/utils/mesh_validate.h" // faceNewellNormal
 
 #include "litestl/math/vector.h"
+#include "litestl/util/boolvector.h"
+#include "litestl/util/vector.h"
 
 #include <cmath>
 
 namespace sculptcore::remesh {
 
 using litestl::math::float3;
+using litestl::util::BoolVector;
+using litestl::util::Vector;
 using sculptcore::mesh::AttrFlag;
 using sculptcore::mesh::BuiltinAttr;
 using sculptcore::mesh::Mesh;
 
-void computeFeatureTags(Mesh &m, float sharp_angle)
+void computeFeatureTags(Mesh &m, float sharp_angle, float feature_hysteresis)
 {
   m.recalc_normals(); // thaws topology
 
@@ -24,7 +28,21 @@ void computeFeatureTags(Mesh &m, float sharp_angle)
   is_sharp.ensure(m.e.attrs);
   is_boundary.ensure(m.e.attrs);
 
-  const float cos_thresh = std::cos(sharp_angle);
+  const float cos_strong = std::cos(sharp_angle);
+
+  // Tier 7a: weak threshold = sharp_angle - hysteresis, clamped to
+  // [0, sharp_angle] so a large band can't drive it negative (which would
+  // weak-tag nearly every edge).
+  float hyst = feature_hysteresis;
+  hyst = hyst < 0.0f ? 0.0f : (hyst > sharp_angle ? sharp_angle : hyst);
+  const bool do_hyst = hyst > 0.0f;
+  const float cos_weak = std::cos(sharp_angle - hyst);
+
+  BoolVector<> weak;
+  Vector<int> stack;
+  if (do_hyst) {
+    weak.resize(m.e.capacity());
+  }
 
   for (int e : m.e) {
     int c1 = m.e.c[e];
@@ -44,13 +62,41 @@ void computeFeatureTags(Mesh &m, float sharp_angle)
           float d = n1.dot(n2) / (l1 * l2);
           d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
           // Sharp when the dihedral exceeds the threshold (cos below cos thr).
-          sharp = d < cos_thresh;
+          sharp = d < cos_strong;
+          if (do_hyst && !sharp && d < cos_weak) {
+            weak.set(e, true); // weak-sharp candidate, kept only if connected
+          }
         }
       }
     }
 
     is_sharp.set(e, sharp);
     is_boundary.set(e, boundary);
+    if (do_hyst && sharp) {
+      stack.append(e);
+    }
+  }
+
+  // Tier 7a flood: a weak edge joins the sharp set when it shares a vertex
+  // with a strong edge or an already-kept weak edge.
+  while (stack.size()) {
+    int e = stack.pop_back();
+    for (int side = 0; side < 2; side++) {
+      int v = m.e.vs[e][side];
+      int e0 = m.v.e[v];
+      if (e0 == ELEM_NONE) {
+        continue;
+      }
+      int ec = e0;
+      do {
+        if (weak[ec] && !is_sharp[ec]) {
+          is_sharp.set(ec, true);
+          stack.append(ec);
+        }
+        int vside = m.e.vs[ec][0] == v ? 0 : 1;
+        ec = m.e.disk[ec][vside * 2 + 1];
+      } while (ec != e0);
+    }
   }
 }
 

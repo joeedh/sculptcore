@@ -49,6 +49,11 @@ struct RemeshParams {
    * Default ~45deg. */
   float sharp_angle = 0.7853982f;
 
+  /* Tier 7a: hysteresis band (radians, clamped to [0, sharp_angle]) below
+   * sharp_angle; a weaker edge is tagged sharp only when vertex-connected to
+   * a strong one, so a crease oscillating around the threshold stays whole. */
+  float feature_hysteresis = 0.0f;
+
   /* M4: scale the parametrization metric by 1/density so quad spacing follows
    * the per-vertex `.remesh.v.density` map. Off = uniform spacing. */
   bool use_density = false;
