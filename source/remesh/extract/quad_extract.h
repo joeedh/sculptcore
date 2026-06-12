@@ -38,8 +38,10 @@ struct ExtractParams {
    * patch has even boundary), but odd rims come in pairs per component: each
    * pair is joined by splitting the quad strip between them lengthwise, growing
    * both rims one vert (even) — all-quad, at the cost of valence defects along
-   * the strip. Unpairable odd rims fall back to a fan with one cap triangle.
-   * Default off: odd rims are left open. Even rims are always capped. */
+   * the strip. Unpairable odd rims chord-split like even ones (each split sheds
+   * an even piece; the odd remainder shrinks to fan size) and close with one
+   * cap triangle total. Default off: odd rims are left open. Even rims are
+   * always capped. */
   bool cap_odd_holes = false;
 };
 
@@ -62,6 +64,7 @@ struct ExtractStats {
   int holes_open_odd = 0;      // odd rim with cap_odd_holes off
   int holes_open_size = 0;     // n < 3 or n > the cap-loop limit
   int holes_open_untraced = 0; // rim trace failed (tangled boundary)
+  int cap_max_fan = 0;         // largest center-fan rim emitted while capping
   bool ok = false;
 };
 

@@ -193,7 +193,7 @@ Extraction / output (M5/M6):
 | `quantize_direct_rounding` | `false` | one-shot DIRECT rounding instead of greedy batches (see *Quantization rounding* below) |
 | `untangle_field_max_dev` | `0.1745` (10°) | max angle (radians) the ARAP untangle retarget may keep off the nearest field-aligned rotation; `>= π/4` = legacy unclamped (quads may sit 45° off the field) |
 | `reproject`           | `true` | snap output back onto the input surface (off = debugging) |
-| `cap_odd_holes`       | `false` | close odd-length cap rims too: rims pair up per component via quad-strip ladder splits, unpairable rims fall back to a fan with one cap triangle (watertightness over strict all-quad) |
+| `cap_odd_holes`       | `false` | close odd-length cap rims too: rims pair up per component via quad-strip ladder splits, unpairable rims chord-split into fan-sized pieces and close with one cap triangle each (watertightness over strict all-quad) |
 | `smooth_iterations`   | `2` | Laplacian passes interleaved with reprojection |
 | `smooth_strength`     | `0.5` | per-iteration smoothing step `0..1` |
 

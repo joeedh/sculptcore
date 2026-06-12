@@ -379,7 +379,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"holes_open_border\": %d,\n", ex.holes_open_border);
   std::fprintf(f, "      \"holes_open_odd\": %d,\n", ex.holes_open_odd);
   std::fprintf(f, "      \"holes_open_size\": %d,\n", ex.holes_open_size);
-  std::fprintf(f, "      \"holes_open_untraced\": %d\n", ex.holes_open_untraced);
+  std::fprintf(f, "      \"holes_open_untraced\": %d,\n", ex.holes_open_untraced);
+  std::fprintf(f, "      \"cap_max_fan\": %d\n", ex.cap_max_fan);
   std::fprintf(f, "    },\n");
   // Tier-8 retry trail: one entry per attempt (attempts_run == 0 when the
   // retry loop was off); attempts[winner] produced the output above.

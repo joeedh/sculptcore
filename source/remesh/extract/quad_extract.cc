@@ -824,6 +824,7 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     // centroid). Even rims close all-quad; odd ones get one trailing triangle.
     auto fanCap = [&](const Vector<int> &lp) {
       int n = int(lp.size());
+      if (n > stats.cap_max_fan) stats.cap_max_fan = n;
       float3 cpos;
       enclosedCone(lp, cpos);
       int C = o.make_vertex(cpos);
@@ -872,7 +873,6 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     };
     for (int li = 0; li < nl; li++) {
       Vector<int> &loop = simple[li];
-      int n = int(loop.size());
       if (!rimSized[li]) {
         stats.holes_open++;
         stats.holes_open_size++;
@@ -884,35 +884,27 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         continue;
       }
       bool wasOdd = rimOdd[li] != 0;
-      if (wasOdd) {
-        if (!params.cap_odd_holes) {
-          stats.holes_open++;
-          stats.holes_open_odd++;
-          continue;
-        }
-        if (n & 1) { // unpaired: fan with one cap triangle (provably minimal)
-          if (n == 3) {
-            Vector<int> q;
-            q.append(loop[2]);
-            q.append(loop[1]);
-            q.append(loop[0]);
-            o.make_face(q);
-          } else {
-            fanCap(loop);
-          }
-          stats.holes_capped++;
-          stats.holes_capped_odd++;
-          continue;
-        }
+      if (wasOdd && !params.cap_odd_holes) {
+        stats.holes_open++;
+        stats.holes_open_odd++;
+        continue;
       }
-      // Even rim: 4 closes with one quad; small rims center-fan; big rims are
-      // chord-split at their geometric waist into two even sub-rims (j-i odd
-      // keeps both sides even) until every piece is fan-sized.
+      // 3 closes with a triangle, 4 with a quad, small rims center-fan, big rims
+      // chord-split at the waist (j-i odd: even/even or even/odd pieces) until
+      // fan-sized — an unpaired odd rim costs exactly one cap triangle.
       Vector<Vector<int>> work;
       work.append(loop);
       for (int wi = 0; wi < int(work.size()); wi++) {
         Vector<int> lp = work[wi]; // copy: appends may reallocate `work`
         int k = int(lp.size());
+        if (k == 3) { // only an unpaired odd rim gets here
+          Vector<int> q;
+          q.append(lp[2]);
+          q.append(lp[1]);
+          q.append(lp[0]);
+          o.make_face(q);
+          continue;
+        }
         float3 cpos;
         // A cone-free 4-rim closes flat with one quad; one around a cone keeps
         // the fan so the cone vertex (the surface bump) is restored.
@@ -955,30 +947,37 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         const double k4pi = 4.0 * 3.14159265358979;
         int bi = -1, bj = -1;
         double best = 1e30;
-        for (int i = 0; i < k; i++) {
-          for (int j = i + 3; j < k && j - i <= k - 3; j += 2) {
-            double d = len3(sub3(o.v.co[lp[i]], o.v.co[lp[j]]));
-            if (d >= best)
-              continue;
-            float3 cr = cross3(q[j], q[i]);
-            float3 Na(S[j][0] - S[i][0] + cr[0], S[j][1] - S[i][1] + cr[1],
-                      S[j][2] - S[i][2] + cr[2]);
-            float3 Nb(Np[0] - Na[0], Np[1] - Na[1], Np[2] - Na[2]);
-            if (Na.dot(Np) <= 0.0f || Nb.dot(Np) <= 0.0f)
-              continue;
-            double arcA = EL[j] - EL[i], chord = len3(sub3(q[j], q[i]));
-            double pA = arcA + chord, pB = (rimLen - arcA) + chord;
-            if (k4pi * 0.5 * len3(Na) < kMinCapShape * pA * pA ||
-                k4pi * 0.5 * len3(Nb) < kMinCapShape * pB * pB)
-              continue;
-            if (o.find_edge(lp[i], lp[j]) != ELEM_NONE)
-              continue;
-            best = d;
-            bi = i;
-            bj = j;
+        // Pass 0 applies the shape tests. Pass 1 runs when 0 finds nothing — a
+        // snake rim, where every piece fails the floor and Newell is noise —
+        // keeping only min-distance: across-width chords zip the snake.
+        for (int pass = 0; pass < 2 && bi < 0; pass++) {
+          for (int i = 0; i < k; i++) {
+            for (int j = i + 3; j < k && j - i <= k - 3; j += 2) {
+              double d = len3(sub3(o.v.co[lp[i]], o.v.co[lp[j]]));
+              if (d >= best)
+                continue;
+              if (pass == 0) {
+                float3 cr = cross3(q[j], q[i]);
+                float3 Na(S[j][0] - S[i][0] + cr[0], S[j][1] - S[i][1] + cr[1],
+                          S[j][2] - S[i][2] + cr[2]);
+                float3 Nb(Np[0] - Na[0], Np[1] - Na[1], Np[2] - Na[2]);
+                if (Na.dot(Np) <= 0.0f || Nb.dot(Np) <= 0.0f)
+                  continue;
+                double arcA = EL[j] - EL[i], chord = len3(sub3(q[j], q[i]));
+                double pA = arcA + chord, pB = (rimLen - arcA) + chord;
+                if (k4pi * 0.5 * len3(Na) < kMinCapShape * pA * pA ||
+                    k4pi * 0.5 * len3(Nb) < kMinCapShape * pB * pB)
+                  continue;
+              }
+              if (o.find_edge(lp[i], lp[j]) != ELEM_NONE)
+                continue;
+              best = d;
+              bi = i;
+              bj = j;
+            }
           }
         }
-        if (bi < 0) { // no valid chord (all candidates already edges): just fan
+        if (bi < 0) { // no chord at all (every candidate already an edge): fan
           fanCap(lp);
           continue;
         }

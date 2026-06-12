@@ -356,6 +356,7 @@ void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src,
     de.holes_open_odd += se.holes_open_odd;
     de.holes_open_size += se.holes_open_size;
     de.holes_open_untraced += se.holes_open_untraced;
+    de.cap_max_fan = std::max(de.cap_max_fan, se.cap_max_fan);
     de.ok = de.ok && se.ok;
   }
 

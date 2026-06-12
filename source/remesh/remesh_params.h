@@ -71,8 +71,8 @@ struct RemeshParams {
 
   /* M6: also close odd-length cap rims. Odd rims pair up per component; each
    * pair is made even by a lengthwise quad-strip ladder split, keeping the cap
-   * all-quad. Unpairable rims fall back to a fan with one cap triangle.
-   * Off = leave odd holes open (strict all-quad). */
+   * all-quad. Unpairable rims chord-split into fan-sized pieces and close with
+   * one cap triangle each. Off = leave odd holes open (strict all-quad). */
   bool cap_odd_holes = false;
 
   /* M6: Laplacian-smoothing passes interleaved with reprojection to relax kinks
