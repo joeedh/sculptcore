@@ -114,20 +114,87 @@ it before touching the rounding loop. The moving parts:
 
 ## Parameters (`RemeshParams`, `remesh/remesh_params.h`)
 
+Sizing & determinism:
+
 | field | default | meaning |
 |-------|---------|---------|
-| `target_edge_length` | `0.1` | target quad edge length (world units); drives the param scale → output face count |
-| `solve_edge_length`  | `0.0` | solve-mesh edge length; `0` = solve on the raw input. `>0` coarsens the working copy first (pick a touch finer than `target_edge_length`) |
-| `use_curvature`      | `true` | soft-align the field to principal curvature |
-| `use_sharp_features` | `true` | hard-pin the field to sharp edges + open boundaries |
-| `sharp_angle`        | `0.785` (~45°) | dihedral threshold (radians) for "sharp" |
-| `use_density`        | `false` | scale quad spacing by the per-vertex `.remesh.v.density` map |
+| `target_quad_count`   | `15000` | target output quad count; the pipeline derives the edge length (`L = sqrt(∫density dA / N)`, corrective re-quantize). Ignored when `target_edge_length` is set |
+| `target_edge_length`  | `0.0` | explicit quad edge length (world units); `>0` = legacy fixed-length mode, no count correction |
+| `solve_edge_length`   | `0.0` | `>0` coarsens the working copy to ~this edge length before the global solve (pick a touch finer than the quad edge length); `0` = solve the raw input |
+| `seed`                | `1` | determinism seed (M3 iteration / M5 tie-breaks); fixed input+seed → byte-identical output (cross-backend parity prerequisite) |
+
+Cross field (M1/M2 + Tiers 2/4/5/7):
+
+| field | default | meaning |
+|-------|---------|---------|
+| `use_curvature`       | `true` | soft-align the field to principal curvature |
+| `use_sharp_features`  | `true` | hard-pin the field to sharp edges + open boundaries |
+| `sharp_angle`         | `0.785` (~45°) | dihedral threshold (radians) for "sharp" |
+| `feature_hysteresis`  | `0.0` | Tier 7a: weak-tag band (radians) below `sharp_angle`; weak edges tag sharp only when vertex-connected to a strong one |
+| `feature_min_chain`   | `0` | Tier 7b: drop tagged chains shorter than n edges unless junction/boundary-anchored; `0` = off |
+| `curvature_smooth_iters` | `0` | Tier 2a: Jacobi-diffusion sweeps on the shape operator before eigendecomposition |
+| `curvature_smooth_lambda` | `0.5` | Tier 2a: per-sweep blend `0..1` |
+| `field_smoothness`    | `1.0` | Tier 4: per-edge smoothness weight of the field solve |
+| `curvature_weight`    | `1.0` | Tier 4: soft curvature-alignment scale (the other half of the tradeoff) |
+| `singularity_cancel`  | `true` | Tier 5: annihilate opposite-index pole pairs the output lattice can't represent |
+| `singularity_cancel_max_sep` | `1.5` | Tier 5: pair gate, quad-edge lengths (geodesic) |
+
+Density / sizing (Tier 3):
+
+| field | default | meaning |
+|-------|---------|---------|
+| `use_density`         | `false` | scale quad spacing by the per-vertex `.remesh.v.density` map |
+| `auto_density`        | `false` | Tier 3a: generate that map from the (smoothed) curvature; implies density consumption |
+| `density_min` / `density_max` | `0.25` / `4.0` | Tier 3a: clamp on the generated density (size range / feature floor) |
+| `density_gradation`   | `0.5` | Tier 3b: Alauzet bound on size-field growth rate; `0` = off |
+| `density_gradation_iters` | `10` | Tier 3b: limiter relaxation sweep cap |
+
+Input conditioning (Tiers 1/6/9):
+
+| field | default | meaning |
+|-------|---------|---------|
+| `triage`              | `true` | weld / degenerate-drop / component / non-manifold triage before any field math (no-op on clean input) |
+| `triage_weld_rel`     | `1e-5` | weld tolerance, fraction of the bbox diagonal |
+| `triage_min_component_frac` | `0.0` | drop components below this fraction of total verts; `0` = keep all |
+| `input_hole_fill_max_frac` | `0.0` | Tier 6: fill input holes whose rim is under this fraction of total boundary length; `0` = none |
+| `per_component`       | `false` | Tier 6: remesh disconnected components independently (shared global edge length) |
+| `pre_remesh`          | `false` | Tier 9: field-aligned input pre-remesh before the field solve (geometry only; reproject still targets the full-res original) |
+| `pre_remesh_target`   | `0.0` | pre-pass edge length; `0` = auto |
+| `pre_remesh_iters`    | `0` | outer iterations; `0` = auto from measured input |
+| `pre_remesh_density`  | `true` | curvature size field drives the BK band (false = uniform) |
+| `pre_remesh_gradation` / `_iters` | `0.5` / `10` | growth cap on the pre-pass size field; `0` = off |
+| `pre_remesh_align`    | `1.0` | smooth blend: 0 isotropic ↔ 1 field-aligned |
+| `pre_remesh_field_cadence` | `2` | recompute the rough field every N outer iters |
+| `pre_remesh_bootstrap_iters` | `-1` | isotropic denoise sweeps before trusting the field; `-1` = auto |
+| `pre_remesh_smooth_iters` / `_lambda` | `5` / `0.5` | inner smooth sweeps per outer iter + relaxation |
+| `pre_remesh_converge_eps` | `0.05` | early-out threshold (movement < eps·target); `0` = always run all iters |
+| `pre_remesh_preserve_features` | `true` | pin boundary loops + creases through collapse/smooth |
+| `pre_remesh_sharp_angle` | `0.785` | crease dihedral for the pre-pass pinning |
+| `pre_remesh_trace`    | `false` | print the per-iter convergence summary to stderr |
+
+Extraction / output (M5/M6):
+
+| field | default | meaning |
+|-------|---------|---------|
 | `quantize_direct_rounding` | `false` | one-shot DIRECT rounding instead of greedy batches (see *Quantization rounding* below) |
-| `reproject`          | `true` | snap output back onto the input surface (off = debugging) |
-| `cap_odd_holes`      | `false` | close odd-length cap rims with one triangle each (trades the all-quad guarantee for watertightness on organic inputs) |
-| `smooth_iterations`  | `2` | Laplacian passes interleaved with reprojection |
-| `smooth_strength`    | `0.5` | per-iteration smoothing step `0..1` |
-| `seed`               | `1` | determinism seed (M3 iteration / M5 tie-breaks); fixed input+seed → byte-identical output (cross-backend parity prerequisite) |
+| `reproject`           | `true` | snap output back onto the input surface (off = debugging) |
+| `cap_odd_holes`       | `false` | close odd-length cap rims too: rims pair up per component via quad-strip ladder splits, unpairable rims fall back to a fan with one cap triangle (watertightness over strict all-quad) |
+| `smooth_iterations`   | `2` | Laplacian passes interleaved with reprojection |
+| `smooth_strength`     | `0.5` | per-iteration smoothing step `0..1` |
+
+Robustness (Tier 8):
+
+| field | default | meaning |
+|-------|---------|---------|
+| `auto_retry`          | `false` | metric-driven retry: re-run from the **original** input with one knob escalated per attempt, keep the best result; the full attempt trail lands in `RemeshRunReport` / the manifest |
+| `max_attempts`        | `3` | attempt cap including the first run (trail capacity 8) |
+
+Presets are not a struct field: `applyRemeshPreset(params, name)` /
+`remeshPresetName(i)` (`remesh.h`) reset the params to defaults + a named
+bundle's deltas, preserving the sizing fields and seed — names
+`organic-clean`, `organic-noisy`, `messy-character`, `scan`, `hard-surface`.
+The CLI `--preset` applies them in a pre-scan so explicit flags always
+override.
 
 The struct is binding-header-free (out-of-line `defineBindings()` in
 `remesh/bindings.cc`) and crosses the WASM/N-API seam by value.

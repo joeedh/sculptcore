@@ -1097,12 +1097,43 @@ trail, auto-retry can improve a result while making its failures unreproducible.
 The manifest emits the trail + which fallback won; the host gets the compact
 summary. Default attempts = 1 (today's behavior) unless `auto_retry` is on.
 
+- **DONE (8a):** landed in `remesh.cc` — public `QuadRemesh` is a bounded
+  retry driver around the renamed static `quadRemeshAttempt`;
+  `auto_retry=false` (default) → exactly one legacy call, corpus
+  byte-identical. Escalation rungs fire at most once each, metric-driven off
+  the previous attempt's report: noisy folds → `field_smoothness` ×2; pole
+  count → `curvature_smooth_iters` + `singularity_cancel`; size cliff
+  (`max_adjacent_edge_ratio > 4`) → `density_gradation` ×0.6 (then 0.3) +
+  `auto_density`; folds still noisy → `pre_remesh`; odd residuals > 2 →
+  coarser target (L ×1.25 / count ×0.7, floor 500); bare failure → fixed
+  ladder (smoothness → pre-remesh → coarser). Winner by lexicographic
+  (success, folds, inverted, singularities); the full trail (escalation name,
+  per-attempt metrics, `from_original`, trail cap 8) lands in
+  `RemeshRunReport.attempts[]` and the manifest `run.retry` block. Every
+  attempt restarts from the original input. gtest `test_remesh_retry.cc`.
+
 ### 8b. Presets
 Named bundles setting the whole knob vector: **Organic Clean**, **Organic Noisy**,
 **Messy Generated Character**, **Scan**, **Hard Surface**. A preset sets curvature
 smoothing, pre-remesh target, field smoothness, auto-density + gradation, hole/cap
 policy, and retry policy. Expose as a single dropdown in the UI / a `--preset`
 CLI flag that pre-fills the params (still individually overridable).
+
+- **DONE (8b):** `applyRemeshPreset(params, name)` / `remeshPresetName(i)` in
+  `remesh.{h,cc}` — five bundles (`organic-clean`, `organic-noisy`,
+  `messy-character`, `scan`, `hard-surface`) encoding the tier-gate findings:
+  `feature_min_chain=3` + `auto_density` everywhere (gate 7's safe quality
+  knob), hysteresis only ever paired with min-chain (noisy/scan),
+  `cap_odd_holes` only where watertightness beats cap quality (messy/scan,
+  gate 6), `auto_retry` only on bundles for inputs expected to misbehave,
+  hard-surface = 30° `sharp_angle` + 0.3 gradation. A preset is **defaults +
+  deltas** (resets prior knob edits), preserving the sizing fields + seed.
+  CLI `--preset` applies in an argv pre-scan so explicit flags override
+  regardless of order; the manifest records the preset; the corpus tool
+  forwards `--preset`. Deliberately **not** exported over the c-api/WASM seam
+  yet — the UI dropdown follow-up needs an N-API hand-wrap + a WASM symbol;
+  `applyRemeshPreset` stays the single source of truth when that lands.
+  gtest `test_remesh_preset.cc`.
 
 ### New params
 | field | default | meaning |
@@ -1121,6 +1152,90 @@ CLI flag that pre-fills the params (still individually overridable).
 ### Review gate 8 (final)
 Inspect: retry behavior + manifest fallback log, preset metrics table over the
 corpus. Then the cross-tier closeout.
+
+### Gate decision (Tier 8, 2026-06-12)
+
+**Gate 8 PASS; `auto_retry` lands default-off, presets are pure opt-in.**
+Defaults are exactly the legacy pipeline: corpus ×2 byte-identical to the
+tier6/7-gate baseline (`DCAC2018…`) after both sub-tiers. Full ctest 68/71
+(the 3 pre-existing failures only); WASM canary clean.
+
+**Retry behavior (gtest):** the foldy UV-sphere (24×32, r=2, L=0.1) engages
+the ladder — initial → field_smoothness → pre_remesh, folds 88 → 31, the
+winner's metrics become the top-level report, every attempt from the original
+input. The clean torus runs exactly one attempt with `auto_retry` on
+(byte-parity with off); `max_attempts` is respected. **Scoring tradeoff to
+watch:** that winner buys folds 88→31 at inverted 0→6, singularities 6→40,
+odd residuals 0→16 — the lexicographic folds-first ordering is per-plan, but
+it can buy folds with poles; revisit if a real asset regresses under retry.
+
+**Retry on the corpus (manifest `run.retry` trails):** on anime-girl the
+organic-noisy leg is the showcase — initial 443 folds → field_smoothness 456
+(rejected) → curvature_smooth **101** (winner; singularities 124→283).
+messy-character improves 311→298 via curvature_smooth; the scan leg tries
+both escalations and correctly keeps the initial (358 beat 401/373) — the
+trail records rejected attempts instead of hiding them. On clean
+simple-closed the loop does not fire spuriously: one attempt on the
+noisy/messy legs; the scan leg fires the edge-ratio rung once (4.49 > 4) and
+the gradation attempt returns identical metrics → winner 0. Known limitation:
+the `density_gradation` rung can be a no-op when the extreme adjacent ratio
+is extraction-topology-driven rather than sizing-driven.
+
+**Preset sweep** (corpus, all 5 presets + bare defaults; fixed seeds):
+
+simple-closed (clean closed blob, L=0.2):
+
+| preset | quads | reg_frac | folds | sing | inv | holes | area_ratio | min_angle | t(s) |
+|--------|------:|---------:|------:|-----:|----:|------:|-----------:|----------:|-----:|
+| (none) | 8965 | 0.994 | 54 | 20 | 2 | 8 | 41.4 | 0.014 | 2.3 |
+| organic-clean | 2203 | 0.982 | **42** | 16 | 3 | 6 | 53.8 | 0.020 | **0.6** |
+| organic-noisy | 2208 | 0.961 | 49 | 16 | 0 | 2 | 31.5 | 0 | 2.0 |
+| messy-character | 2303 | 0.955 | 47 | 28 | 0 | **0** | 38.1 | 0.025 | 2.1 |
+| scan | 2215 | 0.955 | 49 | 16 | 0 | **0** | 40.7 | 0 | 4.2 |
+| hard-surface | 2184 | 0.975 | 54 | 20 | 1 | 6 | **11.2** | **0.113** | 0.8 |
+
+anime-girl (Meshy character, 148k tris, 61 components, L=0.05):
+
+| preset | quads | reg_frac | folds | sing | inv | holes | area_ratio | comps | t(s) |
+|--------|------:|---------:|------:|-----:|----:|------:|-----------:|------:|-----:|
+| (none) | 88 | 0.652 | 338 | 170 | 11 | 6 | 39.8 | 9 | 21 |
+| organic-clean | 141 | 0.422 | 339 | 167 | 33 | 5 | 43.7 | 19 | 26 |
+| organic-noisy | 323 | 0.521 | **101** | 281 | 39 | 17 | 166 | 20 | 58 |
+| messy-character | 289 | 0.715 | 298 | 219 | 44 | **5** | 123 | 14 | 52 |
+| scan | 186 | 0.461 | 358 | 270 | 32 | **4** | 63 | 17 | 51 |
+| hard-surface | 206 | **0.879** | 335 | 203 | 34 | 9 | 476 | 10 | **12** |
+
+- **Best preset tracks the input category.** simple-closed (clean organic):
+  organic-clean wins folds (54→42), singularities (20→16) and is 3.6×
+  faster; hard-surface wins element quality (area_ratio 41→11, min_angle
+  0.014→0.113); messy/scan win watertightness (holes 8→0, via `cap_odd_holes`
+  at the all-quad guarantee's expense). anime-girl (a Meshy character):
+  messy-character gives the best balance (regular_frac 0.652→0.715 among the
+  organic bundles, fewest holes, components 9→14 from per-component splits),
+  organic-noisy the outright fold minimum (338→101, via its retry trail).
+- **Quad-count caveat:** every preset sets `auto_density`, so flat regions
+  coarsen toward `density_max` — simple-closed drops 8965 → ~2200 quads at
+  the same L. Preset legs are not like-for-like density with bare defaults;
+  compare quality ratios, not counts.
+- **Honesty note:** no preset rescues anime-girl — at L=0.05 a folded
+  parametrization yields O(100) usable quads from 148k input tris. Presets
+  shift the failure character (fewer folds / better regularity / faster), but
+  the asset stays the Tier-9-and-beyond torture case, not a v1 success.
+
+**Cross-tier closeout (2026-06-12):** the Parameters table in
+`quad-remeshing.md` rewritten to cover every tier knob (grouped: sizing,
+field, density, input conditioning, extraction, robustness + the preset
+note); CLI `--help` already carried every flag — one stale default fixed
+(`--singularity-cancel` shows default 1 since the Tier-5 gate). Native build
++ ctest green at 8b (68/71, the 3 pre-existing failures only); WASM smoke
+clean (the two Tier-8 `RemeshParams` fields crossed the seam in 8a's
+`bindings.cc`); `litemesh*.ts` untouched → no tsgo run needed. Repo-wide
+`CLAUDENOTE:` grep over `source/`, `tests/`, `tools/` is clean. **The
+filtering plan's tiers 0–8 are all landed and gated.** Tier 9's
+implementation landed earlier (it powers `pre_remesh` in the presets and the
+retry ladder), but its formal gate-9 A/B (uniform vs adaptive pre-pass
+density, `pre_remesh_align` 0.5 vs 1.0, the fox quantize-cliff measurement)
+remains open in this doc.
 
 ---
 
@@ -1395,6 +1510,8 @@ before keeping it as the default. Decide whether
 ---
 
 ## Cross-tier closeout (once, at the end)
+
+**DONE 2026-06-12 — see the gate-8 decision for the item-by-item results.**
 
 - Update the **Parameters** table in [quad-remeshing.md](../quad-remeshing.md) and
   the CLI `--help` block with every new flag.

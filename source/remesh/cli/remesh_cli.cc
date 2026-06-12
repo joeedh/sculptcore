@@ -519,7 +519,7 @@ void usage()
       "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n"
       "  --field-smoothness <f>   cross-field smoothness weight (default 1)\n"
       "  --curvature-weight <f>   soft curvature-alignment scale (default 1)\n"
-      "  --singularity-cancel <0|1>  cancel sub-resolution pole pairs (default 0)\n"
+      "  --singularity-cancel <0|1>  cancel sub-resolution pole pairs (default 1)\n"
       "  --singularity-cancel-max-sep <f>  pair gate, quad-edge units "
       "(default 1.5)\n"
       "  --auto-density <0|1>     curvature-driven sizing field (default 0)\n"
