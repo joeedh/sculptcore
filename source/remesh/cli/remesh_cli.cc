@@ -229,7 +229,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
                jb(p.pre_remesh_preserve_features));
   std::fprintf(f, "    \"pre_remesh_sharp_angle\": %.9g,\n",
                p.pre_remesh_sharp_angle);
-  std::fprintf(f, "    \"pre_remesh_trace\": %s\n", jb(p.pre_remesh_trace));
+  std::fprintf(f, "    \"pre_remesh_trace\": %s,\n", jb(p.pre_remesh_trace));
+  std::fprintf(f, "    \"auto_retry\": %s,\n", jb(p.auto_retry));
+  std::fprintf(f, "    \"max_attempts\": %d\n", p.max_attempts);
   std::fprintf(f, "  },\n");
 
   std::fprintf(f, "  \"output\": {\n");
@@ -306,6 +308,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
                rep.parametrization_folds);
   std::fprintf(f, "    \"min_jacobian\": %.9g,\n", rep.min_jacobian);
   std::fprintf(f, "    \"quantize_feasible\": %s,\n", jb(rep.quantize_feasible));
+  std::fprintf(f, "    \"solve_faces\": %d,\n", rep.solve_faces);
   std::fprintf(f, "    \"derived_edge_length\": %.9g,\n", rep.derived_edge_length);
   std::fprintf(f, "    \"quad_count_actual\": %d,\n", rep.quad_count_actual);
   std::fprintf(f, "    \"components_total\": %d,\n", rep.components_total);
@@ -370,6 +373,35 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"holes_open_odd\": %d,\n", ex.holes_open_odd);
   std::fprintf(f, "      \"holes_open_size\": %d,\n", ex.holes_open_size);
   std::fprintf(f, "      \"holes_open_untraced\": %d\n", ex.holes_open_untraced);
+  std::fprintf(f, "    },\n");
+  // Tier-8 retry trail: one entry per attempt (attempts_run == 0 when the
+  // retry loop was off); attempts[winner] produced the output above.
+  std::fprintf(f, "    \"retry\": {\n");
+  std::fprintf(f, "      \"attempts_run\": %d,\n", rep.attempts_run);
+  std::fprintf(f, "      \"winner\": %d,\n", rep.winner);
+  std::fprintf(f, "      \"winner_escalation\": \"%s\",\n",
+               rep.winner >= 0 ? rep.attempts[rep.winner].escalation : "");
+  std::fprintf(f, "      \"attempts\": [");
+  for (int i = 0; i < rep.attempts_run; i++) {
+    const remesh::RemeshRunReport::RetryAttempt &a = rep.attempts[i];
+    std::fprintf(f,
+                 "%s\n        {\"escalation\": \"%s\", \"success\": %s, "
+                 "\"failure_reason\": \"%s\", \"folds\": %d, "
+                 "\"singularities\": %d, \"inverted\": %d, "
+                 "\"odd_residuals\": %d, \"edge_ratio\": %.9g, "
+                 "\"from_original\": %s, \"duration_ms\": %lld, "
+                 "\"field_smoothness\": %.9g, \"curvature_smooth_iters\": %d, "
+                 "\"density_gradation\": %.9g, \"pre_remesh\": %s, "
+                 "\"target_edge_length\": %.9g, \"target_quad_count\": %d}",
+                 i ? "," : "", a.escalation, jb(a.success),
+                 jstr(a.failure_reason).c_str(), a.parametrization_folds,
+                 a.num_singularities, a.inverted_faces, a.odd_residuals,
+                 a.max_adjacent_edge_ratio, jb(a.from_original), a.duration_ms,
+                 a.params.field_smoothness, a.params.curvature_smooth_iters,
+                 a.params.density_gradation, jb(a.params.pre_remesh),
+                 a.params.target_edge_length, a.params.target_quad_count);
+  }
+  std::fprintf(f, "%s]\n", rep.attempts_run ? "\n      " : "");
   std::fprintf(f, "    },\n");
   std::fprintf(f, "    \"stages\": {\n");
   std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
@@ -512,7 +544,11 @@ void usage()
       "  --pre-remesh-sharp-angle <f>     crease dihedral, radians "
       "(default 0.785)\n"
       "  --pre-remesh-trace <0|1>  print per-iter convergence summary to "
-      "stderr (default 0)\n");
+      "stderr (default 0)\n"
+      "  --auto-retry <0|1>       metric-driven retry from the original input "
+      "(default 0)\n"
+      "  --max-attempts <int>     retry attempt cap incl. the first run "
+      "(default 3, max 8)\n");
 }
 
 bool toBool(const char *s) { return std::atoi(s) != 0; }
@@ -652,6 +688,10 @@ int main(int argc, char **argv)
           float(std::atof(next("--pre-remesh-sharp-angle")));
     else if (a == "--pre-remesh-trace")
       params.pre_remesh_trace = toBool(next("--pre-remesh-trace"));
+    else if (a == "--auto-retry")
+      params.auto_retry = toBool(next("--auto-retry"));
+    else if (a == "--max-attempts")
+      params.max_attempts = std::atoi(next("--max-attempts"));
     else {
       std::fprintf(stderr, "ERROR unknown arg %s\n", a.c_str());
       return 2;

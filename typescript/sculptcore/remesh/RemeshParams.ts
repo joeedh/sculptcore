@@ -64,6 +64,8 @@ export interface RemeshParams {
   pre_remesh_preserve_features: boolean
   pre_remesh_sharp_angle: float
   pre_remesh_trace: boolean
+  auto_retry: boolean
+  max_attempts: int32
   new (): RemeshParams
   new (b: RemeshParams): RemeshParams
 }

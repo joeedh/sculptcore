@@ -195,6 +195,15 @@ struct RemeshParams {
    * (dyntopo::printTraceSummary) to stderr. */
   bool pre_remesh_trace = false;
 
+  /* Tier 8a: metric-driven retry. Re-run the pipeline from the ORIGINAL input
+   * (never mutated) with one knob escalated per attempt — driven by the run
+   * report's folds / pole count / size cliffs / odd-hole residue — keeping the
+   * best-scoring result. Off = exactly one attempt (legacy behavior). */
+  bool auto_retry = false;
+  /* Tier 8a: total attempt cap, first run included. Clamped to the report's
+   * trail capacity (8). */
+  int max_attempts = 3;
+
   /* Bound out-of-line in remesh/bindings.cc (keeps the binding headers out of
    * this header). Crosses the seam by value → registers a copy constructor. */
   static litestl::binding::types::Struct<RemeshParams> *defineBindings();

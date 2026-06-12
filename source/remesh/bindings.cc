@@ -69,6 +69,8 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, pre_remesh_preserve_features);
   BIND_STRUCT_MEMBER(st, pre_remesh_sharp_angle);
   BIND_STRUCT_MEMBER(st, pre_remesh_trace);
+  BIND_STRUCT_MEMBER(st, auto_retry);
+  BIND_STRUCT_MEMBER(st, max_attempts);
 
   return st;
 }

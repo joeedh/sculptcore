@@ -281,6 +281,7 @@ void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src,
   dst.cancel_reverted_rounds += src.cancel_reverted_rounds;
   dst.cancel_singularities_after += src.cancel_singularities_after;
   dst.parametrization_folds += src.parametrization_folds;
+  dst.solve_faces += src.solve_faces;
   dst.min_jacobian =
       first ? src.min_jacobian : std::fmin(dst.min_jacobian, src.min_jacobian);
   dst.quantize_feasible = first ? src.quantize_feasible
@@ -410,6 +411,7 @@ Mesh *remeshPerComponent(util::Vector<Mesh *> &pieces, const RemeshParams &param
   sub.triage = false;                  // ran globally on the work mesh
   sub.input_hole_fill_max_frac = 0.0f; // ran globally on the work mesh
   sub.target_edge_length = L_quad;     // one shared global scale, no count mode
+  sub.auto_retry = false;              // Tier 8 retries the whole run, not pieces
 
   Mesh *merged = alloc::New<Mesh>("Mesh QuadRemesh merged");
   int total = int(pieces.size()), done = 0, failed = 0;
@@ -599,9 +601,12 @@ float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
   return L_budget > 0.0f ? std::fmin(L, L_budget) : L;
 }
 
-mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
-                       RemeshProgressFn progress, void *user,
-                       RemeshRunReport *report)
+/* One full pipeline run. The public QuadRemesh below wraps this in the Tier-8
+ * retry loop; with auto_retry off it is called exactly once (legacy path). */
+static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
+                                     const RemeshParams &params,
+                                     RemeshProgressFn progress, void *user,
+                                     RemeshRunReport *report)
 {
 #define PROG(pct, stage)                                                        \
   do {                                                                          \
@@ -849,6 +854,7 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   CrossFieldStats cfs = computeCrossField(*work, cp);
   if (report) {
     report->cross_field = StageStatus::Ok;
+    report->solve_faces = work->f.count;
     report->num_singularities = cfs.num_singularities;
     report->index_sum = cfs.index_sum;
     report->field_solved_eigen = cfs.solved_eigen;
@@ -1009,6 +1015,190 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   alloc::Delete<Mesh>(work);
   return out;
 #undef PROG
+}
+
+/* Tier 8a retry machinery. Each escalation rung fires at most once per run;
+ * the rules read the previous attempt's report and bump exactly one knob. */
+namespace {
+
+struct RetryLadder {
+  bool field_smoothness = false;
+  bool curvature_smooth = false;
+  bool density_gradation = false;
+  bool pre_remesh = false;
+  bool coarser_target = false;
+};
+
+void coarsenTarget(RemeshParams &cur)
+{
+  if (cur.target_edge_length > 0.0f) {
+    cur.target_edge_length *= 1.25f;
+  } else {
+    cur.target_quad_count =
+        std::max(500, int(0.7f * float(cur.target_quad_count)));
+  }
+}
+
+void fillRetryAttempt(RemeshRunReport::RetryAttempt &a, const RemeshParams &p,
+                      const char *escalation, const RemeshRunReport &rep)
+{
+  a.params = p;
+  a.escalation = escalation;
+  a.from_original = true;
+  a.success = rep.success;
+  a.failure_reason = rep.failure_reason;
+  a.parametrization_folds = rep.parametrization_folds;
+  a.num_singularities = p.singularity_cancel ? rep.cancel_singularities_after
+                                             : rep.num_singularities;
+  a.inverted_faces = rep.validation_filled ? rep.validation.inverted_faces : 0;
+  a.odd_residuals =
+      rep.extract_stats.holes_open_odd +
+      (rep.extract_stats.holes_capped_odd - rep.extract_stats.odd_rims_paired);
+  a.max_adjacent_edge_ratio =
+      rep.validation_filled ? rep.validation.max_adjacent_edge_ratio : 0.0f;
+  a.duration_ms = rep.duration_ms;
+}
+
+/* Lexicographic: success, then fewer pre-extraction folds, then fewer inverted
+ * output faces, then fewer singularities. Strict — first best wins ties. */
+bool retryBetter(const RemeshRunReport::RetryAttempt &a,
+                 const RemeshRunReport::RetryAttempt &b)
+{
+  if (a.success != b.success) {
+    return a.success;
+  }
+  if (a.parametrization_folds != b.parametrization_folds) {
+    return a.parametrization_folds < b.parametrization_folds;
+  }
+  if (a.inverted_faces != b.inverted_faces) {
+    return a.inverted_faces < b.inverted_faces;
+  }
+  return a.num_singularities < b.num_singularities;
+}
+
+/* Pick the next escalation from the last attempt's outcome: mutate `cur` and
+ * return the rung tag, or nullptr to stop (result acceptable / ladder spent). */
+const char *escalateParams(RemeshParams &cur, RetryLadder &used,
+                           const RemeshRunReport::RetryAttempt &last,
+                           const RemeshRunReport &rep)
+{
+  // Fold tolerance scales with the solve mesh; the floor keeps tiny meshes sane.
+  const int fold_limit =
+      std::max(10, rep.solve_faces > 0 ? rep.solve_faces / 100 : 10);
+  const bool noisy_folds = last.parametrization_folds > fold_limit;
+  // Pole budget: ~5% of the realized (or requested) quad count.
+  const int pole_denom =
+      rep.quad_count_actual > 0 ? rep.quad_count_actual : cur.target_quad_count;
+
+  if (noisy_folds && !used.field_smoothness) {
+    used.field_smoothness = true;
+    cur.field_smoothness *= 2.0f;
+    return "field_smoothness";
+  }
+  if (last.num_singularities > std::max(4, pole_denom / 20) &&
+      !used.curvature_smooth) {
+    used.curvature_smooth = true;
+    cur.curvature_smooth_iters = std::max(2, cur.curvature_smooth_iters * 2);
+    cur.singularity_cancel = true;
+    return "curvature_smooth";
+  }
+  if (last.success && last.max_adjacent_edge_ratio > 4.0f &&
+      !used.density_gradation) {
+    // Steeper limiting = LOWER growth-rate cap; the field must also be consumed
+    // (auto_density) or the tightened gradation would never reach the quantizer.
+    used.density_gradation = true;
+    cur.density_gradation =
+        cur.density_gradation > 0.0f ? 0.6f * cur.density_gradation : 0.3f;
+    cur.auto_density = true;
+    return "density_gradation";
+  }
+  if (noisy_folds && !used.pre_remesh) {
+    // Folds persist after the smoothness rung — clean the input triangulation.
+    used.pre_remesh = true;
+    cur.pre_remesh = true;
+    return "pre_remesh";
+  }
+  if (last.success && last.odd_residuals > 2 && !used.coarser_target) {
+    used.coarser_target = true;
+    coarsenTarget(cur);
+    return "coarser_target";
+  }
+  if (!last.success) {
+    // Outright failure with no metric rule left: walk the fallback ladder.
+    if (!used.field_smoothness) {
+      used.field_smoothness = true;
+      cur.field_smoothness *= 2.0f;
+      return "field_smoothness";
+    }
+    if (!used.pre_remesh) {
+      used.pre_remesh = true;
+      cur.pre_remesh = true;
+      return "pre_remesh";
+    }
+    if (!used.coarser_target) {
+      used.coarser_target = true;
+      coarsenTarget(cur);
+      return "coarser_target";
+    }
+  }
+  return nullptr;
+}
+
+} // namespace
+
+mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
+                       RemeshProgressFn progress, void *user,
+                       RemeshRunReport *report)
+{
+  if (!params.auto_retry) {
+    return quadRemeshAttempt(input, params, progress, user, report);
+  }
+
+  const int cap =
+      std::clamp(params.max_attempts, 1, RemeshRunReport::MAX_RETRY_ATTEMPTS);
+  RemeshParams cur = params;
+  cur.auto_retry = false;
+  RetryLadder used;
+  const char *escalation = "initial";
+
+  RemeshRunReport::RetryAttempt trail[RemeshRunReport::MAX_RETRY_ATTEMPTS];
+  int n = 0, best_idx = -1;
+  Mesh *best = nullptr;
+  RemeshRunReport best_rep;
+
+  while (n < cap) {
+    RemeshRunReport rep;
+    Mesh *out = quadRemeshAttempt(input, cur, progress, user, &rep);
+    const int idx = n++;
+    fillRetryAttempt(trail[idx], cur, escalation, rep);
+    if (best_idx < 0 || retryBetter(trail[idx], trail[best_idx])) {
+      if (best) {
+        alloc::Delete<Mesh>(best);
+      }
+      best = out;
+      best_rep = rep;
+      best_idx = idx;
+    } else if (out) {
+      alloc::Delete<Mesh>(out);
+    }
+    if (n >= cap) {
+      break;
+    }
+    escalation = escalateParams(cur, used, trail[idx], rep);
+    if (!escalation) {
+      break;
+    }
+  }
+
+  if (report) {
+    *report = best_rep;
+    for (int i = 0; i < n; i++) {
+      report->attempts[i] = trail[i];
+    }
+    report->attempts_run = n;
+    report->winner = best_idx;
+  }
+  return best;
 }
 
 } // namespace sculptcore::remesh

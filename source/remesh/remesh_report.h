@@ -11,6 +11,7 @@
 #include "mesh/utils/mesh_validate.h"
 #include "remesh/extract/quad_extract.h"
 #include "remesh/quantize/quantize_ilp.h"
+#include "remesh/remesh_params.h"
 #include "remesh/triage.h"
 
 #include <string>
@@ -61,6 +62,10 @@ struct RemeshRunReport {
   int parametrization_folds = 0;
   double min_jacobian = 0.0;
   bool quantize_feasible = false;
+
+  // Solve-mesh face count at field time (post decimate / pre-remesh) — the
+  // fold-fraction denominator for the Tier-8 retry rules.
+  int solve_faces = 0;
 
   // Full quantize-stage profile (plans/miq.md Q0): rounds, solver-primitive
   // counts, and per-phase wall-clocks. Surfaced via the manifest "run" block.
@@ -124,6 +129,28 @@ struct RemeshRunReport {
     long long duration_ms = 0;
   };
   PreRemeshEffect pre_remesh_effect;
+
+  // Tier 8a: per-attempt retry trail. Filled only when auto_retry engaged the
+  // loop (attempts_run > 0); attempts[winner] produced the returned mesh, and
+  // its full report is this struct's top-level fields. from_original is always
+  // true today — every attempt restarts from the caller's untouched input.
+  struct RetryAttempt {
+    RemeshParams params;                // the exact knob vector this attempt ran
+    const char *escalation = "initial"; // stable tag: which rung set the knobs
+    bool from_original = true;
+    bool success = false;
+    std::string failure_reason; // empty on success
+    int parametrization_folds = 0;
+    int num_singularities = 0; // post-cancel when singularity_cancel ran
+    int inverted_faces = 0;    // from output validation (0 when no output)
+    int odd_residuals = 0;     // open odd rims + unpaired fan caps
+    float max_adjacent_edge_ratio = 0.0f;
+    long long duration_ms = 0;
+  };
+  static constexpr int MAX_RETRY_ATTEMPTS = 8;
+  RetryAttempt attempts[MAX_RETRY_ATTEMPTS];
+  int attempts_run = 0;
+  int winner = -1;
 };
 
 } // namespace sculptcore::remesh
