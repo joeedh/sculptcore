@@ -5,10 +5,13 @@ standalone interactive **debug app** (`source/debug/remesh_*`) for driving,
 inspecting, and tuning it outside the full app or the unit tests.
 
 `QuadRemesh(input, params)` takes a triangle (or mixed) mesh and returns a
-freshly-allocated **all-quad** mesh whose edge loops follow curvature and sharp
+freshly-allocated **quad** mesh whose edge loops follow curvature and sharp
 features and which is **provably free of spiraling iso-lines** (the integer
-quantization step is what guarantees that). The input is never mutated, so the
-host keeps it for undo.
+quantization step is what guarantees that). The default output is **watertight**
+(`cap_odd_holes` on): unpairable odd cap rims each close with one cap triangle,
+so a handful of triangles may appear; set `cap_odd_holes=false` for strict
+all-quad at the cost of leaving those rims open. The input is never mutated, so
+the host keeps it for undo.
 
 This is a *global, one-shot* operation, not a per-dab brush — it borrows
 dyntopo's module packaging, never its local/incremental use-case. The full design
@@ -193,7 +196,7 @@ Extraction / output (M5/M6):
 | `quantize_direct_rounding` | `false` | one-shot DIRECT rounding instead of greedy batches (see *Quantization rounding* below) |
 | `untangle_field_max_dev` | `0.1745` (10°) | max angle (radians) the ARAP untangle retarget may keep off the nearest field-aligned rotation; `>= π/4` = legacy unclamped (quads may sit 45° off the field) |
 | `reproject`           | `true` | snap output back onto the input surface (off = debugging) |
-| `cap_odd_holes`       | `false` | close odd-length cap rims too: rims pair up per component via quad-strip ladder splits, unpairable rims chord-split into fan-sized pieces and close with one cap triangle each (watertightness over strict all-quad) |
+| `cap_odd_holes`       | `true` | close odd-length cap rims too: rims pair up per component via quad-strip ladder splits, unpairable rims chord-split into fan-sized pieces and close with one cap triangle each (watertight by default; `false` = strict all-quad, odd rims left open) |
 | `smooth_iterations`   | `2` | Laplacian passes interleaved with reprojection |
 | `smooth_strength`     | `0.5` | per-iteration smoothing step `0..1` |
 
@@ -207,8 +210,8 @@ Robustness (Tier 8):
 Presets are not a struct field: `applyRemeshPreset(params, name)` /
 `remeshPresetName(i)` (`remesh.h`) reset the params to defaults + a named
 bundle's deltas, preserving the sizing fields and seed — names
-`organic-clean`, `organic-noisy`, `messy-character`, `scan`, `hard-surface`.
-The CLI `--preset` applies them in a pre-scan so explicit flags always
+`organic-clean`, `organic-noisy`, `messy-character`, `scan`, `hard-surface`,
+`cad`. The CLI `--preset` applies them in a pre-scan so explicit flags always
 override.
 
 The struct is binding-header-free (out-of-line `defineBindings()` in

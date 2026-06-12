@@ -73,7 +73,7 @@ struct RemeshParams {
    * pair is made even by a lengthwise quad-strip ladder split, keeping the cap
    * all-quad. Unpairable rims chord-split into fan-sized pieces and close with
    * one cap triangle each. Off = leave odd holes open (strict all-quad). */
-  bool cap_odd_holes = false;
+  bool cap_odd_holes = true;
 
   /* M6: Laplacian-smoothing passes interleaved with reprojection to relax kinks
    * without inverting quads. */

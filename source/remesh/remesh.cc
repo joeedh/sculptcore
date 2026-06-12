@@ -602,15 +602,16 @@ float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
 const char *remeshPresetName(int i)
 {
   static const char *names[] = {"organic-clean", "organic-noisy",
-                                "messy-character", "scan", "hard-surface"};
+                                "messy-character", "scan", "hard-surface",
+                                "cad"};
   return (i >= 0 && i < int(sizeof(names) / sizeof(names[0]))) ? names[i]
                                                                : nullptr;
 }
 
 /* Preset deltas encode the tier sweep results: feature_min_chain=3 everywhere
  * (the gate-7 "safe quality knob"), hysteresis only paired with it on the
- * noisy/scan bundles, cap_odd_holes only where watertightness beats cap
- * quality (gate 6), and auto_retry only on inputs expected to misbehave. */
+ * noisy/scan bundles, and auto_retry only on inputs expected to misbehave.
+ * cap_odd_holes is default-on (watertight); no bundle turns it off. */
 bool applyRemeshPreset(RemeshParams &params, const char *name)
 {
   RemeshParams base;
@@ -634,7 +635,6 @@ bool applyRemeshPreset(RemeshParams &params, const char *name)
     base.triage_min_component_frac = 0.01f;
     base.input_hole_fill_max_frac = 0.05f;
     base.per_component = true;
-    base.cap_odd_holes = true;
     base.pre_remesh = true;
     base.auto_retry = true;
   } else if (std::strcmp(name, "scan") == 0) {
@@ -643,12 +643,19 @@ bool applyRemeshPreset(RemeshParams &params, const char *name)
     base.feature_hysteresis = 0.2618f;
     base.triage_min_component_frac = 0.01f;
     base.input_hole_fill_max_frac = 0.05f;
-    base.cap_odd_holes = true;
     base.pre_remesh = true;
     base.auto_retry = true;
   } else if (std::strcmp(name, "hard-surface") == 0) {
     base.sharp_angle = 0.5235988f; // 30deg: catch real shallow bevels
     base.density_gradation = 0.3f; // smooth size flow around fillets
+  } else if (std::strcmp(name, "cad") == 0) {
+    // Tessellated solids (STEP/STL exports): crisp features, skinny tri
+    // strips on cylinders, often multi-part assemblies.
+    base.sharp_angle = 0.5235988f;
+    base.density_gradation = 0.3f;
+    base.per_component = true; // isolate each solid's solve
+    base.pre_remesh = true;    // re-flow the anisotropic tessellation
+    base.pre_remesh_sharp_angle = 0.5235988f; // pin the same shallow bevels
   } else {
     return false;
   }

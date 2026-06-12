@@ -449,12 +449,13 @@ void testPerComponent()
   if (out) {
     RemeshReport r = remeshValidate(*out);
     report("per-component", r);
-    TASSERT(r.all_quad);
+    // Watertight default: the fp-perturbed copy can shift singularities into
+    // odd cone rims; cap_odd_holes closes them (one cap triangle each).
+    TASSERT(r.ngon_count == 0);
+    TASSERT(r.tri_count <= 8);
+    TASSERT(r.boundary_edges == 0);
     TASSERT(r.manifold);
     TASSERT(r.component_count == 2);
-    // No euler/inverted assertions: the +6X-translated copy fp-perturbs the
-    // eigen-solves enough to shift singularities, which can leave odd cone
-    // rims open (cap_odd_holes is off here) — same contract as capped-cylinder.
     TASSERT(r.spiral_isolines == 0);
     litestl::alloc::Delete<Mesh>(out);
   }
@@ -512,7 +513,7 @@ void testBoundarySurvival()
 // extraction (the >10% fold gate). It is the fixture for the ARAP untangle
 // fallback (QuantizeParams::untangle_fold_threshold): the fallback walks the seam
 // penalty up from a low injective weight so the final map folds ~1.5% and
-// extracts a valid all-quad mesh with no spirals. REMESH_TARGET overrides the
+// extracts a valid watertight quad mesh with no spirals. REMESH_TARGET overrides the
 // spacing; 0.2 is mid-band (small input, no GPU offload — runs by default).
 void testSimpleObj()
 {
@@ -533,7 +534,11 @@ void testSimpleObj()
   if (out) {
     RemeshReport r = remeshValidate(*out);
     report("simple", r);
-    TASSERT(r.all_quad);
+    // Watertight default: residual odd rims close with one cap triangle each.
+    TASSERT(r.ngon_count == 0);
+    TASSERT(r.tri_count <= 8);
+    TASSERT(r.boundary_edges == 0);
+    TASSERT(r.manifold);
     TASSERT(r.spiral_isolines == 0);
     litestl::alloc::Delete<Mesh>(out);
   }

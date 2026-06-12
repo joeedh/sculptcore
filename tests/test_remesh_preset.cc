@@ -42,7 +42,7 @@ void testNameTableAndUnknown()
   while (remesh::remeshPresetName(n)) {
     n++;
   }
-  TASSERT(n == 5);
+  TASSERT(n == 6);
   TASSERT(remesh::remeshPresetName(-1) == nullptr);
 
   // Every listed name must apply.
@@ -110,6 +110,15 @@ void testBundleSignatures()
   TASSERT(p.sharp_angle < 0.6f); // 30deg, below the 45deg default
   TASSERT(p.density_gradation == 0.3f);
   TASSERT(!p.pre_remesh);
+  TASSERT(!p.auto_retry);
+
+  TASSERT(remesh::applyRemeshPreset(p, "cad"));
+  TASSERT(p.sharp_angle < 0.6f);
+  TASSERT(p.per_component);
+  TASSERT(p.pre_remesh);
+  // The pre-pass must pin the same shallow bevels the field solve tags.
+  TASSERT(p.pre_remesh_sharp_angle == p.sharp_angle);
+  TASSERT(p.feature_hysteresis == 0.0f); // crisp input: no hysteresis band
   TASSERT(!p.auto_retry);
 
   // Tier-7 rule: hysteresis is never set without a min-chain to pair with.

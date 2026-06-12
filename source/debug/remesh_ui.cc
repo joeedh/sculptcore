@@ -347,7 +347,8 @@ void RemeshUi::drawPanel()
       "the original shape. Off leaves it on the (smoother) solve surface.");
   ImGui::Checkbox("cap odd holes", &P.cap_odd_holes);
   tip("Close boundary loops with an odd edge count using one triangle each, so "
-      "the rest of the mesh can stay all-quad.");
+      "the rest of the mesh can stay all-quad. On by default (watertight); off "
+      "= strict all-quad with odd rims left open.");
   ImGui::SliderInt("smooth iters", &P.smooth_iterations, 0, 20);
   tip("Number of post-reprojection smoothing passes that relax vertices along "
       "the surface to even out quad shapes.");

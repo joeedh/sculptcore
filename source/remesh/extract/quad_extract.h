@@ -40,9 +40,9 @@ struct ExtractParams {
    * both rims one vert (even) — all-quad, at the cost of valence defects along
    * the strip. Unpairable odd rims chord-split like even ones (each split sheds
    * an even piece; the odd remainder shrinks to fan size) and close with one
-   * cap triangle total. Default off: odd rims are left open. Even rims are
-   * always capped. */
-  bool cap_odd_holes = false;
+   * cap triangle total. Off: odd rims are left open (strict all-quad). Even
+   * rims are always capped. */
+  bool cap_odd_holes = true;
 };
 
 struct ExtractStats {

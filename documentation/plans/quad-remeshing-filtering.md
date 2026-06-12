@@ -947,6 +947,17 @@ flag, plumbing verified):
 - The fox directive ("still lots of holes even with cap odd holes on") is
   closed end-to-end: cap-odd 1 → 0 holes, 0 boundary edges on the working
   config (`--target-quads 15000 --pre-remesh 1`).
+
+**Update (2026-06-12): default flipped ON by user direction.** After the
+fan-fallback fix (#36, snake-rim chord splits — fox max fan 227 → 12) the cap
+cost dropped enough that the user chose watertightness as the default contract:
+`cap_odd_holes=true`, with `--cap-odd 0` the strict all-quad opt-out. The
+headline guarantee is now *watertight + ngon-free + manifold with a few cap
+triangles* (gtests assert `ngon_count==0`, bounded `tri_count`,
+`boundary_edges==0`, `manifold` instead of `all_quad`). Corpus gate: quality
+columns (quantize_feasible, param_folds, spiral_isolines, folds) byte-identical
+to the pre-flip baseline (221F7DCD → 915AF5BD, ×2 byte-stable); simple-closed
+holes 6 → 0 / euler 2, anime-girl holes 4 → 2 / bnd_dev_mean 0.346 → 0.006.
 - `boundary_dev` separates the two hole populations cleanly: spurious
   mid-surface rims carry ~1.0 (anime 0.987, fox 0.956) while real borders sit
   within ~1 lattice cell (anime capped: 0.0084 ≈ 0.17×target) — use it to

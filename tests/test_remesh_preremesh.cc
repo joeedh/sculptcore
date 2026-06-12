@@ -812,7 +812,11 @@ void testPipelinePreRemeshClean()
     fprintf(stderr, "[pipeline/clean] out V=%d F=%d allquad=%d manifold=%d "
             "inverted=%d\n", r.vert_count, r.face_count, int(r.all_quad),
             int(r.manifold), r.inverted_faces);
-    TASSERT(r.all_quad);
+    // Watertight default (cap_odd_holes on): unpairable odd rims close with
+    // one cap triangle each (<=1% of faces); everything else stays quads.
+    TASSERT(r.ngon_count == 0);
+    TASSERT(r.tri_count * 100 <= r.face_count);
+    TASSERT(r.boundary_edges == 0);
     TASSERT(r.manifold);
     // TODO: extraction folds a handful of quads (~0.2%) on ANY irregular (non-
     // UV-grid) triangulation — pre-existing downstream fragility, not 9d's (the
@@ -1257,7 +1261,10 @@ void testPipelineAnchorsSmoke()
     TASSERT(rep.success);
     if (out) {
       RemeshReport r = mesh::remeshValidate(*out);
-      TASSERT(r.all_quad);
+      // Watertight default: cap triangles (<=1% of faces), no ngons, no holes.
+      TASSERT(r.ngon_count == 0);
+      TASSERT(r.tri_count * 100 <= r.face_count);
+      TASSERT(r.boundary_edges == 0);
       TASSERT(r.manifold);
       litestl::alloc::Delete<Mesh>(out);
     }
