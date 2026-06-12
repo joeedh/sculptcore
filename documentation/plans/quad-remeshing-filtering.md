@@ -818,8 +818,29 @@ limits, don't over-promise.**
     (`comp_runs=1/2`, survivor clean). **Fox finding:** the input is ONE
     component under both vertex- and face-adjacency — its "15 components"
     are an *extraction-output* artifact, so `per_component` is a verified
-    no-op there (STATS byte-identical to global, 53.9 s vs 55.2 s). keep large open rims aligned (already pinned as
+    no-op there (STATS byte-identical to global, 53.9 s vs 55.2 s).
+- **Boundary preservation:** keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
+  - **DONE (6.7):** `mesh::boundaryDeviation(ref, test)` landed in
+    `mesh_validate.h` — per output-rim-vert min distance to the input rim
+    polyline (brute force over radial-1 edges, ascending-vert-id mean for
+    determinism); `RemeshReport` gains `boundary_dev_{mean,max}` (−1 when
+    either side is closed), wired through the CLI manifest/STATS
+    (`bnd_dev=`) and corpus `metrics.csv`. gtest `testBoundaryDeviation`
+    pins exact-match (identical grids → max 0), a known perturbation
+    (0.25 rim offset → mean 0.25/16), interior-vert no-op, and closed-mesh
+    sentinels. **E2E finding** (gtest `testBoundarySurvival`, holed plane @
+    target 0.07): extraction keeps whole lattice cells, so the raw rim sits
+    up to ~1.3×target *inside* the input rim — that bound (max < 1.5×target,
+    mean < target) is the honest contract. Reprojection adds **zero** rim
+    drift: the reproject=off/on legs are bit-identical
+    (mean 0.0447, max 0.0924 both) — the boundary pin holds exactly.
+    Corpus re-baselined (byte-stable ×2, old-column diffs all traced to
+    landed 6.2 work + the coarsened anime asset) and archived at
+    `tests/remesher-results/baselines/tier6-gate/`. The metric immediately
+    earned its keep on the cap-odd A/B: anime-girl `bnd_dev_max` 0.987 →
+    0.0084 under `cap_odd_holes=1` — large values flag *spurious* open rims
+    (odd cone rims mid-surface), since real borders extract within ~1 cell.
 - **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in
   collapse + smooth, so a dense input rim stays dense and rim triangle quality
   can't improve. Upgrade to **constrain-to-polyline**: collapses along a boundary
@@ -899,6 +920,41 @@ limits, don't over-promise.**
 Inspect: hole-policy test, the all-quad odd-rim cap (+ `cap_odd_holes` default
 decision), component handling, corpus boundary metrics, and the thin-sheet
 detection/report.
+
+### Gate decision (6.7 + `cap_odd_holes` default, 2026-06-11)
+
+**Gate 6 PASS; `cap_odd_holes` stays off by default.** The revisit condition
+("once the odd cap is all-quad") is still unmet: an odd rim whose 3-5 pairing
+finds no partner emits one real fan triangle, and that fallback fires in
+practice — fox 90/227 capped rims, simple-closed 2/8. Flipping the default
+would silently break the pipeline's headline all-quad guarantee (asserted by
+gtests under default params and documented as the contract); watertight stays
+the explicit opt-in (`cap_odd_holes=true` / CLI `--cap-odd 1`).
+
+Cap-odd A/B evidence (same-session legs; `--cap-odd 0` byte-identical to no
+flag, plumbing verified):
+
+| asset | holes | all_quad / tris | irregular | inverted | bnd_dev_max |
+|-------|------:|:---------------:|----------:|---------:|------------:|
+| simple-closed | 8 → 0 | 1 → **0** / +2 | 55 → 210 | 2 → 0 | — |
+| anime-girl | 6 → 4 (real borders kept) | 1 → 1 / 0 | — | 11 → 16 | 0.987 → 0.0084 |
+| fox (15k, pre-remesh) | 227 → **0** (watertight) | 1 → **0** / +90 | 1427 → 2765 | 85 → 112 | 0.956 → −1 |
+
+- Capping buys hole closure but costs structure everywhere it fires: fox
+  regular_frac 0.869 → 0.809, max area_ratio 89 → 192; simple-closed
+  regular_frac 0.9938 → 0.9775, max_edge_ratio 2.69 → 3.59. Param folds and
+  wall-clock are untouched (extraction-side only).
+- The fox directive ("still lots of holes even with cap odd holes on") is
+  closed end-to-end: cap-odd 1 → 0 holes, 0 boundary edges on the working
+  config (`--target-quads 15000 --pre-remesh 1`).
+- `boundary_dev` separates the two hole populations cleanly: spurious
+  mid-surface rims carry ~1.0 (anime 0.987, fox 0.956) while real borders sit
+  within ~1 lattice cell (anime capped: 0.0084 ≈ 0.17×target) — use it to
+  decide whether `--cap-odd 1` is closing noise (good) or real borders (bad).
+- Reprojection is exonerated as a rim-drift source: the 6.7 reproject on/off
+  gtest legs are bit-identical (mean 0.0447 / max 0.0924 @ target 0.07); the
+  residual offset is whole-cell extraction quantization, bounded by
+  ~1.5×target.
 
 ---
 

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "../mesh.h"
+#include "litestl/math/geom.h"
 #include "litestl/util/vector.h"
 
+#include <cfloat>
 #include <cmath>
 #include <string>
 
@@ -87,6 +89,12 @@ struct RemeshReport {
   // the output mesh's inverted_faces. remeshValidate cannot derive it (the (u,v)
   // lives on the solve mesh, not the output), so the caller sets it. -1 = unset.
   int parametrization_folds = -1;
+
+  // Tier 6.7 boundary preservation (boundaryDeviation): this mesh's rim verts'
+  // distance to the INPUT boundary polyline. Needs both meshes, so the caller
+  // fills it; -1 = unset (no boundary on one side, or not computed).
+  float boundary_dev_mean = -1.0f;
+  float boundary_dev_max = -1.0f;
 
   // M6 no-spiral guarantee — edge-strip (isoline) closure on the all-quad
   // output. Filled by checkIsolineClosure (auto-run from remeshValidate when the
@@ -650,6 +658,78 @@ static inline RemeshReport remeshValidate(Mesh &m)
 
   checkIsolineClosure(m, r);
   return r;
+}
+
+/* Tier 6.7 boundary-preservation error: distance from each boundary vert of
+ * @p test to the nearest boundary segment of @p ref (brute force over segments
+ * — corpus rims are O(1k) edges). Counts are 0 when either side has none. */
+struct BoundaryDeviation {
+  int ref_boundary_edges = 0;  // boundary segments in the reference mesh
+  int test_boundary_verts = 0; // boundary verts measured in the test mesh
+  float mean_dist = 0.0f;
+  float max_dist = 0.0f;
+};
+
+static inline BoundaryDeviation boundaryDeviation(Mesh &ref, Mesh &test)
+{
+  using litestl::util::Vector;
+  using math::float3;
+
+  BoundaryDeviation bd;
+
+  auto edgeRadial = [](Mesh &m, int ei) {
+    int c0 = m.e.c[ei];
+    if (c0 == ELEM_NONE)
+      return 0;
+    int radial = 0, cc = c0;
+    do {
+      radial++;
+      cc = m.c.radial_next[cc];
+    } while (cc != c0 && radial < 1000000);
+    return radial;
+  };
+
+  Vector<float3> seg; // flat (a, b) pairs
+  for (int ei : ref.e) {
+    if (edgeRadial(ref, ei) == 1) {
+      seg.append(ref.v.co[ref.e.vs[ei][0]]);
+      seg.append(ref.v.co[ref.e.vs[ei][1]]);
+    }
+  }
+  bd.ref_boundary_edges = int(seg.size()) / 2;
+
+  Vector<char> isBnd;
+  isBnd.resize(int(test.v.capacity()));
+  for (int i = 0; i < int(test.v.capacity()); i++)
+    isBnd[i] = 0;
+  for (int ei : test.e) {
+    if (edgeRadial(test, ei) == 1) {
+      isBnd[test.e.vs[ei][0]] = 1;
+      isBnd[test.e.vs[ei][1]] = 1;
+    }
+  }
+
+  if (bd.ref_boundary_edges == 0)
+    return bd;
+
+  double sum = 0.0;
+  for (int vi : test.v) { // ascending id order -> deterministic mean
+    if (!isBnd[vi])
+      continue;
+    float3 p = test.v.co[vi];
+    float best = FLT_MAX;
+    for (int s = 0; s < int(seg.size()); s += 2) {
+      float t;
+      float3 cp = math::closestPointOnSegment(p, seg[s], seg[s + 1], true, t);
+      best = std::fmin(best, (cp - p).length());
+    }
+    bd.test_boundary_verts++;
+    sum += double(best);
+    bd.max_dist = std::fmax(bd.max_dist, best);
+  }
+  if (bd.test_boundary_verts > 0)
+    bd.mean_dist = float(sum / bd.test_boundary_verts);
+  return bd;
 }
 
 } // namespace sculptcore::mesh

@@ -169,6 +169,65 @@ void testHoledPlaneMetrics()
   litestl::alloc::Delete<Mesh>(m);
 }
 
+void testBoundaryDeviation()
+{
+  Mesh *ref = makeGrid(5, 5, 1.0f); // rim: 16 edges / 16 verts on the +-0.5 square
+  Mesh *test = makeGrid(5, 5, 1.0f);
+
+  BoundaryDeviation bd = boundaryDeviation(*ref, *test);
+  fprintf(stderr, "[bnd-dev/identical] refE=%d testV=%d mean=%g max=%g\n",
+          bd.ref_boundary_edges, bd.test_boundary_verts, bd.mean_dist,
+          bd.max_dist);
+  TASSERT(bd.ref_boundary_edges == 16);
+  TASSERT(bd.test_boundary_verts == 16);
+  TASSERT(bd.max_dist < 1e-6f);
+
+  // Push the mid-edge rim vert at (0, -0.5) outward (-y) by 0.25; an interior
+  // vert is located too for the no-participation check below.
+  int rim = -1, inner = -1;
+  for (int vi : test->v) {
+    float3 co = test->v.co[vi];
+    if (std::fabs(co[0]) < 1e-4f && std::fabs(co[1] + 0.5f) < 1e-4f)
+      rim = vi;
+    if (std::fabs(co[0]) < 1e-4f && std::fabs(co[1]) < 1e-4f)
+      inner = vi;
+  }
+  TASSERT(rim >= 0 && inner >= 0);
+  {
+    float3 co = test->v.co[rim];
+    co[1] -= 0.25f;
+    test->v.co[rim] = co;
+  }
+  bd = boundaryDeviation(*ref, *test);
+  fprintf(stderr, "[bnd-dev/perturbed] mean=%g max=%g\n", bd.mean_dist,
+          bd.max_dist);
+  TASSERT(std::fabs(bd.max_dist - 0.25f) < 1e-5f);
+  TASSERT(std::fabs(bd.mean_dist - 0.25f / 16.0f) < 1e-5f);
+
+  // Interior verts don't participate in the metric.
+  {
+    float3 co = test->v.co[inner];
+    co[2] += 100.0f;
+    test->v.co[inner] = co;
+  }
+  BoundaryDeviation bd2 = boundaryDeviation(*ref, *test);
+  TASSERT(bd2.max_dist == bd.max_dist);
+  TASSERT(bd2.mean_dist == bd.mean_dist);
+
+  // Closed mesh on either side -> the corresponding count stays 0.
+  Mesh *sphere = makeUVSphere(16, 24, 1.0f);
+  BoundaryDeviation bd3 = boundaryDeviation(*sphere, *test);
+  TASSERT(bd3.ref_boundary_edges == 0);
+  TASSERT(bd3.test_boundary_verts == 0);
+  BoundaryDeviation bd4 = boundaryDeviation(*ref, *sphere);
+  TASSERT(bd4.ref_boundary_edges == 16);
+  TASSERT(bd4.test_boundary_verts == 0);
+
+  litestl::alloc::Delete<Mesh>(sphere);
+  litestl::alloc::Delete<Mesh>(test);
+  litestl::alloc::Delete<Mesh>(ref);
+}
+
 } // namespace
 
 int main()
@@ -178,5 +237,6 @@ int main()
   testSphereMetrics();
   testTwoComponentMetrics();
   testHoledPlaneMetrics();
+  testBoundaryDeviation();
   return retval;
 }

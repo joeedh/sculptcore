@@ -461,6 +461,52 @@ void testPerComponent()
   litestl::alloc::Delete<Mesh>(s);
 }
 
+// Tier 6.7: boundary preservation through reprojection, quantified with
+// boundaryDeviation. Extraction keeps whole lattice cells, so the raw rim sits
+// up to ~1 cell (~target) inside the input rim — that bound is pinned on both
+// legs. The 6.7 contract is the A/B: reproject + smooth must not move the rim
+// any further (its boundary pin is what this guards). Flat annulus on purpose:
+// the surface snap can't hide in-plane rim drift.
+void testBoundarySurvival()
+{
+  Mesh *p = makeGridWithHole(17, 1.0f, 0.2f);
+
+  auto runLeg = [&](bool reproject, BoundaryDeviation &bd) {
+    remesh::RemeshParams params; // defaults: reproject + smooth on
+    params.target_edge_length = 0.07f;
+    params.reproject = reproject;
+    Mesh *out = remesh::QuadRemesh(*p, params);
+    TASSERT(out != nullptr);
+    if (!out)
+      return false;
+    RemeshReport r = remeshValidate(*out);
+    bd = boundaryDeviation(*p, *out);
+    fprintf(stderr,
+            "[bnd-survival/%s] refE=%d testV=%d mean=%g max=%g loops=%d\n",
+            reproject ? "full" : "extract", bd.ref_boundary_edges,
+            bd.test_boundary_verts, bd.mean_dist, bd.max_dist,
+            r.boundary_loop_count);
+    TASSERT(r.all_quad);
+    TASSERT(r.boundary_loop_count == 2); // outer perimeter + hole rim survive
+    TASSERT(bd.ref_boundary_edges > 0);
+    TASSERT(bd.test_boundary_verts > 0);
+    // Whole-cell extraction bound: rim within ~1 lattice cell of the input rim.
+    TASSERT(bd.max_dist < 1.5f * params.target_edge_length);
+    TASSERT(bd.mean_dist < params.target_edge_length);
+    litestl::alloc::Delete<Mesh>(out);
+    return true;
+  };
+
+  BoundaryDeviation bdExtract, bdFull;
+  bool okE = runLeg(false, bdExtract);
+  bool okF = runLeg(true, bdFull);
+  // Reprojection must not push rim verts off the input rim (pinned boundary).
+  if (okE && okF)
+    TASSERT(bdFull.max_dist <= bdExtract.max_dist + 1e-5f);
+
+  litestl::alloc::Delete<Mesh>(p);
+}
+
 // Simple.obj — a small, rounded organic blob. Its cross field curls enough that
 // the exactly-seamless map folds about a third of its faces, which breaks
 // extraction (the >10% fold gate). It is the fixture for the ARAP untangle
@@ -562,6 +608,7 @@ int main()
   testReproject();
   testQuadRemeshPipeline();
   testPerComponent();
+  testBoundarySurvival();
   testSimpleObj();
   testAnimeGirlSpiral();
   return retval;

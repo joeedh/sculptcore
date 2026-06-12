@@ -76,6 +76,7 @@ function parseArgs(argv) {
     else if (k === '--density-gradation') a.densityGradation = parseFloat(next())
     else if (k === '--density-gradation-iters') a.densityGradationIters = parseInt(next(), 10)
     else if (k === '--quant-direct') a.quantDirect = next() !== '0'
+    else if (k === '--cap-odd') a.capOdd = next() !== '0'
     else if (k === '--list') a.list = true
     else if (k === '--help' || k === '-h') { usage(); process.exit(0) }
     else { console.error(`unknown arg ${k}`); usage(); process.exit(2) }
@@ -102,6 +103,7 @@ function usage() {
   --density-gradation <f>          Tier-3b bound size growth rate (0=off)
   --density-gradation-iters <int>  Tier-3b limiter sweep cap
   --quant-direct <0|1>             M5 one-shot DIRECT rounding (miq.md Q4)
+  --cap-odd <0|1>                  M6 odd-rim cap (Tier-6 default A/B)
   --list            list the corpus and resolution status, then exit`)
 }
 
@@ -145,6 +147,8 @@ const COLUMNS = [
   ['regular_frac', m => m.validation.regular_interior_frac],
   ['components', m => m.validation.component_count],
   ['holes', m => m.validation.boundary_loop_count],
+  ['bnd_dev_mean', m => m.validation.boundary_dev_mean ?? -1],
+  ['bnd_dev_max', m => m.validation.boundary_dev_max ?? -1],
   ['max_comp_irregular', m => m.validation.max_component_irregular],
   ['max_area_ratio', m => m.validation.max_adjacent_area_ratio],
   ['max_edge_ratio', m => m.validation.max_adjacent_edge_ratio],
@@ -167,6 +171,13 @@ const COLUMNS = [
   ['triage_comp_verts', m => m.triage?.removed_component_verts ?? 0],
   ['triage_nm_edges', m => m.triage?.non_manifold_edges ?? 0],
   ['triage_nm_verts', m => m.triage?.non_manifold_verts ?? 0],
+  // Tier-6 policy counters (hole fill, per-component runs, thin-sheet detect).
+  ['holes_filled', m => m.triage?.input_holes_filled ?? 0],
+  ['holes_kept', m => m.triage?.input_holes_kept ?? 0],
+  ['thin_frac', m => m.triage?.thin_area_frac ?? 0],
+  ['thin_sheet', m => m.triage?.thin_sheet ?? false],
+  ['comp_total', m => m.run.components_total ?? 0],
+  ['comp_remeshed', m => m.run.components_remeshed ?? 0],
 ]
 
 function csvCell(v) {
@@ -246,6 +257,8 @@ function main() {
     globalParams['density-gradation-iters'] = args.densityGradationIters
   if (args.quantDirect != null)
     globalParams['quant-direct'] = args.quantDirect ? 1 : 0
+  if (args.capOdd != null)
+    globalParams['cap-odd'] = args.capOdd ? 1 : 0
 
   const results = []
   const skipped = []

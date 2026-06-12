@@ -330,7 +330,11 @@ time), `duration_ms`, and the blocks:
   `regular_interior_frac`, `component_count`, `boundary_loop_count`,
   `max_component_irregular`, `max_adjacent_area_ratio`, `max_adjacent_edge_ratio`,
   `min_interior_angle`, `min_angle_hist` (9 bins), `parametrization_folds`, then
-  `isolines_checked`, `spiral_isolines`, `open_isolines`, `closed_isolines`
+  `isolines_checked`, `spiral_isolines`, `open_isolines`, `closed_isolines`,
+  and the Tier-6.7 boundary-preservation pair `boundary_dev_mean` /
+  `boundary_dev_max` (`mesh::boundaryDeviation`: output rim verts' distance to
+  the input rim polyline; `-1` when either side is closed; large values flag
+  *spurious* open rims, since real borders extract within ~1 lattice cell)
 - `run` — the `RemeshRunReport` (`remesh/remesh_report.h`): `success`,
   `failure_reason`, `pipeline_ms`, the cross-field stats (`num_singularities`,
   `index_sum`, `field_solved_eigen`), the quantize stats

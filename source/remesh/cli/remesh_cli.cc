@@ -257,6 +257,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
                r.regular_interior_frac);
   std::fprintf(f, "    \"component_count\": %d,\n", r.component_count);
   std::fprintf(f, "    \"boundary_loop_count\": %d,\n", r.boundary_loop_count);
+  std::fprintf(f, "    \"boundary_dev_mean\": %.9g,\n", r.boundary_dev_mean);
+  std::fprintf(f, "    \"boundary_dev_max\": %.9g,\n", r.boundary_dev_max);
   std::fprintf(f, "    \"max_component_irregular\": %d,\n",
                r.max_component_irregular);
   std::fprintf(f, "    \"max_adjacent_area_ratio\": %.9g,\n",
@@ -723,6 +725,16 @@ int main(int argc, char **argv)
   // remeshValidate pass.
   mesh::RemeshReport r = rep.validation;
 
+  // Tier 6.7 boundary preservation: output rim verts vs the input rim polyline
+  // (-1 stays when either side has no boundary).
+  {
+    mesh::BoundaryDeviation bd = mesh::boundaryDeviation(*in, *out);
+    if (bd.ref_boundary_edges > 0 && bd.test_boundary_verts > 0) {
+      r.boundary_dev_mean = bd.mean_dist;
+      r.boundary_dev_max = bd.max_dist;
+    }
+  }
+
   if (!mesh::writeObj(*out, objPath.c_str()))
     std::printf("ERROR could not write %s\n", objPath.c_str());
   else
@@ -738,7 +750,7 @@ int main(int argc, char **argv)
   std::printf("STATS verts=%d edges=%d faces=%d quads=%d tris=%d ngons=%d "
               "allquad=%d manifold=%d euler=%d inverted=%d boundary=%d "
               "spiral=%d irr=%d regular_frac=%.4g components=%d holes=%d "
-              "folds=%d min_angle=%.4g area_ratio=%.4g "
+              "folds=%d min_angle=%.4g area_ratio=%.4g bnd_dev=%.4g "
               "triage=%d triage_welded=%d triage_degenerate=%d "
               "triage_components=%d triage_nonmanifold_edges=%d "
               "holes_filled=%d comp_runs=%d/%d thin_frac=%.3g thin_sheet=%d "
@@ -748,7 +760,8 @@ int main(int argc, char **argv)
               r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
               r.irregular_interior_verts, r.regular_interior_frac,
               r.component_count, r.boundary_loop_count, r.parametrization_folds,
-              r.min_interior_angle, r.max_adjacent_area_ratio, int(tg.ran),
+              r.min_interior_angle, r.max_adjacent_area_ratio,
+              r.boundary_dev_max, int(tg.ran),
               tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
               tg.non_manifold_edges, tg.input_holes_filled,
               rep.components_remeshed, rep.components_total, tg.thin_area_frac,
