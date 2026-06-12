@@ -173,7 +173,6 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"preset\": \"%s\",\n", jstr(preset).c_str());
   std::fprintf(f, "    \"target_quad_count\": %d,\n", p.target_quad_count);
   std::fprintf(f, "    \"target_edge_length\": %.9g,\n", p.target_edge_length);
-  std::fprintf(f, "    \"solve_edge_length\": %.9g,\n", p.solve_edge_length);
   std::fprintf(f, "    \"use_curvature\": %s,\n", jb(p.use_curvature));
   std::fprintf(f, "    \"use_sharp_features\": %s,\n", jb(p.use_sharp_features));
   std::fprintf(f, "    \"sharp_angle\": %.9g,\n", p.sharp_angle);
@@ -413,7 +412,6 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"stages\": {\n");
   std::fprintf(f, "      \"copy\": \"%s\",\n", ssName(rep.copy));
   std::fprintf(f, "      \"triage\": \"%s\",\n", ssName(rep.triage));
-  std::fprintf(f, "      \"decimate\": \"%s\",\n", ssName(rep.decimate));
   std::fprintf(f, "      \"pre_remesh\": \"%s\",\n", ssName(rep.pre_remesh));
   std::fprintf(f, "      \"cross_field\": \"%s\",\n", ssName(rep.cross_field));
   std::fprintf(f, "      \"singularity\": \"%s\",\n", ssName(rep.singularity));
@@ -496,7 +494,6 @@ void usage()
       "                          nor --target is given)\n"
       "  --target <float>        explicit quad edge length; overrides\n"
       "                          --target-quads (default 0 = derive from count)\n"
-      "  --solve <float>         solve-mesh edge length, 0=off (default 0)\n"
       "  --curvature <0|1>       align field to curvature (default 1)\n"
       "  --sharp <0|1>           pin field to sharp edges/boundaries (default 1)\n"
       "  --sharp-angle <float>   sharp dihedral threshold, radians (default 0.785)\n"
@@ -614,9 +611,7 @@ int main(int argc, char **argv)
     } else if (a == "--target-quads") {
       params.target_quad_count = std::atoi(next("--target-quads"));
       sizing_given = true;
-    } else if (a == "--solve")
-      params.solve_edge_length = float(std::atof(next("--solve")));
-    else if (a == "--curvature")
+    } else if (a == "--curvature")
       params.use_curvature = toBool(next("--curvature"));
     else if (a == "--sharp")
       params.use_sharp_features = toBool(next("--sharp"));

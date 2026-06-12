@@ -20,7 +20,6 @@ export interface RemeshParams {
   [Symbol.dispose](): void
   target_quad_count: int32
   target_edge_length: float
-  solve_edge_length: float
   use_curvature: boolean
   use_sharp_features: boolean
   sharp_angle: float

@@ -340,8 +340,8 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
   }
 
   // Tier 9c: pin feature verts (boundary/sharp class != 0). Resolved once — absent
-  // overlay (geometry-only callers like --solve decimation) ⇒ no pinning, so the
-  // isotropic path stays byte-identical.
+  // overlay (geometry-only callers like the coarsen bootstrap) ⇒ no pinning, so
+  // the isotropic path stays byte-identical.
   bool have_feat =
       m.v.attrs.has(mesh::AttrType::INT, util::string(mesh::boundary::VERT_CLASS));
   mesh::BuiltinAttr<int, ".boundary.vert.class"> vclass;

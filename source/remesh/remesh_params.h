@@ -29,14 +29,6 @@ struct RemeshParams {
    * re-quantize); > 0 = legacy fixed-length mode, no count correction. */
   float target_edge_length = 0.0f;
 
-  /* Optional solve-mesh edge length (world units). 0 = off (solve on the raw
-   * input). When > 0, a dyntopo uniform-remesh pre-pass coarsens the working
-   * copy to roughly this edge length before the heavy global solve, so dense
-   * inputs (100s of k of triangles) stay tractable. The final reprojection
-   * always targets the full-res original, so detail is preserved. Pick it a
-   * touch finer than target_edge_length (a few solve-triangles per output quad). */
-  float solve_edge_length = 0.0f;
-
   /* M1/M2: align the cross field to principal-curvature directions, weighted by
    * local anisotropy. Off = a pure-smoothness field (strokes/features only). */
   bool use_curvature = true;
@@ -161,9 +153,9 @@ struct RemeshParams {
    * before the field solve. Geometry only; the final reproject snaps the output
    * back onto the full-res original. Off = pipeline unchanged. */
   bool pre_remesh = false;
-  /* Pre-pass edge length. 0 = auto: solve_edge_length when set (field-align at
-   * the solve resolution); else 0.7x the resolved quad edge length, floored at
-   * half the input's median edge so the pre-pass never over-refines. */
+  /* Pre-pass edge length. 0 = auto: 0.7x the resolved quad edge length,
+   * floored at half the input's median edge so the pre-pass never
+   * over-refines. */
   float pre_remesh_target = 0.0f;
   /* Outer convergence iterations. 0 = auto from the measured input (resolution
    * ratio + fold/irregularity level, clamped to [3,6]); converge_eps usually

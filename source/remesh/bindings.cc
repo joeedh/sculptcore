@@ -25,7 +25,6 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
 
   BIND_STRUCT_MEMBER(st, target_quad_count);
   BIND_STRUCT_MEMBER(st, target_edge_length);
-  BIND_STRUCT_MEMBER(st, solve_edge_length);
   BIND_STRUCT_MEMBER(st, use_curvature);
   BIND_STRUCT_MEMBER(st, use_sharp_features);
   BIND_STRUCT_MEMBER(st, sharp_angle);

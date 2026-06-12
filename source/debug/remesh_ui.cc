@@ -276,11 +276,6 @@ void RemeshUi::drawPanel()
   tip("Explicit output quad edge length, in the mesh's world units; overrides "
       "the quad count above and disables the count correction. 0 = derive from "
       "target quads. This is the size auto density modulates around.");
-  ImGui::SliderFloat("solve edge len (0=off)", &P.solve_edge_length, 0.0f, 1.0f,
-                     "%.4f");
-  tip("If > 0, decimate to roughly this edge length before solving the field and "
-      "parametrization, then reproject the quads onto the original surface. "
-      "Speeds up heavy inputs. 0 = solve on the full-resolution input.");
   ImGui::Checkbox("use curvature", &P.use_curvature);
   tip("Align the cross field to principal-curvature directions so quad rows "
       "follow surface flow. Off = a smoothness-only field (boundaries/sharp "
@@ -390,14 +385,14 @@ void RemeshUi::drawPanel()
   ImGui::EndDisabled();
   ImGui::Checkbox("pre-remesh in pipeline", &P.pre_remesh);
   tip("Tier 9d: run the field-aligned input pre-pass inside the quad pipeline "
-      "(after triage/decimate, before the field solve), cleaning the working "
+      "(after triage, before the field solve), cleaning the working "
       "triangulation's flow. The standalone section below is for inspecting the "
       "pre-pass alone; this gate is what 'Run Remesh' uses.");
   ImGui::BeginDisabled(!P.pre_remesh);
   ImGui::SliderFloat("pl target (0=auto)", &P.pre_remesh_target, 0.0f, 1.0f,
                      "%.4f", ImGuiSliderFlags_Logarithmic);
-  tip("Pipeline pre-pass edge length. 0 = auto: solve edge len when set; else "
-      "0.7x the resolved quad edge, floored at half the median input edge.");
+  tip("Pipeline pre-pass edge length. 0 = auto: 0.7x the resolved quad edge, "
+      "floored at half the median input edge.");
   ImGui::SliderInt("pl iters (0=auto)", &P.pre_remesh_iters, 0, 20);
   tip("Outer convergence iterations. 0 = auto from the measured input "
       "(resolution travel + fold/irregularity level, clamped to 3..6).");

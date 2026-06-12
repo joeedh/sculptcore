@@ -27,12 +27,11 @@ percentage and a stable lowercase tag:
 | pct | stage         | what happens |
 |----:|---------------|--------------|
 |   0 | `copy`        | `buildTriCopy` deep-copies positions + face topology into a fresh working mesh, triangulates it, recomputes normals. The caller's input is left intact. |
-|  10 | `decimate`    | *(only if `solve_edge_length > 0`)* `decimateForSolve` runs a dyntopo uniform-remesh pre-pass (Botsch-Kobbelt collapse/split/flip/tangential-smooth over a whole-mesh sphere) to coarsen the **solve** mesh so dense inputs stay tractable. Geometry only. |
 |  25 | `cross_field` | M2: solve a smooth per-face 4-RoSy cross field (Diamanti 2014 complex-polynomial 4-PolyVector). Computes curvature (M1) and sharp/feature tags first as needed. |
 |  45 | `singularity` | M3: re-solve the smoothest *phase* field with period jumps (hence singularities) held fixed — one real SPD Poisson solve on the face dual graph that provably lowers per-edge curl. |
 |  65 | `quantize`    | M5: build the seamless parametrization (M4: cut graph + seamless map) **internally**, then snap every cut-edge translation to an integer (integer-grid map). This is the spiral-elimination step. |
 |  80 | `extract`     | M6: extract the integer lattice's preimage QEx-style (Ebke 2013) — weld lattice points into grid vertices, trace iso-line arcs, walk the rotation system to emit one quad per grid cell. Returns `nullptr` on a clean failure (no lattice map) → progress `100 failed`. |
-|  92 | `reproject`   | *(only if `reproject`)* snap each output vertex onto the **original full-res** input surface via a BVH closest-point query, with optional Laplacian smoothing between snaps. When the solve mesh was decimated, this re-copies the input so detail dropped by decimation is recovered. |
+|  92 | `reproject`   | *(only if `reproject`)* snap each output vertex onto the **original full-res** input surface via a BVH closest-point query, with optional Laplacian smoothing between snaps. When the pre-remesh ran, this re-copies the input so detail it smoothed away is recovered. |
 | 100 | `done`        | success; returns the heap-allocated quad mesh (caller owns, frees via the mesh allocator / `freeMesh`). |
 
 Stage attrs are all written as `.remesh.*` **TEMP** layers (never serialized):
@@ -135,7 +134,6 @@ Sizing & determinism:
 |-------|---------|---------|
 | `target_quad_count`   | `15000` | target output quad count; the pipeline derives the edge length (`L = sqrt(∫density dA / N)`, corrective re-quantize). Ignored when `target_edge_length` is set |
 | `target_edge_length`  | `0.0` | explicit quad edge length (world units); `>0` = legacy fixed-length mode, no count correction |
-| `solve_edge_length`   | `0.0` | `>0` coarsens the working copy to ~this edge length before the global solve (pick a touch finer than the quad edge length); `0` = solve the raw input |
 | `seed`                | `1` | determinism seed (M3 iteration / M5 tie-breaks); fixed input+seed → byte-identical output (cross-backend parity prerequisite) |
 
 Cross field (M1/M2 + Tiers 2/4/5/7):
@@ -218,7 +216,7 @@ The struct is binding-header-free (out-of-line `defineBindings()` in
 ## Source layout (`source/remesh/`)
 
 ```
-remesh.{h,cc}          QuadRemesh orchestrator + tri-copy / decimate pre-pass
+remesh.{h,cc}          QuadRemesh orchestrator + tri-copy / coarsen helpers
 remesh_params.h        RemeshParams
 bindings.{h,cc}        binding registration (Mesh_quadRemesh, param struct)
 c-api/remesh_c_api.cc  Mesh *Mesh_quadRemesh(Mesh*, RemeshParams*) — WASM/N-API entry
@@ -366,7 +364,6 @@ remesh_cli --input <obj> [options]
   --outdir <dir>          output dir (default: tests/remesher-results)
   --name <base>           output basename (default: input stem)
   --target <float>        target quad edge length (default 0.1)
-  --solve <float>         solve-mesh edge length, 0=off (default 0)
   --curvature <0|1>       align field to curvature (default 1)
   --sharp <0|1>           pin field to sharp edges/boundaries (default 1)
   --sharp-angle <float>   sharp dihedral threshold, radians (default 0.785)
@@ -427,7 +424,7 @@ time), `duration_ms`, and the blocks:
   `tier1b_probes`, the local-GS profile `gs_*`, the re-sort profile
   `resort_*` — and the volatile `*_ms` phase wall-clocks, which stay
   manifest-only, never in `metrics.csv`), and a `stages`
-  map of per-stage status (`copy`/`decimate`/.../`reproject` → `ok`/`failed`/`skipped`)
+  map of per-stage status (`copy`/`triage`/.../`reproject` → `ok`/`failed`/`skipped`)
 
 A clean pipeline failure (no output mesh, e.g. `extract_no_lattice`) still writes
 a manifest: the `validation`/`output` blocks are default-valued and the `run`
@@ -531,9 +528,10 @@ prints the key. Never commit, echo, or log the key.
   repair or fallback in v1.
 - Overlays are **window-only**; `screenshot` captures the shaded offscreen mesh
   without them.
-- The **solve/reproject split** is deliberate: `solve_edge_length` coarsens only
+- The **solve/reproject split** is deliberate: the pre-remesh reshapes only
   the *solve* mesh; reprojection always targets the original full-res surface, so
-  detail is preserved.
+  detail is preserved. (The old quality-blind `--solve` decimation knob was
+  removed at Tier 9 — the field-aligned pre-pass subsumes it, strictly better.)
 - `RemeshProgressFn` is intentionally **not** a `RemeshParams` field (keeps the
   reflected/bound struct free of function pointers); the CLI passes a
   stdout-streaming callback, the app/N-API path passes none.

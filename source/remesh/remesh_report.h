@@ -28,7 +28,6 @@ struct RemeshRunReport {
   // Per-stage execution status, in pipeline order.
   StageStatus copy = StageStatus::Skipped;
   StageStatus triage = StageStatus::Skipped;
-  StageStatus decimate = StageStatus::Skipped;
   StageStatus pre_remesh = StageStatus::Skipped;
   StageStatus cross_field = StageStatus::Skipped;
   StageStatus singularity = StageStatus::Skipped;
@@ -63,7 +62,7 @@ struct RemeshRunReport {
   double min_jacobian = 0.0;
   bool quantize_feasible = false;
 
-  // Solve-mesh face count at field time (post decimate / pre-remesh) — the
+  // Solve-mesh face count at field time (post pre-remesh) — the
   // fold-fraction denominator for the Tier-8 retry rules.
   int solve_faces = 0;
 
@@ -111,7 +110,7 @@ struct RemeshRunReport {
   // (geometry census, edge statistics, 0d fold metrics), the driver's run
   // outcome, and what the auto-sentinel knobs resolved to — the A/B record for
   // "how did the pre-pass change what the field solve saw". The "_in" side is
-  // measured after triage/decimate, i.e. exactly what the pre-pass received.
+  // measured after triage, i.e. exactly what the pre-pass received.
   struct PreRemeshEffect {
     bool ran = false;
     int verts_in = 0, faces_in = 0;

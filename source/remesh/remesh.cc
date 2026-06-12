@@ -264,7 +264,6 @@ void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src,
       d = s;
     }
   };
-  status(dst.decimate, src.decimate);
   status(dst.pre_remesh, src.pre_remesh);
   status(dst.cross_field, src.cross_field);
   status(dst.singularity, src.singularity);
@@ -585,9 +584,6 @@ float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
   if (params.pre_remesh_target > 0.0f) {
     return params.pre_remesh_target;
   }
-  if (params.solve_edge_length > 0.0f) {
-    return params.solve_edge_length;
-  }
   // Count mode: a touch finer than the quad edge (a few solve tris per output
   // quad), floored at half the median input edge so the pre-pass never
   // refines the input more than ~4x — finer quads come from the lattice.
@@ -620,7 +616,6 @@ bool applyRemeshPreset(RemeshParams &params, const char *name)
   // Sizing + determinism are orthogonal to the preset character.
   base.target_quad_count = params.target_quad_count;
   base.target_edge_length = params.target_edge_length;
-  base.solve_edge_length = params.solve_edge_length;
   base.seed = params.seed;
   base.feature_min_chain = 3;
   base.auto_density = true;
@@ -756,22 +751,10 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     }
   }
 
-  // Optional decimation pre-pass: coarsen the SOLVE mesh so dense inputs stay
-  // tractable. The reprojection below still snaps onto the full-res original.
-  bool decimated = false;
-  if (params.solve_edge_length > 0.0f) {
-    PROG(10, "decimate");
-    decimateForSolve(*work, params.solve_edge_length, params.seed);
-    decimated = true;
-    if (report)
-      report->decimate = StageStatus::Ok;
-  }
-
   // Tier 9 (9d): field-aligned input pre-remesh — clean the working
   // triangulation's flow before the field solve. Sentinel knobs (target=0,
   // iters=0, bootstrap=-1) auto-resolve from the measured input; explicit
-  // values always win. With --solve the decimate above already coarsened, so
-  // the pre-pass field-aligns at that resolution.
+  // values always win.
   bool pre_remeshed = false;
   if (params.pre_remesh) {
     PROG(14, "pre_remesh");
@@ -779,19 +762,18 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
 
     EdgeStats es = measureEdges(*work);
 
-    // Target: explicit > solve resolution > output resolution (count mode:
-    // 0.7x the quad edge, floored at half the median input edge — see
-    // resolvePreRemeshTarget; inlined here to reuse L_quad and es).
-    float L_pre = params.pre_remesh_target > 0.0f ? params.pre_remesh_target
-                  : params.solve_edge_length > 0.0f
-                      ? params.solve_edge_length
+    // Target: explicit > output resolution (count mode: 0.7x the quad edge,
+    // floored at half the median input edge — see resolvePreRemeshTarget;
+    // inlined here to reuse L_quad and es).
+    float L_pre = params.pre_remesh_target > 0.0f
+                      ? params.pre_remesh_target
                       : (count_mode ? std::fmax(0.7f * L_quad, 0.5f * es.median)
                                     : params.target_edge_length);
-    // Edge budget (auto targets only — explicit pre_remesh_target/solve win):
+    // Edge budget (auto targets only — explicit pre_remesh_target wins):
     // the pre-pass may not coarsen away more than 20% of the edges it
     // receives. E scales ~1/L^2, so E_out/E_in >= 0.8 ==> L <= mean/sqrt(0.8).
-    const bool budgeted = params.pre_remesh_target <= 0.0f &&
-                          params.solve_edge_length <= 0.0f && es.mean > 0.0f;
+    const bool budgeted =
+        params.pre_remesh_target <= 0.0f && es.mean > 0.0f;
     float L_budget = budgeted ? es.mean / std::sqrt(0.8f) : 0.0f;
     if (budgeted) {
       L_pre = std::fmin(L_pre, L_budget);
@@ -824,9 +806,8 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
 
     // Dense-input coarsen bootstrap: the rough field solve is the expensive
     // piece (it scales with V), so when the input sits far below the pre-pass
-    // target, BK-coarsen once field-free before the loop — exactly what the
-    // --solve decimate does (skipped when that already ran).
-    bool coarsen = !decimated && es.mean > 0.0f && es.mean < 0.5f * L_pre;
+    // target, BK-coarsen once field-free before the loop.
+    bool coarsen = es.mean > 0.0f && es.mean < 0.5f * L_pre;
     if (coarsen) {
       decimateForSolve(*work, L_pre, params.seed);
     }
@@ -976,8 +957,8 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
       }
     }
   } else if (count_mode) {
-    // Re-derive on the current geometry: decimate / pre-remesh shifted the
-    // surface area (and a painted density field) the initial estimate used.
+    // Re-derive on the current geometry: the pre-remesh shifted the surface
+    // area (and a painted density field) the initial estimate used.
     float L_new = countDerivedLength(*work, params.target_quad_count,
                                      consume_density);
     if (L_new > 0.0f) {
@@ -1047,10 +1028,10 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     rp.smooth_lambda = params.smooth_strength;
     // One extra [smooth -> snap] pass when smoothing, else a single pure snap.
     rp.iterations = params.smooth_iterations > 0 ? 2 : 1;
-    if (decimated || pre_remeshed) {
-      // The work geometry diverged from the input (decimate and/or pre-remesh
-      // moved every vertex) — snap onto the ORIGINAL full-res surface so the
-      // output recovers the detail those passes smoothed away.
+    if (pre_remeshed) {
+      // The work geometry diverged from the input (the pre-remesh moved every
+      // vertex) — snap onto the ORIGINAL full-res surface so the output
+      // recovers the detail the pass smoothed away.
       Mesh *full = buildTriCopy(input);
       reprojectToSurface(*out, *full, rp);
       alloc::Delete<Mesh>(full);

@@ -566,10 +566,12 @@ void testAnimeGirlSpiral()
   p.target_edge_length = 0.05f;
   if (const char *e = std::getenv("REMESH_TARGET"))
     p.target_edge_length = float(std::atof(e));
-  // REMESH_DECIMATE=<L> coarsens the solve mesh to ~L first (0 = solve raw);
-  // makes the ~800k-tri input tractable, reproject still uses the original.
-  if (const char *e = std::getenv("REMESH_DECIMATE"))
-    p.solve_edge_length = float(std::atof(e));
+  // REMESH_PRE=<L> runs the field-aligned pre-pass at ~L first; makes the
+  // ~800k-tri input tractable, reproject still uses the original.
+  if (const char *e = std::getenv("REMESH_PRE")) {
+    p.pre_remesh = true;
+    p.pre_remesh_target = float(std::atof(e));
+  }
   // REMESH_CAPODD=1 closes residual odd holes with one cap triangle each (trades
   // strict all-quad for watertight); off keeps the all-quad contract.
   bool cap_odd = std::getenv("REMESH_CAPODD") != nullptr;
@@ -592,7 +594,7 @@ void testAnimeGirlSpiral()
 int main()
 {
   // REMESH_ANIME=1 is the opt-in ~800k-tri stress mode: run only that fixture so
-  // REMESH_TARGET/REMESH_DECIMATE tune it in isolation (the light fixtures share
+  // REMESH_TARGET/REMESH_PRE tune it in isolation (the light fixtures share
   // REMESH_TARGET and would mis-scale). The default suite (env unset) is unchanged.
   if (std::getenv("REMESH_ANIME")) {
     testAnimeGirlSpiral();

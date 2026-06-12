@@ -304,8 +304,6 @@ bool RemeshApp::runRemesh(std::string &err)
       wf(params.target_edge_length),
       L"--target-quads",
       widen(std::to_string(params.target_quad_count)),
-      L"--solve",
-      wf(params.solve_edge_length),
       L"--curvature",
       wb(params.use_curvature),
       L"--sharp",
@@ -706,7 +704,6 @@ std::string RemeshApp::handleCommand(const std::string &line)
   if (cmd == "get_params") {
     o << "target_quad_count=" << params.target_quad_count << "\n"
       << "target_edge_length=" << params.target_edge_length << "\n"
-      << "solve_edge_length=" << params.solve_edge_length << "\n"
       << "use_curvature=" << int(params.use_curvature) << "\n"
       << "use_sharp_features=" << int(params.use_sharp_features) << "\n"
       << "sharp_angle=" << params.sharp_angle << "\n"
@@ -778,8 +775,6 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.target_quad_count = iv;
     } else if (name == "target_edge_length") {
       params.target_edge_length = float(d);
-    } else if (name == "solve_edge_length") {
-      params.solve_edge_length = float(d);
     } else if (name == "use_curvature") {
       params.use_curvature = iv != 0;
     } else if (name == "use_sharp_features") {

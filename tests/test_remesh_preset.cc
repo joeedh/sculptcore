@@ -65,7 +65,6 @@ void testResetAndPreservation()
   remesh::RemeshParams p;
   p.target_quad_count = 1234;
   p.target_edge_length = 0.33f;
-  p.solve_edge_length = 0.2f;
   p.seed = 7u;
   p.field_smoothness = 9.0f; // a prior knob edit the preset must reset
 
@@ -73,7 +72,6 @@ void testResetAndPreservation()
   // Sizing + seed survive.
   TASSERT(p.target_quad_count == 1234);
   TASSERT(p.target_edge_length == 0.33f);
-  TASSERT(p.solve_edge_length == 0.2f);
   TASSERT(p.seed == 7u);
   // Prior edits do not: the preset is defaults + its deltas.
   TASSERT(p.field_smoothness == 1.0f);

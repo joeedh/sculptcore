@@ -53,13 +53,13 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
 float resolveTargetEdgeLength(mesh::Mesh &m, const RemeshParams &params);
 
 /* What the pre_remesh_target = 0 sentinel resolves to on @p m: explicit >
- * solve_edge_length > (count mode) 0.7x the resolved quad edge floored at half
- * the median input edge > explicit target_edge_length. */
+ * (count mode) 0.7x the resolved quad edge floored at half the median input
+ * edge > explicit target_edge_length. */
 float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params);
 
 /* Tier 8b: overwrite @p params with the named preset bundle (defaults + the
  * preset's deltas), preserving the orthogonal sizing fields (target_quad_count
- * / target_edge_length / solve_edge_length) and seed. Returns false (params
+ * / target_edge_length) and seed. Returns false (params
  * untouched) on an unknown name. Names: remeshPresetName. */
 bool applyRemeshPreset(RemeshParams &params, const char *name);
 
