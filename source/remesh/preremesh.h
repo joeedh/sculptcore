@@ -1,5 +1,10 @@
 #pragma once
 
+#include "litestl/math/vector.h"
+#include "litestl/util/hash.h"
+#include "litestl/util/map.h"
+#include "litestl/util/vector.h"
+
 #include <cstdint>
 
 /* Tier 9 input pre-remesh primitives. The field-aligned tangential smooth lives
@@ -14,6 +19,40 @@ struct DynTopoTrace;
 }
 
 namespace sculptcore::remesh {
+
+/* Tier 6.5: snapshot of the mesh's open-boundary polyline (every exactly-1-face
+ * edge) as a segment soup over a uniform hash grid, built once at preRemesh start.
+ * tangentialSmooth slides rim verts along the rim and projects them back onto this
+ * snapshot, so boundary loops relax/coarsen along their original shape instead of
+ * being hard-pinned (9c) or chordally shrinking under collapse-midpoint placement.
+ * Known limit: near-coincident loops (a slit's two sides) share cells, so a
+ * projection can land on the facing loop — the error is bounded by the slit gap. */
+struct BoundaryPolyline {
+  struct Cell {
+    int x, y, z;
+    bool operator==(const Cell &o) const { return x == o.x && y == o.y && z == o.z; }
+    litestl::hash::HashInt computeHash() const
+    {
+      litestl::hash::HashInt h = 1469598103934665603ull;
+      for (int v : {x, y, z})
+        h = (h ^ litestl::hash::HashInt(uint32_t(v))) * 1099511628211ull;
+      return h;
+    }
+  };
+
+  litestl::util::Vector<litestl::math::float3> seg_a, seg_b;
+  litestl::util::Map<Cell, litestl::util::Vector<int>> grid;
+  float cell_size = 0.0f;
+  /* Rim-slide corner gate: a rim vert whose two rim edges' unit dot exceeds this
+   * (-cos of the bend threshold) is a geometric corner — pinned, never slid. */
+  float corner_dot = -0.7071f;
+
+  bool empty() const { return seg_a.size() == 0; }
+  void build(mesh::Mesh &m);
+  /* Nearest point on the soup within max_dist of p; false = none (caller pins). */
+  bool project(const litestl::math::float3 &p, float max_dist,
+               litestl::math::float3 &out) const;
+};
 
 /* Tier 9c feature classification: tag `m`'s open-boundary / non-manifold edges
  * and dihedral-sharp edges (face-normal angle > @p sharp_angle, radians) into the
@@ -41,11 +80,17 @@ void classifyFeatures(mesh::Mesh &m, float sharp_angle);
  * own pinned smooth instead. Default false = the plain geometry-only decimation.
  *
  * @p trace optional granular per-round quality trace (dyntopo_trace.h); the dab
- * appends one RoundQuality per round. null (default) = no tracing, zero cost. */
+ * appends one RoundQuality per round. null (default) = no tracing, zero cost.
+ *
+ * @p feature_corner_angle > 0 adds a geometric gate to the collinear feature-curve
+ * collapse: refuse it when either endpoint's feature curve bends more than this
+ * many radians from straight there (a corner the topological test can't see —
+ * e.g. a square rim, whose corners carry exactly 2 same-type edges). 0 = off. */
 void bkRemeshToTarget(mesh::Mesh &m, float L, uint32_t seed,
                       const char *size_attr = nullptr,
                       bool preserve_features = false,
-                      dyntopo::DynTopoTrace *trace = nullptr);
+                      dyntopo::DynTopoTrace *trace = nullptr,
+                      float feature_corner_angle = 0.0f);
 
 /* Tangential smooth blending isotropic and field-aligned relaxation.
  *
@@ -67,9 +112,18 @@ void bkRemeshToTarget(mesh::Mesh &m, float L, uint32_t seed,
  * tri flipping against the fan normal, or an unfolded adjacent fan-tri pair
  * creasing past 90°); already-folded fans stay free to relax flat. Off by
  * default — it trades smoothing progress for fold safety and breaks the exact
- * iso/field equivalence contracts, so only the 9b driver opts in. */
+ * iso/field equivalence contracts, so only the 9b driver opts in.
+ *
+ * @p boundary (6.5) upgrades the 9c rim pin to constrain-to-polyline: a rim vert
+ * with exactly 2 boundary edges, no incident 2-face crease, and a non-corner bend
+ * (boundary->corner_dot, measured on current geometry) gets a 1D Laplacian slide
+ * along its rim neighbors, clamped and projected back onto the snapshot polyline;
+ * every other boundary-touching vert is pinned. Detection is topological (1-face
+ * edge count), so it works without the .boundary.* overlays (the bootstrap call).
+ * null (default) = the 9c behavior, rim verts hard-pinned via the vert class. */
 void tangentialSmooth(mesh::Mesh &m, int iters, float lambda, float align,
-                      bool fold_guard = false);
+                      bool fold_guard = false,
+                      const BoundaryPolyline *boundary = nullptr);
 
 /* Tier 9b convergence-driver parameters. The driver runs entirely on its mesh
  * argument; the pipeline maps RemeshParams onto this in Tier 9d. Defaults match

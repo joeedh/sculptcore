@@ -19,6 +19,7 @@
 #include "dyntopo/dyntopo_trace.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
+#include "litestl/util/set.h"
 #include "mesh/attribute_builtin.h"
 #include "mesh/boundary.h"
 #include "mesh/mesh.h"
@@ -546,6 +547,134 @@ void testDriverPreservesFeatures()
   litestl::alloc::Delete<Mesh>(cube2);
 }
 
+// A triangulated flat grid with an open border — the 6.5 boundary-sliding fixture:
+// a dense square rim whose 4 corners are geometric corners but topological "clean
+// curve interiors" (exactly 2 same-type feature edges each).
+Mesh *triGrid(int n, float size)
+{
+  Mesh *g = mesh::makeGrid(n, n, size);
+  g->thawTopo();
+  mesh::triangulateMesh(*g);
+  g->recalc_normals();
+  return g;
+}
+
+// 6.5 boundary sliding: the pre-pass must coarsen an open rim ALONG its original
+// polyline — rim verts slide (1D Laplacian + snapshot projection) instead of being
+// hard-pinned (9c), the geometric corner gate keeps the 4 corners immortal even
+// though the topological collapse test can't see them, and nothing drifts off the
+// perimeter or out of plane. The A/B leg reruns the BK pass with the corner gate
+// off (the pre-6.5 behavior), where rim collapse chews the corners away.
+void testBoundarySliding()
+{
+  const int n = 33;
+  const float size = 1.0f;
+  const float spacing = size / float(n - 1);
+  Mesh *g = triGrid(n, size);
+
+  float3 lo0, hi0;
+  bbox(*g, lo0, hi0);
+  const float z0 = lo0[2];
+  float3 corners[4] = {float3(lo0[0], lo0[1], z0), float3(hi0[0], lo0[1], z0),
+                       float3(hi0[0], hi0[1], z0), float3(lo0[0], hi0[1], z0)};
+  auto countCorners = [&](Mesh &m) {
+    int kept = 0;
+    for (int i = 0; i < 4; i++) {
+      float best = 1e30f;
+      for (int v : m.v) {
+        float dd = (m.v.co[v] - corners[i]).length();
+        if (dd < best) best = dd;
+      }
+      if (best < 1e-3f) kept++;
+    }
+    return kept;
+  };
+  auto isBoundaryEdge = [](Mesh &m, int e) {
+    int c1 = m.e.c[e];
+    return c1 != ELEM_NONE && m.c.radial_next[c1] == c1;
+  };
+  auto boundaryStats = [&](Mesh &m, double &len, float &minCornerEdge) {
+    int nbv = 0;
+    len = 0.0;
+    minCornerEdge = 1e30f;
+    litestl::util::Set<int> bv;
+    for (int e : m.e) {
+      if (!isBoundaryEdge(m, e)) {
+        continue;
+      }
+      float3 a = m.v.co[m.e.vs[e][0]], b = m.v.co[m.e.vs[e][1]];
+      float l = (a - b).length();
+      len += double(l);
+      bv.add(m.e.vs[e][0]);
+      bv.add(m.e.vs[e][1]);
+      for (int i = 0; i < 4; i++) {
+        if ((a - corners[i]).length() < 1e-3f || (b - corners[i]).length() < 1e-3f) {
+          if (l < minCornerEdge) minCornerEdge = l;
+        }
+      }
+    }
+    for (int v : bv) {
+      nbv++;
+      // Every rim vert stays on the square perimeter, in plane.
+      float3 p = m.v.co[v];
+      float dx = std::fabs(p[0] - lo0[0]) < std::fabs(p[0] - hi0[0])
+                     ? std::fabs(p[0] - lo0[0])
+                     : std::fabs(p[0] - hi0[0]);
+      float dy = std::fabs(p[1] - lo0[1]) < std::fabs(p[1] - hi0[1])
+                     ? std::fabs(p[1] - lo0[1])
+                     : std::fabs(p[1] - hi0[1]);
+      TASSERT((dx < 2e-3f || dy < 2e-3f) && std::fabs(p[2] - z0) < 1e-3f);
+    }
+    return nbv;
+  };
+
+  double len0;
+  float mce0;
+  int bnd0 = boundaryStats(*g, len0, mce0);
+
+  remesh::PreRemeshParams p;
+  p.target = 0.12f; // ~4x the input spacing => real rim-collapse pressure
+  p.iters = 5;
+  p.align = 1.0f;
+  p.density = false; // uniform band: predictable rim spacing
+  p.preserve_features = true;
+  remesh::preRemesh(*g, p);
+
+  double len1;
+  float mce1;
+  int bnd1 = boundaryStats(*g, len1, mce1);
+  int cornersKept = countCorners(*g);
+  bool planar = true;
+  for (int v : g->v) {
+    planar = planar && std::fabs(g->v.co[v][2] - z0) < 1e-3f;
+  }
+
+  // A/B: one BK pass with the geometric corner gate off (pre-6.5) — the corners
+  // look like clean curve interiors to the topological test, so collapse eats them.
+  Mesh *g2 = triGrid(n, size);
+  remesh::classifyFeatures(*g2, 0.785398f);
+  remesh::bkRemeshToTarget(*g2, p.target, 4242u, nullptr, /*preserve_features=*/true,
+                           nullptr, /*feature_corner_angle=*/0.0f);
+  int cornersNoGate = countCorners(*g2);
+
+  fprintf(stderr,
+          "[driver/bndslide] verts=%d bndVerts %d->%d perim %.4f->%.4f "
+          "minCornerEdge %.4f->%.4f corners=%d/4 noGate=%d/4\n",
+          g->v.count, bnd0, bnd1, len0, len1, mce0, mce1, cornersKept, cornersNoGate);
+
+  TASSERT(finiteCo(*g));
+  TASSERT(planar);                    // tangential flow never leaves the plane
+  TASSERT(cornersKept == 4);          // corner gate + corner-angle pin: immortal
+  TASSERT(bnd1 < bnd0 / 2);           // the rim genuinely coarsened...
+  TASSERT(std::fabs(len1 - len0) < 0.05 * len0); // ...without shrinking the loop
+  TASSERT(mce1 > 1.5f * spacing);     // sliding: corner-adjacent verts migrated out
+                                      // (collapse alone can't grow these — the gate
+                                      // refuses corner-endpoint collapses)
+  TASSERT(cornersNoGate < 4);         // the gate is load-bearing
+  litestl::alloc::Delete<Mesh>(g);
+  litestl::alloc::Delete<Mesh>(g2);
+}
+
 // Pre-pass-scale granular trace (dyntopo_trace.h): attaching a DynTopoTrace to the
 // driver accumulates every outer iter's BK dab rounds into one continuous series,
 // each stamped with its outer iter, so the split bug's sliver behavior is visible
@@ -1004,6 +1133,7 @@ int main()
   testDriverConverges();
   testDriverDensityGrades();
   testDriverPreservesFeatures();
+  testBoundarySliding();
   testPrepassTrace();
   testDriverNoOp();
   testPipelinePreRemeshClean();

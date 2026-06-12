@@ -826,6 +826,36 @@ limits, don't over-promise.**
   loop and tangential smoothing *along* it (1D BK on the rim) — the
   layout-embedding treatment, where boundary nodes slide along the boundary
   ([research/layout-embedding-optimization.md](../research/layout-embedding-optimization.md)).
+  - **DONE (6.5):** constrain-to-polyline landed in `preremesh.{h,cc}` +
+    `dyntopo.h`, under the existing `pre_remesh_preserve_features` (no new
+    params). `BoundaryPolyline` snapshots every exactly-1-face edge as a
+    segment soup over a uniform hash grid (cell = 2× mean segment length,
+    triage.cc's CellKey pattern) **once at `preRemesh` start, before the
+    bootstrap**; `project()` is an expanding-shell nearest-segment query
+    (failure → caller pins). `tangentialSmooth` gained a trailing
+    `boundary` param (null = the 9c hard-pin, byte-identical): a rim vert
+    with exactly 2 rim edges — detected *topologically* (disk-walk 1-face
+    edge count), so the overlay-free bootstrap now protects rims it used to
+    erode — no incident wire/non-manifold/2-face-crease edge, and a
+    non-corner bend (`corner_dot` from `p.sharp_angle`, current geometry)
+    gets a 1D Laplacian slide along its rim neighbors, clamped to 0.5× the
+    min rim edge and projected back onto the snapshot (heals
+    collapse-midpoint/split-chord drift); every other boundary-touching
+    vert is pinned. Collapse side: `DynTopoParams.feature_corner_angle`
+    (default 0 = off; deliberately unbound, like `max_stall_rounds`) adds a
+    geometric corner gate to the collinear feature-curve collapse —
+    refused when an endpoint's two same-type feature edges bend past the
+    threshold, the corner the topological 2-same-type test can't see (a
+    square rim's corners carry exactly 2 boundary edges); `preRemesh`
+    threads `p.sharp_angle` into BK. gtest `testBoundarySliding`
+    (triangulated 33×33 unit grid, target 0.12): **rim 128 → 37 verts,
+    perimeter 4.0000 → 4.0000**, min corner-adjacent rim edge
+    0.0312 → 0.0956 (pure sliding evidence — the gate refuses
+    corner-endpoint collapses, so collapse alone can't grow those edges),
+    corners 4/4 kept and **0/4 without the gate** (a no-gate BK A/B leg
+    pins that it's load-bearing). Known limit: near-coincident loops (a
+    slit's two sides) share grid cells, so a projection can land on the
+    facing loop — error bounded by the slit gap.
 - **Thin double-sided sheets:** the hardest case (cross-field/param degenerate on
   near-zero-thickness shells). For v1, **detect and document as known-poor**;
   optionally route to a fallback or flag in the report rather than silently

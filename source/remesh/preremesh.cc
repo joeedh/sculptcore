@@ -12,6 +12,7 @@
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace sculptcore::remesh {
@@ -53,8 +54,108 @@ void classifyFeatures(Mesh &m, float sharp_angle)
   bnd::recomputeDirty(&m); // build the per-vertex class the smooth/collapse pin on
 }
 
+void BoundaryPolyline::build(Mesh &m)
+{
+  m.thawTopo();
+  double lsum = 0.0;
+  for (int e : m.e) {
+    int c1 = m.e.c[e];
+    if (c1 == ELEM_NONE || m.c.radial_next[c1] != c1) {
+      continue; // wire or interior/non-manifold — only exactly-1-face edges
+    }
+    float3 a = m.v.co[m.e.vs[e][0]], b = m.v.co[m.e.vs[e][1]];
+    seg_a.append(a);
+    seg_b.append(b);
+    lsum += double((b - a).length());
+  }
+  int n = int(seg_a.size());
+  if (n == 0) {
+    return;
+  }
+  cell_size = std::fmax(float(lsum / n) * 2.0f, 1e-12f);
+  const float inv = 1.0f / cell_size;
+  for (int i = 0; i < n; i++) {
+    float3 a = seg_a[i], b = seg_b[i];
+    int lo[3], hi[3];
+    for (int k = 0; k < 3; k++) {
+      lo[k] = int(std::floor(std::fmin(a[k], b[k]) * inv));
+      hi[k] = int(std::floor(std::fmax(a[k], b[k]) * inv));
+    }
+    for (int x = lo[0]; x <= hi[0]; x++) {
+      for (int y = lo[1]; y <= hi[1]; y++) {
+        for (int z = lo[2]; z <= hi[2]; z++) {
+          grid[Cell{x, y, z}].append(i);
+        }
+      }
+    }
+  }
+}
+
+bool BoundaryPolyline::project(const float3 &p, float max_dist, float3 &out) const
+{
+  if (seg_a.size() == 0 || cell_size <= 0.0f || max_dist <= 0.0f) {
+    return false;
+  }
+  const float inv = 1.0f / cell_size;
+  // Map::lookup_ptr has no const overload (the library's contains() const_casts
+  // the same way); the lookup never mutates.
+  auto &cells = const_cast<util::Map<Cell, util::Vector<int>> &>(grid);
+  // Expanding box sweep: nearest-within-r is the true nearest once any hit lands
+  // inside r (a closer segment would intersect the r-ball and so a swept cell).
+  // The shell cap bounds the sweep when max_dist spans many cells (coarsened rim
+  // edges over a fine original rim) — a vert farther off than that is pinned.
+  constexpr int kMaxShell = 16;
+  float best2 = max_dist * max_dist;
+  float3 best{};
+  bool found = false;
+  float r = 2.0f * cell_size;
+  for (;;) {
+    r = std::fmin(r, max_dist);
+    int lo[3], hi[3];
+    for (int k = 0; k < 3; k++) {
+      lo[k] = int(std::floor((p[k] - r) * inv));
+      hi[k] = int(std::floor((p[k] + r) * inv));
+    }
+    for (int x = lo[0]; x <= hi[0]; x++) {
+      for (int y = lo[1]; y <= hi[1]; y++) {
+        for (int z = lo[2]; z <= hi[2]; z++) {
+          const util::Vector<int> *segs = cells.lookup_ptr(Cell{x, y, z});
+          if (!segs) {
+            continue;
+          }
+          for (int i : *segs) {
+            float3 a = seg_a[i], ab = seg_b[i] - a;
+            float dd = ab.lengthSqr();
+            float t = dd > 1e-20f ? (p - a).dot(ab) / dd : 0.0f;
+            t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+            float3 q = a + ab * t;
+            float d2 = (p - q).lengthSqr();
+            if (d2 < best2) {
+              best2 = d2;
+              best = q;
+              found = true;
+            }
+          }
+        }
+      }
+    }
+    if (found && best2 <= r * r) {
+      break;
+    }
+    if (r >= max_dist || r >= float(kMaxShell) * cell_size) {
+      break;
+    }
+    r *= 2.0f;
+  }
+  if (found) {
+    out = best;
+  }
+  return found;
+}
+
 void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
-                      bool preserve_features, dyntopo::DynTopoTrace *trace)
+                      bool preserve_features, dyntopo::DynTopoTrace *trace,
+                      float feature_corner_angle)
 {
   m.thawTopo();
 
@@ -91,6 +192,7 @@ void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
   // so it would drift them off a crease. Geometry-only mode keeps it on.
   dp.do_smooth = !preserve_features;
   dp.preserve_features = preserve_features; // caller ran classifyFeatures first
+  dp.feature_corner_angle = feature_corner_angle;
   dp.max_rounds = 100;
   dp.size_attr = size_attr; // null = uniform; set = per-vertex curvature sizing
   dp.trace = trace;         // null = no tracing; set = append this dab's rounds
@@ -224,7 +326,8 @@ void liftFieldToVerts(Mesh &m, util::Vector<float3> &vU, util::Vector<float3> &v
 
 } // namespace
 
-void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_guard)
+void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_guard,
+                      const BoundaryPolyline *boundary)
 {
   m.thawTopo();
 
@@ -246,6 +349,12 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
     vclass.ensure(m.v.attrs);
   }
 
+  // 6.5: with a boundary snapshot, a crease edge reaching the rim makes its rim
+  // vert a corner-like junction (pinned, not slid). Absent overlay ⇒ no creases.
+  mesh::BoolAttrView *sharp =
+      boundary ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SHARP)
+               : nullptr;
+
   util::Vector<float3> nco;
   nco.resize(int(m.v.capacity()));
   util::Vector<float3> ring;
@@ -253,6 +362,69 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
   for (int it = 0; it < iters; it++) {
     for (int v : m.v) {
       float3 vco = m.v.co[v];
+      // 6.5 rim handling (only with a boundary snapshot): slide clean rim verts
+      // along the rim and project back onto the snapshot; pin every other
+      // boundary-touching vert. Detection is topological (1-face edge count) so
+      // it also covers the overlay-free bootstrap call.
+      if (boundary) {
+        int eb = m.v.e[v];
+        int nbnd = 0;
+        bool bpin = false; // wire / non-manifold / crease-rim → hard pin
+        float3 rn[2];
+        if (eb != ELEM_NONE) {
+          int ec = eb, guard = 0;
+          do {
+            int side = m.e.vs[ec][0] == v ? 0 : 1;
+            int c1 = m.e.c[ec];
+            if (c1 == ELEM_NONE) {
+              bpin = true; // wire edge
+            } else {
+              int c2 = m.c.radial_next[c1];
+              if (c2 == c1) {
+                if (nbnd < 2) {
+                  rn[nbnd] = m.v.co[m.e.vs[ec][side ^ 1]];
+                }
+                nbnd++;
+              } else if (m.c.radial_next[c2] != c1) {
+                bpin = true; // non-manifold edge
+              } else if (sharp && (*sharp)[ec]) {
+                bpin = true; // interior crease meets the rim
+              }
+            }
+            ec = m.e.disk[ec][side * 2 + 1];
+          } while (ec != eb && ++guard < 256);
+        }
+        if (nbnd > 0) {
+          float l0 = 0.0f, l1 = 0.0f;
+          bool slide = !bpin && nbnd == 2;
+          if (slide) {
+            float3 d0 = rn[0] - vco, d1 = rn[1] - vco;
+            l0 = d0.length();
+            l1 = d1.length();
+            // Corner gate on current geometry: a bend sharper than corner_dot
+            // pins true corners and high-curvature rim runs alike — corner
+            // verts measure their true angle from iter 0, no corner list.
+            slide = l0 > 1e-20f && l1 > 1e-20f &&
+                    d0.dot(d1) <= boundary->corner_dot * l0 * l1;
+          }
+          if (!slide) {
+            nco[v] = vco; // corner / junction / crease-rim: pinned as in 9c
+            continue;
+          }
+          // 1D Laplacian along the rim, clamped, then projected back onto the
+          // snapshot polyline (also heals collapse-mid / split-chord drift).
+          float3 d = (rn[0] + rn[1]) * 0.5f - vco;
+          float dl = d.length();
+          float dmax = 0.5f * std::fmin(l0, l1);
+          if (dl > dmax && dl > 1e-20f) {
+            d = d * (dmax / dl);
+          }
+          float3 np = vco + d * lambda;
+          float3 proj;
+          nco[v] = boundary->project(np, std::fmax(l0, l1), proj) ? proj : vco;
+          continue;
+        }
+      }
       if (have_feat && vclass[v] != 0) {
         nco[v] = vco; // pinned feature vert — don't slide it off its curve
         continue;
@@ -460,6 +632,17 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
     return; // no-op guard (the pipeline resolves target == 0 → target_edge_length)
   }
 
+  // 6.5: snapshot the input's boundary polyline before anything moves. Both
+  // smooth call sites (bootstrap included — rim detection is topological, so it
+  // needs no overlay and boundary-ness is noise-immune) slide rim verts along it
+  // instead of pinning (9c) or eroding (pre-9c bootstrap) them.
+  BoundaryPolyline bnd;
+  if (p.preserve_features) {
+    bnd.build(m);
+    bnd.corner_dot = -std::cos(p.sharp_angle);
+  }
+  const BoundaryPolyline *bndp = !bnd.empty() ? &bnd : nullptr;
+
   // 1. Bootstrap: isotropic denoise sweeps before the field is trusted — a
   //    field-aligned smooth over a still-noisy field over-regularizes to its noise.
   //    9c: features are classified AFTER this, inside the loop, so the bootstrap
@@ -468,7 +651,7 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
   //    input that should keep crisp features from the start sets bootstrap_iters=0.
   if (p.bootstrap_iters > 0) {
     tangentialSmooth(m, p.bootstrap_iters, p.smooth_lambda, 0.0f,
-                     /*fold_guard=*/true);
+                     /*fold_guard=*/true, bndp);
   }
 
   const int cadence = p.field_cadence > 0 ? p.field_cadence : 1;
@@ -515,7 +698,7 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
     //    accumulated series reads as one continuous multi-iter time-line.
     size_t trace0 = p.trace ? p.trace->rounds.size() : 0;
     bkRemeshToTarget(m, L, p.seed + uint32_t(it) + 1u, size_attr,
-                     p.preserve_features, p.trace);
+                     p.preserve_features, p.trace, p.sharp_angle);
     if (p.trace) {
       for (size_t i = trace0; i < p.trace->rounds.size(); i++) {
         p.trace->rounds[i].iter = it;
@@ -539,7 +722,7 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
       }
     }
     tangentialSmooth(m, p.smooth_iters, p.smooth_lambda, p.align,
-                     /*fold_guard=*/true);
+                     /*fold_guard=*/true, bndp);
     if (stats) {
       stats->iters_run = it + 1;
     }

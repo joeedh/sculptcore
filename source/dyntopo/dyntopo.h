@@ -119,6 +119,11 @@ struct DynTopoParams {
    * verts are pinned against flip/smooth and only collapse *along* their own
    * collinear feature curve. Off = the original feature-agnostic remesh. */
   bool preserve_features = true;
+  /* Geometric corner gate on the collinear feature-curve collapse: refuse it
+   * when either endpoint's two feature edges bend more than this angle (radians)
+   * from straight — a corner the topological test can't see when both its edges
+   * carry one feature type (e.g. a square rim's corners). 0 (default) = off. */
+  float feature_corner_angle = 0.0f;
 
   /* Limit-cycle early-out. Stops a dab once it has run this many *consecutive*
    * low-progress rounds (<= 2 split+collapse ops each) — the signature of a
@@ -585,19 +590,24 @@ struct FeatureViews {
  * endpoints must be simple interior points of one uniform feature curve (exactly
  * two incident feature edges, all sharing e's exact feature-type signature, no
  * junction/corner). This lets a feature line coarsen without tearing or eroding
- * corners. (Decision B: pin + collinear collapse.) */
-inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat)
+ * corners. (Decision B: pin + collinear collapse.) corner_angle > 0 adds the
+ * geometric gate: an endpoint whose curve bends more than that from straight is
+ * a corner too, even though it carries exactly two same-type edges. */
+inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat,
+                              float corner_angle = 0.0f)
 {
   int em = feat.edgeMask(e);
   if (em == 0) {
     return false;
   }
+  const float corner_dot = corner_angle > 0.0f ? -std::cos(corner_angle) : 2.0f;
   for (int side = 0; side < 2; side++) {
     int v = m.e.vs[e][side];
     if (m.v.e[v] == ELEM_NONE) {
       return false;
     }
     int sameType = 0;
+    litestl::math::float3 dir[2];
     for (int ei : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
       int eim = feat.edgeMask(ei);
       if (eim == 0) {
@@ -606,10 +616,20 @@ inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat)
       if (eim != em) {
         return false; /* junction / mixed feature types -> corner, don't collapse */
       }
+      if (sameType < 2) {
+        int ov = m.e.vs[ei][0] == v ? m.e.vs[ei][1] : m.e.vs[ei][0];
+        dir[sameType] = m.v.co[ov] - m.v.co[v];
+      }
       sameType++;
     }
     if (sameType != 2) {
       return false; /* endpoint is a feature end / corner, not a clean interior */
+    }
+    if (corner_angle > 0.0f) {
+      float l0 = dir[0].length(), l1 = dir[1].length();
+      if (l0 > 1e-20f && l1 > 1e-20f && dir[0].dot(dir[1]) > corner_dot * l0 * l1) {
+        return false; /* geometric corner: the curve bends here */
+      }
     }
   }
   return true;
@@ -805,7 +825,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
           bool fv1 = feat.isFeatureVert(m.e.vs[e][1]);
           if (fv0 || fv1) {
             if (feat.isFeatureEdge(e)) {
-              if (!detail::featureCollapseOk(m, e, feat)) {
+              if (!detail::featureCollapseOk(m, e, feat, p.feature_corner_angle)) {
                 return; /* corner / junction / mixed curve: don't collapse */
               }
             } else {
