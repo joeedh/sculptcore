@@ -1050,4 +1050,11 @@ struct CommandExecutor {
     }
   }
 };
+
+// Declared in accum_mode.h; CoProxy::commit uses it to derive the layer cap.
+inline float dabFalloffFraction(const CommandExecutor &exec, const float3 &co)
+{
+  float t = 1.0f - std::min(exec.brush->falloffDist(co - exec.ctx.surfacePos), 1.0f);
+  return exec.brush->falloffEval(t);
+}
 } // namespace sculptcore::brush

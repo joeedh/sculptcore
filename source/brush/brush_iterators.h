@@ -28,7 +28,7 @@ template <class AccMode> struct BasicVertexIter {
 
     PtrHelper(float3 &co_, const float3 *base_, float3 &no_, float &mask_, int v,
               CommandExecutor &ctx)
-        : co{co_, base_}, no(no_), mask(mask_), v(v), ctx(ctx)
+        : co{co_, base_, &ctx}, no(no_), mask(mask_), v(v), ctx(ctx)
     {
     }
     PtrHelper(const PtrHelper &b)

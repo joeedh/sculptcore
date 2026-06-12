@@ -3,8 +3,9 @@
 // converge instead of stacking. This drives the C++ executor's AccumOrig path
 // through the debug-app script harness (`set_brush nonaccum=1`, `stroke
 // repeat=N`) and asserts the three plan invariants:
-//   (a) saturation   — non-accum repeat=8 ~= repeat=1 (one dab's push), while
-//                       accumulate repeat=8 grows well past it;
+//   (a) saturation   — non-accum builds up to the no-falloff layer cap and
+//                       stops (repeat=16 == repeat=8), while accumulate
+//                       repeat=8 grows well past it;
 //   (b) base fallback — a non-accum smooth stroke leaves unstamped neighbors
 //                       reading their live position (no collapse toward origin);
 //   (c) cross-stroke  — four separate non-accum strokes (generation bumps each)
@@ -57,19 +58,24 @@ int main()
   setvbuf(stdout, nullptr, _IONBF, 0);
 
   // (a) Saturation. The draw kernel pushes v.co by surfaceNo*strength(v.co)*r/2.
-  // Under AccumOrig, strength() reads the stroke-start position, so every dab in
-  // one stroke computes the same offset from the same base => repeated dabs land
-  // on the identical result (exact convergence). Accumulate re-reads the live
+  // Under AccumOrig each dab's delta accumulates, clamped at the no-falloff
+  // displacement strength*r/2 (the layer cap): falloff sets the build-up rate,
+  // not the final height. The peak vert is near cap after one dab and exactly
+  // on it after a few, so repeat=16 == repeat=8. Accumulate re-reads the live
   // (already-pushed) position each dab, so it keeps climbing.
   float na1 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
                        "stroke origin=0,0,0.25 normal=0,0,1 repeat=1\n");
   float na8 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
                        "stroke origin=0,0,0.25 normal=0,0,1 repeat=8\n");
+  float na16 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                        "stroke origin=0,0,0.25 normal=0,0,1 repeat=16\n");
   float ac8 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=0\n"
                        "stroke origin=0,0,0.25 normal=0,0,1 repeat=8\n");
-  fprintf(stderr, "(a) na1=%.5f na8=%.5f ac8=%.5f\n", na1, na8, ac8);
+  fprintf(stderr, "(a) na1=%.5f na8=%.5f na16=%.5f ac8=%.5f\n", na1, na8, na16, ac8);
   test_assert(na1 > 0.0f);                       // the dab actually pushed
-  test_assert(std::fabs(na8 - na1) < 1e-4f);     // non-accum saturates
+  test_assert(na8 > na1 - 1e-5f);                // builds toward the cap, never down
+  test_assert(na8 < na1 * 1.25f);                // ...but stays near one dab's push
+  test_assert(std::fabs(na16 - na8) < 1e-4f);    // non-accum saturates at the cap
   test_assert(ac8 > na8 * 1.5f);                 // accumulate keeps growing
 
   // (c) Cross-stroke. Each `stroke` verb bumps the non-accumulate generation, so
@@ -84,7 +90,7 @@ int main()
                          "stroke origin=0,0,0.25 normal=0,0,1\n"
                          "stroke origin=0,0,0.25 normal=0,0,1\n");
   fprintf(stderr, "(c) na_rep4=%.5f na_x4=%.5f\n", na_rep4, na_x4);
-  test_assert(std::fabs(na_rep4 - na1) < 1e-4f); // one stroke still saturates
+  test_assert(std::fabs(na_rep4 - na8) < 1e-4f); // one stroke still saturates
   test_assert(na_x4 > na_rep4 * 1.5f);           // old stamps ignored across strokes
 
   // (b) Base fallback. A non-accum smooth on the flat +Z face: stamped verts
@@ -171,8 +177,8 @@ int main()
 
   // (e) Envelope retention. A moving non-accum stroke (left to right across the
   // +Z face): mid-path verts get their full push while the brush is over them,
-  // then later dabs only cover them weakly. The max-magnitude envelope keeps
-  // the strongest displacement; without it each later dab rewrites live from
+  // then later dabs only cover them weakly. The additive layer accumulator only
+  // ever grows toward the cap; without it each later dab rewrites live from
   // base with its (fading) falloff and the trailing edge snaps back (~10% of
   // the full push instead of ~100%).
   {
@@ -202,6 +208,41 @@ int main()
     fprintf(stderr, "(e) pushMid=%.5f pushEnd=%.5f\n", pushMid, pushEnd);
     test_assert(pushEnd > 0.0f);             // the stroke reached the far end
     test_assert(pushMid > 0.7f * pushEnd);   // trailing edge held its push
+  }
+
+  // (f) Layer uniformity. Repeated dabs build every vert up to the same
+  // no-falloff cap, so the dab's core flattens into a plateau instead of a
+  // falloff-shaped dome: after repeat=8 the central band's min push is within
+  // a few percent of its max.
+  {
+    Scene scene(256, 256, /*headless=*/true);
+    auto r = script::run(scene,
+                         "make_cube subdivs=12 size=0.5\n"
+                         "build_spatial leaf_limit=256 depth_limit=8\n"
+                         "set_backend backend=cpp\n"
+                         "set_brush_tool tool=draw\n"
+                         "set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                         "stroke origin=0,0,0.25 normal=0,0,1 repeat=8\n",
+                         ".");
+    test_assert(r.ok);
+    if (!r.ok) {
+      fprintf(stderr, "  (f) line %d: %s\n", r.line_no, r.error.c_str());
+      return 1;
+    }
+    Mesh *m = scene.mesh;
+    float minPush = 1e30f, maxPush = 0.0f;
+    int band = 0;
+    for (int i = 0; i < m->v.count; i++) {
+      float3 co = m->v.co[i];
+      if (co[2] < 0.2f || std::fabs(co[0]) > 0.1f || std::fabs(co[1]) > 0.1f) continue;
+      minPush = std::fmin(minPush, co[2] - 0.25f);
+      maxPush = std::fmax(maxPush, co[2] - 0.25f);
+      band++;
+    }
+    fprintf(stderr, "(f) band=%d minPush=%.5f maxPush=%.5f\n", band, minPush, maxPush);
+    test_assert(band > 0);
+    test_assert(maxPush > 0.0f);
+    test_assert(minPush > 0.95f * maxPush);  // plateau, not a dome
   }
 
   return test_end();

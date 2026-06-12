@@ -1,0 +1,18 @@
+# A/B script: a multi-dab non-accumulate draw stroke under the cpp then wgsl
+# backend gate. Non-accumulate measures each dab from the stroke-start
+# positions: CPU via the .brush.orig.* generational snapshot (AccumOrig),
+# GPU via the orig_co buffer captured at beginStroke (binding 22).
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=draw
+set_brush radius=0.25 strength=0.5 nonaccum=1
+
+set_backend backend=cpp
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=6 normal=0,0,1
+dump_state out=draw_nonaccum_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=6 normal=0,0,1
+dump_state out=draw_nonaccum_wgsl.json

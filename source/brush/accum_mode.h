@@ -2,6 +2,7 @@
 
 #include "litestl/math/vector.h"
 #include "mesh/attribute.h"
+#include <cmath>
 #include <concepts>
 
 // Non-accumulate brush mode (see plans/nonAccumMode.md). Within one stroke,
@@ -46,6 +47,11 @@ struct AccumOrig {
   }
 };
 
+struct CommandExecutor;
+// Falloff *fraction* of the active dab at `co` (falloffEval only — no
+// strength/mask/texture). Defined inline in brush_executor.h.
+float dabFalloffFraction(const CommandExecutor &exec, const float3 &co);
+
 // Read-base / write-live proxy standing in for a vertex's `v.co` inside a
 // generated kernel. Under AccumOrig, reads return the stroke-start position
 // until the first write; a write computes from that base and latches to live,
@@ -55,14 +61,20 @@ struct AccumOrig {
 // (so `proxy - float3` would otherwise need an implicit conversion the compiler
 // won't chain through the member operator).
 //
-// AccumOrig writes are a max-magnitude displacement *envelope*: a dab's write
-// lands only if its displacement from base exceeds the one already applied
-// (live - base, valid because dyntopo coherence moves orig_co in lockstep).
-// Without this, a moving stroke's trailing edge snaps verts back toward base
-// as the falloff fades. Mirrored in WGSL by emit_wgsl.cc's write-back.
+// AccumOrig writes accumulate like Blender's Layer brush: each dab's delta is
+// *added* to the displacement already applied (live - base, valid because
+// dyntopo coherence moves orig_co in lockstep), and the total is clamped to
+// the dab's no-falloff displacement |delta|/w (w = falloff fraction at base).
+// Falloff thus controls build-up *rate*, not final height, so a scrubbed
+// stroke builds a uniform layer instead of a falloff-shaped dome — and a
+// moving stroke's trailing edge can never snap back toward base. The cap
+// keeps strength/mask/texture (they scale |delta| but not w), so a mask
+// proportionally lowers the layer height. Mirrored in WGSL by emit_wgsl.cc's
+// write-back.
 template <class AccMode> struct CoProxy {
   float3 &live;
   const float3 *basePtr;
+  const CommandExecutor *exec = nullptr;
   bool written = false;
 
   float3 cur() const { return (AccMode::reads_base && !written) ? *basePtr : live; }
@@ -71,10 +83,24 @@ template <class AccMode> struct CoProxy {
   void commit(const float3 &want)
   {
     if constexpr (AccMode::reads_base) {
-      const float3 d_cand = want - *basePtr;
-      const float3 d_prev = live - *basePtr;
-      if (d_cand.dot(d_cand) > d_prev.dot(d_prev)) {
-        live = want;
+      const float3 d_cand = want - cur();
+      const float candSq = d_cand.dot(d_cand);
+      if (candSq != 0.0f) {
+        const float3 d_prev = live - *basePtr;
+        float3 acc = d_prev + d_cand;
+        const float prevSq = d_prev.dot(d_prev);
+        // Cap at the no-falloff displacement; never below what's already
+        // applied (a weak or no-op later dab must not erode the layer).
+        float capSq = prevSq;
+        const float w = exec ? dabFalloffFraction(*exec, *basePtr) : 0.0f;
+        if (w > 1e-6f) {
+          capSq = std::fmax(candSq / (w * w), prevSq);
+        }
+        const float accSq = acc.dot(acc);
+        if (accSq > capSq) {
+          acc *= std::sqrt(capSq / accSq);
+        }
+        live = *basePtr + acc;
       }
     } else {
       live = want;
