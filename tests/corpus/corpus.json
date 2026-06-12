@@ -1,0 +1,53 @@
+{
+  "schema": "remesh-corpus/1",
+  "seed": 1,
+  "assets": [
+    {
+      "name": "simple-closed",
+      "asset": "Simple.obj",
+      "category": "clean-baseline",
+      "note": "Small clean closed control mesh — the sanity baseline. Any quality regression here is a real one, not an artifact of ugly input.",
+      "params": { "target": 0.2 }
+    },
+    {
+      "name": "anime-girl",
+      "asset": "AnimeGirl2.obj",
+      "category": "meshy-character",
+      "note": "Dense (~74k vert, coarsened from 390k) Meshy-style character — the headline dense-organic target. Runs the Tier-9 field-aligned pre-remesh (the --solve decimation's successor) to stay tractable; pre-remesh-target matches the old decimation edge length.",
+      "params": { "target": 0.05, "pre-remesh": 1, "pre-remesh-target": 0.05 }
+    },
+
+    {
+      "name": "raw-scan",
+      "asset": "scan_raw.obj",
+      "category": "photogrammetry-scan",
+      "available": false,
+      "note": "PLACEHOLDER (drop the asset in tests/assets or point `asset` at an absolute path). Raw photogrammetry scan: noisy normals, non-manifold edges, floating speckles.",
+      "params": { "target": 0.02, "pre-remesh": 1, "pre-remesh-target": 0.03 }
+    },
+    {
+      "name": "thin-clothing",
+      "asset": "clothing_thin.obj",
+      "category": "thin-sheet",
+      "available": false,
+      "note": "PLACEHOLDER. Thin-sheet clothing/cloth: near-coincident double walls that fold the cross field.",
+      "params": { "target": 0.015, "pre-remesh": 1, "pre-remesh-target": 0.025 }
+    },
+    {
+      "name": "holed-face",
+      "asset": "face_holed.obj",
+      "category": "holed-organic",
+      "available": false,
+      "note": "PLACEHOLDER. Character face with eye/mouth holes and a few non-manifold fan verts — stresses boundary-loop handling.",
+      "params": { "target": 0.015, "pre-remesh": 1, "pre-remesh-target": 0.025 }
+    },
+    {
+      "name": "multi-accessory",
+      "asset": "accessory_multi.obj",
+      "category": "multi-component",
+      "available": false,
+      "note": "PLACEHOLDER. Multi-component accessory (belt + buckles + straps): several disconnected shells of very different scale — stresses per-component handling and the adjacent-area ratio.",
+      "params": { "target": 0.02, "pre-remesh": 1, "pre-remesh-target": 0.03 }
+    }
+  ]
+}

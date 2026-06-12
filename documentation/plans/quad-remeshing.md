@@ -28,12 +28,86 @@ inline below where they motivate a specific implementation choice.
 
 ---
 
-## Status (updated 2026-06-06)
+## Status (updated 2026-06-07)
 
-**Not yet implemented.** `source/remesh/` does not exist; M1…M6 are all open.
-This section records what has changed in `sculptcore` *since the plan was first
-written* so the milestone bodies below can be read against the current tree.
-The corrections are folded into the relevant sections; the headline changes:
+**M1–M6h complete** (the feature is end-to-end). The C++ core (`source/remesh/`)
+is green under `node make.mjs test` (`tests/test_remesh_extract.cc` is the M6
+gate: grid / cylinder / torus / sphere / capped-cylinder + reprojection +
+end-to-end `QuadRemesh` + `Simple.obj` (the ARAP-untangle fixture)), and runs on
+both backends (WASM export + native N-API
+wrapper). **M6h — host-side TS integration — is now done:** `LiteMesh.quadRemesh`
+constructs a `RemeshParams`, calls `Mesh_quadRemesh`, and swaps in the result;
+the `litemesh.quad_remesh()` ToolOp makes it undoable. It is guarded by
+`tests/integration/litemesh_quad_remesh.test.ts`, which boots **both** backends
+headlessly and checks: driver runs cleanly, the mesh changes, undo restores /
+redo reapplies, the two backends agree on input + output topology fingerprints,
+the remeshed `LiteMesh` has populated GPU buffers, and the native↔WASM dumps
+match within tolerance (6/6 green). The auto-only v1 ships now; the user-painted
+constraint layers (density / poles / strokes) remain deferred (see the M6h notes
+and `buildTriCopy`'s TODO).
+
+Five findings worth recording before the milestone bodies are read:
+
+- **The WASM main-thread stack must be enlarged (`-sSTACK_SIZE=8388608`).** This
+  was the single hardest bug in M6h and is *not* obvious from the C++. Emscripten
+  5.0.6 defaults the main-thread stack to **64 KB**; the Eigen-heavy pipeline
+  (cross-field solve, ILP quantization, cut-graph, extraction) runs synchronously
+  on the main thread and overflows it. With `STACK_OVERFLOW_CHECK` off (the
+  default) the overflow is **silent** — it writes past `__stack_low` into the
+  static-data region just below, corrupting e.g. a static type descriptor's
+  `destructorThunk` (→ a `call_indirect` signature-mismatch trap inside
+  `LSTL_Destructor_Invoke` at `[Symbol.dispose]`) and intermediate pipeline state
+  (→ `extractQuadMesh` returns nullptr). Native is immune (multi-MB OS stack);
+  the litestl canary allocator only tracks *heap* blocks so static-data
+  corruption is invisible to it. The fix is the 8 MB `STACK_SIZE` in
+  `CMakeLists.txt`'s `BUILD_WASM` block (128× the default, < the 16 MB default
+  `INITIAL_MEMORY`). **Any future main-thread Eigen op must respect this.**
+
+- **Sphere/poles need local-injectivity stiffening.** The linear MIQ map is not
+  guaranteed injective and folds in the singularity 1-rings (a UV sphere's poles,
+  any cone). `computeQuantization` runs a post-rounding stiffening pass
+  (`QuantizeParams::inj_iters`, default 25): each round ramps a Dirichlet+RHS
+  weight on the folded faces and their 1-ring — capped below the locked-grid
+  penalties — and keeps the lowest-fold solve. With it the low-res UV sphere
+  extracts a clean closed quad mesh (Euler 2, no inversions); without it ~9 faces
+  invert at the poles.
+- **Closed inputs can leave odd-loop cap holes (accepted).** Extraction skips
+  folded faces and fan-closes the even boundary rings that leaves behind, but a
+  ring whose quantized length is *odd* cannot be closed by a pure-quad fan, so it
+  is left open. The capped cylinder hits this (two odd cap rims → Euler 0, not 2);
+  the result stays all-quad + manifold + inversion-free + spiral-free, which is
+  the guarantee the gate enforces. Closing odd rings would require a triangle or a
+  T-junction, both of which break the all-quad contract, so it is out of scope.
+- **A global feasibility gate** rejects hopelessly tangled maps: if >10% of faces
+  fold, `extractQuadMesh` returns `nullptr` (clean failure) rather than
+  rasterizing runaway non-manifold output — the plan's "gate M5 behind a
+  feasibility check, fall back rather than hard-fail" risk mitigation.
+- **Rounded organic blobs need an ARAP untangle continuation.** The
+  injectivity-stiffening pass above clears the *isolated* cone-1-ring folds of a
+  sphere/cone, but on a rounded organic surface (`tests/assets/Simple.obj`) the
+  *exactly-seamless* map folds **~a third of all faces** at once — too many for
+  local stiffening, and past the 10% gate, so extraction returned `nullptr`. Root
+  cause: M5's seam-consistency penalty (`lam_seam·||B·x_b − A·x_a||²`,
+  `lam_seam=1e6`) fights the cross field wherever the field curls; the fold
+  fraction scales directly with `lam_seam` (~0% at 0.1, ~34% at 1e6). A single
+  low-`lam_seam` solve is injective but not seamless (integers can't lock). The
+  fix (`QuantizeParams::untangle_fold_threshold`, default 0.10): after the initial
+  seamless solve, if the fold fraction exceeds the threshold, **walk `lam_seam`
+  geometrically up from 0.1 → 1e6** (16 steps × 3 inner solves), retargeting every
+  face's RHS to the nearest proper rotation of its *realized* gauged Jacobian at
+  each step (`rot_all`, pure ARAP). The map starts injective at low seam weight
+  and stays injective as the seams tighten back to seamless. Simple.obj then folds
+  ~1.5% and extracts a clean all-quad, spiral-free mesh. The fallback is inert on
+  inputs already under the threshold (the sphere/cylinder/torus/capcyl fixtures
+  never trigger it), so it is a pure rescue path, not a behavior change.
+  **Geometry prefiltering is the wrong lever here** (tried and reverted): smoothing
+  / decimating / cleaning the *input triangles* does not move the fold fraction,
+  because the folds are a property of the field-aligned *parametrization*, not of
+  the input tessellation — the cure has to act at the parametrization level (the
+  ARAP continuation), not on the mesh going in.
+
+The corrections below are folded into the relevant sections; the headline changes
+in the codebase *since the plan was first written*:
 
 - **Dual backend now exists.** sculptcore runs through two interchangeable
   backends behind one `IWasmInterface`: **WASM** (browser) and **native N-API**
@@ -60,7 +134,7 @@ The corrections are folded into the relevant sections; the headline changes:
   added for picking) but there is **still no closest-point query** — M1's
   `findClosest` task is genuinely still needed.
 - **Eigen path confirmed.** The build-wired copy is
-  `source/litestl/extern/eigen/include/eigen3/Eigen/` (the one
+  `source/litestl/extern/eigen/include/eigen5/Eigen/` (the one
   `source/litestl/math/matrix.h` includes from); it has the full module set
   (`Sparse`, `SparseLU`, `SparseCholesky`/`SimplicialLDLT`,
   `IterativeLinearSolvers`). The top-level `extern/eigen_dist/` is an **unwired
@@ -118,9 +192,9 @@ From the exploration of the codebase:
   barycentric attribute transfer when extracting new quad vertices instead
   of hand-rolling per-layer blending.
 - **Eigen sparse**: vendored at
-  `source/litestl/extern/eigen/include/eigen3/Eigen/` — the build-wired copy
+  `source/litestl/extern/eigen/include/eigen5/Eigen/` — the build-wired copy
   (`source/litestl/math/matrix.h` already includes from it, e.g.
-  `#include "eigen/include/eigen3/Eigen/Core"`). It carries the full module
+  `#include "eigen/include/eigen5/Eigen/Core"`). It carries the full module
   set: use `Eigen::SparseMatrix<double>` + `SimplicialLDLT`
   (`Eigen/Sparse` → `Eigen/SparseCholesky`) for SPD field/param solves,
   `SparseLU` where needed, `IterativeLinearSolvers` if a CG fallback helps.
@@ -479,6 +553,25 @@ exposes spiraling whenever M5's quantization is wrong. A naive
 cross-field/param result on that model that spirals must *fail* this
 test, so it genuinely guards the guarantee rather than just smoke-testing
 completion.
+
+**Implemented (M6g).** The gate is `tests/test_remesh_extract.cc`: grid (Euler 1),
+uncapped cylinder (Euler 0), torus (Euler 0), sphere (Euler 2), capped cylinder,
+reprojection, and the end-to-end `QuadRemesh` on sphere + torus. Two deviations
+from the criterion above, both deliberate:
+
+- **Capped cylinder is gated gracefully, not at Euler 2.** Its two cap rims
+  quantize to *odd* grid loops that a pure-quad fan cannot close, so the caps are
+  left open (Euler 0). The test asserts the all-quad guarantee instead — all-quad
+  + manifold + consistent winding + no inversions + no degenerate faces +
+  **no spirals** — which is what the pipeline actually promises (see the
+  odd-loop-hole note in the Status section).
+- **AnimeGirl2.obj is an opt-in stress gate (`REMESH_ANIME=1`), not a default
+  test.** At ~785k triangles a full MIQ solve is minutes-long and far too heavy
+  for the per-commit suite; the synthetic shapes already machine-check the
+  no-spiral guarantee on every run. When enabled it asserts the headline no-spiral
+  + all-quad criteria on the organic input (Euler / inversions are reported but
+  not gated — an organic surface produces the same odd-loop cap holes and
+  occasional reprojection drift, both accepted).
 
 ---
 

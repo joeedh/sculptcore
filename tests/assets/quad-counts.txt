@@ -1,0 +1,5 @@
+# Per-asset target quad counts (<stem> <count>);
+# maintained by the remesh debug app's save button.
+an-elegant-fox-character 15000
+AnimeGirl2 15000
+Simple 15000

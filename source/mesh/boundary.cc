@@ -185,10 +185,16 @@ void markFaceDirty(MeshBase *m, int f)
 
 void markAllDirty(MeshBase *m)
 {
+  // Iterate the full index range and skip freed slots (count is the live count,
+  // not a valid index bound on a non-compact mesh — see recomputeDirty).
   BoolAttrView *eDirty = ensureBoolEdge(m, EDGE_DIRTY, true);
-  for (int e = 0; e < m->e.count; e++) eDirty->set(e, true);
+  const int ecap = int(m->e.capacity());
+  for (int e = 0; e < ecap; e++)
+    if (!m->e.freemap[e]) eDirty->set(e, true);
   BoolAttrView *vDirty = ensureBoolVert(m, VERT_DIRTY, true);
-  for (int v = 0; v < m->v.count; v++) vDirty->set(v, true);
+  const int vcap = int(m->v.capacity());
+  for (int v = 0; v < vcap; v++)
+    if (!m->v.freemap[v]) vDirty->set(v, true);
   m->boundaryDirty = true;
 }
 
@@ -210,9 +216,13 @@ void recomputeDirty(MeshBase *m)
   BoolAttrView *eUvDerive = uvCorner ? ensureBoolEdge(m, EDGE_UVCHART, true) : nullptr;
 
   // Pass 1: recompute derived flags for dirty edges, and dirty their endpoints
-  // so the affected vertex classifications refresh too.
-  for (int e = 0; e < m->e.count; e++) {
-    if (!eDirty->get(e)) continue;
+  // so the affected vertex classifications refresh too. Iterate the full index
+  // range and skip freed slots — after a topology edit (collapse frees, split
+  // grows capacity) the mesh is non-compact, so live elements sit at indices
+  // >= count and `count` is NOT a valid loop bound.
+  const int ecap = int(m->e.capacity());
+  for (int e = 0; e < ecap; e++) {
+    if (m->e.freemap[e] || !eDirty->get(e)) continue;
     ePoly->set(e, computePolygroupBoundary(m, e, faceGroup));
     if (eUvDerive) {
       eUvDerive->set(e, computeUvChartBoundary(m, e, uvCorner));
@@ -224,8 +234,9 @@ void recomputeDirty(MeshBase *m)
 
   // Pass 2: recompute the classification bitmask of every dirty vertex from its
   // incident edges' boundary flags.
-  for (int v = 0; v < m->v.count; v++) {
-    if (!vDirty->get(v)) continue;
+  const int vcap = int(m->v.capacity());
+  for (int v = 0; v < vcap; v++) {
+    if (m->v.freemap[v] || !vDirty->get(v)) continue;
     int cls = BC_NONE;
     for (int e : EdgeOfVertIter(m, v, m->v.e[v])) {
       if (eProj && eProj->get(e)) cls |= BC_PROJECTED;

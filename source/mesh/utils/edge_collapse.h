@@ -33,6 +33,7 @@
 #include "../mesh_iter.h"
 #include "../mesh_proxy.h"
 #include "attr_interp.h"
+#include "collapse_debug.h"
 
 #include "litestl/math/vector.h"
 #include "litestl/util/error.h"
@@ -110,12 +111,18 @@ static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
 
 /* Collapse `edge`. The vertex at `e.vs[edge][0]` is kept (its position
  * optionally replaced by `merged_co`); the vertex at `e.vs[edge][1]`
- * is removed. Returns false if the edge index is invalid. */
+ * is removed. Returns false if the edge index is invalid.
+ *
+ * When `prevent_inversion` is set, the collapse is refused (returning false,
+ * mesh untouched) if welding the two endpoints to the merged position would
+ * flip the orientation of any surviving incident face — a purely geometric
+ * defect the topological link condition cannot see. Defaults off so existing
+ * callers are unchanged; the dyntopo remesh path opts in. */
 static inline SuccessOrError<"edge_collapse", "failed to collapse edge">
 collapseEdge(Mesh &m, int edge,
              std::optional<litestl::math::float3> merged_co = std::nullopt,
              float blend = 0.0f, EdgeCollapseResult *out = nullptr,
-             MeshCallbacks *cb = nullptr)
+             MeshCallbacks *cb = nullptr, bool prevent_inversion = false)
 {
   using namespace litestl;
   using namespace litestl::util;
@@ -169,6 +176,145 @@ collapseEdge(Mesh &m, int edge,
       return false;
     }
   }
+
+  /* Geometric inversion guard: refuse the collapse if welding both endpoints to
+   * the merged position P flips any surviving incident face. P is merged_co if
+   * given, else v_keep stays put. A face touching both endpoints collapses to a
+   * sliver and is removed, so it is exempt; every other incident face has its
+   * v_keep/v_kill corner(s) moved to P, and a sign flip of its Newell normal
+   * (before vs after) means it folded over its far edge. */
+  if (prevent_inversion) {
+    using litestl::math::float3;
+    float3 P = merged_co.has_value() ? merged_co.value() : m.v.co[v_keep];
+    /* Newell normals of f before (nb) and after (na) welding both endpoints to
+     * P. Returns false for a sliver (touches both endpoints — removed by the
+     * collapse, so it has no "after"). */
+    auto faceNormals = [&](int f, float3 &nb, float3 &na) -> bool {
+      int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+      bool hasKeep = false, hasKill = false;
+      do {
+        int vv = m.c.v[cc];
+        hasKeep |= (vv == v_keep);
+        hasKill |= (vv == v_kill);
+        cc = m.c.next[cc];
+      } while (cc != c0);
+      if (hasKeep && hasKill) {
+        return false; /* collapses to a sliver and is removed */
+      }
+      nb = float3(0.0f, 0.0f, 0.0f);
+      na = float3(0.0f, 0.0f, 0.0f);
+      cc = c0;
+      do {
+        int cn = m.c.next[cc];
+        int v1 = m.c.v[cc], v2 = m.c.v[cn];
+        float3 b1 = m.v.co[v1], b2 = m.v.co[v2];
+        float3 a1 = (v1 == v_keep || v1 == v_kill) ? P : b1;
+        float3 a2 = (v2 == v_keep || v2 == v_kill) ? P : b2;
+        nb[0] += (b1[1] - b2[1]) * (b1[2] + b2[2]);
+        nb[1] += (b1[2] - b2[2]) * (b1[0] + b2[0]);
+        nb[2] += (b1[0] - b2[0]) * (b1[1] + b2[1]);
+        na[0] += (a1[1] - a2[1]) * (a1[2] + a2[2]);
+        na[1] += (a1[2] - a2[2]) * (a1[0] + a2[0]);
+        na[2] += (a1[0] - a2[0]) * (a1[1] + a2[1]);
+        cc = cn;
+      } while (cc != c0);
+      return true;
+    };
+    Set<int> checked;
+    Vector<int> star; /* surviving (non-sliver) faces touching either endpoint */
+    Vector<float3> star_nb, star_na;
+    for (int side = 0; side < 2; side++) {
+      int v = side == 0 ? v_keep : v_kill;
+      if (m.v.e[v] == ELEM_NONE) {
+        continue;
+      }
+      for (int ei2 : EdgeOfVertIter(&m, v, m.v.e[v])) {
+        int cc0 = m.e.c[ei2];
+        if (cc0 == ELEM_NONE) {
+          continue;
+        }
+        int cc = cc0;
+        do {
+          int f = m.l.f[m.c.l[cc]];
+          if (checked.add(f)) {
+            float3 nb, na;
+            if (faceNormals(f, nb, na)) {
+              if (nb.dot(na) < 0.0f) {
+                return false; /* face folds over its own far edge */
+              }
+              star.append(f);
+              star_nb.append(nb);
+              star_na.append(na);
+            }
+          }
+          cc = m.c.radial_next[cc];
+        } while (cc != cc0);
+      }
+    }
+
+    /* Inter-face fold guard: a collapse can crease the surface between two
+     * faces without flipping either one's own normal. Group every surviving
+     * face around each post-collapse edge — mapping v_kill→v_keep merges edges
+     * (v_kill,x) into (v_keep,x), so the two neighbors of a removed sliver
+     * land in one group — and reject if any pair that wasn't folded before
+     * (normal dot >= 0) is folded after. Faces outside the star keep their
+     * current normal (they contain neither endpoint, so they don't move). */
+    struct FoldEntry {
+      uint64_t key;
+      int face;
+      float3 nb, na;
+    };
+    Vector<FoldEntry> ents;
+    auto mapv = [&](int vv) { return vv == v_kill ? v_keep : vv; };
+    for (int si = 0; si < int(star.size()); si++) {
+      int f = star[si];
+      int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+      do {
+        int v1 = mapv(m.c.v[cc]), v2 = mapv(m.c.v[m.c.next[cc]]);
+        if (v1 != v2) {
+          uint64_t key = v1 < v2 ? (uint64_t(uint32_t(v1)) << 32) | uint32_t(v2)
+                                 : (uint64_t(uint32_t(v2)) << 32) | uint32_t(v1);
+          ents.append({key, f, star_nb[si], star_na[si]});
+          for (int cc2 = m.c.radial_next[cc]; cc2 != cc;
+               cc2 = m.c.radial_next[cc2]) {
+            int g = m.l.f[m.c.l[cc2]];
+            if (!checked.contains(g)) {
+              float3 ng(0.0f, 0.0f, 0.0f);
+              int gli = m.f.l[g], gc0 = m.l.c[gli], gc = gc0;
+              do {
+                int gn = m.c.next[gc];
+                float3 b1 = m.v.co[m.c.v[gc]], b2 = m.v.co[m.c.v[gn]];
+                ng[0] += (b1[1] - b2[1]) * (b1[2] + b2[2]);
+                ng[1] += (b1[2] - b2[2]) * (b1[0] + b2[0]);
+                ng[2] += (b1[0] - b2[0]) * (b1[1] + b2[1]);
+                gc = gn;
+              } while (gc != gc0);
+              ents.append({key, g, ng, ng});
+            }
+          }
+        }
+        cc = m.c.next[cc];
+      } while (cc != c0);
+    }
+    for (int i = 0; i < int(ents.size()); i++) {
+      for (int j = i + 1; j < int(ents.size()); j++) {
+        if (ents[i].key != ents[j].key || ents[i].face == ents[j].face) {
+          continue;
+        }
+        if (ents[i].nb.dot(ents[j].nb) >= 0.0f &&
+            ents[i].na.dot(ents[j].na) < 0.0f) {
+          return false;
+        }
+      }
+    }
+  }
+
+#if SCULPTCORE_COLLAPSE_DEBUG
+  /* Snapshot the 2-ring patch around the edge before mutating, so a collapse
+   * that introduces a hole/non-manifold edge can be replayed in isolation. */
+  collapse_debug::PatchSnapshot _cdbg_snap;
+  collapse_debug::capture(m, edge, _cdbg_snap);
+#endif
 
   /* Optionally blend the survivor's attributes toward v_kill before the merge
    * (0 = keep v_keep unchanged, 0.5 = midpoint). Reads v_kill, so it must run
@@ -366,14 +512,21 @@ collapseEdge(Mesh &m, int edge,
 
   /* Re-apply the snapshotted edge attrs (boundary source flags) onto v_keep's
    * edges, matched by the far vertex — restores flags onto merged/recreated
-   * feature-curve edges. */
+   * feature-curve edges. When a triangle collapses, the v_keep–C and v_kill–C
+   * edges weld into one survivor (both keyed by far=C): restore the first row,
+   * then UNION the bool feature flags of the rest so a sharp/seam carried by
+   * v_kill–C isn't dropped in favor of a plain v_keep–C. */
   if (m.v.e[v_keep] != ELEM_NONE) {
     for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
       int o = (m.e.vs[ei][0] == v_keep) ? m.e.vs[ei][1] : m.e.vs[ei][0];
+      bool first = true;
       for (int k = 0; k < int(edgeFlagOther.size()); k++) {
-        if (edgeFlagOther[k] == o) {
+        if (edgeFlagOther[k] != o) continue;
+        if (first) {
           restoreAttrRow(m.e.attrs, ei, edgeFlagSnap[k]);
-          break;
+          first = false;
+        } else {
+          unionBoolAttrRow(m.e.attrs, ei, edgeFlagSnap[k]);
         }
       }
     }
@@ -389,6 +542,12 @@ collapseEdge(Mesh &m, int edge,
       }
     }
   }
+
+#if SCULPTCORE_COLLAPSE_DEBUG
+  /* Compare the post-collapse neighborhood against the captured before-census;
+   * dump a replayable OBJ if a hole or non-manifold edge appeared. */
+  collapse_debug::checkAndDump(m, _cdbg_snap);
+#endif
 
   return true;
 }

@@ -104,6 +104,29 @@ static inline void restoreAttrRow(AttrGroup &grp, int elem, const AttrRowSnapsho
   }
 }
 
+/* OR a snapshot's bool columns into a live element's (set where the snapshot is
+ * true, never clear), leaving every non-bool column untouched. Used by edge
+ * collapse's triangle-merge case: when two edges sharing a far endpoint weld into
+ * one survivor, the survivor must keep the feature flags (sharp/seam/projected) of
+ * *either*, not just the first row restored over it. */
+static inline void unionBoolAttrRow(AttrGroup &grp, int elem, const AttrRowSnapshot &snap)
+{
+  int i = 0;
+  for (AttrRef &attr : grp.attrs) {
+    if (i >= int(snap.cells.size())) {
+      break;
+    }
+    const AttrRowSnapshot::Cell &cell = snap.cells[i++];
+    if (!cell.present || !cell.isBool || attr.type != AttrType::BOOL) {
+      continue;
+    }
+    BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
+    if (view && cell.bval) {
+      view->set(elem, true);
+    }
+  }
+}
+
 /* Blend two captured rows into a live element (weights (1-t)/t), matching
  * interpAttrs' rules: float/float-vector lerp, integer/bool copy s0. Used for the
  * midpoint corner of an edge split, whose two sources (the split edge's endpoints

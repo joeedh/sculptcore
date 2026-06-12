@@ -2,7 +2,9 @@
 
 #include "gpu/batch.h"
 #include "litestl/util/alloc.h"
+#include "mesh/utils/mesh_validate.h"
 #include "vulkan/vk_screenshot.h"
+
 
 #include <cstdio>
 
@@ -104,6 +106,54 @@ void Scene::setMesh(mesh::Mesh *m)
   meshLog.setActiveMesh(m);
 }
 
+void Scene::smoothMesh()
+{
+  if (!mesh) {
+    fprintf(stderr, "Scene::smoothMesh: no mesh\n");
+    return;
+  }
+
+  using namespace sculptcore::mesh;
+
+  for (int v : mesh->v) {
+    VertProxy vp(mesh, v);
+    float sumw = 0.0f;
+    float3 sum = {0.0f, 0.0f, 0.0f};
+    float3 cent = mesh->v.co[v];
+    float3 no = mesh->v.no[v];
+
+    for (auto e : vp.edges()) {
+      int v2 = e.other_vert(v);
+      float w = 0.0f;
+
+      for (auto c : e.corners()) {
+        int list = mesh->c.l[c];
+        int f = mesh->l.f[list];
+        float area = mesh::faceNewellNormal(*mesh, f).length();
+        w += area;
+      }
+
+      if (w == 0.0f) {
+        w = e.v1().co().distance(e.v2().co());
+        w = w * w * 0.5f;
+      }
+
+      float3 delta = mesh->v.co[v2] - cent;
+      delta -= no * no.dot(delta);
+
+      sum += (delta + cent) * w;
+      sumw += w;
+    }
+
+    if (sumw != 0.0f) {
+      sum /= sumw;
+      vp.co() += (sum - vp.co()) * 0.25f;
+    }
+  }
+
+  buildSpatial(0, 0, 0);
+}
+
 void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
 {
   if (!mesh) {
@@ -136,7 +186,9 @@ void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
   }
 }
 
-int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t seed,
+int Scene::applyDynTopoDab(litestl::math::float3 center,
+                           float radius,
+                           uint32_t seed,
                            bool log)
 {
   if (!dyntopoEnabled || !mesh) {
@@ -159,18 +211,24 @@ int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t 
     combined = *ml;
     auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;
     combined.onFaceCreate = [mlFC, spFC](int f) {
-      if (mlFC) mlFC(f);
-      if (spFC) spFC(f);
+      if (mlFC)
+        mlFC(f);
+      if (spFC)
+        spFC(f);
     };
     auto mlFK = combined.onFaceKill, spFK = sp->onFaceKill;
     combined.onFaceKill = [mlFK, spFK](int f) {
-      if (mlFK) mlFK(f); /* meshlog snapshots before the tree drops it */
-      if (spFK) spFK(f);
+      if (mlFK)
+        mlFK(f); /* meshlog snapshots before the tree drops it */
+      if (spFK)
+        spFK(f);
     };
     auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
     combined.onVertKill = [mlVK, spVK](int v) {
-      if (mlVK) mlVK(v);
-      if (spVK) spVK(v);
+      if (mlVK)
+        mlVK(v);
+      if (spVK)
+        spVK(v);
     };
     cb = &combined;
   } else {
@@ -195,7 +253,12 @@ int Scene::applyDynTopoDab(litestl::math::float3 center, float radius, uint32_t 
     meshLog.beginStep();
   }
   dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
-      *mesh, center, radius, dyntopoParams, seed, cb,
+      *mesh,
+      center,
+      radius,
+      dyntopoParams,
+      seed,
+      cb,
       litestl::util::span<const int>(seedVerts.data(), seedVerts.size()));
   if (log) {
     meshLog.endStep();
@@ -235,11 +298,20 @@ void Scene::applyView(ViewPreset preset)
   mesh->calcAABB(mn, mx);
   float3 dir;
   switch (preset) {
-  case ViewPreset::Front: dir = float3(0, -1, 0); break;
-  case ViewPreset::Top:   dir = float3(0, 0, 1);  break;
-  case ViewPreset::Side:  dir = float3(1, 0, 0);  break;
-  case ViewPreset::Persp: dir = float3(1, 1, 1);  break;
-  case ViewPreset::Free:  return; /* leave camera as-is */
+  case ViewPreset::Front:
+    dir = float3(0, -1, 0);
+    break;
+  case ViewPreset::Top:
+    dir = float3(0, 0, 1);
+    break;
+  case ViewPreset::Side:
+    dir = float3(1, 0, 0);
+    break;
+  case ViewPreset::Persp:
+    dir = float3(1, 1, 1);
+    break;
+  case ViewPreset::Free:
+    return; /* leave camera as-is */
   }
   camera.frame(mn, mx, dir);
 }
@@ -277,8 +349,8 @@ void Scene::renderHeadless()
     overlay.drawAxes(gpu, *backend, vp, 1.0f);
   }
   if (showCursor && lastStroke.valid) {
-    overlay.drawBrushCursor(gpu, *backend, vp,
-                            lastStroke.origin, lastStroke.normal, lastStroke.radius);
+    overlay.drawBrushCursor(
+        gpu, *backend, vp, lastStroke.origin, lastStroke.normal, lastStroke.radius);
   }
   backend->endFrame();
 }
@@ -318,8 +390,9 @@ void Scene::renderWindow()
     return;
   }
 
-  if (!backendWindow->beginFrameSwapchain(swapchain, imageIndex,
-                                          0.10f, 0.11f, 0.13f, 1.0f)) {
+  if (!backendWindow->beginFrameSwapchain(
+          swapchain, imageIndex, 0.10f, 0.11f, 0.13f, 1.0f))
+  {
     return;
   }
 
@@ -342,8 +415,15 @@ void Scene::renderWindow()
       overlay.drawAxes(gpu, *backendWindow, vp, 1.0f);
     }
     if (showCursor && lastStroke.valid) {
-      overlay.drawBrushCursor(gpu, *backendWindow, vp,
-                              lastStroke.origin, lastStroke.normal, lastStroke.radius);
+      overlay.drawBrushCursor(gpu,
+                              *backendWindow,
+                              vp,
+                              lastStroke.origin,
+                              lastStroke.normal,
+                              lastStroke.radius);
+    }
+    if (overlayCB_) {
+      overlayCB_(overlayUser_, gpu, *backendWindow, vp);
     }
   }
 

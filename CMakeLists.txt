@@ -15,7 +15,7 @@ if (BUILD_WASM)
 
 	if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 		add_compile_options(-fsanitize=address)
-    # do not use debug allocator together with asan 
+    # do not use debug allocator together with asan
     add_compile_options(-DNO_DEBUG_ALLOC)
 		add_link_options(-fsanitize=address)
 		add_link_options(-sINITIAL_MEMORY=943718400)
@@ -24,6 +24,10 @@ if (BUILD_WASM)
 	endif()
 
   add_link_options(-sALLOW_MEMORY_GROWTH=1)
+  # Emscripten's default main-thread stack is 64KB, which the Eigen-heavy quad
+  # remesher overflows — silently (no STACK_OVERFLOW_CHECK), corrupting the static
+  # data below __stack_low. 8MB is a standard stack and stays < INITIAL_MEMORY.
+  add_link_options(-sSTACK_SIZE=8388608)
   add_link_options(-sSHARED_MEMORY=1)
   add_link_options(-pthread)
   add_compile_options(-pthread)
@@ -34,6 +38,52 @@ else()
   if (WIN32)
     add_compile_options( -DWIN32 )
   endif()
+endif()
+
+option(WITH_ASAN "Enable Address Sanitizer" OFF)
+
+if (WITH_ASAN)
+		add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+    add_link_options(-fms-runtime-lib=dll_dbg -shared-libsan)
+    add_compile_options(-fms-runtime-lib=dll_dbg -shared-libsan)
+
+    # -shared-libsan links against the asan runtime DLL; stage it next to every
+    # binary we build so they run without a separate install / PATH entry. Ask
+    # the active clang for the DLL path so it tracks the toolchain version.
+    if (WIN32)
+      execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" --print-file-name=clang_rt.asan_dynamic-x86_64.dll
+        OUTPUT_VARIABLE SCULPTCORE_ASAN_DLL
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+      if (NOT EXISTS "${SCULPTCORE_ASAN_DLL}")
+        message(WARNING "WITH_ASAN: clang_rt.asan_dynamic-x86_64.dll not found (got '${SCULPTCORE_ASAN_DLL}')")
+        set(SCULPTCORE_ASAN_DLL "")
+      else()
+        message(STATUS "WITH_ASAN: shared asan runtime = ${SCULPTCORE_ASAN_DLL}")
+      endif()
+    endif()
+
+    if (SCULPTCORE_ASAN_DLL)
+      # Copy the runtime beside a target's output after it links.
+      function(sculptcore_stage_asan_dll target)
+        add_custom_command(TARGET ${target} POST_BUILD
+          COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                  "${SCULPTCORE_ASAN_DLL}" "$<TARGET_FILE_DIR:${target}>"
+          VERBATIM)
+      endfunction()
+
+      # Override add_executable so every executable (defined in any
+      # subdirectory) gets the DLL staged in its own output dir — a top-level
+      # POST_BUILD can only attach to same-directory targets, so we hook at
+      # creation time instead. Shared/module libs are staged explicitly below.
+      function(add_executable name)
+        _add_executable(${name} ${ARGN})
+        if (NOT "IMPORTED" IN_LIST ARGN AND NOT "ALIAS" IN_LIST ARGN)
+          sculptcore_stage_asan_dll(${name})
+        endif()
+      endfunction()
+    endif()
 endif()
 
 add_compile_options(-Wno-parentheses-equality)
@@ -57,6 +107,15 @@ option(SBRUSH_BACKEND_OPENCL "Emit OpenCL C kernels + clspv/poclcc"             
 option(SBRUSH_VALIDATE_ALL   "Run external validators on every emit"             OFF)
 option(SBRUSH_REGEN_ON_BUILD "Re-run sbrushc during build (vs. checked-in outputs)" ON)
 option(SBRUSH_WEBGPU_COMPUTE "Build the native WebGPU (wgpu-native) compute brush backend into debug_app" OFF)
+
+# Permanent #if-guarded edge-collapse self-check + neighborhood capture
+# (source/mesh/utils/collapse_debug.h). OFF = inert. ON makes every collapse
+# snapshot its 2-ring patch and dump a replayable OBJ when a hole/non-manifold
+# edge appears. Dump dir via $SCULPTCORE_COLLAPSE_DEBUG_DIR (default cwd).
+option(SCULPTCORE_COLLAPSE_DEBUG "Edge-collapse defect capture (debug only)" OFF)
+if (SCULPTCORE_COLLAPSE_DEBUG)
+  add_compile_definitions(SCULPTCORE_COLLAPSE_DEBUG=1)
+endif()
 
 include("build_files/macros.cmake")
 include("source/litestl/build_files/macros.cmake")
@@ -98,6 +157,7 @@ if (BUILD_WASM)
 	  props
       pthread
 	  dyntopo
+	  remesh
 	  meshlog
       webgpu
 	)
@@ -126,10 +186,15 @@ else()
       binding
 	  binding_generators
 	  dyntopo
+	  remesh
 	)
 
 	add_library(sculptcore SHARED)
 	target_link_libraries(sculptcore ${LIB})
+
+	if (COMMAND sculptcore_stage_asan_dll)
+	  sculptcore_stage_asan_dll(sculptcore)
+	endif()
 
 	# --- Node / Electron N-API addon ----------------------------------------
 	# Built only when CMake is configured by cmake-js, which injects CMAKE_JS_*
@@ -160,6 +225,10 @@ else()
 	  if (WIN32)
 	    target_link_options(sculptcore_node PRIVATE "LINKER:/DELAYLOAD:node.exe")
 	    target_link_libraries(sculptcore_node delayimp.lib)
+	  endif()
+
+	  if (COMMAND sculptcore_stage_asan_dll)
+	    sculptcore_stage_asan_dll(sculptcore_node)
 	  endif()
 	endif()
 endif()

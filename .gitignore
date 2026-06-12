@@ -7,3 +7,10 @@ node_modules
 diff.diff
 source/napi/smoke-result.json
 .turbo
+extern/sculptcore-deps
+build/deps-src
+build/deps-build
+
+# Generated quad-remesh outputs (keep the dir, drop the runs).
+tests/remesher-results/*
+!tests/remesher-results/.gitkeep

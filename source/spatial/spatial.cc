@@ -1054,11 +1054,11 @@ void SpatialTree::buildAll()
    * restart at 1, so stale ids are meaningless here. Without this, building a
    * second tree on the same mesh sees every elem already owned -> unique_verts
    * stays 0 -> nothing splits -> a single empty leaf. */
-  for (int i = 0; i < int(m->v.capacity()); i++) {
-    treeMesh.v.node[i] = 0;
+  for (int v : m->v) {
+    treeMesh.v.node[v] = 0;
   }
-  for (int i = 0; i < int(m->f.capacity()); i++) {
-    treeMesh.f.node[i] = 0;
+  for (int f : m->f) {
+    treeMesh.f.node[f] = 0;
   }
 
   m->calcAABB(root->aabb.min, root->aabb.max);
@@ -1067,15 +1067,17 @@ void SpatialTree::buildAll()
   root->aabb.min -= eps;
   root->aabb.max += eps;
 
-  int n = m->f.count;
-
   // insert faces in random order
   // to balance tree better
   litestl::util::Random rnd(0);
-  int *faces = new int[n];
-  for (int i = 0; i < n; i++) {
-    faces[i] = i;
+  Vector<int> faces;
+  faces.ensure_capacity(m->f.count);
+
+  for (int f : m->f) {
+    faces.append(f);
   }
+
+  int n = faces.size();
   for (int i = 0; i < (n >> 1); i++) {
     int ri = rnd.get_int() % n;
     std::swap(faces[i], faces[ri]);
@@ -1084,8 +1086,6 @@ void SpatialTree::buildAll()
   for (int i = 0; i < n; i++) {
     add_face(faces[i]);
   }
-
-  delete[] faces;
 
   /* regen_node_bounds derives leaf AABBs from each node's tris (read via the
    * frozen-safe .corner.v column), so the tris must be built first. */

@@ -64,12 +64,20 @@ export interface NativeAddon {
   vectorView(vec: NativeBound): ArrayBufferView | undefined
   // Native factory free-functions (return bound wrappers).
   meshCreateCube(dimen: number, size: number, sphereFac: number): NativeBound
+  /** UV-sphere primitive (poles are the only singularities) — the remesh-friendly host test mesh. */
+  meshMakeUVSphere(rings: number, segs: number, radius: number): NativeBound
   meshBuildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number): NativeBound
   spatialTreeFree(tree: NativeBound): void
   /** Free a Mesh created by meshCreateCube. Nulls the wrapper's pointer. */
   meshFree(mesh: NativeBound): void
   /** Fan-triangulate every n-gon of a Mesh in place (n_ngon_faces -> 0). Rebuild any spatial tree afterwards. */
   meshTriangulate(mesh: NativeBound): void
+  /**
+   * Feature-aligned quad remesh: returns a NEW Mesh wrapper (input untouched),
+   * or undefined on a clean failure (infeasible field / >10% folded faces).
+   * Free the result via meshFree. `params` is a bound RemeshParams.
+   */
+  meshQuadRemesh(mesh: NativeBound, params: NativeBound): NativeBound | undefined
   /** Serialize a Mesh to a versioned, lz4hc-compressed blob (copied into a sandbox ArrayBuffer). */
   meshSerialize(mesh: NativeBound): Uint8Array
   /** Reconstruct a Mesh from a meshSerialize blob (Uint8Array). Returns a non-owning wrapper. */

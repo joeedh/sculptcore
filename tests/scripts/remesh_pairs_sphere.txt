@@ -1,0 +1,9 @@
+# Fold-heavy bench A: smooth 192-sphere at t=0.05 — the tier-1b tail case
+# (~73k classes, plans/miq.md). Mirrors pipeline stage order M2 -> M3 -> M5;
+# the explicit cross-field line is the Tier-2/4 sweep surface
+# (curvature_smooth_iters / curvature_smooth_lambda / smoothness).
+make_shape kind=sphere n=192 m=192 radius=1.0
+triangulate
+remesh_cross_field smoothness=1 curvature_smooth_iters=0 curvature_smooth_lambda=0.5
+remesh_adjust_singularities
+remesh_quantize target_edge_length=0.05

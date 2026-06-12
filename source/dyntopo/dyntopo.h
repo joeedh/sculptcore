@@ -34,6 +34,8 @@
 #include "mesh/utils/edge_split.h"
 #include "mesh/utils/triangulate.h"
 
+#include "dyntopo/dyntopo_trace.h"
+
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/rand.h"
@@ -57,14 +59,23 @@ namespace sculptcore::dyntopo {
 enum class DynTopoMode { Subdivide, Collapse, Both };
 
 struct DynTopoParams {
-  float l_max = 0.10f;  /* split edges longer than this (at the brush center) */
-  float l_min = 0.04f;  /* collapse edges shorter than this (keep < l_max) */
+  float l_max = 0.10f; /* split edges longer than this (at the brush center) */
+  float l_min = 0.04f; /* collapse edges shorter than this (clamped to l_max/2) */
   DynTopoMode mode = DynTopoMode::Both;
   /* Graded target (sizing field, plan M7.1a): relax l_max/l_min outward from the
    * brush center by (1 + grade * dist/radius), so the refinement grades smoothly
    * into the surrounding mesh instead of cliffing at the brush rim — fewer
    * splits and no high-valence boundary hubs. 0 = uniform (original behavior). */
   float grade = 0.0f;
+  /* Tier 9 adaptive sizing: name of an optional per-vertex FLOAT attribute
+   * holding a relative size scale s(v) (1 = nominal). When present each edge's
+   * [l_min, l_max] band is multiplied by the mean of its endpoints' s, so the BK
+   * loop refines where s < 1 and coarsens where s > 1 — a curvature size field,
+   * not the radial `grade` (which is meaningless over a whole-mesh dab). Split
+   * interpolates the attr onto the midpoint vert, so grading survives refinement.
+   * null/absent = uniform band (default; takes precedence over `grade`). Aliases
+   * caller storage (a string literal / longer-lived buffer); never bound to JS. */
+  const char *size_attr = nullptr;
   /* The 1-triangle -> 2 split scheme cascades through spoke edges, so a dab
    * needs more independent-set rounds than a naive length-halving estimate.
    * With do_flips on (M7.2) the spoke cascade is broken, so even aggressive 5M
@@ -108,6 +119,21 @@ struct DynTopoParams {
    * verts are pinned against flip/smooth and only collapse *along* their own
    * collinear feature curve. Off = the original feature-agnostic remesh. */
   bool preserve_features = true;
+  /* Geometric corner gate on the collinear feature-curve collapse: refuse it
+   * when either endpoint's two feature edges bend more than this angle (radians)
+   * from straight — a corner the topological test can't see when both its edges
+   * carry one feature type (e.g. a square rim's corners). 0 (default) = off. */
+  float feature_corner_angle = 0.0f;
+
+  /* Limit-cycle early-out. Stops a dab once it has run this many *consecutive*
+   * low-progress rounds (<= 2 split+collapse ops each) — the signature of a
+   * split<->collapse ping-pong that never reaches a fixed point: a freshly split
+   * edge-half can land below l_min and be recollapsed, recreating the long edge,
+   * so cands never empties and the dab spins to max_rounds. A healthy dab's churn
+   * tail is only a handful of rounds, so 16 sits well clear of real convergence
+   * (a no-op on it) and only trims the wasted tail of a genuine cycle. 0 =
+   * disabled (the pre-fix spin-to-cap behavior, for A/B). */
+  int max_stall_rounds = 16;
 
   /* Non-accumulate coherence (see plans/nonAccumMode.md). 0 = off. When non-zero
    * this is the active stroke's generation stamp: remesh operators that move a
@@ -116,6 +142,12 @@ struct DynTopoParams {
    * from a coherent stroke-start surface as topology changes under the dab. New
    * verts created mid-dab are left unstamped (gen 0) so they read live. */
   uint32_t nonAccumGen = 0;
+
+  /* Optional per-round triangle-quality trace (split-sliver oscillation
+   * detection, dyntopo_trace.h). Null (default) = no tracing, zero cost; when
+   * set, each round appends a RoundQuality snapshot. Native-only diagnostic —
+   * deliberately NOT registered in bindings.cc, so it never crosses the seam. */
+  DynTopoTrace *trace = nullptr;
 
   /* Bound out-of-line in dyntopo/bindings.cc (keeps binding headers out of this
    * hot header). Crosses the WASM/N-API seam by value, so the struct registers a
@@ -131,6 +163,9 @@ struct DynTopoStats {
   int rounds = 0;
   bool capped = false;     /* hit max_rounds with work still pending */
   bool budget_hit = false; /* stopped early on max_splits (more work remains) */
+  /* Bailed out of a split<->collapse limit cycle (max_stall_rounds). Native-only
+   * diagnostic — deliberately NOT bound in bindings.cc, like DynTopoParams::trace. */
+  bool stalled = false;
 
   static litestl::binding::types::Struct<DynTopoStats> *defineBindings();
 };
@@ -216,6 +251,79 @@ inline GenSet &misLockedSet()
 {
   static thread_local GenSet s;
   return s;
+}
+inline GenSet &traceFaceSeenSet() /* only used when DynTopoParams::trace is set */
+{
+  static thread_local GenSet s;
+  return s;
+}
+
+/* Smallest interior angle (radians) of triangle face f. Matches the survey
+ * metric in mesh_validate.h (computeTier0Metrics) so the per-round trace and the
+ * final whole-mesh survey are directly comparable. */
+inline float triMinAngle(mesh::Mesh &m, int f)
+{
+  int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+  float amin = 3.14159265f;
+  do {
+    int cn = m.c.next[cc], cp = m.c.prev[cc];
+    litestl::math::float3 pco = m.v.co[m.c.v[cc]];
+    litestl::math::float3 a = m.v.co[m.c.v[cn]] - pco;
+    litestl::math::float3 b = m.v.co[m.c.v[cp]] - pco;
+    float la = a.length(), lb = b.length();
+    if (la > 1e-12f && lb > 1e-12f) {
+      float cosa = a.dot(b) / (la * lb);
+      cosa = cosa < -1.0f ? -1.0f : (cosa > 1.0f ? 1.0f : cosa);
+      float ang = std::acos(cosa);
+      if (ang < amin) {
+        amin = ang;
+      }
+    }
+    cc = cn;
+  } while (cc != c0);
+  return amin;
+}
+
+/* Snapshot the triangle quality of the faces incident to `verts` whose centroid
+ * lies inside the dab (center, r2), into `q`. Each face is measured once. */
+inline void measureRoundQuality(mesh::Mesh &m, litestl::util::Set<int> &verts,
+                                litestl::math::float3 center, float r2,
+                                float thin_angle, RoundQuality &q)
+{
+  GenSet &fseen = traceFaceSeenSet();
+  fseen.reset(int(m.f.capacity()));
+  double angSum = 0.0;
+  for (int v : verts) {
+    if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
+      continue;
+    }
+    for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+      int rc0 = m.e.c[e];
+      if (rc0 == ELEM_NONE) {
+        continue;
+      }
+      int rcc = rc0;
+      do {
+        int f = m.l.f[m.c.l[rcc]];
+        if (fseen.add(f)) {
+          litestl::math::float3 c0co = m.v.co[m.c.v[m.l.c[m.f.l[f]]]];
+          if ((c0co - center).lengthSqr() <= r2) {
+            float ang = triMinAngle(m, f);
+            if (q.tri_count == 0 || ang < q.min_angle) {
+              q.min_angle = ang;
+            }
+            q.tri_count++;
+            angSum += ang;
+            if (ang < thin_angle) {
+              q.thin_count++;
+            }
+          }
+        }
+        rcc = m.c.radial_next[rcc];
+      } while (rcc != rc0);
+    }
+  }
+  q.mean_min_angle = q.tri_count > 0 ? float(angSum / double(q.tri_count)) : 0.0f;
 }
 
 /* Lock the verts a split affects: just the two edge endpoints. Any two edges
@@ -345,8 +453,7 @@ inline bool flipShortens(mesh::Mesh &m, int a, int b, int c, int d)
  * manifold / non-triangle edge, or a degenerate ring; otherwise `out` is the new
  * position, with the move clamped to half the shortest incident edge so a thin
  * triangle can't fold. Reads positions only — caller writes simultaneously. */
-inline bool smoothTangent(mesh::Mesh &m, int v, float lambda,
-                          litestl::math::float3 &out)
+inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::float3 &out)
 {
   using litestl::math::float3;
   int e0 = m.v.e[v];
@@ -440,11 +547,16 @@ struct FeatureViews {
   {
     using namespace mesh::boundary;
     int mask = 0;
-    if (proj && (*proj)[e]) mask |= BC_PROJECTED;
-    if (sharp && (*sharp)[e]) mask |= BC_SHARP;
-    if (seam && (*seam)[e]) mask |= BC_SEAM;
-    if (pg && (*pg)[e]) mask |= BC_POLYGROUP;
-    if (uv && (*uv)[e]) mask |= BC_UVCHART;
+    if (proj && (*proj)[e])
+      mask |= BC_PROJECTED;
+    if (sharp && (*sharp)[e])
+      mask |= BC_SHARP;
+    if (seam && (*seam)[e])
+      mask |= BC_SEAM;
+    if (pg && (*pg)[e])
+      mask |= BC_POLYGROUP;
+    if (uv && (*uv)[e])
+      mask |= BC_UVCHART;
     return mask;
   }
 
@@ -453,9 +565,24 @@ struct FeatureViews {
     return active && edgeMask(e) != 0;
   }
 
+  /* A vertex is a feature vert iff it carries any incident feature edge. Derived
+   * from the LIVE edge overlay (split/collapse propagate edge flags immediately),
+   * not the persistent per-vertex class — that attr is only rebuilt by the caller's
+   * recomputeDirty after the dab, so a freshly-split crease midpoint would read as
+   * stale non-feature and let a non-feature edge collapse pinch the crease. */
   bool isFeatureVert(int v) const
   {
-    return active && mesh::boundary::vertClass(m, v) != 0;
+    if (!active || v < 0 || v >= int(m->v.capacity()) || m->v.freemap[v] ||
+        m->v.e[v] == ELEM_NONE)
+    {
+      return false;
+    }
+    for (int e : mesh::EdgeOfVertIter(m, v, m->v.e[v])) {
+      if (edgeMask(e) != 0) {
+        return true;
+      }
+    }
+    return false;
   }
 };
 
@@ -463,19 +590,24 @@ struct FeatureViews {
  * endpoints must be simple interior points of one uniform feature curve (exactly
  * two incident feature edges, all sharing e's exact feature-type signature, no
  * junction/corner). This lets a feature line coarsen without tearing or eroding
- * corners. (Decision B: pin + collinear collapse.) */
-inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat)
+ * corners. (Decision B: pin + collinear collapse.) corner_angle > 0 adds the
+ * geometric gate: an endpoint whose curve bends more than that from straight is
+ * a corner too, even though it carries exactly two same-type edges. */
+inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat,
+                              float corner_angle = 0.0f)
 {
   int em = feat.edgeMask(e);
   if (em == 0) {
     return false;
   }
+  const float corner_dot = corner_angle > 0.0f ? -std::cos(corner_angle) : 2.0f;
   for (int side = 0; side < 2; side++) {
     int v = m.e.vs[e][side];
     if (m.v.e[v] == ELEM_NONE) {
       return false;
     }
     int sameType = 0;
+    litestl::math::float3 dir[2];
     for (int ei : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
       int eim = feat.edgeMask(ei);
       if (eim == 0) {
@@ -484,10 +616,20 @@ inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat)
       if (eim != em) {
         return false; /* junction / mixed feature types -> corner, don't collapse */
       }
+      if (sameType < 2) {
+        int ov = m.e.vs[ei][0] == v ? m.e.vs[ei][1] : m.e.vs[ei][0];
+        dir[sameType] = m.v.co[ov] - m.v.co[v];
+      }
       sameType++;
     }
     if (sameType != 2) {
       return false; /* endpoint is a feature end / corner, not a clean interior */
+    }
+    if (corner_angle > 0.0f) {
+      float l0 = dir[0].length(), l1 = dir[1].length();
+      if (l0 > 1e-20f && l1 > 1e-20f && dir[0].dot(dir[1]) > corner_dot * l0 * l1) {
+        return false; /* geometric corner: the curve bends here */
+      }
     }
   }
   return true;
@@ -504,19 +646,24 @@ inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat)
  * whole mesh — keeping the dab O(brush region) without a spatial dependency here
  * (inversion of control). Empty (the default) falls back to a full scan, which
  * the bare-mesh unit tests and any caller without a tree rely on. */
-inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
-                                  float radius, const DynTopoParams &p,
-                                  uint32_t seed, mesh::MeshCallbacks *cb = nullptr,
+inline DynTopoStats applyBrushDab(mesh::Mesh &m,
+                                  litestl::math::float3 center,
+                                  float radius,
+                                  const DynTopoParams &p,
+                                  uint32_t seed,
+                                  mesh::MeshCallbacks *cb = nullptr,
                                   litestl::util::span<const int> seedVerts = {})
 {
   using namespace litestl;
   using namespace litestl::util;
 
-  const bool doSplit =
-      p.mode == DynTopoMode::Subdivide || p.mode == DynTopoMode::Both;
-  const bool doCollapse =
-      p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
+  const bool doSplit = p.mode == DynTopoMode::Subdivide || p.mode == DynTopoMode::Both;
+  const bool doCollapse = p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
   const float r2 = radius * radius;
+  /* Band-overlap guard: split children land at exactly l_max/2, so any l_min
+   * above that feeds fresh children straight into the collapse band and the dab
+   * churns split<->collapse instead of converging. Clamp every caller's band. */
+  const float l_min = p.l_min > 0.5f * p.l_max ? 0.5f * p.l_max : p.l_min;
 
   /* Boundary-overlay views for feature-preserving remeshing (inert when
    * p.preserve_features is false). */
@@ -532,17 +679,27 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   mesh::AttrData<litestl::math::float3> *origCo = nullptr;
   mesh::AttrData<int> *origGen = nullptr;
   if (p.nonAccumGen != 0 && m.v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
-      m.v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen")) {
+      m.v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen"))
+  {
     origCo = m.v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co")
                  .get_data<litestl::math::float3>();
-    origGen = m.v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen")
-                  .get_data<int>();
+    origGen =
+        m.v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
   }
   auto shiftOrig = [&](int v, litestl::math::float3 delta) {
     if (origGen && origGen->safe_get(v) == int(p.nonAccumGen)) {
       (*origCo)[v] += delta;
     }
   };
+
+  /* Tier 9 adaptive sizing: resolve the optional per-vertex size-scale attr once
+   * (non-creating). When set, the candidate band is scaled per edge by the mean
+   * of its endpoints' s; new verts get an interpolated s from splitEdge. */
+  mesh::AttrData<float> *sizeField = nullptr;
+  if (p.size_attr && m.v.attrs.has(mesh::AttrType::FLOAT, p.size_attr)) {
+    sizeField =
+        m.v.attrs.find_attribute(mesh::AttrType::FLOAT, p.size_attr).get_data<float>();
+  }
 
   /* Split / flip / smooth are triangle-only; dyntopo dynamically triangulates any
    * non-triangle face it encounters in the region first (incl. the graded-target
@@ -553,8 +710,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   if (m.n_ngon_faces != 0) {
     Set<int> triFaces;
     auto considerFaceTri = [&](int f) {
-      if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] ||
-          m.f.list_count[f] != 1) {
+      if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] || m.f.list_count[f] != 1) {
         return;
       }
       if (m.l.size[m.f.l[f]] == 3) {
@@ -563,8 +719,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       triFaces.add(f);
     };
     auto considerVertFaces = [&](int v) {
-      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-          m.v.e[v] == ELEM_NONE) {
+      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
         return;
       }
       for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -608,8 +763,23 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
   Set<int> frontier;
   bool firstRound = true;
   bool budgetHit = false;
+  int stallRun = 0; /* consecutive low-progress rounds (limit-cycle early-out) */
+
+  /* Cumulative op counts at the start of the round, for per-round trace deltas
+   * (only written when tracing). */
+  int traceS0 = 0, traceC0 = 0, traceF0 = 0, traceSm0 = 0;
 
   for (int round = 0; round < p.max_rounds; round++) {
+    if (p.trace) {
+      traceS0 = stats.splits;
+      traceC0 = stats.collapses;
+      traceF0 = stats.flips;
+      traceSm0 = stats.smooths;
+    }
+    /* Per-round band pressure (trace only): candidate counts + worst band
+     * overshoot/undershoot, accumulated as `consider` queues them. */
+    int trSplitCands = 0, trCollapseCands = 0;
+    float trMaxOver = 0.0f, trMinUnder = 0.0f;
     /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
     Vector<Cand> cands;
     detail::GenSet &seen = detail::scanSeenSet();
@@ -622,9 +792,17 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       if (d2 > r2) {
         return; /* outside the dab */
       }
-      /* Graded target: relax the goal outward from the center (sizing field). */
-      float tmax = p.l_max, tmin = p.l_min;
-      if (p.grade > 0.0f && radius > 0.0f) {
+      /* Graded target: relax the goal per edge (sizing field). The per-vertex
+       * size-scale attr (Tier 9) takes precedence over the radial `grade`. */
+      float tmax = p.l_max, tmin = l_min;
+      if (sizeField) {
+        float s = 0.5f *
+                  (sizeField->safe_get(m.e.vs[e][0]) + sizeField->safe_get(m.e.vs[e][1]));
+        if (s > 1e-6f) {
+          tmax *= s;
+          tmin *= s;
+        }
+      } else if (p.grade > 0.0f && radius > 0.0f) {
         float scale = 1.0f + p.grade * (std::sqrt(d2) / radius);
         tmax *= scale;
         tmin *= scale;
@@ -632,6 +810,13 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       float L = detail::edgeLen(m, e);
       if (doSplit && L > tmax) {
         cands.append({e, true}); /* split always allowed; flags propagate */
+        if (p.trace) {
+          trSplitCands++;
+          float over = L / tmax;
+          if (over > trMaxOver) {
+            trMaxOver = over;
+          }
+        }
       } else if (doCollapse && L < tmin) {
         /* Feature preservation (Decision B): pin feature verts, but allow a
          * feature edge to collapse along its own collinear curve. */
@@ -640,7 +825,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
           bool fv1 = feat.isFeatureVert(m.e.vs[e][1]);
           if (fv0 || fv1) {
             if (feat.isFeatureEdge(e)) {
-              if (!detail::featureCollapseOk(m, e, feat)) {
+              if (!detail::featureCollapseOk(m, e, feat, p.feature_corner_angle)) {
                 return; /* corner / junction / mixed curve: don't collapse */
               }
             } else {
@@ -649,11 +834,17 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
           }
         }
         cands.append({e, false});
+        if (p.trace) {
+          trCollapseCands++;
+          float under = tmin > 1e-20f ? L / tmin : 0.0f;
+          if (trCollapseCands == 1 || under < trMinUnder) {
+            trMinUnder = under;
+          }
+        }
       }
     };
     auto considerVertEdges = [&](int v) {
-      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-          m.v.e[v] == ELEM_NONE) {
+      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
         return;
       }
       for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -766,7 +957,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
         int v_keep = m.e.vs[c.edge][0];
         math::float3 keepOld = m.v.co[v_keep];
         mesh::EdgeCollapseResult res;
-        if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb)) {
+        if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb,
+                               /*prevent_inversion=*/true)) {
           stats.collapses++;
           applied++;
           shiftOrig(v_keep, mid - keepOld);
@@ -786,8 +978,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       detail::GenSet &eseen = detail::flipSeenSet();
       eseen.reset(int(m.e.capacity()));
       for (int v : touched) {
-        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-            m.v.e[v] == ELEM_NONE) {
+        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE)
+        {
           continue;
         }
         for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -806,7 +998,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
       for (int e : flipCands) {
         int a, b, cc, dd;
         if (!detail::flipQuad(m, e, a, b, cc, dd) ||
-            !detail::flipShortens(m, a, b, cc, dd)) {
+            !detail::flipShortens(m, a, b, cc, dd))
+        {
           continue;
         }
         if (mesh::flipEdge(m, e, nullptr, cb)) {
@@ -851,6 +1044,24 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
     frontier = std::move(nextFrontier);
 
     stats.rounds = round + 1;
+
+    /* Granular split-sliver detection: snapshot this round's frontier-face
+     * quality so an oscillation that a final survey would miss is visible. */
+    if (p.trace) {
+      RoundQuality q;
+      q.round = round;
+      q.splits = stats.splits - traceS0;
+      q.collapses = stats.collapses - traceC0;
+      q.flips = stats.flips - traceF0;
+      q.smooths = stats.smooths - traceSm0;
+      q.split_cands = trSplitCands;
+      q.collapse_cands = trCollapseCands;
+      q.max_over = trMaxOver;
+      q.min_under = trMinUnder;
+      detail::measureRoundQuality(m, frontier, center, r2, p.trace->thin_angle, q);
+      p.trace->rounds.append(q);
+    }
+
     if (budgetHit) {
       stats.budget_hit = true;
       stats.capped = true;
@@ -858,6 +1069,18 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m, litestl::math::float3 center,
     }
     if (applied == 0) {
       break; /* nothing progressed (all refused) — avoid spinning */
+    }
+    /* Limit-cycle early-out: a long run of low-progress rounds is a split<->
+     * collapse ping-pong, not convergence (convergence empties cands and breaks
+     * above), so bail before the dab spins to max_rounds. See max_stall_rounds. */
+    if (p.max_stall_rounds > 0) {
+      constexpr int kStallOpMax = 2; /* matches dyntopo_trace's churn_op_max */
+      stallRun = applied <= kStallOpMax ? stallRun + 1 : 0;
+      if (stallRun >= p.max_stall_rounds) {
+        stats.stalled = true;
+        stats.capped = true;
+        break;
+      }
     }
     if (round == p.max_rounds - 1) {
       stats.capped = true;

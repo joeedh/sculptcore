@@ -237,6 +237,12 @@ struct SpatialTree {
     return false;
   }
 
+  /* Root node accessor for read-only tree walks (closest-point query, M1). */
+  SpatialNode *getRoot()
+  {
+    return root;
+  }
+
   void setup()
   {
     treeMesh.setup(m);

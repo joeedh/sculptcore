@@ -6,8 +6,10 @@ import yargs from 'yargs'
 import {hideBin} from 'yargs/helpers'
 import {termColor} from './source/litestl/tests/termColor.js'
 import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
+import {ensureDeps, configName} from './tools/deps.mjs'
 
 const CMAKE_BUILD_TYPE = 'RelWithDebInfo'
+const WITH_ASAN = false
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
 const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
@@ -58,6 +60,8 @@ function parallelFlag() {
 
 function summarizeErrors(buf) {
   return new Promise((accept, reject) => {
+    // disable for now
+    return
     if (buf.length < 2048 * 80) {
       return
     }
@@ -266,11 +270,21 @@ async function buildNodeAddon(electronVersion, smoke) {
 
   console.log(`Building Node addon for Electron ${ev} -> ${dir}/sculptcore_node.node`)
 
+  // Prebuilt OpenBLAS + SuiteSparse/CHOLMOD, same as `configure native`, so the
+  // addon links the cholmod target instead of warning it off.
+  const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE)})
+  const depsDef = `--CDSCULPTCORE_DEPS_DIR=${depsDir.replace(/\\/g, '/')}`
+
+  // cmake-js defaults to the static CRT (/MT); force the dynamic CRT so the
+  // addon matches Electron, the rest of the native tree, and the prebuilt
+  // /MD deps (mismatched CRTs surface as undefined dllimport CRT symbols).
+  const crtDef = '--CDCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL'
+
   // 1. Configure via cmake-js: downloads the Electron headers + node.lib and
   //    injects CMAKE_JS_INC/LIB/SRC. Clang toolchain + Ninja, like the rest of
   //    the native tree.
   run(
-    `${env} "${cmakeJs} configure -O ${dir} -G Ninja --CDCMAKE_TOOLCHAIN_FILE=${toolchain} -r electron -v ${ev} -a x64"`
+    `${env} "${cmakeJs} configure -O ${dir} -G Ninja --CDWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} --CDCMAKE_TOOLCHAIN_FILE=${toolchain} ${depsDef} ${crtDef} -r electron -v ${ev} -a x64"`
   )
 
   // 2. Build ONLY the addon target. Its static deps come along; the SHARED
@@ -731,8 +745,8 @@ function setupPNPM() {
 
 const targetPositional = (y) =>
   y.positional('target', {
-    choices : ['wasm', 'native'],
-    default : 'wasm',
+    choices: ['wasm', 'native'],
+    default: 'wasm',
     describe: 'Build target',
   })
 
@@ -765,8 +779,8 @@ function sbrushBackendFlags(backendsArg) {
 yargs(hideBin(process.argv))
   .scriptName('make.mjs')
   .option('jobs', {
-    alias   : 'j',
-    type    : 'number',
+    alias: 'j',
+    type: 'number',
     describe: 'Max parallel compile jobs for cmake --build (default: all cores). Lower it (e.g. -j 2) if clang OOMs.',
   })
   .middleware((argv) => {
@@ -779,10 +793,10 @@ yargs(hideBin(process.argv))
     'Configure the build',
     (y) =>
       targetPositional(y).option('backends', {
-        type    : 'string',
+        type: 'string',
         describe: `comma-separated sbrush backends to enable (subset of: ${SBRUSH_BACKENDS.join(',')}); cpp is always on`,
       }),
-    ({target, backends}) => {
+    async ({target, backends}) => {
       setupPNPM()
       ensureDir('build')
       const dir = buildDir(target)
@@ -797,12 +811,30 @@ yargs(hideBin(process.argv))
         if (fs.existsSync(sccacheSetup)) {
           run(`node "${sccacheSetup}"`)
         }
+        // Fetch-or-build the prebuilt native deps (OpenBLAS + SuiteSparse/CHOLMOD)
+        // for this config, then hand cmake the combo dir. cmake wants forward slashes.
+        const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE)})
+        const depsFlag = `-DSCULPTCORE_DEPS_DIR="${depsDir.replace(/\\/g, '/')}"`
         run(
-          `cd ${dir} && ${env} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${sbrushFlags}`
+          `cd ${dir} && ${env} cmake ../.. -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${depsFlag} ${sbrushFlags}`
         )
       } else {
-        run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS} ${sbrushFlags}`)
+        run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`)
       }
+    }
+  )
+  .command(
+    'deps [config]',
+    'Fetch-or-build the prebuilt native deps (OpenBLAS + SuiteSparse/CHOLMOD)',
+    (y) =>
+      y.positional('config', {
+        type: 'string',
+        default: CMAKE_BUILD_TYPE,
+        describe: 'build config: release | relwithdebinfo | debug | asan',
+      }),
+    async ({config}) => {
+      const dir = await ensureDeps({config: configName(config)})
+      console.log(`deps: ready at ${dir}`)
     }
   )
   .command('build [target]', 'Build', targetPositional, async ({target}) => {
@@ -901,7 +933,7 @@ yargs(hideBin(process.argv))
     'Reconfigure native with the given sbrush backend enabled (with SBRUSH_VALIDATE_ALL=ON) and run its validator pass',
     (y) =>
       y.positional('backend', {
-        choices : SBRUSH_BACKENDS.filter((b) => b !== 'cpp'),
+        choices: SBRUSH_BACKENDS.filter((b) => b !== 'cpp'),
         describe: 'sbrush backend to validate (cpp has no external validator)',
       }),
     async ({backend}) => {
@@ -920,8 +952,8 @@ yargs(hideBin(process.argv))
     'Run per-brush A/B scripts through debug_app: cross-backend (cpp vs wgsl) + golden regression',
     (y) =>
       y.option('regen', {
-        type    : 'boolean',
-        default : false,
+        type: 'boolean',
+        default: false,
         describe: '(re)write tests/golden/<brush>.json references from the cpp dump',
       }),
     async ({regen}) => {
@@ -950,12 +982,12 @@ yargs(hideBin(process.argv))
     (y) =>
       y
         .option('electron-version', {
-          type    : 'string',
+          type: 'string',
           describe: 'Electron version to target (default: read from ../electron/package.json)',
         })
         .option('smoke', {
-          type    : 'boolean',
-          default : false,
+          type: 'boolean',
+          default: false,
           describe: 'After building, load the .node in Electron and call version()/bindingCount()',
         }),
     async ({electronVersion, smoke}) => {

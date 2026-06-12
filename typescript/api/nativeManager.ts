@@ -113,6 +113,9 @@ export class NativeManager {
   Mesh_createCube(dimen: number, size: number, sphereFac: number): NativeBound {
     return this.addon.meshCreateCube(dimen, size, sphereFac)
   }
+  Mesh_makeUVSphere(rings: number, segs: number, radius: number): NativeBound {
+    return this.addon.meshMakeUVSphere(rings, segs, radius)
+  }
   Mesh_buildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number): NativeBound {
     return this.addon.meshBuildSpatialTree(mesh, leafLimit, depthLimit)
   }
@@ -124,6 +127,9 @@ export class NativeManager {
   }
   Mesh_triangulate(mesh: NativeBound): void {
     this.addon.meshTriangulate(mesh)
+  }
+  Mesh_quadRemesh(mesh: NativeBound, params: NativeBound): NativeBound | undefined {
+    return this.addon.meshQuadRemesh(mesh, params)
   }
   /** Reflection runtime exposes the `ngonFaceCount()` struct method directly on
    * the bound mesh wrapper, so this needs no dedicated C-API export. */
@@ -226,10 +232,12 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     pointerBytes                     : (b: NativeBound, m: string, n: number) => nm.pointerBytes(b, m, n),
     objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
     Mesh_createCube                  : (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
+    Mesh_makeUVSphere                : (r: number, s: number, rad: number) => nm.Mesh_makeUVSphere(r, s, rad),
     Mesh_buildSpatialTree            : (m: NativeBound, l: number, dp: number) => nm.Mesh_buildSpatialTree(m, l, dp),
     SpatialTree_free                 : (t: NativeBound) => nm.SpatialTree_free(t),
     Mesh_free                        : (m: NativeBound) => nm.Mesh_free(m),
     Mesh_triangulate                 : (m: NativeBound) => nm.Mesh_triangulate(m),
+    Mesh_quadRemesh                  : (m: NativeBound, p: NativeBound) => nm.Mesh_quadRemesh(m, p),
     Mesh_ngonFaceCount               : (m: NativeBound) => nm.Mesh_ngonFaceCount(m),
     Mesh_serialize                   : (m: NativeBound) => nm.Mesh_serialize(m),
     Mesh_deserialize                 : (b: Uint8Array) => nm.Mesh_deserialize(b),

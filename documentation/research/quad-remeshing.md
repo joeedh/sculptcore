@@ -36,7 +36,7 @@ From the exploration of the codebase:
   `source/mesh/utils/`): `edge_collapse.h`, `delaunay.h`,
   `triangulate.h`. Same pattern for the new small-op helpers we add.
 - **Eigen sparse**: already vendored at
-  `source/litestl/extern/eigen/include/eigen3/Eigen/`. Use
+  `source/litestl/extern/eigen/include/eigen5/Eigen/`. Use
   `Eigen::SparseMatrix<double>` + `SimplicialLDLT` for SPD field/param
   solves; `SparseLU` where needed.
 - **Spatial BVH**: `source/spatial/spatial.h` (has `castRay` only — we

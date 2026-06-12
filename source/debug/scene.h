@@ -123,6 +123,7 @@ struct Scene {
 
   void setMesh(mesh::Mesh *m);
   void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);
+  void smoothMesh();
 
   /* Remesh the mesh under one dab (sphere center/radius) and rebuild the
    * spatial tree with the last buildSpatial settings. Returns split+collapse
@@ -165,12 +166,28 @@ struct Scene {
     postDrawUser_ = user;
   }
 
+  /** Optional depth-tested overlay hook, fired inside the swapchain render
+   *  pass while the scene's view-projection / GPU manager / backend are live —
+   *  after the axes+cursor overlays and before the ImGui post-draw hook. Lets
+   *  callers submit world-space line geometry (e.g. field overlays) that the
+   *  rendered surface occludes. Pass nullptr to clear. */
+  using OverlayDrawCB = void (*)(void *user, gpu::GPUManager &mgr,
+                                 vulkan::VulkanBackend &backend,
+                                 const litestl::math::mat4 &vp);
+  void setOverlayDrawCB(OverlayDrawCB cb, void *user)
+  {
+    overlayCB_ = cb;
+    overlayUser_ = user;
+  }
+
   /** Helper: write current offscreen color attachment to PNG. */
   bool screenshot(const char *path);
 
 private:
   PostDrawHook postDrawHook_ = nullptr;
   void *postDrawUser_ = nullptr;
+  OverlayDrawCB overlayCB_ = nullptr;
+  void *overlayUser_ = nullptr;
   /* Last buildSpatial args, replayed by applyDynTopoDab's tree rebuild. */
   int spatialLeaf_ = 0;
   int spatialDepth_ = 16;

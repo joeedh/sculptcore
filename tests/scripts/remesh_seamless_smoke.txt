@@ -1,0 +1,5 @@
+# Headless M4 smoke: cross field + seamless param on a triangulated torus.
+make_shape kind=torus n=48 m=32 radius=1.0 minor=0.35
+triangulate
+remesh_cross_field
+remesh_seamless target_edge_length=0.1
