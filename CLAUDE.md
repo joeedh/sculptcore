@@ -116,7 +116,7 @@ source/
   window/           GLFW windowing (native only; Vulkan-friendly, no GL context)
   wasm/             Emscripten glue: jslib.js, wasmManager
   app/              application entry (stub)
-extern/             vendored: eigen_dist, glfw (Vulkan via system SDK)
+extern/             vendored: glfw (Vulkan via system SDK)
 build_files/        macros.cmake, WASM.cmake, link_wasm.py
 tests/              GTest-style; native only (BUILD_WASM=OFF)
 ```
