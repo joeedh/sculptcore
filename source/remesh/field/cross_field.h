@@ -30,6 +30,7 @@ struct CrossFieldParams {
   bool use_sharp_features = true;  // hard-align to sharp/boundary edges
   float sharp_angle = 0.7853982f;  // dihedral threshold for "sharp" (radians)
   float feature_hysteresis = 0.0f; // Tier 7a: weak-tag band below sharp_angle
+  int feature_min_chain = 0;       // Tier 7b: drop unanchored sharp chains shorter than this
   float curvature_weight = 1.0f;   // soft constraint scale (× anisotropy)
   float field_smoothness = 1.0f;   // per-edge smoothness weight (wsmooth)
   uint32_t seed = 1u;              // determinism for the eigen-fallback seed

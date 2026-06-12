@@ -1,4 +1,4 @@
-// Tier 7 test: feature-tag hysteresis (7a).
+// Tier 7 test: feature-tag hysteresis (7a) + sharp-chain spur pruning (7b).
 //
 //  - Tent fixture: a triangulated ridge whose per-edge dihedral is exact by
 //    construction (diagonals chosen so each ridge edge's two wedge triangles
@@ -7,6 +7,9 @@
 //    crease; hysteresis must flood the weak segment closed.
 //  - All-weak tent: hysteresis without a strong seed must tag nothing
 //    (hysteresis is connectivity-gated, not just a lower threshold).
+//  - Spur pruning: per-row slope control turns single ridge edges / short
+//    runs sharp with dangling or boundary-anchored ends; a triangulated cube
+//    (all corners degree-3 junctions) must be a strict no-op.
 #include "test_util.h"
 
 #include "litestl/math/vector.h"
@@ -184,10 +187,123 @@ void testHysteresis()
   litestl::alloc::Delete<Mesh>(weakTent);
 }
 
+// Cube with triangulated faces: 12 true crease edges, every corner a
+// degree-3 junction, face diagonals flat (coplanar halves).
+Mesh *makeCube()
+{
+  Mesh *m = litestl::alloc::New<Mesh>("Cube");
+  static const float C[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+                                {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
+  int v[8];
+  for (int i = 0; i < 8; i++) {
+    v[i] = m->make_vertex(float3(C[i][0], C[i][1], C[i][2]));
+  }
+  static const int Q[6][4] = {{0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
+                              {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
+  Vector<int> vs;
+  auto tri = [&](int a, int b, int c) {
+    vs.clear();
+    vs.append(v[a]);
+    vs.append(v[b]);
+    vs.append(v[c]);
+    m->make_face(vs);
+  };
+  for (int q = 0; q < 6; q++) {
+    tri(Q[q][0], Q[q][1], Q[q][2]);
+    tri(Q[q][0], Q[q][2], Q[q][3]);
+  }
+  m->recalc_normals();
+  return m;
+}
+
+void testSpurPruning()
+{
+  const float SHARP = 45.0f * DEG, HYST = 15.0f * DEG;
+  const float sStrong = std::tan(27.5f * DEG);
+  const float sWeak = std::tan(17.5f * DEG);
+  const int NY = 10;
+  // nxHalf=1: a slope change between rows kinks the wing surface along that
+  // row's horizontal edges, and the kink grows with |x| (~49deg at the third
+  // column). One column per wing keeps every wing dihedral ~10deg, so only
+  // ridge edges can tag sharp and chain expectations stay exact.
+  const int NXH = 1;
+  float slope[NY];
+
+  // Single interior sharp edge (both ends dangling): kept with pruning off,
+  // dropped at min_chain=2.
+  for (int j = 0; j < NY; j++) {
+    slope[j] = sWeak;
+  }
+  slope[5] = sStrong; // ridge edge 4 only
+  Mesh *spur = makeTent(slope, NY, NXH, 0.1f);
+  remesh::computeFeatureTags(*spur, SHARP, 0.0f, 0);
+  int n = countSharp(*spur);
+  fprintf(stderr, "[prune/spur off] sharp=%d\n", n);
+  TASSERT(n == 1);
+  remesh::computeFeatureTags(*spur, SHARP, 0.0f, 2);
+  n = countSharp(*spur);
+  fprintf(stderr, "[prune/spur on] sharp=%d\n", n);
+  TASSERT(n == 0);
+  litestl::alloc::Delete<Mesh>(spur);
+
+  // 4-edge dangling chain (ridge edges 2..5): survives min_chain=4, dropped
+  // at min_chain=5.
+  for (int j = 0; j < NY; j++) {
+    slope[j] = (j >= 3 && j <= 6) ? sStrong : sWeak;
+  }
+  Mesh *chain4 = makeTent(slope, NY, NXH, 0.1f);
+  remesh::computeFeatureTags(*chain4, SHARP, 0.0f, 4);
+  n = countSharp(*chain4);
+  fprintf(stderr, "[prune/chain4 min4] sharp=%d\n", n);
+  TASSERT(n == 4);
+  remesh::computeFeatureTags(*chain4, SHARP, 0.0f, 5);
+  n = countSharp(*chain4);
+  fprintf(stderr, "[prune/chain4 min5] sharp=%d\n", n);
+  TASSERT(n == 0);
+  litestl::alloc::Delete<Mesh>(chain4);
+
+  // One end boundary-anchored, other dangling: still a spur, dropped.
+  for (int j = 0; j < NY; j++) {
+    slope[j] = sWeak;
+  }
+  slope[NY - 1] = sStrong; // ridge edge 8: row 9 = boundary row, row 8 interior
+  Mesh *half = makeTent(slope, NY, NXH, 0.1f);
+  remesh::computeFeatureTags(*half, SHARP, 0.0f, 2);
+  n = countSharp(*half);
+  fprintf(stderr, "[prune/half-anchor] sharp=%d\n", n);
+  TASSERT(n == 0);
+  litestl::alloc::Delete<Mesh>(half);
+
+  // Full ridge anchored at both boundary rows: kept at any min_chain.
+  for (int j = 0; j < NY; j++) {
+    slope[j] = sStrong;
+  }
+  Mesh *ridge = makeTent(slope, NY, NXH, 0.1f);
+  remesh::computeFeatureTags(*ridge, SHARP, 0.0f, 20);
+  n = countSharp(*ridge);
+  fprintf(stderr, "[prune/anchored] sharp=%d\n", n);
+  TASSERT(n == NY - 1);
+  litestl::alloc::Delete<Mesh>(ridge);
+
+  // Cube no-op: all 12 crease edges junction-anchored, diagonals untagged,
+  // even with hysteresis + aggressive pruning.
+  Mesh *cube = makeCube();
+  remesh::computeFeatureTags(*cube, SHARP, 0.0f, 0);
+  n = countSharp(*cube);
+  fprintf(stderr, "[prune/cube plain] sharp=%d\n", n);
+  TASSERT(n == 12);
+  remesh::computeFeatureTags(*cube, SHARP, HYST, 10);
+  n = countSharp(*cube);
+  fprintf(stderr, "[prune/cube filtered] sharp=%d\n", n);
+  TASSERT(n == 12);
+  litestl::alloc::Delete<Mesh>(cube);
+}
+
 } // namespace
 
 int main()
 {
   testHysteresis();
+  testSpurPruning();
   return retval;
 }

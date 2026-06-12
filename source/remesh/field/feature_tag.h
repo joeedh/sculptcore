@@ -17,8 +17,11 @@ namespace sculptcore::remesh {
 /* Tag sharp + boundary edges into the .remesh.e.* TEMP bool layers. Thaws
  * topology + recomputes normals first. Tier 7a: `feature_hysteresis` (radians,
  * clamped to [0, sharp_angle]) also tags weaker edges (dihedral above
- * sharp_angle - hysteresis) when vertex-connected to a strong edge; 0 = off. */
+ * sharp_angle - hysteresis) when vertex-connected to a strong edge; 0 = off.
+ * Tier 7b: `feature_min_chain` drops sharp chains shorter than this many edges
+ * unless both ends anchor at a junction/boundary (0 = off). */
 void computeFeatureTags(mesh::Mesh &m, float sharp_angle,
-                        float feature_hysteresis = 0.0f);
+                        float feature_hysteresis = 0.0f,
+                        int feature_min_chain = 0);
 
 } // namespace sculptcore::remesh

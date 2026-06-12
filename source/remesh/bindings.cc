@@ -30,6 +30,7 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, use_sharp_features);
   BIND_STRUCT_MEMBER(st, sharp_angle);
   BIND_STRUCT_MEMBER(st, feature_hysteresis);
+  BIND_STRUCT_MEMBER(st, feature_min_chain);
   BIND_STRUCT_MEMBER(st, use_density);
   BIND_STRUCT_MEMBER(st, quantize_direct_rounding);
   BIND_STRUCT_MEMBER(st, reproject);

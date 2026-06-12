@@ -54,6 +54,11 @@ struct RemeshParams {
    * a strong one, so a crease oscillating around the threshold stays whole. */
   float feature_hysteresis = 0.0f;
 
+  /* Tier 7b: drop tagged sharp chains shorter than this many edges unless both
+   * ends anchor at a junction or boundary (noise spurs force spurious
+   * singularities). 0 = off. */
+  int feature_min_chain = 0;
+
   /* M4: scale the parametrization metric by 1/density so quad spacing follows
    * the per-vertex `.remesh.v.density` map. Off = uniform spacing. */
   bool use_density = false;

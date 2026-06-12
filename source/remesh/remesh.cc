@@ -840,6 +840,7 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   cp.use_sharp_features = params.use_sharp_features;
   cp.sharp_angle = params.sharp_angle;
   cp.feature_hysteresis = params.feature_hysteresis;
+  cp.feature_min_chain = params.feature_min_chain;
   cp.seed = params.seed;
   cp.curvature_smooth_iters = params.curvature_smooth_iters;
   cp.curvature_smooth_lambda = params.curvature_smooth_lambda;
