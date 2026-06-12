@@ -95,14 +95,16 @@ VBO::~VBO()
 } // namespace sculptcore::gpu
 
 /*
-direct binding Bind function for if the
+direct Binder specialization for if the
 generic pointer binding code in sculptcore\source\litestl\binding\binding_utils.h
-doesn't work:
+doesn't work (declare it in a gpu header, e.g. vbo.h, so every TU agrees):
 
 namespace litestl::binding {
-template <std::same_as<sculptcore::gpu::Buffer *> T> const BindingBase *Bind()
-{
-  return new types::Pointer(Bind<sculptcore::gpu::Buffer>());
-}
+template <> struct Binder<sculptcore::gpu::Buffer *> {
+  static const BindingBase *bind()
+  {
+    return new types::Pointer(Bind<sculptcore::gpu::Buffer>());
+  }
+};
 } // namespace litestl::binding
 */

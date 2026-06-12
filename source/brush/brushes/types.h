@@ -28,28 +28,30 @@ MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
 
 namespace litestl::binding {
-template <std::same_as<sculptcore::brush::SculptBrushes> T> static const types::Enum *Bind()
-{
-  using namespace sculptcore::brush;
-  types::Enum *e = new types::Enum("sculptcore::brush::SculptBrushes", sizeof(SculptBrushes));
-  e->addItem("DRAW", SculptBrushes::DRAW);
-  e->addItem("INFLATE", SculptBrushes::INFLATE);
-  e->addItem("CLAY", SculptBrushes::CLAY);
-  e->addItem("PINCH", SculptBrushes::PINCH);
-  e->addItem("SHARP", SculptBrushes::SHARP);
-  e->addItem("MASK", SculptBrushes::MASK);
-  e->addItem("SMOOTH", SculptBrushes::SMOOTH);
-  e->addItem("KELVINLET", SculptBrushes::KELVINLET);
-  e->addItem("POSE", SculptBrushes::POSE);
-  e->addItem("TEXDRAW", SculptBrushes::TEXDRAW);
-  e->addItem("SCRAPE", SculptBrushes::SCRAPE);
-  e->addItem("FILL", SculptBrushes::FILL);
-  e->addItem("WINGSCRAPE", SculptBrushes::WINGSCRAPE);
-  e->addItem("COLOR", SculptBrushes::COLOR);
-  e->addItem("POLYGROUP", SculptBrushes::POLYGROUP);
-  e->addItem("BSMOOTH", SculptBrushes::BSMOOTH);
-  e->addItem("GRAB", SculptBrushes::GRAB);
-  e->addItem("SNAKEHOOK", SculptBrushes::SNAKEHOOK);
-  return e;
-}
+template <> struct Binder<sculptcore::brush::SculptBrushes> {
+  static const types::Enum *bind()
+  {
+    using namespace sculptcore::brush;
+    types::Enum *e = new types::Enum("sculptcore::brush::SculptBrushes", sizeof(SculptBrushes));
+    e->addItem("DRAW", SculptBrushes::DRAW);
+    e->addItem("INFLATE", SculptBrushes::INFLATE);
+    e->addItem("CLAY", SculptBrushes::CLAY);
+    e->addItem("PINCH", SculptBrushes::PINCH);
+    e->addItem("SHARP", SculptBrushes::SHARP);
+    e->addItem("MASK", SculptBrushes::MASK);
+    e->addItem("SMOOTH", SculptBrushes::SMOOTH);
+    e->addItem("KELVINLET", SculptBrushes::KELVINLET);
+    e->addItem("POSE", SculptBrushes::POSE);
+    e->addItem("TEXDRAW", SculptBrushes::TEXDRAW);
+    e->addItem("SCRAPE", SculptBrushes::SCRAPE);
+    e->addItem("FILL", SculptBrushes::FILL);
+    e->addItem("WINGSCRAPE", SculptBrushes::WINGSCRAPE);
+    e->addItem("COLOR", SculptBrushes::COLOR);
+    e->addItem("POLYGROUP", SculptBrushes::POLYGROUP);
+    e->addItem("BSMOOTH", SculptBrushes::BSMOOTH);
+    e->addItem("GRAB", SculptBrushes::GRAB);
+    e->addItem("SNAKEHOOK", SculptBrushes::SNAKEHOOK);
+    return e;
+  }
+};
 } // namespace litestl::binding

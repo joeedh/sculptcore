@@ -49,8 +49,8 @@ Notes:
   clang↔Electron link was de-risked in `spike/napi/` (`RESULTS.md`).
 - WASM configure runs `emcmake cmake .. -G Ninja -DBUILD_WASM=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
   native configure runs `cmake ../.. -G Ninja --toolchain ../../build_files/native-clang.cmake`
-  (clang is required everywhere — the code relies on Clang's delayed-template-parsing
-  extension). Both also pass `-DCMAKE_BUILD_TYPE=RelWithDebInfo`.
+  (clang is the required toolchain everywhere). Both also pass
+  `-DCMAKE_BUILD_TYPE=RelWithDebInfo`.
 - Every command runs under `node configureEnv.mjs` (with `--emsdk` for WASM) to set up the
   emsdk/PATH environment — don't invoke cmake/ninja/ctest directly.
 - `emsdk` is **not a submodule** — `install-emsdk` `git clone`s it and checks out the

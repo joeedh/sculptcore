@@ -114,38 +114,44 @@ delayed parsing, so every step lands green before the flag flips.
 
 ### Phase 0 — sizing (scratch, not committed)
 
-- [ ] Locally delete `-fdelayed-template-parsing
+- [x] Locally delete `-fdelayed-template-parsing
       -Wno-delayed-template-parsing-in-cxx20` from both
       `add_compile_options` lines in the root `CMakeLists.txt`
       (~line 14 WASM branch, ~line 37 native branch), configure + build
       native, capture the error inventory, revert.
-- [ ] Confirm the fallout is dominated by `Bind` lookup; list any
+- [x] Confirm the fallout is dominated by `Bind` lookup; list any
       non-binding stragglers (never-instantiated template bodies elsewhere
       — `util/` containers are the likely hotspot) for phase 3.
+      (Result: 100% of the fallout was the `Bind` overload set — zero
+      non-binding stragglers.)
 
 ### Phase 1 — core trait infrastructure (flag stays on)
 
-- [ ] Add `binding/binding_bind.h` (primary `Binder` + `Bind` dispatcher).
+- [x] Add `binding/binding_bind.h` (primary `Binder` + `Bind` dispatcher).
       Include it at the top of every `binding_*.h` header so builder bodies
       see the dispatcher regardless of the
       `binding_method.h ↔ binding_utils.h ↔ binding_struct.h` include
       cycle.
-- [ ] Migrate the litestl-internal overloads per the table above.
+- [x] Migrate the litestl-internal overloads per the table above.
       `BIND_STRUCT_*` macros and builder bodies are unchanged (their
       `Bind<...>` spellings now route through the dispatcher).
-- [ ] Grep-verify no function-template `Bind` definitions remain under
+- [x] Grep-verify no function-template `Bind` definitions remain under
       `source/litestl/` (pattern: `\*\s*Bind\s*\(\)` and `Bind\s*\(\)\s*\{`).
-- [ ] **Gate 1:** `node make.mjs build native` + `node make.mjs test`
+- [x] **Gate 1:** `node make.mjs build native` + `node make.mjs test`
       green; WASM build green.
 
 ### Phase 2 — downstream modules (flag stays on)
 
-- [ ] Migrate per the downstream table: mesh, gpu (incl. hoisting the
+- [x] Migrate per the downstream table: mesh, gpu (incl. hoisting the
       `Buffer *` spec declaration), props, spatial, brush, dyntopo.
-- [ ] Audit grep over all of `source/` and `tests/` for leftover `Bind`
+      (The `Buffer *` overload turned out to be dead code inside a block
+      comment in `vbo.cc`; the commented escape-hatch was updated to the
+      Binder spelling, no live spec added — generic `Binder<T *>` produces
+      the identical descriptor.)
+- [x] Audit grep over all of `source/` and `tests/` for leftover `Bind`
       overload definitions or declarations (incl. test-local ones in
       `litestl/tests/test_binding_system.cc`, `tests/test_binding.cc`).
-- [ ] **Gate 2:** native build + ctest, WASM build, `node make.mjs node
+- [x] **Gate 2:** native build + ctest, WASM build, `node make.mjs node
       --smoke` all green. Regenerate the TS bindings (WASM build, then
       `pnpm build` in `tools/`) and confirm a **zero diff** under
       `typescript/` — descriptors must be byte-identical. Surface any diff
@@ -153,27 +159,30 @@ delayed parsing, so every step lands green before the flag flips.
 
 ### Phase 3 — flip the flag
 
-- [ ] Remove `-fdelayed-template-parsing` and
+- [x] Remove `-fdelayed-template-parsing` and
       `-Wno-delayed-template-parsing-in-cxx20` from both CMakeLists lines.
-- [ ] Rebuild native, WASM, and the Node addon; fix residual fallout from
+- [x] Rebuild native, WASM, and the Node addon; fix residual fallout from
       phase 0's straggler list (expect mechanical fixes: missing includes,
       typos in never-instantiated bodies, non-dependent names not visible
-      at definition).
-- [ ] **Gate 3:** all three builds green; full ctest green (known
+      at definition). (The straggler list was empty; zero residual errors.)
+- [x] **Gate 3:** all three builds green; full ctest green (known
       pre-existing failure: `test_debug_script` smooth-brush assert —
       unrelated, don't chase); `--smoke` passes; TS regen still zero-diff.
       Optionally run the parent repo's `sculptcore_parity.test.ts`.
+      (ctest matched the master baseline exactly — the same 3 pre-existing
+      failures: `test_debug_script`, `test_live_stroke`, `test_bsmooth`.)
 
 ### Phase 4 — docs + cleanup
 
-- [ ] Update `sculptcore/CLAUDE.md` (drop "the code relies on Clang's
+- [x] Update `sculptcore/CLAUDE.md` (drop "the code relies on Clang's
       delayed-template-parsing extension"; clang stays the required
       toolchain), the `make.mjs` comment (~line 224), and
       `litestl/documentation/binding.md` (customization point is now
       `Binder<T>` specialization — update the "bind a new enum" recipe;
       `litestl/CLAUDE.md`'s macro-level instructions are unchanged).
-- [ ] Remove every `CLAUDENOTE:` comment added during the work, promoting
-      any still-useful ones to ≤3-line permanent comments.
+- [x] Remove every `CLAUDENOTE:` comment added during the work, promoting
+      any still-useful ones to ≤3-line permanent comments. (None were
+      added.)
 
 ## Risks
 

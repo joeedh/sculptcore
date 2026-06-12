@@ -11,8 +11,7 @@
 namespace litestl::binding {
 // DynTopoMode is a plain (non-bitmask) enum class; bind it so the `mode` member
 // of DynTopoParams resolves through BIND_STRUCT_MEMBER's Bind<decltype(field)>().
-template <std::same_as<sculptcore::dyntopo::DynTopoMode> T>
-static const BindingBase *Bind()
+const BindingBase *Binder<sculptcore::dyntopo::DynTopoMode>::bind()
 {
   using sculptcore::dyntopo::DynTopoMode;
   types::Enum *e =

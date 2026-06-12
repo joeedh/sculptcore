@@ -220,9 +220,9 @@ function envPrefix(target) {
   return `node ${rel}/configureEnv.mjs ${emsdk}`.trimEnd()
 }
 
-// Use clang for native builds on every platform; the codebase relies on
-// Clang's delayed-template-parsing extension. Path is written relative
-// to the build dir (build/native).
+// Use clang for native builds on every platform — it is the project's
+// required toolchain. Path is written relative to the build dir
+// (build/native).
 function nativeToolchainFlag() {
   return '--toolchain ../../build_files/native-clang.cmake '
 }

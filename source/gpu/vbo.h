@@ -34,31 +34,32 @@ enum GPUBufferType {
 } // namespace sculptcore::gpu
 
 namespace litestl::binding {
-template <std::same_as<sculptcore::gpu::GPUBufferType> T>
-static const litestl::binding::BindingBase *Bind()
-{
-  using namespace sculptcore::gpu;
-  using namespace litestl::binding;
-  types::Enum *e =
-      new types::Enum("sculptcore::gpu::GPUBufferType", sizeof(GPUBufferType));
+template <> struct Binder<sculptcore::gpu::GPUBufferType> {
+  static const BindingBase *bind()
+  {
+    using namespace sculptcore::gpu;
+    types::Enum *e =
+        new types::Enum("sculptcore::gpu::GPUBufferType", sizeof(GPUBufferType));
 
-  e->addItem("BUFFER_ARRAY", GPUBufferType::BUFFER_ARRAY);
-  e->addItem("BUFFER_INDEX", GPUBufferType::BUFFER_INDEX);
-  e->addItem("BUFFER_TEXTURE", GPUBufferType::BUFFER_TEXTURE);
-  e->addItem("BUFFER_UNIFORM", GPUBufferType::BUFFER_UNIFORM);
-  return e;
-}
+    e->addItem("BUFFER_ARRAY", GPUBufferType::BUFFER_ARRAY);
+    e->addItem("BUFFER_INDEX", GPUBufferType::BUFFER_INDEX);
+    e->addItem("BUFFER_TEXTURE", GPUBufferType::BUFFER_TEXTURE);
+    e->addItem("BUFFER_UNIFORM", GPUBufferType::BUFFER_UNIFORM);
+    return e;
+  }
+};
 
-template <std::same_as<sculptcore::gpu::GPUBufferHint> T> static const BindingBase *Bind()
-{
-  using namespace sculptcore::gpu;
-  using namespace litestl::binding;
-  types::Enum *e =
-      new types::Enum("sculptcore::gpu::GPUBufferHint", sizeof(GPUBufferHint));
-  e->addItem("HINT_STATIC", GPUBufferHint::HINT_STATIC);
-  e->addItem("HINT_DYNAMIC", GPUBufferHint::HINT_DYNAMIC);
-  return e;
-}
+template <> struct Binder<sculptcore::gpu::GPUBufferHint> {
+  static const BindingBase *bind()
+  {
+    using namespace sculptcore::gpu;
+    types::Enum *e =
+        new types::Enum("sculptcore::gpu::GPUBufferHint", sizeof(GPUBufferHint));
+    e->addItem("HINT_STATIC", GPUBufferHint::HINT_STATIC);
+    e->addItem("HINT_DYNAMIC", GPUBufferHint::HINT_DYNAMIC);
+    return e;
+  }
+};
 } // namespace litestl::binding
 
 namespace sculptcore::gpu {

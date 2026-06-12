@@ -9,10 +9,9 @@
 #include "vbo.h"
 
 namespace litestl::binding {
-template <std::same_as<sculptcore::gpu::GPUCmdType> T> const BindingBase *Bind()
+const BindingBase *Binder<sculptcore::gpu::GPUCmdType>::bind()
 {
   using namespace sculptcore::gpu;
-  using namespace litestl::binding;
 
   types::Enum *e = new types::Enum("sculptcore::gpu::GPUCmdType", sizeof(GPUCmdType));
   e->addItem("DRAW_TRIS", GPUCmdType::DRAW_TRIS);
@@ -21,9 +20,8 @@ template <std::same_as<sculptcore::gpu::GPUCmdType> T> const BindingBase *Bind()
   e->addItem("DRAW_POINTS", GPUCmdType::DRAW_POINTS);
   return e;
 }
-template const BindingBase *Bind<sculptcore::gpu::GPUCmdType>();
 
-template <std::same_as<sculptcore::gpu::GPUType> T> const BindingBase *Bind()
+const BindingBase *Binder<sculptcore::gpu::GPUType>::bind()
 {
   using namespace sculptcore::gpu;
   types::Enum *e = new types::Enum("sculptcore::gpu::GPUType", sizeof(GPUType));
@@ -40,9 +38,8 @@ template <std::same_as<sculptcore::gpu::GPUType> T> const BindingBase *Bind()
   e->addItem("UINT8", GPUType::UINT8);
   return e;
 }
-template const BindingBase *Bind<sculptcore::gpu::GPUType>();
 
-template <std::same_as<sculptcore::gpu::GPUFetchMode> T> const BindingBase *Bind()
+const BindingBase *Binder<sculptcore::gpu::GPUFetchMode>::bind()
 {
   using namespace sculptcore::gpu;
   types::Enum *e = new types::Enum("sculptcore::gpu::GPUFetchMode", sizeof(GPUFetchMode));
@@ -51,7 +48,6 @@ template <std::same_as<sculptcore::gpu::GPUFetchMode> T> const BindingBase *Bind
   e->addItem("FETCH_FLOAT", GPUFetchMode::FETCH_FLOAT);
   return e;
 }
-template const BindingBase *Bind<sculptcore::gpu::GPUFetchMode>();
 
 } // namespace litestl::binding
 

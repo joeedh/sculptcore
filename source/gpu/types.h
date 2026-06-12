@@ -3,6 +3,7 @@
 #include "litestl/util/compiler_util.h"
 
 #include "litestl/binding/binding_base.h"
+#include "litestl/binding/binding_bind.h"
 #include "litestl/math/matrix.h"
 #include "litestl/math/vector.h"
 
@@ -99,7 +100,14 @@ enum class GPUFetchMode {
 } // namespace sculptcore::gpu
 
 namespace litestl::binding {
-template <std::same_as<sculptcore::gpu::GPUCmdType> T> const BindingBase *Bind();
-template <std::same_as<sculptcore::gpu::GPUType> T> const BindingBase *Bind();
-template <std::same_as<sculptcore::gpu::GPUFetchMode> T> const BindingBase *Bind();
+// bind() bodies live in gpu/manager.cc
+template <> struct Binder<sculptcore::gpu::GPUCmdType> {
+  static const BindingBase *bind();
+};
+template <> struct Binder<sculptcore::gpu::GPUType> {
+  static const BindingBase *bind();
+};
+template <> struct Binder<sculptcore::gpu::GPUFetchMode> {
+  static const BindingBase *bind();
+};
 } // namespace litestl::binding
