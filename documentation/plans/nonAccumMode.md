@@ -121,10 +121,54 @@ bsmooth / texdraw / wingscrape).
 create-fn signature; change the vertex loop to
 `ctx.template vertexIter<AccMode>(ctx.node)`; change the neighbor-co emission to
 `AccMode::neighborCo(ctx, __nb_v)`. Regenerate `kernels/generated/*.brush.gen.h`
-via `node make.mjs codegen`. **`.sbrush` sources are untouched.** GPU emitters
-are unaffected (AccumMode is a C++-codegen concept, absent from `.sbrush`) — so
-non-accumulate is **CPU-path only** for v1 (acceptable: GPU offload is optional;
-note as a known limitation).
+via `node make.mjs codegen`. **`.sbrush` sources are untouched.** AccumMode is
+a C++-codegen concept, absent from `.sbrush`; the GPU side gets the same
+semantics through the WGSL emitter instead (§3b below).
+
+### 3b. GPU support (WGSL emitter; covers Vulkan-SPIR-V via naga + WebGPU)
+
+The CPU machinery collapses on the GPU because a stroke's topology is static
+there and `beginStroke` uploads co exactly once: **every vertex's stroke-start
+position is that initial upload**, so the generational `.brush.orig.*`
+snapshot reduces to one read-only buffer captured at `beginStroke`. No gen
+stamps are needed. Neighbor parity holds too: CPU `AccumOrig::neighborCo`
+reads `orig_co` if stamped else `co_prev`, and an unstamped vertex has never
+moved, so `co_prev == initial co == orig_co` — "always read orig_co under
+non-accumulate" is bit-identical.
+
+- **Layout** (`brush/compute_layout.h`): `nonaccum: u32` fills the former
+  `_pad0[2]` hole at offset 24 of `ComputeBrushUniforms` (sizes/offsets
+  unchanged); `kOrigCoBinding = 22` sits just past the attr-slot superset
+  (vk `kAttrBase=14 + kMaxAttrBindings=8`, static_assert'd).
+- **Emitter** (`compiler/emit_wgsl.cc`): for accumulable kernels (neither
+  `@global` nor `@paint`, non-face) emit the binding-22 `orig_co` decl, reseed
+  the local `<p>_co` from `orig_co[sb_vidx]` when `brush_u.nonaccum != 0u`
+  (the WGSL twin of `CoProxy<AccumOrig>` — the local is read-base until the
+  single end-of-kernel write-back), and read neighbor co via
+  `select(co_prev[idx], orig_co[idx], brush_u.nonaccum != 0u)`. SPIR-V is
+  produced from the WGSL by naga, so one emitter covers both GPU backends.
+- **Storage-buffer budget**: orig_co made neighbor kernels (smooth) bind 11
+  storage buffers — one over Dawn's per-stage limit of 10 (the pipeline fails
+  and the dispatch silently no-ops). Fixed by moving the falloff LUT
+  (binding 7, fixed 256 f32) to a **uniform** buffer (`array<vec4<f32>, 64>`,
+  scalar-indexed via `sb_lut`); identical bytes, frees one storage slot for
+  every kernel, smooth lands exactly at 10.
+- **Dispatchers**: `vulkan/vk_compute.*` adds the binding-22 layout slot +
+  `origCo_` buffer (memcpy'd from the beginStroke co upload);
+  `webgpu/wgpu_compute.*` mirrors it (its bind groups are parse-driven, only
+  the buffer + `buildBindGroup` case are new). `debug/gpu_stroke.cc` computes
+  `accumulable_` per kernel and sets `bu.nonaccum = scene.nonAccum &&
+  accumulable_`.
+- **Verification**: `tests/scripts/brush_backends/draw_nonaccum_ab.txt` under
+  `sbrush-verify` (cpp↔wgsl + golden) and `webgpu-verify` (capture fixtures
+  carry raw brushU bytes, so `nonaccum` replays automatically;
+  `tests/webgpu/replay.mjs` binds the fixture's initial co as binding 22).
+- **Orphan clay kernel fixed in passing**: `gpu_stroke.cc` still mapped CLAY to
+  the deleted `clay` kernel (stale `sbrush_out` artifacts kept it loadable until
+  the falloff-uniform layout change broke them). CLAY/SCRAPE/FILL now run the
+  `plane` kernel like the CPU path; its `planeoff`/`planeSide` DSL uniforms get
+  named union slots at offsets 72/76 in `ComputeBrushUniforms` (shared with
+  kelvinlet's `mu`/`nu` — mutually exclusive per dispatch).
 
 **Dispatch** in `createCommand()`: select `AccumOrig` when
 `executor.nonAccum && def.accumulable`, else `AccumLive` (crossed with the

@@ -26,6 +26,7 @@ BrushComputeDispatch::~BrushComputeDispatch()
   destroyBuf(coPrev_);
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
+  destroyBuf(origCo_);
   destroyBuf(attrDummy_);
   for (int i = 0; i < kMaxAttrBindings; i++) destroyBuf(attrBuf_[i]);
   destroyBrushTexture();
@@ -311,7 +312,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   // (co_prev + neighbor CSR) are only referenced by for_neighbor kernels, but
   // the layout always declares them so one bind-group setup serves every
   // brush; non-neighbor shaders simply don't use them.
-  VkDescriptorSetLayoutBinding lb[kAttrBase + kMaxAttrBindings]{};
+  VkDescriptorSetLayoutBinding lb[kAttrBase + kMaxAttrBindings + 1]{};
   auto set = [&](int i, VkDescriptorType t) {
     lb[i].binding = uint32_t(i);
     lb[i].descriptorType = t;
@@ -325,7 +326,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   set(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   set(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
   set(6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-  set(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  set(7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);  // falloff LUT (vec4x64 uniform)
   set(8, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
   set(9, VK_DESCRIPTOR_TYPE_SAMPLER);
   set(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -337,10 +338,15 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   for (int i = 0; i < kMaxAttrBindings; i++) {
     set(kAttrBase + i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   }
+  // Non-accumulate stroke-start co (kOrigCoBinding = 22), just past the attr
+  // superset. Always declared; non-accumulable kernels simply don't use it.
+  static_assert(kOrigCoBinding == uint32_t(kAttrBase + kMaxAttrBindings),
+                "orig_co binding must sit just past the attr slot superset");
+  set(int(kOrigCoBinding), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 
   VkDescriptorSetLayoutCreateInfo lci{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  lci.bindingCount = kAttrBase + kMaxAttrBindings;
+  lci.bindingCount = kAttrBase + kMaxAttrBindings + 1;
   lci.pBindings = lb;
   if (vkCreateDescriptorSetLayout(d, &lci, nullptr, &setLayout_) != VK_SUCCESS)
     return false;
@@ -363,7 +369,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
 
   VkDescriptorPoolSize ps[4]{};
   ps[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 + kMaxAttrBindings};
-  ps[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2};
+  ps[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3};
   ps[2] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1};
   ps[3] = {VK_DESCRIPTOR_TYPE_SAMPLER, 1};
   VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -413,6 +419,7 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(no_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(mask_, VkDeviceSize(vertCount) * sizeof(float), storage) ||
       !ensureBuf(coPrev_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
+      !ensureBuf(origCo_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(nbrMeta_, 0, storage) || !ensureBuf(nbrVerts_, 0, storage)) {
     return false;
   }
@@ -430,6 +437,10 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
     noDst[i * 4 + 3] = 0.0f;
   }
   std::memcpy(mask_.mapped, mask, size_t(vertCount) * sizeof(float));
+  // Stroke-start snapshot for non-accumulate mode: the mesh is static for the
+  // stroke, so this beginStroke upload is every vert's stroke-start position.
+  std::memcpy(origCo_.mapped, coDst, size_t(vertCount) * 4 * sizeof(float));
+  writeStorage(kOrigCoBinding, origCo_);
   writeStorage(0, co_);
   writeStorage(1, no_);
   writeStorage(2, mask_);
@@ -486,7 +497,7 @@ bool BrushComputeDispatch::prepareDab(const ComputeBrushUniforms &brushU,
       !ensureBuf(nodes_, VkDeviceSize(nodeCount) * sizeof(ComputeNodeMeta), storage) ||
       !ensureBuf(brushU_, sizeof(ComputeBrushUniforms), uniform) ||
       !ensureBuf(ctxU_, sizeof(ComputeCtxUniforms), uniform) ||
-      !ensureBuf(falloff_, 256 * sizeof(float), storage) ||
+      !ensureBuf(falloff_, 256 * sizeof(float), uniform) ||
       !ensureBuf(stroke_, VkDeviceSize(strokeCount < 1 ? 1 : strokeCount) *
                               sizeof(ComputeStrokeSample),
                  storage)) {
@@ -508,7 +519,7 @@ bool BrushComputeDispatch::prepareDab(const ComputeBrushUniforms &brushU,
   writeStorage(4, nodes_);
   writeUniform(5, brushU_);
   writeUniform(6, ctxU_);
-  writeStorage(7, falloff_);
+  writeUniform(7, falloff_);
   writeStorage(10, stroke_);
 
   // Jacobi snapshot: capture the pre-dab positions so for_neighbor reads a

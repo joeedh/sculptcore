@@ -105,6 +105,9 @@ class GpuStrokeSession {
   bool needsNeighbors_ = false;
   bool writesMask_ = false;
   bool writesColor_ = false;  // COLOR kernel: float4 vertex "color" attr at slot 14
+  // Local deformation kernel (neither @global nor @paint) — eligible for
+  // non-accumulate mode; mirrors brush_command::accumulable.
+  bool accumulable_ = false;
   bool readsVclass_ = false;  // BSMOOTH kernel: int vertex boundary-class attr at slot 14 (read-only)
   // POLYGROUP (Wave 1b): a per-FACE kernel. The dispatch threads over faces, not
   // verts — bindings 0/1/3 carry face centroids/normals/unique_faces and the int

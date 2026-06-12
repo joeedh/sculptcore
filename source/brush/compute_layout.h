@@ -18,15 +18,24 @@ struct ComputeBrushUniforms {
   uint32_t invert = 0;
   uint32_t falloff_kind = 0;
   uint32_t falloff_shape = 0;
-  uint32_t _pad0[2] = {0, 0};          // pad so falloff_dir (vec3) lands at 32
+  uint32_t nonaccum = 0;               // offset 24 — non-accumulate stroke (accumulable kernels only)
+  uint32_t _pad0 = 0;                  // pad so falloff_dir (vec3) lands at 32
   float falloff_dir[3] = {0, 0, 1};    // offset 32
   uint32_t _pad1 = 0;                  // pad so falloff_extent (vec3) lands at 48
   float falloff_extent[3] = {1, 1, 1}; // offset 48 — FalloffShape::Box extents
   uint32_t coord_space = 0;            // offset 60
   float tex_repeat = 1.0f;             // offset 64
   uint32_t stroke_path_count = 0;      // offset 68
-  float mu = 1.0f;                     // offset 72 — kelvinlet (else unused)
-  float nu = 0.4f;                     // offset 76 — kelvinlet; rounds struct to 80
+  /* Offsets 72/76 are the appended DSL-uniform slots; every kernel's dynamic
+   * uniforms start there, so per-kernel names share the slot via unions. */
+  union {
+    float mu = 1.0f;       // offset 72 — kelvinlet
+    float planeoff;        //           — plane (Clay/Scrape/Fill)
+  };
+  union {
+    float nu = 0.4f;       // offset 76 — kelvinlet; rounds struct to 80
+    float planeSide;       //           — plane: +1 build-up, -1 cut
+  };
 };
 
 /* binding 6 — std140. Base block (surfacePos/surfaceNo/render_matrix) is 96
@@ -75,6 +84,13 @@ struct ComputeNodeMeta {
   uint32_t vert_offset = 0;
   uint32_t vert_count = 0;
 };
+
+/* Fixed binding of the read-only stroke-start position buffer for
+ * non-accumulate mode (plans/nonAccumMode.md). Sits just past the custom-attr
+ * slot superset (vk_compute kAttrBase=14 + kMaxAttrBindings=8). On the GPU a
+ * stroke's topology is static and co is uploaded once at beginStroke, so the
+ * whole CPU-side generational snapshot collapses to that initial upload. */
+inline constexpr uint32_t kOrigCoBinding = 22;
 
 /* binding 12 element — std430 vec2<u32>, stride 8. CSR neighbor index: for
  * global vertex i, its neighbors are nbr_verts[offset .. offset+count). */

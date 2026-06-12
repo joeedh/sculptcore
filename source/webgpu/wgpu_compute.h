@@ -106,6 +106,9 @@ private:
   Buf brushU_, ctxU_;                // bindings 5,6
   Buf falloff_, stroke_;             // bindings 7,10
   Buf coPrev_, nbrMeta_, nbrVerts_;  // bindings 11,12,13
+  /* binding 22 (kOrigCoBinding) — read-only stroke-start co for non-accumulate
+   * mode; a copy of the beginStroke co upload, static across the stroke. */
+  Buf origCo_;
 
   /* Persistent MAP_READ staging buffer reused across every readback. Allocating
    * a fresh host-visible buffer per dab churns vkAllocateMemory/vkFreeMemory on

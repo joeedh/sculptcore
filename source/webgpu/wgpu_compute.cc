@@ -75,6 +75,7 @@ WgpuBrushComputeDispatch::~WgpuBrushComputeDispatch()
   destroyBuf(coPrev_);
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
+  destroyBuf(origCo_);
   destroyBuf(readback_);
   destroyBrushTexture();
   if (sampler_) wgpuSamplerRelease(sampler_);
@@ -322,6 +323,7 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(no_, uint64_t(vertCount) * kVec3Stride, rw) ||
       !ensureBuf(mask_, uint64_t(vertCount) * sizeof(float), rw) ||
       !ensureBuf(coPrev_, uint64_t(vertCount) * kVec3Stride, ro) ||
+      !ensureBuf(origCo_, uint64_t(vertCount) * kVec3Stride, ro) ||
       !ensureBuf(nbrMeta_, 0, ro) || !ensureBuf(nbrVerts_, 0, ro)) {
     return false;
   }
@@ -336,6 +338,10 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
     tmp[i * 4 + 3] = 0.0f;
   }
   wgpuQueueWriteBuffer(ctx_->queue, co_.buffer, 0, tmp.data(),
+                       size_t(vertCount) * kVec3Stride);
+  // Stroke-start snapshot for non-accumulate mode: the mesh is static for the
+  // stroke, so this beginStroke upload is every vert's stroke-start position.
+  wgpuQueueWriteBuffer(ctx_->queue, origCo_.buffer, 0, tmp.data(),
                        size_t(vertCount) * kVec3Stride);
   for (int i = 0; i < vertCount; i++) {
     tmp[i * 4 + 0] = no[i * 3 + 0];
@@ -393,6 +399,7 @@ WGPUBindGroup WgpuBrushComputeDispatch::buildBindGroup()
     case 11: buf = &coPrev_; break;
     case 12: buf = &nbrMeta_; break;
     case 13: buf = &nbrVerts_; break;
+    case brush::kOrigCoBinding: buf = &origCo_; break;
     default: break;
     }
     if (buf) {
@@ -425,7 +432,7 @@ bool WgpuBrushComputeDispatch::dab(const ComputeBrushUniforms &brushU,
       !ensureBuf(nodes_, uint64_t(nodeCount) * sizeof(ComputeNodeMeta), ro) ||
       !ensureBuf(brushU_, sizeof(ComputeBrushUniforms), uni) ||
       !ensureBuf(ctxU_, sizeof(ComputeCtxUniforms), uni) ||
-      !ensureBuf(falloff_, 256 * sizeof(float), ro) ||
+      !ensureBuf(falloff_, 256 * sizeof(float), uni) ||
       !ensureBuf(stroke_,
                  uint64_t(strokeCount < 1 ? 1 : strokeCount) *
                      sizeof(ComputeStrokeSample),

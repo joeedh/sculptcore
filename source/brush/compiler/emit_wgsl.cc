@@ -270,7 +270,15 @@ struct Emit {
         // comes from the pre-dab snapshot (Jacobi); no stays live.
         const NbBinding *nb = findNb(stringref(e.lhs->name.c_str()));
         if (std::strcmp(e.name.c_str(), "co") == 0) {
-          out += "co_prev["; out += nb->idxVar; out += "]";
+          // Non-accumulate neighbors read the stroke-start snapshot — the WGSL
+          // twin of AccumOrig::neighborCo. Verts never touched this stroke are
+          // unmoved, so orig_co[nb] == co_prev[nb] there (the CPU fallback).
+          if (!faceMode() && !brush->isGlobal && !brush->isPaint) {
+            out += "select(co_prev["; out += nb->idxVar; out += "], orig_co[";
+            out += nb->idxVar; out += "], brush_u.nonaccum != 0u)";
+          } else {
+            out += "co_prev["; out += nb->idxVar; out += "]";
+          }
         } else if (std::strcmp(e.name.c_str(), "no") == 0) {
           out += "no_buf["; out += nb->idxVar; out += "]";
         } else if (std::strcmp(e.name.c_str(), "v") == 0) {
@@ -707,6 +715,9 @@ struct Emit {
     write("  falloff_kind: u32,\n");
     // Spatial falloff metric (FalloffShape in brush.h), widened to u32.
     write("  falloff_shape: u32,\n");
+    // Non-accumulate stroke flag (plans/nonAccumMode.md). Only accumulable
+    // kernels read it; mirrors ComputeBrushUniforms::nonaccum at offset 24.
+    write("  nonaccum: u32,\n");
     // Direction for FalloffShape::Linear / primary axis of FalloffShape::Box.
     // vec3 needs 16-byte alignment in the uniform address space; the host
     // marshaler (ComputeBrushUniforms) must match the padding here.
@@ -797,12 +808,14 @@ struct Emit {
     write("@group(0) @binding(5) var<uniform>             brush_u: BrushUniforms;\n");
     write("@group(0) @binding(6) var<uniform>             ctx_u: CtxUniforms;\n");
     // Curve LUT for FalloffKind::Curve. Sized to match Brush::falloff_curve
-    // (kFalloffCurveSize = 256 in brush.h); when the WGSL dispatcher lands,
-    // its marshaler should write exactly that many f32s into this binding.
-    // The buffer is bake-produced from Brush::falloffCurve (a props::CurveGen)
-    // via bake_curve_lut, so this LUT-fetch is bit-identical to the C++
-    // Curve-branch interpolation by construction.
-    write("@group(0) @binding(7) var<storage, read>       falloff_lut: array<f32, 256>;\n");
+    // (kFalloffCurveSize = 256 in brush.h); the host writes exactly 256 f32s
+    // (1024 bytes, contiguous — identical bytes as vec4x64). A uniform, not
+    // storage, buffer: neighbor kernels + orig_co already use 10 storage slots
+    // (Dawn's per-stage limit), and the uniform address space's 16-byte array
+    // stride forces the vec4 shape (sb_lut below recovers scalar indexing).
+    // Bake-produced from Brush::falloffCurve via bake_curve_lut, so the
+    // LUT-fetch is bit-identical to the C++ Curve-branch interpolation.
+    write("@group(0) @binding(7) var<uniform>             falloff_lut: array<vec4<f32>, 64>;\n");
     // Brush texture + sampler. When no texture is bound the host binds a 1x1
     // white texel so `brush_sample_tex` returns 1.0 (matching the C++
     // no-texture path). brush_sample_tex does its own clamp-to-edge bilinear
@@ -843,6 +856,15 @@ struct Emit {
         write(">;\n");
       }
     }
+    // Stroke-start positions for non-accumulate mode (plans/nonAccumMode.md),
+    // only on accumulable (local deformation) vertex kernels. Fixed slot 22 =
+    // kOrigCoBinding in compute_layout.h, past the custom-attr superset. The
+    // host fills it with the beginStroke co upload — on the GPU the mesh is
+    // static for the stroke, so that upload IS every vert's stroke-start
+    // position (the CPU generational stamp collapses to it).
+    if (!faceMode() && !brush->isGlobal && !brush->isPaint) {
+      write("@group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;\n");
+    }
     write("\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
@@ -850,6 +872,10 @@ struct Emit {
     // changing one without the other is a regression on the WGSL/CPU
     // bit-equality contract that the upcoming backend A/B framework
     // will rely on.
+    // Scalar fetch from the vec4-packed uniform LUT (see binding 7 above).
+    write("fn sb_lut(i: i32) -> f32 {\n");
+    write("  return falloff_lut[i >> 2][i & 3];\n");
+    write("}\n\n");
     write("fn brush_falloff(t: f32) -> f32 {\n");
     write("  if (brush_u.falloff_kind == 1u) {\n");
     write("    return t;\n");
@@ -860,9 +886,9 @@ struct Emit {
     write("    let sb_c = clamp(t, 0.0, 1.0);\n");
     write("    let sb_s = sb_c * 255.0;\n");
     write("    let sb_i = i32(floor(sb_s));\n");
-    write("    if (sb_i >= 255) { return falloff_lut[255]; }\n");
+    write("    if (sb_i >= 255) { return sb_lut(255); }\n");
     write("    let sb_f = sb_s - f32(sb_i);\n");
-    write("    return falloff_lut[sb_i] * (1.0 - sb_f) + falloff_lut[sb_i + 1] * sb_f;\n");
+    write("    return sb_lut(sb_i) * (1.0 - sb_f) + sb_lut(sb_i + 1) * sb_f;\n");
     write("  }\n");
     write("  return t * t * (3.0 - 2.0 * t);\n");
     write("}\n\n");
@@ -1200,6 +1226,13 @@ struct Emit {
     write("  let sb_vidx = unique_verts[sb_node.vert_offset + lid];\n");
     write("  var ");
     write(vertexParamName); write("_co: vec3<f32> = co_buf[sb_vidx];\n");
+    // Non-accumulate: seed the local from the stroke-start snapshot, so the
+    // body measures deformation from it and the single write-back lands the
+    // result — the WGSL twin of CoProxy<AccumOrig> (accum_mode.h).
+    if (!brush->isGlobal && !brush->isPaint) {
+      write("  if (brush_u.nonaccum != 0u) { ");
+      write(vertexParamName); write("_co = orig_co[sb_vidx]; }\n");
+    }
     write("  var ");
     write(vertexParamName); write("_no: vec3<f32> = no_buf[sb_vidx];\n");
     write("  var ");

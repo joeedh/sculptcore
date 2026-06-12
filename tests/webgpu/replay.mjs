@@ -173,8 +173,9 @@ export async function replayFixture(fixturePath, wgslDir) {
 
   const instance = gpu.create([])
   const adapter = await instance.requestAdapter()
-  // for_neighbor kernels bind up to 10 storage buffers, above WebGPU's default
-  // per-stage limit of 8; request the adapter's max so they fit.
+  // for_neighbor kernels bind up to 10 storage buffers (incl. orig_co at 22;
+  // the falloff LUT is a uniform precisely to stay at the adapter ceiling of
+  // 10), above WebGPU's default per-stage limit of 8; request the adapter's max.
   const device = await adapter.requestDevice({
     requiredLimits: {
       maxStorageBuffersPerShaderStage: adapter.limits.maxStorageBuffersPerShaderStage,
@@ -222,6 +223,11 @@ export async function replayFixture(fixturePath, wgslDir) {
   if (has(12)) nbrMetaBuf = makeBuffer(device, b64bytes(fx.nbrMeta), BufferUsage.STORAGE)
   if (has(13)) nbrVertsBuf = makeBuffer(device, b64bytes(fx.nbrVerts), BufferUsage.STORAGE)
 
+  // binding 22 (kOrigCoBinding): non-accumulate stroke-start positions. The
+  // native dispatcher fills it with the beginStroke co upload, which is exactly
+  // the fixture's initial co bytes.
+  const origCoBuf = has(22) ? makeBuffer(device, b64bytes(fx.co), BufferUsage.STORAGE) : null
+
   // Custom attribute layer (binding >=14, e.g. color's float4 or polygroup's
   // int "group"). Persistent across dabs like co/no — the kernel accumulates.
   // Seed from the captured input (fx.attrIn) or zeros; read back + diffed at the
@@ -243,7 +249,7 @@ export async function replayFixture(fixturePath, wgslDir) {
     const nodesBuf = makeBuffer(device, b64bytes(dab.nodes), BufferUsage.STORAGE)
     const brushUBuf = makeBuffer(device, b64bytes(dab.brushU), BufferUsage.UNIFORM | BufferUsage.COPY_DST)
     const ctxUBuf = makeBuffer(device, b64bytes(dab.ctxU), BufferUsage.UNIFORM | BufferUsage.COPY_DST)
-    const falloffBuf = makeBuffer(device, b64bytes(dab.falloff), BufferUsage.STORAGE)
+    const falloffBuf = makeBuffer(device, b64bytes(dab.falloff), BufferUsage.UNIFORM)
     const strokeBuf = makeBuffer(device, b64bytes(dab.stroke), BufferUsage.STORAGE)
 
     const entries = []
@@ -264,6 +270,7 @@ export async function replayFixture(fixturePath, wgslDir) {
     add(11, {buffer: coPrevBuf})
     add(12, {buffer: nbrMetaBuf})
     add(13, {buffer: nbrVertsBuf})
+    add(22, {buffer: origCoBuf})
     if (attrBuf) entries.push({binding: attrSlot, resource: {buffer: attrBuf}})
     const bindGroup = device.createBindGroup({layout: bgl, entries})
 

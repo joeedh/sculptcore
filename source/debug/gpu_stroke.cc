@@ -122,21 +122,30 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     return false;
   }
 
+  // accumulable_ mirrors brush_command::accumulable: local deformation kernels
+  // (neither @global nor @paint) honor scene.nonAccum (plans/nonAccumMode.md).
   switch (scene.currentTool) {
-  case brush::SculptBrushes::DRAW: kernel_ = "draw"; break;
-  case brush::SculptBrushes::TEXDRAW: kernel_ = "texdraw"; break;
-  case brush::SculptBrushes::CLAY: kernel_ = "clay"; break;
-  case brush::SculptBrushes::INFLATE: kernel_ = "inflate"; break;
-  case brush::SculptBrushes::PINCH: kernel_ = "pinch"; break;
-  case brush::SculptBrushes::SHARP: kernel_ = "sharp"; break;
+  case brush::SculptBrushes::DRAW: kernel_ = "draw"; accumulable_ = true; break;
+  case brush::SculptBrushes::TEXDRAW: kernel_ = "texdraw"; accumulable_ = true; break;
+  // Clay family all runs the `plane` kernel (planeoff/planeSide select the
+  // variant), mirroring brush_executor's createPlaneBrush dispatch.
+  case brush::SculptBrushes::CLAY:
+  case brush::SculptBrushes::SCRAPE:
+  case brush::SculptBrushes::FILL:
+    kernel_ = "plane"; accumulable_ = true; break;
+  case brush::SculptBrushes::INFLATE: kernel_ = "inflate"; accumulable_ = true; break;
+  case brush::SculptBrushes::PINCH: kernel_ = "pinch"; accumulable_ = true; break;
+  case brush::SculptBrushes::SHARP: kernel_ = "sharp"; accumulable_ = true; break;
   case brush::SculptBrushes::MASK: kernel_ = "mask"; writesMask_ = true; break;
-  case brush::SculptBrushes::SMOOTH: kernel_ = "smooth"; needsNeighbors_ = true; break;
+  case brush::SculptBrushes::SMOOTH:
+    kernel_ = "smooth"; needsNeighbors_ = true; accumulable_ = true; break;
   case brush::SculptBrushes::KELVINLET: kernel_ = "kelvinlet"; break;
   case brush::SculptBrushes::POSE: kernel_ = "pose"; break;
   case brush::SculptBrushes::COLOR: kernel_ = "color"; writesColor_ = true; break;
   case brush::SculptBrushes::POLYGROUP: kernel_ = "polygroup"; faceMode_ = true; break;
   case brush::SculptBrushes::BSMOOTH:
-    kernel_ = "bsmooth"; needsNeighbors_ = true; readsVclass_ = true; break;
+    kernel_ = "bsmooth"; needsNeighbors_ = true; readsVclass_ = true;
+    accumulable_ = true; break;
   default:
     err = "stroke(wgsl): tool has no GPU kernel";
     return false;
@@ -623,6 +632,7 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   bu.coord_space = uint32_t(scene.brush.coord_space);
   bu.tex_repeat = scene.brush.tex_repeat;
   bu.stroke_path_count = uint32_t(scene.brush.strokePathCount);
+  bu.nonaccum = (scene.nonAccum && accumulable_) ? 1u : 0u;
 
   // POLYGROUP custom uniform `activeGroup` (the id painted under the brush). In
   // the WGSL BrushUniforms it's the first appended DSL uniform, at offset 72 —
@@ -648,6 +658,14 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
     if (scene.brush.mu < 1e-6f) scene.brush.mu = 1e-6f;
     bu.mu = scene.brush.mu;
     bu.nu = scene.brush.nu;
+  }
+
+  // Plane family (Clay/Scrape/Fill): the kernel's appended DSL uniforms.
+  if (scene.currentTool == brush::SculptBrushes::CLAY ||
+      scene.currentTool == brush::SculptBrushes::SCRAPE ||
+      scene.currentTool == brush::SculptBrushes::FILL) {
+    bu.planeoff = scene.brush.planeoff;
+    bu.planeSide = scene.brush.planeSide;
   }
 
   vulkan::ComputeCtxUniforms cu;
