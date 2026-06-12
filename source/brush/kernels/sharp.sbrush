@@ -12,7 +12,12 @@ brush Sharp {
     float3 t = d - surfaceNo * dot(d, surfaceNo);
     float tlen = length(t);
     if (tlen > 0.0001) {
-      v.co -= t * (s / tlen);
+      // Move a fraction of the tangent distance so the pull converges on
+      // the brush axis; clamp so a single dab can never cross it.
+      float f = s * 0.5;
+      if (f > 0.9) { f = 0.9; }
+      if (f < -0.9) { f = -0.9; }
+      v.co -= t * f;
     }
   }
 }

@@ -668,6 +668,14 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
     bu.planeSide = scene.brush.planeSide;
   }
 
+  // Color paint: `brushColor` vec4 lives past the scalar union slots (16-byte
+  // alignment puts it at offset 80 in the color kernel's BrushUniforms).
+  if (scene.currentTool == brush::SculptBrushes::COLOR) {
+    for (int i = 0; i < 4; i++) {
+      bu.brushColor[i] = scene.brush.brushColor[i];
+    }
+  }
+
   vulkan::ComputeCtxUniforms cu;
   cu.surfacePos[0] = origin[0]; cu.surfacePos[1] = origin[1]; cu.surfacePos[2] = origin[2];
   cu.surfaceNo[0] = normal[0]; cu.surfaceNo[1] = normal[1]; cu.surfaceNo[2] = normal[2];

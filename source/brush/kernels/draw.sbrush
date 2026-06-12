@@ -7,7 +7,7 @@ brush Draw {
   uniform float radius;
 
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co);
+    float s = strength(v.co) * (1.0 - v.mask);
     // Brush-texture modulation. With no texture bound, sampleBrushTex
     // returns 1.0, so this leaves the falloff strength bit-identical.
     s *= sampleBrushTex(v.co, surfaceNo);

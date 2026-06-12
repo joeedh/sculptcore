@@ -16,6 +16,7 @@
 namespace sculptcore::brush {
 using litestl::util::StrLiteral;
 using litestl::math::float3;
+using litestl::math::float4;
 
 // Falloff curve shapes selectable per brush. The three analytic kinds
 // inline a closed form; `Curve` reads `Brush::falloff_curve` as a
@@ -159,6 +160,10 @@ struct Brush {
   // per stroke; a plain member loadProps leaves untouched.
   int activeGroup = 1;
 
+  // Color paint: the target color the color kernel lerps toward (read as the
+  // `brushColor` uniform). Synced from the TS brush per stroke.
+  float4 brushColor{1, 1, 1, 1};
+
   // Brush texture (grayscale, row-major, `tex_width * tex_height` floats).
   // Empty means "no texture": `sampleTexBilinear` returns 1.0 so a kernel
   // multiplying by the sample is a no-op. `coord_space` maps a sample point
@@ -233,6 +238,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, wingNormalA);
     BIND_STRUCT_MEMBER(st, wingNormalB);
     BIND_STRUCT_MEMBER(st, activeGroup);
+    BIND_STRUCT_MEMBER(st, brushColor);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());

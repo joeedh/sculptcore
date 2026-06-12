@@ -17,6 +17,7 @@ type double = number
 
 import type {DynTopoParams} from './sculptcore/dyntopo/DynTopoParams'
 import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
+import type {float4} from './litestl/math/float4'
 import type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 import type {CornerData} from './sculptcore/mesh/CornerData'
 import type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
@@ -57,6 +58,7 @@ import type {FaceData} from './sculptcore/mesh/FaceData'
 
 export type {DynTopoParams} from './sculptcore/dyntopo/DynTopoParams'
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
+export type {float4} from './litestl/math/float4'
 export type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
 export type {CornerData} from './sculptcore/mesh/CornerData'
 export type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
@@ -190,6 +192,7 @@ export type AllBoundTypes = {
     int32,
     '.corner.e'
   >
+  'litestl::math::float4': float4
   'sculptcore::mesh::BuiltinAttr<int32,.corner.l>': BuiltinAttr<
     int32,
     '.corner.l'

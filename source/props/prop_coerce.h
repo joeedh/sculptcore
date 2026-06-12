@@ -11,6 +11,9 @@ namespace sculptcore::props {
 template <typename Callback> static void numtype_dispatch(Prop type, Callback cb)
 {
   switch (type) {
+  case Prop::BOOL:
+    cb.template operator()<BoolProp>();
+    break;
   case Prop::INT32:
     cb.template operator()<Int32Prop>();
     break;
@@ -23,6 +26,9 @@ template <typename Callback> static void numtype_dispatch(Prop type, Callback cb
 template <typename Callback> static void proptype_dispatch(Prop type, Callback cb)
 {
   switch (type) {
+  case Prop::BOOL:
+    cb.template operator()<BoolProp>();
+    break;
   case Prop::INT32:
     cb.template operator()<Int32Prop>();
     break;
@@ -37,7 +43,9 @@ template <typename Callback> static void proptype_dispatch(Prop type, Callback c
 
 template <typename T> static constexpr Prop type_to_proptype()
 {
-  if constexpr (std::is_same_v<T, float>) {
+  if constexpr (std::is_same_v<T, bool>) {
+    return Prop::BOOL;
+  } else if constexpr (std::is_same_v<T, float>) {
     return Prop::FLOAT32;
   } else if constexpr (std::is_same_v<T, int>) {
     return Prop::INT32;
