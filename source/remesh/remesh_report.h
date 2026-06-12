@@ -77,6 +77,13 @@ struct RemeshRunReport {
   float derived_edge_length = 0.0f;
   int quad_count_actual = 0;
 
+  // Tier 6.4 per-component runs (per_component): face-bearing pieces seen by
+  // the splitter (0 = splitter didn't run — single component or gated off);
+  // failed sub-runs are dropped from the merged output and counted here.
+  int components_total = 0;
+  int components_remeshed = 0;
+  int components_failed = 0;
+
   // Outcome + timing. failure_reason is a stable lowercase tag on failure
   // ("extract_no_lattice", ...), empty on success. duration_ms is the QuadRemesh
   // pipeline wall-clock (excludes the optional output validation below).

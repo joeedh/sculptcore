@@ -40,6 +40,7 @@
 #include "remesh/quantize/quantize_ilp.h"
 #include "remesh/remesh.h"
 #include "remesh/remesh_params.h"
+#include "remesh/remesh_report.h"
 
 #include "obj_load.h"
 #include "test_config.h"
@@ -404,6 +405,62 @@ void testQuadRemeshPipeline()
   litestl::alloc::Delete<Mesh>(t);
 }
 
+// Tier 6.4: per_component splits the work mesh into connected components and
+// remeshes each independently with the shared global edge length; the merged
+// output keeps both closed spheres, and the report counts the sub-runs.
+void testPerComponent()
+{
+  // Two copies of the proven pipeline sphere (radius 2 @ target 0.1), the
+  // second appended at +6X so the components are well separated.
+  Mesh *s = mesh::makeUVSphere(24, 32, 2.0f);
+  {
+    Mesh *s2 = mesh::makeUVSphere(24, 32, 2.0f);
+    litestl::util::Vector<int> vmap;
+    vmap.resize(int(s2->v.capacity()));
+    for (int v : s2->v) {
+      math::float3 co = s2->v.co[v];
+      co[0] += 6.0f;
+      vmap[v] = s->make_vertex(co);
+    }
+    litestl::util::Vector<int> vs;
+    for (int f : s2->f) {
+      int c0 = s2->l.c[s2->f.l[f]];
+      vs.clear();
+      int cc = c0;
+      do {
+        vs.append(vmap[s2->c.v[cc]]);
+        cc = s2->c.next[cc];
+      } while (cc != c0);
+      s->make_face(vs);
+    }
+    s->recalc_normals();
+    litestl::alloc::Delete<Mesh>(s2);
+  }
+
+  remesh::RemeshParams p;
+  p.target_edge_length = 0.1f;
+  p.per_component = true;
+  remesh::RemeshRunReport rep;
+  Mesh *out = remesh::QuadRemesh(*s, p, nullptr, nullptr, &rep);
+  TASSERT(out != nullptr);
+  TASSERT(rep.components_total == 2);
+  TASSERT(rep.components_remeshed == 2);
+  TASSERT(rep.components_failed == 0);
+  if (out) {
+    RemeshReport r = remeshValidate(*out);
+    report("per-component", r);
+    TASSERT(r.all_quad);
+    TASSERT(r.manifold);
+    TASSERT(r.component_count == 2);
+    // No euler/inverted assertions: the +6X-translated copy fp-perturbs the
+    // eigen-solves enough to shift singularities, which can leave odd cone
+    // rims open (cap_odd_holes is off here) — same contract as capped-cylinder.
+    TASSERT(r.spiral_isolines == 0);
+    litestl::alloc::Delete<Mesh>(out);
+  }
+  litestl::alloc::Delete<Mesh>(s);
+}
+
 // Simple.obj — a small, rounded organic blob. Its cross field curls enough that
 // the exactly-seamless map folds about a third of its faces, which breaks
 // extraction (the >10% fold gate). It is the fixture for the ARAP untangle
@@ -504,6 +561,7 @@ int main()
   testOddCapExtract();
   testReproject();
   testQuadRemeshPipeline();
+  testPerComponent();
   testSimpleObj();
   testAnimeGirlSpiral();
   return retval;

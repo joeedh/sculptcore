@@ -189,6 +189,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
                p.triage_min_component_frac);
   std::fprintf(f, "    \"input_hole_fill_max_frac\": %.9g,\n",
                p.input_hole_fill_max_frac);
+  std::fprintf(f, "    \"per_component\": %s,\n", jb(p.per_component));
   std::fprintf(f, "    \"curvature_smooth_iters\": %d,\n",
                p.curvature_smooth_iters);
   std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g,\n",
@@ -303,6 +304,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"quantize_feasible\": %s,\n", jb(rep.quantize_feasible));
   std::fprintf(f, "    \"derived_edge_length\": %.9g,\n", rep.derived_edge_length);
   std::fprintf(f, "    \"quad_count_actual\": %d,\n", rep.quad_count_actual);
+  std::fprintf(f, "    \"components_total\": %d,\n", rep.components_total);
+  std::fprintf(f, "    \"components_remeshed\": %d,\n", rep.components_remeshed);
+  std::fprintf(f, "    \"components_failed\": %d,\n", rep.components_failed);
   // Quantize-stage profile (plans/miq.md Q0): rounding rounds, solver-primitive
   // counts, and per-phase wall-clocks. Timing lives here (results.json), never
   // in the corpus metrics.csv (deterministic columns only).
@@ -459,6 +463,8 @@ void usage()
       "(default 0)\n"
       "  --hole-fill <f>         fill input holes with rim < frac of total "
       "boundary (default 0)\n"
+      "  --per-component <0|1>   remesh disconnected components independently "
+      "(default 0)\n"
       "  --curvature-smooth-iters <int>   tensor-field Jacobi sweeps (default 0)\n"
       "  --curvature-smooth-lambda <f>    per-sweep blend 0..1 (default 0.5)\n"
       "  --field-smoothness <f>   cross-field smoothness weight (default 1)\n"
@@ -563,6 +569,8 @@ int main(int argc, char **argv)
           float(std::atof(next("--triage-min-component-frac")));
     else if (a == "--hole-fill")
       params.input_hole_fill_max_frac = float(std::atof(next("--hole-fill")));
+    else if (a == "--per-component")
+      params.per_component = toBool(next("--per-component"));
     else if (a == "--curvature-smooth-iters")
       params.curvature_smooth_iters = std::atoi(next("--curvature-smooth-iters"));
     else if (a == "--curvature-smooth-lambda")
@@ -728,7 +736,8 @@ int main(int argc, char **argv)
               "folds=%d min_angle=%.4g area_ratio=%.4g "
               "triage=%d triage_welded=%d triage_degenerate=%d "
               "triage_components=%d triage_nonmanifold_edges=%d "
-              "holes_filled=%d derived_edge=%.4g duration_ms=%lld\n",
+              "holes_filled=%d comp_runs=%d/%d derived_edge=%.4g "
+              "duration_ms=%lld\n",
               r.vert_count, r.edge_count, r.face_count, r.quad_count,
               r.tri_count, r.ngon_count, int(r.all_quad), int(r.manifold),
               r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
@@ -737,6 +746,7 @@ int main(int argc, char **argv)
               r.min_interior_angle, r.max_adjacent_area_ratio, int(tg.ran),
               tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
               tg.non_manifold_edges, tg.input_holes_filled,
+              rep.components_remeshed, rep.components_total,
               rep.derived_edge_length, durationMs);
 
   // Pre-remesh A/B one-liner (only when the pre-pass ran); full record is in

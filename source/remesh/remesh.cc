@@ -19,6 +19,7 @@
 #include "mesh/utils/triangulate.h"
 
 #include "litestl/util/alloc.h"
+#include "litestl/util/map.h"
 #include "litestl/util/vector.h"
 
 #include <algorithm>
@@ -120,6 +121,336 @@ Mesh *buildTriCopy(Mesh &src)
   }
   work->recalc_normals();
   return work;
+}
+
+/* Tier 6.4: split @p work into face-connected sub-meshes (union-find over the
+ * edge graph), carrying the input constraint layers like buildTriCopy. Verts in
+ * face-less components are dropped — they cannot produce quads. */
+void splitComponents(Mesh &work, util::Vector<Mesh *> &pieces)
+{
+  int vcap = int(work.v.capacity());
+  util::Vector<int> uf;
+  uf.resize(vcap);
+  for (int v : work.v) {
+    uf[v] = v;
+  }
+  auto find = [&uf](int v) {
+    while (uf[v] != v) {
+      uf[v] = uf[uf[v]]; // path halving
+      v = uf[v];
+    }
+    return v;
+  };
+  for (int e : work.e) {
+    int a = find(work.e.vs[e][0]), b = find(work.e.vs[e][1]);
+    if (a != b) {
+      uf[a] = b;
+    }
+  }
+
+  util::Map<int, int> rootPiece; // component root -> piece index
+  for (int f : work.f) {
+    int r = find(work.c.v[work.l.c[work.f.l[f]]]);
+    if (!rootPiece.contains(r)) {
+      rootPiece.insert(r, int(pieces.size()));
+      pieces.append(alloc::New<Mesh>("Mesh QuadRemesh component"));
+    }
+  }
+  if (pieces.size() < 2) {
+    return;
+  }
+
+  bool have_density =
+      work.v.attrs.has(mesh::AttrType::FLOAT, util::string(".remesh.v.density"));
+  bool have_pinned =
+      work.v.attrs.has(mesh::AttrType::BOOL, util::string(".remesh.v.pole_pinned"));
+  bool have_stroke =
+      work.f.attrs.has(mesh::AttrType::FLOAT3, util::string(".remesh.f.stroke_dir"));
+  mesh::BuiltinAttr<float, ".remesh.v.density"> srcDensity;
+  mesh::BuiltinAttr<bool, ".remesh.v.pole_pinned"> srcPinned;
+  mesh::BuiltinAttr<math::float3, ".remesh.f.stroke_dir"> srcStroke;
+  if (have_density) {
+    srcDensity.ensure(work.v.attrs);
+  }
+  if (have_pinned) {
+    srcPinned.ensure(work.v.attrs);
+  }
+  if (have_stroke) {
+    srcStroke.ensure(work.f.attrs);
+  }
+
+  util::Vector<int> vmap;
+  vmap.resize(vcap);
+  util::Vector<int> vs;
+  for (int pi = 0; pi < int(pieces.size()); pi++) {
+    Mesh *dst = pieces[pi];
+    mesh::BuiltinAttr<float, ".remesh.v.density"> dstDensity;
+    mesh::BuiltinAttr<bool, ".remesh.v.pole_pinned"> dstPinned;
+    mesh::BuiltinAttr<math::float3, ".remesh.f.stroke_dir"> dstStroke;
+    if (have_density) {
+      dstDensity.ensure(dst->v.attrs);
+    }
+    if (have_pinned) {
+      dstPinned.ensure(dst->v.attrs);
+    }
+    if (have_stroke) {
+      dstStroke.ensure(dst->f.attrs);
+    }
+    for (int v : work.v) {
+      int r = find(v);
+      if (!rootPiece.contains(r) || rootPiece.lookup(r) != pi) {
+        continue;
+      }
+      int nv = dst->make_vertex(work.v.co[v]);
+      vmap[v] = nv;
+      if (have_density) {
+        dstDensity[nv] = srcDensity[v];
+      }
+      if (have_pinned) {
+        dstPinned.set(nv, srcPinned[v]);
+      }
+    }
+    for (int f : work.f) {
+      int c0 = work.l.c[work.f.l[f]];
+      if (rootPiece.lookup(find(work.c.v[c0])) != pi) {
+        continue;
+      }
+      vs.clear();
+      int cc = c0;
+      do {
+        vs.append(vmap[work.c.v[cc]]);
+        cc = work.c.next[cc];
+      } while (cc != c0);
+      int nf = dst->make_face(vs);
+      if (have_stroke) {
+        dstStroke[nf] = srcStroke[f];
+      }
+    }
+    dst->recalc_normals();
+  }
+}
+
+/* Append @p src's verts + faces into @p dst (geometry only — the per-component
+ * outputs carry no consumed attrs; the caller recalcs normals once). */
+void appendMesh(Mesh &dst, Mesh &src)
+{
+  util::Vector<int> vmap;
+  vmap.resize(int(src.v.capacity()));
+  for (int v : src.v) {
+    vmap[v] = dst.make_vertex(src.v.co[v]);
+  }
+  util::Vector<int> vs;
+  for (int f : src.f) {
+    int c0 = src.l.c[src.f.l[f]];
+    vs.clear();
+    int cc = c0;
+    do {
+      vs.append(vmap[src.c.v[cc]]);
+      cc = src.c.next[cc];
+    } while (cc != c0);
+    dst.make_face(vs);
+  }
+}
+
+/* Tier 6.4: fold one successful sub-run's report into the per-component
+ * aggregate — statuses max-merge (Failed > Ok > Skipped), counters/timings
+ * sum, feasibility flags AND, extrema min/max-merge. */
+void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src,
+                          bool first)
+{
+  auto status = [](StageStatus &d, StageStatus s) {
+    if (int(s) > int(d)) {
+      d = s;
+    }
+  };
+  status(dst.decimate, src.decimate);
+  status(dst.pre_remesh, src.pre_remesh);
+  status(dst.cross_field, src.cross_field);
+  status(dst.singularity, src.singularity);
+  status(dst.quantize, src.quantize);
+  status(dst.extract, src.extract);
+  status(dst.reproject, src.reproject);
+
+  dst.num_singularities += src.num_singularities;
+  dst.index_sum += src.index_sum; // Poincare-Hopf: 4-chi sums over components
+  dst.field_solved_eigen = dst.field_solved_eigen || src.field_solved_eigen;
+  dst.field_close_pairs += src.field_close_pairs;
+  dst.field_clutter_verts += src.field_clutter_verts;
+  dst.cancel_attempted_pairs += src.cancel_attempted_pairs;
+  dst.cancel_cancelled_pairs += src.cancel_cancelled_pairs;
+  dst.cancel_reverted_rounds += src.cancel_reverted_rounds;
+  dst.cancel_singularities_after += src.cancel_singularities_after;
+  dst.parametrization_folds += src.parametrization_folds;
+  dst.min_jacobian =
+      first ? src.min_jacobian : std::fmin(dst.min_jacobian, src.min_jacobian);
+  dst.quantize_feasible = first ? src.quantize_feasible
+                                : (dst.quantize_feasible && src.quantize_feasible);
+
+  QuantizeStats &dq = dst.quantize_stats;
+  const QuantizeStats &sq = src.quantize_stats;
+  if (first) {
+    dq = sq;
+  } else {
+    dq.num_faces += sq.num_faces;
+    dq.num_corners += sq.num_corners;
+    dq.num_classes += sq.num_classes;
+    dq.num_cut_edges += sq.num_cut_edges;
+    dq.max_integer_residual =
+        std::fmax(dq.max_integer_residual, sq.max_integer_residual);
+    dq.max_loop_closure = std::fmax(dq.max_loop_closure, sq.max_loop_closure);
+    dq.min_jacobian = std::fmin(dq.min_jacobian, sq.min_jacobian);
+    dq.parametrization_folds += sq.parametrization_folds;
+    dq.iters += sq.iters;
+    dq.solved = dq.solved && sq.solved;
+    dq.feasible = dq.feasible && sq.feasible;
+    dq.num_singularities += sq.num_singularities;
+    dq.spurious_pairs += sq.spurious_pairs;
+    dq.seamless_folds += sq.seamless_folds;
+    dq.seamless_folds_near_pairs += sq.seamless_folds_near_pairs;
+    dq.full_refactors += sq.full_refactors;
+    dq.updowns += sq.updowns;
+    dq.simp_refreshes += sq.simp_refreshes;
+    dq.back_solves += sq.back_solves;
+    dq.tier1b_probes += sq.tier1b_probes;
+    dq.gs_rounds += sq.gs_rounds;
+    dq.gs_converged += sq.gs_converged;
+    dq.gs_visits += sq.gs_visits;
+    dq.gs_touched_total += sq.gs_touched_total;
+    dq.gs_touched_max = std::max(dq.gs_touched_max, sq.gs_touched_max);
+    dq.resort_full += sq.resort_full;
+    dq.resort_incr += sq.resort_incr;
+    dq.resort_keys += sq.resort_keys;
+    dq.total_ms += sq.total_ms;
+    dq.setup_ms += sq.setup_ms;
+    dq.initial_factor_ms += sq.initial_factor_ms;
+    dq.arap_ms += sq.arap_ms;
+    dq.rounding_ms += sq.rounding_ms;
+    dq.round_assemble_ms += sq.round_assemble_ms;
+    dq.round_refactor_ms += sq.round_refactor_ms;
+    dq.round_updown_ms += sq.round_updown_ms;
+    dq.round_backsolve_ms += sq.round_backsolve_ms;
+    dq.convert_ms += sq.convert_ms;
+    dq.gs_ms += sq.gs_ms;
+    dq.tier1b_ms += sq.tier1b_ms;
+    dq.stiffen_ms += sq.stiffen_ms;
+    dq.tier3_ms += sq.tier3_ms;
+  }
+
+  ExtractStats &de = dst.extract_stats;
+  const ExtractStats &se = src.extract_stats;
+  if (first) {
+    de = se;
+  } else {
+    de.num_grid_verts += se.num_grid_verts;
+    de.num_quads += se.num_quads;
+    de.num_arcs += se.num_arcs;
+    de.open_arcs += se.open_arcs;
+    de.nonquad_cells += se.nonquad_cells;
+    de.holes_capped += se.holes_capped;
+    de.holes_capped_odd += se.holes_capped_odd;
+    de.odd_rims_paired += se.odd_rims_paired;
+    de.holes_pinched_split += se.holes_pinched_split;
+    de.holes_open += se.holes_open;
+    de.holes_open_border += se.holes_open_border;
+    de.holes_open_odd += se.holes_open_odd;
+    de.holes_open_size += se.holes_open_size;
+    de.holes_open_untraced += se.holes_open_untraced;
+    de.ok = de.ok && se.ok;
+  }
+
+  // PreRemeshEffect: census counts sum; the per-run scalars (means, resolved
+  // targets/iters) keep the first piece's values.
+  auto &dp = dst.pre_remesh_effect;
+  const auto &sp = src.pre_remesh_effect;
+  if (first) {
+    dp = sp;
+  } else if (sp.ran) {
+    dp.ran = true;
+    dp.verts_in += sp.verts_in;
+    dp.faces_in += sp.faces_in;
+    dp.verts_out += sp.verts_out;
+    dp.faces_out += sp.faces_out;
+    dp.fold90_in += sp.fold90_in;
+    dp.fold180_in += sp.fold180_in;
+    dp.degen_in += sp.degen_in;
+    dp.fold90_out += sp.fold90_out;
+    dp.fold180_out += sp.fold180_out;
+    dp.degen_out += sp.degen_out;
+    dp.iters_run = std::max(dp.iters_run, sp.iters_run);
+    dp.converged = dp.converged && sp.converged;
+    dp.coarsen_bootstrap = dp.coarsen_bootstrap || sp.coarsen_bootstrap;
+    dp.duration_ms += sp.duration_ms;
+  }
+}
+
+/* Maps a sub-run's local 0..100 progress into the global [8,99] band for
+ * component idx of total. */
+struct CompProgress {
+  RemeshProgressFn fn = nullptr;
+  void *user = nullptr;
+  int idx = 0, total = 1;
+};
+
+void compProgressThunk(void *user, int pct, const char *stage)
+{
+  auto *cp = static_cast<CompProgress *>(user);
+  int g = 8 + (cp->idx * 100 + pct) * 91 / (cp->total * 100);
+  cp->fn(cp->user, g, stage);
+}
+
+/* Tier 6.4 driver: run QuadRemesh on each piece with the shared global scale
+ * and merge the outputs. Failed pieces are dropped + counted; returns nullptr
+ * only when every piece fails (failure_reason = the first piece's tag). */
+Mesh *remeshPerComponent(util::Vector<Mesh *> &pieces, const RemeshParams &params,
+                         float L_quad, RemeshProgressFn progress, void *user,
+                         RemeshRunReport *report)
+{
+  RemeshParams sub = params;
+  sub.per_component = false;
+  sub.triage = false;                  // ran globally on the work mesh
+  sub.input_hole_fill_max_frac = 0.0f; // ran globally on the work mesh
+  sub.target_edge_length = L_quad;     // one shared global scale, no count mode
+
+  Mesh *merged = alloc::New<Mesh>("Mesh QuadRemesh merged");
+  int total = int(pieces.size()), done = 0, failed = 0;
+  std::string firstFailure;
+  bool first = true;
+  for (int i = 0; i < total; i++) {
+    CompProgress cp{progress, user, i, total};
+    RemeshRunReport sr;
+    Mesh *piece_out =
+        QuadRemesh(*pieces[i], sub, progress ? compProgressThunk : nullptr,
+                   progress ? &cp : nullptr, report ? &sr : nullptr);
+    if (!piece_out) {
+      failed++;
+      if (firstFailure.empty()) {
+        firstFailure = sr.failure_reason;
+      }
+      continue;
+    }
+    appendMesh(*merged, *piece_out);
+    alloc::Delete<Mesh>(piece_out);
+    done++;
+    if (report) {
+      mergeComponentReport(*report, sr, first);
+      first = false;
+    }
+  }
+  if (report) {
+    report->components_total = total;
+    report->components_remeshed = done;
+    report->components_failed = failed;
+  }
+  if (done == 0) {
+    alloc::Delete<Mesh>(merged);
+    if (report) {
+      report->failure_reason =
+          firstFailure.empty() ? "per_component_all_failed" : firstFailure;
+    }
+    return nullptr;
+  }
+  merged->recalc_normals();
+  return merged;
 }
 
 /* Edge-length statistics feeding the Tier-9 auto heuristics + run report:
@@ -319,6 +650,40 @@ mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
   // Count mode refines L further below as the work mesh / density evolve.
   const bool count_mode = params.target_edge_length <= 0.0f;
   float L_quad = resolveTargetEdgeLength(*work, params);
+
+  // Tier 6.4: remesh disconnected components independently so one component's
+  // field/singularities can't leak into another's solve. Sub-runs inherit the
+  // globally resolved L_quad (explicit-length mode — triage / hole fill /
+  // count-mode sizing already ran globally above); failed pieces are dropped.
+  if (params.per_component) {
+    util::Vector<Mesh *> pieces;
+    splitComponents(*work, pieces);
+    if (pieces.size() > 1) {
+      PROG(8, "components");
+      Mesh *merged =
+          remeshPerComponent(pieces, params, L_quad, progress, user, report);
+      for (Mesh *p : pieces) {
+        alloc::Delete<Mesh>(p);
+      }
+      alloc::Delete<Mesh>(work);
+      PROG(100, merged ? "done" : "failed");
+      if (report) {
+        report->duration_ms = elapsedMs();
+        if (merged) {
+          report->success = true;
+          report->derived_edge_length = L_quad;
+          report->quad_count_actual = merged->f.count;
+          report->validation = mesh::remeshValidate(*merged);
+          report->validation.parametrization_folds = report->parametrization_folds;
+          report->validation_filled = true;
+        }
+      }
+      return merged;
+    }
+    for (Mesh *p : pieces) {
+      alloc::Delete<Mesh>(p);
+    }
+  }
 
   // Optional decimation pre-pass: coarsen the SOLVE mesh so dense inputs stay
   // tractable. The reprojection below still snaps onto the full-res original.

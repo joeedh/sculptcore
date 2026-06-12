@@ -796,7 +796,29 @@ limits, don't over-promise.**
     (dead-end slit off the 13 non-manifold edges, both endpoints with exactly
     one incident boundary edge), so no input-side fill can close them;
     `input_holes_kept=4` and the 6.1 *output* border cap remains the fox fix.
-- **Boundary preservation:** keep large open rims aligned (already pinned as
+  - **DONE (6.4):** `per_component` landed in `remesh.cc`: vertex union-find
+    splits the work mesh *after* triage + input hole fill + `L_quad`
+    resolution, *before* decimate/pre-remesh; each face-bearing piece (the 3
+    constraint layers copied along) gets a recursive `QuadRemesh` with
+    `triage=false`, `input_hole_fill_max_frac=0`, and
+    `target_edge_length=L_quad` (explicit mode — one shared global scale, no
+    per-piece count-mode divergence), and reprojects onto its own piece copy.
+    Failed pieces are **dropped** and counted
+    (`components_{total,remeshed,failed}` in the run report / manifest,
+    `comp_runs=a/b` in STATS); nullptr only when every piece fails. Sub-run
+    reports merge field-wise (stage statuses max, counters/timings sum,
+    `min_jacobian` min, feasibility flags AND). **Why it matters:** the
+    global pipeline on a disconnected two-sphere input fails outright
+    (`extract_no_lattice` — quantization can't span components); splitting
+    salvages it. gtest `testPerComponent` pins two `makeUVSphere` copies
+    (2/2 remeshed, all-quad + manifold + no-spiral + `component_count == 2`;
+    euler/inverted not pinned — the +6X-translated copy fp-perturbs the
+    eigen-solves enough to shift singularities and leave odd cone rims open);
+    CLI e2e on a cruder hand-rolled two-sphere OBJ exercised the drop policy
+    (`comp_runs=1/2`, survivor clean). **Fox finding:** the input is ONE
+    component under both vertex- and face-adjacency — its "15 components"
+    are an *extraction-output* artifact, so `per_component` is a verified
+    no-op there (STATS byte-identical to global, 53.9 s vs 55.2 s). keep large open rims aligned (already pinned as
   boundaries in `feature_tag`); verify they survive reprojection.
 - **Boundary sliding in the pre-pass:** Tier 9c *pins* boundary verts outright in
   collapse + smooth, so a dense input rim stays dense and rim triangle quality

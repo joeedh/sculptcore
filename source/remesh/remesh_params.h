@@ -96,6 +96,12 @@ struct RemeshParams {
    * boundaries stay open. 0 = fill nothing. */
   float input_hole_fill_max_frac = 0.0f;
 
+  /* Tier 6: remesh disconnected components independently so one component's
+   * field/singularities can't perturb another's solve. All components share
+   * the globally resolved quad edge length; a component whose sub-run fails
+   * is dropped from the merged output (counted in the run report). */
+  bool per_component = false;
+
   /* Tier 2a: Jacobi-diffuse the per-vertex shape operator over the one-ring
    * before eigendecomposition, denoising the principal-curvature field without
    * touching geometry. 0 = today's raw 1-ring estimate (no smoothing). */
