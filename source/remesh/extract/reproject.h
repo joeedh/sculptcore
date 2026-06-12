@@ -19,6 +19,11 @@ struct ReprojectParams {
    * sheets (the thin-feature fold-back) while tolerating noisy vertex normals
    * near singularities; <= -1 disables the filter. */
   float sheet_min_dot = -0.5f;
+  /* Tier 9g: the pre-remeshed work mesh carrying .remesh.v.src_face anchors into
+   * `input`. When set, snaps transport those anchors (one work-tree query, then
+   * local walks on `input`) instead of global queries; failures fall back to the
+   * filtered global path. null = the classic global snap. */
+  mesh::Mesh *anchor_work = nullptr;
 };
 
 struct ReprojectStats {

@@ -1,9 +1,14 @@
 #include "remesh/extract/reproject.h"
+#include "remesh/preremesh.h" // kPreRemeshSrcFaceAttr
 
+#include "mesh/attribute_builtin.h"
 #include "mesh/utils/closest_point.h"
+#include "mesh/utils/surface_walk.h"
 #include "spatial/spatial.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
+#include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
 namespace sculptcore::remesh {
@@ -13,6 +18,8 @@ using litestl::util::Vector;
 using sculptcore::mesh::ClosestPointResult;
 using sculptcore::mesh::findClosestPoint;
 using sculptcore::mesh::Mesh;
+using sculptcore::mesh::SurfaceWalkResult;
+using sculptcore::mesh::walkClosestPoint;
 
 ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams &params)
 {
@@ -26,6 +33,31 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
   const bool smoothing = params.smooth_iterations > 0 && params.smooth_lambda > 0.0f;
 
   int cap = int(out.v.capacity());
+
+  /* 9g transported anchors: out-verts first locate themselves on the work
+   * surface (whose verts carry src-face anchors into `input` from the
+   * pre-pass), then every snap is a local walk on `input` from the transported
+   * seed — sheet-correct by construction, no global query. Failures fall back
+   * to the filtered global path below and re-seed from its result. */
+  Mesh *work = params.anchor_work;
+  bool anchored = false;
+  mesh::BuiltinAttr<int, ".remesh.v.src_face"> wanchor;
+  spatial::SpatialTree *wtree = nullptr;
+  Vector<int> vAnchor; // per-out-vert current anchor face on `input`
+  if (work && work->v.attrs.has(mesh::AttrType::INT,
+                                litestl::util::string(kPreRemeshSrcFaceAttr))) {
+    wanchor.ensure(work->v.attrs);
+    wtree = litestl::alloc::New<spatial::SpatialTree>("Reproject work tree", work);
+    wtree->buildAll();
+    vAnchor.resize(cap);
+    for (int i = 0; i < cap; i++) {
+      vAnchor[i] = -1;
+    }
+    anchored = true;
+  }
+  auto anchorAlive = [&](int f) {
+    return f >= 0 && f < int(input.f.capacity()) && !input.f.freemap[f];
+  };
   Vector<Vector<int>> nbrs;  // output-mesh 1-ring per vertex (smoothing only)
   Vector<char> isBndV;       // boundary-loop vertex flag (pinned while smoothing)
   Vector<float3> np;         // Jacobi scratch for a smoothing pass
@@ -126,6 +158,38 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
     constexpr float kSheetRatio = 3.0f;
     out.recalc_normals();
     for (int v : out.v) {
+      if (anchored) {
+        int seed = vAnchor[v];
+        if (!anchorAlive(seed)) {
+          // First snap (or post-fallback re-seed): transport the max-bary
+          // corner's anchor from the closest work triangle.
+          ClosestPointResult rw = findClosestPoint(*wtree, out.v.co[v]);
+          if (rw.hit) {
+            float best_b = -1.0f;
+            for (int i = 0; i < 3; i++) {
+              int wa = wanchor[work->c.v[rw.tri_c[i]]];
+              if (anchorAlive(wa) && rw.bary[i] > best_b) {
+                best_b = rw.bary[i];
+                seed = wa;
+              }
+            }
+          }
+        }
+        if (anchorAlive(seed)) {
+          SurfaceWalkResult w = walkClosestPoint(input, seed, out.v.co[v]);
+          if (w.hit && w.converged) {
+            vAnchor[v] = w.face;
+            if (last) {
+              sum += w.dist;
+              if (w.dist > mx) mx = w.dist;
+              n++;
+            }
+            out.v.co[v] = w.point;
+            continue;
+          }
+        }
+        vAnchor[v] = -1; // walk failed — global path below re-seeds
+      }
       ClosestPointResult r = findClosestPoint(tree, out.v.co[v]);
       if (!r.hit) continue;
       if (filtered) {
@@ -148,6 +212,9 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
         if (r.dist > mx) mx = r.dist;
         n++;
       }
+      if (anchored) {
+        vAnchor[v] = r.face; // next iteration walks from the global result
+      }
       out.v.co[v] = r.point;
     }
     if (last) {
@@ -157,6 +224,9 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
     }
   }
 
+  if (wtree) {
+    litestl::alloc::Delete<spatial::SpatialTree>(wtree);
+  }
   out.recalc_normals();
   return stats;
 }

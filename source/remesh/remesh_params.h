@@ -191,6 +191,10 @@ struct RemeshParams {
   /* Print the pre-pass per-iter convergence summary + oscillation verdict
    * (dyntopo::printTraceSummary) to stderr. */
   bool pre_remesh_trace = false;
+  /* Tier 9g: per-vertex source-face anchors kept through the pre-pass and
+   * transported into the final reproject (local walks replace global snaps).
+   * Needs pre_remesh. Opt-in: the corpus A/B showed no win over the filter. */
+  bool pre_remesh_anchors = false;
 
   /* Tier 8a: metric-driven retry. Re-run the pipeline from the ORIGINAL input
    * (never mutated) with one knob escalated per attempt — driven by the run

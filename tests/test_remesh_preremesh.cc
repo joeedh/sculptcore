@@ -24,7 +24,9 @@
 #include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
+#include "mesh/utils/closest_point.h"
 #include "mesh/utils/mesh_validate.h"
+#include "mesh/utils/surface_walk.h"
 #include "mesh/utils/triangulate.h"
 #include "obj_load.h"
 #include "remesh/extract/reproject.h"
@@ -1121,6 +1123,148 @@ void testFoldDiagnostic()
   litestl::alloc::Delete<Mesh>(m);
 }
 
+// 9g: greedy face-adjacency walk (surface_walk.h). On a convex closed surface
+// the distance field has a single basin, so the walk must match the global BVH
+// query from ANY seed; from the correct seed it must converge immediately; an
+// invalid seed must report no hit (callers fall back to the global query).
+void testSurfaceWalkMatchesGlobal()
+{
+  Mesh *s = mesh::makeUVSphere(16, 24, 1.0f);
+  s->thawTopo();
+  mesh::triangulateMesh(*s);
+
+  spatial::SpatialTree tree(s);
+  tree.buildAll();
+
+  Lcg rng(424242u);
+  int mismatches = 0, nonconv = 0, n = 0;
+  double max_rel = 0.0;
+  for (int q = 0; q < 64; q++) {
+    float3 dir(rng.next(), rng.next(), rng.next());
+    float dl = dir.length();
+    if (dl < 1e-3f) continue;
+    dir = dir * (1.0f / dl);
+    float3 p = dir * (q % 2 ? 1.4f : 0.6f); // alternate outside / inside
+
+    ClosestPointResult g = findClosestPoint(tree, p);
+    TASSERT(g.hit);
+
+    // Seed deliberately far: the face whose first vert is most antipodal.
+    int seed = -1;
+    float best = 2.0f;
+    for (int f : s->f) {
+      float d = s->v.co[s->c.v[s->l.c[s->f.l[f]]]].dot(dir);
+      if (d < best) {
+        best = d;
+        seed = f;
+      }
+    }
+    SurfaceWalkResult w = walkClosestPoint(*s, seed, p);
+    TASSERT(w.hit);
+    if (!w.converged) nonconv++;
+    double rel = std::fabs(double(w.dist) - double(g.dist)) /
+                 std::fmax(1e-9, double(g.dist));
+    if (rel > max_rel) max_rel = rel;
+    if (rel > 1e-4) mismatches++;
+    n++;
+  }
+  fprintf(stderr, "[walk/global] n=%d mismatches=%d nonconv=%d max_rel=%.3e\n", n,
+          mismatches, nonconv, max_rel);
+  TASSERT(n > 50);
+  TASSERT(mismatches == 0); // convex: every walk reaches the global minimum
+  TASSERT(nonconv == 0);
+
+  // Correct seed: immediate convergence at the same distance.
+  float3 p(0.0f, 0.0f, 1.3f);
+  ClosestPointResult g = findClosestPoint(tree, p);
+  SurfaceWalkResult w = walkClosestPoint(*s, g.face, p);
+  TASSERT(w.hit && w.converged && w.steps <= 1);
+  TASSERT(std::fabs(w.dist - g.dist) < 1e-6f);
+
+  // Invalid seeds: no hit.
+  TASSERT(!walkClosestPoint(*s, -1, p).hit);
+  TASSERT(!walkClosestPoint(*s, int(s->f.capacity()) + 100, p).hit);
+  litestl::alloc::Delete<Mesh>(s);
+}
+
+// 9g: preRemesh with a source mesh maintains per-vertex anchors landing on the
+// source surface — every anchor alive, re-walking from it converges, the snap
+// distance stays small, and the anchored distance matches the global query for
+// >= 95% of verts (a rumpled fixture can hold a few genuine local minima;
+// systematic wrong-sheet drift would blow the gate).
+void testPreRemeshAnchors()
+{
+  Mesh *src = noisedSphere(7u, false);
+  Mesh *m = noisedSphere(7u, false); // identical geometry
+
+  remesh::PreRemeshParams p;
+  p.target = 0.3f;
+  p.iters = 3;
+  p.seed = 5;
+  p.source = src;
+  remesh::preRemesh(*m, p);
+
+  TASSERT(m->v.attrs.has(mesh::AttrType::INT,
+                         litestl::util::string(remesh::kPreRemeshSrcFaceAttr)));
+  mesh::BuiltinAttr<int, ".remesh.v.src_face"> anchor;
+  anchor.ensure(m->v.attrs);
+
+  spatial::SpatialTree tree(src);
+  tree.buildAll();
+
+  int n = 0, dead = 0, drift = 0, nonconv = 0;
+  float max_d = 0.0f;
+  for (int v : m->v) {
+    int f = anchor[v];
+    n++;
+    if (f < 0 || f >= int(src->f.capacity()) || src->f.freemap[f]) {
+      dead++;
+      continue;
+    }
+    SurfaceWalkResult w = walkClosestPoint(*src, f, m->v.co[v]);
+    TASSERT(w.hit);
+    if (!w.converged) nonconv++;
+    if (w.dist > max_d) max_d = w.dist;
+    ClosestPointResult g = findClosestPoint(tree, m->v.co[v]);
+    if (w.dist > g.dist + 1e-4f) drift++;
+  }
+  fprintf(stderr, "[anchors] verts=%d dead=%d nonconv=%d drift=%d max_d=%.4f\n", n,
+          dead, nonconv, drift, max_d);
+  TASSERT(n > 0);
+  TASSERT(dead == 0);
+  TASSERT(nonconv == 0);
+  TASSERT(max_d < 0.25f);   // anchors stay near the source surface
+  TASSERT(drift * 20 <= n); // >= 95% match the global query
+  litestl::alloc::Delete<Mesh>(m);
+  litestl::alloc::Delete<Mesh>(src);
+}
+
+// 9g pipeline integration: pre_remesh with anchors on (default) and off both
+// succeed end-to-end — anchors only change how the reproject snap is seeded.
+void testPipelineAnchorsSmoke()
+{
+  for (int anchors = 1; anchors >= 0; anchors--) {
+    Mesh *s = mesh::makeUVSphere(24, 32, 2.0f);
+    remesh::RemeshParams p;
+    p.target_edge_length = 0.1f;
+    p.pre_remesh = true;
+    p.pre_remesh_anchors = anchors != 0;
+    remesh::RemeshRunReport rep;
+    Mesh *out = remesh::QuadRemesh(*s, p, nullptr, nullptr, &rep);
+    fprintf(stderr, "[pipeline/anchors=%d] ok=%d quads=%d\n", anchors,
+            int(rep.success), rep.quad_count_actual);
+    TASSERT(out != nullptr);
+    TASSERT(rep.success);
+    if (out) {
+      RemeshReport r = mesh::remeshValidate(*out);
+      TASSERT(r.all_quad);
+      TASSERT(r.manifold);
+      litestl::alloc::Delete<Mesh>(out);
+    }
+    litestl::alloc::Delete<Mesh>(s);
+  }
+}
+
 } // namespace
 
 int main()
@@ -1140,6 +1284,9 @@ int main()
   testPipelineCountMode();
   testPipelinePreRemeshEdgeBudget();
   testPipelinePreRemeshNoisy();
+  testSurfaceWalkMatchesGlobal();
+  testPreRemeshAnchors();
+  testPipelineAnchorsSmoke();
   testFoldDiagnostic();
   return retval;
 }

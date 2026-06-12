@@ -756,6 +756,9 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
   // iters=0, bootstrap=-1) auto-resolve from the measured input; explicit
   // values always win.
   bool pre_remeshed = false;
+  // 9g: the original full-res surface, kept alive from the pre-pass (anchor
+  // source) through the final reproject (snap target). null = no anchors.
+  Mesh *pre_full = nullptr;
   if (params.pre_remesh) {
     PROG(14, "pre_remesh");
     auto t_pre = std::chrono::steady_clock::now();
@@ -835,6 +838,10 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     pp.converge_eps = params.pre_remesh_converge_eps;
     pp.preserve_features = params.pre_remesh_preserve_features;
     pp.sharp_angle = params.pre_remesh_sharp_angle;
+    if (params.pre_remesh_anchors && params.reproject) {
+      pre_full = buildTriCopy(input);
+      pp.source = pre_full;
+    }
     dyntopo::DynTopoTrace trace;
     if (params.pre_remesh_trace) {
       pp.trace = &trace;
@@ -1012,6 +1019,9 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
       report->failure_reason = "extract_no_lattice";
       report->duration_ms = elapsedMs();
     }
+    if (pre_full) {
+      alloc::Delete<Mesh>(pre_full);
+    }
     alloc::Delete<Mesh>(work);
     return nullptr; // clean failure: no integer-grid map / no lattice points
   }
@@ -1031,10 +1041,16 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     if (pre_remeshed) {
       // The work geometry diverged from the input (the pre-remesh moved every
       // vertex) — snap onto the ORIGINAL full-res surface so the output
-      // recovers the detail the pass smoothed away.
-      Mesh *full = buildTriCopy(input);
+      // recovers the detail the pass smoothed away. With anchors (9g) the
+      // pre-pass copy doubles as the snap target and `work` seeds the walks.
+      Mesh *full = pre_full ? pre_full : buildTriCopy(input);
+      if (pre_full) {
+        rp.anchor_work = work;
+      }
       reprojectToSurface(*out, *full, rp);
-      alloc::Delete<Mesh>(full);
+      if (!pre_full) {
+        alloc::Delete<Mesh>(full);
+      }
     } else {
       reprojectToSurface(*out, *work, rp);
     }
@@ -1052,6 +1068,9 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     report->validation = mesh::remeshValidate(*out);
     report->validation.parametrization_folds = qs.parametrization_folds;
     report->validation_filled = true;
+  }
+  if (pre_full) {
+    alloc::Delete<Mesh>(pre_full);
   }
   alloc::Delete<Mesh>(work);
   return out;

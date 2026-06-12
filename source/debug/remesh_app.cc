@@ -380,6 +380,8 @@ bool RemeshApp::runRemesh(std::string &err)
       wf(params.pre_remesh_sharp_angle),
       L"--pre-remesh-trace",
       wb(params.pre_remesh_trace),
+      L"--pre-remesh-anchors",
+      wb(params.pre_remesh_anchors),
   };
   if (!startJob(Job::Remesh, remeshCliPath(), args, "remeshing " + name)) {
     err = status;
@@ -743,6 +745,7 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "\n"
       << "pre_remesh_sharp_angle=" << params.pre_remesh_sharp_angle << "\n"
       << "pre_remesh_trace=" << int(params.pre_remesh_trace) << "\n"
+      << "pre_remesh_anchors=" << int(params.pre_remesh_anchors) << "\n"
       << "pre_iters=" << preParams.iters << "\n"
       << "pre_target=" << preParams.target << "\n"
       << "pre_density=" << int(preParams.density) << "\n"
@@ -851,6 +854,8 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.pre_remesh_sharp_angle = float(d);
     } else if (name == "pre_remesh_trace") {
       params.pre_remesh_trace = iv != 0;
+    } else if (name == "pre_remesh_anchors") {
+      params.pre_remesh_anchors = iv != 0;
     } else if (name == "pre_iters") {
       preParams.iters = iv;
     } else if (name == "pre_target") {

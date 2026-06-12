@@ -6,9 +6,12 @@
 #include "mesh/attribute_builtin.h"
 #include "mesh/boundary.h"
 #include "mesh/mesh.h"
+#include "mesh/utils/closest_point.h" // 9g anchor init/fallback (global BVH query)
 #include "mesh/utils/mesh_validate.h" // faceNewellNormal
+#include "mesh/utils/surface_walk.h"  // 9g anchor re-tighten (local walk)
 
 #include "litestl/math/vector.h"
+#include "litestl/util/alloc.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
@@ -622,6 +625,72 @@ void writeSizeScale(Mesh &m, float dmin, float dmax)
   }
 }
 
+/* Tier 9g anchors: per-vertex closest face on the (frozen) original surface.
+ * Seeds survive BK split/collapse — integer attrs copy src0 (attr_interp.h), so
+ * new verts inherit a real nearby face — then a local walk re-tightens them after
+ * each smooth. Only an invalid seed or a non-converged walk pays a global query;
+ * there is deliberately NO distance-threshold fallback (a far-but-converged walk
+ * on the right sheet beats a near global hit on the wrong one). */
+struct AnchorCtx {
+  Mesh &src;
+  spatial::SpatialTree tree;
+  mesh::BuiltinAttr<int, ".remesh.v.src_face"> attr;
+
+  AnchorCtx(Mesh *m, Mesh *src_) : src(*src_), tree(src_)
+  {
+    attr.ensure(m->v.attrs);
+    tree.buildAll();
+  }
+
+  bool seedAlive(int f) const
+  {
+    return f >= 0 && f < int(src.f.capacity()) && !src.f.freemap[f];
+  }
+
+  void init(Mesh &m)
+  {
+    attr.ensure(m.v.attrs);
+    for (int v : m.v) {
+      mesh::ClosestPointResult r = mesh::findClosestPoint(tree, m.v.co[v]);
+      attr[v] = r.hit ? r.face : -1;
+    }
+  }
+
+  void update(Mesh &m)
+  {
+    attr.ensure(m.v.attrs);
+    for (int v : m.v) {
+      int seed = attr[v];
+      if (!seedAlive(seed)) {
+        // Borrow the first live 1-ring seed (BK inheritance makes this rare).
+        seed = -1;
+        int e0 = m.v.e[v];
+        if (e0 != ELEM_NONE) {
+          int ec = e0, guard = 0;
+          do {
+            int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
+            if (seedAlive(attr[ov])) {
+              seed = attr[ov];
+              break;
+            }
+            int side = m.e.vs[ec][0] == v ? 0 : 1;
+            ec = m.e.disk[ec][side * 2 + 1];
+          } while (ec != e0 && ++guard < 256);
+        }
+      }
+      if (seed >= 0) {
+        mesh::SurfaceWalkResult w = mesh::walkClosestPoint(src, seed, m.v.co[v]);
+        if (w.hit && w.converged) {
+          attr[v] = w.face;
+          continue;
+        }
+      }
+      mesh::ClosestPointResult r = mesh::findClosestPoint(tree, m.v.co[v]);
+      attr[v] = r.hit ? r.face : -1;
+    }
+  }
+};
+
 } // namespace
 
 void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
@@ -643,6 +712,15 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
   }
   const BoundaryPolyline *bndp = !bnd.empty() ? &bnd : nullptr;
 
+  // 9g: anchor every vertex to its closest source face before geometry moves;
+  // re-tightened locally after every smooth, consumed by reproject's
+  // anchor_work transported-seed path.
+  AnchorCtx *anchors = nullptr;
+  if (p.source) {
+    anchors = alloc::New<AnchorCtx>("PreRemesh AnchorCtx", &m, p.source);
+    anchors->init(m);
+  }
+
   // 1. Bootstrap: isotropic denoise sweeps before the field is trusted — a
   //    field-aligned smooth over a still-noisy field over-regularizes to its noise.
   //    9c: features are classified AFTER this, inside the loop, so the bootstrap
@@ -652,6 +730,9 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
   if (p.bootstrap_iters > 0) {
     tangentialSmooth(m, p.bootstrap_iters, p.smooth_lambda, 0.0f,
                      /*fold_guard=*/true, bndp);
+    if (anchors) {
+      anchors->update(m);
+    }
   }
 
   const int cadence = p.field_cadence > 0 ? p.field_cadence : 1;
@@ -723,6 +804,9 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
     }
     tangentialSmooth(m, p.smooth_iters, p.smooth_lambda, p.align,
                      /*fold_guard=*/true, bndp);
+    if (anchors) {
+      anchors->update(m);
+    }
     if (stats) {
       stats->iters_run = it + 1;
     }
@@ -738,6 +822,10 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
         break; // the relaxation has settled
       }
     }
+  }
+
+  if (anchors) {
+    alloc::Delete<AnchorCtx>(anchors);
   }
 }
 

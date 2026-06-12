@@ -233,6 +233,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"pre_remesh_sharp_angle\": %.9g,\n",
                p.pre_remesh_sharp_angle);
   std::fprintf(f, "    \"pre_remesh_trace\": %s,\n", jb(p.pre_remesh_trace));
+  std::fprintf(f, "    \"pre_remesh_anchors\": %s,\n", jb(p.pre_remesh_anchors));
   std::fprintf(f, "    \"auto_retry\": %s,\n", jb(p.auto_retry));
   std::fprintf(f, "    \"max_attempts\": %d\n", p.max_attempts);
   std::fprintf(f, "  },\n");
@@ -554,6 +555,8 @@ void usage()
       "(default 0.785)\n"
       "  --pre-remesh-trace <0|1>  print per-iter convergence summary to "
       "stderr (default 0)\n"
+      "  --pre-remesh-anchors <0|1>  transported source anchors for the "
+      "reproject snap (default 0)\n"
       "  --auto-retry <0|1>       metric-driven retry from the original input "
       "(default 0)\n"
       "  --max-attempts <int>     retry attempt cap incl. the first run "
@@ -713,6 +716,8 @@ int main(int argc, char **argv)
           float(std::atof(next("--pre-remesh-sharp-angle")));
     else if (a == "--pre-remesh-trace")
       params.pre_remesh_trace = toBool(next("--pre-remesh-trace"));
+    else if (a == "--pre-remesh-anchors")
+      params.pre_remesh_anchors = toBool(next("--pre-remesh-anchors"));
     else if (a == "--auto-retry")
       params.auto_retry = toBool(next("--auto-retry"));
     else if (a == "--max-attempts")

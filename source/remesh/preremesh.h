@@ -163,7 +163,15 @@ struct PreRemeshParams {
    * the whole pre-pass is one continuous time-series — the place to see the split
    * bug's sliver oscillation at multi-iter scale. null (default) = no tracing. */
   dyntopo::DynTopoTrace *trace = nullptr;
+  /* Tier 9g: the original (pre-coarsen) surface. When set, each vertex of `m`
+   * carries a kPreRemeshSrcFaceAttr anchor face on *source, kept current by local
+   * surface walks after every smooth — reproject's transported-seed source. */
+  mesh::Mesh *source = nullptr;
 };
+
+/* Tier 9g anchor attribute: per-vertex INT face index into PreRemeshParams::source,
+ * maintained by preRemesh and consumed by reprojectToSurface's anchor_work path. */
+inline constexpr const char *kPreRemeshSrcFaceAttr = ".remesh.v.src_face";
 
 /* Driver-run stats (an optional out-param; the pipeline copies these into its
  * RemeshRunReport). iters_run counts outer iterations actually executed;

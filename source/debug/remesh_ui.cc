@@ -433,6 +433,10 @@ void RemeshUi::drawPanel()
   ImGui::Checkbox("pl convergence trace", &P.pre_remesh_trace);
   tip("Print the pre-pass per-iter convergence summary + oscillation verdict to "
       "the CLI job's stderr.");
+  ImGui::Checkbox("pl reproject anchors", &P.pre_remesh_anchors);
+  tip("Maintain per-vertex source-face anchors through the pre-pass and "
+      "transport them into the reproject snap (local sheet-correct walks "
+      "instead of global closest-point queries).");
   ImGui::EndDisabled();
 
   // --- Pre-remesh (Tier 9 input pre-pass) ---
