@@ -1233,9 +1233,8 @@ clean (the two Tier-8 `RemeshParams` fields crossed the seam in 8a's
 `CLAUDENOTE:` grep over `source/`, `tests/`, `tools/` is clean. **The
 filtering plan's tiers 0–8 are all landed and gated.** Tier 9's
 implementation landed earlier (it powers `pre_remesh` in the presets and the
-retry ladder), but its formal gate-9 A/B (uniform vs adaptive pre-pass
-density, `pre_remesh_align` 0.5 vs 1.0, the fox quantize-cliff measurement)
-remains open in this doc.
+retry ladder); its formal gate-9 A/B is closed too — see the Tier-9 gate
+decision below. **All tiers 0–9 are landed and gated.**
 
 ---
 
@@ -1506,6 +1505,61 @@ regularize toward the field's own noise — verify `1.0` actually beats `0.5`
 before keeping it as the default. Decide whether
 `pre_remesh` should join the "Messy Generated Character" / "Scan" presets (Tier
 8b) and whether the Tier-8 retry loop enables it automatically.
+
+### Gate decision (Tier 9, 2026-06-12)
+
+**Gate 9 PASS; `pre_remesh` stays default-off, `pre_remesh_align` stays
+`1.0`, 9g lands opt-in (`pre_remesh_anchors = false`), 9f skipped.** With
+defaults unchanged the corpus stayed byte-identical to the tier-8 baseline
+(no re-baseline); full ctest 68/71 (the 3 pre-existing failures only), WASM
+canary clean.
+
+**Fox A/B (uniform vs adaptive vs none; `--target-quads 15000`, seed 1):**
+
+| leg | quads | folds | holes | t(s) |
+|-----|------:|------:|------:|-----:|
+| no pre-pass | 10217 | 1420 | **108** | **64** |
+| adaptive, align 1.0 | 10333 | 1393 | 191 | 109 |
+| adaptive, align 0.5 | 10697 | **1296** | 188 | 108 |
+| uniform | 9841 | 1725 | 270 | 400 |
+
+- **Adaptive ≫ uniform** on every axis (folds, holes, wall time) — uniform
+  over-refines flat regions and starves curved ones; it is not a useful
+  configuration on this asset class.
+- **The quantize cliff is gone without the pre-pass.** The original
+  motivation (~30% folded faces, quantize thrash at N≈62k) no longer
+  reproduces: the base leg is the fastest and has the fewest holes, with
+  folds statistically equal to the adaptive leg (1420 vs 1393). The
+  tiers 2–8 field/quantize work removed the cliff at its source, so
+  `pre_remesh` stays default-off — it remains the preset ingredient and
+  retry-ladder rung it became in Tier 8.
+- **`pre_remesh_align` stays `1.0`.** Fox mildly favors 0.5 (folds
+  1393 → 1296); anime-girl regularity favors 1.0 — mixed evidence, so the
+  default keeps the value the unit tests and presets pin, with 0.5
+  documented as a per-asset knob.
+
+**9g (source-anchor transport) — built, gated, lands default-off.** The
+machinery is complete and tested: `mesh::walkClosestPoint`
+(`source/mesh/utils/surface_walk.h`, spatial-free greedy descent; matches
+the global BVH query 64/64 on a convex fixture), pre-pass anchor
+maintenance (`.remesh.v.src_face` — BVH init, BK inheritance via int
+interp, local re-tighten per smooth; 0 dead / 0 drift end-to-end on a
+noised sphere), and an anchored reproject path with the filtered global
+query as fallback. On real assets it does not beat the 9d sheet filter:
+fox anchors-on/off legs have identical topology metrics (10333 quads /
+1393 folds / 191 holes), positions agree on 96.6% of verts (16 verts move
+more than half an edge), and at the disagreement sites anchors *raise*
+inverted faces (142 → 152 fox; 18 → 21, area_ratio 7.3 → 9.9 on the
+anime-girl corpus row) with no wall-clock win (pre-pass anchor maintenance
+costs more than the local-walk reproject saves). Verdict: the filtered
+global snap is already sheet-correct almost everywhere; `pre_remesh_anchors`
+stays an opt-in for visual A/B and as the intrinsic-correspondence
+groundwork the layout-embedding milestone needs.
+
+**9f (area-weighted tangential smooth) — skipped per its own gate.** It was
+conditioned on the min-angle / edge-variance metrics stalling after 9a–9e;
+they did not stall, so it was never built (idea archived for a future
+uniform-tessellation pass).
 
 ---
 

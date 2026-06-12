@@ -184,6 +184,7 @@ Input conditioning (Tiers 1/6/9):
 | `pre_remesh_preserve_features` | `true` | pin boundary loops + creases through collapse/smooth |
 | `pre_remesh_sharp_angle` | `0.785` | crease dihedral for the pre-pass pinning |
 | `pre_remesh_trace`    | `false` | print the per-iter convergence summary to stderr |
+| `pre_remesh_anchors`  | `false` | Tier 9g: per-vertex source-face anchors through the pre-pass, transported into the reproject snap (local walks instead of global queries); needs `pre_remesh` |
 
 Extraction / output (M5/M6):
 
