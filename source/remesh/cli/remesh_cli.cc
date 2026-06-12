@@ -136,6 +136,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
                    const std::string &objPath, const std::string &inName,
                    const std::string &inPath, int inVerts, int inFaces,
                    const float3 &amin, const float3 &amax,
+                   const std::string &preset,
                    const remesh::RemeshParams &p, const mesh::RemeshReport &r,
                    const mesh::RemeshReport &rin,
                    const remesh::RemeshRunReport &rep, long long durationMs)
@@ -169,6 +170,7 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "\n  },\n");
 
   std::fprintf(f, "  \"params\": {\n");
+  std::fprintf(f, "    \"preset\": \"%s\",\n", jstr(preset).c_str());
   std::fprintf(f, "    \"target_quad_count\": %d,\n", p.target_quad_count);
   std::fprintf(f, "    \"target_edge_length\": %.9g,\n", p.target_edge_length);
   std::fprintf(f, "    \"solve_edge_length\": %.9g,\n", p.solve_edge_length);
@@ -481,6 +483,9 @@ void usage()
       "  --input <path>          input OBJ (bare name resolves against assets dir)\n"
       "  --outdir <dir>          output dir (default: tests/remesher-results)\n"
       "  --name <base>           output basename (default: input stem)\n"
+      "  --preset <name>         pre-fill the knob vector (applied before all\n"
+      "                          other flags, which still override): organic-clean,\n"
+      "                          organic-noisy, messy-character, scan, hard-surface\n"
       "  --target-quads <int>    target quad count (default 15000; per-asset\n"
       "                          quad-counts.txt overrides when neither this\n"
       "                          nor --target is given)\n"
@@ -562,6 +567,21 @@ int main(int argc, char **argv)
   std::string input, outdir = REMESH_CLI_RESULTS_DIR, name;
   remesh::RemeshParams params;
   bool sizing_given = false; // --target or --target-quads on the command line
+
+  // Presets pre-fill the knob vector, so apply them before the flag loop —
+  // every explicit flag then overrides regardless of argument order.
+  std::string preset;
+  for (int i = 1; i + 1 < argc; i++) {
+    if (std::strcmp(argv[i], "--preset") == 0)
+      preset = argv[i + 1];
+  }
+  if (!preset.empty() && !remesh::applyRemeshPreset(params, preset.c_str())) {
+    std::fprintf(stderr, "ERROR unknown preset %s (valid:", preset.c_str());
+    for (int i = 0; remesh::remeshPresetName(i); i++)
+      std::fprintf(stderr, " %s", remesh::remeshPresetName(i));
+    std::fprintf(stderr, ")\n");
+    return 2;
+  }
 
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -692,6 +712,8 @@ int main(int argc, char **argv)
       params.auto_retry = toBool(next("--auto-retry"));
     else if (a == "--max-attempts")
       params.max_attempts = std::atoi(next("--max-attempts"));
+    else if (a == "--preset")
+      next("--preset"); // applied in the pre-scan above
     else {
       std::fprintf(stderr, "ERROR unknown arg %s\n", a.c_str());
       return 2;
@@ -761,7 +783,8 @@ int main(int argc, char **argv)
   if (!out) {
     mesh::RemeshReport r;
     if (writeManifest(jsonPath.c_str(), ts, objPath, name, inPath, inVerts,
-                      inFaces, amin, amax, params, r, rin, rep, durationMs))
+                      inFaces, amin, amax, preset, params, r, rin, rep,
+                      durationMs))
       std::printf("MANIFEST %s\n", jsonPath.c_str());
     std::printf("ERROR QuadRemesh produced no mesh reason=%s\n",
                 rep.failure_reason.empty() ? "unknown"
@@ -791,7 +814,8 @@ int main(int argc, char **argv)
     std::printf("RESULT %s\n", objPath.c_str());
 
   if (writeManifest(jsonPath.c_str(), ts, objPath, name, inPath, inVerts,
-                    inFaces, amin, amax, params, r, rin, rep, durationMs))
+                    inFaces, amin, amax, preset, params, r, rin, rep,
+                    durationMs))
     std::printf("MANIFEST %s\n", jsonPath.c_str());
   else
     std::printf("ERROR could not write %s\n", jsonPath.c_str());

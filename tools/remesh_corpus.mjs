@@ -49,6 +49,7 @@ const DEFAULTS = {
   densityMax: null,
   densityGradation: null, // Tier-3b: null => CLI default (0, off)
   densityGradationIters: null,
+  preset: null, // Tier-8b: null => no preset (CLI defaults)
 }
 
 function parseArgs(argv) {
@@ -77,6 +78,7 @@ function parseArgs(argv) {
     else if (k === '--density-gradation-iters') a.densityGradationIters = parseInt(next(), 10)
     else if (k === '--quant-direct') a.quantDirect = next() !== '0'
     else if (k === '--cap-odd') a.capOdd = next() !== '0'
+    else if (k === '--preset') a.preset = next()
     else if (k === '--list') a.list = true
     else if (k === '--help' || k === '-h') { usage(); process.exit(0) }
     else { console.error(`unknown arg ${k}`); usage(); process.exit(2) }
@@ -104,6 +106,8 @@ function usage() {
   --density-gradation-iters <int>  Tier-3b limiter sweep cap
   --quant-direct <0|1>             M5 one-shot DIRECT rounding (miq.md Q4)
   --cap-odd <0|1>                  M6 odd-rim cap (Tier-6 default A/B)
+  --preset <name>                  Tier-8b preset bundle for every asset
+                                   (per-asset corpus.json params still override)
   --list            list the corpus and resolution status, then exit`)
 }
 
@@ -259,6 +263,9 @@ function main() {
     globalParams['quant-direct'] = args.quantDirect ? 1 : 0
   if (args.capOdd != null)
     globalParams['cap-odd'] = args.capOdd ? 1 : 0
+  // The CLI applies --preset in a pre-scan, so flag order is irrelevant:
+  // per-asset corpus.json params override the preset regardless of position.
+  if (args.preset != null) globalParams['preset'] = args.preset
 
   const results = []
   const skipped = []

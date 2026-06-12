@@ -57,4 +57,14 @@ float resolveTargetEdgeLength(mesh::Mesh &m, const RemeshParams &params);
  * the median input edge > explicit target_edge_length. */
 float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params);
 
+/* Tier 8b: overwrite @p params with the named preset bundle (defaults + the
+ * preset's deltas), preserving the orthogonal sizing fields (target_quad_count
+ * / target_edge_length / solve_edge_length) and seed. Returns false (params
+ * untouched) on an unknown name. Names: remeshPresetName. */
+bool applyRemeshPreset(RemeshParams &params, const char *name);
+
+/* Preset name table for UIs / CLIs: returns the i-th preset name, or nullptr
+ * past the end (iterate from 0). */
+const char *remeshPresetName(int i);
+
 } // namespace sculptcore::remesh

@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 
 namespace sculptcore::remesh {
 
@@ -599,6 +600,64 @@ float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
   // input edges. E scales ~1/L^2, so E_out/E_in >= 0.8 ==> L <= mean/sqrt(0.8).
   float L_budget = es.mean > 0.0f ? es.mean / std::sqrt(0.8f) : 0.0f;
   return L_budget > 0.0f ? std::fmin(L, L_budget) : L;
+}
+
+const char *remeshPresetName(int i)
+{
+  static const char *names[] = {"organic-clean", "organic-noisy",
+                                "messy-character", "scan", "hard-surface"};
+  return (i >= 0 && i < int(sizeof(names) / sizeof(names[0]))) ? names[i]
+                                                               : nullptr;
+}
+
+/* Preset deltas encode the tier sweep results: feature_min_chain=3 everywhere
+ * (the gate-7 "safe quality knob"), hysteresis only paired with it on the
+ * noisy/scan bundles, cap_odd_holes only where watertightness beats cap
+ * quality (gate 6), and auto_retry only on inputs expected to misbehave. */
+bool applyRemeshPreset(RemeshParams &params, const char *name)
+{
+  RemeshParams base;
+  // Sizing + determinism are orthogonal to the preset character.
+  base.target_quad_count = params.target_quad_count;
+  base.target_edge_length = params.target_edge_length;
+  base.solve_edge_length = params.solve_edge_length;
+  base.seed = params.seed;
+  base.feature_min_chain = 3;
+  base.auto_density = true;
+
+  if (std::strcmp(name, "organic-clean") == 0) {
+    base.curvature_smooth_iters = 1;
+  } else if (std::strcmp(name, "organic-noisy") == 0) {
+    base.curvature_smooth_iters = 2;
+    base.field_smoothness = 2.0f;
+    base.feature_hysteresis = 0.2618f; // ~15deg, paired with min_chain
+    base.pre_remesh = true;
+    base.auto_retry = true;
+  } else if (std::strcmp(name, "messy-character") == 0) {
+    base.curvature_smooth_iters = 2;
+    base.triage_min_component_frac = 0.01f;
+    base.input_hole_fill_max_frac = 0.05f;
+    base.per_component = true;
+    base.cap_odd_holes = true;
+    base.pre_remesh = true;
+    base.auto_retry = true;
+  } else if (std::strcmp(name, "scan") == 0) {
+    base.curvature_smooth_iters = 2;
+    base.field_smoothness = 2.0f;
+    base.feature_hysteresis = 0.2618f;
+    base.triage_min_component_frac = 0.01f;
+    base.input_hole_fill_max_frac = 0.05f;
+    base.cap_odd_holes = true;
+    base.pre_remesh = true;
+    base.auto_retry = true;
+  } else if (std::strcmp(name, "hard-surface") == 0) {
+    base.sharp_angle = 0.5235988f; // 30deg: catch real shallow bevels
+    base.density_gradation = 0.3f; // smooth size flow around fillets
+  } else {
+    return false;
+  }
+  params = base;
+  return true;
 }
 
 /* One full pipeline run. The public QuadRemesh below wraps this in the Tier-8
