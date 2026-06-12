@@ -3,6 +3,8 @@
 #include "remesh_app.h"
 #include "scene.h"
 
+#include "remesh/remesh.h"
+
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_swapchain.h"
 #include "window/window.h"
@@ -252,6 +254,29 @@ void RemeshUi::drawPanel()
 
   // --- Params ---
   ImGui::SeparatorText("Params");
+  {
+    static int presetSel = 0;
+    const char *presetName = remesh::remeshPresetName(presetSel);
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::BeginCombo("##preset", presetName ? presetName : "(none)")) {
+      for (int i = 0; const char *nm = remesh::remeshPresetName(i); i++) {
+        if (ImGui::Selectable(nm, i == presetSel)) {
+          presetSel = i;
+        }
+      }
+      ImGui::EndCombo();
+    }
+    tip("Tier 8 preset bundles (the CLI's --preset). Apply overwrites every knob "
+        "below with the preset's values, preserving the sizing fields and seed; "
+        "edit freely afterwards.");
+    ImGui::SameLine();
+    if (ImGui::Button("Apply preset") && presetName) {
+      remesh::applyRemeshPreset(P, presetName);
+      app_->status = std::string("applied preset ") + presetName;
+    }
+    tip("Pre-fill the knob vector from the selected preset (sliders update to "
+        "show the applied values).");
+  }
   ImGui::InputInt("target quads", &P.target_quad_count, 100, 1000);
   if (P.target_quad_count < 1) {
     P.target_quad_count = 1;
@@ -286,10 +311,27 @@ void RemeshUi::drawPanel()
   ImGui::SliderFloat("sharp angle (rad)", &P.sharp_angle, 0.0f, 3.14159f, "%.3f");
   tip("Dihedral angle (radians) above which an edge is treated as sharp. Lower = "
       "more edges count as creases. Default 0.785 = 45 degrees.");
+  ImGui::BeginDisabled(!P.use_sharp_features);
+  ImGui::SliderFloat("feature hysteresis (rad)", &P.feature_hysteresis, 0.0f,
+                     0.785f, "%.3f");
+  tip("Tier 7: weak-tag band below the sharp angle. An edge in "
+      "[sharp - hysteresis, sharp] is tagged only when vertex-connected to a "
+      "strong sharp edge, so a crease oscillating around the threshold stays "
+      "whole. 0 = off; mainly useful together with a min chain.");
+  ImGui::SliderInt("feature min chain", &P.feature_min_chain, 0, 10);
+  tip("Tier 7: drop tagged sharp chains shorter than this many edges unless both "
+      "ends anchor at a junction or boundary (noise spurs force spurious "
+      "singularities). 0 = off; 3 is a good starting point.");
+  ImGui::EndDisabled();
   ImGui::Checkbox("use density", &P.use_density);
   tip("Honor a per-vertex .remesh.v.density map for local sizing "
       "(quad size is proportional to 1/sqrt(density)). 'auto density' below "
       "turns this on implicitly and fills the map from curvature.");
+  ImGui::Checkbox("direct rounding", &P.quantize_direct_rounding);
+  tip("Quantize with one-shot DIRECT rounding (round every cut translation at "
+      "once off the seamless solve, one re-solve) instead of greedy "
+      "most-confident-first batches. Faster, but can hand the extractor an "
+      "infeasible map — an A/B oracle, not a quality default.");
   {
     float dev_deg = P.untangle_field_max_dev * (180.0f / 3.14159265f);
     if (ImGui::SliderFloat("untangle max dev (deg)", &dev_deg, 0.0f, 45.0f,
@@ -333,6 +375,17 @@ void RemeshUi::drawPanel()
   tip("Drop connected components with fewer than this fraction of the total "
       "verts (removes specks / floaters). 0 = keep every component.");
   ImGui::EndDisabled();
+  ImGui::SliderFloat("hole fill max frac", &P.input_hole_fill_max_frac, 0.0f,
+                     0.5f, "%.3f");
+  tip("Tier 6: pre-solve hole policy. Triangulate-fill input boundary loops "
+      "whose rim length is under this fraction of the total boundary length, so "
+      "tiny punctures don't seed spurious boundary constraints; larger "
+      "boundaries stay open. 0 = fill nothing.");
+  ImGui::Checkbox("per component", &P.per_component);
+  tip("Tier 6: remesh disconnected components independently so one component's "
+      "field/singularities can't perturb another's solve. All components share "
+      "the resolved quad edge length; a component whose sub-run fails is "
+      "dropped from the merged output.");
   ImGui::SliderInt("curv smooth iters", &P.curvature_smooth_iters, 0, 20);
   tip("Tier 2a: Jacobi sweeps that smooth the curvature tensor field before "
       "directions are extracted, reducing noisy field alignment. 0 = off (raw "
@@ -438,6 +491,16 @@ void RemeshUi::drawPanel()
       "transport them into the reproject snap (local sheet-correct walks "
       "instead of global closest-point queries).");
   ImGui::EndDisabled();
+  ImGui::Checkbox("auto retry", &P.auto_retry);
+  tip("Tier 8: metric-driven retry. Re-run the pipeline from the original input "
+      "with one knob escalated per attempt — driven by the run report's folds / "
+      "pole count / size cliffs / odd-hole residue — keeping the best-scoring "
+      "result.");
+  ImGui::BeginDisabled(!P.auto_retry);
+  ImGui::SliderInt("max attempts", &P.max_attempts, 1, 8);
+  tip("Total attempt cap, first run included (clamped to the report's trail "
+      "capacity of 8).");
+  ImGui::EndDisabled();
 
   // --- Pre-remesh (Tier 9 input pre-pass) ---
   ImGui::SeparatorText("Pre-remesh (input pre-pass)");
@@ -483,6 +546,18 @@ void RemeshUi::drawPanel()
   tip("Inner field-aligned smooth sweeps per outer iter.");
   ImGui::SliderFloat("pre smooth lambda", &PR.smooth_lambda, 0.0f, 1.0f, "%.2f");
   tip("Per-sweep relaxation factor for the pre-pass smooth.");
+  ImGui::SliderFloat("pre converge eps (0=off)", &PR.converge_eps, 0.0f, 0.2f,
+                     "%.3f");
+  tip("Early-out: stop once an outer iter's smooth moves every vertex less than "
+      "eps x target. 0 = always run all iters.");
+  {
+    int s = int(PR.seed);
+    if (ImGui::InputInt("pre seed", &s)) {
+      PR.seed = uint32_t(s < 0 ? 0 : s);
+    }
+  }
+  tip("Determinism seed for the pre-pass BK rounds (bumped per outer iter by "
+      "the Step driver).");
   ImGui::Checkbox("pre preserve features", &PR.preserve_features);
   tip("Pin open boundaries and dihedral-sharp creases so the iterated flow follows "
       "features instead of eroding them.");

@@ -310,8 +310,17 @@ bool RemeshApp::runRemesh(std::string &err)
       wb(params.use_sharp_features),
       L"--sharp-angle",
       wf(params.sharp_angle),
+      L"--feature-hysteresis",
+      wf(params.feature_hysteresis),
+      L"--feature-min-chain",
+      widen(std::to_string(params.feature_min_chain)),
       L"--density",
       wb(params.use_density),
+      L"--quant-direct",
+      wb(params.quantize_direct_rounding),
+      // CLI flag takes degrees; the param stores radians.
+      L"--untangle-max-dev",
+      wf(params.untangle_field_max_dev * (180.0f / 3.14159265f)),
       L"--reproject",
       wb(params.reproject),
       L"--cap-odd",
@@ -328,6 +337,10 @@ bool RemeshApp::runRemesh(std::string &err)
       wf(params.triage_weld_rel),
       L"--triage-min-component-frac",
       wf(params.triage_min_component_frac),
+      L"--hole-fill",
+      wf(params.input_hole_fill_max_frac),
+      L"--per-component",
+      wb(params.per_component),
       L"--curvature-smooth-iters",
       widen(std::to_string(params.curvature_smooth_iters)),
       L"--curvature-smooth-lambda",
@@ -382,6 +395,10 @@ bool RemeshApp::runRemesh(std::string &err)
       wb(params.pre_remesh_trace),
       L"--pre-remesh-anchors",
       wb(params.pre_remesh_anchors),
+      L"--auto-retry",
+      wb(params.auto_retry),
+      L"--max-attempts",
+      widen(std::to_string(params.max_attempts)),
   };
   if (!startJob(Job::Remesh, remeshCliPath(), args, "remeshing " + name)) {
     err = status;
@@ -668,6 +685,7 @@ std::string RemeshApp::handleCommand(const std::string &line)
          "  meshy_gen <prompt>    text-to-3D a new asset (async)\n"
          "  get_params            current remesh params (name=value)\n"
          "  set_param <name> <v>  set one remesh param\n"
+         "  apply_preset <name>   pre-fill params from a Tier-8 preset\n"
          "  save_quad_count       record target_quad_count in quad-counts.txt\n"
          "  run_remesh            remesh the selected asset (async)\n"
          "  pre_remesh            run the input pre-pass in-process (Tier 9)\n"
@@ -709,7 +727,12 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "use_curvature=" << int(params.use_curvature) << "\n"
       << "use_sharp_features=" << int(params.use_sharp_features) << "\n"
       << "sharp_angle=" << params.sharp_angle << "\n"
+      << "feature_hysteresis=" << params.feature_hysteresis << "\n"
+      << "feature_min_chain=" << params.feature_min_chain << "\n"
       << "use_density=" << int(params.use_density) << "\n"
+      << "quantize_direct_rounding=" << int(params.quantize_direct_rounding)
+      << "\n"
+      << "untangle_field_max_dev=" << params.untangle_field_max_dev << "\n"
       << "reproject=" << int(params.reproject) << "\n"
       << "cap_odd_holes=" << int(params.cap_odd_holes) << "\n"
       << "smooth_iterations=" << params.smooth_iterations << "\n"
@@ -718,6 +741,8 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "triage=" << int(params.triage) << "\n"
       << "triage_weld_rel=" << params.triage_weld_rel << "\n"
       << "triage_min_component_frac=" << params.triage_min_component_frac << "\n"
+      << "input_hole_fill_max_frac=" << params.input_hole_fill_max_frac << "\n"
+      << "per_component=" << int(params.per_component) << "\n"
       << "curvature_smooth_iters=" << params.curvature_smooth_iters << "\n"
       << "curvature_smooth_lambda=" << params.curvature_smooth_lambda << "\n"
       << "field_smoothness=" << params.field_smoothness << "\n"
@@ -746,6 +771,8 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "pre_remesh_sharp_angle=" << params.pre_remesh_sharp_angle << "\n"
       << "pre_remesh_trace=" << int(params.pre_remesh_trace) << "\n"
       << "pre_remesh_anchors=" << int(params.pre_remesh_anchors) << "\n"
+      << "auto_retry=" << int(params.auto_retry) << "\n"
+      << "max_attempts=" << params.max_attempts << "\n"
       << "pre_iters=" << preParams.iters << "\n"
       << "pre_target=" << preParams.target << "\n"
       << "pre_density=" << int(preParams.density) << "\n"
@@ -784,8 +811,16 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.use_sharp_features = iv != 0;
     } else if (name == "sharp_angle") {
       params.sharp_angle = float(d);
+    } else if (name == "feature_hysteresis") {
+      params.feature_hysteresis = float(d);
+    } else if (name == "feature_min_chain") {
+      params.feature_min_chain = iv;
     } else if (name == "use_density") {
       params.use_density = iv != 0;
+    } else if (name == "quantize_direct_rounding") {
+      params.quantize_direct_rounding = iv != 0;
+    } else if (name == "untangle_field_max_dev") {
+      params.untangle_field_max_dev = float(d); // radians, like the struct
     } else if (name == "reproject") {
       params.reproject = iv != 0;
     } else if (name == "cap_odd_holes") {
@@ -802,6 +837,10 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.triage_weld_rel = float(d);
     } else if (name == "triage_min_component_frac") {
       params.triage_min_component_frac = float(d);
+    } else if (name == "input_hole_fill_max_frac") {
+      params.input_hole_fill_max_frac = float(d);
+    } else if (name == "per_component") {
+      params.per_component = iv != 0;
     } else if (name == "curvature_smooth_iters") {
       params.curvature_smooth_iters = iv;
     } else if (name == "curvature_smooth_lambda") {
@@ -856,6 +895,10 @@ std::string RemeshApp::handleCommand(const std::string &line)
       params.pre_remesh_trace = iv != 0;
     } else if (name == "pre_remesh_anchors") {
       params.pre_remesh_anchors = iv != 0;
+    } else if (name == "auto_retry") {
+      params.auto_retry = iv != 0;
+    } else if (name == "max_attempts") {
+      params.max_attempts = iv;
     } else if (name == "pre_iters") {
       preParams.iters = iv;
     } else if (name == "pre_target") {
@@ -896,6 +939,19 @@ std::string RemeshApp::handleCommand(const std::string &line)
       return "ERROR unknown param: " + name;
     }
     return "OK " + name + "=" + val;
+  }
+  if (cmd == "apply_preset") {
+    if (rest.empty()) {
+      return "ERROR usage: apply_preset <name>";
+    }
+    if (!remesh::applyRemeshPreset(params, rest.c_str())) {
+      std::string valid;
+      for (int i = 0; remesh::remeshPresetName(i); i++) {
+        valid += std::string(" ") + remesh::remeshPresetName(i);
+      }
+      return "ERROR unknown preset " + rest + " (valid:" + valid + ")";
+    }
+    return "OK preset " + rest;
   }
   if (cmd == "run_remesh") {
     std::string err;

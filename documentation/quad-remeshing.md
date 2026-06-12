@@ -479,11 +479,16 @@ framed reply. Commands (`help` lists them):
 | `meshy_gen <prompt>` | text-to-3D a new asset (async) |
 | `get_params` | current params as `name=value` lines |
 | `set_param <name> <v>` | set one param |
+| `apply_preset <name>` | pre-fill params from a Tier-8 preset (the CLI's `--preset`) |
+| `save_quad_count` | record `target_quad_count` for the asset in `quad-counts.txt` |
 | `run_remesh` | remesh the selected asset (async) |
+| `pre_remesh` | run the input pre-pass in-process (Tier 9) |
+| `pre_step start\|stop\|reset` | step the pre-pass one outer iter per frame |
 | `last_result` | obj / manifest / stats of the last run |
 | `get_state` | JSON: asset, mesh counts, job (`running`/`progress`/`stage`), camera, last result, status |
 | `camera_fit` / `camera_get` | frame the camera to the AABB / read eye·target·up·fov |
 | `screenshot <path>` | write a shaded PNG of the offscreen view |
+| `save_mesh <path.obj>` | write the current mesh to an OBJ |
 | `quit` | close the app |
 
 > A job is async: `run_remesh` / `meshy_gen` return `OK started` immediately. Poll
