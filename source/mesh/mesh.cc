@@ -104,7 +104,14 @@ void Mesh::thawTopo()
   topo_frozen = false;
 }
 
-int Mesh::markSeamPath(int vStart, int vEnd, int state)
+// kind 0 = EDGE_SEAM (user-marked seam), 1 = EDGE_SHARP (sharp crease). Both are
+// source-of-truth boundary flags; the marking tool selects via `kind`.
+static const char *edgeFlagNameForKind(int kind)
+{
+  return kind == 1 ? boundary::EDGE_SHARP : boundary::EDGE_SEAM;
+}
+
+int Mesh::markEdgePath(int vStart, int vEnd, int kind, int state)
 {
   // shortestEdgePath + find_edge walk the live disk links; thaw if a prior
   // sculpt stroke left the mesh frozen.
@@ -115,16 +122,65 @@ int Mesh::markSeamPath(int vStart, int vEnd, int state)
   if (!shortestEdgePath(this, vStart, vEnd, path) || path.size() < 2) {
     return -1;
   }
+  const char *flag = edgeFlagNameForKind(kind);
   int marked = 0;
   for (int i = 0; i + 1 < int(path.size()); i++) {
     int e = find_edge(path[i], path[i + 1]);
     if (e != ELEM_NONE) {
-      boundary::setEdgeFlag(this, boundary::EDGE_SEAM, e, state != 0);
+      boundary::setEdgeFlag(this, flag, e, state != 0);
       marked++;
     }
   }
   boundary::recomputeDirty(this);
   return marked;
+}
+
+int Mesh::markSeamPath(int vStart, int vEnd, int state)
+{
+  return markEdgePath(vStart, vEnd, 0, state);
+}
+
+int Mesh::edgeFlagKind(int e, int kind)
+{
+  return boundary::edgeFlag(this, edgeFlagNameForKind(kind), e) ? 1 : 0;
+}
+
+void Mesh::setEdgeFlagKind(int e, int kind, int state)
+{
+  boundary::setEdgeFlag(this, edgeFlagNameForKind(kind), e, state != 0);
+}
+
+void Mesh::featureVerts(int kind, util::Vector<int> &outIdx, util::Vector<float> &outCo)
+{
+  outIdx.clear();
+  outCo.clear();
+  if (topo_frozen) {
+    thawTopo();
+  }
+  BoolAttrView *view = boundary::findBoolEdgeView(this, edgeFlagNameForKind(kind));
+  if (!view) {
+    return;
+  }
+  // De-dup endpoints across all flagged edges via a per-vert seen bitmap.
+  util::Vector<uint8_t> seen;
+  seen.resize(size_t(v.count));
+  for (int e : this->e) {
+    if (!view->get(e)) {
+      continue;
+    }
+    for (int side = 0; side < 2; side++) {
+      int vi = this->e.vs[e][side];
+      if (vi < 0 || vi >= v.count || seen[vi]) {
+        continue;
+      }
+      seen[vi] = 1;
+      math::float3 co = v.co[vi];
+      outIdx.append(vi);
+      outCo.append(co[0]);
+      outCo.append(co[1]);
+      outCo.append(co[2]);
+    }
+  }
 }
 
 void Mesh::edgePathEdges(int vStart, int vEnd, util::Vector<int> &out)
