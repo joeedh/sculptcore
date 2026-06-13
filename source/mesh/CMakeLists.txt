@@ -40,6 +40,9 @@ set(SRC
   mesh_shapes.cc
   mesh_types.cc
   bindings.cc
+  # Native log sink (napi/napi_log.h). Lives here — the lowest lib that calls it
+  # (edge_split.h, spatial.cc via spatial->mesh) — so every consumer links it.
+  napi_log.cc
 )
 
 sc_add_library(mesh "${SRC}" "${LIB}" STATIC)
