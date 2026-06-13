@@ -1725,20 +1725,68 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     }
   }
 
+  /* In-place slice writes run in parallel (disjoint slices). update_gpu_node_slice
+   * is pure — it never regens or flags owner buffers — so all shared-state
+   * mutation (the update_buffer flags, and any required full regen) is deferred
+   * to the serial pass below. sliceOk[i] == 0 means owner i needs a full rebuild. */
+  Vector<uint8_t, 256> sliceOk;
+  sliceOk.resize(sliceWork.size());
+
 #ifdef NO_PARALLEL_FOR
-  for (const SliceWork &w : sliceWork) {
-    update_gpu_node_slice(w.owner, w.leaf, gpu);
+  for (int i : util::IndexRange(sliceWork.size())) {
+    sliceOk[i] = update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
   }
 #else
   litestl::task::parallel_for(
       util::IndexRange(sliceWork.size()),
       [&](IndexRange range) {
         for (int i : range) {
-          update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu);
+          sliceOk[i] =
+              update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
         }
       },
       4);
 #endif
+
+  /* Serial: flag each successfully-updated owner's buffers for re-upload, and
+   * full-regen (once per owner) any owner whose in-place update failed. Doing
+   * the regens here — not inside the parallel body — is what fixes the
+   * "faces randomly don't draw" race: two threads regenning the same owner
+   * concurrently could leave it with a null pos buffer, which the draw-batch
+   * loop then silently skips. */
+  Vector<SpatialNode *, 64> regennedOwners;
+  for (int i : util::IndexRange(sliceWork.size())) {
+    SpatialNode *owner = sliceWork[i].owner;
+    if (sliceOk[i]) {
+      GpuData &gd = *owner->gpu_data;
+      if (gd.pos) {
+        gd.pos->update_buffer = true;
+      }
+      if (gd.nor) {
+        gd.nor->update_buffer = true;
+      }
+      for (gpu::Buffer *b : gd.attrBufs) {
+        if (b) {
+          b->update_buffer = true;
+        }
+      }
+      continue;
+    }
+
+    bool already = false;
+    for (SpatialNode *r : regennedOwners) {
+      if (r == owner) {
+        already = true;
+        break;
+      }
+    }
+    if (already) {
+      continue;
+    }
+    regen_gpu_node(owner, gpu);
+    regennedOwners.append(owner);
+    drawBatchUpdated = true;
+  }
 
   /* Phase: any GPU node still missing buffers (because it transitioned
    * from non-GPU to GPU this tick and contains no individually-dirty
