@@ -24,5 +24,10 @@ export interface MeshLog {
   redo(m: Mesh, tree: SpatialTree): void
   beginStep(): void
   endStep(): void
+  lastStepId(): int32
+  stepMemSize(id: int32): double
+  totalMemSize(): double
+  entryCount(): int32
+  freeStep(id: int32): int32
   new (): MeshLog
 }

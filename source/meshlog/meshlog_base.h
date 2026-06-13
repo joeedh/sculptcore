@@ -92,6 +92,11 @@ struct LogChunk {
   virtual void redo(mesh::Mesh *m, spatial::SpatialTree *tree)
   {
   }
+  /** Estimated heap bytes retained by this chunk (undo memory accounting). */
+  virtual double memSize()
+  {
+    return double(sizeof(LogChunk));
+  }
 };
 
 namespace detail {
@@ -222,6 +227,19 @@ struct ChunkElemData {
     swap(src, tree);
   }
 
+  double memSize()
+  {
+    double tot = double(sizeof(*this)) + double(srcAttrMap_.size()) * sizeof(int);
+    tot += double(attrs_.bool_attrs.blocksize()) * double(size_);
+    for (auto &ref : attrs_.attrs) {
+      if (ref.type == mesh::AttrType::BOOL) {
+        continue;
+      }
+      tot += double(ref.data->elemSize) * double(size_);
+    }
+    return tot;
+  }
+
 private:
   mesh::AttrGroup attrs_;
   Vector<int> srcAttrMap_; // one-to-one mapping to attributes in attrs_
@@ -267,6 +285,11 @@ struct LogChunkSimple : public LogChunk {
     node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
   }
 
+  double memSize() override
+  {
+    return double(sizeof(*this)) + v.memSize() + e.memSize() + c.memSize() + f.memSize();
+  }
+
 private:
   mesh::AttrGroup attrs_;
   Vector<int> srcAttrMap_; // one-to-one mapping to attributes in attrs_
@@ -304,8 +327,12 @@ struct ChunkElemRow {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
         dst[0] = view->get(src_idx) ? 1 : 0;
       } else {
-        memcpy(
-            static_cast<void *>(dst), ref.data->getElemData(src_idx), ref.data->elemSize);
+        const void *src = ref.data->getElemData(src_idx);
+        if (!src) { /* unmaterialized page (frozen-topo column?) — see warnNullPage */
+          warnNullPage("captureFrom", ref);
+          continue;
+        }
+        memcpy(static_cast<void *>(dst), src, ref.data->elemSize);
       }
     }
   }
@@ -323,11 +350,20 @@ struct ChunkElemRow {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
         view->set(dst_idx, src[0] != 0);
       } else {
-        memcpy(ref.data->getElemData(dst_idx),
-               static_cast<const void *>(src),
-               ref.data->elemSize);
+        void *dst = ref.data->getElemData(dst_idx);
+        if (!dst) {
+          warnNullPage("writeTo", ref);
+          continue;
+        }
+        memcpy(dst, static_cast<const void *>(src), ref.data->elemSize);
       }
     }
+  }
+
+  double memSize()
+  {
+    return double(sizeof(*this)) + double(data_.size()) +
+           double(offsets_.size()) * sizeof(int);
   }
 
   void swapWith(mesh::AttrGroup &live, int live_idx)
@@ -347,6 +383,10 @@ struct ChunkElemRow {
         slot[0] = tmp ? 1 : 0;
       } else {
         void *live_p = ref.data->getElemData(live_idx);
+        if (!live_p) {
+          warnNullPage("swapWith", ref);
+          continue;
+        }
         size_t n = ref.data->elemSize;
         memcpy(static_cast<void *>(buf), live_p, n);
         memcpy(live_p, static_cast<const void *>(slot), n);
@@ -356,6 +396,18 @@ struct ChunkElemRow {
   }
 
 private:
+  /* A null getElemData means an unmaterialized page — e.g. a frozen-topo TOPO
+   * column. MeshLog::undo/redo thaw before replaying topo chunks, so hitting
+   * this is a bug; warn loudly instead of memcpy'ing through null. */
+  static void warnNullPage(const char *where, const mesh::AttrRef &ref)
+  {
+    fprintf(stderr,
+            "meshlog: ChunkElemRow::%s: attr '%s' has an unmaterialized page; "
+            "skipping (mesh frozen during undo?)\n",
+            where,
+            ref.name.c_str());
+  }
+
   void layoutFor(mesh::AttrGroup &src)
   {
     offsets_.resize(src.attrs.size());
@@ -630,6 +682,23 @@ struct LogChunkTopo : public LogChunk {
     }
   }
 
+  double memSize() override
+  {
+    /* Map/pool bookkeeping is estimated as a flat per-record constant. */
+    constexpr double kRecordOverhead = sizeof(LogElem *) + 48.0;
+    double tot = double(sizeof(*this));
+    for (LogElem *e : records) {
+      tot += double(sizeof(LogElem)) + kRecordOverhead;
+      if (e->begin_body) {
+        tot += e->begin_body->memSize();
+      }
+      if (e->end_body) {
+        tot += e->end_body->memSize();
+      }
+    }
+    return tot;
+  }
+
   static int64_t makeKey(LogElemKind kind, int idx)
   {
     return (int64_t(uint8_t(kind)) << 32) | int64_t(uint32_t(idx));
@@ -726,6 +795,12 @@ struct LogChunkReorder : public LogChunk {
     tree->applyReorder(vmap, emap, cmap, lmap, fmap);
   }
 
+  double memSize() override
+  {
+    double n = double(vmap.size() + emap.size() + cmap.size() + lmap.size() + fmap.size());
+    return double(sizeof(*this)) + n * sizeof(int);
+  }
+
 private:
   static void invert(const Vector<int> &map, Vector<int> &out)
   {
@@ -743,6 +818,8 @@ struct MeshLog {
    */
   struct LogEntry {
     Vector<LogChunk *> chunks;
+    /** Monotonic step id assigned by beginStep; stable across history trims. */
+    int id = -1;
 
     LogEntry() = default;
     LogEntry(const LogEntry &b) = default;
@@ -755,6 +832,15 @@ struct MeshLog {
       for (LogChunk *chunk : chunks) {
         litestl::alloc::Delete(chunk);
       }
+    }
+
+    double memSize()
+    {
+      double tot = double(sizeof(*this));
+      for (LogChunk *chunk : chunks) {
+        tot += chunk->memSize();
+      }
+      return tot;
     }
   };
 
@@ -770,6 +856,11 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, redo, MARGS("m", "tree"));
     BIND_STRUCT_METHOD(st, beginStep, MARGS());
     BIND_STRUCT_METHOD(st, endStep, MARGS());
+    BIND_STRUCT_METHOD(st, lastStepId, MARGS());
+    BIND_STRUCT_METHOD(st, stepMemSize, MARGS("id"));
+    BIND_STRUCT_METHOD(st, totalMemSize, MARGS());
+    BIND_STRUCT_METHOD(st, entryCount, MARGS());
+    BIND_STRUCT_METHOD(st, freeStep, MARGS("id"));
 
     return st;
   }
@@ -803,7 +894,68 @@ struct MeshLog {
       entries.resize(curStep_);
     }
     entries.grow_one();
+    entries.last().id = nextStepId_++;
     topo_chunk_ = nullptr;
+  }
+
+  /** Id of the most recently begun step (-1 if none). Call right after
+   * beginStep to key this step for stepMemSize/freeStep. */
+  int lastStepId()
+  {
+    return entries.size() > 0 ? entries.last().id : -1;
+  }
+
+  /** Estimated heap bytes retained by the step with @p id (0 if freed). */
+  double stepMemSize(int id)
+  {
+    for (auto &entry : entries) {
+      if (entry.id == id) {
+        return entry.memSize();
+      }
+    }
+    return 0.0;
+  }
+
+  double totalMemSize()
+  {
+    double tot = 0.0;
+    for (auto &entry : entries) {
+      tot += entry.memSize();
+    }
+    return tot;
+  }
+
+  int entryCount()
+  {
+    return int(entries.size());
+  }
+
+  /** Free the committed step with @p id (undo-memory eviction from the app's
+   * tool stack). Only steps strictly behind the cursor are freeable — the
+   * current/redo entries stay. Returns 1 if a step was freed. */
+  int freeStep(int id)
+  {
+    int idx = -1;
+    for (int i = 0; i < int(entries.size()); i++) {
+      if (entries[i].id == id) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0 || idx >= curStep_) {
+      return 0;
+    }
+    {
+      /* Move the dropped entry out so its dtor frees the chunks, then shift
+       * the tail left (move-assign; raw chunk pointers transfer ownership). */
+      LogEntry dropped = std::move(entries[idx]);
+      for (int i = idx; i < int(entries.size()) - 1; i++) {
+        entries[i] = std::move(entries[i + 1]);
+      }
+      entries.pop_back();
+    }
+    curStep_--;
+    return 1;
   }
 
   void endStep()
@@ -919,6 +1071,7 @@ struct MeshLog {
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       return;
     }
+    thawForTopoChunks(m);
     /* Undo chunks in REVERSE creation order. A folded sculpt step (TS sculpt op)
      * holds the dyntopo topo chunk (created first) followed by the brush's
      * per-node position LogChunkSimple chunks (created during the deform that ran
@@ -938,6 +1091,7 @@ struct MeshLog {
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       return;
     }
+    thawForTopoChunks(m);
     /* Forward creation order: re-apply topology (topo chunk) before the brush
      * positions (simple chunks) that were captured against it. */
     for (LogChunk *chunk : curEntry().chunks) {
@@ -947,6 +1101,22 @@ struct MeshLog {
   }
 
 private:
+  /* Topo chunks restore elements with raw alloc/release + attr memcpys,
+   * bypassing the auto-thawing topology mutators. On a frozen mesh the live
+   * TOPO link pages are freed (getElemData == null), so thaw first. */
+  void thawForTopoChunks(mesh::Mesh *m)
+  {
+    if (!m || !m->topo_frozen) {
+      return;
+    }
+    for (LogChunk *chunk : curEntry().chunks) {
+      if (chunk->type == LogChunkTypes::Topo) {
+        m->thawTopo();
+        return;
+      }
+    }
+  }
+
   /** Drop oldest committed steps until at most maxUndoSteps_ remain. The popped
    * LogEntry is destroyed by value, so ~LogEntry frees its chunks. Stops at
    * curStep_ == 0 so it never discards the current step or pending redo. */
@@ -1014,6 +1184,7 @@ private:
   mesh::Mesh *active_mesh_ = nullptr;
   LogChunkTopo *topo_chunk_ = nullptr;
   int maxUndoSteps_ = -1; // -1 = unbounded
+  int nextStepId_ = 0;
 };
 
 } // namespace sculptcore::meshlog
