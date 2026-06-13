@@ -42,7 +42,7 @@ void testNameTableAndUnknown()
   while (remesh::remeshPresetName(n)) {
     n++;
   }
-  TASSERT(n == 6);
+  TASSERT(n == 7);
   TASSERT(remesh::remeshPresetName(-1) == nullptr);
 
   // Every listed name must apply.
