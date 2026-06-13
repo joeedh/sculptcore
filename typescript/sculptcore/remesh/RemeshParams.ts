@@ -67,6 +67,8 @@ export interface RemeshParams {
   pre_remesh_anchors: boolean
   auto_retry: boolean
   max_attempts: int32
+  fast_decimate: boolean
+  fast_quantize: boolean
   new (): RemeshParams
   new (b: RemeshParams): RemeshParams
 }
