@@ -3,6 +3,8 @@
 
 #include "node.h"
 
+#include "napi/napi_log.h"
+
 #include "litestl/math/geom.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/set.h"
@@ -583,9 +585,8 @@ void SpatialTree::merge_node(SpatialNode *parent)
  * when t lands comfortably interior (re-splitting would rebalance), false when it
  * clamps (the skew is the best a mean split can do — collapsing it just invites the
  * split path to recreate it, i.e. thrash). Tighter bound than split's 0.01/0.99. */
-static bool mean_split_interior(Mesh *m,
-                                const SpatialNode::AABB &box,
-                                const Vector<int> &verts)
+static bool
+mean_split_interior(Mesh *m, const SpatialNode::AABB &box, const Vector<int> &verts)
 {
   if (verts.size() == 0) {
     return false;
@@ -644,7 +645,8 @@ bool SpatialTree::node_is_skewed(SpatialNode *parent)
   SpatialNode *c0 = parent->children[0];
   SpatialNode *c1 = parent->children[1];
   if (!c0 || !c1 || !(c0->flag & Spatial_Leaf) || !(c1->flag & Spatial_Leaf) ||
-      !c0->data || !c1->data) {
+      !c0->data || !c1->data)
+  {
     return false; /* internal child: subtree_wants_collapse handles that */
   }
 
@@ -782,6 +784,20 @@ void SpatialTree::collapse_subtree(SpatialNode *node)
 
 void SpatialTree::applyDeferredMerge()
 {
+  std::function<void(SpatialNode *)> recurse = [&](SpatialNode *node) {
+    if (node->parent && node_is_skewed(node->parent)) {
+      //SpatialNode *other = node == node->parent->children[0] ? node->parent->children[1]
+      mergeCandidates_.add(node->parent->id);
+    }
+    
+    if (!(node->flag & Spatial_Leaf)) {
+      recurse(node->children[0]);
+      recurse(node->children[1]);
+    }
+  };
+  recurse(root);
+  sc_napi_logf("applyDeferredMerge %d\n", mergeCandidates_.size());
+
   if (mergeCandidates_.size() == 0) {
     return;
   }
@@ -820,11 +836,10 @@ void SpatialTree::applyDeferredMerge()
     }
     SpatialNode *gp = parent->parent;
 
-    bool twoLeaves = (c0->flag & Spatial_Leaf) && (c1->flag & Spatial_Leaf) &&
-                     c0->data && c1->data;
+    bool twoLeaves =
+        (c0->flag & Spatial_Leaf) && (c1->flag & Spatial_Leaf) && c0->data && c1->data;
     if (twoLeaves) {
-      int combined =
-          int(c0->data->unique_verts.size() + c1->data->unique_verts.size());
+      int combined = int(c0->data->unique_verts.size() + c1->data->unique_verts.size());
       /* Under-full pair (existing merge), or a lopsided/deformed one whose split
        * level is wasted (rebalance, M7.6c). Either way fold into one leaf. */
       if (combined < watermark || node_is_skewed(parent)) {
@@ -1272,16 +1287,15 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 
   int idx = 0;
 
-  auto addLine =
-      [pos, color, &idx](const float3 &a, const float3 &b, const float4 &clr) {
-        pos[idx] = a;
-        color[idx] = clr;
-        idx++;
+  auto addLine = [pos, color, &idx](const float3 &a, const float3 &b, const float4 &clr) {
+    pos[idx] = a;
+    color[idx] = clr;
+    idx++;
 
-        pos[idx] = b;
-        color[idx] = clr;
-        idx++;
-      };
+    pos[idx] = b;
+    color[idx] = clr;
+    idx++;
+  };
 
   for (SpatialNode *node : ls) {
     litestl::util::Random rnd2(node->id + node->debugIdOffset);
@@ -1342,8 +1356,7 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   return batch;
 }
 
-sculptcore::gpu::DrawBatch *
-SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
+sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
 {
   using namespace sculptcore::gpu;
 
@@ -1369,11 +1382,26 @@ SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
   // First matching feature wins the color (seam is the user-marked one, so it
   // takes precedence). Returns false for a non-feature edge.
   auto edgeColor = [&](int e, float4 &out) -> bool {
-    if (seam && seam->get(e)) { out = float4(1.0f, 0.4f, 0.0f, 1.0f); return true; } // orange
-    if (sharp && sharp->get(e)) { out = float4(0.0f, 0.8f, 1.0f, 1.0f); return true; } // cyan
-    if (proj && proj->get(e)) { out = float4(0.2f, 1.0f, 0.2f, 1.0f); return true; } // green
-    if (pg && pg->get(e)) { out = float4(1.0f, 0.0f, 1.0f, 1.0f); return true; } // magenta
-    if (uv && uv->get(e)) { out = float4(1.0f, 1.0f, 0.0f, 1.0f); return true; } // yellow
+    if (seam && seam->get(e)) {
+      out = float4(1.0f, 0.4f, 0.0f, 1.0f);
+      return true;
+    } // orange
+    if (sharp && sharp->get(e)) {
+      out = float4(0.0f, 0.8f, 1.0f, 1.0f);
+      return true;
+    } // cyan
+    if (proj && proj->get(e)) {
+      out = float4(0.2f, 1.0f, 0.2f, 1.0f);
+      return true;
+    } // green
+    if (pg && pg->get(e)) {
+      out = float4(1.0f, 0.0f, 1.0f, 1.0f);
+      return true;
+    } // magenta
+    if (uv && uv->get(e)) {
+      out = float4(1.0f, 1.0f, 0.0f, 1.0f);
+      return true;
+    } // yellow
     return false;
   };
 
@@ -1476,7 +1504,8 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       int v3 = m->c.v[tri.c[2]];
 
       if (!moved_verts.contains(v1) && !moved_verts.contains(v2) &&
-          !moved_verts.contains(v3)) {
+          !moved_verts.contains(v3))
+      {
         continue;
       }
 
@@ -1591,6 +1620,7 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
    * back into their parent; the fresh parent leaf carries Spatial_RegenTris and
    * is picked up below, same as a rebalance split. */
   if (++updatesSinceMerge_ >= mergeCadence_) {
+
     applyDeferredMerge();
     updatesSinceMerge_ = 0;
   }
@@ -1707,7 +1737,8 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
      * from the CPU mesh mid-stroke (that would clobber the GPU result). The
      * stroke syncs the CPU mesh + clears gpu_owned at end. */
     if (gpuStrokeActive && owner->gpu_data && owner->gpu_data->pos &&
-        owner->gpu_data->pos->gpu_owned) {
+        owner->gpu_data->pos->gpu_owned)
+    {
       node->flag &= ~(Spatial_RegenGPU | Spatial_UpdateGPU);
       continue;
     }
@@ -1734,7 +1765,8 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
 
 #ifdef NO_PARALLEL_FOR
   for (int i : util::IndexRange(sliceWork.size())) {
-    sliceOk[i] = update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
+    sliceOk[i] =
+        update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
   }
 #else
   litestl::task::parallel_for(

@@ -47,6 +47,8 @@
 #include <cstdint>
 #include <limits>
 
+#include "../napi/napi_log.h"
+
 // Forward-declared so the param/stats structs can carry a `defineBindings()`
 // hook without pulling the whole binding system into this hot header — the
 // bodies live out-of-line in `dyntopo/bindings.cc`.
@@ -286,9 +288,12 @@ inline float triMinAngle(mesh::Mesh &m, int f)
 
 /* Snapshot the triangle quality of the faces incident to `verts` whose centroid
  * lies inside the dab (center, r2), into `q`. Each face is measured once. */
-inline void measureRoundQuality(mesh::Mesh &m, litestl::util::Set<int> &verts,
-                                litestl::math::float3 center, float r2,
-                                float thin_angle, RoundQuality &q)
+inline void measureRoundQuality(mesh::Mesh &m,
+                                litestl::util::Set<int> &verts,
+                                litestl::math::float3 center,
+                                float r2,
+                                float thin_angle,
+                                RoundQuality &q)
 {
   GenSet &fseen = traceFaceSeenSet();
   fseen.reset(int(m.f.capacity()));
@@ -593,7 +598,9 @@ struct FeatureViews {
  * corners. (Decision B: pin + collinear collapse.) corner_angle > 0 adds the
  * geometric gate: an endpoint whose curve bends more than that from straight is
  * a corner too, even though it carries exactly two same-type edges. */
-inline bool featureCollapseOk(mesh::Mesh &m, int e, const FeatureViews &feat,
+inline bool featureCollapseOk(mesh::Mesh &m,
+                              int e,
+                              const FeatureViews &feat,
                               float corner_angle = 0.0f)
 {
   int em = feat.edgeMask(e);
@@ -917,7 +924,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
      * this set instead of the whole frontier cuts flip-candidate collection
      * ~4-5x (the dominant per-dab phase). */
     Set<int> touched;
-    auto addCreated = [&](const Vector<int> &edges) {
+    auto addCreated = [&](const auto &edges) {
       for (int e : edges) {
         if (!m.e.freemap[e]) {
           nextFrontier.add(m.e.vs[e][0]);
@@ -957,8 +964,14 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
         int v_keep = m.e.vs[c.edge][0];
         math::float3 keepOld = m.v.co[v_keep];
         mesh::EdgeCollapseResult res;
-        if (mesh::collapseEdge(m, c.edge, mid, /*blend=*/0.5f, &res, cb,
-                               /*prevent_inversion=*/true)) {
+        if (mesh::collapseEdge(m,
+                               c.edge,
+                               mid,
+                               /*blend=*/0.5f,
+                               &res,
+                               cb,
+                               /*prevent_inversion=*/true))
+        {
           stats.collapses++;
           applied++;
           shiftOrig(v_keep, mid - keepOld);
@@ -974,7 +987,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
      *    one. Each helper re-validates, so a flip invalidating a later candidate
      *    is safe. Flipped apexes re-enter the frontier (their lengths changed). */
     if (p.do_flips) {
-      Vector<int> flipCands;
+      Vector<int, 32> flipCands;
       detail::GenSet &eseen = detail::flipSeenSet();
       eseen.reset(int(m.e.capacity()));
       for (int v : touched) {
@@ -1016,8 +1029,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
      *    order-independent and deterministic. Position-only: no topology event,
      *    so no cb; the region's leaves are already bounds-dirty from the splits. */
     if (p.do_smooth) {
-      Vector<int> sverts;
-      Vector<math::float3> spos;
+      Vector<int, 32> sverts;
+      Vector<math::float3, 32> spos;
       for (int v : nextFrontier) {
         if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v]) {
           continue;

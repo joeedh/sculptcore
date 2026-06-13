@@ -259,7 +259,7 @@ struct LogChunkSimple : public LogChunk {
     //
   }
 
-  void undo(mesh::Mesh *m, spatial::SpatialTree *tree)
+  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
     using namespace sculptcore::spatial;
 
@@ -272,7 +272,7 @@ struct LogChunkSimple : public LogChunk {
     node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
   }
 
-  void redo(mesh::Mesh *m, spatial::SpatialTree *tree)
+  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
     using namespace sculptcore::spatial;
 
@@ -450,8 +450,8 @@ struct LogElem {
  */
 struct LogChunkTopo : public LogChunk {
   Vector<LogElem *> records;
-  util::Pool<LogElem> records_pool;
-  util::Pool<detail::ChunkElemRow> bodies_pool;
+  util::Pool<LogElem, 512> records_pool;
+  util::Pool<detail::ChunkElemRow, 512> bodies_pool;
 
   /** key: (uint8_t kind << 32) | uint32_t(mesh_index)  →  log_id */
   util::Map<int64_t, int> idx_to_log_id;
