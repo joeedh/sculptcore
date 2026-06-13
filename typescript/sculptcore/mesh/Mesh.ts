@@ -39,7 +39,12 @@ export interface Mesh {
   edgePathEdges(vStart: int32, vEnd: int32, out: int32[]): void
   edgeSeam(e: int32): int32
   setEdgeSeam(e: int32, state: int32): void
+  markEdgePath(vStart: int32, vEnd: int32, kind: int32, state: int32): int32
+  edgeFlagKind(e: int32, kind: int32): int32
+  setEdgeFlagKind(e: int32, kind: int32, state: int32): void
+  featureVerts(kind: int32, outIdx: int32[], outCo: float[]): void
   recomputeBoundary(): void
+  boundaryGraphStats(out: int32[]): void
   edgePathCoords(vStart: int32, vEnd: int32, out: float[]): void
   generateUVFromSeams(marginMilli: int32): int32
   markAllSeams(): void

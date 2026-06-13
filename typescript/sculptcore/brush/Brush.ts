@@ -1,5 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {StructProp} from '../props/StructProp'
+import type {float4} from '../../litestl/math/float4'
 import type {float3} from '../../litestl/math/float3'
 
 /** Auto-generated file */
@@ -38,6 +39,7 @@ export interface Brush {
   wingNormalA: float3
   wingNormalB: float3
   activeGroup: int32
+  brushColor: float4
   props: StructProp
   loadProps(): void
   writeProps(): void

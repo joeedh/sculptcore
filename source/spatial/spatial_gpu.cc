@@ -392,18 +392,23 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
 }
 
 /* In-place rewrite of a single leaf's slice inside its GPU node's buffer
- * (vertex positions/normals only; tri count unchanged). */
-void SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
+ * (vertex positions/normals only; tri count unchanged). Pure / data-race-free:
+ * runs under parallel_for, so it writes only its own disjoint slice and its own
+ * leaf flag — it never calls regen_gpu_node (which disposes+reallocates shared
+ * GpuData) and never touches the owner-level update_buffer flags. Returns false
+ * when an in-place update isn't possible (attr-version/slice/vcount mismatch);
+ * the caller then regens the owner serially. */
+bool SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
                                         SpatialNode *leaf,
                                         gpu::GPUManager *gpu)
 {
+  (void)gpu;
   GpuData &gd = *gpu_node->gpu_data;
 
   /* The requested attribute set changed since these buffers were built — their
-   * count/layout no longer matches. Fall back to a full rebuild. */
+   * count/layout no longer matches. Needs a full rebuild (done serially). */
   if (gd.builtAttrsVersion != requestedAttrsVersion) {
-    regen_gpu_node(gpu_node, gpu);
-    return;
+    return false;
   }
 
   LeafSlice *slice = nullptr;
@@ -413,19 +418,14 @@ void SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
       break;
     }
   }
+  /* slice not found (partition drifted) or this leaf's topology changed since
+   * the partition was built — either way the owner needs a serial full rebuild. */
   if (!slice) {
-    /* Shouldn't happen if assign_gpu_nodes ran, but fall back to full
-     * regen rather than corrupting the buffer. */
-    regen_gpu_node(gpu_node, gpu);
-    return;
+    return false;
   }
-
   int expected_vcount = leaf->data->tris.size() * 3;
   if (expected_vcount != slice->vert_count) {
-    /* Topology of this leaf changed since the partition was built;
-     * the whole gpu node needs a full rebuild to recompute offsets. */
-    regen_gpu_node(gpu_node, gpu);
-    return;
+    return false;
   }
 
   if (slice->vert_count > 0) {
@@ -436,11 +436,6 @@ void SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
                       ? gd.attrBufs[0]->get_data<float4>() + slice->vert_start
                       : nullptr;
     fill_leaf_slice(leaf, pos, nor, col);
-    gd.pos->update_buffer = true;
-    gd.nor->update_buffer = true;
-    if (col) {
-      gd.attrBufs[0]->update_buffer = true;
-    }
     if (dynamic) {
       for (int ai : util::IndexRange(requestedAttrs.size())) {
         const gpu::RequestedAttr &req = requestedAttrs[ai];
@@ -448,12 +443,12 @@ void SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
         AttrRef ref = grp ? grp->find_attribute(AttrType(req.srcType), req.name) : AttrRef();
         float *adst = gd.attrBufs[ai]->get_data<float>() + slice->vert_start * req.elemSize;
         fill_leaf_attr(leaf, req, ref.exists() ? &ref : nullptr, adst);
-        gd.attrBufs[ai]->update_buffer = true;
       }
     }
   }
 
   leaf->flag &= ~Spatial_UpdateGPU;
+  return true;
 }
 
 } // namespace sculptcore::spatial

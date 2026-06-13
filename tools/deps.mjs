@@ -195,7 +195,19 @@ function buildOpenBLAS(config, installDir) {
 
   const src = path.join(SRC_CACHE, `OpenBLAS-${OPENBLAS_TAG}`)
   const bdir = path.join(BUILD_CACHE, `openblas-${config}`)
+
+  const applyPatch = !fs.existsSync(src)
   gitCloneTag(OPENBLAS_REPO, OPENBLAS_TAG, src)
+
+  // apply patch
+  if (applyPatch) {
+    console.log('Applying OpenBLAS patch')
+    fs.copyFileSync(
+      path.join(process.cwd(), 'patches', 'openblas-configure.diff'),
+      path.join(src, 'openblas-configure.diff')
+    )
+    sh('git apply openblas-configure.diff', {cwd: src})
+  }
 
   const flags = sanitizerFlags(config)
   const args = [
@@ -294,9 +306,7 @@ function readManifest(comboDir) {
 }
 
 function manifestMatches(m) {
-  return (
-    !!m && m.openblas === OPENBLAS_TAG && m.suitesparse === SUITESPARSE_TAG && m.revision === DEPS_REVISION
-  )
+  return !!m && m.openblas === OPENBLAS_TAG && m.suitesparse === SUITESPARSE_TAG && m.revision === DEPS_REVISION
 }
 
 // A stale manifest (pin or revision bump) must clear the install trees and the

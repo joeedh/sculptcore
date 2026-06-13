@@ -5,9 +5,10 @@ brush Mask {
     float s = strength(v.co);
     if (s == 0.0) { continue; }
     // Add into mask; clamp to [0, 1]. Sculpt convention: 1 = fully
-    // locked, 0 = fully editable.
+    // locked, 0 = fully editable. Inverted strokes (s < 0) erase mask.
     float m = v.mask + s;
     if (m > 1.0) { m = 1.0; }
+    if (m < 0.0) { m = 0.0; }
     v.mask = m;
   }
 }

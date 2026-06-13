@@ -33,8 +33,8 @@ using litestl::util::SuccessOrError;
 struct EdgeFlipResult {
   int created_edge = ELEM_NONE; /* the new c-d diagonal */
   int killed_edge = ELEM_NONE;  /* the old a-b edge */
-  litestl::util::Vector<int> created_faces;
-  litestl::util::Vector<int> killed_faces;
+  litestl::util::Vector<int, 8> created_faces;
+  litestl::util::Vector<int, 8> killed_faces;
 };
 
 /* Flip `edge`. Returns false (leaving the mesh untouched) for an invalid/free

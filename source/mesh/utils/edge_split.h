@@ -40,6 +40,8 @@
 #include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
+#include "napi/napi_log.h"
+
 #include <span>
 #include <type_traits>
 
@@ -49,18 +51,25 @@ using litestl::util::SuccessOrError;
 
 struct EdgeSplitResult {
   int new_vert = ELEM_NONE;
-  litestl::util::Vector<int> created_edges;
-  litestl::util::Vector<int> created_faces;
-  litestl::util::Vector<int> killed_faces;
+  litestl::util::Vector<int, 16> created_edges;
+  litestl::util::Vector<int, 16> created_faces;
+  litestl::util::Vector<int, 8> killed_faces;
 };
+
+static void printEdgeSplitStats(const EdgeSplitResult &res)
+{
+  sc_napi_logf("split %d faces; created %d edges, %d faces",
+               res.killed_faces.size(),
+               res.created_edges.size(),
+               res.created_faces.size());
+}
 
 /* Split `edge` at its midpoint, bisecting every incident triangle. The
  * created/killed element ids are reported through `out` (for the dyntopo
  * driver / meshlog undo). Returns false if the edge index is invalid or
  * any incident face is not a triangle. */
 static inline SuccessOrError<"edge_split", "failed to split edge">
-splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
-          MeshCallbacks *cb = nullptr)
+splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb = nullptr)
 {
   using namespace litestl::util;
 
@@ -91,10 +100,11 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
 
   /* Gather incident faces (dedup across the radial cycle) and snapshot
    * their vertex sequences + attrs. Require triangles. */
-  Vector<int, 8> incidentFaces;
-  Vector<Vector<int, 4>, 8> faceVerts;
-  Vector<FaceSnap, 8> faceSnaps;
-  Set<int> faceSet;
+  Vector<int, 4> incidentFaces;
+  Vector<Vector<int, 4>, 4> faceVerts;
+  Vector<FaceSnap, 4> faceSnaps;
+  Set<int, 8> faceSet;
+  Vector<int, 4> seq;
 
   int c0 = m.e.c[edge];
   if (c0 != ELEM_NONE) {
@@ -106,7 +116,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
         if (m.l.size[li] != 3 || m.f.list_count[fi] != 1) {
           return false; /* non-triangle incident face */
         }
-        Vector<int, 4> seq;
+        seq.clear();
         FaceSnap fs;
         snapshotAttrRow(m.f.attrs, fi, fs.face);
         int lc0 = m.l.c[li];
@@ -206,8 +216,8 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
       continue; /* shouldn't happen */
     }
 
-    int a = seq[splitI];            /* one endpoint of split edge */
-    int b = seq[(splitI + 1) % n];  /* other endpoint */
+    int a = seq[splitI];             /* one endpoint of split edge */
+    int b = seq[(splitI + 1) % n];   /* other endpoint */
     int opp = seq[(splitI + 2) % n]; /* apex */
 
     /* Winding a -> b -> opp. Bisect: (a, vm, opp) and (vm, b, opp). */
@@ -233,10 +243,14 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr,
                           *snO = snapForVert(opp);
     int cA = cornerOf(f0, a), cVm0 = cornerOf(f0, vm), cO0 = cornerOf(f0, opp);
     int cVm1 = cornerOf(f1, vm), cB = cornerOf(f1, b), cO1 = cornerOf(f1, opp);
-    if (snA && cA != ELEM_NONE) restoreAttrRow(m.c.attrs, cA, *snA);
-    if (snO && cO0 != ELEM_NONE) restoreAttrRow(m.c.attrs, cO0, *snO);
-    if (snB && cB != ELEM_NONE) restoreAttrRow(m.c.attrs, cB, *snB);
-    if (snO && cO1 != ELEM_NONE) restoreAttrRow(m.c.attrs, cO1, *snO);
+    if (snA && cA != ELEM_NONE)
+      restoreAttrRow(m.c.attrs, cA, *snA);
+    if (snO && cO0 != ELEM_NONE)
+      restoreAttrRow(m.c.attrs, cO0, *snO);
+    if (snB && cB != ELEM_NONE)
+      restoreAttrRow(m.c.attrs, cB, *snB);
+    if (snO && cO1 != ELEM_NONE)
+      restoreAttrRow(m.c.attrs, cO1, *snO);
     if (snA && snB && cVm0 != ELEM_NONE)
       interpAttrRows(m.c.attrs, cVm0, *snA, *snB, 0.5f);
     if (snA && snB && cVm1 != ELEM_NONE)

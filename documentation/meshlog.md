@@ -45,9 +45,19 @@ step) and a cursor `curStep_`. Notable members:
 * `setActiveMesh(mesh::Mesh*)` — must be called before logged ops run,
   because the topo chunk snapshots attributes by mesh index at the
   moment of first touch and at kill.
-* `beginStep()` — appends a fresh `LogEntry` and clears the cached
-  topo chunk pointer. If the cursor is mid-history (after some undos),
-  the future entries are discarded first.
+* `beginStep()` — appends a fresh `LogEntry` (stamped with a
+  monotonic step id) and clears the cached topo chunk pointer. If the
+  cursor is mid-history (after some undos), the future entries are
+  discarded first.
+* `lastStepId()` — id of the most recently begun step; the host reads
+  it right after `beginStep` to key the step for `stepMemSize` /
+  `freeStep`.
+* `stepMemSize(id)` / `totalMemSize()` / `entryCount()` — undo-memory
+  accounting: estimated heap bytes retained by one step (0 if freed)
+  or by the whole history, and the live entry count.
+* `freeStep(id)` — evicts a committed step (undo-memory limit
+  enforcement from the app's tool stack). Only steps strictly behind
+  the cursor are freeable; returns 1 if a step was freed.
 * `endStep()` — calls `LogChunkTopo::finalizeStep` to take end-state
   snapshots for newly-created live elements, then advances the cursor.
 * `getSimpleChunk(nodeId, vcount, ecount, ccount, fcount)` —
@@ -57,7 +67,8 @@ step) and a cursor `curStep_`. Notable members:
   for the current step.
 * `undo(Mesh*, SpatialTree*)` / `redo(Mesh*, SpatialTree*)` — walk the
   current entry's chunks in their natural order; the chunks themselves
-  decide direction.
+  decide direction. If the entry holds a topo chunk and the mesh is
+  topology-frozen, the mesh is thawed first (see pitfalls below).
 
 ### `LogEntry`
 A step's container. Owns `Vector<LogChunk*>` and `Delete`s the chunks
@@ -197,6 +208,18 @@ brush stroke.
 * **Created && Dead dropping.** This is the set-theoretic
   consequence of "no net change to begin- or end-state", not an
   optimisation. The record-merging invariants depend on it.
+* **Frozen-topology meshes.** `Mesh::freezeTopo` frees the live TOPO
+  link-attr pages (`getElemData` returns null for them). Topo chunks
+  restore elements with raw `alloc`/`release` plus `ChunkElemRow`
+  memcpys, bypassing the auto-thawing topology mutators — so
+  `undo`/`redo` call `thawForTopoChunks` first when the entry holds a
+  topo chunk. This matters in practice: the brush executor re-freezes
+  per-dab after `endDynTopoStroke()`, so undoing a *non-newest* dyntopo
+  step always hits a frozen mesh. `ChunkElemRow` additionally warns and
+  skips (rather than memcpying through null) if it ever sees an
+  unmaterialized page. `LogChunkSimple` only swaps brush-captured
+  non-TOPO attributes and is safe on a frozen mesh, so plain-stroke
+  undo never pays the O(mesh) thaw.
 * **Pool ownership.** `LogChunkTopo::records_pool` /
   `bodies_pool` own all `LogElem` and `ChunkElemRow` storage; the
   chunk's destructor relies on pool teardown rather than walking
@@ -206,6 +229,8 @@ brush stroke.
 
 `bindings::registerBindings` adds `MeshLog` to the binding manager.
 `MeshLog::defineBindings()` exposes the default constructor plus
-`undo` / `redo` / `beginStep` / `endStep`, which is the minimum
-surface a JS/TS host needs to drive sculpt history. Chunks and
-`LogElem` are intentionally not exposed — they are internal scaffolding.
+`undo` / `redo` / `beginStep` / `endStep` (driving sculpt history) and
+`lastStepId` / `stepMemSize` / `totalMemSize` / `entryCount` /
+`freeStep` (undo-memory accounting, consumed by the app tool stack's
+memory-limit enforcement). Chunks and `LogElem` are intentionally not
+exposed — they are internal scaffolding.

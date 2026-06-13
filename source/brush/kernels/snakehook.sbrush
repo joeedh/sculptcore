@@ -1,0 +1,23 @@
+// Snake hook — drag like Grab, then gather the dragged geometry toward the
+// advancing brush center so it pulls out into a thin hook instead of a
+// blunt bump. `grabFrom` is the current dab center and `grabTo` the per-dab
+// displacement (set by applyGrabDabState), so `grabFrom + grabTo` is the
+// next center the trailing geometry leans toward.
+
+@brush("snakehook")
+brush Snakehook {
+  ctx float3 grabFrom, grabTo;
+  uniform float radius;
+
+  vertex void apply(inout Vertex v) {
+    float fall = strength(v.co) * (1.0 - v.mask);
+    if (fall == 0.0) {
+      continue;
+    }
+    // Drag along the stroke direction.
+    v.co += grabTo * fall;
+    // Gather toward the advancing center to form the hook.
+    float3 center = grabFrom + grabTo;
+    v.co += (center - v.co) * (fall * 0.25);
+  }
+}

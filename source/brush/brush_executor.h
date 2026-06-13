@@ -316,6 +316,12 @@ struct CommandExecutor {
     case SculptBrushes::KELVINLET:
       command::createKelvinletBrush<CommandExecutor, AccMode>(def);
       return;
+    case SculptBrushes::GRAB:
+      command::createGrabBrush<CommandExecutor, AccMode>(def);
+      return;
+    case SculptBrushes::SNAKEHOOK:
+      command::createSnakehookBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::POSE:
       command::createPoseBrush<CommandExecutor, AccMode>(def);
       return;
@@ -967,6 +973,11 @@ struct CommandExecutor {
     mesh::MeshCallbacks *cb = nullptr;
     mesh::MeshCallbacks *sp = tree->getSpatialCallbacks();
     mesh::MeshCallbacks *ml = meshLog ? meshLog->callbacks() : nullptr;
+    if (meshLog) {
+      /* The topo-chunk callbacks no-op without an active mesh (Scene::
+       * applyDynTopoDab does the same wiring on the debug-harness path). */
+      meshLog->setActiveMesh(m);
+    }
     if (sp && ml) {
       combined = *ml;
       auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;

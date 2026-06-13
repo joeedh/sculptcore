@@ -477,7 +477,8 @@ struct Emit {
     write("}\n");
     write("inline float sb_strength(__constant BrushUniforms* bu, __constant CtxUniforms* cu, __constant float* lut, float3 p) {\n");
     write("  float t = 1.0f - fmin(sb_falloff_dist(bu, p - cu->surfacePos), 1.0f);\n");
-    write("  return bu->strength * sb_falloff(bu, lut, t);\n");
+    write("  float s = bu->strength * sb_falloff(bu, lut, t);\n");
+    write("  return bu->invert != 0u ? -s : s;\n");
     write("}\n");
     write("inline float2 sb_stroke_uv(__constant BrushUniforms* bu, __global StrokeSample* sp, float3 co) {\n");
     write("  if (bu->stroke_path_count == 0u) return (float2)(0.0f, 0.0f);\n");

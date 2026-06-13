@@ -14,3 +14,5 @@
 #include "../kernels/generated/color.brush.gen.h"
 #include "../kernels/generated/polygroup.brush.gen.h"
 #include "../kernels/generated/bsmooth.brush.gen.h"
+#include "../kernels/generated/grab.brush.gen.h"
+#include "../kernels/generated/snakehook.brush.gen.h"

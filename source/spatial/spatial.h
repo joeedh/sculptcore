@@ -541,7 +541,10 @@ private:
   /* GPU node buffer management. A "GPU node" aggregates the triangles of
    * every leaf in its subtree into one VBO + draw command. */
   void regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu);
-  void update_gpu_node_slice(SpatialNode *gpu_node,
+  /* In-place slice rewrite; returns false if a full regen is required (caller
+   * regens serially — this runs under parallel_for and must not mutate shared
+   * GpuData). */
+  bool update_gpu_node_slice(SpatialNode *gpu_node,
                              SpatialNode *leaf,
                              gpu::GPUManager *gpu);
   void collect_subtree_leaves(SpatialNode *node, util::Vector<SpatialNode *> &out);

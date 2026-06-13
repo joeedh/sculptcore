@@ -133,7 +133,12 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, edgePathEdges, MARGS("vStart", "vEnd", "out"));
     BIND_STRUCT_METHOD(st, edgeSeam, MARGS("e"));
     BIND_STRUCT_METHOD(st, setEdgeSeam, MARGS("e", "state"));
+    BIND_STRUCT_METHOD(st, markEdgePath, MARGS("vStart", "vEnd", "kind", "state"));
+    BIND_STRUCT_METHOD(st, edgeFlagKind, MARGS("e", "kind"));
+    BIND_STRUCT_METHOD(st, setEdgeFlagKind, MARGS("e", "kind", "state"));
+    BIND_STRUCT_METHOD(st, featureVerts, MARGS("kind", "outIdx", "outCo"));
     BIND_STRUCT_METHOD(st, recomputeBoundary, MARGS());
+    BIND_STRUCT_METHOD(st, boundaryGraphStats, MARGS("out"));
     BIND_STRUCT_METHOD(st, edgePathCoords, MARGS("vStart", "vEnd", "out"));
     BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
     BIND_STRUCT_METHOD(st, markAllSeams, MARGS());
@@ -284,6 +289,27 @@ struct Mesh : public MeshBase {
   int edgeSeam(int e);
   void setEdgeSeam(int e, int state);
   void recomputeBoundary();
+
+  /* Generalized edge-feature marking (kind: 0 = EDGE_SEAM, 1 = EDGE_SHARP), so
+   * one interactive marking tool serves both seams and sharp edges. markEdgePath
+   * is markSeamPath with a selectable flag; the seam variants above delegate here
+   * with kind=0. setEdgeFlagKind marks dirty without recomputing (batch, then
+   * recomputeBoundary). Defined in mesh.cc. */
+  int markEdgePath(int vStart, int vEnd, int kind, int state);
+  int edgeFlagKind(int e, int kind);
+  void setEdgeFlagKind(int e, int kind, int state);
+
+  /* Fill outIdx with the indices of every vertex incident to an edge carrying
+   * the `kind` flag (0 seam / 1 sharp) and outCo with their xyz positions (3
+   * floats each, index-aligned), so the marking tool can project them to screen
+   * and snap the path endpoint onto an existing feature vertex. Marshal-safe
+   * Vector out-params (like castScreenCircle). Defined in mesh.cc. */
+  void featureVerts(int kind, util::Vector<int> &outIdx, util::Vector<float> &outCo);
+
+  /* Boundary polyline-graph stats (integration-test seam): out =
+   * [flaggedEdges, graphVerts, non2ValenceVerts, components] over the union of
+   * all boundary edge flags. Thaws topo + recomputes derived state first. */
+  void boundaryGraphStats(util::Vector<int> &out);
 
   /* Wave 5: fill `out` with the shortest edge-path vertex positions as flat xyz
    * triples ([vStart..vEnd], 3 floats each), so the marking tool can draw the

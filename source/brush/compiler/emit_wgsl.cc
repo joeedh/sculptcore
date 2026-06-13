@@ -917,7 +917,8 @@ struct Emit {
     write("}\n\n");
     write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
     write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
-    write("  return brush_u.strength * brush_falloff(sb_t);\n");
+    write("  let sb_s = brush_u.strength * brush_falloff(sb_t);\n");
+    write("  return select(sb_s, -sb_s, brush_u.invert != 0u);\n");
     write("}\n\n");
     // Brush-texture modulation — kept in lockstep with
     // CommandCtx::sampleBrushTex. `no` is part of the DSL signature but

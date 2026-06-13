@@ -40,6 +40,8 @@
 #include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
+#include "../napi/napi_log.h"
+
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -52,10 +54,10 @@ using litestl::util::SuccessOrError;
 struct EdgeCollapseResult {
   int v_keep = ELEM_NONE;
   int killed_vert = ELEM_NONE;
-  litestl::util::Vector<int> created_faces;
-  litestl::util::Vector<int> created_edges; /* edges incident to v_keep that are new */
-  litestl::util::Vector<int> killed_faces;
-  litestl::util::Vector<int> killed_edges;
+  litestl::util::Vector<int, 8> created_faces;
+  litestl::util::Vector<int, 8> created_edges; /* edges incident to v_keep that are new */
+  litestl::util::Vector<int, 10> killed_faces;
+  litestl::util::Vector<int, 10> killed_edges;
 };
 
 namespace detail_collapse {
@@ -76,21 +78,25 @@ static inline int edgeRadialFaceCount(Mesh &m, int edge)
   return n;
 }
 
-static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
+static inline int64_t faceKey(const litestl::util::Vector<int, 16> &verts)
 {
   /* Order-invariant key: rotate so smallest first, then pick the lexicographically
    * smaller of forward/reverse. This dedupes faces regardless of starting corner
    * or winding. */
   int n = int(verts.size());
-  if (n == 0) return 0;
+  if (n == 0)
+    return 0;
   int min_i = 0;
   for (int i = 1; i < n; i++) {
-    if (verts[i] < verts[min_i]) min_i = i;
+    if (verts[i] < verts[min_i])
+      min_i = i;
   }
-  litestl::util::Vector<int, 8> fwd, rev;
-  for (int i = 0; i < n; i++) fwd.append(verts[(min_i + i) % n]);
+  litestl::util::Vector<int, 10> fwd, rev;
+  for (int i = 0; i < n; i++)
+    fwd.append(verts[(min_i + i) % n]);
   rev.append(fwd[0]);
-  for (int i = n - 1; i >= 1; i--) rev.append(fwd[i]);
+  for (int i = n - 1; i >= 1; i--)
+    rev.append(fwd[i]);
   bool useFwd = true;
   for (int i = 1; i < n; i++) {
     if (fwd[i] != rev[i]) {
@@ -119,10 +125,13 @@ static inline int64_t faceKey(const litestl::util::Vector<int, 8> &verts)
  * defect the topological link condition cannot see. Defaults off so existing
  * callers are unchanged; the dyntopo remesh path opts in. */
 static inline SuccessOrError<"edge_collapse", "failed to collapse edge">
-collapseEdge(Mesh &m, int edge,
+collapseEdge(Mesh &m,
+             int edge,
              std::optional<litestl::math::float3> merged_co = std::nullopt,
-             float blend = 0.0f, EdgeCollapseResult *out = nullptr,
-             MeshCallbacks *cb = nullptr, bool prevent_inversion = false)
+             float blend = 0.0f,
+             EdgeCollapseResult *out = nullptr,
+             MeshCallbacks *cb = nullptr,
+             bool prevent_inversion = false)
 {
   using namespace litestl;
   using namespace litestl::util;
@@ -153,7 +162,7 @@ collapseEdge(Mesh &m, int edge,
    * result. Refuse such collapses (leaving the mesh untouched). */
   {
     int faceCount = detail_collapse::edgeRadialFaceCount(m, edge);
-    Set<int> nbrKeep;
+    Set<int, 18> nbrKeep;
     if (m.v.e[v_keep] != ELEM_NONE) {
       for (int e2 : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
         int o = (m.e.vs[e2][0] == v_keep) ? m.e.vs[e2][1] : m.e.vs[e2][0];
@@ -220,9 +229,10 @@ collapseEdge(Mesh &m, int edge,
       } while (cc != c0);
       return true;
     };
-    Set<int> checked;
-    Vector<int> star; /* surviving (non-sliver) faces touching either endpoint */
-    Vector<float3> star_nb, star_na;
+    Set<int, 18> checked;
+    Vector<int, 18> star; /* surviving (non-sliver) faces touching either endpoint */
+    Vector<float3, 18> star_nb, star_na;
+
     for (int side = 0; side < 2; side++) {
       int v = side == 0 ? v_keep : v_kill;
       if (m.v.e[v] == ELEM_NONE) {
@@ -264,7 +274,7 @@ collapseEdge(Mesh &m, int edge,
       int face;
       float3 nb, na;
     };
-    Vector<FoldEntry> ents;
+    Vector<FoldEntry, 8> ents;
     auto mapv = [&](int vv) { return vv == v_kill ? v_keep : vv; };
     for (int si = 0; si < int(star.size()); si++) {
       int f = star[si];
@@ -275,8 +285,7 @@ collapseEdge(Mesh &m, int edge,
           uint64_t key = v1 < v2 ? (uint64_t(uint32_t(v1)) << 32) | uint32_t(v2)
                                  : (uint64_t(uint32_t(v2)) << 32) | uint32_t(v1);
           ents.append({key, f, star_nb[si], star_na[si]});
-          for (int cc2 = m.c.radial_next[cc]; cc2 != cc;
-               cc2 = m.c.radial_next[cc2]) {
+          for (int cc2 = m.c.radial_next[cc]; cc2 != cc; cc2 = m.c.radial_next[cc2]) {
             int g = m.l.f[m.c.l[cc2]];
             if (!checked.contains(g)) {
               float3 ng(0.0f, 0.0f, 0.0f);
@@ -301,8 +310,7 @@ collapseEdge(Mesh &m, int edge,
         if (ents[i].key != ents[j].key || ents[i].face == ents[j].face) {
           continue;
         }
-        if (ents[i].nb.dot(ents[j].nb) >= 0.0f &&
-            ents[i].na.dot(ents[j].na) < 0.0f) {
+        if (ents[i].nb.dot(ents[j].nb) >= 0.0f && ents[i].na.dot(ents[j].na) < 0.0f) {
           return false;
         }
       }
@@ -330,10 +338,12 @@ collapseEdge(Mesh &m, int edge,
   Vector<int, 16> edgeFlagOther;
   Vector<AttrRowSnapshot, 16> edgeFlagSnap;
   auto recordEdgeFlags = [&](int vi) {
-    if (m.v.e[vi] == ELEM_NONE) return;
+    if (m.v.e[vi] == ELEM_NONE)
+      return;
     for (int ei : EdgeOfVertIter(&m, vi, m.v.e[vi])) {
       int o = (m.e.vs[ei][0] == vi) ? m.e.vs[ei][1] : m.e.vs[ei][0];
-      if (o == v_kill || o == v_keep) continue; /* the collapsed/cross edge */
+      if (o == v_kill || o == v_keep)
+        continue; /* the collapsed/cross edge */
       AttrRowSnapshot s;
       snapshotAttrRow(m.e.attrs, ei, s);
       edgeFlagOther.append(o);
@@ -346,14 +356,16 @@ collapseEdge(Mesh &m, int edge,
   /* 1. Gather all faces touching either endpoint, recording their vertex
    *    sequences. Use a set to avoid adding the same face twice (a face
    *    can touch both endpoints). */
-  Vector<int> facesToRebuild;
-  Set<int> faceSet;
+  Vector<int, 12> facesToRebuild;
+  Set<int, 16> faceSet;
 
   auto gatherFaces = [&](int vi) {
-    if (m.v.e[vi] == ELEM_NONE) return;
+    if (m.v.e[vi] == ELEM_NONE)
+      return;
     for (int ei : EdgeOfVertIter(&m, vi, m.v.e[vi])) {
       int c0 = m.e.c[ei];
-      if (c0 == ELEM_NONE) continue;
+      if (c0 == ELEM_NONE)
+        continue;
       int cc = c0;
       do {
         int li = m.c.l[cc];
@@ -377,8 +389,8 @@ collapseEdge(Mesh &m, int edge,
     Vector<int, 8> cverts;
     Vector<AttrRowSnapshot, 8> csnaps;
   };
-  Vector<Vector<int, 8>> faceVerts;
-  Vector<FaceSnap> faceSnaps;
+  Vector<Vector<int, 8>, 8> faceVerts;
+  Vector<FaceSnap, 10> faceSnaps;
   for (int fi : facesToRebuild) {
     Vector<int, 8> seq;
     FaceSnap fs;
@@ -409,12 +421,13 @@ collapseEdge(Mesh &m, int edge,
   /* 3. Kill all edges incident to v_kill (including `edge` itself, which
    *    is now wire). Walking the disk while killing requires care: snapshot
    *    first. */
-  Vector<int> edgesToKill;
+  Vector<int, 16> edgesToKill;
   if (m.v.e[v_kill] != ELEM_NONE) {
     for (int ei : EdgeOfVertIter(&m, v_kill, m.v.e[v_kill])) {
       edgesToKill.append(ei);
     }
   }
+
   /* Also any wire edges incident to v_keep that go to v_kill (already
    * captured above since both endpoints are walked). */
   for (int ei : edgesToKill) {
@@ -443,7 +456,7 @@ collapseEdge(Mesh &m, int edge,
    * fool it) so created_edges can be reported by an O(valence) diff rather than
    * an O(total edges) freemap scan. All new edges of a collapse are incident to
    * v_keep. */
-  Set<int> keepBefore;
+  Set<int, 12> keepBefore;
   if (out && m.v.e[v_keep] != ELEM_NONE) {
     for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
       keepBefore.add((m.e.vs[ei][0] == v_keep) ? m.e.vs[ei][1] : m.e.vs[ei][0]);
@@ -452,15 +465,16 @@ collapseEdge(Mesh &m, int edge,
 
   /* 6. Remap face sequences (v_kill -> v_keep), drop degenerates and
    *    duplicates, then rebuild. */
-  Set<int64_t, 64> rebuiltKeys;
+  Set<int64_t, 20> rebuiltKeys;
   for (int fidx = 0; fidx < int(faceVerts.size()); fidx++) {
     auto &seq = faceVerts[fidx];
     FaceSnap &fs = faceSnaps[fidx];
-    Vector<int, 8> remapped;
+    Vector<int, 16> remapped;
     for (int v : seq) {
       int rv = (v == v_kill) ? v_keep : v;
       /* Skip consecutive duplicates. */
-      if (!remapped.isEmpty() && remapped[remapped.size() - 1] == rv) continue;
+      if (!remapped.isEmpty() && remapped[remapped.size() - 1] == rv)
+        continue;
       remapped.append(rv);
     }
     /* Wrap-around duplicate. */
@@ -470,7 +484,7 @@ collapseEdge(Mesh &m, int edge,
     /* Also dedupe non-adjacent repeats (a quad with v_keep already adjacent
      * to v_kill on opposite corners would yield a degenerate). */
     {
-      Set<int> seen;
+      Set<int, 18> seen;
       bool repeat = false;
       for (int v : remapped) {
         if (!seen.add(v)) {
@@ -478,12 +492,15 @@ collapseEdge(Mesh &m, int edge,
           break;
         }
       }
-      if (repeat) continue;
+      if (repeat)
+        continue;
     }
-    if (remapped.size() < 3) continue;
+    if (remapped.size() < 3)
+      continue;
 
     int64_t key = detail_collapse::faceKey(remapped);
-    if (!rebuiltKeys.add(key)) continue;
+    if (!rebuiltKeys.add(key))
+      continue;
 
     int f = m.make_face(std::span<int>(remapped.data(), remapped.size()), cb);
 
@@ -521,7 +538,8 @@ collapseEdge(Mesh &m, int edge,
       int o = (m.e.vs[ei][0] == v_keep) ? m.e.vs[ei][1] : m.e.vs[ei][0];
       bool first = true;
       for (int k = 0; k < int(edgeFlagOther.size()); k++) {
-        if (edgeFlagOther[k] != o) continue;
+        if (edgeFlagOther[k] != o)
+          continue;
         if (first) {
           restoreAttrRow(m.e.attrs, ei, edgeFlagSnap[k]);
           first = false;

@@ -194,11 +194,14 @@ SpatialTree::update(gpu)
   ├── if any leaf re-tri'd OR root not yet a GPU node:
   │     ├── recompute_subtree_tri_counts()      (bottom-up)
   │     └── assign_gpu_nodes()                  (top-down, threshold = gpu_tri_target)
-  ├── for each leaf with Spatial_{RegenGPU,UpdateGPU}:
+  ├── for each leaf with Spatial_{RegenGPU,UpdateGPU}:           (serial)
   │     ├── owner = find_gpu_owner(leaf)        (walk parents until is_gpu_node)
   │     ├── full rebuild if owner has no buffers OR layout missing OR Spatial_RegenGPU set:
   │     │     └── regen_gpu_node(owner, gpu)
-  │     └── else: update_gpu_node_slice(owner, leaf, gpu)
+  │     └── else: queue {owner, leaf} for the slice pass
+  ├── parallel_for slice work → update_gpu_node_slice(owner, leaf, gpu)  (pure, in-place)
+  ├── serial: per owner, flag its buffers update_buffer=true;
+  │           regen_gpu_node(owner) (deduped) for any slice that returned "needs rebuild"
   ├── any GPU node still missing buffers (newly promoted, no dirty leaves):
   │     └── regen_gpu_node(node, gpu)
   └── if anything changed → rebuild drawBatch from the set of GPU nodes
@@ -212,12 +215,21 @@ pos/nor, `fill_leaf_attr` for each attribute). It stamps
 `DrawCommand` is recreated by the draw-batch loop when needed.
 
 `update_gpu_node_slice` finds the leaf's `LeafSlice` in the owner's
-`slices`. If the leaf's current tri count no longer matches the
-recorded `vert_count`, **or** `gd.builtAttrsVersion` has drifted from
-the tree's `requestedAttrsVersion`, it falls back to a full
-`regen_gpu_node` — that means the leaf's topology shifted since the
-partition was built (stale per-slice offsets) or the requested-attribute
-set changed under it.
+`slices` and rewrites only that disjoint sub-range in place. It is
+**pure and data-race-free** because it runs under `parallel_for`: it
+writes only its own slice and its own leaf flag, and **never** calls
+`regen_gpu_node` or touches the owner-level `update_buffer` flags. If an
+in-place update isn't possible — the leaf's tri count no longer matches
+the recorded `vert_count`, the slice isn't found, **or**
+`gd.builtAttrsVersion` has drifted from the tree's `requestedAttrsVersion`
+— it returns `false` and the **serial** pass after the loop does the full
+`regen_gpu_node` (deduped per owner). That serial split is deliberate:
+`regen_gpu_node` disposes and reallocates the node's shared `GpuData`
+(`pos`/`nor`/`attrBufs`/`cmd`/`slices`), so two worker threads regenning
+the same owner concurrently could leave it with a null `pos`, which the
+draw-batch loop then silently skips — the historical "faces randomly
+don't draw" bug. Keeping every shared-state mutation in the serial pass
+removes that race while the in-place fill stays parallel.
 
 ## Requested attributes & the material draw shader
 
@@ -340,9 +352,13 @@ touches `gpu_data` or `is_gpu_node`.
   `update_node_normals`.
 * **Slice fallback is a real path, not a panic.** A leaf can change
   its tri count between two `update()` ticks (sculpt-time topology
-  edit). When that happens `update_gpu_node_slice` correctly bails to
-  a full `regen_gpu_node`; that branch is exercised by the topology
-  sculpt brushes and should not be silently dropped.
+  edit). When that happens `update_gpu_node_slice` returns `false` and
+  the serial pass after the `parallel_for` does the full
+  `regen_gpu_node`; that branch is exercised by the topology sculpt
+  brushes and should not be silently dropped. **Never** call
+  `regen_gpu_node` from inside the slice `parallel_for` — it mutates
+  shared `GpuData`; the false-return + serial-regen split exists to keep
+  that off the worker threads.
 * **The draw batch is regenerated, not patched.** `update()` rebuilds
   `drawBatch->commands` and `->buffers` from the current GPU-node set
   any time anything changes. Cheap because GPU-node count is small;

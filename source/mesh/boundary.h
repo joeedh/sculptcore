@@ -17,6 +17,8 @@
 // dirty elements and clears the markers. Derived recompute walks face/edge
 // connectivity, so it requires live topology (not the frozen-topo brush path).
 
+#include "litestl/util/vector.h"
+
 namespace sculptcore::mesh {
 struct MeshBase;
 struct BoolAttrView;
@@ -86,5 +88,13 @@ void recomputeDirty(MeshBase *m);
 
 // Read a vertex's classification bitmask (0 if not yet computed).
 int vertClass(MeshBase *m, int v);
+
+// Polyline-graph stats over the union of every boundary edge flag (source +
+// derived): out = [flaggedEdges, graphVerts, non2ValenceVerts, components].
+// Non-2-valence vertices (endpoints/junctions) and component count are
+// invariant under feature-preserving remeshing (splits/collapses along a
+// feature curve only add/remove 2-valence chain verts), so they detect
+// constraint-network damage. Call recomputeDirty first.
+void graphStats(MeshBase *m, litestl::util::Vector<int> &out);
 
 } // namespace sculptcore::mesh::boundary

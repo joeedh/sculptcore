@@ -1051,6 +1051,63 @@ napi_value NapiRuntime::MakeIntVector(napi_env env, napi_callback_info info) {
   return rt->instantiate(vecSt, bufobj, /*owning=*/true);
 }
 
+// makeFloatVector() -> a fresh owning, empty Vector<float>, ready to pass as
+// the out-param of Mesh.edgePathCoords. Same recovery trick as MakeIntVector:
+// the Vector<float> specialization is recovered from edgePathCoords' out-param
+// type since no method returns Vector<float> by value.
+napi_value NapiRuntime::MakeFloatVector(napi_env env, napi_callback_info info) {
+  void *data;
+  napi_get_cb_info(env, info, nullptr, nullptr, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  const binding::BindingBase *tb = rt->lookup("sculptcore::mesh::Mesh");
+  if (!tb || tb->type != BindingType::Struct) return out;
+  const types::_StructBase *ts = static_cast<const types::_StructBase *>(tb);
+
+  const types::Method *method = nullptr;
+  for (const types::Method *m : ts->methods) {
+    if (std::strcmp(m->name.c_str(), "edgePathCoords") == 0) {
+      method = m;
+      break;
+    }
+  }
+  if (!method) return out;
+
+  // Find the param resolving to a Vector struct (out is Vector<float>&).
+  const types::_StructBase *vecSt = nullptr;
+  for (const auto &param : method->params) {
+    const binding::BindingBase *t = param.type;
+    if (t && t->type == BindingType::Pointer) {
+      t = static_cast<const types::Pointer *>(t)->ptrType;
+    } else if (t && t->type == BindingType::Reference) {
+      t = static_cast<const types::Reference *>(t)->refType;
+    }
+    if (t && t->type == BindingType::Struct) {
+      const types::_StructBase *st = static_cast<const types::_StructBase *>(t);
+      if (std::strcmp(st->name.c_str(), "litestl::util::Vector") == 0) {
+        vecSt = st;
+        break;
+      }
+    }
+  }
+  if (!vecSt) return out;
+
+  const types::Constructor *ctor = nullptr;
+  for (const auto *c : vecSt->constructors) {
+    if (c->params.size() == 0) {
+      ctor = c;
+      break;
+    }
+  }
+  if (!ctor || !ctor->thunk) return out;
+
+  void *bufobj = std::malloc(vecSt->getSize());
+  ctor->thunk(bufobj, nullptr);
+  return rt->instantiate(vecSt, bufobj, /*owning=*/true);
+}
+
 // ---------------------------------------------------------------------------
 // Bulk-data fast path / minimal Vector surface.
 // litestl::util::Vector layout (native): T* data_ @0, size_t size_ @8.
@@ -1641,6 +1698,7 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "constructWith", &NapiRuntime::ConstructWith);
   define(exports, "makeNodeVector", &NapiRuntime::MakeNodeVector);
   define(exports, "makeIntVector", &NapiRuntime::MakeIntVector);
+  define(exports, "makeFloatVector", &NapiRuntime::MakeFloatVector);
   define(exports, "vectorLength", &NapiRuntime::VectorLength);
   define(exports, "vectorView", &NapiRuntime::VectorView);
   define(exports, "vectorGet", &NapiRuntime::VectorGet);

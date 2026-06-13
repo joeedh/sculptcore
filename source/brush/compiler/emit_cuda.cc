@@ -791,7 +791,8 @@ struct Emit {
     write("}\n\n");
     write("__device__ float brush_strength(float3 p) {\n");
     write("  float sb_t = 1.0f - fminf(brush_falloff_dist(p - ctx_u.surfacePos), 1.0f);\n");
-    write("  return brush_u.strength * brush_falloff(sb_t);\n");
+    write("  float sb_s = brush_u.strength * brush_falloff(sb_t);\n");
+    write("  return brush_u.invert != 0u ? -sb_s : sb_s;\n");
     write("}\n\n");
     write("__device__ float2 brush_stroke_uv(float3 co) {\n");
     write("  if (brush_u.stroke_path_count == 0u) { return sb_make_float2(0.0f, 0.0f); }\n");

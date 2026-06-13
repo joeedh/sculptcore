@@ -35,7 +35,7 @@ struct AttrRowSnapshot {
     bool bval = false;
     uint8_t bytes[16] = {};
   };
-  litestl::util::Vector<Cell, 8> cells;
+  litestl::util::Vector<Cell, 18> cells;
 };
 
 static inline void snapshotAttrRow(AttrGroup &grp, int elem, AttrRowSnapshot &snap)
