@@ -72,6 +72,8 @@ litestl::binding::types::Struct<RemeshParams> *RemeshParams::defineBindings()
   BIND_STRUCT_MEMBER(st, pre_remesh_anchors);
   BIND_STRUCT_MEMBER(st, auto_retry);
   BIND_STRUCT_MEMBER(st, max_attempts);
+  BIND_STRUCT_MEMBER(st, fast_decimate);
+  BIND_STRUCT_MEMBER(st, fast_quantize);
 
   return st;
 }

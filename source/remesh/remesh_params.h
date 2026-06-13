@@ -205,6 +205,20 @@ struct RemeshParams {
    * trail capacity (8). */
   int max_attempts = 3;
 
+  /* Fast mode: decimate the working copy to solve resolution (0.8x the quad
+   * edge, floored at half the median input edge) before the field solve, so
+   * every global solve scales with the OUTPUT complexity instead of the input.
+   * The final reproject snaps onto the ORIGINAL full-res surface. Skipped when
+   * the input is already near solve resolution, or when pre_remesh is on. */
+  bool fast_decimate = false;
+
+  /* Fast mode: cheap quantize tier — DIRECT rounding first (one fast-GREEDY
+   * fallback run when the direct map is infeasible), looser greedy locking,
+   * supernodal factorization on large systems, and no seam-relax /
+   * local-untangle passes. More poles / irregular vertices than the quality
+   * path. */
+  bool fast_quantize = false;
+
   /* Bound out-of-line in remesh/bindings.cc (keeps the binding headers out of
    * this header). Crosses the seam by value → registers a copy constructor. */
   static litestl::binding::types::Struct<RemeshParams> *defineBindings();

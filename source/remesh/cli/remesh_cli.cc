@@ -235,7 +235,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"pre_remesh_trace\": %s,\n", jb(p.pre_remesh_trace));
   std::fprintf(f, "    \"pre_remesh_anchors\": %s,\n", jb(p.pre_remesh_anchors));
   std::fprintf(f, "    \"auto_retry\": %s,\n", jb(p.auto_retry));
-  std::fprintf(f, "    \"max_attempts\": %d\n", p.max_attempts);
+  std::fprintf(f, "    \"max_attempts\": %d,\n", p.max_attempts);
+  std::fprintf(f, "    \"fast_decimate\": %s,\n", jb(p.fast_decimate));
+  std::fprintf(f, "    \"fast_quantize\": %s\n", jb(p.fast_quantize));
   std::fprintf(f, "  },\n");
 
   std::fprintf(f, "  \"output\": {\n");
@@ -491,7 +493,7 @@ void usage()
       "  --preset <name>         pre-fill the knob vector (applied before all\n"
       "                          other flags, which still override): organic-clean,\n"
       "                          organic-noisy, messy-character, scan, hard-surface,\n"
-      "                          cad\n"
+      "                          cad, fast\n"
       "  --target-quads <int>    target quad count (default 15000; per-asset\n"
       "                          quad-counts.txt overrides when neither this\n"
       "                          nor --target is given)\n"
@@ -563,7 +565,11 @@ void usage()
       "  --auto-retry <0|1>       metric-driven retry from the original input "
       "(default 0)\n"
       "  --max-attempts <int>     retry attempt cap incl. the first run "
-      "(default 3, max 8)\n");
+      "(default 3, max 8)\n"
+      "  --fast-decimate <0|1>    decimate the working copy to solve "
+      "resolution, reproject onto the original (default 0)\n"
+      "  --fast-quantize <0|1>    cheap quantize tier: DIRECT rounding w/ "
+      "greedy fallback, minimal cleanup (default 0)\n");
 }
 
 bool toBool(const char *s) { return std::atoi(s) != 0; }
@@ -725,6 +731,10 @@ int main(int argc, char **argv)
       params.auto_retry = toBool(next("--auto-retry"));
     else if (a == "--max-attempts")
       params.max_attempts = std::atoi(next("--max-attempts"));
+    else if (a == "--fast-decimate")
+      params.fast_decimate = toBool(next("--fast-decimate"));
+    else if (a == "--fast-quantize")
+      params.fast_quantize = toBool(next("--fast-quantize"));
     else if (a == "--preset")
       next("--preset"); // applied in the pre-scan above
     else {

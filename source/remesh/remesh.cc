@@ -603,7 +603,7 @@ const char *remeshPresetName(int i)
 {
   static const char *names[] = {"organic-clean", "organic-noisy",
                                 "messy-character", "scan", "hard-surface",
-                                "cad"};
+                                "cad", "fast"};
   return (i >= 0 && i < int(sizeof(names) / sizeof(names[0]))) ? names[i]
                                                                : nullptr;
 }
@@ -656,6 +656,12 @@ bool applyRemeshPreset(RemeshParams &params, const char *name)
     base.per_component = true; // isolate each solid's solve
     base.pre_remesh = true;    // re-flow the anisotropic tessellation
     base.pre_remesh_sharp_angle = 0.5235988f; // pin the same shallow bevels
+  } else if (std::strcmp(name, "fast") == 0) {
+    // Preview-quality speed bundle: solve on a decimated copy, cheap quantize
+    // tier, no retry. singularity_cancel stays on (it is a net time win).
+    base.curvature_smooth_iters = 1;
+    base.fast_decimate = true;
+    base.fast_quantize = true;
   } else {
     return false;
   }
@@ -767,6 +773,18 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
   // 9g: the original full-res surface, kept alive from the pre-pass (anchor
   // source) through the final reproject (snap target). null = no anchors.
   Mesh *pre_full = nullptr;
+  // Fast mode: coarsen the working copy to solve resolution before any global
+  // solve, so field/param/quantize scale with the output complexity instead of
+  // the input. Setting pre_remeshed routes the reproject onto the ORIGINAL.
+  if (params.fast_decimate && !params.pre_remesh) {
+    EdgeStats es = measureEdges(*work);
+    float L_solve = std::fmax(0.8f * L_quad, 0.5f * es.median);
+    if (es.mean > 0.0f && es.mean < 0.9f * L_solve) {
+      PROG(14, "fast_decimate");
+      decimateForSolve(*work, L_solve, params.seed);
+      pre_remeshed = true;
+    }
+  }
   if (params.pre_remesh) {
     PROG(14, "pre_remesh");
     auto t_pre = std::chrono::steady_clock::now();
@@ -1000,10 +1018,29 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
   // auto_density implies use_density — the seamless param / quantizer are gated
   // on use_density, so a generated field would otherwise be silently ignored.
   qp.use_density = consume_density;
-  qp.rounding = params.quantize_direct_rounding ? RoundingStrategy::DIRECT
-                                                : RoundingStrategy::GREEDY;
+  qp.rounding = params.quantize_direct_rounding || params.fast_quantize
+                    ? RoundingStrategy::DIRECT
+                    : RoundingStrategy::GREEDY;
   qp.untangle_field_max_dev = double(params.untangle_field_max_dev);
+  if (params.fast_quantize) {
+    // Cheap refinement tier: looser greedy locking (fewer rounds, a few extra
+    // poles), BLAS-3 factorization on large systems, minimal post-rounding
+    // cleanup. untangle_fold_threshold stays default — it must match the
+    // extraction fold gate or extraction receives an untangleable map.
+    qp.confidence_radius = 0.5;
+    qp.use_supernodal = work->f.count > 50000;
+    qp.inj_iters = 5;
+    qp.seam_relax_iters = 0;
+    qp.local_untangle_iters = 0;
+  }
   QuantizeStats qs = computeQuantization(*work, qp);
+  if (params.fast_quantize && !params.quantize_direct_rounding &&
+      !qs.feasible) {
+    // DIRECT couldn't reach an integral map — pay for one greedy run rather
+    // than extracting a spiraled lattice.
+    qp.rounding = RoundingStrategy::GREEDY;
+    qs = computeQuantization(*work, qp);
+  }
   if (report) {
     report->quantize = StageStatus::Ok;
     report->parametrization_folds = qs.parametrization_folds;
