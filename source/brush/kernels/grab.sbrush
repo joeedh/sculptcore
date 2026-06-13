@@ -1,0 +1,19 @@
+// Grab — drag the region under the dab directly by the per-dab cursor
+// displacement (`grabTo`), gated by falloff*strength and the mask layer.
+// The TS bridge re-filters the affected nodes each dab, so the grabbed
+// region follows the cursor as the stroke moves (grabFrom = dab center,
+// grabTo = dab − prevDab, set by applyGrabDabState before the dab).
+
+@brush("grab")
+brush Grab {
+  ctx float3 grabTo;
+  uniform float radius;
+
+  vertex void apply(inout Vertex v) {
+    float fall = strength(v.co) * (1.0 - v.mask);
+    if (fall == 0.0) {
+      continue;
+    }
+    v.co += grabTo * fall;
+  }
+}

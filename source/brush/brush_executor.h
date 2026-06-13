@@ -316,6 +316,12 @@ struct CommandExecutor {
     case SculptBrushes::KELVINLET:
       command::createKelvinletBrush<CommandExecutor, AccMode>(def);
       return;
+    case SculptBrushes::GRAB:
+      command::createGrabBrush<CommandExecutor, AccMode>(def);
+      return;
+    case SculptBrushes::SNAKEHOOK:
+      command::createSnakehookBrush<CommandExecutor, AccMode>(def);
+      return;
     case SculptBrushes::POSE:
       command::createPoseBrush<CommandExecutor, AccMode>(def);
       return;

@@ -32,4 +32,6 @@ export enum SculptBrushes {
   COLOR = 13,
   POLYGROUP = 14,
   BSMOOTH = 15,
+  GRAB = 16,
+  SNAKEHOOK = 17,
 }
