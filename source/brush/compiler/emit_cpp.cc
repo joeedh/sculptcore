@@ -1085,6 +1085,7 @@ struct Emit {
     write("    for (auto *node : nodes) {\n");
     write("      // did we already write undo data for this node?\n");
     write("      if (ctx.meshLog->hasSimpleChunk(node->id)) continue;\n");
+#if 0
     write("      auto *topoChunk = ctx.meshLog->getTopoChunk();\n");
     write("      if (topoChunk) {\n");
     write("        for (auto &v : node->unique_verts()) {\n");
@@ -1093,6 +1094,7 @@ struct Emit {
     write("        }\n");
     write("        continue;\n");
     write("      }\n");
+#endif
     write("      auto *simple = ctx.meshLog->getSimpleChunk(\n");
     write("          node->id, node->unique_verts().size(), 0, 0, "
           "node->unique_faces().size());\n");

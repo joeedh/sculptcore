@@ -215,7 +215,8 @@ struct CommandExecutor {
     BIND_STRUCT_MEMBER(st, lastDynTopoStats);
     BIND_STRUCT_METHOD(st, beginStep, MARGS("hasDyntopo"));
     BIND_STRUCT_METHOD(st, endStep, MARGS());
-    BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "origin", "normal"));
+    BIND_STRUCT_METHOD(
+        st, execBrush, MARGS("mesh", "brushType", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, applyDynTopoDab, MARGS("center", "radius", "params", "seed"));
     BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
