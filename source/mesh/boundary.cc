@@ -81,6 +81,7 @@ BoolAttrView *ensureBoolEdge(MeshBase *m, const char *name, bool temp)
   if (temp) ref.flag = AttrFlag::TEMP;
   return static_cast<BoolAttrView *>(ref.data);
 }
+
 BoolAttrView *ensureBoolVert(MeshBase *m, const char *name, bool temp)
 {
   AttrRef &ref = m->v.attrs.ensure(AttrType::BOOL, name);
@@ -135,13 +136,15 @@ bool computePolygroupBoundary(MeshBase *m, int e, AttrData<int> *faceGroup)
 
 void markEdgeDirty(MeshBase *m, int e)
 {
-  ensureBoolEdge(m, EDGE_DIRTY, true)->set(e, true);
+  m->e.boundaryDirty.ensure(m->e.attrs);
+  m->e.boundaryDirty.set(e, true);
   m->boundaryDirty = true;
 }
 
 void markVertDirty(MeshBase *m, int v)
 {
-  ensureBoolVert(m, VERT_DIRTY, true)->set(v, true);
+  m->v.boundaryDirty.ensure(m->v.attrs);
+  m->v.boundaryDirty.set(v, true);
   m->boundaryDirty = true;
 }
 

@@ -105,9 +105,7 @@ struct SpatialNode {
 
   struct NodeData {
     util::OrderedSet<int> unique_verts;
-    util::OrderedSet<int> other_verts;
     util::OrderedSet<int> unique_faces;
-    util::OrderedSet<int> other_faces;
 
     util::Vector<NodeTri> tris;
     Mesh *m;
@@ -174,19 +172,9 @@ struct SpatialNode {
     return data->unique_verts;
   }
 
-  util::OrderedSet<int> &other_verts() const
-  {
-    return data->other_verts;
-  }
-
   util::OrderedSet<int> &unique_faces() const
   {
     return data->unique_faces;
-  }
-
-  util::OrderedSet<int> &other_faces() const
-  {
-    return data->other_faces;
   }
 
   util::Vector<NodeTri> &tris() const

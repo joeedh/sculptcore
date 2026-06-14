@@ -61,6 +61,9 @@ struct VertexData : public ElemData {
   /* Topology attributes. */
   BuiltinAttr<int, ".vert.e", AttrFlag::TOPO> e;
 
+  /* is not instantiated until first use */
+  BuiltinAttr<bool, ".boundary.vertex.dirty"> boundaryDirty;
+  
   /* Move vsrc into vdst; vdst must be freed. */
   void move_elem(Mesh *m, int vsrc, int vdst);
   void swap_elems(Mesh *m, int v1, int v2);
@@ -102,6 +105,9 @@ struct EdgeData : public ElemData {
   /* Topology attributes. */
   BuiltinAttr<int2, ".edge.vs", AttrFlag::TOPO> vs;
   BuiltinAttr<int4, ".edge.vs.disk", AttrFlag::TOPO> disk;
+
+  /* is not instantiated until first use */
+  BuiltinAttr<bool, ".boundary.edge.dirty"> boundaryDirty;
 
   int swap_elems(int e1, int v2);
 };

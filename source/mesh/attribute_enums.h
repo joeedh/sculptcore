@@ -55,9 +55,9 @@ enum class _AttrUse {
 };
 MAKE_FLAGS_CLASS(AttrUse, _AttrUse, int);
 
-#define ATTR_PAGESIZE 4096
-#define ATTR_PAGEMASK 4095
 #define ATTR_PAGESHIFT 12
+#define ATTR_PAGESIZE (1 << ATTR_PAGESHIFT)
+#define ATTR_PAGEMASK (ATTR_PAGESIZE - 1)
 
 } // namespace sculptcore::mesh
 

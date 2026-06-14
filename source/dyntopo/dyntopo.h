@@ -43,6 +43,8 @@
 #include "litestl/util/span.h"
 #include "litestl/util/vector.h"
 
+#include "platform/time.h"
+
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -662,6 +664,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
   using namespace litestl;
   using namespace litestl::util;
 
+  uint64_t splitEdgeTime = 0, flipTime = 0, collapseTime = 0;
+
   const bool doSplit = p.mode == DynTopoMode::Subdivide || p.mode == DynTopoMode::Both;
   const bool doCollapse = p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
   const float r2 = radius * radius;
@@ -773,6 +777,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
   /* Cumulative op counts at the start of the round, for per-round trace deltas
    * (only written when tracing). */
   int traceS0 = 0, traceC0 = 0, traceF0 = 0, traceSm0 = 0;
+  Set<int> touched;
 
   for (int round = 0; round < p.max_rounds; round++) {
     if (p.trace) {
@@ -787,6 +792,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
     float trMaxOver = 0.0f, trMinUnder = 0.0f;
     /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
     Vector<Cand> cands;
+    Vector<Cand> picked;
     detail::GenSet &seen = detail::scanSeenSet();
     seen.reset(int(m.e.capacity()));
     auto consider = [&](int e) {
@@ -896,8 +902,8 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
 
     /* 3. Greedily select a maximal independent set. */
     detail::GenSet &locked = detail::misLockedSet();
+    picked.clear();
     locked.reset(int(m.v.capacity()));
-    Vector<Cand> picked;
     for (const Cand &c : cands) {
       bool free = c.split ? detail::splitFree(m, c.edge, locked)
                           : detail::collapseFree(m, c.edge, locked);
@@ -916,12 +922,13 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
      *    index is impossible; an op may still no-op (e.g. a collapse the link
      *    condition refuses) — that just doesn't count. */
     int applied = 0;
+    touched.clear();
+
     /* Verts whose 1-ring the flip sweep must re-examine: only the geometry an
      * applied split/collapse actually created — NOT every unpicked candidate
      * endpoint (those didn't change this round). Driving the flip sweep from
      * this set instead of the whole frontier cuts flip-candidate collection
      * ~4-5x (the dominant per-dab phase). */
-    Set<int> touched;
     auto addCreated = [&](const auto &edges) {
       for (int e : edges) {
         if (!m.e.freemap[e]) {
@@ -939,13 +946,16 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
         }
       }
     };
+
     for (const Cand &c : picked) {
       if (m.e.freemap[c.edge]) {
         continue;
       }
       if (c.split) {
         mesh::EdgeSplitResult res;
+        uint64_t start = litestl::time::now_ns();
         if (mesh::splitEdge(m, c.edge, &res, cb)) {
+          splitEdgeTime += (litestl::time::now_ns() - start);
           stats.splits++;
           applied++;
           addCreated(res.created_edges);
@@ -985,6 +995,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
      *    one. Each helper re-validates, so a flip invalidating a later candidate
      *    is safe. Flipped apexes re-enter the frontier (their lengths changed). */
     if (p.do_flips) {
+      uint64_t start = litestl::time::now_ns();
       Vector<int, 32> flipCands;
       detail::GenSet &eseen = detail::flipSeenSet();
       eseen.reset(int(m.e.capacity()));
@@ -1019,6 +1030,7 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
           nextFrontier.add(dd);
         }
       }
+      flipTime += (litestl::time::now_ns() - start);
     }
 
     /* 6. Tangential smoothing (M7.4): relax the touched in-region verts toward
@@ -1106,6 +1118,9 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
     m.boundaryDirty = true;
   }
 
+  //sc_napi_logf("splitEdgeTime: %lfms (%d splits)\n",
+  //             double(splitEdgeTime) / (1000000.0),
+  //             stats.splits);
   return stats;
 }
 

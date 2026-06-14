@@ -348,19 +348,15 @@ void SpatialTree::add_face_intern(SpatialNode *node,
   if (treeMesh.f.node[face] == 0) {
     treeMesh.f.node[face] = node->id;
     node->data->unique_faces.add(f);
-  } else {
-    node->data->other_faces.add(f);
   }
 
   for (auto list : face.lists()) {
     for (auto c : list) {
       int vn = treeMesh.v.node[c.v()];
       if (vn == node->id) {
-        continue; /* already this leaf's unique vert: other_verts.add is redundant */
+        continue; /* already this leaf's unique vert  */
       }
-      if (vn) {
-        node->data->other_verts.add(c.v());
-      } else {
+      if (!vn) {
         node->data->unique_verts.add(c.v());
         treeMesh.v.node[c.v()] = node->id;
       }
@@ -443,19 +439,6 @@ void SpatialTree::split_node(SpatialNode *node)
 
     // unassign face
     treeMesh.f.node[f] = 0;
-
-    tris.clear();
-    if (triangulateFace(*m, f, tris)) {
-      std::span<Tri> tris_span = tris;
-      add_face_intern(node, f, tris_span, fcent);
-    }
-  }
-  for (int f : node->data->other_faces) {
-    if (m->f.freemap[f]) {
-      continue; /* stale other_faces ref to a killed face (incremental remove) */
-    }
-    FaceProxy face(m, f);
-    float3 fcent = face.calc_center();
 
     tris.clear();
     if (triangulateFace(*m, f, tris)) {
@@ -818,10 +801,11 @@ void SpatialTree::applyDeferredMerge()
 {
   std::function<void(SpatialNode *)> recurse = [&](SpatialNode *node) {
     if (node->parent && node_is_skewed(node->parent)) {
-      //SpatialNode *other = node == node->parent->children[0] ? node->parent->children[1]
+      // SpatialNode *other = node == node->parent->children[0] ?
+      // node->parent->children[1]
       mergeCandidates_.add(node->parent->id);
     }
-    
+
     if (!(node->flag & Spatial_Leaf)) {
       recurse(node->children[0]);
       recurse(node->children[1]);

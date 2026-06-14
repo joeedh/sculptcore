@@ -257,11 +257,6 @@ struct SpatialTree {
 
   bool node_needs_split(SpatialNode *node)
   {
-    /* Size the leaf by the verts it actually *owns*. other_verts are boundary
-     * verts owned by neighbouring leaves (via the global treeMesh.v.node map);
-     * counting them made a leaf trip leaf_limit while owning only a fraction of
-     * that many verts, over-splitting the tree several-fold and inflating build
-     * descent/overlap cost. */
     return node->data->unique_verts.size() >= leaf_limit &&
            node->depth < depth_limit;
   }
@@ -336,19 +331,15 @@ struct SpatialTree {
     if (treeMesh.f.node[face] == 0) {
       treeMesh.f.node[face] = leaf->id;
       leaf->data->unique_faces.add(f);
-    } else {
-      leaf->data->other_faces.add(f);
-    }
+    } 
 
     for (auto list : face.lists()) {
       for (auto c : list) {
         int vn = treeMesh.v.node[c.v()];
         if (vn == leaf->id) {
-          continue; /* already this leaf's unique vert: other_verts.add is redundant */
+          continue; /* already this leaf's unique vert */
         }
-        if (vn) {
-          leaf->data->other_verts.add(c.v());
-        } else {
+        if (!vn) {
           leaf->data->unique_verts.add(c.v());
           treeMesh.v.node[c.v()] = leaf->id;
         }
@@ -398,14 +389,13 @@ struct SpatialTree {
   }
 
   /* Incremental removal: drop face `f` from its owning leaf (the inverse of
-   * add_face), marking the leaf for tris/bounds regen. Stale other_faces refs
-   * on neighbour leaves are tolerated — split_node skips freed faces. Used by
+   * add_face), marking the leaf for tris/bounds regen. Used by
    * the dyntopo callbacks so the tree need not be fully rebuilt per dab. */
   void remove_face(int f)
   {
     int node_id = treeMesh.f.node[f];
     if (node_id == 0) {
-      return; /* not the unique owner (at most an other_faces ref) */
+      return; /* not the unique owner */
     }
     SpatialNode *node = node_from_id(node_id);
     treeMesh.f.node[f] = 0;
@@ -454,9 +444,7 @@ struct SpatialTree {
         if (vn == node->id) {
           continue;
         }
-        if (vn) {
-          node->data->other_verts.add(c.v());
-        } else {
+        if (!vn) {
           node->data->unique_verts.add(c.v());
           treeMesh.v.node[c.v()] = node->id;
         }

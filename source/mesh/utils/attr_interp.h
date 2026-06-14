@@ -43,7 +43,7 @@ static inline void snapshotAttrRow(AttrGroup &grp, int elem, AttrRowSnapshot &sn
   snap.cells.clear();
   for (AttrRef &attr : grp.attrs) {
     AttrRowSnapshot::Cell cell;
-    if (attr.flag & (AttrFlag::TOPO | AttrFlag::TEMP)) {
+    if (attr.flag & (AttrFlag::TOPO | AttrFlag::NOCOPY)) {
       snap.cells.append(cell); /* placeholder: keep index alignment */
       continue;
     }
@@ -97,7 +97,7 @@ static inline void restoreAttrRow(AttrGroup &grp, int elem, const AttrRowSnapsho
       } else {
         auto *data = static_cast<AttrData<T> *>(attr.data);
         if (data) {
-          std::memcpy(static_cast<void*>(&(*data)[elem]), cell.bytes, sizeof(T));
+          std::memcpy(static_cast<void *>(&(*data)[elem]), cell.bytes, sizeof(T));
         }
       }
     });
@@ -131,8 +131,11 @@ static inline void unionBoolAttrRow(AttrGroup &grp, int elem, const AttrRowSnaps
  * interpAttrs' rules: float/float-vector lerp, integer/bool copy s0. Used for the
  * midpoint corner of an edge split, whose two sources (the split edge's endpoints
  * on one face) were captured before the face was killed. */
-static inline void interpAttrRows(AttrGroup &grp, int dst, const AttrRowSnapshot &s0,
-                                  const AttrRowSnapshot &s1, float t)
+static inline void interpAttrRows(AttrGroup &grp,
+                                  int dst,
+                                  const AttrRowSnapshot &s0,
+                                  const AttrRowSnapshot &s1,
+                                  float t)
 {
   int i = 0;
   for (AttrRef &attr : grp.attrs) {
@@ -152,32 +155,28 @@ static inline void interpAttrRows(AttrGroup &grp, int dst, const AttrRowSnapshot
       }
       continue;
     }
-    detail::type_dispatch(attr.type, [&]<typename T>() {
-      if constexpr (std::is_same_v<T, bool>) {
+    detail::type_dispatch(attr.type, [&attr, &c0, &c1, &t, &dst]<typename T>() {
+      auto *data = static_cast<AttrData<T> *>(attr.data);
+      if (!data) {
         return;
-      } else {
-        auto *data = static_cast<AttrData<T> *>(attr.data);
-        if (!data) {
-          return;
-        }
-        T a;
-        std::memcpy(static_cast<void*>(&a), c0.bytes, sizeof(T));
-        if constexpr (std::is_floating_point_v<T>) {
+      }
+      T a;
+      std::memcpy(static_cast<void *>(&a), c0.bytes, sizeof(T));
+      if constexpr (std::is_floating_point_v<T>) {
+        T b;
+        std::memcpy(static_cast<void *>(&b), c1.bytes, sizeof(T));
+        (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
+      } else if constexpr (requires { typename T::value_type; }) {
+        using Scalar = typename T::value_type;
+        if constexpr (std::is_floating_point_v<Scalar>) {
           T b;
-          std::memcpy(static_cast<void*>(&b), c1.bytes, sizeof(T));
-          (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
-        } else if constexpr (requires { typename T::value_type; }) {
-          using Scalar = typename T::value_type;
-          if constexpr (std::is_floating_point_v<Scalar>) {
-            T b;
-            std::memcpy(static_cast<void*>(&b), c1.bytes, sizeof(T));
-            (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
-          } else {
-            (*data)[dst] = a;
-          }
+          std::memcpy(static_cast<void *>(&b), c1.bytes, sizeof(T));
+          (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
         } else {
           (*data)[dst] = a;
         }
+      } else {
+        (*data)[dst] = a;
       }
     });
   }
@@ -186,11 +185,10 @@ static inline void interpAttrRows(AttrGroup &grp, int dst, const AttrRowSnapshot
 static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, float t)
 {
   for (AttrRef &attr : grp.attrs) {
-    /* Topology links are indices, not interpolable data; TEMP attrs (e.g.
+    /* Topology links are indices, not interpolable data; NOINTERP attrs (e.g.
      * .spatial.{v,f}.node) are derived state owned by the spatial tree — copying
-     * a parent's node id onto a new vert would mis-attribute it (it would land
-     * in the wrong leaf's other_verts and the tree would never rebalance). */
-    if (attr.flag & (AttrFlag::TOPO | AttrFlag::TEMP)) {
+     * a parent's node id onto a new vert would mis-attribute it. */
+    if (attr.flag & (AttrFlag::TOPO | AttrFlag::NOINTERP)) {
       continue;
     }
     if (attr.type == AttrType::BOOL) {
@@ -214,8 +212,7 @@ static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, floa
         } else if constexpr (requires { typename T::value_type; }) {
           using Scalar = typename T::value_type;
           if constexpr (std::is_floating_point_v<Scalar>) {
-            (*data)[dst] =
-                (*data)[src0] * Scalar(1.0f - t) + (*data)[src1] * Scalar(t);
+            (*data)[dst] = (*data)[src0] * Scalar(1.0f - t) + (*data)[src1] * Scalar(t);
           } else {
             (*data)[dst] = (*data)[src0]; /* integer vector: copy */
           }
