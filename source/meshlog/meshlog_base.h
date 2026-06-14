@@ -338,7 +338,6 @@ struct LogChunkSimple : public LogChunk {
 
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
-    printf("simple undo\n");
     using namespace sculptcore::spatial;
 
     v.undo(m->v.attrs, tree);
@@ -352,8 +351,6 @@ struct LogChunkSimple : public LogChunk {
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
-    printf("simple redo\n");
-
     v.redo(m->v.attrs, tree);
     e.redo(m->e.attrs, tree);
     c.redo(m->c.attrs, tree);
@@ -737,29 +734,6 @@ struct LogChunkTopo : public LogChunk {
   {
     Vector<LogElem *> records = getSortedRecords();
 
-    /* CLAUDENOTE: heap-canary tripwire — abort the instant a tree op corrupts a
-     * block, with the offending record + stage. Strip with the rest of the diag. */
-    auto CK = [&](const char *stage, LogElem *e) {
-      return; // XXX
-      void *bad = nullptr;
-      const char *tag = litestl::alloc::check_all(&bad);
-      if (tag) {
-        printf("MESHLOG-DIAG undo CORRUPT after %s: tag=%s ptr=%p | "
-               "kind=%d origin=%d fate=%d begin=%d end=%d\n",
-               stage,
-               tag,
-               bad,
-               e ? int(e->kind) : -1,
-               e ? int(e->origin) : -1,
-               e ? int(e->fate) : -1,
-               e ? e->begin_mesh_index : -1,
-               e ? e->end_mesh_index : -1);
-        fflush(stdout);
-        abort();
-      }
-    };
-    CK("entry", nullptr);
-
     /* The raw alloc/release below bypass make_face/kill_face, so the spatial
      * tree's incremental face ownership (`.spatial.f.node`, a TEMP attr that
      * ChunkElemRow does NOT log) is never updated by the restore itself. Drive
@@ -784,7 +758,6 @@ struct LogChunkTopo : public LogChunk {
           tree->remove_face(e->begin_mesh_index);
         }
       }
-      CK("pre-pass", nullptr);
     }
 
     /* Reverse order: undo dependents before underlying elements. */
@@ -806,7 +779,6 @@ struct LogChunkTopo : public LogChunk {
       }
       /* (Created && Dead) records were dropped at kill time. */
     }
-    CK("main-loop", nullptr);
 
     if (tree) {
       /* Post-pass (mesh now fully in pre-step state): re-own faces that came
@@ -823,14 +795,12 @@ struct LogChunkTopo : public LogChunk {
             tree->add_face(e->begin_mesh_index);
           }
         }
-        CK("post-op", e);
       }
     }
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
-    printf("redo 1\n");
     Vector<LogElem *> records = getSortedRecords();
 
     if (tree) {
@@ -844,7 +814,6 @@ struct LogChunkTopo : public LogChunk {
         if (e->kind == LogElemKind::Face && e->fate == LogFate::Dead) {
           tree->remove_face(e->begin_mesh_index);
         } else if (e->kind == LogElemKind::Face && e->fate == LogFate::Live) {
-          // XXX do we want to remove faces here?
           if (tree->treeMesh.f.node[e->begin_mesh_index] != 0) {
             tree->remove_face(e->begin_mesh_index);
           }
@@ -854,7 +823,6 @@ struct LogChunkTopo : public LogChunk {
       }
     }
 
-    printf("redo 2\n");
     /* Forward order: allocate underlying before dependents reference them. */
     for (int i = 0; i < records.size(); i++) {
       LogElem *e = records[i];
@@ -875,7 +843,6 @@ struct LogChunkTopo : public LogChunk {
       }
     }
 
-    printf("redo 3\n");
     if (tree) {
       /* Post-pass (mesh in post-step state): re-own recreated/rewired faces. */
       for (LogElem *e : records) {
@@ -1176,13 +1143,10 @@ struct MeshLog {
 
   void endStep()
   {
+    /* Only the still-active (last) topo chunk needs finalizing here; earlier
+     * chunks were finalized at deactivation by pushTopoChunk. */
     if (curEntry().topo_chunk_ && active_mesh_) {
-      for (LogChunk *chunk : curEntry().chunks) {
-        if (chunk->type == LogChunkTypes::Topo) {
-          LogChunkTopo *topo = static_cast<LogChunkTopo *>(chunk);
-          topo->finalizeStep(active_mesh_);
-        }
-      }
+      curEntry().topo_chunk_->finalizeStep(active_mesh_);
     }
     curEntry().topo_chunk_ = nullptr;
     curStep_++;
@@ -1211,6 +1175,14 @@ struct MeshLog {
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       fprintf(stderr, "Error: getTopoChunk called with no current undo entry\n");
       abort();
+    }
+    /* Finalize the outgoing chunk NOW (end of its dab), not at endStep: each
+     * chunk must capture its Created records' end-state while it is still the
+     * active chunk. Capturing at end-of-step instead would snapshot connectivity
+     * a LATER dab rewired (referencing verts a later chunk creates), so per-chunk
+     * redo would re-own a face before its verts exist. */
+    if (curEntry().topo_chunk_ && active_mesh_) {
+      curEntry().topo_chunk_->finalizeStep(active_mesh_);
     }
     curEntry().topo_chunk_ = litestl::alloc::New<LogChunkTopo>("LogChunkTopo");
     curEntry().hasTopoChunk = true;
@@ -1250,9 +1222,6 @@ struct MeshLog {
   LogChunkSimple *
   getSimpleChunk(int nodeId, int vcount, int ecount, int ccount, int fcount)
   {
-    printf(
-        "getSimpleChunk(%d, %d, %d, %d, %d)\n", nodeId, vcount, ecount, ccount, fcount);
-
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       fprintf(stderr, "Error: getSimpleChunk called with no current undo entry\n");
       abort();
@@ -1332,8 +1301,10 @@ struct MeshLog {
       return;
     }
     thawForTopoChunks(m);
-    /* Forward creation order: re-apply topology (topo chunk) before the brush
-     * positions (simple chunks) that were captured against it. */
+    /* Forward creation order, one chunk fully applied before the next: each topo
+     * chunk reproduces its own dab's end-state (captured at deactivation, not
+     * end-of-step), so a face rewired across dabs is re-owned only after its
+     * dab's chunk recreates the verts it now references. */
     for (LogChunk *chunk : curEntry().chunks) {
       chunk->redo(m, tree);
     }

@@ -291,10 +291,6 @@ struct SpatialTree {
      * node_idmap[id] unchecked here was a wild OOB read feeding a garbage
      * SpatialNode* into add_face_at. */
     if (id < 0 || id >= int(node_idmap.size())) {
-      /* CLAUDENOTE: confirm provenance of the stale ownership id; strip after. */
-      printf(
-          "SPATIAL-DIAG node_from_id OOB: id=%d size=%d\n", id, int(node_idmap.size()));
-      fflush(stdout);
       return nullptr;
     }
     return node_idmap[id];
@@ -420,7 +416,6 @@ struct SpatialTree {
   {
     int node_id = treeMesh.f.node[f];
     if (node_id == 0) {
-      printf("leaf %d does not containt face %d\n", node_id, f);
       return; /* not the unique owner */
     }
     SpatialNode *node = node_from_id(node_id);
@@ -489,7 +484,6 @@ struct SpatialTree {
     int node_id = treeMesh.v.node[v];
     treeMesh.v.node[v] = 0;
     if (node_id == 0) {
-      printf("leaf %d does not contain vertex %d\n", node_id, v);
       return;
     }
     SpatialNode *node = node_from_id(node_id);

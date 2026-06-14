@@ -207,6 +207,163 @@ bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 norma
 }
 #endif // SBRUSH_GPU_DISPATCH
 
+/* Partition-independent consistency check of the incrementally-maintained
+ * spatial tree against the live mesh. Returns true (consistent) or false with
+ * @p msg naming the FIRST divergence (kind, index, owner id, invariant). Used
+ * to localize the dyntopo undo/redo bug without a masking rebuild — see
+ * documentation/plans/diff-tree-check.md. */
+bool firstTreeDivergence(spatial::SpatialTree *tree, mesh::Mesh *m, std::string &msg)
+{
+  auto &fnode = tree->treeMesh.f.node;
+  auto &vnode = tree->treeMesh.v.node;
+  char buf[256];
+
+  /* 1. Stale-owned: a dead (freed) element still owned by a leaf. Leading hang
+   *    suspect — a killed face/vert whose slot is reused while the tree still
+   *    owns the old occupant. */
+  for (int f = 0; f < int(m->f.capacity()); f++) {
+    if (m->f.freemap[f] && fnode[f] != 0) {
+      std::snprintf(buf, sizeof(buf),
+                    "dead face %d still owned by leaf %d", f, fnode[f]);
+      msg = buf;
+      return false;
+    }
+  }
+  for (int v = 0; v < int(m->v.capacity()); v++) {
+    if (m->v.freemap[v] && vnode[v] != 0) {
+      std::snprintf(buf, sizeof(buf),
+                    "dead vert %d still owned by leaf %d", v, vnode[v]);
+      msg = buf;
+      return false;
+    }
+  }
+
+  /* 2. Dangling owner id: an owned element whose owner id resolves to no live
+   *    leaf with data. */
+  for (int f : m->f) {
+    int id = fnode[f];
+    if (id == 0) {
+      continue; /* unowned handled in coverage */
+    }
+    spatial::SpatialNode *n = tree->node_from_id(id);
+    if (!n || !n->data) {
+      std::snprintf(buf, sizeof(buf),
+                    "live face %d owner id %d resolves to no live leaf", f, id);
+      msg = buf;
+      return false;
+    }
+  }
+  for (int v : m->v) {
+    int id = vnode[v];
+    if (id == 0) {
+      continue;
+    }
+    spatial::SpatialNode *n = tree->node_from_id(id);
+    if (!n || !n->data) {
+      std::snprintf(buf, sizeof(buf),
+                    "live vert %d owner id %d resolves to no live leaf", v, id);
+      msg = buf;
+      return false;
+    }
+  }
+
+  /* 3. Leaf set <-> array agreement: every element a leaf claims must be live
+   *    and point its owner array back at that leaf. */
+  auto leaves = tree->leaves();
+  for (auto *leaf : leaves) {
+    if (!leaf->data) {
+      continue;
+    }
+    for (int f : leaf->data->unique_faces) {
+      if (m->f.freemap[f]) {
+        std::snprintf(buf, sizeof(buf), "leaf %d claims dead face %d", leaf->id, f);
+        msg = buf;
+        return false;
+      }
+      if (fnode[f] != leaf->id) {
+        std::snprintf(buf, sizeof(buf),
+                      "leaf %d claims face %d but owner array says %d",
+                      leaf->id, f, fnode[f]);
+        msg = buf;
+        return false;
+      }
+    }
+    for (int v : leaf->data->unique_verts) {
+      if (m->v.freemap[v]) {
+        std::snprintf(buf, sizeof(buf), "leaf %d claims dead vert %d", leaf->id, v);
+        msg = buf;
+        return false;
+      }
+      if (vnode[v] != leaf->id) {
+        std::snprintf(buf, sizeof(buf),
+                      "leaf %d claims vert %d but owner array says %d",
+                      leaf->id, v, vnode[v]);
+        msg = buf;
+        return false;
+      }
+    }
+  }
+
+  /* 4. Coverage: every live element is owned, and per-leaf set totals match the
+   *    mesh's live counts (no dropped/duplicated elements). */
+  for (int f : m->f) {
+    if (fnode[f] == 0) {
+      std::snprintf(buf, sizeof(buf), "live face %d unowned (dropped)", f);
+      msg = buf;
+      return false;
+    }
+  }
+  for (int v : m->v) {
+    if (vnode[v] == 0) {
+      std::snprintf(buf, sizeof(buf), "live vert %d unowned (dropped)", v);
+      msg = buf;
+      return false;
+    }
+  }
+  int ownedF = 0, ownedV = 0;
+  for (auto *leaf : leaves) {
+    if (!leaf->data) {
+      continue;
+    }
+    ownedF += int(leaf->data->unique_faces.size());
+    ownedV += int(leaf->data->unique_verts.size());
+  }
+  if (ownedF != m->f.count) {
+    std::snprintf(buf, sizeof(buf),
+                  "leaf faces sum to %d but mesh has %d live", ownedF, m->f.count);
+    msg = buf;
+    return false;
+  }
+  if (ownedV != m->v.count) {
+    std::snprintf(buf, sizeof(buf),
+                  "leaf verts sum to %d but mesh has %d live", ownedV, m->v.count);
+    msg = buf;
+    return false;
+  }
+  return true;
+}
+
+/* Check the incremental tree after an undo/redo step. On a clean step does NOT
+ * rebuild (the tree persists and cascades, the faithful Electron repro). Only
+ * on the first divergence runs a throwaway rebuild() as a positive-control
+ * oracle: if the rebuilt tree is consistent the bug is in the incremental
+ * undo/redo path; if it also diverges the fault is mesh-level. */
+bool checkTreeVsRebuild(Scene &scene, const char *tag, std::string &err)
+{
+  std::string incMsg;
+  if (firstTreeDivergence(scene.tree, scene.mesh, incMsg)) {
+    return true; /* clean — no rebuild, let the incremental tree persist */
+  }
+  scene.tree->rebuild();
+  std::string rebMsg;
+  bool rebOk = firstTreeDivergence(scene.tree, scene.mesh, rebMsg);
+  err = "incremental tree diverged after " + std::string(tag) + ": " + incMsg +
+        " | rebuild oracle: " +
+        (rebOk ? "CONSISTENT -> bug is in incremental undo/redo"
+               : "ALSO INCONSISTENT: " + rebMsg + " -> mesh-level");
+  return false;
+}
+
 bool execVerb(Scene &scene,
               const std::string &verb,
               ArgMap &args,
@@ -786,6 +943,75 @@ bool execVerb(Scene &scene,
     scene.lastStroke.radius = scene.brush.radius;
     return true;
   }
+  if (verb == "stroke_folded") {
+    /* Faithful repro of the TS/Electron interactive stroke (SculptPaintOp): ONE
+     * meshlog step holding many interleaved per-dab topo chunks + brush-deform
+     * simple chunks — unlike `stroke`, which records a single isolated topo step
+     * + a separate deform step. This is the structure the redo hang needs.
+     *   stroke_folded p1=x,y,z [p2=x,y,z] [normal=x,y,z] [dabs=N]
+     * Dabs are linearly spaced p1->p2 (a swipe); p2 defaults to p1 (in place). */
+    if (!scene.mesh || !scene.tree) {
+      err = "stroke_folded: no mesh/tree";
+      return false;
+    }
+    float3 p1, p2, normal{0, 0, 1};
+    if (!parseFloat3(getArg(args, "p1"), p1) &&
+        !parseFloat3(getArg(args, "origin"), p1)) {
+      err = "stroke_folded: missing p1=x,y,z";
+      return false;
+    }
+    if (!parseFloat3(getArg(args, "p2"), p2)) {
+      p2 = p1;
+    }
+    parseFloat3(getArg(args, "normal"), normal);
+    int dabs = getInt(args, "dabs", getInt(args, "repeat", 1));
+    if (dabs < 1) dabs = 1;
+
+    uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
+    scene.dyntopoParams.nonAccumGen = gen;
+
+    brush::CommandExecutor exec(scene.tree, &scene.brush);
+    exec.meshLog = &scene.meshLog;
+    exec.ctx.renderMatrix = scene.renderMatrix;
+    if (scene.useCsrNeighbors) {
+      exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
+    }
+    exec.setNonAccum(scene.nonAccum);
+    exec.setStrokeGen(int(gen));
+    /* One step for the whole stroke; beginStep pushes the first topo chunk when
+     * dyntopo is on, matching meshLog.beginStep(hasDyntopo) on the TS side. */
+    exec.beginStep(scene.dyntopoEnabled);
+    for (int i = 0; i < dabs; i++) {
+      float t = dabs > 1 ? float(i) / float(dabs - 1) : 0.0f;
+      float3 c;
+      for (int k = 0; k < 3; k++) {
+        c[k] = p1[k] + (p2[k] - p1[k]) * t;
+      }
+      if (scene.dyntopoEnabled) {
+        exec.applyDynTopoDab(c, scene.brush.radius, &scene.dyntopoParams,
+                             scene.dyntopoSeed + uint32_t(i));
+        /* One topo chunk per dab, matching SculptPaintOp.applyDab. */
+        scene.meshLog.pushTopoChunk();
+      }
+      Vector<spatial::SpatialNode *> nodes;
+      scene.tree->filterNodes(c, scene.brush.radius, nodes);
+      if (nodes.size() != 0) {
+        exec.execBrush(scene.mesh, scene.currentTool, &nodes, c, normal);
+        exec.clearIsFirstOfStep();
+      }
+    }
+    if (scene.dyntopoEnabled) {
+      exec.endDynTopoStroke();
+    }
+    exec.endStep();
+    scene.tree->update(&scene.gpu);
+
+    scene.lastStroke.valid = true;
+    scene.lastStroke.origin = p1;
+    scene.lastStroke.normal = normal;
+    scene.lastStroke.radius = scene.brush.radius;
+    return true;
+  }
   if (verb == "stroke_path") {
     if (!scene.mesh || !scene.tree) {
       err = "stroke_path: no mesh/tree";
@@ -982,14 +1208,12 @@ bool execVerb(Scene &scene,
        * leaves the mesh frozen (live links freed/CSR-rebuilt), which would
        * mismatch the recorded links during replay. Thaw first. */
       scene.mesh->thawTopo();
-      printf("UNDO-DIAG: thaw done\n"); fflush(stdout);
       scene.meshLog.undo(scene.mesh, scene.tree);
-      printf("UNDO-DIAG: meshlog.undo done\n"); fflush(stdout);
-      /* meshlog replay restores mesh topology but does not drive the spatial
-       * callbacks, so the incrementally-maintained tree is now stale — rebuild
-       * it (undo is a cold path). */
-      scene.tree->rebuild();
-      printf("UNDO-DIAG: rebuild done\n"); fflush(stdout);
+      /* No masking rebuild: verify the incrementally-maintained tree against
+       * the live mesh so it persists and cascades exactly as in Electron. */
+      if (!checkTreeVsRebuild(scene, "undo", err)) {
+        return false;
+      }
     }
     return true;
   }
@@ -997,7 +1221,19 @@ bool execVerb(Scene &scene,
     if (scene.mesh && scene.tree) {
       scene.mesh->thawTopo();
       scene.meshLog.redo(scene.mesh, scene.tree);
-      scene.tree->rebuild();
+      if (!checkTreeVsRebuild(scene, "redo", err)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (verb == "check_tree") {
+    /* Assert incremental tree consistency at an arbitrary script point (no-op
+     * when clean). Handy for bisecting a divergence. */
+    if (scene.mesh && scene.tree) {
+      if (!checkTreeVsRebuild(scene, "check_tree", err)) {
+        return false;
+      }
     }
     return true;
   }
