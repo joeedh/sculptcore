@@ -138,6 +138,14 @@ struct CommandCtxBase {
     return ref ? static_cast<mesh::AttrData<T> *>(ref->data) : nullptr;
   }
 
+  // Resolved AttrRef for a bound DSL attribute handle (the BrushAttrLayerOverride
+  // target), or null when unbound. Undo-capture codegen snapshots through this so
+  // it records the layer actually written, not the declared name.
+  const mesh::AttrRef *boundAttrRef(const char *handle) const
+  {
+    return attrBindings ? attrBindings->find(handle) : nullptr;
+  }
+
   CommandCtxBase() = default;
   CommandCtxBase(const CommandCtxBase &) = default;
   CommandCtxBase(CommandCtxBase &&) = default;

@@ -7,6 +7,8 @@ brush Color {
   attr vertex float4 color;
   // Paint color, synced from the TS brush (brush.color) per stroke.
   uniform float4 brushColor;
+  // Undo captures the color layer only (paint moves no geometry).
+  save vertex color;
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * (1.0 - v.mask);

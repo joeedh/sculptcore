@@ -212,6 +212,15 @@ struct Field {
   bool dynamicCapable = true;
 };
 
+// A `save <domain> <name>[, <name>...];` declaration: one entry per name. Tells
+// the CPU undo-capture codegen (emit_cpp `*Pre`) which attribute to snapshot.
+// `name` is a builtin bundle member (`co`/`no`/`mask`) or a declared `attr`
+// field handle; resolution to a mesh AttrRef is deferred to codegen.
+struct SaveAttr {
+  AttrDomain domain = AttrDomain::Vertex;
+  string name;
+};
+
 struct StructField {
   TypeKind type;
   string name;
@@ -240,6 +249,9 @@ struct Brush {
   Vector<StructDef> structs;
   Vector<TextureDef> textures;
   Vector<Stage> stages;
+  // `save <domain> <name>,...;` declarations — the per-brush undo-capture set.
+  // Empty means the legacy default (vertex co, vertex no, face no) applies.
+  Vector<SaveAttr> saves;
   string sourceFile;
   // Leading `@global` / `@paint` brush attributes. A brush that is neither is a
   // local deformation brush and is non-accumulate-eligible (codegen emits

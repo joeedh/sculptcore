@@ -991,6 +991,151 @@ struct Emit {
     write("}\n\n");
   }
 
+  // Map a `save` name to its undo-flag bit expression. co/no/mask/color are
+  // standard categories; anything else gets a fresh custom bit. customIdx is
+  // bumped for each custom attr so bits stay distinct within the 16-bit field.
+  string saveFlagExpr(const char *nm, int &customIdx)
+  {
+    if (std::strcmp(nm, "co") == 0)
+      return string("sculptcore::meshlog::CO");
+    if (std::strcmp(nm, "no") == 0)
+      return string("sculptcore::meshlog::NO");
+    if (std::strcmp(nm, "mask") == 0)
+      return string("sculptcore::meshlog::MASK");
+    if (std::strcmp(nm, "color") == 0)
+      return string("sculptcore::meshlog::COLOR");
+    char buf[96];
+    std::snprintf(buf, sizeof(buf),
+                  "(1 << (sculptcore::meshlog::CUSTOM_START + %d))", customIdx++);
+    return string(buf);
+  }
+
+  // Emit one guarded block that resolves a single `save` to a live AttrRef and,
+  // when present, appends it to the local __refs[] array and ORs its flag into
+  // __mask. Builtin co/no slice straight off the mesh; mask resolves by column
+  // name; any other name is a declared `attr` handle whose layer is taken from
+  // the resolved BrushAttrLayerOverride binding (ctx.boundAttrRef).
+  void emitSaveResolve(const SaveAttr &sv, AttrDomain dom, int &customIdx)
+  {
+    const char *nm = sv.name.c_str();
+    string flag = saveFlagExpr(nm, customIdx);
+    const char *letter = (dom == AttrDomain::Vertex) ? "v" : "f";
+
+    write("    {\n");
+    if (std::strcmp(nm, "mask") == 0) {
+      write("      sculptcore::mesh::AttrRef __r = m->");
+      write(letter);
+      write(".attrs.find_attribute(sculptcore::mesh::AttrType::FLOAT, \".spatial.");
+      write(letter);
+      write(".mask\");\n");
+      write("      if (__r.data) { __refs[__n] = __r; __mask |= __saver.add(__refs[__n], ");
+      write(flag);
+      write("); __n++; }\n");
+    } else {
+      string src;
+      if (std::strcmp(nm, "co") == 0 || std::strcmp(nm, "no") == 0) {
+        if (std::strcmp(nm, "co") == 0 && dom != AttrDomain::Vertex)
+          err("save: 'co' is only valid on the vertex domain");
+        src = string("&m->") + letter + "." + nm;
+      } else {
+        if (!findAttrField(stringref(nm)))
+          err("save: unknown attribute (not builtin co/no/mask, nor a declared attr)");
+        src = string("ctx.boundAttrRef(\"") + nm + "\")";
+      }
+      write("      const sculptcore::mesh::AttrRef *__r = ");
+      write(src);
+      write(";\n");
+      write("      if (__r && __r->data) { __refs[__n] = *__r; __mask |= "
+            "__saver.add(__refs[__n], ");
+      write(flag);
+      write("); __n++; }\n");
+    }
+    write("    }\n");
+  }
+
+  // Pre-stage: AttrSaver-gated undo capture. For each save-domain, stamp the
+  // element-keyed gate and append touched elements' attrs to the per-step
+  // element store. Element-keyed so it survives dyntopo tree restructuring
+  // mid-stroke (the old per-node hasSimpleChunk gate did not). An empty `save`
+  // set defaults to the legacy {vertex co, vertex no, face no}.
+  void emitPreStage(const string &lowerName)
+  {
+    Vector<SaveAttr> saves;
+    if (brush->saves.size() == 0) {
+      saves.append(SaveAttr{AttrDomain::Vertex, string("co")});
+      saves.append(SaveAttr{AttrDomain::Vertex, string("no")});
+      saves.append(SaveAttr{AttrDomain::Face, string("no")});
+    } else {
+      for (const auto &s : brush->saves)
+        saves.append(s);
+    }
+
+    write("template <CommandTypes TYPES>\n");
+    write("static void ");
+    write(lowerName);
+    write("Pre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)\n");
+    write("{\n");
+    write("  if (!ctx.meshLog || nodes.empty()) {\n");
+    write("    return;\n");
+    write("  }\n");
+    write("  auto *m = nodes[0]->data->m;\n");
+    write("  const int __sid = ctx.meshLog->curStrokeId();\n");
+
+    int customIdx = 0;
+    for (AttrDomain dom : {AttrDomain::Vertex, AttrDomain::Face}) {
+      Vector<const SaveAttr *> domSaves;
+      for (const auto &s : saves) {
+        if (s.domain == dom)
+          domSaves.append(&s);
+      }
+      if (domSaves.size() == 0)
+        continue;
+
+      const char *domEnum = (dom == AttrDomain::Vertex) ? "VERTEX" : "FACE";
+      const char *grp = (dom == AttrDomain::Vertex) ? "m->v.attrs" : "m->f.attrs";
+      const char *iter = (dom == AttrDomain::Vertex) ? "unique_verts" : "unique_faces";
+
+      write("  {\n");
+      write("    sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::");
+      write(domEnum);
+      write("> __saver;\n");
+      write("    __saver.ensure(*m);\n");
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "%d", (int)domSaves.size());
+      write("    sculptcore::mesh::AttrRef __refs[");
+      write(buf);
+      write("];\n");
+      write("    int __n = 0, __mask = 0;\n");
+      for (const SaveAttr *s : domSaves)
+        emitSaveResolve(*s, dom, customIdx);
+      write("    if (__mask) {\n");
+      write("      auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::");
+      write(domEnum);
+      write(");\n");
+      write("      litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, "
+            "__n);\n");
+      write("      for (auto *node : nodes) {\n");
+      write("        for (int __e : node->");
+      write(iter);
+      write("()) {\n");
+      write("          if (__saver.needsData(__e, __sid, __mask)) {\n");
+      write("            __store->data.appendFrom(");
+      write(grp);
+      write(", __e, __span);\n");
+      write("            __saver.updateSaved(__e, __sid, __mask);\n");
+      write("          }\n");
+      write("        }\n");
+      write("      }\n");
+      write("    }\n");
+      write("  }\n");
+    }
+    for (const auto &s : saves) {
+      if (s.domain != AttrDomain::Vertex && s.domain != AttrDomain::Face)
+        err("save: only vertex and face domains are supported");
+    }
+    write("}\n\n");
+  }
+
   void run()
   {
     string lowerName =
@@ -1075,38 +1220,8 @@ struct Emit {
       emitTextureFn(td);
     }
 
-    // pre-stage: meshlog setup. Universal for local-per-vertex brushes.
-    write("template <CommandTypes TYPES>\n");
-    write("static void ");
-    write(lowerName);
-    write("Pre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)\n");
-    write("{\n");
-    write("  if (ctx.meshLog) {\n");
-    write("    for (auto *node : nodes) {\n");
-    write("      // did we already write undo data for this node?\n");
-    write("      if (ctx.meshLog->hasSimpleChunk(node->id)) continue;\n");
-#if 0
-    write("      auto *topoChunk = ctx.meshLog->getTopoChunk();\n");
-    write("      if (topoChunk) {\n");
-    write("        for (auto &v : node->unique_verts()) {\n");
-    write("          topoChunk->onChange(sculptcore::meshlog::LogElemKind::Vert,\n");
-    write("                              ctx.m, v);\n");
-    write("        }\n");
-    write("        continue;\n");
-    write("      }\n");
-#endif
-    write("      auto *simple = ctx.meshLog->getSimpleChunk(\n");
-    write("          node->id, node->unique_verts().size(), 0, 0, "
-          "node->unique_faces().size());\n");
-    write("      auto *m = node->data->m;\n");
-    write("      simple->v.ensureAttr(m->v.attrs, m->v.co);\n");
-    write("      simple->v.ensureAttr(m->v.attrs, m->v.no);\n");
-    write("      simple->f.ensureAttr(m->f.attrs, m->f.no);\n");
-    write("      simple->v.cpyFrom(m->v.attrs, node->unique_verts());\n");
-    write("      simple->f.cpyFrom(m->f.attrs, node->unique_faces());\n");
-    write("    }\n");
-    write("  }\n");
-    write("}\n\n");
+    // pre-stage: AttrSaver-gated undo capture, driven by the brush's `save` set.
+    emitPreStage(lowerName);
 
     // Host stages — CPU-only setup that runs before any per-node work
     // for a dab. Emitted first so reduce/vertex (which may read ctx

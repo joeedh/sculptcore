@@ -1,6 +1,9 @@
 @brush("mask")
 @paint
 brush Mask {
+  // Undo captures the mask layer only (paint moves no geometry).
+  save vertex mask;
+
   vertex void apply(inout Vertex v) {
     float s = strength(v.co);
     if (s == 0.0) { continue; }

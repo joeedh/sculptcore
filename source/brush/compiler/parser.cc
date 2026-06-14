@@ -136,6 +136,8 @@ struct Parser {
         parseField(*brush);
       } else if (check(TokKind::KwAttr)) {
         parseAttrField(*brush);
+      } else if (check(TokKind::KwSave)) {
+        parseSaveDecl(*brush);
       } else if (check(TokKind::KwStruct)) {
         parseStruct(*brush);
       } else if (check(TokKind::KwTexture)) {
@@ -264,6 +266,35 @@ struct Parser {
     }
     expect(TokKind::Semicolon, "after attr declaration");
     brush.fields.append(f);
+  }
+
+  // save <domain> <name>[, <name>...];  — declares attributes for CPU undo
+  // capture. Name resolution (builtin co/no/mask vs an `attr` handle) is
+  // deferred to codegen.
+  void parseSaveDecl(Brush &brush)
+  {
+    advance(); // 'save'
+    AttrDomain domain;
+    if (match(TokKind::KwVertex)) domain = AttrDomain::Vertex;
+    else if (match(TokKind::KwFace)) domain = AttrDomain::Face;
+    else if (match(TokKind::KwEdge)) domain = AttrDomain::Edge;
+    else if (match(TokKind::KwCorner)) domain = AttrDomain::Corner;
+    else {
+      error("expected save domain (vertex/face/edge/corner) after 'save'", peek());
+      return;
+    }
+
+    while (true) {
+      if (!check(TokKind::Ident)) { error("expected attribute name in save declaration", peek()); return; }
+      SaveAttr s;
+      s.domain = domain;
+      s.name = peek().text;
+      advance();
+      brush.saves.append(s);
+      if (match(TokKind::Comma)) continue;
+      break;
+    }
+    expect(TokKind::Semicolon, "after save declaration");
   }
 
   // texture <Name> { <retType> eval(<params>) { body } }

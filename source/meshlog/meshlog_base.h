@@ -49,6 +49,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "litestl/util/map.h"
 #include "litestl/util/pool.h"
 #include "litestl/util/set.h"
+#include "litestl/util/span.h"
 #include "litestl/util/vector.h"
 #include "mesh/attribute.h"
 #include "mesh/attribute_bool.h"
@@ -72,6 +73,7 @@ enum _LogChunkTypes {
   Simple = 0,
   Topo = 1,
   Reorder = 2,
+  Elems = 3,
 };
 MAKE_ENUM_CLASS(LogChunkTypes, _LogChunkTypes, int);
 
@@ -188,6 +190,23 @@ struct ChunkElemData {
       memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
     }
   };
+
+  /* Grow the store by one row, capturing element `src_i` of `src` for every
+   * ref in `refs`. Columns are registered on first sight (ensureAttr is
+   * idempotent), so the store is sparse / append-as-touched rather than dense
+   * node-sized. Returns the new row index. */
+  int appendFrom(const mesh::AttrGroup &src,
+                 int src_i,
+                 litestl::util::span<const mesh::AttrRef> refs)
+  {
+    for (const mesh::AttrRef &ref : refs) {
+      ensureAttr(src, ref);
+    }
+    int dst_i = size_++;
+    attrs_.ensure_capacity(size_);
+    cpyFrom(src, src_i, dst_i);
+    return dst_i;
+  }
 
   void swapWith(const mesh::AttrGroup &src, int src_i, int dst_i)
   {
@@ -384,6 +403,77 @@ private:
   mesh::AttrGroup attrs_;
   Vector<int> srcAttrMap_; // one-to-one mapping to attributes in attrs_
   int size_;
+};
+
+/** Sparse, append-as-touched per-domain element store (the AttrSaver-driven
+ * replacement for the dense per-node LogChunkSimple). The brush *Pre stage
+ * appends one row per element the first time it is touched in a step (gated by
+ * AttrSaver, so dyntopo tree restructuring can't double-capture); undo/redo
+ * swap by origIndex restores it. One chunk per domain per step. */
+struct LogChunkElems : public LogChunk {
+  detail::ChunkElemData data;
+  mesh::ElemType domain;
+
+  LogChunkElems(mesh::ElemType domain)
+      : LogChunk(LogChunkTypes::Elems), data(0, domain), domain(domain)
+  {
+  }
+
+  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
+  {
+    data.undo(group(m), tree);
+    update_nodes(m, tree);
+  }
+
+  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
+  {
+    data.redo(group(m), tree);
+    update_nodes(m, tree);
+  }
+
+  double memSize() override
+  {
+    return double(sizeof(*this)) + data.memSize();
+  }
+
+private:
+  mesh::AttrGroup &group(mesh::Mesh *m)
+  {
+    switch (domain) {
+    case mesh::ElemType::VERTEX:
+      return m->v.attrs;
+    case mesh::ElemType::EDGE:
+      return m->e.attrs;
+    case mesh::ElemType::CORNER:
+      return m->c.attrs;
+    case mesh::ElemType::LIST:
+      return m->l.attrs;
+    default:
+      return m->f.attrs; // FACE
+    }
+  }
+
+  /* Mark the node owning each touched element dirty so its bounds/GPU buffers
+   * regenerate. Only vertex/face domains carry a spatial node attribute. */
+  void update_nodes(mesh::Mesh *m, spatial::SpatialTree *tree)
+  {
+    using namespace sculptcore::spatial;
+    for (int i : util::IndexRange(0, data.size())) {
+      int idx = data.origIndex[i];
+      int ni = 0;
+      if (domain == mesh::ElemType::VERTEX) {
+        ni = tree->treeMesh.v.node[idx];
+      } else if (domain == mesh::ElemType::FACE) {
+        ni = tree->treeMesh.f.node[idx];
+      } else {
+        return;
+      }
+      if (ni) {
+        SpatialNode *node = tree->node_from_id(ni);
+        node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
+      }
+    }
+  }
 };
 
 namespace detail {
@@ -1035,6 +1125,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, redo, MARGS("m", "tree"));
     BIND_STRUCT_METHOD(st, beginStep, MARGS("hasDyntopo"));
     BIND_STRUCT_METHOD(st, endStep, MARGS());
+    BIND_STRUCT_METHOD(st, curStrokeId, MARGS());
     BIND_STRUCT_METHOD(st, lastStepId, MARGS());
     BIND_STRUCT_METHOD(st, stepMemSize, MARGS("id"));
     BIND_STRUCT_METHOD(st, totalMemSize, MARGS());
@@ -1076,9 +1167,20 @@ struct MeshLog {
     }
     entries.grow_one();
     entries.last().id = nextStepId_++;
+    /* A stroke pushes exactly one step, so bump the stroke id here. Masked to
+     * 16 bits at read; only equality against the stamp within a step matters,
+     * so the 65536-stroke wrap is harmless (see AttrSaver). */
+    strokeId_++;
     if (hasDyntopo) {
       pushTopoChunk();
     }
+  }
+
+  /** Current stroke id, masked to 16 bits (see AttrSaver stamp packing). Starts
+   * at 1 so a freshly-stamped 0 element always reads as "not saved yet". */
+  int curStrokeId() const
+  {
+    return strokeId_ & 0xffff;
   }
 
   /** Id of the most recently begun step (-1 if none). Call right after
@@ -1234,6 +1336,28 @@ struct MeshLog {
       curEntry().chunks.append(simple);
     }
     return simple;
+  }
+
+  /** Find-or-create the current step's per-domain element store (the
+   * append-as-touched undo capture for AttrSaver-gated brush deformation). */
+  LogChunkElems *elemStore(mesh::ElemType domain)
+  {
+    if (curStep_ < 0 || curStep_ >= entries.size()) {
+      fprintf(stderr, "Error: elemStore called with no current undo entry\n");
+      abort();
+    }
+    for (LogChunk *chunk : curEntry().chunks) {
+      if (chunk->type != LogChunkTypes::Elems) {
+        continue;
+      }
+      LogChunkElems *store = static_cast<LogChunkElems *>(chunk);
+      if (store->domain == domain) {
+        return store;
+      }
+    }
+    auto *store = litestl::alloc::New<LogChunkElems>("LogChunkElems", domain);
+    curEntry().chunks.append(store);
+    return store;
   }
 
   /** Append a reorder chunk capturing the five permutations to the current
@@ -1395,6 +1519,7 @@ private:
   mesh::Mesh *active_mesh_ = nullptr;
   int maxUndoSteps_ = -1; // -1 = unbounded
   int nextStepId_ = 0;
+  int strokeId_ = 0; // bumped to 1 on the first beginStep (see curStrokeId)
 };
 
 } // namespace sculptcore::meshlog
