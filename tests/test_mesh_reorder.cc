@@ -329,7 +329,7 @@ void test_locality_undo_redo(int N, int leafLimit, uint32_t seed)
   Vector<int> vmap, emap, cmap, lmap, fmap;
   tree.computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
 
-  log.beginStep();
+  log.beginStep(false);
   log.pushReorderChunk(vmap, emap, cmap, lmap, fmap);
   tree.applyReorder(vmap, emap, cmap, lmap, fmap);
   log.endStep();

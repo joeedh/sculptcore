@@ -261,7 +261,7 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     if (cap_) {
       capAttrIn_ = b64encode(gbuf.data(), size_t(faceCount_) * sizeof(int));
     }
-    scene.meshLog.beginStep();
+    scene.meshLog.beginStep(false);
     scene.brush.resetStrokePath();
     scene.profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
     return true;
@@ -363,7 +363,7 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     }
   }
 
-  scene.meshLog.beginStep();
+  scene.meshLog.beginStep(false);
   scene.brush.resetStrokePath();
 
   // GPU-resident live-render bring-up (interactive only). Build the global
@@ -540,7 +540,7 @@ void GpuStrokeSession::liveScatterAll(Scene &scene)
 // the pre-stroke state.
 void GpuStrokeSession::snapshotNode(Scene &scene, spatial::SpatialNode *node)
 {
-  if (scene.meshLog.hasSimpleChunk(node->id)) {
+  if (scene.meshLog.hasSimpleChunk(node->id) || scene.meshLog.hasTopoChunk()) {
     return;
   }
   auto *simple = scene.meshLog.getSimpleChunk(

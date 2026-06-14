@@ -56,6 +56,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/attribute_enums.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_callbacks.h"
+#include "mesh/mesh_enums.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -101,10 +102,10 @@ struct LogChunk {
 
 namespace detail {
 struct ChunkElemData {
-  mesh::BuiltinAttr<int, ".sculpt.origIndex"> origIndex;
+  mesh::BuiltinAttr<int, ".sculpt.undo.origIndex"> origIndex;
   bool isSwapped = false;
 
-  ChunkElemData(int size) : size_(size)
+  ChunkElemData(int size, mesh::ElemType domain) : size_(size), domain_(domain)
   {
     attrs_.ensure_capacity(size);
     origIndex.ensure(attrs_, true);
@@ -166,6 +167,11 @@ struct ChunkElemData {
 
     for (int i = 0; i < srcAttrMap_.size(); i++) {
       int srcAttrIndex = srcAttrMap_[i];
+      if (srcAttrIndex == -1) {
+        // attribute disappeared
+        continue;
+      }
+
       const auto &ref = src.attrs[srcAttrIndex];
       auto &dstData = attrs_.attrs[i + 1].data;
       const auto &srcData = ref.data;
@@ -190,6 +196,11 @@ struct ChunkElemData {
 
     for (int i = 0; i < srcAttrMap_.size(); i++) {
       int srcAttrIndex = srcAttrMap_[i];
+      if (srcAttrIndex == -1) {
+        // attribute disappeared
+        continue;
+      }
+
       const auto &ref = src.attrs[srcAttrIndex];
       auto &dstData = attrs_.attrs[i + 1].data;
 
@@ -213,6 +224,8 @@ struct ChunkElemData {
 
   void swap(mesh::AttrGroup &src, spatial::SpatialTree *tree)
   {
+    updateSrcAttrMap(tree->m);
+
     for (int i : util::IndexRange(0, size_)) {
       this->swapWith(src, origIndex[i], i);
     }
@@ -240,8 +253,68 @@ struct ChunkElemData {
     return tot;
   }
 
+
+  int size() const
+  {
+    return size_;
+  }
+
+  void updateSrcAttrMap(Mesh *m)
+  {
+    mesh::AttrGroup *meshAttrs = nullptr;
+
+    switch (domain_) {
+    case mesh::ElemType::VERTEX:
+      meshAttrs = &m->v.attrs;
+      break;
+    case mesh::ElemType::EDGE:
+      meshAttrs = &m->e.attrs;
+      break;
+    case mesh::ElemType::CORNER:
+      meshAttrs = &m->c.attrs;
+      break;
+    case mesh::ElemType::LIST:
+      meshAttrs = &m->l.attrs;
+      break;
+    case mesh::ElemType::FACE:
+      meshAttrs = &m->f.attrs;
+      break;
+    }
+
+    if (meshAttrs == nullptr) {
+      fprintf(stderr, "Error: updateSrcAttrMap called with invalid domain\n");
+      return;
+    }
+
+    auto oldSrcMap = srcAttrMap_;
+    srcAttrMap_.clear();
+
+    // skip origIndex which doesn't map to any real attribute in the mesh
+    for (int i = 1; i < attrs_.attrs.size(); i++) {
+      auto &ref = attrs_.attrs[i];
+      bool ok = false;
+
+      for (int j = 0; j < meshAttrs->attrs.size(); j++) {
+        if (ref.name == meshAttrs->attrs[j].name) {
+          srcAttrMap_.append(j);
+          ok = true;
+          break;
+        }
+      }
+
+      if (!ok) {
+        printf("Warning: attribute %p %s not found in mesh\n", ref.name.c_str(), ref.name.c_str());
+        srcAttrMap_.append(-1);
+      }
+      if (srcAttrMap_[i] != oldSrcMap[i]) {
+        printf("Info: attribute %s changed index in mesh\n", ref.name.c_str());
+      }
+    }
+  }
+
 private:
   mesh::AttrGroup attrs_;
+  mesh::ElemType domain_;
   Vector<int> srcAttrMap_; // one-to-one mapping to attributes in attrs_
   int size_;
 };
@@ -250,17 +323,22 @@ private:
 /** Per-node undo data. */
 struct LogChunkSimple : public LogChunk {
   detail::ChunkElemData v, e, c, f;
+  /** note: nodeId cannot be read after initial creation of chunks,
+      since by the time this chunk is undo/redo-afied it's not guaranteed
+      to be correct */
   int nodeId;
 
   LogChunkSimple(int nodeId, int vcount, int ecount, int ccount, int fcount)
-      : LogChunk(LogChunkTypes::Simple), nodeId(nodeId), v(vcount), e(ecount), c(ccount),
-        f(fcount)
+      : LogChunk(LogChunkTypes::Simple), nodeId(nodeId),
+        v(vcount, mesh::ElemType::VERTEX), e(ecount, mesh::ElemType::EDGE),
+        c(ccount, mesh::ElemType::CORNER), f(fcount, mesh::ElemType::FACE)
   {
     //
   }
 
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    printf("simple undo\n");
     using namespace sculptcore::spatial;
 
     v.undo(m->v.attrs, tree);
@@ -268,21 +346,21 @@ struct LogChunkSimple : public LogChunk {
     c.undo(m->c.attrs, tree);
     f.undo(m->f.attrs, tree);
 
-    SpatialNode *node = tree->node_from_id(nodeId);
-    node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
+    // cannot use nodeId here it's not guaranteed to be correct
+    update_node(m, tree);
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
-    using namespace sculptcore::spatial;
+    printf("simple redo\n");
 
     v.redo(m->v.attrs, tree);
     e.redo(m->e.attrs, tree);
     c.redo(m->c.attrs, tree);
     f.redo(m->f.attrs, tree);
 
-    SpatialNode *node = tree->node_from_id(nodeId);
-    node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
+    // cannot use nodeId here it's not guaranteed to be correct
+    update_node(m, tree);
   }
 
   double memSize() override
@@ -291,6 +369,21 @@ struct LogChunkSimple : public LogChunk {
   }
 
 private:
+  void update_node(mesh::Mesh *m, spatial::SpatialTree *tree)
+  {
+    using namespace sculptcore::spatial;
+
+    // cannot use nodeId here it's not guaranteed to be correct
+    for (int i : util::IndexRange(0, f.size())) {
+      int fi = f.origIndex[i];
+      int ni = tree->treeMesh.f.node[fi];
+      if (ni) {
+        SpatialNode *node = tree->node_from_id(ni);
+        node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
+      }
+    }
+  }
+
   mesh::AttrGroup attrs_;
   Vector<int> srcAttrMap_; // one-to-one mapping to attributes in attrs_
   int size_;
@@ -317,13 +410,14 @@ struct ChunkElemRow {
     layoutFor(src);
     for (int i = 0; i < src.attrs.size(); i++) {
       mesh::AttrRef &ref = src.attrs[i];
+      uint8_t *dst = data_.data() + offsets_[i];
+
       /* TEMP attrs (e.g. .spatial.*.node) are derived state owned by the
        * spatial tree, not authoritative undo data — skip them so incremental
        * tree updates during a logged step don't taint replay. */
-      if (ref.flag & mesh::AttrFlag::TEMP) {
+      if (ref.flag & mesh::AttrFlag::NOCOPY) {
         continue;
       }
-      uint8_t *dst = data_.data() + offsets_[i];
 
       if (ref.type == mesh::AttrType::BOOL) {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
@@ -342,10 +436,13 @@ struct ChunkElemRow {
   void writeTo(mesh::AttrGroup &dst, int dst_idx)
   {
     int n = dst.attrs.size() < count_ ? int(dst.attrs.size()) : count_;
+    diagCheck("writeTo", dst, n);
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = dst.attrs[i];
-      if (ref.flag & mesh::AttrFlag::TEMP) {
-        continue; /* see captureFrom: TEMP attrs are tree-owned, not logged */
+      if (ref.flag & mesh::AttrFlag::NOCOPY) {
+        // note: since this is called on element re-creation,
+        // we want to restore nocopy attrs to their default states
+        // (which should should have been saved in layoutFor)
       }
       uint8_t *src = data_.data() + offsets_[i];
 
@@ -373,10 +470,11 @@ struct ChunkElemRow {
   {
     uint8_t buf[64];
     int n = live.attrs.size() < count_ ? int(live.attrs.size()) : count_;
+    diagCheck("swapWith", live, n);
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = live.attrs[i];
-      if (ref.flag & mesh::AttrFlag::TEMP) {
-        continue; /* see captureFrom: TEMP attrs are tree-owned, not logged */
+      if (ref.flag & mesh::AttrFlag::NOCOPY) {
+        continue;
       }
       uint8_t *slot = data_.data() + offsets_[i];
 
@@ -416,17 +514,59 @@ private:
   {
     count_ = int(src.attrs.size());
     offsets_.resize(src.attrs.size());
+    /* CLAUDENOTE: diag — record captured per-attr identity to detect layout drift */
+    capType_.resize(src.attrs.size());
+    capSize_.resize(src.attrs.size());
+    capName_.resize(src.attrs.size());
     int total = 0;
     for (int i = 0; i < src.attrs.size(); i++) {
       offsets_[i] = total;
       mesh::AttrRef &ref = src.attrs[i];
+      capType_[i] = int(ref.type);
+      capSize_[i] = (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
+      capName_[i] = ref.name;
       total += (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
     }
+    // TODO: handle non-zero attribute defaults here
+    //       for now just zero initialize
     data_.resize(total);
+  }
+
+  /* CLAUDENOTE: diag — verify replay-time attr i still matches capture-time attr i */
+  void diagCheck(const char *where, mesh::AttrGroup &dst, int n)
+  {
+    static int reported = 0;
+    for (int i = 0; i < n && i < int(capType_.size()); i++) {
+      mesh::AttrRef &ref = dst.attrs[i];
+      int liveSize = (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
+      if (int(ref.type) != capType_[i] || liveSize != capSize_[i] ||
+          ref.name != capName_[i])
+      {
+        if (reported++ < 40) {
+          fprintf(stderr,
+                  "MESHLOG-DIAG %s: attr[%d] DRIFT cap=(%s t%d sz%d) live=(%s t%d sz%d) "
+                  "count_=%d dst.size=%d\n",
+                  where,
+                  i,
+                  capName_[i].c_str(),
+                  capType_[i],
+                  capSize_[i],
+                  ref.name.c_str(),
+                  int(ref.type),
+                  liveSize,
+                  count_,
+                  int(dst.attrs.size()));
+        }
+      }
+    }
   }
 
   Vector<uint8_t> data_;
   Vector<int> offsets_;
+  /* CLAUDENOTE: diag arrays */
+  Vector<int> capType_;
+  Vector<int> capSize_;
+  Vector<string> capName_;
   /* Number of attrs present at capture time. Restore loops bound to this so a
    * mid-step attr append (e.g. boundary EDGE_DIRTY) can't drive offsets_[i] OOB. */
   int count_ = 0;
@@ -597,6 +737,29 @@ struct LogChunkTopo : public LogChunk {
   {
     Vector<LogElem *> records = getSortedRecords();
 
+    /* CLAUDENOTE: heap-canary tripwire — abort the instant a tree op corrupts a
+     * block, with the offending record + stage. Strip with the rest of the diag. */
+    auto CK = [&](const char *stage, LogElem *e) {
+      return; // XXX
+      void *bad = nullptr;
+      const char *tag = litestl::alloc::check_all(&bad);
+      if (tag) {
+        printf("MESHLOG-DIAG undo CORRUPT after %s: tag=%s ptr=%p | "
+               "kind=%d origin=%d fate=%d begin=%d end=%d\n",
+               stage,
+               tag,
+               bad,
+               e ? int(e->kind) : -1,
+               e ? int(e->origin) : -1,
+               e ? int(e->fate) : -1,
+               e ? e->begin_mesh_index : -1,
+               e ? e->end_mesh_index : -1);
+        fflush(stdout);
+        abort();
+      }
+    };
+    CK("entry", nullptr);
+
     /* The raw alloc/release below bypass make_face/kill_face, so the spatial
      * tree's incremental face ownership (`.spatial.f.node`, a TEMP attr that
      * ChunkElemRow does NOT log) is never updated by the restore itself. Drive
@@ -621,6 +784,7 @@ struct LogChunkTopo : public LogChunk {
           tree->remove_face(e->begin_mesh_index);
         }
       }
+      CK("pre-pass", nullptr);
     }
 
     /* Reverse order: undo dependents before underlying elements. */
@@ -642,6 +806,7 @@ struct LogChunkTopo : public LogChunk {
       }
       /* (Created && Dead) records were dropped at kill time. */
     }
+    CK("main-loop", nullptr);
 
     if (tree) {
       /* Post-pass (mesh now fully in pre-step state): re-own faces that came
@@ -650,17 +815,22 @@ struct LogChunkTopo : public LogChunk {
       for (LogElem *e : records) {
         if (e->kind != LogElemKind::Face)
           continue;
-        if (e->origin == LogOrigin::Existed &&
-            (e->fate == LogFate::Dead || e->fate == LogFate::Live))
-        {
+        if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
           tree->add_face(e->begin_mesh_index);
+        } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
+          // double check face is in tree
+          if (tree->treeMesh.f.node[e->begin_mesh_index] == 0) {
+            tree->add_face(e->begin_mesh_index);
+          }
         }
+        CK("post-op", e);
       }
     }
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    printf("redo 1\n");
     Vector<LogElem *> records = getSortedRecords();
 
     if (tree) {
@@ -671,16 +841,20 @@ struct LogChunkTopo : public LogChunk {
       for (LogElem *e : records) {
         if (e->origin != LogOrigin::Existed)
           continue;
-        if (e->kind == LogElemKind::Face &&
-            (e->fate == LogFate::Dead || e->fate == LogFate::Live))
-        {
+        if (e->kind == LogElemKind::Face && e->fate == LogFate::Dead) {
           tree->remove_face(e->begin_mesh_index);
+        } else if (e->kind == LogElemKind::Face && e->fate == LogFate::Live) {
+          // XXX do we want to remove faces here?
+          if (tree->treeMesh.f.node[e->begin_mesh_index] != 0) {
+            tree->remove_face(e->begin_mesh_index);
+          }
         } else if (e->kind == LogElemKind::Vert && e->fate == LogFate::Dead) {
           tree->remove_vert(e->begin_mesh_index);
         }
       }
     }
 
+    printf("redo 2\n");
     /* Forward order: allocate underlying before dependents reference them. */
     for (int i = 0; i < records.size(); i++) {
       LogElem *e = records[i];
@@ -701,15 +875,20 @@ struct LogChunkTopo : public LogChunk {
       }
     }
 
+    printf("redo 3\n");
     if (tree) {
       /* Post-pass (mesh in post-step state): re-own recreated/rewired faces. */
       for (LogElem *e : records) {
         if (e->kind != LogElemKind::Face)
           continue;
         if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-          tree->add_face(e->end_mesh_index);
+          if (tree->treeMesh.f.node[e->end_mesh_index] == 0) {
+            tree->add_face(e->end_mesh_index);
+          }
         } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
-          tree->add_face(e->begin_mesh_index);
+          if (tree->treeMesh.f.node[e->begin_mesh_index] == 0) {
+            tree->add_face(e->begin_mesh_index);
+          }
         }
       }
     }
@@ -779,7 +958,9 @@ private:
     if (e->end_body) {
       bodies_pool.release(e->end_body);
     }
-    records_pool.release(e);
+    if (!records_pool.release(e)) {
+      printf("log elem double free!\n");
+    }
   }
 };
 
@@ -846,6 +1027,7 @@ struct MeshLog {
    */
   struct LogEntry {
     LogChunkTopo *topo_chunk_ = nullptr;
+    bool hasTopoChunk = false;
 
     Vector<LogChunk *> chunks;
     /** Monotonic step id assigned by beginStep; stable across history trims. */
@@ -884,7 +1066,7 @@ struct MeshLog {
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     BIND_STRUCT_METHOD(st, undo, MARGS("m", "tree"));
     BIND_STRUCT_METHOD(st, redo, MARGS("m", "tree"));
-    BIND_STRUCT_METHOD(st, beginStep, MARGS());
+    BIND_STRUCT_METHOD(st, beginStep, MARGS("hasDyntopo"));
     BIND_STRUCT_METHOD(st, endStep, MARGS());
     BIND_STRUCT_METHOD(st, lastStepId, MARGS());
     BIND_STRUCT_METHOD(st, stepMemSize, MARGS("id"));
@@ -919,7 +1101,7 @@ struct MeshLog {
     active_mesh_ = m;
   }
 
-  void beginStep()
+  void beginStep(bool hasDyntopo)
   {
     if (curStep_ != entries.size()) {
       /** thoeretically this should call all the right destructors */
@@ -927,6 +1109,9 @@ struct MeshLog {
     }
     entries.grow_one();
     entries.last().id = nextStepId_++;
+    if (hasDyntopo) {
+      pushTopoChunk();
+    }
   }
 
   /** Id of the most recently begun step (-1 if none). Call right after
@@ -1018,7 +1203,7 @@ struct MeshLog {
 
   bool hasTopoChunk() const
   {
-    return curEntry().topo_chunk_ != nullptr;
+    return curEntry().hasTopoChunk;
   }
 
   void pushTopoChunk()
@@ -1028,6 +1213,7 @@ struct MeshLog {
       abort();
     }
     curEntry().topo_chunk_ = litestl::alloc::New<LogChunkTopo>("LogChunkTopo");
+    curEntry().hasTopoChunk = true;
     curEntry().chunks.append(curEntry().topo_chunk_);
   }
 
@@ -1064,6 +1250,9 @@ struct MeshLog {
   LogChunkSimple *
   getSimpleChunk(int nodeId, int vcount, int ecount, int ccount, int fcount)
   {
+    printf(
+        "getSimpleChunk(%d, %d, %d, %d, %d)\n", nodeId, vcount, ecount, ccount, fcount);
+
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       fprintf(stderr, "Error: getSimpleChunk called with no current undo entry\n");
       abort();

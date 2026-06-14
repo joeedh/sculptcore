@@ -58,19 +58,19 @@ int main()
   exec.ctx.renderMatrix = scene.renderMatrix;
 
   /* Stroke 1: dyntopo dabs across the +Z face (one meshlog step). */
-  exec.beginStep();
+  exec.beginStep(true);
   const int NDABS = 6;
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.18f + 0.36f * t, -0.05f + 0.1f * t, 0.25f);
-    exec.applyDynTopoDab(origin, radius, &scene.dyntopoParams,
-                         scene.dyntopoSeed + uint32_t(d));
+    exec.applyDynTopoDab(
+        origin, radius, &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(d));
     litestl::util::Vector<spatial::SpatialNode *> nodes;
     scene.tree->filterNodes(origin, radius, nodes);
     if (nodes.size() == 0) {
       continue;
     }
-    exec.execBrush(scene.currentTool, &nodes, origin, normal);
+    exec.execBrush(scene.mesh, scene.currentTool, &nodes, origin, normal);
     exec.clearIsFirstOfStep();
   }
   exec.endStep();
@@ -86,7 +86,7 @@ int main()
   scene.tree->applyDeferredNodeSplit();
 
   /* Stroke 2: plain brush only (no dyntopo), its own meshlog step. */
-  exec.beginStep();
+  exec.beginStep(false);
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.18f + 0.36f * t, -0.05f + 0.1f * t, 0.25f);
@@ -95,13 +95,16 @@ int main()
     if (nodes.size() == 0) {
       continue;
     }
-    exec.execBrush(scene.currentTool, &nodes, origin, normal);
+    exec.execBrush(scene.mesh, scene.currentTool, &nodes, origin, normal);
     exec.clearIsFirstOfStep();
   }
   exec.endStep();
 
-  printf("  stroke2 (plain): v=%d f=%d, entries=%d, frozen=%d\n", m->v.count,
-         m->f.count, scene.meshLog.entryCount(), int(m->topo_frozen));
+  printf("  stroke2 (plain): v=%d f=%d, entries=%d, frozen=%d\n",
+         m->v.count,
+         m->f.count,
+         scene.meshLog.entryCount(),
+         int(m->topo_frozen));
   test_assert(scene.meshLog.entryCount() == 2);
   /* The plain stroke must have frozen topology — that's the failing setup. */
   test_assert(m->topo_frozen);
@@ -111,8 +114,11 @@ int main()
   scene.meshLog.undo(m, scene.tree);
   printf("  undo stroke1 (dyntopo, non-newest)...\n");
   scene.meshLog.undo(m, scene.tree);
-  printf("  after undo x2: v=%d (want %d), f=%d (want %d)\n", m->v.count, vBefore,
-         m->f.count, fBefore);
+  printf("  after undo x2: v=%d (want %d), f=%d (want %d)\n",
+         m->v.count,
+         vBefore,
+         m->f.count,
+         fBefore);
   test_assert(m->v.count == vBefore);
   test_assert(m->f.count == fBefore);
 
@@ -127,16 +133,21 @@ int main()
     }
   }
   if (badPos) {
-    fprintf(stderr, "  %d/%d original verts NOT restored to pre-stroke position\n",
-            badPos, vBefore);
+    fprintf(stderr,
+            "  %d/%d original verts NOT restored to pre-stroke position\n",
+            badPos,
+            vBefore);
   }
   test_assert(badPos == 0);
 
   /* Redo both steps — counts must return to the post-stroke2 state. */
   scene.meshLog.redo(m, scene.tree);
   scene.meshLog.redo(m, scene.tree);
-  printf("  after redo x2: v=%d (want %d), f=%d (want %d)\n", m->v.count, vMid,
-         m->f.count, fMid);
+  printf("  after redo x2: v=%d (want %d), f=%d (want %d)\n",
+         m->v.count,
+         vMid,
+         m->f.count,
+         fMid);
   test_assert(m->v.count == vMid);
   test_assert(m->f.count == fMid);
 

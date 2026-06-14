@@ -257,7 +257,7 @@ int Scene::applyDynTopoDab(litestl::math::float3 center,
   }
 
   if (log) {
-    meshLog.beginStep();
+    meshLog.beginStep(dyntopoEnabled);
   }
   dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
       *mesh,
@@ -289,7 +289,7 @@ void Scene::reorderForLocality()
   litestl::util::Vector<int> vmap, emap, cmap, lmap, fmap;
   tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
 
-  meshLog.beginStep();
+  meshLog.beginStep(false);
   meshLog.pushReorderChunk(vmap, emap, cmap, lmap, fmap);
   tree->applyReorder(vmap, emap, cmap, lmap, fmap);
   meshLog.endStep();

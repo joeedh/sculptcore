@@ -168,7 +168,7 @@ void InteractiveController::beginStroke(float2 cursor)
   /* Keep topology thawed for the whole stroke when dyntopo is on, so the per-dab
    * remesh doesn't fight the brush's per-dab freeze (an O(mesh) thaw each dab). */
   exec_->keepTopoThawed = scene_->dyntopoEnabled;
-  exec_->beginStep();
+  exec_->beginStep(scene_->dyntopoEnabled);
 
   /* Dyntopo pre-pass: remesh under the dab (incremental; updates the tree in
    * place, so exec_'s tree pointer stays valid). Unlogged for now — undo
@@ -181,7 +181,7 @@ void InteractiveController::beginStroke(float2 cursor)
   scene_->tree->filterNodes(hit, scene_->brush.radius, nodes);
   if (nodes.size() != 0) {
     auto ptDab = StrokeProfiler::now();
-    exec_->execBrush(scene_->currentTool, &nodes, hit, normal);
+    exec_->execBrush(scene_->mesh, scene_->currentTool, &nodes, hit, normal);
     exec_->clearIsFirstOfStep();
     scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0,
                             0);
@@ -232,7 +232,7 @@ void InteractiveController::continueStroke(float2 cursor)
       return;
     }
     auto ptDab = StrokeProfiler::now();
-    exec_->execBrush(scene_->currentTool, &nodes, p, normal);
+    exec_->execBrush(scene_->mesh, scene_->currentTool, &nodes, p, normal);
     exec_->clearIsFirstOfStep();
     scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0,
                             0);

@@ -7,8 +7,8 @@
 namespace sculptcore::brush::sbrush {
 
 using litestl::util::string;
-using litestl::util::Vector;
 using litestl::util::stringref;
+using litestl::util::Vector;
 
 namespace {
 
@@ -16,8 +16,8 @@ struct Emit {
   const Brush *brush;
   const Stage *vertexStage = nullptr;
   const Stage *faceStage = nullptr;
-  string vertexParamName;  // e.g. "v"
-  string faceParamName;    // e.g. "f"
+  string vertexParamName; // e.g. "v"
+  string faceParamName;   // e.g. "f"
 
   // Stage currently being lowered — drives stage-param identifier
   // resolution (so reduce-body `s` and vertex-body `v` route correctly).
@@ -59,16 +59,24 @@ struct Emit {
 
   void writeIndent()
   {
-    for (int i = 0; i < indent; i++) out += "  ";
+    for (int i = 0; i < indent; i++)
+      out += "  ";
   }
 
-  void write(const char *s) { out += s; }
-  void write(const string &s) { out += s; }
+  void write(const char *s)
+  {
+    out += s;
+  }
+  void write(const string &s)
+  {
+    out += s;
+  }
 
   bool isLocal(stringref name) const
   {
     for (const auto &l : locals) {
-      if (string(l).operator==(string(name.c_str()))) return true;
+      if (string(l).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -76,7 +84,8 @@ struct Emit {
   const Field *findField(stringref name) const
   {
     for (const auto &f : brush->fields) {
-      if (string(f.name).operator==(string(name.c_str()))) return &f;
+      if (string(f.name).operator==(string(name.c_str())))
+        return &f;
     }
     return nullptr;
   }
@@ -85,8 +94,10 @@ struct Emit {
   const Field *findAttrField(stringref name) const
   {
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr) continue;
-      if (string(f.name).operator==(string(name.c_str()))) return &f;
+      if (f.kind != FieldKind::Attr)
+        continue;
+      if (string(f.name).operator==(string(name.c_str())))
+        return &f;
     }
     return nullptr;
   }
@@ -97,15 +108,21 @@ struct Emit {
   bool bundleInfo(stringref name, const char *&idxField, const char *&prefix) const
   {
     if (string(vertexParamName).operator==(string(name.c_str()))) {
-      idxField = "v"; prefix = "__attr_"; return true;
+      idxField = "v";
+      prefix = "__attr_";
+      return true;
     }
     for (const auto &b : nbrBundles) {
       if (string(b).operator==(string(name.c_str()))) {
-        idxField = "v"; prefix = "__attr_"; return true;
+        idxField = "v";
+        prefix = "__attr_";
+        return true;
       }
     }
     if (faceParamName.size() && string(faceParamName).operator==(string(name.c_str()))) {
-      idxField = "f"; prefix = "__fattr_"; return true;
+      idxField = "f";
+      prefix = "__fattr_";
+      return true;
     }
     return false;
   }
@@ -115,16 +132,19 @@ struct Emit {
   {
     for (const auto &t : brush->textures) {
       string full = t.name + ".eval";
-      if (string(full).operator==(string(callName.c_str()))) return &t;
+      if (string(full).operator==(string(callName.c_str())))
+        return &t;
     }
     return nullptr;
   }
 
   bool isStageParam(stringref name) const
   {
-    if (!currentStage) return false;
+    if (!currentStage)
+      return false;
     for (const auto &p : currentStage->params) {
-      if (string(p.name).operator==(string(name.c_str()))) return true;
+      if (string(p.name).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -141,10 +161,14 @@ struct Emit {
       // without a decimal point, which then makes "0f" / "1e10f" invalid.
       bool hasDot = false;
       for (const char *p = buf; *p; p++) {
-        if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+        if (*p == '.' || *p == 'e' || *p == 'E') {
+          hasDot = true;
+          break;
+        }
       }
       out += buf;
-      if (!hasDot) out += ".0";
+      if (!hasDot)
+        out += ".0";
       out += "f";
       break;
     }
@@ -168,14 +192,11 @@ struct Emit {
         // CommandCtxBase members (surfacePos, surfaceNo, mouse, …),
         // which keep the legacy `ctx.<name>` spelling.
         const char *n = e.name.c_str();
-        bool isCtxBase = (std::strcmp(n, "mouse") == 0) ||
-                         (std::strcmp(n, "mousePos") == 0) ||
-                         (std::strcmp(n, "surfacePos") == 0) ||
-                         (std::strcmp(n, "surfaceNo") == 0) ||
-                         (std::strcmp(n, "mouseDir") == 0) ||
-                         (std::strcmp(n, "renderMatrix") == 0) ||
-                         (std::strcmp(n, "isFirstOfStep") == 0) ||
-                         (std::strcmp(n, "meshLog") == 0);
+        bool isCtxBase =
+            (std::strcmp(n, "mouse") == 0) || (std::strcmp(n, "mousePos") == 0) ||
+            (std::strcmp(n, "surfacePos") == 0) || (std::strcmp(n, "surfaceNo") == 0) ||
+            (std::strcmp(n, "mouseDir") == 0) || (std::strcmp(n, "renderMatrix") == 0) ||
+            (std::strcmp(n, "isFirstOfStep") == 0) || (std::strcmp(n, "meshLog") == 0);
         // Host stages take `(CommandCtxBase &ctx, Brush &brush)` — there
         // is no `ctx.brush`, so uniforms/non-builtin ctx fields resolve
         // to bare `brush.X` instead. Builtin ctx-base fields still go
@@ -202,7 +223,8 @@ struct Emit {
       if (e.lhs->kind == ExprKind::Ident) {
         const char *bidx = nullptr, *bprefix = nullptr;
         if (bundleInfo(stringref(e.lhs->name.c_str()), bidx, bprefix) &&
-            findAttrField(stringref(e.name.c_str()))) {
+            findAttrField(stringref(e.name.c_str())))
+        {
           out += "(*";
           out += bprefix;
           out += e.name;
@@ -251,8 +273,11 @@ struct Emit {
       // the same shape lowers to WGSL/OpenCL, which have no closures.
       if (std::strcmp(e.name.c_str(), "grad") == 0 && e.args.size() == 2) {
         gradUsed = true;
-        string savedVar = gradVar; gradVar = render(*e.args[1]);
-        out += "("; emitDual(*e.args[0]); out += ").d";
+        string savedVar = gradVar;
+        gradVar = render(*e.args[1]);
+        out += "(";
+        emitDual(*e.args[0]);
+        out += ").d";
         gradVar = savedVar;
         break;
       }
@@ -262,7 +287,8 @@ struct Emit {
         out += capitalize(td->name);
         out += "Eval(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         out += ")";
@@ -286,7 +312,7 @@ struct Emit {
           rendered.append(out);
           out = saved;
         }
-        for (const char *p = pat; *p; ) {
+        for (const char *p = pat; *p;) {
           if (*p == '$' && std::isdigit((unsigned char)p[1])) {
             int idx = p[1] - '0';
             p += 2;
@@ -308,7 +334,8 @@ struct Emit {
         out += e.name;
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         out += ")";
@@ -322,34 +349,102 @@ struct Emit {
   // non-`var` identifiers carry zero derivative (sb_c/sb_c3); `var` is the
   // seeded sbdual3; intrinsics map to sbd_* chain-rule overloads. The prelude
   // provides overloaded operators, so binary/unary just emit verbatim.
-  string render(const Expr &e) { string saved = out; out = string(""); emitExpr(e); string r = out; out = saved; return r; }
-  bool isGradVar(const Expr &e) { string r = render(e); return string(r).operator==(string(gradVar.c_str())); }
+  string render(const Expr &e)
+  {
+    string saved = out;
+    out = string("");
+    emitExpr(e);
+    string r = out;
+    out = saved;
+    return r;
+  }
+  bool isGradVar(const Expr &e)
+  {
+    string r = render(e);
+    return string(r).operator==(string(gradVar.c_str()));
+  }
 
   void emitDual(const Expr &e)
   {
-    if (isGradVar(e)) { out += "sb_seed3("; emitExpr(e); out += ")"; return; }  // seeded float3 var
+    if (isGradVar(e)) {
+      out += "sb_seed3(";
+      emitExpr(e);
+      out += ")";
+      return;
+    } // seeded float3 var
     switch (e.kind) {
-    case ExprKind::LitFloat: case ExprKind::LitInt:
-      out += "sb_c("; emitExpr(e); out += ")"; break;
-    case ExprKind::Ident:
-      out += "sb_c3("; emitExpr(e); out += ")"; break;  // float3 const (zero deriv)
-    case ExprKind::Member:
-      if (e.lhs && isGradVar(*e.lhs)) {  // var.x/y/z picks a Jacobian row
-        out += "sb_comp(sb_seed3("; emitExpr(*e.lhs); out += "), "; out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")";
-      } else { out += "sb_c("; emitExpr(e); out += ")"; }
+    case ExprKind::LitFloat:
+    case ExprKind::LitInt:
+      out += "sb_c(";
+      emitExpr(e);
+      out += ")";
       break;
-    case ExprKind::Paren: out += "("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Ident:
+      out += "sb_c3(";
+      emitExpr(e);
+      out += ")";
+      break; // float3 const (zero deriv)
+    case ExprKind::Member:
+      if (e.lhs && isGradVar(*e.lhs)) { // var.x/y/z picks a Jacobian row
+        out += "sb_comp(sb_seed3(";
+        emitExpr(*e.lhs);
+        out += "), ";
+        out += (std::strcmp(e.name.c_str(), "x") == 0   ? "0"
+                : std::strcmp(e.name.c_str(), "y") == 0 ? "1"
+                                                        : "2");
+        out += ")";
+      } else {
+        out += "sb_c(";
+        emitExpr(e);
+        out += ")";
+      }
+      break;
+    case ExprKind::Paren:
+      out += "(";
+      emitDual(*e.lhs);
+      out += ")";
+      break;
     case ExprKind::Binary:
-      out += "("; emitDual(*e.lhs); out += " "; out += binOpCSym(e.binop); out += " "; emitDual(*e.rhs); out += ")"; break;
-    case ExprKind::Unary: out += "("; out += unaryOpCSym(e.unaryop); emitDual(*e.lhs); out += ")"; break;
+      out += "(";
+      emitDual(*e.lhs);
+      out += " ";
+      out += binOpCSym(e.binop);
+      out += " ";
+      emitDual(*e.rhs);
+      out += ")";
+      break;
+    case ExprKind::Unary:
+      out += "(";
+      out += unaryOpCSym(e.unaryop);
+      emitDual(*e.lhs);
+      out += ")";
+      break;
     case ExprKind::Call: {
       const char *n = e.name.c_str();
-      if (std::strcmp(n,"float3")==0) { out += "sb_v3("; for (int i=0;i<3;i++){if(i)out+=", ";emitDual(*e.args[i]);} out += ")"; break; }
-      out += "sbd_"; out += n; out += "(";
-      for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
-      out += ")"; break;
+      if (std::strcmp(n, "float3") == 0) {
+        out += "sb_v3(";
+        for (int i = 0; i < 3; i++) {
+          if (i)
+            out += ", ";
+          emitDual(*e.args[i]);
+        }
+        out += ")";
+        break;
+      }
+      out += "sbd_";
+      out += n;
+      out += "(";
+      for (int i = 0; i < (int)e.args.size(); i++) {
+        if (i)
+          out += ", ";
+        emitDual(*e.args[i]);
+      }
+      out += ")";
+      break;
     }
-    default: out += "sb_c(0.0f)"; break;
+    default:
+      out += "sb_c(0.0f)";
+      break;
     }
   }
 
@@ -370,13 +465,17 @@ struct Emit {
   {
     switch (s.kind) {
     case StmtKind::Block: {
-      writeIndent(); out += "{\n";
+      writeIndent();
+      out += "{\n";
       indent++;
       int savedLocals = (int)locals.size();
-      for (const auto &c : s.stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : s.stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       break;
     }
     case StmtKind::DeclLocal:
@@ -409,10 +508,13 @@ struct Emit {
         out += "{\n";
         indent++;
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
         indent--;
-        writeIndent(); out += "}";
+        writeIndent();
+        out += "}";
       } else if (s.thenBranch) {
         out += "\n";
         indent++;
@@ -426,10 +528,13 @@ struct Emit {
           out += "{\n";
           indent++;
           int savedLocals = (int)locals.size();
-          for (const auto &c : s.elseBranch->stmts) emitStmt(*c);
-          while ((int)locals.size() > savedLocals) locals.pop_back();
+          for (const auto &c : s.elseBranch->stmts)
+            emitStmt(*c);
+          while ((int)locals.size() > savedLocals)
+            locals.pop_back();
           indent--;
-          writeIndent(); out += "}\n";
+          writeIndent();
+          out += "}\n";
         } else if (s.elseBranch->kind == StmtKind::If) {
           // else-if chaining
           emitStmt(*s.elseBranch);
@@ -461,27 +566,34 @@ struct Emit {
         string frag = out;
         out = saved;
         int n = (int)frag.size();
-        while (n > 0 && frag[n - 1] == '\n') n--;
-        if (stripSemi && n > 0 && frag[n - 1] == ';') n--;
+        while (n > 0 && frag[n - 1] == '\n')
+          n--;
+        if (stripSemi && n > 0 && frag[n - 1] == ';')
+          n--;
         for (int i = 0; i < n; i++) {
           char tmp[2] = {frag[i], 0};
           out += tmp;
         }
       };
-      if (s.forInit) renderFrag(*s.forInit, /*stripSemi=*/false);
+      if (s.forInit)
+        renderFrag(*s.forInit, /*stripSemi=*/false);
       out += " ";
       emitExpr(*s.cond);
       out += "; ";
-      if (s.forStep) renderFrag(*s.forStep, /*stripSemi=*/true);
+      if (s.forStep)
+        renderFrag(*s.forStep, /*stripSemi=*/true);
       out += ") ";
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
         out += "{\n";
         indent++;
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
         indent--;
-        writeIndent(); out += "}\n";
+        writeIndent();
+        out += "}\n";
       } else if (s.thenBranch) {
         out += "\n";
         indent++;
@@ -493,12 +605,16 @@ struct Emit {
       break;
     }
     case StmtKind::Continue:
-      writeIndent(); out += "continue;\n";
+      writeIndent();
+      out += "continue;\n";
       break;
     case StmtKind::Return:
       writeIndent();
       out += "return";
-      if (s.expr) { out += " "; emitExpr(*s.expr); }
+      if (s.expr) {
+        out += " ";
+        emitExpr(*s.expr);
+      }
       out += ";\n";
       break;
     case StmtKind::ExprStmt:
@@ -514,19 +630,23 @@ struct Emit {
       // vertex iter target. A real for loop (not a lambda) keeps continue/
       // break in the body working; NbrSrc monomorphizes the iteration.
       neighborLoopUsed = true;
-      writeIndent(); out += "{\n";
+      writeIndent();
+      out += "{\n";
       indent++;
-      writeIndent(); out += "int __outer_v = ";
+      writeIndent();
+      out += "int __outer_v = ";
       emitExpr(*s.lvalue);
       out += ".v;\n";
-      writeIndent(); out += "auto *__m = ctx.node.data->m;\n";
+      writeIndent();
+      out += "auto *__m = ctx.node.data->m;\n";
       writeIndent();
       out += "for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {\n";
       indent++;
       writeIndent();
       // Neighbor co reads via the AccumMode policy: the pre-dab Jacobi snapshot
       // (AccumLive) or the stroke-start position (AccumOrig); no/v stay live.
-      out += "struct { const litestl::math::float3 &co; litestl::math::float3 &no; int v; } ";
+      out += "struct { const litestl::math::float3 &co; litestl::math::float3 &no; int "
+             "v; } ";
       out += s.name;
       out += " {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};\n";
       // Body: emit either a Block (inline) or a single statement.
@@ -534,16 +654,20 @@ struct Emit {
       locals.append(s.name);
       nbrBundles.append(s.name);
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
       } else if (s.thenBranch) {
         emitStmt(*s.thenBranch);
       }
       nbrBundles.pop_back();
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       break;
     }
     }
@@ -554,7 +678,8 @@ struct Emit {
   static string capitalize(const string &s)
   {
     string r = s;
-    if (r.size() > 0) r[0] = (char)std::toupper((unsigned char)r[0]);
+    if (r.size() > 0)
+      r[0] = (char)std::toupper((unsigned char)r[0]);
     return r;
   }
 
@@ -574,10 +699,14 @@ struct Emit {
     std::snprintf(buf, sizeof(buf), "%.17g", v);
     bool hasDot = false;
     for (const char *p = buf; *p; p++) {
-      if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+      if (*p == '.' || *p == 'e' || *p == 'E') {
+        hasDot = true;
+        break;
+      }
     }
     string r = buf;
-    if (!hasDot) r += ".0";
+    if (!hasDot)
+      r += ".0";
     r += "f";
     return r;
   }
@@ -587,12 +716,18 @@ struct Emit {
   static const char *attrCppType(TypeKind t)
   {
     switch (t) {
-    case TypeKind::Float:  return "float";
-    case TypeKind::Float2: return "float2";
-    case TypeKind::Float3: return "float3";
-    case TypeKind::Float4: return "float4";
-    case TypeKind::Int:    return "int";
-    default:               return "float";
+    case TypeKind::Float:
+      return "float";
+    case TypeKind::Float2:
+      return "float2";
+    case TypeKind::Float3:
+      return "float3";
+    case TypeKind::Float4:
+      return "float4";
+    case TypeKind::Int:
+      return "int";
+    default:
+      return "float";
     }
   }
 
@@ -600,23 +735,34 @@ struct Emit {
   static const char *attrTypeEnum(TypeKind t)
   {
     switch (t) {
-    case TypeKind::Float:  return "sculptcore::mesh::AttrType::FLOAT";
-    case TypeKind::Float2: return "sculptcore::mesh::AttrType::FLOAT2";
-    case TypeKind::Float3: return "sculptcore::mesh::AttrType::FLOAT3";
-    case TypeKind::Float4: return "sculptcore::mesh::AttrType::FLOAT4";
-    case TypeKind::Int:    return "sculptcore::mesh::AttrType::INT";
-    case TypeKind::Bool:   return "sculptcore::mesh::AttrType::BOOL";
-    default:               return "sculptcore::mesh::AttrType::FLOAT";
+    case TypeKind::Float:
+      return "sculptcore::mesh::AttrType::FLOAT";
+    case TypeKind::Float2:
+      return "sculptcore::mesh::AttrType::FLOAT2";
+    case TypeKind::Float3:
+      return "sculptcore::mesh::AttrType::FLOAT3";
+    case TypeKind::Float4:
+      return "sculptcore::mesh::AttrType::FLOAT4";
+    case TypeKind::Int:
+      return "sculptcore::mesh::AttrType::INT";
+    case TypeKind::Bool:
+      return "sculptcore::mesh::AttrType::BOOL";
+    default:
+      return "sculptcore::mesh::AttrType::FLOAT";
     }
   }
 
   static const char *attrDomainEnum(AttrDomain d)
   {
     switch (d) {
-    case AttrDomain::Vertex: return "sculptcore::brush::AttrElemDomain::Vertex";
-    case AttrDomain::Face:   return "sculptcore::brush::AttrElemDomain::Face";
-    case AttrDomain::Edge:   return "sculptcore::brush::AttrElemDomain::Edge";
-    case AttrDomain::Corner: return "sculptcore::brush::AttrElemDomain::Corner";
+    case AttrDomain::Vertex:
+      return "sculptcore::brush::AttrElemDomain::Vertex";
+    case AttrDomain::Face:
+      return "sculptcore::brush::AttrElemDomain::Face";
+    case AttrDomain::Edge:
+      return "sculptcore::brush::AttrElemDomain::Edge";
+    case AttrDomain::Corner:
+      return "sculptcore::brush::AttrElemDomain::Corner";
     }
     return "sculptcore::brush::AttrElemDomain::Vertex";
   }
@@ -639,8 +785,10 @@ struct Emit {
     currentStage = &st;
     if (st.body && st.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : st.body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : st.body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
@@ -662,13 +810,15 @@ struct Emit {
       if (p.type == TypeKind::Struct) {
         // Pass struct params by reference; const for pure-in to express
         // intent (and to allow temporaries down the line).
-        if (p.dir == ParamDir::In) write("const ");
+        if (p.dir == ParamDir::In)
+          write("const ");
         write(p.structName);
         write(" &");
       } else {
         // Scalars: by-ref for out/inout, by-value for in.
         write(typeKindName(p.type));
-        if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut) write(" &");
+        if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut)
+          write(" &");
       }
       write(" ");
       write(p.name);
@@ -679,8 +829,10 @@ struct Emit {
     currentStage = &st;
     if (st.body && st.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : st.body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : st.body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
@@ -698,7 +850,8 @@ struct Emit {
     write(capitalize(td.name));
     write("Eval(");
     for (int i = 0; i < (int)td.params.size(); i++) {
-      if (i > 0) write(", ");
+      if (i > 0)
+        write(", ");
       write(typeKindName(td.params[i].type));
       write(" ");
       write(td.params[i].name);
@@ -715,12 +868,15 @@ struct Emit {
     // stage params (bare names) rather than brush fields.
     Stage scratch;
     scratch.kind = StageKind::Reduce;
-    for (const auto &p : td.params) scratch.params.append(p);
+    for (const auto &p : td.params)
+      scratch.params.append(p);
     currentStage = &scratch;
     if (td.body && td.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : td.body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : td.body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
@@ -729,32 +885,58 @@ struct Emit {
 
   static bool exprUsesGrad(const Expr *e)
   {
-    if (!e) return false;
-    if (e->kind == ExprKind::Call && std::strcmp(e->name.c_str(), "grad") == 0) return true;
-    if (exprUsesGrad(e->lhs.get()) || exprUsesGrad(e->rhs.get())) return true;
-    for (const auto &a : e->args) if (exprUsesGrad(a.get())) return true;
+    if (!e)
+      return false;
+    if (e->kind == ExprKind::Call && std::strcmp(e->name.c_str(), "grad") == 0)
+      return true;
+    if (exprUsesGrad(e->lhs.get()) || exprUsesGrad(e->rhs.get()))
+      return true;
+    for (const auto &a : e->args)
+      if (exprUsesGrad(a.get()))
+        return true;
     return false;
   }
   static bool stmtUsesGrad(const Stmt *s)
   {
-    if (!s) return false;
+    if (!s)
+      return false;
     if (exprUsesGrad(s->expr.get()) || exprUsesGrad(s->cond.get()) ||
-        exprUsesGrad(s->lvalue.get()) || exprUsesGrad(s->rvalue.get())) return true;
-    for (const auto &c : s->stmts) if (stmtUsesGrad(c.get())) return true;
+        exprUsesGrad(s->lvalue.get()) || exprUsesGrad(s->rvalue.get()))
+      return true;
+    for (const auto &c : s->stmts)
+      if (stmtUsesGrad(c.get()))
+        return true;
     return stmtUsesGrad(s->thenBranch.get()) || stmtUsesGrad(s->elseBranch.get()) ||
            stmtUsesGrad(s->forInit.get()) || stmtUsesGrad(s->forStep.get());
   }
-  bool brushUsesGrad() const { for (const auto &st : brush->stages) if (stmtUsesGrad(st.body.get())) return true; return false; }
+  bool brushUsesGrad() const
+  {
+    for (const auto &st : brush->stages)
+      if (stmtUsesGrad(st.body.get()))
+        return true;
+    return false;
+  }
 
   static bool stmtUsesNeighbor(const Stmt *s)
   {
-    if (!s) return false;
-    if (s->kind == StmtKind::NeighborLoop) return true;
-    for (const auto &c : s->stmts) if (stmtUsesNeighbor(c.get())) return true;
-    return stmtUsesNeighbor(s->thenBranch.get()) || stmtUsesNeighbor(s->elseBranch.get()) ||
-           stmtUsesNeighbor(s->forInit.get()) || stmtUsesNeighbor(s->forStep.get());
+    if (!s)
+      return false;
+    if (s->kind == StmtKind::NeighborLoop)
+      return true;
+    for (const auto &c : s->stmts)
+      if (stmtUsesNeighbor(c.get()))
+        return true;
+    return stmtUsesNeighbor(s->thenBranch.get()) ||
+           stmtUsesNeighbor(s->elseBranch.get()) || stmtUsesNeighbor(s->forInit.get()) ||
+           stmtUsesNeighbor(s->forStep.get());
   }
-  bool brushUsesNeighbor() const { for (const auto &st : brush->stages) if (stmtUsesNeighbor(st.body.get())) return true; return false; }
+  bool brushUsesNeighbor() const
+  {
+    for (const auto &st : brush->stages)
+      if (stmtUsesNeighbor(st.body.get()))
+        return true;
+    return false;
+  }
 
   // Emit a `face` stage as the brush's primary kernel: walk the node's faces
   // (BasicFaceIter, which exposes f.center/f.no + bound face attrs) and run the
@@ -774,7 +956,8 @@ struct Emit {
     write("  using namespace litestl::math;\n");
     write("  bool any_changed = false;\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face) continue;
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face)
+        continue;
       write("  auto *__fattr_");
       write(f.name);
       write(" = ctx.template boundAttr<");
@@ -792,8 +975,10 @@ struct Emit {
     currentStage = faceStage;
     if (faceStage->body && faceStage->body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : faceStage->body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : faceStage->body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     writeIndent();
     write("any_changed = true;\n");
@@ -808,7 +993,8 @@ struct Emit {
 
   void run()
   {
-    string lowerName = lower(string(brush->attrName.size() > 0 ? brush->attrName : brush->cppName));
+    string lowerName =
+        lower(string(brush->attrName.size() > 0 ? brush->attrName : brush->cppName));
     string camelName = capitalize(lowerName);
 
     // for_neighbor brushes are templated on a NbrSource policy (live disk walk
@@ -824,7 +1010,8 @@ struct Emit {
     write("#include \"brush/brush_command.h\"\n");
     write("#include \"spatial/spatial_enums.h\"\n");
     write("#include \"mesh/mesh_iter.h\"\n");
-    if (usesNbr) write("#include \"brush/neighbor_source.h\"\n");
+    if (usesNbr)
+      write("#include \"brush/neighbor_source.h\"\n");
     write("\n");
     write("namespace sculptcore::brush::command {\n\n");
 
@@ -851,20 +1038,33 @@ struct Emit {
       write("struct sbdual { float v; float3 d; };\n");
       write("struct sbdual3 { float3 v; float3 dx, dy, dz; };\n");
       write("inline sbdual sb_c(float x){return {x,float3(0,0,0)};}\n");
-      write("inline sbdual3 sb_c3(float3 p){return {p,float3(0,0,0),float3(0,0,0),float3(0,0,0)};}\n");
-      write("inline sbdual3 sb_seed3(float3 p){return {p,float3(1,0,0),float3(0,1,0),float3(0,0,1)};}\n");
-      write("inline sbdual sb_comp(sbdual3 a,int i){return {a.v[i],float3(a.dx[i],a.dy[i],a.dz[i])};}\n");
-      write("inline sbdual3 sb_v3(sbdual x,sbdual y,sbdual z){return {float3(x.v,y.v,z.v),float3(x.d[0],y.d[0],z.d[0]),float3(x.d[1],y.d[1],z.d[1]),float3(x.d[2],y.d[2],z.d[2])};}\n");
+      write("inline sbdual3 sb_c3(float3 p){return "
+            "{p,float3(0,0,0),float3(0,0,0),float3(0,0,0)};}\n");
+      write("inline sbdual3 sb_seed3(float3 p){return "
+            "{p,float3(1,0,0),float3(0,1,0),float3(0,0,1)};}\n");
+      write("inline sbdual sb_comp(sbdual3 a,int i){return "
+            "{a.v[i],float3(a.dx[i],a.dy[i],a.dz[i])};}\n");
+      write("inline sbdual3 sb_v3(sbdual x,sbdual y,sbdual z){return "
+            "{float3(x.v,y.v,z.v),float3(x.d[0],y.d[0],z.d[0]),float3(x.d[1],y.d[1],z.d["
+            "1]),float3(x.d[2],y.d[2],z.d[2])};}\n");
       write("inline sbdual operator+(sbdual a,sbdual b){return {a.v+b.v,a.d+b.d};}\n");
       write("inline sbdual operator-(sbdual a,sbdual b){return {a.v-b.v,a.d-b.d};}\n");
       write("inline sbdual operator-(sbdual a){return {-a.v,-a.d};}\n");
-      write("inline sbdual operator*(sbdual a,sbdual b){return {a.v*b.v,a.d*b.v+b.d*a.v};}\n");
-      write("inline sbdual operator/(sbdual a,sbdual b){return {a.v/b.v,(a.d*b.v-b.d*a.v)/(b.v*b.v)};}\n");
-      write("inline sbdual sbd_sin(sbdual a){return {std::sin(a.v),a.d*std::cos(a.v)};}\n");
-      write("inline sbdual sbd_cos(sbdual a){return {std::cos(a.v),a.d*(-std::sin(a.v))};}\n");
-      write("inline sbdual sbd_sqrt(sbdual a){float r=std::sqrt(a.v);return {r,a.d*(r>0?0.5f/r:0.0f)};}\n");
-      write("inline sbdual sbd_abs(sbdual a){return {std::abs(a.v),a.d*(a.v<0?-1.0f:1.0f)};}\n");
-      write("inline sbdual sbd_dot(sbdual3 a,sbdual3 b){return {a.v.dot(b.v),a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z};}\n");
+      write("inline sbdual operator*(sbdual a,sbdual b){return "
+            "{a.v*b.v,a.d*b.v+b.d*a.v};}\n");
+      write("inline sbdual operator/(sbdual a,sbdual b){return "
+            "{a.v/b.v,(a.d*b.v-b.d*a.v)/(b.v*b.v)};}\n");
+      write(
+          "inline sbdual sbd_sin(sbdual a){return {std::sin(a.v),a.d*std::cos(a.v)};}\n");
+      write("inline sbdual sbd_cos(sbdual a){return "
+            "{std::cos(a.v),a.d*(-std::sin(a.v))};}\n");
+      write("inline sbdual sbd_sqrt(sbdual a){float r=std::sqrt(a.v);return "
+            "{r,a.d*(r>0?0.5f/r:0.0f)};}\n");
+      write("inline sbdual sbd_abs(sbdual a){return "
+            "{std::abs(a.v),a.d*(a.v<0?-1.0f:1.0f)};}\n");
+      write("inline sbdual sbd_dot(sbdual3 a,sbdual3 b){return "
+            "{a.v.dot(b.v),a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a."
+            "v.z};}\n");
       write("inline sbdual sbd_length(sbdual3 a){return sbd_sqrt(sbd_dot(a,a));}\n");
       write("inline sbdual sbd_mix(sbdual a,sbdual b,sbdual t){return a+(b-a)*t;}\n\n");
     }
@@ -883,9 +1083,19 @@ struct Emit {
     write("{\n");
     write("  if (ctx.meshLog) {\n");
     write("    for (auto *node : nodes) {\n");
+    write("      // did we already write undo data for this node?\n");
     write("      if (ctx.meshLog->hasSimpleChunk(node->id)) continue;\n");
+    write("      auto *topoChunk = ctx.meshLog->getTopoChunk();\n");
+    write("      if (topoChunk) {\n");
+    write("        for (auto &v : node->unique_verts()) {\n");
+    write("          topoChunk->onChange(sculptcore::meshlog::LogElemKind::Vert,\n");
+    write("                              ctx.m, v);\n");
+    write("        }\n");
+    write("        continue;\n");
+    write("      }\n");
     write("      auto *simple = ctx.meshLog->getSimpleChunk(\n");
-    write("          node->id, node->unique_verts().size(), 0, 0, node->unique_faces().size());\n");
+    write("          node->id, node->unique_verts().size(), 0, 0, "
+          "node->unique_faces().size());\n");
     write("      auto *m = node->data->m;\n");
     write("      simple->v.ensureAttr(m->v.attrs, m->v.co);\n");
     write("      simple->v.ensureAttr(m->v.attrs, m->v.no);\n");
@@ -901,7 +1111,8 @@ struct Emit {
     // fields the host populated) can rely on its side effects.
     Vector<const Stage *> hostStages;
     for (const auto &st : brush->stages) {
-      if (st.kind == StageKind::Host) hostStages.append(&st);
+      if (st.kind == StageKind::Host)
+        hostStages.append(&st);
     }
     for (const auto *st : hostStages) {
       emitHostStage(*st, lowerName);
@@ -911,7 +1122,8 @@ struct Emit {
     // function can call them by name.
     Vector<const Stage *> reduceStages;
     for (const auto &st : brush->stages) {
-      if (st.kind == StageKind::Reduce) reduceStages.append(&st);
+      if (st.kind == StageKind::Reduce)
+        reduceStages.append(&st);
     }
     for (const auto *st : reduceStages) {
       emitReduceStage(*st, lowerName);
@@ -926,116 +1138,124 @@ struct Emit {
     if (faceStage && !vertexStage) {
       emitFaceKernel(lowerName);
     } else {
-    if (vertexStage->params.size() < 1) {
-      err("vertex stage must take at least one parameter (the Vertex bundle)");
-    }
-
-    if (usesNbr) {
-      write("template <CommandTypes TYPES, sculptcore::brush::NbrSource NbrSrc, "
-            "sculptcore::brush::AccumMode AccMode>\n");
-    } else {
-      write("template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>\n");
-    }
-    write("static void ");
-    write(lowerName);
-    write("(CommandCtx<TYPES> &ctx)\n");
-    write("{\n");
-    write("  using namespace sculptcore::spatial;\n");
-    write("  using namespace litestl::math;\n");
-    write("  bool any_moved = false;\n");
-
-    // Bound attribute handles (resolved per-dab in the executor). A handle is
-    // null only for an optional layer that was absent; write kernels declare
-    // their target attr so it's always present here.
-    for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr) continue;
-      if (f.domain != AttrDomain::Vertex) continue;  // vertex stage: vertex attrs
-      write("  auto *__attr_");
-      write(f.name);
-      write(" = ctx.template boundAttr<");
-      write(attrCppType(f.type));
-      write(">(\"");
-      write(f.name);
-      write("\"); (void)__attr_");
-      write(f.name);
-      write(";\n");
-    }
-
-    // Non-Vertex vertex params get declared as locals and seeded by the
-    // matching reduce-stage output (matched by param name). The vertex
-    // body then sees them as ordinary stage params — struct, scalar,
-    // or vector. Struct locals are default-constructed; scalars stay
-    // uninitialized until the reduce call runs (the executor always
-    // calls every reduce stage before the per-vertex loop).
-    for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
-      const auto &p = vertexStage->params[pi];
-      write("  ");
-      emitTypeRef(p.type, p.structName);
-      write(" ");
-      write(p.name);
-      write(";\n");
-    }
-    // Call each reduce stage in source order. Argument matching is
-    // by-name to a vertex-stage local declared above; both struct
-    // and scalar params are passed by reference at the C++ level
-    // (the reduce signature already declares scalars as `T &` for
-    // out/inout, by value for in — the call site looks the same).
-    for (const auto *st : reduceStages) {
-      write("  ");
-      write(lowerName);
-      write(capitalize(st->name));
-      write("<TYPES>(ctx");
-      for (const auto &rp : st->params) {
-        write(", ");
-        bool found = false;
-        for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
-          const auto &vp = vertexStage->params[pi];
-          if (vp.type != rp.type) continue;
-          if (!string(vp.name).operator==(string(rp.name.c_str()))) continue;
-          if (rp.type == TypeKind::Struct &&
-              !string(vp.structName).operator==(string(rp.structName.c_str()))) continue;
-          write(vp.name);
-          found = true;
-          break;
-        }
-        if (!found) {
-          errf("reduce param '%s' has no matching vertex-stage local of the same type",
-               rp.name.c_str());
-          write("/*unmatched*/");
-        }
+      if (vertexStage->params.size() < 1) {
+        err("vertex stage must take at least one parameter (the Vertex bundle)");
       }
-      write(");\n");
-    }
 
-    write("  for (auto &");
-    write(vertexParamName);
-    write(" : ctx.template vertexIter<AccMode>(ctx.node)) {\n");
-    indent = 2;
-    currentStage = vertexStage;
+      if (usesNbr) {
+        write("template <CommandTypes TYPES, sculptcore::brush::NbrSource NbrSrc, "
+              "sculptcore::brush::AccumMode AccMode>\n");
+      } else {
+        write("template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>\n");
+      }
+      write("static void ");
+      write(lowerName);
+      write("(CommandCtx<TYPES> &ctx)\n");
+      write("{\n");
+      write("  using namespace sculptcore::spatial;\n");
+      write("  using namespace litestl::math;\n");
+      write("  bool any_moved = false;\n");
 
-    // user body
-    if (vertexStage->body && vertexStage->body->kind == StmtKind::Block) {
-      int savedLocals = (int)locals.size();
-      for (const auto &c : vertexStage->body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
-    }
+      // Bound attribute handles (resolved per-dab in the executor). A handle is
+      // null only for an optional layer that was absent; write kernels declare
+      // their target attr so it's always present here.
+      for (const auto &f : brush->fields) {
+        if (f.kind != FieldKind::Attr)
+          continue;
+        if (f.domain != AttrDomain::Vertex)
+          continue; // vertex stage: vertex attrs
+        write("  auto *__attr_");
+        write(f.name);
+        write(" = ctx.template boundAttr<");
+        write(attrCppType(f.type));
+        write(">(\"");
+        write(f.name);
+        write("\"); (void)__attr_");
+        write(f.name);
+        write(";\n");
+      }
 
-    // post-iteration side effects: ran only when body did not continue/return.
-    writeIndent();
-    write("ctx.node.affected_verts.append(");
-    write(vertexParamName);
-    write(".v);\n");
-    writeIndent();
-    write("any_moved = true;\n");
+      // Non-Vertex vertex params get declared as locals and seeded by the
+      // matching reduce-stage output (matched by param name). The vertex
+      // body then sees them as ordinary stage params — struct, scalar,
+      // or vector. Struct locals are default-constructed; scalars stay
+      // uninitialized until the reduce call runs (the executor always
+      // calls every reduce stage before the per-vertex loop).
+      for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+        const auto &p = vertexStage->params[pi];
+        write("  ");
+        emitTypeRef(p.type, p.structName);
+        write(" ");
+        write(p.name);
+        write(";\n");
+      }
+      // Call each reduce stage in source order. Argument matching is
+      // by-name to a vertex-stage local declared above; both struct
+      // and scalar params are passed by reference at the C++ level
+      // (the reduce signature already declares scalars as `T &` for
+      // out/inout, by value for in — the call site looks the same).
+      for (const auto *st : reduceStages) {
+        write("  ");
+        write(lowerName);
+        write(capitalize(st->name));
+        write("<TYPES>(ctx");
+        for (const auto &rp : st->params) {
+          write(", ");
+          bool found = false;
+          for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
+            const auto &vp = vertexStage->params[pi];
+            if (vp.type != rp.type)
+              continue;
+            if (!string(vp.name).operator==(string(rp.name.c_str())))
+              continue;
+            if (rp.type == TypeKind::Struct &&
+                !string(vp.structName).operator==(string(rp.structName.c_str())))
+              continue;
+            write(vp.name);
+            found = true;
+            break;
+          }
+          if (!found) {
+            errf("reduce param '%s' has no matching vertex-stage local of the same type",
+                 rp.name.c_str());
+            write("/*unmatched*/");
+          }
+        }
+        write(");\n");
+      }
 
-    currentStage = nullptr;
-    indent = 0;
-    write("  }\n");
-    write("  if (any_moved) {\n");
-    write("    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds);\n");
-    write("  }\n");
-    write("}\n\n");
-    }  // end vertex/face primary-kernel branch
+      write("  for (auto &");
+      write(vertexParamName);
+      write(" : ctx.template vertexIter<AccMode>(ctx.node)) {\n");
+      indent = 2;
+      currentStage = vertexStage;
+
+      // user body
+      if (vertexStage->body && vertexStage->body->kind == StmtKind::Block) {
+        int savedLocals = (int)locals.size();
+        for (const auto &c : vertexStage->body->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
+      }
+
+      // post-iteration side effects: ran only when body did not continue/return.
+      writeIndent();
+      write("ctx.node.affected_verts.append(");
+      write(vertexParamName);
+      write(".v);\n");
+      writeIndent();
+      write("any_moved = true;\n");
+
+      currentStage = nullptr;
+      indent = 0;
+      write("  }\n");
+      write("  if (any_moved) {\n");
+      write("    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | "
+            "Spatial_RegenBounds);\n");
+      write("  }\n");
+      write("}\n\n");
+    } // end vertex/face primary-kernel branch
 
     // post-stage: empty for Wave 1.
     write("template <CommandTypes TYPES>\n");
@@ -1074,13 +1294,17 @@ struct Emit {
       write("  };\n");
     }
     write("  def.execPre  = ");
-    write(lowerName); write("Pre<TYPES>;\n");
+    write(lowerName);
+    write("Pre<TYPES>;\n");
     write("  def.exec     = ");
     write(lowerName);
-    if (usesNbr) write("<TYPES, NbrSrc, AccMode>;\n");
-    else write("<TYPES, AccMode>;\n");
+    if (usesNbr)
+      write("<TYPES, NbrSrc, AccMode>;\n");
+    else
+      write("<TYPES, AccMode>;\n");
     write("  def.execPost = ");
-    write(lowerName); write("Post<TYPES>;\n");
+    write(lowerName);
+    write("Post<TYPES>;\n");
     // for_neighbor reads ctx.co_prev — tell the executor to snapshot it.
     if (neighborLoopUsed) {
       write("  def.needsCoPrev = true;\n");
@@ -1093,7 +1317,8 @@ struct Emit {
     write(";\n");
     // Declared attribute layers — resolved + bound per dab by the executor.
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr) continue;
+      if (f.kind != FieldKind::Attr)
+        continue;
       write("  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{\"");
       write(f.name);
       write("\", \"");
@@ -1108,20 +1333,21 @@ struct Emit {
     // device dynamics each dab (see sbrush-dynamic-uniforms plan). Carries the
     // DSL `= <n>` default, `@range(a,b)`, and `@static` opt-out.
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform) continue;
+      if (f.kind != FieldKind::Uniform)
+        continue;
       bool isFloat = f.type == TypeKind::Float;
       bool dynamic = isFloat && f.dynamicCapable;
       double def = f.hasDefault ? f.defaultValue : 0.0;
       write("  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{\"");
       write(f.name);
       write("\", ");
-      write(isFloat ? "true" : "false");        // isFloat
+      write(isFloat ? "true" : "false"); // isFloat
       write(", ");
-      write(dynamic ? "true" : "false");        // dynamic
+      write(dynamic ? "true" : "false"); // dynamic
       write(", ");
-      write(floatLit(def));                     // def
+      write(floatLit(def)); // def
       write(", ");
-      write(f.hasRange ? "true" : "false");      // hasRange
+      write(f.hasRange ? "true" : "false"); // hasRange
       write(", ");
       write(floatLit(f.hasRange ? f.rangeMin : 0.0));
       write(", ");
@@ -1136,8 +1362,7 @@ struct Emit {
     // remain plain host-set members (no prop).
     write("  def.registerProps = [](sculptcore::props::StructDef &sd) {\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float ||
-          !f.dynamicCapable)
+      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float || !f.dynamicCapable)
         continue;
       double def = f.hasDefault ? f.defaultValue : 0.0;
       write("    if (!sd.has(\"");
@@ -1154,8 +1379,7 @@ struct Emit {
     write("  def.loadUniformProps = [](sculptcore::brush::Brush &brush, "
           "sculptcore::props::DeviceInputCtx *ctx) {\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float ||
-          !f.dynamicCapable)
+      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float || !f.dynamicCapable)
         continue;
       double def = f.hasDefault ? f.defaultValue : 0.0;
       write("    brush.");
@@ -1180,10 +1404,16 @@ EmitResult emitCpp(const Brush &brush)
   Emit em;
   em.brush = &brush;
   for (const auto &st : brush.stages) {
-    if (st.kind == StageKind::Vertex) { em.vertexStage = &st; break; }
+    if (st.kind == StageKind::Vertex) {
+      em.vertexStage = &st;
+      break;
+    }
   }
   for (const auto &st : brush.stages) {
-    if (st.kind == StageKind::Face) { em.faceStage = &st; break; }
+    if (st.kind == StageKind::Face) {
+      em.faceStage = &st;
+      break;
+    }
   }
   if (em.vertexStage && em.vertexStage->params.size() > 0) {
     em.vertexParamName = em.vertexStage->params[0].name;

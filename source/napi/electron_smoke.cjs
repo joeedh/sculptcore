@@ -207,7 +207,7 @@ app.whenReady().then(() => {
         stage('brush')
 
         const meshLog = addon.construct('sculptcore::meshlog::MeshLog')
-        meshLog.beginStep()
+        meshLog.beginStep(false)
         stage('meshLog')
 
         const exec = addon.constructWith('sculptcore::brush::CommandExecutor', 'main', tree, brush)
@@ -227,7 +227,7 @@ app.whenReady().then(() => {
         const nodeCount = addon.vectorLength(nodes) | 0
         stage('filterNodes:' + nodeCount)
 
-        exec.execBrush(0 /* DRAW */, nodes, f3(0.5, 0.5, 0.5), f3(0.577, 0.577, 0.577))
+        exec.execBrush(mesh.mesh, 0 /* DRAW */, nodes, f3(0.5, 0.5, 0.5), f3(0.577, 0.577, 0.577))
         stage('execBrush')
         meshLog.endStep()
         stage('endStep')

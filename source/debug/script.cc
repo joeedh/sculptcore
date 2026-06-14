@@ -771,9 +771,9 @@ bool execVerb(Scene &scene,
         }
         exec.setNonAccum(scene.nonAccum);
         exec.setStrokeGen(int(gen));
-        exec.beginStep();
+        exec.beginStep(scene.dyntopoEnabled);
         for (int i = 0; i < repeat; i++) {
-          exec.execBrush(scene.currentTool, &nodes, origin, normal);
+          exec.execBrush(scene.mesh, scene.currentTool, &nodes, origin, normal);
           exec.clearIsFirstOfStep();
         }
         exec.endStep();
@@ -870,14 +870,14 @@ bool execVerb(Scene &scene,
       exec.ctx.renderMatrix = scene.renderMatrix;
       exec.setNonAccum(scene.nonAccum);
       exec.setStrokeGen(int(gen));
-      exec.beginStep();
+      exec.beginStep(scene.dyntopoEnabled);
       for (size_t i = 0; i < origins.size(); i++) {
         Vector<spatial::SpatialNode *> nodes;
         scene.tree->filterNodes(origins[i], scene.brush.radius, nodes);
         if (nodes.size() == 0) {
           continue;
         }
-        exec.execBrush(scene.currentTool, &nodes, origins[i], normal);
+        exec.execBrush(scene.mesh, scene.currentTool, &nodes, origins[i], normal);
         exec.clearIsFirstOfStep();
       }
       exec.endStep();
@@ -982,11 +982,14 @@ bool execVerb(Scene &scene,
        * leaves the mesh frozen (live links freed/CSR-rebuilt), which would
        * mismatch the recorded links during replay. Thaw first. */
       scene.mesh->thawTopo();
+      printf("UNDO-DIAG: thaw done\n"); fflush(stdout);
       scene.meshLog.undo(scene.mesh, scene.tree);
+      printf("UNDO-DIAG: meshlog.undo done\n"); fflush(stdout);
       /* meshlog replay restores mesh topology but does not drive the spatial
        * callbacks, so the incrementally-maintained tree is now stale — rebuild
        * it (undo is a cold path). */
       scene.tree->rebuild();
+      printf("UNDO-DIAG: rebuild done\n"); fflush(stdout);
     }
     return true;
   }

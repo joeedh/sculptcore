@@ -22,7 +22,7 @@ export interface MeshLog {
   [Symbol.dispose](): void
   undo(m: Mesh, tree: SpatialTree): void
   redo(m: Mesh, tree: SpatialTree): void
-  beginStep(): void
+  beginStep(hasDynTopo: boolean): void
   endStep(): void
   lastStepId(): int32
   stepMemSize(id: int32): double

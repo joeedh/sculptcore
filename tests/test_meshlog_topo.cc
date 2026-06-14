@@ -193,7 +193,7 @@ int main()
     MeshLog log;
     log.setActiveMesh(&m);
 
-    log.beginStep();
+    log.beginStep(true);
     int vnew = m.make_vertex(float3(2.0f, 2.0f, 2.0f), log.callbacks());
     log.endStep();
 
@@ -222,7 +222,7 @@ int main()
     MeshLog log;
     log.setActiveMesh(&m);
 
-    log.beginStep();
+    log.beginStep(true);
     m.kill_face(q.f, log.callbacks());
     log.endStep();
 
@@ -255,7 +255,7 @@ int main()
     MeshLog log;
     log.setActiveMesh(&m);
 
-    log.beginStep();
+    log.beginStep(true);
     int vtmp = m.make_vertex(float3(5.0f, 5.0f, 5.0f), log.callbacks());
     m.kill_vertex(vtmp, log.callbacks());
     log.endStep();
@@ -286,7 +286,7 @@ int main()
     MeshLog log;
     log.setActiveMesh(&m);
 
-    log.beginStep();
+    log.beginStep(true);
     m.kill_vertex(v_iso, log.callbacks());
     log.endStep();
 
@@ -315,7 +315,7 @@ int main()
     MeshLog log;
     log.setActiveMesh(&m);
 
-    log.beginStep();
+    log.beginStep(true);
     EdgeFlipResult res;
     bool ok = bool(flipEdge(m, t.e_diag, &res, log.callbacks()));
     log.endStep();
@@ -357,7 +357,7 @@ int main()
     MeshLog log;
     log.setActiveMesh(&m);
 
-    log.beginStep();
+    log.beginStep(true);
     EdgeSplitResult res;
     bool ok = bool(splitEdge(m, t.e_diag, &res, log.callbacks()));
     log.endStep();

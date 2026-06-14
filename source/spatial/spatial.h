@@ -257,8 +257,7 @@ struct SpatialTree {
 
   bool node_needs_split(SpatialNode *node)
   {
-    return node->data->unique_verts.size() >= leaf_limit &&
-           node->depth < depth_limit;
+    return node->data->unique_verts.size() >= leaf_limit && node->depth < depth_limit;
   }
 
   void split_node(SpatialNode *node);
@@ -285,6 +284,19 @@ struct SpatialTree {
 
   SpatialNode *node_from_id(int id)
   {
+    /* An ownership id (.spatial.{v,f}.node) outside the live node map is not a
+     * live node: ids are monotonic (never reused) and rebuild() resets the map,
+     * so a stale/garbage attr value can exceed its size. Return null — callers
+     * all null-check and fall back (add_face → centroid descent). Reading
+     * node_idmap[id] unchecked here was a wild OOB read feeding a garbage
+     * SpatialNode* into add_face_at. */
+    if (id < 0 || id >= int(node_idmap.size())) {
+      /* CLAUDENOTE: confirm provenance of the stale ownership id; strip after. */
+      printf(
+          "SPATIAL-DIAG node_from_id OOB: id=%d size=%d\n", id, int(node_idmap.size()));
+      fflush(stdout);
+      return nullptr;
+    }
     return node_idmap[id];
   }
 
@@ -323,7 +335,8 @@ struct SpatialTree {
      * means the rest of the chain to root is already marked — stop there (turns
      * the per-face-op O(depth) walk into O(1) for repeat ops in the same leaf). */
     for (SpatialNode *p = leaf->parent; p && !(p->flag & Spatial_RegenBounds);
-         p = p->parent) {
+         p = p->parent)
+    {
       p->flag |= Spatial_RegenBounds;
     }
 
@@ -331,7 +344,7 @@ struct SpatialTree {
     if (treeMesh.f.node[face] == 0) {
       treeMesh.f.node[face] = leaf->id;
       leaf->data->unique_faces.add(f);
-    } 
+    }
 
     for (auto list : face.lists()) {
       for (auto c : list) {
@@ -357,9 +370,21 @@ struct SpatialTree {
     }
   }
 
+  void clear_face_leaf_ref(int f)
+  {
+    treeMesh.f.node[f] = 0;
+  }
+  void clear_vert_leaf_ref(int v)
+  {
+    treeMesh.v.node[v] = 0;
+  }
+
   void add_face(int f)
   {
     mesh::FaceProxy face(m, f);
+
+    // ensure face has empty node ref
+    treeMesh.f.node[face] = 0;
 
     /* Incremental (dyntopo) fast path: pin the new face to a neighbour's leaf in
      * O(1) and defer the split. The build path (no owned neighbour yet) falls
@@ -395,6 +420,7 @@ struct SpatialTree {
   {
     int node_id = treeMesh.f.node[f];
     if (node_id == 0) {
+      printf("leaf %d does not containt face %d\n", node_id, f);
       return; /* not the unique owner */
     }
     SpatialNode *node = node_from_id(node_id);
@@ -406,7 +432,8 @@ struct SpatialTree {
     node->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
     /* See add_face_at: stop at the first already-flagged ancestor. */
     for (SpatialNode *p = node->parent; p && !(p->flag & Spatial_RegenBounds);
-         p = p->parent) {
+         p = p->parent)
+    {
       p->flag |= Spatial_RegenBounds;
     }
   }
@@ -433,7 +460,8 @@ struct SpatialTree {
     node->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
     /* See add_face_at: stop at the first already-flagged ancestor. */
     for (SpatialNode *p = node->parent; p && !(p->flag & Spatial_RegenBounds);
-         p = p->parent) {
+         p = p->parent)
+    {
       p->flag |= Spatial_RegenBounds;
     }
 
@@ -461,6 +489,7 @@ struct SpatialTree {
     int node_id = treeMesh.v.node[v];
     treeMesh.v.node[v] = 0;
     if (node_id == 0) {
+      printf("leaf %d does not contain vertex %d\n", node_id, v);
       return;
     }
     SpatialNode *node = node_from_id(node_id);
@@ -591,9 +620,8 @@ private:
   /* In-place slice rewrite; returns false if a full regen is required (caller
    * regens serially — this runs under parallel_for and must not mutate shared
    * GpuData). */
-  bool update_gpu_node_slice(SpatialNode *gpu_node,
-                             SpatialNode *leaf,
-                             gpu::GPUManager *gpu);
+  bool
+  update_gpu_node_slice(SpatialNode *gpu_node, SpatialNode *leaf, gpu::GPUManager *gpu);
   void collect_subtree_leaves(SpatialNode *node, util::Vector<SpatialNode *> &out);
   void fill_leaf_slice(SpatialNode *leaf,
                        math::float3 *pos,

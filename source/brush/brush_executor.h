@@ -3,14 +3,14 @@
 #include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
-#include "neighbor_source.h"
 #include "brushes/all.h"
 #include "dyntopo/dyntopo.h"
-#include "mesh/attribute_bool.h"
-#include "mesh/boundary.h"
 #include "litestl/binding/binding.h"
 #include "litestl/util/task.h"
+#include "mesh/attribute_bool.h"
+#include "mesh/boundary.h"
 #include "meshlog/meshlog.h"
+#include "neighbor_source.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 #include <cmath>
@@ -127,8 +127,7 @@ struct BrushProgram {
     if (idx < 0 || idx >= int(commands.size())) {
       return;
     }
-    commands[idx].attrLayerOverrides.append(
-        BrushAttrLayerOverride{attrIdx, layerIndex});
+    commands[idx].attrLayerOverrides.append(BrushAttrLayerOverride{attrIdx, layerIndex});
   }
 
   static litestl::binding::types::Struct<BrushProgram> *defineBindings()
@@ -185,7 +184,7 @@ struct CommandExecutor {
   /* Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
    * dab and accumulated per stroke). */
   dyntopo::DynTopoStats lastDynTopoStats;
-  Vector<float3> coPrevStorage;  // backing store for ctx.co_prev (Jacobi snapshot)
+  Vector<float3> coPrevStorage; // backing store for ctx.co_prev (Jacobi snapshot)
   // Backing store for resolved DSL attribute bindings (ctx.attrBindings),
   // rebuilt per dab in exec().
   BrushAttrBindings attrBindingStorage;
@@ -214,6 +213,8 @@ struct CommandExecutor {
     BIND_STRUCT_MEMBER(st, tree);
     BIND_STRUCT_MEMBER(st, meshLog);
     BIND_STRUCT_MEMBER(st, lastDynTopoStats);
+    BIND_STRUCT_METHOD(st, beginStep, MARGS("hasDyntopo"));
+    BIND_STRUCT_METHOD(st, endStep, MARGS());
     BIND_STRUCT_METHOD(st, execBrush, MARGS("brushType", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, applyDynTopoDab, MARGS("center", "radius", "params", "seed"));
@@ -226,10 +227,10 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
     BIND_STRUCT_METHOD(st, queriedUniformEntry, MARGS("idx"));
     BIND_STRUCT_METHOD(st, clearUniformDynamics, MARGS("idx"));
-    BIND_STRUCT_METHOD(st, addUniformDynamic,
-                       MARGS("idx", "deviceType", "mixMode", "mixFactor"));
-    BIND_STRUCT_METHOD(st, setUniformDynamicSample,
-                       MARGS("idx", "deviceType", "i", "n", "value"));
+    BIND_STRUCT_METHOD(
+        st, addUniformDynamic, MARGS("idx", "deviceType", "mixMode", "mixFactor"));
+    BIND_STRUCT_METHOD(
+        st, setUniformDynamicSample, MARGS("idx", "deviceType", "i", "n", "value"));
 
     return st;
   }
@@ -258,13 +259,20 @@ struct CommandExecutor {
   // Enable non-accumulate mode for the upcoming stroke, and set its generation
   // stamp (a monotonic per-stroke counter; must be non-zero, since the
   // `.brush.orig.gen` attr defaults to 0 = "not stamped this stroke").
-  void setNonAccum(bool v) { nonAccum = v; }
-  void setStrokeGen(int gen) { strokeGen = uint32_t(gen); }
+  void setNonAccum(bool v)
+  {
+    nonAccum = v;
+  }
+  void setStrokeGen(int gen)
+  {
+    strokeGen = uint32_t(gen);
+  }
 
   // Per-call iterator factories used by CommandCtx::vertexIter/faceIter. The
   // vertex iterator is parameterized by the AccumMode policy and threaded the
   // stroke-start cache (null/0 unless non-accumulate is active for this dab).
-  template <class AccMode> BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
+  template <class AccMode>
+  BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
   {
     return BasicVertexIter<AccMode>(node, *this, ctx.origCo, ctx.origGen, ctx.strokeGen);
   }
@@ -361,10 +369,14 @@ struct CommandExecutor {
   static mesh::AttrGroup *attrGroupForDomain(mesh::Mesh *m, AttrElemDomain d)
   {
     switch (d) {
-    case AttrElemDomain::Vertex: return &m->v.attrs;
-    case AttrElemDomain::Face:   return &m->f.attrs;
-    case AttrElemDomain::Edge:   return &m->e.attrs;
-    case AttrElemDomain::Corner: return &m->c.attrs;
+    case AttrElemDomain::Vertex:
+      return &m->v.attrs;
+    case AttrElemDomain::Face:
+      return &m->f.attrs;
+    case AttrElemDomain::Edge:
+      return &m->e.attrs;
+    case AttrElemDomain::Corner:
+      return &m->c.attrs;
     }
     return nullptr;
   }
@@ -372,10 +384,14 @@ struct CommandExecutor {
   static int elemCountForDomain(mesh::Mesh *m, AttrElemDomain d)
   {
     switch (d) {
-    case AttrElemDomain::Vertex: return m->v.count;
-    case AttrElemDomain::Face:   return m->f.count;
-    case AttrElemDomain::Edge:   return m->e.count;
-    case AttrElemDomain::Corner: return m->c.count;
+    case AttrElemDomain::Vertex:
+      return m->v.count;
+    case AttrElemDomain::Face:
+      return m->f.count;
+    case AttrElemDomain::Edge:
+      return m->e.count;
+    case AttrElemDomain::Corner:
+      return m->c.count;
     }
     return 0;
   }
@@ -386,10 +402,14 @@ struct CommandExecutor {
   static int elemCapacityForDomain(mesh::Mesh *m, AttrElemDomain d)
   {
     switch (d) {
-    case AttrElemDomain::Vertex: return int(m->v.capacity());
-    case AttrElemDomain::Face:   return int(m->f.capacity());
-    case AttrElemDomain::Edge:   return int(m->e.capacity());
-    case AttrElemDomain::Corner: return int(m->c.capacity());
+    case AttrElemDomain::Vertex:
+      return int(m->v.capacity());
+    case AttrElemDomain::Face:
+      return int(m->f.capacity());
+    case AttrElemDomain::Edge:
+      return int(m->e.capacity());
+    case AttrElemDomain::Corner:
+      return int(m->c.capacity());
     }
     return 0;
   }
@@ -407,7 +427,8 @@ struct CommandExecutor {
       for (int ai = 0; ai < int(cmd.attrs.size()); ai++) {
         auto &entry = cmd.attrs[ai];
         mesh::AttrGroup *grp = attrGroupForDomain(m, entry.domain);
-        if (!grp) continue;
+        if (!grp)
+          continue;
 
         // An override redirects this handle to the user-selected "active"
         // layer (by index). Honour it only when the layer exists and its type
@@ -417,10 +438,14 @@ struct CommandExecutor {
         // wrong-typed layer).
         int ovLayer = -1;
         for (const auto &ov : attrOverrides) {
-          if (ov.attrIdx == ai) { ovLayer = ov.layerIndex; break; }
+          if (ov.attrIdx == ai) {
+            ovLayer = ov.layerIndex;
+            break;
+          }
         }
         if (ovLayer >= 0 && ovLayer < int(grp->attrs.size()) &&
-            grp->attrs[ovLayer].type == entry.type) {
+            grp->attrs[ovLayer].type == entry.type)
+        {
           // Materialize the chosen layer by its (type,name) and bind it. Copy
           // the name first — ensure() of an existing layer won't realloc, but a
           // local keeps the AttrRef& from dangling regardless.
@@ -446,10 +471,12 @@ struct CommandExecutor {
               // BoolAttrView has no set_default; clear it explicitly so a fresh
               // bool layer isn't read as heap garbage (was previously skipped).
               auto *bv = static_cast<mesh::BoolAttrView *>(ref.data);
-              for (int i = 0; i < n; i++) bv->set(i, false);
+              for (int i = 0; i < n; i++)
+                bv->set(i, false);
             } else {
               auto *dd = static_cast<mesh::AttrData<T> *>(ref.data);
-              for (int i = 0; i < n; i++) dd->set_default(i);
+              for (int i = 0; i < n; i++)
+                dd->set_default(i);
             }
           });
         }
@@ -458,7 +485,8 @@ struct CommandExecutor {
       ctx.attrBindings = &attrBindingStorage;
     }
 
-    if (cmd.execHost) cmd.execHost(ctx, *brush);
+    if (cmd.execHost)
+      cmd.execHost(ctx, *brush);
     cmd.execPre(ctx, nodes);
 
     // Jacobi snapshot: capture pre-dab vertex positions so for_neighbor reads
@@ -493,9 +521,11 @@ struct CommandExecutor {
     ctx.strokeGen = 0;
     if (nonAccum && cmd.accumulable && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
-      mesh::AttrRef &coRef = m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.co", false);
+      mesh::AttrRef &coRef =
+          m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.co", false);
       coRef.flag |= mesh::AttrFlag::TEMP;
-      mesh::AttrRef &genRef = m->v.attrs.ensure(mesh::AttrType::INT, ".brush.orig.gen", false);
+      mesh::AttrRef &genRef =
+          m->v.attrs.ensure(mesh::AttrType::INT, ".brush.orig.gen", false);
       genRef.flag |= mesh::AttrFlag::TEMP;
       ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
       ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
@@ -518,13 +548,16 @@ struct CommandExecutor {
       cmd.exec(finalCtx);
     }
 #else
-    litestl::task::parallel_for(util::IndexRange(nodes.size()), [&](IndexRange range) {
-      for (int i : range) {
-        SpatialNode *node = nodes[i];
-        CommandCtx<CommandExecutor> finalCtx(ctx, *node, *this, *brush);
-        cmd.exec(finalCtx);
-      }
-    }, 4);
+    litestl::task::parallel_for(
+        util::IndexRange(nodes.size()),
+        [&](IndexRange range) {
+          for (int i : range) {
+            SpatialNode *node = nodes[i];
+            CommandCtx<CommandExecutor> finalCtx(ctx, *node, *this, *brush);
+            cmd.exec(finalCtx);
+          }
+        },
+        4);
 #endif
 
     cmd.execPost(ctx, nodes);
@@ -557,8 +590,10 @@ struct CommandExecutor {
   // diverge from plain smooth even with zero boundaries.
   void refreshBoundaryClassForBSmooth(mesh::Mesh *m)
   {
-    if (!m->boundaryDirty) return;
-    if (m->topo_frozen) m->thawTopo();
+    if (!m->boundaryDirty)
+      return;
+    if (m->topo_frozen)
+      m->thawTopo();
     mesh::boundary::recomputeDirty(m);
   }
 
@@ -591,7 +626,8 @@ struct CommandExecutor {
                                                            const string &name)
   {
     for (const auto &u : cmd.uniforms) {
-      if (u.name == name) return &u;
+      if (u.name == name)
+        return &u;
     }
     return nullptr;
   }
@@ -609,21 +645,28 @@ struct CommandExecutor {
 
     // (A) Static manifest checks — independent of any configured dynamic.
     for (const auto &u : cmd.uniforms) {
-      if (!u.hasRange) continue;
-      if (std::isnan(u.rangeMin) || std::isnan(u.rangeMax) ||
-          u.rangeMin > u.rangeMax) {
+      if (!u.hasRange)
+        continue;
+      if (std::isnan(u.rangeMin) || std::isnan(u.rangeMax) || u.rangeMin > u.rangeMax) {
         res.ok = false;
-        snprintf(buf, sizeof(buf),
-                 "uniform '%s': invalid @range [%g, %g]", u.name.c_str(),
-                 u.rangeMin, u.rangeMax);
+        snprintf(buf,
+                 sizeof(buf),
+                 "uniform '%s': invalid @range [%g, %g]",
+                 u.name.c_str(),
+                 u.rangeMin,
+                 u.rangeMax);
         res.messages.append(string(buf));
-        continue;  // a broken range makes the default check meaningless
+        continue; // a broken range makes the default check meaningless
       }
       if (u.isFloat && (u.def < u.rangeMin || u.def > u.rangeMax)) {
         res.ok = false;
-        snprintf(buf, sizeof(buf),
+        snprintf(buf,
+                 sizeof(buf),
                  "uniform '%s': default %g outside @range [%g, %g]",
-                 u.name.c_str(), u.def, u.rangeMin, u.rangeMax);
+                 u.name.c_str(),
+                 u.def,
+                 u.rangeMin,
+                 u.rangeMax);
         res.messages.append(string(buf));
       }
     }
@@ -633,12 +676,14 @@ struct CommandExecutor {
     if (brush && brush->props.struct_def) {
       for (props::Property *p : brush->props.struct_def->properties()) {
         props::Dynamics *dyn = brush->propDynamics(p->name);
-        if (!dyn || dyn->devices.size() == 0) continue;
+        if (!dyn || dyn->devices.size() == 0)
+          continue;
 
         const BrushUniformManifestEntry *entry = findUniformEntry(cmd, p->name);
         if (!entry && !isCommonFloatProp(p->name)) {
           res.ok = false;
-          snprintf(buf, sizeof(buf),
+          snprintf(buf,
+                   sizeof(buf),
                    "stray dynamic on '%s': not a uniform of the active brush",
                    p->name.c_str());
           res.messages.append(string(buf));
@@ -646,7 +691,8 @@ struct CommandExecutor {
         }
         if (entry && !(entry->isFloat && entry->dynamic)) {
           res.ok = false;
-          snprintf(buf, sizeof(buf),
+          snprintf(buf,
+                   sizeof(buf),
                    "dynamic on '%s': uniform is @static / non-float (not "
                    "dynamic-capable)",
                    p->name.c_str());
@@ -656,7 +702,8 @@ struct CommandExecutor {
         for (const auto &dev : dyn->devices) {
           if (dev.curveTable.size() == 1) {
             res.ok = false;
-            snprintf(buf, sizeof(buf),
+            snprintf(buf,
+                     sizeof(buf),
                      "uniform '%s': device response curve has 1 entry "
                      "(unbaked; need 0 or >=2)",
                      p->name.c_str());
@@ -665,8 +712,11 @@ struct CommandExecutor {
           int dt = (int)dev.type;
           if (dt < 0 || dt > (int)props::DeviceType::TWIST) {
             res.ok = false;
-            snprintf(buf, sizeof(buf), "uniform '%s': invalid device type %d",
-                     p->name.c_str(), dt);
+            snprintf(buf,
+                     sizeof(buf),
+                     "uniform '%s': invalid device type %d",
+                     p->name.c_str(),
+                     dt);
             res.messages.append(string(buf));
           }
         }
@@ -718,19 +768,19 @@ struct CommandExecutor {
     if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
       return;
     }
-    brush->addPropDynamicByName(queriedUniforms[idx].name, deviceType, mixMode,
-                                mixFactor);
+    brush->addPropDynamicByName(
+        queriedUniforms[idx].name, deviceType, mixMode, mixFactor);
   }
   void setUniformDynamicSample(int idx, int deviceType, int i, int n, float value)
   {
     if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
       return;
     }
-    brush->setPropDynamicSampleByName(queriedUniforms[idx].name, deviceType, i, n,
-                                      value);
+    brush->setPropDynamicSampleByName(queriedUniforms[idx].name, deviceType, i, n, value);
   }
 
-  void execBrush(SculptBrushes brushType,
+  void execBrush(Mesh *m,
+                 SculptBrushes brushType,
                  Vector<spatial::SpatialNode *> *nodes,
                  float3 origin,
                  float3 normal)
@@ -757,17 +807,18 @@ struct CommandExecutor {
     // Note: this is the C++ executor path only; the GPU dispatch in gpu_stroke
     // has its own neighbor handling and is unaffected.
     if (nodes->size() > 0) {
-      mesh::Mesh *m = (*nodes)[0]->data->m;
       if (brushType == SculptBrushes::BSMOOTH && isFirstOfStep) {
         refreshBoundaryClassForBSmooth(m);
       }
       if (brushNeedsLiveLinks(brushType) || keepTopoThawed) {
-        if (m->topo_frozen) m->thawTopo();
+        if (m->topo_frozen)
+          m->thawTopo();
       } else if (!m->topo_frozen) {
         m->freezeTopo();
       }
     }
 
+    ctx.m = m;
     ctx.surfaceNo = normal;
     ctx.surfacePos = origin;
     ctx.meshLog = meshLog;
@@ -814,7 +865,8 @@ struct CommandExecutor {
         UniformValidationResult r = validateUniformDynamics(cmd);
         if (!r.ok) {
           lastValidation.ok = false;
-          for (auto &msg : r.messages) lastValidation.messages.append(msg);
+          for (auto &msg : r.messages)
+            lastValidation.messages.append(msg);
         }
       }
       strokeValidationFailed = !lastValidation.ok;
@@ -834,8 +886,10 @@ struct CommandExecutor {
       bool needsLive = false;
       bool hasBSmooth = false;
       for (auto &entry : prog->commands) {
-        if (brushNeedsLiveLinks(entry.type)) needsLive = true;
-        if (entry.type == SculptBrushes::BSMOOTH) hasBSmooth = true;
+        if (brushNeedsLiveLinks(entry.type))
+          needsLive = true;
+        if (entry.type == SculptBrushes::BSMOOTH)
+          hasBSmooth = true;
       }
       mesh::Mesh *m = (*nodes)[0]->data->m;
       // Must precede the freeze below — recomputeDirty needs live links.
@@ -843,7 +897,8 @@ struct CommandExecutor {
         refreshBoundaryClassForBSmooth(m);
       }
       if (needsLive || keepTopoThawed) {
-        if (m->topo_frozen) m->thawTopo();
+        if (m->topo_frozen)
+          m->thawTopo();
       } else if (!m->topo_frozen) {
         m->freezeTopo();
       }
@@ -879,7 +934,8 @@ struct CommandExecutor {
         // Name-keyed overrides target a generated kernel uniform; id-keyed ones
         // target a common prop. Resolve to the prop name either way and snapshot
         // the prior value under that same name for an exact rollback.
-        util::string nm = ov.name.size() ? ov.name : util::string(brushPropName(ov.propId));
+        util::string nm =
+            ov.name.size() ? ov.name : util::string(brushPropName(ov.propId));
         BrushFloatOverride saved;
         saved.name = nm;
         saved.value = brush->props.lookupFloat(nm.c_str(), 0.0f);
@@ -911,7 +967,8 @@ struct CommandExecutor {
       ctx.isFirstOfStep = isFirstOfStep;
 
       std::span<spatial::SpatialNode *> nodeSpan(nodes->data(), nodes->size());
-      exec(cmd, nodeSpan,
+      exec(cmd,
+           nodeSpan,
            std::span<const BrushAttrLayerOverride>(entry.attrLayerOverrides.data(),
                                                    entry.attrLayerOverrides.size()));
 
@@ -935,7 +992,9 @@ struct CommandExecutor {
   // step: the TS sculpt path already drives spatial.update() each frame
   // (LiteMesh.drawQ) and wraps the whole stroke in one meshlog step. Returns
   // splits+collapses applied (DynTopoStats.splits + .collapses).
-  int applyDynTopoDab(float3 center, float radius, dyntopo::DynTopoParams *params,
+  int applyDynTopoDab(float3 center,
+                      float radius,
+                      dyntopo::DynTopoParams *params,
                       uint32_t seed)
   {
     if (!tree || !params || !tree->m) {
@@ -982,23 +1041,31 @@ struct CommandExecutor {
       combined = *ml;
       auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;
       combined.onFaceCreate = [mlFC, spFC](int f) {
-        if (mlFC) mlFC(f);
-        if (spFC) spFC(f);
+        if (mlFC)
+          mlFC(f);
+        if (spFC)
+          spFC(f);
       };
       auto mlFK = combined.onFaceKill, spFK = sp->onFaceKill;
       combined.onFaceKill = [mlFK, spFK](int f) {
-        if (mlFK) mlFK(f); /* meshlog snapshots before the tree drops it */
-        if (spFK) spFK(f);
+        if (mlFK)
+          mlFK(f); /* meshlog snapshots before the tree drops it */
+        if (spFK)
+          spFK(f);
       };
       auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
       combined.onVertKill = [mlVK, spVK](int v) {
-        if (mlVK) mlVK(v);
-        if (spVK) spVK(v);
+        if (mlVK)
+          mlVK(v);
+        if (spVK)
+          spVK(v);
       };
       auto mlFCh = combined.onFaceChange, spFCh = sp->onFaceChange;
       combined.onFaceChange = [mlFCh, spFCh](int f) {
-        if (mlFCh) mlFCh(f); /* meshlog records the rewired (Existed && Live) face */
-        if (spFCh) spFCh(f); /* tree re-flags the owning leaf (in-place flip/split) */
+        if (mlFCh)
+          mlFCh(f); /* meshlog records the rewired (Existed && Live) face */
+        if (spFCh)
+          spFCh(f); /* tree re-flags the owning leaf (in-place flip/split) */
       };
       cb = &combined;
     } else {
@@ -1017,9 +1084,14 @@ struct CommandExecutor {
       }
     }
 
-    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
-        *m, center, radius, *params, seed, cb,
-        span<const int>(seedVerts.data(), seedVerts.size()));
+    dyntopo::DynTopoStats st =
+        dyntopo::applyBrushDab(*m,
+                               center,
+                               radius,
+                               *params,
+                               seed,
+                               cb,
+                               span<const int>(seedVerts.data(), seedVerts.size()));
 
     lastDynTopoStats = st;
     return st.splits + st.collapses;
@@ -1046,7 +1118,7 @@ struct CommandExecutor {
     isFirstOfStep = false;
   }
 
-  void beginStep()
+  void beginStep(bool hasDyntopo)
   {
     isFirstOfStep = true;
     strokeValidationFailed = false;
@@ -1054,7 +1126,7 @@ struct CommandExecutor {
       brush->resetStrokePath();
     }
     if (meshLog) {
-      meshLog->beginStep();
+      meshLog->beginStep(hasDyntopo);
     }
   }
 

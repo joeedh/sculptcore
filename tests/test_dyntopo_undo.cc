@@ -218,7 +218,7 @@ int main()
     log.setActiveMesh(&m);
 
     Counts before = counts(m);
-    log.beginStep();
+    log.beginStep(true);
     EdgeSplitResult res;
     auto ok = splitEdge(m, e, &res, log.callbacks());
     TASSERT(bool(ok));
@@ -260,7 +260,7 @@ int main()
     MeshLog log;
     log.setActiveMesh(&m);
     Counts before = counts(m);
-    log.beginStep();
+    log.beginStep(true);
     if (ce != ELEM_NONE) {
       collapseEdge(m, ce, std::nullopt, 0.5f, nullptr, log.callbacks());
     }
@@ -315,7 +315,7 @@ int main()
     p.l_min = 0.01f;
     p.mode = dyntopo::DynTopoMode::Subdivide;
 
-    log.beginStep();
+    log.beginStep(true);
     dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
         m, float3(0, 0, 0), 0.3f, p, /*seed=*/123u, log.callbacks());
     log.endStep();
@@ -397,7 +397,7 @@ int main()
     p.l_min = 0.01f;
     p.mode = dyntopo::DynTopoMode::Both; /* default; exercises the flip sweep */
 
-    log.beginStep();
+    log.beginStep(true);
     dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
         m, float3(0, 0, 0), 0.3f, p, /*seed=*/123u, log.callbacks());
     log.endStep();
@@ -461,7 +461,7 @@ int main()
     p.l_min = 0.02f; /* > spacing/2 so post-split edges collapse in Both mode */
     p.mode = mode;
 
-    log.beginStep();
+    log.beginStep(true);
     dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
         *m, float3(0, 0, 0), 0.3f, p, /*seed=*/42u, &combined);
     log.endStep();

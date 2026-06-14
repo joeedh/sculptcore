@@ -106,7 +106,8 @@ struct CommandCtxBase {
   bool isFirstOfStep = false;
 
   meshlog::MeshLog *meshLog = nullptr;
-
+  mesh::Mesh *m = nullptr;
+  
   // Pre-dab snapshot of the whole mesh's vertex positions, owned by the
   // executor and populated before the parallel per-node loop when a brush
   // needs it (see BrushCommandDef::needsCoPrev). for_neighbor reads neighbor
