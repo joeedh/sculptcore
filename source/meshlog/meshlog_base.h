@@ -1,3 +1,4 @@
+#include "napi/napi_log.h"
 /**
 # Intro
 
@@ -449,7 +450,6 @@ struct LogElem {
  * already exist).
  */
 struct LogChunkTopo : public LogChunk {
-  Vector<LogElem *> records;
   util::Pool<LogElem, 512> records_pool;
   util::Pool<detail::ChunkElemRow, 512> bodies_pool;
 
@@ -488,7 +488,6 @@ struct LogChunkTopo : public LogChunk {
     e->begin_body = nullptr;
     e->end_body = nullptr;
 
-    records.append(e);
     idx_to_log_id.insert(int64_t(key), int(e->log_id));
     by_log_id.insert(int(e->log_id), e);
   }
@@ -500,7 +499,7 @@ struct LogChunkTopo : public LogChunk {
     int existing_id;
     if (lookupId(key, existing_id)) {
       /* Already a record for this element; nothing to do. Created
-       * records snapshot at finalizeStep; Existed records already
+       * z snapshot at finalizeStep; Existed records already
        * snapshotted on first touch. */
       return;
     }
@@ -517,7 +516,6 @@ struct LogChunkTopo : public LogChunk {
     e->end_body = nullptr;
     e->begin_body->captureFrom(group(m, kind), idx);
 
-    records.append(e);
     idx_to_log_id.insert(int64_t(key), int(e->log_id));
     by_log_id.insert(int(e->log_id), e);
   }
@@ -555,7 +553,6 @@ struct LogChunkTopo : public LogChunk {
     e->end_body = nullptr;
     e->begin_body->captureFrom(group(m, kind), idx);
 
-    records.append(e);
     by_log_id.insert(int(e->log_id), e);
     /* Do NOT map idx_to_log_id — element is dead. */
   }
@@ -563,18 +560,37 @@ struct LogChunkTopo : public LogChunk {
   /** Capture end-state for Created && Live records. Called from MeshLog::endStep. */
   void finalizeStep(mesh::Mesh *m)
   {
-    for (LogElem *e : records) {
-      if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-        if (!e->end_body) {
-          e->end_body = bodies_pool.alloc();
+    for (LogElem &e : records_pool) {
+      if (e.origin == LogOrigin::Created && e.fate == LogFate::Live) {
+        if (!e.end_body) {
+          e.end_body = bodies_pool.alloc();
         }
-        e->end_body->captureFrom(group(m, e->kind), e->end_mesh_index);
+        e.end_body->captureFrom(group(m, e.kind), e.end_mesh_index);
       }
     }
   }
 
+  Vector<LogElem *> getSortedRecords()
+  {
+    sc_napi_logf("getSortedRecords\n");
+    Vector<LogElem *> records;
+    records.clear();
+
+    // build pre-sorted list of records
+    // note we don't rely on the records_pool ordering
+    records.ensure_capacity(records_pool.live_count());
+    for (LogElem &e : records_pool) {
+      records.append(&e);
+    }
+    records.sort(
+        [](const LogElem *a, const LogElem *b) { return a->log_id - b->log_id; });
+    return records;
+  }
+
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    Vector<LogElem *> records = getSortedRecords();
+
     /* The raw alloc/release below bypass make_face/kill_face, so the spatial
      * tree's incremental face ownership (`.spatial.f.node`, a TEMP attr that
      * ChunkElemRow does NOT log) is never updated by the restore itself. Drive
@@ -586,6 +602,7 @@ struct LogChunkTopo : public LogChunk {
        * drop ownership of faces about to be released or rewired, and of verts
        * about to be released (else their leaf keeps a dangling unique_verts ref
        * — the forward kill path never owned-removed them via callbacks). */
+
       for (LogElem *e : records) {
         if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
           if (e->kind == LogElemKind::Face)
@@ -638,6 +655,8 @@ struct LogChunkTopo : public LogChunk {
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    Vector<LogElem *> records = getSortedRecords();
+
     if (tree) {
       /* Pre-pass (mesh in pre-step state): drop ownership of faces about to be
        * released or rewired, and of verts about to be released — else their
@@ -695,13 +714,13 @@ struct LogChunkTopo : public LogChunk {
     /* Map/pool bookkeeping is estimated as a flat per-record constant. */
     constexpr double kRecordOverhead = sizeof(LogElem *) + 48.0;
     double tot = double(sizeof(*this));
-    for (LogElem *e : records) {
+    for (LogElem &e : records_pool) {
       tot += double(sizeof(LogElem)) + kRecordOverhead;
-      if (e->begin_body) {
-        tot += e->begin_body->memSize();
+      if (e.begin_body) {
+        tot += e.begin_body->memSize();
       }
-      if (e->end_body) {
-        tot += e->end_body->memSize();
+      if (e.end_body) {
+        tot += e.end_body->memSize();
       }
     }
     return tot;
@@ -747,12 +766,6 @@ private:
 
   void dropRecord(LogElem *e)
   {
-    for (int i = 0; i < int(records.size()); i++) {
-      if (records[i] == e) {
-        records.remove_at(i);
-        break;
-      }
-    }
     by_log_id.remove(e->log_id);
     if (e->begin_body) {
       bodies_pool.release(e->begin_body);
