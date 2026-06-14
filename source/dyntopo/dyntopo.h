@@ -47,8 +47,6 @@
 #include <cstdint>
 #include <limits>
 
-#include "../napi/napi_log.h"
-
 // Forward-declared so the param/stats structs can carry a `defineBindings()`
 // hook without pulling the whole binding system into this hot header — the
 // bodies live out-of-line in `dyntopo/bindings.cc`.

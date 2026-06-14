@@ -230,6 +230,13 @@ int Scene::applyDynTopoDab(litestl::math::float3 center,
       if (spVK)
         spVK(v);
     };
+    auto mlFCh = combined.onFaceChange, spFCh = sp->onFaceChange;
+    combined.onFaceChange = [mlFCh, spFCh](int f) {
+      if (mlFCh)
+        mlFCh(f); /* meshlog records the rewired (Existed && Live) face */
+      if (spFCh)
+        spFCh(f); /* tree re-flags the owning leaf (in-place flip/split) */
+    };
     cb = &combined;
   } else {
     cb = ml ? ml : sp;

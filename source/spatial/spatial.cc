@@ -3,8 +3,6 @@
 
 #include "node.h"
 
-#include "napi/napi_log.h"
-
 #include "litestl/math/geom.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/set.h"
@@ -356,7 +354,11 @@ void SpatialTree::add_face_intern(SpatialNode *node,
 
   for (auto list : face.lists()) {
     for (auto c : list) {
-      if (treeMesh.v.node[c.v()]) {
+      int vn = treeMesh.v.node[c.v()];
+      if (vn == node->id) {
+        continue; /* already this leaf's unique vert: other_verts.add is redundant */
+      }
+      if (vn) {
         node->data->other_verts.add(c.v());
       } else {
         node->data->unique_verts.add(c.v());
@@ -460,6 +462,36 @@ void SpatialTree::split_node(SpatialNode *node)
       std::span<Tri> tris_span = tris;
       add_face_intern(node, f, tris_span, fcent);
     }
+  }
+
+  /* A vert the node owned but that no re-filed face referenced (its only
+   * incident faces are owned by *other* leaves) would otherwise be lost — the
+   * unassign loop set v.node=0 and the face re-file never re-claimed it. Sort it
+   * to the leaf whose region contains it, so coverage stays complete (sum
+   * unique_verts == count). The face re-file above can recursively split a child
+   * (add_face_intern's inline-split path), so node->children[i] may no longer be
+   * a leaf and its data may be gone — descend to the current leaf by the same
+   * centroid routing add_face_intern uses. Mirrors merge_node's orphan recovery. */
+  for (int v : node->data->unique_verts) {
+    if (m->v.freemap[v] || treeMesh.v.node[v] != 0) {
+      continue;
+    }
+    float3 vco = VertProxy(m, v).co();
+    SpatialNode *leaf = node;
+    while (!(leaf->flag & Spatial_Leaf)) {
+      SpatialNode *c0 = leaf->children[0];
+      SpatialNode *c1 = leaf->children[1];
+      int ax = 0;
+      for (int i = 0; i < 3; i++) {
+        if (c0->aabb.max[i] != c1->aabb.max[i]) {
+          ax = i;
+          break;
+        }
+      }
+      leaf = vco[ax] <= c0->aabb.max[ax] ? c0 : c1;
+    }
+    treeMesh.v.node[v] = leaf->id;
+    leaf->data->unique_verts.add(v);
   }
 
   node->delete_data();
@@ -796,7 +828,6 @@ void SpatialTree::applyDeferredMerge()
     }
   };
   recurse(root);
-  sc_napi_logf("applyDeferredMerge %d\n", mergeCandidates_.size());
 
   if (mergeCandidates_.size() == 0) {
     return;
@@ -907,10 +938,14 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
       }
     }
 
-    float3 eps = calc_eps_float3(node->aabb.max - node->aabb.min);
+    /* An empty leaf keeps the reset() sentinel ([+max, -max]); padding it would
+     * overflow (max - min == -inf) and seed inf into the bounds. */
+    if (!node->aabb.isEmpty()) {
+      float3 eps = calc_eps_float3(node->aabb.max - node->aabb.min);
 
-    node->aabb.min -= eps;
-    node->aabb.max += eps;
+      node->aabb.min -= eps;
+      node->aabb.max += eps;
+    }
   }
 }
 
@@ -1271,7 +1306,16 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   using namespace sculptcore::gpu;
   litestl::util::Random rnd(0);
 
-  util::Vector<SpatialNode *> ls = leaves();
+  util::Vector<SpatialNode *> allLeaves = leaves();
+
+  /* Empty leaves carry the reset() sentinel bounds (no geometry to box); drawing
+   * them would emit huge sentinel verts into the shared "position" buffer. */
+  util::Vector<SpatialNode *> ls;
+  for (SpatialNode *node : allLeaves) {
+    if (!node->aabb.isEmpty()) {
+      ls.append(node);
+    }
+  }
 
   /* 12 edges per box × 2 endpoints = 24 verts per leaf. */
   const int vertsPerLeaf = 24;

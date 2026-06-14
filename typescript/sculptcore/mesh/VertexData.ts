@@ -23,6 +23,7 @@ export interface VertexData {
   [Symbol.dispose](): void
   attrs: AttrGroup
   capacity_: int32
+  count: int32
   co: BuiltinAttr<float3, 'positions'>
   no: BuiltinAttr<float3, 'normals'>
   e: BuiltinAttr<int32, '.vert.e'>

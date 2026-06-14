@@ -452,6 +452,8 @@ int main()
       combined.onFaceKill = [mlFK, spFK](int f) { if (mlFK) mlFK(f); if (spFK) spFK(f); };
       auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
       combined.onVertKill = [mlVK, spVK](int v) { if (mlVK) mlVK(v); if (spVK) spVK(v); };
+      auto mlFCh = combined.onFaceChange, spFCh = sp->onFaceChange;
+      combined.onFaceChange = [mlFCh, spFCh](int f) { if (mlFCh) mlFCh(f); if (spFCh) spFCh(f); };
     }
 
     dyntopo::DynTopoParams p;

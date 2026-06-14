@@ -23,6 +23,7 @@ export interface FaceData {
   [Symbol.dispose](): void
   attrs: AttrGroup
   capacity_: int32
+  count: int32
   list_count: BuiltinAttr<int16, '.face.list_count'>
   l: BuiltinAttr<int32, '.face.list'>
   no: BuiltinAttr<float3, '.face.normal'>

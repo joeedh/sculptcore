@@ -449,6 +449,31 @@ struct Mesh : public MeshBase {
   void kill_edge(int e, MeshCallbacks *cb = nullptr);
   void kill_face(int f, MeshCallbacks *cb = nullptr);
 
+  /* Re-point an existing edge's endpoints from its current {v0,v1} to
+   * {nv0,nv1} in place (id preserved), maintaining both verts' disk cycles
+   * and firing callbacks with the same discipline as make_edge/kill_edge
+   * (onEdgeChange for the edge and its disk neighbours BEFORE each splice;
+   * onVertChange for all affected verts). The edge's radial/corner cycle is
+   * left untouched — the caller owns the loop/corner rewiring. Used by the
+   * in-place flipEdge / splitEdge Euler ops. */
+  void relink_edge_verts(int e1, int nv0, int nv1, MeshCallbacks *cb = nullptr);
+
+  /* Tear down a face's list + corners (full radial/edge callback discipline,
+   * exactly like kill_face) but KEEP the face id `f1` — caller must immediately
+   * reinit_face it. Fires onFaceChange(f1) BEFORE any mutation (so the meshlog
+   * snapshots the pre-rewrite face row and the spatial tree re-flags the owning
+   * leaf) rather than onFaceKill. Leaves f.l[f1] = ELEM_NONE. The id-preserving
+   * counterpart of kill_face for the in-place splitEdge Euler op. */
+  void clear_face_contents(int f1, MeshCallbacks *cb = nullptr);
+
+  /* Repopulate a face id `f1` (whose contents were cleared by
+   * clear_face_contents) with a fresh loop. Mirrors make_face's list/corner/
+   * radial wiring + create callbacks, but reuses f1 and fires onFaceChange(f1)
+   * AFTER the rewire (the list + corners are genuinely new → create events; the
+   * face merely changed) so the spatial tree's touch_face reads the new verts. */
+  void reinit_face(int f1, std::span<int> verts, std::span<int> edges,
+                   MeshCallbacks *cb = nullptr);
+
   EdgeOfVertIter e_of_v(int v1)
   {
     int e1 = v.e[v1];

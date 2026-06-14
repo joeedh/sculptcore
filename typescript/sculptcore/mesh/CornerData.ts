@@ -22,6 +22,7 @@ export interface CornerData {
   [Symbol.dispose](): void
   attrs: AttrGroup
   capacity_: int32
+  count: int32
   v: BuiltinAttr<int32, '.corner.v'>
   e: BuiltinAttr<int32, '.corner.e'>
   l: BuiltinAttr<int32, '.corner.l'>

@@ -12,8 +12,19 @@
  * Geometric validity (quad convexity) is the caller's call — the remesher flips
  * by a Delaunay / valence criterion; this operator does the topological flip.
  *
- * Implementation mirrors edge_split.h: reconstruct via the public Euler
- * operators rather than splicing cycles by hand.
+ * Implementation: the flip is performed IN PLACE — the shared edge and both
+ * faces (and all six corners) keep their ids; only their topology pointers are
+ * rewired. This avoids the kill+recreate of the previous version (no attr-row
+ * snapshot/restore of the rebuilt faces, no make_face find_edge walks) and,
+ * crucially, fires no face create/kill events, so the spatial tree only re-flags
+ * the two reused leaves (touch_face) instead of churning its node ownership.
+ *
+ * The corner remap is chosen so every corner keeps its EDGE unchanged, which
+ * means NO radial surgery is needed (radial cycles are keyed by corner id):
+ * naming the f_ab corners p0(v=a,e=ab) p1(v=b) p2(v=c) and the f_ba corners
+ * q0(v=b,e=ba) q1(v=a) q2(v=d), the new faces are f_ab=(c,a,d) via p2->q1->p0
+ * and f_ba=(d,b,c) via q2->p1->q0. Only p0/q0 change vertex (a->d, b->c), only
+ * q1/p1 change face, and the shared edge's endpoints move a,b -> c,d.
  */
 
 #include "../mesh.h"
@@ -22,6 +33,7 @@
 #include "attr_interp.h"
 
 #include "litestl/util/error.h"
+#include "litestl/util/function.h"
 #include "litestl/util/vector.h"
 
 #include <span>
@@ -30,9 +42,12 @@ namespace sculptcore::mesh {
 
 using litestl::util::SuccessOrError;
 
+/* In-place flip: the edge and both faces keep their ids. created_* and killed_*
+ * therefore report the SAME (reused) ids — `edge` now holds the c-d diagonal,
+ * and {f_ab, f_ba} are the two rewired faces. */
 struct EdgeFlipResult {
-  int created_edge = ELEM_NONE; /* the new c-d diagonal */
-  int killed_edge = ELEM_NONE;  /* the old a-b edge */
+  int created_edge = ELEM_NONE; /* the new c-d diagonal (== the input edge id) */
+  int killed_edge = ELEM_NONE;  /* the old a-b edge (== the input edge id) */
   litestl::util::Vector<int, 8> created_faces;
   litestl::util::Vector<int, 8> killed_faces;
 };
@@ -56,10 +71,13 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
     return false;
   }
 
-  /* Walk the radial cycle: require exactly two triangle faces and recover the
-   * apex on each side (which way the edge winds in each face). */
-  int c = ELEM_NONE, d = ELEM_NONE; /* apex of the a->b face / the b->a face */
+  /* Walk the radial cycle: require exactly two triangle faces and recover, for
+   * each side, the apex and the six corners (which way the edge winds in each
+   * face). p* are the a->b face's corners, q* the b->a face's. */
+  int c = ELEM_NONE, d = ELEM_NONE;
   int f_ab = ELEM_NONE, f_ba = ELEM_NONE;
+  int p0 = ELEM_NONE, p1 = ELEM_NONE, p2 = ELEM_NONE;
+  int q0 = ELEM_NONE, q1 = ELEM_NONE, q2 = ELEM_NONE;
   int nfaces = 0;
   int c0 = m.e.c[edge];
   if (c0 == ELEM_NONE) {
@@ -78,9 +96,15 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
       if (va == a && vb == b) {
         c = apex;
         f_ab = m.l.f[li];
+        p0 = cc; /* v=a, e=edge */
+        p1 = cn; /* v=b */
+        p2 = cnn; /* v=c */
       } else if (va == b && vb == a) {
         d = apex;
         f_ba = m.l.f[li];
+        q0 = cc; /* v=b, e=edge */
+        q1 = cn; /* v=a */
+        q2 = cnn; /* v=d */
       }
       nfaces++;
       cc = m.c.radial_next[cc];
@@ -95,83 +119,86 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
     return false;
   }
 
-  if (out) {
-    out->killed_edge = edge;
-    out->killed_faces.append(f_ab);
-    out->killed_faces.append(f_ba);
+  int list_ab = m.f.l[f_ab];
+  int list_ba = m.f.l[f_ba];
+
+  /* p0 ends up at vertex d, q0 at vertex c. Carry the destination vertex's
+   * corner attrs (uv etc.) onto them: q2 is the existing corner at d, p2 the
+   * one at c. dyntopo refuses to flip feature / uv-chart-boundary edges, so the
+   * per-vertex corner value is consistent across the two faces. snapshot before
+   * any mutation (restoreAttrRow copies value attrs only, skipping TOPO). */
+  AttrRowSnapshot snapD, snapC;
+  snapshotAttrRow(m.c.attrs, q2, snapD);
+  snapshotAttrRow(m.c.attrs, p2, snapC);
+
+  /* Fire all Change events whose element's TOPO row we are about to rewrite
+   * BEFORE the rewrite, so the meshlog captures the pre-flip state (its onChange
+   * snapshots at first touch and swaps on undo). Corners and lists must be
+   * pre-state; the edge + verts are handled inside relink_edge_verts; the two
+   * faces fire AFTER (their row is unchanged, and the tree's touch_face must see
+   * the new verts). */
+  if (cb) {
+    auto fire = [](const litestl::util::function<void(int)> &fn, int i) {
+      if (fn) fn(i);
+    };
+    fire(cb->onCornerChange, p0);
+    fire(cb->onCornerChange, p1);
+    fire(cb->onCornerChange, p2);
+    fire(cb->onCornerChange, q0);
+    fire(cb->onCornerChange, q1);
+    fire(cb->onCornerChange, q2);
+    fire(cb->onListChange, list_ab);
+    fire(cb->onListChange, list_ba);
   }
 
-  /* Snapshot both faces' attr rows and their per-corner rows (keyed by vertex)
-   * before the kill, so the rebuilt faces keep their `group` / `uv` / etc.
-   * instead of make_face's value-init — otherwise every interior flip would
-   * zero the polygroup of the two faces it touches. dyntopo refuses to flip
-   * feature edges (seam / sharp / poly-group / UV-chart boundaries), so the two
-   * faces share a value across any layer that could differ at a boundary; the
-   * f_ab->nf0 / f_ba->nf1 assignment is therefore unambiguous in practice. */
-  AttrRowSnapshot snapFab, snapFba;
-  snapshotAttrRow(m.f.attrs, f_ab, snapFab);
-  snapshotAttrRow(m.f.attrs, f_ba, snapFba);
-  struct CornerSnap {
-    int vert;
-    AttrRowSnapshot snap;
-  };
-  litestl::util::Vector<CornerSnap, 6> csnaps;
-  auto snapCorners = [&](int f) {
-    int li = m.f.l[f];
-    int lc0 = m.l.c[li], lcc = lc0;
-    do {
-      int v = m.c.v[lcc];
-      bool have = false;
-      for (CornerSnap &cs : csnaps) {
-        if (cs.vert == v) {
-          have = true;
-          break;
-        }
-      }
-      if (!have) {
-        CornerSnap cs;
-        cs.vert = v;
-        snapshotAttrRow(m.c.attrs, lcc, cs.snap);
-        csnaps.append(std::move(cs));
-      }
-      lcc = m.c.next[lcc];
-    } while (lcc != lc0);
-  };
-  snapCorners(f_ab);
-  snapCorners(f_ba);
+  /* Move the shared edge's endpoints a,b -> c,d (disk surgery + edge/vert
+   * callbacks, with make_edge/kill_edge discipline). Corners keep referencing
+   * it, so its radial cycle is untouched. */
+  m.relink_edge_verts(edge, c, d, cb);
 
-  m.kill_face(f_ab, cb);
-  m.kill_face(f_ba, cb);
-  m.kill_edge(edge, cb); /* now wire */
+  /* Vertex remap of the two edge-corners. */
+  m.c.v[p0] = d;
+  m.c.v[q0] = c;
 
-  int t0[3] = {c, a, d};
-  int t1[3] = {d, b, c};
-  int nf0 = m.make_face(std::span<int>(t0, 3), cb);
-  int nf1 = m.make_face(std::span<int>(t1, 3), cb);
+  /* Face remap of the two non-edge corners that swap sides. */
+  m.c.l[q1] = list_ab;
+  m.c.l[p1] = list_ba;
 
-  restoreAttrRow(m.f.attrs, nf0, snapFab);
-  restoreAttrRow(m.f.attrs, nf1, snapFba);
-  auto restoreCorners = [&](int f) {
-    int li = m.f.l[f];
-    int lc0 = m.l.c[li], lcc = lc0;
-    do {
-      int v = m.c.v[lcc];
-      for (CornerSnap &cs : csnaps) {
-        if (cs.vert == v) {
-          restoreAttrRow(m.c.attrs, lcc, cs.snap);
-          break;
-        }
-      }
-      lcc = m.c.next[lcc];
-    } while (lcc != lc0);
-  };
-  restoreCorners(nf0);
-  restoreCorners(nf1);
+  /* Relink the two triangle loops: f_ab = p2(c)->q1(a)->p0(d). */
+  m.c.next[p2] = q1; m.c.prev[q1] = p2;
+  m.c.next[q1] = p0; m.c.prev[p0] = q1;
+  m.c.next[p0] = p2; m.c.prev[p2] = p0;
+  /* f_ba = q2(d)->p1(b)->q0(c). */
+  m.c.next[q2] = p1; m.c.prev[p1] = q2;
+  m.c.next[p1] = q0; m.c.prev[q0] = p1;
+  m.c.next[q0] = q2; m.c.prev[q2] = q0;
+
+  /* List heads must name a corner still in the (rewired) list. */
+  m.l.c[list_ab] = p2;
+  m.l.c[list_ba] = q2;
+
+  /* Corner value attrs follow the destination vertex. */
+  restoreAttrRow(m.c.attrs, p0, snapD);
+  restoreAttrRow(m.c.attrs, q0, snapC);
+
+  /* Faces survive in place; fire after the rewire so the spatial tree's
+   * touch_face reads the new vertex set (the row itself is unchanged, so the
+   * meshlog snapshot is order-insensitive here). */
+  if (cb) {
+    auto fire = [](const litestl::util::function<void(int)> &fn, int i) {
+      if (fn) fn(i);
+    };
+    fire(cb->onFaceChange, f_ab);
+    fire(cb->onFaceChange, f_ba);
+  }
 
   if (out) {
-    out->created_faces.append(nf0);
-    out->created_faces.append(nf1);
-    out->created_edge = m.find_edge(c, d);
+    out->created_edge = edge;
+    out->killed_edge = edge;
+    out->created_faces.append(f_ab);
+    out->created_faces.append(f_ba);
+    out->killed_faces.append(f_ab);
+    out->killed_faces.append(f_ba);
   }
 
   return true;

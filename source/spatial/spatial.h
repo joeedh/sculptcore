@@ -322,7 +322,13 @@ struct SpatialTree {
   void add_face_at(SpatialNode *leaf, int f)
   {
     leaf->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
-    for (SpatialNode *p = leaf->parent; p; p = p->parent) {
+    /* Mark ancestors bounds-dirty so regen_node_bounds (which descends only into
+     * RegenBounds-flagged children) reaches this leaf. Every setter walks to
+     * root and update() clears the flags top-down, so an already-flagged ancestor
+     * means the rest of the chain to root is already marked — stop there (turns
+     * the per-face-op O(depth) walk into O(1) for repeat ops in the same leaf). */
+    for (SpatialNode *p = leaf->parent; p && !(p->flag & Spatial_RegenBounds);
+         p = p->parent) {
       p->flag |= Spatial_RegenBounds;
     }
 
@@ -336,7 +342,11 @@ struct SpatialTree {
 
     for (auto list : face.lists()) {
       for (auto c : list) {
-        if (treeMesh.v.node[c.v()]) {
+        int vn = treeMesh.v.node[c.v()];
+        if (vn == leaf->id) {
+          continue; /* already this leaf's unique vert: other_verts.add is redundant */
+        }
+        if (vn) {
           leaf->data->other_verts.add(c.v());
         } else {
           leaf->data->unique_verts.add(c.v());
@@ -404,9 +414,57 @@ struct SpatialTree {
     }
     node->data->unique_faces.remove(f);
     node->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
-    for (SpatialNode *p = node->parent; p; p = p->parent) {
+    /* See add_face_at: stop at the first already-flagged ancestor. */
+    for (SpatialNode *p = node->parent; p && !(p->flag & Spatial_RegenBounds);
+         p = p->parent) {
       p->flag |= Spatial_RegenBounds;
     }
+  }
+
+  /* Incremental update for a face rewired IN PLACE (id unchanged) by an
+   * in-place Euler op (flipEdge / splitEdge): re-flag the owning leaf for
+   * tris/bounds/GPU regen so its draw buffers pick up the new connectivity,
+   * and claim any verts the rewired face now references that no leaf owns yet
+   * (mirrors add_face_at's vert loop — e.g. a split's fresh midpoint). The
+   * face count in the leaf is unchanged, so no split is triggered. Falls back
+   * to add_face if the face has no unique owner (shouldn't happen for a live
+   * dab face). Used by the onFaceChange spatial callback. */
+  void touch_face(int f)
+  {
+    int node_id = treeMesh.f.node[f];
+    if (node_id == 0) {
+      add_face(f);
+      return;
+    }
+    SpatialNode *node = node_from_id(node_id);
+    if (!node || !node->data) {
+      return;
+    }
+    node->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
+    /* See add_face_at: stop at the first already-flagged ancestor. */
+    for (SpatialNode *p = node->parent; p && !(p->flag & Spatial_RegenBounds);
+         p = p->parent) {
+      p->flag |= Spatial_RegenBounds;
+    }
+
+    mesh::FaceProxy face(m, f);
+    for (auto list : face.lists()) {
+      for (auto c : list) {
+        int vn = treeMesh.v.node[c.v()];
+        if (vn == node->id) {
+          continue;
+        }
+        if (vn) {
+          node->data->other_verts.add(c.v());
+        } else {
+          node->data->unique_verts.add(c.v());
+          treeMesh.v.node[c.v()] = node->id;
+        }
+      }
+    }
+    /* No deferred-split bookkeeping here: a split's other half-face is add_face'd
+     * into this same leaf (it shares the new midpoint), so add_face_at already
+     * queues the rebalance when the leaf grows over the limit. */
   }
 
   /* Incremental removal of a killed vertex from its owning leaf. */
@@ -438,6 +496,7 @@ struct SpatialTree {
   {
     spatialCallbacks_.onFaceCreate = [this](int f) { this->add_face(f); };
     spatialCallbacks_.onFaceKill = [this](int f) { this->remove_face(f); };
+    spatialCallbacks_.onFaceChange = [this](int f) { this->touch_face(f); };
     spatialCallbacks_.onVertKill = [this](int v) { this->remove_vert(v); };
     return &spatialCallbacks_;
   }

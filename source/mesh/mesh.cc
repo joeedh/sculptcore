@@ -577,6 +577,193 @@ void Mesh::kill_face(int f1, MeshCallbacks *cb)
   f.release(f1);
 }
 
+void Mesh::relink_edge_verts(int e1, int nv0, int nv1, MeshCallbacks *cb)
+{
+  if (topo_frozen)
+    thawTopo();
+  topo_stamp++;
+
+  int ov0 = e.vs[e1][0];
+  int ov1 = e.vs[e1][1];
+
+  if (cb) {
+    /* Capture e1's pre-splice row (vs + disk are TOPO) for the meshlog, and
+     * its old disk neighbours before disk_remove rewires them. */
+    fire(cb->onEdgeChange, e1);
+    int olds[2] = {ov0, ov1};
+    for (int vv : olds) {
+      int side = edge_side(e1, vv);
+      int prevn = e.disk[e1][side * 2];
+      int nextn = e.disk[e1][side * 2 + 1];
+      if (prevn != e1) {
+        fire(cb->onEdgeChange, prevn);
+      }
+      if (nextn != e1 && nextn != prevn) {
+        fire(cb->onEdgeChange, nextn);
+      }
+    }
+  }
+
+  disk_remove(e1, ov0);
+  disk_remove(e1, ov1);
+
+  e.vs[e1][0] = nv0;
+  e.vs[e1][1] = nv1;
+  e.disk[e1] = math::int4(ELEM_NONE);
+
+  if (cb) {
+    /* New endpoints' disk neighbours, before disk_insert rewires them
+     * (mirrors make_edge). */
+    int news[2] = {nv0, nv1};
+    for (int vv : news) {
+      if (v.e[vv] == ELEM_NONE) {
+        continue;
+      }
+      int e2 = v.e[vv];
+      int prevn = e.disk[e2][edge_side(e2, vv) * 2];
+      fire(cb->onEdgeChange, e2);
+      if (prevn != e2) {
+        fire(cb->onEdgeChange, prevn);
+      }
+    }
+  }
+
+  disk_insert(e1, nv0);
+  disk_insert(e1, nv1);
+
+  if (cb) {
+    fire(cb->onVertChange, ov0);
+    fire(cb->onVertChange, ov1);
+    fire(cb->onVertChange, nv0);
+    fire(cb->onVertChange, nv1);
+  }
+}
+
+void Mesh::clear_face_contents(int f1, MeshCallbacks *cb)
+{
+  if (topo_frozen)
+    thawTopo();
+  topo_stamp++;
+
+  /* The face id survives; fire onFaceChange BEFORE any mutation so the meshlog
+   * snapshots the pre-rewrite face row and the spatial tree re-flags the leaf
+   * that currently owns it (reads the OLD verts, which are still wired here). */
+  if (cb) {
+    fire(cb->onFaceChange, f1);
+  }
+
+  int l1 = f.l[f1];
+  if (l1 != ELEM_NONE && l.size[l1] > 3) {
+    n_ngon_faces--;
+  }
+  while (l1 != ELEM_NONE) {
+    int next = l.next[l1];
+
+    int c1 = l.c[l1], startc1 = c1;
+    int cnext;
+    do {
+      cnext = c.next[c1];
+
+      int eid = c.e[c1];
+      if (cb) {
+        int rnext = c.radial_next[c1];
+        int rprev = c.radial_prev[c1];
+        if (rnext != c1) {
+          fire(cb->onCornerChange, rnext);
+        }
+        if (rprev != c1 && rprev != rnext) {
+          fire(cb->onCornerChange, rprev);
+        }
+        fire(cb->onEdgeChange, eid);
+      }
+
+      radial_remove(eid, c1);
+
+      if (cb) {
+        fire(cb->onCornerKill, c1);
+      }
+
+      c.release(c1);
+    } while ((c1 = cnext) != startc1);
+
+    if (cb) {
+      fire(cb->onListKill, l1);
+    }
+
+    l.release(l1);
+    l1 = next;
+  }
+
+  f.l[f1] = ELEM_NONE; /* dangling until reinit_face repopulates it */
+}
+
+void Mesh::reinit_face(int f1, std::span<int> verts, std::span<int> edges,
+                       MeshCallbacks *cb)
+{
+  if (topo_frozen)
+    thawTopo();
+  topo_stamp++;
+  int li = l.alloc();
+
+  int vlen = verts.size();
+  if (vlen > 3) {
+    n_ngon_faces++;
+  }
+
+  f.l[f1] = li;
+  f.list_count[f1] = 1;
+
+  l.size[li] = vlen;
+  l.f[li] = f1;
+  l.next[li] = ELEM_NONE;
+
+  util::Vector<int, 8> corners;
+  for (int i = 0; i < vlen; i++) {
+    int ci = c.alloc();
+
+    c.v[ci] = verts[i];
+    c.e[ci] = edges[i];
+    c.l[ci] = li;
+
+    if (cb && e.c[edges[i]] != ELEM_NONE) {
+      /* radial_insert rewires the edge's existing radial neighbors; snapshot
+       * their pre-insert links for the meshlog before they change. */
+      int c2 = e.c[edges[i]];
+      int c2prev = c.radial_prev[c2];
+      fire(cb->onCornerChange, c2);
+      if (c2prev != c2) {
+        fire(cb->onCornerChange, c2prev);
+      }
+    }
+
+    radial_insert(edges[i], ci);
+    corners.append(ci);
+  }
+
+  l.c[li] = corners[0];
+
+  for (int i = 0; i < vlen; i++) {
+    int l1 = corners[(i - 1 + vlen) % vlen];
+    int l2 = corners[i];
+    int l3 = corners[(i + 1) % vlen];
+
+    c.prev[l2] = l1;
+    c.next[l2] = l3;
+  }
+
+  if (cb) {
+    fire(cb->onListCreate, li);
+    for (int i = 0; i < vlen; i++) {
+      fire(cb->onCornerCreate, corners[i]);
+      fire(cb->onEdgeChange, edges[i]);
+    }
+    /* The face id survived the rewrite; fire onFaceChange AFTER so the spatial
+     * tree's touch_face reads the new vertex set (the meshlog already
+     * snapshotted in clear_face_contents, so this is a no-op there). */
+    fire(cb->onFaceChange, f1);
+  }
+}
+
 void Mesh::recountNgons()
 {
   if (topo_frozen) {
