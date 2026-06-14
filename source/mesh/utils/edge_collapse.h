@@ -117,7 +117,8 @@ static inline int64_t faceKey(const litestl::util::Vector<int, 16> &verts)
 
 /* Collapse `edge`. The vertex at `e.vs[edge][0]` is kept (its position
  * optionally replaced by `merged_co`); the vertex at `e.vs[edge][1]`
- * is removed. Returns false if the edge index is invalid.
+ * is removed. `edge` must be a live edge — the caller is responsible for
+ * validating it; this does not.
  *
  * When `prevent_inversion` is set, the collapse is refused (returning false,
  * mesh untouched) if welding the two endpoints to the merged position would

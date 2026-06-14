@@ -303,9 +303,11 @@ namespace detail {
  *
  * Captures every attribute (typed + bool, including TOPO-flagged
  * attrs) at a given index into a flat byte buffer. The byte layout is
- * computed from the source group on capture and assumed identical on
- * subsequent writeTo / swapWith calls (i.e. the AttrGroup must not
- * have had attrs added or reordered in between).
+ * computed from the source group on capture; writeTo / swapWith only
+ * ever touch the first count_ attrs (the prefix that existed at capture
+ * time), so an AttrGroup that has attrs *appended* between capture and
+ * replay stays safe — the new trailing columns are simply not restored.
+ * Reordering is still unsupported.
  */
 struct ChunkElemRow {
   ChunkElemRow() = default;
@@ -339,7 +341,8 @@ struct ChunkElemRow {
 
   void writeTo(mesh::AttrGroup &dst, int dst_idx)
   {
-    for (int i = 0; i < dst.attrs.size(); i++) {
+    int n = dst.attrs.size() < count_ ? int(dst.attrs.size()) : count_;
+    for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = dst.attrs[i];
       if (ref.flag & mesh::AttrFlag::TEMP) {
         continue; /* see captureFrom: TEMP attrs are tree-owned, not logged */
@@ -369,7 +372,8 @@ struct ChunkElemRow {
   void swapWith(mesh::AttrGroup &live, int live_idx)
   {
     uint8_t buf[64];
-    for (int i = 0; i < live.attrs.size(); i++) {
+    int n = live.attrs.size() < count_ ? int(live.attrs.size()) : count_;
+    for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = live.attrs[i];
       if (ref.flag & mesh::AttrFlag::TEMP) {
         continue; /* see captureFrom: TEMP attrs are tree-owned, not logged */
@@ -410,6 +414,7 @@ private:
 
   void layoutFor(mesh::AttrGroup &src)
   {
+    count_ = int(src.attrs.size());
     offsets_.resize(src.attrs.size());
     int total = 0;
     for (int i = 0; i < src.attrs.size(); i++) {
@@ -422,6 +427,9 @@ private:
 
   Vector<uint8_t> data_;
   Vector<int> offsets_;
+  /* Number of attrs present at capture time. Restore loops bound to this so a
+   * mid-step attr append (e.g. boundary EDGE_DIRTY) can't drive offsets_[i] OOB. */
+  int count_ = 0;
 };
 
 } // namespace detail

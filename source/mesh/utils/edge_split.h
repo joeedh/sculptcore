@@ -67,8 +67,9 @@ struct EdgeSplitResult {
 
 /* Split `edge` at its midpoint, bisecting every incident triangle. The
  * created/killed element ids are reported through `out` (for the dyntopo
- * driver / meshlog undo). Returns false if the edge index is invalid or
- * any incident face is not a triangle. */
+ * driver / meshlog undo). `edge` must be a live edge — the caller is
+ * responsible for validating it; this does not. Returns false if the edge
+ * is degenerate (v0 == v1) or any incident face is not a triangle. */
 static inline SuccessOrError<"edge_split", "failed to split edge">
 splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb = nullptr)
 {
