@@ -7,11 +7,16 @@ live mesh back to its pre-step form (undo) and forward again (redo).
 
 Two chunk types coexist in one step:
 
-* **`LogChunkSimple`** — per-spatial-node attribute swap. Captures a
-  fixed set of attributes for the verts/edges/corners/faces touched
-  inside one `spatial::SpatialNode` once at first touch, and swaps them
-  with live on each undo/redo. Used by position-only brushes where
-  topology does not change.
+* **`LogChunkElems`** — sparse, append-as-touched per-domain attribute
+  swap. The brush `*Pre` stage appends one row per element the first
+  time it is touched in a step — gated by a per-element `AttrSaver`
+  stamp (see `attr_saver.h`), so it captures each element's pre-step
+  state exactly once even when the spatial tree restructures mid-stroke
+  (dyntopo). Undo/redo swap the stored rows with live. Which attributes
+  a brush captures is declared per-brush via the sbrush `save` statement
+  (defaulting to vertex co/no + face no). Used by position-only and
+  paint brushes where topology does not change. One chunk per domain
+  per step.
 
 * **`LogChunkTopo`** — full topological log. Driven by
   `mesh::MeshCallbacks`, it records every create / change / kill event
@@ -28,7 +33,8 @@ operations fire into, and provides `beginStep` / `endStep` /
 | File | Role |
 |---|---|
 | `meshlog.h` | Umbrella — includes `meshlog_base.h`. |
-| `meshlog_base.h` | All types: `MeshLog`, `LogEntry`, `LogChunk`, `LogChunkSimple`, `LogChunkTopo`, `LogElem`, `detail::ChunkElemData`, `detail::ChunkElemRow`, the `LogElemKind` / `LogOrigin` / `LogFate` enums. |
+| `meshlog_base.h` | All types: `MeshLog`, `LogEntry`, `LogChunk`, `LogChunkElems`, `LogChunkTopo`, `LogChunkReorder`, `LogElem`, `detail::ChunkElemData`, `detail::ChunkElemRow`, the `LogElemKind` / `LogOrigin` / `LogFate` enums. |
+| `attr_saver.h` | `AttrSaver<ElemType>` — the per-element "already saved this stroke?" gate that drives `LogChunkElems` capture. |
 | `bindings.h` / `bindings.cc` | `registerBindings(BindingManager&)` — exposes `MeshLog` to the litestl reflection layer (default constructor + `beginStep` / `endStep` / `undo` / `redo`). |
 | `CMakeLists.txt` | Static library `meshlog`, depends on `util`, `math`, `props`, `spatial`, `mesh`. |
 
@@ -60,33 +66,45 @@ step) and a cursor `curStep_`. Notable members:
   the cursor are freeable; returns 1 if a step was freed.
 * `endStep()` — calls `LogChunkTopo::finalizeStep` to take end-state
   snapshots for newly-created live elements, then advances the cursor.
-* `getSimpleChunk(nodeId, vcount, ecount, ccount, fcount)` —
-  lazily allocates (or returns the existing) `LogChunkSimple` for the
-  given spatial node in the current step.
+* `elemStore(domain)` — lazily allocates (or returns the existing)
+  `LogChunkElems` for the given element domain in the current step. The
+  brush `*Pre` stage appends touched-element rows into it.
+* `curStrokeId()` — the current step's stroke id, masked to 16 bits
+  (bumped per `beginStep`). `AttrSaver` stamps elements with it so the
+  first dab of a step captures and later dabs skip; the 65536-stroke
+  wrap is harmless (only equality within a step matters).
 * `getTopoChunk()` — lazily allocates (or returns) the one topo chunk
   for the current step.
-* `undo(Mesh*, SpatialTree*)` / `redo(Mesh*, SpatialTree*)` — walk the
-  current entry's chunks in their natural order; the chunks themselves
-  decide direction. If the entry holds a topo chunk and the mesh is
-  topology-frozen, the mesh is thawed first (see pitfalls below).
+* `undo(Mesh*, SpatialTree*)` / `redo(Mesh*, SpatialTree*)` — undo walks
+  the current entry's chunks in **reverse** creation order, redo in
+  forward order; the chunks themselves decide swap direction. The order
+  matters for a folded sculpt step (dyntopo topo chunk created first,
+  then the brush's `LogChunkElems` store): replaying newest-first on
+  undo lets the topo chunk's true pre-step value win on the verts
+  dyntopo moved, while the element swap operates on still-live indices.
+  If the entry holds a topo chunk and the mesh is topology-frozen, the
+  mesh is thawed first (see pitfalls below).
 
 ### `LogEntry`
 A step's container. Owns `Vector<LogChunk*>` and `Delete`s the chunks
-in its destructor. Currently a flat vector; chunks within an entry are
-independent and order-insensitive.
+in its destructor. A flat vector replayed in creation order (reverse for
+undo); see `undo`/`redo` above for why a folded topo+deform step depends
+on that ordering.
 
 ### `LogChunk`
-Polymorphic base with `type` tag, virtual `undo` / `redo`. Two
-concrete subclasses:
+Polymorphic base with `type` tag, virtual `undo` / `redo`. Concrete
+subclasses: `LogChunkElems`, `LogChunkTopo`, `LogChunkReorder` (the
+last replays the five element permutations for a spatial reorder).
 
-#### `LogChunkSimple`
-Holds four `detail::ChunkElemData` blocks (one per element kind:
-verts, edges, corners, faces) and a `nodeId`. Each block stores a
-snapshot of a fixed attribute selection plus a built-in `.sculpt.origIndex`
-that maps each chunk-local row back to its mesh index. `undo()` /
-`redo()` swap each block with the live `AttrGroup` and request a GPU /
-bounds refresh on the spatial node. Both directions use the same
-swap, since pre-step and post-step data exchange roles on every flip.
+#### `LogChunkElems`
+Holds one `detail::ChunkElemData` block for a single element `domain`,
+grown by `appendFrom` as the brush touches elements (sparse — only
+touched elements get a row). Each row stores the brush's declared
+attribute snapshot plus a built-in `origIndex` mapping it back to its
+mesh index. `undo()` / `redo()` swap the block with the live
+`AttrGroup` and request a GPU / bounds refresh on the owning spatial
+node of each touched element. Both directions use the same swap, since
+pre-step and post-step data exchange roles on every flip.
 
 #### `LogChunkTopo`
 Holds `Vector<LogElem*>` plus pools backing the elements and their
@@ -142,7 +160,7 @@ The four meaningful (origin, fate) cases drive `LogChunkTopo::undo` /
 Stores a fixed-size snapshot of a selected set of attributes for a
 known number of rows, plus a built-in `origIndex` mapping each row
 back to the mesh index it was captured from. Drives the swap used by
-`LogChunkSimple`. Handles `AttrType::BOOL` separately (bit-packed via
+`LogChunkElems`. Handles `AttrType::BOOL` separately (bit-packed via
 `BoolAttrView`); all other types are blitted with `memcpy` using
 `elemSize` queried from the live `AttrData`.
 
@@ -162,8 +180,8 @@ beginStep()
   │     ├── onVertChange / onEdgeChange / …    → LogChunkTopo::onChange  (begin-snapshot first touch)
   │     └── onVertKill   / onEdgeKill   / …    → LogChunkTopo::onKill
   │
-  ├── brush position passes
-  │     └── per-node attribute swap            → LogChunkSimple
+  ├── brush deform / paint passes (*Pre stage)
+  │     └── AttrSaver-gated per-element append  → LogChunkElems
   │
 endStep()
   └── LogChunkTopo::finalizeStep — capture end_body for Created && Live records
@@ -175,9 +193,10 @@ replays the current entry forward, then increments the cursor.
 
 ## Integration with the brush executor
 
-`brush::CommandExecutor` holds a `MeshLog*`. Position brushes call
-`getSimpleChunk(nodeId, …)` per touched spatial node and let
-`LogChunkSimple` snapshot the affected attributes. Topology brushes
+`brush::CommandExecutor` holds a `MeshLog*`. Deform/paint brushes' `*Pre`
+stage stamps each touched element through an `AttrSaver` and appends its
+pre-step row into `elemStore(domain)` — element-keyed, so it is correct
+even when the spatial tree restructures mid-stroke. Topology brushes
 must additionally:
 
 1. Plug `meshLog->callbacks()` into the mesh operations they invoke
@@ -217,7 +236,7 @@ brush stroke.
   per-dab after `endDynTopoStroke()`, so undoing a *non-newest* dyntopo
   step always hits a frozen mesh. `ChunkElemRow` additionally warns and
   skips (rather than memcpying through null) if it ever sees an
-  unmaterialized page. `LogChunkSimple` only swaps brush-captured
+  unmaterialized page. `LogChunkElems` only swaps brush-captured
   non-TOPO attributes and is safe on a frozen mesh, so plain-stroke
   undo never pays the O(mesh) thaw.
 * **Pool ownership.** `LogChunkTopo::records_pool` /

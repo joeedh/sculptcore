@@ -96,8 +96,9 @@ What we get for free from the existing infrastructure:
   correctly on edge split/collapse with **zero new code** — *for the DELTA
   (world) storage case*. (The TANGENT case has a caveat; see §7.)
 - **Undo.** Vertex layers are plain per-element attributes, so they ride the
-  existing meshlog attribute-swap path (`LogChunkSimple`) like any sculpted
-  position. No new undo channel needed for the vertex carrier.
+  existing meshlog attribute-swap path (`LogChunkElems`, declared via the brush's
+  sbrush `save` statement) like any sculpted position. No new undo channel
+  needed for the vertex carrier.
 - **GPU / draw.** The evaluated world position is what already flows to the
   spatial tree / draw buffers; the layer stack feeds the position pass, it does
   not need a new requested-attribute contract unless we want to *render* a layer

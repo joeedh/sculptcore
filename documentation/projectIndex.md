@@ -46,7 +46,7 @@ See `documentation/mesh.md` for a detailed overview.
 
 ### `source/meshlog/` — sculpt undo/redo log
 
-`meshlog.h` (umbrella), `meshlog_base.h` (`MeshLog`, `LogEntry`, `LogChunk`, `LogChunkSimple`, `LogChunkTopo`, `LogElem`, `detail::ChunkElemData`, `detail::ChunkElemRow`), `bindings.cc/.h`. Two chunk types: `LogChunkSimple` stores per-spatial-node attribute swaps for plain position sculpting; `LogChunkTopo` stores merged per-element create/change/kill records driven by `mesh::MeshCallbacks` for full topological undo. Integrated with `brush::CommandExecutor` (`meshLog` member).
+`meshlog.h` (umbrella), `meshlog_base.h` (`MeshLog`, `LogEntry`, `LogChunk`, `LogChunkElems`, `LogChunkTopo`, `LogChunkReorder`, `LogElem`, `detail::ChunkElemData`, `detail::ChunkElemRow`), `attr_saver.h` (`AttrSaver` per-element save gate), `bindings.cc/.h`. Two principal chunk types: `LogChunkElems` stores sparse append-as-touched per-domain attribute swaps for plain position / paint sculpting (gated per-element by `AttrSaver`, so it survives mid-stroke dyntopo restructuring; captured attrs declared per-brush via the sbrush `save` statement); `LogChunkTopo` stores merged per-element create/change/kill records driven by `mesh::MeshCallbacks` for full topological undo. Integrated with `brush::CommandExecutor` (`meshLog` member).
 
 See `documentation/meshlog.md` for a detailed overview.
 

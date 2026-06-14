@@ -330,7 +330,7 @@ returned leaves' `unique_verts`.
 
 ## Integration with meshlog / undo
 
-`meshlog`'s simple chunks call `node->update(Spatial_UpdateGPU |
+`meshlog`'s element-store chunks call `node->update(Spatial_UpdateGPU |
 Spatial_RegenBounds)` on the leaf they swapped attributes for. The
 flags accumulate per-leaf; the next `SpatialTree::update` tick walks
 the parent chain to find the owning GPU node and reroutes the dirty

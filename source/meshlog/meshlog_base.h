@@ -1,11 +1,16 @@
 /**
 # Intro
 
-Meshlog is the main undo/redo system for sculptcore. It has two chunk types:
+Meshlog is the main undo/redo system for sculptcore. Its two principal
+chunk types are:
 
-* `LogChunkSimple` — per-spatial-node attribute-swap log for plain
-  vertex-position sculpting. Captures a fixed set of attributes once
-  per node and swaps them with live on undo/redo.
+* `LogChunkElems` — sparse, append-as-touched per-domain attribute-swap
+  log for plain vertex-position / paint sculpting. The brush *Pre stage
+  appends one row per element the first time it is touched in a step
+  (gated by `AttrSaver`, so spatial-tree restructuring can't
+  double-capture), and swaps the stored row with live on undo/redo.
+  Which attributes a brush captures is declared per-brush via the sbrush
+  `save` statement (defaults to vertex co/no + face no).
 
 * `LogChunkTopo` — full topological log. Records every element touched
   during a step (Create / Change / Kill of verts, edges, corners,
@@ -70,7 +75,6 @@ using litestl::util::string;
 using litestl::util::Vector;
 
 enum _LogChunkTypes {
-  Simple = 0,
   Topo = 1,
   Reorder = 2,
   Elems = 3,
@@ -339,77 +343,11 @@ private:
 };
 } // namespace detail
 
-/** Per-node undo data. */
-struct LogChunkSimple : public LogChunk {
-  detail::ChunkElemData v, e, c, f;
-  /** note: nodeId cannot be read after initial creation of chunks,
-      since by the time this chunk is undo/redo-afied it's not guaranteed
-      to be correct */
-  int nodeId;
-
-  LogChunkSimple(int nodeId, int vcount, int ecount, int ccount, int fcount)
-      : LogChunk(LogChunkTypes::Simple), nodeId(nodeId),
-        v(vcount, mesh::ElemType::VERTEX), e(ecount, mesh::ElemType::EDGE),
-        c(ccount, mesh::ElemType::CORNER), f(fcount, mesh::ElemType::FACE)
-  {
-    //
-  }
-
-  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    using namespace sculptcore::spatial;
-
-    v.undo(m->v.attrs, tree);
-    e.undo(m->e.attrs, tree);
-    c.undo(m->c.attrs, tree);
-    f.undo(m->f.attrs, tree);
-
-    // cannot use nodeId here it's not guaranteed to be correct
-    update_node(m, tree);
-  }
-
-  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    v.redo(m->v.attrs, tree);
-    e.redo(m->e.attrs, tree);
-    c.redo(m->c.attrs, tree);
-    f.redo(m->f.attrs, tree);
-
-    // cannot use nodeId here it's not guaranteed to be correct
-    update_node(m, tree);
-  }
-
-  double memSize() override
-  {
-    return double(sizeof(*this)) + v.memSize() + e.memSize() + c.memSize() + f.memSize();
-  }
-
-private:
-  void update_node(mesh::Mesh *m, spatial::SpatialTree *tree)
-  {
-    using namespace sculptcore::spatial;
-
-    // cannot use nodeId here it's not guaranteed to be correct
-    for (int i : util::IndexRange(0, f.size())) {
-      int fi = f.origIndex[i];
-      int ni = tree->treeMesh.f.node[fi];
-      if (ni) {
-        SpatialNode *node = tree->node_from_id(ni);
-        node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
-      }
-    }
-  }
-
-  mesh::AttrGroup attrs_;
-  Vector<int> srcAttrMap_; // one-to-one mapping to attributes in attrs_
-  int size_;
-};
-
-/** Sparse, append-as-touched per-domain element store (the AttrSaver-driven
- * replacement for the dense per-node LogChunkSimple). The brush *Pre stage
- * appends one row per element the first time it is touched in a step (gated by
- * AttrSaver, so dyntopo tree restructuring can't double-capture); undo/redo
- * swap by origIndex restores it. One chunk per domain per step. */
+/** Sparse, append-as-touched per-domain element store for brush undo capture.
+ * The brush *Pre stage appends one row per element the first time it is touched
+ * in a step (gated by AttrSaver, so dyntopo tree restructuring can't
+ * double-capture); undo/redo swap by origIndex restores it. One chunk per
+ * domain per step. */
 struct LogChunkElems : public LogChunk {
   detail::ChunkElemData data;
   mesh::ElemType domain;
@@ -523,7 +461,6 @@ struct ChunkElemRow {
   void writeTo(mesh::AttrGroup &dst, int dst_idx)
   {
     int n = dst.attrs.size() < count_ ? int(dst.attrs.size()) : count_;
-    diagCheck("writeTo", dst, n);
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = dst.attrs[i];
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
@@ -557,7 +494,6 @@ struct ChunkElemRow {
   {
     uint8_t buf[64];
     int n = live.attrs.size() < count_ ? int(live.attrs.size()) : count_;
-    diagCheck("swapWith", live, n);
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = live.attrs[i];
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
@@ -601,17 +537,10 @@ private:
   {
     count_ = int(src.attrs.size());
     offsets_.resize(src.attrs.size());
-    /* CLAUDENOTE: diag — record captured per-attr identity to detect layout drift */
-    capType_.resize(src.attrs.size());
-    capSize_.resize(src.attrs.size());
-    capName_.resize(src.attrs.size());
     int total = 0;
     for (int i = 0; i < src.attrs.size(); i++) {
       offsets_[i] = total;
       mesh::AttrRef &ref = src.attrs[i];
-      capType_[i] = int(ref.type);
-      capSize_[i] = (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
-      capName_[i] = ref.name;
       total += (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
     }
     // TODO: handle non-zero attribute defaults here
@@ -619,41 +548,8 @@ private:
     data_.resize(total);
   }
 
-  /* CLAUDENOTE: diag — verify replay-time attr i still matches capture-time attr i */
-  void diagCheck(const char *where, mesh::AttrGroup &dst, int n)
-  {
-    static int reported = 0;
-    for (int i = 0; i < n && i < int(capType_.size()); i++) {
-      mesh::AttrRef &ref = dst.attrs[i];
-      int liveSize = (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
-      if (int(ref.type) != capType_[i] || liveSize != capSize_[i] ||
-          ref.name != capName_[i])
-      {
-        if (reported++ < 40) {
-          fprintf(stderr,
-                  "MESHLOG-DIAG %s: attr[%d] DRIFT cap=(%s t%d sz%d) live=(%s t%d sz%d) "
-                  "count_=%d dst.size=%d\n",
-                  where,
-                  i,
-                  capName_[i].c_str(),
-                  capType_[i],
-                  capSize_[i],
-                  ref.name.c_str(),
-                  int(ref.type),
-                  liveSize,
-                  count_,
-                  int(dst.attrs.size()));
-        }
-      }
-    }
-  }
-
   Vector<uint8_t> data_;
   Vector<int> offsets_;
-  /* CLAUDENOTE: diag arrays */
-  Vector<int> capType_;
-  Vector<int> capSize_;
-  Vector<string> capName_;
   /* Number of attrs present at capture time. Restore loops bound to this so a
    * mid-step attr append (e.g. boundary EDGE_DIRTY) can't drive offsets_[i] OOB. */
   int count_ = 0;
@@ -1301,43 +1197,6 @@ struct MeshLog {
     return curEntry().topo_chunk_;
   }
 
-  LogChunkSimple *hasSimpleChunk(int nodeId)
-  {
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      fprintf(stderr, "error: call to hasSimpleChunk with no entry\n");
-      abort();
-    }
-
-    for (LogChunk *chunk : curEntry().chunks) {
-      if (chunk->type != LogChunkTypes::Simple) {
-        continue;
-      }
-      LogChunkSimple *simple = static_cast<LogChunkSimple *>(chunk);
-      if (simple->nodeId == nodeId) {
-        return simple;
-      }
-    }
-
-    return nullptr;
-  }
-
-  LogChunkSimple *
-  getSimpleChunk(int nodeId, int vcount, int ecount, int ccount, int fcount)
-  {
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      fprintf(stderr, "Error: getSimpleChunk called with no current undo entry\n");
-      abort();
-    }
-
-    LogChunkSimple *simple = hasSimpleChunk(nodeId);
-    if (!simple) {
-      simple = litestl::alloc::New<LogChunkSimple>(
-          "LogChunkSimple", nodeId, vcount, ecount, ccount, fcount);
-      curEntry().chunks.append(simple);
-    }
-    return simple;
-  }
-
   /** Find-or-create the current step's per-domain element store (the
    * append-as-touched undo capture for AttrSaver-gated brush deformation). */
   LogChunkElems *elemStore(mesh::ElemType domain)
@@ -1407,12 +1266,12 @@ struct MeshLog {
     thawForTopoChunks(m);
     /* Undo chunks in REVERSE creation order. A folded sculpt step (TS sculpt op)
      * holds the dyntopo topo chunk (created first) followed by the brush's
-     * per-node position LogChunkSimple chunks (created during the deform that ran
-     * after dyntopo). They overlap on the verts dyntopo moved: the topo chunk
-     * holds the true pre-step position, the simple chunk a mid-stroke
-     * (post-dyntopo) one. Replaying newest-first lets the topo chunk's pre-step
-     * value win (and keeps the simple swap operating on the still-post-step
-     * topology, where its captured indices are all live). */
+     * LogChunkElems store (created lazily during the deform that ran after
+     * dyntopo). They overlap on the verts dyntopo moved: the topo chunk holds
+     * the true pre-step position, the element store a mid-stroke (post-dyntopo)
+     * one. Replaying newest-first lets the topo chunk's pre-step value win (and
+     * keeps the element swap operating on the still-post-step topology, where
+     * its captured indices are all live). */
     auto &chunks = curEntry().chunks;
     for (int i = int(chunks.size()) - 1; i >= 0; i--) {
       chunks[i]->undo(m, tree);

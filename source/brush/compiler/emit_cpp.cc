@@ -1056,8 +1056,7 @@ struct Emit {
   // Pre-stage: AttrSaver-gated undo capture. For each save-domain, stamp the
   // element-keyed gate and append touched elements' attrs to the per-step
   // element store. Element-keyed so it survives dyntopo tree restructuring
-  // mid-stroke (the old per-node hasSimpleChunk gate did not). An empty `save`
-  // set defaults to the legacy {vertex co, vertex no, face no}.
+  // mid-stroke. An empty `save` set defaults to {vertex co, vertex no, face no}.
   void emitPreStage(const string &lowerName)
   {
     Vector<SaveAttr> saves;

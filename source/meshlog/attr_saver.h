@@ -30,8 +30,7 @@ example:
   }
 
 this gate is element-keyed, so it stays correct when the spatial tree
-restructures mid-stroke (unlike the old per-node LogChunkSimple presence test).
-the stamp lives on the element, not the node.
+restructures mid-stroke: the stamp lives on the element, not the node.
 
 see documentation/plans/attr-saver.md.
 */
