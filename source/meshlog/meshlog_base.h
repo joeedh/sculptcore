@@ -588,10 +588,13 @@ struct LogChunkTopo : public LogChunk {
        * — the forward kill path never owned-removed them via callbacks). */
       for (LogElem *e : records) {
         if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-          if (e->kind == LogElemKind::Face) tree->remove_face(e->end_mesh_index);
-          else if (e->kind == LogElemKind::Vert) tree->remove_vert(e->end_mesh_index);
+          if (e->kind == LogElemKind::Face)
+            tree->remove_face(e->end_mesh_index);
+          else if (e->kind == LogElemKind::Vert)
+            tree->remove_vert(e->end_mesh_index);
         } else if (e->kind == LogElemKind::Face && e->origin == LogOrigin::Existed &&
-                   e->fate == LogFate::Live) {
+                   e->fate == LogFate::Live)
+        {
           tree->remove_face(e->begin_mesh_index);
         }
       }
@@ -622,9 +625,11 @@ struct LogChunkTopo : public LogChunk {
        * back or were rewired. add_face re-derives the leaf and flags it for
        * tris/bounds/GPU regen. */
       for (LogElem *e : records) {
-        if (e->kind != LogElemKind::Face) continue;
+        if (e->kind != LogElemKind::Face)
+          continue;
         if (e->origin == LogOrigin::Existed &&
-            (e->fate == LogFate::Dead || e->fate == LogFate::Live)) {
+            (e->fate == LogFate::Dead || e->fate == LogFate::Live))
+        {
           tree->add_face(e->begin_mesh_index);
         }
       }
@@ -639,9 +644,11 @@ struct LogChunkTopo : public LogChunk {
        * leaf keeps a dangling unique_verts ref that an index-reusing recreate
        * would resurrect into a double-owned vert. */
       for (LogElem *e : records) {
-        if (e->origin != LogOrigin::Existed) continue;
+        if (e->origin != LogOrigin::Existed)
+          continue;
         if (e->kind == LogElemKind::Face &&
-            (e->fate == LogFate::Dead || e->fate == LogFate::Live)) {
+            (e->fate == LogFate::Dead || e->fate == LogFate::Live))
+        {
           tree->remove_face(e->begin_mesh_index);
         } else if (e->kind == LogElemKind::Vert && e->fate == LogFate::Dead) {
           tree->remove_vert(e->begin_mesh_index);
@@ -672,7 +679,8 @@ struct LogChunkTopo : public LogChunk {
     if (tree) {
       /* Post-pass (mesh in post-step state): re-own recreated/rewired faces. */
       for (LogElem *e : records) {
-        if (e->kind != LogElemKind::Face) continue;
+        if (e->kind != LogElemKind::Face)
+          continue;
         if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
           tree->add_face(e->end_mesh_index);
         } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
@@ -797,7 +805,8 @@ struct LogChunkReorder : public LogChunk {
 
   double memSize() override
   {
-    double n = double(vmap.size() + emap.size() + cmap.size() + lmap.size() + fmap.size());
+    double n =
+        double(vmap.size() + emap.size() + cmap.size() + lmap.size() + fmap.size());
     return double(sizeof(*this)) + n * sizeof(int);
   }
 
@@ -817,6 +826,8 @@ struct MeshLog {
    * swaps with current data.
    */
   struct LogEntry {
+    LogChunkTopo *topo_chunk_ = nullptr;
+
     Vector<LogChunk *> chunks;
     /** Monotonic step id assigned by beginStep; stable across history trims. */
     int id = -1;
@@ -861,6 +872,8 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, totalMemSize, MARGS());
     BIND_STRUCT_METHOD(st, entryCount, MARGS());
     BIND_STRUCT_METHOD(st, freeStep, MARGS("id"));
+    BIND_STRUCT_METHOD(st, pushTopoChunk, MARGS());
+    BIND_STRUCT_METHOD(st, hasTopoChunk, MARGS());
 
     return st;
   }
@@ -895,7 +908,6 @@ struct MeshLog {
     }
     entries.grow_one();
     entries.last().id = nextStepId_++;
-    topo_chunk_ = nullptr;
   }
 
   /** Id of the most recently begun step (-1 if none). Call right after
@@ -960,10 +972,15 @@ struct MeshLog {
 
   void endStep()
   {
-    if (topo_chunk_ && active_mesh_) {
-      topo_chunk_->finalizeStep(active_mesh_);
+    if (curEntry().topo_chunk_ && active_mesh_) {
+      for (LogChunk *chunk : curEntry().chunks) {
+        if (chunk->type == LogChunkTypes::Topo) {
+          LogChunkTopo *topo = static_cast<LogChunkTopo *>(chunk);
+          topo->finalizeStep(active_mesh_);
+        }
+      }
     }
-    topo_chunk_ = nullptr;
+    curEntry().topo_chunk_ = nullptr;
     curStep_++;
     trimHistory();
   }
@@ -980,19 +997,29 @@ struct MeshLog {
     return maxUndoSteps_;
   }
 
-  /** Lazily allocates a topo chunk in the current entry. */
-  LogChunkTopo *getTopoChunk()
+  bool hasTopoChunk() const
   {
-    if (topo_chunk_) {
-      return topo_chunk_;
-    }
+    return curEntry().topo_chunk_ != nullptr;
+  }
+
+  void pushTopoChunk()
+  {
     if (curStep_ < 0 || curStep_ >= entries.size()) {
       fprintf(stderr, "Error: getTopoChunk called with no current undo entry\n");
       abort();
     }
-    topo_chunk_ = litestl::alloc::New<LogChunkTopo>("LogChunkTopo");
-    curEntry().chunks.append(topo_chunk_);
-    return topo_chunk_;
+    curEntry().topo_chunk_ = litestl::alloc::New<LogChunkTopo>("LogChunkTopo");
+    curEntry().chunks.append(curEntry().topo_chunk_);
+  }
+
+  /** Lazily allocates a topo chunk in the current entry. */
+  LogChunkTopo *getTopoChunk()
+  {
+    if (curEntry().topo_chunk_) {
+      return curEntry().topo_chunk_;
+    }
+    pushTopoChunk();
+    return curEntry().topo_chunk_;
   }
 
   LogChunkSimple *hasSimpleChunk(int nodeId)
@@ -1056,6 +1083,11 @@ struct MeshLog {
   }
 
   LogEntry &curEntry()
+  {
+    return entries[curStep_];
+  }
+
+  const LogEntry &curEntry() const
   {
     return entries[curStep_];
   }
@@ -1182,7 +1214,6 @@ private:
   int curStep_;
   mesh::MeshCallbacks cb_;
   mesh::Mesh *active_mesh_ = nullptr;
-  LogChunkTopo *topo_chunk_ = nullptr;
   int maxUndoSteps_ = -1; // -1 = unbounded
   int nextStepId_ = 0;
 };
