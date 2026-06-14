@@ -23,7 +23,10 @@ struct SpatialTreeMesh {
     // into a saved mesh makes a freshly-built tree mis-partition (the
     // ownership-attribute pitfall; see documentation/spatial.md). TEMP drops it
     // from writeMesh so a deserialized mesh starts clean.
-    BuiltinAttr<int, ".spatial.v.node", AttrFlag::TEMP> node;
+    BuiltinAttr<int,
+                ".spatial.v.node",
+                AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY>
+        node;
     BuiltinAttr<float, ".spatial.v.mask"> mask;
 
     void setup(Mesh *m)
@@ -35,7 +38,10 @@ struct SpatialTreeMesh {
 
   struct {
     // Per-tree face ownership — derived, non-persistent (see v.node above).
-    BuiltinAttr<int, ".spatial.f.node", AttrFlag::TEMP> node;
+    BuiltinAttr<int,
+                ".spatial.f.node",
+                AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY>
+        node;
 
     void setup(Mesh *m)
     {
@@ -46,7 +52,7 @@ struct SpatialTreeMesh {
   void setup(Mesh *m)
   {
     this->m = m;
-    
+
     v.setup(m);
     f.setup(m);
   }

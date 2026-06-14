@@ -74,10 +74,6 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
 {
   using namespace litestl::util;
 
-  if (edge < 0 || edge >= int(m.e.capacity()) || m.e.freemap[edge]) {
-    return false;
-  }
-
   int v0 = m.e.vs[edge][0];
   int v1 = m.e.vs[edge][1];
   if (v0 == v1) {
@@ -193,7 +189,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
     }
     return nullptr;
   };
-  auto cornerOf = [&](int f, int vert) -> int {
+  auto cornerOf = [&m](int f, int vert) -> int {
     int li = m.f.l[f];
     int lc0 = m.l.c[li], lcc = lc0;
     do {

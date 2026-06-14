@@ -42,9 +42,14 @@ struct BuiltinAttr : public AttrRef {
 
   bool ensure(AttrGroup &group, bool materialize = true)
   {
+    if (data != nullptr) {
+      return false;
+    }
+
     bool ret = !group.has(type, name);
 
     AttrRef &attr = group.ensure(type, name);
+    
     /* AttrGroup::ensure() builds the stored AttrRef via AttrRef(type, name),
      * which does not carry the builtin's AttrFlag. Stamp it here so group
      * entries report TOPO/TEMP/etc. correctly (e.g. AttrGroup::swap's TOPO
