@@ -244,6 +244,13 @@ A/B, bit-for-bit modulo fp). Three docs cover it:
 and [`documentation/brush_compute.md`](documentation/brush_compute.md)
 (compiler, build wiring, verification).
 
+## Debugging
+
+in source/litestl/platform/platform.h:
+* litestl::platform::getStackTrace(): returns stack trace as a std::string
+* litestl::platform::debugBreak(): break in debugger (calls __debugbreak on windows,
+  derefs a nullptr on other platforms/wasm).
+
 ## Debugging with source-line prints
 
 When a test or scenario crashes deep inside a header (heap corruption,
