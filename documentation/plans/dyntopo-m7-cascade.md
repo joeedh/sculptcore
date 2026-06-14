@@ -351,7 +351,7 @@ deterministic given the seed.)
    or an immediate neighbour; `regen_node_bounds` tightens the loosened AABB from
    the new tris during `update()`.
 2. **Deferred batched rebalance** — `add_face_at` does **not** split inline; it
-   records over-full leaves in `rebalanceCandidates_`. `applyDeferredRebalance()`
+   records over-full leaves in `nodeSplitCandidates_`. `applyDeferredNodeSplit()`
    (top of `update()`, before the tris phase) splits each once. `split_node`
    already recurses, so one call turns a leaf that gained ~1500 verts into a
    balanced subtree — replacing N threshold-crossing re-inserts.
@@ -367,12 +367,12 @@ comparison is clean):
 `update` time *fell* too (one batched split beats repeated inline splits +
 intermediate GPU regens). Both scale with the brush region, not total mesh.
 `test_spatial_dyntopo` updated: placement is eager/correct immediately after the
-dab (ownership complete), the split is driven by `applyDeferredRebalance()`.
+dab (ownership complete), the split is driven by `applyDeferredNodeSplit()`.
 
 **Merge side — DONE (M7.6b).** The rebalance pass now also folds **under-full
 sibling leaves** back up after collapse-heavy strokes. `remove_vert` records a
 shrinking leaf's parent in `mergeCandidates_` (the inverse of
-`rebalanceCandidates_`); `applyDeferredMerge()` runs every `mergeCadence_`-th
+`nodeSplitCandidates_`); `applyDeferredMerge()` runs every `mergeCadence_`-th
 `update()` (default 8 — **not** per dab, per the user) and, for each parent whose
 two leaf children together own fewer than `leaf_limit/2` verts (hysteresis vs the
 split threshold, so no split/merge thrash), turns the parent back into a leaf,

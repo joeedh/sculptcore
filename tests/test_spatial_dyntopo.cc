@@ -142,7 +142,7 @@ int main()
 
   /* Deferred batched rebalance: split the over-full leaves once each (what
    * update() does at the top, here without a GPUManager). */
-  tree->applyDeferredRebalance();
+  tree->applyDeferredNodeSplit();
 
   /* Per-leaf tris regen from the updated unique_faces (no GPU). Touched leaves
    * carry Spatial_RegenTris from add_face/remove_face. */
@@ -177,7 +177,7 @@ int main()
     float fx = (i % 3 - 1) * 0.2f;
     dyntopo::applyBrushDab(*m, float3(fx, 0, 0), 0.25f, dp,
                            /*seed=*/100u + i, tree->getSpatialCallbacks());
-    tree->applyDeferredRebalance();
+    tree->applyDeferredNodeSplit();
     tree->applyDeferredMerge();
     for (auto *leaf : tree->leaves()) {
       tree->ensure_node_tris(leaf);

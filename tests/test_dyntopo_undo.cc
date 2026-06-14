@@ -467,18 +467,18 @@ int main()
     log.endStep();
     TASSERT(st.splits > 0);
     int fAfter = m->f.count;
-    tree->applyDeferredRebalance();
+    tree->applyDeferredNodeSplit();
     TASSERT(validateOwnership(tree, m, "tree-dab") == fAfter);
 
     log.undo(m, tree);
-    tree->applyDeferredRebalance();
+    tree->applyDeferredNodeSplit();
     printf("  tree undo (mode %d): %d -> %d faces (%d splits, %d collapses, %d flips)\n",
            int(mode), fAfter, m->f.count, st.splits, st.collapses, st.flips);
     TASSERT(m->f.count == fBefore);
     TASSERT(validateOwnership(tree, m, "tree-undo") == fBefore); /* fails pre-fix */
 
     log.redo(m, tree);
-    tree->applyDeferredRebalance();
+    tree->applyDeferredNodeSplit();
     TASSERT(m->f.count == fAfter);
     TASSERT(validateOwnership(tree, m, "tree-redo") == fAfter);
 

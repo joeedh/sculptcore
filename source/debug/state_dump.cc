@@ -191,10 +191,8 @@ void dumpSpatial(std::FILE *f, spatial::SpatialTree *tree, bool &first)
     writeFloat3(f, n->aabb.max);
     if (n->data) {
       int uv = int(n->data->unique_verts.size());
-      int ov = int(n->data->other_verts.size());
       int tris = int(n->data->tris.size());
-      std::fprintf(f, ",\"unique_verts\":%d,\"other_verts\":%d,\"tris\":%d",
-                   uv, ov, tris);
+      std::fprintf(f, ",\"unique_verts\":%d,\"tris\":%d", uv, tris);
     }
     std::fputs("}", f);
   }

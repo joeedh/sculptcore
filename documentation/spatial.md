@@ -64,10 +64,11 @@ Notable methods:
 * `buildAll()` — calls `setup()`, computes the root AABB, recalcs
   normals, then inserts all mesh faces in a randomised order to
   balance the tree better.
-* `add_face(int)` / `add_face_intern(...)` — descends into children
-  whose AABB overlaps the face's triangles, splitting leaves on the
-  way down when `node_needs_split` is true. Leaf-level work records
-  face/vertex ownership into `treeMesh.{f,v}.node`. **Incremental
+* `add_face(int)` / `add_face_intern(...)` — routes the face by its
+  centroid into the single child it belongs in (one scalar compare
+  against the split midplane), splitting leaves on the way down when
+  `node_needs_split` is true. Leaf-level work records face/vertex
+  ownership into `treeMesh.{f,v}.node`. **Incremental
   (dyntopo, M7.6):** if a new face already has an owned vert,
   `add_face` skips the root descent and files it straight into that
   neighbour's leaf via `add_face_at` (O(1) anchor placement), deferring
@@ -79,7 +80,7 @@ Notable methods:
   faces/verts on the live mesh, and re-inserts them through
   `add_face_intern`.
 * **Incremental dyntopo currency (M7.6).** `add_face_at` defers the
-  inline split, recording over-full leaves in `rebalanceCandidates_`;
+  iapplyDeferredNodeSplit over-full leaves in `nodeSplitCandidates_`;
   `applyDeferredRebalance()` (top of `update()`) splits each once.
   `remove_vert` records shrinking leaves' parents in `mergeCandidates_`;
   `applyDeferredMerge()` (every `mergeCadence_`-th `update()`) folds
@@ -103,26 +104,30 @@ leaves); carries an `AABB`, a `NodeFlags` bitmask, an integer `id`
 `SpatialTree::nodes`, and pointers to the two payload structs.
 
 * `data` (type `NodeData*`) — populated only on leaves. Holds the
-  ordered sets of `unique_verts`, `other_verts`, `unique_faces`,
-  `other_faces`, plus the triangulated `tris` (`NodeTri`, three corner
-  indices into the mesh + face index + eflag).
+  ordered sets of `unique_verts` and `unique_faces`, plus the
+  triangulated `tris` (`NodeTri`, three corner indices into the mesh +
+  face index + eflag).
 * `gpu_data` (type `GpuData*`) — populated only on GPU nodes.
 * `subtree_tri_count` — cached sum of `data->tris.size()` over leaves
   in this subtree. Recomputed bottom-up once per `update()` tick
   (`recompute_subtree_tri_counts`).
 * `is_gpu_node` — set by `assign_gpu_nodes()` to mark the partition.
 
-`unique_*` vs `other_*`: a face is *unique* to whichever leaf first
-claims it (recorded in `treeMesh.f.node`); other leaves whose AABB
-also overlaps it list it as `other` for query coverage but never own
-its tris. Same rule for verts. This is what makes the partition
-sound: aggregating `data->tris` (built only from `unique_faces`)
-across leaves of a GPU subtree visits each face exactly once.
+Single-owner partition: each face is routed to exactly one leaf by its
+centroid (`add_face_intern` does a single scalar compare against the
+split midplane per level — no triangle/AABB overlap test, so a face is
+never replicated into multiple leaves), and the owner is recorded in
+`treeMesh.f.node`. A vert is owned by the first leaf to claim it. This
+is what makes the partition sound: aggregating `data->tris` (built from
+`unique_faces`) across leaves of a GPU subtree visits each face exactly
+once. Leaf AABBs still cover neighbour-owned boundary verts via the
+`tris` loop in `regen_node_bounds`.
 
 ### `NodeData`
-Per-leaf payload. Four `OrderedSet<int>`s for verts/faces, a
-`Vector<NodeTri>` triangulation of `unique_faces`, and the parent
-`Mesh*`. Recreated/destroyed as nodes turn into leaves or split.
+Per-leaf payload. Two `OrderedSet<int>`s (`unique_verts`,
+`unique_faces`), a `Vector<NodeTri>` triangulation of `unique_faces`,
+and the parent `Mesh*`. Recreated/destroyed as nodes turn into leaves
+or split.
 
 ### `GpuData`
 Per-GPU-node payload. Owns its `gpu::Buffer *pos`/`*nor`, a
@@ -342,14 +347,10 @@ touches `gpu_data` or `is_gpu_node`.
   Improving the split is a separate task.
 * **Ownership attributes live on the mesh.** Destroying a tree leaves
   `.spatial.{v,f}.node` populated. A second tree built on the same
-  mesh sees every face as already owned (goes to `other_faces`,
-  empty `unique_faces`, empty tris). Use a fresh mesh per tree in
-  tests; in production this is a non-issue because there's one tree
-  per sculpt session.
-* **`other_verts` / `other_faces` are coverage, not ownership.**
-  Treating them as authoritative produces double-rendered tris on
-  the GPU side and double-summed normals during
-  `update_node_normals`.
+  mesh sees every face as already owned (non-zero `.node`), so it
+  never re-claims them — empty `unique_faces`, empty tris. Use a fresh
+  mesh per tree in tests; in production this is a non-issue because
+  there's one tree per sculpt session.
 * **Slice fallback is a real path, not a panic.** A leaf can change
   its tri count between two `update()` ticks (sculpt-time topology
   edit). When that happens `update_gpu_node_slice` returns `false` and

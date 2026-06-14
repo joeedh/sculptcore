@@ -496,7 +496,7 @@ Those indices live in a dense web:
 
 - **TOPO links** — `vert.e`, `edge.vs[2]`, `edge.disk[4]`, `corner.{v,next,prev,
   radial_next,radial_prev,l}`, `list.f`, `face.l`.
-- **Spatial ownership** — each leaf's `unique_verts/faces` + `other_verts/faces`
+- **Spatial ownership** — each leaf's `unique_verts/faces`
   `OrderedSet`s hold element indices (the `.spatial.*.node` attrs hold **node
   ids**, not element indices, so they are *immune* to element moves — a useful
   asymmetry).
@@ -553,7 +553,7 @@ freely. The menu, cheapest/most-local first:
   exactly when the structure is already being touched. Strongly recommended.
 
 - **At dab end — region compaction.** The dab's dirty leaves are known
-  (`rebalanceCandidates_` + the touched frontier). Run the per-leaf remap (§9.1)
+  (`nodeSplitCandidates_` + the touched frontier). Run the per-leaf remap (§9.1)
   over just those, **gated on a fragmentation metric** (e.g. the page-span of a
   leaf's `unique_verts` ÷ its element count) so it fires only for genuinely
   scattered leaves. O(dab region); fits inside the frame the split-budget valve

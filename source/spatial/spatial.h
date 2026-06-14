@@ -310,8 +310,8 @@ struct SpatialTree {
   }
 
   /* O(1) placement: file `f` directly into `leaf` (no centroid descent), and do
-   * NOT split inline — over-full leaves are recorded in rebalanceCandidates_ and
-   * split once, batched, by applyDeferredRebalance() at the next update(). The
+   * NOT split inline — over-full leaves are recorded in nodeSplitCandidates_ and
+   * split once, batched, by applyDeferredNodeSplit() at the next update(). The
    * leaf's AABB is left loose until then (regen_node_bounds tightens it from the
    * new tris during update). Mirrors add_face_intern's leaf body. */
   void add_face_at(SpatialNode *leaf, int f)
@@ -347,7 +347,7 @@ struct SpatialTree {
     }
 
     if (node_needs_split(leaf)) {
-      rebalanceCandidates_.add(leaf->id);
+      nodeSplitCandidates_.add(leaf->id);
       /* Growth-skew hint: a filling leaf is where a lopsided pair forms (its
        * sibling may never grow). Record the parent; node_is_skewed re-checks,
        * so a non-skewed hint is discarded cheaply. */
@@ -496,7 +496,7 @@ struct SpatialTree {
    * placement, once each, batched (M7.6 deferred rebalance). Called at the top
    * of update(); public so tests can drive it without a GPUManager. Thaws
    * topology if frozen (split_node re-triangulates via live links). */
-  void applyDeferredRebalance();
+  void applyDeferredNodeSplit();
 
   /* Fold under-full sibling leaves back into their parent after collapse-heavy
    * strokes shrink a region (M7.6b), cascading up the chain. The inverse of the
@@ -684,11 +684,11 @@ private:
   bool gpuNodeCacheDirty_ = true;
 
   /* Leaves that crossed leaf_limit during incremental add_face_at placement and
-   * await a batched split in applyDeferredRebalance() (M7.6). Brush queries on an
+   * await a batched split in applyDeferredNodeSplit() (M7.6). Brush queries on an
    * over-full leaf just iterate a few extra verts until the next update(). The
    * merge counterpart (under-full siblings folded back up) is mergeCandidates_
    * below, on a slower cadence. */
-  util::Set<int> rebalanceCandidates_;
+  util::Set<int> nodeSplitCandidates_;
 
   /* Parents of leaves that shrank since the last merge pass (M7.6b), drained by
    * applyDeferredMerge(). It runs every mergeCadence_-th update() rather than per

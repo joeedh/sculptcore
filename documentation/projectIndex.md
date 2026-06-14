@@ -61,7 +61,7 @@ See `documentation/brush.md` for a detailed overview.
 
 ### `source/spatial/` — spatial acceleration
 
-`spatial.cc/.h`, `spatial_base.h`, `node.cc/.h`, `spatial_attrs.h`, `spatial_enums.h`, `spatial_gpu.cc`. Bindings: `bindings.cc/.h`. C API: `c-api/spatial_c_api.cc` (build/free `SpatialTree`, `getSpatialShaders`). GPU shaders: `shaders/`. Incremental dyntopo currency (M7.6) lives here: `add_face_at` (O(1) anchor placement), `applyDeferredRebalance`, `applyDeferredMerge`/`merge_node`, `free_node`.
+`spatial.cc/.h`, `spatial_base.h`, `node.cc/.h`, `spatial_attrs.h`, `spatial_enums.h`, `spatial_gpu.cc`. Bindings: `bindings.cc/.h`. C API: `c-api/spatial_c_api.cc` (build/free `SpatialTree`, `getSpatialShaders`). GPU shaders: `shaders/`. Incremental dyntopo currency (M7.6) lives here: `add_face_at` (O(1) anchor placement), `applyDeferredNodeSplit`, `applyDeferredMerge`/`merge_node`, `free_node`.
 
 ### `source/dyntopo/` — dynamic-topology remesh
 
