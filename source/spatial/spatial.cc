@@ -481,9 +481,9 @@ void SpatialTree::split_node(SpatialNode *node)
   node->flag |= Spatial_RegenBounds;
 }
 
-void SpatialTree::applyDeferredRebalance()
+void SpatialTree::applyDeferredNodeSplit()
 {
-  if (rebalanceCandidates_.size() == 0) {
+  if (nodeSplitCandidates_.size() == 0) {
     return;
   }
 
@@ -498,14 +498,14 @@ void SpatialTree::applyDeferredRebalance()
    * (its re-insert goes through add_face_intern's inline-split path), so one call
    * turns a leaf that gained ~1500 verts in a dab into a balanced subtree —
    * replacing the N threshold-crossing re-inserts the inline path used to do. */
-  for (int leafId : rebalanceCandidates_) {
+  for (int leafId : nodeSplitCandidates_) {
     SpatialNode *node = node_from_id(leafId);
     if (node && (node->flag & Spatial_Leaf) && node->data && node_needs_split(node)) {
       split_node(node);
     }
   }
 
-  rebalanceCandidates_.clear();
+  nodeSplitCandidates_.clear();
   leafCacheDirty_ = true;
 }
 
@@ -537,9 +537,7 @@ void SpatialTree::merge_node(SpatialNode *parent)
   SpatialNode *c1 = parent->children[1];
 
   /* Unassign the subtree's owned geometry, collecting the owned faces and the
-   * owned verts. Verts owned by neighbours *outside* the subtree (the children's
-   * other_verts) keep their owner — the re-file below re-sorts them into the
-   * merged leaf's other_verts. */
+   * owned verts so the re-file below re-sorts them into the merged leaf. */
   Vector<int> faces, verts;
   for (SpatialNode *c : {c0, c1}) {
     for (int v : c->data->unique_verts) {
@@ -555,7 +553,7 @@ void SpatialTree::merge_node(SpatialNode *parent)
   }
 
   /* Parent becomes a leaf again and re-absorbs the faces through the build path
-   * (add_face_intern's leaf body re-derives unique/other ownership). In the
+   * (add_face_intern's leaf body re-derives unique ownership). In the
    * under-full/skew bands the combined count stays below leaf_limit, so the merged
    * leaf does not re-split; the skew path's win is removing the wasted level. (A
    * caller that merged an over-full pair would auto re-split here via
@@ -801,8 +799,6 @@ void SpatialTree::applyDeferredMerge()
 {
   std::function<void(SpatialNode *)> recurse = [&](SpatialNode *node) {
     if (node->parent && node_is_skewed(node->parent)) {
-      // SpatialNode *other = node == node->parent->children[0] ?
-      // node->parent->children[1]
       mergeCandidates_.add(node->parent->id);
     }
 
@@ -1641,7 +1637,7 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
    * inline split, so leaves that grew past leaf_limit during the dab are split
    * here, once each. Runs before the tris phase so the fresh child leaves (which
    * carry Spatial_RegenTris) are picked up by the collection loop below. */
-  applyDeferredRebalance();
+  applyDeferredNodeSplit();
 
   /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th update),
    * NOT per dab. Folds under-full sibling leaves left by collapse-heavy strokes

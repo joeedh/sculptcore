@@ -83,7 +83,7 @@ int main()
   test_assert(vMid != vBefore || fMid != fBefore);
 
   /* Mirror the app's per-frame tree maintenance between strokes. */
-  scene.tree->applyDeferredRebalance();
+  scene.tree->applyDeferredNodeSplit();
 
   /* Stroke 2: plain brush only (no dyntopo), its own meshlog step. */
   exec.beginStep();

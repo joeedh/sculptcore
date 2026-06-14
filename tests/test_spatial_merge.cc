@@ -146,7 +146,7 @@ int main()
   sub.l_min = 0.005f;
   dyntopo::applyBrushDab(*m2, float3(0, 0, 0), 0.28f, sub, /*seed=*/3u,
                          tree2->getSpatialCallbacks());
-  tree2->applyDeferredRebalance();
+  tree2->applyDeferredNodeSplit();
   test_assert(validateOwnership(tree2, m2, "r-refine"));
   int leavesRefined = int(tree2->leaves().size());
   test_assert(leavesRefined > 2);
@@ -167,7 +167,7 @@ int main()
   int prevLeaves = int(tree2->leaves().size());
   int stable = 0;
   for (int i = 0; i < 8 && stable < 2; i++) {
-    tree2->applyDeferredRebalance();
+    tree2->applyDeferredNodeSplit();
     tree2->applyDeferredMerge();
     for (auto *leaf : tree2->leaves()) {
       tree2->ensure_node_tris(leaf);
