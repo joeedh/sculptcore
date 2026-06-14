@@ -1,4 +1,3 @@
-#include "napi/napi_log.h"
 /**
 # Intro
 
@@ -572,7 +571,6 @@ struct LogChunkTopo : public LogChunk {
 
   Vector<LogElem *> getSortedRecords()
   {
-    sc_napi_logf("getSortedRecords\n");
     Vector<LogElem *> records;
     records.clear();
 
