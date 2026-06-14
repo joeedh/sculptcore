@@ -1036,8 +1036,11 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
     /* 6. Tangential smoothing (M7.4): relax the touched in-region verts toward
      *    their 1-ring centroid, in-plane. Simultaneous (Jacobi) update — all
      *    targets are read from current positions, then written — so it's
-     *    order-independent and deterministic. Position-only: no topology event,
-     *    so no cb; the region's leaves are already bounds-dirty from the splits. */
+     *    order-independent and deterministic. Position-only (the region's leaves
+     *    are already bounds-dirty from the splits), but it still fires
+     *    cb->onVertChange before moving each vert so the meshlog captures the
+     *    pre-smooth position for undo — otherwise a vert moved only by smoothing
+     *    is never recorded and undo leaves it displaced. */
     if (p.do_smooth) {
       Vector<int, 32> sverts;
       Vector<math::float3, 32> spos;
@@ -1058,6 +1061,9 @@ inline DynTopoStats applyBrushDab(mesh::Mesh &m,
         }
       }
       for (int i = 0; i < int(sverts.size()); i++) {
+        if (cb && cb->onVertChange) {
+          cb->onVertChange(sverts[i]); /* capture pre-smooth position for undo */
+        }
         shiftOrig(sverts[i], spos[i] - m.v.co[sverts[i]]);
         m.v.co[sverts[i]] = spos[i];
       }

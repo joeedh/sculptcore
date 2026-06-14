@@ -364,6 +364,11 @@ bool checkTreeVsRebuild(Scene &scene, const char *tag, std::string &err)
   return false;
 }
 
+/* Vertex-position snapshots for undo-fidelity checks (save_pos / assert_pos).
+ * Keyed by name; mesh indices are persistent ids (IDMap is disabled), so a
+ * vertex restored by undo lands back at the same index. */
+std::map<std::string, std::vector<std::pair<int, float3>>> g_posSnapshots;
+
 bool execVerb(Scene &scene,
               const std::string &verb,
               ArgMap &args,
@@ -1199,6 +1204,67 @@ bool execVerb(Scene &scene,
         err = buf;
         return false;
       }
+    }
+    return true;
+  }
+  if (verb == "save_pos") {
+    if (!scene.mesh) {
+      err = "save_pos: no mesh";
+      return false;
+    }
+    std::string name = getArg(args, "id", "default");
+    auto &snap = g_posSnapshots[name];
+    snap.clear();
+    for (int v : scene.mesh->v) {
+      snap.emplace_back(v, scene.mesh->v.co[v]);
+    }
+    std::fprintf(stdout, "[script] save_pos id=%s verts=%zu\n", name.c_str(),
+                 snap.size());
+    return true;
+  }
+  if (verb == "assert_pos") {
+    if (!scene.mesh) {
+      err = "assert_pos: no mesh";
+      return false;
+    }
+    std::string name = getArg(args, "id", "default");
+    float eps = getFloat(args, "eps", 1e-5f);
+    auto it = g_posSnapshots.find(name);
+    if (it == g_posSnapshots.end()) {
+      err = "assert_pos: no snapshot '" + name + "'";
+      return false;
+    }
+    int dead = 0, moved = 0, worstIdx = -1, firstBad = -1;
+    float worst = 0.0f;
+    for (auto &pr : it->second) {
+      int v = pr.first;
+      if (v >= int(scene.mesh->v.capacity()) || scene.mesh->v.freemap[v]) {
+        dead++;
+        if (firstBad < 0) firstBad = v;
+        continue;
+      }
+      float d = (scene.mesh->v.co[v] - pr.second).length();
+      if (d > eps) {
+        moved++;
+        if (firstBad < 0) firstBad = v;
+        if (d > worst) {
+          worst = d;
+          worstIdx = v;
+        }
+      }
+    }
+    std::fprintf(
+        stdout,
+        "[script] assert_pos id=%s checked=%zu dead=%d moved=%d worst=%g (vert %d)\n",
+        name.c_str(), it->second.size(), dead, moved, worst, worstIdx);
+    if (dead > 0 || moved > 0) {
+      char buf[256];
+      std::snprintf(buf, sizeof(buf),
+                    "assert_pos: %d dead, %d moved (worst %g at vert %d, first %d)",
+                    dead, moved, worst, worstIdx, firstBad);
+      err = buf;
+      /* soft=1 reports the divergence but lets the script continue. */
+      return getBool(args, "soft", false);
     }
     return true;
   }

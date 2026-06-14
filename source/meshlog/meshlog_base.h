@@ -49,6 +49,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 
 #pragma once
 
+#include "attr_saver.h"
 #include "binding/binding_constructor_builder.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/map.h"
@@ -67,6 +68,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "spatial/spatial.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <utility>
 
 namespace sculptcore::meshlog {
@@ -1053,6 +1055,12 @@ struct MeshLog {
   void setActiveMesh(mesh::Mesh *m)
   {
     active_mesh_ = m;
+    /* Bind the brush's save-gate columns up front (before any dab op fires a
+     * callback) so stampUndoGate never allocs mid-stroke. See stampUndoGate. */
+    if (m) {
+      vertGate_.ensure(*m);
+      faceGate_.ensure(*m);
+    }
   }
 
   void beginStep(bool hasDyntopo)
@@ -1264,14 +1272,11 @@ struct MeshLog {
       return;
     }
     thawForTopoChunks(m);
-    /* Undo chunks in REVERSE creation order. A folded sculpt step (TS sculpt op)
-     * holds the dyntopo topo chunk (created first) followed by the brush's
-     * LogChunkElems store (created lazily during the deform that ran after
-     * dyntopo). They overlap on the verts dyntopo moved: the topo chunk holds
-     * the true pre-step position, the element store a mid-stroke (post-dyntopo)
-     * one. Replaying newest-first lets the topo chunk's pre-step value win (and
-     * keeps the element swap operating on the still-post-step topology, where
-     * its captured indices are all live). */
+    /* Undo chunks in REVERSE creation order so each element swap operates on the
+     * still-post-step topology, where its captured indices are all live. The topo
+     * chunk and the brush's LogChunkElems store no longer overlap on dyntopo-moved
+     * verts: stampUndoGate excludes them from the element store, leaving the topo
+     * chunk the sole, authoritative owner of their pre-step body. */
     auto &chunks = curEntry().chunks;
     for (int i = int(chunks.size()) - 1; i >= 0; i--) {
       chunks[i]->undo(m, tree);
@@ -1325,6 +1330,24 @@ private:
     }
   }
 
+  /* Stamp the brush's per-element save-gate (`.strokeid.<domain>`) so the brush
+   * deform — which runs AFTER dyntopo each dab — treats this element as already
+   * saved and skips appending it to the per-step element store. The topo chunk
+   * captured this element's true pre-step body on first touch, so its restore is
+   * authoritative; an element-store row would hold a stale post-dyntopo value
+   * and, being older than later dabs' topo chunks, would win the newest-first
+   * undo and re-corrupt the element. Only the brush-gated domains (vert co/no,
+   * face no) need stamping. Stamp the full flag set so any brush save mask is
+   * covered. */
+  void stampUndoGate(LogElemKind kind, int idx)
+  {
+    if (kind == LogElemKind::Vert) {
+      vertGate_.updateSaved(idx, curStrokeId(), 0xffff);
+    } else if (kind == LogElemKind::Face) {
+      faceGate_.updateSaved(idx, curStrokeId(), 0xffff);
+    }
+  }
+
   void installCallbacks()
   {
     auto fwd = [this](LogElemKind kind) {
@@ -1333,6 +1356,7 @@ private:
           return;
         }
         getTopoChunk()->onChange(kind, active_mesh_, idx);
+        stampUndoGate(kind, idx);
       };
     };
     auto fwdCreate = [this](LogElemKind kind) {
@@ -1341,6 +1365,7 @@ private:
           return;
         }
         getTopoChunk()->onCreate(kind, active_mesh_, idx);
+        stampUndoGate(kind, idx);
       };
     };
     auto fwdKill = [this](LogElemKind kind) {
@@ -1379,6 +1404,10 @@ private:
   int maxUndoSteps_ = -1; // -1 = unbounded
   int nextStepId_ = 0;
   int strokeId_ = 0; // bumped to 1 on the first beginStep (see curStrokeId)
+  /* Brush save-gate stampers, shared (by attribute name) with the brush kernels'
+   * own AttrSavers — see stampUndoGate. */
+  AttrSaver<mesh::ElemType::VERTEX> vertGate_;
+  AttrSaver<mesh::ElemType::FACE> faceGate_;
 };
 
 } // namespace sculptcore::meshlog

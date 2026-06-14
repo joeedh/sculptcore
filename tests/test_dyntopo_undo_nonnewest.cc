@@ -1,6 +1,8 @@
 /* Regression test: undo a dyntopo step that is no longer the newest entry.
  * The follow-up plain stroke freezes topology (freeTopo drops the live TOPO
- * link pages), so MeshLog::undo must thaw before replaying topo chunks. */
+ * link pages), so MeshLog::undo must thaw before replaying topo chunks. Run
+ * with do_smooth off and on so undo fidelity is covered with the tangential
+ * smooth pass (which moves verts with no topology event) in the mix. */
 #include "test_util.h"
 
 #include "brush/brush_executor.h"
@@ -20,9 +22,9 @@ using namespace sculptcore;
 using namespace sculptcore::debug_app;
 using litestl::math::float3;
 
-int main()
+static void runCase(bool doSmooth, int &retval)
 {
-  setvbuf(stdout, nullptr, _IONBF, 0);
+  printf("=== case: do_smooth=%d ===\n", int(doSmooth));
 
   Scene scene(256, 256, /*headless=*/true);
   const char *src = "make_cube subdivs=8 size=0.5\n"
@@ -33,7 +35,7 @@ int main()
   test_assert(r.ok);
   if (!r.ok) {
     fprintf(stderr, "  script line %d: %s\n", r.line_no, r.error.c_str());
-    return 1;
+    return;
   }
 
   mesh::Mesh *m = scene.mesh;
@@ -49,6 +51,7 @@ int main()
   scene.dyntopoParams.l_max = 0.035f;
   scene.dyntopoParams.l_min = 0.012f;
   scene.dyntopoParams.mode = dyntopo::DynTopoMode::Both;
+  scene.dyntopoParams.do_smooth = doSmooth;
 
   const float3 normal(0, 0, 1);
   const float radius = scene.brush.radius;
@@ -150,6 +153,14 @@ int main()
          fMid);
   test_assert(m->v.count == vMid);
   test_assert(m->f.count == fMid);
+}
+
+int main()
+{
+  setvbuf(stdout, nullptr, _IONBF, 0);
+
+  runCase(/*doSmooth=*/false, retval);
+  runCase(/*doSmooth=*/true, retval);
 
   printf("dyntopo_undo_nonnewest: ok\n");
   return retval;
