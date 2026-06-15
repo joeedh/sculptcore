@@ -13,6 +13,7 @@ if (SBRUSH_BACKEND_WGSL OR SBRUSH_BACKEND_SPIRV)
   # until a direct SPIR-V emitter lands (see brush_compute_dsl.md Wave 5).
   find_program(SBRUSH_WGSL_VALIDATOR
     NAMES tint
+    ENV TINT_BIN
     DOC "Dawn standalone WGSL compiler (validator) — https://dawn.googlesource.com/dawn")
   if (NOT SBRUSH_WGSL_VALIDATOR)
     message(FATAL_ERROR

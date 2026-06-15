@@ -95,6 +95,12 @@ function getVSEnv() {
   // extra tool dirs via SBRUSH_TOOL_PATH (";"-separated) as an escape hatch.
   const vulkanBin = process.env.VULKAN_SDK ? Path.join(process.env.VULKAN_SDK, 'Bin') : ''
   const toolDirs = process.env.SBRUSH_TOOL_PATH ? process.env.SBRUSH_TOOL_PATH.split(';') : []
+
+  let tintPath = findExeDir('tint')
+  if (tintPath) {
+    toolDirs.push(tintPath)
+  }
+  
   childEnv.PATH = [
     `${systemRoot}\\System32`,
     systemRoot,
@@ -150,10 +156,10 @@ function getEmsdkEnv() {
   }
 
   const result = child_process.execSync('python emsdk.py construct_env', {
-    stdio   : 'pipe',
-    shell   : false,
+    stdio: 'pipe',
+    shell: false,
     detached: false,
-    env     : childEnv,
+    env: childEnv,
   })
 
   let env
