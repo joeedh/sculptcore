@@ -1,0 +1,53 @@
+# Tier 4 visual gate: field_smoothness sweep. Two parts:
+#  1. Clean torus at smoothness 0.5 / 8 — the curvature-aligned field is
+#     singularity-free, so every setting must extract the same valid all-quad
+#     mesh (high smoothness must NOT collapse the field / empty the extract).
+#  2. Dabbed sphere at smoothness 0.5 / 1 / 4 — sculpt dabs add curvature
+#     noise, so smoothness visibly changes singularity placement / quad flow.
+
+make_shape kind=torus n=48 m=32 radius=1.0 minor=0.35
+remesh target=0.08 smoothness=0.5
+remesh_validate all_quad=1 assert=1
+
+make_shape kind=torus n=48 m=32 radius=1.0 minor=0.35
+remesh target=0.08 smoothness=8
+remesh_validate all_quad=1 assert=1
+
+make_cube subdivs=96 size=2.0 sphere=1
+build_spatial
+set_brush radius=0.2 strength=0.7
+stroke origin=0,0,0.5 normal=0,0,1
+stroke origin=0.5,0,0 normal=1,0,0
+stroke origin=0,0.5,0 normal=0,1,0
+stroke origin=-0.354,0,0.354 normal=-0.707,0,0.707
+stroke origin=0,-0.354,-0.354 normal=0,-0.707,-0.707
+remesh target=0.05 smoothness=0.5
+remesh_validate all_quad=1
+build_spatial
+screenshot view=persp out=tier4_smoothness_05.png
+
+make_cube subdivs=96 size=2.0 sphere=1
+build_spatial
+set_brush radius=0.2 strength=0.7
+stroke origin=0,0,0.5 normal=0,0,1
+stroke origin=0.5,0,0 normal=1,0,0
+stroke origin=0,0.5,0 normal=0,1,0
+stroke origin=-0.354,0,0.354 normal=-0.707,0,0.707
+stroke origin=0,-0.354,-0.354 normal=0,-0.707,-0.707
+remesh target=0.05 smoothness=1
+remesh_validate all_quad=1
+build_spatial
+screenshot view=persp out=tier4_smoothness_1.png
+
+make_cube subdivs=96 size=2.0 sphere=1
+build_spatial
+set_brush radius=0.2 strength=0.7
+stroke origin=0,0,0.5 normal=0,0,1
+stroke origin=0.5,0,0 normal=1,0,0
+stroke origin=0,0.5,0 normal=0,1,0
+stroke origin=-0.354,0,0.354 normal=-0.707,0,0.707
+stroke origin=0,-0.354,-0.354 normal=0,-0.707,-0.707
+remesh target=0.05 smoothness=4
+remesh_validate all_quad=1
+build_spatial
+screenshot view=persp out=tier4_smoothness_4.png

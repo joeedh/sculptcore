@@ -88,8 +88,10 @@ Compared to our current global MIQ stack, this factorization moves the pain:
   fold management shrinks to cotan-weight degeneracy handling.
 - **Quantization shrinks** from per-cut-edge integer translations to
   per-dual-loop subdivision counts — a far smaller, better-conditioned integer
-  problem (LCK21 T-mesh family; see also Coudert-Osmont 2024 "Quad Mesh
-  Quantization Without a T-Mesh" for a no-T-mesh alternative).
+  problem (LCK21 T-mesh family; see also Coudert-Osmont et al. 2023 "Quad Mesh
+  Quantization Without a T-Mesh" for a no-T-mesh alternative, analyzed against
+  our quantizer in
+  [quad-quantization-without-tmesh.md](quad-quantization-without-tmesh.md)).
 - **Our field stack stays load-bearing.** Embedding optimization fixes
   geometry, *not* combinatorics: field singularities attract layout corners,
   and a misplaced field singularity yields a misplaced (asymmetric) layout.
