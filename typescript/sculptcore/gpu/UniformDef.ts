@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import {getTypeSymbol} from '@litestl/typescript-runtime'
 import type {UniformBindTypeMap} from './UniformBindTypeMap'
+import {getTypeSymbol} from '@litestl/typescript-runtime'
 import type {GPUType} from './GPUType'
 
 /** Auto-generated file */

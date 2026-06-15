@@ -1,8 +1,8 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {EdgeData} from './EdgeData'
-import type {CornerData} from './CornerData'
 import type {VertexData} from './VertexData'
 import type {FaceData} from './FaceData'
+import type {CornerData} from './CornerData'
+import type {EdgeData} from './EdgeData'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -49,5 +49,6 @@ export interface Mesh {
   generateUVFromSeams(marginMilli: int32): int32
   markAllSeams(): void
   fillVertexColorFromPosition(): void
+  dumpVertCo(out: float[]): void
   new (): Mesh
 }

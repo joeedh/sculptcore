@@ -5,8 +5,30 @@ set(CMAKE_CXX_STANDARD_REQUIRED true)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_SOURCE_FILE_EXTENSIONS .cc .cpp)
 
+if (WIN32)
+add_compile_options(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS)
+endif()
+
 if (NOT BUILD_WASM) 
 	include(CTest)
+endif()
+
+option(WITH_MESHLOG_ABSEIL_HASHMAP "Use absl::flat_hash_map in meshlog" OFF)
+
+if (WITH_MESHLOG_ABSEIL_HASHMAP)
+  add_compile_definitions(-DMESHLOG_ABSEIL_HASHMAP)
+endif()
+
+# we don't currently rely on abseil for anything,
+# but occasionally it's useful for reference
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/abseil-cpp")
+  set(WITH_ABSEIL ON)
+else()
+  set(WITH_ABSEIL OFF)
+endif()
+
+if (WITH_ABSEIL)
+  add_compile_definitions(-DSCULPTCORE_WITH_ABSEIL)
 endif()
 
 #enable_testing()
@@ -45,8 +67,11 @@ option(WITH_ASAN "Enable Address Sanitizer" OFF)
 if (WITH_ASAN)
 		add_compile_options(-fsanitize=address)
     add_link_options(-fsanitize=address)
-    add_link_options(-fms-runtime-lib=dll_dbg -shared-libsan)
-    add_compile_options(-fms-runtime-lib=dll_dbg -shared-libsan)
+    # Release CRT (dll), NOT dll_dbg: the MSVC debug-CRT _CRTDBG heap fights
+    # ASan's allocator interceptors and aborts with a spurious bad-free in CRT
+    # initterm before main() even runs.
+    add_link_options(-fms-runtime-lib=dll -shared-libsan)
+    add_compile_options(-fms-runtime-lib=dll -shared-libsan)
 
     # -shared-libsan links against the asan runtime DLL; stage it next to every
     # binary we build so they run without a separate install / PATH entry. Ask

@@ -1,15 +1,15 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {DynTopoParams} from '../dyntopo/DynTopoParams'
 import type {BrushUniformManifestEntry} from './BrushUniformManifestEntry'
 import type {Mesh} from '../mesh/Mesh'
-import type {SculptBrushes} from './SculptBrushes'
 import type {Brush} from './Brush'
-import type {SpatialNode} from '../spatial/SpatialNode'
-import type {DynTopoStats} from '../dyntopo/DynTopoStats'
-import type {BrushProgram} from './BrushProgram'
 import type {SpatialTree} from '../spatial/SpatialTree'
-import type {float3} from '../../litestl/math/float3'
 import type {MeshLog} from '../meshlog/MeshLog'
+import type {SculptBrushes} from './SculptBrushes'
+import type {float3} from '../../litestl/math/float3'
+import type {DynTopoParams} from '../dyntopo/DynTopoParams'
+import type {SpatialNode} from '../spatial/SpatialNode'
+import type {BrushProgram} from './BrushProgram'
+import type {DynTopoStats} from '../dyntopo/DynTopoStats'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -52,6 +52,14 @@ export interface CommandExecutor {
     center: float3,
     radius: float,
     params: DynTopoParams,
+    seed: uint32
+  ): int32
+  applyDab(
+    prog: BrushProgram,
+    center: float3,
+    normal: float3,
+    radius: float,
+    params: DynTopoParams | undefined,
     seed: uint32
   ): int32
   endDynTopoStroke(): void

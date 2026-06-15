@@ -1,5 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {UniformBlockInstance} from '../../sculptcore/gpu/UniformBlockInstance'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -21,6 +20,6 @@ export interface Vector<T = any> {
   [Symbol.dispose](): void
   resize(newsize: int32): void
   resize_no_construct_destruct(newsize: int32): void
-  new (): UniformBlockInstance[]
-  new (arg0: T, arg1: int32): UniformBlockInstance[]
+  new (): int64[]
+  new (arg0: T, arg1: int32): int64[]
 }

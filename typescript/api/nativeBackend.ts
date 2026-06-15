@@ -124,6 +124,15 @@ export interface NativeAddon {
   spatialTreeGetMissingAttrSlots(tree: NativeBound): number[]
   /** Force a per-attribute buffer rebuild against current mesh layers (byte-identical descriptor set). */
   spatialTreeRefreshRequestedAttrs(tree: NativeBound): void
+  // litestl allocator introspection (binding.cc LSTL_*).
+  /** Tracked allocation size in bytes (+ the permanent pool when includePermanent). */
+  getMemSize(includePermanent: boolean): number
+  /** Dump every live allocation block to the log sink (renderer DevTools console). */
+  printAllocBlocks(includePermanent: boolean): void
+  /** A string describing the allocation backing one bound object (its pointer never crosses to JS as a number). */
+  formatBlock(bound: NativeBound): string
+  /** A string describing every live allocation block. */
+  formatBlocks(printPermanent: boolean): string
 }
 
 // Candidate locations for the built addon, relative to common runtime cwds.

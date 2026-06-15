@@ -1,10 +1,10 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {float3} from '../../litestl/math/float3'
+import type {SpatialNode} from './SpatialNode'
+import type {GPUManager} from '../gpu/GPUManager'
 import type {DrawBatch} from '../gpu/DrawBatch'
 import type {CastRayIsect} from './CastRayIsect'
-import type {GPUManager} from '../gpu/GPUManager'
 import type {Mesh} from '../mesh/Mesh'
-import type {SpatialNode} from './SpatialNode'
+import type {float3} from '../../litestl/math/float3'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

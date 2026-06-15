@@ -8,15 +8,52 @@ import {termColor} from './source/litestl/tests/termColor.js'
 import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
 import {ensureDeps, configName} from './tools/deps.mjs'
 
-const CMAKE_BUILD_TYPE = 'RelWithDebInfo'
-const WITH_ASAN = false
+let options = {}
+if (fs.existsSync('local-build-options.mjs')) {
+  console.log('Loading local build options from ./local-build-options.mjs')
+  options = (await import('./local-build-options.mjs')).default
+}
+
+let usedOptsMsg = ''
+const validOpts = new Set()
+const getopt = (k, defval) => {
+  validOpts.add(k)
+  if (k in options) {
+    usedOptsMsg += `  ${k} = ${options[k]}\n`
+  }
+  return options[k] ?? defval
+}
+
+// read local options
+const CMAKE_BUILD_TYPE = getopt('CMAKE_BUILD_TYPE', 'RelWithDebInfo')
+const CMAKE_GENERATOR = getopt('CMAKE_GENERATOR', 'Ninja')
+const WITH_ASAN = getopt('WITH_ASAN', false)
+const WITH_MESHLOG_ABSEIL_HASHMAP = getopt('WITH_MESHLOG_ABSEIL_HASHMAP', false)
+
+for (const k in options) {
+  if (!validOpts.has(k)) {
+    usedOptsMsg += `  invalid option ${k}\n`
+  }
+}
+
+if (usedOptsMsg.length > 0) {
+  usedOptsMsg = `\nLocal options:\n${usedOptsMsg}\n`
+  process.stdout.write(usedOptsMsg)
+}
+
+let CMAKE_ARGS_BASE = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
+if (WITH_MESHLOG_ABSEIL_HASHMAP) {
+  CMAKE_ARGS_BASE += ` -DWITH_MESHLOG_ABSEIL_HASHMAP=ON`
+}
+CMAKE_ARGS_BASE += ` -G ${CMAKE_GENERATOR} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
+
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
-const CMAKE_ARGS = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_WASM=ON -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
+const CMAKE_WASM_ARGS = CMAKE_ARGS_BASE + ` -DBUILD_WASM=ON`
 const EMSDK_COMMIT = '2a9b4692ab24a0497249eeaa696ac1153d22e07e'
 
 /**
- * Ensurse final linked files are destroyed,
+ * Ensures final linked files are destroyed,
  * since emscripten is not that great at making
  * errors during complication actually be obvious
  */
@@ -356,7 +393,6 @@ async function sbrushCodegen() {
     const stem = inp.replace(/\.sbrush$/, '')
     const inPath = `${kernelsDir}/${inp}`
     const outPath = `${outDir}/${stem}.brush.gen.h`
-    console.log(`codegen: ${inPath} -> ${outPath}`)
     run(`"${sbrushc}" --backend=cpp --in="${inPath}" --out="${outPath}"`)
   }
 }
@@ -745,8 +781,8 @@ function setupPNPM() {
 
 const targetPositional = (y) =>
   y.positional('target', {
-    choices: ['wasm', 'native'],
-    default: 'wasm',
+    choices : ['wasm', 'native'],
+    default : 'wasm',
     describe: 'Build target',
   })
 
@@ -779,8 +815,8 @@ function sbrushBackendFlags(backendsArg) {
 yargs(hideBin(process.argv))
   .scriptName('make.mjs')
   .option('jobs', {
-    alias: 'j',
-    type: 'number',
+    alias   : 'j',
+    type    : 'number',
     describe: 'Max parallel compile jobs for cmake --build (default: all cores). Lower it (e.g. -j 2) if clang OOMs.',
   })
   .middleware((argv) => {
@@ -793,7 +829,7 @@ yargs(hideBin(process.argv))
     'Configure the build',
     (y) =>
       targetPositional(y).option('backends', {
-        type: 'string',
+        type    : 'string',
         describe: `comma-separated sbrush backends to enable (subset of: ${SBRUSH_BACKENDS.join(',')}); cpp is always on`,
       }),
     async ({target, backends}) => {
@@ -815,11 +851,17 @@ yargs(hideBin(process.argv))
         // for this config, then hand cmake the combo dir. cmake wants forward slashes.
         const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE)})
         const depsFlag = `-DSCULPTCORE_DEPS_DIR="${depsDir.replace(/\\/g, '/')}"`
-        run(
-          `cd ${dir} && ${env} cmake ../.. -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ${depsFlag} ${sbrushFlags}`
-        )
+
+        let NATIVE_CMAKE_ARGS = CMAKE_ARGS_BASE
+        NATIVE_CMAKE_ARGS += ` -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} `
+        NATIVE_CMAKE_ARGS += ` ${nativeToolchainFlag()}`
+        NATIVE_CMAKE_ARGS += ` ${depsFlag} ${sbrushFlags}`
+
+        run(`cd ${dir} && ${env} cmake ../.. ${NATIVE_CMAKE_ARGS}`)
       } else {
-        run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`)
+        run(
+          `cd ${dir} && ${env} emcmake cmake .. ${CMAKE_WASM_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`
+        )
       }
     }
   )
@@ -828,8 +870,8 @@ yargs(hideBin(process.argv))
     'Fetch-or-build the prebuilt native deps (OpenBLAS + SuiteSparse/CHOLMOD)',
     (y) =>
       y.positional('config', {
-        type: 'string',
-        default: CMAKE_BUILD_TYPE,
+        type    : 'string',
+        default : CMAKE_BUILD_TYPE,
         describe: 'build config: release | relwithdebinfo | debug | asan',
       }),
     async ({config}) => {
@@ -845,6 +887,7 @@ yargs(hideBin(process.argv))
       deleteFinalWasmFiles()
     }
 
+    await sbrushCodegen()
     await runBuild(`cd ${dir} && ${env} cmake --build .${parallelFlag()} `)
 
     if (target === 'wasm') {
@@ -933,7 +976,7 @@ yargs(hideBin(process.argv))
     'Reconfigure native with the given sbrush backend enabled (with SBRUSH_VALIDATE_ALL=ON) and run its validator pass',
     (y) =>
       y.positional('backend', {
-        choices: SBRUSH_BACKENDS.filter((b) => b !== 'cpp'),
+        choices : SBRUSH_BACKENDS.filter((b) => b !== 'cpp'),
         describe: 'sbrush backend to validate (cpp has no external validator)',
       }),
     async ({backend}) => {
@@ -952,8 +995,8 @@ yargs(hideBin(process.argv))
     'Run per-brush A/B scripts through debug_app: cross-backend (cpp vs wgsl) + golden regression',
     (y) =>
       y.option('regen', {
-        type: 'boolean',
-        default: false,
+        type    : 'boolean',
+        default : false,
         describe: '(re)write tests/golden/<brush>.json references from the cpp dump',
       }),
     async ({regen}) => {
@@ -982,15 +1025,16 @@ yargs(hideBin(process.argv))
     (y) =>
       y
         .option('electron-version', {
-          type: 'string',
+          type    : 'string',
           describe: 'Electron version to target (default: read from ../electron/package.json)',
         })
         .option('smoke', {
-          type: 'boolean',
-          default: false,
+          type    : 'boolean',
+          default : false,
           describe: 'After building, load the .node in Electron and call version()/bindingCount()',
         }),
     async ({electronVersion, smoke}) => {
+      await sbrushCodegen()
       await buildNodeAddon(electronVersion, smoke)
     }
   )

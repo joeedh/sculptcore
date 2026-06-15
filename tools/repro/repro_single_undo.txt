@@ -1,0 +1,10 @@
+make_cube subdivs=12 size=0.5
+triangulate
+build_spatial leaf_limit=128 depth_limit=10
+dyntopo enabled=1 detail=0.04 smooth=1
+set_brush_tool tool=draw
+set_brush radius=0.22 strength=0.5
+save_pos id=base
+stroke origin=0,0,0.25 normal=0,0,1
+undo
+assert_pos id=base soft=1

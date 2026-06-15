@@ -47,6 +47,8 @@ subsequent create at idx N gets a fresh log_id and its own record. The
 two records coexist (kill-first, create-second) and replay correctly.
 */
 
+//#define MESHLOG_ABSEIL_HASHMAP
+
 #pragma once
 
 #include "attr_saver.h"
@@ -67,6 +69,9 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
+#ifdef SCULPTCORE_WITH_ABSEIL
+#include <../extern/abseil-cpp/absl/container/flat_hash_map.h>
+#endif
 #include <cstdint>
 #include <cstdio>
 #include <utility>
@@ -278,7 +283,6 @@ struct ChunkElemData {
     return tot;
   }
 
-
   int size() const
   {
     return size_;
@@ -328,7 +332,9 @@ struct ChunkElemData {
       }
 
       if (!ok) {
-        printf("Warning: attribute %p %s not found in mesh\n", ref.name.c_str(), ref.name.c_str());
+        printf("Warning: attribute %p %s not found in mesh\n",
+               ref.name.c_str(),
+               ref.name.c_str());
         srcAttrMap_.append(-1);
       }
       if (srcAttrMap_[i] != oldSrcMap[i]) {
@@ -410,7 +416,11 @@ private:
       }
       if (ni) {
         SpatialNode *node = tree->node_from_id(ni);
-        node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds);
+        // Spatial_UpdateNormals is required: undo/redo swaps co/no rows back via
+        // the element store but doesn't drive add_face/remove_*, so without this
+        // the node regenerates GPU buffers from stale normals (redo corruption).
+        node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds |
+                     NodeFlags::Spatial_UpdateNormals);
       }
     }
   }
@@ -439,9 +449,9 @@ struct ChunkElemRow {
       mesh::AttrRef &ref = src.attrs[i];
       uint8_t *dst = data_.data() + offsets_[i];
 
-      /* TEMP attrs (e.g. .spatial.*.node) are derived state owned by the
-       * spatial tree, not authoritative undo data — skip them so incremental
-       * tree updates during a logged step don't taint replay. */
+      // TEMP attrs (e.g. .spatial.*.node) are derived state owned by the
+      // spatial tree, not authoritative undo data — skip them so incremental
+      // tree updates during a logged step don't taint replay.
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
         continue;
       }
@@ -451,7 +461,7 @@ struct ChunkElemRow {
         dst[0] = view->get(src_idx) ? 1 : 0;
       } else {
         const void *src = ref.data->getElemData(src_idx);
-        if (!src) { /* unmaterialized page (frozen-topo column?) — see warnNullPage */
+        if (!src) { // unmaterialized page (frozen-topo column?) — see warnNullPage
           warnNullPage("captureFrom", ref);
           continue;
         }
@@ -468,7 +478,7 @@ struct ChunkElemRow {
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
         // note: since this is called on element re-creation,
         // we want to restore nocopy attrs to their default states
-        // (which should should have been saved in layoutFor)
+        // (which should have been saved in layoutFor)
       }
       uint8_t *src = data_.data() + offsets_[i];
 
@@ -482,6 +492,32 @@ struct ChunkElemRow {
           continue;
         }
         memcpy(dst, static_cast<const void *>(src), ref.data->elemSize);
+      }
+    }
+  }
+
+  /* Re-read only the brush-deformable data columns (skip TOPO connectivity and
+   * NOCOPY temp state) into the already-laid-out buffer, leaving the rest of
+   * end_body frozen. Used to refresh a Created vert's captured position with its
+   * final post-stroke value (see LogChunkTopo::refreshCreatedVertData). */
+  void refreshDataColumns(mesh::AttrGroup &src, int src_idx)
+  {
+    int n = src.attrs.size() < count_ ? int(src.attrs.size()) : count_;
+    for (int i = 0; i < n; i++) {
+      mesh::AttrRef &ref = src.attrs[i];
+      if ((ref.flag & mesh::AttrFlag::TOPO) || (ref.flag & mesh::AttrFlag::NOCOPY)) {
+        continue;
+      }
+      uint8_t *dst = data_.data() + offsets_[i];
+      if (ref.type == mesh::AttrType::BOOL) {
+        mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
+        dst[0] = view->get(src_idx) ? 1 : 0;
+      } else {
+        const void *s = ref.data->getElemData(src_idx);
+        if (!s) {
+          continue;
+        }
+        memcpy(static_cast<void *>(dst), s, ref.data->elemSize);
       }
     }
   }
@@ -581,12 +617,18 @@ struct LogElem {
  * create events for its corners after the underlying edges/verts
  * already exist).
  */
+
 struct LogChunkTopo : public LogChunk {
-  util::Pool<LogElem, 512> records_pool;
-  util::Pool<detail::ChunkElemRow, 512> bodies_pool;
+  util::Pool<LogElem, 8000> records_pool;
+  util::Pool<detail::ChunkElemRow, 8000> bodies_pool;
 
   /** key: (uint8_t kind << 32) | uint32_t(mesh_index)  →  log_id */
-  util::Map<int64_t, int> idx_to_log_id;
+
+#ifdef MESHLOG_ABSEIL_HASHMAP
+  absl::flat_hash_map<int64_t, int> idx_to_log_id;
+#else
+  util::Map<int64_t, int64_t> idx_to_log_id;
+#endif
   util::Map<int, LogElem *> by_log_id;
   int next_log_id = 0;
 
@@ -596,18 +638,22 @@ struct LogChunkTopo : public LogChunk {
 
   ~LogChunkTopo() override
   {
-    /* Pools own the LogElem + ChunkElemRow storage; their destructors
-     * tear everything down. */
+    // Pools own the LogElem + ChunkElemRow storage; their destructors
+    // tear everything down.
   }
 
   void onCreate(LogElemKind kind, mesh::Mesh *m, int idx)
   {
     int64_t key = makeKey(kind, idx);
 
-    /* Defensive: stale mapping from a malformed prior sequence. */
+    // Defensive: stale mapping from a malformed prior sequence.
     int existing_id;
     if (lookupId(key, existing_id)) {
+#ifndef MESHLOG_ABSEIL_HASHMAP
       idx_to_log_id.remove(key);
+#else
+      idx_to_log_id.erase(key);
+#endif
     }
 
     LogElem *e = records_pool.alloc();
@@ -620,7 +666,11 @@ struct LogChunkTopo : public LogChunk {
     e->begin_body = nullptr;
     e->end_body = nullptr;
 
+#ifdef MESHLOG_ABSEIL_HASHMAP
+    idx_to_log_id.emplace(key, e->log_id);
+#else
     idx_to_log_id.insert(int64_t(key), int(e->log_id));
+#endif
     by_log_id.insert(int(e->log_id), e);
   }
 
@@ -630,13 +680,13 @@ struct LogChunkTopo : public LogChunk {
 
     int existing_id;
     if (lookupId(key, existing_id)) {
-      /* Already a record for this element; nothing to do. Created
-       * z snapshot at finalizeStep; Existed records already
-       * snapshotted on first touch. */
+      // Already a record for this element; nothing to do. Created records
+      // snapshot at finalizeStep; Existed records already snapshotted on
+      // first touch.
       return;
     }
 
-    /* First touch of a previously-existing element — take begin-snapshot. */
+    // First touch of a previously-existing element — take begin-snapshot.
     LogElem *e = records_pool.alloc();
     e->log_id = next_log_id++;
     e->kind = kind;
@@ -648,7 +698,12 @@ struct LogChunkTopo : public LogChunk {
     e->end_body = nullptr;
     e->begin_body->captureFrom(group(m, kind), idx);
 
+#ifdef MESHLOG_ABSEIL_HASHMAP
+    idx_to_log_id.emplace(int64_t(key), int(e->log_id));
+#else
     idx_to_log_id.insert(int64_t(key), int(e->log_id));
+#endif
+
     by_log_id.insert(int(e->log_id), e);
   }
 
@@ -661,19 +716,27 @@ struct LogChunkTopo : public LogChunk {
       LogElem *e = by_log_id.lookup(existing_id);
 
       if (e->origin == LogOrigin::Created) {
-        /* Create+kill within step: net no-op. Drop the record. */
+        // Create+kill within step: net no-op. Drop the record.
         dropRecord(e);
+#ifdef MESHLOG_ABSEIL_HASHMAP
+        idx_to_log_id.erase(key);
+#else
         idx_to_log_id.remove(key);
+#endif
         return;
       }
 
-      /* Existed && now Dead — begin_body already captured. */
+      // Existed && now Dead — begin_body already captured.
       e->fate = LogFate::Dead;
+#ifdef MESHLOG_ABSEIL_HASHMAP
+      idx_to_log_id.erase(key);
+#else
       idx_to_log_id.remove(key);
+#endif
       return;
     }
 
-    /* Killed without a prior change — snapshot now. */
+    // Killed without a prior change — snapshot now.
     LogElem *e = records_pool.alloc();
     e->log_id = next_log_id++;
     e->kind = kind;
@@ -686,7 +749,7 @@ struct LogChunkTopo : public LogChunk {
     e->begin_body->captureFrom(group(m, kind), idx);
 
     by_log_id.insert(int(e->log_id), e);
-    /* Do NOT map idx_to_log_id — element is dead. */
+    // Do NOT map idx_to_log_id — element is dead.
   }
 
   /** Capture end-state for Created && Live records. Called from MeshLog::endStep. */
@@ -699,6 +762,31 @@ struct LogChunkTopo : public LogChunk {
         }
         e.end_body->captureFrom(group(m, e.kind), e.end_mesh_index);
       }
+    }
+  }
+
+  /* Refresh Created && Live VERT records' data columns (co/no/…) from the final
+   * post-stroke mesh — see MeshLog::endStep. A vert created in an early dab and
+   * then only brush-deformed (no connectivity touch) by later dabs had that
+   * displacement dropped: the brush gate keeps created verts out of the element
+   * store, and this chunk's end_body froze at its own dab's deactivation.
+   * Connectivity stays frozen (later rewires are owned by later chunks' Existed
+   * records). Dead/reused indices are skipped — their record is killed on redo,
+   * so a refresh would be overwritten anyway. */
+  void refreshCreatedVertData(mesh::Mesh *m)
+  {
+    mesh::AttrGroup &grp = m->v.attrs;
+    for (LogElem &e : records_pool) {
+      if (e.kind != LogElemKind::Vert || e.origin != LogOrigin::Created ||
+          e.fate != LogFate::Live || !e.end_body)
+      {
+        continue;
+      }
+      int idx = e.end_mesh_index;
+      if (idx < 0 || size_t(idx) >= m->v.capacity() || m->v.freemap[idx]) {
+        continue;
+      }
+      e.end_body->refreshDataColumns(grp, idx);
     }
   }
 
@@ -723,16 +811,16 @@ struct LogChunkTopo : public LogChunk {
     Vector<LogElem *> records = getSortedRecords();
 
     /* The raw alloc/release below bypass make_face/kill_face, so the spatial
-     * tree's incremental face ownership (`.spatial.f.node`, a TEMP attr that
-     * ChunkElemRow does NOT log) is never updated by the restore itself. Drive
-     * the tree's add_face/remove_face here so its leaf face-sets + GPU buffers
-     * track the restored mesh; without it undo leaves a stale tree (nothing
-     * redrawn). No-op when undoing with no tree (the isolated operator tests). */
+       tree's incremental face ownership (`.spatial.f.node`, a TEMP attr that
+       ChunkElemRow does NOT log) is never updated by the restore itself. Drive
+       the tree's add_face/remove_face here so its leaf face-sets + GPU buffers
+       track the restored mesh; without it undo leaves a stale tree (nothing
+       redrawn). No-op when undoing with no tree (the isolated operator tests). */
     if (tree) {
       /* Pre-pass (mesh still in post-step state, so connectivity is valid):
-       * drop ownership of faces about to be released or rewired, and of verts
-       * about to be released (else their leaf keeps a dangling unique_verts ref
-       * — the forward kill path never owned-removed them via callbacks). */
+         drop ownership of faces about to be released or rewired, and of verts
+         about to be released (else their leaf keeps a dangling unique_verts ref
+         — the forward kill path never owned-removed them via callbacks). */
 
       for (LogElem *e : records) {
         if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
@@ -748,30 +836,30 @@ struct LogChunkTopo : public LogChunk {
       }
     }
 
-    /* Reverse order: undo dependents before underlying elements. */
+    // Reverse order: undo dependents before underlying elements.
     for (int i = records.size() - 1; i >= 0; i--) {
       LogElem *e = records[i];
       mesh::ElemData *ed = elemData(m, e->kind);
       mesh::AttrGroup &grp = ed->attrs;
 
       if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-        /* It exists post-step; release it. */
+        // It exists post-step; release it.
         ed->release(e->end_mesh_index);
       } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
-        /* Swap with live to revert to pre-step state. */
+        // Swap with live to revert to pre-step state.
         e->begin_body->swapWith(grp, e->begin_mesh_index);
       } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
-        /* It was killed; bring it back at its original index. */
+        // It was killed; bring it back at its original index.
         ed->alloc(e->begin_mesh_index);
         e->begin_body->writeTo(grp, e->begin_mesh_index);
       }
-      /* (Created && Dead) records were dropped at kill time. */
+      // (Created && Dead) records were dropped at kill time.
     }
 
     if (tree) {
-      /* Post-pass (mesh now fully in pre-step state): re-own faces that came
-       * back or were rewired. add_face re-derives the leaf and flags it for
-       * tris/bounds/GPU regen. */
+      // Post-pass (mesh now fully in pre-step state): re-own faces that came
+      // back or were rewired. add_face re-derives the leaf and flags it for
+      // tris/bounds/GPU regen.
       for (LogElem *e : records) {
         if (e->kind != LogElemKind::Face)
           continue;
@@ -793,9 +881,9 @@ struct LogChunkTopo : public LogChunk {
 
     if (tree) {
       /* Pre-pass (mesh in pre-step state): drop ownership of faces about to be
-       * released or rewired, and of verts about to be released — else their
-       * leaf keeps a dangling unique_verts ref that an index-reusing recreate
-       * would resurrect into a double-owned vert. */
+         released or rewired, and of verts about to be released — else their
+         leaf keeps a dangling unique_verts ref that an index-reusing recreate
+         would resurrect into a double-owned vert. */
       for (LogElem *e : records) {
         if (e->origin != LogOrigin::Existed)
           continue;
@@ -811,28 +899,28 @@ struct LogChunkTopo : public LogChunk {
       }
     }
 
-    /* Forward order: allocate underlying before dependents reference them. */
+    // Forward order: allocate underlying before dependents reference them.
     for (int i = 0; i < records.size(); i++) {
       LogElem *e = records[i];
       mesh::ElemData *ed = elemData(m, e->kind);
       mesh::AttrGroup &grp = ed->attrs;
 
       if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-        /* Recreate at the recorded mesh index. */
+        // Recreate at the recorded mesh index.
         ed->alloc(e->end_mesh_index);
         e->end_body->writeTo(grp, e->end_mesh_index);
       } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
-        /* Swap toggle — the body now holds the pre-step state, the live
-         * mesh gets the post-step state back. */
+        // Swap toggle — the body now holds the pre-step state, the live
+        // mesh gets the post-step state back.
         e->begin_body->swapWith(grp, e->begin_mesh_index);
       } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
-        /* It was killed during the step. */
+        // It was killed during the step.
         ed->release(e->begin_mesh_index);
       }
     }
 
     if (tree) {
-      /* Post-pass (mesh in post-step state): re-own recreated/rewired faces. */
+      // Post-pass (mesh in post-step state): re-own recreated/rewired faces.
       for (LogElem *e : records) {
         if (e->kind != LogElemKind::Face)
           continue;
@@ -849,20 +937,20 @@ struct LogChunkTopo : public LogChunk {
     }
   }
 
+  // returns double (not size_t) because the prototype is inferred from
+  // the TS binding side
   double memSize() override
   {
-    /* Map/pool bookkeeping is estimated as a flat per-record constant. */
-    constexpr double kRecordOverhead = sizeof(LogElem *) + 48.0;
+    // roughly estimate map sizes
+    double kRecordOverhead = sizeof(LogElem *) + 48.0;
     double tot = double(sizeof(*this));
-    for (LogElem &e : records_pool) {
-      tot += double(sizeof(LogElem)) + kRecordOverhead;
-      if (e.begin_body) {
-        tot += e.begin_body->memSize();
-      }
-      if (e.end_body) {
-        tot += e.end_body->memSize();
-      }
+    tot += double(records_pool.capacity() * (sizeof(LogElem) + kRecordOverhead));
+    tot += double(idx_to_log_id.size() * 3 * 16) + double(by_log_id.size() * 3 * 16);
+
+    for (auto &e : bodies_pool) {
+      tot += e.memSize();
     }
+
     return tot;
   }
 
@@ -896,7 +984,15 @@ struct LogChunkTopo : public LogChunk {
 private:
   bool lookupId(int64_t key, int &out_id)
   {
-    int *p = idx_to_log_id.lookup_ptr(key);
+#ifdef MESHLOG_ABSEIL_HASHMAP
+    auto it = idx_to_log_id.find(key);
+    int *p = nullptr;
+    if (it != idx_to_log_id.end()) {
+      p = &it->second;
+    }
+#else
+    int64_t *p = idx_to_log_id.lookup_ptr(key);
+#endif
     if (!p) {
       return false;
     }
@@ -1019,17 +1115,17 @@ struct MeshLog {
         new Struct<MeshLog>("sculptcore::meshlog::MeshLog", sizeof(MeshLog));
 
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+    // Step/chunk sequencing (beginStep/endStep/pushTopoChunk/setActiveMesh) is
+    // intentionally NOT bound: the brush CommandExecutor owns the dab sequence
+    // and meshlog boundaries; JS clients drive undo/redo + memory accounting only.
     BIND_STRUCT_METHOD(st, undo, MARGS("m", "tree"));
     BIND_STRUCT_METHOD(st, redo, MARGS("m", "tree"));
-    BIND_STRUCT_METHOD(st, beginStep, MARGS("hasDyntopo"));
-    BIND_STRUCT_METHOD(st, endStep, MARGS());
     BIND_STRUCT_METHOD(st, curStrokeId, MARGS());
     BIND_STRUCT_METHOD(st, lastStepId, MARGS());
     BIND_STRUCT_METHOD(st, stepMemSize, MARGS("id"));
     BIND_STRUCT_METHOD(st, totalMemSize, MARGS());
     BIND_STRUCT_METHOD(st, entryCount, MARGS());
     BIND_STRUCT_METHOD(st, freeStep, MARGS("id"));
-    BIND_STRUCT_METHOD(st, pushTopoChunk, MARGS());
     BIND_STRUCT_METHOD(st, hasTopoChunk, MARGS());
 
     return st;
@@ -1055,8 +1151,8 @@ struct MeshLog {
   void setActiveMesh(mesh::Mesh *m)
   {
     active_mesh_ = m;
-    /* Bind the brush's save-gate columns up front (before any dab op fires a
-     * callback) so stampUndoGate never allocs mid-stroke. See stampUndoGate. */
+    // Bind the brush's save-gate columns up front (before any dab op fires a
+    // callback) so stampUndoGate never allocs mid-stroke. See stampUndoGate.
     if (m) {
       vertGate_.ensure(*m);
       faceGate_.ensure(*m);
@@ -1066,14 +1162,14 @@ struct MeshLog {
   void beginStep(bool hasDyntopo)
   {
     if (curStep_ != entries.size()) {
-      /** thoeretically this should call all the right destructors */
+      // theoretically this should call all the right destructors
       entries.resize(curStep_);
     }
     entries.grow_one();
     entries.last().id = nextStepId_++;
-    /* A stroke pushes exactly one step, so bump the stroke id here. Masked to
-     * 16 bits at read; only equality against the stamp within a step matters,
-     * so the 65536-stroke wrap is harmless (see AttrSaver). */
+    // A stroke pushes exactly one step, so bump the stroke id here. Masked to
+    // 16 bits at read; only equality against the stamp within a step matters,
+    // so the 65536-stroke wrap is harmless (see AttrSaver).
     strokeId_++;
     if (hasDyntopo) {
       pushTopoChunk();
@@ -1135,8 +1231,8 @@ struct MeshLog {
       return 0;
     }
     {
-      /* Move the dropped entry out so its dtor frees the chunks, then shift
-       * the tail left (move-assign; raw chunk pointers transfer ownership). */
+      // Move the dropped entry out so its dtor frees the chunks, then shift
+      // the tail left (move-assign; raw chunk pointers transfer ownership).
       LogEntry dropped = std::move(entries[idx]);
       for (int i = idx; i < int(entries.size()) - 1; i++) {
         entries[i] = std::move(entries[i + 1]);
@@ -1149,10 +1245,22 @@ struct MeshLog {
 
   void endStep()
   {
-    /* Only the still-active (last) topo chunk needs finalizing here; earlier
-     * chunks were finalized at deactivation by pushTopoChunk. */
+    // Only the still-active (last) topo chunk needs finalizing here; earlier
+    // chunks were finalized at deactivation by pushTopoChunk.
     if (curEntry().topo_chunk_ && active_mesh_) {
       curEntry().topo_chunk_->finalizeStep(active_mesh_);
+    }
+    /* Created verts from earlier dabs may have been brush-deformed again by
+       later dabs without a connectivity touch; the brush gate kept those
+       displacements out of the element store and each chunk's end_body froze at
+       its own dab. Refresh every topo chunk's Created-vert positions from the
+       final mesh so redo lands exactly where the original stroke did. */
+    if (active_mesh_) {
+      for (LogChunk *chunk : curEntry().chunks) {
+        if (chunk->type == LogChunkTypes::Topo) {
+          static_cast<LogChunkTopo *>(chunk)->refreshCreatedVertData(active_mesh_);
+        }
+      }
     }
     curEntry().topo_chunk_ = nullptr;
     curStep_++;
@@ -1183,10 +1291,10 @@ struct MeshLog {
       abort();
     }
     /* Finalize the outgoing chunk NOW (end of its dab), not at endStep: each
-     * chunk must capture its Created records' end-state while it is still the
-     * active chunk. Capturing at end-of-step instead would snapshot connectivity
-     * a LATER dab rewired (referencing verts a later chunk creates), so per-chunk
-     * redo would re-own a face before its verts exist. */
+       chunk must capture its Created records' end-state while it is still the
+       active chunk. Capturing at end-of-step instead would snapshot connectivity
+       a LATER dab rewired (referencing verts a later chunk creates), so per-chunk
+       redo would re-own a face before its verts exist. */
     if (curEntry().topo_chunk_ && active_mesh_) {
       curEntry().topo_chunk_->finalizeStep(active_mesh_);
     }
@@ -1250,6 +1358,25 @@ struct MeshLog {
     return chunk;
   }
 
+  /** Atomic reorder step: open a step, record the five permutations, close it.
+   * The one sanctioned way for non-brush code (Scene locality reorder) to push
+   * an undo step without driving beginStep/endStep itself. */
+  LogChunkReorder *pushReorderStep(Vector<int> vmap,
+                                   Vector<int> emap,
+                                   Vector<int> cmap,
+                                   Vector<int> lmap,
+                                   Vector<int> fmap)
+  {
+    beginStep(false);
+    auto *chunk = pushReorderChunk(std::move(vmap),
+                                   std::move(emap),
+                                   std::move(cmap),
+                                   std::move(lmap),
+                                   std::move(fmap));
+    endStep();
+    return chunk;
+  }
+
   LogEntry &curEntry()
   {
     return entries[curStep_];
@@ -1273,10 +1400,10 @@ struct MeshLog {
     }
     thawForTopoChunks(m);
     /* Undo chunks in REVERSE creation order so each element swap operates on the
-     * still-post-step topology, where its captured indices are all live. The topo
-     * chunk and the brush's LogChunkElems store no longer overlap on dyntopo-moved
-     * verts: stampUndoGate excludes them from the element store, leaving the topo
-     * chunk the sole, authoritative owner of their pre-step body. */
+       still-post-step topology, where its captured indices are all live. The topo
+       chunk and the brush's LogChunkElems store no longer overlap on dyntopo-moved
+       verts: stampUndoGate excludes them from the element store, leaving the topo
+       chunk the sole, authoritative owner of their pre-step body. */
     auto &chunks = curEntry().chunks;
     for (int i = int(chunks.size()) - 1; i >= 0; i--) {
       chunks[i]->undo(m, tree);
@@ -1290,9 +1417,9 @@ struct MeshLog {
     }
     thawForTopoChunks(m);
     /* Forward creation order, one chunk fully applied before the next: each topo
-     * chunk reproduces its own dab's end-state (captured at deactivation, not
-     * end-of-step), so a face rewired across dabs is re-owned only after its
-     * dab's chunk recreates the verts it now references. */
+       chunk reproduces its own dab's end-state (captured at deactivation, not
+       end-of-step), so a face rewired across dabs is re-owned only after its
+       dab's chunk recreates the verts it now references. */
     for (LogChunk *chunk : curEntry().chunks) {
       chunk->redo(m, tree);
     }

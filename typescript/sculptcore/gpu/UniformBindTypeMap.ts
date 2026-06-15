@@ -16,8 +16,8 @@ type float = number
 type double = number
 
 import type {float2} from '../../litestl/math/float2'
-import type {float3} from '../../litestl/math/float3'
 import type {UniformBindType} from './UniformBindType'
+import type {float3} from '../../litestl/math/float3'
 
 export type UniformBindTypeMap = {
   [UniformBindType.FLOAT]: float

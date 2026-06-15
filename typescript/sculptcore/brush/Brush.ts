@@ -1,7 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {float3} from '../../litestl/math/float3'
 import type {StructProp} from '../props/StructProp'
 import type {float4} from '../../litestl/math/float4'
-import type {float3} from '../../litestl/math/float3'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

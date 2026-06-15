@@ -126,7 +126,7 @@ int main()
   p.l_max = 0.05f;
   p.l_min = 0.005f;
   p.mode = dyntopo::DynTopoMode::Subdivide;
-  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+  dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
       *m, float3(0, 0, 0), 0.3f, p, /*seed=*/42u, tree->getSpatialCallbacks());
 
   test_assert(st.splits > 0);
@@ -175,7 +175,7 @@ int main()
       dp.l_min = 0.005f;
     }
     float fx = (i % 3 - 1) * 0.2f;
-    dyntopo::applyBrushDab(*m, float3(fx, 0, 0), 0.25f, dp,
+    dyntopo::runDyntopoRemesh(*m, float3(fx, 0, 0), 0.25f, dp,
                            /*seed=*/100u + i, tree->getSpatialCallbacks());
     tree->applyDeferredNodeSplit();
     tree->applyDeferredMerge();

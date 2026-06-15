@@ -1353,7 +1353,7 @@ the collapse threshold (`0.8·L`): splits directly feed collapse candidates. The
 `max_stall_rounds` early-out bounds the damage but doesn't remove the cycle.
 **Implemented** as the band-widening option: `bkRemeshToTarget` sets
 `l_min = (2/3)·L` (= `l_max/2`; the strict `< l_min` compare keeps exact split
-children out of the collapse band), and `applyBrushDab` itself clamps every
+children out of the collapse band), and `runDyntopoRemesh` itself clamps every
 caller's effective `l_min` to `l_max/2`, so the sculpt path can't be handed an
 overlapping band either (all current callers already pass ratios ≤ 0.5 — the
 clamp is a no-op for them).

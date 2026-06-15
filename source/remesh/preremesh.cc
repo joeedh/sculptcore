@@ -199,7 +199,7 @@ void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
   dp.max_rounds = 100;
   dp.size_attr = size_attr; // null = uniform; set = per-vertex curvature sizing
   dp.trace = trace;         // null = no tracing; set = append this dab's rounds
-  dyntopo::applyBrushDab(m, center, radius, dp, seed);
+  dyntopo::runDyntopoRemesh(m, center, radius, dp, seed);
 }
 
 namespace {

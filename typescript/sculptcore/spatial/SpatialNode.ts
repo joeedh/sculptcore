@@ -1,7 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {float3} from '../../litestl/math/float3'
-import type {NodeFlags} from './NodeFlags'
 import type {AABB} from '../../litestl/math/AABB'
+import type {NodeFlags} from './NodeFlags'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

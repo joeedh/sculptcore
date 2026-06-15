@@ -65,6 +65,8 @@ spaces aren't supported — vectors use `=x,y,z`.
 | `dump_state`    | `out=relpath [mesh=1 spatial=1 brush=1]`          | writes JSON snapshot of selected sections |
 | `assert_verts`  | `n=N`                                             | exits non-zero on mismatch |
 | `assert_aabb`   | `min=x,y,z max=x,y,z eps=F`                       | exits non-zero on mismatch |
+| `save_pos`      | `id=NAME`                                         | snapshots every live vert's `(index, co)` under `id` (default `default`) for a later `assert_pos`. Mesh indices are persistent ids (IDMap disabled), so a vert restored by undo lands back at the same index |
+| `assert_pos`    | `id=NAME eps=F soft=0/1`                          | diffs live verts against the `id` snapshot; reports `dead`/`moved`/`worst`. Exits non-zero on any divergence unless `soft=1` (then it just prints). The undo-fidelity check (see example below) |
 | `undo` / `redo` | -                                                 | drives `meshlog::MeshLog` against the active mesh + tree |
 | `checkpoint`    | -                                                 | no-op marker for readability in long scripts |
 | `echo`          | `msg=...`                                         | prints `[script] msg` to stdout |
@@ -81,6 +83,20 @@ set_brush radius=0.25 strength=0.5
 stroke origin=0,0,0.5 normal=0,0,1
 dump_state out=cube_draw.json
 screenshot view=persp out=cube_draw.png
+```
+
+Example — undo-fidelity check (every vert must return to its pre-stroke
+position after undo, the regression workflow behind the dyntopo-undo fixes):
+
+```
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+dyntopo enabled=1 detail=0.04 smooth=1
+save_pos id=base
+set_brush radius=0.25 strength=0.5
+stroke origin=0,0,0.5 normal=0,0,1
+undo
+assert_pos id=base
 ```
 
 ## Interactive mode

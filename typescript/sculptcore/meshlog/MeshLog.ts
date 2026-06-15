@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {SpatialTree} from '../spatial/SpatialTree'
 import type {Mesh} from '../mesh/Mesh'
+import type {SpatialTree} from '../spatial/SpatialTree'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -22,14 +22,12 @@ export interface MeshLog {
   [Symbol.dispose](): void
   undo(m: Mesh, tree: SpatialTree): void
   redo(m: Mesh, tree: SpatialTree): void
-  beginStep(hasDyntopo: boolean): void
-  endStep(): void
+  curStrokeId(): int32
   lastStepId(): int32
   stepMemSize(id: int32): double
   totalMemSize(): double
   entryCount(): int32
   freeStep(id: int32): int32
-  pushTopoChunk(): void
   hasTopoChunk(): boolean
   new (): MeshLog
 }

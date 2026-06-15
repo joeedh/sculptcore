@@ -115,7 +115,7 @@ static Result runDab(bool preserve)
   p.preserve_features = preserve;
   p.mode = dyntopo::DynTopoMode::Both;
 
-  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(*m, float3(0, 0, 0), 0.2f, p, 7u);
+  dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(*m, float3(0, 0, 0), 0.2f, p, 7u);
   bnd::recomputeDirty(m); /* fold in the dab's boundary marks */
 
   BoolAttrView *seam = bnd::findBoolEdgeView(m, bnd::EDGE_SEAM);

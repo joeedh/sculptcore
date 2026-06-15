@@ -38,6 +38,9 @@ Notes:
   name it runs that single `<name>.cc_out[.exe]` binary under `build/native/tests`
   or `build/native/source/litestl/tests`.
 - Build dirs: WASM → `build/`, native → `build/native/`, Node addon → `build/native-node/`.
+- A global `-j` / `--jobs <n>` flag caps `cmake --build` parallelism (passed as
+  `--parallel <n>`); omit it to use all cores. Lower it (e.g. `-j 2`) when clang
+  OOMs on the heavy template translation units.
 - `node make.mjs node` builds `sculptcore_node.node` for the Electron ABI:
   cmake-js downloads the Electron headers + `node.lib` and injects `CMAKE_JS_*`
   during configure, then the addon target (root `CMakeLists.txt`, gated on
@@ -49,8 +52,10 @@ Notes:
   clang↔Electron link was de-risked in `spike/napi/` (`RESULTS.md`).
 - WASM configure runs `emcmake cmake .. -G Ninja -DBUILD_WASM=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
   native configure runs `cmake ../.. -G Ninja --toolchain ../../build_files/native-clang.cmake`
-  (clang is the required toolchain everywhere). Both also pass
-  `-DCMAKE_BUILD_TYPE=RelWithDebInfo`.
+  (clang is the required toolchain everywhere). The generator (`-G`) and build
+  type (`-DCMAKE_BUILD_TYPE`, default `RelWithDebInfo`) come from the local
+  build options below, as do the `-DWITH_ASAN` / `-DWITH_MESHLOG_ABSEIL_HASHMAP`
+  flags both targets pass through.
 - Every command runs under `node configureEnv.mjs` (with `--emsdk` for WASM) to set up the
   emsdk/PATH environment — don't invoke cmake/ninja/ctest directly.
 - `emsdk` is **not a submodule** — `install-emsdk` `git clone`s it and checks out the
@@ -64,6 +69,22 @@ Notes:
 - Native (non-WASM) builds enable `tests/` and the `sculptcore` executable still links,
   but the primary target is WASM.
 - `node serv.mjs` serves `index.html` + the WASM module for browser testing.
+
+### Local build options
+
+The build knobs are no longer hardcoded: `make.mjs` reads them from an optional,
+**gitignored** `local-build-options.mjs` (default-export an object) — copy the
+tracked `local-build-options.mjs.example` to start. Unknown keys are reported and
+in-use keys are echoed at startup. Recognized keys (with defaults):
+
+- `CMAKE_BUILD_TYPE` (`'RelWithDebInfo'`) — feeds `-DCMAKE_BUILD_TYPE` and also
+  selects the native-deps combo (`configName` in `tools/deps.mjs`).
+- `CMAKE_GENERATOR` (`'Ninja'`) — the `-G` generator.
+- `WITH_ASAN` (`false`) → `-DWITH_ASAN=ON`, threaded into the wasm, native, and
+  node-addon (`--CDWITH_ASAN`) configures.
+- `WITH_MESHLOG_ABSEIL_HASHMAP` (`false`) → `-DWITH_MESHLOG_ABSEIL_HASHMAP=ON`
+  (use `absl::flat_hash_map` in meshlog; run `extern/fetch_abseil.sh` to clone
+  abseil into `extern/` first).
 
 ## Native deps (OpenBLAS + SuiteSparse/CHOLMOD)
 
@@ -189,6 +210,12 @@ over ad-hoc `main()` test programs. Full CLI + verb reference and the
 [`documentation/debugging.md`](documentation/debugging.md) covers the
 Claude-driven workflow that uses it.
 
+- **Undo-fidelity checks**: the `save_pos` / `assert_pos` verbs snapshot
+  every live vertex position under a name and later assert all verts
+  returned to it (within `eps`). Bracket a stroke with `save_pos` … stroke
+  … `undo` … `assert_pos` to catch undo position corruption (the dyntopo-
+  undo regression workflow). See the example in `debugApp.md`.
+
 ## Spatial
 
 `source/spatial/` is a BVH-style tree layered over a `mesh::Mesh`
@@ -311,7 +338,7 @@ the 5 M-tri / ≥25 fps target is met on the CPU with no GPU offload.** Design +
 post-M7 re-evaluation: [`documentation/dynamic-topology.md`](documentation/dynamic-topology.md);
 the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentation/plans/dyntopo-m7-cascade.md).
 
-- **Core** is `source/dyntopo/dyntopo.h` — `applyBrushDab(mesh, center, radius,
+- **Core** is `source/dyntopo/dyntopo.h` — `runDyntopoRemesh(mesh, center, radius,
   params, seed, cb?, seedVerts?)`. It is spatial/brush/meshlog-free (mutates only
   the `mesh::Mesh`); the caller threads `MeshCallbacks` to keep the spatial tree
   and meshlog current, and passes `seedVerts` (the in-region leaves' verts) so a
@@ -368,3 +395,21 @@ design, pipeline, and status of the quad-remesh module (`source/remesh/`).
 - Keep comments minimal; explain *why* only when non-obvious.
 - Path handling: use `litestl::path` utilities rather than ad-hoc string
   manipulation or raw `std::filesystem` in engine code.
+
+## Code Comments
+
+The repo-wide rules in the root `CLAUDE.md` "Code Comments" section apply here
+(doc vs non-doc distinction, the 3-line non-doc limit, `CLAUDENOTE:` for temp
+scaffolding). The C++-specific additions:
+
+- **Non-doc comments must use C++ `//` line comments**, never C-style `/* … */`.
+- **Approved long comments are the one exception**: a non-doc comment that
+  exceeds 3 lines must first be approved by the user, then recorded in
+  `approvedLongComments.md` (sculptcore root) as
+  `{path}:{function}:{one-line summary}` (`path` relative to the sculptcore
+  root). An approved long comment uses a C-style `/* … */` block **without** a
+  leading `*` on its continuation lines. Entries in `approvedLongComments.md` are
+  exempt from the length limit and the per-file budget — don't flag or shorten
+  them in a later audit.
+- **Doc comments** keep their usual style (`/** … */` / `///`) and are not
+  subject to the length limit, but stay concise.

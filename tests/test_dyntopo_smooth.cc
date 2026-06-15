@@ -89,7 +89,7 @@ static int run(bool smooth, float3 center, float radius, double &cv, double &min
   p.smooth_lambda = 0.5f;
   p.mode = dyntopo::DynTopoMode::Subdivide;
 
-  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(*m, center, radius, p, /*seed=*/123u);
+  dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(*m, center, radius, p, /*seed=*/123u);
   smooths = st.smooths;
 
   const float r2 = radius * radius;

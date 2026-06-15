@@ -5,6 +5,7 @@ set(LIB
     props
     spatial
     mesh
+    absl::flat_hash_map
 )
 
 set(SRC

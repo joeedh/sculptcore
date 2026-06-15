@@ -19,6 +19,13 @@
 // spatial_c_api.cc). void* stands in for the opaque Mesh*/SpatialTree* — ABI
 // identical for an extern "C" pointer.
 extern "C" {
+
+size_t LSTL_GetMemSize(bool includePermanent);
+void LSTL_PrintAllocBlocks(bool includePermanent);
+void LSTL_FreeFormatBlocks(char *s);
+char *LSTL_FormatBlock(void *mem);
+char *LSTL_FormatBlocks(bool printPermanent);
+
 void *Mesh_createCube(int dimen, float size, float sphereFac);
 void *Mesh_makeUVSphere(int rings, int segs, float radius);
 void *Mesh_buildSpatialTree(void *mesh, int leafLimit, int depthLimit);
@@ -1671,6 +1678,78 @@ napi_value NapiRuntime::VectorGet(napi_env env, napi_callback_info info) {
   return rt->getBoundPointer(elem, elemAddr);
 }
 
+// ---------------------------------------------------------------------------
+// litestl allocator introspection (binding.cc LSTL_*).
+// ---------------------------------------------------------------------------
+// getMemSize(includePermanent) -> tracked allocation size in bytes. size_t is
+// returned as a double (exact below 2^53, so fine for any realistic heap).
+napi_value NapiRuntime::GetMemSize(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  bool includePermanent = false;
+  if (argc >= 1) napi_get_value_bool(env, argv[0], &includePermanent);
+  napi_value out;
+  napi_create_double(env, static_cast<double>(LSTL_GetMemSize(includePermanent)), &out);
+  return out;
+}
+
+// printAllocBlocks(includePermanent) -> void. Dumps every live block to the log
+// sink (the renderer DevTools console, via consoleSink).
+napi_value NapiRuntime::PrintAllocBlocks(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  bool includePermanent = false;
+  if (argc >= 1) napi_get_value_bool(env, argv[0], &includePermanent);
+  LSTL_PrintAllocBlocks(includePermanent);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  return undef;
+}
+
+// formatBlock(boundObj) -> a string describing the allocation backing the
+// wrapped C++ object. LSTL_FormatBlock returns a raw-heap char* the caller must
+// release; we copy it into a JS string and free it with LSTL_FreeFormatBlocks
+// (the char* deliberately never crosses into JS as a number).
+napi_value NapiRuntime::FormatBlock(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  Wrapped *w = nullptr;
+  if (argc < 1 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok || !w ||
+      !w->ptr) {
+    return out;
+  }
+  char *s = LSTL_FormatBlock(w->ptr);
+  if (!s) return out;
+  napi_create_string_utf8(env, s, NAPI_AUTO_LENGTH, &out);
+  LSTL_FreeFormatBlocks(s);
+  return out;
+}
+
+// formatBlocks(printPermanent) -> a string describing every live allocation
+// block (the whole-heap counterpart of formatBlock). Same raw-heap-string /
+// LSTL_FreeFormatBlocks release pattern.
+napi_value NapiRuntime::FormatBlocks(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  bool printPermanent = false;
+  if (argc >= 1) napi_get_value_bool(env, argv[0], &printPermanent);
+  char *s = LSTL_FormatBlocks(printPermanent);
+  if (!s) return out;
+  napi_create_string_utf8(env, s, NAPI_AUTO_LENGTH, &out);
+  LSTL_FreeFormatBlocks(s);
+  return out;
+}
+
 void NapiRuntime::define(napi_value exports, const char *name, napi_callback cb) {
   napi_value fn;
   napi_create_function(env_, name, NAPI_AUTO_LENGTH, cb, this, &fn);
@@ -1689,6 +1768,9 @@ void NapiRuntime::installExports(napi_value exports) {
     }
   }
   sc_napi_set_sink(&consoleSink);
+
+  // IMPORTANT: expose these in makeNativeInterface in typescript/api/nativeManager.ts,
+  // see that function's doc comment
 
   define(exports, "version", &NapiRuntime::Version);
   define(exports, "bindingCount", &NapiRuntime::BindingCount);
@@ -1717,6 +1799,10 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "spatialTreeSetDrawShader", &NapiRuntime::SpatialTreeSetDrawShader);
   define(exports, "spatialTreeGetMissingAttrSlots", &NapiRuntime::SpatialTreeGetMissingAttrSlots);
   define(exports, "spatialTreeRefreshRequestedAttrs", &NapiRuntime::SpatialTreeRefreshRequestedAttrs);
+  define(exports, "getMemSize", &NapiRuntime::GetMemSize);
+  define(exports, "printAllocBlocks", &NapiRuntime::PrintAllocBlocks);
+  define(exports, "formatBlock", &NapiRuntime::FormatBlock);
+  define(exports, "formatBlocks", &NapiRuntime::FormatBlocks);
 }
 
 }  // namespace sculptcore::napi

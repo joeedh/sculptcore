@@ -143,6 +143,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
     BIND_STRUCT_METHOD(st, markAllSeams, MARGS());
     BIND_STRUCT_METHOD(st, fillVertexColorFromPosition, MARGS());
+    BIND_STRUCT_METHOD(st, dumpVertCo, MARGS("out"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -316,6 +317,10 @@ struct Mesh : public MeshBase {
    * candidate/marked seam without per-vertex cross-backend reads. `out` is a
    * bound Vector<float> out-param (marshal-safe, like castScreenCircle). */
   void edgePathCoords(int vStart, int vEnd, util::Vector<float> &out);
+
+  /* CLAUDENOTE: debug — dump every live vert's (idx,x,y,z) as flat float
+   * quadruples for undo/redo mesh-truth comparison. Remove with the probe. */
+  void dumpVertCo(util::Vector<float> &out);
 
   /* Wave 7: generate a per-corner UV map from EDGE_SEAM-bounded charts (the
    * boundary-conditions unwrapper). Owns naming C++-side (a unique "uv[.NNN]"

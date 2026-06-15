@@ -1,7 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {Mesh} from '../Mesh'
 import type {DrawBatch} from '../../gpu/DrawBatch'
 import type {GPUManager} from '../../gpu/GPUManager'
+import type {Mesh} from '../Mesh'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

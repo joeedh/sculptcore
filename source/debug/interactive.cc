@@ -165,26 +165,22 @@ void InteractiveController::beginStroke(float2 cursor)
 
   exec_ = new brush::CommandExecutor(scene_->tree, &scene_->brush);
   exec_->meshLog = &scene_->meshLog;
-  /* Keep topology thawed for the whole stroke when dyntopo is on, so the per-dab
-   * remesh doesn't fight the brush's per-dab freeze (an O(mesh) thaw each dab). */
+  // Keep topology thawed for the whole stroke when dyntopo is on, so the per-dab
+  // remesh doesn't fight the brush's per-dab freeze (an O(mesh) thaw each dab).
   exec_->keepTopoThawed = scene_->dyntopoEnabled;
   exec_->beginStep(scene_->dyntopoEnabled);
 
-  /* Dyntopo pre-pass: remesh under the dab (incremental; updates the tree in
-   * place, so exec_'s tree pointer stays valid). Unlogged for now — undo
-   * reverts the deform but keeps the topology (interactive-testing path). */
+  // One unified dab through the executor — same dyntopo+deform+meshlog sequence as
+  // the TS app and scripted harness, so interactive no longer diverges; dyntopo is
+  // now logged like everywhere else (the executor drives the combined callbacks).
+  dyntopo::DynTopoParams *dtp =
+      scene_->dyntopoEnabled ? &scene_->dyntopoParams : nullptr;
+  auto ptDab = StrokeProfiler::now();
+  exec_->applyDab(scene_->currentTool, hit, normal, scene_->brush.radius, dtp,
+                  dyntopoSeed_++);
+  scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0, 0);
   if (scene_->dyntopoEnabled) {
-    scene_->applyDynTopoDab(hit, scene_->brush.radius, dyntopoSeed_++, /*log=*/false);
-  }
-
-  Vector<spatial::SpatialNode *> nodes;
-  scene_->tree->filterNodes(hit, scene_->brush.radius, nodes);
-  if (nodes.size() != 0) {
-    auto ptDab = StrokeProfiler::now();
-    exec_->execBrush(scene_->mesh, scene_->currentTool, &nodes, hit, normal);
-    exec_->clearIsFirstOfStep();
-    scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0,
-                            0);
+    scene_->tree->update(&scene_->gpu); // regen dirty leaves after remesh
   }
   scene_->profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
   scene_->lastStroke.valid = true;
@@ -223,19 +219,16 @@ void InteractiveController::continueStroke(float2 cursor)
     }
 #endif
     if (!exec_) return;
-    if (scene_->dyntopoEnabled) {
-      scene_->applyDynTopoDab(p, scene_->brush.radius, dyntopoSeed_++, /*log=*/false);
-    }
-    Vector<spatial::SpatialNode *> nodes;
-    scene_->tree->filterNodes(p, scene_->brush.radius, nodes);
-    if (nodes.size() == 0) {
-      return;
-    }
+    dyntopo::DynTopoParams *dtp =
+        scene_->dyntopoEnabled ? &scene_->dyntopoParams : nullptr;
     auto ptDab = StrokeProfiler::now();
-    exec_->execBrush(scene_->mesh, scene_->currentTool, &nodes, p, normal);
-    exec_->clearIsFirstOfStep();
+    exec_->applyDab(scene_->currentTool, p, normal, scene_->brush.radius, dtp,
+                    dyntopoSeed_++);
     scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0,
                             0);
+    if (scene_->dyntopoEnabled) {
+      scene_->tree->update(&scene_->gpu); // regen dirty leaves after remesh
+    }
     scene_->lastStroke.origin = p;
     scene_->lastStroke.normal = normal;
   };
@@ -261,6 +254,9 @@ void InteractiveController::endStroke()
     return;
   }
   auto ptEnd = StrokeProfiler::now();
+  if (scene_->dyntopoEnabled) {
+    exec_->endDynTopoStroke();
+  }
   exec_->endStep();
   delete exec_;
   exec_ = nullptr;

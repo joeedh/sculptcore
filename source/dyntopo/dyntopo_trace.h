@@ -6,7 +6,7 @@
 
 /* Granular split-sliver oscillation detection for the dyntopo round loop.
  *
- * Default-off diagnostic: when DynTopoParams::trace is set, applyBrushDab
+ * Default-off diagnostic: when DynTopoParams::trace is set, runDyntopoRemesh
  * appends one RoundQuality per round, measuring the triangle quality of the
  * geometry that round perturbed (its frontier faces inside the dab). A healthy
  * dab improves the worst angle monotonically; the split bug instead drives the

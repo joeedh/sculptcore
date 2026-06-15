@@ -65,7 +65,7 @@ See `documentation/brush.md` for a detailed overview.
 
 ### `source/dyntopo/` — dynamic-topology remesh
 
-`dyntopo.h` (header-only). `applyBrushDab(...)` runs the per-dab remesh as independent-set rounds of split/collapse/flip/smooth with a graded target and a per-dab split budget. Spatial/brush/meshlog-free — the caller threads `MeshCallbacks`. Design + plan: `documentation/dynamic-topology.md`, `documentation/plans/dyntopo-m7-cascade.md`.
+`dyntopo.h` (header-only). `runDyntopoRemesh(...)` runs the per-dab remesh as independent-set rounds of split/collapse/flip/smooth with a graded target and a per-dab split budget. Spatial/brush/meshlog-free — the caller threads `MeshCallbacks`. Design + plan: `documentation/dynamic-topology.md`, `documentation/plans/dyntopo-m7-cascade.md`.
 
 ### `source/props/` — property/reflection system
 

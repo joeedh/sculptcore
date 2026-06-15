@@ -103,7 +103,7 @@ int main()
   p.mode = dyntopo::DynTopoMode::Collapse;
   p.l_min = 0.3f;
   p.l_max = 0.6f;
-  dyntopo::applyBrushDab(*m, float3(0, 0, 0), 2.0f, p, /*seed=*/9u,
+  dyntopo::runDyntopoRemesh(*m, float3(0, 0, 0), 2.0f, p, /*seed=*/9u,
                          tree->getSpatialCallbacks());
   test_assert(m->v.count < vBefore); /* the dab actually removed geometry */
   test_assert(validateOwnership(tree, m, "post-collapse"));
@@ -144,7 +144,7 @@ int main()
   sub.mode = dyntopo::DynTopoMode::Subdivide;
   sub.l_max = 0.03f;
   sub.l_min = 0.005f;
-  dyntopo::applyBrushDab(*m2, float3(0, 0, 0), 0.28f, sub, /*seed=*/3u,
+  dyntopo::runDyntopoRemesh(*m2, float3(0, 0, 0), 0.28f, sub, /*seed=*/3u,
                          tree2->getSpatialCallbacks());
   tree2->applyDeferredNodeSplit();
   test_assert(validateOwnership(tree2, m2, "r-refine"));
@@ -157,7 +157,7 @@ int main()
   col.mode = dyntopo::DynTopoMode::Collapse;
   col.l_min = 0.25f;
   col.l_max = 0.5f;
-  dyntopo::applyBrushDab(*m2, float3(0.12f, 0.05f, 0), 0.12f, col, /*seed=*/4u,
+  dyntopo::runDyntopoRemesh(*m2, float3(0.12f, 0.05f, 0), 0.12f, col, /*seed=*/4u,
                          tree2->getSpatialCallbacks());
   test_assert(validateOwnership(tree2, m2, "r-collapse"));
 

@@ -66,20 +66,11 @@ static void runCase(bool doSmooth, int &retval)
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.18f + 0.36f * t, -0.05f + 0.1f * t, 0.25f);
-    exec.applyDynTopoDab(
-        origin, radius, &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(d));
-    litestl::util::Vector<spatial::SpatialNode *> nodes;
-    scene.tree->filterNodes(origin, radius, nodes);
-    if (nodes.size() == 0) {
-      continue;
-    }
-    exec.execBrush(scene.mesh, scene.currentTool, &nodes, origin, normal);
-    exec.clearIsFirstOfStep();
+    exec.applyDab(scene.currentTool, origin, normal, radius,
+                  &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(d));
   }
-  exec.endStep();
-  /* Release the stroke-long thaw, as the app does at dyntopo-stroke end. The
-   * next plain dab then freezes topology — the state that broke undo. */
   exec.endDynTopoStroke();
+  exec.endStep();
 
   int vMid = m->v.count, fMid = m->f.count;
   printf("  stroke1 (dyntopo): v %d->%d, f %d->%d\n", vBefore, vMid, fBefore, fMid);
@@ -93,13 +84,8 @@ static void runCase(bool doSmooth, int &retval)
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.18f + 0.36f * t, -0.05f + 0.1f * t, 0.25f);
-    litestl::util::Vector<spatial::SpatialNode *> nodes;
-    scene.tree->filterNodes(origin, radius, nodes);
-    if (nodes.size() == 0) {
-      continue;
-    }
-    exec.execBrush(scene.mesh, scene.currentTool, &nodes, origin, normal);
-    exec.clearIsFirstOfStep();
+    exec.applyDab(scene.currentTool, origin, normal, radius,
+                  /*params=*/nullptr, scene.dyntopoSeed + uint32_t(d));
   }
   exec.endStep();
 

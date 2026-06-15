@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {UniformBlockDef} from './UniformBlockDef'
 import type {AttrDef} from './AttrDef'
+import type {UniformBlockDef} from './UniformBlockDef'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

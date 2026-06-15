@@ -200,6 +200,21 @@ export class NativeManager {
   SpatialTree_refreshRequestedAttrs(tree: NativeBound): void {
     this.addon.spatialTreeRefreshRequestedAttrs(tree)
   }
+  // litestl allocator introspection (INeededWasm LSTL_* parity). Natively
+  // LSTL_FormatBlock takes the bound object itself (the opaque pointer), where
+  // WASM passes a numeric heap pointer.
+  LSTL_GetMemSize(includePermanent: boolean): number {
+    return this.addon.getMemSize(includePermanent)
+  }
+  LSTL_PrintAllocBlocks(includePermanent: boolean): void {
+    this.addon.printAllocBlocks(includePermanent)
+  }
+  LSTL_FormatBlocks(includePermanent: boolean): string {
+    return this.addon.formatBlocks(includePermanent)
+  }
+  LSTL_FormatBlock(bound: NativeBound): string {
+    return this.addon.formatBlock(bound)
+  }
   float3(co: ArrayLike<number>): NativeBound {
     const v = this.f3ring.next() as {vec: number[]}
     const vec = v.vec // capture the array wrapper once (one wrapper, not three)
@@ -256,6 +271,10 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     SpatialTree_setDrawShader        : (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),
     SpatialTree_getMissingAttrSlots  : (t: NativeBound) => nm.SpatialTree_getMissingAttrSlots(t),
     SpatialTree_refreshRequestedAttrs: (t: NativeBound) => nm.SpatialTree_refreshRequestedAttrs(t),
+    LSTL_GetMemSize                  : (p: boolean) => nm.LSTL_GetMemSize(p),
+    LSTL_PrintAllocBlocks            : (p: boolean) => nm.LSTL_PrintAllocBlocks(p),
+    LSTL_FormatBlocks                : (p: boolean) => nm.LSTL_FormatBlocks(p),
+    LSTL_FormatBlock                 : (b: NativeBound) => nm.LSTL_FormatBlock(b),
     float2                           : (c: ArrayLike<number>) => nm.float2(c),
     float3                           : (c: ArrayLike<number>) => nm.float3(c),
     /** marker so callers/tests can confirm the native backend is active. */

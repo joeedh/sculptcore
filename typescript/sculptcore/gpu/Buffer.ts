@@ -1,7 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {GPUFetchMode} from './GPUFetchMode'
 import type {GPUType} from './GPUType'
 import type {GPUBufferType} from './GPUBufferType'
-import type {GPUFetchMode} from './GPUFetchMode'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

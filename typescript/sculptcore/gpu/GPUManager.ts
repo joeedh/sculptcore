@@ -1,10 +1,10 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {DrawBatch} from './DrawBatch'
 import type {DrawCommand} from './DrawCommand'
 import type {Buffer} from './Buffer'
-import type {GPUType} from './GPUType'
 import type {GPUCmdType} from './GPUCmdType'
 import type {ShaderDef} from './ShaderDef'
+import type {GPUType} from './GPUType'
+import type {DrawBatch} from './DrawBatch'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

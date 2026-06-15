@@ -77,7 +77,7 @@ static Analysis runAndAnalyze(bool flips, const char *tag)
   dyntopo::DynTopoTrace trace;
   p.trace = &trace;
   dyntopo::DynTopoStats st =
-      dyntopo::applyBrushDab(*m, center, radius, p, /*seed=*/123u);
+      dyntopo::runDyntopoRemesh(*m, center, radius, p, /*seed=*/123u);
   alloc::Delete(m);
 
   dyntopo::printTrace(trace, tag);

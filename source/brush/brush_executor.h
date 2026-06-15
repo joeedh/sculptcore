@@ -219,6 +219,13 @@ struct CommandExecutor {
         st, execBrush, MARGS("mesh", "brushType", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, applyDynTopoDab, MARGS("center", "radius", "params", "seed"));
+    BIND_STRUCT_METHOD_SIG(
+        st, applyDab, int,
+        MARGS("prog", "center", "normal", "radius", "params", "seed"),
+        (BrushProgram *, float3, float3, float, dyntopo::DynTopoParams *, uint32_t));
+    // params==nullptr disables dyntopo for the dab; mark it nullable so the
+    // generated TS accepts undefined (the _SIG macro isn't chainable).
+    st->methods[st->methods.size() - 1]->argIsNullable("params");
     BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
@@ -543,8 +550,14 @@ struct CommandExecutor {
       }
     }
 
+    // Skip leaves emptied of verts: heavy in-stroke collapse can leave a zero-vert
+    // leaf whose loose AABB still overlaps the brush sphere, so a vertex iterator on
+    // it wild-reads unique_verts.begin() (brush_iterators.h: "never on empty node").
 #ifdef NO_PARALLEL_FOR
     for (auto *node : nodes) {
+      if (node->data->unique_verts.size() == 0) {
+        continue;
+      }
       CommandCtx<CommandExecutor> finalCtx(ctx, *node, *this, *brush);
       cmd.exec(finalCtx);
     }
@@ -554,6 +567,9 @@ struct CommandExecutor {
         [&](IndexRange range) {
           for (int i : range) {
             SpatialNode *node = nodes[i];
+            if (node->data->unique_verts.size() == 0) {
+              continue;
+            }
             CommandCtx<CommandExecutor> finalCtx(ctx, *node, *this, *brush);
             cmd.exec(finalCtx);
           }
@@ -1086,16 +1102,82 @@ struct CommandExecutor {
     }
 
     dyntopo::DynTopoStats st =
-        dyntopo::applyBrushDab(*m,
-                               center,
-                               radius,
-                               *params,
-                               seed,
-                               cb,
-                               span<const int>(seedVerts.data(), seedVerts.size()));
+        dyntopo::runDyntopoRemesh(*m,
+                                  center,
+                                  radius,
+                                  *params,
+                                  seed,
+                                  cb,
+                                  span<const int>(seedVerts.data(), seedVerts.size()));
 
     lastDynTopoStats = st;
     return st.splits + st.collapses;
+  }
+
+  // One unified brush dab — the single dab sequence shared by every client
+  // (TS app, debug interactive/script). Runs, in order: optional dyntopo pre-pass
+  // (when params != nullptr), spatial node filter, deform program, then the
+  // per-dab meshlog topo-chunk seal. Dyntopo runs BEFORE the deform so the brush
+  // moves the freshly-refined geometry; the chunk is sealed AFTER the deform so a
+  // Created vert's end_body captures its deformed co directly (endStep still
+  // refreshes verts a LATER dab re-deforms without a topo touch). Caller owns
+  // building `prog` and configuring `*params`; pass params=nullptr to disable
+  // dyntopo. Call between beginStep(hasDyntopo) and endStep() (and
+  // endDynTopoStroke() before endStep() on a dyntopo stroke). Returns
+  // splits+collapses applied.
+  int applyDab(BrushProgram *prog,
+               float3 center,
+               float3 normal,
+               float radius,
+               dyntopo::DynTopoParams *params,
+               uint32_t seed)
+  {
+    if (!tree || !tree->m) {
+      return 0;
+    }
+    int topoApplied = 0;
+    if (params) {
+      topoApplied = applyDynTopoDab(center, radius, params, seed);
+    }
+    Vector<spatial::SpatialNode *> nodes;
+    tree->filterNodes(center, radius, nodes);
+    if (nodes.size() > 0) {
+      execProgram(prog, &nodes, center, normal);
+    }
+    if (params && meshLog) {
+      //meshLog->pushTopoChunk();
+    }
+    clearIsFirstOfStep();
+    return topoApplied;
+  }
+
+  // execBrush-based overload for callers driving a single brush type rather than
+  // a BrushProgram (the native debug harness). Same dyntopo+filter+seal sequence.
+  int applyDab(SculptBrushes brushType,
+               float3 center,
+               float3 normal,
+               float radius,
+               dyntopo::DynTopoParams *params,
+               uint32_t seed)
+  {
+    if (!tree || !tree->m) {
+      return 0;
+    }
+    mesh::Mesh *m = tree->m;
+    int topoApplied = 0;
+    if (params) {
+      topoApplied = applyDynTopoDab(center, radius, params, seed);
+    }
+    Vector<spatial::SpatialNode *> nodes;
+    tree->filterNodes(center, radius, nodes);
+    if (nodes.size() > 0) {
+      execBrush(m, brushType, &nodes, center, normal);
+    }
+    if (params && meshLog) {
+      //meshLog->pushTopoChunk();
+    }
+    clearIsFirstOfStep();
+    return topoApplied;
   }
 
   // Release the stroke-long topology thaw set by applyDynTopoDab. Call once at

@@ -1,0 +1,8 @@
+export default {
+  CMAKE_BUILD_TYPE: 'RelWithDebInfo',
+  CMAKE_GENERATOR: 'Ninja',
+  WITH_ASAN: false,
+  
+  /** note: you must run ./extern/fetch_abseil.sh to clone abseil */
+  WITH_MESHLOG_ABSEIL_HASHMAP: false,
+}

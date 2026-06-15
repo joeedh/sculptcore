@@ -907,39 +907,36 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
-      /* One stroke verb = one stroke: bump the non-accumulate generation once so
-       * `repeat`ed dabs below share a stamp (and converge), while a later stroke
-       * verb re-stamps. nonAccumGen also keeps dyntopo's snapshot coherent. */
+      // One stroke verb = one stroke: bump the non-accumulate generation once so
+      // `repeat`ed dabs below share a stamp (and converge), while a later stroke
+      // verb re-stamps. nonAccumGen also keeps dyntopo's snapshot coherent.
       uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
       scene.dyntopoParams.nonAccumGen = gen;
       int repeat = getInt(args, "repeat", 1);
       if (repeat < 1) repeat = 1;
-      /* Dyntopo pre-pass: remesh under the dab before the brush filters nodes;
-       * the tree is updated incrementally via the mesh callbacks (M7.6), not
-       * rebuilt. Logged as its own undo step (the brush deform is a separate step
-       * below; merging them is a follow-up). */
+      // One stroke verb = one meshlog step of `repeat` unified dabs through the
+      // executor (same path as the TS app). Previously dyntopo was a separate undo
+      // step, so one undo couldn't revert a stroke (tools/repro/repro_single_undo.txt).
+      brush::CommandExecutor exec(scene.tree, &scene.brush);
+      exec.meshLog = &scene.meshLog;
+      exec.ctx.renderMatrix = scene.renderMatrix;
+      if (scene.useCsrNeighbors) {
+        exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
+      }
+      exec.setNonAccum(scene.nonAccum);
+      exec.setStrokeGen(int(gen));
+      dyntopo::DynTopoParams *dtp =
+          scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+      exec.beginStep(scene.dyntopoEnabled);
+      for (int i = 0; i < repeat; i++) {
+        exec.applyDab(scene.currentTool, origin, normal, scene.brush.radius, dtp,
+                      scene.dyntopoSeed + uint32_t(i));
+      }
       if (scene.dyntopoEnabled) {
-        scene.applyDynTopoDab(origin, scene.brush.radius, scene.dyntopoSeed,
-                              /*log=*/true);
+        exec.endDynTopoStroke();
       }
-      Vector<spatial::SpatialNode *> nodes;
-      scene.tree->filterNodes(origin, scene.brush.radius, nodes);
-      if (nodes.size() != 0) {
-        brush::CommandExecutor exec(scene.tree, &scene.brush);
-        exec.meshLog = &scene.meshLog;
-        exec.ctx.renderMatrix = scene.renderMatrix;
-        if (scene.useCsrNeighbors) {
-          exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
-        }
-        exec.setNonAccum(scene.nonAccum);
-        exec.setStrokeGen(int(gen));
-        exec.beginStep(scene.dyntopoEnabled);
-        for (int i = 0; i < repeat; i++) {
-          exec.execBrush(scene.mesh, scene.currentTool, &nodes, origin, normal);
-          exec.clearIsFirstOfStep();
-        }
-        exec.endStep();
-      }
+      exec.endStep();
+      scene.tree->update(&scene.gpu);
     }
 
     scene.lastStroke.valid = true;
@@ -983,8 +980,8 @@ bool execVerb(Scene &scene,
     }
     exec.setNonAccum(scene.nonAccum);
     exec.setStrokeGen(int(gen));
-    /* One step for the whole stroke; beginStep pushes the first topo chunk when
-     * dyntopo is on, matching meshLog.beginStep(hasDyntopo) on the TS side. */
+    // One step for the whole stroke; beginStep pushes the first topo chunk when
+    // dyntopo is on, matching meshLog.beginStep(hasDyntopo) on the TS side.
     exec.beginStep(scene.dyntopoEnabled);
     for (int i = 0; i < dabs; i++) {
       float t = dabs > 1 ? float(i) / float(dabs - 1) : 0.0f;
@@ -992,18 +989,12 @@ bool execVerb(Scene &scene,
       for (int k = 0; k < 3; k++) {
         c[k] = p1[k] + (p2[k] - p1[k]) * t;
       }
-      if (scene.dyntopoEnabled) {
-        exec.applyDynTopoDab(c, scene.brush.radius, &scene.dyntopoParams,
-                             scene.dyntopoSeed + uint32_t(i));
-        /* One topo chunk per dab, matching SculptPaintOp.applyDab. */
-        scene.meshLog.pushTopoChunk();
-      }
-      Vector<spatial::SpatialNode *> nodes;
-      scene.tree->filterNodes(c, scene.brush.radius, nodes);
-      if (nodes.size() != 0) {
-        exec.execBrush(scene.mesh, scene.currentTool, &nodes, c, normal);
-        exec.clearIsFirstOfStep();
-      }
+      // One unified dab (dyntopo → deform → per-dab topo-chunk seal), matching
+      // SculptPaintOp.applyDab on the TS side.
+      dyntopo::DynTopoParams *dtp =
+          scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+      exec.applyDab(scene.currentTool, c, normal, scene.brush.radius, dtp,
+                    scene.dyntopoSeed + uint32_t(i));
     }
     if (scene.dyntopoEnabled) {
       exec.endDynTopoStroke();
@@ -1081,37 +1072,28 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
-      /* Dyntopo pre-pass: remesh under every dab along the path before the brush
-       * runs, so the executor below drives the refined geometry. Each dab updates
-       * the spatial tree incrementally via the mesh callbacks (M7.6), not a
-       * rebuild. Folding this pre-pass and the brush deform into one undo step
-       * (they are two steps today) is the remaining follow-up. */
-      /* A path is one stroke: bump the non-accumulate generation once for the
-       * whole sequence so every dab measures from the same stroke-start snapshot. */
+      // A path is one stroke = one meshlog step of unified dabs through the executor.
+      // Bump the non-accumulate generation once so every dab measures from the same
+      // stroke-start snapshot; the tree updates incrementally, GPU buffers once at end.
       uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
       scene.dyntopoParams.nonAccumGen = gen;
-      if (scene.dyntopoEnabled) {
-        for (size_t i = 0; i < origins.size(); i++) {
-          scene.applyDynTopoDab(origins[i], scene.brush.radius,
-                                scene.dyntopoSeed + uint32_t(i), /*log=*/true);
-        }
-      }
       brush::CommandExecutor exec(scene.tree, &scene.brush);
       exec.meshLog = &scene.meshLog;
       exec.ctx.renderMatrix = scene.renderMatrix;
       exec.setNonAccum(scene.nonAccum);
       exec.setStrokeGen(int(gen));
+      dyntopo::DynTopoParams *dtp =
+          scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
       exec.beginStep(scene.dyntopoEnabled);
       for (size_t i = 0; i < origins.size(); i++) {
-        Vector<spatial::SpatialNode *> nodes;
-        scene.tree->filterNodes(origins[i], scene.brush.radius, nodes);
-        if (nodes.size() == 0) {
-          continue;
-        }
-        exec.execBrush(scene.mesh, scene.currentTool, &nodes, origins[i], normal);
-        exec.clearIsFirstOfStep();
+        exec.applyDab(scene.currentTool, origins[i], normal, scene.brush.radius,
+                      dtp, scene.dyntopoSeed + uint32_t(i));
+      }
+      if (scene.dyntopoEnabled) {
+        exec.endDynTopoStroke();
       }
       exec.endStep();
+      scene.tree->update(&scene.gpu);
     }
 
     scene.lastStroke.valid = true;
@@ -1470,7 +1452,7 @@ bool execVerb(Scene &scene,
     }
     scene.mesh->thawTopo();
     auto t1 = std::chrono::steady_clock::now();
-    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+    dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
         *scene.mesh, center, radius, scene.dyntopoParams, 7u,
         useSpatial ? scene.tree->getSpatialCallbacks() : nullptr,
         litestl::util::span<const int>(seedVerts.data(), seedVerts.size()));

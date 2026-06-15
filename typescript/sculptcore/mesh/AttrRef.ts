@@ -1,8 +1,8 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrFlag} from './AttrFlag'
+import type {AttrType} from './AttrType'
 import type {AttrData} from './AttrData'
 import type {AttrUse} from './AttrUse'
-import type {AttrType} from './AttrType'
+import type {AttrFlag} from './AttrFlag'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

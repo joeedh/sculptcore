@@ -246,6 +246,20 @@ void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
   }
 }
 
+void Mesh::dumpVertCo(util::Vector<float> &out)
+{
+  // CLAUDENOTE: debug probe — flat (idx,x,y,z) per live vert. No thaw (reading
+  // co needs no topo); index-aligned so JS can compare by vert index.
+  out.clear();
+  for (int vi : this->v) {
+    math::float3 co = v.co[vi];
+    out.append(float(vi));
+    out.append(co[0]);
+    out.append(co[1]);
+    out.append(co[2]);
+  }
+}
+
 int Mesh::generateUVFromSeams(int marginMilli)
 {
   // The unwrapper flood-fills + walks live loop/disk links, so thaw first.

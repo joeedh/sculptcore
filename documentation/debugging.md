@@ -45,6 +45,12 @@ See [`debugApp.md`](debugApp.md) for the complete CLI and verb reference.
 6. Fix → rerun → diff JSON → commit the script into `tests/scripts/` so
    the fix carries a regression case forward.
 
+For **undo / redo position bugs**, bracket the stroke with `save_pos` …
+`undo` … `assert_pos` (snapshots and re-checks every live vertex position;
+see the `debugApp.md` example). It localizes "undo corrupts geometry"
+reports to a worst-offending vertex index without a debugger, and `soft=1`
+keeps the script running so you can dump/screenshot the corrupted state.
+
 ## Gotchas
 
 - Scripts that only do mesh + assert work do **not** open a Vulkan

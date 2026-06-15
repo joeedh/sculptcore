@@ -16,6 +16,7 @@
 
 #include "litestl/math/vector.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -78,16 +79,10 @@ int main()
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.18f + 0.36f * t, -0.05f + 0.1f * t, 0.25f);
-    exec.applyDynTopoDab(
-        origin, radius, &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(d));
-    litestl::util::Vector<spatial::SpatialNode *> nodes;
-    scene.tree->filterNodes(origin, radius, nodes);
-    if (nodes.size() == 0) {
-      continue;
-    }
-    exec.execBrush(scene.mesh, scene.currentTool, &nodes, origin, normal);
-    exec.clearIsFirstOfStep();
+    exec.applyDab(scene.currentTool, origin, normal, radius,
+                  &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(d));
   }
+  exec.endDynTopoStroke();
   exec.endStep();
 
   int vAfter = m->v.count, fAfter = m->f.count;
@@ -101,6 +96,25 @@ int main()
     }
   }
   test_assert(moved); /* the brush actually deformed geometry */
+
+  /* Forward post-stroke normals via the spatial path, and the global ground
+   * truth for the same geometry. The spatial per-leaf path gives boundary verts
+   * a partial normal, so it never matches global exactly — that deviation is the
+   * yardstick redo must not exceed. (recalc overwrites m->v.no; undo/redo restore
+   * the rows from the log.) */
+  scene.tree->update(&scene.gpu);
+  litestl::util::Vector<float3> spatialForward, noGlobal;
+  spatialForward.resize(m->v.capacity());
+  noGlobal.resize(m->v.capacity());
+  for (int v : m->v) {
+    spatialForward[v] = m->v.no[v];
+  }
+  m->recalc_normals();
+  float maxForwardErr = 0.0f;
+  for (int v : m->v) {
+    noGlobal[v] = m->v.no[v];
+    maxForwardErr = std::max(maxForwardErr, (spatialForward[v] - noGlobal[v]).length());
+  }
 
   /* Undo the whole stroke — must reproduce the exact pre-stroke mesh. */
   scene.meshLog.undo(m, scene.tree);
@@ -140,6 +154,23 @@ int main()
          fAfter);
   test_assert(m->v.count == vAfter);
   test_assert(m->f.count == fAfter);
+
+  /* Redo normals must be recomputed (not stale): the restored leaves are flagged
+   * Spatial_UpdateNormals so GPU buffers regenerate from fresh normals. A stale
+   * redo deviates from global by up to ~2.0 on flipped verts — that is what this
+   * guards. The tolerance is loose on purpose: the spatial leaf partition (and so
+   * each boundary vert's partial normal) is NOT byte-reproducible between the
+   * incremental-forward and replay-redo builds, so redo's worst-case partial
+   * normal legitimately drifts ~0.1 from forward's; only a genuinely stale redo
+   * blows past this bound. */
+  scene.tree->update(&scene.gpu);
+  float maxRedoErr = 0.0f;
+  for (int v : m->v) {
+    maxRedoErr = std::max(maxRedoErr, (m->v.no[v] - noGlobal[v]).length());
+  }
+  printf("  normal err vs global: forward max=%.5f, redo max=%.5f\n",
+         maxForwardErr, maxRedoErr);
+  test_assert(maxRedoErr <= maxForwardErr + 0.2f);
 
   printf("dyntopo_stroke_undo: ok\n");
   /* Return retval directly (not test_end()): the debug Scene/GPU infrastructure

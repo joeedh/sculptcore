@@ -280,7 +280,7 @@ int main()
     TASSERT(eq(counts(m), after));
   }
 
-  /* --- full applyBrushDab (many ops) in one logged step, undo, redo.
+  /* --- full runDyntopoRemesh (many ops) in one logged step, undo, redo.
    *     No tree, no freeze: isolates the many-op meshlog replay. --- */
   {
     Mesh m;
@@ -316,7 +316,7 @@ int main()
     p.mode = dyntopo::DynTopoMode::Subdivide;
 
     log.beginStep(true);
-    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+    dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
         m, float3(0, 0, 0), 0.3f, p, /*seed=*/123u, log.callbacks());
     log.endStep();
     Counts after = counts(m);
@@ -398,7 +398,7 @@ int main()
     p.mode = dyntopo::DynTopoMode::Both; /* default; exercises the flip sweep */
 
     log.beginStep(true);
-    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+    dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
         m, float3(0, 0, 0), 0.3f, p, /*seed=*/123u, log.callbacks());
     log.endStep();
     pr("pg dab after", counts(m));
@@ -462,7 +462,7 @@ int main()
     p.mode = mode;
 
     log.beginStep(true);
-    dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
+    dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
         *m, float3(0, 0, 0), 0.3f, p, /*seed=*/42u, &combined);
     log.endStep();
     TASSERT(st.splits > 0);

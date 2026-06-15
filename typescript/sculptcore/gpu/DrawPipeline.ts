@@ -1,6 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {DrawBatch} from './DrawBatch'
 import type {UniformBlockInstance} from './UniformBlockInstance'
+import type {DrawBatch} from './DrawBatch'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

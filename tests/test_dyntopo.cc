@@ -192,7 +192,7 @@ int main()
     p.l_max = 0.08f;
     p.l_min = 0.01f; /* below any starting length: collapse never triggers */
     p.mode = DynTopoMode::Subdivide;
-    DynTopoStats st = applyBrushDab(*m, center, radius, p, /*seed=*/1234u);
+    DynTopoStats st = runDyntopoRemesh(*m, center, radius, p, /*seed=*/1234u);
 
     test_assert(validateMesh(*m, "sub-post"));
     test_assert(!st.capped); /* default budget converges this dab */
@@ -243,7 +243,7 @@ int main()
     p.l_max = 1.0f; /* never split */
     p.l_min = 0.12f;
     p.mode = DynTopoMode::Collapse;
-    DynTopoStats st = applyBrushDab(*m, center, radius, p, /*seed=*/77u);
+    DynTopoStats st = runDyntopoRemesh(*m, center, radius, p, /*seed=*/77u);
 
     test_assert(validateMesh(*m, "col-post"));
     test_assert(st.collapses > 0);
@@ -265,8 +265,8 @@ int main()
 
     Mesh *a = makeTriGrid(9);
     Mesh *b = makeTriGrid(9);
-    DynTopoStats sa = applyBrushDab(*a, center, radius, p, 999u);
-    DynTopoStats sb = applyBrushDab(*b, center, radius, p, 999u);
+    DynTopoStats sa = runDyntopoRemesh(*a, center, radius, p, 999u);
+    DynTopoStats sb = runDyntopoRemesh(*b, center, radius, p, 999u);
     test_assert(sa.splits == sb.splits);
     test_assert(sa.rounds == sb.rounds);
     test_assert(a->v.count == b->v.count);
@@ -284,9 +284,9 @@ int main()
     p.mode = DynTopoMode::Subdivide;
 
     Mesh *m = makeTriGrid(9);
-    applyBrushDab(*m, center, radius, p, 5u);
+    runDyntopoRemesh(*m, center, radius, p, 5u);
     int V1 = m->v.count;
-    DynTopoStats st2 = applyBrushDab(*m, center, radius, p, 5u);
+    DynTopoStats st2 = runDyntopoRemesh(*m, center, radius, p, 5u);
     test_assert(st2.splits == 0);
     test_assert(m->v.count == V1);
     alloc::Delete<Mesh>(m);

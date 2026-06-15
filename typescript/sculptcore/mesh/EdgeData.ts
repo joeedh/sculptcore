@@ -1,7 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {int2} from '../../litestl/math/int2'
 import type {int4} from '../../litestl/math/int4'
 import type {BuiltinAttr} from './BuiltinAttr'
+import type {int2} from '../../litestl/math/int2'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

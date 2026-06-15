@@ -79,7 +79,7 @@ out. P1 and P2 are linked — controlling triangle quality bounds valence too.
 - **`source/mesh/utils/delaunay.h`** — `inCircumcircle` predicate (reuse for the
   Delaunay flip test) and `fitPlaneNormal`/`planeBasis` (project the local quad
   to 2D for robust in-circle / convexity tests).
-- **`source/dyntopo/dyntopo.h`** — `applyBrushDab`, the round loop with the
+- **`source/dyntopo/dyntopo.h`** — `runDyntopoRemesh`, the round loop with the
   independent-set selection and the local frontier. The flip sweep slots in
   right after each round's apply (where the valence version was reverted from).
 - **`bench_dyntopo` verb** (`source/debug/script.cc`) — the measurement loop:
@@ -141,7 +141,7 @@ then self-terminates once the relaxed goal matches the ambient edge length, and
 the result is a smooth size gradient instead of a fine/coarse step.
 
 **Cheap to implement** — it falls out of the structure already in
-`applyBrushDab`: the `frontier` set already expands outward one ring per round.
+`runDyntopoRemesh`: the `frontier` set already expands outward one ring per round.
 Replace the constant `p.l_max` in the candidate test with a per-edge
 `targetAt(edgeMidpoint)` that grows with distance from `center` (or step `l_max`
 up per frontier wave / round). Almost no new code — the round loop already *is*
@@ -241,7 +241,7 @@ profiling scaffolding used to find these has been removed.
 Rivara longest-edge bisection: split the **longest** edge of a triangle first,
 propagating the split to the neighbour sharing that edge to stay crack-free.
 This bounds triangle quality by construction and eliminates the sliver cascade,
-at the cost of a larger rewrite of `applyBrushDab`'s candidate selection (the
+at the cost of a larger rewrite of `runDyntopoRemesh`'s candidate selection (the
 propagation interacts with the independent-set/frontier structure). Heavier than
 M7.2 but the provably-bounded option. Reference: the CBT/LEB literature in
 [`../dynamic-topology.md`](../dynamic-topology.md) §6 (note: pure-GPU CBT is *not*

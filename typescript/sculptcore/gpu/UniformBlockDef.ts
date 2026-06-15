@@ -1,8 +1,8 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {float2} from '../../litestl/math/float2'
-import type {float3} from '../../litestl/math/float3'
 import type {UniformBindType} from './UniformBindType'
 import type {UniformDef} from './UniformDef'
+import type {float3} from '../../litestl/math/float3'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */

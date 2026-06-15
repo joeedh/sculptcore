@@ -653,13 +653,13 @@ inline bool featureCollapseOk(mesh::Mesh &m,
  * whole mesh — keeping the dab O(brush region) without a spatial dependency here
  * (inversion of control). Empty (the default) falls back to a full scan, which
  * the bare-mesh unit tests and any caller without a tree rely on. */
-inline DynTopoStats applyBrushDab(mesh::Mesh &m,
-                                  litestl::math::float3 center,
-                                  float radius,
-                                  const DynTopoParams &p,
-                                  uint32_t seed,
-                                  mesh::MeshCallbacks *cb = nullptr,
-                                  litestl::util::span<const int> seedVerts = {})
+inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
+                                     litestl::math::float3 center,
+                                     float radius,
+                                     const DynTopoParams &p,
+                                     uint32_t seed,
+                                     mesh::MeshCallbacks *cb = nullptr,
+                                     litestl::util::span<const int> seedVerts = {})
 {
   using namespace litestl;
   using namespace litestl::util;

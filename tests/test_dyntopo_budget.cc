@@ -68,7 +68,7 @@ int main()
 
   /* Reference: one unbudgeted dab refines the region fully. */
   Mesh *ref = makeTriGrid(41);
-  dyntopo::DynTopoStats r = dyntopo::applyBrushDab(*ref, center, radius, params(0), seed);
+  dyntopo::DynTopoStats r = dyntopo::runDyntopoRemesh(*ref, center, radius, params(0), seed);
   test_assert(!r.budget_hit);
   test_assert(r.splits > 0);
   int refFaces = ref->f.count;
@@ -81,7 +81,7 @@ int main()
   bool firstHit = false, converged = false;
   for (int i = 0; i < 1000; i++) {
     dyntopo::DynTopoStats st =
-        dyntopo::applyBrushDab(*m, center, radius, params(budget), seed);
+        dyntopo::runDyntopoRemesh(*m, center, radius, params(budget), seed);
     dabs++;
     test_assert(st.splits <= budget); /* never overshoot the budget */
     if (st.splits > maxInDab) {

@@ -186,100 +186,6 @@ void Scene::buildSpatial(int leafLimit, int depthLimit, int gpuPrimLimit)
   }
 }
 
-int Scene::applyDynTopoDab(litestl::math::float3 center,
-                           float radius,
-                           uint32_t seed,
-                           bool log)
-{
-  if (!dyntopoEnabled || !mesh) {
-    return 0;
-  }
-  /* dyntopo walks live disk/radial links; a prior stroke may have frozen the
-   * topology (TOPO pages freed). Thaw first (no-op when not frozen). */
-  mesh->thawTopo();
-
-  /* Drive both the spatial tree (incremental node ownership, so no full rebuild)
-   * and, when logging, the meshlog (undo). The meshlog skips TEMP attrs, so the
-   * spatial callbacks' .spatial.*.node writes don't taint replay. Fan the three
-   * spatial events out alongside the meshlog's; reuse the meshlog handlers for
-   * the rest. */
-  mesh::MeshCallbacks combined;
-  mesh::MeshCallbacks *cb = nullptr;
-  mesh::MeshCallbacks *sp = tree ? tree->getSpatialCallbacks() : nullptr;
-  mesh::MeshCallbacks *ml = log ? meshLog.callbacks() : nullptr;
-  if (sp && ml) {
-    combined = *ml;
-    auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;
-    combined.onFaceCreate = [mlFC, spFC](int f) {
-      if (mlFC)
-        mlFC(f);
-      if (spFC)
-        spFC(f);
-    };
-    auto mlFK = combined.onFaceKill, spFK = sp->onFaceKill;
-    combined.onFaceKill = [mlFK, spFK](int f) {
-      if (mlFK)
-        mlFK(f); /* meshlog snapshots before the tree drops it */
-      if (spFK)
-        spFK(f);
-    };
-    auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
-    combined.onVertKill = [mlVK, spVK](int v) {
-      if (mlVK)
-        mlVK(v);
-      if (spVK)
-        spVK(v);
-    };
-    auto mlFCh = combined.onFaceChange, spFCh = sp->onFaceChange;
-    combined.onFaceChange = [mlFCh, spFCh](int f) {
-      if (mlFCh)
-        mlFCh(f); /* meshlog records the rewired (Existed && Live) face */
-      if (spFCh)
-        spFCh(f); /* tree re-flags the owning leaf (in-place flip/split) */
-    };
-    cb = &combined;
-  } else {
-    cb = ml ? ml : sp;
-  }
-
-  /* Round-0 seed: the verts of the tree's in-region leaves, so dyntopo examines
-   * only the brush region instead of scanning the whole mesh. The caller owns
-   * the spatial query; dyntopo stays spatial-free (it just receives the set). */
-  litestl::util::Vector<int> seedVerts;
-  if (tree) {
-    litestl::util::Vector<spatial::SpatialNode *> hit;
-    tree->filterNodes(center, radius, hit);
-    for (spatial::SpatialNode *n : hit) {
-      for (int v : n->unique_verts()) {
-        seedVerts.append(v);
-      }
-    }
-  }
-
-  if (log) {
-    meshLog.beginStep(dyntopoEnabled);
-  }
-  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(
-      *mesh,
-      center,
-      radius,
-      dyntopoParams,
-      seed,
-      cb,
-      litestl::util::span<const int>(seedVerts.data(), seedVerts.size()));
-  if (log) {
-    meshLog.endStep();
-  }
-
-  /* Incremental: node ownership is already current via the spatial callbacks;
-   * update() just regens the dirty leaves' tris/bounds (+ GPU descriptors). No
-   * full rebuild. */
-  if (tree) {
-    tree->update(&gpu);
-  }
-  return st.splits + st.collapses;
-}
-
 void Scene::reorderForLocality()
 {
   if (!tree) {
@@ -289,10 +195,8 @@ void Scene::reorderForLocality()
   litestl::util::Vector<int> vmap, emap, cmap, lmap, fmap;
   tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
 
-  meshLog.beginStep(false);
-  meshLog.pushReorderChunk(vmap, emap, cmap, lmap, fmap);
+  meshLog.pushReorderStep(vmap, emap, cmap, lmap, fmap);
   tree->applyReorder(vmap, emap, cmap, lmap, fmap);
-  meshLog.endStep();
 }
 
 void Scene::applyView(ViewPreset preset)

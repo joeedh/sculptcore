@@ -114,7 +114,7 @@ static int runDab(float grade, bool flips, int &leftover, int &maxVal, int &flip
   p.do_flips = flips;
   p.mode = dyntopo::DynTopoMode::Subdivide;
 
-  dyntopo::DynTopoStats st = dyntopo::applyBrushDab(*m, center, radius, p, /*seed=*/123u);
+  dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(*m, center, radius, p, /*seed=*/123u);
   measure(m, center, radius, p, leftover, maxVal);
   flipCount = st.flips;
 

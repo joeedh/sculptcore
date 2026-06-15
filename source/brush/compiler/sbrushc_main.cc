@@ -99,6 +99,7 @@ bool writeFileIfChanged(const char *path, const litestl::util::string &content)
   }
   std::ofstream out(path, std::ios::binary);
   if (!out) return false;
+  std::printf("sbrushc: %s\n", path);
   out.write(content.c_str(), content.size());
   return out.good();
 }

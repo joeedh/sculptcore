@@ -136,6 +136,19 @@ class NapiRuntime {
   // spatialTreeRefreshRequestedAttrs(tree) -> void (force buffer rebuild on layer change)
   static napi_value SpatialTreeRefreshRequestedAttrs(napi_env, napi_callback_info);
 
+  // litestl allocator introspection (binding.cc LSTL_*).
+  // getMemSize(includePermanent) -> number (tracked allocation size in bytes).
+  static napi_value GetMemSize(napi_env, napi_callback_info);
+  // printAllocBlocks(includePermanent) -> void (dumps live blocks to the log sink).
+  static napi_value PrintAllocBlocks(napi_env, napi_callback_info);
+  // formatBlock(boundObj) -> string describing the allocation backing the wrapped
+  // object. Wraps the LSTL_FormatBlock/LSTL_FreeFormatBlocks heap-string pair (the
+  // raw char* never crosses into JS).
+  static napi_value FormatBlock(napi_env, napi_callback_info);
+  // formatBlocks(printPermanent) -> string describing every live block (same
+  // heap-string pair as formatBlock).
+  static napi_value FormatBlocks(napi_env, napi_callback_info);
+
   void define(napi_value exports, const char *name, napi_callback cb);
 };
 
