@@ -84,6 +84,26 @@ uint8_t *serializeMesh(Mesh *mesh, int *out_size)
   return buf;
 }
 
+/* Serialize @p mesh into a freshly-allocated buffer holding only the
+ * uncompressed column payload (serial::writeMeshRaw) — no lz4 step, no BinFile
+ * header. The autosave worker compresses + frames this off-thread via the JS
+ * lz4 codec. *out_size receives the byte count; free with freeMeshBuffer.
+ * Returns nullptr on failure. */
+uint8_t *serializeMeshRaw(Mesh *mesh, int *out_size)
+{
+  std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+  if (!serial::writeMeshRaw(*mesh, ss)) {
+    *out_size = 0;
+    return nullptr;
+  }
+
+  std::string s = ss.str();
+  uint8_t *buf = static_cast<uint8_t *>(alloc::alloc("mesh serialize raw buffer", s.size()));
+  std::memcpy(buf, s.data(), s.size());
+  *out_size = int(s.size());
+  return buf;
+}
+
 /* Deserialize a buffer produced by serializeMesh into a fresh Mesh. Returns
  * nullptr (and frees the partial mesh) on failure. */
 Mesh *deserializeMesh(const uint8_t *data, int size)

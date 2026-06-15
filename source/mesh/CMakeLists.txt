@@ -64,6 +64,7 @@ wasm_add_symbols("
   Mesh_triangulate
   Mesh_ngonFaceCount
   serializeMesh
+  serializeMeshRaw
   deserializeMesh
   freeMeshBuffer
   "

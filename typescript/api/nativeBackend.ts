@@ -85,6 +85,8 @@ export interface NativeAddon {
   meshQuadRemesh(mesh: NativeBound, params: NativeBound): NativeBound | undefined
   /** Serialize a Mesh to a versioned, lz4hc-compressed blob (copied into a sandbox ArrayBuffer). */
   meshSerialize(mesh: NativeBound): Uint8Array
+  /** Serialize a Mesh to the uncompressed column payload only (autosave worker compresses off-thread). */
+  meshSerializeRaw(mesh: NativeBound): Uint8Array
   /** Reconstruct a Mesh from a meshSerialize blob (Uint8Array). Returns a non-owning wrapper. */
   meshDeserialize(bytes: Uint8Array): NativeBound
   /**

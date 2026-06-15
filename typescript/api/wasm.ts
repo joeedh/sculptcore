@@ -32,6 +32,8 @@ interface IWasmMethods extends IWasmBase {
   // IWasmInterface wrap these with heap marshalling.
   /** serialize `mesh` into a fresh malloc'd blob; writes the byte count to `outSizePtr` (int*). Free the returned ptr with `freeMeshBuffer`. */
   serializeMesh(mesh: pointer, outSizePtr: pointer): pointer
+  /** like `serializeMesh` but writes only the uncompressed column payload (autosave worker compresses off-thread). */
+  serializeMeshRaw(mesh: pointer, outSizePtr: pointer): pointer
   /** reconstruct a Mesh from a `serializeMesh` blob; returns a `Mesh*`. */
   deserializeMesh(dataPtr: pointer, size: int): pointer
   /** free a Mesh (`alloc::Delete`) — created by `Mesh_createCube`/`deserializeMesh`. */
@@ -125,6 +127,13 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * linear-memory heap, native copies out of a sandbox-internal ArrayBuffer.
    */
   Mesh_serialize(mesh: Mesh): Uint8Array
+  /**
+   * Serialize a mesh to the *uncompressed* column payload only (no lz4 step, no
+   * `SCULPT00` header). The autosave worker compresses + frames this off the
+   * main thread via the JS lz4 codec (`scripts/util/lz4.ts`), reproducing the
+   * `Mesh_serialize` container byte-for-byte. Backend-agnostic like the above.
+   */
+  Mesh_serializeRaw(mesh: Mesh): Uint8Array
   /** Reconstruct a mesh from a `Mesh_serialize` blob. */
   Mesh_deserialize(bytes: Uint8Array): Mesh
   /**
@@ -250,6 +259,30 @@ export async function loadWasm(): Promise<IWasmInterface> {
   const float2Ring = new cachering<float2>(1024, () => manager.construct('litestl::math::float2'))
   const float3Ring = new cachering<float3>(1024, () => manager.construct('litestl::math::float3'))
 
+  // Shared heap marshalling for Mesh_serialize / Mesh_serializeRaw: the C++
+  // export malloc's a blob + writes its size to a scratch int*; copy out of the
+  // (possibly grown) heap before freeing.
+  const serializeMeshHeap = (
+    meshPtr: pointer,
+    exportFn: (mesh: pointer, outSizePtr: pointer) => pointer
+  ): Uint8Array => {
+    const sizePtr = _wasm._rawAlloc(4)
+    try {
+      const bufPtr = exportFn(meshPtr, sizePtr) as unknown as number
+      const heap = _wasm.HEAPU8
+      const len = new DataView(heap.buffer, sizePtr, 4).getInt32(0, true)
+      if (!bufPtr || len <= 0) {
+        if (bufPtr) _wasm.freeMeshBuffer(bufPtr)
+        return new Uint8Array()
+      }
+      const bytes = heap.slice(bufPtr, bufPtr + len)
+      _wasm.freeMeshBuffer(bufPtr)
+      return bytes
+    } finally {
+      _wasm._rawRelease(sizePtr)
+    }
+  }
+
   wasm = {
     ...initialWasm,
     manager,
@@ -278,26 +311,10 @@ export async function loadWasm(): Promise<IWasmInterface> {
       _wasm.SpatialTree_free(treePtr as unknown as SpatialTree)
     },
     Mesh_serialize(mesh: Mesh): Uint8Array {
-      const meshPtr = (mesh as unknown as {ptr: number}).ptr
-      // Scratch int* for the out-size; serializeMesh malloc's the blob.
-      const sizePtr = _wasm._rawAlloc(4)
-      try {
-        const bufPtr = _wasm.serializeMesh(meshPtr, sizePtr) as unknown as number
-        // Read the heap *after* serializeMesh — a malloc can grow (and rebind)
-        // the memory views.
-        const heap = _wasm.HEAPU8
-        const len = new DataView(heap.buffer, sizePtr, 4).getInt32(0, true)
-        if (!bufPtr || len <= 0) {
-          if (bufPtr) _wasm.freeMeshBuffer(bufPtr)
-          return new Uint8Array()
-        }
-        // Copy out of the heap before freeing the C++ buffer.
-        const bytes = heap.slice(bufPtr, bufPtr + len)
-        _wasm.freeMeshBuffer(bufPtr)
-        return bytes
-      } finally {
-        _wasm._rawRelease(sizePtr)
-      }
+      return serializeMeshHeap((mesh as unknown as {ptr: number}).ptr, _wasm.serializeMesh)
+    },
+    Mesh_serializeRaw(mesh: Mesh): Uint8Array {
+      return serializeMeshHeap((mesh as unknown as {ptr: number}).ptr, _wasm.serializeMeshRaw)
     },
     Mesh_deserialize(bytes: Uint8Array): Mesh {
       const dataPtr = _wasm._rawAlloc(bytes.length)

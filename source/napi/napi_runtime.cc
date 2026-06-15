@@ -37,6 +37,8 @@ void Mesh_triangulate(void *mesh);
 void *Mesh_quadRemesh(void *mesh, void *params);
 // Versioned, lz4hc-compressed mesh blob (source/mesh/c-api/mesh_c_api.cc).
 uint8_t *serializeMesh(void *mesh, int *out_size);
+// Uncompressed column payload only (autosave worker compresses off-thread).
+uint8_t *serializeMeshRaw(void *mesh, int *out_size);
 void *deserializeMesh(const uint8_t *data, int size);
 void freeMeshBuffer(uint8_t *buf);
 // M5 requested-attribute bridge (source/spatial/c-api/spatial_c_api.cc).
@@ -1494,6 +1496,42 @@ napi_value NapiRuntime::MeshSerialize(napi_env env, napi_callback_info info) {
   return out;
 }
 
+// meshSerializeRaw(mesh) -> Uint8Array of the uncompressed column payload only
+// (autosave worker frames + lz4-compresses it off-thread). Same copy semantics
+// as MeshSerialize above.
+napi_value NapiRuntime::MeshSerializeRaw(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  Wrapped *mw = nullptr;
+  if (argc < 1 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok || !mw ||
+      !mw->ptr) {
+    return out;
+  }
+
+  int size = 0;
+  uint8_t *buf = serializeMeshRaw(mw->ptr, &size);
+  if (!buf) {
+    return out;
+  }
+  if (size <= 0) {
+    freeMeshBuffer(buf);
+    return out;
+  }
+
+  napi_value ab;
+  void *abData = nullptr;
+  napi_create_arraybuffer(env, static_cast<size_t>(size), &abData, &ab);
+  if (abData) std::memcpy(abData, buf, static_cast<size_t>(size));
+  freeMeshBuffer(buf);
+
+  napi_create_typedarray(env, napi_uint8_array, static_cast<size_t>(size), ab, 0, &out);
+  return out;
+}
+
 // meshDeserialize(bytes) -> a fresh, non-owning Mesh wrapper. Accepts a
 // Uint8Array (what the TS Mesh_deserialize helper passes) or an ArrayBuffer.
 napi_value NapiRuntime::MeshDeserialize(napi_env env, napi_callback_info info) {
@@ -1794,6 +1832,7 @@ void NapiRuntime::installExports(napi_value exports) {
   define(exports, "meshTriangulate", &NapiRuntime::MeshTriangulate);
   define(exports, "meshQuadRemesh", &NapiRuntime::MeshQuadRemesh);
   define(exports, "meshSerialize", &NapiRuntime::MeshSerialize);
+  define(exports, "meshSerializeRaw", &NapiRuntime::MeshSerializeRaw);
   define(exports, "meshDeserialize", &NapiRuntime::MeshDeserialize);
   define(exports, "spatialTreeSetRequestedAttrs", &NapiRuntime::SpatialTreeSetRequestedAttrs);
   define(exports, "spatialTreeSetDrawShader", &NapiRuntime::SpatialTreeSetDrawShader);

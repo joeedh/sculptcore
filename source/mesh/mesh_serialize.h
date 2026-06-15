@@ -25,6 +25,15 @@ constexpr uint32_t kMeshFormatVersion = 2;
  * non-const accessors; the mesh is not logically modified. */
 bool writeMesh(Mesh &mesh, std::ostream &out);
 
+/* The uncompressed half of writeMesh: writes only the column-oriented payload
+ * (the same five-domain dump, host-endian, no BinFile header or lz4 step) to
+ * @p out. The autosave split path (plan §5.1) grabs this cheap snapshot on the
+ * main thread and runs the lz4hc compression + header framing off-thread, where
+ * the JS lz4 codec (scripts/util/lz4.ts) reproduces writeMesh's container.
+ * @p out must be an iostream (BinFile needs read+write); returns false on
+ * write failure. */
+bool writeMeshRaw(Mesh &mesh, std::iostream &out);
+
 /* Read a blob produced by writeMesh into @p mesh, which must be freshly
  * constructed (empty). Returns false on bad magic, a missing-compression flag,
  * decompression failure, or an unsupported/unmigratable version. */

@@ -149,6 +149,9 @@ export class NativeManager {
   Mesh_serialize(mesh: NativeBound): Uint8Array {
     return this.addon.meshSerialize(mesh)
   }
+  Mesh_serializeRaw(mesh: NativeBound): Uint8Array {
+    return this.addon.meshSerializeRaw(mesh)
+  }
   Mesh_deserialize(bytes: Uint8Array): NativeBound {
     return this.addon.meshDeserialize(bytes)
   }
@@ -265,6 +268,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Mesh_quadRemesh                  : (m: NativeBound, p: NativeBound) => nm.Mesh_quadRemesh(m, p),
     Mesh_ngonFaceCount               : (m: NativeBound) => nm.Mesh_ngonFaceCount(m),
     Mesh_serialize                   : (m: NativeBound) => nm.Mesh_serialize(m),
+    Mesh_serializeRaw                : (m: NativeBound) => nm.Mesh_serializeRaw(m),
     Mesh_deserialize                 : (b: Uint8Array) => nm.Mesh_deserialize(b),
     SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>
       nm.SpatialTree_setRequestedAttrs(t, reqs),

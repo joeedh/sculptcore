@@ -411,7 +411,7 @@ bool migrate(SerialMesh &sm)
 
 namespace serial {
 
-bool writeMesh(Mesh &mesh, std::ostream &out)
+bool writeMeshRaw(Mesh &mesh, std::iostream &out)
 {
   /* The live TOPO link columns (.edge.vs.disk, .vert.e, .corner.*, …) are freed
    * while the mesh is topo_frozen — the state a mesh is left in after a sculpt
@@ -439,10 +439,21 @@ bool writeMesh(Mesh &mesh, std::ostream &out)
     }
   }
 
-  std::stringstream payloadStream(std::ios::in | std::ios::out | std::ios::binary);
-  io::BinFile pbf(payloadStream);
+  io::BinFile pbf(out); // payload uses no file header; host-endian columns
   for (int d = 0; d < 5; d++) {
     writeDomain(pbf, *eds[d], maps);
+  }
+  return bool(out);
+}
+
+bool writeMesh(Mesh &mesh, std::ostream &out)
+{
+  /* Split point (autosave plan §5.1): writeMeshRaw produces the uncompressed
+   * column payload (a near-memcpy pass, main-thread cheap); the lz4hc step + the
+   * BinFile header below is what an autosave worker does off-thread instead. */
+  std::stringstream payloadStream(std::ios::in | std::ios::out | std::ios::binary);
+  if (!writeMeshRaw(mesh, payloadStream)) {
+    return false;
   }
 
   std::string payload = payloadStream.str();

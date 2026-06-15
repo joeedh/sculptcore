@@ -122,6 +122,8 @@ class NapiRuntime {
   // meshSerialize(mesh) -> Uint8Array; meshDeserialize(bytes) -> Mesh wrapper.
   // The versioned, lz4hc-compressed blob (mesh/c-api serializeMesh/deserializeMesh).
   static napi_value MeshSerialize(napi_env, napi_callback_info);
+  // The uncompressed column payload only (autosave worker compresses off-thread).
+  static napi_value MeshSerializeRaw(napi_env, napi_callback_info);
   static napi_value MeshDeserialize(napi_env, napi_callback_info);
   // M5 requested-attribute bridge (spatial/c-api setTree*). Strings + JS arrays
   // can't cross the generic method binding (marshalArg), so these route through
