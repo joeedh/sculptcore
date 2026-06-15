@@ -1,0 +1,7 @@
+# Cube with a single draw-brush stroke at the +Z face center.
+make_cube subdivs=350 size=2.0 sphere=1
+build_spatial depth_limit=22 gpu_tri_target=10000
+set_brush radius=0.25 strength=0.5
+stroke origin=0,0,0.5 normal=0,0,1
+dump_state out=cube_draw.json
+screenshot view=persp out=sphere_draw.png
