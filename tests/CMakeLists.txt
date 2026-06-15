@@ -65,7 +65,11 @@ test(test_remesh_feature_filter.cc "remesh;mesh;spatial")
 test(test_remesh_retry.cc "remesh;mesh;spatial")
 test(test_remesh_preset.cc "remesh;mesh;spatial")
 test(test_brush.cc "")
+
+if (WITH_ABSEIL)
 test(test_map_bench.cc "absl::flat_hash_map")
+endif()
+
 test(test_binding.cc "binding_generators")
 test(test_debug_script.cc "debug_core")
 test(test_live_stroke.cc "debug_core")
