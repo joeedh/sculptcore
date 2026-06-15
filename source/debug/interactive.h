@@ -2,6 +2,7 @@
 
 #include "input.h"
 
+#include "brush/brushes/types.h"
 #include "litestl/math/vector.h"
 
 namespace sculptcore::brush {
@@ -17,9 +18,11 @@ class GpuStrokeSession;
  *  orbits/pans/zooms the camera, and handles undo/redo keys. Reads
  *  framebuffer size from `Scene::swapchain` when projecting screen rays.
  *
- *  Modifier precedence for LMB: Shift+LMB pans, Alt+LMB orbits, plain
- *  LMB strokes. RMB or MMB drag also orbits. Scroll zooms. Ctrl+Z /
- *  Ctrl+Y route to the scene's MeshLog, refused while a stroke is open. */
+ *  Modifier precedence for LMB: Shift+LMB strokes with the smooth brush (a
+ *  temporary tool override, mirroring the TS app), Ctrl+LMB pans, Alt+LMB
+ *  orbits, plain LMB strokes with the active tool. RMB or MMB drag also orbits.
+ *  Scroll zooms. Ctrl+Z / Ctrl+Y route to the scene's MeshLog, refused while a
+ *  stroke is open. */
 struct InteractiveController : InputHandler {
   using float2 = litestl::math::float2;
   using float3 = litestl::math::float3;
@@ -77,6 +80,11 @@ private:
   bool strokeHasLast_ = false;
   float strokeResidual_ = 0.0f;
   uint32_t dyntopoSeed_ = 1; /* per-dab seed for the dyntopo pre-pass */
+  /* Shift→smooth override: when toolOverridden_ is set, scene_->currentTool was
+   * swapped to SMOOTH on press and savedTool_ holds the tool to restore on
+   * release (covers both the C++ and GPU dab paths, which read currentTool). */
+  bool toolOverridden_ = false;
+  brush::SculptBrushes savedTool_ = brush::SculptBrushes::DRAW;
 };
 
 } // namespace sculptcore::debug_app

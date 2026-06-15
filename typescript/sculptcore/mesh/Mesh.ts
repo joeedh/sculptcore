@@ -49,6 +49,7 @@ export interface Mesh {
   generateUVFromSeams(marginMilli: int32): int32
   markAllSeams(): void
   fillVertexColorFromPosition(): void
+  vertexColor(vert: int32, out: float[]): void
   dumpVertCo(out: float[]): void
   new (): Mesh
 }

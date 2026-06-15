@@ -29,6 +29,8 @@ export interface Brush {
   invert: boolean
   mu: float
   nu: float
+  pinch: float
+  projection: float
   grabFrom: float3
   grabTo: float3
   falloff_dir: float3

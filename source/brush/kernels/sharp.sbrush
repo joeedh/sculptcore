@@ -2,19 +2,29 @@
 brush Sharp {
   ctx float3 surfacePos;
   ctx float3 surfaceNo;
+  uniform float radius;
+  // Toward-axis pull amount, synced from the TS brush (brush.pinch). 0 = a
+  // plain normal-displacement draw; higher pinches the displaced region in to
+  // sharpen the crease/ridge.
+  uniform float pinch @static;
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * (1.0 - v.mask);
     if (s == 0.0) { continue; }
-    // Pull along the tangent of the brush plane (slide on the surface,
-    // not into it) — sharpens features without inflating/deflating.
+    s *= sampleBrushTex(v.co, surfaceNo);
+    // Push along the brush surface normal (positive = ridge, inverted = crease)
+    // so the sharp brush actually displaces the surface, then pinch the result
+    // toward the brush axis to keep the feature crisp.
+    v.co += surfaceNo * s * radius * 0.5;
+    // Pull along the tangent of the brush plane (slide on the surface, not into
+    // it) so the displaced region narrows into a sharp feature.
     float3 d = v.co - surfacePos;
     float3 t = d - surfaceNo * dot(d, surfaceNo);
     float tlen = length(t);
     if (tlen > 0.0001) {
-      // Move a fraction of the tangent distance so the pull converges on
-      // the brush axis; clamp so a single dab can never cross it.
-      float f = s * 0.5;
+      // Move a fraction of the tangent distance so the pull converges on the
+      // brush axis; clamp so a single dab can never cross it.
+      float f = s * pinch;
       if (f > 0.9) { f = 0.9; }
       if (f < -0.9) { f = -0.9; }
       v.co -= t * f;

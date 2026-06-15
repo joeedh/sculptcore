@@ -187,6 +187,16 @@ struct Brush {
   float mu = 1.0f;
   float nu = 0.4f;
 
+  // Pinch amount (0..1), synced from the TS brush (brush.pinch). Read by the
+  // pinch / sharp kernels as the `@static` uniform `pinch` to scale the
+  // toward-axis pull. A plain member loadProps leaves untouched.
+  float pinch = 0.0f;
+  // Smooth projection factor (0..1), synced from the TS brush (brush.smoothProj).
+  // Read by bsmooth as `@static` uniform `projection`: the fraction of each
+  // smoothing step's normal component removed, so the surface slides tangentially
+  // instead of shrinking (volume preservation).
+  float projection = 0.0f;
+
   // Grab-style ctx state (kelvinlet, future pose). `grabFrom` is the stroke
   // origin captured at the start of the dab; `grabTo` is the current cursor.
   float3 grabFrom{0, 0, 0};
@@ -228,6 +238,8 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, invert);
     BIND_STRUCT_MEMBER(st, mu);
     BIND_STRUCT_MEMBER(st, nu);
+    BIND_STRUCT_MEMBER(st, pinch);
+    BIND_STRUCT_MEMBER(st, projection);
     BIND_STRUCT_MEMBER(st, grabFrom);
     BIND_STRUCT_MEMBER(st, grabTo);
     BIND_STRUCT_MEMBER(st, falloff_dir);

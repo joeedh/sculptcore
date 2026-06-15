@@ -5,9 +5,12 @@
 brush Pinch {
   ctx float3 surfacePos;
   uniform float radius;
+  // Pinch amount (0..1), synced from the TS brush (brush.pinch); scales the
+  // toward-center pull so the brush setting actually drives the effect.
+  uniform float pinch @static;
 
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co) * (1.0 - v.mask);
+    float s = strength(v.co) * (1.0 - v.mask) * pinch;
     if (s == 0.0) {
       continue;
     }

@@ -515,6 +515,59 @@ void test_detach_reattach()
   }
 }
 
+/* Crash-repro guard (immediateTODOs #11): some old .wproj files were saved before
+ * the spatial node-ownership attrs were flagged TEMP|NOINTERP|NOCOPY, so they
+ * persisted on disk with stale flags and stale leaf ids. On load, dyntopo's
+ * interpAttrs (skips only TOPO|NOINTERP) would interpolate a parent's leaf id
+ * onto new geometry → a stale index that mis-partitions a freshly built tree and
+ * crashes. readMesh must re-assert the mandatory flags so such a file loads inert
+ * and TEMP-dropped from the next save. We simulate the bad save by creating the
+ * attrs with NO flags (plain ensure), which also lets writeMesh emit them (TEMP
+ * would otherwise skip them). */
+void test_nonpersistent_flag_repair()
+{
+  const char *tag = "flag-repair";
+  Mesh m;
+  build_grid(m, 4);
+
+  /* Stale spatial ownership attrs as a pre-flag writer left them: plain INT,
+   * no TEMP/NOINTERP/NOCOPY, filled with out-of-range leaf ids. */
+  AttrRef &vnode = m.v.attrs.ensure(AttrType::INT, ".spatial.v.node", true);
+  for (int vi : m.v) {
+    vnode.get_data<int>()->materialize(vi);
+    (*vnode.get_data<int>())[vi] = 99999; /* nonexistent leaf */
+  }
+  AttrRef &fnode = m.f.attrs.ensure(AttrType::INT, ".spatial.f.node", true);
+  for (int fi : m.f) {
+    fnode.get_data<int>()->materialize(fi);
+    (*fnode.get_data<int>())[fi] = 99999;
+  }
+  /* A derived boundary layer persisted without TEMP. */
+  m.e.attrs.ensure(AttrType::BOOL, ".boundary.edge.polygroup", true);
+
+  TASSERT(!bool(vnode.flag & AttrFlag::TEMP)); /* the bad-save precondition */
+
+  Mesh m2;
+  if (!roundTrip(m, m2, tag)) {
+    retval = 1;
+    return;
+  }
+
+  AttrRef lv = m2.v.attrs.find_attribute(AttrType::INT, ".spatial.v.node");
+  AttrRef lf = m2.f.attrs.find_attribute(AttrType::INT, ".spatial.f.node");
+  AttrRef lpg = m2.e.attrs.find_attribute(AttrType::BOOL, ".boundary.edge.polygroup");
+  TASSERT(lv.exists() && lf.exists() && lpg.exists());
+
+  /* The repair: mandatory flags re-asserted regardless of the file's stale flag. */
+  for (AttrRef *r : {&lv, &lf}) {
+    TASSERT(bool(r->flag & AttrFlag::TEMP));
+    TASSERT(bool(r->flag & AttrFlag::NOINTERP)); /* the crash-preventing bit */
+    TASSERT(bool(r->flag & AttrFlag::NOCOPY));
+  }
+  TASSERT(bool(lpg.flag & AttrFlag::TEMP));
+  printf("  [%s] spatial node attrs re-flagged TEMP|NOINTERP|NOCOPY on load\n", tag);
+}
+
 } // namespace
 
 int main()
@@ -529,6 +582,7 @@ int main()
   test_verts_only();
   test_attr_use_roundtrip();
   test_detach_reattach();
+  test_nonpersistent_flag_repair();
 
   printf("mesh_serialize test done (retval=%d)\n", retval);
   return retval;

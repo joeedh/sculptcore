@@ -1,5 +1,6 @@
 #include "mesh_serialize.h"
 
+#include "boundary.h"
 #include "mesh.h"
 
 #include "io/binfile.h"
@@ -138,6 +139,32 @@ ElemType topoTarget(const string &name)
     return LIST;
   }
   return ElemType(0);
+}
+
+/* Flag bits that MUST be present on a deserialized builtin attribute, keyed by
+ * name. These are the non-persistent (TEMP) derived attrs a correct writer drops
+ * from the file: the spatial node-ownership ids and the derived/dirty boundary
+ * layers. A mesh saved before these flags were assigned (the "improper attribute
+ * setup" some old .wproj files have) carries them on disk with stale flags;
+ * buildDomain would then restore the stale flag, and a non-NOINTERP
+ * .spatial.{v,f}.node makes dyntopo interpolate a parent's leaf-ownership id onto
+ * new geometry — a stale index that mis-partitions a freshly built tree and
+ * crashes. Re-asserting the canonical bits on load makes such a file behave like
+ * one that never serialized them: inert to interpolation/copy, and TEMP-dropped
+ * from the next save. Returns NONE for names that aren't known non-persistent
+ * builtins (custom + persistent attrs keep their file flags untouched). */
+AttrFlag mandatoryBuiltinFlags(const string &name)
+{
+  auto is = [&](const char *s) { return std::strcmp(name.c_str(), s) == 0; };
+  if (is(".spatial.v.node") || is(".spatial.f.node")) {
+    return AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY;
+  }
+  if (is(boundary::EDGE_POLYGROUP) || is(boundary::EDGE_UVCHART) ||
+      is(boundary::EDGE_DIRTY) || is(boundary::VERT_DIRTY) ||
+      is(boundary::VERT_CLASS)) {
+    return AttrFlag::TEMP;
+  }
+  return AttrFlag::NONE;
 }
 
 /* ---- write helpers ---- */
@@ -308,12 +335,15 @@ void buildDomain(ElemData &ed, SerialDomain &sd)
   }
 
   /* Preserve attr flags + category from the file (builtins keep their ctor
-   * flag; use defaults to NONE for v1 files). */
+   * flag; use defaults to NONE for v1 files). Re-assert the mandatory flags for
+   * non-persistent builtins so a file with stale/missing flags (e.g. a
+   * serialized .spatial.{v,f}.node) can't crash dyntopo — see
+   * mandatoryBuiltinFlags. */
   for (AttrRef &attr : ed.attrs.attrs) {
     for (SerialColumn &col : sd.cols) {
       if (attr.type == col.type &&
           std::strcmp(attr.name.c_str(), col.name.c_str()) == 0) {
-        attr.flag = col.flag;
+        attr.flag = col.flag | mandatoryBuiltinFlags(col.name);
         attr.use = col.use;
       }
     }

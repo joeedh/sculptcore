@@ -790,6 +790,30 @@ struct LogChunkTopo : public LogChunk {
     }
   }
 
+  /* Face analogue of refreshCreatedVertData (see MeshLog::endStep). A face split
+   * in from dyntopo in an early dab and then repainted by the poly-group / color
+   * brush in a LATER dab had that face-attr change (poly `group`, …) dropped: the
+   * brush gate keeps created faces out of the element store, and this chunk's
+   * end_body froze at its own dab's deactivation. Refresh the Created-face data
+   * columns (skips TOPO connectivity + NOCOPY temp state) from the final mesh so
+   * redo restores the group the original stroke left. */
+  void refreshCreatedFaceData(mesh::Mesh *m)
+  {
+    mesh::AttrGroup &grp = m->f.attrs;
+    for (LogElem &e : records_pool) {
+      if (e.kind != LogElemKind::Face || e.origin != LogOrigin::Created ||
+          e.fate != LogFate::Live || !e.end_body)
+      {
+        continue;
+      }
+      int idx = e.end_mesh_index;
+      if (idx < 0 || size_t(idx) >= m->f.capacity() || m->f.freemap[idx]) {
+        continue;
+      }
+      e.end_body->refreshDataColumns(grp, idx);
+    }
+  }
+
   Vector<LogElem *> getSortedRecords()
   {
     Vector<LogElem *> records;
@@ -1127,6 +1151,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, entryCount, MARGS());
     BIND_STRUCT_METHOD(st, freeStep, MARGS("id"));
     BIND_STRUCT_METHOD(st, hasTopoChunk, MARGS());
+    BIND_STRUCT_METHOD(st, reorderForLocality, MARGS("tree"));
 
     return st;
   }
@@ -1259,6 +1284,7 @@ struct MeshLog {
       for (LogChunk *chunk : curEntry().chunks) {
         if (chunk->type == LogChunkTypes::Topo) {
           static_cast<LogChunkTopo *>(chunk)->refreshCreatedVertData(active_mesh_);
+          static_cast<LogChunkTopo *>(chunk)->refreshCreatedFaceData(active_mesh_);
         }
       }
     }
@@ -1375,6 +1401,22 @@ struct MeshLog {
                                    std::move(fmap));
     endStep();
     return chunk;
+  }
+
+  /** TS-app entry point for the "optimize mesh layout" button: compute locality
+   * permutations from the tree, record an undoable reorder step, then apply it.
+   * Mirrors debug Scene::reorderForLocality so the app path is fully
+   * meshlog-aware. Pushes the maps (copied) before applying, matching the debug
+   * ordering. No-op without a tree. */
+  void reorderForLocality(spatial::SpatialTree *tree)
+  {
+    if (!tree) {
+      return;
+    }
+    Vector<int> vmap, emap, cmap, lmap, fmap;
+    tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
+    pushReorderStep(vmap, emap, cmap, lmap, fmap);
+    tree->applyReorder(vmap, emap, cmap, lmap, fmap);
   }
 
   LogEntry &curEntry()

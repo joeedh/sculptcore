@@ -143,6 +143,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
     BIND_STRUCT_METHOD(st, markAllSeams, MARGS());
     BIND_STRUCT_METHOD(st, fillVertexColorFromPosition, MARGS());
+    BIND_STRUCT_METHOD(st, vertexColor, MARGS("vert", "out"));
     BIND_STRUCT_METHOD(st, dumpVertCo, MARGS("out"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
@@ -337,6 +338,12 @@ struct Mesh : public MeshBase {
    * first vertex FLOAT4 COLOR layer. Defined in mesh.cc. */
   void markAllSeams();
   void fillVertexColorFromPosition();
+
+  /* Append the RGBA of vertex `vert` from the first vertex FLOAT4 COLOR layer
+   * into `out` (4 floats). Falls back to opaque white when there is no color
+   * layer or the index is out of range. Backs the color brush's ctrl-click
+   * eyedropper; out-param keeps it marshal-safe like dumpVertCo. */
+  void vertexColor(int vert, util::Vector<float> &out);
 
   /* Detach the layer at `index` into the stash WITHOUT freeing its data, and
    * return a stash id (reattachAttr undoes it). Unlike removeAttr this preserves

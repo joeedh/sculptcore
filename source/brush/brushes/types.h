@@ -1,3 +1,4 @@
+#pragma once
 #include "litestl/binding/binding.h"
 #include "litestl/util/compiler_util.h"
 
@@ -23,6 +24,7 @@ enum class _SculptBrushes {
   BSMOOTH = 15,
   GRAB = 16,
   SNAKEHOOK = 17,
+  COLORSMOOTH = 18,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -51,6 +53,7 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
     e->addItem("BSMOOTH", SculptBrushes::BSMOOTH);
     e->addItem("GRAB", SculptBrushes::GRAB);
     e->addItem("SNAKEHOOK", SculptBrushes::SNAKEHOOK);
+    e->addItem("COLORSMOOTH", SculptBrushes::COLORSMOOTH);
     return e;
   }
 };

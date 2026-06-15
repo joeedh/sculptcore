@@ -116,7 +116,11 @@ triangulateFace(Mesh &m, int f, litestl::util::Vector<Tri, VecStaticSize> &tris)
 /* Triangulate every face of the mesh in place: each n-gon (single outer loop)
  * is replaced by a triangle fan from its first corner via the public Euler
  * operators. Triangles and the unsupported multi-loop faces are left alone.
- * Used to feed triangle-only consumers (dyntopo) from quad generators. */
+ * Used to feed triangle-only consumers (dyntopo) from quad generators. Delegates
+ * to triangulateFaceFanCb so the face's attrs (poly `group`, …) and per-corner
+ * attrs (`uv`, …) are carried onto every fan triangle — same fan topology, so
+ * geometry is byte-identical to a plain make_face fan (attr-free meshes no-op
+ * the snapshot/restore). */
 static inline SuccessOrError<"triangulate", "failed to triangulate faces">
 triangulateMesh(Mesh &m)
 {
@@ -127,24 +131,7 @@ triangulateMesh(Mesh &m)
     faces.append(f);
   }
   for (int f : faces) {
-    if (m.f.freemap[f] || m.f.list_count[f] != 1) {
-      continue;
-    }
-    int li = m.f.l[f];
-    if (m.l.size[li] == 3) {
-      continue;
-    }
-    Vector<int, 16> vs;
-    int c0 = m.l.c[li], cc = c0;
-    do {
-      vs.append(m.c.v[cc]);
-      cc = m.c.next[cc];
-    } while (cc != c0);
-    m.kill_face(f);
-    for (int i = 1; i + 1 < int(vs.size()); i++) {
-      int tri[3] = {vs[0], vs[i], vs[i + 1]};
-      m.make_face(std::span<int>(tri, 3));
-    }
+    triangulateFaceFanCb(m, f, nullptr);
   }
   return true;
 }

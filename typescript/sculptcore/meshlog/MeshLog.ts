@@ -29,5 +29,6 @@ export interface MeshLog {
   entryCount(): int32
   freeStep(id: int32): int32
   hasTopoChunk(): boolean
+  reorderForLocality(tree: SpatialTree): void
   new (): MeshLog
 }

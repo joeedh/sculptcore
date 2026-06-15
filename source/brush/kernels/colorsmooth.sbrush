@@ -1,0 +1,26 @@
+// Color smooth — the paint analogue of the geometry smooth brush. Averages a
+// per-vertex color layer across topological neighbors (mask-gated) and blends
+// each vertex toward its neighborhood mean by strength*falloff. Moves no
+// geometry; undo captures the color layer only. Routed from the PAINT_SMOOTH
+// tool (shift on the color brush).
+@brush("colorsmooth")
+@paint
+brush ColorSmooth {
+  attr vertex float4 color;
+  // Undo captures the color layer only (paint moves no geometry).
+  save vertex color;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) { continue; }
+    float4 avg = float4(0.0, 0.0, 0.0, 0.0);
+    float n = 0.0;
+    for_neighbor (nb in v) {
+      avg = avg + nb.color;
+      n = n + 1.0;
+    }
+    if (n > 0.0) {
+      v.color = v.color + (avg / n - v.color) * s;
+    }
+  }
+}

@@ -240,6 +240,12 @@ void InteractiveController::continueStroke(float2 cursor)
 
 void InteractiveController::endStroke()
 {
+  // Undo the shift→smooth tool override latched on press, before any early
+  // return so the active tool is restored on every backend path.
+  if (toolOverridden_) {
+    scene_->currentTool = savedTool_;
+    toolOverridden_ = false;
+  }
 #ifdef SBRUSH_GPU_DISPATCH
   if (gpuSession_) {
     gpuSession_->end(*scene_);
@@ -386,13 +392,20 @@ bool InteractiveController::handle(const InputEvent &e)
         bool shift = (mods_ & 0x1) != 0;
         bool ctrl = (mods_ & 0x2) != 0;
         bool alt = (mods_ & 0x4) != 0;
-        (void)ctrl;
-        if (shift) {
+        if (ctrl) {
           lmbDrag_ = DragMode::Pan;
         } else if (alt) {
           lmbDrag_ = DragMode::Orbit;
         } else {
           lmbDrag_ = DragMode::Stroke;
+          // Shift temporarily strokes with the smooth brush (mirrors the TS app):
+          // override scene_->currentTool for the drag (both C++ and GPU dab paths
+          // read it) and restore it in endStroke.
+          savedTool_ = scene_->currentTool;
+          toolOverridden_ = shift;
+          if (shift) {
+            scene_->currentTool = brush::SculptBrushes::SMOOTH;
+          }
           beginStroke(cursor_);
         }
       } else {

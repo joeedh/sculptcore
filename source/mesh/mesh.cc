@@ -328,6 +328,30 @@ void Mesh::fillVertexColorFromPosition()
   }
 }
 
+void Mesh::vertexColor(int vert, util::Vector<float> &out)
+{
+  out.clear();
+  AttrData<math::float4> *cdata = nullptr;
+  for (AttrRef &a : v.attrs.attrs) {
+    if (a.type == AttrType::FLOAT4 && (a.use & AttrUse::COLOR)) {
+      cdata = a.get_data<math::float4>();
+      break;
+    }
+  }
+  if (!cdata || vert < 0 || vert >= v.count) {
+    out.append(1.0f);
+    out.append(1.0f);
+    out.append(1.0f);
+    out.append(1.0f);
+    return;
+  }
+  math::float4 c = (*cdata)[vert];
+  out.append(c[0]);
+  out.append(c[1]);
+  out.append(c[2]);
+  out.append(c[3]);
+}
+
 int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
 {
   if (topo_frozen)

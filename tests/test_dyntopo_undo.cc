@@ -418,6 +418,121 @@ int main()
     TASSERT(allSeven("pg-redo"));
   }
 
+  /* --- created-face repaint across chunks: the actual poly-brush undo bug.
+   *     A face SPLIT IN by an early dab, then repainted by the poly-group brush
+   *     in a LATER dab, lost that repaint on redo: the brush gate keeps created
+   *     faces out of the element store, and the early chunk's end_body froze at
+   *     its own dab's deactivation (group = interpolated 7). We reproduce the
+   *     freeze by finalizing the dab's chunk (pushTopoChunk) BEFORE repainting a
+   *     created face to a sentinel (99), bypassing every callback exactly as the
+   *     gated brush does. endStep's refreshCreatedFaceData must lift that 99 into
+   *     the frozen end_body so redo restores it. Pre-fix: redo reads 7. --- */
+  {
+    Mesh m;
+    const int N = 7;
+    int grid[N * N];
+    for (int y = 0; y < N; y++) {
+      for (int x = 0; x < N; x++) {
+        float fx = float(x) / float(N - 1) - 0.5f;
+        float fy = float(y) / float(N - 1) - 0.5f;
+        grid[y * N + x] = m.make_vertex(float3(fx, fy, 0.0f));
+      }
+    }
+    for (int y = 0; y < N - 1; y++) {
+      for (int x = 0; x < N - 1; x++) {
+        int a = grid[y * N + x], b = grid[y * N + x + 1];
+        int c = grid[(y + 1) * N + x + 1], d = grid[(y + 1) * N + x];
+        int t0[3] = {a, b, c};
+        int t1[3] = {a, c, d};
+        m.make_face(std::span<int>(t0, 3));
+        m.make_face(std::span<int>(t1, 3));
+      }
+    }
+    AttrRef &gref = m.f.attrs.ensure(AttrType::INT, boundary::FACE_GROUP, true);
+    auto *group = static_cast<AttrData<int> *>(gref.data);
+    for (int fi : m.f) {
+      (*group)[fi] = 7;
+    }
+    /* Vertex color (FLOAT4) — the #13 color-brush analogue: created verts are
+     * covered by refreshCreatedVertData, but assert it explicitly here. */
+    using float4 = litestl::math::float4;
+    AttrRef &cref = m.v.attrs.ensure(AttrType::FLOAT4, "color", true);
+    auto *vcolor = static_cast<AttrData<float4> *>(cref.data);
+    for (int vi : m.v) {
+      (*vcolor)[vi] = float4(0, 0, 0, 1);
+    }
+    /* Faces present before the dab — anything else is dab-created. */
+    litestl::util::Vector<bool> wasLive;
+    wasLive.resize(m.f.capacity());
+    for (size_t i = 0; i < m.f.capacity(); i++) {
+      wasLive[i] = !m.f.freemap[i];
+    }
+    litestl::util::Vector<bool> wasLiveV;
+    wasLiveV.resize(m.v.capacity());
+    for (size_t i = 0; i < m.v.capacity(); i++) {
+      wasLiveV[i] = !m.v.freemap[i];
+    }
+
+    MeshLog log;
+    log.setActiveMesh(&m);
+    Counts before = counts(m);
+
+    dyntopo::DynTopoParams p;
+    p.l_max = 0.08f;
+    p.l_min = 0.01f;
+    p.mode = dyntopo::DynTopoMode::Subdivide; /* split only — created faces stay Live */
+
+    log.beginStep(true);
+    dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
+        m, float3(0, 0, 0), 0.3f, p, /*seed=*/123u, log.callbacks());
+    /* Finalize the dab's chunk now (freezes created faces' end_body = 7), then
+     * repaint a created face WITHOUT any callback, mirroring the gated brush. */
+    log.pushTopoChunk();
+    int painted = ELEM_NONE;
+    for (int fi : m.f) {
+      if (size_t(fi) >= wasLive.size() || !wasLive[fi]) {
+        (*group)[fi] = 99;
+        painted = fi;
+        break;
+      }
+    }
+    const float4 sentinel(0.25f, 0.5f, 0.75f, 1.0f);
+    int paintedV = ELEM_NONE;
+    for (int vi : m.v) {
+      if (size_t(vi) >= wasLiveV.size() || !wasLiveV[vi]) {
+        (*vcolor)[vi] = sentinel;
+        paintedV = vi;
+        break;
+      }
+    }
+    log.endStep();
+    TASSERT(st.splits > 0);
+    TASSERT(painted != ELEM_NONE);  /* the dab must have created at least one face */
+    TASSERT(paintedV != ELEM_NONE); /* ...and at least one vert */
+    auto *g = static_cast<AttrData<int> *>(
+        m.f.attrs.find_attribute(AttrType::INT, boundary::FACE_GROUP).data);
+    TASSERT((*g)[painted] == 99);
+    printf("  created-face repaint: painted f=%d group=%d\n", painted, (*g)[painted]);
+
+    log.undo(&m, nullptr);
+    TASSERT(eq(counts(m), before)); /* created face gone; sentinel face index dead */
+
+    log.redo(&m, nullptr);
+    g = static_cast<AttrData<int> *>(
+        m.f.attrs.find_attribute(AttrType::INT, boundary::FACE_GROUP).data);
+    auto *vc = static_cast<AttrData<float4> *>(
+        m.v.attrs.find_attribute(AttrType::FLOAT4, "color").data);
+    TASSERT(!m.f.freemap[painted]);
+    TASSERT((*g)[painted] == 99); /* fails pre-fix: redo restores the frozen 7 */
+    TASSERT(!m.v.freemap[paintedV]);
+    float4 cv = (*vc)[paintedV];
+    bool colorOk = cv[0] == sentinel[0] && cv[1] == sentinel[1] &&
+                   cv[2] == sentinel[2] && cv[3] == sentinel[3];
+    TASSERT(colorOk); /* #13: created vert's color must survive redo too */
+    printf("  created-face repaint redo: group=%d (want 99), vcolor=(%.2f %.2f %.2f %.2f)\n",
+           (*g)[painted], cv[0], cv[1], cv[2], cv[3]);
+  }
+
   /* --- meshlog undo/redo WITH a live spatial tree.
    *     The topo log restores mesh elements, but the tree's incremental face
    *     ownership (`.spatial.f.node`, a TEMP attr) is NOT logged — so undo/redo
