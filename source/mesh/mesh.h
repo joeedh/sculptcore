@@ -136,6 +136,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, markEdgePath, MARGS("vStart", "vEnd", "kind", "state"));
     BIND_STRUCT_METHOD(st, edgeFlagKind, MARGS("e", "kind"));
     BIND_STRUCT_METHOD(st, setEdgeFlagKind, MARGS("e", "kind", "state"));
+    BIND_STRUCT_METHOD(st, markSharpByAngle, MARGS("angle", "state"));
     BIND_STRUCT_METHOD(st, featureVerts, MARGS("kind", "outIdx", "outCo"));
     BIND_STRUCT_METHOD(st, recomputeBoundary, MARGS());
     BIND_STRUCT_METHOD(st, boundaryGraphStats, MARGS("out"));
@@ -302,6 +303,12 @@ struct Mesh : public MeshBase {
   int markEdgePath(int vStart, int vEnd, int kind, int state);
   int edgeFlagKind(int e, int kind);
   void setEdgeFlagKind(int e, int kind, int state);
+
+  /* Set EDGE_SHARP = `state` on every manifold edge whose dihedral angle (the
+   * angle between its two face normals) exceeds `angle` radians. Additive — edges
+   * at or below the threshold are left untouched. Returns the number of edges
+   * changed. Defined in mesh.cc. */
+  int markSharpByAngle(float angle, int state);
 
   /* Fill outIdx with the indices of every vertex incident to an edge carrying
    * the `kind` flag (0 seam / 1 sharp) and outCo with their xyz positions (3

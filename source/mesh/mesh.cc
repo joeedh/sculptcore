@@ -2,6 +2,7 @@
 
 #include "boundary.h"
 #include "mesh_path.h"
+#include "utils/mesh_validate.h" // faceNewellNormal
 #include "utils/symmetrize.h"
 #include "uvgen.h"
 
@@ -9,6 +10,8 @@
 #include "litestl/util/index_range.h"
 #include "litestl/util/map.h"
 #include "litestl/util/vector.h"
+
+#include <cmath>
 
 using namespace litestl;
 using namespace litestl::util;
@@ -149,6 +152,52 @@ int Mesh::edgeFlagKind(int e, int kind)
 void Mesh::setEdgeFlagKind(int e, int kind, int state)
 {
   boundary::setEdgeFlag(this, edgeFlagNameForKind(kind), e, state != 0);
+}
+
+int Mesh::markSharpByAngle(float angle, int state)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  const float cos_thr = std::cos(angle); // dihedral exceeds `angle` ⇔ cos below this
+  int marked = 0;
+  for (int e : this->e) {
+    // Collect the (up to) two faces incident to e via its radial cycle.
+    int c0 = this->e.c[e];
+    if (c0 == ELEM_NONE) {
+      continue; // wire edge
+    }
+    int fA = ELEM_NONE, fB = ELEM_NONE;
+    int c = c0;
+    do {
+      int f = this->l.f[this->c.l[c]];
+      if (f != fA && f != fB) {
+        if (fA == ELEM_NONE) {
+          fA = f;
+        } else if (fB == ELEM_NONE) {
+          fB = f;
+        }
+      }
+      c = this->c.radial_next[c];
+    } while (c != c0 && c != ELEM_NONE);
+    if (fA == ELEM_NONE || fB == ELEM_NONE) {
+      continue; // open boundary (1 face) — not a dihedral crease
+    }
+    math::float3 n1 = mesh::faceNewellNormal(*this, fA);
+    math::float3 n2 = mesh::faceNewellNormal(*this, fB);
+    float l1 = n1.length(), l2 = n2.length();
+    if (l1 <= 1e-20f || l2 <= 1e-20f) {
+      continue;
+    }
+    float d = n1.dot(n2) / (l1 * l2);
+    d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
+    if (d < cos_thr) {
+      boundary::setEdgeFlag(this, boundary::EDGE_SHARP, e, state != 0);
+      marked++;
+    }
+  }
+  boundary::recomputeDirty(this);
+  return marked;
 }
 
 void Mesh::featureVerts(int kind, util::Vector<int> &outIdx, util::Vector<float> &outCo)
