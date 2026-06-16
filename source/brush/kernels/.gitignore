@@ -1,1 +1,6 @@
-generated/
+# Ignore everything sbrushc drops into generated/ EXCEPT the checked-in C++
+# brush kernel headers (*.brush.gen.h). Those are committed so cross-compile
+# builds (WASM/CI) can consume them without building the native sbrushc host
+# tool — see sbrushCodegen() in make.mjs (SBRUSH_SKIP_NATIVE_CODEGEN).
+/generated/*
+!/generated/*.brush.gen.h

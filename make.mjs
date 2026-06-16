@@ -358,6 +358,28 @@ async function sbrushCodegen() {
   const outDir = `${kernelsDir}/generated`
   ensureDir(outDir)
 
+  const inputs = fs.readdirSync(kernelsDir).filter((f) => f.endsWith('.sbrush'))
+
+  // CI / cross-compile escape hatch: trust the checked-in *.brush.gen.h headers
+  // and skip building the native sbrushc host tool (which would drag in the full
+  // native CMake configure — Vulkan, wgpu_native — none of which exist on the
+  // WASM/Pages runner). Fail loudly if a header is missing so a stale checkout
+  // can't silently ship outdated kernels.
+  if (process.env.SBRUSH_SKIP_NATIVE_CODEGEN === '1') {
+    const missing = inputs
+      .map((inp) => `${outDir}/${inp.replace(/\.sbrush$/, '')}.brush.gen.h`)
+      .filter((p) => !fs.existsSync(p))
+    if (missing.length) {
+      process.stderr.write(
+        `codegen: SBRUSH_SKIP_NATIVE_CODEGEN=1 but missing checked-in headers:\n  ${missing.join('\n  ')}\n` +
+          `Run \`node make.mjs codegen\` natively and commit them.\n`
+      )
+      process.exit(1)
+    }
+    console.log('codegen: using checked-in *.brush.gen.h (native sbrushc skipped)')
+    return
+  }
+
   const nativeBuild = buildDir('native')
   const sbrushcCandidates = [
     `${nativeBuild}/source/brush/compiler/sbrushc`,
@@ -384,7 +406,6 @@ async function sbrushCodegen() {
     }
   }
 
-  const inputs = fs.readdirSync(kernelsDir).filter((f) => f.endsWith('.sbrush'))
   if (inputs.length === 0) {
     console.log('codegen: no .sbrush inputs found')
     return
