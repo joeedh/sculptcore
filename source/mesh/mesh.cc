@@ -2,6 +2,7 @@
 
 #include "boundary.h"
 #include "mesh_path.h"
+#include "utils/symmetrize.h"
 #include "uvgen.h"
 
 #include "litestl/math/geom.h"
@@ -266,6 +267,11 @@ void Mesh::setVertCo(int idx, float x, float y, float z)
     return;
   }
   v.co[idx] = math::float3(x, y, z);
+}
+
+void Mesh::symmetrize(int axis, int sign, float threshold)
+{
+  symmetrizeMesh(*this, axis, sign, threshold);
 }
 
 int Mesh::generateUVFromSeams(int marginMilli)
