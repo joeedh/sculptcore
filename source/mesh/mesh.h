@@ -145,6 +145,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, fillVertexColorFromPosition, MARGS());
     BIND_STRUCT_METHOD(st, vertexColor, MARGS("vert", "out"));
     BIND_STRUCT_METHOD(st, dumpVertCo, MARGS("out"));
+    BIND_STRUCT_METHOD(st, setVertCo, MARGS("idx", "x", "y", "z"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -319,9 +320,15 @@ struct Mesh : public MeshBase {
    * bound Vector<float> out-param (marshal-safe, like castScreenCircle). */
   void edgePathCoords(int vStart, int vEnd, util::Vector<float> &out);
 
-  /* CLAUDENOTE: debug — dump every live vert's (idx,x,y,z) as flat float
-   * quadruples for undo/redo mesh-truth comparison. Remove with the probe. */
+  /* Dump every live vert's (idx,x,y,z) as flat float quadruples into `out` (a
+   * marshal-safe bound Vector<float> out-param). The TS symmetrize op reads
+   * positions index-aligned through this; pair with setVertCo to write back. */
   void dumpVertCo(util::Vector<float> &out);
+
+  /* Set the position of vert `idx` (a live vert index, as emitted by dumpVertCo).
+   * Per-vertex scalar setter — the only marshal-safe vertex-write seam (a bound
+   * Vector can't be filled from TS). Out-of-range index is a no-op. */
+  void setVertCo(int idx, float x, float y, float z);
 
   /* Wave 7: generate a per-corner UV map from EDGE_SEAM-bounded charts (the
    * boundary-conditions unwrapper). Owns naming C++-side (a unique "uv[.NNN]"
