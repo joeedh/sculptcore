@@ -2,6 +2,7 @@
 
 #include "boundary.h"
 #include "mesh_path.h"
+#include "utils/symmetrize.h"
 #include "uvgen.h"
 
 #include "litestl/math/geom.h"
@@ -248,8 +249,8 @@ void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
 
 void Mesh::dumpVertCo(util::Vector<float> &out)
 {
-  // CLAUDENOTE: debug probe — flat (idx,x,y,z) per live vert. No thaw (reading
-  // co needs no topo); index-aligned so JS can compare by vert index.
+  // Flat (idx,x,y,z) per live vert. No thaw (reading co needs no topo);
+  // index-aligned so JS can address each vert by its index.
   out.clear();
   for (int vi : this->v) {
     math::float3 co = v.co[vi];
@@ -258,6 +259,19 @@ void Mesh::dumpVertCo(util::Vector<float> &out)
     out.append(co[1]);
     out.append(co[2]);
   }
+}
+
+void Mesh::setVertCo(int idx, float x, float y, float z)
+{
+  if (idx < 0 || idx >= int(v.capacity()) || v.freemap[idx]) {
+    return;
+  }
+  v.co[idx] = math::float3(x, y, z);
+}
+
+void Mesh::symmetrize(int axis, int sign, float threshold)
+{
+  symmetrizeMesh(*this, axis, sign, threshold);
 }
 
 int Mesh::generateUVFromSeams(int marginMilli)

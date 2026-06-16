@@ -4,9 +4,15 @@ import fs from 'fs'
 import child_process from 'child_process'
 import yargs from 'yargs'
 import {hideBin} from 'yargs/helpers'
+import {fileURLToPath} from 'url'
 import {termColor} from './source/litestl/tests/termColor.js'
 import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
 import {ensureDeps, configName} from './tools/deps.mjs'
+
+// Every input/output path below is resolved relative to the working dir,
+// assuming it's this script's own directory; chdir here so `node make.mjs ...`
+// and `node sculptcore/make.mjs ...` (from the repo root) both work.
+process.chdir(Path.dirname(fileURLToPath(import.meta.url)))
 
 let options = {}
 if (fs.existsSync('local-build-options.mjs')) {

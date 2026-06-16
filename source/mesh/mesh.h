@@ -145,6 +145,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, fillVertexColorFromPosition, MARGS());
     BIND_STRUCT_METHOD(st, vertexColor, MARGS("vert", "out"));
     BIND_STRUCT_METHOD(st, dumpVertCo, MARGS("out"));
+    BIND_STRUCT_METHOD(st, setVertCo, MARGS("idx", "x", "y", "z"));
+    BIND_STRUCT_METHOD(st, symmetrize, MARGS("axis", "sign", "threshold"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -319,9 +321,21 @@ struct Mesh : public MeshBase {
    * bound Vector<float> out-param (marshal-safe, like castScreenCircle). */
   void edgePathCoords(int vStart, int vEnd, util::Vector<float> &out);
 
-  /* CLAUDENOTE: debug — dump every live vert's (idx,x,y,z) as flat float
-   * quadruples for undo/redo mesh-truth comparison. Remove with the probe. */
+  /* Dump every live vert's (idx,x,y,z) as flat float quadruples into `out` (a
+   * marshal-safe bound Vector<float> out-param). The TS symmetrize op reads
+   * positions index-aligned through this; pair with setVertCo to write back. */
   void dumpVertCo(util::Vector<float> &out);
+
+  /* Set the position of vert `idx` (a live vert index, as emitted by dumpVertCo).
+   * Per-vertex scalar setter — the only marshal-safe vertex-write seam (a bound
+   * Vector can't be filled from TS). Out-of-range index is a no-op. */
+  void setVertCo(int idx, float x, float y, float z);
+
+  /* Destructive symmetrize across the `axis` (0=x,1=y,2=z) plane: bisect, keep
+   * the `sign` half (+1 positive, -1 negative), mirror it, weld the seam so the
+   * result is watertight. `threshold` snaps near-plane verts onto the plane.
+   * Backed by symmetrizeMesh (utils/symmetrize.h); defined in mesh.cc. */
+  void symmetrize(int axis, int sign, float threshold);
 
   /* Wave 7: generate a per-corner UV map from EDGE_SEAM-bounded charts (the
    * boundary-conditions unwrapper). Owns naming C++-side (a unique "uv[.NNN]"
