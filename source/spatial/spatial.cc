@@ -113,6 +113,17 @@ void SpatialTree::setDisplayGroupAttr(int index)
   }
 }
 
+void SpatialTree::setDisplayMask(bool on)
+{
+  if (on == displayMask) {
+    return;
+  }
+  displayMask = on;
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_UpdateGPU;
+  }
+}
+
 /* True if two requested sets are identical (same slots/names/types/order) — so
  * setRequestedAttrs can early-return and avoid a per-frame rebuild. */
 static bool requested_attrs_equal(const util::Vector<gpu::RequestedAttr> &a,
@@ -1395,7 +1406,8 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   return batch;
 }
 
-sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
+sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr,
+                                                       bool includePolyGroup)
 {
   using namespace sculptcore::gpu;
 
@@ -1433,10 +1445,10 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
       out = float4(0.2f, 1.0f, 0.2f, 1.0f);
       return true;
     } // green
-    if (pg && pg->get(e)) {
+    if (includePolyGroup && pg && pg->get(e)) {
       out = float4(1.0f, 0.0f, 1.0f, 1.0f);
       return true;
-    } // magenta
+    } // magenta (opt-in)
     if (uv && uv->get(e)) {
       out = float4(1.0f, 1.0f, 0.0f, 1.0f);
       return true;

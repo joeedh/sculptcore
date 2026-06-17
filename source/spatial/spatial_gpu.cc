@@ -72,6 +72,12 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
    * materialized it mesh-wide, so operator[] is safe for any element. */
   AttrData<float4> *cdata = nullptr;
   AttrData<int> *gdata = nullptr;
+  // Sculpt-mask overlay (#20): the mask brush writes the ".spatial.v.mask" FLOAT
+  // vert attr; absent until first painted, so guard and treat missing as 0.
+  AttrData<float> *mdata = nullptr;
+  if (col && displayMask && m->v.attrs.has(AttrType::FLOAT, ".spatial.v.mask")) {
+    mdata = m->v.attrs.find_attribute(AttrType::FLOAT, ".spatial.v.mask").get_data<float>();
+  }
   if (col) {
     if (show_vcol) {
       // Prefer the active layer index (displayColorAttr); fall back to the
@@ -135,6 +141,14 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
           // Modulate by the group color (so both-on shows painted color
           // tinted per group; group-only shows the flat group color).
           out = float4(out[0] * fgcol[0], out[1] * fgcol[1], out[2] * fgcol[2], 1.0f);
+        }
+        if (mdata) {
+          // Sculpt-mask overlay (#20): darken + slightly blue-tint masked verts
+          // (mask 0 = unaffected, 1 = fully masked), like Blender's mask display.
+          float mk = (*mdata)[v];
+          mk = mk < 0.0f ? 0.0f : (mk > 1.0f ? 1.0f : mk);
+          const float d = 1.0f - 0.6f * mk;
+          out = float4(out[0] * d, out[1] * d, out[2] * (d + 0.12f * mk), 1.0f);
         }
         col[vert_i] = out;
       }

@@ -48,7 +48,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, ensure_node_tris, MARGS("node"));
   BIND_STRUCT_METHOD(st, buildAll, MARGS());
   BIND_STRUCT_METHOD(st, buildLeafBoundsBatch, MARGS("batch"));
-  BIND_STRUCT_METHOD(st, buildSeamBatch, MARGS("mgr"));
+  BIND_STRUCT_METHOD(st, buildSeamBatch, MARGS("mgr", "includePolyGroup"));
   BIND_STRUCT_METHOD(st, update, MARGS("gpu"));
   BIND_STRUCT_METHOD(st, getDrawBatch, MARGS());
   BIND_STRUCT_METHOD(st, castRay, MARGS("orig", "dir", "out"));
@@ -56,6 +56,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, setColorDisplayMode, MARGS("mode"));
   BIND_STRUCT_METHOD(st, setDisplayColorAttr, MARGS("index"));
   BIND_STRUCT_METHOD(st, setDisplayGroupAttr, MARGS("index"));
+  BIND_STRUCT_METHOD(st, setDisplayMask, MARGS("on"));
   BIND_STRUCT_METHOD(st, castScreenCircle, MARGS("co", "ray", "r1", "r2", "faces", "verts"));
   BIND_STRUCT_METHOD(st,
                      castScreenRect,
