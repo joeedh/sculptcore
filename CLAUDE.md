@@ -180,6 +180,19 @@ Changes here ripple to both the Embind bindings and any generated TS —
 touch with care and prefer additive changes. `source/spatial/c-api/`
 follows the same convention for spatial-tree construction.
 
+## Mesh validate / repair
+
+`Mesh::validateAndRepair()` (`source/mesh/mesh.cc`) checks the topology
+(edge-vert refs, face corner loops, disk + radial cycles) and repairs what it
+can: it kills unrepairable faces/edges, then rebuilds every disk cycle from the
+authoritative edge endpoints and every radial cycle from the face corners. It is
+**cheap on a healthy mesh** — the checks are read-only and it early-returns
+`0` (no rebuild) when nothing is wrong — so it is safe to call eagerly.
+`Mesh::repairMesh()` is the bound, no-arg entry (reflected for JS); the LiteMesh
+calls it on load (`litemesh.ts` `loadSTRUCT`) to fix structural corruption baked
+into a saved file before the spatial tree is built. Per-error detail goes to
+stderr + the `repairLog` vector; the return value is the problem count.
+
 ## Binding registration
 
 Module-level reflection registration lives in each module's

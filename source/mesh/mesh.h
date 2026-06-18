@@ -13,6 +13,10 @@
 #include "mesh_topo_cache.h"
 #include "mesh_types.h"
 
+#include <functional>
+#include <string>
+#include <vector>
+
 #include <algorithm>
 #include <concepts>
 #include <cstdio>
@@ -137,6 +141,9 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, edgeFlagKind, MARGS("e", "kind"));
     BIND_STRUCT_METHOD(st, setEdgeFlagKind, MARGS("e", "kind", "state"));
     BIND_STRUCT_METHOD(st, markSharpByAngle, MARGS("angle", "state"));
+    BIND_STRUCT_METHOD(st, repairLogCount, MARGS());
+    BIND_STRUCT_METHOD(st, clearRepairLog, MARGS());
+    BIND_STRUCT_METHOD(st, repairMesh, MARGS());
     BIND_STRUCT_METHOD(st, featureVerts, MARGS("kind", "outIdx", "outCo"));
     BIND_STRUCT_METHOD(st, recomputeBoundary, MARGS());
     BIND_STRUCT_METHOD(st, boundaryGraphStats, MARGS("out"));
@@ -481,6 +488,25 @@ struct Mesh : public MeshBase {
   void kill_vertex(int v, MeshCallbacks *cb = nullptr);
   void kill_edge(int e, MeshCallbacks *cb = nullptr);
   void kill_face(int f, MeshCallbacks *cb = nullptr);
+
+  /* Validate the mesh data structure (edge vert refs, vertex disk cycles, edge
+   * radial cycles, face corner loops) and repair what it can: kill unrepairable
+   * faces/edges, then rebuild every disk cycle from the (authoritative) edge
+   * endpoints and every radial cycle + corner edge from the face corners. Logs
+   * each problem to stderr, appends it to `repairLog`, and invokes `log` if set.
+   * Returns the number of problems found. Defined in mesh.cc. */
+  int validateAndRepair(const std::function<void(const char *)> &log = {});
+
+  /* Per-error repair-log lines from validateAndRepair (also echoed to stderr).
+   * Not part of the mesh's serialized state; the app reads the count as a
+   * "repair happened" signal (e.g. LiteMesh load). */
+  std::vector<std::string> repairLog;
+  int repairLogCount() const { return int(repairLog.size()); }
+  void clearRepairLog() { repairLog.clear(); }
+  /* App-facing no-arg entry to validateAndRepair (logs to stderr + repairLog).
+   * Cheap on a healthy mesh — returns 0 without rebuilding. Called on load so a
+   * corrupt file is fixed before the spatial tree / any op sees it (#37). */
+  int repairMesh() { return validateAndRepair(); }
 
   /* Re-point an existing edge's endpoints from its current {v0,v1} to
    * {nv0,nv1} in place (id preserved), maintaining both verts' disk cycles

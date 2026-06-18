@@ -536,12 +536,18 @@ struct CommandExecutor {
     ctx.strokeGen = 0;
     if (nonAccum && cmd.accumulable && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
+      // TEMP + NOCOPY: stroke-transient, not undoable. NOCOPY keeps the meshlog
+      // from snapshotting these during a logged dyntopo step — their pages are
+      // materialized lazily (only brushed verts), so a mid-stroke edge collapse
+      // would otherwise capture an unmaterialized page (null on WASM → warn+skip;
+      // a garbage pointer on native → crash, ImmediateTODOs #37). They're still
+      // interpolated onto split verts (no NOINTERP) for non-accumulate accuracy.
       mesh::AttrRef &coRef =
           m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.co", false);
-      coRef.flag |= mesh::AttrFlag::TEMP;
+      coRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
       mesh::AttrRef &genRef =
           m->v.attrs.ensure(mesh::AttrType::INT, ".brush.orig.gen", false);
-      genRef.flag |= mesh::AttrFlag::TEMP;
+      genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
       ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
       ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
       ctx.strokeGen = strokeGen;
@@ -1106,6 +1112,30 @@ struct CommandExecutor {
     for (spatial::SpatialNode *n : hit) {
       for (int v : n->unique_verts()) {
         seedVerts.append(v);
+      }
+    }
+
+    // #37: the non-accumulate `.brush.orig.*` snapshot is materialized lazily —
+    // only verts a *prior* dab brushed. Once the column exists, dyntopo's attr
+    // interpolation (split midpoints, collapse blend) on THIS dab's seed region
+    // would read pages the brush never stamped (e.g. a symmetry-mirror dab's
+    // region, #38) — null on WASM, a garbage deref + crash on native. The deform
+    // stamps the region, but only AFTER this pre-pass. Stamp the seed region here
+    // (first contact = current co) so every vert dyntopo touches has a live page;
+    // the deform's stamp loop then skips them (gen already == strokeGen).
+    if (m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
+        m->v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen")) {
+      auto *origCo =
+          m->v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
+      auto *origGen =
+          m->v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
+      for (int v : seedVerts) {
+        origGen->materialize(v);
+        if ((*origGen)[v] != int(strokeGen)) {
+          origCo->materialize(v);
+          (*origCo)[v] = m->v.co[v];
+          (*origGen)[v] = int(strokeGen);
+        }
       }
     }
 

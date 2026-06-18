@@ -42,6 +42,10 @@ export interface Mesh {
   markEdgePath(vStart: int32, vEnd: int32, kind: int32, state: int32): int32
   edgeFlagKind(e: int32, kind: int32): int32
   setEdgeFlagKind(e: int32, kind: int32, state: int32): void
+  markSharpByAngle(angle: float, state: int32): int32
+  repairLogCount(): int32
+  clearRepairLog(): void
+  repairMesh(): int32
   featureVerts(kind: int32, outIdx: int32[], outCo: float[]): void
   recomputeBoundary(): void
   boundaryGraphStats(out: int32[]): void

@@ -200,6 +200,208 @@ int Mesh::markSharpByAngle(float angle, int state)
   return marked;
 }
 
+int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  int errors = 0;
+  char buf[256];
+  auto report = [&](const char *msg) {
+    errors++;
+    fprintf(stderr, "meshrepair: %s\n", msg);
+    repairLog.push_back(std::string(msg));
+    if (log) {
+      log(msg);
+    }
+  };
+
+  const int vcap = int(v.capacity());
+  const int ccap = int(c.capacity());
+  auto vertOk = [&](int vi) { return vi >= 0 && vi < vcap && !v.freemap[vi]; };
+
+  // Pass 1: edges with out-of-range / freed / degenerate endpoints — unrepairable.
+  util::Vector<int> killEdges;
+  for (int ei : this->e) {
+    int a = e.vs[ei][0], b = e.vs[ei][1];
+    if (!vertOk(a) || !vertOk(b) || a == b) {
+      snprintf(buf, sizeof(buf), "edge %d bad endpoints %d,%d", ei, a, b);
+      report(buf);
+      killEdges.append(ei);
+    }
+  }
+
+  // Pass 2: faces whose corner loop is broken or references a dead vert.
+  util::Vector<int> killFaces;
+  for (int fi : this->f) {
+    if (f.list_count[fi] != 1) {
+      snprintf(buf, sizeof(buf), "face %d has %d loops", fi, int(f.list_count[fi]));
+      report(buf);
+      killFaces.append(fi);
+      continue;
+    }
+    int li = f.l[fi], c0 = l.c[li], cc = c0, n = 0;
+    bool bad = c0 < 0 || c0 >= ccap;
+    while (!bad) {
+      if (cc < 0 || cc >= ccap || c.l[cc] != li || !vertOk(c.v[cc])) {
+        bad = true;
+        break;
+      }
+      int cn = c.next[cc];
+      if (cn < 0 || cn >= ccap || c.prev[cn] != cc) {
+        bad = true;
+        break;
+      }
+      cc = cn;
+      if (++n > 1000000) {
+        bad = true;
+        break;
+      }
+      if (cc == c0) {
+        break;
+      }
+    }
+    if (bad) {
+      snprintf(buf, sizeof(buf), "face %d broken corner loop", fi);
+      report(buf);
+      killFaces.append(fi);
+    }
+  }
+
+  // Pass 3: count broken vertex-disk cycles (repaired by the rebuild below).
+  for (int vi : this->v) {
+    int e0 = v.e[vi];
+    if (e0 == ELEM_NONE) {
+      continue;
+    }
+    if (e0 < 0 || e0 >= int(e.capacity()) || e.freemap[e0]) {
+      snprintf(buf, sizeof(buf), "vert %d disk head is invalid edge %d", vi, e0);
+      report(buf);
+      continue;
+    }
+    int steps = 0, ec = e0;
+    do {
+      int side = e.vs[ec][0] == vi ? 0 : 1;
+      int next = e.disk[ec][side * 2 + 1], prev = e.disk[ec][side * 2];
+      if (next < 0 || next >= int(e.capacity()) || prev < 0 || prev >= int(e.capacity()) ||
+          e.freemap[next] || e.freemap[prev]) {
+        snprintf(buf, sizeof(buf), "vert %d disk link invalid at edge %d", vi, ec);
+        report(buf);
+        break;
+      }
+      int sn = e.vs[next][0] == vi ? 0 : 1, sp = e.vs[prev][0] == vi ? 0 : 1;
+      if (e.disk[next][sn * 2] != ec || e.disk[prev][sp * 2 + 1] != ec) {
+        snprintf(buf, sizeof(buf), "vert %d disk prev/next mismatch at edge %d", vi, ec);
+        report(buf);
+        break;
+      }
+      ec = next;
+      if (++steps > 1000000) {
+        snprintf(buf, sizeof(buf), "vert %d disk did not close", vi);
+        report(buf);
+        break;
+      }
+    } while (ec != e0);
+  }
+
+  // Pass 3b: count broken edge-radial cycles (also repaired by the rebuild).
+  for (int ei : this->e) {
+    int c0 = e.c[ei];
+    if (c0 == ELEM_NONE) {
+      continue;
+    }
+    if (c0 < 0 || c0 >= ccap) {
+      snprintf(buf, sizeof(buf), "edge %d radial head is invalid corner %d", ei, c0);
+      report(buf);
+      continue;
+    }
+    int steps = 0, cc = c0;
+    do {
+      if (cc < 0 || cc >= ccap || c.e[cc] != ei) {
+        snprintf(buf, sizeof(buf), "edge %d radial corner %d mismatch", ei, cc);
+        report(buf);
+        break;
+      }
+      int rn = c.radial_next[cc], rp = c.radial_prev[cc];
+      if (rn < 0 || rn >= ccap || rp < 0 || rp >= ccap || c.radial_prev[rn] != cc ||
+          c.radial_next[rp] != cc) {
+        snprintf(buf, sizeof(buf), "edge %d radial prev/next mismatch at corner %d", ei, cc);
+        report(buf);
+        break;
+      }
+      cc = rn;
+      if (++steps > 1000000) {
+        snprintf(buf, sizeof(buf), "edge %d radial did not close", ei);
+        report(buf);
+        break;
+      }
+    } while (cc != c0);
+  }
+
+  // Clean mesh: skip the O(E) disk/radial rebuild so this is cheap to run eagerly
+  // (e.g. on every load) on a healthy mesh.
+  if (errors == 0) {
+    return 0;
+  }
+
+  // Pass 4: kill the unrepairable elements (raw — no meshlog callbacks).
+  for (int fi : killFaces) {
+    if (!f.freemap[fi]) {
+      kill_face(fi);
+    }
+  }
+  for (int ei : killEdges) {
+    if (!e.freemap[ei]) {
+      kill_edge(ei);
+    }
+  }
+
+  // Pass 5: rebuild every disk cycle from the (authoritative) edge endpoints.
+  for (int vi : this->v) {
+    v.e[vi] = ELEM_NONE;
+  }
+  for (int ei : this->e) {
+    e.disk[ei][0] = e.disk[ei][1] = e.disk[ei][2] = e.disk[ei][3] = ei;
+  }
+  for (int ei : this->e) {
+    disk_insert(ei, e.vs[ei][0]);
+    disk_insert(ei, e.vs[ei][1]);
+  }
+
+  // Pass 6: rebuild radial cycles + corner edges from the surviving face loops.
+  for (int ei : this->e) {
+    e.c[ei] = ELEM_NONE;
+  }
+  for (int ci : this->c) {
+    c.radial_next[ci] = c.radial_prev[ci] = ci;
+  }
+  for (int fi : this->f) {
+    int li = f.l[fi], c0 = l.c[li], cc = c0, n = 0;
+    do {
+      int cn = c.next[cc];
+      int ce = find_edge(c.v[cc], c.v[cn]);
+      if (ce == ELEM_NONE) {
+        ce = make_edge(c.v[cc], c.v[cn]);
+        snprintf(buf, sizeof(buf), "face %d corner %d had no edge; created %d", fi, cc, ce);
+        report(buf);
+      }
+      c.e[cc] = ce;
+      radial_insert(ce, cc);
+      cc = cn;
+      if (++n > 1000000) {
+        break;
+      }
+    } while (cc != c0);
+  }
+
+  if (errors > 0) {
+    snprintf(buf, sizeof(buf),
+             "validateAndRepair: %d problem(s); disk/radial cycles rebuilt", errors);
+    report(buf);
+  }
+  return errors;
+}
+
 void Mesh::featureVerts(int kind, util::Vector<int> &outIdx, util::Vector<float> &outCo)
 {
   outIdx.clear();
