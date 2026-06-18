@@ -82,6 +82,15 @@ in-use keys are echoed at startup. Recognized keys (with defaults):
 - `CMAKE_GENERATOR` (`'Ninja'`) — the `-G` generator.
 - `WITH_ASAN` (`false`) → `-DWITH_ASAN=ON`, threaded into the wasm, native, and
   node-addon (`--CDWITH_ASAN`) configures.
+- `WITH_NATIVE_MSVC` (`false`) → build the **native** + **node-addon** targets
+  with MSVC (`cl.exe`, `build_files/native-msvc.cmake`) instead of clang. Each
+  toolchain gets its own build dir (`build/native-msvc`, `build/native-node-msvc`)
+  so the two trees never clash. WASM is unaffected (still emcc/clang). Compatible
+  with `WITH_ASAN` (uses `/fsanitize=address` + the MSVC `clang_rt.asan_dynamic`
+  runtime). The prebuilt OpenBLAS/CHOLMOD deps are still clang-built and shared;
+  under MSVC their LLVM-OpenMP `__kmpc_*` refs are satisfied by MSVC's bundled
+  `libomp.lib` (+ staged `libomp140.x86_64.dll`), since `/openmp` (vcomp) lacks
+  them. No sccache (MSVC caching needs `/Z7`, which `/Zi` defeats).
 - `WITH_MESHLOG_ABSEIL_HASHMAP` (`false`) → `-DWITH_MESHLOG_ABSEIL_HASHMAP=ON`
   (use `absl::flat_hash_map` in meshlog; run `extern/fetch_abseil.sh` to clone
   abseil into `extern/` first).

@@ -56,62 +56,92 @@ if (BUILD_WASM)
   add_link_options(-sEXPORTED_RUNTIME_METHODS=wasmMemory)
   add_link_options(-sIMPORTED_MEMORY=1)
 else()
-  add_compile_options( -Wno-invalid-offsetof )
+  if (NOT MSVC)
+    add_compile_options( -Wno-invalid-offsetof )
+  endif()
   if (WIN32)
     add_compile_options( -DWIN32 )
   endif()
 endif()
 
+# --- Windows runtime-DLL staging -------------------------------------------
+# A small registry of DLLs that must sit next to every binary we build on
+# Windows so they run without a separate install / PATH entry: the asan runtime
+# (WITH_ASAN, below) and the LLVM OpenMP runtime that the clang-built OpenBLAS/
+# CHOLMOD deps need under MSVC (extern/CMakeLists.txt). Subdirectories register
+# DLLs with sculptcore_add_runtime_dll(); the add_executable override stages the
+# whole set into each exe's dir (a top-level POST_BUILD can only attach to
+# same-directory targets, so we hook at creation time). SHARED/MODULE libs call
+# sculptcore_stage_runtime_dlls() explicitly.
+set_property(GLOBAL PROPERTY SCULPTCORE_RUNTIME_DLLS "")
+
+function(sculptcore_add_runtime_dll path)
+  if (EXISTS "${path}")
+    set_property(GLOBAL APPEND PROPERTY SCULPTCORE_RUNTIME_DLLS "${path}")
+  endif()
+endfunction()
+
+function(sculptcore_stage_runtime_dlls target)
+  get_property(_dlls GLOBAL PROPERTY SCULPTCORE_RUNTIME_DLLS)
+  foreach(_dll IN LISTS _dlls)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_dll}" "$<TARGET_FILE_DIR:${target}>"
+      VERBATIM)
+  endforeach()
+endfunction()
+
+if (WIN32)
+  function(add_executable name)
+    _add_executable(${name} ${ARGN})
+    if (NOT "IMPORTED" IN_LIST ARGN AND NOT "ALIAS" IN_LIST ARGN)
+      sculptcore_stage_runtime_dlls(${name})
+    endif()
+  endfunction()
+endif()
+
 option(WITH_ASAN "Enable Address Sanitizer" OFF)
 
 if (WITH_ASAN)
-		add_compile_options(-fsanitize=address)
-    add_link_options(-fsanitize=address)
     # Release CRT (dll), NOT dll_dbg: the MSVC debug-CRT _CRTDBG heap fights
     # ASan's allocator interceptors and aborts with a spurious bad-free in CRT
-    # initterm before main() even runs.
-    add_link_options(-fms-runtime-lib=dll -shared-libsan)
-    add_compile_options(-fms-runtime-lib=dll -shared-libsan)
-
-    # -shared-libsan links against the asan runtime DLL; stage it next to every
-    # binary we build so they run without a separate install / PATH entry. Ask
-    # the active clang for the DLL path so it tracks the toolchain version.
-    if (WIN32)
-      execute_process(
-        COMMAND "${CMAKE_CXX_COMPILER}" --print-file-name=clang_rt.asan_dynamic-x86_64.dll
-        OUTPUT_VARIABLE SCULPTCORE_ASAN_DLL
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-      if (NOT EXISTS "${SCULPTCORE_ASAN_DLL}")
-        message(WARNING "WITH_ASAN: clang_rt.asan_dynamic-x86_64.dll not found (got '${SCULPTCORE_ASAN_DLL}')")
-        set(SCULPTCORE_ASAN_DLL "")
-      else()
-        message(STATUS "WITH_ASAN: shared asan runtime = ${SCULPTCORE_ASAN_DLL}")
-      endif()
+    # initterm before main() even runs. Both toolchains link the *dynamic* asan
+    # runtime (clang_rt.asan_dynamic-x86_64.dll), staged beside each binary below.
+    if (MSVC)
+      add_compile_options(/fsanitize=address)
+      # Pin the release dynamic CRT; clang spells this -fms-runtime-lib=dll.
+      set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+    else()
+      add_compile_options(-fsanitize=address)
+      add_link_options(-fsanitize=address)
+      add_link_options(-fms-runtime-lib=dll -shared-libsan)
+      add_compile_options(-fms-runtime-lib=dll -shared-libsan)
     endif()
 
-    if (SCULPTCORE_ASAN_DLL)
-      # Copy the runtime beside a target's output after it links.
-      function(sculptcore_stage_asan_dll target)
-        add_custom_command(TARGET ${target} POST_BUILD
-          COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                  "${SCULPTCORE_ASAN_DLL}" "$<TARGET_FILE_DIR:${target}>"
-          VERBATIM)
-      endfunction()
-
-      # Override add_executable so every executable (defined in any
-      # subdirectory) gets the DLL staged in its own output dir — a top-level
-      # POST_BUILD can only attach to same-directory targets, so we hook at
-      # creation time instead. Shared/module libs are staged explicitly below.
-      function(add_executable name)
-        _add_executable(${name} ${ARGN})
-        if (NOT "IMPORTED" IN_LIST ARGN AND NOT "ALIAS" IN_LIST ARGN)
-          sculptcore_stage_asan_dll(${name})
-        endif()
-      endfunction()
+    # Stage the asan runtime DLL next to every binary so they run without a
+    # separate install / PATH entry. clang reports the path via --print-file-name;
+    # MSVC ships it alongside cl.exe in the toolset bin dir.
+    if (WIN32)
+      if (MSVC)
+        get_filename_component(_msvc_bindir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        set(SCULPTCORE_ASAN_DLL "${_msvc_bindir}/clang_rt.asan_dynamic-x86_64.dll")
+      else()
+        execute_process(
+          COMMAND "${CMAKE_CXX_COMPILER}" --print-file-name=clang_rt.asan_dynamic-x86_64.dll
+          OUTPUT_VARIABLE SCULPTCORE_ASAN_DLL
+          OUTPUT_STRIP_TRAILING_WHITESPACE)
+      endif()
+      if (NOT EXISTS "${SCULPTCORE_ASAN_DLL}")
+        message(WARNING "WITH_ASAN: clang_rt.asan_dynamic-x86_64.dll not found (got '${SCULPTCORE_ASAN_DLL}')")
+      else()
+        message(STATUS "WITH_ASAN: shared asan runtime = ${SCULPTCORE_ASAN_DLL}")
+        sculptcore_add_runtime_dll("${SCULPTCORE_ASAN_DLL}")
+      endif()
     endif()
 endif()
 
-add_compile_options(-Wno-parentheses-equality)
+if (NOT MSVC)
+  add_compile_options(-Wno-parentheses-equality)
+endif()
 
 
 set(CMAKE_OPTIMIZE_DEPENDENCIES true)
@@ -217,8 +247,8 @@ else()
 	add_library(sculptcore SHARED)
 	target_link_libraries(sculptcore ${LIB})
 
-	if (COMMAND sculptcore_stage_asan_dll)
-	  sculptcore_stage_asan_dll(sculptcore)
+	if (WIN32)
+	  sculptcore_stage_runtime_dlls(sculptcore)
 	endif()
 
 	# --- Node / Electron N-API addon ----------------------------------------
@@ -252,8 +282,8 @@ else()
 	    target_link_libraries(sculptcore_node delayimp.lib)
 	  endif()
 
-	  if (COMMAND sculptcore_stage_asan_dll)
-	    sculptcore_stage_asan_dll(sculptcore_node)
+	  if (WIN32)
+	    sculptcore_stage_runtime_dlls(sculptcore_node)
 	  endif()
 	endif()
 endif()

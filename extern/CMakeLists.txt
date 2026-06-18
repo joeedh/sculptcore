@@ -63,14 +63,34 @@ if (NOT BUILD_WASM)
       target_link_libraries(cholmod INTERFACE pthread m ${CMAKE_DL_LIBS})
     endif()
 
-    # The prebuilt CHOLMOD is compiled with OpenMP; consumers must supply the
-    # OpenMP runtime (omp_*/__kmpc_* symbols) or every linked exe fails.
-    find_package(OpenMP)
-    if(OpenMP_CXX_FOUND)
-      target_link_libraries(cholmod INTERFACE OpenMP::OpenMP_CXX)
+    # The prebuilt OpenBLAS/CHOLMOD are clang-built and reference the LLVM OpenMP
+    # runtime (__kmpc_*); consumers must supply it or every linked exe fails.
+    if(MSVC)
+      # MSVC's vcomp (/openmp) does NOT provide __kmpc_*; link MSVC's bundled
+      # LLVM OpenMP import lib instead (libomp.lib is on the vcvars LIB path) and
+      # stage its runtime DLL beside every binary.
+      target_link_libraries(cholmod INTERFACE libomp.lib)
+      get_filename_component(_msvc_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+      get_filename_component(_vc_root "${_msvc_bin}/../../../../../.." ABSOLUTE)
+      # libomp.lib imports libomp140.x86_64.dll, shipped under VC/Redist.
+      file(GLOB _libomp_dll
+        "${_vc_root}/Redist/MSVC/*/*/x64/Microsoft.*.OpenMP.LLVM/libomp140.x86_64.dll")
+      if(_libomp_dll)
+        list(GET _libomp_dll 0 _libomp_dll0)
+        message(STATUS "MSVC LLVM OpenMP runtime = ${_libomp_dll0}")
+        sculptcore_add_runtime_dll("${_libomp_dll0}")
+      else()
+        message(WARNING "libomp140.x86_64.dll not found under ${_vc_root}/Redist; "
+                        "MSVC binaries linking CHOLMOD may fail to start")
+      endif()
     else()
-      message(WARNING "OpenMP not found; prebuilt CHOLMOD may fail to link "
-                      "(undefined omp_*/__kmpc_* symbols)")
+      find_package(OpenMP)
+      if(OpenMP_CXX_FOUND)
+        target_link_libraries(cholmod INTERFACE OpenMP::OpenMP_CXX)
+      else()
+        message(WARNING "OpenMP not found; prebuilt CHOLMOD may fail to link "
+                        "(undefined omp_*/__kmpc_* symbols)")
+      endif()
     endif()
   else()
     message(WARNING "SCULPTCORE_DEPS_DIR not set/found; CHOLMOD support disabled "

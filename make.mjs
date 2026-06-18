@@ -35,6 +35,10 @@ const CMAKE_BUILD_TYPE = getopt('CMAKE_BUILD_TYPE', 'RelWithDebInfo')
 const CMAKE_GENERATOR = getopt('CMAKE_GENERATOR', 'Ninja')
 const WITH_ASAN = getopt('WITH_ASAN', false)
 const WITH_MESHLOG_ABSEIL_HASHMAP = getopt('WITH_MESHLOG_ABSEIL_HASHMAP', false)
+// Use MSVC (cl.exe) instead of clang for native + node-addon builds. Each
+// toolchain gets its own build dir so the two trees never clash (cmake errors
+// hard if the compiler changes under an existing build dir).
+const WITH_NATIVE_MSVC = getopt('WITH_NATIVE_MSVC', false)
 
 for (const k in options) {
   if (!validOpts.has(k)) {
@@ -253,7 +257,10 @@ function ensureDir(p) {
 }
 
 function buildDir(target) {
-  return target === 'native' ? 'build/native' : 'build'
+  if (target === 'native') {
+    return WITH_NATIVE_MSVC ? 'build/native-msvc' : 'build/native'
+  }
+  return 'build'
 }
 
 // Returns the `node ../configureEnv.mjs [--emsdk]` prefix used inside buildDir.
@@ -263,11 +270,12 @@ function envPrefix(target) {
   return `node ${rel}/configureEnv.mjs ${emsdk}`.trimEnd()
 }
 
-// Use clang for native builds on every platform — it is the project's
-// required toolchain. Path is written relative to the build dir
-// (build/native).
+// Native toolchain file, written relative to the build dir (build/native or
+// build/native-msvc). clang is the project default; WITH_NATIVE_MSVC switches
+// to cl.exe (build_files/native-msvc.cmake).
 function nativeToolchainFlag() {
-  return '--toolchain ../../build_files/native-clang.cmake '
+  const tc = WITH_NATIVE_MSVC ? 'native-msvc.cmake' : 'native-clang.cmake'
+  return `--toolchain ../../build_files/${tc} `
 }
 
 // === Node / Electron N-API addon ===
@@ -303,10 +311,11 @@ function resolveElectronExe() {
 }
 
 async function buildNodeAddon(electronVersion, smoke) {
-  const dir = 'build/native-node'
+  const dir = WITH_NATIVE_MSVC ? 'build/native-node-msvc' : 'build/native-node'
   ensureDir(dir)
   const ev = electronVersion || readElectronVersion()
-  const toolchain = Path.resolve('build_files/native-clang.cmake').replace(/\\/g, '/')
+  const toolchainFile = WITH_NATIVE_MSVC ? 'native-msvc.cmake' : 'native-clang.cmake'
+  const toolchain = Path.resolve('build_files', toolchainFile).replace(/\\/g, '/')
   const cmakeJs = 'node node_modules/cmake-js/bin/cmake-js'
   // Native env prefix, run from the sculptcore root (where configureEnv.mjs is).
   const env = 'node configureEnv.mjs'
@@ -966,7 +975,8 @@ yargs(hideBin(process.argv))
     } else {
       const stem = `${targetTest}.cc_out`
       const candidates = process.platform === 'win32' ? [stem + '.exe', stem] : [stem, stem + '.exe']
-      const dirs = ['build/native/tests', 'build/native/source/litestl/tests']
+      const nbuild = buildDir('native')
+      const dirs = [`${nbuild}/tests`, `${nbuild}/source/litestl/tests`]
       for (const dir of dirs) {
         for (const name of candidates) {
           const path = Path.join(dir, name)
