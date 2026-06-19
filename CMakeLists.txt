@@ -251,13 +251,14 @@ else()
 	  sculptcore_stage_runtime_dlls(sculptcore)
 	endif()
 
-	# --- Node / Electron N-API addon ----------------------------------------
+	# --- NW.js / Node N-API addon -------------------------------------------
 	# Built only when CMake is configured by cmake-js, which injects CMAKE_JS_*
-	# (headers, node.lib import lib, win delay-load hook) for the chosen runtime
-	# (--runtime electron). A plain `make.mjs configure native` never defines
-	# CMAKE_JS_VERSION, so this target is invisible to the normal native build;
-	# it's driven by `make.mjs node`. See documentation/plans/native-electron.md
-	# (Workstream A) and sculptcore/spike/napi/RESULTS.md.
+	# (headers, node import lib, win delay-load hook) for the chosen runtime
+	# (`make.mjs node` defaults to --runtime nw). A plain `make.mjs configure
+	# native` never defines CMAKE_JS_VERSION, so this target is invisible to the
+	# normal native build; it's driven by `make.mjs node`. See
+	# documentation/plans/native-electron.md (Workstream A) and
+	# sculptcore/spike/napi/RESULTS.md.
 	if (DEFINED CMAKE_JS_VERSION)
 	  # cmake-js puts "/DELAYLOAD:NODE.EXE" (link.exe syntax) in the global
 	  # CMAKE_SHARED_LINKER_FLAGS; the clang++ driver reads a bare "/DELAYLOAD:.."
@@ -268,7 +269,7 @@ else()
 	  # sculptcore_core pulls in initBindings() + getBindingManager() and links
 	  # every module lib transitively; ${LIB} is listed too to be explicit. The
 	  # raw C N-API entry is in source/napi/. ${CMAKE_JS_SRC} is the Windows
-	  # delay-load hook that rebinds node imports to the host (electron.exe).
+	  # delay-load hook that rebinds node.exe imports to the host (nw.exe).
 	  add_library(sculptcore_node MODULE
 	    source/napi/napi_entry.cc
 	    source/napi/napi_runtime.cc

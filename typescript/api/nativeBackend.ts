@@ -184,6 +184,7 @@ export function nativeBackendRequested(): boolean {
   // this tsconfig, so a bare `process` would be an undeclared name).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = globalThis as any
-  const insideElectron = !!g.process?.versions?.electron
-  return insideElectron && g.__SCULPTCORE_BACKEND === 'native'
+  // NW.js sets process.versions.nw; Electron sets process.versions.electron.
+  const insideDesktopShell = !!(g.process?.versions?.nw || g.process?.versions?.electron)
+  return insideDesktopShell && g.__SCULPTCORE_BACKEND === 'native'
 }

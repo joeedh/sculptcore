@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import Path from 'path'
 import fs from 'fs'
+import os from 'os'
 import child_process from 'child_process'
 import yargs from 'yargs'
 import {hideBin} from 'yargs/helpers'
@@ -287,10 +288,23 @@ function nativeToolchainFlag() {
 // normal build/native (default CRT) untouched. The clang↔Electron link was
 // de-risked in sculptcore/spike/napi/ (see RESULTS.md).
 
-// The electron/ app package lives one level above sculptcore/ (repo root).
+// The NW.js manifest is the repo-root package.json (one level above sculptcore/).
+// Its `nw` devDependency is pinned like "0.95.0-sdk"; we want the bare version.
+function readNwjsVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync('../package.json', 'utf-8'))
+    const v = pkg.devDependencies?.nw ?? pkg.dependencies?.nw ?? ''
+    const m = v.match(/\d+\.\d+\.\d+/)
+    if (m) return m[0]
+  } catch {
+    /* fall through to default */
+  }
+  return '0.95.0'
+}
+
 function readElectronVersion() {
   try {
-    const pkg = JSON.parse(fs.readFileSync('../electron/package.json', 'utf-8'))
+    const pkg = JSON.parse(fs.readFileSync('../package.json', 'utf-8'))
     const v = pkg.devDependencies?.electron ?? pkg.dependencies?.electron ?? ''
     const m = v.match(/\d+\.\d+\.\d+/)
     if (m) return m[0]
@@ -300,27 +314,35 @@ function readElectronVersion() {
   return '41.1.1'
 }
 
-// Resolve the Electron executable path (require('electron') returns it when
-// required outside Electron). cwd = the repo's electron/ app.
-function resolveElectronExe() {
+// Resolve a runtime's executable path. `require('electron')` returns its path
+// directly; the `nw` package instead exposes findpath() → the cached binary.
+// cwd = the repo root (where both deps resolve).
+function resolveRuntimeExe(runtime) {
+  const expr =
+    runtime === 'electron'
+      ? `require('electron')`
+      : `require('nw').findpath().then(p=>process.stdout.write(p),()=>process.exit(1))`
+  const cmd = runtime === 'electron' ? `node -p "${expr}"` : `node -e "${expr}"`
   try {
-    return child_process.execSync(`node -p "require('electron')"`, {cwd: '../electron', encoding: 'utf-8'}).trim()
+    const out = child_process.execSync(cmd, {cwd: '..', encoding: 'utf-8'}).trim()
+    return out || undefined
   } catch {
     return undefined
   }
 }
 
-async function buildNodeAddon(electronVersion, smoke) {
+async function buildNodeAddon(runtime, version, smoke) {
+  runtime = runtime === 'electron' ? 'electron' : 'nw'
   const dir = WITH_NATIVE_MSVC ? 'build/native-node-msvc' : 'build/native-node'
   ensureDir(dir)
-  const ev = electronVersion || readElectronVersion()
+  const ver = version || (runtime === 'electron' ? readElectronVersion() : readNwjsVersion())
   const toolchainFile = WITH_NATIVE_MSVC ? 'native-msvc.cmake' : 'native-clang.cmake'
   const toolchain = Path.resolve('build_files', toolchainFile).replace(/\\/g, '/')
   const cmakeJs = 'node node_modules/cmake-js/bin/cmake-js'
   // Native env prefix, run from the sculptcore root (where configureEnv.mjs is).
   const env = 'node configureEnv.mjs'
 
-  console.log(`Building Node addon for Electron ${ev} -> ${dir}/sculptcore_node.node`)
+  console.log(`Building Node addon for ${runtime} ${ver} -> ${dir}/sculptcore_node.node`)
 
   // Prebuilt OpenBLAS + SuiteSparse/CHOLMOD, same as `configure native`, so the
   // addon links the cholmod target instead of warning it off.
@@ -328,15 +350,15 @@ async function buildNodeAddon(electronVersion, smoke) {
   const depsDef = `--CDSCULPTCORE_DEPS_DIR=${depsDir.replace(/\\/g, '/')}`
 
   // cmake-js defaults to the static CRT (/MT); force the dynamic CRT so the
-  // addon matches Electron, the rest of the native tree, and the prebuilt
+  // addon matches the runtime, the rest of the native tree, and the prebuilt
   // /MD deps (mismatched CRTs surface as undefined dllimport CRT symbols).
   const crtDef = '--CDCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL'
 
-  // 1. Configure via cmake-js: downloads the Electron headers + node.lib and
+  // 1. Configure via cmake-js: downloads the runtime headers + import lib and
   //    injects CMAKE_JS_INC/LIB/SRC. Clang toolchain + Ninja, like the rest of
-  //    the native tree.
+  //    the native tree. `-r nw` targets the NW.js ABI; `-r electron` the Electron.
   run(
-    `${env} "${cmakeJs} configure -O ${dir} -G Ninja --CDWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} --CDCMAKE_TOOLCHAIN_FILE=${toolchain} ${depsDef} ${crtDef} -r electron -v ${ev} -a x64"`
+    `${env} "${cmakeJs} configure -O ${dir} -G Ninja --CDWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} --CDCMAKE_TOOLCHAIN_FILE=${toolchain} ${depsDef} ${crtDef} -r ${runtime} -v ${ver} -a x64"`
   )
 
   // 2. Build ONLY the addon target. Its static deps come along; the SHARED
@@ -352,12 +374,57 @@ async function buildNodeAddon(electronVersion, smoke) {
   console.log(`node: built ${out}`)
 
   if (smoke) {
-    const electronExe = resolveElectronExe()
-    if (!electronExe) {
-      process.stderr.write('node: --smoke needs electron installed under ../electron\n')
-      process.exit(1)
+    if (runtime === 'electron') {
+      // The shell is NW.js; --smoke is only wired for the nw runtime. The
+      // shared smoke body (source/napi/napi_smoke.cjs) is shell-agnostic if an
+      // Electron harness is ever reintroduced.
+      console.warn('node: --smoke is only wired for the nw runtime; skipping electron smoke')
+      return
     }
-    run(`"${electronExe}" source/napi/electron_smoke.cjs --no-sandbox`)
+    smokeNwjs(out)
+  }
+}
+
+// Smoke-load the freshly built .node under NW.js. NW.js has no main process, so
+// we drive the smoke from a hidden window: a generated temp app whose page
+// requires the addon + the shared napi_smoke body, runs it, writes the result
+// JSON, and quits. Then we read + report the result.
+function smokeNwjs(addonPath) {
+  const exe = resolveRuntimeExe('nw')
+  if (!exe) {
+    process.stderr.write('node: --smoke needs nw installed under ../nwjs (pnpm i)\n')
+    process.exit(1)
+  }
+
+  const tmp = fs.mkdtempSync(Path.join(os.tmpdir(), 'scsmoke-'))
+  const fwd = (p) => p.replace(/\\/g, '/')
+  const outPath = fwd(Path.join(tmp, 'smoke-result.json'))
+  const smokeBody = fwd(Path.resolve('source/napi/napi_smoke.cjs'))
+
+  fs.writeFileSync(
+    Path.join(tmp, 'package.json'),
+    JSON.stringify({name: 'scsmoke', main: 'smoke.html', window: {show: false}}, null, 2)
+  )
+  fs.writeFileSync(
+    Path.join(tmp, 'smoke.html'),
+    `<!doctype html><html><head><script>
+      const {runNapiSmoke} = require(${JSON.stringify(smokeBody)})
+      const addon = require(${JSON.stringify(fwd(addonPath))})
+      runNapiSmoke(addon, ${JSON.stringify(outPath)}, () => nw.App.quit())
+    </script></head><body></body></html>`
+  )
+
+  run(`"${exe}" "${fwd(tmp)}"`)
+
+  if (!fs.existsSync(outPath)) {
+    process.stderr.write(`node: --smoke produced no result at ${outPath}\n`)
+    process.exit(1)
+  }
+  const result = JSON.parse(fs.readFileSync(outPath, 'utf-8'))
+  console.log('node: smoke result', JSON.stringify(result, null, 2))
+  if (!result.ok) {
+    process.stderr.write('node: --smoke reported failure\n')
+    process.exit(1)
   }
 }
 
@@ -1058,21 +1125,27 @@ yargs(hideBin(process.argv))
   )
   .command(
     'node',
-    'Build the Node/Electron N-API addon (.node) via cmake-js + clang',
+    'Build the NW.js/Node N-API addon (.node) via cmake-js + clang',
     (y) =>
       y
-        .option('electron-version', {
+        .option('runtime', {
           type    : 'string',
-          describe: 'Electron version to target (default: read from ../electron/package.json)',
+          choices : ['nw', 'electron'],
+          default : 'nw',
+          describe: 'Target runtime ABI (nw default; electron kept as a fallback)',
+        })
+        .option('runtime-version', {
+          type    : 'string',
+          describe: 'Runtime version to target (default: read from ../nwjs/package.json)',
         })
         .option('smoke', {
           type    : 'boolean',
           default : false,
-          describe: 'After building, load the .node in Electron and call version()/bindingCount()',
+          describe: 'After building, load the .node under NW.js and run the napi smoke',
         }),
-    async ({electronVersion, smoke}) => {
+    async ({runtime, runtimeVersion, smoke}) => {
       await sbrushCodegen()
-      await buildNodeAddon(electronVersion, smoke)
+      await buildNodeAddon(runtime, runtimeVersion, smoke)
     }
   )
   .command('install-tools', 'Install host build tools (naga)', {}, () => {

@@ -1,23 +1,26 @@
-const {app} = require('electron')
-const path = require('path')
+/**
+ * Shell-agnostic N-API smoke body. The caller (an Electron main process or an
+ * NW.js window — both have a correct-ABI `require` for the .node) requires the
+ * built addon, then invokes runNapiSmoke() with it. We exercise the reflection
+ * surface, an array/scalar member round-trip, [Symbol.dispose], and a real
+ * native sculpt stroke, writing the result JSON to `outPath` and calling
+ * `done()` (which quits the host) at the end.
+ */
+'use strict'
 const fs = require('fs')
 
 const SCALARS = ['boolean', 'number']
 
-app.whenReady().then(() => {
+function runNapiSmoke(addon, outPath, done) {
   const result = {}
+  const flush = () => fs.writeFileSync(outPath, JSON.stringify(result, null, 2))
   try {
-    const addon = require(path.join(__dirname, '..', '..', 'build', 'native-node', 'sculptcore_node.node'))
     result.version = addon.version()
     result.bindingCount = addon.bindingCount()
 
-    // Workstream B reflection surface: construct() returns a live wrapped
-    // instance whose members are real JS accessors backed by the C++ object.
     const names = addon.structNames()
     result.structCount = names.length
 
-    // Pick a constructible struct that has a numeric inline-array member — this
-    // is what exercises the array-element accessor (the element[0] garbage bug).
     let pick = null
     for (const name of names) {
       const info = addon.structInfo(name)
@@ -39,7 +42,6 @@ app.whenReady().then(() => {
       for (let i = 0; i < len; i++) arr[i] = (i + 1) * 1.5
       const after = []
       for (let i = 0; i < len; i++) after.push(arr[i])
-      // The bug signature: element[0] reads back as garbage after a clean write.
       const expected = []
       for (let i = 0; i < len; i++) expected.push((i + 1) * 1.5)
       result.arrayRoundTrip = {
@@ -53,8 +55,6 @@ app.whenReady().then(() => {
       }
     }
 
-    // Also exercise a plain scalar member round-trip if one exists, on any
-    // constructible struct.
     for (const name of names) {
       const info = addon.structInfo(name)
       if (!info || !info.hasDefaultCtor) continue
@@ -69,10 +69,6 @@ app.whenReady().then(() => {
       break
     }
 
-    // [Symbol.dispose]() on a bound owning instance: present, callable, and
-    // idempotent (a second call is a safe no-op — the pointer was nulled).
-    // Mirrors the WASM bound-class dispose (destructor + free). Use a struct
-    // with a real destructor (MeshLog owns Vectors) when available.
     try {
       let firstCtor = null
       for (const name of ['sculptcore::meshlog::MeshLog']) {
@@ -107,7 +103,6 @@ app.whenReady().then(() => {
       result.dispose = {error: String((e && e.stack) || e)}
     }
 
-    // Native factory + free lifecycle (no leak / no crash on free).
     try {
       const mesh = addon.meshCreateCube(8, 1, 1)
       const cap = mesh.v && typeof mesh.v === 'object' ? mesh.v.capacity_ : undefined
@@ -118,10 +113,6 @@ app.whenReady().then(() => {
       // only the dirtied nodes' buffers — that's what makes the checksum move.
       const gpu = addon.construct('sculptcore::gpu::GPUManager')
 
-      // Native GPU bulk-data path: run the real frontend pipeline
-      // (tree.update(gpu) allocates + fills host vertex buffers C++-side), then
-      // read a buffer's bytes via pointerBytes + identity via objectAddress —
-      // exactly what gpuExecutor needs on the native backend.
       try {
         const updated = tree.update(gpu)
         const buffers = gpu.buffers
@@ -133,10 +124,9 @@ app.whenReady().then(() => {
           const size = buf.size | 0
           const elemsize = buf.elemsize | 0
           if (size <= 0 || elemsize <= 0) continue
-          // Position/normal attrs are float3 (FLOAT32). Request that many bytes.
           const bytes = size * elemsize * 4
           const addr = addon.objectAddress(buf)
-          const addr2 = addon.objectAddress(buf) // stability: same object -> same key
+          const addr2 = addon.objectAddress(buf)
           const view = addon.pointerBytes(buf, 'data', bytes)
           let nonzero = 0
           if (view) for (let k = 0; k < view.length; k++) if (view[k] !== 0) nonzero++
@@ -160,17 +150,10 @@ app.whenReady().then(() => {
         result.gpuBulkData = {error: String((e && e.stack) || e)}
       }
 
-      // Native sculpt-stroke primitives: constructWith (parameterized ctor with
-      // pointer args), enum + Vector* + by-value-float3 method args (execBrush),
-      // pointer-member set (exec.meshLog), and makeNodeVector (the filterNodes
-      // out-param). Proven by a DRAW dab actually moving a vertex.
       try {
-        // A native abort() (e.g. in a brush kernel) bypasses JS try/catch and
-        // kills the process before the final write — so flush a stage marker to
-        // disk after each risky call to pinpoint where a crash lands.
         const stage = (s) => {
           result.sculptStage = s
-          fs.writeFileSync(path.join(__dirname, 'smoke-result.json'), JSON.stringify(result, null, 2))
+          flush()
         }
         const f3 = (x, y, z) => {
           const v = addon.construct('litestl::math::float3')
@@ -179,9 +162,6 @@ app.whenReady().then(() => {
           v.vec[2] = z
           return v
         }
-        // Checksum of every populated GPU buffer's bytes — a vertex move shows up
-        // here once the dirtied nodes' buffers are regenerated by tree.update
-        // (reusing the same `gpu` manager from the bulk-data block above).
         const bufferChecksum = () => {
           tree.update(gpu)
           const buffers = gpu.buffers
@@ -219,7 +199,6 @@ app.whenReady().then(() => {
         const checksumBefore = bufferChecksum()
         stage('checksumBefore')
 
-        // Dab centered at a cube corner; radius 2 covers the unit cube.
         const center = f3(0.5, 0.5, 0.5)
         const nodes = addon.makeNodeVector()
         stage('makeNodeVector')
@@ -232,9 +211,6 @@ app.whenReady().then(() => {
         meshLog.endStep()
         stage('endStep')
 
-        // execBrush froze the mesh topology (DRAW needs no live links); thaw it
-        // (recalc_normals auto-thaws) before walking the tree again to regen GPU
-        // buffers, mirroring the app's post-stroke teardown.
         mesh.recalc_normals()
         stage('thaw')
         const checksumAfter = bufferChecksum()
@@ -264,6 +240,8 @@ app.whenReady().then(() => {
     result.ok = false
   }
 
-  fs.writeFileSync(path.join(__dirname, 'smoke-result.json'), JSON.stringify(result, null, 2))
-  app.quit()
-})
+  flush()
+  if (done) done()
+}
+
+module.exports = {runNapiSmoke}

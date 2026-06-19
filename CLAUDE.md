@@ -28,7 +28,7 @@ node make.mjs configure [wasm|native]  # default wasm
 node make.mjs build     [wasm|native]
 node make.mjs test      [testName]     # no arg: ctest in build/native; arg: run that one test binary
 node make.mjs clean     [wasm|native]  # ninja clean
-node make.mjs node      [--smoke]      # build the Node/Electron N-API addon (.node)
+node make.mjs node      [--smoke]      # build the NW.js/Node N-API addon (.node)
 ```
 
 Notes:
@@ -41,15 +41,17 @@ Notes:
 - A global `-j` / `--jobs <n>` flag caps `cmake --build` parallelism (passed as
   `--parallel <n>`); omit it to use all cores. Lower it (e.g. `-j 2`) when clang
   OOMs on the heavy template translation units.
-- `node make.mjs node` builds `sculptcore_node.node` for the Electron ABI:
-  cmake-js downloads the Electron headers + `node.lib` and injects `CMAKE_JS_*`
+- `node make.mjs node` builds `sculptcore_node.node` for the **NW.js** ABI
+  (default `--runtime nw`; `--runtime electron` kept as a fallback): cmake-js
+  downloads the runtime headers + import lib (`-r nw`) and injects `CMAKE_JS_*`
   during configure, then the addon target (root `CMakeLists.txt`, gated on
   `DEFINED CMAKE_JS_VERSION`) is built with the clang toolchain. The entry is
-  `source/napi/napi_entry.cc` (raw C N-API). `--smoke` loads the result in
-  Electron and calls `version()`/`bindingCount()`. Electron version is read from
-  `../electron/package.json` (override with `--electron-version`). This is the
-  native-addon path from `documentation/plans/native-electron.md`; the
-  clang↔Electron link was de-risked in `spike/napi/` (`RESULTS.md`).
+  `source/napi/napi_entry.cc` (raw C N-API). `--smoke` loads the result in a
+  hidden NW.js window (via the shared `source/napi/napi_smoke.cjs` body) and
+  checks `version()`/`bindingCount()` + a sculpt stroke. The runtime version is
+  read from `../nwjs/package.json` (override with `--runtime-version`). This is
+  the native-addon path from `documentation/plans/native-electron.md`; the
+  clang↔runtime link was de-risked in `spike/napi/` (`RESULTS.md`).
 - WASM configure runs `emcmake cmake .. -G Ninja -DBUILD_WASM=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`;
   native configure runs `cmake ../.. -G Ninja --toolchain ../../build_files/native-clang.cmake`
   (clang is the required toolchain everywhere). The generator (`-G`) and build

@@ -191,10 +191,13 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
 let wasmPromise: Promise<IWasmInterface> | undefined = undefined
 let wasm: IWasmInterface | undefined
 
-// Electron's renderer (nodeIntegration) exposes `process`, but it's a browser
-// context with fetch/DOM and must use the browser wasm build, not the Node one.
-const insideElectron = typeof process !== 'undefined' && !!process?.versions?.electron
-const insideNode = typeof process !== 'undefined' && typeof process?.platform !== 'undefined' && !insideElectron
+// A desktop shell (NW.js / Electron) exposes `process`, but its renderer is a
+// browser context with fetch/DOM and must use the browser wasm build, not the
+// Node one. NW.js sets process.versions.nw, Electron sets process.versions.electron.
+const insideDesktopShell =
+  typeof process !== 'undefined' && !!(process?.versions?.nw || process?.versions?.electron)
+const insideNode =
+  typeof process !== 'undefined' && typeof process?.platform !== 'undefined' && !insideDesktopShell
 
 class cachering<T> extends Array<T> {
   cur = 0
