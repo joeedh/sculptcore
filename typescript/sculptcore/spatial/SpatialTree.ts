@@ -28,7 +28,7 @@ export interface SpatialTree {
   depth_limit: int32
   gpu_tri_target: int32
   setup(): void
-  add_face(face: int32): void
+  add_face(face: int32, searchNode: boolean): void
   split_node(node: SpatialNode): void
   node_from_id(id: int32): SpatialNode | undefined
   leaves(): SpatialNode[]

@@ -1140,7 +1140,7 @@ void SpatialTree::buildAll()
   }
 
   for (int i = 0; i < n; i++) {
-    add_face(faces[i]);
+    add_face(faces[i], false);
   }
 
   /* regen_node_bounds derives leaf AABBs from each node's tris (read via the
@@ -1150,8 +1150,21 @@ void SpatialTree::buildAll()
       ensure_node_tris(node);
     }
   }
-
+  
   regen_node_bounds(root, true);
+
+  // balance
+  for (SpatialNode *node : nodes) {
+    mergeCandidates_.add(node->id);
+  }
+  applyDeferredMerge();
+  regen_node_bounds(root, true);
+
+  for (SpatialNode *node : nodes) {
+    if (node->flag & Spatial_Leaf) {
+      ensure_node_tris(node);
+    }
+  }
 }
 
 namespace {
@@ -1407,7 +1420,7 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 }
 
 sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr,
-                                                       bool includePolyGroup)
+                                                        bool includePolyGroup)
 {
   using namespace sculptcore::gpu;
 

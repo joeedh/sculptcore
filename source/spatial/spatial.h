@@ -12,8 +12,10 @@
 #include "mesh/mesh_proxy.h"
 #include "mesh/utils/triangulate.h"
 
+#include "napi/napi_log.h"
 #include "spatial_attrs.h"
 #include "spatial_enums.h"
+
 
 #include "gpu/batch.h"
 #include "gpu/gpu_attr_request.h"
@@ -383,7 +385,7 @@ struct SpatialTree {
     treeMesh.v.node[v] = 0;
   }
 
-  void add_face(int f)
+  void add_face(int f, bool search_node = true)
   {
     mesh::FaceProxy face(m, f);
 
@@ -393,7 +395,8 @@ struct SpatialTree {
     /* Incremental (dyntopo) fast path: pin the new face to a neighbour's leaf in
      * O(1) and defer the split. The build path (no owned neighbour yet) falls
      * back to the root→leaf centroid descent. */
-    if (SpatialNode *anchor = find_anchor_leaf(face)) {
+    SpatialNode *anchor = nullptr;
+    if (search_node && (anchor = find_anchor_leaf(face))) {
       add_face_at(anchor, f);
       return;
     }
@@ -411,7 +414,31 @@ struct SpatialTree {
     util::Vector<Tri, 16> tris;
     if (triangulateFace(*m, f, tris)) {
       std::span<Tri> tris_span = tris;
-      add_face_intern(root, f, tris_span, fcent);
+
+      bool ok = true;
+      double area = 0.0;
+
+      for (auto tri : tris_span) {
+        auto &co1 = m->v.co[tri.v[0]];
+        auto &co2 = m->v.co[tri.v[1]];
+        auto &co3 = m->v.co[tri.v[2]];
+        double area2 = math::triArea(co1, co2, co3);
+        if (isnan(area2) || !isfinite(area2)) {
+          ok = false;
+          sc_napi_logf("got a nan face at %d\n", f);
+          break;
+        }
+        area += area2;
+      }
+
+      // XXX magic number
+      if (area < 0.0000001) {
+        sc_napi_logf("got a zero or near zero area face at %d, area=%lf\n", f, area);
+        ok = false;
+      }
+      if (ok) {
+        add_face_intern(root, f, tris_span, fcent);
+      }
     } else {
       printf("failed to triangulate face %d\n", f);
     }

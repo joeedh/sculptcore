@@ -41,7 +41,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_MEMBER(st, gpu_tri_target);
 
   BIND_STRUCT_METHOD(st, setup, MARGS());
-  BIND_STRUCT_METHOD(st, add_face, MARGS("face"));
+  BIND_STRUCT_METHOD(st, add_face, MARGS("face", "searchNode"));
   BIND_STRUCT_METHOD(st, split_node, MARGS("node"));
   BIND_STRUCT_METHOD(st, node_from_id, MARGS("id"));
   BIND_STRUCT_METHOD(st, leaves, MARGS());
