@@ -250,6 +250,11 @@ template <typename CTX> struct BrushCommandDef {
   // @paint), which are eligible for non-accumulate mode. See
   // plans/nonAccumMode.md.
   bool accumulable = false;
+  // Set by the executor (not codegen) for grab-class brushes (grab / kelvinlet):
+  // they always deform from the stroke-start position with the AccumOrigAbsolute
+  // policy + a fixed region, independent of the ACCUMULATE flag (#35). Drives the
+  // `.brush.orig.*` stamp even when `accumulable` is false (kelvinlet is @global).
+  bool grabMode = false;
   // Attribute layers this kernel reads/writes, emitted by codegen. The executor
   // resolves these to live mesh layers and binds them before the per-node loop.
   Vector<BrushAttrManifestEntry> attrs;

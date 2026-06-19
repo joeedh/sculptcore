@@ -179,6 +179,12 @@ struct CommandExecutor {
   // position into `.brush.orig.*` (keyed by `strokeGen`) and runs the AccumOrig
   // kernel instantiation so deformation is measured from that snapshot.
   bool nonAccum = false;
+  // Grab-class symmetry write-back select (#35). The dab dispatch sets this per
+  // symmetry image before applyDab: false on the primary pass (AccumOrigAbsolute,
+  // re-bases every touched vert from orig), true on mirror passes (AccumOrigAdd,
+  // sums their displacement onto the re-based primary so shared verts get
+  // orig + Σ disp_i). Ignored for non-grab brushes.
+  bool grabAccumAdd = false;
   uint32_t strokeGen = 0;
   meshlog::MeshLog *meshLog = nullptr;
   /* Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
@@ -230,6 +236,7 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
     BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
+    BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
     BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
     BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
@@ -270,6 +277,13 @@ struct CommandExecutor {
   void setNonAccum(bool v)
   {
     nonAccum = v;
+  }
+
+  // Select the grab-class symmetry write-back for the upcoming dab/image (#35):
+  // false = primary pass (re-base from orig), true = mirror pass (add onto it).
+  void setGrabAccumAdd(bool v)
+  {
+    grabAccumAdd = v;
   }
   void setStrokeGen(int gen)
   {
@@ -370,11 +384,34 @@ struct CommandExecutor {
     }
   }
 
+  // Grab-class brushes (grab / kelvinlet) deform a fixed region from the
+  // stroke-start position; they always use the from-original policy regardless
+  // of the ACCUMULATE flag. Snakehook is intentionally excluded (its per-dab
+  // drag-plus-gather IS the desired behavior). #35.
+  static bool isGrabBrush(SculptBrushes brushType)
+  {
+    return brushType == SculptBrushes::GRAB || brushType == SculptBrushes::KELVINLET;
+  }
+
   brush_command createCommand(SculptBrushes brushType)
   {
     brush_command def;
     createCommandImpl<AccumLive>(brushType, def);
-    if (nonAccum && def.accumulable) {
+    if (isGrabBrush(brushType)) {
+      // Always deform from each vert's stroke-start position, so the region is
+      // fixed at stroke start and the grab follows the cursor (#35). The primary
+      // symmetry pass re-bases every touched vert from orig (AccumOrigAbsolute);
+      // mirror passes add their displacement onto that (AccumOrigAdd) so shared
+      // verts get orig + Σ disp_i instead of the last pass overwriting. Forced
+      // on regardless of the ACCUMULATE flag / @global (kelvinlet is @global →
+      // not `accumulable`). The op sets grabAccumAdd per symmetry image.
+      def.grabMode = true;
+      if (grabAccumAdd) {
+        createCommandImpl<AccumOrigAdd>(brushType, def);
+      } else {
+        createCommandImpl<AccumOrigAbsolute>(brushType, def);
+      }
+    } else if (nonAccum && def.accumulable) {
       createCommandImpl<AccumOrig>(brushType, def);
     }
     return def;
@@ -534,7 +571,10 @@ struct CommandExecutor {
     ctx.origCo = nullptr;
     ctx.origGen = nullptr;
     ctx.strokeGen = 0;
-    if (nonAccum && cmd.accumulable && nodes.size() > 0) {
+    // Grab-class brushes always need the orig snapshot (cmd.grabMode), even when
+    // not `accumulable` (kelvinlet is @global) and regardless of the ACCUMULATE
+    // flag — they deform from it via AccumOrigAbsolute (#35).
+    if ((cmd.grabMode || (nonAccum && cmd.accumulable)) && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
       // TEMP + NOCOPY: stroke-transient, not undoable. NOCOPY keeps the meshlog
       // from snapshotting these during a logged dyntopo step — their pages are
@@ -1177,6 +1217,10 @@ struct CommandExecutor {
     if (params) {
       topoApplied = applyDynTopoDab(center, radius, params, seed);
     }
+    // `radius` here is the node-filter radius only (the falloff uses
+    // brush->radius). Grab-class strokes pass a radius widened by the cumulative
+    // drag so the deformed region's leaves stay in the set and can't shrink +
+    // tear at leaf seams (#35); the caller (the dab dispatch) does the widening.
     Vector<spatial::SpatialNode *> nodes;
     tree->filterNodes(center, radius, nodes);
     if (nodes.size() > 0) {
@@ -1206,6 +1250,8 @@ struct CommandExecutor {
     if (params) {
       topoApplied = applyDynTopoDab(center, radius, params, seed);
     }
+    // `radius` is the node-filter radius only (caller widens it for grab-class
+    // strokes; see the BrushProgram overload). #35
     Vector<spatial::SpatialNode *> nodes;
     tree->filterNodes(center, radius, nodes);
     if (nodes.size() > 0) {

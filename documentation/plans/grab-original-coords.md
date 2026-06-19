@@ -135,5 +135,43 @@ and the dab-center query in the dispatch. Higher risk — touches the hot path.
 
 ## Status
 
-Not started — design only. Phase 1 is the core behavior and is self-contained to
-the brush layer; Phase 2 is the ray-cast refinement and touches dyntopo/spatial.
+**Phase 1 DONE + verified (native backend, Electron).** Grab + kelvinlet now
+deform a region fixed at stroke start, from each vert's `.brush.orig.co`, pulling
+toward the cumulative drag.
+
+Implementation:
+
+- `accum_mode.h`: added an `AccumKind` enum {Live, Layer, Absolute, Add} and two
+  from-original policies — `AccumOrigAbsolute` (write `live = want`, recompute the
+  absolute position from orig each dab → follows the cursor) and `AccumOrigAdd`
+  (write `live += want − base`, add this image's displacement-from-orig). The
+  shared `OrigNbrBase` factors the neighbor lookup. `CoProxy::commit` dispatches
+  on `AccMode::kind` (Layer keeps the capped accumulation; Absolute/Live write
+  directly; Add sums).
+- `brush_executor.h`: `createCommand` selects `AccumOrigAbsolute` for the primary
+  symmetry pass and `AccumOrigAdd` for mirror passes, keyed by a new
+  `grabAccumAdd` executor flag (bound setter `setGrabAccumAdd`). `grabMode` drives
+  the `.brush.orig.*` stamp for grab-class regardless of `accumulable`/`@global`.
+- `sculptcore_ops.ts` (`applyDabOne` + `runSculptcoreStroke`): grabFrom = fixed
+  anchor, grabTo = **cumulative** drag (q − anchor), dab centered on the anchor,
+  node filter widened by the cumulative drag, off-mesh continuation in the anchor
+  plane, and `setGrabAccumAdd(mirrorIdx > 0)` per symmetry image.
+
+Why primary-reset / mirror-add (the crux): plain `AccumOrigAbsolute` on every pass
+makes each symmetry pass **overwrite** shared verts (only the mirror side shows);
+plain Layer accumulation caps a grab to ~one dab-step (no deformation). Resetting
+on the primary pass and adding on mirror passes gives shared verts `orig + Σ disp_i`.
+
+Verification (`_testSculptcoreStroke`, native, reading C++ positions via
+`dumpVertCo`): single-image kelvinlet grab moves a broad ~900-vert region by
+strength×cumulative-drag in the drag direction, no NaN; X-mirror grab moves +X and
+−X **identically** (926 verts each, equal avg displacement, no cross-dab drift);
+an on-plane apex grab with X-mirror moves 1.29× the single-image amount (the Add
+pass sums, doesn't overwrite). Snakehook is unchanged (excluded from grab-class).
+
+Follow-up: the WGSL write-back (`emit_wgsl.cc`) still mirrors only the Layer kind,
+so the GPU dispatch of grab/kelvinlet would not match Absolute/Add — fine today
+(the live LiteMesh sculpt grab runs on the CPU executor), but needed if grab ever
+moves to the GPU path.
+
+Phase 2 (per-node original AABB + dyntopo maintenance + `castRayOrig`) unchanged.
