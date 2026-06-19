@@ -126,8 +126,8 @@ export class NativeManager {
   Mesh_makeUVSphere(rings: number, segs: number, radius: number): NativeBound {
     return this.addon.meshMakeUVSphere(rings, segs, radius)
   }
-  Mesh_buildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number): NativeBound {
-    return this.addon.meshBuildSpatialTree(mesh, leafLimit, depthLimit)
+  Mesh_buildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number, gpuTriTarget: number): NativeBound {
+    return this.addon.meshBuildSpatialTree(mesh, leafLimit, depthLimit, gpuTriTarget)
   }
   SpatialTree_free(tree: NativeBound): void {
     this.addon.spatialTreeFree(tree)
@@ -261,7 +261,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
     Mesh_createCube                  : (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
     Mesh_makeUVSphere                : (r: number, s: number, rad: number) => nm.Mesh_makeUVSphere(r, s, rad),
-    Mesh_buildSpatialTree            : (m: NativeBound, l: number, dp: number) => nm.Mesh_buildSpatialTree(m, l, dp),
+    Mesh_buildSpatialTree            : (m: NativeBound, l: number, dp: number, t: number) => nm.Mesh_buildSpatialTree(m, l, dp, t),
     SpatialTree_free                 : (t: NativeBound) => nm.SpatialTree_free(t),
     Mesh_free                        : (m: NativeBound) => nm.Mesh_free(m),
     Mesh_triangulate                 : (m: NativeBound) => nm.Mesh_triangulate(m),

@@ -111,7 +111,7 @@ app.whenReady().then(() => {
     try {
       const mesh = addon.meshCreateCube(8, 1, 1)
       const cap = mesh.v && typeof mesh.v === 'object' ? mesh.v.capacity_ : undefined
-      const tree = addon.meshBuildSpatialTree(mesh, 0, 0)
+      const tree = addon.meshBuildSpatialTree(mesh, 0, 0, 0)
       // One GPUManager shared by both the bulk-data read and the sculpt-stroke
       // verification: the tree fills buffers for the manager that owns the
       // update, so re-updating after a dab (with the SAME manager) regenerates

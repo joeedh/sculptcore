@@ -23,7 +23,7 @@ interface IWasmMethods extends IWasmBase {
    * primitive the quad-remesh parity test drives. */
   Mesh_makeUVSphere(rings: int, segs: int, radius: number): Mesh
   /** build a coarse BVH over `mesh`'s faces; pass leafLimit<=0 to keep the default. */
-  Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int): SpatialTree
+  Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int, gpuTriTarget: int): SpatialTree
   SpatialTree_free(tree: SpatialTree): void
   getSpatialShaders(): pointer
 
@@ -301,9 +301,9 @@ export async function loadWasm(): Promise<IWasmInterface> {
       const ptr = _wasm.Mesh_makeUVSphere(rings, segs, radius) as unknown as number
       return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
     },
-    Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int) {
+    Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int, gpuTriTarget: int) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
-      const ptr = _wasm.Mesh_buildSpatialTree(meshPtr as unknown as Mesh, leafLimit, depthLimit) as unknown as number
+      const ptr = _wasm.Mesh_buildSpatialTree(meshPtr as unknown as Mesh, leafLimit, depthLimit, gpuTriTarget) as unknown as number
       return manager.getBoundPointer('sculptcore::spatial::SpatialTree', ptr) as SpatialTree
     },
     SpatialTree_free(tree: SpatialTree) {

@@ -1,25 +1,37 @@
+#include "gpu/gpu_attr_request.h"
+#include "gpu/types.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/mesh.h"
-#include "gpu/gpu_attr_request.h"
-#include "gpu/types.h"
 #include "spatial/shaders/spatial_shaders.h"
 #include "spatial/spatial.h"
 
+
 #include <string>
+
+#include "napi/napi_log.h"
 
 using namespace sculptcore;
 
 extern "C" {
 
-spatial::SpatialTree *Mesh_buildSpatialTree(mesh::Mesh *m, int leafLimit, int depthLimit)
+spatial::SpatialTree *
+Mesh_buildSpatialTree(mesh::Mesh *m, int leafLimit, int depthLimit, int gpuTriTarget)
 {
   spatial::SpatialTree *t = litestl::alloc::New<spatial::SpatialTree>("SpatialTree", m);
+  sc_napi_logf("Mesh_buildSpatialTree: leafLimit=%d depthLimit=%d gpuTriTarget=%d",
+               leafLimit,
+               depthLimit,
+               gpuTriTarget);
+
   if (leafLimit > 0) {
     t->leaf_limit = leafLimit;
   }
   if (depthLimit > 0) {
     t->depth_limit = depthLimit;
+  }
+  if (gpuTriTarget > 0) {
+    t->gpu_tri_target = gpuTriTarget;
   }
   t->buildAll();
   return t;

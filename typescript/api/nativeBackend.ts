@@ -71,7 +71,7 @@ export interface NativeAddon {
   meshCreateCube(dimen: number, size: number, sphereFac: number): NativeBound
   /** UV-sphere primitive (poles are the only singularities) — the remesh-friendly host test mesh. */
   meshMakeUVSphere(rings: number, segs: number, radius: number): NativeBound
-  meshBuildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number): NativeBound
+  meshBuildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number, gpuTriTarget: number): NativeBound
   spatialTreeFree(tree: NativeBound): void
   /** Free a Mesh created by meshCreateCube. Nulls the wrapper's pointer. */
   meshFree(mesh: NativeBound): void
