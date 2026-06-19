@@ -2011,6 +2011,62 @@ napi_value NapiRuntime::FormatBlocks(napi_env env, napi_callback_info info)
   return out;
 }
 
+// testPrint(msg?) -> void. Writes the (optional) message to the process stdout
+// directly from C++ (not the console.log sink) and flushes, so a headless test
+// can assert whether native-side stdout reaches the launched NW.js process's
+// captured output. Defaults to a fixed marker when called with no argument.
+napi_value NapiRuntime::TestPrint(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+
+  std::string msg = "[sculptcore::testPrint] native stdout OK";
+  if (argc >= 1) {
+    napi_valuetype t = napi_undefined;
+    napi_typeof(env, argv[0], &t);
+    if (t == napi_string) {
+      size_t len = 0;
+      napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+      std::vector<char> buf(len + 1, 0);
+      napi_get_value_string_utf8(env, argv[0], buf.data(), len + 1, &len);
+      msg.assign(buf.data(), len);
+    }
+  }
+
+  std::fputs(msg.c_str(), stdout);
+  std::fputc('\n', stdout);
+  std::fflush(stdout);
+  return undef;
+}
+
+// redirectStdout(path) -> boolean. freopen()s the C stdout stream onto `path`
+// (unbuffered). The NW.js renderer starts with fd 0/1/2 closed (EBADF), so a
+// plain printf is written to a dead fd and lost; pointing stdout at a launcher-
+// supplied file gives later TestPrint output a real destination the wrapper
+// reads back — the standard Windows GUI-subsystem stdout workaround.
+napi_value NapiRuntime::RedirectStdout(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  bool ok = false;
+  if (argc >= 1) {
+    size_t len = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len);
+    std::vector<char> buf(len + 1, 0);
+    napi_get_value_string_utf8(env, argv[0], buf.data(), len + 1, &len);
+    FILE *f = std::freopen(buf.data(), "w", stdout);
+    if (f) {
+      std::setvbuf(stdout, nullptr, _IONBF, 0);
+      ok = true;
+    }
+  }
+  napi_get_boolean(env, ok, &out);
+  return out;
+}
+
 void NapiRuntime::define(napi_value exports, const char *name, napi_callback cb)
 {
   napi_value fn;
@@ -2073,6 +2129,8 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "printAllocBlocks", &NapiRuntime::PrintAllocBlocks);
   define(exports, "formatBlock", &NapiRuntime::FormatBlock);
   define(exports, "formatBlocks", &NapiRuntime::FormatBlocks);
+  define(exports, "testPrint", &NapiRuntime::TestPrint);
+  define(exports, "redirectStdout", &NapiRuntime::RedirectStdout);
 }
 
 } // namespace sculptcore::napi

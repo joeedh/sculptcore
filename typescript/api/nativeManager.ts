@@ -218,6 +218,14 @@ export class NativeManager {
   LSTL_FormatBlock(bound: NativeBound): string {
     return this.addon.formatBlock(bound)
   }
+  /** Write a message to the process stdout from C++ (native-stdout smoke test). */
+  testPrint(msg?: string): void {
+    this.addon.testPrint(msg)
+  }
+  /** Redirect the C stdout stream onto `path` (Windows GUI-subsystem workaround). */
+  redirectStdout(path: string): boolean {
+    return this.addon.redirectStdout(path)
+  }
   float3(co: ArrayLike<number>): NativeBound {
     const v = this.f3ring.next() as {vec: number[]}
     const vec = v.vec // capture the array wrapper once (one wrapper, not three)
@@ -279,6 +287,8 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     LSTL_PrintAllocBlocks            : (p: boolean) => nm.LSTL_PrintAllocBlocks(p),
     LSTL_FormatBlocks                : (p: boolean) => nm.LSTL_FormatBlocks(p),
     LSTL_FormatBlock                 : (b: NativeBound) => nm.LSTL_FormatBlock(b),
+    testPrint                        : (msg?: string) => nm.testPrint(msg),
+    redirectStdout                   : (path: string) => nm.redirectStdout(path),
     float2                           : (c: ArrayLike<number>) => nm.float2(c),
     float3                           : (c: ArrayLike<number>) => nm.float3(c),
     /** marker so callers/tests can confirm the native backend is active. */

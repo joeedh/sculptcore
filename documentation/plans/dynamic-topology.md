@@ -279,8 +279,8 @@ the setup-script-plus-`--interactive` handoff already documented suffices.
   inspection (`tools/gdb/sculptcore.py`, `sc-break-bad-topo`).
 - A **binary wire protocol** — JSONL is deterministic, diffable, and
   human-readable; binary buys nothing at these data rates.
-- Reusing the **Electron CDP / chrome-devtools-mcp** path — that debugs the JS
-  app, not the native `debug_app`; the stdin REPL is the native analog.
+- Reusing the **NW.js CDP** path (`nwjs/cdp.mjs`) — that debugs the JS app, not
+  the native `debug_app`; the stdin REPL is the native analog.
 
 ---
 

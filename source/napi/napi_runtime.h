@@ -150,6 +150,15 @@ class NapiRuntime {
   // formatBlocks(printPermanent) -> string describing every live block (same
   // heap-string pair as formatBlock).
   static napi_value FormatBlocks(napi_env, napi_callback_info);
+  // testPrint(msg?) -> void. Writes msg (default a fixed marker) straight to the
+  // process stdout (fd 1) from C++ — the smoke test for whether native-side
+  // stdout reaches the launched NW.js process's captured output.
+  static napi_value TestPrint(napi_env, napi_callback_info);
+  // redirectStdout(path) -> boolean. freopen()s the C stdout stream onto `path`.
+  // In the NW.js renderer fd 0/1/2 are closed (EBADF), so a bare printf vanishes;
+  // this gives stdout a real (unbuffered) fd the launcher can read back, the
+  // standard Windows GUI-subsystem stdout workaround.
+  static napi_value RedirectStdout(napi_env, napi_callback_info);
 
   void define(napi_value exports, const char *name, napi_callback cb);
 };

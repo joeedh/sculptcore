@@ -135,6 +135,20 @@ export interface NativeAddon {
   formatBlock(bound: NativeBound): string
   /** A string describing every live allocation block. */
   formatBlocks(printPermanent: boolean): string
+  /**
+   * Write a message straight to the process stdout (fd 1) from C++ — the smoke
+   * test for whether native-side stdout reaches the launched NW.js process's
+   * captured output. Defaults to a fixed marker when called with no argument.
+   */
+  testPrint(msg?: string): void
+  /**
+   * freopen() the C stdout stream onto `path` and return whether it succeeded.
+   * The NW.js renderer starts with fd 0/1/2 closed (EBADF), so a bare
+   * `testPrint` printf is lost; redirecting stdout to a launcher-supplied file
+   * first gives it a real destination the wrapper reads back (the Windows
+   * GUI-subsystem stdout workaround).
+   */
+  redirectStdout(path: string): boolean
 }
 
 // Candidate locations for the built addon, relative to common runtime cwds.
