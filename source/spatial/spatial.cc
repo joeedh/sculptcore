@@ -212,9 +212,9 @@ void SpatialTree::setRequestedAttrs(const util::Vector<gpu::RequestedAttr> &reqs
 
 void SpatialTree::setDrawShader(const char *wgsl)
 {
-  /* Empty WGSL reverts to the built-in basic mesh shader (drawShaderReady=false),
-   * NOT a degenerate empty material shader. Used when the viewport leaves
-   * rendered mode (SHOW_RENDER off) so the solid draw works again (#1). */
+  // Empty WGSL reverts to the built-in basic mesh shader (drawShaderReady=false),
+  // NOT a degenerate empty material shader. Used when the viewport leaves
+  // rendered mode (SHOW_RENDER off) so the solid draw works again (#1).
   if (!wgsl || wgsl[0] == '\0') {
     drawShaderReady = false;
     if (drawBatch) {

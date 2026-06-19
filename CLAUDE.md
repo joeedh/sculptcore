@@ -424,5 +424,8 @@ scaffolding). The C++-specific additions:
   leading `*` on its continuation lines. Entries in `approvedLongComments.md` are
   exempt from the length limit and the per-file budget — don't flag or shorten
   them in a later audit.
-- **Doc comments** keep their usual style (`/** … */` / `///`) and are not
-  subject to the length limit, but stay concise.
+- **Doc comments must use the `/** … */` form** — the block comment that
+  documents the signature directly below it (file header, function, method,
+  struct/class). Use `/** … */` rather than a `///` run or a plain `//` block,
+  so doc comments are visually distinct from non-doc `//` comments. They are not
+  subject to the 3-line length limit, but stay concise.

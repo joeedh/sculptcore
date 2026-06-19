@@ -311,7 +311,7 @@ struct Mesh : public MeshBase {
   int edgeFlagKind(int e, int kind);
   void setEdgeFlagKind(int e, int kind, int state);
 
-  /* Set EDGE_SHARP = `state` on every manifold edge whose dihedral angle (the
+  /** Set EDGE_SHARP = `state` on every manifold edge whose dihedral angle (the
    * angle between its two face normals) exceeds `angle` radians. Additive — edges
    * at or below the threshold are left untouched. Returns the number of edges
    * changed. Defined in mesh.cc. */
@@ -489,7 +489,7 @@ struct Mesh : public MeshBase {
   void kill_edge(int e, MeshCallbacks *cb = nullptr);
   void kill_face(int f, MeshCallbacks *cb = nullptr);
 
-  /* Validate the mesh data structure (edge vert refs, vertex disk cycles, edge
+  /** Validate the mesh data structure (edge vert refs, vertex disk cycles, edge
    * radial cycles, face corner loops) and repair what it can: kill unrepairable
    * faces/edges, then rebuild every disk cycle from the (authoritative) edge
    * endpoints and every radial cycle + corner edge from the face corners. Logs
@@ -497,13 +497,13 @@ struct Mesh : public MeshBase {
    * Returns the number of problems found. Defined in mesh.cc. */
   int validateAndRepair(const std::function<void(const char *)> &log = {});
 
-  /* Per-error repair-log lines from validateAndRepair (also echoed to stderr).
+  /** Per-error repair-log lines from validateAndRepair (also echoed to stderr).
    * Not part of the mesh's serialized state; the app reads the count as a
    * "repair happened" signal (e.g. LiteMesh load). */
   std::vector<std::string> repairLog;
   int repairLogCount() const { return int(repairLog.size()); }
   void clearRepairLog() { repairLog.clear(); }
-  /* App-facing no-arg entry to validateAndRepair (logs to stderr + repairLog).
+  /** App-facing no-arg entry to validateAndRepair (logs to stderr + repairLog).
    * Cheap on a healthy mesh — returns 0 without rebuilding. Called on load so a
    * corrupt file is fixed before the spatial tree / any op sees it (#37). */
   int repairMesh() { return validateAndRepair(); }
