@@ -189,6 +189,19 @@ Changes here ripple to both the Embind bindings and any generated TS —
 touch with care and prefer additive changes. `source/spatial/c-api/`
 follows the same convention for spatial-tree construction.
 
+## Mesh validate / repair
+
+`Mesh::validateAndRepair()` (`source/mesh/mesh.cc`) checks the topology
+(edge-vert refs, face corner loops, disk + radial cycles) and repairs what it
+can: it kills unrepairable faces/edges, then rebuilds every disk cycle from the
+authoritative edge endpoints and every radial cycle from the face corners. It is
+**cheap on a healthy mesh** — the checks are read-only and it early-returns
+`0` (no rebuild) when nothing is wrong — so it is safe to call eagerly.
+`Mesh::repairMesh()` is the bound, no-arg entry (reflected for JS); the LiteMesh
+calls it on load (`litemesh.ts` `loadSTRUCT`) to fix structural corruption baked
+into a saved file before the spatial tree is built. Per-error detail goes to
+stderr + the `repairLog` vector; the return value is the problem count.
+
 ## Binding registration
 
 Module-level reflection registration lives in each module's
@@ -420,5 +433,8 @@ scaffolding). The C++-specific additions:
   leading `*` on its continuation lines. Entries in `approvedLongComments.md` are
   exempt from the length limit and the per-file budget — don't flag or shorten
   them in a later audit.
-- **Doc comments** keep their usual style (`/** … */` / `///`) and are not
-  subject to the length limit, but stay concise.
+- **Doc comments must use the `/** … */` form** — the block comment that
+  documents the signature directly below it (file header, function, method,
+  struct/class). Use `/** … */` rather than a `///` run or a plain `//` block,
+  so doc comments are visually distinct from non-doc `//` comments. They are not
+  subject to the 3-line length limit, but stay concise.

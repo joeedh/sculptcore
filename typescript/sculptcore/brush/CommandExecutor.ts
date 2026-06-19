@@ -66,6 +66,7 @@ export interface CommandExecutor {
   clearIsFirstOfStep(): void
   setNeighborMode(mode: int32): void
   setNonAccum(nonAccum: boolean): void
+  setGrabAccumAdd(add: boolean): void
   setStrokeGen(gen: int32): void
   lastUniformValidationOk(): boolean
   queryUniformManifest(brushType: int32): int32

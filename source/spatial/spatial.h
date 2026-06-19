@@ -55,6 +55,12 @@ struct SpatialTree {
   int displayColorAttr = -1;
   int displayGroupAttr = -1;
 
+  /** Darken masked vertices in the solid display (the sculpt-mask overlay,
+   * ImmediateTODOs #20). Independent of displayColorMode so the mask shows over
+   * any color source. Default on; toggled via setDisplayMask(), which re-fills
+   * the GPU color buffers. */
+  bool displayMask = true;
+
   /* Dynamic attribute set requested by the active material's shader (M4). Empty
    * => legacy single-color render stream + basicMeshShader (sculpt/paint
    * display, behaviour-identical to before). Non-empty => one vertex buffer per
@@ -96,6 +102,8 @@ struct SpatialTree {
    * (-1 = by-name default). Each flags every leaf for a color re-fill. */
   void setDisplayColorAttr(int index);
   void setDisplayGroupAttr(int index);
+  /** Toggle the sculpt-mask darkening overlay (#20). */
+  void setDisplayMask(bool on);
 
   /* Install the material's requested attribute set (M4). Early-returns when the
    * set is unchanged (so nothing rebuilds per frame); otherwise bumps
@@ -585,7 +593,10 @@ struct SpatialTree {
    * edge is flagged (caller skips the dispatch). Thaws frozen topology to read
    * live edge endpoints; the batch is a static VBO, so callers rebuild it only
    * when the seam set / geometry changes, not per frame. */
-  sculptcore::gpu::DrawBatch *buildSeamBatch(sculptcore::gpu::GPUManager &mgr);
+  /** `includePolyGroup` adds the poly-group boundary edges (magenta) to the
+   * overlay; off by default since they're a separate, opt-in toggle (#28). */
+  sculptcore::gpu::DrawBatch *buildSeamBatch(sculptcore::gpu::GPUManager &mgr,
+                                             bool includePolyGroup = false);
 
   static binding::types::Struct<SpatialTree> *defineBindings();
 

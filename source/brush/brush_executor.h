@@ -23,41 +23,41 @@ namespace sculptcore::brush {
 using namespace litestl::util;
 using namespace litestl::math;
 
-// Result of the per-stroke uniform-dynamics validation (Wave 4). `ok == false`
-// means the active brush's dynamic bindings are misconfigured and the stroke is
-// skipped without mutating the mesh; `messages` carries one line per problem.
+/** Result of the per-stroke uniform-dynamics validation (Wave 4). `ok == false`
+ * means the active brush's dynamic bindings are misconfigured and the stroke is
+ * skipped without mutating the mesh; `messages` carries one line per problem. */
 struct UniformValidationResult {
   bool ok = true;
   Vector<string> messages;
 };
 
-// One sparse float override applied on top of a brush's authored props for the
-// duration of a single sub-command. Resolved by `name` when set (the generated
-// per-kernel uniforms — `mu`, `planeoff`, ...), else by `BrushProp` id for the
-// common props (the TS binding runtime can't marshal a JS string into a
-// `util::string` arg, so the int path stays for that bridge surface).
+/** One sparse float override applied on top of a brush's authored props for the
+ * duration of a single sub-command. Resolved by `name` when set (the generated
+ * per-kernel uniforms — `mu`, `planeoff`, ...), else by `BrushProp` id for the
+ * common props (the TS binding runtime can't marshal a JS string into a
+ * `util::string` arg, so the int path stays for that bridge surface). */
 struct BrushFloatOverride {
   int propId = 0;
   float value = 0.0f;
   util::string name;
 };
 
-// Redirects one of a kernel's declared attribute handles (by its 0-based index
-// in the kernel's attr manifest) to a specific existing mesh layer (by its
-// index in that domain's AttrGroup), instead of the codegen default of
-// ensure-by-handle-name. This is how the TS attribute manager points the
-// color/poly-group/UV brushes at the user-selected "active" layer per category
-// — all ints, since the TS binding runtime can't marshal a JS string into a
-// `util::string` method arg (same reason BrushFloatOverride is propId-keyed).
+/** Redirects one of a kernel's declared attribute handles (by its 0-based index
+ * in the kernel's attr manifest) to a specific existing mesh layer (by its
+ * index in that domain's AttrGroup), instead of the codegen default of
+ * ensure-by-handle-name. This is how the TS attribute manager points the
+ * color/poly-group/UV brushes at the user-selected "active" layer per category
+ * — all ints, since the TS binding runtime can't marshal a JS string into a
+ * `util::string` method arg (same reason BrushFloatOverride is propId-keyed). */
 struct BrushAttrLayerOverride {
   int attrIdx = 0;    // index into BrushCommandDef::attrs (the manifest)
   int layerIndex = 0; // index into the domain's AttrGroup::attrs
 };
 
-// A single sub-command in a composite brush program: a brush type plus a set of
-// sparse property overrides. Overrides are pushed onto the brush's authored
-// props before the command runs and rolled back after, so the brush's base
-// props survive the dab unmodified.
+/** A single sub-command in a composite brush program: a brush type plus a set of
+ * sparse property overrides. Overrides are pushed onto the brush's authored
+ * props before the command runs and rolled back after, so the brush's base
+ * props survive the dab unmodified. */
 struct BrushCommandEntry {
   SculptBrushes type = SculptBrushes::DRAW;
   Vector<BrushFloatOverride> floatOverrides;
@@ -66,11 +66,11 @@ struct BrushCommandEntry {
   bool invertValue = false;
 };
 
-// An ordered list of brush sub-commands run over the *same* node set per dab —
-// the composite-brush ("command list") abstraction the brush executor doc
-// describes. Autosmooth is a `[main, SMOOTH]` program; a future dyntopo pass is
-// just an entry prepended to `commands` with no API change. Built from TS via
-// the bound methods below and handed to `CommandExecutor::execProgram`.
+/** An ordered list of brush sub-commands run over the *same* node set per dab —
+ * the composite-brush ("command list") abstraction the brush executor doc
+ * describes. Autosmooth is a `[main, SMOOTH]` program; a future dyntopo pass is
+ * just an entry prepended to `commands` with no API change. Built from TS via
+ * the bound methods below and handed to `CommandExecutor::execProgram`. */
 struct BrushProgram {
   Vector<BrushCommandEntry> commands;
 
@@ -79,8 +79,8 @@ struct BrushProgram {
     commands.clear();
   }
 
-  // Append a command for the given SculptBrushes value (passed as int so the
-  // binding stays a plain scalar method); returns its index.
+  /** Append a command for the given SculptBrushes value (passed as int so the
+   * binding stays a plain scalar method); returns its index. */
   int addCommand(int type)
   {
     BrushCommandEntry entry;
@@ -97,9 +97,9 @@ struct BrushProgram {
     commands[idx].floatOverrides.append(BrushFloatOverride{propId, v});
   }
 
-  // Override a kernel uniform by its declared name (the generated per-kernel
-  // props: `mu`, `nu`, `planeoff`, ...). Distinct from setCommandFloat, which
-  // keys the common props by int id.
+  /** Override a kernel uniform by its declared name (the generated per-kernel
+   * props: `mu`, `nu`, `planeoff`, ...). Distinct from setCommandFloat, which
+   * keys the common props by int id. */
   void setCommandFloatByName(int idx, util::string name, float v)
   {
     if (idx < 0 || idx >= int(commands.size())) {
@@ -120,8 +120,8 @@ struct BrushProgram {
     commands[idx].invertValue = inv;
   }
 
-  // Redirect declared attr handle `attrIdx` of command `idx` to the mesh layer
-  // at `layerIndex` in that attr's domain group (see BrushAttrLayerOverride).
+  /** Redirect declared attr handle `attrIdx` of command `idx` to the mesh layer
+   * at `layerIndex` in that attr's domain group (see BrushAttrLayerOverride). */
   void setCommandAttrLayer(int idx, int attrIdx, int layerIndex)
   {
     if (idx < 0 || idx >= int(commands.size())) {
@@ -149,57 +149,63 @@ struct BrushProgram {
 };
 
 struct CommandExecutor {
-  // vertex_iter names the AccumLive instantiation so the CommandTypes concept
-  // and the factory typedefs are valid type-ids; the generated kernels pick the
-  // AccumMode per command via makeVertexIter<AccMode>.
+  /** vertex_iter names the AccumLive instantiation so the CommandTypes concept
+   * and the factory typedefs are valid type-ids; the generated kernels pick the
+   * AccumMode per command via makeVertexIter<AccMode>. */
   using vertex_iter = BasicVertexIter<AccumLive>;
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
   using face_iter = BasicFaceIter;
   using face_iter_factory = std::function<face_iter(spatial::SpatialNode &)>;
   using brush_command = BrushCommandDef<CommandCtx<CommandExecutor>>;
 
-  // Selects how for_neighbor kernels enumerate the 1-ring: the live disk walk
-  // (default) or the cached CSR adjacency (MeshTopoCache::ring1). The choice is
-  // made once here and lowered into the kernel instantiation, so the inner loop
-  // has no per-neighbor branch.
+  /** Selects how for_neighbor kernels enumerate the 1-ring: the live disk walk
+   * (default) or the cached CSR adjacency (MeshTopoCache::ring1). The choice is
+   * made once here and lowered into the kernel instantiation, so the inner loop
+   * has no per-neighbor branch. */
   enum class NeighborMode { LiveDisk, Csr };
 
   Brush *brush;
   SpatialTree *tree;
   CommandCtxBase ctx;
   bool isFirstOfStep = false;
-  /* Keep topology thawed across the stroke (don't freeze per dab). Set by the
+  /** Keep topology thawed across the stroke (don't freeze per dab). Set by the
    * dyntopo path: a dyntopo dab mutates topology and needs live disk/radial
    * links, so the per-dab freeze would otherwise force an O(mesh) thaw every
    * dab. Brushes that already need live links thaw regardless. */
   bool keepTopoThawed = false;
   NeighborMode neighborMode = NeighborMode::LiveDisk;
-  // Non-accumulate mode (see plans/nonAccumMode.md). When `nonAccum` is set and a
-  // command is accumulable, the executor stamps each in-region vert's stroke-start
-  // position into `.brush.orig.*` (keyed by `strokeGen`) and runs the AccumOrig
-  // kernel instantiation so deformation is measured from that snapshot.
+  /** Non-accumulate mode (see plans/nonAccumMode.md). When `nonAccum` is set and a
+   * command is accumulable, the executor stamps each in-region vert's stroke-start
+   * position into `.brush.orig.*` (keyed by `strokeGen`) and runs the AccumOrig
+   * kernel instantiation so deformation is measured from that snapshot. */
   bool nonAccum = false;
+  /** Grab-class symmetry write-back select (#35). The dab dispatch sets this per
+   * symmetry image before applyDab: false on the primary pass (AccumOrigAbsolute,
+   * re-bases every touched vert from orig), true on mirror passes (AccumOrigAdd,
+   * sums their displacement onto the re-based primary so shared verts get
+   * orig + Σ disp_i). Ignored for non-grab brushes. */
+  bool grabAccumAdd = false;
   uint32_t strokeGen = 0;
   meshlog::MeshLog *meshLog = nullptr;
-  /* Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
+  /** Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
    * dab and accumulated per stroke). */
   dyntopo::DynTopoStats lastDynTopoStats;
   Vector<float3> coPrevStorage; // backing store for ctx.co_prev (Jacobi snapshot)
-  // Backing store for resolved DSL attribute bindings (ctx.attrBindings),
-  // rebuilt per dab in exec().
+  /** Backing store for resolved DSL attribute bindings (ctx.attrBindings),
+   * rebuilt per dab in exec(). */
   BrushAttrBindings attrBindingStorage;
-  // Uniform-dynamics validation (Wave 4): run once per stroke (first dab) against
-  // the active brush's manifest. On failure the whole stroke is skipped so the
-  // mesh is never mutated by a misconfigured binding. `lastValidation` is the
-  // most recent result (readable by the bridge); `strokeValidationFailed` gates
-  // every dab of a failed stroke.
+  /** Uniform-dynamics validation (Wave 4): run once per stroke (first dab) against
+   * the active brush's manifest. On failure the whole stroke is skipped so the
+   * mesh is never mutated by a misconfigured binding. `lastValidation` is the
+   * most recent result (readable by the bridge); `strokeValidationFailed` gates
+   * every dab of a failed stroke. */
   UniformValidationResult lastValidation;
   bool strokeValidationFailed = false;
-  // Wave 5: the active brush's uniform manifest, cached by queryUniformManifest
-  // so the TS bridge can enumerate it by index (the binding runtime can't pass a
-  // JS string into a `util::string` method arg). queriedUniformEntry hands each
-  // entry back by pointer; the *UniformDynamics methods resolve index -> name and
-  // delegate to the Brush by-name dynamics API.
+  /** Wave 5: the active brush's uniform manifest, cached by queryUniformManifest
+   * so the TS bridge can enumerate it by index (the binding runtime can't pass a
+   * JS string into a `util::string` method arg). queriedUniformEntry hands each
+   * entry back by pointer; the *UniformDynamics methods resolve index -> name and
+   * delegate to the Brush by-name dynamics API. */
   Vector<BrushUniformManifestEntry> queriedUniforms;
 
   static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
@@ -230,6 +236,7 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
     BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
+    BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
     BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
     BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
@@ -243,8 +250,8 @@ struct CommandExecutor {
     return st;
   }
 
-  // Whether the most recent stroke's uniform-dynamics validation passed (Wave 4).
-  // The bridge reads this after the first dab to surface a skipped stroke.
+  /** Whether the most recent stroke's uniform-dynamics validation passed (Wave 4).
+   * The bridge reads this after the first dab to surface a skipped stroke. */
   bool lastUniformValidationOk() const
   {
     return lastValidation.ok;
@@ -254,31 +261,38 @@ struct CommandExecutor {
   {
   }
 
-  // Select the SMOOTH for_neighbor source: 0 = LiveDisk (live topology links),
-  // 1 = Csr (the cached ring1 adjacency). The LiteMesh sculpt path uses Csr —
-  // a freshly built mesh doesn't maintain live disk links, so LiveDisk smooth
-  // finds no neighbors and no-ops. Exposed as an int (NeighborMode is an
-  // unbound enum).
+  /** Select the SMOOTH for_neighbor source: 0 = LiveDisk (live topology links),
+   * 1 = Csr (the cached ring1 adjacency). The LiteMesh sculpt path uses Csr —
+   * a freshly built mesh doesn't maintain live disk links, so LiveDisk smooth
+   * finds no neighbors and no-ops. Exposed as an int (NeighborMode is an
+   * unbound enum). */
   void setNeighborMode(int mode)
   {
     neighborMode = static_cast<NeighborMode>(mode);
   }
 
-  // Enable non-accumulate mode for the upcoming stroke, and set its generation
-  // stamp (a monotonic per-stroke counter; must be non-zero, since the
-  // `.brush.orig.gen` attr defaults to 0 = "not stamped this stroke").
+  /** Enable non-accumulate mode for the upcoming stroke, and set its generation
+   * stamp (a monotonic per-stroke counter; must be non-zero, since the
+   * `.brush.orig.gen` attr defaults to 0 = "not stamped this stroke"). */
   void setNonAccum(bool v)
   {
     nonAccum = v;
+  }
+
+  /** Select the grab-class symmetry write-back for the upcoming dab/image (#35):
+   * false = primary pass (re-base from orig), true = mirror pass (add onto it). */
+  void setGrabAccumAdd(bool v)
+  {
+    grabAccumAdd = v;
   }
   void setStrokeGen(int gen)
   {
     strokeGen = uint32_t(gen);
   }
 
-  // Per-call iterator factories used by CommandCtx::vertexIter/faceIter. The
-  // vertex iterator is parameterized by the AccumMode policy and threaded the
-  // stroke-start cache (null/0 unless non-accumulate is active for this dab).
+  /** Per-call iterator factories used by CommandCtx::vertexIter/faceIter. The
+   * vertex iterator is parameterized by the AccumMode policy and threaded the
+   * stroke-start cache (null/0 unless non-accumulate is active for this dab). */
   template <class AccMode>
   BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
   {
@@ -289,10 +303,10 @@ struct CommandExecutor {
     return BasicFaceIter(node, *this);
   }
 
-  // Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
-  // calls this once for AccumLive, then again for AccumOrig when non-accumulate
-  // is active and the brush is accumulable — the second call overwrites def.exec
-  // with the AccumOrig kernel while keeping the rest of the (identical) manifest.
+  /** Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
+   * calls this once for AccumLive, then again for AccumOrig when non-accumulate
+   * is active and the brush is accumulable — the second call overwrites def.exec
+   * with the AccumOrig kernel while keeping the rest of the (identical) manifest. */
   template <class AccMode>
   void createCommandImpl(SculptBrushes brushType, brush_command &def)
   {
@@ -370,17 +384,40 @@ struct CommandExecutor {
     }
   }
 
+  /** Grab-class brushes (grab / kelvinlet) deform a fixed region from the
+   * stroke-start position; they always use the from-original policy regardless
+   * of the ACCUMULATE flag. Snakehook is intentionally excluded (its per-dab
+   * drag-plus-gather IS the desired behavior). #35. */
+  static bool isGrabBrush(SculptBrushes brushType)
+  {
+    return brushType == SculptBrushes::GRAB || brushType == SculptBrushes::KELVINLET;
+  }
+
   brush_command createCommand(SculptBrushes brushType)
   {
     brush_command def;
     createCommandImpl<AccumLive>(brushType, def);
-    if (nonAccum && def.accumulable) {
+    if (isGrabBrush(brushType)) {
+      // Always deform from each vert's stroke-start position, so the region is
+      // fixed at stroke start and the grab follows the cursor (#35). The primary
+      // symmetry pass re-bases every touched vert from orig (AccumOrigAbsolute);
+      // mirror passes add their displacement onto that (AccumOrigAdd) so shared
+      // verts get orig + Σ disp_i instead of the last pass overwriting. Forced
+      // on regardless of the ACCUMULATE flag / @global (kelvinlet is @global →
+      // not `accumulable`). The op sets grabAccumAdd per symmetry image.
+      def.grabMode = true;
+      if (grabAccumAdd) {
+        createCommandImpl<AccumOrigAdd>(brushType, def);
+      } else {
+        createCommandImpl<AccumOrigAbsolute>(brushType, def);
+      }
+    } else if (nonAccum && def.accumulable) {
       createCommandImpl<AccumOrig>(brushType, def);
     }
     return def;
   }
 
-  // Map a declared attribute domain to the mesh's element AttrGroup.
+  /** Map a declared attribute domain to the mesh's element AttrGroup. */
   static mesh::AttrGroup *attrGroupForDomain(mesh::Mesh *m, AttrElemDomain d)
   {
     switch (d) {
@@ -411,9 +448,9 @@ struct CommandExecutor {
     return 0;
   }
 
-  // Per-domain element *capacity*. Use this (not the count) when iterating by raw
-  // element id — dyntopo leaves freelist gaps, so a live element's id can exceed
-  // the live count.
+  /** Per-domain element *capacity*. Use this (not the count) when iterating by raw
+   * element id — dyntopo leaves freelist gaps, so a live element's id can exceed
+   * the live count. */
   static int elemCapacityForDomain(mesh::Mesh *m, AttrElemDomain d)
   {
     switch (d) {
@@ -534,14 +571,23 @@ struct CommandExecutor {
     ctx.origCo = nullptr;
     ctx.origGen = nullptr;
     ctx.strokeGen = 0;
-    if (nonAccum && cmd.accumulable && nodes.size() > 0) {
+    // Grab-class brushes always need the orig snapshot (cmd.grabMode), even when
+    // not `accumulable` (kelvinlet is @global) and regardless of the ACCUMULATE
+    // flag — they deform from it via AccumOrigAbsolute (#35).
+    if ((cmd.grabMode || (nonAccum && cmd.accumulable)) && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
+      // TEMP + NOCOPY: stroke-transient, not undoable. NOCOPY keeps the meshlog
+      // from snapshotting these during a logged dyntopo step — their pages are
+      // materialized lazily (only brushed verts), so a mid-stroke edge collapse
+      // would otherwise capture an unmaterialized page (null on WASM → warn+skip;
+      // a garbage pointer on native → crash, ImmediateTODOs #37). They're still
+      // interpolated onto split verts (no NOINTERP) for non-accumulate accuracy.
       mesh::AttrRef &coRef =
           m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.co", false);
-      coRef.flag |= mesh::AttrFlag::TEMP;
+      coRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
       mesh::AttrRef &genRef =
           m->v.attrs.ensure(mesh::AttrType::INT, ".brush.orig.gen", false);
-      genRef.flag |= mesh::AttrFlag::TEMP;
+      genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
       ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
       ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
       ctx.strokeGen = strokeGen;
@@ -587,12 +633,12 @@ struct CommandExecutor {
     cmd.execPost(ctx, nodes);
   }
 
-  // SMOOTH is the only brush with a for_neighbor loop, and only its CSR
-  // instantiation reads neighbors from the cache rather than the live disk.
-  // Every other brush (and CSR-mode smooth) touches no live TOPO link during a
-  // dab, so the mesh can sit topology-frozen — dropping the link pages — for
-  // the whole stroke. A live-disk smooth dab is the lone case that needs the
-  // links back.
+  /** SMOOTH is the only brush with a for_neighbor loop, and only its CSR
+   * instantiation reads neighbors from the cache rather than the live disk.
+   * Every other brush (and CSR-mode smooth) touches no live TOPO link during a
+   * dab, so the mesh can sit topology-frozen — dropping the link pages — for
+   * the whole stroke. A live-disk smooth dab is the lone case that needs the
+   * links back. */
   bool brushNeedsLiveLinks(SculptBrushes brushType) const
   {
     // Face-stage brushes walk the face loop (live links) to compute centroids.
@@ -602,17 +648,17 @@ struct CommandExecutor {
            brushType == SculptBrushes::POLYGROUP;
   }
 
-  // The boundary-aware smooth brush reads the lazily-derived
-  // `.boundary.vert.class`. Fold any pending boundary edits (seam marking,
-  // poly-group paint) into it once at stroke start, while topology links are
-  // live — recomputeDirty walks the disk/radial cycles and would touch freed
-  // pages under frozen topology.
-  //
-  // Gated on m->boundaryDirty: when nothing changed since the last recompute
-  // (the common case — e.g. plain smoothing with no boundaries marked) this is a
-  // no-op and, crucially, does NOT thaw. An unconditional thaw here perturbs the
-  // frozen-topology CSR neighbor set the stroke relies on, making bsmooth
-  // diverge from plain smooth even with zero boundaries.
+  /** The boundary-aware smooth brush reads the lazily-derived
+   * `.boundary.vert.class`. Fold any pending boundary edits (seam marking,
+   * poly-group paint) into it once at stroke start, while topology links are
+   * live — recomputeDirty walks the disk/radial cycles and would touch freed
+   * pages under frozen topology.
+   *
+   * Gated on m->boundaryDirty: when nothing changed since the last recompute
+   * (the common case — e.g. plain smoothing with no boundaries marked) this is a
+   * no-op and, crucially, does NOT thaw. An unconditional thaw here perturbs the
+   * frozen-topology CSR neighbor set the stroke relies on, making bsmooth
+   * diverge from plain smooth even with zero boundaries. */
   void refreshBoundaryClassForBSmooth(mesh::Mesh *m)
   {
     if (!m->boundaryDirty)
@@ -622,11 +668,11 @@ struct CommandExecutor {
     mesh::boundary::recomputeDirty(m);
   }
 
-  // After a poly-group dab, mark every face the touched nodes own boundary-dirty
-  // so the next recomputeDirty reclassifies their inter-group edges. A superset
-  // of the actually-repainted faces (bounded by the dab's node coverage), which
-  // only costs extra recompute, never wrong results. Runs while topology is live
-  // (POLYGROUP is a live-links brush).
+  /** After a poly-group dab, mark every face the touched nodes own boundary-dirty
+   * so the next recomputeDirty reclassifies their inter-group edges. A superset
+   * of the actually-repainted faces (bounded by the dab's node coverage), which
+   * only costs extra recompute, never wrong results. Runs while topology is live
+   * (POLYGROUP is a live-links brush). */
   void markPolygroupDirty(std::span<spatial::SpatialNode *> nodes)
   {
     for (spatial::SpatialNode *node : nodes) {
@@ -637,9 +683,9 @@ struct CommandExecutor {
     }
   }
 
-  // The fixed common float props are valid dynamics targets for any brush (the
-  // bridge drives strength/radius/... by pressure regardless of the active
-  // kernel), so they're exempt from the active-manifest membership check.
+  /** The fixed common float props are valid dynamics targets for any brush (the
+   * bridge drives strength/radius/... by pressure regardless of the active
+   * kernel), so they're exempt from the active-manifest membership check. */
   static bool isCommonFloatProp(const string &name)
   {
     return name == string("strength") || name == string("radius") ||
@@ -657,12 +703,12 @@ struct CommandExecutor {
     return nullptr;
   }
 
-  // Validate the active brush's uniform dynamics once at stroke start, scoped to
-  // its manifest. Catches the shared-`Brush`-struct traps (a stray dynamic left
-  // over from another kernel, a dynamic on a `@static`/non-float uniform), an
-  // unbaked 1-entry response curve, an out-of-range authored default, and an
-  // inverted/NaN `@range`. Returns a structured result; the caller skips the
-  // stroke on `!ok` so a misconfigured binding never mutates the mesh.
+  /** Validate the active brush's uniform dynamics once at stroke start, scoped to
+   * its manifest. Catches the shared-`Brush`-struct traps (a stray dynamic left
+   * over from another kernel, a dynamic on a `@static`/non-float uniform), an
+   * unbaked 1-entry response curve, an out-of-range authored default, and an
+   * inverted/NaN `@range`. Returns a structured result; the caller skips the
+   * stroke on `!ok` so a misconfigured binding never mutates the mesh. */
   UniformValidationResult validateUniformDynamics(brush_command &cmd)
   {
     UniformValidationResult res;
@@ -751,14 +797,14 @@ struct CommandExecutor {
     return res;
   }
 
-  // --- Wave 5: per-kernel uniform manifest query for the TS bridge -----------
-  // The binding runtime can't marshal a JS string into a `util::string` method
-  // arg, so the bridge enumerates the active brush's manifest by index instead
-  // of by name. queryUniformManifest caches the kernel's manifest (and registers
-  // its props so propDynamics(name) resolves) and returns the entry count;
-  // queriedUniformEntry exposes each entry as a bound read-only struct; the
-  // *UniformDynamics methods resolve the index -> name and delegate to the Brush
-  // by-name dynamics API (Wave 3).
+  /** --- Wave 5: per-kernel uniform manifest query for the TS bridge -----------
+   * The binding runtime can't marshal a JS string into a `util::string` method
+   * arg, so the bridge enumerates the active brush's manifest by index instead
+   * of by name. queryUniformManifest caches the kernel's manifest (and registers
+   * its props so propDynamics(name) resolves) and returns the entry count;
+   * queriedUniformEntry exposes each entry as a bound read-only struct; the
+   * *UniformDynamics methods resolve the index -> name and delegate to the Brush
+   * by-name dynamics API (Wave 3). */
 
   int queryUniformManifest(int brushType)
   {
@@ -862,11 +908,11 @@ struct CommandExecutor {
     }
   }
 
-  // Run a composite brush program over one node set per dab. Each sub-command
-  // resolves the brush's props (with its sparse overrides applied) into the
-  // cached scalars, then runs like a standalone brush. Used for autosmooth
-  // (`[main, SMOOTH]`): SMOOTH is a second `exec()` whose `co_prev` snapshot is
-  // re-taken *after* the main pass mutated positions, so it smooths the result.
+  /** Run a composite brush program over one node set per dab. Each sub-command
+   * resolves the brush's props (with its sparse overrides applied) into the
+   * cached scalars, then runs like a standalone brush. Used for autosmooth
+   * (`[main, SMOOTH]`): SMOOTH is a second `exec()` whose `co_prev` snapshot is
+   * re-taken *after* the main pass mutated positions, so it smooths the result. */
   void execProgram(BrushProgram *prog,
                    Vector<spatial::SpatialNode *> *nodes,
                    float3 origin,
@@ -1011,12 +1057,12 @@ struct CommandExecutor {
     }
   }
 
-  // Run one dynamic-topology dab under the cursor. Reproduces the native
-  // debug harness's Scene::applyDynTopoDab wiring (thaw + combined meshlog/
-  // spatial callbacks + in-region seed) MINUS tree->update() and the meshlog
-  // step: the TS sculpt path already drives spatial.update() each frame
-  // (LiteMesh.drawQ) and wraps the whole stroke in one meshlog step. Returns
-  // splits+collapses applied (DynTopoStats.splits + .collapses).
+  /** Run one dynamic-topology dab under the cursor. Reproduces the native
+   * debug harness's Scene::applyDynTopoDab wiring (thaw + combined meshlog/
+   * spatial callbacks + in-region seed) MINUS tree->update() and the meshlog
+   * step: the TS sculpt path already drives spatial.update() each frame
+   * (LiteMesh.drawQ) and wraps the whole stroke in one meshlog step. Returns
+   * splits+collapses applied (DynTopoStats.splits + .collapses). */
   int applyDynTopoDab(float3 center,
                       float radius,
                       dyntopo::DynTopoParams *params,
@@ -1109,6 +1155,30 @@ struct CommandExecutor {
       }
     }
 
+    // #37: the non-accumulate `.brush.orig.*` snapshot is materialized lazily —
+    // only verts a *prior* dab brushed. Once the column exists, dyntopo's attr
+    // interpolation (split midpoints, collapse blend) on THIS dab's seed region
+    // would read pages the brush never stamped (e.g. a symmetry-mirror dab's
+    // region, #38) — null on WASM, a garbage deref + crash on native. The deform
+    // stamps the region, but only AFTER this pre-pass. Stamp the seed region here
+    // (first contact = current co) so every vert dyntopo touches has a live page;
+    // the deform's stamp loop then skips them (gen already == strokeGen).
+    if (m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
+        m->v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen")) {
+      auto *origCo =
+          m->v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
+      auto *origGen =
+          m->v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
+      for (int v : seedVerts) {
+        origGen->materialize(v);
+        if ((*origGen)[v] != int(strokeGen)) {
+          origCo->materialize(v);
+          (*origCo)[v] = m->v.co[v];
+          (*origGen)[v] = int(strokeGen);
+        }
+      }
+    }
+
     dyntopo::DynTopoStats st =
         dyntopo::runDyntopoRemesh(*m,
                                   center,
@@ -1122,17 +1192,17 @@ struct CommandExecutor {
     return st.splits + st.collapses;
   }
 
-  // One unified brush dab — the single dab sequence shared by every client
-  // (TS app, debug interactive/script). Runs, in order: optional dyntopo pre-pass
-  // (when params != nullptr), spatial node filter, deform program, then the
-  // per-dab meshlog topo-chunk seal. Dyntopo runs BEFORE the deform so the brush
-  // moves the freshly-refined geometry; the chunk is sealed AFTER the deform so a
-  // Created vert's end_body captures its deformed co directly (endStep still
-  // refreshes verts a LATER dab re-deforms without a topo touch). Caller owns
-  // building `prog` and configuring `*params`; pass params=nullptr to disable
-  // dyntopo. Call between beginStep(hasDyntopo) and endStep() (and
-  // endDynTopoStroke() before endStep() on a dyntopo stroke). Returns
-  // splits+collapses applied.
+  /** One unified brush dab — the single dab sequence shared by every client
+   * (TS app, debug interactive/script). Runs, in order: optional dyntopo pre-pass
+   * (when params != nullptr), spatial node filter, deform program, then the
+   * per-dab meshlog topo-chunk seal. Dyntopo runs BEFORE the deform so the brush
+   * moves the freshly-refined geometry; the chunk is sealed AFTER the deform so a
+   * Created vert's end_body captures its deformed co directly (endStep still
+   * refreshes verts a LATER dab re-deforms without a topo touch). Caller owns
+   * building `prog` and configuring `*params`; pass params=nullptr to disable
+   * dyntopo. Call between beginStep(hasDyntopo) and endStep() (and
+   * endDynTopoStroke() before endStep() on a dyntopo stroke). Returns
+   * splits+collapses applied. */
   int applyDab(BrushProgram *prog,
                float3 center,
                float3 normal,
@@ -1147,6 +1217,10 @@ struct CommandExecutor {
     if (params) {
       topoApplied = applyDynTopoDab(center, radius, params, seed);
     }
+    // `radius` here is the node-filter radius only (the falloff uses
+    // brush->radius). Grab-class strokes pass a radius widened by the cumulative
+    // drag so the deformed region's leaves stay in the set and can't shrink +
+    // tear at leaf seams (#35); the caller (the dab dispatch) does the widening.
     Vector<spatial::SpatialNode *> nodes;
     tree->filterNodes(center, radius, nodes);
     if (nodes.size() > 0) {
@@ -1159,8 +1233,8 @@ struct CommandExecutor {
     return topoApplied;
   }
 
-  // execBrush-based overload for callers driving a single brush type rather than
-  // a BrushProgram (the native debug harness). Same dyntopo+filter+seal sequence.
+  /** execBrush-based overload for callers driving a single brush type rather than
+   * a BrushProgram (the native debug harness). Same dyntopo+filter+seal sequence. */
   int applyDab(SculptBrushes brushType,
                float3 center,
                float3 normal,
@@ -1176,6 +1250,8 @@ struct CommandExecutor {
     if (params) {
       topoApplied = applyDynTopoDab(center, radius, params, seed);
     }
+    // `radius` is the node-filter radius only (caller widens it for grab-class
+    // strokes; see the BrushProgram overload). #35
     Vector<spatial::SpatialNode *> nodes;
     tree->filterNodes(center, radius, nodes);
     if (nodes.size() > 0) {
@@ -1188,11 +1264,11 @@ struct CommandExecutor {
     return topoApplied;
   }
 
-  // Release the stroke-long topology thaw set by applyDynTopoDab. Call once at
-  // stroke end; the next non-dyntopo dab re-freezes on its own. Also folds in the
-  // final dab's pending boundary marks (the per-dab recompute runs at the *next*
-  // dab's start, so the last dab's new geometry would otherwise stay unclassified
-  // until the next stroke) while topology links are still live.
+  /** Release the stroke-long topology thaw set by applyDynTopoDab. Call once at
+   * stroke end; the next non-dyntopo dab re-freezes on its own. Also folds in the
+   * final dab's pending boundary marks (the per-dab recompute runs at the *next*
+   * dab's start, so the last dab's new geometry would otherwise stay unclassified
+   * until the next stroke) while topology links are still live. */
   void endDynTopoStroke()
   {
     if (tree && tree->m && tree->m->boundaryDirty) {
@@ -1230,7 +1306,7 @@ struct CommandExecutor {
   }
 };
 
-// Declared in accum_mode.h; CoProxy::commit uses it to derive the layer cap.
+/** Declared in accum_mode.h; CoProxy::commit uses it to derive the layer cap. */
 inline float dabFalloffFraction(const CommandExecutor &exec, const float3 &co)
 {
   float t = 1.0f - std::min(exec.brush->falloffDist(co - exec.ctx.surfacePos), 1.0f);

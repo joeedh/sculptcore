@@ -113,6 +113,17 @@ void SpatialTree::setDisplayGroupAttr(int index)
   }
 }
 
+void SpatialTree::setDisplayMask(bool on)
+{
+  if (on == displayMask) {
+    return;
+  }
+  displayMask = on;
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_UpdateGPU;
+  }
+}
+
 /* True if two requested sets are identical (same slots/names/types/order) — so
  * setRequestedAttrs can early-return and avoid a per-frame rebuild. */
 static bool requested_attrs_equal(const util::Vector<gpu::RequestedAttr> &a,
@@ -201,6 +212,21 @@ void SpatialTree::setRequestedAttrs(const util::Vector<gpu::RequestedAttr> &reqs
 
 void SpatialTree::setDrawShader(const char *wgsl)
 {
+  // Empty WGSL reverts to the built-in basic mesh shader (drawShaderReady=false),
+  // NOT a degenerate empty material shader. Used when the viewport leaves
+  // rendered mode (SHOW_RENDER off) so the solid draw works again (#1).
+  if (!wgsl || wgsl[0] == '\0') {
+    drawShaderReady = false;
+    if (drawBatch) {
+      alloc::Delete(drawBatch);
+      drawBatch = nullptr;
+    }
+    for (SpatialNode *leaf : leaves()) {
+      leaf->flag |= Spatial_RegenGPU;
+    }
+    return;
+  }
+
   /* Attr layout: position@0, normal@1, then requestedAttrs. The set is stored
    * slot-ordered by setRequestedAttrs (and the buffers are bound in that same
    * order), so a straight append already lands each attr at its @location. */
@@ -1380,7 +1406,8 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   return batch;
 }
 
-sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr)
+sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr,
+                                                       bool includePolyGroup)
 {
   using namespace sculptcore::gpu;
 
@@ -1418,10 +1445,10 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
       out = float4(0.2f, 1.0f, 0.2f, 1.0f);
       return true;
     } // green
-    if (pg && pg->get(e)) {
+    if (includePolyGroup && pg && pg->get(e)) {
       out = float4(1.0f, 0.0f, 1.0f, 1.0f);
       return true;
-    } // magenta
+    } // magenta (opt-in)
     if (uv && uv->get(e)) {
       out = float4(1.0f, 1.0f, 0.0f, 1.0f);
       return true;

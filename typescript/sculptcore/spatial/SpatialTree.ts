@@ -35,7 +35,10 @@ export interface SpatialTree {
   ensure_node_tris(node: SpatialNode): boolean
   buildAll(): void
   buildLeafBoundsBatch(batch: GPUManager): DrawBatch | undefined
-  buildSeamBatch(mgr: GPUManager): DrawBatch | undefined
+  buildSeamBatch(
+    mgr: GPUManager,
+    includePolyGroup: boolean
+  ): DrawBatch | undefined
   update(gpu: GPUManager): boolean
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean
@@ -43,6 +46,7 @@ export interface SpatialTree {
   setColorDisplayMode(mode: int32): void
   setDisplayColorAttr(index: int32): void
   setDisplayGroupAttr(index: int32): void
+  setDisplayMask(on: boolean): void
   castScreenCircle(
     co: float3,
     ray: float3,
