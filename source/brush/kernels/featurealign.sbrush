@@ -39,16 +39,22 @@ brush FeatureAlign {
     }
 
     float3 avg = float3(0.0, 0.0, 0.0);
+    float3 projVec = float3(0.0, 0.0, 0.0);
     float wsum = 0.0;
+    float wproj_sum = 0.0;
     for_neighbor (nb in v) {
       // Default weight 1 (plain Laplacian). Up-weight edges aligned to the
       // nearest cross direction. `continue` can't skip a single neighbor on the
       // WGSL backend, so gate with weights, never an early continue.
       float w = 1.0;
+      float wproj = 1.0;
 
       if (vc != 0) {
-        if ((vc & nb.vclass) == 0) { w = 0.0; }
+        if ((vc & nb.vclass) == 0) { 
+          w = 0.0;
+        }
       }
+
       if (w != 0.0 && haveField > 0.5) {
         float3 e = nb.co - v.co;
         e = e - v.no * dot(e, v.no);
@@ -68,12 +74,17 @@ brush FeatureAlign {
           w = 1.0 + rake * 8.0 * a4;
         }
       }
+      float3 disp = nb.co - v.co;
+      projVec = projVec + v.no * dot(disp, v.no) * wproj;
+
       avg = avg + nb.co * w;
       wsum = wsum + w;
+      wproj_sum = wproj_sum + wproj;
     }
     if (wsum > 0.0) {
-      float3 disp = (avg / wsum - v.co) * s;
-      disp = disp - v.no * dot(disp, v.no) * projection;
+      float3 disp = (avg / wsum - v.co);
+      disp = (disp + projVec / wproj_sum) * s;
+      // disp = disp - v.no * dot(disp, v.no) * projection;
       v.co = v.co + disp;
     }
   }

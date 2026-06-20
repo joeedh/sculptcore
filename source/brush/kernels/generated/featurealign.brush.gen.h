@@ -91,13 +91,16 @@ static void featurealign(CommandCtx<TYPES> &ctx)
       haveField = 1.0f;
     }
     float3 avg = float3(0.0f, 0.0f, 0.0f);
+    float3 projVec = float3(0.0f, 0.0f, 0.0f);
     float wsum = 0.0f;
+    float wproj_sum = 0.0f;
     {
       int __outer_v = v.v;
       auto *__m = ctx.node.data->m;
       for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {
         struct { const litestl::math::float3 &co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
         float w = 1.0f;
+        float wproj = 1.0f;
         if ((vc != 0)) {
           if ((((vc & (*__attr_vclass)[nb.v])) == 0)) {
             w = 0.0f;
@@ -126,13 +129,16 @@ static void featurealign(CommandCtx<TYPES> &ctx)
             w = (1.0f + ((ctx.brush.rake * 8.0f) * a4));
           }
         }
+        float3 disp = (nb.co - v.co);
+        projVec = (projVec + ((v.no * (disp).dot(v.no)) * wproj));
         avg = (avg + (nb.co * w));
         wsum = (wsum + w);
+        wproj_sum = (wproj_sum + wproj);
       }
     }
     if ((wsum > 0.0f)) {
-      float3 disp = ((((avg / wsum) - v.co)) * s);
-      disp = (disp - ((v.no * (disp).dot(v.no)) * ctx.brush.projection));
+      float3 disp = (((avg / wsum) - v.co));
+      disp = (((disp + (projVec / wproj_sum))) * s);
       v.co = (v.co + disp);
     }
     ctx.node.affected_verts.append(v.v);
