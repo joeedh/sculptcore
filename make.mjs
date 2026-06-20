@@ -331,6 +331,57 @@ function resolveRuntimeExe(runtime) {
   }
 }
 
+// Pre-populate cmake-js's per-version NW.js cache from dl.nwjs.io.
+//
+// cmake-js downloads NW.js dev files from the legacy node-webkit S3 mirror,
+// which no longer carries current releases (e.g. v0.112.0 → 404), so it writes
+// an empty nw.lib the linker then rejects ("unknown file type"). NW.js 0.111.3+
+// instead publishes standard Node-compatible headers + import lib at
+// dl.nwjs.io. We lay those into the cache cmake-js reads (its `downloaded` check
+// in lib/dist.js wants src/node.h + deps/v8/include/v8.h + the winLibs), so its
+// own broken download is skipped. Idempotent — a complete cache is left alone.
+function provisionNwjsCache(ver) {
+  const cacheDir = Path.join(os.homedir(), '.cmake-js', 'nw-x64', `v${ver}`)
+  const libDir = Path.join(cacheDir, 'x64')
+  const nodeLib = Path.join(libDir, 'node.lib')
+  const nwLib = Path.join(libDir, 'nw.lib')
+  const srcNodeH = Path.join(cacheDir, 'src', 'node.h')
+  const v8H = Path.join(cacheDir, 'deps', 'v8', 'include', 'v8.h')
+  if (fs.existsSync(srcNodeH) && fs.existsSync(v8H) && fs.existsSync(nodeLib) &&
+      fs.existsSync(nwLib)) {
+    return
+  }
+  const base = `https://dl.nwjs.io/v${ver}`
+  console.log(`nwjs: provisioning cmake-js header/lib cache for nw ${ver} from ${base}`)
+  fs.mkdirSync(libDir, {recursive: true})
+  // Import lib. NW.js 0.111.3+ is node-ABI-compatible and ships only node.lib;
+  // cmake-js's CMAKE_JS_LIB still lists nw.lib (same DLL exports), so mirror it.
+  run(`curl -fSL -o "${nodeLib}" "${base}/x64/node.lib"`)
+  fs.copyFileSync(nodeLib, nwLib)
+  // Headers: only the full source tarball is published (the node-gyp "-headers"
+  // variant 404s). Extract it flat into the version cache — cmake-js's nw include
+  // dirs cover src/, where the raw C N-API header (node_api.h) the addon uses lives.
+  const tmp = fs.mkdtempSync(Path.join(os.tmpdir(), 'nwhdr-'))
+  try {
+    const tgz = Path.join(tmp, 'src.tar.gz')
+    run(`curl -fSL -o "${tgz}" "${base}/node-v${ver}.tar.gz"`)
+    // Feed the archive on stdin (`-f -`): a `C:\…` archive arg makes git-bash's
+    // GNU tar treat the drive letter as a remote host. Forward-slash the `-C`
+    // dir for the same reason. Works for both GNU tar and Windows bsdtar.
+    try {
+      child_process.execSync(`tar -xzf - -C "${cacheDir.replace(/\\/g, '/')}" --strip-components=1`, {
+        input: fs.readFileSync(tgz),
+        stdio: ['pipe', 'inherit', 'inherit'],
+      })
+    } catch (error) {
+      process.stderr.write(error.message + '\n')
+      process.exit(1)
+    }
+  } finally {
+    fs.rmSync(tmp, {recursive: true, force: true})
+  }
+}
+
 async function buildNodeAddon(runtime, version, smoke) {
   runtime = runtime === 'electron' ? 'electron' : 'nw'
   const dir = WITH_NATIVE_MSVC ? 'build/native-node-msvc' : 'build/native-node'
@@ -353,6 +404,13 @@ async function buildNodeAddon(runtime, version, smoke) {
   // addon matches the runtime, the rest of the native tree, and the prebuilt
   // /MD deps (mismatched CRTs surface as undefined dllimport CRT symbols).
   const crtDef = '--CDCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL'
+
+  // NW.js dev files come from dl.nwjs.io (cmake-js's built-in mirror is stale);
+  // lay them into cmake-js's cache so its own download is skipped. See
+  // provisionNwjsCache. Electron's cmake-js download still works as-is.
+  if (runtime === 'nw') {
+    provisionNwjsCache(ver)
+  }
 
   // 1. Configure via cmake-js: downloads the runtime headers + import lib and
   //    injects CMAKE_JS_INC/LIB/SRC. Clang toolchain + Ninja, like the rest of
