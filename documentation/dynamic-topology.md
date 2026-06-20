@@ -58,7 +58,7 @@ a-priori bottleneck guess was wrong.
    at 5 M instead of 2–11 ms.
 
 4. **Quad input — not dyntopo — is the remaining penalty; the fix is a manual
-   triangulate, not auto-triangulation.** Validated in the native Electron backend
+   triangulate, not auto-triangulation.** Validated in the native (desktop) backend
    on a real ~5 M-tri mesh: an all-triangle mesh sculpts at **~32 fps (≈31.7 ms/
    dab)**, but a *quad/n-gon* mesh is far slower for two structural reasons — (a)
    each dab runs a per-region triangulate prepass, and (b) the all-triangles gate

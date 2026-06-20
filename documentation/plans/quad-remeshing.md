@@ -702,7 +702,7 @@ the rest are proposed framework extensions.
   (`Mesh_ngonFaceCount == 0` + a face-side check), then **undo restores the
   pre-remesh mesh bit-for-bit** (diff the `undoPre` serialize blob against a
   fresh serialize after `undo`), and redo re-runs `exec`. Drivable headlessly
-  via the Electron harness: `--gen-scene litemesh-cube --run
+  via the NW.js harness: `--gen-scene litemesh-cube --run
   "litemesh.quad_remesh(target_edge_length=0.1)"`.
 - **Backend parity** — add a remesh case to
   `tests/integration/sculptcore_parity.test.ts`: the same fixed scene + params
@@ -854,7 +854,7 @@ input, then layer the painting ops on once the core pipeline is trusted.
   signatures + leaf counts. Add a small fixed-scene remesh case so WASM vs
   native N-API stay bit-identical (modulo fp) — this is the regression gate
   for the M6 native wrapper.
-- The Electron test harness can drive the op headlessly:
+- The NW.js test harness can drive the op headlessly:
   `--run "litemesh.quad_remesh(target_edge_length=0.1)"` after a
   `--gen-scene litemesh-cube`, with `--backend native` to exercise the native
   path. (`--dump` / `--screenshot` for visual/structural diffing.)

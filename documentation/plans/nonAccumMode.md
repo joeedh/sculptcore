@@ -311,5 +311,5 @@ inert when the cache is absent or non-accumulate is off.
   per backend still compiles (`.sbrush` unchanged).
 - **Interactive:** `source/debug` `debug_app` stroke script (set up + a
   back-and-forth stroke) to eyeball convergence; build the native addon
-  (`node sculptcore/make.mjs node`) and drive a real stroke via the Electron
+  (`node sculptcore/make.mjs node`) and drive a real stroke via the NW.js
   harness to confirm the TS toggle flips behavior.
