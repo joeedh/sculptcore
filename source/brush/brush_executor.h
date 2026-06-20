@@ -5,6 +5,7 @@
 #include "brush_iterators.h"
 #include "brushes/all.h"
 #include "dyntopo/dyntopo.h"
+#include "feature_field.h"
 #include "litestl/binding/binding.h"
 #include "litestl/util/task.h"
 #include "mesh/attribute_bool.h"
@@ -378,6 +379,11 @@ struct CommandExecutor {
         command::createColorsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
       }
       return;
+    case SculptBrushes::FEATURE_ALIGN:
+      // Always live-disk: the C++ cross-field pre-pass (updateCrossFieldRegion)
+      // walks the vertex disk, so topology is thawed regardless of neighborMode.
+      command::createFeaturealignBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
+      return;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
@@ -645,7 +651,9 @@ struct CommandExecutor {
     return ((brushType == SculptBrushes::SMOOTH || brushType == SculptBrushes::BSMOOTH ||
              brushType == SculptBrushes::COLORSMOOTH) &&
             neighborMode != NeighborMode::Csr) ||
-           brushType == SculptBrushes::POLYGROUP;
+           brushType == SculptBrushes::POLYGROUP ||
+           // The cross-field pre-pass walks the vertex disk every dab.
+           brushType == SculptBrushes::FEATURE_ALIGN;
   }
 
   /** The boundary-aware smooth brush reads the lazily-derived
@@ -959,7 +967,10 @@ struct CommandExecutor {
       for (auto &entry : prog->commands) {
         if (brushNeedsLiveLinks(entry.type))
           needsLive = true;
-        if (entry.type == SculptBrushes::BSMOOTH)
+        // BSMOOTH and FEATURE_ALIGN both read the lazily-derived
+        // `.boundary.vert.class`, so it must be refreshed at stroke start.
+        if (entry.type == SculptBrushes::BSMOOTH ||
+            entry.type == SculptBrushes::FEATURE_ALIGN)
           hasBSmooth = true;
       }
       mesh::Mesh *m = (*nodes)[0]->data->m;
@@ -972,6 +983,31 @@ struct CommandExecutor {
           m->thawTopo();
       } else if (!m->topo_frozen) {
         m->freezeTopo();
+      }
+    }
+
+    // Feature-align cross-field maintenance: before the FEATURE_ALIGN command
+    // runs, (re)seed + diffuse the per-vertex cross field over this dab's region
+    // so the kernel reads an up-to-date field. Topology is live here
+    // (brushNeedsLiveLinks(FEATURE_ALIGN)). Incremental — only the region's
+    // verts are written, so the saved field grows as the stroke covers the mesh.
+    if (nodes->size() > 0) {
+      bool hasFeatureAlign = false;
+      for (auto &entry : prog->commands) {
+        if (entry.type == SculptBrushes::FEATURE_ALIGN) {
+          hasFeatureAlign = true;
+          break;
+        }
+      }
+      if (hasFeatureAlign) {
+        Vector<int> regionVerts;
+        for (spatial::SpatialNode *node : *nodes) {
+          for (int v : node->data->unique_verts) {
+            regionVerts.append(v);
+          }
+        }
+        FeatureFieldParams ffParams;
+        updateCrossFieldRegion(*(*nodes)[0]->data->m, regionVerts, ffParams);
       }
     }
 

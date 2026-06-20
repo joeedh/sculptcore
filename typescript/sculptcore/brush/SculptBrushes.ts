@@ -35,4 +35,5 @@ export enum SculptBrushes {
   GRAB = 16,
   SNAKEHOOK = 17,
   COLORSMOOTH = 18,
+  FEATURE_ALIGN = 19,
 }

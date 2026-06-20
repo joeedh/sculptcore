@@ -1,0 +1,80 @@
+// Feature-align smooth (topology rake). A weighted Laplacian smooth that biases
+// edge flow toward a per-vertex cross field: each neighbour edge is weighted by
+// how well it aligns with the nearest 90° rotation of the vertex's cross-field
+// direction, so grid-aligned edges pull harder and the smoothed topology drifts
+// to follow features / curvature. The `crossfield` attribute is seeded and
+// diffused per dab by feature_field.cc (a C++ pre-pass the executor runs before
+// this kernel); here it is read-only. Meant to be used with dyntopo.
+//
+// Like bsmooth it is boundary-aware: a boundary vertex (non-zero
+// `.boundary.vert.class`) only averages neighbours that share a boundary type,
+// so marked seams / sharp / face-set borders stay put under the rake.
+//
+// `rake` (brush.rake) scales the alignment bias — 0 reduces to plain Laplacian
+// smoothing. `projection` (brush.smoothProj) removes that fraction of the
+// smoothing step's normal component for tangential (volume-preserving) sliding.
+@brush("featurealign")
+brush FeatureAlign {
+  attr vertex float3 field = "crossfield";
+  attr vertex int vclass = ".boundary.vert.class";
+  uniform float rake @static;
+  uniform float projection @static;
+
+  vertex void apply(inout Vertex v) {
+    int vc = v.vclass;
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) { continue; }
+
+    // Project the cross-field reference into the tangent plane; dperp is its 90°
+    // rotation about the normal. The two together span the cross's directions.
+    float3 d = v.field;
+    d = d - v.no * dot(d, v.no);
+    float dl = length(d);
+    float3 dperp = float3(0.0, 0.0, 0.0);
+    float haveField = 0.0;
+    if (dl > 0.0001) {
+      d = d / dl;
+      dperp = cross(v.no, d);
+      haveField = 1.0;
+    }
+
+    float3 avg = float3(0.0, 0.0, 0.0);
+    float wsum = 0.0;
+    for_neighbor (nb in v) {
+      // Default weight 1 (plain Laplacian). Up-weight edges aligned to the
+      // nearest cross direction. `continue` can't skip a single neighbor on the
+      // WGSL backend, so gate with weights, never an early continue.
+      float w = 1.0;
+
+      if (vc != 0) {
+        if ((vc & nb.vclass) == 0) { w = 0.0; }
+      }
+      if (w != 0.0 && haveField > 0.5) {
+        float3 e = nb.co - v.co;
+        e = e - v.no * dot(e, v.no);
+        float el = length(e);
+        if (el > 0.0000001) {
+          e = e / el;
+          float a1 = dot(e, d);
+          float a2 = dot(e, dperp);
+          if (a1 < 0.0) { a1 = 0.0 - a1; }
+          if (a2 < 0.0) { a2 = 0.0 - a2; }
+          // align = |cos| to the closest of the cross's two axes, in [0,1].
+          float align = a1;
+          if (a2 > a1) { align = a2; }
+          // align^4 sharpens the bias toward truly grid-aligned edges.
+          float a4 = align * align;
+          a4 = a4 * a4;
+          w = 1.0 + rake * 8.0 * a4;
+        }
+      }
+      avg = avg + nb.co * w;
+      wsum = wsum + w;
+    }
+    if (wsum > 0.0) {
+      float3 disp = (avg / wsum - v.co) * s;
+      disp = disp - v.no * dot(disp, v.no) * projection;
+      v.co = v.co + disp;
+    }
+  }
+}

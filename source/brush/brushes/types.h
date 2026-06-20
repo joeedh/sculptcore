@@ -25,6 +25,9 @@ enum class _SculptBrushes {
   GRAB = 16,
   SNAKEHOOK = 17,
   COLORSMOOTH = 18,
+  // Feature-align smooth (topology rake): a weighted Laplacian smooth biased to
+  // a per-vertex cross field seeded from boundary features + curvature.
+  FEATURE_ALIGN = 19,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -54,6 +57,7 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
     e->addItem("GRAB", SculptBrushes::GRAB);
     e->addItem("SNAKEHOOK", SculptBrushes::SNAKEHOOK);
     e->addItem("COLORSMOOTH", SculptBrushes::COLORSMOOTH);
+    e->addItem("FEATURE_ALIGN", SculptBrushes::FEATURE_ALIGN);
     return e;
   }
 };

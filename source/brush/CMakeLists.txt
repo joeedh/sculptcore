@@ -20,6 +20,8 @@ set(SRC
   PUBLIC compute_dispatch.h
   PUBLIC stroke_spacing.h
   PUBLIC brushes/all.h
+  PUBLIC feature_field.h
+  feature_field.cc
   brush_command.cc
   brush_executor.h
   brush_executor.cc

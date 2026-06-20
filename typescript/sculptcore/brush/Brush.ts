@@ -31,6 +31,7 @@ export interface Brush {
   nu: float
   pinch: float
   projection: float
+  rake: float
   grabFrom: float3
   grabTo: float3
   falloff_dir: float3

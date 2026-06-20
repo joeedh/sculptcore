@@ -17,3 +17,4 @@
 #include "../kernels/generated/grab.brush.gen.h"
 #include "../kernels/generated/snakehook.brush.gen.h"
 #include "../kernels/generated/colorsmooth.brush.gen.h"
+#include "../kernels/generated/featurealign.brush.gen.h"

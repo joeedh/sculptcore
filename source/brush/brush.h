@@ -196,6 +196,11 @@ struct Brush {
   // smoothing step's normal component removed, so the surface slides tangentially
   // instead of shrinking (volume preservation).
   float projection = 0.0f;
+  // Rake amount (0..1), synced from the TS brush (brush.rake). Read by the
+  // feature-align smooth kernel as the `@static` uniform `rake`: how strongly
+  // edges aligned with the per-vertex cross field are up-weighted, biasing the
+  // smooth so edge flow follows feature/curvature directions (topology rake).
+  float rake = 0.0f;
 
   // Grab-style ctx state (kelvinlet, future pose). `grabFrom` is the stroke
   // origin captured at the start of the dab; `grabTo` is the current cursor.
@@ -240,6 +245,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, nu);
     BIND_STRUCT_MEMBER(st, pinch);
     BIND_STRUCT_MEMBER(st, projection);
+    BIND_STRUCT_MEMBER(st, rake);
     BIND_STRUCT_MEMBER(st, grabFrom);
     BIND_STRUCT_MEMBER(st, grabTo);
     BIND_STRUCT_MEMBER(st, falloff_dir);
