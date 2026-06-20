@@ -715,7 +715,7 @@ the rest are proposed framework extensions.
 node make.mjs build native && node make.mjs test     # full native ctest suite
 node make.mjs test test_remesh_extract               # one binary
 node make.mjs build wasm                              # WASM smoke
-node make.mjs node                                    # N-API addon (native backend)
+node make.mjs build node                                    # N-API addon (native backend)
 pnpm test                                             # host integration + parity (run from repo root)
 ```
 

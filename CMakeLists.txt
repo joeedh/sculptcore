@@ -254,9 +254,9 @@ else()
 	# --- NW.js / Node N-API addon -------------------------------------------
 	# Built only when CMake is configured by cmake-js, which injects CMAKE_JS_*
 	# (headers, node import lib, win delay-load hook) for the chosen runtime
-	# (`make.mjs node` defaults to --runtime nw). A plain `make.mjs configure
+	# (`make.mjs build node` defaults to --runtime nw). A plain `make.mjs configure
 	# native` never defines CMAKE_JS_VERSION, so this target is invisible to the
-	# normal native build; it's driven by `make.mjs node`. See
+	# normal native build; it's driven by `make.mjs configure/build node`. See
 	# documentation/plans/native-electron.md (Workstream A) and
 	# sculptcore/spike/napi/RESULTS.md.
 	if (DEFINED CMAKE_JS_VERSION)

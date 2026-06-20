@@ -23,30 +23,35 @@ reading it before doing wide exploration.
 Use the Node dispatcher rather than invoking cmake/emcmake directly:
 
 ```
-node make.mjs install-emsdk          # one-time; git-clones emsdk (pinned commit), installs pinned emsdk + cmake + ninja
-node make.mjs configure [wasm|native]  # default wasm
-node make.mjs build     [wasm|native]
-node make.mjs test      [testName]     # no arg: ctest in build/native; arg: run that one test binary
-node make.mjs clean     [wasm|native]  # ninja clean
-node make.mjs node      [--smoke]      # build the NW.js/Node N-API addon (.node)
+node make.mjs install-emsdk               # one-time; git-clones emsdk (pinned commit), installs pinned emsdk + cmake + ninja
+node make.mjs configure [wasm|native|node]  # no arg: configure all three; `wasm` ⟵ `emsdk` alias
+node make.mjs build     [wasm|native|node]  # default wasm; `build node [--smoke]` builds the NW.js/Node N-API addon
+node make.mjs test      [testName]          # no arg: ctest in build/native; arg: run that one test binary
+node make.mjs clean     [wasm|native]       # ninja clean
 ```
 
 Notes:
-- `configure`, `build`, and `clean` take an optional `target` positional (`wasm`
-  default, or `native`). `test` instead takes an optional test *name* and always
-  uses the native build dir (`build/native`): with no name it runs `ctest`; with a
-  name it runs that single `<name>.cc_out[.exe]` binary under `build/native/tests`
-  or `build/native/source/litestl/tests`.
+- `configure` and `build` take an optional `target` positional, one of `wasm`,
+  `native`, or `node` (`emsdk` is accepted as an alias for `wasm`). **No-arg
+  `configure` configures all three targets** (wasm, native, node); `build`
+  defaults to `wasm`. `clean` takes `wasm`/`native`. `test` instead takes an
+  optional test *name* and always uses the native build dir (`build/native`):
+  with no name it runs `ctest`; with a name it runs that single
+  `<name>.cc_out[.exe]` binary under `build/native/tests` or
+  `build/native/source/litestl/tests`.
 - Build dirs: WASM → `build/`, native → `build/native/`, Node addon → `build/native-node/`.
 - A global `-j` / `--jobs <n>` flag caps `cmake --build` parallelism (passed as
   `--parallel <n>`); omit it to use all cores. Lower it (e.g. `-j 2`) when clang
   OOMs on the heavy template translation units.
-- `node make.mjs node` builds `sculptcore_node.node` for the **NW.js** ABI
-  (default `--runtime nw`; `--runtime electron` kept as a fallback): cmake-js
-  downloads the runtime headers + import lib (`-r nw`) and injects `CMAKE_JS_*`
-  during configure, then the addon target (root `CMakeLists.txt`, gated on
-  `DEFINED CMAKE_JS_VERSION`) is built with the clang toolchain. The entry is
-  `source/napi/napi_entry.cc` (raw C N-API). `--smoke` loads the result in a
+- `node make.mjs build node` builds `sculptcore_node.node` for the **NW.js** ABI
+  (default `--runtime nw`; `--runtime electron` kept as a fallback). The
+  configure step (`make.mjs configure node`, also run on demand by `build node`
+  if the build dir isn't configured) uses cmake-js to download the runtime
+  headers + import lib (`-r nw`) and inject `CMAKE_JS_*`; then the addon target
+  (root `CMakeLists.txt`, gated on `DEFINED CMAKE_JS_VERSION`) is built with the
+  clang toolchain. The entry is
+  `source/napi/napi_entry.cc` (raw C N-API). `--smoke` (a `build node` flag)
+  loads the result in a
   hidden NW.js window (via the shared `source/napi/napi_smoke.cjs` body) and
   checks `version()`/`bindingCount()` + a sculpt stroke. The runtime version is
   read from `../nwjs/package.json` (override with `--runtime-version`). This is

@@ -257,9 +257,19 @@ function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, {recursive: true})
 }
 
+// Normalize a user-supplied target name. `emsdk` is accepted as an alias for the
+// canonical `wasm` (the Emscripten/WASM build) so both spellings work.
+function normalizeTarget(target) {
+  return target === 'emsdk' ? 'wasm' : target
+}
+
 function buildDir(target) {
+  target = normalizeTarget(target)
   if (target === 'native') {
     return WITH_NATIVE_MSVC ? 'build/native-msvc' : 'build/native'
+  }
+  if (target === 'node') {
+    return WITH_NATIVE_MSVC ? 'build/native-node-msvc' : 'build/native-node'
   }
   return 'build'
 }
@@ -382,18 +392,27 @@ function provisionNwjsCache(ver) {
   }
 }
 
-async function buildNodeAddon(runtime, version, smoke) {
+// Resolve the runtime ABI version, defaulting from the workspace package.json.
+function resolveRuntimeVersion(runtime, version) {
+  return version || (runtime === 'electron' ? readElectronVersion() : readNwjsVersion())
+}
+
+// Configure the Node N-API addon via cmake-js: downloads the runtime headers +
+// import lib and injects CMAKE_JS_INC/LIB/SRC, using the repo's clang toolchain
+// (or MSVC under WITH_NATIVE_MSVC) + Ninja, like the rest of the native tree.
+// `-r nw` targets the NW.js ABI; `-r electron` the Electron one.
+async function configureNodeAddon(runtime, version) {
   runtime = runtime === 'electron' ? 'electron' : 'nw'
-  const dir = WITH_NATIVE_MSVC ? 'build/native-node-msvc' : 'build/native-node'
+  const dir = buildDir('node')
   ensureDir(dir)
-  const ver = version || (runtime === 'electron' ? readElectronVersion() : readNwjsVersion())
+  const ver = resolveRuntimeVersion(runtime, version)
   const toolchainFile = WITH_NATIVE_MSVC ? 'native-msvc.cmake' : 'native-clang.cmake'
   const toolchain = Path.resolve('build_files', toolchainFile).replace(/\\/g, '/')
   const cmakeJs = 'node node_modules/cmake-js/bin/cmake-js'
   // Native env prefix, run from the sculptcore root (where configureEnv.mjs is).
   const env = 'node configureEnv.mjs'
 
-  console.log(`Building Node addon for ${runtime} ${ver} -> ${dir}/sculptcore_node.node`)
+  console.log(`Configuring Node addon for ${runtime} ${ver} -> ${dir}`)
 
   // Prebuilt OpenBLAS + SuiteSparse/CHOLMOD, same as `configure native`, so the
   // addon links the cholmod target instead of warning it off.
@@ -412,16 +431,26 @@ async function buildNodeAddon(runtime, version, smoke) {
     provisionNwjsCache(ver)
   }
 
-  // 1. Configure via cmake-js: downloads the runtime headers + import lib and
-  //    injects CMAKE_JS_INC/LIB/SRC. Clang toolchain + Ninja, like the rest of
-  //    the native tree. `-r nw` targets the NW.js ABI; `-r electron` the Electron.
   run(
     `${env} "${cmakeJs} configure -O ${dir} -G Ninja --CDWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} --CDCMAKE_TOOLCHAIN_FILE=${toolchain} ${depsDef} ${crtDef} -r ${runtime} -v ${ver} -a x64"`
   )
+}
 
-  // 2. Build ONLY the addon target. Its static deps come along; the SHARED
-  //    `sculptcore` lib is intentionally not built here (see the CMakeLists
-  //    note about the global /DELAYLOAD flag under the clang driver).
+async function buildNodeAddon(runtime, version, smoke) {
+  runtime = runtime === 'electron' ? 'electron' : 'nw'
+  const dir = buildDir('node')
+  const env = 'node configureEnv.mjs'
+
+  // Configure on demand if `build node` was run without a prior `configure node`.
+  if (!fs.existsSync(Path.join(dir, 'CMakeCache.txt'))) {
+    await configureNodeAddon(runtime, version)
+  }
+
+  console.log(`Building Node addon for ${runtime} -> ${dir}/sculptcore_node.node`)
+
+  // Build ONLY the addon target. Its static deps come along; the SHARED
+  // `sculptcore` lib is intentionally not built here (see the CMakeLists note
+  // about the global /DELAYLOAD flag under the clang driver).
   await runBuild(`${env} "cmake --build ${dir} --target sculptcore_node${parallelFlag()}"`)
 
   const out = Path.resolve(dir, 'sculptcore_node.node').replace(/\\/g, '/')
@@ -947,6 +976,77 @@ const targetPositional = (y) =>
     describe: 'Build target',
   })
 
+// Targets accepted by `configure` / `build`. `emsdk` is an alias for `wasm`.
+const BUILD_TARGETS = ['wasm', 'emsdk', 'native', 'node']
+
+// `configure [target]` — omitting the target configures all three (wasm, native,
+// node), so it has no default.
+const configureTargetPositional = (y) =>
+  y.positional('target', {
+    choices : BUILD_TARGETS,
+    describe: 'Build target (omit to configure wasm, native and node)',
+  })
+
+// `build [target]` — defaults to wasm, like the historical behavior.
+const buildTargetPositional = (y) =>
+  y.positional('target', {
+    choices : BUILD_TARGETS,
+    default : 'wasm',
+    describe: 'Build target (wasm | native | node)',
+  })
+
+// Runtime-ABI options shared by `configure node` / `build node` (ignored for the
+// wasm and native targets).
+const nodeRuntimeOptions = (y) =>
+  y
+    .option('runtime', {
+      type    : 'string',
+      choices : ['nw', 'electron'],
+      default : 'nw',
+      describe: 'Node addon target runtime ABI — node target only (nw default; electron fallback)',
+    })
+    .option('runtime-version', {
+      type    : 'string',
+      describe: 'Node addon runtime version — node target only (default: read from ../nwjs/package.json)',
+    })
+
+// Configure a single target's build dir. `node` goes through cmake-js
+// (configureNodeAddon); wasm/native run (emcmake) cmake directly.
+async function configureTarget(target, {backends, runtime, runtimeVersion}) {
+  target = normalizeTarget(target)
+  ensureDir('build')
+  if (target === 'node') {
+    await configureNodeAddon(runtime, runtimeVersion)
+    return
+  }
+  const dir = buildDir(target)
+  ensureDir(dir)
+  const env = envPrefix(target)
+  const sbrushFlags = sbrushBackendFlags(backends)
+  if (target === 'native') {
+    // Build + register the cross-worktree sccache launcher before cmake
+    // resolves it (build_files/native-clang.cmake). Best-effort: a no-op when
+    // the superproject's tools dir is absent (sculptcore built standalone).
+    const sccacheSetup = Path.resolve('../tools/sccache-wrapper/setup.mjs')
+    if (fs.existsSync(sccacheSetup)) {
+      run(`node "${sccacheSetup}"`)
+    }
+    // Fetch-or-build the prebuilt native deps (OpenBLAS + SuiteSparse/CHOLMOD)
+    // for this config, then hand cmake the combo dir. cmake wants forward slashes.
+    const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE)})
+    const depsFlag = `-DSCULPTCORE_DEPS_DIR="${depsDir.replace(/\\/g, '/')}"`
+
+    let NATIVE_CMAKE_ARGS = CMAKE_ARGS_BASE
+    NATIVE_CMAKE_ARGS += ` -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} `
+    NATIVE_CMAKE_ARGS += ` ${nativeToolchainFlag()}`
+    NATIVE_CMAKE_ARGS += ` ${depsFlag} ${sbrushFlags}`
+
+    run(`cd ${dir} && ${env} cmake ../.. ${NATIVE_CMAKE_ARGS}`)
+  } else {
+    run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_WASM_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`)
+  }
+}
+
 // Known sbrush backends, matching the SBRUSH_BACKEND_<X> CMake options.
 const SBRUSH_BACKENDS = ['cpp', 'wgsl', 'spirv', 'cuda', 'hip', 'opencl']
 
@@ -987,42 +1087,17 @@ yargs(hideBin(process.argv))
   })
   .command(
     'configure [target]',
-    'Configure the build',
+    'Configure the build (omit target to configure wasm, native and node)',
     (y) =>
-      targetPositional(y).option('backends', {
+      nodeRuntimeOptions(configureTargetPositional(y)).option('backends', {
         type    : 'string',
         describe: `comma-separated sbrush backends to enable (subset of: ${SBRUSH_BACKENDS.join(',')}); cpp is always on`,
       }),
-    async ({target, backends}) => {
+    async ({target, backends, runtime, runtimeVersion}) => {
       setupPNPM()
-      ensureDir('build')
-      const dir = buildDir(target)
-      ensureDir(dir)
-      const env = envPrefix(target)
-      const sbrushFlags = sbrushBackendFlags(backends)
-      if (target === 'native') {
-        // Build + register the cross-worktree sccache launcher before cmake
-        // resolves it (build_files/native-clang.cmake). Best-effort: a no-op when
-        // the superproject's tools dir is absent (sculptcore built standalone).
-        const sccacheSetup = Path.resolve('../tools/sccache-wrapper/setup.mjs')
-        if (fs.existsSync(sccacheSetup)) {
-          run(`node "${sccacheSetup}"`)
-        }
-        // Fetch-or-build the prebuilt native deps (OpenBLAS + SuiteSparse/CHOLMOD)
-        // for this config, then hand cmake the combo dir. cmake wants forward slashes.
-        const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE)})
-        const depsFlag = `-DSCULPTCORE_DEPS_DIR="${depsDir.replace(/\\/g, '/')}"`
-
-        let NATIVE_CMAKE_ARGS = CMAKE_ARGS_BASE
-        NATIVE_CMAKE_ARGS += ` -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} `
-        NATIVE_CMAKE_ARGS += ` ${nativeToolchainFlag()}`
-        NATIVE_CMAKE_ARGS += ` ${depsFlag} ${sbrushFlags}`
-
-        run(`cd ${dir} && ${env} cmake ../.. ${NATIVE_CMAKE_ARGS}`)
-      } else {
-        run(
-          `cd ${dir} && ${env} emcmake cmake .. ${CMAKE_WASM_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`
-        )
+      const targets = target ? [normalizeTarget(target)] : ['wasm', 'native', 'node']
+      for (const t of targets) {
+        await configureTarget(t, {backends, runtime, runtimeVersion})
       }
     }
   )
@@ -1040,7 +1115,22 @@ yargs(hideBin(process.argv))
       console.log(`deps: ready at ${dir}`)
     }
   )
-  .command('build [target]', 'Build', targetPositional, async ({target}) => {
+  .command(
+    'build [target]',
+    'Build (target: wasm | native | node)',
+    (y) =>
+      nodeRuntimeOptions(buildTargetPositional(y)).option('smoke', {
+        type    : 'boolean',
+        default : false,
+        describe: 'node target only: after building, load the .node under NW.js and run the napi smoke',
+      }),
+    async ({target, runtime, runtimeVersion, smoke}) => {
+    target = normalizeTarget(target)
+    if (target === 'node') {
+      await sbrushCodegen()
+      await buildNodeAddon(runtime, runtimeVersion, smoke)
+      return
+    }
     console.log('Building...')
     const dir = buildDir(target)
     const env = envPrefix(target)
@@ -1179,31 +1269,6 @@ yargs(hideBin(process.argv))
     {},
     async () => {
       await wgpuNativeVerify()
-    }
-  )
-  .command(
-    'node',
-    'Build the NW.js/Node N-API addon (.node) via cmake-js + clang',
-    (y) =>
-      y
-        .option('runtime', {
-          type    : 'string',
-          choices : ['nw', 'electron'],
-          default : 'nw',
-          describe: 'Target runtime ABI (nw default; electron kept as a fallback)',
-        })
-        .option('runtime-version', {
-          type    : 'string',
-          describe: 'Runtime version to target (default: read from ../nwjs/package.json)',
-        })
-        .option('smoke', {
-          type    : 'boolean',
-          default : false,
-          describe: 'After building, load the .node under NW.js and run the napi smoke',
-        }),
-    async ({runtime, runtimeVersion, smoke}) => {
-      await sbrushCodegen()
-      await buildNodeAddon(runtime, runtimeVersion, smoke)
     }
   )
   .command('install-tools', 'Install host build tools (naga)', {}, () => {

@@ -40,12 +40,11 @@ Use the Node dispatcher (`make.mjs`) rather than invoking cmake/emcmake directly
 clang is the required toolchain everywhere.
 
 ```sh
-node make.mjs install-emsdk            # one-time: git-clones + pins emsdk, cmake, ninja
-node make.mjs configure [wasm|native]  # default: wasm
-node make.mjs build     [wasm|native]
-node make.mjs test      [testName]     # no arg: ctest (build/native); arg: run one test binary
+node make.mjs install-emsdk                 # one-time: git-clones + pins emsdk, cmake, ninja
+node make.mjs configure [wasm|native|node]  # no arg: configure all three (emsdk = wasm alias)
+node make.mjs build     [wasm|native|node]  # default: wasm; `build node [--smoke]` = Node/NW.js N-API addon
+node make.mjs test      [testName]          # no arg: ctest (build/native); arg: run one test binary
 node make.mjs clean     [wasm|native]
-node make.mjs node      [--smoke]      # build the Node/Electron N-API addon (.node)
 ```
 
 Build directories:

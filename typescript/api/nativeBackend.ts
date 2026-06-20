@@ -2,7 +2,7 @@
  * Native (N-API) sculptcore backend loader — Workstream C of
  * documentation/plans/native-electron.md.
  *
- * Loads `sculptcore_node.node` (built by `make.mjs node`, see
+ * Loads `sculptcore_node.node` (built by `make.mjs build node`, see
  * source/napi/napi_runtime.{h,cc}) in the Electron renderer via the Node
  * `require` that nodeIntegration exposes. The browser build never has `require`,
  * so this returns `undefined` there and the WASM path is used.

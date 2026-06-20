@@ -151,7 +151,7 @@ delayed parsing, so every step lands green before the flag flips.
 - [x] Audit grep over all of `source/` and `tests/` for leftover `Bind`
       overload definitions or declarations (incl. test-local ones in
       `litestl/tests/test_binding_system.cc`, `tests/test_binding.cc`).
-- [x] **Gate 2:** native build + ctest, WASM build, `node make.mjs node
+- [x] **Gate 2:** native build + ctest, WASM build, `node make.mjs build node
       --smoke` all green. Regenerate the TS bindings (WASM build, then
       `pnpm build` in `tools/`) and confirm a **zero diff** under
       `typescript/` — descriptors must be byte-identical. Surface any diff

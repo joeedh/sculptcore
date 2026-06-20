@@ -2,7 +2,7 @@
 //
 // documentation/plans/native-electron.md, Workstream A (build) + B (runtime).
 // Built only when CMake is configured by cmake-js; see the root CMakeLists.txt
-// addon block and `make.mjs node`. Raw C N-API (node_api.h), not node-addon-api
+// addon block and `make.mjs build node`. Raw C N-API (node_api.h), not node-addon-api
 // (spike A.5 / sculptcore/spike/napi/RESULTS.md).
 
 #include <node_api.h>
