@@ -65,6 +65,10 @@ jobs:
           push: never
           runCmd: |
             set -euo pipefail
+            # make.mjs imports yargs (and other deps from package.json); the
+            # devcontainer's postCreateCommand isn't a reliable place to install
+            # them under devcontainers/ci, so install here before invoking it.
+            pnpm install --frozen-lockfile
             node make.mjs sbrush-validate wgsl
             node make.mjs sbrush-validate spirv
             node make.mjs sbrush-validate cuda
