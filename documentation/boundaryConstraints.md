@@ -58,8 +58,9 @@ enum BoundaryClass : int {
   present on the vertex's incident edges.
 - Bit 5 (`BC_ENDPOINT`) is **derived structural state**: the vertex is the
   *dangling end* of a feature chain (exactly one incident edge of its dominant
-  type). Smooth brushes relax such a vertex like an interior one so a chain end
-  follows the surface instead of collapsing onto its single neighbor.
+  type). Smooth brushes drop the tangential slide for such a vertex (averaging
+  toward its lone like-neighbor would collapse the end) and move it only along
+  the normal, so the chain end follows the surface.
 
 The **dominant type** for the endpoint count obeys the override rule below:
 `SHARP` wins over the smooth types. `BC_ENDPOINT` is kept *out* of
@@ -136,59 +137,69 @@ types when picking the dominant type for both the count and the smoothing rule.
 
 Two compiled `sbrush` kernels are boundary-aware:
 `source/brush/kernels/bsmooth.sbrush` (boundary-aware Laplacian smooth) and
-`featurealign.sbrush` (topology-rake smooth). Both read
-`.boundary.vert.class` and share the same boundary logic; they differ only in
-the *interior* model.
+`featurealign.sbrush` (topology-rake smooth). Both read `.boundary.vert.class`
+and share the same boundary logic; they differ only in how the tangential
+neighbor weights are computed (featurealign adds a cross-field rake bias).
 
-### Dominant type, override, and endpoint relax
+### Type gate, sharp override, and endpoint
 
-Each kernel reduces the class bitmask to a single gating type per vertex:
+Each kernel splits a neighbor's displacement into a **normal part** (along the
+vertex normal) and a **tangential part**, then weights them by `wNor` / `wTan`
+set from the class bitmask:
 
 ```
-dom = vc & 0x1F           // BC_TYPE_MASK: the smooth-type bits
-if (vc & BC_SHARP) dom = BC_SHARP    // sharp overrides the smooth types
-if (vc & BC_ENDPOINT) dom = 0        // endpoint relaxes like an interior vert
+dom  = vc & 0x1F                 // BC_TYPE_MASK: the boundary-type bits (never
+                                 //   narrowed to one) that gate the tangential avg
+wNor = (vc & BC_SHARP) ? 0 : 1   // sharp drops the normal component...
+wTan = 1
+if (vc & BC_ENDPOINT) { wTan = 0; wNor = 1; }   // ...endpoint drops the tangent
 ```
 
-- **Interior** (`dom == 0`): plain smoothing.
-- **Smooth boundary** (`projected` / `seam` / `polygroup` / `uvchart`):
-  average only neighbors sharing the dominant type; displacement is projected
-  fully into the **surface tangent plane** (`disp -= n·(disp·n)`) so the curve
-  relaxes but stays on the surface.
-- **Sharp crease** (`dom == BC_SHARP`): average only sharp-type neighbors, then
-  apply the **same volume-preserving normal flatten as an interior vertex**
-  (`disp -= n·(disp·n)·projection`). The crease survives because the surface
-  never averages across it (the like-neighbor gate); the crease line is free to
-  smooth along itself. This matches Blender's smooth-brush hard-boundary
-  behavior (`neighbor_coords_average_interior`): like-neighbor restriction is the
-  only constraint, with the global `projection` flatten applied as for interior
-  verts.
-- **Endpoint** (`BC_ENDPOINT`): dominant type dropped → relaxes with all
-  neighbors, following the surface (anchored relative to the user's imagined
-  parameterization, not pinned in space).
+- **Interior** (`vc == 0`, gate off): plain Laplacian; the normal component is
+  damped by `(1 - projection)` (volume-preserving tangential slide). `projection
+  == 0` is bit-identical plain Laplacian.
+- **Sharp crease** (`vc & BC_SHARP` → `wNor = 0`): average only like-(sharp)
+  neighbors tangentially and **drop the normal component entirely** — the vertex
+  slides purely in the tangent plane along the crease. The crease survives as a
+  clean discontinuity because the surface never averages across it (like-neighbor
+  gate) and never bulges (no normal motion). Sharp wins: a vertex carrying both a
+  sharp and a smooth type is treated as sharp.
+- **Smooth boundary** (`projected` / `seam` / `polygroup` / `uvchart`,
+  non-sharp; `wNor = 1`): average only like-type neighbors tangentially but
+  **keep the interior `(1 - projection)` normal motion** (from all neighbors), so
+  the curve relaxes while still following surface curvature.
+- **Endpoint** (`BC_ENDPOINT` → `wTan = 0`): **drop the tangential slide** — a
+  chain end has a single like-neighbor and averaging toward it would collapse the
+  end — and move only along the normal toward all neighbors, so the end follows
+  the surface height without sliding off.
 
 ### The neighbor-share gate
 
-A boundary vertex only averages neighbors that share its dominant type:
+A boundary vertex only averages neighbors that share one of its boundary types:
 
 ```
-if (dom != 0 && (dom & nb.vclass) == 0) w = 0.0;   // mask-before-AND
+if (dom != 0 && (dom & nb.vclass) == 0) wTan2 = 0.0;   // mask-before-AND
 ```
 
-Because `dom` is a pure type bit (or the smooth-type subset), it never collides
-with `BC_ENDPOINT` in the AND — the mask is implicit. `continue` cannot skip a
+`dom` is the full `BC_TYPE_MASK` union (never narrowed to a single bit), so a
+vertex on several feature types averages neighbors sharing *any* of them.
+`BC_ENDPOINT` (bit 5) is kept out of `BC_TYPE_MASK`, so it never enters this AND
+— the endpoint case is handled by `wTan`, not the gate. `continue` cannot skip a
 single neighbor on the WGSL backend, so neighbors are gated by weight, never by
 early exit.
 
-### Interior model difference
+### bsmooth vs. featurealign
 
-- **bsmooth**: interior verts remove a `projection` fraction (`brush.smoothProj`)
-  of the smoothing step's normal component (volume-preserving tangential slide);
-  `projection == 0` is bit-identical plain Laplacian.
-- **featurealign**: interior verts keep the rake-weighted tangential average but
-  restore the *unbiased* normal motion (`projVec / wproj_sum`), so the alignment
-  bias only steers the tangential slide. Boundary verts bypass this and use the
-  line/plane projection above.
+The two kernels share the class logic above verbatim (`wNor` / `wTan` / `dom`,
+sharp / smooth / endpoint, the same `(1 - projection)` normal damping). They
+differ only in the **tangential neighbor weight**:
+
+- **bsmooth** weights every kept tangential neighbor equally (plain Laplacian).
+- **featurealign** multiplies each kept tangential neighbor by a cross-field
+  alignment factor (`1 + rake·8·align⁴`, `rake` = `brush.rake`), so grid-aligned
+  edges pull harder and the topology drifts to follow the field. `rake == 0`
+  reduces it to bsmooth. The rake applies wherever `wTan2 != 0`, including a
+  boundary vertex's like-neighbors; only the normal component is untouched by it.
 
 ### Refresh entry points
 
@@ -279,9 +290,10 @@ like edge ✓, not into an unlike edge ✓, subdivide a feature edge ✓.
   lazy dirty recompute with `boundaryDirty` short-circuit.
 - Per-vertex class bitmask with the `BC_ENDPOINT` derived bit and the
   sharp-overrides-smooth dominant-type rule.
-- Boundary-aware smoothing in both kernels: sharp crease (Blender-style
-  like-neighbor restriction + volume flatten), projected/seam tangent-plane
-  projection, endpoint relax, interior models.
+- Boundary-aware smoothing in both kernels: sharp crease (like-neighbor
+  tangential slide, normal component dropped), projected/seam (like-neighbor
+  tangent + `(1 - projection)` normal), endpoint (normal-only), interior
+  Laplacian.
 - Dyntopo collinear-collapse + corner-angle pinning; split flag propagation.
 - Regression: `tests/test_boundary.cc` (classification + endpoint bits + shortest
   edge path); the TS `sculptcore_boundary` parity test (polyline-graph invariance

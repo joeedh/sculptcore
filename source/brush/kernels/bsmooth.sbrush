@@ -1,15 +1,21 @@
-// Boundary-aware smooth (boundary.md). A boundary vertex — one whose lazily
-// recomputed .boundary.vert.class bitmask is non-zero — averages only the
-// neighbors that share its dominant boundary type. SHARP overrides the smooth
-// types (projected/seam/poly/uv): a sharp crease vertex averages only its
-// like-crease neighbors and gets the same volume-preserving normal flatten as an
-// interior vertex, so the crease smooths along itself as a clean discontinuity
-// (the surface never averages across it). A projected/seam/etc. vertex instead
-// projects fully into the surface tangent plane (the curve relaxes but stays on
-// the surface). A chain *endpoint* (BC_ENDPOINT — one dominant-type edge) relaxes
-// like an interior vertex so the chain end follows the surface instead of
-// collapsing onto its single neighbor. Interior verts (class 0) smooth normally,
-// so this reduces to plain Laplacian smoothing when no boundaries are marked.
+// Boundary-aware smooth (boundary.md). A neighbor's displacement is split into a
+// normal part (along the vertex normal) and a tangential part, weighted by
+// wNor/wTan from the lazily recomputed .boundary.vert.class bitmask. Class 0
+// (interior) is plain Laplacian smoothing that removes a `projection` fraction of
+// the normal component (volume-preserving tangential slide), so this reduces to
+// ordinary smoothing when no boundaries are marked. The boundary cases:
+//
+//   * SHARP crease: average only like-(sharp) neighbors and drop the normal
+//     component entirely (wNor=0) — the vertex slides purely along the crease
+//     tangent, so the crease smooths along itself as a clean discontinuity (the
+//     surface never averages across it and never bulges).
+//   * Smooth boundary (projected/seam/poly/uv): average only like-type neighbors
+//     tangentially but keep the interior (1-projection) normal motion from all
+//     neighbors, so the curve relaxes while still following the surface.
+//   * Chain endpoint (BC_ENDPOINT): drop the tangential slide (wTan=0) — there is
+//     one like-neighbor and averaging toward it would collapse the end — and keep
+//     only normal motion so the end follows the surface. SHARP wins over a smooth
+//     type on the same vertex (treated as sharp: wNor=0).
 //
 // Consumers must run boundary::recomputeDirty before the stroke so vclass is
 // current. UV slide-reprojection and the corner (>=3 junction) special case are
@@ -28,9 +34,9 @@ brush BSmooth {
     if (s == 0.0) { continue; }
 
     int vc = v.vclass;
-    // dom = the single bit (or smooth-type bits) that gates neighbors. SHARP
-    // wins; an endpoint drops its constraint and relaxes like an interior vert.
-    int dom = vc & 31;          // BC_TYPE_MASK
+    // dom = the boundary-type bits (BC_TYPE_MASK) that gate which neighbors enter
+    // the tangential average; never narrowed to a single bit.
+    int dom = vc & 31;
 
     float3 tangentDisp = float3(0.0, 0.0, 0.0);
     float3 normalDisp = float3(0.0, 0.0, 0.0);
@@ -41,14 +47,15 @@ brush BSmooth {
     float wTan = 1.0;
 
     if ((vc & 2) != 0) {
-      // BC_SHARP overrides smooth types
+      // BC_SHARP: drop the normal component → slide purely along the crease
       wNor = 0.0;
     }
-    if ((vc & 32) != 0) { 
-      // BC_ENDPOINT relaxes (all neighbors)
+    if ((vc & 32) != 0) {
+      // BC_ENDPOINT: chain end — drop the tangential slide (would collapse onto
+      // its lone like-neighbor), keep only normal motion to follow the surface
       wTan = 0.0;
       wNor = 1.0;
-    }  
+    }
 
     for_neighbor (nb in v) {
       float wTan2 = wTan;

@@ -25,9 +25,9 @@ brush FeatureAlign {
     if (s == 0.0) { continue; }
 
     int vc = v.vclass;
-    // dom = the single bit (or smooth-type bits) that gates neighbors. SHARP
-    // wins; an endpoint drops its constraint and relaxes like an interior vert.
-    int dom = vc & 31;          // BC_TYPE_MASK
+    // dom = the boundary-type bits (BC_TYPE_MASK) that gate which neighbors enter
+    // the tangential average; never narrowed to a single bit.
+    int dom = vc & 31;
 
     float3 tangentDisp = float3(0.0, 0.0, 0.0);
     float3 normalDisp = float3(0.0, 0.0, 0.0);
@@ -38,14 +38,15 @@ brush FeatureAlign {
     float wTan = 1.0;
 
     if ((vc & 2) != 0) {
-      // BC_SHARP overrides smooth types
+      // BC_SHARP: drop the normal component → slide purely along the crease
       wNor = 0.0;
     }
-    if ((vc & 32) != 0) { 
-      // BC_ENDPOINT relaxes (all neighbors)
+    if ((vc & 32) != 0) {
+      // BC_ENDPOINT: chain end — drop the tangential slide (would collapse onto
+      // its lone like-neighbor), keep only normal motion to follow the surface
       wTan = 0.0;
       wNor = 1.0;
-    }  
+    }
 
     // Project the cross-field reference into the tangent plane; dperp is its 90°
     // rotation about the normal. The two together span the cross's directions.

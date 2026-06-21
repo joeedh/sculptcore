@@ -53,13 +53,15 @@ inline constexpr const char *FACE_GROUP = "group";
 // Bits 0..4 are the boundary-type union (which types touch the vertex). Bit 5
 // (BC_ENDPOINT) is a *derived* flag: the vertex has exactly one constraint edge
 // of its dominant boundary type, so it is the dangling end of a feature chain.
-// A smooth brush relaxes such a vertex like an interior one (consider all
-// neighbors) so the chain end follows the surface instead of collapsing onto
-// its single neighbor. SHARP overrides the smooth types when picking the
-// dominant type for both the endpoint count and the smoothing rule (a sharp
-// crease vertex slides along the crease tangent; a projected/seam/etc. vertex
-// slides in the surface tangent plane). Keep BC_ENDPOINT out of BC_TYPE_MASK so
-// the neighbor-share test (dom & nb.class) only compares type bits.
+// A smooth brush drops the tangential slide for such a vertex (averaging toward
+// its lone like-neighbor would collapse the end) and moves it only along the
+// normal, so the chain end follows the surface. SHARP overrides the smooth
+// types when picking the dominant type for both the endpoint count and the
+// smoothing rule (a sharp
+// crease vertex slides along the crease with the normal component dropped; a
+// projected/seam/etc. vertex keeps the interior normal damping but averages only
+// like-type neighbors). Keep BC_ENDPOINT out of BC_TYPE_MASK so the
+// neighbor-share test (dom & nb.class) only compares type bits.
 enum BoundaryClass : int {
   BC_NONE = 0,
   BC_PROJECTED = 1 << 0,
@@ -95,9 +97,9 @@ void markAllDirty(MeshBase *m);
 // — requires live topology.
 void markFaceDirty(MeshBase *m, int f);
 
-// Recompute derived edge flags (poly-group; UV-chart is a follow-up) and the
-// per-vertex classification for every dirty element, clearing the markers.
-// Requires live topology.
+// Recompute derived edge flags (poly-group, and UV-chart when the mesh has UVs)
+// and the per-vertex classification for every dirty element, clearing the
+// markers. Requires live topology.
 void recomputeDirty(MeshBase *m);
 
 // Read a vertex's classification bitmask (0 if not yet computed).
