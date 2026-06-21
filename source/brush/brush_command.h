@@ -128,6 +128,12 @@ struct CommandCtxBase {
   mesh::AttrData<int> *origGen = nullptr;
   uint32_t strokeGen = 0;
 
+  // Grab-class symmetry first-touch stamp (#35): `dabGen` is the `.brush.dab.gen`
+  // TEMP attr, a vert counts as written this dab iff dabGen[v] == curDabGen.
+  // Drives the AccumOrigGrab re-base/add choice. Null/0 outside a grab dab.
+  mesh::AttrData<int> *dabGen = nullptr;
+  uint32_t curDabGen = 0;
+
   // Fetch a bound non-bool attribute's data by kernel handle. Returns nullptr
   // when unbound (an optional layer that was absent); write kernels always
   // declare their target, so it's non-null there.
@@ -251,9 +257,10 @@ template <typename CTX> struct BrushCommandDef {
   // plans/nonAccumMode.md.
   bool accumulable = false;
   // Set by the executor (not codegen) for grab-class brushes (grab / kelvinlet):
-  // they always deform from the stroke-start position with the AccumOrigAbsolute
+  // they always deform from the stroke-start position with the AccumOrigGrab
   // policy + a fixed region, independent of the ACCUMULATE flag (#35). Drives the
-  // `.brush.orig.*` stamp even when `accumulable` is false (kelvinlet is @global).
+  // `.brush.orig.*` + `.brush.dab.gen` stamps even when `accumulable` is false
+  // (kelvinlet is @global).
   bool grabMode = false;
   // Attribute layers this kernel reads/writes, emitted by codegen. The executor
   // resolves these to live mesh layers and binds them before the per-node loop.

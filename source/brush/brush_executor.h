@@ -180,12 +180,16 @@ struct CommandExecutor {
    * position into `.brush.orig.*` (keyed by `strokeGen`) and runs the AccumOrig
    * kernel instantiation so deformation is measured from that snapshot. */
   bool nonAccum = false;
-  /** Grab-class symmetry write-back select (#35). The dab dispatch sets this per
-   * symmetry image before applyDab: false on the primary pass (AccumOrigAbsolute,
-   * re-bases every touched vert from orig), true on mirror passes (AccumOrigAdd,
-   * sums their displacement onto the re-based primary so shared verts get
-   * orig + Σ disp_i). Ignored for non-grab brushes. */
+  /** Grab-class symmetry dab marker (#35). The dab dispatch calls setGrabAccumAdd
+   * per symmetry image before applyDab: false on the primary image (which begins
+   * a new logical dab → bumps `dabGen`), true on mirror images (same dab). The
+   * AccumOrigGrab write-back uses the per-vert `.brush.dab.gen` stamp vs `dabGen`
+   * to re-base the first image's verts and add later images' onto them. */
   bool grabAccumAdd = false;
+  /** Monotonic per-dab counter for the grab symmetry first-touch stamp. Bumped on
+   * each primary image (setGrabAccumAdd(false)); pushed into ctx.curDabGen in
+   * exec(). Must be non-zero in use, since the `.brush.dab.gen` attr defaults 0. */
+  uint32_t dabGen = 0;
   uint32_t strokeGen = 0;
   meshlog::MeshLog *meshLog = nullptr;
   /** Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
@@ -280,11 +284,17 @@ struct CommandExecutor {
     nonAccum = v;
   }
 
-  /** Select the grab-class symmetry write-back for the upcoming dab/image (#35):
-   * false = primary pass (re-base from orig), true = mirror pass (add onto it). */
+  /** Mark the upcoming grab-class dab/image (#35): false = primary image, which
+   * begins a new logical dab and bumps the per-dab generation so every vert it
+   * touches re-bases from orig; true = mirror image of the same dab (shared verts
+   * add). The AccumOrigGrab write-back keys off the per-vert dab stamp, so this
+   * only needs to advance `dabGen` once per dab (on the primary image). */
   void setGrabAccumAdd(bool v)
   {
     grabAccumAdd = v;
+    if (!v) {
+      dabGen++;
+    }
   }
   void setStrokeGen(int gen)
   {
@@ -405,18 +415,15 @@ struct CommandExecutor {
     createCommandImpl<AccumLive>(brushType, def);
     if (isGrabBrush(brushType)) {
       // Always deform from each vert's stroke-start position, so the region is
-      // fixed at stroke start and the grab follows the cursor (#35). The primary
-      // symmetry pass re-bases every touched vert from orig (AccumOrigAbsolute);
-      // mirror passes add their displacement onto that (AccumOrigAdd) so shared
-      // verts get orig + Σ disp_i instead of the last pass overwriting. Forced
-      // on regardless of the ACCUMULATE flag / @global (kelvinlet is @global →
-      // not `accumulable`). The op sets grabAccumAdd per symmetry image.
+      // fixed at stroke start and the grab follows the cursor (#35). One write-
+      // back (AccumOrigGrab) serves every symmetry image: the first image to
+      // touch a vert this dab re-bases it from orig, later images of the same
+      // dab add their displacement onto it (arbitrated by the per-vert dab
+      // stamp). Forced on regardless of the ACCUMULATE flag / @global (kelvinlet
+      // is @global → not `accumulable`). The op marks each image via
+      // setGrabAccumAdd, which advances the per-dab generation on the primary.
       def.grabMode = true;
-      if (grabAccumAdd) {
-        createCommandImpl<AccumOrigAdd>(brushType, def);
-      } else {
-        createCommandImpl<AccumOrigAbsolute>(brushType, def);
-      }
+      createCommandImpl<AccumOrigGrab>(brushType, def);
     } else if (nonAccum && def.accumulable) {
       createCommandImpl<AccumOrig>(brushType, def);
     }
@@ -577,9 +584,11 @@ struct CommandExecutor {
     ctx.origCo = nullptr;
     ctx.origGen = nullptr;
     ctx.strokeGen = 0;
+    ctx.dabGen = nullptr;
+    ctx.curDabGen = 0;
     // Grab-class brushes always need the orig snapshot (cmd.grabMode), even when
     // not `accumulable` (kelvinlet is @global) and regardless of the ACCUMULATE
-    // flag — they deform from it via AccumOrigAbsolute (#35).
+    // flag — they deform from it via AccumOrigGrab (#35).
     if ((cmd.grabMode || (nonAccum && cmd.accumulable)) && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
       // TEMP + NOCOPY: stroke-transient, not undoable. NOCOPY keeps the meshlog
@@ -597,8 +606,23 @@ struct CommandExecutor {
       ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
       ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
       ctx.strokeGen = strokeGen;
+
+      // Grab-class first-touch stamp (#35): ensure `.brush.dab.gen` + pass the
+      // per-dab counter to the kernel. Pages are pre-materialized below (with the
+      // orig stamp) so the parallel kernel only reads/writes existing slots.
+      if (cmd.grabMode) {
+        mesh::AttrRef &dabRef =
+            m->v.attrs.ensure(mesh::AttrType::INT, ".brush.dab.gen", false);
+        dabRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+        ctx.dabGen = static_cast<mesh::AttrData<int> *>(dabRef.data);
+        ctx.curDabGen = dabGen;
+      }
+
       for (auto *node : nodes) {
         for (int v : node->data->unique_verts) {
+          if (ctx.dabGen) {
+            ctx.dabGen->materialize(v);
+          }
           ctx.origGen->materialize(v);
           if ((*ctx.origGen)[v] != int(strokeGen)) {
             ctx.origCo->materialize(v);
@@ -1347,5 +1371,23 @@ inline float dabFalloffFraction(const CommandExecutor &exec, const float3 &co)
 {
   float t = 1.0f - std::min(exec.brush->falloffDist(co - exec.ctx.surfacePos), 1.0f);
   return exec.brush->falloffEval(t);
+}
+
+/** Declared in accum_mode.h; AccumKind::Grab write-back uses it. First image to
+ * write vert `v` this dab → stamp curDabGen and return true (re-base from orig);
+ * an already-stamped vert returns false (later image adds). The page was
+ * pre-materialized in exec(), so this only reads/writes an existing slot. With no
+ * stamp attr (single-image stroke, dab counter idle) every write re-bases. */
+inline bool grabClaimFirstTouch(const CommandExecutor &exec, int v)
+{
+  mesh::AttrData<int> *dabGen = exec.ctx.dabGen;
+  if (!dabGen) {
+    return true;
+  }
+  if ((*dabGen)[v] == int(exec.ctx.curDabGen)) {
+    return false;
+  }
+  (*dabGen)[v] = int(exec.ctx.curDabGen);
+  return true;
 }
 } // namespace sculptcore::brush
