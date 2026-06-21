@@ -62,6 +62,18 @@ else()
   if (WIN32)
     add_compile_options( -DWIN32 )
   endif()
+
+  # Crashpad symbolication: the Node addon build (cmake-js → CMAKE_JS_VERSION)
+  # must carry CodeView debug info + a linked PDB so a minidump's sculptcore C++
+  # frames resolve. clang++ targets the MSVC ABI but defaults -g to DWARF, which
+  # cdb/WinDbg can't walk; -gcodeview switches the format and /DEBUG emits the
+  # PDB. Set at directory scope (before add_subdirectory) so every module's
+  # CodeView lands in the single addon PDB at link. MSVC RelWithDebInfo already
+  # produces a PDB, so this is clang-only. See documentation/plans/crashpad.md.
+  if (DEFINED CMAKE_JS_VERSION AND WIN32 AND NOT MSVC)
+    add_compile_options(-g -gcodeview)
+    add_link_options(LINKER:/DEBUG)
+  endif()
 endif()
 
 # --- Windows runtime-DLL staging -------------------------------------------
@@ -281,6 +293,10 @@ else()
 	  if (WIN32)
 	    target_link_options(sculptcore_node PRIVATE "LINKER:/DELAYLOAD:node.exe")
 	    target_link_libraries(sculptcore_node delayimp.lib)
+	    # Name the PDB explicitly next to the .node (the output basename is
+	    # sculptcore_node.node, so let the linker derive sculptcore_node.pdb).
+	    target_link_options(sculptcore_node PRIVATE
+	      "LINKER:/PDB:${CMAKE_CURRENT_BINARY_DIR}/sculptcore_node.pdb")
 	  endif()
 
 	  if (WIN32)

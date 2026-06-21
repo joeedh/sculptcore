@@ -9,6 +9,7 @@ import {fileURLToPath} from 'url'
 import {termColor} from './source/litestl/tests/termColor.js'
 import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
 import {ensureDeps, configName} from './tools/deps.mjs'
+import {archivePdb} from './crash/dump.mjs'
 
 // Every input/output path below is resolved relative to the working dir,
 // assuming it's this script's own directory; chdir here so `node make.mjs ...`
@@ -459,6 +460,16 @@ async function buildNodeAddon(runtime, version, smoke) {
     process.exit(1)
   }
   console.log(`node: built ${out}`)
+
+  // Crashpad: archive the addon's PDB into the content-addressed symbol store
+  // (build/crashdumps/syms) keyed by its CodeView GUID, so minidumps stay
+  // symbolizable after a rebuild. Best-effort (no-op without a PDB, e.g. WASM
+  // or a non-Windows host). See documentation/plans/crashpad.md.
+  const pdb = Path.resolve(dir, 'sculptcore_node.pdb')
+  if (fs.existsSync(pdb)) {
+    const stored = archivePdb(out, pdb)
+    if (stored) console.log(`node: archived PDB -> ${stored}`)
+  }
 
   if (smoke) {
     if (runtime === 'electron') {
