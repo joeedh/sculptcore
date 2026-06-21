@@ -685,6 +685,13 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
     bu.nu = scene.brush.nu;
   }
 
+  // Pinch / Sharp: the `@static` `pinch` uniform is the first appended DSL slot
+  // (offset 72, aliasing mu). Without this the kernel reads mu's 1.0 default.
+  if (scene.currentTool == brush::SculptBrushes::PINCH ||
+      scene.currentTool == brush::SculptBrushes::SHARP) {
+    bu.pinch = scene.brush.pinch;
+  }
+
   // Plane family (Clay/Scrape/Fill): the kernel's appended DSL uniforms.
   if (scene.currentTool == brush::SculptBrushes::CLAY ||
       scene.currentTool == brush::SculptBrushes::SCRAPE ||

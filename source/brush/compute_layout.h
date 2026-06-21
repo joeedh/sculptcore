@@ -31,6 +31,7 @@ struct ComputeBrushUniforms {
   union {
     float mu = 1.0f;       // offset 72 — kelvinlet
     float planeoff;        //           — plane (Clay/Scrape/Fill)
+    float pinch;           //           — pinch / sharp (toward-center/axis pull)
   };
   union {
     float nu = 0.4f;       // offset 76 — kelvinlet

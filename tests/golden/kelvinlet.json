@@ -5,19 +5,19 @@
     "corners": 2904,
     "faces": 726,
     "aabb_min": [-0.25,-0.25,-0.25],
-    "aabb_max": [0.25,0.25,0.559311],
-    "co_sum": [3.27825546e-06,3.27825546e-06,8.44163543],
-    "co_sqsum": 82.247055
+    "aabb_max": [0.25,0.25,0.439374],
+    "co_sum": [3.27825546e-06,3.27825546e-06,5.16834962],
+    "co_sqsum": 79.6562755
   },
   "spatial": {
     "leaf_limit": 256,
     "depth_limit": 8,
     "leaf_count": 4,
     "leaves": [
-      {"id":4,"depth":2,"flag":59,"aabb_min":[-0.113646,-0.25001,-0.25001],"aabb_max":[0.25001,0.0227373,0.25001],"unique_verts":184,"other_verts":208,"tris":360},
-      {"id":5,"depth":2,"flag":59,"aabb_min":[-0.0681918,-0.113646,-0.25001],"aabb_max":[0.25001,0.25001,0.25001],"unique_verts":206,"other_verts":227,"tris":400},
-      {"id":6,"depth":2,"flag":59,"aabb_min":[-0.25001,-0.25001,-0.25001],"aabb_max":[0.0681918,0.113646,0.25001],"unique_verts":185,"other_verts":237,"tris":396},
-      {"id":7,"depth":2,"flag":59,"aabb_min":[-0.25001,-0.0227373,-0.25001],"aabb_max":[0.113646,0.25001,0.25001],"unique_verts":153,"other_verts":174,"tris":296}
+      {"id":4,"depth":2,"flag":1,"aabb_min":[-0.25001,-0.25001,-0.25001],"aabb_max":[1e-05,1e-05,0.439384],"unique_verts":153,"tris":320},
+      {"id":5,"depth":2,"flag":1,"aabb_min":[-0.25001,-0.0227373,-0.25001],"aabb_max":[1e-05,0.25001,0.439384],"unique_verts":188,"tris":362},
+      {"id":6,"depth":2,"flag":1,"aabb_min":[-0.0227373,-0.25001,-0.25001],"aabb_max":[0.25001,1e-05,0.439384],"unique_verts":184,"tris":362},
+      {"id":7,"depth":2,"flag":1,"aabb_min":[-0.0227373,-0.0227373,-0.25001],"aabb_max":[0.25001,0.25001,0.439384],"unique_verts":203,"tris":408}
     ]
   },
   "brush": {

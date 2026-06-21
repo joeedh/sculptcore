@@ -440,6 +440,7 @@ bool execVerb(Scene &scene,
     scene.brush.strength = getFloat(args, "strength", scene.brush.strength);
     scene.brush.spacing = getFloat(args, "spacing", scene.brush.spacing);
     scene.brush.invert = getBool(args, "invert", scene.brush.invert);
+    scene.brush.pinch = getFloat(args, "pinch", scene.brush.pinch);
     scene.nonAccum = getBool(args, "nonaccum", scene.nonAccum);
     scene.brush.writeProps();
     return true;
@@ -907,11 +908,14 @@ bool execVerb(Scene &scene,
     } else
 #endif
     {
-      // One stroke verb = one stroke: bump the non-accumulate generation once so
-      // `repeat`ed dabs below share a stamp (and converge), while a later stroke
-      // verb re-stamps. nonAccumGen also keeps dyntopo's snapshot coherent.
-      uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
-      scene.dyntopoParams.nonAccumGen = gen;
+      // One stroke verb = one stroke: advance the per-stroke generation every
+      // stroke (mirrors the TS app's ++nextStrokeGen). It must be nonzero even in
+      // accumulate mode — grab/kelvinlet always orig-stamp, and gen 0 collides with
+      // the fresh .brush.orig.gen default, skipping the snapshot while baseFor still
+      // dereferences the unmaterialized orig page (crash). `repeat`ed dabs below
+      // share this one stamp; nonAccumGen stays 0 outside non-accumulate.
+      uint32_t gen = ++scene.strokeGen;
+      scene.dyntopoParams.nonAccumGen = scene.nonAccum ? gen : 0;
       int repeat = getInt(args, "repeat", 1);
       if (repeat < 1) repeat = 1;
       // One stroke verb = one meshlog step of `repeat` unified dabs through the
@@ -969,8 +973,9 @@ bool execVerb(Scene &scene,
     int dabs = getInt(args, "dabs", getInt(args, "repeat", 1));
     if (dabs < 1) dabs = 1;
 
-    uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
-    scene.dyntopoParams.nonAccumGen = gen;
+    // Nonzero every stroke (see the stroke verb): grab orig-stamps in any mode.
+    uint32_t gen = ++scene.strokeGen;
+    scene.dyntopoParams.nonAccumGen = scene.nonAccum ? gen : 0;
 
     brush::CommandExecutor exec(scene.tree, &scene.brush);
     exec.meshLog = &scene.meshLog;
@@ -1073,10 +1078,10 @@ bool execVerb(Scene &scene,
 #endif
     {
       // A path is one stroke = one meshlog step of unified dabs through the executor.
-      // Bump the non-accumulate generation once so every dab measures from the same
-      // stroke-start snapshot; the tree updates incrementally, GPU buffers once at end.
-      uint32_t gen = scene.nonAccum ? ++scene.strokeGen : 0;
-      scene.dyntopoParams.nonAccumGen = gen;
+      // Advance the per-stroke generation once so every dab measures from the same
+      // stroke-start snapshot; nonzero every stroke so grab orig-stamps in any mode.
+      uint32_t gen = ++scene.strokeGen;
+      scene.dyntopoParams.nonAccumGen = scene.nonAccum ? gen : 0;
       brush::CommandExecutor exec(scene.tree, &scene.brush);
       exec.meshLog = &scene.meshLog;
       exec.ctx.renderMatrix = scene.renderMatrix;

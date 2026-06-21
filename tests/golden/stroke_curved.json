@@ -12,15 +12,16 @@
   "spatial": {
     "leaf_limit": 256,
     "depth_limit": 8,
-    "leaf_count": 7,
+    "leaf_count": 8,
     "leaves": [
-      {"id":7,"depth":2,"flag":59,"aabb_min":[-0.25001,0.0166567,-0.25001],"aabb_max":[0.15001,0.25001,0.25001],"unique_verts":276,"other_verts":311,"tris":546},
-      {"id":8,"depth":3,"flag":41,"aabb_min":[-0.0833433,-0.25001,-0.25001],"aabb_max":[0.25001,0.05001,0.0833433],"unique_verts":202,"other_verts":233,"tris":398},
-      {"id":9,"depth":3,"flag":59,"aabb_min":[-0.15001,-0.25001,-0.0166767],"aabb_max":[0.25001,0.0166767,0.25001],"unique_verts":187,"other_verts":216,"tris":364},
-      {"id":10,"depth":3,"flag":41,"aabb_min":[-0.0833433,-0.0833433,-0.25001],"aabb_max":[0.25001,0.25001,0.05001],"unique_verts":188,"other_verts":210,"tris":354},
-      {"id":11,"depth":3,"flag":59,"aabb_min":[-0.15001,-0.05001,-0.0166767],"aabb_max":[0.25001,0.25001,0.25001],"unique_verts":191,"other_verts":225,"tris":382},
-      {"id":12,"depth":3,"flag":41,"aabb_min":[-0.25001,-0.25001,-0.25001],"aabb_max":[0.0166767,0.0833433,0.116677],"unique_verts":170,"other_verts":226,"tris":382},
-      {"id":13,"depth":3,"flag":59,"aabb_min":[-0.25001,-0.25001,0.0166567],"aabb_max":[0.0166767,0.0833433,0.25001],"unique_verts":138,"other_verts":165,"tris":274}
+      {"id":8,"depth":3,"flag":1,"aabb_min":[-0.05001,-0.25001,-0.25001],"aabb_max":[0.25001,1e-05,1e-05],"unique_verts":186,"tris":350},
+      {"id":9,"depth":3,"flag":1,"aabb_min":[-0.05001,-0.25001,-0.0166767],"aabb_max":[0.25001,1e-05,0.404415],"unique_verts":191,"tris":382},
+      {"id":10,"depth":3,"flag":1,"aabb_min":[-0.05001,-0.0166767,-0.25001],"aabb_max":[0.25001,0.25001,0.0166767],"unique_verts":203,"tris":416},
+      {"id":11,"depth":3,"flag":1,"aabb_min":[-0.05001,-0.0166767,0.0166567],"aabb_max":[0.25001,0.25001,0.404415],"unique_verts":188,"tris":382},
+      {"id":12,"depth":3,"flag":1,"aabb_min":[-0.25001,0.0166567,-0.25001],"aabb_max":[1e-05,0.25001,0.0166767],"unique_verts":148,"tris":292},
+      {"id":13,"depth":3,"flag":1,"aabb_min":[-0.25001,0.0166567,0.0166567],"aabb_max":[1e-05,0.25001,0.348397],"unique_verts":136,"tris":266},
+      {"id":14,"depth":3,"flag":1,"aabb_min":[-0.25001,-0.25001,-0.25001],"aabb_max":[1e-05,0.0166767,0.0166767],"unique_verts":161,"tris":320},
+      {"id":15,"depth":3,"flag":1,"aabb_min":[-0.25001,-0.25001,0.0166567],"aabb_max":[1e-05,0.0166767,0.348397],"unique_verts":139,"tris":292}
     ]
   },
   "brush": {
