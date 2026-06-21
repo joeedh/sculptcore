@@ -2041,10 +2041,10 @@ napi_value NapiRuntime::TestPrint(napi_env env, napi_callback_info info) {
   return undef;
 }
 
-// CLAUDENOTE: temp crashTest() — derefs a null pointer to fault inside
-// sculptcore_node so a Crashpad minidump carries a native stack we can
-// symbolicate with the addon's CodeView PDB. Remove after crashpad.md
-// verification. Named litmus frame so the walked stack is unmistakable.
+// crashTest() -> void. Crashpad self-test: derefs a null pointer to fault inside
+// sculptcore_node, so a minidump carries a native stack symbolicated by the
+// addon's CodeView PDB. Driven by the harness --apptest-crash flag; see
+// documentation/plans/crashpad.md.
 napi_value NapiRuntime::CrashTest(napi_env env, napi_callback_info info) {
   (void)info;
   volatile int *sculptcoreCrashTestNullDeref = nullptr;
@@ -2144,7 +2144,6 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "formatBlocks", &NapiRuntime::FormatBlocks);
   define(exports, "testPrint", &NapiRuntime::TestPrint);
   define(exports, "redirectStdout", &NapiRuntime::RedirectStdout);
-  // CLAUDENOTE: temp — remove with CrashTest after crashpad.md verification.
   define(exports, "crashTest", &NapiRuntime::CrashTest);
 }
 

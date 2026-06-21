@@ -159,9 +159,9 @@ class NapiRuntime {
   // this gives stdout a real (unbuffered) fd the launcher can read back, the
   // standard Windows GUI-subsystem stdout workaround.
   static napi_value RedirectStdout(napi_env, napi_callback_info);
-  // CLAUDENOTE: temp Crashpad verification — crashTest() null-derefs in native
-  // code so a minidump faults inside sculptcore_node (proving the CodeView PDB
-  // symbolicates C++ frames). Remove after crashpad.md verification.
+  // crashTest() -> void. Crashpad self-test: null-derefs inside sculptcore_node
+  // so a minidump faults in native code, proving the CodeView PDB symbolicates
+  // C++ frames. Driven by the harness --apptest-crash flag (see crashpad.md).
   static napi_value CrashTest(napi_env, napi_callback_info);
 
   void define(napi_value exports, const char *name, napi_callback cb);
