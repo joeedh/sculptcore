@@ -79,32 +79,47 @@ static void bsmooth(CommandCtx<TYPES> &ctx)
       continue;
     }
     int vc = (*__attr_vclass)[v.v];
-    float3 avg = float3(0.0f, 0.0f, 0.0f);
-    float n = 0.0f;
+    int dom = (vc & 31);
+    float3 tangentDisp = float3(0.0f, 0.0f, 0.0f);
+    float3 normalDisp = float3(0.0f, 0.0f, 0.0f);
+    float nTan = 0.0f;
+    float nProj = 0.0f;
+    float wNor = 1.0f;
+    float wTan = 1.0f;
+    if ((((vc & 2)) != 0)) {
+      wNor = 0.0f;
+    }
+    if ((((vc & 32)) != 0)) {
+      wTan = 0.0f;
+      wNor = 1.0f;
+    }
     {
       int __outer_v = v.v;
       auto *__m = ctx.node.data->m;
       for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {
         struct { const litestl::math::float3 &co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
-        float w = 1.0f;
-        if ((vc != 0)) {
-          if ((((vc & (*__attr_vclass)[nb.v])) == 0)) {
-            w = 0.0f;
+        float wTan2 = wTan;
+        if ((dom != 0)) {
+          if ((((dom & (*__attr_vclass)[nb.v])) == 0)) {
+            wTan2 = 0.0f;
           }
         }
-        avg = (avg + (nb.co * w));
-        n = (n + w);
+        float3 disp = (nb.co - v.co);
+        float3 normalPart = ((v.no * (disp).dot(v.no)));
+        normalDisp += (normalPart * wNor);
+        tangentDisp += (((disp - normalPart)) * wTan2);
+        nTan = (nTan + wTan2);
+        nProj = (nProj + wNor);
       }
     }
-    if ((n > 0.0f)) {
-      float3 disp = ((((avg / n) - v.co)) * s);
-      if ((vc != 0)) {
-        disp = (disp - (v.no * (disp).dot(v.no)));
-      } else {
-        disp = (disp - ((v.no * (disp).dot(v.no)) * ctx.brush.projection));
-      }
-      v.co = (v.co + disp);
+    float3 disp = float3(0.0f, 0.0f, 0.0f);
+    if ((nTan > 0.0f)) {
+      disp += (tangentDisp / nTan);
     }
+    if ((nProj > 0.0f)) {
+      disp += ((normalDisp / nProj) * ((1.0f - ctx.brush.projection)));
+    }
+    v.co += (disp * s);
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }

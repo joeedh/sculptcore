@@ -241,14 +241,24 @@ void recomputeDirty(MeshBase *m)
   for (int v = 0; v < vcap; v++) {
     if (m->v.freemap[v] || !vDirty->get(v)) continue;
     int cls = BC_NONE;
+    // Count incident edges per dominant type so we can flag chain endpoints.
+    // SHARP overrides the smooth types; the smooth count is per-edge (an edge
+    // carrying several smooth bits counts once).
+    int sharpCount = 0, smoothCount = 0;
     for (int e : EdgeOfVertIter(m, v, m->v.e[v])) {
-      if (eProj && eProj->get(e)) cls |= BC_PROJECTED;
-      if (eSharp && eSharp->get(e)) cls |= BC_SHARP;
-      if (eSeam && eSeam->get(e)) cls |= BC_SEAM;
-      if (ePoly->get(e)) cls |= BC_POLYGROUP;
+      int eb = 0;
+      if (eProj && eProj->get(e)) eb |= BC_PROJECTED;
+      if (eSharp && eSharp->get(e)) eb |= BC_SHARP;
+      if (eSeam && eSeam->get(e)) eb |= BC_SEAM;
+      if (ePoly->get(e)) eb |= BC_POLYGROUP;
       BoolAttrView *uvView = eUvDerive ? eUvDerive : eUv;
-      if (uvView && uvView->get(e)) cls |= BC_UVCHART;
+      if (uvView && uvView->get(e)) eb |= BC_UVCHART;
+      cls |= eb;
+      if (eb & BC_SHARP) sharpCount++;
+      if (eb & (BC_PROJECTED | BC_SEAM | BC_POLYGROUP | BC_UVCHART)) smoothCount++;
     }
+    int domCount = sharpCount > 0 ? sharpCount : smoothCount;
+    if (cls != BC_NONE && domCount == 1) cls |= BC_ENDPOINT;
     (*vClass)[v] = cls;
     vDirty->set(v, false);
   }

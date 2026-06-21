@@ -3,8 +3,11 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
 #include "mesh/attribute.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_serialize.h"
+
+#include <span>
 
 #include <algorithm>
 #include <cstdint>
@@ -483,6 +486,53 @@ void test_attr_use_roundtrip()
   TASSERT(int(lg.use) == int(AttrUse::POLYGROUP));
 }
 
+/* Regression: the derived boundary classification (EDGE_POLYGROUP / VERT_CLASS)
+ * is TEMP and not serialized, and boundaryDirty defaults false — so a loaded
+ * mesh keeps the source flags (group/seam/sharp) but no recomputed classes.
+ * readMesh must markAllDirty so the overlay / smooth brush rebuild it on first
+ * use; without it face-set borders are invisible until the user repaints. */
+void test_boundary_roundtrip()
+{
+  namespace bnd = sculptcore::mesh::boundary;
+  Mesh m;
+  int v0 = m.make_vertex(float3(0, 0, 0));
+  int v1 = m.make_vertex(float3(1, 0, 0));
+  int v2 = m.make_vertex(float3(2, 0, 0));
+  int v3 = m.make_vertex(float3(0, 1, 0));
+  int v4 = m.make_vertex(float3(1, 1, 0));
+  int v5 = m.make_vertex(float3(2, 1, 0));
+  auto edge = [&](int a, int b) {
+    if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+  };
+  edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
+  edge(v1, v2); edge(v2, v5); edge(v5, v4);
+  int fa[4] = {v0, v1, v4, v3};
+  int fb[4] = {v1, v2, v5, v4};
+  int faceA = m.make_face(std::span<int>(fa, 4));
+  int faceB = m.make_face(std::span<int>(fb, 4));
+  AttrRef &gref = m.f.attrs.ensure(AttrType::INT, bnd::FACE_GROUP, /*materialize=*/true);
+  AttrData<int> *g = gref.get_data<int>();
+  (*g)[faceA] = 0;
+  (*g)[faceB] = 1;
+
+  Mesh m2;
+  if (!roundTrip(m, m2, "boundary")) {
+    retval = 1;
+    return;
+  }
+
+  // The fix: a freshly loaded mesh must be boundary-dirty so derived state rebuilds.
+  TASSERT(m2.boundaryDirty);
+
+  bnd::recomputeDirty(&m2);
+  int eShared = m2.find_edge(v1, v4);
+  TASSERT(eShared != ELEM_NONE);
+  TASSERT(bnd::edgeFlag(&m2, bnd::EDGE_POLYGROUP, eShared) == true);
+  TASSERT((bnd::vertClass(&m2, v1) & bnd::BC_POLYGROUP) != 0);
+  TASSERT((bnd::vertClass(&m2, v4) & bnd::BC_POLYGROUP) != 0);
+  TASSERT((bnd::vertClass(&m2, v0) & bnd::BC_POLYGROUP) == 0);
+}
+
 /* T4 / C2 (audit): detachAttr parks a layer (data preserved) for undo and
  * reattachAttr restores it intact — the undo primitive behind RemoveAttrOp /
  * GenerateUVOp. */
@@ -581,6 +631,7 @@ int main()
   test_empty();
   test_verts_only();
   test_attr_use_roundtrip();
+  test_boundary_roundtrip();
   test_detach_reattach();
   test_nonpersistent_flag_repair();
 

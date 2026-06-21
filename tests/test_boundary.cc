@@ -79,6 +79,15 @@ int main()
     // v1 now carries both poly-group and sharp bits.
     test_assert((bnd::vertClass(&m, v1) & bnd::BC_POLYGROUP) != 0);
 
+    // Chain endpoints (exactly one dominant-type constraint edge) carry
+    // BC_ENDPOINT so a smooth brush relaxes them like interior verts. v0 has one
+    // sharp edge; v4 has one poly-group edge; sharp wins the dominant type at v1
+    // (one sharp edge), so it too is a sharp endpoint. v3 has no boundary.
+    test_assert((bnd::vertClass(&m, v0) & bnd::BC_ENDPOINT) != 0);
+    test_assert((bnd::vertClass(&m, v4) & bnd::BC_ENDPOINT) != 0);
+    test_assert((bnd::vertClass(&m, v1) & bnd::BC_ENDPOINT) != 0);
+    test_assert((bnd::vertClass(&m, v3) & bnd::BC_ENDPOINT) == 0);
+
     fprintf(stderr, "boundary: vclass v0=%d v1=%d v4=%d\n", bnd::vertClass(&m, v0),
             bnd::vertClass(&m, v1), bnd::vertClass(&m, v4));
 

@@ -536,6 +536,11 @@ bool readMesh(Mesh &mesh, std::istream &in)
   /* buildDomain bulk-loads faces without make_face, so resync the n-gon counter
    * dyntopo's triangulate-prepass skip relies on. */
   mesh.recountNgons();
+  /* The derived boundary overlay (EDGE_POLYGROUP / VERT_CLASS) is TEMP and not
+   * serialized, and boundaryDirty defaults false — so a freshly loaded mesh
+   * carries the source flags (seam/sharp/group) but no recomputed classification.
+   * Mark everything dirty so the first buildSeamBatch / stroke rebuilds it. */
+  boundary::markAllDirty(&mesh);
   return true;
 }
 

@@ -75,10 +75,24 @@ static void featurealign(CommandCtx<TYPES> &ctx)
   auto *__attr_field = ctx.template boundAttr<float3>("field"); (void)__attr_field;
   auto *__attr_vclass = ctx.template boundAttr<int>("vclass"); (void)__attr_vclass;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
-    int vc = (*__attr_vclass)[v.v];
     float s = (ctx.strength(v.co) * ((1.0f - v.mask)));
     if ((s == 0.0f)) {
       continue;
+    }
+    int vc = (*__attr_vclass)[v.v];
+    int dom = (vc & 31);
+    float3 tangentDisp = float3(0.0f, 0.0f, 0.0f);
+    float3 normalDisp = float3(0.0f, 0.0f, 0.0f);
+    float nTan = 0.0f;
+    float nProj = 0.0f;
+    float wNor = 1.0f;
+    float wTan = 1.0f;
+    if ((((vc & 2)) != 0)) {
+      wNor = 0.0f;
+    }
+    if ((((vc & 32)) != 0)) {
+      wTan = 0.0f;
+      wNor = 1.0f;
     }
     float3 d = (*__attr_field)[v.v];
     d = (d - (v.no * (d).dot(v.no)));
@@ -90,23 +104,20 @@ static void featurealign(CommandCtx<TYPES> &ctx)
       dperp = (v.no).cross(d);
       haveField = 1.0f;
     }
-    float3 avg = float3(0.0f, 0.0f, 0.0f);
-    float3 projVec = float3(0.0f, 0.0f, 0.0f);
-    float wsum = 0.0f;
-    float wproj_sum = 0.0f;
     {
       int __outer_v = v.v;
       auto *__m = ctx.node.data->m;
       for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {
         struct { const litestl::math::float3 &co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
-        float w = 1.0f;
-        float wproj = 1.0f;
-        if ((vc != 0)) {
-          if ((((vc & (*__attr_vclass)[nb.v])) == 0)) {
-            w = 0.0f;
+        float wTan2 = wTan;
+        if ((dom != 0)) {
+          if ((((dom & (*__attr_vclass)[nb.v])) == 0)) {
+            wTan2 = 0.0f;
           }
         }
-        if (((w != 0.0f) && (haveField > 0.5f))) {
+        float3 disp = (nb.co - v.co);
+        float3 normalPart = ((v.no * (disp).dot(v.no)));
+        if (((wTan2 != 0.0f) && (haveField > 0.5f))) {
           float3 e = (nb.co - v.co);
           e = (e - (v.no * (e).dot(v.no)));
           float el = (e).length();
@@ -126,21 +137,23 @@ static void featurealign(CommandCtx<TYPES> &ctx)
             }
             float a4 = (align * align);
             a4 = (a4 * a4);
-            w = (1.0f + ((ctx.brush.rake * 8.0f) * a4));
+            wTan2 = (1.0f + ((ctx.brush.rake * 8.0f) * a4));
           }
         }
-        float3 disp = (nb.co - v.co);
-        projVec = (projVec + ((v.no * (disp).dot(v.no)) * wproj));
-        avg = (avg + (nb.co * w));
-        wsum = (wsum + w);
-        wproj_sum = (wproj_sum + wproj);
+        normalDisp += (normalPart * wNor);
+        tangentDisp += (((disp - normalPart)) * wTan2);
+        nTan = (nTan + wTan2);
+        nProj = (nProj + wNor);
       }
     }
-    if ((wsum > 0.0f)) {
-      float3 disp = (((avg / wsum) - v.co));
-      disp = (((disp + (projVec / wproj_sum))) * s);
-      v.co = (v.co + disp);
+    float3 disp = float3(0.0f, 0.0f, 0.0f);
+    if ((nTan > 0.0f)) {
+      disp += (tangentDisp / nTan);
     }
+    if ((nProj > 0.0f)) {
+      disp += ((normalDisp / nProj) * ((1.0f - ctx.brush.projection)));
+    }
+    v.co += (disp * s);
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }

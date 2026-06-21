@@ -21,9 +21,31 @@ brush FeatureAlign {
   uniform float projection @static;
 
   vertex void apply(inout Vertex v) {
-    int vc = v.vclass;
     float s = strength(v.co) * (1.0 - v.mask);
     if (s == 0.0) { continue; }
+
+    int vc = v.vclass;
+    // dom = the single bit (or smooth-type bits) that gates neighbors. SHARP
+    // wins; an endpoint drops its constraint and relaxes like an interior vert.
+    int dom = vc & 31;          // BC_TYPE_MASK
+
+    float3 tangentDisp = float3(0.0, 0.0, 0.0);
+    float3 normalDisp = float3(0.0, 0.0, 0.0);
+
+    float nTan = 0.0;
+    float nProj = 0.0;
+    float wNor = 1.0;
+    float wTan = 1.0;
+
+    if ((vc & 2) != 0) {
+      // BC_SHARP overrides smooth types
+      wNor = 0.0;
+    }
+    if ((vc & 32) != 0) { 
+      // BC_ENDPOINT relaxes (all neighbors)
+      wTan = 0.0;
+      wNor = 1.0;
+    }  
 
     // Project the cross-field reference into the tangent plane; dperp is its 90°
     // rotation about the normal. The two together span the cross's directions.
@@ -38,54 +60,54 @@ brush FeatureAlign {
       haveField = 1.0;
     }
 
-    float3 avg = float3(0.0, 0.0, 0.0);
-    float3 projVec = float3(0.0, 0.0, 0.0);
-    float wsum = 0.0;
-    float wproj_sum = 0.0;
     for_neighbor (nb in v) {
-      // Default weight 1 (plain Laplacian). Up-weight edges aligned to the
-      // nearest cross direction. `continue` can't skip a single neighbor on the
-      // WGSL backend, so gate with weights, never an early continue.
-      float w = 1.0;
-      float wproj = 1.0;
-
-      if (vc != 0) {
-        if ((vc & nb.vclass) == 0) { 
-          w = 0.0;
-        }
+      float wTan2 = wTan;
+      if (dom != 0) {
+        // zero out tangent displacement
+        if ((dom & nb.vclass) == 0) { wTan2 = 0.0; }
       }
 
-      if (w != 0.0 && haveField > 0.5) {
+      float3 disp = nb.co - v.co;
+      float3 normalPart = (v.no * dot(disp, v.no));
+
+      if (wTan2 != 0.0 && haveField > 0.5) {
         float3 e = nb.co - v.co;
         e = e - v.no * dot(e, v.no);
         float el = length(e);
+        
         if (el > 0.0000001) {
           e = e / el;
           float a1 = dot(e, d);
           float a2 = dot(e, dperp);
+          
           if (a1 < 0.0) { a1 = 0.0 - a1; }
           if (a2 < 0.0) { a2 = 0.0 - a2; }
+
           // align = |cos| to the closest of the cross's two axes, in [0,1].
           float align = a1;
           if (a2 > a1) { align = a2; }
+          
           // align^4 sharpens the bias toward truly grid-aligned edges.
           float a4 = align * align;
           a4 = a4 * a4;
-          w = 1.0 + rake * 8.0 * a4;
+          wTan2 = 1.0 + rake * 8.0 * a4;
         }
       }
-      float3 disp = nb.co - v.co;
-      projVec = projVec + v.no * dot(disp, v.no) * wproj;
+    
+      normalDisp += normalPart * wNor;
+      tangentDisp += (disp - normalPart) * wTan2;
 
-      avg = avg + nb.co * w;
-      wsum = wsum + w;
-      wproj_sum = wproj_sum + wproj;
+      nTan = nTan + wTan2;
+      nProj = nProj + wNor;
     }
-    if (wsum > 0.0) {
-      float3 disp = (avg / wsum - v.co);
-      disp = (disp + projVec / wproj_sum) * s;
-      // disp = disp - v.no * dot(disp, v.no) * projection;
-      v.co = v.co + disp;
+
+    float3 disp = float3(0.0, 0.0, 0.0);
+    if (nTan > 0.0) {
+      disp += tangentDisp / nTan;
     }
+    if (nProj > 0.0) {
+      disp += normalDisp / nProj * (1.0 - projection);
+    }
+    v.co += disp * s;
   }
 }
