@@ -353,6 +353,69 @@ void test_locality_undo_redo(int N, int leafLimit, uint32_t seed)
   TASSERT(positionsMatch(m, postPos, tag));
 }
 
+/* Add isolated quads (new verts/edges/faces), recorded through the meshlog. Grows
+ * the element arrays so later reorders' maps are smaller than the live capacity. */
+void growQuads(Mesh &m, mesh::MeshCallbacks *cb, int nQuads, Random &rnd)
+{
+  for (int i = 0; i < nQuads; i++) {
+    float bx = float(rnd.get_int() % 1000) * 0.01f;
+    float by = float(rnd.get_int() % 1000) * 0.01f;
+    int v0 = m.make_vertex(float3(bx, by, 2.0f), cb);
+    int v1 = m.make_vertex(float3(bx + 0.1f, by, 2.0f), cb);
+    int v2 = m.make_vertex(float3(bx + 0.1f, by + 0.1f, 2.0f), cb);
+    int v3 = m.make_vertex(float3(bx, by + 0.1f, 2.0f), cb);
+    int verts[4] = {v0, v1, v2, v3};
+    m.make_face(std::span<int>(verts, 4), cb);
+  }
+}
+
+/* Reproduces the auto-defrag stroke scenario: several undo steps, each GROWING
+ * the mesh (recorded) and then folding in an incremental locality reorder. Later
+ * growth pushes capacity past the reorders' recorded map sizes. Undoing all steps
+ * must fully restore the original element count + geometry. */
+void test_growth_reorder_undo(int N, int leaf, uint32_t seed)
+{
+  char tag[64];
+  snprintf(tag, sizeof(tag), "grow-N%d-l%d-s%u", N, leaf, seed);
+
+  Mesh m;
+  build_grid(m, N);
+  MeshLog log;
+  log.setActiveMesh(&m);
+  spatial::SpatialTree tree(&m);
+  tree.leaf_limit = leaf;
+  tree.buildAll();
+
+  const int v0count = m.v.count, f0count = m.f.count;
+  Vector<int64_t> sig0 = geomEdgeSignature(m);
+
+  Random rnd(seed);
+  const int STEPS = 4;
+  for (int s = 0; s < STEPS; s++) {
+    log.beginStep(true);
+    growQuads(m, log.callbacks(), 600, rnd); // ~2400 verts/step -> crosses pages
+    Vector<int> vmap, emap, cmap, lmap, fmap;
+    tree.computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
+    log.pushReorderChunk(vmap, emap, cmap, lmap, fmap);
+    tree.applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    log.endStep();
+    TASSERT(validateMesh(m, tag));
+  }
+
+  for (int s = 0; s < STEPS; s++) {
+    log.undo(&m, &tree);
+    TASSERT(validateMesh(m, tag));
+  }
+
+  /* The decisive assertions: undo restored the exact element count + geometry. */
+  if (m.v.count != v0count || m.f.count != f0count) {
+    fprintf(stderr, "[%s] count not restored: v %d->%d, f %d->%d\n", tag, v0count,
+            m.v.count, f0count, m.f.count);
+    retval = 1;
+  }
+  TASSERT(sigEqual(sig0, geomEdgeSignature(m)));
+}
+
 } // namespace
 
 int main()
@@ -368,6 +431,12 @@ int main()
       for (int trial = 0; trial < 2; trial++) {
         test_locality_undo_redo(N, leaf, uint32_t(0xabcd + trial * 13 + N * 17 + leaf));
       }
+    }
+  }
+
+  for (int N : {16, 24}) {
+    for (int leaf : {16, 64}) {
+      test_growth_reorder_undo(N, leaf, uint32_t(0x9e37 + N * 17 + leaf));
     }
   }
 
