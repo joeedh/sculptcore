@@ -113,7 +113,10 @@ struct Mesh : public MeshBase {
   /* Live count of n-gon (>3 sided) faces, as an int for the JS binding (the
    * count never approaches INT_MAX). == 0 means the mesh is all-triangles;
    * the UI uses it to offer/guard the triangulate op. */
-  int ngonFaceCount() const { return int(n_ngon_faces); }
+  int ngonFaceCount() const
+  {
+    return int(n_ngon_faces);
+  }
 
   static binding::types::Struct<Mesh> *defineBindings()
   {
@@ -155,6 +158,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, dumpVertCo, MARGS("out"));
     BIND_STRUCT_METHOD(st, setVertCo, MARGS("idx", "x", "y", "z"));
     BIND_STRUCT_METHOD(st, symmetrize, MARGS("axis", "sign", "threshold"));
+    BIND_STRUCT_METHOD(st, calcAABB, MARGS("minOut", "maxOut"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -165,10 +169,14 @@ struct Mesh : public MeshBase {
   AttrGroup *attrGroupForDomainFlag(int domain)
   {
     switch (domain) {
-    case 1:  return &v.attrs;
-    case 2:  return &e.attrs;
-    case 4:  return &c.attrs;
-    case 16: return &f.attrs;
+    case 1:
+      return &v.attrs;
+    case 2:
+      return &e.attrs;
+    case 4:
+      return &c.attrs;
+    case 16:
+      return &f.attrs;
     }
     return nullptr;
   }
@@ -191,10 +199,14 @@ struct Mesh : public MeshBase {
   int elemCountForDomainFlag(int domain)
   {
     switch (domain) {
-    case 1:  return v.count;
-    case 2:  return e.count;
-    case 4:  return c.count;
-    case 16: return f.count;
+    case 1:
+      return v.count;
+    case 2:
+      return e.count;
+    case 4:
+      return c.count;
+    case 16:
+      return f.count;
     }
     return 0;
   }
@@ -206,7 +218,8 @@ struct Mesh : public MeshBase {
   {
     auto taken = [&](const string &nm) {
       for (AttrRef &a : grp->attrs) {
-        if (a.name == nm) return true;
+        if (a.name == nm)
+          return true;
       }
       return false;
     };
@@ -238,9 +251,12 @@ struct Mesh : public MeshBase {
     AttrUse u = AttrUse(use);
 
     const char *base = "attr";
-    if (u & AttrUse::COLOR) base = "color";
-    else if (u & AttrUse::UV) base = "uv";
-    else if (u & AttrUse::POLYGROUP) base = "group";
+    if (u & AttrUse::COLOR)
+      base = "color";
+    else if (u & AttrUse::UV)
+      base = "uv";
+    else if (u & AttrUse::POLYGROUP)
+      base = "group";
 
     string name = uniqueAttrName(grp, base);
 
@@ -251,12 +267,14 @@ struct Mesh : public MeshBase {
     detail::type_dispatch(ty, [&]<typename T>() {
       if constexpr (!std::is_same_v<T, bool>) {
         auto *dd = static_cast<AttrData<T> *>(ref.data);
-        for (int i = 0; i < n; i++) dd->set_default(i);
+        for (int i = 0; i < n; i++)
+          dd->set_default(i);
       }
     });
 
     for (int i = 0; i < int(grp->attrs.size()); i++) {
-      if (grp->attrs[i].name == name) return i;
+      if (grp->attrs[i].name == name)
+        return i;
     }
     return int(grp->attrs.size()) - 1;
   }
@@ -272,7 +290,8 @@ struct Mesh : public MeshBase {
     }
     const string &nm = grp->attrs[index].name;
     if (nm.size() > 0 && (nm[0] == '.' || nm == string("positions") ||
-                          nm == string("normals") || nm == string("select"))) {
+                          nm == string("normals") || nm == string("select")))
+    {
       return;
     }
     grp->remove_attr(index);
@@ -387,7 +406,8 @@ struct Mesh : public MeshBase {
     }
     const string &nm = grp->attrs[index].name;
     if (nm.size() > 0 && (nm[0] == '.' || nm == string("positions") ||
-                          nm == string("normals") || nm == string("select"))) {
+                          nm == string("normals") || nm == string("select")))
+    {
       return -1;
     }
     if (grp->attrs[index].type == AttrType::BOOL) {
@@ -424,7 +444,8 @@ struct Mesh : public MeshBase {
     if (elemCountForDomainFlag(st.domain) != st.count) {
       printf("reattachAttr: domain element count changed while detached "
              "(%d -> %d); refusing to reattach a stale-sized layer\n",
-             st.count, elemCountForDomainFlag(st.domain));
+             st.count,
+             elemCountForDomainFlag(st.domain));
       return -1;
     }
     grp->attrs.append(st.ref);
@@ -470,20 +491,26 @@ struct Mesh : public MeshBase {
     return mx;
   }
 
-  void calcAABB(math::float3 &min, math::float3 &max)
+  void calcAABB(math::float3 *min, math::float3 *max)
   {
-    min = math::float3(FLT_MAX);
-    max = math::float3(FLT_MIN);
+    *min = math::float3(FLT_MAX);
+    *max = math::float3(-FLT_MAX);
     for (int i = 0; i < v.count; i++) {
-      min.min(v.co[i]);
-      max.max(v.co[i]);
+      min->min(v.co[i]);
+      max->max(v.co[i]);
     }
   }
 
-  int make_vertex(math::float3 co, MeshCallbacks *cb = nullptr);
-  int make_edge(int v1, int v2, MeshCallbacks *cb = nullptr);
-  int make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *cb = nullptr);
-  int make_face(std::span<int> verts, MeshCallbacks *cb = nullptr);
+  /* @p hint is an existing element of the same domain near which the new
+   * element should be allocated in DRAM (its page is preferred), so dyntopo
+   * keeps new geometry spatially local. ELEM_NONE = no preference. */
+  int make_vertex(math::float3 co, MeshCallbacks *cb = nullptr, int hint = ELEM_NONE);
+  int make_edge(int v1, int v2, MeshCallbacks *cb = nullptr, int hint = ELEM_NONE);
+  int make_face(std::span<int> verts,
+                std::span<int> edges,
+                MeshCallbacks *cb = nullptr,
+                int hint = ELEM_NONE);
+  int make_face(std::span<int> verts, MeshCallbacks *cb = nullptr, int hint = ELEM_NONE);
 
   void kill_vertex(int v, MeshCallbacks *cb = nullptr);
   void kill_edge(int e, MeshCallbacks *cb = nullptr);
@@ -501,12 +528,21 @@ struct Mesh : public MeshBase {
    * Not part of the mesh's serialized state; the app reads the count as a
    * "repair happened" signal (e.g. LiteMesh load). */
   std::vector<std::string> repairLog;
-  int repairLogCount() const { return int(repairLog.size()); }
-  void clearRepairLog() { repairLog.clear(); }
+  int repairLogCount() const
+  {
+    return int(repairLog.size());
+  }
+  void clearRepairLog()
+  {
+    repairLog.clear();
+  }
   /** App-facing no-arg entry to validateAndRepair (logs to stderr + repairLog).
    * Cheap on a healthy mesh — returns 0 without rebuilding. Called on load so a
    * corrupt file is fixed before the spatial tree / any op sees it (#37). */
-  int repairMesh() { return validateAndRepair(); }
+  int repairMesh()
+  {
+    return validateAndRepair();
+  }
 
   /* Re-point an existing edge's endpoints from its current {v0,v1} to
    * {nv0,nv1} in place (id preserved), maintaining both verts' disk cycles
@@ -530,7 +566,9 @@ struct Mesh : public MeshBase {
    * radial wiring + create callbacks, but reuses f1 and fires onFaceChange(f1)
    * AFTER the rewire (the list + corners are genuinely new → create events; the
    * face merely changed) so the spatial tree's touch_face reads the new verts. */
-  void reinit_face(int f1, std::span<int> verts, std::span<int> edges,
+  void reinit_face(int f1,
+                   std::span<int> verts,
+                   std::span<int> edges,
                    MeshCallbacks *cb = nullptr);
 
   EdgeOfVertIter e_of_v(int v1)
@@ -569,7 +607,13 @@ struct Mesh : public MeshBase {
   void reorder_lists(util::span<int> list_map);
   void reorder_faces(util::span<int> face_map);
 
+  /* Reclaim DRAM by dropping trailing all-free attribute pages from every domain
+   * (effective after the live set has been compacted to the front). Returns the
+   * total pages freed across all domains. */
+  int freeTrailingStorage();
+
   void recalc_normals();
+
 private:
   void radial_insert(int e1, int c1)
   {

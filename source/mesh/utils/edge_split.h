@@ -146,7 +146,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
   }
 
   /* Create the midpoint vertex and interpolate all vertex attrs. */
-  int vm = m.make_vertex((m.v.co[v0] + m.v.co[v1]) * 0.5f, cb);
+  int vm = m.make_vertex((m.v.co[v0] + m.v.co[v1]) * 0.5f, cb, v0);
   interpAttrs(m.v.attrs, vm, v0, v1, 0.5f);
 
   if (out) {
@@ -166,7 +166,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
    * the vm-v1 child (inheriting the parent edge's boundary flags). For a wire
    * edge there are no faces, but the same two children are the whole job. */
   m.relink_edge_verts(edge, v0, vm, cb);
-  int e_new = m.make_edge(vm, v1, cb);
+  int e_new = m.make_edge(vm, v1, cb, edge);
   restoreAttrRow(m.e.attrs, e_new, edgeSnap);
 
   if (wire) {
@@ -206,7 +206,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
     int a = fs.a, b = fs.b, opp = fs.opp;
     int e_a_vm = (a == v0) ? edge : e_new;  /* child edge a->vm */
     int e_vm_b = (b == v0) ? edge : e_new;  /* child edge vm->b */
-    int spoke = m.make_edge(vm, opp, cb);
+    int spoke = m.make_edge(vm, opp, cb, edge);
 
     /* T0 = (a, vm, opp) reuses the incident face id. */
     int t0v[3] = {a, vm, opp};
@@ -217,7 +217,7 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
     /* T1 = (vm, b, opp) is a new face. */
     int t1v[3] = {vm, b, opp};
     int t1e[3] = {e_vm_b, fs.e_b_opp, spoke};
-    int f1 = m.make_face(std::span<int>(t1v, 3), std::span<int>(t1e, 3), cb);
+    int f1 = m.make_face(std::span<int>(t1v, 3), std::span<int>(t1e, 3), cb, fs.f);
 
     /* Carry face attrs onto both halves, the original endpoint/apex corner
      * attrs onto the matching corners, and interpolate the midpoint corner from

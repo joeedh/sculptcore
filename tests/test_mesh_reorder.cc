@@ -331,7 +331,9 @@ void test_locality_undo_redo(int N, int leafLimit, uint32_t seed)
 
   log.beginStep(false);
   log.pushReorderChunk(vmap, emap, cmap, lmap, fmap);
-  tree.applyReorder(vmap, emap, cmap, lmap, fmap);
+  /* Forward apply must match the chunk's undo/redo path (now incremental); the
+   * meshlog reorder path is all-incremental (exact, partition-preserving). */
+  tree.applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
   log.endStep();
 
   TASSERT(validateMesh(m, tag));

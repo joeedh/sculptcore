@@ -3,6 +3,7 @@ import type {VertexData} from './VertexData'
 import type {FaceData} from './FaceData'
 import type {CornerData} from './CornerData'
 import type {EdgeData} from './EdgeData'
+import type {float3} from '../../litestl/math/float3'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -57,5 +58,6 @@ export interface Mesh {
   dumpVertCo(out: float[]): void
   setVertCo(idx: int32, x: float, y: float, z: float): void
   symmetrize(axis: int32, sign: int32, threshold: float): void
+  calcAABB(minOut: float3, maxOut: float3): void
   new (): Mesh
 }

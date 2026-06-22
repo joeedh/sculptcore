@@ -30,5 +30,6 @@ export interface MeshLog {
   freeStep(id: int32): int32
   hasTopoChunk(): boolean
   reorderForLocality(tree: SpatialTree): void
+  compactIfFragmented(tree: SpatialTree, vertRatioThreshold: double): boolean
   new (): MeshLog
 }

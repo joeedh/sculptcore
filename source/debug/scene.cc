@@ -206,7 +206,7 @@ void Scene::applyView(ViewPreset preset)
     return;
   }
   float3 mn, mx;
-  mesh->calcAABB(mn, mx);
+  mesh->calcAABB(&mn, &mx);
   float3 dir;
   switch (preset) {
   case ViewPreset::Front:

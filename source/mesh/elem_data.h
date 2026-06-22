@@ -27,7 +27,6 @@ struct ElemData {
   int count = 0;
 
   util::BoolVector<> freemap;
-  util::Vector<int> freelist;
   util::CallbackList<void(Mesh *m, int v1, int v2)> on_swap;
 
   static binding::types::Struct<ElemData> *defineBindings()
@@ -107,8 +106,9 @@ struct ElemData {
   {
     Assert(freemap[freed_elem], "freed_elem is actually freed");
 
-    freelist.remove(freed_elem);
+    // Leave the stale entry in its page bucket; pop_free_in_page skips it.
     freemap.set(freed_elem, false);
+    free_count--;
 
     if (alloc_attrs) {
       attrs.set_default(freed_elem);
@@ -120,16 +120,14 @@ struct ElemData {
   /* Allocate a new elem */
   int alloc()
   {
-    int i;
-
-    if (freelist.size() > 0) {
-      i = freelist.pop_back();
-    } else {
+    int i = pop_any_free();
+    if (i == ELEM_NONE) {
       add_page();
-      return alloc();
+      i = pop_any_free();
     }
 
     freemap.set(i, false);
+    free_count--;
     count++;
 
     attrs.set_default(i);
@@ -137,18 +135,86 @@ struct ElemData {
     return i;
   }
 
+  /* Allocate a new elem, preferring a free slot in @p hint_elem's page so the
+   * new element is spatially local to its neighbor in DRAM. hint_elem ==
+   * ELEM_NONE (or its page being full) falls back to alloc(). */
+  int alloc_near(int hint_elem)
+  {
+    if (hint_elem != ELEM_NONE) {
+      int p = hint_elem >> ATTR_PAGESHIFT;
+      if (p >= 0 && p < int(page_free.size())) {
+        int i = pop_free_in_page(p);
+        if (i != ELEM_NONE) {
+          freemap.set(i, false);
+          free_count--;
+          count++;
+          attrs.set_default(i);
+          return i;
+        }
+      }
+    }
+    return alloc();
+  }
+
   /* Free an elem */
   void release(int elem)
   {
     freemap.set(elem, true);
-    freelist.append(elem);
     count--;
+    free_count++;
+
+    int p = elem >> ATTR_PAGESHIFT;
+    page_free[p].append(elem);
+    if (!page_on_stack[p]) {
+      nonempty_pages.append(p);
+      page_on_stack.set(p, true);
+    }
+  }
+
+  /* Number of currently-free slots within capacity. */
+  int free_slots()
+  {
+    return free_count;
+  }
+
+  /* Drop trailing pages that are entirely free, freeing their attribute storage
+   * (the bulk DRAM). Reclaims memory after the live set shrinks + compacts to the
+   * front (mechanism B). Returns the number of pages freed. capacity_ stays
+   * page-aligned, so this only ever removes whole pages. */
+  int free_trailing_pages()
+  {
+    int start_cap = capacity_;
+    while (capacity_ >= ATTR_PAGESIZE) {
+      int page_start = capacity_ - ATTR_PAGESIZE;
+      bool all_free = true;
+      for (int i = page_start; i < capacity_; i++) {
+        if (!freemap[i]) {
+          all_free = false;
+          break;
+        }
+      }
+      if (!all_free) {
+        break;
+      }
+      capacity_ = page_start;
+    }
+
+    int freed = (start_cap - capacity_) >> ATTR_PAGESHIFT;
+    if (freed == 0) {
+      return 0;
+    }
+
+    attrs.shrink_capacity(capacity_);
+    freemap.resize(capacity_);
+    rebuild_free_structures();
+    return freed;
   }
 
   ElemData(ElemType domain_, int count_)
       : domain(domain_), count(count_), capacity_(count)
   {
     attrs.ensure_capacity(count);
+    ensure_page_buckets();
   }
 
   size_t capacity()
@@ -178,25 +244,99 @@ struct ElemData {
     }
     freemap = std::move(newfree);
 
-    freelist.clear();
-    for (int i = capacity_ - 1; i >= 0; i--) {
+    rebuild_free_structures();
+  }
+
+private:
+  // Free slots are bucketed by page so alloc_near(hint) can reuse a hole in the
+  // hint's page. freemap stays authoritative; page_free / nonempty_pages may
+  // carry stale entries (from explicit-index alloc), skipped on pop via freemap.
+  util::Vector<util::Vector<int>> page_free;
+  util::Vector<int> nonempty_pages;
+  util::BoolVector<> page_on_stack;
+  int free_count = 0;
+
+  void ensure_page_buckets()
+  {
+    int npages = int((capacity_ + ATTR_PAGESIZE - 1) >> ATTR_PAGESHIFT);
+    while (int(page_free.size()) < npages) {
+      page_free.append(util::Vector<int>());
+    }
+    if (int(page_on_stack.size()) < npages) {
+      page_on_stack.resize(npages);
+    }
+  }
+
+  /* Pop a genuinely-free slot from page @p (skipping stale entries left by the
+   * explicit-index alloc); ELEM_NONE if the page has none. The caller claims it
+   * (clears freemap, decrements free_count). */
+  int pop_free_in_page(int p)
+  {
+    util::Vector<int> &bucket = page_free[p];
+    while (bucket.size() > 0) {
+      int i = bucket.pop_back();
       if (freemap[i]) {
-        freelist.append(i);
+        return i;
+      }
+    }
+    return ELEM_NONE;
+  }
+
+  int pop_any_free()
+  {
+    while (nonempty_pages.size() > 0) {
+      int p = nonempty_pages.last();
+      int i = pop_free_in_page(p);
+      if (i != ELEM_NONE) {
+        return i;
+      }
+      nonempty_pages.pop_back();
+      page_on_stack.set(p, false);
+    }
+    return ELEM_NONE;
+  }
+
+  void rebuild_free_structures()
+  {
+    page_free.clear();
+    nonempty_pages.clear();
+    page_on_stack = util::BoolVector<>();
+    free_count = 0;
+    ensure_page_buckets();
+
+    for (int i = capacity_ - 1; i >= 0; i--) {
+      if (!freemap[i]) {
+        continue;
+      }
+      int p = i >> ATTR_PAGESHIFT;
+      page_free[p].append(i);
+      free_count++;
+      if (!page_on_stack[p]) {
+        nonempty_pages.append(p);
+        page_on_stack.set(p, true);
       }
     }
   }
 
-private:
   void add_page()
   {
     int start = capacity_;
     capacity_ += ATTR_PAGESIZE;
+    int p = int(start >> ATTR_PAGESHIFT);
 
     freemap.resize(capacity_);
+    ensure_page_buckets();
 
+    util::Vector<int> &bucket = page_free[p];
     for (int i = ATTR_PAGESIZE - 1; i >= 0; i--) {
-      freelist.append(start + i);
-      freemap.set(start + i, true);
+      int idx = start + i;
+      bucket.append(idx);
+      freemap.set(idx, true);
+    }
+    free_count += ATTR_PAGESIZE;
+    if (!page_on_stack[p]) {
+      nonempty_pages.append(p);
+      page_on_stack.set(p, true);
     }
 
     attrs.ensure_capacity(capacity_);

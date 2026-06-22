@@ -114,6 +114,11 @@ struct Scene {
   dyntopo::DynTopoParams dyntopoParams;
   uint32_t dyntopoSeed = 1;
 
+  /* Mechanism B auto-defrag: if > 0, after each stroke (while its undo step is
+   * still open) compact the mesh layout when the vert page-spread ratio exceeds
+   * this. 0 = off. Set via the `auto_defrag` verb. */
+  double autoDefragRatio = 0.0;
+
   /* Non-accumulate sculpt mode (plans/nonAccumMode.md): deform dabs measure from
    * each vert's stroke-start position. `strokeGen` is bumped once per stroke verb
    * (so prior strokes' `.brush.orig.*` snapshots never collide) and pushed to the

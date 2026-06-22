@@ -34,11 +34,11 @@ import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
 import type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 import type {AttrDef} from './sculptcore/gpu/AttrDef'
 import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
-import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 import type {VertexData} from './sculptcore/mesh/VertexData'
+import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 import type {AttrPage} from './sculptcore/mesh/AttrPage'
-import type {StructProp} from './sculptcore/props/StructProp'
 import type {UniformDef} from './sculptcore/gpu/UniformDef'
+import type {StructProp} from './sculptcore/props/StructProp'
 import type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 import type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
 import type {int4} from './litestl/math/int4'
@@ -75,11 +75,11 @@ export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
 export type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 export type {AttrDef} from './sculptcore/gpu/AttrDef'
 export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
-export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 export type {VertexData} from './sculptcore/mesh/VertexData'
+export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 export type {AttrPage} from './sculptcore/mesh/AttrPage'
-export type {StructProp} from './sculptcore/props/StructProp'
 export type {UniformDef} from './sculptcore/gpu/UniformDef'
+export type {StructProp} from './sculptcore/props/StructProp'
 export type {SpatialNode} from './sculptcore/spatial/SpatialNode'
 export type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
 export type {int4} from './litestl/math/int4'
@@ -116,17 +116,17 @@ export type AllBoundTypes = {
   >
   'sculptcore::gpu::UniformBlockDef': UniformBlockDef
   'sculptcore::gpu::DrawBatch': DrawBatch
-  'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
-    int2,
-    '.edge.vs'
-  >
   'sculptcore::brush::BrushUniformManifestEntry': BrushUniformManifestEntry
-  'sculptcore::meshlog::MeshLog': MeshLog
-  'sculptcore::spatial::SpatialShaders': SpatialShaders
-  'sculptcore::remesh::RemeshParams': RemeshParams
   'sculptcore::mesh::BuiltinAttr<int32,.face.list>': BuiltinAttr<
     int32,
     '.face.list'
+  >
+  'sculptcore::meshlog::MeshLog': MeshLog
+  'sculptcore::spatial::SpatialShaders': SpatialShaders
+  'sculptcore::remesh::RemeshParams': RemeshParams
+  'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
+    int2,
+    '.edge.vs'
   >
   'sculptcore::dyntopo::DynTopoParams': DynTopoParams
   'litestl::math::float2': float2
