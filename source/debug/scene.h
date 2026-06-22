@@ -119,6 +119,10 @@ struct Scene {
    * this. 0 = off. Set via the `auto_defrag` verb. */
   double autoDefragRatio = 0.0;
 
+  /* Cumulative dyntopo op counts across `stroke` verbs (printed/reset by the
+   * `dyntopo_stats` verb) — to measure id-order sensitivity of total work. */
+  int64_t cumSplits = 0, cumCollapses = 0, cumFlips = 0;
+
   /* Non-accumulate sculpt mode (plans/nonAccumMode.md): deform dabs measure from
    * each vert's stroke-start position. `strokeGen` is bumped once per stroke verb
    * (so prior strokes' `.brush.orig.*` snapshots never collide) and pushed to the

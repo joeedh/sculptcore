@@ -935,6 +935,9 @@ bool execVerb(Scene &scene,
       for (int i = 0; i < repeat; i++) {
         exec.applyDab(scene.currentTool, origin, normal, scene.brush.radius, dtp,
                       scene.dyntopoSeed + uint32_t(i));
+        scene.cumSplits += exec.lastDynTopoStats.splits;
+        scene.cumCollapses += exec.lastDynTopoStats.collapses;
+        scene.cumFlips += exec.lastDynTopoStats.flips;
       }
       if (scene.dyntopoEnabled) {
         exec.endDynTopoStroke();
@@ -1211,6 +1214,17 @@ bool execVerb(Scene &scene,
     std::printf("[time_gather] leaves=%d verts/pass=%lld passes=%d total=%.2fms per_pass=%.4fms (sink=%.1f)\n",
                 int(leaves.size()), (long long)total, passes, ms, ms / double(passes), sink);
     std::fflush(stdout);
+    return true;
+  }
+  if (verb == "dyntopo_stats") {
+    /* Print cumulative dyntopo op counts since the last reset; `reset=1` zeroes. */
+    std::printf("[dyntopo_stats] splits=%lld collapses=%lld flips=%lld\n",
+                (long long)scene.cumSplits, (long long)scene.cumCollapses,
+                (long long)scene.cumFlips);
+    std::fflush(stdout);
+    if (getBool(args, "reset", false)) {
+      scene.cumSplits = scene.cumCollapses = scene.cumFlips = 0;
+    }
     return true;
   }
   if (verb == "auto_defrag") {
