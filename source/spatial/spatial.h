@@ -640,8 +640,37 @@ struct SpatialTree {
                     util::span<int> lmap,
                     util::span<int> fmap);
 
+  /* Like applyReorder, but WITHOUT rebuilding the tree: a reorder is a pure
+   * index permutation (geometry values, node partition, bounds, normals and GPU
+   * buffers are unchanged — only storage indices move, and ownership attrs ride
+   * along with reorder_*). So we just remap each node's cached element indices
+   * (unique_verts/unique_faces via vmap/fmap, NodeTri.c[]/.f via cmap/fmap) in
+   * place. O(elements) instead of buildAll's O(mesh log mesh) — the scalable
+   * compaction path (mechanism B). The maps must be full bijections over each
+   * domain's capacity (SpatialTree::computeLocalityMaps produces such). */
+  void applyReorderIncremental(util::span<int> vmap,
+                               util::span<int> emap,
+                               util::span<int> cmap,
+                               util::span<int> lmap,
+                               util::span<int> fmap);
+
   /* Compute + apply locality maps in one shot (no undo recording). */
   void reorderForLocality();
+
+  /* DRAM-locality diagnostics. For each leaf, how many distinct attribute pages
+   * (ATTR_PAGESIZE-sized) its verts/faces are spread across vs. the ideal
+   * (ceil(count/ATTR_PAGESIZE)); summed across leaves. ratio = actual/ideal:
+   * 1.0 = perfectly compact, higher = more fragmented (worse cache locality for
+   * brush iteration / GPU buffer fill). Read-only; used to measure mechanism A
+   * and to score leaves for compaction. */
+  struct FragStats {
+    int leaves = 0;
+    int64_t vertCount = 0, vertPagesActual = 0, vertPagesIdeal = 0;
+    int64_t faceCount = 0, facePagesActual = 0, facePagesIdeal = 0;
+    double vertRatio = 1.0;
+    double faceRatio = 1.0;
+  };
+  FragStats fragmentationStats();
 
   /* Tear down every node and rebuild from the (possibly reordered) mesh. */
   void rebuild();

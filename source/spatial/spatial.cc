@@ -1117,7 +1117,7 @@ void SpatialTree::buildAll()
     treeMesh.f.node[f] = 0;
   }
 
-  m->calcAABB(root->aabb.min, root->aabb.max);
+  m->calcAABB(&root->aabb.min, &root->aabb.max);
   m->recalc_normals();
   float eps = 0.0000001f;
   root->aabb.min -= eps;
@@ -1194,6 +1194,13 @@ void SpatialTree::computeLocalityMaps(util::Vector<int> &vmap,
                                       util::Vector<int> &lmap,
                                       util::Vector<int> &fmap)
 {
+  /* Walks face loop/list topology (FaceProxy::lists below), so the mesh must not
+   * be topo-frozen — after a brush stroke it is (disk/radial pages freed), and
+   * reading those links would segfault. Thaw first (no-op if already live). */
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
   const int capV = int(m->v.capacity());
   const int capE = int(m->e.capacity());
   const int capC = int(m->c.capacity());
@@ -1274,11 +1281,98 @@ void SpatialTree::applyReorder(util::span<int> vmap,
   rebuild();
 }
 
+void SpatialTree::applyReorderIncremental(util::span<int> vmap,
+                                          util::span<int> emap,
+                                          util::span<int> cmap,
+                                          util::span<int> lmap,
+                                          util::span<int> fmap)
+{
+  m->reorder_verts(vmap);
+  m->reorder_edges(emap);
+  m->reorder_corners(cmap);
+  m->reorder_lists(lmap);
+  m->reorder_faces(fmap);
+
+  /* Topology (node partition) is unchanged — relabel the cached element indices
+   * each node holds. Ownership attrs (.spatial.{v,f}.node) and geometry values
+   * already moved with reorder_*, so bounds/normals/GPU buffers stay valid. */
+  for (SpatialNode *node : nodes) {
+    if (!node->data) {
+      continue;
+    }
+    auto &d = *node->data;
+
+    if (d.unique_verts.size() > 0) {
+      util::OrderedSet<int> nv;
+      for (int v : d.unique_verts) {
+        nv.add(vmap[v]);
+      }
+      d.unique_verts = std::move(nv);
+    }
+    if (d.unique_faces.size() > 0) {
+      util::OrderedSet<int> nf;
+      for (int f : d.unique_faces) {
+        nf.add(fmap[f]);
+      }
+      d.unique_faces = std::move(nf);
+    }
+    for (NodeTri &t : d.tris) {
+      t.c[0] = cmap[t.c[0]];
+      t.c[1] = cmap[t.c[1]];
+      t.c[2] = cmap[t.c[2]];
+      t.f = fmap[t.f];
+    }
+
+    /* Pending moved-vert ids (for the next normals pass) are stale post-permute;
+     * they were already consumed by the stroke-end update, so just clear them. */
+    node->affected_verts.clear();
+  }
+
+  /* NB: do NOT reclaim trailing pages here. A reorder recorded for undo must be a
+   * pure, capacity-preserving permutation — the meshlog chunk replays the inverse
+   * map over the same [0, capacity) range. Shrinking capacity (freeTrailingStorage)
+   * would make the stored map oversized for the mesh on undo → OOB. Reclaim via the
+   * standalone Mesh::freeTrailingStorage only in non-undoable contexts. */
+}
+
 void SpatialTree::reorderForLocality()
 {
   util::Vector<int> vmap, emap, cmap, lmap, fmap;
   computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
   applyReorder(vmap, emap, cmap, lmap, fmap);
+}
+
+SpatialTree::FragStats SpatialTree::fragmentationStats()
+{
+  FragStats s;
+  util::Set<int> pages;
+  const int shift = ATTR_PAGESHIFT;
+
+  for (SpatialNode *leaf : leaves()) {
+    s.leaves++;
+
+    auto &verts = leaf->unique_verts();
+    pages.clear();
+    for (int v : verts) {
+      pages.add(v >> shift);
+    }
+    s.vertCount += verts.size();
+    s.vertPagesActual += pages.size();
+    s.vertPagesIdeal += (verts.size() + ATTR_PAGESIZE - 1) >> shift;
+
+    auto &faces = leaf->unique_faces();
+    pages.clear();
+    for (int f : faces) {
+      pages.add(f >> shift);
+    }
+    s.faceCount += faces.size();
+    s.facePagesActual += pages.size();
+    s.facePagesIdeal += (faces.size() + ATTR_PAGESIZE - 1) >> shift;
+  }
+
+  s.vertRatio = s.vertPagesIdeal > 0 ? double(s.vertPagesActual) / double(s.vertPagesIdeal) : 1.0;
+  s.faceRatio = s.facePagesIdeal > 0 ? double(s.facePagesActual) / double(s.facePagesIdeal) : 1.0;
+  return s;
 }
 
 void SpatialTree::rebuild()

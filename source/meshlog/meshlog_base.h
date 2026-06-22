@@ -1048,13 +1048,13 @@ private:
 
 /**
  * Reorder undo/redo chunk — records the five element permutations
- * (map[old] = new) applied by SpatialTree::applyReorder. A reorder is a pure
- * bijection, so undo replays the inverse permutation and redo replays the
- * forward one; applyReorder rebuilds the tree each way. Because buildAll is
- * deterministic in the mesh's geometry+topology, an inverse reorder reproduces
- * the exact node set (and node ids) that existed before the reorder, so simple
- * chunks recorded in earlier steps still resolve their node ids after undoing
- * back across this chunk.
+ * (map[old] = new). A reorder is a pure bijection, so undo replays the inverse
+ * permutation and redo replays the forward one, both via
+ * SpatialTree::applyReorderIncremental: it relabels the existing node set in
+ * place (no rebuild), so the node set + ids that existed before the reorder are
+ * reproduced EXACTLY across undo/redo — simple chunks recorded in earlier steps
+ * still resolve their node ids after undoing back across this chunk. (The
+ * forward apply that recorded this chunk must likewise be incremental.)
  */
 struct LogChunkReorder : public LogChunk {
   Vector<int> vmap, emap, cmap, lmap, fmap;
@@ -1071,18 +1071,31 @@ struct LogChunkReorder : public LogChunk {
 
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    Vector<int> v, e, c, l, f;
+    padToCapacity(vmap, int(m->v.capacity()), v);
+    padToCapacity(emap, int(m->e.capacity()), e);
+    padToCapacity(cmap, int(m->c.capacity()), c);
+    padToCapacity(lmap, int(m->l.capacity()), l);
+    padToCapacity(fmap, int(m->f.capacity()), f);
+
     Vector<int> iv, ie, ic, il, iff;
-    invert(vmap, iv);
-    invert(emap, ie);
-    invert(cmap, ic);
-    invert(lmap, il);
-    invert(fmap, iff);
-    tree->applyReorder(iv, ie, ic, il, iff);
+    invert(v, iv);
+    invert(e, ie);
+    invert(c, ic);
+    invert(l, il);
+    invert(f, iff);
+    tree->applyReorderIncremental(iv, ie, ic, il, iff);
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
-    tree->applyReorder(vmap, emap, cmap, lmap, fmap);
+    Vector<int> v, e, c, l, f;
+    padToCapacity(vmap, int(m->v.capacity()), v);
+    padToCapacity(emap, int(m->e.capacity()), e);
+    padToCapacity(cmap, int(m->c.capacity()), c);
+    padToCapacity(lmap, int(m->l.capacity()), l);
+    padToCapacity(fmap, int(m->f.capacity()), f);
+    tree->applyReorderIncremental(v, e, c, l, f);
   }
 
   double memSize() override
@@ -1093,6 +1106,24 @@ struct LogChunkReorder : public LogChunk {
   }
 
 private:
+  /* The map was recorded at the capacity that existed when the reorder ran. Later
+   * steps grow the element arrays and undo doesn't shrink them, so by the time
+   * this chunk is replayed the domain capacity can EXCEED the map. The reorder
+   * only permuted [0, recorded-capacity); the slots created afterward are free now
+   * (their creators are already undone) and map to themselves. Extend with
+   * identity so the permutation is a full bijection over the current capacity. */
+  static void padToCapacity(const Vector<int> &map, int cap, Vector<int> &out)
+  {
+    int n = int(map.size());
+    out.resize(cap);
+    for (int i = 0; i < n && i < cap; i++) {
+      out[i] = map[i];
+    }
+    for (int i = n; i < cap; i++) {
+      out[i] = i;
+    }
+  }
+
   static void invert(const Vector<int> &map, Vector<int> &out)
   {
     out.resize(map.size());
@@ -1166,6 +1197,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, freeStep, MARGS("id"));
     BIND_STRUCT_METHOD(st, hasTopoChunk, MARGS());
     BIND_STRUCT_METHOD(st, reorderForLocality, MARGS("tree"));
+    BIND_STRUCT_METHOD(st, compactIfFragmented, MARGS("tree", "vertRatioThreshold"));
 
     // Box-modeling topology macro-ops.
     BIND_STRUCT_METHOD(st, extrudeRegion, MARGS("m", "outNormal"));
@@ -1475,7 +1507,32 @@ struct MeshLog {
     Vector<int> vmap, emap, cmap, lmap, fmap;
     tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
     pushReorderStep(vmap, emap, cmap, lmap, fmap);
-    tree->applyReorder(vmap, emap, cmap, lmap, fmap);
+    tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+  }
+
+  /** Stroke-boundary auto-compaction (mechanism B). MUST be called with the
+   * stroke's undo step still OPEN (before endStep): if the tree's vert page-
+   * spread exceeds @p vertRatioThreshold (1.0 = perfectly compact), append an
+   * incremental reorder CHUNK to the current step and apply it. Folding the
+   * reorder into the stroke's step means one undo reverts stroke + compaction
+   * together AND keeps the stroke's id-based chunks valid (the reorder chunk,
+   * being last, is inverted FIRST on undo, restoring the pre-compaction ids the
+   * earlier chunks expect). Returns true if it compacted. Cheap to call every
+   * stroke — fragmentationStats is O(elements) and the gate skips the work until
+   * churn has actually scattered the layout. */
+  bool compactIfFragmented(spatial::SpatialTree *tree, double vertRatioThreshold = 3.0)
+  {
+    if (!tree || curStep_ < 0 || curStep_ >= entries.size()) {
+      return false;
+    }
+    if (tree->fragmentationStats().vertRatio < vertRatioThreshold) {
+      return false;
+    }
+    Vector<int> vmap, emap, cmap, lmap, fmap;
+    tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
+    pushReorderChunk(vmap, emap, cmap, lmap, fmap);
+    tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    return true;
   }
 
   /* -------------------- Box-modeling topology macro-ops --------------------

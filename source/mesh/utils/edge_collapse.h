@@ -467,6 +467,7 @@ collapseEdge(Mesh &m,
   /* 6. Remap face sequences (v_kill -> v_keep), drop degenerates and
    *    duplicates, then rebuild. */
   Set<int64_t, 20> rebuiltKeys;
+  int prev_f = ELEM_NONE; // keep the rebuilt faces contiguous in DRAM
   for (int fidx = 0; fidx < int(faceVerts.size()); fidx++) {
     auto &seq = faceVerts[fidx];
     FaceSnap &fs = faceSnaps[fidx];
@@ -503,7 +504,8 @@ collapseEdge(Mesh &m,
     if (!rebuiltKeys.add(key))
       continue;
 
-    int f = m.make_face(std::span<int>(remapped.data(), remapped.size()), cb);
+    int f = m.make_face(std::span<int>(remapped.data(), remapped.size()), cb, prev_f);
+    prev_f = f;
 
     /* Carry the original face's attrs + corners. A rebuilt corner now at v_keep
      * was originally v_kill (faces with both endpoints went degenerate above),

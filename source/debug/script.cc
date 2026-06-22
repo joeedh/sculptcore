@@ -939,6 +939,19 @@ bool execVerb(Scene &scene,
       if (scene.dyntopoEnabled) {
         exec.endDynTopoStroke();
       }
+      /* Mechanism B: fold an incremental compaction into this still-open stroke
+       * step when the layout has fragmented past the threshold. */
+      if (scene.autoDefragRatio > 0.0) {
+        auto t0 = std::chrono::steady_clock::now();
+        bool did = scene.meshLog.compactIfFragmented(scene.tree, scene.autoDefragRatio);
+        if (did) {
+          std::printf("[auto_defrag] compacted at stroke end in %.2fms\n",
+                      std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - t0)
+                          .count());
+          std::fflush(stdout);
+        }
+      }
       exec.endStep();
       scene.tree->update(&scene.gpu);
     }
@@ -1168,6 +1181,94 @@ bool execVerb(Scene &scene,
     }
     return true;
   }
+  if (verb == "time_gather") {
+    /* Time a whole-mesh gather (read every leaf's verts' co+no, leaf-by-leaf) —
+     * the layout-sensitive streaming pattern of GPU buffer fill / normal recompute,
+     * where the working set exceeds cache (a single brush dab fits cache regardless).
+     * Run fragmented vs after `reorder` to measure the DRAM-locality cost. */
+    if (!scene.tree || !scene.mesh) {
+      err = "time_gather: no mesh/tree";
+      return false;
+    }
+    int passes = getInt(args, "passes", 50);
+    mesh::Mesh &m = *scene.mesh;
+    util::Vector<spatial::SpatialNode *> leaves = scene.tree->leaves();
+    double sink = 0.0;
+    auto t0 = std::chrono::steady_clock::now();
+    for (int p = 0; p < passes; p++) {
+      for (spatial::SpatialNode *leaf : leaves) {
+        for (int v : leaf->unique_verts()) {
+          float3 co = m.v.co[v];
+          float3 no = m.v.no[v];
+          sink += double(co[0] + co[1] + co[2] + no[0] + no[1] + no[2]);
+        }
+      }
+    }
+    auto t1 = std::chrono::steady_clock::now();
+    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    int64_t total = 0;
+    for (spatial::SpatialNode *leaf : leaves) total += leaf->unique_verts().size();
+    std::printf("[time_gather] leaves=%d verts/pass=%lld passes=%d total=%.2fms per_pass=%.4fms (sink=%.1f)\n",
+                int(leaves.size()), (long long)total, passes, ms, ms / double(passes), sink);
+    std::fflush(stdout);
+    return true;
+  }
+  if (verb == "auto_defrag") {
+    /* Enable mechanism-B stroke-end auto-compaction: `auto_defrag ratio=F`
+     * (vert page-spread threshold; 0 disables). */
+    scene.autoDefragRatio = getFloat(args, "ratio", 3.0f);
+    return true;
+  }
+  if (verb == "reorder") {
+    /* Full locality reorder (compaction) via the rebuild path. */
+    if (!scene.tree) {
+      err = "reorder: no spatial tree";
+      return false;
+    }
+    auto t0 = std::chrono::steady_clock::now();
+    scene.tree->reorderForLocality();
+    auto t1 = std::chrono::steady_clock::now();
+    std::printf("[reorder] full(rebuild) apply=%.2fms\n",
+                std::chrono::duration<double, std::milli>(t1 - t0).count());
+    std::fflush(stdout);
+    return true;
+  }
+  if (verb == "reorder_inc") {
+    /* Incremental locality reorder (mechanism B): same permutation, but remap the
+     * tree's cached indices in place instead of rebuilding. Should match
+     * `reorder`'s locality gain at a fraction of the apply cost. */
+    if (!scene.tree) {
+      err = "reorder_inc: no spatial tree";
+      return false;
+    }
+    util::Vector<int> vmap, emap, cmap, lmap, fmap;
+    scene.tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
+    auto t0 = std::chrono::steady_clock::now();
+    scene.tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    auto t1 = std::chrono::steady_clock::now();
+    std::printf("[reorder_inc] incremental apply=%.2fms\n",
+                std::chrono::duration<double, std::milli>(t1 - t0).count());
+    std::fflush(stdout);
+    return true;
+  }
+  if (verb == "frag_stats") {
+    /* Print DRAM-locality fragmentation of the current tree (verts/faces:
+     * distinct attribute pages per leaf vs ideal; ratio 1.0 = compact). */
+    if (!scene.tree) {
+      err = "frag_stats: no spatial tree";
+      return false;
+    }
+    auto s = scene.tree->fragmentationStats();
+    std::printf("[frag_stats] leaves=%d\n", s.leaves);
+    std::printf("[frag_stats]   verts: count=%lld pagesActual=%lld pagesIdeal=%lld ratio=%.3f\n",
+                (long long)s.vertCount, (long long)s.vertPagesActual,
+                (long long)s.vertPagesIdeal, s.vertRatio);
+    std::printf("[frag_stats]   faces: count=%lld pagesActual=%lld pagesIdeal=%lld ratio=%.3f\n",
+                (long long)s.faceCount, (long long)s.facePagesActual,
+                (long long)s.facePagesIdeal, s.faceRatio);
+    std::fflush(stdout);
+    return true;
+  }
   if (verb == "assert_aabb") {
     if (!scene.mesh) {
       err = "assert_aabb: no mesh";
@@ -1181,7 +1282,7 @@ bool execVerb(Scene &scene,
     }
     float eps = getFloat(args, "eps", 1e-4f);
     float3 amn, amx;
-    scene.mesh->calcAABB(amn, amx);
+    scene.mesh->calcAABB(&amn, &amx);
     for (int i = 0; i < 3; i++) {
       if (std::fabs(amn[i] - emn[i]) > eps || std::fabs(amx[i] - emx[i]) > eps) {
         char buf[256];

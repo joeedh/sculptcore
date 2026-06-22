@@ -31,7 +31,7 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
 
   float3 mn{0, 0, 0}, mx{0, 0, 0};
   if (m->v.count > 0) {
-    m->calcAABB(mn, mx);
+    m->calcAABB(&mn, &mx);
   }
 
   // Order-independent coordinate fingerprint. `co_sum` catches net

@@ -85,5 +85,6 @@ export interface MeshLog {
   activeVert(): int32
   activeEdge(): int32
   activeFace(): int32
+  compactIfFragmented(tree: SpatialTree, vertRatioThreshold: double): boolean
   new (): MeshLog
 }

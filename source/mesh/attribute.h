@@ -681,6 +681,27 @@ struct AttrGroup {
     }
   }
 
+  /* Shrink every attribute to @p size, freeing trailing AttrData pages (the bulk
+   * DRAM). Caller guarantees no live element has index >= size. */
+  void shrink_capacity(size_t size)
+  {
+    capacity_ = size;
+    bool_attrs.resize(size);
+
+    for (AttrRef &attr : attrs) {
+      if (attr.type == AttrType::BOOL) {
+        continue;
+      }
+
+      detail::type_dispatch(attr.type, [&]<typename T>() {
+        auto *data = attr.get_data<T>();
+        if (data && size_t(data->size()) > size) {
+          data->resize(size);
+        }
+      });
+    }
+  }
+
   void set_default(int elem)
   {
     bool_attrs.set_default(elem);

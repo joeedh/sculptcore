@@ -13,12 +13,25 @@
 #include "litestl/util/vector.h"
 
 #include <cmath>
+#include <cstdlib>
 
 using namespace litestl;
 using namespace litestl::util;
 using namespace litestl::math;
 
 namespace sculptcore::mesh {
+
+/* Locality-aware allocation (alloc_near hints) is on by default; set
+ * SCULPTCORE_NO_LOCALITY_ALLOC=1 to fall back to plain alloc() for A/B
+ * profiling of the DRAM-defragmentation win. Read once. */
+static bool locality_alloc_enabled()
+{
+  static const bool v = [] {
+    const char *s = std::getenv("SCULPTCORE_NO_LOCALITY_ALLOC");
+    return !(s && s[0] && s[0] != '0');
+  }();
+  return v;
+}
 
 void Mesh::recalc_normals()
 {
@@ -618,12 +631,12 @@ void Mesh::vertexColor(int vert, util::Vector<float> &out)
   out.append(c[3]);
 }
 
-int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
+int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb, int hint)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
-  int r = v.alloc();
+  int r = v.alloc_near(locality_alloc_enabled() ? hint : ELEM_NONE);
 
   v.co[r] = co;
   v.e[r] = ELEM_NONE;
@@ -635,12 +648,12 @@ int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb)
   return r;
 }
 
-int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
+int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb, int hint)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
-  int r = e.alloc();
+  int r = e.alloc_near(locality_alloc_enabled() ? hint : ELEM_NONE);
 
   e.c[r] = ELEM_NONE;
 
@@ -679,12 +692,12 @@ int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb)
   return r;
 }
 
-int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *cb)
+int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *cb, int hint)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
-  int fi = f.alloc();
+  int fi = f.alloc_near(locality_alloc_enabled() ? hint : ELEM_NONE);
   int li = l.alloc();
 
   int vlen = verts.size();
@@ -700,17 +713,24 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *c
   l.next[li] = ELEM_NONE;
 
   util::Vector<int, 8> corners;
+  int prev_c = ELEM_NONE;
   for (int i = 0; i < vlen; i++) {
-    int ci = c.alloc();
+    /* Place the corner near the adjacent face's corner on this edge (read
+     * before radial_insert overwrites e.c), else chain off this face's prior
+     * corner so the face's corners stay contiguous. */
+    int radial_c = e.c[edges[i]];
+    int hint_c = radial_c != ELEM_NONE ? radial_c : prev_c;
+    int ci = c.alloc_near(locality_alloc_enabled() ? hint_c : ELEM_NONE);
+    prev_c = ci;
 
     c.v[ci] = verts[i];
     c.e[ci] = edges[i];
     c.l[ci] = li;
 
-    if (cb && e.c[edges[i]] != ELEM_NONE) {
+    if (cb && radial_c != ELEM_NONE) {
       /* radial_insert rewires the edge's existing radial neighbors; snapshot
        * their pre-insert links for the meshlog before they change. */
-      int c2 = e.c[edges[i]];
+      int c2 = radial_c;
       int c2prev = c.radial_prev[c2];
       fire(cb->onCornerChange, c2);
       if (c2prev != c2) {
@@ -745,7 +765,7 @@ int Mesh::make_face(std::span<int> verts, std::span<int> edges, MeshCallbacks *c
   return fi;
 }
 
-int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb)
+int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb, int hint)
 {
   /* find_edge below walks live disks, so thaw before touching connectivity. */
   if (topo_frozen)
@@ -765,7 +785,7 @@ int Mesh::make_face(std::span<int> verts, MeshCallbacks *cb)
     edges.append(e1);
   }
 
-  return make_face(verts, edges, cb);
+  return make_face(verts, edges, cb, hint);
 }
 
 void Mesh::kill_vertex(int v1, MeshCallbacks *cb)
@@ -1022,17 +1042,24 @@ void Mesh::reinit_face(int f1, std::span<int> verts, std::span<int> edges,
   l.next[li] = ELEM_NONE;
 
   util::Vector<int, 8> corners;
+  int prev_c = ELEM_NONE;
   for (int i = 0; i < vlen; i++) {
-    int ci = c.alloc();
+    /* Place the corner near the adjacent face's corner on this edge (read
+     * before radial_insert overwrites e.c), else chain off this face's prior
+     * corner so the face's corners stay contiguous. */
+    int radial_c = e.c[edges[i]];
+    int hint_c = radial_c != ELEM_NONE ? radial_c : prev_c;
+    int ci = c.alloc_near(locality_alloc_enabled() ? hint_c : ELEM_NONE);
+    prev_c = ci;
 
     c.v[ci] = verts[i];
     c.e[ci] = edges[i];
     c.l[ci] = li;
 
-    if (cb && e.c[edges[i]] != ELEM_NONE) {
+    if (cb && radial_c != ELEM_NONE) {
       /* radial_insert rewires the edge's existing radial neighbors; snapshot
        * their pre-insert links for the meshlog before they change. */
-      int c2 = e.c[edges[i]];
+      int c2 = radial_c;
       int c2prev = c.radial_prev[c2];
       fire(cb->onCornerChange, c2);
       if (c2prev != c2) {
@@ -1201,6 +1228,17 @@ void Mesh::reorder_faces(util::span<int> fmap)
   }
 
   f.reorder(fmap);
+}
+
+int Mesh::freeTrailingStorage()
+{
+  int freed = 0;
+  freed += v.free_trailing_pages();
+  freed += e.free_trailing_pages();
+  freed += c.free_trailing_pages();
+  freed += l.free_trailing_pages();
+  freed += f.free_trailing_pages();
+  return freed;
 }
 
 } // namespace sculptcore::mesh
