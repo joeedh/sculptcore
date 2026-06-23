@@ -1270,6 +1270,88 @@ void SpatialTree::computeLocalityMaps(util::Vector<int> &vmap,
   finish_map(m->f, fmap, capF, nf);
 }
 
+void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeaves,
+                                             util::Vector<int> &vmap,
+                                             util::Vector<int> &emap,
+                                             util::Vector<int> &cmap,
+                                             util::Vector<int> &lmap,
+                                             util::Vector<int> &fmap,
+                                             int *movedCounts)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  struct Domain {
+    mesh::ElemData &ed;
+    util::Vector<int> &map;
+    util::Vector<int> walk;  // dirty slots in leaf-grouped walk order (deduped)
+    util::BoolVector<> seen;
+  };
+  Domain dv{m->v, vmap, {}, {}};
+  Domain de{m->e, emap, {}, {}};
+  Domain dc{m->c, cmap, {}, {}};
+  Domain dl{m->l, lmap, {}, {}};
+  Domain df{m->f, fmap, {}, {}};
+  Domain *doms[5] = {&dv, &de, &dc, &dl, &df};
+
+  // Identity baseline; seen sized per domain capacity.
+  for (Domain *d : doms) {
+    int cap = int(d->ed.capacity());
+    d->map.resize(cap);
+    for (int i = 0; i < cap; i++) {
+      d->map[i] = i;
+    }
+    d->seen.resize(cap);
+  }
+
+  auto claim = [](Domain &d, int i) {
+    if (i != ELEM_NONE && !d.seen[i]) {
+      d.seen.set(i, true);
+      d.walk.append(i);
+    }
+  };
+
+  for (SpatialNode *leaf : dirtyLeaves) {
+    if (!leaf->data) {
+      continue;
+    }
+    for (int vrt : leaf->data->unique_verts) {
+      claim(dv, vrt);
+    }
+    for (int face : leaf->data->unique_faces) {
+      if (df.seen[face]) {
+        continue;
+      }
+      claim(df, face);
+      mesh::FaceProxy fp(m, face);
+      for (auto list : fp.lists()) {
+        claim(dl, list.i);
+        for (auto cnr : list) {
+          claim(dc, cnr.i);
+          claim(de, m->c.e[cnr.i]);
+          claim(dv, m->c.v[cnr.i]);
+        }
+      }
+    }
+  }
+
+  /* Closed permutation: each leaf's walk-order elements take the sorted dirty
+   * slots in order, so leaf A gets the lowest slots, B the next, etc. — each
+   * leaf concentrated into a contiguous sub-range of the same slot set. */
+  for (int k = 0; k < 5; k++) {
+    Domain &d = *doms[k];
+    util::Vector<int> sorted = d.walk;
+    sorted.sort([](int a, int b) { return a - b; });
+    for (size_t i = 0; i < d.walk.size(); i++) {
+      d.map[d.walk[i]] = sorted[i];
+    }
+    if (movedCounts) {
+      movedCounts[k] = int(d.walk.size());
+    }
+  }
+}
+
 void SpatialTree::applyReorder(util::span<int> vmap,
                                util::span<int> emap,
                                util::span<int> cmap,
@@ -1415,6 +1497,37 @@ SpatialTree::FragStats SpatialTree::fragmentationStats()
   s.vertRatio = s.vertPagesIdeal > 0 ? double(s.vertPagesActual) / double(s.vertPagesIdeal) : 1.0;
   s.faceRatio = s.facePagesIdeal > 0 ? double(s.facePagesActual) / double(s.facePagesIdeal) : 1.0;
   return s;
+}
+
+void SpatialTree::selectFragmentedLeaves(double ratioThreshold,
+                                         util::Vector<SpatialNode *> &out)
+{
+  out.clear();
+  util::Set<int> pages;
+  const int shift = ATTR_PAGESHIFT;
+
+  /* Score on faces, not verts: faces are owned by exactly one leaf, so their
+   * page-spread is a clean fragmentation signal. Verts are shared across leaves
+   * (boundary verts), giving the vert ratio an irreducible sharing floor that
+   * would over-select. */
+  for (SpatialNode *leaf : leaves()) {
+    if (!leaf->data) {
+      continue;
+    }
+    auto &faces = leaf->data->unique_faces;
+    int n = int(faces.size());
+    if (n == 0) {
+      continue;
+    }
+    pages.clear();
+    for (int f : faces) {
+      pages.add(f >> shift);
+    }
+    int ideal = (n + ATTR_PAGESIZE - 1) >> shift;
+    if (double(pages.size()) / double(ideal) > ratioThreshold) {
+      out.append(leaf);
+    }
+  }
 }
 
 void SpatialTree::rebuild()

@@ -1265,6 +1265,41 @@ bool execVerb(Scene &scene,
     std::fflush(stdout);
     return true;
   }
+  if (verb == "reorder_partial") {
+    /* Phase 1b: partial (region-scoped) locality map, but still applied via the
+     * full applyReorderIncremental. Selects fragmented leaves (thresh=ratio),
+     * builds a mostly-identity closed permutation over just their slots, prints
+     * the moved-vs-total counts (the "mostly identity" proof). Bracket with
+     * frag_stats to measure whether frag holds vs the full reorder_inc. */
+    if (!scene.tree) {
+      err = "reorder_partial: no spatial tree";
+      return false;
+    }
+    double thresh = getFloat(args, "thresh", 2.0f);
+    util::Vector<sculptcore::spatial::SpatialNode *> dirty;
+    scene.tree->selectFragmentedLeaves(thresh, dirty);
+
+    util::Vector<int> vmap, emap, cmap, lmap, fmap;
+    int moved[5] = {0, 0, 0, 0, 0};
+    auto tb0 = std::chrono::steady_clock::now();
+    scene.tree->computeLocalityMapsPartial(dirty, vmap, emap, cmap, lmap, fmap, moved);
+    auto tb1 = std::chrono::steady_clock::now();
+
+    std::printf("[reorder_partial] thresh=%.2f dirtyLeaves=%d/%d build=%.2fms "
+                "moved v=%d e=%d c=%d l=%d f=%d (liveV=%d liveF=%d)\n",
+                thresh, int(dirty.size()), scene.tree->fragmentationStats().leaves,
+                std::chrono::duration<double, std::milli>(tb1 - tb0).count(),
+                moved[0], moved[1], moved[2], moved[3], moved[4],
+                scene.mesh->v.count, scene.mesh->f.count);
+
+    auto t0 = std::chrono::steady_clock::now();
+    scene.tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    auto t1 = std::chrono::steady_clock::now();
+    std::printf("[reorder_partial] apply=%.2fms\n",
+                std::chrono::duration<double, std::milli>(t1 - t0).count());
+    std::fflush(stdout);
+    return true;
+  }
   if (verb == "frag_stats") {
     /* Print DRAM-locality fragmentation of the current tree (verts/faces:
      * distinct attribute pages per leaf vs ideal; ratio 1.0 = compact). */

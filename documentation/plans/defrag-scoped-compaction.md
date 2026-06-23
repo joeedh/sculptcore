@@ -66,6 +66,39 @@ Remaining cost is `attr_permute` (~58%) + `ref_scan` (~21%) — the genuine O(me
 array rewrite + cross-domain reference scan that only region-scoping (Phase 1b/2/3)
 can shrink.
 
+### Phase 1b results — partial scope, full apply (DONE)
+
+New: `SpatialTree::selectFragmentedLeaves(ratioThreshold, out)` (region selection,
+scored on **faces** — see metric note below) + `computeLocalityMapsPartial(dirtyLeaves,
+…, movedCounts)` (a closed permutation over only the dirty leaves' slots; mostly-
+identity full bijection). Applied via the existing full `applyReorderIncremental`.
+Debug verb `reorder_partial thresh=R` prints dirty-leaf + moved-element counts.
+
+1. **Correctness ≈ full (whole-mesh churn).** When the stroke churned the whole
+   surface (88% of leaves dirty), the partial closed permutation matched full
+   compaction: vert ratio 13.58 → **2.495** (full: 2.496), face 21.29 → **1.19**
+   (full: 1.10). The partial map is a correct, full-quality compaction.
+2. **Scoping proven (localized stroke on a compacted mesh).** Baseline (full
+   `reorder_inc`) face ratio 1.087; an 8-dab corner stroke bumped it to 1.178;
+   `reorder_partial` selected **31/1398 leaves (2.2%)**, moved **5449/235593 verts
+   (2.3%)** — genuinely mostly-identity — built the map in **25 ms** (vs 622 ms full)
+   and restored face ratio to **1.095** (≈ baseline). The apply was still 210 ms
+   (full path — that is Phase 2's target), but the map now has the mostly-identity
+   structure Phase 2 needs.
+3. **Metric note (important):** region selection scores on **face** page-spread, not
+   vert. Faces are owned by exactly one leaf, so their ratio cleanly measures
+   fragmentation; verts are shared across leaves (boundary verts), giving the vert
+   ratio an irreducible sharing floor (~2.5 here) that over-selects and is noisy.
+   Also: baseline with `reorder_inc` (incremental, keeps the leaf set), NOT `reorder`
+   (rebuild path) — rebuild re-partitions leaves and scrambles the compaction↔leaf
+   alignment, leaving an inflated ratio that masks the signal.
+4. **Correctness gate (test).** `test_spatial_reorder_inc` gained
+   `test_partial_matches_full`: an explicit-subset partial map applied via both the
+   trusted full-rebuild and the incremental path — asserts valid bijection, geometry
+   preserved, both paths agree, castRay invariant, genuinely partial (moved < live),
+   and an **inverse round-trip restores the prior layout (the undo contract)**. Passes
+   across N∈{8,16,32}, leaf∈{16,64}.
+
 ## Goal & success metric
 
 A stroke-end compaction must cost on the order of the geometry the stroke just
@@ -179,11 +212,14 @@ to leave as full passes initially.
   (−93%), free_rebuild 335→35 ms (−89%) at 450 k; total −45%; all reorder/dyntopo/
   alloc tests pass. See "Phase 1 results" above.* Remaining cost is now attr_permute
   (~58%) + ref_scan (~21%) — the genuine O(mesh) work the partial map must scope.
-- **Phase 1b — partial scope, full apply.** Region selection + partial map
-  (sparse), but apply via the existing full `reorder_*` (so the map is partial
-  but the apply is still O(mesh)). Proves region selection keeps locality good
-  (frag stays low) and undo correct, before touching the hot apply path.
-  *Gate: frag-ratio held ≈ full compaction; undo exact; cross-validate vs full.*
+- **Phase 1b — partial scope, full apply (DONE).** `selectFragmentedLeaves`
+  (face-scored region selection) + `computeLocalityMapsPartial` (closed permutation
+  over the dirty leaves' slots, mostly-identity), applied via the existing full
+  `reorder_*`. *Gate met: localized stroke → 2.2% of leaves selected, 2.3% of verts
+  moved, face frag restored to ≈ baseline; whole-mesh case matches full compaction
+  (vert 2.495 vs 2.496); `test_partial_matches_full` proves valid bijection, full↔
+  incremental agreement, and exact inverse round-trip (undo). See "Phase 1b results".*
+  The map is now mostly-identity but the **apply is still O(mesh)** — Phase 2's target.
 - **Phase 2 — scoped attribute permute** (`reorderScoped`, change #3) wired for
   the partial map. The main win. *Gate: 5 M apply time drops to ~the residual
   scan; result bit-identical to Phase 1.*

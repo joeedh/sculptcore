@@ -630,6 +630,22 @@ struct SpatialTree {
                            util::Vector<int> &lmap,
                            util::Vector<int> &fmap);
 
+  /* Partial locality map: relocate ONLY @p dirtyLeaves' elements, as a closed
+   * permutation over the slots those leaves already occupy (each leaf's elements
+   * re-sorted into a contiguous sub-run of that slot set). Every other element —
+   * clean leaves, free slots — maps to itself, so the result is a mostly-identity
+   * full bijection over each domain's capacity. Cheap to apply via the scoped
+   * path later; for now still consumed by the full applyReorderIncremental.
+   * @p movedCounts (optional, size 5: v/e/c/l/f) receives the moved-element count
+   * per domain (the "mostly identity" proof). */
+  void computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeaves,
+                                  util::Vector<int> &vmap,
+                                  util::Vector<int> &emap,
+                                  util::Vector<int> &cmap,
+                                  util::Vector<int> &lmap,
+                                  util::Vector<int> &fmap,
+                                  int *movedCounts = nullptr);
+
   /* Apply precomputed permutations to the mesh, then rebuild the tree (node
    * data caches stale indices after a reorder). buildAll is deterministic, so
    * an inverse-permutation reorder reproduces the prior node set exactly — the
@@ -671,6 +687,12 @@ struct SpatialTree {
     double faceRatio = 1.0;
   };
   FragStats fragmentationStats();
+
+  /* Region selection for partial compaction: append every leaf whose vert
+   * page-spread exceeds @p ratioThreshold × its ideal page count (i.e. the
+   * fragmented leaves a stroke just churned). */
+  void selectFragmentedLeaves(double ratioThreshold,
+                              util::Vector<SpatialNode *> &out);
 
   /* Tear down every node and rebuild from the (possibly reordered) mesh. */
   void rebuild();

@@ -244,6 +244,78 @@ void test_incremental_matches_full(int N, int leaf, uint32_t seed)
   compareHits(beforeB, hB, tag);
 }
 
+Vector<int> invertMap(span<int> map)
+{
+  Vector<int> inv;
+  inv.resize(int(map.size()));
+  for (int i = 0; i < int(map.size()); i++) inv[map[i]] = i;
+  return inv;
+}
+
+/* Partial (region-scoped) map: relocate only a subset of leaves' elements (a
+ * mostly-identity closed permutation). Assert it is a valid bijection both apply
+ * paths agree on, geometry is preserved, and the reorder is exactly invertible
+ * (the undo contract). */
+void test_partial_matches_full(int N, int leaf, uint32_t seed)
+{
+  char tag[64];
+  snprintf(tag, sizeof(tag), "partial-N%d-l%d-s%u", N, leaf, seed);
+
+  Mesh mA, mB;
+  build_grid(mA, N);
+  build_grid(mB, N);
+  SpatialTree tA(&mA), tB(&mB);
+  tA.leaf_limit = leaf;
+  tB.leaf_limit = leaf;
+  tA.buildAll();
+  tB.buildAll();
+  scramble(mA, tA, seed);
+  scramble(mB, tB, seed);
+
+  Vector<int64_t> sig0 = geomSig(mA);
+  RayHits beforeB = castGrid(tB, 24);
+
+  /* Pick an explicit subset (every other leaf) so the map is genuinely partial —
+   * identical leaf order on both trees ⇒ identical subset ⇒ identical maps. */
+  auto pickSubset = [](SpatialTree &t) {
+    Vector<SpatialNode *> all = t.leaves(), sub;
+    for (int i = 0; i < int(all.size()); i++)
+      if (i % 2 == 0) sub.append(all[i]);
+    return sub;
+  };
+  Vector<SpatialNode *> subA = pickSubset(tA), subB = pickSubset(tB);
+
+  Vector<int> vA, eA, cA, lA, fA, vB, eB, cB, lB, fB;
+  int movedA[5], movedB[5];
+  tA.computeLocalityMapsPartial(subA, vA, eA, cA, lA, fA, movedA);
+  tB.computeLocalityMapsPartial(subB, vB, eB, cB, lB, fB, movedB);
+  for (int k = 0; k < 5; k++) TASSERT(movedA[k] == movedB[k]);
+  /* Genuinely partial: fewer verts moved than total live verts. */
+  TASSERT(movedB[0] < mB.v.count);
+
+  /* Keep copies of the forward maps for the undo round-trip below. */
+  Vector<int> vB0 = vB, eB0 = eB, cB0 = cB, lB0 = lB, fB0 = fB;
+
+  tA.applyReorder(vA, eA, cA, lA, fA);            // trusted full rebuild
+  tB.applyReorderIncremental(vB, eB, cB, lB, fB); // path under test
+
+  TASSERT(validateMesh(mB, tag));
+  TASSERT(sigEqual(sig0, geomSig(mB)));           // geometry preserved
+  TASSERT(sigEqual(geomSig(mA), geomSig(mB)));    // same permutation applied
+
+  RayHits hA = castGrid(tA, 24), hB = castGrid(tB, 24);
+  compareHits(hA, hB, tag);
+  compareHits(beforeB, hB, tag);
+
+  /* Undo contract: applying the inverse permutation restores the prior layout. */
+  Vector<int> vi = invertMap(vB0), ei = invertMap(eB0), ci = invertMap(cB0),
+              li = invertMap(lB0), fi = invertMap(fB0);
+  tB.applyReorderIncremental(vi, ei, ci, li, fi);
+  TASSERT(validateMesh(mB, tag));
+  TASSERT(sigEqual(sig0, geomSig(mB)));
+  compareHits(beforeB, castGrid(tB, 24), tag);
+}
+
 } // namespace
 
 int main()
@@ -251,7 +323,9 @@ int main()
   for (int N : {8, 16, 32}) {
     for (int leaf : {16, 64}) {
       for (uint32_t trial = 0; trial < 2; trial++) {
-        test_incremental_matches_full(N, leaf, 0x51 + trial * 7 + N * 13 + leaf);
+        uint32_t seed = 0x51 + trial * 7 + N * 13 + leaf;
+        test_incremental_matches_full(N, leaf, seed);
+        test_partial_matches_full(N, leaf, seed);
       }
     }
   }
