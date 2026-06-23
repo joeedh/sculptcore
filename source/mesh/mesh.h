@@ -697,11 +697,14 @@ struct Mesh : public MeshBase {
    * reference field pointing into the reordered domain is remapped, then the
    * domain's own storage is permuted; the domains are independent so the five
    * may be applied in any order. */
-  void reorder_verts(util::span<int> vertex_map);
-  void reorder_edges(util::span<int> edge_map);
-  void reorder_corners(util::span<int> corner_map);
-  void reorder_lists(util::span<int> list_map);
-  void reorder_faces(util::span<int> face_map);
+  /* @p moved (optional): when non-empty, permute this domain's attribute storage
+   * scoped to just those (live) slots (ElemData::reorderScoped) instead of the
+   * full-array rewrite. The cross-domain reference fix-up stays full for now. */
+  void reorder_verts(util::span<int> vertex_map, util::span<int> moved = {});
+  void reorder_edges(util::span<int> edge_map, util::span<int> moved = {});
+  void reorder_corners(util::span<int> corner_map, util::span<int> moved = {});
+  void reorder_lists(util::span<int> list_map, util::span<int> moved = {});
+  void reorder_faces(util::span<int> face_map, util::span<int> moved = {});
 
   /* Reclaim DRAM by dropping trailing all-free attribute pages from every domain
    * (effective after the live set has been compacted to the front). Returns the

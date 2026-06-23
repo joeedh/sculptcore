@@ -1276,7 +1276,7 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
                                              util::Vector<int> &cmap,
                                              util::Vector<int> &lmap,
                                              util::Vector<int> &fmap,
-                                             int *movedCounts)
+                                             util::Vector<int> *moved)
 {
   if (m->topo_frozen) {
     m->thawTopo();
@@ -1346,8 +1346,8 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
     for (size_t i = 0; i < d.walk.size(); i++) {
       d.map[d.walk[i]] = sorted[i];
     }
-    if (movedCounts) {
-      movedCounts[k] = int(d.walk.size());
+    if (moved) {
+      moved[k] = std::move(d.walk);
     }
   }
 }
@@ -1382,7 +1382,12 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
                                           util::span<int> emap,
                                           util::span<int> cmap,
                                           util::span<int> lmap,
-                                          util::span<int> fmap)
+                                          util::span<int> fmap,
+                                          util::span<int> vmoved,
+                                          util::span<int> emoved,
+                                          util::span<int> cmoved,
+                                          util::span<int> lmoved,
+                                          util::span<int> fmoved)
 {
   using Clock = std::chrono::steady_clock;
   const bool prof = reorderProfileEnabled();
@@ -1396,15 +1401,15 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
     mesh::reorderFreeRebuildMs() = 0.0;
   }
   auto t0 = now();
-  m->reorder_verts(vmap);
+  m->reorder_verts(vmap, vmoved);
   auto t1 = now();
-  m->reorder_edges(emap);
+  m->reorder_edges(emap, emoved);
   auto t2 = now();
-  m->reorder_corners(cmap);
+  m->reorder_corners(cmap, cmoved);
   auto t3 = now();
-  m->reorder_lists(lmap);
+  m->reorder_lists(lmap, lmoved);
   auto t4 = now();
-  m->reorder_faces(fmap);
+  m->reorder_faces(fmap, fmoved);
   auto t5 = now();
 
   /* Topology (node partition) is unchanged — relabel the cached element indices

@@ -286,31 +286,35 @@ void test_partial_matches_full(int N, int leaf, uint32_t seed)
   Vector<SpatialNode *> subA = pickSubset(tA), subB = pickSubset(tB);
 
   Vector<int> vA, eA, cA, lA, fA, vB, eB, cB, lB, fB;
-  int movedA[5], movedB[5];
+  Vector<int> movedA[5], movedB[5];
   tA.computeLocalityMapsPartial(subA, vA, eA, cA, lA, fA, movedA);
   tB.computeLocalityMapsPartial(subB, vB, eB, cB, lB, fB, movedB);
-  for (int k = 0; k < 5; k++) TASSERT(movedA[k] == movedB[k]);
+  for (int k = 0; k < 5; k++) TASSERT(movedA[k].size() == movedB[k].size());
   /* Genuinely partial: fewer verts moved than total live verts. */
-  TASSERT(movedB[0] < mB.v.count);
+  TASSERT(int(movedB[0].size()) < mB.v.count);
 
   /* Keep copies of the forward maps for the undo round-trip below. */
   Vector<int> vB0 = vB, eB0 = eB, cB0 = cB, lB0 = lB, fB0 = fB;
 
   tA.applyReorder(vA, eA, cA, lA, fA);            // trusted full rebuild
-  tB.applyReorderIncremental(vB, eB, cB, lB, fB); // path under test
+  /* Scoped apply (Phase 2): attribute permute restricted to the moved slots. */
+  tB.applyReorderIncremental(vB, eB, cB, lB, fB,
+                             movedB[0], movedB[1], movedB[2], movedB[3], movedB[4]);
 
   TASSERT(validateMesh(mB, tag));
   TASSERT(sigEqual(sig0, geomSig(mB)));           // geometry preserved
-  TASSERT(sigEqual(geomSig(mA), geomSig(mB)));    // same permutation applied
+  TASSERT(sigEqual(geomSig(mA), geomSig(mB)));    // scoped == full rebuild
 
   RayHits hA = castGrid(tA, 24), hB = castGrid(tB, 24);
   compareHits(hA, hB, tag);
   compareHits(beforeB, hB, tag);
 
-  /* Undo contract: applying the inverse permutation restores the prior layout. */
+  /* Undo contract: the inverse permutation (same moved set) restores the prior
+   * layout — applied scoped too. */
   Vector<int> vi = invertMap(vB0), ei = invertMap(eB0), ci = invertMap(cB0),
               li = invertMap(lB0), fi = invertMap(fB0);
-  tB.applyReorderIncremental(vi, ei, ci, li, fi);
+  tB.applyReorderIncremental(vi, ei, ci, li, fi,
+                             movedB[0], movedB[1], movedB[2], movedB[3], movedB[4]);
   TASSERT(validateMesh(mB, tag));
   TASSERT(sigEqual(sig0, geomSig(mB)));
   compareHits(beforeB, castGrid(tB, 24), tag);

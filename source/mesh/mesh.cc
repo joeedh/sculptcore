@@ -1136,7 +1136,7 @@ inline int remap(util::span<int> map, int idx)
 }
 } // namespace
 
-void Mesh::reorder_verts(util::span<int> vmap)
+void Mesh::reorder_verts(util::span<int> vmap, util::span<int> moved)
 {
   if (topo_frozen)
     thawTopo();
@@ -1150,10 +1150,13 @@ void Mesh::reorder_verts(util::span<int> vmap)
     c.v[c1] = remap(vmap, c.v[c1]);
   }
 
-  v.reorder(vmap);
+  if (moved.size())
+    v.reorderScoped(vmap, moved);
+  else
+    v.reorder(vmap);
 }
 
-void Mesh::reorder_edges(util::span<int> emap)
+void Mesh::reorder_edges(util::span<int> emap, util::span<int> moved)
 {
   if (topo_frozen)
     thawTopo();
@@ -1172,10 +1175,13 @@ void Mesh::reorder_edges(util::span<int> emap)
     c.e[c1] = remap(emap, c.e[c1]);
   }
 
-  e.reorder(emap);
+  if (moved.size())
+    e.reorderScoped(emap, moved);
+  else
+    e.reorder(emap);
 }
 
-void Mesh::reorder_corners(util::span<int> cmap)
+void Mesh::reorder_corners(util::span<int> cmap, util::span<int> moved)
 {
   if (topo_frozen)
     thawTopo();
@@ -1195,10 +1201,13 @@ void Mesh::reorder_corners(util::span<int> cmap)
     l.c[l1] = remap(cmap, l.c[l1]);
   }
 
-  c.reorder(cmap);
+  if (moved.size())
+    c.reorderScoped(cmap, moved);
+  else
+    c.reorder(cmap);
 }
 
-void Mesh::reorder_lists(util::span<int> lmap)
+void Mesh::reorder_lists(util::span<int> lmap, util::span<int> moved)
 {
   if (topo_frozen)
     thawTopo();
@@ -1215,10 +1224,13 @@ void Mesh::reorder_lists(util::span<int> lmap)
     f.l[f1] = remap(lmap, f.l[f1]);
   }
 
-  l.reorder(lmap);
+  if (moved.size())
+    l.reorderScoped(lmap, moved);
+  else
+    l.reorder(lmap);
 }
 
-void Mesh::reorder_faces(util::span<int> fmap)
+void Mesh::reorder_faces(util::span<int> fmap, util::span<int> moved)
 {
   if (topo_frozen)
     thawTopo();
@@ -1227,7 +1239,10 @@ void Mesh::reorder_faces(util::span<int> fmap)
     l.f[l1] = remap(fmap, l.f[l1]);
   }
 
-  f.reorder(fmap);
+  if (moved.size())
+    f.reorderScoped(fmap, moved);
+  else
+    f.reorder(fmap);
 }
 
 int Mesh::freeTrailingStorage()

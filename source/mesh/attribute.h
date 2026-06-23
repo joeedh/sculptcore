@@ -10,6 +10,7 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/array.h"
 #include "litestl/util/index_range.h"
+#include "litestl/util/set.h"
 #include "litestl/util/span.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
@@ -521,6 +522,96 @@ struct AttrGroup {
           dst[j] = src[j];
         }
       }
+    }
+  }
+
+  /* Scoped permutation: like reorder(), but only the slots in @p movedSlots may
+   * move, and they form a closed permutation over that set (every destination
+   * elem_map[src] is itself in movedSlots). Permutes in place by following each
+   * cycle with a one-element temp, so it touches only O(movedSlots) attribute
+   * data instead of rewriting the whole arrays. The caller guarantees the closed-
+   * permutation property (SpatialTree::computeLocalityMapsPartial does). */
+  void reorderScoped(util::span<int> elem_map, util::span<int> movedSlots)
+  {
+    const int nmoved = int(movedSlots.size());
+    if (nmoved == 0) {
+      return;
+    }
+
+    // reverse[dest] = src over the moved set, then decompose into cycles (each
+    // stored as [s, reverse[s], reverse[reverse[s]], …]) once, shared by all attrs.
+    util::Map<int, int> reverse;
+    for (int src : movedSlots) {
+      reverse.add(elem_map[src], src);
+    }
+    util::Set<int> visited;
+    util::Vector<int> cyc;       // cycles concatenated
+    util::Vector<int> cycStart;  // offsets, size = ncyc + 1
+    cycStart.append(0);
+    for (int s : movedSlots) {
+      if (visited.contains(s)) {
+        continue;
+      }
+      int cur = s;
+      do {
+        cyc.append(cur);
+        visited.add(cur);
+        cur = reverse.lookup(cur);
+      } while (cur != s);
+      cycStart.append(int(cyc.size()));
+    }
+    const int ncyc = int(cycStart.size()) - 1;
+
+    /* Rotate each cycle [s0,s1,…,sk] in place: new[s_i] = old[s_{i+1}], with
+     * s0's old value carried in a temp to s_k. assign(d,s) does data[d]=data[s];
+     * save/restore stash/recall s0. */
+    auto rotate = [&](auto &&assign, auto &&save, auto &&restore) {
+      for (int ci = 0; ci < ncyc; ci++) {
+        int a = cycStart[ci], b = cycStart[ci + 1];
+        if (b - a < 2) {
+          continue;  // 1-cycle = identity
+        }
+        save(cyc[a]);
+        for (int i = a; i < b - 1; i++) {
+          assign(cyc[i], cyc[i + 1]);
+        }
+        restore(cyc[b - 1]);
+      }
+    };
+
+    for (AttrRef &attr : attrs) {
+      if (attr.type == AttrType::BOOL) {
+        continue;
+      }
+      detail::type_dispatch(attr.type, [&]<typename T>() {
+        AttrData<T> *data = static_cast<AttrData<T> *>(attr.data);
+        for (int s : movedSlots) {
+          data->materialize(s);  // touched pages may be lazily unallocated
+        }
+        T tmp{};
+        rotate([&](int d, int s) { (*data)[d] = std::move((*data)[s]); },
+               [&](int i) { tmp = std::move((*data)[i]); },
+               [&](int i) { (*data)[i] = std::move(tmp); });
+      });
+    }
+
+    int blocksize = bool_attrs.blocksize();
+    if (blocksize > 0) {
+      size_t bsz = size_t(blocksize);
+      util::Array<uint8_t> tmp(bsz);
+      rotate(
+          [&](int d, int s) {
+            uint8_t *dp = bool_attrs[d], *sp = bool_attrs[s];
+            for (int j = 0; j < blocksize; j++) dp[j] = sp[j];
+          },
+          [&](int i) {
+            uint8_t *p = bool_attrs[i];
+            for (int j = 0; j < blocksize; j++) tmp[j] = p[j];
+          },
+          [&](int i) {
+            uint8_t *p = bool_attrs[i];
+            for (int j = 0; j < blocksize; j++) p[j] = tmp[j];
+          });
     }
   }
 

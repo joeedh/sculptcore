@@ -270,6 +270,22 @@ struct ElemData {
     reorderFreeRebuildMs() += std::chrono::duration<double, std::milli>(a2 - a1).count();
   }
 
+  /* Scoped variant of reorder(): only @p movedSlots move, as a closed permutation
+   * over LIVE slots (every moved slot and its destination is live). That makes the
+   * freemap invariant — so we permute only the touched attribute data (O(moved))
+   * and skip the O(capacity) freemap rebuild entirely. */
+  void reorderScoped(util::span<int> map, util::span<int> movedSlots)
+  {
+    using Clock = std::chrono::steady_clock;
+    for (int s : movedSlots) {
+      Assert(!freemap[s], "scoped reorder requires live slots");
+    }
+    auto a0 = Clock::now();
+    attrs.reorderScoped(map, movedSlots);
+    auto a1 = Clock::now();
+    reorderAttrPermuteMs() += std::chrono::duration<double, std::milli>(a1 - a0).count();
+  }
+
 private:
   // Free slots are bucketed by page so alloc_near(hint) can reuse a hole in the
   // hint's page. freemap stays authoritative; page_free / nonempty_pages may

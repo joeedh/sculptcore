@@ -1279,21 +1279,29 @@ bool execVerb(Scene &scene,
     util::Vector<sculptcore::spatial::SpatialNode *> dirty;
     scene.tree->selectFragmentedLeaves(thresh, dirty);
 
+    bool scoped = getInt(args, "scoped", 1) != 0;
     util::Vector<int> vmap, emap, cmap, lmap, fmap;
-    int moved[5] = {0, 0, 0, 0, 0};
+    util::Vector<int> moved[5];
     auto tb0 = std::chrono::steady_clock::now();
     scene.tree->computeLocalityMapsPartial(dirty, vmap, emap, cmap, lmap, fmap, moved);
     auto tb1 = std::chrono::steady_clock::now();
 
-    std::printf("[reorder_partial] thresh=%.2f dirtyLeaves=%d/%d build=%.2fms "
+    std::printf("[reorder_partial] thresh=%.2f scoped=%d dirtyLeaves=%d/%d build=%.2fms "
                 "moved v=%d e=%d c=%d l=%d f=%d (liveV=%d liveF=%d)\n",
-                thresh, int(dirty.size()), scene.tree->fragmentationStats().leaves,
+                thresh, int(scoped), int(dirty.size()),
+                scene.tree->fragmentationStats().leaves,
                 std::chrono::duration<double, std::milli>(tb1 - tb0).count(),
-                moved[0], moved[1], moved[2], moved[3], moved[4],
+                int(moved[0].size()), int(moved[1].size()), int(moved[2].size()),
+                int(moved[3].size()), int(moved[4].size()),
                 scene.mesh->v.count, scene.mesh->f.count);
 
     auto t0 = std::chrono::steady_clock::now();
-    scene.tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    if (scoped) {
+      scene.tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap, moved[0],
+                                          moved[1], moved[2], moved[3], moved[4]);
+    } else {
+      scene.tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    }
     auto t1 = std::chrono::steady_clock::now();
     std::printf("[reorder_partial] apply=%.2fms\n",
                 std::chrono::duration<double, std::milli>(t1 - t0).count());

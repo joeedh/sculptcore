@@ -634,17 +634,17 @@ struct SpatialTree {
    * permutation over the slots those leaves already occupy (each leaf's elements
    * re-sorted into a contiguous sub-run of that slot set). Every other element —
    * clean leaves, free slots — maps to itself, so the result is a mostly-identity
-   * full bijection over each domain's capacity. Cheap to apply via the scoped
-   * path later; for now still consumed by the full applyReorderIncremental.
-   * @p movedCounts (optional, size 5: v/e/c/l/f) receives the moved-element count
-   * per domain (the "mostly identity" proof). */
+   * full bijection over each domain's capacity.
+   * @p moved (optional, points at an array of 5 vectors v/e/c/l/f) receives the
+   * moved (live) slot list per domain — the closed-permutation set the scoped
+   * applyReorderIncremental consumes, and the "mostly identity" proof. */
   void computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeaves,
                                   util::Vector<int> &vmap,
                                   util::Vector<int> &emap,
                                   util::Vector<int> &cmap,
                                   util::Vector<int> &lmap,
                                   util::Vector<int> &fmap,
-                                  int *movedCounts = nullptr);
+                                  util::Vector<int> *moved = nullptr);
 
   /* Apply precomputed permutations to the mesh, then rebuild the tree (node
    * data caches stale indices after a reorder). buildAll is deterministic, so
@@ -664,11 +664,20 @@ struct SpatialTree {
    * place. O(elements) instead of buildAll's O(mesh log mesh) — the scalable
    * compaction path (mechanism B). The maps must be full bijections over each
    * domain's capacity (SpatialTree::computeLocalityMaps produces such). */
+  /* @p *moved (optional, per domain): when non-empty, the attribute permutation
+   * for that domain is applied scoped to just those live slots (the closed-
+   * permutation moved set from computeLocalityMapsPartial) instead of a full-array
+   * rewrite. The reference fix-up + node-cache remap stay full for now. */
   void applyReorderIncremental(util::span<int> vmap,
                                util::span<int> emap,
                                util::span<int> cmap,
                                util::span<int> lmap,
-                               util::span<int> fmap);
+                               util::span<int> fmap,
+                               util::span<int> vmoved = {},
+                               util::span<int> emoved = {},
+                               util::span<int> cmoved = {},
+                               util::span<int> lmoved = {},
+                               util::span<int> fmoved = {});
 
   /* Compute + apply locality maps in one shot (no undo recording). */
   void reorderForLocality();

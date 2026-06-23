@@ -99,6 +99,36 @@ Debug verb `reorder_partial thresh=R` prints dirty-leaf + moved-element counts.
    and an **inverse round-trip restores the prior layout (the undo contract)**. Passes
    across N∈{8,16,32}, leaf∈{16,64}.
 
+### Phase 2 results — scoped attribute permute (DONE)
+
+`AttrGroup::reorderScoped(elem_map, movedSlots)`: applies the permutation as in-place
+**cycle rotations** over only the moved slots (one element temp per cycle, cycles
+decomposed once and shared by all attribute columns), instead of allocating a full-size
+scratch and rewriting the whole arrays. `ElemData::reorderScoped` wraps it and — keying
+on the fact that the partial map is a **closed permutation over LIVE slots** — skips the
+O(capacity) freemap permute + `rebuild_free_structures` entirely (the freemap is invariant).
+Threaded through optional `moved` spans on `Mesh::reorder_*` and `applyReorderIncremental`
+(the cross-domain reference fix-up + node-cache remap stay full — Phase 3).
+`computeLocalityMapsPartial` now also emits the per-domain moved-slot lists; the
+`reorder_partial` verb gained `scoped=0|1` (default 1).
+
+Measured on the localized stroke (235 k mesh, 2.2% of leaves dirty), `reorder_partial`:
+
+| term | full apply | scoped apply |
+|---|---|---|
+| attr_permute | 83.4 ms | **6.9 ms (−92%)** |
+| free_rebuild | 10.1 ms | **0.0 ms (skipped)** |
+| ref_scan | 48.8 ms | 36.0 ms (still full) |
+| node_remap | 16.0 ms | 13.0 ms (still full) |
+| **apply total** | **158 ms** | **56 ms (−65%)** |
+
+Identical frag result (face 1.178 → 1.095 both). Bit-identical to the full path:
+`test_partial_matches_full` now applies tree B via the **scoped** path and asserts it
+equals the trusted full-rebuild (geometry + castRay) and that the scoped inverse restores
+the prior layout (undo). At 5 M the full attr permute would be seconds; scoped it is
+O(region). The residual 56 ms is now **ref_scan (36) + node_remap (13)** — both O(mesh),
+Phase 3's target.
+
 ## Goal & success metric
 
 A stroke-end compaction must cost on the order of the geometry the stroke just
@@ -220,9 +250,13 @@ to leave as full passes initially.
   (vert 2.495 vs 2.496); `test_partial_matches_full` proves valid bijection, full↔
   incremental agreement, and exact inverse round-trip (undo). See "Phase 1b results".*
   The map is now mostly-identity but the **apply is still O(mesh)** — Phase 2's target.
-- **Phase 2 — scoped attribute permute** (`reorderScoped`, change #3) wired for
-  the partial map. The main win. *Gate: 5 M apply time drops to ~the residual
-  scan; result bit-identical to Phase 1.*
+- **Phase 2 — scoped attribute permute (DONE)** (`AttrGroup::reorderScoped`,
+  change #3) wired through optional `moved` spans on `Mesh::reorder_*` /
+  `applyReorderIncremental`. In-place cycle rotations over the moved set; skips the
+  freemap rebuild (closed permutation over live slots). *Gate met: attr_permute
+  83→6.9 ms (−92%), free_rebuild→0, apply 158→56 ms; bit-identical to the full path
+  (`test_partial_matches_full` now drives the scoped apply). See "Phase 2 results".*
+  Residual is now ref_scan + node_remap (still O(mesh)) — Phase 3.
 - **Phase 3 — scoped ref remap + node remap + sparse chunk** (changes #4, #5)
   only if Phase-0/2 show the residual scans matter. *Gate: sub-100 ms at 5 M;
   undo memory O(moved).*
