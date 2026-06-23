@@ -207,20 +207,42 @@ to leave as full passes initially.
   by a pure permutation of live↔live slots, so the page buckets stay valid — but
   verify the `reorder`-rebuilds-free-structures assumption isn't relied on.
 
-### 4. Scoped reference remap
-- Only references *to moved elements* change. Two options, choose by Phase-0
-  cost:
-  - **(a) Bounded full scan** — keep the existing per-domain ref scan but it's a
-    cheap `field = map[field]` (one lookup/write). At 5 M this is ~100-200 ms;
-    may be acceptable as-is.
-  - **(b) Topology-local** — for each moved vert walk its disk (incident edges)
-    + radial (incident corners) and patch only those refs; O(moved × valence).
-    Needs thawed topo (the compaction path already thaws in
-    `computeLocalityMaps`). Only do this if (a) is the residual bottleneck.
+### 4. Scoped reference remap  ← THE residual after Phase 2 (ref_scan ~64% of apply)
+- Only references *to moved elements* change. Two options:
+  - **(a) Bounded full scan** — keep the existing per-domain ref scan, a cheap
+    `field = map[field]`. This is what Phases 1b/2 still do. ~36 ms at 235 k →
+    ~0.8 s at 5 M, so it IS the residual bottleneck and must be scoped.
+  - **(b) Moved-set-local** — patch only refs into moved elements. *Refined design
+    (Phase-2 analysis):*
+    - **Prerequisite — interior-only selection.** `computeLocalityMapsPartial`
+      must move only elements *exclusively* inside dirty leaves (face-anchored:
+      move face f iff its leaf is dirty; corner/list iff its face is dirty; edge
+      iff BOTH its faces are dirty; vert iff ALL its faces are dirty). Then every
+      reference into a moved element comes from a moved element or a *boundary*
+      (non-moved) element of a dirty leaf — never a clean leaf — so the fix-up is
+      complete from the moved sets alone. (The current reach-everything selection
+      moves shared boundary verts, whose clean-leaf references would be missed.)
+    - **Single-target refs** (`e.vs`, `c.v`, `v.e`, `c.e`, `l.c`, `c.l`, `l.f`,
+      `e.c`): iterate the moved set that *owns* the ref and do `field = map[field]`
+      (identity-safe). E.g. `for e in emoved: e.vs[e]=vmap[e.vs[e]]`.
+    - **Cyclic links** (`e.disk`, `c.next/prev`, `c.radial_next/prev`, `l.next`):
+      a moved element's cycle neighbors may be non-moved boundary elements whose
+      back-links point at it. **Aliasing hazard:** doing in-place "search neighbor
+      for old-index, overwrite" mixes old/new indices and can double-remap, since
+      new indices reuse old moved slots. **Fix — collect-then-apply:** in one pass
+      read all originals and append `{address, newValue}` writes (own links via
+      `map`; non-moved neighbors' back-links located from the moved element's own
+      original links), then apply all writes. Reads precede writes ⇒ no aliasing.
+    - Gate every domain on `test_partial_matches_full` (scoped vs trusted full
+      rebuild + inverse round-trip); every-other-leaf subsets maximize boundary
+      coverage.
 
 ### 5. Scoped node-cache remap + sparse undo chunk
 - In `applyReorderIncremental`, only remap the caches of nodes whose elements
-  moved (the dirty leaves), not all nodes.
+  moved. **Depends on the interior-only selection (change #4 prerequisite):** with
+  interior moves, only the dirty leaves' caches change, so the remap loop iterates
+  `dirtyLeaves` instead of all nodes. (With reach-everything selection a moved
+  boundary vert is cached in clean leaves too, so this would be incomplete.)
 - `LogChunkReorder` stores the **sparse** move list; `undo`/`redo` apply the
   inverse/forward scoped permutation. `padToCapacity` becomes a no-op for the
   sparse form (identity outside the move set is implicit). Undo memory drops from
@@ -257,9 +279,14 @@ to leave as full passes initially.
   83→6.9 ms (−92%), free_rebuild→0, apply 158→56 ms; bit-identical to the full path
   (`test_partial_matches_full` now drives the scoped apply). See "Phase 2 results".*
   Residual is now ref_scan + node_remap (still O(mesh)) — Phase 3.
-- **Phase 3 — scoped ref remap + node remap + sparse chunk** (changes #4, #5)
-  only if Phase-0/2 show the residual scans matter. *Gate: sub-100 ms at 5 M;
-  undo memory O(moved).*
+- **Phase 3 — scoped ref remap + node remap + sparse chunk** (changes #4, #5).
+  DESIGNED (see refined #4/#5), NOT yet implemented. Phase-2 confirms the residual
+  (ref_scan ~36 ms + node_remap ~13 ms at 235 k → ~1 s at 5 M) does matter, so this
+  is required for the 5 M target. It is the highest-risk phase — it rewrites
+  topology references, where a missed/aliased fix corrupts the mesh — so it needs
+  the interior-only selection prerequisite + the aliasing-safe collect-then-apply
+  pattern, implemented one domain at a time, each gated on `test_partial_matches_full`.
+  *Gate: sub-100 ms at 5 M; result bit-identical to Phase 2; undo memory O(moved).*
 
 ## Correctness & verification
 
