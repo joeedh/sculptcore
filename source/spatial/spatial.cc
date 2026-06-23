@@ -11,6 +11,10 @@
 // #include "litestl/util/map.h"
 #include "litestl/util/rand.h"
 
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+
 #include "gpu/batch.h"
 #include "gpu/command.h"
 #include "gpu/manager.h"
@@ -1281,17 +1285,45 @@ void SpatialTree::applyReorder(util::span<int> vmap,
   rebuild();
 }
 
+/* Phase-0 cost-breakdown profiling (plan: defrag-scoped-compaction.md), gated by
+ * SCULPTCORE_REORDER_PROFILE=1. Read once. */
+static bool reorderProfileEnabled()
+{
+  static const bool v = [] {
+    const char *s = std::getenv("SCULPTCORE_REORDER_PROFILE");
+    return s && s[0] && s[0] != '0';
+  }();
+  return v;
+}
+
 void SpatialTree::applyReorderIncremental(util::span<int> vmap,
                                           util::span<int> emap,
                                           util::span<int> cmap,
                                           util::span<int> lmap,
                                           util::span<int> fmap)
 {
+  using Clock = std::chrono::steady_clock;
+  const bool prof = reorderProfileEnabled();
+  auto now = [&] { return prof ? Clock::now() : Clock::time_point{}; };
+  auto ms = [](Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+  };
+
+  if (prof) {
+    mesh::reorderAttrPermuteMs() = 0.0;
+    mesh::reorderFreeRebuildMs() = 0.0;
+  }
+  auto t0 = now();
   m->reorder_verts(vmap);
+  auto t1 = now();
   m->reorder_edges(emap);
+  auto t2 = now();
   m->reorder_corners(cmap);
+  auto t3 = now();
   m->reorder_lists(lmap);
+  auto t4 = now();
   m->reorder_faces(fmap);
+  auto t5 = now();
 
   /* Topology (node partition) is unchanged — relabel the cached element indices
    * each node holds. Ownership attrs (.spatial.{v,f}.node) and geometry values
@@ -1326,6 +1358,24 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
     /* Pending moved-vert ids (for the next normals pass) are stale post-permute;
      * they were already consumed by the stroke-end update, so just clear them. */
     node->affected_verts.clear();
+  }
+  auto t6 = now();
+
+  if (prof) {
+    double reorderXTotal = ms(t0, t5);
+    double attrMs = mesh::reorderAttrPermuteMs();
+    double freeMs = mesh::reorderFreeRebuildMs();
+    double refScanMs = reorderXTotal - attrMs - freeMs;
+    std::fprintf(stderr,
+                 "[reorder_prof] reorder_X v=%.2f e=%.2f c=%.2f l=%.2f f=%.2f | "
+                 "node_remap=%.2f | total=%.2f ms\n",
+                 ms(t0, t1), ms(t1, t2), ms(t2, t3), ms(t3, t4), ms(t4, t5),
+                 ms(t5, t6), ms(t0, t6));
+    std::fprintf(stderr,
+                 "[reorder_prof]   split: attr_permute=%.2f free_rebuild=%.2f "
+                 "ref_scan=%.2f (of reorder_X %.2f)\n",
+                 attrMs, freeMs, refScanMs, reorderXTotal);
+    std::fflush(stderr);
   }
 
   /* NB: do NOT reclaim trailing pages here. A reorder recorded for undo must be a

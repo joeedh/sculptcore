@@ -12,6 +12,7 @@
 
 #include "mesh_enums.h"
 
+#include <chrono>
 #include <cstdio>
 #include <utility>
 
@@ -19,6 +20,21 @@ using litestl::util::Assert;
 
 using namespace litestl;
 namespace sculptcore::mesh {
+
+/* Phase-0 profiling accumulators (plan: defrag-scoped-compaction.md). reorder()
+ * adds to these so applyReorderIncremental can split reorder_X into
+ * attribute-permute vs free-structure-rebuild vs (the remainder =) reference-scan.
+ * Always accumulate (chrono is cheap); the caller resets + reads them. */
+inline double &reorderAttrPermuteMs()
+{
+  static double v = 0.0;
+  return v;
+}
+inline double &reorderFreeRebuildMs()
+{
+  static double v = 0.0;
+  return v;
+}
 struct Mesh;
 
 struct ElemData {
@@ -235,7 +251,10 @@ struct ElemData {
    * Mesh::reorder_*). */
   void reorder(util::span<int> map)
   {
+    using Clock = std::chrono::steady_clock;
+    auto a0 = Clock::now();
     attrs.reorder(map);
+    auto a1 = Clock::now();
 
     util::BoolVector<> newfree;
     newfree.resize(capacity_);
@@ -245,6 +264,10 @@ struct ElemData {
     freemap = std::move(newfree);
 
     rebuild_free_structures();
+    auto a2 = Clock::now();
+
+    reorderAttrPermuteMs() += std::chrono::duration<double, std::milli>(a1 - a0).count();
+    reorderFreeRebuildMs() += std::chrono::duration<double, std::milli>(a2 - a1).count();
   }
 
 private:

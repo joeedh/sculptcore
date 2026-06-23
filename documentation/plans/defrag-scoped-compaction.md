@@ -2,10 +2,40 @@
 
 ## Status
 
-Not started. Mechanism B (incremental DRAM compaction) is landed and `auto_defrag`
+Phase 0 (cost-breakdown profiling) DONE — and it reprioritized the work; Phases 1+
+not started. Mechanism B (incremental DRAM compaction) is landed and `auto_defrag`
 is now **default-on**. The remaining work is making a stroke-boundary compaction
 **O(stroke region)** instead of **O(whole mesh)**, so it stays cheap up to the
-5 M-element target. This plan is that work.
+5 M-element target.
+
+### Phase 0 results (debug_app `reorder_inc` + `SCULPTCORE_REORDER_PROFILE=1`)
+
+`applyReorderIncremental` cost split (env-gated timing in spatial.cc / elem_data.h),
+on dyntopo-churned meshes:
+
+| verts | total | attr_permute | ref_scan | node_remap | free_rebuild |
+|---|---|---|---|---|---|
+| 82 k  | 114 ms  | 70 (61%) | 24 (21%) | 17 (15%) | 4 |
+| 298 k | 733 ms  | 403 (55%) | 181 (25%) | 123 (17%) | 26 |
+| 450 k | 2647 ms | 688 (26%) | 160 (6%) | **1500 (57%)** | 299 (11%) |
+
+**Key finding (overturns an assumption): `node_remap` is the worst-scaling term.**
+It went 17 → 123 → 1500 ms (a 12× jump for a 1.5× vert increase) and *overtakes*
+attr_permute at scale. Cause: the per-leaf OrderedSet rebuild (`unique_verts`/
+`unique_faces`) allocates ~one-fresh-set-per-leaf (~1750 at 450 k); the allocation
+churn explodes near the RAM ceiling (the next size up OOM'd). `free_rebuild`
+(`rebuild_free_structures`) shows the same allocation-churn signature (26 → 299 ms).
+
+`attr_permute` is still big (the `reorder_corners` array rewrite dominates `reorder_X`,
+since corners carry the most attribute data), and `ref_scan` is 6–25%.
+
+**Reprioritization:** scoping `node_remap` (only relabel the *touched* leaves' caches,
+in place — no fresh OrderedSet alloc) is now **co-priority #1** with the scoped
+attribute permute, not the deferred Phase 3 change #5. All three of node_remap,
+attr_permute, ref_scan must be scoped to reach O(region); none is negligible at 5 M.
+(Caveat: the 450 k node_remap=1500 ms is inflated by memory pressure; the *true*
+algorithmic cost is lower, but the allocation churn it measures is real and is exactly
+what in-place scoped remap eliminates.)
 
 ## Goal & success metric
 
