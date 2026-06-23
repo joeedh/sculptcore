@@ -321,11 +321,25 @@ private:
 
   void rebuild_free_structures()
   {
-    page_free.clear();
+    int npages = int((capacity_ + ATTR_PAGESIZE - 1) >> ATTR_PAGESHIFT);
+
+    // Reuse inner-bucket heap: clear each bucket in place and only grow/shrink
+    // the outer vector, instead of destroy+realloc-ing every page bucket (the
+    // same allocation-churn fix as the node-cache remap).
+    while (int(page_free.size()) > npages) {
+      page_free.pop_back();
+    }
+    for (util::Vector<int> &bucket : page_free) {
+      bucket.clear();
+    }
+    while (int(page_free.size()) < npages) {
+      page_free.append(util::Vector<int>());
+    }
+
     nonempty_pages.clear();
     page_on_stack = util::BoolVector<>();
+    page_on_stack.resize(npages);
     free_count = 0;
-    ensure_page_buckets();
 
     for (int i = capacity_ - 1; i >= 0; i--) {
       if (!freemap[i]) {

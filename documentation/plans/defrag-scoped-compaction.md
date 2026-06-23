@@ -37,6 +37,35 @@ attr_permute, ref_scan must be scoped to reach O(region); none is negligible at 
 algorithmic cost is lower, but the allocation churn it measures is real and is exactly
 what in-place scoped remap eliminates.)
 
+### Phase 1 results — allocation-free in-place apply (DONE)
+
+Two changes, both eliminating per-call allocation churn (no region scoping yet —
+this just makes the *full* apply cheap):
+
+1. **`OrderedSet::remap(fn)`** (new litestl method, `util/ordered_set.h`): rewrites
+   stored values in place (reusing `idx_to_val_` + clearing/refilling `val_to_idx_`,
+   whose capacity is retained), instead of building a fresh `OrderedSet` per leaf and
+   move-assigning. `Map::clear()` made public for this. The node-cache loop in
+   `applyReorderIncremental` now calls `d.unique_verts.remap(...)` / `unique_faces.remap(...)`.
+2. **`rebuild_free_structures`** (`mesh/elem_data.h`): clears each page bucket in
+   place + grows/shrinks the outer vector to `npages`, instead of `page_free.clear()`
+   (destroying every inner `Vector`) followed by `ensure_page_buckets()` re-appending
+   fresh ones.
+
+Measured drop (debug_app, same churned meshes):
+
+| verts | node_remap | free_rebuild | total |
+|---|---|---|---|
+| 298 k | 123 → 43 ms (−65%) | 35 → 18 ms | 733 → ~640 ms |
+| 450 k | 1500 → 106 ms (−93%) | 335 → 35 ms (−89%) | 2647 → ~1450 ms (−45%) |
+
+(Runs near the RAM ceiling are noisy ±; the directional drop is robust across runs.)
+Correctness: `test_elem_alloc`, `test_spatial_reorder_inc`, `test_mesh_reorder`,
+`test_spatial_dyntopo`, `test_dyntopo_cascade`, `test_dyntopo_budget` all pass.
+Remaining cost is `attr_permute` (~58%) + `ref_scan` (~21%) — the genuine O(mesh)
+array rewrite + cross-domain reference scan that only region-scoping (Phase 1b/2/3)
+can shrink.
+
 ## Goal & success metric
 
 A stroke-end compaction must cost on the order of the geometry the stroke just
@@ -141,7 +170,16 @@ to leave as full passes initially.
   150 k / 300 k / (built-up) 1 M via debug_app. Confirms attribute permute
   dominates and tells us whether ref/node scans need scoping. *Gate: a cost table
   pinning each term.*
-- **Phase 1 — partial scope, full apply.** Region selection + partial map
+- **Phase 1 — allocation-free in-place apply (DONE).** Phase 0 reprioritized this
+  ahead of the partial map: the two worst terms (node_remap, free_rebuild) were
+  pure allocation churn, fixable independent of region scoping. `OrderedSet::remap`
+  (new litestl method) rewrites each leaf's `unique_verts`/`unique_faces` in place
+  (reusing storage, no fresh per-leaf set); `rebuild_free_structures` clears the
+  page buckets in place instead of destroy+realloc. *Gate met: node_remap 1500→106 ms
+  (−93%), free_rebuild 335→35 ms (−89%) at 450 k; total −45%; all reorder/dyntopo/
+  alloc tests pass. See "Phase 1 results" above.* Remaining cost is now attr_permute
+  (~58%) + ref_scan (~21%) — the genuine O(mesh) work the partial map must scope.
+- **Phase 1b — partial scope, full apply.** Region selection + partial map
   (sparse), but apply via the existing full `reorder_*` (so the map is partial
   but the apply is still O(mesh)). Proves region selection keeps locality good
   (frag stays low) and undo correct, before touching the hot apply path.

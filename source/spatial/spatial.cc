@@ -1335,18 +1335,10 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
     auto &d = *node->data;
 
     if (d.unique_verts.size() > 0) {
-      util::OrderedSet<int> nv;
-      for (int v : d.unique_verts) {
-        nv.add(vmap[v]);
-      }
-      d.unique_verts = std::move(nv);
+      d.unique_verts.remap([&](int v) { return vmap[v]; });
     }
     if (d.unique_faces.size() > 0) {
-      util::OrderedSet<int> nf;
-      for (int f : d.unique_faces) {
-        nf.add(fmap[f]);
-      }
-      d.unique_faces = std::move(nf);
+      d.unique_faces.remap([&](int f) { return fmap[f]; });
     }
     for (NodeTri &t : d.tris) {
       t.c[0] = cmap[t.c[0]];
