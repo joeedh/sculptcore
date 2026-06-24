@@ -1473,15 +1473,22 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
   util::Vector<SpatialNode *> affected;
   if (scoped) {
     util::Set<int> seenNode;
+    auto addOwner = [&](int id) {
+      if (id != 0 && !seenNode.contains(id)) {
+        seenNode.add(id);
+        if (SpatialNode *node = node_from_id(id)) {
+          affected.append(node);
+        }
+      }
+    };
+    /* A leaf caches an element via face ownership (f.node) OR vert assignment
+     * (v.node — a leaf can own a vert with no owned face). Both ownerships are
+     * read pre-reorder; collect every leaf that owns a moved face or vert. */
     for (int f : fmoved) {
-      int id = treeMesh.f.node[f];
-      if (seenNode.contains(id)) {
-        continue;
-      }
-      seenNode.add(id);
-      if (SpatialNode *node = node_from_id(id)) {
-        affected.append(node);
-      }
+      addOwner(treeMesh.f.node[f]);
+    }
+    for (int v : vmoved) {
+      addOwner(treeMesh.v.node[v]);
     }
   }
 

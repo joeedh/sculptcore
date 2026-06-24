@@ -1058,6 +1058,12 @@ private:
  */
 struct LogChunkReorder : public LogChunk {
   Vector<int> vmap, emap, cmap, lmap, fmap;
+  /* Scoped (partial) compaction: the per-domain moved (live) slot sets. A scoped
+   * reorder is a closed permutation over these slots, so the set is invariant
+   * under the permutation AND its inverse — undo/redo replay scoped with the same
+   * sets. Empty ⇒ full reorder (whole-mesh map; replay via the full path). */
+  Vector<int> mv, me, mc, ml, mf;
+  bool scoped = false;
 
   LogChunkReorder(Vector<int> vmap_,
                   Vector<int> emap_,
@@ -1084,7 +1090,11 @@ struct LogChunkReorder : public LogChunk {
     invert(c, ic);
     invert(l, il);
     invert(f, iff);
-    tree->applyReorderIncremental(iv, ie, ic, il, iff);
+    if (scoped) {
+      tree->applyReorderIncremental(iv, ie, ic, il, iff, mv, me, mc, ml, mf);
+    } else {
+      tree->applyReorderIncremental(iv, ie, ic, il, iff);
+    }
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
@@ -1095,13 +1105,18 @@ struct LogChunkReorder : public LogChunk {
     padToCapacity(cmap, int(m->c.capacity()), c);
     padToCapacity(lmap, int(m->l.capacity()), l);
     padToCapacity(fmap, int(m->f.capacity()), f);
-    tree->applyReorderIncremental(v, e, c, l, f);
+    if (scoped) {
+      tree->applyReorderIncremental(v, e, c, l, f, mv, me, mc, ml, mf);
+    } else {
+      tree->applyReorderIncremental(v, e, c, l, f);
+    }
   }
 
   double memSize() override
   {
     double n =
         double(vmap.size() + emap.size() + cmap.size() + lmap.size() + fmap.size());
+    n += double(mv.size() + me.size() + mc.size() + ml.size() + mf.size());
     return double(sizeof(*this)) + n * sizeof(int);
   }
 
@@ -1528,10 +1543,28 @@ struct MeshLog {
     if (tree->fragmentationStats().vertRatio < vertRatioThreshold) {
       return false;
     }
+    /* Scoped (mechanism-B) compaction: relocate only the fragmented region, apply
+     * O(region). The recorded maps are the full bijection (mostly identity), so
+     * undo/redo replay via the unchanged full applyReorderIncremental — correct,
+     * since the scoped forward leaves the exact mesh + tree state a full apply
+     * would (proven by test_partial_matches_full). */
+    Vector<spatial::SpatialNode *> dirty;
+    tree->selectFragmentedLeaves(2.0, dirty);
+    if (dirty.size() == 0) {
+      return false;
+    }
     Vector<int> vmap, emap, cmap, lmap, fmap;
-    tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
-    pushReorderChunk(vmap, emap, cmap, lmap, fmap);
-    tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    Vector<int> moved[5];
+    tree->computeLocalityMapsPartial(dirty, vmap, emap, cmap, lmap, fmap, moved);
+    auto *chunk = pushReorderChunk(vmap, emap, cmap, lmap, fmap);
+    chunk->mv = moved[0];
+    chunk->me = moved[1];
+    chunk->mc = moved[2];
+    chunk->ml = moved[3];
+    chunk->mf = moved[4];
+    chunk->scoped = true;
+    tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap, moved[0], moved[1],
+                                  moved[2], moved[3], moved[4]);
     return true;
   }
 

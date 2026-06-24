@@ -297,12 +297,24 @@ to leave as full passes initially.
   the test: `CornerOfEdgeIter` stops one corner short, so the interior-selection
   radial walks must be explicit do-while. Result: ref_scan 56 → 3.1 ms (−94%), apply
   67 → 8.75 ms; bit-identical to full rebuild + inverse round-trip (test green).*
-- **Phase 3c — sparse map representation (FOLLOW-UP, change #2 second half).** The
-  apply is now O(region) but `computeLocalityMapsPartial` still builds full
-  capacity-sized identity maps (O(capacity): ~16 ms at 235 k → ~hundreds of ms at
-  5 M). Represent the map sparsely (moved `{from,to}` only; `remap` = hash lookup,
-  identity fallback) to make the build O(region) too, and shrink the undo chunk to
-  O(moved). This is the last O(capacity) term before the sub-100 ms-at-5 M metric. Phase-2 confirms the residual
+- **Phase 3d — app-path integration (DONE).** `MeshLog::compactIfFragmented` (the
+  stroke-end auto-compaction the brush path calls) now uses the scoped path:
+  `selectFragmentedLeaves` → `computeLocalityMapsPartial` → scoped
+  `applyReorderIncremental`. `LogChunkReorder` stores the moved sets + a `scoped`
+  flag and replays scoped on undo/redo (the moved slot-set is permutation-invariant,
+  so the same sets drive the inverse). *Bug found+fixed via the save_pos/undo/
+  assert_pos fidelity check on a dyntopo mesh (the grid test missed it): the scoped
+  node-cache remap derived affected leaves from moved-face ownership only, but a leaf
+  can cache a vert via `v.node` assignment with no owned face — so it must also pull
+  owners of moved verts. After the fix, scoped auto_defrag undo is exact (moved=0 at
+  eps 1e-3; the residual ~5e-4 is dyntopo FP rounding, same as the full path).*
+- **Phase 3c — sparse map representation (FOLLOW-UP, change #2 second half).** Lower
+  priority than first thought: the build is region-dominated in practice (flat
+  ~16 ms across 235 k↔283 k; the identity init is memory-bandwidth-bound, ~1.5 ms →
+  ~30 ms at 5 M). The real motivation now is undo-chunk MEMORY: `LogChunkReorder`
+  still stores full capacity-sized maps (O(capacity) per step). Represent the map
+  sparsely (moved `{from,to}` only; `remap` = hash lookup, identity fallback) to make
+  the build O(region) and the undo chunk O(moved). Phase-2 confirms the residual
   (ref_scan ~36 ms + node_remap ~13 ms at 235 k → ~1 s at 5 M) does matter, so this
   is required for the 5 M target. It is the highest-risk phase — it rewrites
   topology references, where a missed/aliased fix corrupts the mesh — so it needs
