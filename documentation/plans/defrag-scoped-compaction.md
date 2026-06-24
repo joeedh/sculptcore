@@ -279,8 +279,15 @@ to leave as full passes initially.
   83→6.9 ms (−92%), free_rebuild→0, apply 158→56 ms; bit-identical to the full path
   (`test_partial_matches_full` now drives the scoped apply). See "Phase 2 results".*
   Residual is now ref_scan + node_remap (still O(mesh)) — Phase 3.
-- **Phase 3 — scoped ref remap + node remap + sparse chunk** (changes #4, #5).
-  DESIGNED (see refined #4/#5), NOT yet implemented. Phase-2 confirms the residual
+- **Phase 3a — interior selection + scoped node-cache remap (DONE).**
+  `computeLocalityMapsPartial` now moves only interior elements (face-anchored:
+  edge iff both faces dirty, vert iff all faces dirty — via `CornerOfEdgeIter` /
+  `EdgeOfVertIter`). `applyReorderIncremental` derives the affected leaves from the
+  moved faces' ownership (pre-reorder `f.node`) and remaps only those caches.
+  *Result: node_remap 13 → 0.45 ms (−97%); face frag still 1.095; test green.* Ref
+  fix-up still full (ref_scan ~56 ms now dominates) → Phase 3b.
+- **Phase 3b — scoped reference fix-up** (change #4). DESIGNED (see refined #4),
+  NOT yet implemented. Phase-2 confirms the residual
   (ref_scan ~36 ms + node_remap ~13 ms at 235 k → ~1 s at 5 M) does matter, so this
   is required for the 5 M target. It is the highest-risk phase — it rewrites
   topology references, where a missed/aliased fix corrupts the mesh — so it needs

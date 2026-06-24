@@ -25,6 +25,7 @@
 
 #include "mesh/boundary.h"
 #include "mesh/mesh.h"
+#include "mesh/mesh_iter.h"
 #include "mesh/mesh_proxy.h"
 #include "mesh/utils/triangulate.h"
 #include "util/index_range.h"
@@ -1312,12 +1313,62 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
     }
   };
 
+  /* Interior-only selection: move an element ONLY if it lives exclusively inside
+   * the dirty leaves (face-anchored). Then every reference into a moved element
+   * comes from a moved element or a dirty-leaf boundary element — never a clean
+   * leaf — so the scoped reference + node-cache fix-up is complete from the moved
+   * sets alone. Faces in the dirty leaves are dirty (each face owned by one leaf);
+   * their corners/lists are interior by construction; an edge is interior iff all
+   * its radial faces are dirty; a vert iff all its incident faces are dirty. */
+  util::BoolVector<> dirtyFace;
+  dirtyFace.resize(int(m->f.capacity()));
   for (SpatialNode *leaf : dirtyLeaves) {
     if (!leaf->data) {
       continue;
     }
-    for (int vrt : leaf->data->unique_verts) {
-      claim(dv, vrt);
+    for (int face : leaf->data->unique_faces) {
+      dirtyFace.set(face, true);
+    }
+  }
+  auto faceOf = [&](int c) { return m->l.f[m->c.l[c]]; };
+  auto edgeInterior = [&](int e) {
+    int c0 = m->e.c[e];
+    if (c0 == ELEM_NONE) {
+      return false;
+    }
+    for (int c : mesh::CornerOfEdgeIter(m, e, c0)) {
+      if (!dirtyFace[faceOf(c)]) {
+        return false;
+      }
+    }
+    return true;
+  };
+  auto vertInterior = [&](int v) {
+    int e0 = m->v.e[v];
+    if (e0 == ELEM_NONE) {
+      return false;
+    }
+    bool anyFace = false;
+    for (int e : mesh::EdgeOfVertIter(m, v, e0)) {
+      int c0 = m->e.c[e];
+      if (c0 == ELEM_NONE) {
+        continue;
+      }
+      for (int c : mesh::CornerOfEdgeIter(m, e, c0)) {
+        if (m->c.v[c] == v) {
+          anyFace = true;
+          if (!dirtyFace[faceOf(c)]) {
+            return false;
+          }
+        }
+      }
+    }
+    return anyFace;
+  };
+
+  for (SpatialNode *leaf : dirtyLeaves) {
+    if (!leaf->data) {
+      continue;
     }
     for (int face : leaf->data->unique_faces) {
       if (df.seen[face]) {
@@ -1326,11 +1377,17 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
       claim(df, face);
       mesh::FaceProxy fp(m, face);
       for (auto list : fp.lists()) {
-        claim(dl, list.i);
+        claim(dl, list.i);  // list/corners of a dirty face are interior
         for (auto cnr : list) {
           claim(dc, cnr.i);
-          claim(de, m->c.e[cnr.i]);
-          claim(dv, m->c.v[cnr.i]);
+          int e = m->c.e[cnr.i];
+          if (e != ELEM_NONE && !de.seen[e] && edgeInterior(e)) {
+            claim(de, e);
+          }
+          int vrt = m->c.v[cnr.i];
+          if (vrt != ELEM_NONE && !dv.seen[vrt] && vertInterior(vrt)) {
+            claim(dv, vrt);
+          }
         }
       }
     }
@@ -1400,6 +1457,27 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
     mesh::reorderAttrPermuteMs() = 0.0;
     mesh::reorderFreeRebuildMs() = 0.0;
   }
+
+  /* Scoped node-cache remap (mode marker: any moved span non-empty). With the
+   * interior-only selection, a moved element is cached ONLY in leaves owning one
+   * of the moved faces, so only those leaves' caches change. Collect them now via
+   * the (still pre-reorder) face-ownership attr; remap just them below. */
+  const bool scoped = fmoved.size() > 0;
+  util::Vector<SpatialNode *> affected;
+  if (scoped) {
+    util::Set<int> seenNode;
+    for (int f : fmoved) {
+      int id = treeMesh.f.node[f];
+      if (seenNode.contains(id)) {
+        continue;
+      }
+      seenNode.add(id);
+      if (SpatialNode *node = node_from_id(id)) {
+        affected.append(node);
+      }
+    }
+  }
+
   auto t0 = now();
   m->reorder_verts(vmap, vmoved);
   auto t1 = now();
@@ -1414,10 +1492,12 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
 
   /* Topology (node partition) is unchanged — relabel the cached element indices
    * each node holds. Ownership attrs (.spatial.{v,f}.node) and geometry values
-   * already moved with reorder_*, so bounds/normals/GPU buffers stay valid. */
-  for (SpatialNode *node : nodes) {
+   * already moved with reorder_*, so bounds/normals/GPU buffers stay valid. In
+   * scoped mode only the affected leaves' caches changed (clean leaves hold
+   * non-moved indices the identity map leaves untouched). */
+  auto remapNode = [&](SpatialNode *node) {
     if (!node->data) {
-      continue;
+      return;
     }
     auto &d = *node->data;
 
@@ -1437,6 +1517,15 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
     /* Pending moved-vert ids (for the next normals pass) are stale post-permute;
      * they were already consumed by the stroke-end update, so just clear them. */
     node->affected_verts.clear();
+  };
+  if (scoped) {
+    for (SpatialNode *node : affected) {
+      remapNode(node);
+    }
+  } else {
+    for (SpatialNode *node : nodes) {
+      remapNode(node);
+    }
   }
   auto t6 = now();
 
