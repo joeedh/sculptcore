@@ -1063,7 +1063,15 @@ struct LogChunkReorder : public LogChunk {
    * under the permutation AND its inverse — undo/redo replay scoped with the same
    * sets. Empty ⇒ full reorder (whole-mesh map; replay via the full path). */
   Vector<int> mv, me, mc, ml, mf;
+  /* Scoped chunk: the target slots of the moved sets (vval[i] = map[mv[i]]). The
+   * full map is NOT stored (it is mostly identity) — reconstructed transiently on
+   * undo/redo. This makes the chunk O(moved) instead of O(capacity). */
+  Vector<int> vval, eval, cval, lval, fval;
   bool scoped = false;
+
+  LogChunkReorder() : LogChunk(LogChunkTypes::Reorder)
+  {
+  }
 
   LogChunkReorder(Vector<int> vmap_,
                   Vector<int> emap_,
@@ -1077,12 +1085,13 @@ struct LogChunkReorder : public LogChunk {
 
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
+    /* Reconstruct the full forward bijection (from sparse moves for a scoped chunk,
+     * or pad the stored full map otherwise), then replay the INVERSE via the full
+     * applyReorderIncremental. Undo/redo are rare, so the full O(mesh) replay is
+     * fine; the scoped forward already paid only O(region). The scoped forward
+     * leaves exactly the state a full apply would, so the full inverse reverts it. */
     Vector<int> v, e, c, l, f;
-    padToCapacity(vmap, int(m->v.capacity()), v);
-    padToCapacity(emap, int(m->e.capacity()), e);
-    padToCapacity(cmap, int(m->c.capacity()), c);
-    padToCapacity(lmap, int(m->l.capacity()), l);
-    padToCapacity(fmap, int(m->f.capacity()), f);
+    forwardMaps(m, v, e, c, l, f);
 
     Vector<int> iv, ie, ic, il, iff;
     invert(v, iv);
@@ -1090,26 +1099,14 @@ struct LogChunkReorder : public LogChunk {
     invert(c, ic);
     invert(l, il);
     invert(f, iff);
-    if (scoped) {
-      tree->applyReorderIncremental(iv, ie, ic, il, iff, mv, me, mc, ml, mf);
-    } else {
-      tree->applyReorderIncremental(iv, ie, ic, il, iff);
-    }
+    tree->applyReorderIncremental(iv, ie, ic, il, iff);
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
     Vector<int> v, e, c, l, f;
-    padToCapacity(vmap, int(m->v.capacity()), v);
-    padToCapacity(emap, int(m->e.capacity()), e);
-    padToCapacity(cmap, int(m->c.capacity()), c);
-    padToCapacity(lmap, int(m->l.capacity()), l);
-    padToCapacity(fmap, int(m->f.capacity()), f);
-    if (scoped) {
-      tree->applyReorderIncremental(v, e, c, l, f, mv, me, mc, ml, mf);
-    } else {
-      tree->applyReorderIncremental(v, e, c, l, f);
-    }
+    forwardMaps(m, v, e, c, l, f);
+    tree->applyReorderIncremental(v, e, c, l, f);
   }
 
   double memSize() override
@@ -1117,10 +1114,54 @@ struct LogChunkReorder : public LogChunk {
     double n =
         double(vmap.size() + emap.size() + cmap.size() + lmap.size() + fmap.size());
     n += double(mv.size() + me.size() + mc.size() + ml.size() + mf.size());
+    n += double(vval.size() + eval.size() + cval.size() + lval.size() + fval.size());
     return double(sizeof(*this)) + n * sizeof(int);
   }
 
 private:
+  /* Materialize the full forward bijection per domain at the current capacity —
+   * reconstructed from the sparse moves for a scoped chunk, or padded from the
+   * stored full map otherwise. */
+  void forwardMaps(mesh::Mesh *m,
+                   Vector<int> &v,
+                   Vector<int> &e,
+                   Vector<int> &c,
+                   Vector<int> &l,
+                   Vector<int> &f)
+  {
+    if (scoped) {
+      reconstruct(mv, vval, int(m->v.capacity()), v);
+      reconstruct(me, eval, int(m->e.capacity()), e);
+      reconstruct(mc, cval, int(m->c.capacity()), c);
+      reconstruct(ml, lval, int(m->l.capacity()), l);
+      reconstruct(mf, fval, int(m->f.capacity()), f);
+    } else {
+      padToCapacity(vmap, int(m->v.capacity()), v);
+      padToCapacity(emap, int(m->e.capacity()), e);
+      padToCapacity(cmap, int(m->c.capacity()), c);
+      padToCapacity(lmap, int(m->l.capacity()), l);
+      padToCapacity(fmap, int(m->f.capacity()), f);
+    }
+  }
+
+  /* Build a full bijection at @p cap from the sparse move list: identity, then
+   * out[from[i]] = to[i]. (from,to)=(mv,vval) gives the forward map. Slots created
+   * after the reorder are free now and map to themselves, so identity-by-default
+   * is the correct extension. */
+  static void reconstruct(const Vector<int> &from,
+                          const Vector<int> &to,
+                          int cap,
+                          Vector<int> &out)
+  {
+    out.resize(cap);
+    for (int i = 0; i < cap; i++) {
+      out[i] = i;
+    }
+    for (int i = 0; i < int(from.size()); i++) {
+      out[from[i]] = to[i];
+    }
+  }
+
   /* The map was recorded at the capacity that existed when the reorder ran. Later
    * steps grow the element arrays and undo doesn't shrink them, so by the time
    * this chunk is replayed the domain capacity can EXCEED the map. The reorder
@@ -1544,10 +1585,10 @@ struct MeshLog {
       return false;
     }
     /* Scoped (mechanism-B) compaction: relocate only the fragmented region, apply
-     * O(region). The recorded maps are the full bijection (mostly identity), so
-     * undo/redo replay via the unchanged full applyReorderIncremental — correct,
-     * since the scoped forward leaves the exact mesh + tree state a full apply
-     * would (proven by test_partial_matches_full). */
+     * O(region). The undo chunk stores the map SPARSELY — only the moved slots'
+     * target values (O(moved)), not the full capacity-sized bijection — and
+     * reconstructs it transiently on undo/redo. The scoped forward leaves the exact
+     * mesh + tree state a full apply would (proven by test_partial_matches_full). */
     Vector<spatial::SpatialNode *> dirty;
     tree->selectFragmentedLeaves(2.0, dirty);
     if (dirty.size() == 0) {
@@ -1556,13 +1597,22 @@ struct MeshLog {
     Vector<int> vmap, emap, cmap, lmap, fmap;
     Vector<int> moved[5];
     tree->computeLocalityMapsPartial(dirty, vmap, emap, cmap, lmap, fmap, moved);
-    auto *chunk = pushReorderChunk(vmap, emap, cmap, lmap, fmap);
-    chunk->mv = moved[0];
-    chunk->me = moved[1];
-    chunk->mc = moved[2];
-    chunk->ml = moved[3];
-    chunk->mf = moved[4];
+
+    auto *chunk = litestl::alloc::New<LogChunkReorder>("LogChunkReorder");
     chunk->scoped = true;
+    Vector<int> *maps[5] = {&vmap, &emap, &cmap, &lmap, &fmap};
+    Vector<int> *mvs[5] = {&chunk->mv, &chunk->me, &chunk->mc, &chunk->ml, &chunk->mf};
+    Vector<int> *vals[5] = {&chunk->vval, &chunk->eval, &chunk->cval, &chunk->lval,
+                            &chunk->fval};
+    for (int k = 0; k < 5; k++) {
+      *mvs[k] = moved[k];  // moved slots (from)
+      vals[k]->resize(int(moved[k].size()));
+      for (int i = 0; i < int(moved[k].size()); i++) {
+        (*vals[k])[i] = (*maps[k])[moved[k][i]];  // target slots (to)
+      }
+    }
+    curEntry().chunks.append(chunk);
+
     tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap, moved[0], moved[1],
                                   moved[2], moved[3], moved[4]);
     return true;

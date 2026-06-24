@@ -308,13 +308,20 @@ to leave as full passes initially.
   can cache a vert via `v.node` assignment with no owned face — so it must also pull
   owners of moved verts. After the fix, scoped auto_defrag undo is exact (moved=0 at
   eps 1e-3; the residual ~5e-4 is dyntopo FP rounding, same as the full path).*
-- **Phase 3c — sparse map representation (FOLLOW-UP, change #2 second half).** Lower
-  priority than first thought: the build is region-dominated in practice (flat
-  ~16 ms across 235 k↔283 k; the identity init is memory-bandwidth-bound, ~1.5 ms →
-  ~30 ms at 5 M). The real motivation now is undo-chunk MEMORY: `LogChunkReorder`
-  still stores full capacity-sized maps (O(capacity) per step). Represent the map
-  sparsely (moved `{from,to}` only; `remap` = hash lookup, identity fallback) to make
-  the build O(region) and the undo chunk O(moved). Phase-2 confirms the residual
+- **Phase 3c — sparse undo chunk (DONE).** `LogChunkReorder` for a scoped compaction
+  now stores only the moved slot lists + their target values (`mv`/`vval` per domain,
+  O(moved)) instead of the full capacity-sized maps. undo/redo reconstruct the full
+  bijection transiently (identity + the moves) and replay via the **full**
+  `applyReorderIncremental` (undo/redo are rare; the forward already paid O(region)).
+  *Undo exact (moved=0 @1e-3); chunk memory drops from O(capacity) (5×cap ints) to
+  O(moved) (~10×region ints) — ~20× for the 235 k test mesh, growing with mesh size.*
+  Note: the apply-side maps were left full (the build is region-dominated; not worth
+  the MapView churn).
+  **Pre-existing caveat (NOT introduced here):** undo→**redo** across a compacted
+  stroke hangs — verified the *full* (pre-scoped) path hangs identically, so it is a
+  latent meshlog reorder-chunk-redo issue that became reachable when `auto_defrag`
+  was defaulted on, not a regression of this work. Undo is correct; redo needs a
+  separate fix (likely the topo-redo ↔ reorder-redo ordering/index interaction). Phase-2 confirms the residual
   (ref_scan ~36 ms + node_remap ~13 ms at 235 k → ~1 s at 5 M) does matter, so this
   is required for the 5 M target. It is the highest-risk phase — it rewrites
   topology references, where a missed/aliased fix corrupts the mesh — so it needs
