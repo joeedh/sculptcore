@@ -1331,16 +1331,20 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
     }
   }
   auto faceOf = [&](int c) { return m->l.f[m->c.l[c]]; };
+  /* Walk an edge's full radial corner cycle (do-while so every corner is visited
+   * — CornerOfEdgeIter stops one short). */
   auto edgeInterior = [&](int e) {
     int c0 = m->e.c[e];
     if (c0 == ELEM_NONE) {
       return false;
     }
-    for (int c : mesh::CornerOfEdgeIter(m, e, c0)) {
+    int c = c0;
+    do {
       if (!dirtyFace[faceOf(c)]) {
         return false;
       }
-    }
+      c = m->c.radial_next[c];
+    } while (c != c0);
     return true;
   };
   auto vertInterior = [&](int v) {
@@ -1354,14 +1358,16 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
       if (c0 == ELEM_NONE) {
         continue;
       }
-      for (int c : mesh::CornerOfEdgeIter(m, e, c0)) {
+      int c = c0;
+      do {
         if (m->c.v[c] == v) {
           anyFace = true;
           if (!dirtyFace[faceOf(c)]) {
             return false;
           }
         }
-      }
+        c = m->c.radial_next[c];
+      } while (c != c0);
     }
     return anyFace;
   };
@@ -1415,11 +1421,12 @@ void SpatialTree::applyReorder(util::span<int> vmap,
                                util::span<int> lmap,
                                util::span<int> fmap)
 {
-  m->reorder_verts(vmap);
-  m->reorder_edges(emap);
-  m->reorder_corners(cmap);
-  m->reorder_lists(lmap);
-  m->reorder_faces(fmap);
+  mesh::Mesh::ReorderMoved full;  // inactive → full-path reorder
+  m->reorder_verts(vmap, full);
+  m->reorder_edges(emap, full);
+  m->reorder_corners(cmap, full);
+  m->reorder_lists(lmap, full);
+  m->reorder_faces(fmap, full);
 
   rebuild();
 }
@@ -1478,16 +1485,24 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
     }
   }
 
+  mesh::Mesh::ReorderMoved rm;
+  rm.active = scoped;
+  rm.v = vmoved;
+  rm.e = emoved;
+  rm.c = cmoved;
+  rm.l = lmoved;
+  rm.f = fmoved;
+
   auto t0 = now();
-  m->reorder_verts(vmap, vmoved);
+  m->reorder_verts(vmap, rm);
   auto t1 = now();
-  m->reorder_edges(emap, emoved);
+  m->reorder_edges(emap, rm);
   auto t2 = now();
-  m->reorder_corners(cmap, cmoved);
+  m->reorder_corners(cmap, rm);
   auto t3 = now();
-  m->reorder_lists(lmap, lmoved);
+  m->reorder_lists(lmap, rm, cmap);
   auto t4 = now();
-  m->reorder_faces(fmap, fmoved);
+  m->reorder_faces(fmap, rm, lmap);
   auto t5 = now();
 
   /* Topology (node partition) is unchanged — relabel the cached element indices

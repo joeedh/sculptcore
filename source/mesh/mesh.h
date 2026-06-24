@@ -697,14 +697,27 @@ struct Mesh : public MeshBase {
    * reference field pointing into the reordered domain is remapped, then the
    * domain's own storage is permuted; the domains are independent so the five
    * may be applied in any order. */
-  /* @p moved (optional): when non-empty, permute this domain's attribute storage
-   * scoped to just those (live) slots (ElemData::reorderScoped) instead of the
-   * full-array rewrite. The cross-domain reference fix-up stays full for now. */
-  void reorder_verts(util::span<int> vertex_map, util::span<int> moved = {});
-  void reorder_edges(util::span<int> edge_map, util::span<int> moved = {});
-  void reorder_corners(util::span<int> corner_map, util::span<int> moved = {});
-  void reorder_lists(util::span<int> list_map, util::span<int> moved = {});
-  void reorder_faces(util::span<int> face_map, util::span<int> moved = {});
+  /* The per-domain moved (live) slot lists of a partial/scoped reorder (the
+   * closed-permutation set from SpatialTree::computeLocalityMapsPartial, which
+   * uses interior-only selection). When `active`, reorder_* fix only references
+   * into the moved sets + permute only those attribute slots — O(region) instead
+   * of O(mesh). The interior-only selection guarantees every reference into a
+   * moved element is itself in a moved set, so this is complete. */
+  struct ReorderMoved {
+    bool active = false;
+    util::span<int> v, e, c, l, f;
+  };
+  void reorder_verts(util::span<int> vertex_map, const ReorderMoved &moved);
+  void reorder_edges(util::span<int> edge_map, const ReorderMoved &moved);
+  void reorder_corners(util::span<int> corner_map, const ReorderMoved &moved);
+  /* @p corner_map: scoped mode only — corners are already permuted when this runs,
+   * so the moved corner's c.l attribute lives at corner_map[c1]. */
+  void reorder_lists(util::span<int> list_map, const ReorderMoved &moved,
+                     util::span<int> corner_map = {});
+  /* @p list_map: scoped mode only — lists are already permuted, so the moved
+   * list's l.f attribute lives at list_map[l1]. */
+  void reorder_faces(util::span<int> face_map, const ReorderMoved &moved,
+                     util::span<int> list_map = {});
 
   /* Reclaim DRAM by dropping trailing all-free attribute pages from every domain
    * (effective after the live set has been compacted to the front). Returns the

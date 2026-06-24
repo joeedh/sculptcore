@@ -1136,113 +1136,208 @@ inline int remap(util::span<int> map, int idx)
 }
 } // namespace
 
-void Mesh::reorder_verts(util::span<int> vmap, util::span<int> moved)
+void Mesh::reorder_verts(util::span<int> vmap, const ReorderMoved &moved)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
+
+  if (moved.active) {
+    /* Refs into a moved vert come only from a moved edge (e.vs) or moved corner
+     * (c.v): a moved vert is interior, so its incident edges/corners are moved. */
+    for (int e1 : moved.e) {
+      e.vs[e1][0] = remap(vmap, e.vs[e1][0]);
+      e.vs[e1][1] = remap(vmap, e.vs[e1][1]);
+    }
+    for (int c1 : moved.c) {
+      c.v[c1] = remap(vmap, c.v[c1]);
+    }
+    v.reorderScoped(vmap, moved.v);
+    return;
+  }
+
   for (int e1 : e) {
     e.vs[e1][0] = remap(vmap, e.vs[e1][0]);
     e.vs[e1][1] = remap(vmap, e.vs[e1][1]);
   }
-
   for (int c1 : c) {
     c.v[c1] = remap(vmap, c.v[c1]);
   }
-
-  if (moved.size())
-    v.reorderScoped(vmap, moved);
-  else
-    v.reorder(vmap);
+  v.reorder(vmap);
 }
 
-void Mesh::reorder_edges(util::span<int> emap, util::span<int> moved)
+void Mesh::reorder_edges(util::span<int> emap, const ReorderMoved &moved)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
+
+  if (moved.active) {
+    util::Set<int> movedEdge;
+    for (int e1 : moved.e)
+      movedEdge.add(e1);
+
+    for (int c1 : moved.c) {
+      c.e[c1] = remap(emap, c.e[c1]);  // corner → edge
+    }
+    for (int e1 : moved.e) {
+      /* v.e of a moved edge's endpoints: only an endpoint can hold this edge. */
+      for (int s = 0; s < 2; s++) {
+        int w = e.vs[e1][s];  // already-remapped (new) vert index
+        if (w != ELEM_NONE && v.e[w] == e1) {
+          v.e[w] = emap[e1];
+        }
+      }
+      /* e.disk: remap this edge's own links; patch the back-link of each
+       * non-moved disk neighbor (moved neighbors fix themselves). Read all
+       * neighbors before remapping our own slots. Slot layout: [side*2]=prev,
+       * [side*2+1]=next around vert e.vs[e1][side]. */
+      int nb[4];
+      for (int k = 0; k < 4; k++)
+        nb[k] = e.disk[e1][k];
+      for (int s = 0; s < 2; s++) {
+        int w = e.vs[e1][s];
+        int P = nb[s * 2], N = nb[s * 2 + 1];
+        if (P != ELEM_NONE && P != e1 && !movedEdge.contains(P)) {
+          int sp = (e.vs[P][0] == w) ? 0 : 1;
+          e.disk[P][sp * 2 + 1] = emap[e1];  // P.next around w == e1
+        }
+        if (N != ELEM_NONE && N != e1 && !movedEdge.contains(N)) {
+          int sn = (e.vs[N][0] == w) ? 0 : 1;
+          e.disk[N][sn * 2] = emap[e1];  // N.prev around w == e1
+        }
+      }
+      for (int k = 0; k < 4; k++)
+        e.disk[e1][k] = remap(emap, nb[k]);
+    }
+    e.reorderScoped(emap, moved.e);
+    return;
+  }
+
   for (int v1 : v) {
     v.e[v1] = remap(emap, v.e[v1]);
   }
-
   for (int e1 : e) {
     for (int k = 0; k < 4; k++) {
       e.disk[e1][k] = remap(emap, e.disk[e1][k]);
     }
   }
-
   for (int c1 : c) {
     c.e[c1] = remap(emap, c.e[c1]);
   }
-
-  if (moved.size())
-    e.reorderScoped(emap, moved);
-  else
-    e.reorder(emap);
+  e.reorder(emap);
 }
 
-void Mesh::reorder_corners(util::span<int> cmap, util::span<int> moved)
+void Mesh::reorder_corners(util::span<int> cmap, const ReorderMoved &moved)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
+
+  if (moved.active) {
+    util::Set<int> movedCorner;
+    for (int c1 : moved.c)
+      movedCorner.add(c1);
+
+    for (int c1 : moved.c) {
+      int ed = c.e[c1];  // new edge index (edges already permuted)
+      if (ed != ELEM_NONE && e.c[ed] == c1) {
+        e.c[ed] = cmap[c1];  // edge → corner
+      }
+      /* Loop-cycle neighbors (c.next/prev) are corners of the same face, always
+       * moved → remap own links only. */
+      c.next[c1] = remap(cmap, c.next[c1]);
+      c.prev[c1] = remap(cmap, c.prev[c1]);
+      /* Radial neighbors may be non-moved (across a boundary edge): patch their
+       * back-links, read before remapping own. */
+      int rn = c.radial_next[c1], rp = c.radial_prev[c1];
+      if (rn != c1 && !movedCorner.contains(rn))
+        c.radial_prev[rn] = cmap[c1];
+      if (rp != c1 && !movedCorner.contains(rp))
+        c.radial_next[rp] = cmap[c1];
+      c.radial_next[c1] = remap(cmap, rn);
+      c.radial_prev[c1] = remap(cmap, rp);
+    }
+    for (int l1 : moved.l) {
+      l.c[l1] = remap(cmap, l.c[l1]);  // list → corner
+    }
+    c.reorderScoped(cmap, moved.c);
+    return;
+  }
+
   for (int e1 : e) {
     e.c[e1] = remap(cmap, e.c[e1]);
   }
-
   for (int c1 : c) {
     c.next[c1] = remap(cmap, c.next[c1]);
     c.prev[c1] = remap(cmap, c.prev[c1]);
     c.radial_next[c1] = remap(cmap, c.radial_next[c1]);
     c.radial_prev[c1] = remap(cmap, c.radial_prev[c1]);
   }
-
   for (int l1 : l) {
     l.c[l1] = remap(cmap, l.c[l1]);
   }
-
-  if (moved.size())
-    c.reorderScoped(cmap, moved);
-  else
-    c.reorder(cmap);
+  c.reorder(cmap);
 }
 
-void Mesh::reorder_lists(util::span<int> lmap, util::span<int> moved)
+void Mesh::reorder_lists(util::span<int> lmap, const ReorderMoved &moved,
+                         util::span<int> cmap)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
+
+  if (moved.active) {
+    /* corners already permuted: the moved corner formerly at c1 now lives at
+     * cmap[c1], so its c.l (corner → list) ref is read/written there. */
+    for (int c1 : moved.c) {
+      int nc = remap(cmap, c1);
+      c.l[nc] = remap(lmap, c.l[nc]);
+    }
+    for (int l1 : moved.l) {
+      l.next[l1] = remap(lmap, l.next[l1]);  // list-cycle neighbors always moved
+    }
+    for (int f1 : moved.f) {
+      f.l[f1] = remap(lmap, f.l[f1]);  // face → list
+    }
+    l.reorderScoped(lmap, moved.l);
+    return;
+  }
+
   for (int c1 : c) {
     c.l[c1] = remap(lmap, c.l[c1]);
   }
-
   for (int l1 : l) {
     l.next[l1] = remap(lmap, l.next[l1]);
   }
-
   for (int f1 : f) {
     f.l[f1] = remap(lmap, f.l[f1]);
   }
-
-  if (moved.size())
-    l.reorderScoped(lmap, moved);
-  else
-    l.reorder(lmap);
+  l.reorder(lmap);
 }
 
-void Mesh::reorder_faces(util::span<int> fmap, util::span<int> moved)
+void Mesh::reorder_faces(util::span<int> fmap, const ReorderMoved &moved,
+                         util::span<int> lmap)
 {
   if (topo_frozen)
     thawTopo();
   topo_stamp++;
+
+  if (moved.active) {
+    /* lists already permuted: the moved list formerly at l1 now lives at
+     * lmap[l1], so its l.f (list → face) ref is read/written there. */
+    for (int l1 : moved.l) {
+      int nl = remap(lmap, l1);
+      l.f[nl] = remap(fmap, l.f[nl]);
+    }
+    f.reorderScoped(fmap, moved.f);
+    return;
+  }
+
   for (int l1 : l) {
     l.f[l1] = remap(fmap, l.f[l1]);
   }
-
-  if (moved.size())
-    f.reorderScoped(fmap, moved);
-  else
-    f.reorder(fmap);
+  f.reorder(fmap);
 }
 
 int Mesh::freeTrailingStorage()

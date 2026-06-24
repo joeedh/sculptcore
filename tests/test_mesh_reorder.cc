@@ -280,11 +280,12 @@ void test_random_reorder(int N, uint32_t seed)
   Vector<int> lmap = randPerm(int(m.l.capacity()), rnd);
   Vector<int> fmap = randPerm(int(m.f.capacity()), rnd);
 
-  m.reorder_verts(vmap);
-  m.reorder_edges(emap);
-  m.reorder_corners(cmap);
-  m.reorder_lists(lmap);
-  m.reorder_faces(fmap);
+  Mesh::ReorderMoved full;  // inactive → full-path reorder
+  m.reorder_verts(vmap, full);
+  m.reorder_edges(emap, full);
+  m.reorder_corners(cmap, full);
+  m.reorder_lists(lmap, full);
+  m.reorder_faces(fmap, full);
 
   TASSERT(validateMesh(m, tag));
   TASSERT(sigEqual(origSig, geomEdgeSignature(m)));

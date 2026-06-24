@@ -286,8 +286,23 @@ to leave as full passes initially.
   moved faces' ownership (pre-reorder `f.node`) and remaps only those caches.
   *Result: node_remap 13 → 0.45 ms (−97%); face frag still 1.095; test green.* Ref
   fix-up still full (ref_scan ~56 ms now dominates) → Phase 3b.
-- **Phase 3b — scoped reference fix-up** (change #4). DESIGNED (see refined #4),
-  NOT yet implemented. Phase-2 confirms the residual
+- **Phase 3b — scoped reference fix-up (DONE)** (change #4). `Mesh::reorder_*` take
+  a `ReorderMoved` (the 5 moved sets + `active`); when active they patch only refs
+  into the moved sets. Single-target refs iterate the owning moved set; `e.disk` /
+  `c.radial` patch non-moved neighbors' back-links with **structural** slot
+  computation (read neighbors before remapping own — no value-search, so no
+  aliasing); `c.next/prev` / `l.next` neighbors are always moved (own-remap only).
+  Stale-index care: `reorder_lists` reaches `c.l` at `cmap[c1]`, `reorder_faces`
+  reaches `l.f` at `lmap[l1]` (those domains already permuted). *Bug found+fixed by
+  the test: `CornerOfEdgeIter` stops one corner short, so the interior-selection
+  radial walks must be explicit do-while. Result: ref_scan 56 → 3.1 ms (−94%), apply
+  67 → 8.75 ms; bit-identical to full rebuild + inverse round-trip (test green).*
+- **Phase 3c — sparse map representation (FOLLOW-UP, change #2 second half).** The
+  apply is now O(region) but `computeLocalityMapsPartial` still builds full
+  capacity-sized identity maps (O(capacity): ~16 ms at 235 k → ~hundreds of ms at
+  5 M). Represent the map sparsely (moved `{from,to}` only; `remap` = hash lookup,
+  identity fallback) to make the build O(region) too, and shrink the undo chunk to
+  O(moved). This is the last O(capacity) term before the sub-100 ms-at-5 M metric. Phase-2 confirms the residual
   (ref_scan ~36 ms + node_remap ~13 ms at 235 k → ~1 s at 5 M) does matter, so this
   is required for the 5 M target. It is the highest-risk phase — it rewrites
   topology references, where a missed/aliased fix corrupts the mesh — so it needs
