@@ -31,6 +31,9 @@ export interface MeshLog {
   freeStep(id: int32): int32
   hasTopoChunk(): boolean
   reorderForLocality(tree: SpatialTree): void
+  extrudeRegion(m: Mesh, outNormal: float[]): void
+  extrudeIndividual(m: Mesh, outNormal: float[]): void
+  extrudeWireVerts(m: Mesh, outNormal: float[]): void
   selectionBeginStep(): void
   selectionEndStep(): void
   selectOne(m: Mesh, domain: int32, idx: int32, state: boolean): void

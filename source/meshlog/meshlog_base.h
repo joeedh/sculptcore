@@ -67,6 +67,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_enums.h"
 #include "mesh/mesh_path.h"
+#include "mesh/ops/extrude.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -1161,6 +1162,11 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, hasTopoChunk, MARGS());
     BIND_STRUCT_METHOD(st, reorderForLocality, MARGS("tree"));
 
+    // Box-modeling topology macro-ops.
+    BIND_STRUCT_METHOD(st, extrudeRegion, MARGS("m", "outNormal"));
+    BIND_STRUCT_METHOD(st, extrudeIndividual, MARGS("m", "outNormal"));
+    BIND_STRUCT_METHOD(st, extrudeWireVerts, MARGS("m", "outNormal"));
+
     // Box-modeling selection (undoable).
     BIND_STRUCT_METHOD(st, selectionBeginStep, MARGS());
     BIND_STRUCT_METHOD(st, selectionEndStep, MARGS());
@@ -1459,6 +1465,58 @@ struct MeshLog {
     tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
     pushReorderStep(vmap, emap, cmap, lmap, fmap);
     tree->applyReorder(vmap, emap, cmap, lmap, fmap);
+  }
+
+  /* -------------------- Box-modeling topology macro-ops --------------------
+   * Each brackets one MeshLog step (so it's one undo press), sets the active
+   * mesh so the create/change/kill callbacks fire into the topo chunk, runs the
+   * Euler-op composition (mesh/ops/*), and leaves the new movable region
+   * selected. `outNormal` receives the op's averaged normal (3 floats) for the
+   * chained transform's default constraint axis. The spatial tree is rebuilt by
+   * the TS op afterward (topology changed wholesale). */
+  void extrudeRegion(mesh::Mesh *m, util::Vector<float> &outNormal)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    beginStep(false);
+    mesh::ops::ExtrudeResult res;
+    mesh::ops::extrudeRegion(*m, callbacks(), res);
+    endStep();
+    outNormal.append(res.normal[0]);
+    outNormal.append(res.normal[1]);
+    outNormal.append(res.normal[2]);
+  }
+
+  void extrudeIndividual(mesh::Mesh *m, util::Vector<float> &outNormal)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    beginStep(false);
+    mesh::ops::ExtrudeResult res;
+    mesh::ops::extrudeIndividual(*m, callbacks(), res);
+    endStep();
+    outNormal.append(res.normal[0]);
+    outNormal.append(res.normal[1]);
+    outNormal.append(res.normal[2]);
+  }
+
+  void extrudeWireVerts(mesh::Mesh *m, util::Vector<float> &outNormal)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    beginStep(false);
+    mesh::ops::ExtrudeResult res;
+    mesh::ops::extrudeWireVerts(*m, callbacks(), res);
+    endStep();
+    outNormal.append(res.normal[0]);
+    outNormal.append(res.normal[1]);
+    outNormal.append(res.normal[2]);
   }
 
   /* -------------------- Box-modeling selection (undoable) --------------------
