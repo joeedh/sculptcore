@@ -52,6 +52,7 @@ enum class _AttrUse {
   COLOR = 1 << 1,     /** for colors */
   UV = 1 << 2,        /** for uv-maps */
   POLYGROUP = 1 << 3, /** per-face poly-group id */
+  SELECT = 1 << 4,    /** per-element selection bool (box-modeling) */
 };
 MAKE_FLAGS_CLASS(AttrUse, _AttrUse, int);
 
@@ -74,6 +75,7 @@ template <> struct Binder<sculptcore::mesh::AttrUse> {
     e->addItem("Color", static_cast<int>(AttrUse::COLOR));
     e->addItem("UV", static_cast<int>(AttrUse::UV));
     e->addItem("PolyGroup", static_cast<int>(AttrUse::POLYGROUP));
+    e->addItem("Select", static_cast<int>(AttrUse::SELECT));
     return e;
   }
 };

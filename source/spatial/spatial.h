@@ -625,6 +625,16 @@ struct SpatialTree {
   sculptcore::gpu::DrawBatch *buildSeamBatch(sculptcore::gpu::GPUManager &mgr,
                                              bool includePolyGroup = false);
 
+  /* Build the box-modeling selection overlay batch: selected faces as
+   * translucent fan-tris, selected edges as lines, selected verts as small
+   * crosses, with each domain's active element (-1 = none) highlighted white.
+   * Returns nullptr when nothing is selected. Like buildSeamBatch it floats the
+   * geometry out along vertex normals and is a static VBO rebuilt on change. */
+  sculptcore::gpu::DrawBatch *buildSelectionBatch(sculptcore::gpu::GPUManager &mgr,
+                                                  int activeVert,
+                                                  int activeEdge,
+                                                  int activeFace);
+
   static binding::types::Struct<SpatialTree> *defineBindings();
 
   bool update(gpu::GPUManager *gpu);

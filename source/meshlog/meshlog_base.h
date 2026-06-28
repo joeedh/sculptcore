@@ -66,6 +66,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/mesh.h"
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_enums.h"
+#include "mesh/mesh_path.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -1108,6 +1109,13 @@ struct MeshLog {
     /** Monotonic step id assigned by beginStep; stable across history trims. */
     int id = -1;
 
+    /* Active element per domain (vert/edge/face) captured at beginStep, swapped
+     * with the live MeshLog active_* on undo/redo so box-modeling's "active
+     * vertex" rides undo (the draft's "active vertex stored in meshlog"). */
+    int snapActiveVert = -1;
+    int snapActiveEdge = -1;
+    int snapActiveFace = -1;
+
     LogEntry() = default;
     LogEntry(const LogEntry &b) = default;
     LogEntry(LogEntry &&b) = default;
@@ -1153,6 +1161,34 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, hasTopoChunk, MARGS());
     BIND_STRUCT_METHOD(st, reorderForLocality, MARGS("tree"));
 
+    // Box-modeling selection (undoable).
+    BIND_STRUCT_METHOD(st, selectionBeginStep, MARGS());
+    BIND_STRUCT_METHOD(st, selectionEndStep, MARGS());
+    BIND_STRUCT_METHOD(st, selectOne, MARGS("m", "domain", "idx", "state"));
+    BIND_STRUCT_METHOD(st, selectIndices, MARGS("m", "domain", "indices", "state"));
+    BIND_STRUCT_METHOD(st, selectAllElems, MARGS("m", "domain", "state"));
+    BIND_STRUCT_METHOD(st, selectShortestPath, MARGS("m", "vEnd", "state"));
+    BIND_STRUCT_METHOD(
+        st, selectScreenCircle, MARGS("m", "tree", "co", "ray", "r1", "r2", "domain", "state"));
+    BIND_STRUCT_METHOD(st,
+                       selectScreenRect,
+                       MARGS("m",
+                             "tree",
+                             "near0",
+                             "near1",
+                             "near2",
+                             "near3",
+                             "far0",
+                             "far1",
+                             "far2",
+                             "far3",
+                             "domain",
+                             "state"));
+    BIND_STRUCT_METHOD(st, setActiveElem, MARGS("domain", "idx"));
+    BIND_STRUCT_METHOD(st, activeVert, MARGS());
+    BIND_STRUCT_METHOD(st, activeEdge, MARGS());
+    BIND_STRUCT_METHOD(st, activeFace, MARGS());
+
     return st;
   }
   Vector<LogEntry> entries;
@@ -1192,6 +1228,12 @@ struct MeshLog {
     }
     entries.grow_one();
     entries.last().id = nextStepId_++;
+    // Snapshot the pre-step active elements; undo/redo swap them back (see
+    // swapActiveElems). Captured here so any setActiveElem during the step is the
+    // post-step value the redo restores.
+    entries.last().snapActiveVert = active_vert_;
+    entries.last().snapActiveEdge = active_edge_;
+    entries.last().snapActiveFace = active_face_;
     // A stroke pushes exactly one step, so bump the stroke id here. Masked to
     // 16 bits at read; only equality against the stamp within a step matters,
     // so the 65536-stroke wrap is harmless (see AttrSaver).
@@ -1419,6 +1461,259 @@ struct MeshLog {
     tree->applyReorder(vmap, emap, cmap, lmap, fmap);
   }
 
+  /* -------------------- Box-modeling selection (undoable) --------------------
+   * The per-element `select` bool is a normal (non-TOPO, non-NOCOPY) data column,
+   * so snapshotting a changed element into the step's topo chunk via onChange (a
+   * full-row capture) makes undo/redo swap `select` back exactly like positions.
+   * onChange snapshots an Existed element only on first touch, so repeated writes
+   * across a modal drag accumulate into a single undo step. The step bracketing is
+   * split (begin/end) so a circle-brush drag owns one step; `domain` is 0 = vertex,
+   * 1 = edge, 2 = face (a code, not an ElemType/SelMask flag — those disagree on
+   * FACE). These are the sanctioned non-brush selection entry, like
+   * reorderForLocality is for the locality reorder. */
+
+  /** Open a selection step. Snapshots active elements for undo (see beginStep). */
+  void selectionBeginStep()
+  {
+    beginStep(false);
+  }
+
+  /** Close the current selection step. */
+  void selectionEndStep()
+  {
+    endStep();
+  }
+
+  static LogElemKind selectDomainKind(int domain)
+  {
+    switch (domain) {
+      case 0:
+        return LogElemKind::Vert;
+      case 1:
+        return LogElemKind::Edge;
+      default:
+        return LogElemKind::Face;
+    }
+  }
+
+  /** Snapshot then set one element's select bool. Caller is inside a step. */
+  void selectOne(mesh::Mesh *m, int domain, int idx, bool state)
+  {
+    if (!m || idx < 0) {
+      return;
+    }
+    getTopoChunk()->onChange(selectDomainKind(domain), m, idx);
+    switch (domain) {
+      case 0:
+        m->v.select.set(idx, state);
+        break;
+      case 1:
+        m->e.select.set(idx, state);
+        break;
+      case 2:
+        m->f.select.set(idx, state);
+        break;
+    }
+  }
+
+  /** Snapshot + set select for a list of element indices (reuses a spatial
+   * query's bound out-vector as input). Caller is inside a step. */
+  void selectIndices(mesh::Mesh *m, int domain, util::Vector<int> &indices, int state)
+  {
+    if (!m) {
+      return;
+    }
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+    bool s = state != 0;
+    for (int idx : indices) {
+      selectOne(m, domain, idx, s);
+    }
+  }
+
+  /** Snapshot + set select for every live element in `domain`. */
+  void selectAllElems(mesh::Mesh *m, int domain, int state)
+  {
+    if (!m) {
+      return;
+    }
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+    bool s = state != 0;
+    switch (domain) {
+      case 0:
+        for (int i : m->v) {
+          selectOne(m, 0, i, s);
+        }
+        break;
+      case 1:
+        for (int i : m->e) {
+          selectOne(m, 1, i, s);
+        }
+        break;
+      case 2:
+        for (int i : m->f) {
+          selectOne(m, 2, i, s);
+        }
+        break;
+    }
+  }
+
+  /** Select the shortest edge-path from the active vertex to `vEnd`; `vEnd`
+   * becomes the new active vertex (the draft's path-select). Returns the number
+   * of path verts (0 if unreachable, but active still advances). Inside a step. */
+  int selectShortestPath(mesh::Mesh *m, int vEnd, int state)
+  {
+    if (!m || active_vert_ < 0 || vEnd < 0) {
+      if (m && vEnd >= 0) {
+        active_vert_ = vEnd;
+      }
+      return 0;
+    }
+    util::Vector<int> path;
+    if (!mesh::shortestEdgePath(m, active_vert_, vEnd, path) || path.size() < 2) {
+      active_vert_ = vEnd;
+      return 0;
+    }
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+    bool s = state != 0;
+    for (int v : path) {
+      selectOne(m, 0, v, s);
+    }
+    for (int i = 0; i + 1 < int(path.size()); i++) {
+      int e = m->find_edge(path[i], path[i + 1]);
+      if (e != ELEM_NONE) {
+        selectOne(m, 1, e, s);
+      }
+    }
+    active_vert_ = vEnd;
+    return int(path.size());
+  }
+
+  /* Select elements from a spatial query's collected face/vert sets, by domain.
+   * vert → the collected verts; face → the collected faces; edge → edges whose
+   * BOTH endpoints were collected (the natural "edge inside the region" rule).
+   * Caller is inside a step. */
+  void selectFromSets(mesh::Mesh *m,
+                      int domain,
+                      util::Vector<int> &faces,
+                      util::Vector<int> &verts,
+                      bool state)
+  {
+    if (!m) {
+      return;
+    }
+    switch (domain) {
+      case 0:
+        for (int v : verts) {
+          selectOne(m, 0, v, state);
+        }
+        break;
+      case 2:
+        for (int f : faces) {
+          selectOne(m, 2, f, state);
+        }
+        break;
+      case 1: {
+        util::Set<int> vset;
+        for (int v : verts) {
+          vset.add(v);
+        }
+        for (int v : verts) {
+          for (int e : m->e_of_v(v)) {
+            int other = m->e.vs[e][0] == v ? m->e.vs[e][1] : m->e.vs[e][0];
+            if (vset.contains(other)) {
+              selectOne(m, 1, e, state);
+            }
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  /* Cone (circle/brush) select: run the spatial cone query and select the hits
+   * in `domain`. Pick + select happen entirely in C++ so no index array crosses
+   * the binding. Caller brackets the step (one step per drag for the brush). */
+  void selectScreenCircle(mesh::Mesh *m,
+                          spatial::SpatialTree *tree,
+                          const math::float3 &co,
+                          const math::float3 &ray,
+                          float r1,
+                          float r2,
+                          int domain,
+                          int state)
+  {
+    if (!m || !tree) {
+      return;
+    }
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+    util::Vector<int> faces, verts;
+    tree->castScreenCircle(co, ray, r1, r2, faces, verts);
+    selectFromSets(m, domain, faces, verts, state != 0);
+  }
+
+  /* Box select: run the spatial frustum query (8 object-local corners, like
+   * SpatialTree::castScreenRect) and select the hits in `domain`. */
+  void selectScreenRect(mesh::Mesh *m,
+                        spatial::SpatialTree *tree,
+                        const math::float3 &near0,
+                        const math::float3 &near1,
+                        const math::float3 &near2,
+                        const math::float3 &near3,
+                        const math::float3 &far0,
+                        const math::float3 &far1,
+                        const math::float3 &far2,
+                        const math::float3 &far3,
+                        int domain,
+                        int state)
+  {
+    if (!m || !tree) {
+      return;
+    }
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+    util::Vector<int> faces, verts;
+    tree->castScreenRect(near0, near1, near2, near3, far0, far1, far2, far3, faces, verts);
+    selectFromSets(m, domain, faces, verts, state != 0);
+  }
+
+  /** Set the active element for a domain (0/1/2). Inside a step so it rides undo. */
+  void setActiveElem(int domain, int idx)
+  {
+    switch (domain) {
+      case 0:
+        active_vert_ = idx;
+        break;
+      case 1:
+        active_edge_ = idx;
+        break;
+      case 2:
+        active_face_ = idx;
+        break;
+    }
+  }
+
+  int activeVert() const
+  {
+    return active_vert_;
+  }
+  int activeEdge() const
+  {
+    return active_edge_;
+  }
+  int activeFace() const
+  {
+    return active_face_;
+  }
+
   LogEntry &curEntry()
   {
     return entries[curStep_];
@@ -1450,6 +1745,7 @@ struct MeshLog {
     for (int i = int(chunks.size()) - 1; i >= 0; i--) {
       chunks[i]->undo(m, tree);
     }
+    swapActiveElems(curEntry());
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree)
@@ -1465,10 +1761,22 @@ struct MeshLog {
     for (LogChunk *chunk : curEntry().chunks) {
       chunk->redo(m, tree);
     }
+    swapActiveElems(curEntry());
     curStep_++;
   }
 
 private:
+  /* Swap the live active elements with this step's snapshot. Symmetric: undo
+   * swaps live(post-step)↔snap(pre-step) → live becomes pre-step; redo swaps
+   * again → live becomes post-step. */
+  void swapActiveElems(LogEntry &e)
+  {
+    std::swap(active_vert_, e.snapActiveVert);
+    std::swap(active_edge_, e.snapActiveEdge);
+    std::swap(active_face_, e.snapActiveFace);
+  }
+
+
   /* Topo chunks restore elements with raw alloc/release + attr memcpys,
    * bypassing the auto-thawing topology mutators. On a frozen mesh the live
    * TOPO link pages are freed (getElemData == null), so thaw first. */
@@ -1573,6 +1881,11 @@ private:
   int maxUndoSteps_ = -1; // -1 = unbounded
   int nextStepId_ = 0;
   int strokeId_ = 0; // bumped to 1 on the first beginStep (see curStrokeId)
+  /* Box-modeling active element per domain (vert/edge/face index, -1 = none).
+   * Snapshotted per step in LogEntry; see swapActiveElems / setActiveElem. */
+  int active_vert_ = -1;
+  int active_edge_ = -1;
+  int active_face_ = -1;
   /* Brush save-gate stampers, shared (by attribute name) with the brush kernels'
    * own AttrSavers — see stampUndoGate. */
   AttrSaver<mesh::ElemType::VERTEX> vertGate_;

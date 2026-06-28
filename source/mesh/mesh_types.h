@@ -56,7 +56,7 @@ struct VertexData : public ElemData {
   BuiltinAttr<float3, "positions"> co;
   BuiltinAttr<float3, "normals"> no;
 
-  BuiltinAttr<bool, "select"> select;
+  BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
   /* Topology attributes. */
   BuiltinAttr<int, ".vert.e", AttrFlag::TOPO> e;
@@ -100,7 +100,7 @@ struct EdgeData : public ElemData {
 
   BuiltinAttr<int, ".edge.c", AttrFlag::TOPO> c;
 
-  BuiltinAttr<bool, "select"> select;
+  BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
   /* Topology attributes. */
   BuiltinAttr<int2, ".edge.vs", AttrFlag::TOPO> vs;
@@ -198,6 +198,7 @@ struct FaceData : public ElemData {
     BIND_STRUCT_MEMBER(st, list_count);
     BIND_STRUCT_MEMBER(st, l);
     BIND_STRUCT_MEMBER(st, no);
+    BIND_STRUCT_MEMBER(st, select);
     return st;
   }
 
@@ -206,11 +207,14 @@ struct FaceData : public ElemData {
     list_count.ensure(attrs);
     l.ensure(attrs);
     no.ensure(attrs);
+    select.ensure(attrs);
   }
 
   BuiltinAttr<short, ".face.list_count"> list_count;
   BuiltinAttr<int, ".face.list", AttrFlag::TOPO> l;
   BuiltinAttr<float3, ".face.normal"> no;
+
+  BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 };
 
 struct MeshBase {

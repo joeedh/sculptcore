@@ -1536,6 +1536,170 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
   return batch;
 }
 
+sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GPUManager &mgr,
+                                                             int activeVert,
+                                                             int activeEdge,
+                                                             int activeFace)
+{
+  using namespace sculptcore::gpu;
+
+  // Box-modeling selection overlay: selected faces as translucent fan-tris,
+  // selected edges as lines, selected verts as small 3-axis crosses, with the
+  // active element of each domain highlighted. One batch, two commands (tris +
+  // lines) sharing the position/color buffers — the executor keys the pipeline
+  // topology off each command's GPUCmdType + start/end range. Mirrors the
+  // buildSeamBatch normal-offset trick so the overlay hovers just above the
+  // surface. Billboard vertex points replace the crosses in M5.
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  // Bool views (guaranteed non-null after the select layers are ensured); get()
+  // is safe before any set (unset bits read false), as the seam path relies on.
+  mesh::BoolAttrView *vsel = m->v.select.get_data();
+  mesh::BoolAttrView *esel = m->e.select.get_data();
+  mesh::BoolAttrView *fsel = m->f.select.get_data();
+
+  // A uniform push-out + cross size from the average edge length (assumes
+  // m->v.no is unit-length, true after update_node_normals before drawQ).
+  float lenSum = 0.0f;
+  int ecount = 0;
+  for (int e : m->e) {
+    lenSum += (m->v.co[m->e.vs[e][1]] - m->v.co[m->e.vs[e][0]]).length();
+    ecount++;
+  }
+  if (ecount == 0) {
+    return nullptr;
+  }
+  const float avg = lenSum / float(ecount);
+  const float off = avg * 0.2f;
+  const float cross = avg * 0.15f;
+
+  // Pass 1: count fill-tri verts (single-outer-loop selected faces) + line verts.
+  int fillTriVerts = 0;
+  for (int fi : m->f) {
+    if (!fsel->get(fi) || m->f.list_count[fi] != 1) {
+      continue;
+    }
+    int sz = m->l.size[m->f.l[fi]];
+    if (sz >= 3) {
+      fillTriVerts += (sz - 2) * 3;
+    }
+  }
+  int lineVerts = 0;
+  for (int e : m->e) {
+    if (esel->get(e)) {
+      lineVerts += 2;
+    }
+  }
+  for (int vi : m->v) {
+    if (vsel->get(vi)) {
+      lineVerts += 6;
+    }
+  }
+  if (fillTriVerts == 0 && lineVerts == 0) {
+    return nullptr;
+  }
+
+  const int totalVerts = fillTriVerts + lineVerts;
+  Buffer *posBuf = mgr.createBuffer(
+      litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
+  Buffer *colorBuf = mgr.createBuffer(
+      litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+  float3 *pos = posBuf->get_data<float3>();
+  float4 *color = colorBuf->get_data<float4>();
+
+  const float4 selClr(1.0f, 0.6f, 0.1f, 1.0f); // orange
+  const float4 actClr(1.0f, 1.0f, 1.0f, 1.0f); // white
+
+  int idx = 0;
+
+  // Pass 2a: translucent selected-face fills [0, fillTriVerts).
+  for (int fi : m->f) {
+    if (!fsel->get(fi) || m->f.list_count[fi] != 1) {
+      continue;
+    }
+    int li = m->f.l[fi];
+    int sz = m->l.size[li];
+    if (sz < 3) {
+      continue;
+    }
+    bool act = fi == activeFace;
+    float4 clr = act ? float4(1.0f, 1.0f, 1.0f, 0.45f) : float4(1.0f, 0.5f, 0.1f, 0.25f);
+
+    litestl::util::Vector<int, 32> vs;
+    int c0 = m->l.c[li], cc = c0;
+    do {
+      vs.append(m->c.v[cc]);
+      cc = m->c.next[cc];
+    } while (cc != c0);
+
+    for (int i = 1; i + 1 < int(vs.size()); i++) {
+      int tri[3] = {vs[0], vs[i], vs[i + 1]};
+      for (int k = 0; k < 3; k++) {
+        int vv = tri[k];
+        pos[idx] = m->v.co[vv] + m->v.no[vv] * off;
+        color[idx] = clr;
+        idx++;
+      }
+    }
+  }
+
+  // Pass 2b: lines [fillTriVerts, totalVerts) — edges + vert crosses.
+  auto addLine = [&](const float3 &a, const float3 &b, const float4 &clr) {
+    pos[idx] = a;
+    color[idx] = clr;
+    idx++;
+    pos[idx] = b;
+    color[idx] = clr;
+    idx++;
+  };
+
+  for (int e : m->e) {
+    if (!esel->get(e)) {
+      continue;
+    }
+    int v1 = m->e.vs[e][0];
+    int v2 = m->e.vs[e][1];
+    float4 clr = e == activeEdge ? actClr : selClr;
+    addLine(m->v.co[v1] + m->v.no[v1] * off, m->v.co[v2] + m->v.no[v2] * off, clr);
+  }
+
+  for (int vi : m->v) {
+    if (!vsel->get(vi)) {
+      continue;
+    }
+    float4 clr = vi == activeVert ? actClr : selClr;
+    float3 p = m->v.co[vi] + m->v.no[vi] * off;
+    addLine(p - float3(cross, 0.0f, 0.0f), p + float3(cross, 0.0f, 0.0f), clr);
+    addLine(p - float3(0.0f, cross, 0.0f), p + float3(0.0f, cross, 0.0f), clr);
+    addLine(p - float3(0.0f, 0.0f, cross), p + float3(0.0f, 0.0f, cross), clr);
+  }
+
+  posBuf->dirty();
+
+  DrawBatch *batch = mgr.createBatch();
+  batch->buffers.append(posBuf);
+  batch->buffers.append(colorBuf);
+
+  auto *shader = &spatialShaders.basicLineShader;
+
+  if (fillTriVerts > 0) {
+    DrawCommand *cmd = mgr.createCommand(
+        batch, GPUCmdType::DRAW_TRIS, shader, 0, fillTriVerts, fillTriVerts / 3);
+    cmd->attrs.append(posBuf);
+    cmd->attrs.append(colorBuf);
+  }
+  if (lineVerts > 0) {
+    DrawCommand *cmd = mgr.createCommand(
+        batch, GPUCmdType::DRAW_LINES, shader, fillTriVerts, totalVerts, lineVerts / 2);
+    cmd->attrs.append(posBuf);
+    cmd->attrs.append(colorBuf);
+  }
+
+  return batch;
+}
+
 void SpatialTree::update_node_normals(SpatialNode *node)
 {
   node->flag &= ~Spatial_UpdateNormals;

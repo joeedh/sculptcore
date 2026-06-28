@@ -155,6 +155,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, dumpVertCo, MARGS("out"));
     BIND_STRUCT_METHOD(st, setVertCo, MARGS("idx", "x", "y", "z"));
     BIND_STRUCT_METHOD(st, symmetrize, MARGS("axis", "sign", "threshold"));
+    BIND_STRUCT_METHOD(st, selectedCount, MARGS("domain"));
+    BIND_STRUCT_METHOD(st, selectedElems, MARGS("domain", "out"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -555,6 +557,66 @@ struct Mesh : public MeshBase {
     }
 
     return ELEM_NONE;
+  }
+
+  /* Count selected elements in a box-modeling domain (0=vert,1=edge,2=face) —
+   * drives the "auto" select mode (all-if-empty-else-none). */
+  int selectedCount(int domain)
+  {
+    int count = 0;
+    switch (domain) {
+      case 0:
+        for (int i : v) {
+          if (v.select[i]) {
+            count++;
+          }
+        }
+        break;
+      case 1:
+        for (int i : e) {
+          if (e.select[i]) {
+            count++;
+          }
+        }
+        break;
+      case 2:
+        for (int i : f) {
+          if (f.select[i]) {
+            count++;
+          }
+        }
+        break;
+    }
+    return count;
+  }
+
+  /* Gather selected element indices for a domain into `out` (appended). Used by
+   * the transform bridge (movable-vert set) and tools that act on the selection. */
+  void selectedElems(int domain, util::Vector<int> &out)
+  {
+    switch (domain) {
+      case 0:
+        for (int i : v) {
+          if (v.select[i]) {
+            out.append(i);
+          }
+        }
+        break;
+      case 1:
+        for (int i : e) {
+          if (e.select[i]) {
+            out.append(i);
+          }
+        }
+        break;
+      case 2:
+        for (int i : f) {
+          if (f.select[i]) {
+            out.append(i);
+          }
+        }
+        break;
+    }
   }
 
   /* Reorder one element domain in place. Each map is map[old] = new and must
