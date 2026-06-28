@@ -22,6 +22,7 @@ endmacro()
 
 test(test_mesh.cc "mesh")
 test(test_delaunay.cc "mesh")
+test(test_constrained_delaunay.cc "mesh")
 test(test_edge_collapse.cc "mesh")
 test(test_collapse_repro.cc "mesh")
 test(test_collapse_fuzz.cc "mesh")
