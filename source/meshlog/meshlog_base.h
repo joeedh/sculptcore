@@ -68,6 +68,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/mesh_enums.h"
 #include "mesh/mesh_path.h"
 #include "mesh/ops/extrude.h"
+#include "mesh/ops/inset.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -1166,6 +1167,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, extrudeRegion, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeIndividual, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeWireVerts, MARGS("m", "outNormal"));
+    BIND_STRUCT_METHOD(st, insetRegion, MARGS("m", "insetVerts", "baseCo", "tangent"));
 
     // Box-modeling selection (undoable).
     BIND_STRUCT_METHOD(st, selectionBeginStep, MARGS());
@@ -1517,6 +1519,23 @@ struct MeshLog {
     outNormal.append(res.normal[0]);
     outNormal.append(res.normal[1]);
     outNormal.append(res.normal[2]);
+  }
+
+  /* Build the inset ring (parametric modal). Unlike the extrude wrappers this
+   * does NOT bracket the step — the modal op holds one step open across the drag
+   * (selectionBeginStep -> insetRegion -> drag setVertCo -> selectionEndStep), so
+   * the created inset verts capture their final dragged positions at finalizeStep.
+   * Outputs the inset vert indices + base coords + inward tangents (flat). */
+  void insetRegion(mesh::Mesh *m,
+                   util::Vector<int> &insetVerts,
+                   util::Vector<float> &baseCo,
+                   util::Vector<float> &tangent)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    mesh::ops::insetRegion(*m, callbacks(), insetVerts, baseCo, tangent);
   }
 
   /* -------------------- Box-modeling selection (undoable) --------------------

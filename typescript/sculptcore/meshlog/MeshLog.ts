@@ -34,6 +34,12 @@ export interface MeshLog {
   extrudeRegion(m: Mesh, outNormal: float[]): void
   extrudeIndividual(m: Mesh, outNormal: float[]): void
   extrudeWireVerts(m: Mesh, outNormal: float[]): void
+  insetRegion(
+    m: Mesh,
+    insetVerts: int32[],
+    baseCo: float[],
+    tangent: float[]
+  ): void
   selectionBeginStep(): void
   selectionEndStep(): void
   selectOne(m: Mesh, domain: int32, idx: int32, state: boolean): void
