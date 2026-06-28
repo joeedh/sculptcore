@@ -57,5 +57,7 @@ export interface Mesh {
   dumpVertCo(out: float[]): void
   setVertCo(idx: int32, x: float, y: float, z: float): void
   symmetrize(axis: int32, sign: int32, threshold: float): void
+  selectedCount(domain: int32): int32
+  selectedElems(domain: int32, out: int32[]): void
   new (): Mesh
 }

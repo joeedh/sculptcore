@@ -21,4 +21,5 @@ export enum AttrUse {
   Color = 2,
   UV = 4,
   PolyGroup = 8,
+  Select = 16,
 }

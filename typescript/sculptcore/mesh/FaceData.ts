@@ -27,6 +27,7 @@ export interface FaceData {
   list_count: BuiltinAttr<int16, '.face.list_count'>
   l: BuiltinAttr<int32, '.face.list'>
   no: BuiltinAttr<float3, '.face.normal'>
+  select: BuiltinAttr<boolean, 'select'>
   alloc(count: int32, clear: boolean): void
   alloc(): int32
 }

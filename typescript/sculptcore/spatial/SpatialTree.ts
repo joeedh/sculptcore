@@ -39,6 +39,12 @@ export interface SpatialTree {
     mgr: GPUManager,
     includePolyGroup: boolean
   ): DrawBatch | undefined
+  buildSelectionBatch(
+    mgr: GPUManager,
+    activeVert: int32,
+    activeEdge: int32,
+    activeFace: int32
+  ): DrawBatch | undefined
   update(gpu: GPUManager): boolean
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean
