@@ -513,6 +513,43 @@ struct SpatialTree {
      * queues the rebalance when the leaf grows over the limit. */
   }
 
+  /* Re-flag every leaf holding a face incident to one of `verts` for tris/bounds/
+   * GPU regen, so a direct positional edit (the box-modeling transform bridge's
+   * setVertCo pass) shows up on the next update() without a full tree rebuild.
+   * Leaf AABBs grow loose (RegenBounds) rather than re-bucketing — a confirm-time
+   * rebuild re-optimizes. */
+  void markVertsMoved(util::Vector<int> &verts)
+  {
+    for (int v : verts) {
+      if (v < 0 || size_t(v) >= m->v.capacity() || m->v.freemap[v]) {
+        continue;
+      }
+      for (int e : m->e_of_v(v)) {
+        int c0 = m->e.c[e];
+        if (c0 == ELEM_NONE) {
+          continue;
+        }
+        int c = c0;
+        do {
+          int f = m->l.f[m->c.l[c]];
+          int nid = treeMesh.f.node[f];
+          if (nid != 0) {
+            SpatialNode *node = node_from_id(nid);
+            if (node) {
+              node->flag |= Spatial_RegenTris | Spatial_RegenBounds | Spatial_RegenGPU;
+              for (SpatialNode *p = node->parent; p && !(p->flag & Spatial_RegenBounds);
+                   p = p->parent)
+              {
+                p->flag |= Spatial_RegenBounds;
+              }
+            }
+          }
+          c = m->c.radial_next[c];
+        } while (c != c0);
+      }
+    }
+  }
+
   /* Incremental removal of a killed vertex from its owning leaf. */
   void remove_vert(int v)
   {

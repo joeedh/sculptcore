@@ -45,6 +45,7 @@ export interface SpatialTree {
     activeEdge: int32,
     activeFace: int32
   ): DrawBatch | undefined
+  markVertsMoved(verts: int32[]): void
   update(gpu: GPUManager): boolean
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean

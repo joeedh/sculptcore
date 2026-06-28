@@ -762,8 +762,12 @@ marshalArg(napi_env env, const binding::BindingBase *pt, napi_value a, uint64_t 
 // ---------------------------------------------------------------------------
 napi_value NapiRuntime::methodInvoker(napi_env env, napi_callback_info info)
 {
-  size_t argc = 8;
-  napi_value argv[8];
+  // argc must be the argv capacity: napi_get_cb_info writes min(capacity, actual)
+  // args and sets argc to the actual count. A buffer smaller than the method's
+  // param count (e.g. castScreenRect's 10 / selectScreenRect's 12 float3+vec
+  // args) leaves the per-param loop reading past argv -> stack corruption / crash.
+  size_t argc = 32;
+  napi_value argv[32];
   napi_value thisArg;
   void *data;
   napi_get_cb_info(env, info, &argc, argv, &thisArg, &data);
@@ -1010,8 +1014,9 @@ napi_value NapiRuntime::Construct(napi_env env, napi_callback_info info)
 // method thunk (ConstructorBuilder::invokeImpl). Up to 6 ctor args.
 napi_value NapiRuntime::ConstructWith(napi_env env, napi_callback_info info)
 {
-  size_t argc = 8;
-  napi_value argv[8];
+  // Capacity must cover (structName, ctorName, ...ctorArgs); see methodInvoker.
+  size_t argc = 32;
+  napi_value argv[32];
   void *data;
   napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
   NapiRuntime *rt = static_cast<NapiRuntime *>(data);

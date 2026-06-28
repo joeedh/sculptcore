@@ -3,6 +3,7 @@
 #include "boundary.h"
 #include "mesh_path.h"
 #include "utils/mesh_validate.h" // faceNewellNormal
+#include "utils/modeling_walk.h" // box-modeling loop/boundary walks
 #include "utils/symmetrize.h"
 #include "uvgen.h"
 
@@ -1080,6 +1081,25 @@ void Mesh::recountNgons()
     }
   }
   n_ngon_faces = n;
+}
+
+/* Box-modeling loop/boundary query wrappers (see utils/modeling_walk.h). Thin so
+ * the macro-ops can call either these or the free functions directly. */
+void Mesh::selectionBoundaryEdges(util::Vector<int> &out)
+{
+  regionBoundaryEdges(*this, out);
+}
+void Mesh::movableVerts(util::Vector<int> &out)
+{
+  gatherMovableVerts(*this, out);
+}
+void Mesh::edgeRing(int e, util::Vector<int> &out)
+{
+  walkEdgeRing(*this, e, out);
+}
+void Mesh::faceLoop(int e, util::Vector<int> &out)
+{
+  walkFaceLoop(*this, e, out);
 }
 
 namespace {

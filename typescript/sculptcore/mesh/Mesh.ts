@@ -59,5 +59,10 @@ export interface Mesh {
   symmetrize(axis: int32, sign: int32, threshold: float): void
   selectedCount(domain: int32): int32
   selectedElems(domain: int32, out: int32[]): void
+  gatherVertCos(idx: int32[], out: float[]): void
+  selectionBoundaryEdges(out: int32[]): void
+  movableVerts(out: int32[]): void
+  edgeRing(e: int32, out: int32[]): void
+  faceLoop(e: int32, out: int32[]): void
   new (): Mesh
 }

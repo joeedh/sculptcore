@@ -157,6 +157,11 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, symmetrize, MARGS("axis", "sign", "threshold"));
     BIND_STRUCT_METHOD(st, selectedCount, MARGS("domain"));
     BIND_STRUCT_METHOD(st, selectedElems, MARGS("domain", "out"));
+    BIND_STRUCT_METHOD(st, gatherVertCos, MARGS("idx", "out"));
+    BIND_STRUCT_METHOD(st, selectionBoundaryEdges, MARGS("out"));
+    BIND_STRUCT_METHOD(st, movableVerts, MARGS("out"));
+    BIND_STRUCT_METHOD(st, edgeRing, MARGS("e", "out"));
+    BIND_STRUCT_METHOD(st, faceLoop, MARGS("e", "out"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
   }
@@ -590,6 +595,25 @@ struct Mesh : public MeshBase {
     return count;
   }
 
+  /* Gather the co (x,y,z) of each vertex in `idx` into `out` (appended, flat).
+   * The box-modeling transform bridge's targeted read of just the movable verts
+   * (vs dumping every vertex via dumpVertCo). Invalid/dead indices emit (0,0,0). */
+  void gatherVertCos(util::Vector<int> &idx, util::Vector<float> &out)
+  {
+    for (int vi : idx) {
+      if (vi < 0 || size_t(vi) >= v.capacity() || v.freemap[vi]) {
+        out.append(0.0f);
+        out.append(0.0f);
+        out.append(0.0f);
+        continue;
+      }
+      math::float3 co = v.co[vi];
+      out.append(co[0]);
+      out.append(co[1]);
+      out.append(co[2]);
+    }
+  }
+
   /* Gather selected element indices for a domain into `out` (appended). Used by
    * the transform bridge (movable-vert set) and tools that act on the selection. */
   void selectedElems(int domain, util::Vector<int> &out)
@@ -618,6 +642,16 @@ struct Mesh : public MeshBase {
         break;
     }
   }
+
+  /* Box-modeling loop/boundary queries (defined in mesh.cc via
+   * utils/modeling_walk.h). selectionBoundaryEdges = boundary of the selected
+   * face region; movableVerts = all verts touched by any selected element (the
+   * transform bridge's movable set); edgeRing/faceLoop = the quad strip through
+   * an edge (loop-cut backends). */
+  void selectionBoundaryEdges(util::Vector<int> &out);
+  void movableVerts(util::Vector<int> &out);
+  void edgeRing(int e, util::Vector<int> &out);
+  void faceLoop(int e, util::Vector<int> &out);
 
   /* Reorder one element domain in place. Each map is map[old] = new and must
    * be a full bijection over that domain's storage capacity (free slots
