@@ -317,11 +317,24 @@ to leave as full passes initially.
   O(moved) (~10×region ints) — ~20× for the 235 k test mesh, growing with mesh size.*
   Note: the apply-side maps were left full (the build is region-dominated; not worth
   the MapView churn).
-  **Pre-existing caveat (NOT introduced here):** undo→**redo** across a compacted
-  stroke hangs — verified the *full* (pre-scoped) path hangs identically, so it is a
-  latent meshlog reorder-chunk-redo issue that became reachable when `auto_defrag`
-  was defaulted on, not a regression of this work. Undo is correct; redo needs a
-  separate fix (likely the topo-redo ↔ reorder-redo ordering/index interaction). Phase-2 confirms the residual
+- **Phase 3c.1 — redo-hang fix (DONE).** undo→**redo** across a compacted stroke
+  hung (tight infinite loop in `add_face_at`'s corner-list walk, via
+  `LogChunkTopo::redo`). Root cause: the stroke's last topo chunk captured its
+  `end_body` — which includes TOPO connectivity attrs — at `endStep`, *after*
+  `compactIfFragmented` had permuted the live mesh, so the chunk held
+  **post-reorder** corner indices. redo replays topo chunks *before* `reorder.redo`
+  (into the pre-reorder layout), so it wrote post-reorder indices into a pre-reorder
+  mesh → corrupt corner cycle → non-terminating loop. (Undo was unaffected:
+  `reorder.undo` runs first, and `release` never reads `end_body` connectivity —
+  which is why only redo broke.) Fix: extract `MeshLog::finalizeStroke()` (the
+  topo-chunk finalize + Created-data refresh formerly inlined in `endStep`) behind a
+  per-step `finalized` guard, and call it from `compactIfFragmented` **before**
+  applying the reorder, so every topo chunk freezes pre-reorder connectivity;
+  `endStep` then no-ops the second finalize. *Verified: no hang; undo AND redo
+  bit-exact (`moved=0, worst=0`) across single-dab and multi-dab (`repeat=4`,
+  per-dab topo chunks) compacted strokes, repeated A↔B toggles, and double-undo to
+  the pre-stroke state. Full reorder/dyntopo/undo ctest suite green.*
+  Phase-2 confirms the residual
   (ref_scan ~36 ms + node_remap ~13 ms at 235 k → ~1 s at 5 M) does matter, so this
   is required for the 5 M target. It is the highest-risk phase — it rewrites
   topology references, where a missed/aliased fix corrupts the mesh — so it needs

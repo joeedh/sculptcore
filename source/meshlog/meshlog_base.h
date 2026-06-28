@@ -1197,6 +1197,10 @@ struct MeshLog {
   struct LogEntry {
     LogChunkTopo *topo_chunk_ = nullptr;
     bool hasTopoChunk = false;
+    /** Set once the step's topo chunks have captured their end-state (see
+     * finalizeStroke). Guards against a second capture from a mutated mesh —
+     * stroke-end compaction finalizes early, then endStep must not re-capture. */
+    bool finalized = false;
 
     Vector<LogChunk *> chunks;
     /** Monotonic step id assigned by beginStep; stable across history trims. */
@@ -1415,8 +1419,18 @@ struct MeshLog {
     return 1;
   }
 
-  void endStep()
+  /** Capture every topo chunk's end-state from the CURRENT mesh: the active
+   * chunk's Created&&Live end_body, plus a data-column refresh of every chunk's
+   * Created verts/faces. Idempotent per step (the `finalized` guard) so the
+   * stroke-end auto-compaction can finalize early — it MUST, because it permutes
+   * the live mesh afterwards: end_body holds TOPO connectivity by index, and
+   * redo replays the topo chunks into the pre-reorder layout, so a post-reorder
+   * capture corrupts the corner cycles (infinite loop in add_face). */
+  void finalizeStroke()
   {
+    if (curEntry().finalized) {
+      return;
+    }
     // Only the still-active (last) topo chunk needs finalizing here; earlier
     // chunks were finalized at deactivation by pushTopoChunk.
     if (curEntry().topo_chunk_ && active_mesh_) {
@@ -1436,6 +1450,12 @@ struct MeshLog {
       }
     }
     curEntry().topo_chunk_ = nullptr;
+    curEntry().finalized = true;
+  }
+
+  void endStep()
+  {
+    finalizeStroke();
     curStep_++;
     trimHistory();
   }
@@ -1597,6 +1617,11 @@ struct MeshLog {
     Vector<int> vmap, emap, cmap, lmap, fmap;
     Vector<int> moved[5];
     tree->computeLocalityMapsPartial(dirty, vmap, emap, cmap, lmap, fmap, moved);
+
+    /* Freeze the stroke's topo chunks NOW, against the pre-reorder mesh, so their
+     * end_body holds pre-reorder connectivity (the redo path replays them before
+     * reorder.redo). endStep's finalize is then a no-op via the `finalized` guard. */
+    finalizeStroke();
 
     auto *chunk = litestl::alloc::New<LogChunkReorder>("LogChunkReorder");
     chunk->scoped = true;
