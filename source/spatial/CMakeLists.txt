@@ -63,6 +63,7 @@ endfunction()
 
 _sc_add_shader(basic_line)
 _sc_add_shader(basic_mesh)
+_sc_add_shader(point_sprite)
 
 add_custom_target(spatial_shaders_gen DEPENDS ${SHADER_GEN_OUTPUTS})
 

@@ -5,6 +5,7 @@ using namespace gpu;
 struct SpatialShaders {
   ShaderDef basicMeshShader;
   ShaderDef basicLineShader;
+  ShaderDef basicPointShader;
 
   static litestl::binding::types::Struct<SpatialShaders> *defineBindings();
 };

@@ -678,6 +678,12 @@ struct SpatialTree {
    * rebuilt on geometry change. */
   sculptcore::gpu::DrawBatch *buildWireframeBatch(sculptcore::gpu::GPUManager &mgr);
 
+  /* Build the billboard vertex-point overlay: every vertex as a screen-facing,
+   * pixel-constant-size round point (two triangles on the point-sprite shader,
+   * with a per-vertex `corner` attribute). Floated out along the normal like the
+   * other overlays. Returns nullptr for an empty mesh. */
+  sculptcore::gpu::DrawBatch *buildPointsBatch(sculptcore::gpu::GPUManager &mgr);
+
   static binding::types::Struct<SpatialTree> *defineBindings();
 
   bool update(gpu::GPUManager *gpu);

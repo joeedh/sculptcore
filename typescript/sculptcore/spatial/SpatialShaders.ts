@@ -21,4 +21,5 @@ export interface SpatialShaders {
   [Symbol.dispose](): void
   basicMeshShader: ShaderDef
   basicLineShader: ShaderDef
+  basicPointShader: ShaderDef
 }

@@ -1750,6 +1750,71 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildWireframeBatch(sculptcore::gpu::GP
   return batch;
 }
 
+sculptcore::gpu::DrawBatch *SpatialTree::buildPointsBatch(sculptcore::gpu::GPUManager &mgr)
+{
+  using namespace sculptcore::gpu;
+  using litestl::math::float2;
+
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  float lenSum = 0.0f;
+  int ecount = 0, vcount = 0;
+  for (int e : m->e) {
+    lenSum += (m->v.co[m->e.vs[e][1]] - m->v.co[m->e.vs[e][0]]).length();
+    ecount++;
+  }
+  for (int v : m->v) {
+    (void)v;
+    vcount++;
+  }
+  if (vcount == 0 || ecount == 0) {
+    return nullptr;
+  }
+  const float off = (lenSum / float(ecount)) * 0.1f;
+
+  // Two triangles per point; the per-vertex corner expands the billboard quad.
+  const float2 corners[6] = {float2(-1.0f, -1.0f), float2(1.0f, -1.0f), float2(1.0f, 1.0f),
+                             float2(-1.0f, -1.0f), float2(1.0f, 1.0f),  float2(-1.0f, 1.0f)};
+
+  const int totalVerts = vcount * 6;
+  Buffer *posBuf = mgr.createBuffer(
+      litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
+  Buffer *cornerBuf = mgr.createBuffer(
+      litestl::util::string("corner"), GPUType::FLOAT32, 2, totalVerts);
+  Buffer *colorBuf = mgr.createBuffer(
+      litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+  float3 *pos = posBuf->get_data<float3>();
+  float2 *corner = cornerBuf->get_data<float2>();
+  float4 *color = colorBuf->get_data<float4>();
+
+  const float4 ptClr(0.05f, 0.05f, 0.05f, 1.0f); // near-black dots
+  int idx = 0;
+  for (int v : m->v) {
+    float3 p = m->v.co[v] + m->v.no[v] * off;
+    for (int k = 0; k < 6; k++) {
+      pos[idx] = p;
+      corner[idx] = corners[k];
+      color[idx] = ptClr;
+      idx++;
+    }
+  }
+  posBuf->dirty();
+  cornerBuf->dirty();
+
+  DrawBatch *batch = mgr.createBatch();
+  batch->buffers.append(posBuf);
+  batch->buffers.append(cornerBuf);
+  batch->buffers.append(colorBuf);
+  DrawCommand *cmd = mgr.createCommand(
+      batch, GPUCmdType::DRAW_TRIS, &spatialShaders.basicPointShader, 0, totalVerts, totalVerts / 3);
+  cmd->attrs.append(posBuf);
+  cmd->attrs.append(cornerBuf);
+  cmd->attrs.append(colorBuf);
+  return batch;
+}
+
 void SpatialTree::update_node_normals(SpatialNode *node)
 {
   node->flag &= ~Spatial_UpdateNormals;
