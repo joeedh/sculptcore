@@ -35,7 +35,7 @@ export interface MeshLog {
   extrudeIndividual(m: Mesh, outNormal: float[]): void
   extrudeWireVerts(m: Mesh, outNormal: float[]): void
   splitFacesOff(m: Mesh, outNormal: float[]): void
-  subdivideFaces(m: Mesh, outVerts: int32[]): void
+  subdivideEdges(m: Mesh, numCuts: int32, outVerts: int32[]): void
   loopCut(m: Mesh, seedEdge: int32, outVerts: int32[]): void
   loopCutAtRay(
     m: Mesh,

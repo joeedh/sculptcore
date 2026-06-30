@@ -2,64 +2,242 @@
 
 #include "../mesh.h"
 #include "../mesh_callbacks.h"
+#include "../mesh_iter.h"
 #include "../utils/attr_interp.h"
+#include "litestl/math/vector.h"
 #include "litestl/util/map.h"
 #include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
 #include <span>
 
-/* Box-modeling pattern subdivide (Milestone 4). Each selected face is split into
- * one quad per corner around a new center vert (quad -> 4, tri -> 3, n-gon -> n),
- * sharing an edge-midpoint vert per edge. Edge midpoints on the selection boundary
- * are also inserted into the adjacent UNSELECTED face's loop (it becomes an
- * (n+1)-gon with a colinear vert) so no T-junction is left behind. */
+/* Box-modeling pattern subdivide (Milestone 4, reworked). Edge-based and
+ * parameterized by `numCuts` (Blender-style: each selected edge is split into
+ * numCuts+1 segments). Every face touched by a cut edge is filled by a pattern
+ * keyed off which of its edges are cut:
+ *   - quad, all 4 edges cut -> an (numCuts+1)^2 grid of quads,
+ *   - quad, 2 opposite edges cut -> a strip of numCuts+1 quads (parallel loop
+ *     cuts),
+ *   - anything else (partial quad, tris, n-gons) -> a fan triangulation of the
+ *     face boundary with the cut points inserted (always valid; convex faces).
+ * Unselected neighbors of a cut edge are filled the same way, so no T-junction is
+ * left behind. Falls back to all edges of the selected faces when no edge is
+ * selected, so it works in face select mode too. */
 
 namespace sculptcore::mesh::ops {
 
-/* Subdivide every selected face one level. Appends the created midpoint + center
- * verts to outVerts (for selection / a later smooth). */
-static inline void subdivideFaces(Mesh &m,
+namespace detail {
+
+/* Make a face from `verts`, carry the source face attrs, and restore each
+ * original corner's attrs onto the matching new corner (new cut/inner verts keep
+ * defaults). */
+static inline void subdivMakeFace(Mesh &m,
                                   MeshCallbacks *cb,
+                                  std::span<int> verts,
+                                  const AttrRowSnapshot &fsnap,
+                                  const litestl::util::Vector<int> &origVerts,
+                                  const litestl::util::Vector<AttrRowSnapshot> &origSnaps)
+{
+  int f2 = m.make_face(verts, cb);
+  restoreAttrRow(m.f.attrs, f2, fsnap);
+  int l2 = m.f.l[f2], c0 = m.l.c[l2], c = c0;
+  do {
+    int v = m.c.v[c];
+    for (int i = 0; i < int(origVerts.size()); i++) {
+      if (origVerts[i] == v) {
+        restoreAttrRow(m.c.attrs, c, origSnaps[i]);
+        break;
+      }
+    }
+    c = m.c.next[c];
+  } while (c != c0);
+}
+
+} // namespace detail
+
+/* Fill one face given its per-corner cut lists. `verts` are the corner verts in
+ * loop order; `edgeCuts[i]` are the cut verts on the edge leaving verts[i]
+ * (oriented verts[i] -> verts[i+1]), empty if that edge isn't cut. */
+static inline void subdivFillFace(Mesh &m,
+                                  MeshCallbacks *cb,
+                                  int f,
+                                  const litestl::util::Vector<int> &verts,
+                                  const litestl::util::Vector<litestl::util::Vector<int>> &edgeCuts,
+                                  int numCuts,
+                                  const AttrRowSnapshot &fsnap,
+                                  const litestl::util::Vector<int> &origVerts,
+                                  const litestl::util::Vector<AttrRowSnapshot> &origSnaps)
+{
+  using litestl::util::Vector;
+
+  int n = int(verts.size());
+  int N = numCuts;
+  int M = N + 1;
+
+  int cutMask = 0, nCut = 0;
+  for (int i = 0; i < n; i++) {
+    if (edgeCuts[i].size() > 0) {
+      cutMask |= 1 << i;
+      nCut++;
+    }
+  }
+
+  auto mkface = [&](std::span<int> vs) {
+    detail::subdivMakeFace(m, cb, vs, fsnap, origVerts, origSnaps);
+  };
+
+  // ---- quad, all four edges cut -> grid ----
+  if (n == 4 && cutMask == 0b1111) {
+    math::float3 A = m.v.co[verts[0]], B = m.v.co[verts[1]];
+    math::float3 C = m.v.co[verts[2]], D = m.v.co[verts[3]];
+
+    // grid[i][j], i,j in 0..M. i ~ A-edge -> D-edge, j ~ A-edge -> B-edge.
+    Vector<Vector<int>> grid;
+    grid.resize(M + 1);
+    for (int i = 0; i <= M; i++) {
+      grid[i].resize(M + 1);
+    }
+    grid[0][0] = verts[0];
+    grid[0][M] = verts[1];
+    grid[M][M] = verts[2];
+    grid[M][0] = verts[3];
+    for (int j = 1; j < M; j++) {
+      grid[0][j] = edgeCuts[0][j - 1];          // A->B
+      grid[M][j] = edgeCuts[2][N - j];          // D->C (reverse of C->D)
+    }
+    for (int i = 1; i < M; i++) {
+      grid[i][M] = edgeCuts[1][i - 1];          // B->C
+      grid[i][0] = edgeCuts[3][N - i];          // A->D (reverse of D->A)
+    }
+    for (int i = 1; i < M; i++) {
+      for (int j = 1; j < M; j++) {
+        float u = float(i) / float(M), v = float(j) / float(M);
+        math::float3 co = A * ((1 - u) * (1 - v)) + B * ((1 - u) * v) + C * (u * v) + D * (u * (1 - v));
+        int iv = m.make_vertex(co, cb);
+        // best-effort attrs: copy corner A's vertex attrs
+        AttrRowSnapshot s;
+        snapshotAttrRow(m.v.attrs, verts[0], s);
+        restoreAttrRow(m.v.attrs, iv, s);
+        grid[i][j] = iv;
+      }
+    }
+    for (int i = 0; i < M; i++) {
+      for (int j = 0; j < M; j++) {
+        int q[4] = {grid[i][j], grid[i][j + 1], grid[i + 1][j + 1], grid[i + 1][j]};
+        mkface(std::span<int>(q, 4));
+      }
+    }
+    return;
+  }
+
+  // ---- quad, two opposite edges cut -> strip ----
+  if (n == 4 && (cutMask == 0b0101 || cutMask == 0b1010)) {
+    // Rotate so the cut pair is edges 0 and 2.
+    int s = (cutMask == 0b0101) ? 0 : 1;
+    int a = verts[s], b = verts[(s + 1) % 4], c = verts[(s + 2) % 4], d = verts[(s + 3) % 4];
+    const Vector<int> &eAB = edgeCuts[s];           // a->b
+    const Vector<int> &eCD = edgeCuts[(s + 2) % 4]; // c->d
+    // top a..b, bottom d..c (= reverse of c->d).
+    Vector<int> top, bottom;
+    top.append(a);
+    for (int k = 0; k < N; k++) {
+      top.append(eAB[k]);
+    }
+    top.append(b);
+    bottom.append(d);
+    for (int k = N - 1; k >= 0; k--) {
+      bottom.append(eCD[k]);
+    }
+    bottom.append(c);
+    for (int k = 0; k < M; k++) {
+      int q[4] = {top[k], top[k + 1], bottom[k + 1], bottom[k]};
+      mkface(std::span<int>(q, 4));
+    }
+    return;
+  }
+
+  // Boundary loop with the cut points inserted (used by both remaining cases).
+  Vector<int> bnd;
+  for (int i = 0; i < n; i++) {
+    bnd.append(verts[i]);
+    for (int cv : edgeCuts[i]) {
+      bnd.append(cv);
+    }
+  }
+  int bn = int(bnd.size());
+
+  if (nCut == n) {
+    // Fully cut (tri / n-gon) -> fan-triangulate the boundary.
+    for (int i = 1; i + 1 < bn; i++) {
+      int t[3] = {bnd[0], bnd[i], bnd[i + 1]};
+      mkface(std::span<int>(t, 3));
+    }
+  } else {
+    // Partially cut (a boundary neighbor) -> keep one face with the cut points
+    // inserted (no T-junction, no stray triangles fanning a barely-touched face).
+    mkface(std::span<int>(bnd.data(), bnd.size()));
+  }
+}
+
+/* Subdivide the selected edges (or, if none, the edges of the selected faces)
+ * with `numCuts` cuts each. Appends the created cut verts to outVerts. */
+static inline void subdivideEdges(Mesh &m,
+                                  MeshCallbacks *cb,
+                                  int numCuts,
                                   litestl::util::Vector<int> &outVerts)
 {
   using litestl::util::Map;
   using litestl::util::Set;
   using litestl::util::Vector;
 
+  if (numCuts < 1) {
+    numCuts = 1;
+  }
+
+  auto *esel = m.e.select.get_data();
   auto *fsel = m.f.select.get_data();
 
-  Vector<int> selFaces;
-  for (int f : m.f) {
-    if (fsel->get(f)) {
-      selFaces.append(f);
+  Set<int> eset;
+  for (int e : m.e) {
+    if (esel->get(e)) {
+      eset.add(e);
     }
   }
-  if (selFaces.size() == 0) {
+  if (eset.size() == 0) {
+    // Fall back to every edge of the selected faces (face select mode).
+    for (int f : m.f) {
+      if (!fsel->get(f)) {
+        continue;
+      }
+      int l = m.f.l[f], c0 = m.l.c[l], c = c0;
+      do {
+        eset.add(m.c.e[c]);
+        c = m.c.next[c];
+      } while (c != c0);
+    }
+  }
+  if (eset.size() == 0) {
     return;
   }
 
-  // One midpoint vert per edge of any selected face (deduped). Interp vert attrs.
-  Map<int, int> emap;
-  Set<int> eset;
-  for (int f : selFaces) {
-    int l = m.f.l[f], c0 = m.l.c[l], c = c0;
-    do {
-      eset.add(m.c.e[c]);
-      c = m.c.next[c];
-    } while (c != c0);
-  }
+  // Cut verts per edge, stored v0 -> v1.
+  Map<int, Vector<int>> ecuts;
   for (int e : eset) {
     int va = m.e.vs[e][0], vb = m.e.vs[e][1];
-    int mid = m.make_vertex((m.v.co[va] + m.v.co[vb]) * 0.5f, cb);
-    interpAttrs(m.v.attrs, mid, va, vb, 0.5f);
-    emap.insert(e, mid);
-    outVerts.append(mid);
+    Vector<int> cuts;
+    for (int k = 1; k <= numCuts; k++) {
+      float t = float(k) / float(numCuts + 1);
+      math::float3 co = m.v.co[va] * (1.0f - t) + m.v.co[vb] * t;
+      int cv = m.make_vertex(co, cb);
+      interpAttrs(m.v.attrs, cv, va, vb, t);
+      cuts.append(cv);
+      outVerts.append(cv);
+    }
+    ecuts.insert(e, std::move(cuts));
   }
 
-  // Every face touching a subdivided edge: selected ones split into quads,
-  // unselected neighbors just get the midpoint inserted into their loop.
-  Set<int> faceSet;
+  // Faces touched by any cut edge.
+  Set<int> fset;
   for (int e : eset) {
     int c0 = m.e.c[e];
     if (c0 == ELEM_NONE) {
@@ -67,105 +245,68 @@ static inline void subdivideFaces(Mesh &m,
     }
     int c = c0;
     do {
-      faceSet.add(m.l.f[m.c.l[c]]);
+      fset.add(m.l.f[m.c.l[c]]);
       c = m.c.radial_next[c];
     } while (c != c0);
   }
 
   Vector<int> oldFaces;
-  for (int f : faceSet) {
+  for (int f : fset) {
     oldFaces.append(f);
-    bool sel = fsel->get(f);
 
     AttrRowSnapshot fsnap;
     snapshotAttrRow(m.f.attrs, f, fsnap);
 
-    // Snapshot the loop: verts, per-corner attr rows, and the out-edge midpoint
-    // (ELEM_NONE if that edge isn't subdivided).
     Vector<int> verts;
-    Vector<int> mids;
-    Vector<AttrRowSnapshot> csnaps;
+    Vector<Vector<int>> edgeCuts;
+    Vector<int> origVerts;
+    Vector<AttrRowSnapshot> origSnaps;
+
     int l = m.f.l[f], c0 = m.l.c[l], c = c0;
     do {
-      verts.append(m.c.v[c]);
-      int *mp = emap.lookup_ptr(m.c.e[c]);
-      mids.append(mp ? *mp : ELEM_NONE);
+      int v = m.c.v[c];
+      verts.append(v);
+      origVerts.append(v);
       AttrRowSnapshot cs;
       snapshotAttrRow(m.c.attrs, c, cs);
-      csnaps.append(std::move(cs));
-      c = m.c.next[c];
-    } while (c != c0);
-    int n = int(verts.size());
+      origSnaps.append(std::move(cs));
 
-    if (!sel) {
-      // Unselected neighbor: rebuild as one face with midpoints inserted.
-      Vector<int> nv;
-      for (int i = 0; i < n; i++) {
-        nv.append(verts[i]);
-        if (mids[i] != ELEM_NONE) {
-          nv.append(mids[i]);
-        }
-      }
-      int f2 = m.make_face(std::span<int>(nv.data(), nv.size()), cb);
-      restoreAttrRow(m.f.attrs, f2, fsnap);
-      // Restore the original corners' attrs (the inserted midpoint corners keep
-      // their default — a colinear seam vert, no UV island change in practice).
-      int l2 = m.f.l[f2], cc0 = m.l.c[l2], cc = cc0;
-      do {
-        for (int i = 0; i < n; i++) {
-          if (m.c.v[cc] == verts[i]) {
-            restoreAttrRow(m.c.attrs, cc, csnaps[i]);
-            break;
+      int e = m.c.e[c];
+      Vector<int> *cuts = ecuts.lookup_ptr(e);
+      Vector<int> oriented;
+      if (cuts) {
+        if (m.e.vs[e][0] == v) {
+          for (int cv : *cuts) {
+            oriented.append(cv); // edge stored v0->v1 == loop dir
+          }
+        } else {
+          for (int i = int(cuts->size()) - 1; i >= 0; i--) {
+            oriented.append((*cuts)[i]); // reverse
           }
         }
-        cc = m.c.next[cc];
-      } while (cc != cc0);
-      continue;
-    }
-
-    // Selected face: center vert + one quad per corner.
-    math::float3 cen(0.0f, 0.0f, 0.0f);
-    for (int i = 0; i < n; i++) {
-      cen += m.v.co[verts[i]];
-    }
-    cen /= float(n);
-    int ctr = m.make_vertex(cen, cb);
-    if (n > 0) {
-      AttrRowSnapshot vs;
-      snapshotAttrRow(m.v.attrs, verts[0], vs);
-      restoreAttrRow(m.v.attrs, ctr, vs);
-    }
-    outVerts.append(ctr);
-
-    for (int i = 0; i < n; i++) {
-      int mOut = mids[i];                    // midpoint of edge out of verts[i]
-      int mIn = mids[(i - 1 + n) % n];       // midpoint of edge into verts[i]
-      if (mOut == ELEM_NONE || mIn == ELEM_NONE) {
-        continue; // every selected-face edge is subdivided; defensive
       }
-      int quad[4] = {verts[i], mOut, ctr, mIn};
-      int f2 = m.make_face(std::span<int>(quad, 4), cb);
-      restoreAttrRow(m.f.attrs, f2, fsnap);
-      m.f.select.set(f2, true); // keep the subdivided region selected
-      // Corner at verts[i] keeps its original attrs.
-      int l2 = m.f.l[f2], cc0 = m.l.c[l2], cc = cc0;
-      do {
-        if (m.c.v[cc] == verts[i]) {
-          restoreAttrRow(m.c.attrs, cc, csnaps[i]);
-          break;
-        }
-        cc = m.c.next[cc];
-      } while (cc != cc0);
-    }
+      edgeCuts.append(std::move(oriented));
+
+      c = m.c.next[c];
+    } while (c != c0);
+
+    subdivFillFace(m, cb, f, verts, edgeCuts, numCuts, fsnap, origVerts, origSnaps);
   }
 
   for (int f : oldFaces) {
     m.kill_face(f, cb);
   }
-  // The subdivided edges are now orphaned (rebuilt faces use the half-edges).
   for (int e : eset) {
     if (!m.e.freemap[e] && m.e.c[e] == ELEM_NONE) {
       m.kill_edge(e, cb);
+    }
+  }
+
+  // Leave the new cut verts selected.
+  auto *vselw = m.v.select.get_data();
+  for (int cv : outVerts) {
+    if (!m.v.freemap[cv]) {
+      vselw->set(cv, true);
     }
   }
 }

@@ -1172,7 +1172,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, extrudeIndividual, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeWireVerts, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, splitFacesOff, MARGS("m", "outNormal"));
-    BIND_STRUCT_METHOD(st, subdivideFaces, MARGS("m", "outVerts"));
+    BIND_STRUCT_METHOD(st, subdivideEdges, MARGS("m", "numCuts", "outVerts"));
     BIND_STRUCT_METHOD(st, loopCut, MARGS("m", "seedEdge", "outVerts"));
     BIND_STRUCT_METHOD(st, loopCutAtRay, MARGS("m", "tree", "origin", "dir", "outVerts"));
     BIND_STRUCT_METHOD(st, insetRegion, MARGS("m", "insetVerts", "baseCo", "tangent"));
@@ -1545,16 +1545,16 @@ struct MeshLog {
     outNormal.append(res.normal[2]);
   }
 
-  /* Subdivide the selected faces one level (immediate; self-brackets a step like
-   * the extrude wrappers). Outputs the created midpoint + center vert indices. */
-  void subdivideFaces(mesh::Mesh *m, util::Vector<int> &outVerts)
+  /* Subdivide the selected edges (or the selected faces' edges) with `numCuts`
+   * cuts each (immediate; self-brackets a step). Outputs the created cut verts. */
+  void subdivideEdges(mesh::Mesh *m, int numCuts, util::Vector<int> &outVerts)
   {
     if (!m) {
       return;
     }
     setActiveMesh(m);
     beginStep(false);
-    mesh::ops::subdivideFaces(*m, callbacks(), outVerts);
+    mesh::ops::subdivideEdges(*m, callbacks(), numCuts, outVerts);
     endStep();
   }
 
