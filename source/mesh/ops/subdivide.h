@@ -156,6 +156,83 @@ static inline void subdivFillFace(Mesh &m,
     return;
   }
 
+  // ---- single-cut (numCuts==1) partial patterns, ported from the TS mesh
+  //      splitEdgesSmart2 pattern table. The face is rotated so its cut edges
+  //      land in the canonical positions, then a fixed fill is emitted. ----
+  if (N == 1 && (n == 3 || n == 4)) {
+    auto ri = [&](int i, int r) { return (i + r) % n; };
+    auto findRot = [&](int canon) -> int {
+      for (int r = 0; r < n; r++) {
+        int mk = 0;
+        for (int i = 0; i < n; i++) {
+          if (edgeCuts[ri(i, r)].size() > 0) {
+            mk |= 1 << i;
+          }
+        }
+        if (mk == canon) {
+          return r;
+        }
+      }
+      return -1;
+    };
+    auto C = [&](int i, int r) { return verts[ri(i, r)]; };
+    auto Mid = [&](int i, int r) { return edgeCuts[ri(i, r)][0]; };
+    auto face3 = [&](int a, int b, int c) {
+      int t[3] = {a, b, c};
+      mkface(std::span<int>(t, 3));
+    };
+    auto face4 = [&](int a, int b, int c, int d) {
+      int q[4] = {a, b, c, d};
+      mkface(std::span<int>(q, 4));
+    };
+    int r;
+    if (n == 3) {
+      if ((r = findRot(0b001)) >= 0) { // tri, one edge cut
+        face3(C(0, r), Mid(0, r), C(2, r));
+        face3(Mid(0, r), C(1, r), C(2, r));
+        return;
+      }
+      if ((r = findRot(0b011)) >= 0) { // tri, two edges cut
+        face3(C(0, r), Mid(0, r), Mid(1, r));
+        face3(Mid(0, r), C(1, r), Mid(1, r));
+        face3(Mid(1, r), C(2, r), C(0, r));
+        return;
+      }
+      if ((r = findRot(0b111)) >= 0) { // tri, all three -> 4 tris
+        int m0 = Mid(0, r), m1 = Mid(1, r), m2 = Mid(2, r);
+        face3(m2, C(0, r), m0);
+        face3(m0, C(1, r), m1);
+        face3(m1, C(2, r), m2);
+        face3(m0, m1, m2);
+        return;
+      }
+    } else { // n == 4 (all-4 grid + 2-opposite strip already returned above)
+      if ((r = findRot(0b0001)) >= 0) { // quad, one edge cut
+        face3(C(0, r), Mid(0, r), C(2, r));
+        face3(Mid(0, r), C(1, r), C(2, r));
+        face3(C(0, r), C(2, r), C(3, r));
+        return;
+      }
+      if ((r = findRot(0b0011)) >= 0) { // quad, two adjacent edges cut
+        int m0 = Mid(0, r), m1 = Mid(1, r);
+        math::float3 cc = (m.v.co[m0] + m.v.co[m1]) * 0.5f;
+        int vc = m.make_vertex(cc, cb);
+        interpAttrs(m.v.attrs, vc, m0, m1, 0.5f);
+        face4(C(0, r), m0, vc, C(3, r));
+        face4(m0, C(1, r), m1, vc);
+        face4(m1, C(2, r), C(3, r), vc);
+        return;
+      }
+      if ((r = findRot(0b0111)) >= 0) { // quad, three edges cut
+        int m0 = Mid(0, r), m1 = Mid(1, r), m2 = Mid(2, r);
+        face3(m0, C(1, r), m1);
+        face4(m0, m1, C(2, r), m2);
+        face4(m2, C(3, r), C(0, r), m0);
+        return;
+      }
+    }
+  }
+
   // Boundary loop with the cut points inserted (used by both remaining cases).
   Vector<int> bnd;
   for (int i = 0; i < n; i++) {
