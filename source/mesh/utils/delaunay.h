@@ -24,6 +24,7 @@
 #include "litestl/util/vector.h"
 
 #include <cmath>
+#include <cstdint>
 #include <optional>
 
 namespace sculptcore::mesh {
@@ -163,6 +164,205 @@ static inline void planeBasis(float3 n, float3 &u, float3 &v)
   v = n;
   v.crossSelf(u);
   v.normalize();
+}
+
+// Constrained Delaunay (no Steiner points): helpers run on a flat triangle soup
+// (dead tris kept alive=false) + a coord array, adjacency found by scanning.
+// Intermediate winding is irrelevant; only the final emit forces CCW.
+
+struct CDTri {
+  int v[3];
+  bool alive;
+};
+
+static inline int64_t cdtEdgeKey(int a, int b)
+{
+  if (a > b) {
+    int t = a;
+    a = b;
+    b = t;
+  }
+  return (int64_t(a) << 32) | uint32_t(b);
+}
+
+/** Proper crossing of open segments a-b and c-d (shared endpoints or collinear
+ * touching count as no crossing). */
+static inline bool cdtSegCross(float2 a, float2 b, float2 c, float2 d)
+{
+  float d1 = dt_cross2(b - a, c - a);
+  float d2 = dt_cross2(b - a, d - a);
+  float d3 = dt_cross2(d - c, a - c);
+  float d4 = dt_cross2(d - c, b - c);
+  return ((d1 > 0.0f && d2 < 0.0f) || (d1 < 0.0f && d2 > 0.0f)) &&
+         ((d3 > 0.0f && d4 < 0.0f) || (d3 < 0.0f && d4 > 0.0f));
+}
+
+/** Index of an alive triangle containing both a and b, else -1. */
+static inline int cdtFindEdgeTri(const litestl::util::Vector<CDTri> &tris, int a, int b)
+{
+  for (int t = 0; t < int(tris.size()); t++) {
+    if (!tris[t].alive) continue;
+    const int *v = tris[t].v;
+    bool ha = v[0] == a || v[1] == a || v[2] == a;
+    bool hb = v[0] == b || v[1] == b || v[2] == b;
+    if (ha && hb) return t;
+  }
+  return -1;
+}
+
+/** The vertex of T other than a and b. */
+static inline int cdtApex(const CDTri &T, int a, int b)
+{
+  for (int i = 0; i < 3; i++) {
+    if (T.v[i] != a && T.v[i] != b) return T.v[i];
+  }
+  return -1;
+}
+
+/** The other alive triangle sharing edge (a,b), excluding `exclude`, else -1. */
+static inline int cdtOtherTri(const litestl::util::Vector<CDTri> &tris, int a, int b, int exclude)
+{
+  for (int t = 0; t < int(tris.size()); t++) {
+    if (t == exclude || !tris[t].alive) continue;
+    const int *v = tris[t].v;
+    bool ha = v[0] == a || v[1] == a || v[2] == a;
+    bool hb = v[0] == b || v[1] == b || v[2] == b;
+    if (ha && hb) return t;
+  }
+  return -1;
+}
+
+/** Flip the diagonal shared by t1,t2 from (c,d) to (e,g). */
+static inline void cdtFlip(litestl::util::Vector<CDTri> &tris, int t1, int t2,
+                           int c, int d, int e, int g)
+{
+  tris[t1].v[0] = e;
+  tris[t1].v[1] = g;
+  tris[t1].v[2] = c;
+  tris[t2].v[0] = e;
+  tris[t2].v[1] = g;
+  tris[t2].v[2] = d;
+}
+
+/** Recover constraint edge (ca,cb) by flipping crossing, non-constraint,
+ * convex-quad edges. Returns false if it stalls (a vertex sits on the segment,
+ * or the cap is hit) so the caller can fall back. */
+static inline bool cdtRecoverEdge(litestl::util::Vector<CDTri> &tris,
+                                  const litestl::util::Vector<float2> &pts,
+                                  const litestl::util::Set<int64_t> &constraintKeys,
+                                  int ca, int cb)
+{
+  int cap = 4 * int(tris.size()) + 64;
+  while (cdtFindEdgeTri(tris, ca, cb) < 0) {
+    if (--cap < 0) return false;
+    bool flipped = false;
+    for (int t = 0; t < int(tris.size()) && !flipped; t++) {
+      if (!tris[t].alive) continue;
+      for (int s = 0; s < 3; s++) {
+        int c = tris[t].v[s];
+        int d = tris[t].v[(s + 1) % 3];
+        if (c == ca || c == cb || d == ca || d == cb) continue;
+        if (constraintKeys.contains(cdtEdgeKey(c, d))) continue;
+        if (!cdtSegCross(pts[ca], pts[cb], pts[c], pts[d])) continue;
+        int t2 = cdtOtherTri(tris, c, d, t);
+        if (t2 < 0) continue;
+        int e = cdtApex(tris[t], c, d);
+        int g = cdtApex(tris[t2], c, d);
+        if (e < 0 || g < 0 || e == g) continue;
+        if (!cdtSegCross(pts[c], pts[d], pts[e], pts[g])) continue; // non-convex
+        cdtFlip(tris, t, t2, c, d, e, g);
+        flipped = true;
+        break;
+      }
+    }
+    if (!flipped) return false;
+  }
+  return true;
+}
+
+/** Lawson flips on non-constraint edges to restore the empty-circumcircle
+ * property. Capped against fp-driven cycling. */
+static inline void cdtLawsonRestore(litestl::util::Vector<CDTri> &tris,
+                                    const litestl::util::Vector<float2> &pts,
+                                    const litestl::util::Set<int64_t> &constraintKeys)
+{
+  int cap = 8 * int(tris.size()) + 64;
+  bool changed = true;
+  while (changed && --cap > 0) {
+    changed = false;
+    for (int t = 0; t < int(tris.size()) && !changed; t++) {
+      if (!tris[t].alive) continue;
+      for (int s = 0; s < 3; s++) {
+        int c = tris[t].v[s];
+        int d = tris[t].v[(s + 1) % 3];
+        if (constraintKeys.contains(cdtEdgeKey(c, d))) continue;
+        int t2 = cdtOtherTri(tris, c, d, t);
+        if (t2 < 0) continue;
+        int e = cdtApex(tris[t], c, d);
+        int g = cdtApex(tris[t2], c, d);
+        if (e < 0 || g < 0) continue;
+        if (!cdtSegCross(pts[c], pts[d], pts[e], pts[g])) continue; // non-convex
+        if (inCircumcircle(pts[c], pts[d], pts[e], pts[g])) {
+          cdtFlip(tris, t, t2, c, d, e, g);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+}
+
+/** Fill nbr[t*3+s] with the triangle across edge (v[s],v[s+1]) of t, or -1. */
+static inline void cdtBuildAdjacency(const litestl::util::Vector<CDTri> &tris,
+                                     litestl::util::Vector<int> &nbr)
+{
+  int T = int(tris.size());
+  nbr.clear();
+  for (int i = 0; i < T * 3; i++) nbr.append(-1);
+  for (int t = 0; t < T; t++) {
+    if (!tris[t].alive) continue;
+    for (int s = 0; s < 3; s++) {
+      nbr[t * 3 + s] = cdtOtherTri(tris, tris[t].v[s], tris[t].v[(s + 1) % 3], t);
+    }
+  }
+}
+
+/** Parity flood fill seeded from the super-triangle (outside): crossing a
+ * constraint edge toggles inside/outside. `N` is the real point count (super
+ * verts are >= N). Fills inside[t] with 1 (interior) / 0 (exterior). */
+static inline void cdtFloodInterior(const litestl::util::Vector<CDTri> &tris,
+                                    const litestl::util::Vector<int> &nbr,
+                                    const litestl::util::Set<int64_t> &constraintKeys,
+                                    int N,
+                                    litestl::util::Vector<int> &inside)
+{
+  int T = int(tris.size());
+  inside.clear();
+  for (int i = 0; i < T; i++) inside.append(-1);
+  litestl::util::Vector<int> stack;
+  for (int t = 0; t < T; t++) {
+    if (!tris[t].alive) continue;
+    const int *v = tris[t].v;
+    if ((v[0] >= N || v[1] >= N || v[2] >= N) && inside[t] == -1) {
+      inside[t] = 0;
+      stack.append(t);
+    }
+  }
+  while (stack.size()) {
+    int t = stack[int(stack.size()) - 1];
+    stack.pop_back();
+    for (int s = 0; s < 3; s++) {
+      int nb = nbr[t * 3 + s];
+      if (nb < 0 || inside[nb] != -1) continue;
+      bool cross =
+          constraintKeys.contains(cdtEdgeKey(tris[t].v[s], tris[t].v[(s + 1) % 3]));
+      inside[nb] = cross ? (inside[t] ^ 1) : inside[t];
+      stack.append(nb);
+    }
+  }
+  for (int t = 0; t < T; t++) {
+    if (tris[t].alive && inside[t] == -1) inside[t] = 1;
+  }
 }
 
 } /* namespace detail_delaunay */
@@ -337,6 +537,158 @@ delaunayTriangulate(Mesh &m,
     if (out_faces) {
       out_faces->append(fi);
     }
+  }
+
+  return true;
+}
+
+/** Constrained Delaunay triangulation of a 2D polygon, possibly with holes, using
+ * only the input points (no Steiner points). `constraints` are the undirected
+ * boundary segments — the outer loop plus each hole loop, every loop closed.
+ * They define the region: interior triangles (inside the outer loop, outside the
+ * holes) are emitted as flat CCW index triples into `points`; everything else is
+ * dropped. With no constraints the result is empty.
+ *
+ * Degenerate input (<3 unique points, all-collinear) yields an empty result and
+ * success; a constraint-recovery failure (a vertex lying on a constraint, or a
+ * self-intersecting boundary) also yields empty, so callers can fall back. */
+static inline SuccessOrError<"delaunay", "constrained triangulation failed">
+constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
+                      litestl::util::span<const detail_delaunay::DEdge> constraints,
+                      litestl::util::Vector<int> &out_tris,
+                      bool restore_delaunay = true)
+{
+  using namespace litestl;
+  using namespace litestl::math;
+  using namespace detail_delaunay;
+
+  out_tris.clear();
+  int rawN = int(points.size());
+  if (rawN < 3) return true;
+
+  // Dedup near-duplicate points; map raw->unique and unique->first-raw.
+  const float dup_eps = 1e-7f;
+  util::Vector<float2> pts;
+  util::Vector<int> rawToUniq, uniqToRaw;
+  for (int i = 0; i < rawN; i++) {
+    int found = -1;
+    for (int j = 0; j < int(pts.size()); j++) {
+      if (std::fabs(points[i][0] - pts[j][0]) < dup_eps &&
+          std::fabs(points[i][1] - pts[j][1]) < dup_eps) {
+        found = j;
+        break;
+      }
+    }
+    if (found < 0) {
+      found = int(pts.size());
+      pts.append(points[i]);
+      uniqToRaw.append(i);
+    }
+    rawToUniq.append(found);
+  }
+  int N = int(pts.size());
+  if (N < 3) return true;
+
+  // Constraint edge set (remapped, undirected, degenerate dropped).
+  util::Set<int64_t> constraintKeys;
+  util::Vector<DEdge> constraintEdges;
+  for (const DEdge &e : constraints) {
+    if (e.a < 0 || e.b < 0 || e.a >= rawN || e.b >= rawN) continue;
+    int a = rawToUniq[e.a], b = rawToUniq[e.b];
+    if (a == b) continue;
+    if (constraintKeys.add(cdtEdgeKey(a, b))) {
+      constraintEdges.append({a, b});
+    }
+  }
+
+  // Reject all-collinear input.
+  {
+    bool collinear = true;
+    float2 dir = pts[1] - pts[0];
+    for (int i = 2; i < N; i++) {
+      if (std::fabs(dt_cross2(dir, pts[i] - pts[0])) > 1e-6f) {
+        collinear = false;
+        break;
+      }
+    }
+    if (collinear) return true;
+  }
+
+  // Super-triangle around the AABB.
+  float2 mn = pts[0], mx = pts[0];
+  for (int i = 1; i < N; i++) {
+    mn.min(pts[i]);
+    mx.max(pts[i]);
+  }
+  float2 cen = (mn + mx) * 0.5f;
+  float2 ext = mx - mn;
+  float r = std::max(ext[0], ext[1]);
+  if (r < 1.0f) r = 1.0f;
+  r *= 64.0f;
+  pts.append(float2(cen[0] - 2.0f * r, cen[1] - r));
+  pts.append(float2(cen[0] + 2.0f * r, cen[1] - r));
+  pts.append(float2(cen[0], cen[1] + 2.0f * r));
+
+  // Bowyer-Watson over the real points; the super-triangle is kept (it seeds the
+  // interior flood fill).
+  util::Vector<CDTri> tris;
+  tris.append({{N, N + 1, N + 2}, true});
+  for (int pi = 0; pi < N; pi++) {
+    float2 p = pts[pi];
+    util::Vector<DEdge> boundary;
+    for (int t = 0; t < int(tris.size()); t++) {
+      if (!tris[t].alive) continue;
+      CDTri &T = tris[t];
+      if (inCircumcircle(pts[T.v[0]], pts[T.v[1]], pts[T.v[2]], p)) {
+        DEdge edges[3] = {{T.v[0], T.v[1]}, {T.v[1], T.v[2]}, {T.v[2], T.v[0]}};
+        for (DEdge e : edges) {
+          bool found = false;
+          for (int k = 0; k < int(boundary.size()); k++) {
+            if (boundary[k] == e) {
+              boundary.remove_at(k, true);
+              found = true;
+              break;
+            }
+          }
+          if (!found) boundary.append(e);
+        }
+        T.alive = false;
+      }
+    }
+    for (DEdge e : boundary) {
+      tris.append({{e.a, e.b, pi}, true});
+    }
+  }
+
+  // Recover each constraint edge into the triangulation.
+  for (const DEdge &ce : constraintEdges) {
+    if (!cdtRecoverEdge(tris, pts, constraintKeys, ce.a, ce.b)) {
+      out_tris.clear();
+      return true;
+    }
+  }
+
+  if (restore_delaunay) {
+    cdtLawsonRestore(tris, pts, constraintKeys);
+  }
+
+  // Classify interior, then emit interior non-super triangles CCW.
+  util::Vector<int> nbr, inside;
+  cdtBuildAdjacency(tris, nbr);
+  cdtFloodInterior(tris, nbr, constraintKeys, N, inside);
+
+  for (int t = 0; t < int(tris.size()); t++) {
+    if (!tris[t].alive || inside[t] != 1) continue;
+    int a = tris[t].v[0], b = tris[t].v[1], c = tris[t].v[2];
+    if (a >= N || b >= N || c >= N) continue;
+    if (dt_cross2(pts[b] - pts[a], pts[c] - pts[a]) < 0.0f) {
+      int tmp = b;
+      b = c;
+      c = tmp;
+    }
+    out_tris.append(uniqToRaw[a]);
+    out_tris.append(uniqToRaw[b]);
+    out_tris.append(uniqToRaw[c]);
   }
 
   return true;
