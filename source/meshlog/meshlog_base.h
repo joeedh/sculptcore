@@ -70,7 +70,9 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/ops/bevel.h"
 #include "mesh/ops/extrude.h"
 #include "mesh/ops/inset.h"
+#include "mesh/ops/loopcut.h"
 #include "mesh/ops/split.h"
+#include "mesh/ops/subdivide.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -1170,6 +1172,9 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, extrudeIndividual, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeWireVerts, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, splitFacesOff, MARGS("m", "outNormal"));
+    BIND_STRUCT_METHOD(st, subdivideFaces, MARGS("m", "outVerts"));
+    BIND_STRUCT_METHOD(st, loopCut, MARGS("m", "seedEdge", "outVerts"));
+    BIND_STRUCT_METHOD(st, loopCutAtRay, MARGS("m", "tree", "origin", "dir", "outVerts"));
     BIND_STRUCT_METHOD(st, insetRegion, MARGS("m", "insetVerts", "baseCo", "tangent"));
     BIND_STRUCT_METHOD(st, bevelVerts, MARGS("m", "verts", "baseCo", "tangent"));
 
@@ -1538,6 +1543,57 @@ struct MeshLog {
     outNormal.append(res.normal[0]);
     outNormal.append(res.normal[1]);
     outNormal.append(res.normal[2]);
+  }
+
+  /* Subdivide the selected faces one level (immediate; self-brackets a step like
+   * the extrude wrappers). Outputs the created midpoint + center vert indices. */
+  void subdivideFaces(mesh::Mesh *m, util::Vector<int> &outVerts)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    beginStep(false);
+    mesh::ops::subdivideFaces(*m, callbacks(), outVerts);
+    endStep();
+  }
+
+  /* Loop-cut the quad strip through `seedEdge` (immediate; self-brackets). Outputs
+   * the new loop's midpoint verts (left selected). */
+  void loopCut(mesh::Mesh *m, int seedEdge, util::Vector<int> &outVerts)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    beginStep(false);
+    mesh::ops::loopCut(*m, callbacks(), seedEdge, outVerts);
+    endStep();
+  }
+
+  /* Loop-cut at a cursor ray: cast against `tree`, seed from the hit face's edge
+   * nearest the hit point, then cut. Outputs the new loop's verts (selected). */
+  void loopCutAtRay(mesh::Mesh *m,
+                    spatial::SpatialTree *tree,
+                    const math::float3 &origin,
+                    const math::float3 &dir,
+                    util::Vector<int> &outVerts)
+  {
+    if (!m || !tree) {
+      return;
+    }
+    spatial::CastRayIsect isect;
+    if (!tree->castRay(origin, dir, isect) || isect.faceIndex == ELEM_NONE) {
+      return;
+    }
+    int seed = mesh::ops::faceEdgeNearestPoint(*m, isect.faceIndex, isect.p);
+    if (seed == ELEM_NONE) {
+      return;
+    }
+    setActiveMesh(m);
+    beginStep(false);
+    mesh::ops::loopCut(*m, callbacks(), seed, outVerts);
+    endStep();
   }
 
   /* Build the inset ring (parametric modal). Unlike the extrude wrappers this
