@@ -34,6 +34,7 @@ export interface MeshLog {
   extrudeRegion(m: Mesh, outNormal: float[]): void
   extrudeIndividual(m: Mesh, outNormal: float[]): void
   extrudeWireVerts(m: Mesh, outNormal: float[]): void
+  splitFacesOff(m: Mesh, outNormal: float[]): void
   insetRegion(
     m: Mesh,
     insetVerts: int32[],

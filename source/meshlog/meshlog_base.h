@@ -69,6 +69,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/mesh_path.h"
 #include "mesh/ops/extrude.h"
 #include "mesh/ops/inset.h"
+#include "mesh/ops/split.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -1167,6 +1168,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, extrudeRegion, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeIndividual, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeWireVerts, MARGS("m", "outNormal"));
+    BIND_STRUCT_METHOD(st, splitFacesOff, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, insetRegion, MARGS("m", "insetVerts", "baseCo", "tangent"));
 
     // Box-modeling selection (undoable).
@@ -1515,6 +1517,21 @@ struct MeshLog {
     beginStep(false);
     mesh::ops::ExtrudeResult res;
     mesh::ops::extrudeWireVerts(*m, callbacks(), res);
+    endStep();
+    outNormal.append(res.normal[0]);
+    outNormal.append(res.normal[1]);
+    outNormal.append(res.normal[2]);
+  }
+
+  void splitFacesOff(mesh::Mesh *m, util::Vector<float> &outNormal)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    beginStep(false);
+    mesh::ops::ExtrudeResult res;
+    mesh::ops::splitFacesOff(*m, callbacks(), res);
     endStep();
     outNormal.append(res.normal[0]);
     outNormal.append(res.normal[1]);
