@@ -67,6 +67,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_enums.h"
 #include "mesh/mesh_path.h"
+#include "mesh/ops/bevel.h"
 #include "mesh/ops/extrude.h"
 #include "mesh/ops/inset.h"
 #include "mesh/ops/split.h"
@@ -1170,6 +1171,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, extrudeWireVerts, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, splitFacesOff, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, insetRegion, MARGS("m", "insetVerts", "baseCo", "tangent"));
+    BIND_STRUCT_METHOD(st, bevelVerts, MARGS("m", "verts", "baseCo", "tangent"));
 
     // Box-modeling selection (undoable).
     BIND_STRUCT_METHOD(st, selectionBeginStep, MARGS());
@@ -1553,6 +1555,20 @@ struct MeshLog {
     }
     setActiveMesh(m);
     mesh::ops::insetRegion(*m, callbacks(), insetVerts, baseCo, tangent);
+  }
+
+  /* Bevel the selected verts (parametric modal; does NOT self-bracket, like
+   * insetRegion). Outputs the offset verts + base coords + edge tangents. */
+  void bevelVerts(mesh::Mesh *m,
+                  util::Vector<int> &verts,
+                  util::Vector<float> &baseCo,
+                  util::Vector<float> &tangent)
+  {
+    if (!m) {
+      return;
+    }
+    setActiveMesh(m);
+    mesh::ops::bevelVerts(*m, callbacks(), verts, baseCo, tangent);
   }
 
   /* -------------------- Box-modeling selection (undoable) --------------------

@@ -41,6 +41,7 @@ export interface MeshLog {
     baseCo: float[],
     tangent: float[]
   ): void
+  bevelVerts(m: Mesh, verts: int32[], baseCo: float[], tangent: float[]): void
   selectionBeginStep(): void
   selectionEndStep(): void
   selectOne(m: Mesh, domain: int32, idx: int32, state: boolean): void
