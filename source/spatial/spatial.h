@@ -672,6 +672,12 @@ struct SpatialTree {
                                                   int activeEdge,
                                                   int activeFace);
 
+  /* Build the box-modeling wireframe overlay: every edge as a dim line, floated
+   * out along vertex normals (same trick as buildSelectionBatch) so it hovers
+   * just above the surface. Returns nullptr for an empty mesh. Static VBO,
+   * rebuilt on geometry change. */
+  sculptcore::gpu::DrawBatch *buildWireframeBatch(sculptcore::gpu::GPUManager &mgr);
+
   static binding::types::Struct<SpatialTree> *defineBindings();
 
   bool update(gpu::GPUManager *gpu);

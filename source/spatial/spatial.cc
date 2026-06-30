@@ -1700,6 +1700,56 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
   return batch;
 }
 
+sculptcore::gpu::DrawBatch *SpatialTree::buildWireframeBatch(sculptcore::gpu::GPUManager &mgr)
+{
+  using namespace sculptcore::gpu;
+
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  float lenSum = 0.0f;
+  int ecount = 0;
+  for (int e : m->e) {
+    lenSum += (m->v.co[m->e.vs[e][1]] - m->v.co[m->e.vs[e][0]]).length();
+    ecount++;
+  }
+  if (ecount == 0) {
+    return nullptr;
+  }
+  const float off = (lenSum / float(ecount)) * 0.1f;
+
+  const int totalVerts = ecount * 2;
+  Buffer *posBuf = mgr.createBuffer(
+      litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
+  Buffer *colorBuf = mgr.createBuffer(
+      litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+  float3 *pos = posBuf->get_data<float3>();
+  float4 *color = colorBuf->get_data<float4>();
+
+  const float4 wireClr(0.0f, 0.0f, 0.0f, 0.35f);
+  int idx = 0;
+  for (int e : m->e) {
+    int v1 = m->e.vs[e][0], v2 = m->e.vs[e][1];
+    pos[idx] = m->v.co[v1] + m->v.no[v1] * off;
+    color[idx] = wireClr;
+    idx++;
+    pos[idx] = m->v.co[v2] + m->v.no[v2] * off;
+    color[idx] = wireClr;
+    idx++;
+  }
+  posBuf->dirty();
+
+  DrawBatch *batch = mgr.createBatch();
+  batch->buffers.append(posBuf);
+  batch->buffers.append(colorBuf);
+  DrawCommand *cmd = mgr.createCommand(
+      batch, GPUCmdType::DRAW_LINES, &spatialShaders.basicLineShader, 0, totalVerts, ecount);
+  cmd->attrs.append(posBuf);
+  cmd->attrs.append(colorBuf);
+  return batch;
+}
+
 void SpatialTree::update_node_normals(SpatialNode *node)
 {
   node->flag &= ~Spatial_UpdateNormals;

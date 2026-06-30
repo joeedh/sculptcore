@@ -45,6 +45,7 @@ export interface SpatialTree {
     activeEdge: int32,
     activeFace: int32
   ): DrawBatch | undefined
+  buildWireframeBatch(mgr: GPUManager): DrawBatch | undefined
   markVertsMoved(verts: int32[]): void
   update(gpu: GPUManager): boolean
   getDrawBatch(): DrawBatch | undefined

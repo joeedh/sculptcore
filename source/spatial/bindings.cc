@@ -52,6 +52,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st,
                      buildSelectionBatch,
                      MARGS("mgr", "activeVert", "activeEdge", "activeFace"));
+  BIND_STRUCT_METHOD(st, buildWireframeBatch, MARGS("mgr"));
   BIND_STRUCT_METHOD(st, markVertsMoved, MARGS("verts"));
   BIND_STRUCT_METHOD(st, update, MARGS("gpu"));
   BIND_STRUCT_METHOD(st, getDrawBatch, MARGS());
