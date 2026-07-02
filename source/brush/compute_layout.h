@@ -63,6 +63,10 @@ struct ComputeCtxUniforms {
       float poseCageRest[4][4];  // offset 96  ([i][0..2]=xyz, [i][3]=pad)
       float poseCageNow[4][4];   // offset 160
     } pose;
+    struct {                              // grab.wgsl tail
+      float grabTo[3]; uint32_t _gpad0;   // offset 96 (no grabFrom — the
+                                          // kernel drags by grabTo alone)
+    } grab;
   } global = {};
 };
 

@@ -1214,6 +1214,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -1339,8 +1340,7 @@ fn main(
   let sb_node = nodes[gid.x];
   if (lid >= sb_node.vert_count) { return; }
   let sb_vidx = unique_verts[sb_node.vert_offset + lid];
-  var v_co: vec3<f32> = co_buf[sb_vidx];
-  if (brush_u.nonaccum != 0u) { v_co = orig_co[sb_vidx]; }
+  var v_co: vec3<f32> = orig_co[sb_vidx];
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
@@ -1350,27 +1350,10 @@ fn main(
   }
   v_co += (ctx_u.grabTo * fall);
 
-  if (brush_u.nonaccum != 0u) {
-    let sb_base = orig_co[sb_vidx];
-    let sb_d_cand = v_co - sb_base;
-    let sb_cand_sq = dot(sb_d_cand, sb_d_cand);
-    if (sb_cand_sq != 0.0) {
-      let sb_d_prev = co_buf[sb_vidx] - sb_base;
-      var sb_acc = sb_d_prev + sb_d_cand;
-      let sb_prev_sq = dot(sb_d_prev, sb_d_prev);
-      var sb_cap_sq = sb_prev_sq;
-      let sb_w = brush_falloff(1.0 - min(brush_falloff_dist(sb_base - ctx_u.surfacePos), 1.0));
-      if (sb_w > 1e-6) {
-        sb_cap_sq = max(sb_cand_sq / (sb_w * sb_w), sb_prev_sq);
-      }
-      let sb_acc_sq = dot(sb_acc, sb_acc);
-      if (sb_acc_sq > sb_cap_sq) {
-        sb_acc *= sqrt(sb_cap_sq / sb_acc_sq);
-      }
-      v_co = sb_base + sb_acc;
-    } else {
-      v_co = co_buf[sb_vidx];
-    }
+  if (dab_stamp[sb_vidx] != brush_u.grab_dab_gen) {
+    dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
+  } else {
+    v_co = co_buf[sb_vidx] + (v_co - orig_co[sb_vidx]);
   }
   co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;

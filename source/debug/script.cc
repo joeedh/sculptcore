@@ -586,6 +586,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::POLYGROUP;
     } else if (ts == "bsmooth") {
       scene.currentTool = brush::SculptBrushes::BSMOOTH;
+    } else if (ts == "grab") {
+      scene.currentTool = brush::SculptBrushes::GRAB;
     } else {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;
@@ -893,6 +895,7 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::MASK ||
                    t == brush::SculptBrushes::SMOOTH ||
                    t == brush::SculptBrushes::KELVINLET ||
+                   t == brush::SculptBrushes::GRAB ||
                    t == brush::SculptBrushes::POSE ||
                    t == brush::SculptBrushes::COLOR ||
                    t == brush::SculptBrushes::POLYGROUP ||

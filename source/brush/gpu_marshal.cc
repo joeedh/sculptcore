@@ -41,6 +41,7 @@ static const GpuKernelInfo kGpuKernels[] = {
      .kernel = "kelvinlet",
      .isGlobal = true,
      .grabMode = true},
+    {.tool = SculptBrushes::GRAB, .kernel = "grab", .grabMode = true},
     {.tool = SculptBrushes::POSE, .kernel = "pose", .isGlobal = true},
     {.tool = SculptBrushes::COLOR, .kernel = "color", .writesColor = true},
     {.tool = SculptBrushes::POLYGROUP, .kernel = "polygroup", .faceMode = true},
@@ -166,6 +167,10 @@ void packCtxUniforms(const Brush &brush, SculptBrushes tool, const float3 &origi
     for (int i = 0; i < 3; i++) {
       out.global.kelvinlet.grabFrom[i] = brush.grabFrom[i];
       out.global.kelvinlet.grabTo[i] = brush.grabTo[i];
+    }
+  } else if (tool == SculptBrushes::GRAB) {
+    for (int i = 0; i < 3; i++) {
+      out.global.grab.grabTo[i] = brush.grabTo[i];
     }
   } else if (tool == SculptBrushes::POSE) {
     for (int a = 0; a < 4; a++) {

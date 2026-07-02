@@ -1,0 +1,19 @@
+# A/B script: grab (grab-class anchored drag), cpp vs wgsl backend gate.
+# repeat=4 exercises the @grabmode from-orig write-back: repeated dabs with a
+# fixed cumulative grabTo must re-base from the stroke-start position
+# (AccumOrigGrab), not stack incrementally. Mirrors kelvinlet_ab.txt.
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=grab
+set_brush radius=0.25 strength=1.0
+set_grab from=0,0,0.25 to=0,0.15,0.1
+
+set_backend backend=cpp
+stroke origin=0,0,0.25 normal=0,0,1 repeat=4
+dump_state out=grab_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke origin=0,0,0.25 normal=0,0,1 repeat=4
+dump_state out=grab_wgsl.json
