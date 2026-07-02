@@ -29,7 +29,7 @@ fn vs_main(in : VsIn) -> VsOut {
   var clip = u.drawMatrix * vec4f(in.position, 1.0);
   // Offset the clip-space position by the quad corner scaled to PT_HALF_PX
   // pixels. NDC spans 2 units across the viewport, so 2/size is NDC-per-pixel;
-  // multiplying by clip.w cancels the later perspective divide â†’ constant pixels.
+  // multiplying by clip.w cancels the later perspective divide -> constant pixels.
   let ndcPerPx = vec2f(2.0, 2.0) / max(u.viewportSize.xy, vec2f(1.0, 1.0));
   clip = vec4f(clip.xy + in.corner * PT_HALF_PX * ndcPerPx * clip.w, clip.zw);
   // Overlay depth bias — keep in sync with litemesh_wgsl.ts OVERLAY_DEPTH_BIAS.

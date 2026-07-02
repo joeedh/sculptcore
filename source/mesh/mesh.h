@@ -722,7 +722,7 @@ struct Mesh : public MeshBase {
    * mis-picks on foreshortened surfaces). */
   void faceEdgeList(int f, util::Vector<int> &outEdges, util::Vector<float> &outCoords);
   /** Loop-cut preview: per face-loop quad, the segment between its two ring-edge
-   * midpoints (flat xyz pairs) — where the cut verts will land. */
+   * midpoints (flat xyz pairs) â€” where the cut verts will land. */
   void loopCutPreviewCoords(int seedEdge, util::Vector<float> &out);
 
   /* Reorder one element domain in place. Each map is map[old] = new and must

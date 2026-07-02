@@ -1845,8 +1845,8 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
     return nullptr;
   }
 
-  // No model-space push-out: the overlay shaders apply a polygonOffset-style
-  // NDC depth bias instead (litemesh_wgsl.ts OVERLAY_DEPTH_BIAS).
+  // Geometry sits exactly on the surface; depth separation comes from the
+  // overlay shaders' polygonOffset-style NDC bias (litemesh_wgsl.ts).
 
   const int totalVerts = ncount * 2;
   Buffer *posBuf = mgr.createBuffer(
@@ -1982,7 +1982,7 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
 
   int idx = 0;
 
-  // Pass 2a: translucent face fills [0, fillTriVerts) — selected + hover.
+  // Pass 2a: translucent face fills [0, fillTriVerts) â€” selected + hover.
   for (int fi : m->f) {
     if (!faceIn(fi) || m->f.list_count[fi] != 1) {
       continue;

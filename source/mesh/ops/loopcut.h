@@ -19,8 +19,7 @@
 
 namespace sculptcore::mesh::ops {
 
-/* faceEdgeNearestPoint (cursor hit -> seed edge) moved to utils/modeling_walk.h;
- * re-exposed here for the existing ops:: callers. */
+// Shared implementation lives in utils/modeling_walk.h; re-exposed for ops:: callers.
 using sculptcore::mesh::faceEdgeNearestPoint;
 
 /* Loop-cut the quad strip through `seedEdge`. Appends the created midpoint verts

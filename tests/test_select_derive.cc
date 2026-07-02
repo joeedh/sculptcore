@@ -28,7 +28,7 @@ using litestl::util::Vector;
 
 namespace {
 
-/* 2x1 quad strip: verts 0..5, faces f0 (v0 v1 v4 v3), f1 (v1 v2 v5 v4).
+/** 2x1 quad strip: verts 0..5, faces f0 (v0 v1 v4 v3), f1 (v1 v2 v5 v4).
  *
  *   3 --- 4 --- 5
  *   | f0  | f1  |
@@ -89,14 +89,14 @@ int meshEdgeCount(Mesh &m)
 
 int main()
 {
-  /* derive rules over a 2-quad strip */
+  // derive rules over a 2-quad strip
   {
     Mesh m;
     Strip s = make_strip(m);
     auto *vs = m.v.select.get_data();
     auto *fs = m.f.select.get_data();
 
-    /* All 4 corners of f0 vert-selected -> f0 derived (All), f1 only under Any. */
+    // All 4 corners of f0 vert-selected -> f0 derived (All), f1 only under Any.
     clear_selection(m);
     vs->set(s.v[0], true);
     vs->set(s.v[1], true);
@@ -108,15 +108,15 @@ int main()
     TASSERT(faces.contains(s.f[0]));
 
     Set<int> facesAny = deriveFaceSelection(m, DeriveRule::Any);
-    TASSERT(facesAny.size() == 2); /* f1 touches v1/v4 */
+    TASSERT(facesAny.size() == 2); // f1 touches v1/v4
     TASSERT(facesAny.contains(s.f[1]));
 
-    /* Edge derivation (All): both endpoints selected -> f0's 4 edges + nothing
-     * else (v1-v4 is shared, both selected, so it counts once). */
+    // Edge derivation (All): both endpoints selected -> f0's 4 edges + nothing
+    // else (v1-v4 is shared, both selected, so it counts once).
     Set<int> edges = deriveEdgeSelection(m, DeriveRule::All);
     TASSERT(edges.size() == 4);
 
-    /* Vert derivation from a face selection. */
+    // Vert derivation from a face selection.
     clear_selection(m);
     fs->set(s.f[1], true);
     Set<int> verts = deriveVertSelection(m);
@@ -124,19 +124,19 @@ int main()
     TASSERT(verts.contains(s.v[1]) && verts.contains(s.v[2]) && verts.contains(s.v[5]) &&
             verts.contains(s.v[4]));
 
-    /* Any-rule edge derivation from the face selection: f1's edges. */
+    // Any-rule edge derivation from the face selection: f1's edges.
     Set<int> edgesAny = deriveEdgeSelection(m, DeriveRule::Any);
     TASSERT(edgesAny.size() == 4);
   }
 
-  /* resolve: prefer-op-domain vs union */
+  // resolve: prefer-op-domain vs union
   {
     Mesh m;
     Strip s = make_strip(m);
     auto *vs = m.v.select.get_data();
     auto *fs = m.f.select.get_data();
 
-    /* Explicit f1 + a full vert-selection of f0. */
+    // Explicit f1 + a full vert-selection of f0.
     clear_selection(m);
     fs->set(s.f[1], true);
     vs->set(s.v[0], true);
@@ -146,12 +146,12 @@ int main()
 
     Set<int> prefer = resolveFaceSelection(m, true);
     TASSERT(prefer.size() == 1);
-    TASSERT(prefer.contains(s.f[1])); /* explicit wins outright */
+    TASSERT(prefer.contains(s.f[1])); // explicit wins outright
 
     Set<int> merged = resolveFaceSelection(m, false);
-    TASSERT(merged.size() == 2); /* union of explicit + derived */
+    TASSERT(merged.size() == 2); // union of explicit + derived
 
-    /* Empty face domain -> derivation fills it regardless of the flag. */
+    // Empty face domain -> derivation fills it regardless of the flag.
     clear_selection(m);
     vs->set(s.v[0], true);
     vs->set(s.v[1], true);
@@ -162,7 +162,7 @@ int main()
     TASSERT(derivedOnly.contains(s.f[0]));
   }
 
-  /* subdivide consumes a vert-only selection through the resolve seam */
+  // subdivide consumes a vert-only selection through the resolve seam
   {
     Mesh m;
     Strip s = make_strip(m);
@@ -177,11 +177,11 @@ int main()
     int edgesBefore = meshEdgeCount(m);
     Vector<int> outVerts;
     ops::subdivideEdges(m, nullptr, 1, outVerts, true);
-    TASSERT(outVerts.size() == 4);           /* one cut vert per f0 edge */
-    TASSERT(meshEdgeCount(m) > edgesBefore); /* topology actually changed */
+    TASSERT(outVerts.size() == 4);           // one cut vert per f0 edge
+    TASSERT(meshEdgeCount(m) > edgesBefore); // topology actually changed
   }
 
-  /* Linking mesh pulls in static-init allocations that aren't tagged
-   * PermanentGuard; skip test_end()'s leak check like test_meshlog_topo. */
+  // Linking mesh pulls in static-init allocations that aren't tagged
+  // PermanentGuard; skip test_end()'s leak check like test_meshlog_topo.
   return retval;
 }

@@ -199,7 +199,7 @@ static inline void bevelOneVert(Mesh &m,
   }
 }
 
-/* Bevel every selected vertex (explicit, or derived from edges/faces when the
+/** Bevel every selected vertex (explicit, or derived from edges/faces when the
  * vert domain is empty — selectFlush). */
 static inline void bevelVerts(Mesh &m,
                               MeshCallbacks *cb,

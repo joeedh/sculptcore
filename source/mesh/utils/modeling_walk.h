@@ -50,7 +50,7 @@ static inline int oppositeEdgeInQuad(Mesh &m, int f, int e)
   return ELEM_NONE;
 }
 
-/* Return the edge of face `f` whose segment is nearest the point `p` (turning a
+/** Return the edge of face `f` whose segment is nearest the point `p` (turning a
  * cursor ray hit into an edge pick / loop seed). ELEM_NONE if f is invalid. */
 static inline int faceEdgeNearestPoint(Mesh &m, int f, math::float3 p)
 {
@@ -78,7 +78,7 @@ static inline int faceEdgeNearestPoint(Mesh &m, int f, math::float3 p)
   return best;
 }
 
-/* True if `e2` is an edge of any radial face of `e1` (first loop list only). */
+/** True if `e2` is an edge of any radial face of `e1` (first loop list only). */
 static inline bool edgesShareFace(Mesh &m, int e1, int e2)
 {
   int c0 = m.e.c[e1];
@@ -100,7 +100,7 @@ static inline bool edgesShareFace(Mesh &m, int e1, int e2)
   return false;
 }
 
-/* Walk the edge LOOP through `eStart` (the chain of end-to-end edges — Blender's
+/** Walk the edge LOOP through `eStart` (the chain of end-to-end edges — Blender's
  * alt-click select): at each endpoint continue with the single edge that shares
  * the vertex but no face with the current edge; along a mesh boundary, continue
  * with the unique other boundary edge instead. Stops at poles (no unique
