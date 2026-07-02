@@ -168,6 +168,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, faceLoop, MARGS("e", "out"));
     BIND_STRUCT_METHOD(st, edgeLoop, MARGS("e", "out"));
     BIND_STRUCT_METHOD(st, faceEdgeNearest, MARGS("f", "p"));
+    BIND_STRUCT_METHOD(st, faceEdgeList, MARGS("f", "outEdges", "outCoords"));
     BIND_STRUCT_METHOD(st, loopCutPreviewCoords, MARGS("seedEdge", "out"));
     BIND_STRUCT_METHOD(st, calcAABB, MARGS("minOut", "maxOut"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
@@ -716,6 +717,10 @@ struct Mesh : public MeshBase {
   void edgeLoop(int e, util::Vector<int> &out);
   /** Edge of face f nearest point p (cursor-hit -> edge pick). */
   int faceEdgeNearest(int f, const math::float3 &p);
+  /** Edges of face f (all loops) with endpoint coords, 6 floats per edge â€”
+   * lets the app pick the nearest edge in SCREEN space (a 3D nearest test
+   * mis-picks on foreshortened surfaces). */
+  void faceEdgeList(int f, util::Vector<int> &outEdges, util::Vector<float> &outCoords);
   /** Loop-cut preview: per face-loop quad, the segment between its two ring-edge
    * midpoints (flat xyz pairs) — where the cut verts will land. */
   void loopCutPreviewCoords(int seedEdge, util::Vector<float> &out);
