@@ -56,6 +56,15 @@ settings while keeping co current. `frames.cc/.h` — the frame provider
 tangent (`.frames.v.*`, persistent NOINTERP), deterministic Gauss-Seidel.
 See `documentation/plans/displacementAndSubSurf.md`.
 
+### `source/subdiv/` — Catmull-Clark refiner (subsurf/multires track)
+
+`subdiv.cc/.h` — uniform CC `Refiner` over `mesh::Mesh` (n-gon→quad first
+step, `EDGE_SHARP`/boundary crease rules), emitting per level: the
+materialized level mesh, Ptex-style per-cage-corner grid tables, and a cached
+`StencilTable` whose row evaluation *is* the canonical position arithmetic
+(`evalFromCage` is bit-identical to re-refining). Displacement plan S1;
+see `documentation/plans/displacementAndSubSurf.md`.
+
 ### `source/meshlog/` — sculpt undo/redo log
 
 `meshlog.h` (umbrella), `meshlog_base.h` (`MeshLog`, `LogEntry`, `LogChunk`, `LogChunkElems`, `LogChunkTopo`, `LogChunkReorder`, `LogElem`, `detail::ChunkElemData`, `detail::ChunkElemRow`), `attr_saver.h` (`AttrSaver` per-element save gate), `bindings.cc/.h`. Two principal chunk types: `LogChunkElems` stores sparse append-as-touched per-domain attribute swaps for plain position / paint sculpting (gated per-element by `AttrSaver`, so it survives mid-stroke dyntopo restructuring; captured attrs declared per-brush via the sbrush `save` statement); `LogChunkTopo` stores merged per-element create/change/kill records driven by `mesh::MeshCallbacks` for full topological undo. Integrated with `brush::CommandExecutor` (`meshLog` member).

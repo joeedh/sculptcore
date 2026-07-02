@@ -9,9 +9,9 @@ gates). Companion design docs:
 
 ## Status (2026-07-02)
 
-**Workstream F implemented on branch `displacement-subsurf-f`** (parent repo +
-sculptcore, matching branches); V/S/X not started — the two work-tracks split
-off after F merges to master.
+**Workstream F merged to master**; the `displacement` (V) and `subsurf` (S)
+worktrees exist. **S1 implemented on branch `subsurf`** (parent repo +
+sculptcore, matching branches); V not started.
 
 - **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
   (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh
@@ -42,8 +42,25 @@ off after F merges to master.
   Gate green: `test_frame_provider` — sphere/cube orthonormality,
   Poincaré–Hopf index sum == 4χ == 8, bit-identical recompute.
 
-Next: merge F to master, then create the `displacement` (V) and `subsurf` (S)
-worktrees.
+- **S1 done.** `source/subdiv/` (new module): uniform Catmull-Clark `Refiner`
+  over `mesh::Mesh` — level 1 splits n-gons to quads, later levels regular;
+  crease rules from `EDGE_SHARP` + mesh boundary (non-2-manifold edges crease),
+  with `EDGE_SHARP` propagated onto child edges each level. Per level:
+  materialized level mesh, vert count, Ptex-style per-cage-corner grid tables
+  (`gridVerts`/`gridFaces`, `gridSide = 2^L`), and the cached `StencilTable`
+  (CSR, fine vert = sparse combo of the previous level's verts, rows ascending
+  by coarse id). Level geometry is *defined* as evaluating the stencil rows,
+  so `evalFromCage` (chained per-level SpMV) is bit-identical to re-running
+  the refiner — the arithmetic contract S5's GPU SpMV must reproduce. A
+  single composed-to-cage table was deliberately rejected: float multiply
+  doesn't distribute over the chained sums, so it cannot be bit-consistent.
+  Gate green: `test_subdiv` — hand-checked cube / creased-cube / triangle-fan
+  / pentagon fixtures (smooth, crease, boundary, and n-gon rules), grid-table
+  invariants (corner/edge/face-point anchors, neighbor sharing, exact
+  vert/face coverage), and cached-stencil evaluation of a perturbed cage
+  memcmp-equal to direct recursive re-subdivision, three levels deep.
+
+Next: S2 (grids store) on `subsurf`; V1 on `displacement`.
 
 ---
 
