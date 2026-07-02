@@ -33,6 +33,7 @@
 
 namespace sculptcore::mesh {
 struct Mesh;
+template <typename T> struct AttrData;
 }
 
 namespace sculptcore::vdm {
@@ -143,6 +144,11 @@ private:
   VdmDelta *activeDelta_ = nullptr;
   int deltaGen_ = 0;
 };
+
+/** The mesh's active UV corner layer (first FLOAT2 CORNER attr tagged
+ * AttrUse::UV), or null — the atlas parameterization every VDM read/write
+ * keys on. */
+mesh::AttrData<litestl::math::float2> *findUvCornerLayer(mesh::Mesh &m);
 
 /** Per-face conservative max|D| bounds from the store's tile bounds: for each
  * face, the max over tiles intersecting its corner-UV bounding box (the

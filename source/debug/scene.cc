@@ -52,6 +52,12 @@ Scene::~Scene()
     litestl::alloc::Delete(mesh);
     mesh = nullptr;
   }
+  if (vdm) {
+    // Safe before meshLog's own destruction: VdmLogChunk dtors never
+    // dereference their store pointer.
+    litestl::alloc::Delete(vdm);
+    vdm = nullptr;
+  }
 }
 
 bool Scene::ensureGPU()

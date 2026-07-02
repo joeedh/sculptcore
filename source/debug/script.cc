@@ -6,6 +6,9 @@
 #include "brush/brush_executor.h"
 #include "brush/stroke_spacing.h"
 #include "displace/compositor.h"
+#include "displace/frames.h"
+#include "vdm/vdm_splat.h"
+#include "vdm/vdm_undo.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/attribute_builtin.h"
@@ -31,6 +34,7 @@
 #endif
 
 #include <cctype>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -409,6 +413,9 @@ static void multiresStrokeEnd(Scene &scene)
   std::fprintf(stdout, "[script] multires writeback level=%d changed=%d\n", level,
                changed);
 }
+/* VDM texel snapshots (save_vdm / assert_vdm): every live tile's texels,
+ * keyed by snapshot name — the texel analogue of g_posSnapshots. */
+std::map<std::string, std::map<uint64_t, std::vector<float3>>> g_vdmSnapshots;
 
 bool execVerb(Scene &scene,
               const std::string &verb,
@@ -914,6 +921,165 @@ bool execVerb(Scene &scene,
   // layer_add name=<s> [weight=f] [enabled=0/1] [frozen=0/1] — create a sculpt
   // layer (a VERTEX FLOAT3 SCULPT_LAYER attr + settings row). The name is
   // uniquified if taken, so scripts should pick fresh names.
+  // vdm_init [resolution=1024] [tile=64] [planar_uv=1] [alpha=0.5] — create the
+  // scene VdmStore, tag every face `.detail.carrier = VDM`, optionally build a
+  // planar corner-UV atlas from the mesh's xy bbox, and compute the F3 frames.
+  if (verb == "vdm_init") {
+    if (!scene.mesh || !scene.tree) {
+      err = "vdm_init: no mesh/tree (build_spatial first)";
+      return false;
+    }
+    if (scene.vdm) {
+      litestl::alloc::Delete(scene.vdm);
+    }
+    vdm::VdmStoreParams vp;
+    vp.resolution = getInt(args, "resolution", 1024);
+    vp.tile_size = getInt(args, "tile", 64);
+    scene.vdm = litestl::alloc::New<vdm::VdmStore>("VdmStore", vp);
+
+    mesh::Mesh *m = scene.mesh;
+    if (getInt(args, "planar_uv", 0)) {
+      // Project vertex xy onto [0,1]² and write per-corner UVs (continuous
+      // across faces — no seams, so the splatter needs no skirts).
+      float3 mn(FLT_MAX), mx(-FLT_MAX);
+      for (int v : m->v) {
+        mn.min(m->v.co[v]);
+        mx.max(m->v.co[v]);
+      }
+      float sx = mx[0] - mn[0] > 1e-12f ? 1.0f / (mx[0] - mn[0]) : 1.0f;
+      float sy = mx[1] - mn[1] > 1e-12f ? 1.0f / (mx[1] - mn[1]) : 1.0f;
+      mesh::AttrRef &uvRef =
+          m->c.attrs.ensure(mesh::AttrType::FLOAT2, litestl::util::string("uv"), true);
+      uvRef.use = uvRef.use | mesh::AttrUse::UV;
+      auto *uv =
+          static_cast<mesh::AttrData<litestl::math::float2> *>(uvRef.data);
+      for (int c : m->c) {
+        float3 co = m->v.co[m->c.v[c]];
+        (*uv)[c] = litestl::math::float2((co[0] - mn[0]) * sx, (co[1] - mn[1]) * sy);
+      }
+    }
+
+    for (int f : m->f) {
+      scene.tree->treeMesh.f.carrier.get_data()->materialize(f);
+      scene.tree->treeMesh.f.carrier[f] = int(spatial::DetailCarrier::VDM);
+    }
+
+    m->recalc_normals();
+    displace::FrameProviderParams fp;
+    displace::updateFramesAll(*m, fp);
+    std::printf("vdm_init: resolution=%d tile=%d faces=%d\n",
+                vp.resolution,
+                vp.tile_size,
+                int(m->f.count));
+    return true;
+  }
+  // vdm_stroke origin=x,y,z [normal=x,y,z] [radius=] [strength=] [alpha=]
+  // [invert=0] [repeat=1] — one meshlog step of `repeat` splatted dabs, the
+  // tile deltas bracketed into the step via VdmLogChunk.
+  if (verb == "vdm_stroke") {
+    if (!scene.mesh || !scene.tree || !scene.vdm) {
+      err = "vdm_stroke: run vdm_init first";
+      return false;
+    }
+    vdm::VdmSplatParams sp;
+    if (!parseFloat3(getArg(args, "origin"), sp.center)) {
+      err = "vdm_stroke: missing origin=x,y,z";
+      return false;
+    }
+    parseFloat3(getArg(args, "normal"), sp.normal);
+    sp.radius = getFloat(args, "radius", scene.brush.radius);
+    sp.strength = getFloat(args, "strength", 0.5f);
+    sp.alpha = getFloat(args, "alpha", 0.5f);
+    sp.invert = getInt(args, "invert", 0) != 0;
+    int repeat = getInt(args, "repeat", 1);
+
+    scene.meshLog.setActiveMesh(scene.mesh);
+    scene.meshLog.beginStep(false);
+    scene.vdm->beginDelta();
+    vdm::VdmSplatStats total;
+    for (int i = 0; i < repeat; i++) {
+      vdm::VdmSplatStats s = vdm::splatDab(*scene.mesh, *scene.tree, *scene.vdm, sp);
+      total.facesTouched += s.facesTouched;
+      total.texelsTouched += s.texelsTouched;
+      total.texelsClamped += s.texelsClamped;
+    }
+    vdm::VdmDelta *delta = scene.vdm->endDelta();
+    if (delta) {
+      auto *chunk = litestl::alloc::New<vdm::VdmLogChunk>(
+          "VdmLogChunk", scene.vdm, std::move(*delta));
+      litestl::alloc::Delete(delta);
+      scene.meshLog.appendChunk(chunk);
+    }
+    scene.meshLog.endStep();
+    std::printf("vdm_stroke: faces=%d texels=%d clamped=%d tiles=%d\n",
+                total.facesTouched,
+                total.texelsTouched,
+                total.texelsClamped,
+                scene.vdm->tileCount());
+    return true;
+  }
+  // save_vdm [id=default] — snapshot every live tile's texels.
+  if (verb == "save_vdm") {
+    if (!scene.vdm) {
+      err = "save_vdm: no VdmStore (vdm_init first)";
+      return false;
+    }
+    std::string name = getArg(args, "id", "default");
+    auto &snap = g_vdmSnapshots[name];
+    snap.clear();
+    scene.vdm->foreachTile([&](const vdm::VdmTile &t) {
+      auto &texels = snap[vdm::VdmStore::tileKey(t.tx, t.ty)];
+      texels.resize(t.texels.size());
+      for (size_t i = 0; i < t.texels.size(); i++) {
+        texels[i] = t.texels[int(i)];
+      }
+    });
+    std::printf("save_vdm: '%s' %zu tiles\n", name.c_str(), snap.size());
+    return true;
+  }
+  // assert_vdm [id=default] [eps=1e-6] — every texel matches the snapshot
+  // (tile sets equal, values within eps).
+  if (verb == "assert_vdm") {
+    if (!scene.vdm) {
+      err = "assert_vdm: no VdmStore";
+      return false;
+    }
+    std::string name = getArg(args, "id", "default");
+    auto it = g_vdmSnapshots.find(name);
+    if (it == g_vdmSnapshots.end()) {
+      err = "assert_vdm: unknown snapshot '" + name + "'";
+      return false;
+    }
+    float eps = getFloat(args, "eps", 1e-6f);
+    int liveTiles = 0, missing = 0, changed = 0;
+    scene.vdm->foreachTile([&](const vdm::VdmTile &t) {
+      liveTiles++;
+      auto st = it->second.find(vdm::VdmStore::tileKey(t.tx, t.ty));
+      if (st == it->second.end()) {
+        missing++;
+        return;
+      }
+      const auto &sv = st->second;
+      for (int i = 0; i < int(t.texels.size()); i++) {
+        float3 d = t.texels[i] - sv[size_t(i)];
+        if (std::fabs(d[0]) > eps || std::fabs(d[1]) > eps || std::fabs(d[2]) > eps) {
+          changed++;
+          return;
+        }
+      }
+    });
+    int snapTiles = int(it->second.size());
+    std::printf("assert_vdm: live=%d snap=%d extra=%d changed=%d\n",
+                liveTiles,
+                snapTiles,
+                missing,
+                changed);
+    if (missing != 0 || changed != 0 || liveTiles != snapTiles) {
+      err = "assert_vdm: store differs from snapshot '" + name + "'";
+      return false;
+    }
+    return true;
+  }
   if (verb == "layer_add") {
     if (!scene.mesh) {
       err = "layer_add: no mesh";

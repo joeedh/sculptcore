@@ -10,6 +10,7 @@
 #include "mesh/mesh.h"
 #include "meshlog/meshlog_base.h"
 #include "spatial/spatial.h"
+#include "vdm/vdm_store.h"
 #include "vulkan/vk_backend.h"
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_overlay.h"
@@ -68,6 +69,9 @@ struct Scene {
 
   mesh::Mesh *mesh = nullptr;
   spatial::SpatialTree *tree = nullptr;
+  /* VDM tile store (vdm_init verb). Freed AFTER meshLog history is dropped —
+   * VdmLogChunk entries hold non-owning store pointers. */
+  vdm::VdmStore *vdm = nullptr;
   brush::Brush brush;
   brush::SculptBrushes currentTool = brush::SculptBrushes::DRAW;
   BrushBackend currentBackend = BrushBackend::Cpp;

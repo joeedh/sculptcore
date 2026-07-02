@@ -375,9 +375,8 @@ bool VdmStore::read(std::istream &in)
   return bool(in) || in.eof();
 }
 
-/* The mesh's active UV corner layer (first FLOAT2 CORNER attr tagged
- * AttrUse::UV) — mirrors boundary.cc's findUvCorner. */
-static mesh::AttrData<float2> *findUvCorner(mesh::Mesh &m)
+/* Mirrors boundary.cc's findUvCorner (that one is file-static). */
+mesh::AttrData<float2> *findUvCornerLayer(mesh::Mesh &m)
 {
   for (mesh::AttrRef &attr : m.c.attrs.attrs) {
     if (attr.type == mesh::AttrType::FLOAT2 && attr.data &&
@@ -395,7 +394,7 @@ void exportFaceBounds(VdmStore &store,
                       util::Vector<float> &out)
 {
   out.resize(faces.size());
-  mesh::AttrData<float2> *uv = findUvCorner(m);
+  mesh::AttrData<float2> *uv = findUvCornerLayer(m);
   store.updateBounds();
 
   for (size_t i = 0; i < faces.size(); i++) {

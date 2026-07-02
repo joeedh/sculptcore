@@ -92,6 +92,9 @@ enum _LogChunkTypes {
   Topo = 1,
   Reorder = 2,
   Elems = 3,
+  /* A foreign undo channel riding the step (e.g. the VDM tile-delta chunk,
+   * source/vdm/vdm_undo.h): opaque to MeshLog beyond the undo/redo virtuals. */
+  External = 4,
 };
 MAKE_ENUM_CLASS(LogChunkTypes, _LogChunkTypes, int);
 
@@ -1551,6 +1554,18 @@ struct MeshLog {
                                                        std::move(fmap));
     curEntry().chunks.append(chunk);
     return chunk;
+  }
+
+  /** Append a caller-built chunk (LogChunkTypes::External subclasses) to the
+   * open step; MeshLog takes ownership and drives it purely through the
+   * undo/redo virtuals. Aborts when no step is open (mirrors pushReorderChunk). */
+  void appendChunk(LogChunk *chunk)
+  {
+    if (curStep_ < 0 || curStep_ >= entries.size()) {
+      fprintf(stderr, "Error: appendChunk called with no current undo entry\n");
+      abort();
+    }
+    curEntry().chunks.append(chunk);
   }
 
   /** Atomic reorder step: open a step, record the five permutations, close it.

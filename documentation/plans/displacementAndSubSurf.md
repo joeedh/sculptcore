@@ -11,7 +11,28 @@ gates). Companion design docs:
 
 **Workstream F merged to master** (branch `displacement-subsurf-f`, torn
 down); the V and S tracks are live in their worktrees (`displacement` /
-`subsurf` branches). **V1 done** on `displacement`:
+`subsurf` branches). **V1 + V2 done** on `displacement`:
+
+- **V2 done.** `source/vdm/vdm_splat.{h,cc}`: per-dab UV rasterization of the
+  brush footprint (tree filterNodes → `.detail.carrier == VDM` gate →
+  fan-triangulated corner-UV rasterize; per-dab visited-texel set), falloff
+  evaluated in world space from the *displaced* point `base + frame·texel`
+  (so accumulation saturates naturally), tangent inversion through the F3
+  frame (bary-interpolated, re-orthonormalized), total-magnitude clamp to
+  `α·ρ_min` (per-vert fold radius from the 1-ring shape operator, min over
+  the triangle; hysteresis/promotion state is V4). Touched faces re-export
+  their `.detail.bound` pads (bounds-only spatial dirty). Undo: MeshLog gains
+  a generic `LogChunkTypes::External` + `appendChunk` seam; `VdmLogChunk`
+  (vdm_undo.h) rides the dab's step, so one undo press reverts geometry AND
+  texels (self-inverse delta = same blob undoes and redoes). Debug verbs:
+  `vdm_init` (store + carrier tagging + optional planar UV + frames),
+  `vdm_stroke`, `save_vdm`/`assert_vdm` (the texel-snapshot analogue of
+  save_pos/assert_pos). Gate green: `test_vdm_stroke` — texels land while
+  `assert_pos` proves zero vertex motion, root AABB pad grows by exactly
+  max|texel|, undo/redo texel round-trips, 50-dab accumulation bounded.
+  Deferred: UV-seam one-texel skirts → V3 (with the GPU tile upload);
+  wasm↔native parity + app wiring → V5 (the store has no app-side surface
+  yet, same as V1's TS threading).
 
 - **V1 done.** `source/vdm/vdm_store.{h,cc}`: sparse tiled float3 store,
   atlas backend behind the `sample(face, u, v)` parameterization seam (face
