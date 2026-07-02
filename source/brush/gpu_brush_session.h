@@ -2,6 +2,7 @@
 
 #include "brush/gpu_marshal.h"
 
+#include "litestl/util/set.h"
 #include "litestl/util/vector.h"
 
 #include <cstdint>
@@ -72,15 +73,24 @@ struct GpuBrushSession {
   ComputeCtxUniforms ctxU;
   litestl::util::Vector<ComputeStrokeSample> strokePath;
   // True when uverts/chunks differ from the previous dab's — TS skips the
-  // re-upload otherwise (anchored grab/kelvinlet sets grow monotonically).
+  // re-upload otherwise. Derived from the node-set compare in marshalDab
+  // (chunk order is a pure function of the filtered set).
   bool uvertsChanged = true;
-  litestl::util::Vector<uint32_t> prevUverts;
 
-  // Union of nodes touched this stroke (endStroke dirty-flags these).
+  // Union of nodes touched this stroke (endStroke dirty-flags these). The set
+  // twin makes per-dab membership O(1) — a whole-mesh brush filters thousands
+  // of leaves every dab, and Vector::contains scans made marshal O(n²).
   litestl::util::Vector<spatial::SpatialNode *> touched;
+  litestl::util::Set<spatial::SpatialNode *> touchedSet;
   // Nodes marshaled since the last GpuBrush_applyCo — the per-dab readback
   // path dirty-flags exactly these (drained on apply).
   litestl::util::Vector<spatial::SpatialNode *> pendingDirty;
+  litestl::util::Set<spatial::SpatialNode *> pendingDirtySet;
+  // Previous dab's filtered node set: when unchanged (the steady state of an
+  // anchored whole-mesh brush), the snapshot walk, chunk rebuild, uverts
+  // compare, and owner mapping are all skipped — per-dab marshal collapses to
+  // the node filter + uniform packing.
+  litestl::util::Vector<spatial::SpatialNode *> prevNodes;
 
   // Grab-class per-dab generation (mirrors CommandExecutor::dabGen): bumped on
   // the primary image; the kernel's first-touch stamp arbitration keys on it.

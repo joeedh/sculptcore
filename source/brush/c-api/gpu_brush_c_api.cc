@@ -172,21 +172,38 @@ int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
     return 0;
   }
 
-  // Undo: capture each node's pre-write state now, while the CPU mesh still
-  // holds it (the per-dab readback apply overwrites v.co afterwards).
-  ensureScatter(s, false);
-  s->touchedOwnerIdx.clear();
-  for (spatial::SpatialNode *node : s->nodes) {
-    snapshotNodeForUndo(*s->log, node);
-    if (!s->touched.contains(node)) {
-      s->touched.append(node);
-    }
-    if (!s->pendingDirty.contains(node)) {
-      s->pendingDirty.append(node);
+  // Steady-state fast path: the filtered node set of an anchored whole-mesh
+  // brush saturates after the first dabs — when it is pointer-identical to
+  // the previous dab's, every node is already snapshotted, the chunks/uverts/
+  // touched-owner tables are all still valid, and marshal collapses to the
+  // uniform packing below (the 5M-tri M5 requirement).
+  const bool sameNodes =
+      s->nodes.size() == s->prevNodes.size() &&
+      (s->nodes.size() == 0 ||
+       std::memcmp(s->nodes.data(), s->prevNodes.data(),
+                   s->nodes.size() * sizeof(void *)) == 0);
+
+  if (!sameNodes) {
+    // Undo: capture each node's pre-write state now, while the CPU mesh still
+    // holds it (the per-dab readback apply overwrites v.co afterwards). The
+    // AttrSaver dedups per element, so once per node per stroke suffices.
+    ensureScatter(s, false);
+    s->touchedOwnerIdx.clear();
+    for (spatial::SpatialNode *node : s->nodes) {
+      if (s->touchedSet.add(node)) {
+        snapshotNodeForUndo(*s->log, node);
+        s->touched.append(node);
+      }
+      if (s->pendingDirtySet.add(node)) {
+        s->pendingDirty.append(node);
+      }
     }
     // Owner set for the M3 scatter pass (meta indices, deduped per dab).
-    spatial::SpatialNode *owner = s->tree->find_gpu_owner(node);
-    if (owner) {
+    for (spatial::SpatialNode *node : s->nodes) {
+      spatial::SpatialNode *owner = s->tree->find_gpu_owner(node);
+      if (!owner) {
+        continue;
+      }
       for (int oi = 0; oi < int(s->scatterOwners.size()); oi++) {
         if (s->scatterOwners[oi] == owner) {
           uint32_t idx = uint32_t(oi);
@@ -197,6 +214,8 @@ int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
         }
       }
     }
+    chunkNodes(s->nodes, s->info->faceMode, s->uverts, s->chunks);
+    s->prevNodes = s->nodes;
   }
 
   s->brush->pushStrokeSample(origin, normal);
@@ -205,17 +224,10 @@ int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
   s->brushU.grab_dab_gen = s->info->grabMode ? s->dabGen : 0;
   packCtxUniforms(*s->brush, s->tool, origin, normal, nullptr, s->ctxU);
   packStrokePath(*s->brush, s->strokePath);
-  chunkNodes(s->nodes, s->info->faceMode, s->uverts, s->chunks);
 
-  // Change-flag so TS can skip re-uploading the index arrays when the filter
-  // set didn't move (anchored grab/kelvinlet strokes saturate quickly).
-  const size_t bytes = s->uverts.size() * sizeof(uint32_t);
-  s->uvertsChanged = s->uverts.size() != s->prevUverts.size() ||
-                     (bytes && std::memcmp(s->uverts.data(), s->prevUverts.data(),
-                                           bytes) != 0);
-  if (s->uvertsChanged) {
-    s->prevUverts = s->uverts;
-  }
+  // Index arrays changed exactly when the node set did (chunk order is a pure
+  // function of the set) — no byte compare needed.
+  s->uvertsChanged = !sameNodes;
   return int(s->chunks.size());
 }
 
@@ -329,6 +341,7 @@ void GpuBrush_applyCo(void *session, const float *co, int elemCount)
                  spatial::Spatial_RegenBounds);
   }
   s->pendingDirty.clear();
+  s->pendingDirtySet.clear();
 }
 
 /** Close the stroke: snapshot any not-yet-snapshotted touched node (the mesh
