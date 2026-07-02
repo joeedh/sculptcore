@@ -3,6 +3,7 @@
 #include "../mesh.h"
 #include "../mesh_callbacks.h"
 #include "../utils/attr_interp.h"
+#include "../utils/select_derive.h"
 #include "litestl/util/map.h"
 #include "litestl/util/set.h"
 #include "litestl/util/vector.h"
@@ -38,18 +39,23 @@ static inline void fireChange(const litestl::util::function<void(int)> &cb, int 
  * extrude). Single-outer-loop faces (holed faces are a follow-up). Leaves the
  * cap faces + their (duplicate) verts selected; `out.normal` = the averaged,
  * normalized face normal for the transform's default constraint axis. */
-static inline void extrudeRegion(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out)
+static inline void extrudeRegion(Mesh &m,
+                                 MeshCallbacks *cb,
+                                 ExtrudeResult &out,
+                                 bool preferOpDomain = true)
 {
   using litestl::util::Map;
   using litestl::util::Set;
   using litestl::util::Vector;
 
-  auto *fsel = m.f.select.get_data();
+  // Explicit face selection, derived from verts/edges when empty (selectFlush).
+  // Iterate in mesh order so element creation order is backend-deterministic.
+  Set<int> selSet = resolveFaceSelection(m, preferOpDomain);
 
   Vector<int> selFaces;
   math::float3 no(0.0f, 0.0f, 0.0f);
   for (int f : m.f) {
-    if (fsel->get(f)) {
+    if (selSet.contains(f)) {
       selFaces.append(f);
       no += m.f.no[f];
     }
@@ -78,7 +84,7 @@ static inline void extrudeRegion(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out)
     }
     int sel = 0, c = c0;
     do {
-      if (fsel->get(m.l.f[m.c.l[c]])) {
+      if (selSet.contains(m.l.f[m.c.l[c]])) {
         sel++;
       }
       c = m.c.radial_next[c];
@@ -191,17 +197,20 @@ static inline void extrudeRegion(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out)
  * face gets its OWN duplicated verts + a full ring of side quads, so adjacent
  * selected faces split apart. Simpler than the region extrude — every original
  * vert/edge stays bridged, so nothing is orphaned. */
-static inline void extrudeIndividual(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out)
+static inline void extrudeIndividual(Mesh &m,
+                                     MeshCallbacks *cb,
+                                     ExtrudeResult &out,
+                                     bool preferOpDomain = true)
 {
   using litestl::util::Set;
   using litestl::util::Vector;
 
-  auto *fsel = m.f.select.get_data();
+  Set<int> selSet = resolveFaceSelection(m, preferOpDomain);
 
   Vector<int> selFaces;
   math::float3 no(0.0f, 0.0f, 0.0f);
   for (int f : m.f) {
-    if (fsel->get(f)) {
+    if (selSet.contains(f)) {
       selFaces.append(f);
       no += m.f.no[f];
     }
@@ -281,14 +290,20 @@ static inline void extrudeIndividual(Mesh &m, MeshCallbacks *cb, ExtrudeResult &
 
 /* Extrude selected verts as wires: duplicate each, connect with an edge; the
  * duplicate is the movable selection. The simplest "T" tool. */
-static inline void extrudeWireVerts(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out)
+static inline void extrudeWireVerts(Mesh &m,
+                                    MeshCallbacks *cb,
+                                    ExtrudeResult &out,
+                                    bool preferOpDomain = true)
 {
+  using litestl::util::Set;
   using litestl::util::Vector;
   auto *vsel = m.v.select.get_data();
 
+  Set<int> selSet = resolveVertSelection(m, preferOpDomain);
+
   Vector<int> sel;
   for (int v : m.v) {
-    if (vsel->get(v)) {
+    if (selSet.contains(v)) {
       sel.append(v);
     }
   }

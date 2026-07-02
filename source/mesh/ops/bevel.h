@@ -4,6 +4,7 @@
 #include "../mesh_callbacks.h"
 #include "../mesh_iter.h"
 #include "../utils/attr_interp.h"
+#include "../utils/select_derive.h"
 #include "litestl/util/map.h"
 #include "litestl/util/set.h"
 #include "litestl/util/vector.h"
@@ -198,18 +199,20 @@ static inline void bevelOneVert(Mesh &m,
   }
 }
 
-/* Bevel every selected vertex. */
+/* Bevel every selected vertex (explicit, or derived from edges/faces when the
+ * vert domain is empty — selectFlush). */
 static inline void bevelVerts(Mesh &m,
                               MeshCallbacks *cb,
                               litestl::util::Vector<int> &outVerts,
                               litestl::util::Vector<float> &outBase,
-                              litestl::util::Vector<float> &outTangent)
+                              litestl::util::Vector<float> &outTangent,
+                              bool preferOpDomain = true)
 {
   using litestl::util::Vector;
-  auto *vsel = m.v.select.get_data();
+  litestl::util::Set<int> selSet = resolveVertSelection(m, preferOpDomain);
   Vector<int> sel;
   for (int v : m.v) {
-    if (vsel->get(v)) {
+    if (selSet.contains(v)) {
       sel.append(v);
     }
   }

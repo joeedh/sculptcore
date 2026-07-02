@@ -21,6 +21,7 @@ add_test(NAME ${target} COMMAND ${target})
 endmacro()
 
 test(test_mesh.cc "mesh")
+test(test_select_derive.cc "mesh")
 test(test_elem_alloc.cc "mesh")
 test(test_delaunay.cc "mesh")
 test(test_constrained_delaunay.cc "mesh")

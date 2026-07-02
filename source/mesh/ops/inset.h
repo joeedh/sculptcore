@@ -3,6 +3,7 @@
 #include "../mesh.h"
 #include "../mesh_callbacks.h"
 #include "../utils/attr_interp.h"
+#include "../utils/select_derive.h"
 #include "extrude.h" // fireChange
 #include "litestl/util/map.h"
 #include "litestl/util/set.h"
@@ -28,17 +29,18 @@ static inline void insetRegion(Mesh &m,
                                MeshCallbacks *cb,
                                litestl::util::Vector<int> &insetVertsOut,
                                litestl::util::Vector<float> &baseCoOut,
-                               litestl::util::Vector<float> &tangentOut)
+                               litestl::util::Vector<float> &tangentOut,
+                               bool preferOpDomain = true)
 {
   using litestl::util::Map;
   using litestl::util::Set;
   using litestl::util::Vector;
 
-  auto *fsel = m.f.select.get_data();
+  Set<int> selSet = resolveFaceSelection(m, preferOpDomain);
 
   Vector<int> selFaces;
   for (int f : m.f) {
-    if (fsel->get(f)) {
+    if (selSet.contains(f)) {
       selFaces.append(f);
     }
   }
@@ -62,7 +64,7 @@ static inline void insetRegion(Mesh &m,
     }
     int sel = 0, c = c0;
     do {
-      if (fsel->get(m.l.f[m.c.l[c]])) {
+      if (selSet.contains(m.l.f[m.c.l[c]])) {
         sel++;
       }
       c = m.c.radial_next[c];
@@ -99,7 +101,7 @@ static inline void insetRegion(Mesh &m,
       int c0 = m.e.c[e], c = c0;
       do {
         int ff = m.l.f[m.c.l[c]];
-        if (fsel->get(ff)) {
+        if (selSet.contains(ff)) {
           selF = ff;
           break;
         }

@@ -50,32 +50,6 @@ static inline int oppositeEdgeInQuad(Mesh &m, int f, int e)
   return ELEM_NONE;
 }
 
-/* Boundary edges of the current selected-face region: an edge with exactly one
- * selected radial face. Covers interior, mesh-boundary, and single-face cases.
- * Appends edge indices to `out`. The macro-ops (extrude/inset) bridge along this
- * set; a later pass orders it into loops. */
-static inline void regionBoundaryEdges(Mesh &m, litestl::util::Vector<int> &out)
-{
-  auto *fsel = m.f.select.get_data();
-  for (int e : m.e) {
-    int c0 = m.e.c[e];
-    if (c0 == ELEM_NONE) {
-      continue;
-    }
-    int sel = 0, c = c0;
-    do {
-      int f = m.l.f[m.c.l[c]];
-      if (fsel->get(f)) {
-        sel++;
-      }
-      c = m.c.radial_next[c];
-    } while (c != c0);
-    if (sel == 1) {
-      out.append(e);
-    }
-  }
-}
-
 /* Walk the edge ring through `eStart`: the chain of "parallel" edges across a
  * strip of quads (each edge's opposite edge in the adjacent quad), in both
  * directions. Stops at non-quads, boundaries, or when the ring closes. Appends
@@ -155,44 +129,6 @@ static inline void walkFaceLoop(Mesh &m, int eStart, litestl::util::Vector<int> 
       cur = opp;
       f = nf;
     }
-  }
-}
-
-/* Gather every vertex touched by any selected element (selected verts, both ends
- * of selected edges, all corners of selected faces incl. hole loops), deduped.
- * The transform bridge's "movable" set for a grab of the current selection. */
-static inline void gatherMovableVerts(Mesh &m, litestl::util::Vector<int> &out)
-{
-  auto *vsel = m.v.select.get_data();
-  auto *esel = m.e.select.get_data();
-  auto *fsel = m.f.select.get_data();
-  litestl::util::Set<int> seen;
-
-  for (int vi : m.v) {
-    if (vsel->get(vi)) {
-      seen.add(vi);
-    }
-  }
-  for (int ei : m.e) {
-    if (esel->get(ei)) {
-      seen.add(m.e.vs[ei][0]);
-      seen.add(m.e.vs[ei][1]);
-    }
-  }
-  for (int fi : m.f) {
-    if (!fsel->get(fi)) {
-      continue;
-    }
-    for (int l = m.f.l[fi]; l != ELEM_NONE; l = m.l.next[l]) {
-      int cc0 = m.l.c[l], cc = cc0;
-      do {
-        seen.add(m.c.v[cc]);
-        cc = m.c.next[cc];
-      } while (cc != cc0);
-    }
-  }
-  for (int vi : seen) {
-    out.append(vi);
   }
 }
 

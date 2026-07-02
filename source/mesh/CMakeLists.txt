@@ -30,6 +30,7 @@ set(SRC
   c-api/mesh_c_api.h
   c-api/mesh_c_api.cc
   attribute.cc
+  utils/select_derive.cc
   boundary.cc
   mesh_path.cc
   uvgen.cc

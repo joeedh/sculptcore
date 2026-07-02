@@ -3,6 +3,7 @@
 #include "../mesh.h"
 #include "../mesh_callbacks.h"
 #include "../utils/attr_interp.h"
+#include "../utils/select_derive.h"
 #include "extrude.h" // ExtrudeResult, fireChange
 #include "litestl/util/map.h"
 #include "litestl/util/set.h"
@@ -15,18 +16,21 @@
 
 namespace sculptcore::mesh::ops {
 
-static inline void splitFacesOff(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out)
+static inline void splitFacesOff(Mesh &m,
+                                 MeshCallbacks *cb,
+                                 ExtrudeResult &out,
+                                 bool preferOpDomain = true)
 {
   using litestl::util::Map;
   using litestl::util::Set;
   using litestl::util::Vector;
 
-  auto *fsel = m.f.select.get_data();
+  Set<int> selSet = resolveFaceSelection(m, preferOpDomain);
 
   Vector<int> selFaces;
   math::float3 no(0.0f, 0.0f, 0.0f);
   for (int f : m.f) {
-    if (fsel->get(f)) {
+    if (selSet.contains(f)) {
       selFaces.append(f);
       no += m.f.no[f];
     }
@@ -53,7 +57,7 @@ static inline void splitFacesOff(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out)
     }
     int sel = 0, c = c0;
     do {
-      if (fsel->get(m.l.f[m.c.l[c]])) {
+      if (selSet.contains(m.l.f[m.c.l[c]])) {
         sel++;
       }
       c = m.c.radial_next[c];

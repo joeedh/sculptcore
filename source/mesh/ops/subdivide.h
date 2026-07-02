@@ -4,6 +4,7 @@
 #include "../mesh_callbacks.h"
 #include "../mesh_iter.h"
 #include "../utils/attr_interp.h"
+#include "../utils/select_derive.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/map.h"
 #include "litestl/util/set.h"
@@ -261,7 +262,8 @@ static inline void subdivFillFace(Mesh &m,
 static inline void subdivideEdges(Mesh &m,
                                   MeshCallbacks *cb,
                                   int numCuts,
-                                  litestl::util::Vector<int> &outVerts)
+                                  litestl::util::Vector<int> &outVerts,
+                                  bool preferOpDomain = true)
 {
   using litestl::util::Map;
   using litestl::util::Set;
@@ -271,19 +273,14 @@ static inline void subdivideEdges(Mesh &m,
     numCuts = 1;
   }
 
-  auto *esel = m.e.select.get_data();
-  auto *fsel = m.f.select.get_data();
-
-  Set<int> eset;
-  for (int e : m.e) {
-    if (esel->get(e)) {
-      eset.add(e);
-    }
-  }
+  // Explicit edges, or edges derived from a vert-only selection (selectFlush).
+  Set<int> eset = resolveEdgeSelection(m, preferOpDomain);
   if (eset.size() == 0) {
-    // Fall back to every edge of the selected faces (face select mode).
+    // Fall back to every edge of the selected faces (face select mode),
+    // explicit or derived.
+    Set<int> fset2 = resolveFaceSelection(m, preferOpDomain);
     for (int f : m.f) {
-      if (!fsel->get(f)) {
+      if (!fset2.contains(f)) {
         continue;
       }
       int l = m.f.l[f], c0 = m.l.c[l], c = c0;

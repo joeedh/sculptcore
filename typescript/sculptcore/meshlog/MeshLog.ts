@@ -21,6 +21,7 @@ type double = number
 
 export interface MeshLog {
   [Symbol.dispose](): void
+  selectFlushPreferOpDomain: boolean
   undo(m: Mesh, tree: SpatialTree): void
   redo(m: Mesh, tree: SpatialTree): void
   curStrokeId(): int32

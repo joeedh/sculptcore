@@ -1260,6 +1260,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, compactIfFragmented, MARGS("tree", "vertRatioThreshold"));
 
     // Box-modeling topology macro-ops.
+    BIND_STRUCT_MEMBER(st, selectFlushPreferOpDomain);
     BIND_STRUCT_METHOD(st, extrudeRegion, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeIndividual, MARGS("m", "outNormal"));
     BIND_STRUCT_METHOD(st, extrudeWireVerts, MARGS("m", "outNormal"));
@@ -1650,6 +1651,12 @@ struct MeshLog {
    * selected. `outNormal` receives the op's averaged normal (3 floats) for the
    * chained transform's default constraint axis. The spatial tree is rebuilt by
    * the TS op afterward (topology changed wholesale). */
+
+  /** selectFlush op-domain preference (mesh/utils/select_derive.h). Bound so the
+   * TS ops mirror the sculptcore.select_flush_prefer_op_domain feature flag into
+   * it before each macro-op (the auto_defrag pattern: flag read TS-side). */
+  bool selectFlushPreferOpDomain = true;
+
   void extrudeRegion(mesh::Mesh *m, util::Vector<float> &outNormal)
   {
     if (!m) {
@@ -1658,7 +1665,7 @@ struct MeshLog {
     setActiveMesh(m);
     beginStep(false);
     mesh::ops::ExtrudeResult res;
-    mesh::ops::extrudeRegion(*m, callbacks(), res);
+    mesh::ops::extrudeRegion(*m, callbacks(), res, selectFlushPreferOpDomain);
     endStep();
     outNormal.append(res.normal[0]);
     outNormal.append(res.normal[1]);
@@ -1673,7 +1680,7 @@ struct MeshLog {
     setActiveMesh(m);
     beginStep(false);
     mesh::ops::ExtrudeResult res;
-    mesh::ops::extrudeIndividual(*m, callbacks(), res);
+    mesh::ops::extrudeIndividual(*m, callbacks(), res, selectFlushPreferOpDomain);
     endStep();
     outNormal.append(res.normal[0]);
     outNormal.append(res.normal[1]);
@@ -1688,7 +1695,7 @@ struct MeshLog {
     setActiveMesh(m);
     beginStep(false);
     mesh::ops::ExtrudeResult res;
-    mesh::ops::extrudeWireVerts(*m, callbacks(), res);
+    mesh::ops::extrudeWireVerts(*m, callbacks(), res, selectFlushPreferOpDomain);
     endStep();
     outNormal.append(res.normal[0]);
     outNormal.append(res.normal[1]);
@@ -1703,7 +1710,7 @@ struct MeshLog {
     setActiveMesh(m);
     beginStep(false);
     mesh::ops::ExtrudeResult res;
-    mesh::ops::splitFacesOff(*m, callbacks(), res);
+    mesh::ops::splitFacesOff(*m, callbacks(), res, selectFlushPreferOpDomain);
     endStep();
     outNormal.append(res.normal[0]);
     outNormal.append(res.normal[1]);
@@ -1719,7 +1726,7 @@ struct MeshLog {
     }
     setActiveMesh(m);
     beginStep(false);
-    mesh::ops::subdivideEdges(*m, callbacks(), numCuts, outVerts);
+    mesh::ops::subdivideEdges(*m, callbacks(), numCuts, outVerts, selectFlushPreferOpDomain);
     endStep();
   }
 
@@ -1775,7 +1782,8 @@ struct MeshLog {
       return;
     }
     setActiveMesh(m);
-    mesh::ops::insetRegion(*m, callbacks(), insetVerts, baseCo, tangent);
+    mesh::ops::insetRegion(*m, callbacks(), insetVerts, baseCo, tangent,
+                          selectFlushPreferOpDomain);
   }
 
   /* Bevel the selected verts (parametric modal; does NOT self-bracket, like
@@ -1789,7 +1797,8 @@ struct MeshLog {
       return;
     }
     setActiveMesh(m);
-    mesh::ops::bevelVerts(*m, callbacks(), verts, baseCo, tangent);
+    mesh::ops::bevelVerts(*m, callbacks(), verts, baseCo, tangent,
+                          selectFlushPreferOpDomain);
   }
 
   /* -------------------- Box-modeling selection (undoable) --------------------

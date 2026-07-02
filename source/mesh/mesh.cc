@@ -4,6 +4,7 @@
 #include "mesh_path.h"
 #include "utils/mesh_validate.h" // faceNewellNormal
 #include "utils/modeling_walk.h" // box-modeling loop/boundary walks
+#include "utils/select_derive.h" // selection derivation + region/movable queries
 #include "utils/symmetrize.h"
 #include "uvgen.h"
 
