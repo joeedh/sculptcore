@@ -135,6 +135,7 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   accumulable_ = kinfo->accumulable;
   readsVclass_ = kinfo->readsVclass;
   faceMode_ = kinfo->faceMode;
+  grabMode_ = kinfo->grabMode;
 
   mesh::Mesh *m = scene.mesh;
   vcount_ = m->v.count;
@@ -440,6 +441,9 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   // the kelvinlet host clamps and the polygroup activeGroup slot alias.
   vulkan::ComputeBrushUniforms bu;
   brush::packBrushUniforms(scene.brush, scene.currentTool, scene.nonAccum, bu);
+  if (grabMode_) {
+    bu.grab_dab_gen = ++dabGen_;
+  }
 
   vulkan::ComputeCtxUniforms cu;
   brush::packCtxUniforms(scene.brush, scene.currentTool, origin, normal,

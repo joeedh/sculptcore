@@ -42,6 +42,7 @@ struct GpuKernelInfo {
   bool readsVclass = false;    // int boundary-class vertex attr at slot 14
   bool faceMode = false;       // threads over faces (centroids/normals)
   bool isGlobal = false;       // @global: routinely touches the whole mesh
+  bool grabMode = false;       // @grabmode: from-orig + first-touch stamps
 };
 
 /** Kernel-map lookup; null when the tool has no GPU kernel. */

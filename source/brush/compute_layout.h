@@ -19,7 +19,8 @@ struct ComputeBrushUniforms {
   uint32_t falloff_kind = 0;
   uint32_t falloff_shape = 0;
   uint32_t nonaccum = 0;               // offset 24 — non-accumulate stroke (accumulable kernels only)
-  uint32_t _pad0 = 0;                  // pad so falloff_dir (vec3) lands at 32
+  uint32_t grab_dab_gen = 0;           // offset 28 — grab-class per-dab generation (@grabmode
+                                       // first-touch stamps); pad for every other kernel
   float falloff_dir[3] = {0, 0, 1};    // offset 32
   uint32_t _pad1 = 0;                  // pad so falloff_extent (vec3) lands at 48
   float falloff_extent[3] = {1, 1, 1}; // offset 48 — FalloffShape::Box extents
@@ -95,6 +96,12 @@ struct ComputeNodeMeta {
  * stroke's topology is static and co is uploaded once at beginStroke, so the
  * whole CPU-side generational snapshot collapses to that initial upload. */
 inline constexpr uint32_t kOrigCoBinding = 22;
+
+/* Fixed binding of the grab-class per-vertex dab stamp (@grabmode kernels
+ * only): one u32 per vertex, zero-filled at beginStroke, compared against
+ * ComputeBrushUniforms::grab_dab_gen for first-touch arbitration (the GPU
+ * twin of grabClaimFirstTouch / the `.brush.dab.gen` attr). */
+inline constexpr uint32_t kDabStampBinding = 23;
 
 /* binding 12 element — std430 vec2<u32>, stride 8. CSR neighbor index: for
  * global vertex i, its neighbors are nbr_verts[offset .. offset+count). */

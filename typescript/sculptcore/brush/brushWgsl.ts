@@ -15,6 +15,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -272,6 +273,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -462,6 +464,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -666,6 +669,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -877,6 +881,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -1171,6 +1176,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -1382,6 +1388,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -1613,6 +1620,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -1823,6 +1831,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -1862,6 +1871,8 @@ struct StrokeSample {
 @group(0) @binding(8) var                       brush_tex: texture_2d<f32>;
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
+@group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -1992,7 +2003,7 @@ fn main(
   let sb_node = nodes[gid.x];
   if (lid >= sb_node.vert_count) { return; }
   let sb_vidx = unique_verts[sb_node.vert_offset + lid];
-  var v_co: vec3<f32> = co_buf[sb_vidx];
+  var v_co: vec3<f32> = orig_co[sb_vidx];
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
   var a: f32;
@@ -2015,6 +2026,11 @@ fn main(
   var fall: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
   v_co += (disp * fall);
 
+  if (dab_stamp[sb_vidx] != brush_u.grab_dab_gen) {
+    dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
+  } else {
+    v_co = co_buf[sb_vidx] + (v_co - orig_co[sb_vidx]);
+  }
   co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;
   mask_buf[sb_vidx] = v_mask;
@@ -2031,6 +2047,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -2224,6 +2241,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -2439,6 +2457,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -2655,6 +2674,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -2839,6 +2859,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -3034,6 +3055,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -3259,6 +3281,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -3485,6 +3508,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -3699,6 +3723,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,
@@ -3919,6 +3944,7 @@ struct BrushUniforms {
   falloff_kind: u32,
   falloff_shape: u32,
   nonaccum: u32,
+  grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
   falloff_extent: vec3<f32>,
   coord_space: u32,

@@ -116,11 +116,13 @@ struct Parser {
           brush->isGlobal = true;
         } else if (attr.operator==(string("paint"))) {
           brush->isPaint = true;
+        } else if (attr.operator==(string("grabmode"))) {
+          brush->isGrabMode = true;
         } else {
           errorf(attrTok, "unknown brush attribute '%s'", attr.c_str());
         }
       } else {
-        error("expected 'brush', 'global', or 'paint' after '@'", peek());
+        error("expected 'brush', 'global', 'paint', or 'grabmode' after '@'", peek());
         break;
       }
     }

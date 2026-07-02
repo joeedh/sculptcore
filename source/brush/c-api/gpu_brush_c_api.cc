@@ -169,6 +169,7 @@ int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
   s->brush->pushStrokeSample(origin, normal);
 
   packBrushUniforms(*s->brush, s->tool, nonaccum != 0, s->brushU);
+  s->brushU.grab_dab_gen = s->info->grabMode ? s->dabGen : 0;
   packCtxUniforms(*s->brush, s->tool, origin, normal, nullptr, s->ctxU);
   packStrokePath(*s->brush, s->strokePath);
   chunkNodes(s->nodes, s->info->faceMode, s->uverts, s->chunks);

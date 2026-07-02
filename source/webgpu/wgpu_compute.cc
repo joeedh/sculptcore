@@ -76,6 +76,7 @@ WgpuBrushComputeDispatch::~WgpuBrushComputeDispatch()
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
   destroyBuf(origCo_);
+  destroyBuf(dabStamp_);
   destroyBuf(readback_);
   destroyBrushTexture();
   if (sampler_) wgpuSamplerRelease(sampler_);
@@ -324,6 +325,7 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(mask_, uint64_t(vertCount) * sizeof(float), rw) ||
       !ensureBuf(coPrev_, uint64_t(vertCount) * kVec3Stride, ro) ||
       !ensureBuf(origCo_, uint64_t(vertCount) * kVec3Stride, ro) ||
+      !ensureBuf(dabStamp_, uint64_t(vertCount) * sizeof(uint32_t), rw) ||
       !ensureBuf(nbrMeta_, 0, ro) || !ensureBuf(nbrVerts_, 0, ro)) {
     return false;
   }
@@ -353,6 +355,14 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
                        size_t(vertCount) * kVec3Stride);
   wgpuQueueWriteBuffer(ctx_->queue, mask_.buffer, 0, mask,
                        size_t(vertCount) * sizeof(float));
+  {
+    // Zero the grab first-touch stamps: gen 0 never matches (gens start at 1).
+    litestl::util::Vector<uint32_t> zeros;
+    zeros.resize(vertCount);
+    std::memset(zeros.data(), 0, size_t(vertCount) * sizeof(uint32_t));
+    wgpuQueueWriteBuffer(ctx_->queue, dabStamp_.buffer, 0, zeros.data(),
+                         size_t(vertCount) * sizeof(uint32_t));
+  }
   return true;
 }
 
@@ -400,6 +410,7 @@ WGPUBindGroup WgpuBrushComputeDispatch::buildBindGroup()
     case 12: buf = &nbrMeta_; break;
     case 13: buf = &nbrVerts_; break;
     case brush::kOrigCoBinding: buf = &origCo_; break;
+    case brush::kDabStampBinding: buf = &dabStamp_; break;
     default: break;
     }
     if (buf) {

@@ -117,6 +117,11 @@ class GpuStrokeSession {
   // count handed to the (binding-generic) dispatcher in place of vcount_.
   bool faceMode_ = false;
   int faceCount_ = 0;
+  // @grabmode kernel (kelvinlet/grab): from-orig + first-touch stamps. dabGen_
+  // feeds ComputeBrushUniforms::grab_dab_gen, bumped once per dab (the debug
+  // app has no symmetry images, so every dab is a primary).
+  bool grabMode_ = false;
+  uint32_t dabGen_ = 0;
   int vcount_ = 0;
   litestl::util::Vector<spatial::SpatialNode *> touched_;
 

@@ -901,7 +901,14 @@ bool execVerb(Scene &scene,
          scene.currentBackend == BrushBackend::WgpuNative) &&
         gpuTool) {
       Vector<float3> origins;
-      origins.append(origin);
+      // repeat=N unifies N identical dabs into the one stroke (same as the
+      // C++ branch below) — the discriminator for grab-class from-orig
+      // semantics: repeated dabs with a fixed grabTo must re-base, not stack.
+      int repeat = getInt(args, "repeat", 1);
+      if (repeat < 1) repeat = 1;
+      for (int i = 0; i < repeat; i++) {
+        origins.append(origin);
+      }
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;
       }
@@ -933,6 +940,11 @@ bool execVerb(Scene &scene,
           scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
       exec.beginStep(scene.dyntopoEnabled);
       for (int i = 0; i < repeat; i++) {
+        // Each repeat is a new logical dab's primary image (mirrors the TS
+        // app's setGrabAccumAdd(false)): grab-class kernels re-base from the
+        // stroke-start position per dab instead of adding with an idle
+        // dab counter (curDabGen 0 == fresh stamps -> add mode).
+        exec.setGrabAccumAdd(false);
         exec.applyDab(scene.currentTool, origin, normal, scene.brush.radius, dtp,
                       scene.dyntopoSeed + uint32_t(i));
         scene.cumSplits += exec.lastDynTopoStats.splits;
