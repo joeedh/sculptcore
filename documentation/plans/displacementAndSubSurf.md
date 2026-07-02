@@ -10,8 +10,8 @@ gates). Companion design docs:
 ## Status (2026-07-02)
 
 **Workstream F merged to master**; the `displacement` (V) and `subsurf` (S)
-worktrees exist. **S1 implemented on branch `subsurf`** (parent repo +
-sculptcore, matching branches); V not started.
+worktrees exist. **S1 + S2 implemented on branch `subsurf`** (parent repo +
+sculptcore, matching branches).
 
 - **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
   (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh
@@ -60,7 +60,27 @@ sculptcore, matching branches); V not started.
   vert/face coverage), and cached-stencil evaluation of a perturbed cage
   memcmp-equal to direct recursive re-subdivision, three levels deep.
 
-Next: S2 (grids store) on `subsurf`; V1 on `displacement`.
+- **S2 done.** `source/subdiv/grids.{h,cc}`: `GridsStore` — per-quadrant-
+  after-one-split grids (Ptex `__faceindex`; the open granularity question §9.3
+  is settled to per-quadrant, matching S1's Refiner enumeration exactly).
+  Channels are per-level flat float arrays (channel 0 = the always-present
+  frame-relative `float3` "disp"; custom 1–4-float channels addable before or
+  after levels exist), chunked by whole grids (~256 KiB targets) so the
+  serialized form — a `writeMesh`-shaped BinFile+lz4 container whose payload
+  is offset-table-headed — permits later per-chunk disk paging (X5) without a
+  format change. Implicit topology: 4 per-grid `GridLink`s derived from the
+  cage (right/top = same-face neighbor grids, left/bottom = across-cage-edge;
+  every seam mapping is a transpose, param preserved), `neighbor()` does O(1)
+  lattice steps incl. cross-grid crossings, `seamMates()` (BFS over links)
+  enumerates a boundary vert's replicas for S4's write-sync. Boundary verts
+  are deliberately REPLICATED per grid (Blender-CCG-style). Gate green:
+  `test_grids_store` — every lattice step on cube/fan/pentagon at every level
+  cross-checked mesh-edge-adjacent against the S1 refiner's actual level
+  meshes, seamMates verified against an exact replica census of the grid
+  tables, unlinked steps only at true mesh boundary, and a bitwise
+  fill/serialize/read round-trip incl. chunk geometry.
+
+Next: S3 (level materialization + LRU) on `subsurf`; V2 on `displacement`.
 
 ---
 

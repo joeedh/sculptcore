@@ -62,8 +62,12 @@ See `documentation/plans/displacementAndSubSurf.md`.
 step, `EDGE_SHARP`/boundary crease rules), emitting per level: the
 materialized level mesh, Ptex-style per-cage-corner grid tables, and a cached
 `StencilTable` whose row evaluation *is* the canonical position arithmetic
-(`evalFromCage` is bit-identical to re-refining). Displacement plan S1;
-see `documentation/plans/displacementAndSubSurf.md`.
+(`evalFromCage` is bit-identical to re-refining). `grids.cc/.h` — `GridsStore`,
+the multires data carrier: per-quadrant grids of per-level frame-relative
+displacement + custom float channels, implicit topology (4 transpose seam
+links, O(1) `neighbor()`, `seamMates()` replica enumeration), whole-grid
+chunking with offset-table-headed lz4 serialization (disk-pageable later).
+Displacement plan S1–S2; see `documentation/plans/displacementAndSubSurf.md`.
 
 ### `source/meshlog/` — sculpt undo/redo log
 
