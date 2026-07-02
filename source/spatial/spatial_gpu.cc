@@ -290,6 +290,49 @@ void SpatialTree::buildGpuNodeSlotVertex(SpatialNode *gpu_node, gpu::GPUManager 
   }
 }
 
+void SpatialTree::buildGpuScatterTables(util::Vector<uint32_t> &meta,
+                                        util::Vector<uint32_t> &map,
+                                        util::Vector<SpatialNode *> *owners,
+                                        bool fillMap)
+{
+  meta.clear();
+  map.clear();
+  if (owners) {
+    owners->clear();
+  }
+  uint32_t offset = 0;
+  for (SpatialNode *gn : gpu_nodes()) {
+    if (!gn->gpu_data) {
+      continue;
+    }
+    GpuData &gd = *gn->gpu_data;
+    if (!gd.pos || !gd.nor || gd.total_verts <= 0) {
+      continue;
+    }
+    const uint64_t pk = uint64_t(uintptr_t(gd.pos));
+    const uint64_t nk = uint64_t(uintptr_t(gd.nor));
+    meta.append(uint32_t(pk));
+    meta.append(uint32_t(pk >> 32));
+    meta.append(uint32_t(nk));
+    meta.append(uint32_t(nk >> 32));
+    meta.append(offset);
+    meta.append(uint32_t(gd.total_verts));
+    if (owners) {
+      owners->append(gn);
+    }
+    if (fillMap) {
+      map.resize(size_t(offset) + size_t(gd.total_verts));
+      uint32_t *out = map.data() + offset;
+      for (LeafSlice &s : gd.slices) {
+        if (s.vert_count > 0) {
+          fill_leaf_slot_verts(s.leaf, out + s.vert_start);
+        }
+      }
+    }
+    offset += uint32_t(gd.total_verts);
+  }
+}
+
 /* Full rebuild of a GPU node's aggregated buffer. Disposes any existing
  * pos/nor (but keeps cmd — the caller's draw-batch loop reuses it),
  * collects subtree leaves, sizes one buffer covering all their tris, and
@@ -403,6 +446,9 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     /* Leaf's GPU dirty bits are now satisfied. */
     leaf->flag &= ~(Spatial_RegenGPU | Spatial_UpdateGPU);
   }
+
+  // Buffer identity + corner layout changed: invalidate cached scatter tables.
+  gpuLayoutGen++;
 }
 
 /* In-place rewrite of a single leaf's slice inside its GPU node's buffer

@@ -109,6 +109,84 @@ export interface RequestedAttrBridge {
  */
 export type SculptHandle = object
 
+/** GpuBrush_info selectors — hand-mirror of GpuBrushInfoWhich in
+ * source/brush/gpu_brush_session.h; keep the two in sync. */
+export const GpuBrushInfo = {
+  ELEM_COUNT: 0,
+  NEEDS_NEIGHBORS: 1,
+  WRITES_MASK: 2,
+  WRITES_COLOR: 3,
+  ACCUMULABLE: 4,
+  READS_VCLASS: 5,
+  FACE_MODE: 6,
+  IS_GLOBAL: 7,
+  /** builds the normal topology on first query */
+  TRI_COUNT: 8,
+  UVERTS_CHANGED: 9,
+  NODE_COUNT: 10,
+  UNIQUE_COUNT: 11,
+  STROKE_SAMPLE_COUNT: 12,
+  DAB_GEN: 13,
+  /** scatter-table cache key (SpatialTree::gpuLayoutGen); builds scatter meta */
+  GPU_LAYOUT_GEN: 14,
+  SCATTER_NODE_COUNT: 15,
+} as const
+
+/** GpuBrush_data selectors — hand-mirror of GpuBrushDataWhich in
+ * source/brush/gpu_brush_session.h; keep the two in sync. The blobs are
+ * already in GPU layout per compute_layout.h — upload verbatim. */
+export const GpuBrushData = {
+  CO: 0,
+  NO: 1,
+  MASK: 2,
+  NBR_META: 3,
+  NBR_VERTS: 4,
+  TRI_VERTS: 5,
+  VERT_TRI_META: 6,
+  VERT_TRI_LIST: 7,
+  UVERTS: 8,
+  NODE_META: 9,
+  BRUSH_UNIFORMS: 10,
+  CTX_UNIFORMS: 11,
+  FALLOFF_LUT: 12,
+  STROKE_PATH: 13,
+  /** live mesh positions, re-packed per query (shadow-verify) */
+  LIVE_CO: 14,
+  /** u32×6 per GPU node: pos/nor buffer keys (lo,hi) + corner offset,count */
+  SCATTER_META: 15,
+  /** u32 per render corner: global vert id, in fill_leaf order (lazy build) */
+  SCATTER_MAP: 16,
+  /** u32 meta indices of owners hit by the last marshalDab */
+  TOUCHED_OWNERS: 17,
+} as const
+
+/** Raw pointer-level view of the GpuBrush_* C exports (WASM only; unprefixed
+ * onto the module by createWasmHelpers). The backend-agnostic wrappers on
+ * IWasmInterface are the surface app code uses. */
+interface IGpuBrushRaw {
+  GpuBrush_beginStroke(mesh: number, tree: number, brush: number, meshLog: number, tool: number): number
+  GpuBrush_free(session: number): void
+  GpuBrush_kernelName(session: number): number
+  GpuBrush_info(session: number, which: number): number
+  GpuBrush_marshalDab(
+    session: number,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    filterRadius: number,
+    mirrorIdx: number,
+    nonaccum: number
+  ): number
+  GpuBrush_dataSize(session: number, which: number): number
+  GpuBrush_dataPtr(session: number, which: number): number
+  GpuBrush_applyCo(session: number, co: number, elemCount: number): void
+  GpuBrush_endStroke(session: number, co: number, no: number, elemCount: number): void
+}
+
 export interface IWasmInterface extends INeededWasm, IWasmMethods {
   manager: BindingManager
   gpu: GPUManager
@@ -169,6 +247,66 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * — when only the mesh's attribute layers changed. Never throws.
    */
   SpatialTree_refreshRequestedAttrs(tree: SpatialTree): void
+
+  /**
+   * GPU brush-stroke seam (documentation/plans/gpuGlobalBrushes.md §3): open a
+   * stroke session over the C++ marshal (source/brush/gpu_brush_c_api.cc). The
+   * MeshLog step must already be open (executor.beginStep). Returns undefined
+   * when the tool has no GPU kernel. Backend-agnostic; the session handle is
+   * opaque on both backends.
+   */
+  GpuBrush_beginStroke(
+    mesh: Mesh,
+    tree: SpatialTree,
+    brush: SculptHandle,
+    meshLog: SculptHandle,
+    tool: int
+  ): SculptHandle | undefined
+  /** Free a session without touching the mesh (abort before any dab landed). */
+  GpuBrush_free(session: SculptHandle): void
+  /** The session's kernel stem — the `brushWgsl` key to dispatch. */
+  GpuBrush_kernelName(session: SculptHandle): string
+  /** Query a `GpuBrushInfo` selector. */
+  GpuBrush_info(session: SculptHandle, which: int): int
+  /**
+   * Marshal one dab image: node filter at `filterRadius` (caller applies the
+   * CPU path's widened-radius policy), undo snapshots, and the per-dab upload
+   * blobs. `mirrorIdx` 0 = primary image (advances the grab dab generation).
+   * Returns the workgroup count to dispatch (0 = nothing to do).
+   */
+  GpuBrush_marshalDab(
+    session: SculptHandle,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    filterRadius: number,
+    mirrorIdx: int,
+    nonaccum: int
+  ): int
+  /**
+   * A marshaled blob (`GpuBrushData` selector) ready to upload verbatim.
+   * WASM returns a heap view — consume it before the next wasm call (a heap
+   * growth invalidates it); native returns a sandbox copy. Empty (length 0)
+   * when the blob is absent — never throws.
+   */
+  GpuBrush_data(session: SculptHandle, which: int): Uint8Array
+  /**
+   * Per-dab readback apply: write read-back positions into the mesh and dirty
+   * the nodes marshaled since the last apply (undo snapshots already taken at
+   * marshal time). `co` is packed xyz for every element.
+   */
+  GpuBrush_applyCo(session: SculptHandle, co: Float32Array): void
+  /**
+   * Close the stroke: snapshot + write the final positions (pass null when
+   * per-dab applies already landed them), dirty every touched node, and free
+   * the session. Caller then runs spatial.update + executor.endStep as on the
+   * CPU path.
+   */
+  GpuBrush_endStroke(session: SculptHandle, co: Float32Array | null, no: Float32Array | null): void
 
   /**
    * Native-backend bulk-data read: the bytes a bound object's raw-pointer
@@ -439,6 +577,118 @@ export async function loadWasm(): Promise<IWasmInterface> {
     SpatialTree_refreshRequestedAttrs(tree: SpatialTree) {
       const treePtr = (tree as unknown as {ptr: number}).ptr
       _wasm.refreshTreeRequestedAttrs(treePtr)
+    },
+    GpuBrush_beginStroke(
+      mesh: Mesh,
+      tree: SpatialTree,
+      brush: SculptHandle,
+      meshLog: SculptHandle,
+      tool: int
+    ): SculptHandle | undefined {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      const s = raw.GpuBrush_beginStroke(
+        (mesh as unknown as {ptr: number}).ptr,
+        (tree as unknown as {ptr: number}).ptr,
+        (brush as unknown as {ptr: number}).ptr,
+        (meshLog as unknown as {ptr: number}).ptr,
+        tool
+      )
+      return s ? ({ptr: s} as SculptHandle) : undefined
+    },
+    GpuBrush_free(session: SculptHandle) {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      raw.GpuBrush_free((session as {ptr: number}).ptr)
+    },
+    GpuBrush_kernelName(session: SculptHandle): string {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      return initialWasm.jsString(raw.GpuBrush_kernelName((session as {ptr: number}).ptr))
+    },
+    GpuBrush_info(session: SculptHandle, which: int): int {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      return raw.GpuBrush_info((session as {ptr: number}).ptr, which)
+    },
+    GpuBrush_marshalDab(
+      session: SculptHandle,
+      cx: number,
+      cy: number,
+      cz: number,
+      nx: number,
+      ny: number,
+      nz: number,
+      radius: number,
+      filterRadius: number,
+      mirrorIdx: int,
+      nonaccum: int
+    ): int {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      return raw.GpuBrush_marshalDab(
+        (session as {ptr: number}).ptr,
+        cx,
+        cy,
+        cz,
+        nx,
+        ny,
+        nz,
+        radius,
+        filterRadius,
+        mirrorIdx,
+        nonaccum
+      )
+    },
+    GpuBrush_data(session: SculptHandle, which: int): Uint8Array {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      const p = (session as {ptr: number}).ptr
+      const size = raw.GpuBrush_dataSize(p, which)
+      if (size <= 0) {
+        return new Uint8Array()
+      }
+      const ptr = raw.GpuBrush_dataPtr(p, which)
+      if (!ptr) {
+        return new Uint8Array()
+      }
+      // Heap view (zero-copy): valid until the next wasm call that can grow
+      // the heap — the dispatcher uploads it to the GPU immediately.
+      return new Uint8Array(_wasm.HEAPU8.buffer, ptr, size)
+    },
+    GpuBrush_applyCo(session: SculptHandle, co: Float32Array) {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      const bytes = co.length * 4
+      const ptr = _wasm._rawAlloc(bytes)
+      try {
+        new Uint8Array(_wasm.HEAPU8.buffer, ptr, bytes).set(
+          new Uint8Array(co.buffer, co.byteOffset, bytes)
+        )
+        raw.GpuBrush_applyCo((session as {ptr: number}).ptr, ptr, co.length / 3)
+      } finally {
+        _wasm._rawRelease(ptr)
+      }
+    },
+    GpuBrush_endStroke(session: SculptHandle, co: Float32Array | null, no: Float32Array | null) {
+      const raw = _wasm as unknown as IGpuBrushRaw
+      const p = (session as {ptr: number}).ptr
+      if (!co) {
+        raw.GpuBrush_endStroke(p, 0, 0, 0)
+        return
+      }
+      const coBytes = co.length * 4
+      const coPtr = _wasm._rawAlloc(coBytes)
+      const noPtr = no ? _wasm._rawAlloc(no.length * 4) : 0
+      try {
+        // Re-fetch the heap after both allocs (a malloc can grow + rebind it).
+        const heap = _wasm.HEAPU8
+        new Uint8Array(heap.buffer, coPtr, coBytes).set(new Uint8Array(co.buffer, co.byteOffset, coBytes))
+        if (no && noPtr) {
+          new Uint8Array(heap.buffer, noPtr, no.length * 4).set(
+            new Uint8Array(no.buffer, no.byteOffset, no.length * 4)
+          )
+        }
+        raw.GpuBrush_endStroke(p, coPtr, noPtr, co.length / 3)
+      } finally {
+        _wasm._rawRelease(coPtr)
+        if (noPtr) {
+          _wasm._rawRelease(noPtr)
+        }
+      }
     },
     /** uses a large cache ring */
     float3(co: ArrayLike<number>) {

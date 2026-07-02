@@ -19,6 +19,7 @@ using brush::ComputeCtxUniforms;
 using brush::ComputeNodeMeta;
 using brush::ComputeStrokeSample;
 using brush::ComputeVertNbr;
+using brush::kDabStampBinding;
 using brush::kOrigCoBinding;
 
 /* Runs sbrush WGSL->SPIR-V compute kernels against a mesh's vertex buffers.
@@ -154,6 +155,9 @@ private:
   /* binding 22 (kOrigCoBinding) — read-only stroke-start co for non-accumulate
    * mode; a copy of the beginStroke co upload, static across the stroke. */
   Buf origCo_;
+  /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
+   * (@grabmode kernels), zero-filled at beginStroke. */
+  Buf dabStamp_;
 
   /* Custom DSL attribute layers. The descriptor layout always declares a
    * superset of attr slots (kAttrBase..kAttrBase+kMaxAttrBindings-1) so one

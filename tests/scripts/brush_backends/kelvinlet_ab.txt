@@ -1,5 +1,8 @@
 # A/B script: kelvinlet (grab) stroke, cpp vs wgsl backend gate.
 # Exercises the Wave 4 reduce-stage path. See draw_ab.txt.
+# repeat=4 exercises the @grabmode from-orig write-back: repeated dabs
+# with a fixed grabTo must re-base from the stroke-start position (the
+# CPU AccumOrigGrab semantics), not stack incrementally.
 make_cube subdivs=12 size=0.5
 build_spatial leaf_limit=256 depth_limit=8
 set_brush_tool tool=kelvinlet
@@ -8,11 +11,11 @@ set_kelvinlet_params mu=1.0 nu=0.4
 set_grab from=0,0,0.25 to=0,0,0.4
 
 set_backend backend=cpp
-stroke origin=0,0,0.25 normal=0,0,1
+stroke origin=0,0,0.25 normal=0,0,1 repeat=4
 dump_state out=kelvinlet_cpp.json
 
 undo
 
 set_backend backend=wgsl
-stroke origin=0,0,0.25 normal=0,0,1
+stroke origin=0,0,0.25 normal=0,0,1 repeat=4
 dump_state out=kelvinlet_wgsl.json

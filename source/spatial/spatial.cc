@@ -1065,6 +1065,8 @@ static void assign_gpu_nodes_recurse(SpatialNode *node, int target)
 
 void SpatialTree::assign_gpu_nodes()
 {
+  // Partition changes invalidate cached scatter tables (gpu_data moves).
+  gpuLayoutGen++;
   if (!root) {
     return;
   }

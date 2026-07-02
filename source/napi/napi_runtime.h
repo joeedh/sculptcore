@@ -159,6 +159,24 @@ class NapiRuntime {
   // this gives stdout a real (unbuffered) fd the launcher can read back, the
   // standard Windows GUI-subsystem stdout workaround.
   static napi_value RedirectStdout(napi_env, napi_callback_info);
+  // GPU brush-stroke seam (brush/c-api/gpu_brush_c_api.cc). The session handle
+  // crosses as a napi external (opaque; freed by endStroke/free, never GC).
+  // gpuBrushBeginStroke(mesh, tree, brush, meshLog, tool) -> external | undefined
+  static napi_value GpuBrushBeginStroke(napi_env, napi_callback_info);
+  static napi_value GpuBrushFree(napi_env, napi_callback_info);
+  // gpuBrushKernelName(s) -> string
+  static napi_value GpuBrushKernelName(napi_env, napi_callback_info);
+  // gpuBrushInfo(s, which) -> number (GpuBrushInfoWhich selectors)
+  static napi_value GpuBrushInfo(napi_env, napi_callback_info);
+  // gpuBrushMarshalDab(s, cx,cy,cz, nx,ny,nz, radius, filterRadius, mirrorIdx,
+  // nonaccum) -> workgroup chunk count
+  static napi_value GpuBrushMarshalDab(napi_env, napi_callback_info);
+  // gpuBrushData(s, which) -> Uint8Array copy (GpuBrushDataWhich selectors)
+  static napi_value GpuBrushData(napi_env, napi_callback_info);
+  // gpuBrushApplyCo(s, co: Float32Array) -> void; per-dab readback apply
+  static napi_value GpuBrushApplyCo(napi_env, napi_callback_info);
+  // gpuBrushEndStroke(s, co: Float32Array|null, no: Float32Array|null) -> void
+  static napi_value GpuBrushEndStroke(napi_env, napi_callback_info);
   // crashTest() -> void. Crashpad self-test: null-derefs inside sculptcore_node
   // so a minidump faults in native code, proving the CodeView PDB symbolicates
   // C++ frames. Driven by the harness --apptest-crash flag (see crashpad.md).

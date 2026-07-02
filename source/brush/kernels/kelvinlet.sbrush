@@ -11,6 +11,7 @@
 
 @brush("kelvinlet")
 @global
+@grabmode
 brush Kelvinlet {
   // Material parameters near "soft rubber" (mu=1, nu=0.4); higher mu =
   // stiffer falloff, nu near 0.5 = nearly incompressible. The `@range`s

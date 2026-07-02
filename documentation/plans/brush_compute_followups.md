@@ -19,8 +19,13 @@ chain — items are largely independent.
 
 ## 1. Real GPU dispatch for brushes beyond DRAW
 
-**Status:** deferred. **Source:** `plans/wgsl_gpu_dispatch.md` (scoped that
-slice to "DRAW brush only").
+**Status:** DONE (superseded). Every brush in the kernel map runs through the
+real GPU dispatchers and is A/B-gated: `sbrush-verify` (Vulkan) /
+`webgpu-verify` (Dawn replay) / `wgpu-native-verify` (wgpu_compute), 22
+scripts each. The app itself now dispatches kelvinlet/grab on its own WebGPU
+device — see the app repo's `documentation/plans/gpuGlobalBrushes.md` (+ the
+`documentation/gpuBrushes.md` user doc). **Source:**
+`plans/wgsl_gpu_dispatch.md` (scoped that slice to "DRAW brush only").
 
 `plans/wgsl_gpu_dispatch.md` wired `set_backend wgsl` in the debug app to a
 real Vulkan compute pipeline (`source/vulkan/vk_compute.{h,cc}`,
@@ -134,8 +139,12 @@ GitHub Actions on the shared devcontainer image.
 
 ## 6. Browser A/B backend flag (TS-side smoke)
 
-**Status:** deferred. **Source:** `brush_compute_dsl.md` "TS-side smoke"
-section (Wave 3+).
+**Status:** superseded by the app GPU-brush path
+(`documentation/plans/gpuGlobalBrushes.md` in the app repo): the
+`sculptcore.gpu_brush` feature flag runs eligible brushes on the TS WebGPU
+device on BOTH backends, and `sculptcore.gpu_brush_verify` (shadow-verify) is
+the interactive A/B — CPU authoritative, GPU diffed per dab. **Source:**
+`brush_compute_dsl.md` "TS-side smoke" section (Wave 3+).
 
 Add a `--sculpt-backend=wgsl|spirv|cpp` debug flag in
 `scripts/editors/view3d/tools/sculptcore_ops.ts` mirroring the debug-app

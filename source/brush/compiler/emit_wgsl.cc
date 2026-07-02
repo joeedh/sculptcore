@@ -718,6 +718,11 @@ struct Emit {
     // Non-accumulate stroke flag (plans/nonAccumMode.md). Only accumulable
     // kernels read it; mirrors ComputeBrushUniforms::nonaccum at offset 24.
     write("  nonaccum: u32,\n");
+    // Grab-class per-dab generation (grab/kelvinlet first-touch stamps; only
+    // @grabmode kernels read it). Mirrors ComputeBrushUniforms::grab_dab_gen
+    // at offset 28 — the slot every other kernel treats as pad, so declaring
+    // it unconditionally shifts nothing (falloff_dir stays at 32).
+    write("  grab_dab_gen: u32,\n");
     // Direction for FalloffShape::Linear / primary axis of FalloffShape::Box.
     // vec3 needs 16-byte alignment in the uniform address space; the host
     // marshaler (ComputeBrushUniforms) must match the padding here.
@@ -862,8 +867,15 @@ struct Emit {
     // host fills it with the beginStroke co upload — on the GPU the mesh is
     // static for the stroke, so that upload IS every vert's stroke-start
     // position (the CPU generational stamp collapses to it).
-    if (!faceMode() && !brush->isGlobal && !brush->isPaint) {
+    if (!faceMode() && (brush->isGrabMode || (!brush->isGlobal && !brush->isPaint))) {
       write("@group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;\n");
+    }
+    // Grab-class first-touch stamps: one u32 per vertex, compared against
+    // brush_u.grab_dab_gen in the write-back — the WGSL twin of
+    // grabClaimFirstTouch. Fixed slot 23 = kDabStampBinding; the host zero-
+    // fills it at beginStroke (gen 0 never matches, dab gens start at 1).
+    if (!faceMode() && brush->isGrabMode) {
+      write("@group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;\n");
     }
     write("\n");
 
@@ -1226,11 +1238,17 @@ struct Emit {
     write("  if (lid >= sb_node.vert_count) { return; }\n");
     write("  let sb_vidx = unique_verts[sb_node.vert_offset + lid];\n");
     write("  var ");
-    write(vertexParamName); write("_co: vec3<f32> = co_buf[sb_vidx];\n");
+    if (brush->isGrabMode) {
+      // Grab-class kernels always deform from the stroke-start position — the
+      // WGSL twin of CoProxy<AccumOrigGrab>'s reads_base (accum_mode.h).
+      write(vertexParamName); write("_co: vec3<f32> = orig_co[sb_vidx];\n");
+    } else {
+      write(vertexParamName); write("_co: vec3<f32> = co_buf[sb_vidx];\n");
+    }
     // Non-accumulate: seed the local from the stroke-start snapshot, so the
     // body measures deformation from it and the single write-back lands the
     // result — the WGSL twin of CoProxy<AccumOrig> (accum_mode.h).
-    if (!brush->isGlobal && !brush->isPaint) {
+    if (!brush->isGlobal && !brush->isPaint && !brush->isGrabMode) {
       write("  if (brush_u.nonaccum != 0u) { ");
       write(vertexParamName); write("_co = orig_co[sb_vidx]; }\n");
     }
@@ -1313,7 +1331,21 @@ struct Emit {
     // |delta|/w (never below what's already applied) — the WGSL twin of
     // CoProxy::commit (accum_mode.h). Falloff controls build-up rate, not
     // final height, so scrubbing builds a uniform layer with no snap-back.
-    if (!brush->isGlobal && !brush->isPaint) {
+    // Grab-class write-back — the WGSL twin of CoProxy<AccumOrigGrab>::commit
+    // + grabClaimFirstTouch (accum_mode.h): the first image to write a vert
+    // this dab re-bases it absolutely from orig (follows the cursor); later
+    // images of the same dab add their displacement-from-orig, so shared seam
+    // verts sum and mirror-only verts never accumulate across dabs.
+    if (brush->isGrabMode) {
+      write("  if (dab_stamp[sb_vidx] != brush_u.grab_dab_gen) {\n");
+      write("    dab_stamp[sb_vidx] = brush_u.grab_dab_gen;\n");
+      write("  } else {\n");
+      write("    "); write(vertexParamName);
+      write("_co = co_buf[sb_vidx] + ("); write(vertexParamName);
+      write("_co - orig_co[sb_vidx]);\n");
+      write("  }\n");
+    }
+    if (!brush->isGlobal && !brush->isPaint && !brush->isGrabMode) {
       write("  if (brush_u.nonaccum != 0u) {\n");
       write("    let sb_base = orig_co[sb_vidx];\n");
       write("    let sb_d_cand = "); write(vertexParamName); write("_co - sb_base;\n");

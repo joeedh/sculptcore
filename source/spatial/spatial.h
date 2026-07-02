@@ -71,6 +71,13 @@ struct SpatialTree {
    * and flags every leaf for a GPU regen. */
   util::Vector<gpu::RequestedAttr> requestedAttrs;
   uint64_t requestedAttrsVersion = 0;
+
+  /** GPU node buffer-layout generation: bumped whenever a GPU node's
+   * aggregated buffers are (re)allocated or the partition changes
+   * (regen_gpu_node / assign_gpu_nodes). Callers caching per-corner scatter
+   * tables (buildGpuScatterTables) key on it — an unchanged gen means every
+   * node's pos/nor identity, slice layout, and corner order are still valid. */
+  uint64_t gpuLayoutGen = 1;
   /* Slots (RequestedAttr::slot) whose source layer is absent from the mesh, so
    * their buffer was default-filled. Advisory feedback for the renderengine;
    * recomputed by computeMissingAttrSlots(). Never causes a throw. */
@@ -763,6 +770,19 @@ struct SpatialTree {
    * gd.pos/gd.nor to gpu_storage|gpu_owned. The node's GpuData (slices /
    * total_verts) must already be current. */
   void buildGpuNodeSlotVertex(SpatialNode *gpu_node, gpu::GPUManager *gpu);
+
+  /** Corner->global-vertex scatter tables for every GPU node with live
+   * buffers (gpuGlobalBrushes.md M3). Appends 6 u32 per node to `meta`
+   * (pos/nor gpu::Buffer addresses as lo,hi identity keys — the TS batch
+   * executor's bufferKey — then corner offset+count into `map`) and one
+   * global vert id per render corner to `map`, in the exact regen_gpu_node
+   * fill order (fill_leaf_slot_verts per slice). `owners` (optional) gets the
+   * node of each meta record, index-aligned. `fillMap=false` skips the corner
+   * walk (meta/owners only — for callers whose map is cached). */
+  void buildGpuScatterTables(util::Vector<uint32_t> &meta,
+                             util::Vector<uint32_t> &map,
+                             util::Vector<SpatialNode *> *owners = nullptr,
+                             bool fillMap = true);
 
 private:
   sculptcore::gpu::DrawBatch *drawBatch = nullptr;
