@@ -35,6 +35,19 @@ bool ensureTopo(GpuBrushSession *s)
   return true;
 }
 
+// Build the scatter meta (+ owners) once per stroke; the corner map only when
+// asked (fillMap) — TS caches it across strokes keyed on the layout gen.
+void ensureScatter(GpuBrushSession *s, bool fillMap)
+{
+  if (fillMap ? s->scatterMapBuilt : s->scatterMetaBuilt) {
+    return;
+  }
+  s->tree->buildGpuScatterTables(s->scatterMeta, s->scatterMap, &s->scatterOwners,
+                                 fillMap);
+  s->scatterMetaBuilt = true;
+  s->scatterMapBuilt = fillMap;
+}
+
 } // namespace
 
 extern "C" {
@@ -118,6 +131,11 @@ int GpuBrush_info(void *session, int which)
   case GPUBRUSH_INFO_UNIQUE_COUNT: return int(s->uverts.size());
   case GPUBRUSH_INFO_STROKE_SAMPLE_COUNT: return int(s->strokePath.size());
   case GPUBRUSH_INFO_DAB_GEN: return int(s->dabGen);
+  case GPUBRUSH_INFO_GPU_LAYOUT_GEN:
+    return int(s->tree->gpuLayoutGen & 0x7fffffffu);
+  case GPUBRUSH_INFO_SCATTER_NODE_COUNT:
+    ensureScatter(s, false);
+    return int(s->scatterMeta.size() / 6);
   }
   return 0;
 }
@@ -156,6 +174,8 @@ int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
 
   // Undo: capture each node's pre-write state now, while the CPU mesh still
   // holds it (the per-dab readback apply overwrites v.co afterwards).
+  ensureScatter(s, false);
+  s->touchedOwnerIdx.clear();
   for (spatial::SpatialNode *node : s->nodes) {
     snapshotNodeForUndo(*s->log, node);
     if (!s->touched.contains(node)) {
@@ -163,6 +183,19 @@ int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
     }
     if (!s->pendingDirty.contains(node)) {
       s->pendingDirty.append(node);
+    }
+    // Owner set for the M3 scatter pass (meta indices, deduped per dab).
+    spatial::SpatialNode *owner = s->tree->find_gpu_owner(node);
+    if (owner) {
+      for (int oi = 0; oi < int(s->scatterOwners.size()); oi++) {
+        if (s->scatterOwners[oi] == owner) {
+          uint32_t idx = uint32_t(oi);
+          if (!s->touchedOwnerIdx.contains(idx)) {
+            s->touchedOwnerIdx.append(idx);
+          }
+          break;
+        }
+      }
     }
   }
 
@@ -216,6 +249,14 @@ int GpuBrush_dataSize(void *session, int which)
     return int(s->strokePath.size() * sizeof(ComputeStrokeSample));
   case GPUBRUSH_DATA_LIVE_CO:
     return s->info->faceMode ? 0 : int(s->elemCount * 3 * sizeof(float));
+  case GPUBRUSH_DATA_SCATTER_META:
+    ensureScatter(s, false);
+    return int(s->scatterMeta.size() * sizeof(uint32_t));
+  case GPUBRUSH_DATA_SCATTER_MAP:
+    ensureScatter(s, true);
+    return int(s->scatterMap.size() * sizeof(uint32_t));
+  case GPUBRUSH_DATA_TOUCHED_OWNERS:
+    return int(s->touchedOwnerIdx.size() * sizeof(uint32_t));
   }
   return 0;
 }
@@ -244,6 +285,13 @@ const void *GpuBrush_dataPtr(void *session, int which)
   case GPUBRUSH_DATA_CTX_UNIFORMS: return &s->ctxU;
   case GPUBRUSH_DATA_FALLOFF_LUT: return s->brush->falloff_curve.data();
   case GPUBRUSH_DATA_STROKE_PATH: return s->strokePath.data();
+  case GPUBRUSH_DATA_SCATTER_META:
+    ensureScatter(s, false);
+    return s->scatterMeta.data();
+  case GPUBRUSH_DATA_SCATTER_MAP:
+    ensureScatter(s, true);
+    return s->scatterMap.data();
+  case GPUBRUSH_DATA_TOUCHED_OWNERS: return s->touchedOwnerIdx.data();
   case GPUBRUSH_DATA_LIVE_CO: {
     if (s->info->faceMode) {
       return nullptr;

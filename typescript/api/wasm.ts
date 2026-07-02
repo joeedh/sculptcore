@@ -127,6 +127,9 @@ export const GpuBrushInfo = {
   UNIQUE_COUNT: 11,
   STROKE_SAMPLE_COUNT: 12,
   DAB_GEN: 13,
+  /** scatter-table cache key (SpatialTree::gpuLayoutGen); builds scatter meta */
+  GPU_LAYOUT_GEN: 14,
+  SCATTER_NODE_COUNT: 15,
 } as const
 
 /** GpuBrush_data selectors — hand-mirror of GpuBrushDataWhich in
@@ -149,6 +152,12 @@ export const GpuBrushData = {
   STROKE_PATH: 13,
   /** live mesh positions, re-packed per query (shadow-verify) */
   LIVE_CO: 14,
+  /** u32×6 per GPU node: pos/nor buffer keys (lo,hi) + corner offset,count */
+  SCATTER_META: 15,
+  /** u32 per render corner: global vert id, in fill_leaf order (lazy build) */
+  SCATTER_MAP: 16,
+  /** u32 meta indices of owners hit by the last marshalDab */
+  TOUCHED_OWNERS: 17,
 } as const
 
 /** Raw pointer-level view of the GpuBrush_* C exports (WASM only; unprefixed

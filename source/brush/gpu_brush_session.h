@@ -51,6 +51,19 @@ struct GpuBrushSession {
   GpuNormalTopology topo;
   bool topoBuilt = false;
 
+  // GPU-node scatter tables (M3): meta = 6 u32 per node (pos/nor buffer
+  // identity keys lo,hi + corner offset,count), map = corner->global-vert in
+  // fill order. metaBuilt is per stroke; the corner map fills lazily only
+  // when SCATTER_MAP is queried (TS caches it across strokes keyed on
+  // GPUBRUSH_INFO_GPU_LAYOUT_GEN).
+  litestl::util::Vector<uint32_t> scatterMeta;
+  litestl::util::Vector<uint32_t> scatterMap;
+  litestl::util::Vector<spatial::SpatialNode *> scatterOwners;
+  bool scatterMetaBuilt = false;
+  bool scatterMapBuilt = false;
+  // Meta indices of the GPU owner nodes touched by the last marshalDab.
+  litestl::util::Vector<uint32_t> touchedOwnerIdx;
+
   // Last-marshaled-dab state (GpuBrush_marshalDab).
   litestl::util::Vector<spatial::SpatialNode *> nodes;
   litestl::util::Vector<uint32_t> uverts;
@@ -91,6 +104,10 @@ enum GpuBrushInfoWhich : int32_t {
   GPUBRUSH_INFO_UNIQUE_COUNT = 11, // last dab's flattened element count
   GPUBRUSH_INFO_STROKE_SAMPLE_COUNT = 12,
   GPUBRUSH_INFO_DAB_GEN = 13,
+  // SpatialTree::gpuLayoutGen (truncated to 31 bits) — the scatter-table
+  // cache key. Builds the scatter meta on first query.
+  GPUBRUSH_INFO_GPU_LAYOUT_GEN = 14,
+  GPUBRUSH_INFO_SCATTER_NODE_COUNT = 15,
 };
 
 /** GpuBrush_dataPtr/dataSize(session, which) selectors — the raw upload blobs,
@@ -114,6 +131,12 @@ enum GpuBrushDataWhich : int32_t {
   // Live mesh positions, re-packed on every query (packed xyz). Shadow-verify
   // diffs the GPU readback against this after each CPU-authoritative dab.
   GPUBRUSH_DATA_LIVE_CO = 14,
+  // M3 scatter tables: meta = u32×6 per GPU node, map = u32 per render
+  // corner (lazily built — querying it pays the corner walk), touched =
+  // u32 meta indices of the owners hit by the last marshalDab.
+  GPUBRUSH_DATA_SCATTER_META = 15,
+  GPUBRUSH_DATA_SCATTER_MAP = 16,
+  GPUBRUSH_DATA_TOUCHED_OWNERS = 17,
 };
 
 } // namespace sculptcore::brush
