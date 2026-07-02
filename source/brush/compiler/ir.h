@@ -259,6 +259,12 @@ struct Brush {
   // always take the accumulate path. See plans/nonAccumMode.md.
   bool isGlobal = false;
   bool isPaint = false;
+  // `@grabmode`: grab-class from-orig brush (grab/kelvinlet). The WGSL emit
+  // mirrors CoProxy<AccumOrigGrab> (accum_mode.h): the vertex stage reads the
+  // stroke-start position (binding 22) and the write-back does per-dab
+  // first-touch arbitration via the dab-stamp buffer (binding 23). The C++
+  // leg ignores it — the executor selects AccumOrigGrab at runtime.
+  bool isGrabMode = false;
 };
 
 } // namespace sculptcore::brush::sbrush

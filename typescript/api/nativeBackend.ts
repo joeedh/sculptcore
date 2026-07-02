@@ -126,6 +126,42 @@ export interface NativeAddon {
   spatialTreeGetMissingAttrSlots(tree: NativeBound): number[]
   /** Force a per-attribute buffer rebuild against current mesh layers (byte-identical descriptor set). */
   spatialTreeRefreshRequestedAttrs(tree: NativeBound): void
+  // GPU brush-stroke seam (brush/c-api gpu_brush_c_api.cc). The session handle
+  // is a napi external — opaque; freed only by gpuBrushEndStroke/gpuBrushFree.
+  /** Open a GPU stroke session; undefined when the tool has no GPU kernel. */
+  gpuBrushBeginStroke(
+    mesh: NativeBound,
+    tree: NativeBound,
+    brush: NativeBound,
+    meshLog: NativeBound,
+    tool: number
+  ): NativeBound | undefined
+  /** Free a session without touching the mesh (abort path). */
+  gpuBrushFree(session: NativeBound): void
+  /** The session's kernel stem (brushWgsl key). */
+  gpuBrushKernelName(session: NativeBound): string
+  /** Query a GpuBrushInfo selector. */
+  gpuBrushInfo(session: NativeBound, which: number): number
+  /** Marshal one dab image; returns the workgroup count (0 = nothing to do). */
+  gpuBrushMarshalDab(
+    session: NativeBound,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    filterRadius: number,
+    mirrorIdx: number,
+    nonaccum: number
+  ): number
+  /** A marshaled blob (GpuBrushData selector) as a sandbox copy; empty when absent. */
+  gpuBrushData(session: NativeBound, which: number): Uint8Array
+  /** Per-dab readback apply (packed xyz for every element). */
+  gpuBrushApplyCo(session: NativeBound, co: Float32Array): void
+  /** Final apply (co/no may be null) + free the session. */
+  gpuBrushEndStroke(session: NativeBound, co: Float32Array | null, no: Float32Array | null): void
   // litestl allocator introspection (binding.cc LSTL_*).
   /** Tracked allocation size in bytes (+ the permanent pool when includePermanent). */
   getMemSize(includePermanent: boolean): number

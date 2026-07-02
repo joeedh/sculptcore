@@ -228,6 +228,11 @@ export async function replayFixture(fixturePath, wgslDir) {
   // the fixture's initial co bytes.
   const origCoBuf = has(22) ? makeBuffer(device, b64bytes(fx.co), BufferUsage.STORAGE) : null
 
+  // binding 23 (kDabStampBinding): grab-class per-vertex first-touch stamps,
+  // zero-filled at stroke begin exactly like the native dispatchers (gen 0
+  // never matches — dab gens start at 1). Persistent across dabs.
+  const dabStampBuf = has(23) ? makeBuffer(device, Buffer.alloc(vc * 4), BufferUsage.STORAGE) : null
+
   // Custom attribute layer (binding >=14, e.g. color's float4 or polygroup's
   // int "group"). Persistent across dabs like co/no — the kernel accumulates.
   // Seed from the captured input (fx.attrIn) or zeros; read back + diffed at the
@@ -271,6 +276,7 @@ export async function replayFixture(fixturePath, wgslDir) {
     add(12, {buffer: nbrMetaBuf})
     add(13, {buffer: nbrVertsBuf})
     add(22, {buffer: origCoBuf})
+    add(23, {buffer: dabStampBuf})
     if (attrBuf) entries.push({binding: attrSlot, resource: {buffer: attrBuf}})
     const bindGroup = device.createBindGroup({layout: bgl, entries})
 

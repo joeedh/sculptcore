@@ -109,6 +109,9 @@ private:
   /* binding 22 (kOrigCoBinding) — read-only stroke-start co for non-accumulate
    * mode; a copy of the beginStroke co upload, static across the stroke. */
   Buf origCo_;
+  /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
+   * (@grabmode kernels), zero-filled at beginStroke. */
+  Buf dabStamp_;
 
   /* Persistent MAP_READ staging buffer reused across every readback. Allocating
    * a fresh host-visible buffer per dab churns vkAllocateMemory/vkFreeMemory on
