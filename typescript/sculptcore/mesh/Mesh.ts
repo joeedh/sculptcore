@@ -65,6 +65,8 @@ export interface Mesh {
   movableVerts(out: int32[]): void
   edgeRing(e: int32, out: int32[]): void
   faceLoop(e: int32, out: int32[]): void
+  edgeLoop(e: int32, out: int32[]): void
+  faceEdgeNearest(f: int32, p: float3): int32
   calcAABB(minOut: float3, maxOut: float3): void
   new (): Mesh
 }

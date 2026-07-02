@@ -59,6 +59,7 @@ export interface MeshLog {
   selectIndices(m: Mesh, domain: int32, indices: int32[], state: int32): void
   selectAllElems(m: Mesh, domain: int32, state: int32): void
   selectShortestPath(m: Mesh, vEnd: int32, state: int32): int32
+  selectLoop(m: Mesh, seedEdge: int32, kind: int32, state: int32): int32
   selectScreenCircle(
     m: Mesh,
     tree: SpatialTree,

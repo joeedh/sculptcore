@@ -165,6 +165,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, movableVerts, MARGS("out"));
     BIND_STRUCT_METHOD(st, edgeRing, MARGS("e", "out"));
     BIND_STRUCT_METHOD(st, faceLoop, MARGS("e", "out"));
+    BIND_STRUCT_METHOD(st, edgeLoop, MARGS("e", "out"));
+    BIND_STRUCT_METHOD(st, faceEdgeNearest, MARGS("f", "p"));
     BIND_STRUCT_METHOD(st, calcAABB, MARGS("minOut", "maxOut"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
@@ -690,6 +692,10 @@ struct Mesh : public MeshBase {
   void movableVerts(util::Vector<int> &out);
   void edgeRing(int e, util::Vector<int> &out);
   void faceLoop(int e, util::Vector<int> &out);
+  /** Edge loop (end-to-end chain, Blender alt-click) through e. */
+  void edgeLoop(int e, util::Vector<int> &out);
+  /** Edge of face f nearest point p (cursor-hit -> edge pick). */
+  int faceEdgeNearest(int f, const math::float3 &p);
 
   /* Reorder one element domain in place. Each map is map[old] = new and must
    * be a full bijection over that domain's storage capacity (free slots

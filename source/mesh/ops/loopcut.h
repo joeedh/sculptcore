@@ -19,33 +19,9 @@
 
 namespace sculptcore::mesh::ops {
 
-/* Return the edge of face `f` whose segment is nearest the point `p` (for turning
- * a cursor ray hit into a loop-cut seed). ELEM_NONE if f is invalid. */
-static inline int faceEdgeNearestPoint(Mesh &m, int f, math::float3 p)
-{
-  if (f == ELEM_NONE || m.f.freemap[f]) {
-    return ELEM_NONE;
-  }
-  int best = ELEM_NONE;
-  float bestD = 1e30f;
-  int l = m.f.l[f], c0 = m.l.c[l], c = c0;
-  do {
-    int e = m.c.e[c];
-    math::float3 a = m.v.co[m.e.vs[e][0]], b = m.v.co[m.e.vs[e][1]];
-    math::float3 ab = b - a;
-    float len2 = ab.dot(ab);
-    float t = len2 > 1e-12f ? (p - a).dot(ab) / len2 : 0.0f;
-    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-    math::float3 cl = a + ab * t;
-    float d = (p - cl).dot(p - cl);
-    if (d < bestD) {
-      bestD = d;
-      best = e;
-    }
-    c = m.c.next[c];
-  } while (c != c0);
-  return best;
-}
+/* faceEdgeNearestPoint (cursor hit -> seed edge) moved to utils/modeling_walk.h;
+ * re-exposed here for the existing ops:: callers. */
+using sculptcore::mesh::faceEdgeNearestPoint;
 
 /* Loop-cut the quad strip through `seedEdge`. Appends the created midpoint verts
  * (the new loop) to outVerts and leaves them selected. */

@@ -1278,6 +1278,7 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, selectIndices, MARGS("m", "domain", "indices", "state"));
     BIND_STRUCT_METHOD(st, selectAllElems, MARGS("m", "domain", "state"));
     BIND_STRUCT_METHOD(st, selectShortestPath, MARGS("m", "vEnd", "state"));
+    BIND_STRUCT_METHOD(st, selectLoop, MARGS("m", "seedEdge", "kind", "state"));
     BIND_STRUCT_METHOD(
         st, selectScreenCircle, MARGS("m", "tree", "co", "ray", "r1", "r2", "domain", "state"));
     BIND_STRUCT_METHOD(st,
@@ -1758,7 +1759,7 @@ struct MeshLog {
     if (!tree->castRay(origin, dir, isect) || isect.faceIndex == ELEM_NONE) {
       return;
     }
-    int seed = mesh::ops::faceEdgeNearestPoint(*m, isect.faceIndex, isect.p);
+    int seed = mesh::faceEdgeNearestPoint(*m, isect.faceIndex, isect.p);
     if (seed == ELEM_NONE) {
       return;
     }
@@ -1932,6 +1933,37 @@ struct MeshLog {
     }
     active_vert_ = vEnd;
     return int(path.size());
+  }
+
+  /** Select the edge loop (kind 0), edge ring (kind 1), or face loop (kind 2)
+   * seeded at `seedEdge` (the ctrl / ctrl-shift click select). Pure selection —
+   * caller brackets the step. Returns the element count walked. */
+  int selectLoop(mesh::Mesh *m, int seedEdge, int kind, int state)
+  {
+    if (!m || seedEdge < 0) {
+      return 0;
+    }
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+    util::Vector<int> elems;
+    bool s = state != 0;
+    if (kind == 2) {
+      mesh::walkFaceLoop(*m, seedEdge, elems);
+      for (int f : elems) {
+        selectOne(m, 2, f, s);
+      }
+    } else {
+      if (kind == 0) {
+        mesh::walkEdgeLoop(*m, seedEdge, elems);
+      } else {
+        mesh::walkEdgeRing(*m, seedEdge, elems);
+      }
+      for (int e : elems) {
+        selectOne(m, 1, e, s);
+      }
+    }
+    return int(elems.size());
   }
 
   /* Select elements from a spatial query's collected face/vert sets, by domain.

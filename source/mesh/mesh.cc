@@ -1129,6 +1129,14 @@ void Mesh::faceLoop(int e, util::Vector<int> &out)
 {
   walkFaceLoop(*this, e, out);
 }
+void Mesh::edgeLoop(int e, util::Vector<int> &out)
+{
+  walkEdgeLoop(*this, e, out);
+}
+int Mesh::faceEdgeNearest(int f, const math::float3 &p)
+{
+  return faceEdgeNearestPoint(*this, f, p);
+}
 
 namespace {
 inline int remap(util::span<int> map, int idx)
