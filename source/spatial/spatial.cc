@@ -1835,24 +1835,18 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
   };
 
   int ncount = 0;
-  float lenSum = 0.0f;
   float4 tmpClr;
   for (int e : m->e) {
     if (edgeColor(e, tmpClr)) {
       ncount++;
-      lenSum += (m->v.co[m->e.vs[e][1]] - m->v.co[m->e.vs[e][0]]).length();
     }
   }
   if (ncount == 0) {
     return nullptr;
   }
 
-  // A single uniform push-out distance (a fraction of the *average* feature-edge
-  // length), not a per-edge one: a vertex shared by two feature edges of
-  // different lengths must land at the same offset position from both, or the
-  // polyline kinks/gaps at every shared vertex. Assumes m->v.no is unit-length
-  // (true after update_node_normals, which runs before drawQ rebuilds this batch).
-  const float off = (lenSum / float(ncount)) * 0.25f;
+  // No model-space push-out: the overlay shaders apply a polygonOffset-style
+  // NDC depth bias instead (litemesh_wgsl.ts OVERLAY_DEPTH_BIAS).
 
   const int totalVerts = ncount * 2;
   Buffer *posBuf = mgr.createBuffer(
@@ -1876,11 +1870,11 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
     // behind the mesh. Float each endpoint out along its vertex normal by the
     // uniform `off` so the line hovers just above the surface (visible from
     // outside, still occluded by geometry in front of it).
-    pos[idx] = m->v.co[v1] + m->v.no[v1] * off;
+    pos[idx] = m->v.co[v1];
     color[idx] = clr;
     idx++;
 
-    pos[idx] = m->v.co[v2] + m->v.no[v2] * off;
+    pos[idx] = m->v.co[v2];
     color[idx] = clr;
     idx++;
   }
@@ -1940,7 +1934,7 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
     return nullptr;
   }
   const float avg = lenSum / float(ecount);
-  const float off = avg * 0.2f;
+  // Cross size only; depth separation comes from the shader-side bias.
   const float cross = avg * 0.15f;
 
   // Element is drawn if selected OR the hover element of its domain.
@@ -2013,7 +2007,7 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
       int tri[3] = {vs[0], vs[i], vs[i + 1]};
       for (int k = 0; k < 3; k++) {
         int vv = tri[k];
-        pos[idx] = m->v.co[vv] + m->v.no[vv] * off;
+        pos[idx] = m->v.co[vv];
         color[idx] = clr;
         idx++;
       }
@@ -2037,7 +2031,7 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
     int v1 = m->e.vs[e][0];
     int v2 = m->e.vs[e][1];
     float4 clr = e == activeEdge ? actClr : !esel->get(e) ? hovClr : selClr;
-    addLine(m->v.co[v1] + m->v.no[v1] * off, m->v.co[v2] + m->v.no[v2] * off, clr);
+    addLine(m->v.co[v1], m->v.co[v2], clr);
   }
 
   for (int vi : m->v) {
@@ -2045,7 +2039,7 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
       continue;
     }
     float4 clr = vi == activeVert ? actClr : !vsel->get(vi) ? hovClr : selClr;
-    float3 p = m->v.co[vi] + m->v.no[vi] * off;
+    float3 p = m->v.co[vi];
     addLine(p - float3(cross, 0.0f, 0.0f), p + float3(cross, 0.0f, 0.0f), clr);
     addLine(p - float3(0.0f, cross, 0.0f), p + float3(0.0f, cross, 0.0f), clr);
     addLine(p - float3(0.0f, 0.0f, cross), p + float3(0.0f, 0.0f, cross), clr);
@@ -2083,16 +2077,14 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildWireframeBatch(sculptcore::gpu::GP
     m->thawTopo();
   }
 
-  float lenSum = 0.0f;
   int ecount = 0;
   for (int e : m->e) {
-    lenSum += (m->v.co[m->e.vs[e][1]] - m->v.co[m->e.vs[e][0]]).length();
+    (void)e;
     ecount++;
   }
   if (ecount == 0) {
     return nullptr;
   }
-  const float off = (lenSum / float(ecount)) * 0.1f;
 
   const int totalVerts = ecount * 2;
   Buffer *posBuf = mgr.createBuffer(
@@ -2106,10 +2098,10 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildWireframeBatch(sculptcore::gpu::GP
   int idx = 0;
   for (int e : m->e) {
     int v1 = m->e.vs[e][0], v2 = m->e.vs[e][1];
-    pos[idx] = m->v.co[v1] + m->v.no[v1] * off;
+    pos[idx] = m->v.co[v1];
     color[idx] = wireClr;
     idx++;
-    pos[idx] = m->v.co[v2] + m->v.no[v2] * off;
+    pos[idx] = m->v.co[v2];
     color[idx] = wireClr;
     idx++;
   }
@@ -2134,20 +2126,14 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildPointsBatch(sculptcore::gpu::GPUMa
     m->thawTopo();
   }
 
-  float lenSum = 0.0f;
-  int ecount = 0, vcount = 0;
-  for (int e : m->e) {
-    lenSum += (m->v.co[m->e.vs[e][1]] - m->v.co[m->e.vs[e][0]]).length();
-    ecount++;
-  }
+  int vcount = 0;
   for (int v : m->v) {
     (void)v;
     vcount++;
   }
-  if (vcount == 0 || ecount == 0) {
+  if (vcount == 0) {
     return nullptr;
   }
-  const float off = (lenSum / float(ecount)) * 0.1f;
 
   // Two triangles per point; the per-vertex corner expands the billboard quad.
   const float2 corners[6] = {float2(-1.0f, -1.0f), float2(1.0f, -1.0f), float2(1.0f, 1.0f),
@@ -2167,7 +2153,7 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildPointsBatch(sculptcore::gpu::GPUMa
   const float4 ptClr(0.05f, 0.05f, 0.05f, 1.0f); // near-black dots
   int idx = 0;
   for (int v : m->v) {
-    float3 p = m->v.co[v] + m->v.no[v] * off;
+    float3 p = m->v.co[v];
     for (int k = 0; k < 6; k++) {
       pos[idx] = p;
       corner[idx] = corners[k];

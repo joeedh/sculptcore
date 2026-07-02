@@ -159,6 +159,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, setVertCo, MARGS("idx", "x", "y", "z"));
     BIND_STRUCT_METHOD(st, symmetrize, MARGS("axis", "sign", "threshold"));
     BIND_STRUCT_METHOD(st, selectedCount, MARGS("domain"));
+    BIND_STRUCT_METHOD(st, elemSelected, MARGS("domain", "idx"));
     BIND_STRUCT_METHOD(st, selectedElems, MARGS("domain", "out"));
     BIND_STRUCT_METHOD(st, gatherVertCos, MARGS("idx", "out"));
     BIND_STRUCT_METHOD(st, selectionBoundaryEdges, MARGS("out"));
@@ -603,6 +604,24 @@ struct Mesh : public MeshBase {
     }
 
     return ELEM_NONE;
+  }
+
+  /** Selection state of one element (domain 0=vert,1=edge,2=face) — the
+   * shift-click toggle read. 0/1; 0 for an invalid index. */
+  int elemSelected(int domain, int idx)
+  {
+    switch (domain) {
+      case 0:
+        return idx >= 0 && idx < int(v.capacity()) && !v.freemap[idx] && v.select[idx] ? 1
+                                                                                       : 0;
+      case 1:
+        return idx >= 0 && idx < int(e.capacity()) && !e.freemap[idx] && e.select[idx] ? 1
+                                                                                       : 0;
+      case 2:
+        return idx >= 0 && idx < int(f.capacity()) && !f.freemap[idx] && f.select[idx] ? 1
+                                                                                       : 0;
+    }
+    return 0;
   }
 
   /* Count selected elements in a box-modeling domain (0=vert,1=edge,2=face) —
