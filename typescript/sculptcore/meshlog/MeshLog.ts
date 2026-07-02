@@ -31,6 +31,7 @@ export interface MeshLog {
   freeStep(id: int32): int32
   hasTopoChunk(): boolean
   reorderForLocality(tree: SpatialTree): void
+  compactIfFragmented(tree: SpatialTree, vertRatioThreshold: double): boolean
   extrudeRegion(m: Mesh, outNormal: float[]): void
   extrudeIndividual(m: Mesh, outNormal: float[]): void
   extrudeWireVerts(m: Mesh, outNormal: float[]): void
@@ -85,6 +86,5 @@ export interface MeshLog {
   activeVert(): int32
   activeEdge(): int32
   activeFace(): int32
-  compactIfFragmented(tree: SpatialTree, vertRatioThreshold: double): boolean
   new (): MeshLog
 }

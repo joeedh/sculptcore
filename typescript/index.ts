@@ -124,11 +124,11 @@ export type AllBoundTypes = {
   'sculptcore::meshlog::MeshLog': MeshLog
   'sculptcore::spatial::SpatialShaders': SpatialShaders
   'sculptcore::remesh::RemeshParams': RemeshParams
+  'sculptcore::dyntopo::DynTopoParams': DynTopoParams
   'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
     int2,
     '.edge.vs'
   >
-  'sculptcore::dyntopo::DynTopoParams': DynTopoParams
   'litestl::math::float2': float2
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,.face.normal>': BuiltinAttr<
     float3,
