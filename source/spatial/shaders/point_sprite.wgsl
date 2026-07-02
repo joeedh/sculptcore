@@ -33,7 +33,7 @@ fn vs_main(in : VsIn) -> VsOut {
   let ndcPerPx = vec2f(2.0, 2.0) / max(u.viewportSize.xy, vec2f(1.0, 1.0));
   clip = vec4f(clip.xy + in.corner * PT_HALF_PX * ndcPerPx * clip.w, clip.zw);
   // Overlay depth bias — keep in sync with litemesh_wgsl.ts OVERLAY_DEPTH_BIAS.
-  clip.z = clip.z - 1.5e-3 * clip.w;
+  clip.z = clip.z - 5e-3 * (clip.w - clip.z);
   out.clipPos = clip;
   out.vColor = in.color;
   out.vCorner = in.corner;

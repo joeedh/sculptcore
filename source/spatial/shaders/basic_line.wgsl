@@ -20,7 +20,7 @@ fn vs_main(in : VsIn) -> VsOut {
   var clip = spatial.drawMatrix * vec4f(in.position, 1.0);
   // Overlay depth bias (polygonOffset-style): pull toward the viewer in NDC.
   // Keep in sync with litemesh_wgsl.ts OVERLAY_DEPTH_BIAS.
-  clip.z = clip.z - 1.5e-3 * clip.w;
+  clip.z = clip.z - 5e-3 * (clip.w - clip.z);
   out.clipPos = clip;
   out.vColor = in.color;
   return out;
