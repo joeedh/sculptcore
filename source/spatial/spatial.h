@@ -724,13 +724,17 @@ struct SpatialTree {
 
   /* Build the box-modeling selection overlay batch: selected faces as
    * translucent fan-tris, selected edges as lines, selected verts as small
-   * crosses, with each domain's active element (-1 = none) highlighted white.
-   * Returns nullptr when nothing is selected. Like buildSeamBatch it floats the
-   * geometry out along vertex normals and is a static VBO rebuilt on change. */
+   * crosses, with each domain's active element (-1 = none) highlighted white
+   * and each domain's hover element (-1 = none) highlighted cyan. Returns
+   * nullptr when nothing is selected or hovered. Like buildSeamBatch it floats
+   * the geometry out along vertex normals; a static VBO rebuilt on change. */
   sculptcore::gpu::DrawBatch *buildSelectionBatch(sculptcore::gpu::GPUManager &mgr,
                                                   int activeVert,
                                                   int activeEdge,
-                                                  int activeFace);
+                                                  int activeFace,
+                                                  int hoverVert = -1,
+                                                  int hoverEdge = -1,
+                                                  int hoverFace = -1);
 
   /* Build the box-modeling wireframe overlay: every edge as a dim line, floated
    * out along vertex normals (same trick as buildSelectionBatch) so it hovers

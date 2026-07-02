@@ -167,6 +167,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, faceLoop, MARGS("e", "out"));
     BIND_STRUCT_METHOD(st, edgeLoop, MARGS("e", "out"));
     BIND_STRUCT_METHOD(st, faceEdgeNearest, MARGS("f", "p"));
+    BIND_STRUCT_METHOD(st, loopCutPreviewCoords, MARGS("seedEdge", "out"));
     BIND_STRUCT_METHOD(st, calcAABB, MARGS("minOut", "maxOut"));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     return st;
@@ -696,6 +697,9 @@ struct Mesh : public MeshBase {
   void edgeLoop(int e, util::Vector<int> &out);
   /** Edge of face f nearest point p (cursor-hit -> edge pick). */
   int faceEdgeNearest(int f, const math::float3 &p);
+  /** Loop-cut preview: per face-loop quad, the segment between its two ring-edge
+   * midpoints (flat xyz pairs) — where the cut verts will land. */
+  void loopCutPreviewCoords(int seedEdge, util::Vector<float> &out);
 
   /* Reorder one element domain in place. Each map is map[old] = new and must
    * be a full bijection over that domain's storage capacity (free slots

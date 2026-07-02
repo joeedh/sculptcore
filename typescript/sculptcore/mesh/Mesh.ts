@@ -67,6 +67,7 @@ export interface Mesh {
   faceLoop(e: int32, out: int32[]): void
   edgeLoop(e: int32, out: int32[]): void
   faceEdgeNearest(f: int32, p: float3): int32
+  loopCutPreviewCoords(seedEdge: int32, out: float[]): void
   calcAABB(minOut: float3, maxOut: float3): void
   new (): Mesh
 }

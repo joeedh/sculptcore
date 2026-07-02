@@ -49,9 +49,10 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, buildAll, MARGS());
   BIND_STRUCT_METHOD(st, buildLeafBoundsBatch, MARGS("batch"));
   BIND_STRUCT_METHOD(st, buildSeamBatch, MARGS("mgr", "includePolyGroup"));
-  BIND_STRUCT_METHOD(st,
-                     buildSelectionBatch,
-                     MARGS("mgr", "activeVert", "activeEdge", "activeFace"));
+  BIND_STRUCT_METHOD(
+      st,
+      buildSelectionBatch,
+      MARGS("mgr", "activeVert", "activeEdge", "activeFace", "hoverVert", "hoverEdge", "hoverFace"));
   BIND_STRUCT_METHOD(st, buildWireframeBatch, MARGS("mgr"));
   BIND_STRUCT_METHOD(st, buildPointsBatch, MARGS("mgr"));
   BIND_STRUCT_METHOD(st, markVertsMoved, MARGS("verts"));

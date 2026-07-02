@@ -43,7 +43,10 @@ export interface SpatialTree {
     mgr: GPUManager,
     activeVert: int32,
     activeEdge: int32,
-    activeFace: int32
+    activeFace: int32,
+    hoverVert: int32,
+    hoverEdge: int32,
+    hoverFace: int32
   ): DrawBatch | undefined
   buildWireframeBatch(mgr: GPUManager): DrawBatch | undefined
   buildPointsBatch(mgr: GPUManager): DrawBatch | undefined

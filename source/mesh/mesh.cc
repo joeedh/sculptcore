@@ -1133,6 +1133,52 @@ void Mesh::edgeLoop(int e, util::Vector<int> &out)
 {
   walkEdgeLoop(*this, e, out);
 }
+void Mesh::loopCutPreviewCoords(int seedEdge, util::Vector<float> &out)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  if (seedEdge < 0 || seedEdge >= int(e.capacity()) || e.freemap[seedEdge]) {
+    return;
+  }
+  util::Vector<int> ring, faces;
+  walkEdgeRing(*this, seedEdge, ring);
+  walkFaceLoop(*this, seedEdge, faces);
+  util::Set<int> ringSet;
+  for (int ei : ring) {
+    ringSet.add(ei);
+  }
+  auto mid = [&](int ei) {
+    return (v.co[e.vs[ei][0]] + v.co[e.vs[ei][1]]) * 0.5f;
+  };
+  // One preview segment per quad of the face loop: the midpoints of its two
+  // ring edges (where the cut verts will land).
+  for (int fi : faces) {
+    int e1 = ELEM_NONE, e2 = ELEM_NONE;
+    int li = f.l[fi], c0 = l.c[li], cc = c0;
+    do {
+      int ei = c.e[cc];
+      if (ringSet.contains(ei)) {
+        if (e1 == ELEM_NONE) {
+          e1 = ei;
+        } else if (ei != e1) {
+          e2 = ei;
+        }
+      }
+      cc = c.next[cc];
+    } while (cc != c0);
+    if (e1 == ELEM_NONE || e2 == ELEM_NONE) {
+      continue;
+    }
+    float3 a = mid(e1), b = mid(e2);
+    for (int k = 0; k < 3; k++) {
+      out.append(a[k]);
+    }
+    for (int k = 0; k < 3; k++) {
+      out.append(b[k]);
+    }
+  }
+}
 int Mesh::faceEdgeNearest(int f, const math::float3 &p)
 {
   return faceEdgeNearestPoint(*this, f, p);

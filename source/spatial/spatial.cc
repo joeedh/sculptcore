@@ -1904,7 +1904,10 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
 sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GPUManager &mgr,
                                                              int activeVert,
                                                              int activeEdge,
-                                                             int activeFace)
+                                                             int activeFace,
+                                                             int hoverVert,
+                                                             int hoverEdge,
+                                                             int hoverFace)
 {
   using namespace sculptcore::gpu;
 
@@ -1940,10 +1943,15 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
   const float off = avg * 0.2f;
   const float cross = avg * 0.15f;
 
-  // Pass 1: count fill-tri verts (single-outer-loop selected faces) + line verts.
+  // Element is drawn if selected OR the hover element of its domain.
+  auto faceIn = [&](int fi) { return fsel->get(fi) || fi == hoverFace; };
+  auto edgeIn = [&](int e) { return esel->get(e) || e == hoverEdge; };
+  auto vertIn = [&](int vi) { return vsel->get(vi) || vi == hoverVert; };
+
+  // Pass 1: count fill-tri verts (single-outer-loop faces) + line verts.
   int fillTriVerts = 0;
   for (int fi : m->f) {
-    if (!fsel->get(fi) || m->f.list_count[fi] != 1) {
+    if (!faceIn(fi) || m->f.list_count[fi] != 1) {
       continue;
     }
     int sz = m->l.size[m->f.l[fi]];
@@ -1953,12 +1961,12 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
   }
   int lineVerts = 0;
   for (int e : m->e) {
-    if (esel->get(e)) {
+    if (edgeIn(e)) {
       lineVerts += 2;
     }
   }
   for (int vi : m->v) {
-    if (vsel->get(vi)) {
+    if (vertIn(vi)) {
       lineVerts += 6;
     }
   }
@@ -1976,12 +1984,13 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
 
   const float4 selClr(1.0f, 0.6f, 0.1f, 1.0f); // orange
   const float4 actClr(1.0f, 1.0f, 1.0f, 1.0f); // white
+  const float4 hovClr(0.4f, 0.8f, 1.0f, 1.0f); // cyan (hover highlight)
 
   int idx = 0;
 
-  // Pass 2a: translucent selected-face fills [0, fillTriVerts).
+  // Pass 2a: translucent face fills [0, fillTriVerts) — selected + hover.
   for (int fi : m->f) {
-    if (!fsel->get(fi) || m->f.list_count[fi] != 1) {
+    if (!faceIn(fi) || m->f.list_count[fi] != 1) {
       continue;
     }
     int li = m->f.l[fi];
@@ -1989,8 +1998,9 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
     if (sz < 3) {
       continue;
     }
-    bool act = fi == activeFace;
-    float4 clr = act ? float4(1.0f, 1.0f, 1.0f, 0.45f) : float4(1.0f, 0.5f, 0.1f, 0.25f);
+    float4 clr = fi == activeFace  ? float4(1.0f, 1.0f, 1.0f, 0.45f)
+                 : !fsel->get(fi)  ? float4(0.4f, 0.8f, 1.0f, 0.3f)
+                                   : float4(1.0f, 0.5f, 0.1f, 0.25f);
 
     litestl::util::Vector<int, 32> vs;
     int c0 = m->l.c[li], cc = c0;
@@ -2021,20 +2031,20 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
   };
 
   for (int e : m->e) {
-    if (!esel->get(e)) {
+    if (!edgeIn(e)) {
       continue;
     }
     int v1 = m->e.vs[e][0];
     int v2 = m->e.vs[e][1];
-    float4 clr = e == activeEdge ? actClr : selClr;
+    float4 clr = e == activeEdge ? actClr : !esel->get(e) ? hovClr : selClr;
     addLine(m->v.co[v1] + m->v.no[v1] * off, m->v.co[v2] + m->v.no[v2] * off, clr);
   }
 
   for (int vi : m->v) {
-    if (!vsel->get(vi)) {
+    if (!vertIn(vi)) {
       continue;
     }
-    float4 clr = vi == activeVert ? actClr : selClr;
+    float4 clr = vi == activeVert ? actClr : !vsel->get(vi) ? hovClr : selClr;
     float3 p = m->v.co[vi] + m->v.no[vi] * off;
     addLine(p - float3(cross, 0.0f, 0.0f), p + float3(cross, 0.0f, 0.0f), clr);
     addLine(p - float3(0.0f, cross, 0.0f), p + float3(0.0f, cross, 0.0f), clr);
