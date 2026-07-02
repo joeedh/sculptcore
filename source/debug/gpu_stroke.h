@@ -2,6 +2,8 @@
 
 #ifdef SBRUSH_GPU_DISPATCH
 
+#include "brush/gpu_marshal.h"
+
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
 
@@ -133,27 +135,15 @@ class GpuStrokeSession {
   litestl::util::Vector<uint32_t> pendingVerts_;
   litestl::util::Vector<spatial::SpatialNode *> pendingNodes_;
 
-  /* Host copy of the normal topology (see buildNormalTopology) + per-dab work
-   * scratch. topoTriVerts_ is 3*topoTriCount_ global vertex indices; topoMeta_
-   * is uvec2 (offset,count) per vertex into topoList_, the incident-tri CSR.
-   * tri/vertStamp_ are generation stamps for O(1) dedup in buildDabWork. */
-  litestl::util::Vector<uint32_t> topoTriVerts_, topoMeta_, topoList_;
-  litestl::util::Vector<uint32_t> triStamp_, vertStamp_;
+  /* Host copy of the normal topology + per-dab work scratch (shared marshal —
+   * see brush::GpuNormalTopology). Built once at begin(); each dab derives its
+   * localized normal work set into workTris_/workVerts_ via topo_.dabWork. */
+  brush::GpuNormalTopology topo_;
   litestl::util::Vector<uint32_t> workTris_, workVerts_;
-  int topoTriCount_ = 0;
-  uint32_t stampGen_ = 0;
 
-  /* Build global triangle topology + vertex->incident-tri CSR and upload it to
-   * normalPass_ (once, at begin — the mesh is static during a stroke). A copy
-   * is kept on the session (topo*_ below) so each dab can derive its localized
-   * normal work set without re-triangulating. */
+  /* Build topo_ from the scene mesh and upload it to normalPass_ (once, at
+   * begin — the mesh is static during a stroke). */
   void buildNormalTopology(Scene &scene);
-  /* Fill workTris_/workVerts_ with the normals work set for a dab that moved
-   * `uverts`: every incident triangle of a moved vert (its face normal changes)
-   * plus the three verts of each such triangle (their vertex normal changes).
-   * Deduped via the per-element stamp arrays so cost scales with the dab, not
-   * the mesh. */
-  void buildDabWork(const litestl::util::Vector<uint32_t> &uverts);
   /* Snapshot a leaf's pre-dab co/no/f.no for undo, once per node per stroke. */
   void snapshotNode(Scene &scene, spatial::SpatialNode *node);
   /* Scatter every GPU node's current compute-pass co/no into its render VBOs on

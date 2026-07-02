@@ -18,6 +18,8 @@ set(SRC
   PUBLIC brush_concepts.h
   PUBLIC compute_layout.h
   PUBLIC compute_dispatch.h
+  PUBLIC gpu_marshal.h
+  gpu_marshal.cc
   PUBLIC stroke_spacing.h
   PUBLIC brushes/all.h
   PUBLIC feature_field.h

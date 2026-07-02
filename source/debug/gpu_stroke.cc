@@ -4,10 +4,9 @@
 
 #include "scene.h"
 
+#include "brush/gpu_marshal.h"
 #include "mesh/boundary.h"
 #include "mesh/mesh.h"
-#include "mesh/mesh_iter.h"
-#include "mesh/utils/triangulate.h"
 #include "meshlog/attr_saver.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
@@ -23,7 +22,6 @@
 #endif
 
 #include "litestl/math/geom.h"
-#include "litestl/util/index_range.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -123,34 +121,20 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     return false;
   }
 
-  // accumulable_ mirrors brush_command::accumulable: local deformation kernels
-  // (neither @global nor @paint) honor scene.nonAccum (plans/nonAccumMode.md).
-  switch (scene.currentTool) {
-  case brush::SculptBrushes::DRAW: kernel_ = "draw"; accumulable_ = true; break;
-  case brush::SculptBrushes::TEXDRAW: kernel_ = "texdraw"; accumulable_ = true; break;
-  // Clay family all runs the `plane` kernel (planeoff/planeSide select the
-  // variant), mirroring brush_executor's createPlaneBrush dispatch.
-  case brush::SculptBrushes::CLAY:
-  case brush::SculptBrushes::SCRAPE:
-  case brush::SculptBrushes::FILL:
-    kernel_ = "plane"; accumulable_ = true; break;
-  case brush::SculptBrushes::INFLATE: kernel_ = "inflate"; accumulable_ = true; break;
-  case brush::SculptBrushes::PINCH: kernel_ = "pinch"; accumulable_ = true; break;
-  case brush::SculptBrushes::SHARP: kernel_ = "sharp"; accumulable_ = true; break;
-  case brush::SculptBrushes::MASK: kernel_ = "mask"; writesMask_ = true; break;
-  case brush::SculptBrushes::SMOOTH:
-    kernel_ = "smooth"; needsNeighbors_ = true; accumulable_ = true; break;
-  case brush::SculptBrushes::KELVINLET: kernel_ = "kelvinlet"; break;
-  case brush::SculptBrushes::POSE: kernel_ = "pose"; break;
-  case brush::SculptBrushes::COLOR: kernel_ = "color"; writesColor_ = true; break;
-  case brush::SculptBrushes::POLYGROUP: kernel_ = "polygroup"; faceMode_ = true; break;
-  case brush::SculptBrushes::BSMOOTH:
-    kernel_ = "bsmooth"; needsNeighbors_ = true; readsVclass_ = true;
-    accumulable_ = true; break;
-  default:
+  // Kernel + capability bits come from the shared marshal table (one map for
+  // the debug app and the app seam alike).
+  const brush::GpuKernelInfo *kinfo = brush::gpuKernelForTool(scene.currentTool);
+  if (!kinfo) {
     err = "stroke(wgsl): tool has no GPU kernel";
     return false;
   }
+  kernel_ = kinfo->kernel;
+  needsNeighbors_ = kinfo->needsNeighbors;
+  writesMask_ = kinfo->writesMask;
+  writesColor_ = kinfo->writesColor;
+  accumulable_ = kinfo->accumulable;
+  readsVclass_ = kinfo->readsVclass;
+  faceMode_ = kinfo->faceMode;
 
   mesh::Mesh *m = scene.mesh;
   vcount_ = m->v.count;
@@ -173,31 +157,10 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   // (polygroup) fills 0/1 with face centroids/normals and 2 with a zero dummy,
   // and the per-dab unique/nodes arrays then carry faces instead of verts. The
   // element count handed to beginStroke is the face count in face mode.
-  int uploadCount = vcount_;
   Vector<float> co, no, mask;
+  int uploadCount = brush::packGeometry(*m, scene.tree, faceMode_, co, no, mask);
   if (faceMode_) {
-    faceCount_ = m->f.count;
-    uploadCount = faceCount_;
-    co.resize(size_t(faceCount_) * 3);
-    no.resize(size_t(faceCount_) * 3);
-    mask.resize(size_t(faceCount_)); // dummy: binding 2 is unread by the face kernel
-    for (int fi = 0; fi < faceCount_; fi++) {
-      mesh::FaceProxy fp(m, fi);
-      float3 ctr = fp.calc_center();
-      float3 fn = m->f.no[fi];
-      co[fi * 3 + 0] = ctr[0]; co[fi * 3 + 1] = ctr[1]; co[fi * 3 + 2] = ctr[2];
-      no[fi * 3 + 0] = fn[0];  no[fi * 3 + 1] = fn[1];  no[fi * 3 + 2] = fn[2];
-    }
-  } else {
-    co.resize(size_t(vcount_) * 3);
-    no.resize(size_t(vcount_) * 3);
-    mask.resize(size_t(vcount_));
-    for (int i = 0; i < vcount_; i++) {
-      float3 c = m->v.co[i], n = m->v.no[i];
-      co[i * 3 + 0] = c[0]; co[i * 3 + 1] = c[1]; co[i * 3 + 2] = c[2];
-      no[i * 3 + 0] = n[0]; no[i * 3 + 1] = n[1]; no[i * 3 + 2] = n[2];
-      mask[i] = scene.tree->treeMesh.v.mask[i];
-    }
+    faceCount_ = uploadCount;
   }
   if (cap_) {
     capCo_ = b64Stride16(co.data(), uploadCount);
@@ -268,31 +231,21 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     return true;
   }
 
-  // CSR neighbor topology for for_neighbor kernels. Sourced from the shared,
-  // frozen-topology MeshTopoCache (built via the same EdgeOfVertIter walk as
-  // the C++ kernel), so the per-vertex `avg += nb.co` accumulates identically —
-  // keeping the GPU result bit-modulo-fp identical and amortizing the build
-  // across strokes. Derive the per-vert {offset,count} meta from the cache's
-  // prefix-sum offsets.
+  // CSR neighbor topology for for_neighbor kernels (shared marshal — same
+  // EdgeOfVertIter-order cache as the C++ kernel, so the GPU result stays
+  // bit-modulo-fp identical).
   if (needsNeighbors_) {
-    m->topo_cache.ensureRing1(*m);
-    mesh::VertNbrCSR &csr = m->topo_cache.ring1;
     Vector<vulkan::ComputeVertNbr> meta;
-    meta.resize(vcount_);
-    for (int v = 0; v < vcount_; v++) {
-      uint32_t off = csr.offsets[v];
-      meta[v].offset = off;
-      meta[v].count = csr.offsets[v + 1] - off;
-    }
-    const uint32_t *flat = reinterpret_cast<const uint32_t *>(csr.nbr_verts.data());
-    int flatCount = int(csr.nbr_verts.size());
+    const uint32_t *flat = nullptr;
+    int flatCount = 0;
+    brush::packNeighborCSR(*m, vcount_, meta, &flat, &flatCount);
     if (!disp_->setNeighbors(meta.data(), vcount_, flat, flatCount)) {
       err = "stroke(wgsl): neighbor upload failed";
       return false;
     }
     if (cap_) {
       capNbrMeta_ = b64encode(meta.data(), meta.size() * sizeof(vulkan::ComputeVertNbr));
-      capNbrVerts_ = b64encode(csr.nbr_verts.data(), size_t(flatCount) * sizeof(int));
+      capNbrVerts_ = b64encode(flat, size_t(flatCount) * sizeof(uint32_t));
     }
   }
 
@@ -393,121 +346,15 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   return true;
 }
 
-// Build the global triangle topology (3 vertex indices per fan-triangulated
-// face) plus a vertex->incident-triangle CSR, and upload it to normalPass_.
-// The mesh is static during a stroke, so this runs once at begin(). The
-// triangulation matches mesh::triangulate (the render path's), not the spatial
-// per-node fan — GPU normals are render/pick-only and intentionally not
-// bit-identical to the CPU per-node normals.
+// Build the shared-marshal normal topology (mesh::triangulate order — GPU
+// normals are render/pick-only, intentionally not bit-identical to the CPU
+// per-node normals) and upload it to normalPass_. Runs once at begin().
 void GpuStrokeSession::buildNormalTopology(Scene &scene)
 {
-  mesh::Mesh *m = scene.mesh;
-
-  litestl::util::Vector<mesh::Tri> tris;
-  mesh::triangulate(*m, litestl::util::IndexRange(0, m->f.count), tris);
-  int triCount = int(tris.size());
-  topoTriCount_ = triCount;
-
-  topoTriVerts_.resize(size_t(triCount) * 3);
-
-  // Pass 1: flatten tri vertex indices + count incident tris per vertex.
-  Vector<uint32_t> counts;
-  counts.resize(vcount_);
-  for (int v = 0; v < vcount_; v++) {
-    counts[v] = 0;
-  }
-  for (int t = 0; t < triCount; t++) {
-    for (int j = 0; j < 3; j++) {
-      int v = tris[t].v[j];
-      topoTriVerts_[size_t(t) * 3 + j] = uint32_t(v);
-      counts[v]++;
-    }
-  }
-
-  // Pass 2: prefix-sum into a (offset,count) CSR meta, then scatter tri indices.
-  topoMeta_.resize(size_t(vcount_) * 2);  // uvec2: [2v]=offset, [2v+1]=count
-  uint32_t off = 0;
-  for (int v = 0; v < vcount_; v++) {
-    topoMeta_[size_t(v) * 2 + 0] = off;
-    topoMeta_[size_t(v) * 2 + 1] = counts[v];
-    off += counts[v];
-  }
-  topoList_.resize(off);
-  Vector<uint32_t> cursor;
-  cursor.resize(vcount_);
-  for (int v = 0; v < vcount_; v++) {
-    cursor[v] = topoMeta_[size_t(v) * 2 + 0];
-  }
-  for (int t = 0; t < triCount; t++) {
-    for (int j = 0; j < 3; j++) {
-      int v = tris[t].v[j];
-      topoList_[cursor[v]++] = uint32_t(t);
-    }
-  }
-
-  // Dedup stamp arrays for buildDabWork (0 = unstamped; stampGen_ starts at 1).
-  triStamp_.resize(triCount);
-  vertStamp_.resize(vcount_);
-  for (int t = 0; t < triCount; t++) triStamp_[t] = 0;
-  for (int v = 0; v < vcount_; v++) vertStamp_[v] = 0;
-  stampGen_ = 0;
-
-  normalPass_->setTopology(topoTriVerts_.data(), triCount, topoMeta_.data(),
-                           vcount_, topoList_.data(), int(topoList_.size()));
-}
-
-void GpuStrokeSession::buildDabWork(const litestl::util::Vector<uint32_t> &uverts)
-{
-  stampGen_++;
-  uint32_t gen = stampGen_;
-  workTris_.clear();
-  workVerts_.clear();
-
-  // Every incident triangle of a moved vert recomputes its face normal.
-  for (uint32_t v : uverts) {
-    uint32_t off = topoMeta_[size_t(v) * 2 + 0];
-    uint32_t cnt = topoMeta_[size_t(v) * 2 + 1];
-    for (uint32_t k = 0; k < cnt; k++) {
-      uint32_t t = topoList_[off + k];
-      if (triStamp_[t] != gen) {
-        triStamp_[t] = gen;
-        workTris_.append(t);
-      }
-    }
-  }
-  // Each touched triangle's three verts then re-sum their vertex normal.
-  for (uint32_t t : workTris_) {
-    for (int j = 0; j < 3; j++) {
-      uint32_t v = topoTriVerts_[size_t(t) * 3 + j];
-      if (vertStamp_[v] != gen) {
-        vertStamp_[v] = gen;
-        workVerts_.append(v);
-      }
-    }
-  }
-  // The vert pass re-sums each work vert's normal over its *full* incident-face
-  // ring (the CSR), but the face pass above only refreshes triNo for faces that
-  // touch a moved vert. A work vert on the boundary of that region has incident
-  // faces outside workTris_ whose triNo would be stale (or uninitialized garbage
-  // on the first dab) — corrupting the summed vertex normal. Expand workTris_ to
-  // cover every incident face of every work vert so all triNo a work vert reads
-  // are freshly computed. workVerts_ is left unchanged: only verts adjacent to
-  // motion need their normal recomputed; the extra faces exist solely to give
-  // those verts a complete, fresh 1-ring. (Iterate by index — workVerts_ is not
-  // grown here, but appending to workTris_ must not alias the loop range.)
-  int boundaryStart = int(workVerts_.size());
-  for (int i = 0; i < boundaryStart; i++) {
-    uint32_t v = workVerts_[i];
-    uint32_t off = topoMeta_[size_t(v) * 2 + 0];
-    uint32_t cnt = topoMeta_[size_t(v) * 2 + 1];
-    for (uint32_t k = 0; k < cnt; k++) {
-      uint32_t t = topoList_[off + k];
-      if (triStamp_[t] != gen) {
-        triStamp_[t] = gen;
-        workTris_.append(t);
-      }
-    }
-  }
+  topo_.build(*scene.mesh);
+  normalPass_->setTopology(topo_.triVerts.data(), topo_.triCount,
+                           topo_.meta.data(), vcount_, topo_.list.data(),
+                           int(topo_.list.size()));
 }
 
 // Scatter every GPU node's compute-pass co/no into its render VBOs on the
@@ -612,26 +459,8 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
 
   Vector<uint32_t> uverts;
   Vector<vulkan::ComputeNodeMeta> chunks;
+  brush::chunkNodes(nodes, faceMode_, uverts, chunks);
   for (auto *node : nodes) {
-    // Face kernel threads over the node's covered faces; vertex kernels over its
-    // verts. Both are OrderedSet<int> of global indices flattened into uverts +
-    // 64-wide NodeMeta chunks (the field is named vert_* but is just offset/count).
-    auto &uv = faceMode_ ? node->unique_faces() : node->unique_verts();
-    Vector<int> idx;
-    for (int gi : uv) {
-      idx.append(gi);
-    }
-    int n = int(idx.size());
-    for (int written = 0; written < n; written += 64) {
-      int cnt = (n - written < 64) ? (n - written) : 64;
-      vulkan::ComputeNodeMeta meta;
-      meta.vert_offset = uint32_t(uverts.size());
-      meta.vert_count = uint32_t(cnt);
-      for (int k = 0; k < cnt; k++) {
-        uverts.append(uint32_t(idx[written + k]));
-      }
-      chunks.append(meta);
-    }
     // Any per-dab readback path (live Vulkan scatter or WgpuNative CPU readback)
     // captures this node's pre-dab state for undo the first time it is touched,
     // before the readback below overwrites m->v.co.
@@ -641,114 +470,17 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
     touched_.append(node);
   }
 
+  // Uniform packing lives in the shared marshal (gpu_marshal.cc) — including
+  // the kelvinlet host clamps and the polygroup activeGroup slot alias.
   vulkan::ComputeBrushUniforms bu;
-  bu.strength = scene.brush.strength;
-  bu.radius = scene.brush.radius;
-  bu.spacing = scene.brush.spacing;
-  bu.invert = scene.brush.invert ? 1u : 0u;
-  bu.falloff_kind = uint32_t(scene.brush.falloff_kind);
-  bu.falloff_shape = uint32_t(scene.brush.falloff_shape);
-  bu.falloff_dir[0] = scene.brush.falloff_dir[0];
-  bu.falloff_dir[1] = scene.brush.falloff_dir[1];
-  bu.falloff_dir[2] = scene.brush.falloff_dir[2];
-  bu.falloff_extent[0] = scene.brush.falloff_extent[0];
-  bu.falloff_extent[1] = scene.brush.falloff_extent[1];
-  bu.falloff_extent[2] = scene.brush.falloff_extent[2];
-  bu.coord_space = uint32_t(scene.brush.coord_space);
-  bu.tex_repeat = scene.brush.tex_repeat;
-  bu.stroke_path_count = uint32_t(scene.brush.strokePathCount);
-  bu.nonaccum = (scene.nonAccum && accumulable_) ? 1u : 0u;
-
-  // POLYGROUP custom uniform `activeGroup` (the id painted under the brush). In
-  // the WGSL BrushUniforms it's the first appended DSL uniform, at offset 72 —
-  // the same slot the host struct gives kelvinlet's `mu` (the first field after
-  // the fixed block). The two are mutually exclusive brushes, so we reuse the
-  // slot, writing the i32 bits into the f32 `mu` as a bit-reinterpret (WGSL
-  // reads `activeGroup` as i32). FRAGILE: this only works while `mu` is the
-  // first post-fixed field — the static_assert pins that. If another DSL-uniform
-  // brush is added, give it its own named slot instead of aliasing `mu`.
-  static_assert(offsetof(vulkan::ComputeBrushUniforms, mu) == 72,
-                "polygroup activeGroup aliases the first appended DSL uniform "
-                "slot (offset 72); update this if the layout changes");
-  if (faceMode_) {
-    int ag = scene.brush.activeGroup;
-    std::memcpy(&bu.mu, &ag, sizeof(int));
-  }
-
-  // Kelvinlet host stage (clampParams) is C++-only — never lowered to WGSL —
-  // so replicate it here before marshaling mu/nu (mirrors kelvinlet.sbrush).
-  if (scene.currentTool == brush::SculptBrushes::KELVINLET) {
-    if (scene.brush.nu > 0.499f) scene.brush.nu = 0.499f;
-    if (scene.brush.nu < 0.0f) scene.brush.nu = 0.0f;
-    if (scene.brush.mu < 1e-6f) scene.brush.mu = 1e-6f;
-    bu.mu = scene.brush.mu;
-    bu.nu = scene.brush.nu;
-  }
-
-  // Pinch / Sharp: the `@static` `pinch` uniform is the first appended DSL slot
-  // (offset 72, aliasing mu). Without this the kernel reads mu's 1.0 default.
-  if (scene.currentTool == brush::SculptBrushes::PINCH ||
-      scene.currentTool == brush::SculptBrushes::SHARP) {
-    bu.pinch = scene.brush.pinch;
-  }
-
-  // Plane family (Clay/Scrape/Fill): the kernel's appended DSL uniforms.
-  if (scene.currentTool == brush::SculptBrushes::CLAY ||
-      scene.currentTool == brush::SculptBrushes::SCRAPE ||
-      scene.currentTool == brush::SculptBrushes::FILL) {
-    bu.planeoff = scene.brush.planeoff;
-    bu.planeSide = scene.brush.planeSide;
-  }
-
-  // Color paint: `brushColor` vec4 lives past the scalar union slots (16-byte
-  // alignment puts it at offset 80 in the color kernel's BrushUniforms).
-  if (scene.currentTool == brush::SculptBrushes::COLOR) {
-    for (int i = 0; i < 4; i++) {
-      bu.brushColor[i] = scene.brush.brushColor[i];
-    }
-  }
+  brush::packBrushUniforms(scene.brush, scene.currentTool, scene.nonAccum, bu);
 
   vulkan::ComputeCtxUniforms cu;
-  cu.surfacePos[0] = origin[0]; cu.surfacePos[1] = origin[1]; cu.surfacePos[2] = origin[2];
-  cu.surfaceNo[0] = normal[0]; cu.surfaceNo[1] = normal[1]; cu.surfaceNo[2] = normal[2];
-  // VIEWPLANE/VIEWREPEAT sample brush_tex in render_matrix space; Global/
-  // StrokeCurved ignore it. litestl::math::Matrix::operator*(vec) consumes its
-  // backing buffer row-major (result[i] = dot(row_i, v) + row_i[3]), but WGSL
-  // mat4x4<f32> / std140 storage is column-major — so transpose on the way out
-  // or the two backends read different matrices.
-  {
-    const float *rm = scene.renderMatrix;  // row-major
-    for (int r = 0; r < 4; r++) {
-      for (int c = 0; c < 4; c++) {
-        cu.render_matrix[c * 4 + r] = rm[r * 4 + c];
-      }
-    }
-  }
-
-  // Global-brush ctx tail (offset 96): kelvinlet grab vectors or pose cage.
-  if (scene.currentTool == brush::SculptBrushes::KELVINLET) {
-    for (int i = 0; i < 3; i++) {
-      cu.global.kelvinlet.grabFrom[i] = scene.brush.grabFrom[i];
-      cu.global.kelvinlet.grabTo[i] = scene.brush.grabTo[i];
-    }
-  } else if (scene.currentTool == brush::SculptBrushes::POSE) {
-    for (int a = 0; a < 4; a++) {
-      for (int i = 0; i < 3; i++) {
-        cu.global.pose.poseCageRest[a][i] = scene.brush.poseCageRest[a][i];
-        cu.global.pose.poseCageNow[a][i] = scene.brush.poseCageNow[a][i];
-      }
-    }
-  }
+  brush::packCtxUniforms(scene.brush, scene.currentTool, origin, normal,
+                         scene.renderMatrix, cu);
 
   Vector<vulkan::ComputeStrokeSample> sp;
-  for (int i = 0; i < scene.brush.strokePathCount; i++) {
-    const auto &s = scene.brush.strokePath[i];
-    vulkan::ComputeStrokeSample o;
-    o.pos[0] = s.pos[0]; o.pos[1] = s.pos[1]; o.pos[2] = s.pos[2];
-    o.normal[0] = s.normal[0]; o.normal[1] = s.normal[1]; o.normal[2] = s.normal[2];
-    o.arclen = s.arclen;
-    sp.append(o);
-  }
+  brush::packStrokePath(scene.brush, sp);
 
   // GPU-resident live path: batch the brush dab and the localized normal
   // recompute into a single submit (dab -> barrier -> face -> barrier -> vert),
@@ -763,7 +495,7 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
       err = "stroke(wgsl): compute dispatch failed";
       return false;
     }
-    buildDabWork(uverts);
+    topo_.dabWork(uverts, workTris_, workVerts_);
     normalPass_->prepareNormals(vkDisp_->coBuffer(), vkDisp_->noBuffer(),
                                 workTris_.data(), int(workTris_.size()),
                                 workVerts_.data(), int(workVerts_.size()));
