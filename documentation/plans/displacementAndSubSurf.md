@@ -9,11 +9,23 @@ gates). Companion design docs:
 
 ## Status (2026-07-02)
 
-**Workstream F merged to master**; the `displacement` (V) and `subsurf` (S)
-worktrees exist. **S1–S5 implemented on branch `subsurf`** (parent repo +
-sculptcore, matching branches) — the S track's engine work is complete; the
-app-wiring pass (level-switch op + UI, wasm↔native parity, down-refit op,
-production draw integration with V's tier in X3) remains.
+**Workstream F merged to master** (branch `displacement-subsurf-f`, torn
+down); the V and S tracks are live in their worktrees (`displacement` /
+`subsurf` branches). **V1 done** on `displacement`:
+
+- **V1 done.** `source/vdm/vdm_store.{h,cc}`: sparse tiled float3 store,
+  atlas backend behind the `sample(face, u, v)` parameterization seam (face
+  unused until Ptex/X2); tiles allocated on first write, unallocated space
+  samples zero; per-tile max|D| bounds + conservative UV-rect queries;
+  `exportFaceBounds` (corner-UV bbox → tile bounds) feeds F2's
+  `setFaceDisplacementBounds`; self-inverse tile-delta undo bracket
+  (`beginDelta`/`endDelta`/`applyDelta`, the LogChunkElems::swap pattern —
+  V2 brackets it inside the dab's MeshLog step); lz4 BinFile container
+  serialization (mirrors `serial::writeMesh`). Gate green: `test_vdm_store`
+  (write/sample/bilinear, bound pyramid vs brute force, undo/redo
+  round-trips, bit-exact serialize round-trip, per-face export).
+
+Workstream F recap:
 
 - **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
   (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh
@@ -44,130 +56,8 @@ production draw integration with V's tier in X3) remains.
   Gate green: `test_frame_provider` — sphere/cube orthonormality,
   Poincaré–Hopf index sum == 4χ == 8, bit-identical recompute.
 
-- **S1 done.** `source/subdiv/` (new module): uniform Catmull-Clark `Refiner`
-  over `mesh::Mesh` — level 1 splits n-gons to quads, later levels regular;
-  crease rules from `EDGE_SHARP` + mesh boundary (non-2-manifold edges crease),
-  with `EDGE_SHARP` propagated onto child edges each level. Per level:
-  materialized level mesh, vert count, Ptex-style per-cage-corner grid tables
-  (`gridVerts`/`gridFaces`, `gridSide = 2^L`), and the cached `StencilTable`
-  (CSR, fine vert = sparse combo of the previous level's verts, rows ascending
-  by coarse id). Level geometry is *defined* as evaluating the stencil rows,
-  so `evalFromCage` (chained per-level SpMV) is bit-identical to re-running
-  the refiner — the arithmetic contract S5's GPU SpMV must reproduce. A
-  single composed-to-cage table was deliberately rejected: float multiply
-  doesn't distribute over the chained sums, so it cannot be bit-consistent.
-  Gate green: `test_subdiv` — hand-checked cube / creased-cube / triangle-fan
-  / pentagon fixtures (smooth, crease, boundary, and n-gon rules), grid-table
-  invariants (corner/edge/face-point anchors, neighbor sharing, exact
-  vert/face coverage), and cached-stencil evaluation of a perturbed cage
-  memcmp-equal to direct recursive re-subdivision, three levels deep.
-
-- **S2 done.** `source/subdiv/grids.{h,cc}`: `GridsStore` — per-quadrant-
-  after-one-split grids (Ptex `__faceindex`; the open granularity question §9.3
-  is settled to per-quadrant, matching S1's Refiner enumeration exactly).
-  Channels are per-level flat float arrays (channel 0 = the always-present
-  frame-relative `float3` "disp"; custom 1–4-float channels addable before or
-  after levels exist), chunked by whole grids (~256 KiB targets) so the
-  serialized form — a `writeMesh`-shaped BinFile+lz4 container whose payload
-  is offset-table-headed — permits later per-chunk disk paging (X5) without a
-  format change. Implicit topology: 4 per-grid `GridLink`s derived from the
-  cage (right/top = same-face neighbor grids, left/bottom = across-cage-edge;
-  every seam mapping is a transpose, param preserved), `neighbor()` does O(1)
-  lattice steps incl. cross-grid crossings, `seamMates()` (BFS over links)
-  enumerates a boundary vert's replicas for S4's write-sync. Boundary verts
-  are deliberately REPLICATED per grid (Blender-CCG-style). Gate green:
-  `test_grids_store` — every lattice step on cube/fan/pentagon at every level
-  cross-checked mesh-edge-adjacent against the S1 refiner's actual level
-  meshes, seamMates verified against an exact replica census of the grid
-  tables, unlinked steps only at true mesh boundary, and a bitwise
-  fill/serialize/read round-trip incl. chunk geometry.
-
-- **S3 done (core).** `source/subdiv/multires.{h,cc}`: `Multires` —
-  materializes the active level's `mesh::Mesh` + `SpatialTree` from the
-  cached per-level position chain (base_L = stencil_L(pos_{L−1}), pos_L =
-  base_L + F3-frame·disp_L, frames on the smoothed base), topology rebuilt on
-  demand from S1's grid tables (the refiner's eager level meshes are released
-  after refine — `Refiner::releaseMeshes()`). LRU keeps `lruBudget` (default
-  3) levels resident, never evicting the active one. `writeback()`
-  re-expresses level positions into store deltas and **skips verts bitwise
-  equal to the materialized baseline** — that skip is what makes edit-free
-  switches lossless (a frame-projection round-trip is not float-exact, so
-  drift is only ever paid where an edit happened); changed writes hit every
-  seam replica and invalidate everything finer. Gate green: `test_multires` —
-  with nonzero disp injected at all 3 levels, edit-free writeback leaves the
-  store byte-identical and L↔L±1 switches reproduce positions bit-exactly
-  through all three paths (LRU-resident, evicted-and-rebuilt-from-cache, and
-  fully re-derived from cage + store); LRU budget/eviction semantics; castRay
-  on a materialized tree; single-edited-vert writeback (delta lands, finer
-  level rides along, re-derivation within 3e-8 drift, untouched verts
-  bit-exact); boundary/n-gon fan cage.
-  **Bulk-build measurement (risk #1 verdict: no fast path needed now).**
-  createCube(8) cage, cold materialize incl. tree build + tris: L5 301k
-  verts 1.2s; L6 1.2M 4.3s; L7 4.8M **12.1s** — versus the feared ~68s
-  full-rebuild figure; warm (LRU-hit) switches are **0–4ms**, cold
-  switch-down (topology+tree rebuild, positions cached) 3.3s at L6. The
-  interactive toggle path is the warm one, so the LRU covers it; revisit
-  only if cold switches at L7+ become a UX complaint. Two notes: (a)
-  `SpatialTree` drops faces with area < 1e-7 (absolute `XXX magic number`
-  threshold, `spatial.h:447`) — at L7 on a unit cube the CC-contracted
-  corner quads trip it (~190 faces skipped, warning spam); harmless for
-  queries but scale-dependent, flagged for a relative threshold someday.
-  (b) The app-side level-switch ToolOp + UI stub is deferred to the app
-  wiring pass (alongside S5/X, mirroring how V defers app wiring to V5) —
-  S4's gate drives levels through debug_app scripts, not the UI.
-
-- **S4 done (engine + debug_app; parity → app wiring).** The multires sculpt
-  loop runs through the standard stack unchanged: strokes hit the active
-  level's materialized mesh via the executor + meshlog, and each debug-app
-  stroke verb ends with `Multires::writeback` (frame-relative deltas,
-  baseline-diff skip — the S3 mechanism doubles as the stroke-end
-  re-expression; no new TANGENT storage path was needed). Debug integration
-  (`source/debug/`): `Scene` gains a non-owning multires mode
-  (`multires`/`multiresCage`, `attachMultiresLevel`/`clearMultires` — slot
-  mesh/tree are views, teardown-safe through setMesh/dtor); verbs
-  `multires_init levels= [level=] [budget=]`, `multires_level level=`,
-  `save_disp`/`assert_disp [eps=] [changed=1]` (bitwise store-delta
-  snapshots). **Undo/redo are level-aware**: each stroke verb records its
-  level; undo/redo auto-switch to the recorded level (writeback-then-
-  materialize), replay the meshlog step there (level meshes rebuild with
-  identical dense ids, so steps survive eviction), then re-sync the store
-  with another baseline-diff writeback. Undo history from before
-  `multires_init` is fenced off (multires undo only pops its own records).
-  Gate green: `test_multires_stroke` — ride-along invariance (L2 stroke
-  leaves L3 deltas **bit-identical**, 409/3458 L3 verts follow the coarse
-  edit), undo/redo fidelity across level switches, and auto-switch undo from
-  a finer level. Deferred, recorded here: the explicit down-refit op
-  (least-squares reproject — plan-marked deferred/non-live) and the
-  wasm↔native parity run, which needs the app-side multires wiring
-  (bindings/N-API/TS + LiteMesh scene) — grouped with the level-switch
-  ToolOp + UI stub in the app-wiring pass, mirroring the V track's V5.
-
-- **S5 done.** `source/webgpu/wgpu_stencil.{h,cc}`: `WgpuStencilAmplify` —
-  chained per-level CSR SpMV of the S1 stencil tables on the WebGPU device
-  (edit level → render level; one compute pass per level, 2D-linearized
-  dispatch past the 65535-workgroup cap; result stays on-device, tight xyz
-  f32, for the X3 draw tier; readback is the verify path). **The arithmetic
-  contract moved to fma**: plain mul+add proved driver-contractable (maxUlp
-  184 on the first run), so `StencilTable::eval` now accumulates with
-  `std::fma` and the kernel with WGSL `fma()` — single IEEE rounding on both
-  sides makes the chain **bit-exact** (maxUlp 0, verified at 1538 verts and
-  at 1.2M/4.8M through the 2D path; S1–S4 gates re-run green under the new
-  arithmetic). Caveat noted in the header: WGSL permits unfused fma lowering
-  (desktop drivers don't do it); the gate asserts bit-equality so a deviating
-  driver fails loudly. Gate green: `test_stencil_gpu` — amplify L2(+disp)→L4,
-  buffer memcmp vs the CPU chain, then the screenshot A/B (CPU-materialized
-  vs GPU-amplified level meshes through the same offscreen WebGPU render) —
-  **byte-identical PNGs**. Budgets recorded (`bench` mode, createCube(8)):
-  L2→L6 1.2M fine verts ≈ 6–13ms/dispatch chain; L2→L7 4.8M ≈ 15–39ms;
-  stencil uploads at L7 are 120.4MB indices + 120.4MB weights per finest
-  level — inside wgpu's default 128MiB storage-binding limit with little
-  headroom (risk #5: chunk the finest table if production cages exceed
-  ~5M fine verts). Frame caching/indirect draw are X3 integration work
-  (the compute pass + on-device result are in place). Not gated here: the
-  smoothed-frame shading pass (X3, with V3's shader).
-
-Engine track complete. Next: V3/V4 on `displacement`; X + the app-wiring
-pass (level-switch op + UI, multires parity, down-refit) after V merges.
+Next: merge F to master, then create the `displacement` (V) and `subsurf` (S)
+worktrees.
 
 ---
 
