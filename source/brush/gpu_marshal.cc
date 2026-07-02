@@ -4,6 +4,8 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/triangulate.h"
+#include "meshlog/attr_saver.h"
+#include "meshlog/meshlog.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -245,6 +247,45 @@ void packNeighborCSR(mesh::Mesh &m, int vcount, Vector<ComputeVertNbr> &meta,
   }
   *flatVerts = reinterpret_cast<const uint32_t *>(csr.nbr_verts.data());
   *flatCount = int(csr.nbr_verts.size());
+}
+
+void snapshotNodeForUndo(meshlog::MeshLog &log, spatial::SpatialNode *node)
+{
+  auto *mm = node->data->m;
+  const int sid = log.curStrokeId();
+
+  // Vertex co/no: element-keyed AttrSaver gate (survives dyntopo
+  // restructuring), appending touched verts into the per-step element store.
+  // Mirrors the generated CPU *Pre legacy-default save set.
+  {
+    meshlog::AttrSaver<mesh::ElemType::VERTEX> saver;
+    saver.ensure(*mm);
+    mesh::AttrRef refs[2] = {mm->v.co, mm->v.no};
+    int mask = saver.add(refs[0], meshlog::CO) | saver.add(refs[1], meshlog::NO);
+    auto *store = log.elemStore(mesh::ElemType::VERTEX);
+    litestl::util::span<const mesh::AttrRef> span(refs, 2);
+    for (int e : node->unique_verts()) {
+      if (saver.needsData(e, sid, mask)) {
+        store->data.appendFrom(mm->v.attrs, e, span);
+        saver.updateSaved(e, sid, mask);
+      }
+    }
+  }
+  // Face normals.
+  {
+    meshlog::AttrSaver<mesh::ElemType::FACE> saver;
+    saver.ensure(*mm);
+    mesh::AttrRef refs[1] = {mm->f.no};
+    int mask = saver.add(refs[0], meshlog::NO);
+    auto *store = log.elemStore(mesh::ElemType::FACE);
+    litestl::util::span<const mesh::AttrRef> span(refs, 1);
+    for (int e : node->unique_faces()) {
+      if (saver.needsData(e, sid, mask)) {
+        store->data.appendFrom(mm->f.attrs, e, span);
+        saver.updateSaved(e, sid, mask);
+      }
+    }
+  }
 }
 
 void chunkNodes(const Vector<spatial::SpatialNode *> &nodes, bool faceMode,

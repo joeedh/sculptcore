@@ -1,0 +1,133 @@
+#pragma once
+
+#include "brush/gpu_marshal.h"
+
+#include "litestl/util/vector.h"
+
+#include <cstdint>
+
+namespace sculptcore::mesh {
+struct Mesh;
+}
+namespace sculptcore::meshlog {
+struct MeshLog;
+}
+namespace sculptcore::spatial {
+struct SpatialNode;
+struct SpatialTree;
+}
+
+namespace sculptcore::brush {
+
+/** One GPU brush stroke's host-side state, behind the app-facing GpuBrush_*
+ * C-API (documentation/plans/gpuGlobalBrushes.md §3). The TS dispatcher owns
+ * the GPU objects; this session owns every byte layout: begin blobs, per-dab
+ * uniform/index packing (via gpu_marshal), undo snapshots, and the stroke-end
+ * write-back. Created by GpuBrush_beginStroke, freed by GpuBrush_endStroke
+ * (or GpuBrush_free on the abort path). The caller opens/closes the MeshLog
+ * step around the stroke exactly as on the CPU path — this session only
+ * appends snapshots into the already-open step. */
+struct GpuBrushSession {
+  mesh::Mesh *mesh = nullptr;
+  spatial::SpatialTree *tree = nullptr;
+  Brush *brush = nullptr;
+  meshlog::MeshLog *log = nullptr;
+  SculptBrushes tool = SculptBrushes::DRAW;
+  const GpuKernelInfo *info = nullptr;
+  int elemCount = 0;
+
+  // Stroke-static begin blobs (packed xyz co/no + f32 mask).
+  litestl::util::Vector<float> co, no, mask;
+
+  // Neighbor CSR (needsNeighbors kernels only). nbrVerts borrows the mesh
+  // topo cache's flat array — valid while topology is static (the stroke).
+  litestl::util::Vector<ComputeVertNbr> nbrMeta;
+  const uint32_t *nbrVerts = nullptr;
+  int nbrCount = 0;
+
+  // Normal-pass topology, built lazily on first request (M3).
+  GpuNormalTopology topo;
+  bool topoBuilt = false;
+
+  // Last-marshaled-dab state (GpuBrush_marshalDab).
+  litestl::util::Vector<spatial::SpatialNode *> nodes;
+  litestl::util::Vector<uint32_t> uverts;
+  litestl::util::Vector<ComputeNodeMeta> chunks;
+  ComputeBrushUniforms brushU;
+  ComputeCtxUniforms ctxU;
+  litestl::util::Vector<ComputeStrokeSample> strokePath;
+  // True when uverts/chunks differ from the previous dab's — TS skips the
+  // re-upload otherwise (anchored grab/kelvinlet sets grow monotonically).
+  bool uvertsChanged = true;
+  litestl::util::Vector<uint32_t> prevUverts;
+
+  // Union of nodes touched this stroke (endStroke dirty-flags these).
+  litestl::util::Vector<spatial::SpatialNode *> touched;
+  // Nodes marshaled since the last GpuBrush_applyCo — the per-dab readback
+  // path dirty-flags exactly these (drained on apply).
+  litestl::util::Vector<spatial::SpatialNode *> pendingDirty;
+
+  // Grab-class per-dab generation (mirrors CommandExecutor::dabGen): bumped on
+  // the primary image; the kernel's first-touch stamp arbitration keys on it.
+  uint32_t dabGen = 0;
+};
+
+/** GpuBrush_info(session, which) selectors. Mirrored by hand in
+ * typescript/api/wasm.ts (GpuBrushInfo) — keep the two in sync. */
+enum GpuBrushInfoWhich : int32_t {
+  GPUBRUSH_INFO_ELEM_COUNT = 0,
+  GPUBRUSH_INFO_NEEDS_NEIGHBORS = 1,
+  GPUBRUSH_INFO_WRITES_MASK = 2,
+  GPUBRUSH_INFO_WRITES_COLOR = 3,
+  GPUBRUSH_INFO_ACCUMULABLE = 4,
+  GPUBRUSH_INFO_READS_VCLASS = 5,
+  GPUBRUSH_INFO_FACE_MODE = 6,
+  GPUBRUSH_INFO_IS_GLOBAL = 7,
+  GPUBRUSH_INFO_TRI_COUNT = 8, // builds the normal topology on first query
+  GPUBRUSH_INFO_UVERTS_CHANGED = 9,
+  GPUBRUSH_INFO_NODE_COUNT = 10,   // last dab's workgroup (chunk) count
+  GPUBRUSH_INFO_UNIQUE_COUNT = 11, // last dab's flattened element count
+  GPUBRUSH_INFO_STROKE_SAMPLE_COUNT = 12,
+  GPUBRUSH_INFO_DAB_GEN = 13,
+};
+
+/** GpuBrush_dataPtr/dataSize(session, which) selectors — the raw upload blobs,
+ * already in GPU layout per compute_layout.h. Mirrored by hand in
+ * typescript/api/wasm.ts (GpuBrushData) — keep the two in sync. */
+enum GpuBrushDataWhich : int32_t {
+  GPUBRUSH_DATA_CO = 0,   // f32 xyz per element (begin snapshot)
+  GPUBRUSH_DATA_NO = 1,   // f32 xyz per element
+  GPUBRUSH_DATA_MASK = 2, // f32 per element
+  GPUBRUSH_DATA_NBR_META = 3,  // u32 pairs per vert (binding 12)
+  GPUBRUSH_DATA_NBR_VERTS = 4, // u32 flat (binding 13)
+  GPUBRUSH_DATA_TRI_VERTS = 5,     // u32, 3 per tri (builds topo lazily)
+  GPUBRUSH_DATA_VERT_TRI_META = 6, // u32 pairs per vert
+  GPUBRUSH_DATA_VERT_TRI_LIST = 7, // u32 flat incident-tri CSR
+  GPUBRUSH_DATA_UVERTS = 8,         // u32 (binding 3), last dab
+  GPUBRUSH_DATA_NODE_META = 9,      // u32 pairs (binding 4), last dab
+  GPUBRUSH_DATA_BRUSH_UNIFORMS = 10, // 96 B (binding 5), last dab
+  GPUBRUSH_DATA_CTX_UNIFORMS = 11,   // 224 B (binding 6), last dab
+  GPUBRUSH_DATA_FALLOFF_LUT = 12,    // 256 f32 (binding 7)
+  GPUBRUSH_DATA_STROKE_PATH = 13,    // 32 B samples (binding 10), last dab
+};
+
+} // namespace sculptcore::brush
+
+/* App-facing seam (both backends: WASM EXPORTED_FUNCTIONS + N-API thunks).
+ * Handles are opaque; sizes/pointers cross as bytes the caller uploads
+ * verbatim. See gpu_brush_c_api.cc for per-function contracts. */
+extern "C" {
+void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog,
+                           int tool);
+void GpuBrush_free(void *session);
+const char *GpuBrush_kernelName(void *session);
+int GpuBrush_info(void *session, int which);
+int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
+                        float ny, float nz, float radius, float filterRadius,
+                        int mirrorIdx, int nonaccum);
+int GpuBrush_dataSize(void *session, int which);
+const void *GpuBrush_dataPtr(void *session, int which);
+void GpuBrush_applyCo(void *session, const float *co, int elemCount);
+void GpuBrush_endStroke(void *session, const float *co, const float *no,
+                        int elemCount);
+}

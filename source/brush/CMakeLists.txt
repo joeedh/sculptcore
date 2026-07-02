@@ -20,6 +20,8 @@ set(SRC
   PUBLIC compute_dispatch.h
   PUBLIC gpu_marshal.h
   gpu_marshal.cc
+  PUBLIC gpu_brush_session.h
+  c-api/gpu_brush_c_api.cc
   PUBLIC stroke_spacing.h
   PUBLIC brushes/all.h
   PUBLIC feature_field.h
@@ -33,6 +35,18 @@ set(SRC
 )
 
 sc_add_library(brush "${SRC}" "${LIB}" STATIC)
+
+wasm_add_symbols("
+  GpuBrush_beginStroke
+  GpuBrush_free
+  GpuBrush_kernelName
+  GpuBrush_info
+  GpuBrush_marshalDab
+  GpuBrush_dataSize
+  GpuBrush_dataPtr
+  GpuBrush_applyCo
+  GpuBrush_endStroke
+")
 
 # Generated sbrush kernels (created by `node make.mjs codegen`).
 # The directory may not exist yet at configure time; that's fine —

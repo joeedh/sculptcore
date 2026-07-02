@@ -388,41 +388,7 @@ void GpuStrokeSession::liveScatterAll(Scene &scene)
 // the pre-stroke state.
 void GpuStrokeSession::snapshotNode(Scene &scene, spatial::SpatialNode *node)
 {
-  auto *mm = node->data->m;
-  const int sid = scene.meshLog.curStrokeId();
-
-  // Vertex co/no: element-keyed AttrSaver gate (survives dyntopo restructuring),
-  // appending touched verts into the per-step element store. Mirrors the
-  // generated CPU *Pre legacy-default save set.
-  {
-    meshlog::AttrSaver<mesh::ElemType::VERTEX> saver;
-    saver.ensure(*mm);
-    mesh::AttrRef refs[2] = {mm->v.co, mm->v.no};
-    int mask = saver.add(refs[0], meshlog::CO) | saver.add(refs[1], meshlog::NO);
-    auto *store = scene.meshLog.elemStore(mesh::ElemType::VERTEX);
-    litestl::util::span<const mesh::AttrRef> span(refs, 2);
-    for (int e : node->unique_verts()) {
-      if (saver.needsData(e, sid, mask)) {
-        store->data.appendFrom(mm->v.attrs, e, span);
-        saver.updateSaved(e, sid, mask);
-      }
-    }
-  }
-  // Face normals.
-  {
-    meshlog::AttrSaver<mesh::ElemType::FACE> saver;
-    saver.ensure(*mm);
-    mesh::AttrRef refs[1] = {mm->f.no};
-    int mask = saver.add(refs[0], meshlog::NO);
-    auto *store = scene.meshLog.elemStore(mesh::ElemType::FACE);
-    litestl::util::span<const mesh::AttrRef> span(refs, 1);
-    for (int e : node->unique_faces()) {
-      if (saver.needsData(e, sid, mask)) {
-        store->data.appendFrom(mm->f.attrs, e, span);
-        saver.updateSaved(e, sid, mask);
-      }
-    }
-  }
+  brush::snapshotNodeForUndo(scene.meshLog, node);
 }
 
 bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,

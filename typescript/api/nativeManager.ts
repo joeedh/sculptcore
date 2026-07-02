@@ -203,6 +203,62 @@ export class NativeManager {
   SpatialTree_refreshRequestedAttrs(tree: NativeBound): void {
     this.addon.spatialTreeRefreshRequestedAttrs(tree)
   }
+  // GPU brush-stroke seam (gpuGlobalBrushes.md §3). Names match the
+  // IWasmInterface members so both backends stay drop-ins.
+  GpuBrush_beginStroke(
+    mesh: NativeBound,
+    tree: NativeBound,
+    brush: NativeBound,
+    meshLog: NativeBound,
+    tool: number
+  ): NativeBound | undefined {
+    return this.addon.gpuBrushBeginStroke(mesh, tree, brush, meshLog, tool)
+  }
+  GpuBrush_free(session: NativeBound): void {
+    this.addon.gpuBrushFree(session)
+  }
+  GpuBrush_kernelName(session: NativeBound): string {
+    return this.addon.gpuBrushKernelName(session)
+  }
+  GpuBrush_info(session: NativeBound, which: number): number {
+    return this.addon.gpuBrushInfo(session, which)
+  }
+  GpuBrush_marshalDab(
+    session: NativeBound,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    filterRadius: number,
+    mirrorIdx: number,
+    nonaccum: number
+  ): number {
+    return this.addon.gpuBrushMarshalDab(
+      session,
+      cx,
+      cy,
+      cz,
+      nx,
+      ny,
+      nz,
+      radius,
+      filterRadius,
+      mirrorIdx,
+      nonaccum
+    )
+  }
+  GpuBrush_data(session: NativeBound, which: number): Uint8Array {
+    return this.addon.gpuBrushData(session, which)
+  }
+  GpuBrush_applyCo(session: NativeBound, co: Float32Array): void {
+    this.addon.gpuBrushApplyCo(session, co)
+  }
+  GpuBrush_endStroke(session: NativeBound, co: Float32Array | null, no: Float32Array | null): void {
+    this.addon.gpuBrushEndStroke(session, co, no)
+  }
   // litestl allocator introspection (INeededWasm LSTL_* parity). Natively
   // LSTL_FormatBlock takes the bound object itself (the opaque pointer), where
   // WASM passes a numeric heap pointer.
@@ -283,6 +339,28 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     SpatialTree_setDrawShader        : (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),
     SpatialTree_getMissingAttrSlots  : (t: NativeBound) => nm.SpatialTree_getMissingAttrSlots(t),
     SpatialTree_refreshRequestedAttrs: (t: NativeBound) => nm.SpatialTree_refreshRequestedAttrs(t),
+    GpuBrush_beginStroke: (m: NativeBound, t: NativeBound, b: NativeBound, l: NativeBound, tool: number) =>
+      nm.GpuBrush_beginStroke(m, t, b, l, tool),
+    GpuBrush_free                    : (s: NativeBound) => nm.GpuBrush_free(s),
+    GpuBrush_kernelName              : (s: NativeBound) => nm.GpuBrush_kernelName(s),
+    GpuBrush_info                    : (s: NativeBound, w: number) => nm.GpuBrush_info(s, w),
+    GpuBrush_marshalDab: (
+      s: NativeBound,
+      cx: number,
+      cy: number,
+      cz: number,
+      nx: number,
+      ny: number,
+      nz: number,
+      radius: number,
+      filterRadius: number,
+      mirrorIdx: number,
+      nonaccum: number
+    ) => nm.GpuBrush_marshalDab(s, cx, cy, cz, nx, ny, nz, radius, filterRadius, mirrorIdx, nonaccum),
+    GpuBrush_data                    : (s: NativeBound, w: number) => nm.GpuBrush_data(s, w),
+    GpuBrush_applyCo                 : (s: NativeBound, co: Float32Array) => nm.GpuBrush_applyCo(s, co),
+    GpuBrush_endStroke: (s: NativeBound, co: Float32Array | null, no: Float32Array | null) =>
+      nm.GpuBrush_endStroke(s, co, no),
     LSTL_GetMemSize                  : (p: boolean) => nm.LSTL_GetMemSize(p),
     LSTL_PrintAllocBlocks            : (p: boolean) => nm.LSTL_PrintAllocBlocks(p),
     LSTL_FormatBlocks                : (p: boolean) => nm.LSTL_FormatBlocks(p),

@@ -11,6 +11,9 @@
 namespace sculptcore::mesh {
 struct Mesh;
 }
+namespace sculptcore::meshlog {
+struct MeshLog;
+}
 namespace sculptcore::spatial {
 struct SpatialNode;
 struct SpatialTree;
@@ -83,6 +86,12 @@ int packGeometry(mesh::Mesh &m, spatial::SpatialTree *tree, bool faceMode,
 void packNeighborCSR(mesh::Mesh &m, int vcount,
                      litestl::util::Vector<ComputeVertNbr> &meta,
                      const uint32_t **flatVerts, int *flatCount);
+
+/** Capture a node's pre-write co/no/f.no into the open MeshLog step, once per
+ * node per stroke (element-keyed AttrSaver gate, so repeat calls are cheap
+ * no-ops). Call before overwriting the node's verts with GPU results — the
+ * mesh must still hold the correct "before" image. */
+void snapshotNodeForUndo(meshlog::MeshLog &log, spatial::SpatialNode *node);
 
 /** Flatten a dab's filtered nodes into the flat element-index array (binding
  * 3) plus <=64-wide per-workgroup chunks (binding 4). Face kernels chunk
