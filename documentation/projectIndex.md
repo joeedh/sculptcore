@@ -44,6 +44,18 @@ C API: `c-api/mesh_c_api.cc/.h` — external surface for WASM/JS.
 
 See `documentation/mesh.md` for a detailed overview.
 
+### `source/displace/` — sculpt-layer compositor + frame provider
+
+`compositor.cc/.h` — evaluates the sculpt-layer stack (`AttrUse::SCULPT_LAYER`
+FLOAT3 vertex attrs + the `Mesh::sculptLayers` settings sidecar) into `v.co`;
+evaluated positions are authoritative, the base is implicit (`co − Σ w·d`).
+`LayerEditScope` is the region-scoped bracket the brush executor wraps around
+layer-writing dabs; `setLayerWeight/Enabled/Frozen`/`removeLayer` mutate
+settings while keeping co current. `frames.cc/.h` — the frame provider
+(displacement plan F3): smoothed per-vertex normal + 4-RoSy cross-field
+tangent (`.frames.v.*`, persistent NOINTERP), deterministic Gauss-Seidel.
+See `documentation/plans/displacementAndSubSurf.md`.
+
 ### `source/meshlog/` — sculpt undo/redo log
 
 `meshlog.h` (umbrella), `meshlog_base.h` (`MeshLog`, `LogEntry`, `LogChunk`, `LogChunkElems`, `LogChunkTopo`, `LogChunkReorder`, `LogElem`, `detail::ChunkElemData`, `detail::ChunkElemRow`), `attr_saver.h` (`AttrSaver` per-element save gate), `bindings.cc/.h`. Two principal chunk types: `LogChunkElems` stores sparse append-as-touched per-domain attribute swaps for plain position / paint sculpting (gated per-element by `AttrSaver`, so it survives mid-stroke dyntopo restructuring; captured attrs declared per-brush via the sbrush `save` statement); `LogChunkTopo` stores merged per-element create/change/kill records driven by `mesh::MeshCallbacks` for full topological undo. Integrated with `brush::CommandExecutor` (`meshLog` member).

@@ -53,6 +53,7 @@ enum class _AttrUse {
   UV = 1 << 2,        /** for uv-maps */
   POLYGROUP = 1 << 3, /** per-face poly-group id */
   SELECT = 1 << 4,    /** per-element selection bool (box-modeling) */
+  SCULPT_LAYER = 1 << 5, /** float3 vertex sculpt-layer delta (see mesh/sculpt_layers.h) */
 };
 MAKE_FLAGS_CLASS(AttrUse, _AttrUse, int);
 
@@ -76,6 +77,7 @@ template <> struct Binder<sculptcore::mesh::AttrUse> {
     e->addItem("UV", static_cast<int>(AttrUse::UV));
     e->addItem("PolyGroup", static_cast<int>(AttrUse::POLYGROUP));
     e->addItem("Select", static_cast<int>(AttrUse::SELECT));
+    e->addItem("SculptLayer", static_cast<int>(AttrUse::SCULPT_LAYER));
     return e;
   }
 };

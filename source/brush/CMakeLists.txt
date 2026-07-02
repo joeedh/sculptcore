@@ -3,6 +3,7 @@ set(LIB
     util
     math
     props
+    displace
     spatial
     meshlog
     platform

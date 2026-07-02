@@ -33,6 +33,9 @@ export interface Mesh {
   ngonFaceCount(): int32
   setAttrUse(domain: int32, index: int32, use: int32): void
   addAttr(domain: int32, type: int32, use: int32): int32
+  sculptLayerAdd(): int32
+  sculptLayerCount(): int32
+  sculptLayerAttrIndex(li: int32): int32
   removeAttr(domain: int32, index: int32): void
   detachAttr(domain: int32, index: int32): int32
   reattachAttr(stashId: int32): int32

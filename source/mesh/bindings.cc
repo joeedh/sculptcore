@@ -7,6 +7,7 @@ namespace sculptcore::mesh {
 void registerBindings(BindingManager &manager)
 {
   manager.add(Bind<Mesh>());
+  manager.add(Bind<SculptLayerSettings>());
   manager.add(BindAttrData());
   manager.add(Bind<gpu::MeshBatchManager>());
 }

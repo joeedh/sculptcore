@@ -35,6 +35,11 @@ struct SpatialTree {
 
   int leaf_limit = 512;
   int depth_limit = 10;
+  /* True once any face has a nonzero `.detail.bound` displacement bound, so
+   * regen_node_bounds only pays the per-face pad scan when a carrier is live.
+   * Set by setFaceDisplacementBounds; never cleared (bounds regen to zero pad
+   * naturally once the bounds column is zeroed). */
+  bool hasDetailBounds = false;
   /* Target tri count per GPU mesh. The set of "GPU nodes" is chosen so
    * each owns a subtree whose tri count is <= this target (a single leaf
    * exceeding the target becomes its own GPU node). Independent of
@@ -557,6 +562,51 @@ struct SpatialTree {
     }
   }
 
+  /* Set the per-face conservative max|D| displacement bound (`.detail.bound`)
+   * for `count` faces and flag their owning leaves Spatial_RegenBounds, so the
+   * next update() re-pads the AABBs (see regen_node_bounds). This is the
+   * carrier's tile-edit dirty hook — bounds-only: no tris or GPU regen, a
+   * displacement-bound change moves no CPU geometry. */
+  void setFaceDisplacementBounds(const int *faces, const float *bounds, int count)
+  {
+    for (int i = 0; i < count; i++) {
+      int f = faces[i];
+      if (f < 0 || size_t(f) >= m->f.capacity() || m->f.freemap[f]) {
+        continue;
+      }
+      treeMesh.f.bound.get_data()->materialize(f);
+      treeMesh.f.bound[f] = bounds[i];
+    }
+    hasDetailBounds = true;
+    markFacesDisplacementDirty(std::span<const int>(faces, size_t(count)));
+  }
+
+  /* Flag the leaves owning `faces` Spatial_RegenBounds (+ ancestor walk) after
+   * their displacement bounds changed. Bounds-only by design. */
+  void markFacesDisplacementDirty(std::span<const int> faces)
+  {
+    for (int f : faces) {
+      if (f < 0 || size_t(f) >= m->f.capacity() || m->f.freemap[f]) {
+        continue;
+      }
+      int nid = treeMesh.f.node[f];
+      if (nid == 0) {
+        continue;
+      }
+      SpatialNode *node = node_from_id(nid);
+      if (!node) {
+        continue;
+      }
+      node->flag |= Spatial_RegenBounds;
+      /* See add_face_at: stop at the first already-flagged ancestor. */
+      for (SpatialNode *p = node->parent; p && !(p->flag & Spatial_RegenBounds);
+           p = p->parent)
+      {
+        p->flag |= Spatial_RegenBounds;
+      }
+    }
+  }
+
   /* Incremental removal of a killed vertex from its owning leaf. */
   void remove_vert(int v)
   {
@@ -608,6 +658,12 @@ struct SpatialTree {
    * NOT every dab; public so tests / a stroke-end hook can force it. Thaws
    * topology if frozen (re-files via live links). */
   void applyDeferredMerge();
+
+  /* Propagate Spatial_RegenBounds flags to ancestors and regen all dirty
+   * AABBs (the update() bounds phase alone). Returns whether anything was
+   * dirty. Public so tests and the displacement-bounds hook can refresh
+   * bounds without a GPUManager. */
+  bool regenDirtyBounds();
 
   /* Public so tests can drive partition assignment without a GPUManager. */
   void recompute_subtree_tri_counts();

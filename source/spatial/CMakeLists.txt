@@ -77,4 +77,5 @@ wasm_add_symbols("
   setTreeRequestedAttrs
   setTreeDrawShader
   getTreeMissingAttrSlots
+  setTreeFaceDisplacementBounds
 ")

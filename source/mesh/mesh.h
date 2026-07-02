@@ -12,6 +12,7 @@
 #include "mesh_proxy.h"
 #include "mesh_topo_cache.h"
 #include "mesh_types.h"
+#include "sculpt_layers.h"
 
 #include <functional>
 #include <string>
@@ -133,6 +134,9 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, ngonFaceCount, MARGS());
     BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
     BIND_STRUCT_METHOD(st, addAttr, MARGS("domain", "type", "use"));
+    BIND_STRUCT_METHOD(st, sculptLayerAdd, MARGS());
+    BIND_STRUCT_METHOD(st, sculptLayerCount, MARGS());
+    BIND_STRUCT_METHOD(st, sculptLayerAttrIndex, MARGS("li"));
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
@@ -307,6 +311,72 @@ struct Mesh : public MeshBase {
       return;
     }
     grp->remove_attr(index);
+  }
+
+  /* Sculpt-layer settings sidecar, index-parallel with nothing — ordered by
+   * stack position (composition order). Keyed to VERTEX FLOAT3 attrs by name;
+   * the evaluator lives in source/displace/ (mesh can't depend on it). */
+  util::Vector<SculptLayerSettings> sculptLayers;
+
+  /* Settings-record index for the layer attr named `name`, or -1. */
+  int findSculptLayer(const string &name) const
+  {
+    for (int i = 0; i < int(sculptLayers.size()); i++) {
+      if (sculptLayers[i].name == name) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /* Create a sculpt layer: a VERTEX FLOAT3 attr (unique name from `base`),
+   * tagged AttrUse::SCULPT_LAYER and zero-initialized, plus an appended
+   * settings record. Returns the settings index (== stack position). C++
+   * entry point — names don't marshal; TS goes through sculptLayerAdd(). */
+  int addSculptLayerNamed(const char *base)
+  {
+    string name = uniqueAttrName(&v.attrs, base);
+    AttrRef &ref = v.attrs.ensure(AttrType::FLOAT3, name, /*materialize=*/true);
+    ref.use = ref.use | AttrUse::SCULPT_LAYER;
+
+    auto *dd = static_cast<AttrData<math::float3> *>(ref.data);
+    int cap = int(v.capacity());
+    for (int i = 0; i < cap; i++) {
+      dd->set_default(i);
+    }
+
+    SculptLayerSettings st;
+    st.name = name;
+    sculptLayers.append(std::move(st));
+    return int(sculptLayers.size()) - 1;
+  }
+
+  /* Bound (marshal-safe) sculpt-layer surface. Mutations that must keep
+   * evaluated positions current (weight/enable changes, removal) are NOT
+   * bound here — they go through the displace compositor's API. */
+  int sculptLayerAdd()
+  {
+    return addSculptLayerNamed("slayer");
+  }
+  int sculptLayerCount() const
+  {
+    return int(sculptLayers.size());
+  }
+  /* Index of layer `li`'s attribute in v.attrs (for BrushAttrLayerOverride
+   * redirection), or -1. */
+  int sculptLayerAttrIndex(int li)
+  {
+    if (li < 0 || li >= int(sculptLayers.size())) {
+      return -1;
+    }
+    for (int i = 0; i < int(v.attrs.attrs.size()); i++) {
+      if (v.attrs.attrs[i].type == AttrType::FLOAT3 &&
+          v.attrs.attrs[i].name == sculptLayers[li].name)
+      {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /* Wave 5: mark the shortest edge-path from vStart to vEnd as a seam. Runs

@@ -14,6 +14,11 @@ enum _NodeFlags {
 };
 MAKE_FLAGS_CLASS(NodeFlags, _NodeFlags, int);
 
+/* Values of the FACE-domain `.detail.carrier` tag: which detail carrier owns
+ * a face (dyntopo-vdm-region-hybrid.md §3). GEOM = live geometry (default),
+ * VDM = UV-keyed vector-displacement texels; the dab loop routes on it. */
+enum class DetailCarrier { GEOM = 0, VDM = 1 };
+
 } // namespace sculptcore::spatial
 
 namespace litestl::binding {

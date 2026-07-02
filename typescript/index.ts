@@ -40,6 +40,7 @@ import type {AttrPage} from './sculptcore/mesh/AttrPage'
 import type {UniformDef} from './sculptcore/gpu/UniformDef'
 import type {StructProp} from './sculptcore/props/StructProp'
 import type {SpatialNode} from './sculptcore/spatial/SpatialNode'
+import type {SculptLayerSettings} from './sculptcore/mesh/SculptLayerSettings'
 import type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
 import type {int4} from './litestl/math/int4'
 import type {float4} from './litestl/math/float4'
@@ -81,6 +82,7 @@ export type {AttrPage} from './sculptcore/mesh/AttrPage'
 export type {UniformDef} from './sculptcore/gpu/UniformDef'
 export type {StructProp} from './sculptcore/props/StructProp'
 export type {SpatialNode} from './sculptcore/spatial/SpatialNode'
+export type {SculptLayerSettings} from './sculptcore/mesh/SculptLayerSettings'
 export type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
 export type {int4} from './litestl/math/int4'
 export type {float4} from './litestl/math/float4'
@@ -188,6 +190,7 @@ export type AllBoundTypes = {
     int4,
     '.edge.vs.disk'
   >
+  'sculptcore::mesh::SculptLayerSettings': SculptLayerSettings
   'sculptcore::mesh::VertexData': VertexData
   'litestl::math::float4': float4
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>': BuiltinAttr<
@@ -195,6 +198,6 @@ export type AllBoundTypes = {
     'normals'
   >
   'sculptcore::mesh::BuiltinAttr<int32,.edge.c>': BuiltinAttr<int32, '.edge.c'>
-  'sculptcore::mesh::FaceData': FaceData
   'sculptcore::mesh::EdgeData': EdgeData
+  'sculptcore::mesh::FaceData': FaceData
 }

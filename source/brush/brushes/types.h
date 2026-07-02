@@ -28,6 +28,9 @@ enum class _SculptBrushes {
   // Feature-align smooth (topology rake): a weighted Laplacian smooth biased to
   // a per-vertex cross field seeded from boundary features + curvature.
   FEATURE_ALIGN = 19,
+  // Draw into the bound sculpt-layer delta attribute instead of positions
+  // (the displace compositor folds it into evaluated v.co post-dab).
+  LAYERDRAW = 20,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -58,6 +61,7 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
     e->addItem("SNAKEHOOK", SculptBrushes::SNAKEHOOK);
     e->addItem("COLORSMOOTH", SculptBrushes::COLORSMOOTH);
     e->addItem("FEATURE_ALIGN", SculptBrushes::FEATURE_ALIGN);
+    e->addItem("LAYERDRAW", SculptBrushes::LAYERDRAW);
     return e;
   }
 };

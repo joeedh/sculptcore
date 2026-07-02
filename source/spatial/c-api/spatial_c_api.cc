@@ -126,6 +126,20 @@ int getTreeMissingAttrSlots(spatial::SpatialTree *t, int *out, int maxOut)
   return n;
 }
 
+/* Set per-face conservative displacement bounds (`.detail.bound`, flat parallel
+ * arrays) and flag the owning leaves for a bounds-only regen. The VDM carrier's
+ * tile-edit dirty hook (workstream F2); never throws. */
+void setTreeFaceDisplacementBounds(spatial::SpatialTree *t,
+                                   const int *faces,
+                                   const float *bounds,
+                                   int count)
+{
+  if (!t || !faces || !bounds || count <= 0) {
+    return;
+  }
+  t->setFaceDisplacementBounds(faces, bounds, count);
+}
+
 /* Force a rebuild of the per-attribute buffers against the current mesh layers
  * even when the requested set is byte-identical (a layer add/remove that leaves
  * the descriptors unchanged). The renderengine calls this — instead of

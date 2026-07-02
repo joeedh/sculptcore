@@ -9,7 +9,41 @@ gates). Companion design docs:
 
 ## Status (2026-07-02)
 
-Planned. Nothing started.
+**Workstream F implemented on branch `displacement-subsurf-f`** (parent repo +
+sculptcore, matching branches); V/S/X not started — the two work-tracks split
+off after F merges to master.
+
+- **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
+  (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh
+  format v3 — the settings POD lives in `mesh/`, not `displace/`, because
+  `mesh_serialize.cc` persists it and mesh can't depend on displace). The
+  compositor (`source/displace/compositor.{h,cc}`) treats evaluated `v.co` as
+  authoritative with an *implicit* base (`base ≡ co − Σ wᵢ·dᵢ`): strokes fold
+  layer-delta edits into co through the region-scoped `LayerEditScope` bracket
+  (wired into `CommandExecutor::exec`), settings changes adjust co
+  incrementally, and undo cannot desync (co + layers restore atomically; DELTA
+  linearity keeps dyntopo interp exactly consistent). New `layerdraw` kernel
+  (`save vertex co, no, slayer`), debug verbs `layer_add`/`layer_set`, and
+  `stroke layer=` retargeting. Gates green: `test_sculpt_layers`
+  (composition/weight/enable/frozen/serialize/split-interp),
+  `test_layer_stroke_undo` (2-layer stack undo/redo, weight round-trip);
+  wasm↔native parity runs app-side (`sculptcore_layers` integration test).
+- **F2 done.** `.detail.bound` (float) + `.detail.carrier`
+  (`DetailCarrier{GEOM,VDM}`) FACE builtins on `SpatialTreeMesh`;
+  `regen_node_bounds` pads leaf AABBs by the max owned-face bound (gated on
+  `hasDetailBounds`); `setFaceDisplacementBounds` /
+  `markFacesDisplacementDirty` + public `regenDirtyBounds()`; C-API
+  `setTreeFaceDisplacementBounds` (+ wasm symbol). Gate green:
+  `test_spatial_displacement_bounds`.
+- **F3 done.** Frame provider folded into `source/displace/frames.{h,cc}` (the
+  module-map option): smoothed vertex normal + 4-RoSy cross-field tangent
+  (`.frames.v.normal` / `.frames.v.tangent`, persistent NOINTERP), the cheap
+  heat-diffusion variant, deterministically re-seeded from geometry alone.
+  Gate green: `test_frame_provider` — sphere/cube orthonormality,
+  Poincaré–Hopf index sum == 4χ == 8, bit-identical recompute.
+
+Next: merge F to master, then create the `displacement` (V) and `subsurf` (S)
+worktrees.
 
 ---
 

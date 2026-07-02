@@ -11,7 +11,7 @@ namespace serial {
 /* Bump when the on-disk layout or attribute semantics change, and register a
  * migration in mesh_serialize.cc::migrate() that upgrades the previous version
  * to this one. See that function for the extension point. */
-constexpr uint32_t kMeshFormatVersion = 2;
+constexpr uint32_t kMeshFormatVersion = 3;
 
 /* Serialize every element domain of @p mesh — all builtin and custom
  * attributes plus topology — to @p out as a versioned, lz4hc-compressed blob.

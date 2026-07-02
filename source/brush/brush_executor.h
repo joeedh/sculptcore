@@ -4,6 +4,7 @@
 #include "brush_command.h"
 #include "brush_iterators.h"
 #include "brushes/all.h"
+#include "displace/compositor.h"
 #include "dyntopo/dyntopo.h"
 #include "feature_field.h"
 #include "litestl/binding/binding.h"
@@ -199,6 +200,15 @@ struct CommandExecutor {
   /** Backing store for resolved DSL attribute bindings (ctx.attrBindings),
    * rebuilt per dab in exec(). */
   BrushAttrBindings attrBindingStorage;
+  /** Sculpt-layer edit brackets for written SCULPT_LAYER bindings, rebuilt per
+   * dab in exec() (begin before the kernel, end after execPost). */
+  Vector<displace::LayerEditScope> layerScopes;
+  Vector<int> layerRegionVerts; // dab-region vert ids the scopes snapshot
+  /** Attr-layer overrides applied when exec() is called without an explicit
+   * override span (the applyDab/execBrush path — execProgram passes its own).
+   * Lets a single-brush driver (debug_app `stroke layer=`) retarget a kernel's
+   * attr handle at a chosen mesh layer. */
+  Vector<BrushAttrLayerOverride> defaultAttrOverrides;
   /** Uniform-dynamics validation (Wave 4): run once per stroke (first dab) against
    * the active brush's manifest. On failure the whole stroke is skipped so the
    * mesh is never mutated by a misconfigured binding. `lastValidation` is the
@@ -394,6 +404,9 @@ struct CommandExecutor {
       // walks the vertex disk, so topology is thawed regardless of neighborMode.
       command::createFeaturealignBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
       return;
+    case SculptBrushes::LAYERDRAW:
+      command::createLayerdrawBrush<CommandExecutor, AccMode>(def);
+      return;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
@@ -485,6 +498,10 @@ struct CommandExecutor {
   {
     // Resolve declared attribute layers once per dab (shared across all nodes;
     // the AttrData pointers are mesh-wide and stable for the dab's duration).
+    if (attrOverrides.size() == 0 && defaultAttrOverrides.size() > 0) {
+      attrOverrides = std::span<const BrushAttrLayerOverride>(
+          defaultAttrOverrides.data(), defaultAttrOverrides.size());
+    }
     attrBindingStorage.clear();
     ctx.attrBindings = nullptr;
     if (cmd.attrs.size() > 0 && nodes.size() > 0) {
@@ -548,6 +565,46 @@ struct CommandExecutor {
         attrBindingStorage.items.append(BrushAttrBinding{entry.handle, ref});
       }
       ctx.attrBindings = &attrBindingStorage;
+    }
+
+    // Sculpt-layer bracket: snapshot every written SCULPT_LAYER binding over
+    // the dab region so the post-dab end() folds the kernel's delta edits into
+    // evaluated v.co (displace compositor; frozen layers get reverted).
+    layerScopes.clear();
+    if (ctx.attrBindings && nodes.size() > 0) {
+      mesh::Mesh *m = nodes[0]->data->m;
+      layerRegionVerts.clear();
+      for (auto &binding : attrBindingStorage.items) {
+        if (!(binding.ref.use & mesh::AttrUse::SCULPT_LAYER)) {
+          continue;
+        }
+        bool writes = false;
+        for (auto &entry : cmd.attrs) {
+          if (entry.handle == binding.handle && entry.write) {
+            writes = true;
+            break;
+          }
+        }
+        if (!writes) {
+          continue;
+        }
+        if (layerRegionVerts.size() == 0) {
+          // Leaf unique_verts sets are disjoint, so no dedup is needed.
+          for (auto *node : nodes) {
+            for (int v : node->data->unique_verts) {
+              layerRegionVerts.append(v);
+            }
+          }
+        }
+        displace::LayerEditScope scope;
+        if (scope.begin(*m,
+                        binding.ref.name,
+                        std::span<const int>(layerRegionVerts.data(),
+                                             layerRegionVerts.size())))
+        {
+          layerScopes.append(std::move(scope));
+        }
+      }
     }
 
     if (cmd.execHost)
@@ -661,6 +718,13 @@ struct CommandExecutor {
 #endif
 
     cmd.execPost(ctx, nodes);
+
+    // Fold sculpt-layer edits into evaluated positions (the kernel already
+    // flagged the touched nodes Spatial_UpdateNormals|UpdateGPU|RegenBounds).
+    for (auto &scope : layerScopes) {
+      scope.end();
+    }
+    layerScopes.clear();
   }
 
   /** SMOOTH is the only brush with a for_neighbor loop, and only its CSR

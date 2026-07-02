@@ -1,0 +1,22 @@
+// Layer draw — the Draw brush retargeted at a sculpt layer: accumulate the
+// normal-directed displacement into a float3 delta layer instead of moving
+// positions. The executor's LayerEditScope bracket folds the delta change
+// into evaluated v.co after the dab (displace/compositor.h), so co and no
+// join the layer in the undo capture.
+
+@brush("layerdraw")
+brush Layerdraw {
+  ctx float3 surfaceNo;
+  uniform float radius;
+  attr vertex float3 slayer;
+  save vertex co, no, slayer;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    s *= sampleBrushTex(v.co, surfaceNo);
+    if (s == 0.0) {
+      continue;
+    }
+    v.slayer = v.slayer + surfaceNo * (s * radius * 0.5);
+  }
+}

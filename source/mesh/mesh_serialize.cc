@@ -34,6 +34,10 @@ namespace sculptcore::mesh {
  *   per attr: string name; uint32 type; uint32 flag; uint32 elemSize;
  *             uint32 use (category — v2+; absent in v1, defaults to NONE)
  *             column bytes (count*elemSize; bool = count*1; TOPO ints remapped)
+ * then (v3+) the sculpt-layer settings table:
+ *   uint32 layerCount
+ *   per layer: string name; uint32 mode; uint32 space; int32 parent;
+ *              float weight; uint8 enabled; uint8 frozen; float clampFrac
  */
 namespace {
 
@@ -60,6 +64,7 @@ struct SerialDomain {
 struct SerialMesh {
   uint32_t version = 0;
   SerialDomain domains[5];
+  Vector<SculptLayerSettings> layers; // v3+ sculpt-layer settings table
 };
 
 /* Fixed domain order shared by the file layout and the maps[] / eds[] arrays. */
@@ -272,6 +277,21 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
   }
 }
 
+void writeLayerTable(io::BinFile &pbf, Mesh &mesh)
+{
+  pbf.writeUint32(uint32_t(mesh.sculptLayers.size()));
+  for (SculptLayerSettings &st : mesh.sculptLayers) {
+    pbf.writeString(st.name);
+    pbf.writeUint32(uint32_t(st.mode));
+    pbf.writeUint32(uint32_t(st.space));
+    pbf.writeInt32(st.parent);
+    pbf.writeFloat(st.weight);
+    pbf.writeUint8(st.enabled ? 1 : 0);
+    pbf.writeUint8(st.frozen ? 1 : 0);
+    pbf.writeFloat(st.clampFrac);
+  }
+}
+
 /* ---- read helpers ---- */
 
 void swapColumn(SerialColumn &col)
@@ -320,6 +340,23 @@ void readDomain(io::BinFile &pbf, SerialMesh &sm, bool needSwap, uint32_t versio
       }
     }
     sd.cols.append(std::move(col));
+  }
+}
+
+void readLayerTable(io::BinFile &pbf, SerialMesh &sm)
+{
+  uint32_t n = pbf.readUint32();
+  for (uint32_t i = 0; i < n; i++) {
+    SculptLayerSettings st;
+    st.name = pbf.readString();
+    st.mode = int(pbf.readUint32());
+    st.space = int(pbf.readUint32());
+    st.parent = pbf.readInt32();
+    st.weight = pbf.readFloat();
+    st.enabled = pbf.readUint8() != 0;
+    st.frozen = pbf.readUint8() != 0;
+    st.clampFrac = pbf.readFloat();
+    sm.layers.append(std::move(st));
   }
 }
 
@@ -400,6 +437,11 @@ bool migrate(SerialMesh &sm)
        * categories; readDomain already left every col.use == NONE. */
       sm.version = 2;
       break;
+    case 2:
+      /* v2 → v3 added the trailing sculpt-layer settings table. Old files
+       * have no sculpt layers; sm.layers is already empty. */
+      sm.version = 3;
+      break;
     default:
       return false;
     }
@@ -443,6 +485,7 @@ bool writeMeshRaw(Mesh &mesh, std::iostream &out)
   for (int d = 0; d < 5; d++) {
     writeDomain(pbf, *eds[d], maps);
   }
+  writeLayerTable(pbf, mesh); // v3+
   return bool(out);
 }
 
@@ -523,6 +566,9 @@ bool readMesh(Mesh &mesh, std::istream &in)
   for (int d = 0; d < 5; d++) {
     readDomain(pbf, sm, needSwap, version);
   }
+  if (version >= 3) {
+    readLayerTable(pbf, sm);
+  }
   sm.version = version;
 
   if (!migrate(sm)) {
@@ -533,6 +579,7 @@ bool readMesh(Mesh &mesh, std::istream &in)
   for (int d = 0; d < 5; d++) {
     buildDomain(*eds[d], sm.domains[d]);
   }
+  mesh.sculptLayers = std::move(sm.layers);
   /* buildDomain bulk-loads faces without make_face, so resync the n-gon counter
    * dyntopo's triangulate-prepass skip relies on. */
   mesh.recountNgons();

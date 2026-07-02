@@ -5,6 +5,7 @@
 
 #include "brush/brush_executor.h"
 #include "brush/stroke_spacing.h"
+#include "displace/compositor.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/attribute_builtin.h"
@@ -588,6 +589,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::BSMOOTH;
     } else if (ts == "grab") {
       scene.currentTool = brush::SculptBrushes::GRAB;
+    } else if (ts == "layerdraw") {
+      scene.currentTool = brush::SculptBrushes::LAYERDRAW;
     } else {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;
@@ -868,6 +871,59 @@ bool execVerb(Scene &scene,
     else                              scene.brush.poseCageNow[idx]  = pos;
     return true;
   }
+  // layer_add name=<s> [weight=f] [enabled=0/1] [frozen=0/1] — create a sculpt
+  // layer (a VERTEX FLOAT3 SCULPT_LAYER attr + settings row). The name is
+  // uniquified if taken, so scripts should pick fresh names.
+  if (verb == "layer_add") {
+    if (!scene.mesh) {
+      err = "layer_add: no mesh";
+      return false;
+    }
+    std::string name = getArg(args, "name", "");
+    if (name.empty()) {
+      err = "layer_add: missing name=";
+      return false;
+    }
+    int idx = scene.mesh->addSculptLayerNamed(name.c_str());
+    displace::setLayerWeight(*scene.mesh, idx, getFloat(args, "weight", 1.0f));
+    displace::setLayerEnabled(*scene.mesh, idx, getInt(args, "enabled", 1) != 0);
+    displace::setLayerFrozen(*scene.mesh, idx, getInt(args, "frozen", 0) != 0);
+    std::printf("layer_add: '%s' -> settings index %d\n",
+                scene.mesh->sculptLayers[idx].name.c_str(),
+                idx);
+    return true;
+  }
+  // layer_set name=<s> [weight=f] [enabled=0/1] [frozen=0/1] — mutate a sculpt
+  // layer's settings through the compositor (evaluated positions stay current),
+  // then refresh spatial bounds/normals/GPU state.
+  if (verb == "layer_set") {
+    if (!scene.mesh) {
+      err = "layer_set: no mesh";
+      return false;
+    }
+    std::string name = getArg(args, "name", "");
+    int idx = scene.mesh->findSculptLayer(litestl::util::string(name.c_str()));
+    if (idx < 0) {
+      err = "layer_set: unknown layer '" + name + "'";
+      return false;
+    }
+    if (getArg(args, "weight")) {
+      displace::setLayerWeight(*scene.mesh, idx, getFloat(args, "weight", 1.0f));
+    }
+    if (getArg(args, "enabled")) {
+      displace::setLayerEnabled(*scene.mesh, idx, getInt(args, "enabled", 1) != 0);
+    }
+    if (getArg(args, "frozen")) {
+      displace::setLayerFrozen(*scene.mesh, idx, getInt(args, "frozen", 0) != 0);
+    }
+    if (scene.tree) {
+      for (auto *node : scene.tree->leaves()) {
+        node->flag |= Spatial_RegenBounds | Spatial_UpdateNormals | Spatial_UpdateGPU;
+      }
+      scene.tree->update(&scene.gpu);
+    }
+    return true;
+  }
   if (verb == "stroke") {
     if (!scene.mesh || !scene.tree) {
       err = "stroke: no mesh/tree";
@@ -939,6 +995,18 @@ bool execVerb(Scene &scene,
       }
       exec.setNonAccum(scene.nonAccum);
       exec.setStrokeGen(int(gen));
+      // layer=<name>: retarget the kernel's first declared attr handle (the
+      // layerdraw brush's `slayer`) at the named sculpt layer.
+      std::string layerName = getArg(args, "layer", "");
+      if (!layerName.empty()) {
+        int li = scene.mesh->findSculptLayer(litestl::util::string(layerName.c_str()));
+        int attrIdx = li >= 0 ? scene.mesh->sculptLayerAttrIndex(li) : -1;
+        if (attrIdx < 0) {
+          err = "stroke: unknown sculpt layer '" + layerName + "'";
+          return false;
+        }
+        exec.defaultAttrOverrides.append(brush::BrushAttrLayerOverride{0, attrIdx});
+      }
       dyntopo::DynTopoParams *dtp =
           scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
       exec.beginStep(scene.dyntopoEnabled);

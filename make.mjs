@@ -61,7 +61,10 @@ CMAKE_ARGS_BASE += ` -G ${CMAKE_GENERATOR} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
 
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
-const CMAKE_WASM_ARGS = CMAKE_ARGS_BASE + ` -DBUILD_WASM=ON`
+// Response files keep em++.bat's cmd.exe invocations under the Windows 8191-
+// char limit — a long worktree path blows past it via the -I include list.
+const CMAKE_WASM_ARGS = CMAKE_ARGS_BASE + ` -DBUILD_WASM=ON` +
+    (process.platform === 'win32' ? ' -DCMAKE_NINJA_FORCE_RESPONSE_FILE=ON' : '')
 const EMSDK_COMMIT = '2a9b4692ab24a0497249eeaa696ac1153d22e07e'
 
 /**

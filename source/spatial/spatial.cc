@@ -906,6 +906,24 @@ void SpatialTree::applyDeferredMerge()
   leafCacheDirty_ = true;
 }
 
+bool SpatialTree::regenDirtyBounds()
+{
+  bool bounds = false;
+  for (SpatialNode *node : nodes) {
+    if (node->flag & Spatial_RegenBounds) {
+      while (node) {
+        node->flag |= Spatial_RegenBounds;
+        node = node->parent;
+        bounds = true;
+      }
+    }
+  }
+  if (bounds) {
+    regen_node_bounds(root, true);
+  }
+  return bounds;
+}
+
 void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 {
   node->flag &= ~Spatial_RegenBounds;
@@ -956,6 +974,21 @@ void SpatialTree::regen_node_bounds(SpatialNode *node, bool recurse)
 
       node->aabb.min -= eps;
       node->aabb.max += eps;
+
+      /* Displacement-bound padding (REYES-style): grow the leaf box by the max
+       * per-face max|D| bound over the owned faces, so ray/cone/frustum queries
+       * stay conservative against the displaced surface. Internal nodes union
+       * their children, so the pad propagates up for free. */
+      if (hasDetailBounds) {
+        float pad = 0.0f;
+        for (int f : node->data->unique_faces) {
+          pad = std::max(pad, treeMesh.f.bound.get_data()->safe_get(f));
+        }
+        if (pad > 0.0f) {
+          node->aabb.min -= float3(pad);
+          node->aabb.max += float3(pad);
+        }
+      }
     }
   }
 }
@@ -2361,18 +2394,8 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     ensure_node_tris(node);
   }
 
-  for (SpatialNode *node : nodes) {
-    if (node->flag & Spatial_RegenBounds) {
-      while (node) {
-        node->flag |= Spatial_RegenBounds;
-        node = node->parent;
-        bounds = true;
-      }
-    }
-  }
-
-  if (bounds) {
-    regen_node_bounds(root, true);
+  if (regenDirtyBounds()) {
+    bounds = true;
     result = true;
   }
 

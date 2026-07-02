@@ -42,10 +42,27 @@ struct SpatialTreeMesh {
                 ".spatial.f.node",
                 AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY>
         node;
+    // Conservative per-face max|D| displacement bound (REYES-style): derived
+    // from a carrier's magnitude pyramid (VdmStore coarse mip), folded into
+    // leaf AABBs by regen_node_bounds. Derived state, rebuilt by the owning
+    // carrier — TEMP like the ownership ids.
+    BuiltinAttr<float,
+                ".detail.bound",
+                AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY>
+        bound;
+    // Which detail carrier owns the face (DetailCarrier: 0 = GEOM, 1 = VDM).
+    // Routes the dab loop (vertex executor vs UV splatter). TEMP for now —
+    // becomes persistent when the VDM store serializes (workstream V).
+    BuiltinAttr<int,
+                ".detail.carrier",
+                AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY>
+        carrier;
 
     void setup(Mesh *m)
     {
       node.ensure(m->f.attrs);
+      bound.ensure(m->f.attrs);
+      carrier.ensure(m->f.attrs);
     }
   } f;
 
