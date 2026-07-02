@@ -1936,8 +1936,10 @@ struct MeshLog {
   }
 
   /** Select the edge loop (kind 0), edge ring (kind 1), or face loop (kind 2)
-   * seeded at `seedEdge` (the ctrl / ctrl-shift click select). Pure selection —
-   * caller brackets the step. Returns the element count walked. */
+   * seeded at `seedEdge` (the ctrl / ctrl-shift click select). A select of an
+   * already fully-selected loop DESELECTS it instead (loop toggle). Pure
+   * selection; caller brackets the step. Returns the element count walked,
+   * negated when the toggle deselected. */
   int selectLoop(mesh::Mesh *m, int seedEdge, int kind, int state)
   {
     if (!m || seedEdge < 0) {
@@ -1947,23 +1949,31 @@ struct MeshLog {
       m->thawTopo();
     }
     util::Vector<int> elems;
-    bool s = state != 0;
+    int domain = kind == 2 ? 2 : 1;
     if (kind == 2) {
       mesh::walkFaceLoop(*m, seedEdge, elems);
-      for (int f : elems) {
-        selectOne(m, 2, f, s);
-      }
+    } else if (kind == 0) {
+      mesh::walkEdgeLoop(*m, seedEdge, elems);
     } else {
-      if (kind == 0) {
-        mesh::walkEdgeLoop(*m, seedEdge, elems);
-      } else {
-        mesh::walkEdgeRing(*m, seedEdge, elems);
+      mesh::walkEdgeRing(*m, seedEdge, elems);
+    }
+    bool s = state != 0;
+    if (s && elems.size() > 0) {
+      bool all = true;
+      for (int el : elems) {
+        if (!m->elemSelected(domain, el)) {
+          all = false;
+          break;
+        }
       }
-      for (int e : elems) {
-        selectOne(m, 1, e, s);
+      if (all) {
+        s = false;
       }
     }
-    return int(elems.size());
+    for (int el : elems) {
+      selectOne(m, domain, el, s);
+    }
+    return s ? int(elems.size()) : -int(elems.size());
   }
 
   /* Select elements from a spatial query's collected face/vert sets, by domain.
