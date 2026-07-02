@@ -214,6 +214,8 @@ int GpuBrush_dataSize(void *session, int which)
     return int(s->brush->falloff_curve.size() * sizeof(float));
   case GPUBRUSH_DATA_STROKE_PATH:
     return int(s->strokePath.size() * sizeof(ComputeStrokeSample));
+  case GPUBRUSH_DATA_LIVE_CO:
+    return s->info->faceMode ? 0 : int(s->elemCount * 3 * sizeof(float));
   }
   return 0;
 }
@@ -242,6 +244,20 @@ const void *GpuBrush_dataPtr(void *session, int which)
   case GPUBRUSH_DATA_CTX_UNIFORMS: return &s->ctxU;
   case GPUBRUSH_DATA_FALLOFF_LUT: return s->brush->falloff_curve.data();
   case GPUBRUSH_DATA_STROKE_PATH: return s->strokePath.data();
+  case GPUBRUSH_DATA_LIVE_CO: {
+    if (s->info->faceMode) {
+      return nullptr;
+    }
+    // Re-pack the live mesh positions (shadow-verify reads this per dab).
+    s->liveCo.resize(size_t(s->elemCount) * 3);
+    for (int i = 0; i < s->elemCount; i++) {
+      litestl::math::float3 c = s->mesh->v.co[i];
+      s->liveCo[i * 3 + 0] = c[0];
+      s->liveCo[i * 3 + 1] = c[1];
+      s->liveCo[i * 3 + 2] = c[2];
+    }
+    return s->liveCo.data();
+  }
   }
   return nullptr;
 }

@@ -38,6 +38,8 @@ struct GpuBrushSession {
 
   // Stroke-static begin blobs (packed xyz co/no + f32 mask).
   litestl::util::Vector<float> co, no, mask;
+  // Scratch for GPUBRUSH_DATA_LIVE_CO (repacked per query).
+  litestl::util::Vector<float> liveCo;
 
   // Neighbor CSR (needsNeighbors kernels only). nbrVerts borrows the mesh
   // topo cache's flat array — valid while topology is static (the stroke).
@@ -109,6 +111,9 @@ enum GpuBrushDataWhich : int32_t {
   GPUBRUSH_DATA_CTX_UNIFORMS = 11,   // 224 B (binding 6), last dab
   GPUBRUSH_DATA_FALLOFF_LUT = 12,    // 256 f32 (binding 7)
   GPUBRUSH_DATA_STROKE_PATH = 13,    // 32 B samples (binding 10), last dab
+  // Live mesh positions, re-packed on every query (packed xyz). Shadow-verify
+  // diffs the GPU readback against this after each CPU-authoritative dab.
+  GPUBRUSH_DATA_LIVE_CO = 14,
 };
 
 } // namespace sculptcore::brush

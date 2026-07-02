@@ -147,6 +147,8 @@ export const GpuBrushData = {
   CTX_UNIFORMS: 11,
   FALLOFF_LUT: 12,
   STROKE_PATH: 13,
+  /** live mesh positions, re-packed per query (shadow-verify) */
+  LIVE_CO: 14,
 } as const
 
 /** Raw pointer-level view of the GpuBrush_* C exports (WASM only; unprefixed
