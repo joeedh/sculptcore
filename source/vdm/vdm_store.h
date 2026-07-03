@@ -41,15 +41,22 @@ namespace sculptcore::vdm {
 using litestl::math::float3;
 namespace util = litestl::util;
 
+/* Parameterization backend (X2). ATLAS: one global uv·resolution texel plane.
+ * PTEX: per-grid R_g×R_g lattices keyed on the `face` of sample(face,u,v). */
+enum class VdmBackend : int { ATLAS = 0, PTEX = 1 };
+
 struct VdmStoreParams {
   /* Texels per tile side (power of two). */
   int tile_size = 64;
-  /* Texels across one UV unit ([0,1] spans `resolution` texels). */
+  /* ATLAS: texels across one UV unit. PTEX: the default per-grid texel side
+   * R_g (setGridRes overrides per grid — the adaptivity hook). */
   int resolution = 1024;
+  VdmBackend backend = VdmBackend::ATLAS;
 };
 
 struct VdmTile {
-  int tx = 0, ty = 0;          // tile grid coords (texel coord / tile_size)
+  int tx = 0, ty = 0;          // tile coords (ATLAS: global; PTEX: grid-local)
+  int grid = -1;               // PTEX: owning grid id (-1 on the atlas plane)
   util::Vector<float3> texels; // tile_size² row-major
   float bound = 0.0f;          // max |texel| over the tile
   bool boundDirty = true;
@@ -104,9 +111,48 @@ struct VdmStore {
   void writeTexel(int x, int y, const float3 &value);
   void addTexel(int x, int y, const float3 &value);
 
+  /* ---- Ptex backend (X2): per-grid texel lattices ---- */
+  /** Declare the patch space: `gridCount` grids, each an R×R lattice
+   * (R = params.resolution unless setGridRes overrides). Call once on a
+   * fresh PTEX store, before any write. */
+  void setPtexGridCount(int gridCount);
+  int ptexGridCount() const
+  {
+    return int(gridRes_.size());
+  }
+  /** R_g: the grid's texel side (0 for an out-of-range grid). */
+  int gridRes(int grid) const;
+  /** Per-grid resolution override (power of two; set before writing texels). */
+  void setGridRes(int grid, int r);
+  /** Cross-grid adjacency, 8 ints per grid ({grid, side} × 4 sides in S2's
+   * GridLink order; -1 = boundary) — the skirt engine's input. The owner
+   * (Multires hands over its GridsStore links) provides it so vdm stays
+   * subdiv-free. */
+  void setPtexAdjacency(std::span<const int> links);
+
+  /* Same 32:32 packing as tileKey — a store only ever runs ONE backend, so
+   * the key spaces never coexist and decode branches on params.backend. */
+  static uint64_t ptexTileKey(int grid, int tileIdx)
+  {
+    return (uint64_t(uint32_t(grid)) << 32) | uint64_t(uint32_t(tileIdx));
+  }
+  VdmTile *findTileP(int grid, int ltx, int lty) const;
+  VdmTile &ensureTileP(int grid, int ltx, int lty);
+
+  /* Grid-local texels (x, y in [0, R_g)); reads are zero and writes no-ops
+   * outside the lattice (never throws). */
+  float3 texelP(int grid, int x, int y) const;
+  void writeTexelP(int grid, int x, int y, const float3 &value);
+  void addTexelP(int grid, int x, int y, const float3 &value);
+
+  /** max|D| over one grid's tiles (the per-face bound export on Ptex bases). */
+  float gridBound(int grid);
+
   /* ---- sampling ---- */
-  /* Bilinear over texel centers; zero outside allocated tiles. `face` is the
-   * parameterization seam (unused by the atlas backend). */
+  /* Bilinear over texel centers; zero outside allocated tiles. ATLAS ignores
+   * `face` and reads (u, v) as atlas UV; PTEX keys grid `face`'s lattice with
+   * (u, v) as the grid-local param in [0, 1] (taps clamp to the lattice —
+   * cross-grid continuity is the skirt pass's job). */
   float3 sample(int face, float u, float v) const;
 
   /* ---- magnitude bounds ---- */
@@ -162,14 +208,18 @@ struct VdmStore {
   bool gpuTopoDirty_ = false;
 
 private:
-  void snapshotForDelta(int tx, int ty, VdmTile *existing);
+  void snapshotForDelta(uint64_t key, VdmTile *existing);
+  VdmTile &ensureTileAt(uint64_t key, int grid, int tx, int ty);
   void removeTile(uint64_t key);
   void markGpuDirty(VdmTile *t);
+  int tilesPerSide(int grid) const;
 
   util::Map<uint64_t, VdmTile *> tiles_;
   int tileCount_ = 0;
   VdmDelta *activeDelta_ = nullptr;
   int deltaGen_ = 0;
+  util::Vector<int> gridRes_;   // PTEX: per-grid R_g ([g])
+  util::Vector<int> adjacency_; // PTEX: 8 ints per grid ({grid, side} × 4)
 };
 
 /** The mesh's active UV corner layer (first FLOAT2 CORNER attr tagged

@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <sstream>
 
 test_init;
@@ -231,6 +232,88 @@ int main()
     test_assert(bounds[1] == 0.0f);
 
     alloc::Delete(m);
+  }
+
+  // --- Ptex backend (X2 stage 1): per-grid lattices, delta, serialization ---
+  {
+    VdmStoreParams pp;
+    pp.tile_size = 8;
+    pp.resolution = 16; // default R_g: 2×2 tiles per grid
+    pp.backend = VdmBackend::PTEX;
+    VdmStore store(pp);
+    store.setPtexGridCount(5);
+    store.setGridRes(2, 32); // per-grid override: 4×4 tiles
+    test_assert(store.ptexGridCount() == 5);
+    test_assert(store.gridRes(0) == 16 && store.gridRes(2) == 32);
+
+    const float3 a(1, 2, 3), b(-4, 0, 5);
+    store.writeTexelP(0, 3, 3, a);
+    store.writeTexelP(1, 3, 3, b); // same local coords, different grid
+    test_assert(store.tileCount() == 2);
+    test_assert(near3(store.texelP(0, 3, 3), a));
+    test_assert(near3(store.texelP(1, 3, 3), b));
+    test_assert(near3(store.texelP(2, 3, 3), float3(0, 0, 0)));
+    store.writeTexelP(0, 99, 3, a); // outside the lattice: no-op
+    test_assert(store.tileCount() == 2);
+
+    // Bilinear on the overridden grid: exact at a texel center, half toward
+    // an unallocated +x neighbour.
+    store.writeTexelP(2, 10, 20, a);
+    float u = (10.0f + 0.5f) / 32.0f, v = (20.0f + 0.5f) / 32.0f;
+    test_assert(near3(store.sample(2, u, v), a));
+    test_assert(near3(store.sample(2, u + 0.5f / 32.0f, v), a * 0.5f));
+
+    test_assert(std::fabs(store.gridBound(2) - a.length()) < 1e-5f);
+    test_assert(store.gridBound(3) == 0.0f);
+
+    // Self-inverse delta bracket over an existing + a fresh ptex tile.
+    float3 preA = store.texelP(0, 3, 3);
+    store.beginDelta();
+    store.writeTexelP(0, 3, 3, b);
+    store.writeTexelP(4, 0, 0, a);
+    VdmDelta *d = store.endDelta();
+    test_assert(d != nullptr);
+    int tilesAfter = store.tileCount();
+    store.applyDelta(*d); // undo
+    test_assert(near3(store.texelP(0, 3, 3), preA));
+    test_assert(near3(store.texelP(4, 0, 0), float3(0, 0, 0)));
+    test_assert(store.tileCount() == tilesAfter - 1);
+    store.applyDelta(*d); // redo
+    test_assert(near3(store.texelP(0, 3, 3), b));
+    test_assert(near3(store.texelP(4, 0, 0), a));
+    test_assert(store.tileCount() == tilesAfter);
+    alloc::Delete(d);
+
+    // v2 serialization: backend + grid tables + adjacency + tiles, bitwise.
+    int adj[5 * 8];
+    for (int i = 0; i < 5 * 8; i++) {
+      adj[i] = (i * 7) % 5;
+    }
+    store.setPtexAdjacency(std::span<const int>(adj, 5 * 8));
+    std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+    test_assert(store.write(ss));
+    VdmStore loaded;
+    test_assert(loaded.read(ss));
+    test_assert(loaded.params.backend == VdmBackend::PTEX);
+    test_assert(loaded.ptexGridCount() == 5);
+    test_assert(loaded.gridRes(2) == 32);
+    test_assert(loaded.tileCount() == store.tileCount());
+    int mismatches = 0;
+    store.foreachTile([&](const VdmTile &t) {
+      const VdmTile *lt = loaded.findTileP(t.grid, t.tx, t.ty);
+      if (!lt) {
+        mismatches++;
+        return;
+      }
+      for (int i = 0; i < int(t.texels.size()); i++) {
+        if (std::memcmp(&t.texels[i], &lt->texels[i], sizeof(float3)) != 0) {
+          mismatches++;
+          return;
+        }
+      }
+    });
+    test_assert(mismatches == 0);
+    fprintf(stderr, "ptex: grids=5 tiles=%d round-trip ok\n", store.tileCount());
   }
 
   /* Skip test_end(): mesh attr name strings stay live in the alloc tracker

@@ -467,6 +467,54 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     interactive-only, never a parity anchor.
 - **X2 — Ptex backend** for VdmStore (per-face grids + adjacency + skirts),
   sharing S2's grid conventions; fragment path binds per-face table.
+
+  Design note (X2 decomposition, decided from the source inventory):
+  - **Why now**: the atlas's single global `resolution` under-resolves charts
+    as the cage grows (chart span ∝ 1/√G) — per-grid resolution is the
+    scalable carrier; that is where the face↔patch identity "pays".
+  - **Backend = a mode inside `VdmStore`, not a class hierarchy.** The delta
+    undo channel, GPU slot atlas + dirty drain, per-tile bounds, C-API,
+    bindings, and `VdmLogChunk` are all key-agnostic over `uint64` tile keys
+    — introducing `VdmBackend::{ATLAS, PTEX}` and branching sample/write/
+    pack/serialize keeps every existing seam (including `Mesh_vdmSplatDab`)
+    intact. Ptex tile keys are `(gridId << 32) | tileIndexWithinGrid`; each
+    grid owns an `R_g × R_g` texel lattice (power of two, default from
+    params; per-grid override is the adaptivity hook).
+  - **Patch identity = S2's cage-corner grids**, but `vdm` stays subdiv-free:
+    the adjacency (4 `GridLink`s per grid, the transpose seam convention) is
+    *provided* to the store (`setPtexAdjacency`) by the owner — Multires
+    hands over its `GridsStore` links; a polygon base could hand any
+    quad-chart adjacency. Cross-grid **skirts** (X2's headline: seamless
+    bilinear) copy border texels through those links at splat end — the
+    `seamMates`/transpose walk, re-expressed over texels.
+  - **Splat path**: level meshes get exact per-corner `(grid, localU, localV)`
+    from `assignGridUVs`'s arithmetic (emitted as attrs alongside the packed
+    chart uv); the Ptex branch rasterizes each face in its grid's own texel
+    lattice — no packing loss, no gutters in data space.
+  - **Fragment path stays UV-routed — no flat varyings needed**: the X1
+    grid-chart uv recovers the grid id exactly via `floor(uv·cpr)` (the inset
+    gutter keeps interior fragments in-cell), then a per-grid offset table
+    (an `i32` texture — WGSL reflection has no storage-buffer path) gives
+    slot base + `R_g`, and local uv = (uv − cell − inset)/span addresses the
+    grid's tiles. Local-uv float precision is ample (≥3e-5 of a chart).
+  - **Serialization**: `kVdmFormatVersion` 1 → 2 (backend tag; Ptex payload =
+    per-grid {gridId, R_g, tiles}); the version guard already exists.
+  - Stages: (1) store mode + per-grid tiles + sample/write + delta + ctest →
+    (2) splatter Ptex branch + skirts-via-adjacency + ctest →
+    (3) GPU table + WGSL + app upload + render A/B →
+    (4) parity + serialization + docs.
+  - **Stage 1 DONE**: `VdmBackend::{ATLAS,PTEX}` on `VdmStoreParams`;
+    per-grid `R_g×R_g` lattices (`setPtexGridCount`/`setGridRes`/
+    `setPtexAdjacency`, tiles keyed `ptexTileKey(grid, tileIdx)`), grid-local
+    `texelP/writeTexelP/addTexelP` + clamped `sample(grid, u, v)` +
+    `gridBound`; the delta bracket + GPU-slot machinery reused unchanged
+    (shared `ensureTileAt`, backend-branched key decode in `applyDelta`);
+    format v2 (backend tag + grid/adjacency tables + per-tile grid id, v1
+    reads as atlas). Gate: `test_vdm_store` Ptex block (isolation, bilinear,
+    override-res grid, delta round-trip, bitwise v2 round-trip); all V-track
+    vdm gates green under v2. Next: stage 2 (splatter Ptex branch — rasterize
+    per-grid via the corner `(grid, localUV)` attrs assignGridUVs computes;
+    cross-grid border skirts through the provided adjacency).
 - **X3 — Tessellated render tier**: V3's shader + S5's amplification =
   true-displacement opt-in; per-region selection from compositor state.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM

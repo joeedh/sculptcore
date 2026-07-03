@@ -22,7 +22,8 @@ using litestl::alloc::Delete;
 using litestl::alloc::New;
 using litestl::math::float2;
 
-constexpr uint32_t kVdmFormatVersion = 1;
+/* v1 = atlas-only payload; v2 adds the backend tag + Ptex grid tables. */
+constexpr uint32_t kVdmFormatVersion = 2;
 
 VdmStore::~VdmStore()
 {
@@ -43,7 +44,7 @@ VdmTile *VdmStore::findTile(int tx, int ty) const
   return t ? *t : nullptr;
 }
 
-void VdmStore::snapshotForDelta(int tx, int ty, VdmTile *existing)
+void VdmStore::snapshotForDelta(uint64_t key, VdmTile *existing)
 {
   if (!activeDelta_) {
     return;
@@ -54,38 +55,45 @@ void VdmStore::snapshotForDelta(int tx, int ty, VdmTile *existing)
     }
     existing->deltaGen = deltaGen_;
     VdmDelta::Entry entry;
-    entry.key = tileKey(tx, ty);
+    entry.key = key;
     entry.texels = existing->texels; // pre-state copy
     activeDelta_->entries.append(std::move(entry));
   } else {
     // Tile about to be created inside the bracket: pre-state = absent.
     VdmDelta::Entry entry;
-    entry.key = tileKey(tx, ty);
+    entry.key = key;
     activeDelta_->entries.append(std::move(entry));
   }
 }
 
-VdmTile &VdmStore::ensureTile(int tx, int ty)
+VdmTile &VdmStore::ensureTileAt(uint64_t key, int grid, int tx, int ty)
 {
-  VdmTile *t = findTile(tx, ty);
+  VdmTile *const *slot = tiles_.lookup_ptr(key);
+  VdmTile *t = slot ? *slot : nullptr;
   if (t) {
-    snapshotForDelta(tx, ty, t);
+    snapshotForDelta(key, t);
     return *t;
   }
-  snapshotForDelta(tx, ty, nullptr);
+  snapshotForDelta(key, nullptr);
   t = New<VdmTile>("VdmTile");
   t->tx = tx;
   t->ty = ty;
+  t->grid = grid;
   t->deltaGen = deltaGen_;
   int n = params.tile_size * params.tile_size;
   t->texels.resize(n);
   for (int i = 0; i < n; i++) {
     t->texels[i] = float3(0.0f, 0.0f, 0.0f);
   }
-  tiles_.insert(tileKey(tx, ty), static_cast<VdmTile *>(t));
+  tiles_.insert(key, static_cast<VdmTile *>(t));
   tileCount_++;
   gpuTopoDirty_ = true;
   return *t;
+}
+
+VdmTile &VdmStore::ensureTile(int tx, int ty)
+{
+  return ensureTileAt(tileKey(tx, ty), -1, tx, ty);
 }
 
 void VdmStore::removeTile(uint64_t key)
@@ -158,8 +166,138 @@ void VdmStore::addTexel(int x, int y, const float3 &value)
   markGpuDirty(&t);
 }
 
-float3 VdmStore::sample(int /*face*/, float u, float v) const
+/* ---- Ptex backend (X2): per-grid texel lattices ---- */
+
+void VdmStore::setPtexGridCount(int gridCount)
 {
+  gridRes_.resize(gridCount);
+  for (int i = 0; i < gridCount; i++) {
+    gridRes_[i] = params.resolution;
+  }
+}
+
+int VdmStore::gridRes(int grid) const
+{
+  return grid >= 0 && grid < int(gridRes_.size()) ? gridRes_[grid] : 0;
+}
+
+void VdmStore::setGridRes(int grid, int r)
+{
+  if (grid >= 0 && grid < int(gridRes_.size()) && r > 0) {
+    gridRes_[grid] = r;
+  }
+}
+
+void VdmStore::setPtexAdjacency(std::span<const int> links)
+{
+  adjacency_.resize(links.size());
+  for (size_t i = 0; i < links.size(); i++) {
+    adjacency_[int(i)] = links[i];
+  }
+}
+
+int VdmStore::tilesPerSide(int grid) const
+{
+  int r = gridRes(grid);
+  return r > 0 ? (r + params.tile_size - 1) / params.tile_size : 0;
+}
+
+VdmTile *VdmStore::findTileP(int grid, int ltx, int lty) const
+{
+  int tps = tilesPerSide(grid);
+  if (tps == 0 || ltx < 0 || lty < 0 || ltx >= tps || lty >= tps) {
+    return nullptr;
+  }
+  VdmTile *const *t = const_cast<util::Map<uint64_t, VdmTile *> &>(tiles_).lookup_ptr(
+      ptexTileKey(grid, lty * tps + ltx));
+  return t ? *t : nullptr;
+}
+
+VdmTile &VdmStore::ensureTileP(int grid, int ltx, int lty)
+{
+  int tps = tilesPerSide(grid);
+  return ensureTileAt(ptexTileKey(grid, lty * tps + ltx), grid, ltx, lty);
+}
+
+float3 VdmStore::texelP(int grid, int x, int y) const
+{
+  int r = gridRes(grid);
+  if (x < 0 || y < 0 || x >= r || y >= r) {
+    return float3(0.0f, 0.0f, 0.0f);
+  }
+  VdmTile *t = findTileP(grid, x / params.tile_size, y / params.tile_size);
+  if (!t) {
+    return float3(0.0f, 0.0f, 0.0f);
+  }
+  int lx = x % params.tile_size, ly = y % params.tile_size;
+  return t->texels[ly * params.tile_size + lx];
+}
+
+void VdmStore::writeTexelP(int grid, int x, int y, const float3 &value)
+{
+  int r = gridRes(grid);
+  if (x < 0 || y < 0 || x >= r || y >= r) {
+    return;
+  }
+  VdmTile &t = ensureTileP(grid, x / params.tile_size, y / params.tile_size);
+  int lx = x % params.tile_size, ly = y % params.tile_size;
+  t.texels[ly * params.tile_size + lx] = value;
+  t.boundDirty = true;
+  markGpuDirty(&t);
+}
+
+void VdmStore::addTexelP(int grid, int x, int y, const float3 &value)
+{
+  int r = gridRes(grid);
+  if (x < 0 || y < 0 || x >= r || y >= r) {
+    return;
+  }
+  VdmTile &t = ensureTileP(grid, x / params.tile_size, y / params.tile_size);
+  int lx = x % params.tile_size, ly = y % params.tile_size;
+  t.texels[ly * params.tile_size + lx] += value;
+  t.boundDirty = true;
+  markGpuDirty(&t);
+}
+
+float VdmStore::gridBound(int grid)
+{
+  updateBounds();
+  float b = 0.0f;
+  for (const auto &pair : tiles_) {
+    VdmTile *t = pair.value;
+    if (t && t->grid == grid && t->bound > b) {
+      b = t->bound;
+    }
+  }
+  return b;
+}
+
+float3 VdmStore::sample(int face, float u, float v) const
+{
+  if (params.backend == VdmBackend::PTEX) {
+    int r = gridRes(face);
+    if (r <= 0) {
+      return float3(0.0f, 0.0f, 0.0f);
+    }
+    // Grid-local param; taps clamp to the lattice (skirts own the seams).
+    float px = u * float(r) - 0.5f;
+    float py = v * float(r) - 0.5f;
+    float fx = std::floor(px);
+    float fy = std::floor(py);
+    int x0 = int(fx), y0 = int(fy);
+    float ax = px - fx, ay = py - fy;
+    auto cl = [r](int x) { return x < 0 ? 0 : (x >= r ? r - 1 : x); };
+
+    float3 t00 = texelP(face, cl(x0), cl(y0));
+    float3 t10 = texelP(face, cl(x0 + 1), cl(y0));
+    float3 t01 = texelP(face, cl(x0), cl(y0 + 1));
+    float3 t11 = texelP(face, cl(x0 + 1), cl(y0 + 1));
+
+    float3 b = t00 * (1.0f - ax) + t10 * ax;
+    float3 tpp = t01 * (1.0f - ax) + t11 * ax;
+    return b * (1.0f - ay) + tpp * ay;
+  }
+
   // Texel centers sit at integer+0.5 in texel space.
   float px = u * float(params.resolution) - 0.5f;
   float py = v * float(params.resolution) - 0.5f;
@@ -283,11 +421,22 @@ void VdmStore::applyDelta(VdmDelta &delta)
       entry.texels = std::move(live->texels);
       removeTile(entry.key);
     } else if (!live && entryHas) {
-      int tx = int(int32_t(uint32_t(entry.key >> 32)));
-      int ty = int(int32_t(uint32_t(entry.key & 0xffffffffu)));
+      // Key decode branches on the backend (a store never mixes key spaces).
+      int tx, ty, grid = -1;
+      if (params.backend == VdmBackend::PTEX) {
+        grid = int(uint32_t(entry.key >> 32));
+        int idx = int(uint32_t(entry.key & 0xffffffffu));
+        int tps = tilesPerSide(grid);
+        tx = tps > 0 ? idx % tps : 0;
+        ty = tps > 0 ? idx / tps : 0;
+      } else {
+        tx = int(int32_t(uint32_t(entry.key >> 32)));
+        ty = int(int32_t(uint32_t(entry.key & 0xffffffffu)));
+      }
       VdmTile *t = New<VdmTile>("VdmTile");
       t->tx = tx;
       t->ty = ty;
+      t->grid = grid;
       t->texels = std::move(entry.texels);
       t->boundDirty = true;
       entry.texels.clear();
@@ -300,22 +449,35 @@ void VdmStore::applyDelta(VdmDelta &delta)
 }
 
 /* On-disk layout mirrors serial::writeMesh: BinFile header, u32 version,
- * u32 rawSize, u32 compSize, lz4 block. Payload: i32 tile_size,
- * i32 resolution, u32 tileCount, per tile: i32 tx, i32 ty, tile_size²·3
- * floats. */
+ * u32 rawSize, u32 compSize, lz4 block. v2 payload: i32 backend,
+ * i32 tile_size, i32 resolution, [PTEX: u32 gridCount, per-grid i32 R_g,
+ * u32 adjSize, adj ints], u32 tileCount, per tile: i32 grid, i32 tx, i32 ty,
+ * tile_size²·3 floats. (v1 = the same minus backend/grid fields.) */
 bool VdmStore::write(std::ostream &out)
 {
   std::stringstream payloadStream(std::ios::in | std::ios::out | std::ios::binary);
   {
     io::BinFile pbf(payloadStream);
+    pbf.writeInt32(int(params.backend));
     pbf.writeInt32(params.tile_size);
     pbf.writeInt32(params.resolution);
+    if (params.backend == VdmBackend::PTEX) {
+      pbf.writeUint32(uint32_t(gridRes_.size()));
+      for (int r : gridRes_) {
+        pbf.writeInt32(r);
+      }
+      pbf.writeUint32(uint32_t(adjacency_.size()));
+      for (int a : adjacency_) {
+        pbf.writeInt32(a);
+      }
+    }
     pbf.writeUint32(uint32_t(tileCount_));
     for (const auto &pair : tiles_) {
       VdmTile *t = pair.value;
       if (!t) {
         continue;
       }
+      pbf.writeInt32(t->grid);
       pbf.writeInt32(t->tx);
       pbf.writeInt32(t->ty);
       for (const float3 &d : t->texels) {
@@ -379,14 +541,31 @@ bool VdmStore::read(std::istream &in)
   io::BinFile pbf(ps);
   pbf.littleEndian = obf.littleEndian;
 
+  params.backend = VdmBackend::ATLAS;
+  if (version >= 2) {
+    params.backend = VdmBackend(pbf.readInt32());
+  }
   params.tile_size = pbf.readInt32();
   params.resolution = pbf.readInt32();
+  if (version >= 2 && params.backend == VdmBackend::PTEX) {
+    uint32_t gn = pbf.readUint32();
+    gridRes_.resize(gn);
+    for (uint32_t i = 0; i < gn; i++) {
+      gridRes_[int(i)] = pbf.readInt32();
+    }
+    uint32_t an = pbf.readUint32();
+    adjacency_.resize(an);
+    for (uint32_t i = 0; i < an; i++) {
+      adjacency_[int(i)] = pbf.readInt32();
+    }
+  }
   uint32_t n = pbf.readUint32();
   int texelsPerTile = params.tile_size * params.tile_size;
   for (uint32_t i = 0; i < n; i++) {
+    int grid = version >= 2 ? pbf.readInt32() : -1;
     int tx = pbf.readInt32();
     int ty = pbf.readInt32();
-    VdmTile &t = ensureTile(tx, ty);
+    VdmTile &t = grid >= 0 ? ensureTileP(grid, tx, ty) : ensureTile(tx, ty);
     for (int j = 0; j < texelsPerTile; j++) {
       // Sequenced reads: constructor-arg evaluation order is unspecified.
       float x = pbf.readFloat();
