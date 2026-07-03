@@ -82,6 +82,18 @@ interface IWasmMethods extends IWasmBase {
   /** recompute vertex normals + the F3 frames — required before splatting. */
   Mesh_updateFrames(mesh: Mesh): void
 
+  // Sculpt-layer settings mutators (displace/c-api/displace_c_api.cc; V5).
+  // Each keeps evaluated v.co current; re-applying the previous value is the
+  // undo. Reads go through the bound Mesh sculptLayer* methods.
+  /** set layer `li`'s weight (co += Δw·d over all live verts). */
+  Mesh_layerSetWeight(mesh: Mesh, li: int, weight: number): void
+  /** enable/disable layer `li` (its contribution is added/subtracted from co). */
+  Mesh_layerSetEnabled(mesh: Mesh, li: int, enabled: int): void
+  /** freeze/unfreeze layer `li` (excluded from brush writes, still composited). */
+  Mesh_layerSetFrozen(mesh: Mesh, li: int, frozen: int): void
+  /** remove layer `li`: subtract its contribution, drop settings row + column. */
+  Mesh_layerRemove(mesh: Mesh, li: int): void
+
   // M5 requested-attribute bridge (spatial/c-api/spatial_c_api.cc). Pointer-level
   // C exports; the `SpatialTree_setRequestedAttrs`/`setDrawShader`/
   // `getMissingAttrSlots` helpers on IWasmInterface wrap these with heap
@@ -565,6 +577,22 @@ export async function loadWasm(): Promise<IWasmInterface> {
     Mesh_updateFrames(mesh: Mesh) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
       _wasm.Mesh_updateFrames(meshPtr as unknown as Mesh)
+    },
+    Mesh_layerSetWeight(mesh: Mesh, li: int, weight: number) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerSetWeight(meshPtr as unknown as Mesh, li, weight)
+    },
+    Mesh_layerSetEnabled(mesh: Mesh, li: int, enabled: int) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerSetEnabled(meshPtr as unknown as Mesh, li, enabled)
+    },
+    Mesh_layerSetFrozen(mesh: Mesh, li: int, frozen: int) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerSetFrozen(meshPtr as unknown as Mesh, li, frozen)
+    },
+    Mesh_layerRemove(mesh: Mesh, li: int) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerRemove(meshPtr as unknown as Mesh, li)
     },
     SpatialTree_setRequestedAttrs(tree: SpatialTree, reqs: RequestedAttrBridge[]) {
       const treePtr = (tree as unknown as {ptr: number}).ptr

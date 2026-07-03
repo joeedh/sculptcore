@@ -117,6 +117,16 @@ export interface NativeAddon {
   spatialTreeFillDetailCarrier(tree: NativeBound, carrier: number): void
   /** Recompute vertex normals + the F3 frames — the splatter's prerequisite. */
   meshUpdateFrames(mesh: NativeBound): void
+  // Sculpt-layer settings mutators (displace/c-api displace_c_api.cc; V5).
+  // Each keeps evaluated v.co current; re-applying the prior value is the undo.
+  /** Set layer `li`'s weight. */
+  meshLayerSetWeight(mesh: NativeBound, li: number, weight: number): void
+  /** Enable/disable layer `li` (contribution added/subtracted from co). */
+  meshLayerSetEnabled(mesh: NativeBound, li: number, enabled: number): void
+  /** Freeze/unfreeze layer `li` (excluded from brush writes, still composited). */
+  meshLayerSetFrozen(mesh: NativeBound, li: number, frozen: number): void
+  /** Remove layer `li`: subtract contribution, drop settings row + column. */
+  meshLayerRemove(mesh: NativeBound, li: number): void
   /**
    * Bytes a raw-pointer member of a bound object points at — the native
    * bulk-data read (e.g. gpu::Buffer.data). The pointer never crosses to JS as

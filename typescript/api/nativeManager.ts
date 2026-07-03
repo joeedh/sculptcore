@@ -186,6 +186,20 @@ export class NativeManager {
   Mesh_updateFrames(mesh: NativeBound): void {
     this.addon.meshUpdateFrames(mesh)
   }
+  // Sculpt-layer settings mutators (V5). Names match the IWasmInterface
+  // members so both backends stay drop-ins.
+  Mesh_layerSetWeight(mesh: NativeBound, li: number, weight: number): void {
+    this.addon.meshLayerSetWeight(mesh, li, weight)
+  }
+  Mesh_layerSetEnabled(mesh: NativeBound, li: number, enabled: number): void {
+    this.addon.meshLayerSetEnabled(mesh, li, enabled)
+  }
+  Mesh_layerSetFrozen(mesh: NativeBound, li: number, frozen: number): void {
+    this.addon.meshLayerSetFrozen(mesh, li, frozen)
+  }
+  Mesh_layerRemove(mesh: NativeBound, li: number): void {
+    this.addon.meshLayerRemove(mesh, li)
+  }
   /** Bytes of a bound object's raw-pointer member (e.g. gpu::Buffer.data). */
   pointerBytes(bound: NativeBound, member: string, byteLen: number): Uint8Array | undefined {
     return this.addon.pointerBytes(bound, member, byteLen)
@@ -384,6 +398,10 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     ) => nm.Mesh_vdmSplatDab(m, t, s, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert),
     SpatialTree_fillDetailCarrier    : (t: NativeBound, c: number) => nm.SpatialTree_fillDetailCarrier(t, c),
     Mesh_updateFrames                : (m: NativeBound) => nm.Mesh_updateFrames(m),
+    Mesh_layerSetWeight              : (m: NativeBound, li: number, w: number) => nm.Mesh_layerSetWeight(m, li, w),
+    Mesh_layerSetEnabled             : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetEnabled(m, li, on),
+    Mesh_layerSetFrozen              : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetFrozen(m, li, on),
+    Mesh_layerRemove                 : (m: NativeBound, li: number) => nm.Mesh_layerRemove(m, li),
     SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>
       nm.SpatialTree_setRequestedAttrs(t, reqs),
     SpatialTree_setDrawShader        : (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),

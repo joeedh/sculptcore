@@ -75,6 +75,11 @@ int Mesh_vdmSplatDab(void *mesh, void *tree, void *store, float cx, float cy,
                      float strength, float alpha, int invert);
 void SpatialTree_fillDetailCarrier(void *tree, int carrier);
 void Mesh_updateFrames(void *mesh);
+// Sculpt-layer settings mutators (source/displace/c-api/displace_c_api.cc).
+void Mesh_layerSetWeight(void *mesh, int li, float weight);
+void Mesh_layerSetEnabled(void *mesh, int li, int enabled);
+void Mesh_layerSetFrozen(void *mesh, int li, int frozen);
+void Mesh_layerRemove(void *mesh, int li);
 }
 
 // --- console.log sink for sc_napi_log (napi_log.h) --------------------------
@@ -1899,6 +1904,65 @@ napi_value NapiRuntime::MeshUpdateFrames(napi_env env, napi_callback_info info)
   return undef;
 }
 
+// Shared body of the sculpt-layer settings mutators: unwrap (mesh, li[, f]) and
+// forward to the displace C-API, which keeps evaluated v.co current.
+template<typename Fn>
+static napi_value meshLayerMutate(napi_env env, napi_callback_info info, bool hasValue, Fn fn)
+{
+  size_t argc = 3;
+  napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *mw = nullptr;
+  size_t need = hasValue ? 3 : 2;
+  if (argc >= need && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok &&
+      mw && mw->ptr)
+  {
+    int32_t li = -1;
+    napi_get_value_int32(env, argv[1], &li);
+    double value = 0.0;
+    if (hasValue) {
+      napi_get_value_double(env, argv[2], &value);
+    }
+    fn(mw->ptr, li, value);
+  }
+  return undef;
+}
+
+// meshLayerSetWeight(mesh, li, weight) -> void.
+napi_value NapiRuntime::MeshLayerSetWeight(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, true, [](void *m, int li, double v) {
+    Mesh_layerSetWeight(m, li, float(v));
+  });
+}
+
+// meshLayerSetEnabled(mesh, li, enabled) -> void.
+napi_value NapiRuntime::MeshLayerSetEnabled(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, true, [](void *m, int li, double v) {
+    Mesh_layerSetEnabled(m, li, v != 0.0 ? 1 : 0);
+  });
+}
+
+// meshLayerSetFrozen(mesh, li, frozen) -> void.
+napi_value NapiRuntime::MeshLayerSetFrozen(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, true, [](void *m, int li, double v) {
+    Mesh_layerSetFrozen(m, li, v != 0.0 ? 1 : 0);
+  });
+}
+
+// meshLayerRemove(mesh, li) -> void. Subtracts the layer's contribution and
+// drops its settings row + attribute column (destructive; caller snapshots).
+napi_value NapiRuntime::MeshLayerRemove(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, false, [](void *m, int li, double) {
+    Mesh_layerRemove(m, li);
+  });
+}
+
 // spatialTreeSetRequestedAttrs(tree, count, namesJoined, srcTypes, elemSizes,
 // slots, domains, defaultKinds) -> void. Routes the requested-attr set to the
 // extern "C" bridge (setTreeRequestedAttrs). Strings/JS arrays can't cross the
@@ -2478,6 +2542,10 @@ void NapiRuntime::installExports(napi_value exports)
          "spatialTreeFillDetailCarrier",
          &NapiRuntime::SpatialTreeFillDetailCarrier);
   define(exports, "meshUpdateFrames", &NapiRuntime::MeshUpdateFrames);
+  define(exports, "meshLayerSetWeight", &NapiRuntime::MeshLayerSetWeight);
+  define(exports, "meshLayerSetEnabled", &NapiRuntime::MeshLayerSetEnabled);
+  define(exports, "meshLayerSetFrozen", &NapiRuntime::MeshLayerSetFrozen);
+  define(exports, "meshLayerRemove", &NapiRuntime::MeshLayerRemove);
   define(exports,
          "spatialTreeSetRequestedAttrs",
          &NapiRuntime::SpatialTreeSetRequestedAttrs);

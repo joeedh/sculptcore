@@ -137,6 +137,13 @@ class NapiRuntime {
   static napi_value SpatialTreeFillDetailCarrier(napi_env, napi_callback_info);
   // meshUpdateFrames(mesh) -> void; recalc normals + F3 frames (splat prereq).
   static napi_value MeshUpdateFrames(napi_env, napi_callback_info);
+  // Sculpt-layer settings mutators, meshLayerSet*(mesh, li[, value]) -> void
+  // (displace/c-api displace_c_api.cc; V5). Each keeps evaluated v.co current;
+  // the caller owns any undo bracket (re-applying the prior value undoes).
+  static napi_value MeshLayerSetWeight(napi_env, napi_callback_info);
+  static napi_value MeshLayerSetEnabled(napi_env, napi_callback_info);
+  static napi_value MeshLayerSetFrozen(napi_env, napi_callback_info);
+  static napi_value MeshLayerRemove(napi_env, napi_callback_info);
   // M5 requested-attribute bridge (spatial/c-api setTree*). Strings + JS arrays
   // can't cross the generic method binding (marshalArg), so these route through
   // dedicated extern "C" calls like the Mesh_* factories.
