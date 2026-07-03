@@ -80,6 +80,17 @@ void Mesh_layerSetWeight(void *mesh, int li, float weight);
 void Mesh_layerSetEnabled(void *mesh, int li, int enabled);
 void Mesh_layerSetFrozen(void *mesh, int li, int frozen);
 void Mesh_layerRemove(void *mesh, int li);
+// Multires seam (source/subdiv/c-api/subdiv_c_api.cc).
+void *Multires_new(void *cage, int levels, int leafLimit, int depthLimit,
+                   int gpuTriTarget);
+void Multires_free(void *mr);
+int Multires_setActiveLevel(void *mr, int level);
+void *Multires_activeMesh(void *mr);
+void *Multires_activeTree(void *mr);
+int Multires_writeback(void *mr, int level);
+int Multires_downRefit(void *mr, int level);
+uint8_t *Multires_serializeStore(void *mr, int *out_size);
+int Multires_restoreStore(void *mr, const uint8_t *data, int size);
 }
 
 // --- console.log sink for sc_napi_log (napi_log.h) --------------------------
@@ -1963,6 +1974,218 @@ napi_value NapiRuntime::MeshLayerRemove(napi_env env, napi_callback_info info)
   });
 }
 
+// multiresNew(cage, levels, leafLimit, depthLimit, gpuTriTarget) -> bound
+// Multires wrapper (non-owning; free via multiresFree). The cage stays owned
+// by the caller and must outlive the stack.
+napi_value NapiRuntime::MultiresNew(napi_env env, napi_callback_info info)
+{
+  size_t argc = 5;
+  napi_value argv[5];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  Wrapped *mw = nullptr;
+  if (argc < 2 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok ||
+      !mw || !mw->ptr)
+  {
+    return out;
+  }
+  int32_t iv[4] = {0, 0, 0, 0}; // levels, leafLimit, depthLimit, gpuTriTarget
+  for (size_t i = 1; i < argc && i < 5; i++) {
+    napi_get_value_int32(env, argv[i], &iv[i - 1]);
+  }
+
+  void *mr = Multires_new(mw->ptr, iv[0], iv[1], iv[2], iv[3]);
+  const binding::BindingBase *st = rt->lookup("sculptcore::subdiv::Multires");
+  if (!mr || !st || st->type != BindingType::Struct) {
+    if (mr) {
+      Multires_free(mr);
+    }
+    return out;
+  }
+  return rt->instantiate(
+      static_cast<const types::_StructBase *>(st), mr, /*owning=*/false);
+}
+
+napi_value NapiRuntime::MultiresFree(napi_env env, napi_callback_info info)
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *w = nullptr;
+  if (argc >= 1 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) == napi_ok &&
+      w && w->ptr)
+  {
+    Multires_free(w->ptr);
+    // Null the wrapper so later access / the finalizer can't touch freed
+    // storage (same contract as meshFree / vdmStoreFree).
+    w->ptr = nullptr;
+  }
+  return undef;
+}
+
+// Shared body: unwrap (mr, level) and forward to an int-returning C-API call.
+template<typename Fn>
+static napi_value multiresLevelCall(napi_env env, napi_callback_info info, Fn fn)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_create_int32(env, 0, &out);
+  Wrapped *w = nullptr;
+  if (argc >= 2 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) == napi_ok &&
+      w && w->ptr)
+  {
+    int32_t level = 0;
+    napi_get_value_int32(env, argv[1], &level);
+    napi_create_int32(env, fn(w->ptr, level), &out);
+  }
+  return out;
+}
+
+// multiresSetActiveLevel(mr, level) -> the active level after the switch.
+// Slot mesh/tree pointers change — re-fetch via multiresActiveMesh/Tree.
+napi_value NapiRuntime::MultiresSetActiveLevel(napi_env env, napi_callback_info info)
+{
+  return multiresLevelCall(
+      env, info, [](void *mr, int level) { return Multires_setActiveLevel(mr, level); });
+}
+
+// multiresWriteback(mr, level) -> changed vert count (folds the level's
+// resident edits into the grids store).
+napi_value NapiRuntime::MultiresWriteback(napi_env env, napi_callback_info info)
+{
+  return multiresLevelCall(
+      env, info, [](void *mr, int level) { return Multires_writeback(mr, level); });
+}
+
+// multiresDownRefit(mr, level) -> changed level-1 vert count.
+napi_value NapiRuntime::MultiresDownRefit(napi_env env, napi_callback_info info)
+{
+  return multiresLevelCall(
+      env, info, [](void *mr, int level) { return Multires_downRefit(mr, level); });
+}
+
+// Shared body of multiresActiveMesh/Tree: unwrap (mr), wrap the returned
+// engine pointer as a NON-owning bound object of `structName`.
+napi_value NapiRuntime::multiresActiveView(napi_env env,
+                                           napi_callback_info info,
+                                           const char *structName,
+                                           void *(*fn)(void *))
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+  napi_value out;
+  napi_get_undefined(env, &out);
+  Wrapped *w = nullptr;
+  if (argc < 1 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok ||
+      !w || !w->ptr)
+  {
+    return out;
+  }
+  void *p = fn(w->ptr);
+  const binding::BindingBase *st = rt->lookup(structName);
+  if (!p || !st || st->type != BindingType::Struct) {
+    return out;
+  }
+  return rt->instantiate(
+      static_cast<const types::_StructBase *>(st), p, /*owning=*/false);
+}
+
+napi_value NapiRuntime::MultiresActiveMesh(napi_env env, napi_callback_info info)
+{
+  return multiresActiveView(env, info, "sculptcore::mesh::Mesh", &Multires_activeMesh);
+}
+
+napi_value NapiRuntime::MultiresActiveTree(napi_env env, napi_callback_info info)
+{
+  return multiresActiveView(
+      env, info, "sculptcore::spatial::SpatialTree", &Multires_activeTree);
+}
+
+// multiresSerializeStore(mr) -> Uint8Array (grids-store blob; copy semantics
+// as MeshSerialize — the V8 sandbox forbids external buffers).
+napi_value NapiRuntime::MultiresSerializeStore(napi_env env, napi_callback_info info)
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+  Wrapped *w = nullptr;
+  if (argc < 1 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok ||
+      !w || !w->ptr)
+  {
+    return out;
+  }
+  int size = 0;
+  uint8_t *buf = Multires_serializeStore(w->ptr, &size);
+  if (!buf) {
+    return out;
+  }
+  if (size <= 0) {
+    freeMeshBuffer(buf);
+    return out;
+  }
+  napi_value ab;
+  void *abData = nullptr;
+  napi_create_arraybuffer(env, static_cast<size_t>(size), &abData, &ab);
+  if (abData)
+    std::memcpy(abData, buf, static_cast<size_t>(size));
+  freeMeshBuffer(buf);
+  napi_create_typedarray(env, napi_uint8_array, static_cast<size_t>(size), ab, 0, &out);
+  return out;
+}
+
+// multiresRestoreStore(mr, bytes) -> boolean. Replaces the grids store and
+// invalidates all levels; the caller re-sets the active level afterwards.
+napi_value NapiRuntime::MultiresRestoreStore(napi_env env, napi_callback_info info)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_boolean(env, false, &out);
+  Wrapped *w = nullptr;
+  if (argc < 2 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok ||
+      !w || !w->ptr)
+  {
+    return out;
+  }
+  void *bytes = nullptr;
+  size_t byteLen = 0;
+  bool isTa = false;
+  napi_is_typedarray(env, argv[1], &isTa);
+  if (isTa) {
+    napi_typedarray_type t;
+    napi_value ab;
+    size_t off = 0;
+    napi_get_typedarray_info(env, argv[1], &t, &byteLen, &bytes, &ab, &off);
+  } else {
+    bool isAb = false;
+    napi_is_arraybuffer(env, argv[1], &isAb);
+    if (isAb) {
+      napi_get_arraybuffer_info(env, argv[1], &bytes, &byteLen);
+    }
+  }
+  if (!bytes || byteLen == 0) {
+    return out;
+  }
+  int ok = Multires_restoreStore(
+      w->ptr, static_cast<const uint8_t *>(bytes), static_cast<int>(byteLen));
+  napi_get_boolean(env, ok != 0, &out);
+  return out;
+}
+
 // spatialTreeSetRequestedAttrs(tree, count, namesJoined, srcTypes, elemSizes,
 // slots, domains, defaultKinds) -> void. Routes the requested-attr set to the
 // extern "C" bridge (setTreeRequestedAttrs). Strings/JS arrays can't cross the
@@ -2546,6 +2769,15 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "meshLayerSetEnabled", &NapiRuntime::MeshLayerSetEnabled);
   define(exports, "meshLayerSetFrozen", &NapiRuntime::MeshLayerSetFrozen);
   define(exports, "meshLayerRemove", &NapiRuntime::MeshLayerRemove);
+  define(exports, "multiresNew", &NapiRuntime::MultiresNew);
+  define(exports, "multiresFree", &NapiRuntime::MultiresFree);
+  define(exports, "multiresSetActiveLevel", &NapiRuntime::MultiresSetActiveLevel);
+  define(exports, "multiresActiveMesh", &NapiRuntime::MultiresActiveMesh);
+  define(exports, "multiresActiveTree", &NapiRuntime::MultiresActiveTree);
+  define(exports, "multiresWriteback", &NapiRuntime::MultiresWriteback);
+  define(exports, "multiresDownRefit", &NapiRuntime::MultiresDownRefit);
+  define(exports, "multiresSerializeStore", &NapiRuntime::MultiresSerializeStore);
+  define(exports, "multiresRestoreStore", &NapiRuntime::MultiresRestoreStore);
   define(exports,
          "spatialTreeSetRequestedAttrs",
          &NapiRuntime::SpatialTreeSetRequestedAttrs);

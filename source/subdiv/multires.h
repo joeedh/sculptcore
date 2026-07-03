@@ -20,6 +20,7 @@
 #include "grids.h"
 #include "subdiv.h"
 
+#include "litestl/binding/binding.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
 
@@ -76,6 +77,16 @@ struct Multires {
    * the number of changed verts (0 for a non-resident level). */
   int writeback(int level);
 
+  /** Explicit down-refit (S4): least-squares-fit level−1's positions to the
+   * current level-`level` surface (Jacobi-CG on the stencil normal equations,
+   * warm-started from the current chain), store the fit as level−1
+   * displacement, and re-express this level's displacement against the new
+   * base so its own surface is preserved. Coarser levels are untouched; finer
+   * levels re-derive. A stale level−1 resident is refreshed (its mesh/tree
+   * pointers change). Returns the number of level−1 verts changed; requires
+   * level >= 2. */
+  int downRefit(int level);
+
   /** Drop cached position chains and resident meshes strictly above `level`
    * (after a level-`level` edit lands in the store). */
   void invalidateAbove(int level);
@@ -94,12 +105,27 @@ struct Multires {
    * level (plan: users toggle two levels constantly, so default 3). */
   int lruBudget = 3;
 
+  /** Spatial-tree tuning applied when a level is materialized (0 = the
+   * SpatialTree default). The app sets these to its draw-path values so
+   * adopted level trees match app-built ones. */
+  int treeLeafLimit = 0;
+  int treeDepthLimit = 0;
+  int treeGpuTriTarget = 0;
+
   GridsStore store;
   Refiner refiner;
+
+  static litestl::binding::types::Struct<Multires> *defineBindings();
 
 private:
   /** Ensure the cached position chain is valid through `level`; returns it. */
   litestl::util::Vector<litestl::math::float3> &ensureChain(int level);
+  /** Re-express `pos` (dense by level vert id) as level-`level` store
+   * displacement: disp = frameᵀ·(pos − base), base = stencil(prev chain),
+   * frames on the smoothed base. Writes verts where `mask` is null or set. */
+  void storeDispFromPositions(int level,
+                              const litestl::util::Vector<litestl::math::float3> &pos,
+                              const litestl::util::Vector<bool> *mask);
   bool dispNonZero(int level);
   void evictSlot(int index);
   void evictOverBudget();

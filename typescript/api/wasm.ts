@@ -7,7 +7,7 @@ import {
   int,
   createWasmMemory,
 } from '@litestl/typescript-runtime'
-import type {AllBoundTypes, float2, float3, GPUManager, Mesh, SpatialTree, VdmStore} from '../index'
+import type {AllBoundTypes, float2, float3, GPUManager, Mesh, Multires, SpatialTree, VdmStore} from '../index'
 
 import {BindingManager} from './manager'
 import {loadNativeAddon, nativeBackendRequested} from './nativeBackend'
@@ -93,6 +93,28 @@ interface IWasmMethods extends IWasmBase {
   Mesh_layerSetFrozen(mesh: Mesh, li: int, frozen: int): void
   /** remove layer `li`: subtract its contribution, drop settings row + column. */
   Mesh_layerRemove(mesh: Mesh, li: int): void
+
+  // Multires seam (subdiv/c-api/subdiv_c_api.cc; displacementAndSubSurf S).
+  // Pointer-level C exports; the same-named IWasmInterface helpers wrap them
+  // with handle unwrapping so both backends stay drop-ins.
+  /** build a multires stack over `cage` (not owned; must outlive the stack); tree params 0 = defaults. */
+  Multires_new(cage: Mesh, levels: int, leafLimit: int, depthLimit: int, gpuTriTarget: int): Multires
+  /** free a stack created by `Multires_new` (never frees the cage). */
+  Multires_free(mr: Multires): void
+  /** write back the outgoing level, activate `level` (clamped); returns the active level. */
+  Multires_setActiveLevel(mr: Multires, level: int): int
+  /** the active level's mesh — a NON-owning view of the stack's slot (never free). */
+  Multires_activeMesh(mr: Multires): Mesh | undefined
+  /** the active level's spatial tree — a NON-owning view (never free). */
+  Multires_activeTree(mr: Multires): SpatialTree | undefined
+  /** fold the level's resident edits into the grids store; returns changed verts. */
+  Multires_writeback(mr: Multires, level: int): int
+  /** least-squares refit of level−1 to `level`'s surface; returns changed level−1 verts. */
+  Multires_downRefit(mr: Multires, level: int): int
+  /** raw grids-store serialize: malloc'd blob + byte count to `outSizePtr`; wrapped by `Multires_storeBlob`. */
+  Multires_serializeStore(mr: pointer, outSizePtr: pointer): pointer
+  /** raw grids-store restore; wrapped by `Multires_restoreStoreBlob`. */
+  Multires_restoreStore(mr: pointer, dataPtr: pointer, size: int): int
 
   // M5 requested-attribute bridge (spatial/c-api/spatial_c_api.cc). Pointer-level
   // C exports; the `SpatialTree_setRequestedAttrs`/`setDrawShader`/
@@ -254,6 +276,14 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
   Mesh_serializeRaw(mesh: Mesh): Uint8Array
   /** Reconstruct a mesh from a `Mesh_serialize` blob. */
   Mesh_deserialize(bytes: Uint8Array): Mesh
+
+  /** Grids-store blob of a multires stack (undo seam for down-refit / stack
+   * delete). Backend-agnostic copy semantics like `Mesh_serialize`. */
+  Multires_storeBlob(mr: Multires): Uint8Array
+  /** Replace a stack's grids store from a `Multires_storeBlob` blob (same cage
+   * topology); invalidates every level — re-set the active level after.
+   * Returns success. */
+  Multires_restoreStoreBlob(mr: Multires, bytes: Uint8Array): boolean
   /**
    * Free a mesh handle (allocator-correct: routes to the C++ `alloc::Delete`
    * disposer). Do NOT free meshes via `[Symbol.dispose]` — that path is absent
@@ -593,6 +623,56 @@ export async function loadWasm(): Promise<IWasmInterface> {
     Mesh_layerRemove(mesh: Mesh, li: int) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
       _wasm.Mesh_layerRemove(meshPtr as unknown as Mesh, li)
+    },
+    Multires_new(cage: Mesh, levels: int, leafLimit: int, depthLimit: int, gpuTriTarget: int): Multires {
+      const cagePtr = (cage as unknown as {ptr: number}).ptr
+      const ptr = _wasm.Multires_new(
+        cagePtr as unknown as Mesh,
+        levels,
+        leafLimit,
+        depthLimit,
+        gpuTriTarget
+      ) as unknown as number
+      return manager.getBoundPointer('sculptcore::subdiv::Multires', ptr) as Multires
+    },
+    Multires_free(mr: Multires) {
+      const mrPtr = (mr as unknown as {ptr: number}).ptr
+      _wasm.Multires_free(mrPtr as unknown as Multires)
+    },
+    Multires_setActiveLevel(mr: Multires, level: int): int {
+      const mrPtr = (mr as unknown as {ptr: number}).ptr
+      return _wasm.Multires_setActiveLevel(mrPtr as unknown as Multires, level)
+    },
+    Multires_activeMesh(mr: Multires): Mesh | undefined {
+      const mrPtr = (mr as unknown as {ptr: number}).ptr
+      const ptr = _wasm.Multires_activeMesh(mrPtr as unknown as Multires) as unknown as number
+      return ptr ? (manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh) : undefined
+    },
+    Multires_activeTree(mr: Multires): SpatialTree | undefined {
+      const mrPtr = (mr as unknown as {ptr: number}).ptr
+      const ptr = _wasm.Multires_activeTree(mrPtr as unknown as Multires) as unknown as number
+      return ptr ? (manager.getBoundPointer('sculptcore::spatial::SpatialTree', ptr) as SpatialTree) : undefined
+    },
+    Multires_writeback(mr: Multires, level: int): int {
+      const mrPtr = (mr as unknown as {ptr: number}).ptr
+      return _wasm.Multires_writeback(mrPtr as unknown as Multires, level)
+    },
+    Multires_downRefit(mr: Multires, level: int): int {
+      const mrPtr = (mr as unknown as {ptr: number}).ptr
+      return _wasm.Multires_downRefit(mrPtr as unknown as Multires, level)
+    },
+    Multires_storeBlob(mr: Multires): Uint8Array {
+      return serializeMeshHeap((mr as unknown as {ptr: number}).ptr, _wasm.Multires_serializeStore)
+    },
+    Multires_restoreStoreBlob(mr: Multires, bytes: Uint8Array): boolean {
+      const mrPtr = (mr as unknown as {ptr: number}).ptr
+      const dataPtr = _wasm._rawAlloc(bytes.length)
+      try {
+        _wasm.HEAPU8.set(bytes, dataPtr)
+        return _wasm.Multires_restoreStore(mrPtr, dataPtr, bytes.length) !== 0
+      } finally {
+        _wasm._rawRelease(dataPtr)
+      }
     },
     SpatialTree_setRequestedAttrs(tree: SpatialTree, reqs: RequestedAttrBridge[]) {
       const treePtr = (tree as unknown as {ptr: number}).ptr

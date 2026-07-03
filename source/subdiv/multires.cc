@@ -8,6 +8,7 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/assert.h"
 
+#include <cmath>
 #include <cstring>
 
 using namespace litestl;
@@ -228,6 +229,15 @@ MultiresSlot *Multires::materialize(int level)
   m->recalc_normals();
 
   auto *tree = alloc::New<spatial::SpatialTree>("multires tree", m);
+  if (treeLeafLimit > 0) {
+    tree->leaf_limit = treeLeafLimit;
+  }
+  if (treeDepthLimit > 0) {
+    tree->depth_limit = treeDepthLimit;
+  }
+  if (treeGpuTriTarget > 0) {
+    tree->gpu_tri_target = treeGpuTriTarget;
+  }
   tree->buildAll();
   for (auto *node : tree->leaves()) {
     tree->ensure_node_tris(node);
@@ -243,30 +253,13 @@ MultiresSlot *Multires::materialize(int level)
   return findSlot(level);
 }
 
-int Multires::writeback(int level)
+void Multires::storeDispFromPositions(int level,
+                                      const Vector<float3> &pos,
+                                      const Vector<bool> *mask)
 {
-  MultiresSlot *slot = findSlot(level);
-  if (!slot) {
-    return 0;
-  }
-  Assert(posCache_[level - 1].valid, "resident level has a valid baseline");
-  Vector<float3> &baseline = posCache_[level - 1].pos;
-  mesh::Mesh &lm = *slot->mesh;
-
   SubdivLevel &lvl = refiner.levels[level - 1];
-  Vector<bool> changed;
-  changed.resize(lvl.vertCount);
-  int nChanged = 0;
-  for (int i = 0; i < lvl.vertCount; i++) {
-    float3 p = lm.v.co[i];
-    changed[i] = std::memcmp(&p, &baseline[i], sizeof(float3)) != 0;
-    nChanged += changed[i] ? 1 : 0;
-  }
-  if (nChanged == 0) {
-    return 0;
-  }
 
-  /* Recompute the smoothed base + frames this level's disp is relative to. */
+  // Recompute the smoothed base + frames this level's disp is relative to.
   Vector<float3> cageCo, base;
   const Vector<float3> *prev;
   if (level == 1) {
@@ -298,12 +291,12 @@ int Multires::writeback(int level)
     for (int v = 0; v < w; v++) {
       for (int u = 0; u < w; u++) {
         int vid = gv[v * w + u];
-        if (!changed[vid]) {
+        if (mask && !(*mask)[vid]) {
           continue;
         }
         float3 n = (*no)[vid], t = (*ta)[vid];
         float3 b = n.cross(t);
-        float3 dp = lm.v.co[vid] - base[vid];
+        float3 dp = pos[vid] - base[vid];
         float *d = store.elem(level, 0, g, u, v);
         d[0] = dp.dot(t);
         d[1] = dp.dot(b);
@@ -312,15 +305,189 @@ int Multires::writeback(int level)
     }
   }
   alloc::Delete(tm);
+}
+
+int Multires::writeback(int level)
+{
+  MultiresSlot *slot = findSlot(level);
+  if (!slot) {
+    return 0;
+  }
+  Assert(posCache_[level - 1].valid, "resident level has a valid baseline");
+  Vector<float3> &baseline = posCache_[level - 1].pos;
+  mesh::Mesh &lm = *slot->mesh;
+
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  Vector<float3> pos;
+  Vector<bool> changed;
+  pos.resize(lvl.vertCount);
+  changed.resize(lvl.vertCount);
+  int nChanged = 0;
+  for (int i = 0; i < lvl.vertCount; i++) {
+    pos[i] = lm.v.co[i];
+    changed[i] = std::memcmp(&pos[i], &baseline[i], sizeof(float3)) != 0;
+    nChanged += changed[i] ? 1 : 0;
+  }
+  if (nChanged == 0) {
+    return 0;
+  }
+
+  storeDispFromPositions(level, pos, &changed);
 
   /* The edited mesh is the new baseline for this level; everything finer is
    * derived from it and must re-evaluate. */
   for (int i = 0; i < lvl.vertCount; i++) {
     if (changed[i]) {
-      baseline[i] = lm.v.co[i];
+      baseline[i] = pos[i];
     }
   }
   invalidateAbove(level);
+  return nChanged;
+}
+
+/* z = Aᵀ·y over the stencil (scatter form of eval), same fma chain per term. */
+static void applyStencilT(const StencilTable &st,
+                          const Vector<float3> &y,
+                          Vector<float3> &z)
+{
+  z.resize(st.coarseCount);
+  for (int j = 0; j < st.coarseCount; j++) {
+    z[j] = float3(0.0f, 0.0f, 0.0f);
+  }
+  for (int i = 0; i < st.fineCount; i++) {
+    for (int k = st.offsets[i]; k < st.offsets[i + 1]; k++) {
+      float w = st.weights[k];
+      float3 &acc = z[st.indices[k]];
+      acc[0] = std::fma(y[i][0], w, acc[0]);
+      acc[1] = std::fma(y[i][1], w, acc[1]);
+      acc[2] = std::fma(y[i][2], w, acc[2]);
+    }
+  }
+}
+
+static double vecDot(const Vector<float3> &a, const Vector<float3> &b)
+{
+  double s = 0.0;
+  for (int i = 0; i < int(a.size()); i++) {
+    s += double(a[i][0]) * b[i][0] + double(a[i][1]) * b[i][1] +
+         double(a[i][2]) * b[i][2];
+  }
+  return s;
+}
+
+/** Jacobi-preconditioned CG on the stencil normal equations AᵀA·x = Aᵀ·target,
+ * warm-started from the incoming `x`. Deterministic (fixed sequential order,
+ * double accumulators). Returns iterations used. */
+static int solveStencilLeastSquares(const StencilTable &st,
+                                    const Vector<float3> &target,
+                                    Vector<float3> &x)
+{
+  Vector<float3> b, fineTmp, q, r, p, z;
+  applyStencilT(st, target, b);
+
+  // Jacobi preconditioner: diag(AᵀA)_j = Σ_i w_ij².
+  Vector<float> dinv;
+  dinv.resize(st.coarseCount);
+  for (int j = 0; j < st.coarseCount; j++) {
+    dinv[j] = 0.0f;
+  }
+  for (int k = 0; k < int(st.weights.size()); k++) {
+    dinv[st.indices[k]] += st.weights[k] * st.weights[k];
+  }
+  for (int j = 0; j < st.coarseCount; j++) {
+    dinv[j] = dinv[j] > 1e-20f ? 1.0f / dinv[j] : 0.0f;
+  }
+
+  auto applyM = [&](const Vector<float3> &in, Vector<float3> &out) {
+    st.eval(in, fineTmp);
+    applyStencilT(st, fineTmp, out);
+  };
+
+  applyM(x, q);
+  r.resize(st.coarseCount);
+  z.resize(st.coarseCount);
+  p.resize(st.coarseCount);
+  for (int j = 0; j < st.coarseCount; j++) {
+    r[j] = b[j] - q[j];
+    z[j] = r[j] * dinv[j];
+    p[j] = z[j];
+  }
+
+  double rz = vecDot(r, z);
+  double tol2 = vecDot(b, b) * 1e-14 + 1e-30;
+  const int maxIter = 200;
+  int it = 0;
+  for (; it < maxIter && vecDot(r, r) > tol2; it++) {
+    applyM(p, q);
+    double pq = vecDot(p, q);
+    if (!(pq > 0.0)) {
+      break;
+    }
+    float alpha = float(rz / pq);
+    for (int j = 0; j < st.coarseCount; j++) {
+      x[j] += p[j] * alpha;
+      r[j] += q[j] * -alpha;
+    }
+    for (int j = 0; j < st.coarseCount; j++) {
+      z[j] = r[j] * dinv[j];
+    }
+    double rzNew = vecDot(r, z);
+    float beta = float(rzNew / rz);
+    rz = rzNew;
+    for (int j = 0; j < st.coarseCount; j++) {
+      p[j] = z[j] + p[j] * beta;
+    }
+  }
+  return it;
+}
+
+int Multires::downRefit(int level)
+{
+  if (level < 2 || level > maxLevel()) {
+    return 0;
+  }
+  writeback(level); // fold any resident edits; no-op when clean
+
+  // Copies: the coarse store write below invalidates chain references.
+  Vector<float3> target = ensureChain(level);
+  Vector<float3> coarse = ensureChain(level - 1);
+
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  solveStencilLeastSquares(lvl.stencil, target, coarse);
+
+  int coarseLevel = level - 1;
+  Vector<float3> &cBaseline = posCache_[coarseLevel - 1].pos;
+  Vector<bool> changed;
+  changed.resize(coarse.size());
+  int nChanged = 0;
+  for (int i = 0; i < int(coarse.size()); i++) {
+    changed[i] = std::memcmp(&coarse[i], &cBaseline[i], sizeof(float3)) != 0;
+    nChanged += changed[i] ? 1 : 0;
+  }
+  if (nChanged == 0) {
+    return 0;
+  }
+
+  storeDispFromPositions(coarseLevel, coarse, &changed);
+  posCache_[coarseLevel - 1].pos = coarse;
+
+  // Re-express this level against the new base (reads the coarse chain just
+  // stored above); its surface — and any resident slot mesh — is preserved.
+  storeDispFromPositions(level, target, nullptr);
+  posCache_[level - 1].pos = std::move(target);
+
+  invalidateAbove(level);
+
+  // The coarse resident (if any) is stale; refresh it, keeping the active
+  // level protected. Callers re-fetch slot pointers after this op.
+  for (int i = int(slots_.size()) - 1; i >= 0; i--) {
+    if (slots_[i].level == coarseLevel) {
+      evictSlot(i);
+    }
+  }
+  if (activeLevel_ == coarseLevel) {
+    materialize(coarseLevel);
+  }
   return nChanged;
 }
 
@@ -347,6 +514,16 @@ void Multires::invalidateAll()
     evictSlot(i);
   }
   activeLevel_ = 0;
+}
+
+litestl::binding::types::Struct<Multires> *Multires::defineBindings()
+{
+  using namespace litestl::binding;
+  types::Struct<Multires> *st =
+      new types::Struct<Multires>("sculptcore::subdiv::Multires", sizeof(Multires));
+  BIND_STRUCT_METHOD(st, maxLevel, MARGS());
+  BIND_STRUCT_METHOD(st, activeLevel, MARGS());
+  return st;
 }
 
 MultiresSlot *Multires::setActiveLevel(int level)

@@ -1799,6 +1799,23 @@ bool execVerb(Scene &scene,
                  scene.mesh->v.count);
     return true;
   }
+  if (verb == "multires_refit") {
+    /* multires_refit [level=active]: least-squares-fit level-1 to level. */
+    if (!scene.multires) {
+      err = "multires_refit: multires not active (run multires_init)";
+      return false;
+    }
+    int level = getInt(args, "level", scene.multires->activeLevel());
+    if (level < 2 || level > scene.multires->maxLevel()) {
+      err = "multires_refit: bad level= (need 2..maxLevel)";
+      return false;
+    }
+    int changed = scene.multires->downRefit(level);
+    scene.attachMultiresLevel();
+    std::fprintf(stdout, "[script] multires_refit level=%d changed=%d\n", level,
+                 changed);
+    return true;
+  }
   if (verb == "save_disp") {
     /* save_disp id=NAME level=L: snapshot a level's disp channel. */
     if (!scene.multires) {

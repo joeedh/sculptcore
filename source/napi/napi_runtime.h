@@ -144,6 +144,29 @@ class NapiRuntime {
   static napi_value MeshLayerSetEnabled(napi_env, napi_callback_info);
   static napi_value MeshLayerSetFrozen(napi_env, napi_callback_info);
   static napi_value MeshLayerRemove(napi_env, napi_callback_info);
+  // Multires seam (subdiv/c-api/subdiv_c_api.cc; displacementAndSubSurf S).
+  // multiresNew(cage, levels, leafLimit, depthLimit, gpuTriTarget) -> bound
+  // Multires wrapper (non-owning; free via multiresFree, which nulls it).
+  static napi_value MultiresNew(napi_env, napi_callback_info);
+  static napi_value MultiresFree(napi_env, napi_callback_info);
+  // multiresSetActiveLevel(mr, level) -> active level after the switch.
+  static napi_value MultiresSetActiveLevel(napi_env, napi_callback_info);
+  // multiresActiveMesh/Tree(mr) -> NON-owning bound Mesh / SpatialTree views
+  // of the active level's slot (the stack owns both; never free them).
+  static napi_value MultiresActiveMesh(napi_env, napi_callback_info);
+  static napi_value MultiresActiveTree(napi_env, napi_callback_info);
+  // multiresWriteback/DownRefit(mr, level) -> changed vert count.
+  static napi_value MultiresWriteback(napi_env, napi_callback_info);
+  static napi_value MultiresDownRefit(napi_env, napi_callback_info);
+  // multiresSerializeStore(mr) -> Uint8Array; multiresRestoreStore(mr, bytes)
+  // -> boolean (invalidates all levels; re-set the active level after).
+  static napi_value MultiresSerializeStore(napi_env, napi_callback_info);
+  static napi_value MultiresRestoreStore(napi_env, napi_callback_info);
+  // Shared body of multiresActiveMesh/Tree (needs lookup/instantiate).
+  static napi_value multiresActiveView(napi_env,
+                                       napi_callback_info,
+                                       const char *structName,
+                                       void *(*fn)(void *));
   // M5 requested-attribute bridge (spatial/c-api setTree*). Strings + JS arrays
   // can't cross the generic method binding (marshalArg), so these route through
   // dedicated extern "C" calls like the Mesh_* factories.

@@ -15,6 +15,21 @@ set(SRC
   grids.cc
   PUBLIC multires.h
   multires.cc
+  PUBLIC bindings.h
+  bindings.cc
+  c-api/subdiv_c_api.cc
 )
 
 sc_add_library(subdiv "${SRC}" "${LIB}" STATIC)
+
+wasm_add_symbols("
+  Multires_new
+  Multires_free
+  Multires_setActiveLevel
+  Multires_activeMesh
+  Multires_activeTree
+  Multires_writeback
+  Multires_downRefit
+  Multires_serializeStore
+  Multires_restoreStore
+")

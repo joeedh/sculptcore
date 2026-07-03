@@ -23,6 +23,7 @@ import type {BrushProgram} from './sculptcore/brush/BrushProgram'
 import type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 import type {AttrGroup} from './sculptcore/mesh/AttrGroup'
 import type {AttrRef} from './sculptcore/mesh/AttrRef'
+import type {Multires} from './sculptcore/subdiv/Multires'
 import type {Buffer} from './sculptcore/gpu/Buffer'
 import type {Mesh} from './sculptcore/mesh/Mesh'
 import type {FaceData} from './sculptcore/mesh/FaceData'
@@ -66,6 +67,7 @@ export type {BrushProgram} from './sculptcore/brush/BrushProgram'
 export type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
 export type {AttrGroup} from './sculptcore/mesh/AttrGroup'
 export type {AttrRef} from './sculptcore/mesh/AttrRef'
+export type {Multires} from './sculptcore/subdiv/Multires'
 export type {Buffer} from './sculptcore/gpu/Buffer'
 export type {Mesh} from './sculptcore/mesh/Mesh'
 export type {FaceData} from './sculptcore/mesh/FaceData'
@@ -167,6 +169,7 @@ export type AllBoundTypes = {
     int32,
     '.corner.v'
   >
+  'sculptcore::subdiv::Multires': Multires
   'sculptcore::mesh::Mesh': Mesh
   'litestl::math::int4': int4
   'sculptcore::mesh::BuiltinAttr<int32,.corner.radial_next>': BuiltinAttr<

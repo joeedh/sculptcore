@@ -11,6 +11,7 @@ set(LIB
     PUBLIC dyntopo
     PUBLIC meshlog
     PUBLIC vdm
+    PUBLIC subdiv
 )
 
 set(SRC

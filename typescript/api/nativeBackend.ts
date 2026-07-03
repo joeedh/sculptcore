@@ -127,6 +127,25 @@ export interface NativeAddon {
   meshLayerSetFrozen(mesh: NativeBound, li: number, frozen: number): void
   /** Remove layer `li`: subtract contribution, drop settings row + column. */
   meshLayerRemove(mesh: NativeBound, li: number): void
+  // Multires seam (subdiv/c-api subdiv_c_api.cc; displacementAndSubSurf S).
+  /** Bound Multires stack over `cage` (not owned; must outlive the stack). Tree params 0 = defaults. Free via multiresFree. */
+  multiresNew(cage: NativeBound, levels: number, leafLimit: number, depthLimit: number, gpuTriTarget: number): NativeBound
+  /** Free a stack created by multiresNew (never frees the cage). Nulls the wrapper's pointer. */
+  multiresFree(mr: NativeBound): void
+  /** Write back the outgoing level, activate `level` (clamped); returns the active level. */
+  multiresSetActiveLevel(mr: NativeBound, level: number): number
+  /** The active level's mesh — a NON-owning view of the stack's slot (never free). */
+  multiresActiveMesh(mr: NativeBound): NativeBound | undefined
+  /** The active level's spatial tree — a NON-owning view (never free). */
+  multiresActiveTree(mr: NativeBound): NativeBound | undefined
+  /** Fold the level's resident edits into the grids store; returns changed verts. */
+  multiresWriteback(mr: NativeBound, level: number): number
+  /** Least-squares refit of level−1 to `level`'s surface; returns changed level−1 verts. */
+  multiresDownRefit(mr: NativeBound, level: number): number
+  /** Grids-store blob (undo seam for down-refit / stack delete). */
+  multiresSerializeStore(mr: NativeBound): Uint8Array
+  /** Replace the grids store from a blob; invalidates all levels (re-set the active level after). */
+  multiresRestoreStore(mr: NativeBound, bytes: Uint8Array): boolean
   /**
    * Bytes a raw-pointer member of a bound object points at — the native
    * bulk-data read (e.g. gpu::Buffer.data). The pointer never crosses to JS as

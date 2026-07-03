@@ -200,6 +200,35 @@ export class NativeManager {
   Mesh_layerRemove(mesh: NativeBound, li: number): void {
     this.addon.meshLayerRemove(mesh, li)
   }
+  // Multires seam (displacementAndSubSurf S app-wiring pass). Names match the
+  // IWasmInterface members so both backends stay drop-ins.
+  Multires_new(cage: NativeBound, levels: number, leafLimit: number, depthLimit: number, gpuTriTarget: number): NativeBound {
+    return this.addon.multiresNew(cage, levels, leafLimit, depthLimit, gpuTriTarget)
+  }
+  Multires_free(mr: NativeBound): void {
+    this.addon.multiresFree(mr)
+  }
+  Multires_setActiveLevel(mr: NativeBound, level: number): number {
+    return this.addon.multiresSetActiveLevel(mr, level)
+  }
+  Multires_activeMesh(mr: NativeBound): NativeBound | undefined {
+    return this.addon.multiresActiveMesh(mr)
+  }
+  Multires_activeTree(mr: NativeBound): NativeBound | undefined {
+    return this.addon.multiresActiveTree(mr)
+  }
+  Multires_writeback(mr: NativeBound, level: number): number {
+    return this.addon.multiresWriteback(mr, level)
+  }
+  Multires_downRefit(mr: NativeBound, level: number): number {
+    return this.addon.multiresDownRefit(mr, level)
+  }
+  Multires_storeBlob(mr: NativeBound): Uint8Array {
+    return this.addon.multiresSerializeStore(mr)
+  }
+  Multires_restoreStoreBlob(mr: NativeBound, bytes: Uint8Array): boolean {
+    return this.addon.multiresRestoreStore(mr, bytes)
+  }
   /** Bytes of a bound object's raw-pointer member (e.g. gpu::Buffer.data). */
   pointerBytes(bound: NativeBound, member: string, byteLen: number): Uint8Array | undefined {
     return this.addon.pointerBytes(bound, member, byteLen)
@@ -402,6 +431,15 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Mesh_layerSetEnabled             : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetEnabled(m, li, on),
     Mesh_layerSetFrozen              : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetFrozen(m, li, on),
     Mesh_layerRemove                 : (m: NativeBound, li: number) => nm.Mesh_layerRemove(m, li),
+    Multires_new                     : (c: NativeBound, lv: number, l: number, d: number, t: number) => nm.Multires_new(c, lv, l, d, t),
+    Multires_free                    : (mr: NativeBound) => nm.Multires_free(mr),
+    Multires_setActiveLevel          : (mr: NativeBound, lv: number) => nm.Multires_setActiveLevel(mr, lv),
+    Multires_activeMesh              : (mr: NativeBound) => nm.Multires_activeMesh(mr),
+    Multires_activeTree              : (mr: NativeBound) => nm.Multires_activeTree(mr),
+    Multires_writeback               : (mr: NativeBound, lv: number) => nm.Multires_writeback(mr, lv),
+    Multires_downRefit               : (mr: NativeBound, lv: number) => nm.Multires_downRefit(mr, lv),
+    Multires_storeBlob               : (mr: NativeBound) => nm.Multires_storeBlob(mr),
+    Multires_restoreStoreBlob        : (mr: NativeBound, b: Uint8Array) => nm.Multires_restoreStoreBlob(mr, b),
     SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>
       nm.SpatialTree_setRequestedAttrs(t, reqs),
     SpatialTree_setDrawShader        : (t: NativeBound, wgsl: string) => nm.SpatialTree_setDrawShader(t, wgsl),

@@ -11,12 +11,39 @@ gates). Companion design docs:
 
 **Workstream F merged to master** (branch `displacement-subsurf-f`, torn
 down). **Both engine tracks are complete and unified on this branch**: the
-S track (S1–S5, engine work done on `subsurf`; its remaining app-wiring
-pass — level-switch op + UI, wasm↔native parity, down-refit op, production
-draw integration with V's tier in X3 — is tracked there) was pulled in by
-rebasing `displacement` onto the pushed `subsurf` branch, so the V commits
-sit on top of S1–S5. **WORKSTREAM V IS COMPLETE (V1–V5)**; next is the S
-app-wiring pass and then workstream X:
+S track (S1–S5, engine work done on `subsurf`) was pulled in by rebasing
+`displacement` onto the pushed `subsurf` branch, so the V commits sit on top
+of S1–S5. **WORKSTREAM V IS COMPLETE (V1–V5)** and the **S app-wiring pass
+is DONE** (below); next is workstream X (S's production draw integration
+with V's tier rides X3):
+
+- **S app-wiring pass done.** Engine additions: `Multires::downRefit(level)`
+  (explicit down-refit — Jacobi-CG least squares on the stencil normal
+  equations fits level−1 to the level surface, warm-started from the chain;
+  the level's disp is re-expressed against the new base so its surface is
+  preserved; coarser levels bit-untouched), app-tunable slot-tree params
+  (`treeLeafLimit/DepthLimit/GpuTriTarget`), the `subdiv` C-API + bindings
+  (`Multires_new/free/setActiveLevel/activeMesh/activeTree/writeback/
+  downRefit` + the store-blob undo pair `Multires_serializeStore/
+  restoreStore`; `maxLevel`/`activeLevel` bound methods), the `multires_refit`
+  debug verb, and the gate extension in `test_multires` (residual halves,
+  fine surface preserved to 1e-5, level 1 bitwise untouched). App half: napi
+  wraps + 4-place TS threading; the LiteMesh attach model (mesh/spatial as
+  non-owning slot views, cage parked, `_replaceMesh` flattens a live stack;
+  dyntopo + auto-defrag force-gated off on level meshes; stroke-end and
+  meshlog-undo/redo writeback hooks); undoable ToolOps
+  `litemesh.multires_{enable,set_level,down_refit,delete}` (level switch
+  undoes by switching back — level changes ride the toolstack, so no
+  per-step level bookkeeping; refit/delete undo by store-blob restore);
+  a Multires properties panel + level slider (drag-merged) behind the new
+  `sculptcore.multires` feature flag (default off);
+  `documentation/multires.md`. Gate green: `sculptcore_multires` integration
+  test — 15/15 both backends; enable → lossless level round-trip → real DRAW
+  stroke + writeback → undo/redo resync → down-refit (fine preserved, coarse
+  moved) → delete restores the cage, with **bit-identical cross-backend
+  checksums including the CG down-refit result**. Known debts: no `.wproj`
+  persistence of the stack (flatten-on-save; X-track serialization), S5 GPU
+  amplification not yet in the production draw (X3).
 
 - **V5 done.** Engine half: displace C-API layer mutators
   (`Mesh_layerSetWeight/SetEnabled/SetFrozen/Remove`, compositor-maintained

@@ -23,6 +23,7 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -222,6 +223,100 @@ static void gateFan()
   alloc::Delete(cage);
 }
 
+static double maxResidual(const Vector<float3> &a, const Vector<float3> &b)
+{
+  double m = 0.0;
+  for (int i = 0; i < int(a.size()); i++) {
+    m = std::max(m, double((a[i] - b[i]).length()));
+  }
+  return m;
+}
+
+/* L2 misfit of the coarse level's subdivided surface vs the fine target. */
+static double stencilResidual(Multires &mr, int level, const Vector<float3> &fine)
+{
+  MultiresSlot *slot = mr.materialize(level - 1);
+  Vector<float3> coarse, up;
+  snapshotCo(*slot->mesh, coarse);
+  mr.refiner.levels[level - 1].stencil.eval(coarse, up);
+  double s = 0.0;
+  for (int i = 0; i < int(up.size()); i++) {
+    s += double((up[i] - fine[i]).lengthSqr());
+  }
+  return std::sqrt(s);
+}
+
+static void level1DispBlob(Multires &mr, std::string &out)
+{
+  out.clear();
+  for (int g = 0; g < mr.store.gridCount(); g++) {
+    for (int v = 0; v < 2; v++) {
+      for (int u = 0; u < 2; u++) {
+        const float *d = mr.store.elem(1, 0, g, u, v);
+        out.append(reinterpret_cast<const char *>(d), 3 * sizeof(float));
+      }
+    }
+  }
+}
+
+/* Down-refit gate (S app-wiring pass): a smooth edit at the finest level is
+ * least-squares-absorbed into the level below — the coarse subdivided surface
+ * tracks the edit, the fine surface is preserved, level 1 stays untouched. */
+static void gateDownRefit()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 3);
+
+  test_assert(mr.downRefit(1) == 0); /* guard: nothing below level 1 */
+
+  MultiresSlot *s3 = mr.setActiveLevel(3);
+  int edits = 0;
+  for (int i = 0; i < s3->mesh->v.count; i++) {
+    float3 &p = s3->mesh->v.co[i];
+    if (p[2] > 0.4f) {
+      p[2] += 0.3f * (p[2] - 0.4f);
+      edits++;
+    }
+  }
+  test_assert(edits > 0);
+  test_assert(mr.writeback(3) == edits);
+
+  Vector<float3> p3, tmp;
+  snapshotCo(*mr.findSlot(3)->mesh, p3);
+
+  std::string l1Before, l1After;
+  level1DispBlob(mr, l1Before);
+
+  double resBefore = stencilResidual(mr, 3, p3);
+  int changed = mr.downRefit(3);
+  test_assert(changed > 0);
+  double resAfter = stencilResidual(mr, 3, p3);
+
+  fprintf(stderr, "downRefit: changed=%d residual %.6f -> %.6f\n", changed,
+          resBefore, resAfter);
+  test_assert(resAfter < resBefore * 0.5);
+
+  /* Fine surface preserved: the resident slot bitwise, re-derivation within
+   * frame-projection drift. */
+  test_assert(mr.activeLevel() == 3);
+  snapshotCo(*mr.findSlot(3)->mesh, tmp);
+  test_assert(sameBits(tmp, p3));
+  mr.invalidateAll();
+  s3 = mr.setActiveLevel(3);
+  snapshotCo(*s3->mesh, tmp);
+  test_assert(maxResidual(tmp, p3) < 1e-5);
+
+  /* Level 1 (below the refit target) untouched, bit for bit. */
+  level1DispBlob(mr, l1After);
+  test_assert(l1After == l1Before);
+
+  fprintf(stderr, "downRefit: fine preserved (drift=%g), level 1 untouched\n",
+          maxResidual(tmp, p3));
+
+  alloc::Delete(cage);
+}
+
 /* Bulk-build measurement (plan risk #1): time each materialization phase at
  * target densities. Run manually: test_multires.cc_out bench */
 static void bench()
@@ -275,6 +370,7 @@ int main(int argc, char **argv)
 
   gateCube();
   gateFan();
+  gateDownRefit();
 
   /* Skip test_end(): attr name strings stay live in the alloc tracker
    * (mirrors the other spatial/mesh tests). */
