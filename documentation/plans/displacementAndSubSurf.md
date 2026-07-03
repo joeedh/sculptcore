@@ -451,15 +451,20 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     need these on polygon bases too; they ride the X3/X4 app pass. X1's bar is
     the V2/V3-style gate: engine + scripted app drivers, both backends.
   - **Follow-up found by the X1 gate — F3 cross-backend frame parity on
-    curved bases**: splat counts, tile layout, and clamp counts are exact
-    across backends, and texel values agree to 1e-3, but the raw atlas bytes
-    differ by ulps on a CC level mesh (they are bit-exact on the flat-chart V3
-    fixture). Suspect libm transcendentals (atan2/sin in the cross-field
-    azimuth) differing between emscripten and native — the architecture's
-    "frame provider is the synchronization anchor" requirement wants these
-    replaced with bit-stable formulations before X4's bakes rely on frames.
-    The X1 gate asserts a quantized (1e-3) atlas signature cross-backend and
-    logs the raw divergence.
+    curved bases — RESOLVED**: the raw atlas bytes differed by ulps on a CC
+    level mesh (bit-exact on the flat-chart V3 fixture) because the curvature
+    tangent seed used libm transcendentals (acos/atan2/cos/sin round
+    differently between emscripten and native). `estimatePrincipalDir`
+    (displace/frames.cc) is now transcendental-free: the dihedral weight is
+    the normal chord `|n1−n2|` (= 2·sin(θ/2), monotone) and the 2×2
+    eigen-direction comes from half-angle identities — only IEEE-exact
+    +,−,×,÷,√ remain, so frames (and therefore VDM texels) are bit-identical
+    across backends. All frame gates unchanged (orthonormality,
+    Poincaré–Hopf = 8, recompute diffs = 0); the X1 atlas parity gate is back
+    to **exact** raw-checksum equality. `crossFieldIndexSum` still uses atan2
+    but is a gate metric, not data. The brush-side twin
+    (brush/feature_field.cc) keeps its transcendental form — it is
+    interactive-only, never a parity anchor.
 - **X2 — Ptex backend** for VdmStore (per-face grids + adjacency + skirts),
   sharing S2's grid conventions; fragment path binds per-face table.
 - **X3 — Tessellated render tier**: V3's shader + S5's amplification =

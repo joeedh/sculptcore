@@ -114,6 +114,12 @@ float3 featureTangent(Mesh &m,
   return safeNormalize(acc);
 }
 
+/** Transcendental-free by design: the frame provider is the cross-backend
+ * synchronization anchor, and libm acos/atan2/cos/sin round differently
+ * between emscripten and native (the X1 finding). Only +,-,*,/,sqrt appear
+ * here — all IEEE-exact — so recomputes are bit-identical across backends.
+ * The dihedral weight uses the normal chord |n1-n2| (= 2·sin(θ/2), monotone
+ * in θ) and the eigen-direction comes from half-angle identities. */
 float3 estimatePrincipalDir(Mesh &m, int v, const float3 &n)
 {
   if (m.v.e[v] == ELEM_NONE) {
@@ -134,9 +140,7 @@ float3 estimatePrincipalDir(Mesh &m, int v, const float3 &n)
     }
     float3 n1 = safeNormalize(mesh::faceNewellNormal(m, f1));
     float3 n2 = safeNormalize(mesh::faceNewellNormal(m, f2));
-    float d = n1.dot(n2);
-    d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
-    float theta = std::acos(d);
+    float chord = (n1 - n2).length(); // 2·sin(θ/2): the bit-stable θ proxy
     float3 evec = m.v.co[otherVert(m, e, v)] - m.v.co[v];
     float el = evec.length();
     if (el < EPS) {
@@ -144,7 +148,7 @@ float3 estimatePrincipalDir(Mesh &m, int v, const float3 &n)
     }
     float3 eu = evec * (1.0f / el);
     float ex = eu.dot(X), ey = eu.dot(Y);
-    double w = double(theta) * double(el);
+    double w = double(chord) * double(el);
     A00 += w * ex * ex;
     A01 += w * ex * ey;
     A11 += w * ey * ey;
@@ -152,8 +156,20 @@ float3 estimatePrincipalDir(Mesh &m, int v, const float3 &n)
   if (A00 + A11 < 1e-7) {
     return float3(0.0f, 0.0f, 0.0f);
   }
-  double ang = 0.5 * std::atan2(2.0 * A01, A00 - A11);
-  return safeNormalize(X * float(std::cos(ang)) + Y * float(std::sin(ang)));
+  // Principal axis of [[A00,A01],[A01,A11]]: (cos2θ, sin2θ) ∝ (A00−A11, 2A01),
+  // halved via cosθ = √((1+cos2θ)/2), sinθ = sign(sin2θ)·√((1−cos2θ)/2).
+  double c2 = A00 - A11, s2 = 2.0 * A01;
+  double r = std::sqrt(c2 * c2 + s2 * s2);
+  if (r < 1e-30) {
+    return safeNormalize(X); // isotropic: any tangent direction is principal
+  }
+  double cos2 = c2 / r;
+  double ct = std::sqrt(0.5 * (1.0 + cos2));
+  double st = std::sqrt(0.5 * (1.0 - cos2));
+  if (s2 < 0.0) {
+    st = -st;
+  }
+  return safeNormalize(X * float(ct) + Y * float(st));
 }
 
 struct FrameAttrs {
