@@ -105,4 +105,9 @@ add_custom_command(TARGET test_webgpu_render.cc_out POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:test_webgpu_render.cc_out>
   VERBATIM)
+test(test_stencil_gpu.cc "webgpu;subdiv;spatial;mesh;gpu")
+add_custom_command(TARGET test_stencil_gpu.cc_out POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:test_stencil_gpu.cc_out>
+  VERBATIM)
 #test(test_constexpr_bug.cc "")

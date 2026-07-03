@@ -8,6 +8,8 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/assert.h"
 
+#include <cmath>
+
 using namespace litestl;
 using litestl::math::float3;
 using litestl::util::Assert;
@@ -21,7 +23,14 @@ void StencilTable::eval(const Vector<float3> &src, Vector<float3> &dst) const
   for (int i = 0; i < fineCount; i++) {
     float3 p;
     for (int k = offsets[i]; k < offsets[i + 1]; k++) {
-      p += src[indices[k]] * weights[k];
+      const float3 &s = src[indices[k]];
+      float w = weights[k];
+      // Fused multiply-add per component: IEEE single-rounding, so the GPU
+      // SpMV (WGSL fma) reproduces this bit-exactly — plain mul+add would be
+      // driver-contractable to fma with different rounding (S5 gate).
+      p[0] = std::fma(s[0], w, p[0]);
+      p[1] = std::fma(s[1], w, p[1]);
+      p[2] = std::fma(s[2], w, p[2]);
     }
     dst[i] = p;
   }

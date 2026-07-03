@@ -4,15 +4,18 @@ set(LIB
   gpu
   mesh
   spatial
+  subdiv
 )
 
 set(SRC
   PUBLIC wgpu_context.h
   PUBLIC wgpu_backend.h
   PUBLIC wgpu_compute.h
+  PUBLIC wgpu_stencil.h
   wgpu_context.cc
   wgpu_backend.cc
   wgpu_compute.cc
+  wgpu_stencil.cc
   wgpu_demo.cc
   wgpu_screenshot.cc
 )

@@ -20,8 +20,10 @@ namespace sculptcore::subdiv {
 
 /** Sparse CSR map from one level's verts to the next (fine row i = verts of the
  * refined level, in creation order == vert id). Row entries are ascending by
- * coarse vert id and evaluated in that order — the canonical, deterministic
- * arithmetic both the refiner and any later (GPU) SpMV must reproduce. */
+ * coarse vert id and evaluated in that order as a fused-multiply-add chain
+ * (std::fma per component — single IEEE rounding, so the GPU SpMV's fma()
+ * reproduces it bit-exactly; plain mul+add would be driver-contractable).
+ * This is the canonical arithmetic the refiner and the S5 GPU pass share. */
 struct StencilTable {
   litestl::util::Vector<int> offsets;   /* fineCount+1, offsets[0] == 0 */
   litestl::util::Vector<int> indices;   /* coarse vert ids, ascending per row */

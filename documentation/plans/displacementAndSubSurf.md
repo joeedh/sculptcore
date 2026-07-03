@@ -10,8 +10,10 @@ gates). Companion design docs:
 ## Status (2026-07-02)
 
 **Workstream F merged to master**; the `displacement` (V) and `subsurf` (S)
-worktrees exist. **S1–S4 implemented on branch `subsurf`** (parent repo +
-sculptcore, matching branches).
+worktrees exist. **S1–S5 implemented on branch `subsurf`** (parent repo +
+sculptcore, matching branches) — the S track's engine work is complete; the
+app-wiring pass (level-switch op + UI, wasm↔native parity, down-refit op,
+production draw integration with V's tier in X3) remains.
 
 - **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
   (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh
@@ -140,8 +142,32 @@ sculptcore, matching branches).
   (bindings/N-API/TS + LiteMesh scene) — grouped with the level-switch
   ToolOp + UI stub in the app-wiring pass, mirroring the V track's V5.
 
-Next: S5 (GPU stencil amplification) on `subsurf`; V3/V4 on `displacement`;
-then the app-wiring pass (level-switch op + UI, multires parity).
+- **S5 done.** `source/webgpu/wgpu_stencil.{h,cc}`: `WgpuStencilAmplify` —
+  chained per-level CSR SpMV of the S1 stencil tables on the WebGPU device
+  (edit level → render level; one compute pass per level, 2D-linearized
+  dispatch past the 65535-workgroup cap; result stays on-device, tight xyz
+  f32, for the X3 draw tier; readback is the verify path). **The arithmetic
+  contract moved to fma**: plain mul+add proved driver-contractable (maxUlp
+  184 on the first run), so `StencilTable::eval` now accumulates with
+  `std::fma` and the kernel with WGSL `fma()` — single IEEE rounding on both
+  sides makes the chain **bit-exact** (maxUlp 0, verified at 1538 verts and
+  at 1.2M/4.8M through the 2D path; S1–S4 gates re-run green under the new
+  arithmetic). Caveat noted in the header: WGSL permits unfused fma lowering
+  (desktop drivers don't do it); the gate asserts bit-equality so a deviating
+  driver fails loudly. Gate green: `test_stencil_gpu` — amplify L2(+disp)→L4,
+  buffer memcmp vs the CPU chain, then the screenshot A/B (CPU-materialized
+  vs GPU-amplified level meshes through the same offscreen WebGPU render) —
+  **byte-identical PNGs**. Budgets recorded (`bench` mode, createCube(8)):
+  L2→L6 1.2M fine verts ≈ 6–13ms/dispatch chain; L2→L7 4.8M ≈ 15–39ms;
+  stencil uploads at L7 are 120.4MB indices + 120.4MB weights per finest
+  level — inside wgpu's default 128MiB storage-binding limit with little
+  headroom (risk #5: chunk the finest table if production cages exceed
+  ~5M fine verts). Frame caching/indirect draw are X3 integration work
+  (the compute pass + on-device result are in place). Not gated here: the
+  smoothed-frame shading pass (X3, with V3's shader).
+
+Engine track complete. Next: V3/V4 on `displacement`; X + the app-wiring
+pass (level-switch op + UI, multires parity, down-refit) after V merges.
 
 ---
 

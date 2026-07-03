@@ -84,6 +84,12 @@ struct Multires {
 
   MultiresSlot *findSlot(int level);
 
+  /** Build a level's topology-only mesh from the grid tables (dense vert ids
+   * matching the stencil rows; one quad per grid cell; positions zeroed).
+   * Caller owns the result. Used internally by materialization and by the
+   * GPU-amplification A/B (S5) to host amplified positions. */
+  mesh::Mesh *buildLevelTopo(int level);
+
   /** Resident-level budget; eviction is LRU by lastUse, never the active
    * level (plan: users toggle two levels constantly, so default 3). */
   int lruBudget = 3;
@@ -92,9 +98,6 @@ struct Multires {
   Refiner refiner;
 
 private:
-  /** Build the level's topology-only mesh from the grid tables (dense vert
-   * ids matching the stencil rows; one quad per grid cell). */
-  mesh::Mesh *buildLevelTopo(int level);
   /** Ensure the cached position chain is valid through `level`; returns it. */
   litestl::util::Vector<litestl::math::float3> &ensureChain(int level);
   bool dispNonZero(int level);

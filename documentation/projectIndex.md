@@ -71,7 +71,9 @@ chunking with offset-table-headed lz4 serialization (disk-pageable later).
 `SpatialTree` from the stencil chain + stored displacement (F3 frames on the
 smoothed base), LRU-cached with eviction; `writeback()` re-expresses edits as
 store deltas, skipping bit-identical verts so edit-free switches are lossless.
-Displacement plan S1–S3; see `documentation/plans/displacementAndSubSurf.md`.
+Stencil rows evaluate as an fma chain (std::fma), bit-shared with the S5 GPU
+SpMV (`source/webgpu/wgpu_stencil.{h,cc}`). Displacement plan S1–S5; see
+`documentation/plans/displacementAndSubSurf.md`.
 
 ### `source/meshlog/` — sculpt undo/redo log
 
