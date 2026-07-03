@@ -137,6 +137,9 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, sculptLayerAdd, MARGS());
     BIND_STRUCT_METHOD(st, sculptLayerCount, MARGS());
     BIND_STRUCT_METHOD(st, sculptLayerAttrIndex, MARGS("li"));
+    BIND_STRUCT_METHOD(st, sculptLayerWeight, MARGS("li"));
+    BIND_STRUCT_METHOD(st, sculptLayerEnabled, MARGS("li"));
+    BIND_STRUCT_METHOD(st, sculptLayerFrozen, MARGS("li"));
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
@@ -377,6 +380,21 @@ struct Mesh : public MeshBase {
       }
     }
     return -1;
+  }
+
+  /* Marshal-safe per-layer reads for the layer-stack UI. Mutations go through
+   * the displace C-API (Mesh_layerSet*), which keeps evaluated v.co current. */
+  float sculptLayerWeight(int li) const
+  {
+    return li >= 0 && li < int(sculptLayers.size()) ? sculptLayers[li].weight : 0.0f;
+  }
+  int sculptLayerEnabled(int li) const
+  {
+    return li >= 0 && li < int(sculptLayers.size()) && sculptLayers[li].enabled ? 1 : 0;
+  }
+  int sculptLayerFrozen(int li) const
+  {
+    return li >= 0 && li < int(sculptLayers.size()) && sculptLayers[li].frozen ? 1 : 0;
   }
 
   /* Wave 5: mark the shortest edge-path from vStart to vEnd as a seam. Runs

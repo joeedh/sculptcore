@@ -36,6 +36,9 @@ export interface Mesh {
   sculptLayerAdd(): int32
   sculptLayerCount(): int32
   sculptLayerAttrIndex(li: int32): int32
+  sculptLayerWeight(li: int32): float
+  sculptLayerEnabled(li: int32): int32
+  sculptLayerFrozen(li: int32): int32
   removeAttr(domain: int32, index: int32): void
   detachAttr(domain: int32, index: int32): int32
   reattachAttr(stashId: int32): int32

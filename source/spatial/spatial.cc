@@ -1842,6 +1842,7 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
   BoolAttrView *proj = findBoolEdgeView(m, EDGE_PROJECTED);
   BoolAttrView *pg = findBoolEdgeView(m, EDGE_POLYGROUP);
   BoolAttrView *uv = findBoolEdgeView(m, EDGE_UVCHART);
+  BoolAttrView *layer = findBoolEdgeView(m, EDGE_LAYER_REGION);
 
   // First matching feature wins the color (seam is the user-marked one, so it
   // takes precedence). Returns false for a non-feature edge.
@@ -1866,6 +1867,10 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
       out = float4(1.0f, 1.0f, 0.0f, 1.0f);
       return true;
     } // yellow
+    if (layer && layer->get(e)) {
+      out = float4(1.0f, 0.2f, 0.6f, 1.0f);
+      return true;
+    } // pink: VDM/geometry carrier-region boundary (the V5 carrier overlay)
     return false;
   };
 
