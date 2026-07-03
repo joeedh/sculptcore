@@ -1,3 +1,4 @@
+#include "displace/frames.h"
 #include "mesh/mesh.h"
 #include "spatial/spatial.h"
 #include "vdm/vdm_splat.h"
@@ -8,6 +9,32 @@
 using namespace sculptcore;
 
 extern "C" {
+
+/* Tag every live face's `.detail.carrier` (DetailCarrier: 0 = GEOM, 1 = VDM).
+ * The V3/V5 region partition replaces this whole-mesh fill; it exists so the
+ * app harness can stand up a VDM-carried mesh. */
+void SpatialTree_fillDetailCarrier(spatial::SpatialTree *t, int carrier)
+{
+  if (!t || !t->m) {
+    return;
+  }
+  for (int f : t->m->f) {
+    t->treeMesh.f.carrier.get_data()->materialize(f);
+    t->treeMesh.f.carrier[f] = carrier;
+  }
+}
+
+/* Recompute vertex normals + the F3 frames (smoothed normal + cross-field
+ * tangent) over the whole mesh — the splatter's frame prerequisite. */
+void Mesh_updateFrames(mesh::Mesh *m)
+{
+  if (!m) {
+    return;
+  }
+  m->recalc_normals();
+  displace::FrameProviderParams params;
+  displace::updateFramesAll(*m, params);
+}
 
 vdm::VdmStore *VdmStore_new(int resolution, int tileSize)
 {

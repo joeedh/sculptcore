@@ -28,4 +28,6 @@ wasm_add_symbols("
   VdmStore_new
   VdmStore_free
   Mesh_vdmSplatDab
+  SpatialTree_fillDetailCarrier
+  Mesh_updateFrames
 ")
