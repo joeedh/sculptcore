@@ -84,6 +84,7 @@ VdmTile &VdmStore::ensureTile(int tx, int ty)
   }
   tiles_.insert(tileKey(tx, ty), static_cast<VdmTile *>(t));
   tileCount_++;
+  gpuTopoDirty_ = true;
   return *t;
 }
 
@@ -93,9 +94,27 @@ void VdmStore::removeTile(uint64_t key)
   if (!slot || !*slot) {
     return;
   }
-  Delete(*slot);
+  VdmTile *t = *slot;
+  if (t->gpuSlot >= 0) {
+    gpuSlots_[t->gpuSlot] = nullptr;
+    gpuFreeSlots_.append(t->gpuSlot);
+    gpuTopoDirty_ = true;
+  }
+  Delete(t);
   tiles_.remove(key);
   tileCount_--;
+}
+
+void VdmStore::markGpuDirty(VdmTile *t)
+{
+  if (t->gpuDirty) {
+    return;
+  }
+  t->gpuDirty = true;
+  if (t->gpuSlot >= 0) {
+    gpuDirtySlots_.append(t->gpuSlot);
+  }
+  // Slotless tiles are queued at slot assignment (vdm_gpu.cc gpuLayout).
 }
 
 /* Floor-divide texel coord into (tile, local) so negative coords work too. */
@@ -125,6 +144,7 @@ void VdmStore::writeTexel(int x, int y, const float3 &value)
   VdmTile &t = ensureTile(tx, ty);
   t.texels[ly * params.tile_size + lx] = value;
   t.boundDirty = true;
+  markGpuDirty(&t);
 }
 
 void VdmStore::addTexel(int x, int y, const float3 &value)
@@ -135,6 +155,7 @@ void VdmStore::addTexel(int x, int y, const float3 &value)
   VdmTile &t = ensureTile(tx, ty);
   t.texels[ly * params.tile_size + lx] += value;
   t.boundDirty = true;
+  markGpuDirty(&t);
 }
 
 float3 VdmStore::sample(int /*face*/, float u, float v) const
@@ -256,6 +277,7 @@ void VdmStore::applyDelta(VdmDelta &delta)
     if (live && entryHas) {
       std::swap(live->texels, entry.texels);
       live->boundDirty = true;
+      markGpuDirty(live);
     } else if (live && !entryHas) {
       // Live tile becomes absent; the delta keeps its content.
       entry.texels = std::move(live->texels);
@@ -271,6 +293,8 @@ void VdmStore::applyDelta(VdmDelta &delta)
       entry.texels.clear();
       tiles_.insert(uint64_t(entry.key), static_cast<VdmTile *>(t));
       tileCount_++;
+      gpuTopoDirty_ = true;
+      markGpuDirty(t);
     }
   }
 }

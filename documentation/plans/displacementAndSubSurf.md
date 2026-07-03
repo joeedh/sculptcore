@@ -11,7 +11,22 @@ gates). Companion design docs:
 
 **Workstream F merged to master** (branch `displacement-subsurf-f`, torn
 down); the V and S tracks are live in their worktrees (`displacement` /
-`subsurf` branches). **V1 + V2 done** on `displacement`:
+`subsurf` branches). **V1 + V2 done, V3 engine half done** on `displacement`:
+
+- **V3 in progress.** Engine half done: `source/vdm/vdm_gpu.{h,cc}` — GPU
+  residency packing with the byte layout owned by C++ (gpuBrushes D1 rule):
+  stable per-tile atlas slots (recycled via free list), a `grid²` page table
+  over UV [0,1]² (tile coords → slot, -1 = zero), full-atlas + per-slot
+  rgba32float pixel packing, and a dirty-slot drain (`takeGpuDirty`) whose
+  topo flag tells the app when to re-upload the page table — the "no
+  regen_gpu_node on VDM-only dabs" upload path. Bound surface
+  (`VdmStore::gpuLayoutOut/...` via `Bind<VdmStore>`) reaches both backends
+  through reflection; extern-C `VdmStore_new/free` + `Mesh_vdmSplatDab`
+  exported for WASM (N-API wraps = app-side threading). Gate green:
+  `test_vdm_gpu`. Remaining (app repo): backend threading + store lifecycle
+  on LiteMesh, material-shader VDM sampling + in-shader normal derivation
+  (UV + frame requested-attr slots; mind the litemesh_wgsl.ts port gotcha),
+  per-frame dirty-tile writeTexture, headless screenshot A/B gate.
 
 - **V2 done.** `source/vdm/vdm_splat.{h,cc}`: per-dab UV rasterization of the
   brush footprint (tree filterNodes → `.detail.carrier == VDM` gate →

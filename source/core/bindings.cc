@@ -6,6 +6,7 @@
 #include "props/bindings.h"
 #include "remesh/bindings.h"
 #include "spatial/bindings.h"
+#include "vdm/bindings.h"
 #include "util/vector.h"
 #include "wasm/wasmManager.h"
 
@@ -24,6 +25,7 @@ extern "C" void initBindings()
   sculptcore::dyntopo::registerBindings(manager);
   sculptcore::remesh::registerBindings(manager);
   sculptcore::meshlog::registerBindings(manager);
+  sculptcore::vdm::registerBindings(manager);
 
   // add various vector types
   manager.add(Bind<Vector<char>>());

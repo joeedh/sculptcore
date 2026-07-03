@@ -23,6 +23,7 @@
  * so the same blob serves undo and redo (the LogChunkElems::swap pattern).
  */
 
+#include "litestl/binding/binding.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/map.h"
 #include "litestl/util/vector.h"
@@ -53,6 +54,10 @@ struct VdmTile {
   float bound = 0.0f;          // max |texel| over the tile
   bool boundDirty = true;
   int deltaGen = 0; // last delta bracket that snapshotted this tile
+  /* GPU residency (vdm_gpu.h): stable atlas slot (-1 = unassigned) and the
+   * pending-upload flag (in gpuDirtySlots_, or awaiting slot assignment). */
+  int gpuSlot = -1;
+  bool gpuDirty = false;
 };
 
 /** Self-inverse tile-content delta: `entries[i].texels` holds the *other*
@@ -135,9 +140,31 @@ struct VdmStore {
     }
   }
 
+  /* ---- bound GPU-packing surface (impls in vdm_gpu.cc; marshal-safe
+   * Vector out-params so both backends consume it via reflection) ---- */
+  /* out = [tile_size, resolution, grid, slots, atlas_tiles_x, atlas_tiles_y,
+   * atlas_w, atlas_h]; returns `slots`. Assigns slots to unslotted tiles. */
+  int gpuLayoutOut(util::Vector<int> &out);
+  void gpuPageTableOut(util::Vector<int> &out);
+  void gpuAtlasPixelsOut(util::Vector<float> &out);
+  int gpuTilePixelsOut(int slot, util::Vector<float> &out);
+  /* Drains dirty slots; returns 1 when the page table / atlas capacity also
+   * changed (re-upload the table and re-check the layout first). */
+  int gpuTakeDirtyOut(util::Vector<int> &outSlots);
+
+  static litestl::binding::types::Struct<VdmStore> *defineBindings();
+
+  /* GPU residency state, managed by vdm_gpu.cc (slot table, free list,
+   * dirty-slot queue, page-table currency). Mutators mark into these. */
+  util::Vector<VdmTile *> gpuSlots_;
+  util::Vector<int> gpuFreeSlots_;
+  util::Vector<int> gpuDirtySlots_;
+  bool gpuTopoDirty_ = false;
+
 private:
   void snapshotForDelta(int tx, int ty, VdmTile *existing);
   void removeTile(uint64_t key);
+  void markGpuDirty(VdmTile *t);
 
   util::Map<uint64_t, VdmTile *> tiles_;
   int tileCount_ = 0;

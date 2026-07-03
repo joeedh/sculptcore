@@ -30,9 +30,10 @@ import type {AABB} from './litestl/math/AABB'
 import type {Brush} from './sculptcore/brush/Brush'
 import type {EdgeData} from './sculptcore/mesh/EdgeData'
 import type {float3} from './litestl/math/float3'
+import type {VdmStore} from './sculptcore/vdm/VdmStore'
 import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
-import type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 import type {AttrDef} from './sculptcore/gpu/AttrDef'
+import type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 import type {VertexData} from './sculptcore/mesh/VertexData'
 import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
@@ -72,9 +73,10 @@ export type {AABB} from './litestl/math/AABB'
 export type {Brush} from './sculptcore/brush/Brush'
 export type {EdgeData} from './sculptcore/mesh/EdgeData'
 export type {float3} from './litestl/math/float3'
+export type {VdmStore} from './sculptcore/vdm/VdmStore'
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
-export type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 export type {AttrDef} from './sculptcore/gpu/AttrDef'
+export type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 export type {VertexData} from './sculptcore/mesh/VertexData'
 export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
@@ -126,6 +128,7 @@ export type AllBoundTypes = {
   'sculptcore::meshlog::MeshLog': MeshLog
   'sculptcore::spatial::SpatialShaders': SpatialShaders
   'sculptcore::remesh::RemeshParams': RemeshParams
+  'sculptcore::vdm::VdmStore': VdmStore
   'sculptcore::dyntopo::DynTopoParams': DynTopoParams
   'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
     int2,
