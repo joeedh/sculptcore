@@ -11,9 +11,9 @@ gates). Companion design docs:
 
 **Workstream F merged to master** (branch `displacement-subsurf-f`, torn
 down); the V and S tracks are live in their worktrees (`displacement` /
-`subsurf` branches). **V1 + V2 done, V3 engine half done** on `displacement`:
+`subsurf` branches). **V1 + V2 + V3 done** on `displacement`:
 
-- **V3 in progress.** Engine half done: `source/vdm/vdm_gpu.{h,cc}` — GPU
+- **V3 done.** Engine half: `source/vdm/vdm_gpu.{h,cc}` — GPU
   residency packing with the byte layout owned by C++ (gpuBrushes D1 rule):
   stable per-tile atlas slots (recycled via free list), a `grid²` page table
   over UV [0,1]² (tile coords → slot, -1 = zero), full-atlas + per-slot
@@ -23,10 +23,21 @@ down); the V and S tracks are live in their worktrees (`displacement` /
   (`VdmStore::gpuLayoutOut/...` via `Bind<VdmStore>`) reaches both backends
   through reflection; extern-C `VdmStore_new/free` + `Mesh_vdmSplatDab`
   exported for WASM (N-API wraps = app-side threading). Gate green:
-  `test_vdm_gpu`. Remaining (app repo): backend threading + store lifecycle
-  on LiteMesh, material-shader VDM sampling + in-shader normal derivation
-  (UV + frame requested-attr slots; mind the litemesh_wgsl.ts port gotcha),
-  per-frame dirty-tile writeTexture, headless screenshot A/B gate.
+  `test_vdm_gpu`. App half: backend threading (napi wraps + the 4-place TS
+  change; `sculptcore_vdm.test.ts` proves the packed atlas bit-identical
+  wasm vs native), UV-seam dilation skirts in the splatter (gutter fill via
+  clamped-barycentric dilation; cross-chart matching stays Ptex/X2), and
+  the fragment render path: WgslShaderGenerator VDM mode (@group(3) atlas +
+  r32sint page table, manual bilinear — rgba32float is unfilterable, and an
+  unsampled binding is reflection-stripped), analytic shading normal
+  (±half-texel central differences of the store chained through screen
+  derivatives of uv/local position — dpdx of the displaced position itself
+  is helper-invocation noise at chart edges), LiteMesh attachVdmStore +
+  per-frame dirty-tile writeTexture, encodeMeshBasePass re-push on
+  attach/detach. Gate green: `sculptcore_vdm_render.test.ts` — headless PNG
+  luminance A/B (vdm≠flat 0.31, ref≠flat 0.37, vdm≈ref at 37% residual +
+  NCC 0.87 — the fragment tier shades without moving silhouettes; true
+  silhouettes are X3's tessellated tier) + native↔wasm image parity 0.008.
 
 - **V2 done.** `source/vdm/vdm_splat.{h,cc}`: per-dab UV rasterization of the
   brush footprint (tree filterNodes → `.detail.carrier == VDM` gate →
