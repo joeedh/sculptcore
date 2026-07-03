@@ -10,8 +10,8 @@ gates). Companion design docs:
 ## Status (2026-07-02)
 
 **Workstream F merged to master**; the `displacement` (V) and `subsurf` (S)
-worktrees exist. **S1 + S2 + S3 implemented on branch `subsurf`** (parent repo
-+ sculptcore, matching branches).
+worktrees exist. **S1–S4 implemented on branch `subsurf`** (parent repo +
+sculptcore, matching branches).
 
 - **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
   (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh
@@ -114,7 +114,34 @@ worktrees exist. **S1 + S2 + S3 implemented on branch `subsurf`** (parent repo
   wiring pass (alongside S5/X, mirroring how V defers app wiring to V5) —
   S4's gate drives levels through debug_app scripts, not the UI.
 
-Next: S4 (multires sculpt loop) on `subsurf`; V3 on `displacement`.
+- **S4 done (engine + debug_app; parity → app wiring).** The multires sculpt
+  loop runs through the standard stack unchanged: strokes hit the active
+  level's materialized mesh via the executor + meshlog, and each debug-app
+  stroke verb ends with `Multires::writeback` (frame-relative deltas,
+  baseline-diff skip — the S3 mechanism doubles as the stroke-end
+  re-expression; no new TANGENT storage path was needed). Debug integration
+  (`source/debug/`): `Scene` gains a non-owning multires mode
+  (`multires`/`multiresCage`, `attachMultiresLevel`/`clearMultires` — slot
+  mesh/tree are views, teardown-safe through setMesh/dtor); verbs
+  `multires_init levels= [level=] [budget=]`, `multires_level level=`,
+  `save_disp`/`assert_disp [eps=] [changed=1]` (bitwise store-delta
+  snapshots). **Undo/redo are level-aware**: each stroke verb records its
+  level; undo/redo auto-switch to the recorded level (writeback-then-
+  materialize), replay the meshlog step there (level meshes rebuild with
+  identical dense ids, so steps survive eviction), then re-sync the store
+  with another baseline-diff writeback. Undo history from before
+  `multires_init` is fenced off (multires undo only pops its own records).
+  Gate green: `test_multires_stroke` — ride-along invariance (L2 stroke
+  leaves L3 deltas **bit-identical**, 409/3458 L3 verts follow the coarse
+  edit), undo/redo fidelity across level switches, and auto-switch undo from
+  a finer level. Deferred, recorded here: the explicit down-refit op
+  (least-squares reproject — plan-marked deferred/non-live) and the
+  wasm↔native parity run, which needs the app-side multires wiring
+  (bindings/N-API/TS + LiteMesh scene) — grouped with the level-switch
+  ToolOp + UI stub in the app-wiring pass, mirroring the V track's V5.
+
+Next: S5 (GPU stencil amplification) on `subsurf`; V3/V4 on `displacement`;
+then the app-wiring pass (level-switch op + UI, multires parity).
 
 ---
 

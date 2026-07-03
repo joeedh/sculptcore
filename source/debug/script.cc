@@ -23,6 +23,8 @@
 #include "remesh/remesh_params.h"
 #include "spatial/spatial.h"
 #include "stb/stb_image.h"
+#include "subdiv/grids.h"
+#include "subdiv/multires.h"
 
 #ifdef SBRUSH_GPU_DISPATCH
 #include "gpu_stroke.h"
@@ -369,6 +371,44 @@ bool checkTreeVsRebuild(Scene &scene, const char *tag, std::string &err)
  * Keyed by name; mesh indices are persistent ids (IDMap is disabled), so a
  * vertex restored by undo lands back at the same index. */
 std::map<std::string, std::vector<std::pair<int, float3>>> g_posSnapshots;
+
+/* Grids-store displacement snapshots (save_disp / assert_disp): one level's
+ * disp channel flattened in (grid, v, u, component) order. The S4 ride-along
+ * gate compares these bitwise. */
+std::map<std::string, std::vector<float>> g_dispSnapshots;
+
+/* Flatten a level's disp channel (deterministic order) for the verbs above. */
+static void gatherDisp(subdiv::Multires &mr, int level, std::vector<float> &out)
+{
+  out.clear();
+  int w = subdiv::GridsStore::sideForLevel(level) + 1;
+  for (int g = 0; g < mr.store.gridCount(); g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        const float *d = mr.store.elem(level, 0, g, u, v);
+        out.push_back(d[0]);
+        out.push_back(d[1]);
+        out.push_back(d[2]);
+      }
+    }
+  }
+}
+
+/* Stroke-verb epilogue when multires is active: fold the stroke's positions
+ * into the store (frame-relative deltas) and record the level for the
+ * level-aware undo/redo verbs. */
+static void multiresStrokeEnd(Scene &scene)
+{
+  if (!scene.multires) {
+    return;
+  }
+  int level = scene.multires->activeLevel();
+  int changed = scene.multires->writeback(level);
+  scene.mrUndoLevels.append(level);
+  scene.mrRedoLevels.clear();
+  std::fprintf(stdout, "[script] multires writeback level=%d changed=%d\n", level,
+               changed);
+}
 
 bool execVerb(Scene &scene,
               const std::string &verb,
@@ -1041,6 +1081,7 @@ bool execVerb(Scene &scene,
       exec.endStep();
       scene.tree->update(&scene.gpu);
     }
+    multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
     scene.lastStroke.origin = origin;
@@ -1105,6 +1146,7 @@ bool execVerb(Scene &scene,
     }
     exec.endStep();
     scene.tree->update(&scene.gpu);
+    multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
     scene.lastStroke.origin = p1;
@@ -1199,6 +1241,7 @@ bool execVerb(Scene &scene,
       exec.endStep();
       scene.tree->update(&scene.gpu);
     }
+    multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
     scene.lastStroke.origin = p2;
@@ -1435,6 +1478,115 @@ bool execVerb(Scene &scene,
     }
     return true;
   }
+  if (verb == "multires_init") {
+    /* multires_init levels=N [level=L] [budget=B]: convert the current mesh
+     * into a multires cage and attach level L (default: finest). The old mesh
+     * becomes the cage (owned by the scene); mesh/tree become views of the
+     * active level's slot. */
+    if (!scene.mesh) {
+      err = "multires_init: no mesh";
+      return false;
+    }
+    if (scene.multires) {
+      err = "multires_init: multires already active";
+      return false;
+    }
+    int levels = getInt(args, "levels", 2);
+    int level = getInt(args, "level", levels);
+    if (levels < 1 || level < 1 || level > levels) {
+      err = "multires_init: bad levels=/level=";
+      return false;
+    }
+    mesh::Mesh *cage = scene.mesh;
+    scene.mesh = nullptr;
+    if (scene.tree) {
+      litestl::alloc::Delete(scene.tree);
+      scene.tree = nullptr;
+    }
+    scene.multiresCage = cage;
+    scene.multires = litestl::alloc::New<subdiv::Multires>("debug multires");
+    scene.multires->lruBudget = getInt(args, "budget", 3);
+    scene.multires->init(*cage, levels);
+    scene.multires->setActiveLevel(level);
+    scene.attachMultiresLevel();
+    std::fprintf(stdout, "[script] multires_init levels=%d level=%d verts=%d faces=%d\n",
+                 levels, level, scene.mesh->v.count, scene.mesh->f.count);
+    return true;
+  }
+  if (verb == "multires_level") {
+    /* multires_level level=L: write back the active level, switch to L. */
+    if (!scene.multires) {
+      err = "multires_level: multires not active (run multires_init)";
+      return false;
+    }
+    int level = getInt(args, "level", 0);
+    if (level < 1 || level > scene.multires->maxLevel()) {
+      err = "multires_level: bad level=";
+      return false;
+    }
+    scene.multires->setActiveLevel(level);
+    scene.attachMultiresLevel();
+    std::fprintf(stdout, "[script] multires_level level=%d verts=%d\n", level,
+                 scene.mesh->v.count);
+    return true;
+  }
+  if (verb == "save_disp") {
+    /* save_disp id=NAME level=L: snapshot a level's disp channel. */
+    if (!scene.multires) {
+      err = "save_disp: multires not active";
+      return false;
+    }
+    int level = getInt(args, "level", scene.multires->activeLevel());
+    std::string name = getArg(args, "id", "default");
+    gatherDisp(*scene.multires, level, g_dispSnapshots[name]);
+    std::fprintf(stdout, "[script] save_disp id=%s level=%d floats=%zu\n", name.c_str(),
+                 level, g_dispSnapshots[name].size());
+    return true;
+  }
+  if (verb == "assert_disp") {
+    /* assert_disp id=NAME level=L [eps=0] [changed=0]: compare the level's
+     * disp channel against a snapshot. eps=0 means bit-exact; changed=1
+     * asserts the channel DIFFERS beyond eps instead of matching. */
+    if (!scene.multires) {
+      err = "assert_disp: multires not active";
+      return false;
+    }
+    int level = getInt(args, "level", scene.multires->activeLevel());
+    std::string name = getArg(args, "id", "default");
+    auto it = g_dispSnapshots.find(name);
+    if (it == g_dispSnapshots.end()) {
+      err = "assert_disp: no snapshot '" + name + "'";
+      return false;
+    }
+    std::vector<float> cur;
+    gatherDisp(*scene.multires, level, cur);
+    if (cur.size() != it->second.size()) {
+      err = "assert_disp: size mismatch";
+      return false;
+    }
+    float eps = getFloat(args, "eps", 0.0f);
+    bool wantChanged = getBool(args, "changed", false);
+    int diffs = 0;
+    float worst = 0.0f;
+    for (size_t i = 0; i < cur.size(); i++) {
+      float d = std::fabs(cur[i] - it->second[i]);
+      if (d > eps || (eps == 0.0f && std::memcmp(&cur[i], &it->second[i], 4) != 0)) {
+        diffs++;
+        worst = d > worst ? d : worst;
+      }
+    }
+    std::fprintf(stdout, "[script] assert_disp id=%s level=%d diffs=%d worst=%g\n",
+                 name.c_str(), level, diffs, worst);
+    if (wantChanged ? diffs == 0 : diffs > 0) {
+      char buf[160];
+      std::snprintf(buf, sizeof(buf), "assert_disp: %s (diffs=%d worst=%g)",
+                    wantChanged ? "expected change, none found" : "unexpected diffs",
+                    diffs, worst);
+      err = buf;
+      return false;
+    }
+    return true;
+  }
   if (verb == "save_pos") {
     if (!scene.mesh) {
       err = "save_pos: no mesh";
@@ -1497,6 +1649,27 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "undo") {
+    if (scene.multires) {
+      /* Level-aware undo: the step was recorded on the level it was stroked
+       * at — auto-switch there first, then re-sync the store from the undone
+       * positions (writeback's baseline diff touches only the stroke verts). */
+      if (scene.mrUndoLevels.size() == 0) {
+        return true; /* nothing multires-recorded to undo */
+      }
+      int level = scene.mrUndoLevels.pop_back();
+      if (level != scene.multires->activeLevel()) {
+        scene.multires->setActiveLevel(level);
+        scene.attachMultiresLevel();
+      }
+      scene.mesh->thawTopo();
+      scene.meshLog.undo(scene.mesh, scene.tree);
+      scene.multires->writeback(level);
+      scene.mrRedoLevels.append(level);
+      if (!checkTreeVsRebuild(scene, "undo", err)) {
+        return false;
+      }
+      return true;
+    }
     if (scene.mesh && scene.tree) {
       /* The meshlog recorded topology in the thawed state; a brush stroke
        * leaves the mesh frozen (live links freed/CSR-rebuilt), which would
@@ -1512,6 +1685,24 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "redo") {
+    if (scene.multires) {
+      if (scene.mrRedoLevels.size() == 0) {
+        return true;
+      }
+      int level = scene.mrRedoLevels.pop_back();
+      if (level != scene.multires->activeLevel()) {
+        scene.multires->setActiveLevel(level);
+        scene.attachMultiresLevel();
+      }
+      scene.mesh->thawTopo();
+      scene.meshLog.redo(scene.mesh, scene.tree);
+      scene.multires->writeback(level);
+      scene.mrUndoLevels.append(level);
+      if (!checkTreeVsRebuild(scene, "redo", err)) {
+        return false;
+      }
+      return true;
+    }
     if (scene.mesh && scene.tree) {
       scene.mesh->thawTopo();
       scene.meshLog.redo(scene.mesh, scene.tree);

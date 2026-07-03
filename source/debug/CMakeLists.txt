@@ -19,7 +19,7 @@ set(LIB_SRC
 
 set(LIB
   util math platform
-  mesh meshlog brush spatial gpu remesh
+  mesh meshlog brush spatial gpu remesh subdiv
   window vulkan imgui
 )
 
