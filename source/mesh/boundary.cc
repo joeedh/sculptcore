@@ -282,6 +282,7 @@ void graphStats(MeshBase *m, litestl::util::Vector<int> &out)
       findBoolEdge(m, EDGE_SEAM),
       findBoolEdge(m, EDGE_POLYGROUP),
       findBoolEdge(m, EDGE_UVCHART),
+      findBoolEdge(m, EDGE_LAYER_REGION),
   };
 
   const int vcap = int(m->v.capacity());

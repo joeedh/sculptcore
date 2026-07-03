@@ -71,6 +71,26 @@ inline int edgeFaces(Mesh &m, int e, int &f1, int &f2)
   return n;
 }
 
+
+struct FrameAttrs {
+  AttrData<float3> *normal = nullptr;
+  AttrData<float3> *tangent = nullptr;
+};
+
+FrameAttrs frameAttrs(Mesh &m)
+{
+  FrameAttrs fa;
+  AttrRef nref =
+      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_NORMAL_ATTR);
+  AttrRef tref =
+      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_TANGENT_ATTR);
+  fa.normal = nref.exists() ? static_cast<AttrData<float3> *>(nref.data) : nullptr;
+  fa.tangent = tref.exists() ? static_cast<AttrData<float3> *>(tref.data) : nullptr;
+  return fa;
+}
+
+} // namespace
+
 /* Offset-fold radius ρ_min = 1/|κ_max| at `v` from the 1-ring shape operator
  * (the Cohen-Steiner tensor frames.cc seeds from, here reduced to eigenvalue
  * magnitudes and normalized by the barycentric ring area). Flat regions
@@ -126,24 +146,6 @@ float vertexFoldRadius(Mesh &m, int v, const float3 &n)
   return r > kFlatRadius ? kFlatRadius : r;
 }
 
-struct FrameAttrs {
-  AttrData<float3> *normal = nullptr;
-  AttrData<float3> *tangent = nullptr;
-};
-
-FrameAttrs frameAttrs(Mesh &m)
-{
-  FrameAttrs fa;
-  AttrRef nref =
-      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_NORMAL_ATTR);
-  AttrRef tref =
-      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_TANGENT_ATTR);
-  fa.normal = nref.exists() ? static_cast<AttrData<float3> *>(nref.data) : nullptr;
-  fa.tangent = tref.exists() ? static_cast<AttrData<float3> *>(tref.data) : nullptr;
-  return fa;
-}
-
-} // namespace
 
 VdmSplatStats splatDab(Mesh &m,
                        SpatialTree &tree,

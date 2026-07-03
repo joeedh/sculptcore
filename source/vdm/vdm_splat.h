@@ -60,4 +60,9 @@ VdmSplatStats splatDab(mesh::Mesh &m,
                        VdmStore &store,
                        const VdmSplatParams &params);
 
+/* Offset-fold radius ρ_min = 1/|κ_max| at `v` from the 1-ring shape operator
+ * (large finite value in flat regions). Shared by the splat clamp and the
+ * V4 promotion predicate. `n` is the vert's (smoothed) unit normal. */
+float vertexFoldRadius(mesh::Mesh &m, int v, const float3 &n);
+
 } // namespace sculptcore::vdm

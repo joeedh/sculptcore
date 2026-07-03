@@ -16,6 +16,8 @@ set(SRC
   vdm_splat.cc
   PUBLIC vdm_gpu.h
   vdm_gpu.cc
+  PUBLIC vdm_promote.h
+  vdm_promote.cc
   PUBLIC vdm_undo.h
   PUBLIC bindings.h
   bindings.cc

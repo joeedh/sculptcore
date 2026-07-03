@@ -7,6 +7,7 @@
 #include "brush/stroke_spacing.h"
 #include "displace/compositor.h"
 #include "displace/frames.h"
+#include "vdm/vdm_promote.h"
 #include "vdm/vdm_splat.h"
 #include "vdm/vdm_undo.h"
 #include "litestl/util/alloc.h"
@@ -1016,6 +1017,108 @@ bool execVerb(Scene &scene,
                 total.texelsTouched,
                 total.texelsClamped,
                 scene.vdm->tileCount());
+    return true;
+  }
+  // vdm_promote [alpha=0.6] [theta=60] [cuts=1] [force=0] — evaluate the V4
+  // eligibility predicate over the VDM faces (force=1: every face with stored
+  // displacement) and promote the candidates to geometry, as one undo step.
+  if (verb == "vdm_promote") {
+    if (!scene.mesh || !scene.tree || !scene.vdm) {
+      err = "vdm_promote: run vdm_init first";
+      return false;
+    }
+    vdm::VdmPromoteParams pp;
+    pp.alpha_promote = getFloat(args, "alpha", 0.6f);
+    pp.theta_max_deg = getFloat(args, "theta", 60.0f);
+    pp.subdiv_cuts = getInt(args, "cuts", 1);
+    pp.force = getInt(args, "force", 0) != 0;
+
+    // Candidate pool: force=1 restricts to faces carrying stored displacement
+    // (their exported bound is nonzero); else every VDM face runs the predicate.
+    Vector<int> pool;
+    for (int f : scene.mesh->f) {
+      if (scene.tree->treeMesh.f.carrier[f] == int(spatial::DetailCarrier::VDM)) {
+        pool.append(f);
+      }
+    }
+    if (pp.force) {
+      Vector<float> bounds;
+      vdm::exportFaceBounds(*scene.vdm, *scene.mesh,
+                            std::span<const int>(pool.data(), pool.size()), bounds);
+      Vector<int> bounded;
+      for (int i = 0; i < int(pool.size()); i++) {
+        if (bounds[i] > 1e-8f) {
+          bounded.append(pool[i]);
+        }
+      }
+      pool = std::move(bounded);
+    }
+    Vector<int> candidates;
+    vdm::collectPromotionCandidates(*scene.mesh, *scene.tree, *scene.vdm,
+                                    std::span<const int>(pool.data(), pool.size()),
+                                    pp, candidates);
+    if (candidates.size() == 0) {
+      std::printf("vdm_promote: no candidates (pool=%d)\n", int(pool.size()));
+      return true;
+    }
+
+    // Combined callbacks: meshlog capture + spatial currency (the same pairing
+    // applyDynTopoDab composes for dyntopo).
+    mesh::MeshCallbacks *logCb = scene.meshLog.callbacks();
+    mesh::MeshCallbacks *spatialCb = scene.tree->getSpatialCallbacks();
+    mesh::MeshCallbacks combined = *logCb;
+    auto chain = [](litestl::util::function<void(int)> &dst,
+                    litestl::util::function<void(int)> a,
+                    litestl::util::function<void(int)> b) {
+      dst = [a, b](int i) {
+        if (a) {
+          a(i);
+        }
+        if (b) {
+          b(i);
+        }
+      };
+    };
+    chain(combined.onVertCreate, logCb->onVertCreate, spatialCb->onVertCreate);
+    chain(combined.onVertChange, logCb->onVertChange, spatialCb->onVertChange);
+    chain(combined.onVertKill, logCb->onVertKill, spatialCb->onVertKill);
+    chain(combined.onEdgeCreate, logCb->onEdgeCreate, spatialCb->onEdgeCreate);
+    chain(combined.onEdgeChange, logCb->onEdgeChange, spatialCb->onEdgeChange);
+    chain(combined.onEdgeKill, logCb->onEdgeKill, spatialCb->onEdgeKill);
+    chain(combined.onCornerCreate, logCb->onCornerCreate, spatialCb->onCornerCreate);
+    chain(combined.onCornerChange, logCb->onCornerChange, spatialCb->onCornerChange);
+    chain(combined.onCornerKill, logCb->onCornerKill, spatialCb->onCornerKill);
+    chain(combined.onListCreate, logCb->onListCreate, spatialCb->onListCreate);
+    chain(combined.onListChange, logCb->onListChange, spatialCb->onListChange);
+    chain(combined.onListKill, logCb->onListKill, spatialCb->onListKill);
+    chain(combined.onFaceCreate, logCb->onFaceCreate, spatialCb->onFaceCreate);
+    chain(combined.onFaceChange, logCb->onFaceChange, spatialCb->onFaceChange);
+    chain(combined.onFaceKill, logCb->onFaceKill, spatialCb->onFaceKill);
+
+    scene.meshLog.setActiveMesh(scene.mesh);
+    scene.meshLog.beginStep(/*hasDyntopo=*/true);
+    scene.vdm->beginDelta();
+    vdm::VdmPromoteStats ps = vdm::promoteRegion(
+        *scene.mesh, *scene.tree, *scene.vdm,
+        std::span<const int>(candidates.data(), candidates.size()), pp, &combined,
+        &scene.meshLog);
+    vdm::VdmDelta *delta = scene.vdm->endDelta();
+    if (delta) {
+      auto *chunk = litestl::alloc::New<vdm::VdmLogChunk>(
+          "VdmLogChunk", scene.vdm, std::move(*delta));
+      litestl::alloc::Delete(delta);
+      scene.meshLog.appendChunk(chunk);
+    }
+    scene.meshLog.endStep();
+    scene.mesh->recomputeBoundary();
+    scene.tree->update(&scene.gpu);
+    std::printf(
+        "vdm_promote: candidates=%d promoted=%d seeded=%d cleared=%d regionEdges=%d\n",
+        int(candidates.size()),
+        ps.promoted,
+        ps.seededVerts,
+        ps.clearedTexels,
+        ps.regionEdges);
     return true;
   }
   // save_vdm [id=default] — snapshot every live tile's texels.

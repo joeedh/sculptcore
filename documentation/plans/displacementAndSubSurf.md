@@ -11,7 +11,32 @@ gates). Companion design docs:
 
 **Workstream F merged to master** (branch `displacement-subsurf-f`, torn
 down); the V and S tracks are live in their worktrees (`displacement` /
-`subsurf` branches). **V1 + V2 + V3 done** on `displacement`:
+`subsurf` branches). **V1 + V2 + V3 + V4 done** on `displacement`:
+
+- **V4 done.** `source/vdm/vdm_promote.{h,cc}`: eligibility predicate
+  (fold bound — face max|D| vs `α_promote·ρ_min` from the shared 1-ring
+  fold-radius estimate — plus overhang via ±texel central differences of the
+  displaced surface at the face centroid vs the base normal; `α_promote`
+  defaults above the splat clamp α, which is the promotion-side hysteresis —
+  demotion is X4). `promoteRegion`: pattern-subdivide with callbacks
+  threaded (meshlog + spatial), new-corner UVs recovered from 3D position
+  barycentrics against pre-subdivide snapshot triangles (the box-modeling
+  subdivide leaves default corner UVs on new verts), children classified by
+  UV footprint (neighbour fans keep their inherited VDM carrier — carrier
+  dropped NOCOPY so topo chunks capture/restore it), verts seeded to
+  `base + frame·D(uv)` with the exact splat-time frame (snapshot barycentric
+  interp; boundary verts land on the surface the VDM neighbour still
+  renders — the C0 pin), footprint texels cleared (incl. dilation margin),
+  carrier-boundary edges marked `EDGE_LAYER_REGION` (new persistent
+  boundary flag, `BC_LAYER_REGION` bit outside BC_TYPE_MASK, threaded into
+  dyntopo FeatureViews + graphStats; edge flags ride their own external
+  chunk — `VdmEdgeFlagLogChunk` — since changed-edge packed-bool columns
+  don't restore through topo rows). Debug verb `vdm_promote` (alpha/theta/
+  cuts/force). Gate green: `test_vdm_promote` — forced-fold stroke promotes
+  (seeded maxZ ≈ stroke magnitude, texels cleared, valid topology), ONE
+  undo press reverts topology + seeds + carriers + texels + flags together,
+  redo replays, and a dyntopo stroke across the promoted seam preserves the
+  region boundary (flags propagate to split children).
 
 - **V3 done.** Engine half: `source/vdm/vdm_gpu.{h,cc}` — GPU
   residency packing with the byte layout owned by C++ (gpuBrushes D1 rule):

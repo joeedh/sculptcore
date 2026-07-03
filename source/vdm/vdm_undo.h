@@ -49,4 +49,27 @@ struct VdmLogChunk : public meshlog::LogChunk {
   }
 };
 
+/** EDGE_LAYER_REGION flag undo (V4 promotion). Appended AFTER the step's topo
+ * chunk, so undo unflags while the post-step edges are still live (before the
+ * topo restore) and redo re-flags after the topo replay — robust regardless
+ * of how the topo rows treat packed-bool columns on changed elements. */
+struct VdmEdgeFlagLogChunk : public meshlog::LogChunk {
+  struct Mark {
+    int edge = 0;
+    bool before = false;
+  };
+  util::Vector<Mark> marks;
+
+  VdmEdgeFlagLogChunk() : meshlog::LogChunk(meshlog::LogChunkTypes::External)
+  {
+  }
+
+  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override;
+  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override;
+  double memSize() override
+  {
+    return double(sizeof(VdmEdgeFlagLogChunk)) + double(marks.size() * sizeof(Mark));
+  }
+};
+
 } // namespace sculptcore::vdm
