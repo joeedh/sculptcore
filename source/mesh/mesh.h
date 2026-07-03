@@ -140,6 +140,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, sculptLayerWeight, MARGS("li"));
     BIND_STRUCT_METHOD(st, sculptLayerEnabled, MARGS("li"));
     BIND_STRUCT_METHOD(st, sculptLayerFrozen, MARGS("li"));
+    BIND_STRUCT_METHOD(st, isTopoLocked, MARGS());
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
@@ -320,6 +321,17 @@ struct Mesh : public MeshBase {
    * stack position (composition order). Keyed to VERTEX FLOAT3 attrs by name;
    * the evaluator lives in source/displace/ (mesh can't depend on it). */
   util::Vector<SculptLayerSettings> sculptLayers;
+
+  /* Runtime topology lock (NOT serialized): set on multires level meshes by
+   * subdiv::Multires::materialize. On a locked base the VDM clamp is a true
+   * ceiling — promotion is gated off (sculpt-layers-design §8, plan X1); the
+   * app additionally gates dyntopo. */
+  bool topoLocked = false;
+
+  int isTopoLocked() const
+  {
+    return topoLocked ? 1 : 0;
+  }
 
   /* Settings-record index for the layer attr named `name`, or -1. */
   int findSculptLayer(const string &name) const

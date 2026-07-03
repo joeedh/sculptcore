@@ -2,6 +2,7 @@
 
 #include "displace/frames.h"
 #include "mesh/mesh.h"
+#include "mesh/mesh_proxy.h"
 #include "spatial/spatial.h"
 #include "spatial/spatial_base.h"
 
@@ -12,6 +13,7 @@
 #include <cstring>
 
 using namespace litestl;
+using litestl::math::float2;
 using litestl::math::float3;
 using litestl::util::Assert;
 using litestl::util::Vector;
@@ -70,6 +72,57 @@ mesh::Mesh *Multires::buildLevelTopo(int level)
     }
   }
   return m;
+}
+
+void Multires::assignGridUVs(mesh::Mesh &m, int level)
+{
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  int S = lvl.gridSide, w = S + 1;
+
+  AttrRef &uvRef = m.c.attrs.ensure(AttrType::FLOAT2, util::string("uv"), true);
+  uvRef.use = uvRef.use | AttrUse::UV;
+  auto *uv = static_cast<AttrData<float2> *>(uvRef.data);
+
+  int cpr = 1;
+  while (cpr * cpr < refiner.gridCount()) {
+    cpr++;
+  }
+  float cell = 1.0f / float(cpr);
+  // Gutter so bilinear reads + dilation skirts never bleed across charts.
+  float inset = cell / 32.0f;
+  float span = cell - 2.0f * inset;
+
+  // Faces are grid-major in creation order, one quad per cell (buildLevelTopo);
+  // corners are matched to the cell's lattice points by vert id, so no corner-
+  // order assumption. Lattice j: (u,v)+(du,dv) with du/dv below.
+  static const int du[4] = {0, 1, 1, 0};
+  static const int dv[4] = {0, 0, 1, 1};
+  int f = 0;
+  for (int g = 0; g < refiner.gridCount(); g++) {
+    const int *gv = &lvl.gridVerts[g * w * w];
+    float ox = float(g % cpr) * cell + inset;
+    float oy = float(g / cpr) * cell + inset;
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++, f++) {
+        int quad[4];
+        for (int j = 0; j < 4; j++) {
+          quad[j] = gv[(v + dv[j]) * w + (u + du[j])];
+        }
+        mesh::FaceProxy face(&m, f);
+        for (auto list : face.lists()) {
+          for (auto c : list) {
+            int j = 0;
+            while (j < 4 && quad[j] != c.v()) {
+              j++;
+            }
+            Assert(j < 4, "level-face corner matches a cell lattice point");
+            (*uv)[c.i] = float2(ox + span * (float(u + du[j]) / float(S)),
+                                oy + span * (float(v + dv[j]) / float(S)));
+          }
+        }
+      }
+    }
+  }
 }
 
 bool Multires::dispNonZero(int level)
@@ -227,6 +280,10 @@ MultiresSlot *Multires::materialize(int level)
     m->v.co[i] = pos[i];
   }
   m->recalc_normals();
+  assignGridUVs(*m, level);
+  // Level topology is derived state — brushes must never remesh it, and the
+  // VDM clamp is a true ceiling here (no promotion; plan X1).
+  m->topoLocked = true;
 
   auto *tree = alloc::New<spatial::SpatialTree>("multires tree", m);
   if (treeLeafLimit > 0) {

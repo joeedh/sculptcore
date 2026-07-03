@@ -180,6 +180,9 @@ export class NativeManager {
   ): number {
     return this.addon.meshVdmSplatDab(mesh, tree, store, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert)
   }
+  Vdm_lastSplatClamped(): number {
+    return this.addon.vdmLastSplatClamped()
+  }
   SpatialTree_fillDetailCarrier(tree: NativeBound, carrier: number): void {
     this.addon.spatialTreeFillDetailCarrier(tree, carrier)
   }
@@ -425,6 +428,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
       alpha: number,
       invert: number
     ) => nm.Mesh_vdmSplatDab(m, t, s, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert),
+    Vdm_lastSplatClamped             : () => nm.Vdm_lastSplatClamped(),
     SpatialTree_fillDetailCarrier    : (t: NativeBound, c: number) => nm.SpatialTree_fillDetailCarrier(t, c),
     Mesh_updateFrames                : (m: NativeBound) => nm.Mesh_updateFrames(m),
     Mesh_layerSetWeight              : (m: NativeBound, li: number, w: number) => nm.Mesh_layerSetWeight(m, li, w),

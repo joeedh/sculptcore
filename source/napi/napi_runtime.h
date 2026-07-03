@@ -133,6 +133,9 @@ class NapiRuntime {
   // meshVdmSplatDab(mesh, tree, store, cx,cy,cz, nx,ny,nz, radius, strength,
   // alpha, invert) -> texels touched. Writes texels only; moves no vertex.
   static napi_value MeshVdmSplatDab(napi_env, napi_callback_info);
+  // vdmLastSplatClamped() -> texelsClamped of this thread's most recent splat
+  // (the X1 add-a-level prompt signal).
+  static napi_value VdmLastSplatClamped(napi_env, napi_callback_info);
   // spatialTreeFillDetailCarrier(tree, carrier) -> void (0 = GEOM, 1 = VDM).
   static napi_value SpatialTreeFillDetailCarrier(napi_env, napi_callback_info);
   // meshUpdateFrames(mesh) -> void; recalc normals + F3 frames (splat prereq).

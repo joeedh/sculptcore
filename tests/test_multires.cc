@@ -12,12 +12,17 @@
 
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
+#include "mesh/mesh_proxy.h"
 #include "mesh/mesh_shapes.h"
 #include "spatial/spatial.h"
 #include "spatial/spatial_base.h"
+#include "displace/frames.h"
 #include "subdiv/grids.h"
 #include "subdiv/multires.h"
 #include "subdiv/subdiv.h"
+#include "vdm/vdm_promote.h"
+#include "vdm/vdm_splat.h"
+#include "vdm/vdm_store.h"
 
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
@@ -317,6 +322,182 @@ static void gateDownRefit()
   alloc::Delete(cage);
 }
 
+/* Gather a materialized level's corner UVs keyed (grid, latticeU, latticeV)
+ * via the same face-major walk assignGridUVs uses; asserts every corner
+ * matches a lattice point and replicated lattice points agree bitwise. */
+static void gatherGridUVs(Multires &mr,
+                          int level,
+                          Mesh &m,
+                          Vector<float2> &out /* [g*(S+1)^2 + v*(S+1) + u] */)
+{
+  subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
+  int S = lvl.gridSide, w = S + 1;
+  AttrRef uvRef = m.c.attrs.find_attribute(AttrType::FLOAT2, "uv");
+  test_assert(uvRef.exists());
+  test_assert(int(uvRef.use & AttrUse::UV) != 0);
+  auto *uv = static_cast<AttrData<float2> *>(uvRef.data);
+
+  out.resize(mr.store.gridCount() * w * w);
+  Vector<bool> seen;
+  seen.resize(out.size());
+  static const int du[4] = {0, 1, 1, 0};
+  static const int dv[4] = {0, 0, 1, 1};
+  int f = 0;
+  for (int g = 0; g < mr.store.gridCount(); g++) {
+    const int *gv = &lvl.gridVerts[g * w * w];
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++, f++) {
+        mesh::FaceProxy face(&m, f);
+        for (auto list : face.lists()) {
+          for (auto c : list) {
+            int j = 0;
+            while (j < 4 && gv[(v + dv[j]) * w + (u + du[j])] != c.v()) {
+              j++;
+            }
+            test_assert(j < 4);
+            int idx = g * w * w + (v + dv[j]) * w + (u + du[j]);
+            float2 val = (*uv)[c.i];
+            if (seen[idx]) {
+              test_assert(std::memcmp(&out[idx], &val, sizeof(float2)) == 0);
+            }
+            out[idx] = val;
+            seen[idx] = true;
+          }
+        }
+      }
+    }
+  }
+  for (int i = 0; i < int(seen.size()); i++) {
+    test_assert(seen[i]);
+  }
+}
+
+/* X1 gate: grid-chart UVs on materialized level meshes — charts sit inside
+ * disjoint inset cells, and a grid's chart mapping is identical at every
+ * level (same grid + same param t → bitwise-same uv), the property that lets
+ * finest-level VDM texels sample correctly from any level. */
+static void gateGridUVs()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 2);
+
+  MultiresSlot *s1 = mr.materialize(1);
+  MultiresSlot *s2 = mr.materialize(2);
+
+  Vector<float2> uv1, uv2;
+  gatherGridUVs(mr, 1, *s1->mesh, uv1);
+  gatherGridUVs(mr, 2, *s2->mesh, uv2);
+
+  int G = mr.store.gridCount();
+  int cpr = 1;
+  while (cpr * cpr < G) {
+    cpr++;
+  }
+  float cell = 1.0f / float(cpr);
+
+  /* Every lattice uv sits strictly inside its grid's cell (inset gutter). */
+  auto inCell = [&](int g, const float2 &p) {
+    float ox = float(g % cpr) * cell, oy = float(g / cpr) * cell;
+    return p[0] > ox && p[0] < ox + cell && p[1] > oy && p[1] < oy + cell;
+  };
+  for (int level = 1; level <= 2; level++) {
+    Vector<float2> &uvs = level == 1 ? uv1 : uv2;
+    int w = subdiv::GridsStore::sideForLevel(level) + 1;
+    for (int g = 0; g < G; g++) {
+      for (int i = 0; i < w * w; i++) {
+        test_assert(inCell(g, uvs[g * w * w + i]));
+      }
+    }
+  }
+
+  /* Level consistency: the four grid corners exist at both levels and must
+   * map to bitwise-identical uvs (param t = 0/1 exactly). */
+  int w1 = 2, w2 = 3;
+  for (int g = 0; g < G; g++) {
+    int corners1[4] = {0, 1, w1 * 1, w1 * 1 + 1};
+    int corners2[4] = {0, 2, w2 * 2, w2 * 2 + 2};
+    for (int k = 0; k < 4; k++) {
+      float2 a = uv1[g * w1 * w1 + corners1[k]];
+      float2 b = uv2[g * w2 * w2 + corners2[k]];
+      test_assert(std::memcmp(&a, &b, sizeof(float2)) == 0);
+    }
+  }
+
+  fprintf(stderr, "gridUVs: %d charts (cpr=%d), in-cell + level-consistent\n", G,
+          cpr);
+  alloc::Delete(cage);
+}
+
+/* X1 gate: VDM on a multires finest level — the level mesh is topology-locked,
+ * the grid-chart UVs drive the splatter end-to-end, the clamp signal fires at
+ * a tiny ceiling, and the lock keeps promotion off even under force. */
+static void gateSubsurfVdm()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 2);
+  MultiresSlot *slot = mr.setActiveLevel(2);
+  Mesh &m = *slot->mesh;
+  test_assert(m.isTopoLocked() == 1);
+
+  // Frames + whole-mesh VDM carrier (the harness stopgap fill).
+  displace::FrameProviderParams fp;
+  displace::updateFramesAll(m, fp);
+  for (int f : m.f) {
+    slot->tree->treeMesh.f.carrier.get_data()->materialize(f);
+    slot->tree->treeMesh.f.carrier[f] = int(spatial::DetailCarrier::VDM);
+  }
+
+  vdm::VdmStoreParams vp;
+  vp.resolution = 512;
+  vdm::VdmStore store(vp);
+
+  // Splat at the +Z pole; the level mesh's synthesized grid UVs must route
+  // the footprint into tiles.
+  float3 center(0, 0, 0);
+  for (int v : m.v) {
+    if (m.v.co[v][2] > center[2]) {
+      center = m.v.co[v];
+    }
+  }
+  vdm::VdmSplatParams sp;
+  sp.center = center;
+  sp.normal = float3(0, 0, 1);
+  sp.radius = 0.5f * center[2] + 0.1f;
+  sp.strength = 1.0f;
+  sp.alpha = 0.5f;
+  vdm::VdmSplatStats st = vdm::splatDab(m, *slot->tree, store, sp);
+  fprintf(stderr, "subsurfVdm: touched=%d clamped=%d\n", st.texelsTouched,
+          st.texelsClamped);
+  test_assert(st.texelsTouched > 0);
+
+  // A near-zero α makes the fold ceiling tiny — the clamp (prompt) signal
+  // must saturate nearly the whole footprint.
+  sp.alpha = 1e-8f;
+  st = vdm::splatDab(m, *slot->tree, store, sp);
+  test_assert(st.texelsClamped > st.texelsTouched / 2);
+
+  // Promotion is gated off on the locked base, even with force=1.
+  Vector<int> faces, candidates;
+  for (int f : m.f) {
+    faces.append(f);
+  }
+  vdm::VdmPromoteParams pp;
+  pp.force = true;
+  vdm::collectPromotionCandidates(
+      m, *slot->tree, store, std::span<const int>(faces.data(), faces.size()), pp,
+      candidates);
+  test_assert(candidates.size() == 0);
+  vdm::VdmPromoteStats ps = vdm::promoteRegion(
+      m, *slot->tree, store, std::span<const int>(faces.data(), faces.size()), pp,
+      nullptr, nullptr);
+  test_assert(ps.promoted == 0 && ps.seededVerts == 0);
+
+  fprintf(stderr, "subsurfVdm: lock holds (no promotion under force)\n");
+  alloc::Delete(cage);
+}
+
 /* Bulk-build measurement (plan risk #1): time each materialization phase at
  * target densities. Run manually: test_multires.cc_out bench */
 static void bench()
@@ -371,6 +552,8 @@ int main(int argc, char **argv)
   gateCube();
   gateFan();
   gateDownRefit();
+  gateGridUVs();
+  gateSubsurfVdm();
 
   /* Skip test_end(): attr name strings stay live in the alloc tracker
    * (mirrors the other spatial/mesh tests). */

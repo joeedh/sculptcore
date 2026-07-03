@@ -17,6 +17,28 @@ of S1–S5. **WORKSTREAM V IS COMPLETE (V1–V5)** and the **S app-wiring pass
 is DONE** (below); next is workstream X (S's production draw integration
 with V's tier rides X3):
 
+- **X1 done (VDM on multires).** Engine: `Multires::materialize` synthesizes
+  per-grid **chart UVs** on level meshes (`assignGridUVs`: ⌈√G⌉-per-row atlas
+  cells, inset gutter; a pure function of topology, so charts are identical
+  across levels AND backends — finest-level texels sample correctly from any
+  level's parameterization); level meshes carry a runtime `Mesh::topoLocked`
+  marker; `collectPromotionCandidates`/`promoteRegion` early-out on locked
+  bases (subsurf clamp = **true ceiling**, no promotion band, matching
+  sculpt-layers-design §8); per-splat `texelsClamped` crosses the seam as
+  `Vdm_lastSplatClamped()` (the add-a-level prompt signal; napi + 4-place TS
+  threaded). App: `_attachMultiresLevel` re-frames + re-tags the carrier when
+  a VdmStore is attached, so the fragment tier renders across level switches;
+  `destroy()` frees a live stack before the mesh/tree frees (S-pass double-
+  free fix). Gates green: `test_multires` gains gridUV invariants (in-cell,
+  level-consistent) + the locked-splat/no-promotion-under-force gate;
+  `sculptcore_multires` integration test 26/26 both backends
+  (`__multiresVdmTest`: splat through synthesized charts, no vertex motion,
+  prompt signal exact cross-backend, store bit-stable across level switches).
+  Found + filed: F3 cross-backend frame parity breaks at the ulp level on
+  curved bases (see the X1 design-note follow-up); the atlas parity gate is
+  quantized (1e-3) until frames are bit-stable. Deferred to X3/X4 app pass:
+  interactive store lifecycle, per-dab carrier routing, the actual prompt UI.
+
 - **S app-wiring pass done.** Engine additions: `Multires::downRefit(level)`
   (explicit down-refit — Jacobi-CG least squares on the stencil normal
   equations fits level−1 to the level surface, warm-started from the chain;
@@ -404,6 +426,40 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
 
 - **X1 — VDM on multires**: VDM layer on the finest level; clamp policy per
   base kind (subsurf = hard clamp / add-a-level prompt, no promotion).
+
+  Design note (X1 decomposition, decided at implementation time from the
+  architecture report §4.1/§6/§8 + sculpt-layers-design §4.2/§8):
+  - **Atlas backend first** (X2 swaps in Ptex under the `sample(face,u,v)`
+    seam). The parameterization is synthesized, not authored: each cage-corner
+    **grid is a chart**, packed into a ⌈√G⌉-per-row atlas grid with an inset
+    gutter. Chart layout is a pure function of (gridCount, grid id, lattice
+    coord) — deterministic across backends AND **identical at every level**
+    (same grid → same chart, param t consistent), so texels authored at the
+    finest level sample correctly from any level's UVs. `Multires::materialize`
+    writes the per-corner `uv` (FLOAT2, AttrUse::UV) from the grid tables.
+  - **Clamp policy**: materialized level meshes carry a runtime topology-lock
+    marker; `collectPromotionCandidates` returns nothing on a locked mesh —
+    on subsurf the splat clamp `α·ρ_min` is a **true ceiling** (no promotion
+    band). Per-splat `texelsClamped` crosses the seam as the **add-a-level
+    prompt signal**; the prompt is a non-modal hint offering the existing
+    `litemesh.multires_*` level ops (a deliberate op, never automatic).
+  - **Level policy**: the VDM is *editable* (splattable) only at the finest
+    level; the fragment tier *renders* it at any level (grid charts are
+    level-consistent). Amplified true-displacement display is X3.
+  - **Deferred (tracked, not X1)**: interactive store lifecycle + stroke-path
+    carrier routing (GEOM deform / VDM splat per dab) — production VDM strokes
+    need these on polygon bases too; they ride the X3/X4 app pass. X1's bar is
+    the V2/V3-style gate: engine + scripted app drivers, both backends.
+  - **Follow-up found by the X1 gate — F3 cross-backend frame parity on
+    curved bases**: splat counts, tile layout, and clamp counts are exact
+    across backends, and texel values agree to 1e-3, but the raw atlas bytes
+    differ by ulps on a CC level mesh (they are bit-exact on the flat-chart V3
+    fixture). Suspect libm transcendentals (atan2/sin in the cross-field
+    azimuth) differing between emscripten and native — the architecture's
+    "frame provider is the synchronization anchor" requirement wants these
+    replaced with bit-stable formulations before X4's bakes rely on frames.
+    The X1 gate asserts a quantized (1e-3) atlas signature cross-backend and
+    logs the raw divergence.
 - **X2 — Ptex backend** for VdmStore (per-face grids + adjacency + skirts),
   sharing S2's grid conventions; fragment path binds per-face table.
 - **X3 — Tessellated render tier**: V3's shader + S5's amplification =

@@ -101,6 +101,13 @@ struct Multires {
    * GPU-amplification A/B (S5) to host amplified positions. */
   mesh::Mesh *buildLevelTopo(int level);
 
+  /** Synthesize the per-corner atlas UVs for a level mesh (X1): each grid is a
+   * chart in a ⌈√G⌉-per-row cell layout with an inset gutter. A pure function
+   * of (gridCount, grid id, lattice coord) — identical across levels and
+   * backends, so finest-level VDM texels sample correctly from any level's
+   * UVs. Called by materialize(); public for the S5-style topo-mesh hosts. */
+  void assignGridUVs(mesh::Mesh &m, int level);
+
   /** Resident-level budget; eviction is LRU by lastUse, never the active
    * level (plan: users toggle two levels constantly, so default 3). */
   int lruBudget = 3;

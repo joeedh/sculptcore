@@ -55,6 +55,12 @@ void VdmStore_free(vdm::VdmStore *store)
   }
 }
 
+namespace {
+/* texelsClamped of this thread's most recent Mesh_vdmSplatDab (X1 prompt
+ * signal — clamp-at-ceiling on locked bases suggests adding a level). */
+thread_local int g_lastSplatClamped = 0;
+} // namespace
+
 /* Splat one dab (V2's CPU reference path); returns texels touched. The caller
  * owns the undo bracket (store delta + MeshLog step) — this is the raw splat. */
 int Mesh_vdmSplatDab(mesh::Mesh *m,
@@ -72,6 +78,7 @@ int Mesh_vdmSplatDab(mesh::Mesh *m,
                      int invert)
 {
   if (!m || !tree || !store) {
+    g_lastSplatClamped = 0;
     return 0;
   }
   vdm::VdmSplatParams params;
@@ -81,6 +88,14 @@ int Mesh_vdmSplatDab(mesh::Mesh *m,
   params.strength = strength;
   params.alpha = alpha;
   params.invert = invert != 0;
-  return vdm::splatDab(*m, *tree, *store, params).texelsTouched;
+  vdm::VdmSplatStats stats = vdm::splatDab(*m, *tree, *store, params);
+  g_lastSplatClamped = stats.texelsClamped;
+  return stats.texelsTouched;
+}
+
+/* texelsClamped of the most recent Mesh_vdmSplatDab on this thread. */
+int Vdm_lastSplatClamped()
+{
+  return g_lastSplatClamped;
 }
 }

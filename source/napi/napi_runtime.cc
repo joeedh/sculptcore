@@ -73,6 +73,7 @@ void VdmStore_free(void *store);
 int Mesh_vdmSplatDab(void *mesh, void *tree, void *store, float cx, float cy,
                      float cz, float nx, float ny, float nz, float radius,
                      float strength, float alpha, int invert);
+int Vdm_lastSplatClamped();
 void SpatialTree_fillDetailCarrier(void *tree, int carrier);
 void Mesh_updateFrames(void *mesh);
 // Sculpt-layer settings mutators (source/displace/c-api/displace_c_api.cc).
@@ -1876,6 +1877,15 @@ napi_value NapiRuntime::MeshVdmSplatDab(napi_env env, napi_callback_info info)
   return out;
 }
 
+// vdmLastSplatClamped() -> texelsClamped of this thread's most recent
+// meshVdmSplatDab (the X1 add-a-level prompt signal).
+napi_value NapiRuntime::VdmLastSplatClamped(napi_env env, napi_callback_info)
+{
+  napi_value out;
+  napi_create_int32(env, Vdm_lastSplatClamped(), &out);
+  return out;
+}
+
 // spatialTreeFillDetailCarrier(tree, carrier) -> void. Tags every live face's
 // `.detail.carrier` (0 = GEOM, 1 = VDM) — the V3 harness whole-mesh fill.
 napi_value NapiRuntime::SpatialTreeFillDetailCarrier(napi_env env,
@@ -2769,6 +2779,7 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "meshLayerSetEnabled", &NapiRuntime::MeshLayerSetEnabled);
   define(exports, "meshLayerSetFrozen", &NapiRuntime::MeshLayerSetFrozen);
   define(exports, "meshLayerRemove", &NapiRuntime::MeshLayerRemove);
+  define(exports, "vdmLastSplatClamped", &NapiRuntime::VdmLastSplatClamped);
   define(exports, "multiresNew", &NapiRuntime::MultiresNew);
   define(exports, "multiresFree", &NapiRuntime::MultiresFree);
   define(exports, "multiresSetActiveLevel", &NapiRuntime::MultiresSetActiveLevel);

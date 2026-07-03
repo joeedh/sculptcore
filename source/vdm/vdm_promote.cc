@@ -147,6 +147,11 @@ void collectPromotionCandidates(Mesh &m,
                                 const VdmPromoteParams &params,
                                 Vector<int> &out)
 {
+  // Locked bases (multires level meshes) never promote — the splat clamp is a
+  // true ceiling there; add-a-level is the capacity lever (plan X1).
+  if (m.topoLocked) {
+    return;
+  }
   AttrData<float2> *uv = findUvCornerLayer(m);
   FrameAttrs frames = frameAttrs(m);
   if (!uv || !frames.normal || !frames.tangent) {
@@ -242,6 +247,10 @@ VdmPromoteStats promoteRegion(Mesh &m,
                               meshlog::MeshLog *log)
 {
   VdmPromoteStats stats;
+  // Same lock gate as collectPromotionCandidates — promotion mutates topology.
+  if (m.topoLocked) {
+    return stats;
+  }
   AttrData<float2> *uv = findUvCornerLayer(m);
   FrameAttrs frames = frameAttrs(m);
   if (!uv || !frames.normal || !frames.tangent || faces.empty()) {

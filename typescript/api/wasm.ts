@@ -77,6 +77,8 @@ interface IWasmMethods extends IWasmBase {
     alpha: number,
     invert: int
   ): int
+  /** texelsClamped of the most recent Mesh_vdmSplatDab (the X1 add-a-level prompt signal). */
+  Vdm_lastSplatClamped(): int
   /** tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
   SpatialTree_fillDetailCarrier(tree: SpatialTree, carrier: int): void
   /** recompute vertex normals + the F3 frames — required before splatting. */

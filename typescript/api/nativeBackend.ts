@@ -113,6 +113,8 @@ export interface NativeAddon {
     alpha: number,
     invert: number
   ): number
+  /** texelsClamped of the most recent meshVdmSplatDab (X1 add-a-level prompt signal). */
+  vdmLastSplatClamped(): number
   /** Tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
   spatialTreeFillDetailCarrier(tree: NativeBound, carrier: number): void
   /** Recompute vertex normals + the F3 frames — the splatter's prerequisite. */
