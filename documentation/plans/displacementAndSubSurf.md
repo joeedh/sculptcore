@@ -10,8 +10,8 @@ gates). Companion design docs:
 ## Status (2026-07-02)
 
 **Workstream F merged to master**; the `displacement` (V) and `subsurf` (S)
-worktrees exist. **S1 + S2 implemented on branch `subsurf`** (parent repo +
-sculptcore, matching branches).
+worktrees exist. **S1 + S2 + S3 implemented on branch `subsurf`** (parent repo
++ sculptcore, matching branches).
 
 - **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
   (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh
@@ -80,7 +80,41 @@ sculptcore, matching branches).
   tables, unlinked steps only at true mesh boundary, and a bitwise
   fill/serialize/read round-trip incl. chunk geometry.
 
-Next: S3 (level materialization + LRU) on `subsurf`; V2 on `displacement`.
+- **S3 done (core).** `source/subdiv/multires.{h,cc}`: `Multires` —
+  materializes the active level's `mesh::Mesh` + `SpatialTree` from the
+  cached per-level position chain (base_L = stencil_L(pos_{L−1}), pos_L =
+  base_L + F3-frame·disp_L, frames on the smoothed base), topology rebuilt on
+  demand from S1's grid tables (the refiner's eager level meshes are released
+  after refine — `Refiner::releaseMeshes()`). LRU keeps `lruBudget` (default
+  3) levels resident, never evicting the active one. `writeback()`
+  re-expresses level positions into store deltas and **skips verts bitwise
+  equal to the materialized baseline** — that skip is what makes edit-free
+  switches lossless (a frame-projection round-trip is not float-exact, so
+  drift is only ever paid where an edit happened); changed writes hit every
+  seam replica and invalidate everything finer. Gate green: `test_multires` —
+  with nonzero disp injected at all 3 levels, edit-free writeback leaves the
+  store byte-identical and L↔L±1 switches reproduce positions bit-exactly
+  through all three paths (LRU-resident, evicted-and-rebuilt-from-cache, and
+  fully re-derived from cage + store); LRU budget/eviction semantics; castRay
+  on a materialized tree; single-edited-vert writeback (delta lands, finer
+  level rides along, re-derivation within 3e-8 drift, untouched verts
+  bit-exact); boundary/n-gon fan cage.
+  **Bulk-build measurement (risk #1 verdict: no fast path needed now).**
+  createCube(8) cage, cold materialize incl. tree build + tris: L5 301k
+  verts 1.2s; L6 1.2M 4.3s; L7 4.8M **12.1s** — versus the feared ~68s
+  full-rebuild figure; warm (LRU-hit) switches are **0–4ms**, cold
+  switch-down (topology+tree rebuild, positions cached) 3.3s at L6. The
+  interactive toggle path is the warm one, so the LRU covers it; revisit
+  only if cold switches at L7+ become a UX complaint. Two notes: (a)
+  `SpatialTree` drops faces with area < 1e-7 (absolute `XXX magic number`
+  threshold, `spatial.h:447`) — at L7 on a unit cube the CC-contracted
+  corner quads trip it (~190 faces skipped, warning spam); harmless for
+  queries but scale-dependent, flagged for a relative threshold someday.
+  (b) The app-side level-switch ToolOp + UI stub is deferred to the app
+  wiring pass (alongside S5/X, mirroring how V defers app wiring to V5) —
+  S4's gate drives levels through debug_app scripts, not the UI.
+
+Next: S4 (multires sculpt loop) on `subsurf`; V3 on `displacement`.
 
 ---
 

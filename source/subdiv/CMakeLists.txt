@@ -4,6 +4,8 @@ set(LIB
     binding
     io
     mesh
+    displace
+    spatial
 )
 
 set(SRC
@@ -11,6 +13,8 @@ set(SRC
   subdiv.cc
   PUBLIC grids.h
   grids.cc
+  PUBLIC multires.h
+  multires.cc
 )
 
 sc_add_library(subdiv "${SRC}" "${LIB}" STATIC)

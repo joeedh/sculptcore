@@ -146,6 +146,16 @@ Refiner::~Refiner()
   clear();
 }
 
+void Refiner::releaseMeshes()
+{
+  for (SubdivLevel &lvl : levels) {
+    if (lvl.mesh) {
+      alloc::Delete(lvl.mesh);
+      lvl.mesh = nullptr;
+    }
+  }
+}
+
 void Refiner::clear()
 {
   for (SubdivLevel &lvl : levels) {

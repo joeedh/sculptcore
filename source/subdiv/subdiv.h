@@ -76,6 +76,12 @@ struct Refiner {
 
   void clear();
 
+  /** Free every level's materialized mesh, keeping stencils, counts, and grid
+   * tables. Topology is rebuildable from gridVerts (see subdiv::Multires) —
+   * this is the memory-reclaim step after refine() for stack owners that
+   * materialize levels on demand. */
+  void releaseMeshes();
+
   int gridCount() const
   {
     return gridCount_;
