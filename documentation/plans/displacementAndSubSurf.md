@@ -10,8 +10,13 @@ gates). Companion design docs:
 ## Status (2026-07-02)
 
 **Workstream F merged to master** (branch `displacement-subsurf-f`, torn
-down); the V and S tracks are live in their worktrees (`displacement` /
-`subsurf` branches). **V1 + V2 + V3 + V4 done** on `displacement`:
+down). **Both engine tracks are complete and unified on this branch**: the
+S track (S1–S5, engine work done on `subsurf`; its remaining app-wiring
+pass — level-switch op + UI, wasm↔native parity, down-refit op, production
+draw integration with V's tier in X3 — is tracked there) was pulled in by
+rebasing `displacement` onto the pushed `subsurf` branch, so V1–V4 now sit
+on top of S1–S5. **V1 + V2 + V3 + V4 done**; V5 (app wiring/polish)
+remains before workstream X:
 
 - **V4 done.** `source/vdm/vdm_promote.{h,cc}`: eligibility predicate
   (fold bound — face max|D| vs `α_promote·ρ_min` from the shared 1-ring
