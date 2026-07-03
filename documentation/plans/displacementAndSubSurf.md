@@ -512,9 +512,26 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     format v2 (backend tag + grid/adjacency tables + per-tile grid id, v1
     reads as atlas). Gate: `test_vdm_store` Ptex block (isolation, bilinear,
     override-res grid, delta round-trip, bitwise v2 round-trip); all V-track
-    vdm gates green under v2. Next: stage 2 (splatter Ptex branch — rasterize
-    per-grid via the corner `(grid, localUV)` attrs assignGridUVs computes;
-    cross-grid border skirts through the provided adjacency).
+    vdm gates green under v2.
+  - **Stage 2 DONE**: per-grid lattices grew the one-texel **guard ring**
+    (storage (R+2)²; payload coords stay [0,R), −1/R address the guard;
+    `sample` taps land on it, so clamped bilinear is seamless with zero
+    render-time adjacency lookups — the §6 "copied border skirts").
+    `syncGridSkirts` fills guards from neighbour border payload through the
+    provided links (t preserved, roles swapped — exactly grids.cc's
+    `sideCoord`/`neighbor` convention; nearest-texel across resolution
+    changes; diagonal guards average their edge neighbours).
+    `assignGridUVs` emits the exact Ptex parameterization as corner attrs
+    (`.ptex.c.grid` INT + `.ptex.c.uv` FLOAT2) alongside the packed chart uv;
+    the splatter's PTEX branch rasterizes each face in its grid's own lattice
+    (per-grid res, (grid,x,y) visited keys, guard-ring write window) and
+    refreshes skirts of touched grids + their link targets at splat end
+    (rides the open delta → undo-safe); `exportFaceBounds` reduces per-grid.
+    Gates: `test_vdm_store` skirt block (guards bitwise == neighbour payload,
+    seam-continuous bilinear) + `test_multires` `gatePtexSplat` (wide dab on
+    the CC cube: 768 seam samples over all 96 links, worst discontinuity
+    1.5e-8). Next: stage 3 — GPU per-grid offset table (i32 texture) + WGSL
+    grid recovery via `floor(uv·cpr)` + app upload; then stage 4 parity/docs.
 - **X3 — Tessellated render tier**: V3's shader + S5's amplification =
   true-displacement opt-in; per-region selection from compositor state.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM

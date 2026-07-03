@@ -316,6 +316,52 @@ int main()
     fprintf(stderr, "ptex: grids=5 tiles=%d round-trip ok\n", store.tileCount());
   }
 
+  // --- Ptex skirts (X2 stage 2): guard ring copies + seamless bilinear ---
+  {
+    VdmStoreParams pp;
+    pp.tile_size = 8;
+    pp.resolution = 8; // R = 8 (storage 10x10 with the guard ring)
+    pp.backend = VdmBackend::PTEX;
+    VdmStore store(pp);
+    store.setPtexGridCount(2);
+    // grid 0's RIGHT side links to grid 1's LEFT side (t preserved), and
+    // vice versa; other sides are boundary. Layout: [grid*8 + side*2 +
+    // {0 = grid, 1 = side}], side order LEFT, BOTTOM, RIGHT, TOP.
+    int adj[16] = {
+        -1, -1, -1, -1, 1, 0, -1, -1, // grid 0: RIGHT -> {1, LEFT}
+        0, 2, -1, -1, -1, -1, -1, -1, // grid 1: LEFT  -> {0, RIGHT}
+    };
+    store.setPtexAdjacency(std::span<const int>(adj, 16));
+
+    // Distinct border payload on both sides of the seam.
+    for (int j = 0; j < 8; j++) {
+      store.writeTexelP(0, 7, j, float3(float(j), 1.0f, 0.0f)); // grid 0 RIGHT col
+      store.writeTexelP(1, 0, j, float3(float(j), 2.0f, 0.0f)); // grid 1 LEFT col
+    }
+    store.syncGridSkirts(0);
+    store.syncGridSkirts(1);
+
+    // Guard ring == the neighbour's border payload, bitwise.
+    for (int j = 0; j < 8; j++) {
+      float3 g0 = store.texelP(0, 8, j);  // grid 0's RIGHT guard
+      float3 p1 = store.texelP(1, 0, j);  // grid 1's LEFT payload
+      float3 g1 = store.texelP(1, -1, j); // grid 1's LEFT guard
+      float3 p0 = store.texelP(0, 7, j);  // grid 0's RIGHT payload
+      test_assert(std::memcmp(&g0, &p1, sizeof(float3)) == 0);
+      test_assert(std::memcmp(&g1, &p0, sizeof(float3)) == 0);
+    }
+
+    // Bilinear continuity across the seam: the two sides sample the same
+    // value at the shared edge (u = 1 on grid 0 == u = 0 on grid 1).
+    for (int j = 0; j < 8; j++) {
+      float v = (float(j) + 0.5f) / 8.0f;
+      float3 a = store.sample(0, 1.0f, v);
+      float3 b = store.sample(1, 0.0f, v);
+      test_assert(near3(a, b, 1e-6f));
+    }
+    fprintf(stderr, "ptex skirts: seam continuity ok\n");
+  }
+
   /* Skip test_end(): mesh attr name strings stay live in the alloc tracker
    * (mirrors the other mesh-using tests). */
   return retval;

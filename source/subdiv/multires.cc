@@ -83,6 +83,13 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
   uvRef.use = uvRef.use | AttrUse::UV;
   auto *uv = static_cast<AttrData<float2> *>(uvRef.data);
 
+  // Exact Ptex parameterization alongside the packed chart uv (X2): the
+  // owning grid + the grid-local param, free of packing/inset arithmetic.
+  AttrRef &pgRef = m.c.attrs.ensure(AttrType::INT, util::string(".ptex.c.grid"), true);
+  AttrRef &puRef = m.c.attrs.ensure(AttrType::FLOAT2, util::string(".ptex.c.uv"), true);
+  auto *pgrid = static_cast<AttrData<int> *>(pgRef.data);
+  auto *puv = static_cast<AttrData<float2> *>(puRef.data);
+
   int cpr = 1;
   while (cpr * cpr < refiner.gridCount()) {
     cpr++;
@@ -116,8 +123,11 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
               j++;
             }
             Assert(j < 4, "level-face corner matches a cell lattice point");
-            (*uv)[c.i] = float2(ox + span * (float(u + du[j]) / float(S)),
-                                oy + span * (float(v + dv[j]) / float(S)));
+            float lu = float(u + du[j]) / float(S);
+            float lv = float(v + dv[j]) / float(S);
+            (*uv)[c.i] = float2(ox + span * lu, oy + span * lv);
+            (*pgrid)[c.i] = g;
+            (*puv)[c.i] = float2(lu, lv);
           }
         }
       }

@@ -498,6 +498,102 @@ static void gateSubsurfVdm()
   alloc::Delete(cage);
 }
 
+/* X2 stage 2 gate: Ptex splat on a multires finest level — per-grid
+ * rasterization through the exact (grid, localUV) corner attrs, cross-grid
+ * skirt sync through the S2 adjacency links, and seam-continuous sampling
+ * (both sides of every linked seam blend the same payload+guard pair). */
+static void gatePtexSplat()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 2);
+  MultiresSlot *slot = mr.setActiveLevel(2);
+  Mesh &m = *slot->mesh;
+
+  displace::FrameProviderParams fp;
+  displace::updateFramesAll(m, fp);
+  for (int f : m.f) {
+    slot->tree->treeMesh.f.carrier.get_data()->materialize(f);
+    slot->tree->treeMesh.f.carrier[f] = int(spatial::DetailCarrier::VDM);
+  }
+
+  int G = mr.store.gridCount();
+  vdm::VdmStoreParams vp;
+  vp.tile_size = 8;
+  vp.resolution = 16;
+  vp.backend = vdm::VdmBackend::PTEX;
+  vdm::VdmStore store(vp);
+  store.setPtexGridCount(G);
+  Vector<int> adj;
+  adj.resize(G * 8);
+  for (int g = 0; g < G; g++) {
+    for (int side = 0; side < 4; side++) {
+      const subdiv::GridLink &l = mr.store.link(g, side);
+      adj[g * 8 + side * 2] = l.grid;
+      adj[g * 8 + side * 2 + 1] = l.side;
+    }
+  }
+  store.setPtexAdjacency(std::span<const int>(adj.data(), adj.size()));
+
+  float3 center(0, 0, 0);
+  for (int v : m.v) {
+    if (m.v.co[v][2] > center[2]) {
+      center = m.v.co[v];
+    }
+  }
+  vdm::VdmSplatParams sp;
+  sp.center = center;
+  sp.normal = float3(0, 0, 1);
+  sp.radius = 0.9f * center[2]; // wide dab: guarantees cross-grid coverage
+  sp.strength = 1.0f;
+  sp.alpha = 0.5f;
+  vdm::VdmSplatStats st = vdm::splatDab(m, *slot->tree, store, sp);
+  fprintf(stderr, "ptexSplat: touched=%d faces=%d\n", st.texelsTouched,
+          st.facesTouched);
+  test_assert(st.texelsTouched > 0);
+  test_assert(st.facesTouched > 1);
+
+  // Seam continuity across every linked pair (transpose mapping, t
+  // preserved): both sides must blend the identical payload+guard pair.
+  auto seamSample = [&](int g, int side, float t) {
+    switch (side) {
+    case subdiv::GRID_SIDE_LEFT:
+      return store.sample(g, 0.0f, t);
+    case subdiv::GRID_SIDE_RIGHT:
+      return store.sample(g, 1.0f, t);
+    case subdiv::GRID_SIDE_BOTTOM:
+      return store.sample(g, t, 0.0f);
+    default:
+      return store.sample(g, t, 1.0f);
+    }
+  };
+  int checked = 0, active = 0;
+  double worst = 0.0;
+  for (int g = 0; g < G; g++) {
+    for (int side = 0; side < 4; side++) {
+      const subdiv::GridLink &l = mr.store.link(g, side);
+      if (l.grid < 0) {
+        continue;
+      }
+      for (int i = 0; i < 8; i++) {
+        float t = (float(i) + 0.5f) / 8.0f;
+        float3 a = seamSample(g, side, t);
+        float3 b = seamSample(l.grid, l.side, t);
+        double d = double((a - b).length());
+        worst = d > worst ? d : worst;
+        checked++;
+        active += a.length() > 1e-4f ? 1 : 0;
+      }
+    }
+  }
+  fprintf(stderr, "ptexSplat: seams checked=%d active=%d worst=%g\n", checked,
+          active, worst);
+  test_assert(active > 0); // the dab actually reached seams
+  test_assert(worst < 1e-5);
+
+  alloc::Delete(cage);
+}
+
 /* Bulk-build measurement (plan risk #1): time each materialization phase at
  * target densities. Run manually: test_multires.cc_out bench */
 static void bench()
@@ -554,6 +650,7 @@ int main(int argc, char **argv)
   gateDownRefit();
   gateGridUVs();
   gateSubsurfVdm();
+  gatePtexSplat();
 
   /* Skip test_end(): attr name strings stay live in the alloc tracker
    * (mirrors the other spatial/mesh tests). */

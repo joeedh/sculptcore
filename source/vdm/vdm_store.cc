@@ -196,10 +196,11 @@ void VdmStore::setPtexAdjacency(std::span<const int> links)
   }
 }
 
+/* Storage lattice side: payload R_g plus the one-texel guard ring. */
 int VdmStore::tilesPerSide(int grid) const
 {
   int r = gridRes(grid);
-  return r > 0 ? (r + params.tile_size - 1) / params.tile_size : 0;
+  return r > 0 ? (r + 2 + params.tile_size - 1) / params.tile_size : 0;
 }
 
 VdmTile *VdmStore::findTileP(int grid, int ltx, int lty) const
@@ -222,25 +223,27 @@ VdmTile &VdmStore::ensureTileP(int grid, int ltx, int lty)
 float3 VdmStore::texelP(int grid, int x, int y) const
 {
   int r = gridRes(grid);
-  if (x < 0 || y < 0 || x >= r || y >= r) {
+  if (x < -1 || y < -1 || x > r || y > r) {
     return float3(0.0f, 0.0f, 0.0f);
   }
-  VdmTile *t = findTileP(grid, x / params.tile_size, y / params.tile_size);
+  int sx = x + 1, sy = y + 1; // storage coords: guard ring at 0 and r+1
+  VdmTile *t = findTileP(grid, sx / params.tile_size, sy / params.tile_size);
   if (!t) {
     return float3(0.0f, 0.0f, 0.0f);
   }
-  int lx = x % params.tile_size, ly = y % params.tile_size;
+  int lx = sx % params.tile_size, ly = sy % params.tile_size;
   return t->texels[ly * params.tile_size + lx];
 }
 
 void VdmStore::writeTexelP(int grid, int x, int y, const float3 &value)
 {
   int r = gridRes(grid);
-  if (x < 0 || y < 0 || x >= r || y >= r) {
+  if (x < -1 || y < -1 || x > r || y > r) {
     return;
   }
-  VdmTile &t = ensureTileP(grid, x / params.tile_size, y / params.tile_size);
-  int lx = x % params.tile_size, ly = y % params.tile_size;
+  int sx = x + 1, sy = y + 1;
+  VdmTile &t = ensureTileP(grid, sx / params.tile_size, sy / params.tile_size);
+  int lx = sx % params.tile_size, ly = sy % params.tile_size;
   t.texels[ly * params.tile_size + lx] = value;
   t.boundDirty = true;
   markGpuDirty(&t);
@@ -249,14 +252,97 @@ void VdmStore::writeTexelP(int grid, int x, int y, const float3 &value)
 void VdmStore::addTexelP(int grid, int x, int y, const float3 &value)
 {
   int r = gridRes(grid);
-  if (x < 0 || y < 0 || x >= r || y >= r) {
+  if (x < -1 || y < -1 || x > r || y > r) {
     return;
   }
-  VdmTile &t = ensureTileP(grid, x / params.tile_size, y / params.tile_size);
-  int lx = x % params.tile_size, ly = y % params.tile_size;
+  int sx = x + 1, sy = y + 1;
+  VdmTile &t = ensureTileP(grid, sx / params.tile_size, sy / params.tile_size);
+  int lx = sx % params.tile_size, ly = sy % params.tile_size;
   t.texels[ly * params.tile_size + lx] += value;
   t.boundDirty = true;
   markGpuDirty(&t);
+}
+
+/* My guard texel outside `side` at param index i reads the neighbour's
+ * payload texel one inward from ITS linked side, t preserved (grids.cc's
+ * sideCoord/neighbor convention), nearest-texel across resolution changes. */
+void VdmStore::syncGridSkirts(int grid)
+{
+  int r = gridRes(grid);
+  if (r <= 0 || int(adjacency_.size()) < (grid + 1) * 8) {
+    return;
+  }
+
+  auto neighborBorder = [&](int side, int i) {
+    int ngrid = adjacency_[grid * 8 + side * 2];
+    int nside = adjacency_[grid * 8 + side * 2 + 1];
+    if (ngrid < 0) {
+      return;
+    }
+    int rn = gridRes(ngrid);
+    if (rn <= 0) {
+      return;
+    }
+    int j = int((float(i) + 0.5f) * float(rn) / float(r));
+    j = j < 0 ? 0 : (j >= rn ? rn - 1 : j);
+    int nx, ny;
+    switch (nside) {
+    case 0: // LEFT: payload column x = 0
+      nx = 0;
+      ny = j;
+      break;
+    case 2: // RIGHT
+      nx = rn - 1;
+      ny = j;
+      break;
+    case 1: // BOTTOM: payload row y = 0
+      nx = j;
+      ny = 0;
+      break;
+    default: // TOP
+      nx = j;
+      ny = rn - 1;
+      break;
+    }
+    float3 v = texelP(ngrid, nx, ny);
+    switch (side) {
+    case 0:
+      writeTexelP(grid, -1, i, v);
+      break;
+    case 2:
+      writeTexelP(grid, r, i, v);
+      break;
+    case 1:
+      writeTexelP(grid, i, -1, v);
+      break;
+    default:
+      writeTexelP(grid, i, r, v);
+      break;
+    }
+  };
+
+  for (int side = 0; side < 4; side++) {
+    for (int i = 0; i < r; i++) {
+      neighborBorder(side, i);
+    }
+  }
+
+  // Diagonal guards: average the two adjacent edge guards (deterministic,
+  // exact ops; bilinear taps can reach them at grid corners).
+  struct Corner {
+    int x, y, ax, ay, bx, by;
+  };
+  Corner corners[4] = {
+      {-1, -1, 0, -1, -1, 0},
+      {r, -1, r - 1, -1, r, 0},
+      {-1, r, 0, r, -1, r - 1},
+      {r, r, r - 1, r, r, r - 1},
+  };
+  for (const Corner &c : corners) {
+    float3 a = texelP(grid, c.ax, c.ay);
+    float3 b = texelP(grid, c.bx, c.by);
+    writeTexelP(grid, c.x, c.y, (a + b) * 0.5f);
+  }
 }
 
 float VdmStore::gridBound(int grid)
@@ -279,14 +365,15 @@ float3 VdmStore::sample(int face, float u, float v) const
     if (r <= 0) {
       return float3(0.0f, 0.0f, 0.0f);
     }
-    // Grid-local param; taps clamp to the lattice (skirts own the seams).
+    // Grid-local param; border taps land on the guard ring (the copied
+    // skirt), so bilinear is seamless across grids once skirts are synced.
     float px = u * float(r) - 0.5f;
     float py = v * float(r) - 0.5f;
     float fx = std::floor(px);
     float fy = std::floor(py);
     int x0 = int(fx), y0 = int(fy);
     float ax = px - fx, ay = py - fy;
-    auto cl = [r](int x) { return x < 0 ? 0 : (x >= r ? r - 1 : x); };
+    auto cl = [r](int x) { return x < -1 ? -1 : (x > r ? r : x); };
 
     float3 t00 = texelP(face, cl(x0), cl(y0));
     float3 t10 = texelP(face, cl(x0 + 1), cl(y0));
@@ -597,8 +684,30 @@ void exportFaceBounds(VdmStore &store,
                       util::Vector<float> &out)
 {
   out.resize(faces.size());
-  mesh::AttrData<float2> *uv = findUvCornerLayer(m);
   store.updateBounds();
+
+  if (store.params.backend == VdmBackend::PTEX) {
+    // Per-face bound = the owning grid's tile-bound max (no UV bbox needed).
+    mesh::AttrRef gref = m.c.attrs.find_attribute(mesh::AttrType::INT, PTEX_GRID_ATTR);
+    auto *grid = gref.exists() ? static_cast<mesh::AttrData<int> *>(gref.data) : nullptr;
+    for (size_t i = 0; i < faces.size(); i++) {
+      out[int(i)] = 0.0f;
+      if (!grid) {
+        continue;
+      }
+      mesh::FaceProxy face(&m, faces[i]);
+      for (auto list : face.lists()) {
+        for (auto c : list) {
+          out[int(i)] = store.gridBound(grid->safe_get(c.i));
+          break;
+        }
+        break;
+      }
+    }
+    return;
+  }
+
+  mesh::AttrData<float2> *uv = findUvCornerLayer(m);
 
   for (size_t i = 0; i < faces.size(); i++) {
     out[int(i)] = 0.0f;

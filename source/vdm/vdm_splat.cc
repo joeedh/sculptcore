@@ -156,7 +156,21 @@ VdmSplatStats splatDab(Mesh &m,
 
   AttrData<float2> *uv = findUvCornerLayer(m);
   FrameAttrs frames = frameAttrs(m);
-  if (!uv || !frames.normal || !frames.tangent || params.radius <= 0.0f) {
+  // Ptex mode keys per-grid lattices on the exact (grid, localUV) corner
+  // attrs instead of the packed chart uv.
+  bool ptex = store.params.backend == VdmBackend::PTEX;
+  AttrData<int> *ptexGrid = nullptr;
+  AttrData<float2> *ptexUv = nullptr;
+  if (ptex) {
+    AttrRef gref = m.c.attrs.find_attribute(AttrType::INT, PTEX_GRID_ATTR);
+    AttrRef uref = m.c.attrs.find_attribute(AttrType::FLOAT2, PTEX_UV_ATTR);
+    ptexGrid = gref.exists() ? static_cast<AttrData<int> *>(gref.data) : nullptr;
+    ptexUv = uref.exists() ? static_cast<AttrData<float2> *>(uref.data) : nullptr;
+    if (!ptexGrid || !ptexUv) {
+      return stats;
+    }
+  }
+  if ((!uv && !ptex) || !frames.normal || !frames.tangent || params.radius <= 0.0f) {
     return stats;
   }
 
@@ -177,6 +191,7 @@ VdmSplatStats splatDab(Mesh &m,
   // skirt write can never pre-empt a neighbouring face's interior texel.
   struct SplatTri {
     int face;
+    int grid = -1; // Ptex: the owning grid (-1 on the atlas plane)
     float3 co[3], no[3], tan[3];
     float px[3], py[3];
     float inv;       // 1 / signed 2-area (texel space)
@@ -195,27 +210,41 @@ VdmSplatStats splatDab(Mesh &m,
       // Gather the face's corners (verts + UVs) once, then fan-triangulate.
       Vector<int> cVerts;
       Vector<float2> cUvs;
+      int faceGrid = -1;
+      bool mixedGrid = false;
       mesh::FaceProxy face(&m, f);
       for (auto list : face.lists()) {
         for (auto c : list) {
           cVerts.append(c.v());
-          cUvs.append(uv->safe_get(c.i));
+          if (ptex) {
+            int g = ptexGrid->safe_get(c.i);
+            if (faceGrid < 0) {
+              faceGrid = g;
+            } else if (g != faceGrid) {
+              mixedGrid = true;
+            }
+            cUvs.append(ptexUv->safe_get(c.i));
+          } else {
+            cUvs.append(uv->safe_get(c.i));
+          }
         }
       }
-      if (cVerts.size() < 3) {
-        continue;
+      if (cVerts.size() < 3 || (ptex && (mixedGrid || faceGrid < 0))) {
+        continue; // a level-mesh face lives in exactly one grid by construction
       }
+      float faceRes = ptex ? float(store.gridRes(faceGrid)) : res;
 
       for (int k = 1; k + 1 < int(cVerts.size()); k++) {
         int tri[3] = {0, k, k + 1};
         SplatTri T;
         T.face = f;
+        T.grid = ptex ? faceGrid : -1;
         float trho[3];
         for (int j = 0; j < 3; j++) {
           int vert = cVerts[tri[j]];
           float2 tuv = cUvs[tri[j]];
-          T.px[j] = tuv[0] * res;
-          T.py[j] = tuv[1] * res;
+          T.px[j] = tuv[0] * faceRes;
+          T.py[j] = tuv[1] * faceRes;
           T.co[j] = m.v.co[vert];
           T.no[j] = frames.normal->safe_get(vert);
           T.tan[j] = frames.tangent->safe_get(vert);
@@ -249,11 +278,29 @@ VdmSplatStats splatDab(Mesh &m,
   }
 
   Map<int, uint8_t> faceTouched;
+  Map<int, uint8_t> gridTouched; // Ptex: grids needing a skirt refresh
+
+  // Texel identity for the per-dab visited set: atlas packs (x, y); Ptex
+  // packs (grid, x, y) as 24/20/20 bits (grids < 16M, coords < ~1M).
+  auto texelKeyOf = [](const SplatTri &T, int x, int y) -> uint64_t {
+    if (T.grid >= 0) {
+      return (uint64_t(uint32_t(T.grid)) << 40) |
+             (uint64_t(uint32_t(x + 8) & 0xfffffu) << 20) |
+             uint64_t(uint32_t(y + 8) & 0xfffffu);
+    }
+    return (uint64_t(uint32_t(x)) << 32) | uint64_t(uint32_t(y));
+  };
 
   // Evaluate + write one texel from (possibly clamped) barycentrics. Returns
   // whether a texel was written (falloff or a degenerate frame can decline).
   auto splatTexel = [&](const SplatTri &T, int x, int y, float w0, float w1,
                         float w2, uint64_t key) -> bool {
+    if (T.grid >= 0) {
+      int r = store.gridRes(T.grid);
+      if (x < -1 || y < -1 || x > r || y > r) {
+        return false; // beyond the grid's guard ring: nothing to write
+      }
+    }
     float3 base = T.co[0] * w0 + T.co[1] * w1 + T.co[2] * w2;
     float3 n = safeNormalize(T.no[0] * w0 + T.no[1] * w1 + T.no[2] * w2);
     float3 t = T.tan[0] * w0 + T.tan[1] * w1 + T.tan[2] * w2;
@@ -264,7 +311,7 @@ VdmSplatStats splatDab(Mesh &m,
     float3 b = n.cross(t);
 
     // World falloff from the *displaced* point (base + frame·texel).
-    float3 tex = store.texel(x, y);
+    float3 tex = T.grid >= 0 ? store.texelP(T.grid, x, y) : store.texel(x, y);
     float3 disp = t * tex[0] + b * tex[1] + n * tex[2];
     float d = (base + disp - params.center).length();
     float s = falloff(d, params.radius);
@@ -285,7 +332,14 @@ VdmSplatStats splatDab(Mesh &m,
         stats.texelsClamped++;
       }
     }
-    store.writeTexel(x, y, newTex);
+    if (T.grid >= 0) {
+      store.writeTexelP(T.grid, x, y, newTex);
+      if (!gridTouched.contains(T.grid)) {
+        gridTouched.insert(T.grid, uint8_t(1));
+      }
+    } else {
+      store.writeTexel(x, y, newTex);
+    }
     stats.texelsTouched++;
     if (!faceTouched.contains(T.face)) {
       faceTouched.insert(T.face, uint8_t(1));
@@ -311,8 +365,7 @@ VdmSplatStats splatDab(Mesh &m,
         if (w0 < kBaryEps || w1 < kBaryEps || w2 < kBaryEps) {
           continue;
         }
-        // Same int-pair packing as tileKey, used here as a texel key.
-        uint64_t key = (uint64_t(uint32_t(x)) << 32) | uint64_t(uint32_t(y));
+        uint64_t key = texelKeyOf(T, x, y);
         if (visited.contains(key)) {
           continue;
         }
@@ -339,7 +392,7 @@ VdmSplatStats splatDab(Mesh &m,
         int(std::ceil(std::max(T.py[0], std::max(T.py[1], T.py[2])) + 0.5f)) + pad;
     for (int y = y0; y <= y1; y++) {
       for (int x = x0; x <= x1; x++) {
-        uint64_t key = (uint64_t(uint32_t(x)) << 32) | uint64_t(uint32_t(y));
+        uint64_t key = texelKeyOf(T, x, y);
         if (visited.contains(key)) {
           continue;
         }
@@ -374,6 +427,24 @@ VdmSplatStats splatDab(Mesh &m,
   for (const auto &pair : faceTouched) {
     touchedFaces.append(pair.key);
     stats.facesTouched++;
+  }
+
+  // Ptex: refresh the copied border skirts of every touched grid AND its
+  // link targets (their guards read our border payload). Rides the delta.
+  if (ptex) {
+    Map<int, uint8_t> synced;
+    auto syncOnce = [&](int g) {
+      if (g >= 0 && !synced.contains(g)) {
+        synced.insert(g, uint8_t(1));
+        store.syncGridSkirts(g);
+      }
+    };
+    for (const auto &pair : gridTouched) {
+      syncOnce(pair.key);
+      for (int side = 0; side < 4; side++) {
+        syncOnce(store.gridLinkTarget(pair.key, side));
+      }
+    }
   }
 
   // Refresh the touched faces' displacement-bound pads (bounds-only dirty).

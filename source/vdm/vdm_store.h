@@ -41,6 +41,12 @@ namespace sculptcore::vdm {
 using litestl::math::float3;
 namespace util = litestl::util;
 
+/* Corner attrs a Ptex-parameterized mesh carries (written by
+ * subdiv::Multires::assignGridUVs): the owning grid id and the grid-local
+ * param in [0,1]² — exact, unlike the packed chart uv. */
+inline constexpr const char *PTEX_GRID_ATTR = ".ptex.c.grid";
+inline constexpr const char *PTEX_UV_ATTR = ".ptex.c.uv";
+
 /* Parameterization backend (X2). ATLAS: one global uv·resolution texel plane.
  * PTEX: per-grid R_g×R_g lattices keyed on the `face` of sample(face,u,v). */
 enum class VdmBackend : int { ATLAS = 0, PTEX = 1 };
@@ -139,11 +145,29 @@ struct VdmStore {
   VdmTile *findTileP(int grid, int ltx, int lty) const;
   VdmTile &ensureTileP(int grid, int ltx, int lty);
 
-  /* Grid-local texels (x, y in [0, R_g)); reads are zero and writes no-ops
-   * outside the lattice (never throws). */
+  /* Grid-local texels. Payload coords are [0, R_g); -1 and R_g address the
+   * one-texel guard ring (the copied border skirt — architecture §6) that
+   * makes clamped bilinear seamless across grids. Reads are zero and writes
+   * no-ops outside [-1, R_g] (never throws). */
   float3 texelP(int grid, int x, int y) const;
   void writeTexelP(int grid, int x, int y, const float3 &value);
   void addTexelP(int grid, int x, int y, const float3 &value);
+
+  /** Refresh `grid`'s guard ring from its neighbours' border payload through
+   * the adjacency links (t preserved, roles swapped — S2's transpose
+   * convention; resolutions may differ). Diagonal guards average their two
+   * edge-guard neighbours. Call for a touched grid AND its link targets
+   * after writing border payload; writes ride any open delta bracket. */
+  void syncGridSkirts(int grid);
+
+  /** Adjacency link target of `grid`'s `side` (GridSideType order), -1 when
+   * boundary/absent — for splat-end skirt refresh of a touched grid's
+   * neighbours (their guards read our border payload). */
+  int gridLinkTarget(int grid, int side) const
+  {
+    int i = grid * 8 + side * 2;
+    return i >= 0 && i + 1 < int(adjacency_.size()) ? adjacency_[i] : -1;
+  }
 
   /** max|D| over one grid's tiles (the per-face bound export on Ptex bases). */
   float gridBound(int grid);
