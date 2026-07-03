@@ -7,16 +7,34 @@ gates). Companion design docs:
 [`../dyntopo-vdm-region-hybrid.md`](../dyntopo-vdm-region-hybrid.md),
 [`../tangent-displacement-issues.md`](../tangent-displacement-issues.md).
 
-## Status (2026-07-02)
+## Status (2026-07-03)
 
 **Workstream F merged to master** (branch `displacement-subsurf-f`, torn
 down). **Both engine tracks are complete and unified on this branch**: the
 S track (S1–S5, engine work done on `subsurf`; its remaining app-wiring
 pass — level-switch op + UI, wasm↔native parity, down-refit op, production
 draw integration with V's tier in X3 — is tracked there) was pulled in by
-rebasing `displacement` onto the pushed `subsurf` branch, so V1–V4 now sit
-on top of S1–S5. **V1 + V2 + V3 + V4 done**; V5 (app wiring/polish)
-remains before workstream X:
+rebasing `displacement` onto the pushed `subsurf` branch, so the V commits
+sit on top of S1–S5. **WORKSTREAM V IS COMPLETE (V1–V5)**; next is the S
+app-wiring pass and then workstream X:
+
+- **V5 done.** Engine half: displace C-API layer mutators
+  (`Mesh_layerSetWeight/SetEnabled/SetFrozen/Remove`, compositor-maintained
+  co), bound per-layer reads on `Mesh`, and the carrier overlay — the
+  feature overlay draws `EDGE_LAYER_REGION` in pink. App half: napi wraps +
+  4-place TS threading; the LAYER_DRAW sculpt tool (SculptTools 22 →
+  LAYERDRAW) with active-sculpt-layer redirection through the paint-tool
+  category path (`AttrUseFlags.SCULPT_LAYER`); a layer-stack panel on the
+  LiteMesh properties tab (list + weight slider + enabled/frozen + add/
+  remove, all undoable ToolOps; weight drags merge to one undo entry;
+  remove restores by serialize-blob); feature flag
+  `sculptcore.sculpt_layers` (default off) gating panel/tool/ops;
+  `documentation/sculptLayers.md`. Gate green: `sculptcore_layers`
+  integration test extended with a stroke through the REAL tool mapping +
+  mutator round-trips + undo — 22/22 both backends, cross-backend
+  checksums identical. Known polish debts: no dedicated icon (aliases
+  SCULPT_DRAW); weight/enable refresh does a full spatial rebuild (heavy
+  at multi-M verts).
 
 - **V4 done.** `source/vdm/vdm_promote.{h,cc}`: eligibility predicate
   (fold bound — face max|D| vs `α_promote·ρ_min` from the shared 1-ring
