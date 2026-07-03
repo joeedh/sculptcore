@@ -114,6 +114,25 @@ int main()
   r = script::run(scene, "assert_vdm id=empty\n", ".");
   test_assert(r.ok);
 
+  // --- dilation skirts: a dab at the UV-domain edge writes gutter texels
+  // (texel x < 0), so bilinear reads at the chart boundary don't fade to zero.
+  r = script::run(scene,
+                  "vdm_stroke origin=-0.5,0,0 normal=0,0,1 radius=0.2 strength=1.0\n",
+                  ".");
+  test_assert(r.ok);
+  float skirtMag = 0.0f;
+  scene.vdm->foreachTile([&](const vdm::VdmTile &t) {
+    if (t.tx >= 0) {
+      return;
+    }
+    for (const float3 &d : t.texels) {
+      float l = d.length();
+      skirtMag = l > skirtMag ? l : skirtMag;
+    }
+  });
+  fprintf(stderr, "edge-dab gutter max: %f\n", skirtMag);
+  test_assert(skirtMag > 1e-4f);
+
   /* Return retval directly (not test_end()): the debug Scene infrastructure
    * leaves allocations live at exit (mirrors test_paint_undo.cc). */
   return retval;

@@ -170,6 +170,20 @@ VdmSplatStats splatDab(Mesh &m,
   Map<int, float> foldRadius; // per-vert ρ_min cache
   Vector<int> touchedFaces;
 
+  // Gathered UV triangles (fan-triangulated faces under the dab), rasterized
+  // in two passes: interiors first, then the one-texel dilation skirts — so a
+  // skirt write can never pre-empt a neighbouring face's interior texel.
+  struct SplatTri {
+    int face;
+    float3 co[3], no[3], tan[3];
+    float px[3], py[3];
+    float inv;       // 1 / signed 2-area (texel space)
+    float absArea2;  // |signed 2-area|
+    float lenOpp[3]; // edge length opposite each corner
+    float rhoMin;
+  };
+  Vector<SplatTri> tris;
+
   for (SpatialNode *node : nodes) {
     for (int f : node->data->unique_faces) {
       if (tree.treeMesh.f.carrier[f] != int(DetailCarrier::VDM)) {
@@ -190,21 +204,22 @@ VdmSplatStats splatDab(Mesh &m,
         continue;
       }
 
-      bool touched = false;
       for (int k = 1; k + 1 < int(cVerts.size()); k++) {
         int tri[3] = {0, k, k + 1};
-        float2 tuv[3];
-        float3 tco[3], tno[3], ttan[3];
+        SplatTri T;
+        T.face = f;
         float trho[3];
         for (int j = 0; j < 3; j++) {
           int vert = cVerts[tri[j]];
-          tuv[j] = cUvs[tri[j]];
-          tco[j] = m.v.co[vert];
-          tno[j] = frames.normal->safe_get(vert);
-          ttan[j] = frames.tangent->safe_get(vert);
+          float2 tuv = cUvs[tri[j]];
+          T.px[j] = tuv[0] * res;
+          T.py[j] = tuv[1] * res;
+          T.co[j] = m.v.co[vert];
+          T.no[j] = frames.normal->safe_get(vert);
+          T.tan[j] = frames.tangent->safe_get(vert);
           float *rho = foldRadius.lookup_ptr(vert);
           if (!rho) {
-            float r = vertexFoldRadius(m, vert, safeNormalize(tno[j]));
+            float r = vertexFoldRadius(m, vert, safeNormalize(T.no[j]));
             foldRadius.insert(vert, float(r));
             trho[j] = r;
           } else {
@@ -212,84 +227,151 @@ VdmSplatStats splatDab(Mesh &m,
           }
         }
         // Conservative per-triangle fold radius: the tightest vert.
-        float rhoMin = std::min(trho[0], std::min(trho[1], trho[2]));
+        T.rhoMin = std::min(trho[0], std::min(trho[1], trho[2]));
 
-        // Rasterize the UV triangle over texel centers (texel space).
-        float px[3], py[3];
-        for (int j = 0; j < 3; j++) {
-          px[j] = tuv[j][0] * res;
-          py[j] = tuv[j][1] * res;
-        }
-        float area2 = (px[1] - px[0]) * (py[2] - py[0]) -
-                      (py[1] - py[0]) * (px[2] - px[0]);
+        float area2 = (T.px[1] - T.px[0]) * (T.py[2] - T.py[0]) -
+                      (T.py[1] - T.py[0]) * (T.px[2] - T.px[0]);
         if (std::fabs(area2) < 1e-12f) {
           continue;
         }
-        float inv = 1.0f / area2;
-        int x0 = int(std::floor(std::min(px[0], std::min(px[1], px[2])) - 0.5f));
-        int x1 = int(std::ceil(std::max(px[0], std::max(px[1], px[2])) + 0.5f));
-        int y0 = int(std::floor(std::min(py[0], std::min(py[1], py[2])) - 0.5f));
-        int y1 = int(std::ceil(std::max(py[0], std::max(py[1], py[2])) + 0.5f));
-
-        for (int y = y0; y <= y1; y++) {
-          for (int x = x0; x <= x1; x++) {
-            float cx = float(x) + 0.5f, cy = float(y) + 0.5f;
-            float w0 = ((px[1] - cx) * (py[2] - cy) - (py[1] - cy) * (px[2] - cx)) * inv;
-            float w1 = ((px[2] - cx) * (py[0] - cy) - (py[2] - cy) * (px[0] - cx)) * inv;
-            float w2 = 1.0f - w0 - w1;
-            constexpr float kBaryEps = -1e-5f;
-            if (w0 < kBaryEps || w1 < kBaryEps || w2 < kBaryEps) {
-              continue;
-            }
-            // Same int-pair packing as tileKey, used here as a texel key.
-            uint64_t key = (uint64_t(uint32_t(x)) << 32) | uint64_t(uint32_t(y));
-            if (visited.contains(key)) {
-              continue;
-            }
-
-            // Interpolated base point + orthonormalized frame at the texel.
-            float3 base = tco[0] * w0 + tco[1] * w1 + tco[2] * w2;
-            float3 n = safeNormalize(tno[0] * w0 + tno[1] * w1 + tno[2] * w2);
-            float3 t = ttan[0] * w0 + ttan[1] * w1 + ttan[2] * w2;
-            t = safeNormalize(t - n * n.dot(t));
-            if (n.length() < EPS || t.length() < EPS) {
-              continue;
-            }
-            float3 b = n.cross(t);
-
-            // World falloff from the *displaced* point (base + frame·texel).
-            float3 tex = store.texel(x, y);
-            float3 disp = t * tex[0] + b * tex[1] + n * tex[2];
-            float d = (base + disp - params.center).length();
-            float s = falloff(d, params.radius);
-            if (s == 0.0f) {
-              continue;
-            }
-            visited.add(key);
-
-            // Tangent inversion: apply the world delta, re-express in-frame.
-            float3 world = disp + params.normal * (s * amp);
-            float3 newTex(world.dot(t), world.dot(b), world.dot(n));
-
-            if (params.alpha > 0.0f) {
-              float lim = params.alpha * rhoMin;
-              float len = newTex.length();
-              if (len > lim) {
-                newTex *= lim / len;
-                stats.texelsClamped++;
-              }
-            }
-            store.writeTexel(x, y, newTex);
-            stats.texelsTouched++;
-            touched = true;
-          }
+        T.inv = 1.0f / area2;
+        T.absArea2 = std::fabs(area2);
+        for (int j = 0; j < 3; j++) {
+          int a = (j + 1) % 3, b2 = (j + 2) % 3;
+          float ex = T.px[b2] - T.px[a], ey = T.py[b2] - T.py[a];
+          T.lenOpp[j] = std::sqrt(ex * ex + ey * ey);
         }
-      }
-      if (touched) {
-        touchedFaces.append(f);
-        stats.facesTouched++;
+        tris.append(T);
       }
     }
+  }
+
+  Map<int, uint8_t> faceTouched;
+
+  // Evaluate + write one texel from (possibly clamped) barycentrics. Returns
+  // whether a texel was written (falloff or a degenerate frame can decline).
+  auto splatTexel = [&](const SplatTri &T, int x, int y, float w0, float w1,
+                        float w2, uint64_t key) -> bool {
+    float3 base = T.co[0] * w0 + T.co[1] * w1 + T.co[2] * w2;
+    float3 n = safeNormalize(T.no[0] * w0 + T.no[1] * w1 + T.no[2] * w2);
+    float3 t = T.tan[0] * w0 + T.tan[1] * w1 + T.tan[2] * w2;
+    t = safeNormalize(t - n * n.dot(t));
+    if (n.length() < EPS || t.length() < EPS) {
+      return false;
+    }
+    float3 b = n.cross(t);
+
+    // World falloff from the *displaced* point (base + frame·texel).
+    float3 tex = store.texel(x, y);
+    float3 disp = t * tex[0] + b * tex[1] + n * tex[2];
+    float d = (base + disp - params.center).length();
+    float s = falloff(d, params.radius);
+    if (s == 0.0f) {
+      return false;
+    }
+    visited.add(key);
+
+    // Tangent inversion: apply the world delta, re-express in-frame.
+    float3 world = disp + params.normal * (s * amp);
+    float3 newTex(world.dot(t), world.dot(b), world.dot(n));
+
+    if (params.alpha > 0.0f) {
+      float lim = params.alpha * T.rhoMin;
+      float len = newTex.length();
+      if (len > lim) {
+        newTex *= lim / len;
+        stats.texelsClamped++;
+      }
+    }
+    store.writeTexel(x, y, newTex);
+    stats.texelsTouched++;
+    if (!faceTouched.contains(T.face)) {
+      faceTouched.insert(T.face, uint8_t(1));
+    }
+    return true;
+  };
+
+  constexpr float kBaryEps = -1e-5f;
+  // Pass 1: triangle interiors.
+  for (const SplatTri &T : tris) {
+    int x0 = int(std::floor(std::min(T.px[0], std::min(T.px[1], T.px[2])) - 0.5f));
+    int x1 = int(std::ceil(std::max(T.px[0], std::max(T.px[1], T.px[2])) + 0.5f));
+    int y0 = int(std::floor(std::min(T.py[0], std::min(T.py[1], T.py[2])) - 0.5f));
+    int y1 = int(std::ceil(std::max(T.py[0], std::max(T.py[1], T.py[2])) + 0.5f));
+    for (int y = y0; y <= y1; y++) {
+      for (int x = x0; x <= x1; x++) {
+        float cx = float(x) + 0.5f, cy = float(y) + 0.5f;
+        float w0 = ((T.px[1] - cx) * (T.py[2] - cy) - (T.py[1] - cy) * (T.px[2] - cx)) *
+                   T.inv;
+        float w1 = ((T.px[2] - cx) * (T.py[0] - cy) - (T.py[2] - cy) * (T.px[0] - cx)) *
+                   T.inv;
+        float w2 = 1.0f - w0 - w1;
+        if (w0 < kBaryEps || w1 < kBaryEps || w2 < kBaryEps) {
+          continue;
+        }
+        // Same int-pair packing as tileKey, used here as a texel key.
+        uint64_t key = (uint64_t(uint32_t(x)) << 32) | uint64_t(uint32_t(y));
+        if (visited.contains(key)) {
+          continue;
+        }
+        splatTexel(T, x, y, w0, w1, w2, key);
+      }
+    }
+  }
+
+  // Pass 2: one-texel dilation skirts. Gutter texels within kSkirt texels of a
+  // triangle edge get the nearest on-triangle value (clamped barycentrics), so
+  // bilinear reads at a UV-chart boundary don't blend toward zero. This fills
+  // each chart's own gutter; cross-chart value matching is the Ptex backend's
+  // job (X2).
+  constexpr float kSkirt = 1.5f;
+  for (const SplatTri &T : tris) {
+    int pad = int(std::ceil(kSkirt)) + 1;
+    int x0 =
+        int(std::floor(std::min(T.px[0], std::min(T.px[1], T.px[2])) - 0.5f)) - pad;
+    int x1 =
+        int(std::ceil(std::max(T.px[0], std::max(T.px[1], T.px[2])) + 0.5f)) + pad;
+    int y0 =
+        int(std::floor(std::min(T.py[0], std::min(T.py[1], T.py[2])) - 0.5f)) - pad;
+    int y1 =
+        int(std::ceil(std::max(T.py[0], std::max(T.py[1], T.py[2])) + 0.5f)) + pad;
+    for (int y = y0; y <= y1; y++) {
+      for (int x = x0; x <= x1; x++) {
+        uint64_t key = (uint64_t(uint32_t(x)) << 32) | uint64_t(uint32_t(y));
+        if (visited.contains(key)) {
+          continue;
+        }
+        float cx = float(x) + 0.5f, cy = float(y) + 0.5f;
+        float w0 = ((T.px[1] - cx) * (T.py[2] - cy) - (T.py[1] - cy) * (T.px[2] - cx)) *
+                   T.inv;
+        float w1 = ((T.px[2] - cx) * (T.py[0] - cy) - (T.py[2] - cy) * (T.px[0] - cx)) *
+                   T.inv;
+        float w2 = 1.0f - w0 - w1;
+        if (w0 >= kBaryEps && w1 >= kBaryEps && w2 >= kBaryEps) {
+          continue; // interior texel pass 1 declined (falloff) — leave it
+        }
+        // Signed texel-space distance to each edge: w_i * |2A| / lenOpp_i.
+        float d0 = w0 * T.absArea2 / T.lenOpp[0];
+        float d1 = w1 * T.absArea2 / T.lenOpp[1];
+        float d2 = w2 * T.absArea2 / T.lenOpp[2];
+        if (d0 < -kSkirt || d1 < -kSkirt || d2 < -kSkirt) {
+          continue;
+        }
+        float c0 = w0 < 0.0f ? 0.0f : w0;
+        float c1 = w1 < 0.0f ? 0.0f : w1;
+        float c2 = w2 < 0.0f ? 0.0f : w2;
+        float sum = c0 + c1 + c2;
+        if (sum < EPS) {
+          continue;
+        }
+        splatTexel(T, x, y, c0 / sum, c1 / sum, c2 / sum, key);
+      }
+    }
+  }
+
+  for (const auto &pair : faceTouched) {
+    touchedFaces.append(pair.key);
+    stats.facesTouched++;
   }
 
   // Refresh the touched faces' displacement-bound pads (bounds-only dirty).
