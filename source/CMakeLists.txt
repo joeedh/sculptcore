@@ -1,6 +1,8 @@
 add_subdirectory(litestl)
 add_subdirectory(mesh)
 add_subdirectory(displace)
+add_subdirectory(subdiv)
+add_subdirectory(vdm)
 add_subdirectory(spatial)
 add_subdirectory(wasm)
 add_subdirectory(props)

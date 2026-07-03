@@ -3,6 +3,7 @@
 #include "gpu/batch.h"
 #include "litestl/util/alloc.h"
 #include "mesh/utils/mesh_validate.h"
+#include "subdiv/multires.h"
 #include "vulkan/vk_screenshot.h"
 
 
@@ -42,6 +43,7 @@ Scene::~Scene()
     delete window;
     window = nullptr;
   }
+  clearMultires();
   if (tree) {
     litestl::alloc::Delete(tree);
     tree = nullptr;
@@ -49,6 +51,12 @@ Scene::~Scene()
   if (mesh) {
     litestl::alloc::Delete(mesh);
     mesh = nullptr;
+  }
+  if (vdm) {
+    // Safe before meshLog's own destruction: VdmLogChunk dtors never
+    // dereference their store pointer.
+    litestl::alloc::Delete(vdm);
+    vdm = nullptr;
   }
 }
 
@@ -93,8 +101,36 @@ bool Scene::ensureGPU()
   return true;
 }
 
+void Scene::attachMultiresLevel()
+{
+  subdiv::MultiresSlot *slot = multires->findSlot(multires->activeLevel());
+  mesh = slot->mesh;
+  tree = slot->tree;
+  meshLog.setActiveMesh(mesh);
+}
+
+void Scene::clearMultires()
+{
+  if (!multires) {
+    return;
+  }
+  /* mesh/tree are views into the stack's slots — the Multires frees them. */
+  mesh = nullptr;
+  tree = nullptr;
+  meshLog.setActiveMesh(nullptr);
+  litestl::alloc::Delete(multires);
+  multires = nullptr;
+  if (multiresCage) {
+    litestl::alloc::Delete(multiresCage);
+    multiresCage = nullptr;
+  }
+  mrUndoLevels.clear();
+  mrRedoLevels.clear();
+}
+
 void Scene::setMesh(mesh::Mesh *m)
 {
+  clearMultires();
   if (tree) {
     litestl::alloc::Delete(tree);
     tree = nullptr;

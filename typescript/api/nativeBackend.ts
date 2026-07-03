@@ -89,6 +89,44 @@ export interface NativeAddon {
   meshSerializeRaw(mesh: NativeBound): Uint8Array
   /** Reconstruct a Mesh from a meshSerialize blob (Uint8Array). Returns a non-owning wrapper. */
   meshDeserialize(bytes: Uint8Array): NativeBound
+  // VDM engine seam (vdm/c-api vdm_c_api.cc; displacementAndSubSurf.md V3).
+  /** Fresh bound VdmStore (sparse tiled float3 texel store). Pass <= 0 to keep a default; free via vdmStoreFree. */
+  vdmStoreNew(resolution: number, tileSize: number): NativeBound
+  /** Free a VdmStore created by vdmStoreNew. Nulls the wrapper's pointer. */
+  vdmStoreFree(store: NativeBound): void
+  /**
+   * Splat one VDM dab: writes tangent-space float3 texels into UV-keyed tiles
+   * (no vertex moves). Returns the texels touched. Call meshUpdateFrames first.
+   */
+  meshVdmSplatDab(
+    mesh: NativeBound,
+    tree: NativeBound,
+    store: NativeBound,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    strength: number,
+    alpha: number,
+    invert: number
+  ): number
+  /** Tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
+  spatialTreeFillDetailCarrier(tree: NativeBound, carrier: number): void
+  /** Recompute vertex normals + the F3 frames — the splatter's prerequisite. */
+  meshUpdateFrames(mesh: NativeBound): void
+  // Sculpt-layer settings mutators (displace/c-api displace_c_api.cc; V5).
+  // Each keeps evaluated v.co current; re-applying the prior value is the undo.
+  /** Set layer `li`'s weight. */
+  meshLayerSetWeight(mesh: NativeBound, li: number, weight: number): void
+  /** Enable/disable layer `li` (contribution added/subtracted from co). */
+  meshLayerSetEnabled(mesh: NativeBound, li: number, enabled: number): void
+  /** Freeze/unfreeze layer `li` (excluded from brush writes, still composited). */
+  meshLayerSetFrozen(mesh: NativeBound, li: number, frozen: number): void
+  /** Remove layer `li`: subtract contribution, drop settings row + column. */
+  meshLayerRemove(mesh: NativeBound, li: number): void
   /**
    * Bytes a raw-pointer member of a bound object points at — the native
    * bulk-data read (e.g. gpu::Buffer.data). The pointer never crosses to JS as

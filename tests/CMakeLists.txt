@@ -46,6 +46,11 @@ test(test_spatial_raycast.cc "spatial;mesh")
 test(test_spatial_displacement_bounds.cc "spatial;mesh")
 test(test_sculpt_layers.cc "displace;mesh")
 test(test_frame_provider.cc "displace;mesh")
+test(test_subdiv.cc "subdiv;mesh")
+test(test_grids_store.cc "subdiv;mesh")
+test(test_multires.cc "subdiv;spatial;displace;mesh")
+test(test_vdm_store.cc "vdm;mesh")
+test(test_vdm_gpu.cc "vdm;mesh")
 test(test_spatial_pick.cc "spatial;mesh")
 test(test_spatial_gpu_partition.cc "spatial;mesh")
 test(test_spatial_dyntopo.cc "spatial;mesh")
@@ -87,6 +92,9 @@ test(test_dyntopo_multistep_gpu.cc "debug_core")
 test(test_brush_attr.cc "debug_core")
 test(test_paint_undo.cc "debug_core")
 test(test_layer_stroke_undo.cc "debug_core")
+test(test_multires_stroke.cc "debug_core")
+test(test_vdm_stroke.cc "debug_core")
+test(test_vdm_promote.cc "debug_core")
 test(test_brush_nonaccum.cc "debug_core")
 test(test_brush_mirror_grab.cc "debug_core")
 test(test_gpu_brush_seam.cc "debug_core")
@@ -100,5 +108,10 @@ test(test_webgpu_render.cc "webgpu;spatial;mesh;gpu")
 add_custom_command(TARGET test_webgpu_render.cc_out POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:test_webgpu_render.cc_out>
+  VERBATIM)
+test(test_stencil_gpu.cc "webgpu;subdiv;spatial;mesh;gpu")
+add_custom_command(TARGET test_stencil_gpu.cc_out POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:test_stencil_gpu.cc_out>
   VERBATIM)
 #test(test_constexpr_bug.cc "")

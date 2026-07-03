@@ -7,11 +7,120 @@ gates). Companion design docs:
 [`../dyntopo-vdm-region-hybrid.md`](../dyntopo-vdm-region-hybrid.md),
 [`../tangent-displacement-issues.md`](../tangent-displacement-issues.md).
 
-## Status (2026-07-02)
+## Status (2026-07-03)
 
-**Workstream F implemented on branch `displacement-subsurf-f`** (parent repo +
-sculptcore, matching branches); V/S/X not started — the two work-tracks split
-off after F merges to master.
+**Workstream F merged to master** (branch `displacement-subsurf-f`, torn
+down). **Both engine tracks are complete and unified on this branch**: the
+S track (S1–S5, engine work done on `subsurf`; its remaining app-wiring
+pass — level-switch op + UI, wasm↔native parity, down-refit op, production
+draw integration with V's tier in X3 — is tracked there) was pulled in by
+rebasing `displacement` onto the pushed `subsurf` branch, so the V commits
+sit on top of S1–S5. **WORKSTREAM V IS COMPLETE (V1–V5)**; next is the S
+app-wiring pass and then workstream X:
+
+- **V5 done.** Engine half: displace C-API layer mutators
+  (`Mesh_layerSetWeight/SetEnabled/SetFrozen/Remove`, compositor-maintained
+  co), bound per-layer reads on `Mesh`, and the carrier overlay — the
+  feature overlay draws `EDGE_LAYER_REGION` in pink. App half: napi wraps +
+  4-place TS threading; the LAYER_DRAW sculpt tool (SculptTools 22 →
+  LAYERDRAW) with active-sculpt-layer redirection through the paint-tool
+  category path (`AttrUseFlags.SCULPT_LAYER`); a layer-stack panel on the
+  LiteMesh properties tab (list + weight slider + enabled/frozen + add/
+  remove, all undoable ToolOps; weight drags merge to one undo entry;
+  remove restores by serialize-blob); feature flag
+  `sculptcore.sculpt_layers` (default off) gating panel/tool/ops;
+  `documentation/sculptLayers.md`. Gate green: `sculptcore_layers`
+  integration test extended with a stroke through the REAL tool mapping +
+  mutator round-trips + undo — 22/22 both backends, cross-backend
+  checksums identical. Known polish debts: no dedicated icon (aliases
+  SCULPT_DRAW); weight/enable refresh does a full spatial rebuild (heavy
+  at multi-M verts).
+
+- **V4 done.** `source/vdm/vdm_promote.{h,cc}`: eligibility predicate
+  (fold bound — face max|D| vs `α_promote·ρ_min` from the shared 1-ring
+  fold-radius estimate — plus overhang via ±texel central differences of the
+  displaced surface at the face centroid vs the base normal; `α_promote`
+  defaults above the splat clamp α, which is the promotion-side hysteresis —
+  demotion is X4). `promoteRegion`: pattern-subdivide with callbacks
+  threaded (meshlog + spatial), new-corner UVs recovered from 3D position
+  barycentrics against pre-subdivide snapshot triangles (the box-modeling
+  subdivide leaves default corner UVs on new verts), children classified by
+  UV footprint (neighbour fans keep their inherited VDM carrier — carrier
+  dropped NOCOPY so topo chunks capture/restore it), verts seeded to
+  `base + frame·D(uv)` with the exact splat-time frame (snapshot barycentric
+  interp; boundary verts land on the surface the VDM neighbour still
+  renders — the C0 pin), footprint texels cleared (incl. dilation margin),
+  carrier-boundary edges marked `EDGE_LAYER_REGION` (new persistent
+  boundary flag, `BC_LAYER_REGION` bit outside BC_TYPE_MASK, threaded into
+  dyntopo FeatureViews + graphStats; edge flags ride their own external
+  chunk — `VdmEdgeFlagLogChunk` — since changed-edge packed-bool columns
+  don't restore through topo rows). Debug verb `vdm_promote` (alpha/theta/
+  cuts/force). Gate green: `test_vdm_promote` — forced-fold stroke promotes
+  (seeded maxZ ≈ stroke magnitude, texels cleared, valid topology), ONE
+  undo press reverts topology + seeds + carriers + texels + flags together,
+  redo replays, and a dyntopo stroke across the promoted seam preserves the
+  region boundary (flags propagate to split children).
+
+- **V3 done.** Engine half: `source/vdm/vdm_gpu.{h,cc}` — GPU
+  residency packing with the byte layout owned by C++ (gpuBrushes D1 rule):
+  stable per-tile atlas slots (recycled via free list), a `grid²` page table
+  over UV [0,1]² (tile coords → slot, -1 = zero), full-atlas + per-slot
+  rgba32float pixel packing, and a dirty-slot drain (`takeGpuDirty`) whose
+  topo flag tells the app when to re-upload the page table — the "no
+  regen_gpu_node on VDM-only dabs" upload path. Bound surface
+  (`VdmStore::gpuLayoutOut/...` via `Bind<VdmStore>`) reaches both backends
+  through reflection; extern-C `VdmStore_new/free` + `Mesh_vdmSplatDab`
+  exported for WASM (N-API wraps = app-side threading). Gate green:
+  `test_vdm_gpu`. App half: backend threading (napi wraps + the 4-place TS
+  change; `sculptcore_vdm.test.ts` proves the packed atlas bit-identical
+  wasm vs native), UV-seam dilation skirts in the splatter (gutter fill via
+  clamped-barycentric dilation; cross-chart matching stays Ptex/X2), and
+  the fragment render path: WgslShaderGenerator VDM mode (@group(3) atlas +
+  r32sint page table, manual bilinear — rgba32float is unfilterable, and an
+  unsampled binding is reflection-stripped), analytic shading normal
+  (±half-texel central differences of the store chained through screen
+  derivatives of uv/local position — dpdx of the displaced position itself
+  is helper-invocation noise at chart edges), LiteMesh attachVdmStore +
+  per-frame dirty-tile writeTexture, encodeMeshBasePass re-push on
+  attach/detach. Gate green: `sculptcore_vdm_render.test.ts` — headless PNG
+  luminance A/B (vdm≠flat 0.31, ref≠flat 0.37, vdm≈ref at 37% residual +
+  NCC 0.87 — the fragment tier shades without moving silhouettes; true
+  silhouettes are X3's tessellated tier) + native↔wasm image parity 0.008.
+
+- **V2 done.** `source/vdm/vdm_splat.{h,cc}`: per-dab UV rasterization of the
+  brush footprint (tree filterNodes → `.detail.carrier == VDM` gate →
+  fan-triangulated corner-UV rasterize; per-dab visited-texel set), falloff
+  evaluated in world space from the *displaced* point `base + frame·texel`
+  (so accumulation saturates naturally), tangent inversion through the F3
+  frame (bary-interpolated, re-orthonormalized), total-magnitude clamp to
+  `α·ρ_min` (per-vert fold radius from the 1-ring shape operator, min over
+  the triangle; hysteresis/promotion state is V4). Touched faces re-export
+  their `.detail.bound` pads (bounds-only spatial dirty). Undo: MeshLog gains
+  a generic `LogChunkTypes::External` + `appendChunk` seam; `VdmLogChunk`
+  (vdm_undo.h) rides the dab's step, so one undo press reverts geometry AND
+  texels (self-inverse delta = same blob undoes and redoes). Debug verbs:
+  `vdm_init` (store + carrier tagging + optional planar UV + frames),
+  `vdm_stroke`, `save_vdm`/`assert_vdm` (the texel-snapshot analogue of
+  save_pos/assert_pos). Gate green: `test_vdm_stroke` — texels land while
+  `assert_pos` proves zero vertex motion, root AABB pad grows by exactly
+  max|texel|, undo/redo texel round-trips, 50-dab accumulation bounded.
+  Deferred: UV-seam one-texel skirts → V3 (with the GPU tile upload);
+  wasm↔native parity + app wiring → V5 (the store has no app-side surface
+  yet, same as V1's TS threading).
+
+- **V1 done.** `source/vdm/vdm_store.{h,cc}`: sparse tiled float3 store,
+  atlas backend behind the `sample(face, u, v)` parameterization seam (face
+  unused until Ptex/X2); tiles allocated on first write, unallocated space
+  samples zero; per-tile max|D| bounds + conservative UV-rect queries;
+  `exportFaceBounds` (corner-UV bbox → tile bounds) feeds F2's
+  `setFaceDisplacementBounds`; self-inverse tile-delta undo bracket
+  (`beginDelta`/`endDelta`/`applyDelta`, the LogChunkElems::swap pattern —
+  V2 brackets it inside the dab's MeshLog step); lz4 BinFile container
+  serialization (mirrors `serial::writeMesh`). Gate green: `test_vdm_store`
+  (write/sample/bilinear, bound pyramid vs brute force, undo/redo
+  round-trips, bit-exact serialize round-trip, per-face export).
+
+Workstream F recap:
 
 - **F1 done.** `AttrUse::SCULPT_LAYER` + `SculptLayerSettings` sidecar
   (`mesh/sculpt_layers.h`, table on `Mesh::sculptLayers`, serialized as mesh

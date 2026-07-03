@@ -10,6 +10,7 @@
 #include "mesh/mesh.h"
 #include "meshlog/meshlog_base.h"
 #include "spatial/spatial.h"
+#include "vdm/vdm_store.h"
 #include "vulkan/vk_backend.h"
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_overlay.h"
@@ -19,6 +20,10 @@
 #include "litestl/util/string.h"
 
 #include <string>
+
+namespace sculptcore::subdiv {
+struct Multires;
+}
 
 namespace sculptcore::debug_app {
 
@@ -64,6 +69,9 @@ struct Scene {
 
   mesh::Mesh *mesh = nullptr;
   spatial::SpatialTree *tree = nullptr;
+  /* VDM tile store (vdm_init verb). Freed AFTER meshLog history is dropped —
+   * VdmLogChunk entries hold non-owning store pointers. */
+  vdm::VdmStore *vdm = nullptr;
   brush::Brush brush;
   brush::SculptBrushes currentTool = brush::SculptBrushes::DRAW;
   BrushBackend currentBackend = BrushBackend::Cpp;
@@ -129,6 +137,20 @@ struct Scene {
    * executor + DynTopoParams.nonAccumGen. */
   bool nonAccum = false;
   uint32_t strokeGen = 0;
+
+  /* Multires (displacementAndSubSurf S4): when set, `mesh` / `tree` are
+   * NON-OWNING views of the active level's slot (the Multires owns them) and
+   * the original mesh is parked as the cage. mrUndoLevels/mrRedoLevels record
+   * which level each stroke verb's meshlog step was made on, so undo/redo can
+   * auto-switch back to it. */
+  subdiv::Multires *multires = nullptr;
+  mesh::Mesh *multiresCage = nullptr;
+  litestl::util::Vector<int> mrUndoLevels, mrRedoLevels;
+
+  /** Point mesh/tree/meshLog at the active multires level's slot. */
+  void attachMultiresLevel();
+  /** Tear down the multires stack + cage; mesh/tree become null. */
+  void clearMultires();
 
   void setMesh(mesh::Mesh *m);
   void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);

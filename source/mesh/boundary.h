@@ -36,6 +36,11 @@ inline constexpr const char *EDGE_SEAM = ".boundary.edge.seam";
 inline constexpr const char *EDGE_POLYGROUP = ".boundary.edge.polygroup";
 inline constexpr const char *EDGE_UVCHART = ".boundary.edge.uvchart";
 
+// Detail-carrier region boundary (persistent): the edge loop between a VDM
+// region and live geometry (vdm/vdm_promote.h flips carriers and marks these).
+// A dyntopo feature edge, so remeshing never scrambles the parameterization.
+inline constexpr const char *EDGE_LAYER_REGION = ".boundary.edge.layer_region";
+
 // Lazy dirty markers (TEMP): set when sources change, cleared on recompute.
 inline constexpr const char *EDGE_DIRTY = ".boundary.edge.dirty";
 inline constexpr const char *VERT_DIRTY = ".boundary.vert.dirty";
@@ -72,6 +77,11 @@ enum BoundaryClass : int {
   BC_TYPE_MASK = 0x1F, // BC_PROJECTED..BC_UVCHART
 
   BC_ENDPOINT = 1 << 5, // derived: exactly one dominant-type constraint edge
+
+  // Carrier-region boundary (EDGE_LAYER_REGION). Outside BC_TYPE_MASK on
+  // purpose: it protects dyntopo (FeatureViews) without becoming a
+  // smooth-brush constraint type.
+  BC_LAYER_REGION = 1 << 6,
 };
 
 // Set a source-of-truth edge flag (one of EDGE_PROJECTED/SHARP/SEAM), creating

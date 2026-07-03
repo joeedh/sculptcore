@@ -52,11 +52,11 @@ struct SpatialTreeMesh {
         bound;
     // Which detail carrier owns the face (DetailCarrier: 0 = GEOM, 1 = VDM).
     // Routes the dab loop (vertex executor vs UV splatter). TEMP for now —
-    // becomes persistent when the VDM store serializes (workstream V).
-    BuiltinAttr<int,
-                ".detail.carrier",
-                AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY>
-        carrier;
+    // becomes persistent when the VDM store serializes (workstream V). NOT
+    // NOCOPY: promotion flips carriers inside a logged step and the topo
+    // chunks must capture/restore them (safe — the column is
+    // materialize-all, never the lazily-paged #37 hazard).
+    BuiltinAttr<int, ".detail.carrier", AttrFlag::TEMP | AttrFlag::NOINTERP> carrier;
 
     void setup(Mesh *m)
     {

@@ -6,6 +6,10 @@
 #include "brush/brush_executor.h"
 #include "brush/stroke_spacing.h"
 #include "displace/compositor.h"
+#include "displace/frames.h"
+#include "vdm/vdm_promote.h"
+#include "vdm/vdm_splat.h"
+#include "vdm/vdm_undo.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/attribute_builtin.h"
@@ -23,12 +27,15 @@
 #include "remesh/remesh_params.h"
 #include "spatial/spatial.h"
 #include "stb/stb_image.h"
+#include "subdiv/grids.h"
+#include "subdiv/multires.h"
 
 #ifdef SBRUSH_GPU_DISPATCH
 #include "gpu_stroke.h"
 #endif
 
 #include <cctype>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -369,6 +376,47 @@ bool checkTreeVsRebuild(Scene &scene, const char *tag, std::string &err)
  * Keyed by name; mesh indices are persistent ids (IDMap is disabled), so a
  * vertex restored by undo lands back at the same index. */
 std::map<std::string, std::vector<std::pair<int, float3>>> g_posSnapshots;
+
+/* Grids-store displacement snapshots (save_disp / assert_disp): one level's
+ * disp channel flattened in (grid, v, u, component) order. The S4 ride-along
+ * gate compares these bitwise. */
+std::map<std::string, std::vector<float>> g_dispSnapshots;
+
+/* Flatten a level's disp channel (deterministic order) for the verbs above. */
+static void gatherDisp(subdiv::Multires &mr, int level, std::vector<float> &out)
+{
+  out.clear();
+  int w = subdiv::GridsStore::sideForLevel(level) + 1;
+  for (int g = 0; g < mr.store.gridCount(); g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        const float *d = mr.store.elem(level, 0, g, u, v);
+        out.push_back(d[0]);
+        out.push_back(d[1]);
+        out.push_back(d[2]);
+      }
+    }
+  }
+}
+
+/* Stroke-verb epilogue when multires is active: fold the stroke's positions
+ * into the store (frame-relative deltas) and record the level for the
+ * level-aware undo/redo verbs. */
+static void multiresStrokeEnd(Scene &scene)
+{
+  if (!scene.multires) {
+    return;
+  }
+  int level = scene.multires->activeLevel();
+  int changed = scene.multires->writeback(level);
+  scene.mrUndoLevels.append(level);
+  scene.mrRedoLevels.clear();
+  std::fprintf(stdout, "[script] multires writeback level=%d changed=%d\n", level,
+               changed);
+}
+/* VDM texel snapshots (save_vdm / assert_vdm): every live tile's texels,
+ * keyed by snapshot name — the texel analogue of g_posSnapshots. */
+std::map<std::string, std::map<uint64_t, std::vector<float3>>> g_vdmSnapshots;
 
 bool execVerb(Scene &scene,
               const std::string &verb,
@@ -874,6 +922,267 @@ bool execVerb(Scene &scene,
   // layer_add name=<s> [weight=f] [enabled=0/1] [frozen=0/1] — create a sculpt
   // layer (a VERTEX FLOAT3 SCULPT_LAYER attr + settings row). The name is
   // uniquified if taken, so scripts should pick fresh names.
+  // vdm_init [resolution=1024] [tile=64] [planar_uv=1] [alpha=0.5] — create the
+  // scene VdmStore, tag every face `.detail.carrier = VDM`, optionally build a
+  // planar corner-UV atlas from the mesh's xy bbox, and compute the F3 frames.
+  if (verb == "vdm_init") {
+    if (!scene.mesh || !scene.tree) {
+      err = "vdm_init: no mesh/tree (build_spatial first)";
+      return false;
+    }
+    if (scene.vdm) {
+      litestl::alloc::Delete(scene.vdm);
+    }
+    vdm::VdmStoreParams vp;
+    vp.resolution = getInt(args, "resolution", 1024);
+    vp.tile_size = getInt(args, "tile", 64);
+    scene.vdm = litestl::alloc::New<vdm::VdmStore>("VdmStore", vp);
+
+    mesh::Mesh *m = scene.mesh;
+    if (getInt(args, "planar_uv", 0)) {
+      // Project vertex xy onto [0,1]² and write per-corner UVs (continuous
+      // across faces — no seams, so the splatter needs no skirts).
+      float3 mn(FLT_MAX), mx(-FLT_MAX);
+      for (int v : m->v) {
+        mn.min(m->v.co[v]);
+        mx.max(m->v.co[v]);
+      }
+      float sx = mx[0] - mn[0] > 1e-12f ? 1.0f / (mx[0] - mn[0]) : 1.0f;
+      float sy = mx[1] - mn[1] > 1e-12f ? 1.0f / (mx[1] - mn[1]) : 1.0f;
+      mesh::AttrRef &uvRef =
+          m->c.attrs.ensure(mesh::AttrType::FLOAT2, litestl::util::string("uv"), true);
+      uvRef.use = uvRef.use | mesh::AttrUse::UV;
+      auto *uv =
+          static_cast<mesh::AttrData<litestl::math::float2> *>(uvRef.data);
+      for (int c : m->c) {
+        float3 co = m->v.co[m->c.v[c]];
+        (*uv)[c] = litestl::math::float2((co[0] - mn[0]) * sx, (co[1] - mn[1]) * sy);
+      }
+    }
+
+    for (int f : m->f) {
+      scene.tree->treeMesh.f.carrier.get_data()->materialize(f);
+      scene.tree->treeMesh.f.carrier[f] = int(spatial::DetailCarrier::VDM);
+    }
+
+    m->recalc_normals();
+    displace::FrameProviderParams fp;
+    displace::updateFramesAll(*m, fp);
+    std::printf("vdm_init: resolution=%d tile=%d faces=%d\n",
+                vp.resolution,
+                vp.tile_size,
+                int(m->f.count));
+    return true;
+  }
+  // vdm_stroke origin=x,y,z [normal=x,y,z] [radius=] [strength=] [alpha=]
+  // [invert=0] [repeat=1] — one meshlog step of `repeat` splatted dabs, the
+  // tile deltas bracketed into the step via VdmLogChunk.
+  if (verb == "vdm_stroke") {
+    if (!scene.mesh || !scene.tree || !scene.vdm) {
+      err = "vdm_stroke: run vdm_init first";
+      return false;
+    }
+    vdm::VdmSplatParams sp;
+    if (!parseFloat3(getArg(args, "origin"), sp.center)) {
+      err = "vdm_stroke: missing origin=x,y,z";
+      return false;
+    }
+    parseFloat3(getArg(args, "normal"), sp.normal);
+    sp.radius = getFloat(args, "radius", scene.brush.radius);
+    sp.strength = getFloat(args, "strength", 0.5f);
+    sp.alpha = getFloat(args, "alpha", 0.5f);
+    sp.invert = getInt(args, "invert", 0) != 0;
+    int repeat = getInt(args, "repeat", 1);
+
+    scene.meshLog.setActiveMesh(scene.mesh);
+    scene.meshLog.beginStep(false);
+    scene.vdm->beginDelta();
+    vdm::VdmSplatStats total;
+    for (int i = 0; i < repeat; i++) {
+      vdm::VdmSplatStats s = vdm::splatDab(*scene.mesh, *scene.tree, *scene.vdm, sp);
+      total.facesTouched += s.facesTouched;
+      total.texelsTouched += s.texelsTouched;
+      total.texelsClamped += s.texelsClamped;
+    }
+    vdm::VdmDelta *delta = scene.vdm->endDelta();
+    if (delta) {
+      auto *chunk = litestl::alloc::New<vdm::VdmLogChunk>(
+          "VdmLogChunk", scene.vdm, std::move(*delta));
+      litestl::alloc::Delete(delta);
+      scene.meshLog.appendChunk(chunk);
+    }
+    scene.meshLog.endStep();
+    std::printf("vdm_stroke: faces=%d texels=%d clamped=%d tiles=%d\n",
+                total.facesTouched,
+                total.texelsTouched,
+                total.texelsClamped,
+                scene.vdm->tileCount());
+    return true;
+  }
+  // vdm_promote [alpha=0.6] [theta=60] [cuts=1] [force=0] — evaluate the V4
+  // eligibility predicate over the VDM faces (force=1: every face with stored
+  // displacement) and promote the candidates to geometry, as one undo step.
+  if (verb == "vdm_promote") {
+    if (!scene.mesh || !scene.tree || !scene.vdm) {
+      err = "vdm_promote: run vdm_init first";
+      return false;
+    }
+    vdm::VdmPromoteParams pp;
+    pp.alpha_promote = getFloat(args, "alpha", 0.6f);
+    pp.theta_max_deg = getFloat(args, "theta", 60.0f);
+    pp.subdiv_cuts = getInt(args, "cuts", 1);
+    pp.force = getInt(args, "force", 0) != 0;
+
+    // Candidate pool: force=1 restricts to faces carrying stored displacement
+    // (their exported bound is nonzero); else every VDM face runs the predicate.
+    Vector<int> pool;
+    for (int f : scene.mesh->f) {
+      if (scene.tree->treeMesh.f.carrier[f] == int(spatial::DetailCarrier::VDM)) {
+        pool.append(f);
+      }
+    }
+    if (pp.force) {
+      Vector<float> bounds;
+      vdm::exportFaceBounds(*scene.vdm, *scene.mesh,
+                            std::span<const int>(pool.data(), pool.size()), bounds);
+      Vector<int> bounded;
+      for (int i = 0; i < int(pool.size()); i++) {
+        if (bounds[i] > 1e-8f) {
+          bounded.append(pool[i]);
+        }
+      }
+      pool = std::move(bounded);
+    }
+    Vector<int> candidates;
+    vdm::collectPromotionCandidates(*scene.mesh, *scene.tree, *scene.vdm,
+                                    std::span<const int>(pool.data(), pool.size()),
+                                    pp, candidates);
+    if (candidates.size() == 0) {
+      std::printf("vdm_promote: no candidates (pool=%d)\n", int(pool.size()));
+      return true;
+    }
+
+    // Combined callbacks: meshlog capture + spatial currency (the same pairing
+    // applyDynTopoDab composes for dyntopo).
+    mesh::MeshCallbacks *logCb = scene.meshLog.callbacks();
+    mesh::MeshCallbacks *spatialCb = scene.tree->getSpatialCallbacks();
+    mesh::MeshCallbacks combined = *logCb;
+    auto chain = [](litestl::util::function<void(int)> &dst,
+                    litestl::util::function<void(int)> a,
+                    litestl::util::function<void(int)> b) {
+      dst = [a, b](int i) {
+        if (a) {
+          a(i);
+        }
+        if (b) {
+          b(i);
+        }
+      };
+    };
+    chain(combined.onVertCreate, logCb->onVertCreate, spatialCb->onVertCreate);
+    chain(combined.onVertChange, logCb->onVertChange, spatialCb->onVertChange);
+    chain(combined.onVertKill, logCb->onVertKill, spatialCb->onVertKill);
+    chain(combined.onEdgeCreate, logCb->onEdgeCreate, spatialCb->onEdgeCreate);
+    chain(combined.onEdgeChange, logCb->onEdgeChange, spatialCb->onEdgeChange);
+    chain(combined.onEdgeKill, logCb->onEdgeKill, spatialCb->onEdgeKill);
+    chain(combined.onCornerCreate, logCb->onCornerCreate, spatialCb->onCornerCreate);
+    chain(combined.onCornerChange, logCb->onCornerChange, spatialCb->onCornerChange);
+    chain(combined.onCornerKill, logCb->onCornerKill, spatialCb->onCornerKill);
+    chain(combined.onListCreate, logCb->onListCreate, spatialCb->onListCreate);
+    chain(combined.onListChange, logCb->onListChange, spatialCb->onListChange);
+    chain(combined.onListKill, logCb->onListKill, spatialCb->onListKill);
+    chain(combined.onFaceCreate, logCb->onFaceCreate, spatialCb->onFaceCreate);
+    chain(combined.onFaceChange, logCb->onFaceChange, spatialCb->onFaceChange);
+    chain(combined.onFaceKill, logCb->onFaceKill, spatialCb->onFaceKill);
+
+    scene.meshLog.setActiveMesh(scene.mesh);
+    scene.meshLog.beginStep(/*hasDyntopo=*/true);
+    scene.vdm->beginDelta();
+    vdm::VdmPromoteStats ps = vdm::promoteRegion(
+        *scene.mesh, *scene.tree, *scene.vdm,
+        std::span<const int>(candidates.data(), candidates.size()), pp, &combined,
+        &scene.meshLog);
+    vdm::VdmDelta *delta = scene.vdm->endDelta();
+    if (delta) {
+      auto *chunk = litestl::alloc::New<vdm::VdmLogChunk>(
+          "VdmLogChunk", scene.vdm, std::move(*delta));
+      litestl::alloc::Delete(delta);
+      scene.meshLog.appendChunk(chunk);
+    }
+    scene.meshLog.endStep();
+    scene.mesh->recomputeBoundary();
+    scene.tree->update(&scene.gpu);
+    std::printf(
+        "vdm_promote: candidates=%d promoted=%d seeded=%d cleared=%d regionEdges=%d\n",
+        int(candidates.size()),
+        ps.promoted,
+        ps.seededVerts,
+        ps.clearedTexels,
+        ps.regionEdges);
+    return true;
+  }
+  // save_vdm [id=default] — snapshot every live tile's texels.
+  if (verb == "save_vdm") {
+    if (!scene.vdm) {
+      err = "save_vdm: no VdmStore (vdm_init first)";
+      return false;
+    }
+    std::string name = getArg(args, "id", "default");
+    auto &snap = g_vdmSnapshots[name];
+    snap.clear();
+    scene.vdm->foreachTile([&](const vdm::VdmTile &t) {
+      auto &texels = snap[vdm::VdmStore::tileKey(t.tx, t.ty)];
+      texels.resize(t.texels.size());
+      for (size_t i = 0; i < t.texels.size(); i++) {
+        texels[i] = t.texels[int(i)];
+      }
+    });
+    std::printf("save_vdm: '%s' %zu tiles\n", name.c_str(), snap.size());
+    return true;
+  }
+  // assert_vdm [id=default] [eps=1e-6] — every texel matches the snapshot
+  // (tile sets equal, values within eps).
+  if (verb == "assert_vdm") {
+    if (!scene.vdm) {
+      err = "assert_vdm: no VdmStore";
+      return false;
+    }
+    std::string name = getArg(args, "id", "default");
+    auto it = g_vdmSnapshots.find(name);
+    if (it == g_vdmSnapshots.end()) {
+      err = "assert_vdm: unknown snapshot '" + name + "'";
+      return false;
+    }
+    float eps = getFloat(args, "eps", 1e-6f);
+    int liveTiles = 0, missing = 0, changed = 0;
+    scene.vdm->foreachTile([&](const vdm::VdmTile &t) {
+      liveTiles++;
+      auto st = it->second.find(vdm::VdmStore::tileKey(t.tx, t.ty));
+      if (st == it->second.end()) {
+        missing++;
+        return;
+      }
+      const auto &sv = st->second;
+      for (int i = 0; i < int(t.texels.size()); i++) {
+        float3 d = t.texels[i] - sv[size_t(i)];
+        if (std::fabs(d[0]) > eps || std::fabs(d[1]) > eps || std::fabs(d[2]) > eps) {
+          changed++;
+          return;
+        }
+      }
+    });
+    int snapTiles = int(it->second.size());
+    std::printf("assert_vdm: live=%d snap=%d extra=%d changed=%d\n",
+                liveTiles,
+                snapTiles,
+                missing,
+                changed);
+    if (missing != 0 || changed != 0 || liveTiles != snapTiles) {
+      err = "assert_vdm: store differs from snapshot '" + name + "'";
+      return false;
+    }
+    return true;
+  }
   if (verb == "layer_add") {
     if (!scene.mesh) {
       err = "layer_add: no mesh";
@@ -1041,6 +1350,7 @@ bool execVerb(Scene &scene,
       exec.endStep();
       scene.tree->update(&scene.gpu);
     }
+    multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
     scene.lastStroke.origin = origin;
@@ -1105,6 +1415,7 @@ bool execVerb(Scene &scene,
     }
     exec.endStep();
     scene.tree->update(&scene.gpu);
+    multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
     scene.lastStroke.origin = p1;
@@ -1199,6 +1510,7 @@ bool execVerb(Scene &scene,
       exec.endStep();
       scene.tree->update(&scene.gpu);
     }
+    multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
     scene.lastStroke.origin = p2;
@@ -1435,6 +1747,115 @@ bool execVerb(Scene &scene,
     }
     return true;
   }
+  if (verb == "multires_init") {
+    /* multires_init levels=N [level=L] [budget=B]: convert the current mesh
+     * into a multires cage and attach level L (default: finest). The old mesh
+     * becomes the cage (owned by the scene); mesh/tree become views of the
+     * active level's slot. */
+    if (!scene.mesh) {
+      err = "multires_init: no mesh";
+      return false;
+    }
+    if (scene.multires) {
+      err = "multires_init: multires already active";
+      return false;
+    }
+    int levels = getInt(args, "levels", 2);
+    int level = getInt(args, "level", levels);
+    if (levels < 1 || level < 1 || level > levels) {
+      err = "multires_init: bad levels=/level=";
+      return false;
+    }
+    mesh::Mesh *cage = scene.mesh;
+    scene.mesh = nullptr;
+    if (scene.tree) {
+      litestl::alloc::Delete(scene.tree);
+      scene.tree = nullptr;
+    }
+    scene.multiresCage = cage;
+    scene.multires = litestl::alloc::New<subdiv::Multires>("debug multires");
+    scene.multires->lruBudget = getInt(args, "budget", 3);
+    scene.multires->init(*cage, levels);
+    scene.multires->setActiveLevel(level);
+    scene.attachMultiresLevel();
+    std::fprintf(stdout, "[script] multires_init levels=%d level=%d verts=%d faces=%d\n",
+                 levels, level, scene.mesh->v.count, scene.mesh->f.count);
+    return true;
+  }
+  if (verb == "multires_level") {
+    /* multires_level level=L: write back the active level, switch to L. */
+    if (!scene.multires) {
+      err = "multires_level: multires not active (run multires_init)";
+      return false;
+    }
+    int level = getInt(args, "level", 0);
+    if (level < 1 || level > scene.multires->maxLevel()) {
+      err = "multires_level: bad level=";
+      return false;
+    }
+    scene.multires->setActiveLevel(level);
+    scene.attachMultiresLevel();
+    std::fprintf(stdout, "[script] multires_level level=%d verts=%d\n", level,
+                 scene.mesh->v.count);
+    return true;
+  }
+  if (verb == "save_disp") {
+    /* save_disp id=NAME level=L: snapshot a level's disp channel. */
+    if (!scene.multires) {
+      err = "save_disp: multires not active";
+      return false;
+    }
+    int level = getInt(args, "level", scene.multires->activeLevel());
+    std::string name = getArg(args, "id", "default");
+    gatherDisp(*scene.multires, level, g_dispSnapshots[name]);
+    std::fprintf(stdout, "[script] save_disp id=%s level=%d floats=%zu\n", name.c_str(),
+                 level, g_dispSnapshots[name].size());
+    return true;
+  }
+  if (verb == "assert_disp") {
+    /* assert_disp id=NAME level=L [eps=0] [changed=0]: compare the level's
+     * disp channel against a snapshot. eps=0 means bit-exact; changed=1
+     * asserts the channel DIFFERS beyond eps instead of matching. */
+    if (!scene.multires) {
+      err = "assert_disp: multires not active";
+      return false;
+    }
+    int level = getInt(args, "level", scene.multires->activeLevel());
+    std::string name = getArg(args, "id", "default");
+    auto it = g_dispSnapshots.find(name);
+    if (it == g_dispSnapshots.end()) {
+      err = "assert_disp: no snapshot '" + name + "'";
+      return false;
+    }
+    std::vector<float> cur;
+    gatherDisp(*scene.multires, level, cur);
+    if (cur.size() != it->second.size()) {
+      err = "assert_disp: size mismatch";
+      return false;
+    }
+    float eps = getFloat(args, "eps", 0.0f);
+    bool wantChanged = getBool(args, "changed", false);
+    int diffs = 0;
+    float worst = 0.0f;
+    for (size_t i = 0; i < cur.size(); i++) {
+      float d = std::fabs(cur[i] - it->second[i]);
+      if (d > eps || (eps == 0.0f && std::memcmp(&cur[i], &it->second[i], 4) != 0)) {
+        diffs++;
+        worst = d > worst ? d : worst;
+      }
+    }
+    std::fprintf(stdout, "[script] assert_disp id=%s level=%d diffs=%d worst=%g\n",
+                 name.c_str(), level, diffs, worst);
+    if (wantChanged ? diffs == 0 : diffs > 0) {
+      char buf[160];
+      std::snprintf(buf, sizeof(buf), "assert_disp: %s (diffs=%d worst=%g)",
+                    wantChanged ? "expected change, none found" : "unexpected diffs",
+                    diffs, worst);
+      err = buf;
+      return false;
+    }
+    return true;
+  }
   if (verb == "save_pos") {
     if (!scene.mesh) {
       err = "save_pos: no mesh";
@@ -1497,6 +1918,27 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "undo") {
+    if (scene.multires) {
+      /* Level-aware undo: the step was recorded on the level it was stroked
+       * at — auto-switch there first, then re-sync the store from the undone
+       * positions (writeback's baseline diff touches only the stroke verts). */
+      if (scene.mrUndoLevels.size() == 0) {
+        return true; /* nothing multires-recorded to undo */
+      }
+      int level = scene.mrUndoLevels.pop_back();
+      if (level != scene.multires->activeLevel()) {
+        scene.multires->setActiveLevel(level);
+        scene.attachMultiresLevel();
+      }
+      scene.mesh->thawTopo();
+      scene.meshLog.undo(scene.mesh, scene.tree);
+      scene.multires->writeback(level);
+      scene.mrRedoLevels.append(level);
+      if (!checkTreeVsRebuild(scene, "undo", err)) {
+        return false;
+      }
+      return true;
+    }
     if (scene.mesh && scene.tree) {
       /* The meshlog recorded topology in the thawed state; a brush stroke
        * leaves the mesh frozen (live links freed/CSR-rebuilt), which would
@@ -1512,6 +1954,24 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "redo") {
+    if (scene.multires) {
+      if (scene.mrRedoLevels.size() == 0) {
+        return true;
+      }
+      int level = scene.mrRedoLevels.pop_back();
+      if (level != scene.multires->activeLevel()) {
+        scene.multires->setActiveLevel(level);
+        scene.attachMultiresLevel();
+      }
+      scene.mesh->thawTopo();
+      scene.meshLog.redo(scene.mesh, scene.tree);
+      scene.multires->writeback(level);
+      scene.mrUndoLevels.append(level);
+      if (!checkTreeVsRebuild(scene, "redo", err)) {
+        return false;
+      }
+      return true;
+    }
     if (scene.mesh && scene.tree) {
       scene.mesh->thawTopo();
       scene.meshLog.redo(scene.mesh, scene.tree);

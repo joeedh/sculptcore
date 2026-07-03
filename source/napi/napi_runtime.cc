@@ -67,6 +67,19 @@ const void *GpuBrush_dataPtr(void *session, int which);
 void GpuBrush_applyCo(void *session, const float *co, int elemCount);
 void GpuBrush_endStroke(void *session, const float *co, const float *no,
                         int elemCount);
+// VDM engine seam (source/vdm/c-api/vdm_c_api.cc).
+void *VdmStore_new(int resolution, int tileSize);
+void VdmStore_free(void *store);
+int Mesh_vdmSplatDab(void *mesh, void *tree, void *store, float cx, float cy,
+                     float cz, float nx, float ny, float nz, float radius,
+                     float strength, float alpha, int invert);
+void SpatialTree_fillDetailCarrier(void *tree, int carrier);
+void Mesh_updateFrames(void *mesh);
+// Sculpt-layer settings mutators (source/displace/c-api/displace_c_api.cc).
+void Mesh_layerSetWeight(void *mesh, int li, float weight);
+void Mesh_layerSetEnabled(void *mesh, int li, int enabled);
+void Mesh_layerSetFrozen(void *mesh, int li, int frozen);
+void Mesh_layerRemove(void *mesh, int li);
 }
 
 // --- console.log sink for sc_napi_log (napi_log.h) --------------------------
@@ -1772,6 +1785,184 @@ napi_value NapiRuntime::MeshDeserialize(napi_env env, napi_callback_info info)
       static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
 }
 
+// vdmStoreNew(resolution, tileSize) -> bound VdmStore wrapper (non-owning; free
+// via vdmStoreFree). Pass <= 0 to keep a VdmStoreParams default.
+napi_value NapiRuntime::VdmStoreNew(napi_env env, napi_callback_info info)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+
+  int32_t resolution = 0, tileSize = 0;
+  if (argc >= 1)
+    napi_get_value_int32(env, argv[0], &resolution);
+  if (argc >= 2)
+    napi_get_value_int32(env, argv[1], &tileSize);
+
+  napi_value out;
+  void *store = VdmStore_new(resolution, tileSize);
+  const binding::BindingBase *st = rt->lookup("sculptcore::vdm::VdmStore");
+  if (!store || !st || st->type != BindingType::Struct) {
+    if (store) {
+      VdmStore_free(store);
+    }
+    napi_get_undefined(env, &out);
+    return out;
+  }
+  return rt->instantiate(
+      static_cast<const types::_StructBase *>(st), store, /*owning=*/false);
+}
+
+napi_value NapiRuntime::VdmStoreFree(napi_env env, napi_callback_info info)
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *sw = nullptr;
+  if (argc >= 1 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&sw)) == napi_ok &&
+      sw && sw->ptr)
+  {
+    VdmStore_free(sw->ptr);
+    // Null the wrapper so a later member access or finalizer can't dereference
+    // freed storage (same contract as meshFree).
+    sw->ptr = nullptr;
+  }
+  return undef;
+}
+
+// meshVdmSplatDab(mesh, tree, store, cx,cy,cz, nx,ny,nz, radius, strength,
+// alpha, invert) -> texels touched. Writes tangent-space texels into UV-keyed
+// tiles only — no vertex moves; the caller owns any undo bracket.
+napi_value NapiRuntime::MeshVdmSplatDab(napi_env env, napi_callback_info info)
+{
+  size_t argc = 13;
+  napi_value argv[13];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_create_int32(env, 0, &out);
+  Wrapped *mw = nullptr, *tw = nullptr, *sw = nullptr;
+  if (argc < 13 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok ||
+      napi_unwrap(env, argv[1], reinterpret_cast<void **>(&tw)) != napi_ok ||
+      napi_unwrap(env, argv[2], reinterpret_cast<void **>(&sw)) != napi_ok || !mw ||
+      !tw || !sw || !mw->ptr || !tw->ptr || !sw->ptr)
+  {
+    return out;
+  }
+  double f[9] = {};
+  for (int i = 0; i < 9; i++) {
+    napi_get_value_double(env, argv[3 + i], &f[i]);
+  }
+  int32_t invert = 0;
+  napi_get_value_int32(env, argv[12], &invert);
+  int n = Mesh_vdmSplatDab(mw->ptr, tw->ptr, sw->ptr, float(f[0]), float(f[1]),
+                           float(f[2]), float(f[3]), float(f[4]), float(f[5]),
+                           float(f[6]), float(f[7]), float(f[8]), invert);
+  napi_create_int32(env, n, &out);
+  return out;
+}
+
+// spatialTreeFillDetailCarrier(tree, carrier) -> void. Tags every live face's
+// `.detail.carrier` (0 = GEOM, 1 = VDM) — the V3 harness whole-mesh fill.
+napi_value NapiRuntime::SpatialTreeFillDetailCarrier(napi_env env,
+                                                     napi_callback_info info)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *tw = nullptr;
+  if (argc >= 2 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&tw)) == napi_ok &&
+      tw && tw->ptr)
+  {
+    int32_t carrier = 0;
+    napi_get_value_int32(env, argv[1], &carrier);
+    SpatialTree_fillDetailCarrier(tw->ptr, carrier);
+  }
+  return undef;
+}
+
+// meshUpdateFrames(mesh) -> void. Recompute vertex normals + the F3 frames —
+// the splatter's frame prerequisite (call before meshVdmSplatDab).
+napi_value NapiRuntime::MeshUpdateFrames(napi_env env, napi_callback_info info)
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *mw = nullptr;
+  if (argc >= 1 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok &&
+      mw && mw->ptr)
+  {
+    Mesh_updateFrames(mw->ptr);
+  }
+  return undef;
+}
+
+// Shared body of the sculpt-layer settings mutators: unwrap (mesh, li[, f]) and
+// forward to the displace C-API, which keeps evaluated v.co current.
+template<typename Fn>
+static napi_value meshLayerMutate(napi_env env, napi_callback_info info, bool hasValue, Fn fn)
+{
+  size_t argc = 3;
+  napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *mw = nullptr;
+  size_t need = hasValue ? 3 : 2;
+  if (argc >= need && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok &&
+      mw && mw->ptr)
+  {
+    int32_t li = -1;
+    napi_get_value_int32(env, argv[1], &li);
+    double value = 0.0;
+    if (hasValue) {
+      napi_get_value_double(env, argv[2], &value);
+    }
+    fn(mw->ptr, li, value);
+  }
+  return undef;
+}
+
+// meshLayerSetWeight(mesh, li, weight) -> void.
+napi_value NapiRuntime::MeshLayerSetWeight(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, true, [](void *m, int li, double v) {
+    Mesh_layerSetWeight(m, li, float(v));
+  });
+}
+
+// meshLayerSetEnabled(mesh, li, enabled) -> void.
+napi_value NapiRuntime::MeshLayerSetEnabled(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, true, [](void *m, int li, double v) {
+    Mesh_layerSetEnabled(m, li, v != 0.0 ? 1 : 0);
+  });
+}
+
+// meshLayerSetFrozen(mesh, li, frozen) -> void.
+napi_value NapiRuntime::MeshLayerSetFrozen(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, true, [](void *m, int li, double v) {
+    Mesh_layerSetFrozen(m, li, v != 0.0 ? 1 : 0);
+  });
+}
+
+// meshLayerRemove(mesh, li) -> void. Subtracts the layer's contribution and
+// drops its settings row + attribute column (destructive; caller snapshots).
+napi_value NapiRuntime::MeshLayerRemove(napi_env env, napi_callback_info info)
+{
+  return meshLayerMutate(env, info, false, [](void *m, int li, double) {
+    Mesh_layerRemove(m, li);
+  });
+}
+
 // spatialTreeSetRequestedAttrs(tree, count, namesJoined, srcTypes, elemSizes,
 // slots, domains, defaultKinds) -> void. Routes the requested-attr set to the
 // extern "C" bridge (setTreeRequestedAttrs). Strings/JS arrays can't cross the
@@ -2344,6 +2535,17 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "meshSerialize", &NapiRuntime::MeshSerialize);
   define(exports, "meshSerializeRaw", &NapiRuntime::MeshSerializeRaw);
   define(exports, "meshDeserialize", &NapiRuntime::MeshDeserialize);
+  define(exports, "vdmStoreNew", &NapiRuntime::VdmStoreNew);
+  define(exports, "vdmStoreFree", &NapiRuntime::VdmStoreFree);
+  define(exports, "meshVdmSplatDab", &NapiRuntime::MeshVdmSplatDab);
+  define(exports,
+         "spatialTreeFillDetailCarrier",
+         &NapiRuntime::SpatialTreeFillDetailCarrier);
+  define(exports, "meshUpdateFrames", &NapiRuntime::MeshUpdateFrames);
+  define(exports, "meshLayerSetWeight", &NapiRuntime::MeshLayerSetWeight);
+  define(exports, "meshLayerSetEnabled", &NapiRuntime::MeshLayerSetEnabled);
+  define(exports, "meshLayerSetFrozen", &NapiRuntime::MeshLayerSetFrozen);
+  define(exports, "meshLayerRemove", &NapiRuntime::MeshLayerRemove);
   define(exports,
          "spatialTreeSetRequestedAttrs",
          &NapiRuntime::SpatialTreeSetRequestedAttrs);

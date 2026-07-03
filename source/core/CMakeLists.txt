@@ -10,6 +10,7 @@ set(LIB
     PUBLIC brush
     PUBLIC dyntopo
     PUBLIC meshlog
+    PUBLIC vdm
 )
 
 set(SRC

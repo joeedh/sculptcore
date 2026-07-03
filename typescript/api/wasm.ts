@@ -7,7 +7,7 @@ import {
   int,
   createWasmMemory,
 } from '@litestl/typescript-runtime'
-import type {AllBoundTypes, float2, float3, GPUManager, Mesh, SpatialTree} from '../index'
+import type {AllBoundTypes, float2, float3, GPUManager, Mesh, SpatialTree, VdmStore} from '../index'
 
 import {BindingManager} from './manager'
 import {loadNativeAddon, nativeBackendRequested} from './nativeBackend'
@@ -53,6 +53,46 @@ interface IWasmMethods extends IWasmBase {
    * result with `Mesh_free`. The high-level helper unwraps both handles per
    * backend (WASM → numeric `.ptr`; native → the wrapper). */
   Mesh_quadRemesh(mesh: Mesh, params: SculptHandle): Mesh | undefined
+
+  // VDM engine seam (vdm/c-api/vdm_c_api.cc; displacementAndSubSurf.md V3).
+  // Pointer-level C exports; the same-named IWasmInterface helpers wrap them
+  // with handle unwrapping so both backends stay drop-ins.
+  /** fresh VdmStore (sparse tiled float3 texel store); pass <= 0 to keep a default. */
+  VdmStore_new(resolution: int, tileSize: int): VdmStore
+  /** free a VdmStore created by `VdmStore_new`. */
+  VdmStore_free(store: VdmStore): void
+  /** splat one VDM dab (tangent-space texels only, no vertex moves); returns texels touched. */
+  Mesh_vdmSplatDab(
+    mesh: Mesh,
+    tree: SpatialTree,
+    store: VdmStore,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    strength: number,
+    alpha: number,
+    invert: int
+  ): int
+  /** tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
+  SpatialTree_fillDetailCarrier(tree: SpatialTree, carrier: int): void
+  /** recompute vertex normals + the F3 frames — required before splatting. */
+  Mesh_updateFrames(mesh: Mesh): void
+
+  // Sculpt-layer settings mutators (displace/c-api/displace_c_api.cc; V5).
+  // Each keeps evaluated v.co current; re-applying the previous value is the
+  // undo. Reads go through the bound Mesh sculptLayer* methods.
+  /** set layer `li`'s weight (co += Δw·d over all live verts). */
+  Mesh_layerSetWeight(mesh: Mesh, li: int, weight: number): void
+  /** enable/disable layer `li` (its contribution is added/subtracted from co). */
+  Mesh_layerSetEnabled(mesh: Mesh, li: int, enabled: int): void
+  /** freeze/unfreeze layer `li` (excluded from brush writes, still composited). */
+  Mesh_layerSetFrozen(mesh: Mesh, li: int, frozen: int): void
+  /** remove layer `li`: subtract its contribution, drop settings row + column. */
+  Mesh_layerRemove(mesh: Mesh, li: int): void
 
   // M5 requested-attribute bridge (spatial/c-api/spatial_c_api.cc). Pointer-level
   // C exports; the `SpatialTree_setRequestedAttrs`/`setDrawShader`/
@@ -490,6 +530,69 @@ export async function loadWasm(): Promise<IWasmInterface> {
         return undefined // clean failure: infeasible field / too many folds
       }
       return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
+    },
+    VdmStore_new(resolution: int, tileSize: int): VdmStore {
+      const ptr = _wasm.VdmStore_new(resolution, tileSize) as unknown as number
+      return manager.getBoundPointer('sculptcore::vdm::VdmStore', ptr) as VdmStore
+    },
+    VdmStore_free(store: VdmStore) {
+      const storePtr = (store as unknown as {ptr: number}).ptr
+      _wasm.VdmStore_free(storePtr as unknown as VdmStore)
+    },
+    Mesh_vdmSplatDab(
+      mesh: Mesh,
+      tree: SpatialTree,
+      store: VdmStore,
+      cx: number,
+      cy: number,
+      cz: number,
+      nx: number,
+      ny: number,
+      nz: number,
+      radius: number,
+      strength: number,
+      alpha: number,
+      invert: int
+    ): int {
+      return _wasm.Mesh_vdmSplatDab(
+        (mesh as unknown as {ptr: number}).ptr as unknown as Mesh,
+        (tree as unknown as {ptr: number}).ptr as unknown as SpatialTree,
+        (store as unknown as {ptr: number}).ptr as unknown as VdmStore,
+        cx,
+        cy,
+        cz,
+        nx,
+        ny,
+        nz,
+        radius,
+        strength,
+        alpha,
+        invert
+      )
+    },
+    SpatialTree_fillDetailCarrier(tree: SpatialTree, carrier: int) {
+      const treePtr = (tree as unknown as {ptr: number}).ptr
+      _wasm.SpatialTree_fillDetailCarrier(treePtr as unknown as SpatialTree, carrier)
+    },
+    Mesh_updateFrames(mesh: Mesh) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_updateFrames(meshPtr as unknown as Mesh)
+    },
+    Mesh_layerSetWeight(mesh: Mesh, li: int, weight: number) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerSetWeight(meshPtr as unknown as Mesh, li, weight)
+    },
+    Mesh_layerSetEnabled(mesh: Mesh, li: int, enabled: int) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerSetEnabled(meshPtr as unknown as Mesh, li, enabled)
+    },
+    Mesh_layerSetFrozen(mesh: Mesh, li: int, frozen: int) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerSetFrozen(meshPtr as unknown as Mesh, li, frozen)
+    },
+    Mesh_layerRemove(mesh: Mesh, li: int) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerRemove(meshPtr as unknown as Mesh, li)
     },
     SpatialTree_setRequestedAttrs(tree: SpatialTree, reqs: RequestedAttrBridge[]) {
       const treePtr = (tree as unknown as {ptr: number}).ptr

@@ -529,7 +529,7 @@ inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::flo
 struct FeatureViews {
   mesh::Mesh *m = nullptr;
   mesh::BoolAttrView *proj = nullptr, *sharp = nullptr, *seam = nullptr;
-  mesh::BoolAttrView *pg = nullptr, *uv = nullptr;
+  mesh::BoolAttrView *pg = nullptr, *uv = nullptr, *layer = nullptr;
   bool active = false;
 
   void init(mesh::Mesh &mesh, bool preserve)
@@ -545,6 +545,7 @@ struct FeatureViews {
     seam = findBoolEdgeView(&mesh, EDGE_SEAM);
     pg = findBoolEdgeView(&mesh, EDGE_POLYGROUP);
     uv = findBoolEdgeView(&mesh, EDGE_UVCHART);
+    layer = findBoolEdgeView(&mesh, EDGE_LAYER_REGION);
   }
 
   /* The feature-type bitmask (boundary::BoundaryClass bits) carried by edge e. */
@@ -562,6 +563,8 @@ struct FeatureViews {
       mask |= BC_POLYGROUP;
     if (uv && (*uv)[e])
       mask |= BC_UVCHART;
+    if (layer && (*layer)[e])
+      mask |= BC_LAYER_REGION;
     return mask;
   }
 
