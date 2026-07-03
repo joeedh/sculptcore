@@ -125,6 +125,18 @@ class NapiRuntime {
   // The uncompressed column payload only (autosave worker compresses off-thread).
   static napi_value MeshSerializeRaw(napi_env, napi_callback_info);
   static napi_value MeshDeserialize(napi_env, napi_callback_info);
+  // VDM engine seam (vdm/c-api/vdm_c_api.cc; displacementAndSubSurf.md V3).
+  // vdmStoreNew(resolution, tileSize) -> bound VdmStore wrapper (non-owning;
+  // free via vdmStoreFree, which nulls the wrapper like meshFree).
+  static napi_value VdmStoreNew(napi_env, napi_callback_info);
+  static napi_value VdmStoreFree(napi_env, napi_callback_info);
+  // meshVdmSplatDab(mesh, tree, store, cx,cy,cz, nx,ny,nz, radius, strength,
+  // alpha, invert) -> texels touched. Writes texels only; moves no vertex.
+  static napi_value MeshVdmSplatDab(napi_env, napi_callback_info);
+  // spatialTreeFillDetailCarrier(tree, carrier) -> void (0 = GEOM, 1 = VDM).
+  static napi_value SpatialTreeFillDetailCarrier(napi_env, napi_callback_info);
+  // meshUpdateFrames(mesh) -> void; recalc normals + F3 frames (splat prereq).
+  static napi_value MeshUpdateFrames(napi_env, napi_callback_info);
   // M5 requested-attribute bridge (spatial/c-api setTree*). Strings + JS arrays
   // can't cross the generic method binding (marshalArg), so these route through
   // dedicated extern "C" calls like the Mesh_* factories.
