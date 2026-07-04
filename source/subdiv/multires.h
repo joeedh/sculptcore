@@ -122,6 +122,11 @@ struct Multires {
   GridsStore store;
   Refiner refiner;
 
+  /** Flat S2 adjacency for a Ptex VDM store: 8 ints per grid ({grid, side}
+   * × 4 sides in GridSideType order; -1 = boundary). The bound caller feeds
+   * this to VdmStore::configurePtex — vdm and subdiv stay decoupled. */
+  void vdmAdjacencyOut(litestl::util::Vector<int> &out);
+
   static litestl::binding::types::Struct<Multires> *defineBindings();
 
 private:

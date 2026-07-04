@@ -210,6 +210,7 @@ litestl::binding::types::Struct<VdmStore> *VdmStore::defineBindings()
   BIND_STRUCT_METHOD(st, gpuLayoutOut, MARGS("out"));
   BIND_STRUCT_METHOD(st, gpuPageTableOut, MARGS("out"));
   BIND_STRUCT_METHOD(st, gpuPtexTableOut, MARGS("out"));
+  BIND_STRUCT_METHOD(st, configurePtex, MARGS("gridCount", "defaultRes", "links"));
   BIND_STRUCT_METHOD(st, gpuAtlasPixelsOut, MARGS("out"));
   BIND_STRUCT_METHOD(st, gpuTilePixelsOut, MARGS("slot", "out"));
   BIND_STRUCT_METHOD(st, gpuTakeDirtyOut, MARGS("outSlots"));

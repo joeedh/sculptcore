@@ -538,14 +538,24 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     headers; then tps² slot ints per grid, storage coords incl. the guard
     ring, −1 absent). `gpuLayoutOut` grew to 10 ints (`[8]`=backend,
     `[9]`=gridCount; older readers consume the first 8). Gate: `test_vdm_gpu`
-    PTEX block (exact header offsets/res/tps, slot occupancy). Remaining for
-    stage 3 (one verified unit — this seam silently no-renders on mistakes):
-    WGSL `VDM_PTEX` sampler (grid id = `floor(uv·cpr)` from the X1 chart
-    layout; local param un-inset; storage +1 guard offset; per-tap slot
-    lookups so taps may straddle tiles), LiteMesh `_syncVdmGpu` ptex upload
-    (flat table as an i32 texture on the page-table binding; cpr via the
-    `vdmGridSize` uniform slot), renderengine `VDM_PTEX` define in the
-    material hash, genTS, and the screenshot A/B gate.
+    PTEX block (exact header offsets/res/tps, slot occupancy).
+  - **Stage 3 DONE — X2 COMPLETE.** WGSL `VDM_PTEX` sampler
+    (shader_nodes_wgsl.ts: same `vdmSample` seam, shared preamble; grid id =
+    `floor(uv·cpr)`, local param un-inset, +1 guard-ring storage offset,
+    per-tap slot lookups so taps straddle tiles and land on the copied
+    skirts); LiteMesh `_syncVdmGpu` ptex branch (flat table as a 1024-wide
+    i32 texture on the page-table binding; `vdmGridSize` carries cpr and
+    `vdmResolution` the effective texels-per-packed-uv R/span for the
+    derivative epsilon; backend detected once at attach → `vdmIsPtex`);
+    renderengine folds `VDM_PTEX` into the material hash; bound seam
+    `Multires::vdmAdjacencyOut` + `VdmStore::configurePtex` (the app carries
+    the S2 links across — vdm and subdiv stay decoupled). Gate green
+    (`sculptcore_multires` 29/29): screenshot A/B — the ptex sampler
+    displaces shading meanAbs(ptex−flat)=0.295 (atlas path: 0.31),
+    native↔wasm image parity 0.0092 with exact texel/tile-count equality
+    (the stage-4 parity bar); full ctest + vdm/layers/parity suites
+    unchanged. X2 debts → X-track: per-grid res adaptivity unused by callers
+    yet; `.wproj` persistence still flatten-on-save.
 - **X3 — Tessellated render tier**: V3's shader + S5's amplification =
   true-displacement opt-in; per-region selection from compositor state.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM

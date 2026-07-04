@@ -135,6 +135,10 @@ struct VdmStore {
    * (Multires hands over its GridsStore links) provides it so vdm stays
    * subdiv-free. */
   void setPtexAdjacency(std::span<const int> links);
+  /** One-call PTEX setup for bound callers (Multires::vdmAdjacencyOut feeds
+   * `links`): switches the backend, declares `gridCount` grids at
+   * `defaultRes` (or params.resolution when <= 0), installs the adjacency. */
+  void configurePtex(int gridCount, int defaultRes, util::Vector<int> &links);
 
   /* Same 32:32 packing as tileKey — a store only ever runs ONE backend, so
    * the key spaces never coexist and decode branches on params.backend. */

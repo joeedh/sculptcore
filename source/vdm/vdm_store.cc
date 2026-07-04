@@ -196,6 +196,19 @@ void VdmStore::setPtexAdjacency(std::span<const int> links)
   }
 }
 
+void VdmStore::configurePtex(int gridCount, int defaultRes, util::Vector<int> &links)
+{
+  params.backend = VdmBackend::PTEX;
+  if (defaultRes > 0) {
+    params.resolution = defaultRes;
+  }
+  setPtexGridCount(gridCount);
+  adjacency_.resize(links.size());
+  for (int i = 0; i < int(links.size()); i++) {
+    adjacency_[i] = links[i];
+  }
+}
+
 /* Storage lattice side: payload R_g plus the one-texel guard ring. */
 int VdmStore::tilesPerSide(int grid) const
 {

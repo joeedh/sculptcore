@@ -583,6 +583,19 @@ void Multires::invalidateAll()
   activeLevel_ = 0;
 }
 
+void Multires::vdmAdjacencyOut(Vector<int> &out)
+{
+  int G = store.gridCount();
+  out.resize(G * 8);
+  for (int g = 0; g < G; g++) {
+    for (int side = 0; side < 4; side++) {
+      const GridLink &l = store.link(g, side);
+      out[g * 8 + side * 2] = l.grid;
+      out[g * 8 + side * 2 + 1] = l.side;
+    }
+  }
+}
+
 litestl::binding::types::Struct<Multires> *Multires::defineBindings()
 {
   using namespace litestl::binding;
@@ -590,6 +603,7 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
       new types::Struct<Multires>("sculptcore::subdiv::Multires", sizeof(Multires));
   BIND_STRUCT_METHOD(st, maxLevel, MARGS());
   BIND_STRUCT_METHOD(st, activeLevel, MARGS());
+  BIND_STRUCT_METHOD(st, vdmAdjacencyOut, MARGS("out"));
   return st;
 }
 

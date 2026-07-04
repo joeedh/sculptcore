@@ -21,6 +21,8 @@ export interface VdmStore {
   tileCount(): int32
   gpuLayoutOut(out: int32[]): int32
   gpuPageTableOut(out: int32[]): void
+  gpuPtexTableOut(out: int32[]): void
+  configurePtex(gridCount: int32, defaultRes: int32, links: int32[]): void
   gpuAtlasPixelsOut(out: float[]): void
   gpuTilePixelsOut(slot: int32, out: float[]): int32
   gpuTakeDirtyOut(outSlots: int32[]): int32

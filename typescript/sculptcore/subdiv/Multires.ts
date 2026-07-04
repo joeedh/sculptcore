@@ -20,4 +20,5 @@ export interface Multires {
   [Symbol.dispose](): void
   maxLevel(): int32
   activeLevel(): int32
+  vdmAdjacencyOut(out: int32[]): void
 }
