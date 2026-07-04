@@ -127,6 +127,21 @@ struct Multires {
    * this to VdmStore::configurePtex — vdm and subdiv stay decoupled. */
   void vdmAdjacencyOut(litestl::util::Vector<int> &out);
 
+  /* X3 export seam: the level's CSR stencil (maps level-1 → level) as
+   * marshal-safe out-params. The TS-device SpMV uploads these VERBATIM —
+   * ascending-row order + per-component fma is the bit-consistency contract
+   * (wgpu_stencil.cc / StencilTable::eval). Meta = {coarseCount, fineCount,
+   * nnz}; empty outputs for an out-of-range level. */
+  void stencilMetaOut(int level, litestl::util::Vector<int> &out);
+  void stencilOffsetsOut(int level, litestl::util::Vector<int> &out);
+  void stencilIndicesOut(int level, litestl::util::Vector<int> &out);
+  void stencilWeightsOut(int level, litestl::util::Vector<float> &out);
+
+  /** Render-level triangle index buffer straight from the grid tables (two
+   * triangles per cell, matching buildLevelTopo's quad winding) — the X3
+   * tessellated draw's static topology, no materialized mesh needed. */
+  void levelTriIndicesOut(int level, litestl::util::Vector<int> &out);
+
   static litestl::binding::types::Struct<Multires> *defineBindings();
 
 private:

@@ -558,6 +558,58 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     yet; `.wproj` persistence still flatten-on-save.
 - **X3 — Tessellated render tier**: V3's shader + S5's amplification =
   true-displacement opt-in; per-region selection from compositor state.
+
+  Design note (X3 decomposition, from the S5/app-integration survey):
+  - **The gap**: S5's `WgpuStencilAmplify` runs on the NATIVE wgpu device;
+    the app draws on the TS WebGPU device. X3 re-dispatches the same SpMV
+    there (the gpuBrushes model — C++ owns layouts, TS uploads + dispatches),
+    porting `kSpmvWgsl` verbatim as a hand-written TS constant (the
+    `litemesh_wgsl.ts` shipping precedent). The **bit-exactness contract**
+    carries over unchanged: ascending-row CSR order + `fma` per component on
+    both sides; the CPU chain (`StencilTable::eval`) is the oracle.
+  - **Export seam (new)**: bound `Multires` out-param methods emit the
+    per-level CSR (`stencilMetaOut/OffsetsOut/IndicesOut/WeightsOut`; meta =
+    {coarseCount, fineCount, nnz}) plus `levelTriIndicesOut` (two triangles
+    per grid cell straight from `gridVerts` — no materialized mesh). Source
+    positions reuse `dumpVertCo` on the active (edit) level mesh.
+  - **Stages**: (1) TS-device SpMV dispatcher (`scripts/webgpu/
+    stencil_compute.ts`, cloned from brush_compute's parseBindings/ensureBuf/
+    readback core) gated on **bit-parity vs the CPU chain** (materialize the
+    render level, compare Float32-exact) + cross-backend checksums →
+    (2) the tessellated draw: on-device result buffer (Storage|Vertex) +
+    static index buffer, drawn in `drawQGPU` via the compiled material
+    pipeline (direct `setVertexBuffer`/`drawIndexed` — the executor is
+    non-indexed); fragment-derived flat normal (`cross(dpdx,dpdy)`) as the
+    stage-2 shading stopgap; screenshot gate →
+    (3) the S5-deferred second pass: smoothed-frame build at amplified verts
+    (transcendental-free per the F3 parity rule) + VDM apply (V3's sampler
+    seam) = true displaced silhouettes; screenshot A/B vs the fragment tier →
+    (4) per-region selection (`.detail.carrier` + compositor predicate:
+    fragment tier vs tessellated per face) + caching (skip re-amplify when
+    the coarse level is clean) + the interactive app pass items deferred from
+    X1/X2 (store lifecycle, per-dab carrier routing, add-a-level prompt UI).
+  - **Bounds**: target ≤ L6 on the TS device initially — L7 CSR (~120 MB/
+    level) sits against the 128 MiB storage-binding ceiling; single-level
+    chunking is a follow-up (risk #5). Whole-object tessellated toggle first;
+    per-region mixing lands in stage 4.
+  - **Stage 1 DONE.** Export seam: bound `Multires::stencilMetaOut/
+    OffsetsOut/IndicesOut/WeightsOut` + `levelTriIndicesOut`; TS dispatcher
+    `scripts/webgpu/stencil_compute.ts` (verbatim `kSpmvWgsl` port, chained
+    per-level passes, 2D-linearized dispatch, on-device result option).
+    **Finding**: Dawn's D3D12 path lowers WGSL `fma` UNFUSED — the TS-device
+    SpMV differs from the CPU chain by 1-ulp-class noise (maxAbsErr 4.8e-7 on
+    the gate fixture; native wgpu/Vulkan remains bit-exact per S5). Gate
+    design therefore splits: the EXPORT SEAM is gated bit-exact via a JS
+    fma-exact CSR evaluation (f64 mul+add + one fround == f32 fma;
+    `jsVsCpu == 0` both backends — the marshal/order/src contract), the GPU
+    result gets a display-tier absolute tolerance (amplified verts never
+    enter the mesh), and determinism is gated by EXACT cross-backend GPU
+    checksums. `sculptcore_multires` 34/34. The JS-eval triangulation
+    (jsVsCpu / jsVsGpu) is a reusable pattern for gating marshal seams
+    independently of GPU rounding. Next: stage 2 — the tessellated draw
+    (on-device result as vertex buffer + static index buffer + direct
+    drawIndexed in drawQGPU under the compiled material pipeline;
+    fragment-derived flat normal as the shading stopgap; screenshot gate).
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM
   demotion (explicit op), external VDM export (frame-synchronized).
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).

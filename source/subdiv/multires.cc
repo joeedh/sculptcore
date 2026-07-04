@@ -596,6 +596,85 @@ void Multires::vdmAdjacencyOut(Vector<int> &out)
   }
 }
 
+void Multires::stencilMetaOut(int level, Vector<int> &out)
+{
+  out.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
+  }
+  const StencilTable &st = refiner.levels[level - 1].stencil;
+  out.resize(3);
+  out[0] = st.coarseCount;
+  out[1] = st.fineCount;
+  out[2] = int(st.weights.size());
+}
+
+void Multires::stencilOffsetsOut(int level, Vector<int> &out)
+{
+  out.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
+  }
+  const StencilTable &st = refiner.levels[level - 1].stencil;
+  out.resize(st.offsets.size());
+  for (int i = 0; i < int(st.offsets.size()); i++) {
+    out[i] = st.offsets[i];
+  }
+}
+
+void Multires::stencilIndicesOut(int level, Vector<int> &out)
+{
+  out.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
+  }
+  const StencilTable &st = refiner.levels[level - 1].stencil;
+  out.resize(st.indices.size());
+  for (int i = 0; i < int(st.indices.size()); i++) {
+    out[i] = st.indices[i];
+  }
+}
+
+void Multires::stencilWeightsOut(int level, Vector<float> &out)
+{
+  out.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
+  }
+  const StencilTable &st = refiner.levels[level - 1].stencil;
+  out.resize(st.weights.size());
+  for (int i = 0; i < int(st.weights.size()); i++) {
+    out[i] = st.weights[i];
+  }
+}
+
+void Multires::levelTriIndicesOut(int level, Vector<int> &out)
+{
+  out.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
+  }
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  int S = lvl.gridSide, w = S + 1;
+  out.resize(size_t(refiner.gridCount()) * size_t(S) * size_t(S) * 6);
+  int n = 0;
+  for (int g = 0; g < refiner.gridCount(); g++) {
+    const int *gv = &lvl.gridVerts[g * w * w];
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++) {
+        int a = gv[v * w + u], b = gv[v * w + u + 1];
+        int c = gv[(v + 1) * w + u + 1], d = gv[(v + 1) * w + u];
+        out[n++] = a;
+        out[n++] = b;
+        out[n++] = c;
+        out[n++] = a;
+        out[n++] = c;
+        out[n++] = d;
+      }
+    }
+  }
+}
+
 litestl::binding::types::Struct<Multires> *Multires::defineBindings()
 {
   using namespace litestl::binding;
@@ -604,6 +683,11 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
   BIND_STRUCT_METHOD(st, maxLevel, MARGS());
   BIND_STRUCT_METHOD(st, activeLevel, MARGS());
   BIND_STRUCT_METHOD(st, vdmAdjacencyOut, MARGS("out"));
+  BIND_STRUCT_METHOD(st, stencilMetaOut, MARGS("level", "out"));
+  BIND_STRUCT_METHOD(st, stencilOffsetsOut, MARGS("level", "out"));
+  BIND_STRUCT_METHOD(st, stencilIndicesOut, MARGS("level", "out"));
+  BIND_STRUCT_METHOD(st, stencilWeightsOut, MARGS("level", "out"));
+  BIND_STRUCT_METHOD(st, levelTriIndicesOut, MARGS("level", "out"));
   return st;
 }
 

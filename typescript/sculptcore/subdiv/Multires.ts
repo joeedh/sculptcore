@@ -21,4 +21,9 @@ export interface Multires {
   maxLevel(): int32
   activeLevel(): int32
   vdmAdjacencyOut(out: int32[]): void
+  stencilMetaOut(level: int32, out: int32[]): void
+  stencilOffsetsOut(level: int32, out: int32[]): void
+  stencilIndicesOut(level: int32, out: int32[]): void
+  stencilWeightsOut(level: int32, out: float[]): void
+  levelTriIndicesOut(level: int32, out: int32[]): void
 }
