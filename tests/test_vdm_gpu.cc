@@ -125,11 +125,52 @@ int main()
   // --- bound wrappers agree with the direct API ---
   Vector<int> lay;
   int slots = store.gpuLayoutOut(lay);
-  test_assert(int(lay.size()) == 8 && lay[3] == slots);
+  test_assert(int(lay.size()) == 10 && lay[3] == slots);
   Vector<float> atlas2;
   store.gpuAtlasPixelsOut(atlas2);
   test_assert(atlas2.size() > 0);
 
   fprintf(stderr, "vdm gpu: slots=%d atlas=%dx%d\n", slots, lay[6], lay[7]);
+
+  // --- PTEX per-grid offset table (X2 stage 3) ---
+  {
+    VdmStoreParams pp;
+    pp.tile_size = 8;
+    pp.resolution = 8; // storage 10 (guard ring) → tps = 2
+    pp.backend = VdmBackend::PTEX;
+    VdmStore ps(pp);
+    ps.setPtexGridCount(3);
+    ps.setGridRes(1, 16); // storage 18 → tps = 3
+    ps.writeTexelP(0, 1, 1, a);
+    ps.writeTexelP(1, 15, 15, b);
+
+    Vector<int> pt;
+    ps.gpuPtexTableOut(pt);
+    test_assert(pt[0] == 3);
+    int off0 = pt[1], r0 = pt[2], tps0 = pt[3];
+    int off1 = pt[4], r1 = pt[5], tps1 = pt[6];
+    int off2 = pt[7], r2 = pt[8], tps2 = pt[9];
+    test_assert(r0 == 8 && tps0 == 2);
+    test_assert(r1 == 16 && tps1 == 3);
+    test_assert(r2 == 8 && tps2 == 2);
+    test_assert(off0 == 10 && off1 == off0 + 4 && off2 == off1 + 9);
+    test_assert(int(pt.size()) == off2 + 4);
+    // Texel (1,1) → storage (2,2) → tile (0,0) of grid 0; texel (15,15) →
+    // storage (16,16) → tile (2,2) of grid 1. Everything else absent.
+    test_assert(pt[off0 + 0 * tps0 + 0] >= 0);
+    test_assert(pt[off1 + 2 * tps1 + 2] >= 0);
+    int occupied = 0;
+    for (int i = off0; i < int(pt.size()); i++) {
+      occupied += pt[i] >= 0 ? 1 : 0;
+    }
+    test_assert(occupied == 2);
+
+    Vector<int> play;
+    ps.gpuLayoutOut(play);
+    test_assert(play[8] == int(VdmBackend::PTEX) && play[9] == 3);
+    fprintf(stderr, "vdm gpu ptex: table=%d ints occupied=%d\n", int(pt.size()),
+            occupied);
+  }
+
   return retval;
 }

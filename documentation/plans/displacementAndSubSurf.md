@@ -532,6 +532,20 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     the CC cube: 768 seam samples over all 96 links, worst discontinuity
     1.5e-8). Next: stage 3 — GPU per-grid offset table (i32 texture) + WGSL
     grid recovery via `floor(uv·cpr)` + app upload; then stage 4 parity/docs.
+  - **Stage 3 engine half DONE**: `gpuPtexTable` / bound `gpuPtexTableOut` —
+    the flat i32 per-grid offset table the fragment path binds instead of the
+    [0,1]² page table (`out[0]`=G; per-grid `{slotTableOffset, R_g, tps}`
+    headers; then tps² slot ints per grid, storage coords incl. the guard
+    ring, −1 absent). `gpuLayoutOut` grew to 10 ints (`[8]`=backend,
+    `[9]`=gridCount; older readers consume the first 8). Gate: `test_vdm_gpu`
+    PTEX block (exact header offsets/res/tps, slot occupancy). Remaining for
+    stage 3 (one verified unit — this seam silently no-renders on mistakes):
+    WGSL `VDM_PTEX` sampler (grid id = `floor(uv·cpr)` from the X1 chart
+    layout; local param un-inset; storage +1 guard offset; per-tap slot
+    lookups so taps may straddle tiles), LiteMesh `_syncVdmGpu` ptex upload
+    (flat table as an i32 texture on the page-table binding; cpr via the
+    `vdmGridSize` uniform slot), renderengine `VDM_PTEX` define in the
+    material hash, genTS, and the screenshot A/B gate.
 - **X3 — Tessellated render tier**: V3's shader + S5's amplification =
   true-displacement opt-in; per-region selection from compositor state.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM

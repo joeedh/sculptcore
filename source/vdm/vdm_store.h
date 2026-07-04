@@ -216,6 +216,8 @@ struct VdmStore {
    * atlas_w, atlas_h]; returns `slots`. Assigns slots to unslotted tiles. */
   int gpuLayoutOut(util::Vector<int> &out);
   void gpuPageTableOut(util::Vector<int> &out);
+  /* PTEX: the flat per-grid offset table (vdm_gpu.h gpuPtexTable layout). */
+  void gpuPtexTableOut(util::Vector<int> &out);
   void gpuAtlasPixelsOut(util::Vector<float> &out);
   int gpuTilePixelsOut(int slot, util::Vector<float> &out);
   /* Drains dirty slots; returns 1 when the page table / atlas capacity also

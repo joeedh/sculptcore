@@ -42,6 +42,15 @@ VdmGpuLayout gpuLayout(VdmStore &store);
 /* Fill the page table: grid² ints row-major by (ty·grid + tx). */
 void gpuPageTable(VdmStore &store, const VdmGpuLayout &layout, util::Vector<int> &out);
 
+/* PTEX (X2 stage 3): the flat per-grid offset table the fragment path binds
+ * instead of the [0,1]² page table. Layout (all i32):
+ *   out[0] = gridCount G
+ *   out[1 + g*3 .. +2] = { slotTableOffset (absolute index into out),
+ *                          R_g, tilesPerSide_g }
+ *   then per grid: tps² slot ints row-major by (lty·tps + ltx), -1 = absent.
+ * Tile coords are STORAGE coords (guard ring included: R+2 texel lattice). */
+void gpuPtexTable(VdmStore &store, const VdmGpuLayout &layout, util::Vector<int> &out);
+
 /* Pack one slot's tile as rgba32float (tile_size² · 4 floats, row-major).
  * A freed/never-assigned slot packs zeros. Returns false on bad slot. */
 bool gpuTilePixels(VdmStore &store,
