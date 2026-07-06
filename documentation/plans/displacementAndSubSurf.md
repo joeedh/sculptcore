@@ -606,10 +606,27 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     enter the mesh), and determinism is gated by EXACT cross-backend GPU
     checksums. `sculptcore_multires` 34/34. The JS-eval triangulation
     (jsVsCpu / jsVsGpu) is a reusable pattern for gating marshal seams
-    independently of GPU rounding. Next: stage 2 — the tessellated draw
-    (on-device result as vertex buffer + static index buffer + direct
-    drawIndexed in drawQGPU under the compiled material pipeline;
-    fragment-derived flat normal as the shading stopgap; screenshot gate).
+    independently of GPU rounding.
+  - **Stage 2 DONE — the tessellated draw.** `TESS_TIER` material variant
+    (WgslShaderGenerator: position-only VsIn, default-filled varyings — white
+    for color-category attrs, mirroring sculptcore's missing-layer fills —
+    and a fragment flat normal from `-cross(dpdx, dpdy)` of the world
+    position; the sign matters — framebuffer y points down); the renderengine
+    generates it per material hash and hands it to the mesh
+    (`setTessDrawWgsl`). LiteMesh `tessellatedDisplay` (view state):
+    `_ensureTessBuild` marshals the CSR chain (activeLevel, maxLevel],
+    amplifies async on the renderer device (`keepResult` → the on-device
+    Storage|Vertex buffer), uploads the static render-level index buffer, and
+    `_drawTessellated` substitutes a direct `setVertexBuffer`/`drawIndexed`
+    under the TESS_TIER pipeline for the batch dispatch (falls back to the
+    batch until the async state lands; never throws on the render seam).
+    Gate green (`sculptcore_multires` 37/37): screenshot A/B — tess vs the
+    CPU-materialized fine level meanAbs 0.016 (flat-shading residual only)
+    vs 0.22 level separation; native↔wasm 0.0055. Stage-2 limitations
+    (ride stage 3/4): the NormalPass/AO still sees the coarse batch (the MRT
+    guard falls back there), no SSS-MRT tess variant, re-amplify keyed on
+    meshRevision (no finer-grained caching), smooth normals + VDM apply come
+    with the stage-3 frame pass.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM
   demotion (explicit op), external VDM export (frame-synchronized).
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).
