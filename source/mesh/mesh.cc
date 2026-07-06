@@ -527,6 +527,32 @@ void Mesh::dumpVertCo(util::Vector<float> &out)
   }
 }
 
+static void dumpVertAttr3(Mesh &m, const char *name, util::Vector<float> &out)
+{
+  out.clear();
+  AttrRef ref = m.v.attrs.find_attribute(AttrType::FLOAT3, name);
+  if (!ref.exists()) {
+    return;
+  }
+  auto *data = static_cast<AttrData<math::float3> *>(ref.data);
+  for (int vi : m.v) {
+    math::float3 val = data->safe_get(vi);
+    out.append(val[0]);
+    out.append(val[1]);
+    out.append(val[2]);
+  }
+}
+
+void Mesh::dumpFrameNormals(util::Vector<float> &out)
+{
+  dumpVertAttr3(*this, ".frames.v.normal", out);
+}
+
+void Mesh::dumpFrameTangents(util::Vector<float> &out)
+{
+  dumpVertAttr3(*this, ".frames.v.tangent", out);
+}
+
 void Mesh::setVertCo(int idx, float x, float y, float z)
 {
   if (idx < 0 || idx >= int(v.capacity()) || v.freemap[idx]) {

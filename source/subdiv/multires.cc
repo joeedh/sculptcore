@@ -675,6 +675,46 @@ void Multires::levelTriIndicesOut(int level, Vector<int> &out)
   }
 }
 
+void Multires::levelVertGridCoordsOut(int level, Vector<int> &out)
+{
+  out.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
+  }
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  int S = lvl.gridSide, w = S + 1;
+  out.resize(size_t(lvl.vertCount) * 3);
+  for (int i = 0; i < lvl.vertCount * 3; i += 3) {
+    out[i] = -1;
+  }
+  for (int g = 0; g < refiner.gridCount(); g++) {
+    const int *gv = &lvl.gridVerts[g * w * w];
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        int vid = gv[v * w + u];
+        if (out[vid * 3] < 0) {
+          out[vid * 3] = g;
+          out[vid * 3 + 1] = u;
+          out[vid * 3 + 2] = v;
+        }
+      }
+    }
+  }
+}
+
+void Multires::levelGridVertsOut(int level, Vector<int> &out)
+{
+  out.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
+  }
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  out.resize(lvl.gridVerts.size());
+  for (int i = 0; i < int(lvl.gridVerts.size()); i++) {
+    out[i] = lvl.gridVerts[i];
+  }
+}
+
 litestl::binding::types::Struct<Multires> *Multires::defineBindings()
 {
   using namespace litestl::binding;
@@ -688,6 +728,8 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
   BIND_STRUCT_METHOD(st, stencilIndicesOut, MARGS("level", "out"));
   BIND_STRUCT_METHOD(st, stencilWeightsOut, MARGS("level", "out"));
   BIND_STRUCT_METHOD(st, levelTriIndicesOut, MARGS("level", "out"));
+  BIND_STRUCT_METHOD(st, levelVertGridCoordsOut, MARGS("level", "out"));
+  BIND_STRUCT_METHOD(st, levelGridVertsOut, MARGS("level", "out"));
   return st;
 }
 

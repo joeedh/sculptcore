@@ -627,6 +627,30 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     guard falls back there), no SSS-MRT tess variant, re-amplify keyed on
     meshRevision (no finer-grained caching), smooth normals + VDM apply come
     with the stage-3 frame pass.
+  - **Stage 3 DONE — smooth frames + the VDM apply (the S5-deferred second
+    pass).** Frames amplify through the SAME stencil SpMV (three channels:
+    positions + `.frames.v.normal`/`.tangent` from the edit level via new
+    `Mesh::dumpFrameNormals/Tangents` bound methods — fixed names because
+    strings can't cross the generic binding); a two-pass `tessFinalize`
+    kernel then (A) orthonormalizes the frame and displaces each vert by the
+    Ptex VDM texel at its grid-lattice param (`levelVertGridCoordsOut`;
+    table+atlas as compute storage buffers) and (B) computes GEOMETRIC
+    normals over the DISPLACED positions by lattice central differences
+    (`levelGridVertsOut`), written only by each vert's canonical owner site —
+    deterministic at seam replicas. The TESS_TIER variant takes
+    position+normal streams (flat-normal preamble dropped). Gate green
+    (`sculptcore_multires` 38/38, 3-level fixture so the chain spans two
+    stencil levels): tess-vs-fine 0.055 vs 0.23 level separation (residual =
+    4-neighbour lattice normals vs full 1-ring v.no), **tessvdm displaces
+    the silhouette** (0.37 vs plain tess), native↔wasm 0.004-0.006.
+    Hard-won lessons: drivers must WAIT for the async tess state before
+    screenshotting (readiness poll — the draw falls back to the batch until
+    it lands, so screenshots race), and a stale wasm binary let the fragment
+    tier impersonate the tessellated one for a while (rebuild ALL backends
+    after adding bound methods). Residual limitations → stage 4: frame
+    channels amplified from the edit level (not the finest-authored frames),
+    one-sided normals at grid borders, NormalPass/AO coarse fallback, no
+    SSS-MRT variant.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM
   demotion (explicit op), external VDM export (frame-synchronized).
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).

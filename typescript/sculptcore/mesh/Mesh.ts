@@ -63,6 +63,8 @@ export interface Mesh {
   fillVertexColorFromPosition(): void
   vertexColor(vert: int32, out: float[]): void
   dumpVertCo(out: float[]): void
+  dumpFrameNormals(out: float[]): void
+  dumpFrameTangents(out: float[]): void
   setVertCo(idx: int32, x: float, y: float, z: float): void
   symmetrize(axis: int32, sign: int32, threshold: float): void
   selectedCount(domain: int32): int32

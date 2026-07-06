@@ -26,4 +26,6 @@ export interface Multires {
   stencilIndicesOut(level: int32, out: int32[]): void
   stencilWeightsOut(level: int32, out: float[]): void
   levelTriIndicesOut(level: int32, out: int32[]): void
+  levelVertGridCoordsOut(level: int32, out: int32[]): void
+  levelGridVertsOut(level: int32, out: int32[]): void
 }

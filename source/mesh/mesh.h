@@ -164,6 +164,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, fillVertexColorFromPosition, MARGS());
     BIND_STRUCT_METHOD(st, vertexColor, MARGS("vert", "out"));
     BIND_STRUCT_METHOD(st, dumpVertCo, MARGS("out"));
+    BIND_STRUCT_METHOD(st, dumpFrameNormals, MARGS("out"));
+    BIND_STRUCT_METHOD(st, dumpFrameTangents, MARGS("out"));
     BIND_STRUCT_METHOD(st, setVertCo, MARGS("idx", "x", "y", "z"));
     BIND_STRUCT_METHOD(st, symmetrize, MARGS("axis", "sign", "threshold"));
     BIND_STRUCT_METHOD(st, selectedCount, MARGS("domain"));
@@ -470,6 +472,13 @@ struct Mesh : public MeshBase {
    * marshal-safe bound Vector<float> out-param). The TS symmetrize op reads
    * positions index-aligned through this; pair with setVertCo to write back. */
   void dumpVertCo(util::Vector<float> &out);
+
+  /* Dense xyz dump of the F3 frame attrs (.frames.v.normal / .tangent) in
+   * live-vert iteration order (id order on dense meshes); empty when absent.
+   * Fixed-name methods because strings can't cross the generic method
+   * binding — the X3 frame-field export for the tessellated tier. */
+  void dumpFrameNormals(util::Vector<float> &out);
+  void dumpFrameTangents(util::Vector<float> &out);
 
   /* Set the position of vert `idx` (a live vert index, as emitted by dumpVertCo).
    * Per-vertex scalar setter — the only marshal-safe vertex-write seam (a bound

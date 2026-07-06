@@ -142,6 +142,17 @@ struct Multires {
    * tessellated draw's static topology, no materialized mesh needed. */
   void levelTriIndicesOut(int level, litestl::util::Vector<int> &out);
 
+  /** Per-fine-vert grid identity for the level: 3 ints per vert
+   * {grid, latticeU, latticeV} (first-owner grid for seam replicas; grid -1
+   * only if a vert somehow appears in no grid). The X3 finalize kernel's
+   * per-vert VDM sampling coordinate (param = lattice / gridSide). */
+  void levelVertGridCoordsOut(int level, litestl::util::Vector<int> &out);
+
+  /** The raw level gridVerts table (G · (S+1)² vert ids, grid-major row-major
+   * lattices) — the X3 normals kernel's lattice→vert map for geometric
+   * normals over the displaced fine surface. */
+  void levelGridVertsOut(int level, litestl::util::Vector<int> &out);
+
   static litestl::binding::types::Struct<Multires> *defineBindings();
 
 private:
