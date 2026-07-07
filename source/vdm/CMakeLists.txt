@@ -18,6 +18,8 @@ set(SRC
   vdm_gpu.cc
   PUBLIC vdm_promote.h
   vdm_promote.cc
+  PUBLIC vdm_bake.h
+  vdm_bake.cc
   PUBLIC vdm_undo.h
   PUBLIC bindings.h
   bindings.cc
@@ -31,9 +33,11 @@ wasm_add_symbols("
   VdmStore_free
   Mesh_vdmSplatDab
   Mesh_vdmSplatDabLogged
+  Mesh_vdmApplyToVerts
   Vdm_lastSplatClamped
   VdmStore_serialize
   VdmStore_deserialize
+  VdmStore_restoreBlob
   SpatialTree_fillDetailCarrier
   Mesh_updateFrames
 ")

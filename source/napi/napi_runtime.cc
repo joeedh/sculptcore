@@ -78,6 +78,8 @@ int Mesh_vdmSplatDabLogged(void *mesh, void *tree, void *store, void *log,
                            float nz, float radius, float strength, float alpha,
                            int invert);
 uint8_t *VdmStore_serialize(void *store, int *out_size);
+int Mesh_vdmApplyToVerts(void *mesh, void *store, int clearStore);
+int VdmStore_restoreBlob(void *store, const uint8_t *data, int size);
 void *VdmStore_deserialize(const uint8_t *data, int size);
 int Vdm_lastSplatClamped();
 void SpatialTree_fillDetailCarrier(void *tree, int carrier);
@@ -1916,6 +1918,29 @@ napi_value NapiRuntime::MeshVdmSplatDabLogged(napi_env env, napi_callback_info i
   return out;
 }
 
+// meshVdmApplyToVerts(mesh, store, clearStore) -> verts moved. X4 VDM ->
+// geometry extraction; caller owns undo snapshots + spatial refresh.
+napi_value NapiRuntime::MeshVdmApplyToVerts(napi_env env, napi_callback_info info)
+{
+  size_t argc = 3;
+  napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_create_int32(env, 0, &out);
+  Wrapped *mw = nullptr, *sw = nullptr;
+  if (argc < 3 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok ||
+      napi_unwrap(env, argv[1], reinterpret_cast<void **>(&sw)) != napi_ok || !mw ||
+      !sw || !mw->ptr || !sw->ptr)
+  {
+    return out;
+  }
+  int32_t clearStore = 0;
+  napi_get_value_int32(env, argv[2], &clearStore);
+  int n = Mesh_vdmApplyToVerts(mw->ptr, sw->ptr, clearStore);
+  napi_create_int32(env, n, &out);
+  return out;
+}
+
 // vdmStoreSerialize(store) -> Uint8Array | undefined (v2 store container).
 napi_value NapiRuntime::VdmStoreSerialize(napi_env env, napi_callback_info info)
 {
@@ -1946,6 +1971,40 @@ napi_value NapiRuntime::VdmStoreSerialize(napi_env env, napi_callback_info info)
     std::memcpy(abData, buf, static_cast<size_t>(size));
   freeMeshBuffer(buf);
   napi_create_typedarray(env, napi_uint8_array, static_cast<size_t>(size), ab, 0, &out);
+  return out;
+}
+
+// vdmStoreRestoreBlob(store, bytes) -> boolean. Refills an EXISTING store
+// (instance kept — meshlog chunks hold non-owning pointers into it).
+napi_value NapiRuntime::VdmStoreRestoreBlob(napi_env env, napi_callback_info info)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_boolean(env, false, &out);
+  Wrapped *w = nullptr;
+  if (argc < 2 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok ||
+      !w || !w->ptr)
+  {
+    return out;
+  }
+  void *bytes = nullptr;
+  size_t byteLen = 0;
+  bool isTa = false;
+  napi_is_typedarray(env, argv[1], &isTa);
+  if (isTa) {
+    napi_typedarray_type t;
+    napi_value ab;
+    size_t off = 0;
+    napi_get_typedarray_info(env, argv[1], &t, &byteLen, &bytes, &ab, &off);
+  }
+  if (!bytes || byteLen == 0) {
+    return out;
+  }
+  int ok = VdmStore_restoreBlob(
+      w->ptr, static_cast<const uint8_t *>(bytes), static_cast<int>(byteLen));
+  napi_get_boolean(env, ok != 0, &out);
   return out;
 }
 
@@ -2883,8 +2942,10 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "vdmStoreFree", &NapiRuntime::VdmStoreFree);
   define(exports, "meshVdmSplatDab", &NapiRuntime::MeshVdmSplatDab);
   define(exports, "meshVdmSplatDabLogged", &NapiRuntime::MeshVdmSplatDabLogged);
+  define(exports, "meshVdmApplyToVerts", &NapiRuntime::MeshVdmApplyToVerts);
   define(exports, "vdmStoreSerialize", &NapiRuntime::VdmStoreSerialize);
   define(exports, "vdmStoreDeserialize", &NapiRuntime::VdmStoreDeserialize);
+  define(exports, "vdmStoreRestoreBlob", &NapiRuntime::VdmStoreRestoreBlob);
   define(exports,
          "spatialTreeFillDetailCarrier",
          &NapiRuntime::SpatialTreeFillDetailCarrier);

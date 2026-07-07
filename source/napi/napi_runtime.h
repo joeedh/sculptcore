@@ -134,8 +134,10 @@ class NapiRuntime {
   // alpha, invert) -> texels touched. Writes texels only; moves no vertex.
   static napi_value MeshVdmSplatDab(napi_env, napi_callback_info);
   static napi_value MeshVdmSplatDabLogged(napi_env, napi_callback_info);
+  static napi_value MeshVdmApplyToVerts(napi_env, napi_callback_info);
   static napi_value VdmStoreSerialize(napi_env, napi_callback_info);
   static napi_value VdmStoreDeserialize(napi_env, napi_callback_info);
+  static napi_value VdmStoreRestoreBlob(napi_env, napi_callback_info);
   // vdmLastSplatClamped() -> texelsClamped of this thread's most recent splat
   // (the X1 add-a-level prompt signal).
   static napi_value VdmLastSplatClamped(napi_env, napi_callback_info);

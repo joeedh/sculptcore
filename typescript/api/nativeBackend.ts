@@ -132,10 +132,14 @@ export interface NativeAddon {
     alpha: number,
     invert: number
   ): number
+  /** VDM -> geometry extraction: displace verts by the store's field; returns verts moved. */
+  meshVdmApplyToVerts(mesh: NativeBound, store: NativeBound, clearStore: number): number
   /** VdmStore v2 blob, or undefined on failure. */
   vdmStoreSerialize(store: NativeBound): Uint8Array | undefined
   /** Rebuild a store from a vdmStoreSerialize blob; undefined on parse failure. */
   vdmStoreDeserialize(bytes: Uint8Array): NativeBound | undefined
+  /** Refill an existing store from a blob (instance kept). */
+  vdmStoreRestoreBlob(store: NativeBound, bytes: Uint8Array): boolean
   /** Logged splat: the tile-delta rides `meshLog`'s open step as a VdmLogChunk. */
   meshVdmSplatDabLogged(
     mesh: NativeBound,
@@ -153,10 +157,14 @@ export interface NativeAddon {
     alpha: number,
     invert: number
   ): number
+  /** VDM -> geometry extraction: displace verts by the store's field; returns verts moved. */
+  meshVdmApplyToVerts(mesh: NativeBound, store: NativeBound, clearStore: number): number
   /** VdmStore v2 blob, or undefined on failure. */
   vdmStoreSerialize(store: NativeBound): Uint8Array | undefined
   /** Rebuild a store from a vdmStoreSerialize blob; undefined on parse failure. */
   vdmStoreDeserialize(bytes: Uint8Array): NativeBound | undefined
+  /** Refill an existing store from a blob (instance kept). */
+  vdmStoreRestoreBlob(store: NativeBound, bytes: Uint8Array): boolean
   /** Tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
   spatialTreeFillDetailCarrier(tree: NativeBound, carrier: number): void
   /** Recompute vertex normals + the F3 frames — the splatter's prerequisite. */

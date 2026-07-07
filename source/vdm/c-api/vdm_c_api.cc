@@ -2,6 +2,7 @@
 #include "mesh/mesh.h"
 #include "meshlog/meshlog.h"
 #include "spatial/spatial.h"
+#include "vdm/vdm_bake.h"
 #include "vdm/vdm_splat.h"
 #include "vdm/vdm_store.h"
 #include "vdm/vdm_undo.h"
@@ -141,6 +142,20 @@ int Mesh_vdmSplatDabLogged(mesh::Mesh *m,
   return n;
 }
 
+/* VDM -> geometry extraction (X4): refresh frames, displace every vertex by
+ * the store's field at its own param through the F3 frame (bake = render),
+ * then optionally clear the store. Returns verts moved. The caller owns undo
+ * (blob snapshots) and spatial/tree refresh. */
+int Mesh_vdmApplyToVerts(mesh::Mesh *m, vdm::VdmStore *store, int clearStore)
+{
+  if (!m || !store) {
+    return 0;
+  }
+  Mesh_updateFrames(m);
+  vdm::VdmBakeStats stats = vdm::applyToVerts(*m, *store, clearStore != 0);
+  return stats.vertsMoved;
+}
+
 /* Serialize the store (v2 container) into a freshly-allocated buffer
  * (*out_size = byte count; free with freeMeshBuffer). Undo seam for the
  * app's store-delete op. */
@@ -159,6 +174,21 @@ uint8_t *VdmStore_serialize(vdm::VdmStore *store, int *out_size)
   std::memcpy(buf, s.data(), s.size());
   *out_size = int(s.size());
   return buf;
+}
+
+/* Restore an EXISTING store's content from a VdmStore_serialize blob (tiles
+ * cleared first; params re-read from the payload). Keeps the instance —
+ * MeshLog VdmLogChunks hold non-owning pointers into it. Returns 1 on
+ * success. */
+int VdmStore_restoreBlob(vdm::VdmStore *store, const uint8_t *data, int size)
+{
+  if (!store || !data || size <= 0) {
+    return 0;
+  }
+  store->clearTiles();
+  std::string s(reinterpret_cast<const char *>(data), size_t(size));
+  std::stringstream ss(s, std::ios::in | std::ios::out | std::ios::binary);
+  return store->read(ss) ? 1 : 0;
 }
 
 /* Rebuild a store from a VdmStore_serialize blob (params — backend, tile

@@ -702,6 +702,32 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     — repairing SSS+LiteMesh (batch + tess) is its own work item, not X3's.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM
   demotion (explicit op), external VDM export (frame-synchronized).
+
+  Design note (X4 decomposition): the bakes are EXPLICIT ops (the hybrid
+  doc's demotion stance: never live per-dab), sharing the splatter's exact
+  frame construction (`t ⊥ n`, `b = n × t`, the same `sample(face, u, v)`
+  seam — the bake ≡ render rule). Stages: (1) **VDM→geometry apply** —
+  per-vert texel sample displaces the vert, store cleared; on multires the
+  result folds through `multiresWriteback`; (2) **geometry→VDM capture**
+  (the inverse: rasterize per-face vert deltas vs a smooth base into
+  texels, restore verts onto the base); (3) **store persistence/export**
+  (the `.wproj` debt + the frame-synchronized external blob). Undo model:
+  op-level blob snapshots (mesh blob on plain meshes / multires-store blob
+  on level meshes + the VDM blob), with the store refilled IN PLACE
+  (`VdmStore_restoreBlob`) — stroke-history VdmLogChunks hold non-owning
+  pointers into the instance, so it must never be freed + replaced.
+  - **Stage 1 DONE — VDM→geometry apply.** Engine: `vdm_bake.{h,cc}`
+    `applyToVerts` (corner-param walk — Ptex attrs or the UV layer — first
+    corner per vert; frame displace; optional `VdmStore::clearTiles`, a new
+    GPU-aware non-delta clear) + C-API `Mesh_vdmApplyToVerts` (frames
+    refreshed inside) and `VdmStore_restoreBlob` (in-place refill), napi +
+    4-place threaded. App: `litemesh.vdm_apply` op + panel button — bakes,
+    folds into the grids store on multires, rebuilds spatial; undo restores
+    the multires-store blob (or mesh blob) + refills the SAME store
+    instance. Gate: `sculptcore_multires` 52/52 — bake moves the position
+    checksum, store empties, ONE toolstack undo restores positions
+    bit-exact + all tiles + the exact blob checksum, and the baked
+    positions are identical wasm↔native.
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).
 - Final step: strip remaining `CLAUDENOTE:` comments across all three
   workstreams; update `projectIndex.md`, root docs, and this plan's status.

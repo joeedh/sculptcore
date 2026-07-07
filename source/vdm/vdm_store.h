@@ -105,6 +105,9 @@ struct VdmStore {
     return (uint64_t(uint32_t(tx)) << 32) | uint64_t(uint32_t(ty));
   }
   VdmTile *findTile(int tx, int ty) const;
+  /* Remove every tile (GPU slots freed, topo marked dirty). NOT delta-aware —
+   * callers own any undo snapshot (the X4 bake ops use store blobs). */
+  void clearTiles();
   /* Find-or-allocate (zeroed); snapshots the pre-state into an open delta. */
   VdmTile &ensureTile(int tx, int ty);
   int tileCount() const

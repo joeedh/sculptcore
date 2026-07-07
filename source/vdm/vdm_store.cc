@@ -117,6 +117,17 @@ void VdmStore::removeTile(uint64_t key)
   tileCount_--;
 }
 
+void VdmStore::clearTiles()
+{
+  litestl::util::Vector<uint64_t> keys;
+  for (const auto &pair : tiles_) {
+    keys.append(pair.key);
+  }
+  for (uint64_t k : keys) {
+    removeTile(k);
+  }
+}
+
 void VdmStore::markGpuDirty(VdmTile *t)
 {
   contentRev_++;

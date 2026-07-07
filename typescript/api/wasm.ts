@@ -96,10 +96,14 @@ interface IWasmMethods extends IWasmBase {
     alpha: number,
     invert: int
   ): int
+  /** VDM -> geometry extraction (X4): displace verts by the store's field, optionally clear it; returns verts moved. */
+  Mesh_vdmApplyToVerts(mesh: Mesh, store: VdmStore, clearStore: int): int
   /** raw store serialize (v2 container): malloc'd blob + byte count to `outSizePtr`; wrapped by `VdmStore_serializeBlob`. */
   VdmStore_serialize(store: pointer, outSizePtr: pointer): pointer
   /** raw store rebuild from a blob; wrapped by `VdmStore_deserializeBlob`. */
   VdmStore_deserialize(dataPtr: pointer, size: int): pointer
+  /** raw in-place store refill; wrapped by `VdmStore_restoreFromBlob`. */
+  VdmStore_restoreBlob(store: pointer, dataPtr: pointer, size: int): int
   /** tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
   SpatialTree_fillDetailCarrier(tree: SpatialTree, carrier: int): void
   /** recompute vertex normals + the F3 frames — required before splatting. */
@@ -327,12 +331,20 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
     alpha: number,
     invert: int
   ): int
+  /** VDM -> geometry extraction (X4 bake): refresh frames, displace every
+   * vertex by the store's field at its own param (bake = render), optionally
+   * clear the store. Returns verts moved; the caller owns undo snapshots and
+   * the spatial/tree refresh. */
+  Mesh_vdmApplyToVerts(mesh: Mesh, store: VdmStore, clearStore: int): int
   /** VdmStore blob (v2 container; params + Ptex tables ride it). Undo seam for
    * the app's store-delete op. Empty result = failure. */
   VdmStore_serializeBlob(store: VdmStore): Uint8Array
   /** Rebuild a store from a `VdmStore_serializeBlob` blob (fresh handle the
    * caller owns; free with `VdmStore_free`). */
   VdmStore_deserializeBlob(bytes: Uint8Array): VdmStore | undefined
+  /** Refill an EXISTING store from a blob (instance kept — MeshLog chunks
+   * hold non-owning pointers into it). Returns success. */
+  VdmStore_restoreFromBlob(store: VdmStore, bytes: Uint8Array): boolean
   /**
    * Free a mesh handle (allocator-correct: routes to the C++ `alloc::Delete`
    * disposer). Do NOT free meshes via `[Symbol.dispose]` — that path is absent
@@ -682,6 +694,13 @@ export async function loadWasm(): Promise<IWasmInterface> {
         invert
       )
     },
+    Mesh_vdmApplyToVerts(mesh: Mesh, store: VdmStore, clearStore: int): int {
+      return _wasm.Mesh_vdmApplyToVerts(
+        (mesh as unknown as {ptr: number}).ptr as unknown as Mesh,
+        (store as unknown as {ptr: number}).ptr as unknown as VdmStore,
+        clearStore
+      )
+    },
     VdmStore_serializeBlob(store: VdmStore): Uint8Array {
       return serializeMeshHeap((store as unknown as {ptr: number}).ptr, _wasm.VdmStore_serialize)
     },
@@ -691,6 +710,21 @@ export async function loadWasm(): Promise<IWasmInterface> {
         _wasm.HEAPU8.set(bytes, dataPtr)
         const ptr = _wasm.VdmStore_deserialize(dataPtr, bytes.length) as unknown as number
         return ptr ? (manager.getBoundPointer('sculptcore::vdm::VdmStore', ptr) as VdmStore) : undefined
+      } finally {
+        _wasm._rawRelease(dataPtr)
+      }
+    },
+    VdmStore_restoreFromBlob(store: VdmStore, bytes: Uint8Array): boolean {
+      const dataPtr = _wasm._rawAlloc(bytes.length)
+      try {
+        _wasm.HEAPU8.set(bytes, dataPtr)
+        return (
+          _wasm.VdmStore_restoreBlob(
+            (store as unknown as {ptr: number}).ptr,
+            dataPtr,
+            bytes.length
+          ) !== 0
+        )
       } finally {
         _wasm._rawRelease(dataPtr)
       }

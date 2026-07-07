@@ -203,11 +203,17 @@ export class NativeManager {
       mesh, tree, store, meshLog, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert
     )
   }
+  Mesh_vdmApplyToVerts(mesh: NativeBound, store: NativeBound, clearStore: number): number {
+    return this.addon.meshVdmApplyToVerts(mesh, store, clearStore)
+  }
   VdmStore_serializeBlob(store: NativeBound): Uint8Array {
     return this.addon.vdmStoreSerialize(store) ?? new Uint8Array()
   }
   VdmStore_deserializeBlob(bytes: Uint8Array): NativeBound | undefined {
     return this.addon.vdmStoreDeserialize(bytes)
+  }
+  VdmStore_restoreFromBlob(store: NativeBound, bytes: Uint8Array): boolean {
+    return this.addon.vdmStoreRestoreBlob(store, bytes)
   }
   SpatialTree_fillDetailCarrier(tree: NativeBound, carrier: number): void {
     this.addon.spatialTreeFillDetailCarrier(tree, carrier)
@@ -471,8 +477,10 @@ export function makeNativeInterface(nm: NativeManager): unknown {
       alpha: number,
       invert: number
     ) => nm.Mesh_vdmSplatDabLogged(m, t, s, log, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert),
+    Mesh_vdmApplyToVerts             : (m: NativeBound, s: NativeBound, c: number) => nm.Mesh_vdmApplyToVerts(m, s, c),
     VdmStore_serializeBlob           : (s: NativeBound) => nm.VdmStore_serializeBlob(s),
     VdmStore_deserializeBlob         : (b: Uint8Array) => nm.VdmStore_deserializeBlob(b),
+    VdmStore_restoreFromBlob         : (s: NativeBound, b: Uint8Array) => nm.VdmStore_restoreFromBlob(s, b),
     SpatialTree_fillDetailCarrier    : (t: NativeBound, c: number) => nm.SpatialTree_fillDetailCarrier(t, c),
     Mesh_updateFrames                : (m: NativeBound) => nm.Mesh_updateFrames(m),
     Mesh_layerSetWeight              : (m: NativeBound, li: number, w: number) => nm.Mesh_layerSetWeight(m, li, w),
