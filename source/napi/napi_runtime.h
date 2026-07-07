@@ -169,6 +169,7 @@ class NapiRuntime {
   // multiresSerializeStore(mr) -> Uint8Array; multiresRestoreStore(mr, bytes)
   // -> boolean (invalidates all levels; re-set the active level after).
   static napi_value MultiresSerializeStore(napi_env, napi_callback_info);
+  static napi_value MultiresCaptureToVdm(napi_env, napi_callback_info);
   static napi_value MultiresRestoreStore(napi_env, napi_callback_info);
   // Shared body of multiresActiveMesh/Tree (needs lookup/instantiate).
   static napi_value multiresActiveView(napi_env,

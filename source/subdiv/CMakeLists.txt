@@ -6,6 +6,7 @@ set(LIB
     mesh
     displace
     spatial
+    vdm
 )
 
 set(SRC
@@ -29,6 +30,7 @@ wasm_add_symbols("
   Multires_activeMesh
   Multires_activeTree
   Multires_writeback
+  Multires_captureToVdm
   Multires_downRefit
   Multires_serializeStore
   Multires_restoreStore

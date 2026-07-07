@@ -138,6 +138,8 @@ interface IWasmMethods extends IWasmBase {
   Multires_writeback(mr: Multires, level: int): int
   /** least-squares refit of level−1 to `level`'s surface; returns changed level−1 verts. */
   Multires_downRefit(mr: Multires, level: int): int
+  /** geometry -> VDM capture: move `level`'s grids disp into the Ptex store's texels; returns texels written. */
+  Multires_captureToVdm(mr: Multires, vstore: VdmStore, level: int): int
   /** raw grids-store serialize: malloc'd blob + byte count to `outSizePtr`; wrapped by `Multires_storeBlob`. */
   Multires_serializeStore(mr: pointer, outSizePtr: pointer): pointer
   /** raw grids-store restore; wrapped by `Multires_restoreStoreBlob`. */
@@ -304,6 +306,11 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
   /** Reconstruct a mesh from a `Mesh_serialize` blob. */
   Mesh_deserialize(bytes: Uint8Array): Mesh
 
+  /** Geometry -> VDM capture (X4): transfer `level`'s grids-store disp into
+   * the Ptex VDM texels (added, same frame space), zero the disp, drop the
+   * surface onto the smooth base. Returns texels written; caller owns undo
+   * snapshots + the spatial refresh. */
+  Multires_captureToVdm(mr: Multires, vstore: VdmStore, level: int): int
   /** Grids-store blob of a multires stack (undo seam for down-refit / stack
    * delete). Backend-agnostic copy semantics like `Mesh_serialize`. */
   Multires_storeBlob(mr: Multires): Uint8Array
@@ -789,6 +796,13 @@ export async function loadWasm(): Promise<IWasmInterface> {
     Multires_downRefit(mr: Multires, level: int): int {
       const mrPtr = (mr as unknown as {ptr: number}).ptr
       return _wasm.Multires_downRefit(mrPtr as unknown as Multires, level)
+    },
+    Multires_captureToVdm(mr: Multires, vstore: VdmStore, level: int): int {
+      return _wasm.Multires_captureToVdm(
+        (mr as unknown as {ptr: number}).ptr as unknown as Multires,
+        (vstore as unknown as {ptr: number}).ptr as unknown as VdmStore,
+        level
+      )
     },
     Multires_storeBlob(mr: Multires): Uint8Array {
       return serializeMeshHeap((mr as unknown as {ptr: number}).ptr, _wasm.Multires_serializeStore)

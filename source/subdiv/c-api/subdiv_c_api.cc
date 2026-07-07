@@ -80,6 +80,19 @@ int Multires_downRefit(subdiv::Multires *mr, int level)
   return mr ? mr->downRefit(level) : 0;
 }
 
+/* Geometry -> VDM capture (X4 stage 2): move `level`'s grids-store disp into
+ * the Ptex VDM store's texels, zero the disp, drop the surface onto the
+ * smooth base. Returns texels written; caller owns undo snapshots + the
+ * spatial refresh of the attached level mesh. */
+int Multires_captureToVdm(subdiv::Multires *mr, void *vstore, int level)
+{
+  if (!mr || !vstore) {
+    return 0;
+  }
+  return mr->captureDetailToVdm(level,
+                                *static_cast<sculptcore::vdm::VdmStore *>(vstore));
+}
+
 /* Serialize the grids store into a freshly-allocated buffer (*out_size = byte
  * count; free with freeMeshBuffer). Returns nullptr on failure. Undo seam for
  * ops that rewrite the store wholesale (down-refit, stack delete). */

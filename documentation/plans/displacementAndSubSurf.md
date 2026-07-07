@@ -728,6 +728,27 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     checksum, store empties, ONE toolstack undo restores positions
     bit-exact + all tiles + the exact blob checksum, and the baked
     positions are identical wasm↔native.
+  - **Stage 2 DONE — geometry→VDM capture** (multires-only; the plain-mesh
+    reproject problem stays out of scope per the hybrid doc). KEY INSIGHT:
+    the grids store's per-level disp is ALREADY the capture payload — both
+    it and VDM texels are `frameᵀ·(pos − base)` with frames on the smoothed
+    base, so `Multires::captureDetailToVdm` just bilinearly resamples the
+    disp lattice into the Ptex texel lattice (ADDED onto existing texels:
+    base + texel_new = pos + texel_old), zeroes the disp, drops the
+    materialized surface + baseline onto the smooth base (exact — no
+    encode/decode round-trip for positions), invalidates finer levels, and
+    syncs skirts. Sparsity preserved (near-zero bilinear samples skipped;
+    tiles allocate only under detail). C-API `Multires_captureToVdm`
+    (subdiv now links vdm — acyclic), napi + 4-place threaded; op
+    `litemesh.vdm_capture` + panel button, blob-undo like the apply.
+    Gate (`sculptcore_multires` 54/54): capture drops positions EXACTLY
+    onto the pre-apply checksum, re-apply reproduces the surface to 0.33%
+    of max displacement (double-bilinear), capture-undo residual 2.7e-7
+    (residual not checksum — the undo rematerializes through the disp
+    encoding, frameᵀ then frame = two fp rounding passes), tile counts +
+    base drop identical wasm↔native. Driver hardening: the tessvdm
+    re-finalize wait gained a forced per-tick redraw + a 90 s window (the
+    30 s race lost occasionally under full-suite boot load).
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).
 - Final step: strip remaining `CLAUDENOTE:` comments across all three
   workstreams; update `projectIndex.md`, root docs, and this plan's status.

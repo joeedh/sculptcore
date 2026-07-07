@@ -31,6 +31,10 @@ namespace sculptcore::spatial {
 struct SpatialTree;
 }
 
+namespace sculptcore::vdm {
+struct VdmStore;
+}
+
 namespace sculptcore::subdiv {
 
 /** One resident (materialized) level: the mesh + its spatial tree. Owned by
@@ -126,6 +130,14 @@ struct Multires {
    * × 4 sides in GridSideType order; -1 = boundary). The bound caller feeds
    * this to VdmStore::configurePtex — vdm and subdiv stay decoupled. */
   void vdmAdjacencyOut(litestl::util::Vector<int> &out);
+
+  /** Geometry→VDM capture (X4 stage 2): transfer this level's grids-store
+   * displacement into `vstore`'s Ptex texels (bilinear over the disp lattice,
+   * ADDED onto existing texels — same frame space: both are frameᵀ·(pos−base)
+   * with frames on the smoothed base), zero the disp, and drop the level's
+   * surface onto the smooth base (materialized mesh + baseline updated,
+   * finer levels invalidated, skirts synced). Returns texels written. */
+  int captureDetailToVdm(int level, vdm::VdmStore &vstore);
 
   /* X3 export seam: the level's CSR stencil (maps level-1 → level) as
    * marshal-safe out-params. The TS-device SpMV uploads these VERBATIM —

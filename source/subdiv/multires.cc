@@ -1,5 +1,7 @@
 #include "multires.h"
 
+#include "vdm/vdm_store.h"
+
 #include "displace/frames.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_proxy.h"
@@ -372,6 +374,92 @@ void Multires::storeDispFromPositions(int level,
     }
   }
   alloc::Delete(tm);
+}
+
+int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
+{
+  if (level < 1 || level > int(refiner.levels.size()) ||
+      vstore.params.backend != vdm::VdmBackend::PTEX)
+  {
+    return 0;
+  }
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  int S = lvl.gridSide, w = S + 1;
+
+  // The smoothed base this level's disp is relative to (writeback's twin).
+  Vector<float3> cageCo, base;
+  const Vector<float3> *prev;
+  if (level == 1) {
+    gatherVertCo(*cage_, cageCo);
+    prev = &cageCo;
+  } else {
+    ensureChain(level - 1);
+    prev = &posCache_[level - 2].pos;
+  }
+  lvl.stencil.eval(*prev, base);
+
+  int texels = 0;
+  for (int g = 0; g < store.gridCount(); g++) {
+    int R = vstore.gridRes(g);
+    if (R <= 0) {
+      continue;
+    }
+    for (int y = 0; y < R; y++) {
+      float pv = (float(y) + 0.5f) / float(R) * float(S);
+      int cv = int(pv);
+      cv = cv > S - 1 ? S - 1 : cv;
+      float fv = pv - float(cv);
+      for (int x = 0; x < R; x++) {
+        float pu = (float(x) + 0.5f) / float(R) * float(S);
+        int cu = int(pu);
+        cu = cu > S - 1 ? S - 1 : cu;
+        float fu = pu - float(cu);
+        const float *d00 = store.elem(level, 0, g, cu, cv);
+        const float *d10 = store.elem(level, 0, g, cu + 1, cv);
+        const float *d01 = store.elem(level, 0, g, cu, cv + 1);
+        const float *d11 = store.elem(level, 0, g, cu + 1, cv + 1);
+        float3 D;
+        for (int k = 0; k < 3; k++) {
+          D[k] = (d00[k] * (1.0f - fu) + d10[k] * fu) * (1.0f - fv) +
+                 (d01[k] * (1.0f - fu) + d11[k] * fu) * fv;
+        }
+        if (D.length() < 1e-12f) {
+          continue; // keep tile sparsity: untouched regions allocate nothing
+        }
+        float3 cur = vstore.texelP(g, x, y);
+        vstore.writeTexelP(g, x, y, cur + D);
+        texels++;
+      }
+    }
+  }
+
+  // Zero the captured disp and drop the level onto the smooth base.
+  for (int g = 0; g < store.gridCount(); g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        float *d = store.elem(level, 0, g, u, v);
+        d[0] = d[1] = d[2] = 0.0f;
+      }
+    }
+  }
+  posCache_[level - 1].pos = base;
+  posCache_[level - 1].valid = true;
+  MultiresSlot *slot = findSlot(level);
+  if (slot && slot->mesh) {
+    for (int i = 0; i < int(base.size()); i++) {
+      slot->mesh->v.co[i] = base[i];
+    }
+    slot->mesh->recalc_normals();
+    displace::FrameProviderParams fparams;
+    displace::updateFramesAll(*slot->mesh, fparams);
+  }
+  invalidateAbove(level);
+
+  for (int g = 0; g < store.gridCount(); g++) {
+    vstore.syncGridSkirts(g);
+  }
+  vstore.updateBounds();
+  return texels;
 }
 
 int Multires::writeback(int level)

@@ -258,6 +258,9 @@ export class NativeManager {
   Multires_downRefit(mr: NativeBound, level: number): number {
     return this.addon.multiresDownRefit(mr, level)
   }
+  Multires_captureToVdm(mr: NativeBound, vstore: NativeBound, level: number): number {
+    return this.addon.multiresCaptureToVdm(mr, vstore, level)
+  }
   Multires_storeBlob(mr: NativeBound): Uint8Array {
     return this.addon.multiresSerializeStore(mr)
   }
@@ -494,6 +497,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Multires_activeTree              : (mr: NativeBound) => nm.Multires_activeTree(mr),
     Multires_writeback               : (mr: NativeBound, lv: number) => nm.Multires_writeback(mr, lv),
     Multires_downRefit               : (mr: NativeBound, lv: number) => nm.Multires_downRefit(mr, lv),
+    Multires_captureToVdm            : (mr: NativeBound, s: NativeBound, lv: number) => nm.Multires_captureToVdm(mr, s, lv),
     Multires_storeBlob               : (mr: NativeBound) => nm.Multires_storeBlob(mr),
     Multires_restoreStoreBlob        : (mr: NativeBound, b: Uint8Array) => nm.Multires_restoreStoreBlob(mr, b),
     SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>

@@ -99,6 +99,7 @@ void *Multires_activeTree(void *mr);
 int Multires_writeback(void *mr, int level);
 int Multires_downRefit(void *mr, int level);
 uint8_t *Multires_serializeStore(void *mr, int *out_size);
+int Multires_captureToVdm(void *mr, void *vstore, int level);
 int Multires_restoreStore(void *mr, const uint8_t *data, int size);
 }
 
@@ -2326,6 +2327,29 @@ napi_value NapiRuntime::MultiresSerializeStore(napi_env env, napi_callback_info 
   return out;
 }
 
+// multiresCaptureToVdm(mr, store, level) -> texels written. X4 geometry ->
+// VDM capture; caller owns undo snapshots + spatial refresh.
+napi_value NapiRuntime::MultiresCaptureToVdm(napi_env env, napi_callback_info info)
+{
+  size_t argc = 3;
+  napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_create_int32(env, 0, &out);
+  Wrapped *mw = nullptr, *sw = nullptr;
+  if (argc < 3 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok ||
+      napi_unwrap(env, argv[1], reinterpret_cast<void **>(&sw)) != napi_ok || !mw ||
+      !sw || !mw->ptr || !sw->ptr)
+  {
+    return out;
+  }
+  int32_t level = 0;
+  napi_get_value_int32(env, argv[2], &level);
+  int n = Multires_captureToVdm(mw->ptr, sw->ptr, level);
+  napi_create_int32(env, n, &out);
+  return out;
+}
+
 // multiresRestoreStore(mr, bytes) -> boolean. Replaces the grids store and
 // invalidates all levels; the caller re-sets the active level afterwards.
 napi_value NapiRuntime::MultiresRestoreStore(napi_env env, napi_callback_info info)
@@ -2963,6 +2987,7 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "multiresWriteback", &NapiRuntime::MultiresWriteback);
   define(exports, "multiresDownRefit", &NapiRuntime::MultiresDownRefit);
   define(exports, "multiresSerializeStore", &NapiRuntime::MultiresSerializeStore);
+  define(exports, "multiresCaptureToVdm", &NapiRuntime::MultiresCaptureToVdm);
   define(exports, "multiresRestoreStore", &NapiRuntime::MultiresRestoreStore);
   define(exports,
          "spatialTreeSetRequestedAttrs",

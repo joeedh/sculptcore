@@ -195,6 +195,8 @@ export interface NativeAddon {
   /** Least-squares refit of level−1 to `level`'s surface; returns changed level−1 verts. */
   multiresDownRefit(mr: NativeBound, level: number): number
   /** Grids-store blob (undo seam for down-refit / stack delete). */
+  /** Geometry -> VDM capture; returns texels written. */
+  multiresCaptureToVdm(mr: NativeBound, vstore: NativeBound, level: number): number
   multiresSerializeStore(mr: NativeBound): Uint8Array
   /** Replace the grids store from a blob; invalidates all levels (re-set the active level after). */
   multiresRestoreStore(mr: NativeBound, bytes: Uint8Array): boolean
