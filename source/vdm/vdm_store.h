@@ -111,6 +111,13 @@ struct VdmStore {
   {
     return tileCount_;
   }
+  /* Monotonic texel-content revision: bumps on every write, delta apply
+   * (undo/redo), and tile removal. Cheap change signal for cached consumers
+   * (the app's tessellated tier re-finalizes off it). */
+  int contentRev() const
+  {
+    return contentRev_;
+  }
 
   /* ---- texels (texel space; x = u·resolution) ---- */
   float3 texel(int x, int y) const; // zero when unallocated
@@ -246,6 +253,7 @@ private:
 
   util::Map<uint64_t, VdmTile *> tiles_;
   int tileCount_ = 0;
+  int contentRev_ = 0;
   VdmDelta *activeDelta_ = nullptr;
   int deltaGen_ = 0;
   util::Vector<int> gridRes_;   // PTEX: per-grid R_g ([g])

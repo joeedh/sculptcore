@@ -19,6 +19,7 @@ type double = number
 export interface VdmStore {
   [Symbol.dispose](): void
   tileCount(): int32
+  contentRev(): int32
   gpuLayoutOut(out: int32[]): int32
   gpuPageTableOut(out: int32[]): void
   gpuPtexTableOut(out: int32[]): void

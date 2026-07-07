@@ -101,6 +101,7 @@ VdmTile &VdmStore::ensureTile(int tx, int ty)
 
 void VdmStore::removeTile(uint64_t key)
 {
+  contentRev_++;
   VdmTile **slot = tiles_.lookup_ptr(key);
   if (!slot || !*slot) {
     return;
@@ -118,6 +119,7 @@ void VdmStore::removeTile(uint64_t key)
 
 void VdmStore::markGpuDirty(VdmTile *t)
 {
+  contentRev_++;
   if (t->gpuDirty) {
     return;
   }

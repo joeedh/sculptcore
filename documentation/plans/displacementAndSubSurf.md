@@ -680,6 +680,26 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     selection; NormalPass/AO substitution; SSS-MRT variant. (Pre-existing,
     unrelated: `sculptcore_brushes` symmetrize missBefore gate fails on
     this branch with and without 4a — triage separately.)
+  - **Stage 4b DONE — split caching + the preview toggle; X3 CLOSED.**
+    `VdmStore` gains a bound `contentRev()` (monotonic texel-content
+    revision: bumps on writes, delta applies — undo/redo — and tile
+    removals). The tess build is now split-cached: geometry edits re-run
+    the whole chain (`meshRevision`-keyed, as before), a texel-only change
+    re-runs JUST the finalize over the kept amplified position/frame
+    buffers (`_refinalizeTess` — no SpMV re-dispatch, no index rebuild), so
+    interactive VDM strokes update the displaced preview live. The panel
+    gains **Displaced Preview** (`object.data.tessellatedDisplay`, view
+    state) — the object-level render-path predicate. Gate: the tessvdm
+    driver splats a second dab AFTER the build and waits for the storeRev
+    catch-up (`refinalized`); `sculptcore_multires` 50/50, both bumps
+    visibly displace the silhouette (tessvdm-vs-tess 0.51). Re-scoped to
+    documented debts (multires.md): per-FACE carrier mixing is dormant
+    (promotion is gated off on topo-locked level meshes → carrier tags are
+    uniformly VDM until X4 demotion); NormalPass/AO substitution folds into
+    the pre-existing LiteMesh-wide NormalPass skip (M6 "no SSAO" note);
+    SSS-MRT turns out latently broken for ALL LiteMesh draws (the batch
+    executor is seeded single-target and `setColorFormats` cannot grow it)
+    — repairing SSS+LiteMesh (batch + tess) is its own work item, not X3's.
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM
   demotion (explicit op), external VDM export (frame-synchronized).
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).

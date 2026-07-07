@@ -207,6 +207,7 @@ litestl::binding::types::Struct<VdmStore> *VdmStore::defineBindings()
   types::Struct<VdmStore> *st =
       new types::Struct<VdmStore>("sculptcore::vdm::VdmStore", sizeof(VdmStore));
   BIND_STRUCT_METHOD(st, tileCount, MARGS());
+  BIND_STRUCT_METHOD(st, contentRev, MARGS());
   BIND_STRUCT_METHOD(st, gpuLayoutOut, MARGS("out"));
   BIND_STRUCT_METHOD(st, gpuPageTableOut, MARGS("out"));
   BIND_STRUCT_METHOD(st, gpuPtexTableOut, MARGS("out"));
