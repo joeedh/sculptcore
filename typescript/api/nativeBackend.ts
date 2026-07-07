@@ -115,6 +115,48 @@ export interface NativeAddon {
   ): number
   /** texelsClamped of the most recent meshVdmSplatDab (X1 add-a-level prompt signal). */
   vdmLastSplatClamped(): number
+  /** Logged splat: the tile-delta rides `meshLog`'s open step as a VdmLogChunk. */
+  meshVdmSplatDabLogged(
+    mesh: NativeBound,
+    tree: NativeBound,
+    store: NativeBound,
+    meshLog: NativeBound,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    strength: number,
+    alpha: number,
+    invert: number
+  ): number
+  /** VdmStore v2 blob, or undefined on failure. */
+  vdmStoreSerialize(store: NativeBound): Uint8Array | undefined
+  /** Rebuild a store from a vdmStoreSerialize blob; undefined on parse failure. */
+  vdmStoreDeserialize(bytes: Uint8Array): NativeBound | undefined
+  /** Logged splat: the tile-delta rides `meshLog`'s open step as a VdmLogChunk. */
+  meshVdmSplatDabLogged(
+    mesh: NativeBound,
+    tree: NativeBound,
+    store: NativeBound,
+    meshLog: NativeBound,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    strength: number,
+    alpha: number,
+    invert: number
+  ): number
+  /** VdmStore v2 blob, or undefined on failure. */
+  vdmStoreSerialize(store: NativeBound): Uint8Array | undefined
+  /** Rebuild a store from a vdmStoreSerialize blob; undefined on parse failure. */
+  vdmStoreDeserialize(bytes: Uint8Array): NativeBound | undefined
   /** Tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
   spatialTreeFillDetailCarrier(tree: NativeBound, carrier: number): void
   /** Recompute vertex normals + the F3 frames — the splatter's prerequisite. */

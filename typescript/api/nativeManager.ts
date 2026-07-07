@@ -183,6 +183,32 @@ export class NativeManager {
   Vdm_lastSplatClamped(): number {
     return this.addon.vdmLastSplatClamped()
   }
+  Mesh_vdmSplatDabLogged(
+    mesh: NativeBound,
+    tree: NativeBound,
+    store: NativeBound,
+    meshLog: NativeBound,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    strength: number,
+    alpha: number,
+    invert: number
+  ): number {
+    return this.addon.meshVdmSplatDabLogged(
+      mesh, tree, store, meshLog, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert
+    )
+  }
+  VdmStore_serializeBlob(store: NativeBound): Uint8Array {
+    return this.addon.vdmStoreSerialize(store) ?? new Uint8Array()
+  }
+  VdmStore_deserializeBlob(bytes: Uint8Array): NativeBound | undefined {
+    return this.addon.vdmStoreDeserialize(bytes)
+  }
   SpatialTree_fillDetailCarrier(tree: NativeBound, carrier: number): void {
     this.addon.spatialTreeFillDetailCarrier(tree, carrier)
   }
@@ -429,6 +455,24 @@ export function makeNativeInterface(nm: NativeManager): unknown {
       invert: number
     ) => nm.Mesh_vdmSplatDab(m, t, s, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert),
     Vdm_lastSplatClamped             : () => nm.Vdm_lastSplatClamped(),
+    Mesh_vdmSplatDabLogged: (
+      m: NativeBound,
+      t: NativeBound,
+      s: NativeBound,
+      log: NativeBound,
+      cx: number,
+      cy: number,
+      cz: number,
+      nx: number,
+      ny: number,
+      nz: number,
+      radius: number,
+      strength: number,
+      alpha: number,
+      invert: number
+    ) => nm.Mesh_vdmSplatDabLogged(m, t, s, log, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert),
+    VdmStore_serializeBlob           : (s: NativeBound) => nm.VdmStore_serializeBlob(s),
+    VdmStore_deserializeBlob         : (b: Uint8Array) => nm.VdmStore_deserializeBlob(b),
     SpatialTree_fillDetailCarrier    : (t: NativeBound, c: number) => nm.SpatialTree_fillDetailCarrier(t, c),
     Mesh_updateFrames                : (m: NativeBound) => nm.Mesh_updateFrames(m),
     Mesh_layerSetWeight              : (m: NativeBound, li: number, w: number) => nm.Mesh_layerSetWeight(m, li, w),

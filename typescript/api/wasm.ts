@@ -79,6 +79,27 @@ interface IWasmMethods extends IWasmBase {
   ): int
   /** texelsClamped of the most recent Mesh_vdmSplatDab (the X1 add-a-level prompt signal). */
   Vdm_lastSplatClamped(): int
+  /** logged splat: the tile-delta rides `meshLog`'s open MeshLog step as a VdmLogChunk. */
+  Mesh_vdmSplatDabLogged(
+    mesh: Mesh,
+    tree: SpatialTree,
+    store: VdmStore,
+    meshLog: SculptHandle,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    strength: number,
+    alpha: number,
+    invert: int
+  ): int
+  /** raw store serialize (v2 container): malloc'd blob + byte count to `outSizePtr`; wrapped by `VdmStore_serializeBlob`. */
+  VdmStore_serialize(store: pointer, outSizePtr: pointer): pointer
+  /** raw store rebuild from a blob; wrapped by `VdmStore_deserializeBlob`. */
+  VdmStore_deserialize(dataPtr: pointer, size: int): pointer
   /** tag every live face's `.detail.carrier` (0 = GEOM, 1 = VDM). */
   SpatialTree_fillDetailCarrier(tree: SpatialTree, carrier: int): void
   /** recompute vertex normals + the F3 frames — required before splatting. */
@@ -286,6 +307,32 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * topology); invalidates every level — re-set the active level after.
    * Returns success. */
   Multires_restoreStoreBlob(mr: Multires, bytes: Uint8Array): boolean
+
+  /** The interactive VDM splat: like `Mesh_vdmSplatDab`, but the tile-delta is
+   * appended to `meshLog`'s OPEN step as a VdmLogChunk, so the stroke's undo
+   * press reverts the dab's texels. Returns texels touched. */
+  Mesh_vdmSplatDabLogged(
+    mesh: Mesh,
+    tree: SpatialTree,
+    store: VdmStore,
+    meshLog: SculptHandle,
+    cx: number,
+    cy: number,
+    cz: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    radius: number,
+    strength: number,
+    alpha: number,
+    invert: int
+  ): int
+  /** VdmStore blob (v2 container; params + Ptex tables ride it). Undo seam for
+   * the app's store-delete op. Empty result = failure. */
+  VdmStore_serializeBlob(store: VdmStore): Uint8Array
+  /** Rebuild a store from a `VdmStore_serializeBlob` blob (fresh handle the
+   * caller owns; free with `VdmStore_free`). */
+  VdmStore_deserializeBlob(bytes: Uint8Array): VdmStore | undefined
   /**
    * Free a mesh handle (allocator-correct: routes to the C++ `alloc::Delete`
    * disposer). Do NOT free meshes via `[Symbol.dispose]` — that path is absent
@@ -601,6 +648,52 @@ export async function loadWasm(): Promise<IWasmInterface> {
         alpha,
         invert
       )
+    },
+    Mesh_vdmSplatDabLogged(
+      mesh: Mesh,
+      tree: SpatialTree,
+      store: VdmStore,
+      meshLog: SculptHandle,
+      cx: number,
+      cy: number,
+      cz: number,
+      nx: number,
+      ny: number,
+      nz: number,
+      radius: number,
+      strength: number,
+      alpha: number,
+      invert: int
+    ): int {
+      return _wasm.Mesh_vdmSplatDabLogged(
+        (mesh as unknown as {ptr: number}).ptr as unknown as Mesh,
+        (tree as unknown as {ptr: number}).ptr as unknown as SpatialTree,
+        (store as unknown as {ptr: number}).ptr as unknown as VdmStore,
+        (meshLog as unknown as {ptr: number}).ptr as unknown as SculptHandle,
+        cx,
+        cy,
+        cz,
+        nx,
+        ny,
+        nz,
+        radius,
+        strength,
+        alpha,
+        invert
+      )
+    },
+    VdmStore_serializeBlob(store: VdmStore): Uint8Array {
+      return serializeMeshHeap((store as unknown as {ptr: number}).ptr, _wasm.VdmStore_serialize)
+    },
+    VdmStore_deserializeBlob(bytes: Uint8Array): VdmStore | undefined {
+      const dataPtr = _wasm._rawAlloc(bytes.length)
+      try {
+        _wasm.HEAPU8.set(bytes, dataPtr)
+        const ptr = _wasm.VdmStore_deserialize(dataPtr, bytes.length) as unknown as number
+        return ptr ? (manager.getBoundPointer('sculptcore::vdm::VdmStore', ptr) as VdmStore) : undefined
+      } finally {
+        _wasm._rawRelease(dataPtr)
+      }
     },
     SpatialTree_fillDetailCarrier(tree: SpatialTree, carrier: int) {
       const treePtr = (tree as unknown as {ptr: number}).ptr

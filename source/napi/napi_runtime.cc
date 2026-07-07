@@ -73,6 +73,12 @@ void VdmStore_free(void *store);
 int Mesh_vdmSplatDab(void *mesh, void *tree, void *store, float cx, float cy,
                      float cz, float nx, float ny, float nz, float radius,
                      float strength, float alpha, int invert);
+int Mesh_vdmSplatDabLogged(void *mesh, void *tree, void *store, void *log,
+                           float cx, float cy, float cz, float nx, float ny,
+                           float nz, float radius, float strength, float alpha,
+                           int invert);
+uint8_t *VdmStore_serialize(void *store, int *out_size);
+void *VdmStore_deserialize(const uint8_t *data, int size);
 int Vdm_lastSplatClamped();
 void SpatialTree_fillDetailCarrier(void *tree, int carrier);
 void Mesh_updateFrames(void *mesh);
@@ -1877,6 +1883,111 @@ napi_value NapiRuntime::MeshVdmSplatDab(napi_env env, napi_callback_info info)
   return out;
 }
 
+// meshVdmSplatDabLogged(mesh, tree, store, meshLog, cx,cy,cz, nx,ny,nz,
+// radius, strength, alpha, invert) -> texels touched. The interactive splat:
+// the store delta rides `meshLog`'s open step as a VdmLogChunk.
+napi_value NapiRuntime::MeshVdmSplatDabLogged(napi_env env, napi_callback_info info)
+{
+  size_t argc = 14;
+  napi_value argv[14];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_create_int32(env, 0, &out);
+  Wrapped *mw = nullptr, *tw = nullptr, *sw = nullptr, *lw = nullptr;
+  if (argc < 14 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) != napi_ok ||
+      napi_unwrap(env, argv[1], reinterpret_cast<void **>(&tw)) != napi_ok ||
+      napi_unwrap(env, argv[2], reinterpret_cast<void **>(&sw)) != napi_ok ||
+      napi_unwrap(env, argv[3], reinterpret_cast<void **>(&lw)) != napi_ok || !mw ||
+      !tw || !sw || !lw || !mw->ptr || !tw->ptr || !sw->ptr || !lw->ptr)
+  {
+    return out;
+  }
+  double f[9] = {};
+  for (int i = 0; i < 9; i++) {
+    napi_get_value_double(env, argv[4 + i], &f[i]);
+  }
+  int32_t invert = 0;
+  napi_get_value_int32(env, argv[13], &invert);
+  int n = Mesh_vdmSplatDabLogged(mw->ptr, tw->ptr, sw->ptr, lw->ptr, float(f[0]),
+                                 float(f[1]), float(f[2]), float(f[3]), float(f[4]),
+                                 float(f[5]), float(f[6]), float(f[7]), float(f[8]),
+                                 invert);
+  napi_create_int32(env, n, &out);
+  return out;
+}
+
+// vdmStoreSerialize(store) -> Uint8Array | undefined (v2 store container).
+napi_value NapiRuntime::VdmStoreSerialize(napi_env env, napi_callback_info info)
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+  Wrapped *w = nullptr;
+  if (argc < 1 || napi_unwrap(env, argv[0], reinterpret_cast<void **>(&w)) != napi_ok ||
+      !w || !w->ptr)
+  {
+    return out;
+  }
+  int size = 0;
+  uint8_t *buf = VdmStore_serialize(w->ptr, &size);
+  if (!buf) {
+    return out;
+  }
+  if (size <= 0) {
+    freeMeshBuffer(buf);
+    return out;
+  }
+  napi_value ab;
+  void *abData = nullptr;
+  napi_create_arraybuffer(env, static_cast<size_t>(size), &abData, &ab);
+  if (abData)
+    std::memcpy(abData, buf, static_cast<size_t>(size));
+  freeMeshBuffer(buf);
+  napi_create_typedarray(env, napi_uint8_array, static_cast<size_t>(size), ab, 0, &out);
+  return out;
+}
+
+// vdmStoreDeserialize(bytes) -> bound VdmStore wrapper | undefined. Params
+// (backend/tile size/resolution/Ptex tables) all ride the blob.
+napi_value NapiRuntime::VdmStoreDeserialize(napi_env env, napi_callback_info info)
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+  napi_value out;
+  napi_get_undefined(env, &out);
+  void *bytes = nullptr;
+  size_t byteLen = 0;
+  bool isTa = false;
+  if (argc >= 1) {
+    napi_is_typedarray(env, argv[0], &isTa);
+  }
+  if (isTa) {
+    napi_typedarray_type t;
+    napi_value ab;
+    size_t off = 0;
+    napi_get_typedarray_info(env, argv[0], &t, &byteLen, &bytes, &ab, &off);
+  }
+  if (!bytes || byteLen == 0) {
+    return out;
+  }
+  void *store =
+      VdmStore_deserialize(static_cast<const uint8_t *>(bytes), static_cast<int>(byteLen));
+  const binding::BindingBase *st = rt->lookup("sculptcore::vdm::VdmStore");
+  if (!store || !st || st->type != BindingType::Struct) {
+    if (store) {
+      VdmStore_free(store);
+    }
+    return out;
+  }
+  return rt->instantiate(
+      static_cast<const types::_StructBase *>(st), store, /*owning=*/false);
+}
+
 // vdmLastSplatClamped() -> texelsClamped of this thread's most recent
 // meshVdmSplatDab (the X1 add-a-level prompt signal).
 napi_value NapiRuntime::VdmLastSplatClamped(napi_env env, napi_callback_info)
@@ -2771,6 +2882,9 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "vdmStoreNew", &NapiRuntime::VdmStoreNew);
   define(exports, "vdmStoreFree", &NapiRuntime::VdmStoreFree);
   define(exports, "meshVdmSplatDab", &NapiRuntime::MeshVdmSplatDab);
+  define(exports, "meshVdmSplatDabLogged", &NapiRuntime::MeshVdmSplatDabLogged);
+  define(exports, "vdmStoreSerialize", &NapiRuntime::VdmStoreSerialize);
+  define(exports, "vdmStoreDeserialize", &NapiRuntime::VdmStoreDeserialize);
   define(exports,
          "spatialTreeFillDetailCarrier",
          &NapiRuntime::SpatialTreeFillDetailCarrier);

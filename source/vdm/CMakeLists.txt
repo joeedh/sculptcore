@@ -30,7 +30,10 @@ wasm_add_symbols("
   VdmStore_new
   VdmStore_free
   Mesh_vdmSplatDab
+  Mesh_vdmSplatDabLogged
   Vdm_lastSplatClamped
+  VdmStore_serialize
+  VdmStore_deserialize
   SpatialTree_fillDetailCarrier
   Mesh_updateFrames
 ")

@@ -16,6 +16,9 @@
 #include <ostream>
 #include <sstream>
 
+#include <algorithm>
+#include <utility>
+
 namespace sculptcore::vdm {
 
 using litestl::alloc::Delete;
@@ -572,11 +575,19 @@ bool VdmStore::write(std::ostream &out)
       }
     }
     pbf.writeUint32(uint32_t(tileCount_));
+    // Canonical key order: map iteration reshuffles on delta remove+reinsert
+    // (undo/redo), and blobs double as determinism checksums + saved files.
+    util::Vector<std::pair<uint64_t, VdmTile *>> sorted;
     for (const auto &pair : tiles_) {
-      VdmTile *t = pair.value;
-      if (!t) {
-        continue;
+      if (pair.value) {
+        sorted.append({pair.key, pair.value});
       }
+    }
+    std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
+      return a.first < b.first;
+    });
+    for (const auto &kv : sorted) {
+      VdmTile *t = kv.second;
       pbf.writeInt32(t->grid);
       pbf.writeInt32(t->tx);
       pbf.writeInt32(t->ty);

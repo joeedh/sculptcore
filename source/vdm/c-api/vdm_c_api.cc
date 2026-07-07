@@ -1,10 +1,15 @@
 #include "displace/frames.h"
 #include "mesh/mesh.h"
+#include "meshlog/meshlog.h"
 #include "spatial/spatial.h"
 #include "vdm/vdm_splat.h"
 #include "vdm/vdm_store.h"
+#include "vdm/vdm_undo.h"
 
 #include "litestl/util/alloc.h"
+
+#include <cstring>
+#include <sstream>
 
 using namespace sculptcore;
 
@@ -97,5 +102,80 @@ int Mesh_vdmSplatDab(mesh::Mesh *m,
 int Vdm_lastSplatClamped()
 {
   return g_lastSplatClamped;
+}
+
+/* The interactive splat: brackets the dab in a store tile-delta and appends a
+ * VdmLogChunk to `log`'s OPEN step, so the stroke's single undo press reverts
+ * the dab's texels (self-inverse delta; GPU-dirty marks ride applyDelta). */
+int Mesh_vdmSplatDabLogged(mesh::Mesh *m,
+                           spatial::SpatialTree *tree,
+                           vdm::VdmStore *store,
+                           meshlog::MeshLog *log,
+                           float cx,
+                           float cy,
+                           float cz,
+                           float nx,
+                           float ny,
+                           float nz,
+                           float radius,
+                           float strength,
+                           float alpha,
+                           int invert)
+{
+  if (!m || !tree || !store) {
+    g_lastSplatClamped = 0;
+    return 0;
+  }
+  store->beginDelta();
+  int n = Mesh_vdmSplatDab(m, tree, store, cx, cy, cz, nx, ny, nz, radius, strength,
+                           alpha, invert);
+  vdm::VdmDelta *delta = store->endDelta();
+  if (delta) {
+    if (log) {
+      auto *chunk = litestl::alloc::New<vdm::VdmLogChunk>(
+          "VdmLogChunk", store, std::move(*delta));
+      log->appendChunk(chunk);
+    }
+    litestl::alloc::Delete(delta);
+  }
+  return n;
+}
+
+/* Serialize the store (v2 container) into a freshly-allocated buffer
+ * (*out_size = byte count; free with freeMeshBuffer). Undo seam for the
+ * app's store-delete op. */
+uint8_t *VdmStore_serialize(vdm::VdmStore *store, int *out_size)
+{
+  *out_size = 0;
+  if (!store) {
+    return nullptr;
+  }
+  std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+  if (!store->write(ss)) {
+    return nullptr;
+  }
+  std::string s = ss.str();
+  uint8_t *buf = static_cast<uint8_t *>(litestl::alloc::alloc("vdm store buffer", s.size()));
+  std::memcpy(buf, s.data(), s.size());
+  *out_size = int(s.size());
+  return buf;
+}
+
+/* Rebuild a store from a VdmStore_serialize blob (params — backend, tile
+ * size, resolution, Ptex grid table + adjacency — all ride the v2 payload).
+ * Returns nullptr on parse failure. */
+vdm::VdmStore *VdmStore_deserialize(const uint8_t *data, int size)
+{
+  if (!data || size <= 0) {
+    return nullptr;
+  }
+  std::string s(reinterpret_cast<const char *>(data), size_t(size));
+  std::stringstream ss(s, std::ios::in | std::ios::out | std::ios::binary);
+  vdm::VdmStore *store = litestl::alloc::New<vdm::VdmStore>("VdmStore");
+  if (!store->read(ss)) {
+    litestl::alloc::Delete(store);
+    return nullptr;
+  }
+  return store;
 }
 }

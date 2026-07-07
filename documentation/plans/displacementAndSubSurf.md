@@ -651,6 +651,35 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     channels amplified from the edit level (not the finest-authored frames),
     one-sided normals at grid borders, NormalPass/AO coarse fallback, no
     SSS-MRT variant.
+  - **Stage 4a DONE — the interactive VDM app pass** (deferred from X1/X2).
+    Engine: `Mesh_vdmSplatDabLogged` (the splat delta-bracket from the debug
+    verb as a C-API — beginDelta → splat → endDelta → `VdmLogChunk` appended
+    to the OPEN MeshLog step) + `VdmStore_serialize/deserialize` blob pair
+    (v2 container; params + Ptex tables ride the blob), all napi-wrapped +
+    4-place TS-threaded; `VdmStore::write` now emits tiles in **canonical
+    key order** (map iteration reshuffles on delta remove+reinsert, which
+    made undo/redo blobs checksum-differ; blobs double as determinism
+    anchors + future save files). App: feature flag `sculptcore.vdm_sculpt`
+    (default off) gating a LiteMesh panel (Enable/Delete VDM) + the undoable
+    `litemesh.vdm_{enable,delete}` ops — enable builds a Ptex store from the
+    multires stack's S2 adjacency (atlas over an existing unwrap otherwise);
+    **lifecycle undo RELEASES the store instance instead of freeing it**
+    (stroke history holds non-owning VdmLogChunk pointers, so the same
+    instance must return on undo/redo; freed-store replay would crash).
+    Dab routing: with a store attached, Draw dabs in BOTH the interactive op
+    and `runSculptcoreStroke` splat texels (no vertex moves, GPU-brush path
+    naturally skipped since DRAW has no kernel) with the engine-default
+    fold clamp α=0.5; `Vdm_lastSplatClamped` surfaces the once-per-stroke
+    add-a-level note. Gate: `sculptcore_multires` **49/49** — new
+    interactive describe proves texels splat + vertices hold bit-still,
+    stroke undo/redo round-trips the store blob exactly, delete+toolstack
+    undo restores it intact, and tile counts + blob FNV checksums are
+    identical wasm↔native. Known 4a leftovers → 4b: a splat does not bump
+    meshRevision, so a tessellated display won't re-finalize until the next
+    geometry edit (fold into the caching work); per-region carrier
+    selection; NormalPass/AO substitution; SSS-MRT variant. (Pre-existing,
+    unrelated: `sculptcore_brushes` symmetrize missBefore gate fails on
+    this branch with and without 4a — triage separately.)
 - **X4 — Cross-carrier bakes**: VDM→vertex-layer extraction, geometry→VDM
   demotion (explicit op), external VDM export (frame-synchronized).
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).
