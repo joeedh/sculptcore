@@ -7,15 +7,21 @@ gates). Companion design docs:
 [`../dyntopo-vdm-region-hybrid.md`](../dyntopo-vdm-region-hybrid.md),
 [`../tangent-displacement-issues.md`](../tangent-displacement-issues.md).
 
-## Status (2026-07-03)
+## Status (2026-07-07): PLAN COMPLETE
 
-**Workstream F merged to master** (branch `displacement-subsurf-f`, torn
-down). **Both engine tracks are complete and unified on this branch**: the
-S track (S1–S5, engine work done on `subsurf`) was pulled in by rebasing
-`displacement` onto the pushed `subsurf` branch, so the V commits sit on top
-of S1–S5. **WORKSTREAM V IS COMPLETE (V1–V5)** and the **S app-wiring pass
-is DONE** (below); next is workstream X (S's production draw integration
-with V's tier rides X3):
+All workstreams shipped and merged to master: **F** (frames, F1–F3 + the
+transcendental-free parity fix), **V** (VDM carrier, V1–V5), **S** (multires
+subsurf, S1–S5 + app wiring), and **X** (X1 VDM-on-multires, X2 Ptex
+backend, X3 tessellated render tier incl. interactive VDM sculpting, X4
+cross-carrier bakes + `.wproj` persistence, X5 compressed store eviction).
+Remaining debts are documented in `documentation/multires.md` (external
+interchange export, per-face carrier mixing dormant until demotion,
+LiteMesh-wide NormalPass/SSS-MRT gaps) and in the X-entries below. The two
+`CLAUDENOTE` comments left in the tree live in `source/litestl` (the old
+heap-canary diagnostics, a different submodule/effort — converting them
+means advancing litestl's default branch, which needs sign-off).
+
+The per-workstream log (historical, newest last within each track):
 
 - **X1 done (VDM on multires).** Engine: `Multires::materialize` synthesizes
   per-grid **chart UVs** on level meshes (`assignGridUVs`: ⌈√G⌉-per-row atlas

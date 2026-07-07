@@ -66,13 +66,37 @@ materialized level mesh, Ptex-style per-cage-corner grid tables, and a cached
 the multires data carrier: per-quadrant grids of per-level frame-relative
 displacement + custom float channels, implicit topology (4 transpose seam
 links, O(1) `neighbor()`, `seamMates()` replica enumeration), whole-grid
-chunking with offset-table-headed lz4 serialization (disk-pageable later).
+chunking with offset-table-headed lz4 serialization, and compressed level
+eviction (X5: `evictLevel` lz4s a level's chunks per channel; `elem()`
+self-heals; `Multires::storeBudgetBytes` drives the finest-first policy).
 `multires.cc/.h` — `Multires`: materializes the active level's `mesh::Mesh` +
 `SpatialTree` from the stencil chain + stored displacement (F3 frames on the
 smoothed base), LRU-cached with eviction; `writeback()` re-expresses edits as
-store deltas, skipping bit-identical verts so edit-free switches are lossless.
+store deltas, skipping bit-identical verts so edit-free switches are lossless;
+`downRefit()` (CG least-squares level fit), `captureDetailToVdm()` (X4:
+grids disp -> Ptex VDM texels), grid-chart UV synthesis (`assignGridUVs`) and
+the X3 stencil/topology export seam for the app's GPU-amplified render tier.
 Stencil rows evaluate as an fma chain (std::fma), bit-shared with the S5 GPU
 SpMV (`source/webgpu/wgpu_stencil.{h,cc}`). Displacement plan S1–S5; see
+`documentation/plans/displacementAndSubSurf.md`.
+
+### `source/vdm/` — vector-displacement carrier (displacement track V/X)
+
+`vdm_store.cc/.h` — `VdmStore`: sparse tiled float3 texel store behind one
+`sample(face, u, v)` seam with two backends (`VdmStoreParams.backend`): UV
+**atlas** and **Ptex** (per-grid `R_g x R_g` lattices with one-texel guard
+rings copied through the grids' transpose adjacency — `syncGridSkirts`);
+tile-delta undo bracket (`beginDelta`/`endDelta`, self-inverse swaps),
+canonical-key-order v2 serialization, GPU residency packing (stable atlas
+slots, page/Ptex-offset tables, dirty-slot drain). `vdm_splat.cc/.h` — the
+brush splatter: per-face UV rasterization, world falloff from the displaced
+point, tangent inversion through the F3 frame, fold-bound clamp
+(`alpha * rho_min`). `vdm_bake.cc/.h` — X4 cross-carrier bakes:
+`applyToVerts` (VDM -> geometry, bake = render). `vdm_promote.cc/.h` — V4
+fold/overhang promotion to real geometry. `vdm_undo.h` — `VdmLogChunk` /
+`VdmEdgeFlagLogChunk` MeshLog chunks. C API: `c-api/vdm_c_api.cc` (raw +
+logged splats, apply, store blobs incl. in-place restore). Design:
+`documentation/final-displacement-architecture.md`; plan:
 `documentation/plans/displacementAndSubSurf.md`.
 
 ### `source/meshlog/` — sculpt undo/redo log
