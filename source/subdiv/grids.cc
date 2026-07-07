@@ -69,6 +69,9 @@ float *GridsStore::elem(int level, int channel, int grid, int u, int v)
 {
   Channel &ch = channels_[channel];
   LevelData &ld = ch.levels[level - 1];
+  if (ld.evicted.size()) {
+    rehydrate(ch, ld, level); // X5: transparent rehydration on first touch
+  }
   int w = sideForLevel(level) + 1;
   int local = grid % ld.gridsPerChunk;
   size_t idx = (size_t(local) * w * w + size_t(v) * w + u) * ch.floatsPerElem;
@@ -267,8 +270,121 @@ void GridsStore::seamMates(int level, const GridCoord &c, Vector<GridCoord> &out
  *   offset table, per (channel, level): u32 gridsPerChunk; u32 chunkCount;
  *     per chunk: u32 byteOffset (into the data section); u32 floatCount
  *   data section: chunk float payloads in (channel, level, chunk) order */
+void GridsStore::evictLevel(int level)
+{
+  if (level < 1 || level > levelCount_) {
+    return;
+  }
+  for (Channel &ch : channels_) {
+    LevelData &ld = ch.levels[level - 1];
+    if (ld.evicted.size() || !ld.chunks.size()) {
+      continue;
+    }
+    size_t total = 0;
+    for (Vector<float> &c : ld.chunks) {
+      total += c.size();
+    }
+    Vector<float> raw;
+    raw.resize(total);
+    size_t off = 0;
+    for (Vector<float> &c : ld.chunks) {
+      std::memcpy(raw.data() + off, c.data(), c.size() * sizeof(float));
+      off += c.size();
+    }
+    Vector<uint8_t> comp;
+    size_t compSize =
+        io::compressBlock(raw.data(), total * sizeof(float), comp);
+    if (compSize == 0) {
+      continue; // compression failed: stay resident (never lose data)
+    }
+    ld.evicted = std::move(comp);
+    ld.rawFloats = total;
+    ld.chunks = Vector<Vector<float>>();
+  }
+}
+
+void GridsStore::rehydrate(Channel &ch, LevelData &ld, int level)
+{
+  Vector<uint8_t> raw;
+  bool ok = io::decompressBlock(
+      ld.evicted.data(), ld.evicted.size(), ld.rawFloats * sizeof(float), raw);
+  Assert(ok, "grids eviction blob decompresses");
+  if (!ok) {
+    return;
+  }
+  /* Chunk geometry is deterministic — mirror allocLevel's sizing. */
+  int w = sideForLevel(level) + 1;
+  int gridFloats = w * w * ch.floatsPerElem;
+  const float *src = reinterpret_cast<const float *>(raw.data());
+  size_t off = 0;
+  for (int g0 = 0; g0 < gridCount_; g0 += ld.gridsPerChunk) {
+    int grids = gridCount_ - g0 < ld.gridsPerChunk ? gridCount_ - g0 : ld.gridsPerChunk;
+    Vector<float> chunk;
+    chunk.resize(size_t(grids) * gridFloats);
+    std::memcpy(chunk.data(), src + off, chunk.size() * sizeof(float));
+    off += chunk.size();
+    ld.chunks.append(std::move(chunk));
+  }
+  ld.evicted = Vector<uint8_t>();
+  ld.rawFloats = 0;
+}
+
+void GridsStore::ensureLevelResident(int level)
+{
+  if (level < 1 || level > levelCount_) {
+    return;
+  }
+  for (Channel &ch : channels_) {
+    LevelData &ld = ch.levels[level - 1];
+    if (ld.evicted.size()) {
+      rehydrate(ch, ld, level);
+    }
+  }
+}
+
+bool GridsStore::levelResident(int level) const
+{
+  if (level < 1 || level > levelCount_) {
+    return true;
+  }
+  for (const Channel &ch : channels_) {
+    if (ch.levels[level - 1].evicted.size()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+size_t GridsStore::residentBytes() const
+{
+  size_t n = 0;
+  for (const Channel &ch : channels_) {
+    for (const LevelData &ld : ch.levels) {
+      for (const Vector<float> &c : ld.chunks) {
+        n += c.size() * sizeof(float);
+      }
+    }
+  }
+  return n;
+}
+
+size_t GridsStore::evictedBytes() const
+{
+  size_t n = 0;
+  for (const Channel &ch : channels_) {
+    for (const LevelData &ld : ch.levels) {
+      n += ld.evicted.size();
+    }
+  }
+  return n;
+}
+
 bool GridsStore::write(std::ostream &out)
 {
+  /* The serializer walks raw chunks — rehydrate everything first. */
+  for (int l = 1; l <= levelCount_; l++) {
+    ensureLevelResident(l);
+  }
   std::stringstream ps(std::ios::in | std::ios::out | std::ios::binary);
   io::BinFile pbf(ps);
 

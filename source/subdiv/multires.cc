@@ -810,6 +810,7 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
       new types::Struct<Multires>("sculptcore::subdiv::Multires", sizeof(Multires));
   BIND_STRUCT_METHOD(st, maxLevel, MARGS());
   BIND_STRUCT_METHOD(st, activeLevel, MARGS());
+  BIND_STRUCT_METHOD(st, setStoreBudget, MARGS("bytes"));
   BIND_STRUCT_METHOD(st, vdmAdjacencyOut, MARGS("out"));
   BIND_STRUCT_METHOD(st, stencilMetaOut, MARGS("level", "out"));
   BIND_STRUCT_METHOD(st, stencilOffsetsOut, MARGS("level", "out"));
@@ -829,7 +830,25 @@ MultiresSlot *Multires::setActiveLevel(int level)
   /* Mark active BEFORE materializing so eviction protects the incoming level
    * (not the one being switched away from) when the budget is tight. */
   activeLevel_ = level;
-  return materialize(level);
+  MultiresSlot *slot = materialize(level);
+  enforceStoreBudget();
+  return slot;
+}
+
+void Multires::enforceStoreBudget()
+{
+  if (storeBudgetBytes == 0) {
+    return;
+  }
+  /* Finest-first (largest arrays, biggest win); never the active level. */
+  for (int l = int(refiner.levels.size());
+       l >= 1 && store.residentBytes() > storeBudgetBytes;
+       l--)
+  {
+    if (l != activeLevel_) {
+      store.evictLevel(l);
+    }
+  }
 }
 
 } // namespace sculptcore::subdiv

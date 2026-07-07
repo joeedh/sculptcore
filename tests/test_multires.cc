@@ -636,6 +636,71 @@ static void bench()
   }
 }
 
+/* X5: compressed level eviction — correctness through evict/rehydrate cycles
+ * (checksums vs an un-evicted control), serialize self-healing, and the
+ * budget policy (finest-first, never the active level). */
+/* X5: compressed level eviction. Single-instance: gateCube already proves
+ * invalidateAll + rematerialize is bit-stable WITHOUT eviction, so equality
+ * through evict/rehydrate cycles isolates eviction itself. (A twin-instance
+ * A/B was tried first and diverged even with eviction disabled - two
+ * Multires instances in one process are not bit-identical to each other,
+ * an address-order quirk outside X5's scope.) */
+static void gateStoreEviction()
+{
+  Mesh *cage = createCube(4, 1.0f);
+  Multires mr;
+  mr.init(*cage, 3);
+  injectDisp(mr);
+
+  MultiresSlot *slot = mr.setActiveLevel(3);
+  Vector<float3> p3, tmp;
+  snapshotCo(*slot->mesh, p3);
+  std::string blobBefore = storeBlob(mr.store);
+
+  size_t residentBefore = mr.store.residentBytes();
+  test_assert(residentBefore > 0);
+
+  /* Evict the coarse levels; full re-derivation reads every level's disp
+   * through elem() and must rehydrate to bit-identical positions. */
+  mr.store.evictLevel(1);
+  mr.store.evictLevel(2);
+  test_assert(!mr.store.levelResident(1));
+  test_assert(!mr.store.levelResident(2));
+  test_assert(mr.store.levelResident(3));
+  test_assert(mr.store.residentBytes() < residentBefore);
+  test_assert(mr.store.evictedBytes() > 0);
+
+  mr.invalidateAll();
+  slot = mr.setActiveLevel(3);
+  snapshotCo(*slot->mesh, tmp);
+  test_assert(sameBits(tmp, p3));
+
+  /* Evict the finest level too (while inactive), then come back to it. */
+  mr.setActiveLevel(1);
+  mr.store.evictLevel(3);
+  test_assert(!mr.store.levelResident(3));
+  slot = mr.setActiveLevel(3);
+  snapshotCo(*slot->mesh, tmp);
+  test_assert(sameBits(tmp, p3));
+
+  /* Serialization self-heals eviction and stays byte-identical. */
+  mr.store.evictLevel(1);
+  mr.store.evictLevel(2);
+  test_assert(storeBlob(mr.store) == blobBefore);
+
+  /* Budget policy: a tiny budget evicts finest-first, never the active. */
+  mr.setActiveLevel(1);
+  mr.storeBudgetBytes = 1;
+  mr.enforceStoreBudget();
+  test_assert(mr.store.levelResident(1));
+  test_assert(!mr.store.levelResident(3));
+
+  alloc::Delete(cage);
+  fprintf(stderr,
+          "store eviction (X5): evict/rehydrate bit-stable, serialize "
+          "self-heals, budget ok\n");
+}
+
 int main(int argc, char **argv)
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
@@ -651,6 +716,7 @@ int main(int argc, char **argv)
   gateGridUVs();
   gateSubsurfVdm();
   gatePtexSplat();
+  gateStoreEviction();
 
   /* Skip test_end(): attr name strings stay live in the alloc tracker
    * (mirrors the other spatial/mesh tests). */

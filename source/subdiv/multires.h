@@ -116,6 +116,18 @@ struct Multires {
    * level (plan: users toggle two levels constantly, so default 3). */
   int lruBudget = 3;
 
+  /** X5: grids-store raw-chunk budget in bytes (0 = off). Enforced after
+   * level switches + writebacks: non-active levels evict finest-first to
+   * lz4 blobs until under budget; readers rehydrate transparently through
+   * `GridsStore::elem`. */
+  size_t storeBudgetBytes = 0;
+  /** Bound setter (the generic binding has no size_t/uint64 param). */
+  void setStoreBudget(int bytes)
+  {
+    storeBudgetBytes = bytes > 0 ? size_t(bytes) : 0;
+  }
+  void enforceStoreBudget();
+
   /** Spatial-tree tuning applied when a level is materialized (0 = the
    * SpatialTree default). The app sets these to its draw-path values so
    * adopted level trees match app-built ones. */

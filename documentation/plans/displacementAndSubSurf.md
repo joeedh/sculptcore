@@ -768,6 +768,27 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     external interchange export (EXR for other DCCs) — the blob is
     app-internal; any exporter must match the splatter's frame convention.
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).
+  **DONE — compressed level eviction.** Design decision: "disk" is
+  compressed RAM, not files — `GridsStore::elem` is a synchronous hot seam
+  and wasm has no synchronous disk IO, so paging must be synchronous and
+  backend-agnostic; lz4-per-(channel,level) blobs deliver the memory relief
+  (a native mmap/spill pass can layer under the same seam later, unchanged).
+  `evictLevel` concatenates + compresses a level's chunks and frees them;
+  `elem()` self-heals with a cheap empty-vector branch (chunk geometry is
+  deterministic from (gridCount, level, floatsPerElem), so the blob needs
+  no layout header); `write()` rehydrates first; `residentBytes`/
+  `evictedBytes` report accounting. Policy: `Multires::storeBudgetBytes`
+  (0 = off; bound `setStoreBudget`) enforced after level switches —
+  finest-first, never the active level (`setActiveLevel` already marked
+  active before materializing for exactly this). Gate: `test_multires`
+  `gateStoreEviction` — evict/rehydrate cycles land bit-identical
+  positions through full re-derivation, serialization self-heals to
+  byte-identical blobs, budget policy honored; ctest + `sculptcore_multires`
+  61/61 unchanged. OBSERVED (out of scope, noted for the record): two
+  Multires instances in ONE process are not bit-identical to each other
+  even without eviction (an address-order fp quirk somewhere in
+  materialize/frames) — cross-BACKEND determinism gates are unaffected
+  (they compare first-instance sequences across processes).
 - Final step: strip remaining `CLAUDENOTE:` comments across all three
   workstreams; update `projectIndex.md`, root docs, and this plan's status.
 

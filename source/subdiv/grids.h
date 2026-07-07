@@ -143,10 +143,32 @@ struct GridsStore {
     return int(channels_[channel].levels[level - 1].chunks.size());
   }
 
+  /* ---- X5: compressed eviction (activates the chunked layout) ----
+   * A level's chunks can be evicted to one lz4 blob per channel and
+   * rehydrated transparently on the next elem() touch — synchronous and
+   * backend-agnostic (wasm has no synchronous disk IO; a native mmap/spill
+   * pass can layer under the same seam later). Chunk geometry is
+   * deterministic from (gridCount, level, floatsPerElem), so the blob needs
+   * no layout header. */
+  /** Compress + free every channel's chunks for `level` (no-op if already
+   * evicted). Safe for any level: readers self-heal through elem(). */
+  void evictLevel(int level);
+  /** Rehydrate `level` in every channel (no-op when resident). */
+  void ensureLevelResident(int level);
+  bool levelResident(int level) const;
+  /** Live (uncompressed) chunk bytes across all channels/levels. */
+  size_t residentBytes() const;
+  /** Compressed bytes held for evicted levels. */
+  size_t evictedBytes() const;
+
 private:
   struct LevelData {
     int gridsPerChunk = 1;
     litestl::util::Vector<litestl::util::Vector<float>> chunks;
+    /* X5: when non-empty, the level's chunks live here lz4-compressed and
+     * `chunks` is empty; rawFloats is the concatenated float count. */
+    litestl::util::Vector<uint8_t> evicted;
+    size_t rawFloats = 0;
   };
 
   struct Channel {
@@ -156,6 +178,7 @@ private:
   };
 
   void allocLevel(Channel &ch, int level);
+  void rehydrate(Channel &ch, LevelData &ld, int level);
 
   int gridCount_ = 0;
   int levelCount_ = 0;

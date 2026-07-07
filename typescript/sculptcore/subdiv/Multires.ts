@@ -20,6 +20,7 @@ export interface Multires {
   [Symbol.dispose](): void
   maxLevel(): int32
   activeLevel(): int32
+  setStoreBudget(bytes: int32): void
   vdmAdjacencyOut(out: int32[]): void
   stencilMetaOut(level: int32, out: int32[]): void
   stencilOffsetsOut(level: int32, out: int32[]): void
