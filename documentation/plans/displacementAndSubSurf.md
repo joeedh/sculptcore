@@ -749,6 +749,24 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
     base drop identical wasm↔native. Driver hardening: the tessvdm
     re-finalize wait gained a forced per-tick redraw + a 90 s window (the
     30 s race lost occasionally under full-suite boot load).
+  - **Stage 3 DONE — `.wproj` persistence; X4 CLOSED.** The multires stack
+    and the VDM store ride LiteMesh's nstructjs stream: `_data` now holds
+    the **cage** when a stack is attached (serializing the level view was
+    exactly the flatten-on-save debt), `_mrData` the grids-store blob
+    (writeback-folded at save), `_mrLevels`/`_mrActiveLevel` the shape,
+    `_vdmData` the VDM v2 blob (backend/params/Ptex tables self-contained).
+    Load = rebuild refinement from the cage + restore store + re-attach
+    level (the delete-undo pattern) + deserialize/re-attach the VDM store.
+    Gate: new `__vdmPersistTest` in-process nstructjs round-trip —
+    `sculptcore_multires` 61/61: stack depth/level survive, the cage and
+    VDM blob are BYTE-identical through the stream, active-level positions
+    rematerialize to 2.5e-7 (residual — the disp encoding's frameᵀ/frame
+    double-rounding, the same fp truth as the capture-undo gate), identical
+    cross-backend; autosave + parity + vdm/layers/brushes suites green
+    (95/95) — the cage-swap touches the autosave collector path, so its
+    round-trip gate ran too. Remaining X4 debt (documented in multires.md):
+    external interchange export (EXR for other DCCs) — the blob is
+    app-internal; any exporter must match the splatter's frame convention.
 - **X5 — Disk-backed grids store** (activate S2's layout: paging/eviction).
 - Final step: strip remaining `CLAUDENOTE:` comments across all three
   workstreams; update `projectIndex.md`, root docs, and this plan's status.
