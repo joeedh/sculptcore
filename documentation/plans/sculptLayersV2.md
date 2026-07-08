@@ -1,5 +1,25 @@
 # Sculpt layers V2 — the active layer is live geometry
 
+> **STATUS: COMPLETE (2026-07-08).** M1–M4 implemented and gated on both
+> backends (`test_sculpt_layers` V2 section, `test_multires`
+> `gateLayerChannels`, `sculptcore_layers` `__layerTargetTest`,
+> `sculptcore_multires` `__multiresLayerTest`; cross-backend checksums green).
+> One design deviation: the "fold math" as written below
+> (`d_active = co − base − Σ_{i≠active} wᵢdᵢ` with base *reconstructed* as
+> `co − Σ wᵢdᵢ`) is algebraically a no-op — the reconstruction includes the
+> stale active column and everything cancels. A fold needs an activation-time
+> reference, so `setActiveEditLayer` snapshots **rest = co − d** into a TEMP
+> `.slayer.rest` vertex column (meshlog-covered, interpolating, never
+> serialized) and the fold is the pure, idempotent `d = co − rest` — the
+> plain-mesh mirror of what multires already had (the materialized baseline
+> IS its rest). Every locked decision (weight pin, staleness model, fold
+> points, free stroke undo) is unchanged; settings mutations on other layers
+> mirror their co adjustment into the snapshot so derived deltas stay exact.
+> Post-V2 items left open: layer×VDM capture migration
+> (`captureDetailToVdm` refuses while layer channels contribute), plain↔level
+> layer conversion (V3/X-track), and UI confirm dialogs for the
+> flatten/delete transitions (documented behavior, no dialog yet).
+
 Successor to the V5 sculpt-layer wiring
 ([`displacementAndSubSurf.md`](displacementAndSubSurf.md) workstream V;
 design background in [`../sculpt-layers-design.md`](../sculpt-layers-design.md)).

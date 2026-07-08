@@ -49,12 +49,17 @@ See `documentation/mesh.md` for a detailed overview.
 `compositor.cc/.h` — evaluates the sculpt-layer stack (`AttrUse::SCULPT_LAYER`
 FLOAT3 vertex attrs + the `Mesh::sculptLayers` settings sidecar) into `v.co`;
 evaluated positions are authoritative, the base is implicit (`co − Σ w·d`).
+V2 (plans/sculptLayersV2.md): `setActiveEditLayer` makes a layer the edit
+target — sculpting co IS editing it; its delta derives from the TEMP
+`.slayer.rest` snapshot and `foldActiveLayer` (`Mesh::foldActiveSculptLayer`,
+mesh-side so `writeMeshRaw` folds on save) rewrites the column on demand.
 `LayerEditScope` is the region-scoped bracket the brush executor wraps around
 layer-writing dabs; `setLayerWeight/Enabled/Frozen`/`removeLayer` mutate
-settings while keeping co current. `frames.cc/.h` — the frame provider
-(displacement plan F3): smoothed per-vertex normal + 4-RoSy cross-field
-tangent (`.frames.v.*`, persistent NOINTERP), deterministic Gauss-Seidel.
-See `documentation/plans/displacementAndSubSurf.md`.
+settings while keeping co current (mutating the target ends the edit first;
+other-layer mutations mirror into the rest snapshot). `frames.cc/.h` — the
+frame provider (displacement plan F3): smoothed per-vertex normal + 4-RoSy
+cross-field tangent (`.frames.v.*`, persistent NOINTERP), deterministic
+Gauss-Seidel. See `documentation/plans/displacementAndSubSurf.md`.
 
 ### `source/subdiv/` — Catmull-Clark refiner (subsurf/multires track)
 
@@ -74,8 +79,14 @@ self-heals; `Multires::storeBudgetBytes` drives the finest-first policy).
 smoothed base), LRU-cached with eviction; `writeback()` re-expresses edits as
 store deltas, skipping bit-identical verts so edit-free switches are lossless;
 `downRefit()` (CG least-squares level fit), `captureDetailToVdm()` (X4:
-grids disp -> Ptex VDM texels), grid-chart UV synthesis (`assignGridUVs`) and
-the X3 stencil/topology export seam for the app's GPU-amplified render tier.
+grids disp -> Ptex VDM texels; refuses while layer channels contribute),
+grid-chart UV synthesis (`assignGridUVs`) and the X3 stencil/topology export
+seam for the app's GPU-amplified render tier. Sculpt layers on the stack
+(sculptLayersV2 M3) are per-layer FLOAT3 store channels keyed by settings-only
+cage rows: levels composite `ch0 + Σ w·enabled·ch`, `writeback` lands in the
+edit target's channel (else 0), and the bound layer surface
+(`layerAdd/Remove/Set*`, `setEditTarget`, `layerTableOut/Restore`) folds the
+active level first, then invalidates + rematerializes.
 Stencil rows evaluate as an fma chain (std::fma), bit-shared with the S5 GPU
 SpMV (`source/webgpu/wgpu_stencil.{h,cc}`). Displacement plan S1–S5; see
 `documentation/plans/displacementAndSubSurf.md`.
