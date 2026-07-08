@@ -97,6 +97,32 @@ struct GridsStore {
     return int(channels_.size());
   }
 
+  /** Channel index for `name`, or -1. Channel 0 is always "disp". */
+  int findChannel(const litestl::util::string &name) const
+  {
+    for (int i = 0; i < int(channels_.size()); i++) {
+      if (channels_[i].name == name) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /** Drop channel `channel` (its storage across every level, resident or
+   * evicted). Refuses channel 0; later channel indices shift down by one. */
+  void removeChannel(int channel)
+  {
+    if (channel < 1 || channel >= int(channels_.size())) {
+      return;
+    }
+    // Vector::remove_at move-assigns onto a destructed slot, which
+    // double-frees Channel's nested Vectors — shift live + pop instead.
+    for (int i = channel; i + 1 < int(channels_.size()); i++) {
+      channels_[i] = std::move(channels_[i + 1]);
+    }
+    channels_.pop_back();
+  }
+
   const litestl::util::string &channelName(int channel) const
   {
     return channels_[channel].name;

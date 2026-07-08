@@ -12,6 +12,7 @@
 #include "litestl/util/assert.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 using namespace litestl;
@@ -137,15 +138,47 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
   }
 }
 
+void Multires::compositeMix(Vector<ChannelMix> &out) const
+{
+  out.clear();
+  out.append({0, 1.0f});
+  if (!cage_) {
+    return;
+  }
+  for (int i = 0; i < int(cage_->sculptLayers.size()); i++) {
+    const mesh::SculptLayerSettings &st = cage_->sculptLayers[i];
+    if (!st.enabled || st.weight == 0.0f) {
+      continue;
+    }
+    int ch = store.findChannel(st.name);
+    if (ch > 0) {
+      out.append({ch, st.weight});
+    }
+  }
+}
+
+int Multires::channelForLayer(int li) const
+{
+  if (!cage_ || li < 0 || li >= int(cage_->sculptLayers.size())) {
+    return -1;
+  }
+  int ch = store.findChannel(cage_->sculptLayers[li].name);
+  return ch > 0 ? ch : -1;
+}
+
 bool Multires::dispNonZero(int level)
 {
+  Vector<ChannelMix> mix;
+  compositeMix(mix);
   int S = GridsStore::sideForLevel(level), w = S + 1;
-  for (int g = 0; g < store.gridCount(); g++) {
-    for (int v = 0; v < w; v++) {
-      for (int u = 0; u < w; u++) {
-        const float *d = store.elem(level, 0, g, u, v);
-        if (d[0] != 0.0f || d[1] != 0.0f || d[2] != 0.0f) {
-          return true;
+  for (const ChannelMix &m : mix) {
+    for (int g = 0; g < store.gridCount(); g++) {
+      for (int v = 0; v < w; v++) {
+        for (int u = 0; u < w; u++) {
+          const float *d = store.elem(level, m.channel, g, u, v);
+          if (d[0] != 0.0f || d[1] != 0.0f || d[2] != 0.0f) {
+            return true;
+          }
         }
       }
     }
@@ -153,15 +186,17 @@ bool Multires::dispNonZero(int level)
   return false;
 }
 
-/* Apply the level's stored displacement onto the smoothed base, in the F3
- * frame evaluated AT the base (edit-independent). `pos` must NOT alias `base`
- * — seam verts are visited once per replica and must re-read the clean base. */
+/* Apply the level's composited displacement (Σ mix weight·channel) onto the
+ * smoothed base, in the F3 frame evaluated AT the base (edit-independent).
+ * `pos` must NOT alias `base` — seam verts are visited once per replica and
+ * must re-read the clean base. */
 static void applyDisp(GridsStore &store,
                       Refiner &refiner,
                       int level,
                       mesh::Mesh *baseMesh,
                       const Vector<float3> &base,
-                      Vector<float3> &pos)
+                      Vector<float3> &pos,
+                      const Vector<Multires::ChannelMix> &mix)
 {
   Assert(&base != &pos, "applyDisp base/pos must not alias");
   displace::FrameProviderParams params;
@@ -185,13 +220,19 @@ static void applyDisp(GridsStore &store,
     for (int v = 0; v < w; v++) {
       for (int u = 0; u < w; u++) {
         int vid = gv[v * w + u];
-        const float *d = store.elem(level, 0, g, u, v);
+        float3 D(0.0f, 0.0f, 0.0f);
+        for (const Multires::ChannelMix &m : mix) {
+          const float *d = store.elem(level, m.channel, g, u, v);
+          D[0] += d[0] * m.weight;
+          D[1] += d[1] * m.weight;
+          D[2] += d[2] * m.weight;
+        }
         float3 n = (*no)[vid], t = (*ta)[vid];
         float3 b = n.cross(t);
         float3 p = base[vid];
-        p += t * d[0];
-        p += b * d[1];
-        p += n * d[2];
+        p += t * D[0];
+        p += b * D[1];
+        p += n * D[2];
         pos[vid] = p;
       }
     }
@@ -222,12 +263,14 @@ Vector<float3> &Multires::ensureChain(int level)
     refiner.levels[l - 1].stencil.eval(*prev, base);
 
     if (dispNonZero(l)) {
+      Vector<ChannelMix> mix;
+      compositeMix(mix);
       mesh::Mesh *tm = buildLevelTopo(l);
       for (int i = 0; i < int(base.size()); i++) {
         tm->v.co[i] = base[i];
       }
       tm->recalc_normals();
-      applyDisp(store, refiner, l, tm, base, lp.pos);
+      applyDisp(store, refiner, l, tm, base, lp.pos, mix);
       alloc::Delete(tm);
     } else {
       lp.pos = std::move(base);
@@ -324,7 +367,8 @@ MultiresSlot *Multires::materialize(int level)
 
 void Multires::storeDispFromPositions(int level,
                                       const Vector<float3> &pos,
-                                      const Vector<bool> *mask)
+                                      const Vector<bool> *mask,
+                                      bool toEditTarget)
 {
   SubdivLevel &lvl = refiner.levels[level - 1];
 
@@ -354,6 +398,20 @@ void Multires::storeDispFromPositions(int level,
   AttrData<float3> *ta = attr(displace::FRAME_TANGENT_ATTR);
   Assert(no && ta, "frame provider attrs present");
 
+  // The write target: the edit target's channel when one is set (its weight
+  // is pinned to 1 by setEditTarget, so no division), else channel 0. The
+  // target's value absorbs the residual after every OTHER composited channel
+  // is subtracted from the total frame-space displacement.
+  int tch = 0;
+  if (toEditTarget && cage_ && cage_->activeEditLayer >= 0) {
+    int ch = channelForLayer(cage_->activeEditLayer);
+    if (ch > 0 && cage_->sculptLayers[cage_->activeEditLayer].enabled) {
+      tch = ch;
+    }
+  }
+  Vector<ChannelMix> mix;
+  compositeMix(mix);
+
   int S = lvl.gridSide, w = S + 1;
   for (int g = 0; g < store.gridCount(); g++) {
     const int *gv = &lvl.gridVerts[g * w * w];
@@ -366,10 +424,20 @@ void Multires::storeDispFromPositions(int level,
         float3 n = (*no)[vid], t = (*ta)[vid];
         float3 b = n.cross(t);
         float3 dp = pos[vid] - base[vid];
-        float *d = store.elem(level, 0, g, u, v);
-        d[0] = dp.dot(t);
-        d[1] = dp.dot(b);
-        d[2] = dp.dot(n);
+        float3 rest(0.0f, 0.0f, 0.0f);
+        for (const ChannelMix &m : mix) {
+          if (m.channel == tch) {
+            continue;
+          }
+          const float *c = store.elem(level, m.channel, g, u, v);
+          rest[0] += c[0] * m.weight;
+          rest[1] += c[1] * m.weight;
+          rest[2] += c[2] * m.weight;
+        }
+        float *d = store.elem(level, tch, g, u, v);
+        d[0] = dp.dot(t) - rest[0];
+        d[1] = dp.dot(b) - rest[1];
+        d[2] = dp.dot(n) - rest[2];
       }
     }
   }
@@ -382,6 +450,16 @@ int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
       vstore.params.backend != vdm::VdmBackend::PTEX)
   {
     return 0;
+  }
+  {
+    // Capture is defined on channel 0 only: zeroing it and dropping the
+    // surface to the smooth base would double-count any contributing layer
+    // channel. Refuse until a layer×VDM migration exists (post-V2).
+    Vector<ChannelMix> mix;
+    compositeMix(mix);
+    if (int(mix.size()) > 1) {
+      return 0;
+    }
   }
   SubdivLevel &lvl = refiner.levels[level - 1];
   int S = lvl.gridSide, w = S + 1;
@@ -487,7 +565,7 @@ int Multires::writeback(int level)
     return 0;
   }
 
-  storeDispFromPositions(level, pos, &changed);
+  storeDispFromPositions(level, pos, &changed, /*toEditTarget=*/true);
 
   /* The edited mesh is the new baseline for this level; everything finer is
    * derived from it and must re-evaluate. */
@@ -623,12 +701,12 @@ int Multires::downRefit(int level)
     return 0;
   }
 
-  storeDispFromPositions(coarseLevel, coarse, &changed);
+  storeDispFromPositions(coarseLevel, coarse, &changed, /*toEditTarget=*/false);
   posCache_[coarseLevel - 1].pos = coarse;
 
   // Re-express this level against the new base (reads the coarse chain just
   // stored above); its surface — and any resident slot mesh — is preserved.
-  storeDispFromPositions(level, target, nullptr);
+  storeDispFromPositions(level, target, nullptr, /*toEditTarget=*/false);
   posCache_[level - 1].pos = std::move(target);
 
   invalidateAbove(level);
@@ -644,6 +722,208 @@ int Multires::downRefit(int level)
     materialize(coarseLevel);
   }
   return nChanged;
+}
+
+void Multires::refreshAfterLayerChange()
+{
+  for (int l = 1; l <= maxLevel(); l++) {
+    posCache_[l - 1].valid = false;
+    posCache_[l - 1].pos.clear();
+  }
+  for (int i = int(slots_.size()) - 1; i >= 0; i--) {
+    evictSlot(i);
+  }
+  if (activeLevel_ >= 1) {
+    materialize(activeLevel_);
+  }
+}
+
+int Multires::layerAdd()
+{
+  if (!cage_) {
+    return -1;
+  }
+  // Unique against both settings rows and store channels.
+  util::string name;
+  for (int n = 0;; n++) {
+    char buf[32];
+    if (n == 0) {
+      std::snprintf(buf, sizeof(buf), "slayer");
+    } else {
+      std::snprintf(buf, sizeof(buf), "slayer.%03d", n);
+    }
+    name = util::string(buf);
+    if (cage_->findSculptLayer(name) < 0 && store.findChannel(name) < 0) {
+      break;
+    }
+  }
+  mesh::SculptLayerSettings st;
+  st.name = name;
+  cage_->sculptLayers.append(std::move(st));
+  store.addChannel(name, 3);
+  // A fresh zero channel at weight 1 changes no level positions: no refresh.
+  return int(cage_->sculptLayers.size()) - 1;
+}
+
+void Multires::layerRemove(int li)
+{
+  if (!cage_ || li < 0 || li >= int(cage_->sculptLayers.size())) {
+    return;
+  }
+  if (li == cage_->activeEditLayer) {
+    setEditTarget(-1); // folds pending edits into the layer first
+  } else if (activeLevel_ >= 1) {
+    writeback(activeLevel_); // pending edits keep their old attribution
+  }
+  int ch = store.findChannel(cage_->sculptLayers[li].name);
+  if (ch > 0) {
+    store.removeChannel(ch);
+  }
+  cage_->sculptLayers.remove_at(li, /*swap_end_only=*/false);
+  if (li < cage_->activeEditLayer) {
+    cage_->activeEditLayer--;
+  }
+  refreshAfterLayerChange();
+}
+
+void Multires::layerSetWeight(int li, float weight)
+{
+  if (!cage_ || li < 0 || li >= int(cage_->sculptLayers.size())) {
+    return;
+  }
+  if (li == cage_->activeEditLayer) {
+    // The target's weight is pinned to 1 — re-weighting it ends the edit.
+    setEditTarget(-1);
+  } else if (activeLevel_ >= 1) {
+    writeback(activeLevel_);
+  }
+  mesh::SculptLayerSettings &st = cage_->sculptLayers[li];
+  if (st.weight == weight) {
+    return;
+  }
+  st.weight = weight;
+  if (st.enabled) {
+    refreshAfterLayerChange();
+  }
+}
+
+void Multires::layerSetEnabled(int li, int enabled)
+{
+  if (!cage_ || li < 0 || li >= int(cage_->sculptLayers.size())) {
+    return;
+  }
+  if (!enabled && li == cage_->activeEditLayer) {
+    setEditTarget(-1);
+  } else if (activeLevel_ >= 1) {
+    writeback(activeLevel_);
+  }
+  mesh::SculptLayerSettings &st = cage_->sculptLayers[li];
+  if (st.enabled == (enabled != 0)) {
+    return;
+  }
+  st.enabled = enabled != 0;
+  refreshAfterLayerChange();
+}
+
+void Multires::layerSetFrozen(int li, int frozen)
+{
+  if (!cage_ || li < 0 || li >= int(cage_->sculptLayers.size())) {
+    return;
+  }
+  if (frozen && li == cage_->activeEditLayer) {
+    // A frozen layer cannot be the edit target.
+    setEditTarget(-1);
+  }
+  cage_->sculptLayers[li].frozen = frozen != 0;
+}
+
+int Multires::setEditTarget(int li)
+{
+  if (!cage_) {
+    return -1;
+  }
+  if (li == cage_->activeEditLayer) {
+    return li;
+  }
+  // Pending level edits belong to the OLD target: fold them first.
+  if (activeLevel_ >= 1) {
+    writeback(activeLevel_);
+  }
+  cage_->activeEditLayer = -1;
+  if (li < 0 || li >= int(cage_->sculptLayers.size())) {
+    return -1;
+  }
+  mesh::SculptLayerSettings &st = cage_->sculptLayers[li];
+  if (st.frozen || channelForLayer(li) < 0) {
+    return -1;
+  }
+  bool changed = !st.enabled || st.weight != 1.0f;
+  st.enabled = true;
+  st.weight = 1.0f; // pin: writeback must never divide by the target weight
+  cage_->activeEditLayer = li;
+  if (changed) {
+    refreshAfterLayerChange();
+  }
+  return li;
+}
+
+int Multires::editTarget() const
+{
+  return cage_ ? cage_->activeEditLayer : -1;
+}
+
+int Multires::layerCount() const
+{
+  return cage_ ? int(cage_->sculptLayers.size()) : 0;
+}
+
+float Multires::layerWeight(int li) const
+{
+  return cage_ ? cage_->sculptLayerWeight(li) : 0.0f;
+}
+
+int Multires::layerEnabled(int li) const
+{
+  return cage_ ? cage_->sculptLayerEnabled(li) : 0;
+}
+
+int Multires::layerFrozen(int li) const
+{
+  return cage_ ? cage_->sculptLayerFrozen(li) : 0;
+}
+
+void Multires::layerTableOut(Vector<float> &out)
+{
+  out.clear();
+  if (!cage_) {
+    return;
+  }
+  for (const mesh::SculptLayerSettings &st : cage_->sculptLayers) {
+    out.append(st.weight);
+    out.append(st.enabled ? 1.0f : 0.0f);
+    out.append(st.frozen ? 1.0f : 0.0f);
+  }
+}
+
+void Multires::layerTableRestore(Vector<float> &table)
+{
+  if (!cage_) {
+    return;
+  }
+  cage_->activeEditLayer = -1;
+  cage_->sculptLayers.clear();
+  for (int ch = 1; ch < store.channelCount(); ch++) {
+    mesh::SculptLayerSettings st;
+    st.name = store.channelName(ch);
+    int k = (ch - 1) * 3;
+    if (k + 2 < int(table.size())) {
+      st.weight = table[k];
+      st.enabled = table[k + 1] != 0.0f;
+      st.frozen = table[k + 2] != 0.0f;
+    }
+    cage_->sculptLayers.append(std::move(st));
+  }
+  refreshAfterLayerChange();
 }
 
 void Multires::invalidateAbove(int level)
@@ -811,6 +1091,19 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
   BIND_STRUCT_METHOD(st, maxLevel, MARGS());
   BIND_STRUCT_METHOD(st, activeLevel, MARGS());
   BIND_STRUCT_METHOD(st, setStoreBudget, MARGS("bytes"));
+  BIND_STRUCT_METHOD(st, layerAdd, MARGS());
+  BIND_STRUCT_METHOD(st, layerRemove, MARGS("li"));
+  BIND_STRUCT_METHOD(st, layerSetWeight, MARGS("li", "weight"));
+  BIND_STRUCT_METHOD(st, layerSetEnabled, MARGS("li", "enabled"));
+  BIND_STRUCT_METHOD(st, layerSetFrozen, MARGS("li", "frozen"));
+  BIND_STRUCT_METHOD(st, setEditTarget, MARGS("li"));
+  BIND_STRUCT_METHOD(st, editTarget, MARGS());
+  BIND_STRUCT_METHOD(st, layerCount, MARGS());
+  BIND_STRUCT_METHOD(st, layerWeight, MARGS("li"));
+  BIND_STRUCT_METHOD(st, layerEnabled, MARGS("li"));
+  BIND_STRUCT_METHOD(st, layerFrozen, MARGS("li"));
+  BIND_STRUCT_METHOD(st, layerTableOut, MARGS("out"));
+  BIND_STRUCT_METHOD(st, layerTableRestore, MARGS("table"));
   BIND_STRUCT_METHOD(st, vdmAdjacencyOut, MARGS("out"));
   BIND_STRUCT_METHOD(st, stencilMetaOut, MARGS("level", "out"));
   BIND_STRUCT_METHOD(st, stencilOffsetsOut, MARGS("level", "out"));

@@ -40,6 +40,8 @@ export interface Mesh {
   sculptLayerEnabled(li: int32): int32
   sculptLayerFrozen(li: int32): int32
   sculptLayerEditTarget(): int32
+  sculptLayerFlattenAll(): void
+  sculptLayerPruneSettingsOnly(): void
   isTopoLocked(): int32
   removeAttr(domain: int32, index: int32): void
   detachAttr(domain: int32, index: int32): int32

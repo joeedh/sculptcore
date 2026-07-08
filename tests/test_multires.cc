@@ -94,6 +94,206 @@ static void injectDisp(Multires &mr)
   }
 }
 
+/* sculptLayersV2 M3: sculpt layers as grids-store channels. A stroke-sim on a
+ * targeted layer lands its writeback in the layer's channel with channel 0
+ * untouched; weight 0 removes exactly the stroke (bit-exact — zero-channel
+ * composition adds exact zeros); level switches round-trip bit-stable under
+ * multi-channel composition; the store blob round-trips channels; the
+ * layerTable + store-blob pair is a working remove-undo seam; eviction
+ * rehydrates layer channels; frozen/disabled target rules hold. */
+static void gateLayerChannels()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 3);
+  injectDisp(mr);
+
+  int la = mr.layerAdd();
+  int lb = mr.layerAdd();
+  test_assert(la == 0 && lb == 1);
+  test_assert(mr.layerCount() == 2);
+  test_assert(mr.store.channelCount() == 3);
+  const int chA = 1, chB = 2; /* row order == channel order 1..N */
+  test_assert(mr.store.channelName(chA) == cage->sculptLayers[la].name);
+
+  MultiresSlot *s2 = mr.setActiveLevel(2);
+  Vector<float3> pre;
+  snapshotCo(*s2->mesh, pre);
+
+  /* Fresh zero layers at weight 1 change nothing; targeting one is free. */
+  test_assert(mr.setEditTarget(la) == la);
+  test_assert(mr.editTarget() == la);
+  s2 = mr.findSlot(2);
+  test_assert(s2 != nullptr);
+  {
+    Vector<float3> now;
+    snapshotCo(*s2->mesh, now);
+    test_assert(sameBits(now, pre));
+  }
+
+  /* Channel-0 snapshot at level 2 (byte compare after the writeback). */
+  auto ch0Snapshot = [&](Vector<float> &out) {
+    out.clear();
+    int S = subdiv::GridsStore::sideForLevel(2), w = S + 1;
+    for (int g = 0; g < mr.store.gridCount(); g++) {
+      for (int v = 0; v < w; v++) {
+        for (int u = 0; u < w; u++) {
+          const float *d = mr.store.elem(2, 0, g, u, v);
+          out.append(d[0]);
+          out.append(d[1]);
+          out.append(d[2]);
+        }
+      }
+    }
+  };
+  Vector<float> ch0Before;
+  ch0Snapshot(ch0Before);
+
+  /* Stroke-sim: direct co edits on the level mesh, folded by writeback. */
+  const int editA = 3, editB = 7;
+  const float3 dA(0.25f, 0.0f, 0.125f), dB(0.0f, -0.0625f, 0.25f);
+  float3 editedA = s2->mesh->v.co[editA] + dA;
+  float3 editedB = s2->mesh->v.co[editB] + dB;
+  s2->mesh->v.co[editA] = editedA;
+  s2->mesh->v.co[editB] = editedB;
+  test_assert(mr.writeback(2) == 2);
+
+  /* The writeback landed in layer A's channel; channel 0 is untouched. */
+  Vector<float> ch0After;
+  ch0Snapshot(ch0After);
+  test_assert(ch0Before.size() == ch0After.size());
+  test_assert(std::memcmp(ch0Before.data(), ch0After.data(),
+                          ch0Before.size() * sizeof(float)) == 0);
+  bool layerNonZero = false;
+  {
+    int S = subdiv::GridsStore::sideForLevel(2), w = S + 1;
+    for (int g = 0; g < mr.store.gridCount() && !layerNonZero; g++) {
+      for (int v = 0; v < w && !layerNonZero; v++) {
+        for (int u = 0; u < w && !layerNonZero; u++) {
+          const float *d = mr.store.elem(2, chA, g, u, v);
+          layerNonZero = d[0] != 0.0f || d[1] != 0.0f || d[2] != 0.0f;
+        }
+      }
+    }
+  }
+  test_assert(layerNonZero);
+
+  /* Weight 0 removes exactly the stroke (re-weighting the target ends the
+   * edit first); untouched-layer composition is bit-exact. */
+  mr.layerSetWeight(la, 0.0f);
+  test_assert(mr.editTarget() == -1);
+  s2 = mr.findSlot(2);
+  test_assert(s2 != nullptr);
+  {
+    Vector<float3> now;
+    snapshotCo(*s2->mesh, now);
+    test_assert(sameBits(now, pre));
+  }
+
+  /* Weight back to 1: the stroke returns through the frame-projection
+   * round-trip (float drift on edited verts, bit-exact elsewhere). */
+  mr.layerSetWeight(la, 1.0f);
+  s2 = mr.findSlot(2);
+  test_assert((s2->mesh->v.co[editA] - editedA).length() < 1e-5f);
+  test_assert((s2->mesh->v.co[editB] - editedB).length() < 1e-5f);
+  for (int i = 0; i < s2->mesh->v.count; i++) {
+    if (i != editA && i != editB) {
+      test_assert(std::memcmp(&s2->mesh->v.co[i], &pre[i], sizeof(float3)) == 0);
+    }
+  }
+
+  /* Level-switch round-trip is bit-stable under multi-channel composition. */
+  Vector<float3> p2;
+  snapshotCo(*s2->mesh, p2);
+  std::string blob = storeBlob(mr.store);
+  mr.setActiveLevel(3);
+  s2 = mr.setActiveLevel(2);
+  {
+    Vector<float3> now;
+    snapshotCo(*s2->mesh, now);
+    test_assert(sameBits(now, p2));
+  }
+  test_assert(storeBlob(mr.store) == blob);
+
+  /* Store blob round-trips the channels (names, sizes, bytes). */
+  {
+    std::stringstream ss(blob, std::ios::in | std::ios::out | std::ios::binary);
+    subdiv::GridsStore st2;
+    test_assert(st2.read(ss));
+    test_assert(st2.channelCount() == mr.store.channelCount());
+    test_assert(st2.channelName(chA) == mr.store.channelName(chA));
+    test_assert(st2.channelName(chB) == mr.store.channelName(chB));
+    test_assert(storeBlob(st2) == blob);
+  }
+
+  /* layerTable + store blob = the remove-undo seam. */
+  Vector<float> table;
+  mr.layerTableOut(table);
+  test_assert(int(table.size()) == 6);
+  mr.layerRemove(la);
+  test_assert(mr.layerCount() == 1);
+  test_assert(mr.store.channelCount() == 2);
+  s2 = mr.findSlot(2);
+  {
+    Vector<float3> now;
+    snapshotCo(*s2->mesh, now);
+    test_assert(sameBits(now, pre)); /* A's stroke gone with its channel */
+  }
+  {
+    std::stringstream ss(blob, std::ios::in | std::ios::out | std::ios::binary);
+    test_assert(mr.store.read(ss));
+    mr.layerTableRestore(table);
+    test_assert(mr.layerCount() == 2);
+    test_assert(mr.layerWeight(la) == 1.0f && mr.layerEnabled(la) == 1);
+    s2 = mr.findSlot(2);
+    test_assert((s2->mesh->v.co[editA] - editedA).length() < 1e-5f);
+  }
+
+  /* Eviction/rehydration covers layer channels. */
+  {
+    /* Find a nonzero layer-A texel, evict the level, read it back. */
+    int S = subdiv::GridsStore::sideForLevel(2), w = S + 1;
+    int fg = -1, fu = 0, fv = 0;
+    float3 val;
+    for (int g = 0; g < mr.store.gridCount() && fg < 0; g++) {
+      for (int v = 0; v < w && fg < 0; v++) {
+        for (int u = 0; u < w && fg < 0; u++) {
+          const float *d = mr.store.elem(2, chA, g, u, v);
+          if (d[0] != 0.0f || d[1] != 0.0f || d[2] != 0.0f) {
+            fg = g;
+            fu = u;
+            fv = v;
+            val = float3(d[0], d[1], d[2]);
+          }
+        }
+      }
+    }
+    test_assert(fg >= 0);
+    mr.store.evictLevel(2);
+    test_assert(!mr.store.levelResident(2));
+    // elem() rehydrates the touched CHANNEL only; the level as a whole
+    // becomes resident via ensureLevelResident.
+    const float *d = mr.store.elem(2, chA, fg, fu, fv);
+    test_assert(d[0] == val[0] && d[1] == val[1] && d[2] == val[2]);
+    mr.store.ensureLevelResident(2);
+    test_assert(mr.store.levelResident(2));
+  }
+
+  /* Frozen layers cannot be the target; disabled targets re-enable + pin. */
+  mr.layerSetFrozen(lb, 1);
+  test_assert(mr.setEditTarget(lb) == -1);
+  mr.layerSetFrozen(lb, 0);
+  mr.layerSetWeight(la, 0.5f);
+  mr.layerSetEnabled(la, 0);
+  test_assert(mr.setEditTarget(la) == la);
+  test_assert(mr.layerEnabled(la) == 1);
+  test_assert(mr.layerWeight(la) == 1.0f);
+  mr.setEditTarget(-1);
+
+  fprintf(stderr, "layer channels: writeback target + composition ok\n");
+  alloc::Delete(cage);
+}
+
 static void gateCube()
 {
   Mesh *cage = createCube(2, 1.0f);
@@ -710,6 +910,7 @@ int main(int argc, char **argv)
     return 0;
   }
 
+  gateLayerChannels();
   gateCube();
   gateFan();
   gateDownRefit();

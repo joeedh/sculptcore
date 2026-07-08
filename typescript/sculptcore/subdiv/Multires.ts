@@ -21,6 +21,19 @@ export interface Multires {
   maxLevel(): int32
   activeLevel(): int32
   setStoreBudget(bytes: int32): void
+  layerAdd(): int32
+  layerRemove(li: int32): void
+  layerSetWeight(li: int32, weight: float): void
+  layerSetEnabled(li: int32, enabled: int32): void
+  layerSetFrozen(li: int32, frozen: int32): void
+  setEditTarget(li: int32): int32
+  editTarget(): int32
+  layerCount(): int32
+  layerWeight(li: int32): float
+  layerEnabled(li: int32): int32
+  layerFrozen(li: int32): int32
+  layerTableOut(out: float[]): void
+  layerTableRestore(table: float[]): void
   vdmAdjacencyOut(out: int32[]): void
   stencilMetaOut(level: int32, out: int32[]): void
   stencilOffsetsOut(level: int32, out: int32[]): void

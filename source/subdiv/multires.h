@@ -148,8 +148,52 @@ struct Multires {
    * ADDED onto existing texels — same frame space: both are frameᵀ·(pos−base)
    * with frames on the smoothed base), zero the disp, and drop the level's
    * surface onto the smooth base (materialized mesh + baseline updated,
-   * finer levels invalidated, skirts synced). Returns texels written. */
+   * finer levels invalidated, skirts synced). Returns texels written.
+   * Refuses (returns 0) while any enabled sculpt-layer channel contributes —
+   * capture is defined on channel 0 only (layer×VDM migration is post-V2). */
   int captureDetailToVdm(int level, vdm::VdmStore &vstore);
+
+  /* ---- Sculpt layers on the stack (sculptLayersV2 M3) ----
+   * One FLOAT3 store channel per layer, keyed by a settings-only row on the
+   * CAGE's sculptLayers sidecar with the same name (no vertex column — level
+   * meshes are derived state). Level positions composite
+   * disp_total = ch0 + Σ wᵢ·enabledᵢ·chᵢ in frame space before the
+   * base + frame·disp reconstruction; writeback lands in the edit target's
+   * channel (cage.activeEditLayer), else channel 0. Every mutator writes the
+   * active level back FIRST, so pending edits fold under the old settings,
+   * then invalidates + rematerializes (slot pointers change — callers
+   * re-fetch, like downRefit). Row order always equals channel order 1..N. */
+
+  /** Add a layer: settings-only cage row + zero FLOAT3 channel. Returns the
+   * settings index (a fresh zero layer at weight 1 changes nothing). */
+  int layerAdd();
+  /** Remove the row + its channel (destructive — the layerTable/store-blob
+   * pair is the undo seam). The edit target ends first (folding pending). */
+  void layerRemove(int li);
+  void layerSetWeight(int li, float weight);
+  void layerSetEnabled(int li, int enabled);
+  void layerSetFrozen(int li, int frozen);
+  /** Make layer `li` the writeback target (-1 clears): folds pending edits
+   * under the old target, enables + pins weight 1. Frozen/invalid refuse.
+   * Returns the resulting target. */
+  int setEditTarget(int li);
+  int editTarget() const;
+
+  /* Marshal-safe reads for the app panel (mirror the Mesh sculptLayer*
+   * surface; the rows live on the cage). */
+  int layerCount() const;
+  float layerWeight(int li) const;
+  int layerEnabled(int li) const;
+  int layerFrozen(int li) const;
+
+  /** Snapshot every row's {weight, enabled, frozen} in row (== channel)
+   * order — pair with the store blob for layer-remove undo. */
+  void layerTableOut(litestl::util::Vector<float> &out);
+  /** Rebuild the rows from the store's channels 1..N (names from channels,
+   * fields from a layerTableOut snapshot; extra/missing entries default),
+   * then refresh levels. The edit target is cleared. Non-const ref: the
+   * binding marshals Vector<float> params as bound vector objects. */
+  void layerTableRestore(litestl::util::Vector<float> &table);
 
   /* X3 export seam: the level's CSR stencil (maps level-1 → level) as
    * marshal-safe out-params. The TS-device SpMV uploads these VERBATIM —
@@ -179,15 +223,36 @@ struct Multires {
 
   static litestl::binding::types::Struct<Multires> *defineBindings();
 
+  /** One composited channel: {store channel, effective weight}. Public so
+   * file-static evaluation helpers can take spans of it. */
+  struct ChannelMix {
+    int channel = 0;
+    float weight = 1.0f;
+  };
+
 private:
+  /** {channel, effective weight} of every composited channel: channel 0 at
+   * weight 1 plus each enabled, nonzero-weight layer row with a channel. */
+  void compositeMix(litestl::util::Vector<ChannelMix> &out) const;
+  /** The store channel backing settings row `li`, or -1. */
+  int channelForLayer(int li) const;
+  /** Drop every cached chain + resident slot and rematerialize the active
+   * level (composite changed). Does NOT write back — callers fold first. */
+  void refreshAfterLayerChange();
+
   /** Ensure the cached position chain is valid through `level`; returns it. */
   litestl::util::Vector<litestl::math::float3> &ensureChain(int level);
   /** Re-express `pos` (dense by level vert id) as level-`level` store
    * displacement: disp = frameᵀ·(pos − base), base = stencil(prev chain),
-   * frames on the smoothed base. Writes verts where `mask` is null or set. */
+   * frames on the smoothed base. Writes verts where `mask` is null or set.
+   * The written channel absorbs the residual after every other composited
+   * channel is subtracted: the edit target's channel when `toEditTarget`
+   * (writeback of sculpting), else channel 0 (structural re-expression —
+   * down-refit — which must never write a layer). */
   void storeDispFromPositions(int level,
                               const litestl::util::Vector<litestl::math::float3> &pos,
-                              const litestl::util::Vector<bool> *mask);
+                              const litestl::util::Vector<bool> *mask,
+                              bool toEditTarget);
   bool dispNonZero(int level);
   void evictSlot(int index);
   void evictOverBudget();

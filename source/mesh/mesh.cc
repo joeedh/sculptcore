@@ -523,6 +523,38 @@ void Mesh::foldActiveSculptLayer(std::span<const int> verts)
   }
 }
 
+void Mesh::sculptLayerFlattenAll()
+{
+  activeEditLayer = -1;
+  auto dropColumn = [&](const string &name) {
+    for (int i = 0; i < int(v.attrs.attrs.size()); i++) {
+      if (v.attrs.attrs[i].type == AttrType::FLOAT3 && v.attrs.attrs[i].name == name) {
+        v.attrs.remove_attr(i);
+        return;
+      }
+    }
+  };
+  for (SculptLayerSettings &st : sculptLayers) {
+    dropColumn(st.name);
+  }
+  dropColumn(string(SCULPT_LAYER_REST_ATTR));
+  sculptLayers.clear();
+}
+
+void Mesh::sculptLayerPruneSettingsOnly()
+{
+  for (int i = int(sculptLayers.size()) - 1; i >= 0; i--) {
+    if (!v.attrs.find_attribute(AttrType::FLOAT3, sculptLayers[i].name).exists()) {
+      if (activeEditLayer == i) {
+        activeEditLayer = -1;
+      } else if (activeEditLayer > i) {
+        activeEditLayer--;
+      }
+      sculptLayers.remove_at(i, /*swap_end_only=*/false);
+    }
+  }
+}
+
 void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
 {
   out.clear();

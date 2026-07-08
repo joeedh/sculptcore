@@ -141,6 +141,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, sculptLayerEnabled, MARGS("li"));
     BIND_STRUCT_METHOD(st, sculptLayerFrozen, MARGS("li"));
     BIND_STRUCT_METHOD(st, sculptLayerEditTarget, MARGS());
+    BIND_STRUCT_METHOD(st, sculptLayerFlattenAll, MARGS());
+    BIND_STRUCT_METHOD(st, sculptLayerPruneSettingsOnly, MARGS());
     BIND_STRUCT_METHOD(st, isTopoLocked, MARGS());
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
@@ -428,6 +430,17 @@ struct Mesh : public MeshBase {
    * lives in displace::setActiveEditLayer — this core is mesh-side so
    * serialization can fold without a mesh→displace dependency. */
   void foldActiveSculptLayer(std::span<const int> verts = {});
+
+  /** Bake the evaluated surface and discard the stack: co is already the
+   * composite, so drop every settings row, layer column, and the rest
+   * snapshot without adjusting positions. Clears the edit target. Used when
+   * enabling multires on a mesh with vertex-column layers (V2 flatten). */
+  void sculptLayerFlattenAll();
+
+  /** Drop settings rows that have no matching VERTEX FLOAT3 column — the
+   * channel-backed rows left on a cage after its multires stack (which owned
+   * the channels) is deleted. Clears the edit target if its row goes. */
+  void sculptLayerPruneSettingsOnly();
 
   /* Wave 5: mark the shortest edge-path from vStart to vEnd as a seam. Runs
    * shortestEdgePath (Dijkstra over live edges), sets the EDGE_SEAM flag on each
