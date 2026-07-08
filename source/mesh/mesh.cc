@@ -495,6 +495,34 @@ void Mesh::boundaryGraphStats(util::Vector<int> &out)
   boundary::graphStats(this, out);
 }
 
+void Mesh::foldActiveSculptLayer(std::span<const int> verts)
+{
+  if (activeEditLayer < 0 || activeEditLayer >= int(sculptLayers.size())) {
+    return;
+  }
+  AttrRef dref =
+      v.attrs.find_attribute(AttrType::FLOAT3, sculptLayers[activeEditLayer].name);
+  AttrRef rref = v.attrs.find_attribute(AttrType::FLOAT3, string(SCULPT_LAYER_REST_ATTR));
+  if (!dref.exists() || !rref.exists()) {
+    return;
+  }
+  AttrData<math::float3> *d = dref.get_data<math::float3>();
+  AttrData<math::float3> *rest = rref.get_data<math::float3>();
+  auto fold1 = [&](int vi) {
+    d->materialize(vi);
+    (*d)[vi] = v.co[vi] - rest->safe_get(vi);
+  };
+  if (verts.empty()) {
+    for (int vi : v) {
+      fold1(vi);
+    }
+  } else {
+    for (int vi : verts) {
+      fold1(vi);
+    }
+  }
+}
+
 void Mesh::edgePathCoords(int vStart, int vEnd, util::Vector<float> &out)
 {
   out.clear();

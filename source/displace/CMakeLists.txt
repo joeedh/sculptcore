@@ -20,4 +20,6 @@ wasm_add_symbols("
   Mesh_layerSetEnabled
   Mesh_layerSetFrozen
   Mesh_layerRemove
+  Mesh_setActiveEditLayer
+  Mesh_layerFold
 ")

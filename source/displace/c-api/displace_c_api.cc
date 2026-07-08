@@ -38,4 +38,19 @@ void Mesh_layerRemove(mesh::Mesh *m, int li)
     displace::removeLayer(*m, li);
   }
 }
+
+/* V2 edit-target surface: make layer `li` the edit target (-1 clears it);
+ * returns the resulting target index. Fold derives the target's delta column
+ * from evaluated positions (idempotent; safe to call at any time). */
+int Mesh_setActiveEditLayer(mesh::Mesh *m, int li)
+{
+  return m ? displace::setActiveEditLayer(*m, li) : -1;
+}
+
+void Mesh_layerFold(mesh::Mesh *m)
+{
+  if (m) {
+    displace::foldActiveLayer(*m);
+  }
+}
 }

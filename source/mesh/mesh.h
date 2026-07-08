@@ -140,6 +140,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, sculptLayerWeight, MARGS("li"));
     BIND_STRUCT_METHOD(st, sculptLayerEnabled, MARGS("li"));
     BIND_STRUCT_METHOD(st, sculptLayerFrozen, MARGS("li"));
+    BIND_STRUCT_METHOD(st, sculptLayerEditTarget, MARGS());
     BIND_STRUCT_METHOD(st, isTopoLocked, MARGS());
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
@@ -324,6 +325,11 @@ struct Mesh : public MeshBase {
    * the evaluator lives in source/displace/ (mesh can't depend on it). */
   util::Vector<SculptLayerSettings> sculptLayers;
 
+  /* Edit-target layer (V2 implicit-active model): settings index of the layer
+   * sculpting records into, -1 = none. Runtime state (not serialized); the
+   * target's column is assumed stale — fold before reading it. */
+  int activeEditLayer = -1;
+
   /* Runtime topology lock (NOT serialized): set on multires level meshes by
    * subdiv::Multires::materialize. On a locked base the VDM clamp is a true
    * ceiling — promotion is gated off (sculpt-layers-design §8, plan X1); the
@@ -410,6 +416,18 @@ struct Mesh : public MeshBase {
   {
     return li >= 0 && li < int(sculptLayers.size()) && sculptLayers[li].frozen ? 1 : 0;
   }
+  int sculptLayerEditTarget() const
+  {
+    return activeEditLayer;
+  }
+
+  /** Fold the edit target's delta column from evaluated positions:
+   * d(v) = co(v) − rest(v) over @p verts (empty span = every live vert).
+   * Idempotent and semantically a no-op (co and stack evaluation unchanged);
+   * no-op when no edit target / no rest snapshot exists. Target switching
+   * lives in displace::setActiveEditLayer — this core is mesh-side so
+   * serialization can fold without a mesh→displace dependency. */
+  void foldActiveSculptLayer(std::span<const int> verts = {});
 
   /* Wave 5: mark the shortest edge-path from vStart to vEnd as a seam. Runs
    * shortestEdgePath (Dijkstra over live edges), sets the EDGE_SEAM flag on each

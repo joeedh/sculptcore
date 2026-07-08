@@ -212,5 +212,191 @@ int main()
   test_assert(!m->v.attrs.find_attribute(AttrType::FLOAT3, string("layerB")).exists());
 
   alloc::Delete(m);
+
+  // ================= V2: implicit active edit layer =================
+  // All values below are small dyadic rationals, so every ± is exact in fp
+  // and the gates can assert bit-exact equality (n=5 grid → x/4 coords).
+  {
+    Mesh *m3 = alloc::New<Mesh>("v2 mesh");
+    buildGrid(*m3, 5);
+
+    auto exact3 = [](const float3 &a, const float3 &b) {
+      return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+    };
+    auto saveCo = [&](Vector<float3> &out) {
+      out.resize(m3->v.count);
+      for (int v : m3->v) {
+        out[v] = m3->v.co[v];
+      }
+    };
+    auto col = [&](const char *name) -> AttrData<float3> * {
+      AttrRef ref = m3->v.attrs.find_attribute(AttrType::FLOAT3, string(name));
+      return ref.exists() ? ref.get_data<float3>() : nullptr;
+    };
+    auto hasRest = [&]() {
+      return m3->v.attrs.find_attribute(AttrType::FLOAT3, string(SCULPT_LAYER_REST_ATTR))
+          .exists();
+    };
+
+    Vector<float3> rest0;
+    saveCo(rest0);
+
+    // --- activation snapshots rest; sculpt-sim + fold derives the delta ---
+    int lp = m3->addSculptLayerNamed("v2p");
+    test_assert(displace::setActiveEditLayer(*m3, lp) == lp);
+    test_assert(m3->activeEditLayer == lp && m3->sculptLayerEditTarget() == lp);
+    test_assert(hasRest());
+
+    const float3 sP(0.0f, 0.0f, 0.5f);
+    for (int v : m3->v) {
+      m3->v.co[v] += sP; // sculpt-sim: direct co write, no kernel involved
+    }
+    displace::foldActiveLayer(*m3);
+    AttrData<float3> *dp = col("v2p");
+    for (int v : m3->v) {
+      test_assert(exact3(dp->safe_get(v), sP));
+    }
+    // fold idempotence: double fold == single fold, bit-exact
+    displace::foldActiveLayer(*m3);
+    for (int v : m3->v) {
+      test_assert(exact3(dp->safe_get(v), sP));
+    }
+
+    // --- region fold vs whole-mesh fold equivalence ---
+    Vector<int> sub;
+    for (int v : m3->v) {
+      if (int(sub.size()) < 5) {
+        sub.append(v);
+      }
+    }
+    const float3 sSub(0.125f, 0.0f, 0.0f);
+    for (int v : sub) {
+      m3->v.co[v] += sSub;
+    }
+    displace::foldActiveLayer(*m3, std::span<const int>(sub.data(), sub.size()));
+    Vector<float3> snap;
+    snap.resize(m3->v.count);
+    for (int v : m3->v) {
+      snap[v] = dp->safe_get(v);
+    }
+    displace::foldActiveLayer(*m3);
+    for (int v : m3->v) {
+      test_assert(exact3(dp->safe_get(v), snap[v]));
+    }
+
+    // --- deactivation folds + drops rest; weight 0 returns bit-exact rest ---
+    test_assert(displace::setActiveEditLayer(*m3, -1) == -1);
+    test_assert(m3->activeEditLayer == -1);
+    test_assert(!hasRest());
+    Vector<float3> at1;
+    saveCo(at1);
+    displace::setLayerWeight(*m3, lp, 0.0f);
+    for (int v : m3->v) {
+      test_assert(exact3(m3->v.co[v], rest0[v]));
+    }
+    displace::setLayerWeight(*m3, lp, 1.0f); // 1→0→1 round-trip is bit-stable
+    for (int v : m3->v) {
+      test_assert(exact3(m3->v.co[v], at1[v]));
+    }
+
+    // --- activating a half-weight layer with prior content pins weight 1 ---
+    int lq = m3->addSculptLayerNamed("v2q");
+    const float3 dQ(0.25f, 0.0f, 0.0f);
+    {
+      Vector<int> all;
+      for (int v : m3->v) {
+        all.append(v);
+      }
+      displace::LayerEditScope scope;
+      test_assert(
+          scope.begin(*m3, string("v2q"), std::span<const int>(all.data(), all.size())));
+      AttrData<float3> *dq = col("v2q");
+      for (int v : m3->v) {
+        (*dq)[v] = dQ;
+      }
+      scope.end();
+    }
+    displace::setLayerWeight(*m3, lq, 0.5f);
+    test_assert(displace::setActiveEditLayer(*m3, lq) == lq);
+    test_assert(m3->sculptLayers[lq].weight == 1.0f);
+    for (int v : m3->v) {
+      test_assert(exact3(m3->v.co[v], at1[v] + dQ));
+    }
+
+    // --- mutating another layer while targeted mirrors into rest ---
+    displace::setLayerWeight(*m3, lp, 0.5f); // lp is NOT the target
+    for (int v : m3->v) {
+      m3->v.co[v] += float3(0.0f, 0.25f, 0.0f); // more sculpting into lq
+    }
+    displace::setActiveEditLayer(*m3, -1);
+    displace::setLayerWeight(*m3, lq, 0.0f);
+    for (int v : m3->v) {
+      // back to the ADJUSTED rest: rest0 + the re-weighted lp contribution
+      test_assert(exact3(m3->v.co[v], rest0[v] + dp->safe_get(v) * 0.5f));
+    }
+    displace::setLayerWeight(*m3, lq, 1.0f);
+
+    // --- frozen layers cannot be the target ---
+    displace::setLayerFrozen(*m3, lp, true);
+    test_assert(displace::setActiveEditLayer(*m3, lp) == -1);
+    test_assert(m3->activeEditLayer == -1);
+    displace::setLayerFrozen(*m3, lp, false);
+
+    // --- activating a disabled layer enables it (weight pinned too) ---
+    displace::setLayerEnabled(*m3, lp, false);
+    Vector<float3> coNoP;
+    saveCo(coNoP);
+    test_assert(displace::setActiveEditLayer(*m3, lp) == lp);
+    test_assert(m3->sculptLayerEnabled(lp) == 1);
+    test_assert(m3->sculptLayers[lp].weight == 1.0f);
+    for (int v : m3->v) {
+      test_assert(exact3(m3->v.co[v], coNoP[v] + dp->safe_get(v)));
+    }
+
+    // --- mutating the target itself ends the edit first ---
+    displace::setLayerWeight(*m3, lp, 0.25f);
+    test_assert(m3->activeEditLayer == -1 && !hasRest());
+    test_assert(m3->sculptLayers[lp].weight == 0.25f);
+    test_assert(displace::setActiveEditLayer(*m3, lp) == lp);
+    displace::setLayerFrozen(*m3, lp, true); // freezing the target clears it
+    test_assert(m3->activeEditLayer == -1 && m3->sculptLayerFrozen(lp) == 1);
+    displace::setLayerFrozen(*m3, lp, false);
+
+    // --- removing a layer below the target shifts the target index ---
+    test_assert(displace::setActiveEditLayer(*m3, lq) == lq);
+    displace::removeLayer(*m3, lp);
+    test_assert(m3->activeEditLayer == 0);
+    test_assert(m3->sculptLayers[0].name == string("v2q"));
+    test_assert(hasRest());
+
+    // --- serialization folds the live target; rest never round-trips ---
+    const float3 sTail(0.0f, 0.0f, 0.0625f);
+    for (int v : m3->v) {
+      m3->v.co[v] += sTail;
+    }
+    std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+    test_assert(serial::writeMesh(*m3, ss));
+    test_assert(m3->activeEditLayer == 0); // fold is undo/edit-transparent
+    Mesh *m4 = alloc::New<Mesh>("v2 mesh rt");
+    test_assert(serial::readMesh(*m4, ss));
+    test_assert(m4->activeEditLayer == -1); // the edit target is runtime state
+    test_assert(
+        !m4->v.attrs.find_attribute(AttrType::FLOAT3, string(SCULPT_LAYER_REST_ATTR))
+             .exists());
+    AttrData<float3> *dq3 = col("v2q");
+    AttrRef q4 = m4->v.attrs.find_attribute(AttrType::FLOAT3, string("v2q"));
+    test_assert(q4.exists());
+    AttrData<float3> *dq4 = q4.get_data<float3>();
+    int nChecked = 0;
+    for (int v : m4->v) {
+      test_assert(exact3(dq4->safe_get(v), dq3->safe_get(v)));
+      nChecked++;
+    }
+    test_assert(nChecked == int(m3->v.count));
+
+    alloc::Delete(m4);
+    alloc::Delete(m3);
+  }
+
   return retval;
 }

@@ -464,6 +464,10 @@ bool writeMeshRaw(Mesh &mesh, std::iostream &out)
     mesh.thawTopo();
   }
 
+  // The edit target's delta column is stale while a layer is targeted (V2
+  // implicit-active model) — fold so the file stores the current delta.
+  mesh.foldActiveSculptLayer();
+
   ElemData *eds[5] = {&mesh.v, &mesh.e, &mesh.c, &mesh.l, &mesh.f};
 
   /* Compaction maps: maps[d][old] = dense new index, ELEM_NONE for free slots. */

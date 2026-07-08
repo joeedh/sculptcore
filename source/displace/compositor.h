@@ -65,9 +65,28 @@ private:
   util::Vector<float3> old_;
 };
 
+/** Make layer @p settingsIdx the edit target (V2 implicit-active model), or
+ * pass -1 to clear it. While targeted, sculpting co IS editing the layer: its
+ * delta is derived (d ≡ co − rest, rest snapshotted at activation into the
+ * TEMP `.slayer.rest` column) and its stored column is stale until a fold.
+ * Activation enables a disabled layer and pins its weight to 1 (folding at
+ * weight w would divide by w); a frozen layer cannot be the target. Switching
+ * away folds the outgoing layer and drops its rest snapshot. Returns the
+ * resulting target index (-1 when deactivated or @p settingsIdx is invalid/
+ * frozen). Callers own undo — replaying this through the same path on
+ * undo/redo is self-consistent because folds are semantically no-ops. */
+int setActiveEditLayer(mesh::Mesh &m, int settingsIdx);
+
+/* Fold the edit target's delta from evaluated positions (d = co − rest) over
+ * @p verts (empty = whole mesh). Idempotent; no-op without a target. */
+void foldActiveLayer(mesh::Mesh &m, std::span<const int> verts = {});
+
 /* Settings mutations that keep evaluated positions current (co += Δ over all
- * live verts). These do NOT bracket meshlog — an undoable caller wraps them
- * in its own step (app wiring lands in V5). */
+ * live verts). Mutating the edit target itself first clears the target (fold +
+ * weight unpin is the caller's concern); mutating another layer mirrors its co
+ * adjustment into the target's rest snapshot so derived deltas stay exact.
+ * These do NOT bracket meshlog — an undoable caller wraps them in its own
+ * step (app wiring lands in V5). */
 void setLayerWeight(mesh::Mesh &m, int settingsIdx, float weight);
 void setLayerEnabled(mesh::Mesh &m, int settingsIdx, bool enabled);
 void setLayerFrozen(mesh::Mesh &m, int settingsIdx, bool frozen);

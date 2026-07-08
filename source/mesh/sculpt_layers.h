@@ -23,6 +23,12 @@ enum class SculptLayerMode { DELTA = 0, TANGENT = 1 };
  * works in object space, so WORLD and OBJECT are currently synonyms. */
 enum class SculptLayerSpace { WORLD = 0, OBJECT = 1 };
 
+/** Name of the TEMP FLOAT3 vertex column holding the edit target's rest
+ * positions (V2 implicit-active model): rest(v) = co(v) − d_active(v),
+ * snapshotted when a layer becomes the edit target. Folding derives the
+ * layer's delta as co − rest. Never serialized (AttrFlag::TEMP). */
+constexpr const char *SCULPT_LAYER_REST_ATTR = ".slayer.rest";
+
 struct SculptLayerSettings {
   /* Name of the VERTEX FLOAT3 attribute this record describes. */
   litestl::util::string name;
