@@ -1,15 +1,29 @@
-/* Regression: GPU upload currency across a MULTI-STEP undo/redo walk.
+/* Regression: mesh + GPU currency across a MULTI-STEP undo/redo walk.
  *
  * The ts2.wproj field repro is several separate dyntopo strokes (each its own
- * meshlog step); undoing all the way down then redoing back up showed the
- * uploaded GPU position buffer drifting (different corner COUNT than the forward
- * pass at the same cursor) even though mesh co was bit-identical. A single-step
- * test can't surface that — the partition/GPU-node set is only re-derived when
- * topology changes, and across multiple steps the deferred split/merge cadence
- * and ownership replay interact. This drives N separate strokes through the
- * unified executor, snapshots the uploaded GPU positions at the top, then walks
- * all the way down (undo) and back up (redo) and asserts the top-of-stack GPU
- * buffer is reproduced exactly — same corner multiset AND same count. */
+ * meshlog step); undoing all the way down then redoing back up drifted. Two
+ * distinct failure classes are gated here:
+ *
+ *  1. MESH corruption: undoing a multi-dab dyntopo stroke restored some verts
+ *     to MID-step values. Root cause: with one step-wide topo chunk, an
+ *     Existed vert first brush-deformed (element store holds its true
+ *     pre-step row) and only LATER dyntopo-touched gets a mid-step
+ *     begin_body — and the topo chunk, sitting earliest in the chunk list,
+ *     wins the reverse-order undo. The per-dab topo-chunk seal in
+ *     CommandExecutor::applyDab (re-enabled) restores the per-dab capture
+ *     chains the undo order depends on. Gated by sorted live-vert co
+ *     multiset comparison at every undo/redo cursor.
+ *
+ *  2. GPU currency: at every checkpoint the DRAWN buffer positions must be
+ *     exactly the live mesh's position set. Leaf PARTITION after undo/redo
+ *     legitimately differs from the forward pass (per-leaf vert DUPLICATION
+ *     shifts), so the gate compares the sorted UNIQUE position set against
+ *     the mesh, checkpoint-local — never forward-vs-redo buffers.
+ *     KNOWN OPEN FAILURE: after enough dyntopo churn the FORWARD pass draws
+ *     a handful of phantom corners (positions matching no live vert; a full
+ *     forced leaf regen does NOT clear them, so dead elements linger in some
+ *     leaf's sets rather than the upload being stale). Undo/redo rebuilds
+ *     are clean. */
 #include "test_util.h"
 
 #include "brush/brush_executor.h"
@@ -24,6 +38,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 test_init;
 
@@ -31,8 +46,10 @@ using namespace sculptcore;
 using namespace sculptcore::debug_app;
 using litestl::math::float3;
 
-/* The bytes the GPU actually draws: every GPU node's pos buffer after update(). */
-static void collectGpuPos(spatial::SpatialTree *tree, litestl::util::Vector<float3> &out)
+/* The bytes the GPU actually draws: every GPU node's pos buffer after
+ * update(), deduplicated (per-leaf replicas collapse; see header comment). */
+static void collectGpuUnique(spatial::SpatialTree *tree,
+                             litestl::util::Vector<float3> &out)
 {
   out.clear();
   for (spatial::SpatialNode *node : tree->gpu_nodes()) {
@@ -41,7 +58,10 @@ static void collectGpuPos(spatial::SpatialTree *tree, litestl::util::Vector<floa
     }
     gpu::Buffer *pos = node->gpu_data->pos;
     float3 *d = pos->get_data<float3>();
-    for (int i = 0; i < pos->size; i++) {
+    /* Clamp to the DRAWN count: buffers keep slack past total_verts after
+     * dyntopo churn, and those undrawn slots hold stale positions. */
+    int n = std::min(pos->size, node->gpu_data->total_verts);
+    for (int i = 0; i < n; i++) {
       out.append(d[i]);
     }
   }
@@ -50,6 +70,10 @@ static void collectGpuPos(spatial::SpatialTree *tree, litestl::util::Vector<floa
     if (a[1] != b[1]) return a[1] < b[1];
     return a[2] < b[2];
   });
+  auto last = std::unique(out.begin(), out.end(), [](const float3 &a, const float3 &b) {
+    return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+  });
+  out.resize(int(last - out.begin()));
 }
 
 /* Mirror the real app's per-frame cadence: many update() calls per stroke, so
@@ -62,8 +86,33 @@ static void pump(Scene &scene)
   }
 }
 
-static int cmpGpu(const litestl::util::Vector<float3> &a,
-                  const litestl::util::Vector<float3> &b, float &maxw)
+static int cmpSorted(const litestl::util::Vector<float3> &a,
+                     const litestl::util::Vector<float3> &b, float &maxw);
+
+/* Compare the GPU unique-position set against the UNIQUE positions of the
+ * live-vert multiset. Returns the mismatch count (size gaps count too). */
+static int gpuMatchesMesh(const litestl::util::Vector<float3> &gpuUnique,
+                          const litestl::util::Vector<float3> &meshSorted, float &maxw)
+{
+  litestl::util::Vector<float3> meshUnique;
+  for (int i = 0; i < int(meshSorted.size()); i++) {
+    if (meshUnique.size() == 0 ||
+        std::memcmp(&meshSorted[i], &meshUnique[meshUnique.size() - 1],
+                    sizeof(float3)) != 0)
+    {
+      meshUnique.append(meshSorted[i]);
+    }
+  }
+  if (gpuUnique.size() != meshUnique.size()) {
+    maxw = -1.0f;
+    return int(std::max(gpuUnique.size(), meshUnique.size()) -
+               std::min(gpuUnique.size(), meshUnique.size()));
+  }
+  return cmpSorted(gpuUnique, meshUnique, maxw);
+}
+
+static int cmpSorted(const litestl::util::Vector<float3> &a,
+                     const litestl::util::Vector<float3> &b, float &maxw)
 {
   maxw = 0.0f;
   int diff = 0;
@@ -108,12 +157,27 @@ int main()
   exec.meshLog = &scene.meshLog;
   exec.ctx.renderMatrix = scene.renderMatrix;
 
-  /* N separate strokes, each its own meshlog step — like the field repro. Snapshot
-   * the uploaded GPU positions after each forward step. */
+  /* N separate strokes, each its own meshlog step — like the field repro.
+   * Snapshot the GPU unique-position set + the live-vert co multiset after
+   * each forward step. */
   const int NSTEPS = 4;
   const int NDABS = 5;
   litestl::util::Vector<litestl::util::Vector<float3>> gpuFwd;
+  litestl::util::Vector<litestl::util::Vector<float3>> meshFwd;
   gpuFwd.resize(NSTEPS);
+  meshFwd.resize(NSTEPS);
+
+  auto collectMeshCo = [&](litestl::util::Vector<float3> &out) {
+    out.clear();
+    for (int v : m->v) {
+      out.append(m->v.co[v]);
+    }
+    std::sort(out.begin(), out.end(), [](const float3 &a, const float3 &b) {
+      if (a[0] != b[0]) return a[0] < b[0];
+      if (a[1] != b[1]) return a[1] < b[1];
+      return a[2] < b[2];
+    });
+  };
 
   for (int s = 0; s < NSTEPS; s++) {
     exec.beginStep(true);
@@ -129,32 +193,51 @@ int main()
     exec.endStep();
     /* Mirror per-frame tree maintenance between strokes (deferred split/merge). */
     pump(scene);
-    collectGpuPos(scene.tree, gpuFwd[s]);
-    printf("  step %d: v=%d f=%d gpuCorners=%d\n", s, m->v.count, m->f.count,
-           (int)gpuFwd[s].size());
+    collectGpuUnique(scene.tree, gpuFwd[s]);
+    collectMeshCo(meshFwd[s]);
+    {
+      float mw = 0.0f;
+      int gd = gpuMatchesMesh(gpuFwd[s], meshFwd[s], mw);
+      printf("  step %d: v=%d f=%d gpuUnique=%d gpu-mesh mismatch=%d\n", s,
+             m->v.count, m->f.count, (int)gpuFwd[s].size(), gd);
+      test_assert(gd == 0);
+    }
   }
 
-  /* Undo all the way to the base, then redo back to the top, mirroring the field
-   * repro's descent/ascent. Drive update() after each so GPU buffers refresh. */
+  /* Undo all the way to the base, checking the restored MESH at every cursor
+   * (failure class 1), then redo back up checking mesh + GPU. */
   printf("  -- undo descent --\n");
   for (int s = NSTEPS - 1; s >= 0; s--) {
     scene.meshLog.undo(m, scene.tree);
     pump(scene);
+    if (s > 0) {
+      litestl::util::Vector<float3> meshNow;
+      collectMeshCo(meshNow);
+      float mw = 0.0f;
+      int md = meshFwd[s - 1].size() == meshNow.size()
+                   ? cmpSorted(meshFwd[s - 1], meshNow, mw)
+                   : -1;
+      printf("  undo to cursor %d: meshDiff=%d meshMaxw=%.5f\n", s - 1, md, mw);
+      test_assert(md == 0);
+    }
   }
 
   printf("  -- redo ascent --\n");
   for (int s = 0; s < NSTEPS; s++) {
     scene.meshLog.redo(m, scene.tree);
     pump(scene);
-    litestl::util::Vector<float3> gpuNow;
-    collectGpuPos(scene.tree, gpuNow);
-    float maxw = 0.0f;
-    int diff = cmpGpu(gpuFwd[s], gpuNow, maxw);
-    printf("  redo step %d: gpuCorners fwd=%d now=%d, diff=%d maxw=%.5f\n", s,
-           (int)gpuFwd[s].size(), (int)gpuNow.size(), diff, maxw);
-    /* Same count AND same positions as the forward pass at this cursor. */
-    test_assert(gpuFwd[s].size() == gpuNow.size());
-    test_assert(diff == 0);
+    litestl::util::Vector<float3> gpuNow, meshNow;
+    collectGpuUnique(scene.tree, gpuNow);
+    collectMeshCo(meshNow);
+    float gw = 0.0f, meshMaxw = 0.0f;
+    int gd = gpuMatchesMesh(gpuNow, meshNow, gw);
+    int meshDiff = meshFwd[s].size() == meshNow.size()
+                       ? cmpSorted(meshFwd[s], meshNow, meshMaxw)
+                       : -1;
+    printf("  redo step %d: meshDiff=%d meshMaxw=%.5f | gpu-mesh mismatch=%d\n",
+           s, meshDiff, meshMaxw, gd);
+    test_assert(meshDiff == 0);
+    test_assert(gd == 0);
   }
 
   printf("dyntopo_multistep_gpu: ok\n");

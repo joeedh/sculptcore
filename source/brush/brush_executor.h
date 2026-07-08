@@ -436,8 +436,13 @@ struct CommandExecutor {
       // is @global → not `accumulable`). The op marks each image via
       // setGrabAccumAdd, which advances the per-dab generation on the primary.
       def.grabMode = true;
+      /* The second impl call re-appends the same uniform manifest — clear it
+         first or grab-class brushes report every uniform twice (wave-5
+         queryUniformManifest, the TS dynamics UI). */
+      def.uniforms = decltype(def.uniforms)();
       createCommandImpl<AccumOrigGrab>(brushType, def);
     } else if (nonAccum && def.accumulable) {
+      def.uniforms = decltype(def.uniforms)();
       createCommandImpl<AccumOrig>(brushType, def);
     }
     return def;
@@ -1351,7 +1356,14 @@ struct CommandExecutor {
       execProgram(prog, &nodes, center, normal);
     }
     if (params && meshLog) {
-      //meshLog->pushTopoChunk();
+      /* Per-dab seal: deactivate this dab's topo chunk NOW (finalizing its
+         Created end-states) so the next dab's topo captures land in a fresh
+         chunk. Without it one step-wide chunk captures an Existed vert's
+         begin-body at its FIRST TOPO touch — mid-step for verts the brush
+         deformed in earlier dabs — and that stale body, sitting at position
+         0, wins the reverse-order undo over the element store's true
+         pre-step row (the multistep undo corruption). */
+      meshLog->pushTopoChunk();
     }
     clearIsFirstOfStep();
     return topoApplied;
@@ -1382,7 +1394,14 @@ struct CommandExecutor {
       execBrush(m, brushType, &nodes, center, normal);
     }
     if (params && meshLog) {
-      //meshLog->pushTopoChunk();
+      /* Per-dab seal: deactivate this dab's topo chunk NOW (finalizing its
+         Created end-states) so the next dab's topo captures land in a fresh
+         chunk. Without it one step-wide chunk captures an Existed vert's
+         begin-body at its FIRST TOPO touch — mid-step for verts the brush
+         deformed in earlier dabs — and that stale body, sitting at position
+         0, wins the reverse-order undo over the element store's true
+         pre-step row (the multistep undo corruption). */
+      meshLog->pushTopoChunk();
     }
     clearIsFirstOfStep();
     return topoApplied;
