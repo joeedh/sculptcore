@@ -152,6 +152,10 @@ class NapiRuntime {
   static napi_value MeshLayerSetEnabled(napi_env, napi_callback_info);
   static napi_value MeshLayerSetFrozen(napi_env, napi_callback_info);
   static napi_value MeshLayerRemove(napi_env, napi_callback_info);
+  // meshSetActiveEditLayer(mesh, li) -> int (V2 edit target; -1 clears) and
+  // meshLayerFold(mesh) -> void (fold the target's delta; idempotent).
+  static napi_value MeshSetActiveEditLayer(napi_env, napi_callback_info);
+  static napi_value MeshLayerFold(napi_env, napi_callback_info);
   // Multires seam (subdiv/c-api/subdiv_c_api.cc; displacementAndSubSurf S).
   // multiresNew(cage, levels, leafLimit, depthLimit, gpuTriTarget) -> bound
   // Multires wrapper (non-owning; free via multiresFree, which nulls it).

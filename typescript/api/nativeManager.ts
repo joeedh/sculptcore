@@ -248,6 +248,12 @@ export class NativeManager {
   Mesh_layerRemove(mesh: NativeBound, li: number): void {
     this.addon.meshLayerRemove(mesh, li)
   }
+  Mesh_setActiveEditLayer(mesh: NativeBound, li: number): number {
+    return this.addon.meshSetActiveEditLayer(mesh, li)
+  }
+  Mesh_layerFold(mesh: NativeBound): void {
+    this.addon.meshLayerFold(mesh)
+  }
   // Multires seam (displacementAndSubSurf S app-wiring pass). Names match the
   // IWasmInterface members so both backends stay drop-ins.
   Multires_new(
@@ -497,6 +503,8 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Mesh_layerSetEnabled             : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetEnabled(m, li, on),
     Mesh_layerSetFrozen              : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetFrozen(m, li, on),
     Mesh_layerRemove                 : (m: NativeBound, li: number) => nm.Mesh_layerRemove(m, li),
+    Mesh_setActiveEditLayer: (m: NativeBound, li: number) => nm.Mesh_setActiveEditLayer(m, li),
+    Mesh_layerFold: (m: NativeBound) => nm.Mesh_layerFold(m),
     Multires_new: (c: NativeBound, lv: number, l: number, d: number, t: number) => nm.Multires_new(c, lv, l, d, t),
     Multires_free                    : (mr: NativeBound) => nm.Multires_free(mr),
     Multires_setActiveLevel          : (mr: NativeBound, lv: number) => nm.Multires_setActiveLevel(mr, lv),

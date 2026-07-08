@@ -120,6 +120,12 @@ interface IWasmMethods extends IWasmBase {
   Mesh_layerSetFrozen(mesh: Mesh, li: int, frozen: int): void
   /** remove layer `li`: subtract its contribution, drop settings row + column. */
   Mesh_layerRemove(mesh: Mesh, li: int): void
+  /** make layer `li` the edit target (V2; -1 clears). Enables + pins weight 1;
+   * returns the resulting target index (-1 when cleared/invalid/frozen). */
+  Mesh_setActiveEditLayer(mesh: Mesh, li: int): int
+  /** fold the edit target's delta from evaluated positions (idempotent no-op
+   * without a target). Read the target via the bound sculptLayerEditTarget. */
+  Mesh_layerFold(mesh: Mesh): void
 
   // Multires seam (subdiv/c-api/subdiv_c_api.cc; displacementAndSubSurf S).
   // Pointer-level C exports; the same-named IWasmInterface helpers wrap them
@@ -756,6 +762,14 @@ export async function loadWasm(): Promise<IWasmInterface> {
     Mesh_layerRemove(mesh: Mesh, li: int) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
       _wasm.Mesh_layerRemove(meshPtr as unknown as Mesh, li)
+    },
+    Mesh_setActiveEditLayer(mesh: Mesh, li: int): int {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      return _wasm.Mesh_setActiveEditLayer(meshPtr as unknown as Mesh, li)
+    },
+    Mesh_layerFold(mesh: Mesh) {
+      const meshPtr = (mesh as unknown as {ptr: number}).ptr
+      _wasm.Mesh_layerFold(meshPtr as unknown as Mesh)
     },
     Multires_new(cage: Mesh, levels: int, leafLimit: int, depthLimit: int, gpuTriTarget: int): Multires {
       const cagePtr = (cage as unknown as {ptr: number}).ptr

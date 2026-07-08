@@ -179,6 +179,10 @@ export interface NativeAddon {
   meshLayerSetFrozen(mesh: NativeBound, li: number, frozen: number): void
   /** Remove layer `li`: subtract contribution, drop settings row + column. */
   meshLayerRemove(mesh: NativeBound, li: number): void
+  /** Make layer `li` the edit target (V2; -1 clears); returns the result. */
+  meshSetActiveEditLayer(mesh: NativeBound, li: number): number
+  /** Fold the edit target's delta from evaluated positions (idempotent). */
+  meshLayerFold(mesh: NativeBound): void
   // Multires seam (subdiv/c-api subdiv_c_api.cc; displacementAndSubSurf S).
   /** Bound Multires stack over `cage` (not owned; must outlive the stack). Tree params 0 = defaults. Free via multiresFree. */
   multiresNew(

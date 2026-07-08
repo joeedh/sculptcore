@@ -89,6 +89,8 @@ void Mesh_layerSetWeight(void *mesh, int li, float weight);
 void Mesh_layerSetEnabled(void *mesh, int li, int enabled);
 void Mesh_layerSetFrozen(void *mesh, int li, int frozen);
 void Mesh_layerRemove(void *mesh, int li);
+int Mesh_setActiveEditLayer(void *mesh, int li);
+void Mesh_layerFold(void *mesh);
 // Multires seam (source/subdiv/c-api/subdiv_c_api.cc).
 void *Multires_new(void *cage, int levels, int leafLimit, int depthLimit,
                    int gpuTriTarget);
@@ -2155,6 +2157,45 @@ napi_value NapiRuntime::MeshLayerRemove(napi_env env, napi_callback_info info)
   });
 }
 
+// meshSetActiveEditLayer(mesh, li) -> int. Make layer li the V2 edit target
+// (-1 clears); enables + pins weight 1. Returns the resulting target index.
+napi_value NapiRuntime::MeshSetActiveEditLayer(napi_env env, napi_callback_info info)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  int32_t result = -1;
+  Wrapped *mw = nullptr;
+  if (argc >= 2 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok &&
+      mw && mw->ptr)
+  {
+    int32_t li = -1;
+    napi_get_value_int32(env, argv[1], &li);
+    result = Mesh_setActiveEditLayer(mw->ptr, li);
+  }
+  napi_value out;
+  napi_create_int32(env, result, &out);
+  return out;
+}
+
+// meshLayerFold(mesh) -> void. Fold the edit target's delta column from
+// evaluated positions (idempotent; no-op without a target).
+napi_value NapiRuntime::MeshLayerFold(napi_env env, napi_callback_info info)
+{
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value undef;
+  napi_get_undefined(env, &undef);
+  Wrapped *mw = nullptr;
+  if (argc >= 1 && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok &&
+      mw && mw->ptr)
+  {
+    Mesh_layerFold(mw->ptr);
+  }
+  return undef;
+}
+
 // multiresNew(cage, levels, leafLimit, depthLimit, gpuTriTarget) -> bound
 // Multires wrapper (non-owning; free via multiresFree). The cage stays owned
 // by the caller and must outlive the stack.
@@ -2978,6 +3019,8 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "meshLayerSetEnabled", &NapiRuntime::MeshLayerSetEnabled);
   define(exports, "meshLayerSetFrozen", &NapiRuntime::MeshLayerSetFrozen);
   define(exports, "meshLayerRemove", &NapiRuntime::MeshLayerRemove);
+  define(exports, "meshSetActiveEditLayer", &NapiRuntime::MeshSetActiveEditLayer);
+  define(exports, "meshLayerFold", &NapiRuntime::MeshLayerFold);
   define(exports, "vdmLastSplatClamped", &NapiRuntime::VdmLastSplatClamped);
   define(exports, "multiresNew", &NapiRuntime::MultiresNew);
   define(exports, "multiresFree", &NapiRuntime::MultiresFree);
