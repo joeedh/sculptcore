@@ -219,6 +219,52 @@ Strategy is picked from M0.1 data. Ranked options, cheapest-risk first:
   splits/flips/rounds); deferred-split phase ≥2× faster on the 480k
   workload with no downstream-phase regression.
 
+### M2 results (measured 2026-07-09, 480k workload)
+
+**Gate met: deferred split 1283 ms → 199–202 ms (≈6.4×).** update() total
+5182 → 2538–2723 ms (~2×) combined with M1. Shipped as M2.a + M2.b:
+
+- **M2.a** — three serial cuts, all routing-parity-preserving (identical
+  candidate/refile/orphan counters before and after):
+  - dropped `triangulateFace` from all three re-file sites (split_node,
+    merge_node, collapse_subtree): its output was never read
+    (`add_face_intern` routes purely by centroid) and it cannot fail (fan
+    fallback), so the whole call was dead work. The build-path `add_face`
+    keeps it — there the tris feed the NaN/zero-area admission check.
+  - removed a `[[clang::optnone]]` that had been sitting on `add_face_intern`
+    (the hottest split function, 1.42M calls/run) since an unrelated 2024-era
+    commit — re-file descent 493 → 332 ms.
+  - `face_calc_center_direct()`: bit-identical centroid walking the
+    loop/corner columns directly instead of through the proxy iterators.
+  - M2.a subtotal: 1283 → 867–981 ms (~1.4×) — short of the 2× gate alone.
+- **M2.b** — candidate-level parallelism (grain 1, per-candidate
+  `split_node`), with two determinism mechanisms:
+  - **Claim tags:** the plan's "disjoint candidates" claim had a hole —
+    *boundary verts shared by two candidates race* (B unassigns `v.node=0`
+    while A's re-file reads it; if A observes the 0 it claims B's vert,
+    which can change A's recursive-split structure). First A/B run confirmed:
+    every per-update buffer checksum differed, run-to-run too. Fix: each
+    parallel candidate unassigns with a unique negative `claimTag` and may
+    only claim verts carrying its own tag. That is exactly the serial
+    semantics (serially a candidate only ever sees its *own* zeros — earlier
+    candidates' verts are already re-claimed positive, later ones not yet
+    unassigned), so the result is bit-identical to serial candidate order,
+    not merely deterministic.
+  - **Renumbering epilogue:** after the join, the new nodes' ids and `nodes`
+    order are reassigned in candidate order (pre-order DFS per candidate —
+    the *structure* is scheduling-independent), idmap slots rebuilt, and each
+    new leaf's `.spatial.{v,f}.node` entries re-stamped. `alloc_node` gained
+    a mutex (the only shared state; ~23 allocs/update — uncontended).
+
+Verification: per-update order-independent buffer checksums bit-identical
+between `SC_SPLIT_SERIAL=1` and parallel on the 120k *and* 480k workloads,
+and across repeated parallel runs; `bench_dyntopo` splits/flips/rounds
+identical serial-vs-parallel; ctest = same 4 pre-existing environment
+failures as the M0 baseline, `test_dyntopo_cascade`/`_budget`/`_smooth` and
+all `test_spatial_*` green. The checksum was switched to per-owner FNV
+XOR-combined so it is independent of `nodes` iteration order (which the
+parallel pass legitimately changes) while still catching content diffs.
+
 ## M3 — integration measurement
 
 - Re-run all three workloads (120k, 480k per-dab, collapse-heavy) + one

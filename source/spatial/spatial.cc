@@ -336,20 +336,16 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
   }
 }
 
-[[clang::optnone]]
-void SpatialTree::add_face_intern(SpatialNode *node,
-                                  int f,
-                                  std::span<Tri> &tris,
-                                  float3 &fcent)
+void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent, int claimTag)
 {
   if ((node->flag & Spatial_Leaf) && node_needs_split(node)) {
     // CLAUDENOTE: M0.1 — count/time inline splits triggered by the re-file.
     if (prof::inDeferredSplit > 0) {
       prof::spatialUpdateProf.splitRecursive++;
       prof::SplitScope profNested_(prof::spatialUpdateProf.splitNested);
-      split_node(node);
+      split_node(node, claimTag);
     } else {
-      split_node(node);
+      split_node(node, claimTag);
     }
   }
 
@@ -374,7 +370,7 @@ void SpatialTree::add_face_intern(SpatialNode *node,
       }
     }
     SpatialNode *child = fcent[axis] <= c0->aabb.max[axis] ? c0 : c1;
-    add_face_intern(child, f, tris, fcent);
+    add_face_intern(child, f, fcent, claimTag);
     return;
   }
 
@@ -396,7 +392,10 @@ void SpatialTree::add_face_intern(SpatialNode *node,
       if (vn == node->id) {
         continue; /* already this leaf's unique vert  */
       }
-      if (!vn) {
+      /* Claim only verts carrying this split's own unassign tag (0 outside a
+       * split). A concurrent candidate's verts show its tag or a positive id
+       * — never claimable here, so parallel candidates stay disjoint. */
+      if (vn == claimTag) {
         node->data->unique_verts.add(c.v());
         treeMesh.v.node[c.v()] = node->id;
       }
@@ -404,7 +403,31 @@ void SpatialTree::add_face_intern(SpatialNode *node,
   }
 }
 
-void SpatialTree::split_node(SpatialNode *node)
+/* Bit-identical to FaceProxy::calc_center(), walking the loop/corner columns
+ * directly — the proxy-iterator overhead dominated the split re-file (M2.a). */
+static float3 face_calc_center_direct(Mesh *m, int f)
+{
+  float tot = 0.0f;
+  float3 cent(0.0f);
+  for (int l = m->f.l[f]; l != ELEM_NONE; l = m->l.next[l]) {
+    int c0 = m->l.c[l];
+    if (c0 == ELEM_NONE) {
+      continue;
+    }
+    int c = c0;
+    do {
+      cent += m->v.co[m->c.v[c]];
+      tot += 1.0f;
+      c = m->c.next[c];
+    } while (c != c0);
+  }
+  if (tot == 0.0f) {
+    return cent;
+  }
+  return cent / tot;
+}
+
+void SpatialTree::split_node(SpatialNode *node, int claimTag)
 {
   {
     // CLAUDENOTE: M0.1 temp attribution — alloc bookkeeping.
@@ -427,8 +450,8 @@ void SpatialTree::split_node(SpatialNode *node)
       VertProxy vert(m, v);
       mean += vert.co();
 
-      /* Unassign verts. */
-      treeMesh.v.node[v] = 0;
+      /* Unassign verts (claimTag = this split's private marker; 0 serially). */
+      treeMesh.v.node[v] = claimTag;
     }
   }
 
@@ -483,22 +506,21 @@ void SpatialTree::split_node(SpatialNode *node)
   }
 
   node->flag &= ~Spatial_Leaf;
-  Vector<Tri, 16> tris;
 
+  /* Re-filing does not re-triangulate: add_face_intern routes purely by the
+   * centroid, and every face here already passed add_face's validity check
+   * when it entered the tree (M2.a — the old triangulateFace call was dead
+   * work, ~42% of the split pass). */
   for (int f : node->data->unique_faces) {
     if (m->f.freemap[f]) {
       continue; /* tolerate a stale entry from incremental removal */
     }
-    FaceProxy face(m, f);
     float3 fcent;
-    bool triOk;
     {
-      // CLAUDENOTE: M0.1 temp attribution — per-face centroid + re-triangulation
-      // (the M2.a "derive both from cached tris" candidates, timed together).
+      // CLAUDENOTE: M0.1 temp attribution — per-face centroid (post-M2.a:
+      // triangulateFace dropped; this stat now times calc_center alone).
       prof::SplitScope profTri_(prof::spatialUpdateProf.splitTriangulate);
-      fcent = face.calc_center();
-      tris.clear();
-      triOk = triangulateFace(*m, f, tris);
+      fcent = face_calc_center_direct(m, f);
     }
 
     // unassign face
@@ -507,11 +529,10 @@ void SpatialTree::split_node(SpatialNode *node)
       prof::spatialUpdateProf.splitFacesRefiled++;
     }
 
-    if (triOk) {
-      std::span<Tri> tris_span = tris;
+    {
       // CLAUDENOTE: M0.1 temp attribution — re-file descent (incl. nested splits).
       prof::SplitScope profRefile_(prof::spatialUpdateProf.splitRefile);
-      add_face_intern(node, f, tris_span, fcent);
+      add_face_intern(node, f, fcent, claimTag);
     }
   }
 
@@ -527,7 +548,7 @@ void SpatialTree::split_node(SpatialNode *node)
     // CLAUDENOTE: M0.1 temp attribution — orphan-vert recovery walk.
     prof::SplitScope profOrphan_(prof::spatialUpdateProf.splitOrphan);
     for (int v : node->data->unique_verts) {
-      if (m->v.freemap[v] || treeMesh.v.node[v] != 0) {
+      if (m->v.freemap[v] || treeMesh.v.node[v] != claimTag) {
         continue;
       }
       if (prof::inDeferredSplit > 0) {
@@ -566,8 +587,8 @@ void SpatialTree::applyDeferredNodeSplit()
     return;
   }
 
-  /* split_node re-triangulates the leaf's faces through the live face/loop links,
-   * which are dropped in frozen-topology mode — thaw first (one thaw covers the
+  /* split_node walks the leaf's faces through the live face/loop links, which
+   * are dropped in frozen-topology mode — thaw first (one thaw covers the
    * whole pass; the next dab re-freezes). */
   if (m->topo_frozen) {
     m->thawTopo();
@@ -576,22 +597,129 @@ void SpatialTree::applyDeferredNodeSplit()
   /* Each over-full leaf is split exactly once here; split_node itself recurses
    * (its re-insert goes through add_face_intern's inline-split path), so one call
    * turns a leaf that gained ~1500 verts in a dab into a balanced subtree —
-   * replacing the N threshold-crossing re-inserts the inline path used to do. */
-  // CLAUDENOTE: M0.1 temp attribution — gate the split sub-phase stats.
-  prof::inDeferredSplit++;
-  prof::spatialUpdateProf.splitCandidates += long(nodeSplitCandidates_.size());
+   * replacing the N threshold-crossing re-inserts the inline path used to do.
+   * Candidates are resolved up-front: nothing in the split pass may read
+   * node_idmap once splits run in parallel (alloc_node grows it). */
+  Vector<SpatialNode *, 32> cands;
   for (int leafId : nodeSplitCandidates_) {
     SpatialNode *node = node_from_id(leafId);
     if (node && (node->flag & Spatial_Leaf) && node->data && node_needs_split(node)) {
-      prof::spatialUpdateProf.splitCandidatesRun++;
+      cands.append(node);
+    }
+  }
+  // CLAUDENOTE: M0.1 temp counters.
+  prof::spatialUpdateProf.splitCandidates += long(nodeSplitCandidates_.size());
+  prof::spatialUpdateProf.splitCandidatesRun += long(cands.size());
+  nodeSplitCandidates_.clear();
+  leafCacheDirty_ = true;
+
+  if (cands.size() == 0) {
+    return;
+  }
+
+  /* Split candidates are disjoint leaf subtrees: each split touches only its
+   * own subtree nodes, its own geometry's `.spatial.{v,f}.node` entries, and
+   * the shared node bookkeeping serialized inside alloc_node. So the
+   * candidates can split in parallel; the id/order nondeterminism from
+   * parallel completion is erased by the renumbering epilogue below.
+   * CLAUDENOTE: SC_SPLIT_SERIAL=1 forces the serial path (also the only path
+   * with the M0.1 per-face sub-phase attribution) for A/Bs. */
+  static const bool forceSerialSplit = std::getenv("SC_SPLIT_SERIAL") != nullptr;
+
+#ifdef NO_PARALLEL_FOR
+  const bool serialSplit = true;
+#else
+  const bool serialSplit = forceSerialSplit || cands.size() == 1;
+#endif
+
+  if (serialSplit) {
+    // CLAUDENOTE: M0.1 temp attribution — gate the split sub-phase stats.
+    prof::inDeferredSplit++;
+    for (SpatialNode *node : cands) {
       prof::Scope profTop_(prof::spatialUpdateProf.splitTopLevel);
       split_node(node);
     }
+    prof::inDeferredSplit--;
+    return;
   }
-  prof::inDeferredSplit--;
 
-  nodeSplitCandidates_.clear();
-  leafCacheDirty_ = true;
+#ifndef NO_PARALLEL_FOR
+  const int preIdGen = node_idgen;
+  const int preNodes = int(nodes.size());
+
+  litestl::task::parallel_for(
+      util::IndexRange(cands.size()),
+      [&](util::IndexRange range) {
+        for (int i : range) {
+          /* Unique negative claim tag per candidate — see split_node's doc
+           * comment (prevents cross-candidate boundary-vert claims). */
+          split_node(cands[i], -(i + 1));
+        }
+      },
+      1);
+
+  /* Deterministic renumbering epilogue: parallel completion order made the
+   * new nodes' ids and their order in `nodes` nondeterministic. Reassign both
+   * in candidate order (pre-order DFS per candidate — deterministic because
+   * the tree *structure* is: routing math is unaffected by scheduling), and
+   * rewrite the new leaves' ownership columns to the new ids. Undo parity and
+   * cross-backend A/Bs rely on run-to-run identical trees. */
+  Vector<SpatialNode *, 64> ordered;
+  for (SpatialNode *cand : cands) {
+    /* cand itself kept its id; its descendants are exactly this pass's new
+     * nodes (a candidate was a leaf, so everything below it is fresh). */
+    Vector<SpatialNode *, 16> stack;
+    stack.append(cand);
+    while (stack.size() > 0) {
+      SpatialNode *n = stack.pop_back();
+      if (n != cand) {
+        ordered.append(n);
+      }
+      if (!(n->flag & Spatial_Leaf)) {
+        /* Push children[1] first so children[0] pops (pre-order) first. */
+        if (n->children[1]) {
+          stack.append(n->children[1]);
+        }
+        if (n->children[0]) {
+          stack.append(n->children[0]);
+        }
+      }
+    }
+  }
+  if (int(ordered.size()) != int(nodes.size()) - preNodes) {
+    fprintf(stderr,
+            "applyDeferredNodeSplit: renumber walk found %d nodes, expected %d\n",
+            int(ordered.size()), int(nodes.size()) - preNodes);
+  }
+
+  /* Clear the parallel-assigned idmap slots, then reassign sequentially. */
+  for (int i = preNodes; i < int(nodes.size()); i++) {
+    if (nodes[i]->id < int(node_idmap.size())) {
+      node_idmap[nodes[i]->id] = nullptr;
+    }
+  }
+  for (int k = 0; k < int(ordered.size()); k++) {
+    SpatialNode *n = ordered[k];
+    n->id = preIdGen + k;
+    n->index = preNodes + k;
+    nodes[preNodes + k] = n;
+    if (n->id >= int(node_idmap.size())) {
+      node_idmap.resize(n->id + 1);
+    }
+    node_idmap[n->id] = n;
+
+    /* Re-stamp this leaf's owned geometry with the renumbered id. */
+    if ((n->flag & Spatial_Leaf) && n->data) {
+      for (int v : n->data->unique_verts) {
+        treeMesh.v.node[v] = n->id;
+      }
+      for (int f : n->data->unique_faces) {
+        treeMesh.f.node[f] = n->id;
+      }
+    }
+  }
+  node_idgen = preIdGen + int(ordered.size());
+#endif
 }
 
 void SpatialTree::free_node(SpatialNode *n)
@@ -648,15 +776,10 @@ void SpatialTree::merge_node(SpatialNode *parent)
   parent->flag |= Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
                   Spatial_RegenGPU | Spatial_UpdateNormals;
 
-  Vector<Tri, 16> tris;
+  /* No re-triangulation — centroid routing only (see split_node's re-file). */
   for (int f : faces) {
-    FaceProxy face(m, f);
-    float3 fcent = face.calc_center();
-    tris.clear();
-    if (triangulateFace(*m, f, tris)) {
-      std::span<Tri> tris_span = tris;
-      add_face_intern(parent, f, tris_span, fcent);
-    }
+    float3 fcent = face_calc_center_direct(m, f);
+    add_face_intern(parent, f, fcent);
   }
 
   /* A vert the subtree owned but that no re-filed face referenced (it is only
@@ -852,18 +975,13 @@ void SpatialTree::collapse_subtree(SpatialNode *node)
   node->flag |= Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
                 Spatial_RegenGPU | Spatial_UpdateNormals;
 
-  Vector<Tri, 16> tris;
+  /* No re-triangulation — centroid routing only (see split_node's re-file). */
   for (int f : faces) {
     if (m->f.freemap[f]) {
       continue;
     }
-    FaceProxy face(m, f);
-    float3 fcent = face.calc_center();
-    tris.clear();
-    if (triangulateFace(*m, f, tris)) {
-      std::span<Tri> tris_span = tris;
-      add_face_intern(node, f, tris_span, fcent);
-    }
+    float3 fcent = face_calc_center_direct(m, f);
+    add_face_intern(node, f, fcent);
   }
 
   /* Orphan-recovery, as in merge_node: a vert no re-filed face referenced still
@@ -2827,18 +2945,22 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   // (SC_FILL_SERIAL=1) bit-identity A/B. Drop after the gate run (M4 latest).
   static const bool profChecksum = std::getenv("SC_PROF_CHECKSUM") != nullptr;
   if (profChecksum) {
-    uint64_t h = 1469598103934665603ull;
-    auto mix = [&h](const void *p, size_t n) {
-      const unsigned char *b = static_cast<const unsigned char *>(p);
-      for (size_t i = 0; i < n; i++) {
-        h ^= b[i];
-        h *= 1099511628211ull;
-      }
-    };
+    /* Per-owner FNV hashes XOR-combined, so the result is independent of the
+     * `nodes` iteration order (which M2.b's parallel split legitimately
+     * changes) while still catching any per-buffer content difference. */
+    uint64_t combined = 0;
     for (SpatialNode *node : nodes) {
       if (!node->is_gpu_node || !node->gpu_data || !node->gpu_data->pos) {
         continue;
       }
+      uint64_t h = 1469598103934665603ull;
+      auto mix = [&h](const void *p, size_t n) {
+        const unsigned char *b = static_cast<const unsigned char *>(p);
+        for (size_t i = 0; i < n; i++) {
+          h ^= b[i];
+          h *= 1099511628211ull;
+        }
+      };
       GpuData &gd = *node->gpu_data;
       mix(gd.pos->get_data<float>(), size_t(gd.pos->size) * gd.pos->elemsize * 4);
       mix(gd.nor->get_data<float>(), size_t(gd.nor->size) * gd.nor->elemsize * 4);
@@ -2847,10 +2969,11 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
           mix(b->get_data<float>(), size_t(b->size) * b->elemsize * 4);
         }
       }
+      combined ^= h;
     }
     static long chkUpdate = 0;
     std::printf("[chk] update %ld hash %016llx\n", chkUpdate++,
-                (unsigned long long)h);
+                (unsigned long long)combined);
   }
 
   return result;

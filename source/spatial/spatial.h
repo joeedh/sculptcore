@@ -16,6 +16,8 @@
 #include "spatial_attrs.h"
 #include "spatial_enums.h"
 
+#include <mutex>
+
 
 #include "gpu/batch.h"
 #include "gpu/gpu_attr_request.h"
@@ -282,7 +284,14 @@ struct SpatialTree {
     return node->data->unique_verts.size() >= leaf_limit && node->depth < depth_limit;
   }
 
-  void split_node(SpatialNode *node);
+  /* `claimTag` is the "unassigned" marker this split writes into its verts'
+   * `.spatial.v.node` entries and the only value its re-file may claim (0
+   * serially). The parallel deferred-split pass gives each candidate a unique
+   * negative tag so a candidate can never claim a boundary vert another
+   * candidate unassigned mid-race — which both prevents double-claims and
+   * keeps the result bit-identical to the serial candidate order (serially, a
+   * candidate only ever claims its own unassigned verts too). */
+  void split_node(SpatialNode *node, int claimTag = 0);
 
   /* Pick leaf_limit / gpu_tri_target from the mesh size instead of fixed
    * constants. Call before buildAll(). Derived from the bench_spatial sweep:
@@ -449,7 +458,7 @@ struct SpatialTree {
         ok = false;
       }
       if (ok) {
-        add_face_intern(root, f, tris_span, fcent);
+        add_face_intern(root, f, fcent);
       }
     } else {
       printf("failed to triangulate face %d\n", f);
@@ -885,7 +894,7 @@ private:
   void fill_leaf_slot_verts(SpatialNode *leaf, uint32_t *out);
 
   void
-  add_face_intern(SpatialNode *node, int f, std::span<Tri> &tris, math::float3 &fcent);
+  add_face_intern(SpatialNode *node, int f, math::float3 &fcent, int claimTag = 0);
 
   /* Re-absorb both (leaf) children of `parent` back into `parent` and free them
    * (M7.6b merge). Preconditions checked by the caller. */
@@ -920,6 +929,11 @@ private:
   SpatialNode *alloc_node()
   {
     SpatialNode *node = alloc::New<SpatialNode>("Spatial Node");
+
+    /* Serialized so applyDeferredNodeSplit can run split candidates in
+     * parallel: `nodes`, `node_idmap`, and the id counter are the only state
+     * the disjoint per-candidate splits share. Uncontended elsewhere. */
+    std::lock_guard<std::mutex> guard(allocMutex_);
 
     node->id = node_idgen++;
     node->treeMesh = &treeMesh;
@@ -972,6 +986,10 @@ private:
   util::Set<int> mergeCandidates_;
   int mergeCadence_ = 8;
   int updatesSinceMerge_ = 0;
+
+  /* Guards nodes/node_idmap/node_idgen inside alloc_node — the only shared
+   * state of the parallel deferred-split pass (see applyDeferredNodeSplit). */
+  std::mutex allocMutex_;
 };
 
 } // namespace sculptcore::spatial
