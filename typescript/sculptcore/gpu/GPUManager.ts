@@ -27,7 +27,12 @@ export interface GPUManager {
   buffers: Buffer[]
   batches: DrawBatch[]
   commands: DrawCommand[]
-  createBuffer(name: string, type: GPUType, elemsize: int32, elemCount: int32): Buffer
+  createBuffer(
+    name: string,
+    type: GPUType,
+    elemsize: int32,
+    elemCount: int32
+  ): Buffer
   createBatch(): DrawBatch
   createCommand(
     batch: DrawBatch,
@@ -37,7 +42,11 @@ export interface GPUManager {
     end: int32,
     primCount: int32
   ): DrawCommand
-  destroyBatch(batch: DrawBatch, destroy_commands: boolean, destroy_buffers: boolean): void
+  destroyBatch(
+    batch: DrawBatch,
+    destroy_commands: boolean,
+    destroy_buffers: boolean
+  ): void
   destroyBuffer(buffer: Buffer): void
   destroyCommand(command: DrawCommand, destroy_buffers: boolean): void
   new (): GPUManager

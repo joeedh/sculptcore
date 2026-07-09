@@ -29,13 +29,16 @@ export interface SpatialTree {
   gpu_tri_target: int32
   setup(): void
   add_face(face: int32, searchNode: boolean): void
-  split_node(node: SpatialNode): void
+  split_node(node: SpatialNode, claimTag: int32): void
   node_from_id(id: int32): SpatialNode | undefined
   leaves(): SpatialNode[]
   ensure_node_tris(node: SpatialNode): boolean
   buildAll(): void
   buildLeafBoundsBatch(batch: GPUManager): DrawBatch | undefined
-  buildSeamBatch(mgr: GPUManager, includePolyGroup: boolean): DrawBatch | undefined
+  buildSeamBatch(
+    mgr: GPUManager,
+    includePolyGroup: boolean
+  ): DrawBatch | undefined
   buildSelectionBatch(
     mgr: GPUManager,
     activeVert: int32,
@@ -56,7 +59,14 @@ export interface SpatialTree {
   setDisplayColorAttr(index: int32): void
   setDisplayGroupAttr(index: int32): void
   setDisplayMask(on: boolean): void
-  castScreenCircle(co: float3, ray: float3, r1: float, r2: float, faces: int32[], verts: int32[]): boolean
+  castScreenCircle(
+    co: float3,
+    ray: float3,
+    r1: float,
+    r2: float,
+    faces: int32[],
+    verts: int32[]
+  ): boolean
   castScreenRect(
     near0: float3,
     near1: float3,

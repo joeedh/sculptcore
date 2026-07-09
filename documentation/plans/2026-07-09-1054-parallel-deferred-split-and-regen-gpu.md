@@ -274,6 +274,47 @@ parallel pass legitimately changes) while still catching content diffs.
   (per `documentation/debugging.md` profiling guidance).
 - Full `node make.mjs test` + `sbrush-verify` untouched-path sanity.
 
+### M3 results (measured 2026-07-09)
+
+Before = M0-instrumented baseline, after = M1+M2, same instrumented build
+family (±15% run noise; after-values are 3-run figures for the 480k):
+
+| workload             | update() total before → after | deferred split | regen (serial part + parallel fill wall) |
+| -------------------- | ----------------------------- | -------------- | ----------------------------------------- |
+| 480k per-dab         | 5182 → 2538–2723 ms (~2.0×)   | 1283 → ~200 ms (6.4×) | 1818+93 → ~110+~470 ms (~3.3×)      |
+| 120k per-dab         | 1204 → 634 ms (1.9×)          | 281 → 74 ms    | 361+39 → 36+89 ms                          |
+| collapse-heavy       | 309 → 212 ms                  | ~0 (merge path)| 139+4 → 12+48 ms                           |
+| big (805k, subdivs=260) | works, avg 24.2 ms/update  | 362 ms total   | fill wall 970 ms                           |
+
+`subdivs=300` OOMs in `createCube`'s dense `dimen³·6` grid (pre-existing);
+the `_big` script now uses subdivs=260 (~805k tris). The dominant remaining
+serial phase on the 480k workload is now **bounds regen (~1.0–1.1 s)** —
+a natural next target, out of scope here.
+
+Other gates:
+
+- `node make.mjs test`: same 4 pre-existing environment failures as the M0
+  baseline; everything else green. `sbrush-verify`: all 22 brushes pass.
+- **N-API addon load crash found and fixed:** the reflection layer
+  `abort()`s at addon load when a bound method's arity changes —
+  `split_node` gained `claimTag`, so `BIND_STRUCT_METHOD(st, split_node,
+  MARGS("node"))` needed `"claimTag"` added (spatial/bindings.cc). Native
+  ctest never runs `initBindings`, so only the NW.js smoke caught it;
+  symbolicated via the Crashpad toolkit. `node make.mjs build node --smoke`
+  now passes (its `sculptStroke` section reports a `meshLog.beginStep`
+  API-drift error that reproduces identically with master's addon —
+  pre-existing).
+- Generated TS rebuilt (`tools: pnpm build` after a WASM build) —
+  `split_node(node, claimTag)`; WASM build is green (single-thread fallback
+  path compiles).
+- Real-app headless check (NW.js, `--backend native`, real `SculptPaintOp`):
+  24-point dyntopo stroke on a subdiv-48 cube = 9 dabs in 325 ms with
+  working undo/redo, no errors. The parent-repo jest NW integration suites
+  (`sculptcore_brushes` etc.) currently fail on this machine **identically
+  on untouched master** (NW child writes no dump) — environment, not this
+  branch. Live interactive-feel confirmation on a big mesh remains a
+  user-side check.
+
 ## M4 — cleanup
 
 - Rip out **all** `CLAUDENOTE:` profiling scaffolding in
