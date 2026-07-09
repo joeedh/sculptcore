@@ -3,8 +3,6 @@
 
 #include "gpu/types.h"
 #include "spatial.h"
-// CLAUDENOTE: temp profiling scaffolding (rip out in M4).
-#include "spatial_prof_temp.h"
 
 #include "node.h"
 
@@ -352,8 +350,6 @@ void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
    * dispose them. The DrawCommand is recreated in the draw-batch loop if
    * stale (size/start changes), so dispose it too here to be safe. */
   {
-    // CLAUDENOTE: M0.2 temp attribution — old-buffer dispose.
-    prof::Scope profDispose_(prof::spatialUpdateProf.regenDispose);
     if (gd.pos) {
       alloc::Delete(gd.pos);
       gd.pos = nullptr;
@@ -378,23 +374,16 @@ void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
   util::Vector<SpatialNode *> leaves_v;
   int total_verts = 0;
   {
-    // CLAUDENOTE: M0.2 temp attribution — leaf collect + sizing (+ tri regen).
-    prof::Scope profCollect_(prof::spatialUpdateProf.regenCollect);
     collect_subtree_leaves(gpu_node, leaves_v);
 
     for (SpatialNode *leaf : leaves_v) {
       if (leaf->flag & Spatial_RegenTris) {
-        prof::spatialUpdateProf.regenTrisCalls++;
         regen_node_tris(leaf);
       }
       total_verts += leaf->data->tris.size() * 3;
     }
   }
   gd.total_verts = total_verts;
-  prof::spatialUpdateProf.regenOwnerVerts.add(double(total_verts));
-
-  // CLAUDENOTE: M0.2 temp attribution — createBuffer calls + srcRefs resolve.
-  auto profCreate_ = new prof::Scope(prof::spatialUpdateProf.regenCreateBuf);
 
   gd.pos = gpu->createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, total_verts);
@@ -433,8 +422,6 @@ void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
       srcRefs.append(grp ? grp->find_attribute(AttrType(req.srcType), req.name) : AttrRef());
     }
   }
-
-  delete profCreate_;
 
   /* Slice-table build + flag clears (fills deferred to fill_regen_slice). */
   int offset = 0;
@@ -492,8 +479,6 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
   plan_regen_gpu_node(gpu_node, gpu, srcRefs);
 
   GpuData &gd = *gpu_node->gpu_data;
-  // CLAUDENOTE: M0.2 temp attribution — whole (serial) fill loop.
-  prof::Scope profFillLoop_(prof::spatialUpdateProf.regenFillLoop);
   for (int si : util::IndexRange(gd.slices.size())) {
     fill_regen_slice(gpu_node, si, srcRefs.size() > 0 ? srcRefs.data() : nullptr);
   }

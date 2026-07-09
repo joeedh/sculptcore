@@ -1,7 +1,5 @@
 #include "spatial.h"
 #include "shaders/spatial_shaders.h"
-// CLAUDENOTE: temp profiling scaffolding (rip out in M4).
-#include "spatial_prof_temp.h"
 
 #include "node.h"
 
@@ -339,14 +337,7 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
 void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent, int claimTag)
 {
   if ((node->flag & Spatial_Leaf) && node_needs_split(node)) {
-    // CLAUDENOTE: M0.1 — count/time inline splits triggered by the re-file.
-    if (prof::inDeferredSplit > 0) {
-      prof::spatialUpdateProf.splitRecursive++;
-      prof::SplitScope profNested_(prof::spatialUpdateProf.splitNested);
-      split_node(node, claimTag);
-    } else {
-      split_node(node, claimTag);
-    }
+    split_node(node, claimTag);
   }
 
   if (!(node->flag & Spatial_Leaf)) {
@@ -429,30 +420,19 @@ static float3 face_calc_center_direct(Mesh *m, int f)
 
 void SpatialTree::split_node(SpatialNode *node, int claimTag)
 {
-  {
-    // CLAUDENOTE: M0.1 temp attribution — alloc bookkeeping.
-    prof::SplitScope profAlloc_(prof::spatialUpdateProf.splitAlloc);
-    node->children[0] = alloc_node();
-    node->children[1] = alloc_node();
-  }
+  node->children[0] = alloc_node();
+  node->children[1] = alloc_node();
 
   using namespace litestl::math;
   const float3 min(node->aabb.min), max(node->aabb.max);
   float3 mean(0.0f);
 
-  {
-    // CLAUDENOTE: M0.1 temp attribution — vert unassign + mean pass.
-    prof::SplitScope profUnassign_(prof::spatialUpdateProf.splitUnassignMean);
-    if (prof::inDeferredSplit > 0) {
-      prof::spatialUpdateProf.splitVertsUnassigned += long(node->data->unique_verts.size());
-    }
-    for (int v : node->data->unique_verts) {
-      VertProxy vert(m, v);
-      mean += vert.co();
+  for (int v : node->data->unique_verts) {
+    VertProxy vert(m, v);
+    mean += vert.co();
 
-      /* Unassign verts (claimTag = this split's private marker; 0 serially). */
-      treeMesh.v.node[v] = claimTag;
-    }
+    /* Unassign verts (claimTag = this split's private marker; 0 serially). */
+    treeMesh.v.node[v] = claimTag;
   }
 
   mean /= node->data->unique_verts.size();
@@ -498,11 +478,7 @@ void SpatialTree::split_node(SpatialNode *node, int claimTag)
       child->aabb.min[axis] = child->aabb.min[axis] + size[axis] * t;
     }
 
-    {
-      // CLAUDENOTE: M0.1 temp attribution — create_data bookkeeping.
-      prof::SplitScope profAlloc_(prof::spatialUpdateProf.splitAlloc);
-      child->create_data();
-    }
+    child->create_data();
   }
 
   node->flag &= ~Spatial_Leaf;
@@ -515,25 +491,12 @@ void SpatialTree::split_node(SpatialNode *node, int claimTag)
     if (m->f.freemap[f]) {
       continue; /* tolerate a stale entry from incremental removal */
     }
-    float3 fcent;
-    {
-      // CLAUDENOTE: M0.1 temp attribution — per-face centroid (post-M2.a:
-      // triangulateFace dropped; this stat now times calc_center alone).
-      prof::SplitScope profTri_(prof::spatialUpdateProf.splitTriangulate);
-      fcent = face_calc_center_direct(m, f);
-    }
+    float3 fcent = face_calc_center_direct(m, f);
 
     // unassign face
     treeMesh.f.node[f] = 0;
-    if (prof::inDeferredSplit > 0) {
-      prof::spatialUpdateProf.splitFacesRefiled++;
-    }
 
-    {
-      // CLAUDENOTE: M0.1 temp attribution — re-file descent (incl. nested splits).
-      prof::SplitScope profRefile_(prof::spatialUpdateProf.splitRefile);
-      add_face_intern(node, f, fcent, claimTag);
-    }
+    add_face_intern(node, f, fcent, claimTag);
   }
 
   /* A vert the node owned but that no re-filed face referenced (its only
@@ -544,40 +507,29 @@ void SpatialTree::split_node(SpatialNode *node, int claimTag)
    * (add_face_intern's inline-split path), so node->children[i] may no longer be
    * a leaf and its data may be gone — descend to the current leaf by the same
    * centroid routing add_face_intern uses. Mirrors merge_node's orphan recovery. */
-  {
-    // CLAUDENOTE: M0.1 temp attribution — orphan-vert recovery walk.
-    prof::SplitScope profOrphan_(prof::spatialUpdateProf.splitOrphan);
-    for (int v : node->data->unique_verts) {
-      if (m->v.freemap[v] || treeMesh.v.node[v] != claimTag) {
-        continue;
-      }
-      if (prof::inDeferredSplit > 0) {
-        prof::spatialUpdateProf.splitOrphansRecovered++;
-      }
-      float3 vco = VertProxy(m, v).co();
-      SpatialNode *leaf = node;
-      while (!(leaf->flag & Spatial_Leaf)) {
-        SpatialNode *c0 = leaf->children[0];
-        SpatialNode *c1 = leaf->children[1];
-        int ax = 0;
-        for (int i = 0; i < 3; i++) {
-          if (c0->aabb.max[i] != c1->aabb.max[i]) {
-            ax = i;
-            break;
-          }
-        }
-        leaf = vco[ax] <= c0->aabb.max[ax] ? c0 : c1;
-      }
-      treeMesh.v.node[v] = leaf->id;
-      leaf->data->unique_verts.add(v);
+  for (int v : node->data->unique_verts) {
+    if (m->v.freemap[v] || treeMesh.v.node[v] != claimTag) {
+      continue;
     }
+    float3 vco = VertProxy(m, v).co();
+    SpatialNode *leaf = node;
+    while (!(leaf->flag & Spatial_Leaf)) {
+      SpatialNode *c0 = leaf->children[0];
+      SpatialNode *c1 = leaf->children[1];
+      int ax = 0;
+      for (int i = 0; i < 3; i++) {
+        if (c0->aabb.max[i] != c1->aabb.max[i]) {
+          ax = i;
+          break;
+        }
+      }
+      leaf = vco[ax] <= c0->aabb.max[ax] ? c0 : c1;
+    }
+    treeMesh.v.node[v] = leaf->id;
+    leaf->data->unique_verts.add(v);
   }
 
-  {
-    // CLAUDENOTE: M0.1 temp attribution — delete_data bookkeeping.
-    prof::SplitScope profAlloc_(prof::spatialUpdateProf.splitAlloc);
-    node->delete_data();
-  }
+  node->delete_data();
   node->flag |= Spatial_RegenBounds;
 }
 
@@ -607,9 +559,6 @@ void SpatialTree::applyDeferredNodeSplit()
       cands.append(node);
     }
   }
-  // CLAUDENOTE: M0.1 temp counters.
-  prof::spatialUpdateProf.splitCandidates += long(nodeSplitCandidates_.size());
-  prof::spatialUpdateProf.splitCandidatesRun += long(cands.size());
   nodeSplitCandidates_.clear();
   leafCacheDirty_ = true;
 
@@ -621,9 +570,8 @@ void SpatialTree::applyDeferredNodeSplit()
    * own subtree nodes, its own geometry's `.spatial.{v,f}.node` entries, and
    * the shared node bookkeeping serialized inside alloc_node. So the
    * candidates can split in parallel; the id/order nondeterminism from
-   * parallel completion is erased by the renumbering epilogue below.
-   * CLAUDENOTE: SC_SPLIT_SERIAL=1 forces the serial path (also the only path
-   * with the M0.1 per-face sub-phase attribution) for A/Bs. */
+   * parallel completion is erased by the renumbering epilogue below. */
+  // SC_SPLIT_SERIAL=1 forces the serial path (regression A/Bs).
   static const bool forceSerialSplit = std::getenv("SC_SPLIT_SERIAL") != nullptr;
 
 #ifdef NO_PARALLEL_FOR
@@ -633,13 +581,9 @@ void SpatialTree::applyDeferredNodeSplit()
 #endif
 
   if (serialSplit) {
-    // CLAUDENOTE: M0.1 temp attribution — gate the split sub-phase stats.
-    prof::inDeferredSplit++;
     for (SpatialNode *node : cands) {
-      prof::Scope profTop_(prof::spatialUpdateProf.splitTopLevel);
       split_node(node);
     }
-    prof::inDeferredSplit--;
     return;
   }
 
@@ -2546,7 +2490,6 @@ void SpatialTree::update_node_normals(SpatialNode *node)
 
 bool SpatialTree::update(gpu::GPUManager *gpu)
 {
-  prof::Scope profTotal_(prof::spatialUpdateProf.updateTotal);
   bool result = false;
   bool bounds = false;
   bool drawBatchUpdated = false;
@@ -2555,11 +2498,7 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
    * inline split, so leaves that grew past leaf_limit during the dab are split
    * here, once each. Runs before the tris phase so the fresh child leaves (which
    * carry Spatial_RegenTris) are picked up by the collection loop below. */
-  {
-    // CLAUDENOTE: temp profiling — deferred split, wall.
-    prof::Scope profSplit_(prof::spatialUpdateProf.deferredSplit);
-    applyDeferredNodeSplit();
-  }
+  applyDeferredNodeSplit();
 
   /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th
    * update), NOT per dab. Folds under-full sibling leaves left by
@@ -2567,8 +2506,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
    * carries Spatial_RegenTris and is picked up below, same as a rebalance
    * split. */
   if (++updatesSinceMerge_ >= mergeCadence_) {
-    // CLAUDENOTE: temp profiling — deferred merge, wall.
-    prof::Scope profMerge_(prof::spatialUpdateProf.deferredMerge);
     applyDeferredMerge();
     updatesSinceMerge_ = 0;
   }
@@ -2600,9 +2537,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   }
 
   {
-    // CLAUDENOTE: temp profiling — ensure_node_tris phase wall-clock.
-    prof::Scope profTris_(prof::spatialUpdateProf.trisPhase);
-    prof::spatialUpdateProf.triItems += updateTriNodes.size();
 #ifdef NO_PARALLEL_FOR
     for (SpatialNode *node : updateTriNodes) {
       ensure_node_tris(node);
@@ -2620,13 +2554,9 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
 #endif
   }
 
-  {
-    // CLAUDENOTE: temp profiling — dirty-bounds regen, wall.
-    prof::Scope profBounds_(prof::spatialUpdateProf.boundsPhase);
-    if (regenDirtyBounds()) {
-      bounds = true;
-      result = true;
-    }
+  if (regenDirtyBounds()) {
+    bounds = true;
+    result = true;
   }
 
   Vector<SpatialNode *, 256> updateNormalsNodes;
@@ -2643,8 +2573,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   }
 
   {
-    // CLAUDENOTE: temp profiling — update_node_normals phase wall-clock.
-    prof::Scope profNormals_(prof::spatialUpdateProf.normalsPhase);
 #ifdef NO_PARALLEL_FOR
     for (SpatialNode *node : updateNormalsNodes) {
       update_node_normals(node);
@@ -2666,8 +2594,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
    * didn't change we can skip recomputing counts, but the assignment
    * walk itself is still needed first time around. */
   if (topology_changed || !done_gpu_assignment) {
-    // CLAUDENOTE: temp profiling — counts recompute_subtree_tri_counts too.
-    prof::Scope profAssign_(prof::spatialUpdateProf.assignGpuNodes);
     recompute_subtree_tri_counts();
     assign_gpu_nodes();
   }
@@ -2755,7 +2681,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   const int nReq = int(requestedAttrs.size());
 
   for (int oi : util::IndexRange(regenOwners.size())) {
-    prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
     plan_regen_gpu_node(regenOwners[oi], gpu, regenSrcRefs);
     GpuData &gd = *regenOwners[oi]->gpu_data;
     for (int si : util::IndexRange(gd.slices.size())) {
@@ -2787,11 +2712,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   sliceOk.resize(sliceWork.size());
 
   {
-    // CLAUDENOTE: temp profiling — unified fill/slice phase wall-clock.
-    prof::Scope profSlice_(prof::spatialUpdateProf.slicePhase);
-    prof::spatialUpdateProf.sliceItems += sliceWork.size();
-    prof::spatialUpdateProf.regenFillJobs += long(regenJobs.size());
-
     const int regenJobCount = int(regenJobs.size());
     const int totalJobs = regenJobCount + int(sliceWork.size());
     auto runJob = [&](int i) {
@@ -2808,8 +2728,7 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       }
     };
 
-    // CLAUDENOTE: temp M1-verification knob — SC_FILL_SERIAL=1 forces the
-    // unified pass serial for the bit-identical checksum A/B. Drop in M4.
+    // SC_FILL_SERIAL=1 forces the unified pass serial (regression A/Bs).
     static const bool forceSerialFill = std::getenv("SC_FILL_SERIAL") != nullptr;
 
 #ifdef NO_PARALLEL_FOR
@@ -2870,10 +2789,7 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     if (already) {
       continue;
     }
-    {
-      prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
-      regen_gpu_node(owner, gpu);
-    }
+    regen_gpu_node(owner, gpu);
     regennedOwners.append(owner);
     drawBatchUpdated = true;
   }
@@ -2886,15 +2802,12 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       continue;
     }
     if (!node->gpu_data || !node->gpu_data->pos) {
-      prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
       regen_gpu_node(node, gpu);
       drawBatchUpdated = true;
     }
   }
 
   if (drawBatchUpdated || !drawBatch) {
-    // CLAUDENOTE: temp profiling — serial draw-batch rebuild loop.
-    prof::Scope profBatch_(prof::spatialUpdateProf.drawBatchLoop);
     if (!drawBatch) {
       drawBatch = gpu->createBatch();
     } else {
@@ -2938,42 +2851,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       gd.cmd->end = gd.pos->size;
       drawBatch->commands.append(gd.cmd);
     }
-  }
-
-  // CLAUDENOTE: temp M1-verification — SC_PROF_CHECKSUM=1 prints an FNV-1a
-  // hash of every GPU node's buffers per update, for the serial-vs-parallel
-  // (SC_FILL_SERIAL=1) bit-identity A/B. Drop after the gate run (M4 latest).
-  static const bool profChecksum = std::getenv("SC_PROF_CHECKSUM") != nullptr;
-  if (profChecksum) {
-    /* Per-owner FNV hashes XOR-combined, so the result is independent of the
-     * `nodes` iteration order (which M2.b's parallel split legitimately
-     * changes) while still catching any per-buffer content difference. */
-    uint64_t combined = 0;
-    for (SpatialNode *node : nodes) {
-      if (!node->is_gpu_node || !node->gpu_data || !node->gpu_data->pos) {
-        continue;
-      }
-      uint64_t h = 1469598103934665603ull;
-      auto mix = [&h](const void *p, size_t n) {
-        const unsigned char *b = static_cast<const unsigned char *>(p);
-        for (size_t i = 0; i < n; i++) {
-          h ^= b[i];
-          h *= 1099511628211ull;
-        }
-      };
-      GpuData &gd = *node->gpu_data;
-      mix(gd.pos->get_data<float>(), size_t(gd.pos->size) * gd.pos->elemsize * 4);
-      mix(gd.nor->get_data<float>(), size_t(gd.nor->size) * gd.nor->elemsize * 4);
-      for (gpu::Buffer *b : gd.attrBufs) {
-        if (b) {
-          mix(b->get_data<float>(), size_t(b->size) * b->elemsize * 4);
-        }
-      }
-      combined ^= h;
-    }
-    static long chkUpdate = 0;
-    std::printf("[chk] update %ld hash %016llx\n", chkUpdate++,
-                (unsigned long long)combined);
   }
 
   return result;

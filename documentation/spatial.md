@@ -73,15 +73,29 @@ Notable methods:
   `add_face` skips the root descent and files it straight into that
   neighbour's leaf via `add_face_at` (O(1) anchor placement), deferring
   the leaf split — see the incremental-currency methods below.
-* `split_node(SpatialNode*)` — splits along the longest axis at the
-  geometric **mean** of the node's verts (a fraction `t` of the box,
+* `split_node(SpatialNode*, claimTag)` — splits along the longest axis at
+  the geometric **mean** of the node's verts (a fraction `t` of the box,
   clamped off the edges to `[0.01, 0.99]` so a degenerate all-in-one
   child can't happen), allocates two children, unassigns the parent's
   faces/verts on the live mesh, and re-inserts them through
-  `add_face_intern`.
+  `add_face_intern` (centroid routing only — no re-triangulation; the
+  build-path `add_face` keeps `triangulateFace` for its degenerate-face
+  admission check). `claimTag` is the "unassigned" marker written into
+  the split's verts' `.spatial.v.node` entries and the only value its
+  re-file may claim (0 serially; a unique negative tag per parallel
+  candidate, see below).
 * **Incremental dyntopo currency (M7.6).** `add_face_at` defers the
-  iapplyDeferredNodeSplit over-full leaves in `nodeSplitCandidates_`;
-  `applyDeferredRebalance()` (top of `update()`) splits each once.
+  inline split of over-full leaves into `nodeSplitCandidates_`;
+  `applyDeferredNodeSplit()` (top of `update()`) splits each once —
+  **candidates in parallel** (they are disjoint subtrees; `alloc_node`
+  is mutex-guarded as the only shared bookkeeping). Determinism is kept
+  by two mechanisms: per-candidate negative claim tags stop a candidate
+  from racing on boundary verts another candidate unassigned (which
+  reproduces serial claim semantics exactly), and a renumbering epilogue
+  reassigns the new nodes' ids + `nodes` order in candidate DFS order
+  and re-stamps their ownership columns, so trees are bit-identical to
+  the serial candidate order. `SC_SPLIT_SERIAL=1` forces the serial path
+  for A/Bs.
   `remove_vert` records shrinking leaves' parents in `mergeCandidates_`;
   `applyDeferredMerge()` (every `mergeCadence_`-th `update()`) folds
   under-full sibling leaves back into their parent via `merge_node`,
@@ -193,31 +207,45 @@ clears them after acting:
 
 ```
 SpatialTree::update(gpu)
+  ├── applyDeferredNodeSplit()                  (parallel over candidates; see below)
+  ├── applyDeferredMerge()                      (every mergeCadence_-th update, serial)
+  ├── parallel_for leaves with Spatial_RegenTris → ensure_node_tris(leaf)
   ├── propagate Spatial_RegenBounds up to root → regen_node_bounds(root, true)
-  ├── for each leaf with Spatial_RegenTris → regen_node_tris(leaf)
-  ├── for each leaf with Spatial_UpdateNormals → update_node_normals(leaf)
+  ├── parallel_for leaves with Spatial_UpdateNormals → update_node_normals(leaf)
   ├── if any leaf re-tri'd OR root not yet a GPU node:
   │     ├── recompute_subtree_tri_counts()      (bottom-up)
   │     └── assign_gpu_nodes()                  (top-down, threshold = gpu_tri_target)
-  ├── for each leaf with Spatial_{RegenGPU,UpdateGPU}:           (serial)
+  ├── collect, per dirty leaf (serial scan):
   │     ├── owner = find_gpu_owner(leaf)        (walk parents until is_gpu_node)
-  │     ├── full rebuild if owner has no buffers OR layout missing OR Spatial_RegenGPU set:
-  │     │     └── regen_gpu_node(owner, gpu)
-  │     └── else: queue {owner, leaf} for the slice pass
-  ├── parallel_for slice work → update_gpu_node_slice(owner, leaf, gpu)  (pure, in-place)
-  ├── serial: per owner, flag its buffers update_buffer=true;
+  │     ├── full rebuild needed (no buffers / layout missing / Spatial_RegenGPU):
+  │     │     └── owner → regenOwners (deduped by id; also any GPU node missing buffers)
+  │     └── else: {owner, leaf} → sliceWork  (dropped later if its owner got planned)
+  ├── serial per regen owner: plan_regen_gpu_node(owner, gpu, srcRefs)
+  │     └── emits one fill job per non-empty slice
+  ├── unified parallel_for over regen fill jobs + slice work:
+  │     ├── fill_regen_slice(owner, sliceIdx, srcRefs)          (pure, disjoint ranges)
+  │     └── update_gpu_node_slice(owner, leaf, gpu)             (pure, in-place)
+  ├── serial epilogue: per slice owner, flag buffers update_buffer=true;
   │           regen_gpu_node(owner) (deduped) for any slice that returned "needs rebuild"
-  ├── any GPU node still missing buffers (newly promoted, no dirty leaves):
-  │     └── regen_gpu_node(node, gpu)
   └── if anything changed → rebuild drawBatch from the set of GPU nodes
 ```
 
-`regen_gpu_node` collects subtree leaves, sums `tris.size() * 3` for
+A full owner rebuild is split in two. **`plan_regen_gpu_node`** (serial —
+`gpu::GPUManager` is not thread-safe) disposes the old buffers, collects
+subtree leaves (re-tri'ing any still flagged), sums `tris.size() * 3` for
 `total_verts`, allocates `pos`/`nor` plus one buffer per requested
-attribute, and fills them slice by slice (`fill_leaf_slice` for
-pos/nor, `fill_leaf_attr` for each attribute). It stamps
-`builtAttrsVersion` from the tree's current `requestedAttrsVersion`. The
-`DrawCommand` is recreated by the draw-batch loop when needed.
+attribute, builds the `LeafSlice` table, clears the subtree leaves' GPU
+dirty flags, resolves each requested attribute's source layer once, and
+stamps `builtAttrsVersion`. **`fill_regen_slice`** then fills one slice
+(`fill_leaf_slice` for pos/nor, `fill_leaf_attr` per attribute); the fills
+are pure disjoint-range writes, so they run in the same parallel pass as
+the in-place slice updates. `regen_gpu_node` remains as plan + serial fill
+for the fallback sites. Owner dedup happens at collection time (a set of
+owner ids) — it must not rely on the first regen clearing leaf flags
+mid-loop once fills overlap. The `DrawCommand` is recreated by the
+draw-batch loop when needed. `SC_FILL_SERIAL=1` forces the unified pass
+serial for A/Bs; fills are pure gathers, so parallel output is
+bit-identical to serial.
 
 `update_gpu_node_slice` finds the leaf's `LeafSlice` in the owner's
 `slices` and rewrites only that disjoint sub-range in place. It is
