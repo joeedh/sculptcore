@@ -848,6 +848,21 @@ private:
   /* GPU node buffer management. A "GPU node" aggregates the triangles of
    * every leaf in its subtree into one VBO + draw command. */
   void regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu);
+  /* Serial planning half of a full GPU-node regen: dispose old buffers,
+   * collect subtree leaves (regen-ing stale tris), allocate pos/nor/attr
+   * buffers, build the slice table, clear the subtree leaves' GPU dirty
+   * flags, and resolve each requested attribute's source layer once
+   * (appended to `srcRefs`, requestedAttrs.size() entries, dynamic path
+   * only). The fills are done afterwards per slice by fill_regen_slice —
+   * in parallel from update(), serially from regen_gpu_node. */
+  void plan_regen_gpu_node(SpatialNode *gpu_node,
+                           gpu::GPUManager *gpu,
+                           util::Vector<mesh::AttrRef> &srcRefs);
+  /* Pure fill of one planned slice (pos/nor/color + requested attrs).
+   * `srcRefs` is the owner's resolved-source array from plan_regen_gpu_node
+   * (nullptr on the legacy path). Writes only the slice's disjoint buffer
+   * sub-ranges — safe under parallel_for; must not touch flags or GpuData. */
+  void fill_regen_slice(SpatialNode *gpu_node, int sliceIdx, mesh::AttrRef *srcRefs);
   /* In-place slice rewrite; returns false if a full regen is required (caller
    * regens serially — this runs under parallel_for and must not mutate shared
    * GpuData). */

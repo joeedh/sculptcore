@@ -146,6 +146,34 @@ serial, disjoint-slice writes parallel).
   any other phase. Buffer contents must be bit-identical to serial (fills are
   pure gathers — verify once with a checksum diff run, then drop the check).
 
+### M1 results (measured 2026-07-09, 480k workload)
+
+**Gate met.** Regen phase (plan + regen share of the unified fill pass) went
+1911 ms → 553–665 ms across three runs = **2.9–3.5×** (run-to-run machine
+variance is ±15%; regen/fill-job counts are identical every run — 6585 plans,
+45845 fill jobs — so the pipeline is deterministic). Serial plan cost is
+100–120 ms; the unified parallel pass runs 453–573 ms doing work that took
+1679 ms serially (3.1–3.7× on the fixed 6-thread `litestl::task` pool — the
+pool size, `LITESTL_WORKERS_COUNT`, is a compile-time 6 on a 16-core machine;
+raising it is a separate follow-up with repo-wide blast radius).
+
+Verification: per-update FNV checksums over every GPU buffer are bit-identical
+between `SC_FILL_SERIAL=1` and the parallel pass on both the 120k and 480k
+workloads (200 updates each). `ctest`: same 4 pre-existing failures as the M0
+baseline commit (`test_debug_script`, `test_live_stroke`,
+`test_dyntopo_multistep_gpu`, `test_bsmooth` — all fail identically on the
+un-touched M0 tree in this environment), everything else green, including
+`test_spatial_dyntopo` / `test_spatial_merge` / `test_spatial_gpu_partition`.
+`dyntopo_draw` / `dyntopo_refine` run clean. Other update() phases bracket
+their baselines within variance (bounds regen 899–1114 vs 945 baseline).
+
+Implementation notes: the missing-buffer GPU-node loop is folded into the same
+plan/fill path (it was a serial `regen_gpu_node` sweep after the slice pass);
+`regen_gpu_node` itself is now plan + serial fill and remains the fallback for
+failed in-place slice updates. Slice-update jobs whose owner got planned for a
+full regen are dropped before the parallel pass (their slice pointers may be
+stale and the regen fill rewrites the whole buffer).
+
 ## M2 — deferred node split
 
 Strategy is picked from M0.1 data. Ranked options, cheapest-risk first:

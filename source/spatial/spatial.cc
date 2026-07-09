@@ -2554,16 +2554,19 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     assign_gpu_nodes();
   }
 
-  /* Phase: propagate per-leaf GPU dirty bits to their owning GPU node
-   * and rebuild/update those nodes' buffers. Full regens stay serial
-   * (they call into gpu::GPUManager to allocate buffers); slice updates
-   * write into disjoint sub-ranges of an already-allocated VBO and run
-   * in parallel below. */
+  /* Phase: propagate per-leaf GPU dirty bits to their owning GPU node and
+   * rebuild/update those nodes' buffers. Full regens are split in two: a
+   * serial planning stage per owner (buffer dispose/alloc through the
+   * non-thread-safe GPUManager, slice-table build, flag clears), then the
+   * per-slice fills run in one unified parallel pass together with the
+   * in-place slice updates — both write only disjoint buffer sub-ranges. */
   struct SliceWork {
     SpatialNode *owner;
     SpatialNode *leaf;
   };
   Vector<SliceWork, 256> sliceWork;
+  Vector<SpatialNode *, 64> regenOwners;
+  util::Set<int> regenOwnerIds;
 
   for (SpatialNode *node : nodes) {
     if (!(node->flag & Spatial_Leaf)) {
@@ -2596,42 +2599,122 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
                      owner->gpu_data->slices.size() == 0 || (want & Spatial_RegenGPU);
 
     if (need_full) {
-      prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
-      regen_gpu_node(owner, gpu);
+      if (!regenOwnerIds.contains(owner->id)) {
+        regenOwnerIds.add(owner->id);
+        regenOwners.append(owner);
+      }
       drawBatchUpdated = true;
     } else {
       sliceWork.append({owner, node});
     }
   }
 
-  /* In-place slice writes run in parallel (disjoint slices). update_gpu_node_slice
-   * is pure — it never regens or flags owner buffers — so all shared-state
-   * mutation (the update_buffer flags, and any required full regen) is deferred
-   * to the serial pass below. sliceOk[i] == 0 means owner i needs a full rebuild. */
+  /* Any GPU node still missing buffers (it transitioned from non-GPU to GPU
+   * this tick and contains no individually-dirty leaves) needs a full rebuild
+   * too — fold it into the same plan/fill path. */
+  for (SpatialNode *node : nodes) {
+    if (!node->is_gpu_node) {
+      continue;
+    }
+    if ((!node->gpu_data || !node->gpu_data->pos) && !regenOwnerIds.contains(node->id)) {
+      regenOwnerIds.add(node->id);
+      regenOwners.append(node);
+      drawBatchUpdated = true;
+    }
+  }
+
+  /* Serial planning stage: one plan per owner, emitting per-slice fill jobs.
+   * Owner dedup happened above — duplicate-owner suppression can no longer
+   * rely on the first regen clearing leaf flags mid-loop once fills overlap.
+   * srcRefs are resolved once per owner into a flat array (requestedAttrs.size()
+   * entries each, dynamic path only). */
+  struct RegenJob {
+    int ownerIdx;
+    int sliceIdx;
+  };
+  Vector<RegenJob, 256> regenJobs;
+  Vector<mesh::AttrRef> regenSrcRefs;
+  const int nReq = int(requestedAttrs.size());
+
+  for (int oi : util::IndexRange(regenOwners.size())) {
+    prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
+    plan_regen_gpu_node(regenOwners[oi], gpu, regenSrcRefs);
+    GpuData &gd = *regenOwners[oi]->gpu_data;
+    for (int si : util::IndexRange(gd.slices.size())) {
+      if (gd.slices[si].vert_count > 0) {
+        regenJobs.append({oi, si});
+      }
+    }
+  }
+
+  /* A slice-update job whose owner got planned for a full regen is redundant
+   * (the plan cleared its leaf's flags and the regen fill rewrites the whole
+   * buffer) — and its slice pointer may already be stale. Drop it. */
+  if (regenOwners.size() > 0) {
+    int out = 0;
+    for (int i : util::IndexRange(sliceWork.size())) {
+      if (!regenOwnerIds.contains(sliceWork[i].owner->id)) {
+        sliceWork[out++] = sliceWork[i];
+      }
+    }
+    sliceWork.resize(out);
+  }
+
+  /* Unified parallel pass: regen slice fills + in-place slice updates are the
+   * same disjoint-sub-range write shape. Bodies are pure — no flag writes, no
+   * GPUManager calls; all shared-state mutation (update_buffer flags, any
+   * required full regen) is deferred to the serial epilogue below.
+   * sliceOk[i] == 0 means sliceWork[i].owner needs a full rebuild. */
   Vector<uint8_t, 256> sliceOk;
   sliceOk.resize(sliceWork.size());
 
   {
-    // CLAUDENOTE: temp profiling — update_gpu_node_slice phase wall-clock.
+    // CLAUDENOTE: temp profiling — unified fill/slice phase wall-clock.
     prof::Scope profSlice_(prof::spatialUpdateProf.slicePhase);
     prof::spatialUpdateProf.sliceItems += sliceWork.size();
+    prof::spatialUpdateProf.regenFillJobs += long(regenJobs.size());
+
+    const int regenJobCount = int(regenJobs.size());
+    const int totalJobs = regenJobCount + int(sliceWork.size());
+    auto runJob = [&](int i) {
+      if (i < regenJobCount) {
+        RegenJob &job = regenJobs[i];
+        mesh::AttrRef *refs = (nReq > 0 && regenSrcRefs.size() > 0)
+                                  ? regenSrcRefs.data() + job.ownerIdx * nReq
+                                  : nullptr;
+        fill_regen_slice(regenOwners[job.ownerIdx], job.sliceIdx, refs);
+      } else {
+        int k = i - regenJobCount;
+        sliceOk[k] =
+            update_gpu_node_slice(sliceWork[k].owner, sliceWork[k].leaf, gpu) ? 1 : 0;
+      }
+    };
+
+    // CLAUDENOTE: temp M1-verification knob — SC_FILL_SERIAL=1 forces the
+    // unified pass serial for the bit-identical checksum A/B. Drop in M4.
+    static const bool forceSerialFill = std::getenv("SC_FILL_SERIAL") != nullptr;
+
 #ifdef NO_PARALLEL_FOR
-    for (int i : util::IndexRange(sliceWork.size())) {
-      sliceOk[i] =
-          update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
-    }
+    const bool serialFill = true;
 #else
-    litestl::task::parallel_for(
-        util::IndexRange(sliceWork.size()),
-        [&](IndexRange range) {
-          for (int i : range) {
-            sliceOk[i] =
-                update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1
-                                                                                  : 0;
-          }
-        },
-        4);
+    const bool serialFill = forceSerialFill;
 #endif
+    if (serialFill) {
+      for (int i : util::IndexRange(totalJobs)) {
+        runJob(i);
+      }
+    } else {
+#ifndef NO_PARALLEL_FOR
+      litestl::task::parallel_for(
+          util::IndexRange(totalJobs),
+          [&](IndexRange range) {
+            for (int i : range) {
+              runJob(i);
+            }
+          },
+          4);
+#endif
+    }
   }
 
   /* Serial: flag each successfully-updated owner's buffers for re-upload, and
@@ -2737,6 +2820,37 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       gd.cmd->end = gd.pos->size;
       drawBatch->commands.append(gd.cmd);
     }
+  }
+
+  // CLAUDENOTE: temp M1-verification — SC_PROF_CHECKSUM=1 prints an FNV-1a
+  // hash of every GPU node's buffers per update, for the serial-vs-parallel
+  // (SC_FILL_SERIAL=1) bit-identity A/B. Drop after the gate run (M4 latest).
+  static const bool profChecksum = std::getenv("SC_PROF_CHECKSUM") != nullptr;
+  if (profChecksum) {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](const void *p, size_t n) {
+      const unsigned char *b = static_cast<const unsigned char *>(p);
+      for (size_t i = 0; i < n; i++) {
+        h ^= b[i];
+        h *= 1099511628211ull;
+      }
+    };
+    for (SpatialNode *node : nodes) {
+      if (!node->is_gpu_node || !node->gpu_data || !node->gpu_data->pos) {
+        continue;
+      }
+      GpuData &gd = *node->gpu_data;
+      mix(gd.pos->get_data<float>(), size_t(gd.pos->size) * gd.pos->elemsize * 4);
+      mix(gd.nor->get_data<float>(), size_t(gd.nor->size) * gd.nor->elemsize * 4);
+      for (gpu::Buffer *b : gd.attrBufs) {
+        if (b) {
+          mix(b->get_data<float>(), size_t(b->size) * b->elemsize * 4);
+        }
+      }
+    }
+    static long chkUpdate = 0;
+    std::printf("[chk] update %ld hash %016llx\n", chkUpdate++,
+                (unsigned long long)h);
   }
 
   return result;

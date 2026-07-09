@@ -335,11 +335,13 @@ void SpatialTree::buildGpuScatterTables(util::Vector<uint32_t> &meta,
   }
 }
 
-/* Full rebuild of a GPU node's aggregated buffer. Disposes any existing
- * pos/nor (but keeps cmd — the caller's draw-batch loop reuses it),
- * collects subtree leaves, sizes one buffer covering all their tris, and
- * fills it slice by slice. */
-void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
+/* Serial planning half of a full GPU-node regen — see the spatial.h doc
+ * comment. Allocation, slice-table build, flag clears, and source-attr
+ * resolution all happen here (GPUManager is not thread-safe); the per-slice
+ * fills are deferred to fill_regen_slice. */
+void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
+                                      gpu::GPUManager *gpu,
+                                      util::Vector<mesh::AttrRef> &srcRefs)
 {
   if (!gpu_node->gpu_data) {
     gpu_node->gpu_data = alloc::New<GpuData>("Spatial GpuData");
@@ -425,7 +427,6 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
   gd.builtAttrsVersion = requestedAttrsVersion;
 
   /* Resolve each requested source layer once for this node (dynamic path). */
-  util::Vector<AttrRef> srcRefs;
   if (dynamic) {
     for (const gpu::RequestedAttr &req : requestedAttrs) {
       AttrGroup *grp = m->attrGroupForDomainFlag(req.domain);
@@ -435,13 +436,7 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
 
   delete profCreate_;
 
-  float3 *pos = gd.pos->get_data<float3>();
-  float3 *nor = gd.nor->get_data<float3>();
-  float4 *col = dynamic ? nullptr : gd.attrBufs[0]->get_data<float4>();
-
-  // CLAUDENOTE: M0.2 temp attribution — whole fill loop incl. slice-table build.
-  prof::Scope profFillLoop_(prof::spatialUpdateProf.regenFillLoop);
-
+  /* Slice-table build + flag clears (fills deferred to fill_regen_slice). */
   int offset = 0;
   for (SpatialNode *leaf : leaves_v) {
     int vcount = leaf->data->tris.size() * 3;
@@ -449,22 +444,6 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     slice.leaf = leaf;
     slice.vert_start = offset;
     slice.vert_count = vcount;
-
-    if (vcount > 0) {
-      {
-        prof::Scope profFill_(prof::spatialUpdateProf.regenFillSlice);
-        fill_leaf_slice(leaf, pos + offset, nor + offset, col ? col + offset : nullptr);
-      }
-      if (dynamic) {
-        prof::Scope profAttr_(prof::spatialUpdateProf.regenFillAttr);
-        for (int ai : util::IndexRange(requestedAttrs.size())) {
-          const gpu::RequestedAttr &req = requestedAttrs[ai];
-          float *adst = gd.attrBufs[ai]->get_data<float>() + offset * req.elemSize;
-          AttrRef &ref = srcRefs[ai];
-          fill_leaf_attr(leaf, req, ref.exists() ? &ref : nullptr, adst);
-        }
-      }
-    }
     offset += vcount;
 
     /* Leaf's GPU dirty bits are now satisfied. */
@@ -473,6 +452,51 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
 
   // Buffer identity + corner layout changed: invalidate cached scatter tables.
   gpuLayoutGen++;
+}
+
+/* Pure fill of one planned slice — see the spatial.h doc comment. */
+void SpatialTree::fill_regen_slice(SpatialNode *gpu_node, int sliceIdx, AttrRef *srcRefs)
+{
+  GpuData &gd = *gpu_node->gpu_data;
+  const LeafSlice &slice = gd.slices[sliceIdx];
+  if (slice.vert_count <= 0) {
+    return;
+  }
+
+  const bool dynamic = requestedAttrs.size() > 0 && drawShaderReady;
+  const int offset = slice.vert_start;
+  float3 *pos = gd.pos->get_data<float3>() + offset;
+  float3 *nor = gd.nor->get_data<float3>() + offset;
+  float4 *col = (!dynamic && gd.attrBufs.size() > 0)
+                    ? gd.attrBufs[0]->get_data<float4>() + offset
+                    : nullptr;
+
+  fill_leaf_slice(slice.leaf, pos, nor, col);
+  if (dynamic) {
+    for (int ai : util::IndexRange(requestedAttrs.size())) {
+      const gpu::RequestedAttr &req = requestedAttrs[ai];
+      float *adst = gd.attrBufs[ai]->get_data<float>() + offset * req.elemSize;
+      AttrRef &ref = srcRefs[ai];
+      fill_leaf_attr(slice.leaf, req, ref.exists() ? &ref : nullptr, adst);
+    }
+  }
+}
+
+/* Full rebuild of a GPU node's aggregated buffer: serial plan + serial
+ * slice-by-slice fill. update()'s hot path plans serially and runs the fills
+ * in the unified parallel pass instead; this whole-function form serves the
+ * fallback sites (failed in-place slice update, gpu-resident stroke sync). */
+void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
+{
+  util::Vector<AttrRef> srcRefs;
+  plan_regen_gpu_node(gpu_node, gpu, srcRefs);
+
+  GpuData &gd = *gpu_node->gpu_data;
+  // CLAUDENOTE: M0.2 temp attribution — whole (serial) fill loop.
+  prof::Scope profFillLoop_(prof::spatialUpdateProf.regenFillLoop);
+  for (int si : util::IndexRange(gd.slices.size())) {
+    fill_regen_slice(gpu_node, si, srcRefs.size() > 0 ? srcRefs.data() : nullptr);
+  }
 }
 
 /* In-place rewrite of a single leaf's slice inside its GPU node's buffer

@@ -70,6 +70,7 @@ struct SpatialUpdateProf {
   Stat regenFillLoop;     // (d+e) whole fill loop incl. slice-table build
   Stat regenOwnerVerts;   // per-owner total_verts (fill-work granularity)
   long regenTrisCalls = 0; // regen_node_tris invocations from inside regen
+  long regenFillJobs = 0;  // M1: regen fill jobs run through the unified pass
 
   ~SpatialUpdateProf() { print(); }
 
@@ -89,8 +90,9 @@ struct SpatialUpdateProf {
     printStat("normals phase      ", normalsPhase);
     printStat("assign_gpu_nodes   ", assignGpuNodes);
     printStat("regen_gpu_node     ", regenGpuNode);
-    printStat("slice update phase ", slicePhase);
-    std::printf("[spatial-prof]     (%ld slices total across phase runs)\n", sliceItems);
+    printStat("unified fill phase ", slicePhase);
+    std::printf("[spatial-prof]     (%ld slice updates + %ld regen fills across phase runs)\n",
+                sliceItems, regenFillJobs);
     printStat("draw-batch loop    ", drawBatchLoop);
 
     if (splitTopLevel.count > 0) {
