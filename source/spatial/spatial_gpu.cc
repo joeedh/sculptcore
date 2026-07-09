@@ -3,6 +3,8 @@
 
 #include "gpu/types.h"
 #include "spatial.h"
+// CLAUDENOTE: temp profiling scaffolding (rip out in M4).
+#include "spatial_prof_temp.h"
 
 #include "node.h"
 
@@ -347,37 +349,50 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
   /* Pos/nor sizes always derive from current tri counts, so just
    * dispose them. The DrawCommand is recreated in the draw-batch loop if
    * stale (size/start changes), so dispose it too here to be safe. */
-  if (gd.pos) {
-    alloc::Delete(gd.pos);
-    gd.pos = nullptr;
-  }
-  if (gd.nor) {
-    alloc::Delete(gd.nor);
-    gd.nor = nullptr;
-  }
-  for (gpu::Buffer *b : gd.attrBufs) {
-    if (b) {
-      alloc::Delete(b);
+  {
+    // CLAUDENOTE: M0.2 temp attribution — old-buffer dispose.
+    prof::Scope profDispose_(prof::spatialUpdateProf.regenDispose);
+    if (gd.pos) {
+      alloc::Delete(gd.pos);
+      gd.pos = nullptr;
     }
+    if (gd.nor) {
+      alloc::Delete(gd.nor);
+      gd.nor = nullptr;
+    }
+    for (gpu::Buffer *b : gd.attrBufs) {
+      if (b) {
+        alloc::Delete(b);
+      }
+    }
+    gd.attrBufs.clear_and_contract();
+    if (gd.cmd) {
+      alloc::Delete(gd.cmd);
+      gd.cmd = nullptr;
+    }
+    gd.slices.clear_and_contract();
   }
-  gd.attrBufs.clear_and_contract();
-  if (gd.cmd) {
-    alloc::Delete(gd.cmd);
-    gd.cmd = nullptr;
-  }
-  gd.slices.clear_and_contract();
 
   util::Vector<SpatialNode *> leaves_v;
-  collect_subtree_leaves(gpu_node, leaves_v);
-
   int total_verts = 0;
-  for (SpatialNode *leaf : leaves_v) {
-    if (leaf->flag & Spatial_RegenTris) {
-      regen_node_tris(leaf);
+  {
+    // CLAUDENOTE: M0.2 temp attribution — leaf collect + sizing (+ tri regen).
+    prof::Scope profCollect_(prof::spatialUpdateProf.regenCollect);
+    collect_subtree_leaves(gpu_node, leaves_v);
+
+    for (SpatialNode *leaf : leaves_v) {
+      if (leaf->flag & Spatial_RegenTris) {
+        prof::spatialUpdateProf.regenTrisCalls++;
+        regen_node_tris(leaf);
+      }
+      total_verts += leaf->data->tris.size() * 3;
     }
-    total_verts += leaf->data->tris.size() * 3;
   }
   gd.total_verts = total_verts;
+  prof::spatialUpdateProf.regenOwnerVerts.add(double(total_verts));
+
+  // CLAUDENOTE: M0.2 temp attribution — createBuffer calls + srcRefs resolve.
+  auto profCreate_ = new prof::Scope(prof::spatialUpdateProf.regenCreateBuf);
 
   gd.pos = gpu->createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, total_verts);
@@ -418,9 +433,14 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     }
   }
 
+  delete profCreate_;
+
   float3 *pos = gd.pos->get_data<float3>();
   float3 *nor = gd.nor->get_data<float3>();
   float4 *col = dynamic ? nullptr : gd.attrBufs[0]->get_data<float4>();
+
+  // CLAUDENOTE: M0.2 temp attribution — whole fill loop incl. slice-table build.
+  prof::Scope profFillLoop_(prof::spatialUpdateProf.regenFillLoop);
 
   int offset = 0;
   for (SpatialNode *leaf : leaves_v) {
@@ -431,8 +451,12 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
     slice.vert_count = vcount;
 
     if (vcount > 0) {
-      fill_leaf_slice(leaf, pos + offset, nor + offset, col ? col + offset : nullptr);
+      {
+        prof::Scope profFill_(prof::spatialUpdateProf.regenFillSlice);
+        fill_leaf_slice(leaf, pos + offset, nor + offset, col ? col + offset : nullptr);
+      }
       if (dynamic) {
+        prof::Scope profAttr_(prof::spatialUpdateProf.regenFillAttr);
         for (int ai : util::IndexRange(requestedAttrs.size())) {
           const gpu::RequestedAttr &req = requestedAttrs[ai];
           float *adst = gd.attrBufs[ai]->get_data<float>() + offset * req.elemSize;

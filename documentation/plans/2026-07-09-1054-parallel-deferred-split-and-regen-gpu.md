@@ -78,6 +78,43 @@ Extend the existing `prof` scaffolding one level down. All additions stay
 - **Gate:** attribution table for both functions on the 480k workload; M2
   option chosen from the data.
 
+### M0 results (measured 2026-07-09, 480k workload)
+
+Scripts landed as `tests/scripts/dyntopo_profile_perdab{,_small,_big}.txt` +
+`dyntopo_profile_collapse.txt`; scaffolding moved to the shared
+`source/spatial/spatial_prof_temp.h`. 200 updates, instrumented build (totals
+run a bit hot vs the uninstrumented baseline — attribution shares are the
+signal):
+
+| phase                         | total ms | share of parent  |
+| ----------------------------- | -------- | ---------------- |
+| update() total                | 5182     | —                |
+| regen_gpu_node (6585 calls)   | 1818     | 35% of update    |
+| — fill loop (fill_leaf_slice) | 1679     | **92% of regen** |
+| — dispose                     | 75       | 4%               |
+| — createBuffers               | 49       | 3%               |
+| — collect+size                | 9        | <1%              |
+| deferred split (1849 splits)  | 1283     | 25% of update    |
+| — triangulateFace+calc_center | 543      | **42% of split** |
+| — refile pure descent         | 537      | **42% of split** |
+| — alloc/data bookkeeping      | 24       | 2%               |
+| — unassign+mean               | 19       | 1%               |
+| — orphan recovery             | 7        | <1%              |
+
+Counters: 1964 candidates → 1849 top-level splits + 497 recursive; 1.42M faces
+re-filed; 787k verts unassigned; only 734 orphans. Per-owner `total_verts`
+avg 7299 / max 11250, ~7 slices per owner → per-slice fill jobs load-balance
+fine. `regen_node_tris` never fired inside regen (the tris phase already
+covers it); `fill_leaf_attr` never ran (legacy color path on this workload).
+
+**Decisions.** M1 as planned (fill loop is 92% and embarrassingly parallel).
+M2: `add_face_intern` never reads the `tris` span and `triangulateFace`
+*always* succeeds (fan fallback) — the entire re-triangulation at all three
+call sites (split_node, merge_node, initial build) is dead work → M2.a first
+(drop it; keep `calc_center` bit-identical so routing parity holds),
+re-measure, then decide whether M2.b's candidate parallelism is still needed
+for the ≥2× gate.
+
 ## M1 — `regen_gpu_node`: serialize-allocate + parallel fill
 
 Split the function into a serial planning stage and a pure parallel fill
