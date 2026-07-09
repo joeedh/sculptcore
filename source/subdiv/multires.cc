@@ -61,8 +61,8 @@ mesh::Mesh *Multires::buildLevelTopo(int level)
     Assert(nv == i, "multires level verts allocate densely");
   }
 
-  /* One quad per grid cell; each level face is exactly one cell, and the
-   * (u,v)->(u+1,v)->... cell order matches the refiner's child-quad winding. */
+  // One quad per grid cell; each level face is exactly one cell, and the
+  // (u,v)->(u+1,v)->... cell order matches the refiner's child-quad winding.
   int S = lvl.gridSide, w = S + 1;
   for (int g = 0; g < refiner.gridCount(); g++) {
     const int *gv = &lvl.gridVerts[g * w * w];
@@ -186,7 +186,7 @@ bool Multires::dispNonZero(int level)
   return false;
 }
 
-/* Apply the level's composited displacement (Σ mix weight·channel) onto the
+/** Apply the level's composited displacement (Σ mix weight·channel) onto the
  * smoothed base, in the F3 frame evaluated AT the base (edit-independent).
  * `pos` must NOT alias `base` — seam verts are visited once per replica and
  * must re-read the clean base. */
@@ -214,7 +214,7 @@ static void applyDisp(GridsStore &store,
   int S = lvl.gridSide, w = S + 1;
 
   pos.resize(base.size());
-  /* Every vert appears in >= 1 grid slot; replicas recompute the same value. */
+  // Every vert appears in >= 1 grid slot; replicas recompute the same value.
   for (int g = 0; g < store.gridCount(); g++) {
     const int *gv = &lvl.gridVerts[g * w * w];
     for (int v = 0; v < w; v++) {
@@ -567,8 +567,8 @@ int Multires::writeback(int level)
 
   storeDispFromPositions(level, pos, &changed, /*toEditTarget=*/true);
 
-  /* The edited mesh is the new baseline for this level; everything finer is
-   * derived from it and must re-evaluate. */
+  // The edited mesh is the new baseline for this level; everything finer is
+  // derived from it and must re-evaluate.
   for (int i = 0; i < lvl.vertCount; i++) {
     if (changed[i]) {
       baseline[i] = pos[i];
@@ -578,7 +578,7 @@ int Multires::writeback(int level)
   return nChanged;
 }
 
-/* z = Aᵀ·y over the stencil (scatter form of eval), same fma chain per term. */
+/** z = Aᵀ·y over the stencil (scatter form of eval), same fma chain per term. */
 static void applyStencilT(const StencilTable &st,
                           const Vector<float3> &y,
                           Vector<float3> &z)
@@ -1120,8 +1120,8 @@ MultiresSlot *Multires::setActiveLevel(int level)
   if (activeLevel_ >= 1 && activeLevel_ != level) {
     writeback(activeLevel_);
   }
-  /* Mark active BEFORE materializing so eviction protects the incoming level
-   * (not the one being switched away from) when the budget is tight. */
+  // Mark active BEFORE materializing so eviction protects the incoming level
+  // (not the one being switched away from) when the budget is tight.
   activeLevel_ = level;
   MultiresSlot *slot = materialize(level);
   enforceStoreBudget();
@@ -1133,7 +1133,7 @@ void Multires::enforceStoreBudget()
   if (storeBudgetBytes == 0) {
     return;
   }
-  /* Finest-first (largest arrays, biggest win); never the active level. */
+  // Finest-first (largest arrays, biggest win); never the active level.
   for (int l = int(refiner.levels.size());
        l >= 1 && store.residentBytes() > storeBudgetBytes;
        l--)

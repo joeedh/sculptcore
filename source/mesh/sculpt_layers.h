@@ -15,11 +15,11 @@
 
 namespace sculptcore::mesh {
 
-/* SculptLayerSettings.mode — how stored values map to world displacement.
+/** SculptLayerSettings.mode — how stored values map to world displacement.
  * DELTA is the polygon default (exact under dyntopo interp, commutative);
  * TANGENT is reserved for the subsurf-multires path (workstream S). */
 enum class SculptLayerMode { DELTA = 0, TANGENT = 1 };
-/* SculptLayerSettings.space — reference frame for DELTA mode. The engine
+/** SculptLayerSettings.space — reference frame for DELTA mode. The engine
  * works in object space, so WORLD and OBJECT are currently synonyms. */
 enum class SculptLayerSpace { WORLD = 0, OBJECT = 1 };
 
@@ -30,19 +30,19 @@ enum class SculptLayerSpace { WORLD = 0, OBJECT = 1 };
 constexpr const char *SCULPT_LAYER_REST_ATTR = ".slayer.rest";
 
 struct SculptLayerSettings {
-  /* Name of the VERTEX FLOAT3 attribute this record describes. */
+  // Name of the VERTEX FLOAT3 attribute this record describes.
   litestl::util::string name;
   int mode = int(SculptLayerMode::DELTA);
   int space = int(SculptLayerSpace::WORLD);
-  /* Index of the layer this one is relative to (-1 = base). Unused by the
-   * DELTA compositor (deltas are absolute); reserved for TANGENT stacks. */
+  // Index of the layer this one is relative to (-1 = base). Unused by the
+  // DELTA compositor (deltas are absolute); reserved for TANGENT stacks.
   int parent = -1;
   float weight = 1.0f;
   bool enabled = true;
-  /* Excluded from active editing (brush writes), still composited. */
+  // Excluded from active editing (brush writes), still composited.
   bool frozen = false;
-  /* α in the fold-bound clamp |D| ≤ α·ρ_min (VDM / TANGENT carriers only;
-   * inert for DELTA layers). */
+  // α in the fold-bound clamp |D| ≤ α·ρ_min (VDM / TANGENT carriers only;
+  // inert for DELTA layers).
   float clampFrac = 0.5f;
 
   static litestl::binding::types::Struct<SculptLayerSettings> *defineBindings()

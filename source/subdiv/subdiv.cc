@@ -46,7 +46,7 @@ void gatherVertCo(mesh::Mesh &m, Vector<float3> &out)
 
 namespace {
 
-/* One stencil row under construction: entries kept ascending by coarse vert
+/** One stencil row under construction: entries kept ascending by coarse vert
  * id, weights accumulated in double so the emitted float weight is independent
  * of add() call order per id. */
 struct RowBuilder {
@@ -127,7 +127,7 @@ void addFaceVerts(mesh::Mesh *m, int f, double weightEach, RowBuilder &row)
   } while (cc != c0);
 }
 
-/* Corner of face `f` whose vert is `v1` (ELEM_NONE if absent). */
+/** Corner of face `f` whose vert is `v1` (ELEM_NONE if absent). */
 int faceCornerOfVert(mesh::Mesh *m, int f, int v1)
 {
   int c0 = m->l.c[m->f.l[f]], cc = c0;
@@ -177,7 +177,7 @@ void Refiner::clear()
   gridCount_ = 0;
 }
 
-/* One uniform CC step m0 -> lvl.mesh. `prevLvl` is null for the first step
+/** One uniform CC step m0 -> lvl.mesh. `prevLvl` is null for the first step
  * (m0 == the cage), where grids are seeded one-per-cage-corner. */
 static void refineStep(mesh::Mesh *m0,
                        const SubdivLevel *prevLvl,
@@ -212,15 +212,15 @@ static void refineStep(mesh::Mesh *m0,
     return nv;
   };
 
-  /* Face points: centroid of the face's verts. */
+  // Face points: centroid of the face's verts.
   for (int fi : m0->f) {
     row.clear();
     addFaceVerts(m0, fi, 1.0 / countFaceVerts(m0, fi), row);
     lvl.facePointOf[fi] = appendVert(row);
   }
 
-  /* Edge points: midpoint on creases/boundary, else the (v0+v1+fp1+fp2)/4 rule
-   * expanded onto the coarse verts (face points are fine verts). */
+  // Edge points: midpoint on creases/boundary, else the (v0+v1+fp1+fp2)/4 rule
+  // expanded onto the coarse verts (face points are fine verts).
   for (int ei : m0->e) {
     row.clear();
     int v0 = m0->e.vs[ei][0], v1 = m0->e.vs[ei][1];
@@ -240,8 +240,8 @@ static void refineStep(mesh::Mesh *m0,
     lvl.edgePointOf[ei] = appendVert(row);
   }
 
-  /* Vertex points: corner (>=3 creases) holds, 2 creases -> the 1/8·6/8·1/8
-   * crease rule, else the smooth (Q + 2R + (n-3)S)/n rule expanded. */
+  // Vertex points: corner (>=3 creases) holds, 2 creases -> the 1/8·6/8·1/8
+  // crease rule, else the smooth (Q + 2R + (n-3)S)/n rule expanded.
   for (int vi : m0->v) {
     row.clear();
 
@@ -294,7 +294,7 @@ static void refineStep(mesh::Mesh *m0,
     lvl.vertPointOf[vi] = appendVert(row);
   }
 
-  /* Child faces: one quad per coarse corner. */
+  // Child faces: one quad per coarse corner.
   Vector<int> childFaceOfCorner;
   fillNone(childFaceOfCorner, int(m0->c.capacity()));
   for (int fi : m0->f) {
@@ -310,7 +310,7 @@ static void refineStep(mesh::Mesh *m0,
     } while (cc != c0);
   }
 
-  /* Propagate EDGE_SHARP onto both child edges of each sharp coarse edge. */
+  // Propagate EDGE_SHARP onto both child edges of each sharp coarse edge.
   if (sharp) {
     for (int ei : m0->e) {
       if (!(*sharp)[ei]) {
@@ -326,8 +326,8 @@ static void refineStep(mesh::Mesh *m0,
     }
   }
 
-  /* Positions: the level's geometry IS the stencil evaluation (the bit-exact
-   * contract with evalFromCage). */
+  // Positions: the level's geometry IS the stencil evaluation (the bit-exact
+  // contract with evalFromCage).
   Vector<float3> srcCo, dstCo;
   gatherVertCo(*m0, srcCo);
   st.eval(srcCo, dstCo);
@@ -337,8 +337,8 @@ static void refineStep(mesh::Mesh *m0,
   lvl.vertCount = st.fineCount;
   m1->recalc_normals();
 
-  /* Grids. First step: seed one 1-cell grid per cage corner. Later steps:
-   * split each cell into 4, mapping through the point-of tables. */
+  // Grids. First step: seed one 1-cell grid per cage corner. Later steps:
+  // split each cell into 4, mapping through the point-of tables.
   if (!prevLvl) {
     lvl.gridSide = 1;
     lvl.gridVerts.resize(gridCount * 4);
@@ -349,10 +349,10 @@ static void refineStep(mesh::Mesh *m0,
       do {
         int cp = m0->c.prev[cc];
         int *gv = &lvl.gridVerts[g * 4];
-        gv[0] = lvl.vertPointOf[m0->c.v[cc]]; /* (0,0) */
-        gv[1] = lvl.edgePointOf[m0->c.e[cc]]; /* (1,0) */
-        gv[2] = lvl.edgePointOf[m0->c.e[cp]]; /* (0,1) */
-        gv[3] = lvl.facePointOf[fi];          /* (1,1) */
+        gv[0] = lvl.vertPointOf[m0->c.v[cc]]; // (0,0)
+        gv[1] = lvl.edgePointOf[m0->c.e[cc]]; // (1,0)
+        gv[2] = lvl.edgePointOf[m0->c.e[cp]]; // (0,1)
+        gv[3] = lvl.facePointOf[fi];          // (1,1)
         lvl.gridFaces[g] = childFaceOfCorner[cc];
         g++;
         cc = m0->c.next[cc];

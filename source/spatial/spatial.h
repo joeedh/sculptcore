@@ -784,6 +784,11 @@ struct SpatialTree {
   }
   sculptcore::gpu::DrawBatch *buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr);
 
+  /* Build a DRAW_LINES batch of the whole mesh's AABB as one white 12-edge box
+   * (the per-object BOUNDS draw mode / selection overlay; host tints via
+   * uColor). Returns nullptr when the mesh has no geometry. */
+  sculptcore::gpu::DrawBatch *buildBoundsBatch(sculptcore::gpu::GPUManager &mgr);
+
   /* Build a DRAW_LINES batch of the mesh's marked seam edges (boundary
    * EDGE_SEAM) for the persistent viewport overlay. Returns nullptr when no
    * edge is flagged (caller skips the dispatch). Thaws frozen topology to read

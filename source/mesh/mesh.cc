@@ -1269,6 +1269,28 @@ int Mesh::faceEdgeNearest(int f, const math::float3 &p)
 {
   return faceEdgeNearestPoint(*this, f, p);
 }
+void Mesh::faceVertList(int fi, util::Vector<int> &outVerts, util::Vector<float> &outCoords)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  if (fi < 0 || fi >= int(f.capacity()) || f.freemap[fi]) {
+    return;
+  }
+  for (int li = f.l[fi]; li != ELEM_NONE; li = l.next[li]) {
+    int c0 = l.c[li], cc = c0;
+    do {
+      int vi = c.v[cc];
+      outVerts.append(vi);
+      const float3 &a = v.co[vi];
+      for (int k = 0; k < 3; k++) {
+        outCoords.append(a[k]);
+      }
+      cc = c.next[cc];
+    } while (cc != c0);
+  }
+}
+
 void Mesh::faceEdgeList(int fi, util::Vector<int> &outEdges, util::Vector<float> &outCoords)
 {
   if (topo_frozen) {

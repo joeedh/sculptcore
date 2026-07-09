@@ -27,6 +27,7 @@ char *LSTL_FormatBlock(void *mem);
 char *LSTL_FormatBlocks(bool printPermanent);
 
 void *Mesh_createCube(int dimen, float size, float sphereFac);
+void *Mesh_makeGrid(int nx, int ny, float size);
 void *Mesh_makeUVSphere(int rings, int segs, float radius);
 void *Mesh_buildSpatialTree(void *mesh, int leafLimit, int depthLimit, int gpuTriTarget);
 void SpatialTree_free(void *tree);
@@ -1565,6 +1566,36 @@ napi_value NapiRuntime::MeshMakeUVSphere(napi_env env, napi_callback_info info)
       static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
 }
 
+// meshMakeGrid(nx, ny, size) -> Mesh. Flat XY quad grid facing +Z (the
+// add-plane primitive), paralleling MeshCreateCube's wrapping.
+napi_value NapiRuntime::MeshMakeGrid(napi_env env, napi_callback_info info)
+{
+  size_t argc = 3;
+  napi_value argv[3];
+  void *data;
+  napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+  NapiRuntime *rt = static_cast<NapiRuntime *>(data);
+
+  int32_t nx = 0, ny = 0;
+  double size = 1.0;
+  if (argc >= 1)
+    napi_get_value_int32(env, argv[0], &nx);
+  if (argc >= 2)
+    napi_get_value_int32(env, argv[1], &ny);
+  if (argc >= 3)
+    napi_get_value_double(env, argv[2], &size);
+
+  void *m = Mesh_makeGrid(nx, ny, static_cast<float>(size));
+  const binding::BindingBase *st = rt->lookup("sculptcore::mesh::Mesh");
+  napi_value out;
+  if (!m || !st || st->type != BindingType::Struct) {
+    napi_get_undefined(env, &out);
+    return out;
+  }
+  return rt->instantiate(
+      static_cast<const types::_StructBase *>(st), m, /*owning=*/false);
+}
+
 napi_value NapiRuntime::MeshBuildSpatialTree(napi_env env, napi_callback_info info)
 {
   size_t argc = 4;
@@ -2995,6 +3026,7 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "objectAddress", &NapiRuntime::ObjectAddress);
   define(exports, "meshCreateCube", &NapiRuntime::MeshCreateCube);
   define(exports, "meshMakeUVSphere", &NapiRuntime::MeshMakeUVSphere);
+  define(exports, "meshMakeGrid", &NapiRuntime::MeshMakeGrid);
   define(exports, "meshBuildSpatialTree", &NapiRuntime::MeshBuildSpatialTree);
   define(exports, "spatialTreeFree", &NapiRuntime::SpatialTreeFree);
   define(exports, "meshFree", &NapiRuntime::MeshFree);

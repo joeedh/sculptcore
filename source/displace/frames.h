@@ -27,7 +27,7 @@ namespace sculptcore::displace {
 using litestl::math::float3;
 namespace util = litestl::util;
 
-/* Persistent NOINTERP per-vertex frame attributes: the smoothed unit normal
+/** Persistent NOINTERP per-vertex frame attributes: the smoothed unit normal
  * and the unit cross-field tangent (⊥ to it). NOINTERP because averaging two
  * cross directions across a split can cancel; frames live on static bases and
  * are recomputed per region instead. */
@@ -35,30 +35,30 @@ constexpr const char *FRAME_NORMAL_ATTR = ".frames.v.normal";
 constexpr const char *FRAME_TANGENT_ATTR = ".frames.v.tangent";
 
 struct FrameProviderParams {
-  /* Gauss-Seidel rounds averaging 1-ring normals into the smoothed normal. */
+  // Gauss-Seidel rounds averaging 1-ring normals into the smoothed normal.
   int normal_smooth_iters = 2;
-  /* Gauss-Seidel rounds of 4-fold-aware tangent diffusion. */
+  // Gauss-Seidel rounds of 4-fold-aware tangent diffusion.
   int diffuse_iters = 8;
-  /* Hard-pin tangents along boundary feature edges (sharp/seam/border/group). */
+  // Hard-pin tangents along boundary feature edges (sharp/seam/border/group).
   bool use_features = true;
-  /* Soft-seed unset tangents from the 1-ring shape operator's principal dir. */
+  // Soft-seed unset tangents from the 1-ring shape operator's principal dir.
   bool use_curvature = true;
 };
 
-/* Ensure both frame attributes exist (persistent, NOINTERP). */
+/** Ensure both frame attributes exist (persistent, NOINTERP). */
 void ensureFrameAttrs(mesh::Mesh &m);
 
-/* Compute frames for `verts`. The caller's order is the determinism anchor —
+/** Compute frames for `verts`. The caller's order is the determinism anchor —
  * pass a stable order (spatial-node unique_verts in node order, or vert-id
  * order). Vertex normals (m.v.no) must be current. */
 void updateFramesRegion(mesh::Mesh &m,
                         const util::Vector<int> &verts,
                         const FrameProviderParams &params);
 
-/* Whole-mesh convenience: every live vert in vert-id order. */
+/** Whole-mesh convenience: every live vert in vert-id order. */
 void updateFramesAll(mesh::Mesh &m, const FrameProviderParams &params);
 
-/* Sum of the tangent field's per-face winding indices in quarter-turn units
+/** Sum of the tangent field's per-face winding indices in quarter-turn units
  * (each face: the accumulated nearest-90°-image rotation of the corner
  * tangents projected into the face plane). Poincaré–Hopf: == 4·χ on a closed
  * mesh (8 on a sphere/cube). Validation/test helper. */

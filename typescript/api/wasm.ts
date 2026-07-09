@@ -22,6 +22,8 @@ interface IWasmMethods extends IWasmBase {
    * segments, `radius`. Poles are the only singularities — the remesh-friendly
    * primitive the quad-remesh parity test drives. */
   Mesh_makeUVSphere(rings: int, segs: int, radius: number): Mesh
+  /** flat XY quad grid facing +Z: nx*ny verts spanning [-size/2, size/2] (add-plane primitive). */
+  Mesh_makeGrid(nx: int, ny: int, size: number): Mesh
   /** build a coarse BVH over `mesh`'s faces; pass leafLimit<=0 to keep the default. */
   Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int, gpuTriTarget: int): SpatialTree
   SpatialTree_free(tree: SpatialTree): void
@@ -582,6 +584,10 @@ export async function loadWasm(): Promise<IWasmInterface> {
     },
     Mesh_makeUVSphere(rings: int, segs: int, radius: number) {
       const ptr = _wasm.Mesh_makeUVSphere(rings, segs, radius) as unknown as number
+      return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
+    },
+    Mesh_makeGrid(nx: int, ny: int, size: number) {
+      const ptr = _wasm.Mesh_makeGrid(nx, ny, size) as unknown as number
       return manager.getBoundPointer('sculptcore::mesh::Mesh', ptr) as Mesh
     },
     Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int, gpuTriTarget: int) {

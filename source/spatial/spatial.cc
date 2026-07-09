@@ -1945,6 +1945,90 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   return batch;
 }
 
+sculptcore::gpu::DrawBatch *SpatialTree::buildBoundsBatch(sculptcore::gpu::GPUManager &mgr)
+{
+  using namespace sculptcore::gpu;
+
+  /* Union the non-empty leaf bounds (empty leaves carry the reset() sentinel). */
+  litestl::math::AABB<float3> aabb;
+  aabb.reset();
+  bool haveAny = false;
+  for (SpatialNode *node : leaves()) {
+    if (!node->aabb.isEmpty()) {
+      aabb.add(node->aabb.min);
+      aabb.add(node->aabb.max);
+      haveAny = true;
+    }
+  }
+  if (!haveAny) {
+    return nullptr;
+  }
+
+  const int totalVerts = 24; /* 12 edges x 2 endpoints. */
+
+  Buffer *posBuf = mgr.createBuffer(
+      litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
+  Buffer *colorBuf =
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+
+  float3 *pos = posBuf->get_data<float3>();
+  float4 *color = colorBuf->get_data<float4>();
+
+  int idx = 0;
+  auto addLine = [pos, color, &idx](const float3 &a, const float3 &b, const float4 &clr) {
+    pos[idx] = a;
+    color[idx] = clr;
+    idx++;
+    pos[idx] = b;
+    color[idx] = clr;
+    idx++;
+  };
+
+  const float4 clr(1.0f, 1.0f, 1.0f, 1.0f);
+  float3 mn = aabb.min;
+  float3 mx = aabb.max;
+  float3 c[8] = {
+      {mn[0], mn[1], mn[2]},
+      {mx[0], mn[1], mn[2]},
+      {mx[0], mx[1], mn[2]},
+      {mn[0], mx[1], mn[2]},
+      {mn[0], mn[1], mx[2]},
+      {mx[0], mn[1], mx[2]},
+      {mx[0], mx[1], mx[2]},
+      {mn[0], mx[1], mx[2]},
+  };
+
+  addLine(c[0], c[1], clr);
+  addLine(c[1], c[2], clr);
+  addLine(c[2], c[3], clr);
+  addLine(c[3], c[0], clr);
+
+  addLine(c[4], c[5], clr);
+  addLine(c[5], c[6], clr);
+  addLine(c[6], c[7], clr);
+  addLine(c[7], c[4], clr);
+
+  addLine(c[0], c[4], clr);
+  addLine(c[1], c[5], clr);
+  addLine(c[2], c[6], clr);
+  addLine(c[3], c[7], clr);
+
+  posBuf->dirty();
+
+  DrawBatch *batch = mgr.createBatch();
+  batch->buffers.append(posBuf);
+  batch->buffers.append(colorBuf);
+
+  auto *shader = &spatialShaders.basicLineShader;
+
+  DrawCommand *cmd = mgr.createCommand(
+      batch, GPUCmdType::DRAW_LINES, shader, 0, totalVerts, totalVerts / 2);
+  cmd->attrs.append(posBuf);
+  cmd->attrs.append(colorBuf);
+
+  return batch;
+}
+
 sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUManager &mgr,
                                                         bool includePolyGroup)
 {

@@ -34,7 +34,7 @@ namespace sculptcore::subdiv {
 /** Bump when the on-disk layout changes (mirrors mesh serial versioning). */
 inline constexpr uint32_t kGridsFormatVersion = 1;
 
-/* A grid side. LEFT/BOTTOM cross a cage edge (absent on mesh boundary);
+/** A grid side. LEFT/BOTTOM cross a cage edge (absent on mesh boundary);
  * RIGHT/TOP always link to a same-face neighbor grid. Side coords, param t:
  * LEFT (0,t), RIGHT (S,t), BOTTOM (t,0), TOP (t,S). */
 enum GridSideType : int {
@@ -45,8 +45,8 @@ enum GridSideType : int {
 };
 
 struct GridLink {
-  int grid = -1; /* -1: cage boundary or non-manifold/inconsistent winding */
-  int side = -1; /* the GridSideType this seam is on the neighbor grid */
+  int grid = -1; // -1: cage boundary or non-manifold/inconsistent winding
+  int side = -1; // the GridSideType this seam is on the neighbor grid
 };
 
 struct GridCoord {
@@ -158,7 +158,7 @@ struct GridsStore {
   /** Read a write() blob into this store (replaces all contents). */
   bool read(std::istream &in);
 
-  /* Exposed for tests/pager: chunk geometry of one (channel, level). Chunks
+  /** Exposed for tests/pager: chunk geometry of one (channel, level). Chunks
    * hold whole grids; a grid never straddles chunks. */
   int gridsPerChunk(int level, int channel) const
   {
@@ -169,13 +169,13 @@ struct GridsStore {
     return int(channels_[channel].levels[level - 1].chunks.size());
   }
 
-  /* ---- X5: compressed eviction (activates the chunked layout) ----
-   * A level's chunks can be evicted to one lz4 blob per channel and
-   * rehydrated transparently on the next elem() touch — synchronous and
-   * backend-agnostic (wasm has no synchronous disk IO; a native mmap/spill
-   * pass can layer under the same seam later). Chunk geometry is
-   * deterministic from (gridCount, level, floatsPerElem), so the blob needs
-   * no layout header. */
+  // ---- X5: compressed eviction (activates the chunked layout) ----
+  // A level's chunks can be evicted to one lz4 blob per channel and
+  // rehydrated transparently on the next elem() touch — synchronous and
+  // backend-agnostic (wasm has no synchronous disk IO; a native mmap/spill
+  // pass can layer under the same seam later). Chunk geometry is
+  // deterministic from (gridCount, level, floatsPerElem), so the blob needs
+  // no layout header.
   /** Compress + free every channel's chunks for `level` (no-op if already
    * evicted). Safe for any level: readers self-heal through elem(). */
   void evictLevel(int level);
@@ -191,8 +191,8 @@ private:
   struct LevelData {
     int gridsPerChunk = 1;
     litestl::util::Vector<litestl::util::Vector<float>> chunks;
-    /* X5: when non-empty, the level's chunks live here lz4-compressed and
-     * `chunks` is empty; rawFloats is the concatenated float count. */
+    // X5: when non-empty, the level's chunks live here lz4-compressed and
+    // `chunks` is empty; rawFloats is the concatenated float count.
     litestl::util::Vector<uint8_t> evicted;
     size_t rawFloats = 0;
   };
@@ -200,7 +200,7 @@ private:
   struct Channel {
     litestl::util::string name;
     int floatsPerElem = 1;
-    litestl::util::Vector<LevelData> levels; /* [0] = level 1 */
+    litestl::util::Vector<LevelData> levels; // [0] = level 1
   };
 
   void allocLevel(Channel &ch, int level);
@@ -208,7 +208,7 @@ private:
 
   int gridCount_ = 0;
   int levelCount_ = 0;
-  litestl::util::Vector<GridLink> links_; /* gridCount*4, [g*4 + side] */
+  litestl::util::Vector<GridLink> links_; // gridCount*4, [g*4 + side]
   litestl::util::Vector<Channel> channels_;
 };
 

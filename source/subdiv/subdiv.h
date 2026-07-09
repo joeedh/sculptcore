@@ -25,10 +25,10 @@ namespace sculptcore::subdiv {
  * reproduces it bit-exactly; plain mul+add would be driver-contractable).
  * This is the canonical arithmetic the refiner and the S5 GPU pass share. */
 struct StencilTable {
-  litestl::util::Vector<int> offsets;   /* fineCount+1, offsets[0] == 0 */
-  litestl::util::Vector<int> indices;   /* coarse vert ids, ascending per row */
-  litestl::util::Vector<float> weights; /* index-parallel with `indices` */
-  int coarseCount = 0; /* coarse id space (v.capacity() of the source level) */
+  litestl::util::Vector<int> offsets;   // fineCount+1, offsets[0] == 0
+  litestl::util::Vector<int> indices;   // coarse vert ids, ascending per row
+  litestl::util::Vector<float> weights; // index-parallel with `indices`
+  int coarseCount = 0; // coarse id space (v.capacity() of the source level)
   int fineCount = 0;
 
   /** Evaluate every row: dst[i] = Σ src[indices[k]] * weights[k], in row order.
@@ -45,10 +45,10 @@ struct StencilTable {
  * gridFaces[g*S^2 + v*S + u], S = gridSide. */
 struct SubdivLevel {
   int vertCount = 0;
-  int gridSide = 1; /* quad cells per grid side: 2^(levelIndex) */
+  int gridSide = 1; // quad cells per grid side: 2^(levelIndex)
   StencilTable stencil;
 
-  /* Previous-level element id -> this level's vert id (ELEM_NONE for holes). */
+  // Previous-level element id -> this level's vert id (ELEM_NONE for holes).
   litestl::util::Vector<int> facePointOf;
   litestl::util::Vector<int> edgePointOf;
   litestl::util::Vector<int> vertPointOf;
@@ -56,7 +56,7 @@ struct SubdivLevel {
   litestl::util::Vector<int> gridVerts;
   litestl::util::Vector<int> gridFaces;
 
-  mesh::Mesh *mesh = nullptr; /* owned by the Refiner */
+  mesh::Mesh *mesh = nullptr; // owned by the Refiner
 };
 
 struct Refiner {
@@ -89,8 +89,8 @@ struct Refiner {
     return gridCount_;
   }
 
-  litestl::util::Vector<SubdivLevel> levels; /* [0] = first subdivision */
-  int gridCount_ = 0;                        /* == total cage corners */
+  litestl::util::Vector<SubdivLevel> levels; // [0] = first subdivision
+  int gridCount_ = 0;                        // == total cage corners
 };
 
 /** Gather a mesh's vert positions into a dense-by-id vector (size

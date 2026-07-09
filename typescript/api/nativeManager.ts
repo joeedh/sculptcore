@@ -126,6 +126,9 @@ export class NativeManager {
   Mesh_makeUVSphere(rings: number, segs: number, radius: number): NativeBound {
     return this.addon.meshMakeUVSphere(rings, segs, radius)
   }
+  Mesh_makeGrid(nx: number, ny: number, size: number): NativeBound {
+    return this.addon.meshMakeGrid(nx, ny, size)
+  }
   Mesh_buildSpatialTree(mesh: NativeBound, leafLimit: number, depthLimit: number, gpuTriTarget: number): NativeBound {
     return this.addon.meshBuildSpatialTree(mesh, leafLimit, depthLimit, gpuTriTarget)
   }
@@ -450,6 +453,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
     Mesh_createCube                  : (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
     Mesh_makeUVSphere                : (r: number, s: number, rad: number) => nm.Mesh_makeUVSphere(r, s, rad),
+    Mesh_makeGrid                    : (nx: number, ny: number, sz: number) => nm.Mesh_makeGrid(nx, ny, sz),
     Mesh_buildSpatialTree: (m: NativeBound, l: number, dp: number, t: number) => nm.Mesh_buildSpatialTree(m, l, dp, t),
     SpatialTree_free                 : (t: NativeBound) => nm.SpatialTree_free(t),
     Mesh_free                        : (m: NativeBound) => nm.Mesh_free(m),

@@ -112,6 +112,8 @@ class NapiRuntime {
   static napi_value MeshCreateCube(napi_env, napi_callback_info);
   // meshMakeUVSphere(rings, segs, radius) -> Mesh; UV-sphere primitive.
   static napi_value MeshMakeUVSphere(napi_env, napi_callback_info);
+  // meshMakeGrid(nx, ny, size) -> Mesh; flat +Z quad grid (add-plane primitive).
+  static napi_value MeshMakeGrid(napi_env, napi_callback_info);
   static napi_value MeshBuildSpatialTree(napi_env, napi_callback_info);
   static napi_value SpatialTreeFree(napi_env, napi_callback_info);
   static napi_value MeshFree(napi_env, napi_callback_info);

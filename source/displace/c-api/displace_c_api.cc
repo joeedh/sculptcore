@@ -5,11 +5,11 @@ using namespace sculptcore;
 
 extern "C" {
 
-/* Sculpt-layer settings mutators for the app's layer-stack UI (V5). Each one
- * keeps evaluated `v.co` current through the compositor (co += Δcontribution);
- * the caller owns undo (a ToolOp re-applies the previous value on undo — the
- * adjustment is its own inverse up to fp rounding). Reads live on the bound
- * Mesh surface (sculptLayerWeight/Enabled/Frozen). */
+// Sculpt-layer settings mutators for the app's layer-stack UI (V5). Each one
+// keeps evaluated `v.co` current through the compositor (co += Δcontribution);
+// the caller owns undo (a ToolOp re-applies the previous value on undo — the
+// adjustment is its own inverse up to fp rounding). Reads live on the bound
+// Mesh surface (sculptLayerWeight/Enabled/Frozen).
 
 void Mesh_layerSetWeight(mesh::Mesh *m, int li, float weight)
 {
@@ -39,7 +39,7 @@ void Mesh_layerRemove(mesh::Mesh *m, int li)
   }
 }
 
-/* V2 edit-target surface: make layer `li` the edit target (-1 clears it);
+/** V2 edit-target surface: make layer `li` the edit target (-1 clears it);
  * returns the resulting target index. Fold derives the target's delta column
  * from evaluated positions (idempotent; safe to call at any time). */
 int Mesh_setActiveEditLayer(mesh::Mesh *m, int li)

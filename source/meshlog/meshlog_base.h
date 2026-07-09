@@ -629,8 +629,11 @@ struct LogElem {
  */
 
 struct LogChunkTopo : public LogChunk {
-  util::Pool<LogElem, 8000> records_pool;
-  util::Pool<detail::ChunkElemRow, 8000> bodies_pool;
+  /* Slab sizes are a memory/allocation trade-off: chunks are per-dab, so an
+   * 8000-slot slab retained ~1.3MB per barely-used chunk (hundreds per dyntopo
+   * stroke) — far past the undo budget without the accounting seeing it. */
+  util::Pool<LogElem, 512> records_pool;
+  util::Pool<detail::ChunkElemRow, 256> bodies_pool;
 
   /** key: (uint8_t kind << 32) | uint32_t(mesh_index)  →  log_id */
 
@@ -975,14 +978,17 @@ struct LogChunkTopo : public LogChunk {
   // the TS binding side
   double memSize() override
   {
-    // roughly estimate map sizes
-    double kRecordOverhead = sizeof(LogElem *) + 48.0;
     double tot = double(sizeof(*this));
-    tot += double(records_pool.capacity() * (sizeof(LogElem) + kRecordOverhead));
+    // Slab pools retain full-slab capacity, not just live objects — count it,
+    // or a stroke's chunks blow past the undo budget invisibly.
+    tot += double(records_pool.capacity()) * double(sizeof(LogElem));
+    tot += double(bodies_pool.capacity()) * double(sizeof(detail::ChunkElemRow));
+    // Rough per-entry hash-map overhead.
     tot += double(idx_to_log_id.size() * 3 * 16) + double(by_log_id.size() * 3 * 16);
 
+    // Row heap payloads (the slot itself is already in the capacity term).
     for (auto &e : bodies_pool) {
-      tot += e.memSize();
+      tot += e.memSize() - double(sizeof(e));
     }
 
     return tot;

@@ -16,7 +16,7 @@ using namespace sculptcore;
 
 extern "C" {
 
-/* Tag every live face's `.detail.carrier` (DetailCarrier: 0 = GEOM, 1 = VDM).
+/** Tag every live face's `.detail.carrier` (DetailCarrier: 0 = GEOM, 1 = VDM).
  * The V3/V5 region partition replaces this whole-mesh fill; it exists so the
  * app harness can stand up a VDM-carried mesh. */
 void SpatialTree_fillDetailCarrier(spatial::SpatialTree *t, int carrier)
@@ -30,7 +30,7 @@ void SpatialTree_fillDetailCarrier(spatial::SpatialTree *t, int carrier)
   }
 }
 
-/* Recompute vertex normals + the F3 frames (smoothed normal + cross-field
+/** Recompute vertex normals + the F3 frames (smoothed normal + cross-field
  * tangent) over the whole mesh — the splatter's frame prerequisite. */
 void Mesh_updateFrames(mesh::Mesh *m)
 {
@@ -62,12 +62,12 @@ void VdmStore_free(vdm::VdmStore *store)
 }
 
 namespace {
-/* texelsClamped of this thread's most recent Mesh_vdmSplatDab (X1 prompt
- * signal — clamp-at-ceiling on locked bases suggests adding a level). */
+// texelsClamped of this thread's most recent Mesh_vdmSplatDab (X1 prompt
+// signal — clamp-at-ceiling on locked bases suggests adding a level).
 thread_local int g_lastSplatClamped = 0;
 } // namespace
 
-/* Splat one dab (V2's CPU reference path); returns texels touched. The caller
+/** Splat one dab (V2's CPU reference path); returns texels touched. The caller
  * owns the undo bracket (store delta + MeshLog step) — this is the raw splat. */
 int Mesh_vdmSplatDab(mesh::Mesh *m,
                      spatial::SpatialTree *tree,
@@ -99,13 +99,13 @@ int Mesh_vdmSplatDab(mesh::Mesh *m,
   return stats.texelsTouched;
 }
 
-/* texelsClamped of the most recent Mesh_vdmSplatDab on this thread. */
+/** texelsClamped of the most recent Mesh_vdmSplatDab on this thread. */
 int Vdm_lastSplatClamped()
 {
   return g_lastSplatClamped;
 }
 
-/* The interactive splat: brackets the dab in a store tile-delta and appends a
+/** The interactive splat: brackets the dab in a store tile-delta and appends a
  * VdmLogChunk to `log`'s OPEN step, so the stroke's single undo press reverts
  * the dab's texels (self-inverse delta; GPU-dirty marks ride applyDelta). */
 int Mesh_vdmSplatDabLogged(mesh::Mesh *m,
@@ -142,7 +142,7 @@ int Mesh_vdmSplatDabLogged(mesh::Mesh *m,
   return n;
 }
 
-/* VDM -> geometry extraction (X4): refresh frames, displace every vertex by
+/** VDM -> geometry extraction (X4): refresh frames, displace every vertex by
  * the store's field at its own param through the F3 frame (bake = render),
  * then optionally clear the store. Returns verts moved. The caller owns undo
  * (blob snapshots) and spatial/tree refresh. */
@@ -156,7 +156,7 @@ int Mesh_vdmApplyToVerts(mesh::Mesh *m, vdm::VdmStore *store, int clearStore)
   return stats.vertsMoved;
 }
 
-/* Serialize the store (v2 container) into a freshly-allocated buffer
+/** Serialize the store (v2 container) into a freshly-allocated buffer
  * (*out_size = byte count; free with freeMeshBuffer). Undo seam for the
  * app's store-delete op. */
 uint8_t *VdmStore_serialize(vdm::VdmStore *store, int *out_size)
@@ -176,7 +176,7 @@ uint8_t *VdmStore_serialize(vdm::VdmStore *store, int *out_size)
   return buf;
 }
 
-/* Restore an EXISTING store's content from a VdmStore_serialize blob (tiles
+/** Restore an EXISTING store's content from a VdmStore_serialize blob (tiles
  * cleared first; params re-read from the payload). Keeps the instance —
  * MeshLog VdmLogChunks hold non-owning pointers into it. Returns 1 on
  * success. */
@@ -191,7 +191,7 @@ int VdmStore_restoreBlob(vdm::VdmStore *store, const uint8_t *data, int size)
   return store->read(ss) ? 1 : 0;
 }
 
-/* Rebuild a store from a VdmStore_serialize blob (params — backend, tile
+/** Rebuild a store from a VdmStore_serialize blob (params — backend, tile
  * size, resolution, Ptex grid table + adjacency — all ride the v2 payload).
  * Returns nullptr on parse failure. */
 vdm::VdmStore *VdmStore_deserialize(const uint8_t *data, int size)

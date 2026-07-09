@@ -153,16 +153,16 @@ struct Multires {
    * capture is defined on channel 0 only (layer×VDM migration is post-V2). */
   int captureDetailToVdm(int level, vdm::VdmStore &vstore);
 
-  /* ---- Sculpt layers on the stack (sculptLayersV2 M3) ----
-   * One FLOAT3 store channel per layer, keyed by a settings-only row on the
-   * CAGE's sculptLayers sidecar with the same name (no vertex column — level
-   * meshes are derived state). Level positions composite
-   * disp_total = ch0 + Σ wᵢ·enabledᵢ·chᵢ in frame space before the
-   * base + frame·disp reconstruction; writeback lands in the edit target's
-   * channel (cage.activeEditLayer), else channel 0. Every mutator writes the
-   * active level back FIRST, so pending edits fold under the old settings,
-   * then invalidates + rematerializes (slot pointers change — callers
-   * re-fetch, like downRefit). Row order always equals channel order 1..N. */
+  // ---- Sculpt layers on the stack (sculptLayersV2 M3) ----
+  // One FLOAT3 store channel per layer, keyed by a settings-only row on the
+  // CAGE's sculptLayers sidecar with the same name (no vertex column — level
+  // meshes are derived state). Level positions composite
+  // disp_total = ch0 + Σ wᵢ·enabledᵢ·chᵢ in frame space before the
+  // base + frame·disp reconstruction; writeback lands in the edit target's
+  // channel (cage.activeEditLayer), else channel 0. Every mutator writes the
+  // active level back FIRST, so pending edits fold under the old settings,
+  // then invalidates + rematerializes (slot pointers change — callers
+  // re-fetch, like downRefit). Row order always equals channel order 1..N.
 
   /** Add a layer: settings-only cage row + zero FLOAT3 channel. Returns the
    * settings index (a fresh zero layer at weight 1 changes nothing). */
@@ -179,8 +179,8 @@ struct Multires {
   int setEditTarget(int li);
   int editTarget() const;
 
-  /* Marshal-safe reads for the app panel (mirror the Mesh sculptLayer*
-   * surface; the rows live on the cage). */
+  // Marshal-safe reads for the app panel (mirror the Mesh sculptLayer*
+  // surface; the rows live on the cage).
   int layerCount() const;
   float layerWeight(int li) const;
   int layerEnabled(int li) const;
@@ -195,11 +195,11 @@ struct Multires {
    * binding marshals Vector<float> params as bound vector objects. */
   void layerTableRestore(litestl::util::Vector<float> &table);
 
-  /* X3 export seam: the level's CSR stencil (maps level-1 → level) as
-   * marshal-safe out-params. The TS-device SpMV uploads these VERBATIM —
-   * ascending-row order + per-component fma is the bit-consistency contract
-   * (wgpu_stencil.cc / StencilTable::eval). Meta = {coarseCount, fineCount,
-   * nnz}; empty outputs for an out-of-range level. */
+  /** X3 export seam: the level's CSR stencil (maps level-1 → level) as
+   * marshal-safe out-params (this method + the three below). The TS-device
+   * SpMV uploads these VERBATIM — ascending-row order + per-component fma is
+   * the bit-consistency contract (wgpu_stencil.cc / StencilTable::eval).
+   * Meta = {coarseCount, fineCount, nnz}; empty for an out-of-range level. */
   void stencilMetaOut(int level, litestl::util::Vector<int> &out);
   void stencilOffsetsOut(int level, litestl::util::Vector<int> &out);
   void stencilIndicesOut(int level, litestl::util::Vector<int> &out);
@@ -263,9 +263,9 @@ private:
   };
 
   mesh::Mesh *cage_ = nullptr;
-  int activeLevel_ = 0; /* 0 = the cage itself (no materialized level) */
+  int activeLevel_ = 0; // 0 = the cage itself (no materialized level)
   uint64_t useCounter_ = 0;
-  litestl::util::Vector<LevelPos> posCache_; /* [0] = level 1 */
+  litestl::util::Vector<LevelPos> posCache_; // [0] = level 1
   litestl::util::Vector<MultiresSlot> slots_;
 };
 

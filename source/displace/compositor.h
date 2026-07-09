@@ -29,7 +29,7 @@ namespace sculptcore::displace {
 using litestl::math::float3;
 namespace util = litestl::util;
 
-/* One resolved sculpt layer: the settings row joined to its FLOAT3 column. */
+/** One resolved sculpt layer: the settings row joined to its FLOAT3 column. */
 struct LayerView {
   mesh::AttrData<float3> *data = nullptr;
   float weight = 1.0f;
@@ -38,11 +38,11 @@ struct LayerView {
   int settingsIdx = -1;
 };
 
-/* Resolve every sculpt layer of @p m in stack order. Layers whose settings
+/** Resolve every sculpt layer of @p m in stack order. Layers whose settings
  * row has no matching VERTEX FLOAT3 column are skipped. */
 util::Vector<LayerView> resolveStack(mesh::Mesh &m);
 
-/* Resolve one layer by settings index; view.data == nullptr when invalid. */
+/** Resolve one layer by settings index; view.data == nullptr when invalid. */
 LayerView resolveLayer(mesh::Mesh &m, int settingsIdx);
 
 /** Region-scoped edit bracket for code that writes layer deltas directly (a
@@ -52,7 +52,7 @@ LayerView resolveLayer(mesh::Mesh &m, int settingsIdx);
  * reverted at end() (the settings row excludes it from editing); a disabled
  * layer's writes are kept but contribute nothing until it is re-enabled. */
 struct LayerEditScope {
-  /* Snapshot layer `layerName` over @p verts. Returns false (inert scope)
+  /** Snapshot layer `layerName` over @p verts. Returns false (inert scope)
    * when the name has no settings row or no column. */
   bool begin(mesh::Mesh &m, const util::string &layerName, std::span<const int> verts);
   bool begin(mesh::Mesh &m, int settingsIdx, std::span<const int> verts);
@@ -77,20 +77,20 @@ private:
  * undo/redo is self-consistent because folds are semantically no-ops. */
 int setActiveEditLayer(mesh::Mesh &m, int settingsIdx);
 
-/* Fold the edit target's delta from evaluated positions (d = co − rest) over
+/** Fold the edit target's delta from evaluated positions (d = co − rest) over
  * @p verts (empty = whole mesh). Idempotent; no-op without a target. */
 void foldActiveLayer(mesh::Mesh &m, std::span<const int> verts = {});
 
-/* Settings mutations that keep evaluated positions current (co += Δ over all
+/** Settings mutations that keep evaluated positions current (co += Δ over all
  * live verts). Mutating the edit target itself first clears the target (fold +
  * weight unpin is the caller's concern); mutating another layer mirrors its co
  * adjustment into the target's rest snapshot so derived deltas stay exact.
  * These do NOT bracket meshlog — an undoable caller wraps them in its own
- * step (app wiring lands in V5). */
+ * step (the V5 app ToolOps do). */
 void setLayerWeight(mesh::Mesh &m, int settingsIdx, float weight);
 void setLayerEnabled(mesh::Mesh &m, int settingsIdx, bool enabled);
 void setLayerFrozen(mesh::Mesh &m, int settingsIdx, bool frozen);
-/* Remove the layer: subtract its contribution, drop the settings row and the
+/** Remove the layer: subtract its contribution, drop the settings row and the
  * attribute column. */
 void removeLayer(mesh::Mesh &m, int settingsIdx);
 

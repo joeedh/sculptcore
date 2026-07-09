@@ -15,7 +15,7 @@ static AttrData<float3> *layerColumn(mesh::Mesh &m, const util::string &name)
   return static_cast<AttrData<float3> *>(ref.data);
 }
 
-/* The edit target's rest snapshot, or nullptr when no layer is targeted. */
+/** The edit target's rest snapshot, or nullptr when no layer is targeted. */
 static AttrData<float3> *restColumn(mesh::Mesh &m)
 {
   return layerColumn(m, util::string(mesh::SCULPT_LAYER_REST_ATTR));
@@ -114,7 +114,7 @@ void LayerEditScope::end()
   m_ = nullptr;
 }
 
-/* co += scale · dᵥ over every live vert (the enabled-contribution adjuster
+/** co += scale · dᵥ over every live vert (the enabled-contribution adjuster
  * shared by the settings mutators). The adjustment is mirrored into the edit
  * target's rest snapshot when one exists — mutators never run this on the
  * target itself (they clear the target first), so any co motion here belongs

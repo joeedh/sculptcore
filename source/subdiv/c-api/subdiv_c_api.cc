@@ -12,7 +12,7 @@ using namespace sculptcore;
 
 extern "C" {
 
-/* Build a multires stack over `cage` (NOT owned; the caller keeps it alive for
+/** Build a multires stack over `cage` (NOT owned; the caller keeps it alive for
  * the stack's lifetime) with `levels` uniform CC refinements. Tree params
  * (0 = default) apply to every level materialization. No level is active yet —
  * call Multires_setActiveLevel next. */
@@ -37,7 +37,7 @@ void Multires_free(subdiv::Multires *mr)
   }
 }
 
-/* Write back the outgoing level, materialize + activate `level` (clamped to
+/** Write back the outgoing level, materialize + activate `level` (clamped to
  * [1, maxLevel]). Returns the active level. Fetch the slot's mesh/tree with
  * Multires_activeMesh/Tree — pointers change on every switch. */
 int Multires_setActiveLevel(subdiv::Multires *mr, int level)
@@ -50,7 +50,7 @@ int Multires_setActiveLevel(subdiv::Multires *mr, int level)
   return mr->activeLevel();
 }
 
-/* The active level's materialized mesh / spatial tree — NON-OWNING views (the
+/** The active level's materialized mesh / spatial tree — NON-OWNING views (the
  * stack owns both; never free them). Null when no level is active. */
 mesh::Mesh *Multires_activeMesh(subdiv::Multires *mr)
 {
@@ -80,7 +80,7 @@ int Multires_downRefit(subdiv::Multires *mr, int level)
   return mr ? mr->downRefit(level) : 0;
 }
 
-/* Geometry -> VDM capture (X4 stage 2): move `level`'s grids-store disp into
+/** Geometry -> VDM capture (X4 stage 2): move `level`'s grids-store disp into
  * the Ptex VDM store's texels, zero the disp, drop the surface onto the
  * smooth base. Returns texels written; caller owns undo snapshots + the
  * spatial refresh of the attached level mesh. */
@@ -93,7 +93,7 @@ int Multires_captureToVdm(subdiv::Multires *mr, void *vstore, int level)
                                 *static_cast<sculptcore::vdm::VdmStore *>(vstore));
 }
 
-/* Serialize the grids store into a freshly-allocated buffer (*out_size = byte
+/** Serialize the grids store into a freshly-allocated buffer (*out_size = byte
  * count; free with freeMeshBuffer). Returns nullptr on failure. Undo seam for
  * ops that rewrite the store wholesale (down-refit, stack delete). */
 uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
@@ -114,7 +114,7 @@ uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
   return buf;
 }
 
-/* Replace the store from a Multires_serializeStore blob (same cage topology),
+/** Replace the store from a Multires_serializeStore blob (same cage topology),
  * then invalidate every derived level. Deactivates the current level — the
  * caller must Multires_setActiveLevel + re-fetch mesh/tree afterwards.
  * Returns 1 on success. */
