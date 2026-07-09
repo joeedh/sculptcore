@@ -1190,7 +1190,7 @@ void SpatialTree::buildAll()
       ensure_node_tris(node);
     }
   }
-  
+
   regen_node_bounds(root, true);
 
   // balance
@@ -1321,7 +1321,7 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
   struct Domain {
     mesh::ElemData &ed;
     util::Vector<int> &map;
-    util::Vector<int> walk;  // dirty slots in leaf-grouped walk order (deduped)
+    util::Vector<int> walk; // dirty slots in leaf-grouped walk order (deduped)
     util::BoolVector<> seen;
   };
   Domain dv{m->v, vmap, {}, {}};
@@ -1418,7 +1418,7 @@ void SpatialTree::computeLocalityMapsPartial(util::span<SpatialNode *> dirtyLeav
       claim(df, face);
       mesh::FaceProxy fp(m, face);
       for (auto list : fp.lists()) {
-        claim(dl, list.i);  // list/corners of a dirty face are interior
+        claim(dl, list.i); // list/corners of a dirty face are interior
         for (auto cnr : list) {
           claim(dc, cnr.i);
           int e = m->c.e[cnr.i];
@@ -1456,7 +1456,7 @@ void SpatialTree::applyReorder(util::span<int> vmap,
                                util::span<int> lmap,
                                util::span<int> fmap)
 {
-  mesh::Mesh::ReorderMoved full;  // inactive → full-path reorder
+  mesh::Mesh::ReorderMoved full; // inactive → full-path reorder
   m->reorder_verts(vmap, full);
   m->reorder_edges(emap, full);
   m->reorder_corners(cmap, full);
@@ -1594,12 +1594,20 @@ void SpatialTree::applyReorderIncremental(util::span<int> vmap,
     std::fprintf(stderr,
                  "[reorder_prof] reorder_X v=%.2f e=%.2f c=%.2f l=%.2f f=%.2f | "
                  "node_remap=%.2f | total=%.2f ms\n",
-                 ms(t0, t1), ms(t1, t2), ms(t2, t3), ms(t3, t4), ms(t4, t5),
-                 ms(t5, t6), ms(t0, t6));
+                 ms(t0, t1),
+                 ms(t1, t2),
+                 ms(t2, t3),
+                 ms(t3, t4),
+                 ms(t4, t5),
+                 ms(t5, t6),
+                 ms(t0, t6));
     std::fprintf(stderr,
                  "[reorder_prof]   split: attr_permute=%.2f free_rebuild=%.2f "
                  "ref_scan=%.2f (of reorder_X %.2f)\n",
-                 attrMs, freeMs, refScanMs, reorderXTotal);
+                 attrMs,
+                 freeMs,
+                 refScanMs,
+                 reorderXTotal);
     std::fflush(stderr);
   }
 
@@ -1645,8 +1653,10 @@ SpatialTree::FragStats SpatialTree::fragmentationStats()
     s.facePagesIdeal += (faces.size() + ATTR_PAGESIZE - 1) >> shift;
   }
 
-  s.vertRatio = s.vertPagesIdeal > 0 ? double(s.vertPagesActual) / double(s.vertPagesIdeal) : 1.0;
-  s.faceRatio = s.facePagesIdeal > 0 ? double(s.facePagesActual) / double(s.facePagesIdeal) : 1.0;
+  s.vertRatio =
+      s.vertPagesIdeal > 0 ? double(s.vertPagesActual) / double(s.vertPagesIdeal) : 1.0;
+  s.faceRatio =
+      s.facePagesIdeal > 0 ? double(s.facePagesActual) / double(s.facePagesIdeal) : 1.0;
   return s;
 }
 
@@ -1935,13 +1945,14 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
   return batch;
 }
 
-sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GPUManager &mgr,
-                                                             int activeVert,
-                                                             int activeEdge,
-                                                             int activeFace,
-                                                             int hoverVert,
-                                                             int hoverEdge,
-                                                             int hoverFace)
+sculptcore::gpu::DrawBatch *
+SpatialTree::buildSelectionBatch(sculptcore::gpu::GPUManager &mgr,
+                                 int activeVert,
+                                 int activeEdge,
+                                 int activeFace,
+                                 int hoverVert,
+                                 int hoverEdge,
+                                 int hoverFace)
 {
   using namespace sculptcore::gpu;
 
@@ -2011,8 +2022,8 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
   const int totalVerts = fillTriVerts + lineVerts;
   Buffer *posBuf = mgr.createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
-  Buffer *colorBuf = mgr.createBuffer(
-      litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+  Buffer *colorBuf =
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
   float3 *pos = posBuf->get_data<float3>();
   float4 *color = colorBuf->get_data<float4>();
 
@@ -2032,9 +2043,9 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
     if (sz < 3) {
       continue;
     }
-    float4 clr = fi == activeFace  ? float4(1.0f, 1.0f, 1.0f, 0.45f)
-                 : !fsel->get(fi)  ? float4(0.4f, 0.8f, 1.0f, 0.3f)
-                                   : float4(1.0f, 0.5f, 0.1f, 0.25f);
+    float4 clr = fi == activeFace ? float4(1.0f, 1.0f, 1.0f, 0.45f)
+                 : !fsel->get(fi) ? float4(0.4f, 0.8f, 1.0f, 0.3f)
+                                  : float4(1.0f, 0.5f, 0.1f, 0.25f);
 
     litestl::util::Vector<int, 32> vs;
     int c0 = m->l.c[li], cc = c0;
@@ -2109,7 +2120,8 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSelectionBatch(sculptcore::gpu::GP
   return batch;
 }
 
-sculptcore::gpu::DrawBatch *SpatialTree::buildWireframeBatch(sculptcore::gpu::GPUManager &mgr)
+sculptcore::gpu::DrawBatch *
+SpatialTree::buildWireframeBatch(sculptcore::gpu::GPUManager &mgr)
 {
   using namespace sculptcore::gpu;
 
@@ -2129,8 +2141,8 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildWireframeBatch(sculptcore::gpu::GP
   const int totalVerts = ecount * 2;
   Buffer *posBuf = mgr.createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
-  Buffer *colorBuf = mgr.createBuffer(
-      litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+  Buffer *colorBuf =
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
   float3 *pos = posBuf->get_data<float3>();
   float4 *color = colorBuf->get_data<float4>();
 
@@ -2150,14 +2162,19 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildWireframeBatch(sculptcore::gpu::GP
   DrawBatch *batch = mgr.createBatch();
   batch->buffers.append(posBuf);
   batch->buffers.append(colorBuf);
-  DrawCommand *cmd = mgr.createCommand(
-      batch, GPUCmdType::DRAW_LINES, &spatialShaders.basicLineShader, 0, totalVerts, ecount);
+  DrawCommand *cmd = mgr.createCommand(batch,
+                                       GPUCmdType::DRAW_LINES,
+                                       &spatialShaders.basicLineShader,
+                                       0,
+                                       totalVerts,
+                                       ecount);
   cmd->attrs.append(posBuf);
   cmd->attrs.append(colorBuf);
   return batch;
 }
 
-sculptcore::gpu::DrawBatch *SpatialTree::buildPointsBatch(sculptcore::gpu::GPUManager &mgr)
+sculptcore::gpu::DrawBatch *
+SpatialTree::buildPointsBatch(sculptcore::gpu::GPUManager &mgr)
 {
   using namespace sculptcore::gpu;
   using litestl::math::float2;
@@ -2176,16 +2193,20 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildPointsBatch(sculptcore::gpu::GPUMa
   }
 
   // Two triangles per point; the per-vertex corner expands the billboard quad.
-  const float2 corners[6] = {float2(-1.0f, -1.0f), float2(1.0f, -1.0f), float2(1.0f, 1.0f),
-                             float2(-1.0f, -1.0f), float2(1.0f, 1.0f),  float2(-1.0f, 1.0f)};
+  const float2 corners[6] = {float2(-1.0f, -1.0f),
+                             float2(1.0f, -1.0f),
+                             float2(1.0f, 1.0f),
+                             float2(-1.0f, -1.0f),
+                             float2(1.0f, 1.0f),
+                             float2(-1.0f, 1.0f)};
 
   const int totalVerts = vcount * 6;
   Buffer *posBuf = mgr.createBuffer(
       litestl::util::string("position"), GPUType::FLOAT32, 3, totalVerts);
-  Buffer *cornerBuf = mgr.createBuffer(
-      litestl::util::string("corner"), GPUType::FLOAT32, 2, totalVerts);
-  Buffer *colorBuf = mgr.createBuffer(
-      litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
+  Buffer *cornerBuf =
+      mgr.createBuffer(litestl::util::string("corner"), GPUType::FLOAT32, 2, totalVerts);
+  Buffer *colorBuf =
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, totalVerts);
   float3 *pos = posBuf->get_data<float3>();
   float2 *corner = cornerBuf->get_data<float2>();
   float4 *color = colorBuf->get_data<float4>();
@@ -2208,8 +2229,12 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildPointsBatch(sculptcore::gpu::GPUMa
   batch->buffers.append(posBuf);
   batch->buffers.append(cornerBuf);
   batch->buffers.append(colorBuf);
-  DrawCommand *cmd = mgr.createCommand(
-      batch, GPUCmdType::DRAW_TRIS, &spatialShaders.basicPointShader, 0, totalVerts, totalVerts / 3);
+  DrawCommand *cmd = mgr.createCommand(batch,
+                                       GPUCmdType::DRAW_TRIS,
+                                       &spatialShaders.basicPointShader,
+                                       0,
+                                       totalVerts,
+                                       totalVerts / 3);
   cmd->attrs.append(posBuf);
   cmd->attrs.append(cornerBuf);
   cmd->attrs.append(colorBuf);
@@ -2347,8 +2372,104 @@ void SpatialTree::update_node_normals(SpatialNode *node)
   }
 }
 
+/* CLAUDENOTE: temporary profiling scaffolding for the gpu-batch-build
+ * parallelization investigation. Accumulates wall-clock time inside
+ * SpatialTree::update() for the four phases of interest: regen_gpu_node
+ * (per-call, serial), the update_gpu_node_slice parallel pass (phase wall),
+ * assign_gpu_nodes (per-call), and the ensure_node_tris parallel pass (phase
+ * wall). Summary prints at process exit. Rip this out when the profile pass
+ * is done. */
+namespace prof {
+
+struct Stat {
+  long count = 0;
+  double total_ms = 0.0, min_ms = 0.0, max_ms = 0.0;
+
+  void add(double ms)
+  {
+    if (count == 0 || ms < min_ms) {
+      min_ms = ms;
+    }
+    if (count == 0 || ms > max_ms) {
+      max_ms = ms;
+    }
+    total_ms += ms;
+    count++;
+  }
+};
+
+struct SpatialUpdateProf {
+  Stat regenGpuNode;   // per regen_gpu_node call (serial)
+  Stat slicePhase;     // update_gpu_node_slice parallel pass, wall
+  Stat assignGpuNodes; // per assign_gpu_nodes call (serial)
+  Stat trisPhase;      // ensure_node_tris parallel pass, wall
+  Stat drawBatchLoop;  // serial draw-batch rebuild loop, wall
+  Stat deferredSplit;  // applyDeferredNodeSplit, wall
+  Stat deferredMerge;  // applyDeferredMerge (cadenced), wall
+  Stat boundsPhase;    // regenDirtyBounds, wall
+  Stat normalsPhase;   // update_node_normals parallel pass, wall
+  Stat updateTotal;    // whole SpatialTree::update(), wall
+  long sliceItems = 0; // total slices processed by the slice phase
+  long triItems = 0;   // total leaves processed by the tris phase
+
+  ~SpatialUpdateProf() { print(); }
+
+  void print()
+  {
+    if (updateTotal.count == 0) {
+      return;
+    }
+    std::printf("\n[spatial-prof] === SpatialTree::update() breakdown (%ld updates) ===\n",
+                updateTotal.count);
+    printStat("update() total     ", updateTotal);
+    printStat("deferred split     ", deferredSplit);
+    printStat("deferred merge     ", deferredMerge);
+    printStat("ensure_node_tris   ", trisPhase);
+    std::printf("[spatial-prof]     (%ld leaves total across phase runs)\n", triItems);
+    printStat("bounds regen       ", boundsPhase);
+    printStat("normals phase      ", normalsPhase);
+    printStat("assign_gpu_nodes   ", assignGpuNodes);
+    printStat("regen_gpu_node     ", regenGpuNode);
+    printStat("slice update phase ", slicePhase);
+    std::printf("[spatial-prof]     (%ld slices total across phase runs)\n", sliceItems);
+    printStat("draw-batch loop    ", drawBatchLoop);
+    std::fflush(stdout);
+  }
+
+  static void printStat(const char *name, const Stat &s)
+  {
+    if (s.count == 0) {
+      std::printf("[spatial-prof]   %s (never ran)\n", name);
+      return;
+    }
+    std::printf("[spatial-prof]   %s n=%-6ld total %9.2f  avg %8.3f  min %8.3f  max %8.3f  ms\n",
+                name, s.count, s.total_ms, s.total_ms / double(s.count), s.min_ms,
+                s.max_ms);
+  }
+};
+
+static SpatialUpdateProf spatialUpdateProf;
+
+struct Scope {
+  Stat &stat;
+  std::chrono::steady_clock::time_point start;
+
+  Scope(Stat &s) : stat(s), start(std::chrono::steady_clock::now())
+  {
+  }
+  ~Scope()
+  {
+    stat.add(std::chrono::duration<double, std::milli>(
+                 std::chrono::steady_clock::now() - start)
+                 .count());
+  }
+};
+
+} // namespace prof
+
 bool SpatialTree::update(gpu::GPUManager *gpu)
 {
+  prof::Scope profTotal_(prof::spatialUpdateProf.updateTotal);
   bool result = false;
   bool bounds = false;
   bool drawBatchUpdated = false;
@@ -2357,14 +2478,20 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
    * inline split, so leaves that grew past leaf_limit during the dab are split
    * here, once each. Runs before the tris phase so the fresh child leaves (which
    * carry Spatial_RegenTris) are picked up by the collection loop below. */
-  applyDeferredNodeSplit();
+  {
+    // CLAUDENOTE: temp profiling — deferred split, wall.
+    prof::Scope profSplit_(prof::spatialUpdateProf.deferredSplit);
+    applyDeferredNodeSplit();
+  }
 
-  /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th update),
-   * NOT per dab. Folds under-full sibling leaves left by collapse-heavy strokes
-   * back into their parent; the fresh parent leaf carries Spatial_RegenTris and
-   * is picked up below, same as a rebalance split. */
+  /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th
+   * update), NOT per dab. Folds under-full sibling leaves left by
+   * collapse-heavy strokes back into their parent; the fresh parent leaf
+   * carries Spatial_RegenTris and is picked up below, same as a rebalance
+   * split. */
   if (++updatesSinceMerge_ >= mergeCadence_) {
-
+    // CLAUDENOTE: temp profiling — deferred merge, wall.
+    prof::Scope profMerge_(prof::spatialUpdateProf.deferredMerge);
     applyDeferredMerge();
     updatesSinceMerge_ = 0;
   }
@@ -2395,13 +2522,34 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     m->thawTopo();
   }
 
-  for (SpatialNode *node : updateTriNodes) {
-    ensure_node_tris(node);
+  {
+    // CLAUDENOTE: temp profiling — ensure_node_tris phase wall-clock.
+    prof::Scope profTris_(prof::spatialUpdateProf.trisPhase);
+    prof::spatialUpdateProf.triItems += updateTriNodes.size();
+#ifdef NO_PARALLEL_FOR
+    for (SpatialNode *node : updateTriNodes) {
+      ensure_node_tris(node);
+    }
+#else
+    litestl::task::parallel_for(
+        util::IndexRange(updateTriNodes.size()),
+        [&](IndexRange range) {
+          for (int i : range) {
+            SpatialNode *node = updateTriNodes[i];
+            ensure_node_tris(node);
+          }
+        },
+        4);
+#endif
   }
 
-  if (regenDirtyBounds()) {
-    bounds = true;
-    result = true;
+  {
+    // CLAUDENOTE: temp profiling — dirty-bounds regen, wall.
+    prof::Scope profBounds_(prof::spatialUpdateProf.boundsPhase);
+    if (regenDirtyBounds()) {
+      bounds = true;
+      result = true;
+    }
   }
 
   Vector<SpatialNode *, 256> updateNormalsNodes;
@@ -2417,26 +2565,32 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     }
   }
 
+  {
+    // CLAUDENOTE: temp profiling — update_node_normals phase wall-clock.
+    prof::Scope profNormals_(prof::spatialUpdateProf.normalsPhase);
 #ifdef NO_PARALLEL_FOR
-  for (SpatialNode *node : updateNormalsNodes) {
-    update_node_normals(node);
-  }
+    for (SpatialNode *node : updateNormalsNodes) {
+      update_node_normals(node);
+    }
 #else
-  litestl::task::parallel_for(
-      util::IndexRange(updateNormalsNodes.size()),
-      [&](IndexRange range) {
-        for (int i : range) {
-          SpatialNode *node = updateNormalsNodes[i];
-          update_node_normals(node);
-        }
-      },
-      4);
+    litestl::task::parallel_for(
+        util::IndexRange(updateNormalsNodes.size()),
+        [&](IndexRange range) {
+          for (int i : range) {
+            SpatialNode *node = updateNormalsNodes[i];
+            update_node_normals(node);
+          }
+        },
+        4);
 #endif
+  }
 
   /* Phase: GPU partition assignment. Cheap walk (O(nodes)). If topology
    * didn't change we can skip recomputing counts, but the assignment
    * walk itself is still needed first time around. */
   if (topology_changed || !done_gpu_assignment) {
+    // CLAUDENOTE: temp profiling — counts recompute_subtree_tri_counts too.
+    prof::Scope profAssign_(prof::spatialUpdateProf.assignGpuNodes);
     recompute_subtree_tri_counts();
     assign_gpu_nodes();
   }
@@ -2483,6 +2637,7 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
                      owner->gpu_data->slices.size() == 0 || (want & Spatial_RegenGPU);
 
     if (need_full) {
+      prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
       regen_gpu_node(owner, gpu);
       drawBatchUpdated = true;
     } else {
@@ -2497,22 +2652,28 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
   Vector<uint8_t, 256> sliceOk;
   sliceOk.resize(sliceWork.size());
 
+  {
+    // CLAUDENOTE: temp profiling — update_gpu_node_slice phase wall-clock.
+    prof::Scope profSlice_(prof::spatialUpdateProf.slicePhase);
+    prof::spatialUpdateProf.sliceItems += sliceWork.size();
 #ifdef NO_PARALLEL_FOR
-  for (int i : util::IndexRange(sliceWork.size())) {
-    sliceOk[i] =
-        update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
-  }
+    for (int i : util::IndexRange(sliceWork.size())) {
+      sliceOk[i] =
+          update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
+    }
 #else
-  litestl::task::parallel_for(
-      util::IndexRange(sliceWork.size()),
-      [&](IndexRange range) {
-        for (int i : range) {
-          sliceOk[i] =
-              update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1 : 0;
-        }
-      },
-      4);
+    litestl::task::parallel_for(
+        util::IndexRange(sliceWork.size()),
+        [&](IndexRange range) {
+          for (int i : range) {
+            sliceOk[i] =
+                update_gpu_node_slice(sliceWork[i].owner, sliceWork[i].leaf, gpu) ? 1
+                                                                                  : 0;
+          }
+        },
+        4);
 #endif
+  }
 
   /* Serial: flag each successfully-updated owner's buffers for re-upload, and
    * full-regen (once per owner) any owner whose in-place update failed. Doing
@@ -2549,7 +2710,10 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     if (already) {
       continue;
     }
-    regen_gpu_node(owner, gpu);
+    {
+      prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
+      regen_gpu_node(owner, gpu);
+    }
     regennedOwners.append(owner);
     drawBatchUpdated = true;
   }
@@ -2562,12 +2726,15 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       continue;
     }
     if (!node->gpu_data || !node->gpu_data->pos) {
+      prof::Scope profRegen_(prof::spatialUpdateProf.regenGpuNode);
       regen_gpu_node(node, gpu);
       drawBatchUpdated = true;
     }
   }
 
   if (drawBatchUpdated || !drawBatch) {
+    // CLAUDENOTE: temp profiling — serial draw-batch rebuild loop.
+    prof::Scope profBatch_(prof::spatialUpdateProf.drawBatchLoop);
     if (!drawBatch) {
       drawBatch = gpu->createBatch();
     } else {
