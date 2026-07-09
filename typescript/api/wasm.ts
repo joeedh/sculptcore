@@ -203,50 +203,50 @@ export type SculptHandle = object
 /** GpuBrush_info selectors — hand-mirror of GpuBrushInfoWhich in
  * source/brush/gpu_brush_session.h; keep the two in sync. */
 export const GpuBrushInfo = {
-  ELEM_COUNT: 0,
-  NEEDS_NEIGHBORS: 1,
-  WRITES_MASK: 2,
-  WRITES_COLOR: 3,
-  ACCUMULABLE: 4,
-  READS_VCLASS: 5,
-  FACE_MODE: 6,
-  IS_GLOBAL: 7,
+  ELEM_COUNT         : 0,
+  NEEDS_NEIGHBORS    : 1,
+  WRITES_MASK        : 2,
+  WRITES_COLOR       : 3,
+  ACCUMULABLE        : 4,
+  READS_VCLASS       : 5,
+  FACE_MODE          : 6,
+  IS_GLOBAL          : 7,
   /** builds the normal topology on first query */
-  TRI_COUNT: 8,
-  UVERTS_CHANGED: 9,
-  NODE_COUNT: 10,
-  UNIQUE_COUNT: 11,
+  TRI_COUNT          : 8,
+  UVERTS_CHANGED     : 9,
+  NODE_COUNT         : 10,
+  UNIQUE_COUNT       : 11,
   STROKE_SAMPLE_COUNT: 12,
-  DAB_GEN: 13,
+  DAB_GEN            : 13,
   /** scatter-table cache key (SpatialTree::gpuLayoutGen); builds scatter meta */
-  GPU_LAYOUT_GEN: 14,
-  SCATTER_NODE_COUNT: 15,
+  GPU_LAYOUT_GEN     : 14,
+  SCATTER_NODE_COUNT : 15,
 } as const
 
 /** GpuBrush_data selectors — hand-mirror of GpuBrushDataWhich in
  * source/brush/gpu_brush_session.h; keep the two in sync. The blobs are
  * already in GPU layout per compute_layout.h — upload verbatim. */
 export const GpuBrushData = {
-  CO: 0,
-  NO: 1,
-  MASK: 2,
-  NBR_META: 3,
-  NBR_VERTS: 4,
-  TRI_VERTS: 5,
-  VERT_TRI_META: 6,
-  VERT_TRI_LIST: 7,
-  UVERTS: 8,
-  NODE_META: 9,
+  CO            : 0,
+  NO            : 1,
+  MASK          : 2,
+  NBR_META      : 3,
+  NBR_VERTS     : 4,
+  TRI_VERTS     : 5,
+  VERT_TRI_META : 6,
+  VERT_TRI_LIST : 7,
+  UVERTS        : 8,
+  NODE_META     : 9,
   BRUSH_UNIFORMS: 10,
-  CTX_UNIFORMS: 11,
-  FALLOFF_LUT: 12,
-  STROKE_PATH: 13,
+  CTX_UNIFORMS  : 11,
+  FALLOFF_LUT   : 12,
+  STROKE_PATH   : 13,
   /** live mesh positions, re-packed per query (shadow-verify) */
-  LIVE_CO: 14,
+  LIVE_CO       : 14,
   /** u32×6 per GPU node: pos/nor buffer keys (lo,hi) + corner offset,count */
-  SCATTER_META: 15,
+  SCATTER_META  : 15,
   /** u32 per render corner: global vert id, in fill_leaf order (lazy build) */
-  SCATTER_MAP: 16,
+  SCATTER_MAP   : 16,
   /** u32 meta indices of owners hit by the last marshalDab */
   TOUCHED_OWNERS: 17,
 } as const
@@ -470,10 +470,8 @@ let wasm: IWasmInterface | undefined
 // A desktop shell (NW.js / Electron) exposes `process`, but its renderer is a
 // browser context with fetch/DOM and must use the browser wasm build, not the
 // Node one. NW.js sets process.versions.nw, Electron sets process.versions.electron.
-const insideDesktopShell =
-  typeof process !== 'undefined' && !!(process?.versions?.nw || process?.versions?.electron)
-const insideNode =
-  typeof process !== 'undefined' && typeof process?.platform !== 'undefined' && !insideDesktopShell
+const insideDesktopShell = typeof process !== 'undefined' && !!(process?.versions?.nw || process?.versions?.electron)
+const insideNode = typeof process !== 'undefined' && typeof process?.platform !== 'undefined' && !insideDesktopShell
 
 class cachering<T> extends Array<T> {
   cur = 0
@@ -582,7 +580,12 @@ export async function loadWasm(): Promise<IWasmInterface> {
     },
     Mesh_buildSpatialTree(mesh: Mesh, leafLimit: int, depthLimit: int, gpuTriTarget: int) {
       const meshPtr = (mesh as unknown as {ptr: number}).ptr
-      const ptr = _wasm.Mesh_buildSpatialTree(meshPtr as unknown as Mesh, leafLimit, depthLimit, gpuTriTarget) as unknown as number
+      const ptr = _wasm.Mesh_buildSpatialTree(
+        meshPtr as unknown as Mesh,
+        leafLimit,
+        depthLimit,
+        gpuTriTarget
+      ) as unknown as number
       return manager.getBoundPointer('sculptcore::spatial::SpatialTree', ptr) as SpatialTree
     },
     SpatialTree_free(tree: SpatialTree) {
@@ -725,13 +728,7 @@ export async function loadWasm(): Promise<IWasmInterface> {
       const dataPtr = _wasm._rawAlloc(bytes.length)
       try {
         _wasm.HEAPU8.set(bytes, dataPtr)
-        return (
-          _wasm.VdmStore_restoreBlob(
-            (store as unknown as {ptr: number}).ptr,
-            dataPtr,
-            bytes.length
-          ) !== 0
-        )
+        return _wasm.VdmStore_restoreBlob((store as unknown as {ptr: number}).ptr, dataPtr, bytes.length) !== 0
       } finally {
         _wasm._rawRelease(dataPtr)
       }
@@ -981,9 +978,7 @@ export async function loadWasm(): Promise<IWasmInterface> {
       const bytes = co.length * 4
       const ptr = _wasm._rawAlloc(bytes)
       try {
-        new Uint8Array(_wasm.HEAPU8.buffer, ptr, bytes).set(
-          new Uint8Array(co.buffer, co.byteOffset, bytes)
-        )
+        new Uint8Array(_wasm.HEAPU8.buffer, ptr, bytes).set(new Uint8Array(co.buffer, co.byteOffset, bytes))
         raw.GpuBrush_applyCo((session as {ptr: number}).ptr, ptr, co.length / 3)
       } finally {
         _wasm._rawRelease(ptr)
@@ -1004,9 +999,7 @@ export async function loadWasm(): Promise<IWasmInterface> {
         const heap = _wasm.HEAPU8
         new Uint8Array(heap.buffer, coPtr, coBytes).set(new Uint8Array(co.buffer, co.byteOffset, coBytes))
         if (no && noPtr) {
-          new Uint8Array(heap.buffer, noPtr, no.length * 4).set(
-            new Uint8Array(no.buffer, no.byteOffset, no.length * 4)
-          )
+          new Uint8Array(heap.buffer, noPtr, no.length * 4).set(new Uint8Array(no.buffer, no.byteOffset, no.length * 4))
         }
         raw.GpuBrush_endStroke(p, coPtr, noPtr, co.length / 3)
       } finally {

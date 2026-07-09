@@ -98,9 +98,9 @@ export function readPeDebugInfo(file) {
   for (let i = 0; i < numSections; i++) {
     const s = secStart + i * 40
     sections.push({
-      va: buf.readUInt32LE(s + 12),
-      vsize: buf.readUInt32LE(s + 8),
-      raw: buf.readUInt32LE(s + 20),
+      va     : buf.readUInt32LE(s + 12),
+      vsize  : buf.readUInt32LE(s + 8),
+      raw    : buf.readUInt32LE(s + 20),
       rawSize: buf.readUInt32LE(s + 16),
     })
   }
@@ -184,7 +184,10 @@ function findCdb() {
 function findWinDbg() {
   const w = spawnSync('where', ['windbgx.exe', 'windbg.exe'], {encoding: 'utf8'})
   if (w.status === 0) {
-    const hit = w.stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean)
+    const hit = w.stdout
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find(Boolean)
     if (hit) return hit
   }
   return findCdb()
@@ -239,7 +242,7 @@ function runCdb(dump, script, opts) {
   if (!cdb) {
     fail(
       'cdb.exe not found. Install the "Debugging Tools for Windows" (Windows SDK) ' +
-        'component, or add cdb.exe to PATH.',
+        'component, or add cdb.exe to PATH.'
     )
   }
   const sym = resolveSymPath(opts)
@@ -252,7 +255,8 @@ function runCdb(dump, script, opts) {
 /** Parse `kn` frame lines into {n, module, symbol, file, line}. */
 function parseFrames(text) {
   const frames = []
-  const re = /^\s*([0-9a-f]{2})\s+[`0-9a-f]+\s+[`0-9a-f]+\s+([^\s!]+)!([^\s+]+)(?:\+0x[0-9a-f]+)?(?:\s+\[([^\]]+?)\s+@\s+(\d+)\])?/i
+  const re =
+    /^\s*([0-9a-f]{2})\s+[`0-9a-f]+\s+[`0-9a-f]+\s+([^\s!]+)!([^\s+]+)(?:\+0x[0-9a-f]+)?(?:\s+\[([^\]]+?)\s+@\s+(\d+)\])?/i
   for (const ln of text.split(/\r?\n/)) {
     const m = re.exec(ln)
     if (m) frames.push({n: parseInt(m[1], 16), module: m[2], symbol: m[3], file: m[4], line: m[5] ? +m[5] : undefined})
@@ -296,9 +300,9 @@ function cmdInfo(dump, opts) {
     const ex = /Exception (\w+).*?at[^\n]*/is.exec(out) || /code ([0-9a-fx]+)/i.exec(out)
     return print({
       dump,
-      pdbMatch: pdbLoaded(out),
+      pdbMatch : pdbLoaded(out),
       exception: ex ? ex[0].trim() : undefined,
-      frames: parseFrames(runCdb(dump, '.ecxr; .lines -e; kn', opts)),
+      frames   : parseFrames(runCdb(dump, '.ecxr; .lines -e; kn', opts)),
     })
   }
   console.log(out.trim())
@@ -333,7 +337,8 @@ function cmdSymcheck(dump, opts) {
   const out = runCdb(dump, `.reload /f ${ADDON_MODULE}.node; lm m ${ADDON_MODULE}`, opts)
   const ok = pdbLoaded(out)
   if (opts.json) print({dump, pdbMatch: ok})
-  else console.log(ok ? `OK: PDB matches ${ADDON_MODULE} in this dump` : `MISMATCH: no matching PDB for ${ADDON_MODULE}`)
+  else
+    console.log(ok ? `OK: PDB matches ${ADDON_MODULE} in this dump` : `MISMATCH: no matching PDB for ${ADDON_MODULE}`)
   if (!ok) process.exitCode = 1
 }
 
@@ -353,7 +358,10 @@ function nwVersion() {
 
 /** Find a PDB (on-disk first, then the store) that this dump accepts. */
 function matchingPdb(dump, opts) {
-  if (fs.existsSync(addonPdb) && pdbLoaded(runCdb(dump, `.reload /f ${ADDON_MODULE}.node; lm m ${ADDON_MODULE}`, opts))) {
+  if (
+    fs.existsSync(addonPdb) &&
+    pdbLoaded(runCdb(dump, `.reload /f ${ADDON_MODULE}.node; lm m ${ADDON_MODULE}`, opts))
+  ) {
     return addonPdb
   }
   const base = path.join(symStore, 'sculptcore_node.pdb')
@@ -374,14 +382,18 @@ function cmdPackage(dump, opts) {
   else console.warn('warning: no matching PDB found; packaging dump without symbols')
   fs.writeFileSync(
     path.join(stage, 'build-info.json'),
-    JSON.stringify({dump: path.basename(dump), gitSha: gitSha(), nw: nwVersion(), pdb: pdb ? path.basename(pdb) : null}, null, 2),
+    JSON.stringify(
+      {dump: path.basename(dump), gitSha: gitSha(), nw: nwVersion(), pdb: pdb ? path.basename(pdb) : null},
+      null,
+      2
+    )
   )
   fs.mkdirSync(artifactDir, {recursive: true})
   const outZip = path.join(artifactDir, path.basename(dump).replace(/\.dmp$/i, '') + '.zip')
   const ps = spawnSync(
     'powershell',
     ['-NoProfile', '-Command', `Compress-Archive -Path '${stage}\\*' -DestinationPath '${outZip}' -Force`],
-    {encoding: 'utf8'},
+    {encoding: 'utf8'}
   )
   fs.rmSync(stage, {recursive: true, force: true})
   if (ps.status !== 0) fail(`Compress-Archive failed: ${ps.stderr}`)

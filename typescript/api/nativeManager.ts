@@ -200,7 +200,20 @@ export class NativeManager {
     invert: number
   ): number {
     return this.addon.meshVdmSplatDabLogged(
-      mesh, tree, store, meshLog, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert
+      mesh,
+      tree,
+      store,
+      meshLog,
+      cx,
+      cy,
+      cz,
+      nx,
+      ny,
+      nz,
+      radius,
+      strength,
+      alpha,
+      invert
     )
   }
   Mesh_vdmApplyToVerts(mesh: NativeBound, store: NativeBound, clearStore: number): number {
@@ -237,7 +250,13 @@ export class NativeManager {
   }
   // Multires seam (displacementAndSubSurf S app-wiring pass). Names match the
   // IWasmInterface members so both backends stay drop-ins.
-  Multires_new(cage: NativeBound, levels: number, leafLimit: number, depthLimit: number, gpuTriTarget: number): NativeBound {
+  Multires_new(
+    cage: NativeBound,
+    levels: number,
+    leafLimit: number,
+    depthLimit: number,
+    gpuTriTarget: number
+  ): NativeBound {
     return this.addon.multiresNew(cage, levels, leafLimit, depthLimit, gpuTriTarget)
   }
   Multires_free(mr: NativeBound): void {
@@ -348,19 +367,7 @@ export class NativeManager {
     mirrorIdx: number,
     nonaccum: number
   ): number {
-    return this.addon.gpuBrushMarshalDab(
-      session,
-      cx,
-      cy,
-      cz,
-      nx,
-      ny,
-      nz,
-      radius,
-      filterRadius,
-      mirrorIdx,
-      nonaccum
-    )
+    return this.addon.gpuBrushMarshalDab(session, cx, cy, cz, nx, ny, nz, radius, filterRadius, mirrorIdx, nonaccum)
   }
   GpuBrush_data(session: NativeBound, which: number): Uint8Array {
     return this.addon.gpuBrushData(session, which)
@@ -437,7 +444,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
     Mesh_createCube                  : (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
     Mesh_makeUVSphere                : (r: number, s: number, rad: number) => nm.Mesh_makeUVSphere(r, s, rad),
-    Mesh_buildSpatialTree            : (m: NativeBound, l: number, dp: number, t: number) => nm.Mesh_buildSpatialTree(m, l, dp, t),
+    Mesh_buildSpatialTree: (m: NativeBound, l: number, dp: number, t: number) => nm.Mesh_buildSpatialTree(m, l, dp, t),
     SpatialTree_free                 : (t: NativeBound) => nm.SpatialTree_free(t),
     Mesh_free                        : (m: NativeBound) => nm.Mesh_free(m),
     Mesh_triangulate                 : (m: NativeBound) => nm.Mesh_triangulate(m),
@@ -490,14 +497,14 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     Mesh_layerSetEnabled             : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetEnabled(m, li, on),
     Mesh_layerSetFrozen              : (m: NativeBound, li: number, on: number) => nm.Mesh_layerSetFrozen(m, li, on),
     Mesh_layerRemove                 : (m: NativeBound, li: number) => nm.Mesh_layerRemove(m, li),
-    Multires_new                     : (c: NativeBound, lv: number, l: number, d: number, t: number) => nm.Multires_new(c, lv, l, d, t),
+    Multires_new: (c: NativeBound, lv: number, l: number, d: number, t: number) => nm.Multires_new(c, lv, l, d, t),
     Multires_free                    : (mr: NativeBound) => nm.Multires_free(mr),
     Multires_setActiveLevel          : (mr: NativeBound, lv: number) => nm.Multires_setActiveLevel(mr, lv),
     Multires_activeMesh              : (mr: NativeBound) => nm.Multires_activeMesh(mr),
     Multires_activeTree              : (mr: NativeBound) => nm.Multires_activeTree(mr),
     Multires_writeback               : (mr: NativeBound, lv: number) => nm.Multires_writeback(mr, lv),
     Multires_downRefit               : (mr: NativeBound, lv: number) => nm.Multires_downRefit(mr, lv),
-    Multires_captureToVdm            : (mr: NativeBound, s: NativeBound, lv: number) => nm.Multires_captureToVdm(mr, s, lv),
+    Multires_captureToVdm: (mr: NativeBound, s: NativeBound, lv: number) => nm.Multires_captureToVdm(mr, s, lv),
     Multires_storeBlob               : (mr: NativeBound) => nm.Multires_storeBlob(mr),
     Multires_restoreStoreBlob        : (mr: NativeBound, b: Uint8Array) => nm.Multires_restoreStoreBlob(mr, b),
     SpatialTree_setRequestedAttrs: (t: NativeBound, reqs: RequestedAttrBridge[]) =>

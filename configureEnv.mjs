@@ -100,7 +100,7 @@ function getVSEnv() {
   if (tintPath) {
     toolDirs.push(tintPath)
   }
-  
+
   childEnv.PATH = [
     `${systemRoot}\\System32`,
     systemRoot,
@@ -156,10 +156,10 @@ function getEmsdkEnv() {
   }
 
   const result = child_process.execSync('python emsdk.py construct_env', {
-    stdio: 'pipe',
-    shell: false,
+    stdio   : 'pipe',
+    shell   : false,
     detached: false,
-    env: childEnv,
+    env     : childEnv,
   })
 
   let env

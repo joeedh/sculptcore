@@ -63,8 +63,8 @@ const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
 // Response files keep em++.bat's cmd.exe invocations under the Windows 8191-
 // char limit — a long worktree path blows past it via the -I include list.
-const CMAKE_WASM_ARGS = CMAKE_ARGS_BASE + ` -DBUILD_WASM=ON` +
-    (process.platform === 'win32' ? ' -DCMAKE_NINJA_FORCE_RESPONSE_FILE=ON' : '')
+const CMAKE_WASM_ARGS =
+  CMAKE_ARGS_BASE + ` -DBUILD_WASM=ON` + (process.platform === 'win32' ? ' -DCMAKE_NINJA_FORCE_RESPONSE_FILE=ON' : '')
 const EMSDK_COMMIT = '2a9b4692ab24a0497249eeaa696ac1153d22e07e'
 
 /**
@@ -361,8 +361,7 @@ function provisionNwjsCache(ver) {
   const nwLib = Path.join(libDir, 'nw.lib')
   const srcNodeH = Path.join(cacheDir, 'src', 'node.h')
   const v8H = Path.join(cacheDir, 'deps', 'v8', 'include', 'v8.h')
-  if (fs.existsSync(srcNodeH) && fs.existsSync(v8H) && fs.existsSync(nodeLib) &&
-      fs.existsSync(nwLib)) {
+  if (fs.existsSync(srcNodeH) && fs.existsSync(v8H) && fs.existsSync(nodeLib) && fs.existsSync(nwLib)) {
     return
   }
   const base = `https://dl.nwjs.io/v${ver}`
@@ -1107,7 +1106,9 @@ async function configureTarget(target, {backends, runtime, runtimeVersion}) {
 
     run(`cd ${dir} && ${env} cmake ../.. ${NATIVE_CMAKE_ARGS}`)
   } else {
-    run(`cd ${dir} && ${env} emcmake cmake .. ${CMAKE_WASM_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`)
+    run(
+      `cd ${dir} && ${env} emcmake cmake .. ${CMAKE_WASM_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`
+    )
   }
 }
 
@@ -1189,33 +1190,34 @@ yargs(hideBin(process.argv))
         describe: 'node target only: after building, load the .node under NW.js and run the napi smoke',
       }),
     async ({target, runtime, runtimeVersion, smoke}) => {
-    target = normalizeTarget(target)
-    if (target === 'node') {
+      target = normalizeTarget(target)
+      if (target === 'node') {
+        await sbrushCodegen()
+        await buildNodeAddon(runtime, runtimeVersion, smoke)
+        return
+      }
+      console.log('Building...')
+      const dir = buildDir(target)
+      const env = envPrefix(target)
+      if (target === 'wasm') {
+        deleteFinalWasmFiles()
+      }
+
       await sbrushCodegen()
-      await buildNodeAddon(runtime, runtimeVersion, smoke)
-      return
-    }
-    console.log('Building...')
-    const dir = buildDir(target)
-    const env = envPrefix(target)
-    if (target === 'wasm') {
-      deleteFinalWasmFiles()
-    }
+      await runBuild(`cd ${dir} && ${env} cmake --build .${parallelFlag()} `)
 
-    await sbrushCodegen()
-    await runBuild(`cd ${dir} && ${env} cmake --build .${parallelFlag()} `)
+      if (target === 'wasm') {
+        // copy wasm to typescript/
+        fs.mkdirSync('typescript/build', {recursive: true})
+        fs.copyFileSync('build/sculptcore.js', 'typescript/build/sculptcore.js')
+        fs.copyFileSync('build/sculptcore.wasm', 'typescript/build/sculptcore.wasm')
+        fs.copyFileSync('build/sculptcore-browser.js', 'typescript/build/sculptcore-browser.js')
+        fs.copyFileSync('build/sculptcore-browser.wasm', 'typescript/build/sculptcore-browser.wasm')
 
-    if (target === 'wasm') {
-      // copy wasm to typescript/
-      fs.mkdirSync('typescript/build', {recursive: true})
-      fs.copyFileSync('build/sculptcore.js', 'typescript/build/sculptcore.js')
-      fs.copyFileSync('build/sculptcore.wasm', 'typescript/build/sculptcore.wasm')
-      fs.copyFileSync('build/sculptcore-browser.js', 'typescript/build/sculptcore-browser.js')
-      fs.copyFileSync('build/sculptcore-browser.wasm', 'typescript/build/sculptcore-browser.wasm')
-
-      run('cd tools && pnpm build')
+        run('cd tools && pnpm build')
+      }
     }
-  })
+  )
   .command('fullclean', 'Clean build files and node_module dirs', {}, () => {
     console.log('Full clean')
     if (fs.existsSync('build')) {

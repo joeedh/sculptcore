@@ -1,7 +1,13 @@
 import type {IWasmInterface} from './wasm'
 import type {Mesh, SpatialNode, SpatialTree} from '../index'
 
-export function buildSpatialTree(wasm: IWasmInterface, mesh: Mesh, leafLimit = 512, depthLimit = 16, gpuTriTarget=4096): SpatialTree {
+export function buildSpatialTree(
+  wasm: IWasmInterface,
+  mesh: Mesh,
+  leafLimit = 512,
+  depthLimit = 16,
+  gpuTriTarget = 4096
+): SpatialTree {
   const tree = wasm.Mesh_buildSpatialTree(mesh, leafLimit, depthLimit, gpuTriTarget)
   tree.leaf_limit = leafLimit
   return tree

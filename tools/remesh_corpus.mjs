@@ -33,23 +33,30 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(here, '..') // sculptcore/
 
 const DEFAULTS = {
-  corpus: path.join(ROOT, 'tests', 'corpus', 'corpus.json'),
-  cli: path.join(ROOT, 'build', 'native', 'source', 'remesh', 'cli',
-                 process.platform === 'win32' ? 'remesh_cli.exe' : 'remesh_cli'),
-  assetsDir: path.join(ROOT, 'tests', 'assets'),
-  out: path.join(ROOT, 'tests', 'remesher-results', 'corpus'),
-  seed: null, // null => take from corpus.json
-  triage: false, // apply Tier-1 triage to every asset
-  triageWeldRel: null, // null => CLI default
+  corpus                : path.join(ROOT, 'tests', 'corpus', 'corpus.json'),
+  cli: path.join(
+    ROOT,
+    'build',
+    'native',
+    'source',
+    'remesh',
+    'cli',
+    process.platform === 'win32' ? 'remesh_cli.exe' : 'remesh_cli'
+  ),
+  assetsDir             : path.join(ROOT, 'tests', 'assets'),
+  out                   : path.join(ROOT, 'tests', 'remesher-results', 'corpus'),
+  seed                  : null, // null => take from corpus.json
+  triage                : false, // apply Tier-1 triage to every asset
+  triageWeldRel         : null, // null => CLI default
   triageMinComponentFrac: null,
-  curvatureSmoothIters: null, // Tier-2a: null => CLI default (0, no smoothing)
-  curvatureSmoothLambda: null,
-  autoDensity: null, // Tier-3a: null => CLI default (off)
-  densityMin: null,
-  densityMax: null,
-  densityGradation: null, // Tier-3b: null => CLI default (0, off)
-  densityGradationIters: null,
-  preset: null, // Tier-8b: null => no preset (CLI defaults)
+  curvatureSmoothIters  : null, // Tier-2a: null => CLI default (0, no smoothing)
+  curvatureSmoothLambda : null,
+  autoDensity           : null, // Tier-3a: null => CLI default (off)
+  densityMin            : null,
+  densityMax            : null,
+  densityGradation      : null, // Tier-3b: null => CLI default (0, off)
+  densityGradationIters : null,
+  preset                : null, // Tier-8b: null => no preset (CLI defaults)
 }
 
 function parseArgs(argv) {
@@ -57,7 +64,10 @@ function parseArgs(argv) {
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i]
     const next = () => {
-      if (i + 1 >= argv.length) { console.error(`missing value for ${k}`); process.exit(2) }
+      if (i + 1 >= argv.length) {
+        console.error(`missing value for ${k}`)
+        process.exit(2)
+      }
       return argv[++i]
     }
     if (k === '--corpus') a.corpus = path.resolve(next())
@@ -65,7 +75,11 @@ function parseArgs(argv) {
     else if (k === '--out') a.out = path.resolve(next())
     else if (k === '--assets') a.assetsDir = path.resolve(next())
     else if (k === '--seed') a.seed = parseInt(next(), 10)
-    else if (k === '--only') a.only = next().split(',').map(s => s.trim()).filter(Boolean)
+    else if (k === '--only')
+      a.only = next()
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     else if (k === '--triage') a.triage = true
     else if (k === '--triage-weld-rel') a.triageWeldRel = parseFloat(next())
     else if (k === '--triage-min-component-frac') a.triageMinComponentFrac = parseFloat(next())
@@ -80,8 +94,14 @@ function parseArgs(argv) {
     else if (k === '--cap-odd') a.capOdd = next() !== '0'
     else if (k === '--preset') a.preset = next()
     else if (k === '--list') a.list = true
-    else if (k === '--help' || k === '-h') { usage(); process.exit(0) }
-    else { console.error(`unknown arg ${k}`); usage(); process.exit(2) }
+    else if (k === '--help' || k === '-h') {
+      usage()
+      process.exit(0)
+    } else {
+      console.error(`unknown arg ${k}`)
+      usage()
+      process.exit(2)
+    }
   }
   return a
 }
@@ -124,64 +144,64 @@ function resolveAsset(asset, assetsDir) {
 // input/output/validation/run blocks; volatile fields (timestamp, paths,
 // durations) are intentionally excluded so a fixed seed reproduces the file.
 const COLUMNS = [
-  ['name', m => m.__name],
-  ['category', m => m.__category],
-  ['success', m => m.run.success],
-  ['failure_reason', m => m.run.failure_reason],
-  ['in_verts', m => m.input.verts],
-  ['in_faces', m => m.input.faces],
-  ['in_components', m => m.input.components],
-  ['in_holes', m => m.input.holes],
-  ['in_manifold', m => m.input.manifold],
-  ['out_verts', m => m.output.verts],
-  ['out_faces', m => m.output.faces],
-  ['out_quads', m => m.output.quads],
-  ['out_tris', m => m.output.tris],
-  ['out_ngons', m => m.output.ngons],
-  ['all_quad', m => m.validation.all_quad],
-  ['manifold', m => m.validation.manifold],
-  ['euler', m => m.validation.euler],
-  ['consistent_winding', m => m.validation.consistent_winding],
-  ['non_manifold_edges', m => m.validation.non_manifold_edges],
-  ['boundary_edges', m => m.validation.boundary_edges],
-  ['degenerate_faces', m => m.validation.degenerate_faces],
-  ['inverted_faces', m => m.validation.inverted_faces],
-  ['irregular_interior', m => m.validation.irregular_interior_verts],
-  ['interior_verts', m => m.validation.interior_vert_count],
-  ['regular_frac', m => m.validation.regular_interior_frac],
-  ['components', m => m.validation.component_count],
-  ['holes', m => m.validation.boundary_loop_count],
-  ['bnd_dev_mean', m => m.validation.boundary_dev_mean ?? -1],
-  ['bnd_dev_max', m => m.validation.boundary_dev_max ?? -1],
-  ['max_comp_irregular', m => m.validation.max_component_irregular],
-  ['max_area_ratio', m => m.validation.max_adjacent_area_ratio],
-  ['max_edge_ratio', m => m.validation.max_adjacent_edge_ratio],
-  ['min_angle', m => m.validation.min_interior_angle],
-  ['param_folds', m => m.validation.parametrization_folds],
-  ['num_singularities', m => m.run.num_singularities],
-  ['index_sum', m => m.run.index_sum],
-  ['field_eigen', m => m.run.field_solved_eigen],
-  ['quantize_feasible', m => m.run.quantize_feasible],
-  ['spiral_isolines', m => m.validation.spiral_isolines],
-  ['open_isolines', m => m.validation.open_isolines],
-  ['closed_isolines', m => m.validation.closed_isolines],
+  ['name', (m) => m.__name],
+  ['category', (m) => m.__category],
+  ['success', (m) => m.run.success],
+  ['failure_reason', (m) => m.run.failure_reason],
+  ['in_verts', (m) => m.input.verts],
+  ['in_faces', (m) => m.input.faces],
+  ['in_components', (m) => m.input.components],
+  ['in_holes', (m) => m.input.holes],
+  ['in_manifold', (m) => m.input.manifold],
+  ['out_verts', (m) => m.output.verts],
+  ['out_faces', (m) => m.output.faces],
+  ['out_quads', (m) => m.output.quads],
+  ['out_tris', (m) => m.output.tris],
+  ['out_ngons', (m) => m.output.ngons],
+  ['all_quad', (m) => m.validation.all_quad],
+  ['manifold', (m) => m.validation.manifold],
+  ['euler', (m) => m.validation.euler],
+  ['consistent_winding', (m) => m.validation.consistent_winding],
+  ['non_manifold_edges', (m) => m.validation.non_manifold_edges],
+  ['boundary_edges', (m) => m.validation.boundary_edges],
+  ['degenerate_faces', (m) => m.validation.degenerate_faces],
+  ['inverted_faces', (m) => m.validation.inverted_faces],
+  ['irregular_interior', (m) => m.validation.irregular_interior_verts],
+  ['interior_verts', (m) => m.validation.interior_vert_count],
+  ['regular_frac', (m) => m.validation.regular_interior_frac],
+  ['components', (m) => m.validation.component_count],
+  ['holes', (m) => m.validation.boundary_loop_count],
+  ['bnd_dev_mean', (m) => m.validation.boundary_dev_mean ?? -1],
+  ['bnd_dev_max', (m) => m.validation.boundary_dev_max ?? -1],
+  ['max_comp_irregular', (m) => m.validation.max_component_irregular],
+  ['max_area_ratio', (m) => m.validation.max_adjacent_area_ratio],
+  ['max_edge_ratio', (m) => m.validation.max_adjacent_edge_ratio],
+  ['min_angle', (m) => m.validation.min_interior_angle],
+  ['param_folds', (m) => m.validation.parametrization_folds],
+  ['num_singularities', (m) => m.run.num_singularities],
+  ['index_sum', (m) => m.run.index_sum],
+  ['field_eigen', (m) => m.run.field_solved_eigen],
+  ['quantize_feasible', (m) => m.run.quantize_feasible],
+  ['spiral_isolines', (m) => m.validation.spiral_isolines],
+  ['open_isolines', (m) => m.validation.open_isolines],
+  ['closed_isolines', (m) => m.validation.closed_isolines],
   // Tier-1 triage counts (manifest "triage" block; absent on pre-Tier-1 runs).
-  ['triage_ran', m => m.triage?.ran ?? false],
-  ['triage_welded', m => m.triage?.welded_verts ?? 0],
-  ['triage_degenerate', m => m.triage?.removed_degenerate_faces ?? 0],
-  ['triage_dup_faces', m => m.triage?.removed_duplicate_faces ?? 0],
-  ['triage_wire_edges', m => m.triage?.removed_wire_edges ?? 0],
-  ['triage_components', m => m.triage?.removed_components ?? 0],
-  ['triage_comp_verts', m => m.triage?.removed_component_verts ?? 0],
-  ['triage_nm_edges', m => m.triage?.non_manifold_edges ?? 0],
-  ['triage_nm_verts', m => m.triage?.non_manifold_verts ?? 0],
+  ['triage_ran', (m) => m.triage?.ran ?? false],
+  ['triage_welded', (m) => m.triage?.welded_verts ?? 0],
+  ['triage_degenerate', (m) => m.triage?.removed_degenerate_faces ?? 0],
+  ['triage_dup_faces', (m) => m.triage?.removed_duplicate_faces ?? 0],
+  ['triage_wire_edges', (m) => m.triage?.removed_wire_edges ?? 0],
+  ['triage_components', (m) => m.triage?.removed_components ?? 0],
+  ['triage_comp_verts', (m) => m.triage?.removed_component_verts ?? 0],
+  ['triage_nm_edges', (m) => m.triage?.non_manifold_edges ?? 0],
+  ['triage_nm_verts', (m) => m.triage?.non_manifold_verts ?? 0],
   // Tier-6 policy counters (hole fill, per-component runs, thin-sheet detect).
-  ['holes_filled', m => m.triage?.input_holes_filled ?? 0],
-  ['holes_kept', m => m.triage?.input_holes_kept ?? 0],
-  ['thin_frac', m => m.triage?.thin_area_frac ?? 0],
-  ['thin_sheet', m => m.triage?.thin_sheet ?? false],
-  ['comp_total', m => m.run.components_total ?? 0],
-  ['comp_remeshed', m => m.run.components_remeshed ?? 0],
+  ['holes_filled', (m) => m.triage?.input_holes_filled ?? 0],
+  ['holes_kept', (m) => m.triage?.input_holes_kept ?? 0],
+  ['thin_frac', (m) => m.triage?.thin_area_frac ?? 0],
+  ['thin_sheet', (m) => m.triage?.thin_sheet ?? false],
+  ['comp_total', (m) => m.run.components_total ?? 0],
+  ['comp_remeshed', (m) => m.run.components_remeshed ?? 0],
 ]
 
 function csvCell(v) {
@@ -192,8 +212,7 @@ function csvCell(v) {
 }
 
 function runOne(cli, asset, name, outdir, seed, params, globalParams) {
-  const args = ['--input', asset, '--name', name, '--outdir', outdir,
-                '--seed', String(seed)]
+  const args = ['--input', asset, '--name', name, '--outdir', outdir, '--seed', String(seed)]
   // Global flags first, per-asset params second — the CLI is last-wins, so a
   // corpus.json `params` entry overrides a global --triage* flag.
   for (const [k, v] of Object.entries({...globalParams, ...(params || {})})) {
@@ -216,19 +235,18 @@ function main() {
     process.exit(1)
   }
   const corpus = JSON.parse(fs.readFileSync(args.corpus, 'utf-8'))
-  const seed = args.seed != null ? args.seed : (corpus.seed ?? 1)
+  const seed = args.seed != null ? args.seed : corpus.seed ?? 1
   let assets = corpus.assets || []
-  if (args.only) assets = assets.filter(a => args.only.includes(a.name))
+  if (args.only) assets = assets.filter((a) => args.only.includes(a.name))
 
   // Deterministic order: sort by name so the table is stable regardless of JSON
   // key order or --only ordering.
-  assets = assets.slice().sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+  assets = assets.slice().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 
   if (args.list) {
     for (const a of assets) {
       const resolved = a.available === false ? null : resolveAsset(a.asset, args.assetsDir)
-      const status = a.available === false ? 'placeholder'
-                   : resolved ? 'ready' : 'MISSING'
+      const status = a.available === false ? 'placeholder' : resolved ? 'ready' : 'MISSING'
       console.log(`${a.name.padEnd(18)} ${String(a.category).padEnd(20)} ${status}\t${a.asset}`)
     }
     return
@@ -245,24 +263,16 @@ function main() {
   const globalParams = {}
   if (args.triage) globalParams['triage'] = 1
   if (args.triageWeldRel != null) globalParams['triage-weld-rel'] = args.triageWeldRel
-  if (args.triageMinComponentFrac != null)
-    globalParams['triage-min-component-frac'] = args.triageMinComponentFrac
-  if (args.curvatureSmoothIters != null)
-    globalParams['curvature-smooth-iters'] = args.curvatureSmoothIters
-  if (args.curvatureSmoothLambda != null)
-    globalParams['curvature-smooth-lambda'] = args.curvatureSmoothLambda
-  if (args.autoDensity != null)
-    globalParams['auto-density'] = args.autoDensity ? 1 : 0
+  if (args.triageMinComponentFrac != null) globalParams['triage-min-component-frac'] = args.triageMinComponentFrac
+  if (args.curvatureSmoothIters != null) globalParams['curvature-smooth-iters'] = args.curvatureSmoothIters
+  if (args.curvatureSmoothLambda != null) globalParams['curvature-smooth-lambda'] = args.curvatureSmoothLambda
+  if (args.autoDensity != null) globalParams['auto-density'] = args.autoDensity ? 1 : 0
   if (args.densityMin != null) globalParams['density-min'] = args.densityMin
   if (args.densityMax != null) globalParams['density-max'] = args.densityMax
-  if (args.densityGradation != null)
-    globalParams['density-gradation'] = args.densityGradation
-  if (args.densityGradationIters != null)
-    globalParams['density-gradation-iters'] = args.densityGradationIters
-  if (args.quantDirect != null)
-    globalParams['quant-direct'] = args.quantDirect ? 1 : 0
-  if (args.capOdd != null)
-    globalParams['cap-odd'] = args.capOdd ? 1 : 0
+  if (args.densityGradation != null) globalParams['density-gradation'] = args.densityGradation
+  if (args.densityGradationIters != null) globalParams['density-gradation-iters'] = args.densityGradationIters
+  if (args.quantDirect != null) globalParams['quant-direct'] = args.quantDirect ? 1 : 0
+  if (args.capOdd != null) globalParams['cap-odd'] = args.capOdd ? 1 : 0
   // The CLI applies --preset in a pre-scan, so flag order is irrelevant:
   // per-asset corpus.json params override the preset regardless of position.
   if (args.preset != null) globalParams['preset'] = args.preset
@@ -293,16 +303,19 @@ function main() {
     manifest.__name = a.name
     manifest.__category = a.category || ''
     results.push(manifest)
-    const v = manifest.validation, run = manifest.run
-    console.log(`  -> ${run.success ? 'ok' : 'FAILED:' + run.failure_reason}` +
-                ` quads=${manifest.output.quads} manifold=${v.manifold ? 1 : 0}` +
-                ` regular=${(v.regular_interior_frac * 100).toFixed(1)}%` +
-                ` folds=${v.parametrization_folds} holes=${v.boundary_loop_count}`)
+    const v = manifest.validation,
+      run = manifest.run
+    console.log(
+      `  -> ${run.success ? 'ok' : 'FAILED:' + run.failure_reason}` +
+        ` quads=${manifest.output.quads} manifold=${v.manifold ? 1 : 0}` +
+        ` regular=${(v.regular_interior_frac * 100).toFixed(1)}%` +
+        ` folds=${v.parametrization_folds} holes=${v.boundary_loop_count}`
+    )
   }
 
   // Stable order in the table too (results already came in sorted order).
-  const header = COLUMNS.map(c => c[0]).join(',')
-  const rows = results.map(m => COLUMNS.map(([, fn]) => csvCell(fn(m))).join(','))
+  const header = COLUMNS.map((c) => c[0]).join(',')
+  const rows = results.map((m) => COLUMNS.map(([, fn]) => csvCell(fn(m))).join(','))
   const csv = [header, ...rows].join('\n') + '\n'
   const csvPath = path.join(args.out, 'metrics.csv')
   fs.writeFileSync(csvPath, csv)
@@ -310,7 +323,7 @@ function main() {
   const jsonOut = {
     schema: 'remesh-corpus-results/1',
     seed,
-    corpus: path.relative(ROOT, args.corpus).replace(/\\/g, '/'),
+    corpus    : path.relative(ROOT, args.corpus).replace(/\\/g, '/'),
     git_commit: results[0]?.git_commit ?? null,
     skipped,
     results,

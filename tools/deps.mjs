@@ -93,10 +93,10 @@ export function toolchainKey() {
 
 // config (lowercase folder name) -> CMAKE_BUILD_TYPE
 const CONFIGS = {
-  release: 'Release',
+  release       : 'Release',
   relwithdebinfo: 'RelWithDebInfo',
-  debug: 'Debug',
-  asan: 'Debug',
+  debug         : 'Debug',
+  asan          : 'Debug',
 }
 
 export function configName(c) {
@@ -358,12 +358,12 @@ export async function ensureDeps({config} = {}) {
   buildSuiteSparse(cfg, path.join(comboDir, 'suitesparse'), openblasLib)
 
   const manifest = {
-    openblas: OPENBLAS_TAG,
-    suitesparse: SUITESPARSE_TAG,
-    revision: DEPS_REVISION,
-    platform: platformDir(),
-    toolchain: toolchainKey(),
-    config: cfg,
+    openblas      : OPENBLAS_TAG,
+    suitesparse   : SUITESPARSE_TAG,
+    revision      : DEPS_REVISION,
+    platform      : platformDir(),
+    toolchain     : toolchainKey(),
+    config        : cfg,
     cmakeBuildType: cmakeBuildType(cfg),
   }
   fs.writeFileSync(path.join(comboDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')

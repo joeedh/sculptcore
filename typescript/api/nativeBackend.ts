@@ -181,7 +181,13 @@ export interface NativeAddon {
   meshLayerRemove(mesh: NativeBound, li: number): void
   // Multires seam (subdiv/c-api subdiv_c_api.cc; displacementAndSubSurf S).
   /** Bound Multires stack over `cage` (not owned; must outlive the stack). Tree params 0 = defaults. Free via multiresFree. */
-  multiresNew(cage: NativeBound, levels: number, leafLimit: number, depthLimit: number, gpuTriTarget: number): NativeBound
+  multiresNew(
+    cage: NativeBound,
+    levels: number,
+    leafLimit: number,
+    depthLimit: number,
+    gpuTriTarget: number
+  ): NativeBound
   /** Free a stack created by multiresNew (never frees the cage). Nulls the wrapper's pointer. */
   multiresFree(mr: NativeBound): void
   /** Write back the outgoing level, activate `level` (clamped); returns the active level. */
