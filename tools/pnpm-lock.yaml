@@ -27,7 +27,11 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
-  ../source/litestl/binding/typescriptRuntime: {}
+  ../source/litestl/binding/typescriptRuntime:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
 
 packages:
 
