@@ -216,6 +216,10 @@ template <typename T> struct AttrData : AttrDataBase {
 
   void set_default(int elem)
   {
+    if (!pages[elem >> ATTR_PAGESHIFT].exists) {
+      // page isn't materialized yet
+      return;
+    }
     if (util::is_simple<T>()) {
       operator[](elem) = T(0.0);
     } else {
