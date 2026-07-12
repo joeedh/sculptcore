@@ -1,6 +1,7 @@
 #pragma once
 
 #include "attribute.h"
+#include "disk_prof.h" // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
 #include "elem_data.h"
 #include "mesh_types.h"
 
@@ -44,6 +45,14 @@ struct EdgeOfVertIter {
   {
     if (e == ELEM_NONE) {
       return *this;
+    }
+
+    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+    {
+      auto &dp = diskprof::get();
+      if (dp.enabled) {
+        dp.e_of_v_steps++;
+      }
     }
 
     int side = m->e.vs[e][0] == v ? 0 : 1;
@@ -98,6 +107,14 @@ struct CornerOfEdgeIter {
   {
     if (c == ELEM_NONE) {
       return *this;
+    }
+
+    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+    {
+      auto &dp = diskprof::get();
+      if (dp.enabled) {
+        dp.radial_steps++;
+      }
     }
 
     c = m->c.radial_next[c];

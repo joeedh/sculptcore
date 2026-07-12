@@ -6,6 +6,7 @@
 #include "litestl/util/span.h"
 #include "litestl/util/string.h"
 
+#include "disk_prof.h" // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
 #include "mesh_base.h"
 #include "mesh_callbacks.h"
 #include "mesh_enums.h"
@@ -940,6 +941,13 @@ private:
 
   void disk_insert(int e1, int v1)
   {
+    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+    {
+      auto &dp = diskprof::get();
+      if (dp.enabled) {
+        dp.disk_inserts++;
+      }
+    }
     int side1 = edge_side(e1, v1);
 
     if (v.e[v1] == ELEM_NONE) {
@@ -967,6 +975,13 @@ private:
 
   void disk_remove(int e1, int v1)
   {
+    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+    {
+      auto &dp = diskprof::get();
+      if (dp.enabled) {
+        dp.disk_removes++;
+      }
+    }
     int side1 = edge_side(e1, v1);
 
     int prev = e.disk[e1][side1 * 2];

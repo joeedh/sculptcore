@@ -15,6 +15,7 @@
  */
 
 #include "../attribute.h"
+#include "../disk_prof.h" // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
 
 #include <cstring>
 #include <type_traits>
@@ -40,6 +41,8 @@ struct AttrRowSnapshot {
 
 static inline void snapshotAttrRow(AttrGroup &grp, int elem, AttrRowSnapshot &snap)
 {
+  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+  diskprof::ProfTimer dpt_(diskprof::B_ATTR);
   snap.cells.clear();
   for (AttrRef &attr : grp.attrs) {
     AttrRowSnapshot::Cell cell;
@@ -75,6 +78,8 @@ static inline void snapshotAttrRow(AttrGroup &grp, int elem, AttrRowSnapshot &sn
 
 static inline void restoreAttrRow(AttrGroup &grp, int elem, const AttrRowSnapshot &snap)
 {
+  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+  diskprof::ProfTimer dpt_(diskprof::B_ATTR);
   int i = 0;
   for (AttrRef &attr : grp.attrs) {
     if (i >= int(snap.cells.size())) {
@@ -111,6 +116,8 @@ static inline void restoreAttrRow(AttrGroup &grp, int elem, const AttrRowSnapsho
  * *either*, not just the first row restored over it. */
 static inline void unionBoolAttrRow(AttrGroup &grp, int elem, const AttrRowSnapshot &snap)
 {
+  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+  diskprof::ProfTimer dpt_(diskprof::B_ATTR);
   int i = 0;
   for (AttrRef &attr : grp.attrs) {
     if (i >= int(snap.cells.size())) {
@@ -137,6 +144,8 @@ static inline void interpAttrRows(AttrGroup &grp,
                                   const AttrRowSnapshot &s1,
                                   float t)
 {
+  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+  diskprof::ProfTimer dpt_(diskprof::B_ATTR);
   int i = 0;
   for (AttrRef &attr : grp.attrs) {
     if (i >= int(s0.cells.size())) {
@@ -184,6 +193,8 @@ static inline void interpAttrRows(AttrGroup &grp,
 
 static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, float t)
 {
+  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+  diskprof::ProfTimer dpt_(diskprof::B_ATTR);
   for (AttrRef &attr : grp.attrs) {
     /* Topology links are indices, not interpolable data; NOINTERP attrs (e.g.
      * .spatial.{v,f}.node) are derived state owned by the spatial tree — copying

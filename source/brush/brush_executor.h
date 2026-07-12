@@ -1232,6 +1232,19 @@ struct CommandExecutor {
     mesh::MeshCallbacks *cb = nullptr;
     mesh::MeshCallbacks *sp = tree->getSpatialCallbacks();
     mesh::MeshCallbacks *ml = meshLog ? meshLog->callbacks() : nullptr;
+    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324) — time
+    // meshlog vs spatial callback bodies separately so splice self-time is clean.
+    mesh::MeshCallbacks mlTimed, spTimed;
+    if (mesh::diskprof::get().enabled) {
+      if (ml) {
+        mlTimed = mesh::diskprof::wrapTimed(*ml, mesh::diskprof::B_CB_MESHLOG);
+        ml = &mlTimed;
+      }
+      if (sp) {
+        spTimed = mesh::diskprof::wrapTimed(*sp, mesh::diskprof::B_CB_SPATIAL);
+        sp = &spTimed;
+      }
+    }
     if (meshLog) {
       /* The topo-chunk callbacks no-op without an active mesh (Scene::
        * applyDynTopoDab does the same wiring on the debug-harness path). */

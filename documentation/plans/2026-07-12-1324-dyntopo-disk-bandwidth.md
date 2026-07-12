@@ -207,3 +207,80 @@ otherwise revert and record why.
 ## Progress log
 
 (append dated entries + measurement tables here as milestones run)
+
+### 2026-07-12 — M0 baselines (clean binary, RelWithDebInfo native clang)
+
+Protocol notes discovered during setup:
+
+- The perdab scripts' comment about a `[spatial-prof]` exit breakdown is stale —
+  that instrumentation was ripped out in the 5M perf pass. Per-dab timing now
+  comes from the M0 `[disk-prof]` scaffolding (`--profile`).
+- New 4th workload committed: `tests/scripts/dyntopo_bench_single.txt` — same
+  480k cube/brush geometry as the perdab script, one *converging*
+  `bench_dyntopo` dab (detail=0.004: rounds=9, leftover=0, ~8.9k splits).
+
+Baselines, 5 runs each, median (min–max). Parity was identical on every run:
+bench splits=8889 flips=10832 rounds=9, faces 480000→497778.
+
+| workload | metric | median | min–max |
+|---|---|---|---|
+| dyntopo_bench_single | ops_ms | 80.2 | 76.3–101.5 |
+| dyntopo_bench_single | update_ms | 19.2 | 18.6–20.1 |
+| dyntopo_profile_perdab | wall s | 91.0 | 85.0–115.5 |
+| dyntopo_profile_perdab_big | wall s | 206.0 | 194.8–233.2 |
+| dyntopo_profile_collapse | wall s | 4.75 | 4.46–6.29 |
+
+(Wall times include mesh build + 200 dabs + per-dab tree update; first-run-of-a-
+batch inflation is visible in the maxes. The instrumented binary with `--profile`
+*off* measured ops_ms median ~74.5 over 5 steady-state runs — disabled-
+scaffolding overhead is within run noise.)
+
+### 2026-07-12 — M0 disk-share attribution (`[disk-prof]`, `--profile` runs)
+
+Buckets are *exclusive* self-time (nested timers subtract), so e.g.
+`split(self)` = splitEdge minus its attr-interp + callback time = topo surgery
++ local bookkeeping. Walk buckets time the `EdgeOfVertIter` loops at each
+dyntopo.h site. Shares below are of the inclusive `ops` total for that run
+(the remesh call; spatial `update()` excluded). Caveat: timer overhead
+inflates the hot buckets ~5–10% (tens of millions of timed scopes); shares are
+gate-grade, not A/B-grade.
+
+| bucket | bench_single (101ms) | collapse (2.53s) | perdab (65.6s) | perdab_big (127.7s) |
+|---|---|---|---|---|
+| cb_meshlog | — (no meshlog) | 29.7% | 36.3% | 37.1% |
+| scan_walk (e_of_v) | 12.8% | 22.7% | 19.5% | 18.7% |
+| split(self) | 39.0% | 0.9% | 12.7% | 12.2% |
+| flip_apply(self) | 14.2% | 3.9% | 10.1% | 10.0% |
+| collapse(self) | — | 24.3% | 7.6% | 8.1% |
+| cb_spatial | 8.7% | 2.7% | 3.7% | 3.9% |
+| attr_interp | 10.9% | 7.1% | 3.2% | 3.1% |
+| flip_collect (e_of_v) | 6.1% | 1.4% | 3.1% | 3.0% |
+| scan(self) | 2.3% | 4.0% | 2.9% | 2.8% |
+| guard_walk (e_of_v) | ~0 | 1.4% | 0.2% | 0.2% |
+| feature_walk (e_of_v) | ~0 | 3.3% | 0.2% | 0.3% |
+| mis+ops(self) | 6.0% | 2.1% | 0.7% | 0.6% |
+
+Counts (perdab_big, per dab): 2.19M `e_of_v` steps, 176k radial steps, 66k
+`disk_insert`, 34k `disk_remove` (~61 MB of link traffic/dab by the ~12–24 B
+model). Cross-check: 2.19M dependent-chase steps × ~50 ns ≈ the measured
+~120 ms/dab of scan_walk — the *latency*-bound model fits; a pure-bandwidth
+model (61 MB at >10 GB/s ≈ 5 ms) does not. This confirms dyntopoTangent.md's
+premise: the cost is the dependent `vs`+`disk` chase, not byte volume.
+
+**Gate G0 decision.** Pure `e_of_v` walk share = scan_walk + flip_collect +
+guard + feature ≈ **22–29%** of ops on the three stroke workloads; adding the
+splice-containing buckets (split/collapse/flip_apply self) brings walk+splice
+to **~50%**. That is far above the 20% bar → **the full ladder is justified;
+proceed M1 → (M2?) → M3/M4.**
+
+- **M2 note**: the collapse guards / boundary checks the valence probe would
+  memoize are *tiny* (guard+feature ≤ 0.5% on the perdab workloads, ≤ 4.7%
+  even on the collapse-heavy one) — M2's own entry condition ("walk-bound
+  sites that need just a count") is **not met**; skip M2 unless M1/M3 change
+  the picture. The dominant walk site is the candidate scan, which needs edge
+  *lengths* (payload reads), not counts — exactly what the slab (M3/M4) and
+  the side-bit embed (M1) target.
+- **Out-of-plan finding worth recording**: `cb_meshlog` is the single largest
+  bucket on the real stroke workloads (~36–37% of ops; 388k–712k callback
+  invocations *per dab*). The disk ladder cannot touch it; a separate
+  meshlog-callback-batching investigation would attack the top cost.
