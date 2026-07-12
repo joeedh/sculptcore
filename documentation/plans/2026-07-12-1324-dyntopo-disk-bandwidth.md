@@ -326,3 +326,20 @@ A/B (same-session interleaved, medians):
 | collapse wall s (5 runs) | 3.59 | 3.53 | −1.7% |
 
 ≥3% beyond noise on the primary metric → **keep** per the M1 rule.
+
+### 2026-07-12 — M2 skipped; M3 design doc out for review (gate G3)
+
+- **M2 (valence attribute): SKIPPED** by its own entry condition. Post-M1
+  profiled perdab shares: guard_walk 0.18% + feature_walk 0.18% of ops — the
+  count-only walk sites the probe would memoize are noise. The dominant walk
+  (scan, 19%) needs edge *lengths*, which a valence count cannot serve.
+- Post-M1 shares (profiled perdab, 200 dabs): scan_walk 19.1%,
+  flip_collect 2.8%, split/collapse/flip_apply self 29.0%, attr 3.4%,
+  cb_meshlog 38.2%, cb_spatial 4.0%. Walk+splice ≈ 51% → M3 entry condition
+  met. (Cross-session absolute times vary ~2×; only shares and interleaved
+  A/Bs are compared.)
+- **M3 design doc**:
+  [`2026-07-12-1520-dyntopo-disk-slab-design.md`](2026-07-12-1520-dyntopo-disk-slab-design.md)
+  — representation, sequence-equivalence audit, meshlog span-log design,
+  serialize v5, memory budget (−21%), ship bar, and 4 open questions.
+  **Awaiting user review/approval (G3) before M4 starts.**
