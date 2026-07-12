@@ -197,16 +197,18 @@ void gatherColumn(ElemData &ed,
 }
 
 /* Remap every int component of a (dense) topo column through @p targetMap.
- * ELEM_NONE passes through unchanged. */
-void remapTopoColumn(Vector<uint8_t> &buf, Vector<int> &targetMap)
+ * ELEM_NONE passes through unchanged. @p packedDisk: the column is the
+ * side-bit-encoded `.edge.vs.disk` (diskPack) — remap only the id half. */
+void remapTopoColumn(Vector<uint8_t> &buf, Vector<int> &targetMap, bool packedDisk)
 {
   int32_t *p = reinterpret_cast<int32_t *>(buf.data());
   size_t n = buf.size() / sizeof(int32_t);
   for (size_t i = 0; i < n; i++) {
     int32_t v = p[i];
-    if (v != ELEM_NONE) {
-      p[i] = targetMap[v];
+    if (v == ELEM_NONE) {
+      continue;
     }
+    p[i] = packedDisk ? diskPack(targetMap[diskEdge(v)], diskSide(v)) : targetMap[v];
   }
 }
 
@@ -261,7 +263,8 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
        * remap to apply). The name table is authoritative for that. */
       ElemType tgt = topoTarget(attr.name);
       if (int(tgt) != 0) {
-        remapTopoColumn(buf, maps[domainIndex(tgt)]);
+        bool packedDisk = std::strcmp(attr.name.c_str(), ".edge.vs.disk") == 0;
+        remapTopoColumn(buf, maps[domainIndex(tgt)], packedDisk);
       } else if (attr.flag & AttrFlag::TOPO) {
         printf("mesh_serialize: unknown TOPO attr '%s' (custom topo attrs "
                "unsupported in v1)\n",
@@ -442,6 +445,38 @@ bool migrate(SerialMesh &sm)
        * have no sculpt layers; sm.layers is already empty. */
       sm.version = 3;
       break;
+    case 3: {
+      /* v3 → v4: `.edge.vs.disk` links became side-bit encoded (diskPack).
+       * Re-encode each link in place using `.edge.vs` for the shared-vert
+       * side — order-preserving, so disk iteration order survives the load. */
+      SerialDomain &ed = sm.domains[domainIndex(EDGE)];
+      SerialColumn *disk = nullptr, *vs = nullptr;
+      for (SerialColumn &col : ed.cols) {
+        if (std::strcmp(col.name.c_str(), ".edge.vs.disk") == 0) {
+          disk = &col;
+        } else if (std::strcmp(col.name.c_str(), ".edge.vs") == 0) {
+          vs = &col;
+        }
+      }
+      if (disk && vs) {
+        int32_t *d = reinterpret_cast<int32_t *>(disk->bytes.data());
+        const int32_t *w = reinterpret_cast<const int32_t *>(vs->bytes.data());
+        size_t ecount = disk->bytes.size() / (4 * sizeof(int32_t));
+        for (size_t ei = 0; ei < ecount; ei++) {
+          for (int s = 0; s < 2; s++) {
+            int32_t shared = w[ei * 2 + s];
+            for (int k = 0; k < 2; k++) {
+              int32_t t = d[ei * 4 + s * 2 + k];
+              if (t != ELEM_NONE) {
+                d[ei * 4 + s * 2 + k] = diskPack(t, w[t * 2 + 0] == shared ? 0 : 1);
+              }
+            }
+          }
+        }
+      }
+      sm.version = 4;
+      break;
+    }
     default:
       return false;
     }

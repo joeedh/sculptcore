@@ -297,15 +297,22 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
     int steps = 0, ec = e0;
     do {
       int side = e.vs[ec][0] == vi ? 0 : 1;
-      int next = e.disk[ec][side * 2 + 1], prev = e.disk[ec][side * 2];
-      if (next < 0 || next >= int(e.capacity()) || prev < 0 || prev >= int(e.capacity()) ||
-          e.freemap[next] || e.freemap[prev]) {
+      int nextLink = e.disk[ec][side * 2 + 1], prevLink = e.disk[ec][side * 2];
+      int next = diskEdge(nextLink), prev = diskEdge(prevLink);
+      if (nextLink < 0 || next >= int(e.capacity()) || prevLink < 0 ||
+          prev >= int(e.capacity()) || e.freemap[next] || e.freemap[prev]) {
         snprintf(buf, sizeof(buf), "vert %d disk link invalid at edge %d", vi, ec);
         report(buf);
         break;
       }
       int sn = e.vs[next][0] == vi ? 0 : 1, sp = e.vs[prev][0] == vi ? 0 : 1;
-      if (e.disk[next][sn * 2] != ec || e.disk[prev][sp * 2 + 1] != ec) {
+      if (diskSide(nextLink) != sn || diskSide(prevLink) != sp) {
+        snprintf(buf, sizeof(buf), "vert %d disk side bit stale at edge %d", vi, ec);
+        report(buf);
+        break;
+      }
+      if (e.disk[next][sn * 2] != diskPack(ec, side) ||
+          e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
         snprintf(buf, sizeof(buf), "vert %d disk prev/next mismatch at edge %d", vi, ec);
         report(buf);
         break;
@@ -376,7 +383,8 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
     v.e[vi] = ELEM_NONE;
   }
   for (int ei : this->e) {
-    e.disk[ei][0] = e.disk[ei][1] = e.disk[ei][2] = e.disk[ei][3] = ei;
+    e.disk[ei][0] = e.disk[ei][1] = diskPack(ei, 0);
+    e.disk[ei][2] = e.disk[ei][3] = diskPack(ei, 1);
   }
   for (int ei : this->e) {
     disk_insert(ei, e.vs[ei][0]);
@@ -759,7 +767,7 @@ int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb, int hint)
         continue;
       }
       int e2 = v.e[vv];
-      int prevn = e.disk[e2][edge_side(e2, vv) * 2];
+      int prevn = diskEdge(e.disk[e2][edge_side(e2, vv) * 2]);
       fire(cb->onEdgeChange, e2);
       if (prevn != e2) {
         fire(cb->onEdgeChange, prevn);
@@ -909,8 +917,8 @@ void Mesh::kill_edge(int e1, MeshCallbacks *cb)
     int ends[2] = {va, vb};
     for (int vv : ends) {
       int side1 = edge_side(e1, vv);
-      int prevn = e.disk[e1][side1 * 2];
-      int nextn = e.disk[e1][side1 * 2 + 1];
+      int prevn = diskEdge(e.disk[e1][side1 * 2]);
+      int nextn = diskEdge(e.disk[e1][side1 * 2 + 1]);
       if (prevn != e1) {
         fire(cb->onEdgeChange, prevn);
       }
@@ -1004,8 +1012,8 @@ void Mesh::relink_edge_verts(int e1, int nv0, int nv1, MeshCallbacks *cb)
     int olds[2] = {ov0, ov1};
     for (int vv : olds) {
       int side = edge_side(e1, vv);
-      int prevn = e.disk[e1][side * 2];
-      int nextn = e.disk[e1][side * 2 + 1];
+      int prevn = diskEdge(e.disk[e1][side * 2]);
+      int nextn = diskEdge(e.disk[e1][side * 2 + 1]);
       if (prevn != e1) {
         fire(cb->onEdgeChange, prevn);
       }
@@ -1031,7 +1039,7 @@ void Mesh::relink_edge_verts(int e1, int nv0, int nv1, MeshCallbacks *cb)
         continue;
       }
       int e2 = v.e[vv];
-      int prevn = e.disk[e2][edge_side(e2, vv) * 2];
+      int prevn = diskEdge(e.disk[e2][edge_side(e2, vv) * 2]);
       fire(cb->onEdgeChange, e2);
       if (prevn != e2) {
         fire(cb->onEdgeChange, prevn);
@@ -1379,24 +1387,29 @@ void Mesh::reorder_edges(util::span<int> emap, const ReorderMoved &moved)
       /* e.disk: remap this edge's own links; patch the back-link of each
        * non-moved disk neighbor (moved neighbors fix themselves). Read all
        * neighbors before remapping our own slots. Slot layout: [side*2]=prev,
-       * [side*2+1]=next around vert e.vs[e1][side]. */
+       * [side*2+1]=next around vert e.vs[e1][side]; links are side-bit encoded
+       * (diskPack), so only the id half remaps. */
       int nb[4];
       for (int k = 0; k < 4; k++)
         nb[k] = e.disk[e1][k];
       for (int s = 0; s < 2; s++) {
         int w = e.vs[e1][s];
-        int P = nb[s * 2], N = nb[s * 2 + 1];
+        int P = nb[s * 2] == ELEM_NONE ? ELEM_NONE : diskEdge(nb[s * 2]);
+        int N = nb[s * 2 + 1] == ELEM_NONE ? ELEM_NONE : diskEdge(nb[s * 2 + 1]);
         if (P != ELEM_NONE && P != e1 && !movedEdge.contains(P)) {
           int sp = (e.vs[P][0] == w) ? 0 : 1;
-          e.disk[P][sp * 2 + 1] = emap[e1];  // P.next around w == e1
+          e.disk[P][sp * 2 + 1] = diskPack(emap[e1], s);  // P.next around w == e1
         }
         if (N != ELEM_NONE && N != e1 && !movedEdge.contains(N)) {
           int sn = (e.vs[N][0] == w) ? 0 : 1;
-          e.disk[N][sn * 2] = emap[e1];  // N.prev around w == e1
+          e.disk[N][sn * 2] = diskPack(emap[e1], s);  // N.prev around w == e1
         }
       }
-      for (int k = 0; k < 4; k++)
-        e.disk[e1][k] = remap(emap, nb[k]);
+      for (int k = 0; k < 4; k++) {
+        e.disk[e1][k] = nb[k] == ELEM_NONE
+                            ? ELEM_NONE
+                            : diskPack(remap(emap, diskEdge(nb[k])), diskSide(nb[k]));
+      }
     }
     e.reorderScoped(emap, moved.e);
     return;
@@ -1407,7 +1420,10 @@ void Mesh::reorder_edges(util::span<int> emap, const ReorderMoved &moved)
   }
   for (int e1 : e) {
     for (int k = 0; k < 4; k++) {
-      e.disk[e1][k] = remap(emap, e.disk[e1][k]);
+      int link = e.disk[e1][k];
+      e.disk[e1][k] = link == ELEM_NONE
+                          ? ELEM_NONE
+                          : diskPack(remap(emap, diskEdge(link)), diskSide(link));
     }
   }
   for (int c1 : c) {

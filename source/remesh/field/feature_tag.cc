@@ -48,7 +48,7 @@ int unionDegree(Mesh &m, int v, int skip, SharpT &is_sharp,
       }
     }
     int vside = m.e.vs[ec][0] == v ? 0 : 1;
-    ec = m.e.disk[ec][vside * 2 + 1];
+    ec = mesh::diskEdge(m.e.disk[ec][vside * 2 + 1]);
   } while (ec != e0);
   return deg;
 }
@@ -131,7 +131,7 @@ void computeFeatureTags(Mesh &m, float sharp_angle, float feature_hysteresis,
           stack.append(ec);
         }
         int vside = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = m.e.disk[ec][vside * 2 + 1];
+        ec = mesh::diskEdge(m.e.disk[ec][vside * 2 + 1]);
       } while (ec != e0);
     }
   }

@@ -63,6 +63,8 @@ spaces aren't supported — vectors use `=x,y,z`.
 | `view`          | `preset=front\|top\|side\|persp\|free`            | re-frames the camera on the mesh AABB |
 | `screenshot`    | `view=... out=relpath [leaves=0/1]`               | renders headless + writes PNG; `leaves=1` overlays spatial-leaf AABBs |
 | `dump_state`    | `out=relpath [mesh=1 spatial=1 brush=1]`          | writes JSON snapshot of selected sections |
+| `save_mesh`     | `path=FILE`                                       | serializes the scene mesh (`serial::writeMesh` blob — the LiteMesh `_data` container format) |
+| `load_mesh`     | `path=FILE`                                       | replaces the scene mesh with a `serial::readMesh` blob (running format migrations), then `validateAndRepair` and prints the problem count. Rebuild spatial/dyntopo state afterwards (`build_spatial`, …) |
 | `assert_verts`  | `n=N`                                             | exits non-zero on mismatch |
 | `assert_aabb`   | `min=x,y,z max=x,y,z eps=F`                       | exits non-zero on mismatch |
 | `save_pos`      | `id=NAME`                                         | snapshots every live vert's `(index, co)` under `id` (default `default`) for a later `assert_pos`. Mesh indices are persistent ids (IDMap disabled), so a vert restored by undo lands back at the same index |

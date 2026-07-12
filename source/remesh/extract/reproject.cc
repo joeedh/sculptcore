@@ -122,7 +122,7 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
         cnt++;
       }
       int side = out.e.vs[ec][0] == v ? 0 : 1;
-      ec = out.e.disk[ec][side * 2 + 1];
+      ec = mesh::diskEdge(out.e.disk[ec][side * 2 + 1]);
     } while (ec != e0 && ++guard < 256);
     return cnt ? sum.length() / float(cnt) : 1.0f;
   };

@@ -69,9 +69,9 @@ bool manifold(Mesh &m, const char *tag)
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      int next = m.e.disk[ec][side * 2 + 1], prev = m.e.disk[ec][side * 2];
+      int next = diskEdge(m.e.disk[ec][side * 2 + 1]), prev = diskEdge(m.e.disk[ec][side * 2]);
       int sn = m.e.vs[next][0] == vi ? 0 : 1, sp = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][sn * 2] != ec || m.e.disk[prev][sp * 2 + 1] != ec) {
+      if (m.e.disk[next][sn * 2] != diskPack(ec, side) || m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
         fprintf(stderr, "[%s] disk mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }

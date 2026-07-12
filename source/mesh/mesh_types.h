@@ -24,6 +24,23 @@ using namespace litestl;
 namespace sculptcore::mesh {
 struct Mesh;
 
+/** Disk-link encoding (`.edge.vs.disk`): each live link stores
+ * `(edge << 1) | side`, where `side` is the slot of the shared vertex in the
+ * linked edge's `.edge.vs` — a disk walk needs no `e.vs` load to pick its next
+ * slot. Dead/free slots stay raw `ELEM_NONE` (never encoded). */
+constexpr int diskPack(int e, int side)
+{
+  return (e << 1) | side;
+}
+constexpr int diskEdge(int link)
+{
+  return link >> 1;
+}
+constexpr int diskSide(int link)
+{
+  return link & 1;
+}
+
 struct VertexData : public ElemData {
   using float3 = math::float3;
 
@@ -102,7 +119,7 @@ struct EdgeData : public ElemData {
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
-  /* Topology attributes. */
+  /* Topology attributes. Disk links are side-bit encoded — see diskPack(). */
   BuiltinAttr<int2, ".edge.vs", AttrFlag::TOPO> vs;
   BuiltinAttr<int4, ".edge.vs.disk", AttrFlag::TOPO> disk;
 

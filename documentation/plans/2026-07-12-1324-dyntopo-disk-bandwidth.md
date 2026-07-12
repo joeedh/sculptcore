@@ -284,3 +284,45 @@ proceed M1 → (M2?) → M3/M4.**
   bucket on the real stroke workloads (~36–37% of ops; 388k–712k callback
   invocations *per dab*). The disk ladder cannot touch it; a separate
   meshlog-callback-batching investigation would attack the top cost.
+
+### 2026-07-12 — M1 side-bit embed: SHIPPED (kept)
+
+Encoding: live disk links store `diskPack(edge, side) = (edge << 1) | side`
+(helpers in `mesh_types.h`); dead slots stay raw `ELEM_NONE`. The iterator
+carries `(e, side)` state — one `e.vs` load to seat, zero per step — and
+`disk_insert`/`disk_remove` drop their `edge_side(prev/next, v)` vs loads
+entirely (the embedded side replaces them).
+
+Touch points beyond the plan's list: the remesh module carries ~12 more
+manual disk-walk sites (curvature, density, preremesh ×4, feature_tag ×2,
+quantize_ilp, reproject, singularity_adjust ×2) plus 9 test-side validators —
+all mechanically decoded. `validateAndRepair` / `checkTopology` now also
+verify the embedded side bit against `e.vs` (stale-bit corruption is caught).
+Meshlog needed **no** change (rows are opaque byte snapshots — audited).
+`mesh_serialize` bumped to format v4 with an order-preserving v3→v4 link
+re-encode migration; the writer's `topoTarget` remap is packed-aware for the
+disk column. New `save_mesh`/`load_mesh` debug verbs (permanent) back the
+round-trip gates.
+
+Gates (all pass):
+
+- ctest: no regressions (95→identical set; 3 pre-existing environmental
+  failures in this worktree: `test_live_stroke`/`test_bsmooth` need the WGSL
+  backend configure flag, `test_debug_script` known-failing).
+- Undo fidelity: `repro_single_undo` / `repro_live_undo` moved=0 worst=0;
+  post-migration v3 mesh also survives stroke→undo→assert_pos clean.
+- Parity: bench `splits=8889 flips=10832 rounds=9` identical every run;
+  perdab 200-dab `[disk-prof]` counters **bit-identical** (250,252,767
+  `e_of_v` steps, 7,395,036 inserts, 3,584,820 removes).
+- Serialize: v4 round-trip clean; genuine v3 file (written by a pre-M1
+  binary) migrates with `problems=0` under the side-bit-checking validator.
+
+A/B (same-session interleaved, medians):
+
+| workload | M0 | M1 | delta |
+|---|---|---|---|
+| bench_single ops_ms (7 runs) | 74.0 | 69.5 | **−6.1%** |
+| perdab wall s (3 runs) | 56.0 | 52.9 | −5.6% |
+| collapse wall s (5 runs) | 3.59 | 3.53 | −1.7% |
+
+≥3% beyond noise on the primary metric → **keep** per the M1 rule.

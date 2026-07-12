@@ -48,15 +48,15 @@ static bool validateMesh(Mesh &m)
         fprintf(stderr, "vert %d disk: edge %d not incident\n", vi, ec);
         return false;
       }
-      int next = m.e.disk[ec][side * 2 + 1];
-      int prev = m.e.disk[ec][side * 2];
+      int next = diskEdge(m.e.disk[ec][side * 2 + 1]);
+      int prev = diskEdge(m.e.disk[ec][side * 2]);
       int side_n = m.e.vs[next][0] == vi ? 0 : 1;
       int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][side_n * 2] != ec) {
+      if (m.e.disk[next][side_n * 2] != diskPack(ec, side)) {
         fprintf(stderr, "disk prev/next mismatch v=%d e=%d\n", vi, ec);
         return false;
       }
-      if (m.e.disk[prev][side_p * 2 + 1] != ec) {
+      if (m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
         fprintf(stderr, "disk prev/next mismatch v=%d e=%d\n", vi, ec);
         return false;
       }

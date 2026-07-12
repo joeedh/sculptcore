@@ -19,10 +19,12 @@ struct EdgeOfVertIter {
 
   inline EdgeOfVertIter(MeshBase *m_, int v_, int e_) : m(m_), v(v_), e(e_), start_e(e_)
   {
+    /* One vs load to seat the side; every ++ then rides the embedded side. */
+    side = (e_ != ELEM_NONE && m_->e.vs[e_][1] == v_) ? 1 : 0;
   }
 
   inline EdgeOfVertIter(const EdgeOfVertIter &b)
-      : m(b.m), v(b.v), e(b.e), start_e(b.start_e)
+      : m(b.m), v(b.v), e(b.e), start_e(b.start_e), side(b.side)
   {
   }
 
@@ -55,8 +57,9 @@ struct EdgeOfVertIter {
       }
     }
 
-    int side = m->e.vs[e][0] == v ? 0 : 1;
-    e = m->e.disk[e][side * 2 + 1]; /* e.next */
+    int link = m->e.disk[e][side * 2 + 1]; /* e.next, side-bit encoded */
+    e = diskEdge(link);
+    side = diskSide(link);
 
     /* Back at the disk-cycle start → exhausted; flag the end sentinel. */
     if (e == start_e) {
@@ -77,7 +80,7 @@ struct EdgeOfVertIter {
   }
 
 private:
-  int v, e, start_e;
+  int v, e, start_e, side;
 };
 
 struct CornerOfEdgeIter {

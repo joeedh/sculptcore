@@ -144,9 +144,16 @@ static inline bool checkTopology(Mesh &m, std::string &err,
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      int next = m.e.disk[ec][side * 2 + 1], prev = m.e.disk[ec][side * 2];
+      int nextLink = m.e.disk[ec][side * 2 + 1], prevLink = m.e.disk[ec][side * 2];
+      int next = diskEdge(nextLink), prev = diskEdge(prevLink);
       int sn = m.e.vs[next][0] == vi ? 0 : 1, sp = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][sn * 2] != ec || m.e.disk[prev][sp * 2 + 1] != ec) {
+      if (diskSide(nextLink) != sn || diskSide(prevLink) != sp) {
+        snprintf(buf, sizeof(buf), "disk side bit stale v=%d e=%d", vi, ec);
+        err = buf;
+        return false;
+      }
+      if (m.e.disk[next][sn * 2] != diskPack(ec, side) ||
+          m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
         snprintf(buf, sizeof(buf), "disk prev/next mismatch v=%d e=%d", vi, ec);
         err = buf;
         return false;
@@ -634,7 +641,7 @@ static inline RemeshReport remeshValidate(Mesh &m)
           boundary = true;
       }
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      ec = m.e.disk[ec][side * 2 + 1];
+      ec = diskEdge(m.e.disk[ec][side * 2 + 1]);
       if (++valence > 1000000)
         break;
     } while (ec != e0);

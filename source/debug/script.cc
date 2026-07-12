@@ -14,6 +14,7 @@
 #include "litestl/util/vector.h"
 #include "mesh/attribute_builtin.h"
 #include "mesh/disk_prof.h" // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+#include "mesh/mesh_serialize.h"
 #include "mesh/mesh_shapes.h"
 #include "mesh/utils/closest_point.h"
 #include "mesh/utils/mesh_validate.h"
@@ -39,6 +40,7 @@
 #include <cfloat>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -2245,7 +2247,7 @@ bool execVerb(Scene &scene,
       do {
         n++;
         int side = mm.e.vs[e][0] == v ? 0 : 1;
-        e = mm.e.disk[e][side * 2 + 1];
+        e = mesh::diskEdge(mm.e.disk[e][side * 2 + 1]);
       } while (e != e0 && n < 100000);
       if (n > maxVal) maxVal = n;
     }
@@ -2264,6 +2266,47 @@ bool execVerb(Scene &scene,
     return true;
   }
 
+  if (verb == "save_mesh") {
+    /* save_mesh path=FILE — serialize scene.mesh (serial::writeMesh blob). */
+    if (!scene.mesh) {
+      err = "save_mesh: no mesh";
+      return false;
+    }
+    std::string path = getArg(args, "path", "");
+    if (path.empty()) {
+      err = "save_mesh: missing path=";
+      return false;
+    }
+    std::ofstream out(path, std::ios::binary);
+    if (!out || !mesh::serial::writeMesh(*scene.mesh, out)) {
+      err = "save_mesh: write failed: " + path;
+      return false;
+    }
+    std::printf("[save_mesh] %s verts=%d edges=%d faces=%d\n", path.c_str(),
+                scene.mesh->v.count, scene.mesh->e.count, scene.mesh->f.count);
+    return true;
+  }
+  if (verb == "load_mesh") {
+    /* load_mesh path=FILE — replace scene.mesh with a serial::readMesh blob
+     * (running any format migrations), then validateAndRepair. */
+    std::string path = getArg(args, "path", "");
+    if (path.empty()) {
+      err = "load_mesh: missing path=";
+      return false;
+    }
+    std::ifstream in(path, std::ios::binary);
+    mesh::Mesh *nm = litestl::alloc::New<mesh::Mesh>("Mesh load_mesh");
+    if (!in || !mesh::serial::readMesh(*nm, in)) {
+      litestl::alloc::Delete(nm);
+      err = "load_mesh: read failed: " + path;
+      return false;
+    }
+    int problems = nm->validateAndRepair();
+    scene.setMesh(nm);
+    std::printf("[load_mesh] %s verts=%d edges=%d faces=%d problems=%d\n",
+                path.c_str(), nm->v.count, nm->e.count, nm->f.count, problems);
+    return true;
+  }
   if (verb == "remesh") {
     /* remesh [target=..] [target_quads=N] [curvature=1] [sharp=1]
      *        [sharp_angle=..] [smoothness=..] [curvature_weight=..]

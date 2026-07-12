@@ -361,7 +361,7 @@ SingularityPairStats findSingularityPairs(Mesh &m, int max_hops,
     do {
       int side = m.e.vs[ec][0] == v ? 0 : 1;
       fn(m.e.vs[ec][side ^ 1]);
-      ec = m.e.disk[ec][side * 2 + 1];
+      ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
     } while (ec != e0);
   };
 
@@ -534,7 +534,7 @@ SingularityCancelStats cancelSingularityPairs(Mesh &m,
     do {
       int side = m.e.vs[ec][0] == v ? 0 : 1;
       fn(ec, m.e.vs[ec][side ^ 1]);
-      ec = m.e.disk[ec][side * 2 + 1];
+      ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
     } while (ec != e0);
   };
 

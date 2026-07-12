@@ -394,7 +394,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
                 bpin = true; // interior crease meets the rim
               }
             }
-            ec = m.e.disk[ec][side * 2 + 1];
+            ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
           } while (ec != eb && ++guard < 256);
         }
         if (nbnd > 0) {
@@ -443,7 +443,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
         int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
         ring.append(m.v.co[ov]);
         int side = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = m.e.disk[ec][side * 2 + 1];
+        ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
       } while (ec != e0 && ++guard < 256);
       int k = int(ring.size());
       if (k < 3) {
@@ -554,7 +554,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
           int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
           ringv.append(ov);
           int side = m.e.vs[ec][0] == v ? 0 : 1;
-          ec = m.e.disk[ec][side * 2 + 1];
+          ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
         } while (ec != e0 && ++guard < 256);
         int k = int(ringv.size());
         if (k < 3) {
@@ -674,7 +674,7 @@ struct AnchorCtx {
               break;
             }
             int side = m.e.vs[ec][0] == v ? 0 : 1;
-            ec = m.e.disk[ec][side * 2 + 1];
+            ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
           } while (ec != e0 && ++guard < 256);
         }
       }

@@ -147,7 +147,7 @@ void computeCurvature(Mesh &m, const CurvatureParams &params)
           }
         }
         int side = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = m.e.disk[ec][side * 2 + 1];
+        ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
       } while (ec != e0);
     }
 
@@ -183,7 +183,7 @@ void computeCurvature(Mesh &m, const CurvatureParams &params)
           }
           cnt++;
           int side = m.e.vs[ec][0] == v ? 0 : 1;
-          ec = m.e.disk[ec][side * 2 + 1];
+          ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
         } while (ec != e0);
       }
       if (cnt > 0) {

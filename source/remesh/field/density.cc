@@ -118,7 +118,7 @@ void limitDensityGradation(Mesh &m, float target_edge_length, float gradation,
         }
       }
       int side = m.e.vs[ec][0] == v ? 0 : 1;
-      ec = m.e.disk[ec][side * 2 + 1];
+      ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
     } while (ec != e0);
   }
 

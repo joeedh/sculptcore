@@ -206,8 +206,8 @@ void FrozenTopo::rebuildLinks(Mesh &m)
       int eprev = vert_edges[a + (i - 1 + n) % n];
       int enext = vert_edges[a + (i + 1) % n];
       int side = (m.e.vs[e][0] == v) ? 0 : 1;
-      m.e.disk[e][side * 2] = eprev;
-      m.e.disk[e][side * 2 + 1] = enext;
+      m.e.disk[e][side * 2] = diskPack(eprev, (m.e.vs[eprev][0] == v) ? 0 : 1);
+      m.e.disk[e][side * 2 + 1] = diskPack(enext, (m.e.vs[enext][0] == v) ? 0 : 1);
     }
   }
 

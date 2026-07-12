@@ -133,7 +133,7 @@ static inline SurfaceWalkResult walkClosestPoint(Mesh &m,
               rc = m.c.radial_next[rc];
             } while (rc != c1 && ++rguard < 64);
           }
-          ec = m.e.disk[ec][side * 2 + 1];
+          ec = diskEdge(m.e.disk[ec][side * 2 + 1]);
         } while (ec != e0 && ++guard < 256);
       }
       cc = m.c.next[cc];

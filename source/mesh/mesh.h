@@ -949,12 +949,13 @@ private:
       }
     }
     int side1 = edge_side(e1, v1);
+    int self = diskPack(e1, side1);
 
     if (v.e[v1] == ELEM_NONE) {
       v.e[v1] = e1;
 
-      e.disk[e1][side1 * 2] = e1;
-      e.disk[e1][side1 * 2 + 1] = e1;
+      e.disk[e1][side1 * 2] = self;
+      e.disk[e1][side1 * 2 + 1] = self;
 
       return;
     }
@@ -962,15 +963,16 @@ private:
     int e2 = v.e[v1];
     int side2 = edge_side(e2, v1);
 
-    int prev = e.disk[e2][side2 * 2];
-    int side3 = edge_side(prev, v1);
+    /* Tail's encoded link replaces the old edge_side(prev, v1) vs load. */
+    int prevLink = e.disk[e2][side2 * 2];
+    int prev = diskEdge(prevLink), side3 = diskSide(prevLink);
 
-    e.disk[e2][side2 * 2] = e1; /* e2.prev */
+    e.disk[e2][side2 * 2] = self; /* e2.prev */
 
-    e.disk[e1][side1 * 2] = prev;   /* e1.prev */
-    e.disk[e1][side1 * 2 + 1] = e2; /* e1.next */
+    e.disk[e1][side1 * 2] = prevLink;                /* e1.prev */
+    e.disk[e1][side1 * 2 + 1] = diskPack(e2, side2); /* e1.next */
 
-    e.disk[prev][side3 * 2 + 1] = e1; /* prev.next */
+    e.disk[prev][side3 * 2 + 1] = self; /* prev.next */
   }
 
   void disk_remove(int e1, int v1)
@@ -984,14 +986,15 @@ private:
     }
     int side1 = edge_side(e1, v1);
 
-    int prev = e.disk[e1][side1 * 2];
-    int next = e.disk[e1][side1 * 2 + 1];
+    int prevLink = e.disk[e1][side1 * 2];
+    int nextLink = e.disk[e1][side1 * 2 + 1];
 
-    int sidep = edge_side(prev, v1);
-    int siden = edge_side(next, v1);
+    /* Embedded sides replace the old edge_side(prev/next, v1) vs loads. */
+    int prev = diskEdge(prevLink), sidep = diskSide(prevLink);
+    int next = diskEdge(nextLink), siden = diskSide(nextLink);
 
-    e.disk[prev][sidep * 2 + 1] = next; /* prev->next */
-    e.disk[next][siden * 2] = prev;     /* next->prev */
+    e.disk[prev][sidep * 2 + 1] = nextLink; /* prev->next */
+    e.disk[next][siden * 2] = prevLink;     /* next->prev */
 
     if (e1 == v.e[v1]) {
       v.e[v1] = next;
