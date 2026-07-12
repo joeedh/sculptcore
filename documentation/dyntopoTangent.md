@@ -3,7 +3,8 @@
 Notes from a design discussion (2026-07-03) about compressing the mesh's
 topology link columns to speed up dyntopo. No code changes; this records the
 analysis, the one parity-safe migration insight, and the recommended probe
-order for whenever this is picked up.
+order for whenever this is picked up. (Corrected 2026-07-12 against the code:
+the flip-criterion motivation, the drop-prev claim, and rung 1's locality.)
 
 ## Corner next/prev → sentinel bits (evaluated, not recommended for dyntopo)
 
@@ -36,15 +37,34 @@ Verdict: real as a file-size/peak-memory lever; wrong lever for dyntopo.
 `e.vs` (8 B) just to pick the side, then one link (pulls a 16 B line):
 ~12–24 B per step, all dependent loads (latency-bound chase).
 
-1. **Side-bit embed (free, do anytime)**: steal bit 0 of each link —
-   `next = link >> 1, side = link & 1`. Removes the `e.vs` read + compare
-   from the direction logic; `vs` is then read only for the payload, and
-   exactly the needed half (`vs[e][side^1]`). Local to mesh_iter.h/mesh.cc.
-2. **Drop prev (2×)**: only `disk_remove` needs it; find prev by walking the
-   cycle (O(valence) ≈ 6) on a kill path already doing radial surgery.
-3. **Relative int16 links (4×)**: `alloc_near` + locality reorder keep
-   neighbors close in id space; int16 deltas with a sentinel escaping to an
-   overflow map. Thinner stream, still a pointer chase.
+1. **Side-bit embed (cheap, do anytime)**: steal bit 0 of each link —
+   `next = link >> 1, side = link & 1`. Takes the `e.vs` load off the
+   dependent address chain in `EdgeOfVertIter::operator++`; `vs` is then
+   read only for the payload (a leaf load, ILP-friendly), and exactly the
+   needed half (`vs[e][side^1]`). Not purely iterator-local, though: it's an
+   encoding change to a meshlog-persisted TOPO column — `disk_insert` /
+   `disk_remove` (mesh.h) write encoded links, and `mesh_serialize`'s
+   `topoTarget` remap and `validateAndRepair`'s disk rebuild must know the
+   encoding (rung 4's serialize/meshlog caveats in miniature). Live cycle
+   links are never `ELEM_NONE` (singletons self-link), so bit 0 is safe
+   in-cycle; dead-slot/NONE encoding needs a convention.
+2. **Drop prev (2×)**: `disk_remove` needs prev, but so does `disk_insert` —
+   it reads the head's prev (mesh.h `disk_insert`) to find the cycle tail
+   O(1) for the append. Dropping prev makes *insertion* O(valence) too, and
+   insertion is on the split path dyntopo hammers hardest — not just a kill
+   path already doing radial surgery. Possible repair: point `v.e` at the
+   tail instead of the head (head = `tail.next`, one extra hop at iteration
+   start; insert stays O(1); tail-removal becomes the walking case,
+   symmetric with remove) — but that changes head semantics and needs its
+   own iteration-order parity check.
+3. **Relative int16 links (4×) — probably skip**: `alloc_near` + locality
+   reorder keep neighbors close in id space; int16 deltas with a sentinel
+   escaping to an overflow map. Thinner stream, but it keeps the dependent
+   chase that is the actual problem, carries rung-4-scale migration costs
+   (meshlog's fixed-width column assumption breaks harder — 4 B → 2 B plus
+   an escape map; compaction remaps invalidate deltas wholesale), and the
+   overflow-map hash lookup sits on the hot path while long strokes drift
+   id locality. Dominated by rung 4 on every axis except diff size.
 4. **Slack CSR / per-vertex slabs (the real change)**: `v.e` → (offset,
    count) into pooled power-of-two slabs; insert = append, walk = sequential
    4 B/step scan (prefetchable, no dependent loads). Optionally a parallel
@@ -58,9 +78,13 @@ Dyntopo is triangle-only, hammers disk *mutation* as hard as walking, and its
 prior perf pass rejected "big levers" precisely because they changed
 iteration order (parity/determinism). Per op:
 
-- **Flip criterion (B-K valence rule)**: 4 valences per candidate edge =
-  4 full disk walks (~24 dependent 16 B loads) today, per candidate, per
-  round — and it only needs a *count*.
+- **Disk walks in the hot paths**: note the shipped flip criterion is
+  length + convexity (`flipShortens`, dyntopo.h — positions + radial walks),
+  *not* the B-K valence rule, which dyntopo rejected ("can create work") —
+  so there is no 4-valence count in the flip loop to memoize. The disk
+  walks that matter are the ~nine `EdgeOfVertIter` sites in dyntopo.h
+  (collapse guards, boundary checks, `smoothTangent` ring gathers) — each
+  step today is the dependent `vs` + `disk` chase described above.
 - **Unlink** (`disk_remove`): RMWs the prev and next edges' int4s — ~3 random
   dirty cachelines. A slab shift-remove touches 1–2 sequential lines: equal
   or better.
@@ -72,7 +96,9 @@ next. A slab with append-at-tail + shift-remove (memmove ≤ a cacheline at
 valence 6) reproduces the *identical* `e_of_v` sequence, head-removal case
 included. So the representation change need not alter any iteration-order-
 dependent result — the determinism blocker that killed previous reordering
-levers does not apply.
+levers does not apply. Audit item: everything that establishes disk order
+*outside* `disk_insert`/`disk_remove` — `validateAndRepair`'s wholesale disk
+rebuild, `swap_elems`, mesh load — must be sequence-equivalent too.
 
 **What it won't move**: attribute interpolation, meshlog callbacks, spatial
 tree (~22%). The old profile's "apply/flip ~87%" bundles attr interp and
@@ -80,13 +106,16 @@ callbacks with the topo splices — the disk share inside it is unmeasured.
 
 ## Recommended order
 
-1. **Valence attribute probe** (u8/u16 per vert, ±1 in
-   `disk_insert`/`disk_remove`): no structural change, directly captures the
-   flip-criterion win. If `bench_dyntopo` moves, the disk structure is
-   load-bearing and step 3 is justified.
-2. **Measure the disk share** inside apply/flip with throwaway
+1. **Measure the disk share** inside apply/flip with throwaway
    `--profile`-gated counters (the established scaffolding pattern; rip out
-   after).
+   after). This comes first: the valence probe's original justification
+   assumed the B-K flip rule, which shipped dyntopo doesn't use — measure
+   before assuming the walks are where the time goes.
+2. **Valence attribute probe** (u8/u16 per vert, ±1 in
+   `disk_insert`/`disk_remove`): no structural change; worth running only if
+   step 1 shows walk-bound sites that need just a *count* (collapse guards) —
+   it does not touch the flip loop. If `bench_dyntopo` moves, the disk
+   structure is load-bearing and step 3 is justified.
 3. **Slab migration** with the order-preserving semantics above. The real
    engineering is meshlog (fixed-width TOPO column assumption — the
    `LogChunkTypes::External` chunk seam is the right hook) and
