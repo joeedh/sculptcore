@@ -82,7 +82,7 @@ static void sharp(CommandCtx<TYPES> &ctx)
     float3 t = (d - (ctx.surfaceNo * (d).dot(ctx.surfaceNo)));
     float tlen = (t).length();
     if ((tlen > 0.0001f)) {
-      float f = (s * ctx.brush.pinch);
+      float f = (std::abs(s) * ctx.brush.pinch);
       if ((f > 0.90000000000000002f)) {
         f = 0.90000000000000002f;
       }

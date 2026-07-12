@@ -1,4 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {FalloffKind} from '../gpu/FalloffKind'
+import type {FalloffShape} from '../gpu/FalloffShape'
 import type {float3} from '../../litestl/math/float3'
 import type {StructProp} from '../props/StructProp'
 import type {float4} from '../../litestl/math/float4'
@@ -21,6 +23,9 @@ type double = number
 
 export interface Brush {
   [Symbol.dispose](): void
+  falloffCurveSize: float
+  falloff_shape: FalloffShape
+  falloff_kind: FalloffKind
   strength: float
   radius: float
   spacing: float
@@ -44,10 +49,9 @@ export interface Brush {
   activeGroup: int32
   brushColor: float4
   props: StructProp
+  setFalloffCurveEntry(i: int32, f: float): void
   loadProps(): void
   writeProps(): void
-  setFalloffShape(shape: int32): void
-  setFalloffKind(kind: int32): void
   pushDeviceInput(type: int32, value: float): void
   clearDeviceInputs(): void
   clearPropDynamics(propId: int32): void
