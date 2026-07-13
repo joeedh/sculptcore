@@ -13,7 +13,6 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/attribute_builtin.h"
-#include "mesh/disk_prof.h" // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
 #include "mesh/mesh_serialize.h"
 #include "mesh/mesh_shapes.h"
 #include "mesh/utils/closest_point.h"
@@ -2177,21 +2176,10 @@ bool execVerb(Scene &scene,
       }
     }
     scene.mesh->thawTopo();
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324) — time
-    // spatial callback bodies and isolate this single dab's counters.
-    mesh::MeshCallbacks *benchCb =
-        useSpatial ? scene.tree->getSpatialCallbacks() : nullptr;
-    mesh::MeshCallbacks benchCbTimed;
-    if (benchCb && mesh::diskprof::get().enabled) {
-      benchCbTimed = mesh::diskprof::wrapTimed(*benchCb, mesh::diskprof::B_CB_SPATIAL);
-      benchCb = &benchCbTimed;
-    }
-    if (mesh::diskprof::get().enabled) {
-      mesh::diskprof::get().reset();
-    }
     auto t1 = std::chrono::steady_clock::now();
     dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
-        *scene.mesh, center, radius, scene.dyntopoParams, 7u, benchCb,
+        *scene.mesh, center, radius, scene.dyntopoParams, 7u,
+        useSpatial ? scene.tree->getSpatialCallbacks() : nullptr,
         litestl::util::span<const int>(seedVerts.data(), seedVerts.size()));
     double ops_ms = std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - t1)
@@ -2261,8 +2249,6 @@ bool execVerb(Scene &scene,
                 (st.capped && !st.budget_hit) ? " CAPPED" : "", rebuild_ms, ops_ms,
                 update_ms, dab_ms, dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-    mesh::diskprof::get().print("bench_dyntopo dab");
     return true;
   }
 

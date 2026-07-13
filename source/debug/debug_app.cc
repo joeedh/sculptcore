@@ -4,9 +4,6 @@
 #include "script.h"
 #include "ui.h"
 
-// CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-#include "mesh/disk_prof.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -112,8 +109,6 @@ int main(int argc, char **argv)
     Scene scene(width, height, headless);
     scene.meshLog.setMaxUndoSteps(maxUndo);
     scene.profiler.enabled = profile;
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-    sculptcore::mesh::diskprof::get().enabled = profile;
     scene.reorderOnBuild = reorder;
 
     if (backendArg) {
@@ -192,8 +187,6 @@ int main(int argc, char **argv)
     }
 
     scene.profiler.printSummary();
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-    sculptcore::mesh::diskprof::get().print("session");
   }
 
   if (litestl::alloc::getMemorySize() > 0) {

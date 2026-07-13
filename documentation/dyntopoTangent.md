@@ -1,10 +1,38 @@
 # Dyntopo topology-bandwidth tangent — disk links, corner links, valence
 
 Notes from a design discussion (2026-07-03) about compressing the mesh's
-topology link columns to speed up dyntopo. No code changes; this records the
-analysis, the one parity-safe migration insight, and the recommended probe
-order for whenever this is picked up. (Corrected 2026-07-12 against the code:
-the flip-criterion motivation, the drop-prev claim, and rung 1's locality.)
+topology link columns to speed up dyntopo. (Corrected 2026-07-12 against the
+code: the flip-criterion motivation, the drop-prev claim, and rung 1's
+locality.)
+
+**2026-07-12 — MEASURED AND RESOLVED** (plan
+[`plans/2026-07-12-1324-dyntopo-disk-bandwidth.md`](plans/2026-07-12-1324-dyntopo-disk-bandwidth.md),
+full tables in its progress log):
+
+- The disk share was measured (the plan's M0): pure `e_of_v` walk ≈ 22% of
+  the remesh `ops` time on the per-dab workloads, splice-bearing buckets
+  ≈ 29%, meshlog callbacks ≈ 36–38% (the single largest cost, untouched by
+  anything below).
+- **Rung 1 (side-bit embed) SHIPPED**: links store `(edge << 1) | side`
+  (`diskPack`, `mesh_types.h`); the iterator rides the embedded side and
+  `disk_insert`/`disk_remove` lost their `edge_side(prev/next)` loads. Bench
+  ops −6.1%, perdab wall −5.6%, bit-identical parity; mesh format v4 with an
+  order-preserving v3→v4 migration.
+- **Rung 4 (per-vertex slabs) BUILT AND REJECTED**: implemented in full
+  (arena + head-cache `v.e`, meshlog span log, serialize v5, exact 200-dab
+  counter parity, −20% disk-storage memory) but measured **+4% / +6%
+  slower** on perdab / perdab_big vs rung 1 — far from the ≥10%-better ship
+  bar. Root cause: with `alloc_near` clustering a ring's edges, the int4
+  cycle links of a vertex's ring already sit in 1–2 cachelines at 480k–805k
+  scale, so the dependent chase is L1/L2-resident, not latency-bound — the
+  premise below over-modeled the miss cost. The slab's sequential scan buys
+  nothing while its per-op costs (O(valence) removes, iterator setup, span
+  captures) show up everywhere. The complete implementation is preserved on
+  branch `dyntopo-disk-slab-rejected` should a genuinely out-of-cache
+  profile (≫5M, cold regions) ever revive it.
+- **Where the time actually is**: the meshlog callback path. Batching or
+  thinning per-splice meshlog captures is the next real lever, not the disk
+  representation.
 
 ## Corner next/prev → sentinel bits (evaluated, not recommended for dyntopo)
 

@@ -7,7 +7,10 @@ Every milestone is gated on measurement: no representation change ships
 without an A/B showing it pays, and no expensive milestone starts before the
 cheap measurements prove the disk structure is load-bearing.
 
-Status: **not started**.
+Status: **COMPLETE** (2026-07-12). M1 shipped (−6% ops); M2 skipped by its
+own entry condition; M4 slab built, measured, and reverted at its gate
+(preserved on `dyntopo-disk-slab-rejected`); scaffolding ripped. See the
+progress log and the resolution banner in `dyntopoTangent.md`.
 
 ## Background (one paragraph)
 
@@ -343,3 +346,74 @@ A/B (same-session interleaved, medians):
   — representation, sequence-equivalence audit, meshlog span-log design,
   serialize v5, memory budget (−21%), ship bar, and 4 open questions.
   **Awaiting user review/approval (G3) before M4 starts.**
+
+### 2026-07-12 — G3 approved; M4 built, measured, and **REVERTED** at the gate
+
+G3 was approved (unencoded-id v5 stream, v1 freeze scope). M4 was implemented
+in full and passed every correctness gate before failing the perf gate:
+
+- Stage 1 parity harness (`test_disk_slab_parity`): slab vs a verbatim
+  cycle-splice reference — byte-identical sequences over directed cases +
+  32k randomized insert/remove/collapse-merge ops.
+- Core switch kept `v.e` as the head cache (144 call sites untouched),
+  deleted `e.disk` (16 B/edge), walked slabs via the iterator; meshlog got a
+  per-chunk **span log** (sequences, not offsets — undo/redo rebuild slabs);
+  serialize went to v5 with a vert-disk stream + v4→v5 migration. A latent
+  ordering wart was fixed on the way: endpoint `onVertChange` now fired
+  *before* the splice (mirroring the pre-mutation edge snapshots), which the
+  span log needs and row capture silently tolerated.
+- Gates passed: full ctest (same 4 pre-existing env failures), undo suites +
+  fidelity scripts, **exact 200-dab counter parity** (250,252,767 `e_of_v`
+  steps), v3/v4→v5 migration `problems=0`, `.wproj` save/load through the
+  NW.js native-backend harness, memory **−20%** (9.55 MB vs 12.0 MB of disk
+  storage at 747k edges, after raising `kMinClass` to 8 entries — class-4
+  blocks stranded a freed block per interior vert and measured **+10%**).
+
+**A/B (same-session interleaved, M1 leg vs slab leg):**
+
+| workload | M1 | slab | delta |
+|---|---|---|---|
+| bench_single ops_ms (7 pairs, median) | 68.4 | 65.4 | −4.3% |
+| perdab wall s (2 pairs) | 48.5 / 47.5 | 50.2 / 49.5 | **+4%** |
+| perdab_big wall s (1 pair) | 101.6 | 108.0 | **+6%** |
+
+**Why it lost** (profiled slab perdab vs M1 perdab, shares of ops):
+scan_walk got *slower* (+11% self-time at identical step counts) — with
+`alloc_near` clustering a vertex's ring edges, the int4 cycle links of a
+ring already sit in 1–2 cachelines, so the dependent chase is largely
+L1/L2-resident at 480k–805k and was **not** latency-bound; the slab's
+sequential scan buys nothing there while paying iterator setup (slot +
+arena-base loads per ring) 22.4M times/200 dabs. Splices went from O(1)
+link RMWs to O(valence) scans (`split(self)` +7%), and the meshlog span
+log added ~9.5M callback invocations (+4% cb_meshlog). The subdivide-only,
+meshlog-free bench still won −4.3% — the win exists but is swamped by the
+slab's per-op overheads on real strokes.
+
+**Decision (per the M4 rule: ship only if ≥ ~10% better):** REVERTED. The
+branch tip is reset to M1 + the M3 doc; the complete, gate-green slab
+implementation is preserved on branch **`dyntopo-disk-slab-rejected`**
+(commit 90eb763) with the parity harness, in case a future 5M+/out-of-cache
+profile changes the calculus. The durable lesson for dyntopoTangent.md:
+after M1, the disk representation is *not* the lever — the meshlog callback
+path (~36–38% of ops, unchanged by any of this) is.
+
+### 2026-07-12 — M5 cleanup: PLAN COMPLETE
+
+- All `[disk-prof]` scaffolding ripped (`disk_prof.h` + every CLAUDENOTE call
+  site), plus the pre-existing dead `splitEdgeTime`/`flipTime` accumulators
+  and commented print in `runDyntopoRemesh`'s hot loop.
+- Kept (permanent): the M1 encoding + its doc comments, the
+  `dyntopo_bench_single.txt` workload, the `save_mesh`/`load_mesh` debug
+  verbs (+ debugApp.md rows), and the strengthened side-bit checks in
+  `validateAndRepair`/`checkTopology`.
+- `dyntopoTangent.md` got a resolution banner (measured shares, rung 1
+  shipped, rung 4 rejected + why); `dynamic-topology.md` notes the encoding.
+- Final gates: bench parity still `splits=8889 flips=10832 rounds=9`; full
+  ctest 92/96 with only the 4 pre-existing environmental failures
+  (`test_debug_script`, `test_live_stroke`/`test_bsmooth` [WGSL backend not
+  configured in this worktree], `test_dyntopo_multistep_gpu` [passes
+  standalone]); parent `pnpm test` run before the final commit.
+
+**Net result of the plan**: dyntopo ops ~6% faster (M1, shipped), the disk
+question measured and closed, and the top cost identified for a future plan:
+meshlog callback batching (~36–38% of ops).

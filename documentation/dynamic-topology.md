@@ -494,8 +494,10 @@ tool. Everything below is about getting most of its benefit *incrementally*.
 Relocating element `x → x'` requires rewriting **every index that points at `x`**.
 Those indices live in a dense web:
 
-- **TOPO links** — `vert.e`, `edge.vs[2]`, `edge.disk[4]`, `corner.{v,next,prev,
-  radial_next,radial_prev,l}`, `list.f`, `face.l`.
+- **TOPO links** — `vert.e`, `edge.vs[2]`, `edge.disk[4]` (side-bit encoded:
+  `(edge << 1) | side`, see `diskPack` in `mesh_types.h` and
+  `dyntopoTangent.md`), `corner.{v,next,prev,radial_next,radial_prev,l}`,
+  `list.f`, `face.l`.
 - **Spatial ownership** — each leaf's `unique_verts/faces`
   `OrderedSet`s hold element indices (the `.spatial.*.node` attrs hold **node
   ids**, not element indices, so they are *immune* to element moves — a useful

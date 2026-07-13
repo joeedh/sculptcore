@@ -141,13 +141,6 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
 
         faceSnaps.append(std::move(fs));
       }
-      // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-      {
-        auto &dp = diskprof::get();
-        if (dp.enabled) {
-          dp.radial_steps++;
-        }
-      }
       cc = m.c.radial_next[cc];
     } while (cc != c0);
   }

@@ -1,7 +1,7 @@
 # Per-dab dyntopo profiling workload (plan: 2026-07-09-1054-parallel-deferred-split-and-regen-gpu.md).
 # 480k-tri cube, 200 draw dabs, one tree->update() per dab (one stroke verb = one dab).
 # Run: build/native/source/debug/debug_app.exe --script tests/scripts/<this file>
-# The [spatial-prof] breakdown prints at process exit.
+# (The old [spatial-prof] exit breakdown was removed with the 5M perf-pass scaffolding.)
 make_cube subdivs=201 size=1.0
 triangulate
 build_spatial leaf_limit=256 depth_limit=22

@@ -345,8 +345,6 @@ inline void lockSplit(mesh::Mesh &m, int e, GenSet &locked)
 /* Lock the verts a collapse affects: the full one-ring of both endpoints. */
 inline void lockCollapse(mesh::Mesh &m, int e, GenSet &locked)
 {
-  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-  mesh::diskprof::ProfTimer dpt_(mesh::diskprof::B_GUARD);
   for (int side = 0; side < 2; side++) {
     int v = m.e.vs[e][side];
     locked.add(v);
@@ -371,8 +369,6 @@ inline bool splitFree(mesh::Mesh &m, int e, const GenSet &locked)
 
 inline bool collapseFree(mesh::Mesh &m, int e, const GenSet &locked)
 {
-  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-  mesh::diskprof::ProfTimer dpt_(mesh::diskprof::B_GUARD);
   for (int side = 0; side < 2; side++) {
     int v = m.e.vs[e][side];
     if (locked.contains(v)) {
@@ -425,13 +421,6 @@ inline bool flipQuad(mesh::Mesh &m, int e, int &a, int &b, int &c, int &d)
       d = apex;
     }
     nfaces++;
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-    {
-      auto &dp = mesh::diskprof::get();
-      if (dp.enabled) {
-        dp.radial_steps++;
-      }
-    }
     cc = m.c.radial_next[cc];
   } while (cc != c0);
   return nfaces == 2 && c != ELEM_NONE && d != ELEM_NONE && c != d;
@@ -471,8 +460,6 @@ inline bool flipShortens(mesh::Mesh &m, int a, int b, int c, int d)
  * triangle can't fold. Reads positions only — caller writes simultaneously. */
 inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::float3 &out)
 {
-  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-  mesh::diskprof::ProfTimer dpt_(mesh::diskprof::B_SMOOTH_GATHER);
   using litestl::math::float3;
   int e0 = m.v.e[v];
   if (e0 == ELEM_NONE) {
@@ -510,13 +497,6 @@ inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::flo
       cAccum += (A + B + C) * (area * (1.0f / 3.0f));
       areaSum += area;
       nf++;
-      // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-      {
-        auto &dp = mesh::diskprof::get();
-        if (dp.enabled) {
-          dp.radial_steps++;
-        }
-      }
       c = m.c.radial_next[c];
     } while (c != cc);
     if (nf != 2) {
@@ -605,8 +585,6 @@ struct FeatureViews {
     {
       return false;
     }
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-    mesh::diskprof::ProfTimer dpt_(mesh::diskprof::B_FEATURE);
     for (int e : mesh::EdgeOfVertIter(m, v, m->v.e[v])) {
       if (edgeMask(e) != 0) {
         return true;
@@ -632,8 +610,6 @@ inline bool featureCollapseOk(mesh::Mesh &m,
   if (em == 0) {
     return false;
   }
-  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-  mesh::diskprof::ProfTimer dpt_(mesh::diskprof::B_FEATURE);
   const float corner_dot = corner_angle > 0.0f ? -std::cos(corner_angle) : 2.0f;
   for (int side = 0; side < 2; side++) {
     int v = m.e.vs[e][side];
@@ -691,15 +667,6 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
   using namespace litestl;
   using namespace litestl::util;
 
-  // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-  namespace diskprof = mesh::diskprof;
-  diskprof::ProfTimer dpt_ops_(diskprof::B_OPS);
-  if (diskprof::get().enabled) {
-    diskprof::get().dabs++;
-  }
-
-  uint64_t splitEdgeTime = 0, flipTime = 0, collapseTime = 0;
-
   const bool doSplit = p.mode == DynTopoMode::Subdivide || p.mode == DynTopoMode::Both;
   const bool doCollapse = p.mode == DynTopoMode::Collapse || p.mode == DynTopoMode::Both;
   const float r2 = radius * radius;
@@ -751,8 +718,6 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
    * Skipped wholesale when the mesh is known all-triangle (n_ngon_faces == 0),
    * the common dyntopo case (dyntopo never creates n-gons). */
   if (m.n_ngon_faces != 0) {
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-    diskprof::ProfTimer dpt_(diskprof::B_TRI_PASS);
     Set<int> triFaces;
     auto considerFaceTri = [&](int f) {
       if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] || m.f.list_count[f] != 1) {
@@ -894,30 +859,24 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
       if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
         return;
       }
-      // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-      diskprof::ProfTimer dpt_(diskprof::B_SCAN_WALK);
       for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
         consider(e);
       }
     };
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-    {
-      diskprof::ProfTimer dpt_scan_(diskprof::B_SCAN);
-      if (firstRound) {
-        if (seedVerts.size() > 0) {
-          for (int v : seedVerts) {
-            considerVertEdges(v); /* round 0, seeded: local to the brush */
-          }
-        } else {
-          for (int e : m.e) {
-            consider(e); /* round 0, unseeded: one full-mesh scan */
-          }
+    if (firstRound) {
+      if (seedVerts.size() > 0) {
+        for (int v : seedVerts) {
+          considerVertEdges(v); /* round 0, seeded: local to the brush */
         }
-        firstRound = false;
       } else {
-        for (int v : frontier) {
-          considerVertEdges(v);
+        for (int e : m.e) {
+          consider(e); /* round 0, unseeded: one full-mesh scan */
         }
+      }
+      firstRound = false;
+    } else {
+      for (int v : frontier) {
+        considerVertEdges(v);
       }
     }
     if (cands.isEmpty()) {
@@ -946,22 +905,18 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
     detail::GenSet &locked = detail::misLockedSet();
     picked.clear();
     locked.reset(int(m.v.capacity()));
-    {
-      // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-      diskprof::ProfTimer dpt_mis_(diskprof::B_MIS);
-      for (const Cand &c : cands) {
-        bool free = c.split ? detail::splitFree(m, c.edge, locked)
-                            : detail::collapseFree(m, c.edge, locked);
-        if (!free) {
-          continue;
-        }
-        if (c.split) {
-          detail::lockSplit(m, c.edge, locked);
-        } else {
-          detail::lockCollapse(m, c.edge, locked);
-        }
-        picked.append(c);
+    for (const Cand &c : cands) {
+      bool free = c.split ? detail::splitFree(m, c.edge, locked)
+                          : detail::collapseFree(m, c.edge, locked);
+      if (!free) {
+        continue;
       }
+      if (c.split) {
+        detail::lockSplit(m, c.edge, locked);
+      } else {
+        detail::lockCollapse(m, c.edge, locked);
+      }
+      picked.append(c);
     }
 
     /* 4. Apply the independent set. Edits are non-interfering, so a stale
@@ -999,11 +954,7 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
       }
       if (c.split) {
         mesh::EdgeSplitResult res;
-        // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-        diskprof::ProfTimer dpt_split_(diskprof::B_SPLIT);
-        uint64_t start = litestl::time::now_ns();
         if (mesh::splitEdge(m, c.edge, &res, cb)) {
-          splitEdgeTime += (litestl::time::now_ns() - start);
           stats.splits++;
           applied++;
           addCreated(res.created_edges);
@@ -1013,8 +964,6 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
           }
         }
       } else {
-        // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-        diskprof::ProfTimer dpt_collapse_(diskprof::B_COLLAPSE);
         math::float3 mid = detail::edgeMid(m, c.edge);
         /* The survivor (e.vs[0]) moves to `mid`; shift its stroke-start snapshot
          * by the same delta so a non-accumulate brush keeps measuring from a
@@ -1045,35 +994,27 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
      *    one. Each helper re-validates, so a flip invalidating a later candidate
      *    is safe. Flipped apexes re-enter the frontier (their lengths changed). */
     if (p.do_flips) {
-      uint64_t start = litestl::time::now_ns();
       Vector<int, 32> flipCands;
       detail::GenSet &eseen = detail::flipSeenSet();
       eseen.reset(int(m.e.capacity()));
-      {
-        // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-        diskprof::ProfTimer dpt_fc_(diskprof::B_FLIP_COLLECT);
-        for (int v : touched) {
-          if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-              m.v.e[v] == ELEM_NONE)
-          {
+      for (int v : touched) {
+        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE)
+        {
+          continue;
+        }
+        for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+          if (m.e.freemap[e] || !eseen.add(e)) {
             continue;
           }
-          for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
-            if (m.e.freemap[e] || !eseen.add(e)) {
-              continue;
-            }
-            if ((detail::edgeMid(m, e) - center).lengthSqr() > r2) {
-              continue;
-            }
-            if (feat.isFeatureEdge(e)) {
-              continue; /* never flip a feature edge (would destroy the curve) */
-            }
-            flipCands.append(e);
+          if ((detail::edgeMid(m, e) - center).lengthSqr() > r2) {
+            continue;
           }
+          if (feat.isFeatureEdge(e)) {
+            continue; /* never flip a feature edge (would destroy the curve) */
+          }
+          flipCands.append(e);
         }
       }
-      // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-      diskprof::ProfTimer dpt_fa_(diskprof::B_FLIP_APPLY);
       for (int e : flipCands) {
         int a, b, cc, dd;
         if (!detail::flipQuad(m, e, a, b, cc, dd) ||
@@ -1087,7 +1028,6 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
           nextFrontier.add(dd);
         }
       }
-      flipTime += (litestl::time::now_ns() - start);
     }
 
     /* 6. Tangential smoothing (M7.4): relax the touched in-region verts toward
@@ -1099,8 +1039,6 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
      *    pre-smooth position for undo — otherwise a vert moved only by smoothing
      *    is never recorded and undo leaves it displaced. */
     if (p.do_smooth) {
-      // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
-      diskprof::ProfTimer dpt_smooth_(diskprof::B_SMOOTH);
       Vector<int, 32> sverts;
       Vector<math::float3, 32> spos;
       for (int v : nextFrontier) {
@@ -1183,9 +1121,6 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
     m.boundaryDirty = true;
   }
 
-  //sc_napi_logf("splitEdgeTime: %lfms (%d splits)\n",
-  //             double(splitEdgeTime) / (1000000.0),
-  //             stats.splits);
   return stats;
 }
 
