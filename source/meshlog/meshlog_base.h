@@ -83,6 +83,9 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include <cstdio>
 #include <utility>
 
+// CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141-meshlog-callback-batching)
+#include "cb_prof.h"
+
 namespace sculptcore::meshlog {
 using litestl::math::float3;
 using litestl::util::string;
@@ -655,8 +658,21 @@ struct LogChunkTopo : public LogChunk {
     // tear everything down.
   }
 
+  // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
+  void profOutcome(LogElemKind kind, int outcome)
+  {
+    cbprof::CbProf &cp = cbprof::get();
+    if (cp.enabled) {
+      cp.counts[int(kind)][outcome]++;
+      cp.last_kind = int(kind);
+      cp.last_outcome = outcome;
+    }
+  }
+
   void onCreate(LogElemKind kind, mesh::Mesh *m, int idx)
   {
+    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
+    profOutcome(kind, cbprof::O_CREATED);
     int64_t key = makeKey(kind, idx);
 
     // Defensive: stale mapping from a malformed prior sequence.
@@ -696,8 +712,13 @@ struct LogChunkTopo : public LogChunk {
       // Already a record for this element; nothing to do. Created records
       // snapshot at finalizeStep; Existed records already snapshotted on
       // first touch.
+      // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
+      profOutcome(kind, cbprof::O_NOOP);
       return;
     }
+
+    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
+    profOutcome(kind, cbprof::O_FIRST_TOUCH);
 
     // First touch of a previously-existing element — take begin-snapshot.
     LogElem *e = records_pool.alloc();
@@ -726,6 +747,8 @@ struct LogChunkTopo : public LogChunk {
 
     int existing_id;
     if (lookupId(key, existing_id)) {
+      // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
+      profOutcome(kind, cbprof::O_KILL_REC);
       LogElem *e = by_log_id.lookup(existing_id);
 
       if (e->origin == LogOrigin::Created) {
@@ -748,6 +771,9 @@ struct LogChunkTopo : public LogChunk {
 #endif
       return;
     }
+
+    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
+    profOutcome(kind, cbprof::O_KILL_UNREC);
 
     // Killed without a prior change — snapshot now.
     LogElem *e = records_pool.alloc();
@@ -2230,9 +2256,25 @@ private:
 
   void installCallbacks()
   {
+    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141) — 1-in-64 sampled
+    // whole-body timing attributed to the outcome the chunk method reports via
+    // profOutcome, plus a separately sampled stampUndoGate cost.
     auto fwd = [this](LogElemKind kind) {
       return [this, kind](int idx) {
         if (!active_mesh_) {
+          return;
+        }
+        cbprof::CbProf &cp = cbprof::get();
+        if (cp.enabled && cp.sampleThisEvent()) {
+          auto t0 = cbprof::CbProf::Clock::now();
+          getTopoChunk()->onChange(kind, active_mesh_, idx);
+          auto t1 = cbprof::CbProf::Clock::now();
+          stampUndoGate(kind, idx);
+          auto t2 = cbprof::CbProf::Clock::now();
+          cp.sampled_ms[cp.last_outcome] += cbprof::CbProf::ms(t0, t2);
+          cp.sampled_n[cp.last_outcome]++;
+          cp.gate_sampled_ms += cbprof::CbProf::ms(t1, t2);
+          cp.gate_sampled_n++;
           return;
         }
         getTopoChunk()->onChange(kind, active_mesh_, idx);
@@ -2244,6 +2286,16 @@ private:
         if (!active_mesh_) {
           return;
         }
+        cbprof::CbProf &cp = cbprof::get();
+        if (cp.enabled && cp.sampleThisEvent()) {
+          auto t0 = cbprof::CbProf::Clock::now();
+          getTopoChunk()->onCreate(kind, active_mesh_, idx);
+          stampUndoGate(kind, idx);
+          cp.sampled_ms[cbprof::O_CREATED] +=
+              cbprof::CbProf::ms(t0, cbprof::CbProf::Clock::now());
+          cp.sampled_n[cbprof::O_CREATED]++;
+          return;
+        }
         getTopoChunk()->onCreate(kind, active_mesh_, idx);
         stampUndoGate(kind, idx);
       };
@@ -2251,6 +2303,15 @@ private:
     auto fwdKill = [this](LogElemKind kind) {
       return [this, kind](int idx) {
         if (!active_mesh_) {
+          return;
+        }
+        cbprof::CbProf &cp = cbprof::get();
+        if (cp.enabled && cp.sampleThisEvent()) {
+          auto t0 = cbprof::CbProf::Clock::now();
+          getTopoChunk()->onKill(kind, active_mesh_, idx);
+          cp.sampled_ms[cp.last_outcome] +=
+              cbprof::CbProf::ms(t0, cbprof::CbProf::Clock::now());
+          cp.sampled_n[cp.last_outcome]++;
           return;
         }
         getTopoChunk()->onKill(kind, active_mesh_, idx);

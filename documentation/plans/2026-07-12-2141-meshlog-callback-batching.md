@@ -194,3 +194,29 @@ Only if the re-measured callback share is still ≥ ~10% of ops and dispatch
 ## Progress log
 
 (append dated entries + measurement tables here as milestones run)
+
+### 2026-07-12 — M0 decomposition (`[cb-prof]`, `--profile`)
+
+Perdab (200 dabs, 77.66 M events = 388 k/dab; sampled means carry ~40–60 ns
+of timer overhead at this granularity — treat as rankings, the M1/M2 A/Bs
+are ground truth):
+
+| outcome | share of events | sampled mean | scaled est |
+|---|---|---|---|
+| noop | **65.5%** (50.9 M) | 0.081 µs | ~4.1 s |
+| first-touch | 8.5% | 0.715 µs | ~4.7 s |
+| created | 16.6% | 0.168 µs | ~2.2 s |
+| kill-rec / kill-unrec | 9.5% | 0.37 / 0.46 µs | ~2.9 s |
+| stampUndoGate (per vert/face event) | — | 0.023 µs | ~0.34 s |
+
+Outside (wrapped) meshlog total 13.5 s vs spatial 1.4 s. By kind, edges
+dominate (32.4 M events, 84% of them no-ops); verts are 85% no-ops. The
+collapse workload shows the same shape at 60% no-ops.
+
+**Gate G0**: the no-op path (dispatch + hash + redundant gate ≈ 80–110 ns
+× 50.9 M ≈ 4–5 s ≈ 30–35% of callback time ≈ **10–13% of ops**) is the
+biggest pure-overhead target → **M1 proceeds**. Estimated dispatch chain
+(outside minus de-inflated inside) lands ~15–25% → **M2 proceeds** as the
+cheap flatten. Capture itself (first-touch/created/kill bodies) is the
+majority of the *remainder* and is real work — re-measure after M1+M2
+before considering the G0 third branch.
