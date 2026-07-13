@@ -4,9 +4,6 @@
 #include "script.h"
 #include "ui.h"
 
-// CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141-meshlog-callback-batching)
-#include "meshlog/cb_prof.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -112,8 +109,6 @@ int main(int argc, char **argv)
     Scene scene(width, height, headless);
     scene.meshLog.setMaxUndoSteps(maxUndo);
     scene.profiler.enabled = profile;
-    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-    sculptcore::meshlog::cbprof::get().enabled = profile;
     scene.reorderOnBuild = reorder;
 
     if (backendArg) {
@@ -192,8 +187,6 @@ int main(int argc, char **argv)
     }
 
     scene.profiler.printSummary();
-    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-    sculptcore::meshlog::cbprof::get().print("session");
   }
 
   if (litestl::alloc::getMemorySize() > 0) {

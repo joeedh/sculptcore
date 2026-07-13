@@ -1232,21 +1232,6 @@ struct CommandExecutor {
     mesh::MeshCallbacks *cb = nullptr;
     mesh::MeshCallbacks *sp = tree->getSpatialCallbacks();
     mesh::MeshCallbacks *ml = meshLog ? meshLog->callbacks() : nullptr;
-    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141) — outside-of-
-    // dispatch totals per sink so std::function overhead falls out by
-    // subtraction from the sampled inside times.
-    mesh::MeshCallbacks mlTimed, spTimed;
-    if (meshlog::cbprof::get().enabled) {
-      meshlog::cbprof::get().dabs++;
-      if (ml) {
-        mlTimed = meshlog::cbprof::wrapTimed(*ml, 0);
-        ml = &mlTimed;
-      }
-      if (sp) {
-        spTimed = meshlog::cbprof::wrapTimed(*sp, 1);
-        sp = &spTimed;
-      }
-    }
     if (meshLog) {
       /* The topo-chunk callbacks no-op without an active mesh (Scene::
        * applyDynTopoDab does the same wiring on the debug-harness path). */

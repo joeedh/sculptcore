@@ -83,9 +83,6 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include <cstdio>
 #include <utility>
 
-// CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141-meshlog-callback-batching)
-#include "cb_prof.h"
-
 namespace sculptcore::meshlog {
 using litestl::math::float3;
 using litestl::util::string;
@@ -658,21 +655,8 @@ struct LogChunkTopo : public LogChunk {
     // tear everything down.
   }
 
-  // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-  void profOutcome(LogElemKind kind, int outcome)
-  {
-    cbprof::CbProf &cp = cbprof::get();
-    if (cp.enabled) {
-      cp.counts[int(kind)][outcome]++;
-      cp.last_kind = int(kind);
-      cp.last_outcome = outcome;
-    }
-  }
-
   void onCreate(LogElemKind kind, mesh::Mesh *m, int idx)
   {
-    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-    profOutcome(kind, cbprof::O_CREATED);
     int64_t key = makeKey(kind, idx);
 
     // Defensive: stale mapping from a malformed prior sequence.
@@ -712,13 +696,8 @@ struct LogChunkTopo : public LogChunk {
       // Already a record for this element; nothing to do. Created records
       // snapshot at finalizeStep; Existed records already snapshotted on
       // first touch.
-      // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-      profOutcome(kind, cbprof::O_NOOP);
       return;
     }
-
-    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-    profOutcome(kind, cbprof::O_FIRST_TOUCH);
 
     // First touch of a previously-existing element — take begin-snapshot.
     LogElem *e = records_pool.alloc();
@@ -747,8 +726,6 @@ struct LogChunkTopo : public LogChunk {
 
     int existing_id;
     if (lookupId(key, existing_id)) {
-      // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-      profOutcome(kind, cbprof::O_KILL_REC);
       LogElem *e = by_log_id.lookup(existing_id);
 
       if (e->origin == LogOrigin::Created) {
@@ -771,9 +748,6 @@ struct LogChunkTopo : public LogChunk {
 #endif
       return;
     }
-
-    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141)
-    profOutcome(kind, cbprof::O_KILL_UNREC);
 
     // Killed without a prior change — snapshot now.
     LogElem *e = records_pool.alloc();
@@ -1357,6 +1331,11 @@ struct MeshLog {
    *  so the topo chunk can snapshot pre-kill attributes by index. */
   void setActiveMesh(mesh::Mesh *m)
   {
+    if (m != active_mesh_) {
+      /* Stamps index the active mesh's element ids; a mesh switch makes them
+       * meaningless — invalidate wholesale. */
+      bumpChunkStampGen();
+    }
     active_mesh_ = m;
     // Bind the brush's save-gate columns up front (before any dab op fires a
     // callback) so stampUndoGate never allocs mid-stroke. See stampUndoGate.
@@ -1531,6 +1510,7 @@ struct MeshLog {
     curEntry().topo_chunk_ = litestl::alloc::New<LogChunkTopo>("LogChunkTopo");
     curEntry().hasTopoChunk = true;
     curEntry().chunks.append(curEntry().topo_chunk_);
+    bumpChunkStampGen();
   }
 
   /** Lazily allocates a topo chunk in the current entry. */
@@ -1633,6 +1613,8 @@ struct MeshLog {
     tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
     pushReorderStep(vmap, emap, cmap, lmap, fmap);
     tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
+    /* Element ids just moved; the recorded-in-chunk stamps are id-keyed. */
+    bumpChunkStampGen();
   }
 
   /** Stroke-boundary auto-compaction (mechanism B). MUST be called with the
@@ -1689,6 +1671,8 @@ struct MeshLog {
 
     tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap, moved[0], moved[1],
                                   moved[2], moved[3], moved[4]);
+    /* Element ids just moved; the recorded-in-chunk stamps are id-keyed. */
+    bumpChunkStampGen();
     return true;
   }
 
@@ -2254,30 +2238,69 @@ private:
     }
   }
 
+  /* Per-domain "already recorded in the current topo chunk" stamps — the
+   * no-op fast path (plan 2026-07-12-2141 M1). 65% of dab events re-touch an
+   * element the active chunk already recorded; a dense generation-stamp read
+   * answers that without the makeKey/hash lookup or the redundant undo-gate
+   * write. Stamps are set only by the slow path below (right after the chunk
+   * records the element), cleared by onKill (index reuse must re-record), and
+   * invalidated wholesale by a generation bump per new chunk / active-mesh
+   * switch — so a stale hit is impossible by construction. */
+  litestl::util::Vector<uint32_t> chunk_stamp_[5];
+  uint32_t chunk_stamp_gen_ = 1;
+
+  void bumpChunkStampGen()
+  {
+    if (++chunk_stamp_gen_ == 0) {
+      for (int k = 0; k < 5; k++) {
+        chunk_stamp_[k].clear();
+      }
+      chunk_stamp_gen_ = 1;
+    }
+  }
+
+  bool chunkStampHit(LogElemKind kind, int idx) const
+  {
+    const litestl::util::Vector<uint32_t> &s = chunk_stamp_[int(kind)];
+    return uint32_t(idx) < uint32_t(s.size()) && s[idx] == chunk_stamp_gen_;
+  }
+
+  void setChunkStamp(LogElemKind kind, int idx)
+  {
+    litestl::util::Vector<uint32_t> &s = chunk_stamp_[int(kind)];
+    if (uint32_t(idx) >= uint32_t(s.size())) {
+      litestl::alloc::PermanentGuard guard; /* persistent buffer: not a leak */
+      int old = int(s.size());
+      s.resize(idx + 1);
+      for (int i = old; i <= idx; i++) {
+        s[i] = 0;
+      }
+    }
+    s[idx] = chunk_stamp_gen_;
+  }
+
+  void clearChunkStamp(LogElemKind kind, int idx)
+  {
+    litestl::util::Vector<uint32_t> &s = chunk_stamp_[int(kind)];
+    if (uint32_t(idx) < uint32_t(s.size())) {
+      s[idx] = 0;
+    }
+  }
+
   void installCallbacks()
   {
-    // CLAUDENOTE: CB-M0 scaffolding (plan 2026-07-12-2141) — 1-in-64 sampled
-    // whole-body timing attributed to the outcome the chunk method reports via
-    // profOutcome, plus a separately sampled stampUndoGate cost.
     auto fwd = [this](LogElemKind kind) {
       return [this, kind](int idx) {
         if (!active_mesh_) {
           return;
         }
-        cbprof::CbProf &cp = cbprof::get();
-        if (cp.enabled && cp.sampleThisEvent()) {
-          auto t0 = cbprof::CbProf::Clock::now();
-          getTopoChunk()->onChange(kind, active_mesh_, idx);
-          auto t1 = cbprof::CbProf::Clock::now();
-          stampUndoGate(kind, idx);
-          auto t2 = cbprof::CbProf::Clock::now();
-          cp.sampled_ms[cp.last_outcome] += cbprof::CbProf::ms(t0, t2);
-          cp.sampled_n[cp.last_outcome]++;
-          cp.gate_sampled_ms += cbprof::CbProf::ms(t1, t2);
-          cp.gate_sampled_n++;
+        /* Fast path: element already recorded by the active chunk — nothing
+         * to capture, and its undo gate was stamped on first touch. */
+        if (chunkStampHit(kind, idx)) {
           return;
         }
         getTopoChunk()->onChange(kind, active_mesh_, idx);
+        setChunkStamp(kind, idx);
         stampUndoGate(kind, idx);
       };
     };
@@ -2286,17 +2309,8 @@ private:
         if (!active_mesh_) {
           return;
         }
-        cbprof::CbProf &cp = cbprof::get();
-        if (cp.enabled && cp.sampleThisEvent()) {
-          auto t0 = cbprof::CbProf::Clock::now();
-          getTopoChunk()->onCreate(kind, active_mesh_, idx);
-          stampUndoGate(kind, idx);
-          cp.sampled_ms[cbprof::O_CREATED] +=
-              cbprof::CbProf::ms(t0, cbprof::CbProf::Clock::now());
-          cp.sampled_n[cbprof::O_CREATED]++;
-          return;
-        }
         getTopoChunk()->onCreate(kind, active_mesh_, idx);
+        setChunkStamp(kind, idx);
         stampUndoGate(kind, idx);
       };
     };
@@ -2305,16 +2319,8 @@ private:
         if (!active_mesh_) {
           return;
         }
-        cbprof::CbProf &cp = cbprof::get();
-        if (cp.enabled && cp.sampleThisEvent()) {
-          auto t0 = cbprof::CbProf::Clock::now();
-          getTopoChunk()->onKill(kind, active_mesh_, idx);
-          cp.sampled_ms[cp.last_outcome] +=
-              cbprof::CbProf::ms(t0, cbprof::CbProf::Clock::now());
-          cp.sampled_n[cp.last_outcome]++;
-          return;
-        }
         getTopoChunk()->onKill(kind, active_mesh_, idx);
+        clearChunkStamp(kind, idx);
       };
     };
 

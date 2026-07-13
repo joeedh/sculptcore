@@ -8,7 +8,12 @@ gets captured or when. Successor to
 (branch `dyntopo-disk-bandwidth`), whose M0 profiling identified this as the
 real lever after the disk-representation ladder was measured out.
 
-Status: **not started**.
+Status: **COMPLETE** (2026-07-12). M1 (generation-stamped no-op fast path)
+shipped — ~3.5–4% on perdab_big, neutral-positive at 480k; M2/M3 skipped by
+measurement (their target pools cap below the noise threshold); the honest
+core finding: the earlier 36–38% callback-share figure was ~2× wrapper-
+inflated, and what remains after M1 is genuine capture work (row copies) —
+a future capture-design plan, not a dispatch problem. See the progress log.
 
 ## Background — the measured anatomy of one callback
 
@@ -220,3 +225,43 @@ biggest pure-overhead target → **M1 proceeds**. Estimated dispatch chain
 cheap flatten. Capture itself (first-touch/created/kill bodies) is the
 majority of the *remainder* and is real work — re-measure after M1+M2
 before considering the G0 third branch.
+
+### 2026-07-12 — M1 measured: KEPT; M2/M3 skipped by measurement; plan closed
+
+**M1 A/B** (same-session interleaved, M0-commit leg vs M1 leg, wall s):
+
+| workload | pairs (M0 → M1 deltas) | verdict |
+|---|---|---|
+| perdab (480k) | −3.6%, +0.7%, −1.8%, −0.3%, +1.5% (mean −0.7%) | noise |
+| perdab_big (805k) | **−3.5%, −4.1%** | clears the 3% bar |
+
+Gates: undo suites + both fidelity scripts pass; bench parity identical;
+the `[cb-prof]` event census is **identical to the digit** across legs
+(77,657,312 events) — same op sequence. **KEPT**: consistent, growing win
+on the larger mesh (bigger per-chunk hash maps make the dense stamp read
+worth more), zero regression anywhere, and the mechanism is ~60 lines.
+
+**Honest recalibration of M0's estimates** (what M1's ground truth taught):
+the sampled means carried ~40–60 ns of timer overhead per event — at 20–80 ns
+true event costs that inflated the no-op-path estimate ~3×, and the disk
+plan's `cb_meshlog ≈ 36–38%` outside totals were similarly wrapper-inflated
+(2 `now()` × 77.7 M events ≈ 3–4 s of the reported 12–13 s). True callback
+share ≈ **~18% of ops**, of which the no-op path was ~1–2 s (matching the
+measured 0.7–4% wall win), dispatch ~2.4 s, and **capture (first-touch /
+created / kill row copies) the majority — real work**.
+
+**M2 skipped (measured)**: the executor's double-wrapped fan covers only 4
+slots that carry <3% of events by the census — flattening it is noise by
+construction. The direct-sink sub-step targets the whole ~2.4 s dispatch
+pool (~5% of wall); even halving it lands under the ladder's own 3% noise
+threshold at these scales, for an every-`fire()`-site diff. **M3 skipped**
+for the same arithmetic (bulk hooks reduce the same dispatch pool).
+
+**G0 third branch is the conclusion**: after M1, the remaining meshlog cost
+is genuine capture work — `ChunkElemRow` row copies at first touch (~0.7 µs
+each, ~33 k first-touch + 12.9 k created + 4.6 k kill rows per dab). Reducing
+it is a capture-design question (row layout, per-domain column subsets,
+lazier kill capture), not a dispatch question — a future plan with its own
+design doc, as this plan's G0 anticipated. Combined with the disk plan:
+dyntopo's remaining hot costs are (1) capture row copies, (2) split/collapse
+topo surgery, (3) the scan's `consider()` math — all real work.
