@@ -614,6 +614,12 @@ struct LogElem {
   int end_mesh_index;
   detail::ChunkElemRow *begin_body = nullptr;
   detail::ChunkElemRow *end_body = nullptr;
+  /* Vert records only: disk-slab sequence snapshots into the owning chunk's
+   * span_blob (packed diskPack entries). Arena offsets are not portable
+   * identity, so undo/redo REBUILDS a vert's slab from the recorded sequence
+   * instead of restoring the (NOCOPY) `.vert.disk` cell. -1 = not captured. */
+  int span_begin_off = -1, span_begin_len = 0;
+  int span_end_off = -1, span_end_len = 0;
 };
 
 /**
@@ -645,8 +651,34 @@ struct LogChunkTopo : public LogChunk {
   util::Map<int, LogElem *> by_log_id;
   int next_log_id = 0;
 
+  /* Disk-slab sequence storage for Vert records (see LogElem span fields). */
+  Vector<int> span_blob;
+
   LogChunkTopo() : LogChunk(LogChunkTypes::Topo)
   {
+  }
+
+  void captureVertSpan(mesh::Mesh *m, int idx, int &off, int &len)
+  {
+    off = int(span_blob.size());
+    const litestl::math::int2 &slot = m->v.disk[idx];
+    int n = mesh::DiskSlabArena::count(slot);
+    const int *p = m->disk_arena.span(slot);
+    for (int i = 0; i < n; i++) {
+      span_blob.append(p[i]);
+    }
+    len = n;
+  }
+
+  /* Rebuild vert `idx`'s slab from a recorded sequence (fresh allocation —
+   * offsets are free to differ; only the entry order matters). The caller
+   * must have released the previous block (or restored a zeroed cell). */
+  void rebuildVertSpan(mesh::Mesh *m, int idx, int off, int len)
+  {
+    m->v.disk[idx] = litestl::math::int2(0, 0);
+    for (int i = 0; i < len; i++) {
+      m->disk_arena.insert(m->v.disk[idx], span_blob[off + i]);
+    }
   }
 
   ~LogChunkTopo() override
@@ -678,6 +710,8 @@ struct LogChunkTopo : public LogChunk {
     e->end_mesh_index = idx;
     e->begin_body = nullptr;
     e->end_body = nullptr;
+    e->span_begin_off = e->span_end_off = -1;
+    e->span_begin_len = e->span_end_len = 0;
 
 #ifdef MESHLOG_ABSEIL_HASHMAP
     idx_to_log_id.emplace(key, e->log_id);
@@ -710,6 +744,11 @@ struct LogChunkTopo : public LogChunk {
     e->begin_body = bodies_pool.alloc();
     e->end_body = nullptr;
     e->begin_body->captureFrom(group(m, kind), idx);
+    e->span_begin_off = e->span_end_off = -1;
+    e->span_begin_len = e->span_end_len = 0;
+    if (kind == LogElemKind::Vert) {
+      captureVertSpan(m, idx, e->span_begin_off, e->span_begin_len);
+    }
 
 #ifdef MESHLOG_ABSEIL_HASHMAP
     idx_to_log_id.emplace(int64_t(key), int(e->log_id));
@@ -760,6 +799,11 @@ struct LogChunkTopo : public LogChunk {
     e->begin_body = bodies_pool.alloc();
     e->end_body = nullptr;
     e->begin_body->captureFrom(group(m, kind), idx);
+    e->span_begin_off = e->span_end_off = -1;
+    e->span_begin_len = e->span_end_len = 0;
+    if (kind == LogElemKind::Vert) {
+      captureVertSpan(m, idx, e->span_begin_off, e->span_begin_len);
+    }
 
     by_log_id.insert(int(e->log_id), e);
     // Do NOT map idx_to_log_id — element is dead.
@@ -774,6 +818,13 @@ struct LogChunkTopo : public LogChunk {
           e.end_body = bodies_pool.alloc();
         }
         e.end_body->captureFrom(group(m, e.kind), e.end_mesh_index);
+      }
+      /* Every Live vert record needs an end sequence for redo (rows can swap
+       * their way back; slab offsets can't — redo rebuilds from this). */
+      if (e.kind == LogElemKind::Vert && e.fate == LogFate::Live &&
+          e.span_end_off == -1)
+      {
+        captureVertSpan(m, e.end_mesh_index, e.span_end_off, e.span_end_len);
       }
     }
   }
@@ -873,6 +924,18 @@ struct LogChunkTopo : public LogChunk {
       }
     }
 
+    /* Disk-slab pre-pass: release the post-step block of every vert that is
+     * live right now, BEFORE rows/releases clobber the (NOCOPY) cell — the
+     * arena would leak the block otherwise. Rebuild happens post-pass. */
+    for (LogElem *e : records) {
+      if (e->kind != LogElemKind::Vert || e->fate != LogFate::Live) {
+        continue;
+      }
+      int idx =
+          e->origin == LogOrigin::Created ? e->end_mesh_index : e->begin_mesh_index;
+      m->disk_arena.release(m->v.disk[idx]);
+    }
+
     // Reverse order: undo dependents before underlying elements.
     for (int i = records.size() - 1; i >= 0; i--) {
       LogElem *e = records[i];
@@ -891,6 +954,15 @@ struct LogChunkTopo : public LogChunk {
         e->begin_body->writeTo(grp, e->begin_mesh_index);
       }
       // (Created && Dead) records were dropped at kill time.
+    }
+
+    /* Disk-slab post-pass: mesh rows are in pre-step state — rebuild every
+     * surviving Existed vert's slab from its begin sequence. */
+    for (LogElem *e : records) {
+      if (e->kind != LogElemKind::Vert || e->origin != LogOrigin::Existed) {
+        continue;
+      }
+      rebuildVertSpan(m, e->begin_mesh_index, e->span_begin_off, e->span_begin_len);
     }
 
     if (tree) {
@@ -936,6 +1008,15 @@ struct LogChunkTopo : public LogChunk {
       }
     }
 
+    /* Disk-slab pre-pass: release the pre-step block of every vert that is
+     * live right now (mesh is in pre-step state), mirroring undo's pre-pass. */
+    for (LogElem *e : records) {
+      if (e->kind != LogElemKind::Vert || e->origin != LogOrigin::Existed) {
+        continue;
+      }
+      m->disk_arena.release(m->v.disk[e->begin_mesh_index]);
+    }
+
     // Forward order: allocate underlying before dependents reference them.
     for (int i = 0; i < records.size(); i++) {
       LogElem *e = records[i];
@@ -954,6 +1035,17 @@ struct LogChunkTopo : public LogChunk {
         // It was killed during the step.
         ed->release(e->begin_mesh_index);
       }
+    }
+
+    /* Disk-slab post-pass: mesh rows are in post-step state — rebuild every
+     * live vert's slab from its end sequence. */
+    for (LogElem *e : records) {
+      if (e->kind != LogElemKind::Vert || e->fate != LogFate::Live) {
+        continue;
+      }
+      int idx =
+          e->origin == LogOrigin::Created ? e->end_mesh_index : e->begin_mesh_index;
+      rebuildVertSpan(m, idx, e->span_end_off, e->span_end_len);
     }
 
     if (tree) {
@@ -983,6 +1075,7 @@ struct LogChunkTopo : public LogChunk {
     // or a stroke's chunks blow past the undo budget invisibly.
     tot += double(records_pool.capacity()) * double(sizeof(LogElem));
     tot += double(bodies_pool.capacity()) * double(sizeof(detail::ChunkElemRow));
+    tot += double(span_blob.size()) * double(sizeof(int));
     // Rough per-entry hash-map overhead.
     tot += double(idx_to_log_id.size() * 3 * 16) + double(by_log_id.size() * 3 * 16);
 

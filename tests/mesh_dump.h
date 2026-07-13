@@ -123,7 +123,6 @@ inline void dumpMesh(Mesh &m, std::string &out)
   out += "\"e\":{";
   writeAttr<decltype(m.e.vs), int2>(out, "vs", m.e.vs, ec, false);
   writeAttr<decltype(m.e.c), int>(out, "c", m.e.c, ec, false);
-  writeAttr<decltype(m.e.disk), int4>(out, "disk", m.e.disk, ec, false);
   writeAlive(out, m.e.freemap, ec, true);
   out += "},";
 

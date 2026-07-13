@@ -104,6 +104,10 @@ void Mesh::freezeTopo()
   l.attrs.freeTopoPages();
   f.attrs.freeTopoPages();
 
+  /* The frozen CSR is authoritative while frozen; drop the slab arena too
+   * (rebuildLinks reconstructs it on thaw, order-preserving). */
+  disk_arena.clear();
+
   topo_frozen = true;
 }
 
@@ -283,10 +287,14 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
     }
   }
 
-  // Pass 3: count broken vertex-disk cycles (repaired by the rebuild below).
+  // Pass 3: count broken vertex-disk slabs (repaired by the rebuild below).
   for (int vi : this->v) {
     int e0 = v.e[vi];
     if (e0 == ELEM_NONE) {
+      if (DiskSlabArena::count(v.disk[vi]) != 0) {
+        snprintf(buf, sizeof(buf), "vert %d disk head NONE but non-empty slab", vi);
+        report(buf);
+      }
       continue;
     }
     if (e0 < 0 || e0 >= int(e.capacity()) || e.freemap[e0]) {
@@ -294,36 +302,64 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
       report(buf);
       continue;
     }
-    int steps = 0, ec = e0;
-    do {
-      int side = e.vs[ec][0] == vi ? 0 : 1;
-      int nextLink = e.disk[ec][side * 2 + 1], prevLink = e.disk[ec][side * 2];
-      int next = diskEdge(nextLink), prev = diskEdge(prevLink);
-      if (nextLink < 0 || next >= int(e.capacity()) || prevLink < 0 ||
-          prev >= int(e.capacity()) || e.freemap[next] || e.freemap[prev]) {
-        snprintf(buf, sizeof(buf), "vert %d disk link invalid at edge %d", vi, ec);
+    const math::int2 &slot = v.disk[vi];
+    int n = DiskSlabArena::count(slot);
+    if (n == 0) {
+      snprintf(buf, sizeof(buf), "vert %d disk head %d but empty slab", vi, e0);
+      report(buf);
+      continue;
+    }
+    const int *p = disk_arena.span(slot);
+    if (diskEdge(p[0]) != e0) {
+      snprintf(buf, sizeof(buf), "vert %d disk head %d != slab[0]", vi, e0);
+      report(buf);
+    }
+    for (int i = 0; i < n; i++) {
+      int ec = diskEdge(p[i]), sc = diskSide(p[i]);
+      if (ec < 0 || ec >= int(e.capacity()) || e.freemap[ec]) {
+        snprintf(buf, sizeof(buf), "vert %d disk slab entry %d invalid edge %d", vi, i,
+                 ec);
         report(buf);
         break;
       }
-      int sn = e.vs[next][0] == vi ? 0 : 1, sp = e.vs[prev][0] == vi ? 0 : 1;
-      if (diskSide(nextLink) != sn || diskSide(prevLink) != sp) {
+      if (e.vs[ec][sc] != vi) {
         snprintf(buf, sizeof(buf), "vert %d disk side bit stale at edge %d", vi, ec);
         report(buf);
         break;
       }
-      if (e.disk[next][sn * 2] != diskPack(ec, side) ||
-          e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
-        snprintf(buf, sizeof(buf), "vert %d disk prev/next mismatch at edge %d", vi, ec);
-        report(buf);
-        break;
+      for (int j = i + 1; j < n; j++) {
+        if (p[j] == p[i]) {
+          snprintf(buf, sizeof(buf), "vert %d disk slab duplicate edge %d", vi, ec);
+          report(buf);
+          break;
+        }
       }
-      ec = next;
-      if (++steps > 1000000) {
-        snprintf(buf, sizeof(buf), "vert %d disk did not close", vi);
-        report(buf);
-        break;
+    }
+  }
+
+  // Pass 3a: the converse — every live edge must appear in both endpoints'
+  // slabs (the entry membership itself was checked above).
+  for (int ei : this->e) {
+    for (int s = 0; s < 2; s++) {
+      int w = e.vs[ei][s];
+      if (w < 0 || w >= int(v.capacity()) || v.freemap[w]) {
+        continue; /* endpoint refs already reported by pass 1 */
       }
-    } while (ec != e0);
+      const math::int2 &slot = v.disk[w];
+      int n = DiskSlabArena::count(slot);
+      const int *p = disk_arena.span(slot);
+      bool found = false;
+      for (int i = 0; i < n; i++) {
+        if (p[i] == diskPack(ei, s)) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        snprintf(buf, sizeof(buf), "edge %d missing from vert %d disk slab", ei, w);
+        report(buf);
+      }
+    }
   }
 
   // Pass 3b: count broken edge-radial cycles (also repaired by the rebuild).
@@ -378,13 +414,11 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
     }
   }
 
-  // Pass 5: rebuild every disk cycle from the (authoritative) edge endpoints.
+  // Pass 5: rebuild every disk slab from the (authoritative) edge endpoints.
+  disk_arena.clear();
   for (int vi : this->v) {
     v.e[vi] = ELEM_NONE;
-  }
-  for (int ei : this->e) {
-    e.disk[ei][0] = e.disk[ei][1] = diskPack(ei, 0);
-    e.disk[ei][2] = e.disk[ei][3] = diskPack(ei, 1);
+    v.disk[vi] = math::int2(0, 0);
   }
   for (int ei : this->e) {
     disk_insert(ei, e.vs[ei][0]);
@@ -735,6 +769,7 @@ int Mesh::make_vertex(math::float3 co, MeshCallbacks *cb, int hint)
 
   v.co[r] = co;
   v.e[r] = ELEM_NONE;
+  v.disk[r] = math::int2(0, 0);
 
   if (cb) {
     fire(cb->onVertCreate, r);
@@ -755,19 +790,20 @@ int Mesh::make_edge(int v1, int v2, MeshCallbacks *cb, int hint)
   e.vs[r][0] = v1;
   e.vs[r][1] = v2;
 
-  e.disk[r] = math::int4(ELEM_NONE);
-
   if (cb) {
-    /* disk_insert rewires the existing disk neighbors at each endpoint; snapshot
-     * their pre-insert links for the meshlog BEFORE they change, or undo leaves
-     * those neighbors pointing at the (released) new edge. */
+    /* disk_insert rewires each endpoint's slab and its disk neighbors;
+     * snapshot the endpoint (vert row + slab span) and its neighbors' rows
+     * BEFORE they change, or undo leaves them referencing the (released)
+     * new edge. */
     int ends[2] = {v1, v2};
     for (int vv : ends) {
+      fire(cb->onVertChange, vv);
       if (v.e[vv] == ELEM_NONE) {
         continue;
       }
       int e2 = v.e[vv];
-      int prevn = diskEdge(e.disk[e2][edge_side(e2, vv) * 2]);
+      int prevn, nextn;
+      disk_prev_next(e2, vv, prevn, nextn); /* prev of head == cycle tail */
       fire(cb->onEdgeChange, e2);
       if (prevn != e2) {
         fire(cb->onEdgeChange, prevn);
@@ -912,13 +948,13 @@ void Mesh::kill_edge(int e1, MeshCallbacks *cb)
   int vb = e.vs[e1][1];
 
   if (cb) {
-    /* disk_remove rewires e1's disk neighbors at each endpoint; snapshot them
-     * before they change (same reason as make_edge). */
+    /* disk_remove rewires each endpoint's slab and e1's disk neighbors;
+     * snapshot them before they change (same reason as make_edge). */
     int ends[2] = {va, vb};
     for (int vv : ends) {
-      int side1 = edge_side(e1, vv);
-      int prevn = diskEdge(e.disk[e1][side1 * 2]);
-      int nextn = diskEdge(e.disk[e1][side1 * 2 + 1]);
+      fire(cb->onVertChange, vv);
+      int prevn, nextn;
+      disk_prev_next(e1, vv, prevn, nextn);
       if (prevn != e1) {
         fire(cb->onEdgeChange, prevn);
       }
@@ -1006,14 +1042,15 @@ void Mesh::relink_edge_verts(int e1, int nv0, int nv1, MeshCallbacks *cb)
   int ov1 = e.vs[e1][1];
 
   if (cb) {
-    /* Capture e1's pre-splice row (vs + disk are TOPO) for the meshlog, and
-     * its old disk neighbours before disk_remove rewires them. */
+    /* Capture e1's pre-splice row (vs is TOPO) for the meshlog, and the old
+     * endpoints (vert row + slab span) + e1's old disk neighbours before
+     * disk_remove rewires them. */
     fire(cb->onEdgeChange, e1);
     int olds[2] = {ov0, ov1};
     for (int vv : olds) {
-      int side = edge_side(e1, vv);
-      int prevn = diskEdge(e.disk[e1][side * 2]);
-      int nextn = diskEdge(e.disk[e1][side * 2 + 1]);
+      fire(cb->onVertChange, vv);
+      int prevn, nextn;
+      disk_prev_next(e1, vv, prevn, nextn);
       if (prevn != e1) {
         fire(cb->onEdgeChange, prevn);
       }
@@ -1028,18 +1065,19 @@ void Mesh::relink_edge_verts(int e1, int nv0, int nv1, MeshCallbacks *cb)
 
   e.vs[e1][0] = nv0;
   e.vs[e1][1] = nv1;
-  e.disk[e1] = math::int4(ELEM_NONE);
 
   if (cb) {
-    /* New endpoints' disk neighbours, before disk_insert rewires them
-     * (mirrors make_edge). */
+    /* New endpoints (vert row + slab span) and their disk neighbours, before
+     * disk_insert rewires them (mirrors make_edge). */
     int news[2] = {nv0, nv1};
     for (int vv : news) {
+      fire(cb->onVertChange, vv);
       if (v.e[vv] == ELEM_NONE) {
         continue;
       }
       int e2 = v.e[vv];
-      int prevn = diskEdge(e.disk[e2][edge_side(e2, vv) * 2]);
+      int prevn, nextn;
+      disk_prev_next(e2, vv, prevn, nextn);
       fire(cb->onEdgeChange, e2);
       if (prevn != e2) {
         fire(cb->onEdgeChange, prevn);
@@ -1369,9 +1407,7 @@ void Mesh::reorder_edges(util::span<int> emap, const ReorderMoved &moved)
   topo_stamp++;
 
   if (moved.active) {
-    util::Set<int> movedEdge;
-    for (int e1 : moved.e)
-      movedEdge.add(e1);
+    util::Set<int> remappedVertSlab;
 
     for (int c1 : moved.c) {
       c.e[c1] = remap(emap, c.e[c1]);  // corner → edge
@@ -1384,31 +1420,21 @@ void Mesh::reorder_edges(util::span<int> emap, const ReorderMoved &moved)
           v.e[w] = emap[e1];
         }
       }
-      /* e.disk: remap this edge's own links; patch the back-link of each
-       * non-moved disk neighbor (moved neighbors fix themselves). Read all
-       * neighbors before remapping our own slots. Slot layout: [side*2]=prev,
-       * [side*2+1]=next around vert e.vs[e1][side]; links are side-bit encoded
-       * (diskPack), so only the id half remaps. */
-      int nb[4];
-      for (int k = 0; k < 4; k++)
-        nb[k] = e.disk[e1][k];
+      /* Disk slabs: a moved edge's entries live only in its two endpoints'
+       * slabs. Remap each touched vert's whole slab exactly once through the
+       * (identity-padded) map — per-entry value matching would double-remap
+       * when one edge's new id equals another's old id. Order is untouched. */
       for (int s = 0; s < 2; s++) {
         int w = e.vs[e1][s];
-        int P = nb[s * 2] == ELEM_NONE ? ELEM_NONE : diskEdge(nb[s * 2]);
-        int N = nb[s * 2 + 1] == ELEM_NONE ? ELEM_NONE : diskEdge(nb[s * 2 + 1]);
-        if (P != ELEM_NONE && P != e1 && !movedEdge.contains(P)) {
-          int sp = (e.vs[P][0] == w) ? 0 : 1;
-          e.disk[P][sp * 2 + 1] = diskPack(emap[e1], s);  // P.next around w == e1
+        if (w == ELEM_NONE || !remappedVertSlab.add(w)) {
+          continue;
         }
-        if (N != ELEM_NONE && N != e1 && !movedEdge.contains(N)) {
-          int sn = (e.vs[N][0] == w) ? 0 : 1;
-          e.disk[N][sn * 2] = diskPack(emap[e1], s);  // N.prev around w == e1
+        const math::int2 &slot = v.disk[w];
+        int n = DiskSlabArena::count(slot);
+        int *p = disk_arena.pool.data() + slot[0];
+        for (int i = 0; i < n; i++) {
+          p[i] = diskPack(emap[diskEdge(p[i])], diskSide(p[i]));
         }
-      }
-      for (int k = 0; k < 4; k++) {
-        e.disk[e1][k] = nb[k] == ELEM_NONE
-                            ? ELEM_NONE
-                            : diskPack(remap(emap, diskEdge(nb[k])), diskSide(nb[k]));
       }
     }
     e.reorderScoped(emap, moved.e);
@@ -1417,13 +1443,11 @@ void Mesh::reorder_edges(util::span<int> emap, const ReorderMoved &moved)
 
   for (int v1 : v) {
     v.e[v1] = remap(emap, v.e[v1]);
-  }
-  for (int e1 : e) {
-    for (int k = 0; k < 4; k++) {
-      int link = e.disk[e1][k];
-      e.disk[e1][k] = link == ELEM_NONE
-                          ? ELEM_NONE
-                          : diskPack(remap(emap, diskEdge(link)), diskSide(link));
+    const math::int2 &slot = v.disk[v1];
+    int n = DiskSlabArena::count(slot);
+    int *p = disk_arena.pool.data() + slot[0];
+    for (int i = 0; i < n; i++) {
+      p[i] = diskPack(remap(emap, diskEdge(p[i])), diskSide(p[i]));
     }
   }
   for (int c1 : c) {

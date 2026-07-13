@@ -198,16 +198,14 @@ void FrozenTopo::rebuildLinks(Mesh &m)
     int n = int(b - a);
     if (n == 0) {
       m.v.e[v] = ELEM_NONE;
+      m.v.disk[v] = litestl::math::int2(0, 0);
       continue;
     }
     m.v.e[v] = vert_edges[a];
+    m.v.disk[v] = litestl::math::int2(0, 0);
     for (int i = 0; i < n; i++) {
       int e = vert_edges[a + i];
-      int eprev = vert_edges[a + (i - 1 + n) % n];
-      int enext = vert_edges[a + (i + 1) % n];
-      int side = (m.e.vs[e][0] == v) ? 0 : 1;
-      m.e.disk[e][side * 2] = diskPack(eprev, (m.e.vs[eprev][0] == v) ? 0 : 1);
-      m.e.disk[e][side * 2 + 1] = diskPack(enext, (m.e.vs[enext][0] == v) ? 0 : 1);
+      m.disk_arena.insert(m.v.disk[v], diskPack(e, (m.e.vs[e][0] == v) ? 0 : 1));
     }
   }
 

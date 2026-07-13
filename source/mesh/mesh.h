@@ -948,31 +948,11 @@ private:
         dp.disk_inserts++;
       }
     }
-    int side1 = edge_side(e1, v1);
-    int self = diskPack(e1, side1);
-
+    /* Append at the slab tail (== the old insert-at-cycle-tail). */
+    disk_arena.insert(v.disk[v1], diskPack(e1, edge_side(e1, v1)));
     if (v.e[v1] == ELEM_NONE) {
       v.e[v1] = e1;
-
-      e.disk[e1][side1 * 2] = self;
-      e.disk[e1][side1 * 2 + 1] = self;
-
-      return;
     }
-
-    int e2 = v.e[v1];
-    int side2 = edge_side(e2, v1);
-
-    /* Tail's encoded link replaces the old edge_side(prev, v1) vs load. */
-    int prevLink = e.disk[e2][side2 * 2];
-    int prev = diskEdge(prevLink), side3 = diskSide(prevLink);
-
-    e.disk[e2][side2 * 2] = self; /* e2.prev */
-
-    e.disk[e1][side1 * 2] = prevLink;                /* e1.prev */
-    e.disk[e1][side1 * 2 + 1] = diskPack(e2, side2); /* e1.next */
-
-    e.disk[prev][side3 * 2 + 1] = self; /* prev.next */
   }
 
   void disk_remove(int e1, int v1)
@@ -984,24 +964,31 @@ private:
         dp.disk_removes++;
       }
     }
-    int side1 = edge_side(e1, v1);
-
-    int prevLink = e.disk[e1][side1 * 2];
-    int nextLink = e.disk[e1][side1 * 2 + 1];
-
-    /* Embedded sides replace the old edge_side(prev/next, v1) vs loads. */
-    int prev = diskEdge(prevLink), sidep = diskSide(prevLink);
-    int next = diskEdge(nextLink), siden = diskSide(nextLink);
-
-    e.disk[prev][sidep * 2 + 1] = nextLink; /* prev->next */
-    e.disk[next][siden * 2] = prevLink;     /* next->prev */
-
+    /* Order-preserving shift-remove (== the old cycle unlink; removing the
+     * head promotes the next entry, matching v.e = next). */
+    disk_arena.remove(v.disk[v1], diskPack(e1, edge_side(e1, v1)));
     if (e1 == v.e[v1]) {
-      v.e[v1] = next;
+      const math::int2 &slot = v.disk[v1];
+      v.e[v1] = DiskSlabArena::count(slot) > 0 ? diskEdge(disk_arena.span(slot)[0])
+                                               : ELEM_NONE;
     }
+  }
 
-    if (e1 == v.e[v1]) {
-      v.e[v1] = ELEM_NONE;
+  /** Disk-cycle neighbors of `e1` around `v1` (the meshlog pre-splice
+   * snapshot read): prev/next in slab order, wrapping; e1 itself for a
+   * singleton. */
+  void disk_prev_next(int e1, int v1, int &prev, int &next)
+  {
+    const math::int2 &slot = v.disk[v1];
+    int n = DiskSlabArena::count(slot);
+    const int *p = disk_arena.span(slot);
+    prev = next = e1;
+    for (int i = 0; i < n; i++) {
+      if (diskEdge(p[i]) == e1) {
+        prev = diskEdge(p[(i - 1 + n) % n]);
+        next = diskEdge(p[(i + 1) % n]);
+        return;
+      }
     }
   }
 };

@@ -2243,12 +2243,7 @@ bool execVerb(Scene &scene,
       if ((mm.v.co[v] - center).lengthSqr() > r2 || mm.v.e[v] == ELEM_NONE) {
         continue;
       }
-      int n = 0, e0 = mm.v.e[v], e = e0;
-      do {
-        n++;
-        int side = mm.e.vs[e][0] == v ? 0 : 1;
-        e = mesh::diskEdge(mm.e.disk[e][side * 2 + 1]);
-      } while (e != e0 && n < 100000);
+      int n = mesh::DiskSlabArena::count(mm.v.disk[v]);
       if (n > maxVal) maxVal = n;
     }
 
@@ -2261,7 +2256,13 @@ bool execVerb(Scene &scene,
                 (st.capped && !st.budget_hit) ? " CAPPED" : "", rebuild_ms, ops_ms,
                 update_ms, dab_ms, dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);
-    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324)
+    // CLAUDENOTE: M0 disk-bandwidth scaffolding (plan 2026-07-12-1324) — disk
+    // storage footprint for the M4 memory gate (arena pool + per-vert slots).
+    std::printf("[disk-mem] arena=%.2fMB vdisk=%.2fMB everts=%d ecap=%d vcap=%d\n",
+                double(scene.mesh->disk_arena.pool.size()) * 4.0 / (1024.0 * 1024.0),
+                double(scene.mesh->v.capacity()) * 8.0 / (1024.0 * 1024.0),
+                scene.mesh->e.count, int(scene.mesh->e.capacity()),
+                int(scene.mesh->v.capacity()));
     mesh::diskprof::get().print("bench_dyntopo dab");
     return true;
   }

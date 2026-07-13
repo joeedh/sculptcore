@@ -119,9 +119,7 @@ static inline SurfaceWalkResult walkClosestPoint(Mesh &m,
       int v = m.c.v[cc];
       int e0 = m.v.e[v];
       if (e0 != ELEM_NONE) {
-        int ec = e0, guard = 0;
-        do {
-          int side = m.e.vs[ec][0] == v ? 0 : 1;
+        for (int ec : EdgeOfVertIter(&m, v, e0)) {
           int c1 = m.e.c[ec];
           if (c1 != ELEM_NONE) {
             int rc = c1, rguard = 0;
@@ -133,8 +131,7 @@ static inline SurfaceWalkResult walkClosestPoint(Mesh &m,
               rc = m.c.radial_next[rc];
             } while (rc != c1 && ++rguard < 64);
           }
-          ec = diskEdge(m.e.disk[ec][side * 2 + 1]);
-        } while (ec != e0 && ++guard < 256);
+        }
       }
       cc = m.c.next[cc];
     } while (cc != c0 && ++fguard < 64);

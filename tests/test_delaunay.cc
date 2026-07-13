@@ -41,31 +41,27 @@ static bool validateMesh(Mesh &m)
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
     if (e0 == ELEM_NONE) continue;
-    int steps = 0, ec = e0;
-    do {
-      int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      if (m.e.vs[ec][side] != vi) {
-        fprintf(stderr, "vert %d disk: edge %d not incident\n", vi, ec);
+    const auto &slot = m.v.disk[vi];
+    int n = DiskSlabArena::count(slot);
+    const int *sp_ = m.disk_arena.span(slot);
+    if (n == 0 || diskEdge(sp_[0]) != e0) {
+      fprintf(stderr, "vert %d disk head/slab mismatch\n", vi);
+      return false;
+    }
+    for (int i = 0; i < n; i++) {
+      int ec = diskEdge(sp_[i]), side = diskSide(sp_[i]);
+      if (ec < 0 || ec >= int(m.e.capacity()) || m.e.freemap[ec] ||
+          m.e.vs[ec][side] != vi) {
+        fprintf(stderr, "vert %d disk slab entry invalid e=%d\n", vi, ec);
         return false;
       }
-      int next = diskEdge(m.e.disk[ec][side * 2 + 1]);
-      int prev = diskEdge(m.e.disk[ec][side * 2]);
-      int side_n = m.e.vs[next][0] == vi ? 0 : 1;
-      int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][side_n * 2] != diskPack(ec, side)) {
-        fprintf(stderr, "disk prev/next mismatch v=%d e=%d\n", vi, ec);
-        return false;
+      for (int j = i + 1; j < n; j++) {
+        if (sp_[j] == sp_[i]) {
+          fprintf(stderr, "vert %d disk slab duplicate e=%d\n", vi, ec);
+          return false;
+        }
       }
-      if (m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
-        fprintf(stderr, "disk prev/next mismatch v=%d e=%d\n", vi, ec);
-        return false;
-      }
-      ec = next;
-      if (++steps > 100000) {
-        fprintf(stderr, "vert %d disk did not close\n", vi);
-        return false;
-      }
-    } while (ec != e0);
+    }
   }
 
   /* Radial cycle per edge closes. */

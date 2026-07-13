@@ -1430,12 +1430,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         if (e0 == ELEM_NONE) {
           return;
         }
-        int ec = e0;
-        do {
+        for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
           int side = m.e.vs[ec][0] == v ? 0 : 1;
           fn(m.e.vs[ec][side ^ 1]);
-          ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-        } while (ec != e0);
+        }
       };
       // Multi-source BFS: mark verts within kFoldHops of any paired pole,
       // then count folded faces touching a marked vert.

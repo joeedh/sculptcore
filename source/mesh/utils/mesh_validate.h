@@ -139,31 +139,31 @@ static inline bool checkTopology(Mesh &m, std::string &err,
   }
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE)
+    const math::int2 &slot = m.v.disk[vi];
+    int n = DiskSlabArena::count(slot);
+    if (e0 == ELEM_NONE) {
+      if (n != 0) {
+        snprintf(buf, sizeof(buf), "disk head NONE but non-empty slab v=%d", vi);
+        err = buf;
+        return false;
+      }
       continue;
-    int steps = 0, ec = e0;
-    do {
-      int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      int nextLink = m.e.disk[ec][side * 2 + 1], prevLink = m.e.disk[ec][side * 2];
-      int next = diskEdge(nextLink), prev = diskEdge(prevLink);
-      int sn = m.e.vs[next][0] == vi ? 0 : 1, sp = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (diskSide(nextLink) != sn || diskSide(prevLink) != sp) {
-        snprintf(buf, sizeof(buf), "disk side bit stale v=%d e=%d", vi, ec);
+    }
+    const int *p = m.disk_arena.span(slot);
+    if (n == 0 || diskEdge(p[0]) != e0) {
+      snprintf(buf, sizeof(buf), "disk head/slab[0] mismatch v=%d e=%d", vi, e0);
+      err = buf;
+      return false;
+    }
+    for (int i = 0; i < n; i++) {
+      int ec = diskEdge(p[i]), sc = diskSide(p[i]);
+      if (ec < 0 || ec >= int(m.e.capacity()) || m.e.freemap[ec] ||
+          m.e.vs[ec][sc] != vi) {
+        snprintf(buf, sizeof(buf), "disk slab entry invalid v=%d e=%d", vi, ec);
         err = buf;
         return false;
       }
-      if (m.e.disk[next][sn * 2] != diskPack(ec, side) ||
-          m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
-        snprintf(buf, sizeof(buf), "disk prev/next mismatch v=%d e=%d", vi, ec);
-        err = buf;
-        return false;
-      }
-      ec = next;
-      if (++steps > 4000000) {
-        err = "vert disk did not close";
-        return false;
-      }
-    } while (ec != e0);
+    }
   }
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
@@ -625,9 +625,9 @@ static inline RemeshReport remeshValidate(Mesh &m)
     int e0 = m.v.e[vi];
     if (e0 == ELEM_NONE)
       continue;
-    int valence = 0, ec = e0;
+    int valence = 0;
     bool boundary = false;
-    do {
+    for (int ec : EdgeOfVertIter(&m, vi, e0)) {
       int c0 = m.e.c[ec];
       if (c0 == ELEM_NONE) {
         boundary = true;
@@ -640,11 +640,8 @@ static inline RemeshReport remeshValidate(Mesh &m)
         if (radial != 2)
           boundary = true;
       }
-      int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      ec = diskEdge(m.e.disk[ec][side * 2 + 1]);
-      if (++valence > 1000000)
-        break;
-    } while (ec != e0);
+      valence++;
+    }
 
     r.valence_hist[valence < 17 ? valence : 16]++;
     if (!boundary) {

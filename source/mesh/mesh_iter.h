@@ -14,28 +14,42 @@
 
 using namespace litestl;
 namespace sculptcore::mesh {
+/** Sequential scan of vertex `v_`'s incident-edge slab. `e_` keeps the old
+ * head-seed signature: callers pass `v.e[v_]` (always the disk head) or
+ * ELEM_NONE; the walk itself rides the slab span. Invariant (unchanged from
+ * the cycle era): the vertex's disk must not be spliced or grown mid-walk. */
 struct EdgeOfVertIter {
   MeshBase *m;
 
-  inline EdgeOfVertIter(MeshBase *m_, int v_, int e_) : m(m_), v(v_), e(e_), start_e(e_)
+  inline EdgeOfVertIter(MeshBase *m_, int v_, int e_) : m(m_), v(v_)
   {
-    /* One vs load to seat the side; every ++ then rides the embedded side. */
-    side = (e_ != ELEM_NONE && m_->e.vs[e_][1] == v_) ? 1 : 0;
+    if (e_ == ELEM_NONE) {
+      p = pend = nullptr;
+      return;
+    }
+    const math::int2 &slot = m_->v.disk[v_];
+    p = m_->disk_arena.span(slot);
+    pend = p + DiskSlabArena::count(slot);
   }
 
-  inline EdgeOfVertIter(const EdgeOfVertIter &b)
-      : m(b.m), v(b.v), e(b.e), start_e(b.start_e), side(b.side)
+  inline EdgeOfVertIter(const EdgeOfVertIter &b) : m(b.m), v(b.v), p(b.p), pend(b.pend)
   {
   }
 
   inline int operator*() const
   {
-    return e;
+    return diskEdge(*p);
+  }
+
+  /** Which slot of the current edge's `.edge.vs` is `v` (the packed side). */
+  inline int side() const
+  {
+    return diskSide(*p);
   }
 
   inline bool operator==(const EdgeOfVertIter &b) const
   {
-    return b.e == e;
+    return (p == pend) == (b.p == b.pend);
   }
 
   inline bool operator!=(const EdgeOfVertIter &b) const
@@ -45,7 +59,7 @@ struct EdgeOfVertIter {
 
   EdgeOfVertIter &operator++()
   {
-    if (e == ELEM_NONE) {
+    if (p == pend) {
       return *this;
     }
 
@@ -57,15 +71,7 @@ struct EdgeOfVertIter {
       }
     }
 
-    int link = m->e.disk[e][side * 2 + 1]; /* e.next, side-bit encoded */
-    e = diskEdge(link);
-    side = diskSide(link);
-
-    /* Back at the disk-cycle start → exhausted; flag the end sentinel. */
-    if (e == start_e) {
-      e = ELEM_NONE;
-    }
-
+    p++;
     return *this;
   }
 
@@ -80,7 +86,8 @@ struct EdgeOfVertIter {
   }
 
 private:
-  int v, e, start_e, side;
+  int v;
+  const int *p, *pend;
 };
 
 struct CornerOfEdgeIter {

@@ -375,8 +375,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
         bool bpin = false; // wire / non-manifold / crease-rim → hard pin
         float3 rn[2];
         if (eb != ELEM_NONE) {
-          int ec = eb, guard = 0;
-          do {
+          for (int ec : mesh::EdgeOfVertIter(&m, v, eb)) {
             int side = m.e.vs[ec][0] == v ? 0 : 1;
             int c1 = m.e.c[ec];
             if (c1 == ELEM_NONE) {
@@ -394,8 +393,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
                 bpin = true; // interior crease meets the rim
               }
             }
-            ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-          } while (ec != eb && ++guard < 256);
+          }
         }
         if (nbnd > 0) {
           float l0 = 0.0f, l1 = 0.0f;
@@ -438,13 +436,10 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
         continue;
       }
       ring.clear();
-      int ec = e0, guard = 0;
-      do {
+      for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
         int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
         ring.append(m.v.co[ov]);
-        int side = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-      } while (ec != e0 && ++guard < 256);
+      }
       int k = int(ring.size());
       if (k < 3) {
         nco[v] = vco;
@@ -549,13 +544,10 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
           return false;
         }
         ringv.clear();
-        int ec = e0, guard = 0;
-        do {
+        for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
           int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
           ringv.append(ov);
-          int side = m.e.vs[ec][0] == v ? 0 : 1;
-          ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-        } while (ec != e0 && ++guard < 256);
+        }
         int k = int(ringv.size());
         if (k < 3) {
           return false;
@@ -666,16 +658,13 @@ struct AnchorCtx {
         seed = -1;
         int e0 = m.v.e[v];
         if (e0 != ELEM_NONE) {
-          int ec = e0, guard = 0;
-          do {
+          for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
             int ov = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
             if (seedAlive(attr[ov])) {
               seed = attr[ov];
               break;
             }
-            int side = m.e.vs[ec][0] == v ? 0 : 1;
-            ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-          } while (ec != e0 && ++guard < 256);
+          }
         }
       }
       if (seed >= 0) {

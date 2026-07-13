@@ -108,8 +108,7 @@ void limitDensityGradation(Mesh &m, float target_edge_length, float gradation,
       continue;
     }
     float cand = h[v] * beta;
-    int ec = e0;
-    do {
+    for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
       int vn = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
       if (cand < h[vn]) {
         h[vn] = cand;
@@ -117,9 +116,7 @@ void limitDensityGradation(Mesh &m, float target_edge_length, float gradation,
           queue.append(vn);
         }
       }
-      int side = m.e.vs[ec][0] == v ? 0 : 1;
-      ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-    } while (ec != e0);
+    }
   }
 
   for (int v : m.v) {

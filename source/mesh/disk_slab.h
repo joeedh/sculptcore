@@ -19,7 +19,11 @@ namespace sculptcore::mesh {
 struct DiskSlabArena {
   using int2 = litestl::math::int2;
 
-  static constexpr int kMinClass = 2;  /* smallest block = 4 entries */
+  /* Min block = 8 entries: a triangle mesh's regular valence is 6, so verts
+   * allocate once and never grow in steady state (class 2 stranded one freed
+   * 4-block per interior vert during the initial build — measured +10% vs the
+   * old int4 column; class 3 measures under it). */
+  static constexpr int kMinClass = 3;
   static constexpr int kMaxClass = 27; /* meta packs class in the top 4 bits */
 
   litestl::util::Vector<int> pool;

@@ -65,6 +65,9 @@ struct SerialMesh {
   uint32_t version = 0;
   SerialDomain domains[5];
   Vector<SculptLayerSettings> layers; // v3+ sculpt-layer settings table
+  /* v5+ vert-disk stream: per dense live vert, `count` then `count` UNENCODED
+   * edge ids in disk-walk order (sides recomputed from .edge.vs on load). */
+  Vector<int32_t> vertDiskStream;
 };
 
 /* Fixed domain order shared by the file layout and the maps[] / eds[] arrays. */
@@ -114,9 +117,6 @@ ElemType topoTarget(const string &name)
   }
   if (is(".edge.c")) {
     return CORNER;
-  }
-  if (is(".edge.vs.disk")) {
-    return EDGE;
   }
   if (is(".corner.v")) {
     return VERTEX;
@@ -197,18 +197,16 @@ void gatherColumn(ElemData &ed,
 }
 
 /* Remap every int component of a (dense) topo column through @p targetMap.
- * ELEM_NONE passes through unchanged. @p packedDisk: the column is the
- * side-bit-encoded `.edge.vs.disk` (diskPack) — remap only the id half. */
-void remapTopoColumn(Vector<uint8_t> &buf, Vector<int> &targetMap, bool packedDisk)
+ * ELEM_NONE passes through unchanged. */
+void remapTopoColumn(Vector<uint8_t> &buf, Vector<int> &targetMap)
 {
   int32_t *p = reinterpret_cast<int32_t *>(buf.data());
   size_t n = buf.size() / sizeof(int32_t);
   for (size_t i = 0; i < n; i++) {
     int32_t v = p[i];
-    if (v == ELEM_NONE) {
-      continue;
+    if (v != ELEM_NONE) {
+      p[i] = targetMap[v];
     }
-    p[i] = packedDisk ? diskPack(targetMap[diskEdge(v)], diskSide(v)) : targetMap[v];
   }
 }
 
@@ -263,8 +261,7 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
        * remap to apply). The name table is authoritative for that. */
       ElemType tgt = topoTarget(attr.name);
       if (int(tgt) != 0) {
-        bool packedDisk = std::strcmp(attr.name.c_str(), ".edge.vs.disk") == 0;
-        remapTopoColumn(buf, maps[domainIndex(tgt)], packedDisk);
+        remapTopoColumn(buf, maps[domainIndex(tgt)]);
       } else if (attr.flag & AttrFlag::TOPO) {
         printf("mesh_serialize: unknown TOPO attr '%s' (custom topo attrs "
                "unsupported in v1)\n",
@@ -477,6 +474,69 @@ bool migrate(SerialMesh &sm)
       sm.version = 4;
       break;
     }
+    case 4: {
+      /* v4 → v5: disk connectivity moved off the edge domain into the
+       * vert-disk stream. Walk each vert's (packed v4) cycle in order and
+       * emit `count, ids…`; then drop the `.edge.vs.disk` column. */
+      SerialDomain &ed = sm.domains[domainIndex(EDGE)];
+      SerialDomain &vd = sm.domains[domainIndex(VERTEX)];
+      SerialColumn *disk = nullptr;
+      SerialColumn *ve = nullptr;
+      int diskIdx = -1;
+      for (int i = 0; i < int(ed.cols.size()); i++) {
+        if (std::strcmp(ed.cols[i].name.c_str(), ".edge.vs.disk") == 0) {
+          disk = &ed.cols[i];
+          diskIdx = i;
+        }
+      }
+      for (SerialColumn &col : vd.cols) {
+        if (std::strcmp(col.name.c_str(), ".vert.e") == 0) {
+          ve = &col;
+        }
+      }
+      SerialColumn *evs = nullptr;
+      for (SerialColumn &col : ed.cols) {
+        if (std::strcmp(col.name.c_str(), ".edge.vs") == 0) {
+          evs = &col;
+        }
+      }
+      if (disk && ve && evs) {
+        const int32_t *d = reinterpret_cast<const int32_t *>(disk->bytes.data());
+        const int32_t *heads = reinterpret_cast<const int32_t *>(ve->bytes.data());
+        const int32_t *w = reinterpret_cast<const int32_t *>(evs->bytes.data());
+        for (uint32_t vi = 0; vi < vd.count; vi++) {
+          int e0 = heads[vi];
+          if (e0 == ELEM_NONE) {
+            sm.vertDiskStream.append(0);
+            continue;
+          }
+          int lenAt = int(sm.vertDiskStream.size());
+          sm.vertDiskStream.append(0);
+          int e = e0;
+          int side = (w[size_t(e0) * 2 + 0] == int32_t(vi)) ? 0 : 1;
+          int n = 0;
+          do {
+            sm.vertDiskStream.append(e);
+            n++;
+            int link = d[size_t(e) * 4 + side * 2 + 1];
+            e = diskEdge(link);
+            side = diskSide(link);
+          } while (e != e0 && n < 1000000);
+          sm.vertDiskStream[lenAt] = n;
+        }
+        /* Drop the disk column by rebuilding cols with element moves —
+         * Vector::remove_at double-frees nested-Vector members. */
+        Vector<SerialColumn> kept;
+        for (int i = 0; i < int(ed.cols.size()); i++) {
+          if (i != diskIdx) {
+            kept.append(std::move(ed.cols[i]));
+          }
+        }
+        ed.cols = std::move(kept);
+      }
+      sm.version = 5;
+      break;
+    }
     default:
       return false;
     }
@@ -525,6 +585,18 @@ bool writeMeshRaw(Mesh &mesh, std::iostream &out)
     writeDomain(pbf, *eds[d], maps);
   }
   writeLayerTable(pbf, mesh); // v3+
+  /* v5+ vert-disk stream: per live vert in dense order, `count` then the
+   * incident edges in disk-walk order (unencoded, remapped edge ids). */
+  Vector<int> &emapDense = maps[domainIndex(EDGE)];
+  for (int vi : mesh.v) {
+    const math::int2 &slot = mesh.v.disk[vi];
+    int n = DiskSlabArena::count(slot);
+    const int *p = mesh.disk_arena.span(slot);
+    pbf.writeUint32(uint32_t(n));
+    for (int i = 0; i < n; i++) {
+      pbf.writeInt32(emapDense[diskEdge(p[i])]);
+    }
+  }
   return bool(out);
 }
 
@@ -608,6 +680,17 @@ bool readMesh(Mesh &mesh, std::istream &in)
   if (version >= 3) {
     readLayerTable(pbf, sm);
   }
+  if (version >= 5) {
+    /* Vert-disk stream: per dense live vert, count + edge ids. */
+    uint32_t vcount = sm.domains[domainIndex(VERTEX)].count;
+    for (uint32_t vi = 0; vi < vcount; vi++) {
+      uint32_t n = pbf.readUint32();
+      sm.vertDiskStream.append(int(n));
+      for (uint32_t i = 0; i < n; i++) {
+        sm.vertDiskStream.append(pbf.readInt32());
+      }
+    }
+  }
   sm.version = version;
 
   if (!migrate(sm)) {
@@ -619,6 +702,27 @@ bool readMesh(Mesh &mesh, std::istream &in)
     buildDomain(*eds[d], sm.domains[d]);
   }
   mesh.sculptLayers = std::move(sm.layers);
+
+  /* Rebuild the per-vertex disk slabs from the stream, in stored (disk-walk)
+   * order — sequence-preserving across save/load. Sides come from .edge.vs. */
+  mesh.disk_arena.clear();
+  {
+    size_t pos = 0;
+    uint32_t vcount = sm.domains[domainIndex(VERTEX)].count;
+    for (uint32_t vi = 0; vi < vcount; vi++) {
+      mesh.v.disk[int(vi)] = math::int2(0, 0);
+      if (pos >= size_t(sm.vertDiskStream.size())) {
+        continue; /* truncated/absent stream: repairMesh rebuilds from vs */
+      }
+      int n = sm.vertDiskStream[int(pos++)];
+      for (int i = 0; i < n; i++) {
+        int ei = sm.vertDiskStream[int(pos++)];
+        mesh.disk_arena.insert(
+            mesh.v.disk[int(vi)],
+            diskPack(ei, mesh.e.vs[ei][0] == int(vi) ? 0 : 1));
+      }
+    }
+  }
   /* buildDomain bulk-loads faces without make_face, so resync the n-gon counter
    * dyntopo's triangulate-prepass skip relies on. */
   mesh.recountNgons();

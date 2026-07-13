@@ -35,8 +35,7 @@ int unionDegree(Mesh &m, int v, int skip, SharpT &is_sharp,
   if (e0 == ELEM_NONE) {
     return 0;
   }
-  int ec = e0;
-  do {
+  for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
     if (is_sharp[ec] || is_boundary[ec]) {
       deg++;
       if (ec != skip) {
@@ -47,9 +46,7 @@ int unionDegree(Mesh &m, int v, int skip, SharpT &is_sharp,
         }
       }
     }
-    int vside = m.e.vs[ec][0] == v ? 0 : 1;
-    ec = mesh::diskEdge(m.e.disk[ec][vside * 2 + 1]);
-  } while (ec != e0);
+  }
   return deg;
 }
 
@@ -124,15 +121,12 @@ void computeFeatureTags(Mesh &m, float sharp_angle, float feature_hysteresis,
       if (e0 == ELEM_NONE) {
         continue;
       }
-      int ec = e0;
-      do {
+      for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
         if (weak[ec] && !is_sharp[ec]) {
           is_sharp.set(ec, true);
           stack.append(ec);
         }
-        int vside = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = mesh::diskEdge(m.e.disk[ec][vside * 2 + 1]);
-      } while (ec != e0);
+      }
     }
   }
 

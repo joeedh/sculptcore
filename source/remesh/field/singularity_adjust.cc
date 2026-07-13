@@ -357,12 +357,10 @@ SingularityPairStats findSingularityPairs(Mesh &m, int max_hops,
     if (e0 == ELEM_NONE) {
       return;
     }
-    int ec = e0;
-    do {
+    for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
       int side = m.e.vs[ec][0] == v ? 0 : 1;
       fn(m.e.vs[ec][side ^ 1]);
-      ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-    } while (ec != e0);
+    }
   };
 
   litestl::util::Set<int> in_pair;
@@ -530,12 +528,10 @@ SingularityCancelStats cancelSingularityPairs(Mesh &m,
     if (e0 == ELEM_NONE) {
       return;
     }
-    int ec = e0;
-    do {
+    for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
       int side = m.e.vs[ec][0] == v ? 0 : 1;
       fn(ec, m.e.vs[ec][side ^ 1]);
-      ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-    } while (ec != e0);
+    }
   };
 
   // Dijkstra scratch, stamped per source so it's allocated once.

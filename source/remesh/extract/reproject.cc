@@ -114,16 +114,14 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
     int e0 = out.v.e[v];
     if (e0 == ELEM_NONE) return 1.0f;
     float3 sum(0.0f, 0.0f, 0.0f);
-    int cnt = 0, ec = e0, guard = 0;
-    do {
+    int cnt = 0;
+    for (int ec : mesh::EdgeOfVertIter(&out, v, e0)) {
       int ci = out.e.c[ec];
       if (ci != ELEM_NONE) {
         sum += out.f.no[out.l.f[out.c.l[ci]]];
         cnt++;
       }
-      int side = out.e.vs[ec][0] == v ? 0 : 1;
-      ec = mesh::diskEdge(out.e.disk[ec][side * 2 + 1]);
-    } while (ec != e0 && ++guard < 256);
+    }
     return cnt ? sum.length() / float(cnt) : 1.0f;
   };
   constexpr float kCoherence = 0.7f;

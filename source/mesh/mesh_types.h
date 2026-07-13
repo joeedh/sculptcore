@@ -2,6 +2,7 @@
 
 #include "attribute.h"
 #include "attribute_builtin.h"
+#include "disk_slab.h"
 
 #include "litestl/math/vector.h"
 
@@ -24,10 +25,9 @@ using namespace litestl;
 namespace sculptcore::mesh {
 struct Mesh;
 
-/** Disk-link encoding (`.edge.vs.disk`): each live link stores
- * `(edge << 1) | side`, where `side` is the slot of the shared vertex in the
- * linked edge's `.edge.vs` — a disk walk needs no `e.vs` load to pick its next
- * slot. Dead/free slots stay raw `ELEM_NONE` (never encoded). */
+/** Disk-slab entry encoding (`.vert.disk` arena entries): each entry stores
+ * `(edge << 1) | side`, where `side` is the slot of the shared vertex in that
+ * edge's `.edge.vs` — a disk walk needs no `e.vs` load to pick sides. */
 constexpr int diskPack(int e, int side)
 {
   return (e << 1) | side;
@@ -64,6 +64,7 @@ struct VertexData : public ElemData {
     select.ensure(attrs);
     no.ensure(attrs);
     e.ensure(attrs);
+    disk.ensure(attrs);
 
     for (int i = 0; i < count_; i++) {
       e[i] = ELEM_NONE;
@@ -75,8 +76,15 @@ struct VertexData : public ElemData {
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
-  /* Topology attributes. */
+  /* Topology attributes. `e` caches the disk head (= first slab entry, or
+   * ELEM_NONE). `disk` is the slab slot (arena offset, class<<28|count) —
+   * entries live in MeshBase::disk_arena; NOCOPY/TEMP because offsets are not
+   * portable identity: meshlog replays sequences, serialization streams them. */
   BuiltinAttr<int, ".vert.e", AttrFlag::TOPO> e;
+  BuiltinAttr<math::int2,
+              ".vert.disk",
+              AttrFlag::TOPO | AttrFlag::NOCOPY | AttrFlag::TEMP>
+      disk;
 
   /* is not instantiated until first use */
   BuiltinAttr<bool, ".boundary.vertex.dirty"> boundaryDirty;
@@ -96,7 +104,6 @@ struct EdgeData : public ElemData {
   EdgeData(int count_ = 0) : ElemData(EDGE, count_)
   {
     vs.ensure(attrs);
-    disk.ensure(attrs);
     select.ensure(attrs);
     c.ensure(attrs);
   }
@@ -110,7 +117,6 @@ struct EdgeData : public ElemData {
     BIND_STRUCT_MEMBER(st, c);
     BIND_STRUCT_MEMBER(st, vs);
     BIND_STRUCT_MEMBER(st, select);
-    BIND_STRUCT_MEMBER(st, disk);
 
     return st;
   }
@@ -119,9 +125,9 @@ struct EdgeData : public ElemData {
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
-  /* Topology attributes. Disk links are side-bit encoded — see diskPack(). */
+  /* Topology attributes. Disk connectivity lives in the per-vertex slabs
+   * (VertexData::disk + MeshBase::disk_arena), not on edges. */
   BuiltinAttr<int2, ".edge.vs", AttrFlag::TOPO> vs;
-  BuiltinAttr<int4, ".edge.vs.disk", AttrFlag::TOPO> disk;
 
   /* is not instantiated until first use */
   BuiltinAttr<bool, ".boundary.edge.dirty"> boundaryDirty;
@@ -240,6 +246,9 @@ struct MeshBase {
   CornerData c;
   ListData l;
   FaceData f;
+
+  /* Backing pool for the per-vertex incident-edge slabs (VertexData::disk). */
+  DiskSlabArena disk_arena;
 
   /* Set when any boundary source/derived flag is marked dirty (boundary::mark*
    * / setEdgeFlag), cleared by boundary::recomputeDirty. An O(1) "is the derived

@@ -54,27 +54,27 @@ bool validateMesh(Mesh &m, const char *tag)
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
     if (e0 == ELEM_NONE) continue;
-    int steps = 0, ec = e0;
-    do {
-      int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      if (m.e.vs[ec][side] != vi) {
-        fprintf(stderr, "[%s] vert %d disk edge %d not incident\n", tag, vi, ec);
+    const auto &slot = m.v.disk[vi];
+    int n = DiskSlabArena::count(slot);
+    const int *sp_ = m.disk_arena.span(slot);
+    if (n == 0 || diskEdge(sp_[0]) != e0) {
+      fprintf(stderr, "[%s] vert %d disk head/slab mismatch\n", tag, vi);
+      return false;
+    }
+    for (int i = 0; i < n; i++) {
+      int ec = diskEdge(sp_[i]), side = diskSide(sp_[i]);
+      if (ec < 0 || ec >= int(m.e.capacity()) || m.e.freemap[ec] ||
+          m.e.vs[ec][side] != vi) {
+        fprintf(stderr, "[%s] vert %d disk slab entry invalid e=%d\n", tag, vi, ec);
         return false;
       }
-      int next = diskEdge(m.e.disk[ec][side * 2 + 1]);
-      int prev = diskEdge(m.e.disk[ec][side * 2]);
-      int side_n = m.e.vs[next][0] == vi ? 0 : 1;
-      int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][side_n * 2] != diskPack(ec, side) || m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
-        fprintf(stderr, "[%s] disk prev/next mismatch v=%d e=%d\n", tag, vi, ec);
-        return false;
+      for (int j = i + 1; j < n; j++) {
+        if (sp_[j] == sp_[i]) {
+          fprintf(stderr, "[%s] vert %d disk slab duplicate e=%d\n", tag, vi, ec);
+          return false;
+        }
       }
-      ec = next;
-      if (++steps > 1000000) {
-        fprintf(stderr, "[%s] vert %d disk did not close\n", tag, vi);
-        return false;
-      }
-    } while (ec != e0);
+    }
   }
 
   for (int ei : m.e) {
@@ -300,8 +300,10 @@ void test_invalidation()
  * can assert bit-identical restoration. */
 struct LinkSnapshot {
   Vector<int> v_e;
+  /* Per-vert disk-slab sequences as a CSR (offsets are arena-private, so the
+   * snapshot records the packed entry SEQUENCE, which must restore exactly). */
+  Vector<int> v_disk_off, v_disk_blob;
   Vector<int> e_c, e_v0, e_v1;
-  Vector<math::int4> e_disk;
   Vector<int> c_v, c_e, c_l, c_next, c_prev, c_rnext, c_rprev;
   Vector<int> l_c, l_f, l_next, l_size;
   Vector<int> f_l, f_lcount;
@@ -313,15 +315,25 @@ LinkSnapshot snapshotLinks(Mesh &m)
   int Vc = int(m.v.capacity()), Ec = int(m.e.capacity()), Cc = int(m.c.capacity());
   int Lc = int(m.l.capacity()), Fc = int(m.f.capacity());
   s.v_e.resize(Vc);
-  s.e_c.resize(Ec); s.e_v0.resize(Ec); s.e_v1.resize(Ec); s.e_disk.resize(Ec);
+  s.v_disk_off.resize(Vc + 1);
+  s.e_c.resize(Ec); s.e_v0.resize(Ec); s.e_v1.resize(Ec);
   s.c_v.resize(Cc); s.c_e.resize(Cc); s.c_l.resize(Cc);
   s.c_next.resize(Cc); s.c_prev.resize(Cc); s.c_rnext.resize(Cc); s.c_rprev.resize(Cc);
   s.l_c.resize(Lc); s.l_f.resize(Lc); s.l_next.resize(Lc); s.l_size.resize(Lc);
   s.f_l.resize(Fc); s.f_lcount.resize(Fc);
   for (int v : m.v) s.v_e[v] = m.v.e[v];
+  for (int v = 0; v < Vc; v++) {
+    s.v_disk_off[v] = int(s.v_disk_blob.size());
+    if (!m.v.freemap[v]) {
+      const auto &slot = m.v.disk[v];
+      int n = DiskSlabArena::count(slot);
+      const int *p = m.disk_arena.span(slot);
+      for (int i = 0; i < n; i++) s.v_disk_blob.append(p[i]);
+    }
+  }
+  s.v_disk_off[Vc] = int(s.v_disk_blob.size());
   for (int e : m.e) {
     s.e_c[e] = m.e.c[e]; s.e_v0[e] = m.e.vs[e][0]; s.e_v1[e] = m.e.vs[e][1];
-    s.e_disk[e] = m.e.disk[e];
   }
   for (int c : m.c) {
     s.c_v[c] = m.c.v[c]; s.c_e[c] = m.c.e[c]; s.c_l[c] = m.c.l[c];
@@ -341,9 +353,9 @@ LinkSnapshot snapshotLinks(Mesh &m)
 void corruptLinks(Mesh &m)
 {
   const int X = 0x6bad;
-  for (int v : m.v) m.v.e[v] = X;
+  for (int v : m.v) { m.v.e[v] = X; m.v.disk[v] = math::int2(0, 0); }
   for (int e : m.e) {
-    m.e.c[e] = X; m.e.vs[e][0] = X; m.e.vs[e][1] = X; m.e.disk[e] = math::int4(X);
+    m.e.c[e] = X; m.e.vs[e][0] = X; m.e.vs[e][1] = X;
   }
   for (int c : m.c) {
     m.c.v[c] = X; m.c.e[c] = X; m.c.l[c] = X;
@@ -356,10 +368,19 @@ void corruptLinks(Mesh &m)
 void compareLinks(Mesh &m, const LinkSnapshot &s, const char *tag)
 {
   for (int v : m.v) TASSERT(m.v.e[v] == s.v_e[v]);
+  for (int v : m.v) {
+    const auto &slot = m.v.disk[v];
+    int n = DiskSlabArena::count(slot);
+    const int *p = m.disk_arena.span(slot);
+    int a = s.v_disk_off[v], b = s.v_disk_off[v + 1];
+    TASSERT(n == b - a);
+    for (int i = 0; i < n && i < b - a; i++) {
+      TASSERT(p[i] == s.v_disk_blob[a + i]);
+    }
+  }
   for (int e : m.e) {
     TASSERT(m.e.c[e] == s.e_c[e]);
     TASSERT(m.e.vs[e][0] == s.e_v0[e] && m.e.vs[e][1] == s.e_v1[e]);
-    for (int k = 0; k < 4; k++) TASSERT(m.e.disk[e][k] == s.e_disk[e][k]);
   }
   for (int c : m.c) {
     TASSERT(m.c.v[c] == s.c_v[c]);

@@ -116,8 +116,7 @@ void computeCurvature(Mesh &m, const CurvatureParams &params)
     double T[3][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     int e0 = m.v.e[v];
     if (e0 != ELEM_NONE) {
-      int ec = e0;
-      do {
+      for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
         int c1 = m.e.c[ec];
         if (c1 != ELEM_NONE) {
           int c2 = m.c.radial_next[c1];
@@ -146,9 +145,7 @@ void computeCurvature(Mesh &m, const CurvatureParams &params)
             }
           }
         }
-        int side = m.e.vs[ec][0] == v ? 0 : 1;
-        ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-      } while (ec != e0);
+      }
     }
 
     if (varea[v] > 1e-20f) {
@@ -173,8 +170,7 @@ void computeCurvature(Mesh &m, const CurvatureParams &params)
       int cnt = 0;
       int e0 = m.v.e[v];
       if (e0 != ELEM_NONE) {
-        int ec = e0;
-        do {
+        for (int ec : mesh::EdgeOfVertIter(&m, v, e0)) {
           int vn2 = m.e.vs[ec][0] == v ? m.e.vs[ec][1] : m.e.vs[ec][0];
           for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
@@ -182,9 +178,7 @@ void computeCurvature(Mesh &m, const CurvatureParams &params)
             }
           }
           cnt++;
-          int side = m.e.vs[ec][0] == v ? 0 : 1;
-          ec = mesh::diskEdge(m.e.disk[ec][side * 2 + 1]);
-        } while (ec != e0);
+        }
       }
       if (cnt > 0) {
         double inv = 1.0 / double(cnt);
