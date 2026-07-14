@@ -81,6 +81,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #endif
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <utility>
 
 namespace sculptcore::meshlog {
@@ -452,9 +453,30 @@ namespace detail {
 struct ChunkElemRow {
   ChunkElemRow() = default;
 
+  // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046-meshlog-
+  // capture-cost). SC_ABLATE_CAPTURE=1 skips capture bodies entirely,
+  // =2 runs layoutFor only (no copies). Correctness-broken (undo must not be
+  // replayed); timing-valid for interleaved ablation legs. Ripped in M4.
+  static int ablateCapture()
+  {
+    static const int v = [] {
+      const char *s = std::getenv("SC_ABLATE_CAPTURE");
+      return s ? std::atoi(s) : 0;
+    }();
+    return v;
+  }
+
   void captureFrom(mesh::AttrGroup &src, int src_idx)
   {
+    // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046)
+    if (ablateCapture() == 1) {
+      return;
+    }
     layoutFor(src);
+    // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046)
+    if (ablateCapture() == 2) {
+      return;
+    }
     for (int i = 0; i < src.attrs.size(); i++) {
       mesh::AttrRef &ref = src.attrs[i];
       uint8_t *dst = data_.data() + offsets_[i];
@@ -759,7 +781,15 @@ struct LogChunkTopo : public LogChunk {
     e->end_mesh_index = idx;
     e->begin_body = bodies_pool.alloc();
     e->end_body = nullptr;
-    e->begin_body->captureFrom(group(m, kind), idx);
+    // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046):
+    // SC_ABLATE_KILL_CAPTURE=1 skips only the kill-time row copies.
+    static const bool ablateKill = [] {
+      const char *s = std::getenv("SC_ABLATE_KILL_CAPTURE");
+      return s && s[0] && s[0] != '0';
+    }();
+    if (!ablateKill) {
+      e->begin_body->captureFrom(group(m, kind), idx);
+    }
 
     by_log_id.insert(int(e->log_id), e);
     // Do NOT map idx_to_log_id — element is dead.

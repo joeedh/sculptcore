@@ -216,3 +216,67 @@ a valid outcome). If it clears:
 ## Progress log
 
 (append dated entries + measurement tables here as milestones run)
+
+### 2026-07-13 — M0a: column-ownership matrix
+
+Sources read: `AttrSaver` (attr_saver.h — the gate maps kernel-written attrs
+to flag bits; `.strokeid.<domain>` stamp column is NOCOPY|TEMP|NOINTERP),
+generated-kernel gating (`emit_cpp.cc` — each kernel registers exactly the
+attrs it writes: CO/NO/COLOR/MASK + CUSTOM bits for layer handles, then
+`needsData`→ element store append →`updateSaved`), `stampUndoGate`
+(0xffff = after a topo touch the row owns *all* gated flags for that
+element+stroke), `ChunkElemRow` (captureFrom/swapWith skip NOCOPY; writeTo
+zero-fills NOCOPY = reset semantics), `refreshCreatedVertData/FaceData`
+(re-reads non-TOPO/non-NOCOPY data columns of Created rows at endStep),
+boundary.cc (source flags persistent, derived layers TEMP), spatial attrs
+(TEMP|NOINTERP|NOCOPY), brush temporaries (`.brush.orig.*`, `.brush.dab.gen`
+TEMP|NOCOPY), sculpt-layer rest snapshot TEMP (layer channels persistent).
+
+| ownership class | columns | undo owner |
+|---|---|---|
+| topo row, sole owner | all TOPO links; `select` (all domains); `.list.size`, `.face.list_count`; boundary **source** flags (seam/sharp/projected…) | ChunkElemRow realloc/writeTo/swap |
+| gate-transferred | vert `co`/`no`, face `no`, color/mask, kernel-writable custom layers — **for topo-touched elements** (0xffff stamp) | topo row (else element store) |
+| element store | same data columns for non-topo-touched elements | LogChunkElems per stroke |
+| derived (capture is wasted bytes) | EDGE_POLYGROUP/UVCHART/DIRTY, VERT_DIRTY/CLASS (TEMP), `.boundary.*.dirty` markers | `recomputeDirty` / markers |
+| NOCOPY (already skipped) | `.spatial.{v,f}.node`, `.strokeid.*`, `.brush.orig.*`, `.brush.dab.gen`, sculpt rest snapshots | tree passes / reset-to-zero |
+
+**Consequences for the prototypes**:
+- P1's semantic subset for `Existed && Live` rows is only large if paired
+  with a **partial gate**: `stampUndoGate` must stamp only the flags the row
+  captured (e.g. CO|NO) so color/mask/custom stay element-store-owned — the
+  0xffff conservatism exists to avoid two-owner ordering conflicts, and a
+  by-flag ownership partition preserves that argument (each flag has exactly
+  one owner). Without the gate change, only the TEMP-derived boundary
+  columns are safely skippable (small).
+- Created/Dead rows must stay full-row (reconstruction), as planned.
+- `refreshCreatedVertData` re-reads data columns through the row's own
+  layout — subset plans must keep it working for Created rows (full-row, so
+  unaffected).
+
+### 2026-07-13 — M0b: ablation bounds; gate G0 decided
+
+One binary, env-toggled legs, 3 interleaved passes on perdab (wall s,
+medians): baseline **45.5**; no-capture (`SC_ABLATE_CAPTURE=1`) **32.5**;
+layout-only (`=2`, offsets+resizes but no copies) **43.4**; no-kill-capture
+**43.1**.
+
+| bound | ms | share of wall |
+|---|---|---|
+| total `ChunkElemRow` capture (A−B) | ~13,000 | **~28.6%** |
+| … of which `layoutFor` + per-row resizes (C−B) | ~10,900 | **~24%** |
+| … of which the actual byte copies (A−C) | ~2,100 | ~4.6% |
+| kill-time captures (A−D, subset of total) | ~2,400 | ~5.3% |
+
+The ablation says the earlier per-event estimates *under*-counted capture:
+with end-body finalize captures included, ~63 k rows/dab each pay a full
+attr-list walk (`ref.data->elemSize` deref per column) plus two Vector
+resizes just to recompute a layout that is **identical for every row of a
+domain**. The copies themselves are minor.
+
+**Gate G0 (execution reorder)**: P1-layer-1 — the precompiled shared
+per-domain row layout — is promoted to the first prototype (~24%-of-wall
+bound, zero semantic change). P2 dedup stays second (it removes whole rows,
+so its win compounds with whatever layer 1 leaves). P3 clears its entry bar
+today (5.3%) but is expected to shrink under layer 1 — re-measure after,
+before writing any kill-specific code. P1-layer-2 (subsets + partial gate)
+re-measured last against the residual copy cost (~4.6% bound).
