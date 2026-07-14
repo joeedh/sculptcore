@@ -19,7 +19,12 @@ Predecessors:
 [`2026-07-12-2141-meshlog-callback-batching.md`](2026-07-12-2141-meshlog-callback-batching.md)
 (both complete; this plan is the "G0 third branch" the latter anticipated).
 
-Status: **not started**.
+Status: **COMPLETE** (2026-07-13). P1-layer-1 (shared per-domain row
+layouts) shipped at **−18% perdab / −16…−25% perdab_big wall**; P2
+(cross-chunk dedup) built, measured unsound (mid-replay tree passes walk
+mixed-era links), reverted with the finding recorded in code + log; P3 and
+P1-layer-2 closed under-bar / unmeasurable-on-gate-workloads. See the
+progress log.
 
 ## Background — what capture is and what it costs
 
@@ -280,3 +285,48 @@ so its win compounds with whatever layer 1 leaves). P3 clears its entry bar
 today (5.3%) but is expected to shrink under layer 1 — re-measure after,
 before writing any kill-specific code. P1-layer-2 (subsets + partial gate)
 re-measured last against the residual copy cost (~4.6% bound).
+
+### 2026-07-13 — P1-layer-1 SHIPPED (−18%); P2 measured UNSOUND; P3/layer-2 closed; plan complete
+
+**P1 layer 1 — shared per-domain row layouts: KEPT.** `ChunkElemRow` rows
+now hold a pointer to a chunk-owned `RowLayout` (one per kind × attr-count)
+plus payload bytes; per-row `layoutFor` recompute, `offsets_` allocation,
+and the per-column `elemSize` derefs are gone. NOCOPY zero-restore kept via
+explicit memset (pooled-row reuse safe). A/B (interleaved, M0 leg vs
+layer-1 leg, wall):
+
+| workload | pairs | delta |
+|---|---|---|
+| perdab | 47.8→38.2, 46.4→37.9, 44.9→37.8 | **−15.8…−20.0%** |
+| perdab_big | 98.7→82.6, 105.6→79.3 | **−16…−25%** |
+
+Full undo battery, fidelity scripts, and bench parity green. Residual
+capture bound re-measured on the new binary: ~7.8 s (copies + payload
+resize/memset + pool alloc + per-column page walks); kill-only ~1.1 s.
+
+**P2 — step-scoped Existed&&Live dedup: BUILT, FAILED ITS GATE, REVERTED.**
+The final-state swap algebra is correct, but `test_dyntopo_stroke_undo`
+hangs: each chunk's undo/redo runs spatial-tree pre/post passes whose
+`add_face` **walks corner loops mid-replay** — with a deduped element those
+walks see mixed-era links and never close. The plan's risk note ("the
+safety argument leans on replay never *reading* other elements'
+intermediate state") is exactly what broke: replay does read, via the tree
+passes. **Per-chunk record completeness is load-bearing for the
+tree-coupled replay.** A 3-line note now marks the spot in
+`meshlog_base.h`. Only viable revival: move the tree passes from chunk
+scope to step scope first — a replay redesign, explicitly out of scope.
+
+**P3 — kill capture: CLOSED under bar.** Post-layer-1 kill-only ablation
+bound: ~1.1 s ≈ 2.9% of wall (< 3%); kills already ride the shared layout.
+
+**P1 layer 2 — subsets + partial gate: CLOSED as unmeasurable here.** The
+gate workloads' vert rows are co/no/select-dominated — there is no
+color/mask/layer payload to drop, so the A/B would measure ~0 by
+construction. The partial-gate mechanism is sketched (stamp only the fixed
+CO|NO bits, leave COLOR/MASK/custom bits to the element store — a clean
+by-flag ownership partition), but building it without a painted/layered
+benchmark to hold it accountable violates the plan's own discipline.
+Revisit alongside such a benchmark.
+
+**Net: capture cost roughly halved; dyntopo perdab wall −18% at 480k,
+−16…−25% at 805k, on top of the two predecessor plans.**

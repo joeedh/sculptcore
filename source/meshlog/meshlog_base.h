@@ -482,34 +482,13 @@ struct RowLayout {
 struct ChunkElemRow {
   ChunkElemRow() = default;
 
-  // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046-meshlog-
-  // capture-cost). SC_ABLATE_CAPTURE=1 skips capture bodies entirely,
-  // =2 runs layoutFor only (no copies). Correctness-broken (undo must not be
-  // replayed); timing-valid for interleaved ablation legs. Ripped in M4.
-  static int ablateCapture()
-  {
-    static const int v = [] {
-      const char *s = std::getenv("SC_ABLATE_CAPTURE");
-      return s ? std::atoi(s) : 0;
-    }();
-    return v;
-  }
-
   void captureFrom(const RowLayout *plan, mesh::AttrGroup &src, int src_idx)
   {
-    // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046)
-    if (ablateCapture() == 1) {
-      return;
-    }
     layout_ = plan;
     data_.resize(plan->total);
     /* NOCOPY cells are skipped below and must restore as zeros (their
      * "default state" contract in writeTo) — pooled rows reuse buffers. */
     memset(data_.data(), 0, size_t(plan->total));
-    // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046)
-    if (ablateCapture() == 2) {
-      return;
-    }
     for (int i = 0; i < plan->count; i++) {
       mesh::AttrRef &ref = src.attrs[i];
 
@@ -538,7 +517,7 @@ struct ChunkElemRow {
   void writeTo(mesh::AttrGroup &dst, int dst_idx)
   {
     if (!layout_) {
-      return; /* ablation leg captured nothing */
+      return; /* never captured */
     }
     int n = dst.attrs.size() < layout_->count ? int(dst.attrs.size()) : layout_->count;
     for (int i = 0; i < n; i++) {
@@ -571,7 +550,7 @@ struct ChunkElemRow {
   void refreshDataColumns(mesh::AttrGroup &src, int src_idx)
   {
     if (!layout_) {
-      return; /* ablation leg captured nothing */
+      return; /* never captured */
     }
     int n = src.attrs.size() < layout_->count ? int(src.attrs.size()) : layout_->count;
     for (int i = 0; i < n; i++) {
@@ -602,7 +581,7 @@ struct ChunkElemRow {
   void swapWith(mesh::AttrGroup &live, int live_idx)
   {
     if (!layout_) {
-      return; /* ablation leg captured nothing */
+      return; /* never captured */
     }
     uint8_t buf[64];
     int n = live.attrs.size() < layout_->count ? int(live.attrs.size()) : layout_->count;
@@ -834,13 +813,7 @@ struct LogChunkTopo : public LogChunk {
     e->end_mesh_index = idx;
     e->begin_body = bodies_pool.alloc();
     e->end_body = nullptr;
-    // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046):
-    // SC_ABLATE_KILL_CAPTURE=1 skips only the kill-time row copies.
-    static const bool ablateKill = [] {
-      const char *s = std::getenv("SC_ABLATE_KILL_CAPTURE");
-      return s && s[0] && s[0] != '0';
-    }();
-    if (!ablateKill) {
+    {
       mesh::AttrGroup &grp = group(m, kind);
       e->begin_body->captureFrom(rowLayout(kind, grp), grp, idx);
     }
@@ -1422,7 +1395,7 @@ struct MeshLog {
     if (m != active_mesh_) {
       /* Stamps index the active mesh's element ids; a mesh switch makes them
        * meaningless — invalidate wholesale. */
-      bumpChunkStampGen();
+      chunk_stamp_.bump();
     }
     active_mesh_ = m;
     // Bind the brush's save-gate columns up front (before any dab op fires a
@@ -1702,7 +1675,7 @@ struct MeshLog {
     pushReorderStep(vmap, emap, cmap, lmap, fmap);
     tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
     /* Element ids just moved; the recorded-in-chunk stamps are id-keyed. */
-    bumpChunkStampGen();
+    chunk_stamp_.bump();
   }
 
   /** Stroke-boundary auto-compaction (mechanism B). MUST be called with the
@@ -1760,7 +1733,7 @@ struct MeshLog {
     tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap, moved[0], moved[1],
                                   moved[2], moved[3], moved[4]);
     /* Element ids just moved; the recorded-in-chunk stamps are id-keyed. */
-    bumpChunkStampGen();
+    chunk_stamp_.bump();
     return true;
   }
 
@@ -2326,53 +2299,61 @@ private:
     }
   }
 
-  /* Per-domain "already recorded in the current topo chunk" stamps — the
-   * no-op fast path (plan 2026-07-12-2141 M1). 65% of dab events re-touch an
-   * element the active chunk already recorded; a dense generation-stamp read
-   * answers that without the makeKey/hash lookup or the redundant undo-gate
-   * write. Stamps are set only by the slow path below (right after the chunk
-   * records the element), cleared by onKill (index reuse must re-record), and
-   * invalidated wholesale by a generation bump per new chunk / active-mesh
-   * switch — so a stale hit is impossible by construction. */
-  litestl::util::Vector<uint32_t> chunk_stamp_[5];
-  uint32_t chunk_stamp_gen_ = 1;
+  /* Per-domain generation-stamped element sets (dense read instead of the
+   * makeKey/hash lookup). Two tiers below: per-CHUNK ("already recorded in
+   * the active chunk" — the no-op fast path, plan 2026-07-12-2141 M1;
+   * see the P2 NOTE below for why there is no step-scoped tier). Stamps are set
+   * only right after the chunk records the element, cleared by onKill
+   * (index reuse must re-record), and invalidated wholesale by a generation
+   * bump — so a stale hit is impossible by construction. */
+  struct ElemStampTier {
+    litestl::util::Vector<uint32_t> stamp[5];
+    uint32_t gen = 1;
+
+    void bump()
+    {
+      if (++gen == 0) {
+        for (int k = 0; k < 5; k++) {
+          stamp[k].clear();
+        }
+        gen = 1;
+      }
+    }
+    bool hit(LogElemKind kind, int idx) const
+    {
+      const litestl::util::Vector<uint32_t> &s = stamp[int(kind)];
+      return uint32_t(idx) < uint32_t(s.size()) && s[idx] == gen;
+    }
+    void set(LogElemKind kind, int idx)
+    {
+      litestl::util::Vector<uint32_t> &s = stamp[int(kind)];
+      if (uint32_t(idx) >= uint32_t(s.size())) {
+        litestl::alloc::PermanentGuard guard; /* persistent buffer: not a leak */
+        int old = int(s.size());
+        s.resize(idx + 1);
+        for (int i = old; i <= idx; i++) {
+          s[i] = 0;
+        }
+      }
+      s[idx] = gen;
+    }
+    void clear(LogElemKind kind, int idx)
+    {
+      litestl::util::Vector<uint32_t> &s = stamp[int(kind)];
+      if (uint32_t(idx) < uint32_t(s.size())) {
+        s[idx] = 0;
+      }
+    }
+  };
+
+  /* No step-scoped tier: cross-chunk Existed&&Live dedup yields the right
+   * final state, but each chunk's replay tree passes walk corner loops
+   * mid-undo and hang on mixed-era links (plan 2026-07-13-2046 P2). */
+  ElemStampTier chunk_stamp_;
 
   void bumpChunkStampGen()
   {
-    if (++chunk_stamp_gen_ == 0) {
-      for (int k = 0; k < 5; k++) {
-        chunk_stamp_[k].clear();
-      }
-      chunk_stamp_gen_ = 1;
-    }
-  }
-
-  bool chunkStampHit(LogElemKind kind, int idx) const
-  {
-    const litestl::util::Vector<uint32_t> &s = chunk_stamp_[int(kind)];
-    return uint32_t(idx) < uint32_t(s.size()) && s[idx] == chunk_stamp_gen_;
-  }
-
-  void setChunkStamp(LogElemKind kind, int idx)
-  {
-    litestl::util::Vector<uint32_t> &s = chunk_stamp_[int(kind)];
-    if (uint32_t(idx) >= uint32_t(s.size())) {
-      litestl::alloc::PermanentGuard guard; /* persistent buffer: not a leak */
-      int old = int(s.size());
-      s.resize(idx + 1);
-      for (int i = old; i <= idx; i++) {
-        s[i] = 0;
-      }
-    }
-    s[idx] = chunk_stamp_gen_;
-  }
-
-  void clearChunkStamp(LogElemKind kind, int idx)
-  {
-    litestl::util::Vector<uint32_t> &s = chunk_stamp_[int(kind)];
-    if (uint32_t(idx) < uint32_t(s.size())) {
-      s[idx] = 0;
-    }
+    chunk_stamp_.bump();
   }
 
   void installCallbacks()
@@ -2384,11 +2365,11 @@ private:
         }
         /* Fast path: element already recorded by the active chunk — nothing
          * to capture, and its undo gate was stamped on first touch. */
-        if (chunkStampHit(kind, idx)) {
+        if (chunk_stamp_.hit(kind, idx)) {
           return;
         }
         getTopoChunk()->onChange(kind, active_mesh_, idx);
-        setChunkStamp(kind, idx);
+        chunk_stamp_.set(kind, idx);
         stampUndoGate(kind, idx);
       };
     };
@@ -2398,7 +2379,7 @@ private:
           return;
         }
         getTopoChunk()->onCreate(kind, active_mesh_, idx);
-        setChunkStamp(kind, idx);
+        chunk_stamp_.set(kind, idx);
         stampUndoGate(kind, idx);
       };
     };
@@ -2408,7 +2389,7 @@ private:
           return;
         }
         getTopoChunk()->onKill(kind, active_mesh_, idx);
-        clearChunkStamp(kind, idx);
+        chunk_stamp_.clear(kind, idx);
       };
     };
 
