@@ -439,16 +439,45 @@ private:
 
 namespace detail {
 
+/** Shared per-domain row layout: byte offsets/sizes for every attr of one
+ * AttrGroup, computed once per (chunk, domain, attr-count) instead of per
+ * captured row — the per-row recompute measured ~24% of a dyntopo dab's
+ * wall. `count` doubles as the append-guard prefix: rows built on a layout
+ * restore only the attrs that existed when it was built, so an AttrGroup
+ * that has attrs *appended* between capture and replay stays safe (the new
+ * trailing columns are simply not restored). Reordering is unsupported.
+ * Owned by the LogChunkTopo whose rows reference it. */
+struct RowLayout {
+  int count = 0;
+  int total = 0;
+  Vector<int> offsets;
+  Vector<int> sizes; /* bytes per attr cell (BOOL = 1) */
+
+  void build(mesh::AttrGroup &src)
+  {
+    count = int(src.attrs.size());
+    offsets.resize(count);
+    sizes.resize(count);
+    total = 0;
+    for (int i = 0; i < count; i++) {
+      mesh::AttrRef &ref = src.attrs[i];
+      int sz = (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
+      offsets[i] = total;
+      sizes[i] = sz;
+      total += sz;
+    }
+  }
+
+  double memSize() const
+  {
+    return double(sizeof(*this)) + double(offsets.size() + sizes.size()) * sizeof(int);
+  }
+};
+
 /**
- * Single-row attribute snapshot for one element in an AttrGroup.
- *
- * Captures every attribute (typed + bool, including TOPO-flagged
- * attrs) at a given index into a flat byte buffer. The byte layout is
- * computed from the source group on capture; writeTo / swapWith only
- * ever touch the first count_ attrs (the prefix that existed at capture
- * time), so an AttrGroup that has attrs *appended* between capture and
- * replay stays safe — the new trailing columns are simply not restored.
- * Reordering is still unsupported.
+ * Single-row attribute snapshot for one element in an AttrGroup, laid out
+ * by a shared RowLayout (which must outlive the row — both are owned by the
+ * same LogChunkTopo).
  */
 struct ChunkElemRow {
   ChunkElemRow() = default;
@@ -466,20 +495,23 @@ struct ChunkElemRow {
     return v;
   }
 
-  void captureFrom(mesh::AttrGroup &src, int src_idx)
+  void captureFrom(const RowLayout *plan, mesh::AttrGroup &src, int src_idx)
   {
     // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046)
     if (ablateCapture() == 1) {
       return;
     }
-    layoutFor(src);
+    layout_ = plan;
+    data_.resize(plan->total);
+    /* NOCOPY cells are skipped below and must restore as zeros (their
+     * "default state" contract in writeTo) — pooled rows reuse buffers. */
+    memset(data_.data(), 0, size_t(plan->total));
     // CLAUDENOTE: CAP-M0 ablation scaffolding (plan 2026-07-13-2046)
     if (ablateCapture() == 2) {
       return;
     }
-    for (int i = 0; i < src.attrs.size(); i++) {
+    for (int i = 0; i < plan->count; i++) {
       mesh::AttrRef &ref = src.attrs[i];
-      uint8_t *dst = data_.data() + offsets_[i];
 
       // TEMP attrs (e.g. .spatial.*.node) are derived state owned by the
       // spatial tree, not authoritative undo data — skip them so incremental
@@ -487,6 +519,7 @@ struct ChunkElemRow {
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
         continue;
       }
+      uint8_t *dst = data_.data() + plan->offsets[i];
 
       if (ref.type == mesh::AttrType::BOOL) {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
@@ -497,22 +530,25 @@ struct ChunkElemRow {
           warnNullPage("captureFrom", ref);
           continue;
         }
-        memcpy(static_cast<void *>(dst), src, ref.data->elemSize);
+        memcpy(static_cast<void *>(dst), src, size_t(plan->sizes[i]));
       }
     }
   }
 
   void writeTo(mesh::AttrGroup &dst, int dst_idx)
   {
-    int n = dst.attrs.size() < count_ ? int(dst.attrs.size()) : count_;
+    if (!layout_) {
+      return; /* ablation leg captured nothing */
+    }
+    int n = dst.attrs.size() < layout_->count ? int(dst.attrs.size()) : layout_->count;
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = dst.attrs[i];
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
         // note: since this is called on element re-creation,
         // we want to restore nocopy attrs to their default states
-        // (which should have been saved in layoutFor)
+        // (captured cells stay zeroed for NOCOPY)
       }
-      uint8_t *src = data_.data() + offsets_[i];
+      uint8_t *src = data_.data() + layout_->offsets[i];
 
       if (ref.type == mesh::AttrType::BOOL) {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
@@ -523,7 +559,7 @@ struct ChunkElemRow {
           warnNullPage("writeTo", ref);
           continue;
         }
-        memcpy(dst, static_cast<const void *>(src), ref.data->elemSize);
+        memcpy(dst, static_cast<const void *>(src), size_t(layout_->sizes[i]));
       }
     }
   }
@@ -534,13 +570,16 @@ struct ChunkElemRow {
    * final post-stroke value (see LogChunkTopo::refreshCreatedVertData). */
   void refreshDataColumns(mesh::AttrGroup &src, int src_idx)
   {
-    int n = src.attrs.size() < count_ ? int(src.attrs.size()) : count_;
+    if (!layout_) {
+      return; /* ablation leg captured nothing */
+    }
+    int n = src.attrs.size() < layout_->count ? int(src.attrs.size()) : layout_->count;
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = src.attrs[i];
       if ((ref.flag & mesh::AttrFlag::TOPO) || (ref.flag & mesh::AttrFlag::NOCOPY)) {
         continue;
       }
-      uint8_t *dst = data_.data() + offsets_[i];
+      uint8_t *dst = data_.data() + layout_->offsets[i];
       if (ref.type == mesh::AttrType::BOOL) {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
         dst[0] = view->get(src_idx) ? 1 : 0;
@@ -549,27 +588,30 @@ struct ChunkElemRow {
         if (!s) {
           continue;
         }
-        memcpy(static_cast<void *>(dst), s, ref.data->elemSize);
+        memcpy(static_cast<void *>(dst), s, size_t(layout_->sizes[i]));
       }
     }
   }
 
   double memSize()
   {
-    return double(sizeof(*this)) + double(data_.size()) +
-           double(offsets_.size()) * sizeof(int);
+    /* The shared RowLayout is counted once by the owning chunk. */
+    return double(sizeof(*this)) + double(data_.size());
   }
 
   void swapWith(mesh::AttrGroup &live, int live_idx)
   {
+    if (!layout_) {
+      return; /* ablation leg captured nothing */
+    }
     uint8_t buf[64];
-    int n = live.attrs.size() < count_ ? int(live.attrs.size()) : count_;
+    int n = live.attrs.size() < layout_->count ? int(live.attrs.size()) : layout_->count;
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = live.attrs[i];
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
         continue;
       }
-      uint8_t *slot = data_.data() + offsets_[i];
+      uint8_t *slot = data_.data() + layout_->offsets[i];
 
       if (ref.type == mesh::AttrType::BOOL) {
         mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
@@ -582,7 +624,7 @@ struct ChunkElemRow {
           warnNullPage("swapWith", ref);
           continue;
         }
-        size_t n = ref.data->elemSize;
+        size_t n = size_t(layout_->sizes[i]);
         memcpy(static_cast<void *>(buf), live_p, n);
         memcpy(live_p, static_cast<const void *>(slot), n);
         memcpy(static_cast<void *>(slot), static_cast<const void *>(buf), n);
@@ -603,26 +645,9 @@ private:
             ref.name.c_str());
   }
 
-  void layoutFor(mesh::AttrGroup &src)
-  {
-    count_ = int(src.attrs.size());
-    offsets_.resize(src.attrs.size());
-    int total = 0;
-    for (int i = 0; i < src.attrs.size(); i++) {
-      offsets_[i] = total;
-      mesh::AttrRef &ref = src.attrs[i];
-      total += (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
-    }
-    // TODO: handle non-zero attribute defaults here
-    //       for now just zero initialize
-    data_.resize(total);
-  }
-
   Vector<uint8_t> data_;
-  Vector<int> offsets_;
-  /* Number of attrs present at capture time. Restore loops bound to this so a
-   * mid-step attr append (e.g. boundary EDGE_DIRTY) can't drive offsets_[i] OOB. */
-  int count_ = 0;
+  /* Shared layout this row was captured with; owned by the same chunk. */
+  const RowLayout *layout_ = nullptr;
 };
 
 } // namespace detail
@@ -657,6 +682,28 @@ struct LogChunkTopo : public LogChunk {
   util::Pool<LogElem, 512> records_pool;
   util::Pool<detail::ChunkElemRow, 256> bodies_pool;
 
+  /* Shared row layouts, one per (kind, attr-count) seen by this chunk; rows
+   * reference them by pointer, so they live exactly as long as the chunk. A
+   * mid-step attr append changes the count and lazily gets a new layout;
+   * earlier rows keep restoring their own prefix. */
+  litestl::util::Vector<detail::RowLayout *, 8> layouts_;
+  litestl::util::Vector<int, 8> layout_keys_; /* (int(kind) << 16) | count */
+
+  detail::RowLayout *rowLayout(LogElemKind kind, mesh::AttrGroup &grp)
+  {
+    int key = (int(kind) << 16) | int(grp.attrs.size());
+    for (int i = 0; i < int(layout_keys_.size()); i++) {
+      if (layout_keys_[i] == key) {
+        return layouts_[i];
+      }
+    }
+    detail::RowLayout *l = litestl::alloc::New<detail::RowLayout>("meshlog RowLayout");
+    l->build(grp);
+    layout_keys_.append(key);
+    layouts_.append(l);
+    return l;
+  }
+
   /** key: (uint8_t kind << 32) | uint32_t(mesh_index)  →  log_id */
 
 #ifdef MESHLOG_ABSEIL_HASHMAP
@@ -675,6 +722,9 @@ struct LogChunkTopo : public LogChunk {
   {
     // Pools own the LogElem + ChunkElemRow storage; their destructors
     // tear everything down.
+    for (detail::RowLayout *l : layouts_) {
+      litestl::alloc::Delete(l);
+    }
   }
 
   void onCreate(LogElemKind kind, mesh::Mesh *m, int idx)
@@ -731,7 +781,10 @@ struct LogChunkTopo : public LogChunk {
     e->end_mesh_index = idx;
     e->begin_body = bodies_pool.alloc();
     e->end_body = nullptr;
-    e->begin_body->captureFrom(group(m, kind), idx);
+    {
+      mesh::AttrGroup &grp = group(m, kind);
+      e->begin_body->captureFrom(rowLayout(kind, grp), grp, idx);
+    }
 
 #ifdef MESHLOG_ABSEIL_HASHMAP
     idx_to_log_id.emplace(int64_t(key), int(e->log_id));
@@ -788,7 +841,8 @@ struct LogChunkTopo : public LogChunk {
       return s && s[0] && s[0] != '0';
     }();
     if (!ablateKill) {
-      e->begin_body->captureFrom(group(m, kind), idx);
+      mesh::AttrGroup &grp = group(m, kind);
+      e->begin_body->captureFrom(rowLayout(kind, grp), grp, idx);
     }
 
     by_log_id.insert(int(e->log_id), e);
@@ -803,7 +857,8 @@ struct LogChunkTopo : public LogChunk {
         if (!e.end_body) {
           e.end_body = bodies_pool.alloc();
         }
-        e.end_body->captureFrom(group(m, e.kind), e.end_mesh_index);
+        mesh::AttrGroup &grp = group(m, e.kind);
+        e.end_body->captureFrom(rowLayout(e.kind, grp), grp, e.end_mesh_index);
       }
     }
   }
@@ -1013,6 +1068,9 @@ struct LogChunkTopo : public LogChunk {
     // or a stroke's chunks blow past the undo budget invisibly.
     tot += double(records_pool.capacity()) * double(sizeof(LogElem));
     tot += double(bodies_pool.capacity()) * double(sizeof(detail::ChunkElemRow));
+    for (detail::RowLayout *l : layouts_) {
+      tot += l->memSize();
+    }
     // Rough per-entry hash-map overhead.
     tot += double(idx_to_log_id.size() * 3 * 16) + double(by_log_id.size() * 3 * 16);
 
