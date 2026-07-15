@@ -481,6 +481,39 @@ int main()
     test_assert(validateMesh(m, "wire"));
   }
 
+  /* Regression: a lazily-paged vert attr (the `.brush.orig.*` pattern) whose
+   * pages are materialized only where the brush stamped, split so the new vert
+   * lands in a never-materialized page. interpAttrs used to write through the
+   * page's null data pointer (dyntopo-stroke-after-plain-stroke crash). */
+  {
+    Mesh *m = makeTriGrid(70); /* ~4900 verts: spans 2 attr pages */
+    test_assert(m->v.count > ATTR_PAGESIZE + 2);
+
+    AttrRef &ref =
+        m->v.attrs.ensure(AttrType::FLOAT3, ".brush.orig.co", /*materialize=*/false);
+    auto *orig = static_cast<AttrData<float3> *>(ref.data);
+    orig->materialize(0); /* stamp page 0 only, like an in-region brush pass */
+    (*orig)[0] = float3(1.0f, 2.0f, 3.0f);
+    (*orig)[1] = float3(3.0f, 4.0f, 5.0f);
+
+    int e = m->find_edge(0, 1);
+    test_assert(e != ELEM_NONE);
+    EdgeSplitResult res;
+    auto ok = splitEdge(*m, e, &res);
+    test_assert(bool(ok));
+
+    int vm = res.new_vert;
+    test_assert(vm >= ATTR_PAGESIZE); /* landed in the lazily-unmaterialized page */
+    float3 got = orig->safe_get(vm);
+    float3 expect(2.0f, 3.0f, 4.0f);
+    for (int i = 0; i < 3; i++) {
+      test_assert(std::fabs(got[i] - expect[i]) < 1e-5f);
+    }
+    test_assert(validateMesh(*m, "lazy-attr"));
+    alloc::Delete<Mesh>(m);
+    stats.meshes++;
+  }
+
   /* Note: splitEdge does not validate its edge argument — callers must pass a
    * live edge. An invalid-edge guard test was removed deliberately. */
 

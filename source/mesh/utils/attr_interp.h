@@ -64,7 +64,9 @@ static inline void snapshotAttrRow(AttrGroup &grp, int elem, AttrRowSnapshot &sn
         auto *data = static_cast<AttrData<T> *>(attr.data);
         if (data) {
           static_assert(sizeof(T) <= 16, "attr cell too large for snapshot");
-          std::memcpy(cell.bytes, &(*data)[elem], sizeof(T));
+          // safe_get: elem's page may be lazily unmaterialized (.brush.orig.*).
+          T v = data->safe_get(elem);
+          std::memcpy(cell.bytes, &v, sizeof(T));
           cell.present = true;
         }
       }
@@ -97,6 +99,7 @@ static inline void restoreAttrRow(AttrGroup &grp, int elem, const AttrRowSnapsho
       } else {
         auto *data = static_cast<AttrData<T> *>(attr.data);
         if (data) {
+          data->materialize(elem); // elem's page may be lazily unmaterialized
           std::memcpy(static_cast<void *>(&(*data)[elem]), cell.bytes, sizeof(T));
         }
       }
@@ -160,6 +163,7 @@ static inline void interpAttrRows(AttrGroup &grp,
       if (!data) {
         return;
       }
+      data->materialize(dst); // dst's page may be lazily unmaterialized
       T a;
       std::memcpy(static_cast<void *>(&a), c0.bytes, sizeof(T));
       if constexpr (std::is_floating_point_v<T>) {
@@ -207,17 +211,22 @@ static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, floa
         if (!data) {
           return;
         }
+        // Lazily-paged attrs (.brush.orig.*): sources may sit in unmaterialized
+        // pages (read as the page default) and dst's page may not exist yet.
+        T a = data->safe_get(src0);
+        T b = data->safe_get(src1);
+        data->materialize(dst);
         if constexpr (std::is_floating_point_v<T>) {
-          (*data)[dst] = (*data)[src0] * (T(1) - T(t)) + (*data)[src1] * T(t);
+          (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
         } else if constexpr (requires { typename T::value_type; }) {
           using Scalar = typename T::value_type;
           if constexpr (std::is_floating_point_v<Scalar>) {
-            (*data)[dst] = (*data)[src0] * Scalar(1.0f - t) + (*data)[src1] * Scalar(t);
+            (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
           } else {
-            (*data)[dst] = (*data)[src0]; /* integer vector: copy */
+            (*data)[dst] = a; /* integer vector: copy */
           }
         } else {
-          (*data)[dst] = (*data)[src0]; /* int / byte / short: copy */
+          (*data)[dst] = a; /* int / byte / short: copy */
         }
       }
     });
