@@ -32,6 +32,16 @@ struct DrawBatch;
 using namespace litestl;
 namespace sculptcore::spatial {
 
+/* Which halves of the update pipeline updateImpl runs. The queries half is
+ * everything the next brush dab's spatial queries need (split/merge, tris,
+ * bounds, normals); the GPU half is the buffer pipeline (partition, dirty-bit
+ * propagation, plan, fill, upload, draw-batch rebuild). */
+enum UpdatePhases {
+  Update_Queries = 1 << 0,
+  Update_Gpu = 1 << 1,
+  Update_All = Update_Queries | Update_Gpu,
+};
+
 struct SpatialTree {
   using Mesh = mesh::Mesh;
 
@@ -829,6 +839,11 @@ struct SpatialTree {
 
   bool update(gpu::GPUManager *gpu);
 
+  /* Queries half only (per-dab): split/merge, tris, bounds, normals. Leaves
+   * every GPU dirty bit untouched for a later update(gpu) — the draw frame —
+   * to consume. Returns today's update() semantics: bounds changed. */
+  bool updateQueries();
+
   /* GPU-resident stroke (debug app). While true, update()'s GPU phase leaves a
    * GPU node's pos/nor untouched when they are gpu_owned — the scatter compute
    * pass owns their contents for the duration of the stroke. */
@@ -855,6 +870,16 @@ struct SpatialTree {
                              bool fillMap = true);
 
 private:
+  /* Shared body of update()/updateQueries(). `gpu` may be nullptr when
+   * `phases` excludes Update_Gpu (never dereferenced there). */
+  bool updateImpl(gpu::GPUManager *gpu, UpdatePhases phases);
+
+  /* Sticky across the split calls: the queries half regenerated leaf tris (or
+   * split/merge restructured nodes, which flags fresh leaves RegenTris), so
+   * the next GPU half must recompute subtree tri counts + reassign the GPU
+   * partition. Set by the queries half, consumed + cleared by the GPU half. */
+  bool pendingGpuTopology_ = false;
+
   sculptcore::gpu::DrawBatch *drawBatch = nullptr;
   void regen_node_bounds(SpatialNode *node, bool recurse);
   void regen_node_tris(SpatialNode *node);

@@ -205,14 +205,46 @@ clears them after acting:
 
 ## Update lifecycle
 
+The pipeline is split into two halves behind one private
+`updateImpl(gpu, phases)`:
+
+* **`updateQueries()`** — the *queries half* only: everything the next brush
+  dab's spatial queries need (deferred split/merge, tris, bounds, normals).
+  Runs **per dab** (the TS sculpt path calls it from `applyDab` and from the
+  GPU-stroke readback sync). It consumes only `Spatial_RegenTris` /
+  `Spatial_RegenBounds` / `Spatial_UpdateNormals`; the GPU dirty bits
+  (`Spatial_RegenGPU` / `Spatial_UpdateGPU`) survive untouched. Returns
+  "bounds changed".
+* **`update(gpu)`** — both halves: the queries half followed by the *GPU
+  half* (partition, dirty-bit propagation, plan, fill, upload flags,
+  draw-batch rebuild). Runs **once per rendered frame** (`LiteMesh.drawQ`)
+  and at every non-stroke site (undo, load, tests). Returns "bounds changed
+  **or** GPU work done", so a drawQ call mid-stroke still reports work after
+  the per-dab `updateQueries()` calls consumed the bounds dirt.
+
+Cross-call state: the queries half sets the sticky `pendingGpuTopology_`
+whenever it regenerated leaf tris (fresh split/merge leaves carry
+`Spatial_RegenTris`, so restructures arm it too); the GPU half consumes and
+clears it to gate `recompute_subtree_tri_counts()` + `assign_gpu_nodes()`.
+The merge cadence (`updatesSinceMerge_`) advances in the queries half only.
+
+One deliberate consequence: per-leaf buffer fills happen at the *frame*, not
+the dab, so a border leaf's replica of a vert moved by a dab that never
+flagged that leaf is refilled with final values at the frame flush — the
+split world's staging buffers are never staler than the old per-dab world's
+(gated byte-exact in `tests/test_spatial_update_split.cc`).
+
 ```
-SpatialTree::update(gpu)
+SpatialTree::update(gpu)  =  updateImpl(gpu, Update_All)
+  ── queries half (updateImpl with Update_Queries; alone = updateQueries()) ──
   ├── applyDeferredNodeSplit()                  (parallel over candidates; see below)
-  ├── applyDeferredMerge()                      (every mergeCadence_-th update, serial)
+  ├── applyDeferredMerge()                      (every mergeCadence_-th queries half, serial)
   ├── parallel_for leaves with Spatial_RegenTris → ensure_node_tris(leaf)
   ├── propagate Spatial_RegenBounds up to root → regen_node_bounds(root, true)
   ├── parallel_for leaves with Spatial_UpdateNormals → update_node_normals(leaf)
-  ├── if any leaf re-tri'd OR root not yet a GPU node:
+  ├── pendingGpuTopology_ |= any leaf re-tri'd
+  ── GPU half (Update_Gpu; `gpu` is only dereferenced here) ──
+  ├── if pendingGpuTopology_ (consumed+cleared) OR root not yet a GPU node:
   │     ├── recompute_subtree_tri_counts()      (bottom-up)
   │     └── assign_gpu_nodes()                  (top-down, threshold = gpu_tri_target)
   ├── collect, per dirty leaf (serial scan):
@@ -227,7 +259,7 @@ SpatialTree::update(gpu)
   │     └── update_gpu_node_slice(owner, leaf, gpu)             (pure, in-place)
   ├── serial epilogue: per slice owner, flag buffers update_buffer=true;
   │           regen_gpu_node(owner) (deduped) for any slice that returned "needs rebuild"
-  └── if anything changed → rebuild drawBatch from the set of GPU nodes
+  └── if any regen happened → rebuild drawBatch from the set of GPU nodes
 ```
 
 A full owner rebuild is split in two. **`plan_regen_gpu_node`** (serial —
