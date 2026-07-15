@@ -2574,110 +2574,134 @@ void SpatialTree::update_node_normals(SpatialNode *node)
 
 bool SpatialTree::update(gpu::GPUManager *gpu)
 {
+  return updateImpl(gpu, Update_All);
+}
+
+bool SpatialTree::updateQueries()
+{
+  return updateImpl(nullptr, Update_Queries);
+}
+
+bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
+{
   bool result = false;
   bool bounds = false;
   bool drawBatchUpdated = false;
+  bool gpuWorkDone = false;
 
-  /* Phase 0: deferred rebalance. Incremental add_face_at placement skips the
-   * inline split, so leaves that grew past leaf_limit during the dab are split
-   * here, once each. Runs before the tris phase so the fresh child leaves (which
-   * carry Spatial_RegenTris) are picked up by the collection loop below. */
-  applyDeferredNodeSplit();
+  if (phases & Update_Queries) {
+    /* Phase 0: deferred rebalance. Incremental add_face_at placement skips the
+     * inline split, so leaves that grew past leaf_limit during the dab are split
+     * here, once each. Runs before the tris phase so the fresh child leaves (which
+     * carry Spatial_RegenTris) are picked up by the collection loop below. */
+    applyDeferredNodeSplit();
 
-  /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th
-   * update), NOT per dab. Folds under-full sibling leaves left by
-   * collapse-heavy strokes back into their parent; the fresh parent leaf
-   * carries Spatial_RegenTris and is picked up below, same as a rebalance
-   * split. */
-  if (++updatesSinceMerge_ >= mergeCadence_) {
-    applyDeferredMerge();
-    updatesSinceMerge_ = 0;
-  }
-
-  /* Phase: regen leaf tris. Must run before the bounds phase: regen_node_bounds
-   * derives leaf AABBs from node->data->tris (via the frozen-safe .corner.v
-   * column), so the tris have to be current first. */
-  Vector<SpatialNode *, 256> updateTriNodes;
-  bool topology_changed = false;
-  for (SpatialNode *node : nodes) {
-    if (!(node->flag & Spatial_Leaf)) {
-      continue;
+    /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th
+     * update), NOT per dab. Folds under-full sibling leaves left by
+     * collapse-heavy strokes back into their parent; the fresh parent leaf
+     * carries Spatial_RegenTris and is picked up below, same as a rebalance
+     * split. */
+    if (++updatesSinceMerge_ >= mergeCadence_) {
+      applyDeferredMerge();
+      updatesSinceMerge_ = 0;
     }
-    if (node->flag & Spatial_RegenTris) {
-      updateTriNodes.append(node);
-      drawBatchUpdated = true;
-      topology_changed = true;
+
+    /* Phase: regen leaf tris. Must run before the bounds phase: regen_node_bounds
+     * derives leaf AABBs from node->data->tris (via the frozen-safe .corner.v
+     * column), so the tris have to be current first. */
+    Vector<SpatialNode *, 256> updateTriNodes;
+    bool topology_changed = false;
+    for (SpatialNode *node : nodes) {
+      if (!(node->flag & Spatial_Leaf)) {
+        continue;
+      }
+      if (node->flag & Spatial_RegenTris) {
+        updateTriNodes.append(node);
+        drawBatchUpdated = true;
+        topology_changed = true;
+      }
     }
-  }
 
-  /* regen_node_tris walks the live face/loop/corner link columns (f.l, l.c,
-   * c.next, l.size). Those pages are dropped in frozen-topology mode (only
-   * .corner.v is kept). A brush dab freezes topology, so if a stroke runs
-   * before the first tri regen (e.g. a script strokes before the initial
-   * render), the pending RegenTris would read freed pages. Thaw first; the
-   * next dab re-freezes. */
-  if (updateTriNodes.size() > 0 && m->topo_frozen) {
-    m->thawTopo();
-  }
+    /* regen_node_tris walks the live face/loop/corner link columns (f.l, l.c,
+     * c.next, l.size). Those pages are dropped in frozen-topology mode (only
+     * .corner.v is kept). A brush dab freezes topology, so if a stroke runs
+     * before the first tri regen (e.g. a script strokes before the initial
+     * render), the pending RegenTris would read freed pages. Thaw first; the
+     * next dab re-freezes. */
+    if (updateTriNodes.size() > 0 && m->topo_frozen) {
+      m->thawTopo();
+    }
 
-  {
+    {
 #ifdef NO_PARALLEL_FOR
-    for (SpatialNode *node : updateTriNodes) {
-      ensure_node_tris(node);
-    }
+      for (SpatialNode *node : updateTriNodes) {
+        ensure_node_tris(node);
+      }
 #else
-    litestl::task::parallel_for(
-        util::IndexRange(updateTriNodes.size()),
-        [&](IndexRange range) {
-          for (int i : range) {
-            SpatialNode *node = updateTriNodes[i];
-            ensure_node_tris(node);
-          }
-        },
-        4);
+      litestl::task::parallel_for(
+          util::IndexRange(updateTriNodes.size()),
+          [&](IndexRange range) {
+            for (int i : range) {
+              SpatialNode *node = updateTriNodes[i];
+              ensure_node_tris(node);
+            }
+          },
+          4);
 #endif
-  }
-
-  if (regenDirtyBounds()) {
-    bounds = true;
-    result = true;
-  }
-
-  Vector<SpatialNode *, 256> updateNormalsNodes;
-
-  /* Phase: leaf normals (independent of partition). */
-  for (SpatialNode *node : nodes) {
-    if (!(node->flag & Spatial_Leaf)) {
-      continue;
     }
-    if (node->flag & Spatial_UpdateNormals) {
-      updateNormalsNodes.append(node);
-      drawBatchUpdated = true;
-    }
-  }
 
-  {
+    if (regenDirtyBounds()) {
+      bounds = true;
+      result = true;
+    }
+
+    Vector<SpatialNode *, 256> updateNormalsNodes;
+
+    /* Phase: leaf normals (independent of partition). */
+    for (SpatialNode *node : nodes) {
+      if (!(node->flag & Spatial_Leaf)) {
+        continue;
+      }
+      if (node->flag & Spatial_UpdateNormals) {
+        updateNormalsNodes.append(node);
+        drawBatchUpdated = true;
+      }
+    }
+
+    {
 #ifdef NO_PARALLEL_FOR
-    for (SpatialNode *node : updateNormalsNodes) {
-      update_node_normals(node);
-    }
+      for (SpatialNode *node : updateNormalsNodes) {
+        update_node_normals(node);
+      }
 #else
-    litestl::task::parallel_for(
-        util::IndexRange(updateNormalsNodes.size()),
-        [&](IndexRange range) {
-          for (int i : range) {
-            SpatialNode *node = updateNormalsNodes[i];
-            update_node_normals(node);
-          }
-        },
-        4);
+      litestl::task::parallel_for(
+          util::IndexRange(updateNormalsNodes.size()),
+          [&](IndexRange range) {
+            for (int i : range) {
+              SpatialNode *node = updateNormalsNodes[i];
+              update_node_normals(node);
+            }
+          },
+          4);
 #endif
+    }
+
+    /* Leaf tris regenerated (incl. fresh split/merge leaves, which carry
+     * RegenTris): the GPU partition is stale. Sticky — the GPU half may run
+     * in a later call (the draw frame). */
+    pendingGpuTopology_ |= topology_changed;
+  }
+
+  if (!(phases & Update_Gpu)) {
+    return result;
   }
 
   /* Phase: GPU partition assignment. Cheap walk (O(nodes)). If topology
    * didn't change we can skip recomputing counts, but the assignment
    * walk itself is still needed first time around. */
-  if (topology_changed || !done_gpu_assignment) {
+  const bool topoPending = pendingGpuTopology_;
+  pendingGpuTopology_ = false;
+  if (topoPending || !done_gpu_assignment) {
     recompute_subtree_tri_counts();
     assign_gpu_nodes();
   }
@@ -2750,6 +2774,12 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
       drawBatchUpdated = true;
     }
   }
+
+  /* GPU work of any kind (full regens or in-place slice updates) means the
+   * rendered geometry changes this call — widen the return so a draw-frame
+   * update() reports work even when the per-dab updateQueries() calls already
+   * consumed the bounds dirt. */
+  gpuWorkDone = regenOwners.size() > 0 || sliceWork.size() > 0;
 
   /* Serial planning stage: one plan per owner, emitting per-slice fill jobs.
    * Owner dedup happened above — duplicate-owner suppression can no longer
@@ -2918,7 +2948,10 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
           drawShaderReady ? &drawShader : &spatialShaders.basicMeshShader;
 
       if (!gd.cmd) {
-        gd.cmd = gpu->createCommand(drawBatch,
+        /* batch=nullptr: createCommand(batch) appends to the batch itself and
+         * the loop tail appends again — a fresh command would land twice and
+         * its node would draw twice until the next rebuild. */
+        gd.cmd = gpu->createCommand(nullptr,
                                     gpu::GPUCmdType::DRAW_TRIS,
                                     shader,
                                     0,
@@ -2937,6 +2970,6 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
     }
   }
 
-  return result;
+  return result || drawBatchUpdated || gpuWorkDone;
 }
 } // namespace sculptcore::spatial

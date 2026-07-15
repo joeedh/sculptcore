@@ -255,10 +255,12 @@ aggregated VBOs covering every triangle of its subtree
 (tunable via `gpu_tri_target`, default 2048). Face/vert ownership is
 recorded on the mesh through the `.spatial.{v,f}.node` builtin
 attributes, which guarantees each face is rendered exactly once
-even when a GPU node aggregates several leaves. The per-frame
-`SpatialTree::update()` pipeline (bounds → tris → normals →
-partition → propagate-dirty → buffer regen/slice update → draw
-batch) is in [`documentation/spatial.md`](documentation/spatial.md),
+even when a GPU node aggregates several leaves. The
+`SpatialTree::update()` pipeline is split: a per-dab
+`updateQueries()` queries half (split/merge → tris → bounds →
+normals) plus a per-frame `update(gpu)` that adds the GPU half
+(partition → propagate-dirty → buffer regen/slice update → draw
+batch); both are in [`documentation/spatial.md`](documentation/spatial.md),
 which also covers `castRay`, the GPU partition invariants, the
 ownership-attribute pitfall when reusing a mesh across multiple
 trees in tests, and the **material draw-shader / requested-attribute**

@@ -53,6 +53,7 @@ export interface SpatialTree {
   buildPointsBatch(mgr: GPUManager): DrawBatch | undefined
   markVertsMoved(verts: int32[]): void
   update(gpu: GPUManager): boolean
+  updateQueries(): boolean
   getDrawBatch(): DrawBatch | undefined
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean
   filterNodes(co: float3, radius: float, out: SpatialNode[]): boolean
