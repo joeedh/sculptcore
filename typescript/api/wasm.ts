@@ -257,6 +257,8 @@ export const GpuBrushData = {
   SCATTER_MAP   : 16,
   /** u32 meta indices of owners hit by the last marshalDab */
   TOUCHED_OWNERS: 17,
+  /** f32 per vertex: cavity automask factor (binding 24); identity 1.0 when off */
+  AUTOMASK      : 18,
 } as const
 
 /** Raw pointer-level view of the GpuBrush_* C exports (WASM only; unprefixed

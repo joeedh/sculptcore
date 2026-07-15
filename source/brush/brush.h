@@ -220,6 +220,16 @@ struct Brush {
   // smooth so edge flow follows feature/curvature directions (topology rake).
   float rake = 0.0f;
 
+  // Cavity automasking (documentation/plans/2026-07-14-2007-cavity-automasking.md):
+  // a per-vertex, per-stroke local-convexity factor multiplied into the effective
+  // strength — distinct from the painted `mask`. Computed host-side (see
+  // automask.h); `cavity_factor` scales it, `cavity_blur_steps` sets the BFS blur
+  // radius, `cavity_inverted` masks concavities instead of convexities.
+  bool automask_cavity = false;
+  float cavity_factor = 1.0f;
+  int cavity_blur_steps = 2;
+  bool cavity_inverted = false;
+
   // Grab-style ctx state (kelvinlet, future pose). `grabFrom` is the stroke
   // origin captured at the start of the dab; `grabTo` is the current cursor.
   float3 grabFrom{0, 0, 0};
@@ -252,6 +262,30 @@ struct Brush {
     falloff_curve[i] = f;
   }
 
+  // Cavity-automask curve LUT (size must equal automask.h kCavityCurveSize = 256;
+  // a static_assert in the executor pins the two together). Reshapes the linear
+  // cavity factor when `cavity_use_curve` is set; the TS bridge bakes it entry by
+  // entry via setCavityCurveEntry, exactly like the falloff curve. Defaults to a
+  // straight ramp (identity), so enabling the curve without authoring one is a
+  // no-op. Only consulted when cavity_use_curve is set, so the array default is
+  // fine for the common (curve-off) case.
+  static constexpr int kCavityCurveLutSize = 256;
+  bool cavity_use_curve = false;
+  std::array<float, kCavityCurveLutSize> cavity_curve = [] {
+    std::array<float, kCavityCurveLutSize> a{};
+    for (int i = 0; i < kCavityCurveLutSize; i++) {
+      a[i] = float(i) / float(kCavityCurveLutSize - 1);
+    }
+    return a;
+  }();
+  float cavityCurveSize = kCavityCurveLutSize;
+  void setCavityCurveEntry(int i, float f)
+  {
+    if (i >= 0 && i < kCavityCurveLutSize) {
+      cavity_curve[i] = f;
+    }
+  }
+
   static litestl::binding::types::Struct<Brush> *defineBindings()
   {
     using namespace litestl::binding;
@@ -274,6 +308,12 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, pinch);
     BIND_STRUCT_MEMBER(st, projection);
     BIND_STRUCT_MEMBER(st, rake);
+    BIND_STRUCT_MEMBER(st, automask_cavity);
+    BIND_STRUCT_MEMBER(st, cavity_factor);
+    BIND_STRUCT_MEMBER(st, cavity_blur_steps);
+    BIND_STRUCT_MEMBER(st, cavity_inverted);
+    BIND_STRUCT_MEMBER(st, cavity_use_curve);
+    BIND_STRUCT_MEMBER(st, cavityCurveSize);
     BIND_STRUCT_MEMBER(st, grabFrom);
     BIND_STRUCT_MEMBER(st, grabTo);
     BIND_STRUCT_MEMBER(st, falloff_dir);
@@ -287,6 +327,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, brushColor);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, setFalloffCurveEntry, MARGS("i", "f"));
+    BIND_STRUCT_METHOD(st, setCavityCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());
     BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));

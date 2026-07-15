@@ -91,6 +91,11 @@ void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog,
   if (info->needsNeighbors) {
     packNeighborCSR(*m, s->elemCount, s->nbrMeta, &s->nbrVerts, &s->nbrCount);
   }
+  // Cavity automask (vertex kernels only) — identity 1.0 when off, so the GPU
+  // strength stays bit-identical to the CPU path.
+  if (!info->faceMode) {
+    packAutomask(*m, *b, s->automask);
+  }
   b->resetStrokePath();
   return s;
 }
@@ -241,6 +246,7 @@ int GpuBrush_dataSize(void *session, int which)
   case GPUBRUSH_DATA_CO: return int(s->co.size() * sizeof(float));
   case GPUBRUSH_DATA_NO: return int(s->no.size() * sizeof(float));
   case GPUBRUSH_DATA_MASK: return int(s->mask.size() * sizeof(float));
+  case GPUBRUSH_DATA_AUTOMASK: return int(s->automask.size() * sizeof(float));
   case GPUBRUSH_DATA_NBR_META:
     return int(s->nbrMeta.size() * sizeof(ComputeVertNbr));
   case GPUBRUSH_DATA_NBR_VERTS: return int(s->nbrCount * sizeof(uint32_t));
@@ -283,6 +289,7 @@ const void *GpuBrush_dataPtr(void *session, int which)
   case GPUBRUSH_DATA_CO: return s->co.data();
   case GPUBRUSH_DATA_NO: return s->no.data();
   case GPUBRUSH_DATA_MASK: return s->mask.data();
+  case GPUBRUSH_DATA_AUTOMASK: return s->automask.data();
   case GPUBRUSH_DATA_NBR_META: return s->nbrMeta.data();
   case GPUBRUSH_DATA_NBR_VERTS: return s->nbrVerts;
   case GPUBRUSH_DATA_TRI_VERTS:

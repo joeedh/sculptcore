@@ -321,6 +321,18 @@ struct Emit {
             } else {
               out += "/*bad-arg*/";
             }
+          } else if (*p == '$' && p[1] == 'v') {
+            // Current loop vertex index — `<vertexParam>.v` inside a vertex
+            // stage, keying the cavity automask. Outside a vertex stage (e.g. a
+            // face-stage strength call) there is no per-vertex index, so emit -1;
+            // CommandCtx::strength treats v < 0 as "no automask".
+            p += 2;
+            if (currentStage && currentStage == vertexStage) {
+              out += vertexParamName;
+              out += ".v";
+            } else {
+              out += "-1";
+            }
           } else {
             char tmp[2] = {*p, 0};
             out += tmp;

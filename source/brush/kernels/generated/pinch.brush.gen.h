@@ -72,7 +72,7 @@ static void pinch(CommandCtx<TYPES> &ctx)
   using namespace litestl::math;
   bool any_moved = false;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
-    float s = ((ctx.strength(v.co) * ((1.0f - v.mask))) * ctx.brush.pinch);
+    float s = ((ctx.strength(v.co, v.v) * ((1.0f - v.mask))) * ctx.brush.pinch);
     if ((s == 0.0f)) {
       continue;
     }

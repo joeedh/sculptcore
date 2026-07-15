@@ -81,7 +81,7 @@ static void pose(CommandCtx<TYPES> &ctx)
       wsum += w;
     }
     if ((wsum > 9.9999999999999995e-07f)) {
-      float fall = (ctx.strength(v.co) * ((1.0f - v.mask)));
+      float fall = (ctx.strength(v.co, v.v) * ((1.0f - v.mask)));
       v.co += (((disp / wsum)) * fall);
     }
     ctx.node.affected_verts.append(v.v);

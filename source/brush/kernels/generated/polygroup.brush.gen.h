@@ -73,7 +73,7 @@ static void polygroup(CommandCtx<TYPES> &ctx)
   bool any_changed = false;
   auto *__fattr_group = ctx.template boundAttr<int>("group"); (void)__fattr_group;
   for (auto &f : ctx.faceIter(ctx.node)) {
-    if ((ctx.strength(f.center) > 0.0f)) {
+    if ((ctx.strength(f.center, -1) > 0.0f)) {
       (*__fattr_group)[f.f] = ctx.brush.activeGroup;
     }
     any_changed = true;

@@ -1,5 +1,6 @@
 #include "gpu_marshal.h"
 
+#include "automask.h"
 #include "brush/brush.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
@@ -237,6 +238,41 @@ int packGeometry(mesh::Mesh &m, spatial::SpatialTree *tree, bool faceMode,
     mask[i] = tree ? tree->treeMesh.v.mask[i] : 0.0f;
   }
   return vcount;
+}
+
+void packAutomask(mesh::Mesh &m, const Brush &brush, Vector<float> &out)
+{
+  int vcount = m.v.count;
+  out.resize(size_t(vcount));
+
+  // Identity when off: strength * 1.0 == strength keeps the GPU path bit-for-bit
+  // equal to the CPU strength() that simply skips the multiply.
+  if (!brush.automask_cavity) {
+    for (int i = 0; i < vcount; i++) {
+      out[i] = 1.0f;
+    }
+    return;
+  }
+
+  // The BFS blur reads the ring1 CSR (live disk links). Thaw a frozen mesh once
+  // at stroke start so the walk sees live links, mirroring the CPU executor.
+  if (m.topo_frozen) {
+    m.thawTopo();
+  }
+  m.topo_cache.ensureRing1(m);
+
+  CavityParams cp;
+  cp.enabled = true;
+  cp.blur_steps = brush.cavity_blur_steps;
+  cp.factor = brush.cavity_factor;
+  cp.inverted = brush.cavity_inverted;
+  cp.use_curve = brush.cavity_use_curve;
+  cp.curve_lut = brush.cavity_curve.data();
+
+  CavityScratch scr;
+  for (int i = 0; i < vcount; i++) {
+    out[i] = cavityFactor(&m, i, cp, scr);
+  }
 }
 
 void packNeighborCSR(mesh::Mesh &m, int vcount, Vector<ComputeVertNbr> &meta,

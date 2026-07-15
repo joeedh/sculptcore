@@ -44,6 +44,8 @@ struct WgpuBrushComputeDispatch : brush::IBrushComputeDispatch {
   bool setNeighbors(const brush::ComputeVertNbr *meta, int vertCount,
                     const uint32_t *nbrVerts, int nbrCount) override;
 
+  bool setAutomask(const float *automask, int vertCount) override;
+
   bool setBrushTexture(const float *pixels, int width, int height) override;
 
   bool endStroke(float *coOut, float *noOut, float *maskOut) override;
@@ -112,6 +114,9 @@ private:
   /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
    * (@grabmode kernels), zero-filled at beginStroke. */
   Buf dabStamp_;
+  /* binding 24 (kAutomaskBinding) — read-only per-vertex cavity automask factor.
+   * beginStroke fills identity 1.0; setAutomask overrides with real factors. */
+  Buf automask_;
 
   /* Persistent MAP_READ staging buffer reused across every readback. Allocating
    * a fresh host-visible buffer per dab churns vkAllocateMemory/vkFreeMemory on

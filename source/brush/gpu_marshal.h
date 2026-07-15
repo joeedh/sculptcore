@@ -80,6 +80,14 @@ int packGeometry(mesh::Mesh &m, spatial::SpatialTree *tree, bool faceMode,
                  litestl::util::Vector<float> &no,
                  litestl::util::Vector<float> &mask);
 
+/** Pack the per-vertex cavity automask factor for beginStroke (binding 24), one
+ * f32 per vertex indexed the same as packGeometry's co/mask. Fills identity 1.0
+ * when cavity masking is off (so GPU strength == CPU strength bit-for-bit);
+ * otherwise computes cavityFactor per vertex through the same automask.h path
+ * the CPU executor uses. Vertex kernels only — face kernels never bind it. */
+void packAutomask(mesh::Mesh &m, const Brush &brush,
+                  litestl::util::Vector<float> &out);
+
 /** Derive the per-vertex {offset,count} CSR meta (binding 12) from the mesh's
  * shared ring-1 topo cache, building the cache if needed. `flatVerts`/
  * `flatCount` return a view of the cache's flat neighbor array (binding 13) —

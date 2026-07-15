@@ -19,6 +19,7 @@ using brush::ComputeCtxUniforms;
 using brush::ComputeNodeMeta;
 using brush::ComputeStrokeSample;
 using brush::ComputeVertNbr;
+using brush::kAutomaskBinding;
 using brush::kDabStampBinding;
 using brush::kOrigCoBinding;
 
@@ -70,6 +71,8 @@ struct BrushComputeDispatch : brush::IBrushComputeDispatch {
    * their bindings stay bound to dummies. */
   bool setNeighbors(const ComputeVertNbr *meta, int vertCount,
                     const uint32_t *nbrVerts, int nbrCount) override;
+
+  bool setAutomask(const float *automask, int vertCount) override;
 
   /* Upload a grayscale brush texture (row-major, w*h floats) and rebind it to
    * binding 8, replacing the 1x1 white dummy. The WGSL kernel does its own
@@ -158,6 +161,9 @@ private:
   /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
    * (@grabmode kernels), zero-filled at beginStroke. */
   Buf dabStamp_;
+  /* binding 24 (kAutomaskBinding) — read-only per-vertex cavity automask factor.
+   * beginStroke fills identity 1.0; setAutomask overrides with real factors. */
+  Buf automask_;
 
   /* Custom DSL attribute layers. The descriptor layout always declares a
    * superset of attr slots (kAttrBase..kAttrBase+kMaxAttrBindings-1) so one

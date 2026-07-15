@@ -36,11 +36,13 @@ namespace {
 
 static IntrinsicDef sIntrinsicsRaw[] = {
   // strength(co) — brush falloff strength at world-space position.
-  // C++ delegates to CommandCtx::strength; WGSL inlines via the
-  // brush_strength helper that emit_wgsl writes once per kernel (kept in
-  // sync with brush_command.h:55 by hand for now).
+  // C++ and WGSL thread the current loop vertex index via the `$v` placeholder
+  // (for cavity automasking): C++ → CommandCtx::strength, WGSL → the
+  // brush_strength(p, vid) helper emit_wgsl writes once per kernel (kept in sync
+  // with brush_command.h by hand). CUDA/HIP/OpenCL keep the 1-arg form (no
+  // automask on those backends yet).
   INTR_CWGO("strength", TypeKind::Float,  1, ARG1(TypeKind::Float3),
-          "ctx.strength($0)",         "brush_strength($0)", "brush_strength($0)", "brush_strength($0)"),
+          "ctx.strength($0, $v)",     "brush_strength($0, $v)", "brush_strength($0)", "brush_strength($0)"),
 
   // falloff(t) — raw curve sample at normalized centerwise input
   // (1 at brush center, 0 at radius). Dispatches on the brush's

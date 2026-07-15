@@ -46,7 +46,7 @@ static void mask(CommandCtx<TYPES> &ctx)
   using namespace litestl::math;
   bool any_moved = false;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
-    float s = ctx.strength(v.co);
+    float s = ctx.strength(v.co, v.v);
     if ((s == 0.0f)) {
       continue;
     }

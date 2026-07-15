@@ -46,6 +46,17 @@ struct IBrushComputeDispatch {
   virtual bool setNeighbors(const ComputeVertNbr *meta, int vertCount,
                             const uint32_t *nbrVerts, int nbrCount) = 0;
 
+  /* Override the per-vertex cavity automask factor (binding 24). beginStroke
+   * seeds identity 1.0; call this once after beginStroke when cavity masking is
+   * on. `automask` is one float per global vertex. Default no-op (identity 1.0
+   * stays, i.e. no masking) for backends without the buffer. */
+  virtual bool setAutomask(const float *automask, int vertCount)
+  {
+    (void)automask;
+    (void)vertCount;
+    return false;
+  }
+
   /* Upload a grayscale brush texture (row-major, w*h floats), replacing the
    * 1x1 white dummy. Call once per stroke after beginStroke when textured. */
   virtual bool setBrushTexture(const float *pixels, int width, int height) = 0;

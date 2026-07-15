@@ -1,5 +1,6 @@
 #pragma once
 
+#include "automask.h"
 #include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
@@ -695,6 +696,56 @@ struct CommandExecutor {
       }
     }
 
+    // Cavity automasking pre-fill (documentation/plans/2026-07-14-2007-cavity-
+    // automasking.md): compute each in-region vert's 0..1 cavity factor once per
+    // stroke (keyed by strokeGen) into the `.brush.automask.cavity` TEMP attr,
+    // single-threaded before the parallel kernel loop reads it via
+    // CommandCtx::strength. Freshly split verts (dyntopo) miss the stamp and
+    // refill on first touch. The ring1 CSR the BFS walks is ensured live in
+    // execProgram before the per-dab freeze; here it is a stamp-keyed no-op.
+    ctx.automaskCavity = nullptr;
+    ctx.automaskEnabled = false;
+    if (brush->automask_cavity && nodes.size() > 0) {
+      mesh::Mesh *m = nodes[0]->data->m;
+      if (!m->topo_frozen || m->topo_cache.valid(*m)) {
+        m->topo_cache.ensureRing1(*m);
+      }
+      if (m->topo_cache.valid(*m)) {
+        mesh::AttrRef &cavRef =
+            m->v.attrs.ensure(mesh::AttrType::FLOAT, ".brush.automask.cavity", false);
+        cavRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+        mesh::AttrRef &genRef =
+            m->v.attrs.ensure(mesh::AttrType::INT, ".brush.automask.gen", false);
+        genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+        auto *cav = static_cast<mesh::AttrData<float> *>(cavRef.data);
+        auto *gen = static_cast<mesh::AttrData<int> *>(genRef.data);
+
+        static_assert(int(Brush::kCavityCurveLutSize) == kCavityCurveSize,
+                      "brush cavity_curve LUT size must match automask kCavityCurveSize");
+        CavityParams cp;
+        cp.enabled = true;
+        cp.blur_steps = brush->cavity_blur_steps;
+        cp.factor = brush->cavity_factor;
+        cp.inverted = brush->cavity_inverted;
+        cp.use_curve = brush->cavity_use_curve;
+        cp.curve_lut = brush->cavity_curve.data();
+
+        CavityScratch scr;
+        for (auto *node : nodes) {
+          for (int v : node->data->unique_verts) {
+            gen->materialize(v);
+            cav->materialize(v);
+            if (strokeGen == 0 || (*gen)[v] != int(strokeGen)) {
+              (*cav)[v] = cavityFactor(m, v, cp, scr);
+              (*gen)[v] = int(strokeGen);
+            }
+          }
+        }
+        ctx.automaskCavity = cav;
+        ctx.automaskEnabled = true;
+      }
+    }
+
     // Skip leaves emptied of verts: heavy in-stroke collapse can leave a zero-vert
     // leaf whose loose AABB still overlaps the brush sphere, so a vertex iterator on
     // it wild-reads unique_verts.begin() (brush_iterators.h: "never on empty node").
@@ -1070,6 +1121,17 @@ struct CommandExecutor {
       // Must precede the freeze below — recomputeDirty needs live links.
       if (hasBSmooth && isFirstOfStep) {
         refreshBoundaryClassForBSmooth(m);
+      }
+      // Cavity automasking's BFS blur reads the ring1 CSR. Build it here, while
+      // topology links are live, before the per-dab freeze drops them: thaw a
+      // stale frozen mesh (topology changed since the CSR was built), then
+      // (re)build the stamp-keyed CSR (a no-op when already current). exec()'s
+      // fill then reads the cached CSR even after the mesh re-freezes below.
+      if (brush->automask_cavity) {
+        if (m->topo_frozen && !m->topo_cache.valid(*m)) {
+          m->thawTopo();
+        }
+        m->topo_cache.ensureRing1(*m);
       }
       if (needsLive || keepTopoThawed) {
         if (m->topo_frozen)

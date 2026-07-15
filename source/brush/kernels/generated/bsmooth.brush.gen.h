@@ -74,7 +74,7 @@ static void bsmooth(CommandCtx<TYPES> &ctx)
   bool any_moved = false;
   auto *__attr_vclass = ctx.template boundAttr<int>("vclass"); (void)__attr_vclass;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
-    float s = (ctx.strength(v.co) * ((1.0f - v.mask)));
+    float s = (ctx.strength(v.co, v.v) * ((1.0f - v.mask)));
     if ((s == 0.0f)) {
       continue;
     }

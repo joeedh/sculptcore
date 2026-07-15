@@ -28,6 +28,7 @@ BrushComputeDispatch::~BrushComputeDispatch()
   destroyBuf(nbrVerts_);
   destroyBuf(origCo_);
   destroyBuf(dabStamp_);
+  destroyBuf(automask_);
   destroyBuf(attrDummy_);
   for (int i = 0; i < kMaxAttrBindings; i++) destroyBuf(attrBuf_[i]);
   destroyBrushTexture();
@@ -313,7 +314,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   // (co_prev + neighbor CSR) are only referenced by for_neighbor kernels, but
   // the layout always declares them so one bind-group setup serves every
   // brush; non-neighbor shaders simply don't use them.
-  VkDescriptorSetLayoutBinding lb[kAttrBase + kMaxAttrBindings + 2]{};
+  VkDescriptorSetLayoutBinding lb[kAttrBase + kMaxAttrBindings + 3]{};
   auto set = [&](int i, VkDescriptorType t) {
     lb[i].binding = uint32_t(i);
     lb[i].descriptorType = t;
@@ -349,10 +350,15 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   static_assert(kDabStampBinding == kOrigCoBinding + 1,
                 "dab-stamp binding must sit directly past orig_co");
   set(int(kDabStampBinding), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  // Cavity automask (kAutomaskBinding = 24), directly after dab_stamp. Always
+  // declared; kernels that don't call strength() simply don't use it.
+  static_assert(kAutomaskBinding == kDabStampBinding + 1,
+                "automask binding must sit directly past dab_stamp");
+  set(int(kAutomaskBinding), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 
   VkDescriptorSetLayoutCreateInfo lci{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  lci.bindingCount = kAttrBase + kMaxAttrBindings + 2;
+  lci.bindingCount = kAttrBase + kMaxAttrBindings + 3;
   lci.pBindings = lb;
   if (vkCreateDescriptorSetLayout(d, &lci, nullptr, &setLayout_) != VK_SUCCESS)
     return false;
@@ -374,7 +380,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
     return false;
 
   VkDescriptorPoolSize ps[4]{};
-  ps[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 + kMaxAttrBindings};
+  ps[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 12 + kMaxAttrBindings};
   ps[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3};
   ps[2] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1};
   ps[3] = {VK_DESCRIPTOR_TYPE_SAMPLER, 1};
@@ -427,6 +433,7 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(coPrev_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(origCo_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(dabStamp_, VkDeviceSize(vertCount) * sizeof(uint32_t), storage) ||
+      !ensureBuf(automask_, VkDeviceSize(vertCount) * sizeof(float), storage) ||
       !ensureBuf(nbrMeta_, 0, storage) || !ensureBuf(nbrVerts_, 0, storage)) {
     return false;
   }
@@ -451,6 +458,14 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
   // Grab-class first-touch stamps: gen 0 never matches (dab gens start at 1).
   std::memset(dabStamp_.mapped, 0, size_t(vertCount) * sizeof(uint32_t));
   writeStorage(kDabStampBinding, dabStamp_);
+  // Cavity automask defaults to identity 1.0; setAutomask overrides when on.
+  {
+    auto *am = static_cast<float *>(automask_.mapped);
+    for (int i = 0; i < vertCount; i++) {
+      am[i] = 1.0f;
+    }
+  }
+  writeStorage(kAutomaskBinding, automask_);
   writeStorage(0, co_);
   writeStorage(1, no_);
   writeStorage(2, mask_);
@@ -486,6 +501,16 @@ bool BrushComputeDispatch::setNeighbors(const ComputeVertNbr *meta,
   writeStorage(12, nbrMeta_);
   writeStorage(13, nbrVerts_);
   hasNeighbors_ = true;
+  return true;
+}
+
+bool BrushComputeDispatch::setAutomask(const float *automask, int vertCount)
+{
+  if (!automask_.mapped || vertCount > vertCount_) {
+    return false;
+  }
+  std::memcpy(automask_.mapped, automask, size_t(vertCount) * sizeof(float));
+  writeStorage(kAutomaskBinding, automask_);
   return true;
 }
 

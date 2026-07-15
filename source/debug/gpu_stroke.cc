@@ -204,6 +204,15 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     return false;
   }
 
+  // Cavity automask (vertex kernels only): override the identity buffer
+  // beginStroke seeded with the real per-vertex factors so the GPU strength
+  // matches the CPU path. When cavity is off, the identity 1.0 stays.
+  if (!faceMode_ && scene.brush.automask_cavity) {
+    Vector<float> automask;
+    brush::packAutomask(*m, scene.brush, automask);
+    disp_->setAutomask(automask.data(), uploadCount);
+  }
+
   // POLYGROUP (face kernel): ensure + value-init the int "group" face attr and
   // upload it to slot 14 (read+write). Mirrors the color-attr path but per-face;
   // the kernel writes group=activeGroup under the brush and we read it back in

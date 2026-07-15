@@ -39,6 +39,9 @@ struct GpuBrushSession {
 
   // Stroke-static begin blobs (packed xyz co/no + f32 mask).
   litestl::util::Vector<float> co, no, mask;
+  // Per-vertex cavity automask factor (binding 24), one f32 per vertex. Filled
+  // identity 1.0 when cavity masking is off. Stroke-static like co/no/mask.
+  litestl::util::Vector<float> automask;
   // Scratch for GPUBRUSH_DATA_LIVE_CO (repacked per query).
   litestl::util::Vector<float> liveCo;
 
@@ -147,6 +150,8 @@ enum GpuBrushDataWhich : int32_t {
   GPUBRUSH_DATA_SCATTER_META = 15,
   GPUBRUSH_DATA_SCATTER_MAP = 16,
   GPUBRUSH_DATA_TOUCHED_OWNERS = 17,
+  // Per-vertex cavity automask factor (binding 24), one f32 per vertex.
+  GPUBRUSH_DATA_AUTOMASK = 18,
 };
 
 } // namespace sculptcore::brush

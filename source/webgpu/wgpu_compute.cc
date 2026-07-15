@@ -77,6 +77,7 @@ WgpuBrushComputeDispatch::~WgpuBrushComputeDispatch()
   destroyBuf(nbrVerts_);
   destroyBuf(origCo_);
   destroyBuf(dabStamp_);
+  destroyBuf(automask_);
   destroyBuf(readback_);
   destroyBrushTexture();
   if (sampler_) wgpuSamplerRelease(sampler_);
@@ -326,6 +327,7 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(coPrev_, uint64_t(vertCount) * kVec3Stride, ro) ||
       !ensureBuf(origCo_, uint64_t(vertCount) * kVec3Stride, ro) ||
       !ensureBuf(dabStamp_, uint64_t(vertCount) * sizeof(uint32_t), rw) ||
+      !ensureBuf(automask_, uint64_t(vertCount) * sizeof(float), ro) ||
       !ensureBuf(nbrMeta_, 0, ro) || !ensureBuf(nbrVerts_, 0, ro)) {
     return false;
   }
@@ -363,6 +365,27 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
     wgpuQueueWriteBuffer(ctx_->queue, dabStamp_.buffer, 0, zeros.data(),
                          size_t(vertCount) * sizeof(uint32_t));
   }
+  {
+    // Cavity automask defaults to identity 1.0; setAutomask overrides it when
+    // cavity masking is on. Identity keeps strength*1.0 == strength.
+    litestl::util::Vector<float> ones;
+    ones.resize(vertCount);
+    for (int i = 0; i < vertCount; i++) {
+      ones[i] = 1.0f;
+    }
+    wgpuQueueWriteBuffer(ctx_->queue, automask_.buffer, 0, ones.data(),
+                         size_t(vertCount) * sizeof(float));
+  }
+  return true;
+}
+
+bool WgpuBrushComputeDispatch::setAutomask(const float *automask, int vertCount)
+{
+  if (!automask_.buffer || vertCount > vertCount_) {
+    return false;
+  }
+  wgpuQueueWriteBuffer(ctx_->queue, automask_.buffer, 0, automask,
+                       size_t(vertCount) * sizeof(float));
   return true;
 }
 
@@ -411,6 +434,7 @@ WGPUBindGroup WgpuBrushComputeDispatch::buildBindGroup()
     case 13: buf = &nbrVerts_; break;
     case brush::kOrigCoBinding: buf = &origCo_; break;
     case brush::kDabStampBinding: buf = &dabStamp_; break;
+    case brush::kAutomaskBinding: buf = &automask_; break;
     default: break;
     }
     if (buf) {

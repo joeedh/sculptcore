@@ -107,6 +107,14 @@ inline constexpr uint32_t kOrigCoBinding = 22;
  * twin of grabClaimFirstTouch / the `.brush.dab.gen` attr). */
 inline constexpr uint32_t kDabStampBinding = 23;
 
+/* Fixed binding of the read-only per-vertex cavity automask factor (vertex
+ * kernels only): one f32 per vertex, filled host-side at beginStroke via
+ * packAutomask. brush_strength multiplies it in — the GPU twin of the CPU
+ * CommandCtx::strength cavity multiply. The host uploads identity 1.0 for every
+ * vertex when cavity masking is off, so `strength * 1.0` keeps the GPU path
+ * bit-for-bit equal to the (multiply-skipping) CPU path. See automask.h. */
+inline constexpr uint32_t kAutomaskBinding = 24;
+
 /* binding 12 element — std430 vec2<u32>, stride 8. CSR neighbor index: for
  * global vertex i, its neighbors are nbr_verts[offset .. offset+count). */
 struct ComputeVertNbr {

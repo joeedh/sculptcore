@@ -57,6 +57,7 @@ struct StrokeSample {
 @group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;
 @group(0) @binding(14) var<storage, read_write> attr_vclass: array<i32>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -99,9 +100,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -188,7 +189,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_vclass: i32 = attr_vclass[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -311,6 +312,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(14) var<storage, read_write> attr_color: array<vec4<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -353,9 +355,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -441,7 +443,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_color: vec4<f32> = attr_color[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -504,6 +506,7 @@ struct StrokeSample {
 @group(0) @binding(12) var<storage, read>      vert_nbr_meta: array<vec2<u32>>;
 @group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;
 @group(0) @binding(14) var<storage, read_write> attr_color: array<vec4<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -546,9 +549,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -634,7 +637,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_color: vec4<f32> = attr_color[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -706,6 +709,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -748,9 +752,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -836,7 +840,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   s *= brush_sample_tex(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
@@ -925,6 +929,7 @@ struct StrokeSample {
 @group(0) @binding(14) var<storage, read_write> attr_field: array<vec3<f32>>;
 @group(0) @binding(15) var<storage, read_write> attr_vclass: array<i32>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -967,9 +972,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1057,7 +1062,7 @@ fn main(
   var v_field: vec3<f32> = attr_field[sb_vidx];
   var v_vclass: i32 = attr_vclass[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -1215,6 +1220,7 @@ struct StrokeSample {
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
 @group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -1257,9 +1263,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1344,7 +1350,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var fall: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((fall == 0.0)) {
     return;
   }
@@ -1408,6 +1414,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -1450,9 +1457,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1558,7 +1565,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -1640,6 +1647,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -1682,9 +1690,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1770,7 +1778,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -1856,6 +1864,7 @@ struct StrokeSample {
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
 @group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -1898,9 +1907,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2006,7 +2015,7 @@ fn main(
     ab = 9.9999999999999995e-07;
   }
   disp = (disp * ((brush_u.radius / ab)));
-  var fall: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   v_co += (disp * fall);
 
   if (dab_stamp[sb_vidx] != brush_u.grab_dab_gen) {
@@ -2068,6 +2077,7 @@ struct StrokeSample {
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(14) var<storage, read_write> attr_slayer: array<vec3<f32>>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -2110,9 +2120,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2199,7 +2209,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_slayer: vec3<f32> = attr_slayer[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   s *= brush_sample_tex(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
@@ -2281,6 +2291,7 @@ struct StrokeSample {
 @group(0) @binding(8) var                       brush_tex: texture_2d<f32>;
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -2323,9 +2334,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2410,7 +2421,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = brush_strength(v_co);
+  var s: f32 = brush_strength(v_co, sb_vidx);
   if ((s == 0.0)) {
     return;
   }
@@ -2477,6 +2488,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -2519,9 +2531,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2607,7 +2619,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = ((brush_strength(v_co) * ((1.0 - v_mask))) * brush_u.pinch);
+  var s: f32 = ((brush_strength(v_co, sb_vidx) * ((1.0 - v_mask))) * brush_u.pinch);
   if ((s == 0.0)) {
     return;
   }
@@ -2694,6 +2706,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -2736,9 +2749,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2824,7 +2837,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -2951,7 +2964,7 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
   let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
@@ -3039,7 +3052,7 @@ fn main(
   var f_f: i32 = i32(sb_fidx);
   var f_group: i32 = attr_group[sb_fidx];
 
-  if ((brush_strength(f_center) > 0.0)) {
+  if ((brush_strength(f_center, 0u) > 0.0)) {
     f_group = brush_u.activeGroup;
   }
 
@@ -3095,6 +3108,7 @@ struct StrokeSample {
 @group(0) @binding(8) var                       brush_tex: texture_2d<f32>;
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -3137,9 +3151,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -3233,7 +3247,7 @@ fn main(
     wsum += w;
   }
   if ((wsum > 9.9999999999999995e-07)) {
-    var fall: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+    var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
     v_co += (((disp / wsum)) * fall);
   }
 
@@ -3291,6 +3305,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -3333,9 +3348,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -3421,7 +3436,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -3519,6 +3534,7 @@ struct StrokeSample {
 @group(0) @binding(12) var<storage, read>      vert_nbr_meta: array<vec2<u32>>;
 @group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -3561,9 +3577,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -3649,7 +3665,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }
@@ -3745,6 +3761,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -3787,9 +3804,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -3875,7 +3892,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var fall: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((fall == 0.0)) {
     return;
   }
@@ -3958,6 +3975,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -4000,9 +4018,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -4097,7 +4115,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   s *= tex_rings_eval(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
@@ -4183,6 +4201,7 @@ struct StrokeSample {
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
 @group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
   return falloff_lut[i >> 2][i & 3];
@@ -4225,9 +4244,9 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
+fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -4313,7 +4332,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   if ((s == 0.0)) {
     return;
   }

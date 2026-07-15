@@ -37,6 +37,12 @@ export interface Brush {
   pinch: float
   projection: float
   rake: float
+  automask_cavity: boolean
+  cavity_factor: float
+  cavity_blur_steps: int32
+  cavity_inverted: boolean
+  cavity_use_curve: boolean
+  cavityCurveSize: float
   grabFrom: float3
   grabTo: float3
   falloff_dir: float3
@@ -50,6 +56,7 @@ export interface Brush {
   brushColor: float4
   props: StructProp
   setFalloffCurveEntry(i: int32, f: float): void
+  setCavityCurveEntry(i: int32, f: float): void
   loadProps(): void
   writeProps(): void
   pushDeviceInput(type: int32, value: float): void

@@ -47,7 +47,7 @@ static void color(CommandCtx<TYPES> &ctx)
   bool any_moved = false;
   auto *__attr_color = ctx.template boundAttr<float4>("color"); (void)__attr_color;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
-    float s = (ctx.strength(v.co) * ((1.0f - v.mask)));
+    float s = (ctx.strength(v.co, v.v) * ((1.0f - v.mask)));
     if ((s == 0.0f)) {
       continue;
     }

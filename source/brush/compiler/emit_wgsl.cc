@@ -396,6 +396,12 @@ struct Emit {
             } else {
               out += "/*bad-arg*/";
             }
+          } else if (*p == '$' && p[1] == 'v') {
+            // Current loop vertex index — `sb_vidx` in a vertex kernel (keys the
+            // cavity automask read in brush_strength). Face kernels have no
+            // per-vertex index; emit a dummy `0u` (brush_strength ignores it).
+            p += 2;
+            out += faceMode() ? "0u" : "sb_vidx";
           } else {
             char tmp[2] = {*p, 0};
             out += tmp;
@@ -877,6 +883,13 @@ struct Emit {
     if (!faceMode() && brush->isGrabMode) {
       write("@group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;\n");
     }
+    // Per-vertex cavity automask factor (vertex kernels only), fixed slot 24 =
+    // kAutomaskBinding. brush_strength multiplies it in; the host uploads 1.0
+    // everywhere when cavity masking is off, so the GPU stays bit-identical to
+    // the CPU strength() path.
+    if (!faceMode()) {
+      write("@group(0) @binding(24) var<storage, read>      automask: array<f32>;\n");
+    }
     write("\n");
 
     // Falloff selector — kept in lockstep with Brush::falloffEval in
@@ -927,9 +940,18 @@ struct Emit {
     write("  }\n");
     write("  return length(delta) * sb_inv_r;\n");
     write("}\n\n");
-    write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
+    // `vid` is the current vertex index (threaded by the `$v` placeholder in the
+    // strength intrinsic). Vertex kernels multiply the per-vertex cavity automask
+    // (identity 1.0 when off → bit-identical to the falloff-only strength); face
+    // kernels have no per-vertex automask, so `vid` is unused there. Mirrors
+    // CommandCtx::strength in brush_command.h.
+    write("fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {\n");
     write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
-    write("  let sb_s = brush_u.strength * brush_falloff(sb_t);\n");
+    if (!faceMode()) {
+      write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];\n");
+    } else {
+      write("  let sb_s = brush_u.strength * brush_falloff(sb_t);\n");
+    }
     write("  return select(sb_s, -sb_s, brush_u.invert != 0u);\n");
     write("}\n\n");
     // Brush-texture modulation — kept in lockstep with
