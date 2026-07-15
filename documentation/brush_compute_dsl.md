@@ -198,6 +198,19 @@ mirrored in WGSL at `@group(0) @binding(7) falloff_lut`. `set_falloff` exposes
 `Cube` is not implemented — a single curve drives every shape; revisit if a
 brush needs an independent axial profile.
 
+The TS bridge has a second, parallel way to populate `falloff_curve`: it
+doesn't go through `falloffCurve`/`rebakeFalloff()` at all, since the TS-side
+`Curve1D` (`brush.falloff`, a `props/StructProp` curve) is the source of
+truth there. `Brush::falloffCurveSize` (bound, mirrors `kFalloffCurveSize`)
+and `Brush::setFalloffCurveEntry(i, f)` let the bridge
+sample its own curve and write each LUT entry directly — see
+`configureToolUniforms()` in `scripts/editors/view3d/tools/sculptcore_bindings.ts`,
+which sets `falloff_kind = FalloffKind.CURVE` and loops
+`setFalloffCurveEntry(i, brush.falloff.evaluate(t))`. `falloff_kind` and
+`falloff_shape` are themselves plain bound enum members now (`Binder<FalloffKind>`
+/ `Binder<FalloffShape>` in `bindings.cc`) — set directly as properties
+(`wasmBrush.falloff_kind = ...`) rather than through int-taking setter methods.
+
 ### Brush textures and coord spaces
 
 `sampleBrushTex(p, n)` is an intrinsic that expands based on `coordSpace`:

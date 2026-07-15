@@ -1740,7 +1740,7 @@ struct MeshLog {
   /* -------------------- Box-modeling topology macro-ops --------------------
    * Each brackets one MeshLog step (so it's one undo press), sets the active
    * mesh so the create/change/kill callbacks fire into the topo chunk, runs the
-   * Euler-op composition (mesh/ops/*), and leaves the new movable region
+   * Euler-op composition (mesh / ops / *), and leaves the new movable region
    * selected. `outNormal` receives the op's averaged normal (3 floats) for the
    * chained transform's default constraint axis. The spatial tree is rebuilt by
    * the TS op afterward (topology changed wholesale). */

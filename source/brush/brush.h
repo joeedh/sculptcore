@@ -14,9 +14,6 @@
 #include "props.h"
 
 namespace sculptcore::brush {
-using litestl::util::StrLiteral;
-using litestl::math::float3;
-using litestl::math::float4;
 
 // Falloff curve shapes selectable per brush. The three analytic kinds
 // inline a closed form; `Curve` reads `Brush::falloff_curve` as a
@@ -47,6 +44,21 @@ enum class FalloffShape : unsigned char {
   Linear = 2,
   Box = 3,
 };
+} // namespace sculptcore::brush
+
+namespace litestl::binding {
+template <> struct Binder<sculptcore::brush::FalloffKind> {
+  static const BindingBase *bind();
+};
+template <> struct Binder<sculptcore::brush::FalloffShape> {
+  static const BindingBase *bind();
+};
+} // namespace litestl::binding
+
+namespace sculptcore::brush {
+using litestl::math::float3;
+using litestl::math::float4;
+using litestl::util::StrLiteral;
 
 // Mapping from a world-space sample point to brush-texture UV. Orthogonal
 // to the texture data itself; the discriminant rides in BrushUniforms so
@@ -101,12 +113,18 @@ enum class BrushProp : int {
 inline const char *brushPropName(int propId)
 {
   switch (propId) {
-  case 0: return "strength";
-  case 1: return "radius";
-  case 2: return "autosmooth";
-  case 3: return "planeoff";
-  case 4: return "spacing";
-  default: return "";
+  case 0:
+    return "strength";
+  case 1:
+    return "radius";
+  case 2:
+    return "autosmooth";
+  case 3:
+    return "planeoff";
+  case 4:
+    return "spacing";
+  default:
+    return "";
   }
 }
 
@@ -227,6 +245,13 @@ struct Brush {
     return props::detail::curve::bake_curve_lut<kFalloffCurveSize>(ss);
   }();
 
+  // expose falloffCurveSize to TS bridge
+  float falloffCurveSize = kFalloffCurveSize;
+  void setFalloffCurveEntry(int i, float f)
+  {
+    falloff_curve[i] = f;
+  }
+
   static litestl::binding::types::Struct<Brush> *defineBindings()
   {
     using namespace litestl::binding;
@@ -235,6 +260,9 @@ struct Brush {
 
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
 
+    BIND_STRUCT_MEMBER(st, falloffCurveSize);
+    BIND_STRUCT_MEMBER(st, falloff_shape);
+    BIND_STRUCT_MEMBER(st, falloff_kind);
     BIND_STRUCT_MEMBER(st, strength);
     BIND_STRUCT_MEMBER(st, radius);
     BIND_STRUCT_MEMBER(st, spacing);
@@ -258,25 +286,24 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, activeGroup);
     BIND_STRUCT_MEMBER(st, brushColor);
     BIND_STRUCT_MEMBER(st, props);
+    BIND_STRUCT_METHOD(st, setFalloffCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());
-    BIND_STRUCT_METHOD(st, setFalloffShape, MARGS("shape"));
-    BIND_STRUCT_METHOD(st, setFalloffKind, MARGS("kind"));
     BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));
     BIND_STRUCT_METHOD(st, clearDeviceInputs, MARGS());
     BIND_STRUCT_METHOD(st, clearPropDynamics, MARGS("propId"));
-    BIND_STRUCT_METHOD(st, addPropDynamic,
-                       MARGS("propId", "deviceType", "mixMode", "mixFactor"));
-    BIND_STRUCT_METHOD(st, setPropDynamicSample,
-                       MARGS("propId", "deviceType", "i", "n", "value"));
+    BIND_STRUCT_METHOD(
+        st, addPropDynamic, MARGS("propId", "deviceType", "mixMode", "mixFactor"));
+    BIND_STRUCT_METHOD(
+        st, setPropDynamicSample, MARGS("propId", "deviceType", "i", "n", "value"));
     // Name-keyed dynamics for any registered float uniform (custom kernel
     // uniforms the BrushProp ids can't reach). The bridge enumerates the
     // uniform manifest and routes its configure calls through these.
     BIND_STRUCT_METHOD(st, clearPropDynamicsByName, MARGS("name"));
-    BIND_STRUCT_METHOD(st, addPropDynamicByName,
-                       MARGS("name", "deviceType", "mixMode", "mixFactor"));
-    BIND_STRUCT_METHOD(st, setPropDynamicSampleByName,
-                       MARGS("name", "deviceType", "i", "n", "value"));
+    BIND_STRUCT_METHOD(
+        st, addPropDynamicByName, MARGS("name", "deviceType", "mixMode", "mixFactor"));
+    BIND_STRUCT_METHOD(
+        st, setPropDynamicSampleByName, MARGS("name", "deviceType", "i", "n", "value"));
     BIND_STRUCT_METHOD(st, setPropsParent, MARGS("parentProps"));
     BIND_STRUCT_METHOD(st, clearPropsParent, MARGS());
 
@@ -354,7 +381,8 @@ struct Brush {
   }
   // Add a device layer (identity curve) to a property; fill its response curve
   // with setPropDynamicSampleByName.
-  void addPropDynamicByName(util::string name, int deviceType, int mixMode, float mixFactor)
+  void
+  addPropDynamicByName(util::string name, int deviceType, int mixMode, float mixFactor)
   {
     props::Dynamics *dyn = propDynamics(name);
     if (!dyn) {
@@ -368,7 +396,8 @@ struct Brush {
   }
   // Set sample `i` of an `n`-entry response curve for the (name, deviceType)
   // device layer — the baked form of the TS channel's Curve1D.
-  void setPropDynamicSampleByName(util::string name, int deviceType, int i, int n, float value)
+  void
+  setPropDynamicSampleByName(util::string name, int deviceType, int i, int n, float value)
   {
     props::Dynamics *dyn = propDynamics(name);
     if (!dyn) {
@@ -399,18 +428,6 @@ struct Brush {
   void setPropDynamicSample(int propId, int deviceType, int i, int n, float value)
   {
     setPropDynamicSampleByName(brushPropName(propId), deviceType, i, n, value);
-  }
-
-  // Setters for the (u8) falloff enums — exposed as plain int methods so the
-  // TS bridge can pick FalloffShape::Box / a FalloffKind without the binding
-  // system needing the enum types registered.
-  void setFalloffShape(int shape)
-  {
-    falloff_shape = static_cast<FalloffShape>(shape);
-  }
-  void setFalloffKind(int kind)
-  {
-    falloff_kind = static_cast<FalloffKind>(kind);
   }
 
   Brush() : props(&structDef_)
@@ -484,8 +501,8 @@ struct Brush {
       // The reference-axis pick mirrors sampleBrushTex and the WGSL branch
       // bit-for-bit (same |n.z| < 0.999 test) to keep CPU/GPU equal.
       float3 n = falloff_dir.normalized();
-      float3 ref = std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f}
-                                           : float3{1.0f, 0.0f, 0.0f};
+      float3 ref =
+          std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f} : float3{1.0f, 0.0f, 0.0f};
       float3 t1 = ref.cross(n).normalized();
       float3 t2 = n.cross(t1);
       float dn = std::fabs(delta.dot(n)) / falloff_extent[0];
@@ -521,7 +538,8 @@ struct Brush {
       float clamped = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
       float scaled = clamped * (float)(kFalloffCurveSize - 1);
       int i0 = (int)scaled;
-      if (i0 >= kFalloffCurveSize - 1) return falloff_curve[kFalloffCurveSize - 1];
+      if (i0 >= kFalloffCurveSize - 1)
+        return falloff_curve[kFalloffCurveSize - 1];
       float frac = scaled - (float)i0;
       return falloff_curve[i0] * (1.0f - frac) + falloff_curve[i0 + 1] * frac;
     }
@@ -548,9 +566,7 @@ struct Brush {
     float tx = fx - (float)x0;
     float ty = fy - (float)y0;
 
-    auto clampi = [](int v, int lo, int hi) {
-      return v < lo ? lo : (v > hi ? hi : v);
-    };
+    auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
     int x0c = clampi(x0, 0, tex_width - 1);
     int y0c = clampi(y0, 0, tex_height - 1);
     int x1c = clampi(x0 + 1, 0, tex_width - 1);
@@ -568,7 +584,10 @@ struct Brush {
 
   // Drop all recorded stroke samples — called at the start of each stroke so
   // STROKE_CURVED arc lengths are measured from the stroke's first dab.
-  void resetStrokePath() { strokePathCount = 0; }
+  void resetStrokePath()
+  {
+    strokePathCount = 0;
+  }
 
   // Append a dab center to the StrokePath, accumulating arc length from the
   // previous sample. Once full, the oldest sample is dropped (true ring) so
@@ -617,8 +636,8 @@ struct Brush {
       float dist = d.length();
       if (dist < bestDist) {
         bestDist = dist;
-        bestArc = strokePath[i].arclen +
-                  (strokePath[i + 1].arclen - strokePath[i].arclen) * t;
+        bestArc =
+            strokePath[i].arclen + (strokePath[i + 1].arclen - strokePath[i].arclen) * t;
         bestLat = dist;
       }
     }

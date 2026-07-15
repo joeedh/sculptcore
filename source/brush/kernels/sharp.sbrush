@@ -24,7 +24,7 @@ brush Sharp {
     if (tlen > 0.0001) {
       // Move a fraction of the tangent distance so the pull converges on the
       // brush axis; clamp so a single dab can never cross it.
-      float f = s * pinch;
+      float f = abs(s) * pinch;
       if (f > 0.9) { f = 0.9; }
       if (f < -0.9) { f = -0.9; }
       v.co -= t * f;

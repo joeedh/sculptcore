@@ -71,7 +71,13 @@ return brush.strength * brush.falloffEval(t);
 
 `falloffDist` applies the spatial metric (`FalloffShape`:
 spherical / cube / linear) and `falloffEval` the curve shape (`FalloffKind`:
-smoothstep / linear / gaussian / curve-LUT). Note `strength(co)` is now **just**
+smoothstep / linear / gaussian / curve-LUT). Both enums are bound directly as
+`Brush` members (`falloff_shape`/`falloff_kind`, via `Binder<FalloffKind>` /
+`Binder<FalloffShape>` in `bindings.cc`), so the TS bridge sets them as plain
+properties rather than through int-taking setter methods; a custom LUT can be
+written per-entry through `setFalloffCurveEntry(i, f)` (sized by the bound
+`falloffCurveSize`) — see [`brush_compute_dsl.md`](brush_compute_dsl.md#falloffs)
+for the full authoring-vs-direct-write picture. Note `strength(co)` is now **just**
 `strength · falloff` — radius is *not* baked in here. A kernel that wants
 radius-proportional displacement multiplies by its own `radius` uniform
 (`draw`/`inflate`/`pinch` use `… * radius * 0.5`; `smooth`/`sharp`/`mask` are

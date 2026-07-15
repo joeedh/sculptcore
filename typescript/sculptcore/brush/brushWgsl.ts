@@ -3431,7 +3431,7 @@ fn main(
   var t: vec3<f32> = (d - (ctx_u.surfaceNo * dot(d, ctx_u.surfaceNo)));
   var tlen: f32 = length(t);
   if ((tlen > 0.0001)) {
-    var f: f32 = (s * brush_u.pinch);
+    var f: f32 = (abs(s) * brush_u.pinch);
     if ((f > 0.90000000000000002)) {
       f = 0.90000000000000002;
     }
