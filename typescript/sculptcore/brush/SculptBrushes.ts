@@ -37,4 +37,5 @@ export enum SculptBrushes {
   COLORSMOOTH = 18,
   FEATURE_ALIGN = 19,
   LAYERDRAW = 20,
+  ENHANCE = 21,
 }

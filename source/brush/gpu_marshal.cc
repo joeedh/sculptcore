@@ -51,6 +51,9 @@ static const GpuKernelInfo kGpuKernels[] = {
      .needsNeighbors = true,
      .accumulable = true,
      .readsVclass = true},
+    // ENHANCE is intentionally absent — its per-vertex displacement is computed
+    // by a host ring-BFS pre-pass (enhance.h), so it runs CPU-only like
+    // FEATURE_ALIGN (which is likewise not in this GPU kernel map).
 };
 
 const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool)

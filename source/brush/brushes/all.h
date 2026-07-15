@@ -19,3 +19,4 @@
 #include "../kernels/generated/colorsmooth.brush.gen.h"
 #include "../kernels/generated/featurealign.brush.gen.h"
 #include "../kernels/generated/layerdraw.brush.gen.h"
+#include "../kernels/generated/enhance.brush.gen.h"

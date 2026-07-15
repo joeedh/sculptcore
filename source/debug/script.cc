@@ -637,6 +637,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::POLYGROUP;
     } else if (ts == "bsmooth") {
       scene.currentTool = brush::SculptBrushes::BSMOOTH;
+    } else if (ts == "enhance") {
+      scene.currentTool = brush::SculptBrushes::ENHANCE;
     } else if (ts == "grab") {
       scene.currentTool = brush::SculptBrushes::GRAB;
     } else if (ts == "layerdraw") {

@@ -1,0 +1,16 @@
+// Enhance details (difference-of-smooths band-pass). Amplifies surface relief by
+// adding a high-/band-pass of the position field along a smoothed normal. The
+// per-vertex enhance vector `edisp` is computed host-side and cached per stroke
+// (source/brush/enhance.h, updateEnhanceRegion) — the N-ring smooth can't live in
+// a 1-ring kernel, so this kernel just applies the cached displacement scaled by
+// the brush strength/falloff and paint mask. CPU-only (like feature-align).
+@brush("enhance")
+brush Enhance {
+  attr vertex float3 edisp = ".brush.enhance.disp";
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * (1.0 - v.mask);
+    if (s == 0.0) { continue; }
+    v.co += v.edisp * s;
+  }
+}

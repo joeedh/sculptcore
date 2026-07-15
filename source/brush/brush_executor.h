@@ -4,6 +4,7 @@
 #include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
+#include "enhance.h"
 #include "brushes/all.h"
 #include "displace/compositor.h"
 #include "dyntopo/dyntopo.h"
@@ -408,6 +409,11 @@ struct CommandExecutor {
     case SculptBrushes::LAYERDRAW:
       command::createLayerdrawBrush<CommandExecutor, AccMode>(def);
       return;
+    case SculptBrushes::ENHANCE:
+      // Not a for_neighbor kernel: it applies the host pre-pass's cached
+      // .brush.enhance.disp, so no neighbor-source template.
+      command::createEnhanceBrush<CommandExecutor, AccMode>(def);
+      return;
     default:
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
@@ -796,8 +802,10 @@ struct CommandExecutor {
              brushType == SculptBrushes::COLORSMOOTH) &&
             neighborMode != NeighborMode::Csr) ||
            brushType == SculptBrushes::POLYGROUP ||
-           // The cross-field pre-pass walks the vertex disk every dab.
-           brushType == SculptBrushes::FEATURE_ALIGN;
+           // The cross-field / enhance-details pre-passes walk the vertex rings
+           // (ring1 CSR) every dab, so keep topology live for those strokes.
+           brushType == SculptBrushes::FEATURE_ALIGN ||
+           brushType == SculptBrushes::ENHANCE;
   }
 
   /** The boundary-aware smooth brush reads the lazily-derived
@@ -1041,6 +1049,23 @@ struct CommandExecutor {
       }
     }
 
+    // Enhance-details pre-pass (single-tool path; mirrors the execProgram block):
+    // fill the cached per-vertex difference-of-smooths displacement over the dab
+    // region before the ENHANCE kernel reads .brush.enhance.disp. Topology is live
+    // here (brushNeedsLiveLinks(ENHANCE)).
+    if (brushType == SculptBrushes::ENHANCE && nodes->size() > 0) {
+      Vector<int> regionVerts;
+      for (spatial::SpatialNode *node : *nodes) {
+        for (int v : node->data->unique_verts) {
+          regionVerts.append(v);
+        }
+      }
+      EnhanceParams ep;
+      ep.rings = brush->enhance_rings;
+      ep.inner = brush->enhance_inner;
+      updateEnhanceRegion(*m, regionVerts, ep, strokeGen);
+    }
+
     ctx.m = m;
     ctx.surfaceNo = normal;
     ctx.surfacePos = origin;
@@ -1163,6 +1188,32 @@ struct CommandExecutor {
         }
         FeatureFieldParams ffParams;
         updateCrossFieldRegion(*(*nodes)[0]->data->m, regionVerts, ffParams);
+      }
+    }
+
+    // Enhance-details pre-pass: fill the per-vertex difference-of-smooths
+    // displacement (.brush.enhance.disp) over the dab region before the ENHANCE
+    // kernel reads it. Cached per stroke (keyed by strokeGen); topology is live
+    // here (brushNeedsLiveLinks(ENHANCE)).
+    if (nodes->size() > 0) {
+      bool hasEnhance = false;
+      for (auto &entry : prog->commands) {
+        if (entry.type == SculptBrushes::ENHANCE) {
+          hasEnhance = true;
+          break;
+        }
+      }
+      if (hasEnhance) {
+        Vector<int> regionVerts;
+        for (spatial::SpatialNode *node : *nodes) {
+          for (int v : node->data->unique_verts) {
+            regionVerts.append(v);
+          }
+        }
+        EnhanceParams ep;
+        ep.rings = brush->enhance_rings;
+        ep.inner = brush->enhance_inner;
+        updateEnhanceRegion(*(*nodes)[0]->data->m, regionVerts, ep, strokeGen);
       }
     }
 

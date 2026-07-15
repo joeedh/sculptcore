@@ -43,6 +43,8 @@ export interface Brush {
   cavity_inverted: boolean
   cavity_use_curve: boolean
   cavityCurveSize: float
+  enhance_rings: int32
+  enhance_inner: int32
   grabFrom: float3
   grabTo: float3
   falloff_dir: float3

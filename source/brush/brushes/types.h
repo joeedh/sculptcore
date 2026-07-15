@@ -31,6 +31,9 @@ enum class _SculptBrushes {
   // Draw into the bound sculpt-layer delta attribute instead of positions
   // (the displace compositor folds it into evaluated v.co post-dab).
   LAYERDRAW = 20,
+  // Enhance details: for_neighbor kernel that subtracts the normal-direction
+  // Laplacian (unsharp) to amplify surface detail — the inverse of smooth.
+  ENHANCE = 21,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 } // namespace sculptcore::brush
@@ -62,6 +65,7 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
     e->addItem("COLORSMOOTH", SculptBrushes::COLORSMOOTH);
     e->addItem("FEATURE_ALIGN", SculptBrushes::FEATURE_ALIGN);
     e->addItem("LAYERDRAW", SculptBrushes::LAYERDRAW);
+    e->addItem("ENHANCE", SculptBrushes::ENHANCE);
     return e;
   }
 };

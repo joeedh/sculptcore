@@ -230,6 +230,13 @@ struct Brush {
   int cavity_blur_steps = 2;
   bool cavity_inverted = false;
 
+  // Enhance-details brush (source/brush/enhance.h): `enhance_rings` is the outer
+  // smoothing depth (low-pass cutoff / feature scale); `enhance_inner` is the
+  // inner depth — 0 = classic unsharp (high-pass), >=1 = difference-of-smooths
+  // band-pass (default, rejects mesh noise).
+  int enhance_rings = 4;
+  int enhance_inner = 1;
+
   // Grab-style ctx state (kelvinlet, future pose). `grabFrom` is the stroke
   // origin captured at the start of the dab; `grabTo` is the current cursor.
   float3 grabFrom{0, 0, 0};
@@ -314,6 +321,8 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, cavity_inverted);
     BIND_STRUCT_MEMBER(st, cavity_use_curve);
     BIND_STRUCT_MEMBER(st, cavityCurveSize);
+    BIND_STRUCT_MEMBER(st, enhance_rings);
+    BIND_STRUCT_MEMBER(st, enhance_inner);
     BIND_STRUCT_MEMBER(st, grabFrom);
     BIND_STRUCT_MEMBER(st, grabTo);
     BIND_STRUCT_MEMBER(st, falloff_dir);
