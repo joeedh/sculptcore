@@ -2034,18 +2034,6 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
 {
   using namespace sculptcore::gpu;
 
-  // Need live edge endpoints; the sculpt path may have left topology frozen.
-  if (m->topo_frozen) {
-    m->thawTopo();
-  }
-
-  // Feature overlay: draw every boundary-flagged edge (seam / sharp / projected /
-  // poly-group / UV-chart) in a distinct color. Derived flags (poly-group,
-  // UV-chart) are refreshed here so they reflect the current mesh.
-  if (m->boundaryDirty) {
-    mesh::boundary::recomputeDirty(m);
-  }
-
   using namespace mesh::boundary;
   BoolAttrView *seam = findBoolEdgeView(m, EDGE_SEAM);
   BoolAttrView *sharp = findBoolEdgeView(m, EDGE_SHARP);
@@ -2084,15 +2072,50 @@ sculptcore::gpu::DrawBatch *SpatialTree::buildSeamBatch(sculptcore::gpu::GPUMana
     return false;
   };
 
+  // Frozen-safe early-out: flag reads need no live topology, and with
+  // boundaryDirty clear they are current — a mesh with no feature edges skips
+  // the O(mesh) thaw below entirely (every sculpt stroke end lands here).
   int ncount = 0;
   float4 tmpClr;
-  for (int e : m->e) {
-    if (edgeColor(e, tmpClr)) {
-      ncount++;
+  if (!m->boundaryDirty) {
+    if (!seam && !sharp && !proj && !pg && !uv && !layer) {
+      return nullptr;
+    }
+    for (int e : m->e) {
+      if (edgeColor(e, tmpClr)) {
+        ncount++;
+      }
+    }
+    if (ncount == 0) {
+      return nullptr;
     }
   }
-  if (ncount == 0) {
-    return nullptr;
+
+  // Need live edge endpoints (e.vs); the sculpt path may have left topology frozen.
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  // Derived flags (poly-group, UV-chart) are refreshed so they reflect the
+  // current mesh. recomputeDirty can create flag layers — re-resolve the views
+  // (edgeColor captures them by reference) and count on the fresh state.
+  if (m->boundaryDirty) {
+    mesh::boundary::recomputeDirty(m);
+    seam = findBoolEdgeView(m, EDGE_SEAM);
+    sharp = findBoolEdgeView(m, EDGE_SHARP);
+    proj = findBoolEdgeView(m, EDGE_PROJECTED);
+    pg = findBoolEdgeView(m, EDGE_POLYGROUP);
+    uv = findBoolEdgeView(m, EDGE_UVCHART);
+    layer = findBoolEdgeView(m, EDGE_LAYER_REGION);
+    ncount = 0;
+    for (int e : m->e) {
+      if (edgeColor(e, tmpClr)) {
+        ncount++;
+      }
+    }
+    if (ncount == 0) {
+      return nullptr;
+    }
   }
 
   // Geometry sits exactly on the surface; depth separation comes from the
@@ -2649,10 +2672,10 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
           4);
 #endif
     }
-
     if (regenDirtyBounds()) {
       bounds = true;
       result = true;
+      pendingCmdAabbs_ = true;
     }
 
     Vector<SpatialNode *, 256> updateNormalsNodes;
@@ -2695,6 +2718,7 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
   if (!(phases & Update_Gpu)) {
     return result;
   }
+
 
   /* Phase: GPU partition assignment. Cheap walk (O(nodes)). If topology
    * didn't change we can skip recomputing counts, but the assignment
@@ -2824,6 +2848,12 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
    * sliceOk[i] == 0 means sliceWork[i].owner needs a full rebuild. */
   Vector<uint8_t, 256> sliceOk;
   sliceOk.resize(sliceWork.size());
+  /* Per-slice vert spans, filled by the parallel pass (each job writes only its
+   * own index) and folded into the buffers' dirty ranges in the serial epilogue
+   * so the TS upload can be partial. */
+  Vector<int, 256> sliceVertStart, sliceVertCount;
+  sliceVertStart.resize(sliceWork.size());
+  sliceVertCount.resize(sliceWork.size());
 
   {
     const int regenJobCount = int(regenJobs.size());
@@ -2837,8 +2867,15 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
         fill_regen_slice(regenOwners[job.ownerIdx], job.sliceIdx, refs);
       } else {
         int k = i - regenJobCount;
-        sliceOk[k] =
-            update_gpu_node_slice(sliceWork[k].owner, sliceWork[k].leaf, gpu) ? 1 : 0;
+        sliceVertStart[k] = 0;
+        sliceVertCount[k] = 0;
+        sliceOk[k] = update_gpu_node_slice(sliceWork[k].owner,
+                                           sliceWork[k].leaf,
+                                           gpu,
+                                           &sliceVertStart[k],
+                                           &sliceVertCount[k])
+                         ? 1
+                         : 0;
       }
     };
 
@@ -2878,16 +2915,21 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
   for (int i : util::IndexRange(sliceWork.size())) {
     SpatialNode *owner = sliceWork[i].owner;
     if (sliceOk[i]) {
+      /* Flag only the rewritten slice's vert span (all streams share vert
+       * indexing), so the TS upload re-sends just that sub-range instead of
+       * the whole owner buffer. */
       GpuData &gd = *owner->gpu_data;
+      const int s = sliceVertStart[i];
+      const int e = s + sliceVertCount[i];
       if (gd.pos) {
-        gd.pos->update_buffer = true;
+        gd.pos->markDirtyRange(s, e);
       }
       if (gd.nor) {
-        gd.nor->update_buffer = true;
+        gd.nor->markDirtyRange(s, e);
       }
       for (gpu::Buffer *b : gd.attrBufs) {
         if (b) {
-          b->update_buffer = true;
+          b->markDirtyRange(s, e);
         }
       }
       continue;
@@ -2967,7 +3009,40 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
       gd.cmd->primCount = gd.pos->size / 3;
       gd.cmd->end = gd.pos->size;
       drawBatch->commands.append(gd.cmd);
+      // Owner AABB for view culling, parallel to `commands` (6 floats each).
+      for (int k = 0; k < 3; k++) {
+        drawBatch->cmdAabbs.append(node->aabb.min[k]);
+      }
+      for (int k = 0; k < 3; k++) {
+        drawBatch->cmdAabbs.append(node->aabb.max[k]);
+      }
     }
+    drawBatch->version++;
+    drawBatch->aabbVersion++;
+    pendingCmdAabbs_ = false;
+  } else if ((bounds || pendingCmdAabbs_) && drawBatch && drawBatch->commands.size() > 0) {
+    /* Bounds moved without a command-list rebuild: refresh the culling AABBs
+     * in place (same node iteration/filter as the rebuild loop above). */
+    int idx = 0;
+    const int n = int(drawBatch->cmdAabbs.size());
+    for (SpatialNode *node : nodes) {
+      if (!node->is_gpu_node || !node->gpu_data || !node->gpu_data->pos) {
+        continue;
+      }
+      if ((idx + 1) * 6 > n) {
+        idx = -1; /* count drifted — leave stale, next rebuild refills */
+        break;
+      }
+      for (int k = 0; k < 3; k++) {
+        drawBatch->cmdAabbs[idx * 6 + k] = node->aabb.min[k];
+        drawBatch->cmdAabbs[idx * 6 + 3 + k] = node->aabb.max[k];
+      }
+      idx++;
+    }
+    if (idx >= 0 && idx * 6 == n) {
+      drawBatch->aabbVersion++;
+    }
+    pendingCmdAabbs_ = false;
   }
 
   return result || drawBatchUpdated || gpuWorkDone;

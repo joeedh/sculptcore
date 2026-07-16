@@ -218,7 +218,7 @@ export interface NativeAddon {
    * a number; C++ reads it off the descriptor. A *copy* under Electron's V8
    * sandbox (like vectorView). The bound object must outlive the view.
    */
-  pointerBytes(bound: NativeBound, member: string, byteLen: number): Uint8Array | undefined
+  pointerBytes(bound: NativeBound, member: string, byteLen: number, byteOffset?: number): Uint8Array | undefined
   /**
    * The bound C++ object's address as an opaque identity key (never
    * dereferenced) — for caches keyed by object identity (gpuExecutor's

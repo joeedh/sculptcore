@@ -117,6 +117,10 @@ DrawBatch *GPUManager::createBatch()
 {
   DrawBatch *b = litestl::alloc::New<DrawBatch>("DrawBatch");
   b->manager = this;
+  // Process-unique id: consumers key caches on it (a freed batch's address can
+  // be reused, so pointer identity alone is unsafe across destroy/create).
+  static int nextBatchId = 0;
+  b->id = ++nextBatchId;
   batches.append(b);
   return b;
 }

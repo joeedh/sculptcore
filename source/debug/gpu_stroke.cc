@@ -878,11 +878,11 @@ void GpuStrokeSession::finishLive(Scene &scene, litestl::util::Vector<float> &co
     spatial::GpuData &gd = *gn->gpu_data;
     if (gd.pos) {
       gd.pos->gpu_owned = false;
-      gd.pos->update_buffer = true;
+      gd.pos->markDirtyAll();
     }
     if (gd.nor) {
       gd.nor->gpu_owned = false;
-      gd.nor->update_buffer = true;
+      gd.nor->markDirtyAll();
     }
     if (gd.slotVertex) {
       scene.gpu.destroyBuffer(gd.slotVertex);

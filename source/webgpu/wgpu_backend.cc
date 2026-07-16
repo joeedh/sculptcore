@@ -162,7 +162,7 @@ WebGpuBackend::BufferEntry &WebGpuBackend::ensureBuffer(Buffer *buf)
     e.size = paddedBytes;
     buffer_cache_[buf] = e;
     entry = buffer_cache_.lookup_ptr(buf);
-    buf->update_buffer = true;
+    buf->markDirtyAll();
   }
 
   /* gpu_owned buffers are produced GPU-side; never clobber with host data. */

@@ -23,6 +23,10 @@ export interface DrawBatch {
   [Symbol.dispose](): void
   commands: DrawCommand[]
   buffers: Buffer[]
+  id: int32
+  version: int32
+  cmdAabbs: float[]
+  aabbVersion: int32
   blocks: UniformBlockInstance[]
   new (): DrawBatch
 }

@@ -221,7 +221,7 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
     vkBindBufferMemory(ctx_->device, e.buffer, e.memory, 0);
     buffer_cache_[buf] = e;
     entry = buffer_cache_.lookup_ptr(buf);
-    buf->update_buffer = true;
+    buf->markDirtyAll();
   }
 
   /* gpu_owned buffers are filled GPU-side (compute scatter); never clobber

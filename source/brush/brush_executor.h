@@ -619,8 +619,9 @@ struct CommandExecutor {
       }
     }
 
-    if (cmd.execHost)
+    if (cmd.execHost) {
       cmd.execHost(ctx, *brush);
+    }
     cmd.execPre(ctx, nodes);
 
     // Jacobi snapshot: capture pre-dab vertex positions so for_neighbor reads

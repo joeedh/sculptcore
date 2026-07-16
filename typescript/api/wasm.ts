@@ -461,7 +461,13 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * member points at (e.g. gpu::Buffer.data). Absent on WASM, which reads the
    * linear-memory heap (`HEAPU8`) directly. A copy under the V8 sandbox.
    */
-  pointerBytes?(bound: SculptHandle, member: string, byteLen: number): Uint8Array | undefined
+  pointerBytes?(bound: SculptHandle, member: string, byteLen: number, byteOffset?: number): Uint8Array | undefined
+  /**
+   * Bulk typed-array view/copy of a bound `litestl::util::Vector<T>` (native
+   * backend only — one N-API call instead of per-element `vectorGet`s). WASM
+   * callers index the bound vector member directly.
+   */
+  vectorFloatView?(vec: SculptHandle): ArrayBufferView | undefined
   /**
    * Native-backend stable identity key for a bound object (its C++ address,
    * never dereferenced). Absent on WASM, which uses the numeric `.ptr`.

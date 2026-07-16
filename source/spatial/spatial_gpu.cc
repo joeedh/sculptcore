@@ -493,7 +493,9 @@ void SpatialTree::regen_gpu_node(SpatialNode *gpu_node, gpu::GPUManager *gpu)
  * the caller then regens the owner serially. */
 bool SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
                                         SpatialNode *leaf,
-                                        gpu::GPUManager *gpu)
+                                        gpu::GPUManager *gpu,
+                                        int *outVertStart,
+                                        int *outVertCount)
 {
   (void)gpu;
   GpuData &gd = *gpu_node->gpu_data;
@@ -540,6 +542,12 @@ bool SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
     }
   }
 
+  if (outVertStart) {
+    *outVertStart = slice->vert_start;
+  }
+  if (outVertCount) {
+    *outVertCount = slice->vert_count;
+  }
   leaf->flag &= ~Spatial_UpdateGPU;
   return true;
 }

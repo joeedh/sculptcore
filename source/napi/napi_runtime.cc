@@ -1407,18 +1407,19 @@ napi_value NapiRuntime::VectorView(napi_env env, napi_callback_info info)
   return out;
 }
 
-// pointerBytes(boundObj, memberName, byteLen) -> a Uint8Array over the bytes a
-// raw-pointer member points at. The native equivalent of the WASM
-// `new Uint8Array(HEAPU8.buffer, buf.data, n)` bulk-data read (gpuExecutor.ts):
-// the pointer (e.g. gpu::Buffer.data, a void*) deliberately never crosses into
-// JS as a number, so C++ reads it off the descriptor here and views it. Same
-// external->copy fallback as VectorView (V8 sandbox forbids external buffers in
-// Electron). The C++ object owns the storage; the caller must keep the bound
-// object alive while the view is used.
+// pointerBytes(boundObj, memberName, byteLen, byteOffset?) -> a Uint8Array over
+// the bytes a raw-pointer member points at, starting `byteOffset` (default 0)
+// bytes in. The native equivalent of the WASM
+// `new Uint8Array(HEAPU8.buffer, buf.data + off, n)` bulk-data read
+// (gpuExecutor.ts): the pointer (e.g. gpu::Buffer.data, a void*) deliberately
+// never crosses into JS as a number, so C++ reads it off the descriptor here
+// and views it. Same external->copy fallback as VectorView (V8 sandbox forbids
+// external buffers in Electron). The C++ object owns the storage; the caller
+// must keep the bound object alive while the view is used.
 napi_value NapiRuntime::PointerBytes(napi_env env, napi_callback_info info)
 {
-  size_t argc = 3;
-  napi_value argv[3];
+  size_t argc = 4;
+  napi_value argv[4];
   napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
   napi_value out;
   napi_get_undefined(env, &out);
@@ -1460,6 +1461,13 @@ napi_value NapiRuntime::PointerBytes(napi_env env, napi_callback_info info)
   void *dataPtr = *reinterpret_cast<void **>(static_cast<char *>(w->ptr) + found->offset);
   if (!dataPtr)
     return out;
+
+  if (argc >= 4) {
+    double dOff = 0;
+    if (napi_get_value_double(env, argv[3], &dOff) == napi_ok && dOff > 0) {
+      dataPtr = static_cast<char *>(dataPtr) + static_cast<size_t>(dOff);
+    }
+  }
 
   napi_value ab;
   napi_status st =

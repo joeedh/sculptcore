@@ -295,9 +295,10 @@ export class NativeManager {
   Multires_restoreStoreBlob(mr: NativeBound, bytes: Uint8Array): boolean {
     return this.addon.multiresRestoreStore(mr, bytes)
   }
-  /** Bytes of a bound object's raw-pointer member (e.g. gpu::Buffer.data). */
-  pointerBytes(bound: NativeBound, member: string, byteLen: number): Uint8Array | undefined {
-    return this.addon.pointerBytes(bound, member, byteLen)
+  /** Bytes of a bound object's raw-pointer member (e.g. gpu::Buffer.data),
+   * starting `byteOffset` (default 0) bytes in. */
+  pointerBytes(bound: NativeBound, member: string, byteLen: number, byteOffset = 0): Uint8Array | undefined {
+    return this.addon.pointerBytes(bound, member, byteLen, byteOffset)
   }
   /** Stable opaque identity key for a bound object (its C++ address). */
   objectAddress(bound: NativeBound): number | undefined {
@@ -449,7 +450,8 @@ export function makeNativeInterface(nm: NativeManager): unknown {
       return (gpu ??= nm.construct('sculptcore::gpu::GPUManager'))
     },
     getBoundVector                   : (name: string, bound: NativeBound) => nm.getBoundVector(name, bound),
-    pointerBytes                     : (b: NativeBound, m: string, n: number) => nm.pointerBytes(b, m, n),
+    vectorFloatView                  : (vec: NativeBound) => nm.addon.vectorView(vec),
+    pointerBytes                     : (b: NativeBound, m: string, n: number, off?: number) => nm.pointerBytes(b, m, n, off),
     objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
     Mesh_createCube                  : (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
     Mesh_makeUVSphere                : (r: number, s: number, rad: number) => nm.Mesh_makeUVSphere(r, s, rad),

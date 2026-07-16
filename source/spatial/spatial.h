@@ -880,6 +880,11 @@ private:
    * partition. Set by the queries half, consumed + cleared by the GPU half. */
   bool pendingGpuTopology_ = false;
 
+  /* Sticky like pendingGpuTopology_: a queries-half bounds refit ran (possibly
+   * in a per-dab updateQueries() call), so the next GPU half must refresh the
+   * draw batch's per-command culling AABBs even without a rebuild. */
+  bool pendingCmdAabbs_ = false;
+
   sculptcore::gpu::DrawBatch *drawBatch = nullptr;
   void regen_node_bounds(SpatialNode *node, bool recurse);
   void regen_node_tris(SpatialNode *node);
@@ -904,9 +909,13 @@ private:
   void fill_regen_slice(SpatialNode *gpu_node, int sliceIdx, mesh::AttrRef *srcRefs);
   /* In-place slice rewrite; returns false if a full regen is required (caller
    * regens serially — this runs under parallel_for and must not mutate shared
-   * GpuData). */
-  bool
-  update_gpu_node_slice(SpatialNode *gpu_node, SpatialNode *leaf, gpu::GPUManager *gpu);
+   * GpuData). On success `outVertStart`/`outVertCount` (optional) receive the
+   * slice's vert span so the caller can flag a partial buffer re-upload. */
+  bool update_gpu_node_slice(SpatialNode *gpu_node,
+                             SpatialNode *leaf,
+                             gpu::GPUManager *gpu,
+                             int *outVertStart = nullptr,
+                             int *outVertCount = nullptr);
   void collect_subtree_leaves(SpatialNode *node, util::Vector<SpatialNode *> &out);
   void fill_leaf_slice(SpatialNode *leaf,
                        math::float3 *pos,
