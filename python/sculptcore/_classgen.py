@@ -75,11 +75,13 @@ class BoundArray:
     __slots__ = ("manager", "addr", "elem_type", "length", "elem_size")
 
     def __init__(self, manager: "Manager", addr: int, atype: d.ArrayType):
+        if atype.elem_type is None:
+            raise UnknownTypeError(f"array {atype.name!r} has no element type")
         self.manager = manager
         self.addr = addr
-        self.elem_type = atype.elem_type
+        self.elem_type: d.BindingBase = atype.elem_type
         self.length = atype.array_size
-        self.elem_size = atype.elem_type.size if atype.elem_type else 0
+        self.elem_size = atype.elem_type.size
 
     def _elem_addr(self, i: int) -> int:
         if not 0 <= i < self.length:
@@ -106,10 +108,10 @@ class BoundArray:
 def _make_member_property(mtype: d.BindingBase, offset: int):
     """A property reading/writing a struct member at self.ptr + offset,
     mirroring createBoundCode in bind.ts."""
-    if mtype.type == d.BindingType.ParentTemplateParam:
+    if isinstance(mtype, d.ParentTemplateParamType):
         return _make_member_property(mtype.concrete_type, offset)
 
-    if mtype.type == d.BindingType.Boolean:
+    if isinstance(mtype, d.BooleanType):
         def get_bool(self):
             return _capi.read_u8(self.ptr + offset) != 0
 
@@ -118,7 +120,7 @@ def _make_member_property(mtype: d.BindingBase, offset: int):
 
         return property(get_bool, set_bool)
 
-    if mtype.type == d.BindingType.Number:
+    if isinstance(mtype, d.NumberType):
         def get_num(self):
             return d.read_number(mtype, self.ptr + offset)
 
@@ -127,7 +129,7 @@ def _make_member_property(mtype: d.BindingBase, offset: int):
 
         return property(get_num, set_num)
 
-    if mtype.type == d.BindingType.Enum:
+    if isinstance(mtype, d.EnumType):
         def get_enum(self):
             return _marshal.read_enum(mtype, self.ptr + offset)
 
@@ -136,7 +138,7 @@ def _make_member_property(mtype: d.BindingBase, offset: int):
 
         return property(get_enum, set_enum)
 
-    if mtype.type == d.BindingType.Struct:
+    if isinstance(mtype, d.StructType):
         def get_struct(self):
             return self.manager.get_bound_pointer(mtype, self.ptr + offset)
 
@@ -145,15 +147,15 @@ def _make_member_property(mtype: d.BindingBase, offset: int):
 
         return property(get_struct, set_struct)
 
-    if mtype.type == d.BindingType.Array:
+    if isinstance(mtype, d.ArrayType):
         def get_array(self):
             return BoundArray(self.manager, self.ptr + offset, mtype)
 
         return property(get_array)
 
-    if mtype.type in (d.BindingType.Pointer, d.BindingType.Reference):
+    if isinstance(mtype, (d.PointerType, d.ReferenceType)):
         inner = mtype.ptr_type
-        if inner is not None and inner.type == d.BindingType.Struct:
+        if inner is not None and isinstance(inner, d.StructType):
             def get_ptr(self):
                 addr = _capi.read_ptr(self.ptr + offset)
                 if not addr:
@@ -271,25 +273,25 @@ class Manager:
         """Wrap the value of descriptor `btype` living at `addr` (manager.ts
         getBoundPointer). With deref=False, `addr` is already the object
         address for struct wrapping rather than the address of a pointer."""
-        if btype.type == d.BindingType.ParentTemplateParam:
+        if isinstance(btype, d.ParentTemplateParamType):
             btype = btype.concrete_type
 
-        if btype.type == d.BindingType.Number:
+        if isinstance(btype, d.NumberType):
             return d.read_number(btype, addr)
-        if btype.type == d.BindingType.Boolean:
+        if isinstance(btype, d.BooleanType):
             return _capi.read_u8(addr) != 0
-        if btype.type == d.BindingType.Enum:
+        if isinstance(btype, d.EnumType):
             return _marshal.read_enum(btype, addr)
-        if btype.type == d.BindingType.Array:
+        if isinstance(btype, d.ArrayType):
             return BoundArray(self, addr, btype)
-        if btype.type == d.BindingType.Struct:
+        if isinstance(btype, d.StructType):
             if btype.is_vector:
                 from . import _bulk
 
                 return _bulk.BoundVector(self, addr, btype, owning=owning)
             cls = self.get_bound_class(btype)
             return cls(self, addr, owning=owning)
-        if btype.type in (d.BindingType.Pointer, d.BindingType.Reference):
+        if isinstance(btype, (d.PointerType, d.ReferenceType)):
             indirect = _capi.read_ptr(addr) if deref else addr
             if not indirect:
                 return None
@@ -300,13 +302,13 @@ class Manager:
         raise UnknownTypeError(f"cannot wrap binding type {btype.type!r}")
 
     def set_scalar(self, btype: d.BindingBase, addr: int, value) -> None:
-        if btype.type == d.BindingType.Number:
+        if isinstance(btype, d.NumberType):
             d.write_number(btype, addr, value)
-        elif btype.type == d.BindingType.Boolean:
+        elif isinstance(btype, d.BooleanType):
             _capi.write_u8(addr, 1 if value else 0)
-        elif btype.type == d.BindingType.Enum:
+        elif isinstance(btype, d.EnumType):
             _marshal.write_enum(btype, addr, value)
-        elif btype.type in (d.BindingType.Pointer, d.BindingType.Reference):
+        elif isinstance(btype, (d.PointerType, d.ReferenceType)):
             _capi.write_ptr(addr, _marshal._value_addr(value))
         else:
             raise UnknownTypeError(f"cannot assign binding type {btype.type!r}")
@@ -314,9 +316,9 @@ class Manager:
     def unpack_return(self, ret_type: d.BindingBase, ret_buf: int):
         """Unpack a thunk return buffer. Struct-by-value returns keep the
         buffer and own it; everything else is read out and the buffer freed."""
-        if ret_type.type == d.BindingType.ParentTemplateParam:
+        if isinstance(ret_type, d.ParentTemplateParamType):
             ret_type = ret_type.concrete_type
-        if ret_type.type == d.BindingType.Struct:
+        if isinstance(ret_type, d.StructType):
             return self.get_bound_pointer(ret_type, ret_buf, deref=False, owning=True)
         try:
             return self.get_bound_pointer(ret_type, ret_buf)

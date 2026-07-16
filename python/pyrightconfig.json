@@ -1,0 +1,7 @@
+{
+  "include": ["sculptcore", "tests"],
+  "exclude": ["**/__pycache__"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "reportMissingModuleSource": false
+}

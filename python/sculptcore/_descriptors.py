@@ -242,7 +242,7 @@ class StructType(BindingBase):
                 continue
             p_type = c.params[0][1]
             if (
-                p_type.type == BindingType.Reference
+                isinstance(p_type, ReferenceType)
                 and p_type.ptr_type.full_name() == self.full_name()
             ):
                 return c
@@ -294,15 +294,15 @@ class UnionType(BindingBase):
 
     def _read_type_value(self, addr: int):
         t = self.dis_prop_type
-        if t.type == BindingType.Boolean:
+        if isinstance(t, BooleanType):
             return bool(_capi.read_u8(addr))
-        if t.type == BindingType.Number:
+        if isinstance(t, NumberType):
             return read_number(t, addr)
-        if t.type == BindingType.Enum:
+        if isinstance(t, EnumType):
             return {1: _capi.read_i8, 2: _capi.read_i16, 4: _capi.read_i32, 8: _capi.read_i64}[
                 t.base_size
             ](addr)
-        if t.type == BindingType.Struct and t.name.startswith("litestl::util::string"):
+        if isinstance(t, StructType) and t.name.startswith("litestl::util::string"):
             return read_litestl_string(addr)
         raise ValueError(f"cannot decode union type value of type {t.type!r}")
 

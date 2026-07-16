@@ -32,7 +32,7 @@ _NUMPY_DTYPES = {
 
 
 def _resolve(btype: d.BindingBase) -> d.BindingBase:
-    while btype.type == d.BindingType.ParentTemplateParam:
+    while isinstance(btype, d.ParentTemplateParamType):
         btype = btype.concrete_type
     return btype
 
@@ -75,7 +75,7 @@ class BoundVector:
 
     def __getitem__(self, i: int):
         addr = self._elem_addr(i)
-        if self.elem_type.type == d.BindingType.Struct:
+        if isinstance(self.elem_type, d.StructType):
             return self.manager.get_bound_pointer(self.elem_type, addr, deref=False)
         return self.manager.get_bound_pointer(self.elem_type, addr)
 
@@ -89,7 +89,7 @@ class BoundVector:
 
     def _set(self, addr: int, value, *, destruct: bool) -> None:
         etype = self.elem_type
-        if etype.type == d.BindingType.Struct:
+        if isinstance(etype, d.StructType):
             ctor = etype.find_copy_constructor()
             if ctor is None:
                 raise _marshal.InvokeError(
@@ -112,9 +112,9 @@ class BoundVector:
         import numpy as np
 
         etype = self.elem_type
-        if etype.type == d.BindingType.Boolean:
+        if isinstance(etype, d.BooleanType):
             dtype = "uint8"
-        elif etype.type == d.BindingType.Number:
+        elif isinstance(etype, d.NumberType):
             dtype = _NUMPY_DTYPES[(etype.subtype, etype.unsigned)]
         else:
             raise TypeError(

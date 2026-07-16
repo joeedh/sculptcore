@@ -1,0 +1,6 @@
+{
+  "include": ["sculptcore/types"],
+  "exclude": ["**/__pycache__"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "strict"
+}

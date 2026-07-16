@@ -46,7 +46,7 @@ def _list_as_vector(manager, ptype, value):
     isn't a vector pointer/reference."""
     inner = getattr(ptype, "ptr_type", None)
     if inner is None or not (
-        inner.type == d.BindingType.Struct and inner.is_vector
+        isinstance(inner, d.StructType) and inner.is_vector
     ):
         return None
     from . import _bulk
@@ -82,7 +82,7 @@ def build_args(manager, arg_types, args):
         return _value_addr(value)
 
     for index, ((name, atype), value) in enumerate(zip(arg_types, args)):
-        if atype.type == d.BindingType.ParentTemplateParam:
+        if isinstance(atype, d.ParentTemplateParamType):
             atype = atype.concrete_type
 
         arg_ptr = capi.mem_alloc("thunk arg", max(8, atype.size))
@@ -90,20 +90,20 @@ def build_args(manager, arg_types, args):
         _capi.write_u64(arg_ptr, 0)
         _capi.write_ptr(ptr_list + index * PTRSIZE, arg_ptr)
 
-        if atype.type == d.BindingType.Struct:
+        if isinstance(atype, d.StructType):
             ctor = atype.find_copy_constructor()
             if ctor is None:
                 raise InvokeError(f"type {atype.full_name()} has no copy constructor")
             construct_to(manager, ctor, arg_ptr, [_value_addr(value)])
-        elif atype.type == d.BindingType.Boolean:
+        elif isinstance(atype, d.BooleanType):
             _capi.write_u8(arg_ptr, 1 if value else 0)
-        elif atype.type == d.BindingType.Number:
+        elif isinstance(atype, d.NumberType):
             d.write_number(atype, arg_ptr, value)
-        elif atype.type == d.BindingType.Enum:
+        elif isinstance(atype, d.EnumType):
             _ENUM_WRITERS[atype.base_size](arg_ptr, int(value))
-        elif atype.type in (d.BindingType.Array, d.BindingType.Pointer):
+        elif isinstance(atype, (d.ArrayType, d.PointerType)):
             _capi.write_ptr(arg_ptr, addr_of(atype, value))
-        elif atype.type == d.BindingType.Reference:
+        elif isinstance(atype, d.ReferenceType):
             # The thunks take reference parameters directly in the args
             # array (C++ can't form a pointer-to-reference); see the TS
             # runtime's buildArgs and invokeImpl in binding_method.h.
