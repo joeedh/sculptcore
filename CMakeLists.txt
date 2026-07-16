@@ -263,6 +263,31 @@ else()
 	  sculptcore_stage_runtime_dlls(sculptcore)
 	endif()
 
+	# --- Python ctypes C-API shared lib ---------------------------------------
+	# Aggregate shared lib for out-of-process runtimes (the Python ctypes
+	# package): sculptcore_core pulls in initBindings()/getBindingManager() and
+	# every module lib transitively; displace and webgpu are added because
+	# nothing on the core path links them, yet their c-api symbols are exported.
+	# The export list is the same WASM_SYMBOLS/LT_WASM_SYMBOLS sets the WASM
+	# link exports, so the native C ABI cannot drift from the WASM one. Driven
+	# by `make.mjs configure/build python` into build/python/.
+	add_library(sculptcore_capi SHARED)
+	target_link_libraries(sculptcore_capi sculptcore_core displace webgpu ${LIB})
+
+	get_property(capi_symbols GLOBAL PROPERTY WASM_SYMBOLS)
+	get_property(capi_lt_symbols GLOBAL PROPERTY LT_WASM_SYMBOLS)
+	lt_native_export_symbols(sculptcore_capi "${capi_symbols}\n${capi_lt_symbols}")
+
+	if (WIN32)
+	  sculptcore_stage_runtime_dlls(sculptcore_capi)
+	  # wgpu-native ships as a DLL — copy it next to the capi lib (same as
+	  # debug_app) so loading sculptcore_capi resolves its import.
+	  add_custom_command(TARGET sculptcore_capi POST_BUILD
+	    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+	      $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:sculptcore_capi>
+	    VERBATIM)
+	endif()
+
 	# --- NW.js / Node N-API addon -------------------------------------------
 	# Built only when CMake is configured by cmake-js, which injects CMAKE_JS_*
 	# (headers, node import lib, win delay-load hook) for the chosen runtime

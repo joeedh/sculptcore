@@ -275,13 +275,17 @@ function buildDir(target) {
   if (target === 'node') {
     return WITH_NATIVE_MSVC ? 'build/native-node-msvc' : 'build/native-node'
   }
+  if (target === 'python') {
+    return WITH_NATIVE_MSVC ? 'build/python-msvc' : 'build/python'
+  }
   return 'build'
 }
 
 // Returns the `node ../configureEnv.mjs [--emsdk]` prefix used inside buildDir.
 function envPrefix(target) {
-  const rel = target === 'native' ? '../..' : '..'
-  const emsdk = target === 'native' ? '' : '--emsdk '
+  const nativeLike = target === 'native' || target === 'python'
+  const rel = nativeLike ? '../..' : '..'
+  const emsdk = nativeLike ? '' : '--emsdk '
   return `node ${rel}/configureEnv.mjs ${emsdk}`.trimEnd()
 }
 
@@ -483,6 +487,38 @@ async function buildNodeAddon(runtime, version, smoke) {
     }
     smokeNwjs(out)
   }
+}
+
+// === Python ctypes C-API shared lib ===
+//
+// Builds sculptcore_capi — the aggregate shared lib force-exporting the
+// LSTL_* dispatch ABI plus the engine c-api symbols — into build/python/,
+// for the Python ctypes runtime (python/sculptcore). Configures on demand
+// like the node addon. No host-side sbrush codegen pass: the native
+// configure regenerates kernels in-build (SBRUSH_REGEN_ON_BUILD).
+async function buildPythonCapi() {
+  const dir = buildDir('python')
+  const env = envPrefix('python')
+
+  if (!fs.existsSync(Path.join(dir, 'CMakeCache.txt'))) {
+    await configureTarget('python', {})
+  }
+
+  console.log(`Building Python C-API lib -> ${dir}`)
+  await runBuild(`cd ${dir} && ${env} cmake --build . --target sculptcore_capi${parallelFlag()}`)
+
+  const name =
+    process.platform === 'win32'
+      ? 'sculptcore_capi.dll'
+      : process.platform === 'darwin'
+        ? 'libsculptcore_capi.dylib'
+        : 'libsculptcore_capi.so'
+  const out = Path.resolve(dir, name)
+  if (!fs.existsSync(out)) {
+    process.stderr.write(`python: capi lib not found at ${out}\n`)
+    process.exit(1)
+  }
+  console.log(`python: built ${out}`)
 }
 
 // Smoke-load the freshly built .node under NW.js. NW.js has no main process, so
@@ -1040,7 +1076,7 @@ const targetPositional = (y) =>
   })
 
 // Targets accepted by `configure` / `build`. `emsdk` is an alias for `wasm`.
-const BUILD_TARGETS = ['wasm', 'emsdk', 'native', 'node']
+const BUILD_TARGETS = ['wasm', 'emsdk', 'native', 'node', 'python']
 
 // `configure [target]` — omitting the target configures all three (wasm, native,
 // node), so it has no default.
@@ -1055,7 +1091,7 @@ const buildTargetPositional = (y) =>
   y.positional('target', {
     choices : BUILD_TARGETS,
     default : 'wasm',
-    describe: 'Build target (wasm | native | node)',
+    describe: 'Build target (wasm | native | node | python)',
   })
 
 // Runtime-ABI options shared by `configure node` / `build node` (ignored for the
@@ -1086,7 +1122,7 @@ async function configureTarget(target, {backends, runtime, runtimeVersion}) {
   ensureDir(dir)
   const env = envPrefix(target)
   const sbrushFlags = sbrushBackendFlags(backends)
-  if (target === 'native') {
+  if (target === 'native' || target === 'python') {
     // Build + register the cross-worktree sccache launcher before cmake
     // resolves it (build_files/native-clang.cmake). Best-effort: a no-op when
     // the superproject's tools dir is absent (sculptcore built standalone).
@@ -1194,6 +1230,10 @@ yargs(hideBin(process.argv))
       if (target === 'node') {
         await sbrushCodegen()
         await buildNodeAddon(runtime, runtimeVersion, smoke)
+        return
+      }
+      if (target === 'python') {
+        await buildPythonCapi()
         return
       }
       console.log('Building...')

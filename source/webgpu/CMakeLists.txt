@@ -37,6 +37,12 @@ else()
   target_include_directories(webgpu PRIVATE "${CMAKE_SOURCE_DIR}/extern")
 endif()
 
-wasm_add_symbols("
-  webgpuRenderScene
-")
+# webgpuRenderScene is the __EMSCRIPTEN__ surface-path entry (wgpu_demo.cc);
+# native builds compile webgpuRenderSceneToPNG instead, so only the WASM link
+# (or a native consumer of WASM_SYMBOLS, e.g. sculptcore_capi) may export it
+# under BUILD_WASM.
+if (BUILD_WASM)
+  wasm_add_symbols("
+    webgpuRenderScene
+  ")
+endif()
