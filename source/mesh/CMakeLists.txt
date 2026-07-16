@@ -64,6 +64,10 @@ wasm_add_symbols("
   Mesh_makeUVSphere
   Mesh_triangulate
   Mesh_ngonFaceCount
+  Mesh_fromArrays
+  Mesh_arraySizes
+  Mesh_toArrays
+  Mesh_topoStamp
   serializeMesh
   serializeMeshRaw
   deserializeMesh

@@ -191,6 +191,156 @@ AttrRef *getAttrs(Mesh *mesh, ElemType domain, int *count_out)
   *count_out = int(attrs->attrs.size());
   return attrs->attrs.data();
 }
+
+/** Monotonic topology-edit stamp (bumped by every make_/kill_/reorder_ op).
+ * Snapshot it after building/importing; an unchanged stamp at flush/exit
+ * means original indices are still valid — the positions-only fast path. */
+uint64_t Mesh_topoStamp(Mesh *mesh)
+{
+  return mesh->topo_stamp;
+}
+
+/* Bulk array conversion (Blender layout) --------------------------------- */
+
+/** Build a mesh from flat arrays in Blender's native layout: `positions` is
+ * `verts_num * 3` floats, `corner_verts` holds every face's vertex indices
+ * back to back, and `face_offsets` gives `faces_num + 1` offsets into it.
+ * Edges derive from the face corners (make_face); vertices referenced by no
+ * face stay as loose vertices. Invalid/degenerate faces are skipped (count
+ * reported on stderr). Returns null when the offsets don't match
+ * `corners_num`. */
+Mesh *Mesh_fromArrays(const float *positions,
+                      int verts_num,
+                      const int *corner_verts,
+                      int corners_num,
+                      const int *face_offsets,
+                      int faces_num)
+{
+  if (faces_num > 0 && face_offsets[faces_num] != corners_num) {
+    fprintf(stderr,
+            "Mesh_fromArrays: face_offsets[%d]=%d != corners_num=%d\n",
+            faces_num,
+            face_offsets[faces_num],
+            corners_num);
+    return nullptr;
+  }
+
+  Mesh *m = alloc::New<Mesh>("Mesh from arrays");
+
+  Vector<int> vmap;
+  vmap.resize(verts_num);
+  for (int i = 0; i < verts_num; i++) {
+    vmap[i] = m->make_vertex(
+        float3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]));
+  }
+
+  int skipped = 0;
+  Vector<int> vs;
+  for (int fi = 0; fi < faces_num; fi++) {
+    const int start = face_offsets[fi];
+    const int end = face_offsets[fi + 1];
+
+    bool valid = end - start >= 3;
+    vs.clear();
+    for (int k = start; k < end && valid; k++) {
+      const int vi = corner_verts[k];
+      valid = vi >= 0 && vi < verts_num;
+      if (valid) {
+        vs.append(vmap[vi]);
+      }
+    }
+
+    if (!valid || m->make_face(std::span<int>(vs.data(), size_t(vs.size()))) == ELEM_NONE) {
+      skipped++;
+    }
+  }
+  if (skipped) {
+    fprintf(stderr, "Mesh_fromArrays: skipped %d invalid/degenerate face(s)\n", skipped);
+  }
+  return m;
+}
+
+/** Element counts for sizing Mesh_toArrays buffers. `r_verts_domain_size`
+ * (optional) receives the vert index-space size (freelist gaps included) for
+ * sizing the Mesh_toArrays remap table. */
+void Mesh_arraySizes(
+    Mesh *m, int *r_verts_num, int *r_corners_num, int *r_faces_num, int *r_verts_domain_size)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  *r_verts_num = m->v.count;
+  *r_faces_num = m->f.count;
+  int corners = 0;
+  for (int fi : m->f) {
+    const int li = m->f.l[fi];
+    if (li != ELEM_NONE) {
+      corners += m->l.size[li];
+    }
+  }
+  *r_corners_num = corners;
+  if (r_verts_domain_size) {
+    *r_verts_domain_size = int(m->v.capacity());
+  }
+}
+
+/** Compact-aware export into caller-allocated arrays (sizes from
+ * Mesh_arraySizes; same layout as Mesh_fromArrays, `face_offsets` gets
+ * `faces_num + 1` entries). Vertices export in live-iteration order.
+ * `r_vert_map` (optional, `r_verts_domain_size` entries) receives engine
+ * vert index -> exported index, ELEM_NONE for dead slots — every attribute
+ * copy and undo coupling must flow through it. Returns 1 when freelist gaps
+ * forced a real remap, 0 when the map is identity. */
+int Mesh_toArrays(
+    Mesh *m, float *positions, int *corner_verts, int *face_offsets, int *r_vert_map)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+
+  const int domain_size = int(m->v.capacity());
+  Vector<int> local_map;
+  int *vmap = r_vert_map;
+  if (vmap == nullptr) {
+    local_map.resize(domain_size);
+    vmap = local_map.data();
+  }
+  for (int i = 0; i < domain_size; i++) {
+    vmap[i] = ELEM_NONE;
+  }
+
+  int out_v = 0;
+  bool gaps = false;
+  for (int vi : m->v) {
+    if (vi != out_v) {
+      gaps = true;
+    }
+    const float3 co = m->v.co[vi];
+    positions[out_v * 3] = co[0];
+    positions[out_v * 3 + 1] = co[1];
+    positions[out_v * 3 + 2] = co[2];
+    vmap[vi] = out_v++;
+  }
+
+  int out_c = 0;
+  int out_f = 0;
+  for (int fi : m->f) {
+    face_offsets[out_f++] = out_c;
+    const int li = m->f.l[fi];
+    if (li == ELEM_NONE) {
+      continue;
+    }
+    const int c0 = m->l.c[li];
+    int cc = c0;
+    do {
+      corner_verts[out_c++] = vmap[m->c.v[cc]];
+      cc = m->c.next[cc];
+    } while (cc != c0);
+  }
+  face_offsets[out_f] = out_c;
+
+  return gaps ? 1 : 0;
+}
 }
 
 #if 0 // def WASM
