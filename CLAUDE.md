@@ -101,6 +101,10 @@ in-use keys are echoed at startup. Recognized keys (with defaults):
 - `WITH_MESHLOG_ABSEIL_HASHMAP` (`false`) → `-DWITH_MESHLOG_ABSEIL_HASHMAP=ON`
   (use `absl::flat_hash_map` in meshlog; run `extern/fetch_abseil.sh` to clone
   abseil into `extern/` first).
+- `BUILD_JOBS` (`0` = all cores) — max parallel compile jobs for every build
+  mode (wasm/native/node, debug/sbrush targets, local deps builds); feeds
+  `cmake --build --parallel`. The `-j`/`--jobs` CLI flag overrides it per
+  invocation.
 
 ## Native deps (OpenBLAS + SuiteSparse/CHOLMOD)
 

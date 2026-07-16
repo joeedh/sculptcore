@@ -10,4 +10,9 @@ export default {
 
   /** note: you must run ./extern/fetch_abseil.sh to clone abseil */
   WITH_MESHLOG_ABSEIL_HASHMAP: false,
+
+  /** Max parallel compile jobs for every build mode (wasm/native/node, debug
+   *  and sbrush targets, local deps builds). 0 = all cores. The -j/--jobs CLI
+   *  flag overrides this per invocation. */
+  BUILD_JOBS: 0,
 }
