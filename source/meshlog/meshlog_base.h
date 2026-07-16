@@ -230,6 +230,18 @@ struct ChunkElemData {
     return dst_i;
   }
 
+  /* Grow the store by `n` unfilled rows (columns pre-registered via ensureAttr
+   * and materialized here), returning the first new row index. The parallel
+   * capture (parallel_capture.h) then fills disjoint row ranges with cpyFrom
+   * from multiple threads. */
+  int appendRows(int n)
+  {
+    int base = size_;
+    size_ += n;
+    attrs_.ensure_capacity(size_);
+    return base;
+  }
+
   void swapWith(const mesh::AttrGroup &src, int src_i, int dst_i)
   {
     using namespace sculptcore::mesh;

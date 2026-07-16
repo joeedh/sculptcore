@@ -4,6 +4,7 @@
 #include "brush/brush_command.h"
 #include "spatial/spatial_enums.h"
 #include "mesh/mesh_iter.h"
+#include "meshlog/parallel_capture.h"
 #include "brush/neighbor_source.h"
 
 namespace sculptcore::brush::command {
@@ -32,14 +33,8 @@ static void bsmoothPre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> no
     if (__mask) {
       auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::VERTEX);
       litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, __n);
-      for (auto *node : nodes) {
-        for (int __e : node->unique_verts()) {
-          if (__saver.needsData(__e, __sid, __mask)) {
-            __store->data.appendFrom(m->v.attrs, __e, __span);
-            __saver.updateSaved(__e, __sid, __mask);
-          }
-        }
-      }
+      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::VERTEX>(
+          *__store, m->v.attrs, nodes, __saver, __span, __sid, __mask);
     }
   }
   {
@@ -54,14 +49,8 @@ static void bsmoothPre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> no
     if (__mask) {
       auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::FACE);
       litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, __n);
-      for (auto *node : nodes) {
-        for (int __e : node->unique_faces()) {
-          if (__saver.needsData(__e, __sid, __mask)) {
-            __store->data.appendFrom(m->f.attrs, __e, __span);
-            __saver.updateSaved(__e, __sid, __mask);
-          }
-        }
-      }
+      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::FACE>(
+          *__store, m->f.attrs, nodes, __saver, __span, __sid, __mask);
     }
   }
 }
@@ -124,7 +113,7 @@ static void bsmooth(CommandCtx<TYPES> &ctx)
     any_moved = true;
   }
   if (any_moved) {
-    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | Spatial_RegenBounds);
+    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPUGeom | Spatial_RegenBounds);
   }
 }
 

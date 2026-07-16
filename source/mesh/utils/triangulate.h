@@ -256,6 +256,14 @@ triangulateMesh(Mesh &m)
 {
   using namespace litestl::util;
 
+  /* The fan walk needs the live face/loop/corner link columns, and
+   * frozen-topology mode (entered by any brush dab) drops them — only
+   * .corner.v survives — so a post-stroke triangulate would read freed pages.
+   * Thaw first; the next dab re-freezes. */
+  if (m.topo_frozen) {
+    m.thawTopo();
+  }
+
   Vector<int> faces;
   for (int f : m.f) {
     faces.append(f);

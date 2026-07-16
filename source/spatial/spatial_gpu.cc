@@ -434,7 +434,7 @@ void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
     offset += vcount;
 
     /* Leaf's GPU dirty bits are now satisfied. */
-    leaf->flag &= ~(Spatial_RegenGPU | Spatial_UpdateGPU);
+    leaf->flag &= ~(Spatial_RegenGPU | Spatial_UpdateGPU | Spatial_UpdateGPUGeom);
   }
 
   // Buffer identity + corner layout changed: invalidate cached scatter tables.
@@ -495,7 +495,8 @@ bool SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
                                         SpatialNode *leaf,
                                         gpu::GPUManager *gpu,
                                         int *outVertStart,
-                                        int *outVertCount)
+                                        int *outVertCount,
+                                        bool geomOnly)
 {
   (void)gpu;
   GpuData &gd = *gpu_node->gpu_data;
@@ -527,11 +528,13 @@ bool SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
     const bool dynamic = requestedAttrs.size() > 0 && drawShaderReady;
     float3 *pos = gd.pos->get_data<float3>() + slice->vert_start;
     float3 *nor = gd.nor->get_data<float3>() + slice->vert_start;
-    float4 *col = (!dynamic && gd.attrBufs.size() > 0)
+    /* geomOnly (pure-deform dirt): the attr streams are current — refill and
+     * re-upload pos/nor only. */
+    float4 *col = (!geomOnly && !dynamic && gd.attrBufs.size() > 0)
                       ? gd.attrBufs[0]->get_data<float4>() + slice->vert_start
                       : nullptr;
     fill_leaf_slice(leaf, pos, nor, col);
-    if (dynamic) {
+    if (dynamic && !geomOnly) {
       for (int ai : util::IndexRange(requestedAttrs.size())) {
         const gpu::RequestedAttr &req = requestedAttrs[ai];
         AttrGroup *grp = m->attrGroupForDomainFlag(req.domain);
@@ -548,7 +551,7 @@ bool SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
   if (outVertCount) {
     *outVertCount = slice->vert_count;
   }
-  leaf->flag &= ~Spatial_UpdateGPU;
+  leaf->flag &= ~(Spatial_UpdateGPU | Spatial_UpdateGPUGeom);
   return true;
 }
 

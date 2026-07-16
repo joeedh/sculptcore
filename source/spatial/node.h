@@ -140,6 +140,23 @@ struct SpatialNode {
 
   int debugIdOffset = 0;
 
+  /* Meshlog capture walk-elision stamps, one per brush-program sub-command
+   * slot: once a dab's execPre has walked (and captured) every element of this
+   * leaf for stroke `sid` under sub-command `tool`, later dabs of the same
+   * stroke skip the whole leaf. Only consulted for topology-stable steps (no
+   * dyntopo), where a leaf's element set can't change mid-stroke. */
+  struct CaptureStamp {
+    int sid = 0;  /* 0 = never walked (stroke ids stored as sid+1) */
+    int tool = 0;
+  };
+  static constexpr int MAX_CAPTURE_SLOTS = 8;
+  CaptureStamp captureStamps[MAX_CAPTURE_SLOTS];
+
+  /* coPrev dirty-list dedup stamp (CommandExecutor::coPrevGen_): a node whose
+   * verts a brush exec may have moved is appended to the executor's refresh
+   * list once per coPrev refresh generation. */
+  int coPrevStamp = 0;
+
   SpatialNode()
   {
     children[0] = children[1] = nullptr;
@@ -211,12 +228,33 @@ struct SpatialNode {
   bool castRay(const math::float3 &orig, const math::float3 &dir, CastRayIsect &out)
   {
     if (!(flag & Spatial_Leaf)) {
-      bool ok = false;
+      /* Near-first, pruned descent: visit the closer child first and skip any
+       * subtree whose AABB entry distance already exceeds the best hit — a ray
+       * into a closed mesh then never descends into the geometry behind the
+       * front surface. (Accepted hits require t > 0, so the forward-ray slab
+       * test drops nothing the old unordered walk could actually hit.) */
+      float tc[2];
+      SpatialNode *order[2];
+      int n = 0;
       for (SpatialNode *child : children) {
-        if (math::aabbRayIsects(child->aabb, orig, dir)) {
-          if (child->castRay(orig, dir, out)) {
-            ok = true;
-          }
+        float tEnter;
+        if (child && math::aabbRayEnter(child->aabb, orig, dir, tEnter)) {
+          order[n] = child;
+          tc[n] = tEnter;
+          n++;
+        }
+      }
+      if (n == 2 && tc[1] < tc[0]) {
+        std::swap(order[0], order[1]);
+        std::swap(tc[0], tc[1]);
+      }
+      bool ok = false;
+      for (int i = 0; i < n; i++) {
+        if (tc[i] >= out.t) {
+          continue;
+        }
+        if (order[i]->castRay(orig, dir, out)) {
+          ok = true;
         }
       }
       return ok;

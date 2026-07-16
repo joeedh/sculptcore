@@ -998,9 +998,38 @@ struct Emit {
     indent = 0;
     write("  }\n");
     write("  if (any_changed) {\n");
-    write("    ctx.node.update(Spatial_UpdateGPU | Spatial_RegenBounds);\n");
+    if (kernelWritesGeomOnly()) {
+      write("    ctx.node.update(Spatial_UpdateGPUGeom | Spatial_RegenBounds);\n");
+    } else {
+      write("    ctx.node.update(Spatial_UpdateGPU | Spatial_RegenBounds);\n");
+    }
     write("  }\n");
     write("}\n\n");
+  }
+
+  // True when the kernel's write set (its `save` declarations; empty defaults
+  // to {v.co, v.no, f.no}) touches only geometry — such kernels flag the
+  // narrower Spatial_UpdateGPUGeom so the slice update skips attr-stream fills.
+  // @paint brushes write attribute streams by definition (they may not `save`
+  // them, e.g. polygroup) and always take the full-refresh flag.
+  bool kernelWritesGeomOnly() const
+  {
+    if (brush->isPaint) {
+      return false;
+    }
+    if (brush->saves.size() == 0) {
+      return true;
+    }
+    for (const auto &s : brush->saves) {
+      const char *n = s.name.c_str();
+      const bool geom = (s.domain == AttrDomain::Vertex &&
+                         (std::strcmp(n, "co") == 0 || std::strcmp(n, "no") == 0)) ||
+                        (s.domain == AttrDomain::Face && std::strcmp(n, "no") == 0);
+      if (!geom) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // Map a `save` name to its undo-flag bit expression. co/no/mask/color are
@@ -1104,7 +1133,6 @@ struct Emit {
 
       const char *domEnum = (dom == AttrDomain::Vertex) ? "VERTEX" : "FACE";
       const char *grp = (dom == AttrDomain::Vertex) ? "m->v.attrs" : "m->f.attrs";
-      const char *iter = (dom == AttrDomain::Vertex) ? "unique_verts" : "unique_faces";
 
       write("  {\n");
       write("    sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::");
@@ -1125,18 +1153,11 @@ struct Emit {
       write(");\n");
       write("      litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, "
             "__n);\n");
-      write("      for (auto *node : nodes) {\n");
-      write("        for (int __e : node->");
-      write(iter);
-      write("()) {\n");
-      write("          if (__saver.needsData(__e, __sid, __mask)) {\n");
-      write("            __store->data.appendFrom(");
+      write("      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::");
+      write(domEnum);
+      write(">(\n          *__store, ");
       write(grp);
-      write(", __e, __span);\n");
-      write("            __saver.updateSaved(__e, __sid, __mask);\n");
-      write("          }\n");
-      write("        }\n");
-      write("      }\n");
+      write(", nodes, __saver, __span, __sid, __mask);\n");
       write("    }\n");
       write("  }\n");
     }
@@ -1166,6 +1187,7 @@ struct Emit {
     write("#include \"brush/brush_command.h\"\n");
     write("#include \"spatial/spatial_enums.h\"\n");
     write("#include \"mesh/mesh_iter.h\"\n");
+    write("#include \"meshlog/parallel_capture.h\"\n");
     if (usesNbr)
       write("#include \"brush/neighbor_source.h\"\n");
     write("\n");
@@ -1379,8 +1401,13 @@ struct Emit {
       indent = 0;
       write("  }\n");
       write("  if (any_moved) {\n");
-      write("    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | "
-            "Spatial_RegenBounds);\n");
+      if (kernelWritesGeomOnly()) {
+        write("    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPUGeom | "
+              "Spatial_RegenBounds);\n");
+      } else {
+        write("    ctx.node.update(Spatial_UpdateNormals | Spatial_UpdateGPU | "
+              "Spatial_RegenBounds);\n");
+      }
       write("  }\n");
       write("}\n\n");
     } // end vertex/face primary-kernel branch

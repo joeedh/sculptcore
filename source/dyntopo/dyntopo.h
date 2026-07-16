@@ -103,6 +103,13 @@ struct DynTopoParams {
    * multi-hundred-ms frame. Calibrate to the frame budget: ~frame_ms / ms-per-
    * split (≈0.04ms/split at 5M with flips on). */
   int max_splits = 0;
+  /* Per-dab collapse budget — the max_splits analog for the decimation
+   * direction. A brush whose detail target is coarser than the mesh
+   * mass-collapses the region on first touch (tens of thousands of collapses
+   * across rounds — a multi-hundred-ms dab at 1.5M). When > 0 the dab stops
+   * after this many collapses (stats.budget_hit) and later dabs finish the
+   * decimation. 0 = unlimited (tests/bench rely on full convergence). */
+  int max_collapses = 0;
   /* M7.4: tangential smoothing — the 4th Botsch-Kobbelt operator. After the
    * flips each round, slide region verts toward their 1-ring's area-weighted
    * centroid *in the tangent plane only* (the normal component is removed, so it
@@ -791,7 +798,22 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
      * overshoot/undershoot, accumulated as `consider` queues them. */
     int trSplitCands = 0, trCollapseCands = 0;
     float trMaxOver = 0.0f, trMinUnder = 0.0f;
-    /* 1. Build candidates: in-region edges outside the [l_min, l_max] band. */
+    /* 1. Build candidates: in-region edges outside the [l_min, l_max] band.
+     * When a per-dab budget is active, cap collection at 8x the REMAINING
+     * budget (slack for MIS lock rejections): a decimation-mode dab otherwise
+     * collects the whole region's edges (100k+) — paying the shuffle, MIS
+     * walk, and frontier-set inserts for all of them — to then apply only the
+     * budgeted few. Capped-out edges are simply next dab's work, like the
+     * budget itself. */
+    const int splitCandCap =
+        (doSplit && p.max_splits > 0)
+            ? std::max(64, 8 * (p.max_splits - stats.splits))
+            : 0;
+    const int collapseCandCap =
+        (doCollapse && p.max_collapses > 0)
+            ? std::max(64, 8 * (p.max_collapses - stats.collapses))
+            : 0;
+    int splitCands = 0, collapseCands = 0;
     Vector<Cand> cands;
     Vector<Cand> picked;
     detail::GenSet &seen = detail::scanSeenSet();
@@ -821,7 +843,11 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
       }
       float L = detail::edgeLen(m, e);
       if (doSplit && L > tmax) {
+        if (splitCandCap > 0 && splitCands >= splitCandCap) {
+          return;
+        }
         cands.append({e, true}); /* split always allowed; flags propagate */
+        splitCands++;
         if (p.trace) {
           trSplitCands++;
           float over = L / tmax;
@@ -830,6 +856,9 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
           }
         }
       } else if (doCollapse && L < tmin) {
+        if (collapseCandCap > 0 && collapseCands >= collapseCandCap) {
+          return;
+        }
         /* Feature preservation (Decision B): pin feature verts, but allow a
          * feature edge to collapse along its own collinear curve. */
         if (feat.active) {
@@ -846,6 +875,7 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
           }
         }
         cands.append({e, false});
+        collapseCands++;
         if (p.trace) {
           trCollapseCands++;
           float under = tmin > 1e-20f ? L / tmin : 0.0f;
@@ -983,6 +1013,10 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
           applied++;
           shiftOrig(v_keep, mid - keepOld);
           addCreated(res.created_edges);
+          if (p.max_collapses > 0 && stats.collapses >= p.max_collapses) {
+            budgetHit = true;
+            break; /* stop applying; flip sweep below still runs on what we did */
+          }
         }
       }
     }

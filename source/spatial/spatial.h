@@ -34,12 +34,16 @@ namespace sculptcore::spatial {
 
 /* Which halves of the update pipeline updateImpl runs. The queries half is
  * everything the next brush dab's spatial queries need (split/merge, tris,
- * bounds, normals); the GPU half is the buffer pipeline (partition, dirty-bit
- * propagation, plan, fill, upload, draw-batch rebuild). */
+ * bounds); normals are their own phase — raycasts and node filters don't read
+ * vertex normals, so per-dab callers skip them and the per-frame update
+ * refreshes every leaf dirtied since the last frame once, not once per dab.
+ * The GPU half is the buffer pipeline (partition, dirty-bit propagation, plan,
+ * fill, upload, draw-batch rebuild). */
 enum UpdatePhases {
   Update_Queries = 1 << 0,
   Update_Gpu = 1 << 1,
-  Update_All = Update_Queries | Update_Gpu,
+  Update_Normals = 1 << 2,
+  Update_All = Update_Queries | Update_Normals | Update_Gpu,
 };
 
 struct SpatialTree {
@@ -915,7 +919,8 @@ private:
                              SpatialNode *leaf,
                              gpu::GPUManager *gpu,
                              int *outVertStart = nullptr,
-                             int *outVertCount = nullptr);
+                             int *outVertCount = nullptr,
+                             bool geomOnly = false);
   void collect_subtree_leaves(SpatialNode *node, util::Vector<SpatialNode *> &out);
   void fill_leaf_slice(SpatialNode *leaf,
                        math::float3 *pos,

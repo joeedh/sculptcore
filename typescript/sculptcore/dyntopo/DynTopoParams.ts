@@ -26,6 +26,7 @@ export interface DynTopoParams {
   max_rounds: int32
   do_flips: boolean
   max_splits: int32
+  max_collapses: int32
   do_smooth: boolean
   smooth_lambda: float
   preserve_features: boolean

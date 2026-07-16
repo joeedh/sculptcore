@@ -19,6 +19,7 @@
 #include "spatial/spatial.h"
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <span>
 
@@ -172,12 +173,39 @@ struct CommandExecutor {
   SpatialTree *tree;
   CommandCtxBase ctx;
   bool isFirstOfStep = false;
+  /** True while the current step (stroke) runs dyntopo — leaf element sets can
+   * change mid-stroke, so the capture walk-elision stamps are disabled. */
+  bool stepHasDyntopo = false;
+  /** Sub-command slot of the exec() in flight (index into the brush program;
+   * execBrush uses 0). -1 disables capture walk-elision for this exec(). */
+  int curCaptureSlot = -1;
+  int curCaptureTool = 0;
+  /** Scratch for the capture walk-elision node subset (see exec()). */
+  Vector<spatial::SpatialNode *> captureNodes_;
+  /** coPrev incremental-refresh state: after the stroke's first full snapshot,
+   * later needsCoPrev execs refresh only the verts of nodes an exec touched
+   * since the previous refresh (coPrevDirty_, deduped by node->coPrevStamp
+   * against coPrevGen_). Only valid on topology-stable strokes — same
+   * condition as the capture stamps. */
+  bool coPrevFull_ = false;
+  int coPrevGen_ = 0;
+  Vector<spatial::SpatialNode *> coPrevDirty_;
   /** Keep topology thawed across the stroke (don't freeze per dab). Set by the
    * dyntopo path: a dyntopo dab mutates topology and needs live disk/radial
    * links, so the per-dab freeze would otherwise force an O(mesh) thaw every
    * dab. Brushes that already need live links thaw regardless. */
   bool keepTopoThawed = false;
   NeighborMode neighborMode = NeighborMode::LiveDisk;
+
+  /** Effective neighbor source for the current step. CSR only pays off while
+   * topology is stable: a dyntopo step mutates topology every dab, which both
+   * keeps the live links thawed (LiveDisk is free) and bumps `topo_stamp`
+   * (making CSR an O(mesh) ensureRing1 rebuild per dab). Force LiveDisk there
+   * regardless of the requested mode. */
+  NeighborMode effectiveNeighborMode() const
+  {
+    return stepHasDyntopo ? NeighborMode::LiveDisk : neighborMode;
+  }
   /** Non-accumulate mode (see plans/nonAccumMode.md). When `nonAccum` is set and a
    * command is accumulable, the executor stamps each in-region vert's stroke-start
    * position into `.brush.orig.*` (keyed by `strokeGen`) and runs the AccumOrig
@@ -360,7 +388,7 @@ struct CommandExecutor {
       command::createMaskBrush<CommandExecutor, AccMode>(def);
       return;
     case SculptBrushes::SMOOTH:
-      if (neighborMode == NeighborMode::Csr) {
+      if (effectiveNeighborMode() == NeighborMode::Csr) {
         command::createSmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
       } else {
         command::createSmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
@@ -388,14 +416,14 @@ struct CommandExecutor {
       command::createPolygroupBrush<CommandExecutor, AccMode>(def);
       return;
     case SculptBrushes::BSMOOTH:
-      if (neighborMode == NeighborMode::Csr) {
+      if (effectiveNeighborMode() == NeighborMode::Csr) {
         command::createBsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
       } else {
         command::createBsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
       }
       return;
     case SculptBrushes::COLORSMOOTH:
-      if (neighborMode == NeighborMode::Csr) {
+      if (effectiveNeighborMode() == NeighborMode::Csr) {
         command::createColorsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
       } else {
         command::createColorsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
@@ -622,7 +650,37 @@ struct CommandExecutor {
     if (cmd.execHost) {
       cmd.execHost(ctx, *brush);
     }
-    cmd.execPre(ctx, nodes);
+
+    /* Capture walk-elision: execPre captures EVERY element of every node it is
+     * handed (falloff-independent), so on a topology-stable stroke a leaf that
+     * was already walked for this (stroke, sub-command slot) has nothing left
+     * to capture — skip it wholesale instead of re-checking its per-element
+     * stamps. Leaf element sets only change under dyntopo (splits/merges are
+     * driven by dyntopo adds/collapses), which disables the stamps. */
+    const bool stampCapture = ctx.meshLog && !stepHasDyntopo && curCaptureSlot >= 0 &&
+                              curCaptureSlot < spatial::SpatialNode::MAX_CAPTURE_SLOTS;
+    std::span<spatial::SpatialNode *> captureSpan(nodes.data(), nodes.size());
+    int stampSid = 0;
+    if (stampCapture) {
+      stampSid = ctx.meshLog->curStrokeId() + 1;
+      captureNodes_.clear();
+      for (auto *node : nodes) {
+        auto &st = node->captureStamps[curCaptureSlot];
+        if (st.sid != stampSid || st.tool != curCaptureTool) {
+          captureNodes_.append(node);
+        }
+      }
+      captureSpan =
+          std::span<spatial::SpatialNode *>(captureNodes_.data(), captureNodes_.size());
+    }
+    cmd.execPre(ctx, captureSpan);
+    if (stampCapture) {
+      for (auto *node : captureNodes_) {
+        auto &st = node->captureStamps[curCaptureSlot];
+        st.sid = stampSid;
+        st.tool = curCaptureTool;
+      }
+    }
 
     // Jacobi snapshot: capture pre-dab vertex positions so for_neighbor reads
     // a consistent state regardless of the parallel node loop's interleaving.
@@ -633,15 +691,56 @@ struct CommandExecutor {
     if (cmd.needsCoPrev && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
       int cap = int(m->v.capacity());
-      coPrevStorage.resize(cap);
-      for (int i = 0; i < cap; i++) {
-        coPrevStorage[i] = m->v.co[i];
+
+      /* Incremental refresh: on a topology-stable stroke, kernels only move
+       * verts of the node sets they were handed — so after the stroke's first
+       * full snapshot, entries can only be stale for nodes some exec touched
+       * since the last refresh (coPrevDirty_). Neighbor reads outside every
+       * touched set are still current from the full copy. */
+      const bool canTrack = !stepHasDyntopo;
+      if (canTrack && coPrevFull_ && int(coPrevStorage.size()) == cap) {
+        litestl::task::parallel_for(
+            util::IndexRange(coPrevDirty_.size()),
+            [&](IndexRange range) {
+              for (int i : range) {
+                for (int v : coPrevDirty_[i]->data->unique_verts) {
+                  coPrevStorage[v] = m->v.co[v];
+                }
+              }
+            },
+            1);
+      } else {
+        coPrevStorage.resize(cap);
+        /* Full snapshot, copied page-wise: memcpy per materialized page
+         * instead of the paged per-element operator[]. */
+        mesh::AttrData<float3> *cod = m->v.co.get_data();
+        float3 *dst = coPrevStorage.data();
+        int copied = 0;
+        for (auto &page : cod->pages) {
+          int n = std::min(int(ATTR_PAGESIZE), cap - copied);
+          if (n <= 0) {
+            break;
+          }
+          if (page.data) {
+            std::memcpy(static_cast<void *>(dst + copied),
+                        static_cast<const void *>(page.data),
+                        size_t(n) * sizeof(float3));
+          } else {
+            for (int i = 0; i < n; i++) {
+              dst[copied + i] = page.value;
+            }
+          }
+          copied += n;
+        }
+        coPrevFull_ = canTrack;
       }
+      coPrevGen_++;
+      coPrevDirty_.clear();
       ctx.co_prev = &coPrevStorage;
 
       // CSR neighbor source is static across the stroke — (re)build once,
       // single-threaded, before the parallel node loop reads it.
-      if (neighborMode == NeighborMode::Csr) {
+      if (effectiveNeighborMode() == NeighborMode::Csr) {
         m->topo_cache.ensureRing1(*m);
       }
     }
@@ -788,6 +887,19 @@ struct CommandExecutor {
       scope.end();
     }
     layerScopes.clear();
+
+    /* coPrev bookkeeping: every vert this exec (kernel, execPost, layer fold)
+     * may have moved lives in `nodes` — queue them for the next needsCoPrev
+     * refresh. Skipped under dyntopo (node pointers/element sets unstable;
+     * the refresh falls back to a full snapshot there anyway). */
+    if (!stepHasDyntopo) {
+      for (auto *node : nodes) {
+        if (node->coPrevStamp != coPrevGen_) {
+          node->coPrevStamp = coPrevGen_;
+          coPrevDirty_.append(node);
+        }
+      }
+    }
   }
 
   /** SMOOTH is the only brush with a for_neighbor loop, and only its CSR
@@ -1079,7 +1191,10 @@ struct CommandExecutor {
     brush->pushStrokeSample(origin, normal);
 
     std::span<spatial::SpatialNode *> nodeSpan(nodes->data(), nodes->size());
+    curCaptureSlot = 0;
+    curCaptureTool = int(brushType);
     exec(cmd, nodeSpan);
+    curCaptureSlot = -1;
 
     if (brushType == SculptBrushes::POLYGROUP) {
       markPolygroupDirty(nodeSpan);
@@ -1281,10 +1396,13 @@ struct CommandExecutor {
       ctx.isFirstOfStep = isFirstOfStep;
 
       std::span<spatial::SpatialNode *> nodeSpan(nodes->data(), nodes->size());
+      curCaptureSlot = int(&entry - prog->commands.data());
+      curCaptureTool = int(entry.type);
       exec(cmd,
            nodeSpan,
            std::span<const BrushAttrLayerOverride>(entry.attrLayerOverrides.data(),
                                                    entry.attrLayerOverrides.size()));
+      curCaptureSlot = -1;
 
       if (entry.type == SculptBrushes::POLYGROUP) {
         markPolygroupDirty(nodeSpan);
@@ -1546,6 +1664,14 @@ struct CommandExecutor {
   {
     isFirstOfStep = true;
     strokeValidationFailed = false;
+    stepHasDyntopo = hasDyntopo;
+    /* Positions may have changed since the last stroke (undo, ops, other
+     * tools) — force the stroke's first needsCoPrev exec to take a full
+     * snapshot. The gen bump keeps stale node stamps from suppressing
+     * dirty-list appends. */
+    coPrevFull_ = false;
+    coPrevDirty_.clear();
+    coPrevGen_++;
     if (brush) {
       brush->resetStrokePath();
     }

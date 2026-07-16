@@ -11,6 +11,11 @@ enum _NodeFlags {
   Spatial_RegenGPU = 1 << 3,      // 8
   Spatial_UpdateGPU = 1 << 4,     // 16
   Spatial_UpdateNormals = 1 << 5, // 32
+  /* Geometry-only GPU refresh: the leaf's pos/nor streams are stale but its
+   * attribute streams (color/mask/group/...) are not. Set by pure-deform brush
+   * kernels; the slice update skips the attr-stream fills. Spatial_UpdateGPU
+   * still means "refresh every stream". */
+  Spatial_UpdateGPUGeom = 1 << 6, // 64
 };
 MAKE_FLAGS_CLASS(NodeFlags, _NodeFlags, int);
 

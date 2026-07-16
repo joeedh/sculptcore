@@ -1025,8 +1025,12 @@ void SpatialTree::applyDeferredMerge()
 bool SpatialTree::regenDirtyBounds()
 {
   bool bounds = false;
+  Vector<SpatialNode *, 256> dirtyLeaves;
   for (SpatialNode *node : nodes) {
     if (node->flag & Spatial_RegenBounds) {
+      if (node->flag & Spatial_Leaf) {
+        dirtyLeaves.append(node);
+      }
       while (node) {
         node->flag |= Spatial_RegenBounds;
         node = node->parent;
@@ -1035,6 +1039,20 @@ bool SpatialTree::regenDirtyBounds()
     }
   }
   if (bounds) {
+    /* Leaf refits are independent (each reads mesh columns, writes its own
+     * AABB) and dominate the refit cost — run them in parallel, then let the
+     * serial descent union the fresh leaf boxes up the dirty paths (a cleared
+     * leaf flag stops its recursion). */
+#ifndef NO_PARALLEL_FOR
+    litestl::task::parallel_for(
+        util::IndexRange(dirtyLeaves.size()),
+        [&](IndexRange range) {
+          for (int i : range) {
+            regen_node_bounds(dirtyLeaves[i], false);
+          }
+        },
+        4);
+#endif
     regen_node_bounds(root, true);
   }
   return bounds;
@@ -2619,12 +2637,17 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
      * carry Spatial_RegenTris) are picked up by the collection loop below. */
     applyDeferredNodeSplit();
 
-    /* Phase 0b: deferred merge, on a slow cadence (every mergeCadence_-th
-     * update), NOT per dab. Folds under-full sibling leaves left by
-     * collapse-heavy strokes back into their parent; the fresh parent leaf
-     * carries Spatial_RegenTris and is picked up below, same as a rebalance
-     * split. */
-    if (++updatesSinceMerge_ >= mergeCadence_) {
+    /* Phase 0b: deferred merge, on a slow cadence of *frame* updates (the
+     * per-dab updateQueries() calls don't count — they used to, which made
+     * merges fire mid-stroke: the resulting RegenTris marked the topology
+     * changed, forcing a GPU repartition + full owner-buffer regens (a
+     * whole-mesh re-upload) every stroke). Also hold merges while topology is
+     * frozen: only dyntopo collapses produce under-full leaves, and those
+     * strokes run thawed — a frozen-mode merge would just force an O(mesh)
+     * thaw in the tris phase below. */
+    if ((phases & Update_Gpu) && ++updatesSinceMerge_ >= mergeCadence_ &&
+        !m->topo_frozen)
+    {
       applyDeferredMerge();
       updatesSinceMerge_ = 0;
     }
@@ -2672,41 +2695,48 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
           4);
 #endif
     }
-    if (regenDirtyBounds()) {
-      bounds = true;
-      result = true;
-      pendingCmdAabbs_ = true;
-    }
-
-    Vector<SpatialNode *, 256> updateNormalsNodes;
-
-    /* Phase: leaf normals (independent of partition). */
-    for (SpatialNode *node : nodes) {
-      if (!(node->flag & Spatial_Leaf)) {
-        continue;
-      }
-      if (node->flag & Spatial_UpdateNormals) {
-        updateNormalsNodes.append(node);
-        drawBatchUpdated = true;
-      }
-    }
-
     {
-#ifdef NO_PARALLEL_FOR
-      for (SpatialNode *node : updateNormalsNodes) {
-        update_node_normals(node);
+      if (regenDirtyBounds()) {
+        bounds = true;
+        result = true;
+        pendingCmdAabbs_ = true;
       }
+    }
+
+
+    /* Phase: leaf normals (independent of partition). Own phase bit: per-dab
+     * updateQueries() skips it (queries never read vertex normals), leaving
+     * Spatial_UpdateNormals set so the per-frame update refreshes each dirty
+     * leaf once — not once per overlapping dab. */
+    if (phases & Update_Normals) {
+      Vector<SpatialNode *, 256> updateNormalsNodes;
+      for (SpatialNode *node : nodes) {
+        if (!(node->flag & Spatial_Leaf)) {
+          continue;
+        }
+        if (node->flag & Spatial_UpdateNormals) {
+          updateNormalsNodes.append(node);
+          drawBatchUpdated = true;
+        }
+      }
+
+      {
+#ifdef NO_PARALLEL_FOR
+        for (SpatialNode *node : updateNormalsNodes) {
+          update_node_normals(node);
+        }
 #else
-      litestl::task::parallel_for(
-          util::IndexRange(updateNormalsNodes.size()),
-          [&](IndexRange range) {
-            for (int i : range) {
-              SpatialNode *node = updateNormalsNodes[i];
-              update_node_normals(node);
-            }
-          },
-          4);
+        litestl::task::parallel_for(
+            util::IndexRange(updateNormalsNodes.size()),
+            [&](IndexRange range) {
+              for (int i : range) {
+                SpatialNode *node = updateNormalsNodes[i];
+                update_node_normals(node);
+              }
+            },
+            4);
 #endif
+      }
     }
 
     /* Leaf tris regenerated (incl. fresh split/merge leaves, which carry
@@ -2739,6 +2769,9 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
   struct SliceWork {
     SpatialNode *owner;
     SpatialNode *leaf;
+    /* Leaf is dirty via Spatial_UpdateGPUGeom only (pure deform): the slice
+     * fill + upload cover pos/nor and leave the attr streams untouched. */
+    bool geomOnly;
   };
   Vector<SliceWork, 256> sliceWork;
   Vector<SpatialNode *, 64> regenOwners;
@@ -2748,7 +2781,8 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
     if (!(node->flag & Spatial_Leaf)) {
       continue;
     }
-    NodeFlags want = node->flag & (Spatial_RegenGPU | Spatial_UpdateGPU);
+    NodeFlags want =
+        node->flag & (Spatial_RegenGPU | Spatial_UpdateGPU | Spatial_UpdateGPUGeom);
     if (!want) {
       continue;
     }
@@ -2765,7 +2799,7 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
     if (gpuStrokeActive && owner->gpu_data && owner->gpu_data->pos &&
         owner->gpu_data->pos->gpu_owned)
     {
-      node->flag &= ~(Spatial_RegenGPU | Spatial_UpdateGPU);
+      node->flag &= ~(Spatial_RegenGPU | Spatial_UpdateGPU | Spatial_UpdateGPUGeom);
       continue;
     }
 
@@ -2781,7 +2815,7 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
       }
       drawBatchUpdated = true;
     } else {
-      sliceWork.append({owner, node});
+      sliceWork.append({owner, node, !(want & Spatial_UpdateGPU)});
     }
   }
 
@@ -2873,7 +2907,8 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
                                            sliceWork[k].leaf,
                                            gpu,
                                            &sliceVertStart[k],
-                                           &sliceVertCount[k])
+                                           &sliceVertCount[k],
+                                           sliceWork[k].geomOnly)
                          ? 1
                          : 0;
       }
@@ -2927,9 +2962,11 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
       if (gd.nor) {
         gd.nor->markDirtyRange(s, e);
       }
-      for (gpu::Buffer *b : gd.attrBufs) {
-        if (b) {
-          b->markDirtyRange(s, e);
+      if (!sliceWork[i].geomOnly) {
+        for (gpu::Buffer *b : gd.attrBufs) {
+          if (b) {
+            b->markDirtyRange(s, e);
+          }
         }
       }
       continue;
