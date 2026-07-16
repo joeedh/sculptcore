@@ -68,6 +68,8 @@ wasm_add_symbols("
   Mesh_arraySizes
   Mesh_toArrays
   Mesh_topoStamp
+  Mesh_readVertFloatAttr
+  Mesh_writeVertFloatAttr
   serializeMesh
   serializeMeshRaw
   deserializeMesh

@@ -192,6 +192,45 @@ AttrRef *getAttrs(Mesh *mesh, ElemType domain, int *count_out)
   return attrs->attrs.data();
 }
 
+/** Read a named FLOAT vertex attribute into `out` (Mesh_arraySizes' verts_num
+ * live-order values, matching Mesh_toArrays). Returns 1 when the attribute
+ * exists (out filled), 0 otherwise (out untouched). Used to pull mask
+ * (`.spatial.v.mask`) back to the Blender mesh. */
+int Mesh_readVertFloatAttr(Mesh *m, const char *name, float *out)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  AttrRef ref = m->v.attrs.find_attribute(AttrType::FLOAT, name);
+  if (!ref.exists()) {
+    return 0;
+  }
+  auto *data = static_cast<AttrData<float> *>(ref.data);
+  int i = 0;
+  for (int vi : m->v) {
+    out[i++] = data->safe_get(vi);
+  }
+  return 1;
+}
+
+/** Write `in` (verts_num live-order values) into a named FLOAT vertex
+ * attribute, creating it if missing. Used to seed mask (`.spatial.v.mask`)
+ * from the Blender mesh on enter. Returns 1. */
+int Mesh_writeVertFloatAttr(Mesh *m, const char *name, const float *in)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  AttrRef &ref = m->v.attrs.ensure(AttrType::FLOAT, name, /*materialize=*/true);
+  auto *data = static_cast<AttrData<float> *>(ref.data);
+  int i = 0;
+  for (int vi : m->v) {
+    data->materialize(vi);
+    (*data)[vi] = in[i++];
+  }
+  return 1;
+}
+
 /** Monotonic topology-edit stamp (bumped by every make_/kill_/reorder_ op).
  * Snapshot it after building/importing; an unchanged stamp at flush/exit
  * means original indices are still valid — the positions-only fast path. */
