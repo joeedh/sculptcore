@@ -115,11 +115,16 @@ function parallelFlag() {
   return JOBS && JOBS > 0 ? ` --parallel ${JOBS}` : ''
 }
 
+/* Opt-in: pipe a long failing build log through `claude` for a summary. */
+const SUMMARIZE_ERRORS = false
+
 function summarizeErrors(buf) {
   return new Promise((accept, reject) => {
-    // disable for now
-    return
-    if (buf.length < 2048 * 80) {
+    // Every path must settle. runBuild() awaits this before propagating a build
+    // failure, so a promise that never resolves strands that await, drains the
+    // event loop, and exits 0 on a broken build.
+    if (!SUMMARIZE_ERRORS || buf.length < 2048 * 80) {
+      accept(0)
       return
     }
     console.log('\n\nSummarizing errors...\n')
@@ -254,8 +259,17 @@ function runBuild(cmd) {
         stdout.flush()
         stderr.flush()
 
-        await summarizeErrors('==== stderr =====\n' + stderr.fullBuf + '==== stdout =====\n' + stdout.fullBuf)
-        process.stderr.write(termColor(`cmd "${cmd}" existed with code ${code}\n`, 'red'))
+        // Set eagerly: if anything below strands, node still exits non-zero
+        // rather than reporting a failed build as success.
+        process.exitCode = code
+
+        try {
+          await summarizeErrors('==== stderr =====\n' + stderr.fullBuf + '==== stdout =====\n' + stdout.fullBuf)
+        } catch (error) {
+          process.stderr.write(`summarizeErrors failed: ${error?.message ?? error}\n`)
+        }
+
+        process.stderr.write(termColor(`cmd "${cmd}" exited with code ${code}\n`, 'red'))
         process.exit(code)
       }
       accept(code)
