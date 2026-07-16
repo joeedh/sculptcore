@@ -231,6 +231,45 @@ int Mesh_writeVertFloatAttr(Mesh *m, const char *name, const float *in)
   return 1;
 }
 
+/** Read a named INT face attribute into `out` (Mesh_arraySizes' faces_num
+ * live-order values, matching Mesh_toArrays' face order). Returns 1 when the
+ * attribute exists, 0 otherwise. Used to pull face sets (the `group` attr)
+ * back to the Blender mesh. */
+int Mesh_readFaceIntAttr(Mesh *m, const char *name, int *out)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  AttrRef ref = m->f.attrs.find_attribute(AttrType::INT, name);
+  if (!ref.exists()) {
+    return 0;
+  }
+  auto *data = static_cast<AttrData<int> *>(ref.data);
+  int i = 0;
+  for (int fi : m->f) {
+    out[i++] = data->safe_get(fi);
+  }
+  return 1;
+}
+
+/** Write `in` (faces_num live-order values) into a named INT face attribute,
+ * creating it if missing. Used to seed face sets (`group`) from the Blender
+ * mesh on enter. Returns 1. */
+int Mesh_writeFaceIntAttr(Mesh *m, const char *name, const int *in)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  AttrRef &ref = m->f.attrs.ensure(AttrType::INT, name, /*materialize=*/true);
+  auto *data = static_cast<AttrData<int> *>(ref.data);
+  int i = 0;
+  for (int fi : m->f) {
+    data->materialize(fi);
+    (*data)[fi] = in[i++];
+  }
+  return 1;
+}
+
 /** Monotonic topology-edit stamp (bumped by every make_/kill_/reorder_ op).
  * Snapshot it after building/importing; an unchanged stamp at flush/exit
  * means original indices are still valid — the positions-only fast path. */
