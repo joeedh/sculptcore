@@ -208,7 +208,11 @@ struct ChunkElemData {
         continue;
       }
 
-      mesh::AttrData<float3> *dstdst = static_cast<mesh::AttrData<float3> *>(dstData);
+      /* srcData's page for src_i may be lazily unmaterialized — most captures
+       * only ever touch co/no (eagerly materialized), but capturePreviewRegion
+       * sweeps every non-NOCOPY attribute, including sparse ones (e.g. mask,
+       * cavity) that a never-touched vertex has no backing page for yet. */
+      srcData->materializeElem(src_i);
       memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
     }
   };
@@ -268,6 +272,9 @@ struct ChunkElemData {
       }
 
       const auto &srcData = ref.data;
+
+      /* See cpyFrom(): srcData's page for src_i may be lazily unmaterialized. */
+      srcData->materializeElem(src_i);
 
       memcpy(static_cast<void *>(buf), dstData->getElemData(dst_i), dstData->elemSize);
       memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
@@ -1731,6 +1738,13 @@ struct MeshLog {
     if (!m || !tree) {
       return;
     }
+    /* Anchored/Drag Dot calls this BEFORE the tick's applyDab(), which is
+     * normally what binds the vertGate_/faceGate_ .strokeid columns via
+     * setActiveMesh(). capturePreviewRegion() below reads vertGate_ directly,
+     * so bind it here too or the first preview dab of a stroke reads an
+     * unensured builtin attribute column and crashes. Idempotent/cheap when
+     * already bound to this mesh. */
+    setActiveMesh(m);
     /* pushTopoChunk() (called unconditionally at the end of every applyDab)
      * always appends a fresh, still-empty chunk for the NEXT dab to reuse —
      * so if one is already sitting there as topo_chunk_, it's already

@@ -85,6 +85,16 @@ struct AttrDataBase {
     abort();
     return nullptr;
   }
+
+  /* Ensure elem i's backing page is allocated so getElemData(i) cannot
+   * return nullptr for it. Pages are materialized lazily on write, so any
+   * caller reading through this type-erased interface (rather than a typed
+   * AttrData<T>* that knows to call materialize()) must call this first. */
+  virtual void materializeElem(int i)
+  {
+    fprintf(stderr, "default materializeElem called in AttrDataBase class\n");
+    abort();
+  }
 };
 
 } // namespace sculptcore::mesh

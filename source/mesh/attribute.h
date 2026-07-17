@@ -180,6 +180,11 @@ template <typename T> struct AttrData : AttrDataBase {
     }
   }
 
+  void materializeElem(int i) override
+  {
+    materialize(i);
+  }
+
   void materialize_all()
   {
     for (AttrPage &page : pages) {
