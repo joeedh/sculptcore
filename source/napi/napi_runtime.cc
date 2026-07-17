@@ -26,6 +26,8 @@ void LSTL_FreeFormatBlocks(char *s);
 char *LSTL_FormatBlock(void *mem);
 char *LSTL_FormatBlocks(bool printPermanent);
 
+void IntVector_assign(litestl::util::Vector<int> *vec, const int *data, int count);
+
 void *Mesh_createCube(int dimen, float size, float sphereFac);
 void *Mesh_makeGrid(int nx, int ny, float size);
 void *Mesh_makeUVSphere(int rings, int segs, float radius);
@@ -2646,6 +2648,51 @@ napi_value NapiRuntime::VectorGet(napi_env env, napi_callback_info info)
   return rt->getBoundPointer(elem, elemAddr);
 }
 
+// intVectorAssign(vec, data) — replace a Vector<int>'s contents from a JS
+// array. The JS->C++ direction the seam otherwise lacks: bound Vector params
+// are out-params only, so an app that computed an index set had no way to hand
+// it back. Delegates to binding.cc's IntVector_assign so the Vector's own
+// clear/reserve/append run -- writing the size field from here would overrun
+// capacity and trample its inline storage.
+napi_value NapiRuntime::IntVectorAssign(napi_env env, napi_callback_info info)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  Wrapped *w = unwrapVector(env, argc, argv);
+  if (!w || argc < 2) {
+    return out;
+  }
+
+  bool isArray = false;
+  napi_is_array(env, argv[1], &isArray);
+  if (!isArray) {
+    return out;
+  }
+
+  uint32_t count = 0;
+  napi_get_array_length(env, argv[1], &count);
+
+  litestl::util::Vector<int> scratch;
+  scratch.ensure_capacity(size_t(count));
+  for (uint32_t i = 0; i < count; i++) {
+    napi_value elem;
+    int32_t v = 0;
+    if (napi_get_element(env, argv[1], i, &elem) == napi_ok) {
+      napi_get_value_int32(env, elem, &v);
+    }
+    scratch.append(v);
+  }
+
+  IntVector_assign(reinterpret_cast<litestl::util::Vector<int> *>(w->ptr),
+                   count ? &scratch[0] : nullptr,
+                   int(count));
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // litestl allocator introspection (binding.cc LSTL_*).
 // ---------------------------------------------------------------------------
@@ -3030,6 +3077,7 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "vectorLength", &NapiRuntime::VectorLength);
   define(exports, "vectorView", &NapiRuntime::VectorView);
   define(exports, "vectorGet", &NapiRuntime::VectorGet);
+  define(exports, "intVectorAssign", &NapiRuntime::IntVectorAssign);
   define(exports, "pointerBytes", &NapiRuntime::PointerBytes);
   define(exports, "objectAddress", &NapiRuntime::ObjectAddress);
   define(exports, "meshCreateCube", &NapiRuntime::MeshCreateCube);

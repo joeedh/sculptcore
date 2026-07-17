@@ -38,6 +38,10 @@ interface IWasmMethods extends IWasmBase {
   serializeMeshRaw(mesh: pointer, outSizePtr: pointer): pointer
   /** reconstruct a Mesh from a `serializeMesh` blob; returns a `Mesh*`. */
   deserializeMesh(dataPtr: pointer, size: int): pointer
+  /** replace a `Vector<int>*`'s contents from `count` ints at `dataPtr` (the
+   * JS->C++ fill the bound-Vector out-params otherwise lack; see
+   * IWasmInterface.setBoundIntVector). */
+  IntVector_assign(vec: pointer, dataPtr: pointer, count: int): void
   /** free a Mesh (`alloc::Delete`) — created by `Mesh_createCube`/`deserializeMesh`. */
   freeMesh(mesh: pointer): void
   /** free a blob returned by `serializeMesh`. */
@@ -299,6 +303,15 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * forwards the wrapper.
    */
   getBoundVector(vecTypeName: string, bound: SculptHandle): unknown
+
+  /**
+   * Replace a bound `litestl::util::Vector<int>`'s contents from a JS array —
+   * the JS->C++ direction the seam otherwise lacks. Bound Vector params are
+   * out-params only without this, so a computed index set had no way in (it is
+   * what makes `MeshLog.selectIndices` callable). Backend-agnostic: pass the
+   * bound vector handle itself, as with getBoundVector.
+   */
+  setBoundIntVector(bound: SculptHandle, data: ArrayLike<number>): void
 
   /**
    * Serialize a mesh to a versioned, lz4hc-compressed blob (the C++
@@ -585,6 +598,24 @@ export async function loadWasm(): Promise<IWasmInterface> {
       // callers never have to know the representation.
       const ptr = (bound as unknown as {ptr: pointer}).ptr
       return manager.getBoundVector(vecTypeName, ptr)
+    },
+    setBoundIntVector(bound: SculptHandle, data: ArrayLike<number>) {
+      const vecPtr = (bound as unknown as {ptr: pointer}).ptr
+      const count = data.length
+      if (count === 0) {
+        _wasm.IntVector_assign(vecPtr, 0 as unknown as pointer, 0)
+        return
+      }
+      // Bounce through the wasm heap: IntVector_assign copies out of it via the
+      // Vector's own append, so the scratch buffer is dead once the call returns.
+      const src = data instanceof Int32Array ? data : Int32Array.from(data)
+      const dataPtr = _wasm._rawAlloc(count * 4)
+      try {
+        _wasm.HEAPU8.set(new Uint8Array(src.buffer, src.byteOffset, count * 4), dataPtr)
+        _wasm.IntVector_assign(vecPtr, dataPtr, count)
+      } finally {
+        _wasm._rawRelease(dataPtr)
+      }
     },
     Mesh_createCube(dimen: int, size: number, sphereFac: number) {
       const ptr = _wasm.Mesh_createCube(dimen, size, sphereFac) as unknown as number

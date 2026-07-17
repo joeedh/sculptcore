@@ -61,6 +61,10 @@ export interface NativeAddon {
   vectorLength(vec: NativeBound): number | undefined
   /** i-th element of a bound Vector as a bound value/wrapper. */
   vectorGet(vec: NativeBound, i: number): unknown
+  /** Replace a bound Vector<int>'s contents from a JS array — the JS->C++ fill
+   * that makes bound Vectors usable as inputs, not just out-params. See
+   * IWasmInterface.setBoundIntVector. */
+  intVectorAssign(vec: NativeBound, data: ArrayLike<number>): void
   /**
    * Typed-array view over a bound Vector's contiguous storage. NOTE: under
    * Electron's V8 sandbox this is a *copy*, not a zero-copy external buffer
