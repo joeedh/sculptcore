@@ -141,9 +141,11 @@ The `inout Vertex v` parameter exposes the per-vertex mesh attributes:
 | Special | `Vertex` (vertex-stage parameter only), `void` |
 
 Vector constructors are calls: `float3(0.0, 0.0, 0.0)`. Members are `.x/.y/.z`
-(and `.w`); `Array<T,N>` is indexed with `[i]`. Layout matches
-`litestl::math` types so WASM-side mirrors are zero-copy. No pointers, no
-recursion (WGSL/Vulkan/OpenCL-1.2 constraints).
+(and `.w`), readable and assignable on every backend; `Array<T,N>` is indexed
+with `[i]`. (The C++ backend lowers a vector `.x` to `operator[]` since
+`litestl::math::Vec` has no named members — an emitter detail, transparent to
+kernel authors.) Layout matches `litestl::math` types so WASM-side mirrors are
+zero-copy. No pointers, no recursion (WGSL/Vulkan/OpenCL-1.2 constraints).
 
 ```sbrush
 struct KelvinletState { float a; float b; }     // user struct
