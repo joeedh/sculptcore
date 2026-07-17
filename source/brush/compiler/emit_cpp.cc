@@ -27,10 +27,15 @@ struct Emit {
   Vector<string> errors;
   int indent = 0;
 
-  // Locals declared in the current body — kept for diagnostics. The
-  // emitter doesn't need to track types because C++ does, but knowing
-  // a name is a local helps us route identifier resolution correctly.
-  Vector<string> locals;
+  // Locals declared in the current body. We track the declared type so a
+  // vector-component access (`v.x`) can be lowered to `operator[]` on the C++
+  // backend — litestl Vec has no named .x/.y/.z/.w members, unlike WGSL/CUDA/
+  // OpenCL vectors. Knowing a name is a local also routes identifier resolution.
+  struct LocalVar {
+    string name;
+    TypeKind type = TypeKind::Unknown;
+  };
+  Vector<LocalVar> locals;
 
   // Set when a NeighborLoop is emitted — drives an extra #include in
   // the generated header so EdgeOfVertIter resolves.
@@ -75,7 +80,7 @@ struct Emit {
   bool isLocal(stringref name) const
   {
     for (const auto &l : locals) {
-      if (string(l).operator==(string(name.c_str())))
+      if (string(l.name).operator==(string(name.c_str())))
         return true;
     }
     return false;
@@ -147,6 +152,97 @@ struct Emit {
         return true;
     }
     return false;
+  }
+
+  static bool isVectorType(TypeKind t)
+  {
+    return t == TypeKind::Float2 || t == TypeKind::Float3 || t == TypeKind::Float4;
+  }
+
+  // Component index for a `.x`/`.y`/`.z`/`.w` swizzle, or -1 otherwise.
+  static int swizzleIndex(const string &name)
+  {
+    if (name.size() != 1) {
+      return -1;
+    }
+    switch (name.c_str()[0]) {
+    case 'x':
+      return 0;
+    case 'y':
+      return 1;
+    case 'z':
+      return 2;
+    case 'w':
+      return 3;
+    default:
+      return -1;
+    }
+  }
+
+  // Best-effort type of an expression — enough to recognize vector-component
+  // access. Returns Unknown when it can't resolve cheaply; callers must treat
+  // Unknown conservatively (emit the expression unchanged).
+  TypeKind resolveExprType(const Expr &e) const
+  {
+    switch (e.kind) {
+    case ExprKind::LitFloat:
+      return TypeKind::Float;
+    case ExprKind::LitInt:
+      return TypeKind::Int;
+    case ExprKind::LitBool:
+      return TypeKind::Bool;
+    case ExprKind::Paren:
+      return e.lhs ? resolveExprType(*e.lhs) : TypeKind::Unknown;
+    case ExprKind::Ident: {
+      for (const auto &l : locals) {
+        if (string(l.name).operator==(string(e.name.c_str()))) {
+          return l.type;
+        }
+      }
+      if (currentStage) {
+        for (const auto &p : currentStage->params) {
+          if (string(p.name).operator==(string(e.name.c_str()))) {
+            return p.type;
+          }
+        }
+      }
+      if (const Field *f = findField(stringref(e.name.c_str()))) {
+        return f->type;
+      }
+      return TypeKind::Unknown;
+    }
+    case ExprKind::Member: {
+      // Attribute-bundle access (v.co) carries the attr field's type.
+      if (e.lhs && e.lhs->kind == ExprKind::Ident) {
+        const char *bidx = nullptr, *bprefix = nullptr;
+        if (bundleInfo(stringref(e.lhs->name.c_str()), bidx, bprefix)) {
+          if (const Field *af = findAttrField(stringref(e.name.c_str()))) {
+            return af->type;
+          }
+        }
+      }
+      // A swizzle of a proven vector yields a scalar.
+      if (e.lhs && isVectorType(resolveExprType(*e.lhs)) && swizzleIndex(e.name) >= 0) {
+        return TypeKind::Float;
+      }
+      return TypeKind::Unknown;
+    }
+    case ExprKind::Index:
+      return e.lhs && isVectorType(resolveExprType(*e.lhs)) ? TypeKind::Float : TypeKind::Unknown;
+    case ExprKind::Binary: {
+      TypeKind a = e.lhs ? resolveExprType(*e.lhs) : TypeKind::Unknown;
+      TypeKind b = e.rhs ? resolveExprType(*e.rhs) : TypeKind::Unknown;
+      if (isVectorType(a)) {
+        return a;
+      }
+      if (isVectorType(b)) {
+        return b;
+      }
+      return a != TypeKind::Unknown ? a : b;
+    }
+    default:
+      return TypeKind::Unknown;
+    }
   }
 
   // === expression emitter ===
@@ -233,6 +329,18 @@ struct Emit {
           out += ".";
           out += bidx;
           out += "]";
+          break;
+        }
+      }
+      // Vector component: litestl Vec has operator[] but no named .x/.y/.z/.w,
+      // so lower a proven vector swizzle to [i] (works as lvalue too).
+      {
+        int si = swizzleIndex(e.name);
+        if (si >= 0 && e.lhs && isVectorType(resolveExprType(*e.lhs))) {
+          emitExpr(*e.lhs);
+          char b[8];
+          std::snprintf(b, sizeof(b), "[%d]", si);
+          out += b;
           break;
         }
       }
@@ -500,7 +608,7 @@ struct Emit {
         emitExpr(*s.expr);
       }
       out += ";\n";
-      locals.append(s.name);
+      locals.append(LocalVar{s.name, s.declType});
       break;
     case StmtKind::Assign:
       writeIndent();
@@ -663,7 +771,7 @@ struct Emit {
       out += " {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};\n";
       // Body: emit either a Block (inline) or a single statement.
       int savedLocals = (int)locals.size();
-      locals.append(s.name);
+      locals.append(LocalVar{s.name, TypeKind::Unknown});
       nbrBundles.append(s.name);
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
         for (const auto &c : s.thenBranch->stmts)

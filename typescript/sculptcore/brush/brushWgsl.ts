@@ -281,6 +281,7 @@ struct BrushUniforms {
   tex_repeat: f32,
   stroke_path_count: u32,
   brushColor: vec4<f32>,
+  mixMode: i32,
 };
 
 struct CtxUniforms {
@@ -447,7 +448,55 @@ fn main(
   if ((s == 0.0)) {
     return;
   }
-  v_color = (v_color + (((brush_u.brushColor - v_color)) * s));
+  var base: vec4<f32> = v_color;
+  var c: vec4<f32> = brush_u.brushColor;
+  var bl: vec4<f32> = c;
+  if ((brush_u.mixMode == 1)) {
+    bl = (base * c);
+  } else   if ((brush_u.mixMode == 2)) {
+    var one: vec4<f32> = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+    bl = (one - (((one - base)) * ((one - c))));
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 3)) {
+    if ((base.x < 0.5)) {
+      bl.x = ((2.0 * base.x) * c.x);
+    } else {
+      bl.x = (1.0 - ((2.0 * ((1.0 - base.x))) * ((1.0 - c.x))));
+    }
+    if ((base.y < 0.5)) {
+      bl.y = ((2.0 * base.y) * c.y);
+    } else {
+      bl.y = (1.0 - ((2.0 * ((1.0 - base.y))) * ((1.0 - c.y))));
+    }
+    if ((base.z < 0.5)) {
+      bl.z = ((2.0 * base.z) * c.z);
+    } else {
+      bl.z = (1.0 - ((2.0 * ((1.0 - base.z))) * ((1.0 - c.z))));
+    }
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 4)) {
+    bl.x = abs((base.x - c.x));
+    bl.y = abs((base.y - c.y));
+    bl.z = abs((base.z - c.z));
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 5)) {
+    bl = (base + c);
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 6)) {
+    bl = (base - c);
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 7)) {
+    bl.x = min(base.x, c.x);
+    bl.y = min(base.y, c.y);
+    bl.z = min(base.z, c.z);
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 8)) {
+    bl.x = max(base.x, c.x);
+    bl.y = max(base.y, c.y);
+    bl.z = max(base.z, c.z);
+    bl.w = c.w;
+  }
+  v_color = (base + (((bl - base)) * s));
 
   co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;

@@ -1,18 +1,63 @@
-// Color paint — lerp a per-vertex color layer toward the brush color by brush
-// strength*falloff (mask-gated). Blend modes and per-corner colors arrive in
-// a later paint-brush wave.
+// Color paint — blend a per-vertex color layer toward the brush color by brush
+// strength*falloff (mask-gated), through a selectable mix mode. `s` is the
+// blend opacity: `bl` is the fully-applied mode result, then lerped from the
+// existing color by `s`, so MIX (0) reproduces the original straight lerp.
 @brush("color")
 @paint
 brush Color {
   attr vertex float4 color;
   // Paint color, synced from the TS brush (brush.color) per stroke.
   uniform float4 brushColor;
+  // Blend mode (0 MIX, 1 MULTIPLY, 2 SCREEN, 3 OVERLAY, 4 DIFFERENCE, 5 ADD,
+  // 6 SUBTRACT, 7 DARKEN, 8 LIGHTEN). Mirrors the TS ColorMixModes enum.
+  uniform int mixMode;
   // Undo captures the color layer only (paint moves no geometry).
   save vertex color;
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * (1.0 - v.mask);
     if (s == 0.0) { continue; }
-    v.color = v.color + (brushColor - v.color) * s;
+
+    float4 base = v.color;
+    float4 c = brushColor;
+    float4 bl = c;                          // 0 MIX
+    if (mixMode == 1) {                      // MULTIPLY
+      bl = base * c;
+    } else if (mixMode == 2) {               // SCREEN
+      float4 one = float4(1.0, 1.0, 1.0, 1.0);
+      bl = one - (one - base) * (one - c);
+      bl.w = c.w;
+    } else if (mixMode == 3) {               // OVERLAY (per channel)
+      if (base.x < 0.5) { bl.x = 2.0 * base.x * c.x; }
+      else { bl.x = 1.0 - 2.0 * (1.0 - base.x) * (1.0 - c.x); }
+      if (base.y < 0.5) { bl.y = 2.0 * base.y * c.y; }
+      else { bl.y = 1.0 - 2.0 * (1.0 - base.y) * (1.0 - c.y); }
+      if (base.z < 0.5) { bl.z = 2.0 * base.z * c.z; }
+      else { bl.z = 1.0 - 2.0 * (1.0 - base.z) * (1.0 - c.z); }
+      bl.w = c.w;
+    } else if (mixMode == 4) {               // DIFFERENCE
+      bl.x = abs(base.x - c.x);
+      bl.y = abs(base.y - c.y);
+      bl.z = abs(base.z - c.z);
+      bl.w = c.w;
+    } else if (mixMode == 5) {               // ADD
+      bl = base + c;
+      bl.w = c.w;
+    } else if (mixMode == 6) {               // SUBTRACT
+      bl = base - c;
+      bl.w = c.w;
+    } else if (mixMode == 7) {               // DARKEN
+      bl.x = min(base.x, c.x);
+      bl.y = min(base.y, c.y);
+      bl.z = min(base.z, c.z);
+      bl.w = c.w;
+    } else if (mixMode == 8) {               // LIGHTEN
+      bl.x = max(base.x, c.x);
+      bl.y = max(base.y, c.y);
+      bl.z = max(base.z, c.z);
+      bl.w = c.w;
+    }
+
+    v.color = base + (bl - base) * s;
   }
 }

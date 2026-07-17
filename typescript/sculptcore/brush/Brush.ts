@@ -56,6 +56,7 @@ export interface Brush {
   wingNormalB: float3
   activeGroup: int32
   brushColor: float4
+  mixMode: int32
   props: StructProp
   setFalloffCurveEntry(i: int32, f: float): void
   setCavityCurveEntry(i: int32, f: float): void

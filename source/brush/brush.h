@@ -182,6 +182,10 @@ struct Brush {
   // `brushColor` uniform). Synced from the TS brush per stroke.
   float4 brushColor{1, 1, 1, 1};
 
+  // Color paint blend mode (read as the `mixMode` uniform; see ColorMixModes /
+  // color.sbrush). Synced from the TS brush per stroke. 0 = MIX (straight lerp).
+  int mixMode = 0;
+
   // Brush texture (grayscale, row-major, `tex_width * tex_height` floats).
   // Empty means "no texture": `sampleTexBilinear` returns 1.0 so a kernel
   // multiplying by the sample is a no-op. `coord_space` maps a sample point
@@ -334,6 +338,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, wingNormalB);
     BIND_STRUCT_MEMBER(st, activeGroup);
     BIND_STRUCT_MEMBER(st, brushColor);
+    BIND_STRUCT_MEMBER(st, mixMode);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, setFalloffCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, setCavityCurveEntry, MARGS("i", "f"));
