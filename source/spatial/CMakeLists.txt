@@ -19,6 +19,7 @@ set(SRC
   spatial_gpu.cc
   bindings.cc
   c-api/spatial_c_api.cc
+  c-api/external_draw.cc
 )
 
 # Codegen: WGSL -> {.wgsl.h, .spirv.h}
@@ -78,4 +79,8 @@ wasm_add_symbols("
   setTreeDrawShader
   getTreeMissingAttrSlots
   setTreeFaceDisplacementBounds
+  sc_external_draw_register
+  sc_external_draw_unregister
+  sc_external_draw_update
+  sc_external_draw_provider
 ")
