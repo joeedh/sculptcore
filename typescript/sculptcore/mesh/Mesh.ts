@@ -60,6 +60,12 @@ export interface Mesh {
   edgeFlagKind(e: int32, kind: int32): int32
   setEdgeFlagKind(e: int32, kind: int32, state: int32): void
   markSharpByAngle(angle: float, state: int32): int32
+  selectSimilar(
+    criterion: int32,
+    seed: int32,
+    threshold: float,
+    out: int32[]
+  ): void
   repairLogCount(): int32
   clearRepairLog(): void
   repairMesh(): int32

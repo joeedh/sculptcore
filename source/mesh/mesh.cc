@@ -215,6 +215,288 @@ int Mesh::markSharpByAngle(float angle, int state)
   return marked;
 }
 
+namespace {
+
+/* Number of faces incident to edge `e` (0 wire, 1 boundary, 2 manifold,
+ * >2 non-manifold), by walking its radial cycle. Mirrors markSharpByAngle. */
+static int edgeFaceCount(Mesh &m, int e)
+{
+  int c0 = m.e.c[e];
+  if (c0 == ELEM_NONE) {
+    return 0;
+  }
+  int count = 0, prevF = ELEM_NONE, c = c0;
+  do {
+    int f = m.l.f[m.c.l[c]];
+    if (f != prevF) {
+      count++;
+      prevF = f;
+    }
+    c = m.c.radial_next[c];
+  } while (c != c0 && c != ELEM_NONE);
+  return count;
+}
+
+/* Dihedral angle (radians) across a manifold edge's two faces, or -1 for any
+ * edge that is not a clean two-face crease. */
+static float edgeDihedral(Mesh &m, int e)
+{
+  int c0 = m.e.c[e];
+  if (c0 == ELEM_NONE) {
+    return -1.0f;
+  }
+  int fA = ELEM_NONE, fB = ELEM_NONE, c = c0;
+  do {
+    int f = m.l.f[m.c.l[c]];
+    if (f != fA && f != fB) {
+      if (fA == ELEM_NONE) {
+        fA = f;
+      } else if (fB == ELEM_NONE) {
+        fB = f;
+      } else {
+        return -1.0f; // > 2 faces: non-manifold
+      }
+    }
+    c = m.c.radial_next[c];
+  } while (c != c0 && c != ELEM_NONE);
+  if (fA == ELEM_NONE || fB == ELEM_NONE) {
+    return -1.0f;
+  }
+  float3 n1 = mesh::faceNewellNormal(m, fA);
+  float3 n2 = mesh::faceNewellNormal(m, fB);
+  float l1 = n1.length(), l2 = n2.length();
+  if (l1 <= 1e-20f || l2 <= 1e-20f) {
+    return -1.0f;
+  }
+  float d = n1.dot(n2) / (l1 * l2);
+  d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
+  return std::acos(d);
+}
+
+/* Count of distinct faces touching vertex `v` (each face is reached via two of
+ * the vert's edges, so dedup; valence is small, a linear scan is fine). */
+static int vertFaceCount(Mesh &m, int v)
+{
+  util::Vector<int> seen;
+  for (int e : m.e_of_v(v)) {
+    int c0 = m.e.c[e];
+    if (c0 == ELEM_NONE) {
+      continue;
+    }
+    int c = c0;
+    do {
+      int f = m.l.f[m.c.l[c]];
+      if (!seen.contains(f)) {
+        seen.append(f);
+      }
+      c = m.c.radial_next[c];
+    } while (c != c0 && c != ELEM_NONE);
+  }
+  return int(seen.size());
+}
+
+/* Average of a face's corner-vertex positions. */
+static float3 faceCentroid(Mesh &m, int f)
+{
+  float3 sum{0.0f, 0.0f, 0.0f};
+  int n = 0;
+  int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+  do {
+    sum += m.v.co[m.c.v[cc]];
+    n++;
+    cc = m.c.next[cc];
+  } while (cc != c0);
+  return n > 0 ? sum / float(n) : sum;
+}
+
+} // namespace
+
+void Mesh::selectSimilar(int criterion, int seed, float threshold, util::Vector<int> &out)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  if (seed < 0) {
+    return;
+  }
+
+  switch (criterion) {
+    case SIM_FACE_MATERIAL: {
+      int sm = faceMaterial(seed);
+      for (int fi : this->f) {
+        if (faceMaterial(fi) == sm) {
+          out.append(fi);
+        }
+      }
+      break;
+    }
+    case SIM_FACE_GROUP: {
+      int sg = faceGroup(seed);
+      for (int fi : this->f) {
+        if (faceGroup(fi) == sg) {
+          out.append(fi);
+        }
+      }
+      break;
+    }
+    case SIM_FACE_AREA: {
+      float sa = 0.5f * mesh::faceNewellNormal(*this, seed).length();
+      if (sa <= 1e-20f) {
+        break;
+      }
+      float tol = threshold * sa;
+      for (int fi : this->f) {
+        float a = 0.5f * mesh::faceNewellNormal(*this, fi).length();
+        if (std::fabs(a - sa) <= tol) {
+          out.append(fi);
+        }
+      }
+      break;
+    }
+    case SIM_FACE_NORMAL: {
+      float3 sn = mesh::faceNewellNormal(*this, seed);
+      float sl = sn.length();
+      if (sl <= 1e-20f) {
+        break;
+      }
+      sn /= sl;
+      float cos_thr = std::cos(threshold);
+      for (int fi : this->f) {
+        float3 n = mesh::faceNewellNormal(*this, fi);
+        float l = n.length();
+        if (l > 1e-20f && n.dot(sn) / l >= cos_thr) {
+          out.append(fi);
+        }
+      }
+      break;
+    }
+    case SIM_FACE_COPLANAR: {
+      float3 sn = mesh::faceNewellNormal(*this, seed);
+      float sl = sn.length();
+      if (sl <= 1e-20f) {
+        break;
+      }
+      float sa = 0.5f * sl;
+      sn /= sl;
+      float3 sc = faceCentroid(*this, seed);
+      float cos_thr = std::cos(threshold);
+      /* Plane-distance tolerance scaled to the seed face's size, so the test
+       * is scale-invariant: threshold doubles as the in-plane slack. */
+      float dist_tol = threshold * std::sqrt(sa) + 1e-6f;
+      for (int fi : this->f) {
+        float3 n = mesh::faceNewellNormal(*this, fi);
+        float l = n.length();
+        if (l <= 1e-20f || n.dot(sn) / l < cos_thr) {
+          continue;
+        }
+        float d = std::fabs((faceCentroid(*this, fi) - sc).dot(sn));
+        if (d <= dist_tol) {
+          out.append(fi);
+        }
+      }
+      break;
+    }
+    case SIM_FACE_SIDES: {
+      int ss = l.size[f.l[seed]];
+      for (int fi : this->f) {
+        if (l.size[f.l[fi]] == ss) {
+          out.append(fi);
+        }
+      }
+      break;
+    }
+    case SIM_EDGE_LENGTH: {
+      float sl = (v.co[e.vs[seed][1]] - v.co[e.vs[seed][0]]).length();
+      if (sl <= 1e-20f) {
+        break;
+      }
+      float tol = threshold * sl;
+      for (int ei : this->e) {
+        float len = (v.co[e.vs[ei][1]] - v.co[e.vs[ei][0]]).length();
+        if (std::fabs(len - sl) <= tol) {
+          out.append(ei);
+        }
+      }
+      break;
+    }
+    case SIM_EDGE_DIRECTION: {
+      float3 sd = v.co[e.vs[seed][1]] - v.co[e.vs[seed][0]];
+      float sl = sd.length();
+      if (sl <= 1e-20f) {
+        break;
+      }
+      sd /= sl;
+      float cos_thr = std::cos(threshold);
+      for (int ei : this->e) {
+        float3 d = v.co[e.vs[ei][1]] - v.co[e.vs[ei][0]];
+        float l = d.length();
+        // Edges are undirected, so compare |dot|.
+        if (l > 1e-20f && std::fabs(d.dot(sd) / l) >= cos_thr) {
+          out.append(ei);
+        }
+      }
+      break;
+    }
+    case SIM_EDGE_FACES: {
+      int sc = edgeFaceCount(*this, seed);
+      for (int ei : this->e) {
+        if (edgeFaceCount(*this, ei) == sc) {
+          out.append(ei);
+        }
+      }
+      break;
+    }
+    case SIM_EDGE_DIHEDRAL: {
+      float sang = edgeDihedral(*this, seed);
+      for (int ei : this->e) {
+        float ang = edgeDihedral(*this, ei);
+        // -1 marks non-dihedral edges; only match those to each other.
+        if (sang < 0.0f ? ang < 0.0f : (ang >= 0.0f && std::fabs(ang - sang) <= threshold)) {
+          out.append(ei);
+        }
+      }
+      break;
+    }
+    case SIM_VERT_NORMAL: {
+      float3 sn = v.no[seed];
+      float sl = sn.length();
+      if (sl <= 1e-20f) {
+        break;
+      }
+      sn /= sl;
+      float cos_thr = std::cos(threshold);
+      for (int vi : this->v) {
+        float3 n = v.no[vi];
+        float l = n.length();
+        if (l > 1e-20f && n.dot(sn) / l >= cos_thr) {
+          out.append(vi);
+        }
+      }
+      break;
+    }
+    case SIM_VERT_EDGES: {
+      int sval = VertProxy(this, seed).valence();
+      for (int vi : this->v) {
+        if (VertProxy(this, vi).valence() == sval) {
+          out.append(vi);
+        }
+      }
+      break;
+    }
+    case SIM_VERT_FACES: {
+      int sc = vertFaceCount(*this, seed);
+      for (int vi : this->v) {
+        if (vertFaceCount(*this, vi) == sc) {
+          out.append(vi);
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
 {
   if (topo_frozen) {

@@ -161,6 +161,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, edgeFlagKind, MARGS("e", "kind"));
     BIND_STRUCT_METHOD(st, setEdgeFlagKind, MARGS("e", "kind", "state"));
     BIND_STRUCT_METHOD(st, markSharpByAngle, MARGS("angle", "state"));
+    BIND_STRUCT_METHOD(st, selectSimilar, MARGS("criterion", "seed", "threshold", "out"));
     BIND_STRUCT_METHOD(st, repairLogCount, MARGS());
     BIND_STRUCT_METHOD(st, clearRepairLog, MARGS());
     BIND_STRUCT_METHOD(st, repairMesh, MARGS());
@@ -487,6 +488,33 @@ struct Mesh : public MeshBase {
    * at or below the threshold are left untouched. Returns the number of edges
    * changed. Defined in mesh.cc. */
   int markSharpByAngle(float angle, int state);
+
+  /* Select-similar criteria. The value range implies the domain: 0-5 face,
+   * 6-9 edge, 10-12 vert. Kept in sync by hand with the TS EnumProperty in
+   * SelectSimilarLiteMeshOp (litemesh_modeling_ops.ts). */
+  enum SimilarCriterion {
+    SIM_FACE_MATERIAL = 0,
+    SIM_FACE_GROUP = 1,
+    SIM_FACE_AREA = 2,
+    SIM_FACE_NORMAL = 3,
+    SIM_FACE_COPLANAR = 4,
+    SIM_FACE_SIDES = 5,
+    SIM_EDGE_LENGTH = 6,
+    SIM_EDGE_DIRECTION = 7,
+    SIM_EDGE_FACES = 8,
+    SIM_EDGE_DIHEDRAL = 9,
+    SIM_VERT_NORMAL = 10,
+    SIM_VERT_EDGES = 11,
+    SIM_VERT_FACES = 12,
+  };
+
+  /* Append every element "similar" to `seed` under `criterion` (see
+   * SimilarCriterion; the criterion implies the domain, so `out` is filled with
+   * face / edge / vert indices accordingly). `threshold` is a relative fraction
+   * for AREA/LENGTH, an angle in radians for NORMAL/DIRECTION/DIHEDRAL/COPLANAR,
+   * and ignored for the exact-match integer criteria. Bulk out-param for the
+   * same reason as facesInGroup. Defined in mesh.cc. */
+  void selectSimilar(int criterion, int seed, float threshold, util::Vector<int> &out);
 
   /* Fill outIdx with the indices of every vertex incident to an edge carrying
    * the `kind` flag (0 seam / 1 sharp) and outCo with their xyz positions (3
