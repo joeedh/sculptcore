@@ -1794,6 +1794,58 @@ SpatialTree::FragStats SpatialTree::fragmentationStats()
   return s;
 }
 
+void SpatialTree::materialStats(bool perLeaf, util::Vector<int> &out)
+{
+  AttrData<short> *mdata = nullptr;
+  if (m->f.attrs.has(AttrType::SHORT, "material")) {
+    mdata = m->f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+  }
+
+  util::Vector<SpatialNode *> targets;
+  if (perLeaf) {
+    targets = leaves();
+  }
+  else {
+    /* Same filter as the drawBatch rebuild, so triple i matches command i. */
+    for (SpatialNode *node : nodes) {
+      if (node->is_gpu_node && node->gpu_data && node->gpu_data->pos) {
+        targets.append(node);
+      }
+    }
+  }
+
+  util::Vector<SpatialNode *> group;
+  for (SpatialNode *node : targets) {
+    group.clear();
+    if (perLeaf) {
+      group.append(node);
+    }
+    else {
+      collect_subtree_leaves(node, group);
+    }
+
+    uint32_t mask = 0;
+    for (SpatialNode *leaf : group) {
+      ensure_node_tris(leaf);
+      /* unique_faces, not tris: a face spans 2+ tris and is already deduped. */
+      for (int f : leaf->unique_faces()) {
+        int slot = mdata ? int((*mdata)[f]) : 0;
+        slot = slot < 0 ? 0 : (slot > 31 ? 31 : slot);
+        mask |= 1u << slot;
+      }
+    }
+
+    int distinct = 0;
+    for (int b = 0; b < 32; b++) {
+      distinct += (mask >> b) & 1;
+    }
+
+    out.append(node->id);
+    out.append(distinct);
+    out.append(int(mask));
+  }
+}
+
 void SpatialTree::selectFragmentedLeaves(double ratioThreshold,
                                          util::Vector<SpatialNode *> &out)
 {

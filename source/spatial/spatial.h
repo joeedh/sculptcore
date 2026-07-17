@@ -783,6 +783,16 @@ struct SpatialTree {
   };
   FragStats fragmentationStats();
 
+  /* Material-fragmentation diagnostics: how far the per-face material attr
+   * cuts across the tree's spatial grouping. Appends (id, distinctSlots,
+   * slotMask) triples -- one per leaf when @p perLeaf, else one per GPU node
+   * in drawBatch->commands order (same filter, so triple i matches command i).
+   * Per-GPU-node counts predict the draw-command multiplier of splitting draws
+   * by material; per-leaf counts say whether whole LeafSlices can be reordered
+   * by slot instead of sorting tris within a leaf. slotMask covers slots 0..30,
+   * folding anything >= 31 into bit 31. */
+  void materialStats(bool perLeaf, util::Vector<int> &out);
+
   /* Region selection for partial compaction: append every leaf whose vert
    * page-spread exceeds @p ratioThreshold × its ideal page count (i.e. the
    * fragmented leaves a stroke just churned). */
