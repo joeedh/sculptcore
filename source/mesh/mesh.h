@@ -131,6 +131,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
+    BIND_STRUCT_METHOD(st, facesInGroup, MARGS("group", "out"));
     BIND_STRUCT_METHOD(st, ngonFaceCount, MARGS());
     BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
     BIND_STRUCT_METHOD(st, addAttr, MARGS("domain", "type", "use"));
@@ -642,6 +643,27 @@ struct Mesh : public MeshBase {
       }
     }
     return mx;
+  }
+
+  /* Indices of every face in poly-group `group` (see faceGroup), appended to
+   * `out`. Bulk out-param on purpose: gathering a group from the app otherwise
+   * costs one binding call per face. Group 0 means "unassigned", so a caller
+   * acting on "the group under the cursor" should reject 0 rather than gather
+   * every ungrouped face. */
+  void facesInGroup(int group, util::Vector<int> &out)
+  {
+    if (!f.attrs.has(AttrType::INT, "group")) {
+      return;
+    }
+    AttrData<int> *data = f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+    if (!data) {
+      return;
+    }
+    for (int i = 0; i < f.count; i++) {
+      if ((*data)[i] == group) {
+        out.append(i);
+      }
+    }
   }
 
   void calcAABB(math::float3 *min, math::float3 *max)
