@@ -82,5 +82,6 @@ wasm_add_symbols("
   sc_external_draw_register
   sc_external_draw_unregister
   sc_external_draw_update
+  sc_external_draw_enable_dynamic
   sc_external_draw_provider
 ")

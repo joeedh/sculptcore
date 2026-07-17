@@ -58,6 +58,12 @@ void sc_external_draw_unregister(unsigned int object_key);
  * mode enter and after each stroke. No-op for an unregistered key. */
 void sc_external_draw_update(unsigned int object_key);
 
+/** Switch a tree to the dynamic per-attribute GPU layout with a fixed
+ * color@0 (vertex float4) + uv@1 (corner float2) slot set, so the provider
+ * exposes those attributes to Blender. Load the matching mesh attribute layers
+ * (`color`, `uv`) before calling; a missing one draws its default. */
+void sc_external_draw_enable_dynamic(void *spatial_tree);
+
 /** The provider Blender registers on the mode via
  * `BKE_object_mode_draw_provider_set`. Stable address for the session. */
 const ScExternalDrawProvider *sc_external_draw_provider(void);

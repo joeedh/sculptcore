@@ -275,6 +275,25 @@ int Mesh_writeVertFloat4Attr(Mesh *m, const char *name, const float *in)
   return 1;
 }
 
+/** Write a named FLOAT2 corner (loop) attribute from `in` (per-corner, in the
+ * mesh's corner/loop order — matching the corner_verts passed to
+ * Mesh_fromArrays). Used to seed a UV map for the external draw provider. */
+int Mesh_writeCornerFloat2Attr(Mesh *m, const char *name, const float *in)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  AttrRef &ref = m->c.attrs.ensure(AttrType::FLOAT2, name, /*materialize=*/true);
+  auto *data = static_cast<AttrData<math::float2> *>(ref.data);
+  int i = 0;
+  for (int ci : m->c) {
+    data->materialize(ci);
+    (*data)[ci] = math::float2(in[i * 2], in[i * 2 + 1]);
+    i++;
+  }
+  return 1;
+}
+
 /** Read a named INT face attribute into `out` (Mesh_arraySizes' faces_num
  * live-order values, matching Mesh_toArrays' face order). Returns 1 when the
  * attribute exists, 0 otherwise. Used to pull face sets (the `group` attr)

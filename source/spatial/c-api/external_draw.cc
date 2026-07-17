@@ -4,8 +4,11 @@
 
 #include "spatial/c-api/external_draw.h"
 
+#include "gpu/gpu_attr_request.h"
 #include "gpu/manager.h"
+#include "gpu/types.h"
 #include "gpu/vbo.h"
+#include "mesh/attribute_enums.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
@@ -67,7 +70,11 @@ int extdraw_nodes_get(void * /*user_data*/,
   out.clear();
   attrs.clear();
   const litestl::util::Vector<spatial::SpatialNode *> gpu_node_list = tree.gpu_nodes();
-  attrs.ensure_capacity(gpu_node_list.size());
+  /* Attr pointers are stored contiguous per node (one block per node); the
+   * blocks must not move while node.attrs point into them, so size the backing
+   * store up front to node_count * attrs_per_node. */
+  const size_t attrs_per_node = size_t(tree.requestedAttrs.size()) + 1;
+  attrs.ensure_capacity(gpu_node_list.size() * attrs_per_node);
 
   for (spatial::SpatialNode *node : gpu_node_list) {
     if (node == nullptr || node->gpu_data == nullptr || node->gpu_data->pos == nullptr) {
@@ -82,11 +89,16 @@ int extdraw_nodes_get(void * /*user_data*/,
     dn.positions = static_cast<const float(*)[3]>(gd.pos->data);
     dn.normals = (gd.nor && gd.nor->data) ? static_cast<const float(*)[3]>(gd.nor->data) :
                                             nullptr;
-    /* v1: expose the legacy float4 color stream (attrBufs[0], the composited
-     * vertex-color / face-set display color) as the single attribute. */
-    if (gd.attrBufs.size() > 0 && gd.attrBufs[0] && gd.attrBufs[0]->data) {
-      attrs.append(gd.attrBufs[0]->data);
-      dn.attrs = &attrs[attrs.size() - 1];
+    /* Expose every GPU-node attribute buffer, in slot order (== attrBufs
+     * index order, see SpatialTree::setRequestedAttrs). Legacy path: a single
+     * composited float4 color stream. Dynamic path: one per requested attr
+     * (e.g. color@0, uv@1). Blender reads them by slot. */
+    if (gd.attrBufs.size() > 0) {
+      const size_t base = attrs.size();
+      for (gpu::Buffer *b : gd.attrBufs) {
+        attrs.append((b && b->data) ? b->data : nullptr);
+      }
+      dn.attrs = &attrs[base];
     }
     else {
       dn.attrs = nullptr;
@@ -111,8 +123,10 @@ int extdraw_nodes_get(void * /*user_data*/,
     if (gd.nor) {
       gd.nor->update_buffer = false;
     }
-    if (gd.attrBufs.size() > 0 && gd.attrBufs[0]) {
-      gd.attrBufs[0]->update_buffer = false;
+    for (gpu::Buffer *b : gd.attrBufs) {
+      if (b) {
+        b->update_buffer = false;
+      }
     }
   }
 
@@ -149,6 +163,47 @@ void sc_external_draw_update(unsigned int object_key)
   if (tree_ptr != nullptr && *tree_ptr != nullptr) {
     (*tree_ptr)->update(&shared_gpu());
   }
+}
+
+void sc_external_draw_enable_dynamic(void *spatial_tree)
+{
+  spatial::SpatialTree *tree = static_cast<spatial::SpatialTree *>(spatial_tree);
+  if (tree == nullptr) {
+    return;
+  }
+  /* A fixed color@0 (vertex float4) + uv@1 (corner float2) layout, so Blender
+   * always addresses attrs by the same slot regardless of which the object
+   * actually has (a missing source layer is filled with the default). The
+   * per-attribute source is looked up by name in the engine mesh's domain group
+   * (see fill_leaf_attr). */
+  litestl::util::Vector<gpu::RequestedAttr> reqs;
+  gpu::RequestedAttr color;
+  color.name = "color";
+  color.srcType = int(mesh::AttrType::FLOAT4);
+  color.gpuType = gpu::GPUType::FLOAT32;
+  color.elemSize = 4;
+  color.slot = 0;
+  color.domain = 1; /* VERTEX */
+  color.defaultKind = gpu::AttrDefaultKind::White;
+  reqs.append(color);
+  gpu::RequestedAttr uv;
+  uv.name = "uv";
+  uv.srcType = int(mesh::AttrType::FLOAT2);
+  uv.gpuType = gpu::GPUType::FLOAT32;
+  uv.elemSize = 2;
+  uv.slot = 1;
+  uv.domain = 4; /* CORNER */
+  uv.defaultKind = gpu::AttrDefaultKind::Zero;
+  reqs.append(uv);
+  tree->setRequestedAttrs(reqs);
+  /* Enable the dynamic fill layout. Blender reads the CPU buffers directly and
+   * never invokes the engine's renderer, but the dynamic path builds an engine
+   * draw batch against `drawShader`, so it must be a real linked ShaderDef, not
+   * just the `drawShaderReady` flag forced on (an unlinked shader → null call).
+   * `linkShaderDef` only lays out the uniform blocks — it never parses the WGSL
+   * — so a stub source with the correct attr/uniform set links fine headless. */
+  tree->setDrawShader(
+      "// external-draw stub: the engine renderer is never invoked in Blender.\n");
 }
 
 const ScExternalDrawProvider *sc_external_draw_provider(void)
