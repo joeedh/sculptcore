@@ -42,6 +42,15 @@ litestl::util::Vector<ScExternalDrawNode> &scratch()
   return nodes;
 }
 
+/* Per-node attribute-pointer arrays backing ScExternalDrawNode::attrs. v1
+ * exposes one attribute (the legacy float4 color stream, attrBufs[0]); reserved
+ * to the node count so appends never realloc while node.attrs point into it. */
+litestl::util::Vector<const void *> &attr_ptrs()
+{
+  static litestl::util::Vector<const void *> ptrs;
+  return ptrs;
+}
+
 int extdraw_nodes_get(void * /*user_data*/,
                       unsigned int object_key,
                       const ScExternalDrawAttrRequest * /*req*/,
@@ -54,9 +63,13 @@ int extdraw_nodes_get(void * /*user_data*/,
   spatial::SpatialTree &tree = **tree_ptr;
 
   litestl::util::Vector<ScExternalDrawNode> &out = scratch();
+  litestl::util::Vector<const void *> &attrs = attr_ptrs();
   out.clear();
+  attrs.clear();
+  const litestl::util::Vector<spatial::SpatialNode *> gpu_node_list = tree.gpu_nodes();
+  attrs.ensure_capacity(gpu_node_list.size());
 
-  for (spatial::SpatialNode *node : tree.gpu_nodes()) {
+  for (spatial::SpatialNode *node : gpu_node_list) {
     if (node == nullptr || node->gpu_data == nullptr || node->gpu_data->pos == nullptr) {
       continue;
     }
@@ -69,7 +82,15 @@ int extdraw_nodes_get(void * /*user_data*/,
     dn.positions = static_cast<const float(*)[3]>(gd.pos->data);
     dn.normals = (gd.nor && gd.nor->data) ? static_cast<const float(*)[3]>(gd.nor->data) :
                                             nullptr;
-    dn.attrs = nullptr;
+    /* v1: expose the legacy float4 color stream (attrBufs[0], the composited
+     * vertex-color / face-set display color) as the single attribute. */
+    if (gd.attrBufs.size() > 0 && gd.attrBufs[0] && gd.attrBufs[0]->data) {
+      attrs.append(gd.attrBufs[0]->data);
+      dn.attrs = &attrs[attrs.size() - 1];
+    }
+    else {
+      dn.attrs = nullptr;
+    }
     dn.verts_num = gd.total_verts;
     dn.material_index = 0;
     /* Positions dirty since Blender last consumed this node → re-upload. The
@@ -89,6 +110,9 @@ int extdraw_nodes_get(void * /*user_data*/,
     gd.pos->update_buffer = false;
     if (gd.nor) {
       gd.nor->update_buffer = false;
+    }
+    if (gd.attrBufs.size() > 0 && gd.attrBufs[0]) {
+      gd.attrBufs[0]->update_buffer = false;
     }
   }
 
