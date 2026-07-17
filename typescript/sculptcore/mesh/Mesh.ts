@@ -31,6 +31,11 @@ export interface Mesh {
   faceGroup(face: int32): int32
   maxFaceGroup(): int32
   facesInGroup(group: int32, out: int32[]): void
+  faceMaterial(face: int32): int32
+  maxFaceMaterial(): int32
+  facesWithMaterial(slot: int32, out: int32[]): void
+  facesMaterialSlots(faces: int32[], out: int32[]): void
+  setFacesMaterial(faces: int32[], slot: int32): void
   ngonFaceCount(): int32
   setAttrUse(domain: int32, index: int32, use: int32): void
   addAttr(domain: int32, type: int32, use: int32): int32

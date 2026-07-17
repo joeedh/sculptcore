@@ -132,6 +132,11 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
     BIND_STRUCT_METHOD(st, facesInGroup, MARGS("group", "out"));
+    BIND_STRUCT_METHOD(st, faceMaterial, MARGS("face"));
+    BIND_STRUCT_METHOD(st, maxFaceMaterial, MARGS());
+    BIND_STRUCT_METHOD(st, facesWithMaterial, MARGS("slot", "out"));
+    BIND_STRUCT_METHOD(st, facesMaterialSlots, MARGS("faces", "out"));
+    BIND_STRUCT_METHOD(st, setFacesMaterial, MARGS("faces", "slot"));
     BIND_STRUCT_METHOD(st, ngonFaceCount, MARGS());
     BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
     BIND_STRUCT_METHOD(st, addAttr, MARGS("domain", "type", "use"));
@@ -643,6 +648,118 @@ struct Mesh : public MeshBase {
       }
     }
     return mx;
+  }
+
+  /* Material slot of a face: an index into the owning object's material list,
+   * NOT a datablock id. 0 = the object's first/default material, which is also
+   * what an absent attr means -- so a single-material mesh never allocates the
+   * attr and behaves exactly as before. Int-only signature to marshal across
+   * both binding backends (see faceGroup). */
+  int faceMaterial(int face)
+  {
+    if (face < 0 || face >= f.count) {
+      return 0;
+    }
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      return 0;
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    return data ? int((*data)[face]) : 0;
+  }
+
+  /* Largest material slot referenced by any face (0 if none/absent). Lets the
+   * app tell how many slots the mesh actually uses. */
+  int maxFaceMaterial()
+  {
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      return 0;
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    if (!data) {
+      return 0;
+    }
+    int mx = 0;
+    for (int i = 0; i < f.count; i++) {
+      int m = int((*data)[i]);
+      if (m > mx) {
+        mx = m;
+      }
+    }
+    return mx;
+  }
+
+  /* Indices of every face on material slot `slot`, appended to `out`. With the
+   * attr absent every face is implicitly slot 0. Bulk for the same reason as
+   * facesInGroup. */
+  void facesWithMaterial(int slot, util::Vector<int> &out)
+  {
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      if (slot == 0) {
+        for (int i = 0; i < f.count; i++) {
+          out.append(i);
+        }
+      }
+      return;
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    if (!data) {
+      return;
+    }
+    for (int i = 0; i < f.count; i++) {
+      if (int((*data)[i]) == slot) {
+        out.append(i);
+      }
+    }
+  }
+
+  /* Material slot of each face in `faces`, appended to `out` in the same order
+   * (absent attr => all 0). The bulk read an undo snapshot needs: per-face
+   * faceMaterial() calls would be one binding round trip each. */
+  void facesMaterialSlots(util::Vector<int> &faces, util::Vector<int> &out)
+  {
+    AttrData<short> *data = nullptr;
+    if (f.attrs.has(AttrType::SHORT, "material")) {
+      data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    }
+    for (int fi : faces) {
+      if (fi < 0 || fi >= f.count || !data) {
+        out.append(0);
+        continue;
+      }
+      out.append(int(data->safe_get(fi)));
+    }
+  }
+
+  /* Put `faces` on material slot `slot`, creating the attr on first use (every
+   * face starts at slot 0, matching the absent-attr default). Assigning slot 0
+   * to a mesh that has no attr yet is a no-op rather than an allocation. */
+  void setFacesMaterial(util::Vector<int> &faces, int slot)
+  {
+    if (faces.size() == 0) {
+      return;
+    }
+    if (slot == 0 && !f.attrs.has(AttrType::SHORT, "material")) {
+      return;
+    }
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      AttrRef &ref = f.attrs.ensure(AttrType::SHORT, "material", /*materialize=*/true);
+      AttrData<short> *fresh = ref.get_data<short>();
+      if (fresh) {
+        for (int i = 0; i < f.count; i++) {
+          (*fresh)[i] = 0;
+        }
+      }
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    if (!data) {
+      return;
+    }
+    for (int fi : faces) {
+      if (fi >= 0 && fi < f.count) {
+        data->materialize(fi);
+        (*data)[fi] = short(slot);
+      }
+    }
   }
 
   /* Indices of every face in poly-group `group` (see faceGroup), appended to
