@@ -1522,6 +1522,73 @@ bool execVerb(Scene &scene,
     scene.lastStroke.radius = scene.brush.radius;
     return true;
   }
+  if (verb == "preview_stroke_path") {
+    // Exercises the live-mutating preview/rollback primitive (MeshLog::
+    // beginPreviewDab/rollbackPreviewDab, step 2a of the Anchored/Drag Dot
+    // plan): every point but the last is applied as a rollback-able preview
+    // dab that is undone before the next preview, and only the final point
+    // is left committed -- one meshlog step, mirroring a single anchored or
+    // drag-dot gesture where the pointer moves through many preview
+    // positions before release. CPU executor only (no GPU dispatch branch);
+    // GPU preview wiring is step 3 of the plan, not yet implemented.
+    if (!scene.mesh || !scene.tree) {
+      err = "preview_stroke_path: no mesh/tree";
+      return false;
+    }
+    float3 p1, p2, normal{0, 0, 1};
+    if (!parseFloat3(getArg(args, "p1"), p1) ||
+        !parseFloat3(getArg(args, "p2"), p2)) {
+      err = "preview_stroke_path: missing p1/p2";
+      return false;
+    }
+    parseFloat3(getArg(args, "normal"), normal);
+
+    int steps = getInt(args, "steps", 8);
+    if (steps < 1) {
+      steps = 1;
+    }
+    Vector<float3> origins;
+    for (int i = 0; i < steps; i++) {
+      float t = (steps == 1) ? 0.0f : float(i) / float(steps - 1);
+      origins.append(p1 * (1.0f - t) + p2 * t);
+    }
+
+    uint32_t gen = ++scene.strokeGen;
+    scene.dyntopoParams.nonAccumGen = scene.nonAccum ? gen : 0;
+    brush::CommandExecutor exec(scene.tree, &scene.brush);
+    exec.meshLog = &scene.meshLog;
+    exec.ctx.renderMatrix = scene.renderMatrix;
+    exec.setNonAccum(scene.nonAccum);
+    exec.setStrokeGen(int(gen));
+    dyntopo::DynTopoParams *dtp = scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+    exec.beginStep(scene.dyntopoEnabled);
+    for (size_t i = 0; i < origins.size(); i++) {
+      bool isLast = (i + 1 == origins.size());
+      exec.beginPreviewDab(origins[i], scene.brush.radius);
+      exec.applyDab(scene.currentTool, origins[i], normal, scene.brush.radius, dtp,
+                    scene.dyntopoSeed + uint32_t(i));
+      // Per-dab spatial-query update mirrors a live pointer-move gesture,
+      // where the tree must stay current between preview dabs for the next
+      // dab's picking/raycast.
+      scene.tree->updateQueries();
+      if (!isLast) {
+        exec.rollbackPreviewDab();
+        scene.tree->updateQueries();
+      }
+    }
+    if (scene.dyntopoEnabled) {
+      exec.endDynTopoStroke();
+    }
+    exec.endStep();
+    scene.tree->update(&scene.gpu);
+    multiresStrokeEnd(scene);
+
+    scene.lastStroke.valid = true;
+    scene.lastStroke.origin = p2;
+    scene.lastStroke.normal = normal;
+    scene.lastStroke.radius = scene.brush.radius;
+    return true;
+  }
   if (verb == "view") {
     const char *v = getArg(args, "preset", "persp");
     ViewPreset p = ViewPreset::Persp;

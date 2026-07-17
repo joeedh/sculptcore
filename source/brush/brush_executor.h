@@ -279,6 +279,11 @@ struct CommandExecutor {
     st->methods[st->methods.size() - 1]->argIsNullable("params");
     BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
+    BIND_STRUCT_METHOD(st, beginPreviewDab, MARGS("center", "radius"));
+    BIND_STRUCT_METHOD(st, extendPreviewDab, MARGS("center", "radius"));
+    BIND_STRUCT_METHOD(st, rollbackPreviewDab, MARGS());
+    BIND_STRUCT_METHOD(st, previewActive, MARGS());
+    BIND_STRUCT_METHOD(st, commitPreviewDab, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
     BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
     BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
@@ -1671,6 +1676,60 @@ struct CommandExecutor {
   void clearIsFirstOfStep()
   {
     isFirstOfStep = false;
+  }
+
+  /** Anchored/Drag Dot live preview: snapshot the region the next preview-only
+   * applyDab() is about to touch (see MeshLog::beginPreviewDab). Call
+   * immediately before that dab (the primary/first dab of a driver tick; use
+   * extendPreviewDab() for any symmetry mirror images of the same tick).
+   * Roll the whole group back with rollbackPreviewDab() before the next
+   * tick's dabs, or keep it with commitPreviewDab() at stroke end. */
+  void beginPreviewDab(float3 center, float radius)
+  {
+    if (!meshLog || !tree) {
+      return;
+    }
+    meshLog->beginPreviewDab(tree->m, tree, center, radius);
+  }
+
+  /** Add another region to the currently-open preview session (a mirror
+   * image of the same driver tick) without resetting it — the whole group
+   * rolls back together via one rollbackPreviewDab(). See
+   * MeshLog::extendPreviewDab. */
+  void extendPreviewDab(float3 center, float radius)
+  {
+    if (!meshLog || !tree) {
+      return;
+    }
+    meshLog->extendPreviewDab(tree->m, tree, center, radius);
+  }
+
+  /** Undo the most recent preview dab (topology pop-and-undo + position/attr
+   * restore) without closing the step. See MeshLog::rollbackPreviewDab. */
+  void rollbackPreviewDab()
+  {
+    if (!meshLog || !tree) {
+      return;
+    }
+    meshLog->rollbackPreviewDab(tree->m, tree);
+  }
+
+  /** True if a preview snapshot is pending rollback (diagnostic / debug-app use). */
+  bool previewActive() const
+  {
+    return meshLog && meshLog->previewActive();
+  }
+
+  /** Keep the pending preview dab's effect and drop its snapshot bookkeeping.
+   * Call once at the true end of an Anchored/Drag Dot stroke (after the last
+   * dab, instead of a paired rollback) so previewActive() doesn't leak into
+   * the next stroke's step. See MeshLog::commitPreviewDab. */
+  void commitPreviewDab()
+  {
+    if (!meshLog) {
+      return;
+    }
+    meshLog->commitPreviewDab();
   }
 
   void beginStep(bool hasDyntopo)
