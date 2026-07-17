@@ -55,6 +55,7 @@ export interface SpatialTree {
   update(gpu: GPUManager): boolean
   updateQueries(): boolean
   getDrawBatch(): DrawBatch | undefined
+  materialStats(perLeaf: boolean, out: int32[]): void
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean
   filterNodes(co: float3, radius: float, out: SpatialNode[]): boolean
   setColorDisplayMode(mode: int32): void
