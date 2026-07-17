@@ -231,6 +231,50 @@ int Mesh_writeVertFloatAttr(Mesh *m, const char *name, const float *in)
   return 1;
 }
 
+/** Read a named FLOAT4 vertex attribute into `out` (verts_num * 4 floats,
+ * live-vert order). Returns 1 when the attribute exists, 0 otherwise. Used to
+ * pull vertex colors (the `color` attr) back to the Blender mesh. */
+int Mesh_readVertFloat4Attr(Mesh *m, const char *name, float *out)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  AttrRef ref = m->v.attrs.find_attribute(AttrType::FLOAT4, name);
+  if (!ref.exists()) {
+    return 0;
+  }
+  auto *data = static_cast<AttrData<math::float4> *>(ref.data);
+  int i = 0;
+  for (int vi : m->v) {
+    math::float4 c = data->safe_get(vi);
+    out[i * 4] = c[0];
+    out[i * 4 + 1] = c[1];
+    out[i * 4 + 2] = c[2];
+    out[i * 4 + 3] = c[3];
+    i++;
+  }
+  return 1;
+}
+
+/** Write `in` (verts_num * 4 floats) into a named FLOAT4 vertex attribute,
+ * creating it if missing. Used to seed vertex colors (`color`) from the
+ * Blender mesh on enter. Returns 1. */
+int Mesh_writeVertFloat4Attr(Mesh *m, const char *name, const float *in)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  AttrRef &ref = m->v.attrs.ensure(AttrType::FLOAT4, name, /*materialize=*/true);
+  auto *data = static_cast<AttrData<math::float4> *>(ref.data);
+  int i = 0;
+  for (int vi : m->v) {
+    data->materialize(vi);
+    (*data)[vi] = math::float4(in[i * 4], in[i * 4 + 1], in[i * 4 + 2], in[i * 4 + 3]);
+    i++;
+  }
+  return 1;
+}
+
 /** Read a named INT face attribute into `out` (Mesh_arraySizes' faces_num
  * live-order values, matching Mesh_toArrays' face order). Returns 1 when the
  * attribute exists, 0 otherwise. Used to pull face sets (the `group` attr)

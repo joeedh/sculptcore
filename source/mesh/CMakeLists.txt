@@ -72,6 +72,8 @@ wasm_add_symbols("
   Mesh_writeVertFloatAttr
   Mesh_readFaceIntAttr
   Mesh_writeFaceIntAttr
+  Mesh_readVertFloat4Attr
+  Mesh_writeVertFloat4Attr
   serializeMesh
   serializeMeshRaw
   deserializeMesh
