@@ -51,6 +51,7 @@ export interface Brush {
   falloff_extent: float3
   planeSide: float
   strokeDir: float3
+  strokeDirHostSet: boolean
   wingAngle: float
   wingNormalA: float3
   wingNormalB: float3

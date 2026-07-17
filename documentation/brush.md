@@ -65,12 +65,14 @@ factory. It computes per-vertex falloff through `strength(co)`
 (`brush_command.h:63`):
 
 ```cpp
-float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
+float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
 return brush.strength * brush.falloffEval(t);
 ```
 
 `falloffDist` applies the spatial metric (`FalloffShape`:
-spherical / cube / linear) and `falloffEval` the curve shape (`FalloffKind`:
+spherical / cube / linear / box — box is the stroke-aligned oriented cuboid,
+built from `surfaceNo` + `falloff_dir`) and `falloffEval` the curve shape
+(`FalloffKind`:
 smoothstep / linear / gaussian / curve-LUT). Both enums are bound directly as
 `Brush` members (`falloff_shape`/`falloff_kind`, via `Binder<FalloffKind>` /
 `Binder<FalloffShape>` in `bindings.cc`), so the TS bridge sets them as plain

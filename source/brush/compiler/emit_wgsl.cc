@@ -927,15 +927,22 @@ struct Emit {
     write("  } else if (brush_u.falloff_shape == 2u) {\n");
     write("    return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;\n");
     write("  } else if (brush_u.falloff_shape == 3u) {\n");
-    // Oriented cuboid — mirrors Brush::falloffDist's Box case bit-for-bit
-    // (same reference-axis pick: |n.z| < 0.999).
-    write("    let sb_n = normalize(brush_u.falloff_dir);\n");
-    write("    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);\n");
-    write("    let sb_t1 = normalize(cross(sb_ref, sb_n));\n");
-    write("    let sb_t2 = cross(sb_n, sb_t1);\n");
-    write("    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;\n");
-    write("    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;\n");
-    write("    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;\n");
+    // Stroke-aligned oriented cuboid — mirrors Brush::falloffDist's Box case
+    // bit-for-bit: axis 0 = stroke tangent projected into the surface tangent
+    // plane, axis 1 = in-plane perpendicular, axis 2 = surface normal.
+    write("    let sb_n = normalize(ctx_u.surfaceNo);\n");
+    write("    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);\n");
+    write("    var sb_tl = length(sb_tang);\n");
+    write("    if (sb_tl < 1e-6) {\n");
+    write("      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);\n");
+    write("      sb_tang = cross(sb_ref, sb_n);\n");
+    write("      sb_tl = length(sb_tang);\n");
+    write("    }\n");
+    write("    sb_tang = sb_tang / sb_tl;\n");
+    write("    let sb_lat = cross(sb_n, sb_tang);\n");
+    write("    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;\n");
+    write("    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;\n");
+    write("    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;\n");
     write("    return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;\n");
     write("  }\n");
     write("  return length(delta) * sb_inv_r;\n");
