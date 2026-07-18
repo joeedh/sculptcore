@@ -138,8 +138,10 @@ int Multires_levelPositionsOut(subdiv::Multires *mr, int level, float (*out)[3])
  * transpose while filling the buffer. Replicated seam samples must carry equal
  * values (they do from A2 / consistent MDISPS); scatter is last-writer-wins.
  * All finer detail lands at this level (levels below stay at the discrete base);
- * a later down-refit pass can redistribute it. Returns the changed-vert count,
- * -1 on a sample-count mismatch, 0 on failure. */
+ * a later down-refit pass can redistribute it. When anything changed the level
+ * is rematerialized from the store, so previously fetched active mesh/tree
+ * pointers are invalid — re-fetch via Multires_activeMesh/Tree. Returns the
+ * changed-vert count, -1 on a sample-count mismatch, 0 on failure. */
 int Multires_fromLevelPositions(
     subdiv::Multires *mr, int level, const float (*positions)[3], int sample_num)
 {
@@ -164,7 +166,15 @@ int Multires_fromLevelPositions(
     }
     m->v.co[vid] = float3(positions[i][0], positions[i][1], positions[i][2]);
   }
-  return mr->writeback(level);
+  const int changed = mr->writeback(level);
+  if (changed > 0) {
+    // The slot's tree + normals were built from pre-seed positions; drop it
+    // and rematerialize from the store so the active mesh/tree pair is
+    // consistent (slot pointers change — callers re-fetch, like downRefit).
+    mr->invalidateAbove(level - 1);
+    mr->setActiveLevel(level);
+  }
+  return changed;
 }
 
 /** Geometry -> VDM capture (X4 stage 2): move `level`'s grids-store disp into
