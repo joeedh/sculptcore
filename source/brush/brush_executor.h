@@ -1179,6 +1179,11 @@ struct CommandExecutor {
       updateEnhanceRegion(*m, regionVerts, ep, strokeGen);
     }
 
+    // Resolve common props with device dynamics applied (a bit-identical no-op
+    // without configured devices; mirrors the execProgram load). No
+    // loadUniformProps: this path's callers set kernel uniforms as raw fields.
+    brush->loadCommonProps(&brush->deviceInputCtx);
+
     ctx.m = m;
     ctx.surfaceNo = normal;
     ctx.surfacePos = origin;
