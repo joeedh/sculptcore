@@ -454,9 +454,9 @@ export function makeNativeInterface(nm: NativeManager): unknown {
       return (gpu ??= nm.construct('sculptcore::gpu::GPUManager'))
     },
     getBoundVector                   : (name: string, bound: NativeBound) => nm.getBoundVector(name, bound),
-    setBoundIntVector                : (bound: NativeBound, data: ArrayLike<number>) => nm.setBoundIntVector(bound, data),
+    setBoundIntVector: (bound: NativeBound, data: ArrayLike<number>) => nm.setBoundIntVector(bound, data),
     vectorFloatView                  : (vec: NativeBound) => nm.addon.vectorView(vec),
-    pointerBytes                     : (b: NativeBound, m: string, n: number, off?: number) => nm.pointerBytes(b, m, n, off),
+    pointerBytes: (b: NativeBound, m: string, n: number, off?: number) => nm.pointerBytes(b, m, n, off),
     objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
     Mesh_createCube                  : (d: number, s: number, sp: number) => nm.Mesh_createCube(d, s, sp),
     Mesh_makeUVSphere                : (r: number, s: number, rad: number) => nm.Mesh_makeUVSphere(r, s, rad),

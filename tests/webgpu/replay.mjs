@@ -238,9 +238,7 @@ export async function replayFixture(fixturePath, wgslDir) {
   // the native dispatchers' default fill.
   let automaskBuf = null
   if (has(24)) {
-    const bytes = fx.automask
-      ? b64bytes(fx.automask)
-      : Buffer.from(new Float32Array(vc).fill(1.0).buffer)
+    const bytes = fx.automask ? b64bytes(fx.automask) : Buffer.from(new Float32Array(vc).fill(1.0).buffer)
     automaskBuf = makeBuffer(device, bytes, BufferUsage.STORAGE)
   }
 

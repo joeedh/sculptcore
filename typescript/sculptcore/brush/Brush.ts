@@ -66,33 +66,11 @@ export interface Brush {
   pushDeviceInput(type: int32, value: float): void
   clearDeviceInputs(): void
   clearPropDynamics(propId: int32): void
-  addPropDynamic(
-    propId: int32,
-    deviceType: int32,
-    mixMode: int32,
-    mixFactor: float
-  ): void
-  setPropDynamicSample(
-    propId: int32,
-    deviceType: int32,
-    i: int32,
-    n: int32,
-    value: float
-  ): void
+  addPropDynamic(propId: int32, deviceType: int32, mixMode: int32, mixFactor: float): void
+  setPropDynamicSample(propId: int32, deviceType: int32, i: int32, n: int32, value: float): void
   clearPropDynamicsByName(name: string): void
-  addPropDynamicByName(
-    name: string,
-    deviceType: int32,
-    mixMode: int32,
-    mixFactor: float
-  ): void
-  setPropDynamicSampleByName(
-    name: string,
-    deviceType: int32,
-    i: int32,
-    n: int32,
-    value: float
-  ): void
+  addPropDynamicByName(name: string, deviceType: int32, mixMode: int32, mixFactor: float): void
+  setPropDynamicSampleByName(name: string, deviceType: int32, i: int32, n: int32, value: float): void
   setPropsParent(parentProps: StructProp): void
   clearPropsParent(): void
   new (): Brush
