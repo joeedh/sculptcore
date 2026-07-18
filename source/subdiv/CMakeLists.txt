@@ -29,6 +29,8 @@ wasm_add_symbols("
   Multires_setActiveLevel
   Multires_activeMesh
   Multires_activeTree
+  Multires_levelSampleCount
+  Multires_levelPositionsOut
   Multires_writeback
   Multires_captureToVdm
   Multires_downRefit

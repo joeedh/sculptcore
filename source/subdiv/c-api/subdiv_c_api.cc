@@ -80,6 +80,56 @@ int Multires_downRefit(subdiv::Multires *mr, int level)
   return mr ? mr->downRefit(level) : 0;
 }
 
+/** Number of grid samples at `level`: gridCount * (2^(level-1)+1)^2 — the
+ * element count the `out` buffer for Multires_levelPositionsOut must hold (each
+ * element is 3 floats). Boundary/seam verts are counted once per grid that owns
+ * them (replicated slots), matching Blender's per-loop MDISPS layout. */
+int Multires_levelSampleCount(subdiv::Multires *mr, int level)
+{
+  if (!mr) {
+    return 0;
+  }
+  litestl::util::Vector<int> gridVerts;
+  mr->levelGridVertsOut(level, gridVerts);
+  return int(gridVerts.size());
+}
+
+/** Dump absolute object-space positions of `level`'s grid samples into `out`
+ * (Multires_levelSampleCount entries of 3 floats), grid-major row-major:
+ * `out[g*w*w + v*w + u]` is lattice `(u,v)` of grid `g`, `w = 2^(level-1)+1`.
+ * This is SculptCore's native grid order (`+u` = corner edge, `+v` = previous
+ * corner edge); any `u`<->`v` transpose vs Blender's MDISPS is applied by the
+ * Blender-side mapping. Materializes `level` as a side effect. Returns the
+ * sample count, 0 on failure. */
+int Multires_levelPositionsOut(subdiv::Multires *mr, int level, float (*out)[3])
+{
+  if (!mr || !out) {
+    return 0;
+  }
+  level = level < 1 ? 1 : (level > mr->maxLevel() ? mr->maxLevel() : level);
+  mr->setActiveLevel(level);
+  subdiv::MultiresSlot *slot = mr->findSlot(level);
+  if (!slot || !slot->mesh) {
+    return 0;
+  }
+  mesh::Mesh *m = slot->mesh;
+  litestl::util::Vector<int> gridVerts;
+  mr->levelGridVertsOut(level, gridVerts);
+  const int sample_num = int(gridVerts.size());
+  for (int i = 0; i < sample_num; i++) {
+    const int vid = gridVerts[i];
+    if (vid < 0) {
+      out[i][0] = out[i][1] = out[i][2] = 0.0f;
+      continue;
+    }
+    const float3 co = m->v.co[vid];
+    out[i][0] = co[0];
+    out[i][1] = co[1];
+    out[i][2] = co[2];
+  }
+  return sample_num;
+}
+
 /** Geometry -> VDM capture (X4 stage 2): move `level`'s grids-store disp into
  * the Ptex VDM store's texels, zero the disp, drop the surface onto the
  * smooth base. Returns texels written; caller owns undo snapshots + the
