@@ -395,6 +395,92 @@ static void gateCube()
   alloc::Delete(cage);
 }
 
+/* Add-level (the litemesh.multires_add_level ToolOp engine seam): growing the
+ * stack by one appends a zero-displacement finest level (a smooth subdivision
+ * of the current finest surface — no detail invented), preserves every existing
+ * level's detail bit-exactly, and is exactly reversed by removeTopLevel(). Also
+ * checks the level cap. */
+static void gateAddLevel()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 2);
+  test_assert(mr.maxLevel() == 2);
+  injectDisp(mr);
+
+  /* Fold a real level-2 edit so the preserved detail is nonzero. */
+  MultiresSlot *s2 = mr.setActiveLevel(2);
+  int editVid = 5;
+  float3 edited = s2->mesh->v.co[editVid] + float3(0.125f, 0.0f, 0.0625f);
+  s2->mesh->v.co[editVid] = edited;
+  test_assert(mr.writeback(2) == 1);
+  s2 = mr.setActiveLevel(2);
+  Vector<float3> p2;
+  snapshotCo(*s2->mesh, p2);
+  std::string blobBefore = storeBlob(mr.store);
+
+  /* Grow: one finer level, now active + finest. */
+  test_assert(mr.addLevel() == 3);
+  test_assert(mr.maxLevel() == 3);
+  test_assert(mr.activeLevel() == 3);
+
+  /* The new finest level carries zero displacement everywhere. */
+  {
+    int S = subdiv::GridsStore::sideForLevel(3), w = S + 1;
+    bool allZero = true;
+    for (int g = 0; g < mr.store.gridCount() && allZero; g++) {
+      for (int v = 0; v < w && allZero; v++) {
+        for (int u = 0; u < w && allZero; u++) {
+          const float *d = mr.store.elem(3, 0, g, u, v);
+          allZero = d[0] == 0.0f && d[1] == 0.0f && d[2] == 0.0f;
+        }
+      }
+    }
+    test_assert(allZero);
+  }
+
+  /* Zero disp ⇒ level-3 positions are exactly the stencil subdivision of the
+   * preserved level-2 surface. */
+  {
+    MultiresSlot *s3 = mr.findSlot(3);
+    test_assert(s3 != nullptr);
+    Vector<float3> up, co3;
+    mr.refiner.levels[2].stencil.eval(p2, up);
+    snapshotCo(*s3->mesh, co3);
+    test_assert(sameBits(co3, up));
+  }
+
+  /* Existing level-2 detail is preserved bit-exactly across the grow. */
+  s2 = mr.setActiveLevel(2);
+  {
+    Vector<float3> now;
+    snapshotCo(*s2->mesh, now);
+    test_assert(sameBits(now, p2));
+  }
+
+  /* Shrink is the exact inverse: store byte-identical, surface preserved. */
+  test_assert(mr.removeTopLevel() == 2);
+  test_assert(mr.maxLevel() == 2);
+  test_assert(storeBlob(mr.store) == blobBefore);
+  s2 = mr.setActiveLevel(2);
+  {
+    Vector<float3> now;
+    snapshotCo(*s2->mesh, now);
+    test_assert(sameBits(now, p2));
+  }
+
+  /* Growth stops at the level cap (kMaxMultiresLevels == 7). */
+  while (mr.maxLevel() < 7) {
+    int prev = mr.maxLevel();
+    test_assert(mr.addLevel() == prev + 1);
+  }
+  test_assert(mr.maxLevel() == 7);
+  test_assert(mr.addLevel() == 7); /* no-op at the cap */
+
+  fprintf(stderr, "add-level: grow preserves detail, shrink exact, cap ok\n");
+  alloc::Delete(cage);
+}
+
 /* Open-boundary + n-gon cage smoke: materialize/writeback on a fan. */
 static void gateFan()
 {
@@ -912,6 +998,7 @@ int main(int argc, char **argv)
 
   gateLayerChannels();
   gateCube();
+  gateAddLevel();
   gateFan();
   gateDownRefit();
   gateGridUVs();

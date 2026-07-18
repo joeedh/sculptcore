@@ -724,6 +724,60 @@ int Multires::downRefit(int level)
   return nChanged;
 }
 
+// Stack-depth cap (mirrors the app's MultiresEnableOp levels range). Each level
+// roughly quadruples the vertex count, so an upper bound is required.
+static constexpr int kMaxMultiresLevels = 7;
+
+int Multires::addLevel()
+{
+  if (!cage_ || maxLevel() >= kMaxMultiresLevels) {
+    return maxLevel();
+  }
+  if (activeLevel_ >= 1) {
+    writeback(activeLevel_); // fold pending edits into the store first
+  }
+  int n = maxLevel() + 1;
+  // refine() rebuilds all levels, but the stencil/grid tables are a pure
+  // function of cage topology + level index, so levels 1..n-1 re-emit
+  // bit-identically. Keep the existing cached chains + resident slots (they
+  // stay valid) so the grow is lossless — only the fresh finest level is
+  // derived, as stencil(level n-1) + zero disp.
+  refiner.refine(*cage_, n);
+  refiner.releaseMeshes();
+  store.addLevel(); // zero-disp finest level for every channel (disp + layers)
+  posCache_.resize(n);
+  activeLevel_ = 0; // already folded above; let setActiveLevel just materialize
+  setActiveLevel(n);
+  return maxLevel();
+}
+
+int Multires::removeTopLevel()
+{
+  if (!cage_ || maxLevel() <= 1) {
+    return maxLevel();
+  }
+  int prevActive = activeLevel_;
+  if (prevActive >= 1) {
+    writeback(prevActive);
+  }
+  int n = maxLevel() - 1;
+  // Evict residents + drop cached chains for the level being removed; the
+  // surviving levels' caches stay valid (topology unchanged), so the shrink is
+  // lossless too.
+  for (int i = int(slots_.size()) - 1; i >= 0; i--) {
+    if (slots_[i].level > n) {
+      evictSlot(i);
+    }
+  }
+  refiner.refine(*cage_, n);
+  refiner.releaseMeshes();
+  store.dropTopLevel();
+  posCache_.resize(n);
+  activeLevel_ = 0;
+  setActiveLevel(prevActive > n ? n : prevActive);
+  return maxLevel();
+}
+
 void Multires::refreshAfterLayerChange()
 {
   for (int l = 1; l <= maxLevel(); l++) {
@@ -1090,6 +1144,8 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
       new types::Struct<Multires>("sculptcore::subdiv::Multires", sizeof(Multires));
   BIND_STRUCT_METHOD(st, maxLevel, MARGS());
   BIND_STRUCT_METHOD(st, activeLevel, MARGS());
+  BIND_STRUCT_METHOD(st, addLevel, MARGS());
+  BIND_STRUCT_METHOD(st, removeTopLevel, MARGS());
   BIND_STRUCT_METHOD(st, setStoreBudget, MARGS("bytes"));
   BIND_STRUCT_METHOD(st, layerAdd, MARGS());
   BIND_STRUCT_METHOD(st, layerRemove, MARGS("li"));

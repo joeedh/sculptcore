@@ -91,6 +91,18 @@ struct Multires {
    * level >= 2. */
   int downRefit(int level);
 
+  /** Append one finer Catmull-Clark level (zero displacement — a smooth
+   * subdivision of the current finest surface), preserving every existing
+   * level's detail, and make the new finest level active. Folds pending edits
+   * on the active level first. Returns the new maxLevel, or the unchanged
+   * maxLevel when already at the level cap. */
+  int addLevel();
+
+  /** Pop the finest level — the inverse of addLevel(), used by its ToolOp's
+   * undo/redo. Folds pending edits first, then rebuilds the stack one level
+   * shallower. Returns the new maxLevel (unchanged when maxLevel() <= 1). */
+  int removeTopLevel();
+
   /** Drop cached position chains and resident meshes strictly above `level`
    * (after a level-`level` edit lands in the store). */
   void invalidateAbove(int level);
