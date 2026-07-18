@@ -31,6 +31,7 @@ wasm_add_symbols("
   Multires_activeTree
   Multires_levelSampleCount
   Multires_levelPositionsOut
+  Multires_fromLevelPositions
   Multires_writeback
   Multires_captureToVdm
   Multires_downRefit

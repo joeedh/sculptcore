@@ -130,6 +130,43 @@ int Multires_levelPositionsOut(subdiv::Multires *mr, int level, float (*out)[3])
   return sample_num;
 }
 
+/** Seed `level` from grid-sample absolute positions (the A2 layout:
+ * Multires_levelSampleCount entries, grid-major row-major, boundary replicas
+ * included), then write them back into the store as `level` displacement over
+ * the discrete base. `positions` is in SculptCore grid order (`+u` corner edge,
+ * `+v` previous corner edge); a Blender caller applies the MDISPS<->grid
+ * transpose while filling the buffer. Replicated seam samples must carry equal
+ * values (they do from A2 / consistent MDISPS); scatter is last-writer-wins.
+ * All finer detail lands at this level (levels below stay at the discrete base);
+ * a later down-refit pass can redistribute it. Returns the changed-vert count,
+ * -1 on a sample-count mismatch, 0 on failure. */
+int Multires_fromLevelPositions(
+    subdiv::Multires *mr, int level, const float (*positions)[3], int sample_num)
+{
+  if (!mr || !positions) {
+    return 0;
+  }
+  level = level < 1 ? 1 : (level > mr->maxLevel() ? mr->maxLevel() : level);
+  subdiv::MultiresSlot *slot = mr->setActiveLevel(level);
+  if (!slot || !slot->mesh) {
+    return 0;
+  }
+  litestl::util::Vector<int> gridVerts;
+  mr->levelGridVertsOut(level, gridVerts);
+  if (sample_num != int(gridVerts.size())) {
+    return -1;
+  }
+  mesh::Mesh *m = slot->mesh;
+  for (int i = 0; i < sample_num; i++) {
+    const int vid = gridVerts[i];
+    if (vid < 0) {
+      continue;
+    }
+    m->v.co[vid] = float3(positions[i][0], positions[i][1], positions[i][2]);
+  }
+  return mr->writeback(level);
+}
+
 /** Geometry -> VDM capture (X4 stage 2): move `level`'s grids-store disp into
  * the Ptex VDM store's texels, zero the disp, drop the surface onto the
  * smooth base. Returns texels written; caller owns undo snapshots + the
