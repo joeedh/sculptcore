@@ -39,8 +39,19 @@ export interface MeshLog {
   splitFacesOff(m: Mesh, outNormal: float[]): void
   subdivideEdges(m: Mesh, numCuts: int32, outVerts: int32[]): void
   loopCut(m: Mesh, seedEdge: int32, outVerts: int32[]): void
-  loopCutAtRay(m: Mesh, tree: SpatialTree, origin: float3, dir: float3, outVerts: int32[]): void
-  insetRegion(m: Mesh, insetVerts: int32[], baseCo: float[], tangent: float[]): void
+  loopCutAtRay(
+    m: Mesh,
+    tree: SpatialTree,
+    origin: float3,
+    dir: float3,
+    outVerts: int32[]
+  ): void
+  insetRegion(
+    m: Mesh,
+    insetVerts: int32[],
+    baseCo: float[],
+    tangent: float[]
+  ): void
   bevelVerts(m: Mesh, verts: int32[], baseCo: float[], tangent: float[]): void
   selectionBeginStep(): void
   selectionEndStep(): void

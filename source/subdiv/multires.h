@@ -254,6 +254,9 @@ private:
 
   /** Ensure the cached position chain is valid through `level`; returns it. */
   litestl::util::Vector<litestl::math::float3> &ensureChain(int level);
+  /** Ensure `level`'s LevelPos carries its smooth base + F3 frames (the chain
+   * through `level` must already be valid). Cheap when cached. */
+  void ensureBaseAndFrames(int level);
   /** Re-express `pos` (dense by level vert id) as level-`level` store
    * displacement: disp = frameᵀ·(pos − base), base = stencil(prev chain),
    * frames on the smoothed base. Writes verts where `mask` is null or set.
@@ -272,6 +275,23 @@ private:
   struct LevelPos {
     bool valid = false;
     litestl::util::Vector<litestl::math::float3> pos;
+    /** Cached smooth base (stencil of the level below) + F3 frames on it —
+     * writeback re-expression reuses these instead of rebuilding a temp level
+     * mesh + frames every stroke. Valid only while the level below's positions
+     * are unchanged; posIsBase marks a zero-disp materialization (pos == base,
+     * base itself not yet copied out). */
+    bool framesValid = false;
+    bool posIsBase = false;
+    litestl::util::Vector<litestl::math::float3> base, frameNo, frameTa;
+
+    void reset()
+    {
+      valid = framesValid = posIsBase = false;
+      pos.clear();
+      base.clear();
+      frameNo.clear();
+      frameTa.clear();
+    }
   };
 
   mesh::Mesh *cage_ = nullptr;
