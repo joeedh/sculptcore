@@ -12,7 +12,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -618,11 +620,85 @@ void test_nonpersistent_flag_repair()
   printf("  [%s] spatial node attrs re-flagged TEMP|NOINTERP|NOCOPY on load\n", tag);
 }
 
+/* Deterministic non-trivial mesh (grid + a hole + custom/select/sparse attrs)
+ * used both to write the checked-in version fixture and to rebuild the expected
+ * mesh the load test compares against. Must stay stable across format versions. */
+void buildFixtureMesh(Mesh &m)
+{
+  build_grid(m, 4);
+  int someFace = *m.f.begin();
+  m.kill_face(someFace);
+  int someEdge = *m.e.begin();
+  m.kill_edge(someEdge);
+  populate_attrs(m);
+}
+
+/* fixtures/ sits next to this source file; derive it from __FILE__ so the test
+ * finds the blob regardless of the build/native/tests cwd. */
+std::string fixtureDir()
+{
+  std::string f = __FILE__;
+  size_t slash = f.find_last_of("/\\");
+  std::string dir = slash == std::string::npos ? std::string(".") : f.substr(0, slash);
+  return dir + "/fixtures";
+}
+
+/* Load an old-version blob checked into the tree (written by an earlier writer)
+ * and assert it reconstructs the same mesh a fresh build produces — the only
+ * test that exercises migrate()'s old-version path + the load-time topology
+ * rebuild against real old bytes, not the current writer's output. */
+void test_load_fixture(const char *file)
+{
+  char tag[80];
+  snprintf(tag, sizeof(tag), "fixture-%s", file);
+  std::string path = fixtureDir() + "/" + file;
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    fprintf(stderr, "[%s] cannot open %s\n", tag, path.c_str());
+    retval = 1;
+    return;
+  }
+  Mesh loaded;
+  if (!serial::readMesh(loaded, in)) {
+    fprintf(stderr, "[%s] readMesh failed\n", tag);
+    retval = 1;
+    return;
+  }
+
+  Mesh expected;
+  buildFixtureMesh(expected);
+
+  TASSERT(loaded.v.count == expected.v.count);
+  TASSERT(loaded.e.count == expected.e.count);
+  TASSERT(loaded.f.count == expected.f.count);
+  TASSERT(validateMesh(loaded, tag));
+  TASSERT(sigEqual(geomEdgeSignature(expected), geomEdgeSignature(loaded)));
+  check_attrs(loaded, tag);
+  printf("  [%s] loaded verts=%d edges=%d faces=%d\n", tag, loaded.v.count,
+         loaded.e.count, loaded.f.count);
+}
+
 } // namespace
 
 int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
+
+  /* Regenerate the checked-in fixture with the current writer (writes the
+   * current kMeshFormatVersion). Used once per format version to add a new
+   * fixture; the committed blobs are never regenerated with a newer writer. */
+  if (const char *genPath = std::getenv("SC_GEN_FIXTURE")) {
+    Mesh m;
+    buildFixtureMesh(m);
+    std::ofstream out(genPath, std::ios::binary);
+    if (!out || !serial::writeMesh(m, out)) {
+      fprintf(stderr, "gen fixture failed: %s\n", genPath);
+      return 1;
+    }
+    printf("wrote fixture %s (v=%u) verts=%d edges=%d faces=%d\n", genPath,
+           serial::kMeshFormatVersion, m.v.count, m.e.count, m.f.count);
+    return 0;
+  }
 
   for (int N : {1, 4, 8, 16}) {
     test_full_roundtrip(N);
@@ -634,6 +710,7 @@ int main()
   test_boundary_roundtrip();
   test_detach_reattach();
   test_nonpersistent_flag_repair();
+  test_load_fixture("mesh_v4.bin");
 
   printf("mesh_serialize test done (retval=%d)\n", retval);
   return retval;
