@@ -34,6 +34,10 @@ enum class _AttrFlag {
    * with the pure-iteration links. Currently only .corner.v (triangle vert
    * lookup for bounds/normals/GPU upload). */
   TOPO_KEEP_FROZEN = 1 << 4,
+  /* Recomputable from the authoritative columns, so serial::writeMesh drops it
+   * (like TEMP) and serial::readMesh rebuilds it — normals, the ngon counts, and
+   * the radial-edge link columns. See mesh_serialize.cc / rebuildDerivedTopo. */
+  DERIVED = 1 << 5,
 };
 MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 
@@ -94,6 +98,7 @@ template <> struct Binder<sculptcore::mesh::AttrFlag> {
     e->addItem("NoCopy", static_cast<int>(AttrFlag::NOCOPY));
     e->addItem("NoInterp", static_cast<int>(AttrFlag::NOINTERP));
     e->addItem("TopoKeepFrozen", static_cast<int>(AttrFlag::TOPO_KEEP_FROZEN));
+    e->addItem("Derived", static_cast<int>(AttrFlag::DERIVED));
     return e;
   }
 };

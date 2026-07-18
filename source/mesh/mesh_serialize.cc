@@ -169,6 +169,15 @@ AttrFlag mandatoryBuiltinFlags(const string &name)
       is(boundary::VERT_CLASS)) {
     return AttrFlag::TEMP;
   }
+  /* Derived builtins the current writer drops and readMesh rebuilds. A pre-v5
+   * file still carries these columns with flag DERIVED unset; re-assert the bit
+   * so the loaded mesh drops them from its next save (same pattern as TEMP). The
+   * radial-edge links (.vert.e, .edge.vs.disk, .corner.*, …) are added here in
+   * Phase 2 alongside rebuildDerivedTopo(). */
+  if (is("normals") || is(".face.normal") || is(".list.size") ||
+      is(".face.list_count")) {
+    return AttrFlag::DERIVED;
+  }
   return AttrFlag::NONE;
 }
 
@@ -219,7 +228,7 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
 
   uint32_t attrCount = 0;
   for (AttrRef &attr : ed.attrs.attrs) {
-    if (attr.flag & AttrFlag::TEMP) {
+    if (attr.flag & (AttrFlag::TEMP | AttrFlag::DERIVED)) {
       continue;
     }
     attrCount++;
@@ -231,7 +240,7 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
 
   Vector<uint8_t> buf;
   for (AttrRef &attr : ed.attrs.attrs) {
-    if (attr.flag & AttrFlag::TEMP) {
+    if (attr.flag & (AttrFlag::TEMP | AttrFlag::DERIVED)) {
       continue;
     }
 
@@ -619,9 +628,33 @@ bool readMesh(Mesh &mesh, std::istream &in)
     buildDomain(*eds[d], sm.domains[d]);
   }
   mesh.sculptLayers = std::move(sm.layers);
-  /* buildDomain bulk-loads faces without make_face, so resync the n-gon counter
-   * dyntopo's triangulate-prepass skip relies on. */
+
+  /* Rebuild the derived ngon counts (.list.size / .face.list_count) dropped from
+   * the blob: make_face maintains them but bulk load bypasses it. Must precede
+   * recountNgons(), which reads l.size. Every face here has a single list
+   * (make_face never chains l.next), but walk the chain to stay general. */
+  for (int fi : mesh.f) {
+    short nlists = 0;
+    for (int li = mesh.f.l[fi]; li != ELEM_NONE; li = mesh.l.next[li]) {
+      int c0 = mesh.l.c[li], cc = c0, n = 0;
+      do {
+        n++;
+        cc = mesh.c.next[cc];
+      } while (cc != c0);
+      mesh.l.size[li] = n;
+      nlists++;
+    }
+    mesh.f.list_count[fi] = nlists;
+  }
+
+  /* n-gon counter dyntopo's triangulate-prepass skip relies on (now over the
+   * freshly rebuilt l.size). */
   mesh.recountNgons();
+
+  /* Normals (v.normals / .face.normal) are DERIVED and dropped; recompute from
+   * the loaded geometry + topology. In Phase 2 this must run after the link
+   * rebuild, since vertex normals walk the disk/radial cycles. */
+  mesh.recalc_normals();
   /* The derived boundary overlay (EDGE_POLYGROUP / VERT_CLASS) is TEMP and not
    * serialized, and boundaryDirty defaults false — so a freshly loaded mesh
    * carries the source flags (seam/sharp/group) but no recomputed classification.

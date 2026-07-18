@@ -71,7 +71,7 @@ struct VertexData : public ElemData {
   }
 
   BuiltinAttr<float3, "positions"> co;
-  BuiltinAttr<float3, "normals"> no;
+  BuiltinAttr<float3, "normals", AttrFlag::DERIVED> no;
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
@@ -199,7 +199,7 @@ struct ListData : public ElemData {
   BuiltinAttr<int, ".list.c", AttrFlag::TOPO> c;
   BuiltinAttr<int, ".list.f", AttrFlag::TOPO> f;
   BuiltinAttr<int, ".list.next", AttrFlag::TOPO> next;
-  BuiltinAttr<int, ".list.size"> size;
+  BuiltinAttr<int, ".list.size", AttrFlag::DERIVED> size;
 };
 
 struct FaceData : public ElemData {
@@ -227,9 +227,9 @@ struct FaceData : public ElemData {
     select.ensure(attrs);
   }
 
-  BuiltinAttr<short, ".face.list_count"> list_count;
+  BuiltinAttr<short, ".face.list_count", AttrFlag::DERIVED> list_count;
   BuiltinAttr<int, ".face.list", AttrFlag::TOPO> l;
-  BuiltinAttr<float3, ".face.normal"> no;
+  BuiltinAttr<float3, ".face.normal", AttrFlag::DERIVED> no;
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 };
