@@ -660,7 +660,26 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
     }
   }
 
-  // Pass 5: rebuild every disk cycle from the (authoritative) edge endpoints.
+  // Pass 5 + 6: rebuild disk cycles from the (authoritative) edge endpoints, then
+  // radial cycles + corner edges from the surviving face loops. Shared with
+  // rebuildDerivedTopo(); here missing face-loop edges are synthesized.
+  rebuildDiskCycles();
+  int created = rebuildRadialCycles(/*createMissingEdges=*/true);
+  if (created > 0) {
+    snprintf(buf, sizeof(buf), "%d face-loop edge(s) absent from .edge.vs; created", created);
+    report(buf);
+  }
+
+  if (errors > 0) {
+    snprintf(buf, sizeof(buf),
+             "validateAndRepair: %d problem(s); disk/radial cycles rebuilt", errors);
+    report(buf);
+  }
+  return errors;
+}
+
+void Mesh::rebuildDiskCycles()
+{
   for (int vi : this->v) {
     v.e[vi] = ELEM_NONE;
   }
@@ -672,23 +691,32 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
     disk_insert(ei, e.vs[ei][0]);
     disk_insert(ei, e.vs[ei][1]);
   }
+}
 
-  // Pass 6: rebuild radial cycles + corner edges from the surviving face loops.
+int Mesh::rebuildRadialCycles(bool createMissingEdges)
+{
   for (int ei : this->e) {
     e.c[ei] = ELEM_NONE;
   }
   for (int ci : this->c) {
     c.radial_next[ci] = c.radial_prev[ci] = ci;
   }
+  int missing = 0;
   for (int fi : this->f) {
     int li = f.l[fi], c0 = l.c[li], cc = c0, n = 0;
     do {
       int cn = c.next[cc];
       int ce = find_edge(c.v[cc], c.v[cn]);
       if (ce == ELEM_NONE) {
+        missing++;
+        if (!createMissingEdges) {
+          // A face loop references an edge absent from .edge.vs — a corrupt
+          // file. Bail; the caller (readMesh) falls back to validateAndRepair,
+          // which synthesizes it. Partial radial state is fine: that path
+          // resets and rebuilds from scratch.
+          return missing;
+        }
         ce = make_edge(c.v[cc], c.v[cn]);
-        snprintf(buf, sizeof(buf), "face %d corner %d had no edge; created %d", fi, cc, ce);
-        report(buf);
       }
       c.e[cc] = ce;
       radial_insert(ce, cc);
@@ -698,13 +726,50 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
       }
     } while (cc != c0);
   }
+  return missing;
+}
 
-  if (errors > 0) {
-    snprintf(buf, sizeof(buf),
-             "validateAndRepair: %d problem(s); disk/radial cycles rebuilt", errors);
-    report(buf);
+bool Mesh::rebuildDerivedTopo()
+{
+  // Dropped DERIVED columns arrive zero-filled (a valid-looking index 0), not
+  // ELEM_NONE — so every rebuild below overwrites unconditionally and never
+  // tests for a sentinel. Materialize the topo pages first: a freshly loaded
+  // mesh is not frozen so they already exist, but this is the guaranteed guard
+  // (operator[] has no null-page check).
+  v.attrs.materializeTopoPages();
+  e.attrs.materializeTopoPages();
+  c.attrs.materializeTopoPages();
+  l.attrs.materializeTopoPages();
+  f.attrs.materializeTopoPages();
+
+  // .corner.prev is the inverse of the authoritative .corner.next.
+  for (int ci : this->c) {
+    c.prev[c.next[ci]] = ci;
   }
-  return errors;
+
+  // .corner.l / .list.f and the ngon counts (.list.size / .face.list_count) from
+  // the authoritative face -> list -> corner walk. make_face never chains
+  // l.next, but walk it to stay general.
+  for (int fi : this->f) {
+    short nlists = 0;
+    for (int li = f.l[fi]; li != ELEM_NONE; li = l.next[li]) {
+      l.f[li] = fi;
+      int c0 = l.c[li], cc = c0, n = 0;
+      do {
+        c.l[cc] = li;
+        cc = c.next[cc];
+        n++;
+      } while (cc != c0);
+      l.size[li] = n;
+      nlists++;
+    }
+    f.list_count[fi] = nlists;
+  }
+
+  // Disk then radial cycles (radial's find_edge walks the freshly built disk).
+  rebuildDiskCycles();
+  int missing = rebuildRadialCycles(/*createMissingEdges=*/false);
+  return missing == 0;
 }
 
 void Mesh::featureVerts(int kind, util::Vector<int> &outIdx, util::Vector<float> &outCo)

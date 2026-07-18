@@ -169,14 +169,20 @@ AttrFlag mandatoryBuiltinFlags(const string &name)
       is(boundary::VERT_CLASS)) {
     return AttrFlag::TEMP;
   }
-  /* Derived builtins the current writer drops and readMesh rebuilds. A pre-v5
-   * file still carries these columns with flag DERIVED unset; re-assert the bit
-   * so the loaded mesh drops them from its next save (same pattern as TEMP). The
-   * radial-edge links (.vert.e, .edge.vs.disk, .corner.*, …) are added here in
-   * Phase 2 alongside rebuildDerivedTopo(). */
+  /* Derived builtins the current writer drops and readMesh rebuilds
+   * (rebuildDerivedTopo). A pre-v5 file still carries these columns with flag
+   * DERIVED unset; re-assert the bit so the loaded mesh drops them from its next
+   * save (same pattern as TEMP). Non-topology derived columns: */
   if (is("normals") || is(".face.normal") || is(".list.size") ||
       is(".face.list_count")) {
     return AttrFlag::DERIVED;
+  }
+  /* Radial-edge link columns — the disk head, radial cycles, corner edges/loops,
+   * and the list back-pointer, all rebuilt from .edge.vs + the face corner loops. */
+  if (is(".vert.e") || is(".edge.c") || is(".edge.vs.disk") || is(".corner.e") ||
+      is(".corner.l") || is(".corner.prev") || is(".corner.radial_next") ||
+      is(".corner.radial_prev") || is(".list.f")) {
+    return AttrFlag::TOPO | AttrFlag::DERIVED;
   }
   return AttrFlag::NONE;
 }
@@ -486,6 +492,14 @@ bool migrate(SerialMesh &sm)
       sm.version = 4;
       break;
     }
+    case 4:
+      /* v4 → v5 dropped the DERIVED columns (normals, ngon counts, and the
+       * radial-edge links) from the payload. Nothing to transform in the
+       * SerialMesh IR — a v4 file simply carries stale copies of those columns,
+       * which serial::readMesh's rebuildDerivedTopo() overwrites after building
+       * the live Mesh (migrate has no Mesh to rebuild against). */
+      sm.version = 5;
+      break;
     default:
       return false;
     }
@@ -629,31 +643,22 @@ bool readMesh(Mesh &mesh, std::istream &in)
   }
   mesh.sculptLayers = std::move(sm.layers);
 
-  /* Rebuild the derived ngon counts (.list.size / .face.list_count) dropped from
-   * the blob: make_face maintains them but bulk load bypasses it. Must precede
-   * recountNgons(), which reads l.size. Every face here has a single list
-   * (make_face never chains l.next), but walk the chain to stay general. */
-  for (int fi : mesh.f) {
-    short nlists = 0;
-    for (int li = mesh.f.l[fi]; li != ELEM_NONE; li = mesh.l.next[li]) {
-      int c0 = mesh.l.c[li], cc = c0, n = 0;
-      do {
-        n++;
-        cc = mesh.c.next[cc];
-      } while (cc != c0);
-      mesh.l.size[li] = n;
-      nlists++;
-    }
-    mesh.f.list_count[fi] = nlists;
+  /* Rebuild every DERIVED column dropped from the blob (disk/radial links, corner
+   * prev/l, list back-ptr + counts) from the authoritative columns. Runs for all
+   * versions: a pre-v5 file's stale link columns loaded above are overwritten —
+   * wasted read, but one always-exercised path. A false return means a face loop
+   * referenced an edge absent from .edge.vs (corrupt file); fall back to the full
+   * repair, which can synthesize the missing edge. */
+  if (!mesh.rebuildDerivedTopo()) {
+    mesh.validateAndRepair();
   }
 
-  /* n-gon counter dyntopo's triangulate-prepass skip relies on (now over the
-   * freshly rebuilt l.size). */
+  /* n-gon counter dyntopo's triangulate-prepass skip relies on (over the
+   * l.size rebuilt by rebuildDerivedTopo). */
   mesh.recountNgons();
 
-  /* Normals (v.normals / .face.normal) are DERIVED and dropped; recompute from
-   * the loaded geometry + topology. In Phase 2 this must run after the link
-   * rebuild, since vertex normals walk the disk/radial cycles. */
+  /* Normals (v.normals / .face.normal) are DERIVED and dropped; recompute after
+   * the link rebuild, since vertex normals walk the disk/radial cycles. */
   mesh.recalc_normals();
   /* The derived boundary overlay (EDGE_POLYGROUP / VERT_CLASS) is TEMP and not
    * serialized, and boundaryDirty defaults false — so a freshly loaded mesh

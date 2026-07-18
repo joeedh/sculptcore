@@ -844,6 +844,17 @@ struct Mesh : public MeshBase {
    * Returns the number of problems found. Defined in mesh.cc. */
   int validateAndRepair(const std::function<void(const char *)> &log = {});
 
+  /** Rebuild every column flagged DERIVED from the authoritative ones, after a
+   * bulk load that dropped them (serial::readMesh): .corner.prev, .corner.l /
+   * .list.f, the ngon counts (.list.size / .face.list_count), the disk cycles
+   * (.vert.e / .edge.vs.disk) and the radial cycles (.edge.c / .corner.e /
+   * .corner.radial_{next,prev}). Unconditional — never tests for an ELEM_NONE
+   * sentinel, since dropped columns arrive zero-filled, not sentinel-filled.
+   * Returns false if a face loop references an edge absent from .edge.vs (a
+   * corrupt file); the caller should fall back to validateAndRepair, which can
+   * synthesize the missing edge. Defined in mesh.cc. */
+  bool rebuildDerivedTopo();
+
   /** Per-error repair-log lines from validateAndRepair (also echoed to stderr).
    * Not part of the mesh's serialized state; the app reads the count as a
    * "repair happened" signal (e.g. LiteMesh load). */
@@ -1072,6 +1083,16 @@ struct Mesh : public MeshBase {
   void recalc_normals();
 
 private:
+  /** Reset + rebuild every vertex disk cycle from the authoritative .edge.vs
+   * endpoints (validateAndRepair pass 5 / rebuildDerivedTopo share this). */
+  void rebuildDiskCycles();
+  /** Reset + rebuild every edge radial cycle and .corner.e from the face corner
+   * loops (validateAndRepair pass 6 / rebuildDerivedTopo share this). Requires
+   * the disk cycles already rebuilt (find_edge walks them). @p createMissingEdges
+   * make_edge()s a face-loop edge absent from .edge.vs (repair) instead of
+   * leaving it unresolved (load). Returns the number of missing edges seen. */
+  int rebuildRadialCycles(bool createMissingEdges);
+
   void radial_insert(int e1, int c1)
   {
     if (e.c[e1] == ELEM_NONE) {
