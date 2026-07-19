@@ -985,28 +985,37 @@ struct Emit {
     write("  }\n");
     write("  return vec2<f32>(sb_best_arc, sb_best_lat);\n");
     write("}\n\n");
+    // View-pinned UV — perspective divide + NDC -> [0,1] remap, lockstep
+    // with CommandCtx::sampleViewUv.
+    write("fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {\n");
+    write("  let sb_p = ctx_u.render_matrix * vec4<f32>(co, 1.0);\n");
+    write("  var sb_w = sb_p.w;\n");
+    write("  if (abs(sb_w) <= 1e-6) { sb_w = 1.0; }\n");
+    write("  return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);\n");
+    write("}\n\n");
     write("fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {\n");
     write("  _ = no;\n");
     write("  var sb_uv: vec2<f32>;\n");
     write("  if (brush_u.coord_space == 1u) {\n");
-    write("    let sb_p = (ctx_u.render_matrix * vec4<f32>(co, 1.0)).xyz;\n");
-    write("    sb_uv = sb_p.xy;\n");
+    write("    sb_uv = brush_view_uv(co);\n");
     write("  } else if (brush_u.coord_space == 2u) {\n");
-    write("    let sb_p = (ctx_u.render_matrix * vec4<f32>(co, 1.0)).xyz;\n");
-    write("    sb_uv = sb_p.xy * brush_u.tex_repeat;\n");
+    write("    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;\n");
     write("  } else if (brush_u.coord_space == 3u) {\n");
     write("    sb_uv = brush_stroke_uv(co);\n");
     write("  } else if (brush_u.coord_space == 4u) {\n");
-    // PROJECTED: tangent-plane projection at the brush center. Mirrors
-    // CommandCtx::sampleBrushTex — same reference-axis flip on |n.z| < 0.999 so
-    // the orthonormal basis is identical to the C++ path within tolerance.
+    // PROJECTED: tangent-plane projection at the brush center, normalized so
+    // the tile spans the brush diameter. Mirrors CommandCtx::sampleBrushTex —
+    // same reference-axis flip on |n.z| < 0.999 so the orthonormal basis is
+    // identical to the C++ path within tolerance.
     write("    let sb_n = normalize(ctx_u.surfaceNo);\n");
     write("    var sb_ref = vec3<f32>(0.0, 0.0, 1.0);\n");
     write("    if (abs(sb_n.z) >= 0.999) { sb_ref = vec3<f32>(1.0, 0.0, 0.0); }\n");
     write("    let sb_t1 = normalize(cross(sb_ref, sb_n));\n");
     write("    let sb_t2 = cross(sb_n, sb_t1);\n");
     write("    let sb_rel = co - ctx_u.surfacePos;\n");
-    write("    sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2));\n");
+    write("    var sb_inv_d = 1.0;\n");
+    write("    if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }\n");
+    write("    sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);\n");
     write("  } else {\n");
     write("    sb_uv = co.xy;\n");
     write("  }\n");

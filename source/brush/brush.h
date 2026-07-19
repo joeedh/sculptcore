@@ -64,14 +64,17 @@ using litestl::util::StrLiteral;
 // to the texture data itself; the discriminant rides in BrushUniforms so
 // the WGSL `brush_sample_tex` mirrors the same branches.
 //   Global     — uv = co.xy (world plane; stroke-independent, the test mode).
-//   ViewPlane  — uv = (renderMatrix * co).xy (texture pinned to the view).
+//   ViewPlane  — perspective-project co through renderMatrix (world -> clip),
+//                NDC remapped to [0,1] across the viewport (screen-pinned).
 //   ViewRepeat — ViewPlane scaled by `tex_repeat` (tiled across the view).
 //   StrokeCurved — uv = (arc length along the stroke, lateral offset from it);
 //                  reads the StrokePath ring buffer of recent dab centers.
 //   Projected  — project (co - surfacePos) onto the brush-center tangent plane;
 //                uv = its coordinates in a deterministic orthonormal basis built
-//                from surfaceNo. The one mode that actually consumes the surface
-//                normal arg threaded through sampleBrushTex.
+//                from surfaceNo, normalized so the tile spans the brush circle
+//                (centered on the dab, 0..1 across the diameter). The one mode
+//                that actually consumes the surface normal arg threaded through
+//                sampleBrushTex.
 enum class TexCoordSpace : unsigned char {
   Global = 0,
   ViewPlane = 1,

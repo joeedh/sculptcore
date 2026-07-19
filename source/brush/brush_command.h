@@ -17,6 +17,7 @@ using namespace sculptcore::mesh;
 namespace sculptcore::brush {
 using litestl::math::float2;
 using litestl::math::float3;
+using litestl::math::float4;
 using litestl::math::mat4;
 
 // === DSL attribute bindings (boundary-conditions wave) ===
@@ -221,34 +222,47 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
       uv = float2{co[0], co[1]};
       break;
     case TexCoordSpace::ViewPlane: {
-      float3 p = renderMatrix * co;
-      uv = float2{p[0], p[1]};
+      uv = sampleViewUv(co);
       break;
     }
     case TexCoordSpace::ViewRepeat: {
-      float3 p = renderMatrix * co;
-      uv = float2{p[0] * brush.tex_repeat, p[1] * brush.tex_repeat};
+      uv = sampleViewUv(co);
+      uv = float2{uv[0] * brush.tex_repeat, uv[1] * brush.tex_repeat};
       break;
     }
     case TexCoordSpace::StrokeCurved:
       uv = brush.sampleStrokeUV(co);
       break;
     case TexCoordSpace::Projected: {
-      // Project onto the tangent plane at the brush center. The reference
-      // axis pick (and thus the basis) must match the WGSL branch bit-for-bit
-      // in structure, so both flip on the same |n.z| < 0.999 test against the
-      // shared ctx surfaceNo.
+      // Project onto the tangent plane at the brush center, normalized so
+      // the texture tile spans the brush circle (uv 0..1 across the
+      // diameter, centered on the dab). The reference axis pick (and thus
+      // the basis) must match the WGSL branch bit-for-bit in structure, so
+      // both flip on the same |n.z| < 0.999 test against the shared ctx
+      // surfaceNo.
       float3 n = surfaceNo.normalized();
       float3 ref = std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f}
                                            : float3{1.0f, 0.0f, 0.0f};
       float3 t1 = ref.cross(n).normalized();
       float3 t2 = n.cross(t1);
       float3 rel = co - surfacePos;
-      uv = float2{rel.dot(t1), rel.dot(t2)};
+      float inv_d = 1.0f / (brush.radius > 1e-6f ? 2.0f * brush.radius : 1.0f);
+      uv = float2{rel.dot(t1) * inv_d + 0.5f, rel.dot(t2) * inv_d + 0.5f};
       break;
     }
     }
     return brush.sampleTexBilinear(uv);
+  }
+
+  // View-pinned texture UV: perspective-project `co` through renderMatrix
+  // (world -> clip) and remap NDC to [0,1] across the viewport. The w divide
+  // is what makes a perspective view sample sensibly; kept in lockstep with
+  // the WGSL emitter's brush_sample_tex.
+  float2 sampleViewUv(float3 co) const
+  {
+    float4 p = renderMatrix * float4{co[0], co[1], co[2], 1.0f};
+    float w = std::abs(p[3]) > 1e-6f ? p[3] : 1.0f;
+    return float2{p[0] / w * 0.5f + 0.5f, p[1] / w * 0.5f + 0.5f};
   }
 };
 

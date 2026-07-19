@@ -629,6 +629,15 @@ struct Emit {
     write("  float z = t.m[2]*p.x + t.m[6]*p.y + t.m[10]*p.z + t.m[14];\n");
     write("  return sb_make_float3(x, y, z);\n");
     write("}\n\n");
+    // View-pinned texture UV — perspective divide + NDC -> [0,1] remap,
+    // lockstep with CommandCtx::sampleViewUv.
+    write("__device__ __forceinline__ float2 sb_view_uv(sb_mat4 t, float3 p) {\n");
+    write("  float x = t.m[0]*p.x + t.m[4]*p.y + t.m[8]*p.z  + t.m[12];\n");
+    write("  float y = t.m[1]*p.x + t.m[5]*p.y + t.m[9]*p.z  + t.m[13];\n");
+    write("  float w = t.m[3]*p.x + t.m[7]*p.y + t.m[11]*p.z + t.m[15];\n");
+    write("  if (fabsf(w) <= 1e-6f) { w = 1.0f; }\n");
+    write("  return sb_make_float2(x / w * 0.5f + 0.5f, y / w * 0.5f + 0.5f);\n");
+    write("}\n\n");
     write("struct NodeMeta { unsigned int vert_offset; unsigned int vert_count; };\n");
     write("struct StrokeSample { float3 pos; float3 normal; float arclen; };\n\n");
 
@@ -826,10 +835,9 @@ struct Emit {
     write("  (void)no;\n");
     write("  float2 sb_uv;\n");
     write("  if (brush_u.coord_space == 1u) {\n");
-    write("    float3 sb_p = sb_mat4_mul_point(ctx_u.render_matrix, co);\n");
-    write("    sb_uv = sb_make_float2(sb_p.x, sb_p.y);\n");
+    write("    sb_uv = sb_view_uv(ctx_u.render_matrix, co);\n");
     write("  } else if (brush_u.coord_space == 2u) {\n");
-    write("    float3 sb_p = sb_mat4_mul_point(ctx_u.render_matrix, co);\n");
+    write("    float2 sb_p = sb_view_uv(ctx_u.render_matrix, co);\n");
     write("    sb_uv = sb_make_float2(sb_p.x * brush_u.tex_repeat, sb_p.y * brush_u.tex_repeat);\n");
     write("  } else if (brush_u.coord_space == 3u) {\n");
     write("    sb_uv = brush_stroke_uv(co);\n");
@@ -840,7 +848,8 @@ struct Emit {
     write("    float3 sb_t1 = sc_normalize(sc_cross(sb_ref, sb_n));\n");
     write("    float3 sb_t2 = sc_cross(sb_n, sb_t1);\n");
     write("    float3 sb_rel = co - ctx_u.surfacePos;\n");
-    write("    sb_uv = sb_make_float2(sc_dot(sb_rel, sb_t1), sc_dot(sb_rel, sb_t2));\n");
+    write("    float sb_inv_d = (brush_u.radius > 1e-6f) ? 1.0f / (2.0f * brush_u.radius) : 1.0f;\n");
+    write("    sb_uv = sb_make_float2(sc_dot(sb_rel, sb_t1) * sb_inv_d + 0.5f, sc_dot(sb_rel, sb_t2) * sb_inv_d + 0.5f);\n");
     write("  } else {\n");
     write("    sb_uv = sb_make_float2(co.x, co.y);\n");
     write("  }\n");
