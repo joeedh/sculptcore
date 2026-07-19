@@ -11,7 +11,10 @@
 // #include "litestl/util/map.h"
 #include "litestl/util/rand.h"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 
@@ -1277,6 +1280,18 @@ void SpatialTree::autoTuneLimits()
 
 void SpatialTree::buildAll()
 {
+  /* The parallel top-down build is the default; SC_SERIAL_BUILD forces the
+   * reference incremental build (A/B correctness + fallback). */
+  if (getenv("SC_SERIAL_BUILD")) {
+    buildAllSerial();
+  }
+  else {
+    buildAllParallel();
+  }
+}
+
+void SpatialTree::buildAllSerial()
+{
   setup();
 
   /* Clear any leaf-ownership a previous tree left on the mesh: the
@@ -1339,6 +1354,325 @@ void SpatialTree::buildAll()
       ensure_node_tris(node);
     }
   }
+}
+
+namespace {
+/* One face plus its centroid; the top-down partition reorders these in place
+ * so each node owns a contiguous sub-range. */
+struct BuildFace {
+  int f;
+  litestl::math::float3 cent;
+};
+
+/* A node awaiting split/finalization plus its [start, start+count) slice of the
+ * BuildFace array. */
+struct BuildFrontier {
+  SpatialNode *node;
+  int start;
+  int count;
+};
+} // namespace
+
+void SpatialTree::buildAllParallel()
+{
+  using litestl::math::float3;
+  namespace task = litestl::task;
+  using util::IndexRange;
+
+  setup();
+
+  /* Reset any stale leaf-ownership a previous tree left on the mesh (see
+   * buildAllSerial). */
+  for (int v : m->v) {
+    treeMesh.v.node[v] = 0;
+  }
+  for (int f : m->f) {
+    treeMesh.f.node[f] = 0;
+  }
+
+  m->calcAABB(&root->aabb.min, &root->aabb.max);
+  m->recalc_normals();
+  const float eps = 0.0000001f;
+  root->aabb.min -= eps;
+  root->aabb.max += eps;
+
+  /* Gather live faces, then compute centroids in parallel. */
+  Vector<BuildFace> faces;
+  faces.ensure_capacity(m->f.count);
+  for (int f : m->f) {
+    faces.append(BuildFace{f, float3(0.0f)});
+  }
+  const int nfaces = faces.size();
+  if (nfaces == 0) {
+    /* Empty mesh: the root stays an (empty) leaf. */
+    ensure_node_tris(root);
+    regen_node_bounds(root, true);
+    return;
+  }
+  task::parallel_for(
+      IndexRange(nfaces),
+      [&](IndexRange range) {
+        for (int i : range) {
+          faces[i].cent = face_calc_center_direct(m, faces[i].f);
+        }
+      },
+      1024);
+
+  /* leaf_limit counts vertices (node_needs_split), but the top-down partition
+   * works in faces. A leaf owns roughly `faces * verts/faces` disjoint verts,
+   * so scale the face threshold by the mesh-wide F/V ratio to land near
+   * leaf_limit verts per leaf — matching the serial build's leaf granularity
+   * (which the reorder/merge machinery is tuned for). */
+  const int liveVertCount = m->v.count > 0 ? m->v.count : 1;
+  const int leafFaceLimit = std::max<int>(
+      1, int(int64_t(leaf_limit) * nfaces / liveVertCount));
+
+  /* Level-synchronous top-down partition. Each frontier node owns a disjoint
+   * [start, count) slice of `faces`; splitting reorders only that slice and
+   * allocates two children (alloc_node is mutex-guarded), so nodes at one level
+   * process in parallel without sharing state. Nested parallel_for is avoided
+   * (the pool is bounded) — parallelism comes from the many nodes per level. */
+  Vector<BuildFrontier> frontier;
+  frontier.append(BuildFrontier{root, 0, nfaces});
+
+  while (frontier.size() > 0) {
+    Vector<BuildFrontier> next;
+    std::mutex nextMutex;
+
+    task::parallel_for(
+        IndexRange(frontier.size()),
+        [&](IndexRange range) {
+          Vector<BuildFrontier> localNext;
+          for (int fi : range) {
+            BuildFrontier fr = frontier[fi];
+            SpatialNode *node = fr.node;
+
+            const bool leaf = fr.count <= leafFaceLimit || node->depth >= depth_limit;
+            if (leaf) {
+              /* Terminal: claim the slice's faces (disjoint across leaves). */
+              for (int k = 0; k < fr.count; k++) {
+                int f = faces[fr.start + k].f;
+                treeMesh.f.node[f] = node->id;
+                node->data->unique_faces.add(f);
+              }
+              continue;
+            }
+
+            /* Split along the node's longest axis at the centroid mean, matching
+             * split_node; fall back to the count median so a degenerate (all on
+             * one side) split still makes progress. */
+            const float3 bmin = node->aabb.min, bmax = node->aabb.max;
+            const float3 size = bmax - bmin;
+            int axis = 0;
+            for (int i = 1; i < 3; i++) {
+              if (size[i] > size[axis]) {
+                axis = i;
+              }
+            }
+            double sum = 0.0;
+            for (int k = 0; k < fr.count; k++) {
+              sum += faces[fr.start + k].cent[axis];
+            }
+            const float mean = float(sum / fr.count);
+            float split = mean;
+
+            BuildFace *base = &faces[fr.start];
+            BuildFace *mid = std::partition(
+                base, base + fr.count, [axis, split](const BuildFace &bf) {
+                  return bf.cent[axis] <= split;
+                });
+            int n0 = int(mid - base);
+            if (n0 == 0 || n0 == fr.count) {
+              /* Centroids coincide on one side of the mean — split by count so
+               * the recursion terminates; the plane becomes the median value. */
+              std::nth_element(
+                  base, base + fr.count / 2, base + fr.count,
+                  [axis](const BuildFace &a, const BuildFace &b) {
+                    return a.cent[axis] < b.cent[axis];
+                  });
+              n0 = fr.count / 2;
+              split = base[n0].cent[axis];
+            }
+
+            SpatialNode *c0 = alloc_node();
+            SpatialNode *c1 = alloc_node();
+            for (int i = 0; i < 2; i++) {
+              SpatialNode *child = i == 0 ? c0 : c1;
+              child->parent = node;
+              child->depth = node->depth + 1;
+              child->flag = Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
+                            Spatial_RegenGPU | Spatial_UpdateNormals;
+              child->aabb.min = bmin;
+              child->aabb.max = bmax;
+              child->create_data();
+            }
+            c0->aabb.max[axis] = split;
+            c1->aabb.min[axis] = split;
+            node->children[0] = c0;
+            node->children[1] = c1;
+            node->flag &= ~Spatial_Leaf;
+            node->delete_data();
+
+            localNext.append(BuildFrontier{c0, fr.start, n0});
+            localNext.append(BuildFrontier{c1, fr.start + n0, fr.count - n0});
+          }
+          if (localNext.size() > 0) {
+            std::lock_guard<std::mutex> guard(nextMutex);
+            for (const BuildFrontier &bf : localNext) {
+              next.append(bf);
+            }
+          }
+        },
+        1);
+
+    frontier = std::move(next);
+  }
+
+  /* Deterministic renumber: parallel alloc_node assigned ids in a
+   * scheduling-dependent order, so `nodes`/`leaves()` ordering would vary run
+   * to run. The tree *structure* is deterministic (the partition is), so a
+   * preorder DFS reassigns ids/indices deterministically and remaps the face
+   * ownership written with the temporary ids. Verts are assigned below off the
+   * now-final ids. */
+  {
+    Vector<int> oldToNew;
+    oldToNew.resize(node_idgen);
+    for (int i = 0; i < node_idgen; i++) {
+      oldToNew[i] = 0;
+    }
+    Vector<SpatialNode *> ordered;
+    ordered.ensure_capacity(nodes.size());
+    Vector<SpatialNode *> stack;
+    stack.append(root);
+    int idc = 1;
+    while (stack.size() > 0) {
+      SpatialNode *n = stack.pop_back();
+      oldToNew[n->id] = idc;
+      n->id = idc;
+      n->index = ordered.size();
+      ordered.append(n);
+      idc++;
+      if (!(n->flag & Spatial_Leaf)) {
+        /* Push right then left so the left subtree is visited first. */
+        stack.append(n->children[1]);
+        stack.append(n->children[0]);
+      }
+    }
+    nodes = std::move(ordered);
+    node_idgen = idc;
+    node_idmap.clear();
+    node_idmap.resize(idc);
+    for (SpatialNode *n : nodes) {
+      node_idmap[n->id] = n;
+    }
+    task::parallel_for(
+        IndexRange(nfaces),
+        [&](IndexRange range) {
+          for (int i : range) {
+            int f = faces[i].f;
+            treeMesh.f.node[f] = oldToNew[treeMesh.f.node[f]];
+          }
+        },
+        1024);
+    leafCacheDirty_ = true;
+    gpuNodeCacheDirty_ = true;
+  }
+
+  /* Vertex ownership: each vertex is owned by the leaf of its lowest-indexed
+   * incident face, so the owning leaf always references the vert (its tri-AABB
+   * covers it — a brush dab that reaches the vert filters that leaf). Computed
+   * as an atomic min over faces, order-independent and race-free. */
+  const int capV = int(m->v.capacity());
+  Vector<int> minFace;
+  minFace.resize(capV);
+  task::parallel_for(
+      IndexRange(capV),
+      [&](IndexRange range) {
+        for (int i : range) {
+          minFace[i] = INT_MAX;
+        }
+      },
+      4096);
+  task::parallel_for(
+      IndexRange(nfaces),
+      [&](IndexRange range) {
+        for (int i : range) {
+          int f = faces[i].f;
+          mesh::FaceProxy fp(m, f);
+          for (auto list : fp.lists()) {
+            for (auto cnr : list) {
+              int v = cnr.v();
+              std::atomic_ref<int> slot(minFace[v]);
+              int cur = slot.load(std::memory_order_relaxed);
+              while (f < cur &&
+                     !slot.compare_exchange_weak(cur, f, std::memory_order_relaxed)) {
+              }
+            }
+          }
+        }
+      },
+      1024);
+
+  /* Gather live verts, resolve each to its owning leaf id, then populate the
+   * leaves' unique_verts (serial add — OrderedSet is single-writer). Loose
+   * verts (no incident face) descend the tree to the leaf containing them. */
+  Vector<int> liveVerts;
+  liveVerts.ensure_capacity(m->v.count);
+  for (int v : m->v) {
+    liveVerts.append(v);
+  }
+  const int nverts = liveVerts.size();
+  Vector<int> vLeaf;
+  vLeaf.resize(nverts);
+  task::parallel_for(
+      IndexRange(nverts),
+      [&](IndexRange range) {
+        for (int i : range) {
+          int v = liveVerts[i];
+          int mf = minFace[v];
+          if (mf != INT_MAX) {
+            vLeaf[i] = treeMesh.f.node[mf];
+          }
+          else {
+            /* Loose vert: route by position to the containing leaf. */
+            float3 vco = m->v.co[v];
+            SpatialNode *leaf = root;
+            while (!(leaf->flag & Spatial_Leaf)) {
+              SpatialNode *a = leaf->children[0];
+              SpatialNode *b = leaf->children[1];
+              int ax = 0;
+              for (int j = 0; j < 3; j++) {
+                if (a->aabb.max[j] != b->aabb.max[j]) {
+                  ax = j;
+                  break;
+                }
+              }
+              leaf = vco[ax] <= a->aabb.max[ax] ? a : b;
+            }
+            vLeaf[i] = leaf->id;
+          }
+        }
+      },
+      2048);
+  for (int i = 0; i < nverts; i++) {
+    treeMesh.v.node[liveVerts[i]] = vLeaf[i];
+    node_idmap[vLeaf[i]]->data->unique_verts.add(liveVerts[i]);
+  }
+
+  /* Finalize: leaf tris, bounds, the balance merge pass, then bounds/tris again
+   * (mirrors buildAllSerial's tail). The two per-leaf loops parallelize. */
+  {
+    util::Vector<SpatialNode *> leafNodes = leaves();
+    task::parallel_for(
+        IndexRange(leafNodes.size()),
+        [&](IndexRange range) {
+          for (int i : range) {
+            ensure_node_tris(leafNodes[i]);
+          }
+        },
+        8);
+  }
+  regen_node_bounds(root, true);
 }
 
 namespace {

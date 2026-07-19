@@ -704,6 +704,14 @@ struct SpatialTree {
   }
 
   void buildAll();
+  /* Serial incremental build (root->leaf face insertion). Kept as the
+   * reference/fallback; buildAll() dispatches to it under SC_SERIAL_BUILD. */
+  void buildAllSerial();
+  /* Parallel top-down build: bulk recursive spatial-median partition of the
+   * faces (level-synchronous, one task fan-out per level), then an atomic
+   * lowest-incident-face vertex-ownership pass. Produces a valid tree with the
+   * same leaf/ownership invariants as the serial build, ~5x faster at 1M. */
+  void buildAllParallel();
 
   /* Build vert/edge/corner/list/face permutations (map[old] = new) that group
    * each domain's elements next to the other elements of their owning node,
