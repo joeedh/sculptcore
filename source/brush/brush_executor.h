@@ -291,6 +291,7 @@ struct CommandExecutor {
         st, addUniformDynamic, MARGS("idx", "deviceType", "mixMode", "mixFactor"));
     BIND_STRUCT_METHOD(
         st, setUniformDynamicSample, MARGS("idx", "deviceType", "i", "n", "value"));
+    BIND_STRUCT_METHOD(st, setRenderMatrix, MARGS("m16"));
 
     return st;
   }
@@ -304,6 +305,21 @@ struct CommandExecutor {
 
   CommandExecutor(SpatialTree *tree, Brush *brush) : tree(tree), brush(brush), ctx()
   {
+  }
+
+  /** Set `ctx.renderMatrix` (ViewPlane/ViewRepeat texture UV) from 16 flat
+   * floats, in the same element order as the debug app's `set_render_matrix`
+   * verb. Bound-Vector arg = the marshal-safe bridge seam. Wrong size is a
+   * no-op. */
+  void setRenderMatrix(Vector<float> &m16)
+  {
+    if (m16.size() != 16) {
+      return;
+    }
+    float *dst = &ctx.renderMatrix[0][0];
+    for (int i = 0; i < 16; i++) {
+      dst[i] = m16[i];
+    }
   }
 
   /** Select the SMOOTH for_neighbor source: 0 = LiveDisk (live topology links),

@@ -25,6 +25,18 @@ const BindingBase *Binder<sculptcore::brush::FalloffShape>::bind()
   e->addItem("BOX", FalloffShape::Box);
   return e;
 }
+const BindingBase *Binder<sculptcore::brush::TexCoordSpace>::bind()
+{
+  using namespace sculptcore::brush;
+  types::Enum *e = new types::Enum("sculptcore::brush::TexCoordSpace", sizeof(TexCoordSpace));
+
+  e->addItem("GLOBAL", TexCoordSpace::Global);
+  e->addItem("VIEW_PLANE", TexCoordSpace::ViewPlane);
+  e->addItem("VIEW_REPEAT", TexCoordSpace::ViewRepeat);
+  e->addItem("STROKE_CURVED", TexCoordSpace::StrokeCurved);
+  e->addItem("PROJECTED", TexCoordSpace::Projected);
+  return e;
+}
 } // namespace litestl::binding
 
 namespace sculptcore::brush::bindings {

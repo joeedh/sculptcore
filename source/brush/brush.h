@@ -79,6 +79,15 @@ enum class TexCoordSpace : unsigned char {
   StrokeCurved = 3,
   Projected = 4,
 };
+} // namespace sculptcore::brush
+
+namespace litestl::binding {
+template <> struct Binder<sculptcore::brush::TexCoordSpace> {
+  static const BindingBase *bind();
+};
+} // namespace litestl::binding
+
+namespace sculptcore::brush {
 
 inline constexpr int kFalloffCurveSize = 256;
 
@@ -334,9 +343,15 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, wingNormalB);
     BIND_STRUCT_MEMBER(st, activeGroup);
     BIND_STRUCT_MEMBER(st, brushColor);
+    BIND_STRUCT_MEMBER(st, tex_width);
+    BIND_STRUCT_MEMBER(st, tex_height);
+    BIND_STRUCT_MEMBER(st, coord_space);
+    BIND_STRUCT_MEMBER(st, tex_repeat);
     BIND_STRUCT_MEMBER(st, props);
     BIND_STRUCT_METHOD(st, setFalloffCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, setCavityCurveEntry, MARGS("i", "f"));
+    BIND_STRUCT_METHOD(st, setTexture, MARGS("width", "height", "pixels"));
+    BIND_STRUCT_METHOD(st, clearTexture, MARGS());
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());
     BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));
@@ -630,6 +645,30 @@ struct Brush {
     float a = p00 * (1.0f - tx) + p10 * tx;
     float b = p01 * (1.0f - tx) + p11 * tx;
     return a * (1.0f - ty) + b * ty;
+  }
+
+  // Bind a grayscale brush texture (row-major `width * height` floats,
+  // copied). The marshal-safe bridge seam: bound Vector args cross the
+  // boundary, flat pixel pointers don't. Bad dims or a size mismatch clears.
+  void setTexture(int width, int height, litestl::util::Vector<float> &pixels)
+  {
+    if (width <= 0 || height <= 0 || pixels.size() != size_t(width) * size_t(height)) {
+      clearTexture();
+      return;
+    }
+    tex_width = width;
+    tex_height = height;
+    tex_pixels.clear();
+    for (float p : pixels) {
+      tex_pixels.append(p);
+    }
+  }
+
+  void clearTexture()
+  {
+    tex_width = 0;
+    tex_height = 0;
+    tex_pixels.clear();
   }
 
   // Drop all recorded stroke samples — called at the start of each stroke so
