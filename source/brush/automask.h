@@ -168,8 +168,9 @@ inline float cavityRaw(mesh::Mesh *m, int v, int blur_steps, CavityScratch &scr)
 
 /**
  * Remap a raw signed cavity estimate to a 0..1 mask factor. Ported from Blender's
- * `calc_cavity_factor`: convex pushes toward 1, concave toward 0 (flipped when
- * inverted), centered at 0.5. The 50x is Blender's arbitrary strength scale.
+ * `calc_cavity_factor`: concave pushes toward 1 and convex toward 0, so the brush
+ * effect stays in cavities (flipped when inverted). Flat surfaces read exactly the
+ * 0.5 center. The 50x is Blender's arbitrary strength scale.
  */
 inline float cavityRemap(const CavityParams &p, float raw)
 {
