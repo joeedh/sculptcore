@@ -91,6 +91,18 @@ struct Multires {
    * level >= 2. */
   int downRefit(int level);
 
+  /** Append one finer Catmull-Clark level (zero displacement — a smooth
+   * subdivision of the current finest surface), preserving every existing
+   * level's detail, and make the new finest level active. Folds pending edits
+   * on the active level first. Returns the new maxLevel, or the unchanged
+   * maxLevel when already at the level cap. */
+  int addLevel();
+
+  /** Pop the finest level — the inverse of addLevel(), used by its ToolOp's
+   * undo/redo. Folds pending edits first, then rebuilds the stack one level
+   * shallower. Returns the new maxLevel (unchanged when maxLevel() <= 1). */
+  int removeTopLevel();
+
   /** Drop cached position chains and resident meshes strictly above `level`
    * (after a level-`level` edit lands in the store). */
   void invalidateAbove(int level);
@@ -242,6 +254,9 @@ private:
 
   /** Ensure the cached position chain is valid through `level`; returns it. */
   litestl::util::Vector<litestl::math::float3> &ensureChain(int level);
+  /** Ensure `level`'s LevelPos carries its smooth base + F3 frames (the chain
+   * through `level` must already be valid). Cheap when cached. */
+  void ensureBaseAndFrames(int level);
   /** Re-express `pos` (dense by level vert id) as level-`level` store
    * displacement: disp = frameᵀ·(pos − base), base = stencil(prev chain),
    * frames on the smoothed base. Writes verts where `mask` is null or set.
@@ -260,6 +275,23 @@ private:
   struct LevelPos {
     bool valid = false;
     litestl::util::Vector<litestl::math::float3> pos;
+    /** Cached smooth base (stencil of the level below) + F3 frames on it —
+     * writeback re-expression reuses these instead of rebuilding a temp level
+     * mesh + frames every stroke. Valid only while the level below's positions
+     * are unchanged; posIsBase marks a zero-disp materialization (pos == base,
+     * base itself not yet copied out). */
+    bool framesValid = false;
+    bool posIsBase = false;
+    litestl::util::Vector<litestl::math::float3> base, frameNo, frameTa;
+
+    void reset()
+    {
+      valid = framesValid = posIsBase = false;
+      pos.clear();
+      base.clear();
+      frameNo.clear();
+      frameTa.clear();
+    }
   };
 
   mesh::Mesh *cage_ = nullptr;

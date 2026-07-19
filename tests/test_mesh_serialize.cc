@@ -12,7 +12,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -183,6 +185,76 @@ bool sigEqual(const Vector<int64_t> &a, const Vector<int64_t> &b)
     if (a[i] != b[i]) return false;
   }
   return true;
+}
+
+uint64_t hashFold(uint64_t seed, const Vector<uint64_t> &vals)
+{
+  uint64_t h = seed;
+  for (uint64_t x : vals) {
+    h = (h ^ x) * 1099511628211ull;
+  }
+  return h;
+}
+
+/* Per-vertex disk-cycle signature: the multiset of neighbor-vertex positions
+ * reached by walking each vertex's disk, position-keyed so it survives element
+ * renumbering. Compared pre-save vs post-load — the rebuild reconstructs cycles
+ * in slot order, not the original walk order, so links are equal as SETS, not
+ * sequences. Catches a disk that dropped one of a vertex's edges (which
+ * validateMesh's per-edge walk can miss: the orphaned edge forms a valid 1-cycle). */
+Vector<int64_t> vertexDiskSig(Mesh &m)
+{
+  Vector<int64_t> out;
+  for (int vi : m.v) {
+    Vector<uint64_t> nbrs;
+    int e0 = m.v.e[vi];
+    if (e0 != ELEM_NONE) {
+      int ec = e0;
+      do {
+        int side = m.e.vs[ec][0] == vi ? 0 : 1;
+        nbrs.append(posHash(m.v.co[m.e.vs[ec][side ^ 1]]));
+        ec = diskEdge(m.e.disk[ec][side * 2 + 1]);
+      } while (ec != e0);
+    }
+    std::sort(nbrs.begin(), nbrs.end());
+    out.append(int64_t(hashFold(1469598103934665603ull ^ posHash(m.v.co[vi]), nbrs)));
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+/* Per-edge radial-cycle signature: the multiset of incident-face signatures
+ * (each face = its sorted vertex-position hashes) reached by walking each edge's
+ * radial cycle, edge-keyed by endpoint positions. Also exercises the rebuilt
+ * .corner.l (face lookup goes corner -> list). Compared as SETS pre/post. */
+Vector<int64_t> edgeRadialSig(Mesh &m)
+{
+  Vector<int64_t> out;
+  for (int ei : m.e) {
+    Vector<uint64_t> faces;
+    int c0 = m.e.c[ei];
+    if (c0 != ELEM_NONE) {
+      int cc = c0;
+      do {
+        int fc0 = m.l.c[m.c.l[cc]], fc = fc0;
+        Vector<uint64_t> fv;
+        do {
+          fv.append(posHash(m.v.co[m.c.v[fc]]));
+          fc = m.c.next[fc];
+        } while (fc != fc0);
+        std::sort(fv.begin(), fv.end());
+        faces.append(hashFold(1469598103934665603ull, fv));
+        cc = m.c.radial_next[cc];
+      } while (cc != c0);
+    }
+    std::sort(faces.begin(), faces.end());
+    uint64_t a = posHash(m.v.co[m.e.vs[ei][0]]);
+    uint64_t b = posHash(m.v.co[m.e.vs[ei][1]]);
+    uint64_t key = a < b ? (a * 1099511628211ull ^ b) : (b * 1099511628211ull ^ a);
+    out.append(int64_t(hashFold(key, faces)));
+  }
+  std::sort(out.begin(), out.end());
+  return out;
 }
 
 /* Deterministic, position-derived attribute values: because positions
@@ -373,6 +445,8 @@ void test_full_roundtrip(int N)
 
   int vc = m.v.count, ec = m.e.count, cc = m.c.count, lc = m.l.count, fc = m.f.count;
   Vector<int64_t> origSig = geomEdgeSignature(m);
+  Vector<int64_t> origDisk = vertexDiskSig(m);
+  Vector<int64_t> origRadial = edgeRadialSig(m);
 
   Mesh m2;
   if (!roundTrip(m, m2, tag)) {
@@ -388,6 +462,9 @@ void test_full_roundtrip(int N)
 
   TASSERT(validateMesh(m2, tag));
   TASSERT(sigEqual(origSig, geomEdgeSignature(m2)));
+  // Rebuilt disk + radial links match the originals as sets (not sequences).
+  TASSERT(sigEqual(origDisk, vertexDiskSig(m2)));
+  TASSERT(sigEqual(origRadial, edgeRadialSig(m2)));
 
   TASSERT(isDense(m2.v, tag, "vert"));
   TASSERT(isDense(m2.e, tag, "edge"));
@@ -413,6 +490,8 @@ void test_frozen_roundtrip(int N)
 
   int vc = m.v.count, ec = m.e.count, cc = m.c.count, lc = m.l.count, fc = m.f.count;
   Vector<int64_t> origSig = geomEdgeSignature(m);
+  Vector<int64_t> origDisk = vertexDiskSig(m);
+  Vector<int64_t> origRadial = edgeRadialSig(m);
 
   m.freezeTopo();
   TASSERT(m.topo_frozen);
@@ -427,6 +506,8 @@ void test_frozen_roundtrip(int N)
   TASSERT(m2.l.count == lc && m2.f.count == fc);
   TASSERT(validateMesh(m2, tag));
   TASSERT(sigEqual(origSig, geomEdgeSignature(m2)));
+  TASSERT(sigEqual(origDisk, vertexDiskSig(m2)));
+  TASSERT(sigEqual(origRadial, edgeRadialSig(m2)));
   check_attrs(m2, tag);
 }
 
@@ -618,11 +699,149 @@ void test_nonpersistent_flag_repair()
   printf("  [%s] spatial node attrs re-flagged TEMP|NOINTERP|NOCOPY on load\n", tag);
 }
 
+/* Non-manifold coverage: three triangles sharing one edge, so that edge's
+ * radial cycle has length 3. rebuildDerivedTopo must reconstruct the >2 radial
+ * fan (and every fan vert's disk) as a set, exactly as saved. */
+void test_nonmanifold_roundtrip()
+{
+  const char *tag = "nonmanifold";
+  Mesh m;
+  int v0 = m.make_vertex(float3(0, 0, 0));
+  int v1 = m.make_vertex(float3(1, 0, 0));
+  int wing[3] = {m.make_vertex(float3(0.5f, 1, 0)), m.make_vertex(float3(0.5f, -1, 0)),
+                 m.make_vertex(float3(0.5f, 0, 1))};
+  auto edge = [&](int a, int b) {
+    if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+  };
+  edge(v0, v1);
+  for (int k = 0; k < 3; k++) {
+    edge(v1, wing[k]);
+    edge(wing[k], v0);
+    int fv[3] = {v0, v1, wing[k]};
+    m.make_face(std::span<int>(fv, 3));
+  }
+
+  Vector<int64_t> origDisk = vertexDiskSig(m);
+  Vector<int64_t> origRadial = edgeRadialSig(m);
+
+  Mesh m2;
+  if (!roundTrip(m, m2, tag)) {
+    retval = 1;
+    return;
+  }
+  TASSERT(validateMesh(m2, tag));
+  TASSERT(sigEqual(origDisk, vertexDiskSig(m2)));
+  TASSERT(sigEqual(origRadial, edgeRadialSig(m2)));
+
+  // No holes were made, so dense renumbering preserves v0/v1; confirm the shared
+  // edge's radial fan really is length 3 (a genuine non-manifold edge).
+  int se = m2.find_edge(v0, v1);
+  TASSERT(se != ELEM_NONE);
+  int cnt = 0, c0 = m2.e.c[se], cc = c0;
+  do {
+    cnt++;
+    cc = m2.c.radial_next[cc];
+  } while (cc != c0 && cnt < 100);
+  TASSERT(cnt == 3);
+}
+
+/* Payload-size regression guard: the uncompressed writeMeshRaw payload for a
+ * known grid must stay under budget. Measured post-drop it is ~20.5 KB; a budget
+ * of 22.5 KB (~10% headroom) trips if any of the bulky connectivity columns
+ * creeps back — e.g. .edge.vs.disk (16 B/edge, +~8.7 KB here) or the normals
+ * (12 B/vert, +~3.5 KB) — so the win can't erode unnoticed. */
+void test_payload_budget()
+{
+  Mesh m;
+  build_grid(m, 16); // 289 v, 256 quad faces, 1024 corners, 256 lists
+  std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+  TASSERT(serial::writeMeshRaw(m, ss));
+  size_t raw = ss.str().size();
+  printf("  [payload-budget] grid16 raw payload = %zu bytes\n", raw);
+  TASSERT(raw < 22500);
+}
+
+/* Deterministic non-trivial mesh (grid + a hole + custom/select/sparse attrs)
+ * used both to write the checked-in version fixture and to rebuild the expected
+ * mesh the load test compares against. Must stay stable across format versions. */
+void buildFixtureMesh(Mesh &m)
+{
+  build_grid(m, 4);
+  int someFace = *m.f.begin();
+  m.kill_face(someFace);
+  int someEdge = *m.e.begin();
+  m.kill_edge(someEdge);
+  populate_attrs(m);
+}
+
+/* fixtures/ sits next to this source file; derive it from __FILE__ so the test
+ * finds the blob regardless of the build/native/tests cwd. */
+std::string fixtureDir()
+{
+  std::string f = __FILE__;
+  size_t slash = f.find_last_of("/\\");
+  std::string dir = slash == std::string::npos ? std::string(".") : f.substr(0, slash);
+  return dir + "/fixtures";
+}
+
+/* Load an old-version blob checked into the tree (written by an earlier writer)
+ * and assert it reconstructs the same mesh a fresh build produces — the only
+ * test that exercises migrate()'s old-version path + the load-time topology
+ * rebuild against real old bytes, not the current writer's output. */
+void test_load_fixture(const char *file)
+{
+  char tag[80];
+  snprintf(tag, sizeof(tag), "fixture-%s", file);
+  std::string path = fixtureDir() + "/" + file;
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    fprintf(stderr, "[%s] cannot open %s\n", tag, path.c_str());
+    retval = 1;
+    return;
+  }
+  Mesh loaded;
+  if (!serial::readMesh(loaded, in)) {
+    fprintf(stderr, "[%s] readMesh failed\n", tag);
+    retval = 1;
+    return;
+  }
+
+  Mesh expected;
+  buildFixtureMesh(expected);
+
+  TASSERT(loaded.v.count == expected.v.count);
+  TASSERT(loaded.e.count == expected.e.count);
+  TASSERT(loaded.f.count == expected.f.count);
+  TASSERT(validateMesh(loaded, tag));
+  TASSERT(sigEqual(geomEdgeSignature(expected), geomEdgeSignature(loaded)));
+  TASSERT(sigEqual(vertexDiskSig(expected), vertexDiskSig(loaded)));
+  TASSERT(sigEqual(edgeRadialSig(expected), edgeRadialSig(loaded)));
+  check_attrs(loaded, tag);
+  printf("  [%s] loaded verts=%d edges=%d faces=%d\n", tag, loaded.v.count,
+         loaded.e.count, loaded.f.count);
+}
+
 } // namespace
 
 int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
+
+  /* Regenerate the checked-in fixture with the current writer (writes the
+   * current kMeshFormatVersion). Used once per format version to add a new
+   * fixture; the committed blobs are never regenerated with a newer writer. */
+  if (const char *genPath = std::getenv("SC_GEN_FIXTURE")) {
+    Mesh m;
+    buildFixtureMesh(m);
+    std::ofstream out(genPath, std::ios::binary);
+    if (!out || !serial::writeMesh(m, out)) {
+      fprintf(stderr, "gen fixture failed: %s\n", genPath);
+      return 1;
+    }
+    printf("wrote fixture %s (v=%u) verts=%d edges=%d faces=%d\n", genPath,
+           serial::kMeshFormatVersion, m.v.count, m.e.count, m.f.count);
+    return 0;
+  }
 
   for (int N : {1, 4, 8, 16}) {
     test_full_roundtrip(N);
@@ -634,6 +853,10 @@ int main()
   test_boundary_roundtrip();
   test_detach_reattach();
   test_nonpersistent_flag_repair();
+  test_nonmanifold_roundtrip();
+  test_payload_budget();
+  test_load_fixture("mesh_v4.bin"); // old format: still carries the dropped columns
+  test_load_fixture("mesh_v5.bin"); // current format: columns actually dropped
 
   printf("mesh_serialize test done (retval=%d)\n", retval);
   return retval;

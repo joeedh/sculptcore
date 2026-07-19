@@ -20,6 +20,8 @@ export interface Multires {
   [Symbol.dispose](): void
   maxLevel(): int32
   activeLevel(): int32
+  addLevel(): int32
+  removeTopLevel(): int32
   setStoreBudget(bytes: int32): void
   layerAdd(): int32
   layerRemove(li: int32): void

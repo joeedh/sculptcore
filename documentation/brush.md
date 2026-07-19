@@ -65,12 +65,14 @@ factory. It computes per-vertex falloff through `strength(co)`
 (`brush_command.h:63`):
 
 ```cpp
-float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
+float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
 return brush.strength * brush.falloffEval(t);
 ```
 
 `falloffDist` applies the spatial metric (`FalloffShape`:
-spherical / cube / linear) and `falloffEval` the curve shape (`FalloffKind`:
+spherical / cube / linear / box — box is the stroke-aligned oriented cuboid,
+built from `surfaceNo` + `falloff_dir`) and `falloffEval` the curve shape
+(`FalloffKind`:
 smoothstep / linear / gaussian / curve-LUT). Both enums are bound directly as
 `Brush` members (`falloff_shape`/`falloff_kind`, via `Binder<FalloffKind>` /
 `Binder<FalloffShape>` in `bindings.cc`), so the TS bridge sets them as plain
@@ -151,6 +153,63 @@ a brush's SPIR-V and dispatches it as a compute kernel, and `make.mjs
 sbrush-verify` / `webgpu-verify` assert the GPU output matches the C++
 reference bit-for-bit modulo fp. The whole compile-and-verify stack is
 documented in [`brush_compute.md`](brush_compute.md).
+
+## Stroke methods (Path / Anchored / Drag Dot)
+
+How the TS `BrushStrokeDriver` (`scripts/editors/view3d/tools/stroke_driver.ts`)
+turns pointer input into a sequence of dabs is a per-brush property,
+`Brush.strokeMethod` (`scripts/brush/brush_base.ts`, `StrokeMethod` enum;
+data-API path `brush.strokeMethod`, defaulting to `Path` for every brush
+preset — only Grab and Kelvinlet opt into `Anchored`; Snake Hook stays on
+`Path`, tracking the live raycast surface each dab):
+
+- **`PATH`** (default) — the existing arc-length Catmull-Rom/Bezier walk:
+  every pointer move that crosses the spacing threshold emits a new,
+  permanently-committed dab.
+- **`ANCHORED`** — the dab origin is fixed on the first input; every
+  subsequent input re-derives a live radius or angle from the drag vector
+  (`AnchoredLiveMode`: `RADIUS` or `ANGLE`, per-brush). Replaces the old
+  bespoke `grabAnchor` mechanism and unifies Grab/Kelvinlet/Snake Hook onto
+  one anchor implementation.
+- **`DRAG_DOT`** — follows the live cursor, emitting one dab per pointer
+  move, Blender-style: only the final, released position stays applied.
+
+Anchored and Drag Dot share a **live-mutating preview** requirement: every
+dab but the stroke's last must vanish the instant the next one lands, so a
+long drag never leaves a trail of committed partial dabs. `CommandExecutor`
+has no per-dab undo granularity for this (a step's `LogChunkElems` captures
+once per domain, not once per dab), so `meshlog::MeshLog` exposes a
+dedicated primitive pair for it (`source/meshlog/meshlog_base.h`):
+
+- `beginPreviewDab(mesh, tree, center, radius)` — snapshots every vertex
+  row within `radius` of `center` (a superset of one dab's footprint) and
+  remembers the step's current chunk count.
+- `rollbackPreviewDab(mesh, tree)` — pops and undoes every `LogChunkTopo`
+  chunk pushed since the paired `beginPreviewDab` (dyntopo restructuring),
+  then restores the snapshotted vertex rows directly, bypassing the log.
+  It must **not** touch a `LogChunkElems` chunk that happens to be created
+  in the same range (the step's first dab commonly creates the step's only
+  element-store capture) — that chunk owns the pre-*step* baseline the real
+  `MeshLog::undo()` needs later and has to survive every preview rollback
+  in the stroke, not just one.
+
+`SculptPaintOp` (`scripts/editors/view3d/tools/sculptcore_ops.ts`) drives
+the pair once per dab — roll back the previous preview (if any), begin a
+new one, `applyDab` — and is scoped to the no-symmetry case: preview state
+is a single global slot with one `(center, radius)` region, so it can't
+safely cover several independently-positioned mirror dabs at once.
+Symmetric Anchored/Drag Dot strokes fall back to committing every dab
+immediately, same as Path. The GPU stroke path bypasses this preview
+machinery entirely (non-shadow GPU dabs commit straight to the kernel
+dispatch); this is safe today because the only GPU-eligible brushes
+(Grab/Kelvinlet) use an idempotent from-orig kernel (`AccumOrigGrab` in
+`source/brush/accum_mode.h`) that recomputes an absolute
+result from each vertex's stroke-start position every dab, so committing
+without rollback cannot compound — a brush that needed live-preview
+correctness on the GPU (not just as a memory-bloat optimization) would
+need to plumb the pair through the GPU dispatch too. See
+[`documentation/plans/anchored-drag-dot-stroke-2026-07-16.md`](plans/anchored-drag-dot-stroke-2026-07-16.md)
+for the full design and rollout notes.
 
 ## Bindings & external surface
 

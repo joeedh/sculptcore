@@ -71,12 +71,12 @@ struct VertexData : public ElemData {
   }
 
   BuiltinAttr<float3, "positions"> co;
-  BuiltinAttr<float3, "normals"> no;
+  BuiltinAttr<float3, "normals", AttrFlag::DERIVED> no;
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
-  /* Topology attributes. */
-  BuiltinAttr<int, ".vert.e", AttrFlag::TOPO> e;
+  /* Topology attributes. Disk head is derived from .edge.vs on load. */
+  BuiltinAttr<int, ".vert.e", AttrFlag::TOPO | AttrFlag::DERIVED> e;
 
   /* is not instantiated until first use */
   BuiltinAttr<bool, ".boundary.vertex.dirty"> boundaryDirty;
@@ -115,13 +115,14 @@ struct EdgeData : public ElemData {
     return st;
   }
 
-  BuiltinAttr<int, ".edge.c", AttrFlag::TOPO> c;
+  BuiltinAttr<int, ".edge.c", AttrFlag::TOPO | AttrFlag::DERIVED> c;
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 
-  /* Topology attributes. Disk links are side-bit encoded — see diskPack(). */
+  /* Topology attributes. Disk links are side-bit encoded — see diskPack(). .vs is
+   * authoritative; the disk cycle is derived from it on load. */
   BuiltinAttr<int2, ".edge.vs", AttrFlag::TOPO> vs;
-  BuiltinAttr<int4, ".edge.vs.disk", AttrFlag::TOPO> disk;
+  BuiltinAttr<int4, ".edge.vs.disk", AttrFlag::TOPO | AttrFlag::DERIVED> disk;
 
   /* is not instantiated until first use */
   BuiltinAttr<bool, ".boundary.edge.dirty"> boundaryDirty;
@@ -162,12 +163,12 @@ struct CornerData : public ElemData {
   }
 
   BuiltinAttr<int, ".corner.v", AttrFlag::TOPO | AttrFlag::TOPO_KEEP_FROZEN> v;
-  BuiltinAttr<int, ".corner.e", AttrFlag::TOPO> e;
-  BuiltinAttr<int, ".corner.l", AttrFlag::TOPO> l; /* Owning list. */
+  BuiltinAttr<int, ".corner.e", AttrFlag::TOPO | AttrFlag::DERIVED> e;
+  BuiltinAttr<int, ".corner.l", AttrFlag::TOPO | AttrFlag::DERIVED> l; /* Owning list. */
   BuiltinAttr<int, ".corner.next", AttrFlag::TOPO> next;
-  BuiltinAttr<int, ".corner.prev", AttrFlag::TOPO> prev;
-  BuiltinAttr<int, ".corner.radial_next", AttrFlag::TOPO> radial_next;
-  BuiltinAttr<int, ".corner.radial_prev", AttrFlag::TOPO> radial_prev;
+  BuiltinAttr<int, ".corner.prev", AttrFlag::TOPO | AttrFlag::DERIVED> prev;
+  BuiltinAttr<int, ".corner.radial_next", AttrFlag::TOPO | AttrFlag::DERIVED> radial_next;
+  BuiltinAttr<int, ".corner.radial_prev", AttrFlag::TOPO | AttrFlag::DERIVED> radial_prev;
 };
 
 struct ListData : public ElemData {
@@ -197,9 +198,9 @@ struct ListData : public ElemData {
   }
 
   BuiltinAttr<int, ".list.c", AttrFlag::TOPO> c;
-  BuiltinAttr<int, ".list.f", AttrFlag::TOPO> f;
+  BuiltinAttr<int, ".list.f", AttrFlag::TOPO | AttrFlag::DERIVED> f;
   BuiltinAttr<int, ".list.next", AttrFlag::TOPO> next;
-  BuiltinAttr<int, ".list.size"> size;
+  BuiltinAttr<int, ".list.size", AttrFlag::DERIVED> size;
 };
 
 struct FaceData : public ElemData {
@@ -227,9 +228,9 @@ struct FaceData : public ElemData {
     select.ensure(attrs);
   }
 
-  BuiltinAttr<short, ".face.list_count"> list_count;
+  BuiltinAttr<short, ".face.list_count", AttrFlag::DERIVED> list_count;
   BuiltinAttr<int, ".face.list", AttrFlag::TOPO> l;
-  BuiltinAttr<float3, ".face.normal"> no;
+  BuiltinAttr<float3, ".face.normal", AttrFlag::DERIVED> no;
 
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 };

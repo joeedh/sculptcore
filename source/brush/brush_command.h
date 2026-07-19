@@ -199,7 +199,7 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   // result is bit-identical to the falloff-only strength.
   float strength(float3 co, int v)
   {
-    float t = 1.0f - std::min(brush.falloffDist(co - surfacePos), 1.0f);
+    float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
     float s = brush.strength * brush.falloffEval(t);
     if (automaskEnabled && automaskCavity && v >= 0) {
       s *= (*automaskCavity)[v];

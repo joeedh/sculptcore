@@ -27,6 +27,7 @@ set containing one falls back to a serial fill.
 #include "meshlog.h"
 #include "spatial/node.h"
 
+#include "litestl/util/set.h"
 #include "litestl/util/task.h"
 #include "litestl/util/vector.h"
 
@@ -67,13 +68,35 @@ void parallelCapture(LogChunkElems &store,
     }
   };
 
+  /* Face ownership is unique per node, but a node's unique_verts() is not —
+   * a vertex on a leaf boundary is listed by every leaf touching it. Claim
+   * each element to exactly one node (first node in `nodes` wins) up front
+   * so phases 1/3 below iterate disjoint per-node subsets; without this, a
+   * shared element's needsData()/updateSaved() pair races across the
+   * parallel_for threads below and produces either duplicate rows (both
+   * threads see needsData() true) or unfilled rows (one thread's row is
+   * reserved in phase 2's count but its phase-3 needsData() check then sees
+   * the other thread already claimed it). */
+  util::Vector<util::Vector<int>> owned;
+  owned.resize(n);
+  {
+    util::Set<int> claimed;
+    for (int i = 0; i < n; i++) {
+      for (int e : elemsOf(nodes[i])) {
+        if (claimed.add(e)) {
+          owned[i].append(e);
+        }
+      }
+    }
+  }
+
   /* Phase 1: per-node counts of elements needing capture. */
   util::Vector<int> counts;
   counts.resize(n);
   task::parallel_for(util::IndexRange(n), [&](util::IndexRange range) {
     for (int i : range) {
       int c = 0;
-      for (int e : elemsOf(nodes[i])) {
+      for (int e : owned[i]) {
         if (saver.needsData(e, sid, mask)) {
           c++;
         }
@@ -96,7 +119,7 @@ void parallelCapture(LogChunkElems &store,
 
   auto fillNode = [&](int i) {
     int row = base + counts[i];
-    for (int e : elemsOf(nodes[i])) {
+    for (int e : owned[i]) {
       if (saver.needsData(e, sid, mask)) {
         store.data.cpyFrom(src, e, row++);
         saver.updateSaved(e, sid, mask);

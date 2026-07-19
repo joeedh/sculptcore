@@ -77,6 +77,10 @@ struct GridsStore {
    * channel gets zero-filled storage for it. */
   void addLevel();
 
+  /** Drop the finest level (level == levelCount()) from every channel — the
+   * inverse of addLevel(). No-op when empty. */
+  void dropTopLevel();
+
   int levelCount() const
   {
     return levelCount_;

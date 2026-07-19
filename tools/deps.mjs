@@ -184,6 +184,13 @@ function findLib(libDir, names) {
 
 // --- from-source build -------------------------------------------------------
 
+// Set by ensureDeps({jobs}); caps `cmake --build --parallel` for the local
+// dep builds. 0/undefined = all cores.
+let BUILD_JOBS = 0
+function parallelArg() {
+  return BUILD_JOBS > 0 ? ` ${BUILD_JOBS}` : ''
+}
+
 function buildOpenBLAS(config, installDir) {
   // OpenBLAS's CMake support is flaky and non-deterministic across runs; once the
   // install tree exists, never re-invoke its configure/build — just reuse it.
@@ -236,7 +243,7 @@ function buildOpenBLAS(config, installDir) {
   console.log(`deps: configuring OpenBLAS ${OPENBLAS_TAG} (${config})`)
   shEnv(`cmake ${args} -S "${src}" -B "${bdir}"`)
   console.log('deps: building OpenBLAS (this can take a while on a clean tree)')
-  shEnv(`cmake --build "${bdir}" --config ${cmakeBuildType(config)} --parallel`)
+  shEnv(`cmake --build "${bdir}" --config ${cmakeBuildType(config)} --parallel${parallelArg()}`)
   shEnv(`cmake --install "${bdir}" --config ${cmakeBuildType(config)}`)
 
   const lib = findLib(path.join(installDir, 'lib'), ['openblas'])
@@ -287,7 +294,7 @@ function buildSuiteSparse(config, installDir, openblasLib) {
   console.log(`deps: configuring SuiteSparse ${SUITESPARSE_TAG} (${config})`)
   shEnv(`cmake ${args} -S "${src}" -B "${bdir}"`)
   console.log('deps: building SuiteSparse / CHOLMOD')
-  shEnv(`cmake --build "${bdir}" --config ${cmakeBuildType(config)} --parallel`)
+  shEnv(`cmake --build "${bdir}" --config ${cmakeBuildType(config)} --parallel${parallelArg()}`)
   shEnv(`cmake --install "${bdir}" --config ${cmakeBuildType(config)}`)
 
   const lib = findLib(path.join(installDir, 'lib'), ['cholmod'])
@@ -334,7 +341,8 @@ function printPushHint(comboRel) {
 // --- entry point -------------------------------------------------------------
 
 // Returns the absolute combo dir (to feed CMake as SCULPTCORE_DEPS_DIR).
-export async function ensureDeps({config} = {}) {
+export async function ensureDeps({config, jobs} = {}) {
+  BUILD_JOBS = Number(jobs) > 0 ? Number(jobs) : 0
   const cfg = configName(config)
   const comboRel = comboRelPath(cfg)
   const comboDir = path.join(DEPS_CLONE, comboRel)

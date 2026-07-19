@@ -51,11 +51,13 @@ export interface Brush {
   falloff_extent: float3
   planeSide: float
   strokeDir: float3
+  strokeDirHostSet: boolean
   wingAngle: float
   wingNormalA: float3
   wingNormalB: float3
   activeGroup: int32
   brushColor: float4
+  mixMode: int32
   props: StructProp
   setFalloffCurveEntry(i: int32, f: float): void
   setCavityCurveEntry(i: int32, f: float): void

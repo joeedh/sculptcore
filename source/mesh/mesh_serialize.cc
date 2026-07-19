@@ -169,6 +169,21 @@ AttrFlag mandatoryBuiltinFlags(const string &name)
       is(boundary::VERT_CLASS)) {
     return AttrFlag::TEMP;
   }
+  /* Derived builtins the current writer drops and readMesh rebuilds
+   * (rebuildDerivedTopo). A pre-v5 file still carries these columns with flag
+   * DERIVED unset; re-assert the bit so the loaded mesh drops them from its next
+   * save (same pattern as TEMP). Non-topology derived columns: */
+  if (is("normals") || is(".face.normal") || is(".list.size") ||
+      is(".face.list_count")) {
+    return AttrFlag::DERIVED;
+  }
+  /* Radial-edge link columns — the disk head, radial cycles, corner edges/loops,
+   * and the list back-pointer, all rebuilt from .edge.vs + the face corner loops. */
+  if (is(".vert.e") || is(".edge.c") || is(".edge.vs.disk") || is(".corner.e") ||
+      is(".corner.l") || is(".corner.prev") || is(".corner.radial_next") ||
+      is(".corner.radial_prev") || is(".list.f")) {
+    return AttrFlag::TOPO | AttrFlag::DERIVED;
+  }
   return AttrFlag::NONE;
 }
 
@@ -219,7 +234,7 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
 
   uint32_t attrCount = 0;
   for (AttrRef &attr : ed.attrs.attrs) {
-    if (attr.flag & AttrFlag::TEMP) {
+    if (attr.flag & (AttrFlag::TEMP | AttrFlag::DERIVED)) {
       continue;
     }
     attrCount++;
@@ -231,7 +246,7 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
 
   Vector<uint8_t> buf;
   for (AttrRef &attr : ed.attrs.attrs) {
-    if (attr.flag & AttrFlag::TEMP) {
+    if (attr.flag & (AttrFlag::TEMP | AttrFlag::DERIVED)) {
       continue;
     }
 
@@ -477,6 +492,14 @@ bool migrate(SerialMesh &sm)
       sm.version = 4;
       break;
     }
+    case 4:
+      /* v4 → v5 dropped the DERIVED columns (normals, ngon counts, and the
+       * radial-edge links) from the payload. Nothing to transform in the
+       * SerialMesh IR — a v4 file simply carries stale copies of those columns,
+       * which serial::readMesh's rebuildDerivedTopo() overwrites after building
+       * the live Mesh (migrate has no Mesh to rebuild against). */
+      sm.version = 5;
+      break;
     default:
       return false;
     }
@@ -619,9 +642,24 @@ bool readMesh(Mesh &mesh, std::istream &in)
     buildDomain(*eds[d], sm.domains[d]);
   }
   mesh.sculptLayers = std::move(sm.layers);
-  /* buildDomain bulk-loads faces without make_face, so resync the n-gon counter
-   * dyntopo's triangulate-prepass skip relies on. */
+
+  /* Rebuild every DERIVED column dropped from the blob (disk/radial links, corner
+   * prev/l, list back-ptr + counts) from the authoritative columns. Runs for all
+   * versions: a pre-v5 file's stale link columns loaded above are overwritten —
+   * wasted read, but one always-exercised path. A false return means a face loop
+   * referenced an edge absent from .edge.vs (corrupt file); fall back to the full
+   * repair, which can synthesize the missing edge. */
+  if (!mesh.rebuildDerivedTopo()) {
+    mesh.validateAndRepair();
+  }
+
+  /* n-gon counter dyntopo's triangulate-prepass skip relies on (over the
+   * l.size rebuilt by rebuildDerivedTopo). */
   mesh.recountNgons();
+
+  /* Normals (v.normals / .face.normal) are DERIVED and dropped; recompute after
+   * the link rebuild, since vertex normals walk the disk/radial cycles. */
+  mesh.recalc_normals();
   /* The derived boundary overlay (EDGE_POLYGROUP / VERT_CLASS) is TEMP and not
    * serialized, and boundaryDirty defaults false — so a freshly loaded mesh
    * carries the source flags (seam/sharp/group) but no recomputed classification.

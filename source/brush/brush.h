@@ -178,6 +178,11 @@ struct Brush {
   // oriented Box falloff via `falloff_dir`. Default +Z keeps it well-defined.
   float3 strokeDir{0, 0, 1};
 
+  // When true, the host set `strokeDir` for this dab, so the executor must not
+  // re-derive it from the shared stroke-path ring buffer — mirror-image dabs
+  // supply their own reflected tangent. Reset per dab by the caller.
+  bool strokeDirHostSet = false;
+
   // Wing-scrape: half-angle (radians) of each wing plane off the surface, plus
   // the two wing-plane normals (surfaceNo rotated ±wingAngle about strokeDir),
   // recomputed per dab by the wingscrape kernel's host stage.
@@ -193,6 +198,10 @@ struct Brush {
   // Color paint: the target color the color kernel lerps toward (read as the
   // `brushColor` uniform). Synced from the TS brush per stroke.
   float4 brushColor{1, 1, 1, 1};
+
+  // Color paint blend mode (read as the `mixMode` uniform; see ColorMixModes /
+  // color.sbrush). Synced from the TS brush per stroke. 0 = MIX (straight lerp).
+  int mixMode = 0;
 
   // Brush texture (grayscale, row-major, `tex_width * tex_height` floats).
   // Empty means "no texture": `sampleTexBilinear` returns 1.0 so a kernel
@@ -341,11 +350,13 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, falloff_extent);
     BIND_STRUCT_MEMBER(st, planeSide);
     BIND_STRUCT_MEMBER(st, strokeDir);
+    BIND_STRUCT_MEMBER(st, strokeDirHostSet);
     BIND_STRUCT_MEMBER(st, wingAngle);
     BIND_STRUCT_MEMBER(st, wingNormalA);
     BIND_STRUCT_MEMBER(st, wingNormalB);
     BIND_STRUCT_MEMBER(st, activeGroup);
     BIND_STRUCT_MEMBER(st, brushColor);
+    BIND_STRUCT_MEMBER(st, mixMode);
     BIND_STRUCT_MEMBER(st, tex_width);
     BIND_STRUCT_MEMBER(st, tex_height);
     BIND_STRUCT_MEMBER(st, coord_space);
@@ -542,11 +553,12 @@ struct Brush {
   }
 
   // Normalized 0..1+ distance from the brush center for a vertex offset
-  // `delta = co - surfacePos`, per the active `falloff_shape`. Feeds the
-  // curve via `t = 1 - min(dist, 1)`. WGSL mirrors this in
+  // `delta = co - surfacePos`, per the active `falloff_shape`. `surfaceNo` is
+  // the brush-center surface normal, used only by Box to orient its frame.
+  // Feeds the curve via `t = 1 - min(dist, 1)`. WGSL mirrors this in
   // `brush_falloff_dist`; changing one without the other breaks the
   // CPU/GPU bit-equality contract.
-  float falloffDist(float3 delta) const
+  float falloffDist(float3 delta, float3 surfaceNo) const
   {
     float inv_r = 1.0f / radius;
     switch (falloff_shape) {
@@ -563,19 +575,24 @@ struct Brush {
     case FalloffShape::Linear:
       return std::fabs(delta.dot(falloff_dir)) * inv_r;
     case FalloffShape::Box: {
-      // Oriented cuboid. Build an orthonormal frame whose primary axis is
-      // `falloff_dir` (the stroke direction); project `delta` onto it, divide
-      // each component by the matching per-axis extent, take the max-norm.
-      // The reference-axis pick mirrors sampleBrushTex and the WGSL branch
-      // bit-for-bit (same |n.z| < 0.999 test) to keep CPU/GPU equal.
-      float3 n = falloff_dir.normalized();
-      float3 ref =
-          std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f} : float3{1.0f, 0.0f, 0.0f};
-      float3 t1 = ref.cross(n).normalized();
-      float3 t2 = n.cross(t1);
-      float dn = std::fabs(delta.dot(n)) / falloff_extent[0];
-      float d1 = std::fabs(delta.dot(t1)) / falloff_extent[1];
-      float d2 = std::fabs(delta.dot(t2)) / falloff_extent[2];
+      // Stroke-aligned oriented cuboid: axis 0 = stroke tangent (`falloff_dir`)
+      // projected into the surface tangent plane, axis 1 = in-plane
+      // perpendicular, axis 2 = surface normal; extents from `falloff_extent`.
+      float3 n = surfaceNo.normalized();
+      float3 tang = falloff_dir - n * falloff_dir.dot(n);
+      float tl = tang.length();
+      if (tl < 1e-6f) {
+        // Stroke ~parallel to the normal: pick any in-plane axis.
+        float3 ref =
+            std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f} : float3{1.0f, 0.0f, 0.0f};
+        tang = ref.cross(n);
+        tl = tang.length();
+      }
+      tang = tang / tl;
+      float3 lat = n.cross(tang);
+      float dn = std::fabs(delta.dot(tang)) / falloff_extent[0];
+      float d1 = std::fabs(delta.dot(lat)) / falloff_extent[1];
+      float d2 = std::fabs(delta.dot(n)) / falloff_extent[2];
       float m = dn > d1 ? dn : d1;
       m = m > d2 ? m : d2;
       return m * inv_r;

@@ -88,13 +88,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -281,6 +287,7 @@ struct BrushUniforms {
   tex_repeat: f32,
   stroke_path_count: u32,
   brushColor: vec4<f32>,
+  mixMode: i32,
 };
 
 struct CtxUniforms {
@@ -343,13 +350,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -447,7 +460,55 @@ fn main(
   if ((s == 0.0)) {
     return;
   }
-  v_color = (v_color + (((brush_u.brushColor - v_color)) * s));
+  var base: vec4<f32> = v_color;
+  var c: vec4<f32> = brush_u.brushColor;
+  var bl: vec4<f32> = c;
+  if ((brush_u.mixMode == 1)) {
+    bl = (base * c);
+  } else   if ((brush_u.mixMode == 2)) {
+    var one: vec4<f32> = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+    bl = (one - (((one - base)) * ((one - c))));
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 3)) {
+    if ((base.x < 0.5)) {
+      bl.x = ((2.0 * base.x) * c.x);
+    } else {
+      bl.x = (1.0 - ((2.0 * ((1.0 - base.x))) * ((1.0 - c.x))));
+    }
+    if ((base.y < 0.5)) {
+      bl.y = ((2.0 * base.y) * c.y);
+    } else {
+      bl.y = (1.0 - ((2.0 * ((1.0 - base.y))) * ((1.0 - c.y))));
+    }
+    if ((base.z < 0.5)) {
+      bl.z = ((2.0 * base.z) * c.z);
+    } else {
+      bl.z = (1.0 - ((2.0 * ((1.0 - base.z))) * ((1.0 - c.z))));
+    }
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 4)) {
+    bl.x = abs((base.x - c.x));
+    bl.y = abs((base.y - c.y));
+    bl.z = abs((base.z - c.z));
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 5)) {
+    bl = (base + c);
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 6)) {
+    bl = (base - c);
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 7)) {
+    bl.x = min(base.x, c.x);
+    bl.y = min(base.y, c.y);
+    bl.z = min(base.z, c.z);
+    bl.w = c.w;
+  } else   if ((brush_u.mixMode == 8)) {
+    bl.x = max(base.x, c.x);
+    bl.y = max(base.y, c.y);
+    bl.z = max(base.z, c.z);
+    bl.w = c.w;
+  }
+  v_color = (base + (((bl - base)) * s));
 
   co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;
@@ -537,13 +598,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -740,13 +807,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -954,13 +1027,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -1175,13 +1254,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -1466,13 +1551,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -1660,13 +1751,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -1893,13 +1990,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -2110,13 +2213,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -2323,13 +2432,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -2537,13 +2652,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -2734,13 +2855,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -2952,13 +3079,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -3167,13 +3300,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -3354,13 +3493,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -3551,13 +3696,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -3780,13 +3931,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -4007,13 +4164,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -4221,13 +4384,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;
@@ -4447,13 +4616,19 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   } else if (brush_u.falloff_shape == 2u) {
     return abs(dot(delta, brush_u.falloff_dir)) * sb_inv_r;
   } else if (brush_u.falloff_shape == 3u) {
-    let sb_n = normalize(brush_u.falloff_dir);
-    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
-    let sb_t1 = normalize(cross(sb_ref, sb_n));
-    let sb_t2 = cross(sb_n, sb_t1);
-    let sb_dn = abs(dot(delta, sb_n)) / brush_u.falloff_extent.x;
-    let sb_d1 = abs(dot(delta, sb_t1)) / brush_u.falloff_extent.y;
-    let sb_d2 = abs(dot(delta, sb_t2)) / brush_u.falloff_extent.z;
+    let sb_n = normalize(ctx_u.surfaceNo);
+    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);
+    var sb_tl = length(sb_tang);
+    if (sb_tl < 1e-6) {
+      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);
+      sb_tang = cross(sb_ref, sb_n);
+      sb_tl = length(sb_tang);
+    }
+    sb_tang = sb_tang / sb_tl;
+    let sb_lat = cross(sb_n, sb_tang);
+    let sb_dn = abs(dot(delta, sb_tang)) / brush_u.falloff_extent.x;
+    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;
+    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;
     return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;
   }
   return length(delta) * sb_inv_r;

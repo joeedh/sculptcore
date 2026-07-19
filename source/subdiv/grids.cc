@@ -65,6 +65,19 @@ void GridsStore::addLevel()
   }
 }
 
+void GridsStore::dropTopLevel()
+{
+  if (levelCount_ < 1) {
+    return;
+  }
+  // pop_back destructs the tail LevelData (and its nested Vectors) cleanly;
+  // the remove_at double-free noted in removeChannel is mid-vector-only.
+  for (Channel &ch : channels_) {
+    ch.levels.pop_back();
+  }
+  levelCount_--;
+}
+
 float *GridsStore::elem(int level, int channel, int grid, int u, int v)
 {
   Channel &ch = channels_[channel];

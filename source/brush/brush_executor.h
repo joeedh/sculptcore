@@ -279,6 +279,11 @@ struct CommandExecutor {
     st->methods[st->methods.size() - 1]->argIsNullable("params");
     BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
     BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
+    BIND_STRUCT_METHOD(st, beginPreviewDab, MARGS("center", "radius"));
+    BIND_STRUCT_METHOD(st, extendPreviewDab, MARGS("center", "radius"));
+    BIND_STRUCT_METHOD(st, rollbackPreviewDab, MARGS());
+    BIND_STRUCT_METHOD(st, previewActive, MARGS());
+    BIND_STRUCT_METHOD(st, commitPreviewDab, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
     BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
     BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
@@ -1139,6 +1144,30 @@ struct CommandExecutor {
     brush->setPropDynamicSampleByName(queriedUniforms[idx].name, deviceType, i, n, value);
   }
 
+  // Update the per-dab stroke frame: the stroke tangent (this dab origin minus
+  // the previous dab center) and, for the oriented Box falloff, its primary
+  // axis. Must run *before* pushStrokeSample appends this origin, and before the
+  // kernel executes. Shared by both the single-brush and program dab paths so
+  // Box/wing-scrape orientation is identical regardless of entry point.
+  void updateStrokeFrame(float3 origin)
+  {
+    // Under mirror symmetry the host owns strokeDir (it reflects the primary
+    // tangent per image); the shared ring buffer would otherwise interleave
+    // primary + mirror origins. Derive from the buffer only when host didn't.
+    if (!brush->strokeDirHostSet && brush->strokePathCount > 0) {
+      float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
+      float len = d.length();
+      if (len > 1e-7f) {
+        brush->strokeDir = d / len;
+      }
+    }
+    // The bridge only flips the shape to Box; the direction is owned here so it
+    // stays consistent with wing-scrape's strokeDir.
+    if (brush->falloff_shape == FalloffShape::Box) {
+      brush->falloff_dir = brush->strokeDir;
+    }
+  }
+
   void execBrush(Mesh *m,
                  SculptBrushes brushType,
                  Vector<spatial::SpatialNode *> *nodes,
@@ -1205,6 +1234,9 @@ struct CommandExecutor {
     ctx.surfacePos = origin;
     ctx.meshLog = meshLog;
     ctx.isFirstOfStep = isFirstOfStep;
+
+    // Stroke tangent + oriented-Box axis for this dab (before pushStrokeSample).
+    updateStrokeFrame(origin);
 
     // Record this dab center so STROKE_CURVED can map vertices onto the
     // accumulated stroke polyline. Incremental on purpose: a dab's vertices
@@ -1354,23 +1386,9 @@ struct CommandExecutor {
       }
     }
 
-    // Stroke tangent for this dab (Route A): direction from the previous dab
-    // center to this one. Must be read *before* pushStrokeSample appends the
-    // current origin. Drives wing-scrape and the oriented Box falloff.
-    if (brush->strokePathCount > 0) {
-      float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
-      float len = d.length();
-      if (len > 1e-7f) {
-        brush->strokeDir = d / len;
-      }
-    }
-
-    // The oriented Box falloff follows the stroke: align its primary axis with
-    // the stroke tangent (the bridge only flips the shape to Box; the direction
-    // is owned here so it stays consistent with wing-scrape's strokeDir).
-    if (brush->falloff_shape == FalloffShape::Box) {
-      brush->falloff_dir = brush->strokeDir;
-    }
+    // Stroke tangent + oriented-Box axis for this dab (Route A). Must run before
+    // pushStrokeSample appends this origin. Drives wing-scrape and Box falloff.
+    updateStrokeFrame(origin);
 
     // One stroke sample per dab (not per sub-command): the stroke advances once.
     brush->pushStrokeSample(origin, normal);
@@ -1681,6 +1699,60 @@ struct CommandExecutor {
     isFirstOfStep = false;
   }
 
+  /** Anchored/Drag Dot live preview: snapshot the region the next preview-only
+   * applyDab() is about to touch (see MeshLog::beginPreviewDab). Call
+   * immediately before that dab (the primary/first dab of a driver tick; use
+   * extendPreviewDab() for any symmetry mirror images of the same tick).
+   * Roll the whole group back with rollbackPreviewDab() before the next
+   * tick's dabs, or keep it with commitPreviewDab() at stroke end. */
+  void beginPreviewDab(float3 center, float radius)
+  {
+    if (!meshLog || !tree) {
+      return;
+    }
+    meshLog->beginPreviewDab(tree->m, tree, center, radius);
+  }
+
+  /** Add another region to the currently-open preview session (a mirror
+   * image of the same driver tick) without resetting it — the whole group
+   * rolls back together via one rollbackPreviewDab(). See
+   * MeshLog::extendPreviewDab. */
+  void extendPreviewDab(float3 center, float radius)
+  {
+    if (!meshLog || !tree) {
+      return;
+    }
+    meshLog->extendPreviewDab(tree->m, tree, center, radius);
+  }
+
+  /** Undo the most recent preview dab (topology pop-and-undo + position/attr
+   * restore) without closing the step. See MeshLog::rollbackPreviewDab. */
+  void rollbackPreviewDab()
+  {
+    if (!meshLog || !tree) {
+      return;
+    }
+    meshLog->rollbackPreviewDab(tree->m, tree);
+  }
+
+  /** True if a preview snapshot is pending rollback (diagnostic / debug-app use). */
+  bool previewActive() const
+  {
+    return meshLog && meshLog->previewActive();
+  }
+
+  /** Keep the pending preview dab's effect and drop its snapshot bookkeeping.
+   * Call once at the true end of an Anchored/Drag Dot stroke (after the last
+   * dab, instead of a paired rollback) so previewActive() doesn't leak into
+   * the next stroke's step. See MeshLog::commitPreviewDab. */
+  void commitPreviewDab()
+  {
+    if (!meshLog) {
+      return;
+    }
+    meshLog->commitPreviewDab();
+  }
+
   void beginStep(bool hasDyntopo)
   {
     isFirstOfStep = true;
@@ -1713,7 +1785,8 @@ struct CommandExecutor {
 /** Declared in accum_mode.h; CoProxy::commit uses it to derive the layer cap. */
 inline float dabFalloffFraction(const CommandExecutor &exec, const float3 &co)
 {
-  float t = 1.0f - std::min(exec.brush->falloffDist(co - exec.ctx.surfacePos), 1.0f);
+  float t =
+      1.0f - std::min(exec.brush->falloffDist(co - exec.ctx.surfacePos, exec.ctx.surfaceNo), 1.0f);
   return exec.brush->falloffEval(t);
 }
 

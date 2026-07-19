@@ -30,6 +30,12 @@ export interface Mesh {
   recalc_normals(): void
   faceGroup(face: int32): int32
   maxFaceGroup(): int32
+  facesInGroup(group: int32, out: int32[]): void
+  faceMaterial(face: int32): int32
+  maxFaceMaterial(): int32
+  facesWithMaterial(slot: int32, out: int32[]): void
+  facesMaterialSlots(faces: int32[], out: int32[]): void
+  setFacesMaterial(faces: int32[], slot: int32): void
   ngonFaceCount(): int32
   setAttrUse(domain: int32, index: int32, use: int32): void
   addAttr(domain: int32, type: int32, use: int32): int32
@@ -54,6 +60,12 @@ export interface Mesh {
   edgeFlagKind(e: int32, kind: int32): int32
   setEdgeFlagKind(e: int32, kind: int32, state: int32): void
   markSharpByAngle(angle: float, state: int32): int32
+  selectSimilar(
+    criterion: int32,
+    seed: int32,
+    threshold: float,
+    out: int32[]
+  ): void
   repairLogCount(): int32
   clearRepairLog(): void
   repairMesh(): int32

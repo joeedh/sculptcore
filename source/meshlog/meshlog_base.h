@@ -208,7 +208,11 @@ struct ChunkElemData {
         continue;
       }
 
-      mesh::AttrData<float3> *dstdst = static_cast<mesh::AttrData<float3> *>(dstData);
+      /* srcData's page for src_i may be lazily unmaterialized — most captures
+       * only ever touch co/no (eagerly materialized), but capturePreviewRegion
+       * sweeps every non-NOCOPY attribute, including sparse ones (e.g. mask,
+       * cavity) that a never-touched vertex has no backing page for yet. */
+      srcData->materializeElem(src_i);
       memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
     }
   };
@@ -269,18 +273,37 @@ struct ChunkElemData {
 
       const auto &srcData = ref.data;
 
+      /* See cpyFrom(): srcData's page for src_i may be lazily unmaterialized. */
+      srcData->materializeElem(src_i);
+
       memcpy(static_cast<void *>(buf), dstData->getElemData(dst_i), dstData->elemSize);
       memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
       memcpy(srcData->getElemData(src_i), static_cast<void *>(buf), dstData->elemSize);
     }
   };
 
+  // A row is appended the first time an element is touched in a step, so an
+  // element hit again later in the same step is normally gated out by
+  // AttrSaver — but a rolled-back preview dab's own capture can leave a stale
+  // row behind (its needsData() gate resets on rollback, so a later real
+  // touch appends a second row for the same origIndex). Two rows for one
+  // origIndex are captured oldest-first; undoing must therefore unwind
+  // newest-first (reverse) and redoing must replay oldest-first (forward) —
+  // rows are chained (mesh <-> row[N] <-> row[N-1] <-> ... ), and visiting
+  // them out of order strands the element on an intermediate value instead
+  // of its true endpoint.
   void swap(mesh::AttrGroup &src, spatial::SpatialTree *tree)
   {
     updateSrcAttrMap(tree->m);
 
-    for (int i : util::IndexRange(0, size_)) {
-      this->swapWith(src, origIndex[i], i);
+    if (isSwapped) {
+      for (int i = 0; i < size_; i++) {
+        this->swapWith(src, origIndex[i], i);
+      }
+    } else {
+      for (int i = size_ - 1; i >= 0; i--) {
+        this->swapWith(src, origIndex[i], i);
+      }
     }
     isSwapped ^= true;
   }
@@ -1596,6 +1619,264 @@ struct MeshLog {
     return curEntry().topo_chunk_;
   }
 
+  /* ------------- Live-preview mid-step rollback (Anchored / Drag Dot) -------
+   * A preview dab is a real applyDab() call issued while the pointer is still
+   * moving, whose effect must vanish the instant the NEXT preview (or the
+   * final) dab is applied — never compound. The step-wide chunks above have no
+   * per-dab granularity for this (LogChunkElems captures once per domain per
+   * WHOLE step, not per dab), so rollback is a hybrid: pop-and-undo whatever
+   * LogChunkTopo chunk(s) the preview dab pushed (applyDab already seals one
+   * fresh topo chunk per dab, so "chunks appended since beginPreviewDab" IS
+   * exactly this dab's topology), plus a raw vertex row snapshot/restore for
+   * the non-topological position/attribute deform, captured and rolled back
+   * outside the log entirely — mirroring the debug-app save_pos/assert_pos
+   * pattern. See documentation/plans/anchored-drag-dot-stroke-2026-07-16.md
+   * step 2a. */
+  struct PreviewState {
+    bool active = false;
+    size_t chunkBaseline = 0;
+    detail::RowLayout vertLayout;
+    Vector<int> vertIdx;
+    Vector<detail::ChunkElemRow> vertRows;
+    /* Elements whose undo gate (vertGate_/faceGate_) was freshly stamped by a
+     * TOPOLOGY touch (stampUndoGate) while this preview dab was active — must
+     * be un-stamped on rollback since the chunk that stamped them is deleted.
+     * Populated by stampUndoGate itself (not the element store's own capture,
+     * which stamps the same gate but owns a row that outlives rollback). */
+    Vector<int> gatedVert;
+    Vector<int> gatedFace;
+    /* Dedup set across every region captured this preview session (begin +
+     * any extend) so a vert shared by two mirror images is only snapshotted
+     * once, at its first-seen (pre-dab) state. */
+    util::Set<int> seenIdx;
+  };
+  PreviewState preview_;
+
+  bool previewActive() const
+  {
+    return preview_.active;
+  }
+
+  /** Commit the pending preview dab: its mesh edits and log chunks stay applied
+   * exactly as-is, and the snapshot bookkeeping is simply dropped (no rollback,
+   * no mesh touch). Call once at the true end of a stroke — beginStep() does
+   * not itself clear preview_, so an un-committed preview_.active would
+   * otherwise survive into the next stroke's fresh LogEntry and cause the next
+   * stroke's first preview dab to roll back against the wrong entry/snapshot.
+   * No-op if no preview is pending. */
+  void commitPreviewDab()
+  {
+    preview_.active = false;
+    preview_.vertIdx.clear();
+    preview_.vertRows.clear();
+    preview_.gatedVert.clear();
+    preview_.gatedFace.clear();
+    preview_.seenIdx.clear();
+  }
+
+  /** Snapshot every unseen vertex within `radius` of `center` into the
+   * CURRENT preview session (dedup via preview_.seenIdx) — shared by
+   * beginPreviewDab (fresh session) and extendPreviewDab (add a region to an
+   * already-open one). Assumes preview_.vertLayout is already built.
+   *
+   * Also force-claims the step-wide undo gate for each vertex right here,
+   * before any dab in this group runs. A dab can move a vertex outside its
+   * own brush-kernel iteration set (e.g. a dyntopo-side-effect position
+   * write on a vertex that isn't part of the deform's node-filtered
+   * region) without going through the brush's AttrSaver-gated Pre-stage
+   * capture at all; the only other capture path (a topology-touch callback
+   * via stampUndoGate/fwd) fires lazily, sometime after such a write has
+   * already happened, and ends up capturing the mutated value instead of
+   * the original. Claiming the gate — and seeding the element store — here
+   * makes this pre-group snapshot the oldest, and thus authoritative, undo
+   * body for the vertex regardless of what fires later this step. */
+  void capturePreviewRegion(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
+  {
+    Vector<spatial::SpatialNode *> nodes;
+    tree->filterNodes(center, radius, nodes);
+
+    mesh::AttrGroup &grp = m->v.attrs;
+
+    Vector<mesh::AttrRef> elemRefs;
+    for (mesh::AttrRef &ref : grp.attrs) {
+      if (ref.flag & mesh::AttrFlag::NOCOPY) {
+        continue;
+      }
+      elemRefs.append(ref);
+    }
+    litestl::util::span<const mesh::AttrRef> elemRefSpan(elemRefs.data(), elemRefs.size());
+
+    for (spatial::SpatialNode *node : nodes) {
+      for (int v : node->unique_verts()) {
+        if (v < 0 || size_t(v) >= m->v.capacity() || m->v.freemap[v]) {
+          continue;
+        }
+        if (!preview_.seenIdx.add(v)) {
+          continue;
+        }
+        preview_.vertIdx.append(v);
+        preview_.vertRows.grow_one();
+        preview_.vertRows.last().captureFrom(&preview_.vertLayout, grp, v);
+
+        if (vertGate_.needsData(v, curStrokeId(), 0xffff)) {
+          elemStore(mesh::ElemType::VERTEX)->data.appendFrom(grp, v, elemRefSpan);
+          vertGate_.updateSaved(v, curStrokeId(), 0xffff);
+        }
+      }
+    }
+  }
+
+  /** Snapshot every vertex within `radius` of `center` — a generous superset
+   * of what one dab at this location can touch — and remember the step's
+   * current chunk count. Call immediately before issuing a preview-only
+   * applyDab(); pair with rollbackPreviewDab() before the next preview dab.
+   * Replaces any prior un-rolled-back snapshot. Under symmetry, this starts
+   * the group (the primary dab); each mirror image adds its own region via
+   * extendPreviewDab() so the whole group rolls back as one unit. */
+  void beginPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
+  {
+    if (!m || !tree) {
+      return;
+    }
+    /* Anchored/Drag Dot calls this BEFORE the tick's applyDab(), which is
+     * normally what binds the vertGate_/faceGate_ .strokeid columns via
+     * setActiveMesh(). capturePreviewRegion() below reads vertGate_ directly,
+     * so bind it here too or the first preview dab of a stroke reads an
+     * unensured builtin attribute column and crashes. Idempotent/cheap when
+     * already bound to this mesh. */
+    setActiveMesh(m);
+    /* pushTopoChunk() (called unconditionally at the end of every applyDab)
+     * always appends a fresh, still-empty chunk for the NEXT dab to reuse —
+     * so if one is already sitting there as topo_chunk_, it's already
+     * counted in chunks.size() even though this preview dab's topology
+     * writes will land inside that very chunk (getTopoChunk() reuses it
+     * rather than appending a new one). Exclude it from the baseline so
+     * rollback's pop loop below undoes it too. */
+    preview_.chunkBaseline = curEntry().chunks.size() - (curEntry().topo_chunk_ ? 1 : 0);
+    preview_.vertIdx.clear();
+    preview_.vertRows.clear();
+    preview_.gatedVert.clear();
+    preview_.gatedFace.clear();
+    preview_.seenIdx.clear();
+
+    mesh::AttrGroup &grp = m->v.attrs;
+    preview_.vertLayout.build(grp);
+
+    capturePreviewRegion(m, tree, center, radius);
+
+    /* Flip active on only now, after the row snapshot above, so stampUndoGate
+     * doesn't mistake this snapshot pass for a preview-dab touch. */
+    preview_.active = true;
+  }
+
+  /** Add another (center, radius) region to the CURRENT preview session
+   * without resetting its chunk baseline or snapshot — for symmetry, where
+   * one driver tick applies a primary dab plus one per active mirror axis,
+   * all of which must roll back together as a single unit before the next
+   * tick's dabs land. Verts already captured (shared across mirror images,
+   * e.g. on the mirror plane) are left at their pre-dab snapshot, not
+   * re-captured mid-group. No-op fallback: if called with no session open
+   * (beginPreviewDab wasn't called first), behaves as beginPreviewDab. */
+  void extendPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
+  {
+    if (!m || !tree) {
+      return;
+    }
+    if (!preview_.active) {
+      beginPreviewDab(m, tree, center, radius);
+      return;
+    }
+    capturePreviewRegion(m, tree, center, radius);
+  }
+
+  /** Undo the effect of the most recent preview dab: pop and undo every chunk
+   * pushed since the paired beginPreviewDab(), then restore the snapshotted
+   * vertex rows directly (bypassing the log). No-op if no snapshot is
+   * pending. Leaves the step open — this is NOT MeshLog::undo(), which closes
+   * a step and moves the history cursor. */
+  void rollbackPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree)
+  {
+    if (!preview_.active || !m) {
+      preview_.active = false;
+      return;
+    }
+
+    /* The preview dab's own applyDab() just froze topology on the way out
+     * (its normal per-dab bracket); the topo-chunk undo below walks live
+     * TOPO links (disk/radial cycles) via raw alloc/release, same as
+     * MeshLog::undo() -- thaw first or it silently no-ops on unmaterialized
+     * pages (see thawForTopoChunks). */
+    thawForTopoChunks(m);
+
+    /* Only LogChunkTopo chunks belong to this preview dab (see class comment);
+     * a LogChunkElems chunk can land in this same index range when this is the
+     * step's first dab (the step-wide, gated-once-per-stroke capture happens
+     * to fire during it) -- that chunk owns the pre-STEP baseline the real
+     * MeshLog::undo() needs later, and must survive every preview rollback in
+     * this stroke, not just this one. Walk top-down and excise only the Topo
+     * chunks, leaving everything else (and its relative order) untouched. */
+    auto &chunks = curEntry().chunks;
+    for (int i = int(chunks.size()) - 1; i >= int(preview_.chunkBaseline); i--) {
+      LogChunk *c = chunks[i];
+      if (c->type != LogChunkTypes::Topo) {
+        continue;
+      }
+      c->undo(m, tree);
+      chunks.remove_at(i, false);
+      litestl::alloc::Delete(c);
+    }
+    /* The active topo chunk (if any) was just deleted above; the next touch
+     * lazily allocates a fresh one via getTopoChunk(). Bump the per-chunk
+     * dedup stamps too, since the deleted chunk's recorded elements must be
+     * eligible to record again in whatever chunk comes next. */
+    curEntry().topo_chunk_ = nullptr;
+    bumpChunkStampGen();
+
+    /* The just-deleted chunk(s) stamped vertGate_/faceGate_ (via stampUndoGate)
+     * for every element they topologically touched — that stamp tells the
+     * brush's LogChunkElems capture "a topo chunk already owns this element's
+     * pre-step body, skip me". With the chunk gone, nothing owns it anymore,
+     * so every element stampUndoGate newly gated during this preview dab (as
+     * opposed to the element store's own, non-rolled-back capture, which
+     * stamps the same gate through a different call site) must be un-gated —
+     * see stampUndoGate. */
+    for (int idx : preview_.gatedVert) {
+      if (idx >= 0 && size_t(idx) < m->v.capacity()) {
+        vertGate_.resetElem(idx);
+      }
+    }
+    for (int idx : preview_.gatedFace) {
+      if (idx >= 0 && size_t(idx) < m->f.capacity()) {
+        faceGate_.resetElem(idx);
+      }
+    }
+
+    mesh::AttrGroup &grp = m->v.attrs;
+    for (int i = 0; i < int(preview_.vertIdx.size()); i++) {
+      int idx = preview_.vertIdx[i];
+      if (idx < 0 || size_t(idx) >= m->v.capacity() || m->v.freemap[idx]) {
+        continue;
+      }
+      // ChunkElemRow::writeTo zeroes NOCOPY cells (.spatial.v.node) by contract --
+      // correct for LogChunkTopo recreation (ownership re-derived after), wrong
+      // here since this vert was never recreated. Preserve the live ownership stamp.
+      int savedNode = tree ? tree->treeMesh.v.node[idx] : 0;
+      preview_.vertRows[i].writeTo(grp, idx);
+      if (tree) {
+        tree->treeMesh.v.node[idx] = savedNode;
+        if (savedNode) {
+          using namespace sculptcore::spatial;
+          SpatialNode *node = tree->node_from_id(savedNode);
+          node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds |
+                       NodeFlags::Spatial_UpdateNormals);
+        }
+      }
+    }
+
+    preview_.active = false;
+    preview_.seenIdx.clear();
+  }
+
   /** Find-or-create the current step's per-domain element store (the
    * append-as-touched undo capture for AttrSaver-gated brush deformation). */
   LogChunkElems *elemStore(mesh::ElemType domain)
@@ -2305,8 +2586,19 @@ private:
   void stampUndoGate(LogElemKind kind, int idx)
   {
     if (kind == LogElemKind::Vert) {
+      /* Only a topology touch (this call site) newly stamping a previously-
+       * unstamped vertex, while a preview dab is active, needs undoing on
+       * rollback — the element store's OWN capture (a separate call site,
+       * see LogChunkElems) also stamps this same gate but its row is never
+       * rolled back, so it must never be un-stamped. See rollbackPreviewDab. */
+      if (preview_.active && vertGate_.needsData(idx, curStrokeId(), 0xffff)) {
+        preview_.gatedVert.append(idx);
+      }
       vertGate_.updateSaved(idx, curStrokeId(), 0xffff);
     } else if (kind == LogElemKind::Face) {
+      if (preview_.active && faceGate_.needsData(idx, curStrokeId(), 0xffff)) {
+        preview_.gatedFace.append(idx);
+      }
       faceGate_.updateSaved(idx, curStrokeId(), 0xffff);
     }
   }

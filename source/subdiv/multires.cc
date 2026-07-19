@@ -186,6 +186,28 @@ bool Multires::dispNonZero(int level)
   return false;
 }
 
+/** Copy the F3 frame-provider attrs off `m` (co == smooth base) into dense
+ * per-vert vectors — the cache writeback re-expression reads from. */
+static void extractFrameAttrs(mesh::Mesh &m,
+                              int vertCount,
+                              Vector<float3> &no,
+                              Vector<float3> &ta)
+{
+  auto attr = [&](const char *name) {
+    AttrRef ref = m.v.attrs.find_attribute(AttrType::FLOAT3, name);
+    return ref.exists() ? static_cast<AttrData<float3> *>(ref.data) : nullptr;
+  };
+  AttrData<float3> *fn = attr(displace::FRAME_NORMAL_ATTR);
+  AttrData<float3> *ft = attr(displace::FRAME_TANGENT_ATTR);
+  Assert(fn && ft, "frame provider attrs present");
+  no.resize(vertCount);
+  ta.resize(vertCount);
+  for (int i = 0; i < vertCount; i++) {
+    no[i] = (*fn)[i];
+    ta[i] = (*ft)[i];
+  }
+}
+
 /** Apply the level's composited displacement (Σ mix weight·channel) onto the
  * smoothed base, in the F3 frame evaluated AT the base (edit-independent).
  * `pos` must NOT alias `base` — seam verts are visited once per replica and
@@ -270,14 +292,64 @@ Vector<float3> &Multires::ensureChain(int level)
         tm->v.co[i] = base[i];
       }
       tm->recalc_normals();
+      // applyDisp runs the frame provider on tm — cache base + frames off it
+      // so writeback re-expression skips the whole rebuild.
       applyDisp(store, refiner, l, tm, base, lp.pos, mix);
+      extractFrameAttrs(*tm, refiner.levels[l - 1].vertCount, lp.frameNo, lp.frameTa);
+      lp.base = std::move(base);
+      lp.framesValid = true;
+      lp.posIsBase = false;
       alloc::Delete(tm);
     } else {
       lp.pos = std::move(base);
+      lp.posIsBase = true;
+      lp.framesValid = false;
+      lp.base.clear();
+      lp.frameNo.clear();
+      lp.frameTa.clear();
     }
     lp.valid = true;
   }
   return posCache_[level - 1].pos;
+}
+
+void Multires::ensureBaseAndFrames(int level)
+{
+  Assert(level >= 1 && level <= maxLevel(), "level in refined range");
+  LevelPos &lp = posCache_[level - 1];
+  Assert(lp.valid, "chain valid through level");
+
+  // Materialize the base copy while pos still equals it (writeback mutates
+  // the baseline pos afterwards).
+  if (lp.posIsBase && lp.base.size() == 0) {
+    lp.base = lp.pos;
+    lp.posIsBase = false;
+  }
+  if (lp.framesValid) {
+    return;
+  }
+  if (lp.base.size() == 0) {
+    Vector<float3> cageCo;
+    const Vector<float3> *prev;
+    if (level == 1) {
+      gatherVertCo(*cage_, cageCo);
+      prev = &cageCo;
+    } else {
+      Assert(posCache_[level - 2].valid, "chain valid below level");
+      prev = &posCache_[level - 2].pos;
+    }
+    refiner.levels[level - 1].stencil.eval(*prev, lp.base);
+  }
+  mesh::Mesh *tm = buildLevelTopo(level);
+  for (int i = 0; i < int(lp.base.size()); i++) {
+    tm->v.co[i] = lp.base[i];
+  }
+  tm->recalc_normals();
+  displace::FrameProviderParams params;
+  displace::updateFramesAll(*tm, params);
+  extractFrameAttrs(*tm, refiner.levels[level - 1].vertCount, lp.frameNo, lp.frameTa);
+  alloc::Delete(tm);
+  lp.framesValid = true;
 }
 
 MultiresSlot *Multires::findSlot(int level)
@@ -335,6 +407,17 @@ MultiresSlot *Multires::materialize(int level)
     m->v.co[i] = pos[i];
   }
   m->recalc_normals();
+  // Zero-disp materialization: this mesh's co IS the smooth base, so cache the
+  // base + frames off it now — the level's first writeback then pays nothing.
+  LevelPos &lp = posCache_[level - 1];
+  if (lp.posIsBase && !lp.framesValid) {
+    displace::FrameProviderParams fparams;
+    displace::updateFramesAll(*m, fparams);
+    extractFrameAttrs(*m, refiner.levels[level - 1].vertCount, lp.frameNo, lp.frameTa);
+    lp.base = lp.pos;
+    lp.posIsBase = false;
+    lp.framesValid = true;
+  }
   assignGridUVs(*m, level);
   // Level topology is derived state — brushes must never remesh it, and the
   // VDM clamp is a true ceiling here (no promotion; plan X1).
@@ -372,31 +455,13 @@ void Multires::storeDispFromPositions(int level,
 {
   SubdivLevel &lvl = refiner.levels[level - 1];
 
-  // Recompute the smoothed base + frames this level's disp is relative to.
-  Vector<float3> cageCo, base;
-  const Vector<float3> *prev;
-  if (level == 1) {
-    gatherVertCo(*cage_, cageCo);
-    prev = &cageCo;
-  } else {
-    prev = &posCache_[level - 2].pos;
-  }
-  lvl.stencil.eval(*prev, base);
-
-  mesh::Mesh *tm = buildLevelTopo(level);
-  for (int i = 0; i < int(base.size()); i++) {
-    tm->v.co[i] = base[i];
-  }
-  tm->recalc_normals();
-  displace::FrameProviderParams params;
-  displace::updateFramesAll(*tm, params);
-  auto attr = [&](const char *name) {
-    AttrRef ref = tm->v.attrs.find_attribute(AttrType::FLOAT3, name);
-    return ref.exists() ? static_cast<AttrData<float3> *>(ref.data) : nullptr;
-  };
-  AttrData<float3> *no = attr(displace::FRAME_NORMAL_ATTR);
-  AttrData<float3> *ta = attr(displace::FRAME_TANGENT_ATTR);
-  Assert(no && ta, "frame provider attrs present");
+  // The smoothed base + frames this level's disp is relative to (cached; a
+  // clean cache makes a stroke-end writeback O(grid points), not O(rebuild)).
+  ensureBaseAndFrames(level);
+  LevelPos &lp = posCache_[level - 1];
+  const Vector<float3> &base = lp.base;
+  const Vector<float3> &no = lp.frameNo;
+  const Vector<float3> &ta = lp.frameTa;
 
   // The write target: the edit target's channel when one is set (its weight
   // is pinned to 1 by setEditTarget, so no division), else channel 0. The
@@ -421,7 +486,7 @@ void Multires::storeDispFromPositions(int level,
         if (mask && !(*mask)[vid]) {
           continue;
         }
-        float3 n = (*no)[vid], t = (*ta)[vid];
+        float3 n = no[vid], t = ta[vid];
         float3 b = n.cross(t);
         float3 dp = pos[vid] - base[vid];
         float3 rest(0.0f, 0.0f, 0.0f);
@@ -441,7 +506,6 @@ void Multires::storeDispFromPositions(int level,
       }
     }
   }
-  alloc::Delete(tm);
 }
 
 int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
@@ -704,8 +768,17 @@ int Multires::downRefit(int level)
   storeDispFromPositions(coarseLevel, coarse, &changed, /*toEditTarget=*/false);
   posCache_[coarseLevel - 1].pos = coarse;
 
-  // Re-express this level against the new base (reads the coarse chain just
-  // stored above); its surface — and any resident slot mesh — is preserved.
+  // This level's cached base/frames derive from the OLD coarse positions —
+  // drop them so the re-expression below recomputes against the refit base.
+  {
+    LevelPos &lp = posCache_[level - 1];
+    lp.framesValid = false;
+    lp.posIsBase = false;
+    lp.base.clear();
+    lp.frameNo.clear();
+    lp.frameTa.clear();
+  }
+
   storeDispFromPositions(level, target, nullptr, /*toEditTarget=*/false);
   posCache_[level - 1].pos = std::move(target);
 
@@ -724,11 +797,64 @@ int Multires::downRefit(int level)
   return nChanged;
 }
 
+// Stack-depth cap (mirrors the app's MultiresEnableOp levels range). Each level
+// roughly quadruples the vertex count, so an upper bound is required.
+static constexpr int kMaxMultiresLevels = 7;
+
+int Multires::addLevel()
+{
+  if (!cage_ || maxLevel() >= kMaxMultiresLevels) {
+    return maxLevel();
+  }
+  if (activeLevel_ >= 1) {
+    writeback(activeLevel_); // fold pending edits into the store first
+  }
+  int n = maxLevel() + 1;
+  // refine() rebuilds all levels, but the stencil/grid tables are a pure
+  // function of cage topology + level index, so levels 1..n-1 re-emit
+  // bit-identically. Keep the existing cached chains + resident slots (they
+  // stay valid) so the grow is lossless — only the fresh finest level is
+  // derived, as stencil(level n-1) + zero disp.
+  refiner.refine(*cage_, n);
+  refiner.releaseMeshes();
+  store.addLevel(); // zero-disp finest level for every channel (disp + layers)
+  posCache_.resize(n);
+  activeLevel_ = 0; // already folded above; let setActiveLevel just materialize
+  setActiveLevel(n);
+  return maxLevel();
+}
+
+int Multires::removeTopLevel()
+{
+  if (!cage_ || maxLevel() <= 1) {
+    return maxLevel();
+  }
+  int prevActive = activeLevel_;
+  if (prevActive >= 1) {
+    writeback(prevActive);
+  }
+  int n = maxLevel() - 1;
+  // Evict residents + drop cached chains for the level being removed; the
+  // surviving levels' caches stay valid (topology unchanged), so the shrink is
+  // lossless too.
+  for (int i = int(slots_.size()) - 1; i >= 0; i--) {
+    if (slots_[i].level > n) {
+      evictSlot(i);
+    }
+  }
+  refiner.refine(*cage_, n);
+  refiner.releaseMeshes();
+  store.dropTopLevel();
+  posCache_.resize(n);
+  activeLevel_ = 0;
+  setActiveLevel(prevActive > n ? n : prevActive);
+  return maxLevel();
+}
+
 void Multires::refreshAfterLayerChange()
 {
   for (int l = 1; l <= maxLevel(); l++) {
-    posCache_[l - 1].valid = false;
-    posCache_[l - 1].pos.clear();
+    posCache_[l - 1].reset();
   }
   for (int i = int(slots_.size()) - 1; i >= 0; i--) {
     evictSlot(i);
@@ -929,8 +1055,7 @@ void Multires::layerTableRestore(Vector<float> &table)
 void Multires::invalidateAbove(int level)
 {
   for (int l = level + 1; l <= maxLevel(); l++) {
-    posCache_[l - 1].valid = false;
-    posCache_[l - 1].pos.clear();
+    posCache_[l - 1].reset();
   }
   for (int i = int(slots_.size()) - 1; i >= 0; i--) {
     if (slots_[i].level > level) {
@@ -942,8 +1067,7 @@ void Multires::invalidateAbove(int level)
 void Multires::invalidateAll()
 {
   for (int l = 1; l <= maxLevel(); l++) {
-    posCache_[l - 1].valid = false;
-    posCache_[l - 1].pos.clear();
+    posCache_[l - 1].reset();
   }
   for (int i = int(slots_.size()) - 1; i >= 0; i--) {
     evictSlot(i);
@@ -1090,6 +1214,8 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
       new types::Struct<Multires>("sculptcore::subdiv::Multires", sizeof(Multires));
   BIND_STRUCT_METHOD(st, maxLevel, MARGS());
   BIND_STRUCT_METHOD(st, activeLevel, MARGS());
+  BIND_STRUCT_METHOD(st, addLevel, MARGS());
+  BIND_STRUCT_METHOD(st, removeTopLevel, MARGS());
   BIND_STRUCT_METHOD(st, setStoreBudget, MARGS("bytes"));
   BIND_STRUCT_METHOD(st, layerAdd, MARGS());
   BIND_STRUCT_METHOD(st, layerRemove, MARGS("li"));

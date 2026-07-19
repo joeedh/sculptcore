@@ -41,6 +41,10 @@ const WITH_MESHLOG_ABSEIL_HASHMAP = getopt('WITH_MESHLOG_ABSEIL_HASHMAP', false)
 // toolchain gets its own build dir so the two trees never clash (cmake errors
 // hard if the compiler changes under an existing build dir).
 const WITH_NATIVE_MSVC = getopt('WITH_NATIVE_MSVC', false)
+// Max parallel compile jobs for every build mode (wasm/native/node, plus the
+// debug/sbrush targets and local deps builds). 0 = all cores. The -j/--jobs
+// CLI flag overrides it per invocation.
+const BUILD_JOBS = getopt('BUILD_JOBS', 0)
 
 for (const k in options) {
   if (!validOpts.has(k)) {
@@ -102,19 +106,25 @@ function run(cmd, options = {shell: true}) {
   }
 }
 
-/* Max parallel compile jobs for `cmake --build`, set from the global -j/--jobs
- * flag (see the yargs middleware). Undefined = let the generator use all cores.
- * Lower it (e.g. `-j 2`) when clang OOMs on the heavy template files. */
-let JOBS = undefined
+/* Max parallel compile jobs for `cmake --build`, defaulted from the BUILD_JOBS
+ * local option and overridden by the global -j/--jobs flag (see the yargs
+ * middleware). Undefined = let the generator use all cores. Lower it (e.g.
+ * `-j 2`) when clang OOMs on the heavy template files. */
+let JOBS = Number(BUILD_JOBS) > 0 ? Number(BUILD_JOBS) : undefined
 function parallelFlag() {
   return JOBS && JOBS > 0 ? ` --parallel ${JOBS}` : ''
 }
 
+/* Opt-in: pipe a long failing build log through `claude` for a summary. */
+const SUMMARIZE_ERRORS = false
+
 function summarizeErrors(buf) {
   return new Promise((accept, reject) => {
-    // disable for now
-    return
-    if (buf.length < 2048 * 80) {
+    // Every path must settle. runBuild() awaits this before propagating a build
+    // failure, so a promise that never resolves strands that await, drains the
+    // event loop, and exits 0 on a broken build.
+    if (!SUMMARIZE_ERRORS || buf.length < 2048 * 80) {
+      accept(0)
       return
     }
     console.log('\n\nSummarizing errors...\n')
@@ -249,8 +259,17 @@ function runBuild(cmd) {
         stdout.flush()
         stderr.flush()
 
-        await summarizeErrors('==== stderr =====\n' + stderr.fullBuf + '==== stdout =====\n' + stdout.fullBuf)
-        process.stderr.write(termColor(`cmd "${cmd}" existed with code ${code}\n`, 'red'))
+        // Set eagerly: if anything below strands, node still exits non-zero
+        // rather than reporting a failed build as success.
+        process.exitCode = code
+
+        try {
+          await summarizeErrors('==== stderr =====\n' + stderr.fullBuf + '==== stdout =====\n' + stdout.fullBuf)
+        } catch (error) {
+          process.stderr.write(`summarizeErrors failed: ${error?.message ?? error}\n`)
+        }
+
+        process.stderr.write(termColor(`cmd "${cmd}" exited with code ${code}\n`, 'red'))
         process.exit(code)
       }
       accept(code)
@@ -423,7 +442,7 @@ async function configureNodeAddon(runtime, version) {
 
   // Prebuilt OpenBLAS + SuiteSparse/CHOLMOD, same as `configure native`, so the
   // addon links the cholmod target instead of warning it off.
-  const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE)})
+  const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE), jobs: JOBS})
   const depsDef = `--CDSCULPTCORE_DEPS_DIR=${depsDir.replace(/\\/g, '/')}`
 
   // cmake-js defaults to the static CRT (/MT); force the dynamic CRT so the
@@ -617,7 +636,7 @@ async function sbrushCodegen() {
       )
     }
     console.log('codegen: building sbrushc...')
-    run(`cd ${nativeBuild} && ${envPrefix('native')} cmake --build . --target sbrushc`)
+    run(`cd ${nativeBuild} && ${envPrefix('native')} cmake --build . --target sbrushc${parallelFlag()}`)
     sbrushc = sbrushcCandidates.find((p) => fs.existsSync(p))
     if (!sbrushc) {
       process.stderr.write('codegen: sbrushc not found after build\n')
@@ -1132,7 +1151,7 @@ async function configureTarget(target, {backends, runtime, runtimeVersion}) {
     }
     // Fetch-or-build the prebuilt native deps (OpenBLAS + SuiteSparse/CHOLMOD)
     // for this config, then hand cmake the combo dir. cmake wants forward slashes.
-    const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE)})
+    const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE), jobs: JOBS})
     const depsFlag = `-DSCULPTCORE_DEPS_DIR="${depsDir.replace(/\\/g, '/')}"`
 
     let NATIVE_CMAKE_ARGS = CMAKE_ARGS_BASE
@@ -1179,7 +1198,8 @@ yargs(hideBin(process.argv))
   .option('jobs', {
     alias   : 'j',
     type    : 'number',
-    describe: 'Max parallel compile jobs for cmake --build (default: all cores). Lower it (e.g. -j 2) if clang OOMs.',
+    describe:
+      'Max parallel compile jobs for cmake --build (default: the BUILD_JOBS local option, else all cores). Lower it (e.g. -j 2) if clang OOMs.',
   })
   .middleware((argv) => {
     if (argv.jobs && argv.jobs > 0) {
@@ -1212,7 +1232,7 @@ yargs(hideBin(process.argv))
         describe: 'build config: release | relwithdebinfo | debug | asan',
       }),
     async ({config}) => {
-      const dir = await ensureDeps({config: configName(config)})
+      const dir = await ensureDeps({config: configName(config), jobs: JOBS})
       console.log(`deps: ready at ${dir}`)
     }
   )

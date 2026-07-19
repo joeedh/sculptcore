@@ -131,6 +131,12 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
+    BIND_STRUCT_METHOD(st, facesInGroup, MARGS("group", "out"));
+    BIND_STRUCT_METHOD(st, faceMaterial, MARGS("face"));
+    BIND_STRUCT_METHOD(st, maxFaceMaterial, MARGS());
+    BIND_STRUCT_METHOD(st, facesWithMaterial, MARGS("slot", "out"));
+    BIND_STRUCT_METHOD(st, facesMaterialSlots, MARGS("faces", "out"));
+    BIND_STRUCT_METHOD(st, setFacesMaterial, MARGS("faces", "slot"));
     BIND_STRUCT_METHOD(st, ngonFaceCount, MARGS());
     BIND_STRUCT_METHOD(st, setAttrUse, MARGS("domain", "index", "use"));
     BIND_STRUCT_METHOD(st, addAttr, MARGS("domain", "type", "use"));
@@ -155,6 +161,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, edgeFlagKind, MARGS("e", "kind"));
     BIND_STRUCT_METHOD(st, setEdgeFlagKind, MARGS("e", "kind", "state"));
     BIND_STRUCT_METHOD(st, markSharpByAngle, MARGS("angle", "state"));
+    BIND_STRUCT_METHOD(st, selectSimilar, MARGS("criterion", "seed", "threshold", "out"));
     BIND_STRUCT_METHOD(st, repairLogCount, MARGS());
     BIND_STRUCT_METHOD(st, clearRepairLog, MARGS());
     BIND_STRUCT_METHOD(st, repairMesh, MARGS());
@@ -482,6 +489,33 @@ struct Mesh : public MeshBase {
    * changed. Defined in mesh.cc. */
   int markSharpByAngle(float angle, int state);
 
+  /* Select-similar criteria. The value range implies the domain: 0-5 face,
+   * 6-9 edge, 10-12 vert. Kept in sync by hand with the TS EnumProperty in
+   * SelectSimilarLiteMeshOp (litemesh_modeling_ops.ts). */
+  enum SimilarCriterion {
+    SIM_FACE_MATERIAL = 0,
+    SIM_FACE_GROUP = 1,
+    SIM_FACE_AREA = 2,
+    SIM_FACE_NORMAL = 3,
+    SIM_FACE_COPLANAR = 4,
+    SIM_FACE_SIDES = 5,
+    SIM_EDGE_LENGTH = 6,
+    SIM_EDGE_DIRECTION = 7,
+    SIM_EDGE_FACES = 8,
+    SIM_EDGE_DIHEDRAL = 9,
+    SIM_VERT_NORMAL = 10,
+    SIM_VERT_EDGES = 11,
+    SIM_VERT_FACES = 12,
+  };
+
+  /* Append every element "similar" to `seed` under `criterion` (see
+   * SimilarCriterion; the criterion implies the domain, so `out` is filled with
+   * face / edge / vert indices accordingly). `threshold` is a relative fraction
+   * for AREA/LENGTH, an angle in radians for NORMAL/DIRECTION/DIHEDRAL/COPLANAR,
+   * and ignored for the exact-match integer criteria. Bulk out-param for the
+   * same reason as facesInGroup. Defined in mesh.cc. */
+  void selectSimilar(int criterion, int seed, float threshold, util::Vector<int> &out);
+
   /* Fill outIdx with the indices of every vertex incident to an edge carrying
    * the `kind` flag (0 seam / 1 sharp) and outCo with their xyz positions (3
    * floats each, index-aligned), so the marking tool can project them to screen
@@ -644,6 +678,139 @@ struct Mesh : public MeshBase {
     return mx;
   }
 
+  /* Material slot of a face: an index into the owning object's material list,
+   * NOT a datablock id. 0 = the object's first/default material, which is also
+   * what an absent attr means -- so a single-material mesh never allocates the
+   * attr and behaves exactly as before. Int-only signature to marshal across
+   * both binding backends (see faceGroup). */
+  int faceMaterial(int face)
+  {
+    if (face < 0 || face >= f.count) {
+      return 0;
+    }
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      return 0;
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    return data ? int((*data)[face]) : 0;
+  }
+
+  /* Largest material slot referenced by any face (0 if none/absent). Lets the
+   * app tell how many slots the mesh actually uses. */
+  int maxFaceMaterial()
+  {
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      return 0;
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    if (!data) {
+      return 0;
+    }
+    int mx = 0;
+    for (int i = 0; i < f.count; i++) {
+      int m = int((*data)[i]);
+      if (m > mx) {
+        mx = m;
+      }
+    }
+    return mx;
+  }
+
+  /* Indices of every face on material slot `slot`, appended to `out`. With the
+   * attr absent every face is implicitly slot 0. Bulk for the same reason as
+   * facesInGroup. */
+  void facesWithMaterial(int slot, util::Vector<int> &out)
+  {
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      if (slot == 0) {
+        for (int i = 0; i < f.count; i++) {
+          out.append(i);
+        }
+      }
+      return;
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    if (!data) {
+      return;
+    }
+    for (int i = 0; i < f.count; i++) {
+      if (int((*data)[i]) == slot) {
+        out.append(i);
+      }
+    }
+  }
+
+  /* Material slot of each face in `faces`, appended to `out` in the same order
+   * (absent attr => all 0). The bulk read an undo snapshot needs: per-face
+   * faceMaterial() calls would be one binding round trip each. */
+  void facesMaterialSlots(util::Vector<int> &faces, util::Vector<int> &out)
+  {
+    AttrData<short> *data = nullptr;
+    if (f.attrs.has(AttrType::SHORT, "material")) {
+      data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    }
+    for (int fi : faces) {
+      if (fi < 0 || fi >= f.count || !data) {
+        out.append(0);
+        continue;
+      }
+      out.append(int(data->safe_get(fi)));
+    }
+  }
+
+  /* Put `faces` on material slot `slot`, creating the attr on first use (every
+   * face starts at slot 0, matching the absent-attr default). Assigning slot 0
+   * to a mesh that has no attr yet is a no-op rather than an allocation. */
+  void setFacesMaterial(util::Vector<int> &faces, int slot)
+  {
+    if (faces.size() == 0) {
+      return;
+    }
+    if (slot == 0 && !f.attrs.has(AttrType::SHORT, "material")) {
+      return;
+    }
+    if (!f.attrs.has(AttrType::SHORT, "material")) {
+      AttrRef &ref = f.attrs.ensure(AttrType::SHORT, "material", /*materialize=*/true);
+      AttrData<short> *fresh = ref.get_data<short>();
+      if (fresh) {
+        for (int i = 0; i < f.count; i++) {
+          (*fresh)[i] = 0;
+        }
+      }
+    }
+    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    if (!data) {
+      return;
+    }
+    for (int fi : faces) {
+      if (fi >= 0 && fi < f.count) {
+        data->materialize(fi);
+        (*data)[fi] = short(slot);
+      }
+    }
+  }
+
+  /* Indices of every face in poly-group `group` (see faceGroup), appended to
+   * `out`. Bulk out-param on purpose: gathering a group from the app otherwise
+   * costs one binding call per face. Group 0 means "unassigned", so a caller
+   * acting on "the group under the cursor" should reject 0 rather than gather
+   * every ungrouped face. */
+  void facesInGroup(int group, util::Vector<int> &out)
+  {
+    if (!f.attrs.has(AttrType::INT, "group")) {
+      return;
+    }
+    AttrData<int> *data = f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+    if (!data) {
+      return;
+    }
+    for (int i = 0; i < f.count; i++) {
+      if ((*data)[i] == group) {
+        out.append(i);
+      }
+    }
+  }
+
   void calcAABB(math::float3 *min, math::float3 *max)
   {
     *min = math::float3(FLT_MAX);
@@ -676,6 +843,17 @@ struct Mesh : public MeshBase {
    * each problem to stderr, appends it to `repairLog`, and invokes `log` if set.
    * Returns the number of problems found. Defined in mesh.cc. */
   int validateAndRepair(const std::function<void(const char *)> &log = {});
+
+  /** Rebuild every column flagged DERIVED from the authoritative ones, after a
+   * bulk load that dropped them (serial::readMesh): .corner.prev, .corner.l /
+   * .list.f, the ngon counts (.list.size / .face.list_count), the disk cycles
+   * (.vert.e / .edge.vs.disk) and the radial cycles (.edge.c / .corner.e /
+   * .corner.radial_{next,prev}). Unconditional — never tests for an ELEM_NONE
+   * sentinel, since dropped columns arrive zero-filled, not sentinel-filled.
+   * Returns false if a face loop references an edge absent from .edge.vs (a
+   * corrupt file); the caller should fall back to validateAndRepair, which can
+   * synthesize the missing edge. Defined in mesh.cc. */
+  bool rebuildDerivedTopo();
 
   /** Per-error repair-log lines from validateAndRepair (also echoed to stderr).
    * Not part of the mesh's serialized state; the app reads the count as a
@@ -905,6 +1083,16 @@ struct Mesh : public MeshBase {
   void recalc_normals();
 
 private:
+  /** Reset + rebuild every vertex disk cycle from the authoritative .edge.vs
+   * endpoints (validateAndRepair pass 5 / rebuildDerivedTopo share this). */
+  void rebuildDiskCycles();
+  /** Reset + rebuild every edge radial cycle and .corner.e from the face corner
+   * loops (validateAndRepair pass 6 / rebuildDerivedTopo share this). Requires
+   * the disk cycles already rebuilt (find_edge walks them). @p createMissingEdges
+   * make_edge()s a face-loop edge absent from .edge.vs (repair) instead of
+   * leaving it unresolved (load). Returns the number of missing edges seen. */
+  int rebuildRadialCycles(bool createMissingEdges);
+
   void radial_insert(int e1, int c1)
   {
     if (e.c[e1] == ELEM_NONE) {

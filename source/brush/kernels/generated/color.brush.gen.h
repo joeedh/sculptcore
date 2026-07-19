@@ -46,7 +46,55 @@ static void color(CommandCtx<TYPES> &ctx)
     if ((s == 0.0f)) {
       continue;
     }
-    (*__attr_color)[v.v] = ((*__attr_color)[v.v] + (((ctx.brush.brushColor - (*__attr_color)[v.v])) * s));
+    float4 base = (*__attr_color)[v.v];
+    float4 c = ctx.brush.brushColor;
+    float4 bl = c;
+    if ((ctx.brush.mixMode == 1)) {
+      bl = (base * c);
+    } else     if ((ctx.brush.mixMode == 2)) {
+      float4 one = float4(1.0f, 1.0f, 1.0f, 1.0f);
+      bl = (one - (((one - base)) * ((one - c))));
+      bl[3] = c[3];
+    } else     if ((ctx.brush.mixMode == 3)) {
+      if ((base[0] < 0.5f)) {
+        bl[0] = ((2.0f * base[0]) * c[0]);
+      } else {
+        bl[0] = (1.0f - ((2.0f * ((1.0f - base[0]))) * ((1.0f - c[0]))));
+      }
+      if ((base[1] < 0.5f)) {
+        bl[1] = ((2.0f * base[1]) * c[1]);
+      } else {
+        bl[1] = (1.0f - ((2.0f * ((1.0f - base[1]))) * ((1.0f - c[1]))));
+      }
+      if ((base[2] < 0.5f)) {
+        bl[2] = ((2.0f * base[2]) * c[2]);
+      } else {
+        bl[2] = (1.0f - ((2.0f * ((1.0f - base[2]))) * ((1.0f - c[2]))));
+      }
+      bl[3] = c[3];
+    } else     if ((ctx.brush.mixMode == 4)) {
+      bl[0] = std::abs((base[0] - c[0]));
+      bl[1] = std::abs((base[1] - c[1]));
+      bl[2] = std::abs((base[2] - c[2]));
+      bl[3] = c[3];
+    } else     if ((ctx.brush.mixMode == 5)) {
+      bl = (base + c);
+      bl[3] = c[3];
+    } else     if ((ctx.brush.mixMode == 6)) {
+      bl = (base - c);
+      bl[3] = c[3];
+    } else     if ((ctx.brush.mixMode == 7)) {
+      bl[0] = std::min(base[0], c[0]);
+      bl[1] = std::min(base[1], c[1]);
+      bl[2] = std::min(base[2], c[2]);
+      bl[3] = c[3];
+    } else     if ((ctx.brush.mixMode == 8)) {
+      bl[0] = std::max(base[0], c[0]);
+      bl[1] = std::max(base[1], c[1]);
+      bl[2] = std::max(base[2], c[2]);
+      bl[3] = c[3];
+    }
+    (*__attr_color)[v.v] = (base + (((bl - base)) * s));
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }
@@ -70,6 +118,7 @@ static void createColorBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.accumulable = false;
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"color", "", sculptcore::mesh::AttrType::FLOAT4, sculptcore::brush::AttrElemDomain::Vertex, true});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"brushColor", false, false, 0.0f, false, 0.0f, 0.0f});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"mixMode", false, false, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
   };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {

@@ -64,6 +64,11 @@ export interface CommandExecutor {
   ): int32
   endDynTopoStroke(): void
   clearIsFirstOfStep(): void
+  beginPreviewDab(center: float3, radius: float): void
+  extendPreviewDab(center: float3, radius: float): void
+  rollbackPreviewDab(): void
+  previewActive(): boolean
+  commitPreviewDab(): void
   setNeighborMode(mode: int32): void
   setNonAccum(nonAccum: boolean): void
   setGrabAccumAdd(add: boolean): void
