@@ -21,3 +21,22 @@ You can find an example of sculptcore integrated in a small web DCC at [https://
 + Multires subdivision surface editing
 + Vector displacement maps
 + WASM target
+
+## Technical Details
+
+### Mesh representation
+
+Sculptcore uses a paged index-based BREP mesh structure; it is a full BREP (with support for holes in faces)
+with some optional performance optimizations.  The structure supports incremental defragmentation.
+The goal of the structure is to support a variety of workflows, handle large amounts of data, limit memory
+bandwidth and improve cpu cache coherency.
+
+### Dynamic remeshing
+
+It has a triangle-based dynamic topology remesher similar to blender's, but with better support for handling
+various kinds of edge constraints.  It can use edge flipping to preserve topology quality and/or recursive 
+splitting (which is what Blender does).  It interpolates attributes including UVs.
+
+### Multires
+
+Multires is handled differently from PTex vector displacement maps to avoid numerical instability.
