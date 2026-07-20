@@ -1,15 +1,18 @@
-// Non-accumulate brush mode (plans/nonAccumMode.md): within a stroke, deform
-// dabs measure from each vertex's stroke-start position, so repeated passes
-// converge instead of stacking. This drives the C++ executor's AccumOrig path
-// through the debug-app script harness (`set_brush nonaccum=1`, `stroke
-// repeat=N`) and asserts the three plan invariants:
-//   (a) saturation   — non-accum builds up to the no-falloff layer cap and
-//                       stops (repeat=16 == repeat=8), while accumulate
-//                       repeat=8 grows well past it;
+// Non-accumulate brush mode (plans/nonAccumMode.md): matches Blender's
+// "Accumulate off". Within a stroke, deform dabs measure falloff from each
+// vertex's frozen stroke-start position and add the resulting displacement to
+// the live position, so the brush footprint stays pinned to the original surface
+// and repeated coverage sums with no height cap. This drives the C++ executor's
+// AccumOrig path through the debug-app script harness (`set_brush nonaccum=1`,
+// `stroke repeat=N`) and asserts the Blender-matching invariants:
+//   (a) additive      — non-accum builds linearly (repeat=8 == 8x one dab,
+//                       repeat=16 == 2x repeat=8, no cap); accumulate re-reads
+//                       the live (bulging) surface and tapers below it;
 //   (b) base fallback — a non-accum smooth stroke leaves unstamped neighbors
 //                       reading their live position (no collapse toward origin);
-//   (c) cross-stroke  — four separate non-accum strokes (generation bumps each)
-//                       grow past a single repeat=4 stroke (old stamps ignored).
+//   (c) cross-stroke  — a fresh non-accum stroke re-stamps at the current
+//                       surface (generation bump), so four separate strokes over
+//                       a fixed brush origin differ from one repeat=4 stroke.
 #include "test_util.h"
 
 #include "debug/scene.h"
@@ -57,12 +60,13 @@ int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
-  // (a) Saturation. The draw kernel pushes v.co by surfaceNo*strength(v.co)*r/2.
-  // Under AccumOrig each dab's delta accumulates, clamped at the no-falloff
-  // displacement strength*r/2 (the layer cap): falloff sets the build-up rate,
-  // not the final height. The peak vert is near cap after one dab and exactly
-  // on it after a few, so repeat=16 == repeat=8. Accumulate re-reads the live
-  // (already-pushed) position each dab, so it keeps climbing.
+  // (a) Additive (Blender "Accumulate off"). The draw kernel pushes v.co by
+  // surfaceNo*strength(v.co)*r/2. Under AccumOrig the displacement is measured
+  // from the frozen stroke-start base and added to live each dab, so the peak
+  // grows linearly with no cap: repeat=8 == 8x one dab, repeat=16 == 2x repeat=8.
+  // Accumulate re-reads the live position each dab; as the surface bulges away
+  // from the fixed brush center the falloff there decays, so it grows sublinearly
+  // and stays below the non-accum push.
   float na1 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
                        "stroke origin=0,0,0.25 normal=0,0,1 repeat=1\n");
   float na8 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
@@ -73,15 +77,18 @@ int main()
                        "stroke origin=0,0,0.25 normal=0,0,1 repeat=8\n");
   fprintf(stderr, "(a) na1=%.5f na8=%.5f na16=%.5f ac8=%.5f\n", na1, na8, na16, ac8);
   test_assert(na1 > 0.0f);                       // the dab actually pushed
-  test_assert(na8 > na1 - 1e-5f);                // builds toward the cap, never down
-  test_assert(na8 < na1 * 1.25f);                // ...but stays near one dab's push
-  test_assert(std::fabs(na16 - na8) < 1e-4f);    // non-accum saturates at the cap
-  test_assert(ac8 > na8 * 1.5f);                 // accumulate keeps growing
+  test_assert(std::fabs(na8 - 8.0f * na1) < 0.02f * na8);   // linear: 8 dabs == 8x
+  test_assert(std::fabs(na16 - 2.0f * na8) < 0.02f * na16); // no cap: 16 == 2x 8
+  test_assert(ac8 < na8 * 0.6f);                 // accumulate tapers below non-accum
 
   // (c) Cross-stroke. Each `stroke` verb bumps the non-accumulate generation, so
   // a fresh stroke re-stamps every vert at its current (already-pushed) position
-  // and measures anew from there. Four separate strokes therefore grow past one
-  // repeat=4 stroke (which shares a single generation and saturates like (a)).
+  // and measures anew from there. A single repeat=4 stroke keeps one frozen base
+  // and grows linearly (== 4x one dab). Four separate strokes over the fixed
+  // brush origin re-base each time onto the risen surface, whose distance to the
+  // (unmoved) brush center has grown, so the later increments shrink and the
+  // total lands below the single-stroke linear push -- proof the old stamps were
+  // dropped rather than reused.
   float na_rep4 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
                            "stroke origin=0,0,0.25 normal=0,0,1 repeat=4\n");
   float na_x4 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
@@ -90,8 +97,9 @@ int main()
                          "stroke origin=0,0,0.25 normal=0,0,1\n"
                          "stroke origin=0,0,0.25 normal=0,0,1\n");
   fprintf(stderr, "(c) na_rep4=%.5f na_x4=%.5f\n", na_rep4, na_x4);
-  test_assert(std::fabs(na_rep4 - na8) < 1e-4f); // one stroke still saturates
-  test_assert(na_x4 > na_rep4 * 1.5f);           // old stamps ignored across strokes
+  test_assert(std::fabs(na_rep4 - 4.0f * na1) < 0.02f * na_rep4); // one stroke: linear 4x
+  test_assert(na_x4 > 0.0f);                     // fresh strokes still push
+  test_assert(na_x4 < na_rep4 - 1e-3f);          // re-based onto the risen surface
 
   // (b) Base fallback. A non-accum smooth on the flat +Z face: stamped verts
   // hold orig==live==0.25 and unstamped neighbors (outside the dab) must read
@@ -140,8 +148,10 @@ int main()
   // moves it, so the non-accum draw keeps measuring from a coherent surface. If
   // those shifts were missing the verts would "snap back" each dab and the push
   // would run away (or NaN). Assert the dab remeshed the surface yet the push
-  // stays finite and bounded well under the accumulate envelope from (a) — in
-  // fact it lands on the same saturated push as the non-dyntopo run.
+  // stays finite and lands on the same linear push as the non-dyntopo run
+  // (repeat=6 == 6x one dab), confirming the snapshot tracked the remesh motion.
+  float na6 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=1\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1 repeat=6\n");
   {
     Scene scene(256, 256, /*headless=*/true);
     auto r = script::run(scene,
@@ -169,10 +179,10 @@ int main()
     float push = maxz - 0.25f;
     fprintf(stderr, "(d) verts=%d push=%.5f finite=%d\n", m->v.count, push,
             int(allFinite));
-    test_assert(allFinite);            // coherent snapshot => no NaN/runaway
-    test_assert(m->v.count < 866);     // dab remeshed (collapsed; cube starts at 866)
-    test_assert(push > 0.0f);          // the draw moved the surface out
-    test_assert(push < ac8);           // bounded: no snap-back accumulation
+    test_assert(allFinite);              // coherent snapshot => no NaN/runaway
+    test_assert(m->v.count < 866);       // dab remeshed (collapsed; cube starts at 866)
+    test_assert(push > 0.0f);            // the draw moved the surface out
+    test_assert(std::fabs(push - na6) < 0.2f * na6);  // matches the non-dyntopo linear push
   }
 
   // (e) Envelope retention. A moving non-accum stroke (left to right across the
@@ -210,10 +220,10 @@ int main()
     test_assert(pushMid > 0.7f * pushEnd);   // trailing edge held its push
   }
 
-  // (f) Layer uniformity. Repeated dabs build every vert up to the same
-  // no-falloff cap, so the dab's core flattens into a plateau instead of a
-  // falloff-shaped dome: after repeat=8 the central band's min push is within
-  // a few percent of its max.
+  // (f) Falloff-shaped profile. With additive (Blender "Accumulate off") the
+  // per-dab increment carries the brush falloff, so repeated dabs build a
+  // falloff-shaped dome -- higher at the center than the band edge -- rather than
+  // the flat plateau the old capped-layer write-back produced.
   {
     Scene scene(256, 256, /*headless=*/true);
     auto r = script::run(scene,
@@ -242,7 +252,7 @@ int main()
     fprintf(stderr, "(f) band=%d minPush=%.5f maxPush=%.5f\n", band, minPush, maxPush);
     test_assert(band > 0);
     test_assert(maxPush > 0.0f);
-    test_assert(minPush > 0.95f * maxPush);  // plateau, not a dome
+    test_assert(minPush < 0.85f * maxPush);  // falloff-shaped dome, not a plateau
   }
 
   return test_end();

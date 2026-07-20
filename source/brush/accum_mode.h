@@ -22,15 +22,17 @@ concept AccumMode = requires {
 
 /** Write-back policy for a `reads_base` (from-original) accum mode. Selects how
  * CoProxy::commit turns the kernel's wanted position into the live position:
- * - Layer: Blender Layer-brush accumulation, capped at the no-falloff height
- *          (the historical non-accumulate behavior).
+ * - Additive: Blender "Accumulate off". The dab's displacement, measured from the
+ *             frozen stroke-start base (`want - base`), is added to the live
+ *             position; the footprint stays pinned to the original surface and
+ *             repeated coverage sums with no height cap.
  * - Grab:  grab-class symmetry write-back (#35). The first image to write a vert
  *          in a dab re-bases it from orig (`live = want`); later images of the
  *          SAME dab add (`live += want - base`). First-touch is keyed on the
  *          per-dab stamp (ctx.dabGen / ctx.curDabGen) via grabClaimFirstTouch,
  *          so mirror-only verts re-base every dab (no cross-dab accumulation)
  *          while shared seam verts still get orig + Σ disp_i within one dab. */
-enum class AccumKind { Live, Layer, Grab };
+enum class AccumKind { Live, Additive, Grab };
 
 /** Accumulate (Blender "Accumulate on"): reads and writes the live position;
  * neighbors read the Jacobi snapshot. This is the historical behavior. */
@@ -59,11 +61,14 @@ struct OrigNbrBase {
   }
 };
 
-/** Non-accumulate: from-original with Layer-brush write-back (capped accumulation). */
+/** Non-accumulate (Blender "Accumulate off"): from-original with additive
+ * write-back. Displacement is measured from the frozen stroke-start position and
+ * added to the live position each dab, so the brush footprint stays pinned to the
+ * original surface and repeated coverage sums without a height cap. */
 struct AccumOrig : OrigNbrBase {
   static constexpr bool is_accum_mode = true;
   static constexpr bool reads_base = true;
-  static constexpr AccumKind kind = AccumKind::Layer;
+  static constexpr AccumKind kind = AccumKind::Additive;
 };
 
 /** Grab-class write-back (grab / kelvinlet, all symmetry images): from-original
@@ -79,10 +84,6 @@ struct AccumOrigGrab : OrigNbrBase {
 };
 
 struct CommandExecutor;
-/** Falloff *fraction* of the active dab at `co` (falloffEval only — no
- * strength/mask/texture). Defined inline in brush_executor.h. */
-float dabFalloffFraction(const CommandExecutor &exec, const float3 &co);
-
 /** Grab-class per-dab first-touch arbitration (AccumKind::Grab). Returns true and
  * stamps `ctx.curDabGen` onto vert `v` if this is the first image to write `v`
  * this dab (so it re-bases absolutely); returns false if `v` was already written
@@ -99,16 +100,14 @@ bool grabClaimFirstTouch(const CommandExecutor &exec, int v);
  * (so `proxy - float3` would otherwise need an implicit conversion the compiler
  * won't chain through the member operator).
  *
- * The write-back depends on AccMode::kind (see AccumKind). Layer (AccumOrig)
- * accumulates like Blender's Layer brush: each dab's delta is *added* to the
- * displacement already applied (live - base, valid because dyntopo coherence
- * moves orig_co in lockstep), clamped to the dab's no-falloff displacement
- * |delta|/w (w = falloff fraction at base) — falloff controls build-up *rate*,
- * not final height. Grab (AccumOrigGrab) writes `live = want` on the first image
- * to touch a vert this dab (re-base from orig, follows the cursor) and
- * `live += want - base` on later images of the same dab (symmetry summation),
- * arbitrated by grabClaimFirstTouch. Mirrored in WGSL by emit_wgsl.cc's
- * write-back. */
+ * The write-back depends on AccMode::kind (see AccumKind). Additive (AccumOrig)
+ * matches Blender's "Accumulate off": the dab's displacement (`want - base`) is
+ * added to the live position, so the footprint stays pinned to the original
+ * surface and repeated coverage sums with no height cap. Grab (AccumOrigGrab)
+ * writes `live = want` on the first image to touch a vert this dab (re-base from
+ * orig, follows the cursor) and `live += want - base` on later images of the same
+ * dab (symmetry summation), arbitrated by grabClaimFirstTouch. Mirrored in WGSL
+ * by emit_wgsl.cc's write-back. */
 template <class AccMode> struct CoProxy {
   float3 &live;
   const float3 *basePtr;
@@ -121,26 +120,13 @@ template <class AccMode> struct CoProxy {
 
   void commit(const float3 &want)
   {
-    if constexpr (AccMode::kind == AccumKind::Layer) {
-      const float3 d_cand = want - cur();
-      const float candSq = d_cand.dot(d_cand);
-      if (candSq != 0.0f) {
-        const float3 d_prev = live - *basePtr;
-        float3 acc = d_prev + d_cand;
-        const float prevSq = d_prev.dot(d_prev);
-        // Cap at the no-falloff displacement; never below what's already
-        // applied (a weak or no-op later dab must not erode the layer).
-        float capSq = prevSq;
-        const float w = exec ? dabFalloffFraction(*exec, *basePtr) : 0.0f;
-        if (w > 1e-6f) {
-          capSq = std::fmax(candSq / (w * w), prevSq);
-        }
-        const float accSq = acc.dot(acc);
-        if (accSq > capSq) {
-          acc *= std::sqrt(capSq / accSq);
-        }
-        live = *basePtr + acc;
-      }
+    if constexpr (AccMode::kind == AccumKind::Additive) {
+      // Blender "Accumulate off": add the dab's displacement, measured from the
+      // frozen stroke-start base (`want - base`, since cur() returns base until
+      // the first write), to the live position. The footprint stays pinned to
+      // the original surface; repeated coverage sums with no height cap. A
+      // no-write kernel path leaves want == base, so the added delta is zero.
+      live += want - *basePtr;
     } else if constexpr (AccMode::kind == AccumKind::Grab) {
       // First image to write this vert this dab re-bases it from orig (follows
       // the cursor); a later image of the same dab adds its displacement-from-

@@ -333,6 +333,106 @@ int Mesh_writeFaceIntAttr(Mesh *m, const char *name, const int *in)
   return 1;
 }
 
+/** Resolve an ElemType domain flag (VERTEX/EDGE/CORNER/LIST/FACE) to its
+ * ElemData. Returns null for an unknown flag. Shared by the generic-attribute
+ * bridge below (the round-trip of arbitrary user layers). */
+static ElemData *mesh_elem_domain(Mesh *m, int domain)
+{
+  switch (ElemType(domain)) {
+  case VERTEX:
+    return &m->v;
+  case EDGE:
+    return &m->e;
+  case CORNER:
+    return &m->c;
+  case LIST:
+    return &m->l;
+  case FACE:
+    return &m->f;
+  }
+  return nullptr;
+}
+
+/** Read a named attribute of arbitrary `type` on `domain` into `out`
+ * (one element per live element of the domain, in the same live-iteration order
+ * as Mesh_toArrays / Mesh_arraySizes' per-domain counts). `out` must hold
+ * `count * sizeof(element)` bytes for the type. Returns 1 when
+ * the attribute exists (out filled), 0 otherwise (out untouched). The generic
+ * counterpart of the typed Mesh_read*Attr functions, used to round-trip every
+ * user layer back to the Blender mesh after a topology rebuild. */
+int Mesh_readAttr(Mesh *m, int domain, const char *name, int type, void *out)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  ElemData *ed = mesh_elem_domain(m, domain);
+  if (!ed) {
+    return 0;
+  }
+  AttrType attr_type = AttrType(type);
+  AttrRef ref = ed->attrs.find_attribute(attr_type, name);
+  if (!ref.exists()) {
+    return 0;
+  }
+  sculptcore::mesh::detail::type_dispatch(attr_type, [&]<typename T>() {
+    if constexpr (std::is_same_v<T, bool>) {
+      auto *data = static_cast<BoolAttrView *>(ref.data);
+      auto *dst = static_cast<uint8_t *>(out);
+      int i = 0;
+      for (int elem : *ed) {
+        dst[i++] = data->get(elem) ? 1 : 0;
+      }
+    } else {
+      auto *data = static_cast<AttrData<T> *>(ref.data);
+      auto *dst = static_cast<T *>(out);
+      int i = 0;
+      for (int elem : *ed) {
+        dst[i++] = data->safe_get(elem);
+      }
+    }
+  });
+  return 1;
+}
+
+/** Write `in` (one element per live element of the domain, live-iteration
+ * order) into a named attribute of arbitrary `type` on `domain`, creating it
+ * with `use`
+ * (an AttrUse — UV/COLOR/... — so a re-imported UV map stays a UV map) if it is
+ * missing. The generic counterpart of the typed Mesh_write*Attr functions, used
+ * to seed every user layer into the engine on enter. Returns 1. */
+int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, const void *in)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  ElemData *ed = mesh_elem_domain(m, domain);
+  if (!ed) {
+    return 0;
+  }
+  AttrType attr_type = AttrType(type);
+  AttrRef &ref = ed->attrs.ensure(attr_type, name, /*materialize=*/true);
+  ref.use = AttrUse(use);
+  sculptcore::mesh::detail::type_dispatch(attr_type, [&]<typename T>() {
+    if constexpr (std::is_same_v<T, bool>) {
+      auto *data = static_cast<BoolAttrView *>(ref.data);
+      auto *src = static_cast<const uint8_t *>(in);
+      int i = 0;
+      for (int elem : *ed) {
+        data->set(elem, src[i++] != 0);
+      }
+    } else {
+      auto *data = static_cast<AttrData<T> *>(ref.data);
+      auto *src = static_cast<const T *>(in);
+      int i = 0;
+      for (int elem : *ed) {
+        data->materialize(elem);
+        (*data)[elem] = src[i++];
+      }
+    }
+  });
+  return 1;
+}
+
 /** Monotonic topology-edit stamp (bumped by every make_/kill_/reorder_ op).
  * Snapshot it after building/importing; an unchanged stamp at flush/exit
  * means original indices are still valid — the positions-only fast path. */

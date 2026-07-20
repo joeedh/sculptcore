@@ -1782,14 +1782,6 @@ struct CommandExecutor {
   }
 };
 
-/** Declared in accum_mode.h; CoProxy::commit uses it to derive the layer cap. */
-inline float dabFalloffFraction(const CommandExecutor &exec, const float3 &co)
-{
-  float t =
-      1.0f - std::min(exec.brush->falloffDist(co - exec.ctx.surfacePos, exec.ctx.surfaceNo), 1.0f);
-  return exec.brush->falloffEval(t);
-}
-
 /** Declared in accum_mode.h; AccumKind::Grab write-back uses it. First image to
  * write vert `v` this dab → stamp curDabGen and return true (re-base from orig);
  * an already-stamped vert returns false (later image adds). The page was

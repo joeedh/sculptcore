@@ -1364,11 +1364,12 @@ struct Emit {
     indent = 0;
 
     write("\n");
-    // Non-accumulate write-back accumulates the dab's delta onto the applied
-    // displacement and clamps the total at the no-falloff displacement
-    // |delta|/w (never below what's already applied) — the WGSL twin of
-    // CoProxy::commit (accum_mode.h). Falloff controls build-up rate, not
-    // final height, so scrubbing builds a uniform layer with no snap-back.
+    // Non-accumulate write-back (Blender "Accumulate off") — the WGSL twin of
+    // CoProxy<AccumOrig>::commit (accum_mode.h): add the dab's displacement,
+    // measured from the frozen stroke-start base (`<p>_co - orig_co`), to the
+    // live position. The footprint stays pinned to the original surface and
+    // repeated coverage sums with no height cap; a no-write kernel path leaves
+    // <p>_co == orig_co, so the added delta is zero.
     // Grab-class write-back — the WGSL twin of CoProxy<AccumOrigGrab>::commit
     // + grabClaimFirstTouch (accum_mode.h): the first image to write a vert
     // this dab re-bases it absolutely from orig (follows the cursor); later
@@ -1385,27 +1386,9 @@ struct Emit {
     }
     if (!brush->isGlobal && !brush->isPaint && !brush->isGrabMode) {
       write("  if (brush_u.nonaccum != 0u) {\n");
-      write("    let sb_base = orig_co[sb_vidx];\n");
-      write("    let sb_d_cand = "); write(vertexParamName); write("_co - sb_base;\n");
-      write("    let sb_cand_sq = dot(sb_d_cand, sb_d_cand);\n");
-      write("    if (sb_cand_sq != 0.0) {\n");
-      write("      let sb_d_prev = co_buf[sb_vidx] - sb_base;\n");
-      write("      var sb_acc = sb_d_prev + sb_d_cand;\n");
-      write("      let sb_prev_sq = dot(sb_d_prev, sb_d_prev);\n");
-      write("      var sb_cap_sq = sb_prev_sq;\n");
-      write("      let sb_w = brush_falloff(1.0 - min(brush_falloff_dist(sb_base - "
-            "ctx_u.surfacePos), 1.0));\n");
-      write("      if (sb_w > 1e-6) {\n");
-      write("        sb_cap_sq = max(sb_cand_sq / (sb_w * sb_w), sb_prev_sq);\n");
-      write("      }\n");
-      write("      let sb_acc_sq = dot(sb_acc, sb_acc);\n");
-      write("      if (sb_acc_sq > sb_cap_sq) {\n");
-      write("        sb_acc *= sqrt(sb_cap_sq / sb_acc_sq);\n");
-      write("      }\n");
-      write("      "); write(vertexParamName); write("_co = sb_base + sb_acc;\n");
-      write("    } else {\n");
-      write("      "); write(vertexParamName); write("_co = co_buf[sb_vidx];\n");
-      write("    }\n");
+      write("    "); write(vertexParamName);
+      write("_co = co_buf[sb_vidx] + ("); write(vertexParamName);
+      write("_co - orig_co[sb_vidx]);\n");
       write("  }\n");
     }
     write("  co_buf[sb_vidx] = ");
