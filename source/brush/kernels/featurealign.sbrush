@@ -25,6 +25,11 @@ brush FeatureAlign {
     if (s == 0.0) { continue; }
 
     int vc = v.vclass;
+    if ((vc & 128) != 0) {
+      // BC_JUNCTION (>=3 feature edges, e.g. a cube corner): pin entirely —
+      // any averaging erodes the corner.
+      continue;
+    }
     // dom = the boundary-type bits (BC_TYPE_MASK) that gate which neighbors enter
     // the tangential average; never narrowed to a single bit.
     int dom = vc & 31;

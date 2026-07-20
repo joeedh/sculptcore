@@ -1,10 +1,14 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "mesh/attribute.h"
+#include "mesh/attribute_bool.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_serialize.h"
 #include "mesh/utils/triangulate.h"
+#include "mesh/uvgen.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
@@ -284,6 +288,9 @@ int Mesh_writeCornerFloat2Attr(Mesh *m, const char *name, const float *in)
     m->thawTopo();
   }
   AttrRef &ref = m->c.attrs.ensure(AttrType::FLOAT2, name, /*materialize=*/true);
+  // Tag as UV so every UV consumer (chart derivation, slide-reprojection, the
+  // draw provider) sees the seeded layer.
+  ref.use = AttrUse(int(ref.use) | int(AttrUse::UV));
   auto *data = static_cast<AttrData<math::float2> *>(ref.data);
   int i = 0;
   for (int ci : m->c) {
@@ -431,6 +438,105 @@ int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, con
     }
   });
   return 1;
+}
+
+/** Live edge count (sizes Mesh_readEdgeFlags buffers). */
+int Mesh_edgeCount(Mesh *m)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  return m->e.count;
+}
+
+/** Set the named boundary bool edge flag (e.g. `.boundary.edge.seam`) from
+ * per-edge vertex pairs: `edge_verts` holds `edges_num * 2` engine vertex
+ * indices, `values` one byte per edge. Edges are resolved by endpoint lookup —
+ * the caller's edge order need not match the engine's. A false value is only
+ * written when the layer already exists (an all-false write on a fresh mesh
+ * creates nothing). Marks the affected elements boundary-dirty; call
+ * Mesh_recomputeBoundary (or rely on the executors' lazy recompute) afterwards.
+ * Returns the number of edges applied. */
+int Mesh_writeEdgeFlagsByVerts(
+    Mesh *m, const char *name, const int *edge_verts, const uint8_t *values, int edges_num)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  bool haveLayer = boundary::findBoolEdgeView(m, name) != nullptr;
+  int applied = 0;
+  for (int i = 0; i < edges_num; i++) {
+    const bool state = values[i] != 0;
+    if (!state && !haveLayer) {
+      continue;
+    }
+    const int e = m->find_edge(edge_verts[i * 2], edge_verts[i * 2 + 1]);
+    if (e == ELEM_NONE) {
+      continue;
+    }
+    boundary::setEdgeFlag(m, name, e, state);
+    haveLayer = true;
+    applied++;
+  }
+  return applied;
+}
+
+/** Read the named boundary bool edge flag: fills `r_edge_verts` with the
+ * engine vertex pair of every flagged live edge (up to `max_edges` pairs;
+ * size with Mesh_edgeCount). Returns the flagged-edge count, 0 when the layer
+ * doesn't exist. Engine vertex indices — map them through Mesh_toArrays'
+ * vert_map after a topology change. */
+int Mesh_readEdgeFlags(Mesh *m, const char *name, int *r_edge_verts, int max_edges)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  BoolAttrView *view = boundary::findBoolEdgeView(m, name);
+  if (!view) {
+    return 0;
+  }
+  int found = 0;
+  for (int e : m->e) {
+    if (!view->get(e)) {
+      continue;
+    }
+    if (found < max_edges) {
+      r_edge_verts[found * 2] = m->e.vs[e][0];
+      r_edge_verts[found * 2 + 1] = m->e.vs[e][1];
+    }
+    found++;
+  }
+  return found;
+}
+
+/** Fold pending boundary edits into the derived flags + per-vertex
+ * classification (boundary::recomputeDirty; needs live topology). */
+void Mesh_recomputeBoundary(Mesh *m)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  boundary::recomputeDirty(m);
+}
+
+/** generateUVFromSeams into a caller-named corner layer (created or
+ * overwritten in place, tagged AttrUse::UV) — unlike the reflected
+ * Mesh::generateUVFromSeams, which always allocates a fresh unique name.
+ * `margin_milli` is the pre-pack chart padding in 1/1000 UV units. Returns the
+ * chart count (0 = no faces, no layer created). The derived UV-chart boundary
+ * flags are rebuilt afterwards (a wholesale UV rewrite dirties nothing on its
+ * own), so the constraint system sees the new charts immediately. */
+int Mesh_generateUVFromSeams(Mesh *m, const char *name, int margin_milli)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  const int charts = generateUVFromSeams(m, name, float(margin_milli) / 1000.0f);
+  if (charts > 0) {
+    boundary::markAllDirty(m);
+    boundary::recomputeDirty(m);
+  }
+  return charts;
 }
 
 /** Monotonic topology-edit stamp (bumped by every make_/kill_/reorder_ op).

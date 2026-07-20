@@ -82,6 +82,11 @@ enum BoundaryClass : int {
   // purpose: it protects dyntopo (FeatureViews) without becoming a
   // smooth-brush constraint type.
   BC_LAYER_REGION = 1 << 6,
+
+  // Derived: three or more dominant-type constraint edges — a feature-curve
+  // junction (e.g. a cube corner). Smooth brushes pin such verts entirely:
+  // averaging along any one curve erodes the corner.
+  BC_JUNCTION = 1 << 7,
 };
 
 // Set a source-of-truth edge flag (one of EDGE_PROJECTED/SHARP/SEAM), creating

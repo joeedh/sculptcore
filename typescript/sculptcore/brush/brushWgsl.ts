@@ -207,6 +207,9 @@ fn main(
     return;
   }
   var vc: i32 = v_vclass;
+  if ((((vc & 128)) != 0)) {
+    return;
+  }
   var dom: i32 = (vc & 31);
   var tangentDisp: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   var normalDisp: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
@@ -1352,6 +1355,9 @@ fn main(
     return;
   }
   var vc: i32 = v_vclass;
+  if ((((vc & 128)) != 0)) {
+    return;
+  }
   var dom: i32 = (vc & 31);
   var tangentDisp: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   var normalDisp: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);

@@ -10,9 +10,11 @@
 #include "dyntopo/dyntopo.h"
 #include "feature_field.h"
 #include "litestl/binding/binding.h"
+#include "litestl/util/map.h"
 #include "litestl/util/task.h"
 #include "mesh/attribute_bool.h"
 #include "mesh/boundary.h"
+#include "mesh/uv_reproject.h"
 #include "meshlog/meshlog.h"
 #include "neighbor_source.h"
 #include "spatial/node.h"
@@ -190,6 +192,12 @@ struct CommandExecutor {
   bool coPrevFull_ = false;
   int coPrevGen_ = 0;
   Vector<spatial::SpatialNode *> coPrevDirty_;
+
+  /** UV slide-reprojection deferral (frozen-topology strokes): vert -> its
+   * position before the first dab that moved it. Flushed by endStep — one
+   * thaw + reproject per stroke instead of one per dab (which would also
+   * perturb the frozen-CSR stroke state). */
+  Map<int, float3> uvReprojPending_;
   /** Keep topology thawed across the stroke (don't freeze per dab). Set by the
    * dyntopo path: a dyntopo dab mutates topology and needs live disk/radial
    * links, so the per-dab freeze would otherwise force an O(mesh) thaw every
@@ -921,6 +929,90 @@ struct CommandExecutor {
         }
       }
     }
+
+    /* UV slide-reprojection: re-anchor the dab's moved verts' UVs on their
+     * pre-move ring. Rides the coPrev snapshot, so only needsCoPrev kernels
+     * (the smooth family) qualify. Dyntopo strokes keep topology live —
+     * reproject per dab (its ring changes under the stroke); frozen strokes
+     * accumulate {vert -> first-seen pre-move position} and endStep flushes
+     * once (a per-dab thaw would perturb the frozen-CSR stroke state). */
+    if (brush && brush->reproject_uvs && cmd.needsCoPrev && nodes.size() > 0 &&
+        ctx.co_prev == &coPrevStorage)
+    {
+      if (stepHasDyntopo) {
+        mesh::Mesh *m = nodes[0]->data->m;
+        Vector<int> rverts;
+        Vector<float3> rold;
+        Set<int, 64> seen;
+        for (auto *node : nodes) {
+          for (int v : node->affected_verts) {
+            if (v >= 0 && v < int(coPrevStorage.size()) && seen.add(v)) {
+              rverts.append(v);
+              rold.append(coPrevStorage[v]);
+            }
+          }
+        }
+        if (rverts.size() > 0) {
+          reprojectUvsWithCapture(
+              m, std::span<const int>(rverts.data(), rverts.size()),
+              std::span<const float3>(rold.data(), rold.size()));
+        }
+      } else {
+        for (auto *node : nodes) {
+          for (int v : node->affected_verts) {
+            if (v >= 0 && v < int(coPrevStorage.size())) {
+              uvReprojPending_.add(v, coPrevStorage[v]); /* first-seen wins */
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** Run reprojectVertUVs with per-corner undo capture into the meshlog's
+   * CORNER element store (the same AttrSaver-gated append-as-touched pattern
+   * the generated kernels use for vertex positions), so a stroke's UV edits
+   * revert with it. Requires live topology; thaws if needed. */
+  void reprojectUvsWithCapture(mesh::Mesh *m,
+                               std::span<const int> verts,
+                               std::span<const float3> oldCo)
+  {
+    if (m->topo_frozen) {
+      m->thawTopo();
+    }
+    mesh::MeshCallbacks cb;
+    meshlog::AttrSaver<mesh::ElemType::CORNER> saver;
+    meshlog::LogChunkElems *store = nullptr;
+    Vector<mesh::AttrRef, 4> refs;
+    int sid = 0, mask = 0;
+    if (meshLog) {
+      for (mesh::AttrRef &attr : m->c.attrs.attrs) {
+        if (attr.type == mesh::AttrType::FLOAT2 && attr.data &&
+            (int(attr.use) & int(mesh::AttrUse::UV)) != 0)
+        {
+          refs.append(attr);
+        }
+      }
+      if (refs.size() > 0) {
+        saver.ensure(*m);
+        store = meshLog->elemStore(mesh::ElemType::CORNER);
+        int bit = meshlog::CUSTOM_START;
+        for (mesh::AttrRef &ref : refs) {
+          store->data.ensureAttr(m->c.attrs, ref);
+          mask |= saver.add(ref, 1 << bit);
+          bit++;
+        }
+        sid = meshLog->curStrokeId();
+        cb.onCornerChange = [&](int c) {
+          if (saver.needsData(c, sid, mask)) {
+            const int row = store->data.appendRows(1);
+            store->data.cpyFrom(m->c.attrs, c, row);
+            saver.updateSaved(c, sid, mask);
+          }
+        };
+      }
+    }
+    mesh::uvproj::reprojectVertUVs(m, verts, oldCo, store ? &cb : nullptr);
   }
 
   /** SMOOTH is the only brush with a for_neighbor loop, and only its CSR
@@ -1765,6 +1857,7 @@ struct CommandExecutor {
     coPrevFull_ = false;
     coPrevDirty_.clear();
     coPrevGen_++;
+    uvReprojPending_.clear();
     if (brush) {
       brush->resetStrokePath();
     }
@@ -1776,6 +1869,20 @@ struct CommandExecutor {
   void endStep()
   {
     isFirstOfStep = false;
+    /* Flush the stroke's deferred UV reprojection while the step is still
+     * open, so the corner captures land inside it. */
+    if (uvReprojPending_.size() > 0 && tree && tree->m) {
+      Vector<int> rverts;
+      Vector<float3> rold;
+      for (const auto &pair : uvReprojPending_) {
+        rverts.append(pair.key);
+        rold.append(pair.value);
+      }
+      reprojectUvsWithCapture(tree->m,
+                              std::span<const int>(rverts.data(), rverts.size()),
+                              std::span<const float3>(rold.data(), rold.size()));
+    }
+    uvReprojPending_.clear();
     if (meshLog) {
       meshLog->endStep();
     }

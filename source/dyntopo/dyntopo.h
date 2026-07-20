@@ -29,6 +29,7 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_iter.h"
+#include "mesh/uv_reproject.h"
 #include "mesh/utils/edge_collapse.h"
 #include "mesh/utils/edge_flip.h"
 #include "mesh/utils/edge_split.h"
@@ -121,6 +122,10 @@ struct DynTopoParams {
    * fold a triangle. */
   bool do_smooth = false;
   float smooth_lambda = 0.5f; /* relaxation step (0..1) */
+  /* Re-anchor corner UVs after the tangential smooth (uv_reproject.h): each
+   * slid vertex's UVs are re-interpolated on its pre-smooth 1-ring so textures
+   * don't swim. Only meaningful with do_smooth; off = pre-P11 behavior. */
+  bool reproject_uvs = false;
   /* Boundary-condition preservation. When true, the operators consult the
    * mesh's boundary overlays (seam / sharp / projected / poly-group / UV-chart
    * edge flags + the per-vert class) so a dab never tears a feature: feature
@@ -1075,6 +1080,7 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
     if (p.do_smooth) {
       Vector<int, 32> sverts;
       Vector<math::float3, 32> spos;
+      Vector<math::float3, 32> sold;
       for (int v : nextFrontier) {
         if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v]) {
           continue;
@@ -1089,6 +1095,9 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         if (detail::smoothTangent(m, v, p.smooth_lambda, np)) {
           sverts.append(v);
           spos.append(np);
+          if (p.reproject_uvs) {
+            sold.append(m.v.co[v]);
+          }
         }
       }
       for (int i = 0; i < int(sverts.size()); i++) {
@@ -1097,6 +1106,14 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         }
         shiftOrig(sverts[i], spos[i] - m.v.co[sverts[i]]);
         m.v.co[sverts[i]] = spos[i];
+      }
+      if (p.reproject_uvs && sverts.size() > 0) {
+        /* Re-anchor the slid verts' UVs on their pre-smooth ring (Jacobi:
+         * every moved vert's old position rides `sold`, so neighbors read
+         * pre-pass geometry). */
+        mesh::uvproj::reprojectVertUVs(
+            &m, std::span<const int>(sverts.data(), sverts.size()),
+            std::span<const math::float3>(sold.data(), sold.size()), cb);
       }
       stats.smooths += int(sverts.size());
     }

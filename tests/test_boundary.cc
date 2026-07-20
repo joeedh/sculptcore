@@ -125,6 +125,43 @@ int main()
     test_assert(shortestEdgePath(&m, v0, 999999, pathBad) == false);
   }
 
+  // Junction classification: a 2x2 quad grid whose four interior edges are all
+  // seamed makes the center vert a 4-way junction (BC_JUNCTION); each arm's far
+  // end has exactly one seam edge (BC_ENDPOINT, no junction).
+  {
+    Mesh m;
+    int v[9];
+    for (int j = 0; j < 3; j++) {
+      for (int i = 0; i < 3; i++) {
+        v[j * 3 + i] = m.make_vertex(float3(float(i), float(j), 0));
+      }
+    }
+    auto quad = [&](int a, int b, int c, int d) {
+      int vs[4] = {v[a], v[b], v[c], v[d]};
+      m.make_face(std::span<int>(vs, 4));
+    };
+    quad(0, 1, 4, 3);
+    quad(1, 2, 5, 4);
+    quad(3, 4, 7, 6);
+    quad(4, 5, 8, 7);
+
+    const int center = v[4];
+    const int arms[4] = {v[1], v[3], v[5], v[7]};
+    for (int a : arms) {
+      int e = m.find_edge(center, a);
+      test_assert(e != ELEM_NONE);
+      bnd::setEdgeFlag(&m, bnd::EDGE_SEAM, e, true);
+    }
+    bnd::recomputeDirty(&m);
+
+    test_assert((bnd::vertClass(&m, center) & bnd::BC_JUNCTION) != 0);
+    test_assert((bnd::vertClass(&m, center) & bnd::BC_ENDPOINT) == 0);
+    for (int a : arms) {
+      test_assert((bnd::vertClass(&m, a) & bnd::BC_ENDPOINT) != 0);
+      test_assert((bnd::vertClass(&m, a) & bnd::BC_JUNCTION) == 0);
+    }
+  }
+
   // T1 (audit): the *incremental* dirty path — markFaceDirty + recomputeDirty
   // with NO markAllDirty. Guards the B3 fix: the poly-group brush marks painted
   // faces dirty so the derived boundary refreshes without a full rescan.

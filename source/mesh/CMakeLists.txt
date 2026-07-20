@@ -22,6 +22,7 @@ set(SRC
   PUBLIC boundary.h
   PUBLIC mesh_path.h
   PUBLIC uvgen.h
+  PUBLIC uv_reproject.h
   PUBLIC idmap.h
   PUBLIC bindings.h
   PUBLIC gpu/mesh_drawbatch.h
@@ -34,6 +35,7 @@ set(SRC
   boundary.cc
   mesh_path.cc
   uvgen.cc
+  uv_reproject.cc
   idmap.cc
   mesh.cc
   mesh_topo_cache.cc
@@ -77,6 +79,11 @@ wasm_add_symbols("
   Mesh_writeCornerFloat2Attr
   Mesh_readAttr
   Mesh_writeAttr
+  Mesh_edgeCount
+  Mesh_writeEdgeFlagsByVerts
+  Mesh_readEdgeFlags
+  Mesh_recomputeBoundary
+  Mesh_generateUVFromSeams
   serializeMesh
   serializeMeshRaw
   deserializeMesh

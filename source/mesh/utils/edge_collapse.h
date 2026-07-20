@@ -553,6 +553,90 @@ collapseEdge(Mesh &m,
     }
   }
 
+  /* Wedge-aware UV fix-up at the survivor. The rebuilt kill-fan corners
+   * restored v_kill's UVs verbatim while the untouched keep-fan corners still
+   * hold v_keep's, so the merged vertex would read as a UV discontinuity
+   * everywhere (spurious derived chart edges), and a real chart boundary
+   * crossing it would smear. The killed faces that held BOTH endpoints carry
+   * one (uv_kill, uv_keep) pair per wedge; set every corner at v_keep to its
+   * wedge's blended value, matched by proximity to either side of a pair. */
+  {
+    Vector<int, 4> uvLayers;
+    for (int ai = 0; ai < int(m.c.attrs.attrs.size()); ai++) {
+      AttrRef &uattr = m.c.attrs.attrs[ai];
+      if (uattr.type == AttrType::FLOAT2 && uattr.data &&
+          (int(uattr.use) & int(AttrUse::UV)) != 0 &&
+          !(uattr.flag & (AttrFlag::TOPO | AttrFlag::NOCOPY)))
+      {
+        uvLayers.append(ai);
+      }
+    }
+    if (!uvLayers.isEmpty() && m.v.e[v_keep] != ELEM_NONE) {
+      using litestl::math::float2;
+      auto cellUv = [](const AttrRowSnapshot &snap, int ai) {
+        float2 uv(0.0f, 0.0f);
+        if (ai < int(snap.cells.size()) && snap.cells[ai].present) {
+          std::memcpy(&uv, snap.cells[ai].bytes, sizeof(float2));
+        }
+        return uv;
+      };
+      for (int li : uvLayers) {
+        Vector<float2, 4> pairKill, pairKeep;
+        for (FaceSnap &fs : faceSnaps) {
+          int ik = -1, ip = -1;
+          for (int i = 0; i < int(fs.cverts.size()); i++) {
+            if (fs.cverts[i] == v_kill) {
+              ik = i;
+            }
+            if (fs.cverts[i] == v_keep) {
+              ip = i;
+            }
+          }
+          if (ik >= 0 && ip >= 0) {
+            pairKill.append(cellUv(fs.csnaps[ik], li));
+            pairKeep.append(cellUv(fs.csnaps[ip], li));
+          }
+        }
+        if (pairKill.isEmpty()) {
+          continue; /* no face held both endpoints (wire-ish) — leave as-is */
+        }
+        auto *data = static_cast<AttrData<float2> *>(m.c.attrs.attrs[li].data);
+        const float eps2 = 1e-8f;
+        for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
+          int c0 = m.e.c[ei];
+          if (c0 == ELEM_NONE) {
+            continue;
+          }
+          int cc = c0;
+          do {
+            if (m.c.v[cc] == v_keep) {
+              const float2 u = data->safe_get(cc);
+              int best = -1;
+              float bestD = eps2;
+              for (int k = 0; k < int(pairKill.size()); k++) {
+                const float dk = (u - pairKill[k]).lengthSqr();
+                const float dp = (u - pairKeep[k]).lengthSqr();
+                const float d = dk < dp ? dk : dp;
+                if (d <= bestD) {
+                  bestD = d;
+                  best = k;
+                }
+              }
+              /* A wedge no pair covers (a chart touching only one endpoint)
+               * keeps its restored value — its corners agree, so it derives no
+               * spurious boundary. */
+              if (best >= 0) {
+                data->materialize(cc);
+                (*data)[cc] = pairKeep[best] * (1.0f - blend) + pairKill[best] * blend;
+              }
+            }
+            cc = m.c.radial_next[cc];
+          } while (cc != c0 && cc != ELEM_NONE);
+        }
+      }
+    }
+  }
+
   /* Report edges that became live during the rebuild (the merged/new edges
    * incident to v_keep). */
   if (out && m.v.e[v_keep] != ELEM_NONE) {

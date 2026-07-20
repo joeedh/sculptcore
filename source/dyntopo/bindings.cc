@@ -44,6 +44,7 @@ litestl::binding::types::Struct<DynTopoParams> *DynTopoParams::defineBindings()
   BIND_STRUCT_MEMBER(st, max_collapses);
   BIND_STRUCT_MEMBER(st, do_smooth);
   BIND_STRUCT_MEMBER(st, smooth_lambda);
+  BIND_STRUCT_MEMBER(st, reproject_uvs);
   BIND_STRUCT_MEMBER(st, preserve_features);
 
   return st;

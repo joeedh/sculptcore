@@ -259,6 +259,7 @@ void recomputeDirty(MeshBase *m)
     }
     int domCount = sharpCount > 0 ? sharpCount : smoothCount;
     if (cls != BC_NONE && domCount == 1) cls |= BC_ENDPOINT;
+    if (cls != BC_NONE && domCount >= 3) cls |= BC_JUNCTION;
     (*vClass)[v] = cls;
     vDirty->set(v, false);
   }

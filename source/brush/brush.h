@@ -240,6 +240,10 @@ struct Brush {
   // edges aligned with the per-vertex cross field are up-weighted, biasing the
   // smooth so edge flow follows feature/curvature directions (topology rake).
   float rake = 0.0f;
+  // Re-anchor corner UVs after tangential vertex motion (uv_reproject.h): the
+  // executor reprojects each moved vertex's UVs on its pre-move 1-ring so
+  // textures don't swim under smooth-family strokes. Host-set; not a uniform.
+  bool reproject_uvs = false;
 
   // Cavity automasking (documentation/plans/2026-07-14-2007-cavity-automasking.md):
   // a per-vertex, per-stroke local-convexity factor multiplied into the effective
@@ -336,6 +340,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, pinch);
     BIND_STRUCT_MEMBER(st, projection);
     BIND_STRUCT_MEMBER(st, rake);
+    BIND_STRUCT_MEMBER(st, reproject_uvs);
     BIND_STRUCT_MEMBER(st, automask_cavity);
     BIND_STRUCT_MEMBER(st, cavity_factor);
     BIND_STRUCT_MEMBER(st, cavity_blur_steps);

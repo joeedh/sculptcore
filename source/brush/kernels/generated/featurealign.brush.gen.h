@@ -69,6 +69,9 @@ static void featurealign(CommandCtx<TYPES> &ctx)
       continue;
     }
     int vc = (*__attr_vclass)[v.v];
+    if ((((vc & 128)) != 0)) {
+      continue;
+    }
     int dom = (vc & 31);
     float3 tangentDisp = float3(0.0f, 0.0f, 0.0f);
     float3 normalDisp = float3(0.0f, 0.0f, 0.0f);
