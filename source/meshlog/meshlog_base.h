@@ -446,10 +446,16 @@ private:
   }
 
   /* Mark the node owning each touched element dirty so its bounds/GPU buffers
-   * regenerate. Only vertex/face domains carry a spatial node attribute. */
+   * regenerate. Vertex/face domains carry a spatial node attribute; a corner
+   * maps to its face's owner (via live topo links — thaw first). Without the
+   * corner branch, an undo that swaps corner UV rows back (the reprojection
+   * capture) leaves the viewport's attribute streams showing the undone UVs. */
   void update_nodes(mesh::Mesh *m, spatial::SpatialTree *tree)
   {
     using namespace sculptcore::spatial;
+    if (domain == mesh::ElemType::CORNER && m->topo_frozen) {
+      m->thawTopo();
+    }
     for (int i : util::IndexRange(0, data.size())) {
       int idx = data.origIndex[i];
       int ni = 0;
@@ -457,6 +463,17 @@ private:
         ni = tree->treeMesh.v.node[idx];
       } else if (domain == mesh::ElemType::FACE) {
         ni = tree->treeMesh.f.node[idx];
+      } else if (domain == mesh::ElemType::CORNER) {
+        if (idx < 0 || idx >= int(m->c.capacity()) || m->c.freemap[idx]) {
+          continue;
+        }
+        // Attribute streams only — geometry/normals/bounds are untouched by a
+        // corner-row swap.
+        ni = tree->treeMesh.f.node[m->l.f[m->c.l[idx]]];
+        if (ni) {
+          tree->node_from_id(ni)->update(NodeFlags::Spatial_UpdateGPU);
+        }
+        continue;
       } else {
         return;
       }

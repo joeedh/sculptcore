@@ -26,6 +26,28 @@ using math::float3;
 using namespace emscripten;
 #endif
 
+/** Visit every corner in Mesh_toArrays' export order: face live-iteration
+ * order, walking each face's (outer) corner cycle. Corner element-index order
+ * only coincides with this on a freshly built mesh — topology edits fragment
+ * corner ids — so every corner-domain marshal in this file must use THIS
+ * order, or a post-dyntopo flush writes each attribute onto the wrong Blender
+ * loop. */
+template <typename Fn> static void mesh_foreach_corner_export_order(Mesh *m, Fn fn)
+{
+  for (int fi : m->f) {
+    const int li = m->f.l[fi];
+    if (li == ELEM_NONE) {
+      continue;
+    }
+    const int c0 = m->l.c[li];
+    int cc = c0;
+    do {
+      fn(cc);
+      cc = m->c.next[cc];
+    } while (cc != c0);
+  }
+}
+
 extern "C" {
 
 /* String API */
@@ -293,11 +315,11 @@ int Mesh_writeCornerFloat2Attr(Mesh *m, const char *name, const float *in)
   ref.use = AttrUse(int(ref.use) | int(AttrUse::UV));
   auto *data = static_cast<AttrData<math::float2> *>(ref.data);
   int i = 0;
-  for (int ci : m->c) {
+  mesh_foreach_corner_export_order(m, [&](int ci) {
     data->materialize(ci);
     (*data)[ci] = math::float2(in[i * 2], in[i * 2 + 1]);
     i++;
-  }
+  });
   return 1;
 }
 
@@ -382,19 +404,20 @@ int Mesh_readAttr(Mesh *m, int domain, const char *name, int type, void *out)
     return 0;
   }
   sculptcore::mesh::detail::type_dispatch(attr_type, [&]<typename T>() {
-    if constexpr (std::is_same_v<T, bool>) {
-      auto *data = static_cast<BoolAttrView *>(ref.data);
-      auto *dst = static_cast<uint8_t *>(out);
-      int i = 0;
-      for (int elem : *ed) {
-        dst[i++] = data->get(elem) ? 1 : 0;
+    int i = 0;
+    auto readOne = [&](int elem) {
+      if constexpr (std::is_same_v<T, bool>) {
+        static_cast<uint8_t *>(out)[i++] =
+            static_cast<BoolAttrView *>(ref.data)->get(elem) ? 1 : 0;
+      } else {
+        static_cast<T *>(out)[i++] = static_cast<AttrData<T> *>(ref.data)->safe_get(elem);
       }
+    };
+    if (ElemType(domain) == CORNER) {
+      mesh_foreach_corner_export_order(m, readOne);
     } else {
-      auto *data = static_cast<AttrData<T> *>(ref.data);
-      auto *dst = static_cast<T *>(out);
-      int i = 0;
       for (int elem : *ed) {
-        dst[i++] = data->safe_get(elem);
+        readOne(elem);
       }
     }
   });
@@ -420,20 +443,22 @@ int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, con
   AttrRef &ref = ed->attrs.ensure(attr_type, name, /*materialize=*/true);
   ref.use = AttrUse(use);
   sculptcore::mesh::detail::type_dispatch(attr_type, [&]<typename T>() {
-    if constexpr (std::is_same_v<T, bool>) {
-      auto *data = static_cast<BoolAttrView *>(ref.data);
-      auto *src = static_cast<const uint8_t *>(in);
-      int i = 0;
-      for (int elem : *ed) {
-        data->set(elem, src[i++] != 0);
-      }
-    } else {
-      auto *data = static_cast<AttrData<T> *>(ref.data);
-      auto *src = static_cast<const T *>(in);
-      int i = 0;
-      for (int elem : *ed) {
+    int i = 0;
+    auto writeOne = [&](int elem) {
+      if constexpr (std::is_same_v<T, bool>) {
+        static_cast<BoolAttrView *>(ref.data)->set(
+            elem, static_cast<const uint8_t *>(in)[i++] != 0);
+      } else {
+        auto *data = static_cast<AttrData<T> *>(ref.data);
         data->materialize(elem);
-        (*data)[elem] = src[i++];
+        (*data)[elem] = static_cast<const T *>(in)[i++];
+      }
+    };
+    if (ElemType(domain) == CORNER) {
+      mesh_foreach_corner_export_order(m, writeOne);
+    } else {
+      for (int elem : *ed) {
+        writeOne(elem);
       }
     }
   });

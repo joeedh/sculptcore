@@ -1003,16 +1003,25 @@ struct CommandExecutor {
           bit++;
         }
         sid = meshLog->curStrokeId();
-        cb.onCornerChange = [&](int c) {
-          if (saver.needsData(c, sid, mask)) {
-            const int row = store->data.appendRows(1);
-            store->data.cpyFrom(m->c.attrs, c, row);
-            saver.updateSaved(c, sid, mask);
-          }
-        };
       }
     }
-    mesh::uvproj::reprojectVertUVs(m, verts, oldCo, store ? &cb : nullptr);
+    cb.onCornerChange = [&](int c) {
+      if (store && saver.needsData(c, sid, mask)) {
+        const int row = store->data.appendRows(1);
+        store->data.cpyFrom(m->c.attrs, c, row);
+        saver.updateSaved(c, sid, mask);
+      }
+      // Refill the face owner's GPU attribute streams: the deform kernels only
+      // flag Spatial_UpdateGPUGeom, which skips them — without this the
+      // viewport keeps drawing the pre-reprojection UVs.
+      if (tree) {
+        const int ni = tree->treeMesh.f.node[m->l.f[m->c.l[c]]];
+        if (ni) {
+          tree->node_from_id(ni)->update(spatial::NodeFlags::Spatial_UpdateGPU);
+        }
+      }
+    };
+    mesh::uvproj::reprojectVertUVs(m, verts, oldCo, &cb);
   }
 
   /** SMOOTH is the only brush with a for_neighbor loop, and only its CSR
