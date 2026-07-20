@@ -1,6 +1,7 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {FalloffKind} from '../gpu/FalloffKind'
 import type {FalloffShape} from '../gpu/FalloffShape'
+import type {TexCoordSpace} from './TexCoordSpace'
 import type {float3} from '../../litestl/math/float3'
 import type {StructProp} from '../props/StructProp'
 import type {float4} from '../../litestl/math/float4'
@@ -58,9 +59,15 @@ export interface Brush {
   activeGroup: int32
   brushColor: float4
   mixMode: int32
+  tex_width: int32
+  tex_height: int32
+  coord_space: TexCoordSpace
+  tex_repeat: float
   props: StructProp
   setFalloffCurveEntry(i: int32, f: float): void
   setCavityCurveEntry(i: int32, f: float): void
+  setTexture(width: int32, height: int32, pixels: float[]): void
+  clearTexture(): void
   loadProps(): void
   writeProps(): void
   pushDeviceInput(type: int32, value: float): void

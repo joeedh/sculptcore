@@ -90,5 +90,6 @@ export interface CommandExecutor {
     n: int32,
     value: float
   ): void
+  setRenderMatrix(m16: float[]): void
   new (arg0: SpatialTree, arg1: Brush): CommandExecutor
 }
