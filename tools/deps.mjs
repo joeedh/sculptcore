@@ -354,6 +354,7 @@ export async function ensureDeps({config, jobs} = {}) {
   const cached = readManifest(comboDir)
   if (manifestMatches(cached)) {
     console.log(`deps: cache hit ${comboRel} (OpenBLAS ${OPENBLAS_TAG}, SuiteSparse ${SUITESPARSE_TAG})`)
+    writeFreshMarker({comboRel, comboDir, fresh: false})
     return comboDir
   }
   if (cached) {
@@ -376,8 +377,18 @@ export async function ensureDeps({config, jobs} = {}) {
   }
   fs.writeFileSync(path.join(comboDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
 
+  writeFreshMarker({comboRel, comboDir, fresh: true})
   printPushHint(comboRel)
   return comboDir
+}
+
+// Record the last-resolved combo and whether it was built from source this run.
+// `make.mjs bundle --publish-deps-to` reads this so a farm build only exports
+// (and later commits) deps it actually built, never a cache hit.
+function writeFreshMarker({comboRel, comboDir, fresh}) {
+  const dir = path.join(ROOT, 'build')
+  fs.mkdirSync(dir, {recursive: true})
+  fs.writeFileSync(path.join(dir, 'deps-last-fresh.json'), JSON.stringify({comboRel, comboDir, fresh}, null, 2) + '\n')
 }
 
 // Allow `node tools/deps.mjs [config]` for standalone use.

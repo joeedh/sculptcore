@@ -33,7 +33,12 @@ const getopt = (k, defval) => {
 }
 
 // read local options
-const CMAKE_BUILD_TYPE = getopt('CMAKE_BUILD_TYPE', 'RelWithDebInfo')
+//
+// `SCULPTCORE_CMAKE_BUILD_TYPE` (set by Blender's CMake integration) overrides
+// the local option so the bundled DLL and its native deps match the config the
+// superproject is building — a farm build of Blender in Release then stages a
+// Release engine without a local-build-options.mjs edit.
+const CMAKE_BUILD_TYPE = process.env.SCULPTCORE_CMAKE_BUILD_TYPE || getopt('CMAKE_BUILD_TYPE', 'RelWithDebInfo')
 const CMAKE_GENERATOR = getopt('CMAKE_GENERATOR', 'Ninja')
 const WITH_ASAN = getopt('WITH_ASAN', false)
 const WITH_MESHLOG_ABSEIL_HASHMAP = getopt('WITH_MESHLOG_ABSEIL_HASHMAP', false)
@@ -632,9 +637,58 @@ function bundleCopy(src, dst) {
   }
 }
 
-async function bundleAddon(dest, {build, pdb}) {
+// Recursively copy a directory tree (deps combos are small; no need for a dep).
+function copyTree(src, dst) {
+  ensureDir(dst)
+  for (const entry of fs.readdirSync(src, {withFileTypes: true})) {
+    const s = Path.join(src, entry.name)
+    const d = Path.join(dst, entry.name)
+    if (entry.isDirectory()) {
+      copyTree(s, d)
+    } else {
+      fs.copyFileSync(s, d)
+    }
+  }
+}
+
+// Stage the native-deps combo that the just-completed build produced into
+// `<publishDir>/<comboRel>` — but only when it was built from source this run
+// (a cache hit is already published). ensureDeps records the outcome in
+// build/deps-last-fresh.json. Used by Blender's CMake integration to collect
+// farm-built deps as a separate artifact for pushing back to sculptcore-deps.
+function publishFreshDeps(publishDir) {
+  const marker = 'build/deps-last-fresh.json'
+  if (!fs.existsSync(marker)) {
+    console.log('bundle: no deps marker; nothing to publish (deps were not (re)resolved this build)')
+    return
+  }
+  let info
+  try {
+    info = JSON.parse(fs.readFileSync(marker, 'utf-8'))
+  } catch {
+    process.stderr.write(`bundle: could not parse ${marker}; skipping deps publish\n`)
+    return
+  }
+  if (!info.fresh) {
+    console.log(`bundle: deps combo ${info.comboRel} was a cache hit; not publishing`)
+    return
+  }
+  if (!info.comboDir || !fs.existsSync(info.comboDir)) {
+    process.stderr.write(`bundle: fresh deps combo missing at ${info.comboDir}; skipping publish\n`)
+    return
+  }
+  const dst = Path.join(publishDir, info.comboRel)
+  copyTree(info.comboDir, dst)
+  console.log(`bundle: published fresh deps combo ${info.comboRel} -> ${dst}`)
+}
+
+async function bundleAddon(dest, {build, pdb, publishDepsTo}) {
   if (build) {
     await buildPythonCapi()
+  }
+
+  if (publishDepsTo) {
+    publishFreshDeps(publishDepsTo)
   }
 
   const pkgRoot = 'python/sculptcore'
@@ -1446,9 +1500,14 @@ yargs(hideBin(process.argv))
           type    : 'boolean',
           default : false,
           describe: 'also stage sculptcore_capi.pdb (win32) for native debugging',
+        })
+        .option('publish-deps-to', {
+          type    : 'string',
+          describe:
+            'if the native deps were built from source this run, copy the combo into <dir>/<platform>/<toolchain>/<config> for publishing back to sculptcore-deps',
         }),
-    async ({dest, build, pdb}) => {
-      await bundleAddon(dest, {build, pdb})
+    async ({dest, build, pdb, publishDepsTo}) => {
+      await bundleAddon(dest, {build, pdb, publishDepsTo})
     }
   )
   .command('fullclean', 'Clean build files and node_module dirs', {}, () => {
