@@ -540,6 +540,155 @@ async function buildPythonCapi() {
   console.log(`python: built ${out}`)
 }
 
+// === Addon bundle ===
+//
+// `bundle` vendors the ctypes package + capi lib into a Blender addon's
+// lib/sculptcore/ so Blender needs no SCULPTCORE_* env vars: engine.py already
+// prefers a vendored lib/, and _capi.py finds the lib beside the package
+// (wgpu_native resolves via add_dll_directory on the same dir).
+
+// Shared-library names staged from build/python, per platform.
+function bundleLibNames() {
+  if (process.platform === 'win32') {
+    return ['sculptcore_capi.dll', 'wgpu_native.dll']
+  }
+  if (process.platform === 'darwin') {
+    return ['libsculptcore_capi.dylib', 'libwgpu_native.dylib']
+  }
+  return ['libsculptcore_capi.so', 'libwgpu_native.so']
+}
+
+// Relative paths of every file in the python/sculptcore package (caches skipped).
+function bundlePackageFiles(root) {
+  const out = []
+  const walk = (rel) => {
+    for (const entry of fs.readdirSync(Path.join(root, rel), {withFileTypes: true})) {
+      if (entry.name === '__pycache__' || entry.name === '.mypy_cache') {
+        continue
+      }
+      const relPath = rel ? Path.join(rel, entry.name) : entry.name
+      if (entry.isDirectory()) {
+        walk(relPath)
+      } else {
+        out.push(relPath)
+      }
+    }
+  }
+  walk('')
+  return out
+}
+
+/* Destination package dirs. Explicit dest: <dest>/sculptcore only. Default:
+ * the superproject's addon (../../scripts/addons_core/sculptcore_addon) plus
+ * every sibling build tree's addon copy — blender.exe runs the build-tree
+ * copy, and nothing refreshes it between Blender's own install steps. */
+function bundleDests(destArg) {
+  if (destArg) {
+    return [Path.resolve(destArg, 'sculptcore')]
+  }
+  const addon = Path.resolve('../../scripts/addons_core/sculptcore_addon')
+  if (!fs.existsSync(Path.join(addon, '__init__.py'))) {
+    process.stderr.write(`bundle: no Blender addon at ${addon}; pass an explicit dest\n`)
+    process.exit(2)
+  }
+  const dests = [Path.join(addon, 'lib', 'sculptcore')]
+  const parent = Path.resolve('../../..')
+  for (const entry of fs.readdirSync(parent)) {
+    if (!entry.startsWith('build_')) {
+      continue
+    }
+    const bin = Path.join(parent, entry, 'bin')
+    if (!fs.existsSync(bin)) {
+      continue
+    }
+    for (const ver of fs.readdirSync(bin)) {
+      const copy = Path.join(bin, ver, 'scripts', 'addons_core', 'sculptcore_addon')
+      if (fs.existsSync(Path.join(copy, '__init__.py'))) {
+        dests.push(Path.join(copy, 'lib', 'sculptcore'))
+      }
+    }
+  }
+  return dests
+}
+
+// Copy src over dst; when dst is a shared lib loaded by a running Blender
+// (win32 EPERM/EBUSY), rename it aside — Windows allows renaming a loaded
+// module — and copy fresh. Returns true when the hot-swap path was taken.
+function bundleCopy(src, dst) {
+  try {
+    fs.copyFileSync(src, dst)
+    return false
+  } catch (err) {
+    if (process.platform !== 'win32' || !['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) {
+      throw err
+    }
+    let n = 0
+    while (fs.existsSync(`${dst}.stale${n}`)) {
+      n++
+    }
+    fs.renameSync(dst, `${dst}.stale${n}`)
+    fs.copyFileSync(src, dst)
+    return true
+  }
+}
+
+async function bundleAddon(dest, {build, pdb}) {
+  if (build) {
+    await buildPythonCapi()
+  }
+
+  const pkgRoot = 'python/sculptcore'
+  const libDir = buildDir('python')
+  const [capiName, wgpuName] = bundleLibNames()
+
+  // {src, rel}: rel is the path under the destination sculptcore/ dir.
+  const files = bundlePackageFiles(pkgRoot).map((rel) => ({src: Path.join(pkgRoot, rel), rel}))
+  files.push({src: Path.join(libDir, capiName), rel: capiName})
+  if (fs.existsSync(Path.join(libDir, wgpuName))) {
+    files.push({src: Path.join(libDir, wgpuName), rel: wgpuName})
+  } else {
+    process.stderr.write(`bundle: warning: ${wgpuName} not found in ${libDir}, not staged\n`)
+  }
+  if (pdb && process.platform === 'win32' && fs.existsSync(Path.join(libDir, 'sculptcore_capi.pdb'))) {
+    files.push({src: Path.join(libDir, 'sculptcore_capi.pdb'), rel: 'sculptcore_capi.pdb'})
+  }
+
+  let hotSwapped = false
+  for (const destDir of bundleDests(dest)) {
+    ensureDir(destDir)
+
+    const staged = new Set(files.map((f) => Path.join(destDir, f.rel)))
+    for (const f of files) {
+      ensureDir(Path.dirname(Path.join(destDir, f.rel)))
+      hotSwapped = bundleCopy(f.src, Path.join(destDir, f.rel)) || hotSwapped
+    }
+
+    // Mirror: drop anything not staged (removed sources, __pycache__, prior
+    // .stale renames — locked ones survive until Blender exits, ignore those).
+    const prune = (dir) => {
+      for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+        const p = Path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          prune(p)
+          if (fs.readdirSync(p).length === 0) {
+            fs.rmdirSync(p)
+          }
+        } else if (!staged.has(p)) {
+          try {
+            fs.rmSync(p)
+          } catch {}
+        }
+      }
+    }
+    prune(destDir)
+
+    console.log(`bundle: staged ${files.length} files -> ${destDir}`)
+  }
+  if (hotSwapped) {
+    console.log('bundle: a running Blender holds the old lib; restart it to pick up the new build')
+  }
+}
+
 // Smoke-load the freshly built .node under NW.js. NW.js has no main process, so
 // we drive the smoke from a hidden window: a generated temp app whose page
 // requires the addon + the shared napi_smoke body, runs it, writes the result
@@ -1276,6 +1425,30 @@ yargs(hideBin(process.argv))
 
         run('cd tools && pnpm build')
       }
+    }
+  )
+  .command(
+    'bundle [dest]',
+    'Build the python capi lib and vendor it + the ctypes package into the Blender addon (lib/sculptcore)',
+    (y) =>
+      y
+        .positional('dest', {
+          type    : 'string',
+          describe:
+            'stage into <dest>/sculptcore instead of the detected Blender addon (source tree + sibling build trees)',
+        })
+        .option('build', {
+          type    : 'boolean',
+          default : true,
+          describe: 'build the capi lib first (--no-build: restage existing outputs only)',
+        })
+        .option('pdb', {
+          type    : 'boolean',
+          default : false,
+          describe: 'also stage sculptcore_capi.pdb (win32) for native debugging',
+        }),
+    async ({dest, build, pdb}) => {
+      await bundleAddon(dest, {build, pdb})
     }
   )
   .command('fullclean', 'Clean build files and node_module dirs', {}, () => {
