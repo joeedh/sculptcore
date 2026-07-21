@@ -320,6 +320,9 @@ int Mesh_writeCornerFloat2Attr(Mesh *m, const char *name, const float *in)
     (*data)[ci] = math::float2(in[i * 2], in[i * 2 + 1]);
     i++;
   });
+  // Rewriting a UV layer stales every derived `.boundary.edge.uvchart` flag;
+  // mark the whole mesh boundary-dirty so the next recompute re-derives them.
+  boundary::markAllDirty(m);
   return 1;
 }
 
