@@ -16,6 +16,13 @@ enum _NodeFlags {
    * kernels; the slice update skips the attr-stream fills. Spatial_UpdateGPU
    * still means "refresh every stream". */
   Spatial_UpdateGPUGeom = 1 << 6, // 64
+  /* The next normals pass must do a FULL leaf rebuild: the leaf's tris were
+   * regenerated (topology changed), invalidating — and clearing — the
+   * affected_verts hints. Sticky until update_node_normals consumes it, so
+   * hints appended between the tris regen and a deferred normals pass (the
+   * updateQueries()/update(gpu) split) can't downgrade it to an incremental
+   * pass that misses pre-regen motion. */
+  Spatial_NormalsFullRebuild = 1 << 7, // 128
 };
 MAKE_FLAGS_CLASS(NodeFlags, _NodeFlags, int);
 

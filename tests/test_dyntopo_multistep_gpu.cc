@@ -18,12 +18,11 @@
  *     exactly the live mesh's position set. Leaf PARTITION after undo/redo
  *     legitimately differs from the forward pass (per-leaf vert DUPLICATION
  *     shifts), so the gate compares the sorted UNIQUE position set against
- *     the mesh, checkpoint-local — never forward-vs-redo buffers.
- *     KNOWN OPEN FAILURE: after enough dyntopo churn the FORWARD pass draws
- *     a handful of phantom corners (positions matching no live vert; a full
- *     forced leaf regen does NOT clear them, so dead elements linger in some
- *     leaf's sets rather than the upload being stale). Undo/redo rebuilds
- *     are clean. */
+ *     the mesh, checkpoint-local — never forward-vs-redo buffers. The forward
+ *     pass also gates the executor's border propagation: a border leaf whose
+ *     tris replicate another leaf's moved vert must refresh its slice even
+ *     when none of its OWN verts moved (pre-fix this drew phantom corners
+ *     holding the replica's pre-final-dab position). */
 #include "test_util.h"
 
 #include "brush/brush_executor.h"

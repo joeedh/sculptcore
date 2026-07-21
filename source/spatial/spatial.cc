@@ -306,11 +306,12 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenTris;
 
-  /* Topology changed — affected_verts no longer captures everything whose
-   * normal needs recomputing (new tris may contribute to verts that didn't
-   * move). Drop the incremental hint so update_node_normals falls back to
-   * a full rebuild for this leaf. */
+  /* Topology changed — the affected_verts hints no longer cover everything
+   * needing new normals. Drop them and arm the sticky full-rebuild marker (see
+   * Spatial_NormalsFullRebuild); whether normals are dirty at all stays the
+   * flagger's call, so Spatial_UpdateNormals is deliberately NOT set here. */
   node->affected_verts.clear_and_contract();
+  node->flag |= Spatial_NormalsFullRebuild;
 
   /* TODO: use a property CDT for > 4 vert or > 1 hole faces.
    * For now just handle triangles and quads.
@@ -2870,7 +2871,8 @@ SpatialTree::buildPointsBatch(sculptcore::gpu::GPUManager &mgr)
 
 void SpatialTree::update_node_normals(SpatialNode *node)
 {
-  node->flag &= ~Spatial_UpdateNormals;
+  const bool fullRebuild = bool(node->flag & Spatial_NormalsFullRebuild);
+  node->flag &= ~(Spatial_UpdateNormals | Spatial_NormalsFullRebuild);
 
   auto &node_vattr = node->treeMesh->v.node;
   auto &node_fattr = node->treeMesh->f.node;
@@ -2881,7 +2883,7 @@ void SpatialTree::update_node_normals(SpatialNode *node)
    * verts of those faces). For small brushes on a large leaf this avoids
    * zeroing + renormalizing hundreds of unaffected verts/faces and skips
    * the cross-product accumulation for tris that didn't change. */
-  if (node->affected_verts.size() > 0) {
+  if (!fullRebuild && node->affected_verts.size() > 0) {
     Set<int> moved_verts;
     for (int v : node->affected_verts) {
       moved_verts.add(v);
@@ -2891,7 +2893,6 @@ void SpatialTree::update_node_normals(SpatialNode *node)
      * to the affected face/vert sets. */
     Set<int> affected_face_set;
     Set<int> affected_vert_set;
-    Vector<int, 64> affected_tri_indices;
 
     for (int ti : IndexRange(node->data->tris.size())) {
       const auto &tri = node->data->tris[ti];
@@ -2905,7 +2906,6 @@ void SpatialTree::update_node_normals(SpatialNode *node)
         continue;
       }
 
-      affected_tri_indices.append(ti);
       affected_face_set.add(tri.f);
       affected_vert_set.add(v1);
       affected_vert_set.add(v2);
@@ -2923,24 +2923,35 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       }
     }
 
-    for (int ti : affected_tri_indices) {
+    /* A 1-ring vert's normal sums ALL its incident tris — including unchanged
+     * ones zeroed away with it — so scan every tri, not just the movers'. Faces
+     * stay restricted to the affected set (un-zeroed faces must not re-gain). */
+    for (int ti : IndexRange(node->data->tris.size())) {
       const auto &tri = node->data->tris[ti];
       int v1 = m->c.v[tri.c[0]];
       int v2 = m->c.v[tri.c[1]];
       int v3 = m->c.v[tri.c[2]];
 
+      const bool a1 = affected_vert_set.contains(v1);
+      const bool a2 = affected_vert_set.contains(v2);
+      const bool a3 = affected_vert_set.contains(v3);
+      const bool af = affected_face_set.contains(tri.f);
+      if (!a1 && !a2 && !a3 && !af) {
+        continue;
+      }
+
       float3 n = triNormal(m->v.co[v1], m->v.co[v2], m->v.co[v3]);
 
-      if (node_fattr[tri.f] == node->id) {
+      if (af && node_fattr[tri.f] == node->id) {
         m->f.no[tri.f] += n;
       }
-      if (node_vattr[v1] == node->id) {
+      if (a1 && node_vattr[v1] == node->id) {
         m->v.no[v1] += n;
       }
-      if (node_vattr[v2] == node->id) {
+      if (a2 && node_vattr[v2] == node->id) {
         m->v.no[v2] += n;
       }
-      if (node_vattr[v3] == node->id) {
+      if (a3 && node_vattr[v3] == node->id) {
         m->v.no[v3] += n;
       }
     }
@@ -2961,7 +2972,9 @@ void SpatialTree::update_node_normals(SpatialNode *node)
   }
 
   /* Full rebuild path: initial build, post-topology-change, or any non-brush
-   * dirty source that didn't populate affected_verts. */
+   * dirty source that didn't populate affected_verts. Hints appended since the
+   * tris regen are subsumed by the full pass. */
+  node->affected_verts.clear();
   for (int v : node->unique_verts()) {
     m->v.no[v].zero();
   }

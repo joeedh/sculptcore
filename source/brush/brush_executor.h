@@ -917,6 +917,40 @@ struct CommandExecutor {
     }
     layerScopes.clear();
 
+    // Border propagation: kernels flag only the node whose own verts moved, but
+    // neighbouring leaves' tris draw replicas of (and integrate normals over) a
+    // moved border vert — flag those too, appending the vert as a normals hint.
+    {
+      Set<int> movedVerts;
+      for (auto *node : nodes) {
+        for (int v : node->affected_verts) {
+          movedVerts.add(v);
+        }
+      }
+      if (movedVerts.size() > 0 && nodes.size() > 1) {
+        mesh::Mesh *mm = nodes[0]->data->m;
+        for (auto *node : nodes) {
+          if (node->flag & spatial::Spatial_RegenTris) {
+            continue; // tris are stale; the pending full regen covers this leaf
+          }
+          bool touched = false;
+          for (auto &tri : node->data->tris) {
+            for (int j = 0; j < 3; j++) {
+              int v = mm->c.v[tri.c[j]];
+              if (tree->treeMesh.v.node[v] != node->id && movedVerts.contains(v)) {
+                node->affected_verts.append(v);
+                touched = true;
+              }
+            }
+          }
+          if (touched) {
+            node->update(spatial::Spatial_UpdateNormals | spatial::Spatial_UpdateGPUGeom |
+                         spatial::Spatial_RegenBounds);
+          }
+        }
+      }
+    }
+
     /* coPrev bookkeeping: every vert this exec (kernel, execPost, layer fold)
      * may have moved lives in `nodes` — queue them for the next needsCoPrev
      * refresh. Skipped under dyntopo (node pointers/element sets unstable;

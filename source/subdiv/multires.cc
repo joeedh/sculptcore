@@ -642,13 +642,15 @@ int Multires::writeback(int level)
   return nChanged;
 }
 
-/** z = Aᵀ·y over the stencil (scatter form of eval), same fma chain per term. */
+/** z = Aᵀ·y over the stencil (scatter form of eval), same fma chain per term.
+ * `coarseSize` is the dense coarse dimension (see solveStencilLeastSquares). */
 static void applyStencilT(const StencilTable &st,
                           const Vector<float3> &y,
-                          Vector<float3> &z)
+                          Vector<float3> &z,
+                          int coarseSize)
 {
-  z.resize(st.coarseCount);
-  for (int j = 0; j < st.coarseCount; j++) {
+  z.resize(coarseSize);
+  for (int j = 0; j < coarseSize; j++) {
     z[j] = float3(0.0f, 0.0f, 0.0f);
   }
   for (int i = 0; i < st.fineCount; i++) {
@@ -674,37 +676,44 @@ static double vecDot(const Vector<float3> &a, const Vector<float3> &b)
 
 /** Jacobi-preconditioned CG on the stencil normal equations AᵀA·x = Aᵀ·target,
  * warm-started from the incoming `x`. Deterministic (fixed sequential order,
- * double accumulators). Returns iterations used. */
+ * double accumulators). Returns iterations used.
+ *
+ * The solution dimension is x.size() — the DENSE coarse-level vert count —
+ * not st.coarseCount, which is the coarse id SPACE (v.capacity() of the
+ * source level, typically far larger). Refined levels allocate densely, so
+ * every stencil index is < x.size(); iterating to coarseCount would read and
+ * write x far out of bounds. */
 static int solveStencilLeastSquares(const StencilTable &st,
                                     const Vector<float3> &target,
                                     Vector<float3> &x)
 {
+  const int n = int(x.size());
   Vector<float3> b, fineTmp, q, r, p, z;
-  applyStencilT(st, target, b);
+  applyStencilT(st, target, b, n);
 
   // Jacobi preconditioner: diag(AᵀA)_j = Σ_i w_ij².
   Vector<float> dinv;
-  dinv.resize(st.coarseCount);
-  for (int j = 0; j < st.coarseCount; j++) {
+  dinv.resize(n);
+  for (int j = 0; j < n; j++) {
     dinv[j] = 0.0f;
   }
   for (int k = 0; k < int(st.weights.size()); k++) {
     dinv[st.indices[k]] += st.weights[k] * st.weights[k];
   }
-  for (int j = 0; j < st.coarseCount; j++) {
+  for (int j = 0; j < n; j++) {
     dinv[j] = dinv[j] > 1e-20f ? 1.0f / dinv[j] : 0.0f;
   }
 
   auto applyM = [&](const Vector<float3> &in, Vector<float3> &out) {
     st.eval(in, fineTmp);
-    applyStencilT(st, fineTmp, out);
+    applyStencilT(st, fineTmp, out, n);
   };
 
   applyM(x, q);
-  r.resize(st.coarseCount);
-  z.resize(st.coarseCount);
-  p.resize(st.coarseCount);
-  for (int j = 0; j < st.coarseCount; j++) {
+  r.resize(n);
+  z.resize(n);
+  p.resize(n);
+  for (int j = 0; j < n; j++) {
     r[j] = b[j] - q[j];
     z[j] = r[j] * dinv[j];
     p[j] = z[j];
@@ -721,17 +730,17 @@ static int solveStencilLeastSquares(const StencilTable &st,
       break;
     }
     float alpha = float(rz / pq);
-    for (int j = 0; j < st.coarseCount; j++) {
+    for (int j = 0; j < n; j++) {
       x[j] += p[j] * alpha;
       r[j] += q[j] * -alpha;
     }
-    for (int j = 0; j < st.coarseCount; j++) {
+    for (int j = 0; j < n; j++) {
       z[j] = r[j] * dinv[j];
     }
     double rzNew = vecDot(r, z);
     float beta = float(rzNew / rz);
     rz = rzNew;
-    for (int j = 0; j < st.coarseCount; j++) {
+    for (int j = 0; j < n; j++) {
       p[j] = z[j] + p[j] * beta;
     }
   }

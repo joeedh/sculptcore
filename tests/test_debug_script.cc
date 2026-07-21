@@ -3,6 +3,7 @@
 #include "debug/scene.h"
 #include "debug/script.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -235,38 +236,49 @@ int main()
     test_assert(pulled > 0);
   }
 
-  /* Sharp brush: pulls verts along the tangent of the brush plane —
-   * +Z face verts slide toward (0,0,0.25) without leaving the plane.
-   * Same xy-radial check as pinch, but z must stay near 0.25 (the
-   * tangent projection should kill the normal component). */
+  /* Sharp brush: pushes verts along the brush surface normal (ridge) and
+   * pinches the displaced region toward the brush axis by `pinch`. Run the
+   * same stroke with pinch=0 and pinch=0.9: both must lift the +Z face
+   * (the normal push), and the pinched run must pull the footprint's verts
+   * measurably closer to the brush axis than the unpinched run — proving
+   * the tangent pull routes through the `pinch` @static uniform. */
   {
-    Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=sharp\n"
-        "set_brush radius=0.25 strength=0.1\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
-    auto r = script::run(scene, src, ".");
-    test_assert(r.ok);
-    if (!r.ok) {
-      fprintf(stderr, "  script line %d: %s\n", r.line_no, r.error.c_str());
-    }
-    int pulled = 0;
-    float maxZ = -1e9f;
-    if (scene.mesh) {
-      for (int i = 0; i < scene.mesh->v.count; i++) {
-        float z = scene.mesh->v.co[i][2];
-        if (z < 0.245f) continue;
-        if (z > maxZ) maxZ = z;
-        float r2 = scene.mesh->v.co[i][0] * scene.mesh->v.co[i][0] +
-                   scene.mesh->v.co[i][1] * scene.mesh->v.co[i][1];
-        if (r2 < 0.245f * 0.245f * 0.5f) pulled++;
+    auto runSharp = [&](const char *pinchArg, float &r_maxZ, double &r_radSum) {
+      Scene scene(64, 64, true);
+      std::string src;
+      src += "make_cube subdivs=12 size=0.5\n";
+      src += "build_spatial leaf_limit=256 depth_limit=8\n";
+      src += "set_brush_tool tool=sharp\n";
+      src += "set_brush radius=0.25 strength=0.1";
+      src += pinchArg;
+      src += "\n";
+      src += "stroke origin=0,0,0.25 normal=0,0,1\n";
+      auto r = script::run(scene, src.c_str(), ".");
+      test_assert(r.ok);
+      if (!r.ok) {
+        fprintf(stderr, "  sharp script line %d: %s\n", r.line_no, r.error.c_str());
       }
-    }
-    test_assert(pulled > 0);
-    /* Tangent-only motion must not lift the +Z face above 0.25 + tiny eps. */
-    test_assert(maxZ < 0.25f + 1e-4f);
+      r_maxZ = -1e9f;
+      r_radSum = 0.0;
+      if (scene.mesh) {
+        for (int i = 0; i < scene.mesh->v.count; i++) {
+          float z = scene.mesh->v.co[i][2];
+          if (z < 0.245f) continue;
+          if (z > r_maxZ) r_maxZ = z;
+          float x = scene.mesh->v.co[i][0], y = scene.mesh->v.co[i][1];
+          r_radSum += std::sqrt(double(x * x + y * y));
+        }
+      }
+    };
+    float maxZPlain = 0.0f, maxZPinch = 0.0f;
+    double radPlain = 0.0, radPinch = 0.0;
+    runSharp("", maxZPlain, radPlain);
+    runSharp(" pinch=0.9", maxZPinch, radPinch);
+    /* Both runs displace along the normal: the +Z face rises. */
+    test_assert(maxZPlain > 0.25f + 1e-3f);
+    test_assert(maxZPinch > 0.25f + 1e-3f);
+    /* The pinched run pulls the face's verts toward the brush axis. */
+    test_assert(radPinch < radPlain - 1e-3);
   }
 
   /* Mask brush: writes to v.mask (PtrHelper::mask is a reference, so the
@@ -321,12 +333,13 @@ int main()
         if (z > spikeZ) spikeZ = z;
       }
     }
-    /* The smooth kernel lerps by s = strength*falloff*radius*0.1, so a
-     * single unit-strength pass barely moves anything (s~0.015). Drive it
-     * hard and repeat so the spike measurably redistributes. */
+    /* The smooth kernel lerps each vert toward its neighbor average by
+     * s = strength*falloff, so keep strength <= 1 (a larger factor
+     * overshoots the mean and oscillates instead of settling) and repeat
+     * so the spike measurably redistributes. */
     const char *src2 =
         "set_brush_tool tool=smooth\n"
-        "set_brush radius=0.15 strength=10.0\n"
+        "set_brush radius=0.15 strength=1.0\n"
         "stroke origin=0,0,0.25 normal=0,0,1\n"
         "stroke origin=0,0,0.25 normal=0,0,1\n"
         "stroke origin=0,0,0.25 normal=0,0,1\n";
