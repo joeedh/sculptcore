@@ -14,7 +14,7 @@
 
 extern "C" {
 
-#define SC_EXTERNAL_DRAW_ABI_VERSION 1
+#define SC_EXTERNAL_DRAW_ABI_VERSION 2
 
 enum ScExternalDrawUpdate {
   SC_EXTERNAL_DRAW_UPDATE_NONE = 0,
@@ -29,6 +29,9 @@ struct ScExternalDrawNode {
   int verts_num;
   int material_index;
   uint32_t update_flags;
+  /** Stable per-node identity (SpatialNode::id) so the consumer can key its
+   * per-node GPU caches across list reorders (dyntopo merges/repartitions). */
+  uint32_t node_id;
   float bounds_min[3];
   float bounds_max[3];
 };

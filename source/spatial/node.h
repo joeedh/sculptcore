@@ -57,6 +57,9 @@ struct GpuData {
   gpu::DrawCommand *cmd = nullptr;
   util::Vector<LeafSlice> slices; /* DFS-order leaf list defining the layout */
   int total_verts = 0;
+  // Buffers were (re)planned since the external-draw consumer last read this
+  // node; reported as SC_EXTERNAL_DRAW_UPDATE_TOPOLOGY and cleared there.
+  bool extern_topo_dirty = true;
 
   /* GPU-resident stroke path (debug app): per render-VBO slot, the global
    * vertex index it draws (slot order == pos/nor). Uploaded host->GPU once at

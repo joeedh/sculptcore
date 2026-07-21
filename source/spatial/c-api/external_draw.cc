@@ -105,12 +105,17 @@ int extdraw_nodes_get(void * /*user_data*/,
     }
     dn.verts_num = gd.total_verts;
     dn.material_index = 0;
-    /* Positions dirty since Blender last consumed this node → re-upload. The
-     * vertex-count change (topology) is caught Blender-side by comparing to the
-     * cached size, so DATA covers both. Cleared below so a redraw without an
-     * edit reports NONE and Blender reuses its cached batch (partial update). */
-    dn.update_flags = gd.pos->update_buffer ? SC_EXTERNAL_DRAW_UPDATE_DATA :
-                                              SC_EXTERNAL_DRAW_UPDATE_NONE;
+    dn.node_id = uint32_t(node->id);
+    // DATA: positions dirty since Blender last consumed this node -> re-upload.
+    // TOPOLOGY: buffers re-planned (content can change at an identical vertex
+    // count) -> realloc. Both cleared below so an editless redraw reports NONE.
+    dn.update_flags = SC_EXTERNAL_DRAW_UPDATE_NONE;
+    if (gd.pos->update_buffer) {
+      dn.update_flags |= SC_EXTERNAL_DRAW_UPDATE_DATA;
+    }
+    if (gd.extern_topo_dirty) {
+      dn.update_flags |= SC_EXTERNAL_DRAW_UPDATE_TOPOLOGY;
+    }
     dn.bounds_min[0] = node->aabb.min[0];
     dn.bounds_min[1] = node->aabb.min[1];
     dn.bounds_min[2] = node->aabb.min[2];
@@ -120,6 +125,7 @@ int extdraw_nodes_get(void * /*user_data*/,
     out.append(dn);
 
     gd.pos->update_buffer = false;
+    gd.extern_topo_dirty = false;
     if (gd.nor) {
       gd.nor->update_buffer = false;
     }

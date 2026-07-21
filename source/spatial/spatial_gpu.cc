@@ -414,6 +414,7 @@ void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
     }
   }
   gd.builtAttrsVersion = requestedAttrsVersion;
+  gd.extern_topo_dirty = true;
 
   /* Resolve each requested source layer once for this node (dynamic path). */
   if (dynamic) {
