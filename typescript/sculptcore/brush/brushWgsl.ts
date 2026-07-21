@@ -207,7 +207,7 @@ fn main(
     return;
   }
   var vc: i32 = v_vclass;
-  if ((((vc & 128)) != 0)) {
+  if (((((vc & 128)) != 0) && (((vc & 2)) != 0))) {
     return;
   }
   var dom: i32 = (vc & 31);
@@ -220,7 +220,7 @@ fn main(
   if ((((vc & 2)) != 0)) {
     wNor = 0.0;
   }
-  if ((((vc & 32)) != 0)) {
+  if ((((vc & 160)) != 0)) {
     wTan = 0.0;
     wNor = 1.0;
   }

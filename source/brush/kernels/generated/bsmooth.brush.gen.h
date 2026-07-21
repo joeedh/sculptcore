@@ -68,7 +68,7 @@ static void bsmooth(CommandCtx<TYPES> &ctx)
       continue;
     }
     int vc = (*__attr_vclass)[v.v];
-    if ((((vc & 128)) != 0)) {
+    if (((((vc & 128)) != 0) && (((vc & 2)) != 0))) {
       continue;
     }
     int dom = (vc & 31);
@@ -81,7 +81,7 @@ static void bsmooth(CommandCtx<TYPES> &ctx)
     if ((((vc & 2)) != 0)) {
       wNor = 0.0f;
     }
-    if ((((vc & 32)) != 0)) {
+    if ((((vc & 160)) != 0)) {
       wTan = 0.0f;
       wNor = 1.0f;
     }

@@ -16,10 +16,13 @@
 //     one like-neighbor and averaging toward it would collapse the end — and keep
 //     only normal motion so the end follows the surface. SHARP wins over a smooth
 //     type on the same vertex (treated as sharp: wNor=0).
+//   * Corner (BC_JUNCTION, >=3 feature edges): a sharp junction (e.g. a cube
+//     corner) is pinned entirely — any motion erodes it. A smooth-type junction
+//     (e.g. a UV-chart corner) gets the endpoint treatment: normal-only motion,
+//     so the corner follows the surface instead of freezing in place.
 //
 // Consumers must run boundary::recomputeDirty before the stroke so vclass is
-// current. UV slide-reprojection and the corner (>=3 junction) special case are
-// follow-ups; GPU dispatch of the vclass attr is wired separately (CPU for now).
+// current. GPU dispatch of the vclass attr is wired separately (CPU for now).
 @brush("bsmooth")
 brush BSmooth {
   attr vertex int vclass = ".boundary.vert.class";
@@ -34,9 +37,9 @@ brush BSmooth {
     if (s == 0.0) { continue; }
 
     int vc = v.vclass;
-    if ((vc & 128) != 0) {
-      // BC_JUNCTION (>=3 feature edges, e.g. a cube corner): pin entirely —
-      // any averaging erodes the corner.
+    if ((vc & 128) != 0 && (vc & 2) != 0) {
+      // Sharp BC_JUNCTION (>=3 feature edges, e.g. a cube corner): pin
+      // entirely — any averaging erodes the corner.
       continue;
     }
     // dom = the boundary-type bits (BC_TYPE_MASK) that gate which neighbors enter
@@ -55,9 +58,10 @@ brush BSmooth {
       // BC_SHARP: drop the normal component → slide purely along the crease
       wNor = 0.0;
     }
-    if ((vc & 32) != 0) {
-      // BC_ENDPOINT: chain end — drop the tangential slide (would collapse onto
-      // its lone like-neighbor), keep only normal motion to follow the surface
+    if ((vc & 160) != 0) {
+      // BC_ENDPOINT (32) or smooth-type BC_JUNCTION (128, e.g. a UV-chart
+      // corner): drop the tangential slide (averaging would collapse the end /
+      // erode the corner), keep only normal motion to follow the surface
       wTan = 0.0;
       wNor = 1.0;
     }
