@@ -63,6 +63,7 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/attribute_bool.h"
 #include "mesh/attribute_builtin.h"
 #include "mesh/attribute_enums.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_enums.h"
@@ -953,6 +954,29 @@ struct LogChunkTopo : public LogChunk {
     return records;
   }
 
+  /* The raw alloc/release/swap replay below bypasses the topology mutators
+   * that keep derived boundary state current: restored elements carry their
+   * persistent flags but no dirty marks, and the TEMP derived layers (UV-chart
+   * edges, per-vert class) sit at defaults. Mark every live replayed vert/edge
+   * boundary-dirty so the executors' lazy recompute re-derives them before the
+   * next feature-aware stroke (dyntopo / bsmooth). O(records). */
+  void markBoundaryDirty(mesh::Mesh *m, const Vector<LogElem *> &records)
+  {
+    for (LogElem *e : records) {
+      const int idx = e->origin == LogOrigin::Created ? e->end_mesh_index :
+                                                        e->begin_mesh_index;
+      if (e->kind == LogElemKind::Vert) {
+        if (idx >= 0 && idx < int(m->v.capacity()) && !m->v.freemap[idx]) {
+          mesh::boundary::markVertDirty(m, idx);
+        }
+      } else if (e->kind == LogElemKind::Edge) {
+        if (idx >= 0 && idx < int(m->e.capacity()) && !m->e.freemap[idx]) {
+          mesh::boundary::markEdgeDirty(m, idx);
+        }
+      }
+    }
+  }
+
   void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
   {
     Vector<LogElem *> records = getSortedRecords();
@@ -1020,6 +1044,8 @@ struct LogChunkTopo : public LogChunk {
         }
       }
     }
+
+    markBoundaryDirty(m, records);
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
@@ -1082,6 +1108,8 @@ struct LogChunkTopo : public LogChunk {
         }
       }
     }
+
+    markBoundaryDirty(m, records);
   }
 
   // returns double (not size_t) because the prototype is inferred from
@@ -1455,6 +1483,7 @@ struct MeshLog {
     if (m) {
       vertGate_.ensure(*m);
       faceGate_.ensure(*m);
+      cornerGate_.ensure(*m);
     }
   }
 
@@ -1662,6 +1691,7 @@ struct MeshLog {
      * which stamps the same gate but owns a row that outlives rollback). */
     Vector<int> gatedVert;
     Vector<int> gatedFace;
+    Vector<int> gatedCorner;
     /* Dedup set across every region captured this preview session (begin +
      * any extend) so a vert shared by two mirror images is only snapshotted
      * once, at its first-seen (pre-dab) state. */
@@ -1688,6 +1718,7 @@ struct MeshLog {
     preview_.vertRows.clear();
     preview_.gatedVert.clear();
     preview_.gatedFace.clear();
+    preview_.gatedCorner.clear();
     preview_.seenIdx.clear();
   }
 
@@ -1774,6 +1805,7 @@ struct MeshLog {
     preview_.vertRows.clear();
     preview_.gatedVert.clear();
     preview_.gatedFace.clear();
+    preview_.gatedCorner.clear();
     preview_.seenIdx.clear();
 
     mesh::AttrGroup &grp = m->v.attrs;
@@ -1865,6 +1897,11 @@ struct MeshLog {
     for (int idx : preview_.gatedFace) {
       if (idx >= 0 && size_t(idx) < m->f.capacity()) {
         faceGate_.resetElem(idx);
+      }
+    }
+    for (int idx : preview_.gatedCorner) {
+      if (idx >= 0 && size_t(idx) < m->c.capacity()) {
+        cornerGate_.resetElem(idx);
       }
     }
 
@@ -2530,6 +2567,7 @@ struct MeshLog {
       chunks[i]->undo(m, tree);
     }
     swapActiveElems(curEntry());
+    resyncNgonCount(m, curEntry());
   }
 
   void redo(mesh::Mesh *m, spatial::SpatialTree *tree)
@@ -2546,10 +2584,28 @@ struct MeshLog {
       chunk->redo(m, tree);
     }
     swapActiveElems(curEntry());
+    resyncNgonCount(m, curEntry());
     curStep_++;
   }
 
 private:
+  /* Topo chunks replay faces with raw alloc/release, bypassing make_face /
+   * kill_face — the choke points maintaining `Mesh::n_ngon_faces`. Rescan after
+   * a topo replay so dyntopo's triangulate-prepass gate stays exact (a stale 0
+   * on a restored n-gon mesh silently refuses every subsequent split). */
+  void resyncNgonCount(mesh::Mesh *m, LogEntry &e)
+  {
+    if (!m) {
+      return;
+    }
+    for (LogChunk *chunk : e.chunks) {
+      if (chunk->type == LogChunkTypes::Topo) {
+        m->recountNgons();
+        return;
+      }
+    }
+  }
+
   /* Swap the live active elements with this step's snapshot. Symmetric: undo
    * swaps live(post-step)↔snap(pre-step) → live becomes pre-step; redo swaps
    * again → live becomes post-step. */
@@ -2617,6 +2673,14 @@ private:
         preview_.gatedFace.append(idx);
       }
       faceGate_.updateSaved(idx, curStrokeId(), 0xffff);
+    } else if (kind == LogElemKind::Corner) {
+      // Keeps topo-touched corners out of the UV-reprojection element-store
+      // capture: its undo replays after the topo restore and would stomp the
+      // slot's restored pre-stroke corner with a foreign mid-stroke row.
+      if (preview_.active && cornerGate_.needsData(idx, curStrokeId(), 0xffff)) {
+        preview_.gatedCorner.append(idx);
+      }
+      cornerGate_.updateSaved(idx, curStrokeId(), 0xffff);
     }
   }
 
@@ -2747,9 +2811,11 @@ private:
   int active_edge_ = -1;
   int active_face_ = -1;
   /* Brush save-gate stampers, shared (by attribute name) with the brush kernels'
-   * own AttrSavers — see stampUndoGate. */
+   * own AttrSavers — see stampUndoGate. The corner gate is shared with the UV
+   * slide-reprojection capture (CommandExecutor::reprojectUvsWithCapture). */
   AttrSaver<mesh::ElemType::VERTEX> vertGate_;
   AttrSaver<mesh::ElemType::FACE> faceGate_;
+  AttrSaver<mesh::ElemType::CORNER> cornerGate_;
 };
 
 } // namespace sculptcore::meshlog
