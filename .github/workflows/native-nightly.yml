@@ -118,6 +118,12 @@ jobs:
         shell: bash
         run: node configureEnv.mjs clang --version || true
 
+      # The spatial shader codegen (wgsl-to-spirv.mjs) needs the pinned naga CLI.
+      # Both runners ship Rust/cargo with ~/.cargo/bin on PATH (configureEnv keeps
+      # it under vcvars on Windows); install-tools does `cargo install naga-cli`.
+      - name: Install host tools (naga)
+        run: node make.mjs install-tools
+
       # --- drive the config through the gitignored local-build-options.mjs ----
       # This is the supported knob for CMAKE_BUILD_TYPE; it selects both the
       # native build type and the deps combo (release/relwithdebinfo).
