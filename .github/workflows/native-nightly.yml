@@ -80,14 +80,20 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang ninja-build git-lfs cmake
+          # libomp-dev: OpenMP runtime/headers for building OpenBLAS (USE_OPENMP)
+          #             with clang. libvulkan-dev: loader+headers for find_package(Vulkan).
+          sudo apt-get install -y clang ninja-build git-lfs cmake libomp-dev libvulkan-dev
           git lfs install
 
       - name: Install toolchain (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ninja git-lfs || true
+          brew install ninja git-lfs libomp vulkan-headers vulkan-loader molten-vk || true
           git lfs install
+          # OpenMP_ROOT lets FindOpenMP locate Homebrew libomp under Apple clang;
+          # VULKAN_SDK points find_package(Vulkan) at the Homebrew prefix (include/lib).
+          echo "OpenMP_ROOT=$(brew --prefix libomp)" >> "$GITHUB_ENV"
+          echo "VULKAN_SDK=$(brew --prefix)" >> "$GITHUB_ENV"
 
       - name: Install toolchain (Windows)
         if: runner.os == 'Windows'
@@ -96,7 +102,15 @@ jobs:
           choco install ninja -y
           git lfs install
           # windows-latest ships VS Enterprise; configureEnv.mjs now discovers the
-          # edition. clang comes from the VS-bundled LLVM under vcvars.
+          # edition. clang comes from the VS-bundled LLVM under vcvars. The Windows
+          # deps combo is cached, so no OpenMP toolchain is needed here.
+          # Vulkan SDK for find_package(Vulkan); export VULKAN_SDK for later steps
+          # (configureEnv.mjs also adds $VULKAN_SDK\Bin to PATH).
+          choco install vulkan-sdk -y
+          $sdk = Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $sdk) { Write-Error 'Vulkan SDK not found under C:\VulkanSDK after install'; exit 1 }
+          "VULKAN_SDK=$($sdk.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "VULKAN_SDK=$($sdk.FullName)"
 
       - name: Report clang major (deps combo key)
         shell: bash
