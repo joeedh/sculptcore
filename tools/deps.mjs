@@ -255,6 +255,20 @@ function buildOpenBLAS(config, installDir) {
   return lib
 }
 
+/**
+ * OpenMP runtime linker flags for the SuiteSparse BLAS/threading probe.
+ *
+ * OpenBLAS is built USE_OPENMP=ON, so its static lib pulls in OpenMP runtime
+ * symbols; the probe must link them or it fails to compile and SuiteSparse
+ * rejects OpenBLAS. clang's runtime is libomp (-lomp, not -llibomp). On macOS
+ * Homebrew's libomp isn't on the default linker path, so add -L from
+ * OpenMP_ROOT (set by CI / FindOpenMP).
+ */
+function ompLinkerFlags() {
+  const root = process.env.OpenMP_ROOT
+  return root ? `-L${root.replace(/\\/g, '/')}/lib -lomp` : '-lomp'
+}
+
 function buildSuiteSparse(config, installDir, openblasLib) {
   const existing = findLib(path.join(installDir, 'lib'), ['cholmod'])
   if (existing) {
@@ -285,7 +299,7 @@ function buildSuiteSparse(config, installDir, openblasLib) {
     '-DSUITESPARSE_USE_OPENMP=ON',
     `-DBLA_VENDOR=OpenBLAS`,
     `-DBLAS_LIBRARIES="${blasLib}"`,
-    `-DBLAS_LINKER_FLAGS="-llibomp"`,
+    `-DBLAS_LINKER_FLAGS="${ompLinkerFlags()}"`,
     `-DLAPACK_LIBRARIES="${blasLib}"`,
     `-DBLAS_FOUND=TRUE`,
     `-DLAPACK_FOUND=TRUE`,
