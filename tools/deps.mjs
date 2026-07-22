@@ -238,6 +238,9 @@ function buildOpenBLAS(config, installDir) {
     '-DUSE_LOCKING=ON', // thread-safe when the caller drops to 1 BLAS thread
     `-DBUILD_SHARED_LIBS=OFF`,
     `-DBUILD_STATIC_LIBS=ON`,
+    // PIC: these static libs get linked into the shared libsculptcore_capi.so;
+    // ELF requires position-independent objects there (macOS is always PIC).
+    `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`,
     flags ? `-DCMAKE_C_FLAGS="${flags}"` : '',
     flags ? `-DCMAKE_CXX_FLAGS="${flags}"` : '',
   ]
@@ -293,6 +296,8 @@ function buildSuiteSparse(config, installDir, openblasLib) {
     `-DCMAKE_INSTALL_PREFIX="${installDir}"`,
     `-DCMAKE_BUILD_TYPE=${cmakeBuildType(config)}`,
     `-DBUILD_SHARED_LIBS=OFF`,
+    // PIC: linked into the shared libsculptcore_capi.so (see buildOpenBLAS).
+    `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`,
     `-DSUITESPARSE_ENABLE_PROJECTS="${SUITESPARSE_PROJECTS}"`,
     `-DSUITESPARSE_DEMOS=OFF`,
     `-DSUITESPARSE_USE_FORTRAN=OFF`,
