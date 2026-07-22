@@ -1,0 +1,198 @@
+name: native build + nightly
+
+# Builds the native sculptcore engine on Linux/macOS/Windows (clang everywhere,
+# the repo default), runs the ctest suite, and stages the built shared libraries
+# for a rolling "nightly" pre-release.
+#
+# Native deps (OpenBLAS + SuiteSparse/CHOLMOD) are resolved by tools/deps.mjs
+# during configure. When a combo is *built from source* this run, it is exported
+# as a `deps-*` artifact (see `bundle --publish-deps-to`); a cache hit exports
+# nothing. `node make.mjs fetch-deps` pulls those artifacts back into the sparse
+# clone. Deps are NOT auto-pushed to sculptcore-deps here (artifacts-only).
+#
+# Caveat — deps artifacts are only reusable on a machine whose deps combo key
+# matches: {platform}/clang-<major>-<arch>/{config}. The clang major each runner
+# uses is echoed below; pin your local clang to match if you want CI-built deps
+# to cache-hit locally.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'source/**'
+      - 'tests/**'
+      - 'extern/**'
+      - 'build_files/**'
+      - 'CMakeLists.txt'
+      - 'make.mjs'
+      - 'configureEnv.mjs'
+      - 'tools/deps.mjs'
+      - 'openblasVersion.txt'
+      - 'suitesparseVersion.txt'
+      - '.github/workflows/native-nightly.yml'
+  pull_request:
+    paths:
+      - 'source/**'
+      - 'tests/**'
+      - 'build_files/**'
+      - 'CMakeLists.txt'
+      - 'make.mjs'
+      - 'configureEnv.mjs'
+      - 'tools/deps.mjs'
+      - '.github/workflows/native-nightly.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: native-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        config: [RelWithDebInfo, Release]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install pnpm deps
+        run: pnpm install --frozen-lockfile
+
+      # --- toolchain (clang + ninja + cmake + git-lfs) -----------------------
+      - name: Install toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build git-lfs cmake
+          git lfs install
+
+      - name: Install toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja git-lfs || true
+          git lfs install
+
+      - name: Install toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ninja -y
+          git lfs install
+          # windows-latest ships VS Enterprise; configureEnv.mjs now discovers the
+          # edition. clang comes from the VS-bundled LLVM under vcvars.
+
+      - name: Report clang major (deps combo key)
+        shell: bash
+        run: node configureEnv.mjs clang --version || true
+
+      # --- drive the config through the gitignored local-build-options.mjs ----
+      # This is the supported knob for CMAKE_BUILD_TYPE; it selects both the
+      # native build type and the deps combo (release/relwithdebinfo).
+      - name: Write local-build-options.mjs
+        shell: bash
+        run: |
+          cat > local-build-options.mjs <<EOF
+          export default {
+            CMAKE_BUILD_TYPE: '${{ matrix.config }}',
+            CMAKE_GENERATOR: 'Ninja',
+          }
+          EOF
+
+      # --- build + test -------------------------------------------------------
+      - name: Configure native
+        run: node make.mjs configure native
+
+      - name: Build native
+        run: node make.mjs build native
+
+      - name: Run tests
+        run: node make.mjs test
+
+      # Builds the python C-API shared lib (sculptcore_capi) — the release
+      # deliverable — and stages any freshly-built deps combo into staged-deps/.
+      - name: Build capi lib + stage fresh deps
+        run: node make.mjs bundle ci-staging --publish-deps-to staged-deps
+
+      # --- collect deliverables ----------------------------------------------
+      - name: Collect built libraries
+        shell: bash
+        run: |
+          mkdir -p out
+          # sculptcore_capi (+ wgpu_native if present) land in build/python.
+          find build/python -maxdepth 1 -type f \
+            \( -name 'sculptcore_capi.*' -o -name 'libsculptcore_capi.*' \
+            -o -name 'wgpu_native.*' -o -name 'libwgpu_native.*' \) \
+            -exec cp {} out/ \; || true
+          ls -la out
+
+      - name: Upload libraries artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sculptcore-libs-${{ runner.os }}-${{ matrix.config }}
+          path: out/**
+          if-no-files-found: error
+
+      # Empty when the deps combo was a cache hit (nothing fresh to publish).
+      - name: Upload deps artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deps-${{ runner.os }}-${{ matrix.config }}
+          path: staged-deps/**
+          if-no-files-found: ignore
+
+  # --- rolling nightly pre-release -----------------------------------------
+  nightly:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all lib artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sculptcore-libs-*
+          path: dist
+
+      # Zip each os/config bundle so the release has clean, named assets.
+      - name: Package release assets
+        shell: bash
+        run: |
+          mkdir -p assets
+          for d in dist/sculptcore-libs-*; do
+            name=$(basename "$d")
+            (cd "$d" && zip -r "../../assets/${name}.zip" .)
+          done
+          ls -la assets
+
+      - name: Publish nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly (native libraries)
+          prerelease: true
+          body: |
+            Rolling nightly of the sculptcore native shared libraries
+            (built from ${{ github.sha }}). Assets are per OS + build config.
+          files: assets/*.zip
+          fail_on_unmatched_files: true

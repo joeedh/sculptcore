@@ -1440,6 +1440,20 @@ yargs(hideBin(process.argv))
     }
   )
   .command(
+    'fetch-deps',
+    'Pull CI-built native deps artifacts into extern/sculptcore-deps (needs the gh CLI)',
+    (y) =>
+      y
+        .option('run', {type: 'string', describe: 'workflow run id (default: latest successful on --branch)'})
+        .option('branch', {type: 'string', default: 'master', describe: 'branch to pull the latest run from'})
+        .option('pattern', {type: 'string', default: 'deps-*', describe: 'artifact name glob'}),
+    async ({run, branch, pattern}) => {
+      let cmd = `node ${Path.join('tools', 'fetch-deps.mjs')} --branch ${branch} --pattern "${pattern}"`
+      if (run) cmd += ` --run ${run}`
+      run(cmd)
+    }
+  )
+  .command(
     'build [target]',
     'Build (target: wasm | native | node)',
     (y) =>

@@ -65,14 +65,28 @@ function getVSEnv() {
 
   //C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build
 
-  const path = join(VSPath, '' + version, 'Community', 'VC', 'Auxiliary', 'Build', 'vcvars64.bat')
-  process.chdir(join(VSPath, '' + version, 'Community'))
+  // The edition subdir is not always "Community" (GitHub runners ship
+  // Enterprise; devs may have Professional/BuildTools/Preview). Pick the first
+  // edition under this version that actually has vcvars64.bat.
+  const versionDir = join(VSPath, '' + version)
+  const editions = ['Community', 'Professional', 'Enterprise', 'BuildTools', 'Preview']
+  let edition = null
+  let path = null
+  for (const ed of editions) {
+    const cand = join(versionDir, ed, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat')
+    if (fs.existsSync(cand)) {
+      edition = ed
+      path = cand
+      break
+    }
+  }
 
-  if (!fs.existsSync(path)) {
+  if (!path) {
     process.stderr.write('Could not find vcvars64.bat\n')
-    process.stderr.write(`  tried "${path}"\n`)
+    process.stderr.write(`  tried editions [${editions.join(', ')}] under "${versionDir}"\n`)
     process.exit(-1)
   }
+  process.chdir(join(versionDir, edition))
 
   // vcvars64.bat chokes with "\Windows was unexpected at this time." when
   // the inherited PATH is in Git-Bash form (":"-separated, "/c/..." paths).
