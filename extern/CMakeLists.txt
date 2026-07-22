@@ -3,22 +3,25 @@ add_subdirectory(abseil-cpp)
 endif()
 
 if (NOT BUILD_WASM)
-  set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-  set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-  set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-  add_subdirectory(glfw)
-  
-  # GLFW is used Vulkan-only in this project; tell glfw3.h not to pull
-  # in <GL/gl.h> for every consumer that links glfw. INTERFACE so the
-  # define doesn't leak into GLFW's own TUs (its internal.h forbids it).
-  target_compile_definitions(glfw INTERFACE GLFW_INCLUDE_NONE)
-
-  # Vulkan is found at the root via find_package(Vulkan REQUIRED) so the
-  # Vulkan::Vulkan imported target is visible to all subdirectories. imgui uses
-  # the Vulkan backend (imgui_impl_vulkan + Vulkan::Vulkan) and is only linked by
-  # the debug app, so it builds only when WITH_VULKAN is on.
+  # GLFW is only linked by window/app and the debug app (all Vulkan-path), so
+  # build it under WITH_VULKAN. This also avoids glfw's X11 dependency on
+  # headless Linux CI, where WITH_VULKAN=OFF.
   if (WITH_VULKAN)
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(glfw)
+
+    # GLFW is used Vulkan-only in this project; tell glfw3.h not to pull
+    # in <GL/gl.h> for every consumer that links glfw. INTERFACE so the
+    # define doesn't leak into GLFW's own TUs (its internal.h forbids it).
+    target_compile_definitions(glfw INTERFACE GLFW_INCLUDE_NONE)
+
+    # Vulkan is found at the root via find_package(Vulkan REQUIRED) so the
+    # Vulkan::Vulkan imported target is visible to all subdirectories. imgui uses
+    # the Vulkan backend (imgui_impl_vulkan + Vulkan::Vulkan) and is only linked
+    # by the debug app, so it builds only when WITH_VULKAN is on.
     include("${CMAKE_CURRENT_SOURCE_DIR}/imgui_build.cmake")
   endif()
 

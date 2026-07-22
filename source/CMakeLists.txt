@@ -16,11 +16,13 @@ add_subdirectory(meshlog)
 # prebuilt wgpu-native impl natively (extern/wgpu_native).
 add_subdirectory(webgpu)
 if (NOT BUILD_WASM)
-  add_subdirectory(window)
-  add_subdirectory(app)
-  # The Vulkan backend and the debug app (debug_core links vulkan +
-  # Vulkan::Vulkan) only build when the Vulkan SDK is available.
+  # window/app (GLFW) and the Vulkan backend + debug app are the interactive
+  # path; the shipped libs render via source/webgpu. window/app are the only
+  # consumers of glfw, so gate them together — this also drops glfw's X11
+  # requirement on headless Linux CI (WITH_VULKAN=OFF).
   if (WITH_VULKAN)
+    add_subdirectory(window)
+    add_subdirectory(app)
     add_subdirectory(vulkan)
     add_subdirectory(debug)
   endif()
