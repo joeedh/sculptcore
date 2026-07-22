@@ -267,8 +267,23 @@ if (target === 'native' && process.platform === 'win32') {
 
 const defaultShell = process.platform === 'win32' ? 'cmd' : process.env.SHELL || '/bin/sh'
 
+// We run the wrapped command through a shell (to resolve .bat wrappers like
+// emcmake on Windows), but our argv has already been split by the *outer* shell
+// that invoked us — the original quoting is gone. Re-quote each arg so shell
+// metacharacters inside a single argument (e.g. the ';' in a CMake list like
+// -DSUITESPARSE_ENABLE_PROJECTS="a;b;c", or the '|' in a ctest -E regex) stay
+// literal instead of being re-parsed as command separators / pipes.
+function quoteArg(a) {
+  if (process.platform === 'win32') {
+    // cmd.exe: wrap in double quotes when the arg holds a space or metachar.
+    return /[\s;,&|<>^()"]/.test(a) ? '"' + a.replace(/"/g, '""') + '"' : a
+  }
+  // POSIX sh: single-quote anything outside a safe set, escaping embedded quotes.
+  return /[^A-Za-z0-9_\/:=@%+.,-]/.test(a) ? "'" + a.replace(/'/g, "'\\''") + "'" : a
+}
+
 try {
-  child_process.execSync(args[0] ? args.join(' ') : defaultShell, {
+  child_process.execSync(args[0] ? args.map(quoteArg).join(' ') : defaultShell, {
     stdio: 'inherit',
     shell: true,
   })
