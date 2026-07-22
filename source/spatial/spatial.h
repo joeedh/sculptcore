@@ -16,6 +16,7 @@
 #include "spatial_attrs.h"
 #include "spatial_enums.h"
 
+#include <cmath>
 #include <mutex>
 
 
@@ -458,7 +459,7 @@ struct SpatialTree {
         auto &co2 = m->v.co[tri.v[1]];
         auto &co3 = m->v.co[tri.v[2]];
         double area2 = math::triArea(co1, co2, co3);
-        if (isnan(area2) || !isfinite(area2)) {
+        if (std::isnan(area2) || !std::isfinite(area2)) {
           ok = false;
           sc_napi_logf("got a nan face at %d\n", f);
           break;

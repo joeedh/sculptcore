@@ -1,6 +1,12 @@
 set(CMAKE_C_COMPILER   clang)
 set(CMAKE_CXX_COMPILER clang++)
 
+# Disable FMA contraction so sign-sensitive geometric predicates are arch-stable:
+# clang's default fuses a*b+c on arm64 (hardware FMA) but not on baseline x86,
+# flipping topology/raycast branches per-arch (and diverging from the WASM build).
+string(APPEND CMAKE_C_FLAGS_INIT   " -ffp-contract=off")
+string(APPEND CMAKE_CXX_FLAGS_INIT " -ffp-contract=off")
+
 # Use sccache as a compiler launcher when present (auto-detected on PATH).
 # Cross-worktree cache sharing goes through a small wrapper
 # (tools/sccache-wrapper) that keeps the union of every live worktree's root in
