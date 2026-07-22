@@ -226,7 +226,11 @@ function buildOpenBLAS(config, installDir) {
     `-DBUILD_WITHOUT_LAPACK=OFF`, // LAPACK enabled (CHOLMOD supernodal needs it)
     `-DBUILD_WITHOUT_CBLAS=ON`, // CHOLMOD uses the Fortran BLAS interface
     `-DBINARY=64`, // 64-bit build; stops getarch misdetecting -m32
-    `-DDYNAMIC_ARCH=ON`, // runtime CPU dispatch -> portable across the toolchain key
+    // Runtime CPU dispatch -> portable across the toolchain key. Off on macOS:
+    // DYNAMIC_ARCH generates one object set per micro-arch, and archiving them
+    // all overflows `ar`'s arg limit there. The combo key already pins arch
+    // (darwin/clang-N-arm64), so a host-arch build is fine for CI/nightly.
+    process.platform === 'darwin' ? `-DDYNAMIC_ARCH=OFF` : `-DDYNAMIC_ARCH=ON`,
     `-DBUILD_TESTING=OFF`,
     '-DUSE_THREAD=ON',
     '-DUSE_OPENMP=ON', // share CHOLMOD's OpenMP runtime -> one thread-count knob

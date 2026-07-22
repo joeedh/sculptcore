@@ -51,11 +51,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is not wired up yet: two blockers remain — the wgpu-native macOS
-        # prebuilt (.dylib/@rpath) and the OpenBLAS DYNAMIC_ARCH `ar` arg-limit
-        # overflow. Vulkan is no longer one (WITH_VULKAN=OFF). Add macos-latest
-        # back once those two are solved.
-        os: [ubuntu-latest, windows-latest]
+        # macos-latest is arm64 (Apple Silicon): wgpu-native macOS prebuilt is
+        # wired up, OpenBLAS builds with DYNAMIC_ARCH off there (ar arg-limit),
+        # and WITH_VULKAN=OFF means no Vulkan SDK is needed.
+        os: [ubuntu-latest, windows-latest, macos-latest]
         config: [RelWithDebInfo, Release]
     runs-on: ${{ matrix.os }}
     permissions:
@@ -155,8 +154,9 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          LD_LIBRARY_PATH="$PWD/extern/wgpu_native/lib:${LD_LIBRARY_PATH:-}" \
-            node make.mjs test --exclude 'test_stencil_gpu|test_webgpu_render'
+          export LD_LIBRARY_PATH="$PWD/extern/wgpu_native/lib:${LD_LIBRARY_PATH:-}"
+          export DYLD_LIBRARY_PATH="$PWD/extern/wgpu_native/lib:${DYLD_LIBRARY_PATH:-}"
+          node make.mjs test --exclude 'test_stencil_gpu|test_webgpu_render'
 
       # Builds the python C-API shared lib (sculptcore_capi) — the release
       # deliverable — and stages any freshly-built deps combo into staged-deps/.
@@ -172,7 +172,9 @@ jobs:
           # lives beside its prebuilt in extern/wgpu_native/lib. Ship both.
           find build/python extern/wgpu_native/lib -maxdepth 1 -type f \
             \( -name 'sculptcore_capi.dll' -o -name 'libsculptcore_capi.so' \
-            -o -name 'wgpu_native.dll' -o -name 'libwgpu_native.so' \) \
+            -o -name 'libsculptcore_capi.dylib' \
+            -o -name 'wgpu_native.dll' -o -name 'libwgpu_native.so' \
+            -o -name 'libwgpu_native.dylib' \) \
             -exec cp {} out/ \; || true
           ls -la out
 

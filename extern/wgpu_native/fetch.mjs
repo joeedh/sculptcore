@@ -13,14 +13,19 @@ import {fileURLToPath} from 'url'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const TAG = fs.readFileSync(path.join(here, 'wgpu-native-meta/wgpu-native-git-tag'), 'utf-8').trim()
 
-// win64 + linux-x64 release prebuilts are wired into the native build. macOS is
-// not yet (the OpenBLAS dep build needs work there first).
+// win64 + linux-x64 + macOS (arm64/x64) release prebuilts are wired into the
+// native build.
 function assetName() {
   if (process.platform === 'win32' && process.arch === 'x64') {
     return 'wgpu-windows-x86_64-msvc-release.zip'
   }
   if (process.platform === 'linux' && process.arch === 'x64') {
     return 'wgpu-linux-x86_64-release.zip'
+  }
+  if (process.platform === 'darwin') {
+    return process.arch === 'arm64'
+      ? 'wgpu-macos-aarch64-release.zip'
+      : 'wgpu-macos-x86_64-release.zip'
   }
   throw new Error(`wgpu-native fetch: unsupported platform ${process.platform}/${process.arch}`)
 }
