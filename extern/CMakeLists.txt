@@ -92,6 +92,15 @@ if (NOT BUILD_WASM)
     else()
       find_package(OpenMP)
       if(OpenMP_CXX_FOUND)
+        # FindOpenMP can resolve pthread to a static libpthread.a, which a modern
+        # ld refuses inside a shared object. -pthread is already a global link
+        # option, so swap the baked static archive for the flag.
+        get_target_property(_omp_libs OpenMP::OpenMP_CXX INTERFACE_LINK_LIBRARIES)
+        if(_omp_libs)
+          list(TRANSFORM _omp_libs REPLACE "^.*/libpthread\\.a$" "-pthread")
+          set_target_properties(OpenMP::OpenMP_CXX PROPERTIES
+            INTERFACE_LINK_LIBRARIES "${_omp_libs}")
+        endif()
         target_link_libraries(cholmod INTERFACE OpenMP::OpenMP_CXX)
       else()
         message(WARNING "OpenMP not found; prebuilt CHOLMOD may fail to link "
