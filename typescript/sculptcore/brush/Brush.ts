@@ -38,6 +38,7 @@ export interface Brush {
   pinch: float
   projection: float
   rake: float
+  reproject_uvs: boolean
   automask_cavity: boolean
   cavity_factor: float
   cavity_blur_steps: int32

@@ -29,6 +29,7 @@ export interface DynTopoParams {
   max_collapses: int32
   do_smooth: boolean
   smooth_lambda: float
+  reproject_uvs: boolean
   preserve_features: boolean
   new (): DynTopoParams
   new (b: DynTopoParams): DynTopoParams

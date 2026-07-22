@@ -57,6 +57,23 @@ function requireGh() {
   }
 }
 
+// True if `name` matches the gh --pattern glob (only `*` is special, as in gh).
+function globMatch(pattern, name) {
+  const re = new RegExp('^' + pattern.split('*').map(escapeRegExp).join('.*') + '$')
+  return re.test(name)
+}
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Names of a run's artifacts matching `pattern`. gh run download hard-errors
+// when nothing matches, so we probe first and skip the download in that case.
+function matchingArtifacts(runId, pattern) {
+  const json = capture(`gh api "repos/{owner}/{repo}/actions/runs/${runId}/artifacts" --paginate`)
+  const arr = JSON.parse(json).artifacts || []
+  return arr.map((a) => a.name).filter((n) => globMatch(pattern, n))
+}
+
 function latestRunId(branch) {
   const json = capture(
     `gh run list --workflow ${WORKFLOW} --branch ${branch} --status success ` +
@@ -90,7 +107,16 @@ function main() {
   requireGh()
 
   const runId = run || latestRunId(branch)
-  console.log(`fetch-deps: downloading "${pattern}" artifacts from run ${runId}`)
+
+  const matches = matchingArtifacts(runId, pattern)
+  if (!matches.length) {
+    console.log(
+      `fetch-deps: no "${pattern}" artifacts on run ${runId} ` +
+        '(all combos were cache hits this run — nothing to fetch).'
+    )
+    return
+  }
+  console.log(`fetch-deps: downloading ${matches.length} "${pattern}" artifact(s) from run ${runId}`)
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sculptcore-deps-'))
   try {

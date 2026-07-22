@@ -1452,9 +1452,9 @@ yargs(hideBin(process.argv))
         .option('run', {type: 'string', describe: 'workflow run id (default: latest successful on --branch)'})
         .option('branch', {type: 'string', default: 'master', describe: 'branch to pull the latest run from'})
         .option('pattern', {type: 'string', default: 'deps-*', describe: 'artifact name glob'}),
-    async ({run, branch, pattern}) => {
+    async ({run: runId, branch, pattern}) => {
       let cmd = `node ${Path.join('tools', 'fetch-deps.mjs')} --branch ${branch} --pattern "${pattern}"`
-      if (run) cmd += ` --run ${run}`
+      if (runId) cmd += ` --run ${runId}`
       run(cmd)
     }
   )
