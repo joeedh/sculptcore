@@ -1572,7 +1572,7 @@ yargs(hideBin(process.argv))
     ({targetTest, exclude}) => {
       if (!targetTest) {
         const excludeFlag = exclude ? ` -E "${exclude}"` : ''
-        run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest .${excludeFlag}`)
+        run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest . --output-on-failure${excludeFlag}`)
         return
       }
       const stem = `${targetTest}.cc_out`
