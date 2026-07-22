@@ -16,8 +16,14 @@ if (WIN32)
   set_target_properties(wgpu_native PROPERTIES
     IMPORTED_LOCATION "${WGPU_DIR}/lib/wgpu_native.dll"
     IMPORTED_IMPLIB   "${WGPU_DIR}/lib/wgpu_native.dll.lib")
+elseif (UNIX AND NOT APPLE)
+  # Linux prebuilt: link the shared object directly. Consumers need it findable
+  # at runtime (staged beside the capi lib for distribution; LD_LIBRARY_PATH in
+  # CI test runs). macOS is not wired up yet.
+  set_target_properties(wgpu_native PROPERTIES
+    IMPORTED_LOCATION "${WGPU_DIR}/lib/libwgpu_native.so")
 else()
-  message(FATAL_ERROR "wgpu_native: only the Windows prebuilt is wired up")
+  message(FATAL_ERROR "wgpu_native: only the Windows and Linux prebuilts are wired up")
 endif()
 
 target_include_directories(wgpu_native INTERFACE "${WGPU_DIR}/include")

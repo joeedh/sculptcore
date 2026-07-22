@@ -51,7 +51,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # macOS is not wired up yet (wgpu-native macOS prebuilt + OpenBLAS
+        # DYNAMIC_ARCH ar overflow); add macos-latest back once those are solved.
+        os: [ubuntu-latest, windows-latest]
         config: [RelWithDebInfo, Release]
     runs-on: ${{ matrix.os }}
     permissions:
@@ -129,6 +131,11 @@ jobs:
           }
           EOF
 
+      # Prebuilt native WebGPU backend (webgpu.h impl); required by the native
+      # CMake. Fetched per-platform (win64 + linux-x64 wired up).
+      - name: Fetch wgpu-native prebuilt
+        run: node make.mjs fetch-wgpu-native
+
       # --- build + test -------------------------------------------------------
       - name: Configure native
         run: node make.mjs configure native
@@ -136,8 +143,11 @@ jobs:
       - name: Build native
         run: node make.mjs build native
 
+      # libwgpu_native.so lives in extern/wgpu_native/lib; the test binaries link
+      # it, so make it findable at runtime on Linux.
       - name: Run tests
-        run: node make.mjs test
+        shell: bash
+        run: LD_LIBRARY_PATH="$PWD/extern/wgpu_native/lib:${LD_LIBRARY_PATH:-}" node make.mjs test
 
       # Builds the python C-API shared lib (sculptcore_capi) — the release
       # deliverable — and stages any freshly-built deps combo into staged-deps/.
@@ -149,10 +159,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
-          # sculptcore_capi (+ wgpu_native if present) land in build/python.
-          find build/python -maxdepth 1 -type f \
-            \( -name 'sculptcore_capi.*' -o -name 'libsculptcore_capi.*' \
-            -o -name 'wgpu_native.*' -o -name 'libwgpu_native.*' \) \
+          # capi lib is built into build/python; the wgpu-native runtime lib
+          # lives beside its prebuilt in extern/wgpu_native/lib. Ship both.
+          find build/python extern/wgpu_native/lib -maxdepth 1 -type f \
+            \( -name 'sculptcore_capi.dll' -o -name 'libsculptcore_capi.so' \
+            -o -name 'wgpu_native.dll' -o -name 'libwgpu_native.so' \) \
             -exec cp {} out/ \; || true
           ls -la out
 
