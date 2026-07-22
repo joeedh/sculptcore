@@ -42,6 +42,10 @@ const CMAKE_BUILD_TYPE = process.env.SCULPTCORE_CMAKE_BUILD_TYPE || getopt('CMAK
 const CMAKE_GENERATOR = getopt('CMAKE_GENERATOR', 'Ninja')
 const WITH_ASAN = getopt('WITH_ASAN', false)
 const WITH_MESHLOG_ABSEIL_HASHMAP = getopt('WITH_MESHLOG_ABSEIL_HASHMAP', false)
+// Build the native Vulkan backend + debug app (needs a Vulkan SDK). Default on
+// for local dev; CI sets it false so the shipped libs build with no Vulkan SDK
+// (they render through source/webgpu -> wgpu-native, not Vulkan).
+const WITH_VULKAN = getopt('WITH_VULKAN', true)
 // Use MSVC (cl.exe) instead of clang for native + node-addon builds. Each
 // toolchain gets its own build dir so the two trees never clash (cmake errors
 // hard if the compiler changes under an existing build dir).
@@ -1359,6 +1363,7 @@ async function configureTarget(target, {backends, runtime, runtimeVersion}) {
 
     let NATIVE_CMAKE_ARGS = CMAKE_ARGS_BASE
     NATIVE_CMAKE_ARGS += ` -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} `
+    NATIVE_CMAKE_ARGS += ` -DWITH_VULKAN=${WITH_VULKAN ? 'ON' : 'OFF'} `
     NATIVE_CMAKE_ARGS += ` ${nativeToolchainFlag()}`
     NATIVE_CMAKE_ARGS += ` ${depsFlag} ${sbrushFlags}`
 
@@ -1556,10 +1561,20 @@ yargs(hideBin(process.argv))
     console.log('Cleaning...')
     run(`cd ${buildDir(target)} && ${envPrefix(target)} ninja clean`)
   })
-  .command('test [targetTest]', 'Run ctest', targetPositional, ({targetTest}) => {
-    if (!targetTest) {
-      run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest .`)
-    } else {
+  .command(
+    'test [targetTest]',
+    'Run ctest',
+    (y) =>
+      targetPositional(y).option('exclude', {
+        type: 'string',
+        describe: 'ctest -E regex: skip tests whose name matches (e.g. GPU-device tests in CI)',
+      }),
+    ({targetTest, exclude}) => {
+      if (!targetTest) {
+        const excludeFlag = exclude ? ` -E "${exclude}"` : ''
+        run(`cd ${buildDir('native')} && ${envPrefix('native')} ctest .${excludeFlag}`)
+        return
+      }
       const stem = `${targetTest}.cc_out`
       const candidates = process.platform === 'win32' ? [stem + '.exe', stem] : [stem, stem + '.exe']
       const nbuild = buildDir('native')
@@ -1576,7 +1591,7 @@ yargs(hideBin(process.argv))
       process.stderr.write(`Could not find test ${targetTest}\n`)
       process.exit(-1)
     }
-  })
+  )
   .command('codegen', 'Compile .sbrush kernels to backend sources', {}, async () => {
     await sbrushCodegen()
   })

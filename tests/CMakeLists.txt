@@ -87,6 +87,10 @@ test(test_map_bench.cc "absl::flat_hash_map")
 endif()
 
 test(test_binding.cc "binding_generators")
+
+# These tests link debug_core, which pulls in the Vulkan backend; only build
+# them when WITH_VULKAN is on (the debug app / interactive GPU path).
+if (WITH_VULKAN)
 test(test_debug_script.cc "debug_core")
 test(test_live_stroke.cc "debug_core")
 test(test_dyntopo_stroke_undo.cc "debug_core")
@@ -110,9 +114,11 @@ test(test_brush_uniform_validate.cc "debug_core")
 test(test_brush_falloff.cc "debug_core")
 test(test_bsmooth.cc "debug_core")
 test(test_enhance.cc "debug_core")
-test(test_automask_cavity.cc "mesh")
 test(test_automask_stroke.cc "debug_core")
 test(test_automask_gpu.cc "debug_core")
+endif()
+
+test(test_automask_cavity.cc "mesh")
 test(test_uniform_link.cc "gpu")
 test(test_webgpu_render.cc "webgpu;spatial;mesh;gpu")
 # wgpu-native ships as a DLL — copy it next to the test exe so it loads at run.

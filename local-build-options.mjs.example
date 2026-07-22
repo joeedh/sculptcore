@@ -3,6 +3,12 @@ export default {
   CMAKE_GENERATOR: 'Ninja',
   WITH_ASAN: false,
 
+  /** Build the native Vulkan backend + GLFW/ImGui debug app (and the tests that
+   *  link debug_core). Needs a Vulkan SDK. OFF drops the Vulkan SDK requirement
+   *  entirely — the shipped libs (sculptcore, sculptcore_capi) render through
+   *  source/webgpu -> wgpu-native, not Vulkan. Default ON for local dev. */
+  WITH_VULKAN: true,
+
   /** Build native + node-addon with MSVC (cl.exe) instead of clang. Uses its own
    *  build dirs (build/native-msvc, build/native-node-msvc) so it never clashes
    *  with a clang tree. Compatible with WITH_ASAN. */

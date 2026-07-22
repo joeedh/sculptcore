@@ -15,9 +15,12 @@ if (NOT BUILD_WASM)
   target_compile_definitions(glfw INTERFACE GLFW_INCLUDE_NONE)
 
   # Vulkan is found at the root via find_package(Vulkan REQUIRED) so the
-  # Vulkan::Vulkan imported target is visible to all subdirectories.
-
-  include("${CMAKE_CURRENT_SOURCE_DIR}/imgui_build.cmake")
+  # Vulkan::Vulkan imported target is visible to all subdirectories. imgui uses
+  # the Vulkan backend (imgui_impl_vulkan + Vulkan::Vulkan) and is only linked by
+  # the debug app, so it builds only when WITH_VULKAN is on.
+  if (WITH_VULKAN)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/imgui_build.cmake")
+  endif()
 
   # Native WebGPU backend impl (prebuilt). emdawnwebgpu covers the WASM side.
   add_subdirectory(wgpu_native)

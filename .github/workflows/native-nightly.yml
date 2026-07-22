@@ -51,8 +51,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is not wired up yet (wgpu-native macOS prebuilt + OpenBLAS
-        # DYNAMIC_ARCH ar overflow); add macos-latest back once those are solved.
+        # macOS is not wired up yet: two blockers remain — the wgpu-native macOS
+        # prebuilt (.dylib/@rpath) and the OpenBLAS DYNAMIC_ARCH `ar` arg-limit
+        # overflow. Vulkan is no longer one (WITH_VULKAN=OFF). Add macos-latest
+        # back once those two are solved.
         os: [ubuntu-latest, windows-latest]
         config: [RelWithDebInfo, Release]
     runs-on: ${{ matrix.os }}
@@ -83,19 +85,19 @@ jobs:
         run: |
           sudo apt-get update
           # libomp-dev: OpenMP runtime/headers for building OpenBLAS (USE_OPENMP)
-          #             with clang. libvulkan-dev: loader+headers for find_package(Vulkan).
-          sudo apt-get install -y clang ninja-build git-lfs cmake libomp-dev libvulkan-dev
+          # with clang. No Vulkan SDK: WITH_VULKAN=OFF (the shipped libs render
+          # through source/webgpu -> wgpu-native, not Vulkan).
+          sudo apt-get install -y clang ninja-build git-lfs cmake libomp-dev
           git lfs install
 
       - name: Install toolchain (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ninja git-lfs libomp vulkan-headers vulkan-loader molten-vk || true
+          brew install ninja git-lfs libomp || true
           git lfs install
-          # OpenMP_ROOT lets FindOpenMP locate Homebrew libomp under Apple clang;
-          # VULKAN_SDK points find_package(Vulkan) at the Homebrew prefix (include/lib).
+          # OpenMP_ROOT lets FindOpenMP locate Homebrew libomp under Apple clang
+          # (needed to build OpenBLAS). No Vulkan SDK: WITH_VULKAN=OFF.
           echo "OpenMP_ROOT=$(brew --prefix libomp)" >> "$GITHUB_ENV"
-          echo "VULKAN_SDK=$(brew --prefix)" >> "$GITHUB_ENV"
 
       - name: Install toolchain (Windows)
         if: runner.os == 'Windows'
@@ -103,16 +105,10 @@ jobs:
         run: |
           choco install ninja -y
           git lfs install
-          # windows-latest ships VS Enterprise; configureEnv.mjs now discovers the
+          # windows-latest ships VS Enterprise; configureEnv.mjs discovers the
           # edition. clang comes from the VS-bundled LLVM under vcvars. The Windows
-          # deps combo is cached, so no OpenMP toolchain is needed here.
-          # Vulkan SDK for find_package(Vulkan); export VULKAN_SDK for later steps
-          # (configureEnv.mjs also adds $VULKAN_SDK\Bin to PATH).
-          choco install vulkan-sdk -y
-          $sdk = Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name -Descending | Select-Object -First 1
-          if (-not $sdk) { Write-Error 'Vulkan SDK not found under C:\VulkanSDK after install'; exit 1 }
-          "VULKAN_SDK=$($sdk.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "VULKAN_SDK=$($sdk.FullName)"
+          # deps combo is cached, so no OpenMP toolchain is needed here. No Vulkan
+          # SDK: WITH_VULKAN=OFF (deliverables use wgpu-native, not Vulkan).
 
       - name: Report clang major (deps combo key)
         shell: bash
@@ -134,6 +130,9 @@ jobs:
           export default {
             CMAKE_BUILD_TYPE: '${{ matrix.config }}',
             CMAKE_GENERATOR: 'Ninja',
+            // No Vulkan backend / debug app in CI: drops the Vulkan SDK
+            // requirement. The shipped libs render via source/webgpu.
+            WITH_VULKAN: false,
           }
           EOF
 
@@ -150,10 +149,14 @@ jobs:
         run: node make.mjs build native
 
       # libwgpu_native.so lives in extern/wgpu_native/lib; the test binaries link
-      # it, so make it findable at runtime on Linux.
+      # it, so make it findable at runtime on Linux. Exclude the webgpu GPU-device
+      # tests — they need a real adapter the headless runners don't reliably have
+      # (WITH_VULKAN=OFF already drops the debug_core/interactive GPU tests).
       - name: Run tests
         shell: bash
-        run: LD_LIBRARY_PATH="$PWD/extern/wgpu_native/lib:${LD_LIBRARY_PATH:-}" node make.mjs test
+        run: |
+          LD_LIBRARY_PATH="$PWD/extern/wgpu_native/lib:${LD_LIBRARY_PATH:-}" \
+            node make.mjs test --exclude 'test_stencil_gpu|test_webgpu_render'
 
       # Builds the python C-API shared lib (sculptcore_capi) — the release
       # deliverable — and stages any freshly-built deps combo into staged-deps/.

@@ -17,7 +17,11 @@ add_subdirectory(meshlog)
 add_subdirectory(webgpu)
 if (NOT BUILD_WASM)
   add_subdirectory(window)
-  add_subdirectory(vulkan)
   add_subdirectory(app)
-  add_subdirectory(debug)
+  # The Vulkan backend and the debug app (debug_core links vulkan +
+  # Vulkan::Vulkan) only build when the Vulkan SDK is available.
+  if (WITH_VULKAN)
+    add_subdirectory(vulkan)
+    add_subdirectory(debug)
+  endif()
 endif()

@@ -15,6 +15,13 @@ endif()
 
 option(WITH_MESHLOG_ABSEIL_HASHMAP "Use absl::flat_hash_map in meshlog" OFF)
 
+# The native Vulkan GPU backend (source/vulkan/) + the GLFW/ImGui debug app and
+# the debug_core-backed tests. OFF drops the Vulkan SDK requirement entirely:
+# the shipped libs (sculptcore, sculptcore_capi) render through source/webgpu ->
+# wgpu-native, not Vulkan, so they build and run without it. Default ON to keep
+# the interactive/debug workflow available for local dev.
+option(WITH_VULKAN "Build the native Vulkan backend + debug app (needs Vulkan SDK)" ON)
+
 if (WITH_MESHLOG_ABSEIL_HASHMAP)
   add_compile_definitions(-DMESHLOG_ABSEIL_HASHMAP)
 endif()
@@ -194,10 +201,11 @@ if (SBRUSH_BACKEND_WGSL OR SBRUSH_BACKEND_SPIRV OR SBRUSH_BACKEND_CUDA
   include("build_files/sbrush_toolchains.cmake")
 endif()
 
-if (NOT BUILD_WASM)
+if (NOT BUILD_WASM AND WITH_VULKAN)
   # Vulkan headers + loader from the system Vulkan SDK. Found here at the
   # root so the Vulkan::Vulkan imported target is visible to every
-  # subdirectory that links it (source/vulkan/, source/debug/).
+  # subdirectory that links it (source/vulkan/, source/debug/). Gated on
+  # WITH_VULKAN — the shipped libs don't use it (see the option above).
   find_package(Vulkan REQUIRED)
 endif()
 
