@@ -284,8 +284,9 @@ function buildSuiteSparse(config, installDir, openblasLib) {
   // CMake treats backslashes as escapes; a Windows lib path injected into
   // SuiteSparse's generated try_run probe breaks it. Always pass forward slashes.
   const blasLib = openblasLib.replace(/\\/g, '/')
-  // SuiteSparse probes/links BLAS+LAPACK at configure; point it at our OpenBLAS
-  // (it provides both) so its FindBLAS/FindLAPACK return early.
+  // BLAS_LIBRARIES makes SuiteSparse use our OpenBLAS as-is (skips find_package).
+  // BLA_VENDOR="Generic" (not "OpenBLAS") skips an OpenBLAS-only threading probe
+  // that can't link the static lib's OpenMP symbols at configure time.
   const args = [
     `-G Ninja`,
     COMPILER_ARGS,
@@ -297,7 +298,7 @@ function buildSuiteSparse(config, installDir, openblasLib) {
     `-DSUITESPARSE_USE_FORTRAN=OFF`,
     `-DSUITESPARSE_USE_CUDA=OFF`,
     '-DSUITESPARSE_USE_OPENMP=ON',
-    `-DBLA_VENDOR=OpenBLAS`,
+    `-DBLA_VENDOR=Generic`,
     `-DBLAS_LIBRARIES="${blasLib}"`,
     `-DBLAS_LINKER_FLAGS="${ompLinkerFlags()}"`,
     `-DLAPACK_LIBRARIES="${blasLib}"`,
