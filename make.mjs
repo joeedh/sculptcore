@@ -38,7 +38,12 @@ const getopt = (k, defval) => {
 // the local option so the bundled DLL and its native deps match the config the
 // superproject is building — a farm build of Blender in Release then stages a
 // Release engine without a local-build-options.mjs edit.
-const CMAKE_BUILD_TYPE = process.env.SCULPTCORE_CMAKE_BUILD_TYPE || getopt('CMAKE_BUILD_TYPE', 'RelWithDebInfo')
+//
+// Mutable: the global `--release` flag rewrites it to 'Release' from the yargs
+// middleware (the env var still wins). Read it through cmakeArgsBase() /
+// cmakeWasmArgs() rather than snapshotting it at module scope.
+const CMAKE_BUILD_TYPE_ENV = process.env.SCULPTCORE_CMAKE_BUILD_TYPE
+let CMAKE_BUILD_TYPE = CMAKE_BUILD_TYPE_ENV || getopt('CMAKE_BUILD_TYPE', 'RelWithDebInfo')
 const CMAKE_GENERATOR = getopt('CMAKE_GENERATOR', 'Ninja')
 const WITH_ASAN = getopt('WITH_ASAN', false)
 const WITH_MESHLOG_ABSEIL_HASHMAP = getopt('WITH_MESHLOG_ABSEIL_HASHMAP', false)
@@ -66,18 +71,25 @@ if (usedOptsMsg.length > 0) {
   process.stdout.write(usedOptsMsg)
 }
 
-let CMAKE_ARGS_BASE = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
-if (WITH_MESHLOG_ABSEIL_HASHMAP) {
-  CMAKE_ARGS_BASE += ` -DWITH_MESHLOG_ABSEIL_HASHMAP=ON`
+// Functions, not constants: CMAKE_BUILD_TYPE is settable by --release, which is
+// resolved after module scope (yargs middleware).
+function cmakeArgsBase() {
+  let args = `-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
+  if (WITH_MESHLOG_ABSEIL_HASHMAP) {
+    args += ` -DWITH_MESHLOG_ABSEIL_HASHMAP=ON`
+  }
+  return args + ` -G ${CMAKE_GENERATOR} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
 }
-CMAKE_ARGS_BASE += ` -G ${CMAKE_GENERATOR} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
 
 const EMSDK_VERSION = fs.readFileSync('./emsdkVersion.txt', 'utf-8').trim()
 const NAGA_VERSION = fs.readFileSync('./nagaVersion.txt', 'utf-8').trim()
 // Response files keep em++.bat's cmd.exe invocations under the Windows 8191-
 // char limit — a long worktree path blows past it via the -I include list.
-const CMAKE_WASM_ARGS =
-  CMAKE_ARGS_BASE + ` -DBUILD_WASM=ON` + (process.platform === 'win32' ? ' -DCMAKE_NINJA_FORCE_RESPONSE_FILE=ON' : '')
+function cmakeWasmArgs() {
+  return (
+    cmakeArgsBase() + ` -DBUILD_WASM=ON` + (process.platform === 'win32' ? ' -DCMAKE_NINJA_FORCE_RESPONSE_FILE=ON' : '')
+  )
+}
 const EMSDK_COMMIT = '2a9b4692ab24a0497249eeaa696ac1153d22e07e'
 
 /**
@@ -307,6 +319,20 @@ function buildDir(target) {
     return WITH_NATIVE_MSVC ? 'build/python-msvc' : 'build/python'
   }
   return 'build'
+}
+
+/**
+ * The CMAKE_BUILD_TYPE recorded in a configured build dir, or null if the dir
+ * has no cache yet. `build` only runs `cmake --build`, so this is what catches
+ * a `--release` build against a tree configured for another config.
+ */
+function cachedBuildType(dir) {
+  const cache = Path.join(dir, 'CMakeCache.txt')
+  if (!fs.existsSync(cache)) {
+    return null
+  }
+  const match = fs.readFileSync(cache, 'utf-8').match(/^CMAKE_BUILD_TYPE:\w+=(.*)$/m)
+  return match ? match[1].trim() : null
 }
 
 // Returns the `node ../configureEnv.mjs [--emsdk]` prefix used inside buildDir.
@@ -1361,7 +1387,7 @@ async function configureTarget(target, {backends, runtime, runtimeVersion}) {
     const depsDir = await ensureDeps({config: configName(CMAKE_BUILD_TYPE), jobs: JOBS})
     const depsFlag = `-DSCULPTCORE_DEPS_DIR="${depsDir.replace(/\\/g, '/')}"`
 
-    let NATIVE_CMAKE_ARGS = CMAKE_ARGS_BASE
+    let NATIVE_CMAKE_ARGS = cmakeArgsBase()
     NATIVE_CMAKE_ARGS += ` -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} `
     NATIVE_CMAKE_ARGS += ` -DWITH_VULKAN=${WITH_VULKAN ? 'ON' : 'OFF'} `
     NATIVE_CMAKE_ARGS += ` ${nativeToolchainFlag()}`
@@ -1370,7 +1396,7 @@ async function configureTarget(target, {backends, runtime, runtimeVersion}) {
     run(`cd ${dir} && ${env} cmake ../.. ${NATIVE_CMAKE_ARGS}`)
   } else {
     run(
-      `cd ${dir} && ${env} emcmake cmake .. ${CMAKE_WASM_ARGS} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`
+      `cd ${dir} && ${env} emcmake cmake .. ${cmakeWasmArgs()} -DWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} ${sbrushFlags}`
     )
   }
 }
@@ -1409,9 +1435,18 @@ yargs(hideBin(process.argv))
     describe:
       'Max parallel compile jobs for cmake --build (default: the BUILD_JOBS local option, else all cores). Lower it (e.g. -j 2) if clang OOMs.',
   })
+  .option('release', {
+    type    : 'boolean',
+    default : false,
+    describe:
+      'Release build: CMAKE_BUILD_TYPE=Release (optimized, no debug info / source maps). An explicit SCULPTCORE_CMAKE_BUILD_TYPE env var still wins.',
+  })
   .middleware((argv) => {
     if (argv.jobs && argv.jobs > 0) {
       JOBS = argv.jobs
+    }
+    if (argv.release && !CMAKE_BUILD_TYPE_ENV) {
+      CMAKE_BUILD_TYPE = 'Release'
     }
   })
   .command(
@@ -1434,13 +1469,15 @@ yargs(hideBin(process.argv))
     'deps [config]',
     'Fetch-or-build the prebuilt native deps (OpenBLAS + SuiteSparse/CHOLMOD)',
     (y) =>
+      // No yargs `default` here: the builder runs before the --release
+      // middleware, so it would snapshot the pre-flag build type. Resolved in
+      // the handler instead.
       y.positional('config', {
         type    : 'string',
-        default : CMAKE_BUILD_TYPE,
-        describe: 'build config: release | relwithdebinfo | debug | asan',
+        describe: 'build config: release | relwithdebinfo | debug | asan (default: the current build type)',
       }),
     async ({config}) => {
-      const dir = await ensureDeps({config: configName(config), jobs: JOBS})
+      const dir = await ensureDeps({config: configName(config ?? CMAKE_BUILD_TYPE), jobs: JOBS})
       console.log(`deps: ready at ${dir}`)
     }
   )
@@ -1482,6 +1519,14 @@ yargs(hideBin(process.argv))
       const dir = buildDir(target)
       const env = envPrefix(target)
       if (target === 'wasm') {
+        // The wasm tree is shared between configs (build/), so toggling
+        // --release has to re-run cmake or we'd rebuild nothing and ship the
+        // previously configured build type.
+        const cached = cachedBuildType(dir)
+        if (cached && cached.toLowerCase() !== CMAKE_BUILD_TYPE.toLowerCase()) {
+          console.log(`build: ${dir} is configured ${cached}, want ${CMAKE_BUILD_TYPE} — reconfiguring`)
+          await configureTarget('wasm', {})
+        }
         deleteFinalWasmFiles()
       }
 

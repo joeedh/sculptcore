@@ -43,6 +43,12 @@ Notes:
 - A global `-j` / `--jobs <n>` flag caps `cmake --build` parallelism (passed as
   `--parallel <n>`); omit it to use all cores. Lower it (e.g. `-j 2`) when clang
   OOMs on the heavy template translation units.
+- A global `--release` flag forces `CMAKE_BUILD_TYPE=Release` (optimized, no
+  debug info) over the `RelWithDebInfo` default; an explicit
+  `SCULPTCORE_CMAKE_BUILD_TYPE` env var still wins. This is what the parent
+  repo's Pages CI builds the shipped WASM with (emcc `-O3 -DNDEBUG`, no DWARF /
+  `.wasm.map`). The wasm tree is shared between configs, so `build wasm`
+  re-runs `configure` when the build dir's cached type doesn't match.
 - `node make.mjs build node` builds `sculptcore_node.node` for the **NW.js** ABI
   (default `--runtime nw`; `--runtime electron` kept as a fallback). The
   configure step (`make.mjs configure node`, also run on demand by `build node`
