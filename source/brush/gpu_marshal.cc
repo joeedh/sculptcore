@@ -250,7 +250,9 @@ void packAutomask(mesh::Mesh &m, const Brush &brush, Vector<float> &out)
 
   // Identity when off: strength * 1.0 == strength keeps the GPU path bit-for-bit
   // equal to the CPU strength() that simply skips the multiply.
-  if (!brush.automask_cavity) {
+  const bool useCavity = brush.automask_cavity;
+  const bool useViewNormal = brush.automask_view_normal;
+  if (!useCavity && !useViewNormal) {
     for (int i = 0; i < vcount; i++) {
       out[i] = 1.0f;
     }
@@ -259,22 +261,31 @@ void packAutomask(mesh::Mesh &m, const Brush &brush, Vector<float> &out)
 
   // The BFS blur reads the ring1 CSR (live disk links). Thaw a frozen mesh once
   // at stroke start so the walk sees live links, mirroring the CPU executor.
-  if (m.topo_frozen) {
-    m.thawTopo();
+  // View-normal masking is topology-free and needs neither.
+  if (useCavity) {
+    if (m.topo_frozen) {
+      m.thawTopo();
+    }
+    m.topo_cache.ensureRing1(m);
   }
-  m.topo_cache.ensureRing1(m);
 
   CavityParams cp;
-  cp.enabled = true;
+  cp.enabled = useCavity;
   cp.blur_steps = brush.cavity_blur_steps;
   cp.factor = brush.cavity_factor;
   cp.inverted = brush.cavity_inverted;
   cp.use_curve = brush.cavity_use_curve;
   cp.curve_lut = brush.cavity_curve.data();
 
+  ViewNormalParams vp = viewNormalParamsFor(brush);
+
   CavityScratch scr;
   for (int i = 0; i < vcount; i++) {
-    out[i] = cavityFactor(&m, i, cp, scr);
+    float f = useCavity ? cavityFactor(&m, i, cp, scr) : 1.0f;
+    if (useViewNormal) {
+      f *= viewNormalFactor(m.v.no[i], vp);
+    }
+    out[i] = f;
   }
 }
 

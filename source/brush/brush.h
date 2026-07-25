@@ -109,6 +109,12 @@ struct StrokeSample {
 // length bound by the (future) dispatcher.
 inline constexpr int kStrokePathMax = 64;
 
+// View-normal automask defaults (radians): fade to nothing at 90° off head-on,
+// over a 25° ramp — so full strength holds until 65°. Live here rather than in
+// automask.h so brush.h needn't pull mesh.h in; automask.h reads them back.
+inline constexpr float kViewNormalLimitDefault = 1.5707964f;
+inline constexpr float kViewNormalFalloffDefault = 0.43633232f;
+
 // Stable small ids for the float props the bridge configures across the TS
 // boundary. Used instead of `util::string` prop-name args: the TS binding
 // runtime can't marshal a JS string into a bound `util::string` parameter
@@ -255,6 +261,21 @@ struct Brush {
   int cavity_blur_steps = 2;
   bool cavity_inverted = false;
 
+  // View-normal automasking (documentation/plans/2026-07-25-1138-view-normal-
+  // automasking.md): fade verts whose normal turns edge-on to the camera, where
+  // a dab otherwise tears the silhouette. `view_normal_limit` / `_falloff` are
+  // radians (see automask.h ViewNormalParams); `cull_backfaces` also zeroes
+  // away-facing geometry. Defaults off in the engine so existing headless
+  // scenes — which never set `viewDir` — are unchanged; the app turns it on.
+  bool automask_view_normal = false;
+  bool cull_backfaces = false;
+  float view_normal_limit = kViewNormalLimitDefault;
+  float view_normal_falloff = kViewNormalFalloffDefault;
+
+  // Unit eye->surface ray in object space, host-set per dab (mirrored under
+  // symmetry). Only read by the view-normal automask.
+  float3 viewDir{0, 0, -1};
+
   // Enhance-details brush (source/brush/enhance.h): `enhance_rings` is the outer
   // smoothing depth (low-pass cutoff / feature scale); `enhance_inner` is the
   // inner depth — 0 = classic unsharp (high-pass), >=1 = difference-of-smooths
@@ -389,6 +410,11 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, cavity_inverted);
     BIND_STRUCT_MEMBER(st, cavity_use_curve);
     BIND_STRUCT_MEMBER(st, cavityCurveSize);
+    BIND_STRUCT_MEMBER(st, automask_view_normal);
+    BIND_STRUCT_MEMBER(st, cull_backfaces);
+    BIND_STRUCT_MEMBER(st, view_normal_limit);
+    BIND_STRUCT_MEMBER(st, view_normal_falloff);
+    BIND_STRUCT_MEMBER(st, viewDir);
     BIND_STRUCT_MEMBER(st, enhance_rings);
     BIND_STRUCT_MEMBER(st, enhance_inner);
     BIND_STRUCT_MEMBER(st, grabFrom);

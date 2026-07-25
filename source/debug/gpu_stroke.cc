@@ -204,10 +204,10 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     return false;
   }
 
-  // Cavity automask (vertex kernels only): override the identity buffer
-  // beginStroke seeded with the real per-vertex factors so the GPU strength
-  // matches the CPU path. When cavity is off, the identity 1.0 stays.
-  if (!faceMode_ && scene.brush.automask_cavity) {
+  // Automask (vertex kernels only): override the identity buffer beginStroke
+  // seeded with the real per-vertex factors so the GPU strength matches the CPU
+  // path. With every contributor off, the identity 1.0 stays.
+  if (!faceMode_ && (scene.brush.automask_cavity || scene.brush.automask_view_normal)) {
     Vector<float> automask;
     brush::packAutomask(*m, scene.brush, automask);
     disp_->setAutomask(automask.data(), uploadCount);

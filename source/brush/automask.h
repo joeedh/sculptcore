@@ -1,5 +1,6 @@
 #pragma once
 
+#include "brush.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_topo_cache.h"
 
@@ -11,15 +12,32 @@
 #include <utility>
 
 /**
- * Cavity automasking (documentation/plans/2026-07-14-2007-cavity-automasking.md).
+ * Automasking: per-vertex, per-stroke 0..1 scalars that scale the *effective
+ * brush strength* — Blender's `factor_get()` idea, distinct from the painted
+ * `mask` attribute layer. Every contributor here is computed on the host, and
+ * their product is cached per vertex per stroke; both the CPU and GPU strength
+ * paths read the cached value, so the two backends stay bit-for-bit equal.
  *
- * A per-vertex, per-stroke scalar derived from local surface convexity that
- * scales the *effective brush strength* — Blender's `factor_get()` idea, distinct
- * from the painted `mask` attribute layer. The raw estimate is a cheap
- * curvature-ish heuristic: BFS-blur the 1-ring adjacency into an inner-ring and a
- * wider-ring averaged position/normal and diff them. It is computed on the host,
- * cached per vertex per stroke, and both the CPU and GPU strength paths read the
- * cached value, so the two backends stay bit-for-bit equal.
+ * Contributors:
+ *  - Cavity (documentation/plans/2026-07-14-2007-cavity-automasking.md): local
+ *    surface convexity, from a cheap curvature-ish heuristic — BFS-blur the
+ *    1-ring adjacency into an inner-ring and a wider-ring averaged
+ *    position/normal and diff them.
+ *  - View normal (documentation/plans/2026-07-25-1138-view-normal-automasking.md):
+ *    fade geometry whose normal turns edge-on to the camera, which is where a
+ *    dab otherwise tears the silhouette by pushing the near and far sheets of
+ *    the surface apart. Optionally culls back-facing geometry outright.
+ *
+ * Caching contract. The product is stamped per vertex per stroke (keyed by
+ * `strokeGen` in `.brush.automask.gen`), so the first dab to reach a vertex
+ * fixes its factor for the rest of the stroke; freshly split dyntopo verts miss
+ * the stamp and fill on first touch. Cavity's BFS needs the ring1 CSR, ensured
+ * live before the per-dab topology freeze, so a frozen-topo dab that cannot get
+ * one simply sits cavity out; view-normal masking is topology-free and always
+ * applies. Because the stamp is per stroke and not per dab, a vertex reached by
+ * more than one mirror image keeps the ray of whichever image got there first —
+ * only the band straddling a symmetry plane can see this, and the two rays there
+ * differ just by the reflection.
  */
 namespace sculptcore::brush {
 using litestl::math::float3;
@@ -190,6 +208,71 @@ inline float cavityRemap(const CavityParams &p, float raw)
 inline float cavityFactor(mesh::Mesh *m, int v, const CavityParams &p, CavityScratch &scr)
 {
   return cavityRemap(p, cavityRaw(m, v, p.blur_steps, scr));
+}
+
+/** View-normal settings resolved from the brush once per stroke.
+ * Defaults are brush.h's kViewNormal*Default (90° limit, 25° ramp). */
+struct ViewNormalParams {
+  bool enabled = false;
+  // Unit eye->surface ray in *object* space — the same space as Mesh::v.no.
+  // Host-set per dab from PaintSample::viewvec, reflected under symmetry.
+  float3 view_dir{0, 0, -1};
+  // Also zero anything facing away from the view, instead of fading back faces
+  // symmetrically with front ones.
+  bool cull_backfaces = false;
+  // Angle off head-on at which the factor hits 0, and the width of the ramp
+  // leading up to it. Both radians; falloff <= 0 makes it a hard cutoff.
+  float limit = kViewNormalLimitDefault;
+  float falloff = kViewNormalFalloffDefault;
+};
+
+/**
+ * View-normal mask factor for a vertex normal `no`. Returns 1 head-on, ramping
+ * to 0 as the normal turns `p.limit` off the view ray. With `cull_backfaces`
+ * off the sign of the dot is discarded, so a back face fades exactly like the
+ * front face at the same angle; with it on the sign is kept, which puts every
+ * away-facing normal past `limit` and reads 0 — culling falls out of the same
+ * expression. Neither `no` nor `p.view_dir` need be unit length; a degenerate
+ * one disables the mask (returns 1) instead of masking the whole stroke out.
+ */
+inline float viewNormalFactor(const float3 &no, const ViewNormalParams &p)
+{
+  const float nlen = no.length();
+  const float vlen = p.view_dir.length();
+  if (nlen <= 1e-9f || vlen <= 1e-9f) {
+    return 1.0f;
+  }
+  float d = -no.dot(p.view_dir) / (nlen * vlen);
+  if (!p.cull_backfaces) {
+    d = std::fabs(d);
+  }
+  d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
+
+  const float angle = std::acos(d);
+  if (angle >= p.limit) {
+    return 0.0f;
+  }
+  if (p.falloff <= 1e-6f) {
+    return 1.0f;
+  }
+  const float rampStart = p.limit - p.falloff;
+  if (angle <= rampStart) {
+    return 1.0f;
+  }
+  return (p.limit - angle) / p.falloff;
+}
+
+/** Resolve a brush's view-normal settings. The one place the CPU executor and
+ * `packAutomask` share, so the two backends can't drift. */
+inline ViewNormalParams viewNormalParamsFor(const Brush &brush)
+{
+  ViewNormalParams p;
+  p.enabled = brush.automask_view_normal;
+  p.view_dir = brush.viewDir;
+  p.cull_backfaces = brush.cull_backfaces;
+  p.limit = brush.view_normal_limit;
+  p.falloff = brush.view_normal_falloff;
+  return p;
 }
 
 } // namespace sculptcore::brush

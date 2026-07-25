@@ -115,6 +115,7 @@ test(test_brush_falloff.cc "debug_core")
 test(test_bsmooth.cc "debug_core")
 test(test_enhance.cc "debug_core")
 test(test_automask_stroke.cc "debug_core")
+test(test_automask_view_normal.cc "debug_core")
 test(test_automask_gpu.cc "debug_core")
 endif()
 

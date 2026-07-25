@@ -80,11 +80,14 @@ int packGeometry(mesh::Mesh &m, spatial::SpatialTree *tree, bool faceMode,
                  litestl::util::Vector<float> &no,
                  litestl::util::Vector<float> &mask);
 
-/** Pack the per-vertex cavity automask factor for beginStroke (binding 24), one
- * f32 per vertex indexed the same as packGeometry's co/mask. Fills identity 1.0
- * when cavity masking is off (so GPU strength == CPU strength bit-for-bit);
- * otherwise computes cavityFactor per vertex through the same automask.h path
- * the CPU executor uses. Vertex kernels only — face kernels never bind it. */
+/** Pack the per-vertex automask factor for beginStroke (binding 24), one f32 per
+ * vertex indexed the same as packGeometry's co/mask. Fills identity 1.0 when no
+ * automask contributor is enabled (so GPU strength == CPU strength bit-for-bit);
+ * otherwise multiplies the enabled contributors (cavity, view normal) through
+ * the same automask.h path the CPU executor uses. The factor is stroke-static —
+ * it is packed once at beginStroke from the brush's then-current `viewDir`, so
+ * the caller must stay on the CPU when symmetry would give mirror dabs their own
+ * reflected ray. Vertex kernels only — face kernels never bind it. */
 void packAutomask(mesh::Mesh &m, const Brush &brush,
                   litestl::util::Vector<float> &out);
 

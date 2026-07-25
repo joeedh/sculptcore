@@ -45,6 +45,11 @@ export interface Brush {
   cavity_inverted: boolean
   cavity_use_curve: boolean
   cavityCurveSize: float
+  automask_view_normal: boolean
+  cull_backfaces: boolean
+  view_normal_limit: float
+  view_normal_falloff: float
+  viewDir: float3
   enhance_rings: int32
   enhance_inner: int32
   grabFrom: float3

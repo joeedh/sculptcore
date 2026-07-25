@@ -139,12 +139,12 @@ struct CommandCtxBase {
   mesh::AttrData<int> *dabGen = nullptr;
   uint32_t curDabGen = 0;
 
-  // Cavity automasking (documentation/plans/2026-07-14-2007-cavity-automasking.md).
-  // `automaskCavity` is the `.brush.automask.cavity` TEMP attr holding each vert's
-  // 0..1 cavity factor, filled host-side once per stroke (keyed by strokeGen via
-  // `.brush.automask.gen`). `strength()` multiplies it in when `automaskEnabled`.
-  // Null / false when no automasking is active for the stroke.
-  mesh::AttrData<float> *automaskCavity = nullptr;
+  // Automasking (automask.h). `automaskFactor` is the `.brush.automask.factor`
+  // TEMP attr holding each vert's combined 0..1 factor — the product of every
+  // enabled contributor (cavity, view normal) — filled host-side once per stroke
+  // (keyed by strokeGen via `.brush.automask.gen`). `strength()` multiplies it in
+  // when `automaskEnabled`. Null / false when no automasking is active.
+  mesh::AttrData<float> *automaskFactor = nullptr;
   bool automaskEnabled = false;
 
   // Fetch a bound non-bool attribute's data by kernel handle. Returns nullptr
@@ -198,15 +198,15 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   }
   auto faceIter(spatial::SpatialNode &node) { return executor.makeFaceIter(node); }
   // `v` is the mesh vertex index of the sample (threaded from the kernel loop by
-  // the `strength` intrinsic emission as `$v`). It keys the per-vertex cavity
-  // automask factor; when automasking is inactive the arg is ignored and the
-  // result is bit-identical to the falloff-only strength.
+  // the `strength` intrinsic emission as `$v`). It keys the per-vertex automask
+  // factor; when automasking is inactive the arg is ignored and the result is
+  // bit-identical to the falloff-only strength.
   float strength(float3 co, int v)
   {
     float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
     float s = brush.strength * brush.falloffEval(t);
-    if (automaskEnabled && automaskCavity && v >= 0) {
-      s *= (*automaskCavity)[v];
+    if (automaskEnabled && automaskFactor && v >= 0) {
+      s *= (*automaskFactor)[v];
     }
     return brush.invert ? -s : s;
   }

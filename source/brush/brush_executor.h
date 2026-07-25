@@ -837,52 +837,56 @@ struct CommandExecutor {
       }
     }
 
-    // Cavity automasking pre-fill (documentation/plans/2026-07-14-2007-cavity-
-    // automasking.md): compute each in-region vert's 0..1 cavity factor once per
-    // stroke (keyed by strokeGen) into the `.brush.automask.cavity` TEMP attr,
-    // single-threaded before the parallel kernel loop reads it via
-    // CommandCtx::strength. Freshly split verts (dyntopo) miss the stamp and
-    // refill on first touch. The ring1 CSR the BFS walks is ensured live in
-    // execProgram before the per-dab freeze; here it is a stamp-keyed no-op.
-    ctx.automaskCavity = nullptr;
+    // Automask pre-fill (see automask.h for the caching contract): stamp each
+    // in-region vert's combined 0..1 factor into `.brush.automask.factor`,
+    // single-threaded, before the parallel kernel loop reads it via strength().
+    ctx.automaskFactor = nullptr;
     ctx.automaskEnabled = false;
-    if (brush->automask_cavity && nodes.size() > 0) {
+    if ((brush->automask_cavity || brush->automask_view_normal) && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
-      if (!m->topo_frozen || m->topo_cache.valid(*m)) {
+      if (brush->automask_cavity && (!m->topo_frozen || m->topo_cache.valid(*m))) {
         m->topo_cache.ensureRing1(*m);
       }
-      if (m->topo_cache.valid(*m)) {
-        mesh::AttrRef &cavRef =
-            m->v.attrs.ensure(mesh::AttrType::FLOAT, ".brush.automask.cavity", false);
-        cavRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+      const bool useCavity = brush->automask_cavity && m->topo_cache.valid(*m);
+      const bool useViewNormal = brush->automask_view_normal;
+      if (useCavity || useViewNormal) {
+        mesh::AttrRef &facRef =
+            m->v.attrs.ensure(mesh::AttrType::FLOAT, ".brush.automask.factor", false);
+        facRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
         mesh::AttrRef &genRef =
             m->v.attrs.ensure(mesh::AttrType::INT, ".brush.automask.gen", false);
         genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
-        auto *cav = static_cast<mesh::AttrData<float> *>(cavRef.data);
+        auto *fac = static_cast<mesh::AttrData<float> *>(facRef.data);
         auto *gen = static_cast<mesh::AttrData<int> *>(genRef.data);
 
         static_assert(int(Brush::kCavityCurveLutSize) == kCavityCurveSize,
                       "brush cavity_curve LUT size must match automask kCavityCurveSize");
         CavityParams cp;
-        cp.enabled = true;
+        cp.enabled = useCavity;
         cp.blur_steps = brush->cavity_blur_steps;
         cp.factor = brush->cavity_factor;
         cp.inverted = brush->cavity_inverted;
         cp.use_curve = brush->cavity_use_curve;
         cp.curve_lut = brush->cavity_curve.data();
 
+        ViewNormalParams vp = viewNormalParamsFor(*brush);
+
         CavityScratch scr;
         for (auto *node : nodes) {
           for (int v : node->data->unique_verts) {
             gen->materialize(v);
-            cav->materialize(v);
+            fac->materialize(v);
             if (strokeGen == 0 || (*gen)[v] != int(strokeGen)) {
-              (*cav)[v] = cavityFactor(m, v, cp, scr);
+              float f = useCavity ? cavityFactor(m, v, cp, scr) : 1.0f;
+              if (useViewNormal) {
+                f *= viewNormalFactor(m->v.no[v], vp);
+              }
+              (*fac)[v] = f;
               (*gen)[v] = int(strokeGen);
             }
           }
         }
-        ctx.automaskCavity = cav;
+        ctx.automaskFactor = fac;
         ctx.automaskEnabled = true;
       }
     }
