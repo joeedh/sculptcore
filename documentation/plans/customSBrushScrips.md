@@ -208,6 +208,33 @@ raise KeyError and (via `register()`'s broad except) disable ALL generated props
 
 - **Brush-member uniform constraint** is the real ceiling for addon kernels; wave-2:
   name-keyed float store on `Brush` targeted by codegen for non-member uniforms.
+  Design sketch (agreed with user):
+  - `Brush` gains only `util::Vector<float> namedFloats` + inline slot accessors;
+    the registry generator dedupes store-uniform names across extras and assigns
+    dense slot indices (`inline constexpr int`), so the vertex stage reads
+    `ctx.brush.namedFloats[kSlot_X]` — array index, no per-vertex hashing.
+  - **No per-uniform tag** (user rejected `@store`): member-vs-store is inferred
+    from a hand-maintained static method beside the struct,
+    `Brush::builtinPropNames(Vector<string>&)`; `sbrushc` (same tree) includes
+    brush.h and calls it at generation time. Listed name → `ctx.brush.X` member
+    lowering as today; unlisted → store slot.
+  - Honesty tripwire: built-in kernels never use the store, so built-in codegen
+    errors on any uniform not resolving to the member path (catches a member
+    added to `Brush` but not listed). Stale listed names are caught by the C++
+    compile of generated headers that use them.
+  - Defaults: generated `ensureExtraUniformDefaults(brush)` called from
+    `createExtraBrush` (per command creation) resizes + fills from a generated
+    table, so the hot-path read stays branch-free.
+  - Introspection: `BrushUniformManifestEntry` gains `storeSlot` (−1 =
+    member-backed) + the DSL default; `engine_props.py` writes store uniforms via
+    `setNamedFloat(slot, v)` instead of `setattr` (its `hasattr(brush, name)`
+    filter would otherwise drop them), and the int-keyed slot sidesteps the
+    string-marshalling limit noted on `BrushFloatOverride`.
+  - Deferred (user): a possible future explicit tag would be `@builtin` (assert
+    member-backed) rather than `@store` — tightens the inference, decide later.
+  - Scope: floats only, CPU only (GPU marshalling via `compute_layout.h` would
+    need a float-array extension); slots are per-build like extra brush ids —
+    safe, nothing persists them.
 - `default:` `abort()` still crashes on a truly unknown int id — the addon gates by
   name; optional engine hardening later (warn + no-op command).
 - Executor-side pre-pass coupling (enhance/featurealign-style) not available to
