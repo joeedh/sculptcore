@@ -56,30 +56,48 @@ for (const entry of fs.readdirSync(baseDir)) {
   fs.rmSync(Path.join(baseDir, entry), {recursive: true, force: true})
 }
 
-for (const [rel, content] of preserved) {
-  const p = Path.join(baseDir, rel)
-  fs.mkdirSync(Path.dirname(p), {recursive: true})
-  fs.writeFileSync(p, content)
-}
-
-function getNativeEOL(): '\n' | '\r\n' {
-  let autocrlf = ''
+function gitConfig(key: string): string {
   try {
-    autocrlf = execSync('git config --get core.autocrlf', {
+    return execSync(`git config --get ${key}`, {
+      cwd     : baseDir,
       encoding: 'utf8',
       stdio   : ['ignore', 'pipe', 'ignore'],
     }).trim()
   } catch {
-    // unset or git unavailable
+    // unset (exit 1) or git unavailable
+    return ''
   }
+}
+
+function getNativeEOL(): '\n' | '\r\n' {
+  // core.eol pins the working-tree ending outright and wins over core.autocrlf.
+  const coreEol = gitConfig('core.eol')
+  if (coreEol === 'lf') {
+    return '\n'
+  }
+  if (coreEol === 'crlf') {
+    return '\r\n'
+  }
+
+  const autocrlf = gitConfig('core.autocrlf')
   if (autocrlf === 'input' || autocrlf === 'false') {
     return '\n'
   }
-  // 'true' or unset → use OS-native EOL
+  // 'true', or unset with core.eol=native → OS-native EOL
   return os.EOL === '\r\n' ? '\r\n' : '\n'
 }
 
 const eol = getNativeEOL()
+
+function toEOL(text: string): string {
+  return text.replace(/\r\n?|\n/g, eol)
+}
+
+for (const [rel, content] of preserved) {
+  const p = Path.join(baseDir, rel)
+  fs.mkdirSync(Path.dirname(p), {recursive: true})
+  fs.writeFileSync(p, toEOL(content.toString('utf8')))
+}
 const prettierConfig = (await prettier.resolveConfig(baseDir)) ?? {}
 
 for (const [path, file] of files) {
@@ -97,9 +115,9 @@ for (const [path, file] of files) {
     })
   } catch (err) {
     console.warn(`prettier failed for ${path}: ${(err as Error).message.split('\n')[0]} — writing unformatted`)
-    formatted = raw.replace(/\r\n?|\n/g, eol)
+    formatted = raw
   }
-  fs.writeFileSync(finalPath, formatted)
+  fs.writeFileSync(finalPath, toEOL(formatted))
 }
 //@ts-ignore
 import {termColor} from '../source/litestl/tests/termColor.js'
