@@ -80,4 +80,26 @@ const char *assignOpCSym(AssignOp op)
   return "?";
 }
 
+static bool stmtUsesNeighborLoop(const Stmt *s)
+{
+  if (!s)
+    return false;
+  if (s->kind == StmtKind::NeighborLoop)
+    return true;
+  for (const auto &c : s->stmts)
+    if (stmtUsesNeighborLoop(c.get()))
+      return true;
+  return stmtUsesNeighborLoop(s->thenBranch.get()) ||
+         stmtUsesNeighborLoop(s->elseBranch.get()) ||
+         stmtUsesNeighborLoop(s->forInit.get()) || stmtUsesNeighborLoop(s->forStep.get());
+}
+
+bool brushUsesNeighborLoop(const Brush &brush)
+{
+  for (const auto &st : brush.stages)
+    if (stmtUsesNeighborLoop(st.body.get()))
+      return true;
+  return false;
+}
+
 } // namespace sculptcore::brush::sbrush

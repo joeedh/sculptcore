@@ -179,8 +179,31 @@ option(SBRUSH_BACKEND_CUDA   "Emit CUDA kernels + clang device-only gate"       
 option(SBRUSH_BACKEND_HIP    "Emit HIP kernels + clang device-only gate"         OFF)
 option(SBRUSH_BACKEND_OPENCL "Emit OpenCL C kernels + clspv/poclcc"              OFF)
 option(SBRUSH_VALIDATE_ALL   "Run external validators on every emit"             OFF)
-option(SBRUSH_REGEN_ON_BUILD "Re-run sbrushc during build (vs. checked-in outputs)" ON)
 option(SBRUSH_WEBGPU_COMPUTE "Build the native WebGPU (wgpu-native) compute brush backend into debug_app" OFF)
+
+# Extra (out-of-repo) sbrush kernel dirs — semicolon-separated absolute paths.
+# Each dir's *.sbrush files are compiled in-build and registered after the
+# built-ins (native targets only; sbrushc doesn't exist under BUILD_WASM).
+# Outputs land in <build>/sbrush_extra/gen — the source tree stays clean. The
+# define + include dir are build-wide so every TU agrees on the extras (an
+# __has_include gate could diverge per-TU). See "Extra kernel dirs" in
+# documentation/brush_compute.md.
+set(SCULPTCORE_EXTRA_KERNEL_DIRS "" CACHE STRING
+    "Extra sbrush kernel dirs (semicolon-separated absolute paths), compiled + registered in-build")
+if (SCULPTCORE_EXTRA_KERNEL_DIRS)
+  if (BUILD_WASM)
+    message(WARNING "SCULPTCORE_EXTRA_KERNEL_DIRS is native-only; ignored under BUILD_WASM")
+  else()
+    include_directories("${CMAKE_BINARY_DIR}/sbrush_extra/gen")
+    add_compile_definitions(SCULPTCORE_EXTRA_BRUSHES=1)
+    # Every consumer of the generated headers reaches them through its
+    # (transitive) link on the brush lib, whose sbrush-extra dependency emits
+    # them. OPTIMIZE_DEPENDENCIES prunes exactly those static-lib ordering
+    # edges, so a consumer TU could compile before the headers exist — trade
+    # a little parallelism for correct ordering while extras are enabled.
+    set(CMAKE_OPTIMIZE_DEPENDENCIES false)
+  endif()
+endif()
 
 # Permanent #if-guarded edge-collapse self-check + neighborhood capture
 # (source/mesh/utils/collapse_debug.h). OFF = inert. ON makes every collapse

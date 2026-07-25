@@ -267,4 +267,8 @@ struct Brush {
   bool isGrabMode = false;
 };
 
+/** True when any stage body contains a `for_neighbor` loop — such brushes are
+ * emitted with the extra NbrSource template parameter (CsrNbr/LiveDiskNbr). */
+bool brushUsesNeighborLoop(const Brush &brush);
+
 } // namespace sculptcore::brush::sbrush

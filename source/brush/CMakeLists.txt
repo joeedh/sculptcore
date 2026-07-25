@@ -25,6 +25,7 @@ set(SRC
   c-api/gpu_brush_c_api.cc
   PUBLIC stroke_spacing.h
   PUBLIC brushes/all.h
+  PUBLIC brushes/extra.h
   PUBLIC feature_field.h
   feature_field.cc
   brush_command.cc
@@ -61,6 +62,66 @@ target_include_directories(brush PUBLIC
 # `node make.mjs codegen` run.
 if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP)
   add_subdirectory(compiler)
+endif()
+
+# Extra (out-of-repo) kernels: compile each configured dir's .sbrush files
+# in-build and generate the registry (enum items + factory dispatch) consumed
+# via brushes/extra.h. Gen files land in <build>/sbrush_extra/gen, which the
+# root CMakeLists put on the include path alongside SCULPTCORE_EXTRA_BRUSHES.
+# Ids are positional: dirs in option order, stems sorted bytewise per dir.
+if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP AND SCULPTCORE_EXTRA_KERNEL_DIRS)
+  set(SB_EXTRA_GEN_DIR "${CMAKE_BINARY_DIR}/sbrush_extra/gen")
+  file(MAKE_DIRECTORY "${SB_EXTRA_GEN_DIR}")
+
+  # Built-in kernels feed the registry's collision checks (stems + @brush names).
+  file(GLOB SB_EXTRA_BUILTINS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/kernels/*.sbrush")
+  list(SORT SB_EXTRA_BUILTINS)
+
+  # Built-in SculptBrushes enum item names — NOT derivable from @brush names
+  # (FEATURE_ALIGN vs "featurealign"). Keep in sync with brushes/types.h.
+  set(SB_EXTRA_RESERVED "DRAW,INFLATE,CLAY,PINCH,SHARP,MASK,SMOOTH,KELVINLET,POSE,TEXDRAW,SCRAPE,FILL,WINGSCRAPE,COLOR,POLYGROUP,BSMOOTH,GRAB,SNAKEHOOK,COLORSMOOTH,FEATURE_ALIGN,LAYERDRAW,ENHANCE")
+
+  set(SB_EXTRA_INPUTS)
+  foreach(DIR ${SCULPTCORE_EXTRA_KERNEL_DIRS})
+    file(GLOB SB_EXTRA_DIR_INPUTS CONFIGURE_DEPENDS "${DIR}/*.sbrush")
+    list(SORT SB_EXTRA_DIR_INPUTS)
+    list(APPEND SB_EXTRA_INPUTS ${SB_EXTRA_DIR_INPUTS})
+  endforeach()
+
+  set(SB_EXTRA_OUTPUTS)
+  set(SB_EXTRA_IN_FLAGS)
+  foreach(SRC ${SB_EXTRA_INPUTS})
+    get_filename_component(STEM "${SRC}" NAME_WE)
+    set(OUT "${SB_EXTRA_GEN_DIR}/${STEM}.brush.gen.h")
+    add_custom_command(
+      OUTPUT "${OUT}"
+      COMMAND $<TARGET_FILE:sbrushc> --backend=cpp --in=${SRC} --out=${OUT}
+      DEPENDS sbrushc ${SRC}
+      COMMENT "sbrush extra: ${STEM}.brush.gen.h"
+      VERBATIM)
+    list(APPEND SB_EXTRA_OUTPUTS "${OUT}")
+    list(APPEND SB_EXTRA_IN_FLAGS "--in=${SRC}")
+  endforeach()
+
+  set(SB_EXTRA_BUILTIN_FLAGS)
+  foreach(SRC ${SB_EXTRA_BUILTINS})
+    list(APPEND SB_EXTRA_BUILTIN_FLAGS "--builtin=${SRC}")
+  endforeach()
+
+  set(SB_EXTRA_REG_OUT
+      "${SB_EXTRA_GEN_DIR}/sculptcore_extra_brushes.gen.h"
+      "${SB_EXTRA_GEN_DIR}/sculptcore_extra_brushes_enum.inc")
+  add_custom_command(
+    OUTPUT ${SB_EXTRA_REG_OUT}
+    COMMAND $<TARGET_FILE:sbrushc> --registry --out-dir=${SB_EXTRA_GEN_DIR}
+            ${SB_EXTRA_IN_FLAGS} ${SB_EXTRA_BUILTIN_FLAGS}
+            --reserved=${SB_EXTRA_RESERVED}
+    DEPENDS sbrushc ${SB_EXTRA_INPUTS} ${SB_EXTRA_BUILTINS}
+    COMMENT "sbrush extra registry"
+    VERBATIM)
+
+  add_custom_target(sbrush-extra ALL DEPENDS ${SB_EXTRA_OUTPUTS} ${SB_EXTRA_REG_OUT})
+  add_dependencies(brush sbrush-extra)
 endif()
 
 # WGSL backend: emit one .wgsl per .sbrush into the build dir, and

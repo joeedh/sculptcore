@@ -343,7 +343,6 @@ option(SBRUSH_BACKEND_CUDA    "Emit CUDA kernels + clang device-only gate" OFF)
 option(SBRUSH_BACKEND_HIP     "Emit HIP kernels + clang device-only gate"  OFF)
 option(SBRUSH_BACKEND_OPENCL  "Emit OpenCL C kernels + clspv/poclcc"   OFF)
 option(SBRUSH_VALIDATE_ALL    "Run external validators on every emit"  OFF)
-option(SBRUSH_REGEN_ON_BUILD  "Re-run sbrushc during build (vs. checked-in outputs)" ON)
 ```
 
 `SBRUSH_BACKEND_CPP` must stay `ON` — it's the only emitter that produces
@@ -396,10 +395,9 @@ node make.mjs sbrush-clean
 ```
 
 `--backends=` translates to `-DSBRUSH_BACKEND_<X>=ON` per token; absent
-the flag, only `SBRUSH_BACKEND_CPP` is on. The default `build` step
-implicitly runs the codegen target as a CMake dependency (controlled by
-`SBRUSH_REGEN_ON_BUILD`) so iteration on `.sbrush` files doesn't need a
-manual codegen step.
+the flag, only `SBRUSH_BACKEND_CPP` is on. `node make.mjs build` runs the
+host-side codegen pass before compiling, so iteration on `.sbrush` files
+doesn't need a manual codegen step.
 
 WASM-specific notes:
 

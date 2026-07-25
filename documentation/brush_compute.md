@@ -174,6 +174,55 @@ and fail the build on non-zero exit. Outputs land in
 `target_sources` link input; everything else is a build-only artifact. The
 CUDA/HIP/OpenCL rules share an `sb_gpu_backend` macro.
 
+## Extra kernel dirs (out-of-repo kernels)
+
+A downstream consumer (e.g. the Blender addon repo) can carry its own
+`.sbrush` files and have them compiled into the engine alongside the
+built-ins — strictly at build time, no runtime parsing:
+
+```
+cmake  -DSCULPTCORE_EXTRA_KERNEL_DIRS="C:/path/a;C:/path/b"   # cache var, absolute dirs
+node make.mjs configure|build|bundle --kernels-extra <dir>    # repeatable; the driver flag
+```
+
+- **Wiring** (`source/brush/CMakeLists.txt`): per `.sbrush` a custom command
+  runs `sbrushc --backend=cpp` into `<build>/sbrush_extra/gen/` (the source
+  tree stays clean), plus one `sbrushc --registry` invocation that emits
+  `sculptcore_extra_brushes_enum.inc` (enum items, included by
+  `brushes/types.h` inside the reflection `Binder`) and
+  `sculptcore_extra_brushes.gen.h` (`extraBrushCount`,
+  `extraBrushUsesForNeighbor(int)`, and the `createExtraBrush` factory
+  dispatch, consumed via the checked-in `brushes/extra.h` shim). The root
+  gate adds a build-wide `SCULPTCORE_EXTRA_BRUSHES=1` define + include dir;
+  without extras `extra.h` compiles inline no-op fallbacks.
+- **Ids are per-build**: extras get `SculptBrushesBuiltinCount + i`, `i` over
+  dirs in option order, stems sorted bytewise per dir. Nothing persists these
+  ids (undo/.blend/meshlog are id-free; the addon resolves kernels by name),
+  so drift across builds is safe.
+- **Collisions fail the build**: duplicate file stems (extras vs extras or vs
+  built-ins — the generated include would be ambiguous), duplicate `@brush`
+  names, and case-insensitive enum-name collisions against the built-in enum
+  items (passed to `--registry` via `--reserved`, maintained beside the CMake
+  wiring — they are not derivable from `@brush` names, e.g. `FEATURE_ALIGN`
+  vs `@brush("featurealign")`).
+- **cpp/CPU only**: extras compile through the reference C++ backend only; no
+  WGSL/SPIR-V/CUDA outputs, so no GPU stroke dispatch for extras.
+- **Uniforms must be existing `Brush` members**: `uniform` / non-builtin
+  `ctx` fields lower to `ctx.brush.<name>` (brush.h). An extra kernel cannot
+  introduce new uniforms — an unknown name fails the C++ compile of its
+  generated header, which is the intended build-time error. New tunables need
+  an engine-side `Brush` member first.
+- **No executor pre-pass coupling**: kernels that rely on hand-written
+  executor pre-passes (enhance / featurealign style) can't be authored as
+  extras; the vertex/face stages plus `for_neighbor` (which auto-selects
+  CsrNbr/LiveDiskNbr like SMOOTH, including the live-links stroke rule) are
+  the supported surface.
+- **`SBRUSH_SKIP_NATIVE_CODEGEN` doesn't interact**: it only gates host-side
+  regeneration of the *checked-in built-in* headers (`make.mjs codegen`);
+  extra kernels always regenerate in-build via their custom commands.
+- Native targets only — under `BUILD_WASM` the cache var warns and is
+  ignored (the WASM build has no `sbrushc`).
+
 ## `make.mjs` commands
 
 Drive everything through the Node dispatcher, never raw cmake:

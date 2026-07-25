@@ -1037,25 +1037,9 @@ struct Emit {
     return false;
   }
 
-  static bool stmtUsesNeighbor(const Stmt *s)
-  {
-    if (!s)
-      return false;
-    if (s->kind == StmtKind::NeighborLoop)
-      return true;
-    for (const auto &c : s->stmts)
-      if (stmtUsesNeighbor(c.get()))
-        return true;
-    return stmtUsesNeighbor(s->thenBranch.get()) ||
-           stmtUsesNeighbor(s->elseBranch.get()) || stmtUsesNeighbor(s->forInit.get()) ||
-           stmtUsesNeighbor(s->forStep.get());
-  }
   bool brushUsesNeighbor() const
   {
-    for (const auto &st : brush->stages)
-      if (stmtUsesNeighbor(st.body.get()))
-        return true;
-    return false;
+    return brushUsesNeighborLoop(*brush);
   }
 
   // Emit a `face` stage as the brush's primary kernel: walk the node's faces

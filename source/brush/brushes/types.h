@@ -36,6 +36,12 @@ enum class _SculptBrushes {
   ENHANCE = 21,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
+
+/** First id available to extra (out-of-repo) kernels; see brushes/extra.h.
+ * Generated extras code references this constant, never a literal count. */
+inline constexpr int SculptBrushesBuiltinCount = 22;
+static_assert(int(_SculptBrushes::ENHANCE) == SculptBrushesBuiltinCount - 1,
+              "SculptBrushesBuiltinCount must track the last built-in enum item");
 } // namespace sculptcore::brush
 
 namespace litestl::binding {
@@ -66,6 +72,10 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
     e->addItem("FEATURE_ALIGN", SculptBrushes::FEATURE_ALIGN);
     e->addItem("LAYERDRAW", SculptBrushes::LAYERDRAW);
     e->addItem("ENHANCE", SculptBrushes::ENHANCE);
+#ifdef SCULPTCORE_EXTRA_BRUSHES
+    // Extra (out-of-repo) kernels — ids follow the built-ins; see extra.h.
+#include "sculptcore_extra_brushes_enum.inc"
+#endif
     return e;
   }
 };

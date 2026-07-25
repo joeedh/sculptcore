@@ -21,4 +21,11 @@ export default {
    *  and sbrush targets, local deps builds). 0 = all cores. The -j/--jobs CLI
    *  flag overrides this per invocation. */
   BUILD_JOBS: 0,
+
+  /** Extra sbrush kernel dirs (SCULPTCORE_EXTRA_KERNEL_DIRS): out-of-repo
+   *  .sbrush files compiled + registered in-build (native targets only). A
+   *  string (path.delimiter-separated) or array of dirs; relative paths
+   *  resolve against the engine root. The --kernels-extra CLI flag overrides.
+   *  Omit (undefined) to leave a configured build dir's value alone. */
+  // EXTRA_KERNEL_DIRS: ['../brushes'],
 }

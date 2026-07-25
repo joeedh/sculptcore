@@ -472,6 +472,12 @@ struct CommandExecutor {
       command::createEnhanceBrush<CommandExecutor, AccMode>(def);
       return;
     default:
+      // Extra (out-of-repo) kernels dispatch through the generated registry;
+      // a no-op fallback compiles in when no extra kernel dirs are configured.
+      if (command::createExtraBrush<CommandExecutor, AccMode>(
+              int(brushType), effectiveNeighborMode() == NeighborMode::Csr, def)) {
+        return;
+      }
       printf("Unknown brush type %d\n", static_cast<int>(brushType));
       abort();
     }
@@ -1074,7 +1080,9 @@ struct CommandExecutor {
            // The cross-field / enhance-details pre-passes walk the vertex rings
            // (ring1 CSR) every dab, so keep topology live for those strokes.
            brushType == SculptBrushes::FEATURE_ALIGN ||
-           brushType == SculptBrushes::ENHANCE;
+           brushType == SculptBrushes::ENHANCE ||
+           // Extra kernels with for_neighbor loops mirror the SMOOTH rule.
+           (extraBrushUsesForNeighbor(int(brushType)) && neighborMode != NeighborMode::Csr);
   }
 
   /** The boundary-aware smooth brush reads the lazily-derived

@@ -24,6 +24,11 @@ So: a CPU-only brush needs ~2 edits; a brush that also dispatches on GPU needs
 ~4, two of which are easy to forget. The checklist at the bottom is the
 backstop.
 
+> **Extra (out-of-repo) kernels** cannot make the host-side edit at all: their
+> `uniform`/`ctx` names must resolve to *existing* `Brush` members, or the
+> generated header fails to compile. See "Extra kernel dirs" in
+> [`brush_compute.md`](brush_compute.md).
+
 ## `uniform` vs `ctx` — which to pick
 
 | | `uniform` | `ctx` |
