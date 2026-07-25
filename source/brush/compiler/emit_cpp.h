@@ -10,6 +10,26 @@ struct EmitResult {
   Vector<string> errors;
 };
 
-EmitResult emitCpp(const Brush &brush);
+struct CppEmitOptions {
+  // Extra (out-of-repo) kernel: float uniforms that are not member-backed
+  // lower to Brush.namedFloats store slots (kExtraSlot_<name>, assigned by
+  // the registry). Off (built-in kernels): an unlisted name is a codegen
+  // error — the honesty tripwire on Brush::builtinPropNames.
+  bool extras = false;
+};
+
+EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts = {});
+
+/** True for the hardcoded CommandCtxBase builtins (surfaceNo, mousePos, ...),
+ * which lower to `ctx.<name>` rather than `ctx.brush.<name>`. */
+bool isCtxBaseName(const char *name);
+
+/** True when `name` lowers to a Brush member (Brush::builtinPropNames). */
+bool isMemberBackedName(const char *name);
+
+/** True when `f` reads through the named-float store in an extra kernel:
+ * a non-attr, non-ctx-builtin field whose name is not member-backed. Type
+ * validity (float-only) is the emitter's/registry's job. */
+bool fieldUsesStore(const Field &f);
 
 } // namespace sculptcore::brush::sbrush

@@ -206,9 +206,16 @@ raise KeyError and (via `register()`'s broad except) disable ALL generated props
 
 ## Open risks
 
-- **Brush-member uniform constraint** is the real ceiling for addon kernels; wave-2:
+- **Brush-member uniform constraint** — RESOLVED by wave-2 (implemented 2026-07-25):
   name-keyed float store on `Brush` targeted by codegen for non-member uniforms.
-  Design sketch (agreed with user):
+  Shipped as designed below, with two implementation refinements: (a)
+  `createExtraBrush` takes a `Brush &` parameter and seeds the store itself
+  (`ensureExtraUniformDefaults` grows-and-seeds the tail only, so values set
+  before command creation survive); (b) member-vs-store classification is the
+  shared `fieldUsesStore` helper (emit_cpp.h), used by both the per-kernel cpp
+  emit (`sbrushc --extras`) and the registry slot assignment. Conflicting DSL
+  defaults for a shared store name are a registry error. See "Extra kernel
+  dirs" in `brush_compute.md`. Original design sketch:
   - `Brush` gains only `util::Vector<float> namedFloats` + inline slot accessors;
     the registry generator dedupes store-uniform names across extras and assigns
     dense slot indices (`inline constexpr int`), so the vertex stage reads

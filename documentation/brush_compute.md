@@ -207,11 +207,18 @@ node make.mjs configure|build|bundle --kernels-extra <dir>    # repeatable; the 
   vs `@brush("featurealign")`).
 - **cpp/CPU only**: extras compile through the reference C++ backend only; no
   WGSL/SPIR-V/CUDA outputs, so no GPU stroke dispatch for extras.
-- **Uniforms must be existing `Brush` members**: `uniform` / non-builtin
-  `ctx` fields lower to `ctx.brush.<name>` (brush.h). An extra kernel cannot
-  introduce new uniforms — an unknown name fails the C++ compile of its
-  generated header, which is the intended build-time error. New tunables need
-  an engine-side `Brush` member first.
+- **Uniforms are member-backed or store-backed**: names listed in
+  `Brush::builtinPropNames` (brush.h — the hand-maintained member registry,
+  consulted by `sbrushc` at generation time) lower to `ctx.brush.<name>` as
+  members; any *other scalar float* uniform in an extra kernel gets a dense
+  per-build slot in the `Brush.namedFloats` store (`kExtraSlot_<name>`,
+  assigned by the registry, DSL defaults seeded at command creation via the
+  generated `ensureExtraUniformDefaults`; the manifest reports the slot in
+  `storeSlot`, and callers write it with `Brush::setNamedFloat`). Non-float
+  uniforms still need an engine-side member. Built-in kernels never use the
+  store — for them an unlisted name is a codegen error, which keeps
+  `builtinPropNames` honest. Kernels sharing a store-uniform name share the
+  slot, so their DSL defaults must agree (registry error otherwise).
 - **No executor pre-pass coupling**: kernels that rely on hand-written
   executor pre-passes (enhance / featurealign style) can't be authored as
   extras; the vertex/face stages plus `for_neighbor` (which auto-selects

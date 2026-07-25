@@ -318,6 +318,48 @@ struct Brush {
     }
   }
 
+  // Name-keyed float store for extra (out-of-repo) kernel uniforms that have
+  // no Brush member. Slots are per-build, assigned by the extras registry
+  // (kExtraSlot_<name> in sculptcore_extra_brushes.gen.h); kernels read
+  // namedFloats[slot] directly. ensureExtraUniformDefaults (generated) seeds
+  // DSL defaults for the tail it grows — setNamedFloat never re-defaults.
+  litestl::util::Vector<float> namedFloats;
+
+  void setNamedFloat(int slot, float v)
+  {
+    if (slot < 0) {
+      return;
+    }
+    while ((int)namedFloats.size() <= slot) {
+      namedFloats.append(0.0f);
+    }
+    namedFloats[slot] = v;
+  }
+  float getNamedFloat(int slot)
+  {
+    return (slot >= 0 && slot < (int)namedFloats.size()) ? namedFloats[slot] : 0.0f;
+  }
+
+  /** The uniform/ctx names that lower to Brush *members* (`ctx.brush.<name>`).
+   * sbrushc calls this at generation time: listed names take the member path;
+   * for extra kernels an unlisted float uniform takes a namedFloats slot, and
+   * for built-in kernels it is a codegen error — which keeps this list honest,
+   * since every member a built-in kernel reads must appear here to compile. */
+  static void builtinPropNames(litestl::util::Vector<litestl::util::string> &out)
+  {
+    for (const char *n : {
+             "strength",    "radius",      "spacing",     "planeoff",
+             "planeSide",   "autosmooth",  "invert",      "strokeDir",
+             "wingAngle",   "wingNormalA", "wingNormalB", "activeGroup",
+             "brushColor",  "mixMode",     "mu",          "nu",
+             "pinch",       "projection",  "rake",        "grabFrom",
+             "grabTo",      "poseCageRest", "poseCageNow",
+         })
+    {
+      out.append(litestl::util::string(n));
+    }
+  }
+
   static litestl::binding::types::Struct<Brush> *defineBindings()
   {
     using namespace litestl::binding;
@@ -367,6 +409,8 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, coord_space);
     BIND_STRUCT_MEMBER(st, tex_repeat);
     BIND_STRUCT_MEMBER(st, props);
+    BIND_STRUCT_METHOD(st, setNamedFloat, MARGS("slot", "value"));
+    BIND_STRUCT_METHOD(st, getNamedFloat, MARGS("slot"));
     BIND_STRUCT_METHOD(st, setFalloffCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, setCavityCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, setTexture, MARGS("width", "height", "pixels"));

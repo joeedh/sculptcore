@@ -54,6 +54,9 @@ struct BrushUniformManifestEntry {
   bool hasRange = false;   // DSL `@range(min, max)` present, Wave 1
   float rangeMin = 0.0f;
   float rangeMax = 0.0f;
+  // Extra-kernel store uniforms: Brush.namedFloats index, set via
+  // setNamedFloat(slot, v). -1 = backed by a Brush member (the default).
+  int storeSlot = -1;
 
   // Bound read-only so the TS bridge (Wave 5) can enumerate the active brush's
   // manifest by index and read each entry's name/range/dynamic flag. Returned
@@ -74,6 +77,7 @@ struct BrushUniformManifestEntry {
     BIND_STRUCT_MEMBER(st, hasRange);
     BIND_STRUCT_MEMBER(st, rangeMin);
     BIND_STRUCT_MEMBER(st, rangeMax);
+    BIND_STRUCT_MEMBER(st, storeSlot);
     return st;
   }
 };

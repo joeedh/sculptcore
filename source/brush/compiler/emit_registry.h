@@ -6,12 +6,21 @@
 
 namespace sculptcore::brush::sbrush {
 
+/** A scalar-float uniform resolved to the Brush.namedFloats store (not
+ * member-backed); the registry dedupes these by name across all extras and
+ * assigns dense kExtraSlot_<name> indices. */
+struct StoreUniform {
+  string name;
+  double def = 0.0; // DSL `= <n>` default (0 when absent)
+};
+
 /** One parsed extra kernel, in id order (id = SculptBrushesBuiltinCount + index). */
 struct RegistryEntry {
   string stem;     // input filename minus extension; includes <stem>.brush.gen.h
   string attrName; // @brush("name")
   string cppName;  // brush <CppName> { ... }; factory is create<CppName>Brush
   bool usesNeighbor = false;
+  Vector<StoreUniform> storeUniforms;
 };
 
 struct RegistryResult {

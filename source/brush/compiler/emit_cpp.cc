@@ -1,5 +1,8 @@
 #include "emit_cpp.h"
 #include "../kernels/ir/intrinsics.h"
+// The engine-side Brush struct: sbrushc consults Brush::builtinPropNames at
+// generation time to split member-backed uniforms from named-store slots.
+#include "brush/brush.h"
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -10,10 +13,47 @@ using litestl::util::string;
 using litestl::util::stringref;
 using litestl::util::Vector;
 
+bool isCtxBaseName(const char *n)
+{
+  return (std::strcmp(n, "mouse") == 0) || (std::strcmp(n, "mousePos") == 0) ||
+         (std::strcmp(n, "surfacePos") == 0) || (std::strcmp(n, "surfaceNo") == 0) ||
+         (std::strcmp(n, "mouseDir") == 0) || (std::strcmp(n, "renderMatrix") == 0) ||
+         (std::strcmp(n, "isFirstOfStep") == 0) || (std::strcmp(n, "meshLog") == 0);
+}
+
+bool isMemberBackedName(const char *name)
+{
+  static Vector<string> names = [] {
+    Vector<string> v;
+    ::sculptcore::brush::Brush::builtinPropNames(v);
+    return v;
+  }();
+  for (const auto &n : names) {
+    if (n == string(name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool fieldUsesStore(const Field &f)
+{
+  if (f.kind == FieldKind::Attr) {
+    return false;
+  }
+  if (f.kind == FieldKind::Ctx && isCtxBaseName(f.name.c_str())) {
+    return false;
+  }
+  return !isMemberBackedName(f.name.c_str());
+}
+
 namespace {
 
 struct Emit {
   const Brush *brush;
+  // Extra (out-of-repo) kernel: store-classified uniforms lower to
+  // namedFloats slots instead of erroring (see CppEmitOptions).
+  bool extrasMode = false;
   const Stage *vertexStage = nullptr;
   const Stage *faceStage = nullptr;
   string vertexParamName; // e.g. "v"
@@ -287,25 +327,25 @@ struct Emit {
         // to extend CommandCtxBase. The exception is the hardcoded
         // CommandCtxBase members (surfacePos, surfaceNo, mouse, …),
         // which keep the legacy `ctx.<name>` spelling.
-        const char *n = e.name.c_str();
-        bool isCtxBase =
-            (std::strcmp(n, "mouse") == 0) || (std::strcmp(n, "mousePos") == 0) ||
-            (std::strcmp(n, "surfacePos") == 0) || (std::strcmp(n, "surfaceNo") == 0) ||
-            (std::strcmp(n, "mouseDir") == 0) || (std::strcmp(n, "renderMatrix") == 0) ||
-            (std::strcmp(n, "isFirstOfStep") == 0) || (std::strcmp(n, "meshLog") == 0);
+        //
         // Host stages take `(CommandCtxBase &ctx, Brush &brush)` — there
         // is no `ctx.brush`, so uniforms/non-builtin ctx fields resolve
         // to bare `brush.X` instead. Builtin ctx-base fields still go
-        // through `ctx.X` either way.
+        // through `ctx.X` either way. Extra-kernel store uniforms read
+        // their registry-assigned namedFloats slot.
+        bool isCtxBase = isCtxBaseName(e.name.c_str());
         bool inHost = (currentStage && currentStage->kind == StageKind::Host);
         if (f->kind == FieldKind::Ctx && isCtxBase) {
           out += "ctx.";
-        } else if (inHost) {
-          out += "brush.";
+          out += e.name;
+        } else if (extrasMode && fieldUsesStore(*f)) {
+          out += inHost ? "brush.namedFloats[kExtraSlot_" : "ctx.brush.namedFloats[kExtraSlot_";
+          out += e.name;
+          out += "]";
         } else {
-          out += "ctx.brush.";
+          out += inHost ? "brush." : "ctx.brush.";
+          out += e.name;
         }
-        out += e.name;
       } else {
         // Could be an intrinsic referenced without a call — treat as bare
         // identifier and let the C++ compiler catch it.
@@ -1599,6 +1639,10 @@ struct Emit {
       write(floatLit(f.hasRange ? f.rangeMin : 0.0));
       write(", ");
       write(floatLit(f.hasRange ? f.rangeMax : 0.0));
+      if (extrasMode && fieldUsesStore(f)) {
+        write(", kExtraSlot_");
+        write(f.name); // storeSlot (-1 default for member-backed entries)
+      }
       write("});\n");
     }
     // Generated prop wiring: register this kernel's scalar-float uniforms as
@@ -1629,6 +1673,18 @@ struct Emit {
       if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float || !f.dynamicCapable)
         continue;
       double def = f.hasDefault ? f.defaultValue : 0.0;
+      if (extrasMode && fieldUsesStore(f)) {
+        // Store uniforms resolve dynamics into their slot (setNamedFloat
+        // sizes defensively; ensureExtraUniformDefaults ran at creation).
+        write("    brush.setNamedFloat(kExtraSlot_");
+        write(f.name);
+        write(", brush.props.lookupValue<float>(\"");
+        write(f.name);
+        write("\", ");
+        write(floatLit(def));
+        write(", ctx));\n");
+        continue;
+      }
       write("    brush.");
       write(f.name);
       write(" = brush.props.lookupValue<float>(\"");
@@ -1646,10 +1702,42 @@ struct Emit {
 
 } // namespace
 
-EmitResult emitCpp(const Brush &brush)
+EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts)
 {
   Emit em;
   em.brush = &brush;
+  em.extrasMode = opts.extras;
+
+  // Uniform resolution gate. Built-in kernels: every uniform / non-builtin
+  // ctx field must be member-backed (Brush::builtinPropNames) — the honesty
+  // tripwire that keeps the list in sync with what kernels read. Extra
+  // kernels: unlisted scalar floats fall through to the named store; any
+  // other unlisted type still needs an engine-side member.
+  for (const auto &f : brush.fields) {
+    if (!fieldUsesStore(f)) {
+      continue;
+    }
+    char buf[256];
+    if (!opts.extras) {
+      std::snprintf(buf, sizeof(buf),
+                    "uniform '%s' does not resolve to a Brush member — add the member "
+                    "and list it in Brush::builtinPropNames (brush.h)",
+                    f.name.c_str());
+      em.errors.append(string(buf));
+    } else if (f.type != TypeKind::Float) {
+      std::snprintf(buf, sizeof(buf),
+                    "extra kernel uniform '%s': only scalar floats can use the named "
+                    "store; a %s uniform needs an existing Brush member",
+                    f.name.c_str(), typeKindName(f.type));
+      em.errors.append(string(buf));
+    }
+  }
+  if (em.errors.size() > 0) {
+    EmitResult r;
+    r.errors = std::move(em.errors);
+    return r;
+  }
+
   for (const auto &st : brush.stages) {
     if (st.kind == StageKind::Vertex) {
       em.vertexStage = &st;

@@ -35,6 +35,8 @@ struct Args {
   litestl::util::string outPath;
   bool dryRun = false;
   bool dumpTokens = false;
+  // Extra (out-of-repo) kernel: unlisted float uniforms use the named store.
+  bool extras = false;
   // --registry mode (extra-kernel registry generation).
   bool registry = false;
   litestl::util::string outDir;
@@ -49,6 +51,8 @@ void printUsage()
     "Usage: sbrushc --backend=<cpp|wgsl|spirv|cuda|hip|opencl> --in=<input.sbrush> --out=<output>\n"
     "  --dry-run     do not write output\n"
     "  --dump-tokens print token stream and exit\n"
+    "  --extras      extra (out-of-repo) kernel: unlisted float uniforms use the\n"
+    "                Brush.namedFloats store instead of erroring (cpp backend)\n"
     "Registry mode (extra-kernel enum/factory registration):\n"
     "  sbrushc --registry --out-dir=<dir> --in=<extra.sbrush>...\n"
     "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n");
@@ -65,6 +69,7 @@ bool parseArgs(int argc, char **argv, Args &out)
     else if (std::strncmp(a, "--builtin=", 10) == 0) out.builtinPaths.append(a + 10);
     else if (std::strncmp(a, "--reserved=", 11) == 0) out.reserved = a + 11;
     else if (std::strcmp(a, "--registry") == 0) out.registry = true;
+    else if (std::strcmp(a, "--extras") == 0) out.extras = true;
     else if (std::strcmp(a, "--dry-run") == 0) out.dryRun = true;
     else if (std::strcmp(a, "--dump-tokens") == 0) out.dumpTokens = true;
     else if (std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0) {
@@ -199,6 +204,16 @@ int runRegistryMode(const Args &args)
     e.attrName = brush->attrName;
     e.cppName = brush->cppName;
     e.usesNeighbor = brushUsesNeighborLoop(*brush);
+    for (const auto &f : brush->fields) {
+      // Scalar floats not backed by a Brush member take namedFloats slots;
+      // non-float unlisted uniforms are rejected by the per-kernel cpp emit.
+      if (f.type == TypeKind::Float && fieldUsesStore(f)) {
+        StoreUniform su;
+        su.name = f.name;
+        su.def = f.hasDefault ? f.defaultValue : 0.0;
+        e.storeUniforms.append(su);
+      }
+    }
     extras.append(e);
   }
 
@@ -273,7 +288,9 @@ int main(int argc, char **argv)
   litestl::util::string backend = args.backend;
   EmitResult er;
   if (litestl::util::string(backend.c_str()) == litestl::util::string("cpp")) {
-    er = emitCpp(*brush);
+    CppEmitOptions cppOpts;
+    cppOpts.extras = args.extras;
+    er = emitCpp(*brush, cppOpts);
   } else if (litestl::util::string(backend.c_str()) == litestl::util::string("wgsl") ||
              litestl::util::string(backend.c_str()) == litestl::util::string("spirv")) {
     // SPIR-V is reached by lowering the WGSL through tint (--format=spirv);

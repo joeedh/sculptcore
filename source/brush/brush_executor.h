@@ -475,7 +475,7 @@ struct CommandExecutor {
       // Extra (out-of-repo) kernels dispatch through the generated registry;
       // a no-op fallback compiles in when no extra kernel dirs are configured.
       if (command::createExtraBrush<CommandExecutor, AccMode>(
-              int(brushType), effectiveNeighborMode() == NeighborMode::Csr, def)) {
+              int(brushType), effectiveNeighborMode() == NeighborMode::Csr, *brush, def)) {
         return;
       }
       printf("Unknown brush type %d\n", static_cast<int>(brushType));

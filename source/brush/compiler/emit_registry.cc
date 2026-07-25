@@ -52,6 +52,25 @@ string itoa(int v)
   return string(std::to_string(v).c_str());
 }
 
+string floatLit(double v)
+{
+  char buf[64];
+  std::snprintf(buf, sizeof(buf), "%.17g", v);
+  bool hasDot = false;
+  for (const char *p = buf; *p; p++) {
+    if (*p == '.' || *p == 'e' || *p == 'E') {
+      hasDot = true;
+      break;
+    }
+  }
+  string s(buf);
+  if (!hasDot) {
+    s += ".0";
+  }
+  s += "f";
+  return s;
+}
+
 } // namespace
 
 RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
@@ -105,6 +124,30 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
     }
   }
 
+  // Named-float store slots: dedupe store uniforms by name across all extras
+  // (first-appearance order → dense per-build indices). Two kernels sharing a
+  // name share the slot, so their DSL defaults must agree.
+  Vector<StoreUniform> slots;
+  for (const auto &e : extras) {
+    for (const auto &su : e.storeUniforms) {
+      bool found = false;
+      for (const auto &s : slots) {
+        if (s.name == su.name) {
+          found = true;
+          if (s.def != su.def) {
+            err(string("store uniform \"") + su.name + "\" is declared with conflicting "
+                "defaults in two extra kernels (shared name = shared slot; align the "
+                "`= <n>` defaults or rename one)");
+          }
+          break;
+        }
+      }
+      if (!found) {
+        slots.append(su);
+      }
+    }
+  }
+
   if (r.errors.size() > 0) {
     return r;
   }
@@ -135,6 +178,44 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
   if (anyNeighbor) {
     h += "#include \"brush/neighbor_source.h\"\n";
   }
+  h += "\n";
+  // Named-float store slots — declared before the kernel includes because the
+  // kernel templates reference kExtraSlot_<name> as a non-dependent name.
+  h += "namespace sculptcore::brush {\n\n";
+  h += string("inline constexpr int extraNamedFloatCount = ") + itoa((int)slots.size()) +
+       ";\n";
+  for (int i = 0; i < (int)slots.size(); i++) {
+    h += string("inline constexpr int kExtraSlot_") + slots[i].name + " = " + itoa(i) +
+         ";\n";
+  }
+  if (slots.size() > 0) {
+    h += string("inline constexpr float kExtraNamedFloatDefaults[") +
+         itoa((int)slots.size()) + "] = {";
+    for (int i = 0; i < (int)slots.size(); i++) {
+      if (i) {
+        h += ", ";
+      }
+      h += floatLit(slots[i].def);
+    }
+    h += "};\n";
+  }
+  h += "\n";
+  h += "/** Size the store and seed DSL defaults for the tail being grown —\n";
+  h += " * already-present slots are never rewritten, so values set before the\n";
+  h += " * first command creation (setNamedFloat) survive. */\n";
+  h += "inline void ensureExtraUniformDefaults(Brush &b)\n{\n";
+  if (slots.size() > 0) {
+    h += "  int old = (int)b.namedFloats.size();\n";
+    h += "  if (old >= extraNamedFloatCount) {\n    return;\n  }\n";
+    h += "  while ((int)b.namedFloats.size() < extraNamedFloatCount) {\n";
+    h += "    b.namedFloats.append(0.0f);\n  }\n";
+    h += "  for (int i = old; i < extraNamedFloatCount; i++) {\n";
+    h += "    b.namedFloats[i] = kExtraNamedFloatDefaults[i];\n  }\n";
+  } else {
+    h += "  (void)b;\n";
+  }
+  h += "}\n\n";
+  h += "} // namespace sculptcore::brush\n\n";
   for (const auto &e : extras) {
     h += string("#include \"") + e.stem + ".brush.gen.h\"\n";
   }
@@ -159,17 +240,19 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
   h += "namespace sculptcore::brush::command {\n\n";
   h += "/** Dispatch an extra-brush id to its generated factory. Returns false when\n";
   h += " * `id` is not an extra brush (the caller falls through to its own error\n";
-  h += " * path). for_neighbor kernels select CsrNbr/LiveDiskNbr like SMOOTH. */\n";
+  h += " * path). for_neighbor kernels select CsrNbr/LiveDiskNbr like SMOOTH; the\n";
+  h += " * named-float store is sized + default-seeded per command creation. */\n";
   h += "template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>\n";
-  h += "inline bool createExtraBrush(int id, bool csrNeighbors,\n";
+  h += "inline bool createExtraBrush(int id, bool csrNeighbors, sculptcore::brush::Brush &brush,\n";
   h += "                             BrushCommandDef<CommandCtx<TYPES>> &def)\n";
   h += "{\n";
   if (!anyNeighbor) {
     h += "  (void)csrNeighbors;\n";
   }
   if (extras.size() == 0) {
-    h += "  (void)id;\n  (void)def;\n  return false;\n";
+    h += "  (void)id;\n  (void)brush;\n  (void)def;\n  return false;\n";
   } else {
+    h += "  ensureExtraUniformDefaults(brush);\n";
     h += "  switch (id - SculptBrushesBuiltinCount) {\n";
     for (int i = 0; i < (int)extras.size(); i++) {
       const RegistryEntry &e = extras[i];

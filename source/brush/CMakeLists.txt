@@ -95,7 +95,7 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP AND SCULPTCORE_EXTRA_KERNEL_DIRS)
     set(OUT "${SB_EXTRA_GEN_DIR}/${STEM}.brush.gen.h")
     add_custom_command(
       OUTPUT "${OUT}"
-      COMMAND $<TARGET_FILE:sbrushc> --backend=cpp --in=${SRC} --out=${OUT}
+      COMMAND $<TARGET_FILE:sbrushc> --backend=cpp --extras --in=${SRC} --out=${OUT}
       DEPENDS sbrushc ${SRC}
       COMMENT "sbrush extra: ${STEM}.brush.gen.h"
       VERBATIM)
