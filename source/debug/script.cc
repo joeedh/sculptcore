@@ -1352,8 +1352,11 @@ bool execVerb(Scene &scene,
         }
       }
       exec.endStep();
-      scene.tree->update(&scene.gpu);
     }
+    // Both backends: the stroke verb leaves the tree current. The GPU path only
+    // flags its touched nodes (normals/GPU/bounds) in session.end(), so without
+    // this its normals stay stale.
+    scene.tree->update(&scene.gpu);
     multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
@@ -1512,8 +1515,9 @@ bool execVerb(Scene &scene,
         exec.endDynTopoStroke();
       }
       exec.endStep();
-      scene.tree->update(&scene.gpu);
     }
+    // Both backends leave the tree current (see the stroke verb).
+    scene.tree->update(&scene.gpu);
     multiresStrokeEnd(scene);
 
     scene.lastStroke.valid = true;
