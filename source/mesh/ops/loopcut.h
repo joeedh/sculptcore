@@ -57,7 +57,7 @@ static inline void loopCut(Mesh &m,
   for (int e : ring) {
     int va = m.e.vs[e][0], vb = m.e.vs[e][1];
     int mid = m.make_vertex((m.v.co[va] + m.v.co[vb]) * 0.5f, cb);
-    interpAttrs(m.v.attrs, mid, va, vb, 0.5f);
+    interpAttrs(m.v.attrs, mid, va, vb, 0.5f, &m);
     emap.insert(e, mid);
     outVerts.append(mid);
   }

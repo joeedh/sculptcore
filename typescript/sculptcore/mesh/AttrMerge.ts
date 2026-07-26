@@ -1,10 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {AttrType} from './AttrType'
-import type {AttrMerge} from './AttrMerge'
-import type {AttrData} from './AttrData'
-import type {AttrUse} from './AttrUse'
-import type {AttrFlag} from './AttrFlag'
-
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -21,12 +15,9 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface AttrRef {
-  [Symbol.dispose](): void
-  name: string
-  type: AttrType
-  flag: AttrFlag
-  use: AttrUse
-  merge: AttrMerge
-  data: AttrData<float> | AttrData<int32> | AttrData<uint8> | AttrData<int16>
+export enum AttrMerge {
+  Default = 0,
+  CopySrc0 = 1,
+  None = 2,
+  Custom = 3,
 }

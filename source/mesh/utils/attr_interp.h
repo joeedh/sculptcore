@@ -12,9 +12,15 @@
  *   - TOPO-flagged columns (disk/radial link indices) are NEVER touched —
  *     they are owned by the Euler operators; blending one splices the
  *     element into the wrong cycle and corrupts the mesh.
+ *
+ * That is only the DEFAULT rule; a layer can select another via its AttrMerge
+ * policy (mesh/attr_merge.h), which is what the generation-guarded brush
+ * snapshot columns and `.slayer.rest` use.
  */
 
+#include "../attr_merge.h"
 #include "../attribute.h"
+#include "../mesh.h"
 
 #include <cstring>
 #include <type_traits>
@@ -148,9 +154,12 @@ static inline void interpAttrRows(AttrGroup &grp,
     const AttrRowSnapshot::Cell &c0 = s0.cells[i];
     const AttrRowSnapshot::Cell &c1 = (i < int(s1.cells.size())) ? s1.cells[i] : c0;
     i++;
-    if (!c0.present) {
+    if (!c0.present || attr.merge == AttrMerge::NONE) {
       continue;
     }
+    /* Both sources are captured rows, not live elements, so a CUSTOM handler has
+     * nothing to inspect here — it falls back to the generic rule. */
+    const bool copy_src0 = attr.merge == AttrMerge::COPY_SRC0;
     if (attr.type == AttrType::BOOL) {
       BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
       if (view) {
@@ -158,7 +167,7 @@ static inline void interpAttrRows(AttrGroup &grp,
       }
       continue;
     }
-    detail::type_dispatch(attr.type, [&attr, &c0, &c1, &t, &dst]<typename T>() {
+    detail::type_dispatch(attr.type, [&attr, &c0, &c1, &t, &dst, copy_src0]<typename T>() {
       auto *data = static_cast<AttrData<T> *>(attr.data);
       if (!data) {
         return;
@@ -166,6 +175,10 @@ static inline void interpAttrRows(AttrGroup &grp,
       data->materialize(dst); // dst's page may be lazily unmaterialized
       T a;
       std::memcpy(static_cast<void *>(&a), c0.bytes, sizeof(T));
+      if (copy_src0) {
+        (*data)[dst] = a;
+        return;
+      }
       if constexpr (std::is_floating_point_v<T>) {
         T b;
         std::memcpy(static_cast<void *>(&b), c1.bytes, sizeof(T));
@@ -186,8 +199,40 @@ static inline void interpAttrRows(AttrGroup &grp,
   }
 }
 
-static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, float t)
+/**
+ * Merge every layer of `dst` from `src0`/`src1` with weights (1-t)/t, each
+ * according to its AttrMerge policy (attr_merge.h).
+ *
+ * `mesh` lets CUSTOM handlers see the sources' live position/normal and must be
+ * passed by any caller whose elements belong to it; `merged_co` is dst's final
+ * position when the operator places it somewhere other than the lerp of the
+ * sources (edge collapse). Omitting either only costs handler fidelity — those
+ * layers fall back to the DEFAULT rule.
+ */
+static inline void interpAttrs(AttrGroup &grp,
+                               int dst,
+                               int src0,
+                               int src1,
+                               float t,
+                               Mesh *mesh = nullptr,
+                               const math::float3 *merged_co = nullptr)
 {
+  AttrMergeCtx ctx;
+  ctx.mesh = mesh;
+  ctx.grp = &grp;
+  ctx.dst = dst;
+  ctx.src0 = src0;
+  ctx.src1 = src1;
+  ctx.t = t;
+  ctx.merged_co = merged_co;
+  if (mesh && &grp == &mesh->v.attrs) {
+    ctx.src_co[0] = mesh->v.co[src0];
+    ctx.src_co[1] = mesh->v.co[src1];
+    ctx.src_no[0] = mesh->v.no[src0];
+    ctx.src_no[1] = mesh->v.no[src1];
+    ctx.have_live = true;
+  }
+
   for (AttrRef &attr : grp.attrs) {
     /* Topology links are indices, not interpolable data; NOINTERP attrs (e.g.
      * .spatial.{v,f}.node) are derived state owned by the spatial tree — copying
@@ -195,41 +240,22 @@ static inline void interpAttrs(AttrGroup &grp, int dst, int src0, int src1, floa
     if (attr.flag & (AttrFlag::TOPO | AttrFlag::NOINTERP)) {
       continue;
     }
-    if (attr.type == AttrType::BOOL) {
-      BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
-      if (view) {
-        view->set(dst, (*view)[src0]);
-      }
+    switch (attr.merge) {
+    case AttrMerge::NONE:
       continue;
-    }
-
-    detail::type_dispatch(attr.type, [&]<typename T>() {
-      if constexpr (std::is_same_v<T, bool>) {
-        return;
-      } else {
-        auto *data = static_cast<AttrData<T> *>(attr.data);
-        if (!data) {
-          return;
-        }
-        // Lazily-paged attrs (.brush.orig.*): sources may sit in unmaterialized
-        // pages (read as the page default) and dst's page may not exist yet.
-        T a = data->safe_get(src0);
-        T b = data->safe_get(src1);
-        data->materialize(dst);
-        if constexpr (std::is_floating_point_v<T>) {
-          (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
-        } else if constexpr (requires { typename T::value_type; }) {
-          using Scalar = typename T::value_type;
-          if constexpr (std::is_floating_point_v<Scalar>) {
-            (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
-          } else {
-            (*data)[dst] = a; /* integer vector: copy */
-          }
-        } else {
-          (*data)[dst] = a; /* int / byte / short: copy */
-        }
+    case AttrMerge::COPY_SRC0:
+      defaultMerge(attr, ctx, /*copy_src0=*/true);
+      continue;
+    case AttrMerge::CUSTOM:
+      if (attr.merge_fn) {
+        attr.merge_fn(attr, ctx);
+        continue;
       }
-    });
+      break; /* policy declared but no handler installed: use the generic rule */
+    case AttrMerge::DEFAULT:
+      break;
+    }
+    defaultMerge(attr, ctx);
   }
 }
 

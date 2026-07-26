@@ -218,7 +218,7 @@ static inline void subdivFillFace(Mesh &m,
         int m0 = Mid(0, r), m1 = Mid(1, r);
         math::float3 cc = (m.v.co[m0] + m.v.co[m1]) * 0.5f;
         int vc = m.make_vertex(cc, cb);
-        interpAttrs(m.v.attrs, vc, m0, m1, 0.5f);
+        interpAttrs(m.v.attrs, vc, m0, m1, 0.5f, &m);
         face4(C(0, r), m0, vc, C(3, r));
         face4(m0, C(1, r), m1, vc);
         face4(m1, C(2, r), C(3, r), vc);
@@ -303,7 +303,7 @@ static inline void subdivideEdges(Mesh &m,
       float t = float(k) / float(numCuts + 1);
       math::float3 co = m.v.co[va] * (1.0f - t) + m.v.co[vb] * t;
       int cv = m.make_vertex(co, cb);
-      interpAttrs(m.v.attrs, cv, va, vb, t);
+      interpAttrs(m.v.attrs, cv, va, vb, t, &m);
       cuts.append(cv);
       outVerts.append(cv);
     }

@@ -313,12 +313,25 @@ static const binding::types::Union *BindAttrData()
   return u;
 }
 
+struct AttrRef;
+struct AttrMergeCtx;
+
+/** A CUSTOM merge handler (see attr_merge.h). Handlers own dst entirely,
+ * including any sibling guard column they key off. */
+using AttrMergeFn = void (*)(AttrRef &attr, const AttrMergeCtx &ctx);
+
 struct AttrRef {
   AttrDataBase *data = nullptr;
   string name;
   AttrType type;
   AttrFlag flag;
   AttrUse use = AttrUse::NONE;
+  AttrMerge merge = AttrMerge::DEFAULT;
+  AttrMergeFn merge_fn = nullptr;
+  /* Handler-owned cache of a sibling layer's index in the same group (see
+   * siblingLayer); -1 = unresolved. Revalidated by name, so a layer add/remove
+   * between merges is safe. */
+  int merge_aux = -1;
 
   static binding::types::Struct<AttrRef> *defineBindings()
   {
@@ -331,6 +344,7 @@ struct AttrRef {
     BIND_STRUCT_MEMBER(st, type);
     BIND_STRUCT_MEMBER(st, flag);
     BIND_STRUCT_MEMBER(st, use);
+    BIND_STRUCT_MEMBER(st, merge);
     st->add("data", offsetof(AttrRef, data), BindAttrData());
     // auto *e = BindAttrTypes();
     // st->add("type", offsetof(AttrRef, type), e);
@@ -354,7 +368,8 @@ struct AttrRef {
   }
 
   AttrRef(const AttrRef &b)
-      : name(b.name), type(b.type), data(b.data), flag(b.flag), use(b.use)
+      : name(b.name), type(b.type), data(b.data), flag(b.flag), use(b.use),
+        merge(b.merge), merge_fn(b.merge_fn), merge_aux(b.merge_aux)
   {
   }
 
@@ -377,6 +392,17 @@ struct AttrRef {
     return static_cast<AttrData<float> *>(data);
   }
 };
+
+struct AttrMergePolicy {
+  AttrMerge merge = AttrMerge::DEFAULT;
+  AttrMergeFn fn = nullptr;
+};
+
+/** The merge policy for a builtin layer, keyed by (type, name) — the same
+ * name-keyed-builtin-policy shape as mesh_serialize.cc's mandatoryBuiltinFlags,
+ * so a layer rebuilt by `buildDomain` on load gets its policy back for free.
+ * Defined in attr_merge.cc; user layers get AttrMerge::DEFAULT. */
+AttrMergePolicy resolveMergePolicy(AttrType type, const string &name);
 
 namespace detail {
 template <typename Lambda> void type_dispatch(AttrType type, Lambda callback)
@@ -712,6 +738,9 @@ struct AttrGroup {
 
     detail::type_dispatch(type, [&]<typename T>() {
       AttrRef attr(type, name);
+      AttrMergePolicy pol = resolveMergePolicy(type, name);
+      attr.merge = pol.merge;
+      attr.merge_fn = pol.fn;
 
       if constexpr (!std::is_same_v<T, bool>) {
         AttrData<T> *data = alloc::New<AttrData<T>>("AttrData", name, capacity_);

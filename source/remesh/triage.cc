@@ -437,7 +437,7 @@ void fillInputHoles(Mesh &m, float max_frac, TriageReport &report)
         cen += m.v.co[loop[i]];
       cen *= 1.0f / float(n);
       int nc = m.make_vertex(cen);
-      mesh::interpAttrs(m.v.attrs, nc, loop[0], loop[0], 0.0f);
+      mesh::interpAttrs(m.v.attrs, nc, loop[0], loop[0], 0.0f, &m);
       m.v.co[nc] = cen;
       for (int i = 0; i < n; i++) {
         fan.clear();

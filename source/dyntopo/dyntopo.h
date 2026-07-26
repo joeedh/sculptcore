@@ -694,10 +694,10 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
 
   /* Non-accumulate coherence (plans/nonAccumMode.md). When this dab is part of a
    * non-accumulate stroke (p.nonAccumGen != 0), the brush command owns the
-   * stroke-start snapshot attrs; look them up (non-creating) so the smooth /
-   * collapse ops below can shift a stamped vert's snapshot by the same delta they
-   * move the vert. Verts split/collapse creates are zero-defaulted by ElemData::
-   * alloc (gen 0 = unstamped), so they read live with no work here. */
+   * stroke-start snapshot attrs; look them up (non-creating) so the tangential
+   * smooth below can shift a stamped vert's snapshot by the same delta it moves
+   * the vert. Split/collapse instead merge the snapshot through the attribute
+   * layer itself (see attr_interp.h), which is why neither shifts it here. */
   mesh::AttrData<litestl::math::float3> *origCo = nullptr;
   mesh::AttrData<int> *origGen = nullptr;
   if (p.nonAccumGen != 0 && m.v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
@@ -1000,11 +1000,10 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         }
       } else {
         math::float3 mid = detail::edgeMid(m, c.edge);
-        /* The survivor (e.vs[0]) moves to `mid`; shift its stroke-start snapshot
-         * by the same delta so a non-accumulate brush keeps measuring from a
-         * coherent surface across the collapse (no-op unless stamped). */
-        int v_keep = m.e.vs[c.edge][0];
-        math::float3 keepOld = m.v.co[v_keep];
+        /* No snapshot shift here: collapseEdge already merges `.brush.orig.co`
+         * over both endpoints (blend=0.5), which is the stroke-start surface's
+         * own midpoint. Shifting again by the survivor's motion would add half
+         * the edge vector on top of it. */
         mesh::EdgeCollapseResult res;
         if (mesh::collapseEdge(m,
                                c.edge,
@@ -1016,7 +1015,6 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         {
           stats.collapses++;
           applied++;
-          shiftOrig(v_keep, mid - keepOld);
           addCreated(res.created_edges);
           if (p.max_collapses > 0 && stats.collapses >= p.max_collapses) {
             budgetHit = true;

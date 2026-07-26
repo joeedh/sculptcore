@@ -11,6 +11,7 @@ set(SRC
   PUBLIC attribute_bool.h
   PUBLIC attribute_builtin.h
   PUBLIC attribute_enums.h
+  PUBLIC attr_merge.h
   PUBLIC mesh.h
   PUBLIC mesh_enums.h
   PUBLIC mesh_base.h
@@ -31,6 +32,7 @@ set(SRC
   c-api/mesh_c_api.h
   c-api/mesh_c_api.cc
   attribute.cc
+  attr_merge.cc
   utils/select_derive.cc
   boundary.cc
   mesh_path.cc

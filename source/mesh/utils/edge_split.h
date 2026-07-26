@@ -147,7 +147,9 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
 
   /* Create the midpoint vertex and interpolate all vertex attrs. */
   int vm = m.make_vertex((m.v.co[v0] + m.v.co[v1]) * 0.5f, cb, v0);
-  interpAttrs(m.v.attrs, vm, v0, v1, 0.5f);
+  /* No merged_co: the midpoint IS the lerp of the endpoints, which is the
+   * assumption the default merge policy already encodes. */
+  interpAttrs(m.v.attrs, vm, v0, v1, 0.5f, &m);
 
   if (out) {
     out->new_vert = vm;

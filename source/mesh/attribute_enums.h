@@ -42,6 +42,25 @@ enum class _AttrFlag {
 MAKE_FLAGS_CLASS(AttrFlag, _AttrFlag, int);
 
 /**
+ * How a layer produces the value of an element a topological operator creates or
+ * merges from two sources (an edge split's midpoint, an edge collapse's
+ * survivor). Not a bitmask — one policy per layer.
+ *
+ * Stamped by name when the layer is created (`resolveMergePolicy`, attr_merge.cc),
+ * so it costs nothing in the file format and is re-derived on load.
+ */
+enum class AttrMerge : uint8_t {
+  /** Lerp float-backed columns; copy src0 for int/bool/byte/short. */
+  DEFAULT = 0,
+  /** Snap to the nearest source — copy src0 even for float-backed columns. */
+  COPY_SRC0,
+  /** Leave dst untouched. What AttrFlag::NOINTERP means, as a policy. */
+  NONE,
+  /** Dispatch through AttrRef::merge_fn (falls back to DEFAULT if unset). */
+  CUSTOM,
+};
+
+/**
  * Usage flags.
  * UNIT means attribute has unit values (0-1)
  * (which are mapped for numeric types, e.g. a
@@ -99,6 +118,19 @@ template <> struct Binder<sculptcore::mesh::AttrFlag> {
     e->addItem("NoInterp", static_cast<int>(AttrFlag::NOINTERP));
     e->addItem("TopoKeepFrozen", static_cast<int>(AttrFlag::TOPO_KEEP_FROZEN));
     e->addItem("Derived", static_cast<int>(AttrFlag::DERIVED));
+    return e;
+  }
+};
+
+template <> struct Binder<sculptcore::mesh::AttrMerge> {
+  static const types::Enum *bind()
+  {
+    using namespace sculptcore::mesh;
+    types::Enum *e = new types::Enum("sculptcore::mesh::AttrMerge", sizeof(AttrMerge));
+    e->addItem("Default", static_cast<int>(AttrMerge::DEFAULT));
+    e->addItem("CopySrc0", static_cast<int>(AttrMerge::COPY_SRC0));
+    e->addItem("None", static_cast<int>(AttrMerge::NONE));
+    e->addItem("Custom", static_cast<int>(AttrMerge::CUSTOM));
     return e;
   }
 };
