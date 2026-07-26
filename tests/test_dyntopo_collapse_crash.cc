@@ -289,6 +289,17 @@ int main()
   test_assert(gpuForward.size() == gpuRedo.size());
   test_assert(gpuDiff == 0);
 
+  /* With full-fan normals (skirt + halo), redo's recompute must land exactly on
+   * the forward stroke's spatial normals — not merely within the global-recalc
+   * yardstick below. */
+  float maxRedoVsForward = 0.0f;
+  for (int v : m->v) {
+    maxRedoVsForward =
+        std::max(maxRedoVsForward, (m->v.no[v] - spatialForward[v]).length());
+  }
+  printf("  redo vs forward normals: max=%g\n", maxRedoVsForward);
+  test_assert(maxRedoVsForward < 1e-5f);
+
   float maxRedoErr = 0.0f;
   int badNo = 0;
   for (int v : m->v) {

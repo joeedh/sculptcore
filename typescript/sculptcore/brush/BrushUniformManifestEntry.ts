@@ -25,5 +25,6 @@ export interface BrushUniformManifestEntry {
   hasRange: boolean
   rangeMin: float
   rangeMax: float
+  storeSlot: int32
   new (): BrushUniformManifestEntry
 }

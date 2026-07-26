@@ -28,6 +28,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -106,9 +112,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -285,6 +308,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -359,9 +388,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -537,6 +583,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -614,9 +666,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -756,6 +825,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -830,9 +905,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -963,6 +1055,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -1038,9 +1136,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1174,6 +1289,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -1253,9 +1374,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1465,6 +1603,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
   grabTo: vec3<f32>,
 };
 
@@ -1541,9 +1685,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1674,6 +1835,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -1748,9 +1915,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -1901,6 +2085,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -1975,9 +2165,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2109,6 +2316,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
   grabFrom: vec3<f32>,
   grabTo: vec3<f32>,
 };
@@ -2186,9 +2399,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2337,6 +2567,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -2412,9 +2648,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2547,6 +2800,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -2620,9 +2879,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2756,6 +3032,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -2830,9 +3112,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -2968,6 +3267,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -3042,9 +3347,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -3179,6 +3501,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -3376,6 +3704,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
   poseCageRest: array<vec3<f32>, 4>,
   poseCageNow: array<vec3<f32>, 4>,
 };
@@ -3451,9 +3785,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -3587,6 +3938,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -3661,9 +4018,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -3807,6 +4181,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -3884,9 +4264,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -4029,6 +4426,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
   grabFrom: vec3<f32>,
   grabTo: vec3<f32>,
 };
@@ -4105,9 +4508,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -4239,6 +4659,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
 };
 
 struct NodeMeta {
@@ -4313,9 +4739,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
@@ -4456,6 +4899,12 @@ struct CtxUniforms {
   surfacePos: vec3<f32>,
   surfaceNo: vec3<f32>,
   render_matrix: mat4x4<f32>,
+  view_dir: vec3<f32>,
+  vn_enabled: u32,
+  vn_limit: f32,
+  vn_falloff: f32,
+  vn_cull: u32,
+  _vn_pad: u32,
   strokeDir: vec3<f32>,
   wingNormalA: vec3<f32>,
   wingNormalB: vec3<f32>,
@@ -4533,9 +4982,26 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
+fn brush_view_normal(vid: u32) -> f32 {
+  if (ctx_u.vn_enabled == 0u) { return 1.0; }
+  let sb_no = no_buf[vid];
+  let sb_nl = length(sb_no);
+  let sb_vl = length(ctx_u.view_dir);
+  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }
+  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);
+  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }
+  sb_d = clamp(sb_d, -1.0, 1.0);
+  let sb_ang = acos(sb_d);
+  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }
+  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }
+  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;
+  if (sb_ang <= sb_ramp) { return 1.0; }
+  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
+}
+
 fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 

@@ -166,6 +166,20 @@ void packCtxUniforms(const Brush &brush, SculptBrushes tool, const float3 &origi
     }
   }
 
+  // View-normal automask params, resolved through the same automask.h seam the
+  // CPU strength() uses. Per-dab like the rest of the ctx block, so each
+  // symmetry image's dispatch carries its own reflected ray.
+  {
+    ViewNormalParams vp = viewNormalParamsFor(brush);
+    out.view_dir[0] = vp.view_dir[0];
+    out.view_dir[1] = vp.view_dir[1];
+    out.view_dir[2] = vp.view_dir[2];
+    out.vn_enabled = vp.enabled ? 1u : 0u;
+    out.vn_limit = vp.limit;
+    out.vn_falloff = vp.falloff;
+    out.vn_cull = vp.cull_backfaces ? 1u : 0u;
+  }
+
   // Global-brush ctx tail (offset 96): kelvinlet grab vectors or pose cage.
   if (tool == SculptBrushes::KELVINLET) {
     for (int i = 0; i < 3; i++) {
@@ -248,11 +262,11 @@ void packAutomask(mesh::Mesh &m, const Brush &brush, Vector<float> &out)
   int vcount = m.v.count;
   out.resize(size_t(vcount));
 
+  // Cavity only — the view-normal contributor is evaluated dynamically in the
+  // kernel (brush_view_normal, from the per-dab ctx uniforms + no_buf).
   // Identity when off: strength * 1.0 == strength keeps the GPU path bit-for-bit
   // equal to the CPU strength() that simply skips the multiply.
-  const bool useCavity = brush.automask_cavity;
-  const bool useViewNormal = brush.automask_view_normal;
-  if (!useCavity && !useViewNormal) {
+  if (!brush.automask_cavity) {
     for (int i = 0; i < vcount; i++) {
       out[i] = 1.0f;
     }
@@ -261,31 +275,22 @@ void packAutomask(mesh::Mesh &m, const Brush &brush, Vector<float> &out)
 
   // The BFS blur reads the ring1 CSR (live disk links). Thaw a frozen mesh once
   // at stroke start so the walk sees live links, mirroring the CPU executor.
-  // View-normal masking is topology-free and needs neither.
-  if (useCavity) {
-    if (m.topo_frozen) {
-      m.thawTopo();
-    }
-    m.topo_cache.ensureRing1(m);
+  if (m.topo_frozen) {
+    m.thawTopo();
   }
+  m.topo_cache.ensureRing1(m);
 
   CavityParams cp;
-  cp.enabled = useCavity;
+  cp.enabled = true;
   cp.blur_steps = brush.cavity_blur_steps;
   cp.factor = brush.cavity_factor;
   cp.inverted = brush.cavity_inverted;
   cp.use_curve = brush.cavity_use_curve;
   cp.curve_lut = brush.cavity_curve.data();
 
-  ViewNormalParams vp = viewNormalParamsFor(brush);
-
   CavityScratch scr;
   for (int i = 0; i < vcount; i++) {
-    float f = useCavity ? cavityFactor(&m, i, cp, scr) : 1.0f;
-    if (useViewNormal) {
-      f *= viewNormalFactor(m.v.no[i], vp);
-    }
-    out[i] = f;
+    out[i] = cavityFactor(&m, i, cp, scr);
   }
 }
 

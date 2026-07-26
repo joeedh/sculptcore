@@ -7,10 +7,14 @@
 // Part 2 drives a real draw stroke over a flat grid through the debug scene, so
 // the executor pre-fill and the strength() seam in the generated kernel are
 // exercised too — not just the standalone factor.
+// Part 3 pins the normal source: the mask reads the stroke-start `.brush.orig.no`
+// snapshot (shared `.brush.orig.gen` key with `.brush.orig.co`), not the live,
+// possibly mid-stroke-refreshed v.no.
 #include "test_util.h"
 
 #include "brush/automask.h"
 #include "brush/brush.h"
+#include "brush/brush_executor.h"
 #include "debug/scene.h"
 #include "debug/script.h"
 #include "mesh/mesh.h"
@@ -162,6 +166,66 @@ int main()
   test_assert(std::fabs(behind - off) < 1e-6f);
   // Cull on: that same away-facing geometry is removed entirely.
   test_assert(behindCulled < 1e-9f);
+
+  // --- Part 3: the mask is dynamic (live normals, every dab) ---------------
+  // The view factor is evaluated in strength() against each vertex's LIVE
+  // normal — no per-stroke cache. Dab 1 moves the head-on grid at full
+  // strength; every live normal is then rotated edge-on mid-stroke, and dab 2
+  // of the SAME stroke must come out fully masked (a cached per-stroke factor
+  // would have kept full strength). Rotating back re-enables it.
+  {
+    Scene s(128, 128, /*headless=*/true);
+    auto r = script::run(s,
+                         "make_shape kind=grid n=24 m=24 size=2\n"
+                         "build_spatial leaf_limit=256 depth_limit=8\n"
+                         "set_brush radius=1.5 strength=0.5\n"
+                         "set_brush_tool tool=draw\n",
+                         ".");
+    test_assert(r.ok);
+    Mesh *m = s.mesh;
+    m->recalc_normals();
+    int c = centerVert(m);
+    test_assert(m->v.no[c][2] > 0.0f);
+
+    s.brush.automask_view_normal = true;
+    s.brush.cull_backfaces = false;
+    s.brush.viewDir = float3{0, 0, -1};
+    s.brush.writeProps();
+
+    brush::CommandExecutor exec(s.tree, &s.brush);
+    exec.meshLog = &s.meshLog;
+    exec.setNonAccum(true);
+    exec.setStrokeGen(1);
+    exec.beginStep(false);
+
+    float3 before = m->v.co[c];
+    exec.applyDab(s.currentTool, float3{0, 0, 0}, float3{0, 0, 1},
+                  s.brush.radius, nullptr, 1);
+    float disp1 = (m->v.co[c] - before).length();
+
+    for (int v = 0; v < m->v.count; v++) {
+      m->v.no[v] = float3{1, 0, 0};
+    }
+    before = m->v.co[c];
+    exec.applyDab(s.currentTool, float3{0, 0, 0}, float3{0, 0, 1},
+                  s.brush.radius, nullptr, 2);
+    float disp2 = (m->v.co[c] - before).length();
+
+    for (int v = 0; v < m->v.count; v++) {
+      m->v.no[v] = float3{0, 0, 1};
+    }
+    before = m->v.co[c];
+    exec.applyDab(s.currentTool, float3{0, 0, 0}, float3{0, 0, 1},
+                  s.brush.radius, nullptr, 3);
+    float disp3 = (m->v.co[c] - before).length();
+    exec.endStep();
+
+    fprintf(stderr, "dynamic mask dabs: head-on=%g edge-on=%g restored=%g\n", disp1,
+            disp2, disp3);
+    test_assert(disp1 > 1e-4f); // head-on: full strength
+    test_assert(disp2 < 1e-9f); // edge-on live normals: masked out, same stroke
+    test_assert(disp3 > 1e-4f); // restored normals: strength returns
+  }
 
   return test_end();
 }

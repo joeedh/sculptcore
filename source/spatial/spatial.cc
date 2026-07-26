@@ -302,6 +302,30 @@ void SpatialTree::refreshRequestedAttrs()
   }
 }
 
+/* Fan-triangulate face `f` into `out`, exactly as regen_node_tris always has.
+ * TODO: use a property CDT for > 4 vert or > 1 hole faces.
+ * For now just handle triangles and quads. */
+static void appendFaceTris(Mesh *m, util::Vector<NodeTri> &out, int f)
+{
+  int l = m->f.l[f];
+  int c = m->l.c[l];
+
+  NodeTri &tri = out.grow_one();
+  tri.c[0] = c;
+  tri.c[1] = m->c.next[c];
+  tri.c[2] = m->c.next[tri.c[1]];
+  tri.f = f;
+
+  if (m->l.size[l] > 3) {
+    NodeTri &tri2 = out.grow_one();
+
+    tri2.c[0] = c;
+    tri2.c[1] = m->c.next[m->c.next[c]];
+    tri2.c[2] = m->c.next[tri2.c[1]];
+    tri2.f = f;
+  }
+}
+
 void SpatialTree::regen_node_tris(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenTris;
@@ -313,27 +337,49 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
   node->affected_verts.clear_and_contract();
   node->flag |= Spatial_NormalsFullRebuild;
 
-  /* TODO: use a property CDT for > 4 vert or > 1 hole faces.
-   * For now just handle triangles and quads.
-   */
+  /* Own-node flag only (parallel-safe): regens also happen outside updateImpl
+   * (initial build, split/merge), where the skirt phase's updateTriNodes walk
+   * never sees them — self-arming keeps the skirt phase's collection loop the
+   * single rebuild site. */
+  node->flag |= Spatial_RegenSkirt;
+
   node->data->tris.clear_and_contract();
   for (int f : node->data->unique_faces) {
-    int l = m->f.l[f];
-    int c = m->l.c[l];
+    appendFaceTris(m, node->data->tris, f);
+  }
+}
 
-    NodeTri &tri = node->data->tris.grow_one();
-    tri.c[0] = c;
-    tri.c[1] = m->c.next[c];
-    tri.c[2] = m->c.next[tri.c[1]];
-    tri.f = f;
+void SpatialTree::build_node_skirt(SpatialNode *node)
+{
+  node->flag &= ~Spatial_RegenSkirt;
+  node->data->skirt_tris.clear_and_contract();
 
-    if (m->l.size[l] > 3) {
-      NodeTri &tri2 = node->data->tris.grow_one();
+  auto &node_fattr = node->treeMesh->f.node;
+  util::Set<int> seen;
 
-      tri2.c[0] = c;
-      tri2.c[1] = m->c.next[m->c.next[c]];
-      tri2.c[2] = m->c.next[tri2.c[1]];
-      tri2.f = f;
+  /* Walk each owned vert's face fan (disk cycle -> radial cycles); faces owned
+   * elsewhere are this leaf's skirt. Requires live topology — callers run in
+   * the queries-half skirt phase, which thaws first (same contract as
+   * regen_node_tris). */
+  for (int v : node->data->unique_verts) {
+    int e0 = m->v.e[v];
+    if (e0 == ELEM_NONE) {
+      continue;
+    }
+    for (int e : mesh::EdgeOfVertIter(m, v, e0)) {
+      int c0 = m->e.c[e];
+      if (c0 == ELEM_NONE) {
+        continue; // wire edge
+      }
+      int c = c0;
+      do {
+        int f = m->l.f[m->c.l[c]];
+        if (node_fattr[f] != node->id && !seen.contains(f)) {
+          seen.add(f);
+          appendFaceTris(m, node->data->skirt_tris, f);
+        }
+        c = m->c.radial_next[c];
+      } while (c != c0 && c != ELEM_NONE);
     }
   }
 }
@@ -2912,6 +2958,24 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       affected_vert_set.add(v3);
     }
 
+    /* Skirt tris expand vert coverage the same way (their faces belong to a
+     * neighbor leaf, so no face-set entry). */
+    for (const auto &tri : node->data->skirt_tris) {
+      int v1 = m->c.v[tri.c[0]];
+      int v2 = m->c.v[tri.c[1]];
+      int v3 = m->c.v[tri.c[2]];
+
+      if (!moved_verts.contains(v1) && !moved_verts.contains(v2) &&
+          !moved_verts.contains(v3))
+      {
+        continue;
+      }
+
+      affected_vert_set.add(v1);
+      affected_vert_set.add(v2);
+      affected_vert_set.add(v3);
+    }
+
     for (int v : affected_vert_set) {
       if (node_vattr[v] == node->id) {
         m->v.no[v].zero();
@@ -2945,6 +3009,33 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       if (af && node_fattr[tri.f] == node->id) {
         m->f.no[tri.f] += n;
       }
+      if (a1 && node_vattr[v1] == node->id) {
+        m->v.no[v1] += n;
+      }
+      if (a2 && node_vattr[v2] == node->id) {
+        m->v.no[v2] += n;
+      }
+      if (a3 && node_vattr[v3] == node->id) {
+        m->v.no[v3] += n;
+      }
+    }
+
+    /* Skirt contributions complete the zeroed boundary verts' fans (owned
+     * verts only — the face normal belongs to the owning leaf). */
+    for (const auto &tri : node->data->skirt_tris) {
+      int v1 = m->c.v[tri.c[0]];
+      int v2 = m->c.v[tri.c[1]];
+      int v3 = m->c.v[tri.c[2]];
+
+      const bool a1 = affected_vert_set.contains(v1);
+      const bool a2 = affected_vert_set.contains(v2);
+      const bool a3 = affected_vert_set.contains(v3);
+      if (!a1 && !a2 && !a3) {
+        continue;
+      }
+
+      float3 n = triNormal(m->v.co[v1], m->v.co[v2], m->v.co[v3]);
+
       if (a1 && node_vattr[v1] == node->id) {
         m->v.no[v1] += n;
       }
@@ -2992,6 +3083,26 @@ void SpatialTree::update_node_normals(SpatialNode *node)
     if (node_fattr[tri.f] == node->id) {
       m->f.no[tri.f] += n;
     }
+
+    if (node_vattr[v1] == node->id) {
+      m->v.no[v1] += n;
+    }
+    if (node_vattr[v2] == node->id) {
+      m->v.no[v2] += n;
+    }
+    if (node_vattr[v3] == node->id) {
+      m->v.no[v3] += n;
+    }
+  }
+
+  /* Skirt contributions complete the boundary verts' fans (owned verts only —
+   * the face normal belongs to the owning leaf). */
+  for (const auto &tri : node->data->skirt_tris) {
+    int v1 = m->c.v[tri.c[0]];
+    int v2 = m->c.v[tri.c[1]];
+    int v3 = m->c.v[tri.c[2]];
+
+    float3 n = triNormal(m->v.co[v1], m->v.co[v2], m->v.co[v3]);
 
     if (node_vattr[v1] == node->id) {
       m->v.no[v1] += n;
@@ -3094,6 +3205,58 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
           4);
 #endif
     }
+
+    /* Phase: skirt regen. A re-tri'd leaf's faces may have joined the fan of a
+     * vert owned elsewhere, so those owners' cached skirts are stale; flag them
+     * (serial — writes other nodes' flags, unsafe inside the parallel regen).
+     * The re-tri'd leaf's own skirt was self-armed by regen_node_tris, and
+     * onCornerKill flagged the owners of verts that LOST a face. Then rebuild
+     * every flagged skirt in parallel (each build touches only its own node). */
+    {
+      for (SpatialNode *node : updateTriNodes) {
+        for (const NodeTri &tri : node->data->tris) {
+          for (int k = 0; k < 3; k++) {
+            int vn = treeMesh.v.node[m->c.v[tri.c[k]]];
+            if (vn == 0 || vn == node->id) {
+              continue;
+            }
+            SpatialNode *nb = node_from_id(vn);
+            if (nb && (nb->flag & Spatial_Leaf) && nb->data) {
+              nb->flag |= Spatial_RegenSkirt;
+            }
+          }
+        }
+      }
+
+      Vector<SpatialNode *, 256> updateSkirtNodes;
+      for (SpatialNode *node : nodes) {
+        if ((node->flag & Spatial_Leaf) && (node->flag & Spatial_RegenSkirt) &&
+            node->data)
+        {
+          updateSkirtNodes.append(node);
+        }
+      }
+      /* Callback-flagged skirts can outlive the thaw that accompanied their
+       * topology change (the rebuild may land on a later, frozen call). */
+      if (updateSkirtNodes.size() > 0 && m->topo_frozen) {
+        m->thawTopo();
+      }
+#ifdef NO_PARALLEL_FOR
+      for (SpatialNode *node : updateSkirtNodes) {
+        build_node_skirt(node);
+      }
+#else
+      litestl::task::parallel_for(
+          util::IndexRange(updateSkirtNodes.size()),
+          [&](IndexRange range) {
+            for (int i : range) {
+              build_node_skirt(updateSkirtNodes[i]);
+            }
+          },
+          4);
+#endif
+    }
+
     {
       if (regenDirtyBounds()) {
         bounds = true;
@@ -3116,6 +3279,63 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
         if (node->flag & Spatial_UpdateNormals) {
           updateNormalsNodes.append(node);
           drawBatchUpdated = true;
+        }
+      }
+
+      /* Cross-boundary halo (serial — writes other leaves' flags/hints): a
+       * moved vert changes the normal of every vert sharing a face with it,
+       * including verts owned by leaves the brush never flagged. For each dirty
+       * leaf, hint the owners of foreign verts on any tri (own or skirt)
+       * touching its moved set. One round suffices: hinted verts did not move,
+       * so they seed no further spread. */
+      const int primaryNormalsCount = int(updateNormalsNodes.size());
+      for (int ni = 0; ni < primaryNormalsCount; ni++) {
+        SpatialNode *node = updateNormalsNodes[ni];
+        const bool full = bool(node->flag & Spatial_NormalsFullRebuild) ||
+                          node->affected_verts.size() == 0;
+        Set<int> moved;
+        if (!full) {
+          for (int v : node->affected_verts) {
+            moved.add(v);
+          }
+        }
+        auto scanTri = [&](const NodeTri &tri) {
+          int vs[3] = {m->c.v[tri.c[0]], m->c.v[tri.c[1]], m->c.v[tri.c[2]]};
+          if (!full && !moved.contains(vs[0]) && !moved.contains(vs[1]) &&
+              !moved.contains(vs[2]))
+          {
+            return;
+          }
+          for (int k = 0; k < 3; k++) {
+            int vn = treeMesh.v.node[vs[k]];
+            if (vn == 0 || vn == node->id) {
+              continue;
+            }
+            SpatialNode *nb = node_from_id(vn);
+            if (!nb || !(nb->flag & Spatial_Leaf) || !nb->data) {
+              continue;
+            }
+            if (nb->flag & Spatial_UpdateNormals) {
+              // Already dirty. Empty affected_verts on a flagged leaf REQUESTS
+              // A FULL REBUILD (the GPU stroke-end sync's shape) — appending a
+              // hint would silently downgrade it to an incremental pass over
+              // just the hinted ring, leaving the leaf's interior stale.
+              if (nb->affected_verts.size() > 0) {
+                nb->affected_verts.append(vs[k]);
+              }
+              continue;
+            }
+            nb->affected_verts.append(vs[k]);
+            nb->flag |= Spatial_UpdateNormals | Spatial_UpdateGPUGeom;
+            updateNormalsNodes.append(nb);
+            drawBatchUpdated = true;
+          }
+        };
+        for (const NodeTri &tri : node->data->tris) {
+          scanTri(tri);
+        }
+        for (const NodeTri &tri : node->data->skirt_tris) {
+          scanTri(tri);
         }
       }
 

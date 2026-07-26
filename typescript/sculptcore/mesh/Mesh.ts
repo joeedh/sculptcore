@@ -27,6 +27,7 @@ export interface Mesh {
   e: EdgeData
   c: CornerData
   f: FaceData
+  serialize_temp: boolean
   recalc_normals(): void
   faceGroup(face: int32): int32
   maxFaceGroup(): int32
@@ -50,6 +51,7 @@ export interface Mesh {
   sculptLayerPruneSettingsOnly(): void
   isTopoLocked(): int32
   removeAttr(domain: int32, index: int32): void
+  dropTempAttrs(): int32
   detachAttr(domain: int32, index: int32): int32
   reattachAttr(stashId: int32): int32
   markSeamPath(vStart: int32, vEnd: int32, state: int32): int32

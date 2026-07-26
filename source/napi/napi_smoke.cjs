@@ -187,7 +187,6 @@ function runNapiSmoke(addon, outPath, done) {
         stage('brush')
 
         const meshLog = addon.construct('sculptcore::meshlog::MeshLog')
-        meshLog.beginStep(false)
         stage('meshLog')
 
         const exec = addon.constructWith('sculptcore::brush::CommandExecutor', 'main', tree, brush)
@@ -195,6 +194,10 @@ function runNapiSmoke(addon, outPath, done) {
         exec.meshLog = meshLog
         const meshLogBound = exec.meshLog !== undefined && exec.meshLog !== null
         stage('meshLogSet')
+        // The executor owns the meshlog step boundary (beginStep/endStep moved
+        // off MeshLog when the TS side adopted the unified dab sequence).
+        exec.beginStep(false)
+        stage('beginStep')
 
         const checksumBefore = bufferChecksum()
         stage('checksumBefore')
@@ -206,9 +209,11 @@ function runNapiSmoke(addon, outPath, done) {
         const nodeCount = addon.vectorLength(nodes) | 0
         stage('filterNodes:' + nodeCount)
 
-        exec.execBrush(mesh.mesh, 0 /* DRAW */, nodes, f3(0.5, 0.5, 0.5), f3(0.577, 0.577, 0.577))
+        // meshCreateCube returns the Mesh struct wrapper itself — pass it
+        // directly (there is no `.mesh` member on it).
+        exec.execBrush(mesh, 0 /* DRAW */, nodes, f3(0.5, 0.5, 0.5), f3(0.577, 0.577, 0.577))
         stage('execBrush')
-        meshLog.endStep()
+        exec.endStep()
         stage('endStep')
 
         mesh.recalc_normals()

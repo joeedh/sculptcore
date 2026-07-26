@@ -117,9 +117,11 @@ test(test_enhance.cc "debug_core")
 test(test_automask_stroke.cc "debug_core")
 test(test_automask_view_normal.cc "debug_core")
 test(test_automask_gpu.cc "debug_core")
+test(test_spatial_boundary_normals.cc "debug_core")
 endif()
 
 test(test_automask_cavity.cc "mesh")
+test(test_seam_analysis.cc "mesh")
 test(test_uniform_link.cc "gpu")
 test(test_webgpu_render.cc "webgpu;spatial;mesh;gpu")
 # wgpu-native ships as a DLL — copy it next to the test exe so it loads at run.

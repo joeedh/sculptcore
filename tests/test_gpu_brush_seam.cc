@@ -96,10 +96,11 @@ static void runTest()
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_DAB_GEN) == 1);
 
   // Layout pins (compute_layout.h): 96-byte brush uniforms with kelvinlet's
-  // mu/nu at 72/76 (nu host-clamped), 224-byte ctx uniforms with grabFrom at
-  // 96, 256-float falloff LUT, 32-byte stroke samples.
+  // mu/nu at 72/76 (nu host-clamped), 256-byte ctx uniforms (128-byte base incl.
+  // the view-normal params at 96) with grabFrom at 128, 256-float falloff LUT,
+  // 32-byte stroke samples.
   test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_BRUSH_UNIFORMS) == 96);
-  test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_CTX_UNIFORMS) == 224);
+  test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_CTX_UNIFORMS) == 256);
   test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_FALLOFF_LUT) ==
               256 * int(sizeof(float)));
   test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_STROKE_PATH) ==
@@ -113,8 +114,8 @@ static void runTest()
   const float *cu =
       static_cast<const float *>(GpuBrush_dataPtr(s, brush::GPUBRUSH_DATA_CTX_UNIFORMS));
   test_assert(cu[0] == 0.0f && cu[2] == 0.25f);  // surfacePos
-  test_assert(cu[96 / 4 + 2] == 0.25f);          // grabFrom.z at ctx tail
-  test_assert(cu[112 / 4 + 1] == 0.1f);          // grabTo.y
+  test_assert(cu[128 / 4 + 2] == 0.25f);         // grabFrom.z at ctx tail
+  test_assert(cu[144 / 4 + 1] == 0.1f);          // grabTo.y
 
   // A second identical image must not re-flag the index arrays.
   int chunkCount2 = GpuBrush_marshalDab(s, 0, 0, 0.25f, 0, 0, 1, 0.2f, 0.3f,

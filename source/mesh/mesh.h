@@ -101,6 +101,12 @@ struct Mesh : public MeshBase {
    * Idempotent; a no-op when not frozen. */
   void thawTopo();
 
+  /* Serialization opt-in: include AttrFlag::TEMP attribute layers in
+   * writeMesh/writeMeshRaw (the brush orig/automask stamps, spatial ownership,
+   * boundary overlays, ...). Debug/repro tool — the format is self-describing,
+   * so files written with this set load everywhere. DERIVED stays dropped. */
+  bool serialize_temp = false;
+
   /* Live count of faces with >3 sides. Maintained incrementally by make_face /
    * kill_face (the only per-face create/destroy choke points), so == 0 is an
    * exact "mesh is all-triangles" predicate. Bulk loaders (readMesh) bypass
@@ -128,6 +134,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_MEMBER(st, e);
     BIND_STRUCT_MEMBER(st, c);
     BIND_STRUCT_MEMBER(st, f);
+    BIND_STRUCT_MEMBER(st, serialize_temp);
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
@@ -151,6 +158,7 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, sculptLayerPruneSettingsOnly, MARGS());
     BIND_STRUCT_METHOD(st, isTopoLocked, MARGS());
     BIND_STRUCT_METHOD(st, removeAttr, MARGS("domain", "index"));
+    BIND_STRUCT_METHOD(st, dropTempAttrs, MARGS());
     BIND_STRUCT_METHOD(st, detachAttr, MARGS("domain", "index"));
     BIND_STRUCT_METHOD(st, reattachAttr, MARGS("stashId"));
     BIND_STRUCT_METHOD(st, markSeamPath, MARGS("vStart", "vEnd", "state"));
@@ -328,6 +336,27 @@ struct Mesh : public MeshBase {
       return;
     }
     grp->remove_attr(index);
+  }
+
+  /* Drop every AttrFlag::TEMP layer in every domain; returns the count. A mesh
+   * loaded from a serialize_temp file carries stroke-transient stamps (brush
+   * orig/automask gens, meshlog stroke ids) whose generation counters reset
+   * with the session — stale stamps would ALIAS fresh strokes. The app calls
+   * this right after deserialize; offline analysis reads the blob directly and
+   * keeps everything. Consumers re-ensure their layers on demand. */
+  int dropTempAttrs()
+  {
+    ElemData *eds[5] = {&v, &e, &c, &l, &f};
+    int dropped = 0;
+    for (ElemData *ed : eds) {
+      for (int i = int(ed->attrs.attrs.size()) - 1; i >= 0; i--) {
+        if (ed->attrs.attrs[i].flag & AttrFlag::TEMP) {
+          ed->attrs.remove_attr(i);
+          dropped++;
+        }
+      }
+    }
+    return dropped;
   }
 
   /* Sculpt-layer settings sidecar, index-parallel with nothing — ordered by

@@ -480,14 +480,62 @@ struct SpatialTree {
     }
   }
 
+  /* Replay helper: face `f`'s owner leaf (if any) must recompute normals.
+   * Meshlog row swaps restore normal rows captured before any frame update ran,
+   * and the topology replay's add_face/remove_face does not itself mark normals
+   * dirty — so a leaf touched only by the topology replay would keep those
+   * stale rows. Call before remove_face (owner still set) / after add_face. */
+  void flag_face_owner_normals(int f)
+  {
+    int ni = treeMesh.f.node[f];
+    if (ni != 0) {
+      SpatialNode *node = node_from_id(ni);
+      if (node) {
+        node->flag |= Spatial_UpdateNormals;
+      }
+    }
+  }
+
+  /* Flag the owner leaf of vert `v` for a skirt rebuild. Meshlog replay swaps
+   * corner rows without face-level records, changing fan membership silently —
+   * the replay pre/post passes call this for both sides of each corner swap. */
+  void flag_vert_skirt(int v)
+  {
+    int vn = treeMesh.v.node[v];
+    if (vn != 0) {
+      SpatialNode *node = node_from_id(vn);
+      if (node && (node->flag & Spatial_Leaf)) {
+        node->flag |= Spatial_RegenSkirt;
+      }
+    }
+  }
+
   /* Incremental removal: drop face `f` from its owning leaf (the inverse of
    * add_face), marking the leaf for tris/bounds regen. Used by
-   * the dyntopo callbacks so the tree need not be fully rebuilt per dab. */
-  void remove_face(int f)
+   * the dyntopo callbacks so the tree need not be fully rebuilt per dab.
+   * `verts_live`: caller guarantees the face's connectivity is still walkable
+   * (meshlog replay pre-pass) — flag its verts' owner leaves for a skirt
+   * rebuild. The dyntopo path arrives via onFaceKill with corners already
+   * released and is covered by the onCornerKill hook instead. */
+  void remove_face(int f, bool verts_live = false)
   {
     int node_id = treeMesh.f.node[f];
     if (node_id == 0) {
       return; /* not the unique owner */
+    }
+    if (verts_live) {
+      mesh::FaceProxy face(m, f);
+      for (auto list : face.lists()) {
+        for (auto c : list) {
+          int vn = treeMesh.v.node[c.v()];
+          if (vn != 0 && vn != node_id) {
+            SpatialNode *vnode = node_from_id(vn);
+            if (vnode && (vnode->flag & Spatial_Leaf)) {
+              vnode->flag |= Spatial_RegenSkirt;
+            }
+          }
+        }
+      }
     }
     SpatialNode *node = node_from_id(node_id);
     treeMesh.f.node[f] = 0;
@@ -662,6 +710,19 @@ struct SpatialTree {
     spatialCallbacks_.onFaceKill = [this](int f) { this->remove_face(f); };
     spatialCallbacks_.onFaceChange = [this](int f) { this->touch_face(f); };
     spatialCallbacks_.onVertKill = [this](int v) { this->remove_vert(v); };
+    /* Skirt invalidation on face death. onFaceKill fires after the corners are
+     * released, so the face's verts are unreadable there — but onCornerKill
+     * fires per corner while it is still live: flag the corner vert's owner
+     * leaf, whose skirt may cache the dying face's tri. */
+    spatialCallbacks_.onCornerKill = [this](int c) {
+      int vn = treeMesh.v.node[m->c.v[c]];
+      if (vn != 0) {
+        SpatialNode *node = node_from_id(vn);
+        if (node && (node->flag & Spatial_Leaf)) {
+          node->flag |= Spatial_RegenSkirt;
+        }
+      }
+    };
     return &spatialCallbacks_;
   }
 
@@ -911,6 +972,7 @@ private:
   sculptcore::gpu::DrawBatch *drawBatch = nullptr;
   void regen_node_bounds(SpatialNode *node, bool recurse);
   void regen_node_tris(SpatialNode *node);
+  void build_node_skirt(SpatialNode *node);
 
   /* GPU node buffer management. A "GPU node" aggregates the triangles of
    * every leaf in its subtree into one VBO + draw command. */

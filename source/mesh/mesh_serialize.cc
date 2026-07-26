@@ -227,14 +227,20 @@ void remapTopoColumn(Vector<uint8_t> &buf, Vector<int> &targetMap, bool packedDi
   }
 }
 
-void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
+void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps, bool includeTemp)
 {
   Vector<int> &selfMap = maps[domainIndex(ed.domain)];
   uint32_t count = uint32_t(ed.count);
 
+  /* DERIVED columns are always dropped (rebuilt on load); TEMP columns are
+   * dropped unless the mesh opts in (Mesh::serialize_temp — debug/repro saves).
+   * The format is name+type+flag self-describing, so readers need no change. */
+  const AttrFlag skipMask =
+      includeTemp ? AttrFlag::DERIVED : (AttrFlag::TEMP | AttrFlag::DERIVED);
+
   uint32_t attrCount = 0;
   for (AttrRef &attr : ed.attrs.attrs) {
-    if (attr.flag & (AttrFlag::TEMP | AttrFlag::DERIVED)) {
+    if (attr.flag & skipMask) {
       continue;
     }
     attrCount++;
@@ -246,7 +252,7 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps)
 
   Vector<uint8_t> buf;
   for (AttrRef &attr : ed.attrs.attrs) {
-    if (attr.flag & (AttrFlag::TEMP | AttrFlag::DERIVED)) {
+    if (attr.flag & skipMask) {
       continue;
     }
 
@@ -545,7 +551,7 @@ bool writeMeshRaw(Mesh &mesh, std::iostream &out)
 
   io::BinFile pbf(out); // payload uses no file header; host-endian columns
   for (int d = 0; d < 5; d++) {
-    writeDomain(pbf, *eds[d], maps);
+    writeDomain(pbf, *eds[d], maps, mesh.serialize_temp);
   }
   writeLayerTable(pbf, mesh); // v3+
   return bool(out);

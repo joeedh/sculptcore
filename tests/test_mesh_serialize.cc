@@ -511,6 +511,58 @@ void test_frozen_roundtrip(int N)
   check_attrs(m2, tag);
 }
 
+/* Mesh::serialize_temp opt-in: TEMP attrs are dropped by a normal save, but a
+ * debug/repro save includes them — with values and flags intact. DERIVED stays
+ * dropped either way. */
+void test_temp_attr_roundtrip()
+{
+  const char *tag = "temp-attrs";
+
+  Mesh m;
+  build_grid(m, 6);
+
+  AttrRef &tmpRef = m.v.attrs.ensure(AttrType::FLOAT, ".brush.test.temp");
+  tmpRef.flag |= AttrFlag::TEMP | AttrFlag::NOCOPY;
+  auto tmp = m.v.attrs.find_attribute(AttrType::FLOAT, ".brush.test.temp");
+  auto *tmpData = static_cast<AttrData<float> *>(tmp.data);
+  for (int v : m.v) {
+    tmpData->materialize(v);
+    (*tmpData)[v] = float(v) * 0.5f + 1.0f;
+  }
+
+  /* Default: dropped. */
+  {
+    Mesh m2;
+    if (!roundTrip(m, m2, tag)) {
+      retval = 1;
+      return;
+    }
+    TASSERT(!m2.v.attrs.has(AttrType::FLOAT, ".brush.test.temp"));
+  }
+
+  /* Opt-in: present, values + TEMP flag intact. */
+  m.serialize_temp = true;
+  {
+    Mesh m2;
+    if (!roundTrip(m, m2, tag)) {
+      retval = 1;
+      return;
+    }
+    TASSERT(m2.v.attrs.has(AttrType::FLOAT, ".brush.test.temp"));
+    auto tmp2 = m2.v.attrs.find_attribute(AttrType::FLOAT, ".brush.test.temp");
+    TASSERT(bool(tmp2.flag & AttrFlag::TEMP));
+    auto *tmp2Data = static_cast<AttrData<float> *>(tmp2.data);
+    int bad = 0;
+    for (int v : m2.v) {
+      if (tmp2Data->safe_get(v) != float(v) * 0.5f + 1.0f) {
+        bad++;
+      }
+    }
+    TASSERT(bad == 0);
+  }
+  m.serialize_temp = false;
+}
+
 void test_empty()
 {
   Mesh m, m2;
@@ -847,6 +899,7 @@ int main()
     test_full_roundtrip(N);
   }
   test_frozen_roundtrip(8);
+  test_temp_attr_roundtrip();
   test_empty();
   test_verts_only();
   test_attr_use_roundtrip();

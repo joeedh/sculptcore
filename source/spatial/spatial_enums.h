@@ -23,6 +23,11 @@ enum _NodeFlags {
    * updateQueries()/update(gpu) split) can't downgrade it to an incremental
    * pass that misses pre-regen motion. */
   Spatial_NormalsFullRebuild = 1 << 7, // 128
+  /* The leaf's cached skirt_tris (neighbor-owned faces touching its owned
+   * verts, used to complete boundary-vert normal fans) is stale: a face
+   * joined or left one of its verts' fans. Consumed by the skirt phase of
+   * the queries-half update. */
+  Spatial_RegenSkirt = 1 << 8, // 256
 };
 MAKE_FLAGS_CLASS(NodeFlags, _NodeFlags, int);
 

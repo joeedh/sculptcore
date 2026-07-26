@@ -263,6 +263,20 @@ if (target === 'native' && process.platform === 'win32') {
   if (sccacheDir && !already) {
     process.env.PATH = curPath ? `${curPath};${sccacheDir}` : sccacheDir
   }
+  // vcvars' rebuilt PATH also lacks the VS Installer dir, so `vswhere.exe` is
+  // unreachable — cmake-js (the node-addon configure) aborts on its VS probe
+  // without it. Re-add it the same way.
+  const vswhereDir = Path.join(
+    process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+    'Microsoft Visual Studio',
+    'Installer'
+  )
+  if (fs.existsSync(Path.join(vswhereDir, 'vswhere.exe'))) {
+    const p = process.env.PATH || ''
+    if (!p.split(';').some((d) => d && d.toLowerCase() === vswhereDir.toLowerCase())) {
+      process.env.PATH = p ? `${p};${vswhereDir}` : vswhereDir
+    }
+  }
 }
 
 const defaultShell = process.platform === 'win32' ? 'cmd' : process.env.SHELL || '/bin/sh'

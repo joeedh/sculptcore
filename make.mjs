@@ -533,8 +533,11 @@ async function configureNodeAddon(runtime, version) {
     provisionNwjsCache(ver)
   }
 
+  // NOTE: args go to configureEnv.mjs SPLIT, not as one quoted string — its
+  // quoteArg re-quotes each argv, so a whole-command string would become a
+  // single quoted "command name" cmd can't find.
   run(
-    `${env} "${cmakeJs} configure -O ${dir} -G Ninja --CDWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} --CDCMAKE_TOOLCHAIN_FILE=${toolchain} ${depsDef} ${crtDef} -r ${runtime} -v ${ver} -a x64"`
+    `${env} ${cmakeJs} configure -O ${dir} -G Ninja --CDWITH_ASAN=${WITH_ASAN ? 'ON' : 'OFF'} --CDCMAKE_TOOLCHAIN_FILE=${toolchain} ${depsDef} ${crtDef} -r ${runtime} -v ${ver} -a x64`
   )
 }
 
@@ -553,7 +556,8 @@ async function buildNodeAddon(runtime, version, smoke) {
   // Build ONLY the addon target. Its static deps come along; the SHARED
   // `sculptcore` lib is intentionally not built here (see the CMakeLists note
   // about the global /DELAYLOAD flag under the clang driver).
-  await runBuild(`${env} "cmake --build ${dir} --target sculptcore_node${parallelFlag()}"`)
+  // Split args (see the configure note above).
+  await runBuild(`${env} cmake --build ${dir} --target sculptcore_node${parallelFlag()}`)
 
   const out = Path.resolve(dir, 'sculptcore_node.node').replace(/\\/g, '/')
   if (!fs.existsSync(out)) {

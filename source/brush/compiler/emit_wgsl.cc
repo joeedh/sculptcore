@@ -767,6 +767,16 @@ struct Emit {
     // View/render transform consumed by brush_sample_tex for the ViewPlane
     // and ViewRepeat coord spaces. Mirrors CommandCtxBase::renderMatrix.
     write("  render_matrix: mat4x4<f32>,\n");
+    // View-normal automask params (ComputeCtxUniforms offsets 96..124) —
+    // brush_view_normal evaluates viewNormalFactor's twin dynamically per dab,
+    // so each symmetry image's dispatch carries its own reflected ray. Emitted
+    // unconditionally so every kernel's DSL ctx tail starts at offset 128.
+    write("  view_dir: vec3<f32>,\n");
+    write("  vn_enabled: u32,\n");
+    write("  vn_limit: f32,\n");
+    write("  vn_falloff: f32,\n");
+    write("  vn_cull: u32,\n");
+    write("  _vn_pad: u32,\n");
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Ctx) continue;
       if (isBuiltinCtxName(f.name.c_str())) continue;
@@ -947,15 +957,39 @@ struct Emit {
     write("  }\n");
     write("  return length(delta) * sb_inv_r;\n");
     write("}\n\n");
+    // Dynamic view-normal automask factor for vertex `vid` — kept in lockstep
+    // with automask.h's viewNormalFactor (guards included): 1.0 head-on,
+    // ramping to 0 at vn_limit; cull keeps the dot's sign so back faces land
+    // past the limit. Reads the live no_buf normal, which on the GPU is
+    // stroke-static — matching the CPU's dynamic live-normal evaluation.
+    if (!faceMode()) {
+      write("fn brush_view_normal(vid: u32) -> f32 {\n");
+      write("  if (ctx_u.vn_enabled == 0u) { return 1.0; }\n");
+      write("  let sb_no = no_buf[vid];\n");
+      write("  let sb_nl = length(sb_no);\n");
+      write("  let sb_vl = length(ctx_u.view_dir);\n");
+      write("  if (sb_nl <= 1e-9 || sb_vl <= 1e-9) { return 1.0; }\n");
+      write("  var sb_d = -dot(sb_no, ctx_u.view_dir) / (sb_nl * sb_vl);\n");
+      write("  if (ctx_u.vn_cull == 0u) { sb_d = abs(sb_d); }\n");
+      write("  sb_d = clamp(sb_d, -1.0, 1.0);\n");
+      write("  let sb_ang = acos(sb_d);\n");
+      write("  if (sb_ang >= ctx_u.vn_limit) { return 0.0; }\n");
+      write("  if (ctx_u.vn_falloff <= 1e-6) { return 1.0; }\n");
+      write("  let sb_ramp = ctx_u.vn_limit - ctx_u.vn_falloff;\n");
+      write("  if (sb_ang <= sb_ramp) { return 1.0; }\n");
+      write("  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;\n");
+      write("}\n\n");
+    }
     // `vid` is the current vertex index (threaded by the `$v` placeholder in the
     // strength intrinsic). Vertex kernels multiply the per-vertex cavity automask
-    // (identity 1.0 when off → bit-identical to the falloff-only strength); face
-    // kernels have no per-vertex automask, so `vid` is unused there. Mirrors
-    // CommandCtx::strength in brush_command.h.
+    // (identity 1.0 when off → bit-identical to the falloff-only strength) and
+    // the dynamic view-normal factor; face kernels have neither, so `vid` is
+    // unused there. Mirrors CommandCtx::strength in brush_command.h.
     write("fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {\n");
     write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
     if (!faceMode()) {
-      write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid];\n");
+      write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * "
+            "brush_view_normal(vid);\n");
     } else {
       write("  let sb_s = brush_u.strength * brush_falloff(sb_t);\n");
     }

@@ -70,6 +70,8 @@ export interface Brush {
   coord_space: TexCoordSpace
   tex_repeat: float
   props: StructProp
+  setNamedFloat(slot: int32, value: float): void
+  getNamedFloat(slot: int32): float
   setFalloffCurveEntry(i: int32, f: float): void
   setCavityCurveEntry(i: int32, f: float): void
   setTexture(width: int32, height: int32, pixels: float[]): void

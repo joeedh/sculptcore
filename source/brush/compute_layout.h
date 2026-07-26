@@ -43,28 +43,38 @@ struct ComputeBrushUniforms {
   float brushColor[4] = {1, 1, 1, 1};
 };
 
-/* binding 6 — std140. Base block (surfacePos/surfaceNo/render_matrix) is 96
- * bytes; the global-brush tail starts at offset 96. Kelvinlet's grab vectors
- * and pose's cage arrays both begin there in their respective kernels'
- * CtxUniforms, so they alias in a union — only one kernel's view is live per
- * dispatch (size = 96 + 128 = 224). */
+/* binding 6 — std140. Base block (surfacePos/surfaceNo/render_matrix + the
+ * view-normal automask params) is 128 bytes; the global-brush tail starts at
+ * offset 128. Kelvinlet's grab vectors and pose's cage arrays both begin there
+ * in their respective kernels' CtxUniforms, so they alias in a union — only one
+ * kernel's view is live per dispatch (size = 128 + 128 = 256). */
 struct ComputeCtxUniforms {
   float surfacePos[3] = {0, 0, 0};
   uint32_t _pad0 = 0;
   float surfaceNo[3] = {0, 0, 1};
   uint32_t _pad1 = 0;
   float render_matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+  /* View-normal automask params (offset 96): brush_view_normal in the WGSL
+   * kernel evaluates viewNormalFactor's twin dynamically from these + the
+   * no_buf vertex normal, per dab — so each symmetry image's dispatch carries
+   * its own reflected ray. vn_enabled=0 short-circuits to 1.0. */
+  float view_dir[3] = {0, 0, -1}; // offset 96
+  uint32_t vn_enabled = 0;        // offset 108
+  float vn_limit = 1.5707964f;    // offset 112 — kViewNormalLimitDefault
+  float vn_falloff = 0.4363323f;  // offset 116 — kViewNormalFalloffDefault
+  uint32_t vn_cull = 0;           // offset 120
+  uint32_t _pad2 = 0;             // offset 124; base rounds to 128
   union {
     struct {                              // kelvinlet.wgsl CtxUniforms tail
-      float grabFrom[3]; uint32_t _kpad0;  // offset 96
-      float grabTo[3];   uint32_t _kpad1;  // offset 112
+      float grabFrom[3]; uint32_t _kpad0;  // offset 128
+      float grabTo[3];   uint32_t _kpad1;  // offset 144
     } kelvinlet;
     struct {                    // pose.wgsl tail — std140 array<vec3> stride 16
-      float poseCageRest[4][4];  // offset 96  ([i][0..2]=xyz, [i][3]=pad)
-      float poseCageNow[4][4];   // offset 160
+      float poseCageRest[4][4];  // offset 128 ([i][0..2]=xyz, [i][3]=pad)
+      float poseCageNow[4][4];   // offset 192
     } pose;
     struct {                              // grab.wgsl tail
-      float grabTo[3]; uint32_t _gpad0;   // offset 96 (no grabFrom — the
+      float grabTo[3]; uint32_t _gpad0;   // offset 128 (no grabFrom — the
                                           // kernel drags by grabTo alone)
     } grab;
   } global = {};
@@ -107,13 +117,14 @@ inline constexpr uint32_t kOrigCoBinding = 22;
  * twin of grabClaimFirstTouch / the `.brush.dab.gen` attr). */
 inline constexpr uint32_t kDabStampBinding = 23;
 
-/* Fixed binding of the read-only per-vertex automask factor (vertex kernels
- * only): one f32 per vertex — the product of every enabled contributor (cavity,
- * view normal) — filled host-side at beginStroke via packAutomask.
- * brush_strength multiplies it in, the GPU twin of the CPU
- * CommandCtx::strength multiply. The host uploads identity 1.0 for every vertex
- * when automasking is off, so `strength * 1.0` keeps the GPU path bit-for-bit
- * equal to the (multiply-skipping) CPU path. See automask.h. */
+/* Fixed binding of the read-only per-vertex CAVITY automask factor (vertex
+ * kernels only): one f32 per vertex, filled host-side at beginStroke via
+ * packAutomask. brush_strength multiplies it in — the GPU twin of the CPU
+ * CommandCtx::strength cavity multiply. The host uploads identity 1.0 for
+ * every vertex when cavity masking is off, so `strength * 1.0` keeps the GPU
+ * path bit-for-bit equal to the (multiply-skipping) CPU path. The view-normal
+ * contributor is dynamic (brush_view_normal from the ctx uniforms), not
+ * packed. See automask.h. */
 inline constexpr uint32_t kAutomaskBinding = 24;
 
 /* binding 12 element — std430 vec2<u32>, stride 8. CSR neighbor index: for

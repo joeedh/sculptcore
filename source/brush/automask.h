@@ -12,32 +12,35 @@
 #include <utility>
 
 /**
- * Automasking: per-vertex, per-stroke 0..1 scalars that scale the *effective
- * brush strength* — Blender's `factor_get()` idea, distinct from the painted
- * `mask` attribute layer. Every contributor here is computed on the host, and
- * their product is cached per vertex per stroke; both the CPU and GPU strength
- * paths read the cached value, so the two backends stay bit-for-bit equal.
+ * Automasking: per-vertex 0..1 scalars that scale the *effective brush
+ * strength* — Blender's `factor_get()` idea, distinct from the painted `mask`
+ * attribute layer. Two contributors with deliberately different evaluation
+ * models:
  *
- * Contributors:
- *  - Cavity (documentation/plans/2026-07-14-2007-cavity-automasking.md): local
- *    surface convexity, from a cheap curvature-ish heuristic — BFS-blur the
- *    1-ring adjacency into an inner-ring and a wider-ring averaged
- *    position/normal and diff them.
- *  - View normal (documentation/plans/2026-07-25-1138-view-normal-automasking.md):
- *    fade geometry whose normal turns edge-on to the camera, which is where a
- *    dab otherwise tears the silhouette by pushing the near and far sheets of
- *    the surface apart. Optionally culls back-facing geometry outright.
+ *  - Cavity (documentation/plans/2026-07-14-2007-cavity-automasking.md) is
+ *    CACHED per vertex per stroke in `.brush.automask.cavity` (keyed by
+ *    `strokeGen` via `.brush.automask.gen`, first dab to reach a vertex wins;
+ *    freshly split dyntopo verts miss the stamp and fill on first touch). The
+ *    BFS ring-blur is too expensive per dab, and freezing the estimate at
+ *    first contact keeps the mask from chasing the surface it is deforming.
+ *    The BFS needs the ring1 CSR, ensured live before the per-dab topology
+ *    freeze; a frozen-topo dab that cannot get one simply sits cavity out.
+ *  - View normal (documentation/plans/2026-07-25-1138-view-normal-automasking.md)
+ *    is DYNAMIC: fade geometry whose normal turns edge-on to the camera
+ *    (optionally culling back faces). viewNormalFactor is a few flops, so
+ *    CommandCtx::strength evaluates it fresh against each vertex's LIVE normal
+ *    on every call, from ViewNormalParams resolved once per dab — no cache, no
+ *    stamp ordering, no per-vertex ray history to go stale. Every symmetry
+ *    image shares the SAME stroke-pinned camera ray: the mask is
+ *    camera-relative and the camera doesn't mirror. (The original design
+ *    cached a per-stroke product with per-image reflected rays; first-image-
+ *    wins stamping then mixed opposed rays in leaf-sized blocks — the
+ *    node-boundary tearing.)
  *
- * Caching contract. The product is stamped per vertex per stroke (keyed by
- * `strokeGen` in `.brush.automask.gen`), so the first dab to reach a vertex
- * fixes its factor for the rest of the stroke; freshly split dyntopo verts miss
- * the stamp and fill on first touch. Cavity's BFS needs the ring1 CSR, ensured
- * live before the per-dab topology freeze, so a frozen-topo dab that cannot get
- * one simply sits cavity out; view-normal masking is topology-free and always
- * applies. Because the stamp is per stroke and not per dab, a vertex reached by
- * more than one mirror image keeps the ray of whichever image got there first —
- * only the band straddling a symmetry plane can see this, and the two rays there
- * differ just by the reflection.
+ * GPU strokes read one packed per-vertex buffer (binding 24) holding
+ * cavity x viewNormal, built by packAutomask at beginStroke. That static pack
+ * matches the CPU's dynamic evaluation because a GPU stroke's normal buffer is
+ * itself stroke-static (the CPU mesh syncs at stroke end).
  */
 namespace sculptcore::brush {
 using litestl::math::float3;

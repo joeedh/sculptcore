@@ -111,6 +111,11 @@ struct SpatialNode {
     util::OrderedSet<int> unique_faces;
 
     util::Vector<NodeTri> tris;
+    /* Skirt: tris of faces owned by OTHER leaves that touch an owned vert.
+     * update_node_normals sums them into owned verts so boundary fans are
+     * complete (vert normals only — the face normal belongs to the owner).
+     * Built by SpatialTree::build_node_skirt; invalidated via Spatial_RegenSkirt. */
+    util::Vector<NodeTri> skirt_tris;
     Mesh *m;
   };
 
@@ -134,7 +139,11 @@ struct SpatialNode {
    * Populated by brush execution (single-writer per node — the parallel_for
    * over nodes serializes within each node) and consumed + cleared by
    * SpatialTree::update_node_normals. May contain duplicates; left empty
-   * to request a full rebuild (e.g. on initial build or topology change). */
+   * to request a full rebuild (e.g. on initial build, topology change, or the
+   * GPU stroke-end sync). Cross-node hint appenders (the normals-phase halo)
+   * must NOT append into an empty set on an already-UpdateNormals-flagged
+   * leaf — that silently downgrades the full rebuild to an incremental pass
+   * over just the hints. */
   util::Vector<int> affected_verts;
 
   /* Node IDs are always > 0. */

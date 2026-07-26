@@ -1,6 +1,7 @@
 #pragma once
 
 #include "accum_mode.h"
+#include "automask.h"
 #include "brush.h"
 #include "brush_concepts.h"
 #include "mesh/mesh.h"
@@ -125,11 +126,14 @@ struct CommandCtxBase {
   // looked up by handle in generated kernels via boundAttr<T>().
   const BrushAttrBindings *attrBindings = nullptr;
 
-  // Non-accumulate cache (see plans/nonAccumMode.md). When a stroke runs in
-  // non-accumulate mode, `origCo`/`origGen` are the `.brush.orig.*` TEMP vertex
-  // attrs that snapshot each vert's stroke-start position; a vert's cached pos
-  // is valid iff origGen[v] == strokeGen. Null in accumulate mode.
+  // Stroke-start cache (see plans/nonAccumMode.md): the `.brush.orig.*` TEMP
+  // attrs snapshot each vert's stroke-start position at first touch, valid iff
+  // origGen[v] == strokeGen. Null when no consumer is active. `origNo` is the
+  // matching normal snapshot, stamped only for kernels that opt in via
+  // BrushCommandDef::needsOrigNormals (no consumer yet — the view-normal mask
+  // evaluates live normals dynamically); null otherwise.
   mesh::AttrData<litestl::math::float3> *origCo = nullptr;
+  mesh::AttrData<litestl::math::float3> *origNo = nullptr;
   mesh::AttrData<int> *origGen = nullptr;
   uint32_t strokeGen = 0;
 
@@ -139,13 +143,19 @@ struct CommandCtxBase {
   mesh::AttrData<int> *dabGen = nullptr;
   uint32_t curDabGen = 0;
 
-  // Automasking (automask.h). `automaskFactor` is the `.brush.automask.factor`
-  // TEMP attr holding each vert's combined 0..1 factor — the product of every
-  // enabled contributor (cavity, view normal) — filled host-side once per stroke
-  // (keyed by strokeGen via `.brush.automask.gen`). `strength()` multiplies it in
-  // when `automaskEnabled`. Null / false when no automasking is active.
+  // Automasking (automask.h), two independent contributors:
+  //  - Cavity is CACHED: `automaskFactor` is the `.brush.automask.cavity` TEMP
+  //    attr, filled host-side once per vertex per stroke (keyed by strokeGen via
+  //    `.brush.automask.gen`) — the BFS ring-blur is too expensive per dab, and
+  //    freezing it at first contact keeps the mask from chasing the deforming
+  //    surface. Null / automaskEnabled=false when inactive.
+  //  - View-normal is DYNAMIC: `viewNormal` holds this dab's resolved params
+  //    (the acting symmetry image's own reflected ray); strength() evaluates
+  //    viewNormalFactor against the vertex's LIVE normal on every call, so
+  //    there is no per-vertex ray history to go stale.
   mesh::AttrData<float> *automaskFactor = nullptr;
   bool automaskEnabled = false;
+  ViewNormalParams viewNormal;
 
   // Fetch a bound non-bool attribute's data by kernel handle. Returns nullptr
   // when unbound (an optional layer that was absent); write kernels always
@@ -207,6 +217,9 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     float s = brush.strength * brush.falloffEval(t);
     if (automaskEnabled && automaskFactor && v >= 0) {
       s *= (*automaskFactor)[v];
+    }
+    if (viewNormal.enabled && v >= 0 && m) {
+      s *= viewNormalFactor(m->v.no[v], viewNormal);
     }
     return brush.invert ? -s : s;
   }
@@ -295,6 +308,11 @@ template <typename CTX> struct BrushCommandDef {
   // `.brush.orig.*` + `.brush.dab.gen` stamps even when `accumulable` is false
   // (kelvinlet is @global).
   bool grabMode = false;
+  // Opt-in: also snapshot each vert's stroke-start NORMAL into `.brush.orig.no`
+  // (alongside the position stamp, extended over each region leaf's skirt so
+  // the capture stays ahead of the spatial halo normal refresh). No kernel
+  // consumes it yet; default off.
+  bool needsOrigNormals = false;
   // Attribute layers this kernel reads/writes, emitted by codegen. The executor
   // resolves these to live mesh layers and binds them before the per-node loop.
   Vector<BrushAttrManifestEntry> attrs;

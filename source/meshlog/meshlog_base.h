@@ -995,14 +995,23 @@ struct LogChunkTopo : public LogChunk {
 
       for (LogElem *e : records) {
         if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-          if (e->kind == LogElemKind::Face)
-            tree->remove_face(e->end_mesh_index);
-          else if (e->kind == LogElemKind::Vert)
+          if (e->kind == LogElemKind::Face) {
+            tree->flag_face_owner_normals(e->end_mesh_index);
+            tree->remove_face(e->end_mesh_index, true);
+          } else if (e->kind == LogElemKind::Vert)
             tree->remove_vert(e->end_mesh_index);
         } else if (e->kind == LogElemKind::Face && e->origin == LogOrigin::Existed &&
                    e->fate == LogFate::Live)
         {
-          tree->remove_face(e->begin_mesh_index);
+          tree->flag_face_owner_normals(e->begin_mesh_index);
+          tree->remove_face(e->begin_mesh_index, true);
+        } else if (e->kind == LogElemKind::Corner &&
+                   e->origin == LogOrigin::Existed && e->fate == LogFate::Live)
+        {
+          /* Row swap may re-point c.v (fan membership change with no face
+             record); flag the current vert's owner skirt — the post-pass flags
+             the restored side. */
+          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
         }
       }
     }
@@ -1032,15 +1041,24 @@ struct LogChunkTopo : public LogChunk {
       // back or were rewired. add_face re-derives the leaf and flags it for
       // tris/bounds/GPU regen.
       for (LogElem *e : records) {
+        if (e->kind == LogElemKind::Corner && e->origin == LogOrigin::Existed &&
+            e->fate == LogFate::Live)
+        {
+          // Restored side of a corner-row swap (see the pre-pass).
+          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
+          continue;
+        }
         if (e->kind != LogElemKind::Face)
           continue;
         if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
           tree->add_face(e->begin_mesh_index);
+          tree->flag_face_owner_normals(e->begin_mesh_index);
         } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
           // double check face is in tree
           if (tree->treeMesh.f.node[e->begin_mesh_index] == 0) {
             tree->add_face(e->begin_mesh_index);
           }
+          tree->flag_face_owner_normals(e->begin_mesh_index);
         }
       }
     }
@@ -1061,13 +1079,18 @@ struct LogChunkTopo : public LogChunk {
         if (e->origin != LogOrigin::Existed)
           continue;
         if (e->kind == LogElemKind::Face && e->fate == LogFate::Dead) {
-          tree->remove_face(e->begin_mesh_index);
+          tree->flag_face_owner_normals(e->begin_mesh_index);
+          tree->remove_face(e->begin_mesh_index, true);
         } else if (e->kind == LogElemKind::Face && e->fate == LogFate::Live) {
           if (tree->treeMesh.f.node[e->begin_mesh_index] != 0) {
-            tree->remove_face(e->begin_mesh_index);
+            tree->flag_face_owner_normals(e->begin_mesh_index);
+            tree->remove_face(e->begin_mesh_index, true);
           }
         } else if (e->kind == LogElemKind::Vert && e->fate == LogFate::Dead) {
           tree->remove_vert(e->begin_mesh_index);
+        } else if (e->kind == LogElemKind::Corner && e->fate == LogFate::Live) {
+          // Pre-swap side of a corner-row swap (see undo's pre-pass).
+          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
         }
       }
     }
@@ -1095,16 +1118,25 @@ struct LogChunkTopo : public LogChunk {
     if (tree) {
       // Post-pass (mesh in post-step state): re-own recreated/rewired faces.
       for (LogElem *e : records) {
+        if (e->kind == LogElemKind::Corner && e->origin == LogOrigin::Existed &&
+            e->fate == LogFate::Live)
+        {
+          // Restored (post-step) side of a corner-row swap.
+          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
+          continue;
+        }
         if (e->kind != LogElemKind::Face)
           continue;
         if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
           if (tree->treeMesh.f.node[e->end_mesh_index] == 0) {
             tree->add_face(e->end_mesh_index);
           }
+          tree->flag_face_owner_normals(e->end_mesh_index);
         } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
           if (tree->treeMesh.f.node[e->begin_mesh_index] == 0) {
             tree->add_face(e->begin_mesh_index);
           }
+          tree->flag_face_owner_normals(e->begin_mesh_index);
         }
       }
     }

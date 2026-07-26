@@ -216,8 +216,8 @@ struct CommandExecutor {
   }
   /** Non-accumulate mode (see plans/nonAccumMode.md). When `nonAccum` is set and a
    * command is accumulable, the executor stamps each in-region vert's stroke-start
-   * position into `.brush.orig.*` (keyed by `strokeGen`) and runs the AccumOrig
-   * kernel instantiation so deformation is measured from that snapshot. */
+   * position and normal into `.brush.orig.*` (keyed by `strokeGen`) and runs the
+   * AccumOrig kernel instantiation so deformation is measured from that snapshot. */
   bool nonAccum = false;
   /** Grab-class symmetry dab marker (#35). The dab dispatch calls setGrabAccumAdd
    * per symmetry image before applyDab: false on the primary image (which begins
@@ -780,20 +780,24 @@ struct CommandExecutor {
       }
     }
 
-    // Non-accumulate setup (see plans/nonAccumMode.md): ensure the `.brush.orig.*`
-    // TEMP attrs and stamp each in-region vert's stroke-start position under the
+    // Stroke-start setup (see plans/nonAccumMode.md): ensure the `.brush.orig.*`
+    // TEMP attrs and stamp each in-region vert's position and normal under the
     // current generation, single-threaded before the parallel loop. A vert is
     // stamped once per stroke (first contact); later dabs leave the snapshot
-    // alone, so the AccumOrig kernel always measures from the stroke start.
+    // alone, so every consumer measures from the stroke start.
     ctx.origCo = nullptr;
+    ctx.origNo = nullptr;
     ctx.origGen = nullptr;
     ctx.strokeGen = 0;
     ctx.dabGen = nullptr;
     ctx.curDabGen = 0;
     // Grab-class brushes always need the orig snapshot (cmd.grabMode), even when
     // not `accumulable` (kelvinlet is @global) and regardless of the ACCUMULATE
-    // flag — they deform from it via AccumOrigGrab (#35).
-    if ((cmd.grabMode || (nonAccum && cmd.accumulable)) && nodes.size() > 0) {
+    // flag — they deform from it via AccumOrigGrab (#35). Kernels may also opt
+    // into the normal snapshot via cmd.needsOrigNormals.
+    if ((cmd.grabMode || (nonAccum && cmd.accumulable) || cmd.needsOrigNormals) &&
+        nodes.size() > 0)
+    {
       mesh::Mesh *m = nodes[0]->data->m;
       // TEMP + NOCOPY: stroke-transient, not undoable. NOCOPY keeps the meshlog
       // from snapshotting these during a logged dyntopo step — their pages are
@@ -809,6 +813,12 @@ struct CommandExecutor {
       genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
       ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
       ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
+      if (cmd.needsOrigNormals) {
+        mesh::AttrRef &noRef =
+            m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.no", false);
+        noRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+        ctx.origNo = static_cast<mesh::AttrData<float3> *>(noRef.data);
+      }
       ctx.strokeGen = strokeGen;
 
       // Grab-class first-touch stamp (#35): ensure `.brush.dab.gen` + pass the
@@ -822,36 +832,64 @@ struct CommandExecutor {
         ctx.curDabGen = dabGen;
       }
 
+      // Lazy first-touch stamping, O(region): a vert's position is untouched
+      // until its leaf first enters a dab region, so first-contact capture is
+      // exact for co. Normals are looser — the spatial halo refresh can rewrite
+      // a vert's normal one fan-ring ahead of the brush — so when a kernel
+      // opted into orig normals, each region leaf's SKIRT verts (its
+      // neighbor-owned fan, exactly the set the halo can reach ahead of the
+      // region) are stamped along with its own. The halo only refreshes fans of
+      // already-moved (= already-stamped-leaf) verts, so this stays ahead of it
+      // without ever sweeping the whole mesh.
+      auto stampOrig = [&](int v) {
+        ctx.origGen->materialize(v);
+        if ((*ctx.origGen)[v] != int(strokeGen)) {
+          ctx.origCo->materialize(v);
+          (*ctx.origCo)[v] = m->v.co[v];
+          if (ctx.origNo) {
+            ctx.origNo->materialize(v);
+            (*ctx.origNo)[v] = m->v.no[v];
+          }
+          (*ctx.origGen)[v] = int(strokeGen);
+        }
+      };
       for (auto *node : nodes) {
         for (int v : node->data->unique_verts) {
           if (ctx.dabGen) {
             ctx.dabGen->materialize(v);
           }
-          ctx.origGen->materialize(v);
-          if ((*ctx.origGen)[v] != int(strokeGen)) {
-            ctx.origCo->materialize(v);
-            (*ctx.origCo)[v] = m->v.co[v];
-            (*ctx.origGen)[v] = int(strokeGen);
+          stampOrig(v);
+        }
+        if (ctx.origNo) {
+          for (const auto &tri : node->data->skirt_tris) {
+            for (int k = 0; k < 3; k++) {
+              stampOrig(m->c.v[tri.c[k]]);
+            }
           }
         }
       }
     }
 
-    // Automask pre-fill (see automask.h for the caching contract): stamp each
-    // in-region vert's combined 0..1 factor into `.brush.automask.factor`,
+    // View-normal automasking is DYNAMIC: resolve the stroke's params (shared
+    // camera ray, limit, falloff) onto the ctx; strength() evaluates the factor
+    // against each vertex's live normal on every call. No cache, no stamp
+    // ordering, no per-vertex ray history.
+    ctx.viewNormal = viewNormalParamsFor(*brush);
+
+    // Cavity automask pre-fill (see automask.h for the caching contract): the
+    // BFS ring-blur is too expensive per dab, so each in-region vert's 0..1
+    // cavity factor is stamped once per stroke into `.brush.automask.cavity`,
     // single-threaded, before the parallel kernel loop reads it via strength().
     ctx.automaskFactor = nullptr;
     ctx.automaskEnabled = false;
-    if ((brush->automask_cavity || brush->automask_view_normal) && nodes.size() > 0) {
+    if (brush->automask_cavity && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
-      if (brush->automask_cavity && (!m->topo_frozen || m->topo_cache.valid(*m))) {
+      if (!m->topo_frozen || m->topo_cache.valid(*m)) {
         m->topo_cache.ensureRing1(*m);
       }
-      const bool useCavity = brush->automask_cavity && m->topo_cache.valid(*m);
-      const bool useViewNormal = brush->automask_view_normal;
-      if (useCavity || useViewNormal) {
+      if (m->topo_cache.valid(*m)) {
         mesh::AttrRef &facRef =
-            m->v.attrs.ensure(mesh::AttrType::FLOAT, ".brush.automask.factor", false);
+            m->v.attrs.ensure(mesh::AttrType::FLOAT, ".brush.automask.cavity", false);
         facRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
         mesh::AttrRef &genRef =
             m->v.attrs.ensure(mesh::AttrType::INT, ".brush.automask.gen", false);
@@ -862,14 +900,12 @@ struct CommandExecutor {
         static_assert(int(Brush::kCavityCurveLutSize) == kCavityCurveSize,
                       "brush cavity_curve LUT size must match automask kCavityCurveSize");
         CavityParams cp;
-        cp.enabled = useCavity;
+        cp.enabled = true;
         cp.blur_steps = brush->cavity_blur_steps;
         cp.factor = brush->cavity_factor;
         cp.inverted = brush->cavity_inverted;
         cp.use_curve = brush->cavity_use_curve;
         cp.curve_lut = brush->cavity_curve.data();
-
-        ViewNormalParams vp = viewNormalParamsFor(*brush);
 
         CavityScratch scr;
         for (auto *node : nodes) {
@@ -877,11 +913,7 @@ struct CommandExecutor {
             gen->materialize(v);
             fac->materialize(v);
             if (strokeGen == 0 || (*gen)[v] != int(strokeGen)) {
-              float f = useCavity ? cavityFactor(m, v, cp, scr) : 1.0f;
-              if (useViewNormal) {
-                f *= viewNormalFactor(m->v.no[v], vp);
-              }
-              (*fac)[v] = f;
+              (*fac)[v] = cavityFactor(m, v, cp, scr);
               (*gen)[v] = int(strokeGen);
             }
           }
@@ -1714,6 +1746,11 @@ struct CommandExecutor {
         m->v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen")) {
       auto *origCo =
           m->v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
+      auto *origNo =
+          m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.no")
+              ? m->v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.no")
+                    .get_data<float3>()
+              : nullptr;
       auto *origGen =
           m->v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
       for (int v : seedVerts) {
@@ -1721,6 +1758,10 @@ struct CommandExecutor {
         if ((*origGen)[v] != int(strokeGen)) {
           origCo->materialize(v);
           (*origCo)[v] = m->v.co[v];
+          if (origNo) {
+            origNo->materialize(v);
+            (*origNo)[v] = m->v.no[v];
+          }
           (*origGen)[v] = int(strokeGen);
         }
       }
