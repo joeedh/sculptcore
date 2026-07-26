@@ -804,8 +804,10 @@ struct Emit {
       indent++;
       writeIndent();
       // Neighbor co reads via the AccumMode policy: the pre-dab Jacobi snapshot
-      // (AccumLive) or the stroke-start position (AccumOrig); no/v stay live.
-      out += "struct { const litestl::math::float3 &co; litestl::math::float3 &no; int "
+      // (AccumLive) or the base position (AccumOrig); no/v stay live. `co` is by
+      // value because a from-base policy computes it — aggregate init does not
+      // extend a temporary's lifetime through a reference member.
+      out += "struct { litestl::math::float3 co; litestl::math::float3 &no; int "
              "v; } ";
       out += s.name;
       out += " {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};\n";

@@ -100,7 +100,7 @@ static void featurealign(CommandCtx<TYPES> &ctx)
       int __outer_v = v.v;
       auto *__m = ctx.node.data->m;
       for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {
-        struct { const litestl::math::float3 &co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
+        struct { litestl::math::float3 co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
         float wTan2 = wTan;
         if ((dom != 0)) {
           if ((((dom & (*__attr_vclass)[nb.v])) == 0)) {

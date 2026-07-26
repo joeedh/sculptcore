@@ -53,7 +53,7 @@ static void colorsmooth(CommandCtx<TYPES> &ctx)
       int __outer_v = v.v;
       auto *__m = ctx.node.data->m;
       for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {
-        struct { const litestl::math::float3 &co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
+        struct { litestl::math::float3 co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
         avg = (avg + (*__attr_color)[nb.v]);
         n = (n + 1.0f);
       }
