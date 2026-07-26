@@ -219,6 +219,11 @@ struct CommandExecutor {
    * position and normal into `.brush.orig.*` (keyed by `strokeGen`) and runs the
    * AccumOrig kernel instantiation so deformation is measured from that snapshot. */
   bool nonAccum = false;
+  /** Displacement base A/B (setDispBase). When set, from-base kernels resolve
+   * their base as `co - .brush.disp.vec` instead of the absolute `.brush.orig.co`
+   * snapshot, so it advects with the surface under dyntopo relaxation. Grab
+   * stays on the legacy path until M5. */
+  bool dispBase = false;
   /** Grab-class symmetry dab marker (#35). The dab dispatch calls setGrabAccumAdd
    * per symmetry image before applyDab: false on the primary image (which begins
    * a new logical dab → bumps `dabGen`), true on mirror images (same dab). The
@@ -294,6 +299,7 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, commitPreviewDab, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
     BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
+    BIND_STRUCT_METHOD(st, setDispBase, MARGS("dispBase"));
     BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
     BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
@@ -353,6 +359,16 @@ struct CommandExecutor {
     nonAccum = v;
   }
 
+  /** A/B switch for the displacement base (plans/
+   * 2026-07-26-0909-brush-displacement-base-attribute.md). On: from-base
+   * brushes derive their base as `co - .brush.disp.vec`, which advects with the
+   * surface. Off: the legacy absolute `.brush.orig.co` snapshot. CPU path only —
+   * the GPU path has no dyntopo and therefore no behavioural delta. */
+  void setDispBase(bool v)
+  {
+    dispBase = v;
+  }
+
   /** Mark the upcoming grab-class dab/image (#35): false = primary image, which
    * begins a new logical dab and bumps the per-dab generation so every vert it
    * touches re-bases from orig; true = mirror image of the same dab (shared verts
@@ -376,7 +392,8 @@ struct CommandExecutor {
   template <class AccMode>
   BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
   {
-    return BasicVertexIter<AccMode>(node, *this, ctx.origCo, ctx.origGen, ctx.strokeGen);
+    return BasicVertexIter<AccMode>(node, *this, ctx.origCo, ctx.origGen, ctx.dispVec,
+                                    ctx.dispGen, ctx.strokeGen);
   }
   BasicFaceIter makeFaceIter(spatial::SpatialNode &node)
   {
@@ -788,6 +805,8 @@ struct CommandExecutor {
     ctx.origCo = nullptr;
     ctx.origNo = nullptr;
     ctx.origGen = nullptr;
+    ctx.dispVec = nullptr;
+    ctx.dispGen = nullptr;
     ctx.strokeGen = 0;
     ctx.dabGen = nullptr;
     ctx.curDabGen = 0;
@@ -813,6 +832,20 @@ struct CommandExecutor {
       genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
       ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
       ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
+      // Displacement base: same lazy paging and TEMP | NOCOPY flags, but the
+      // stamp writes zero rather than copying a position. Grab keeps using the
+      // orig snapshot until M5. Interpolation stays enabled — a displacement
+      // field is correct to interpolate onto split verts.
+      if (dispBase && !cmd.grabMode) {
+        mesh::AttrRef &dispRef =
+            m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.disp.vec", false);
+        dispRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+        mesh::AttrRef &dispGenRef =
+            m->v.attrs.ensure(mesh::AttrType::INT, ".brush.disp.gen", false);
+        dispGenRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+        ctx.dispVec = static_cast<mesh::AttrData<float3> *>(dispRef.data);
+        ctx.dispGen = static_cast<mesh::AttrData<int> *>(dispGenRef.data);
+      }
       if (cmd.needsOrigNormals) {
         mesh::AttrRef &noRef =
             m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.no", false);
@@ -853,12 +886,26 @@ struct CommandExecutor {
           (*ctx.origGen)[v] = int(strokeGen);
         }
       };
+      // Same first-touch rule, but the stamp is zero: an untouched vert's base
+      // *is* its current position. Verts dyntopo creates mid-stroke inherit an
+      // interpolated disp (and gen), so they are already stamped and skipped.
+      auto stampDisp = [&](int v) {
+        ctx.dispGen->materialize(v);
+        if ((*ctx.dispGen)[v] != int(strokeGen)) {
+          ctx.dispVec->materialize(v);
+          (*ctx.dispVec)[v] = float3(0.0f, 0.0f, 0.0f);
+          (*ctx.dispGen)[v] = int(strokeGen);
+        }
+      };
       for (auto *node : nodes) {
         for (int v : node->data->unique_verts) {
           if (ctx.dabGen) {
             ctx.dabGen->materialize(v);
           }
           stampOrig(v);
+          if (ctx.dispVec) {
+            stampDisp(v);
+          }
         }
         if (ctx.origNo) {
           for (const auto &tri : node->data->skirt_tris) {

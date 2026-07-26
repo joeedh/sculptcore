@@ -71,6 +71,7 @@ export interface CommandExecutor {
   commitPreviewDab(): void
   setNeighborMode(mode: int32): void
   setNonAccum(nonAccum: boolean): void
+  setDispBase(dispBase: boolean): void
   setGrabAccumAdd(add: boolean): void
   setStrokeGen(gen: int32): void
   lastUniformValidationOk(): boolean

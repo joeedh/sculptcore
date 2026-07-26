@@ -11,9 +11,9 @@ struct CommandExecutor;
 // Per-vertex iteration for `vertex` stage kernels, parameterized by the
 // AccumMode policy (see accum_mode.h). The bundle's `co` is a CoProxy<AccMode>:
 // under AccumLive it is a thin reference to the live position; under AccumOrig
-// it reads each vert's stroke-start snapshot until the first write. The
-// stroke-start cache (`origCo`/`origGen` TEMP attrs + `strokeGen`) is threaded
-// in from the executor; all three are null/0 under AccumLive.
+// it reads each vert's base position until the first write. The base cache
+// (`dispVec`/`dispGen`, or legacy `origCo`/`origGen`, plus `strokeGen`) is
+// threaded in from the executor; all are null/0 under AccumLive.
 template <class AccMode> struct BasicVertexIter {
   using sub_iterator = util::OrderedSet<int>::iterator;
 
@@ -26,9 +26,9 @@ template <class AccMode> struct BasicVertexIter {
 
     CommandExecutor &ctx;
 
-    PtrHelper(float3 &co_, const float3 *base_, float3 &no_, float &mask_, int v,
-              CommandExecutor &ctx)
-        : co{co_, base_, &ctx, v}, no(no_), mask(mask_), v(v), ctx(ctx)
+    PtrHelper(float3 &co_, float3 base_, mesh::AttrData<float3> *disp_, float3 &no_,
+              float &mask_, int v, CommandExecutor &ctx)
+        : co{co_, base_, &ctx, disp_, v}, no(no_), mask(mask_), v(v), ctx(ctx)
     {
     }
     PtrHelper(const PtrHelper &b)
@@ -40,30 +40,51 @@ template <class AccMode> struct BasicVertexIter {
   CommandExecutor &ctx;
   mesh::AttrData<float3> *origCo;
   mesh::AttrData<int> *origGen;
+  mesh::AttrData<float3> *dispVec;
+  mesh::AttrData<int> *dispGen;
   uint32_t strokeGen;
   PtrHelper ptrs;
   spatial::SpatialNode &node;
 
-  // The non-accumulate base position for vert v: its stroke-start snapshot when
-  // stamped this stroke (origGen[v] == strokeGen), else the live position.
-  // Compiles to just the live position under AccumLive.
-  const float3 *baseFor(mesh::Mesh *m, int v)
+  // The from-base position for vert v, by value because the displacement path
+  // derives it: `co - disp` when stamped this stroke, else the legacy absolute
+  // snapshot, else the live position. Compiles to just the live position under
+  // AccumLive.
+  float3 baseFor(mesh::Mesh *m, int v)
   {
     if constexpr (AccMode::reads_base) {
+      if (dispVec) {
+        if (dispGen->safe_get(v) == int(strokeGen)) {
+          return m->v.co[v] - dispVec->safe_get(v);
+        }
+        return m->v.co[v];
+      }
       if (origGen && origGen->safe_get(v) == int(strokeGen)) {
-        return &(*origCo)[v];
+        return (*origCo)[v];
       }
     }
-    return &m->v.co[v];
+    return m->v.co[v];
+  }
+
+  // The disp attr the proxy accumulates into, or null on the legacy path. Only
+  // a from-base mode records displacement; AccumLive writes absolute positions.
+  mesh::AttrData<float3> *dispFor()
+  {
+    if constexpr (AccMode::reads_base) {
+      return dispVec;
+    }
+    return nullptr;
   }
 
   /** Note: do not ever create a vertex iter on an empty node with no vertices! */
   BasicVertexIter(spatial::SpatialNode &node, CommandExecutor &ctx,
                   mesh::AttrData<float3> *origCo, mesh::AttrData<int> *origGen,
+                  mesh::AttrData<float3> *dispVec, mesh::AttrData<int> *dispGen,
                   uint32_t strokeGen)
-      : ctx(ctx), origCo(origCo), origGen(origGen), strokeGen(strokeGen),
+      : ctx(ctx), origCo(origCo), origGen(origGen), dispVec(dispVec), dispGen(dispGen),
+        strokeGen(strokeGen),
         ptrs(node.data->m->v.co[*node.data->unique_verts.begin()],
-             baseFor(node.data->m, *node.data->unique_verts.begin()),
+             baseFor(node.data->m, *node.data->unique_verts.begin()), dispFor(),
              node.data->m->v.no[*node.data->unique_verts.begin()],
              node.treeMesh->v.mask[*node.data->unique_verts.begin()],
              *node.data->unique_verts.begin(), ctx),
@@ -74,16 +95,18 @@ template <class AccMode> struct BasicVertexIter {
   }
 
   BasicVertexIter(const BasicVertexIter &b)
-      : ctx(b.ctx), origCo(b.origCo), origGen(b.origGen), strokeGen(b.strokeGen),
-        ptrs(b.ptrs), node(b.node), iter(b.iter), start_iter(b.start_iter),
-        end_iter(b.end_iter), _nodeIndex(b._nodeIndex)
+      : ctx(b.ctx), origCo(b.origCo), origGen(b.origGen), dispVec(b.dispVec),
+        dispGen(b.dispGen), strokeGen(b.strokeGen), ptrs(b.ptrs), node(b.node),
+        iter(b.iter), start_iter(b.start_iter), end_iter(b.end_iter),
+        _nodeIndex(b._nodeIndex)
   {
   }
 
   BasicVertexIter(spatial::SpatialNode &node, sub_iterator iter, CommandExecutor &ctx,
                   mesh::AttrData<float3> *origCo, mesh::AttrData<int> *origGen,
+                  mesh::AttrData<float3> *dispVec, mesh::AttrData<int> *dispGen,
                   uint32_t strokeGen)
-      : BasicVertexIter(node, ctx, origCo, origGen, strokeGen)
+      : BasicVertexIter(node, ctx, origCo, origGen, dispVec, dispGen, strokeGen)
   {
     this->iter = iter;
   }
@@ -112,7 +135,7 @@ template <class AccMode> struct BasicVertexIter {
       int i = *iter;
 
       ptrs.~PtrHelper();
-      new (&ptrs) PtrHelper(m->v.co[i], baseFor(m, i), m->v.no[i],
+      new (&ptrs) PtrHelper(m->v.co[i], baseFor(m, i), dispFor(), m->v.no[i],
                             node.treeMesh->v.mask[i], i, ctx);
       ptrs.indexInNode = _nodeIndex++;
     }
@@ -122,12 +145,14 @@ template <class AccMode> struct BasicVertexIter {
 
   BasicVertexIter begin()
   {
-    return BasicVertexIter(node, start_iter, ctx, origCo, origGen, strokeGen);
+    return BasicVertexIter(node, start_iter, ctx, origCo, origGen, dispVec, dispGen,
+                           strokeGen);
   }
 
   BasicVertexIter end()
   {
-    return BasicVertexIter(node, end_iter, ctx, origCo, origGen, strokeGen);
+    return BasicVertexIter(node, end_iter, ctx, origCo, origGen, dispVec, dispGen,
+                           strokeGen);
   }
 
 private:

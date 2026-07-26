@@ -141,6 +141,11 @@ struct Scene {
   bool nonAccum = false;
   uint32_t strokeGen = 0;
 
+  /* A/B toggle for the displacement base (plans/
+   * 2026-07-26-0909-brush-displacement-base-attribute.md), pushed to
+   * CommandExecutor::setDispBase. Off = the legacy `.brush.orig.co` snapshot. */
+  bool dispBase = false;
+
   /* Multires (displacementAndSubSurf S4): when set, `mesh` / `tree` are
    * NON-OWNING views of the active level's slot (the Multires owns them) and
    * the original mesh is parked as the cage. mrUndoLevels/mrRedoLevels record

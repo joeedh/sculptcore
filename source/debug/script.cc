@@ -521,6 +521,7 @@ bool execVerb(Scene &scene,
     scene.brush.invert = getBool(args, "invert", scene.brush.invert);
     scene.brush.pinch = getFloat(args, "pinch", scene.brush.pinch);
     scene.nonAccum = getBool(args, "nonaccum", scene.nonAccum);
+    scene.dispBase = getBool(args, "dispbase", scene.dispBase);
     scene.brush.writeProps();
     return true;
   }
@@ -1335,6 +1336,7 @@ bool execVerb(Scene &scene,
         exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
       }
       exec.setNonAccum(scene.nonAccum);
+      exec.setDispBase(scene.dispBase);
       exec.setStrokeGen(int(gen));
       // layer=<name>: retarget the kernel's first declared attr handle (the
       // layerdraw brush's `slayer`) at the named sculpt layer.
@@ -1442,6 +1444,7 @@ bool execVerb(Scene &scene,
       exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
     }
     exec.setNonAccum(scene.nonAccum);
+    exec.setDispBase(scene.dispBase);
     exec.setStrokeGen(int(gen));
     // One step for the whole stroke; beginStep pushes the first topo chunk when
     // dyntopo is on, matching meshLog.beginStep(hasDyntopo) on the TS side.
@@ -1545,6 +1548,7 @@ bool execVerb(Scene &scene,
       exec.meshLog = &scene.meshLog;
       exec.ctx.renderMatrix = scene.renderMatrix;
       exec.setNonAccum(scene.nonAccum);
+      exec.setDispBase(scene.dispBase);
       exec.setStrokeGen(int(gen));
       dyntopo::DynTopoParams *dtp =
           scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
@@ -1619,6 +1623,7 @@ bool execVerb(Scene &scene,
     exec.meshLog = &scene.meshLog;
     exec.ctx.renderMatrix = scene.renderMatrix;
     exec.setNonAccum(scene.nonAccum);
+    exec.setDispBase(scene.dispBase);
     exec.setStrokeGen(int(gen));
     dyntopo::DynTopoParams *dtp = scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
     exec.beginStep(scene.dyntopoEnabled);

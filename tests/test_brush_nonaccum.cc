@@ -255,5 +255,79 @@ int main()
     test_assert(minPush < 0.85f * maxPush);  // falloff-shaped dome, not a plateau
   }
 
+  // (g) Displacement base (plans/2026-07-26-0909-brush-displacement-base-
+  // attribute.md). `set_brush dispbase=1` derives the from-base position as
+  // `co - .brush.disp.vec` instead of reading the absolute `.brush.orig.co`
+  // snapshot. With static topology nothing can advect the base, so the two must
+  // agree exactly; and the §2 invariant (every brush delta is added to disp)
+  // means `disp == co - orig` on every stamped vert.
+  {
+    const char *strokeLines =
+        "set_brush_tool tool=draw\n"
+        "set_brush radius=0.25 strength=0.5 nonaccum=1 dispbase=%d\n"
+        "stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=6 normal=0,0,1\n";
+    char legacySrc[512], dispSrc[512];
+    snprintf(legacySrc, sizeof(legacySrc), strokeLines, 0);
+    snprintf(dispSrc, sizeof(dispSrc), strokeLines, 1);
+
+    Scene legacyScene(256, 256, /*headless=*/true);
+    Scene dispScene(256, 256, /*headless=*/true);
+    const char *prefix =
+        "make_cube subdivs=12 size=0.5\n"
+        "build_spatial leaf_limit=256 depth_limit=8\n"
+        "set_backend backend=cpp\n";
+    auto rl = script::run(legacyScene, (std::string(prefix) + legacySrc).c_str(), ".");
+    auto rd = script::run(dispScene, (std::string(prefix) + dispSrc).c_str(), ".");
+    test_assert(rl.ok && rd.ok);
+    if (!rl.ok || !rd.ok) {
+      fprintf(stderr, "  (g) legacy line %d: %s / disp line %d: %s\n", rl.line_no,
+              rl.error.c_str(), rd.line_no, rd.error.c_str());
+      return 1;
+    }
+    Mesh *ml = legacyScene.mesh;
+    Mesh *md = dispScene.mesh;
+    test_assert(ml->v.count == md->v.count);
+    float maxDelta = 0.0f;
+    for (int i = 0; i < ml->v.count; i++) {
+      maxDelta = std::fmax(maxDelta, (ml->v.co[i] - md->v.co[i]).length());
+    }
+
+    // The invariant: on every vert stamped this stroke, disp is exactly what the
+    // brush moved it by, i.e. co - orig.
+    test_assert(md->v.attrs.has(AttrType::FLOAT3, ".brush.disp.vec"));
+    test_assert(md->v.attrs.has(AttrType::INT, ".brush.disp.gen"));
+    auto *disp =
+        md->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec").get_data<float3>();
+    auto *dispGen =
+        md->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
+    auto *orig =
+        md->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
+    auto *origGen =
+        md->v.attrs.find_attribute(AttrType::INT, ".brush.orig.gen").get_data<int>();
+    int stamped = 0, moved = 0;
+    float maxInvariant = 0.0f, maxDisp = 0.0f;
+    for (int i = 0; i < md->v.count; i++) {
+      if (dispGen->safe_get(i) != int(dispScene.strokeGen) ||
+          origGen->safe_get(i) != int(dispScene.strokeGen))
+      {
+        continue;
+      }
+      stamped++;
+      float3 d = disp->safe_get(i);
+      maxDisp = std::fmax(maxDisp, d.length());
+      if (d.length() > 1e-6f) {
+        moved++;
+      }
+      maxInvariant = std::fmax(maxInvariant, (d - (md->v.co[i] - (*orig)[i])).length());
+    }
+    fprintf(stderr, "(g) maxDelta=%.8f stamped=%d moved=%d maxDisp=%.5f inv=%.8f\n",
+            maxDelta, stamped, moved, maxDisp, maxInvariant);
+    test_assert(maxDelta < 1e-6f);      // static topology => identical to legacy
+    test_assert(stamped > 0);           // the attrs really were stamped
+    test_assert(moved > 0);             // and really accumulated a displacement
+    test_assert(maxDisp > 0.01f);
+    test_assert(maxInvariant < 1e-6f);  // disp == co - orig on every stamped vert
+  }
+
   return test_end();
 }

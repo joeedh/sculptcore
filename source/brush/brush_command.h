@@ -137,6 +137,15 @@ struct CommandCtxBase {
   mesh::AttrData<int> *origGen = nullptr;
   uint32_t strokeGen = 0;
 
+  // Displacement base (the `.brush.disp.*` TEMP attrs): `dispVec` accumulates
+  // what the brush has moved each vert this stroke, so the base is `co - disp`
+  // and advects with the surface instead of being pinned to a stale snapshot.
+  // Valid iff dispGen[v] == strokeGen. Non-null only when the displacement base
+  // is enabled (CommandExecutor::setDispBase); the `.brush.orig.*` fields above
+  // carry the same role on the legacy path.
+  mesh::AttrData<litestl::math::float3> *dispVec = nullptr;
+  mesh::AttrData<int> *dispGen = nullptr;
+
   // Grab-class symmetry first-touch stamp (#35): `dabGen` is the `.brush.dab.gen`
   // TEMP attr, a vert counts as written this dab iff dabGen[v] == curDabGen.
   // Drives the AccumOrigGrab re-base/add choice. Null/0 outside a grab dab.
