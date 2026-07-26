@@ -7,8 +7,10 @@ set(LIB_SRC
   PUBLIC interactive.h
   PUBLIC ui.h
   PUBLIC gpu_stroke.h
+  PUBLIC roughness.h
   scene.cc
   script.cc
+  roughness.cc
   gpu_stroke.cc
   stb_image_impl.cc
   state_dump.cc

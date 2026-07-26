@@ -34,6 +34,9 @@ struct LastStroke {
   litestl::math::float3 origin{0, 0, 0};
   litestl::math::float3 normal{0, 0, 1};
   float radius = 0.0f;
+  // Every dab origin the stroke drove, so region-scoped analysis verbs (e.g.
+  // `roughness`) can span the whole swept area rather than the last dab.
+  litestl::util::Vector<litestl::math::float3> centers;
 };
 
 /** Owns one full debug-app scene: mesh + spatial accelerator + brush +

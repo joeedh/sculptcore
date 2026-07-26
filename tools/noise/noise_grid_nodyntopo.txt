@@ -1,0 +1,9 @@
+make_shape kind=grid n=32 m=32 size=2
+triangulate
+build_spatial
+set_brush_tool tool=draw
+set_brush radius=0.25 strength=0.5 nonaccum=1
+dyntopo enabled=0
+stroke_path p1=-0.6,0,0 p2=0.6,0,0 steps=24 normal=0,0,1 rough=1
+roughness tag=final
+dyntopo_stats

@@ -1,0 +1,9 @@
+make_shape kind=sphere n=48 m=64 radius=1
+triangulate
+build_spatial
+set_brush_tool tool=draw
+set_brush radius=0.25 strength=0.5 nonaccum=1
+dyntopo enabled=1 detail=0.02 seed=1
+stroke_path p1=-0.35,0,0.937 p2=0.35,0,0.937 steps=24 normal=0,0,1 rough=1
+roughness tag=final
+dyntopo_stats

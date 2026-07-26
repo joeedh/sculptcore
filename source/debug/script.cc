@@ -1,5 +1,6 @@
 #include "script.h"
 
+#include "roughness.h"
 #include "scene.h"
 #include "state_dump.h"
 
@@ -416,6 +417,33 @@ static void multiresStrokeEnd(Scene &scene)
   std::fprintf(stdout, "[script] multires writeback level=%d changed=%d\n", level,
                changed);
 }
+/** Print the brush-noise metrics over the region swept by `centers`/`radius`
+ * (plan 2026-07-26-0909 §9.1): one-ring normal roughness of the live surface
+ * *and* of the derived displacement base, plus the live-only fidelity guard so
+ * a quieter base can't be won by depositing less displacement. */
+static void reportRoughness(Scene &scene,
+                            const char *tag,
+                            const Vector<float3> &centers,
+                            float radius,
+                            float3 up,
+                            float rest)
+{
+  Vector<int> region;
+  collectRegion(scene.mesh, centers, radius, region);
+  RoughnessResult live = computeRoughness(scene.mesh, region, RoughnessPoints::Live,
+                                          scene.strokeGen, up, rest);
+  RoughnessResult base = computeRoughness(scene.mesh, region, RoughnessPoints::Base,
+                                          scene.strokeGen, up, rest);
+  std::fprintf(stdout,
+               "[roughness] %s verts=%d edges=%d | live rms=%.6g p95=%.6g max=%.6g "
+               "dih=%.6g | base rms=%.6g p95=%.6g max=%.6g dih=%.6g | maxdisp=%.6g "
+               "vol=%.6g\n",
+               tag, live.verts, live.edges, live.rms, live.p95, live.maxr,
+               live.dihedral, base.rms, base.p95, base.maxr, base.dihedral,
+               live.maxDisp, live.volume);
+  std::fflush(stdout);
+}
+
 /* VDM texel snapshots (save_vdm / assert_vdm): every live tile's texels,
  * keyed by snapshot name — the texel analogue of g_posSnapshots. */
 std::map<std::string, std::map<uint64_t, std::vector<float3>>> g_vdmSnapshots;
@@ -1322,6 +1350,12 @@ bool execVerb(Scene &scene,
       }
       dyntopo::DynTopoParams *dtp =
           scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+      // rough=1: print the §9.1 noise metrics after every dab, inside the one
+      // stroke — a separate `roughness` verb per dab is impossible, since each
+      // `stroke` verb bumps strokeGen and so resets the base.
+      bool roughTrace = getBool(args, "rough", false);
+      Vector<float3> roughCenters;
+      char roughTag[64];
       exec.beginStep(scene.dyntopoEnabled);
       for (int i = 0; i < repeat; i++) {
         // Each repeat is a new logical dab's primary image (mirrors the TS
@@ -1334,6 +1368,12 @@ bool execVerb(Scene &scene,
         scene.cumSplits += exec.lastDynTopoStats.splits;
         scene.cumCollapses += exec.lastDynTopoStats.collapses;
         scene.cumFlips += exec.lastDynTopoStats.flips;
+        if (roughTrace) {
+          roughCenters.append(origin);
+          std::snprintf(roughTag, sizeof(roughTag), "dab=%d", i);
+          reportRoughness(scene, roughTag, roughCenters, scene.brush.radius,
+                          float3(0, 0, 1), 0.0f);
+        }
       }
       if (scene.dyntopoEnabled) {
         exec.endDynTopoStroke();
@@ -1363,6 +1403,8 @@ bool execVerb(Scene &scene,
     scene.lastStroke.origin = origin;
     scene.lastStroke.normal = normal;
     scene.lastStroke.radius = scene.brush.radius;
+    scene.lastStroke.centers.clear();
+    scene.lastStroke.centers.append(origin);
     return true;
   }
   if (verb == "stroke_folded") {
@@ -1506,10 +1548,20 @@ bool execVerb(Scene &scene,
       exec.setStrokeGen(int(gen));
       dyntopo::DynTopoParams *dtp =
           scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+      // rough=1: per-dab noise trace over the swept-so-far region (see `stroke`).
+      bool roughTrace = getBool(args, "rough", false);
+      Vector<float3> roughCenters;
+      char roughTag[64];
       exec.beginStep(scene.dyntopoEnabled);
       for (size_t i = 0; i < origins.size(); i++) {
         exec.applyDab(scene.currentTool, origins[i], normal, scene.brush.radius,
                       dtp, scene.dyntopoSeed + uint32_t(i));
+        if (roughTrace) {
+          roughCenters.append(origins[i]);
+          std::snprintf(roughTag, sizeof(roughTag), "dab=%zu", i);
+          reportRoughness(scene, roughTag, roughCenters, scene.brush.radius,
+                          float3(0, 0, 1), 0.0f);
+        }
       }
       if (scene.dyntopoEnabled) {
         exec.endDynTopoStroke();
@@ -1524,6 +1576,10 @@ bool execVerb(Scene &scene,
     scene.lastStroke.origin = p2;
     scene.lastStroke.normal = normal;
     scene.lastStroke.radius = scene.brush.radius;
+    scene.lastStroke.centers.clear();
+    for (const float3 &o : origins) {
+      scene.lastStroke.centers.append(o);
+    }
     return true;
   }
   if (verb == "preview_stroke_path") {
@@ -1946,6 +2002,36 @@ bool execVerb(Scene &scene,
       err = buf;
       return false;
     }
+    return true;
+  }
+  if (verb == "roughness") {
+    if (!scene.mesh) {
+      err = "roughness: no mesh";
+      return false;
+    }
+    // Region: an explicit center=, else every dab origin of the last stroke.
+    Vector<float3> centers;
+    float3 c;
+    if (parseFloat3(getArg(args, "center"), c)) {
+      centers.append(c);
+    } else if (scene.lastStroke.valid) {
+      for (const float3 &o : scene.lastStroke.centers) {
+        centers.append(o);
+      }
+      if (centers.size() == 0) {
+        centers.append(scene.lastStroke.origin);
+      }
+    } else {
+      err = "roughness: no center= and no prior stroke";
+      return false;
+    }
+    float radius = getFloat(
+        args, "radius",
+        scene.lastStroke.valid ? scene.lastStroke.radius : scene.brush.radius);
+    float3 up{0, 0, 1};
+    parseFloat3(getArg(args, "up"), up);
+    reportRoughness(scene, getArg(args, "tag", "region"), centers, radius, up,
+                    getFloat(args, "rest", 0.0f));
     return true;
   }
   if (verb == "save_pos") {
