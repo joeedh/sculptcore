@@ -75,7 +75,6 @@ WgpuBrushComputeDispatch::~WgpuBrushComputeDispatch()
   destroyBuf(coPrev_);
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
-  destroyBuf(origCo_);
   destroyBuf(disp_);
   destroyBuf(dabStamp_);
   destroyBuf(automask_);
@@ -327,7 +326,6 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(mask_, uint64_t(vertCount) * sizeof(float), rw) ||
       !ensureBuf(coPrev_, uint64_t(vertCount) * kVec3Stride, ro) ||
       !ensureBuf(disp_, uint64_t(vertCount) * kVec3Stride, rw) ||
-      !ensureBuf(origCo_, uint64_t(vertCount) * kVec3Stride, ro) ||
       !ensureBuf(dabStamp_, uint64_t(vertCount) * sizeof(uint32_t), rw) ||
       !ensureBuf(automask_, uint64_t(vertCount) * sizeof(float), ro) ||
       !ensureBuf(nbrMeta_, 0, ro) || !ensureBuf(nbrVerts_, 0, ro)) {
@@ -344,10 +342,6 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
     tmp[i * 4 + 3] = 0.0f;
   }
   wgpuQueueWriteBuffer(ctx_->queue, co_.buffer, 0, tmp.data(),
-                       size_t(vertCount) * kVec3Stride);
-  // Legacy grab-class snapshot: the mesh is static for the stroke, so this
-  // beginStroke upload is every vert's stroke-start position.
-  wgpuQueueWriteBuffer(ctx_->queue, origCo_.buffer, 0, tmp.data(),
                        size_t(vertCount) * kVec3Stride);
   {
     // Accumulated displacement starts at zero: nothing has been deposited yet,
@@ -442,7 +436,6 @@ WGPUBindGroup WgpuBrushComputeDispatch::buildBindGroup()
     case 11: buf = &coPrev_; break;
     case 12: buf = &nbrMeta_; break;
     case 13: buf = &nbrVerts_; break;
-    case brush::kOrigCoBinding: buf = &origCo_; break;
     case brush::kDabStampBinding: buf = &dabStamp_; break;
     case brush::kAutomaskBinding: buf = &automask_; break;
     case brush::kDispBinding: buf = &disp_; break;

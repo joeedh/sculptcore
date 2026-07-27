@@ -222,6 +222,13 @@ it (see §6) don't support free-form collapse.
   triangle sizes / kills slivers without shrinking the surface, and by evening
   edge lengths actually *reduces* split work. Boundary verts fixed; each move
   clamped so a thin triangle can't fold. Completes the Botsch-Kobbelt quartet.
+  When `DynTopoParams::dispGen` is set it also resamples each slid vert's
+  `.brush.disp.vec` with the same weights, so the from-base brush modes' derived
+  base (`co - disp`) slides *along* the base surface instead of inheriting the
+  slide's normal component — see
+  [`../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md`](../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md).
+  Split and collapse need no such hook: the field is a plain vertex attribute
+  and rides their normal interpolation/merge (`attr_merge.cc`).
 - **Triangulate**: any non-tri face an operation produces is triangulated via
   `triangulate.h`.
 

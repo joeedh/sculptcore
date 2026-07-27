@@ -108,10 +108,6 @@ private:
   Buf brushU_, ctxU_;                // bindings 5,6
   Buf falloff_, stroke_;             // bindings 7,10
   Buf coPrev_, nbrMeta_, nbrVerts_;  // bindings 11,12,13
-  /* binding 22 (kOrigCoBinding) — read-only stroke-start co (a copy of the
-   * beginStroke co upload, static across the stroke).
-   * CLAUDENOTE(M6): dead — no kernel declares it since grab moved onto disp. */
-  Buf origCo_;
   /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
    * (@grabmode kernels), zero-filled at beginStroke. */
   Buf dabStamp_;

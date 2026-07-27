@@ -223,12 +223,6 @@ export async function replayFixture(fixturePath, wgslDir) {
   if (has(12)) nbrMetaBuf = makeBuffer(device, b64bytes(fx.nbrMeta), BufferUsage.STORAGE)
   if (has(13)) nbrVertsBuf = makeBuffer(device, b64bytes(fx.nbrVerts), BufferUsage.STORAGE)
 
-  // binding 22 (kOrigCoBinding): stroke-start positions; no kernel declares it
-  // since grab moved onto kDispBinding, so this is inert. The native
-  // dispatcher fills it with the beginStroke co upload, which is exactly the
-  // fixture's initial co bytes.
-  const origCoBuf = has(22) ? makeBuffer(device, b64bytes(fx.co), BufferUsage.STORAGE) : null
-
   // binding 25 (kDispBinding): accumulated non-accumulate displacement, zero at
   // stroke begin like the native dispatchers (nothing deposited yet, so the
   // derived base `co - disp` is the stroke-start surface). Persistent across dabs.
@@ -290,7 +284,6 @@ export async function replayFixture(fixturePath, wgslDir) {
     add(11, {buffer: coPrevBuf})
     add(12, {buffer: nbrMetaBuf})
     add(13, {buffer: nbrVertsBuf})
-    add(22, {buffer: origCoBuf})
     add(23, {buffer: dabStampBuf})
     add(24, {buffer: automaskBuf})
     add(25, {buffer: dispBuf})

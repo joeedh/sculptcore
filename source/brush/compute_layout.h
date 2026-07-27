@@ -104,11 +104,9 @@ struct ComputeNodeMeta {
   uint32_t vert_count = 0;
 };
 
-/* Fixed binding of the read-only per-vertex stroke-start position, just past the
- * custom-attr slot superset (vk_compute kAttrBase=14 + kMaxAttrBindings=8).
- * CLAUDENOTE(M6): no kernel declares it any more — grab derives its base from
- * kDispBinding — so it goes away with `.brush.orig.*`. */
-inline constexpr uint32_t kOrigCoBinding = 22;
+/* Binding 22 is retired: it held a read-only stroke-start position copy until
+ * grab moved onto kDispBinding. Left unassigned so the later slots keep their
+ * numbers. The attr superset (kAttrBase=14 + kMaxAttrBindings=8) ends there. */
 
 /* Fixed binding of the grab-class per-vertex dab stamp (@grabmode kernels
  * only): one u32 per vertex, zero-filled at beginStroke, compared against

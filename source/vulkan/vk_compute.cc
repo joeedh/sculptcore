@@ -26,7 +26,6 @@ BrushComputeDispatch::~BrushComputeDispatch()
   destroyBuf(coPrev_);
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
-  destroyBuf(origCo_);
   destroyBuf(disp_);
   destroyBuf(dabStamp_);
   destroyBuf(automask_);
@@ -315,12 +314,16 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   // (co_prev + neighbor CSR) are only referenced by for_neighbor kernels, but
   // the layout always declares them so one bind-group setup serves every
   // brush; non-neighbor shaders simply don't use them.
+  // Entries are appended, not indexed by binding: slot 22 is retired, so the
+  // declared bindings are no longer contiguous.
   VkDescriptorSetLayoutBinding lb[kAttrBase + kMaxAttrBindings + 4]{};
+  uint32_t lbCount = 0;
   auto set = [&](int i, VkDescriptorType t) {
-    lb[i].binding = uint32_t(i);
-    lb[i].descriptorType = t;
-    lb[i].descriptorCount = 1;
-    lb[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    VkDescriptorSetLayoutBinding &b = lb[lbCount++];
+    b.binding = uint32_t(i);
+    b.descriptorType = t;
+    b.descriptorCount = 1;
+    b.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   };
   set(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   set(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -341,15 +344,10 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   for (int i = 0; i < kMaxAttrBindings; i++) {
     set(kAttrBase + i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   }
-  // Non-accumulate stroke-start co (kOrigCoBinding = 22), just past the attr
-  // superset. Always declared; non-accumulable kernels simply don't use it.
-  static_assert(kOrigCoBinding == uint32_t(kAttrBase + kMaxAttrBindings),
-                "orig_co binding must sit just past the attr slot superset");
-  set(int(kOrigCoBinding), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-  // Grab-class first-touch stamps (kDabStampBinding = 23), directly after
-  // orig_co. Always declared; non-grab kernels simply don't use it.
-  static_assert(kDabStampBinding == kOrigCoBinding + 1,
-                "dab-stamp binding must sit directly past orig_co");
+  // Grab-class first-touch stamps (kDabStampBinding = 23), one past the retired
+  // slot 22. Always declared; non-grab kernels simply don't use it.
+  static_assert(kDabStampBinding == uint32_t(kAttrBase + kMaxAttrBindings) + 1,
+                "dab-stamp binding must sit one past the attr slot superset");
   set(int(kDabStampBinding), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   // Cavity automask (kAutomaskBinding = 24), directly after dab_stamp. Always
   // declared; kernels that don't call strength() simply don't use it.
@@ -364,7 +362,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
 
   VkDescriptorSetLayoutCreateInfo lci{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  lci.bindingCount = kAttrBase + kMaxAttrBindings + 4;
+  lci.bindingCount = lbCount;
   lci.pBindings = lb;
   if (vkCreateDescriptorSetLayout(d, &lci, nullptr, &setLayout_) != VK_SUCCESS)
     return false;
@@ -437,7 +435,6 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(no_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(mask_, VkDeviceSize(vertCount) * sizeof(float), storage) ||
       !ensureBuf(coPrev_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
-      !ensureBuf(origCo_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(disp_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(dabStamp_, VkDeviceSize(vertCount) * sizeof(uint32_t), storage) ||
       !ensureBuf(automask_, VkDeviceSize(vertCount) * sizeof(float), storage) ||
@@ -458,10 +455,6 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
     noDst[i * 4 + 3] = 0.0f;
   }
   std::memcpy(mask_.mapped, mask, size_t(vertCount) * sizeof(float));
-  // Stroke-start snapshot for non-accumulate mode: the mesh is static for the
-  // stroke, so this beginStroke upload is every vert's stroke-start position.
-  std::memcpy(origCo_.mapped, coDst, size_t(vertCount) * 4 * sizeof(float));
-  writeStorage(kOrigCoBinding, origCo_);
   // Accumulated displacement starts at zero: nothing has been deposited yet, so
   // the derived base `co - disp` is every vert's stroke-start position. On a
   // static-topology GPU stroke that is the whole of the CPU generational stamp.

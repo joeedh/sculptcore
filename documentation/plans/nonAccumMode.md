@@ -1,5 +1,14 @@
 # Non-Accumulating Brush Mode — Implementation Plan
 
+> **§5 superseded (2026-07-26).** The stroke-start base is no longer the
+> absolute `.brush.orig.co` snapshot this plan describes. It is derived from an
+> accumulated displacement field, `base(v) = co(v) - .brush.disp.vec(v)`, which
+> advects with the surface for free under dyntopo instead of needing the
+> delta-tracking of §5. See
+> [`../../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md`](../../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md).
+> Everything else here (the generation counter, the stamp pre-pass, the
+> `AccumMode` policy seam, the TS plumbing) is unchanged and still current.
+
 ## Context
 
 Today every non-global sculpt brush applies its displacement on top of the
@@ -215,6 +224,13 @@ During a non-accumulate stroke, `MeshCallbacks.onVertCreate` sets `gen[v]=0`
 the cb assembled in `applyDynTopoDab` only when non-accumulate is active.
 
 ### 5. Dyntopo coherence (cache tracks remesh motion)
+
+> **Superseded** — see the banner at the top of this file. With a displacement
+> base, a vertex that dyntopo *slides* carries its displacement along and the
+> base follows the surface with no delta bookkeeping; only the tangential smooth
+> still resamples (the field is being moved through, not with, the surface).
+> Retained below as the record of the original `orig_co` design.
+
 For verts already stamped this stroke (`gen[v]==nonAccumGen`), apply the same
 positional delta to `orig_co` wherever dyntopo moves a vertex:
 - **Tangential smooth** Jacobi write (`source/dyntopo/dyntopo.h` ~785-813):
