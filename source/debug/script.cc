@@ -669,6 +669,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::ENHANCE;
     } else if (ts == "grab") {
       scene.currentTool = brush::SculptBrushes::GRAB;
+    } else if (ts == "snakehook") {
+      scene.currentTool = brush::SculptBrushes::SNAKEHOOK;
     } else if (ts == "layerdraw") {
       scene.currentTool = brush::SculptBrushes::LAYERDRAW;
     } else {
