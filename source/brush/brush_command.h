@@ -347,6 +347,10 @@ template <typename CTX> struct BrushCommandDef {
   // nothing about whether it does — that is the stroke's business, not the
   // kernel's, so `CommandExecutor::anchoredGrab` is the other half.
   bool grabModeCapable = false;
+  // Set by codegen from `@unbounded`: the field carries no distance falloff of
+  // its own, only `unboundedWindow`'s cutoff at R = radius * unboundedExtent.
+  // The executor floors the node-filter radius at R (`filterRadiusFloor`).
+  bool unbounded = false;
   // Set by the executor: this stroke deforms from the stroke-start position with
   // the AccumOrigGrab policy + a fixed region, independent of the ACCUMULATE flag
   // (#35). Drives the `.brush.disp.*` + `.brush.dab.gen` stamps even when

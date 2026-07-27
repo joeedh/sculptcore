@@ -238,6 +238,10 @@ struct CommandExecutor {
    * exec(). Must be non-zero in use, since the `.brush.dab.gen` attr defaults 0. */
   uint32_t dabGen = 0;
   uint32_t strokeGen = 0;
+  // Memo for filterRadiusFloor: building a command def per dab just to read one
+  // codegen flag is wasteful, and the answer only depends on the tool.
+  int floorMemoTool_ = -1;
+  bool floorMemoUnbounded_ = false;
   meshlog::MeshLog *meshLog = nullptr;
   /** Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
    * dab and accumulated per stroke). */
@@ -524,6 +528,23 @@ struct CommandExecutor {
       createCommandImpl<AccumOrig>(brushType, def);
     }
     return def;
+  }
+
+  /** Lower bound on the node-filter radius for `brushType`. An `@unbounded`
+   * kernel carries no distance falloff of its own — only `unboundedWindow`'s
+   * cutoff at R = radius * unboundedExtent — so a filter sized from the brush
+   * radius stops while the field is still live and the leaf boundary tears.
+   * Hosts still own the radius (grab widens it by the drag); this only raises
+   * it, and returns 0 for every ordinary kernel. */
+  float filterRadiusFloor(SculptBrushes brushType)
+  {
+    if (int(brushType) != floorMemoTool_) {
+      brush_command def;
+      createCommandImpl<AccumLive>(brushType, def);
+      floorMemoTool_ = int(brushType);
+      floorMemoUnbounded_ = def.unbounded;
+    }
+    return floorMemoUnbounded_ ? brush->radius * brush->unboundedExtent : 0.0f;
   }
 
   /** Map a declared attribute domain to the mesh's element AttrGroup. */
@@ -1792,6 +1813,9 @@ struct CommandExecutor {
     // brush->radius). Grab-class strokes pass a radius widened by the cumulative
     // drag so the deformed region's leaves stay in the set and can't shrink +
     // tear at leaf seams (#35); the caller (the dab dispatch) does the widening.
+    for (const BrushCommandEntry &e : prog->commands) {
+      radius = std::fmax(radius, filterRadiusFloor(e.type));
+    }
     Vector<spatial::SpatialNode *> nodes;
     tree->filterNodes(center, radius, nodes);
     if (nodes.size() > 0) {
@@ -1830,6 +1854,7 @@ struct CommandExecutor {
     }
     // `radius` is the node-filter radius only (caller widens it for grab-class
     // strokes; see the BrushProgram overload). #35
+    radius = std::fmax(radius, filterRadiusFloor(brushType));
     Vector<spatial::SpatialNode *> nodes;
     tree->filterNodes(center, radius, nodes);
     if (nodes.size() > 0) {

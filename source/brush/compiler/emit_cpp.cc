@@ -1625,6 +1625,11 @@ struct Emit {
     if (brush->isGrabMode) {
       write("  def.grabModeCapable = true;\n");
     }
+    // `@unbounded`: the field is live out to radius * unboundedExtent, which the
+    // executor uses as the node-filter floor so no leaf seam falls inside it.
+    if (brush->isUnbounded) {
+      write("  def.unbounded = true;\n");
+    }
     // Declared attribute layers — resolved + bound per dab by the executor.
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Attr)
