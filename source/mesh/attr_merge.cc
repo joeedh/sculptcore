@@ -14,6 +14,8 @@ namespace sculptcore::mesh {
 static constexpr const char *ORIG_CO_ATTR = ".brush.orig.co";
 static constexpr const char *ORIG_NO_ATTR = ".brush.orig.no";
 static constexpr const char *ORIG_GEN_ATTR = ".brush.orig.gen";
+static constexpr const char *DISP_VEC_ATTR = ".brush.disp.vec";
+static constexpr const char *DISP_GEN_ATTR = ".brush.disp.gen";
 static constexpr const char *DAB_GEN_ATTR = ".brush.dab.gen";
 static constexpr const char *CAVITY_ATTR = ".brush.automask.cavity";
 static constexpr const char *CAVITY_GEN_ATTR = ".brush.automask.gen";
@@ -135,6 +137,41 @@ void mergeOrigSnapshot(AttrRef &attr, const AttrMergeCtx &ctx)
   (*gen)[ctx.dst] = g0 != 0 ? g0 : g1;
 }
 
+/* `.brush.disp.vec`: this stroke's accumulated brush displacement, valid only
+ * where `.brush.disp.gen` names the current stroke. Same lazy-page hazard as the
+ * orig snapshot, but the unstamped value is known — a vert the stroke has not
+ * touched has displaced by zero — so no live position is needed:
+ *   both stamped -> lerp the displacements
+ *   one stamped  -> lerp it against zero
+ *   neither      -> clear the stamp
+ * Inheriting a nonzero gen alongside a nonzero displacement is what keeps
+ * `base = co - disp` continuous across a split. */
+void mergeDispField(AttrRef &attr, const AttrMergeCtx &ctx)
+{
+  auto *val = static_cast<AttrData<math::float3> *>(attr.data);
+  auto *gen =
+      static_cast<AttrData<int> *>(siblingLayer(attr, ctx, AttrType::INT, DISP_GEN_ATTR));
+  if (!val || !gen) {
+    defaultMerge(attr, ctx);
+    return;
+  }
+
+  int g0 = gen->safe_get(ctx.src0);
+  int g1 = gen->safe_get(ctx.src1);
+  gen->materialize(ctx.dst);
+  if (g0 == 0 && g1 == 0) {
+    (*gen)[ctx.dst] = 0;
+    return;
+  }
+
+  math::float3 a = g0 != 0 ? val->safe_get(ctx.src0) : math::float3(0.0f, 0.0f, 0.0f);
+  math::float3 b = g1 != 0 ? val->safe_get(ctx.src1) : math::float3(0.0f, 0.0f, 0.0f);
+
+  val->materialize(ctx.dst);
+  (*val)[ctx.dst] = a * (1.0f - ctx.t) + b * ctx.t;
+  (*gen)[ctx.dst] = g0 != 0 ? g0 : g1;
+}
+
 /* Per-stroke caches whose value depends on the local topology (cavity BFS,
  * enhance band-pass) or that must re-stamp on first touch (grab's per-dab
  * counter): a merged element's cached value is stale by construction, so drop
@@ -183,6 +220,9 @@ const BuiltinPolicy builtin_policies[] = {
     {AttrType::FLOAT3, ORIG_NO_ATTR, AttrMerge::CUSTOM, mergeOrigSnapshot},
     /* Written by mergeOrigSnapshot together with the value it guards. */
     {AttrType::INT, ORIG_GEN_ATTR, AttrMerge::NONE, nullptr},
+    {AttrType::FLOAT3, DISP_VEC_ATTR, AttrMerge::CUSTOM, mergeDispField},
+    /* Written by mergeDispField together with the value it guards. */
+    {AttrType::INT, DISP_GEN_ATTR, AttrMerge::NONE, nullptr},
     {AttrType::INT, DAB_GEN_ATTR, AttrMerge::CUSTOM, mergeClearGen},
     {AttrType::FLOAT, CAVITY_ATTR, AttrMerge::NONE, nullptr},
     {AttrType::INT, CAVITY_GEN_ATTR, AttrMerge::CUSTOM, mergeClearGen},

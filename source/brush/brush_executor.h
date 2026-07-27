@@ -1699,11 +1699,11 @@ struct CommandExecutor {
     }
     mesh::Mesh *m = tree->m;
 
-    // Non-accumulate coherence: tell the remesh ops the active stroke's gen so
-    // they keep each stamped vert's stroke-start snapshot coherent as topology
-    // changes (nonAccumMode.md). Derived from this executor's stroke state, so it
-    // can't drift from the brush command's stamp (both key off strokeGen).
-    params->nonAccumGen = nonAccum ? strokeGen : 0;
+    // Displacement-base coherence: tell the remesh ops the active stroke's gen so
+    // the tangential smooth resamples the field it slides verts through. Derived
+    // from this executor's stroke state, so it can't drift from the brush
+    // command's stamp (both key off strokeGen).
+    params->dispGen = (dispBase && nonAccum) ? strokeGen : 0;
 
     // A dyntopo dab mutates topology and walks live disk/radial links; keep the
     // mesh thawed for the whole stroke (endDynTopoStroke releases it).

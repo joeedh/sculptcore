@@ -149,13 +149,12 @@ struct DynTopoParams {
    * disabled (the pre-fix spin-to-cap behavior, for A/B). */
   int max_stall_rounds = 16;
 
-  /* Non-accumulate coherence (see plans/nonAccumMode.md). 0 = off. When non-zero
-   * this is the active stroke's generation stamp: remesh operators that move a
-   * stamped vert (smooth Jacobi step, collapse-into-survivor) also shift its
-   * `.brush.orig.co` snapshot by the same delta, so the brush keeps measuring
-   * from a coherent stroke-start surface as topology changes under the dab. New
-   * verts created mid-dab are left unstamped (gen 0) so they read live. */
-  uint32_t nonAccumGen = 0;
+  /* Displacement-base coherence. 0 = off. When non-zero this is the active
+   * stroke's generation stamp: the tangential smooth resamples each slid vert's
+   * `.brush.disp.vec` so the derived base `co - disp` slides along the base
+   * surface rather than picking up the slide's normal component. Split/collapse
+   * merge the field through the attribute layer itself (attr_merge.cc). */
+  uint32_t dispGen = 0;
 
   /* Optional per-round triangle-quality trace (split-sliver oscillation
    * detection, dyntopo_trace.h). Null (default) = no tracing, zero cost; when
@@ -462,6 +461,24 @@ inline bool flipShortens(mesh::Mesh &m, int a, int b, int c, int d)
   return sa * sb < 0.0f; /* a,b strictly opposite sides of c-d => convex */
 }
 
+/* The brush's accumulated-displacement field, resolved for the active stroke.
+ * `get` returns zero for a vert this stroke has not stamped — an untouched
+ * vert's base *is* its live position. */
+struct DispField {
+  mesh::AttrData<litestl::math::float3> *vec = nullptr;
+  mesh::AttrData<int> *gen = nullptr;
+  int stamp = 0;
+
+  litestl::math::float3 get(int v) const
+  {
+    if (gen->safe_get(v) != stamp) {
+      return litestl::math::float3(0.0f);
+    }
+    return vec->safe_get(v);
+  }
+  explicit operator bool() const { return vec != nullptr && gen != nullptr; }
+};
+
 /* Tangential-smoothing target for vertex v (M7.4): slide v toward the
  * area-weighted centroid of its incident triangles, keeping only the in-tangent-
  * plane component (so the surface isn't shrunk / flattened). Vertex normal and
@@ -469,10 +486,21 @@ inline bool flipShortens(mesh::Mesh &m, int a, int b, int c, int d)
  * splits). Returns false (no move) for a vertex touching a boundary / non-
  * manifold / non-triangle edge, or a degenerate ring; otherwise `out` is the new
  * position, with the move clamped to half the shortest incident edge so a thin
- * triangle can't fold. Reads positions only — caller writes simultaneously. */
-inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::float3 &out)
+ * triangle can't fold. Reads positions only — caller writes simultaneously.
+ *
+ * `df`/`dispOut`, when non-null, resample the displacement field at the vert's
+ * post-slide location (same area weights and blend factor as the position), so
+ * the derived base `co - disp` slides *along* the base surface instead of
+ * inheriting the slide's normal component. */
+inline bool smoothTangent(mesh::Mesh &m,
+                          int v,
+                          float lambda,
+                          litestl::math::float3 &out,
+                          const DispField *df = nullptr,
+                          litestl::math::float3 *dispOut = nullptr)
 {
   using litestl::math::float3;
+  float3 dAccum(0.0f);
   int e0 = m.v.e[v];
   if (e0 == ELEM_NONE) {
     return false;
@@ -507,6 +535,10 @@ inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::flo
       float area = fn.length();
       nAccum += fn;
       cAccum += (A + B + C) * (area * (1.0f / 3.0f));
+      if (df) {
+        float3 dsum = df->get(m.c.v[c]) + df->get(m.c.v[c2]) + df->get(m.c.v[c3]);
+        dAccum += dsum * (area * (1.0f / 3.0f));
+      }
       areaSum += area;
       nf++;
       c = m.c.radial_next[c];
@@ -526,12 +558,19 @@ inline bool smoothTangent(mesh::Mesh &m, int v, float lambda, litestl::math::flo
   float3 delta = (cAccum / areaSum) - P;
   delta -= n * delta.dot(n); /* tangential only */
   delta *= lambda;
+  float blend = lambda;
   float move2 = delta.lengthSqr();
   float cap2 = minLen2 * 0.25f; /* <= half the shortest incident edge */
   if (move2 > cap2 && move2 > 0.0f) {
-    delta *= std::sqrt(cap2 / move2);
+    float s = std::sqrt(cap2 / move2);
+    delta *= s;
+    blend *= s;
   }
   out = P + delta;
+  if (df && dispOut) {
+    float3 d = df->get(v);
+    *dispOut = d + ((dAccum / areaSum) - d) * blend;
+  }
   return true;
 }
 
@@ -692,27 +731,17 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
   detail::FeatureViews feat;
   feat.init(m, p.preserve_features);
 
-  /* Non-accumulate coherence (plans/nonAccumMode.md). When this dab is part of a
-   * non-accumulate stroke (p.nonAccumGen != 0), the brush command owns the
-   * stroke-start snapshot attrs; look them up (non-creating) so the tangential
-   * smooth below can shift a stamped vert's snapshot by the same delta it moves
-   * the vert. Split/collapse instead merge the snapshot through the attribute
-   * layer itself (see attr_interp.h), which is why neither shifts it here. */
-  mesh::AttrData<litestl::math::float3> *origCo = nullptr;
-  mesh::AttrData<int> *origGen = nullptr;
-  if (p.nonAccumGen != 0 && m.v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
-      m.v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen"))
+  /* Resolve the brush's displacement field (non-creating) for the smooth step. */
+  detail::DispField dispField;
+  if (p.dispGen != 0 && m.v.attrs.has(mesh::AttrType::FLOAT3, ".brush.disp.vec") &&
+      m.v.attrs.has(mesh::AttrType::INT, ".brush.disp.gen"))
   {
-    origCo = m.v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co")
-                 .get_data<litestl::math::float3>();
-    origGen =
-        m.v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
+    dispField.vec = m.v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.disp.vec")
+                        .get_data<litestl::math::float3>();
+    dispField.gen =
+        m.v.attrs.find_attribute(mesh::AttrType::INT, ".brush.disp.gen").get_data<int>();
+    dispField.stamp = int(p.dispGen);
   }
-  auto shiftOrig = [&](int v, litestl::math::float3 delta) {
-    if (origGen && origGen->safe_get(v) == int(p.nonAccumGen)) {
-      (*origCo)[v] += delta;
-    }
-  };
 
   /* Tier 9 adaptive sizing: resolve the optional per-vertex size-scale attr once
    * (non-creating). When set, the candidate band is scaled per edge by the mean
@@ -1079,6 +1108,8 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
       Vector<int, 32> sverts;
       Vector<math::float3, 32> spos;
       Vector<math::float3, 32> sold;
+      Vector<math::float3, 32> sdisp;
+      const detail::DispField *df = dispField ? &dispField : nullptr;
       for (int v : nextFrontier) {
         if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v]) {
           continue;
@@ -1089,10 +1120,13 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         if (feat.isFeatureVert(v)) {
           continue; /* pin feature verts on their curve (v1: no tangent slide) */
         }
-        math::float3 np;
-        if (detail::smoothTangent(m, v, p.smooth_lambda, np)) {
+        math::float3 np, ndisp;
+        if (detail::smoothTangent(m, v, p.smooth_lambda, np, df, &ndisp)) {
           sverts.append(v);
           spos.append(np);
+          if (df) {
+            sdisp.append(ndisp);
+          }
           if (p.reproject_uvs) {
             sold.append(m.v.co[v]);
           }
@@ -1102,8 +1136,14 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         if (cb && cb->onVertChange) {
           cb->onVertChange(sverts[i]); /* capture pre-smooth position for undo */
         }
-        shiftOrig(sverts[i], spos[i] - m.v.co[sverts[i]]);
         m.v.co[sverts[i]] = spos[i];
+        if (df) {
+          /* Jacobi like the positions: every target was read before any write. */
+          dispField.vec->materialize(sverts[i]);
+          dispField.gen->materialize(sverts[i]);
+          (*dispField.vec)[sverts[i]] = sdisp[i];
+          (*dispField.gen)[sverts[i]] = dispField.stamp;
+        }
       }
       if (p.reproject_uvs && sverts.size() > 0) {
         /* Re-anchor the slid verts' UVs on their pre-smooth ring (Jacobi:

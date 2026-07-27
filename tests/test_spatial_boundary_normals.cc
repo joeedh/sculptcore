@@ -188,7 +188,6 @@ static void roughnessProbe()
       const float3 normal{0.707f, 0, 0.707f};
       auto strokeOnce = [&]() {
         uint32_t gen = ++s.strokeGen;
-        s.dyntopoParams.nonAccumGen = gen;
         brush::CommandExecutor exec(s.tree, &s.brush);
         exec.meshLog = &s.meshLog;
         exec.setNonAccum(true);

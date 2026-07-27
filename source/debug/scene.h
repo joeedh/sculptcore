@@ -137,7 +137,7 @@ struct Scene {
   /* Non-accumulate sculpt mode (plans/nonAccumMode.md): deform dabs measure from
    * each vert's stroke-start position. `strokeGen` is bumped once per stroke verb
    * (so prior strokes' `.brush.orig.*` snapshots never collide) and pushed to the
-   * executor + DynTopoParams.nonAccumGen. */
+   * executor. */
   bool nonAccum = false;
   uint32_t strokeGen = 0;
 
