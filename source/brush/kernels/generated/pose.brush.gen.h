@@ -93,7 +93,7 @@ static void createPoseBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = posePre<TYPES>;
   def.exec     = pose<TYPES, AccMode>;
   def.execPost = posePost<TYPES>;
-  def.accumulable = false;
+  def.accumulable = true;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"strength", true, true, 0.0f, false, 0.0f, 0.0f});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {

@@ -110,7 +110,7 @@ enum GpuBrushInfoWhich : int32_t {
   GPUBRUSH_INFO_ACCUMULABLE = 4,
   GPUBRUSH_INFO_READS_VCLASS = 5,
   GPUBRUSH_INFO_FACE_MODE = 6,
-  GPUBRUSH_INFO_IS_GLOBAL = 7,
+  // 7 was GPUBRUSH_INFO_IS_GLOBAL (@global); the tag no longer exists.
   GPUBRUSH_INFO_TRI_COUNT = 8, // builds the normal topology on first query
   GPUBRUSH_INFO_UVERTS_CHANGED = 9,
   GPUBRUSH_INFO_NODE_COUNT = 10,   // last dab's workgroup (chunk) count

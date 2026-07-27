@@ -129,7 +129,6 @@ int GpuBrush_info(void *session, int which)
   case GPUBRUSH_INFO_ACCUMULABLE: return s->info->accumulable ? 1 : 0;
   case GPUBRUSH_INFO_READS_VCLASS: return s->info->readsVclass ? 1 : 0;
   case GPUBRUSH_INFO_FACE_MODE: return s->info->faceMode ? 1 : 0;
-  case GPUBRUSH_INFO_IS_GLOBAL: return s->info->isGlobal ? 1 : 0;
   case GPUBRUSH_INFO_TRI_COUNT: return ensureTopo(s) ? s->topo.triCount : 0;
   case GPUBRUSH_INFO_UVERTS_CHANGED: return s->uvertsChanged ? 1 : 0;
   case GPUBRUSH_INFO_NODE_COUNT: return int(s->chunks.size());

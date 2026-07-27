@@ -1608,16 +1608,22 @@ struct Emit {
     if (neighborLoopUsed) {
       write("  def.needsCoPrev = true;\n");
     }
-    // Non-accumulate eligibility (see plans/nonAccumMode.md): a local deformation
-    // brush (neither @global nor @paint) is accumulable; the executor runs its
-    // AccumOrig instantiation when non-accumulate mode is on for the stroke.
+    // Non-accumulate eligibility (see plans/nonAccumMode.md): accumulable is the
+    // default; the executor runs the AccumOrig instantiation when non-accumulate
+    // mode is on for the stroke. @paint writes attributes and @unbounded fields
+    // are anchored, so from-base re-derivation is meaningless for both.
     write("  def.accumulable = ");
-    write((!brush->isGlobal && !brush->isPaint && !brush->isUnbounded) ? "true" : "false");
+    write((!brush->isPaint && !brush->isUnbounded) ? "true" : "false");
     write(";\n");
     // `@relaxation`: relaxes the surface rather than displacing it, so it stays
     // on AccumLive and never accumulates into `.brush.disp.vec`.
     if (brush->isRelaxation) {
       write("  def.relaxesBase = true;\n");
+    }
+    // `@grabmode`: eligible for the from-orig grab policy. The executor decides
+    // whether the stroke actually uses it (CommandExecutor::anchoredGrab).
+    if (brush->isGrabMode) {
+      write("  def.grabModeCapable = true;\n");
     }
     // Declared attribute layers — resolved + bound per dab by the executor.
     for (const auto &f : brush->fields) {

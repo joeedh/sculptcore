@@ -334,20 +334,23 @@ template <typename CTX> struct BrushCommandDef {
   // Set by codegen for brushes that use for_neighbor: the executor snapshots
   // the mesh's vertex positions into ctx.co_prev before the per-node loop.
   bool needsCoPrev = false;
-  // Set by codegen: true for local deformation brushes (neither @global nor
-  // @paint), which are eligible for non-accumulate mode. See
-  // plans/nonAccumMode.md.
+  // Set by codegen: true unless the kernel is @paint (writes an attribute) or
+  // @unbounded (anchored field), for which from-base re-derivation is
+  // meaningless. Eligible for non-accumulate mode; see plans/nonAccumMode.md.
   bool accumulable = false;
   // Set by codegen from `@relaxation`: the kernel relaxes the surface instead of
   // displacing it, so it must not contribute to `.brush.disp.vec`. The executor
   // keeps it on AccumLive even in a non-accumulate stroke — reading and writing
   // the live surface is exactly "move co, leave disp alone".
   bool relaxesBase = false;
-  // Set by the executor (not codegen) for grab-class brushes (grab / kelvinlet):
-  // they always deform from the stroke-start position with the AccumOrigGrab
-  // policy + a fixed region, independent of the ACCUMULATE flag (#35). Drives the
-  // `.brush.disp.*` + `.brush.dab.gen` stamps even when `accumulable` is false
-  // (kelvinlet is @global).
+  // Set by codegen from `@grabmode`: the kernel *can* run the grab policy. Says
+  // nothing about whether it does — that is the stroke's business, not the
+  // kernel's, so `CommandExecutor::anchoredGrab` is the other half.
+  bool grabModeCapable = false;
+  // Set by the executor: this stroke deforms from the stroke-start position with
+  // the AccumOrigGrab policy + a fixed region, independent of the ACCUMULATE flag
+  // (#35). Drives the `.brush.disp.*` + `.brush.dab.gen` stamps even when
+  // `accumulable` is false. True iff `grabModeCapable && anchoredGrab`.
   bool grabMode = false;
   // Opt-in: also snapshot each vert's stroke-start NORMAL into `.brush.orig.no`
   // (alongside the disp stamp, extended over each region leaf's skirt so the

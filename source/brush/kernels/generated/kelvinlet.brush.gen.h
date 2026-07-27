@@ -124,6 +124,7 @@ static void createKelvinletBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.exec     = kelvinlet<TYPES, AccMode>;
   def.execPost = kelvinletPost<TYPES>;
   def.accumulable = false;
+  def.grabModeCapable = true;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"mu", true, true, 1.0f, true, 9.9999999999999995e-07f, 100.0f});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"nu", true, true, 0.40000000000000002f, true, 0.0f, 0.499f});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});

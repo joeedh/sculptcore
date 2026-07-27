@@ -253,11 +253,9 @@ struct Brush {
   // Empty means the legacy default (vertex co, vertex no, face no) applies.
   Vector<SaveAttr> saves;
   string sourceFile;
-  // Leading `@global` / `@paint` brush attributes. A brush that is neither is a
-  // local deformation brush and is non-accumulate-eligible (codegen emits
-  // def.accumulable); global (whole-mesh) and paint (attribute-write) brushes
-  // always take the accumulate path. See plans/nonAccumMode.md.
-  bool isGlobal = false;
+  // `@paint`: the kernel writes an attribute rather than displacing geometry, so
+  // it is not non-accumulate-eligible (codegen emits def.accumulable = false) and
+  // always takes the accumulate path. See plans/nonAccumMode.md.
   bool isPaint = false;
   // `@grabmode`: grab-class from-orig brush (grab/kelvinlet). The WGSL emit
   // mirrors CoProxy<AccumOrigGrab> (accum_mode.h): the vertex stage reads the

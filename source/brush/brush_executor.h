@@ -220,6 +220,13 @@ struct CommandExecutor {
    * instantiation, so deformation is measured from the derived stroke-start
    * base `co - disp`. */
   bool nonAccum = false;
+  /** Whether this stroke anchors its origin, which is what makes a `@grabmode`
+   * kernel take the from-orig fixed-region policy. It is a stroke property, not
+   * a kernel one — the same kelvinlet dragged along a path accumulates like any
+   * other brush — so the host owns it (TS: `strokeMethod === ANCHORED`).
+   * Defaults true so a host that never sets it gets the historical behavior:
+   * grab and kelvinlet, the only `@grabmode` kernels, always grab. */
+  bool anchoredGrab = true;
   /** Grab-class symmetry dab marker (#35). The dab dispatch calls setGrabAccumAdd
    * per symmetry image before applyDab: false on the primary image (which begins
    * a new logical dab → bumps `dabGen`), true on mirror images (same dab). The
@@ -295,6 +302,7 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, commitPreviewDab, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
     BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
+    BIND_STRUCT_METHOD(st, setAnchoredGrab, MARGS("anchored"));
     BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
     BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
@@ -352,6 +360,13 @@ struct CommandExecutor {
   void setNonAccum(bool v)
   {
     nonAccum = v;
+  }
+
+  /** Declare whether the upcoming stroke is anchored (see `anchoredGrab`). Must
+   * be set before createCommand, i.e. before the first dab of the stroke. */
+  void setAnchoredGrab(bool v)
+  {
+    anchoredGrab = v;
   }
 
   /** Mark the upcoming grab-class dab/image (#35): false = primary image, which
@@ -485,28 +500,19 @@ struct CommandExecutor {
     }
   }
 
-  /** Grab-class brushes (grab / kelvinlet) deform a fixed region from the
-   * stroke-start position; they always use the from-original policy regardless
-   * of the ACCUMULATE flag. Snakehook is intentionally excluded (its per-dab
-   * drag-plus-gather IS the desired behavior). #35. */
-  static bool isGrabBrush(SculptBrushes brushType)
-  {
-    return brushType == SculptBrushes::GRAB || brushType == SculptBrushes::KELVINLET;
-  }
-
   brush_command createCommand(SculptBrushes brushType)
   {
     brush_command def;
     createCommandImpl<AccumLive>(brushType, def);
-    if (isGrabBrush(brushType)) {
+    if (def.grabModeCapable && anchoredGrab) {
       // Always deform from each vert's stroke-start position, so the region is
       // fixed at stroke start and the grab follows the cursor (#35). One write-
       // back (AccumOrigGrab) serves every symmetry image: the first image to
       // touch a vert this dab re-bases it from orig, later images of the same
       // dab add their displacement onto it (arbitrated by the per-vert dab
-      // stamp). Forced on regardless of the ACCUMULATE flag / @global (kelvinlet
-      // is @global → not `accumulable`). The op marks each image via
-      // setGrabAccumAdd, which advances the per-dab generation on the primary.
+      // stamp). Forced on regardless of the ACCUMULATE flag. The op marks each
+      // image via setGrabAccumAdd, which advances the per-dab generation on the
+      // primary.
       def.grabMode = true;
       /* The second impl call re-appends the same uniform manifest — clear it
          first or grab-class brushes report every uniform twice (wave-5

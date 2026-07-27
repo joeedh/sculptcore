@@ -222,7 +222,6 @@ export const GpuBrushInfo = {
   ACCUMULABLE        : 4,
   READS_VCLASS       : 5,
   FACE_MODE          : 6,
-  IS_GLOBAL          : 7,
   /** builds the normal topology on first query */
   TRI_COUNT          : 8,
   UVERTS_CHANGED     : 9,

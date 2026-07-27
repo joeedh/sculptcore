@@ -30,8 +30,7 @@ struct Brush;
  * blobs verbatim and never re-derives the layout. */
 
 /** Per-tool GPU kernel capabilities. `kernel` is the .wgsl / .spv stem;
- * `accumulable` mirrors brush_command (neither @global nor @paint); `isGlobal`
- * mirrors the sbrush @global tag. */
+ * `accumulable` mirrors brush_command (neither @paint nor @unbounded). */
 struct GpuKernelInfo {
   SculptBrushes tool = SculptBrushes::DRAW;
   const char *kernel = nullptr;
@@ -41,7 +40,6 @@ struct GpuKernelInfo {
   bool accumulable = false;    // local deformation kernel; honors nonaccum
   bool readsVclass = false;    // int boundary-class vertex attr at slot 14
   bool faceMode = false;       // threads over faces (centroids/normals)
-  bool isGlobal = false;       // @global: routinely touches the whole mesh
   bool grabMode = false;       // @grabmode: from-orig + first-touch stamps
 };
 

@@ -71,7 +71,8 @@ static void runTest()
   test_assert(s != nullptr);
   test_assert(std::strcmp(GpuBrush_kernelName(s), "kelvinlet") == 0);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_ELEM_COUNT) == m->v.count);
-  test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_IS_GLOBAL) == 1);
+  // Anchored field: never non-accumulate-eligible (was IS_GLOBAL, now retired).
+  test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_ACCUMULABLE) == 0);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_NEEDS_NEIGHBORS) == 0);
 
   // Begin blobs: packed-xyz co must equal the live mesh.

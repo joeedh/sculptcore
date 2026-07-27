@@ -87,6 +87,7 @@ static void createGrabBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.exec     = grab<TYPES, AccMode>;
   def.execPost = grabPost<TYPES>;
   def.accumulable = true;
+  def.grabModeCapable = true;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
     if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);

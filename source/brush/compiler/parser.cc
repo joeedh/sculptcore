@@ -164,9 +164,7 @@ struct Parser {
         const Token &attrTok = peek();
         string attr = attrTok.text;
         advance();
-        if (attr.operator==(string("global"))) {
-          brush->isGlobal = true;
-        } else if (attr.operator==(string("paint"))) {
+        if (attr.operator==(string("paint"))) {
           brush->isPaint = true;
         } else if (attr.operator==(string("grabmode"))) {
           brush->isGrabMode = true;
@@ -178,7 +176,7 @@ struct Parser {
           errorf(attrTok, "unknown brush attribute '%s'", attr.c_str());
         }
       } else {
-        error("expected 'brush', 'global', 'paint', 'grabmode', 'relaxation', or "
+        error("expected 'brush', 'paint', 'grabmode', 'relaxation', or "
               "'unbounded' after '@'",
               peek());
         break;

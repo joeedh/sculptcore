@@ -12,7 +12,6 @@
 // (pin one limb, pivot another) and stays cheap in the kernel.
 
 @brush("pose")
-@global
 brush Pose {
   uniform float strength, radius;
 
