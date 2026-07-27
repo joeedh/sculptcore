@@ -147,9 +147,9 @@ struct Parser {
     brush->sourceFile = filename;
     currentBrush = brush.get();
 
-    // Leading brush attributes: `@brush("name")` plus optional `@global` /
-    // `@paint` / `@grabmode` / `@relaxation` / `@unbounded` markers. `brush` is
-    // a keyword so it lexes as KwBrush; the rest lex as plain Ident.
+    // Leading brush attributes: `@brush("name")` plus optional `@paint` /
+    // `@grabmode` / `@relaxation` / `@unbounded` / `@incremental` markers.
+    // `brush` is a keyword so it lexes as KwBrush; the rest lex as plain Ident.
     while (match(TokKind::At)) {
       if (match(TokKind::KwBrush)) {
         expect(TokKind::LParen, "after @brush");

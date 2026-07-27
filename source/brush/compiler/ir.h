@@ -258,10 +258,10 @@ struct Brush {
   // always takes the accumulate path. See plans/nonAccumMode.md.
   bool isPaint = false;
   // `@grabmode`: grab-class from-orig brush (grab/kelvinlet). The WGSL emit
-  // mirrors CoProxy<AccumOrigGrab> (accum_mode.h): the vertex stage reads the
-  // stroke-start position (binding 22) and the write-back does per-dab
-  // first-touch arbitration via the dab-stamp buffer (binding 23). The C++
-  // leg ignores it — the executor selects AccumOrigGrab at runtime.
+  // mirrors CoProxy<AccumOrigGrab> (accum_mode.h): the stage derives each vert's
+  // stroke-start base from the displacement field (binding 25) and the write-back
+  // does per-dab first-touch arbitration via the dab-stamp buffer (binding 23).
+  // The C++ leg ignores it — the executor selects AccumOrigGrab at runtime.
   bool isGrabMode = false;
   // `@relaxation`: the kernel relaxes the surface rather than displacing it, so
   // it never contributes to the accumulated brush displacement (§2 invariant of
@@ -272,7 +272,8 @@ struct Brush {
   // falloff, so `strength()` is forbidden in it (sema errors) and
   // `unbounded_window()` is required — the window is what makes the field
   // vanish at the host's node-filter radius instead of tearing on a leaf
-  // boundary. Non-accumulate-ineligible for now, like @global.
+  // boundary. Non-accumulate-ineligible for now — unlike @incremental, whose
+  // non-accumulability is structural. See the Open list in the wave-5 plan.
   bool isUnbounded = false;
   // `@incremental`: a stage input is a per-dab *delta* rather than an absolute
   // stroke quantity (snakehook's `grabTo` is the step since the last dab), so

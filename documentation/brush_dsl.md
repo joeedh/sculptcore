@@ -21,7 +21,7 @@ brush Draw {
   uniform float radius;
 
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co);
+    float s = strength(v.co) * masks();
     s *= sampleBrushTex(v.co, surfaceNo);  // 1.0 when no texture is bound
     if (s == 0.0) {
       continue;                            // skip this vertex
@@ -34,18 +34,48 @@ brush Draw {
 `@brush("draw")` sets the registered name; `brush Draw { … }` names the
 generated C++ symbol. The body is one or more *stages*.
 
+### Brush attributes
+
+Any number of bare attributes may sit alongside `@brush("name")`, in any order,
+before the `brush` keyword — one per line by convention. They declare what *class*
+of kernel this is; the executor and the GPU emitter both branch on them.
+
+```sbrush
+@brush("snakehook")
+@incremental
+brush Snakehook { … }
+```
+
+| Attribute | Meaning |
+|---|---|
+| `@paint` | writes a mesh attribute rather than displacing geometry |
+| `@grabmode` | grab-class from-original kernel. Declares *capability* only — the host decides per stroke (`def.grabModeCapable && anchoredGrab`). The stage reads each vert's stroke-start base (derived as live − accumulated displacement, not a snapshot) and the write-back does per-dab first-touch arbitration, so the first symmetry image to touch a vert re-bases it and later images of the same dab add |
+| `@relaxation` | relaxes the surface instead of displacing it, so it never contributes to accumulated brush displacement; runs live-from-live even in a non-accumulate stroke |
+| `@unbounded` | the field has unbounded support and *is* its own falloff. `strength()` is then forbidden (sema error) and `unbounded_window()` required — the window is what makes the field vanish at the host's node-filter radius instead of tearing on a leaf boundary. Also emits `def.unbounded`, which floors that filter radius at `radius × unboundedExtent` |
+| `@incremental` | a stage input is a per-dab **delta**, not an absolute stroke quantity (snakehook's `grabTo` is the step since the last dab), so there is no stroke-start base to re-derive a dab from |
+
+`@paint`, `@unbounded`, and `@incremental` each emit `def.accumulable = false`.
+The executor gates its whole non-accumulate path on that bit
+(`brush_executor.h`), so such a kernel **always accumulates** on every backend —
+the ACCUMULATE brush flag is inert for it, by construction rather than by
+convention.
+
 ## Brush structure
 
 A `.sbrush` file declares exactly one `brush`. Inside it, in any order:
 
-- **fields** — `uniform` and `ctx` declarations (brush state).
+- **fields** — `uniform`, `ctx`, and `attr` declarations (brush state and bound
+  mesh attributes).
+- **`save`** declarations — the CPU undo-capture set.
 - **`struct`** blocks — user aggregate types.
 - **`texture`** blocks — inline procedural textures.
-- **stages** — `vertex`, `reduce`, `host`.
+- **stages** — `vertex`, `face`, `reduce`, `host`.
 
-> **Reserved words.** The attribute-domain keywords `vertex`, `face`, `edge`,
-> and `corner` are reserved by the lexer — you can't name a local, uniform, or
-> attribute handle `face`/`edge`/`corner` (no current kernel does).
+> **Reserved words.** Every keyword in the lexer table is reserved and can't
+> name a local, uniform, or attribute handle: `brush`, `uniform`, `ctx`, `attr`,
+> `save`, `struct`, `texture`, `vertex`, `face`, `edge`, `corner`, `reduce`,
+> `host`, `in`, `out`, `inout`, `for`, `for_neighbor`, `if`, `else`, `return`,
+> `continue`, `true`, `false`.
 
 ### Fields: `uniform` and `ctx`
 
@@ -61,10 +91,15 @@ ctx     Array<float3, 4> poseCageRest, poseCageNow;
 `uniform` is brush properties marshalled once; `ctx` is per-stroke-dot state.
 A field named `X` resolves to the corresponding host value — on the C++
 backend a `ctx float3 surfaceNo` reads `ctx.surfaceNo`, and a field backed by
-`Brush` reads `ctx.brush.X`. Declaring a field is how you opt a name into
-identifier resolution; the field must already exist on the host side
-(`Brush` / `CommandCtxBase`). The GPU backends pack these into fixed-schema
-uniform blocks so every kernel shares one bind-group layout.
+`Brush` reads `ctx.brush.X` (inside a `host` stage, which runs natively, the
+same field spells as a bare `brush.X`). Declaring a field is how you opt a name
+into identifier resolution; for an in-repo kernel the field must already exist on
+the host side (`Brush` / `CommandCtxBase`) and be listed in
+`Brush::builtinPropNames` — codegen errors out otherwise. Out-of-repo kernels
+compiled with `sbrushc --extras` are the exception: there an unlisted *scalar
+float* uniform falls through to a generic `Brush::namedFloats` slot, so no host
+edit is needed. Other types still error. The GPU backends pack these into
+fixed-schema uniform blocks so every kernel shares one bind-group layout.
 
 #### Uniform metadata: default, `@range`, `@static`
 
@@ -72,7 +107,7 @@ A scalar `float uniform` may carry an authored default and bounds, written
 **after** the name (per-name in a comma list):
 
 ```sbrush
-uniform float mu = 1.0 @range(1e-6, 100.0);   // default + clamp bounds
+uniform float mu = 1.0 @range(1e-6, 100.0);   // default + validation bounds
 uniform float nu = 0.4  @range(0.0, 0.499);
 uniform float wingAngle @static;              // opt OUT of device dynamics
 uniform float planeoff, planeSide @static, radius;   // annotate one of many
@@ -81,8 +116,9 @@ uniform float planeoff, planeSide @static, radius;   // annotate one of many
 | Syntax | Meaning |
 |---|---|
 | `= <number>` | authored default; codegen emits `.Default(n)` when it auto-registers the prop |
-| `@range(a, b)` | inclusive bounds; the default must lie inside, `a ≤ b`, neither NaN (checked at stroke start) |
-| `@static` | the uniform is **not** dynamic-capable — it registers as a prop but rejects any device dynamic bound to it |
+| `@range(a, b)` | inclusive bounds — **validation only, never a clamp**: checked once at stroke start (default inside the range, `a ≤ b`, neither NaN) |
+| `@dynamic` | explicit opt *in* to device dynamics; this is already the default, so it is only ever written for emphasis |
+| `@static` | the uniform is **not** dynamic-capable: codegen skips it entirely for prop registration and uniform loading, leaving it a plain host-set `Brush` member, and the executor rejects any device dynamic bound to it |
 
 Every non-`@static` `float uniform` is automatically registered as a brush
 **property** and is drivable by a device dynamic (pen pressure/tilt/etc.),
@@ -95,16 +131,51 @@ pre-invocation validation are all generated from these declarations — see
 > [`addingSBrushUniforms.md`](addingSBrushUniforms.md) for the step-by-step
 > (host member, prop registration, and the GPU host-mirror/marshal seam).
 
+### Fields: `attr` — bound mesh attributes
+
+Beyond brush state, a kernel can read and write typed mesh attribute layers:
+
+```sbrush
+attr vertex float4 color = "Col";     // fixed layer name
+attr vertex float slayer;             // bound at runtime via Brush::attrBindings
+attr face int group;
+```
+
+```
+attr <vertex|face|edge|corner> <type> <name> [= "<layerName>"];
+```
+
+The handle becomes a member of the element bundle — `v.color`, `v.slayer`,
+`f.group`, and on a neighbor `nb.color` — alongside the builtin `co`/`no`/`mask`.
+With the optional string the handle binds to that fixed mesh layer; without it
+the runtime binds the layer named by the handle itself through
+`Brush::attrBindings`. Codegen emits the set as `def.attrs`.
+
+### `save` — the undo-capture set
+
+```sbrush
+save vertex co, mask;
+save face no;
+```
+
+Declares which attributes the CPU undo capture snapshots before a dab. Each name
+is either a builtin (`co` / `no` / `mask`) or a declared `attr` handle; `co` is
+vertex-domain only. **When a brush declares no `save` at all the default is
+`{vertex co, vertex no, face no}`** — so a kernel that writes a custom attribute
+must declare it explicitly or its edits won't undo.
+
 ### Stages
 
 | Stage | Cadence | Lowering |
 |---|---|---|
 | `vertex` | per-vertex, parallel | the hot kernel — compute shader on GPU, `vertexIter` loop on CPU |
+| `face` | per-face, parallel | the face-domain counterpart; first parameter is `inout Face f` |
 | `reduce` | once before `vertex` | scalar block producing `out` values passed into `vertex` by name |
-| `host` | once per dab, CPU only | never lowered to a backend; runs natively (e.g. param clamps, BVH queries) |
+| `host` | once per dab, CPU only | never lowered to a backend; runs natively — param clamps, BVH queries, and computing `ctx` state the vertex stage then reads (`wingscrape` derives its two wing normals this way) |
 
-The `vertex` stage's first parameter is always `inout Vertex v`. Parameter
-directions are `in` (default), `out`, `inout`.
+The `vertex` stage's first parameter is always `inout Vertex v`, the `face`
+stage's always `inout Face f`. Parameter directions are `in` (default), `out`,
+`inout`.
 
 ```sbrush
 host void clampParams() {              // CPU-only sanitization
@@ -123,13 +194,18 @@ vertex void apply(inout Vertex v, in float a, in float b) {
 }
 ```
 
-### The `Vertex` type
+### The `Vertex` and `Face` types
 
 The `inout Vertex v` parameter exposes the per-vertex mesh attributes:
 
 - `v.co` — `float3` position (write to displace the vertex)
 - `v.no` — `float3` normal
-- `v.mask` — `float` sculpt mask (kernels typically gate by `1.0 - v.mask`)
+- `v.mask` — `float` sculpt mask. Read it directly only when a kernel needs the
+  raw painted value; to *apply* masking call `masks()`, which folds it in
+  together with the automasks (see Builtins)
+
+`inout Face f` in a `face` stage exposes `f.center` and `f.no`. Both bundles also
+expose every `attr` handle declared on their domain.
 
 ## Types
 
@@ -137,8 +213,8 @@ The `inout Vertex v` parameter exposes the per-vertex mesh attributes:
 |---|---|
 | Scalars | `bool`, `int`, `float` |
 | Vectors | `float2`, `float3`, `float4` |
-| Aggregate | user `struct`, `Array<T, N>` (fixed size) |
-| Special | `Vertex` (vertex-stage parameter only), `void` |
+| Aggregate | user `struct`, `Array<T, N>` (fixed size — **field declarations only**, see below) |
+| Special | `Vertex` / `Face` (stage parameter only), `void` |
 
 Vector constructors are calls: `float3(0.0, 0.0, 0.0)`. Members are `.x/.y/.z`
 (and `.w`), readable and assignable on every backend; `Array<T,N>` is indexed
@@ -146,6 +222,10 @@ with `[i]`. (The C++ backend lowers a vector `.x` to `operator[]` since
 `litestl::math::Vec` has no named members — an emitter detail, transparent to
 kernel authors.) Layout matches `litestl::math` types so WASM-side mirrors are
 zero-copy. No pointers, no recursion (WGSL/Vulkan/OpenCL-1.2 constraints).
+
+`Array<T, N>` is accepted **only in a `uniform` / `ctx` field declaration** — the
+parser has no array case for locals, parameters, or struct members. `pose` is the
+only kernel that uses one.
 
 ```sbrush
 struct KelvinletState { float a; float b; }     // user struct
@@ -159,13 +239,14 @@ ctx Array<float3, 4> poseCageNow;                // fixed array
 Standard C-like control flow: `if`/`else`, `for (init; cond; step)`,
 `return`, `continue`, blocks, local declarations (`float s = …;`), and
 assignment with `= += -= *= /=`. Operators: arithmetic `+ - * /`,
-comparison `== != < <= > >=`, logical `&& || !`, unary `-`/`!`.
+comparison `== != < <= > >=`, logical `&& || !`, bitwise `& | ^` (used by the
+flag-testing smooth kernels), unary `-`/`!`.
 
 `continue` in a `vertex` stage skips the current vertex — the idiom for an
 early-out when a vertex is outside the brush:
 
 ```sbrush
-float s = strength(v.co);
+float s = strength(v.co) * masks();
 if (s == 0.0) { continue; }
 ```
 
@@ -177,12 +258,12 @@ indirection buffer preloaded by the dispatcher on GPU):
 
 ```sbrush
 vertex void apply(inout Vertex v) {
-  float s = strength(v.co) * (1.0 - v.mask);
+  float s = strength(v.co) * masks();
   if (s == 0.0) { continue; }
   float3 avg = float3(0.0, 0.0, 0.0);
   float n = 0.0;
   for_neighbor (nb in v) {
-    avg += nb.co;          // nb exposes co / no / v like Vertex
+    avg += nb.co;          // nb exposes co / no / v plus any attr handles
     n += 1.0;
   }
   if (n > 0.0) { v.co += (avg / n - v.co) * s; }
@@ -191,13 +272,25 @@ vertex void apply(inout Vertex v) {
 
 ## Builtins (intrinsics)
 
-Intrinsics are declared in `kernels/ir/intrinsics.cc` with one lowering
-pattern per backend; a name with no pattern for the active backend is a
-compile error. Current set:
+Intrinsics are declared in `kernels/ir/intrinsics.cc` with one lowering pattern
+per backend; a name with no pattern for the active backend is a compile error.
+(The SPIR-V slot is deliberately empty for every intrinsic — SPIR-V is produced
+from the WGSL through tint, not emitted directly.) `grad` is the exception: it is
+a per-emitter special form rather than a table entry. Current set:
 
 | Intrinsic | Signature | Notes |
 |---|---|---|
-| `strength(co)` | `float3 → float` | brush falloff strength at a world position — the `strength*falloff` blend (`brush.strength × falloffEval(t)`). Radius is **not** folded in; a kernel that wants radius-proportional displacement multiplies by the `radius` uniform itself (e.g. `draw` does `… * radius * 0.5`) |
+| `strength(co)` | `float3 → float` | brush falloff strength at a world position — the `strength*falloff` blend (`brush.strength × falloffEval(t)`). Radius is **not** folded in; a kernel that wants radius-proportional displacement multiplies by the `radius` uniform itself (e.g. `draw` does `… * radius * 0.5`). Spatial + scalar **only** — no masking term, so pair it with `masks()` and each factor applies exactly once. Sign-flipped when the brush is inverted (how `mask` erases). Forbidden in an `@unbounded` kernel |
+| `masks()` | `→ float` | all per-vertex masking factors: `automasks() × (1 - painted mask)`. The common case — pair it with `strength(co)`. Argument-free on purpose: nothing here depends on position, so the signature cannot silently regrow a falloff |
+| `automasks()` | `→ float` | cavity automask × view-normal only, *without* the painted mask. For kernels that themselves **write** `v.mask` |
+| `unbounded_window(co)` | `float3 → float` | the C1 cutoff for an `@unbounded` field: 1 inside `0.8R`, smoothstepped to exactly 0 at `R = radius × unboundedExtent` — the same R the host filters spatial nodes against, so the field dies before the region boundary. `extent ≤ 0` disables it (returns 1). Required in every `@unbounded` kernel and forbidden everywhere else (both sema-enforced) |
+
+> **Backend caveat.** CUDA/HIP/OpenCL have no automask binding yet, so
+> `automasks()` lowers to a literal `1.0` there and `masks()` degrades to the
+> painted mask alone. The formulas above are exact on C++/WGSL/SPIR-V.
+
+In a `face` stage there is no vertex index, so `automasks()` and the painted-mask
+term are both identity.
 | `falloff(t)` | `float → float` | raw curve sample of normalized distance `t`; lower-level than `strength` |
 | `sampleBrushTex(co, no)` | `float3, float3 → float` | brush-texture modulation per the brush's coord space; returns `1.0` when no texture is bound |
 | `length` / `distance` | `float3[,float3] → float` | |
@@ -228,7 +321,7 @@ texture Rings {
 }
 
 vertex void apply(inout Vertex v) {
-  float s = strength(v.co) * Rings.eval(v.co, surfaceNo);
+  float s = strength(v.co) * masks() * Rings.eval(v.co, surfaceNo);
   if (s == 0.0) { continue; }
   v.co += surfaceNo * s;
 }
@@ -258,7 +351,7 @@ the differentiable intrinsics (`sin`, `cos`, `sqrt`, `abs`, `dot`, `length`,
 brush GradDraw {
   ctx float3 surfaceNo;
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co);
+    float s = strength(v.co) * masks();
     if (s == 0.0) { continue; }
     float3 g = grad(sin(length(v.co) * 40.0), v.co);   // = 40·cos(40|p|)·p̂
     v.co += normalize(g) * s;

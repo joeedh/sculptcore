@@ -194,7 +194,7 @@ struct Emit {
 
   /** Whether this kernel derives its base from the accumulated displacement
    * field (binding 25) — the WGSL twin of CoProxy's from-base modes. Grab-class
-   * always does (it is @global, hence not accumulable, but still from-base);
+   * always does (@grabmode is not accumulable, but is still from-base);
    * everything else only when it is accumulable and not a @relaxation. */
   bool wantsDisp() const
   {
