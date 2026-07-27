@@ -13,7 +13,7 @@ brush Grab {
   uniform float radius;
 
   vertex void apply(inout Vertex v) {
-    float fall = strength(v.co) * (1.0 - v.mask);
+    float fall = strength(v.co) * masks();
     if (fall == 0.0) {
       continue;
     }

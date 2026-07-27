@@ -61,7 +61,7 @@ static void snakehook(CommandCtx<TYPES> &ctx)
   using namespace litestl::math;
   bool any_moved = false;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
-    float fall = (ctx.strength(v.co, v.v) * ((1.0f - v.mask)));
+    float fall = (ctx.strength(v.co) * ctx.masks(v.v, v.mask));
     if ((fall == 0.0f)) {
       continue;
     }

@@ -30,19 +30,40 @@ namespace {
 #define INTR_CWGO(NAME, RET, ARITY, ARGS, CPP, WGSL, GPU, OCL) \
   { NAME, RET, ARITY, ARGS, {{CPP}, {WGSL}, {nullptr}, {GPU}, {GPU}, {OCL}} }
 
+#define ARG0()          {TypeKind::Unknown, TypeKind::Unknown, TypeKind::Unknown, TypeKind::Unknown}
 #define ARG1(A)         {A, TypeKind::Unknown, TypeKind::Unknown, TypeKind::Unknown}
 #define ARG2(A, B)      {A, B,                  TypeKind::Unknown, TypeKind::Unknown}
 #define ARG3(A, B, C)   {A, B, C,                                  TypeKind::Unknown}
 
 static IntrinsicDef sIntrinsicsRaw[] = {
-  // strength(co) — brush falloff strength at world-space position.
-  // C++ and WGSL thread the current loop vertex index via the `$v` placeholder
-  // (for cavity automasking): C++ → CommandCtx::strength, WGSL → the
-  // brush_strength(p, vid) helper emit_wgsl writes once per kernel (kept in sync
-  // with brush_command.h by hand). CUDA/HIP/OpenCL keep the 1-arg form (no
-  // automask on those backends yet).
+  // strength(co) — brush slider x distance falloff at a world-space position,
+  // invert-signed. Spatial + scalar only: the per-vertex masking factors are
+  // automasks()/masks() below, so `strength(co) * masks()` applies each factor
+  // exactly once. Kernels whose field has unbounded support (no radius at which
+  // it dies) must not call this — the field is its own falloff.
   INTR_CWGO("strength", TypeKind::Float,  1, ARG1(TypeKind::Float3),
-          "ctx.strength($0, $v)",     "brush_strength($0, $v)", "brush_strength($0)", "brush_strength($0)"),
+          "ctx.strength($0)",         "brush_strength($0)",     "brush_strength($0)", "brush_strength($0)"),
+
+  // automasks() / masks() — per-vertex masking, no spatial term. Deliberately
+  // argument-free: nothing here depends on position, so the signature can't
+  // silently regrow a falloff. Both hidden operands ride in on placeholders —
+  // `$v` (current vertex index) and `$vm` (the kernel's live painted mask).
+  //   automasks() — cavity automask x view-normal; the masks a kernel cannot
+  //                 otherwise reach. Used by kernels that *write* v.mask.
+  //   masks()     — automasks() x (1 - painted mask). The common case.
+  // CUDA/HIP/OpenCL have no automask binding yet, so they degrade to the
+  // painted mask alone (matching the pre-split 1-arg brush_strength there).
+  INTR_CWGO("automasks", TypeKind::Float, 0, ARG0(),
+          "ctx.automasks($v)",        "brush_automasks($v)",    "1.0f",                   "1.0f"),
+  INTR_CWGO("masks",     TypeKind::Float, 0, ARG0(),
+          "ctx.masks($v, $vm)",       "brush_masks($v, $vm)",   "brush_masks($v, $vm)",   "brush_masks($v, $vm)"),
+
+  // unbounded_window(co) — the C1 cutoff an @unbounded kernel must apply so its
+  // field reaches exactly zero at the host's spatial-node filter radius. Every
+  // @unbounded brush is required to call it (sema enforces); nothing else may.
+  INTR_CWGO("unbounded_window", TypeKind::Float, 1, ARG1(TypeKind::Float3),
+          "ctx.unboundedWindow($0)",  "brush_unbounded_window($0)",
+          "brush_unbounded_window($0)", "brush_unbounded_window($0)"),
 
   // falloff(t) — raw curve sample at normalized centerwise input
   // (1 at brush center, 0 at radius). Dispatches on the brush's

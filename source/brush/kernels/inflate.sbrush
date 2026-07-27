@@ -8,7 +8,7 @@ brush Inflate {
   
   vertex void apply(inout Vertex v) {
     // Mask convention: 0 = unmasked (full effect), 1 = locked.
-    float s = strength(v.co) * (1.0 - v.mask);
+    float s = strength(v.co) * masks();
     if (s == 0.0) {
       continue;
     }

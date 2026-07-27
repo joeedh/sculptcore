@@ -11,7 +11,7 @@ brush ColorSmooth {
   save vertex color;
 
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co) * (1.0 - v.mask);
+    float s = strength(v.co) * masks();
     if (s == 0.0) { continue; }
     float4 avg = float4(0.0, 0.0, 0.0, 0.0);
     float n = 0.0;

@@ -17,6 +17,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -128,10 +129,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -223,7 +240,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_vclass: i32 = attr_vclass[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -291,6 +308,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -400,10 +418,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -495,7 +529,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_color: vec4<f32> = attr_color[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -568,6 +602,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -678,10 +713,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -773,7 +824,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_color: vec4<f32> = attr_color[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -810,6 +861,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -917,10 +969,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -1012,7 +1080,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   s *= brush_sample_tex(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
@@ -1043,6 +1111,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -1151,10 +1220,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -1247,7 +1332,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_edisp: vec3<f32> = attr_edisp[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -1278,6 +1363,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -1391,10 +1477,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -1487,7 +1589,7 @@ fn main(
   var v_field: vec3<f32> = attr_field[sb_vidx];
   var v_vclass: i32 = attr_vclass[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -1589,6 +1691,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -1698,10 +1801,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -1793,7 +1912,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var fall: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((fall == 0.0)) {
     return;
   }
@@ -1821,6 +1940,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -1928,10 +2048,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -2043,7 +2179,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -2074,6 +2210,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -2181,10 +2318,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -2276,7 +2429,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -2306,6 +2459,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -2418,10 +2572,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -2534,8 +2704,7 @@ fn main(
     ab = 9.9999999999999995e-07;
   }
   disp = (disp * ((brush_u.radius / ab)));
-  var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
-  v_co += (disp * fall);
+  v_co += ((disp * brush_masks(sb_vidx, v_mask)) * brush_unbounded_window(v_co));
 
   let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;
   dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
@@ -2559,6 +2728,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -2667,10 +2837,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -2763,7 +2949,7 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_slayer: vec3<f32> = attr_slayer[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   s *= brush_sample_tex(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
@@ -2795,6 +2981,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -2901,10 +3088,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -2995,7 +3198,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = brush_strength(v_co, sb_vidx);
+  var s: f32 = (brush_strength(v_co) * brush_automasks(sb_vidx));
   if ((s == 0.0)) {
     return;
   }
@@ -3026,6 +3229,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -3134,10 +3338,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -3229,7 +3449,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = ((brush_strength(v_co, sb_vidx) * ((1.0 - v_mask))) * brush_u.pinch);
+  var s: f32 = ((brush_strength(v_co) * brush_masks(sb_vidx, v_mask)) * brush_u.pinch);
   if ((s == 0.0)) {
     return;
   }
@@ -3263,6 +3483,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -3372,10 +3593,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -3467,7 +3704,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -3501,6 +3738,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -3590,10 +3828,22 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
   let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 { return 1.0; }
+
+fn brush_masks(vid: u32, m: f32) -> f32 { return 1.0 - m; }
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -3685,7 +3935,7 @@ fn main(
   var f_f: i32 = i32(sb_fidx);
   var f_group: i32 = attr_group[sb_fidx];
 
-  if ((brush_strength(f_center, 0u) > 0.0)) {
+  if ((brush_strength(f_center) > 0.0)) {
     f_group = brush_u.activeGroup;
   }
 
@@ -3705,6 +3955,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -3813,10 +4064,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -3916,7 +4183,7 @@ fn main(
     wsum += w;
   }
   if ((wsum > 9.9999999999999995e-07)) {
-    var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+    var fall: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
     v_co += (((disp / wsum)) * fall);
   }
 
@@ -3938,6 +4205,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -4046,10 +4314,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -4141,7 +4425,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -4185,6 +4469,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -4294,10 +4579,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -4388,7 +4689,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }
@@ -4425,6 +4726,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -4534,10 +4836,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -4629,7 +4947,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var fall: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((fall == 0.0)) {
     return;
   }
@@ -4661,6 +4979,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -4768,10 +5087,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -4872,7 +5207,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   s *= tex_rings_eval(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
@@ -4903,6 +5238,7 @@ struct BrushUniforms {
   nonaccum: u32,
   grab_dab_gen: u32,
   falloff_dir: vec3<f32>,
+  unbounded_extent: f32,
   falloff_extent: vec3<f32>,
   coord_space: u32,
   tex_repeat: f32,
@@ -5014,10 +5350,26 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {
+fn brush_strength(p: vec3<f32>) -> f32 {
   let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * brush_view_normal(vid);
+  let sb_s = brush_u.strength * brush_falloff(sb_t);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
+fn brush_automasks(vid: u32) -> f32 {
+  return automask[vid] * brush_view_normal(vid);
+}
+
+fn brush_masks(vid: u32, m: f32) -> f32 {
+  return brush_automasks(vid) * (1.0 - m);
+}
+
+fn brush_unbounded_window(p: vec3<f32>) -> f32 {
+  let sb_R = brush_u.radius * brush_u.unbounded_extent;
+  if (!(sb_R > 0.0)) { return 1.0; }
+  let sb_d = length(p - ctx_u.surfacePos);
+  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
 fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {
@@ -5109,7 +5461,7 @@ fn main(
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
-  var s: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
+  var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
   if ((s == 0.0)) {
     return;
   }

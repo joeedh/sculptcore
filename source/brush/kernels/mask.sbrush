@@ -5,7 +5,9 @@ brush Mask {
   save vertex mask;
 
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co);
+    // automasks(), not masks(): folding in the painted mask would make the
+    // mask brush self-limiting — it would asymptote and never reach 1.0.
+    float s = strength(v.co) * automasks();
     if (s == 0.0) { continue; }
     // Add into mask; clamp to [0, 1]. Sculpt convention: 1 = fully
     // locked, 0 = fully editable. Inverted strokes (s < 0) erase mask.

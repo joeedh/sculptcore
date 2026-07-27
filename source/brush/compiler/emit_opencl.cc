@@ -240,6 +240,13 @@ struct Emit {
           if (*p == '$' && std::isdigit((unsigned char)p[1])) {
             int idx = p[1] - '0'; p += 2;
             out += (idx < (int)rendered.size()) ? rendered[idx] : string("/*bad-arg*/");
+          } else if (*p == '$' && p[1] == 'v' && p[2] == 'm') {
+            // The kernel's live painted mask local.
+            p += 3; out += vertexParamName; out += "_mask";
+          } else if (*p == '$' && p[1] == 'v') {
+            // Current loop vertex index. Face kernels emit a skip stub, so this
+            // only ever renders inside a vertex kernel.
+            p += 2; out += "sb_vidx";
           } else { char tmp[2] = {*p, 0}; out += tmp; p++; }
         }
       } else {
@@ -424,7 +431,7 @@ struct Emit {
     auto isBuiltinBrushName = [](const char *n) {
       return std::strcmp(n,"strength")==0||std::strcmp(n,"radius")==0||std::strcmp(n,"spacing")==0||
              std::strcmp(n,"invert")==0||std::strcmp(n,"falloff_kind")==0||std::strcmp(n,"falloff_shape")==0||
-             std::strcmp(n,"falloff_dir")==0||std::strcmp(n,"coord_space")==0||std::strcmp(n,"tex_repeat")==0||
+             std::strcmp(n,"falloff_dir")==0||std::strcmp(n,"unbounded_extent")==0||std::strcmp(n,"coord_space")==0||std::strcmp(n,"tex_repeat")==0||
              std::strcmp(n,"stroke_path_count")==0;
     };
     auto isBuiltinCtxName = [](const char *n) {
@@ -510,6 +517,9 @@ struct Emit {
     write("}\n\n");
     write("#define brush_falloff(t) sb_falloff(brush_u, falloff_lut, (t))\n");
     write("#define brush_strength(p) sb_strength(brush_u, ctx_u, falloff_lut, (p))\n");
+    // No automask/view-normal binding on this backend yet, so masks() degrades
+    // to the painted layer alone (automasks() emits 1.0f from the table).
+    write("#define brush_masks(vid, m) (1.0f - (m))\n");
     write("#define brush_sample_tex(c, n) sb_sample_tex(brush_u, ctx_u, stroke_path, brush_tex, brush_tex_w, brush_tex_h, (c), (n))\n\n");
   }
 

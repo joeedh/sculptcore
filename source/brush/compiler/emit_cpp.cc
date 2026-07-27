@@ -469,11 +469,21 @@ struct Emit {
             } else {
               out += "/*bad-arg*/";
             }
+          } else if (*p == '$' && p[1] == 'v' && p[2] == 'm') {
+            // The kernel's live painted mask — `<vertexParam>.mask`. Face stages
+            // have none, so emit 0 (an unmasked vertex).
+            p += 3;
+            if (currentStage && currentStage == vertexStage) {
+              out += vertexParamName;
+              out += ".mask";
+            } else {
+              out += "0.0f";
+            }
           } else if (*p == '$' && p[1] == 'v') {
             // Current loop vertex index — `<vertexParam>.v` inside a vertex
             // stage, keying the cavity automask. Outside a vertex stage (e.g. a
             // face-stage strength call) there is no per-vertex index, so emit -1;
-            // CommandCtx::strength treats v < 0 as "no automask".
+            // CommandCtx::automasks treats v < 0 as "no automask".
             p += 2;
             if (currentStage && currentStage == vertexStage) {
               out += vertexParamName;
@@ -1602,7 +1612,7 @@ struct Emit {
     // brush (neither @global nor @paint) is accumulable; the executor runs its
     // AccumOrig instantiation when non-accumulate mode is on for the stroke.
     write("  def.accumulable = ");
-    write((!brush->isGlobal && !brush->isPaint) ? "true" : "false");
+    write((!brush->isGlobal && !brush->isPaint && !brush->isUnbounded) ? "true" : "false");
     write(";\n");
     // `@relaxation`: relaxes the surface rather than displacing it, so it stays
     // on AccumLive and never accumulates into `.brush.disp.vec`.

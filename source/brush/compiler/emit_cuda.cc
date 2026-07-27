@@ -320,6 +320,16 @@ struct Emit {
             } else {
               out += "/*bad-arg*/";
             }
+          } else if (*p == '$' && p[1] == 'v' && p[2] == 'm') {
+            // The kernel's live painted mask local.
+            p += 3;
+            out += vertexParamName;
+            out += "_mask";
+          } else if (*p == '$' && p[1] == 'v') {
+            // Current loop vertex index. Face kernels never reach here (run()
+            // emits a skip stub for them), so this is always in a vertex kernel.
+            p += 2;
+            out += "sb_vidx";
           } else {
             char tmp[2] = {*p, 0};
             out += tmp;
@@ -688,6 +698,7 @@ struct Emit {
              std::strcmp(n, "falloff_kind") == 0 ||
              std::strcmp(n, "falloff_shape") == 0 ||
              std::strcmp(n, "falloff_dir") == 0 ||
+             std::strcmp(n, "unbounded_extent") == 0 ||
              std::strcmp(n, "coord_space") == 0 ||
              std::strcmp(n, "tex_repeat") == 0 ||
              std::strcmp(n, "stroke_path_count") == 0;
@@ -802,6 +813,12 @@ struct Emit {
     write("  float sb_t = 1.0f - fminf(brush_falloff_dist(p - ctx_u.surfacePos), 1.0f);\n");
     write("  float sb_s = brush_u.strength * brush_falloff(sb_t);\n");
     write("  return brush_u.invert != 0u ? -sb_s : sb_s;\n");
+    write("}\n\n");
+    // No automask/view-normal binding on this backend yet, so masks() degrades
+    // to the painted layer alone and automasks() to identity (the intrinsic
+    // table emits 1.0f directly for the latter). `m` is the kernel's live mask.
+    write("__device__ float brush_masks(unsigned int vid, float m) {\n");
+    write("  return 1.0f - m;\n");
     write("}\n\n");
     write("__device__ float2 brush_stroke_uv(float3 co) {\n");
     write("  if (brush_u.stroke_path_count == 0u) { return sb_make_float2(0.0f, 0.0f); }\n");

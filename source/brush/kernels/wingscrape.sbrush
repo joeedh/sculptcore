@@ -31,7 +31,7 @@ brush WingScrape {
   }
 
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co) * (1.0 - v.mask);
+    float s = strength(v.co) * masks();
     if (s == 0.0) {
       continue;
     }

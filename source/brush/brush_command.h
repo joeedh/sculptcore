@@ -212,21 +212,52 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     return executor.template makeVertexIter<AccMode>(node);
   }
   auto faceIter(spatial::SpatialNode &node) { return executor.makeFaceIter(node); }
-  // `v` is the mesh vertex index of the sample (threaded from the kernel loop by
-  // the `strength` intrinsic emission as `$v`). It keys the per-vertex automask
-  // factor; when automasking is inactive the arg is ignored and the result is
-  // bit-identical to the falloff-only strength.
-  float strength(float3 co, int v)
+  /** Spatial + scalar term only: slider x distance falloff, invert-signed. The
+   * per-vertex masking factors live in automasks()/masks() — a kernel that wants
+   * them multiplies one of those in. Kernels with unbounded support (whose field
+   * is its own falloff) must not call this at all. */
+  float strength(float3 co)
   {
     float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
     float s = brush.strength * brush.falloffEval(t);
+    return brush.invert ? -s : s;
+  }
+
+  /** The *automatic* masks — cavity automask x view-normal — which a kernel has
+   * no other way to reach. `v` is the mesh vertex index, threaded from the kernel
+   * loop by the intrinsic's `$v` placeholder; face stages pass -1, where both
+   * factors are identity. */
+  float automasks(int v)
+  {
+    float s = 1.0f;
     if (automaskEnabled && automaskFactor && v >= 0) {
       s *= (*automaskFactor)[v];
     }
     if (viewNormal.enabled && v >= 0 && m) {
       s *= viewNormalFactor(m->v.no[v], viewNormal);
     }
-    return brush.invert ? -s : s;
+    return s;
+  }
+
+  /** Every mask: automasks() x the painted mask. What deforming and painting
+   * kernels want. `mask` is the kernel's own live value, threaded by the
+   * intrinsic's `$vm` placeholder, so a kernel that writes v.mask still sees
+   * its local copy rather than stale storage. Face stages pass 0. */
+  float masks(int v, float mask) { return automasks(v) * (1.0f - mask); }
+
+  /** C1 cutoff window for an `@unbounded` field: 1 inside 0.8R, smoothstepped
+   * to exactly 0 at R = radius * unboundedExtent. The host filters spatial
+   * nodes against the same R, so the field vanishes before the region boundary
+   * and no seam can form on a leaf edge. Extent <= 0 disables it. */
+  float unboundedWindow(float3 co)
+  {
+    float R = brush.radius * brush.unboundedExtent;
+    if (!(R > 0.0f)) {
+      return 1.0f;
+    }
+    float d = (co - surfacePos).length();
+    float t = std::clamp((R - d) / (0.2f * R), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
   }
 
   // Sample the brush texture at world point `co` with surface normal `no`,

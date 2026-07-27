@@ -35,6 +35,7 @@ export interface Brush {
   invert: boolean
   mu: float
   nu: float
+  unboundedExtent: float
   pinch: float
   projection: float
   rake: float

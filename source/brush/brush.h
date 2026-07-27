@@ -232,6 +232,14 @@ struct Brush {
   float mu = 1.0f;
   float nu = 0.4f;
 
+  // Cutoff radius of an `@unbounded` brush field, as a multiple of `radius`.
+  // The kernel's `unbounded_window()` smoothsteps the field to exactly zero
+  // over [0.8R, R] with R = radius * unboundedExtent, and the host sizes the
+  // spatial-node filter radius from the same R — that pairing is what keeps a
+  // field with unbounded support from tearing on a leaf boundary. Read by TS
+  // (sculptcore_ops) so the constant lives in exactly one place.
+  float unboundedExtent = 8.0f;
+
   // Pinch amount (0..1), synced from the TS brush (brush.pinch). Read by the
   // pinch / sharp kernels as the `@static` uniform `pinch` to scale the
   // toward-axis pull. A plain member loadProps leaves untouched.
@@ -373,6 +381,7 @@ struct Brush {
              "planeSide",   "autosmooth",  "invert",      "strokeDir",
              "wingAngle",   "wingNormalA", "wingNormalB", "activeGroup",
              "brushColor",  "mixMode",     "mu",          "nu",
+             "unboundedExtent",
              "pinch",       "projection",  "rake",        "grabFrom",
              "grabTo",      "poseCageRest", "poseCageNow",
          })
@@ -400,6 +409,7 @@ struct Brush {
     BIND_STRUCT_MEMBER(st, invert);
     BIND_STRUCT_MEMBER(st, mu);
     BIND_STRUCT_MEMBER(st, nu);
+    BIND_STRUCT_MEMBER(st, unboundedExtent);
     BIND_STRUCT_MEMBER(st, pinch);
     BIND_STRUCT_MEMBER(st, projection);
     BIND_STRUCT_MEMBER(st, rake);

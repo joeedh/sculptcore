@@ -120,6 +120,9 @@ void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
     applyGpuHostClamps(tool, brush);
     out.mu = brush.mu;
     out.nu = brush.nu;
+    // @unbounded cutoff — must match what the host used to size filterRadius,
+    // or the GPU field is still live at the region boundary.
+    out.unbounded_extent = brush.unboundedExtent;
     break;
   case SculptBrushes::PINCH:
   case SculptBrushes::SHARP:

@@ -5,6 +5,58 @@ namespace sculptcore::brush::sbrush {
 
 namespace {
 
+int findCallLine(const Stmt *s, const char *name);
+
+/** Line of the first call to `name` inside `e`, or -1. The DSL has no separate
+ * sema pass, so the `@unbounded` rules below are checked by scanning the parsed
+ * bodies here. */
+int findCallLine(const Expr *e, const char *name)
+{
+  if (!e) return -1;
+  if (e->kind == ExprKind::Call && string(e->name).operator==(string(name))) {
+    return e->line;
+  }
+  int r = findCallLine(e->lhs.get(), name);
+  if (r >= 0) return r;
+  r = findCallLine(e->rhs.get(), name);
+  if (r >= 0) return r;
+  for (const auto &a : e->args) {
+    r = findCallLine(a.get(), name);
+    if (r >= 0) return r;
+  }
+  return -1;
+}
+
+int findCallLine(const Stmt *s, const char *name)
+{
+  if (!s) return -1;
+  for (const auto &c : s->stmts) {
+    int r = findCallLine(c.get(), name);
+    if (r >= 0) return r;
+  }
+  for (const Expr *e : {s->expr.get(), s->lvalue.get(), s->rvalue.get(), s->cond.get()}) {
+    int r = findCallLine(e, name);
+    if (r >= 0) return r;
+  }
+  for (const Stmt *b :
+       {s->thenBranch.get(), s->elseBranch.get(), s->forInit.get(), s->forStep.get()})
+  {
+    int r = findCallLine(b, name);
+    if (r >= 0) return r;
+  }
+  return -1;
+}
+
+/** First line at which any stage of `brush` calls `name`, or -1. */
+int findCallLine(const Brush &brush, const char *name)
+{
+  for (const auto &st : brush.stages) {
+    int r = findCallLine(st.body.get(), name);
+    if (r >= 0) return r;
+  }
+  return -1;
+}
+
 struct Parser {
   const Vector<Token> *tokens;
   int pos = 0;
@@ -96,8 +148,8 @@ struct Parser {
     currentBrush = brush.get();
 
     // Leading brush attributes: `@brush("name")` plus optional `@global` /
-    // `@paint` / `@grabmode` / `@relaxation` markers. `brush` is a keyword so
-    // it lexes as KwBrush; the rest lex as plain Ident.
+    // `@paint` / `@grabmode` / `@relaxation` / `@unbounded` markers. `brush` is
+    // a keyword so it lexes as KwBrush; the rest lex as plain Ident.
     while (match(TokKind::At)) {
       if (match(TokKind::KwBrush)) {
         expect(TokKind::LParen, "after @brush");
@@ -120,11 +172,14 @@ struct Parser {
           brush->isGrabMode = true;
         } else if (attr.operator==(string("relaxation"))) {
           brush->isRelaxation = true;
+        } else if (attr.operator==(string("unbounded"))) {
+          brush->isUnbounded = true;
         } else {
           errorf(attrTok, "unknown brush attribute '%s'", attr.c_str());
         }
       } else {
-        error("expected 'brush', 'global', 'paint', 'grabmode', or 'relaxation' after '@'",
+        error("expected 'brush', 'global', 'paint', 'grabmode', 'relaxation', or "
+              "'unbounded' after '@'",
               peek());
         break;
       }
@@ -156,8 +211,43 @@ struct Parser {
       }
     }
     expect(TokKind::RBrace, "to close brush body");
+    checkUnboundedRules(*brush);
     currentBrush = nullptr;
     return brush;
+  }
+
+  void errorAt(int line, const char *msg)
+  {
+    ParseError e;
+    e.message = string(msg);
+    e.line = line;
+    e.col = 1;
+    errors.append(e);
+  }
+
+  /** The `@unbounded` contract: such a field is its own falloff, so the
+   * distance falloff must not be multiplied in, and the C1 cutoff window must
+   * be — otherwise the field is still live where the host stops filtering
+   * spatial nodes and the leaf boundary tears. */
+  void checkUnboundedRules(const Brush &brush)
+  {
+    int windowLine = findCallLine(brush, "unbounded_window");
+    if (brush.isUnbounded) {
+      int sline = findCallLine(brush, "strength");
+      if (sline >= 0) {
+        errorAt(sline,
+                "strength() is not allowed in an @unbounded brush — the field is "
+                "its own falloff; use masks() for the masking factors");
+      }
+      if (windowLine < 0) {
+        errorAt(1,
+                "an @unbounded brush must multiply its displacement by "
+                "unbounded_window(<pos>) so the field reaches zero at the host's "
+                "node-filter radius");
+      }
+    } else if (windowLine >= 0) {
+      errorAt(windowLine, "unbounded_window() is only valid in an @unbounded brush");
+    }
   }
 
   void parseField(Brush &brush)

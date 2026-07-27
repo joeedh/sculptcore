@@ -202,7 +202,7 @@ struct Emit {
       return false;
     }
     return brush->isGrabMode ||
-           (!brush->isGlobal && !brush->isPaint && !brush->isRelaxation);
+           (!brush->isGlobal && !brush->isPaint && !brush->isRelaxation && !brush->isUnbounded);
   }
 
   /** Append the displacement to subtract from a live/Jacobi position at `idx`.
@@ -423,10 +423,20 @@ struct Emit {
             } else {
               out += "/*bad-arg*/";
             }
+          } else if (*p == '$' && p[1] == 'v' && p[2] == 'm') {
+            // The kernel's live painted mask local. Face kernels have none, so
+            // emit 0.0 (an unmasked vertex).
+            p += 3;
+            if (faceMode()) {
+              out += "0.0";
+            } else {
+              out += vertexParamName;
+              out += "_mask";
+            }
           } else if (*p == '$' && p[1] == 'v') {
             // Current loop vertex index — `sb_vidx` in a vertex kernel (keys the
-            // cavity automask read in brush_strength). Face kernels have no
-            // per-vertex index; emit a dummy `0u` (brush_strength ignores it).
+            // cavity automask). Face kernels have no per-vertex index; emit a
+            // dummy `0u` (the masking helpers are identity there).
             p += 2;
             out += faceMode() ? "0u" : "sb_vidx";
           } else {
@@ -708,6 +718,7 @@ struct Emit {
              std::strcmp(n, "falloff_shape") == 0 ||
              std::strcmp(n, "falloff_dir") == 0 ||
              std::strcmp(n, "falloff_extent") == 0 ||
+             std::strcmp(n, "unbounded_extent") == 0 ||
              std::strcmp(n, "coord_space") == 0 ||
              std::strcmp(n, "tex_repeat") == 0 ||
              std::strcmp(n, "stroke_path_count") == 0;
@@ -760,6 +771,10 @@ struct Emit {
     // vec3 needs 16-byte alignment in the uniform address space; the host
     // marshaler (ComputeBrushUniforms) must match the padding here.
     write("  falloff_dir: vec3<f32>,\n");
+    // @unbounded cutoff radius (xradius). Declared right after falloff_dir so it
+    // occupies that vec3's std140 tail padding at offset 44 — falloff_extent
+    // still lands at 48 and no other kernel's layout moves.
+    write("  unbounded_extent: f32,\n");
     // Per-axis half-extents for FalloffShape::Box (mirrors Brush::falloff_extent
     // and ComputeBrushUniforms::falloff_extent). std140 pads this vec3 to the
     // next 16-byte slot after falloff_dir.
@@ -1005,20 +1020,34 @@ struct Emit {
       write("  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;\n");
       write("}\n\n");
     }
-    // `vid` is the current vertex index (threaded by the `$v` placeholder in the
-    // strength intrinsic). Vertex kernels multiply the per-vertex cavity automask
-    // (identity 1.0 when off → bit-identical to the falloff-only strength) and
-    // the dynamic view-normal factor; face kernels have neither, so `vid` is
-    // unused there. Mirrors CommandCtx::strength in brush_command.h.
-    write("fn brush_strength(p: vec3<f32>, vid: u32) -> f32 {\n");
+    // Spatial + scalar term only; the masking factors are brush_automasks /
+    // brush_masks below. Mirrors CommandCtx::strength in brush_command.h.
+    write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
     write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
-    if (!faceMode()) {
-      write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * automask[vid] * "
-            "brush_view_normal(vid);\n");
-    } else {
-      write("  let sb_s = brush_u.strength * brush_falloff(sb_t);\n");
-    }
+    write("  let sb_s = brush_u.strength * brush_falloff(sb_t);\n");
     write("  return select(sb_s, -sb_s, brush_u.invert != 0u);\n");
+    write("}\n\n");
+    // `vid` is the current vertex index (threaded by the `$v` placeholder). Face
+    // kernels have neither automask nor a painted mask, so both collapse to 1.0
+    // there. Mirrors CommandCtx::automasks / CommandCtx::masks.
+    if (!faceMode()) {
+      write("fn brush_automasks(vid: u32) -> f32 {\n");
+      write("  return automask[vid] * brush_view_normal(vid);\n");
+      write("}\n\n");
+      write("fn brush_masks(vid: u32, m: f32) -> f32 {\n");
+      write("  return brush_automasks(vid) * (1.0 - m);\n");
+      write("}\n\n");
+    } else {
+      write("fn brush_automasks(vid: u32) -> f32 { return 1.0; }\n\n");
+      write("fn brush_masks(vid: u32, m: f32) -> f32 { return 1.0 - m; }\n\n");
+    }
+    // C1 cutoff for @unbounded fields; mirrors CommandCtx::unboundedWindow.
+    write("fn brush_unbounded_window(p: vec3<f32>) -> f32 {\n");
+    write("  let sb_R = brush_u.radius * brush_u.unbounded_extent;\n");
+    write("  if (!(sb_R > 0.0)) { return 1.0; }\n");
+    write("  let sb_d = length(p - ctx_u.surfacePos);\n");
+    write("  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);\n");
+    write("  return sb_t * sb_t * (3.0 - 2.0 * sb_t);\n");
     write("}\n\n");
     // Brush-texture modulation — kept in lockstep with
     // CommandCtx::sampleBrushTex. `no` is part of the DSL signature but

@@ -99,8 +99,7 @@ static void kelvinlet(CommandCtx<TYPES> &ctx)
       ab = 9.9999999999999995e-07f;
     }
     disp = (disp * ((ctx.brush.radius / ab)));
-    float fall = (ctx.strength(v.co, v.v) * ((1.0f - v.mask)));
-    v.co += (disp * fall);
+    v.co += ((disp * ctx.masks(v.v, v.mask)) * ctx.unboundedWindow(v.co));
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }

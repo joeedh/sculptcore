@@ -9,7 +9,7 @@ brush Sharp {
   uniform float pinch @static;
 
   vertex void apply(inout Vertex v) {
-    float s = strength(v.co) * (1.0 - v.mask);
+    float s = strength(v.co) * masks();
     if (s == 0.0) { continue; }
     s *= sampleBrushTex(v.co, surfaceNo);
     // Push along the brush surface normal (positive = ridge, inverted = crease)

@@ -22,7 +22,10 @@ struct ComputeBrushUniforms {
   uint32_t grab_dab_gen = 0;           // offset 28 — grab-class per-dab generation (@grabmode
                                        // first-touch stamps); pad for every other kernel
   float falloff_dir[3] = {0, 0, 1};    // offset 32
-  uint32_t _pad1 = 0;                  // pad so falloff_extent (vec3) lands at 48
+  /* offset 44 — @unbounded cutoff radius as a multiple of `radius`; fills what
+   * was falloff_dir's std140 pad, so falloff_extent still lands at 48.
+   * 0 disables the window (every non-unbounded kernel). */
+  float unbounded_extent = 0.0f;
   float falloff_extent[3] = {1, 1, 1}; // offset 48 — FalloffShape::Box extents
   uint32_t coord_space = 0;            // offset 60
   float tex_repeat = 1.0f;             // offset 64

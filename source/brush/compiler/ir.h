@@ -270,6 +270,12 @@ struct Brush {
   // plans/2026-07-26-0909-brush-displacement-base-attribute.md). Such a kernel
   // runs live-from-live even in a non-accumulate stroke; see def.relaxesBase.
   bool isRelaxation = false;
+  // `@unbounded`: the kernel's field has unbounded support and is its own
+  // falloff, so `strength()` is forbidden in it (sema errors) and
+  // `unbounded_window()` is required — the window is what makes the field
+  // vanish at the host's node-filter radius instead of tearing on a leaf
+  // boundary. Non-accumulate-ineligible for now, like @global.
+  bool isUnbounded = false;
 };
 
 /** True when any stage body contains a `for_neighbor` loop — such brushes are

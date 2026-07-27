@@ -10,7 +10,7 @@
 // (which need BVH queries) wait for Wave 4b.
 
 @brush("kelvinlet")
-@global
+@unbounded
 @grabmode
 brush Kelvinlet {
   // Material parameters near "soft rubber" (mu=1, nu=0.4); higher mu =
@@ -69,10 +69,9 @@ brush Kelvinlet {
     float ab = a - b;
     if (ab < 1e-6) { ab = 1e-6; }
     disp = disp * (radius / ab);
-    // Brush strength gates the per-vertex effect by the standard
-    // distance-to-center falloff so the kelvinlet feels like a brush
-    // rather than a global field. (1 - v.mask) honors the mask layer.
-    float fall = strength(v.co) * (1.0 - v.mask);
-    v.co += disp * fall;
+    // No strength(): the kelvinlet field IS its own falloff. unbounded_window()
+    // is what takes it to exactly zero at the host's node-filter radius (see
+    // @unbounded); masks() keeps automask / view-normal / painted mask acting.
+    v.co += disp * masks() * unbounded_window(v.co);
   }
 }

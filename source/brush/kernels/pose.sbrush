@@ -34,7 +34,7 @@ brush Pose {
     }
 
     if (wsum > 0.000001) {
-      float fall = strength(v.co) * (1.0 - v.mask);
+      float fall = strength(v.co) * masks();
       v.co += (disp / wsum) * fall;
     }
   }
