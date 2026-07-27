@@ -108,8 +108,9 @@ private:
   Buf brushU_, ctxU_;                // bindings 5,6
   Buf falloff_, stroke_;             // bindings 7,10
   Buf coPrev_, nbrMeta_, nbrVerts_;  // bindings 11,12,13
-  /* binding 22 (kOrigCoBinding) — read-only stroke-start co for non-accumulate
-   * mode; a copy of the beginStroke co upload, static across the stroke. */
+  /* binding 22 (kOrigCoBinding) — read-only stroke-start co for grab-class
+   * non-accumulate kernels (a copy of the beginStroke co upload, static across
+   * the stroke). CLAUDENOTE(M5): goes away with the grab migration. */
   Buf origCo_;
   /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
    * (@grabmode kernels), zero-filled at beginStroke. */
@@ -117,6 +118,9 @@ private:
   /* binding 24 (kAutomaskBinding) — read-only per-vertex cavity automask factor.
    * beginStroke fills identity 1.0; setAutomask overrides with real factors. */
   Buf automask_;
+  /* binding 25 (kDispBinding) — read_write accumulated brush displacement for
+   * non-accumulate mode, zero-filled at beginStroke; the base is `co - disp`. */
+  Buf disp_;
 
   /* Persistent MAP_READ staging buffer reused across every readback. Allocating
    * a fresh host-visible buffer per dab churns vkAllocateMemory/vkFreeMemory on

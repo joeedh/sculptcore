@@ -76,6 +76,7 @@ WgpuBrushComputeDispatch::~WgpuBrushComputeDispatch()
   destroyBuf(nbrMeta_);
   destroyBuf(nbrVerts_);
   destroyBuf(origCo_);
+  destroyBuf(disp_);
   destroyBuf(dabStamp_);
   destroyBuf(automask_);
   destroyBuf(readback_);
@@ -325,6 +326,7 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(no_, uint64_t(vertCount) * kVec3Stride, rw) ||
       !ensureBuf(mask_, uint64_t(vertCount) * sizeof(float), rw) ||
       !ensureBuf(coPrev_, uint64_t(vertCount) * kVec3Stride, ro) ||
+      !ensureBuf(disp_, uint64_t(vertCount) * kVec3Stride, rw) ||
       !ensureBuf(origCo_, uint64_t(vertCount) * kVec3Stride, ro) ||
       !ensureBuf(dabStamp_, uint64_t(vertCount) * sizeof(uint32_t), rw) ||
       !ensureBuf(automask_, uint64_t(vertCount) * sizeof(float), ro) ||
@@ -343,10 +345,18 @@ bool WgpuBrushComputeDispatch::beginStroke(const float *co, const float *no,
   }
   wgpuQueueWriteBuffer(ctx_->queue, co_.buffer, 0, tmp.data(),
                        size_t(vertCount) * kVec3Stride);
-  // Stroke-start snapshot for non-accumulate mode: the mesh is static for the
-  // stroke, so this beginStroke upload is every vert's stroke-start position.
+  // Legacy grab-class snapshot: the mesh is static for the stroke, so this
+  // beginStroke upload is every vert's stroke-start position.
   wgpuQueueWriteBuffer(ctx_->queue, origCo_.buffer, 0, tmp.data(),
                        size_t(vertCount) * kVec3Stride);
+  {
+    // Accumulated displacement starts at zero: nothing has been deposited yet,
+    // so `co - disp` is the stroke-start surface for every vert. This is the
+    // whole of the CPU generational stamp on a static-topology GPU stroke.
+    std::memset(tmp.data(), 0, size_t(vertCount) * kVec3Stride);
+    wgpuQueueWriteBuffer(ctx_->queue, disp_.buffer, 0, tmp.data(),
+                         size_t(vertCount) * kVec3Stride);
+  }
   for (int i = 0; i < vertCount; i++) {
     tmp[i * 4 + 0] = no[i * 3 + 0];
     tmp[i * 4 + 1] = no[i * 3 + 1];
@@ -435,6 +445,7 @@ WGPUBindGroup WgpuBrushComputeDispatch::buildBindGroup()
     case brush::kOrigCoBinding: buf = &origCo_; break;
     case brush::kDabStampBinding: buf = &dabStamp_; break;
     case brush::kAutomaskBinding: buf = &automask_; break;
+    case brush::kDispBinding: buf = &disp_; break;
     default: break;
     }
     if (buf) {

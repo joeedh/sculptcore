@@ -104,11 +104,10 @@ struct ComputeNodeMeta {
   uint32_t vert_count = 0;
 };
 
-/* Fixed binding of the read-only stroke-start position buffer for
- * non-accumulate mode (plans/nonAccumMode.md). Sits just past the custom-attr
- * slot superset (vk_compute kAttrBase=14 + kMaxAttrBindings=8). On the GPU a
- * stroke's topology is static and co is uploaded once at beginStroke, so the
- * whole CPU-side generational snapshot collapses to that initial upload. */
+/* Fixed binding of the read-only per-vertex stroke-start position for
+ * non-accumulate mode (grab-class kernels only), just past the custom-attr slot
+ * superset (vk_compute kAttrBase=14 + kMaxAttrBindings=8).
+ * CLAUDENOTE(M5): goes away when grab moves onto kDispBinding. */
 inline constexpr uint32_t kOrigCoBinding = 22;
 
 /* Fixed binding of the grab-class per-vertex dab stamp (@grabmode kernels
@@ -126,6 +125,16 @@ inline constexpr uint32_t kDabStampBinding = 23;
  * contributor is dynamic (brush_view_normal from the ctx uniforms), not
  * packed. See automask.h. */
 inline constexpr uint32_t kAutomaskBinding = 24;
+
+/* Fixed binding of the per-vertex accumulated brush displacement for
+ * non-accumulate mode (plans/2026-07-26-0909-brush-displacement-base-attribute.md).
+ * read_write: the kernel adds each dab's delta, and the base is derived as
+ * `co - disp`. GPU stroke topology is static, so the CPU's generational stamp
+ * collapses to the beginStroke zero-fill. It gets its own slot instead of
+ * sharing kOrigCoBinding because the Vulkan backend has no shader reflection to
+ * tell two flavours of one binding apart; a kernel declares only one of the
+ * two, so per-pipeline storage-buffer counts are unchanged either way. */
+inline constexpr uint32_t kDispBinding = 25;
 
 /* binding 12 element — std430 vec2<u32>, stride 8. CSR neighbor index: for
  * global vertex i, its neighbors are nbr_verts[offset .. offset+count). */
