@@ -103,6 +103,7 @@ static void createSmoothBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPost = smoothPost<TYPES>;
   def.needsCoPrev = true;
   def.accumulable = true;
+  def.relaxesBase = true;
   def.registerProps = [](sculptcore::props::StructDef &sd) {
   };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {

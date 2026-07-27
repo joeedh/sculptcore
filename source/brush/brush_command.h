@@ -311,6 +311,11 @@ template <typename CTX> struct BrushCommandDef {
   // @paint), which are eligible for non-accumulate mode. See
   // plans/nonAccumMode.md.
   bool accumulable = false;
+  // Set by codegen from `@relaxation`: the kernel relaxes the surface instead of
+  // displacing it, so it must not contribute to `.brush.disp.vec`. The executor
+  // keeps it on AccumLive even in a non-accumulate stroke — reading and writing
+  // the live surface is exactly "move co, leave disp alone".
+  bool relaxesBase = false;
   // Set by the executor (not codegen) for grab-class brushes (grab / kelvinlet):
   // they always deform from the stroke-start position with the AccumOrigGrab
   // policy + a fixed region, independent of the ACCUMULATE flag (#35). Drives the

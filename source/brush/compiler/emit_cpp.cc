@@ -1604,6 +1604,11 @@ struct Emit {
     write("  def.accumulable = ");
     write((!brush->isGlobal && !brush->isPaint) ? "true" : "false");
     write(";\n");
+    // `@relaxation`: relaxes the surface rather than displacing it, so it stays
+    // on AccumLive and never accumulates into `.brush.disp.vec`.
+    if (brush->isRelaxation) {
+      write("  def.relaxesBase = true;\n");
+    }
     // Declared attribute layers — resolved + bound per dab by the executor.
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Attr)

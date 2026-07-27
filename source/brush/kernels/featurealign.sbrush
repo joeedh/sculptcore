@@ -14,6 +14,7 @@
 // smoothing. `projection` (brush.smoothProj) removes that fraction of the
 // smoothing step's normal component for tangential (volume-preserving) sliding.
 @brush("featurealign")
+@relaxation
 brush FeatureAlign {
   attr vertex float3 field = "crossfield";
   attr vertex int vclass = ".boundary.vert.class";

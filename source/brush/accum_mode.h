@@ -149,11 +149,9 @@ template <class AccMode> struct CoProxy {
       // First image to write this vert this dab re-bases it (follows the
       // cursor); a later image of the same dab adds its displacement-from-base
       // (`want - base`, cur() returns base pre-write) so seam verts sum. The
-      // re-base is written as a delta so `disp` stays in step with `live`.
-      // CLAUDENOTE(M5): first-touch is `want - live` (i.e. exactly the old
-      // `live = want`) to keep grab bit-identical while it stays on the legacy
-      // orig path. Plan §4.2 wants `want - base` once grab moves onto disp;
-      // the two agree only when live == base, so flipping it is M5's job.
+      // re-base is written as a delta so `disp` stays in step with `live`;
+      // first-touch must be `want - live` (not `want - base`) because the
+      // kernel's `want` already carries the whole cumulative drag from the base.
       float3 d = (exec && grabClaimFirstTouch(*exec, v)) ? want - live : want - base;
       live += d;
       if (disp) {

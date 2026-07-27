@@ -219,11 +219,11 @@ struct CommandExecutor {
    * position and normal into `.brush.orig.*` (keyed by `strokeGen`) and runs the
    * AccumOrig kernel instantiation so deformation is measured from that snapshot. */
   bool nonAccum = false;
-  /** Displacement base A/B (setDispBase). When set, from-base kernels resolve
-   * their base as `co - .brush.disp.vec` instead of the absolute `.brush.orig.co`
-   * snapshot, so it advects with the surface under dyntopo relaxation. Grab
-   * stays on the legacy path until M5. */
-  bool dispBase = false;
+  /** Displacement base A/B (setDispBase). When set, from-base kernels — grab
+   * included — resolve their base as `co - .brush.disp.vec` instead of the
+   * absolute `.brush.orig.co` snapshot, so it advects with the surface under
+   * dyntopo relaxation. Clear it to fall back to the legacy snapshot path. */
+  bool dispBase = true;
   /** Grab-class symmetry dab marker (#35). The dab dispatch calls setGrabAccumAdd
    * per symmetry image before applyDab: false on the primary image (which begins
    * a new logical dab → bumps `dabGen`), true on mirror images (same dab). The
@@ -528,7 +528,7 @@ struct CommandExecutor {
          queryUniformManifest, the TS dynamics UI). */
       def.uniforms = decltype(def.uniforms)();
       createCommandImpl<AccumOrigGrab>(brushType, def);
-    } else if (nonAccum && def.accumulable) {
+    } else if (nonAccum && def.accumulable && !def.relaxesBase) {
       def.uniforms = decltype(def.uniforms)();
       createCommandImpl<AccumOrig>(brushType, def);
     }
@@ -810,11 +810,13 @@ struct CommandExecutor {
     ctx.strokeGen = 0;
     ctx.dabGen = nullptr;
     ctx.curDabGen = 0;
-    // Grab-class brushes always need the orig snapshot (cmd.grabMode), even when
-    // not `accumulable` (kelvinlet is @global) and regardless of the ACCUMULATE
-    // flag — they deform from it via AccumOrigGrab (#35). Kernels may also opt
-    // into the normal snapshot via cmd.needsOrigNormals.
-    if ((cmd.grabMode || (nonAccum && cmd.accumulable) || cmd.needsOrigNormals) &&
+    // Grab-class brushes always need a stroke-start base (cmd.grabMode), even
+    // when not `accumulable` (kelvinlet is @global) and regardless of the
+    // ACCUMULATE flag — they deform from it via AccumOrigGrab (#35). A
+    // @relaxation kernel never has one (it stays on AccumLive). Kernels may also
+    // opt into the normal snapshot via cmd.needsOrigNormals.
+    if ((cmd.grabMode || (nonAccum && cmd.accumulable && !cmd.relaxesBase) ||
+         cmd.needsOrigNormals) &&
         nodes.size() > 0)
     {
       mesh::Mesh *m = nodes[0]->data->m;
@@ -833,10 +835,10 @@ struct CommandExecutor {
       ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
       ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
       // Displacement base: same lazy paging and TEMP | NOCOPY flags, but the
-      // stamp writes zero rather than copying a position. Grab keeps using the
-      // orig snapshot until M5. Interpolation stays enabled — a displacement
-      // field is correct to interpolate onto split verts.
-      if (dispBase && !cmd.grabMode) {
+      // stamp writes zero rather than copying a position. Interpolation stays
+      // enabled — a displacement field is correct to interpolate onto split
+      // verts, unlike an absolute snapshot.
+      if (dispBase) {
         mesh::AttrRef &dispRef =
             m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.disp.vec", false);
         dispRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
@@ -1700,10 +1702,13 @@ struct CommandExecutor {
     mesh::Mesh *m = tree->m;
 
     // Displacement-base coherence: tell the remesh ops the active stroke's gen so
-    // the tangential smooth resamples the field it slides verts through. Derived
-    // from this executor's stroke state, so it can't drift from the brush
-    // command's stamp (both key off strokeGen).
-    params->dispGen = (dispBase && nonAccum) ? strokeGen : 0;
+    // the tangential smooth resamples the field it slides verts through. Keyed on
+    // the attr actually existing (the brush's stroke-start pre-pass creates it),
+    // so it can never claim a gen no command stamped.
+    params->dispGen =
+        (dispBase && m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.disp.vec"))
+            ? strokeGen
+            : 0;
 
     // A dyntopo dab mutates topology and walks live disk/radial links; keep the
     // mesh thawed for the whole stroke (endDynTopoStroke releases it).

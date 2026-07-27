@@ -173,7 +173,7 @@ export async function replayFixture(fixturePath, wgslDir) {
 
   const instance = gpu.create([])
   const adapter = await instance.requestAdapter()
-  // for_neighbor kernels bind up to 10 storage buffers (incl. orig_co at 22;
+  // for_neighbor kernels bind up to 10 storage buffers (incl. sb_disp at 25;
   // the falloff LUT is a uniform precisely to stay at the adapter ceiling of
   // 10), above WebGPU's default per-stage limit of 8; request the adapter's max.
   const device = await adapter.requestDevice({
@@ -223,7 +223,8 @@ export async function replayFixture(fixturePath, wgslDir) {
   if (has(12)) nbrMetaBuf = makeBuffer(device, b64bytes(fx.nbrMeta), BufferUsage.STORAGE)
   if (has(13)) nbrVertsBuf = makeBuffer(device, b64bytes(fx.nbrVerts), BufferUsage.STORAGE)
 
-  // binding 22 (kOrigCoBinding): grab-class stroke-start positions. The native
+  // binding 22 (kOrigCoBinding): stroke-start positions; no kernel declares it
+  // since grab moved onto kDispBinding, so this is inert. The native
   // dispatcher fills it with the beginStroke co upload, which is exactly the
   // fixture's initial co bytes.
   const origCoBuf = has(22) ? makeBuffer(device, b64bytes(fx.co), BufferUsage.STORAGE) : null

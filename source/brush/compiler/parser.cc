@@ -96,8 +96,8 @@ struct Parser {
     currentBrush = brush.get();
 
     // Leading brush attributes: `@brush("name")` plus optional `@global` /
-    // `@paint` markers (see plans/nonAccumMode.md). `brush` is a keyword so
-    // it lexes as KwBrush; `global`/`paint` lex as plain Ident.
+    // `@paint` / `@grabmode` / `@relaxation` markers. `brush` is a keyword so
+    // it lexes as KwBrush; the rest lex as plain Ident.
     while (match(TokKind::At)) {
       if (match(TokKind::KwBrush)) {
         expect(TokKind::LParen, "after @brush");
@@ -118,11 +118,14 @@ struct Parser {
           brush->isPaint = true;
         } else if (attr.operator==(string("grabmode"))) {
           brush->isGrabMode = true;
+        } else if (attr.operator==(string("relaxation"))) {
+          brush->isRelaxation = true;
         } else {
           errorf(attrTok, "unknown brush attribute '%s'", attr.c_str());
         }
       } else {
-        error("expected 'brush', 'global', 'paint', or 'grabmode' after '@'", peek());
+        error("expected 'brush', 'global', 'paint', 'grabmode', or 'relaxation' after '@'",
+              peek());
         break;
       }
     }

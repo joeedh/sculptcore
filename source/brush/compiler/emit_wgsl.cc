@@ -192,16 +192,30 @@ struct Emit {
   // the face binding layout + compute entry; the vertex path is untouched.
   bool faceMode() const { return faceStage && !vertexStage; }
 
-  /** Which non-accumulate base source this kernel declares — mutually
-   * exclusive. Grab-class reads the absolute stroke-start snapshot (binding
-   * 22); everything else accumulable derives its base from the displacement
-   * field (binding 25). @grabmode kernels are also non-global/non-paint, so
-   * they must be excluded from the disp side explicitly.
-   * CLAUDENOTE(M5): wantsOrigCo() disappears when grab moves onto disp. */
-  bool wantsOrigCo() const { return !faceMode() && brush->isGrabMode; }
+  /** Whether this kernel derives its base from the accumulated displacement
+   * field (binding 25) — the WGSL twin of CoProxy's from-base modes. Grab-class
+   * always does (it is @global, hence not accumulable, but still from-base);
+   * everything else only when it is accumulable and not a @relaxation. */
   bool wantsDisp() const
   {
-    return !faceMode() && !brush->isGrabMode && !brush->isGlobal && !brush->isPaint;
+    if (faceMode()) {
+      return false;
+    }
+    return brush->isGrabMode ||
+           (!brush->isGlobal && !brush->isPaint && !brush->isRelaxation);
+  }
+
+  /** Append the displacement to subtract from a live/Jacobi position at `idx`.
+   * Grab-class deforms from the stroke start on every stroke; the rest only in
+   * non-accumulate mode, where `brush_u.nonaccum` gates it to zero. */
+  void appendDisp(string &out, const string &idx) const
+  {
+    if (brush->isGrabMode) {
+      out += "sb_disp["; out += idx; out += "]";
+      return;
+    }
+    out += "select(vec3<f32>(0.0), sb_disp["; out += idx;
+    out += "], brush_u.nonaccum != 0u)";
   }
 
   // The Face bundle param (`f`) of the face stage — its member access routes to
@@ -282,16 +296,13 @@ struct Emit {
         // comes from the pre-dab snapshot (Jacobi); no stays live.
         const NbBinding *nb = findNb(stringref(e.lhs->name.c_str()));
         if (std::strcmp(e.name.c_str(), "co") == 0) {
-          // Non-accumulate neighbors read the base — the WGSL twin of
-          // OrigNbrBase::neighborCo. On the disp path that is the Jacobi
-          // snapshot minus what the brush put there (untouched → disp == 0).
+          // From-base neighbors read the base — the WGSL twin of
+          // OrigNbrBase::neighborCo: the Jacobi snapshot minus what the brush
+          // put there (an untouched neighbor has disp == 0, so no fallback).
           if (wantsDisp()) {
-            out += "(co_prev["; out += nb->idxVar;
-            out += "] - select(vec3<f32>(0.0), sb_disp["; out += nb->idxVar;
-            out += "], brush_u.nonaccum != 0u))";
-          } else if (wantsOrigCo()) {
-            out += "select(co_prev["; out += nb->idxVar; out += "], orig_co[";
-            out += nb->idxVar; out += "], brush_u.nonaccum != 0u)";
+            out += "(co_prev["; out += nb->idxVar; out += "] - ";
+            appendDisp(out, nb->idxVar);
+            out += ")";
           } else {
             out += "co_prev["; out += nb->idxVar; out += "]";
           }
@@ -847,7 +858,7 @@ struct Emit {
     // Curve LUT for FalloffKind::Curve. Sized to match Brush::falloff_curve
     // (kFalloffCurveSize = 256 in brush.h); the host writes exactly 256 f32s
     // (1024 bytes, contiguous — identical bytes as vec4x64). A uniform, not
-    // storage, buffer: neighbor kernels + orig_co already use 10 storage slots
+    // storage, buffer: neighbor kernels + sb_disp already use 10 storage slots
     // (Dawn's per-stage limit), and the uniform address space's 16-byte array
     // stride forces the vec4 shape (sb_lut below recovers scalar indexing).
     // Bake-produced from Brush::falloffCurve via bake_curve_lut, so the
@@ -893,15 +904,12 @@ struct Emit {
         write(">;\n");
       }
     }
-    // The non-accumulate base source (see wantsDisp / wantsOrigCo): the
-    // accumulated displacement for accumulable kernels, the legacy absolute
-    // stroke-start snapshot for grab-class ones until M5 moves them over.
+    // The from-base source (see wantsDisp): the accumulated brush displacement,
+    // from which the base is derived as `co - disp`. sb_-prefixed because `disp`
+    // is a natural local name that several kernels already declare, which would
+    // shadow a module-scope buffer.
     if (wantsDisp()) {
-      // sb_-prefixed: `disp` is a natural local name and several kernels
-      // already declare one, which would shadow a module-scope buffer.
       write("@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;\n");
-    } else if (wantsOrigCo()) {
-      write("@group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;\n");
     }
     // Grab-class first-touch stamps: one u32 per vertex, compared against
     // brush_u.grab_dab_gen in the write-back — the WGSL twin of
@@ -1330,15 +1338,13 @@ struct Emit {
     // (accum_mode.h), derived rather than stored. In accumulate mode it
     // collapses to the live position, so one seed covers both modes.
     if (wantsDisp()) {
-      write("  let sb_base: vec3<f32> = co_buf[sb_vidx] - select(vec3<f32>(0.0), "
-            "sb_disp[sb_vidx], brush_u.nonaccum != 0u);\n");
+      string base = "  let sb_base: vec3<f32> = co_buf[sb_vidx] - ";
+      appendDisp(base, string("sb_vidx"));
+      base += ";\n";
+      write(base.c_str());
     }
     write("  var ");
-    if (brush->isGrabMode) {
-      // Grab-class kernels always deform from the stroke-start position — the
-      // WGSL twin of CoProxy<AccumOrigGrab>'s reads_base (accum_mode.h).
-      write(vertexParamName); write("_co: vec3<f32> = orig_co[sb_vidx];\n");
-    } else if (wantsDisp()) {
+    if (wantsDisp()) {
       write(vertexParamName); write("_co: vec3<f32> = sb_base;\n");
     } else {
       write(vertexParamName); write("_co: vec3<f32> = co_buf[sb_vidx];\n");
@@ -1417,21 +1423,21 @@ struct Emit {
     indent = 0;
 
     write("\n");
-    // Grab-class write-back — the WGSL twin of CoProxy<AccumOrigGrab>::commit
-    // + grabClaimFirstTouch (accum_mode.h): the first image to write a vert
-    // this dab re-bases it absolutely from orig (follows the cursor); later
-    // images of the same dab add their displacement-from-orig, so shared seam
-    // verts sum and mirror-only verts never accumulate across dabs.
     if (brush->isGrabMode) {
-      write("  if (dab_stamp[sb_vidx] != brush_u.grab_dab_gen) {\n");
-      write("    dab_stamp[sb_vidx] = brush_u.grab_dab_gen;\n");
-      write("  } else {\n");
-      write("    "); write(vertexParamName);
-      write("_co = co_buf[sb_vidx] + ("); write(vertexParamName);
-      write("_co - orig_co[sb_vidx]);\n");
-      write("  }\n");
-    }
-    if (wantsDisp()) {
+      // Grab-class write-back — the WGSL twin of CoProxy<AccumOrigGrab>::commit
+      // + grabClaimFirstTouch (accum_mode.h): the first image to write a vert
+      // this dab re-bases it (delta from live, since the kernel's position
+      // already carries the whole cumulative drag); later images of the same dab
+      // add their displacement-from-base, so shared seam verts sum and
+      // mirror-only verts never accumulate across dabs.
+      write("  let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;\n");
+      write("  dab_stamp[sb_vidx] = brush_u.grab_dab_gen;\n");
+      write("  let sb_delta = select("); write(vertexParamName);
+      write("_co - sb_base, "); write(vertexParamName);
+      write("_co - co_buf[sb_vidx], sb_first);\n");
+      write("  co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;\n");
+      write("  sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;\n");
+    } else if (wantsDisp()) {
       // Non-accumulate write-back — the WGSL twin of CoProxy<AccumOrig>::commit
       // (accum_mode.h). The same delta lands on co and on disp, so the derived
       // base holds still for the next dab; accumulate mode leaves disp alone.

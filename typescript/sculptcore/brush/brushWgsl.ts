@@ -62,7 +62,6 @@ struct StrokeSample {
 @group(0) @binding(12) var<storage, read>      vert_nbr_meta: array<vec2<u32>>;
 @group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;
 @group(0) @binding(14) var<storage, read_write> attr_vclass: array<i32>;
-@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;
 @group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
@@ -219,8 +218,7 @@ fn main(
   let sb_node = nodes[gid.x];
   if (lid >= sb_node.vert_count) { return; }
   let sb_vidx = unique_verts[sb_node.vert_offset + lid];
-  let sb_base: vec3<f32> = co_buf[sb_vidx] - select(vec3<f32>(0.0), sb_disp[sb_vidx], brush_u.nonaccum != 0u);
-  var v_co: vec3<f32> = sb_base;
+  var v_co: vec3<f32> = co_buf[sb_vidx];
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_vclass: i32 = attr_vclass[sb_vidx];
@@ -257,7 +255,7 @@ fn main(
           wTan2 = 0.0;
         }
       }
-      var disp: vec3<f32> = ((co_prev[sb_nb_v0] - select(vec3<f32>(0.0), sb_disp[sb_nb_v0], brush_u.nonaccum != 0u)) - v_co);
+      var disp: vec3<f32> = (co_prev[sb_nb_v0] - v_co);
       var normalPart: vec3<f32> = ((v_no * dot(disp, v_no)));
       normalDisp += (normalPart * wNor);
       tangentDisp += (((disp - normalPart)) * wTan2);
@@ -274,13 +272,7 @@ fn main(
   }
   v_co += (disp * s);
 
-  let sb_delta = v_co - sb_base;
-  if (brush_u.nonaccum != 0u) {
-    co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;
-    sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;
-  } else {
-    co_buf[sb_vidx] = v_co;
-  }
+  co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;
   mask_buf[sb_vidx] = v_mask;
   attr_vclass[sb_vidx] = v_vclass;
@@ -1333,7 +1325,6 @@ struct StrokeSample {
 @group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;
 @group(0) @binding(14) var<storage, read_write> attr_field: array<vec3<f32>>;
 @group(0) @binding(15) var<storage, read_write> attr_vclass: array<i32>;
-@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;
 @group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
@@ -1490,8 +1481,7 @@ fn main(
   let sb_node = nodes[gid.x];
   if (lid >= sb_node.vert_count) { return; }
   let sb_vidx = unique_verts[sb_node.vert_offset + lid];
-  let sb_base: vec3<f32> = co_buf[sb_vidx] - select(vec3<f32>(0.0), sb_disp[sb_vidx], brush_u.nonaccum != 0u);
-  var v_co: vec3<f32> = sb_base;
+  var v_co: vec3<f32> = co_buf[sb_vidx];
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
   var v_field: vec3<f32> = attr_field[sb_vidx];
@@ -1539,10 +1529,10 @@ fn main(
           wTan2 = 0.0;
         }
       }
-      var disp: vec3<f32> = ((co_prev[sb_nb_v0] - select(vec3<f32>(0.0), sb_disp[sb_nb_v0], brush_u.nonaccum != 0u)) - v_co);
+      var disp: vec3<f32> = (co_prev[sb_nb_v0] - v_co);
       var normalPart: vec3<f32> = ((v_no * dot(disp, v_no)));
       if (((wTan2 != 0.0) && (haveField > 0.5))) {
-        var e: vec3<f32> = ((co_prev[sb_nb_v0] - select(vec3<f32>(0.0), sb_disp[sb_nb_v0], brush_u.nonaccum != 0u)) - v_co);
+        var e: vec3<f32> = (co_prev[sb_nb_v0] - v_co);
         e = (e - (v_no * dot(e, v_no)));
         var el: f32 = length(e);
         if ((el > 9.9999999999999995e-08)) {
@@ -1579,13 +1569,7 @@ fn main(
   }
   v_co += (disp * s);
 
-  let sb_delta = v_co - sb_base;
-  if (brush_u.nonaccum != 0u) {
-    co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;
-    sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;
-  } else {
-    co_buf[sb_vidx] = v_co;
-  }
+  co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;
   mask_buf[sb_vidx] = v_mask;
   attr_field[sb_vidx] = v_field;
@@ -1646,7 +1630,7 @@ struct StrokeSample {
 @group(0) @binding(8) var                       brush_tex: texture_2d<f32>;
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
-@group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;
 @group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;
 @group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
@@ -1804,7 +1788,8 @@ fn main(
   let sb_node = nodes[gid.x];
   if (lid >= sb_node.vert_count) { return; }
   let sb_vidx = unique_verts[sb_node.vert_offset + lid];
-  var v_co: vec3<f32> = orig_co[sb_vidx];
+  let sb_base: vec3<f32> = co_buf[sb_vidx] - sb_disp[sb_vidx];
+  var v_co: vec3<f32> = sb_base;
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
@@ -1814,12 +1799,11 @@ fn main(
   }
   v_co += (ctx_u.grabTo * fall);
 
-  if (dab_stamp[sb_vidx] != brush_u.grab_dab_gen) {
-    dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
-  } else {
-    v_co = co_buf[sb_vidx] + (v_co - orig_co[sb_vidx]);
-  }
-  co_buf[sb_vidx] = v_co;
+  let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;
+  dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
+  let sb_delta = select(v_co - sb_base, v_co - co_buf[sb_vidx], sb_first);
+  co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;
+  sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;
   no_buf[sb_vidx] = v_no;
   mask_buf[sb_vidx] = v_mask;
 }
@@ -2366,7 +2350,7 @@ struct StrokeSample {
 @group(0) @binding(8) var                       brush_tex: texture_2d<f32>;
 @group(0) @binding(9) var                       brush_samp: sampler;
 @group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;
-@group(0) @binding(22) var<storage, read>      orig_co: array<vec3<f32>>;
+@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;
 @group(0) @binding(23) var<storage, read_write> dab_stamp: array<u32>;
 @group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
@@ -2529,7 +2513,8 @@ fn main(
   let sb_node = nodes[gid.x];
   if (lid >= sb_node.vert_count) { return; }
   let sb_vidx = unique_verts[sb_node.vert_offset + lid];
-  var v_co: vec3<f32> = orig_co[sb_vidx];
+  let sb_base: vec3<f32> = co_buf[sb_vidx] - sb_disp[sb_vidx];
+  var v_co: vec3<f32> = sb_base;
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
   var a: f32;
@@ -2552,12 +2537,11 @@ fn main(
   var fall: f32 = (brush_strength(v_co, sb_vidx) * ((1.0 - v_mask)));
   v_co += (disp * fall);
 
-  if (dab_stamp[sb_vidx] != brush_u.grab_dab_gen) {
-    dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
-  } else {
-    v_co = co_buf[sb_vidx] + (v_co - orig_co[sb_vidx]);
-  }
-  co_buf[sb_vidx] = v_co;
+  let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;
+  dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
+  let sb_delta = select(v_co - sb_base, v_co - co_buf[sb_vidx], sb_first);
+  co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;
+  sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;
   no_buf[sb_vidx] = v_no;
   mask_buf[sb_vidx] = v_mask;
 }
@@ -4244,7 +4228,6 @@ struct StrokeSample {
 @group(0) @binding(11) var<storage, read>      co_prev: array<vec3<f32>>;
 @group(0) @binding(12) var<storage, read>      vert_nbr_meta: array<vec2<u32>>;
 @group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;
-@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;
 @group(0) @binding(24) var<storage, read>      automask: array<f32>;
 
 fn sb_lut(i: i32) -> f32 {
@@ -4401,8 +4384,7 @@ fn main(
   let sb_node = nodes[gid.x];
   if (lid >= sb_node.vert_count) { return; }
   let sb_vidx = unique_verts[sb_node.vert_offset + lid];
-  let sb_base: vec3<f32> = co_buf[sb_vidx] - select(vec3<f32>(0.0), sb_disp[sb_vidx], brush_u.nonaccum != 0u);
-  var v_co: vec3<f32> = sb_base;
+  var v_co: vec3<f32> = co_buf[sb_vidx];
   var v_no: vec3<f32> = no_buf[sb_vidx];
   var v_mask: f32 = mask_buf[sb_vidx];
 
@@ -4416,7 +4398,7 @@ fn main(
     let sb_nbr_meta0 = vert_nbr_meta[sb_vidx];
     for (var sb_ni0 = 0u; sb_ni0 < sb_nbr_meta0.y; sb_ni0 = sb_ni0 + 1u) {
       let sb_nb_v0 = nbr_verts[sb_nbr_meta0.x + sb_ni0];
-      avg += (co_prev[sb_nb_v0] - select(vec3<f32>(0.0), sb_disp[sb_nb_v0], brush_u.nonaccum != 0u));
+      avg += co_prev[sb_nb_v0];
       n += 1.0;
     }
   }
@@ -4425,13 +4407,7 @@ fn main(
     v_co += (((mean - v_co)) * s);
   }
 
-  let sb_delta = v_co - sb_base;
-  if (brush_u.nonaccum != 0u) {
-    co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;
-    sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;
-  } else {
-    co_buf[sb_vidx] = v_co;
-  }
+  co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;
   mask_buf[sb_vidx] = v_mask;
 }

@@ -24,6 +24,7 @@
 // Consumers must run boundary::recomputeDirty before the stroke so vclass is
 // current. GPU dispatch of the vclass attr is wired separately (CPU for now).
 @brush("bsmooth")
+@relaxation
 brush BSmooth {
   attr vertex int vclass = ".boundary.vert.class";
   // Volume-preservation projection (0..1), synced from the TS brush

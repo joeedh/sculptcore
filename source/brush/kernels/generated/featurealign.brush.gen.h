@@ -168,6 +168,7 @@ static void createFeaturealignBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPost = featurealignPost<TYPES>;
   def.needsCoPrev = true;
   def.accumulable = true;
+  def.relaxesBase = true;
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"field", "crossfield", sculptcore::mesh::AttrType::FLOAT3, sculptcore::brush::AttrElemDomain::Vertex, true});
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"vclass", ".boundary.vert.class", sculptcore::mesh::AttrType::INT, sculptcore::brush::AttrElemDomain::Vertex, true});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"rake", true, false, 0.0f, false, 0.0f, 0.0f});

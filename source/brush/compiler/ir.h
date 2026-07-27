@@ -265,6 +265,11 @@ struct Brush {
   // first-touch arbitration via the dab-stamp buffer (binding 23). The C++
   // leg ignores it — the executor selects AccumOrigGrab at runtime.
   bool isGrabMode = false;
+  // `@relaxation`: the kernel relaxes the surface rather than displacing it, so
+  // it never contributes to the accumulated brush displacement (§2 invariant of
+  // plans/2026-07-26-0909-brush-displacement-base-attribute.md). Such a kernel
+  // runs live-from-live even in a non-accumulate stroke; see def.relaxesBase.
+  bool isRelaxation = false;
 };
 
 /** True when any stage body contains a `for_neighbor` loop — such brushes are
