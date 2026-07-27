@@ -172,12 +172,14 @@ struct Parser {
           brush->isRelaxation = true;
         } else if (attr.operator==(string("unbounded"))) {
           brush->isUnbounded = true;
+        } else if (attr.operator==(string("incremental"))) {
+          brush->isIncremental = true;
         } else {
           errorf(attrTok, "unknown brush attribute '%s'", attr.c_str());
         }
       } else {
-        error("expected 'brush', 'paint', 'grabmode', 'relaxation', or "
-              "'unbounded' after '@'",
+        error("expected 'brush', 'paint', 'grabmode', 'relaxation', "
+              "'unbounded', or 'incremental' after '@'",
               peek());
         break;
       }

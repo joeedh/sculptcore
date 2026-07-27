@@ -5,6 +5,10 @@
 // next center the trailing geometry leans toward.
 
 @brush("snakehook")
+// `grabTo` is the step since the last dab, not an absolute stroke drag, so a
+// dab cannot be replayed from the stroke-start base — doing so would discard
+// every earlier dab and the hook would never build. Always accumulates.
+@incremental
 brush Snakehook {
   ctx float3 grabFrom, grabTo;
   uniform float radius;

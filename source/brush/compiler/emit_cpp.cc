@@ -1611,9 +1611,10 @@ struct Emit {
     // Non-accumulate eligibility (see plans/nonAccumMode.md): accumulable is the
     // default; the executor runs the AccumOrig instantiation when non-accumulate
     // mode is on for the stroke. @paint writes attributes and @unbounded fields
-    // are anchored, so from-base re-derivation is meaningless for both.
+    // are anchored, so from-base re-derivation is meaningless for both; an
+    // @incremental kernel is driven by a per-dab delta, so it has no base.
     write("  def.accumulable = ");
-    write((!brush->isPaint && !brush->isUnbounded) ? "true" : "false");
+    write((!brush->isPaint && !brush->isUnbounded && !brush->isIncremental) ? "true" : "false");
     write(";\n");
     // `@relaxation`: relaxes the surface rather than displacing it, so it stays
     // on AccumLive and never accumulates into `.brush.disp.vec`.

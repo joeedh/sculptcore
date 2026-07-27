@@ -274,6 +274,12 @@ struct Brush {
   // vanish at the host's node-filter radius instead of tearing on a leaf
   // boundary. Non-accumulate-ineligible for now, like @global.
   bool isUnbounded = false;
+  // `@incremental`: a stage input is a per-dab *delta* rather than an absolute
+  // stroke quantity (snakehook's `grabTo` is the step since the last dab), so
+  // there is no stroke-start base to re-derive the dab from — replaying it from
+  // base would discard every earlier dab's drag. Codegen emits
+  // def.accumulable = false, which makes the executor ignore nonAccum.
+  bool isIncremental = false;
 };
 
 /** True when any stage body contains a `for_neighbor` loop — such brushes are

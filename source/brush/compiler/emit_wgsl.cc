@@ -201,8 +201,8 @@ struct Emit {
     if (faceMode()) {
       return false;
     }
-    return brush->isGrabMode ||
-           (!brush->isPaint && !brush->isRelaxation && !brush->isUnbounded);
+    return brush->isGrabMode || (!brush->isPaint && !brush->isRelaxation &&
+                                 !brush->isUnbounded && !brush->isIncremental);
   }
 
   /** Append the displacement to subtract from a live/Jacobi position at `idx`.

@@ -27,7 +27,7 @@ using namespace litestl::math;
 namespace brush = sculptcore::brush;
 
 // Scoped so the Scene is torn down before test_end() runs its leak report.
-static void runStroke()
+static float runStroke(bool nonAccum)
 {
   Scene scene(64, 64, /*headless=*/true);
   auto r = script::run(scene,
@@ -57,6 +57,10 @@ static void runStroke()
   brush::CommandExecutor exec(scene.tree, &scene.brush);
   exec.meshLog = &scene.meshLog;
   exec.setStrokeGen(1);
+  // Snakehook's kernel is @incremental, so the executor must ignore this: a dab
+  // driven by a per-dab delta has no stroke-start base to replay from, and
+  // re-deriving would drop every earlier dab's drag.
+  exec.setNonAccum(nonAccum);
   exec.beginStep(false);
   for (int dab = 0; dab < 10; dab++) {
     // Mirror applyGrabDabState: grabFrom is the live dab center, grabTo the
@@ -102,11 +106,19 @@ static void runStroke()
   // center, so allow a small inward component; a collapse to the origin would
   // be order 0.25 (a quarter of the way per dab, compounding).
   test_assert(worstShrink < 0.25f * radius);
+  return maxMove;
 }
 
 int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
-  runStroke();
+  float accum = runStroke(/*nonAccum=*/false);
+  float nonAccum = runStroke(/*nonAccum=*/true);
+  // @incremental makes the kernel non-accumulable, so the ACCUMULATE flag is
+  // inert for snakehook — both strokes build the same hook. Without it the
+  // non-accumulate run replays each dab from base and only the last one
+  // survives, collapsing the hook to a single step's worth of drag.
+  fprintf(stderr, "snakehook: accum=%.6f nonAccum=%.6f\n", accum, nonAccum);
+  test_assert(std::fabs(accum - nonAccum) < 1e-5f);
   return test_end();
 }

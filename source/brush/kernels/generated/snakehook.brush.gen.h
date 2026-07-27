@@ -88,7 +88,7 @@ static void createSnakehookBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = snakehookPre<TYPES>;
   def.exec     = snakehook<TYPES, AccMode>;
   def.execPost = snakehookPost<TYPES>;
-  def.accumulable = true;
+  def.accumulable = false;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
     if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);
