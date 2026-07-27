@@ -1,4 +1,5 @@
 import fs from 'fs'
+import os from 'os'
 import Path from 'path'
 import child_process from 'child_process'
 import {fileURLToPath} from 'url'
@@ -6,6 +7,15 @@ import {fileURLToPath} from 'url'
 // PATH as inherited from the user's shell, captured before getVSEnv() rebuilds
 // it from vcvars. Used to relocate an on-PATH sccache (below).
 const INHERITED_PATH = process.env.PATH || ''
+
+// The VS Installer dir, home of vswhere.exe. Needed both *before* vcvars (VS 18's
+// vcvars64.bat shells out to vswhere and hangs when it isn't on PATH) and after
+// (cmake-js probes for VS through it).
+const VSWHERE_DIR = Path.join(
+  process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+  'Microsoft Visual Studio',
+  'Installer'
+)
 
 // Return the directory of `name` on `pathStr`, or null. Used to keep sccache
 // reachable after the Windows PATH is rebuilt from scratch by vcvars.
@@ -122,13 +132,31 @@ function getVSEnv() {
     nodeDir,
     cargoBin,
     vulkanBin,
+    fs.existsSync(Path.join(VSWHERE_DIR, 'vswhere.exe')) ? VSWHERE_DIR : '',
     ...toolDirs,
   ]
     .filter(Boolean)
     .join(';')
-  const result = child_process.execSync(`cmd /s /c \"call \"${path}\" && set\"`, {env: childEnv})
-  const env = result
-    .toString('latin1')
+  // `set` writes to a temp file rather than a pipe: VS 2026's vcvars leaves a
+  // background child holding the inherited stdout handle, so a piped execSync
+  // never sees EOF and hangs long after vcvars itself has finished. The timeout
+  // is a backstop for a vcvars that fails by hanging (an unreachable helper).
+  const dumpPath = Path.join(
+    fs.mkdtempSync(Path.join(os.tmpdir(), 'sculptcore-vcvars-')),
+    'env.txt'
+  )
+  let dump
+  try {
+    child_process.execSync(`cmd /s /c \"call \"${path}\" && set > \"${dumpPath}\"\"`, {
+      env    : childEnv,
+      stdio  : 'ignore',
+      timeout: 120000,
+    })
+    dump = fs.readFileSync(dumpPath, 'latin1')
+  } finally {
+    fs.rmSync(Path.dirname(dumpPath), {recursive: true, force: true})
+  }
+  const env = dump
     .split('\n')
     .filter((l) => !l.startsWith('**') && !l.trim().toLowerCase().startsWith('[vcvarsall.bat]'))
     .join('\n')
@@ -266,15 +294,10 @@ if (target === 'native' && process.platform === 'win32') {
   // vcvars' rebuilt PATH also lacks the VS Installer dir, so `vswhere.exe` is
   // unreachable — cmake-js (the node-addon configure) aborts on its VS probe
   // without it. Re-add it the same way.
-  const vswhereDir = Path.join(
-    process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
-    'Microsoft Visual Studio',
-    'Installer'
-  )
-  if (fs.existsSync(Path.join(vswhereDir, 'vswhere.exe'))) {
+  if (fs.existsSync(Path.join(VSWHERE_DIR, 'vswhere.exe'))) {
     const p = process.env.PATH || ''
-    if (!p.split(';').some((d) => d && d.toLowerCase() === vswhereDir.toLowerCase())) {
-      process.env.PATH = p ? `${p};${vswhereDir}` : vswhereDir
+    if (!p.split(';').some((d) => d && d.toLowerCase() === VSWHERE_DIR.toLowerCase())) {
+      process.env.PATH = p ? `${p};${VSWHERE_DIR}` : VSWHERE_DIR
     }
   }
 }
