@@ -19,8 +19,7 @@ namespace sculptcore::debug_app {
 enum class RoughnessPoints {
   // The live mesh positions.
   Live,
-  // The brush's displacement base: `co - disp` on the disp path,
-  // `.brush.orig.co` on the legacy path, live co for unstamped verts.
+  // The brush's displacement base `co - disp`; live co for unstamped verts.
   Base,
 };
 

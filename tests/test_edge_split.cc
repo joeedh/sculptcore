@@ -481,20 +481,21 @@ int main()
     test_assert(validateMesh(m, "wire"));
   }
 
-  /* Regression: a lazily-paged vert attr (the `.brush.orig.*` pattern) whose
+  /* Regression: a lazily-paged vert attr (the `.brush.disp.*` pattern) whose
    * pages are materialized only where the brush stamped, split so the new vert
    * lands in a never-materialized page. interpAttrs used to write through the
-   * page's null data pointer (dyntopo-stroke-after-plain-stroke crash). */
+   * page's null data pointer (dyntopo-stroke-after-plain-stroke crash). Uses a
+   * plain layer name so the generic policy — not a CUSTOM handler — runs. */
   {
     Mesh *m = makeTriGrid(70); /* ~4900 verts: spans 2 attr pages */
     test_assert(m->v.count > ATTR_PAGESIZE + 2);
 
     AttrRef &ref =
-        m->v.attrs.ensure(AttrType::FLOAT3, ".brush.orig.co", /*materialize=*/false);
-    auto *orig = static_cast<AttrData<float3> *>(ref.data);
-    orig->materialize(0); /* stamp page 0 only, like an in-region brush pass */
-    (*orig)[0] = float3(1.0f, 2.0f, 3.0f);
-    (*orig)[1] = float3(3.0f, 4.0f, 5.0f);
+        m->v.attrs.ensure(AttrType::FLOAT3, "lazypaged", /*materialize=*/false);
+    auto *lazy = static_cast<AttrData<float3> *>(ref.data);
+    lazy->materialize(0); /* stamp page 0 only, like an in-region brush pass */
+    (*lazy)[0] = float3(1.0f, 2.0f, 3.0f);
+    (*lazy)[1] = float3(3.0f, 4.0f, 5.0f);
 
     int e = m->find_edge(0, 1);
     test_assert(e != ELEM_NONE);
@@ -504,7 +505,7 @@ int main()
 
     int vm = res.new_vert;
     test_assert(vm >= ATTR_PAGESIZE); /* landed in the lazily-unmaterialized page */
-    float3 got = orig->safe_get(vm);
+    float3 got = lazy->safe_get(vm);
     float3 expect(2.0f, 3.0f, 4.0f);
     for (int i = 0; i < 3; i++) {
       test_assert(std::fabs(got[i] - expect[i]) < 1e-5f);

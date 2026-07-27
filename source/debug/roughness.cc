@@ -14,29 +14,20 @@ using litestl::util::Vector;
 
 namespace {
 
-/** Point-set accessor: live positions, or the brush displacement base. Reads
- * whichever base representation the engine carries — `co - disp` on the disp
- * path, `.brush.orig.co` on the legacy path — so one metric scores both sides
- * of the A/B. Unstamped verts fall back to live, which is what both paths mean
- * by "not displaced this stroke". */
+/** Point-set accessor: live positions, or the brush displacement base
+ * (`co - disp`). Unstamped verts fall back to live — the stroke has not
+ * displaced them. */
 struct PointSet {
   mesh::Mesh *m = nullptr;
   mesh::AttrData<float3> *dispVec = nullptr;
   mesh::AttrData<int> *dispGen = nullptr;
-  mesh::AttrData<float3> *origCo = nullptr;
-  mesh::AttrData<int> *origGen = nullptr;
   uint32_t gen = 0;
   bool useBase = false;
 
   float3 operator()(int v)
   {
-    if (useBase) {
-      if (dispVec && dispGen && dispGen->safe_get(v) == int(gen)) {
-        return m->v.co[v] - dispVec->safe_get(v);
-      }
-      if (origCo && origGen && origGen->safe_get(v) == int(gen)) {
-        return origCo->safe_get(v);
-      }
+    if (useBase && dispVec && dispGen && dispGen->safe_get(v) == int(gen)) {
+      return m->v.co[v] - dispVec->safe_get(v);
     }
     return m->v.co[v];
   }
@@ -169,14 +160,6 @@ RoughnessResult computeRoughness(mesh::Mesh *m,
                     .get_data<float3>();
     P.dispGen =
         m->v.attrs.find_attribute(mesh::AttrType::INT, ".brush.disp.gen").get_data<int>();
-  }
-  if (m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
-      m->v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen"))
-  {
-    P.origCo = m->v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co")
-                   .get_data<float3>();
-    P.origGen =
-        m->v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
   }
   // The fidelity guard is always measured on the live surface (plan §9.1 —
   // measuring it through `co - disp` would be circular).

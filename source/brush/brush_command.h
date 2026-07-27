@@ -126,25 +126,21 @@ struct CommandCtxBase {
   // looked up by handle in generated kernels via boundAttr<T>().
   const BrushAttrBindings *attrBindings = nullptr;
 
-  // Stroke-start cache (see plans/nonAccumMode.md): the `.brush.orig.*` TEMP
-  // attrs snapshot each vert's stroke-start position at first touch, valid iff
-  // origGen[v] == strokeGen. Null when no consumer is active. `origNo` is the
-  // matching normal snapshot, stamped only for kernels that opt in via
-  // BrushCommandDef::needsOrigNormals (no consumer yet — the view-normal mask
-  // evaluates live normals dynamically); null otherwise.
-  mesh::AttrData<litestl::math::float3> *origCo = nullptr;
-  mesh::AttrData<litestl::math::float3> *origNo = nullptr;
-  mesh::AttrData<int> *origGen = nullptr;
-  uint32_t strokeGen = 0;
-
-  // Displacement base (the `.brush.disp.*` TEMP attrs): `dispVec` accumulates
-  // what the brush has moved each vert this stroke, so the base is `co - disp`
-  // and advects with the surface instead of being pinned to a stale snapshot.
-  // Valid iff dispGen[v] == strokeGen. Non-null only when the displacement base
-  // is enabled (CommandExecutor::setDispBase); the `.brush.orig.*` fields above
-  // carry the same role on the legacy path.
+  // Displacement base (the `.brush.disp.*` TEMP attrs, see
+  // plans/2026-07-26-0909-brush-displacement-base-attribute.md): `dispVec`
+  // accumulates what the brush has moved each vert this stroke, so the
+  // stroke-start base is `co - disp` and advects with the surface under dyntopo
+  // instead of being pinned to a stale snapshot. Valid iff dispGen[v] ==
+  // strokeGen; null when no from-base consumer is active.
   mesh::AttrData<litestl::math::float3> *dispVec = nullptr;
   mesh::AttrData<int> *dispGen = nullptr;
+  uint32_t strokeGen = 0;
+
+  // Stroke-start NORMAL snapshot (`.brush.orig.no`), stamped at first touch
+  // alongside dispVec and sharing its generation, only for kernels that opt in
+  // via BrushCommandDef::needsOrigNormals (no consumer yet — the view-normal
+  // mask evaluates live normals dynamically); null otherwise.
+  mesh::AttrData<litestl::math::float3> *origNo = nullptr;
 
   // Grab-class symmetry first-touch stamp (#35): `dabGen` is the `.brush.dab.gen`
   // TEMP attr, a vert counts as written this dab iff dabGen[v] == curDabGen.
@@ -319,13 +315,13 @@ template <typename CTX> struct BrushCommandDef {
   // Set by the executor (not codegen) for grab-class brushes (grab / kelvinlet):
   // they always deform from the stroke-start position with the AccumOrigGrab
   // policy + a fixed region, independent of the ACCUMULATE flag (#35). Drives the
-  // `.brush.orig.*` + `.brush.dab.gen` stamps even when `accumulable` is false
+  // `.brush.disp.*` + `.brush.dab.gen` stamps even when `accumulable` is false
   // (kelvinlet is @global).
   bool grabMode = false;
   // Opt-in: also snapshot each vert's stroke-start NORMAL into `.brush.orig.no`
-  // (alongside the position stamp, extended over each region leaf's skirt so
-  // the capture stays ahead of the spatial halo normal refresh). No kernel
-  // consumes it yet; default off.
+  // (alongside the disp stamp, extended over each region leaf's skirt so the
+  // capture stays ahead of the spatial halo normal refresh). No kernel consumes
+  // it yet; default off.
   bool needsOrigNormals = false;
   // Attribute layers this kernel reads/writes, emitted by codegen. The executor
   // resolves these to live mesh layers and binds them before the per-node loop.

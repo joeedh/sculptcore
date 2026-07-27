@@ -8,8 +8,8 @@
 // the executor pre-fill and the strength() seam in the generated kernel are
 // exercised too — not just the standalone factor.
 // Part 3 pins the normal source: the mask reads the stroke-start `.brush.orig.no`
-// snapshot (shared `.brush.orig.gen` key with `.brush.orig.co`), not the live,
-// possibly mid-stroke-refreshed v.no.
+// snapshot (keyed on `.brush.disp.gen`, stamped alongside the displacement
+// field), not the live, possibly mid-stroke-refreshed v.no.
 #include "test_util.h"
 
 #include "brush/automask.h"

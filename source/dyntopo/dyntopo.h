@@ -1029,10 +1029,10 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         }
       } else {
         math::float3 mid = detail::edgeMid(m, c.edge);
-        /* No snapshot shift here: collapseEdge already merges `.brush.orig.co`
-         * over both endpoints (blend=0.5), which is the stroke-start surface's
-         * own midpoint. Shifting again by the survivor's motion would add half
-         * the edge vector on top of it. */
+        /* No base shift here: collapseEdge already merges `.brush.disp.vec` over
+         * both endpoints (blend=0.5), so the derived base `co - disp` lands on
+         * the stroke-start surface's own midpoint. Shifting again by the
+         * survivor's motion would add half the edge vector on top of it. */
         mesh::EdgeCollapseResult res;
         if (mesh::collapseEdge(m,
                                c.edge,

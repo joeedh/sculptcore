@@ -47,30 +47,15 @@ struct AccumLive {
 };
 
 /** Neighbor lookup shared by the from-base modes. Returns by value because the
- * displacement path *derives* the base; see the CoProxy note below.
- *
- * Displacement path (`.brush.disp.*`): `co_prev[nb] - disp[nb]`, the Jacobi
- * snapshot minus what the brush put there. The Jacobi snapshot, not live `co`,
- * keeps the stencil order-independent and GPU-parity-exact. An untouched
- * neighbor has `disp == 0`, so this needs no fallback branch.
- *
- * Legacy path (`.brush.orig.co`, valid iff origGen[nb] == strokeGen): the
- * absolute stroke-start position, falling back to the Jacobi pos for verts not
- * stamped this stroke — which mixes frozen and live positions in one stencil. */
+ * base is *derived*: `co_prev[nb] - disp[nb]`, the Jacobi snapshot minus what
+ * the brush put there. The Jacobi snapshot, not live `co`, keeps the stencil
+ * order-independent and GPU-parity-exact. An untouched neighbor has `disp == 0`,
+ * so an unstamped vert needs no special case beyond the generation test. */
 struct OrigNbrBase {
   template <class Ctx> static float3 neighborCo(Ctx &ctx, int nb)
   {
-    // The two paths are exclusive: a non-null dispVec means the whole command
-    // is on the displacement base, so never mix in an absolute orig snapshot.
-    if (ctx.dispVec) {
-      if (ctx.dispGen->safe_get(nb) == int(ctx.strokeGen)) {
-        return (*ctx.co_prev)[nb] - ctx.dispVec->safe_get(nb);
-      }
-      return (*ctx.co_prev)[nb];
-    }
-    if (ctx.origGen && ctx.origCo &&
-        ctx.origGen->safe_get(nb) == int(ctx.strokeGen)) {
-      return (*ctx.origCo)[nb];
+    if (ctx.dispVec && ctx.dispGen->safe_get(nb) == int(ctx.strokeGen)) {
+      return (*ctx.co_prev)[nb] - ctx.dispVec->safe_get(nb);
     }
     return (*ctx.co_prev)[nb];
   }

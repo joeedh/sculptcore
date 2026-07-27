@@ -47,9 +47,9 @@ static void runAnalysis(const char *path)
            int(attr.flag));
   }
 
-  auto *origCo = findAttr<float3>(m, AttrType::FLOAT3, ".brush.orig.co");
+  auto *dispVec = findAttr<float3>(m, AttrType::FLOAT3, ".brush.disp.vec");
   auto *origNo = findAttr<float3>(m, AttrType::FLOAT3, ".brush.orig.no");
-  auto *origGen = findAttr<int>(m, AttrType::INT, ".brush.orig.gen");
+  auto *strokeGen = findAttr<int>(m, AttrType::INT, ".brush.disp.gen");
   // Older saves used ".brush.automask.factor" (combined product); current ones
   // carry the cavity-only cache under ".brush.automask.cavity".
   auto *fac = findAttr<float>(m, AttrType::FLOAT, ".brush.automask.factor");
@@ -58,25 +58,25 @@ static void runAnalysis(const char *path)
   }
   auto *facGen = findAttr<int>(m, AttrType::INT, ".brush.automask.gen");
   auto *vnode = findAttr<int>(m, AttrType::INT, ".spatial.v.node");
-  printf("attrs: origCo=%d origNo=%d origGen=%d fac=%d facGen=%d vnode=%d\n",
-         !!origCo, !!origNo, !!origGen, !!fac, !!facGen, !!vnode);
+  printf("attrs: dispVec=%d origNo=%d strokeGen=%d fac=%d facGen=%d vnode=%d\n",
+         !!dispVec, !!origNo, !!strokeGen, !!fac, !!facGen, !!vnode);
 
-  if (origGen) {
+  if (strokeGen) {
     std::map<int, int> hist;
     for (int v : m.v) {
-      hist[origGen->safe_get(v)]++;
+      hist[strokeGen->safe_get(v)]++;
     }
-    printf("orig.gen histogram:");
+    printf("disp.gen histogram:");
     for (auto &kv : hist) {
       printf(" [%d]=%d", kv.first, kv.second);
     }
     printf("\n");
   }
   int modalGen = 0;
-  if (origGen) {
+  if (strokeGen) {
     std::map<int, int> hist;
     for (int v : m.v) {
-      hist[origGen->safe_get(v)]++;
+      hist[strokeGen->safe_get(v)]++;
     }
     int best = 0;
     for (auto &kv : hist) {
@@ -86,7 +86,7 @@ static void runAnalysis(const char *path)
       }
     }
   }
-  printf("modal orig gen = %d\n", modalGen);
+  printf("modal stroke gen = %d\n", modalGen);
 
   int nodeBoundaryEdges = 0, totalEdges = 0;
   struct Offender {
@@ -150,12 +150,12 @@ static void runAnalysis(const char *path)
     printf("ownership: %d/%d edges are node-boundary\n", nodeBoundaryEdges, totalEdges);
   }
 
-  if (origCo && origGen) {
-    correlate("disp |co-origCo|", [&](int v) -> float {
-      if (origGen->safe_get(v) != modalGen) {
+  if (dispVec && strokeGen) {
+    correlate("|disp|", [&](int v) -> float {
+      if (strokeGen->safe_get(v) != modalGen) {
         return NAN;
       }
-      return (m.v.co[v] - origCo->safe_get(v)).length();
+      return dispVec->safe_get(v).length();
     });
   }
   if (fac && facGen) {
@@ -166,9 +166,9 @@ static void runAnalysis(const char *path)
       return fac->safe_get(v);
     });
   }
-  if (origNo && origGen) {
+  if (origNo && strokeGen) {
     correlate("orig-normal z", [&](int v) -> float {
-      if (origGen->safe_get(v) != modalGen) {
+      if (strokeGen->safe_get(v) != modalGen) {
         return NAN;
       }
       float3 n = origNo->safe_get(v);
@@ -185,10 +185,10 @@ static void runAnalysis(const char *path)
 
   // Per-seam forensics: for the worst factor-jump edges, print both sides'
   // stamped factor, the FULL angle between their orig normals, and each side's
-  // displacement from its orig position. Smooth orig normals + near-binary
+  // accumulated displacement. Smooth orig normals + near-binary
   // factor jumps would prove the two sides were stamped with different inputs
   // (e.g. a stroke-gen collision reusing stale stamps).
-  if (fac && facGen && origNo && origCo && origGen) {
+  if (fac && facGen && origNo && dispVec && strokeGen) {
     struct FE {
       float jump;
       int e;
@@ -215,8 +215,8 @@ static void runAnalysis(const char *path)
         d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
         ang = std::acos(d) * 180.0f / 3.14159265f;
       }
-      float dispA = (m.v.co[a] - origCo->safe_get(a)).length();
-      float dispB = (m.v.co[b] - origCo->safe_get(b)).length();
+      float dispA = dispVec->safe_get(a).length();
+      float dispB = dispVec->safe_get(b).length();
       printf("  e=%d n%d|n%d fac %.4f|%.4f origNoAngle=%.2fdeg disp %.4f|%.4f\n", e,
              vnode ? vnode->safe_get(a) : -1, vnode ? vnode->safe_get(b) : -1,
              fac->safe_get(a), fac->safe_get(b), ang, dispA, dispB);

@@ -215,15 +215,11 @@ struct CommandExecutor {
     return stepHasDyntopo ? NeighborMode::LiveDisk : neighborMode;
   }
   /** Non-accumulate mode (see plans/nonAccumMode.md). When `nonAccum` is set and a
-   * command is accumulable, the executor stamps each in-region vert's stroke-start
-   * position and normal into `.brush.orig.*` (keyed by `strokeGen`) and runs the
-   * AccumOrig kernel instantiation so deformation is measured from that snapshot. */
+   * command is accumulable, the executor stamps each in-region vert into
+   * `.brush.disp.*` (keyed by `strokeGen`) and runs the AccumOrig kernel
+   * instantiation, so deformation is measured from the derived stroke-start
+   * base `co - disp`. */
   bool nonAccum = false;
-  /** Displacement base A/B (setDispBase). When set, from-base kernels — grab
-   * included — resolve their base as `co - .brush.disp.vec` instead of the
-   * absolute `.brush.orig.co` snapshot, so it advects with the surface under
-   * dyntopo relaxation. Clear it to fall back to the legacy snapshot path. */
-  bool dispBase = true;
   /** Grab-class symmetry dab marker (#35). The dab dispatch calls setGrabAccumAdd
    * per symmetry image before applyDab: false on the primary image (which begins
    * a new logical dab → bumps `dabGen`), true on mirror images (same dab). The
@@ -299,7 +295,6 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, commitPreviewDab, MARGS());
     BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
     BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
-    BIND_STRUCT_METHOD(st, setDispBase, MARGS("dispBase"));
     BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
     BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
@@ -353,20 +348,10 @@ struct CommandExecutor {
 
   /** Enable non-accumulate mode for the upcoming stroke, and set its generation
    * stamp (a monotonic per-stroke counter; must be non-zero, since the
-   * `.brush.orig.gen` attr defaults to 0 = "not stamped this stroke"). */
+   * `.brush.disp.gen` attr defaults to 0 = "not stamped this stroke"). */
   void setNonAccum(bool v)
   {
     nonAccum = v;
-  }
-
-  /** A/B switch for the displacement base (plans/
-   * 2026-07-26-0909-brush-displacement-base-attribute.md). On: from-base
-   * brushes derive their base as `co - .brush.disp.vec`, which advects with the
-   * surface. Off: the legacy absolute `.brush.orig.co` snapshot. CPU path only —
-   * the GPU path has no dyntopo and therefore no behavioural delta. */
-  void setDispBase(bool v)
-  {
-    dispBase = v;
   }
 
   /** Mark the upcoming grab-class dab/image (#35): false = primary image, which
@@ -388,12 +373,12 @@ struct CommandExecutor {
 
   /** Per-call iterator factories used by CommandCtx::vertexIter/faceIter. The
    * vertex iterator is parameterized by the AccumMode policy and threaded the
-   * stroke-start cache (null/0 unless non-accumulate is active for this dab). */
+   * displacement field (null/0 unless a from-base mode is active for this dab). */
   template <class AccMode>
   BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
   {
-    return BasicVertexIter<AccMode>(node, *this, ctx.origCo, ctx.origGen, ctx.dispVec,
-                                    ctx.dispGen, ctx.strokeGen);
+    return BasicVertexIter<AccMode>(node, *this, ctx.dispVec, ctx.dispGen,
+                                    ctx.strokeGen);
   }
   BasicFaceIter makeFaceIter(spatial::SpatialNode &node)
   {
@@ -797,14 +782,12 @@ struct CommandExecutor {
       }
     }
 
-    // Stroke-start setup (see plans/nonAccumMode.md): ensure the `.brush.orig.*`
-    // TEMP attrs and stamp each in-region vert's position and normal under the
-    // current generation, single-threaded before the parallel loop. A vert is
-    // stamped once per stroke (first contact); later dabs leave the snapshot
-    // alone, so every consumer measures from the stroke start.
-    ctx.origCo = nullptr;
+    // Stroke-start setup: ensure the `.brush.disp.*` TEMP attrs and stamp each
+    // in-region vert under the current generation, single-threaded before the
+    // parallel loop. A vert is stamped once per stroke (first contact) with a
+    // zero displacement, so every from-base consumer derives the stroke-start
+    // surface as `co - disp`.
     ctx.origNo = nullptr;
-    ctx.origGen = nullptr;
     ctx.dispVec = nullptr;
     ctx.dispGen = nullptr;
     ctx.strokeGen = 0;
@@ -824,30 +807,17 @@ struct CommandExecutor {
       // from snapshotting these during a logged dyntopo step — their pages are
       // materialized lazily (only brushed verts), so a mid-stroke edge collapse
       // would otherwise capture an unmaterialized page (null on WASM → warn+skip;
-      // a garbage pointer on native → crash, ImmediateTODOs #37). They're still
-      // interpolated onto split verts (no NOINTERP) for non-accumulate accuracy.
-      mesh::AttrRef &coRef =
-          m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.co", false);
-      coRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
-      mesh::AttrRef &genRef =
-          m->v.attrs.ensure(mesh::AttrType::INT, ".brush.orig.gen", false);
-      genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
-      ctx.origCo = static_cast<mesh::AttrData<float3> *>(coRef.data);
-      ctx.origGen = static_cast<mesh::AttrData<int> *>(genRef.data);
-      // Displacement base: same lazy paging and TEMP | NOCOPY flags, but the
-      // stamp writes zero rather than copying a position. Interpolation stays
-      // enabled — a displacement field is correct to interpolate onto split
-      // verts, unlike an absolute snapshot.
-      if (dispBase) {
-        mesh::AttrRef &dispRef =
-            m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.disp.vec", false);
-        dispRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
-        mesh::AttrRef &dispGenRef =
-            m->v.attrs.ensure(mesh::AttrType::INT, ".brush.disp.gen", false);
-        dispGenRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
-        ctx.dispVec = static_cast<mesh::AttrData<float3> *>(dispRef.data);
-        ctx.dispGen = static_cast<mesh::AttrData<int> *>(dispGenRef.data);
-      }
+      // a garbage pointer on native → crash, ImmediateTODOs #37). Interpolation
+      // stays enabled (no NOINTERP): a displacement field is correct to
+      // interpolate onto split verts, unlike an absolute snapshot.
+      mesh::AttrRef &dispRef =
+          m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.disp.vec", false);
+      dispRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+      mesh::AttrRef &dispGenRef =
+          m->v.attrs.ensure(mesh::AttrType::INT, ".brush.disp.gen", false);
+      dispGenRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+      ctx.dispVec = static_cast<mesh::AttrData<float3> *>(dispRef.data);
+      ctx.dispGen = static_cast<mesh::AttrData<int> *>(dispGenRef.data);
       if (cmd.needsOrigNormals) {
         mesh::AttrRef &noRef =
             m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.no", false);
@@ -858,7 +828,7 @@ struct CommandExecutor {
 
       // Grab-class first-touch stamp (#35): ensure `.brush.dab.gen` + pass the
       // per-dab counter to the kernel. Pages are pre-materialized below (with the
-      // orig stamp) so the parallel kernel only reads/writes existing slots.
+      // disp stamp) so the parallel kernel only reads/writes existing slots.
       if (cmd.grabMode) {
         mesh::AttrRef &dabRef =
             m->v.attrs.ensure(mesh::AttrType::INT, ".brush.dab.gen", false);
@@ -867,35 +837,27 @@ struct CommandExecutor {
         ctx.curDabGen = dabGen;
       }
 
-      // Lazy first-touch stamping, O(region): a vert's position is untouched
-      // until its leaf first enters a dab region, so first-contact capture is
-      // exact for co. Normals are looser — the spatial halo refresh can rewrite
-      // a vert's normal one fan-ring ahead of the brush — so when a kernel
-      // opted into orig normals, each region leaf's SKIRT verts (its
-      // neighbor-owned fan, exactly the set the halo can reach ahead of the
-      // region) are stamped along with its own. The halo only refreshes fans of
-      // already-moved (= already-stamped-leaf) verts, so this stays ahead of it
-      // without ever sweeping the whole mesh.
-      auto stampOrig = [&](int v) {
-        ctx.origGen->materialize(v);
-        if ((*ctx.origGen)[v] != int(strokeGen)) {
-          ctx.origCo->materialize(v);
-          (*ctx.origCo)[v] = m->v.co[v];
-          if (ctx.origNo) {
-            ctx.origNo->materialize(v);
-            (*ctx.origNo)[v] = m->v.no[v];
-          }
-          (*ctx.origGen)[v] = int(strokeGen);
-        }
-      };
-      // Same first-touch rule, but the stamp is zero: an untouched vert's base
-      // *is* its current position. Verts dyntopo creates mid-stroke inherit an
-      // interpolated disp (and gen), so they are already stamped and skipped.
-      auto stampDisp = [&](int v) {
+      // Lazy first-touch stamping, O(region): the stamp is zero, since an
+      // untouched vert's base *is* its current position. Verts dyntopo creates
+      // mid-stroke inherit an interpolated disp (and gen), so they arrive
+      // already stamped and are skipped.
+      //
+      // Normals are looser than positions — the spatial halo refresh can rewrite
+      // a vert's normal one fan-ring ahead of the brush — so when a kernel opted
+      // into orig normals, each region leaf's SKIRT verts (its neighbor-owned
+      // fan, exactly the set the halo can reach ahead of the region) are stamped
+      // along with its own. The halo only refreshes fans of already-moved
+      // (= already-stamped-leaf) verts, so this stays ahead of it without ever
+      // sweeping the whole mesh.
+      auto stampBase = [&](int v) {
         ctx.dispGen->materialize(v);
         if ((*ctx.dispGen)[v] != int(strokeGen)) {
           ctx.dispVec->materialize(v);
           (*ctx.dispVec)[v] = float3(0.0f, 0.0f, 0.0f);
+          if (ctx.origNo) {
+            ctx.origNo->materialize(v);
+            (*ctx.origNo)[v] = m->v.no[v];
+          }
           (*ctx.dispGen)[v] = int(strokeGen);
         }
       };
@@ -904,15 +866,12 @@ struct CommandExecutor {
           if (ctx.dabGen) {
             ctx.dabGen->materialize(v);
           }
-          stampOrig(v);
-          if (ctx.dispVec) {
-            stampDisp(v);
-          }
+          stampBase(v);
         }
         if (ctx.origNo) {
           for (const auto &tri : node->data->skirt_tris) {
             for (int k = 0; k < 3; k++) {
-              stampOrig(m->c.v[tri.c[k]]);
+              stampBase(m->c.v[tri.c[k]]);
             }
           }
         }
@@ -1705,10 +1664,9 @@ struct CommandExecutor {
     // the tangential smooth resamples the field it slides verts through. Keyed on
     // the attr actually existing (the brush's stroke-start pre-pass creates it),
     // so it can never claim a gen no command stamped.
-    params->dispGen =
-        (dispBase && m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.disp.vec"))
-            ? strokeGen
-            : 0;
+    params->dispGen = m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.disp.vec")
+                          ? strokeGen
+                          : 0;
 
     // A dyntopo dab mutates topology and walks live disk/radial links; keep the
     // mesh thawed for the whole stroke (endDynTopoStroke releases it).
@@ -1783,39 +1741,6 @@ struct CommandExecutor {
     for (spatial::SpatialNode *n : hit) {
       for (int v : n->unique_verts()) {
         seedVerts.append(v);
-      }
-    }
-
-    // #37: the non-accumulate `.brush.orig.*` snapshot is materialized lazily —
-    // only verts a *prior* dab brushed. Once the column exists, dyntopo's attr
-    // interpolation (split midpoints, collapse blend) on THIS dab's seed region
-    // would read pages the brush never stamped (e.g. a symmetry-mirror dab's
-    // region, #38) — null on WASM, a garbage deref + crash on native. The deform
-    // stamps the region, but only AFTER this pre-pass. Stamp the seed region here
-    // (first contact = current co) so every vert dyntopo touches has a live page;
-    // the deform's stamp loop then skips them (gen already == strokeGen).
-    if (m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.co") &&
-        m->v.attrs.has(mesh::AttrType::INT, ".brush.orig.gen")) {
-      auto *origCo =
-          m->v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
-      auto *origNo =
-          m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.no")
-              ? m->v.attrs.find_attribute(mesh::AttrType::FLOAT3, ".brush.orig.no")
-                    .get_data<float3>()
-              : nullptr;
-      auto *origGen =
-          m->v.attrs.find_attribute(mesh::AttrType::INT, ".brush.orig.gen").get_data<int>();
-      for (int v : seedVerts) {
-        origGen->materialize(v);
-        if ((*origGen)[v] != int(strokeGen)) {
-          origCo->materialize(v);
-          (*origCo)[v] = m->v.co[v];
-          if (origNo) {
-            origNo->materialize(v);
-            (*origNo)[v] = m->v.no[v];
-          }
-          (*origGen)[v] = int(strokeGen);
-        }
       }
     }
 

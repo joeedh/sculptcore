@@ -1,24 +1,23 @@
-// Non-accumulate stroke-start snapshots must survive a dyntopo COLLAPSE.
+// The non-accumulate base must survive a dyntopo COLLAPSE.
 //
 // A collapse merges v_kill into v_keep and places the survivor at the edge
-// midpoint. The survivor's `.brush.orig.co` stroke-start snapshot has to land on
+// midpoint. The survivor's derived base (`co - .brush.disp.vec`) has to land on
 // the *stroke-start* surface, the same way its live position lands on the live
 // surface -- otherwise the non-accumulate write-back (`live += want - base`)
 // measures each survivor from a base displaced by a per-collapse, direction-
 // arbitrary amount, which reads as surface noise rather than a uniform offset.
 //
 // The check is exact rather than statistical: the cube's +Z face starts
-// perfectly flat at z=0.25, so every snapshot taken on it -- including every
-// survivor's, since the midpoint of two 0.25s is 0.25 -- must still read
-// z=0.25 after any number of collapses. Two ways that broke:
+// perfectly flat at z=0.25, so every base on it -- including every survivor's,
+// since the midpoint of two 0.25s is 0.25 -- must still read z=0.25 after any
+// number of collapses. Two ways that broke:
 //
-//   (a) double-application: collapseEdge interpolated the snapshot AND the
-//       dyntopo driver shifted it again by the survivor's motion, adding half
-//       the collapsed edge vector (whose z is nonzero once the dome rises);
-//   (b) validity laundering: `.brush.orig.co` was blended while its
-//       `.brush.orig.gen` guard was copied from src0, so an unstamped endpoint
-//       contributed its unmaterialized page default (zeros) under a stamp that
-//       still read as valid -- pulling the snapshot toward the origin.
+//   (a) double-application: collapseEdge interpolated the field AND the dyntopo
+//       driver shifted it again by the survivor's motion, adding half the
+//       collapsed edge vector (whose z is nonzero once the dome rises);
+//   (b) validity laundering: the field was blended while its `.brush.disp.gen`
+//       guard was copied from src0, so an unstamped endpoint contributed its
+//       unmaterialized page default under a stamp that still read as valid.
 //
 // test_brush_nonaccum (d) covers the same path via peak push with a 20%
 // tolerance, which both defects slip through.
@@ -67,12 +66,12 @@ static void runTest()
   }
 
   Mesh *m = scene.mesh;
-  test_assert(m->v.attrs.has(AttrType::FLOAT3, ".brush.orig.co"));
-  test_assert(m->v.attrs.has(AttrType::INT, ".brush.orig.gen"));
-  auto *origCo =
-      m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
-  auto *origGen =
-      m->v.attrs.find_attribute(AttrType::INT, ".brush.orig.gen").get_data<int>();
+  test_assert(m->v.attrs.has(AttrType::FLOAT3, ".brush.disp.vec"));
+  test_assert(m->v.attrs.has(AttrType::INT, ".brush.disp.gen"));
+  auto *dispVec =
+      m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec").get_data<float3>();
+  auto *dispGen =
+      m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
 
   int checked = 0;
   float worst = 0.0f, push = 0.0f;
@@ -87,14 +86,14 @@ static void runTest()
     if (co[2] < 0.2f || std::fabs(co[0]) > 0.22f || std::fabs(co[1]) > 0.22f) {
       continue;
     }
-    if (origGen->safe_get(v) == 0) {
+    if (dispGen->safe_get(v) == 0) {
       continue;
     }
-    worst = std::fmax(worst, std::fabs(origCo->safe_get(v)[2] - 0.25f));
+    worst = std::fmax(worst, std::fabs((co - dispVec->safe_get(v))[2] - 0.25f));
     checked++;
   }
 
-  fprintf(stderr, "verts=%d (base 2168) push=%.5f checked=%d worst|orig.z-0.25|=%.6f\n",
+  fprintf(stderr, "verts=%d (base 2168) push=%.5f checked=%d worst|base.z-0.25|=%.6f\n",
           m->v.count, push, checked, worst);
   test_assert(allFinite);
   test_assert(m->v.count < 2168); // the dab really did collapse geometry
@@ -104,7 +103,7 @@ static void runTest()
   // dozen survivors IS the whole dome; this just guards against sampling nothing.
   test_assert(checked > 15);
 
-  // Exact invariant: a flat face's stroke-start snapshot stays flat. The slack is
+  // Exact invariant: a flat face's derived base stays flat. The slack is
   // for fp blend only -- both defects above miss by 1e-2 or worse.
   test_assert(worst < 1e-4f);
 }

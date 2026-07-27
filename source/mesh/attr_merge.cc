@@ -11,9 +11,7 @@ namespace sculptcore::mesh {
 /* Layer names owned by other modules. They cannot be included from here (mesh
  * does not depend on brush), so they are spelled out; the owners are
  * brush/brush_executor.h and brush/enhance.h. */
-static constexpr const char *ORIG_CO_ATTR = ".brush.orig.co";
 static constexpr const char *ORIG_NO_ATTR = ".brush.orig.no";
-static constexpr const char *ORIG_GEN_ATTR = ".brush.orig.gen";
 static constexpr const char *DISP_VEC_ATTR = ".brush.disp.vec";
 static constexpr const char *DISP_GEN_ATTR = ".brush.disp.gen";
 static constexpr const char *DAB_GEN_ATTR = ".brush.dab.gen";
@@ -65,7 +63,7 @@ void defaultMerge(AttrRef &attr, const AttrMergeCtx &ctx, bool copy_src0)
       if (!data) {
         return;
       }
-      // Lazily-paged attrs (.brush.orig.*): sources may sit in unmaterialized
+      // Lazily-paged attrs (.brush.disp.*): sources may sit in unmaterialized
       // pages (read as the page default) and dst's page may not exist yet.
       T a = data->safe_get(ctx.src0);
       data->materialize(ctx.dst);
@@ -92,24 +90,24 @@ void defaultMerge(AttrRef &attr, const AttrMergeCtx &ctx, bool copy_src0)
 
 namespace {
 
-/* `.brush.orig.co` / `.brush.orig.no`: a stroke-start snapshot that is only
- * valid where `.brush.orig.gen` names the current stroke, and whose pages are
- * materialized lazily (only brushed verts have one). Blending it like ordinary
+/* `.brush.orig.no`: the stroke-start normal snapshot, stamped alongside the
+ * displacement field and sharing its `.brush.disp.gen` key, with lazily
+ * materialized pages (only brushed verts have one). Blending it like ordinary
  * data mixes an unstamped endpoint's page default into the result and then
  * inherits the *other* endpoint's stamp, which reads as a valid snapshot of a
- * position the surface never had.
+ * normal the surface never had.
  *
  * The stroke-start surface interpolates exactly like the live one, so:
  *   both stamped -> lerp the snapshots
- *   one stamped  -> lerp it against the other endpoint's LIVE value (an
+ *   one stamped  -> lerp it against the other endpoint's LIVE normal (an
  *                   unstamped vert has not moved this stroke, so live IS its
  *                   stroke-start value)
  *   neither      -> clear the stamp; consumers fall back to live. */
-void mergeOrigSnapshot(AttrRef &attr, const AttrMergeCtx &ctx)
+void mergeOrigNormal(AttrRef &attr, const AttrMergeCtx &ctx)
 {
   auto *val = static_cast<AttrData<math::float3> *>(attr.data);
   auto *gen =
-      static_cast<AttrData<int> *>(siblingLayer(attr, ctx, AttrType::INT, ORIG_GEN_ATTR));
+      static_cast<AttrData<int> *>(siblingLayer(attr, ctx, AttrType::INT, DISP_GEN_ATTR));
   if (!val || !gen || !ctx.have_live) {
     defaultMerge(attr, ctx);
     return;
@@ -117,29 +115,22 @@ void mergeOrigSnapshot(AttrRef &attr, const AttrMergeCtx &ctx)
 
   int g0 = gen->safe_get(ctx.src0);
   int g1 = gen->safe_get(ctx.src1);
-  gen->materialize(ctx.dst);
   if (g0 == 0 && g1 == 0) {
-    (*gen)[ctx.dst] = 0;
     return;
   }
 
-  const bool is_normal = std::strcmp(attr.name.c_str(), ORIG_NO_ATTR) == 0;
-  const math::float3 *live = is_normal ? ctx.src_no : ctx.src_co;
-  math::float3 a = g0 != 0 ? val->safe_get(ctx.src0) : live[0];
-  math::float3 b = g1 != 0 ? val->safe_get(ctx.src1) : live[1];
+  math::float3 a = g0 != 0 ? val->safe_get(ctx.src0) : ctx.src_no[0];
+  math::float3 b = g1 != 0 ? val->safe_get(ctx.src1) : ctx.src_no[1];
 
   math::float3 out = a * (1.0f - ctx.t) + b * ctx.t;
-  if (is_normal) {
-    out.normalize();
-  }
+  out.normalize();
   val->materialize(ctx.dst);
   (*val)[ctx.dst] = out;
-  (*gen)[ctx.dst] = g0 != 0 ? g0 : g1;
 }
 
 /* `.brush.disp.vec`: this stroke's accumulated brush displacement, valid only
  * where `.brush.disp.gen` names the current stroke. Same lazy-page hazard as the
- * orig snapshot, but the unstamped value is known — a vert the stroke has not
+ * normal snapshot, but the unstamped value is known — a vert the stroke has not
  * touched has displaced by zero — so no live position is needed:
  *   both stamped -> lerp the displacements
  *   one stamped  -> lerp it against zero
@@ -216,12 +207,10 @@ struct BuiltinPolicy {
 };
 
 const BuiltinPolicy builtin_policies[] = {
-    {AttrType::FLOAT3, ORIG_CO_ATTR, AttrMerge::CUSTOM, mergeOrigSnapshot},
-    {AttrType::FLOAT3, ORIG_NO_ATTR, AttrMerge::CUSTOM, mergeOrigSnapshot},
-    /* Written by mergeOrigSnapshot together with the value it guards. */
-    {AttrType::INT, ORIG_GEN_ATTR, AttrMerge::NONE, nullptr},
+    {AttrType::FLOAT3, ORIG_NO_ATTR, AttrMerge::CUSTOM, mergeOrigNormal},
     {AttrType::FLOAT3, DISP_VEC_ATTR, AttrMerge::CUSTOM, mergeDispField},
-    /* Written by mergeDispField together with the value it guards. */
+    /* Written by mergeDispField together with the gen it shares with
+     * mergeOrigNormal. */
     {AttrType::INT, DISP_GEN_ATTR, AttrMerge::NONE, nullptr},
     {AttrType::INT, DAB_GEN_ATTR, AttrMerge::CUSTOM, mergeClearGen},
     {AttrType::FLOAT, CAVITY_ATTR, AttrMerge::NONE, nullptr},

@@ -11,7 +11,7 @@ build/native/source/debug/debug_app.exe --script sculptcore/tools/noise/<f>.txt
 `stroke_path ... rough=1` prints the per-dab trace; the `roughness` verb scores
 the last stroke's swept region on demand. Each line reports the one-ring normal
 roughness of the **live** surface and of the derived **base** point set
-(`co - disp`, else `.brush.orig.co`), plus the live-only fidelity guard
+(`co - disp`, else the live position), plus the live-only fidelity guard
 (`maxdisp`, `vol`).
 
 | script | surface | dyntopo | tangential smooth |
@@ -23,6 +23,6 @@ roughness of the **live** surface and of the derived **base** point set
 | `noise_sphere_nosmooth` | sphere | on | off |
 | `noise_sphere_nodyntopo` | sphere | off | — |
 
-Baselines on the pre-M1 `.brush.orig.co` path:
+Baselines on the pre-M1 absolute-snapshot path (`.brush.orig.co`, since deleted):
 `documentation/research/2026-07-26-brush-base-noise-baseline.md`.
 The primary fixture also runs as a ctest, `test_brush_noise`.

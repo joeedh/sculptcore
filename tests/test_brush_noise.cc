@@ -140,9 +140,12 @@ int main()
     test_assert(live.dihedral == base.dihedral);
   }
 
-  // (e) The plan's fixture. Flat grid so the stroke-start surface is exactly
-  // z = 0 and displacement *is* z; dyntopo with tangential smoothing on, which
-  // is what the app ships. `rough=1` prints the per-dab live/base trace.
+  // (e) The plan's fixture, and the M3 gate. Flat grid so the stroke-start
+  // surface is exactly z = 0 and displacement *is* z; dyntopo with tangential
+  // smoothing on, which is what the app ships. `rough=1` prints the per-dab
+  // live/base trace. The derived base (`co - disp`) must stay on the plane even
+  // though the tangential smooth slides verts across a displaced surface --
+  // that is the disp resampling in smoothTangent.
   {
     Scene scene(64, 64, /*headless=*/true);
     auto r = script::run(scene,
@@ -174,48 +177,12 @@ int main()
                  live.verts, live.rms, live.p95, live.maxr, live.dihedral, base.rms,
                  base.p95, base.maxr, base.dihedral, live.maxDisp, live.volume);
     test_assert(live.verts > 500);
-    // Fidelity guard: the stroke really deposited material, so a later A/B
-    // cannot win on noise by depositing less.
+    // Fidelity guard: the stroke really deposited material, so the base score
+    // cannot be won by depositing less.
     test_assert(live.maxDisp > 0.1f);
     test_assert(live.volume > 0.0f);
-  }
-
-  // (f) M3 gate, pinned. Same fixture on the displacement base: the derived
-  // base must stay on the stroke-start plane (z = 0) even though the tangential
-  // smooth slides verts across a displaced surface. Guards the disp resampling
-  // in smoothTangent — without it this reads ~0.088, the same as the legacy
-  // `.brush.orig.co` path (see research/2026-07-26-brush-base-noise-baseline.md).
-  {
-    Scene scene(64, 64, /*headless=*/true);
-    auto r = script::run(scene,
-                         "make_shape kind=grid n=32 m=32 size=2\n"
-                         "triangulate\n"
-                         "build_spatial\n"
-                         "set_backend backend=cpp\n"
-                         "set_brush_tool tool=draw\n"
-                         "set_brush radius=0.25 strength=0.5 nonaccum=1 dispbase=1\n"
-                         "dyntopo enabled=1 detail=0.02 seed=1 smooth=1\n"
-                         "stroke_path p1=-0.6,0,0 p2=0.6,0,0 steps=24 "
-                         "normal=0,0,1\n",
-                         ".");
-    test_assert(r.ok);
-    if (!r.ok) {
-      std::fprintf(stderr, "  line %d: %s\n", r.line_no, r.error.c_str());
-      return 1;
-    }
-    Vector<int> region;
-    collectRegion(scene.mesh, scene.lastStroke.centers, scene.lastStroke.radius,
-                  region);
-    RoughnessResult live = computeRoughness(scene.mesh, region,
-                                            RoughnessPoints::Live, scene.strokeGen);
-    RoughnessResult base = computeRoughness(scene.mesh, region,
-                                            RoughnessPoints::Base, scene.strokeGen);
-    std::fprintf(stderr, "(f) dispbase live rms=%.6g | base rms=%.6g | maxz=%.6g\n",
-                 live.rms, base.rms, live.maxDisp);
-    test_assert(live.verts > 500);
-    test_assert(live.maxDisp > 0.1f); // fidelity guard, same as (e)
-    test_assert(live.volume > 0.0f);
-    // Measured 0.0054; legacy and un-resampled disp both measure ~0.088.
+    // Measured 0.0054; un-resampled disp (and the retired absolute snapshot)
+    // both measure ~0.088 — see research/2026-07-26-brush-base-noise-baseline.md.
     test_assert(base.rms < 0.02f);
   }
 

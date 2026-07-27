@@ -521,7 +521,6 @@ bool execVerb(Scene &scene,
     scene.brush.invert = getBool(args, "invert", scene.brush.invert);
     scene.brush.pinch = getFloat(args, "pinch", scene.brush.pinch);
     scene.nonAccum = getBool(args, "nonaccum", scene.nonAccum);
-    scene.dispBase = getBool(args, "dispbase", scene.dispBase);
     scene.brush.writeProps();
     return true;
   }
@@ -1318,10 +1317,9 @@ bool execVerb(Scene &scene,
     {
       // One stroke verb = one stroke: advance the per-stroke generation every
       // stroke (mirrors the TS app's ++nextStrokeGen). It must be nonzero even in
-      // accumulate mode — grab/kelvinlet always orig-stamp, and gen 0 collides with
-      // the fresh .brush.orig.gen default, skipping the snapshot while baseFor still
-      // dereferences the unmaterialized orig page (crash). `repeat`ed dabs below
-      // share this one stamp.
+      // accumulate mode — grab/kelvinlet always stamp the base, and gen 0 collides
+      // with the fresh .brush.disp.gen default, which would make every stamped vert
+      // read as unstamped. `repeat`ed dabs below share this one stamp.
       uint32_t gen = ++scene.strokeGen;
       int repeat = getInt(args, "repeat", 1);
       if (repeat < 1) repeat = 1;
@@ -1335,7 +1333,6 @@ bool execVerb(Scene &scene,
         exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
       }
       exec.setNonAccum(scene.nonAccum);
-      exec.setDispBase(scene.dispBase);
       exec.setStrokeGen(int(gen));
       // layer=<name>: retarget the kernel's first declared attr handle (the
       // layerdraw brush's `slayer`) at the named sculpt layer.
@@ -1442,7 +1439,6 @@ bool execVerb(Scene &scene,
       exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
     }
     exec.setNonAccum(scene.nonAccum);
-    exec.setDispBase(scene.dispBase);
     exec.setStrokeGen(int(gen));
     // One step for the whole stroke; beginStep pushes the first topo chunk when
     // dyntopo is on, matching meshLog.beginStep(hasDyntopo) on the TS side.
@@ -1545,7 +1541,6 @@ bool execVerb(Scene &scene,
       exec.meshLog = &scene.meshLog;
       exec.ctx.renderMatrix = scene.renderMatrix;
       exec.setNonAccum(scene.nonAccum);
-      exec.setDispBase(scene.dispBase);
       exec.setStrokeGen(int(gen));
       dyntopo::DynTopoParams *dtp =
           scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
@@ -1619,7 +1614,6 @@ bool execVerb(Scene &scene,
     exec.meshLog = &scene.meshLog;
     exec.ctx.renderMatrix = scene.renderMatrix;
     exec.setNonAccum(scene.nonAccum);
-    exec.setDispBase(scene.dispBase);
     exec.setStrokeGen(int(gen));
     dyntopo::DynTopoParams *dtp = scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
     exec.beginStep(scene.dyntopoEnabled);

@@ -68,13 +68,15 @@ static void testPolicyResolution()
   test_assert(resolveMergePolicy(AttrType::FLOAT3, "mycolors").merge == AttrMerge::DEFAULT);
   /* Keyed on (type, name) together: the right name at the wrong type is a
    * different layer and must not inherit the policy. */
-  test_assert(resolveMergePolicy(AttrType::FLOAT, ".brush.orig.co").merge ==
+  test_assert(resolveMergePolicy(AttrType::FLOAT, ".brush.disp.vec").merge ==
               AttrMerge::DEFAULT);
 
-  AttrMergePolicy co = resolveMergePolicy(AttrType::FLOAT3, ".brush.orig.co");
-  test_assert(co.merge == AttrMerge::CUSTOM && co.fn != nullptr);
-  test_assert(resolveMergePolicy(AttrType::FLOAT3, ".brush.orig.no").fn == co.fn);
-  test_assert(resolveMergePolicy(AttrType::INT, ".brush.orig.gen").merge == AttrMerge::NONE);
+  AttrMergePolicy disp = resolveMergePolicy(AttrType::FLOAT3, ".brush.disp.vec");
+  test_assert(disp.merge == AttrMerge::CUSTOM && disp.fn != nullptr);
+  test_assert(resolveMergePolicy(AttrType::INT, ".brush.disp.gen").merge == AttrMerge::NONE);
+  /* The normal snapshot shares the disp generation but not its handler. */
+  AttrMergePolicy no = resolveMergePolicy(AttrType::FLOAT3, ".brush.orig.no");
+  test_assert(no.merge == AttrMerge::CUSTOM && no.fn != nullptr && no.fn != disp.fn);
   test_assert(resolveMergePolicy(AttrType::INT, ".brush.dab.gen").merge == AttrMerge::CUSTOM);
   test_assert(resolveMergePolicy(AttrType::FLOAT3, SCULPT_LAYER_REST_ATTR).merge ==
               AttrMerge::CUSTOM);
@@ -83,11 +85,11 @@ static void testPolicyResolution()
    * rebuilds a domain — so a policy layer gets its policy back with no help
    * from the file format. */
   MeshPtr m(3);
-  m->v.attrs.ensure(AttrType::FLOAT3, ".brush.orig.co");
+  m->v.attrs.ensure(AttrType::FLOAT3, ".brush.disp.vec");
   m->v.attrs.ensure(AttrType::FLOAT3, "userdata");
-  AttrRef a = m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.orig.co");
+  AttrRef a = m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec");
   AttrRef b = m->v.attrs.find_attribute(AttrType::FLOAT3, "userdata");
-  test_assert(a.merge == AttrMerge::CUSTOM && a.merge_fn == co.fn);
+  test_assert(a.merge == AttrMerge::CUSTOM && a.merge_fn == disp.fn);
   test_assert(b.merge == AttrMerge::DEFAULT && b.merge_fn == nullptr);
 }
 
@@ -129,13 +131,12 @@ static void testGenericPolicies()
   }
 }
 
-/* --- `.brush.orig.*`: the gen-guarded, lazily-paged snapshot --- */
-static void testOrigSnapshotSplit()
+/* --- `.brush.disp.*`: the gen-guarded, lazily-paged displacement field --- */
+static void testDispFieldSplit()
 {
-  /* (stamp v0, stamp v1) -> (expected snapshot at the midpoint, expected gen).
-   * An unstamped endpoint has not moved this stroke, so its LIVE position is its
-   * stroke-start position and is what the other endpoint's snapshot blends
-   * against — never the unmaterialized page default. */
+  /* (stamp v0, stamp v1). An unstamped endpoint has displaced by zero this
+   * stroke, so that — not the unmaterialized page default — is what the other
+   * endpoint's displacement blends against. */
   struct Case {
     bool s0, s1;
     const char *tag;
@@ -149,29 +150,30 @@ static void testOrigSnapshotSplit()
 
   for (const Case &c : cases) {
     MeshPtr m(3);
-    m->v.attrs.ensure(AttrType::FLOAT3, ".brush.orig.co");
-    m->v.attrs.ensure(AttrType::INT, ".brush.orig.gen");
-    auto *co =
-        m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
-    auto *gen = m->v.attrs.find_attribute(AttrType::INT, ".brush.orig.gen").get_data<int>();
+    m->v.attrs.ensure(AttrType::FLOAT3, ".brush.disp.vec");
+    m->v.attrs.ensure(AttrType::INT, ".brush.disp.gen");
+    auto *disp =
+        m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec").get_data<float3>();
+    auto *gen = m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
 
     int e = findCollapsibleEdge(*m);
     test_assert(e != ELEM_NONE);
     int v0 = m->e.vs[e][0], v1 = m->e.vs[e][1];
 
-    /* Stroke start: snapshot, then push the stamped verts off the surface. */
+    /* Stroke: push the stamped verts off the surface, recording the push as
+     * their displacement (the §2 invariant). */
     const float3 rest0 = m->v.co[v0], rest1 = m->v.co[v1];
     const float3 push(0.0f, 0.0f, 10.0f);
     if (c.s0) {
-      co->materialize(v0);
-      (*co)[v0] = rest0;
+      disp->materialize(v0);
+      (*disp)[v0] = push;
       gen->materialize(v0);
       (*gen)[v0] = 7;
       m->v.co[v0] = rest0 + push;
     }
     if (c.s1) {
-      co->materialize(v1);
-      (*co)[v1] = rest1;
+      disp->materialize(v1);
+      (*disp)[v1] = push;
       gen->materialize(v1);
       (*gen)[v1] = 7;
       m->v.co[v1] = rest1 + push;
@@ -181,10 +183,10 @@ static void testOrigSnapshotSplit()
     test_assert(bool(splitEdge(*m, e, &res)));
     int vm = res.new_vert;
 
-    auto *outCo =
-        m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
+    auto *outDisp =
+        m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec").get_data<float3>();
     auto *outGen =
-        m->v.attrs.find_attribute(AttrType::INT, ".brush.orig.gen").get_data<int>();
+        m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
 
     if (!c.s0 && !c.s1) {
       /* Nothing to preserve — the stamp must not be laundered into existence. */
@@ -192,52 +194,53 @@ static void testOrigSnapshotSplit()
       continue;
     }
     test_assert(outGen->safe_get(vm) == 7);
-    /* Both endpoints' stroke-start positions are their rest positions either
-     * way, so the midpoint's snapshot is the rest midpoint in all three cases —
-     * exactly the invariant a naive lerp of the raw column breaks. */
+    /* What the field exists for: the derived base `co - disp` lands on the
+     * stroke-start surface's own midpoint in all three cases — exactly the
+     * invariant a naive lerp of the raw column breaks. */
+    float3 base = m->v.co[vm] - outDisp->safe_get(vm);
     float3 want = (rest0 + rest1) * 0.5f;
-    if (!near3(outCo->safe_get(vm), want)) {
-      float3 got = outCo->safe_get(vm);
+    if (!near3(base, want)) {
       fprintf(stderr,
-              "  [%s] orig.co = %.4f,%.4f,%.4f want %.4f,%.4f,%.4f\n",
-              c.tag, got[0], got[1], got[2], want[0], want[1], want[2]);
+              "  [%s] base = %.4f,%.4f,%.4f want %.4f,%.4f,%.4f\n",
+              c.tag, base[0], base[1], base[2], want[0], want[1], want[2]);
     }
-    test_assert(near3(outCo->safe_get(vm), want));
+    test_assert(near3(base, want));
   }
 }
 
 /* The collapse case: dst == src0 and the survivor lands at merged_co, so the
  * handler must still read the sources' pre-collapse values. */
-static void testOrigSnapshotCollapse()
+static void testDispFieldCollapse()
 {
   MeshPtr m(4);
-  m->v.attrs.ensure(AttrType::FLOAT3, ".brush.orig.co");
-  m->v.attrs.ensure(AttrType::INT, ".brush.orig.gen");
-  auto *co =
-      m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
-  auto *gen = m->v.attrs.find_attribute(AttrType::INT, ".brush.orig.gen").get_data<int>();
+  m->v.attrs.ensure(AttrType::FLOAT3, ".brush.disp.vec");
+  m->v.attrs.ensure(AttrType::INT, ".brush.disp.gen");
+  auto *disp =
+      m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec").get_data<float3>();
+  auto *gen = m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
 
   int e = findCollapsibleEdge(*m);
   test_assert(e != ELEM_NONE);
   int v0 = m->e.vs[e][0], v1 = m->e.vs[e][1];
   const float3 rest0 = m->v.co[v0], rest1 = m->v.co[v1];
 
-  co->materialize(v0);
-  (*co)[v0] = rest0;
+  const float3 push(0.0f, 0.0f, 10.0f);
+  disp->materialize(v0);
+  (*disp)[v0] = push;
   gen->materialize(v0);
   (*gen)[v0] = 3;
-  m->v.co[v0] = rest0 + float3(0.0f, 0.0f, 10.0f); /* v1 stays unstamped */
+  m->v.co[v0] = rest0 + push; /* v1 stays unstamped */
 
   const float3 mid = (m->v.co[v0] + m->v.co[v1]) * 0.5f;
   EdgeCollapseResult res;
   test_assert(bool(collapseEdge(*m, e, mid, 0.5f, &res)));
 
-  auto *outCo =
-      m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.orig.co").get_data<float3>();
+  auto *outDisp =
+      m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec").get_data<float3>();
   auto *outGen =
-      m->v.attrs.find_attribute(AttrType::INT, ".brush.orig.gen").get_data<int>();
+      m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
   test_assert(outGen->safe_get(v0) == 3);
-  test_assert(near3(outCo->safe_get(v0), (rest0 + rest1) * 0.5f));
+  test_assert(near3(m->v.co[v0] - outDisp->safe_get(v0), (rest0 + rest1) * 0.5f));
 }
 
 /* --- `.slayer.rest`: rest is only meaningful as `co - rest` --- */
@@ -276,8 +279,8 @@ int main()
 
   testPolicyResolution();
   testGenericPolicies();
-  testOrigSnapshotSplit();
-  testOrigSnapshotCollapse();
+  testDispFieldSplit();
+  testDispFieldCollapse();
   testSculptLayerRest();
 
   printf("attr_merge test done\n");

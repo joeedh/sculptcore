@@ -5,11 +5,11 @@
  *
  * The generic rule — lerp floats, copy src0 otherwise — is wrong for any layer
  * whose value is only meaningful together with a sibling column, the sculpt
- * brushes' lazily-materialized, generation-guarded stroke-start snapshots being
- * the motivating case: blending `.brush.orig.co` against an *unstamped* endpoint
- * mixes in that endpoint's unmaterialized page default while `.brush.orig.gen`
- * is copied from the other one, so the result reads as a valid snapshot of a
- * position the surface never had. Such layers declare AttrMerge::CUSTOM and get
+ * brushes' lazily-materialized, generation-guarded stroke fields being the
+ * motivating case: blending `.brush.disp.vec` against an *unstamped* endpoint
+ * mixes in that endpoint's unmaterialized page default while `.brush.disp.gen`
+ * is copied from the other one, so the result reads as a valid displacement the
+ * surface never had. Such layers declare AttrMerge::CUSTOM and get
  * a handler that owns dst and its guard column together.
  *
  * Policies are keyed by layer NAME (resolveMergePolicy), stamped onto the

@@ -1,8 +1,9 @@
 # Non-Accumulating Brush Mode — Implementation Plan
 
-> **§5 superseded (2026-07-26).** The stroke-start base is no longer the
-> absolute `.brush.orig.co` snapshot this plan describes. It is derived from an
-> accumulated displacement field, `base(v) = co(v) - .brush.disp.vec(v)`, which
+> **§1/§5 superseded (2026-07-26).** The absolute `.brush.orig.co` /
+> `.brush.orig.gen` snapshot this plan describes no longer exists. The
+> stroke-start base is derived from an accumulated displacement field,
+> `base(v) = co(v) - .brush.disp.vec(v)` keyed by `.brush.disp.gen`, which
 > advects with the surface for free under dyntopo instead of needing the
 > delta-tracking of §5. See
 > [`../../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md`](../../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md).
@@ -92,10 +93,11 @@ independent of it).
 ## Design
 
 ### 1. Generational cache (two `TEMP` vertex attributes)
-- `.brush.orig.co`  : `float3`, `AttrFlag::TEMP` — stroke-start position.
-- `.brush.orig.gen` : `int`,    `AttrFlag::TEMP` — generation stamp.
+- `.brush.disp.vec` : `float3`, `AttrFlag::TEMP` — accumulated displacement
+  (was `.brush.orig.co`, an absolute snapshot — see the banner).
+- `.brush.disp.gen` : `int`,    `AttrFlag::TEMP` — generation stamp.
 - Monotonic stroke-generation counter `strokeGen` (starts at 1).
-  `base(v) = (gen[v]==strokeGen) ? orig_co[v] : co[v]`.
+  `base(v) = (gen[v]==strokeGen) ? co[v] - disp[v] : co[v]`.
 - TEMP is correct: a vertex created mid-stroke reads as **unstamped**
   (`gen!=strokeGen`), so `base` falls back to its creation position — exactly its
   effective stroke-start. So we need **no** split/collapse interpolation of the
