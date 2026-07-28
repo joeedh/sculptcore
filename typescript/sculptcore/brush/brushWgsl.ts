@@ -4962,20 +4962,19 @@ fn main(
   v_co += (ctx_u.grabTo * fall);
   var dragLen: f32 = length(ctx_u.grabTo);
   var amount: f32 = ((brush_u.pinch * dragLen) / brush_u.radius);
-  if ((amount == 0.0)) {
-    return;
+  if ((amount != 0.0)) {
+    var d: vec3<f32> = ((co - ctx_u.grabFrom) + ctx_u.grabTo);
+    var lenSq: f32 = (dragLen * dragLen);
+    if ((lenSq > 9.9999999999999998e-13)) {
+      d -= (ctx_u.grabTo * ((dot(d, ctx_u.grabTo) / lenSq)));
+    }
+    var fade: f32 = (amount * fall);
+    if ((amount > 0.0)) {
+      var t: f32 = min(1.0, (length(d) / brush_u.radius));
+      fade *= (t * t);
+    }
+    v_co -= (d * fade);
   }
-  var d: vec3<f32> = ((co - ctx_u.grabFrom) + ctx_u.grabTo);
-  var lenSq: f32 = (dragLen * dragLen);
-  if ((lenSq > 9.9999999999999998e-13)) {
-    d -= (ctx_u.grabTo * ((dot(d, ctx_u.grabTo) / lenSq)));
-  }
-  var fade: f32 = (amount * fall);
-  if ((amount > 0.0)) {
-    var t: f32 = min(1.0, (length(d) / brush_u.radius));
-    fade *= (t * t);
-  }
-  v_co -= (d * fade);
 
   co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;

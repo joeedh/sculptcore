@@ -69,20 +69,19 @@ static void snakehook(CommandCtx<TYPES> &ctx)
     v.co += (ctx.brush.grabTo * fall);
     float dragLen = (ctx.brush.grabTo).length();
     float amount = ((ctx.brush.pinch * dragLen) / ctx.brush.radius);
-    if ((amount == 0.0f)) {
-      continue;
+    if ((amount != 0.0f)) {
+      float3 d = ((co - ctx.brush.grabFrom) + ctx.brush.grabTo);
+      float lenSq = (dragLen * dragLen);
+      if ((lenSq > 9.9999999999999998e-13f)) {
+        d -= (ctx.brush.grabTo * (((d).dot(ctx.brush.grabTo) / lenSq)));
+      }
+      float fade = (amount * fall);
+      if ((amount > 0.0f)) {
+        float t = std::min(1.0f, ((d).length() / ctx.brush.radius));
+        fade *= (t * t);
+      }
+      v.co -= (d * fade);
     }
-    float3 d = ((co - ctx.brush.grabFrom) + ctx.brush.grabTo);
-    float lenSq = (dragLen * dragLen);
-    if ((lenSq > 9.9999999999999998e-13f)) {
-      d -= (ctx.brush.grabTo * (((d).dot(ctx.brush.grabTo) / lenSq)));
-    }
-    float fade = (amount * fall);
-    if ((amount > 0.0f)) {
-      float t = std::min(1.0f, ((d).length() / ctx.brush.radius));
-      fade *= (t * t);
-    }
-    v.co -= (d * fade);
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }
