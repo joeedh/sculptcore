@@ -264,9 +264,12 @@ Three layers, weakest to strongest:
    `dump_state` JSONs agree *and* the cpp dump matches
    `tests/golden/<brush>.json`. The diff is tolerant numeric
    (`ATOL=1e-5`, `RTOL=1e-4`), keyed on an order-independent coordinate
-   fingerprint (`co_sum`, `co_sqsum`); the spatial `flag` bitmask is ignored
-   (it tracks update history, not output). `--regen` rewrites goldens from
-   the cpp dump.
+   fingerprint (`co_sum`, `co_sqsum`); the spatial `flag`, `id` and
+   `unique_verts` fields are ignored — they are tree bookkeeping (update
+   history, node numbering, per-leaf vertex partition) that changes with the
+   build strategy without moving a vertex. Leaf count, AABBs and tri counts
+   still gate. `--regen` rewrites goldens from the cpp dump with those keys
+   stripped, so a golden holds exactly what it gates.
 3. **Real GPU** (`webgpu-verify`) — `debug_app --gpu-capture` records the
    exact per-binding bytes, then `tests/webgpu/replay.mjs` replays through
    Dawn (software Vulkan, headless) and compares the readback bit-exact.

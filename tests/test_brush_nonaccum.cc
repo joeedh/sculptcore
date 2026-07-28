@@ -187,8 +187,8 @@ int main()
 
   // (e) Envelope retention. A moving non-accum stroke (left to right across the
   // +Z face): mid-path verts get their full push while the brush is over them,
-  // then later dabs only cover them weakly. The additive layer accumulator only
-  // ever grows toward the cap; without it each later dab rewrites live from
+  // then later dabs only cover them weakly. The additive accumulator only ever
+  // adds, so the push is retained; without it each later dab rewrites live from
   // base with its (fading) falloff and the trailing edge snaps back (~10% of
   // the full push instead of ~100%).
   {
