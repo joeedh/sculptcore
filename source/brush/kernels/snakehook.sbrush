@@ -1,8 +1,18 @@
-// Snake hook — drag like Grab, then gather the dragged geometry toward the
-// advancing brush center so it pulls out into a thin hook instead of a
-// blunt bump. `grabFrom` is the current dab center and `grabTo` the per-dab
-// displacement (set by applyGrabDabState), so `grabFrom + grabTo` is the
-// next center the trailing geometry leans toward.
+// Snake hook — drag geometry along the stroke like Grab, with an optional
+// pinch that thins the hook (or, negated, inflates it) as it is pulled out.
+// `grabFrom` is the current dab center and `grabTo` the per-dab displacement —
+// both set by the host before each dab. A host that leaves them at their
+// defaults drags by nothing and pinches around the object origin.
+//
+// The pinch mirrors Blender's do_snake_hook_brush (calc_pinch_influence): the
+// vert's offset from the dab center, taken *perpendicular* to the drag axis so
+// pinching narrows the hook without shortening it, scaled by
+// `pinch * |grabTo| / radius`. Tying it to the drag length keeps the total
+// pinch over a stroke independent of dab spacing. Positive `pinch` pulls in
+// toward the axis, negative pushes out (which helps maintain volume), 0 is off
+// — matching the pinch/sharp kernels, where 0 also means off. Blender spells
+// the same control as `crease_pinch_factor`: 0..1, neutral at 0.5, pinching
+// below it; the host remaps that to this signed amount as 2 * (0.5 - factor).
 
 @brush("snakehook")
 // `grabTo` is the step since the last dab, not an absolute stroke drag, so a
@@ -12,16 +22,41 @@
 brush Snakehook {
   ctx float3 grabFrom, grabTo;
   uniform float radius;
+  // Signed pinch amount; host-set per stroke, never device-driven (Blender's
+  // snake hook takes no pressure on it).
+  uniform float pinch @static;
 
   vertex void apply(inout Vertex v) {
     float fall = strength(v.co) * masks();
     if (fall == 0.0) {
       continue;
     }
+    // Both terms are measured from the pre-drag position, as vanilla does
+    // (it sums translations and deforms once).
+    float3 co = v.co;
     // Drag along the stroke direction.
     v.co += grabTo * fall;
-    // Gather toward the advancing center to form the hook.
-    float3 center = grabFrom + grabTo;
-    v.co += (center - v.co) * (fall * 0.25);
+
+    float dragLen = length(grabTo);
+    float amount = pinch * dragLen / radius;
+    if (amount == 0.0) {
+      continue;
+    }
+    // Offset from the dab center, evaluated at the grabbed location (vanilla
+    // deliberately ignores the falloff fade here), minus its component along
+    // the drag axis.
+    float3 d = co - grabFrom + grabTo;
+    float lenSq = dragLen * dragLen;
+    if (lenSq > 1e-12) {
+      d -= grabTo * (dot(d, grabTo) / lenSq);
+    }
+    float fade = amount * fall;
+    if (amount > 0.0) {
+      // Squared taper near the axis, so pinching cannot collapse the hook
+      // into nothing.
+      float t = min(1.0, length(d) / radius);
+      fade *= t * t;
+    }
+    v.co -= d * fade;
   }
 }

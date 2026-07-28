@@ -4739,6 +4739,7 @@ struct BrushUniforms {
   coord_space: u32,
   tex_repeat: f32,
   stroke_path_count: u32,
+  pinch: f32,
 };
 
 struct CtxUniforms {
@@ -4957,9 +4958,24 @@ fn main(
   if ((fall == 0.0)) {
     return;
   }
+  var co: vec3<f32> = v_co;
   v_co += (ctx_u.grabTo * fall);
-  var center: vec3<f32> = (ctx_u.grabFrom + ctx_u.grabTo);
-  v_co += (((center - v_co)) * ((fall * 0.25)));
+  var dragLen: f32 = length(ctx_u.grabTo);
+  var amount: f32 = ((brush_u.pinch * dragLen) / brush_u.radius);
+  if ((amount == 0.0)) {
+    return;
+  }
+  var d: vec3<f32> = ((co - ctx_u.grabFrom) + ctx_u.grabTo);
+  var lenSq: f32 = (dragLen * dragLen);
+  if ((lenSq > 9.9999999999999998e-13)) {
+    d -= (ctx_u.grabTo * ((dot(d, ctx_u.grabTo) / lenSq)));
+  }
+  var fade: f32 = (amount * fall);
+  if ((amount > 0.0)) {
+    var t: f32 = min(1.0, (length(d) / brush_u.radius));
+    fade *= (t * t);
+  }
+  v_co -= (d * fade);
 
   co_buf[sb_vidx] = v_co;
   no_buf[sb_vidx] = v_no;

@@ -65,9 +65,24 @@ static void snakehook(CommandCtx<TYPES> &ctx)
     if ((fall == 0.0f)) {
       continue;
     }
+    float3 co = v.co;
     v.co += (ctx.brush.grabTo * fall);
-    float3 center = (ctx.brush.grabFrom + ctx.brush.grabTo);
-    v.co += (((center - v.co)) * ((fall * 0.25f)));
+    float dragLen = (ctx.brush.grabTo).length();
+    float amount = ((ctx.brush.pinch * dragLen) / ctx.brush.radius);
+    if ((amount == 0.0f)) {
+      continue;
+    }
+    float3 d = ((co - ctx.brush.grabFrom) + ctx.brush.grabTo);
+    float lenSq = (dragLen * dragLen);
+    if ((lenSq > 9.9999999999999998e-13f)) {
+      d -= (ctx.brush.grabTo * (((d).dot(ctx.brush.grabTo) / lenSq)));
+    }
+    float fade = (amount * fall);
+    if ((amount > 0.0f)) {
+      float t = std::min(1.0f, ((d).length() / ctx.brush.radius));
+      fade *= (t * t);
+    }
+    v.co -= (d * fade);
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }
@@ -90,6 +105,7 @@ static void createSnakehookBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPost = snakehookPost<TYPES>;
   def.accumulable = false;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"pinch", true, false, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
     if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);
   };
