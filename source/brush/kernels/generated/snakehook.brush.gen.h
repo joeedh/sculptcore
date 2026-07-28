@@ -104,6 +104,7 @@ static void createSnakehookBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.exec     = snakehook<TYPES, AccMode>;
   def.execPost = snakehookPost<TYPES>;
   def.accumulable = false;
+  def.incremental = true;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"pinch", true, false, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {

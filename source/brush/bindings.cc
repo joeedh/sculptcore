@@ -25,6 +25,18 @@ const BindingBase *Binder<sculptcore::brush::FalloffShape>::bind()
   e->addItem("BOX", FalloffShape::Box);
   return e;
 }
+const BindingBase *Binder<sculptcore::brush::AttrElemDomain>::bind()
+{
+  using namespace sculptcore::brush;
+  types::Enum *e =
+      new types::Enum("sculptcore::brush::AttrElemDomain", sizeof(AttrElemDomain));
+
+  e->addItem("VERTEX", AttrElemDomain::Vertex);
+  e->addItem("FACE", AttrElemDomain::Face);
+  e->addItem("EDGE", AttrElemDomain::Edge);
+  e->addItem("CORNER", AttrElemDomain::Corner);
+  return e;
+}
 const BindingBase *Binder<sculptcore::brush::TexCoordSpace>::bind()
 {
   using namespace sculptcore::brush;
@@ -47,6 +59,9 @@ void registerBindings(litestl::binding::BindingManager &manager)
   manager.add(Bind<BrushProgram>());
   manager.add(Bind<CommandExecutor>());
   manager.add(Bind<BrushUniformManifestEntry>());
+  manager.add(Bind<BrushAttrManifestEntry>());
+  manager.add(Bind<BrushDefFlags>());
+  manager.add(Bind<BrushMetadata>());
   manager.add(Bind<util::Vector<spatial::SpatialNode *>>());
 }
 } // namespace sculptcore::brush::bindings

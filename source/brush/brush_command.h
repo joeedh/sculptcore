@@ -33,6 +33,15 @@ using litestl::math::mat4;
 // compiler-side sbrush::AttrDomain — kept separate so the runtime never depends
 // on the DSL compiler headers).
 enum class AttrElemDomain : int { Vertex, Face, Edge, Corner };
+} // namespace sculptcore::brush
+
+namespace litestl::binding {
+template <> struct Binder<sculptcore::brush::AttrElemDomain> {
+  static const BindingBase *bind();
+};
+} // namespace litestl::binding
+
+namespace sculptcore::brush {
 
 // Codegen-emitted descriptor of one attribute a kernel touches.
 struct BrushAttrManifestEntry {
@@ -41,6 +50,68 @@ struct BrushAttrManifestEntry {
   mesh::AttrType type = mesh::AttrType::FLOAT;
   AttrElemDomain domain = AttrElemDomain::Vertex;
   bool write = false;                            // writes => ensure materialized
+  // DSL `@use(<category>)`: the mesh::AttrUse bit a host retargets this handle
+  // by (0 = untagged / engine-internal). Only meaningful when boundName is
+  // empty — a fixed layer name is not retargetable.
+  int use = 0;
+
+  // Bound read-only so the TS bridge can enumerate a kernel's attr manifest by
+  // index and retarget each retargetable handle at the active layer for its
+  // `use` category. Returned by pointer from CommandExecutor::queriedAttrEntry,
+  // never marshalled by value.
+  static litestl::binding::types::Struct<BrushAttrManifestEntry> *defineBindings()
+  {
+    using namespace litestl::binding;
+    types::Struct<BrushAttrManifestEntry> *st =
+        new types::Struct<BrushAttrManifestEntry>(
+            "sculptcore::brush::BrushAttrManifestEntry",
+            sizeof(BrushAttrManifestEntry));
+    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+    BIND_STRUCT_MEMBER(st, handle);
+    BIND_STRUCT_MEMBER(st, boundName);
+    BIND_STRUCT_MEMBER(st, type);
+    BIND_STRUCT_MEMBER(st, domain);
+    BIND_STRUCT_MEMBER(st, write);
+    BIND_STRUCT_MEMBER(st, use);
+    return st;
+  }
+};
+
+// Host-visible summary of one kernel's codegen-set policy bits, queried by tool
+// id without building a stroke. Every field is derived from the kernel's
+// BrushCommandDef / attr manifest, so a host never hardcodes per-brush
+// conditionals. See documentation/plans/brushMetadataToTS-2026-07-28.md.
+struct BrushDefFlags {
+  bool needsCoPrev = false;
+  bool accumulable = false;
+  bool relaxesBase = false;
+  bool grabModeCapable = false;
+  bool unbounded = false;
+  bool incremental = false;
+  bool writesMask = false;
+  bool writesColor = false;
+  bool faceMode = false;
+  bool readsVclass = false;
+
+  static litestl::binding::types::Struct<BrushDefFlags> *defineBindings()
+  {
+    using namespace litestl::binding;
+    types::Struct<BrushDefFlags> *st =
+        new types::Struct<BrushDefFlags>("sculptcore::brush::BrushDefFlags",
+                                         sizeof(BrushDefFlags));
+    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+    BIND_STRUCT_MEMBER(st, needsCoPrev);
+    BIND_STRUCT_MEMBER(st, accumulable);
+    BIND_STRUCT_MEMBER(st, relaxesBase);
+    BIND_STRUCT_MEMBER(st, grabModeCapable);
+    BIND_STRUCT_MEMBER(st, unbounded);
+    BIND_STRUCT_MEMBER(st, incremental);
+    BIND_STRUCT_MEMBER(st, writesMask);
+    BIND_STRUCT_MEMBER(st, writesColor);
+    BIND_STRUCT_MEMBER(st, faceMode);
+    BIND_STRUCT_MEMBER(st, readsVclass);
+    return st;
+  }
 };
 
 // Codegen-emitted descriptor of one `uniform` a kernel declares. The executor
@@ -338,10 +409,11 @@ template <typename CTX> struct BrushCommandDef {
   // @unbounded (anchored field), for which from-base re-derivation is
   // meaningless. Eligible for non-accumulate mode; see plans/nonAccumMode.md.
   bool accumulable = false;
-  // Set by codegen from `@relaxation`: the kernel relaxes the surface instead of
-  // displacing it, so it must not contribute to `.brush.disp.vec`. The executor
-  // keeps it on AccumLive even in a non-accumulate stroke — reading and writing
-  // the live surface is exactly "move co, leave disp alone".
+  // Set by codegen from `@relaxation`: the kernel relaxes the field it edits
+  // toward a neighborhood mean instead of displacing it, so it must not
+  // contribute to `.brush.disp.vec`. The executor keeps it on AccumLive even in a
+  // non-accumulate stroke — reading and writing the live surface is exactly "move
+  // co, leave disp alone". Hosts also read it as "inverting this diverges".
   bool relaxesBase = false;
   // Set by codegen from `@grabmode`: the kernel *can* run the grab policy. Says
   // nothing about whether it does — that is the stroke's business, not the
@@ -351,6 +423,17 @@ template <typename CTX> struct BrushCommandDef {
   // its own, only `unboundedWindow`'s cutoff at R = radius * unboundedExtent.
   // The executor floors the node-filter radius at R (`filterRadiusFloor`).
   bool unbounded = false;
+  // Set by codegen from `@incremental`: a stage input is a per-dab delta rather
+  // than an absolute stroke quantity, so the host must feed a step-since-last-dab
+  // rather than an anchor-relative drag. Implies !accumulable, but the converse
+  // does not hold — @paint and @unbounded also clear accumulable.
+  bool incremental = false;
+  // Set by codegen when the kernel declares a `face` stage: it is dispatched
+  // per-face rather than per-vertex.
+  bool faceMode = false;
+  // Set by codegen when a stage assigns `v.mask`. `mask` is a builtin Vertex
+  // field, not an `attr`, so it leaves no entry in `attrs` to key off.
+  bool writesMask = false;
   // Set by the executor: this stroke deforms from the stroke-start position with
   // the AccumOrigGrab policy + a fixed region, independent of the ACCUMULATE flag
   // (#35). Drives the `.brush.disp.*` + `.brush.dab.gen` stamps even when

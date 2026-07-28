@@ -306,11 +306,21 @@ dispatches the `SculptBrushes` enum to the matching factory. At runtime
 kernel through a vertex-iterator factory. Codegen is
 `node make.mjs codegen`; cross-backend correctness is gated by
 `sbrush-validate` (per-backend compile) and `sbrush-verify` (C++ vs GPU
-A/B, bit-for-bit modulo fp). Three docs cover it:
+A/B, bit-for-bit modulo fp). Four docs cover it:
 [`documentation/brush.md`](documentation/brush.md) (runtime),
 [`documentation/brush_dsl.md`](documentation/brush_dsl.md) (the language),
-and [`documentation/brush_compute.md`](documentation/brush_compute.md)
-(compiler, build wiring, verification).
+[`documentation/brush_compute.md`](documentation/brush_compute.md)
+(compiler, build wiring, verification), and
+[`documentation/strokeDriverGuide.md`](documentation/strokeDriverGuide.md) (the
+host-side contract: what a driver must do around `applyDab` for correct undo,
+symmetry, grab/anchored, dyntopo and preview).
+
+Per-kernel **policy is engine-owned, not host-owned**: the sbrush annotations
+(`@grabmode`, `@unbounded`, `@incremental`, `@relaxation`, `attr … @use(...)`)
+are reflected out through the stateless `BrushMetadata` binding
+(`queryBrushFlags` / `queryAttrManifest` / `queriedAttrEntry`, plus
+`CommandExecutor::filterRadiusFloor`). Hosts query it instead of branching on a
+tool name — adding a brush must not require editing a host conditional.
 
 ## Debugging
 

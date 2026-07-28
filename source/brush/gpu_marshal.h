@@ -29,8 +29,10 @@ struct Brush;
  * a dispatcher (Vulkan, wgpu-native, or the TS WebGPU path) uploads these
  * blobs verbatim and never re-derives the layout. */
 
-/** Per-tool GPU kernel capabilities. `kernel` is the .wgsl / .spv stem;
- * `accumulable` mirrors brush_command (neither @paint nor @unbounded). */
+/** Per-tool GPU kernel capabilities. `kernel` is the .wgsl / .spv stem — the one
+ * hand-written field. Every bool below is derived from the kernel's own
+ * BrushCommandDef (brushDefFlagsFor), so it cannot drift from the CPU
+ * executor's view of the same kernel. */
 struct GpuKernelInfo {
   SculptBrushes tool = SculptBrushes::DRAW;
   const char *kernel = nullptr;

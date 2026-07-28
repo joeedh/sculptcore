@@ -1,9 +1,4 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {UniformBindTypeMap} from './UniformBindTypeMap'
-import {getTypeSymbol} from '@litestl/typescript-runtime'
-import type {float3} from '../../litestl/math/float3'
-import type {GPUType} from './GPUType'
-
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -20,11 +15,9 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface UniformDef<T, K extends keyof UniformBindTypeMap> {
-  [Symbol.dispose](): void
-  readonly [getTypeSymbol]: K
-  name: string
-  type: GPUType
-  elemSize: int32
-  defaultValue: UniformBindTypeMap[K]
+export enum AttrElemDomain {
+  VERTEX = 0,
+  FACE = 1,
+  EDGE = 2,
+  CORNER = 3,
 }

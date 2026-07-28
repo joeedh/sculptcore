@@ -2,6 +2,7 @@
 
 #include "automask.h"
 #include "brush/brush.h"
+#include "brush/brush_executor.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/triangulate.h"
@@ -20,42 +21,66 @@ namespace sculptcore::brush {
 using litestl::math::float3;
 using litestl::util::Vector;
 
-/** Tool -> kernel capability map. One table for every dispatcher (debug app +
- * app seam); add a row here to light a brush up on the GPU. */
-static const GpuKernelInfo kGpuKernels[] = {
-    {.tool = SculptBrushes::DRAW, .kernel = "draw", .accumulable = true},
-    {.tool = SculptBrushes::TEXDRAW, .kernel = "texdraw", .accumulable = true},
+/** Tool -> WGSL/SPIR-V kernel stem. This is the only irreducible half of the GPU
+ * kernel map: which tools have a GPU port, and under what kernel name. Every
+ * capability bit is derived from the kernel's own BrushCommandDef below, so
+ * lighting a brush up on the GPU is one row here and nothing else. */
+struct GpuKernelName {
+  SculptBrushes tool;
+  const char *kernel;
+};
+
+static const GpuKernelName kGpuKernels[] = {
+    {SculptBrushes::DRAW, "draw"},
+    {SculptBrushes::TEXDRAW, "texdraw"},
     // Clay family all runs the `plane` kernel (planeoff/planeSide select the
     // variant), mirroring brush_executor's createPlaneBrush dispatch.
-    {.tool = SculptBrushes::CLAY, .kernel = "plane", .accumulable = true},
-    {.tool = SculptBrushes::SCRAPE, .kernel = "plane", .accumulable = true},
-    {.tool = SculptBrushes::FILL, .kernel = "plane", .accumulable = true},
-    {.tool = SculptBrushes::INFLATE, .kernel = "inflate", .accumulable = true},
-    {.tool = SculptBrushes::PINCH, .kernel = "pinch", .accumulable = true},
-    {.tool = SculptBrushes::SHARP, .kernel = "sharp", .accumulable = true},
-    {.tool = SculptBrushes::MASK, .kernel = "mask", .writesMask = true},
-    {.tool = SculptBrushes::SMOOTH,
-     .kernel = "smooth",
-     .needsNeighbors = true,
-     .accumulable = true},
-    {.tool = SculptBrushes::KELVINLET, .kernel = "kelvinlet", .grabMode = true},
-    {.tool = SculptBrushes::GRAB, .kernel = "grab", .grabMode = true},
-    {.tool = SculptBrushes::POSE, .kernel = "pose"},
-    {.tool = SculptBrushes::COLOR, .kernel = "color", .writesColor = true},
-    {.tool = SculptBrushes::POLYGROUP, .kernel = "polygroup", .faceMode = true},
-    {.tool = SculptBrushes::BSMOOTH,
-     .kernel = "bsmooth",
-     .needsNeighbors = true,
-     .accumulable = true,
-     .readsVclass = true},
+    {SculptBrushes::CLAY, "plane"},
+    {SculptBrushes::SCRAPE, "plane"},
+    {SculptBrushes::FILL, "plane"},
+    {SculptBrushes::INFLATE, "inflate"},
+    {SculptBrushes::PINCH, "pinch"},
+    {SculptBrushes::SHARP, "sharp"},
+    {SculptBrushes::MASK, "mask"},
+    {SculptBrushes::SMOOTH, "smooth"},
+    {SculptBrushes::KELVINLET, "kelvinlet"},
+    {SculptBrushes::GRAB, "grab"},
+    {SculptBrushes::POSE, "pose"},
+    {SculptBrushes::COLOR, "color"},
+    {SculptBrushes::POLYGROUP, "polygroup"},
+    {SculptBrushes::BSMOOTH, "bsmooth"},
     // ENHANCE is intentionally absent — its per-vertex displacement is computed
     // by a host ring-BFS pre-pass (enhance.h), so it runs CPU-only like
     // FEATURE_ALIGN (which is likewise not in this GPU kernel map).
 };
 
+static constexpr size_t kGpuKernelCount =
+    sizeof(kGpuKernels) / sizeof(kGpuKernels[0]);
+
 const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool)
 {
-  for (const GpuKernelInfo &k : kGpuKernels) {
+  // Static storage, not a Vector: the returned pointer must outlive every
+  // caller, and a heap table would still be live at the leak check tests run
+  // from main. Filled once from the kernels' own codegen-set metadata.
+  static GpuKernelInfo infos[kGpuKernelCount];
+  [[maybe_unused]] static const bool inited = []() {
+    for (size_t i = 0; i < kGpuKernelCount; i++) {
+      const BrushDefFlags flags = brushDefFlagsFor(kGpuKernels[i].tool);
+      GpuKernelInfo &info = infos[i];
+      info.tool = kGpuKernels[i].tool;
+      info.kernel = kGpuKernels[i].kernel;
+      info.needsNeighbors = flags.needsCoPrev;
+      info.writesMask = flags.writesMask;
+      info.writesColor = flags.writesColor;
+      info.accumulable = flags.accumulable;
+      info.readsVclass = flags.readsVclass;
+      info.faceMode = flags.faceMode;
+      info.grabMode = flags.grabModeCapable;
+    }
+    return true;
+  }();
+
+  for (const GpuKernelInfo &k : infos) {
     if (k.tool == tool) {
       return &k;
     }

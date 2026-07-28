@@ -88,7 +88,7 @@ static void createEnhanceBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.exec     = enhance<TYPES, AccMode>;
   def.execPost = enhancePost<TYPES>;
   def.accumulable = true;
-  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"edisp", ".brush.enhance.disp", sculptcore::mesh::AttrType::FLOAT3, sculptcore::brush::AttrElemDomain::Vertex, true});
+  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"edisp", ".brush.enhance.disp", sculptcore::mesh::AttrType::FLOAT3, sculptcore::brush::AttrElemDomain::Vertex, true, 0});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
   };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {

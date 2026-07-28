@@ -312,6 +312,7 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
     BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
     BIND_STRUCT_METHOD(st, queriedUniformEntry, MARGS("idx"));
+    BIND_STRUCT_METHOD(st, filterRadiusFloor, MARGS("brushType"));
     BIND_STRUCT_METHOD(st, clearUniformDynamics, MARGS("idx"));
     BIND_STRUCT_METHOD(
         st, addUniformDynamic, MARGS("idx", "deviceType", "mixMode", "mixFactor"));
@@ -404,6 +405,105 @@ struct CommandExecutor {
     return BasicFaceIter(node, *this);
   }
 
+  /** Type-dispatch half of createCommandImpl, stateless so `queryBrushFlags` can
+   * reach a kernel's manifest without a live stroke. `brushOrNull` is only used
+   * by the extra-kernel registry (uniform defaults); a null one just means extra
+   * kernels report unhandled. Returns false when `brushType` matched nothing. */
+  template <class AccMode>
+  static bool createCommandSwitch(SculptBrushes brushType,
+                                  bool csrNeighbors,
+                                  Brush *brushOrNull,
+                                  brush_command &def)
+  {
+    switch (brushType) {
+    case SculptBrushes::DRAW:
+      command::createDrawBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::INFLATE:
+      command::createInflateBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::CLAY:
+    case SculptBrushes::SCRAPE:
+    case SculptBrushes::FILL:
+      // Clay-family plane brushes share one kernel; the bridge sets
+      // planeoff/planeSide per tool to select build-up / cut / fill.
+      command::createPlaneBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::WINGSCRAPE:
+      command::createWingscrapeBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::PINCH:
+      command::createPinchBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::SHARP:
+      command::createSharpBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::MASK:
+      command::createMaskBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::SMOOTH:
+      if (csrNeighbors) {
+        command::createSmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
+      } else {
+        command::createSmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
+      }
+      return true;
+    case SculptBrushes::KELVINLET:
+      command::createKelvinletBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::GRAB:
+      command::createGrabBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::SNAKEHOOK:
+      command::createSnakehookBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::POSE:
+      command::createPoseBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::TEXDRAW:
+      command::createTexdrawBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::COLOR:
+      command::createColorBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::POLYGROUP:
+      command::createPolygroupBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::BSMOOTH:
+      if (csrNeighbors) {
+        command::createBsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
+      } else {
+        command::createBsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
+      }
+      return true;
+    case SculptBrushes::COLORSMOOTH:
+      if (csrNeighbors) {
+        command::createColorsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
+      } else {
+        command::createColorsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
+      }
+      return true;
+    case SculptBrushes::FEATURE_ALIGN:
+      // Always live-disk: the C++ cross-field pre-pass (updateCrossFieldRegion)
+      // walks the vertex disk, so topology is thawed regardless of neighborMode.
+      command::createFeaturealignBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
+      return true;
+    case SculptBrushes::LAYERDRAW:
+      command::createLayerdrawBrush<CommandExecutor, AccMode>(def);
+      return true;
+    case SculptBrushes::ENHANCE:
+      // Not a for_neighbor kernel: it applies the host pre-pass's cached
+      // .brush.enhance.disp, so no neighbor-source template.
+      command::createEnhanceBrush<CommandExecutor, AccMode>(def);
+      return true;
+    default:
+      // Extra (out-of-repo) kernels dispatch through the generated registry;
+      // a no-op fallback compiles in when no extra kernel dirs are configured.
+      return brushOrNull && command::createExtraBrush<CommandExecutor, AccMode>(
+                                int(brushType), csrNeighbors, *brushOrNull, def);
+    }
+  }
+
   /** Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
    * calls this once for AccumLive, then again for AccumOrig when non-accumulate
    * is active and the brush is accumulable — the second call overwrites def.exec
@@ -411,97 +511,12 @@ struct CommandExecutor {
   template <class AccMode>
   void createCommandImpl(SculptBrushes brushType, brush_command &def)
   {
-    switch (brushType) {
-    case SculptBrushes::DRAW:
-      command::createDrawBrush<CommandExecutor, AccMode>(def);
+    if (createCommandSwitch<AccMode>(
+            brushType, effectiveNeighborMode() == NeighborMode::Csr, brush, def)) {
       return;
-    case SculptBrushes::INFLATE:
-      command::createInflateBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::CLAY:
-    case SculptBrushes::SCRAPE:
-    case SculptBrushes::FILL:
-      // Clay-family plane brushes share one kernel; the bridge sets
-      // planeoff/planeSide per tool to select build-up / cut / fill.
-      command::createPlaneBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::WINGSCRAPE:
-      command::createWingscrapeBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::PINCH:
-      command::createPinchBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::SHARP:
-      command::createSharpBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::MASK:
-      command::createMaskBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::SMOOTH:
-      if (effectiveNeighborMode() == NeighborMode::Csr) {
-        command::createSmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
-      } else {
-        command::createSmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      }
-      return;
-    case SculptBrushes::KELVINLET:
-      command::createKelvinletBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::GRAB:
-      command::createGrabBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::SNAKEHOOK:
-      command::createSnakehookBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::POSE:
-      command::createPoseBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::TEXDRAW:
-      command::createTexdrawBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::COLOR:
-      command::createColorBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::POLYGROUP:
-      command::createPolygroupBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::BSMOOTH:
-      if (effectiveNeighborMode() == NeighborMode::Csr) {
-        command::createBsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
-      } else {
-        command::createBsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      }
-      return;
-    case SculptBrushes::COLORSMOOTH:
-      if (effectiveNeighborMode() == NeighborMode::Csr) {
-        command::createColorsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
-      } else {
-        command::createColorsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      }
-      return;
-    case SculptBrushes::FEATURE_ALIGN:
-      // Always live-disk: the C++ cross-field pre-pass (updateCrossFieldRegion)
-      // walks the vertex disk, so topology is thawed regardless of neighborMode.
-      command::createFeaturealignBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      return;
-    case SculptBrushes::LAYERDRAW:
-      command::createLayerdrawBrush<CommandExecutor, AccMode>(def);
-      return;
-    case SculptBrushes::ENHANCE:
-      // Not a for_neighbor kernel: it applies the host pre-pass's cached
-      // .brush.enhance.disp, so no neighbor-source template.
-      command::createEnhanceBrush<CommandExecutor, AccMode>(def);
-      return;
-    default:
-      // Extra (out-of-repo) kernels dispatch through the generated registry;
-      // a no-op fallback compiles in when no extra kernel dirs are configured.
-      if (command::createExtraBrush<CommandExecutor, AccMode>(
-              int(brushType), effectiveNeighborMode() == NeighborMode::Csr, *brush, def)) {
-        return;
-      }
-      printf("Unknown brush type %d\n", static_cast<int>(brushType));
-      abort();
     }
+    printf("Unknown brush type %d\n", static_cast<int>(brushType));
+    abort();
   }
 
   brush_command createCommand(SculptBrushes brushType)
@@ -518,13 +533,15 @@ struct CommandExecutor {
       // image via setGrabAccumAdd, which advances the per-dab generation on the
       // primary.
       def.grabMode = true;
-      /* The second impl call re-appends the same uniform manifest — clear it
-         first or grab-class brushes report every uniform twice (wave-5
-         queryUniformManifest, the TS dynamics UI). */
+      /* The second impl call re-appends the same uniform + attr manifests —
+         clear them first or grab-class brushes report every entry twice (the
+         wave-5 queryUniformManifest / queryAttrManifest bridge). */
       def.uniforms = decltype(def.uniforms)();
+      def.attrs = decltype(def.attrs)();
       createCommandImpl<AccumOrigGrab>(brushType, def);
     } else if (nonAccum && def.accumulable && !def.relaxesBase) {
       def.uniforms = decltype(def.uniforms)();
+      def.attrs = decltype(def.attrs)();
       createCommandImpl<AccumOrig>(brushType, def);
     }
     return def;
@@ -2010,4 +2027,102 @@ inline bool grabClaimFirstTouch(const CommandExecutor &exec, int v)
   (*dabGen)[v] = int(exec.ctx.curDabGen);
   return true;
 }
+
+/** Build a kernel's BrushCommandDef without a live stroke. csrNeighbors=false and
+ * no Brush: the manifest and the flags are identical for both neighbor policies,
+ * and extra kernels (which do need a Brush for their uniform defaults) report
+ * unhandled rather than reaching for stroke state. False when unhandled. */
+inline bool buildBrushDef(SculptBrushes brushType,
+                          CommandExecutor::brush_command &def)
+{
+  return CommandExecutor::createCommandSwitch<AccumLive>(
+      brushType, false, nullptr, def);
+}
+
+/** A kernel's codegen-set policy bits, queried by tool id without a live stroke.
+ * All-false for an unknown or out-of-repo (extra) kernel. */
+inline BrushDefFlags brushDefFlagsFor(SculptBrushes brushType)
+{
+  BrushDefFlags flags;
+  CommandExecutor::brush_command def;
+  if (!buildBrushDef(brushType, def)) {
+    return flags;
+  }
+  flags.needsCoPrev = def.needsCoPrev;
+  flags.accumulable = def.accumulable;
+  flags.relaxesBase = def.relaxesBase;
+  flags.grabModeCapable = def.grabModeCapable;
+  flags.unbounded = def.unbounded;
+  flags.incremental = def.incremental;
+  flags.writesMask = def.writesMask;
+  flags.faceMode = def.faceMode;
+  for (const auto &a : def.attrs) {
+    if (a.write && (a.use & int(mesh::AttrUse::COLOR))) {
+      flags.writesColor = true;
+    }
+    if (a.boundName.operator==(util::string(".boundary.vert.class"))) {
+      flags.readsVclass = true;
+    }
+  }
+  return flags;
+}
+
+/**
+ * Stateless query object for a kernel's codegen-set metadata. Default-constructible
+ * and stroke-independent (unlike CommandExecutor, which needs a spatial tree and a
+ * live Brush), so a host can ask about any tool before — or without — a stroke and
+ * drive its dab shaping / GPU kernel choice off the answer instead of a per-brush
+ * conditional. Everything is addressed by index: the binding runtime can't marshal
+ * a JS string into a `util::string` method arg.
+ */
+struct BrushMetadata {
+  Vector<BrushAttrManifestEntry> queriedAttrs;
+  // Result slots — the binding runtime hands bound structs back by pointer, so
+  // the values have to outlive the call.
+  BrushDefFlags queriedFlags;
+
+  static litestl::binding::types::Struct<BrushMetadata> *defineBindings()
+  {
+    using namespace litestl::binding;
+    types::Struct<BrushMetadata> *st = new types::Struct<BrushMetadata>(
+        "sculptcore::brush::BrushMetadata", sizeof(BrushMetadata));
+    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+    BIND_STRUCT_METHOD(st, queryAttrManifest, MARGS("brushType"));
+    BIND_STRUCT_METHOD(st, queriedAttrEntry, MARGS("idx"));
+    BIND_STRUCT_METHOD(st, queryBrushFlags, MARGS("brushType"));
+    return st;
+  }
+
+  /** Enumerate a kernel's declared attribute layers so a host can retarget each
+   * retargetable handle (empty boundName, non-zero `use`) at the mesh layer active
+   * for that AttrUse category. Returns the entry count. */
+  int queryAttrManifest(int brushType)
+  {
+    queriedAttrs.clear();
+    CommandExecutor::brush_command def;
+    if (!buildBrushDef(static_cast<SculptBrushes>(brushType), def)) {
+      return 0;
+    }
+    for (const auto &a : def.attrs) {
+      queriedAttrs.append(a);
+    }
+    return int(queriedAttrs.size());
+  }
+
+  BrushAttrManifestEntry *queriedAttrEntry(int idx)
+  {
+    if (idx < 0 || idx >= int(queriedAttrs.size())) {
+      return nullptr;
+    }
+    return &queriedAttrs[idx];
+  }
+
+  /** The kernel's policy bits. Valid until the next call; all-false for an
+   * unknown or out-of-repo (extra) kernel. */
+  BrushDefFlags *queryBrushFlags(int brushType)
+  {
+    queriedFlags = brushDefFlagsFor(static_cast<SculptBrushes>(brushType));
+    return &queriedFlags;
+  }
+};
 } // namespace sculptcore::brush
