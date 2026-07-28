@@ -120,6 +120,39 @@ Per-dab you only push raw device values (§4.2).
 
 Do these in order. The numbering matches `SculptPaintOp.applyDabOne`.
 
+### 4.0 Ask the engine for the kernel's policy — never hardcode the tool
+
+Everything a dab's shape depends on (grab discipline, unbounded field, whether
+invert is meaningful, which attribute layers to retarget) is declared by the
+kernel's `sbrush` annotations and reflected out through the stateless
+`BrushMetadata` handle. A driver must query it, not keep a tool-name list —
+otherwise every new brush needs a host edit, and the copies drift (that is how
+`pbvh_base` ended up silently omitting KELVINLET).
+
+```ts
+const meta = wasm.manager.construct('sculptcore::brush::BrushMetadata')
+const flags = meta.queryBrushFlags(brushType)     // BrushDefFlags, or undefined
+const n     = meta.queryAttrManifest(brushType)   // fills the query cache
+const entry = meta.queriedAttrEntry(i)            // BrushAttrManifestEntry
+```
+
+| Flag | sbrush source | What the driver does with it |
+|---|---|---|
+| `incremental` | `@incremental` | path-style grab: `grabFrom` = live center, `grabTo` = step since the last dab; **no** filter-radius latch (§4.4) |
+| `grabModeCapable` | `@grabmode` | from-orig anchored grab when the stroke declares `setAnchoredGrab(true)`; latched filter radius |
+| `unbounded` | `@unbounded` | filter at `radius * unboundedExtent`, not `radius` |
+| `relaxesBase` | `@relaxation` | ignore invert — an inverted relax-toward-the-mean kernel diverges |
+| `accumulable` | derived | the kernel honors `setNonAccum` (the GPU marshal reads it too) |
+| `needsCoPrev`, `writesMask`, `writesColor`, `faceMode`, `readsVclass` | derived | executor/GPU-marshal internals; a host rarely needs them |
+
+`isGrab` is just `incremental || grabModeCapable` — the two disciplines in §4.5.
+
+The answer is fixed for the life of the process (it is codegen output), so
+memoize it **by `SculptBrushes` value**, not on a per-stroke `Brush` handle.
+The TS bridge does this in `resolveDabPolicy` / `resolveToolDabPolicy`
+(`scripts/editors/view3d/tools/sculptcore_bindings.ts`), returning one
+`DabPolicy` that both exec paths and `pbvh_base` share.
+
 ### 4.1 Resolve the dab frame
 
 - **center / normal** — object-local. For a viewport driver: raycast the mesh
@@ -156,10 +189,25 @@ dynamics channel maps to them.
 `buildBrushProgram(prog, brushType, brush, radius, mesh)` composes:
 
 - the main kernel command;
-- for a paint tool, `setCommandAttrLayer(idx, 0, layer)` pointing the kernel's
-  declared attr handle at the user's active layer for that category (color /
-  polygroup / sculpt-layer). Skip it and the codegen falls back to
-  ensure-by-name, which will happily paint a *different* layer than the UI shows;
+- one `setCommandAttrLayer(cmdIdx, attrIdx, layer)` per **retargetable** attr
+  handle in the kernel's manifest (§4.0), pointing it at the mesh layer the user
+  has made active for that handle's `@use` category. Walk the manifest — do not
+  assume `attrIdx 0`:
+
+  ```ts
+  for (let attrIdx = 0; attrIdx < meta.queryAttrManifest(brushType); attrIdx++) {
+      const e = meta.queriedAttrEntry(attrIdx)
+      if (!e || e.use === 0 || e.boundName !== '') continue   // engine-internal
+      const layer = mesh.activeAttrLayerIndex(e.use)
+      if (layer >= 0) prog.setCommandAttrLayer(cmdIdx, attrIdx, layer)
+  }
+  ```
+
+  A non-empty `boundName` (a fixed layer name in the DSL) or `use == 0` means the
+  handle is engine-internal — leave it alone. Skip the retarget entirely and the
+  codegen falls back to ensure-by-name, which will happily paint a *different*
+  layer than the UI shows. Bind on **every** command in the program, including
+  each repeated smooth pass below;
 - for `autosmooth > 0`, a chained `BSMOOTH` command at strength `autosmooth`,
   never inverted;
 - for the dedicated smooth tools, N repeated passes rather than one high-strength
@@ -168,6 +216,10 @@ dynamics channel maps to them.
 Rebuilding the program every dab is fine and expected — it is a small command
 list, not a compilation.
 
+Invert (Ctrl-drag) is a host concern too: suppress it for a `relaxesBase`
+(`@relaxation`) kernel, and for the plane family express it by flipping the
+plane rather than negating strength.
+
 ### 4.4 The filter radius (the single most bug-prone parameter)
 
 `applyDab`'s `radius` argument is **not** the falloff radius. It is the
@@ -175,12 +227,14 @@ list, not a compilation.
 `brush->radius`. They differ, and the differences are where the tearing bugs
 live:
 
-- **`@unbounded` kernels** (kelvinlet) have no distance falloff of their own —
+- **`unbounded` kernels** (kelvinlet) have no distance falloff of their own —
   only a C1 window over `[0.8R, R]` with `R = radius * unboundedExtent`. Filter
   at the brush radius and the field is still live where the node set stops:
   visible tearing at leaf boundaries. The engine floors the filter at
-  `filterRadiusFloor(brushType)` for safety, but a host driving a widened region
-  should compute `fieldRadius = radius * unboundedExtent` itself.
+  `CommandExecutor::filterRadiusFloor(brushType)` for safety, but a host driving
+  a widened region should compute `fieldRadius = radius * unboundedExtent`
+  itself, gated on the queried `unbounded` flag — not on the tool being
+  kelvinlet.
 - **Grab-class dabs** must widen the filter by the cumulative drag length —
   the region has to cover both where verts *are* and where they move *to*:
   `filterRadius = fieldRadius + |anchorVec|`.
@@ -188,22 +242,25 @@ live:
   writes verts inside the filter; if the region shrinks (drag reversal), the
   verts it dropped keep their last displaced value and leave a stale ring.
   Latch a per-stroke high-water mark: `filterRadius = max(maxFilterRadius, filterRadius)`.
-- **Snake Hook is the exception**: it is `@incremental`, not `@grabmode`, its
-  dabs track the live surface, and the same radius also sizes the dyntopo dab.
-  Latching it pinned at the stroke's widest collapses edges well outside the dab.
-  Do **not** apply the high-water latch to Snake Hook.
+- **`incremental` kernels are the exception** (Snake Hook): they are not
+  from-orig grabs, their dabs track the live surface, and the same radius also
+  sizes the dyntopo dab. Latching one pinned at the stroke's widest collapses
+  edges well outside the dab. Apply the high-water latch only when
+  `grabModeCapable && !incremental`.
 
 ### 4.5 Grab-family per-dab vectors
 
-`isGrabTool` = grab, kelvinlet, snakehook. Two different disciplines:
+A grab-class dab is one whose policy (§4.0) reports `incremental ||
+grabModeCapable` — today grab, kelvinlet and snakehook, but the driver should
+never spell that list out. Two different disciplines:
 
-**Snake Hook (path-style, incremental):**
+**`incremental` — Snake Hook (path-style):**
 ```
 grabFrom = this dab's center          // live raycast surface
 grabTo   = center - prevDabCenter     // step since the last dab (zero on dab 0)
 ```
 
-**Grab / Kelvinlet (anchored, from-orig):**
+**`grabModeCapable` — Grab / Kelvinlet (anchored, from-orig):**
 ```
 grabFrom = the stroke anchor          // fixed for the whole stroke
 grabTo   = anchor → live cursor       // absolute drag, recomputed each dab
@@ -395,10 +452,11 @@ Work down this list when writing or reviewing a driver.
 - [ ] per-stroke state reset: prev dab centers, anchors, dyntopo `lastS`, filter high-water, GPU decision
 
 **Per dab**
+- [ ] dab shape driven by the queried `BrushDefFlags` / attr manifest, not a tool-name conditional
 - [ ] `writeProps()` after every props-backed scalar change
 - [ ] device inputs pushed
-- [ ] program rebuilt, attr layers bound for paint tools
-- [ ] filter radius ≥ field radius for `@unbounded`; widened by drag for grabs; latched monotonic for from-orig grabs only
+- [ ] program rebuilt; every retargetable manifest attr bound on every command
+- [ ] filter radius ≥ field radius when `unbounded`; widened by drag for grabs; latched monotonic for `grabModeCapable && !incremental` only
 - [ ] `grabFrom`/`grabTo` per the tool's discipline, per mirror image
 - [ ] `strokeDir` + `strokeDirHostSet`, and a **pinned** `viewDir` (or masking off)
 - [ ] dyntopo due decided on the primary image only; params configured before `applyDab`; incrementing seed
@@ -428,14 +486,19 @@ Work down this list when writing or reviewing a driver.
 | Anchored kelvinlet never builds up along a path | `setAnchoredGrab` left `true` for a path-mode stroke |
 | Smooth brush silently no-ops | LiveDisk neighbor mode on a mesh with no live disk links |
 | Multi-dab undo restores corrupt geometry | dabs applied outside `beginStep`/`endStep`, or `endDynTopoStroke()` after `endStep()` |
-| Paint lands on a different layer than the UI shows | `setCommandAttrLayer` not called; codegen fell back to ensure-by-name |
+| Paint lands on a different layer than the UI shows | `setCommandAttrLayer` not called (or not on every command / not at the manifest's `attrIdx`); codegen fell back to ensure-by-name |
+| A newly added brush behaves as a plain draw | the driver still branches on tool name somewhere instead of the queried policy |
+| Inverted smooth blows the surface apart | `relaxesBase` not honored — invert must be suppressed for `@relaxation` kernels |
 
 ---
 
 ## See also
 
 - [`brush_executor.md`](brush_executor.md) — executor internals
-- [`brush.md`](brush.md) / [`brush_dsl.md`](brush_dsl.md) — kernel authoring, `@grabmode` / `@unbounded` / `@incremental`
+- [`brush.md`](brush.md) / [`brush_dsl.md`](brush_dsl.md) — kernel authoring; the
+  `@grabmode` / `@unbounded` / `@incremental` / `@relaxation` annotations and the
+  `attr … @use(<category>)` syntax behind §4.0
+- [`plans/brushMetadataToTS-2026-07-28.md`](plans/brushMetadataToTS-2026-07-28.md) — how the metadata surface was built
 - [`meshlog.md`](meshlog.md) — the undo log
 - [`dynamic-topology.md`](dynamic-topology.md) — dyntopo internals
 - [`../../documentation/strokeDriverReport.md`](../../documentation/strokeDriverReport.md) — the TS driver's architecture
