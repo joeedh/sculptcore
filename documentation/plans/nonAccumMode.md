@@ -7,6 +7,11 @@
 > advects with the surface for free under dyntopo instead of needing the
 > delta-tracking of §5. See
 > [`../../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md`](../../../documentation/plans/2026-07-26-0909-brush-displacement-base-attribute.md).
+> **Layer-accumulator cap superseded (2026-07-20, `b106862`).** The
+> no-falloff height cap described under "Layer accumulator" below was removed;
+> `AccumOrig` write-back is now plain additive with no cap. See the note in
+> that section.
+>
 > Everything else here (the generation counter, the stamp pre-pass, the
 > `AccumMode` policy seam, the TS plumbing) is unchanged and still current.
 
@@ -127,6 +132,19 @@ New `source/brush/accum_mode.h` with two policies (default `AccumLive`):
 Proxy must support implicit `→ float3`, `operator+=`, `operator-=`, `operator=`
 (verified sufficient for draw / inflate / pinch / plane / sharp / smooth /
 bsmooth / texdraw / wingscrape).
+
+> **The cap below is superseded (2026-07-20, `b106862`).** The accumulator
+> stayed; the *height cap* went. `AccumOrig` write-back is now plain additive —
+> `d = want − base; live += d` (and the same `d` into `.brush.disp.vec`) — with
+> no clamp, i.e. Blender's "Accumulate off" without a height limit. So falloff
+> shapes the final displacement again rather than only the build-up rate, and
+> scrubbing keeps building instead of converging on a plateau (`repeat=16` is
+> 2× `repeat=8`). `dabFalloffFraction` and the `cap = max(|delta|/w, |acc|)`
+> arithmetic no longer exist on either the C++ or WGSL side. What survives from
+> the paragraph below is the reason the accumulator exists at all: envelope
+> retention on a moving stroke. Current code: `source/brush/accum_mode.h`
+> (`AccumKind {Live, Additive, Grab}`, `CoProxy<AccMode>::commit`); gated by
+> `tests/test_brush_nonaccum.cc`.
 
 **Layer accumulator (the moving-stroke fix + uniform build-up).** A bare
 overwrite-from-base snaps the trailing edge back: as the brush moves on, later

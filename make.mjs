@@ -1003,12 +1003,13 @@ function emitBrushWgslTs(sbrushc, kernelsDir, inputs) {
 const VERIFY_ATOL = 1e-5
 const VERIFY_RTOL = 1e-4
 
-// Dump keys excluded from the verify comparison. `flag` is a spatial-node
-// dirty/update bitmask (pending normals/bounds/GPU regen) that reflects
-// update *history* — e.g. it differs depending on whether an `undo`
-// preceded the stroke — not brush *output*. Equivalence here is about
-// geometry + topology + structure, so these transient fields are skipped.
-const VERIFY_IGNORE_KEYS = new Set(['flag'])
+// Dump keys excluded from the verify comparison, and stripped from goldens on
+// --regen so a golden holds exactly what it gates. All are spatial-node
+// bookkeeping rather than brush output: `flag` tracks update history (it differs
+// depending on whether an `undo` preceded the stroke), and `id`/`unique_verts`
+// are tree-construction details that change with the partitioning strategy
+// without moving a single vertex. Leaf count, AABBs and tri counts still gate.
+const VERIFY_IGNORE_KEYS = new Set(['flag', 'id', 'unique_verts'])
 
 // Recursively diff two parsed-JSON dump values. Returns an array of
 // human-readable mismatch strings (empty == equal). `path` tracks the
@@ -1044,6 +1045,24 @@ function diffDump(a, b, path = '') {
   }
   if (a !== b) out.push(`${path}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`)
   return out
+}
+
+// Deep copy of a parsed dump with VERIFY_IGNORE_KEYS removed — what --regen
+// writes, so a golden never carries a field the comparison would skip.
+function stripIgnoredKeys(v) {
+  if (Array.isArray(v)) {
+    return v.map(stripIgnoredKeys)
+  }
+  if (v && typeof v === 'object') {
+    const out = {}
+    for (const k of Object.keys(v)) {
+      if (!VERIFY_IGNORE_KEYS.has(k)) {
+        out[k] = stripIgnoredKeys(v[k])
+      }
+    }
+    return out
+  }
+  return v
 }
 
 function readDumpJson(p) {
@@ -1126,7 +1145,7 @@ async function sbrushVerify(regen) {
     // 2. golden regression.
     const goldenPath = `${goldenDir}/${brush}.json`
     if (regen) {
-      fs.copyFileSync(cppPath, goldenPath)
+      fs.writeFileSync(goldenPath, JSON.stringify(stripIgnoredKeys(cpp), null, 2) + '\n')
       regenerated++
       console.log(`↻ ${brush}: golden written`)
       continue

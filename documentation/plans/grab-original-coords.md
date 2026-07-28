@@ -62,7 +62,10 @@ and the grab dispatch in `scripts/editors/view3d/tools/sculptcore_ops.ts`
      flip it on in `kelvinlet.sbrush` (and verify snakehook stays as-is).
    - `AccumOrig` today has **Layer-brush accumulation** semantics (delta added to
      the running displacement, clamped to the no-falloff height — see the
-     `CoProxy` doc comment). That is *not* a grab: a grab wants the absolute
+     `CoProxy` doc comment). *(Stale as of `b106862`, 2026-07-20: the height cap
+     was removed, so `AccumOrig` is now plain additive. The argument here is
+     unaffected — additive-without-cap still isn't a grab.)* That is *not* a
+     grab: a grab wants the absolute
      `orig.co + disp(orig.co)` each dab. Decide between:
      - (a) a new accum policy `AccumOrigAbsolute` (reads orig, writes
        `orig + delta` with no layer cap), selected for grab-class brushes; or
@@ -148,6 +151,13 @@ Implementation:
   shared `OrigNbrBase` factors the neighbor lookup. `CoProxy::commit` dispatches
   on `AccMode::kind` (Layer keeps the capped accumulation; Absolute/Live write
   directly; Add sums).
+  - *Renamed since (`b106862`, 2026-07-20):* the enum is
+    `AccumKind {Live, Additive, Grab}` and the two from-original policies
+    collapsed to `AccumOrig` (Additive — the un-capped accumulator; Layer's cap
+    was removed) and `AccumOrigGrab` (Grab — the absolute/add pair, now one
+    policy that picks re-base vs add per vertex from the `.brush.dab.gen`
+    first-touch stamp rather than from two separate instantiations). The
+    `grabAccumAdd` executor flag still drives that choice per symmetry image.
 - `brush_executor.h`: `createCommand` selects `AccumOrigAbsolute` for the primary
   symmetry pass and `AccumOrigAdd` for mirror passes, keyed by a new
   `grabAccumAdd` executor flag (bound setter `setGrabAccumAdd`). `grabMode` drives

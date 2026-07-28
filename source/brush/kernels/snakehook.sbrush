@@ -39,24 +39,30 @@ brush Snakehook {
 
     float dragLen = length(grabTo);
     float amount = pinch * dragLen / radius;
-    if (amount == 0.0) {
-      continue;
+    // Not a `continue`: the drag above already moved this vert, and `continue`
+    // skips the loop epilogue that records it (affected_verts + the node's
+    // RegenBounds/UpdateGPUGeom/UpdateNormals flags). Pinch is off at Blender's
+    // neutral crease_pinch_factor of 0.5, so skipping it left the default snake
+    // hook deforming verts the tree never heard about — stale node bounds, so
+    // the next dab's filterNodes lost the hook the moment its tip left the
+    // original surface, and stale GPU geometry, so nothing redrew.
+    if (amount != 0.0) {
+      // Offset from the dab center, evaluated at the grabbed location (vanilla
+      // deliberately ignores the falloff fade here), minus its component along
+      // the drag axis.
+      float3 d = co - grabFrom + grabTo;
+      float lenSq = dragLen * dragLen;
+      if (lenSq > 1e-12) {
+        d -= grabTo * (dot(d, grabTo) / lenSq);
+      }
+      float fade = amount * fall;
+      if (amount > 0.0) {
+        // Squared taper near the axis, so pinching cannot collapse the hook
+        // into nothing.
+        float t = min(1.0, length(d) / radius);
+        fade *= t * t;
+      }
+      v.co -= d * fade;
     }
-    // Offset from the dab center, evaluated at the grabbed location (vanilla
-    // deliberately ignores the falloff fade here), minus its component along
-    // the drag axis.
-    float3 d = co - grabFrom + grabTo;
-    float lenSq = dragLen * dragLen;
-    if (lenSq > 1e-12) {
-      d -= grabTo * (dot(d, grabTo) / lenSq);
-    }
-    float fade = amount * fall;
-    if (amount > 0.0) {
-      // Squared taper near the axis, so pinching cannot collapse the hook
-      // into nothing.
-      float t = min(1.0, length(d) / radius);
-      fade *= t * t;
-    }
-    v.co -= d * fade;
   }
 }
