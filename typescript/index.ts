@@ -18,6 +18,7 @@ type double = number
 import type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 import type {AttrData} from './sculptcore/mesh/AttrData'
 import type {SpatialTree} from './sculptcore/spatial/SpatialTree'
+import type {float4} from './litestl/math/float4'
 import type {DynTopoParams} from './sculptcore/dyntopo/DynTopoParams'
 import type {BrushProgram} from './sculptcore/brush/BrushProgram'
 import type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
@@ -29,23 +30,24 @@ import type {Mesh} from './sculptcore/mesh/Mesh'
 import type {FaceData} from './sculptcore/mesh/FaceData'
 import type {AABB} from './litestl/math/AABB'
 import type {Brush} from './sculptcore/brush/Brush'
-import type {EdgeData} from './sculptcore/mesh/EdgeData'
 import type {float3} from './litestl/math/float3'
-import type {VdmStore} from './sculptcore/vdm/VdmStore'
+import type {EdgeData} from './sculptcore/mesh/EdgeData'
 import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
+import type {VdmStore} from './sculptcore/vdm/VdmStore'
 import type {AttrDef} from './sculptcore/gpu/AttrDef'
 import type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
-import type {VertexData} from './sculptcore/mesh/VertexData'
 import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
-import type {AttrPage} from './sculptcore/mesh/AttrPage'
+import type {VertexData} from './sculptcore/mesh/VertexData'
+import type {BrushAttrManifestEntry} from './sculptcore/brush/BrushAttrManifestEntry'
+import type {BrushDefFlags} from './sculptcore/brush/BrushDefFlags'
 import type {UniformDef} from './sculptcore/gpu/UniformDef'
-import type {StructProp} from './sculptcore/props/StructProp'
 import type {SpatialNode} from './sculptcore/spatial/SpatialNode'
-import type {SculptLayerSettings} from './sculptcore/mesh/SculptLayerSettings'
+import type {StructProp} from './sculptcore/props/StructProp'
+import type {AttrPage} from './sculptcore/mesh/AttrPage'
 import type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
+import type {SculptLayerSettings} from './sculptcore/mesh/SculptLayerSettings'
 import type {int4} from './litestl/math/int4'
-import type {float4} from './litestl/math/float4'
 import type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 import type {float2} from './litestl/math/float2'
 import type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
@@ -58,10 +60,12 @@ import type {CornerData} from './sculptcore/mesh/CornerData'
 import type {int2} from './litestl/math/int2'
 import type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 import type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
+import type {BrushMetadata} from './sculptcore/brush/BrushMetadata'
 
 export type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 export type {AttrData} from './sculptcore/mesh/AttrData'
 export type {SpatialTree} from './sculptcore/spatial/SpatialTree'
+export type {float4} from './litestl/math/float4'
 export type {DynTopoParams} from './sculptcore/dyntopo/DynTopoParams'
 export type {BrushProgram} from './sculptcore/brush/BrushProgram'
 export type {CastRayIsect} from './sculptcore/spatial/CastRayIsect'
@@ -73,23 +77,24 @@ export type {Mesh} from './sculptcore/mesh/Mesh'
 export type {FaceData} from './sculptcore/mesh/FaceData'
 export type {AABB} from './litestl/math/AABB'
 export type {Brush} from './sculptcore/brush/Brush'
-export type {EdgeData} from './sculptcore/mesh/EdgeData'
 export type {float3} from './litestl/math/float3'
-export type {VdmStore} from './sculptcore/vdm/VdmStore'
+export type {EdgeData} from './sculptcore/mesh/EdgeData'
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
+export type {VdmStore} from './sculptcore/vdm/VdmStore'
 export type {AttrDef} from './sculptcore/gpu/AttrDef'
 export type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
 export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
-export type {VertexData} from './sculptcore/mesh/VertexData'
 export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
-export type {AttrPage} from './sculptcore/mesh/AttrPage'
+export type {VertexData} from './sculptcore/mesh/VertexData'
+export type {BrushAttrManifestEntry} from './sculptcore/brush/BrushAttrManifestEntry'
+export type {BrushDefFlags} from './sculptcore/brush/BrushDefFlags'
 export type {UniformDef} from './sculptcore/gpu/UniformDef'
-export type {StructProp} from './sculptcore/props/StructProp'
 export type {SpatialNode} from './sculptcore/spatial/SpatialNode'
-export type {SculptLayerSettings} from './sculptcore/mesh/SculptLayerSettings'
+export type {StructProp} from './sculptcore/props/StructProp'
+export type {AttrPage} from './sculptcore/mesh/AttrPage'
 export type {BrushUniformManifestEntry} from './sculptcore/brush/BrushUniformManifestEntry'
+export type {SculptLayerSettings} from './sculptcore/mesh/SculptLayerSettings'
 export type {int4} from './litestl/math/int4'
-export type {float4} from './litestl/math/float4'
 export type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 export type {float2} from './litestl/math/float2'
 export type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
@@ -102,6 +107,7 @@ export type {CornerData} from './sculptcore/mesh/CornerData'
 export type {int2} from './litestl/math/int2'
 export type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 export type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
+export type {BrushMetadata} from './sculptcore/brush/BrushMetadata'
 
 /** Note: Does not include templates */
 export type AllBoundTypes = {
@@ -109,33 +115,34 @@ export type AllBoundTypes = {
     boolean,
     'select'
   >
-  'sculptcore::gpu::GPUManager': GPUManager
   'sculptcore::spatial::SpatialNode': SpatialNode
+  'sculptcore::gpu::GPUManager': GPUManager
+  'sculptcore::brush::BrushAttrManifestEntry': BrushAttrManifestEntry
   'sculptcore::mesh::BuiltinAttr<int16,.face.list_count>': BuiltinAttr<
     int16,
     '.face.list_count'
   >
   'sculptcore::mesh::AttrGroup': AttrGroup
+  'sculptcore::dyntopo::DynTopoParams': DynTopoParams
   'sculptcore::mesh::BuiltinAttr<int32,.corner.prev>': BuiltinAttr<
     int32,
     '.corner.prev'
   >
   'sculptcore::gpu::UniformBlockDef': UniformBlockDef
-  'sculptcore::gpu::DrawBatch': DrawBatch
-  'sculptcore::brush::BrushUniformManifestEntry': BrushUniformManifestEntry
+  'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
+    int2,
+    '.edge.vs'
+  >
   'sculptcore::mesh::BuiltinAttr<int32,.face.list>': BuiltinAttr<
     int32,
     '.face.list'
   >
   'sculptcore::meshlog::MeshLog': MeshLog
+  'sculptcore::gpu::DrawBatch': DrawBatch
   'sculptcore::spatial::SpatialShaders': SpatialShaders
-  'sculptcore::remesh::RemeshParams': RemeshParams
   'sculptcore::vdm::VdmStore': VdmStore
-  'sculptcore::dyntopo::DynTopoParams': DynTopoParams
-  'sculptcore::mesh::BuiltinAttr<litestl::math::int2,.edge.vs>': BuiltinAttr<
-    int2,
-    '.edge.vs'
-  >
+  'sculptcore::brush::BrushUniformManifestEntry': BrushUniformManifestEntry
+  'sculptcore::remesh::RemeshParams': RemeshParams
   'litestl::math::float2': float2
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,.face.normal>': BuiltinAttr<
     float3,
@@ -144,6 +151,7 @@ export type AllBoundTypes = {
   'sculptcore::mesh::BuiltinAttr<int32,.vert.e>': BuiltinAttr<int32, '.vert.e'>
   'sculptcore::gpu::Buffer': Buffer
   'litestl::math::int2': int2
+  'sculptcore::brush::BrushDefFlags': BrushDefFlags
   'sculptcore::spatial::SpatialTree': SpatialTree
   'sculptcore::brush::CommandExecutor': CommandExecutor
   'sculptcore::gpu::DrawPipeline': DrawPipeline
@@ -182,28 +190,29 @@ export type AllBoundTypes = {
     int32,
     '.corner.l'
   >
-  'sculptcore::mesh::BuiltinAttr<int32,.corner.e>': BuiltinAttr<
-    int32,
-    '.corner.e'
-  >
+  'sculptcore::gpu::AttrDef': AttrDef
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,positions>': BuiltinAttr<
     float3,
     'positions'
   >
-  'sculptcore::gpu::AttrDef': AttrDef
+  'sculptcore::mesh::VertexData': VertexData
   'sculptcore::gpu::UniformBlockInstance': UniformBlockInstance
   'sculptcore::mesh::BuiltinAttr<litestl::math::int4,.edge.vs.disk>': BuiltinAttr<
     int4,
     '.edge.vs.disk'
   >
   'sculptcore::mesh::SculptLayerSettings': SculptLayerSettings
-  'sculptcore::mesh::VertexData': VertexData
+  'sculptcore::mesh::BuiltinAttr<int32,.corner.e>': BuiltinAttr<
+    int32,
+    '.corner.e'
+  >
+  'sculptcore::brush::BrushMetadata': BrushMetadata
   'litestl::math::float4': float4
+  'sculptcore::mesh::BuiltinAttr<int32,.edge.c>': BuiltinAttr<int32, '.edge.c'>
   'sculptcore::mesh::BuiltinAttr<litestl::math::float3,normals>': BuiltinAttr<
     float3,
     'normals'
   >
-  'sculptcore::mesh::BuiltinAttr<int32,.edge.c>': BuiltinAttr<int32, '.edge.c'>
   'sculptcore::mesh::EdgeData': EdgeData
   'sculptcore::mesh::FaceData': FaceData
 }

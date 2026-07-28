@@ -34,6 +34,14 @@ enum class TypeKind : int {
 const char *typeKindName(TypeKind k);
 TypeKind parseTypeKind(stringref name);
 
+// Compiler-internal ids for the `@use(<category>)` attr tag; each names one
+// mesh::_AttrUse bit. The emitters write the symbolic enumerator rather than a
+// number, so mesh/attribute_enums.h stays the single value source.
+namespace AttrUseId {
+enum : int { None = 0, Unit, Color, Uv, Polygroup, Select, SculptLayer };
+}
+int parseAttrUse(stringref name);
+
 enum class BinOp : int {
   Add, Sub, Mul, Div,
   Eq, Ne, Lt, Le, Gt, Ge,
@@ -201,6 +209,9 @@ struct Field {
   // via the Brush attrBindings map.
   AttrDomain domain = AttrDomain::Vertex;
   string boundName;
+  // FieldKind::Attr only: `@use(<category>)`, an AttrUseId naming the
+  // mesh::_AttrUse bit a host uses to retarget this handle. 0 = untagged.
+  int use = AttrUseId::None;
   // FieldKind::Uniform metadata (scalar floats): `= <n>` default, `@range(a,b)`,
   // and `@static` to opt out of device dynamics. dynamicCapable defaults true so
   // any plain float uniform is drivable; non-float uniforms are never dynamic.
@@ -286,5 +297,14 @@ struct Brush {
 /** True when any stage body contains a `for_neighbor` loop — such brushes are
  * emitted with the extra NbrSource template parameter (CsrNbr/LiveDiskNbr). */
 bool brushUsesNeighborLoop(const Brush &brush);
+
+/** True when any stage body assigns to a `.<field>` member — used to emit the
+ * host-visible write flags (e.g. `v.mask = ...` -> BrushCommandDef::writesMask)
+ * for builtin Vertex fields, which have no `attr` declaration to key off. */
+bool brushWritesMember(const Brush &brush, const char *field);
+
+/** True when the brush declares a `face` stage, i.e. it is dispatched per-face
+ * rather than per-vertex. */
+bool brushHasFaceStage(const Brush &brush);
 
 } // namespace sculptcore::brush::sbrush

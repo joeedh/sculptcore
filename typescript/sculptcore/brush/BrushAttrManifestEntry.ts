@@ -1,8 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
-import type {UniformBindTypeMap} from './UniformBindTypeMap'
-import {getTypeSymbol} from '@litestl/typescript-runtime'
-import type {float3} from '../../litestl/math/float3'
-import type {GPUType} from './GPUType'
+import type {AttrElemDomain} from './AttrElemDomain'
+import type {AttrType} from '../mesh/AttrType'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -20,11 +18,13 @@ type uint64 = number
 type float = number
 type double = number
 
-export interface UniformDef<T, K extends keyof UniformBindTypeMap> {
+export interface BrushAttrManifestEntry {
   [Symbol.dispose](): void
-  readonly [getTypeSymbol]: K
-  name: string
-  type: GPUType
-  elemSize: int32
-  defaultValue: UniformBindTypeMap[K]
+  handle: string
+  boundName: string
+  type: AttrType
+  domain: AttrElemDomain
+  write: boolean
+  use: int32
+  new (): BrushAttrManifestEntry
 }

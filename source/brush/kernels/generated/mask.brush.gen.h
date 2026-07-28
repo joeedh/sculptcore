@@ -74,6 +74,7 @@ static void createMaskBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.exec     = mask<TYPES, AccMode>;
   def.execPost = maskPost<TYPES>;
   def.accumulable = false;
+  def.writesMask = true;
   def.registerProps = [](sculptcore::props::StructDef &sd) {
   };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {

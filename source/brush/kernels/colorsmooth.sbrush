@@ -5,8 +5,11 @@
 // tool (shift on the color brush).
 @brush("colorsmooth")
 @paint
+// Relaxes the color field toward its neighborhood mean — inverting that diverges,
+// so hosts drop invert here just like the geometry smooth brushes.
+@relaxation
 brush ColorSmooth {
-  attr vertex float4 color;
+  attr vertex float4 color @use(color);
   // Undo captures the color layer only (paint moves no geometry).
   save vertex color;
 

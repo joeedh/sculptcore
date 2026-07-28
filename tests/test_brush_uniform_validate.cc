@@ -5,9 +5,15 @@
 // out-of-range authored default, and an inverted `@range` — and passes the happy
 // path. The integration tail proves a failing validation skips the stroke
 // without mutating the mesh.
+//
+// The leading sections gate the sibling metadata surface hosts query instead of
+// hardcoding per-brush conditionals: the `@use`-tagged attr manifest, the
+// BrushDefFlags policy bits, and the GPU kernel map deriving both from the same
+// BrushCommandDef. See documentation/plans/brushMetadataToTS-2026-07-28.md.
 #include "test_util.h"
 
 #include "brush/brush_executor.h"
+#include "brush/gpu_marshal.h"
 #include "debug/scene.h"
 #include "debug/script.h"
 #include "mesh/mesh.h"
@@ -32,9 +38,130 @@ static bool msgContains(const UniformValidationResult &r, const char *needle)
 static const int PRESSURE = (int)sculptcore::props::DeviceType::PRESSURE; // 0
 static const int MULTIPLY = (int)litestl::math::BasicMix::MULTIPLY;       // 1
 
+// One kernel's retargetable attr handles: empty boundName + a non-zero @use.
+static Vector<BrushAttrManifestEntry> retargetable(SculptBrushes tool)
+{
+  BrushMetadata meta;
+  int n = meta.queryAttrManifest(int(tool));
+  Vector<BrushAttrManifestEntry> out;
+  for (int i = 0; i < n; i++) {
+    const BrushAttrManifestEntry *e = meta.queriedAttrEntry(i);
+    if (e->use != 0 && e->boundName.size() == 0) out.append(*e);
+  }
+  return out;
+}
+
 int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
+
+  // --- attr manifest: a @use-tagged handle is the host's retarget key ---
+  {
+    // color / colorsmooth paint the active COLOR layer; layerdraw the active
+    // SCULPT_LAYER; polygroup the active POLYGROUP layer, on the face domain.
+    struct {
+      SculptBrushes tool;
+      sculptcore::mesh::AttrUse use;
+      AttrElemDomain domain;
+    } kUseCases[] = {
+        {SculptBrushes::COLOR, sculptcore::mesh::AttrUse::COLOR,
+         AttrElemDomain::Vertex},
+        {SculptBrushes::COLORSMOOTH, sculptcore::mesh::AttrUse::COLOR,
+         AttrElemDomain::Vertex},
+        {SculptBrushes::LAYERDRAW, sculptcore::mesh::AttrUse::SCULPT_LAYER,
+         AttrElemDomain::Vertex},
+        {SculptBrushes::POLYGROUP, sculptcore::mesh::AttrUse::POLYGROUP,
+         AttrElemDomain::Face},
+    };
+    for (const auto &c : kUseCases) {
+      auto entries = retargetable(c.tool);
+      fprintf(stderr, "manifest tool=%d retargetable=%d\n", int(c.tool),
+              int(entries.size()));
+      test_assert(entries.size() == 1);
+      test_assert(entries[0].use == int(c.use));
+      test_assert(entries[0].domain == c.domain);
+      test_assert(entries[0].write);
+    }
+
+    // A geometry brush retargets nothing, and bsmooth's fixed boundary-class
+    // layer stays untagged — a bound name is not a host-retargetable handle.
+    test_assert(retargetable(SculptBrushes::DRAW).size() == 0);
+    test_assert(retargetable(SculptBrushes::BSMOOTH).size() == 0);
+
+    BrushMetadata meta;
+    int n = meta.queryAttrManifest(int(SculptBrushes::BSMOOTH));
+    bool sawVclass = false;
+    for (int i = 0; i < n; i++) {
+      const BrushAttrManifestEntry *e = meta.queriedAttrEntry(i);
+      if (e->boundName.operator==(litestl::util::string(".boundary.vert.class"))) {
+        sawVclass = true;
+        test_assert(e->use == 0);
+      }
+    }
+    fprintf(stderr, "bsmooth vclass entry=%d\n", int(sawVclass));
+    test_assert(sawVclass);
+
+    // Out-of-range tool ids report an empty manifest rather than aborting.
+    test_assert(meta.queryAttrManifest(9999) == 0);
+    test_assert(meta.queriedAttrEntry(0) == nullptr);
+  }
+
+  // --- brush flags: the policy bits hosts drive dab shaping from ---
+  {
+    BrushMetadata meta;
+    auto flags = [&](SculptBrushes t) { return *meta.queryBrushFlags(int(t)); };
+
+    test_assert(flags(SculptBrushes::MASK).writesMask);
+    test_assert(!flags(SculptBrushes::DRAW).writesMask);
+    test_assert(flags(SculptBrushes::POLYGROUP).faceMode);
+    test_assert(!flags(SculptBrushes::DRAW).faceMode);
+    test_assert(flags(SculptBrushes::COLOR).writesColor);
+    test_assert(!flags(SculptBrushes::DRAW).writesColor);
+    test_assert(flags(SculptBrushes::BSMOOTH).readsVclass);
+    test_assert(!flags(SculptBrushes::SMOOTH).readsVclass);
+
+    // Grab family: KELVINLET/GRAB are anchored (@grabmode), SNAKEHOOK is
+    // per-dab incremental. Both classes are non-accumulable.
+    test_assert(flags(SculptBrushes::KELVINLET).grabModeCapable);
+    test_assert(flags(SculptBrushes::KELVINLET).unbounded);
+    test_assert(flags(SculptBrushes::GRAB).grabModeCapable);
+    test_assert(!flags(SculptBrushes::GRAB).unbounded);
+    test_assert(flags(SculptBrushes::SNAKEHOOK).incremental);
+    test_assert(!flags(SculptBrushes::SNAKEHOOK).grabModeCapable);
+    test_assert(!flags(SculptBrushes::SNAKEHOOK).accumulable);
+    test_assert(!flags(SculptBrushes::DRAW).grabModeCapable);
+    test_assert(!flags(SculptBrushes::DRAW).incremental);
+
+    // @relaxation: every smooth-family kernel, and nothing else.
+    test_assert(flags(SculptBrushes::SMOOTH).relaxesBase);
+    test_assert(flags(SculptBrushes::BSMOOTH).relaxesBase);
+    test_assert(flags(SculptBrushes::FEATURE_ALIGN).relaxesBase);
+    test_assert(flags(SculptBrushes::COLORSMOOTH).relaxesBase);
+    test_assert(!flags(SculptBrushes::DRAW).relaxesBase);
+    test_assert(flags(SculptBrushes::SMOOTH).needsCoPrev);
+    test_assert(!flags(SculptBrushes::DRAW).needsCoPrev);
+
+    // An unknown tool is all-false, never an abort.
+    BrushDefFlags none = *meta.queryBrushFlags(9999);
+    test_assert(!none.accumulable && !none.writesMask && !none.faceMode);
+  }
+
+  // --- the GPU kernel map derives every bit from the same defs ---
+  {
+    BrushMetadata meta;
+    for (int t = 0; t < SculptBrushesBuiltinCount; t++) {
+      const GpuKernelInfo *info = gpuKernelForTool(SculptBrushes(t));
+      if (!info) continue;
+      const BrushDefFlags f = *meta.queryBrushFlags(t);
+      test_assert(info->needsNeighbors == f.needsCoPrev);
+      test_assert(info->writesMask == f.writesMask);
+      test_assert(info->writesColor == f.writesColor);
+      test_assert(info->accumulable == f.accumulable);
+      test_assert(info->readsVclass == f.readsVclass);
+      test_assert(info->faceMode == f.faceMode);
+      test_assert(info->grabMode == f.grabModeCapable);
+    }
+  }
 
   // --- happy path: a valid pressure dynamic on kelvinlet mu validates OK ---
   {

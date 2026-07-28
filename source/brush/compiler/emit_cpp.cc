@@ -939,6 +939,29 @@ struct Emit {
     return "sculptcore::brush::AttrElemDomain::Vertex";
   }
 
+  // `@use(<category>)` -> mesh::AttrUse enum spelling. Emitted as an int since
+  // BrushAttrManifestEntry::use is a plain int (the flags class isn't needed —
+  // an attr carries exactly one category).
+  static const char *attrUseEnum(int use)
+  {
+    switch (use) {
+    case AttrUseId::Unit:
+      return "int(sculptcore::mesh::AttrUse::UNIT)";
+    case AttrUseId::Color:
+      return "int(sculptcore::mesh::AttrUse::COLOR)";
+    case AttrUseId::Uv:
+      return "int(sculptcore::mesh::AttrUse::UV)";
+    case AttrUseId::Polygroup:
+      return "int(sculptcore::mesh::AttrUse::POLYGROUP)";
+    case AttrUseId::Select:
+      return "int(sculptcore::mesh::AttrUse::SELECT)";
+    case AttrUseId::SculptLayer:
+      return "int(sculptcore::mesh::AttrUse::SCULPT_LAYER)";
+    default:
+      return "0";
+    }
+  }
+
   // Emit one host stage as a templated free function. Host runs once per
   // dab on CPU with direct access to ctx (CommandCtxBase) and the Brush
   // — there's intentionally no per-node CommandCtx here, since the per-
@@ -1631,6 +1654,21 @@ struct Emit {
     if (brush->isUnbounded) {
       write("  def.unbounded = true;\n");
     }
+    // `@incremental`: the host must feed the per-dab delta this kernel expects
+    // (accumulable is already false above — this says *why*, which is what the
+    // host needs to shape the dab).
+    if (brush->isIncremental) {
+      write("  def.incremental = true;\n");
+    }
+    // A `face` stage means the kernel is dispatched per-face, not per-vertex.
+    if (brushHasFaceStage(*brush)) {
+      write("  def.faceMode = true;\n");
+    }
+    // `v.mask` is a builtin Vertex field, so unlike a painted attr it leaves no
+    // trace in def.attrs — scan the bodies for the write instead.
+    if (brushWritesMember(*brush, "mask")) {
+      write("  def.writesMask = true;\n");
+    }
     // Declared attribute layers — resolved + bound per dab by the executor.
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Attr)
@@ -1643,7 +1681,9 @@ struct Emit {
       write(attrTypeEnum(f.type));
       write(", ");
       write(attrDomainEnum(f.domain));
-      write(", true});\n");
+      write(", true, ");
+      write(attrUseEnum(f.use));
+      write("});\n");
     }
     // Declared uniforms — the executor registers these as props and applies
     // device dynamics each dab (see sbrush-dynamic-uniforms plan). Carries the

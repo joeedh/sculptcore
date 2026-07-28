@@ -77,6 +77,7 @@ export interface CommandExecutor {
   lastUniformValidationOk(): boolean
   queryUniformManifest(brushType: int32): int32
   queriedUniformEntry(idx: int32): BrushUniformManifestEntry | undefined
+  filterRadiusFloor(brushType: SculptBrushes): float
   clearUniformDynamics(idx: int32): void
   addUniformDynamic(
     idx: int32,

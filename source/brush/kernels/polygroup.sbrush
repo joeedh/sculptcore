@@ -6,7 +6,7 @@
 @brush("polygroup")
 @paint
 brush PolyGroup {
-  attr face int group;
+  attr face int group @use(polygroup);
   // Active group id, set host-side per stroke: a fresh incremented id for a
   // new group, or a sampled existing id when extending (shift). Read as
   // ctx.brush.activeGroup.

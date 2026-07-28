@@ -326,10 +326,12 @@ struct Parser {
     expect(TokKind::Semicolon, "after field declaration");
   }
 
-  // attr <domain> <type> <name> [= "layerName"] ;
+  // attr <domain> <type> <name> [= "layerName"] [@use(<category>)] ;
   // A typed mesh attribute bound to a layer at runtime. <domain> is one of
   // vertex/face/edge/corner; the optional string fixes the mesh-layer name
-  // (otherwise the handle name is bound via Brush::attrBindings).
+  // (otherwise the handle name is bound via Brush::attrBindings). `@use` tags
+  // the attr with a mesh::_AttrUse category so a host can retarget the handle
+  // at whichever layer is active for that category.
   void parseAttrField(Brush &brush)
   {
     advance(); // 'attr'
@@ -358,6 +360,29 @@ struct Parser {
     if (match(TokKind::Assign)) {
       if (check(TokKind::StringLit)) { f.boundName = peek().text; advance(); }
       else error("expected string layer name after '=' in attr declaration", peek());
+    }
+    while (match(TokKind::At)) {
+      if (!check(TokKind::Ident)) { error("expected attribute name after '@'", peek()); break; }
+      const Token &attrTok = peek();
+      string attr = attrTok.text;
+      advance();
+      if (attr.operator==(string("use"))) {
+        expect(TokKind::LParen, "after @use");
+        if (!check(TokKind::Ident)) {
+          error("expected use category name in @use(...)", peek());
+        } else {
+          const Token &useTok = peek();
+          int use = parseAttrUse(stringref(useTok.text.c_str()));
+          if (use == 0) {
+            errorf(useTok, "unknown attr use category '%s'", useTok.text.c_str());
+          }
+          f.use = use;
+          advance();
+        }
+        expect(TokKind::RParen, "to close @use(...)");
+      } else {
+        errorf(attrTok, "unknown attr attribute '%s'", attr.c_str());
+      }
     }
     expect(TokKind::Semicolon, "after attr declaration");
     brush.fields.append(f);

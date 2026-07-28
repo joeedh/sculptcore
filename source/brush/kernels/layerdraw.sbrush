@@ -8,7 +8,7 @@
 brush Layerdraw {
   ctx float3 surfaceNo;
   uniform float radius;
-  attr vertex float3 slayer;
+  attr vertex float3 slayer @use(sculpt_layer);
   save vertex co, no, slayer;
 
   vertex void apply(inout Vertex v) {

@@ -50,7 +50,7 @@ brush Snakehook { … }
 |---|---|
 | `@paint` | writes a mesh attribute rather than displacing geometry |
 | `@grabmode` | grab-class from-original kernel. Declares *capability* only — the host decides per stroke (`def.grabModeCapable && anchoredGrab`). The stage reads each vert's stroke-start base (derived as live − accumulated displacement, not a snapshot) and the write-back does per-dab first-touch arbitration, so the first symmetry image to touch a vert re-bases it and later images of the same dab add |
-| `@relaxation` | relaxes the surface instead of displacing it, so it never contributes to accumulated brush displacement; runs live-from-live even in a non-accumulate stroke |
+| `@relaxation` | relaxes the field it edits toward a neighborhood mean instead of displacing / adding to it, so it never contributes to accumulated brush displacement; runs live-from-live even in a non-accumulate stroke. An inverted relaxation diverges, so hosts also read `def.relaxesBase` as "this kernel ignores invert" |
 | `@unbounded` | the field has unbounded support and *is* its own falloff. `strength()` is then forbidden (sema error) and `unbounded_window()` required — the window is what makes the field vanish at the host's node-filter radius instead of tearing on a leaf boundary. Also emits `def.unbounded`, which floors that filter radius at `radius × unboundedExtent` |
 | `@incremental` | a stage input is a per-dab **delta**, not an absolute stroke quantity (snakehook's `grabTo` is the step since the last dab), so there is no stroke-start base to re-derive a dab from |
 
@@ -136,13 +136,13 @@ pre-invocation validation are all generated from these declarations — see
 Beyond brush state, a kernel can read and write typed mesh attribute layers:
 
 ```sbrush
-attr vertex float4 color = "Col";     // fixed layer name
-attr vertex float slayer;             // bound at runtime via Brush::attrBindings
-attr face int group;
+attr vertex float4 color = "Col";        // fixed layer name
+attr vertex float slayer;                // bound at runtime via Brush::attrBindings
+attr face int group @use(polygroup);     // host-retargetable by category
 ```
 
 ```
-attr <vertex|face|edge|corner> <type> <name> [= "<layerName>"];
+attr <vertex|face|edge|corner> <type> <name> [= "<layerName>"] [@use(<category>)];
 ```
 
 The handle becomes a member of the element bundle — `v.color`, `v.slayer`,
@@ -150,6 +150,14 @@ The handle becomes a member of the element bundle — `v.color`, `v.slayer`,
 With the optional string the handle binds to that fixed mesh layer; without it
 the runtime binds the layer named by the handle itself through
 `Brush::attrBindings`. Codegen emits the set as `def.attrs`.
+
+`@use(<category>)` tags the handle with one `mesh::AttrUse` bit — `unit`,
+`color`, `uv`, `polygroup`, `select`, or `sculpt_layer`. It is what lets a host
+point the handle at whichever layer the user has made *active* for that
+category, instead of hardcoding a kernel-name → category map of its own: the
+bridge walks `def.attrs` (`CommandExecutor::queryAttrManifest`) and retargets
+every entry that has an empty `boundName` and a non-zero `use`. A fixed layer
+name means engine-internal and not retargetable, so leave those untagged.
 
 ### `save` — the undo-capture set
 

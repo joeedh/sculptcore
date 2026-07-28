@@ -37,6 +37,21 @@ TypeKind parseTypeKind(litestl::util::stringref name)
   return TypeKind::Unknown;
 }
 
+// `@use(<name>)` attr categories. These are compiler-internal ids that name a
+// mesh::_AttrUse bit (mesh/attribute_enums.h); the emitters write the symbolic
+// enumerator, so the runtime value always comes from that header.
+int parseAttrUse(litestl::util::stringref name)
+{
+  const char *s = name.c_str();
+  if (std::strcmp(s, "unit")         == 0) return AttrUseId::Unit;
+  if (std::strcmp(s, "color")        == 0) return AttrUseId::Color;
+  if (std::strcmp(s, "uv")           == 0) return AttrUseId::Uv;
+  if (std::strcmp(s, "polygroup")    == 0) return AttrUseId::Polygroup;
+  if (std::strcmp(s, "select")       == 0) return AttrUseId::Select;
+  if (std::strcmp(s, "sculpt_layer") == 0) return AttrUseId::SculptLayer;
+  return AttrUseId::None;
+}
+
 const char *binOpCSym(BinOp op)
 {
   switch (op) {
@@ -98,6 +113,42 @@ bool brushUsesNeighborLoop(const Brush &brush)
 {
   for (const auto &st : brush.stages)
     if (stmtUsesNeighborLoop(st.body.get()))
+      return true;
+  return false;
+}
+
+static bool exprIsMemberNamed(const Expr *e, const char *field)
+{
+  return e && e->kind == ExprKind::Member && e->name.operator==(string(field));
+}
+
+static bool stmtWritesMember(const Stmt *s, const char *field)
+{
+  if (!s)
+    return false;
+  if (s->kind == StmtKind::Assign && exprIsMemberNamed(s->lvalue.get(), field))
+    return true;
+  for (const auto &c : s->stmts)
+    if (stmtWritesMember(c.get(), field))
+      return true;
+  return stmtWritesMember(s->thenBranch.get(), field) ||
+         stmtWritesMember(s->elseBranch.get(), field) ||
+         stmtWritesMember(s->forInit.get(), field) ||
+         stmtWritesMember(s->forStep.get(), field);
+}
+
+bool brushWritesMember(const Brush &brush, const char *field)
+{
+  for (const auto &st : brush.stages)
+    if (stmtWritesMember(st.body.get(), field))
+      return true;
+  return false;
+}
+
+bool brushHasFaceStage(const Brush &brush)
+{
+  for (const auto &st : brush.stages)
+    if (st.kind == StageKind::Face)
       return true;
   return false;
 }
