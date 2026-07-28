@@ -906,23 +906,24 @@ async function sbrushCodegen() {
     `${nativeBuild}/source/brush/compiler/Debug/sbrushc.exe`,
     `${nativeBuild}/source/brush/compiler/Release/sbrushc.exe`,
   ]
-  let sbrushc = sbrushcCandidates.find((p) => fs.existsSync(p))
+  if (!fs.existsSync(`${nativeBuild}/CMakeCache.txt`)) {
+    console.log('codegen: native build not configured; configuring first...')
+    ensureDir(nativeBuild)
+    run(
+      `cd ${nativeBuild} && ${envPrefix('native')} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
+    )
+  }
 
+  // Always build the target, never just probe for the binary: an existing
+  // sbrushc.exe says nothing about whether compiler/*.cc changed under it
+  // (e.g. after a pull in another checkout), and a stale compiler run against
+  // newer .sbrush sources fails the build with confusing sbrushc errors.
+  run(`cd ${nativeBuild} && ${envPrefix('native')} cmake --build . --target sbrushc${parallelFlag()}`)
+
+  const sbrushc = sbrushcCandidates.find((p) => fs.existsSync(p))
   if (!sbrushc) {
-    if (!fs.existsSync(`${nativeBuild}/CMakeCache.txt`)) {
-      console.log('codegen: native build not configured; configuring first...')
-      ensureDir(nativeBuild)
-      run(
-        `cd ${nativeBuild} && ${envPrefix('native')} cmake ../.. -G Ninja ${nativeToolchainFlag()}-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}`
-      )
-    }
-    console.log('codegen: building sbrushc...')
-    run(`cd ${nativeBuild} && ${envPrefix('native')} cmake --build . --target sbrushc${parallelFlag()}`)
-    sbrushc = sbrushcCandidates.find((p) => fs.existsSync(p))
-    if (!sbrushc) {
-      process.stderr.write('codegen: sbrushc not found after build\n')
-      process.exit(1)
-    }
+    process.stderr.write('codegen: sbrushc not found after build\n')
+    process.exit(1)
   }
 
   if (inputs.length === 0) {
