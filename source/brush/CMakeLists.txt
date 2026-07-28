@@ -24,6 +24,9 @@ set(SRC
   PUBLIC gpu_brush_session.h
   c-api/gpu_brush_c_api.cc
   PUBLIC stroke_spacing.h
+  PUBLIC stroke_curve.h
+  PUBLIC stroke_driver.h
+  stroke_driver.cc
   PUBLIC brushes/all.h
   PUBLIC brushes/extra.h
   PUBLIC feature_field.h

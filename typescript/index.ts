@@ -27,6 +27,7 @@ import type {AttrRef} from './sculptcore/mesh/AttrRef'
 import type {Multires} from './sculptcore/subdiv/Multires'
 import type {Buffer} from './sculptcore/gpu/Buffer'
 import type {Mesh} from './sculptcore/mesh/Mesh'
+import type {DabSample} from './sculptcore/brush/DabSample'
 import type {FaceData} from './sculptcore/mesh/FaceData'
 import type {AABB} from './litestl/math/AABB'
 import type {Brush} from './sculptcore/brush/Brush'
@@ -52,15 +53,16 @@ import type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 import type {float2} from './litestl/math/float2'
 import type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
 import type {RemeshParams} from './sculptcore/remesh/RemeshParams'
+import type {BrushStrokeDriver} from './sculptcore/brush/BrushStrokeDriver'
 import type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
-import type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 import type {MeshLog} from './sculptcore/meshlog/MeshLog'
 import type {GPUManager} from './sculptcore/gpu/GPUManager'
-import type {CornerData} from './sculptcore/mesh/CornerData'
+import type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 import type {int2} from './litestl/math/int2'
-import type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
+import type {CornerData} from './sculptcore/mesh/CornerData'
 import type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
 import type {BrushMetadata} from './sculptcore/brush/BrushMetadata'
+import type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 
 export type {DrawCommand} from './sculptcore/gpu/DrawCommand'
 export type {AttrData} from './sculptcore/mesh/AttrData'
@@ -74,6 +76,7 @@ export type {AttrRef} from './sculptcore/mesh/AttrRef'
 export type {Multires} from './sculptcore/subdiv/Multires'
 export type {Buffer} from './sculptcore/gpu/Buffer'
 export type {Mesh} from './sculptcore/mesh/Mesh'
+export type {DabSample} from './sculptcore/brush/DabSample'
 export type {FaceData} from './sculptcore/mesh/FaceData'
 export type {AABB} from './litestl/math/AABB'
 export type {Brush} from './sculptcore/brush/Brush'
@@ -99,15 +102,16 @@ export type {UniformBlockDef} from './sculptcore/gpu/UniformBlockDef'
 export type {float2} from './litestl/math/float2'
 export type {MeshBatchManager} from './sculptcore/mesh/gpu/MeshBatchManager'
 export type {RemeshParams} from './sculptcore/remesh/RemeshParams'
+export type {BrushStrokeDriver} from './sculptcore/brush/BrushStrokeDriver'
 export type {SpatialShaders} from './sculptcore/spatial/SpatialShaders'
-export type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 export type {MeshLog} from './sculptcore/meshlog/MeshLog'
 export type {GPUManager} from './sculptcore/gpu/GPUManager'
-export type {CornerData} from './sculptcore/mesh/CornerData'
+export type {CommandExecutor} from './sculptcore/brush/CommandExecutor'
 export type {int2} from './litestl/math/int2'
-export type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
+export type {CornerData} from './sculptcore/mesh/CornerData'
 export type {BuiltinAttr} from './sculptcore/mesh/BuiltinAttr'
 export type {BrushMetadata} from './sculptcore/brush/BrushMetadata'
+export type {UniformBlockInstance} from './sculptcore/gpu/UniformBlockInstance'
 
 /** Note: Does not include templates */
 export type AllBoundTypes = {
@@ -149,6 +153,7 @@ export type AllBoundTypes = {
     '.face.normal'
   >
   'sculptcore::mesh::BuiltinAttr<int32,.vert.e>': BuiltinAttr<int32, '.vert.e'>
+  'sculptcore::brush::BrushStrokeDriver': BrushStrokeDriver
   'sculptcore::gpu::Buffer': Buffer
   'litestl::math::int2': int2
   'sculptcore::brush::BrushDefFlags': BrushDefFlags
@@ -156,6 +161,7 @@ export type AllBoundTypes = {
   'sculptcore::brush::CommandExecutor': CommandExecutor
   'sculptcore::gpu::DrawPipeline': DrawPipeline
   'sculptcore::mesh::gpu::MeshBatchManager': MeshBatchManager
+  'sculptcore::brush::DabSample': DabSample
   'sculptcore::mesh::AttrRef': AttrRef
   'sculptcore::dyntopo::DynTopoStats': DynTopoStats
   'sculptcore::mesh::BuiltinAttr<int32,.corner.radial_prev>': BuiltinAttr<

@@ -242,6 +242,8 @@ struct SpatialTree {
 
       out.faceIndex = tri.f;
 
+      // rayTriIsect hands back the first two barycentric weights (uv[0] for
+      // vert0, uv[1] for vert1); the third corner takes the remainder.
       float w = 1.0 - out.uv[0] - out.uv[1];
 
       // calculate position/normal
@@ -252,20 +254,20 @@ struct SpatialTree {
       float3 co1 = m->v.co[v1];
       float3 co2 = m->v.co[v2];
       float3 co3 = m->v.co[v3];
-      out.p = co1 * w + co2 * out.uv[0] + co3 * out.uv[1];
+      out.p = co1 * out.uv[0] + co2 * out.uv[1] + co3 * w;
 
       float3 no1 = m->v.no[v1];
       float3 no2 = m->v.no[v2];
       float3 no3 = m->v.no[v3];
 
-      out.normal = no1 * w + no2 * out.uv[0] + no3 * out.uv[1];
+      out.normal = no1 * out.uv[0] + no2 * out.uv[1] + no3 * w;
       out.normal.normalize();
 
       // Vertex nearest the hit point = the corner with the largest barycentric
-      // weight (w, uv[0], uv[1] for v1, v2, v3).
-      if (w >= out.uv[0] && w >= out.uv[1]) {
+      // weight (uv[0], uv[1], w for v1, v2, v3).
+      if (out.uv[0] >= out.uv[1] && out.uv[0] >= w) {
         out.nearestVert = v1;
-      } else if (out.uv[0] >= out.uv[1]) {
+      } else if (out.uv[1] >= w) {
         out.nearestVert = v2;
       } else {
         out.nearestVert = v3;

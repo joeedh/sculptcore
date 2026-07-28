@@ -82,6 +82,7 @@ test(test_remesh_feature_filter.cc "remesh;mesh;spatial")
 test(test_remesh_retry.cc "remesh;mesh;spatial")
 test(test_remesh_preset.cc "remesh;mesh;spatial")
 test(test_brush.cc "")
+test(test_stroke_driver.cc "brush;spatial;mesh")
 
 if (WITH_ABSEIL)
 test(test_map_bench.cc "absl::flat_hash_map")
