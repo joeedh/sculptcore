@@ -2696,14 +2696,14 @@ fn main(
   var e: f32 = sqrt((r2 + (brush_u.radius * brush_u.radius)));
   var invE: f32 = (1.0 / e);
   var invE3: f32 = ((invE * invE) * invE);
-  var coef1: f32 = (((a - b)) * invE);
+  var coef1: f32 = ((((a - b)) * invE) + ((((0.5 * a) * brush_u.radius) * brush_u.radius) * invE3));
   var coef2: f32 = ((b * dot(ctx_u.grabTo, r)) * invE3);
   var disp: vec3<f32> = ((ctx_u.grabTo * coef1) + (r * coef2));
-  var ab: f32 = (a - b);
-  if ((ab < 9.9999999999999995e-07)) {
-    ab = 9.9999999999999995e-07;
+  var norm: f32 = ((1.5 * a) - b);
+  if ((norm < 9.9999999999999995e-07)) {
+    norm = 9.9999999999999995e-07;
   }
-  disp = (disp * ((brush_u.radius / ab)));
+  disp = (disp * ((brush_u.radius / norm)));
   v_co += ((disp * brush_masks(sb_vidx, v_mask)) * brush_unbounded_window(v_co));
 
   let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;

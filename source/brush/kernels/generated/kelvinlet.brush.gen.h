@@ -91,14 +91,14 @@ static void kelvinlet(CommandCtx<TYPES> &ctx)
     float e = std::sqrt((r2 + (ctx.brush.radius * ctx.brush.radius)));
     float invE = (1.0f / e);
     float invE3 = ((invE * invE) * invE);
-    float coef1 = (((a - b)) * invE);
+    float coef1 = ((((a - b)) * invE) + ((((0.5f * a) * ctx.brush.radius) * ctx.brush.radius) * invE3));
     float coef2 = ((b * (ctx.brush.grabTo).dot(r)) * invE3);
     float3 disp = ((ctx.brush.grabTo * coef1) + (r * coef2));
-    float ab = (a - b);
-    if ((ab < 9.9999999999999995e-07f)) {
-      ab = 9.9999999999999995e-07f;
+    float norm = ((1.5f * a) - b);
+    if ((norm < 9.9999999999999995e-07f)) {
+      norm = 9.9999999999999995e-07f;
     }
-    disp = (disp * ((ctx.brush.radius / ab)));
+    disp = (disp * ((ctx.brush.radius / norm)));
     v.co += ((disp * ctx.masks(v.v, v.mask)) * ctx.unboundedWindow(v.co));
     ctx.node.affected_verts.append(v.v);
     any_moved = true;

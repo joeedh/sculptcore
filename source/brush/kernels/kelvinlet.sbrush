@@ -58,17 +58,21 @@ brush Kelvinlet {
     float e = sqrt(r2 + radius * radius);
     float invE = 1.0 / e;
     float invE3 = invE * invE * invE;
-    float coef1 = (a - b) * invE;
+    // Formula (6): the isotropic part carries both the 1/r_e term and the
+    // a*eps^2/(2*r_e^3) regularization term; the anisotropic (f.r)r term is
+    // what makes this a tensor field rather than a scalar falloff.
+    float coef1 = (a - b) * invE + 0.5 * a * radius * radius * invE3;
     float coef2 = b * dot(grabTo, r) * invE3;
     float3 disp = grabTo * coef1 + r * coef2;
     // Normalize so the displacement at the grab point (r = 0) equals grabTo.
     // Without this the raw solution scales as 1/radius, so a small brush
     // explodes into NaN/Inf coordinates — the source of the crash + the
-    // runaway-geometry slowdown. The center displacement is grabTo*(a-b)/radius,
-    // so the normalizer is radius/(a-b); clamp (a-b) away from 0.
-    float ab = a - b;
-    if (ab < 1e-6) { ab = 1e-6; }
-    disp = disp * (radius / ab);
+    // runaway-geometry slowdown. At r = 0 the displacement is
+    // grabTo*(1.5a - b)/radius, so the normalizer is radius/(1.5a - b);
+    // clamp it away from 0 (it only vanishes at nu > 0.833, outside our range).
+    float norm = 1.5 * a - b;
+    if (norm < 1e-6) { norm = 1e-6; }
+    disp = disp * (radius / norm);
     // No strength(): the kelvinlet field IS its own falloff. unbounded_window()
     // is what takes it to exactly zero at the host's node-filter radius (see
     // @unbounded); masks() keeps automask / view-normal / painted mask acting.
