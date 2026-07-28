@@ -9,6 +9,7 @@ import {fileURLToPath} from 'url'
 import {termColor} from './source/litestl/tests/termColor.js'
 import {syntaxHighlight} from './tools/syntaxHighlight.mjs'
 import {ensureDeps, configName} from './tools/deps.mjs'
+import {getNativeEOL, toEOL} from './tools/eol.mjs'
 import {archivePdb} from './crash/dump.mjs'
 
 // Every input/output path below is resolved relative to the working dir,
@@ -954,7 +955,9 @@ function emitBrushWgslTs(sbrushc, kernelsDir, inputs) {
   for (const inp of inputs) {
     const stem = inp.replace(/\.sbrush$/, '')
     const wgslPath = `${stageDir}/${stem}.wgsl`
-    run(`"${sbrushc}" --backend=wgsl --in="${kernelsDir}/${inp}" --out="${wgslPath}"`)
+    // --eol=lf keeps the staged intermediate canonical; the assembled .ts is
+    // converted to the working tree's endings as a whole below.
+    run(`"${sbrushc}" --backend=wgsl --eol=lf --in="${kernelsDir}/${inp}" --out="${wgslPath}"`)
     const wgsl = fs.readFileSync(wgslPath, 'utf-8')
     // Escape for a JS template literal (WGSL has none of these today, but a
     // future kernel must not silently corrupt the module).
@@ -972,9 +975,12 @@ function emitBrushWgslTs(sbrushc, kernelsDir, inputs) {
     '\n}\n'
 
   const tsPath = 'typescript/sculptcore/brush/brushWgsl.ts'
+  // Written with the working tree's line endings (same rule as genTS.ts and
+  // sbrushc) so a regen doesn't show up as an autocrlf-only diff.
+  const text = toEOL(out, getNativeEOL())
   const prev = fs.existsSync(tsPath) ? fs.readFileSync(tsPath, 'utf-8') : null
-  if (prev !== out) {
-    fs.writeFileSync(tsPath, out)
+  if (prev !== text) {
+    fs.writeFileSync(tsPath, text)
     console.log(`codegen: wrote ${tsPath}`)
   } else {
     console.log(`codegen: ${tsPath} up to date`)

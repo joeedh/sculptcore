@@ -39,6 +39,9 @@ struct Args {
   bool extras = false;
   // --registry mode (extra-kernel registry generation).
   bool registry = false;
+  // Line endings for written files: "auto" (git's working-tree setting),
+  // "lf" or "crlf".
+  litestl::util::string eol = "auto";
   litestl::util::string outDir;
   litestl::util::Vector<litestl::util::string> inPaths;
   litestl::util::Vector<litestl::util::string> builtinPaths;
@@ -53,6 +56,8 @@ void printUsage()
     "  --dump-tokens print token stream and exit\n"
     "  --extras      extra (out-of-repo) kernel: unlisted float uniforms use the\n"
     "                Brush.namedFloats store instead of erroring (cpp backend)\n"
+    "  --eol=<auto|lf|crlf>  line endings for written files; auto (default)\n"
+    "                follows git's core.eol / core.autocrlf working-tree setting\n"
     "Registry mode (extra-kernel enum/factory registration):\n"
     "  sbrushc --registry --out-dir=<dir> --in=<extra.sbrush>...\n"
     "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n");
@@ -68,6 +73,7 @@ bool parseArgs(int argc, char **argv, Args &out)
     else if (std::strncmp(a, "--out-dir=", 10) == 0) out.outDir = a + 10;
     else if (std::strncmp(a, "--builtin=", 10) == 0) out.builtinPaths.append(a + 10);
     else if (std::strncmp(a, "--reserved=", 11) == 0) out.reserved = a + 11;
+    else if (std::strncmp(a, "--eol=", 6) == 0) out.eol = a + 6;
     else if (std::strcmp(a, "--registry") == 0) out.registry = true;
     else if (std::strcmp(a, "--extras") == 0) out.extras = true;
     else if (std::strcmp(a, "--dry-run") == 0) out.dryRun = true;
@@ -79,6 +85,11 @@ bool parseArgs(int argc, char **argv, Args &out)
       std::fprintf(stderr, "sbrushc: unknown arg '%s'\n", a);
       return false;
     }
+  }
+  if (std::strcmp(out.eol.c_str(), "auto") != 0 && std::strcmp(out.eol.c_str(), "lf") != 0 &&
+      std::strcmp(out.eol.c_str(), "crlf") != 0) {
+    std::fprintf(stderr, "sbrushc: --eol must be auto, lf or crlf\n");
+    return false;
   }
   if (out.registry) {
     if (out.outDir.size() == 0) {
@@ -110,8 +121,86 @@ bool readFile(const char *path, std::string &dst)
   return true;
 }
 
+// Line ending written by writeFileIfChanged; set from --eol in main().
+std::string g_eol = "\n";
+
+// `git config --get <key>`, trimmed; empty when unset or git is unavailable.
+std::string gitConfigValue(const char *key)
+{
+  std::string cmd = "git config --get ";
+  cmd += key;
+#ifdef _WIN32
+  cmd += " 2>NUL";
+  FILE *pipe = _popen(cmd.c_str(), "r");
+#else
+  cmd += " 2>/dev/null";
+  FILE *pipe = popen(cmd.c_str(), "r");
+#endif
+  if (!pipe) return "";
+
+  std::string out;
+  char buf[256];
+  while (std::fgets(buf, sizeof(buf), pipe)) {
+    out += buf;
+  }
+#ifdef _WIN32
+  _pclose(pipe);
+#else
+  pclose(pipe);
+#endif
+
+  while (out.size() > 0 && (out.back() == '\n' || out.back() == '\r' || out.back() == ' ' ||
+                            out.back() == '\t')) {
+    out.pop_back();
+  }
+  return out;
+}
+
+// The working-tree line ending git would check these files out with; mirrors
+// tools/genTS.ts so every generator in the repo agrees.
+const std::string &nativeEOL()
+{
+  static const std::string eol = [] {
+    // core.eol pins the working-tree ending outright and wins over core.autocrlf.
+    std::string coreEol = gitConfigValue("core.eol");
+    if (coreEol == "lf") return std::string("\n");
+    if (coreEol == "crlf") return std::string("\r\n");
+
+    std::string autocrlf = gitConfigValue("core.autocrlf");
+    if (autocrlf == "input" || autocrlf == "false") return std::string("\n");
+    // 'true', or unset with core.eol=native → OS-native EOL
+#ifdef _WIN32
+    return std::string("\r\n");
+#else
+    return std::string("\n");
+#endif
+  }();
+  return eol;
+}
+
+// Rewrite every line ending in `text` as `eol` (emitters always produce \n).
+std::string applyEOL(const litestl::util::string &text, const std::string &eol)
+{
+  std::string out;
+  out.reserve(text.size() + (eol.size() > 1 ? text.size() / 8 : 0));
+  const char *p = text.c_str();
+  for (size_t i = 0, n = (size_t)text.size(); i < n; i++) {
+    if (p[i] == '\r') {
+      if (i + 1 < n && p[i + 1] == '\n') i++;
+      out += eol;
+    } else if (p[i] == '\n') {
+      out += eol;
+    } else {
+      out += p[i];
+    }
+  }
+  return out;
+}
+
 bool writeFileIfChanged(const char *path, const litestl::util::string &content)
 {
+  std::string text = applyEOL(content, g_eol);
+
   // Avoid touching mtime if content matches — otherwise CMake regenerates
   // the whole world on every invocation.
   std::ifstream existing(path, std::ios::binary);
@@ -119,15 +208,14 @@ bool writeFileIfChanged(const char *path, const litestl::util::string &content)
     std::ostringstream ss;
     ss << existing.rdbuf();
     std::string s = ss.str();
-    if ((int)s.size() == (int)content.size() &&
-        std::memcmp(s.data(), content.c_str(), s.size()) == 0) {
+    if (s == text) {
       return true;
     }
   }
   std::ofstream out(path, std::ios::binary);
   if (!out) return false;
   std::printf("sbrushc: %s\n", path);
-  out.write(content.c_str(), content.size());
+  out.write(text.data(), (std::streamsize)text.size());
   return out.good();
 }
 
@@ -274,6 +362,14 @@ int main(int argc, char **argv)
   if (!parseArgs(argc, argv, args)) {
     printUsage();
     return 2;
+  }
+
+  if (std::strcmp(args.eol.c_str(), "lf") == 0) {
+    g_eol = "\n";
+  } else if (std::strcmp(args.eol.c_str(), "crlf") == 0) {
+    g_eol = "\r\n";
+  } else {
+    g_eol = nativeEOL();
   }
 
   if (args.registry) {

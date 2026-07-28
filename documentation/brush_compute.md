@@ -48,12 +48,20 @@ CLI (`sbrushc_main.cc`):
 sbrushc --backend=<cpp|wgsl|spirv|cuda|hip|opencl> --in=<file.sbrush> --out=<file>
         [--dry-run]       # print to stdout, don't write
         [--dump-tokens]   # print the token stream and exit
+        [--eol=<auto|lf|crlf>]  # line endings for written files (default auto)
 ```
 
 `--backend=spirv` emits WGSL — SPIR-V is produced downstream by `tint`
 (see *Backends*). The writer skips a file whose contents are byte-identical
 to what's already on disk, so re-running codegen doesn't churn CMake
 timestamps (`writeFileIfChanged`).
+
+Output is written with the line endings git would check the file out with:
+`--eol=auto` reads `core.eol` / `core.autocrlf` (the same rule as
+`tools/eol.mjs`, shared by `genTS.ts` and `make.mjs`), so the checked-in
+`*.brush.gen.h` don't show up as autocrlf-only diffs — and, because the
+byte-compare above happens *after* the conversion, a freshly checked-out tree
+isn't rewritten wholesale. `--eol=lf|crlf` forces one explicitly.
 
 ### Lexer (`lexer.{h,cc}`)
 

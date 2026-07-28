@@ -1,9 +1,9 @@
 import * as binding from '@litestl/typescript-runtime'
-import {execSync} from 'child_process'
 import fs from 'fs'
-import os from 'os'
 import Path from 'path'
 import * as prettier from '@pathtx/prettier'
+//@ts-ignore
+import {getNativeEOL, toEOL} from './eol.mjs'
 
 /** Files/folders in typescript/ to not delete when rebuilding. */
 const staticFiles = new Set(['package.json', 'readme.md', 'tsconfig.json', 'api', 'node_modules', 'build'])
@@ -56,47 +56,12 @@ for (const entry of fs.readdirSync(baseDir)) {
   fs.rmSync(Path.join(baseDir, entry), {recursive: true, force: true})
 }
 
-function gitConfig(key: string): string {
-  try {
-    return execSync(`git config --get ${key}`, {
-      cwd     : baseDir,
-      encoding: 'utf8',
-      stdio   : ['ignore', 'pipe', 'ignore'],
-    }).trim()
-  } catch {
-    // unset (exit 1) or git unavailable
-    return ''
-  }
-}
-
-function getNativeEOL(): '\n' | '\r\n' {
-  // core.eol pins the working-tree ending outright and wins over core.autocrlf.
-  const coreEol = gitConfig('core.eol')
-  if (coreEol === 'lf') {
-    return '\n'
-  }
-  if (coreEol === 'crlf') {
-    return '\r\n'
-  }
-
-  const autocrlf = gitConfig('core.autocrlf')
-  if (autocrlf === 'input' || autocrlf === 'false') {
-    return '\n'
-  }
-  // 'true', or unset with core.eol=native → OS-native EOL
-  return os.EOL === '\r\n' ? '\r\n' : '\n'
-}
-
-const eol = getNativeEOL()
-
-function toEOL(text: string): string {
-  return text.replace(/\r\n?|\n/g, eol)
-}
+const eol = getNativeEOL(baseDir)
 
 for (const [rel, content] of preserved) {
   const p = Path.join(baseDir, rel)
   fs.mkdirSync(Path.dirname(p), {recursive: true})
-  fs.writeFileSync(p, toEOL(content.toString('utf8')))
+  fs.writeFileSync(p, toEOL(content.toString('utf8'), eol))
 }
 const prettierConfig = (await prettier.resolveConfig(baseDir)) ?? {}
 
@@ -117,7 +82,7 @@ for (const [path, file] of files) {
     console.warn(`prettier failed for ${path}: ${(err as Error).message.split('\n')[0]} — writing unformatted`)
     formatted = raw
   }
-  fs.writeFileSync(finalPath, toEOL(formatted))
+  fs.writeFileSync(finalPath, toEOL(formatted, eol))
 }
 //@ts-ignore
 import {termColor} from '../source/litestl/tests/termColor.js'
