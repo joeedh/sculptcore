@@ -443,6 +443,9 @@ template <typename Lambda> void type_dispatch(AttrType type, Lambda callback)
   case AttrType::SHORT:
     callback.template operator()<short>();
     break;
+  case AttrType::WEIGHTS:
+    callback.template operator()<WeightSlot>();
+    break;
   }
 }
 } // namespace detail

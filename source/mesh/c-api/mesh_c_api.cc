@@ -391,7 +391,10 @@ static ElemData *mesh_elem_domain(Mesh *m, int domain)
  * `count * sizeof(element)` bytes for the type. Returns 1 when
  * the attribute exists (out filled), 0 otherwise (out untouched). The generic
  * counterpart of the typed Mesh_read*Attr functions, used to round-trip every
- * user layer back to the Blender mesh after a topology rebuild. */
+ * user layer back to the Blender mesh after a topology rebuild.
+ *
+ * AttrType::WEIGHTS is refused: its elements are DeformPool indices, which mean
+ * nothing outside this mesh. Use the sc_mesh_weights_* entry points. */
 int Mesh_readAttr(Mesh *m, int domain, const char *name, int type, void *out)
 {
   if (m->topo_frozen) {
@@ -402,6 +405,9 @@ int Mesh_readAttr(Mesh *m, int domain, const char *name, int type, void *out)
     return 0;
   }
   AttrType attr_type = AttrType(type);
+  if (attr_type == AttrType::WEIGHTS) {
+    return 0;
+  }
   AttrRef ref = ed->attrs.find_attribute(attr_type, name);
   if (!ref.exists()) {
     return 0;
@@ -432,7 +438,11 @@ int Mesh_readAttr(Mesh *m, int domain, const char *name, int type, void *out)
  * with `use`
  * (an AttrUse — UV/COLOR/... — so a re-imported UV map stays a UV map) if it is
  * missing. The generic counterpart of the typed Mesh_write*Attr functions, used
- * to seed every user layer into the engine on enter. Returns 1. */
+ * to seed every user layer into the engine on enter. Returns 1.
+ *
+ * AttrType::WEIGHTS is refused: a raw write would store caller-supplied
+ * DeformPool indices with no reference taken, so the pool would free runs the
+ * column still names. Use the sc_mesh_weights_* entry points. */
 int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, const void *in)
 {
   if (m->topo_frozen) {
@@ -443,6 +453,9 @@ int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, con
     return 0;
   }
   AttrType attr_type = AttrType(type);
+  if (attr_type == AttrType::WEIGHTS) {
+    return 0;
+  }
   AttrRef &ref = ed->attrs.ensure(attr_type, name, /*materialize=*/true);
   ref.use = AttrUse(use);
   sculptcore::mesh::detail::type_dispatch(attr_type, [&]<typename T>() {
