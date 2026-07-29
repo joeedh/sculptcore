@@ -1,5 +1,8 @@
 # Sculptcore
 
+<img src="assets/image.png" alt="Sculptcore" width="48%"> <img src="assets/image2.png" alt="Sculptcore" width="48%">
+
+
 Sculptcore is a library for implementing digital sculpting tools.  It is meant to run in a host digital content 
 creator (like e.g. Blender, Maya).  Sculpt brushes are written in a small domain-specific language and can
 run on the CPU and the GPU via WebGPU or Vulkan.
