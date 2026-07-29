@@ -64,8 +64,8 @@ static void wingscrapeComputeWings(CommandCtxBase &ctx, Brush &brush)
   float sn = std::sin(brush.wingAngle);
   float3 KxV = (K).cross(V);
   float kv = (K).dot(V);
-  brush.wingNormalA = (((V * c) + (KxV * sn)) + (K * ((kv * ((1.0f - c))))));
-  brush.wingNormalB = (((V * c) - (KxV * sn)) + (K * ((kv * ((1.0f - c))))));
+  brush.wingNormalA = (((V * c) - (KxV * sn)) + (K * ((kv * ((1.0f - c))))));
+  brush.wingNormalB = (((V * c) + (KxV * sn)) + (K * ((kv * ((1.0f - c))))));
 }
 
 template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>

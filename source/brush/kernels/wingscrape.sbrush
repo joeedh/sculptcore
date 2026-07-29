@@ -1,13 +1,13 @@
 // Wing Scrape — like Scrape, but two stroke-aligned 'wing' planes that meet at
-// the stroke line in a shallow V. Each vertex is projected down onto the wing
-// on its own lateral side of the stroke, so dragging the brush carves a
-// V-shaped channel that follows the stroke direction.
+// the stroke line. Each vertex is projected down onto the wing on its own
+// lateral side, so the pair scrapes a shallow roof: the cut deepens away from
+// the stroke line and leaves a sharp convex crease running along it.
 //
-// The two wing normals are surfaceNo rotated ±wingAngle about the stroke
+// The two wing normals are surfaceNo rotated ∓wingAngle about the stroke
 // tangent (strokeDir). They are recomputed once per dab in the `host` stage
 // (Rodrigues rotation) and read per-vertex. `strokeDir` is set host-side by
-// the executor before the dab; `wingAngle` comes from the brush. The V's apex
-// line is sunk `planeoff * radius` below the surface point so the brush bites
+// the executor before the dab; `wingAngle` comes from the brush. The apex
+// ridge is sunk `planeoff * radius` below the surface point so the brush bites
 // into a flat face, as Scrape does.
 //
 // A degenerate strokeDir (parallel to surfaceNo — the very first dab of a
@@ -24,7 +24,7 @@ brush WingScrape {
   uniform float planeoff, radius;
 
   // Compute the two wing-plane normals once per dab: surfaceNo rotated
-  // ±wingAngle about the (normalized) stroke tangent, via Rodrigues' formula
+  // ∓wingAngle about the (normalized) stroke tangent, via Rodrigues' formula
   //   V*cos + (K×V)*sin + K*(K·V)*(1-cos).
   host void computeWings() {
     float3 K = normalize(strokeDir);
@@ -33,8 +33,11 @@ brush WingScrape {
     float sn = sin(wingAngle);
     float3 KxV = cross(K, V);
     float kv = dot(K, V);
-    wingNormalA = V * c + KxV * sn + K * (kv * (1.0 - c));
-    wingNormalB = V * c - KxV * sn + K * (kv * (1.0 - c));
+    // Each wing leans TOWARD its own lateral side (lat = cross(V, K) = -KxV),
+    // so the planes tent up over the stroke line. Leaning them the other way
+    // makes the pair a valley and the brush gouges a channel instead.
+    wingNormalA = V * c - KxV * sn + K * (kv * (1.0 - c));
+    wingNormalB = V * c + KxV * sn + K * (kv * (1.0 - c));
   }
 
   vertex void apply(inout Vertex v) {

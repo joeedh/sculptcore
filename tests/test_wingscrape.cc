@@ -1,16 +1,16 @@
-// Wing Scrape must cut, and must cut a V.
+// Wing Scrape must cut, and must leave a convex crease.
 //
 // It used to be a no-op: both wing planes passed through surfacePos itself, so
 // on a flat face no vertex was ever above a wing and nothing moved. The kernel
 // now sinks the shared apex line `planeoff * radius` below the surface point,
 // exactly as plane.sbrush's Scrape does.
 //
-// The V signature — what separates it from a plain flat scrape — is that the
-// wings rise away from the stroke line, so the cut is deepest at the line and
-// tapers to nothing laterally. A flat scrape cuts everything within the radius
-// down to ONE plane, so its depth falls off only as fast as the brush falloff.
-// The two runs share a fixture and are compared as rim/ridge ratios, so the
-// falloff cancels out of the comparison.
+// The wings must also tent UP over the stroke line: each leans toward its own
+// lateral side, so the cut deepens away from the line and leaves a ridge along
+// it. Leaning them the other way gouges a valley — the shape this test pins
+// down. A flat scrape cuts to ONE plane, so its depth falls off exactly as
+// fast as the brush falloff; both runs share a fixture and are compared as
+// rim/ridge ratios, so that falloff cancels out of the comparison.
 #include "test_util.h"
 
 #include "debug/scene.h"
@@ -37,9 +37,7 @@ const float3 kCenter{0, 0, 0}; // center of the flat +Z-facing grid
 const float3 kNormal{0, 0, 1};
 const float3 kStrokeDir{1, 0, 0};
 const float kRadius = 0.15f;
-// Deeper than the shipped -0.05, whose V is only a couple of grid cells wide —
-// too narrow to profile. The shape under test is the same either way.
-const float kPlaneOff = -0.3f;
+const float kPlaneOff = -0.05f; // what wingApexOffset() feeds the tool by default
 
 struct CutProfile {
   float atRidge = 0.0f; // mean cut depth in the band straddling the stroke line
@@ -140,11 +138,11 @@ int main()
     // It cuts at all — the "wing scrape doesn't work" regression.
     test_assert(wing.maxCut > 1e-4f);
     test_assert(wing.atRidge > 1e-4f);
-    // The control does reach the rim, so the V's missing rim below is the wings
-    // and not the fixture.
-    test_assert(flat.atRim > 1e-4f);
-    // V: the cut is concentrated on the stroke line.
-    test_assert(wing.ratio() * 4.0f < flat.ratio());
+    test_assert(flat.atRidge > 1e-4f);
+    // Convex: the wings tent up over the stroke line, so the cut deepens
+    // outward — faster than the control's plain falloff decay, and the reverse
+    // of what a valley would give.
+    test_assert(wing.ratio() > 2.5f * flat.ratio());
   }
 
   return test_end();
