@@ -39,11 +39,15 @@ static void polygroupPre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> 
   {
     sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::FACE> __saver;
     __saver.ensure(*m);
-    sculptcore::mesh::AttrRef __refs[1];
+    sculptcore::mesh::AttrRef __refs[2];
     int __n = 0, __mask = 0;
     {
       const sculptcore::mesh::AttrRef *__r = &m->f.no;
       if (__r && __r->data) { __refs[__n] = *__r; __mask |= __saver.add(__refs[__n], sculptcore::meshlog::NO); __n++; }
+    }
+    {
+      const sculptcore::mesh::AttrRef *__r = ctx.boundAttrRef("group");
+      if (__r && __r->data) { __refs[__n] = *__r; __mask |= __saver.add(__refs[__n], (1 << (sculptcore::meshlog::CUSTOM_START + 0))); __n++; }
     }
     if (__mask) {
       auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::FACE);

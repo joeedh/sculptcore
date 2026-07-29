@@ -193,6 +193,21 @@ struct CommandExecutor {
   int coPrevGen_ = 0;
   Vector<spatial::SpatialNode *> coPrevDirty_;
 
+  /** Pinned node set of one grab-class symmetry image (see grabFilterNodes).
+   * Node ids, not pointers: a leaf can be freed and its slot reused between
+   * dabs, and node_from_id null-checks for us. */
+  struct GrabRegion {
+    float3 center;
+    float radius = 0.0f;
+    Vector<int> nodeIds;
+  };
+  Vector<GrabRegion> grabRegions_;
+  /** Drag-widened filter high-water for the dyntopo grab fallback, which can't
+   * pin a region. Never allowed to shrink: a from-orig dab only writes verts
+   * inside the filter, so a leaf it drops keeps its old displacement and leaves
+   * a stale ring behind (#35). */
+  float grabWidenRadius_ = 0.0f;
+
   /** UV slide-reprojection deferral (frozen-topology strokes): vert -> its
    * position before the first dab that moved it. Flushed by endStep — one
    * thaw + reproject per stroke instead of one per dab (which would also
@@ -238,14 +253,19 @@ struct CommandExecutor {
    * exec(). Must be non-zero in use, since the `.brush.dab.gen` attr defaults 0. */
   uint32_t dabGen = 0;
   uint32_t strokeGen = 0;
-  // Memo for filterRadiusFloor: building a command def per dab just to read one
-  // codegen flag is wasteful, and the answer only depends on the tool.
+  // Memo for filterRadiusFloor / grabAnchoredTool: building a command def per
+  // dab just to read a couple of codegen flags is wasteful, and the answer only
+  // depends on the tool.
   int floorMemoTool_ = -1;
   bool floorMemoUnbounded_ = false;
+  bool floorMemoGrabCapable_ = false;
   meshlog::MeshLog *meshLog = nullptr;
   /** Stats of the most recent applyDynTopoDab, for the TS HUD (read after each
    * dab and accumulated per stroke). */
   dyntopo::DynTopoStats lastDynTopoStats;
+  /** Leaf count the most recent applyDab handed the deform program. The per-dab
+   * cost is linear in it, so tests assert on it instead of on wall-clock. */
+  int lastDabNodeCount = 0;
   Vector<float3> coPrevStorage; // backing store for ctx.co_prev (Jacobi snapshot)
   /** Backing store for resolved DSL attribute bindings (ctx.attrBindings),
    * rebuilt per dab in exec(). */
@@ -555,13 +575,101 @@ struct CommandExecutor {
    * it, and returns 0 for every ordinary kernel. */
   float filterRadiusFloor(SculptBrushes brushType)
   {
+    ensureToolMemo(brushType);
+    return floorMemoUnbounded_ ? brush->radius * brush->unboundedExtent : 0.0f;
+  }
+
+  void ensureToolMemo(SculptBrushes brushType)
+  {
     if (int(brushType) != floorMemoTool_) {
       brush_command def;
       createCommandImpl<AccumLive>(brushType, def);
       floorMemoTool_ = int(brushType);
       floorMemoUnbounded_ = def.unbounded;
+      floorMemoGrabCapable_ = def.grabModeCapable;
     }
-    return floorMemoUnbounded_ ? brush->radius * brush->unboundedExtent : 0.0f;
+  }
+
+  /** Whether `brushType` takes the from-orig fixed-region grab policy on this
+   * stroke — the same condition createCommand uses to pick AccumOrigGrab. */
+  bool grabAnchoredTool(SculptBrushes brushType)
+  {
+    ensureToolMemo(brushType);
+    return floorMemoGrabCapable_ && anchoredGrab;
+  }
+
+  /** Drag-independent radius the pinned grab region is sized from: the falloff
+   * radius, raised for an `@unbounded` kernel exactly as filterRadiusFloor does.
+   * Hosts widen the radius they pass applyDab by the cumulative drag (the GPU
+   * dab and the anchored preview snapshot need that); the pinned CPU region
+   * must not follow it. */
+  float grabPinRadius(SculptBrushes brushType)
+  {
+    return std::fmax(brush->radius, filterRadiusFloor(brushType));
+  }
+
+  /** Node set for one dab of a from-orig grab-class stroke.
+   *
+   * Such a stroke only ever moves verts within the falloff radius of its FIXED
+   * anchor (it re-bases from each vert's stroke-start position), so the leaves
+   * it needs are exactly the ones its first dab saw — including the border
+   * leaves that draw replicas, whose AABBs already touch that sphere. Pin that
+   * set for the stroke instead of re-filtering: the leaves deform away from the
+   * anchor as the drag grows, and the old fix for that (widen the filter by the
+   * drag) made every dab stamp, run, re-normal and re-upload the whole swept
+   * region — per-dab cost growing with the drag for no extra coverage.
+   *
+   * `hostRadius` is what the host asked for; it is only used by the dyntopo
+   * fallback, which cannot pin anything. */
+  void grabFilterNodes(float3 center,
+                       float pinRadius,
+                       float hostRadius,
+                       Vector<spatial::SpatialNode *> &nodes)
+  {
+    if (stepHasDyntopo) {
+      // Topology and the leaf set move under the stroke, so nothing survives
+      // being pinned; fall back to the drag-widened filter.
+      grabWidenRadius_ = std::fmax(grabWidenRadius_,
+                                   std::fmax(hostRadius, pinRadius + brush->grabTo.length()));
+      tree->filterNodes(center, grabWidenRadius_, nodes);
+      return;
+    }
+
+    GrabRegion *reg = nullptr;
+    const float tol = std::fmax(pinRadius, 1.0f) * 1e-4f;
+    for (GrabRegion &r : grabRegions_) {
+      if ((r.center - center).lengthSqr() <= tol * tol) {
+        reg = &r;
+        break;
+      }
+    }
+    if (reg && reg->radius >= pinRadius) {
+      nodes.clear();
+      for (int id : reg->nodeIds) {
+        if (spatial::SpatialNode *n = tree->node_from_id(id)) {
+          nodes.append(n);
+        }
+      }
+      return;
+    }
+
+    // First dab of this symmetry image, or its radius grew (pressure dynamics).
+    tree->filterNodes(center, pinRadius, nodes);
+    if (!reg) {
+      // One entry per symmetry image; more than that means the "anchor" is
+      // drifting, so stop caching rather than grow without bound.
+      if (grabRegions_.size() >= 16) {
+        return;
+      }
+      grabRegions_.append(GrabRegion());
+      reg = &grabRegions_[grabRegions_.size() - 1];
+    }
+    reg->center = center;
+    reg->radius = pinRadius;
+    reg->nodeIds.clear();
+    for (spatial::SpatialNode *n : nodes) {
+      reg->nodeIds.append(n->id);
+    }
   }
 
   /** Map a declared attribute domain to the mesh's element AttrGroup. */
@@ -1827,14 +1935,23 @@ struct CommandExecutor {
       topoApplied = applyDynTopoDab(center, radius, params, seed);
     }
     // `radius` here is the node-filter radius only (the falloff uses
-    // brush->radius). Grab-class strokes pass a radius widened by the cumulative
-    // drag so the deformed region's leaves stay in the set and can't shrink +
-    // tear at leaf seams (#35); the caller (the dab dispatch) does the widening.
+    // brush->radius). A from-orig grab-class program ignores the host's
+    // drag-widened radius and takes the pinned region instead — the executor
+    // owns that policy (see grabFilterNodes).
+    float pinRadius = 0.0f;
     for (const BrushCommandEntry &e : prog->commands) {
       radius = std::fmax(radius, filterRadiusFloor(e.type));
+      if (grabAnchoredTool(e.type)) {
+        pinRadius = std::fmax(pinRadius, grabPinRadius(e.type));
+      }
     }
     Vector<spatial::SpatialNode *> nodes;
-    tree->filterNodes(center, radius, nodes);
+    if (pinRadius > 0.0f) {
+      grabFilterNodes(center, pinRadius, radius, nodes);
+    } else {
+      tree->filterNodes(center, radius, nodes);
+    }
+    lastDabNodeCount = int(nodes.size());
     if (nodes.size() > 0) {
       execProgram(prog, &nodes, center, normal);
     }
@@ -1869,11 +1986,16 @@ struct CommandExecutor {
     if (params) {
       topoApplied = applyDynTopoDab(center, radius, params, seed);
     }
-    // `radius` is the node-filter radius only (caller widens it for grab-class
-    // strokes; see the BrushProgram overload). #35
+    // `radius` is the node-filter radius only; grab-class strokes take the
+    // pinned region (see the BrushProgram overload).
     radius = std::fmax(radius, filterRadiusFloor(brushType));
     Vector<spatial::SpatialNode *> nodes;
-    tree->filterNodes(center, radius, nodes);
+    if (grabAnchoredTool(brushType)) {
+      grabFilterNodes(center, grabPinRadius(brushType), radius, nodes);
+    } else {
+      tree->filterNodes(center, radius, nodes);
+    }
+    lastDabNodeCount = int(nodes.size());
     if (nodes.size() > 0) {
       execBrush(m, brushType, &nodes, center, normal);
     }
@@ -1979,6 +2101,8 @@ struct CommandExecutor {
     coPrevDirty_.clear();
     coPrevGen_++;
     uvReprojPending_.clear();
+    grabRegions_.clear();
+    grabWidenRadius_ = 0.0f;
     if (brush) {
       brush->resetStrokePath();
     }

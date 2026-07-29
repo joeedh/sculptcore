@@ -79,13 +79,14 @@ static void wingscrape(CommandCtx<TYPES> &ctx)
     if ((s == 0.0f)) {
       continue;
     }
+    float3 P = (ctx.surfacePos + (ctx.surfaceNo * ((ctx.brush.planeoff * ctx.brush.radius))));
     float3 lat = (ctx.surfaceNo).cross(ctx.brush.strokeDir);
-    float side = ((v.co - ctx.surfacePos)).dot(lat);
+    float side = ((v.co - P)).dot(lat);
     float3 wn = ctx.brush.wingNormalB;
     if ((side > 0.0f)) {
       wn = ctx.brush.wingNormalA;
     }
-    float h = ((v.co - ctx.surfacePos)).dot(wn);
+    float h = ((v.co - P)).dot(wn);
     if ((h > 0.0f)) {
       v.co -= (wn * ((h * s)));
     }
@@ -114,9 +115,15 @@ static void createWingscrapeBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPost = wingscrapePost<TYPES>;
   def.accumulable = true;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"wingAngle", true, false, 0.0f, false, 0.0f, 0.0f});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"planeoff", true, true, 0.0f, false, 0.0f, 0.0f});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
+    if (!sd.has("planeoff")) sd.Float32("planeoff", "planeoff").Default(0.0f);
+    if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);
   };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
+    brush.planeoff = brush.props.lookupValue<float>("planeoff", 0.0f, ctx);
+    brush.radius = brush.props.lookupValue<float>("radius", 0.0f, ctx);
   };
 }
 

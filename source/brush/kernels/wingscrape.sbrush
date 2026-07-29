@@ -6,7 +6,13 @@
 // The two wing normals are surfaceNo rotated ±wingAngle about the stroke
 // tangent (strokeDir). They are recomputed once per dab in the `host` stage
 // (Rodrigues rotation) and read per-vertex. `strokeDir` is set host-side by
-// the executor before the dab; `wingAngle` comes from the brush.
+// the executor before the dab; `wingAngle` comes from the brush. The V's apex
+// line is sunk `planeoff * radius` below the surface point so the brush bites
+// into a flat face, as Scrape does.
+//
+// A degenerate strokeDir (parallel to surfaceNo — the very first dab of a
+// stroke, before a tangent exists) collapses both wings onto surfaceNo, which
+// falls back to a plain flat scrape rather than a no-op.
 
 @brush("wingscrape")
 brush WingScrape {
@@ -15,6 +21,7 @@ brush WingScrape {
   ctx float3 strokeDir;
   ctx float3 wingNormalA, wingNormalB;
   uniform float wingAngle @static;
+  uniform float planeoff, radius;
 
   // Compute the two wing-plane normals once per dab: surfaceNo rotated
   // ±wingAngle about the (normalized) stroke tangent, via Rodrigues' formula
@@ -35,17 +42,22 @@ brush WingScrape {
     if (s == 0.0) {
       continue;
     }
+    // Both wings meet at a line `planeoff * radius` below the surface point
+    // (planeoff < 0), exactly like plane.sbrush's Scrape. With the apex left on
+    // the surface nothing on a flat face is ever above a wing and the brush is
+    // a no-op — that was the "wing scrape does nothing" bug.
+    float3 P = surfacePos + surfaceNo * (planeoff * radius);
     // Lateral axis: perpendicular to the stroke, in the tangent plane. Its sign
     // picks which wing this vertex belongs to.
     float3 lat = cross(surfaceNo, strokeDir);
-    float side = dot(v.co - surfacePos, lat);
+    float side = dot(v.co - P, lat);
     float3 wn = wingNormalB;
     if (side > 0.0) {
       wn = wingNormalA;
     }
-    // Project verts above the chosen wing plane (through surfacePos) down onto
-    // it — a scrape into the wing.
-    float h = dot(v.co - surfacePos, wn);
+    // Project verts above the chosen wing plane down onto it — a scrape into
+    // the wing.
+    float h = dot(v.co - P, wn);
     if (h > 0.0) {
       v.co -= wn * (h * s);
     }

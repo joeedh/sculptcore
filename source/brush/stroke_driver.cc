@@ -456,9 +456,11 @@ void BrushStrokeDriver::emitAnchored(const ControlPoint &anchor, const ControlPo
   const double dx = cur.screen[0] - anchor.screen[0];
   const double dy = cur.screen[1] - anchor.screen[1];
 
-  if (anchoredLiveMode == AnchoredLiveMode::Angle) {
-    ps.liveAngle = float(std::atan2(dy, dx));
-  } else {
+  // The brush angle tracks the cursor in *both* live modes; the mode only
+  // decides whether the drag length also drives the radius.
+  ps.liveAngle = float(std::atan2(dy, dx));
+
+  if (anchoredLiveMode != AnchoredLiveMode::Angle) {
     const double dragPx = std::sqrt(dx * dx + dy * dy);
     if (dragPx > 1e-5) {
       // ps.radius rides in the brush's own unit.

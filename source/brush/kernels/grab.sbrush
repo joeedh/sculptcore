@@ -2,9 +2,10 @@
 // (`grabTo` = cursor − stroke anchor), gated by falloff*strength and the mask
 // layer. Grab-class (#35): the executor runs it from each vert's stroke-start
 // position (AccumOrigGrab), so re-applying a grown `grabTo` re-bases instead
-// of stacking; the TS bridge anchors the dab center + widens the node filter
-// by the drag (see SculptPaintOp.applyDabOne). @grabmode gives the WGSL leg
-// the same from-orig + per-dab first-touch write-back.
+// of stacking; the TS bridge anchors the dab center (see
+// SculptPaintOp.applyDabOne) and the executor pins the node region for the
+// stroke (CommandExecutor::grabFilterNodes). @grabmode gives the WGSL leg the
+// same from-orig + per-dab first-touch write-back.
 
 @brush("grab")
 @grabmode

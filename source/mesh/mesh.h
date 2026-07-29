@@ -6,6 +6,7 @@
 #include "litestl/util/span.h"
 #include "litestl/util/string.h"
 
+#include "boundary.h"
 #include "mesh_base.h"
 #include "mesh_callbacks.h"
 #include "mesh_enums.h"
@@ -355,6 +356,14 @@ struct Mesh : public MeshBase {
           dropped++;
         }
       }
+    }
+    if (dropped) {
+      /* The whole boundary overlay is TEMP — including the per-element dirty
+       * markers. Dropping them leaves boundaryDirty set over an empty dirty
+       * set, so the next recomputeDirty classifies nothing and clears the flag:
+       * poly-group/seam boundaries stay invisible to bsmooth for the rest of
+       * the session. Re-mark so the load-time classification actually happens. */
+      boundary::markAllDirty(this);
     }
     return dropped;
   }

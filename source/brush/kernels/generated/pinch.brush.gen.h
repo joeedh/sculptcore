@@ -68,7 +68,8 @@ static void pinch(CommandCtx<TYPES> &ctx)
     float3 dir = (ctx.surfacePos - v.co);
     float d = (dir).length();
     if ((d > 0.0001f)) {
-      v.co += (((dir * ((s / d))) * ctx.brush.radius) * 0.5f);
+      float t = std::min((((s * ctx.brush.radius) * 0.5f) / d), std::min(s, 1.0f));
+      v.co += (dir * t);
     }
     ctx.node.affected_verts.append(v.v);
     any_moved = true;

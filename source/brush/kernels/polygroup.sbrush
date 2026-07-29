@@ -12,6 +12,11 @@ brush PolyGroup {
   // ctx.brush.activeGroup.
   uniform int activeGroup;
 
+  // The default save set is {vertex co, vertex no, face no} — without naming
+  // `group` here the painted ids are never captured and the stroke won't undo.
+  save vertex co, no;
+  save face no, group;
+
   face void apply(inout Face f) {
     if (strength(f.center) > 0.0) { f.group = activeGroup; }
   }

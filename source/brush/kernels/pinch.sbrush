@@ -16,10 +16,13 @@ brush Pinch {
     }
     float3 dir = surfacePos - v.co;
     float d = length(dir);
-    // Move toward center by `s` along the unit direction. Guard against
-    // div-by-zero for the lone vert that may sit exactly at surfacePos.
+    // Move toward the center by a fixed s*radius/2 step, but never by more than
+    // fraction `s` of the distance that is actually left — otherwise verts near
+    // the center overshoot and cross to the far side. Guard div-by-zero for the
+    // lone vert that may sit exactly at surfacePos.
     if (d > 0.0001) {
-      v.co += dir * (s / d) * radius * 0.5;
+      float t = min(s * radius * 0.5 / d, min(s, 1.0));
+      v.co += dir * t;
     }
   }
 }

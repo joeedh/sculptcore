@@ -3456,7 +3456,8 @@ fn main(
   var dir: vec3<f32> = (ctx_u.surfacePos - v_co);
   var d: f32 = length(dir);
   if ((d > 0.0001)) {
-    v_co += (((dir * ((s / d))) * brush_u.radius) * 0.5);
+    var t: f32 = min((((s * brush_u.radius) * 0.5) / d), min(s, 1.0));
+    v_co += (dir * t);
   }
 
   let sb_delta = v_co - sb_base;
@@ -5259,6 +5260,7 @@ struct BrushUniforms {
   tex_repeat: f32,
   stroke_path_count: u32,
   wingAngle: f32,
+  planeoff: f32,
 };
 
 struct CtxUniforms {
@@ -5480,13 +5482,14 @@ fn main(
   if ((s == 0.0)) {
     return;
   }
+  var P: vec3<f32> = (ctx_u.surfacePos + (ctx_u.surfaceNo * ((brush_u.planeoff * brush_u.radius))));
   var lat: vec3<f32> = cross(ctx_u.surfaceNo, ctx_u.strokeDir);
-  var side: f32 = dot((v_co - ctx_u.surfacePos), lat);
+  var side: f32 = dot((v_co - P), lat);
   var wn: vec3<f32> = ctx_u.wingNormalB;
   if ((side > 0.0)) {
     wn = ctx_u.wingNormalA;
   }
-  var h: f32 = dot((v_co - ctx_u.surfacePos), wn);
+  var h: f32 = dot((v_co - P), wn);
   if ((h > 0.0)) {
     v_co -= (wn * ((h * s)));
   }
