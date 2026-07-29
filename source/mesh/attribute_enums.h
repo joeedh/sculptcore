@@ -20,8 +20,40 @@ enum class AttrType {
   INT4 = 1 << 8,
   BYTE = 1 << 9,
   SHORT = 1 << 10,
+  /** Sparse deform weights: a WeightSlot index into Mesh's DeformPool. */
+  WEIGHTS = 1 << 11,
 };
 FlagOperators(AttrType);
+
+/**
+ * A vertex's deform-weight run, stored as an index into the mesh-owned
+ * DeformPool (mesh/deform_pool.h) rather than as a value. Slot 0 is the
+ * canonical empty run and is never freed, so a default-constructed (or
+ * zero-filled) slot already means "no weights".
+ *
+ * It is a distinct type from int on purpose. The column is bit-identical to an
+ * int column — which is what lets the meshlog memcpy it and the serializer
+ * write it as raw bytes — but the type makes every generic attribute path
+ * dispatch to WeightSlot instead of silently treating a pool index as a number
+ * it may copy, lerp or upload.
+ */
+struct WeightSlot {
+  int32_t index = 0;
+
+  WeightSlot() = default;
+  explicit WeightSlot(int32_t index_) : index(index_)
+  {
+  }
+
+  bool operator==(const WeightSlot &b) const
+  {
+    return index == b.index;
+  }
+  bool operator!=(const WeightSlot &b) const
+  {
+    return index != b.index;
+  }
+};
 
 enum class _AttrFlag {
   NONE = 0,
@@ -77,6 +109,7 @@ enum class _AttrUse {
   POLYGROUP = 1 << 3, /** per-face poly-group id */
   SELECT = 1 << 4,    /** per-element selection bool (box-modeling) */
   SCULPT_LAYER = 1 << 5, /** float3 vertex sculpt-layer delta (see mesh/sculpt_layers.h) */
+  DEFORM_WEIGHTS = 1 << 6, /** vertex-group weights (see mesh/deform_pool.h) */
 };
 MAKE_FLAGS_CLASS(AttrUse, _AttrUse, int);
 
@@ -101,6 +134,7 @@ template <> struct Binder<sculptcore::mesh::AttrUse> {
     e->addItem("PolyGroup", static_cast<int>(AttrUse::POLYGROUP));
     e->addItem("Select", static_cast<int>(AttrUse::SELECT));
     e->addItem("SculptLayer", static_cast<int>(AttrUse::SCULPT_LAYER));
+    e->addItem("DeformWeights", static_cast<int>(AttrUse::DEFORM_WEIGHTS));
     return e;
   }
 };
@@ -152,6 +186,7 @@ template <> struct Binder<sculptcore::mesh::AttrType> {
     e->addItem("Int2", static_cast<int>(AttrType::INT2));
     e->addItem("Int3", static_cast<int>(AttrType::INT3));
     e->addItem("Int4", static_cast<int>(AttrType::INT4));
+    e->addItem("Weights", static_cast<int>(AttrType::WEIGHTS));
     return e;
   }
 };

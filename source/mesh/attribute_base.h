@@ -37,6 +37,8 @@ template <typename T> static constexpr AttrType type_to_attrtype()
     return AttrType::INT4;
   } else if constexpr (std::is_same_v<T, short> || std::is_same_v<T, unsigned short>) {
     return AttrType::SHORT;
+  } else if constexpr (std::is_same_v<T, WeightSlot>) {
+    return AttrType::WEIGHTS;
   }
 
   return AttrType::NONE;
