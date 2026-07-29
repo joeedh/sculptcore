@@ -4,6 +4,8 @@ Sculptcore is a library for implementing digital sculpting tools.  It is meant t
 creator (like e.g. Blender, Maya).  Sculpt brushes are written in a small domain-specific language and can
 run on the CPU and the GPU via WebGPU or Vulkan.
 
+[You can find a Blender add-on for Sculptcore here.](https://github.com/joeedh/sculptcore-blender-addon)
+
 ## Why Sculptcore 
 
 The motivation for this project is to provide a solid foundation to build digital sculpting systems in a variety of
