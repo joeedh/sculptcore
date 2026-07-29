@@ -14,6 +14,8 @@ host software.
 You can find an example of sculptcore integrated in a small web DCC at [https://github.com/joeedh/webgl-app-framework](https://github.com/joeedh/webgl-app-framework).
 ([Try it out here](https://joeedh.github.io/webgl-app-framework/)).
 
+([Blender Addon Here](https://github.com/joeedh/sculptcore-blender-addon).
+
 ## Key features:
 
 + Dynamic topology with uv/color/etc preservation
