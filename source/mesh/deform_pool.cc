@@ -1,5 +1,7 @@
 #include "deform_pool.h"
 
+#include "litestl/util/alloc.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -110,6 +112,33 @@ DeformPool &DeformPool::operator=(const DeformPool &b)
     copyShard(shards_[i], b.shards_[i]);
   }
   return *this;
+}
+
+void DeformPool::addUser()
+{
+  users_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void DeformPool::removeUser()
+{
+  // acq_rel so every prior release() on any thread happens-before the delete.
+  if (users_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    litestl::alloc::Delete(this);
+  }
+}
+
+void DeformPoolUser::reset(DeformPool *pool)
+{
+  if (ptr == pool) {
+    return;
+  }
+  if (pool) {
+    pool->addUser();
+  }
+  if (ptr) {
+    ptr->removeUser();
+  }
+  ptr = pool;
 }
 
 void DeformPool::copyShard(Shard &dst, const Shard &src)

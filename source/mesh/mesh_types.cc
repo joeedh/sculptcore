@@ -9,16 +9,11 @@ using namespace litestl;
 namespace sculptcore::mesh {
 using util::Vector;
 
-DeformPoolOwner::~DeformPoolOwner()
-{
-  if (ptr) {
-    alloc::Delete(ptr);
-  }
-}
-
 DeformPool &MeshBase::deformPool()
 {
   if (!deform_pool_.ptr) {
+    // New<> starts the pool at one user, which is this one; reset() would take a
+    // second, so the pointer is installed directly.
     deform_pool_.ptr = alloc::New<DeformPool>("DeformPool");
 
     ElemData *eds[5] = {&v, &e, &c, &l, &f};

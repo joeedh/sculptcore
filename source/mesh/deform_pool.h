@@ -32,6 +32,7 @@
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 
@@ -62,6 +63,12 @@ static constexpr int DEFORM_MAX_INFLUENCES = 32;
 /**
  * The mesh-owned pool. Slot 0 is the empty run and is immortal, so a
  * default-constructed or zero-filled WeightSlot is already valid.
+ *
+ * Lifetime is a **user count**, not plain mesh ownership: a meshlog chunk's rows
+ * hold slot indices, and those indices are meaningless without the pool, but the
+ * mesh is routinely destroyed before the log that logged it (Scene::~Scene frees
+ * `mesh` in its body, and `meshLog` is a member, so it destructs afterwards).
+ * Every holder takes a user through DeformPoolUser; the last one out deletes.
  */
 struct DeformPool {
   // Slot index layout: (local << SHARD_BITS) | shard. A slot never migrates
@@ -79,6 +86,13 @@ struct DeformPool {
   DeformPool(const DeformPool &b);
   DeformPool &operator=(const DeformPool &b);
   DeformPool(DeformPool &&) = delete;
+
+  /** Users, not references-to-slots: see the struct comment. A copy starts at
+   * one user of its own — the user count describes who points at *this* object,
+   * which is not something a clone inherits. Prefer DeformPoolUser over calling
+   * these directly. */
+  void addUser();
+  void removeUser();
 
   /** Intern `run` and return a slot the caller owns one reference to. `run` need
    * not be sorted or deduplicated; it is canonicalized (group-ascending, zero
@@ -136,6 +150,7 @@ private:
   };
 
   Shard shards_[SHARD_COUNT];
+  std::atomic<int> users_{1};
 
   static int shardOf(int index)
   {
@@ -154,6 +169,29 @@ private:
   static void unlistFreeSlot(Shard &shard, int local);
 
   void initEmptySlot();
+};
+
+/**
+ * A strong reference to a DeformPool: the mesh that created it, and every
+ * meshlog store whose rows still name slots in it, hold one.
+ *
+ * Only ever point this at a pool created by MeshBase::deformPool() — the last
+ * user deletes through litestl::alloc, so a stack-constructed pool must not
+ * acquire one.
+ */
+struct DeformPoolUser {
+  DeformPool *ptr = nullptr;
+
+  DeformPoolUser() = default;
+  DeformPoolUser(const DeformPoolUser &) = delete;
+  DeformPoolUser &operator=(const DeformPoolUser &) = delete;
+  ~DeformPoolUser()
+  {
+    reset(nullptr);
+  }
+
+  /** Idempotent: re-pointing at the pool already held does nothing. */
+  void reset(DeformPool *pool);
 };
 
 } // namespace sculptcore::mesh
