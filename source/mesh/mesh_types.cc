@@ -1,4 +1,5 @@
 #include "mesh_types.h"
+#include "deform_pool.h"
 #include "mesh.h"
 
 #include "litestl/util/vector.h"
@@ -7,6 +8,27 @@ using namespace litestl;
 
 namespace sculptcore::mesh {
 using util::Vector;
+
+DeformPoolOwner::~DeformPoolOwner()
+{
+  if (ptr) {
+    alloc::Delete(ptr);
+  }
+}
+
+DeformPool &MeshBase::deformPool()
+{
+  if (!deform_pool_.ptr) {
+    deform_pool_.ptr = alloc::New<DeformPool>("DeformPool");
+
+    ElemData *eds[5] = {&v, &e, &c, &l, &f};
+    for (ElemData *ed : eds) {
+      ed->attrs.deform_pool = deform_pool_.ptr;
+    }
+  }
+
+  return *deform_pool_.ptr;
+}
 
 void relink_vert_edges(Mesh *m, int vold, int vnew)
 {

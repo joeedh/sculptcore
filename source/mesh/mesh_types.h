@@ -23,6 +23,7 @@ using namespace litestl;
 
 namespace sculptcore::mesh {
 struct Mesh;
+struct DeformPool;
 
 /** Disk-link encoding (`.edge.vs.disk`): each live link stores
  * `(edge << 1) | side`, where `side` is the slot of the shared vertex in the
@@ -235,12 +236,37 @@ struct FaceData : public ElemData {
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 };
 
+/** Sole owner of a mesh's DeformPool. A member rather than a raw pointer plus a
+ * ~MeshBase body: base-class members are destroyed *after* the destructor body,
+ * so only a member declared ahead of the element groups outlives their
+ * AttrGroups — whose destructors release the weight slots their columns hold. */
+struct DeformPoolOwner {
+  DeformPool *ptr = nullptr;
+
+  DeformPoolOwner() = default;
+  DeformPoolOwner(const DeformPoolOwner &) = delete;
+  DeformPoolOwner &operator=(const DeformPoolOwner &) = delete;
+  ~DeformPoolOwner();
+};
+
 struct MeshBase {
+  DeformPoolOwner deform_pool_;
+
   VertexData v;
   EdgeData e;
   CornerData c;
   ListData l;
   FaceData f;
+
+  /** The mesh's deform pool, creating it (and pointing every element group at
+   * it) on first use. Every AttrType::WEIGHTS column on this mesh shares it, as
+   * does any meshlog chunk logging one. */
+  DeformPool &deformPool();
+
+  DeformPool *deformPoolOrNull()
+  {
+    return deform_pool_.ptr;
+  }
 
   /* Set when any boundary source/derived flag is marked dirty (boundary::mark*
    * / setEdgeFlag), cleared by boundary::recomputeDirty. An O(1) "is the derived
