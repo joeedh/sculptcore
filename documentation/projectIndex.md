@@ -36,6 +36,9 @@ A C++20 sculpting/mesh engine that builds natively and to WebAssembly via Emscri
 
 Core: `mesh.cc/.h`, `mesh_base.h`, `mesh_types.cc/.h`, `mesh_shapes.cc/.h`, `mesh_proxy.h`, `mesh_iter.h`, `mesh_enums.h`.
 Attributes: `attribute.cc/.h`, `attribute_base.h`, `attribute_bool.h`, `attribute_builtin.h`, `attribute_enums.h`, `elem_data.h`.
+Merge policy: `attr_merge.cc/.h` — how a layer produces the value of an element a split/collapse creates.
+Vertex-group weights: `attr_weights.cc/.h` (`WeightsRef`, the reference discipline over an `AttrType::WEIGHTS` column) + `deform_pool.cc/.h` (interned, refcounted, sharded weight runs — Blender's `MDeformVert` as an attribute type).
+Serialization: `mesh_serialize.cc/.h` — versioned lz4hc blobs, with a migration chain.
 ID map: `idmap.cc/.h`.
 Bindings: `bindings.cc/.h` — module-level `registerBindings(BindingManager&)`.
 Utils: `utils/triangulate.h`, `utils/delaunay.h`, `utils/edge_collapse.h`.
