@@ -2,8 +2,11 @@
 
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
+#include "litestl/util/span.h"
+#include "mesh/attr_weights.h"
 #include "mesh/attribute.h"
 #include "mesh/boundary.h"
+#include "mesh/deform_pool.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_serialize.h"
 
@@ -797,6 +800,106 @@ void test_nonmanifold_roundtrip()
   TASSERT(cnt == 3);
 }
 
+/** An AttrType::WEIGHTS column is the one column whose stored value is an index
+ * into a side table, so it is the one that cannot survive on its own bytes. This
+ * pins all three halves of that: the pool travels with the file, the indices are
+ * compacted (a saved pool has no holes, whatever the live one looked like), and
+ * the loaded columns hold real references — auditRefcounts is what proves the
+ * last one, since a raw byte copy would install indices nothing retained. */
+void test_weights_roundtrip()
+{
+  const char *tag = "weights";
+
+  Mesh m;
+  build_grid(m, 4); // 25 verts
+
+  // Deterministic, position-derived runs, one of three shapes — so several verts
+  // interning to one slot is the common case, not the exception.
+  auto runFor = [](const float3 &c, Vector<DeformWeight> &out) {
+    out.resize(0);
+    switch (int(c[0] * 4.0f + c[1] * 4.0f) % 3) {
+    case 0:
+      break; // no influences: stays the empty run
+    case 1:
+      out.append(DeformWeight{0, 1.0f});
+      break;
+    default:
+      out.append(DeformWeight{1, 0.25f});
+      out.append(DeformWeight{2, 0.75f});
+      break;
+    }
+  };
+
+  WeightsRef w = ensureVertWeights(m, "weights");
+  DeformPool &pool = m.deformPool();
+  pool.group_names.append(string("Root"));
+  pool.group_names.append(string("Arm.L"));
+  pool.group_names.append(string("Arm.R"));
+
+  Vector<DeformWeight> run;
+  for (int vi : m.v) {
+    runFor(m.v.co[vi], run);
+    w.setRun(vi, span<const DeformWeight>(run.data(), run.size()));
+  }
+
+  // Two kinds of pool hole: a run named only by a killed vertex (live but
+  // unreachable) and a run overwritten then swept. Neither may reach the file,
+  // and the dense ids must close over the gaps they leave.
+  int doomed = m.make_vertex(float3(9.0f, 0.0f, 0.0f));
+  DeformWeight only{7, 0.125f};
+  w.setRun(doomed, span<const DeformWeight>(&only, 1));
+  m.kill_vertex(doomed);
+
+  int survivor = *m.v.begin();
+  DeformWeight tmp{9, 0.5f};
+  w.setRun(survivor, span<const DeformWeight>(&tmp, 1));
+  runFor(m.v.co[survivor], run);
+  w.setRun(survivor, span<const DeformWeight>(run.data(), run.size()));
+  pool.sweep();
+
+  const int vc = m.v.count;
+
+  Mesh m2;
+  if (!roundTrip(m, m2, tag)) {
+    retval = 1;
+    return;
+  }
+
+  TASSERT(m2.v.count == vc);
+  TASSERT(validateMesh(m2, tag));
+
+  DeformPool *pool2 = m2.deformPoolOrNull();
+  TASSERT(pool2 != nullptr);
+  if (!pool2) {
+    return;
+  }
+
+  TASSERT(pool2->group_names.size() == 3);
+  TASSERT(pool2->group_names[0] == string("Root"));
+  TASSERT(pool2->group_names[2] == string("Arm.R"));
+
+  WeightsRef w2 = findVertWeights(m2, "weights");
+  TASSERT(w2.exists());
+
+  DeformWeight got[8];
+  for (int vi : m2.v) {
+    runFor(m2.v.co[vi], run);
+    int n = w2.getRun(vi, got, 8);
+    TASSERT(n == int(run.size()));
+    for (int i = 0; i < n && i < int(run.size()); i++) {
+      TASSERT(got[i] == run[i]);
+    }
+  }
+
+  // Exactly the three distinct runs the live verts use — the empty one included,
+  // as slot 0 — and nothing from the killed or overwritten vertex.
+  TASSERT(pool2->liveSlotCount() == 3);
+
+  Vector<WeightSlot> roots;
+  w2.collectRoots(roots);
+  TASSERT(pool2->auditRefcounts(span<const WeightSlot>(roots.data(), roots.size())) == 0);
+}
+
 /* Payload-size regression guard: the uncompressed writeMeshRaw payload for a
  * known grid must stay under budget. Measured post-drop it is ~20.5 KB; a budget
  * of 22.5 KB (~10% headroom) trips if any of the bulky connectivity columns
@@ -907,9 +1010,11 @@ int main()
   test_detach_reattach();
   test_nonpersistent_flag_repair();
   test_nonmanifold_roundtrip();
+  test_weights_roundtrip();
   test_payload_budget();
   test_load_fixture("mesh_v4.bin"); // old format: still carries the dropped columns
-  test_load_fixture("mesh_v5.bin"); // current format: columns actually dropped
+  test_load_fixture("mesh_v5.bin"); // pre-pool: migrate() must supply the section
+  test_load_fixture("mesh_v6.bin"); // current format
 
   printf("mesh_serialize test done (retval=%d)\n", retval);
   return retval;
