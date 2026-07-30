@@ -9,6 +9,7 @@
 #include "litestl/binding/binding.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/array.h"
+#include "litestl/util/assert.h"
 #include "litestl/util/index_range.h"
 #include "litestl/util/set.h"
 #include "litestl/util/span.h"
@@ -19,6 +20,8 @@
 #include <type_traits>
 
 namespace sculptcore::mesh {
+
+struct DeformPool;
 
 /* Implements all attributes other than bools. */
 template <typename T> struct AttrData : AttrDataBase {
@@ -448,11 +451,30 @@ template <typename Lambda> void type_dispatch(AttrType type, Lambda callback)
     break;
   }
 }
+
+/** Drop the pool references an AttrType::WEIGHTS column holds, zeroing each
+ * entry it releases so it cannot be released twice. These are the paths that
+ * discard column values generically — AttrGroup's destructor, remove_attr,
+ * set_default (an element being reallocated still carries the dead element's
+ * slot) and shrink_capacity.
+ *
+ * Defined in attr_weights.cc: attribute.h is included by every module and must
+ * not have to see DeformPool. A null `data` or `pool` is a no-op.
+ */
+void weightsReleaseElem(AttrDataBase *data, DeformPool *pool, int elem);
+void weightsReleaseFrom(AttrDataBase *data, DeformPool *pool, int start);
 } // namespace detail
 
 struct AttrGroup {
   util::Vector<AttrRef> attrs;
   PackedBoolAttrs bool_attrs;
+
+  /** The pool every AttrType::WEIGHTS column in this group indexes into.
+   * Non-owning, and deliberately shareable: a meshlog chunk's group must point
+   * at the same pool as the mesh column it logs, because its rows are raw copies
+   * of that column's slot indices. Null until an owner sets it (see
+   * MeshBase::deformPool); ensure() refuses a WEIGHTS column without one. */
+  DeformPool *deform_pool = nullptr;
 
   static binding::types::Struct<AttrGroup> *defineBindings()
   {
@@ -470,6 +492,10 @@ struct AttrGroup {
   ~AttrGroup()
   {
     for (AttrRef &attr : attrs) {
+      if (attr.type == AttrType::WEIGHTS) {
+        detail::weightsReleaseFrom(attr.data, deform_pool, 0);
+      }
+
       detail::type_dispatch(attr.type, [&]<typename T>() {
         if (attr.data) {
           AttrData<T> *data = static_cast<AttrData<T> *>(attr.data);
@@ -737,6 +763,9 @@ struct AttrGroup {
       }
     }
 
+    util::Assert(type != AttrType::WEIGHTS || deform_pool,
+                 "a WEIGHTS column needs its group's deform_pool set first");
+
     AttrRef *ret = nullptr;
 
     detail::type_dispatch(type, [&]<typename T>() {
@@ -779,6 +808,9 @@ struct AttrGroup {
       return;
     }
     AttrRef &attr = attrs[index];
+    if (attr.type == AttrType::WEIGHTS) {
+      detail::weightsReleaseFrom(attr.data, deform_pool, 0);
+    }
     detail::type_dispatch(attr.type, [&]<typename T>() {
       if (attr.data) {
         if constexpr (std::is_same_v<T, bool>) {
@@ -825,6 +857,13 @@ struct AttrGroup {
         continue;
       }
 
+      // resize() drops whole pages, so the slots in the truncated range would
+      // leak their references (and the ones in a partly-kept last page would
+      // stay behind as stale indices).
+      if (attr.type == AttrType::WEIGHTS) {
+        detail::weightsReleaseFrom(attr.data, deform_pool, int(size));
+      }
+
       detail::type_dispatch(attr.type, [&]<typename T>() {
         auto *data = attr.get_data<T>();
         if (data && size_t(data->size()) > size) {
@@ -840,6 +879,12 @@ struct AttrGroup {
     for (AttrRef &attr : attrs) {
       if (attr.type == AttrType::BOOL) {
         continue;
+      }
+
+      // The element is being (re)allocated and its column entry still names the
+      // dead element's run — nothing released it when the element was freed.
+      if (attr.type == AttrType::WEIGHTS) {
+        detail::weightsReleaseElem(attr.data, deform_pool, elem);
       }
 
       detail::type_dispatch(attr.type, [&]<typename T>() {

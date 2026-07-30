@@ -1,5 +1,6 @@
 #include "attr_merge.h"
 
+#include "deform_pool.h"
 #include "mesh.h"
 #include "sculpt_layers.h"
 
@@ -199,6 +200,22 @@ void mergeSculptLayerRest(AttrRef &attr, const AttrMergeCtx &ctx)
   (*rest)[ctx.dst] = *ctx.merged_co - d;
 }
 
+// The generic rule's plain copy would install src0's slot index in dst without
+// taking a reference, and the pool would then reclaim a run the column still
+// names. Carrying src0's run forward whole is correct but not yet interpolated.
+void mergeWeights(AttrRef &attr, const AttrMergeCtx &ctx)
+{
+  auto *data = static_cast<AttrData<WeightSlot> *>(attr.data);
+  DeformPool *pool = ctx.grp ? ctx.grp->deform_pool : nullptr;
+  if (!data || !pool) {
+    return;
+  }
+
+  WeightSlot src = data->safe_get(ctx.src0);
+  data->materialize(ctx.dst);
+  pool->reassign((*data)[ctx.dst], src);
+}
+
 struct BuiltinPolicy {
   AttrType type;
   const char *name;
@@ -224,6 +241,12 @@ const BuiltinPolicy builtin_policies[] = {
 
 AttrMergePolicy resolveMergePolicy(AttrType type, const string &name)
 {
+  // Keyed by type, not name: a WEIGHTS column is refcounted whatever it is
+  // called, and the user-facing vertex-group layer has no dot prefix.
+  if (type == AttrType::WEIGHTS) {
+    return {AttrMerge::CUSTOM, mergeWeights};
+  }
+
   /* Every builtin policy is on a dot-prefixed internal layer, so user layers
    * (and the unprefixed builtins: positions, normals, uvs, …) never pay for the
    * scan. */

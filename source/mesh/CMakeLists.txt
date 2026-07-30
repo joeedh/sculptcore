@@ -12,6 +12,7 @@ set(SRC
   PUBLIC attribute_builtin.h
   PUBLIC attribute_enums.h
   PUBLIC attr_merge.h
+  PUBLIC attr_weights.h
   PUBLIC deform_pool.h
   PUBLIC mesh.h
   PUBLIC mesh_enums.h
@@ -34,6 +35,7 @@ set(SRC
   c-api/mesh_c_api.cc
   attribute.cc
   attr_merge.cc
+  attr_weights.cc
   deform_pool.cc
   utils/select_derive.cc
   boundary.cc
