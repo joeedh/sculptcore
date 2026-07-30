@@ -79,7 +79,10 @@ eviction (X5: `evictLevel` lz4s a level's chunks per channel; `elem()`
 self-heals; `Multires::storeBudgetBytes` drives the finest-first policy).
 `multires.cc/.h` — `Multires`: materializes the active level's `mesh::Mesh` +
 `SpatialTree` from the stencil chain + stored displacement (F3 frames on the
-smoothed base), LRU-cached with eviction; `writeback()` re-expresses edits as
+smoothed base — `parametricFrames()` is the lattice-derived replacement for
+those, present and gated by `test_multires` but **not yet on the
+materialization path**; see `CLAUDE.md` § *Subdivision and multires*),
+LRU-cached with eviction; `writeback()` re-expresses edits as
 store deltas, skipping bit-identical verts so edit-free switches are lossless;
 `downRefit()` (CG least-squares level fit), `captureDetailToVdm()` (X4:
 grids disp -> Ptex VDM texels; refuses while layer channels contribute),

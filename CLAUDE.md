@@ -155,13 +155,19 @@ source/
   brush/            sculpt brushes (sbrush DSL + sbrushc compiler), command executor
   spatial/          spatial acceleration (BVH-style nodes) + C API + shaders
   dyntopo/          dynamic-topology remesh under a sculpt dab (CPU core; M1-M7 done)
+  subdiv/           Catmull-Clark refiner + multires grids/store (see below)
+  displace/         sculpt-layer compositor + the F3 tangent-frame provider
+  vdm/              vector-displacement store, splat, bake, promote
+  remesh/           quad remeshing (cross field -> param -> extraction)
   props/            property / reflection system (runtime-side)
   gpu/              GPU abstraction (frontend; backends are native-only)
   vulkan/           native Vulkan backend (vk_context/backend/overlay/screenshot)
+  webgpu/           wgpu-native backend + GPU stencil SpMV
   core/             aggregate binding registration (initBindings)
-  io/               serialization (placeholder)
   window/           GLFW windowing (native only; Vulkan-friendly, no GL context)
   wasm/             Emscripten glue: jslib.js, wasmManager
+  napi/             NW.js/Node native-addon entry
+  debug/            scripted native harness (debug_app)
   app/              application entry (stub)
 extern/             vendored: glfw (Vulkan via system SDK)
 build_files/        macros.cmake, WASM.cmake, link_wasm.py
@@ -417,6 +423,40 @@ the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentati
 - Regression gates (ctest): `test_dyntopo_cascade` / `_budget` / `_smooth`,
   `test_spatial_dyntopo` / `_merge`. The `bench_dyntopo` debug-app verb is the
   A/B measurement tool (`flip=`, `grade=`, `smooth=`, `max_splits=`, `rebuild=`).
+
+## Subdivision and multires
+
+`source/subdiv/` is the Catmull-Clark refiner (`subdiv.cc`), the multires data
+carrier (`grids.cc` — per-cage-corner Ptex grids of frame-relative displacement
+plus custom float channels, lz4 chunking, level eviction) and `Multires`
+(`multires.cc`), which materializes a level's `mesh::Mesh` + `SpatialTree` from
+the stencil chain and the stored displacement. The composition rule per level is
+`base = stencil(pos of level below)`, `pos = base + frame·d`; `writeback()`
+re-expresses edits as store deltas, skipping bit-identical verts so an edit-free
+level switch is lossless. Module map:
+[`documentation/projectIndex.md`](documentation/projectIndex.md) §`source/subdiv/`;
+plan: [`documentation/plans/displacementAndSubSurf.md`](documentation/plans/displacementAndSubSurf.md)
+(workstreams S/X). Gates: `test_multires`, `test_multires_stroke`.
+
+**The frame is the sharp edge here.** `pos = base + frame·d` makes the frame a
+lever arm: a perturbation of it is amplified by `|d|`. The production path still
+takes its frame from the F3 provider (`source/displace/frames.cc`) — a smoothed
+normal plus a 4-RoSy cross-field tangent — and a cross field must *choose* a
+representative from a 4-fold-symmetric tensor, with nothing pinning that choice
+across rematerializations. A rebuild can therefore land on a different image and
+decode unchanged stored `d` rotated by a multiple of 90°, which reads as detail
+flipping in one step. `test_multires`'s `gateFrameStability` measures it: nudging
+one cage vertex of a subdivided cube *reverses* a provider tangent (dot
+−0.999962).
+
+`Multires::parametricFrames()` is the replacement — the frame derived from the
+grid's own `(u,v)` lattice by finite differences, which makes no choice among
+symmetric alternatives and holds at 0.999970 over the same perturbation. It is
+**present and tested but not yet wired into materialization**; do not assume the
+production path uses it. When switching it on, `captureDetailToVdm` is the one
+place two frame spaces would coexist — the VDM consumers (`vdm_bake`,
+`vdm_promote`, `vdm_splat`) read the provider's `FRAME_*_ATTR`, so capture must
+convert or refuse.
 
 ## Quad remeshing
 

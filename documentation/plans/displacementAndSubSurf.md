@@ -818,7 +818,15 @@ boundary `BC_LAYER_REGION` bit), `spatial/` (bounds padding, dirty hooks),
    a dedicated fast path; measure early, before S4 depends on it.
 2. **Cross-field combing** (F3): signed frames need branch cuts; v1 places
    singularities naïvely and accepts transitions — revisit if VDM seam
-   artifacts show.
+   artifacts show. **It showed on the multires path**, worse than a seam: with
+   nothing pinning the representative across rematerializations, a rebuild can
+   land on a different image of the 4-fold symmetry and decode unchanged stored
+   `d` rotated by a multiple of 90° (measured as a full tangent reversal on a
+   nudged cube cage — `test_multires`'s `gateFrameStability`). The answer for
+   multires is to stop asking the cross field: `Multires::parametricFrames()`
+   derives the frame from the grid lattice, which makes no choice at all. F3
+   itself is unchanged and still serves VDM and brush consumers, so this risk
+   stays open for *those* — see `CLAUDE.md` § *Subdivision and multires*.
 3. **Clamp/hysteresis tuning** (V4): `α`, `θ_max`, demote margin need real
    strokes; ship as debug-tunable settings first.
 4. **Grids granularity** decision (per-quadrant, architecture report §9.3) is
