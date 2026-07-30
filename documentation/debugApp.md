@@ -70,6 +70,9 @@ spaces aren't supported — vectors use `=x,y,z`.
 | `assert_aabb`   | `min=x,y,z max=x,y,z eps=F`                       | exits non-zero on mismatch |
 | `save_pos`      | `id=NAME`                                         | snapshots every live vert's `(index, co)` under `id` (default `default`) for a later `assert_pos`. Mesh indices are persistent ids (IDMap disabled), so a vert restored by undo lands back at the same index |
 | `assert_pos`    | `id=NAME eps=F soft=0/1`                          | diffs live verts against the `id` snapshot; reports `dead`/`moved`/`worst`. Exits non-zero on any divergence unless `soft=1` (then it just prints). The undo-fidelity check (see example below) |
+| `set_weights`   | `group=N [value=F] [name=weights]`                | writes a one-influence run into the vertex `AttrType::WEIGHTS` layer `name` (created on demand). Default weight is a z-gradient normalized over the mesh AABB — a constant survives any interpolator, so it would not catch a merge handler that lost a run across a dyntopo split; `value=F` forces one anyway |
+| `save_weights`  | `id=NAME [name=weights]`                          | snapshots every live vert's whole weight run under `id` (default `default`). Runs, not slot indices: the pool interns by value, so an index is not comparable across a sweep |
+| `assert_weights`| `id=NAME [name=weights] eps=F soft=0/1`           | diffs live verts against the `id` snapshot; reports `dead`/`reshaped`/`changed`/`worst`. Same exit contract as `assert_pos`. `save_weights … stroke … undo … assert_weights` is the weights half of the undo-fidelity check |
 | `undo` / `redo` | -                                                 | drives `meshlog::MeshLog` against the active mesh + tree |
 | `checkpoint`    | -                                                 | no-op marker for readability in long scripts |
 | `echo`          | `msg=...`                                         | prints `[script] msg` to stdout |
@@ -100,6 +103,24 @@ set_brush radius=0.25 strength=0.5
 stroke origin=0,0,0.5 normal=0,0,1
 undo
 assert_pos id=base
+```
+
+The same shape covers vertex-group weights, which undo has to restore through
+the meshlog's raw-byte rows *and* the DeformPool's refcounts. `dump_state`'s
+`weight_attrs` block is the matching golden signature (per-layer `entries`,
+`group_sum`, `sum`, `sqsum`, and the pool's live `slots`):
+
+```
+make_cube subdivs=8 size=0.5
+triangulate
+build_spatial leaf_limit=256 depth_limit=8
+set_weights group=3
+save_weights id=base
+dyntopo enabled=1 detail=0.04
+set_brush radius=0.25 strength=0.5
+stroke origin=0,0,0.5 normal=0,0,1
+undo
+assert_weights id=base
 ```
 
 ## Interactive mode

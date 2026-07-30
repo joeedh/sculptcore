@@ -13,6 +13,7 @@
 #include "vdm/vdm_undo.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
+#include "mesh/attr_weights.h"
 #include "mesh/attribute_builtin.h"
 #include "mesh/mesh_serialize.h"
 #include "mesh/mesh_shapes.h"
@@ -379,6 +380,13 @@ bool checkTreeVsRebuild(Scene &scene, const char *tag, std::string &err)
  * Keyed by name; mesh indices are persistent ids (IDMap is disabled), so a
  * vertex restored by undo lands back at the same index. */
 std::map<std::string, std::vector<std::pair<int, float3>>> g_posSnapshots;
+
+/** Vertex-group weight snapshots (save_weights / assert_weights), the same
+ * undo-fidelity shape as g_posSnapshots but carrying each vert's whole run:
+ * the pool interns by value, so a slot index is not comparable across a
+ * sweep. */
+std::map<std::string, std::vector<std::pair<int, std::vector<mesh::DeformWeight>>>>
+    g_weightSnapshots;
 
 /* Grids-store displacement snapshots (save_disp / assert_disp): one level's
  * disp channel flattened in (grid, v, u, component) order. The S4 ride-along
@@ -2088,6 +2096,130 @@ bool execVerb(Scene &scene,
                     dead, moved, worst, worstIdx, firstBad);
       err = buf;
       /* soft=1 reports the divergence but lets the script continue. */
+      return getBool(args, "soft", false);
+    }
+    return true;
+  }
+  if (verb == "set_weights") {
+    if (!scene.mesh) {
+      err = "set_weights: no mesh";
+      return false;
+    }
+    const char *name = getArg(args, "name", "weights");
+    const int group = getInt(args, "group", 0);
+    const char *value = getArg(args, "value");
+
+    // Default is a z-gradient over the mesh AABB, not a constant: a constant
+    // survives any interpolator, correct or not, so it would not catch a merge
+    // handler that lost a run across a dyntopo split.
+    float zlo = FLT_MAX, zhi = -FLT_MAX;
+    for (int v : scene.mesh->v) {
+      const float z = scene.mesh->v.co[v][2];
+      zlo = std::min(zlo, z);
+      zhi = std::max(zhi, z);
+    }
+    const float span = (zhi > zlo) ? (zhi - zlo) : 1.0f;
+
+    mesh::WeightsRef w = mesh::ensureVertWeights(*scene.mesh, name);
+    int n = 0;
+    for (int v : scene.mesh->v) {
+      const float weight = value ? float(std::atof(value))
+                                 : (scene.mesh->v.co[v][2] - zlo) / span;
+      mesh::DeformWeight dw{group, weight};
+      w.setRun(v, litestl::util::span<const mesh::DeformWeight>(&dw, 1));
+      n++;
+    }
+    std::fprintf(stdout, "[script] set_weights name=%s group=%d verts=%d slots=%zu\n",
+                 name, group, n, scene.mesh->deformPool().liveSlotCount());
+    return true;
+  }
+  if (verb == "save_weights") {
+    if (!scene.mesh) {
+      err = "save_weights: no mesh";
+      return false;
+    }
+    const char *name = getArg(args, "name", "weights");
+    mesh::WeightsRef w = mesh::findVertWeights(*scene.mesh, name);
+    if (!w.exists()) {
+      err = std::string("save_weights: no weights layer '") + name + "'";
+      return false;
+    }
+    std::string id = getArg(args, "id", "default");
+    auto &snap = g_weightSnapshots[id];
+    snap.clear();
+    mesh::DeformWeight buf[mesh::DEFORM_MAX_INFLUENCES];
+    for (int v : scene.mesh->v) {
+      const int cnt = w.getRun(v, buf, mesh::DEFORM_MAX_INFLUENCES);
+      snap.emplace_back(v, std::vector<mesh::DeformWeight>(buf, buf + cnt));
+    }
+    std::fprintf(stdout, "[script] save_weights id=%s name=%s verts=%zu\n", id.c_str(),
+                 name, snap.size());
+    return true;
+  }
+  if (verb == "assert_weights") {
+    if (!scene.mesh) {
+      err = "assert_weights: no mesh";
+      return false;
+    }
+    const char *name = getArg(args, "name", "weights");
+    std::string id = getArg(args, "id", "default");
+    const float eps = getFloat(args, "eps", 1e-5f);
+    auto it = g_weightSnapshots.find(id);
+    if (it == g_weightSnapshots.end()) {
+      err = "assert_weights: no snapshot '" + id + "'";
+      return false;
+    }
+    mesh::WeightsRef w = mesh::findVertWeights(*scene.mesh, name);
+    if (!w.exists()) {
+      err = std::string("assert_weights: no weights layer '") + name + "'";
+      return false;
+    }
+
+    int dead = 0, reshaped = 0, changed = 0, worstIdx = -1, firstBad = -1;
+    float worst = 0.0f;
+    mesh::DeformWeight buf[mesh::DEFORM_MAX_INFLUENCES];
+    for (auto &pr : it->second) {
+      const int v = pr.first;
+      if (v >= int(scene.mesh->v.capacity()) || scene.mesh->v.freemap[v]) {
+        dead++;
+        if (firstBad < 0) firstBad = v;
+        continue;
+      }
+      const int cnt = w.getRun(v, buf, mesh::DEFORM_MAX_INFLUENCES);
+      if (cnt != int(pr.second.size())) {
+        reshaped++;
+        if (firstBad < 0) firstBad = v;
+        continue;
+      }
+      // Both runs are canonicalized group-ascending, so this compares entry for
+      // entry; a differing group counts as an unbounded value drift.
+      for (int i = 0; i < cnt; i++) {
+        const float d = (buf[i].group != pr.second[i].group)
+                            ? FLT_MAX
+                            : std::fabs(buf[i].weight - pr.second[i].weight);
+        if (d > eps) {
+          changed++;
+          if (firstBad < 0) firstBad = v;
+          if (d > worst) {
+            worst = d;
+            worstIdx = v;
+          }
+          break;
+        }
+      }
+    }
+    std::fprintf(stdout,
+                 "[script] assert_weights id=%s checked=%zu dead=%d reshaped=%d "
+                 "changed=%d worst=%g (vert %d)\n",
+                 id.c_str(), it->second.size(), dead, reshaped, changed, worst, worstIdx);
+    if (dead > 0 || reshaped > 0 || changed > 0) {
+      char buf2[256];
+      std::snprintf(buf2, sizeof(buf2),
+                    "assert_weights: %d dead, %d reshaped, %d changed (worst %g at "
+                    "vert %d, first %d)",
+                    dead, reshaped, changed, worst, worstIdx, firstBad);
+      err = buf2;
+      // soft=1 reports the divergence but lets the script continue.
       return getBool(args, "soft", false);
     }
     return true;

@@ -3,6 +3,7 @@
 #include "scene.h"
 
 #include "litestl/util/vector.h"
+#include "mesh/attr_weights.h"
 #include "mesh/mesh.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
@@ -117,6 +118,47 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
   }
   if (!attrsJson.empty()) {
     std::fprintf(f, ",\n    \"attrs\": {%s}", attrsJson.c_str());
+  }
+
+  // WEIGHTS layers, which the float block above skips: their cells are pool
+  // indices, and an index means nothing across a sweep. Fingerprint the runs
+  // instead — `entries` catches an influence gained or dropped, `group_sum` a
+  // run landing on the wrong group, `sum`/`sqsum` the values. `slots` is the
+  // pool's own live count, which is how run growth under repeated
+  // interpolation shows up.
+  std::string wattrsJson;
+  if (mesh::DeformPool *pool = m->deformPoolOrNull()) {
+    for (mesh::AttrRef &a : m->v.attrs.attrs) {
+      if (a.type != mesh::AttrType::WEIGHTS) {
+        continue;
+      }
+      mesh::WeightsRef w(m->v.attrs, a);
+      if (!w.exists()) {
+        continue;
+      }
+      long long entries = 0, groupSum = 0;
+      double sum = 0.0, sqs = 0.0;
+      mesh::DeformWeight run[mesh::DEFORM_MAX_INFLUENCES];
+      for (int i = 0; i < m->v.count; i++) {
+        const int n = w.getRun(i, run, mesh::DEFORM_MAX_INFLUENCES);
+        entries += n;
+        for (int k = 0; k < n; k++) {
+          groupSum += run[k].group;
+          sum += run[k].weight;
+          sqs += double(run[k].weight) * run[k].weight;
+        }
+      }
+      char buf[320];
+      std::snprintf(buf, sizeof(buf),
+                    "%s\"%s\":{\"entries\":%lld,\"group_sum\":%lld,\"sum\":%.9g,"
+                    "\"sqsum\":%.9g,\"slots\":%zu}",
+                    wattrsJson.empty() ? "" : ",", a.name.c_str(), entries, groupSum, sum,
+                    sqs, pool->liveSlotCount());
+      wattrsJson += buf;
+    }
+  }
+  if (!wattrsJson.empty()) {
+    std::fprintf(f, ",\n    \"weight_attrs\": {%s}", wattrsJson.c_str());
   }
 
   // Order-independent fingerprint of user FACE attribute layers (e.g. the
