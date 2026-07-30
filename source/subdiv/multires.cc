@@ -49,6 +49,10 @@ void Multires::init(mesh::Mesh &cage, int maxLevel)
   Assert(store.gridCount() == refiner.gridCount(), "store/refiner grid enumeration");
 
   posCache_.resize(maxLevel);
+  downPropPending_.resize(maxLevel + 1);
+  for (int l = 0; l <= maxLevel; l++) {
+    downPropPending_[l] = false;
+  }
 }
 
 mesh::Mesh *Multires::buildLevelTopo(int level)
@@ -205,6 +209,116 @@ static void extractFrameAttrs(mesh::Mesh &m,
   for (int i = 0; i < vertCount; i++) {
     no[i] = (*fn)[i];
     ta[i] = (*ft)[i];
+  }
+}
+
+static constexpr float FRAME_EPS = 1e-9f;
+
+static float3 safeNorm(const float3 &v)
+{
+  float l = v.length();
+  return l > FRAME_EPS ? v * (1.0f / l) : float3(0.0f, 0.0f, 0.0f);
+}
+
+/** First-owner grid identity per fine vert: 3 ints {grid, latticeU, latticeV},
+ * grid -1 for a vert in no grid. Lowest grid index wins, so the choice is a
+ * pure function of cage topology — the canonical grid both the parametric
+ * frame and the X3 finalize kernel's VDM sampling coordinate derive from. */
+static void buildVertGridCoords(const SubdivLevel &lvl, int gridCount, Vector<int> &out)
+{
+  int S = lvl.gridSide, w = S + 1;
+  out.resize(size_t(lvl.vertCount) * 3);
+  for (int i = 0; i < lvl.vertCount * 3; i += 3) {
+    out[i] = -1;
+  }
+  for (int g = 0; g < gridCount; g++) {
+    const int *gv = &lvl.gridVerts[g * w * w];
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        int vid = gv[v * w + u];
+        if (out[vid * 3] < 0) {
+          out[vid * 3] = g;
+          out[vid * 3 + 1] = u;
+          out[vid * 3 + 2] = v;
+        }
+      }
+    }
+  }
+}
+
+/** Newell normal of the cells incident to lattice point (u,v), summed in
+ * ascending (cell v, cell u) order — the deterministic fallback when the
+ * lattice differences at the point are degenerate. */
+static float3 cellNewellNormal(const SubdivLevel &lvl, const int *gv, int u, int v,
+                               const Vector<float3> &base)
+{
+  int S = lvl.gridSide, w = S + 1;
+  float3 n(0.0f, 0.0f, 0.0f);
+  for (int cv = v - 1; cv <= v; cv++) {
+    for (int cu = u - 1; cu <= u; cu++) {
+      if (cu < 0 || cv < 0 || cu >= S || cv >= S) {
+        continue;
+      }
+      // buildLevelTopo's quad winding for cell (cu,cv).
+      int quad[4] = {gv[cv * w + cu], gv[cv * w + cu + 1], gv[(cv + 1) * w + cu + 1],
+                     gv[(cv + 1) * w + cu]};
+      for (int k = 0; k < 4; k++) {
+        const float3 &p = base[quad[k]], &q = base[quad[(k + 1) & 3]];
+        n[0] += (p[1] - q[1]) * (p[2] + q[2]);
+        n[1] += (p[2] - q[2]) * (p[0] + q[0]);
+        n[2] += (p[0] - q[0]) * (p[1] + q[1]);
+      }
+    }
+  }
+  return n;
+}
+
+/** Orthonormal tangent frame at lattice point (u,v) of grid `g`, from the
+ * level's smooth base and the grid lattice alone: central differences in the
+ * interior, one-sided on the two lattice borders. A grid lattice makes no
+ * choice among symmetric alternatives, so unlike a cross-field representative
+ * there is no ±90° image for a rebuild to land on. Only + - * / sqrt, so the
+ * backends agree bitwise without depending on the frame provider. */
+static void gridFrame(const SubdivLevel &lvl,
+                      int g,
+                      int u,
+                      int v,
+                      const Vector<float3> &base,
+                      float3 &nOut,
+                      float3 &tOut)
+{
+  int S = lvl.gridSide, w = S + 1;
+  const int *gv = &lvl.gridVerts[size_t(g) * w * w];
+  auto at = [&](int uu, int vv) -> const float3 & { return base[gv[vv * w + uu]]; };
+
+  int u0 = u > 0 ? u - 1 : u, u1 = u < S ? u + 1 : u;
+  int v0 = v > 0 ? v - 1 : v, v1 = v < S ? v + 1 : v;
+
+  float3 du = at(u1, v) - at(u0, v);
+  float3 dv = at(u, v1) - at(u, v0);
+  float3 n = du.cross(dv);
+  if (n.length() <= FRAME_EPS) {
+    // Collapsed cell: the diagonals span the same tangent plane.
+    float3 dd = at(u1, v1) - at(u0, v0);
+    float3 da = at(u0, v1) - at(u1, v0);
+    float3 nd = dd.cross(da);
+    if (nd.length() > FRAME_EPS) {
+      du = dd;
+      n = nd;
+    } else {
+      n = cellNewellNormal(lvl, gv, u, v, base);
+    }
+  }
+
+  nOut = safeNorm(n);
+  if (nOut.length() <= FRAME_EPS) {
+    nOut = float3(0.0f, 0.0f, 1.0f);
+  }
+  tOut = safeNorm(du - nOut * nOut.dot(du));
+  if (tOut.length() <= FRAME_EPS) {
+    // Mirrors the provider's degenerate fallback (frames.cc final pass).
+    float3 X = std::fabs(nOut[0]) < 0.9f ? float3(1, 0, 0) : float3(0, 1, 0);
+    tOut = safeNorm(X - nOut * nOut.dot(X));
   }
 }
 
@@ -639,6 +753,11 @@ int Multires::writeback(int level)
     }
   }
   invalidateAbove(level);
+  // Coarser levels are NOT derived from this one, so they still show the
+  // pre-edit surface until a downward switch restricts it into them.
+  if (level >= 2 && level < int(downPropPending_.size())) {
+    downPropPending_[level] = true;
+  }
   return nChanged;
 }
 
@@ -747,6 +866,70 @@ static int solveStencilLeastSquares(const StencilTable &st,
   return it;
 }
 
+/** Full-weighting restriction of a fine position field onto the coarse level:
+ * each coarse vert takes the stencil-weight-normalized average of the fine
+ * verts it feeds, `R = diag(Aᵀ1)⁻¹Aᵀ`. Rows sum to 1, so R is an averaging
+ * operator and cannot overshoot the surface it summarizes — unlike the
+ * pseudo-inverse solveStencilLeastSquares computes, which is a deconvolution
+ * and rings. Same ascending-row / per-component fma order as applyStencilT. */
+static void restrictToCoarse(const StencilTable &st,
+                             const Vector<float3> &fine,
+                             Vector<float3> &coarse)
+{
+  const int n = int(coarse.size());
+  Vector<float3> acc;
+  Vector<float> wsum;
+  acc.resize(n);
+  wsum.resize(n);
+  for (int j = 0; j < n; j++) {
+    acc[j] = float3(0.0f, 0.0f, 0.0f);
+    wsum[j] = 0.0f;
+  }
+  for (int i = 0; i < st.fineCount; i++) {
+    for (int k = st.offsets[i]; k < st.offsets[i + 1]; k++) {
+      const int j = st.indices[k];
+      if (j >= n) {
+        continue;
+      }
+      const float w = st.weights[k];
+      float3 &a = acc[j];
+      a[0] = std::fma(fine[i][0], w, a[0]);
+      a[1] = std::fma(fine[i][1], w, a[1]);
+      a[2] = std::fma(fine[i][2], w, a[2]);
+      wsum[j] += w;
+    }
+  }
+  for (int j = 0; j < n; j++) {
+    // A coarse vert with no stencil column feeds nothing finer; leave it.
+    if (wsum[j] > 1e-9f) {
+      coarse[j] = acc[j] / wsum[j];
+    }
+  }
+}
+
+int Multires::propagateDown(int level)
+{
+  if (level < 2 || level > maxLevel()) {
+    return 0;
+  }
+  writeback(level); // fold any resident edits; no-op when clean
+
+  // Copies: the coarse store write below invalidates chain references.
+  Vector<float3> target = ensureChain(level);
+  Vector<float3> coarse = ensureChain(level - 1);
+
+  restrictToCoarse(refiner.levels[level - 1].stencil, target, coarse);
+  int nChanged = commitCoarseFit(level, target, coarse);
+
+  // Settled even when nothing moved — the level below already matched, which
+  // is exactly no debt. When it did move it inherits the debt one step further.
+  downPropPending_[level] = false;
+  if (nChanged > 0 && level - 1 >= 2) {
+    downPropPending_[level - 1] = true;
+  }
+  return nChanged;
+}
+
 int Multires::downRefit(int level)
 {
   if (level < 2 || level > maxLevel()) {
@@ -761,6 +944,18 @@ int Multires::downRefit(int level)
   SubdivLevel &lvl = refiner.levels[level - 1];
   solveStencilLeastSquares(lvl.stencil, target, coarse);
 
+  int nChanged = commitCoarseFit(level, target, coarse);
+  if (nChanged > 0) {
+    downPropPending_[level] = false;
+    if (level - 1 >= 2) {
+      downPropPending_[level - 1] = true;
+    }
+  }
+  return nChanged;
+}
+
+int Multires::commitCoarseFit(int level, Vector<float3> &target, Vector<float3> &coarse)
+{
   int coarseLevel = level - 1;
   Vector<float3> &cBaseline = posCache_[coarseLevel - 1].pos;
   Vector<bool> changed;
@@ -828,6 +1023,10 @@ int Multires::addLevel()
   refiner.releaseMeshes();
   store.addLevel(); // zero-disp finest level for every channel (disp + layers)
   posCache_.resize(n);
+  // The fresh level is stencil(n-1) + zero disp, so level n-1 already knows its
+  // surface exactly: nothing to push down.
+  downPropPending_.resize(n + 1);
+  downPropPending_[n] = false;
   activeLevel_ = 0; // already folded above; let setActiveLevel just materialize
   setActiveLevel(n);
   return maxLevel();
@@ -855,6 +1054,8 @@ int Multires::removeTopLevel()
   refiner.releaseMeshes();
   store.dropTopLevel();
   posCache_.resize(n);
+  // The dropped level's detail is gone with its displacement; so is its debt.
+  downPropPending_.resize(n + 1);
   activeLevel_ = 0;
   setActiveLevel(prevActive > n ? n : prevActive);
   return maxLevel();
@@ -1182,24 +1383,33 @@ void Multires::levelVertGridCoordsOut(int level, Vector<int> &out)
   if (level < 1 || level > maxLevel()) {
     return;
   }
-  SubdivLevel &lvl = refiner.levels[level - 1];
-  int S = lvl.gridSide, w = S + 1;
-  out.resize(size_t(lvl.vertCount) * 3);
-  for (int i = 0; i < lvl.vertCount * 3; i += 3) {
-    out[i] = -1;
+  buildVertGridCoords(refiner.levels[level - 1], refiner.gridCount(), out);
+}
+
+void Multires::parametricFrames(int level,
+                                const Vector<float3> &base,
+                                Vector<float3> &no,
+                                Vector<float3> &ta)
+{
+  no.clear();
+  ta.clear();
+  if (level < 1 || level > maxLevel()) {
+    return;
   }
-  for (int g = 0; g < refiner.gridCount(); g++) {
-    const int *gv = &lvl.gridVerts[g * w * w];
-    for (int v = 0; v < w; v++) {
-      for (int u = 0; u < w; u++) {
-        int vid = gv[v * w + u];
-        if (out[vid * 3] < 0) {
-          out[vid * 3] = g;
-          out[vid * 3 + 1] = u;
-          out[vid * 3 + 2] = v;
-        }
-      }
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  Vector<int> coords;
+  buildVertGridCoords(lvl, refiner.gridCount(), coords);
+
+  no.resize(lvl.vertCount);
+  ta.resize(lvl.vertCount);
+  for (int i = 0; i < lvl.vertCount; i++) {
+    int g = coords[i * 3];
+    if (g < 0) {
+      no[i] = float3(0.0f, 0.0f, 1.0f);
+      ta[i] = float3(1.0f, 0.0f, 0.0f);
+      continue;
     }
+    gridFrame(lvl, g, coords[i * 3 + 1], coords[i * 3 + 2], base, no[i], ta[i]);
   }
 }
 
@@ -1250,10 +1460,21 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
   return st;
 }
 
-MultiresSlot *Multires::setActiveLevel(int level)
+MultiresSlot *Multires::setActiveLevel(int level, bool propagate)
 {
   if (activeLevel_ >= 1 && activeLevel_ != level) {
     writeback(activeLevel_);
+    // Stepping down: each level we leave behind hands its surface to the one
+    // below, so the coarser level the user asked for reflects the fine detail
+    // instead of the pre-edit surface. Gated on the pending flag because
+    // restriction is not the inverse of subdivision — re-running it on a level
+    // that is already up to date (the up-then-down round trip a stroke flush
+    // does) would smooth the user's own coarse edits away.
+    for (int l = activeLevel_; propagate && l > level && l >= 2; l--) {
+      if (downPropPending_[l]) {
+        propagateDown(l);
+      }
+    }
   }
   // Mark active BEFORE materializing so eviction protects the incoming level
   // (not the one being switched away from) when the budget is tight.

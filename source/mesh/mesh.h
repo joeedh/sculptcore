@@ -380,8 +380,8 @@ struct Mesh : public MeshBase {
 
   /* Runtime topology lock (NOT serialized): set on multires level meshes by
    * subdiv::Multires::materialize. On a locked base the VDM clamp is a true
-   * ceiling — promotion is gated off (sculpt-layers-design §8, plan X1); the
-   * app additionally gates dyntopo. */
+   * ceiling — promotion is gated off (sculpt-layers-design §8, plan X1) — and
+   * CommandExecutor::applyDynTopoDab refuses the dab. */
   bool topoLocked = false;
 
   int isTopoLocked() const

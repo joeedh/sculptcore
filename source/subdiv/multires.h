@@ -15,7 +15,16 @@
  * store deltas, SKIPPING verts whose position is bit-identical to the
  * materialized baseline — so an edit-free switch/writeback leaves the store
  * byte-identical (the S3 losslessness gate), and float drift from the
- * frame-projection round-trip is paid only where an edit actually happened. */
+ * frame-projection round-trip is paid only where an edit actually happened.
+ *
+ * The pyramid is derived downward-blind — a level's positions depend only on
+ * the levels BELOW it — so an edit lands wholly at the level it was made on
+ * and coarser levels keep showing the pre-edit surface. propagateDown() closes
+ * that gap on demand: it restricts a level's surface into the one below and
+ * re-expresses its own displacement against the new base, so the fine surface
+ * survives untouched while the coarse level becomes a summary of it. Levels
+ * that owe their neighbour below such a step are tracked in downPropPending_
+ * and settled by a downward setActiveLevel(). */
 
 #include "grids.h"
 #include "subdiv.h"
@@ -67,8 +76,16 @@ struct Multires {
   }
 
   /** Write back the current active level (if any), then materialize `level`
-   * (1-based) and make it active. */
-  MultiresSlot *setActiveLevel(int level);
+   * (1-based) and make it active. Switching DOWN settles any propagateDown
+   * debt on the way (see downPropPending_), which is what makes a coarser
+   * level show the detail sculpted above it.
+   *
+   * `propagate` = false suppresses that cascade, for a switch that replays
+   * history rather than expressing user intent — an undo auto-switching back
+   * to the level a step was made on, where propagating would fold the very
+   * detail about to be undone into the level below. The debt is left standing,
+   * so the next real user switch still settles it. */
+  MultiresSlot *setActiveLevel(int level, bool propagate = true);
 
   /** Materialize `level` into the LRU (or refresh its stamp if resident)
    * without touching the active level. */
@@ -90,6 +107,43 @@ struct Multires {
    * pointers change). Returns the number of level−1 verts changed; requires
    * level >= 2. */
   int downRefit(int level);
+
+  /** Push level `level`'s surface down one step so the coarser level reflects
+   * it: level−1's positions become the full-weighting restriction of this
+   * level's (the stencil-weight-normalized average of the fine positions each
+   * coarse vert feeds, `R = diag(Aᵀ1)⁻¹Aᵀ`), stored as level−1 displacement,
+   * with this level's displacement re-expressed against the new base so its own
+   * surface is preserved. Unlike downRefit's pseudo-inverse this is an
+   * averaging operator — its rows sum to 1, so it cannot overshoot the surface
+   * it summarizes — and it is idempotent: pos_{L−1} is a pure function of
+   * pos_L. Slot/cache handling matches downRefit. Requires level >= 2. */
+  int propagateDown(int level);
+
+  /** Down-propagation debt: true when `level` carries detail the level below
+   * has not been given (see downPropPending_). It is NOT derivable from the
+   * store — a level whose displacement is zero still differs from the
+   * restriction of the level above it — so an undo blob that dropped it would
+   * silently re-open the "coarse levels do not follow a fine edit" bug after
+   * an undo. Multires_serializeStore/restoreStore carry it for that reason;
+   * nothing else should need these. `level` out of range reads false / is
+   * ignored. */
+  bool downPropDebt(int level) const
+  {
+    return level >= 2 && level < int(downPropPending_.size()) ? downPropPending_[level]
+                                                              : false;
+  }
+  void setDownPropDebt(int level, bool value)
+  {
+    if (level >= 2 && level < int(downPropPending_.size())) {
+      downPropPending_[level] = value;
+    }
+  }
+  void clearDownPropDebt()
+  {
+    for (int l = 0; l < int(downPropPending_.size()); l++) {
+      downPropPending_[l] = false;
+    }
+  }
 
   /** Append one finer Catmull-Clark level (zero displacement — a smooth
    * subdivision of the current finest surface), preserving every existing
@@ -228,6 +282,19 @@ struct Multires {
    * per-vert VDM sampling coordinate (param = lattice / gridSide). */
   void levelVertGridCoordsOut(int level, litestl::util::Vector<int> &out);
 
+  /** Per-vert orthonormal tangent frame for `level`, derived from the grid
+   * lattice instead of the curvature cross field: central differences of the
+   * smooth `base` along ±u/±v (one-sided on the lattice borders), normal from
+   * their cross product, tangent by Gram-Schmidt. Each vert uses its canonical
+   * (lowest-index) owning grid, so every replica of a border vert gets one
+   * value and no tangent directions are averaged. Dense by level vert id,
+   * matching the frameNo/frameTa cache layout. Gated behind tests for now —
+   * the materialization path still uses the F3 provider frames. */
+  void parametricFrames(int level,
+                        const litestl::util::Vector<litestl::math::float3> &base,
+                        litestl::util::Vector<litestl::math::float3> &no,
+                        litestl::util::Vector<litestl::math::float3> &ta);
+
   /** The raw level gridVerts table (G · (S+1)² vert ids, grid-major row-major
    * lattices) — the X3 normals kernel's lattice→vert map for geometric
    * normals over the displaced fine surface. */
@@ -268,6 +335,13 @@ private:
                               const litestl::util::Vector<litestl::math::float3> &pos,
                               const litestl::util::Vector<bool> *mask,
                               bool toEditTarget);
+  /** Shared tail of downRefit/propagateDown: commit a freshly fitted `coarse`
+   * as level−1 displacement, re-express `target` (this level's unchanged
+   * surface) against the new base, and refresh the affected caches + residents.
+   * Returns the number of level−1 verts changed (0 leaves everything alone). */
+  int commitCoarseFit(int level,
+                      litestl::util::Vector<litestl::math::float3> &target,
+                      litestl::util::Vector<litestl::math::float3> &coarse);
   bool dispNonZero(int level);
   void evictSlot(int index);
   void evictOverBudget();
@@ -293,6 +367,16 @@ private:
       frameTa.clear();
     }
   };
+
+  /** Per level (indexed BY level; [0] unused): this level's surface carries
+   * detail the level below has not been told about. Set by a writeback that
+   * changed anything, consumed by propagateDown on a downward level switch —
+   * which is what keeps an up-then-down round trip from restricting a coarse
+   * level that is already current, since R∘stencil is not the identity.
+   * Describes store content, so invalidateAll (a cache drop) leaves it — but a
+   * wholesale store REPLACEMENT must reset it, and an undo snapshot must carry
+   * it, which is what the downPropDebt accessors above are for. */
+  litestl::util::Vector<bool> downPropPending_;
 
   mesh::Mesh *cage_ = nullptr;
   int activeLevel_ = 0; // 0 = the cage itself (no materialized level)

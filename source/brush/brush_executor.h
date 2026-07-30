@@ -1812,6 +1812,13 @@ struct CommandExecutor {
     }
     mesh::Mesh *m = tree->m;
 
+    // Locked bases (multires level meshes) never retopologize: a level mesh is
+    // derived from the grid store, so changing its topology strands every
+    // level's displacement and the host's grid map (mesh.h topoLocked).
+    if (m->topoLocked) {
+      return 0;
+    }
+
     // Displacement-base coherence: tell the remesh ops the active stroke's gen so
     // the tangential smooth resamples the field it slides verts through. Keyed on
     // the attr actually existing (the brush's stroke-start pre-pass creates it),

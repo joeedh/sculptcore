@@ -2234,7 +2234,10 @@ bool execVerb(Scene &scene,
       }
       int level = scene.mrUndoLevels.pop_back();
       if (level != scene.multires->activeLevel()) {
-        scene.multires->setActiveLevel(level);
+        /* propagate=false: this switch replays history, and a downward one
+         * would push the very detail we are about to undo into the level
+         * below. The debt survives for the user's next real switch. */
+        scene.multires->setActiveLevel(level, /*propagate=*/false);
         scene.attachMultiresLevel();
       }
       scene.mesh->thawTopo();
@@ -2267,7 +2270,8 @@ bool execVerb(Scene &scene,
       }
       int level = scene.mrRedoLevels.pop_back();
       if (level != scene.multires->activeLevel()) {
-        scene.multires->setActiveLevel(level);
+        /* propagate=false, as in undo: replaying history, not a user switch. */
+        scene.multires->setActiveLevel(level, /*propagate=*/false);
         scene.attachMultiresLevel();
       }
       scene.mesh->thawTopo();

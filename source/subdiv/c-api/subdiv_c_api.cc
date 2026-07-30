@@ -160,11 +160,13 @@ int Multires_levelPositionsOut(subdiv::Multires *mr, int level, float (*out)[3])
  * `+v` previous corner edge); a Blender caller applies the MDISPS<->grid
  * transpose while filling the buffer. Replicated seam samples must carry equal
  * values (they do from A2 / consistent MDISPS); scatter is last-writer-wins.
- * All finer detail lands at this level (levels below stay at the discrete base);
- * a later down-refit pass can redistribute it. When anything changed the level
- * is rematerialized from the store, so previously fetched active mesh/tree
- * pointers are invalid — re-fetch via Multires_activeMesh/Tree. Returns the
- * changed-vert count, -1 on a sample-count mismatch, 0 on failure. */
+ * The seed lands wholly at this level, so it is then cascaded down (see
+ * Multires::propagateDown) to give every coarser level a surface that
+ * summarizes it rather than the bare discrete base — this level's own surface
+ * is preserved exactly. When anything changed the level is rematerialized from
+ * the store, so previously fetched active mesh/tree pointers are invalid —
+ * re-fetch via Multires_activeMesh/Tree. Returns the changed-vert count, -1 on
+ * a sample-count mismatch, 0 on failure. */
 int Multires_fromLevelPositions(
     subdiv::Multires *mr, int level, const float (*positions)[3], int sample_num)
 {
@@ -191,6 +193,12 @@ int Multires_fromLevelPositions(
   }
   const int changed = mr->writeback(level);
   if (changed > 0) {
+    // Hand the freshly seeded surface down the pyramid so switching to a
+    // coarser level shows a summary of it, not the discrete base. Each step
+    // preserves the surface of the level it reads, so `level` is untouched.
+    for (int l = level; l >= 2; l--) {
+      mr->propagateDown(l);
+    }
     // The slot's tree + normals were built from pre-seed positions; drop it
     // and rematerialize from the store so the active mesh/tree pair is
     // consistent (slot pointers change — callers re-fetch, like downRefit).
@@ -213,9 +221,23 @@ int Multires_captureToVdm(subdiv::Multires *mr, void *vstore, int level)
                                 *static_cast<sculptcore::vdm::VdmStore *>(vstore));
 }
 
+/** Down-propagation debt header, written AHEAD of the grids store's own bytes:
+ * magic, level count, then one byte per level (index 0 unused, mirroring
+ * Multires's own indexing). The debt is genuine multires state that the grids
+ * store does not hold — a level whose displacement is zero still differs from
+ * the restriction of the level above it, so "does this level owe the one
+ * below?" cannot be recomputed from the store — and dropping it across an undo
+ * would re-open the coarse-levels-do-not-follow-a-fine-edit bug on the restored
+ * state. It leads rather than trails because GridsStore::read slurps its stream
+ * to EOF, which would swallow anything written after it. Kept out of
+ * GridsStore::write so the on-disk grid format is unchanged; a blob with no
+ * header (an undo step pushed before this landed) restores with no debt. */
+static const char kDebtMagic[4] = {'M', 'R', 'D', 'P'};
+
 /** Serialize the grids store into a freshly-allocated buffer (*out_size = byte
  * count; free with freeMeshBuffer). Returns nullptr on failure. Undo seam for
- * ops that rewrite the store wholesale (down-refit, stack delete). */
+ * ops that rewrite the store wholesale (down-refit, stack delete); carries the
+ * down-propagation debt header described above. */
 uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
 {
   *out_size = 0;
@@ -223,6 +245,13 @@ uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
     return nullptr;
   }
   std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+  const int32_t n = mr->maxLevel();
+  ss.write(kDebtMagic, sizeof(kDebtMagic));
+  ss.write(reinterpret_cast<const char *>(&n), sizeof(n));
+  for (int l = 0; l <= n; l++) {
+    const char b = mr->downPropDebt(l) ? 1 : 0;
+    ss.write(&b, 1);
+  }
   if (!mr->store.write(ss)) {
     return nullptr;
   }
@@ -236,8 +265,11 @@ uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
 
 /** Replace the store from a Multires_serializeStore blob (same cage topology),
  * then invalidate every derived level. Deactivates the current level — the
- * caller must Multires_setActiveLevel + re-fetch mesh/tree afterwards.
- * Returns 1 on success. */
+ * caller must Multires_setActiveLevel + re-fetch mesh/tree afterwards (and
+ * because the level is deactivated, that call cannot propagate: the restored
+ * state is reproduced verbatim, not re-derived). Restores the debt header
+ * when present, so an undo lands on a state that will still push a fine edit
+ * downward the next time the user switches levels. Returns 1 on success. */
 int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
 {
   if (!mr || !data || size <= 0) {
@@ -245,10 +277,38 @@ int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
   }
   std::string s(reinterpret_cast<const char *>(data), size_t(size));
   std::stringstream ss(s, std::ios::in | std::ios::out | std::ios::binary);
+  // Debt header first — not optional, GridsStore::read consumes to EOF. A
+  // headerless blob rewinds so the store still sees byte 0 and restores with no
+  // debt: reproduce that snapshot, never mutate it on the next switch.
+  bool haveDebt = false;
+  int32_t n = 0;
+  char magic[sizeof(kDebtMagic)] = {0};
+  if (ss.read(magic, sizeof(magic)) && std::memcmp(magic, kDebtMagic, sizeof(magic)) == 0 &&
+      ss.read(reinterpret_cast<char *>(&n), sizeof(n)) && n >= 0)
+  {
+    haveDebt = true;
+  }
+  else {
+    ss.clear();
+    ss.seekg(0);
+  }
+  std::string debt;
+  if (haveDebt) {
+    debt.resize(size_t(n) + 1, 0);
+    for (int l = 0; l <= n; l++) {
+      char b = 0;
+      haveDebt = haveDebt && bool(ss.read(&b, 1));
+      debt[size_t(l)] = b;
+    }
+  }
   if (!mr->store.read(ss)) {
     return 0;
   }
   mr->invalidateAll();
+  mr->clearDownPropDebt();
+  for (int l = 0; haveDebt && l <= n; l++) {
+    mr->setDownPropDebt(l, debt[size_t(l)] != 0);
+  }
   return 1;
 }
 }

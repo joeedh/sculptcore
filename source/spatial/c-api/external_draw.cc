@@ -45,9 +45,13 @@ litestl::util::Vector<ScExternalDrawNode> &scratch()
   return nodes;
 }
 
-/* Per-node attribute-pointer arrays backing ScExternalDrawNode::attrs. v1
- * exposes one attribute (the legacy float4 color stream, attrBufs[0]); reserved
- * to the node count so appends never realloc while node.attrs point into it. */
+/* Per-node attribute-pointer arrays backing ScExternalDrawNode::attrs: one
+ * fixed-width block per node, reserved up front so appends never realloc while
+ * earlier nodes' `attrs` point into it. The width is the *slot count* the host
+ * addresses, not the buffer count this tree happens to own — the host reads a
+ * slot it asked for whenever the object has that layer, so a short block would
+ * be read out of bounds (a legacy tree owns one buffer while Blender still
+ * probes uv@1). */
 litestl::util::Vector<const void *> &attr_ptrs()
 {
   static litestl::util::Vector<const void *> ptrs;
@@ -56,7 +60,7 @@ litestl::util::Vector<const void *> &attr_ptrs()
 
 int extdraw_nodes_get(void * /*user_data*/,
                       unsigned int object_key,
-                      const ScExternalDrawAttrRequest * /*req*/,
+                      const ScExternalDrawAttrRequest *req,
                       ScExternalDrawNode **r_nodes)
 {
   spatial::SpatialTree **tree_ptr = registry().lookup_ptr(object_key);
@@ -70,10 +74,14 @@ int extdraw_nodes_get(void * /*user_data*/,
   out.clear();
   attrs.clear();
   const litestl::util::Vector<spatial::SpatialNode *> gpu_node_list = tree.gpu_nodes();
-  /* Attr pointers are stored contiguous per node (one block per node); the
-   * blocks must not move while node.attrs point into them, so size the backing
-   * store up front to node_count * attrs_per_node. */
-  const size_t attrs_per_node = size_t(tree.requestedAttrs.size()) + 1;
+  /* Every node gets a block this wide, whether or not it owns that many
+   * buffers: the host addresses slots (color@0, uv@1) and probes one whenever
+   * the object carries that layer. Missing slots are null-padded below. */
+  size_t attrs_per_node = tree.requestedAttrs.size() > 0 ? size_t(tree.requestedAttrs.size()) :
+                                                           size_t(1);
+  if (req != nullptr && req->attrs_num > 0 && size_t(req->attrs_num) > attrs_per_node) {
+    attrs_per_node = size_t(req->attrs_num);
+  }
   attrs.ensure_capacity(gpu_node_list.size() * attrs_per_node);
 
   for (spatial::SpatialNode *node : gpu_node_list) {
@@ -89,20 +97,18 @@ int extdraw_nodes_get(void * /*user_data*/,
     dn.positions = static_cast<const float(*)[3]>(gd.pos->data);
     dn.normals = (gd.nor && gd.nor->data) ? static_cast<const float(*)[3]>(gd.nor->data) :
                                             nullptr;
-    /* Expose every GPU-node attribute buffer, in slot order (== attrBufs
-     * index order, see SpatialTree::setRequestedAttrs). Legacy path: a single
-     * composited float4 color stream. Dynamic path: one per requested attr
-     * (e.g. color@0, uv@1). Blender reads them by slot. */
-    if (gd.attrBufs.size() > 0) {
-      const size_t base = attrs.size();
-      for (gpu::Buffer *b : gd.attrBufs) {
-        attrs.append((b && b->data) ? b->data : nullptr);
-      }
-      dn.attrs = &attrs[base];
+    /* Expose this node's attribute buffers in slot order (== attrBufs index
+     * order, see SpatialTree::setRequestedAttrs). Legacy path: a single
+     * composited float4 color stream at slot 0. Dynamic path: one per requested
+     * attr (e.g. color@0, uv@1). Slots this tree has no buffer for are null, so
+     * a host probe of a higher slot reads a defined "absent" rather than off
+     * the end of the block. */
+    const size_t base = attrs.size();
+    for (size_t slot = 0; slot < attrs_per_node; slot++) {
+      gpu::Buffer *b = slot < size_t(gd.attrBufs.size()) ? gd.attrBufs[slot] : nullptr;
+      attrs.append((b && b->data) ? b->data : nullptr);
     }
-    else {
-      dn.attrs = nullptr;
-    }
+    dn.attrs = &attrs[base];
     dn.verts_num = gd.total_verts;
     dn.material_index = 0;
     dn.node_id = uint32_t(node->id);

@@ -1,8 +1,9 @@
 /* Multires sculpt loop (displacementAndSubSurf plan, S4 gate). Drives the
  * debug-app multires verbs end-to-end on a cube cage:
  *   - ride-along invariance: sculpt fine detail at L3, then a coarse stroke
- *     at L2 — L3's stored deltas stay BIT-identical (assert_disp eps=0) while
- *     the rematerialized L3 surface follows the coarse edit (verts moved);
+ *     at L2 — the L3 SURFACE survives the switch down (which restricts the
+ *     fine detail into L2 and re-expresses L3's deltas against the new base,
+ *     so the deltas themselves change) and then follows the coarse edit;
  *   - undo/redo fidelity across level switches (stroke at L2, bounce to L3
  *     and back, undo -> pre positions, redo -> post positions);
  *   - level-aware undo: undoing from L3 auto-switches to the stroke's level.
@@ -74,6 +75,7 @@ int main()
              "set_brush radius=0.2 strength=0.5\n"
              "set_backend backend=cpp\n"
              "stroke origin=0,0,0.25 normal=0,0,1\n"
+             "save_pos id=fineL3\n"
              "save_disp id=fineL3 level=3\n"
              "save_disp id=preL2 level=2\n",
              "setup"))
@@ -87,12 +89,26 @@ int main()
   snapshot(scene.mesh, l3Before);
   int l3Verts = scene.mesh->v.count;
 
-  /* Coarse stroke at L2: fine deltas bit-preserved, coarse deltas changed,
-   * and the rematerialized fine surface follows. */
+  /* Switching down propagates the L3 detail into L2, so both levels' stored
+   * deltas move — but the L3 SURFACE is untouched by the re-encode (the
+   * restriction is paired with an exact re-expression against the new base). */
+  if (!runOk(scene,
+             "multires_level level=2\n"
+             "assert_disp id=preL2 level=2 changed=1\n"
+             "multires_level level=3\n"
+             "assert_disp id=fineL3 level=3 changed=1\n"
+             "assert_pos id=fineL3 eps=1e-4\n"
+             "save_disp id=preL2 level=2\n",
+             "propagate-down"))
+  {
+    return 1;
+  }
+
+  /* Coarse stroke at L2: coarse deltas change and the rematerialized fine
+   * surface follows the coarse edit. */
   if (!runOk(scene,
              "multires_level level=2\n"
              "stroke origin=0,0,0.25 normal=0,0,1\n"
-             "assert_disp id=fineL3 level=3 eps=0\n"
              "assert_disp id=preL2 level=2 changed=1\n"
              "multires_level level=3\n",
              "ride-along"))
@@ -131,6 +147,29 @@ int main()
     return 1;
   }
   test_assert(scene.multires->activeLevel() == 2);
+
+  /* Dyntopo is refused on a level mesh (Mesh::topoLocked): a level's topology
+   * comes from the grid tables, so a remesh would strand every level's
+   * displacement. The stroke still sculpts; only the topology stays put. */
+  test_assert(scene.mesh->topoLocked);
+  int lockedVerts = scene.mesh->v.count, lockedFaces = scene.mesh->f.count;
+  Vector<float3> lockedPre;
+  snapshot(scene.mesh, lockedPre);
+  scene.cumSplits = scene.cumCollapses = 0;
+  if (!runOk(scene,
+             "dyntopo enabled=1 detail=0.02\n"
+             "stroke origin=0,0.25,0 normal=0,1,0\n",
+             "dyntopo-refused"))
+  {
+    return 1;
+  }
+  fprintf(stderr, "dyntopo-refused: splits=%lld collapses=%lld verts %d->%d\n",
+          (long long)scene.cumSplits, (long long)scene.cumCollapses, lockedVerts,
+          scene.mesh->v.count);
+  test_assert(scene.cumSplits == 0 && scene.cumCollapses == 0);
+  test_assert(scene.mesh->v.count == lockedVerts);
+  test_assert(scene.mesh->f.count == lockedFaces);
+  test_assert(countMoved(scene.mesh, lockedPre) > 0);
 
   fprintf(stderr, "multires stroke gates passed\n");
 

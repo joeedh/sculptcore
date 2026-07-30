@@ -35,6 +35,14 @@
 #include <cstring>
 #include <sstream>
 
+/* Store snapshot/restore c-api (subdiv/c-api/subdiv_c_api.cc, linked into the
+ * subdiv lib): the undo seam every host uses for multires, gated below. */
+extern "C" {
+uint8_t *Multires_serializeStore(sculptcore::subdiv::Multires *mr, int *out_size);
+int Multires_restoreStore(sculptcore::subdiv::Multires *mr, const uint8_t *data, int size);
+void freeMeshBuffer(uint8_t *buf);
+}
+
 test_init;
 
 using namespace sculptcore;
@@ -514,6 +522,232 @@ static void gateFan()
   alloc::Delete(cage);
 }
 
+/* The F3 cross-field frames for a level's smooth base, exactly as the
+ * materialization path builds them today — the A/B reference the parametric
+ * frames are measured against. */
+static void providerFrames(Multires &mr,
+                           int level,
+                           const Vector<float3> &base,
+                           Vector<float3> &no,
+                           Vector<float3> &ta)
+{
+  Mesh *tm = mr.buildLevelTopo(level);
+  for (int i = 0; i < int(base.size()); i++) {
+    tm->v.co[i] = base[i];
+  }
+  tm->recalc_normals();
+  displace::FrameProviderParams params;
+  displace::updateFramesAll(*tm, params);
+
+  auto grab = [&](const char *name, Vector<float3> &dst) {
+    AttrRef ref = tm->v.attrs.find_attribute(AttrType::FLOAT3, name);
+    test_assert(ref.exists());
+    auto *d = static_cast<AttrData<float3> *>(ref.data);
+    dst.resize(base.size());
+    for (int i = 0; i < int(base.size()); i++) {
+      dst[i] = (*d)[i];
+    }
+  };
+  grab(displace::FRAME_NORMAL_ATTR, no);
+  grab(displace::FRAME_TANGENT_ATTR, ta);
+  alloc::Delete(tm);
+}
+
+/* Frame invariants that hold for any base: deterministic, orthonormal, one
+ * value per vert id off the canonical (lowest-index) owning grid, and an exact
+ * encode/decode pair. */
+static void checkFrames(Multires &mr, int level, const Vector<float3> &base)
+{
+  int vc = mr.refiner.levels[level - 1].vertCount;
+
+  Vector<float3> no, ta, no2, ta2;
+  mr.parametricFrames(level, base, no, ta);
+  mr.parametricFrames(level, base, no2, ta2);
+  test_assert(int(no.size()) == vc && int(ta.size()) == vc);
+  test_assert(sameBits(no, no2) && sameBits(ta, ta2));
+
+  /* The canonical rule the frame derives from: lowest owning grid index. */
+  subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
+  int S = lvl.gridSide, w = S + 1;
+  Vector<int> minGrid;
+  minGrid.resize(vc);
+  for (int i = 0; i < vc; i++) {
+    minGrid[i] = -1;
+  }
+  for (int g = 0; g < mr.store.gridCount(); g++) {
+    const int *gv = &lvl.gridVerts[g * w * w];
+    for (int i = 0; i < w * w; i++) {
+      int vid = gv[i];
+      if (minGrid[vid] < 0 || g < minGrid[vid]) {
+        minGrid[vid] = g;
+      }
+    }
+  }
+  Vector<int> coords;
+  mr.levelVertGridCoordsOut(level, coords);
+  for (int i = 0; i < vc; i++) {
+    test_assert(coords[i * 3] == minGrid[i]);
+  }
+
+  for (int i = 0; i < vc; i++) {
+    float3 n = no[i], t = ta[i], b = n.cross(t);
+    for (int k = 0; k < 3; k++) {
+      test_assert(std::isfinite(n[k]) && std::isfinite(t[k]));
+    }
+    test_assert(std::fabs(n.length() - 1.0f) < 1e-5f);
+    test_assert(std::fabs(t.length() - 1.0f) < 1e-5f);
+    test_assert(std::fabs(n.dot(t)) < 1e-5f);
+
+    /* frameᵀ·dp then frame·d round-trips: the property that makes any
+     * deterministic, ambiguity-free frame usable for storage. */
+    float3 dp(float(i % 7 - 3) * 0.03125f, float(i % 5 - 2) * 0.0625f,
+              float(i % 3 - 1) * 0.125f);
+    float3 d(dp.dot(t), dp.dot(b), dp.dot(n));
+    float3 dp2 = t * d[0] + b * d[1] + n * d[2];
+    test_assert((dp2 - dp).length() < 1e-5f);
+  }
+}
+
+/* Phase-1 gate: the parametric frame's structural invariants, on a regular
+ * cage and on a fan cage whose center is extraordinary (valence 4 with a
+ * triangle fan, so grid borders meet at ~2π/N). */
+static void gateParametricFrames()
+{
+  Mesh *cube = createCube(2, 1.0f);
+  Multires mc;
+  mc.init(*cube, 3);
+  Vector<float3> cageCo, base;
+  subdiv::gatherVertCo(*cube, cageCo);
+  for (int level = 1; level <= 3; level++) {
+    mc.refiner.evalFromCage(cageCo, level, base);
+    checkFrames(mc, level, base);
+  }
+  alloc::Delete(cube);
+
+  Mesh *fan = alloc::New<Mesh>("frame fan");
+  float co[6][3] = {{0, 0, 0},          {1, 0, 0},          {0.75f, 0.75f, 0},
+                    {0, 1, 0},          {-0.75f, 0.75f, 0}, {-1, 0, 0}};
+  int ids[6];
+  for (int i = 0; i < 6; i++) {
+    ids[i] = fan->make_vertex(float3(co[i][0], co[i][1], co[i][2]));
+  }
+  for (int i = 0; i < 4; i++) {
+    int tri[3] = {ids[0], ids[i + 1], ids[i + 2]};
+    fan->make_face(std::span<int>(tri, 3));
+  }
+  Multires mf;
+  mf.init(*fan, 2);
+  Vector<float3> fanCo, fanBase;
+  subdiv::gatherVertCo(*fan, fanCo);
+  for (int level = 1; level <= 2; level++) {
+    mf.refiner.evalFromCage(fanCo, level, fanBase);
+    checkFrames(mf, level, fanBase);
+  }
+  alloc::Delete(fan);
+
+  fprintf(stderr,
+          "parametric frames: deterministic, orthonormal, canonical-grid, "
+          "round-trip exact\n");
+}
+
+/* Phase-1 gate: a degenerate lattice takes the fallback ladder rather than
+ * producing NaN, and takes the SAME rung on repeat. */
+static void gateFrameDegenerate()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 2);
+  const int level = 2;
+  int vc = mr.refiner.levels[level - 1].vertCount;
+
+  /* Fully collapsed: every difference is zero, so every rung is exercised. */
+  Vector<float3> base;
+  base.resize(vc);
+  for (int i = 0; i < vc; i++) {
+    base[i] = float3(0.0f, 0.0f, 0.0f);
+  }
+  checkFrames(mr, level, base);
+
+  /* Partially collapsed: one cell of grid 0 pinched to a point, so its four
+   * lattice corners lose one or both central differences while the rest of
+   * the level stays regular. */
+  Vector<float3> cageCo;
+  subdiv::gatherVertCo(*cage, cageCo);
+  mr.refiner.evalFromCage(cageCo, level, base);
+  subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
+  int w = lvl.gridSide + 1;
+  const int *gv = &lvl.gridVerts[0];
+  float3 pinch = base[gv[0]];
+  int cell[4] = {gv[0], gv[1], gv[w], gv[w + 1]};
+  for (int k = 0; k < 4; k++) {
+    base[cell[k]] = pinch;
+  }
+  checkFrames(mr, level, base);
+
+  fprintf(stderr, "frame degenerate: fallback ladder finite + reproducible\n");
+}
+
+/* Phase-1 gate, the regression test for the defect: nudge one cage vertex and
+ * every fine tangent must move continuously. A cross-field representative can
+ * land on a different 90° image of the same 4-RoSy field, which decodes stored
+ * disp rotated by 90°; a lattice makes no such choice. Asserts the parametric
+ * field, and reports the provider's worst case beside it as the A/B — which on
+ * this cube at level 3 is a full 180° tangent REVERSAL (dot -0.999962) from a
+ * 0.01 cage nudge, against 0.999970 for the parametric frame. */
+static void gateFrameStability()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 3);
+  const int level = 3;
+
+  Vector<float3> cageCo, base, base2;
+  subdiv::gatherVertCo(*cage, cageCo);
+  mr.refiner.evalFromCage(cageCo, level, base);
+
+  Vector<float3> pNo, pTa, fNo, fTa;
+  mr.parametricFrames(level, base, pNo, pTa);
+  providerFrames(mr, level, base, fNo, fTa);
+
+  cageCo[0] = cageCo[0] + float3(0.01f, 0.007f, 0.013f);
+  mr.refiner.evalFromCage(cageCo, level, base2);
+
+  Vector<float3> pNo2, pTa2, fNo2, fTa2;
+  mr.parametricFrames(level, base2, pNo2, pTa2);
+  providerFrames(mr, level, base2, fNo2, fTa2);
+
+  auto worstDot = [](const Vector<float3> &a, const Vector<float3> &b, int &at) {
+    double m = 2.0;
+    at = -1;
+    for (int i = 0; i < int(a.size()); i++) {
+      double d = double(a[i].dot(b[i]));
+      if (d < m) {
+        m = d;
+        at = i;
+      }
+    }
+    return m;
+  };
+
+  int pAt = -1, fAt = -1;
+  double pWorst = worstDot(pTa, pTa2, pAt);
+  double fWorst = worstDot(fTa, fTa2, fAt);
+  fprintf(stderr,
+          "frame stability: parametric worst tangent dot %.6f (vert %d), "
+          "provider %.6f (vert %d)\n",
+          pWorst, pAt, fWorst, fAt);
+
+  /* Continuity, not just absence of a flip: a 0.01 cage nudge is a small
+   * rotation of a finite-difference direction. */
+  test_assert(pWorst > 0.9);
+  test_assert(worstDot(pNo, pNo2, pAt) > 0.9);
+  /* The provider is the thing being replaced: it must not be MORE stable, or
+   * this gate is not measuring the defect it exists for. */
+  test_assert(fWorst <= pWorst);
+
+  alloc::Delete(cage);
+}
+
 static double maxResidual(const Vector<float3> &a, const Vector<float3> &b)
 {
   double m = 0.0;
@@ -604,6 +838,216 @@ static void gateDownRefit()
 
   fprintf(stderr, "downRefit: fine preserved (drift=%g), level 1 untouched\n",
           maxResidual(tmp, p3));
+
+  alloc::Delete(cage);
+}
+
+/* Downward propagation gate: an edit made at a fine level must be visible when
+ * the user switches DOWN to a coarser one (the pyramid derives each level from
+ * the ones below, so without propagateDown the coarse level still shows the
+ * pre-edit surface). Asserts the four properties the feature rests on: the
+ * coarse level tracks the edit, the fine surface is preserved exactly, the
+ * operator is idempotent, and — the drift gate — an up-then-down round trip
+ * with no edit in between leaves the coarse level bit-identical, since a stroke
+ * flush does exactly that on every stroke. */
+static void gatePropagateDown()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 3);
+
+  test_assert(mr.propagateDown(1) == 0); /* guard: nothing below level 1 */
+
+  Vector<float3> l1Before, l2Before, l1After, l2After, p3, tmp;
+  snapshotCo(*mr.setActiveLevel(1)->mesh, l1Before);
+  snapshotCo(*mr.setActiveLevel(2)->mesh, l2Before);
+
+  /* No edit yet: walking back down must not perturb anything. Level 2 was just
+   * active, so this exercises the same up-then-down shape _flush_multires uses
+   * around its top-level bake. */
+  mr.setActiveLevel(3);
+  snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
+  test_assert(sameBits(tmp, l2Before));
+  snapshotCo(*mr.setActiveLevel(1)->mesh, tmp);
+  test_assert(sameBits(tmp, l1Before));
+
+  MultiresSlot *s3 = mr.setActiveLevel(3);
+  int edits = 0;
+  for (int i = 0; i < s3->mesh->v.count; i++) {
+    float3 &p = s3->mesh->v.co[i];
+    if (p[2] > 0.4f) {
+      p[2] += 0.5f;
+      edits++;
+    }
+  }
+  test_assert(edits > 0);
+  test_assert(mr.writeback(3) == edits);
+  snapshotCo(*mr.findSlot(3)->mesh, p3);
+
+  /* Switching down cascades 3->2->1: both coarse levels move. */
+  snapshotCo(*mr.setActiveLevel(1)->mesh, l1After);
+  snapshotCo(*mr.setActiveLevel(2)->mesh, l2After);
+  double m2 = maxResidual(l2After, l2Before), m1 = maxResidual(l1After, l1Before);
+  fprintf(stderr, "propagateDown: level-2 max move = %g, level-1 max move = %g\n", m2, m1);
+  test_assert(m2 > 0.1);
+  test_assert(m1 > 0.01);
+
+  /* Averaging, not deconvolution: a restriction cannot overshoot the surface it
+   * summarizes, so no coarse vert may move further than the edit itself. */
+  test_assert(m2 < 0.5);
+  test_assert(m1 < 0.5);
+
+  /* Fine surface preserved through the whole cascade (frame round-trip drift
+   * only), and the level-3 store is not owed another push. */
+  snapshotCo(*mr.setActiveLevel(3)->mesh, tmp);
+  double drift = maxResidual(tmp, p3);
+  fprintf(stderr, "propagateDown: fine surface drift = %g\n", drift);
+  test_assert(drift < 1e-5);
+
+  /* No further debt: the pending flag was consumed, so switching down again
+   * re-materializes level 2 bit for bit rather than restricting a second time. */
+  snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
+  test_assert(sameBits(tmp, l2After));
+
+  /* Idempotent to within the frame round trip: pos_{L-1} is a pure function of
+   * pos_L, so a FORCED second pass only re-lands the same surface (bitwise
+   * equality is not available — pos_L comes back off the store through the
+   * frame encode, which is exact only up to float drift). This is what makes
+   * a repeat propagation harmless rather than a slow smoothing. */
+  mr.setActiveLevel(3);
+  mr.propagateDown(3);
+  snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
+  double redo = maxResidual(tmp, l2After);
+  fprintf(stderr, "propagateDown: second pass moved level 2 by %g\n", redo);
+  test_assert(redo < 1e-5);
+
+  alloc::Delete(cage);
+}
+
+/* Snapshot the whole multires store (with its down-propagation debt header)
+ * the way a host's undo step does; the caller owns the returned bytes. */
+static std::string storeBlob(Multires &mr)
+{
+  int size = 0;
+  uint8_t *buf = Multires_serializeStore(&mr, &size);
+  test_assert(buf != nullptr && size > 0);
+  std::string s(reinterpret_cast<const char *>(buf), size_t(size));
+  freeMeshBuffer(buf);
+  return s;
+}
+
+/* Undo gate for downward propagation. propagateDown mutates the store of every
+ * level below the one being left, outside the meshlog — so the only thing that
+ * can restore it is the store snapshot hosts already take per undo step. Two
+ * properties make that work, and both are gated here:
+ *   - a restore reproduces the snapshot exactly, including levels a later
+ *     propagation had overwritten, and does NOT re-derive anything on the
+ *     level switch that follows it;
+ *   - the debt travels in the blob. It is not recoverable from the store (a
+ *     level with zero displacement still differs from the restriction of the
+ *     level above), so without the header a redo would land on a state that
+ *     had silently forgotten it owes the level below — the original bug,
+ *     re-opened by an undo round trip. */
+static void gatePropagateUndo()
+{
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 3);
+
+  Vector<float3> l1Pre, l2Pre, l1Prop, tmp;
+  snapshotCo(*mr.setActiveLevel(1)->mesh, l1Pre);
+  MultiresSlot *s2 = mr.setActiveLevel(2);
+  snapshotCo(*s2->mesh, l2Pre);
+
+  /* Pre-stroke snapshot: no debt yet. */
+  std::string blobPre = storeBlob(mr);
+  test_assert(!mr.downPropDebt(2));
+
+  int edits = 0;
+  for (int i = 0; i < s2->mesh->v.count; i++) {
+    float3 &p = s2->mesh->v.co[i];
+    if (p[2] > 0.4f) {
+      p[2] += 0.5f;
+      edits++;
+    }
+  }
+  test_assert(edits > 0);
+  test_assert(mr.writeback(2) == edits);
+  test_assert(mr.downPropDebt(2));
+
+  /* Post-stroke snapshot, exactly as a host pushes it: the edit is in the
+   * store and the debt to level 1 is still outstanding. */
+  std::string blobPost = storeBlob(mr);
+
+  /* Switch down: level 1 follows the level-2 edit. */
+  snapshotCo(*mr.setActiveLevel(1)->mesh, l1Prop);
+  double moved = maxResidual(l1Prop, l1Pre);
+  fprintf(stderr, "propagateUndo: level-1 max move = %g\n", moved);
+  test_assert(moved > 0.01);
+  test_assert(!mr.downPropDebt(2));
+
+  /* Undo the stroke: the pre-stroke blob restores BOTH levels — level 2's edit
+   * and the level-1 surface the propagation had overwritten. */
+  test_assert(Multires_restoreStore(&mr, reinterpret_cast<const uint8_t *>(blobPre.data()),
+                                    int(blobPre.size())) == 1);
+  snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
+  test_assert(sameBits(tmp, l2Pre));
+  snapshotCo(*mr.setActiveLevel(1)->mesh, tmp);
+  test_assert(sameBits(tmp, l1Pre));
+  /* ...and that 2->1 switch, on a state with no debt, did not restrict again. */
+  test_assert(!mr.downPropDebt(2));
+  snapshotCo(*mr.setActiveLevel(1)->mesh, tmp);
+  test_assert(sameBits(tmp, l1Pre));
+
+  /* Redo the stroke: the post-stroke blob comes back with its debt intact, so
+   * the next downward switch still pushes the edit into level 1 — landing on
+   * the same surface the original switch produced. */
+  test_assert(Multires_restoreStore(&mr, reinterpret_cast<const uint8_t *>(blobPost.data()),
+                                    int(blobPost.size())) == 1);
+  test_assert(mr.downPropDebt(2));
+  mr.setActiveLevel(2);
+  snapshotCo(*mr.setActiveLevel(1)->mesh, tmp);
+  /* Not bit-exact: the first propagation restricted level 2's resident mesh,
+   * i.e. the raw edited floats, while this one restricts them decoded back out
+   * of the store — the same ~1e-7 frame round-trip drift gatePropagateDown
+   * measures. */
+  const double redoDrift = maxResidual(tmp, l1Prop);
+  fprintf(stderr, "propagateUndo: redo re-propagated to within %g\n", redoDrift);
+  test_assert(redoDrift < 1e-5);
+
+  /* An undo that auto-switches back to the level a step was made on must not
+   * propagate on the way: that would fold the very detail about to be undone
+   * into the level below. Sculpt at 3 to create the debt, then step down with
+   * propagate=false — level 2 must be untouched and the debt must survive, so
+   * the user's next real switch still settles it. */
+  MultiresSlot *s3 = mr.setActiveLevel(3);
+  edits = 0;
+  for (int i = 0; i < s3->mesh->v.count; i++) {
+    float3 &p = s3->mesh->v.co[i];
+    if (p[1] > 0.4f) {
+      p[1] += 0.5f;
+      edits++;
+    }
+  }
+  test_assert(edits > 0);
+  test_assert(mr.writeback(3) == edits);
+  test_assert(mr.downPropDebt(3));
+
+  Vector<float3> l2Owed;
+  snapshotCo(*mr.materialize(2)->mesh, l2Owed); /* level 2 as the store has it */
+
+  snapshotCo(*mr.setActiveLevel(2, /*propagate=*/false)->mesh, tmp);
+  test_assert(sameBits(tmp, l2Owed));
+  test_assert(mr.downPropDebt(3));
+
+  /* The same switch WITH propagation does move it — i.e. the assertion above
+   * is about the suppression, not about there being nothing to propagate. */
+  mr.setActiveLevel(3);
+  snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
+  fprintf(stderr, "propagateUndo: suppressed vs applied switch differ by %g\n",
+          maxResidual(tmp, l2Owed));
+  test_assert(maxResidual(tmp, l2Owed) > 0.01);
+  test_assert(!mr.downPropDebt(3));
 
   alloc::Delete(cage);
 }
@@ -1000,7 +1444,12 @@ int main(int argc, char **argv)
   gateCube();
   gateAddLevel();
   gateFan();
+  gateParametricFrames();
+  gateFrameDegenerate();
+  gateFrameStability();
   gateDownRefit();
+  gatePropagateDown();
+  gatePropagateUndo();
   gateGridUVs();
   gateSubsurfVdm();
   gatePtexSplat();
