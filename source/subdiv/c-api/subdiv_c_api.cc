@@ -80,6 +80,29 @@ int Multires_downRefit(subdiv::Multires *mr, int level)
   return mr ? mr->downRefit(level) : 0;
 }
 
+/** Number of levels in the stack. */
+int Multires_maxLevel(subdiv::Multires *mr)
+{
+  return mr ? mr->maxLevel() : 0;
+}
+
+/** Append one finer level (zero displacement, i.e. a smooth subdivision of the
+ * current finest surface) and make it active, preserving existing detail.
+ * Returns the new maxLevel (unchanged at the level cap). The app calls this
+ * when the host's own multires gains a level, so both stacks stay in step. */
+int Multires_addLevel(subdiv::Multires *mr)
+{
+  return mr ? mr->addLevel() : 0;
+}
+
+/** Pop the finest level — addLevel()'s inverse. Returns the new maxLevel
+ * (unchanged when only one level remains). Pending edits on the active level
+ * are folded first, so detail at the surviving levels is kept. */
+int Multires_removeTopLevel(subdiv::Multires *mr)
+{
+  return mr ? mr->removeTopLevel() : 0;
+}
+
 /** Number of grid samples at `level`: gridCount * (2^(level-1)+1)^2 — the
  * element count the `out` buffer for Multires_levelPositionsOut must hold (each
  * element is 3 floats). Boundary/seam verts are counted once per grid that owns
