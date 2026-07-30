@@ -1,11 +1,14 @@
 #include "mesh_serialize.h"
 
 #include "boundary.h"
+#include "deform_pool.h"
 #include "mesh.h"
 
 #include "io/binfile.h"
 #include "io/compress.h"
 
+#include "litestl/util/map.h"
+#include "litestl/util/span.h"
 #include "litestl/util/vector.h"
 
 #include <cstdint>
@@ -38,6 +41,13 @@ namespace sculptcore::mesh {
  *   uint32 layerCount
  *   per layer: string name; uint32 mode; uint32 space; int32 parent;
  *              float weight; uint8 enabled; uint8 frozen; float clampFrac
+ * then (v6+) the deform-weight pool, the side table an AttrType::WEIGHTS column
+ * indexes into (see mesh/deform_pool.h). Slots are written in compacted order,
+ * so a column's cells hold dense ids into this table rather than live pool
+ * indices; dense 0 is always the empty run. slotCount 0 means "no pool":
+ *   uint32 slotCount
+ *   per slot: uint32 runLen; per entry: int32 group; float weight
+ *   uint32 groupNameCount; per name: string
  */
 namespace {
 
@@ -65,6 +75,49 @@ struct SerialMesh {
   uint32_t version = 0;
   SerialDomain domains[5];
   Vector<SculptLayerSettings> layers; // v3+ sculpt-layer settings table
+
+  /** v6+ deform-weight pool, flattened: run `i` is `pool_runs[pool_offsets[i] ..
+   * pool_offsets[i + 1])`. `has_pool` distinguishes a file that carried no pool
+   * from one whose pool holds only the empty run. */
+  bool has_pool = false;
+  Vector<int> pool_offsets;
+  Vector<DeformWeight> pool_runs;
+  Vector<string> group_names;
+};
+
+/**
+ * Slot-index compaction for AttrType::WEIGHTS columns.
+ *
+ * A cell holds a live DeformPool index, which is arbitrary (sharded, and
+ * pockmarked by whatever the last sweep left). Dense ids are assigned in the
+ * order the write pass meets them — domains in file order, elements in dense
+ * order — so the file's pool has no holes and reloads with the same locality
+ * the mesh had. Dense 0 is pinned to the empty run, matching the live pool.
+ */
+struct WeightRemap {
+  DeformPool *pool = nullptr;
+  litestl::util::Map<int, int> dense_by_slot;
+  Vector<int> slots; // dense id -> live slot index
+
+  explicit WeightRemap(DeformPool *pool_) : pool(pool_)
+  {
+    if (pool) {
+      dense_by_slot[0] = 0;
+      slots.append(0);
+    }
+  }
+
+  int denseOf(int slot)
+  {
+    int *found = dense_by_slot.lookup_ptr(slot);
+    if (found) {
+      return *found;
+    }
+    int dense = int(slots.size());
+    dense_by_slot[slot] = dense;
+    slots.append(slot);
+    return dense;
+  }
 };
 
 /* Fixed domain order shared by the file layout and the maps[] / eds[] arrays. */
@@ -227,7 +280,21 @@ void remapTopoColumn(Vector<uint8_t> &buf, Vector<int> &targetMap, bool packedDi
   }
 }
 
-void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps, bool includeTemp)
+/** Rewrite a gathered WEIGHTS column from live slot indices to dense ids. */
+void remapWeightColumn(Vector<uint8_t> &buf, WeightRemap &remap)
+{
+  if (!remap.pool) {
+    return; // unreachable: AttrGroup::ensure refuses a WEIGHTS column without one
+  }
+  int32_t *p = reinterpret_cast<int32_t *>(buf.data());
+  size_t n = buf.size() / sizeof(int32_t);
+  for (size_t i = 0; i < n; i++) {
+    p[i] = remap.denseOf(p[i]);
+  }
+}
+
+void writeDomain(
+    io::BinFile &pbf, ElemData &ed, Vector<int> *maps, bool includeTemp, WeightRemap &remap)
 {
   Vector<int> &selfMap = maps[domainIndex(ed.domain)];
   uint32_t count = uint32_t(ed.count);
@@ -279,6 +346,9 @@ void writeDomain(io::BinFile &pbf, ElemData &ed, Vector<int> *maps, bool include
       }
     } else {
       gatherColumn(ed, attr, selfMap, elemSize, buf, count);
+      if (attr.type == AttrType::WEIGHTS) {
+        remapWeightColumn(buf, remap);
+      }
       /* Identify topology columns by name: attr.flag carries TOPO, but only
        * the name tells us which domain the column references (and thus which
        * remap to apply). The name table is authoritative for that. */
@@ -313,6 +383,37 @@ void writeLayerTable(io::BinFile &pbf, Mesh &mesh)
     pbf.writeUint8(st.enabled ? 1 : 0);
     pbf.writeUint8(st.frozen ? 1 : 0);
     pbf.writeFloat(st.clampFrac);
+  }
+}
+
+/** Write the compacted pool (v6+): runs in dense order, then the vertex group
+ * names. Must run after every domain, since that is what fills `remap`. */
+void writePoolSection(io::BinFile &pbf, WeightRemap &remap)
+{
+  if (!remap.pool) {
+    pbf.writeUint32(0); // slotCount
+    pbf.writeUint32(0); // groupNameCount
+    return;
+  }
+
+  pbf.writeUint32(uint32_t(remap.slots.size()));
+
+  Vector<DeformWeight> run;
+  for (int slot : remap.slots) {
+    const int n = remap.pool->runSize(WeightSlot(slot));
+    run.resize(size_t(n));
+    remap.pool->copyRun(WeightSlot(slot), run.data(), n);
+
+    pbf.writeUint32(uint32_t(n));
+    for (int i = 0; i < n; i++) {
+      pbf.writeInt32(run[i].group);
+      pbf.writeFloat(run[i].weight);
+    }
+  }
+
+  pbf.writeUint32(uint32_t(remap.pool->group_names.size()));
+  for (const string &name : remap.pool->group_names) {
+    pbf.writeString(name);
   }
 }
 
@@ -384,6 +485,41 @@ void readLayerTable(io::BinFile &pbf, SerialMesh &sm)
   }
 }
 
+void readPoolSection(io::BinFile &pbf, SerialMesh &sm)
+{
+  uint32_t slotCount = pbf.readUint32();
+  sm.has_pool = slotCount > 0;
+
+  sm.pool_offsets.append(0);
+  for (uint32_t s = 0; s < slotCount; s++) {
+    uint32_t runLen = pbf.readUint32();
+    for (uint32_t i = 0; i < runLen; i++) {
+      DeformWeight w;
+      w.group = pbf.readInt32();
+      w.weight = pbf.readFloat();
+      sm.pool_runs.append(w);
+    }
+    sm.pool_offsets.append(int(sm.pool_runs.size()));
+  }
+
+  uint32_t nameCount = pbf.readUint32();
+  for (uint32_t i = 0; i < nameCount; i++) {
+    sm.group_names.append(pbf.readString());
+  }
+}
+
+bool hasWeightColumn(SerialMesh &sm)
+{
+  for (SerialDomain &sd : sm.domains) {
+    for (SerialColumn &col : sd.cols) {
+      if (col.type == AttrType::WEIGHTS) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /* Rebuild one element domain from its serialized columns into a fresh ElemData.
  * Builtins already exist from the domain ctor (ensure is a no-op); custom attrs
  * are created. alloc() on a fresh domain hands out dense 0..count-1, matching
@@ -420,6 +556,12 @@ void buildDomain(ElemData &ed, SerialDomain &sd)
       continue;
     }
 
+    if (col.type == AttrType::WEIGHTS) {
+      // A raw copy would install dense ids as slot indices and take no
+      // reference; restoreWeights re-interns the runs once the pool is built.
+      continue;
+    }
+
     if (col.type == AttrType::BOOL) {
       auto *view = static_cast<BoolAttrView *>(ref.data);
       for (uint32_t i = 0; i < sd.count; i++) {
@@ -445,6 +587,57 @@ void buildDomain(ElemData &ed, SerialDomain &sd)
         }
       });
     }
+  }
+}
+
+/** Re-intern the file's pool and rewrite every WEIGHTS column's dense ids as
+ * live slots. Runs after buildDomain, which allocated the elements but left
+ * those columns at the empty run. The pool itself must already exist —
+ * AttrGroup::ensure refuses a WEIGHTS column without one — so readMesh creates
+ * it before building the domains. */
+void restoreWeights(Mesh &mesh, SerialMesh &sm)
+{
+  DeformPool *pool = mesh.deformPoolOrNull();
+  if (!pool) {
+    return;
+  }
+  pool->group_names = sm.group_names;
+
+  Vector<WeightSlot> dense;
+  for (size_t i = 0; i + 1 < sm.pool_offsets.size(); i++) {
+    const int start = sm.pool_offsets[int(i)];
+    const int end = sm.pool_offsets[int(i) + 1];
+    dense.append(pool->intern(
+        litestl::util::span<const DeformWeight>(sm.pool_runs.data() + start, end - start)));
+  }
+
+  ElemData *eds[5] = {&mesh.v, &mesh.e, &mesh.c, &mesh.l, &mesh.f};
+  for (int d = 0; d < 5; d++) {
+    SerialDomain &sd = sm.domains[d];
+    for (SerialColumn &col : sd.cols) {
+      if (col.type != AttrType::WEIGHTS) {
+        continue;
+      }
+      AttrRef ref = eds[d]->attrs.find_attribute(col.type, col.name);
+      if (!ref.exists()) {
+        continue;
+      }
+
+      auto *data = static_cast<AttrData<WeightSlot> *>(ref.data);
+      const int32_t *ids = reinterpret_cast<const int32_t *>(col.bytes.data());
+      for (uint32_t i = 0; i < sd.count; i++) {
+        const int32_t id = ids[i];
+        WeightSlot slot = (id >= 0 && size_t(id) < dense.size()) ? dense[id] : WeightSlot(0);
+        data->materialize(int(i));
+        pool->reassign((*data)[int(i)], slot);
+      }
+    }
+  }
+
+  // Each intern() above handed back a reference of its own; the columns now
+  // hold every reference the loaded mesh needs.
+  for (WeightSlot slot : dense) {
+    pool->release(slot);
   }
 }
 
@@ -506,6 +699,20 @@ bool migrate(SerialMesh &sm)
        * the live Mesh (migrate has no Mesh to rebuild against). */
       sm.version = 5;
       break;
+    case 5: {
+      // v6 added the pool section, so a v5 WEIGHTS column indexes a pool that was
+      // never written. Zero it to the empty run: no file with real weights
+      // predates v6, the pool and the version bump landed together.
+      for (SerialDomain &sd : sm.domains) {
+        for (SerialColumn &col : sd.cols) {
+          if (col.type == AttrType::WEIGHTS && col.bytes.size() > 0) {
+            std::memset(col.bytes.data(), 0, col.bytes.size());
+          }
+        }
+      }
+      sm.version = 6;
+      break;
+    }
     default:
       return false;
     }
@@ -550,10 +757,12 @@ bool writeMeshRaw(Mesh &mesh, std::iostream &out)
   }
 
   io::BinFile pbf(out); // payload uses no file header; host-endian columns
+  WeightRemap remap(mesh.deformPoolOrNull());
   for (int d = 0; d < 5; d++) {
-    writeDomain(pbf, *eds[d], maps, mesh.serialize_temp);
+    writeDomain(pbf, *eds[d], maps, mesh.serialize_temp, remap);
   }
-  writeLayerTable(pbf, mesh); // v3+
+  writeLayerTable(pbf, mesh);  // v3+
+  writePoolSection(pbf, remap); // v6+; last, so `remap` is complete
   return bool(out);
 }
 
@@ -637,16 +846,27 @@ bool readMesh(Mesh &mesh, std::istream &in)
   if (version >= 3) {
     readLayerTable(pbf, sm);
   }
+  if (version >= 6) {
+    readPoolSection(pbf, sm);
+  }
   sm.version = version;
 
   if (!migrate(sm)) {
     return false;
   }
 
+  // Create the pool before the columns that index it: AttrGroup::ensure refuses a
+  // WEIGHTS column without one, and a pre-v6 file can carry such a column with no
+  // pool section behind it.
+  if (sm.has_pool || hasWeightColumn(sm)) {
+    mesh.deformPool();
+  }
+
   ElemData *eds[5] = {&mesh.v, &mesh.e, &mesh.c, &mesh.l, &mesh.f};
   for (int d = 0; d < 5; d++) {
     buildDomain(*eds[d], sm.domains[d]);
   }
+  restoreWeights(mesh, sm);
   mesh.sculptLayers = std::move(sm.layers);
 
   /* Rebuild every DERIVED column dropped from the blob (disk/radial links, corner
