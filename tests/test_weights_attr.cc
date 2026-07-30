@@ -12,6 +12,7 @@
 
 #include "test_util.h"
 
+#include "mesh/attr_merge.h"
 #include "mesh/attr_weights.h"
 #include "mesh/deform_pool.h"
 #include "mesh/mesh.h"
@@ -19,11 +20,14 @@
 #include "mesh/utils/attr_interp.h"
 #include "mesh/utils/edge_split.h"
 #include "mesh/utils/triangulate.h"
+#include "meshlog/meshlog_base.h"
 
 #include "litestl/util/span.h"
 #include "litestl/util/vector.h"
 
+#include <cmath>
 #include <cstdio>
+#include <thread>
 
 test_init;
 
@@ -377,6 +381,112 @@ static void testMergeBounds()
   test_assert(auditMesh(*m, "weights") == 0);
 }
 
+// The two producers the design has to survive at once: the merge handler, which
+// interns and releases wherever its caller runs, and the meshlog's parallel
+// capture, which retains from several threads (meshlog/parallel_capture.h).
+// Threads own disjoint elements and their own row store — the engine's own
+// discipline — so the pool is the only shared mutable state, which is the point.
+// The handler is called directly rather than through interpAttrs: no other
+// column claims to be writable from several threads, and dragging them in would
+// test a promise nothing makes.
+static void testConcurrentMergeAndCapture()
+{
+  static constexpr int THREADS = 8;
+  static constexpr int ITERS = 60;
+  static constexpr int TSTEPS = 5;
+
+  MeshPtr m(6);
+  WeightsRef w = ensureVertWeights(*m, "weights");
+
+  Vector<int> verts;
+  for (int v : m->v) {
+    verts.append(v);
+  }
+  test_assert(int(verts.size()) > THREADS * 4);
+
+  // Seeding every element also materializes every page: the threads below only
+  // overwrite cells, and a lazy page allocation under them would be a race the
+  // pool could not be blamed for.
+  for (int i = 0; i < int(verts.size()); i++) {
+    auto seed = run({{i % 6, 1.0f}});
+    w.setRun(verts[i], asRun(seed));
+  }
+
+  // Two sources every thread reads and none writes.
+  const int s0 = verts[0], s1 = verts[1];
+  auto a = run({{1, 1.0f}, {2, 0.25f}});
+  auto b = run({{2, 0.75f}, {5, 1.0f}});
+  w.setRun(s0, asRun(a));
+  w.setRun(s1, asRun(b));
+
+  AttrRef &ref = m->v.attrs.ensure(AttrType::WEIGHTS, "weights");
+  test_assert(ref.merge_fn != nullptr);
+  span<const AttrRef> refs(&ref, 1);
+
+  // t is drawn from one small shared set, so the threads fan in onto the same
+  // runs instead of each interning a private family — dedup under contention is
+  // half of what is being tested.
+  auto tOf = [](int i, int iter) { return float((i + iter) % TSTEPS) / float(TSTEPS - 1); };
+
+  const int per = (int(verts.size()) - 2) / THREADS;
+  std::thread workers[THREADS];
+  for (int t = 0; t < THREADS; t++) {
+    workers[t] = std::thread([&, t]() {
+      const int lo = 2 + t * per;
+      const int hi = (t == THREADS - 1) ? int(verts.size()) : lo + per;
+
+      // Born and destroyed on this thread, so its capture retains and its
+      // teardown releases both race the other threads' interns.
+      meshlog::detail::ChunkElemData store(0, ElemType::VERTEX);
+
+      for (int iter = 0; iter < ITERS; iter++) {
+        for (int i = lo; i < hi; i++) {
+          AttrMergeCtx ctx;
+          ctx.mesh = m.m;
+          ctx.grp = &m->v.attrs;
+          ctx.dst = verts[i];
+          ctx.src0 = s0;
+          ctx.src1 = s1;
+          ctx.t = tOf(i, iter);
+          ref.merge_fn(ref, ctx);
+          store.appendFrom(m->v.attrs, verts[i], refs);
+        }
+      }
+    });
+  }
+  for (int t = 0; t < THREADS; t++) {
+    workers[t].join();
+  }
+
+  // Every dst holds the last iteration's blend, computed here rather than read
+  // back: a lost update would otherwise pass by agreeing with itself.
+  for (int i = 2; i < int(verts.size()); i++) {
+    const float t = tOf(i, ITERS - 1);
+    const int v = verts[i];
+    if (t <= 0.0f) {
+      test_assert(w.slot(v) == w.slot(s0));
+    }
+    else if (t >= 1.0f) {
+      test_assert(w.slot(v) == w.slot(s1));
+    }
+    else {
+      test_assert(w.runSize(v) == 3);
+      test_assert(std::fabs(w.weight(v, 1) - (1.0f - t)) < 1e-6f);
+      test_assert(std::fabs(w.weight(v, 2) - (0.25f + 0.5f * t)) < 1e-6f);
+      test_assert(std::fabs(w.weight(v, 5) - t) < 1e-6f);
+    }
+  }
+
+  // The stores died with their threads, so the column is the only holder left.
+  test_assert(auditMesh(*m, "weights") == 0);
+  m->deformPool().sweep();
+  test_assert(auditMesh(*m, "weights") == 0);
+
+  // Only the runs the surviving cells name: the two sources, the empty run, and
+  // one per interior t. A slot that leaked a reference would still be here.
+  test_assert(m->deformPool().liveSlotCount() == size_t(TSTEPS - 2) + 3);
+}
+
 // Tearing the mesh down must release everything the column held; the pool dies
 // with it, so the only way to see a mistake is to audit just before.
 static void testTeardown()
@@ -412,6 +522,7 @@ int main()
   testMergeInterpolates();
   testMergeEndpoints();
   testMergeBounds();
+  testConcurrentMergeAndCapture();
   testTeardown();
 
   return test_end();
