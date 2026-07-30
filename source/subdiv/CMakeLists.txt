@@ -35,6 +35,9 @@ wasm_add_symbols("
   Multires_writeback
   Multires_captureToVdm
   Multires_downRefit
+  Multires_maxLevel
+  Multires_addLevel
+  Multires_removeTopLevel
   Multires_serializeStore
   Multires_restoreStore
 ")
