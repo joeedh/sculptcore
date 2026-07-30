@@ -201,10 +201,19 @@ When touching it:
 
 ## Mesh C API
 
-`source/mesh/c-api/` is the external surface used by WASM/JS callers.
-Changes here ripple to both the Embind bindings and any generated TS —
-touch with care and prefer additive changes. `source/spatial/c-api/`
-follows the same convention for spatial-tree construction.
+`source/mesh/c-api/` is the external surface used by WASM/JS callers and by the
+Blender addon's ctypes bridge. Changes here ripple to both the Embind bindings
+and any generated TS — touch with care and prefer additive changes.
+`source/spatial/c-api/` follows the same convention for spatial-tree
+construction.
+
+**Adding a function means adding its name to the module's
+`wasm_add_symbols` list** (`source/mesh/CMakeLists.txt`), which feeds both the
+WASM `-sEXPORTED_FUNCTIONS` and the native shared library's export list. Left
+out, a new `extern "C"` function compiles and links cleanly and is simply
+invisible at runtime — which looks like a load or ABI failure, not a missing
+export. The function inventory is in
+[`documentation/mesh.md`](documentation/mesh.md) § *C API*.
 
 ## Mesh validate / repair
 

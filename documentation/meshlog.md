@@ -330,6 +330,22 @@ stroke).
 
 ## Design notes / pitfalls
 
+* **`AttrType::WEIGHTS` rows hold references, not values.** A weights cell is a
+  32-bit slot index into the mesh's `DeformPool` (`mesh/deform_pool.h`), so the
+  raw byte copies this log is built on work unchanged — but a captured row keeps
+  a slot *alive*. `RowLayout` therefore records the byte offsets of the weights
+  cells (`weight_cells`, empty for the overwhelmingly common weightless mesh)
+  and takes a `DeformPoolUser`; a row retains/releases through those offsets
+  without re-walking a live `AttrGroup`, which it has none of at destruction
+  time. `swapWith` needs no special case
+  (the row and the mesh merely exchange slot indices, and the total reference
+  count is unchanged). The pool outliving the mesh is the reason the reference
+  is a *user* count rather than plain mesh ownership: a `Scene` frees its mesh
+  in its body and destructs its log afterwards, so rows would otherwise be left
+  naming a freed pool. `MeshLog::deformPoolMemSize` counts the pool into the
+  undo budget once, rather than folding it into each chunk's `elemSize * rows`:
+  the runs are one shared table, and the log is what keeps swept-out ones alive.
+
 * **Active-mesh requirement.** Without `setActiveMesh`, the topo
   callbacks early-out (they have no way to read the mesh by index).
   Logged topology ops fired in that state will appear to undo as
