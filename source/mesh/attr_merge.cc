@@ -4,6 +4,8 @@
 #include "mesh.h"
 #include "sculpt_layers.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <type_traits>
 
@@ -200,9 +202,18 @@ void mergeSculptLayerRest(AttrRef &attr, const AttrMergeCtx &ctx)
   (*rest)[ctx.dst] = *ctx.merged_co - d;
 }
 
-// The generic rule's plain copy would install src0's slot index in dst without
-// taking a reference, and the pool would then reclaim a run the column still
-// names. Carrying src0's run forward whole is correct but not yet interpolated.
+/** Below this, an entry is noise rather than influence. Interpolation is
+ * transitive — a dyntopo region resplit a hundred times feeds every merge its
+ * own output — so without a floor a run accumulates groups it will never lose,
+ * one denormal at a time, until it hits DEFORM_MAX_INFLUENCES and starts
+ * evicting real influences. Blender's own vertex-group cleanup uses the same
+ * idea; the value is the smallest weight a 16-bit UI slider can express. */
+static constexpr float WEIGHT_MERGE_EPSILON = 1e-5f;
+
+/** The generic rule's plain copy would install src0's slot index in dst without
+ * taking a reference, and the pool would then reclaim a run the column still
+ * names. This is also the engine's first merge handler that allocates: intern()
+ * takes a shard lock, which is why the pool is thread-safe from the start. */
 void mergeWeights(AttrRef &attr, const AttrMergeCtx &ctx)
 {
   auto *data = static_cast<AttrData<WeightSlot> *>(attr.data);
@@ -211,9 +222,75 @@ void mergeWeights(AttrRef &attr, const AttrMergeCtx &ctx)
     return;
   }
 
-  WeightSlot src = data->safe_get(ctx.src0);
+  const WeightSlot s0 = data->safe_get(ctx.src0);
+  const WeightSlot s1 = data->safe_get(ctx.src1);
+
+  // Endpoint cases — a collapse, or either source landing exactly on dst. The
+  // answer is already an interned run, so take it whole and skip the intern.
+  if (s0.index == s1.index || ctx.t <= 0.0f) {
+    data->materialize(ctx.dst);
+    pool->reassign((*data)[ctx.dst], s0);
+    return;
+  }
+  if (ctx.t >= 1.0f) {
+    data->materialize(ctx.dst);
+    pool->reassign((*data)[ctx.dst], s1);
+    return;
+  }
+
+  DeformWeight a[DEFORM_MAX_INFLUENCES], b[DEFORM_MAX_INFLUENCES];
+  const int na = std::min(pool->copyRun(s0, a, DEFORM_MAX_INFLUENCES), DEFORM_MAX_INFLUENCES);
+  const int nb = std::min(pool->copyRun(s1, b, DEFORM_MAX_INFLUENCES), DEFORM_MAX_INFLUENCES);
+
+  const float t = ctx.t;
+  util::Vector<DeformWeight, DEFORM_MAX_INFLUENCES * 2> out;
+  auto push = [&](int group, float w0, float w1) {
+    const float w = w0 * (1.0f - t) + w1 * t;
+    if (w > WEIGHT_MERGE_EPSILON || w < -WEIGHT_MERGE_EPSILON) {
+      out.append(DeformWeight{group, w});
+    }
+  };
+
+  // Both runs are canonicalized group-ascending, so the union is one walk. A
+  // group absent from a side weighs 0 there — not "unchanged".
+  int i = 0, j = 0;
+  while (i < na && j < nb) {
+    if (a[i].group == b[j].group) {
+      push(a[i].group, a[i].weight, b[j].weight);
+      i++;
+      j++;
+    } else if (a[i].group < b[j].group) {
+      push(a[i].group, a[i].weight, 0.0f);
+      i++;
+    } else {
+      push(b[j].group, 0.0f, b[j].weight);
+      j++;
+    }
+  }
+  for (; i < na; i++) {
+    push(a[i].group, a[i].weight, 0.0f);
+  }
+  for (; j < nb; j++) {
+    push(b[j].group, 0.0f, b[j].weight);
+  }
+
+  if (out.size() > DEFORM_MAX_INFLUENCES) {
+    // Keep the strongest influences. intern() re-sorts by group, so leaving the
+    // survivors in magnitude order is fine. Magnitude, not value: weights are
+    // not required to be positive.
+    out.sort([](const DeformWeight &x, const DeformWeight &y) {
+      const float ax = std::fabs(x.weight), ay = std::fabs(y.weight);
+      return ax < ay ? 1 : (ax > ay ? -1 : 0);
+    });
+    out.resize(DEFORM_MAX_INFLUENCES);
+  }
+
+  // Deliberately not normalized: Blender does not, and a sculpt op silently
+  // renormalizing a rigged mesh would be a worse bug than the one this fixes.
+  WeightSlot merged = pool->intern(util::span<const DeformWeight>(out.data(), out.size()));
   data->materialize(ctx.dst);
-  pool->reassign((*data)[ctx.dst], src);
+  pool->reassign((*data)[ctx.dst], merged);
+  pool->release(merged);
 }
 
 struct BuiltinPolicy {

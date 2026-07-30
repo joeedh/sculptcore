@@ -16,6 +16,7 @@
 #include "mesh/deform_pool.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
+#include "mesh/utils/attr_interp.h"
 #include "mesh/utils/edge_split.h"
 #include "mesh/utils/triangulate.h"
 
@@ -278,6 +279,104 @@ static void testMergeAcrossSplit()
   test_assert(auditMesh(*m, "weights") == 0);
 }
 
+// Three distinct verts of the cube: two interpolation sources and a dst.
+static void pickThree(Mesh &m, int &v0, int &v1, int &dst)
+{
+  auto it = m.v.begin();
+  v0 = *it;
+  ++it;
+  v1 = *it;
+  ++it;
+  dst = *it;
+}
+
+// The handler's value rule: union the two sparse runs, treating a group absent
+// from one side as weight 0 there rather than "unchanged", and do not normalize.
+static void testMergeInterpolates()
+{
+  MeshPtr m(3);
+  WeightsRef w = ensureVertWeights(*m, "weights");
+
+  int v0, v1, dst;
+  pickThree(*m, v0, v1, dst);
+
+  auto a = run({{1, 1.0f}, {2, 0.25f}});
+  auto b = run({{2, 0.75f}, {5, 1.0f}});
+  w.setRun(v0, asRun(a));
+  w.setRun(v1, asRun(b));
+
+  interpAttrs(m->v.attrs, dst, v0, v1, 0.5f, m.m);
+
+  test_assert(w.runSize(dst) == 3);
+  test_assert(w.weight(dst, 1) == 0.5f); // only in a: lerp(1, 0)
+  test_assert(w.weight(dst, 2) == 0.5f); // in both: lerp(0.25, 0.75)
+  test_assert(w.weight(dst, 5) == 0.5f); // only in b: lerp(0, 1)
+  // Sums to 1.5. Blender does not renormalize on interpolation and neither does
+  // this — silently rescaling a rigged mesh mid-sculpt would be the worse bug.
+  test_assert(auditMesh(*m, "weights") == 0);
+}
+
+// The endpoints take an existing interned run whole rather than rebuilding it,
+// which is both the fast path and what makes a collapse exactly a copy.
+static void testMergeEndpoints()
+{
+  MeshPtr m(3);
+  WeightsRef w = ensureVertWeights(*m, "weights");
+
+  int v0, v1, dst;
+  pickThree(*m, v0, v1, dst);
+
+  auto a = run({{1, 1.0f}});
+  auto b = run({{2, 1.0f}});
+  w.setRun(v0, asRun(a));
+  w.setRun(v1, asRun(b));
+
+  interpAttrs(m->v.attrs, dst, v0, v1, 0.0f, m.m);
+  test_assert(w.slot(dst) == w.slot(v0));
+
+  interpAttrs(m->v.attrs, dst, v0, v1, 1.0f, m.m);
+  test_assert(w.slot(dst) == w.slot(v1));
+
+  // A collapse hands the same source twice; the run must survive intact.
+  interpAttrs(m->v.attrs, dst, v0, v0, 0.5f, m.m);
+  test_assert(w.slot(dst) == w.slot(v0));
+  test_assert(auditMesh(*m, "weights") == 0);
+}
+
+// Interpolation is transitive, so both bounds have to hold or a run grows
+// without limit: sub-epsilon entries are dropped, and the influence count caps
+// by magnitude.
+static void testMergeBounds()
+{
+  MeshPtr m(3);
+  WeightsRef w = ensureVertWeights(*m, "weights");
+
+  int v0, v1, dst;
+  pickThree(*m, v0, v1, dst);
+
+  auto a = run({{1, 1.0f}});
+  auto b = run({{7, 1e-7f}});
+  w.setRun(v0, asRun(a));
+  w.setRun(v1, asRun(b));
+
+  interpAttrs(m->v.attrs, dst, v0, v1, 0.5f, m.m);
+  test_assert(w.runSize(dst) == 1);
+  test_assert(w.weight(dst, 1) == 0.5f);
+  test_assert(w.weight(dst, 7) == 0.0f);
+
+  Vector<DeformWeight> big0, big1;
+  for (int i = 0; i < DEFORM_MAX_INFLUENCES; i++) {
+    big0.append(DeformWeight{i, 1.0f});
+    big1.append(DeformWeight{100 + i, 1.0f});
+  }
+  w.setRun(v0, asRun(big0));
+  w.setRun(v1, asRun(big1));
+
+  interpAttrs(m->v.attrs, dst, v0, v1, 0.5f, m.m);
+  test_assert(w.runSize(dst) == DEFORM_MAX_INFLUENCES);
+  test_assert(auditMesh(*m, "weights") == 0);
+}
+
 // Tearing the mesh down must release everything the column held; the pool dies
 // with it, so the only way to see a mistake is to audit just before.
 static void testTeardown()
@@ -310,6 +409,9 @@ int main()
   testElementReuse();
   testRemoveLayer();
   testMergeAcrossSplit();
+  testMergeInterpolates();
+  testMergeEndpoints();
+  testMergeBounds();
   testTeardown();
 
   return test_end();
