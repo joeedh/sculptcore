@@ -22,6 +22,11 @@ namespace sculptcore::mesh {
 
 struct Mesh;
 
+/** The vertex-group layer the c-api's bulk accessors and the addon bridge speak
+ * for. Blender carries exactly one MDeformVert table per mesh, so a layer-name
+ * argument on those accessors would only ever take this value. */
+inline constexpr const char *VERT_WEIGHTS = ".vertex_groups";
+
 struct WeightsRef {
   WeightsRef() = default;
 

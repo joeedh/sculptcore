@@ -1,5 +1,6 @@
 #include "test_util.h"
 
+#include "mesh/attr_weights.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
 
@@ -27,6 +28,18 @@ int Mesh_toArrays(sculptcore::mesh::Mesh *m,
                   int *corner_verts,
                   int *face_offsets,
                   int *r_vert_map);
+int sc_mesh_weights_element_count(sculptcore::mesh::Mesh *m);
+int sc_mesh_weights_get(sculptcore::mesh::Mesh *m,
+                        int *offsets,
+                        int *group_ids,
+                        float *weights);
+int sc_mesh_weights_set(sculptcore::mesh::Mesh *m,
+                        const int *offsets,
+                        const int *group_ids,
+                        const float *weights);
+int sc_mesh_weight_group_count(sculptcore::mesh::Mesh *m);
+int sc_mesh_weight_groups_get(sculptcore::mesh::Mesh *m, char *buf, int buf_size);
+void sc_mesh_weight_groups_set(sculptcore::mesh::Mesh *m, const char *buf, int count);
 }
 
 test_init;
@@ -162,6 +175,83 @@ int main()
 
     alloc::Delete<Mesh>(cube);
     alloc::Delete<Mesh>(m2);
+  }
+
+  // Vertex-group weights over the same CSR + live-order contract. The mesh
+  // carries a freelist gap on purpose: the weights arrays are indexed by
+  // *exported* position, so a gap is where an engine-index-keyed implementation
+  // would silently write the wrong vertex.
+  {
+    const float positions[] = {
+        0, 0, 0, /**/ 1, 0, 0, /**/ 0, 1, 0, /**/ 5, 0, 0, /**/ 6, 0, 0, /**/ 5, 1, 0,
+    };
+    const int corner_verts[] = {0, 1, 2, 3, 4, 5};
+    const int face_offsets[] = {0, 3, 6};
+
+    Mesh *m = Mesh_fromArrays(positions, 6, corner_verts, 6, face_offsets, 2);
+    test_assert(m != nullptr);
+    int f0 = -1;
+    for (int fi : m->f) {
+      f0 = fi;
+      break;
+    }
+    m->kill_face(f0);
+    m->kill_vertex(0);
+    m->kill_vertex(1);
+    m->kill_vertex(2);
+    test_assert(m->v.count == 3);
+
+    // No layer yet: both readers report nothing rather than inventing a run.
+    test_assert(sc_mesh_weights_element_count(m) == 0);
+    test_assert(sc_mesh_weights_get(m, nullptr, nullptr, nullptr) == 0);
+    test_assert(sc_mesh_weight_group_count(m) == 0);
+
+    const char names[] = "left\0right\0spine\0";
+    sc_mesh_weight_groups_set(m, names, 3);
+    test_assert(sc_mesh_weight_group_count(m) == 3);
+
+    // buf=nullptr sizes the buffer; so does a buffer that is too small.
+    const int need = sc_mesh_weight_groups_get(m, nullptr, 0);
+    test_assert(need == int(sizeof(names)) - 1);
+    char small[4];
+    test_assert(sc_mesh_weight_groups_get(m, small, sizeof(small)) == need);
+    Vector<char> namebuf;
+    namebuf.resize(need);
+    test_assert(sc_mesh_weight_groups_get(m, namebuf.data(), need) == need);
+    test_assert(std::memcmp(namebuf.data(), names, need) == 0);
+
+    // Three live verts: a two-influence run given out of group order, an empty
+    // run, and a single influence.
+    const int in_offsets[] = {0, 2, 2, 3};
+    const int in_groups[] = {2, 0, 1};
+    const float in_weights[] = {0.25f, 0.5f, 1.0f};
+    test_assert(sc_mesh_weights_set(m, in_offsets, in_groups, in_weights) == 3);
+    test_assert(sc_mesh_weights_element_count(m) == 3);
+
+    int out_offsets[4] = {-1, -1, -1, -1};
+    int out_groups[3] = {-1, -1, -1};
+    float out_weights[3] = {0, 0, 0};
+    test_assert(sc_mesh_weights_get(m, out_offsets, out_groups, out_weights) == 1);
+    test_assert(std::memcmp(out_offsets, in_offsets, sizeof(in_offsets)) == 0);
+    // Interning canonicalizes group-ascending, so the first run comes back
+    // reordered — the values follow their groups, they are not resorted apart.
+    test_assert(out_groups[0] == 0 && out_weights[0] == 0.5f);
+    test_assert(out_groups[1] == 2 && out_weights[1] == 0.25f);
+    test_assert(out_groups[2] == 1 && out_weights[2] == 1.0f);
+
+    // The runs landed on the live verts (3,4,5), not on the dead slots.
+    WeightsRef w = findVertWeights(*m, VERT_WEIGHTS);
+    test_assert(w.exists());
+    test_assert(w.runSize(3) == 2 && w.weight(3, 0) == 0.5f && w.weight(3, 2) == 0.25f);
+    test_assert(w.runSize(4) == 0);
+    test_assert(w.runSize(5) == 1 && w.weight(5, 1) == 1.0f);
+
+    // A write of all-empty runs clears, rather than leaving the old ones.
+    const int empty_offsets[] = {0, 0, 0, 0};
+    test_assert(sc_mesh_weights_set(m, empty_offsets, nullptr, nullptr) == 3);
+    test_assert(sc_mesh_weights_element_count(m) == 0);
+
+    alloc::Delete<Mesh>(m);
   }
 
   // Invalid input: mismatched offsets are rejected, bad faces are skipped.

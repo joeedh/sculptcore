@@ -85,6 +85,12 @@ wasm_add_symbols("
   Mesh_writeCornerFloat2Attr
   Mesh_readAttr
   Mesh_writeAttr
+  sc_mesh_weights_element_count
+  sc_mesh_weights_get
+  sc_mesh_weights_set
+  sc_mesh_weight_group_count
+  sc_mesh_weight_groups_get
+  sc_mesh_weight_groups_set
   Mesh_edgeCount
   Mesh_writeEdgeFlagsByVerts
   Mesh_readEdgeFlags

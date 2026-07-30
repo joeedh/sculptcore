@@ -1,5 +1,6 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
+#include "mesh/attr_weights.h"
 #include "mesh/attribute.h"
 #include "mesh/attribute_bool.h"
 #include "mesh/boundary.h"
@@ -479,6 +480,140 @@ int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, con
     }
   });
   return 1;
+}
+
+/** Total influences across every live vertex of the `VERT_WEIGHTS` layer: the
+ * value sc_mesh_weights_get writes to `offsets[vert_count]`, and the length the
+ * `group_ids` / `weights` arrays need. 0 when the mesh carries no such layer. */
+int sc_mesh_weights_element_count(Mesh *m)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  WeightsRef w = findVertWeights(*m, VERT_WEIGHTS);
+  if (!w.exists()) {
+    return 0;
+  }
+  int total = 0;
+  for (int vi : m->v) {
+    total += w.runSize(vi);
+  }
+  return total;
+}
+
+/** Read the weights layer as CSR — `offsets` takes `vert_count + 1` entries in
+ * live-vertex order (Mesh_toArrays' order), `group_ids` and `weights` take
+ * sc_mesh_weights_element_count entries. CSR rather than a call per vertex
+ * because crossing the ctypes boundary is the expensive part.
+ *
+ * Returns 1, or 0 without writing anything when there is no weights layer. */
+int sc_mesh_weights_get(Mesh *m, int *offsets, int *group_ids, float *weights)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  WeightsRef w = findVertWeights(*m, VERT_WEIGHTS);
+  if (!w.exists()) {
+    return 0;
+  }
+
+  Vector<DeformWeight> run;
+  int i = 0, out = 0;
+  for (int vi : m->v) {
+    offsets[i++] = out;
+    const int n = w.runSize(vi);
+    if (n > 0) {
+      run.resize(n);
+      w.getRun(vi, run.data(), n);
+      for (int k = 0; k < n; k++) {
+        group_ids[out] = run[k].group;
+        weights[out] = run[k].weight;
+        out++;
+      }
+    }
+  }
+  offsets[i] = out;
+  return 1;
+}
+
+/** Write the weights layer from CSR arrays in the layout and order
+ * sc_mesh_weights_get produces, creating the layer (and the mesh's DeformPool)
+ * on first use. Every live vertex is written, so a vertex whose run is empty is
+ * cleared rather than left alone. Runs need not be sorted or deduplicated —
+ * interning canonicalizes them. Returns the number of vertices written. */
+int sc_mesh_weights_set(Mesh *m,
+                        const int *offsets,
+                        const int *group_ids,
+                        const float *weights)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  WeightsRef w = ensureVertWeights(*m, VERT_WEIGHTS);
+
+  Vector<DeformWeight> run;
+  int i = 0;
+  for (int vi : m->v) {
+    const int start = offsets[i], end = offsets[i + 1];
+    i++;
+    run.clear();
+    for (int k = start; k < end; k++) {
+      run.append(DeformWeight{group_ids[k], weights[k]});
+    }
+    w.setRun(vi, span<const DeformWeight>(run.data(), size_t(run.size())));
+  }
+  return i;
+}
+
+/** How many vertex-group names the mesh carries, i.e. how many NUL-terminated
+ * strings sc_mesh_weight_groups_get writes. 0 when the mesh has no pool. */
+int sc_mesh_weight_group_count(Mesh *m)
+{
+  DeformPool *pool = m->deformPoolOrNull();
+  return pool ? int(pool->group_names.size()) : 0;
+}
+
+/** Copy the group names into `buf` as NUL-terminated strings packed back to
+ * back, and return the byte count that takes. Call it once with `buf` null to
+ * size the buffer; a `buf_size` too small writes nothing and returns the same
+ * count. */
+int sc_mesh_weight_groups_get(Mesh *m, char *buf, int buf_size)
+{
+  DeformPool *pool = m->deformPoolOrNull();
+  if (!pool) {
+    return 0;
+  }
+
+  int need = 0;
+  for (const string &name : pool->group_names) {
+    need += int(name.size()) + 1;
+  }
+  if (!buf || buf_size < need) {
+    return need;
+  }
+
+  int at = 0;
+  for (const string &name : pool->group_names) {
+    std::memcpy(buf + at, name.c_str(), name.size() + 1);
+    at += int(name.size()) + 1;
+  }
+  return need;
+}
+
+/** Replace the name table with `count` NUL-terminated strings packed back to
+ * back in `buf`. A DeformWeight::group is an index into this list, so its order
+ * is the whole contract between host and engine — write it before the weights,
+ * and reconcile by name, never by position, across a mode change. */
+void sc_mesh_weight_groups_set(Mesh *m, const char *buf, int count)
+{
+  DeformPool &pool = m->deformPool();
+  pool.group_names.clear();
+
+  const char *p = buf;
+  for (int i = 0; i < count; i++) {
+    pool.group_names.append(string(p));
+    p += std::strlen(p) + 1;
+  }
 }
 
 /** Live edge count (sizes Mesh_readEdgeFlags buffers). */
