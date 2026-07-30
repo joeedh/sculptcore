@@ -127,6 +127,12 @@ struct LogChunk {
 
 namespace detail {
 struct ChunkElemData {
+  /** Declared first so it destructs LAST — after attrs_, whose ~AttrGroup
+   * releases this store's weight slots back into the pool. The mesh is routinely
+   * deleted before the log that logged it, so the reference is what keeps the
+   * pool addressable that long. */
+  mesh::DeformPoolUser pool_user;
+
   mesh::BuiltinAttr<int, ".sculpt.undo.origIndex"> origIndex;
   bool isSwapped = false;
 
@@ -171,7 +177,23 @@ struct ChunkElemData {
               int(ref.type));
       abort();
     }
+    bindPool(src);
     return ensureAttr(index, ref.type, ref.name);
+  }
+
+  /** Point this store's group at the same DeformPool the mesh column uses, and
+   * take a user. Both halves are required before a WEIGHTS column can be
+   * created: AttrGroup::ensure asserts on the pool, and the rows this store
+   * copies are raw slot indices, only resolvable against that one pool. */
+  void bindPool(const mesh::AttrGroup &src)
+  {
+    // Bound once. Re-pointing at a second pool would strand the references the
+    // already-captured rows hold in the first one.
+    if (!src.deform_pool || attrs_.deform_pool) {
+      return;
+    }
+    pool_user.reset(src.deform_pool);
+    attrs_.deform_pool = src.deform_pool;
   }
 
   // TODO: figure out concept for iterator<int>
@@ -214,6 +236,17 @@ struct ChunkElemData {
        * sweeps every non-NOCOPY attribute, including sparse ones (e.g. mask,
        * cavity) that a never-touched vertex has no backing page for yet. */
       srcData->materializeElem(src_i);
+
+      if (ref.type == AttrType::WEIGHTS && attrs_.deform_pool) {
+        // A plain memcpy would duplicate the slot index without a reference, and
+        // the pool would then reclaim a run this row still names.
+        dstData->materializeElem(dst_i);
+        attrs_.deform_pool->reassign(
+            *static_cast<WeightSlot *>(dstData->getElemData(dst_i)),
+            *static_cast<const WeightSlot *>(srcData->getElemData(src_i)));
+        continue;
+      }
+
       memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
     }
   };
@@ -277,6 +310,8 @@ struct ChunkElemData {
       /* See cpyFrom(): srcData's page for src_i may be lazily unmaterialized. */
       srcData->materializeElem(src_i);
 
+      // A WEIGHTS column needs nothing special here: the two sides exchange slot
+      // indices, so the reference each already holds simply moves with it.
       memcpy(static_cast<void *>(buf), dstData->getElemData(dst_i), dstData->elemSize);
       memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
       memcpy(srcData->getElemData(src_i), static_cast<void *>(buf), dstData->elemSize);
@@ -506,18 +541,33 @@ struct RowLayout {
   Vector<int> offsets;
   Vector<int> sizes; /* bytes per attr cell (BOOL = 1) */
 
+  /* Byte offsets of the AttrType::WEIGHTS cells, so a row can retain/release
+   * them without re-walking a live AttrGroup — which it has none of at
+   * destruction time. Empty for the overwhelmingly common weightless mesh. */
+  Vector<int, 2> weight_cells;
+  /* Keeps that pool addressable for as long as any row built on this layout;
+   * ~LogChunkTopo clears the row pools before deleting its layouts. */
+  mesh::DeformPoolUser pool;
+
   void build(mesh::AttrGroup &src)
   {
     count = int(src.attrs.size());
     offsets.resize(count);
     sizes.resize(count);
+    weight_cells.clear();
     total = 0;
     for (int i = 0; i < count; i++) {
       mesh::AttrRef &ref = src.attrs[i];
       int sz = (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
       offsets[i] = total;
       sizes[i] = sz;
+      if (ref.type == mesh::AttrType::WEIGHTS && !(ref.flag & mesh::AttrFlag::NOCOPY)) {
+        weight_cells.append(total);
+      }
       total += sz;
+    }
+    if (weight_cells.size() > 0) {
+      pool.reset(src.deform_pool);
     }
   }
 
@@ -535,8 +585,16 @@ struct RowLayout {
 struct ChunkElemRow {
   ChunkElemRow() = default;
 
+  /* Rows are pooled (LogChunkTopo::bodies_pool), so both release-and-reuse and
+   * pool teardown land here — that is what settles a captured run's reference. */
+  ~ChunkElemRow()
+  {
+    releaseWeights();
+  }
+
   void captureFrom(const RowLayout *plan, mesh::AttrGroup &src, int src_idx)
   {
+    releaseWeights(); // a reused row still names the previous element's runs
     layout_ = plan;
     data_.resize(plan->total);
     /* NOCOPY cells are skipped below and must restore as zeros (their
@@ -565,6 +623,7 @@ struct ChunkElemRow {
         memcpy(static_cast<void *>(dst), src, size_t(plan->sizes[i]));
       }
     }
+    retainWeights();
   }
 
   void writeTo(mesh::AttrGroup &dst, int dst_idx)
@@ -589,6 +648,13 @@ struct ChunkElemRow {
         void *dst = ref.data->getElemData(dst_idx);
         if (!dst) {
           warnNullPage("writeTo", ref);
+          continue;
+        }
+        if (ref.type == mesh::AttrType::WEIGHTS && layout_->pool.ptr) {
+          // The element is being re-created, so its cell is a fresh default —
+          // but reassign is right either way, and the row keeps its own copy.
+          layout_->pool.ptr->reassign(*static_cast<mesh::WeightSlot *>(dst),
+                                      *reinterpret_cast<const mesh::WeightSlot *>(src));
           continue;
         }
         memcpy(dst, static_cast<const void *>(src), size_t(layout_->sizes[i]));
@@ -618,6 +684,11 @@ struct ChunkElemRow {
       } else {
         const void *s = ref.data->getElemData(src_idx);
         if (!s) {
+          continue;
+        }
+        if (ref.type == mesh::AttrType::WEIGHTS && layout_->pool.ptr) {
+          layout_->pool.ptr->reassign(*reinterpret_cast<mesh::WeightSlot *>(dst),
+                                      *static_cast<const mesh::WeightSlot *>(s));
           continue;
         }
         memcpy(static_cast<void *>(dst), s, size_t(layout_->sizes[i]));
@@ -656,6 +727,8 @@ struct ChunkElemRow {
           warnNullPage("swapWith", ref);
           continue;
         }
+        // WEIGHTS needs no special case: the row and the mesh exchange slot
+        // indices, so the reference each holds moves with it.
         size_t n = size_t(layout_->sizes[i]);
         memcpy(static_cast<void *>(buf), live_p, n);
         memcpy(live_p, static_cast<const void *>(slot), n);
@@ -665,6 +738,35 @@ struct ChunkElemRow {
   }
 
 private:
+  /** The row's own WEIGHTS cells, or null when it has none / was never
+   * captured. Both loops below are no-ops on a weightless mesh. */
+  mesh::WeightSlot *weightCell(int offset)
+  {
+    return reinterpret_cast<mesh::WeightSlot *>(data_.data() + offset);
+  }
+
+  void retainWeights()
+  {
+    if (!layout_ || !layout_->pool.ptr) {
+      return;
+    }
+    for (int offset : layout_->weight_cells) {
+      layout_->pool.ptr->retain(*weightCell(offset));
+    }
+  }
+
+  void releaseWeights()
+  {
+    if (!layout_ || !layout_->pool.ptr || int(data_.size()) < layout_->total) {
+      return;
+    }
+    for (int offset : layout_->weight_cells) {
+      mesh::WeightSlot *cell = weightCell(offset);
+      layout_->pool.ptr->release(*cell);
+      *cell = mesh::WeightSlot();
+    }
+  }
+
   /* A null getElemData means an unmaterialized page — e.g. a frozen-topo TOPO
    * column. MeshLog::undo/redo thaw before replaying topo chunks, so hitting
    * this is a bug; warn loudly instead of memcpy'ing through null. */
@@ -752,8 +854,12 @@ struct LogChunkTopo : public LogChunk {
 
   ~LogChunkTopo() override
   {
-    // Pools own the LogElem + ChunkElemRow storage; their destructors
-    // tear everything down.
+    // Explicit, and before the layouts go: ~ChunkElemRow releases its weight
+    // slots through layout_->pool, and member pools would otherwise be destroyed
+    // after this body — i.e. after the layouts they read.
+    bodies_pool.clear();
+    records_pool.clear();
+
     for (detail::RowLayout *l : layouts_) {
       litestl::alloc::Delete(l);
     }
@@ -1516,6 +1622,10 @@ struct MeshLog {
       vertGate_.ensure(*m);
       faceGate_.ensure(*m);
       cornerGate_.ensure(*m);
+      // Picked up, never created: a mesh with no weights should not grow a pool
+      // because it was logged. Held so totalMemSize can size it after the mesh
+      // itself is gone.
+      deform_pool_.reset(m->deformPoolOrNull());
     }
   }
 
@@ -1573,7 +1683,17 @@ struct MeshLog {
     for (auto &entry : entries) {
       tot += entry.memSize();
     }
-    return tot;
+    return tot + deformPoolMemSize();
+  }
+
+  /** Deform-pool bytes, counted once here rather than folded into each chunk's
+   * elemSize * rows — a WEIGHTS cell is a 4-byte slot index, and the runs behind
+   * those indices are one shared table that every step and the mesh index into.
+   * The log is what keeps swept-out runs alive, so the bytes belong in the undo
+   * budget even though the mesh owns the table. */
+  double deformPoolMemSize()
+  {
+    return deform_pool_.ptr ? double(deform_pool_.ptr->byteSize()) : 0.0;
   }
 
   int entryCount()
@@ -2834,6 +2954,9 @@ private:
   int curStep_;
   mesh::MeshCallbacks cb_;
   mesh::Mesh *active_mesh_ = nullptr;
+  /* The active mesh's deform pool, if it has one. A strong reference: chunks
+   * hold their own too, but this one also survives a step being freed. */
+  mesh::DeformPoolUser deform_pool_;
   int maxUndoSteps_ = -1; // -1 = unbounded
   int nextStepId_ = 0;
   int strokeId_ = 0; // bumped to 1 on the first beginStep (see curStrokeId)

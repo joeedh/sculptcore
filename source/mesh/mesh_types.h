@@ -2,6 +2,7 @@
 
 #include "attribute.h"
 #include "attribute_builtin.h"
+#include "deform_pool.h"
 
 #include "litestl/math/vector.h"
 
@@ -236,21 +237,13 @@ struct FaceData : public ElemData {
   BuiltinAttr<bool, "select", AttrFlag::NONE, AttrUse::SELECT> select;
 };
 
-/** Sole owner of a mesh's DeformPool. A member rather than a raw pointer plus a
- * ~MeshBase body: base-class members are destroyed *after* the destructor body,
- * so only a member declared ahead of the element groups outlives their
- * AttrGroups — whose destructors release the weight slots their columns hold. */
-struct DeformPoolOwner {
-  DeformPool *ptr = nullptr;
-
-  DeformPoolOwner() = default;
-  DeformPoolOwner(const DeformPoolOwner &) = delete;
-  DeformPoolOwner &operator=(const DeformPoolOwner &) = delete;
-  ~DeformPoolOwner();
-};
-
 struct MeshBase {
-  DeformPoolOwner deform_pool_;
+  /** The mesh's user of its DeformPool. A member rather than a raw pointer plus
+   * a ~MeshBase body: base-class members are destroyed *after* the destructor
+   * body, so only a member declared ahead of the element groups outlives their
+   * AttrGroups — whose destructors release the weight slots their columns hold.
+   * It is a *user*, not the sole owner: a meshlog step outlives its mesh. */
+  DeformPoolUser deform_pool_;
 
   VertexData v;
   EdgeData e;
