@@ -183,11 +183,14 @@ void sc_external_draw_enable_dynamic(void *spatial_tree)
   if (tree == nullptr) {
     return;
   }
-  /* A fixed color@0 (vertex float4) + uv@1 (corner float2) layout, so Blender
-   * always addresses attrs by the same slot regardless of which the object
-   * actually has (a missing source layer is filled with the default). The
-   * per-attribute source is looked up by name in the engine mesh's domain group
-   * (see fill_leaf_attr). */
+  /* A fixed color@0 (vertex float4) + uv@1 (corner float2) + mask@2 (vertex
+   * float) + fset@3 (white filler float3) layout, so Blender always addresses
+   * attrs by the same slot regardless of which the object actually has (a
+   * missing source layer is filled with the default). The per-attribute source
+   * is looked up by name in the engine mesh's domain group (see
+   * fill_leaf_attr). mask@2 feeds Blender's sculpt-mask overlay pass; fset@3
+   * resolves no layer on purpose — the overlay shader multiplies by it, so
+   * absent face-set data must read white, not zero. */
   litestl::util::Vector<gpu::RequestedAttr> reqs;
   gpu::RequestedAttr color;
   color.name = "color";
@@ -207,6 +210,24 @@ void sc_external_draw_enable_dynamic(void *spatial_tree)
   uv.domain = 4; /* CORNER */
   uv.defaultKind = gpu::AttrDefaultKind::Zero;
   reqs.append(uv);
+  gpu::RequestedAttr mask;
+  mask.name = ".spatial.v.mask";
+  mask.srcType = int(mesh::AttrType::FLOAT);
+  mask.gpuType = gpu::GPUType::FLOAT32;
+  mask.elemSize = 1;
+  mask.slot = 2;
+  mask.domain = 1; /* VERTEX */
+  mask.defaultKind = gpu::AttrDefaultKind::Zero;
+  reqs.append(mask);
+  gpu::RequestedAttr fset;
+  fset.name = ".extdraw.fset"; /* never exists: constant white filler */
+  fset.srcType = int(mesh::AttrType::FLOAT3);
+  fset.gpuType = gpu::GPUType::FLOAT32;
+  fset.elemSize = 3;
+  fset.slot = 3;
+  fset.domain = 1; /* VERTEX */
+  fset.defaultKind = gpu::AttrDefaultKind::White;
+  reqs.append(fset);
   tree->setRequestedAttrs(reqs);
   /* Enable the dynamic fill layout. Blender reads the CPU buffers directly and
    * never invokes the engine's renderer, but the dynamic path builds an engine
