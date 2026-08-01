@@ -92,6 +92,7 @@ wasm_add_symbols("
   sc_mesh_weight_groups_get
   sc_mesh_weight_groups_set
   Mesh_edgeCount
+  Mesh_edgeVertsOut
   Mesh_writeEdgeFlagsByVerts
   Mesh_readEdgeFlags
   Mesh_recomputeBoundary

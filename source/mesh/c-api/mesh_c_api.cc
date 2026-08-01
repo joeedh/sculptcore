@@ -386,6 +386,17 @@ static ElemData *mesh_elem_domain(Mesh *m, int domain)
   return nullptr;
 }
 
+/** True when `type_dispatch` has a case for `t`. An out-of-range AttrType —
+ * a host passing a stale or wrong integer — would otherwise fall through the
+ * switch without invoking the callback, and Mesh_writeAttr would ensure() a
+ * broken column and report success having written nothing. */
+static bool attr_type_dispatchable(AttrType t)
+{
+  bool ok = false;
+  sculptcore::mesh::detail::type_dispatch(t, [&]<typename T>() { ok = true; });
+  return ok;
+}
+
 /** Read a named attribute of arbitrary `type` on `domain` into `out`
  * (one element per live element of the domain, in the same live-iteration order
  * as Mesh_toArrays / Mesh_arraySizes' per-domain counts). `out` must hold
@@ -406,7 +417,7 @@ int Mesh_readAttr(Mesh *m, int domain, const char *name, int type, void *out)
     return 0;
   }
   AttrType attr_type = AttrType(type);
-  if (attr_type == AttrType::WEIGHTS) {
+  if (attr_type == AttrType::WEIGHTS || !attr_type_dispatchable(attr_type)) {
     return 0;
   }
   AttrRef ref = ed->attrs.find_attribute(attr_type, name);
@@ -454,7 +465,7 @@ int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, con
     return 0;
   }
   AttrType attr_type = AttrType(type);
-  if (attr_type == AttrType::WEIGHTS) {
+  if (attr_type == AttrType::WEIGHTS || !attr_type_dispatchable(attr_type)) {
     return 0;
   }
   AttrRef &ref = ed->attrs.ensure(attr_type, name, /*materialize=*/true);
@@ -623,6 +634,27 @@ int Mesh_edgeCount(Mesh *m)
     m->thawTopo();
   }
   return m->e.count;
+}
+
+/** Live edge endpoints (engine vertex indices), in the same live-iteration
+ * order Mesh_readAttr/Mesh_writeAttr use for the EDGE domain. `out` must hold
+ * `2 * Mesh_edgeCount` ints. Returns the edge count.
+ *
+ * This is the edge identity channel: the engine derives its own edges, so
+ * edge *indices* never correspond across the host boundary — a host pairs an
+ * edge-domain attribute column with its own edges by matching endpoint pairs
+ * (mapped through Mesh_toArrays' vert_map after a topology change). */
+int Mesh_edgeVertsOut(Mesh *m, int *out)
+{
+  if (m->topo_frozen) {
+    m->thawTopo();
+  }
+  int i = 0;
+  for (int e : m->e) {
+    out[i++] = m->e.vs[e][0];
+    out[i++] = m->e.vs[e][1];
+  }
+  return i / 2;
 }
 
 /** Set the named boundary bool edge flag (e.g. `.boundary.edge.seam`) from
