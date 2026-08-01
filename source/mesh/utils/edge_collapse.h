@@ -557,87 +557,100 @@ collapseEdge(Mesh &m,
     }
   }
 
-  /* Wedge-aware UV fix-up at the survivor. The rebuilt kill-fan corners
-   * restored v_kill's UVs verbatim while the untouched keep-fan corners still
-   * hold v_keep's, so the merged vertex would read as a UV discontinuity
-   * everywhere (spurious derived chart edges), and a real chart boundary
-   * crossing it would smear. The killed faces that held BOTH endpoints carry
-   * one (uv_kill, uv_keep) pair per wedge; set every corner at v_keep to its
-   * wedge's blended value, matched by proximity to either side of a pair. */
-  {
-    Vector<int, 4> uvLayers;
+  /* Wedge-aware corner fix-up at the survivor, for every float-backed corner
+   * layer (UV maps, corner colors, direction fields, …). The rebuilt
+   * kill-fan corners restored v_kill's values verbatim while the untouched
+   * keep-fan corners still hold v_keep's, so the merged vertex would read as
+   * a discontinuity in every corner field — for UVs that surfaces as
+   * spurious derived chart edges, for anything else as a hard seam the
+   * collapse invented. The killed faces that held BOTH endpoints carry one
+   * (kill, keep) value pair per wedge; set every corner at v_keep to its
+   * wedge's blended value, matched by value proximity to either side of a
+   * pair. Proximity is also the UV-chart rule: a corner whose value matches
+   * no pair belongs to a chart touching only one endpoint and keeps its
+   * restored value (its corners agree, so it derives no spurious boundary). */
+  if (m.v.e[v_keep] != ELEM_NONE) {
     for (int ai = 0; ai < int(m.c.attrs.attrs.size()); ai++) {
-      AttrRef &uattr = m.c.attrs.attrs[ai];
-      if (uattr.type == AttrType::FLOAT2 && uattr.data &&
-          (int(uattr.use) & int(AttrUse::UV)) != 0 &&
-          !(uattr.flag & (AttrFlag::TOPO | AttrFlag::NOCOPY)))
+      AttrRef &cattr = m.c.attrs.attrs[ai];
+      if (!cattr.data ||
+          (cattr.flag & (AttrFlag::TOPO | AttrFlag::NOCOPY | AttrFlag::NOINTERP)) ||
+          cattr.merge == AttrMerge::NONE || cattr.merge == AttrMerge::COPY_SRC0)
       {
-        uvLayers.append(ai);
+        continue;
       }
-    }
-    if (!uvLayers.isEmpty() && m.v.e[v_keep] != ELEM_NONE) {
-      using litestl::math::float2;
-      auto cellUv = [](const AttrRowSnapshot &snap, int ai) {
-        float2 uv(0.0f, 0.0f);
-        if (ai < int(snap.cells.size()) && snap.cells[ai].present) {
-          std::memcpy(&uv, snap.cells[ai].bytes, sizeof(float2));
-        }
-        return uv;
-      };
-      for (int li : uvLayers) {
-        Vector<float2, 4> pairKill, pairKeep;
-        for (FaceSnap &fs : faceSnaps) {
-          int ik = -1, ip = -1;
-          for (int i = 0; i < int(fs.cverts.size()); i++) {
-            if (fs.cverts[i] == v_kill) {
-              ik = i;
+      detail::type_dispatch(cattr.type, [&]<typename T>() {
+        using litestl::math::float2;
+        using litestl::math::float3;
+        using litestl::math::float4;
+        if constexpr (std::is_same_v<T, float> || std::is_same_v<T, float2> ||
+                      std::is_same_v<T, float3> || std::is_same_v<T, float4>)
+        {
+          auto cellVal = [ai](const AttrRowSnapshot &snap) {
+            T v{};
+            if (ai < int(snap.cells.size()) && snap.cells[ai].present) {
+              std::memcpy(&v, snap.cells[ai].bytes, sizeof(T));
             }
-            if (fs.cverts[i] == v_keep) {
-              ip = i;
+            return v;
+          };
+          auto dist2 = [](const T &a, const T &b) {
+            if constexpr (std::is_same_v<T, float>) {
+              return (a - b) * (a - b);
+            }
+            else {
+              return (a - b).lengthSqr();
+            }
+          };
+          Vector<T, 4> pairKill, pairKeep;
+          for (FaceSnap &fs : faceSnaps) {
+            int ik = -1, ip = -1;
+            for (int i = 0; i < int(fs.cverts.size()); i++) {
+              if (fs.cverts[i] == v_kill) {
+                ik = i;
+              }
+              if (fs.cverts[i] == v_keep) {
+                ip = i;
+              }
+            }
+            if (ik >= 0 && ip >= 0) {
+              pairKill.append(cellVal(fs.csnaps[ik]));
+              pairKeep.append(cellVal(fs.csnaps[ip]));
             }
           }
-          if (ik >= 0 && ip >= 0) {
-            pairKill.append(cellUv(fs.csnaps[ik], li));
-            pairKeep.append(cellUv(fs.csnaps[ip], li));
+          if (pairKill.isEmpty()) {
+            return; /* no face held both endpoints (wire-ish) — leave as-is */
           }
-        }
-        if (pairKill.isEmpty()) {
-          continue; /* no face held both endpoints (wire-ish) — leave as-is */
-        }
-        auto *data = static_cast<AttrData<float2> *>(m.c.attrs.attrs[li].data);
-        const float eps2 = 1e-8f;
-        for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
-          int c0 = m.e.c[ei];
-          if (c0 == ELEM_NONE) {
-            continue;
-          }
-          int cc = c0;
-          do {
-            if (m.c.v[cc] == v_keep) {
-              const float2 u = data->safe_get(cc);
-              int best = -1;
-              float bestD = eps2;
-              for (int k = 0; k < int(pairKill.size()); k++) {
-                const float dk = (u - pairKill[k]).lengthSqr();
-                const float dp = (u - pairKeep[k]).lengthSqr();
-                const float d = dk < dp ? dk : dp;
-                if (d <= bestD) {
-                  bestD = d;
-                  best = k;
+          auto *data = static_cast<AttrData<T> *>(cattr.data);
+          const float eps2 = 1e-8f;
+          for (int ei : EdgeOfVertIter(&m, v_keep, m.v.e[v_keep])) {
+            int c0 = m.e.c[ei];
+            if (c0 == ELEM_NONE) {
+              continue;
+            }
+            int cc = c0;
+            do {
+              if (m.c.v[cc] == v_keep) {
+                const T u = data->safe_get(cc);
+                int best = -1;
+                float bestD = eps2;
+                for (int k = 0; k < int(pairKill.size()); k++) {
+                  const float dk = dist2(u, pairKill[k]);
+                  const float dp = dist2(u, pairKeep[k]);
+                  const float d = dk < dp ? dk : dp;
+                  if (d <= bestD) {
+                    bestD = d;
+                    best = k;
+                  }
+                }
+                if (best >= 0) {
+                  data->materialize(cc);
+                  (*data)[cc] = pairKeep[best] * (1.0f - blend) + pairKill[best] * blend;
                 }
               }
-              /* A wedge no pair covers (a chart touching only one endpoint)
-               * keeps its restored value — its corners agree, so it derives no
-               * spurious boundary. */
-              if (best >= 0) {
-                data->materialize(cc);
-                (*data)[cc] = pairKeep[best] * (1.0f - blend) + pairKill[best] * blend;
-              }
-            }
-            cc = m.c.radial_next[cc];
-          } while (cc != c0 && cc != ELEM_NONE);
+              cc = m.c.radial_next[cc];
+            } while (cc != c0 && cc != ELEM_NONE);
+          }
         }
-      }
+      });
     }
   }
 

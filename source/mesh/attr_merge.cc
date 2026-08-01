@@ -53,7 +53,12 @@ void defaultMerge(AttrRef &attr, const AttrMergeCtx &ctx, bool copy_src0)
   if (attr.type == AttrType::BOOL) {
     BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
     if (view) {
-      view->set(ctx.dst, (*view)[ctx.src0]);
+      /* Bool columns OR by default: a feature flag (selected, hidden, seam)
+       * carried by either source survives the merge. COPY_SRC0 policy or the
+       * NOCOPY flag opt a layer back into plain src0 copy. */
+      const bool or_sources = !copy_src0 && !(attr.flag & AttrFlag::NOCOPY);
+      view->set(ctx.dst,
+                or_sources ? ((*view)[ctx.src0] || (*view)[ctx.src1]) : (*view)[ctx.src0]);
     }
     return;
   }

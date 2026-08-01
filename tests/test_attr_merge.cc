@@ -131,6 +131,103 @@ static void testGenericPolicies()
   }
 }
 
+/* --- bool columns OR by default (NOCOPY opts back into a src0 copy) --- */
+static void testBoolOrMerge()
+{
+  struct Case {
+    bool b0, b1, nocopy;
+    bool want;
+  };
+  const Case cases[] = {
+      {false, true, false, true},
+      {true, false, false, true},
+      {false, false, false, false},
+      {false, true, true, false}, /* NOCOPY: plain src0 copy */
+  };
+
+  for (const Case &c : cases) {
+    /* Split: dst is the fresh midpoint vertex. */
+    {
+      MeshPtr m(3);
+      AttrRef &attr = m->v.attrs.ensure(AttrType::BOOL, "flag", true);
+      if (c.nocopy) {
+        attr.flag |= AttrFlag::NOCOPY;
+      }
+      auto *view = static_cast<BoolAttrView *>(attr.data);
+      int e = findCollapsibleEdge(*m);
+      test_assert(e != ELEM_NONE);
+      view->set(m->e.vs[e][0], c.b0);
+      view->set(m->e.vs[e][1], c.b1);
+
+      EdgeSplitResult res;
+      test_assert(bool(splitEdge(*m, e, &res)));
+      auto out = m->v.attrs.find_attribute(AttrType::BOOL, "flag");
+      test_assert((*static_cast<BoolAttrView *>(out.data))[res.new_vert] == c.want);
+    }
+    /* Collapse: dst IS src0 (the survivor), ORing the killed endpoint in. */
+    {
+      MeshPtr m(3);
+      AttrRef &attr = m->v.attrs.ensure(AttrType::BOOL, "flag", true);
+      if (c.nocopy) {
+        attr.flag |= AttrFlag::NOCOPY;
+      }
+      auto *view = static_cast<BoolAttrView *>(attr.data);
+      int e = findCollapsibleEdge(*m);
+      test_assert(e != ELEM_NONE);
+      int v_keep = m->e.vs[e][0];
+      view->set(v_keep, c.b0);
+      view->set(m->e.vs[e][1], c.b1);
+
+      const float3 mid = (m->v.co[m->e.vs[e][0]] + m->v.co[m->e.vs[e][1]]) * 0.5f;
+      EdgeCollapseResult res;
+      test_assert(bool(collapseEdge(*m, e, mid, 0.5f, &res)));
+      auto out = m->v.attrs.find_attribute(AttrType::BOOL, "flag");
+      test_assert((*static_cast<BoolAttrView *>(out.data))[v_keep] == c.want);
+    }
+  }
+}
+
+/* --- corner float layers average across a collapse, per wedge --- */
+static void testCornerWedgeBlend()
+{
+  /* Seed a float4 corner layer (a corner color) with A on every corner at
+   * v_keep and B on every corner at v_kill; after a blend-0.5 collapse every
+   * corner at the survivor must read (A+B)/2 — the same wedge machinery UV
+   * maps use, generalized. Corners elsewhere must be untouched. */
+  MeshPtr m(3);
+  AttrRef &attr = m->c.attrs.ensure(AttrType::FLOAT4, "ccolor", true);
+  auto *data = attr.get_data<float4>();
+
+  int e = findCollapsibleEdge(*m);
+  test_assert(e != ELEM_NONE);
+  int v0 = m->e.vs[e][0], v1 = m->e.vs[e][1];
+  const float4 A(1.0f, 0.0f, 0.0f, 1.0f), B(0.0f, 1.0f, 0.0f, 1.0f);
+  const float4 other(0.0f, 0.0f, 1.0f, 1.0f);
+  for (int ci : m->c) {
+    (*data)[ci] = (m->c.v[ci] == v0) ? A : (m->c.v[ci] == v1) ? B : other;
+  }
+
+  const float3 mid = (m->v.co[v0] + m->v.co[v1]) * 0.5f;
+  EdgeCollapseResult res;
+  test_assert(bool(collapseEdge(*m, e, mid, 0.5f, &res)));
+
+  auto *out = m->c.attrs.find_attribute(AttrType::FLOAT4, "ccolor").get_data<float4>();
+  const float4 want = (A + B) * 0.5f;
+  int at_survivor = 0, elsewhere = 0;
+  for (int ci : m->c) {
+    const float4 got = out->safe_get(ci);
+    if (m->c.v[ci] == v0) {
+      test_assert((got - want).length() < 1e-5f);
+      at_survivor++;
+    }
+    else {
+      test_assert((got - other).length() < 1e-5f);
+      elsewhere++;
+    }
+  }
+  test_assert(at_survivor > 0 && elsewhere > 0);
+}
+
 /* --- `.brush.disp.*`: the gen-guarded, lazily-paged displacement field --- */
 static void testDispFieldSplit()
 {
@@ -279,6 +376,8 @@ int main()
 
   testPolicyResolution();
   testGenericPolicies();
+  testBoolOrMerge();
+  testCornerWedgeBlend();
   testDispFieldSplit();
   testDispFieldCollapse();
   testSculptLayerRest();

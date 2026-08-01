@@ -8,7 +8,8 @@
  *   - floating-point-backed columns (float, float2/3/4) lerp,
  *   - integer-backed columns (int, int2/3/4, byte, short) copy `src0`
  *     (there is no meaningful blend),
- *   - bool columns copy `src0`,
+ *   - bool columns OR (a feature flag carried by either source survives;
+ *     AttrFlag::NOCOPY or AttrMerge::COPY_SRC0 opt back into a src0 copy),
  *   - TOPO-flagged columns (disk/radial link indices) are NEVER touched —
  *     they are owned by the Euler operators; blending one splices the
  *     element into the wrong cycle and corrupts the mesh.
@@ -163,7 +164,10 @@ static inline void interpAttrRows(AttrGroup &grp,
     if (attr.type == AttrType::BOOL) {
       BoolAttrView *view = static_cast<BoolAttrView *>(attr.data);
       if (view) {
-        view->set(dst, c0.bval);
+        /* OR by default, like defaultMerge: a feature flag carried by either
+         * source row survives. COPY_SRC0/NOCOPY keep the plain c0 copy. */
+        const bool or_sources = !copy_src0 && !(attr.flag & AttrFlag::NOCOPY);
+        view->set(dst, or_sources ? (c0.bval || (c1.present && c1.bval)) : c0.bval);
       }
       continue;
     }
