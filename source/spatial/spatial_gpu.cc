@@ -1,5 +1,6 @@
 
 #include <cassert>
+#include <cstring>
 
 #include "gpu/types.h"
 #include "spatial.h"
@@ -170,6 +171,37 @@ void SpatialTree::fill_leaf_attr(SpatialNode *leaf,
   Mesh *m = this->m;
   auto &tris = leaf->data->tris;
   const int dn = req.elemSize;
+
+  /* The face-set color slot (external draw fset@3): a virtual layer — no real
+   * column backs the name. Filled with the hashed per-face `group` colors the
+   * legacy composite uses, so the host's face-set overlay shows the same
+   * palette as the engine's own group display. Group 0 (no face set) and a
+   * mesh with no groups at all read white: the overlay multiplies by this
+   * stream, so "absent" must not tint. */
+  if (dn >= 3 && std::strcmp(req.name.c_str(), ".extdraw.fset") == 0) {
+    AttrData<int> *gdata = nullptr;
+    if (m->f.attrs.has(AttrType::INT, "group")) {
+      gdata = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+    }
+    int vert_i = 0;
+    for (int i : util::IndexRange(tris.size())) {
+      auto &tri = tris[i];
+      const int group = gdata ? gdata->safe_get(tri.f) : 0;
+      const float4 c = (group != 0 && group != m->default_group_id) ?
+                           polyGroupColor(group) :
+                           float4(1.0f, 1.0f, 1.0f, 1.0f);
+      for (int j = 0; j < 3; j++, vert_i++) {
+        float *o = dst + vert_i * dn;
+        o[0] = c[0];
+        o[1] = c[1];
+        o[2] = c[2];
+        for (int k = 3; k < dn; k++) {
+          o[k] = 1.0f;
+        }
+      }
+    }
+    return;
+  }
 
   /* Value written to missing/out-of-range channels. */
   float def[4] = {0.0f, 0.0f, 0.0f, 0.0f};

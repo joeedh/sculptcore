@@ -132,6 +132,17 @@ void SpatialTree::setDisplayMask(bool on)
   }
 }
 
+void SpatialTree::setDefaultGroupId(int group)
+{
+  if (m == nullptr || group == m->default_group_id) {
+    return;
+  }
+  m->default_group_id = group;
+  for (SpatialNode *leaf : leaves()) {
+    leaf->flag |= Spatial_UpdateGPU;
+  }
+}
+
 /* True if two requested sets are identical (same slots/names/types/order) — so
  * setRequestedAttrs can early-return and avoid a per-frame rebuild. */
 static bool requested_attrs_equal(const util::Vector<gpu::RequestedAttr> &a,

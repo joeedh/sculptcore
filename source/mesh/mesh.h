@@ -79,6 +79,13 @@ struct Mesh : public MeshBase {
   uint64_t topo_stamp = 1;
   MeshTopoCache topo_cache;
 
+  /* The host's "no face set" poly-group id (Blender's face_sets_color_default,
+   * usually 1; 0 = the engine's own unassigned). ensureFaceGroups() flood-fills
+   * a fresh group attr with it, newFaceGroupId() never allocates it, and the
+   * external-draw fset stream displays it untinted. Set via
+   * SpatialTree::setDefaultGroupId (sc_external_draw_set_default_group). */
+  int default_group_id = 0;
+
   /* Frozen-topology mode: the live TOPO link columns are dropped and
    * topo_cache.frozen is authoritative. A RAM-saving cache state, never lossy
    * — any topology mutator auto-thaws (rebuilds the live links) first, so the
@@ -139,6 +146,8 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, recalc_normals, MARGS());
     BIND_STRUCT_METHOD(st, faceGroup, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceGroup, MARGS());
+    BIND_STRUCT_METHOD(st, ensureFaceGroups, MARGS());
+    BIND_STRUCT_METHOD(st, newFaceGroupId, MARGS());
     BIND_STRUCT_METHOD(st, facesInGroup, MARGS("group", "out"));
     BIND_STRUCT_METHOD(st, faceMaterial, MARGS("face"));
     BIND_STRUCT_METHOD(st, maxFaceMaterial, MARGS());
@@ -695,7 +704,7 @@ struct Mesh : public MeshBase {
   }
 
   /* Largest poly-group id assigned to any face (0 if none). The paint layer
-   * allocates a fresh group as maxFaceGroup()+1, so each new stroke gets an
+   * allocates a fresh group via newFaceGroupId(), so each new stroke gets an
    * incrementing id without storing a counter (survives reload). */
   int maxFaceGroup()
   {
@@ -714,6 +723,40 @@ struct Mesh : public MeshBase {
       }
     }
     return mx;
+  }
+
+  /* Create the poly-group attr if the mesh has none, flood-filling every live
+   * face with default_group_id — so "no face sets yet" initializes to "every
+   * face in the host's default set" rather than scattered zeros (Blender's
+   * face-set semantics; default_group_id 0 keeps the engine's own legacy
+   * zero-fill). No-op when the attr already exists. Returns the fill id. */
+  int ensureFaceGroups()
+  {
+    if (f.attrs.has(AttrType::INT, "group")) {
+      return default_group_id;
+    }
+    AttrRef &ref = f.attrs.ensure(AttrType::INT, "group", /*materialize=*/true);
+    auto *data = static_cast<AttrData<int> *>(ref.data);
+    if (data && default_group_id != 0) {
+      for (int fi : f) {
+        data->materialize(fi);
+        (*data)[fi] = default_group_id;
+      }
+    }
+    return default_group_id;
+  }
+
+  /* A fresh poly-group id for a new paint stroke: maxFaceGroup() + 1, skipping
+   * the host's default ("no face set") id — a newly painted set must never
+   * alias the invisible default; extending the default set is only ever an
+   * explicit sample of an existing face's id (faceGroup). */
+  int newFaceGroupId()
+  {
+    int id = maxFaceGroup() + 1;
+    while (id == default_group_id || id == 0) {
+      id++;
+    }
+    return id;
   }
 
   /* Material slot of a face: an index into the owning object's material list,

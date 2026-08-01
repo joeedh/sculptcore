@@ -220,12 +220,14 @@ void sc_external_draw_enable_dynamic(void *spatial_tree)
   mask.defaultKind = gpu::AttrDefaultKind::Zero;
   reqs.append(mask);
   gpu::RequestedAttr fset;
-  fset.name = ".extdraw.fset"; /* never exists: constant white filler */
+  /* Virtual layer: fill_leaf_attr special-cases this name to the hashed
+   * per-face `group` colors (white for group 0 / no groups). */
+  fset.name = ".extdraw.fset";
   fset.srcType = int(mesh::AttrType::FLOAT3);
   fset.gpuType = gpu::GPUType::FLOAT32;
   fset.elemSize = 3;
   fset.slot = 3;
-  fset.domain = 1; /* VERTEX */
+  fset.domain = 16; /* FACE (informational; the fill indexes itself) */
   fset.defaultKind = gpu::AttrDefaultKind::White;
   reqs.append(fset);
   tree->setRequestedAttrs(reqs);
@@ -237,6 +239,14 @@ void sc_external_draw_enable_dynamic(void *spatial_tree)
    * — so a stub source with the correct attr/uniform set links fine headless. */
   tree->setDrawShader(
       "// external-draw stub: the engine renderer is never invoked in Blender.\n");
+}
+
+void sc_external_draw_set_default_group(void *spatial_tree, int group)
+{
+  spatial::SpatialTree *tree = static_cast<spatial::SpatialTree *>(spatial_tree);
+  if (tree != nullptr) {
+    tree->setDefaultGroupId(group);
+  }
 }
 
 const ScExternalDrawProvider *sc_external_draw_provider(void)

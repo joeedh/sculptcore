@@ -67,6 +67,10 @@ void sc_external_draw_update(unsigned int object_key);
  * (`color`, `uv`) before calling; a missing one draws its default. */
 void sc_external_draw_enable_dynamic(void *spatial_tree);
 
+/** Set the face `group` id the fset stream displays as "no face set"
+ * (untinted), alongside group 0 — Blender's face_sets_color_default. */
+void sc_external_draw_set_default_group(void *spatial_tree, int group);
+
 /** The provider Blender registers on the mode via
  * `BKE_object_mode_draw_provider_set`. Stable address for the session. */
 const ScExternalDrawProvider *sc_external_draw_provider(void);

@@ -85,6 +85,7 @@ struct SpatialTree {
    * the GPU color buffers. */
   bool displayMask = true;
 
+
   /* Dynamic attribute set requested by the active material's shader (M4). Empty
    * => legacy single-color render stream + basicMeshShader (sculpt/paint
    * display, behaviour-identical to before). Non-empty => one vertex buffer per
@@ -135,6 +136,10 @@ struct SpatialTree {
   void setDisplayGroupAttr(int index);
   /** Toggle the sculpt-mask darkening overlay (#20). */
   void setDisplayMask(bool on);
+  /** Set the mesh's "no face set" group id (Mesh::default_group_id — the
+   * fset stream leaves it untinted, newFaceGroupId() never allocates it) and
+   * flag every leaf so the fset stream re-fills. */
+  void setDefaultGroupId(int group);
 
   /* Install the material's requested attribute set (M4). Early-returns when the
    * set is unchanged (so nothing rebuilds per frame); otherwise bumps
