@@ -58,7 +58,12 @@ wasm_add_symbols("
   GridStroke_new
   GridStroke_free
   GridStroke_supported
+  GridStroke_setMirror
+  GridStroke_setNonAccum
+  GridStroke_setAnchoredGrab
   GridStroke_sync
+  GridStroke_syncMask
+  Multires_hasGridDomain
   GridStroke_begin
   GridStroke_dab
   GridStroke_end

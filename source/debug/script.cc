@@ -459,36 +459,11 @@ static bool ensureGridSession(Scene &scene, int level, std::string &err)
   return true;
 }
 
-/* Interim ride-along mirror (grids-native plan §6): copy the touched verts'
- * domain positions/normals into the resident level slot's mesh (dense ids
- * match) and dirty the owning tree leaves, so extdraw and mesh-path queries
- * stay current while the grids path does the real work. */
+/* Interim ride-along mirror — the shared brush::gridsMirrorToSlot helper. */
 static void gridMirrorSync(Scene &scene, int level, litestl::util::Vector<int> &verts)
 {
-  subdiv::MultiresSlot *slot = scene.multires->findSlot(level);
-  if (!slot || !slot->mesh || !slot->tree) {
-    return;
-  }
-  subdiv::GridLevelDomain *d = scene.multires->gridDomain(level);
-  mesh::Mesh *m = slot->mesh;
-  for (int v : verts) {
-    m->v.co[v] = d->pos()[v];
-    m->v.no[v] = d->no[v];
-  }
-  for (int v : verts) {
-    int nid = slot->tree->treeMesh.v.node[v];
-    spatial::SpatialNode *node = slot->tree->node_from_id(nid);
-    if (!node) {
-      continue;
-    }
-    node->flag |= spatial::Spatial_RegenTris | spatial::Spatial_RegenBounds |
-                  spatial::Spatial_UpdateGPU;
-    for (spatial::SpatialNode *p = node->parent;
-         p && !(p->flag & spatial::Spatial_RegenBounds); p = p->parent)
-    {
-      p->flag |= spatial::Spatial_RegenBounds;
-    }
-  }
+  brush::gridsMirrorToSlot(scene.multires, level,
+                           std::span<const int>(verts.data(), verts.size()));
 }
 
 /* Stroke-verb epilogue when multires is active: fold the stroke's positions

@@ -19,12 +19,28 @@ using namespace sculptcore;
 struct GridStrokeSession {
   subdiv::Multires *mr = nullptr;
   int level = 0;
+  /** Ride-along mirror into the resident slot mesh: per-dab moved verts, and
+   * a full-level sync after undo/redo seeks. The Blender addon turns this on
+   * so extdraw and mesh-path queries stay current; the debug app mirrors
+   * itself. */
+  bool mirror = false;
   subdiv::GridStrokeLog log;
   brush::GridBrushExecutor exec;
 
   GridStrokeSession(subdiv::Multires *mr, int level, brush::Brush *b)
       : mr(mr), level(level), exec(mr->gridDomain(level), b, &log)
   {
+  }
+
+  void mirrorAll()
+  {
+    subdiv::GridLevelDomain *d = exec.domain;
+    litestl::util::Vector<int> all;
+    all.resize(d->vertCount());
+    for (int v = 0; v < d->vertCount(); v++) {
+      all[v] = v;
+    }
+    brush::gridsMirrorToSlot(mr, level, std::span<const int>(all.data(), all.size()));
   }
 };
 
@@ -54,9 +70,34 @@ int GridStroke_supported(int tool)
   return brush::GridBrushExecutor::supportsBrush(brush::SculptBrushes(tool)) ? 1 : 0;
 }
 
-/** Re-bind to the current domain after a fold point (drops undo history when
- * the domain was rebuilt — the host's blob fallback covers those seams).
- * Returns 1; 0 when the session's level no longer exists. */
+/** Ride-along mirror toggle (see GridStrokeSession::mirror). */
+void GridStroke_setMirror(GridStrokeSession *s, int enable)
+{
+  if (s) {
+    s->mirror = enable != 0;
+  }
+}
+
+/** Stroke policy mirrors of CommandExecutor's setNonAccum/setAnchoredGrab —
+ * set before begin(), like the mesh path. */
+void GridStroke_setNonAccum(GridStrokeSession *s, int nonAccum)
+{
+  if (s) {
+    s->exec.nonAccum = nonAccum != 0;
+  }
+}
+
+void GridStroke_setAnchoredGrab(GridStrokeSession *s, int anchored)
+{
+  if (s) {
+    s->exec.anchoredGrab = anchored != 0;
+  }
+}
+
+/** Re-bind to the current domain after a fold point. Returns 0 when the
+ * session's level no longer exists, 1 when the binding was already current,
+ * 2 when it re-attached — the undo history was cleared, so the host must
+ * reset its step bookkeeping (the blob fallback covers older steps). */
 int GridStroke_sync(GridStrokeSession *s)
 {
   if (!s || s->level < 1 || s->level > s->mr->maxLevel()) {
@@ -65,8 +106,20 @@ int GridStroke_sync(GridStrokeSession *s)
   subdiv::GridLevelDomain *d = s->mr->gridDomain(s->level);
   if (d != s->exec.domain) {
     s->exec.attach(d);
+    return 2;
   }
   return 1;
+}
+
+/** Pull the host-side mask (the slot mesh's mask column — flood fills,
+ * imported grid masks) into the domain mirror grids kernels read. O(level);
+ * the host calls it only when its mask state changed (a dirty flag), not per
+ * stroke. */
+void GridStroke_syncMask(GridStrokeSession *s)
+{
+  if (s && GridStroke_sync(s)) {
+    brush::gridsSyncMaskFromSlot(s->mr, s->level);
+  }
 }
 
 int GridStroke_begin(GridStrokeSession *s)
@@ -91,8 +144,14 @@ int GridStroke_dab(GridStrokeSession *s,
     return 0;
   }
   s->exec.setGrabAccumAdd(grabAdd != 0);
-  return s->exec.applyDab(brush::SculptBrushes(tool), float3(ox, oy, oz),
-                          float3(nx, ny, nz));
+  int moved = s->exec.applyDab(brush::SculptBrushes(tool), float3(ox, oy, oz),
+                               float3(nx, ny, nz));
+  if (s->mirror && moved > 0) {
+    auto &mv = s->exec.lastDabMoved();
+    brush::gridsMirrorToSlot(s->mr, s->level,
+                             std::span<const int>(mv.data(), mv.size()));
+  }
+  return moved;
 }
 
 void GridStroke_end(GridStrokeSession *s)
@@ -114,18 +173,39 @@ int GridStroke_canRedo(GridStrokeSession *s)
 
 int GridStroke_undo(GridStrokeSession *s)
 {
-  return s && s->log.undo() ? 1 : 0;
+  if (!s || !s->log.undo()) {
+    return 0;
+  }
+  if (s->mirror) {
+    // Seek granularity is leaf blocks; the full sync keeps the mirror exact.
+    s->mirrorAll();
+  }
+  return 1;
 }
 
 int GridStroke_redo(GridStrokeSession *s)
 {
-  return s && s->log.redo() ? 1 : 0;
+  if (!s || !s->log.redo()) {
+    return 0;
+  }
+  if (s->mirror) {
+    s->mirrorAll();
+  }
+  return 1;
 }
 
 /** Captured undo bytes across the session's history. */
 double GridStroke_undoBytes(GridStrokeSession *s)
 {
   return s ? double(s->log.bytes()) : 0.0;
+}
+
+/** Whether (mr, level)'s grid domain is currently alive — hosts gate
+ * GridTree_castRay on this so a dropped domain (mesh-path fold) doesn't pay
+ * a full rebuild inside a hover raycast. */
+int Multires_hasGridDomain(subdiv::Multires *mr, int level)
+{
+  return mr && mr->hasGridDomain(level) ? 1 : 0;
 }
 
 /** Raycast the grids domain of (mr, level): closest forward hit. Returns 1 on

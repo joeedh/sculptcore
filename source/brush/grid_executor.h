@@ -26,6 +26,7 @@
 #include "brushes/all.h"
 #include "capture_policy.h"
 
+#include "spatial/spatial.h"
 #include "subdiv/grid_domain.h"
 #include "subdiv/grid_stroke_log.h"
 #include "subdiv/grid_tree.h"
@@ -134,6 +135,64 @@ inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
   }
   if (log) {
     log->endStep(mr->downPropDebt(level));
+  }
+}
+
+/** Interim ride-along mirror (plan §6): copy `verts`' domain positions and
+ * normals into the resident level slot's mesh (dense ids match) and dirty the
+ * owning spatial leaves, so extdraw and mesh-path queries stay current while
+ * the grids path does the real work. No-op when the slot is not resident.
+ * The mirror is write-only — the domain stays authoritative. */
+inline void gridsMirrorToSlot(subdiv::Multires *mr,
+                              int level,
+                              std::span<const int> verts)
+{
+  subdiv::MultiresSlot *slot = mr->findSlot(level);
+  if (!slot || !slot->mesh || !slot->tree) {
+    return;
+  }
+  subdiv::GridLevelDomain *d = mr->gridDomain(level);
+  mesh::Mesh *m = slot->mesh;
+  for (int v : verts) {
+    m->v.co[v] = d->pos()[v];
+    m->v.no[v] = d->no[v];
+  }
+  for (int v : verts) {
+    int nid = slot->tree->treeMesh.v.node[v];
+    spatial::SpatialNode *node = slot->tree->node_from_id(nid);
+    if (!node) {
+      continue;
+    }
+    node->flag |= spatial::Spatial_RegenTris | spatial::Spatial_RegenBounds |
+                  spatial::Spatial_UpdateGPU;
+    for (spatial::SpatialNode *p = node->parent;
+         p && !(p->flag & spatial::Spatial_RegenBounds); p = p->parent)
+    {
+      p->flag |= spatial::Spatial_RegenBounds;
+    }
+  }
+}
+
+/** Pull the paint mask from the resident slot mesh's `.spatial.v.mask` column
+ * into the domain's dense mirror — the mesh column is the host-side mask
+ * truth (flood fills, CD_GRID_PAINT_MASK import land there), and grids-path
+ * kernels read the mirror. No-op without a resident slot (the store-channel
+ * mirror from the domain build stands) or when the column was never created
+ * (maskless sessions must not pay an O(level) copy per stroke). */
+inline void gridsSyncMaskFromSlot(subdiv::Multires *mr, int level)
+{
+  subdiv::MultiresSlot *slot = mr->findSlot(level);
+  if (!slot || !slot->mesh || !slot->tree) {
+    return;
+  }
+  mesh::AttrRef ref = slot->mesh->v.attrs.find_attribute(mesh::AttrType::FLOAT,
+                                                         ".spatial.v.mask");
+  if (!ref.exists() || !ref.data) {
+    return;
+  }
+  subdiv::GridLevelDomain *d = mr->gridDomain(level);
+  for (int v = 0; v < d->vertCount(); v++) {
+    d->mask[v] = slot->tree->treeMesh.v.mask[v];
   }
 }
 
@@ -708,6 +767,12 @@ struct GridBrushExecutor {
   const Vector<int> &strokeTouchedLeaves() const
   {
     return strokeTouchedLeaves_;
+  }
+  /** The most recent dab's moved verts (deduped) — the per-dab mirror set.
+   * Non-const: litestl Vector exposes no const data(). */
+  Vector<int> &lastDabMoved()
+  {
+    return dabMoved_;
   }
 
   /** cavityRawT source over the domain's dense buffers + lattice CSR. */

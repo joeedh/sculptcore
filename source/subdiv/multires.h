@@ -181,6 +181,14 @@ struct Multires {
    * — callers re-fetch after any such fold point, like slot pointers. */
   GridLevelDomain *gridDomain(int level);
 
+  /** Whether `level`'s grid domain is currently alive (gridDomain would
+   * return the cached view rather than paying a rebuild). Hosts gate
+   * domain-backed queries (raycast) on this after fold points. */
+  bool hasGridDomain(int level) const
+  {
+    return level >= 1 && level <= int(domains_.size()) && domains_[level - 1] != nullptr;
+  }
+
   /** The store channel a sculpt writeback lands in right now: the edit
    * target's channel when one is set and enabled, else channel 0 — the same
    * rule storeDispFromPositions applies. The grids stroke log keys its
