@@ -101,16 +101,11 @@ void GridStrokeLog::captureLeaf(int leaf, bool positions, bool maskToo)
   }
 
   const GridTree::Leaf &tl = tree_->leaves[leaf];
-  Multires *mr = d_->multires();
   if (positions && !snap->hasPos) {
     snap->hasPos = true;
     snap->pos.resize(tl.ownedVerts.size());
     for (int i = 0; i < int(tl.ownedVerts.size()); i++) {
       snap->pos[i] = d_->pos()[tl.ownedVerts[i]];
-    }
-    int tch = mr->writebackChannel();
-    for (int g : tl.grids) {
-      captureGridBlock(s, g, tch);
     }
   }
   if (maskToo && !snap->hasMask) {
@@ -119,13 +114,18 @@ void GridStrokeLog::captureLeaf(int leaf, bool positions, bool maskToo)
     for (int i = 0; i < int(tl.ownedVerts.size()); i++) {
       snap->mask[i] = d_->mask[tl.ownedVerts[i]];
     }
-    int mch = mr->store.findChannel(litestl::util::string("mask"));
-    Assert(mch > 0, "mask channel ensured before a mask stroke's capture");
-    if (mch > 0) {
-      for (int g : tl.grids) {
-        captureGridBlock(s, g, mch);
-      }
-    }
+  }
+}
+
+void GridStrokeLog::captureGrids(std::span<const int> grids, int channel)
+{
+  Assert(open_, "captureGrids inside a step");
+  if (channel < 0 || channel >= d_->multires()->store.channelCount()) {
+    return;
+  }
+  Step &s = steps_.last();
+  for (int g : grids) {
+    captureGridBlock(s, g, channel);
   }
 }
 

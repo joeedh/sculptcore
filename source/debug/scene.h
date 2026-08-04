@@ -23,6 +23,10 @@
 
 namespace sculptcore::subdiv {
 struct Multires;
+struct GridStrokeLog;
+}
+namespace sculptcore::brush {
+struct GridBrushExecutor;
 }
 
 namespace sculptcore::debug_app {
@@ -149,6 +153,14 @@ struct Scene {
   subdiv::Multires *multires = nullptr;
   mesh::Mesh *multiresCage = nullptr;
   litestl::util::Vector<int> mrUndoLevels, mrRedoLevels;
+
+  /* Grids-native stroke session (the grid_* verbs): lazily created against
+   * one (multires, level), torn down with the stack. */
+  brush::GridBrushExecutor *gridExec = nullptr;
+  subdiv::GridStrokeLog *gridLog = nullptr;
+  int gridLevel = 0;
+  /** Free the grids session (level/stack changed or teardown). */
+  void clearGridSession();
 
   /** Point mesh/tree/meshLog at the active multires level's slot. */
   void attachMultiresLevel();

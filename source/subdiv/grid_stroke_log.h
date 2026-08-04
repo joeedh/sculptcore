@@ -24,6 +24,8 @@
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
 
+#include <span>
+
 namespace sculptcore::subdiv {
 
 struct GridTree;
@@ -38,9 +40,13 @@ struct GridStrokeLog {
   /** Open a step (truncates any redo branch). */
   void beginStep();
   /** First-touch capture of `leaf` into the open step: owned pre-positions
-   * (+ the write-target channel's blocks of the leaf's grids) when
-   * `positions`; owned pre-mask (+ mask-channel blocks) when `maskToo`. */
+   * when `positions`, owned pre-mask when `maskToo`. Store blocks are NOT
+   * captured here — the store is untouched until the stroke-end fold, so
+   * captureGrids() defers them to exactly the touched set. */
   void captureLeaf(int leaf, bool positions, bool maskToo);
+  /** Capture `channel`'s store blocks for `grids` (the stroke's touched-grid
+   * set), called at stroke end BEFORE the writeback/flush overwrites them. */
+  void captureGrids(std::span<const int> grids, int channel);
   /** Close the step; `postDebt` is downPropDebt(level) after the stroke's
    * writeback. Empty steps are dropped. */
   void endStep(bool postDebt);

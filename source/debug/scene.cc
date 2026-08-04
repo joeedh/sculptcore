@@ -1,8 +1,10 @@
 #include "scene.h"
 
+#include "brush/grid_executor.h"
 #include "gpu/batch.h"
 #include "litestl/util/alloc.h"
 #include "mesh/utils/mesh_validate.h"
+#include "subdiv/grid_stroke_log.h"
 #include "subdiv/multires.h"
 #include "vulkan/vk_screenshot.h"
 
@@ -109,11 +111,25 @@ void Scene::attachMultiresLevel()
   meshLog.setActiveMesh(mesh);
 }
 
+void Scene::clearGridSession()
+{
+  if (gridExec) {
+    litestl::alloc::Delete(gridExec);
+    gridExec = nullptr;
+  }
+  if (gridLog) {
+    litestl::alloc::Delete(gridLog);
+    gridLog = nullptr;
+  }
+  gridLevel = 0;
+}
+
 void Scene::clearMultires()
 {
   if (!multires) {
     return;
   }
+  clearGridSession();
   /* mesh/tree are views into the stack's slots — the Multires frees them. */
   mesh = nullptr;
   tree = nullptr;

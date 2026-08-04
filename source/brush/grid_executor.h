@@ -34,6 +34,7 @@
 #include "litestl/util/assert.h"
 #include "litestl/util/task.h"
 
+#include <chrono>
 #include <cstdlib>
 
 namespace sculptcore::brush {
@@ -221,6 +222,33 @@ struct GridBrushExecutor {
   bool anchoredGrab = true;
   uint32_t dabGen = 0;
   uint32_t strokeGen = 0;
+
+  /** Accumulated per-phase wall time (ms) + counters, for the G3 perf gates.
+   * Always collected — a handful of steady_clock reads per dab. */
+  struct Stats {
+    double queryMs = 0, captureMs = 0, coPrevMs = 0, stampMs = 0, automaskMs = 0,
+           kernelMs = 0, normalsMs = 0, boundsMs = 0, writebackMs = 0;
+    int dabs = 0, strokes = 0;
+    void reset()
+    {
+      *this = Stats();
+    }
+    /** The plan's per-dab gate scope: kernel + capture + bounds (+ the normal
+     * refresh, which the grids path pays per dab where the mesh path pays it
+     * per frame — report both). */
+    double perDabCoreMs() const
+    {
+      return dabs > 0 ? (kernelMs + captureMs + boundsMs) / double(dabs) : 0.0;
+    }
+    double perDabTotalMs() const
+    {
+      return dabs > 0 ? (queryMs + captureMs + coPrevMs + stampMs + automaskMs +
+                         kernelMs + normalsMs + boundsMs) /
+                            double(dabs)
+                      : 0.0;
+    }
+  };
+  Stats stats;
 
   GridBrushExecutor(subdiv::GridLevelDomain *d,
                     Brush *b,
@@ -413,6 +441,13 @@ struct GridBrushExecutor {
       strokeWroteCo_ = true;
     }
 
+    using clock = std::chrono::steady_clock;
+    auto msSince = [](clock::time_point t0) {
+      return std::chrono::duration<double, std::milli>(clock::now() - t0).count();
+    };
+    stats.dabs++;
+    auto t0 = clock::now();
+
     // Node filter: the leaf set for this dab. Grab-class strokes pin their
     // first dab's set (the region is fixed at stroke start — the mesh path's
     // grabFilterNodes, without the dyntopo fallback).
@@ -439,10 +474,14 @@ struct GridBrushExecutor {
       nodePtrs_.append(&nodes_[li]);
     }
     std::span<GridExecNode *> nodeSpan(nodePtrs_.data(), nodePtrs_.size());
+    stats.queryMs += msSince(t0);
+    t0 = clock::now();
 
     // Undo capture (first-touch leaf snapshots, driven by the kernel's
     // `save` descriptors through GridCapturePolicy).
     cmd.execPre(ctx, nodeSpan);
+    stats.captureMs += msSince(t0);
+    t0 = clock::now();
 
     // Jacobi snapshot for for_neighbor kernels: the domain's dense positions,
     // full copy (the mesh path pays the same; restricting is a follow-up).
@@ -458,6 +497,8 @@ struct GridBrushExecutor {
                          });
       ctx.co_prev = &coPrevStorage_;
     }
+    stats.coPrevMs += msSince(t0);
+    t0 = clock::now();
 
     // From-base stroke state (`.grid.disp.*`), mirroring the mesh executor's
     // stampBase walk with the same leaf-level elision.
@@ -497,6 +538,9 @@ struct GridBrushExecutor {
       }
     }
 
+    stats.stampMs += msSince(t0);
+    t0 = clock::now();
+
     // Automasking: view-normal params are dynamic; cavity is cached per vert
     // per stroke over the domain CSR (the mesh path's contract).
     ctx.viewNormal = viewNormalParamsFor(*brush);
@@ -528,6 +572,9 @@ struct GridBrushExecutor {
       ctx.automaskEnabled = true;
     }
 
+    stats.automaskMs += msSince(t0);
+    t0 = clock::now();
+
     // The parallel kernel loop — leaves own disjoint vert sets, and
     // for_neighbor reads the Jacobi snapshot, so node order is free.
     task::parallel_for(util::IndexRange(nodePtrs_.size()), [&](util::IndexRange range) {
@@ -542,6 +589,8 @@ struct GridBrushExecutor {
     });
 
     cmd.execPost(ctx, nodeSpan);
+    stats.kernelMs += msSince(t0);
+    t0 = clock::now();
 
     // Consume the dab's results: refresh THIS dab's moved verts' normals
     // (+ their cell closure) and the touched leaves' bounds, and fold the
@@ -569,8 +618,12 @@ struct GridBrushExecutor {
     }
     int moved = int(dabMoved_.size());
     if (moved > 0) {
+      auto tn = clock::now();
       domain->refreshNormals(std::span<const int>(dabMoved_.data(), dabMoved_.size()));
+      stats.normalsMs += msSince(tn);
+      auto tb = clock::now();
       tree->refreshBounds(std::span<const int>(dabLeaves_.data(), dabLeaves_.size()));
+      stats.boundsMs += msSince(tb);
     }
 
     isFirstOfStep = false;
@@ -582,38 +635,54 @@ struct GridBrushExecutor {
    * and close the undo step. */
   void endStep()
   {
+    auto t0 = std::chrono::steady_clock::now();
     isFirstOfStep = false;
+    stats.strokes++;
     subdiv::Multires *mr = domain->multires();
     int level = domain->level();
     if (strokeTouchedVerts_.size() > 0) {
-      if (strokeWroteCo_) {
-        Vector<bool> changed;
-        changed.resize(domain->vertCount());
-        for (int i = 0; i < domain->vertCount(); i++) {
-          changed[i] = false;
-        }
-        Vector<int> grids;
-        gridScratch_.resize(domain->gridCount());
-        for (int i = 0; i < domain->gridCount(); i++) {
-          gridScratch_[i] = 0;
-        }
-        for (int v : strokeTouchedVerts_) {
-          changed[v] = true;
-          auto occs = domain->occurrences(v);
-          for (size_t k = 0; k < occs.size(); k += 3) {
-            if (!gridScratch_[occs[k]]) {
-              gridScratch_[occs[k]] = 1;
-              grids.append(occs[k]);
-            }
+      // The touched verts' occurrence grids — the restricted writeback walk,
+      // and exactly the store blocks the undo log must capture first (the
+      // store is untouched until this fold, so blocks defer to here).
+      Vector<bool> changed;
+      changed.resize(domain->vertCount());
+      for (int i = 0; i < domain->vertCount(); i++) {
+        changed[i] = false;
+      }
+      Vector<int> grids;
+      gridScratch_.resize(domain->gridCount());
+      for (int i = 0; i < domain->gridCount(); i++) {
+        gridScratch_[i] = 0;
+      }
+      for (int v : strokeTouchedVerts_) {
+        changed[v] = true;
+        auto occs = domain->occurrences(v);
+        for (size_t k = 0; k < occs.size(); k += 3) {
+          if (!gridScratch_[occs[k]]) {
+            gridScratch_[occs[k]] = 1;
+            grids.append(occs[k]);
           }
+        }
+      }
+      std::span<const int> gridSpan(grids.data(), grids.size());
+      if (strokeWroteCo_) {
+        if (log) {
+          log->captureGrids(gridSpan, mr->writebackChannel());
         }
         mr->gridsWriteback(level, changed, grids);
       }
       if (strokeWroteMask_) {
+        if (log) {
+          log->captureGrids(gridSpan,
+                            mr->store.findChannel(string("mask")));
+        }
         domain->flushMaskToStore(std::span<const int>(strokeTouchedVerts_.data(),
                                                       strokeTouchedVerts_.size()));
       }
     }
+    stats.writebackMs +=
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+            .count();
     if (log) {
       log->endStep(mr->downPropDebt(level));
     }

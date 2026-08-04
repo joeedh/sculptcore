@@ -30,6 +30,10 @@
 #include "remesh/remesh_params.h"
 #include "spatial/spatial.h"
 #include "stb/stb_image.h"
+#include "brush/grid_executor.h"
+#include "subdiv/grid_domain.h"
+#include "subdiv/grid_stroke_log.h"
+#include "subdiv/grid_tree.h"
 #include "subdiv/grids.h"
 #include "subdiv/multires.h"
 
@@ -406,6 +410,70 @@ static void gatherDisp(subdiv::Multires &mr, int level, std::vector<float> &out)
         out.push_back(d[1]);
         out.push_back(d[2]);
       }
+    }
+  }
+}
+
+/* Grids-native stroke session for the grid_* verbs, owned by the Scene
+ * (torn down with the multires stack). Rebuilt when the level changes;
+ * re-synced to the current domain per use. */
+static bool ensureGridSession(Scene &scene, int level, std::string &err)
+{
+  if (!scene.multires) {
+    err = "grid verbs: multires not active (run multires_init)";
+    return false;
+  }
+  if (level < 1 || level > scene.multires->maxLevel()) {
+    err = "grid verbs: bad level";
+    return false;
+  }
+  if (scene.gridExec && scene.gridLevel != level) {
+    scene.clearGridSession();
+  }
+  if (!scene.gridExec) {
+    scene.gridLevel = level;
+    scene.gridLog = litestl::alloc::New<subdiv::GridStrokeLog>("grid verb log");
+    scene.gridExec = litestl::alloc::New<brush::GridBrushExecutor>(
+        "grid verb exec", scene.multires->gridDomain(level), &scene.brush,
+        scene.gridLog);
+  } else {
+    // Fold points (mesh-path writeback, level ops) drop the domain — re-bind.
+    subdiv::GridLevelDomain *d = scene.multires->gridDomain(level);
+    if (d != scene.gridExec->domain) {
+      scene.gridExec->attach(d);
+    }
+  }
+  return true;
+}
+
+/* Interim ride-along mirror (grids-native plan §6): copy the touched verts'
+ * domain positions/normals into the resident level slot's mesh (dense ids
+ * match) and dirty the owning tree leaves, so extdraw and mesh-path queries
+ * stay current while the grids path does the real work. */
+static void gridMirrorSync(Scene &scene, int level, litestl::util::Vector<int> &verts)
+{
+  subdiv::MultiresSlot *slot = scene.multires->findSlot(level);
+  if (!slot || !slot->mesh || !slot->tree) {
+    return;
+  }
+  subdiv::GridLevelDomain *d = scene.multires->gridDomain(level);
+  mesh::Mesh *m = slot->mesh;
+  for (int v : verts) {
+    m->v.co[v] = d->pos()[v];
+    m->v.no[v] = d->no[v];
+  }
+  for (int v : verts) {
+    int nid = slot->tree->treeMesh.v.node[v];
+    spatial::SpatialNode *node = slot->tree->node_from_id(nid);
+    if (!node) {
+      continue;
+    }
+    node->flag |= spatial::Spatial_RegenTris | spatial::Spatial_RegenBounds |
+                  spatial::Spatial_UpdateGPU;
+    for (spatial::SpatialNode *p = node->parent;
+         p && !(p->flag & spatial::Spatial_RegenBounds); p = p->parent)
+    {
+      p->flag |= spatial::Spatial_RegenBounds;
     }
   }
 }
@@ -1950,6 +2018,161 @@ bool execVerb(Scene &scene,
     scene.attachMultiresLevel();
     std::fprintf(stdout, "[script] multires_refit level=%d changed=%d\n", level,
                  changed);
+    return true;
+  }
+  if (verb == "grid_stroke") {
+    /* grid_stroke origin=x,y,z normal=x,y,z [dabs=1] [step=x,y,z]
+     * [level=active]: run the current tool through the grids-native executor
+     * (no materialized mesh / meshlog on the hot path), then mirror the
+     * touched region into the resident slot mesh. Uses scene.brush props. */
+    if (!scene.multires) {
+      err = "grid_stroke: multires not active (run multires_init)";
+      return false;
+    }
+    int level = getInt(args, "level", scene.multires->activeLevel());
+    if (!ensureGridSession(scene, level, err)) {
+      return false;
+    }
+    if (!brush::GridBrushExecutor::supportsBrush(scene.currentTool)) {
+      err = "grid_stroke: tool not grids-capable (see GridBrushExecutor roster)";
+      return false;
+    }
+    float3 origin{0, 0, 0}, normal{0, 0, 1}, step{0, 0, 0};
+    if (!parseFloat3(getArg(args, "origin"), origin) ||
+        !parseFloat3(getArg(args, "normal"), normal))
+    {
+      err = "grid_stroke: missing origin=/normal=";
+      return false;
+    }
+    parseFloat3(getArg(args, "step"), step);
+    int dabs = getInt(args, "dabs", 1);
+
+    brush::GridBrushExecutor &ex = *scene.gridExec;
+    scene.brush.writeProps();
+    ex.beginStep();
+    int moved = 0;
+    float3 o = origin;
+    for (int i = 0; i < dabs; i++, o += step) {
+      ex.setGrabAccumAdd(false);
+      moved += ex.applyDab(scene.currentTool, o, normal);
+    }
+    ex.endStep();
+    litestl::util::Vector<int> touched;
+    for (int v : ex.strokeTouchedVerts()) {
+      touched.append(v);
+    }
+    gridMirrorSync(scene, level, touched);
+    std::fprintf(stdout,
+                 "[script] grid_stroke level=%d dabs=%d moved=%d undo_bytes=%zu\n",
+                 level, dabs, moved, scene.gridLog->bytes());
+    return true;
+  }
+  if (verb == "grid_undo" || verb == "grid_redo") {
+    /* Seek the grids-native undo log one step and mirror the result. */
+    if (!scene.multires) {
+      err = "grid_undo/redo: multires not active";
+      return false;
+    }
+    if (!scene.gridExec) {
+      err = "grid_undo/redo: no grids session (run grid_stroke first)";
+      return false;
+    }
+    bool ok = verb == "grid_undo" ? scene.gridLog->undo() : scene.gridLog->redo();
+    if (ok) {
+      // Mirror every vert of the level (seek granularity is leaf blocks; the
+      // simple full sync keeps the debug mirror correct).
+      subdiv::GridLevelDomain *d = scene.multires->gridDomain(scene.gridLevel);
+      litestl::util::Vector<int> all;
+      all.resize(d->vertCount());
+      for (int v = 0; v < d->vertCount(); v++) {
+        all[v] = v;
+      }
+      gridMirrorSync(scene, scene.gridLevel, all);
+    }
+    std::fprintf(stdout, "[script] %s ok=%d\n", verb.c_str(), int(ok));
+    return true;
+  }
+  if (verb == "grid_bench") {
+    /* grid_bench [subdivs=26] [levels=4] [strokes=19] [dabs=57] [radius=0.1]
+     * [strength=0.5] [leaf=512]: self-contained grids-native benchmark — own
+     * cube cage + Multires (the scene is untouched), draw strokes marching
+     * across the top face, per-phase stats + the G3 perf gates printed. */
+    using clock = std::chrono::steady_clock;
+    auto ms = [](clock::time_point a, clock::time_point b) {
+      return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    int subdivs = getInt(args, "subdivs", 26);
+    int levels = getInt(args, "levels", 4);
+    int strokes = getInt(args, "strokes", 19);
+    int dabs = getInt(args, "dabs", 57);
+    float radius = getFloat(args, "radius", 0.1f);
+    float strength = getFloat(args, "strength", 0.5f);
+    int leaf = getInt(args, "leaf", 512);
+
+    mesh::Mesh *cage = mesh::createCube(subdivs, 1.0f);
+    subdiv::Multires *mrb = litestl::alloc::New<subdiv::Multires>("grid bench mr");
+    auto t0 = clock::now();
+    mrb->init(*cage, levels);
+    auto t1 = clock::now();
+    subdiv::GridLevelDomain *d = mrb->gridDomain(levels);
+    auto t2 = clock::now();
+    subdiv::GridTree *tree = d->ensureTree(leaf);
+    auto t3 = clock::now();
+    std::fprintf(stdout,
+                 "[grid_bench] cage %d faces; level %d: %d verts, %d grids, %d "
+                 "leaves\n",
+                 cage->f.count, levels, d->vertCount(), d->gridCount(),
+                 int(tree->leaves.size()));
+    std::fprintf(stdout,
+                 "[grid_bench] init=%.1fms domain=%.1fms tree=%.1fms\n",
+                 ms(t0, t1), ms(t1, t2), ms(t2, t3));
+
+    brush::Brush benchBrush;
+    benchBrush.radius = radius;
+    benchBrush.strength = strength;
+    benchBrush.writeProps();
+    subdiv::GridStrokeLog log;
+    brush::GridBrushExecutor ex(d, &benchBrush, &log);
+    ex.stats.reset();
+
+    auto t4 = clock::now();
+    int moved = 0;
+    for (int s = 0; s < strokes; s++) {
+      ex.beginStep();
+      // March across the top face; alternate rows per stroke so the touched
+      // region varies like the interactive bench.
+      float y = -0.4f + 0.8f * float(s) / float(strokes > 1 ? strokes - 1 : 1);
+      for (int i = 0; i < dabs; i++) {
+        float x = -0.45f + 0.9f * float(i) / float(dabs > 1 ? dabs - 1 : 1);
+        moved += ex.applyDab(brush::SculptBrushes::DRAW, float3(x, y, 0.5f),
+                             float3(0, 0, 1));
+      }
+      ex.endStep();
+    }
+    auto t5 = clock::now();
+
+    const auto &st = ex.stats;
+    double totalMs = ms(t4, t5);
+    std::fprintf(stdout,
+                 "[grid_bench] %d strokes x %d dabs: total=%.1fms moved=%d\n",
+                 strokes, dabs, totalMs, moved);
+    std::fprintf(stdout,
+                 "[grid_bench] per-dab ms: query=%.4f capture=%.4f coPrev=%.4f "
+                 "stamp=%.4f automask=%.4f kernel=%.4f normals=%.4f bounds=%.4f\n",
+                 st.queryMs / st.dabs, st.captureMs / st.dabs, st.coPrevMs / st.dabs,
+                 st.stampMs / st.dabs, st.automaskMs / st.dabs, st.kernelMs / st.dabs,
+                 st.normalsMs / st.dabs, st.boundsMs / st.dabs);
+    double core = st.perDabCoreMs();
+    double wb = st.strokes > 0 ? st.writebackMs / st.strokes : 0.0;
+    double undoMB = double(log.bytes()) / (1024.0 * 1024.0);
+    std::fprintf(stdout,
+                 "[grid_bench] gates: per-dab core %.4fms (<=0.35) %s | writeback "
+                 "%.2fms/stroke (<=3) %s | undo %.1fMB (<=20) %s\n",
+                 core, core <= 0.35 ? "PASS" : "FAIL", wb, wb <= 3.0 ? "PASS" : "FAIL",
+                 undoMB, undoMB <= 20.0 ? "PASS" : "FAIL");
+
+    litestl::alloc::Delete(mrb);
+    litestl::alloc::Delete(cage);
     return true;
   }
   if (verb == "save_disp") {

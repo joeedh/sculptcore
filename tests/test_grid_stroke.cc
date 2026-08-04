@@ -39,6 +39,26 @@
 
 test_init;
 
+/* Grids stroke session c-api (brush/c-api/grid_stroke_c_api.cc). */
+struct GridStrokeSession;
+extern "C" {
+GridStrokeSession *GridStroke_new(sculptcore::subdiv::Multires *mr,
+                                  int level,
+                                  sculptcore::brush::Brush *b);
+void GridStroke_free(GridStrokeSession *s);
+int GridStroke_supported(int tool);
+int GridStroke_begin(GridStrokeSession *s);
+int GridStroke_dab(GridStrokeSession *s, int tool, float ox, float oy, float oz,
+                   float nx, float ny, float nz, int grabAdd);
+void GridStroke_end(GridStrokeSession *s);
+int GridStroke_undo(GridStrokeSession *s);
+int GridStroke_redo(GridStrokeSession *s);
+double GridStroke_undoBytes(GridStrokeSession *s);
+int GridTree_castRay(sculptcore::subdiv::Multires *mr, int level, float ox, float oy,
+                     float oz, float dx, float dy, float dz, float *out10,
+                     int *nearestVert);
+}
+
 // Local assert that flips retval (the shared test_assert macro has a known
 // retval=0-on-failure bug — see tests/test_meshlog_topo.cc:14-21).
 #define TASSERT(expr)                                                                    \
@@ -521,6 +541,83 @@ int main()
     int m3 = ex.applyDab(SculptBrushes::DRAW, float3(-0.3f, 0, 0.5f), float3(0, 0, 1));
     ex.endStep();
     TASSERT(m3 > 0);
+  }
+
+  /* c-api session smoke: supported-tool dispatch, a stroke through the
+   * session, undo/redo, and the domain raycast. */
+  {
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    restoreStore(mr, s0);
+
+    TASSERT(GridStroke_supported(int(SculptBrushes::DRAW)) == 1);
+    TASSERT(GridStroke_supported(int(SculptBrushes::BSMOOTH)) == 0);
+
+    float out10[10];
+    int nearest = -1;
+    int hit = GridTree_castRay(&mr, kLevel, 0.0f, 0.0f, 3.0f, 0.0f, 0.0f, -1.0f,
+                               out10, &nearest);
+    TASSERT(hit == 1);
+    TASSERT(nearest >= 0);
+    TASSERT(out10[6] > 0.0f);
+
+    GridStrokeSession *s = GridStroke_new(&mr, kLevel, &brush);
+    TASSERT(s != nullptr);
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    Vector<float3> pre;
+    pre.resize(d->vertCount());
+    for (int v = 0; v < d->vertCount(); v++) {
+      pre[v] = d->pos()[v];
+    }
+    TASSERT(GridStroke_begin(s) == 1);
+    int moved =
+        GridStroke_dab(s, int(SculptBrushes::DRAW), 0, 0, 0.5f, 0, 0, 1, 0);
+    GridStroke_end(s);
+    TASSERT(moved > 0);
+    TASSERT(GridStroke_undoBytes(s) > 0.0);
+    TASSERT(GridStroke_undo(s) == 1);
+    Vector<float3> cur;
+    cur.resize(d->vertCount());
+    for (int v = 0; v < d->vertCount(); v++) {
+      cur[v] = d->pos()[v];
+    }
+    TASSERT(samePosBits(cur, pre));
+    TASSERT(GridStroke_redo(s) == 1);
+    GridStroke_free(s);
+  }
+
+  /* Zero-disp level (posIsBase hazard): the first grids edit on a level with
+   * no displacement must not poison the lazily-materialized base — the
+   * writeback must land real deltas and survive a rematerialization. */
+  {
+    Mesh *cage2 = createCube(2, 1.0f);
+    Multires mr2;
+    mr2.init(*cage2, 3); // zero displacement everywhere
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    GridLevelDomain *d = mr2.gridDomain(kLevel);
+    GridBrushExecutor ex(d, &brush, nullptr);
+    ex.beginStep();
+    int moved = ex.applyDab(SculptBrushes::DRAW, float3(0, 0, 0.5f), float3(0, 0, 1));
+    ex.endStep();
+    TASSERT(moved > 0);
+    Vector<float3> post;
+    post.resize(d->vertCount());
+    for (int v = 0; v < d->vertCount(); v++) {
+      post[v] = d->pos()[v];
+    }
+    // Re-derive the level from cage + store: the edit must survive.
+    mr2.invalidateAll();
+    Vector<float3> &re = mr2.levelPositions(kLevel);
+    float maxd = 0.0f;
+    for (int v = 0; v < int(post.size()); v++) {
+      for (int k = 0; k < 3; k++) {
+        float dd = std::fabs(post[v][k] - re[v][k]);
+        maxd = dd > maxd ? dd : maxd;
+      }
+    }
+    fprintf(stderr, "zero-disp round trip: max diff %.8f\n", maxd);
+    TASSERT(maxd <= 1e-5f);
   }
 
   fprintf(stderr, "grid stroke gates passed\n");

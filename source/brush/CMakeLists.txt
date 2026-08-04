@@ -7,6 +7,7 @@ set(LIB
     spatial
     meshlog
     platform
+    subdiv
 )
 
 set(SRC
@@ -23,6 +24,8 @@ set(SRC
   gpu_marshal.cc
   PUBLIC gpu_brush_session.h
   c-api/gpu_brush_c_api.cc
+  PUBLIC grid_executor.h
+  c-api/grid_stroke_c_api.cc
   PUBLIC stroke_spacing.h
   PUBLIC stroke_curve.h
   PUBLIC stroke_driver.h
@@ -51,6 +54,19 @@ wasm_add_symbols("
   GpuBrush_dataPtr
   GpuBrush_applyCo
   GpuBrush_endStroke
+  GridStroke_new
+  GridStroke_free
+  GridStroke_supported
+  GridStroke_sync
+  GridStroke_begin
+  GridStroke_dab
+  GridStroke_end
+  GridStroke_canUndo
+  GridStroke_canRedo
+  GridStroke_undo
+  GridStroke_redo
+  GridStroke_undoBytes
+  GridTree_castRay
 ")
 
 # Generated sbrush kernels (created by `node make.mjs codegen`).

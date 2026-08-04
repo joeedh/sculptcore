@@ -58,6 +58,12 @@ GridLevelDomain *Multires::gridDomain(int level)
   if (!domains_[level - 1]) {
     GridLevelDomain *d = alloc::New<GridLevelDomain>("grid level domain");
     d->build(*this, level);
+    // The domain edits LevelPos::pos in place, so the base/frames must be
+    // materialized NOW: on a zero-disp level (posIsBase) a lazy
+    // ensureBaseAndFrames after the first edit would copy the already-edited
+    // positions as the base and the writeback would derive zero displacement
+    // — the plan's chain-cache-coupling risk, closed here.
+    ensureBaseAndFrames(level);
     domains_[level - 1] = d;
   }
   return domains_[level - 1];
