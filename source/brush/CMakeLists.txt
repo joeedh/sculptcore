@@ -25,6 +25,7 @@ set(SRC
   PUBLIC gpu_brush_session.h
   c-api/gpu_brush_c_api.cc
   PUBLIC grid_executor.h
+  PUBLIC grid_gpu_session.h
   c-api/grid_stroke_c_api.cc
   PUBLIC stroke_spacing.h
   PUBLIC stroke_curve.h

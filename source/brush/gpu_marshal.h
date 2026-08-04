@@ -126,6 +126,12 @@ struct GpuNormalTopology {
 
   void build(mesh::Mesh &m);
 
+  /** Build from an explicit triangle list (3 vert ids per tri) + dense vert
+   * count — the grids domain's entry (Multires::levelTriIndicesOut produces
+   * exactly this, in buildLevelTopo's fan order, so for a level mesh the two
+   * builders emit identical tables). build(mesh) delegates here. */
+  void buildFromArrays(const uint32_t *tris, int triCountIn, int vcountIn);
+
   /** Fill workTris/workVerts with the normal-pass work set for a dab that
    * moved `uverts`. workVerts = every vert of every tri incident to a moved
    * vert (their summed normal changes). workTris additionally expands to

@@ -66,6 +66,11 @@ struct GridStrokeLog {
   {
     return int(steps_.size());
   }
+  /** The domain this log is bound to (null when unattached). */
+  GridLevelDomain *domain() const
+  {
+    return d_;
+  }
   /** Total captured bytes across the history (the undo-footprint gate). */
   size_t bytes() const;
 

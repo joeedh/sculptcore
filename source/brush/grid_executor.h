@@ -84,6 +84,59 @@ struct GridCapturePolicy {
                       std::span<const CaptureSaveDesc> saves);
 };
 
+/** Stroke-end fold shared by the CPU executor and the GPU session: capture
+ * the touched verts' occurrence-grid store blocks into the undo log FIRST
+ * (the store is untouched until this fold), then the restricted writeback
+ * (positions) and/or mask flush, then close the undo step. O(region). */
+inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
+                            subdiv::GridStrokeLog *log,
+                            std::span<const int> touched,
+                            bool wroteCo,
+                            bool wroteMask)
+{
+  subdiv::Multires *mr = domain->multires();
+  int level = domain->level();
+  if (touched.size() > 0) {
+    Vector<bool> changed;
+    changed.resize(domain->vertCount());
+    for (int i = 0; i < domain->vertCount(); i++) {
+      changed[i] = false;
+    }
+    Vector<int> grids;
+    Vector<uint8_t> gridStamp;
+    gridStamp.resize(domain->gridCount());
+    for (int i = 0; i < domain->gridCount(); i++) {
+      gridStamp[i] = 0;
+    }
+    for (int v : touched) {
+      changed[v] = true;
+      auto occs = domain->occurrences(v);
+      for (size_t k = 0; k < occs.size(); k += 3) {
+        if (!gridStamp[occs[k]]) {
+          gridStamp[occs[k]] = 1;
+          grids.append(occs[k]);
+        }
+      }
+    }
+    std::span<const int> gridSpan(grids.data(), grids.size());
+    if (wroteCo) {
+      if (log) {
+        log->captureGrids(gridSpan, mr->writebackChannel());
+      }
+      mr->gridsWriteback(level, changed, grids);
+    }
+    if (wroteMask) {
+      if (log) {
+        log->captureGrids(gridSpan, mr->store.findChannel(string("mask")));
+      }
+      domain->flushMaskToStore(touched);
+    }
+  }
+  if (log) {
+    log->endStep(mr->downPropDebt(level));
+  }
+}
+
 /** Per-vertex iteration over a leaf's owned-vert list, binding the domain's
  * dense buffers — the grids counterpart of BasicVertexIter, sharing
  * CoProxy<AccMode, GridBrushExecutor> so AccumOrig/AccumOrigGrab work. */
@@ -638,54 +691,13 @@ struct GridBrushExecutor {
     auto t0 = std::chrono::steady_clock::now();
     isFirstOfStep = false;
     stats.strokes++;
-    subdiv::Multires *mr = domain->multires();
-    int level = domain->level();
-    if (strokeTouchedVerts_.size() > 0) {
-      // The touched verts' occurrence grids — the restricted writeback walk,
-      // and exactly the store blocks the undo log must capture first (the
-      // store is untouched until this fold, so blocks defer to here).
-      Vector<bool> changed;
-      changed.resize(domain->vertCount());
-      for (int i = 0; i < domain->vertCount(); i++) {
-        changed[i] = false;
-      }
-      Vector<int> grids;
-      gridScratch_.resize(domain->gridCount());
-      for (int i = 0; i < domain->gridCount(); i++) {
-        gridScratch_[i] = 0;
-      }
-      for (int v : strokeTouchedVerts_) {
-        changed[v] = true;
-        auto occs = domain->occurrences(v);
-        for (size_t k = 0; k < occs.size(); k += 3) {
-          if (!gridScratch_[occs[k]]) {
-            gridScratch_[occs[k]] = 1;
-            grids.append(occs[k]);
-          }
-        }
-      }
-      std::span<const int> gridSpan(grids.data(), grids.size());
-      if (strokeWroteCo_) {
-        if (log) {
-          log->captureGrids(gridSpan, mr->writebackChannel());
-        }
-        mr->gridsWriteback(level, changed, grids);
-      }
-      if (strokeWroteMask_) {
-        if (log) {
-          log->captureGrids(gridSpan,
-                            mr->store.findChannel(string("mask")));
-        }
-        domain->flushMaskToStore(std::span<const int>(strokeTouchedVerts_.data(),
-                                                      strokeTouchedVerts_.size()));
-      }
-    }
+    gridsFoldStroke(domain, log,
+                    std::span<const int>(strokeTouchedVerts_.data(),
+                                         strokeTouchedVerts_.size()),
+                    strokeWroteCo_, strokeWroteMask_);
     stats.writebackMs +=
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
             .count();
-    if (log) {
-      log->endStep(mr->downPropDebt(level));
-    }
   }
 
   /** The stroke's accumulated moved-vert set (dense ids, deduped). */
@@ -764,7 +776,6 @@ private:
   Vector<int> strokeTouchedVerts_;
   Vector<int> strokeTouchedLeaves_;
   Vector<uint8_t> leafTouched_;
-  Vector<uint8_t> gridScratch_;
   bool strokeWroteCo_ = false;
   bool strokeWroteMask_ = false;
 

@@ -17,6 +17,7 @@
 
 #include "brush/brush.h"
 #include "brush/brush_executor.h"
+#include "brush/gpu_marshal.h"
 #include "brush/grid_executor.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
@@ -618,6 +619,42 @@ int main()
     }
     fprintf(stderr, "zero-disp round trip: max diff %.8f\n", maxd);
     TASSERT(maxd <= 1e-5f);
+  }
+
+  /* GpuNormalTopology::buildFromArrays (G4): the grids entry fed by
+   * levelTriIndicesOut must emit tables identical to build() on the
+   * materialized level mesh (same fan order by construction). */
+  {
+    restoreStore(mr, s0);
+    MultiresSlot *slot = mr.setActiveLevel(kLevel);
+    TASSERT(slot && slot->mesh);
+    GpuNormalTopology a;
+    a.build(*slot->mesh);
+    Vector<int> tris;
+    mr.levelTriIndicesOut(kLevel, tris);
+    Vector<uint32_t> trisU;
+    trisU.resize(tris.size());
+    for (int i = 0; i < int(tris.size()); i++) {
+      trisU[i] = uint32_t(tris[i]);
+    }
+    GpuNormalTopology b;
+    b.buildFromArrays(trisU.data(), int(tris.size() / 3), slot->mesh->v.count);
+    TASSERT(a.triCount == b.triCount);
+    TASSERT(a.vcount == b.vcount);
+    bool same = a.triVerts.size() == b.triVerts.size() &&
+                a.meta.size() == b.meta.size() && a.list.size() == b.list.size();
+    for (size_t i = 0; same && i < a.triVerts.size(); i++) {
+      same = a.triVerts[int(i)] == b.triVerts[int(i)];
+    }
+    for (size_t i = 0; same && i < a.meta.size(); i++) {
+      same = a.meta[int(i)] == b.meta[int(i)];
+    }
+    for (size_t i = 0; same && i < a.list.size(); i++) {
+      same = a.list[int(i)] == b.list[int(i)];
+    }
+    fprintf(stderr, "normal topology arrays parity: tris=%d same=%d\n", a.triCount,
+            int(same));
+    TASSERT(same);
   }
 
   fprintf(stderr, "grid stroke gates passed\n");

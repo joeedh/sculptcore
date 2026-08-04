@@ -406,11 +406,24 @@ void chunkNodes(const Vector<spatial::SpatialNode *> &nodes, bool faceMode,
 
 void GpuNormalTopology::build(mesh::Mesh &m)
 {
-  vcount = m.v.count;
-
   litestl::util::Vector<mesh::Tri> tris;
   mesh::triangulate(m, litestl::util::IndexRange(0, m.f.count), tris);
-  triCount = int(tris.size());
+
+  Vector<uint32_t> flat;
+  flat.resize(tris.size() * 3);
+  for (int t = 0; t < int(tris.size()); t++) {
+    for (int j = 0; j < 3; j++) {
+      flat[size_t(t) * 3 + j] = uint32_t(tris[t].v[j]);
+    }
+  }
+  buildFromArrays(flat.data(), int(tris.size()), m.v.count);
+}
+
+void GpuNormalTopology::buildFromArrays(const uint32_t *tris, int triCountIn,
+                                        int vcountIn)
+{
+  vcount = vcountIn;
+  triCount = triCountIn;
 
   triVerts.resize(size_t(triCount) * 3);
 
@@ -422,8 +435,8 @@ void GpuNormalTopology::build(mesh::Mesh &m)
   }
   for (int t = 0; t < triCount; t++) {
     for (int j = 0; j < 3; j++) {
-      int v = tris[t].v[j];
-      triVerts[size_t(t) * 3 + j] = uint32_t(v);
+      uint32_t v = tris[size_t(t) * 3 + j];
+      triVerts[size_t(t) * 3 + j] = v;
       counts[v]++;
     }
   }
@@ -444,7 +457,7 @@ void GpuNormalTopology::build(mesh::Mesh &m)
   }
   for (int t = 0; t < triCount; t++) {
     for (int j = 0; j < 3; j++) {
-      int v = tris[t].v[j];
+      uint32_t v = tris[size_t(t) * 3 + j];
       list[cursor[v]++] = uint32_t(t);
     }
   }

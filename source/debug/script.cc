@@ -31,6 +31,15 @@
 #include "spatial/spatial.h"
 #include "stb/stb_image.h"
 #include "brush/grid_executor.h"
+#include "brush/grid_gpu_session.h"
+#ifdef SBRUSH_WEBGPU_COMPUTE
+#include "webgpu/wgpu_compute.h"
+#include "webgpu/wgpu_context.h"
+#endif
+#ifdef SBRUSH_GPU_DISPATCH
+#include "vulkan/vk_compute.h"
+#include "vulkan/vk_context.h"
+#endif
 #include "subdiv/grid_domain.h"
 #include "subdiv/grid_stroke_log.h"
 #include "subdiv/grid_tree.h"
@@ -413,6 +422,10 @@ static void gatherDisp(subdiv::Multires &mr, int level, std::vector<float> &out)
     }
   }
 }
+
+// SBRUSH_WGSL_DIR arrives unquoted from CMake (see gpu_stroke.cc's twin).
+#define SBRUSH_SCRIPT_STRINGIZE_(x) #x
+#define SBRUSH_SCRIPT_STRINGIZE(x) SBRUSH_SCRIPT_STRINGIZE_(x)
 
 /* Grids-native stroke session for the grid_* verbs, owned by the Scene
  * (torn down with the multires stack). Rebuilt when the level changes;
@@ -2046,6 +2059,87 @@ bool execVerb(Scene &scene,
     }
     parseFloat3(getArg(args, "step"), step);
     int dabs = getInt(args, "dabs", 1);
+    std::string backend = getArg(args, "backend") ? getArg(args, "backend") : "cpp";
+
+    if (backend == "wgpu" || backend == "wgsl" || backend == "gpu") {
+      // GPU grids path: the same kernels through a dispatcher — wgpu-native
+      // (engine-owned device) or the Vulkan SPIR-V compute path; `gpu` takes
+      // whichever is built, wgpu first. Shares the session's undo log with
+      // the CPU path, so grid_undo mixes freely.
+      const brush::GpuKernelInfo *ki =
+          brush::GridGpuStrokeSession::kernelFor(scene.currentTool);
+      if (!ki) {
+        err = "grid_stroke: tool not grids-GPU-capable";
+        return false;
+      }
+      auto runGpuStroke = [&](brush::IBrushComputeDispatch &d,
+                              const char *tag) -> bool {
+        brush::GridGpuStrokeSession gs;
+        std::string serr;
+        if (!gs.begin(scene.multires->gridDomain(level), &scene.brush,
+                      scene.currentTool, &d, scene.gridLog, serr))
+        {
+          err = "grid_stroke: " + serr;
+          return false;
+        }
+        float3 o = origin;
+        for (int i = 0; i < dabs; i++, o += step) {
+          if (!gs.dab(o, normal, serr)) {
+            err = "grid_stroke: " + serr;
+            return false;
+          }
+        }
+        if (!gs.end(serr)) {
+          err = "grid_stroke: " + serr;
+          return false;
+        }
+        litestl::util::Vector<int> touched;
+        for (int v : gs.strokeTouchedVerts()) {
+          touched.append(v);
+        }
+        gridMirrorSync(scene, level, touched);
+        std::fprintf(stdout,
+                     "[script] grid_stroke(%s) level=%d dabs=%d moved=%d "
+                     "undo_bytes=%zu\n",
+                     tag, level, dabs, int(touched.size()), scene.gridLog->bytes());
+        return true;
+      };
+#ifdef SBRUSH_WEBGPU_COMPUTE
+      if (backend == "wgpu" || backend == "gpu") {
+        webgpu::WgpuContext wctx;
+        if (!wctx.initNative()) {
+          err = "grid_stroke: wgpu-native device init failed";
+          return false;
+        }
+        webgpu::WgpuBrushComputeDispatch disp(&wctx);
+        std::string wgsl = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_WGSL_DIR)) +
+                           "/" + ki->kernel + ".wgsl";
+        if (!disp.loadKernel(wgsl.c_str())) {
+          err = "grid_stroke: failed to load " + wgsl;
+          return false;
+        }
+        return runGpuStroke(disp, "wgpu");
+      }
+#endif
+#ifdef SBRUSH_GPU_DISPATCH
+      if (backend == "wgsl" || backend == "gpu") {
+        if (!scene.ensureGPU() || !scene.context) {
+          err = "grid_stroke: GPU device init failed";
+          return false;
+        }
+        vulkan::BrushComputeDispatch disp(scene.context);
+        std::string spv = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_SPV_DIR)) +
+                          "/" + ki->kernel + ".spv";
+        if (!disp.loadKernel(spv.c_str())) {
+          err = "grid_stroke: failed to load " + spv;
+          return false;
+        }
+        return runGpuStroke(disp, "wgsl");
+      }
+#endif
+      err = "grid_stroke: no GPU compute backend built";
+      return false;
+    }
 
     brush::GridBrushExecutor &ex = *scene.gridExec;
     scene.brush.writeProps();
@@ -2132,6 +2226,89 @@ bool execVerb(Scene &scene,
     benchBrush.strength = strength;
     benchBrush.writeProps();
     subdiv::GridStrokeLog log;
+
+    std::string backend = getArg(args, "backend") ? getArg(args, "backend") : "cpp";
+    if (backend == "wgpu" || backend == "wgsl" || backend == "gpu") {
+      // GPU half of the "at what size does GPU win" question: same workload
+      // through the grids GPU session, dispatch/readback split printed.
+      auto runGpuBench = [&](brush::IBrushComputeDispatch &disp,
+                             const char *tag) -> bool {
+        brush::GridGpuStrokeSession gs;
+        auto t4 = clock::now();
+        int movedTotal = 0;
+        for (int s = 0; s < strokes; s++) {
+          std::string serr;
+          if (!gs.begin(d, &benchBrush, brush::SculptBrushes::DRAW, &disp, &log,
+                        serr))
+          {
+            std::fprintf(stdout, "[grid_bench] gpu begin failed: %s\n", serr.c_str());
+            return false;
+          }
+          float y = -0.4f + 0.8f * float(s) / float(strokes > 1 ? strokes - 1 : 1);
+          for (int i = 0; i < dabs; i++) {
+            float x = -0.45f + 0.9f * float(i) / float(dabs > 1 ? dabs - 1 : 1);
+            if (!gs.dab(float3(x, y, 0.5f), float3(0, 0, 1), serr)) {
+              std::fprintf(stdout, "[grid_bench] gpu dab failed: %s\n", serr.c_str());
+              return false;
+            }
+          }
+          if (!gs.end(serr)) {
+            std::fprintf(stdout, "[grid_bench] gpu end failed: %s\n", serr.c_str());
+            return false;
+          }
+          movedTotal += int(gs.strokeTouchedVerts().size());
+        }
+        auto t5 = clock::now();
+        const auto &gst = gs.stats;
+        std::fprintf(stdout,
+                     "[grid_bench] gpu(%s) %d strokes x %d dabs: total=%.1fms "
+                     "moved=%d\n",
+                     tag, strokes, dabs, ms(t4, t5), movedTotal);
+        std::fprintf(stdout,
+                     "[grid_bench] gpu per-dab ms: host=%.4f dispatch=%.4f "
+                     "readback=%.4f\n",
+                     gst.hostMs / gst.dabs, gst.dispatchMs / gst.dabs,
+                     gst.readbackMs / gst.dabs);
+        return true;
+      };
+      bool ok = false;
+#ifdef SBRUSH_WEBGPU_COMPUTE
+      if (!ok && (backend == "wgpu" || backend == "gpu")) {
+        const brush::GpuKernelInfo *ki =
+            brush::GridGpuStrokeSession::kernelFor(brush::SculptBrushes::DRAW);
+        webgpu::WgpuContext wctx;
+        if (ki && wctx.initNative()) {
+          webgpu::WgpuBrushComputeDispatch disp(&wctx);
+          std::string wgsl = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_WGSL_DIR)) +
+                             "/" + ki->kernel + ".wgsl";
+          if (disp.loadKernel(wgsl.c_str())) {
+            ok = runGpuBench(disp, "wgpu");
+          }
+        }
+      }
+#endif
+#ifdef SBRUSH_GPU_DISPATCH
+      if (!ok && (backend == "wgsl" || backend == "gpu")) {
+        const brush::GpuKernelInfo *ki =
+            brush::GridGpuStrokeSession::kernelFor(brush::SculptBrushes::DRAW);
+        if (ki && scene.ensureGPU() && scene.context) {
+          vulkan::BrushComputeDispatch disp(scene.context);
+          std::string spv = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_SPV_DIR)) +
+                            "/" + ki->kernel + ".spv";
+          if (disp.loadKernel(spv.c_str())) {
+            ok = runGpuBench(disp, "wgsl");
+          }
+        }
+      }
+#endif
+      if (!ok) {
+        std::fprintf(stdout, "[grid_bench] gpu backend unavailable\n");
+      }
+      litestl::alloc::Delete(mrb);
+      litestl::alloc::Delete(cage);
+      return true;
+    }
+
     brush::GridBrushExecutor ex(d, &benchBrush, &log);
     ex.stats.reset();
 
