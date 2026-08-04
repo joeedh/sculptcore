@@ -163,8 +163,11 @@ inline void gridsMirrorToSlot(subdiv::Multires *mr,
     if (!node) {
       continue;
     }
-    node->flag |= spatial::Spatial_RegenTris | spatial::Spatial_RegenBounds |
-                  spatial::Spatial_UpdateGPU;
+    // Geometry-only: positions/normals were copied above and topology never
+    // changes — the same flags a kernel dab sets minus UpdateNormals.
+    // RegenTris here would re-triangulate every touched leaf (and force a
+    // GPU partition recompute) on each draw refresh.
+    node->flag |= spatial::Spatial_UpdateGPUGeom | spatial::Spatial_RegenBounds;
     for (spatial::SpatialNode *p = node->parent;
          p && !(p->flag & spatial::Spatial_RegenBounds); p = p->parent)
     {
