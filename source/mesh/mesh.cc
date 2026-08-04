@@ -95,7 +95,7 @@ void Mesh::freezeTopo()
 
   /* Snapshot the live topology, then keep the brush 1-ring CSR current so the
    * sculpt path is served from cached data while the live links are gone. */
-  topo_cache.frozen.build(*this);
+  topo_cache.ensureFrozen(*this);
   topo_cache.ensureRing1(*this);
 
   v.attrs.freeTopoPages();
@@ -680,6 +680,9 @@ int Mesh::validateAndRepair(const std::function<void(const char *)> &log)
 
 void Mesh::rebuildDiskCycles()
 {
+  // Rewrites disk order in place without going through make_/kill_, so the
+  // order-sensitive caches (ring1 CSR, FrozenTopo) must be invalidated by hand.
+  topo_stamp++;
   for (int vi : this->v) {
     v.e[vi] = ELEM_NONE;
   }
@@ -695,6 +698,8 @@ void Mesh::rebuildDiskCycles()
 
 int Mesh::rebuildRadialCycles(bool createMissingEdges)
 {
+  // See rebuildDiskCycles: in-place radial-order rewrite, same cache hazard.
+  topo_stamp++;
   for (int ei : this->e) {
     e.c[ei] = ELEM_NONE;
   }

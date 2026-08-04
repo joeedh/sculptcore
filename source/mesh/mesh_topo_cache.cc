@@ -61,6 +61,18 @@ void FrozenTopo::clear()
   built = false;
 }
 
+void MeshTopoCache::ensureFrozen(Mesh &m)
+{
+  // build() walks every disk/radial/loop cycle. A freeze/thaw round trip that
+  // edited no topology — any position-only stroke — reuses the snapshot:
+  // thawTopo() restored exactly the links it recorded.
+  if (frozen.built && frozen_stamp == m.topo_stamp) {
+    return;
+  }
+  frozen.build(m);
+  frozen_stamp = m.topo_stamp;
+}
+
 void FrozenTopo::build(Mesh &m)
 {
   clear();

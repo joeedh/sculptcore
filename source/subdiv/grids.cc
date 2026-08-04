@@ -6,8 +6,10 @@
 #include "io/compress.h"
 
 #include "litestl/util/assert.h"
+#include "litestl/util/task.h"
 #include "litestl/util/vector.h"
 
+#include <algorithm>
 #include <cstring>
 #include <istream>
 #include <iterator>
@@ -391,22 +393,29 @@ size_t GridsStore::evictedBytes() const
  *   u32 channelCount; per channel: string name; u32 floatsPerElem
  *   offset table, per (channel, level): u32 gridsPerChunk; u32 chunkCount;
  *     per chunk: u32 byteOffset (into the data section); u32 floatCount
- *   data section: chunk float payloads in (channel, level, chunk) order */
-bool GridsStore::write(std::ostream &out)
+ *   data section: chunk float payloads in (channel, level, chunk) order
+ *
+ * The payload is compressed in independent kCompressBlock-sized blocks so the
+ * codec runs across cores: at a level-4 million-vert cage this store is ~23 MB
+ * and it is re-serialized at the end of every sculpt stroke (the multires undo
+ * snapshot), where a single-threaded lz4 pass alone cost ~50 ms. */
+bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
 {
   // The serializer walks raw chunks — rehydrate everything first.
   for (int l = 1; l <= levelCount_; l++) {
     ensureLevelResident(l);
   }
+  // Metadata only (a few hundred KB at most); the bulk float data is memcpy'd
+  // in below rather than pushed through the stream a chunk at a time.
   std::stringstream ps(std::ios::in | std::ios::out | std::ios::binary);
   io::BinFile pbf(ps);
 
   pbf.writeUint32(uint32_t(gridCount_));
   pbf.writeUint32(uint32_t(levelCount_));
-  for (const GridLink &l : links_) {
-    pbf.writeInt32(l.grid);
-    pbf.writeInt32(l.side);
-  }
+  // One blit, not 4 * gridCount stream calls: GridLink is exactly the {grid,
+  // side} int pair the reader pulls back out one at a time.
+  static_assert(sizeof(GridLink) == 2 * sizeof(uint32_t));
+  pbf.writeUint32Array(reinterpret_cast<const uint32_t *>(links_.data()), links_.size() * 2);
   pbf.writeUint32(uint32_t(channels_.size()));
   for (Channel &ch : channels_) {
     pbf.writeString(ch.name);
@@ -425,22 +434,41 @@ bool GridsStore::write(std::ostream &out)
       }
     }
   }
+
+  const std::string meta = ps.str();
+  Vector<uint8_t> payload;
+  payload.resize<false>(meta.size() + size_t(offset));
+  std::memcpy(payload.data(), meta.data(), meta.size());
+  size_t at = meta.size();
   for (Channel &ch : channels_) {
     for (LevelData &ld : ch.levels) {
       for (Vector<float> &chunk : ld.chunks) {
-        pbf.stream.write(reinterpret_cast<const char *>(chunk.data()),
-                         std::streamsize(chunk.size() * sizeof(float)));
+        const size_t n = chunk.size() * sizeof(float);
+        std::memcpy(payload.data() + at, chunk.data(), n);
+        at += n;
       }
     }
   }
 
-  std::string payload = ps.str();
-  size_t rawSize = payload.size();
-
-  Vector<uint8_t> comp;
-  size_t compSize = io::compressBlock(payload.data(), rawSize, comp);
-  if (compSize == 0) {
-    return false;
+  const size_t rawSize = payload.size();
+  const int blockCount = int((rawSize + kCompressBlock - 1) / kCompressBlock);
+  Vector<Vector<uint8_t>> blocks;
+  blocks.resize(blockCount);
+  Vector<uint32_t> blockSizes;
+  blockSizes.resize(blockCount);
+  task::parallel_for(util::IndexRange(size_t(blockCount)), [&](util::IndexRange range) {
+    for (int i : range) {
+      const size_t start = size_t(i) * kCompressBlock;
+      const size_t n = std::min(size_t(kCompressBlock), rawSize - start);
+      blockSizes[i] = uint32_t(io::compressBlock(payload.data() + start, n, blocks[i], hcLevel));
+    }
+  });
+  size_t compTotal = 0;
+  for (int i = 0; i < blockCount; i++) {
+    if (blockSizes[i] == 0) {
+      return false;
+    }
+    compTotal += blockSizes[i];
   }
 
   std::stringstream fs(std::ios::in | std::ios::out | std::ios::binary);
@@ -448,13 +476,32 @@ bool GridsStore::write(std::ostream &out)
   obf.compressed = true;
   obf.writeHeader();
   obf.writeUint32(kGridsFormatVersion);
-  obf.writeUint32(uint32_t(rawSize));
-  obf.writeUint32(uint32_t(compSize));
-  obf.stream.write(reinterpret_cast<const char *>(comp.data()),
-                   std::streamsize(compSize));
+  obf.writeUint64(uint64_t(rawSize));
+  obf.writeUint32(uint32_t(kCompressBlock));
+  obf.writeUint32(uint32_t(blockCount));
+  for (int i = 0; i < blockCount; i++) {
+    obf.writeUint32(blockSizes[i]);
+  }
+  const std::string head = fs.str();
 
-  std::string s = fs.str();
-  out.write(s.data(), std::streamsize(s.size()));
+  const size_t base = out.size();
+  out.resize<false>(base + head.size() + compTotal);
+  std::memcpy(out.data() + base, head.data(), head.size());
+  at = base + head.size();
+  for (int i = 0; i < blockCount; i++) {
+    std::memcpy(out.data() + at, blocks[i].data(), blockSizes[i]);
+    at += blockSizes[i];
+  }
+  return true;
+}
+
+bool GridsStore::write(std::ostream &out, int hcLevel)
+{
+  Vector<uint8_t> buf;
+  if (!writeBytes(buf, hcLevel)) {
+    return false;
+  }
+  out.write(reinterpret_cast<const char *>(buf.data()), std::streamsize(buf.size()));
   return bool(out);
 }
 
@@ -472,20 +519,60 @@ bool GridsStore::read(std::istream &in)
   }
 
   uint32_t version = obf.readUint32();
-  uint32_t rawSize = obf.readUint32();
-  uint32_t compSize = obf.readUint32();
-  if (version == 0 || version > kGridsFormatVersion) {
+  if (version != kGridsFormatVersion) {
+    return false;
+  }
+  const size_t rawSize = size_t(obf.readUint64());
+  const size_t blockSize = size_t(obf.readUint32());
+  const int blockCount = int(obf.readUint32());
+  if (blockSize == 0 || size_t(blockCount) * blockSize < rawSize) {
     return false;
   }
 
+  Vector<uint32_t> blockSizes;
+  blockSizes.resize(blockCount);
+  size_t compTotal = 0;
+  for (int i = 0; i < blockCount; i++) {
+    blockSizes[i] = obf.readUint32();
+    compTotal += blockSizes[i];
+  }
   Vector<uint8_t> comp;
-  comp.resize(compSize);
-  if (compSize > 0) {
-    obf.stream.read(reinterpret_cast<char *>(comp.data()), std::streamsize(compSize));
+  comp.resize<false>(compTotal);
+  if (compTotal > 0) {
+    obf.stream.read(reinterpret_cast<char *>(comp.data()), std::streamsize(compTotal));
+  }
+  if (!obf.stream) {
+    return false;
+  }
+
+  Vector<size_t> compOffsets;
+  compOffsets.resize(blockCount);
+  size_t at = 0;
+  for (int i = 0; i < blockCount; i++) {
+    compOffsets[i] = at;
+    at += blockSizes[i];
   }
   Vector<uint8_t> rawBuf;
-  if (!io::decompressBlock(comp.data(), compSize, rawSize, rawBuf)) {
-    return false;
+  rawBuf.resize<false>(rawSize);
+  // uint8 rather than BoolVector: the bands below write these concurrently and
+  // a bit-packed vector would make neighbouring blocks share a word.
+  Vector<uint8_t> ok;
+  ok.resize(blockCount);
+  task::parallel_for(util::IndexRange(size_t(blockCount)), [&](util::IndexRange range) {
+    Vector<uint8_t> tmp;
+    for (int i : range) {
+      const size_t start = size_t(i) * blockSize;
+      const size_t n = std::min(blockSize, rawSize - start);
+      ok[i] = io::decompressBlock(comp.data() + compOffsets[i], blockSizes[i], n, tmp);
+      if (ok[i]) {
+        std::memcpy(rawBuf.data() + start, tmp.data(), n);
+      }
+    }
+  });
+  for (int i = 0; i < blockCount; i++) {
+    if (!ok[i]) {
+      return false;
+    }
   }
 
   std::string payloadStr(reinterpret_cast<const char *>(rawBuf.data()), rawSize);

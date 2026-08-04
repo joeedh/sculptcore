@@ -19,6 +19,8 @@
  * are REPLICATED in every grid that contains them; seamMates enumerates the
  * aliases of a boundary coord so writers can keep replicas in sync (S4). */
 
+#include "io/compress.h"
+
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
@@ -31,8 +33,14 @@ struct Mesh;
 
 namespace sculptcore::subdiv {
 
-/** Bump when the on-disk layout changes (mirrors mesh serial versioning). */
-inline constexpr uint32_t kGridsFormatVersion = 1;
+/** Bump when the on-disk layout changes (mirrors mesh serial versioning).
+ * v2 split the single lz4 block into independently-compressed blocks. */
+inline constexpr uint32_t kGridsFormatVersion = 2;
+
+/** Serialized payload is cut into blocks of this size so lz4 runs in parallel.
+ * Small enough that a ~23 MB store spreads over every core, large enough that
+ * the ratio loss against one whole-payload block stays under a percent. */
+inline constexpr uint32_t kCompressBlock = 1u << 21;
 
 /** A grid side. LEFT/BOTTOM cross a cage edge (absent on mesh boundary);
  * RIGHT/TOP always link to a same-face neighbor grid. Side coords, param t:
@@ -156,9 +164,15 @@ struct GridsStore {
     return links_[grid * 4 + side];
   }
 
-  /** Serialize as a BinFile + lz4 blob (the writeMesh container shape); the
-   * payload is an offset-table header followed by the raw chunks. */
-  bool write(std::ostream &out);
+  /** Serialize into @p out (appending to whatever it already holds) as a
+   * BinFile header followed by kCompressBlock-sized lz4 blocks; the compressed
+   * payload is an offset-table header followed by the raw chunks.
+   * @p hcLevel picks the lz4 mode: callers on an interactive path pass
+   * io::kFastCompressLevel, which the reader handles identically. */
+  bool writeBytes(litestl::util::Vector<uint8_t> &out,
+                  int hcLevel = io::kDefaultCompressLevel);
+  /** writeBytes to a stream. */
+  bool write(std::ostream &out, int hcLevel = io::kDefaultCompressLevel);
   /** Read a write() blob into this store (replaces all contents). */
   bool read(std::istream &in);
 

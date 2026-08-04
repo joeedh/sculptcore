@@ -59,6 +59,7 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, markVertsMoved, MARGS("verts"));
   BIND_STRUCT_METHOD(st, update, MARGS("gpu"));
   BIND_STRUCT_METHOD(st, updateQueries, MARGS());
+  BIND_STRUCT_METHOD(st, updateNormals, MARGS());
   BIND_STRUCT_METHOD(st, getDrawBatch, MARGS());
   BIND_STRUCT_METHOD(st, materialStats, MARGS("perLeaf", "out"));
   BIND_STRUCT_METHOD(st, castRay, MARGS("orig", "dir", "out"));

@@ -72,13 +72,18 @@ struct MeshTopoCache {
   VertNbrCSR ring1;
   uint64_t ring1_stamp = ~0ull; /* Mesh::topo_stamp at build; ~0 = never built */
   FrozenTopo frozen;
+  uint64_t frozen_stamp = ~0ull; /* Mesh::topo_stamp at frozen.build() */
 
   void invalidate()
   {
     ring1_stamp = ~0ull;
+    frozen_stamp = ~0ull;
   }
 
   bool valid(const Mesh &m) const;
   const VertNbrCSR &ensureRing1(Mesh &m);
+  /** Capture the frozen-topology snapshot, reusing the last one when no
+   * topology edit has landed since (see Mesh::freezeTopo). */
+  void ensureFrozen(Mesh &m);
 };
 } // namespace sculptcore::mesh

@@ -353,6 +353,12 @@ def write_number(num: NumberType, addr: int, value) -> None:
     _NUM_WRITERS[(num.subtype, num.unsigned)](addr, value)
 
 
+def number_writer(num: NumberType):
+    """The `(addr, value)` writer for `num`, for callers hoisting the lookup
+    out of a hot path."""
+    return _NUM_WRITERS[(num.subtype, num.unsigned)]
+
+
 def get_binding(capi: Capi, ptr: int) -> BindingBase:
     """Wrap the descriptor at `ptr`, reusing capi.binding_cache (descriptor
     graphs are cyclic; constructors self-register before recursing)."""

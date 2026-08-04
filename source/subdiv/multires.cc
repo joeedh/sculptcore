@@ -10,7 +10,9 @@
 
 #include "litestl/util/alloc.h"
 #include "litestl/util/assert.h"
+#include "litestl/util/task.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -591,35 +593,42 @@ void Multires::storeDispFromPositions(int level,
   Vector<ChannelMix> mix;
   compositeMix(mix);
 
+  // Grids own disjoint store slots, so the outer loop parallelizes cleanly —
+  // but elem() rehydrates an evicted level on first touch, which is not thread
+  // safe. Force residency up front.
+  store.ensureLevelResident(level);
+
   int S = lvl.gridSide, w = S + 1;
-  for (int g = 0; g < store.gridCount(); g++) {
-    const int *gv = &lvl.gridVerts[g * w * w];
-    for (int v = 0; v < w; v++) {
-      for (int u = 0; u < w; u++) {
-        int vid = gv[v * w + u];
-        if (mask && !(*mask)[vid]) {
-          continue;
-        }
-        float3 n = no[vid], t = ta[vid];
-        float3 b = n.cross(t);
-        float3 dp = pos[vid] - base[vid];
-        float3 rest(0.0f, 0.0f, 0.0f);
-        for (const ChannelMix &m : mix) {
-          if (m.channel == tch) {
+  task::parallel_for(util::IndexRange(size_t(store.gridCount())), [&](util::IndexRange range) {
+    for (int g : range) {
+      const int *gv = &lvl.gridVerts[g * w * w];
+      for (int v = 0; v < w; v++) {
+        for (int u = 0; u < w; u++) {
+          int vid = gv[v * w + u];
+          if (mask && !(*mask)[vid]) {
             continue;
           }
-          const float *c = store.elem(level, m.channel, g, u, v);
-          rest[0] += c[0] * m.weight;
-          rest[1] += c[1] * m.weight;
-          rest[2] += c[2] * m.weight;
+          float3 n = no[vid], t = ta[vid];
+          float3 b = n.cross(t);
+          float3 dp = pos[vid] - base[vid];
+          float3 rest(0.0f, 0.0f, 0.0f);
+          for (const ChannelMix &m : mix) {
+            if (m.channel == tch) {
+              continue;
+            }
+            const float *c = store.elem(level, m.channel, g, u, v);
+            rest[0] += c[0] * m.weight;
+            rest[1] += c[1] * m.weight;
+            rest[2] += c[2] * m.weight;
+          }
+          float *d = store.elem(level, tch, g, u, v);
+          d[0] = dp.dot(t) - rest[0];
+          d[1] = dp.dot(b) - rest[1];
+          d[2] = dp.dot(n) - rest[2];
         }
-        float *d = store.elem(level, tch, g, u, v);
-        d[0] = dp.dot(t) - rest[0];
-        d[1] = dp.dot(b) - rest[1];
-        d[2] = dp.dot(n) - rest[2];
       }
     }
-  }
+  });
 }
 
 int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
@@ -733,12 +742,19 @@ int Multires::writeback(int level)
   Vector<bool> changed;
   pos.resize(lvl.vertCount);
   changed.resize(lvl.vertCount);
-  int nChanged = 0;
-  for (int i = 0; i < lvl.vertCount; i++) {
-    pos[i] = lm.v.co[i];
-    changed[i] = std::memcmp(&pos[i], &baseline[i], sizeof(float3)) != 0;
-    nChanged += changed[i] ? 1 : 0;
-  }
+  // Vector<bool> is a byte per element (no bitset specialization), so ranges
+  // write disjoint bytes.
+  std::atomic<int> changedCount(0);
+  task::parallel_for(util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
+    int local = 0;
+    for (int i : range) {
+      pos[i] = lm.v.co[i];
+      changed[i] = std::memcmp(&pos[i], &baseline[i], sizeof(float3)) != 0;
+      local += changed[i] ? 1 : 0;
+    }
+    changedCount.fetch_add(local, std::memory_order_relaxed);
+  });
+  int nChanged = changedCount.load(std::memory_order_relaxed);
   if (nChanged == 0) {
     return 0;
   }
@@ -747,11 +763,13 @@ int Multires::writeback(int level)
 
   // The edited mesh is the new baseline for this level; everything finer is
   // derived from it and must re-evaluate.
-  for (int i = 0; i < lvl.vertCount; i++) {
-    if (changed[i]) {
-      baseline[i] = pos[i];
+  task::parallel_for(util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
+    for (int i : range) {
+      if (changed[i]) {
+        baseline[i] = pos[i];
+      }
     }
-  }
+  });
   invalidateAbove(level);
   // Coarser levels are NOT derived from this one, so they still show the
   // pre-edit surface until a downward switch restricts it into them.

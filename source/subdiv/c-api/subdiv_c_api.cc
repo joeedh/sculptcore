@@ -1,4 +1,5 @@
 #include "litestl/util/alloc.h"
+#include "litestl/util/vector.h"
 #include "mesh/mesh.h"
 #include "spatial/spatial.h"
 #include "subdiv/multires.h"
@@ -244,23 +245,32 @@ uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
   if (!mr) {
     return nullptr;
   }
-  std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
+  // Assembled in a byte vector rather than a stringstream: this runs at the end
+  // of every stroke, and a stringstream round trip copies the whole ~23 MB store
+  // an extra time.
+  litestl::util::Vector<uint8_t> buf;
   const int32_t n = mr->maxLevel();
-  ss.write(kDebtMagic, sizeof(kDebtMagic));
-  ss.write(reinterpret_cast<const char *>(&n), sizeof(n));
+  buf.resize<false>(sizeof(kDebtMagic) + sizeof(n) + size_t(n) + 1);
+  std::memcpy(buf.data(), kDebtMagic, sizeof(kDebtMagic));
+  std::memcpy(buf.data() + sizeof(kDebtMagic), &n, sizeof(n));
   for (int l = 0; l <= n; l++) {
-    const char b = mr->downPropDebt(l) ? 1 : 0;
-    ss.write(&b, 1);
+    buf[int(sizeof(kDebtMagic) + sizeof(n)) + l] = mr->downPropDebt(l) ? 1 : 0;
   }
-  if (!mr->store.write(ss)) {
+  // Fast lz4, not lz4hc: this blob is an undo snapshot taken at the end of every
+  // stroke and never written to disk, so a ~20x compress stall to save a few
+  // percent of RAM is the wrong trade.
+  if (!mr->store.writeBytes(buf, io::kFastCompressLevel)) {
     return nullptr;
   }
-  std::string s = ss.str();
-  uint8_t *buf =
-      static_cast<uint8_t *>(litestl::alloc::alloc("multires store buffer", s.size()));
-  std::memcpy(buf, s.data(), s.size());
-  *out_size = int(s.size());
-  return buf;
+  // Hand the vector's own heap block over rather than copying ~9 MB again;
+  // freeMeshBuffer releases it through the same allocator that grew it.
+  *out_size = int(buf.size());
+  uint8_t *out = buf.steal_data();
+  if (!out) {
+    out = static_cast<uint8_t *>(litestl::alloc::alloc("multires store buffer", buf.size()));
+    std::memcpy(out, buf.data(), buf.size());
+  }
+  return out;
 }
 
 /** Replace the store from a Multires_serializeStore blob (same cage topology),

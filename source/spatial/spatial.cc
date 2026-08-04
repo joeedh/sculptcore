@@ -358,6 +358,10 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
   for (int f : node->data->unique_faces) {
     appendFaceTris(m, node->data->tris, f);
   }
+
+  node->data->foreign_verts.clear_and_contract();
+  node->data->border_tris.clear_and_contract();
+  node->data->foreign_verts_valid = false;
 }
 
 void SpatialTree::build_node_skirt(SpatialNode *node)
@@ -393,6 +397,33 @@ void SpatialTree::build_node_skirt(SpatialNode *node)
       } while (c != c0 && c != ELEM_NONE);
     }
   }
+}
+
+void SpatialTree::ensure_border_cache(SpatialNode *node)
+{
+  if (node->data->foreign_verts_valid) {
+    return;
+  }
+  util::Set<int> seen;
+  const util::Vector<NodeTri> &tris = node->data->tris;
+  for (int i : util::IndexRange(tris.size())) {
+    bool border = false;
+    for (int j = 0; j < 3; j++) {
+      int v = m->c.v[tris[i].c[j]];
+      if (treeMesh.v.node[v] == node->id) {
+        continue;
+      }
+      border = true;
+      if (!seen.contains(v)) {
+        seen.add(v);
+        node->data->foreign_verts.append(v);
+      }
+    }
+    if (border) {
+      node->data->border_tris.append(i);
+    }
+  }
+  node->data->foreign_verts_valid = true;
 }
 
 void SpatialTree::add_face_intern(SpatialNode *node, int f, float3 &fcent, int claimTag)
@@ -2940,16 +2971,33 @@ void SpatialTree::update_node_normals(SpatialNode *node)
    * verts of those faces). For small brushes on a large leaf this avoids
    * zeroing + renormalizing hundreds of unaffected verts/faces and skips
    * the cross-product accumulation for tris that didn't change. */
-  if (!fullRebuild && node->affected_verts.size() > 0) {
-    Set<int> moved_verts;
+  // The incremental path still scans every tri twice; all it saves over a
+  // rebuild is the zero + normalize sweeps. Once the moved set covers a decent
+  // share of the leaf that trade stops paying, so hand those to the full path.
+  if (!fullRebuild && node->affected_verts.size() > 0 &&
+      node->affected_verts.size() * 4 < node->data->unique_verts.size())
+  {
+    // Sorted id vectors rather than hash sets: this runs for every dirty leaf
+    // of every frame, and the membership tests dominate it — a binary search
+    // over a few thousand ids costs a fraction of hashing them.
+    auto sort_unique = [](Vector<int> &ids) {
+      std::sort(ids.data(), ids.data() + ids.size());
+      ids.resize(int(std::unique(ids.data(), ids.data() + ids.size()) - ids.data()));
+    };
+    auto has = [](Vector<int> &ids, int id) {
+      return std::binary_search(ids.data(), ids.data() + ids.size(), id);
+    };
+
+    Vector<int> moved_verts;
     for (int v : node->affected_verts) {
-      moved_verts.add(v);
+      moved_verts.append(v);
     }
+    sort_unique(moved_verts);
 
     /* Expand to the 1-ring: any tri that touches a moved vert contributes
      * to the affected face/vert sets. */
-    Set<int> affected_face_set;
-    Set<int> affected_vert_set;
+    Vector<int> affected_face_set;
+    Vector<int> affected_vert_set;
 
     for (int ti : IndexRange(node->data->tris.size())) {
       const auto &tri = node->data->tris[ti];
@@ -2957,16 +3005,14 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       int v2 = m->c.v[tri.c[1]];
       int v3 = m->c.v[tri.c[2]];
 
-      if (!moved_verts.contains(v1) && !moved_verts.contains(v2) &&
-          !moved_verts.contains(v3))
-      {
+      if (!has(moved_verts, v1) && !has(moved_verts, v2) && !has(moved_verts, v3)) {
         continue;
       }
 
-      affected_face_set.add(tri.f);
-      affected_vert_set.add(v1);
-      affected_vert_set.add(v2);
-      affected_vert_set.add(v3);
+      affected_face_set.append(tri.f);
+      affected_vert_set.append(v1);
+      affected_vert_set.append(v2);
+      affected_vert_set.append(v3);
     }
 
     /* Skirt tris expand vert coverage the same way (their faces belong to a
@@ -2976,16 +3022,17 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       int v2 = m->c.v[tri.c[1]];
       int v3 = m->c.v[tri.c[2]];
 
-      if (!moved_verts.contains(v1) && !moved_verts.contains(v2) &&
-          !moved_verts.contains(v3))
-      {
+      if (!has(moved_verts, v1) && !has(moved_verts, v2) && !has(moved_verts, v3)) {
         continue;
       }
 
-      affected_vert_set.add(v1);
-      affected_vert_set.add(v2);
-      affected_vert_set.add(v3);
+      affected_vert_set.append(v1);
+      affected_vert_set.append(v2);
+      affected_vert_set.append(v3);
     }
+
+    sort_unique(affected_face_set);
+    sort_unique(affected_vert_set);
 
     for (int v : affected_vert_set) {
       if (node_vattr[v] == node->id) {
@@ -3007,10 +3054,10 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       int v2 = m->c.v[tri.c[1]];
       int v3 = m->c.v[tri.c[2]];
 
-      const bool a1 = affected_vert_set.contains(v1);
-      const bool a2 = affected_vert_set.contains(v2);
-      const bool a3 = affected_vert_set.contains(v3);
-      const bool af = affected_face_set.contains(tri.f);
+      const bool a1 = has(affected_vert_set, v1);
+      const bool a2 = has(affected_vert_set, v2);
+      const bool a3 = has(affected_vert_set, v3);
+      const bool af = has(affected_face_set, tri.f);
       if (!a1 && !a2 && !a3 && !af) {
         continue;
       }
@@ -3038,9 +3085,9 @@ void SpatialTree::update_node_normals(SpatialNode *node)
       int v2 = m->c.v[tri.c[1]];
       int v3 = m->c.v[tri.c[2]];
 
-      const bool a1 = affected_vert_set.contains(v1);
-      const bool a2 = affected_vert_set.contains(v2);
-      const bool a3 = affected_vert_set.contains(v3);
+      const bool a1 = has(affected_vert_set, v1);
+      const bool a2 = has(affected_vert_set, v2);
+      const bool a3 = has(affected_vert_set, v3);
       if (!a1 && !a2 && !a3) {
         continue;
       }
@@ -3142,6 +3189,11 @@ bool SpatialTree::update(gpu::GPUManager *gpu)
 bool SpatialTree::updateQueries()
 {
   return updateImpl(nullptr, Update_Queries);
+}
+
+bool SpatialTree::updateNormals()
+{
+  return updateImpl(nullptr, Update_Normals);
 }
 
 bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
@@ -3276,7 +3328,6 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
       }
     }
 
-
     /* Phase: leaf normals (independent of partition). Own phase bit: per-dab
      * updateQueries() skips it (queries never read vertex normals), leaving
      * Spatial_UpdateNormals set so the per-frame update refreshes each dirty
@@ -3293,60 +3344,82 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
         }
       }
 
-      /* Cross-boundary halo (serial — writes other leaves' flags/hints): a
-       * moved vert changes the normal of every vert sharing a face with it,
-       * including verts owned by leaves the brush never flagged. For each dirty
-       * leaf, hint the owners of foreign verts on any tri (own or skirt)
-       * touching its moved set. One round suffices: hinted verts did not move,
-       * so they seed no further spread. */
+      // Cross-boundary halo: a moved vert changes the normal of every vert
+      // sharing a face with it, including ones owned by leaves the brush never
+      // flagged, so hint those owners. One round suffices — hints did not move.
       const int primaryNormalsCount = int(updateNormalsNodes.size());
-      for (int ni = 0; ni < primaryNormalsCount; ni++) {
-        SpatialNode *node = updateNormalsNodes[ni];
-        const bool full = bool(node->flag & Spatial_NormalsFullRebuild) ||
-                          node->affected_verts.size() == 0;
-        Set<int> moved;
-        if (!full) {
-          for (int v : node->affected_verts) {
-            moved.add(v);
-          }
-        }
-        auto scanTri = [&](const NodeTri &tri) {
-          int vs[3] = {m->c.v[tri.c[0]], m->c.v[tri.c[1]], m->c.v[tri.c[2]]};
-          if (!full && !moved.contains(vs[0]) && !moved.contains(vs[1]) &&
-              !moved.contains(vs[2]))
-          {
-            return;
-          }
-          for (int k = 0; k < 3; k++) {
-            int vn = treeMesh.v.node[vs[k]];
-            if (vn == 0 || vn == node->id) {
-              continue;
-            }
-            SpatialNode *nb = node_from_id(vn);
-            if (!nb || !(nb->flag & Spatial_Leaf) || !nb->data) {
-              continue;
-            }
-            if (nb->flag & Spatial_UpdateNormals) {
-              // Already dirty. Empty affected_verts on a flagged leaf REQUESTS
-              // A FULL REBUILD (the GPU stroke-end sync's shape) — appending a
-              // hint would silently downgrade it to an incremental pass over
-              // just the hinted ring, leaving the leaf's interior stale.
-              if (nb->affected_verts.size() > 0) {
-                nb->affected_verts.append(vs[k]);
+      // Only `border_tris` and the skirt are candidates: an all-owned tri can
+      // name no other leaf. The scan is read-only and parallel; every write is
+      // deferred to the serial merge, since hints land on leaves others scan.
+      struct HaloHint {
+        int node_id;
+        int vert;
+      };
+      Vector<Vector<HaloHint>> haloHints;
+      haloHints.resize(primaryNormalsCount);
+      litestl::task::parallel_for(
+          util::IndexRange(primaryNormalsCount),
+          [&](IndexRange range) {
+            Vector<int> moved;
+            for (int ni : range) {
+              SpatialNode *node = updateNormalsNodes[ni];
+              ensure_border_cache(node);
+              const bool full = bool(node->flag & Spatial_NormalsFullRebuild) ||
+                                node->affected_verts.size() == 0 ||
+                                node->affected_verts.size() * 4 >=
+                                    node->data->unique_verts.size();
+              moved.clear();
+              if (!full) {
+                for (int v : node->affected_verts) {
+                  moved.append(v);
+                }
+                std::sort(moved.data(), moved.data() + moved.size());
               }
-              continue;
+              int *mb = moved.data(), *me = mb + moved.size();
+              Vector<HaloHint> &out = haloHints[ni];
+              auto scanTri = [&](const NodeTri &tri) {
+                int vs[3] = {m->c.v[tri.c[0]], m->c.v[tri.c[1]], m->c.v[tri.c[2]]};
+                if (!full && !std::binary_search(mb, me, vs[0]) &&
+                    !std::binary_search(mb, me, vs[1]) && !std::binary_search(mb, me, vs[2]))
+                {
+                  return;
+                }
+                for (int k = 0; k < 3; k++) {
+                  int vn = treeMesh.v.node[vs[k]];
+                  if (vn == 0 || vn == node->id) {
+                    continue;
+                  }
+                  out.append({vn, vs[k]});
+                }
+              };
+              for (int ti : node->data->border_tris) {
+                scanTri(node->data->tris[ti]);
+              }
+              for (const NodeTri &tri : node->data->skirt_tris) {
+                scanTri(tri);
+              }
             }
-            nb->affected_verts.append(vs[k]);
-            nb->flag |= Spatial_UpdateNormals | Spatial_UpdateGPUGeom;
-            updateNormalsNodes.append(nb);
-            drawBatchUpdated = true;
+          },
+          4);
+      for (int ni = 0; ni < primaryNormalsCount; ni++) {
+        for (const HaloHint &hint : haloHints[ni]) {
+          SpatialNode *nb = node_from_id(hint.node_id);
+          if (!nb || !(nb->flag & Spatial_Leaf) || !nb->data) {
+            continue;
           }
-        };
-        for (const NodeTri &tri : node->data->tris) {
-          scanTri(tri);
-        }
-        for (const NodeTri &tri : node->data->skirt_tris) {
-          scanTri(tri);
+          if (nb->flag & Spatial_UpdateNormals) {
+            // Already dirty. Empty affected_verts on a flagged leaf REQUESTS A
+            // FULL REBUILD — appending a hint downgrades it to an incremental
+            // pass over the hinted ring, leaving the leaf's interior stale.
+            if (nb->affected_verts.size() > 0) {
+              nb->affected_verts.append(hint.vert);
+            }
+            continue;
+          }
+          nb->affected_verts.append(hint.vert);
+          nb->flag |= Spatial_UpdateNormals | Spatial_UpdateGPUGeom;
+          updateNormalsNodes.append(nb);
+          drawBatchUpdated = true;
         }
       }
 
@@ -3378,7 +3451,6 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
   if (!(phases & Update_Gpu)) {
     return result;
   }
-
 
   /* Phase: GPU partition assignment. Cheap walk (O(nodes)). If topology
    * didn't change we can skip recomputing counts, but the assignment

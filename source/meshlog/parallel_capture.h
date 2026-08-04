@@ -4,30 +4,30 @@
 Parallel undo capture for the generated brush *Pre stage.
 
 The serial capture walked every element of every filtered leaf on the calling
-thread (needsData stamp check + row append), which dominated non-dyntopo dab
-cost at high vert counts. This helper runs the same capture in three phases:
+thread (needsData stamp check + row copy), which dominated non-dyntopo dab cost
+at high vert counts. The row copy is the expensive half, so this helper splits
+the walk from the copy and parallelizes only the copy:
 
-  1. parallel over nodes: count the elements that still need capture this
-     stroke (leaf element ownership is unique, so the per-element stamp reads
-     touch disjoint elements across threads);
-  2. serial: prefix-sum the counts and reserve every new row in the element
-     store at once (ChunkElemData::appendRows — the only shared-state
-     mutation);
-  3. parallel over nodes: re-walk each node with the same predicate (the
-     stamps are untouched between the phases, so the selection is identical),
-     filling the node's disjoint row range (cpyFrom) and stamping its elements
-     saved (updateSaved — disjoint again).
+  1. serial over nodes: claim each element that still needs capture this stroke,
+     flipping its saved stamp (updateSaved) as it is claimed and appending it to
+     one flat buffer, with each node's start offset recorded as it begins.
+     Claiming through the gate itself is what makes the per-node runs disjoint —
+     a node's unique_verts() is *not* unique across nodes (a leaf-boundary vertex
+     is listed by every leaf touching it), and two threads racing one vertex's
+     needsData/updateSaved pair would otherwise reserve two rows and fill one;
+  2. serial: reserve every row in the element store at once — the claim buffer's
+     length is the total (ChunkElemData::appendRows, the only shared mutation);
+  3. parallel over nodes: copy each node's run of claimed elements into its own
+     disjoint row range (cpyFrom). No predicate here — phase 1 already decided.
 
-Flat count/base vectors only — no nested containers in the hot path. BOOL
-attribute rows write shared bitset words and are not parallel-safe; a capture
-set containing one falls back to a serial fill.
+BOOL attribute rows write shared bitset words and are not parallel-safe; a
+capture set containing one falls back to a serial fill.
 */
 
 #include "attr_saver.h"
 #include "meshlog.h"
 #include "spatial/node.h"
 
-#include "litestl/util/set.h"
 #include "litestl/util/task.h"
 #include "litestl/util/vector.h"
 
@@ -68,62 +68,40 @@ void parallelCapture(LogChunkElems &store,
     }
   };
 
-  /* Face ownership is unique per node, but a node's unique_verts() is not —
-   * a vertex on a leaf boundary is listed by every leaf touching it. Claim
-   * each element to exactly one node (first node in `nodes` wins) up front
-   * so phases 1/3 below iterate disjoint per-node subsets; without this, a
-   * shared element's needsData()/updateSaved() pair races across the
-   * parallel_for threads below and produces either duplicate rows (both
-   * threads see needsData() true) or unfilled rows (one thread's row is
-   * reserved in phase 2's count but its phase-3 needsData() check then sees
-   * the other thread already claimed it). */
-  util::Vector<util::Vector<int>> owned;
-  owned.resize(n);
-  {
-    util::Set<int> claimed;
-    for (int i = 0; i < n; i++) {
-      for (int e : elemsOf(nodes[i])) {
-        if (claimed.add(e)) {
-          owned[i].append(e);
-        }
+  // Phase 1: claim through the gate — first node to reach an element owns it.
+  // One flat buffer with per-node start offsets, not a Vector per node: the
+  // claim is serial, so appends already land in node order, and a leaf-count
+  // worth of heap allocations per dab per domain is pure overhead.
+  util::Vector<int> owned;
+  util::Vector<int> starts;
+  starts.resize(n + 1);
+  size_t cap = 0;
+  for (int i = 0; i < n; i++) {
+    cap += elemsOf(nodes[i]).size();
+  }
+  owned.ensure_capacity(cap);
+  for (int i = 0; i < n; i++) {
+    starts[i] = int(owned.size());
+    for (int e : elemsOf(nodes[i])) {
+      if (saver.needsData(e, sid, mask)) {
+        saver.updateSaved(e, sid, mask);
+        owned.append(e);
       }
     }
   }
-
-  /* Phase 1: per-node counts of elements needing capture. */
-  util::Vector<int> counts;
-  counts.resize(n);
-  task::parallel_for(util::IndexRange(n), [&](util::IndexRange range) {
-    for (int i : range) {
-      int c = 0;
-      for (int e : owned[i]) {
-        if (saver.needsData(e, sid, mask)) {
-          c++;
-        }
-      }
-      counts[i] = c;
-    }
-  });
+  const int total = int(owned.size());
+  starts[n] = total;
 
   /* Phase 2: one reservation for every new row. */
-  int total = 0;
-  for (int i = 0; i < n; i++) {
-    int c = counts[i];
-    counts[i] = total; /* becomes the node's base offset */
-    total += c;
-  }
   if (total == 0) {
     return;
   }
   const int base = store.data.appendRows(total);
 
   auto fillNode = [&](int i) {
-    int row = base + counts[i];
-    for (int e : owned[i]) {
-      if (saver.needsData(e, sid, mask)) {
-        store.data.cpyFrom(src, e, row++);
-        saver.updateSaved(e, sid, mask);
-      }
+    int row = base + starts[i];
+    for (int k = starts[i]; k < starts[i + 1]; k++) {
+      store.data.cpyFrom(src, owned[k], row++);
     }
   };
 

@@ -13,6 +13,8 @@ return buffers are freed after unpacking (TS leaks them).
 
 from __future__ import annotations
 
+import ctypes
+
 from . import _capi
 from ._capi import PTRSIZE
 from . import _descriptors as d
@@ -59,60 +61,122 @@ def _list_as_vector(manager, ptype, value):
     )
 
 
-def build_args(manager, arg_types, args):
-    """Pack `args` for the thunk ABI.
+_STEP_STRUCT = 0
+_STEP_BOOL = 1
+_STEP_NUMBER = 2
+_STEP_ENUM = 3
+_STEP_PTR = 4
+_STEP_REF = 5
 
-    Returns (ptr_list, owned, temps): `owned` lists every allocation to
-    release after the call (per-arg slot buffers, then ptr_list itself);
-    `temps` holds temporary vectors built from Python lists, disposed after
-    the call.
+
+class _CallPlan:
+    """Reusable scratch and per-parameter writers for one method/constructor.
+
+    Nothing about the thunk ABI's argument block varies between calls except
+    the bytes written into it, so a plan holds a single ctypes buffer laid out
+    as [ptr_list][slot 0][slot 1]...[return] and reuses it — replacing the
+    two-plus native memAlloc/memRelease pairs every call used to make — along
+    with the resolved writer for each parameter, so the marshalling loop is a
+    dispatch on a small int rather than a chain of isinstance tests.
+
+    Slot addresses are stamped into the args array once, here. References are
+    the exception: the thunks take those directly in the array (C++ can't form
+    a pointer-to-reference), so their entry is rewritten per call. Struct
+    returns are the other: unpack_return hands the buffer to the caller as
+    owned memory, so those still come from the native allocator.
     """
-    capi = manager.capi
-    n = len(arg_types)
-    ptr_list = capi.mem_alloc("thunk args", PTRSIZE * max(n, 1))
-    owned = []
-    temps = []
 
-    def addr_of(atype, value):
-        if isinstance(value, (list, tuple)):
-            vec = _list_as_vector(manager, atype, value)
-            if vec is not None:
-                temps.append(vec)
-                return vec.ptr
-        return _value_addr(value)
+    __slots__ = ("buf", "ptr_list", "ret_buf", "ret_type", "steps")
 
-    for index, ((name, atype), value) in enumerate(zip(arg_types, args)):
-        if isinstance(atype, d.ParentTemplateParamType):
-            atype = atype.concrete_type
+    def __init__(self, arg_types, ret_type):
+        resolved = []
+        for name, atype in arg_types:
+            if isinstance(atype, d.ParentTemplateParamType):
+                atype = atype.concrete_type
+            resolved.append((name, atype))
+        if isinstance(ret_type, d.ParentTemplateParamType):
+            ret_type = ret_type.concrete_type
 
-        arg_ptr = capi.mem_alloc("thunk arg", max(8, atype.size))
-        owned.append(arg_ptr)
-        _capi.write_u64(arg_ptr, 0)
-        _capi.write_ptr(ptr_list + index * PTRSIZE, arg_ptr)
+        n = len(resolved)
+        size = PTRSIZE * max(n, 1)
+        offsets = []
+        for _, atype in resolved:
+            size = (size + 7) & ~7
+            offsets.append(size)
+            size += max(8, atype.size)
+        own_ret = ret_type is not None and not isinstance(ret_type, d.StructType)
+        ret_offset = 0
+        if own_ret:
+            size = (size + 7) & ~7
+            ret_offset = size
+            size += max(8, ret_type.size)
 
-        if isinstance(atype, d.StructType):
-            ctor = atype.find_copy_constructor()
-            if ctor is None:
-                raise InvokeError(f"type {atype.full_name()} has no copy constructor")
-            construct_to(manager, ctor, arg_ptr, [_value_addr(value)])
-        elif isinstance(atype, d.BooleanType):
-            _capi.write_u8(arg_ptr, 1 if value else 0)
-        elif isinstance(atype, d.NumberType):
-            d.write_number(atype, arg_ptr, value)
-        elif isinstance(atype, d.EnumType):
-            _ENUM_WRITERS[atype.base_size](arg_ptr, int(value))
-        elif isinstance(atype, (d.ArrayType, d.PointerType)):
-            _capi.write_ptr(arg_ptr, addr_of(atype, value))
-        elif isinstance(atype, d.ReferenceType):
-            # The thunks take reference parameters directly in the args
-            # array (C++ can't form a pointer-to-reference); see the TS
-            # runtime's buildArgs and invokeImpl in binding_method.h.
-            _capi.write_ptr(ptr_list + index * PTRSIZE, addr_of(atype, value))
+        self.buf = ctypes.create_string_buffer(size)
+        base = ctypes.addressof(self.buf)
+        self.ptr_list = base
+        self.ret_type = ret_type
+        self.ret_buf = base + ret_offset if own_ret else 0
+
+        steps = []
+        for index, (name, atype) in enumerate(resolved):
+            slot = base + offsets[index]
+            _capi.write_ptr(base + index * PTRSIZE, slot)
+            if isinstance(atype, d.StructType):
+                ctor = atype.find_copy_constructor()
+                if ctor is None:
+                    raise InvokeError(f"type {atype.full_name()} has no copy constructor")
+                steps.append((_STEP_STRUCT, slot, ctor))
+            elif isinstance(atype, d.BooleanType):
+                steps.append((_STEP_BOOL, slot, None))
+            elif isinstance(atype, d.NumberType):
+                steps.append((_STEP_NUMBER, slot, d.number_writer(atype)))
+            elif isinstance(atype, d.EnumType):
+                steps.append((_STEP_ENUM, slot, _ENUM_WRITERS[atype.base_size]))
+            elif isinstance(atype, (d.ArrayType, d.PointerType)):
+                steps.append((_STEP_PTR, slot, atype))
+            elif isinstance(atype, d.ReferenceType):
+                steps.append((_STEP_REF, base + index * PTRSIZE, atype))
+            else:
+                raise InvokeError(f"cannot marshal argument {name!r} of type {atype.type!r}")
+        self.steps = steps
+
+
+def _acquire_plan(desc, arg_types, ret_type) -> _CallPlan:
+    """A free plan for `desc`, pooled rather than singleton: marshalling a
+    by-value struct argument re-enters through its copy constructor, and host
+    callbacks can re-enter anything."""
+    pool = getattr(desc, "_call_plans", None)
+    if pool is None:
+        pool = desc._call_plans = []
+    if pool:
+        return pool.pop()
+    return _CallPlan(arg_types, ret_type)
+
+
+def _fill_args(manager, plan: _CallPlan, args, temps) -> None:
+    """Write `args` into the plan's slots. Slots are reused across calls, so
+    every one is zeroed before a partial write."""
+    for (kind, slot, extra), value in zip(plan.steps, args):
+        if kind == _STEP_NUMBER:
+            _capi.write_u64(slot, 0)
+            extra(slot, value)
+        elif kind == _STEP_PTR or kind == _STEP_REF:
+            if isinstance(value, (list, tuple)):
+                vec = _list_as_vector(manager, extra, value)
+                if vec is not None:
+                    temps.append(vec)
+                    _capi.write_ptr(slot, vec.ptr)
+                    continue
+            _capi.write_ptr(slot, _value_addr(value))
+        elif kind == _STEP_BOOL:
+            _capi.write_u64(slot, 0)
+            _capi.write_u8(slot, 1 if value else 0)
+        elif kind == _STEP_ENUM:
+            _capi.write_u64(slot, 0)
+            extra(slot, int(value))
         else:
-            raise InvokeError(f"cannot marshal argument {name!r} of type {atype.type!r}")
-
-    owned.append(ptr_list)
-    return ptr_list, owned, temps
+            _capi.write_u64(slot, 0)
+            construct_to(manager, extra, slot, [_value_addr(value)])
 
 
 def invoke_method(manager, method: d.MethodType, self_ptr: int, args):
@@ -121,23 +185,28 @@ def invoke_method(manager, method: d.MethodType, self_ptr: int, args):
             f"{method.name}: expected {len(method.params)} arguments, got {len(args)}"
         )
     capi = manager.capi
-    ptr_list, owned, temps = build_args(manager, method.params, args)
-
-    ret_type = method.return_type
-    ret_buf = 0
-    if ret_type is not None:
-        ret_buf = capi.mem_alloc("thunk return", max(8, ret_type.size))
-
-    capi.lib.LSTL_Method_Invoke(method.ptr, self_ptr, ptr_list, ret_buf)
-
-    for vec in temps:
-        vec.dispose()
-    for ptr in owned:
-        capi.mem_release(ptr)
-
-    if ret_type is None:
-        return None
-    return manager.unpack_return(ret_type, ret_buf)
+    plan = _acquire_plan(method, method.params, method.return_type)
+    temps = []
+    try:
+        _fill_args(manager, plan, args, temps)
+        ret_type = plan.ret_type
+        ret_buf = plan.ret_buf
+        plan_owns_ret = ret_buf != 0
+        if ret_type is not None and not plan_owns_ret:
+            ret_buf = capi.mem_alloc("thunk return", max(8, ret_type.size))
+        capi.lib.LSTL_Method_Invoke(method.ptr, self_ptr, plan.ptr_list, ret_buf)
+        for vec in temps:
+            vec.dispose()
+        temps = ()
+        if ret_type is None:
+            return None
+        # Before the plan goes back in the pool: a nested call would reuse the
+        # buffer this return value still lives in.
+        return manager.unpack_return(ret_type, ret_buf, release=not plan_owns_ret)
+    finally:
+        for vec in temps:
+            vec.dispose()
+        method._call_plans.append(plan)
 
 
 def construct_to(manager, ctor: d.ConstructorType, this_ptr: int, args) -> int:
@@ -146,13 +215,15 @@ def construct_to(manager, ctor: d.ConstructorType, this_ptr: int, args) -> int:
             f"{ctor.owner.name}::{ctor.name}: expected {len(ctor.params)} arguments, "
             f"got {len(args)}"
         )
-    capi = manager.capi
-    ptr_list, owned, temps = build_args(manager, ctor.params, args)
-    capi.lib.LSTL_Constructor_Invoke(ctor.ptr, this_ptr, ptr_list)
-    for vec in temps:
-        vec.dispose()
-    for ptr in owned:
-        capi.mem_release(ptr)
+    plan = _acquire_plan(ctor, ctor.params, None)
+    temps = []
+    try:
+        _fill_args(manager, plan, args, temps)
+        manager.capi.lib.LSTL_Constructor_Invoke(ctor.ptr, this_ptr, plan.ptr_list)
+    finally:
+        for vec in temps:
+            vec.dispose()
+        ctor._call_plans.append(plan)
     return this_ptr
 
 

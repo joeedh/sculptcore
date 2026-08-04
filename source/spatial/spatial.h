@@ -301,6 +301,10 @@ struct SpatialTree {
 
   void update_node_normals(SpatialNode *node);
 
+  /** Rebuild `node->data->{foreign_verts,border_tris}` if stale. Safe to call
+   * concurrently on distinct leaves — it touches only that leaf's own data. */
+  void ensure_border_cache(SpatialNode *node);
+
   bool node_needs_split(SpatialNode *node)
   {
     return node->data->unique_verts.size() >= leaf_limit && node->depth < depth_limit;
@@ -934,6 +938,12 @@ struct SpatialTree {
    * every GPU dirty bit untouched for a later update(gpu) — the draw frame —
    * to consume. Returns today's update() semantics: bounds changed. */
   bool updateQueries();
+
+  /** Normals half only: refresh vertex/face normals on the leaves the stroke
+   * dirtied (incremental — moved verts plus their 1-ring, with the
+   * cross-leaf halo). The O(mesh) alternative, Mesh::recalc_normals(), also
+   * thaws the topology and so costs a freeze rebuild on the next dab. */
+  bool updateNormals();
 
   /* GPU-resident stroke (debug app). While true, update()'s GPU phase leaves a
    * GPU node's pos/nor untouched when they are gpu_owned — the scatter compute

@@ -313,9 +313,10 @@ class Manager:
         else:
             raise UnknownTypeError(f"cannot assign binding type {btype.type!r}")
 
-    def unpack_return(self, ret_type: d.BindingBase, ret_buf: int):
-        """Unpack a thunk return buffer. Struct-by-value returns keep the
-        buffer and own it; everything else is read out and the buffer freed."""
+    def unpack_return(self, ret_type: d.BindingBase, ret_buf: int, release: bool = True):
+        """Unpack a thunk return buffer. Struct-by-value returns keep the buffer
+        and own it; everything else is read out and — unless the caller owns the
+        storage, as the marshaller's reusable call plan does — freed."""
         if isinstance(ret_type, d.ParentTemplateParamType):
             ret_type = ret_type.concrete_type
         if isinstance(ret_type, d.StructType):
@@ -323,7 +324,8 @@ class Manager:
         try:
             return self.get_bound_pointer(ret_type, ret_buf)
         finally:
-            self.capi.mem_release(ret_buf)
+            if release:
+                self.capi.mem_release(ret_buf)
 
     # --- construction -----------------------------------------------------------
 

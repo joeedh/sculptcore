@@ -193,6 +193,18 @@ struct CommandExecutor {
   int coPrevGen_ = 0;
   Vector<spatial::SpatialNode *> coPrevDirty_;
 
+  /** "This vert moved in the current dab", stamped by generation. A hash set
+   * cost ~50k inserts + ~33k probes per dab under a large brush; the border
+   * pass only ever asks a membership question, so a stamp array answers it in
+   * one indexed read. */
+  Vector<uint32_t> movedStamp_;
+  uint32_t movedStampGen_ = 0;
+
+  /** Per-exec `nodes[i]->affected_verts.size()` taken before the kernels run,
+   * so border propagation sees this dab's moved verts and not the whole
+   * stroke's backlog. */
+  Vector<int> affectedBase_;
+
   /** Pinned node set of one grab-class symmetry image (see grabFilterNodes).
    * Node ids, not pointers: a leaf can be freed and its slot reused between
    * dabs, and node_from_id null-checks for us. */
@@ -1013,7 +1025,15 @@ struct CommandExecutor {
           (*ctx.dispGen)[v] = int(strokeGen);
         }
       };
+      // Same elision as the capture walk above: this visits every element of
+      // each leaf and writes a stroke-fixed value, so re-walking a leaf a later
+      // dab still covers is pure overhead once it is fully stamped.
+      const int stampOpts = (ctx.origNo ? 1 : 0) | (ctx.dabGen ? 2 : 0);
+      const bool elideStamp = !stepHasDyntopo && strokeGen != 0;
       for (auto *node : nodes) {
+        if (elideStamp && node->baseStampGen == strokeGen && node->baseStampOpts == stampOpts) {
+          continue;
+        }
         for (int v : node->data->unique_verts) {
           if (ctx.dabGen) {
             ctx.dabGen->materialize(v);
@@ -1027,6 +1047,8 @@ struct CommandExecutor {
             }
           }
         }
+        node->baseStampGen = elideStamp ? strokeGen : 0;
+        node->baseStampOpts = elideStamp ? stampOpts : -1;
       }
     }
 
@@ -1086,6 +1108,15 @@ struct CommandExecutor {
     // Skip leaves emptied of verts: heavy in-stroke collapse can leave a zero-vert
     // leaf whose loose AABB still overlaps the brush sphere, so a vertex iterator on
     // it wild-reads unique_verts.begin() (brush_iterators.h: "never on empty node").
+    // affected_verts is a sticky hint list: nothing clears it until the normals
+    // pass consumes it, so by late stroke it holds every vert of every prior
+    // dab. Remember where each node's list ends, so border propagation walks
+    // only what this dab adds.
+    affectedBase_.resize(nodes.size());
+    for (int i : IndexRange(nodes.size())) {
+      affectedBase_[i] = int(nodes[i]->affected_verts.size());
+    }
+
 #ifdef NO_PARALLEL_FOR
     for (auto *node : nodes) {
       if (node->data->unique_verts.size() == 0) {
@@ -1122,27 +1153,41 @@ struct CommandExecutor {
     // Border propagation: kernels flag only the node whose own verts moved, but
     // neighbouring leaves' tris draw replicas of (and integrate normals over) a
     // moved border vert — flag those too, appending the vert as a normals hint.
-    {
-      Set<int> movedVerts;
-      for (auto *node : nodes) {
-        for (int v : node->affected_verts) {
-          movedVerts.add(v);
+    if (nodes.size() > 1) {
+      mesh::Mesh *mm = nodes[0]->data->m;
+      // Stamp the dab's moved verts instead of hashing them into a Set: the
+      // border pass only ever asks a membership question, and at a large brush
+      // radius that set costs ~50k inserts plus ~33k probes per dab.
+      if (movedStamp_.size() < mm->v.capacity()) {
+        movedStamp_.resize(mm->v.capacity());
+        std::fill(movedStamp_.begin(), movedStamp_.end(), 0u);
+        movedStampGen_ = 0;
+      }
+      if (++movedStampGen_ == 0) {
+        std::fill(movedStamp_.begin(), movedStamp_.end(), 0u);
+        movedStampGen_ = 1;
+      }
+      size_t movedCount = 0;
+      for (int i : IndexRange(nodes.size())) {
+        auto &av = nodes[i]->affected_verts;
+        for (int j = affectedBase_[i]; j < int(av.size()); j++) {
+          movedStamp_[av[j]] = movedStampGen_;
+          movedCount++;
         }
       }
-      if (movedVerts.size() > 0 && nodes.size() > 1) {
-        mesh::Mesh *mm = nodes[0]->data->m;
+      if (movedCount > 0) {
         for (auto *node : nodes) {
           if (node->flag & spatial::Spatial_RegenTris) {
             continue; // tris are stale; the pending full regen covers this leaf
           }
+          // The candidates are exactly this leaf's foreign verts, so scan the
+          // tris only to (re)build that cache — not once per dab.
+          tree->ensure_border_cache(node);
           bool touched = false;
-          for (auto &tri : node->data->tris) {
-            for (int j = 0; j < 3; j++) {
-              int v = mm->c.v[tri.c[j]];
-              if (tree->treeMesh.v.node[v] != node->id && movedVerts.contains(v)) {
-                node->affected_verts.append(v);
-                touched = true;
-              }
+          for (int v : node->data->foreign_verts) {
+            if (movedStamp_[v] == movedStampGen_) {
+              node->affected_verts.append(v);
+              touched = true;
             }
           }
           if (touched) {
@@ -1539,8 +1584,9 @@ struct CommandExecutor {
         refreshBoundaryClassForBSmooth(m);
       }
       if (brushNeedsLiveLinks(brushType) || keepTopoThawed) {
-        if (m->topo_frozen)
+        if (m->topo_frozen) {
           m->thawTopo();
+        }
       } else if (!m->topo_frozen) {
         m->freezeTopo();
       }

@@ -116,6 +116,17 @@ struct SpatialNode {
      * complete (vert normals only — the face normal belongs to the owner).
      * Built by SpatialTree::build_node_skirt; invalidated via Spatial_RegenSkirt. */
     util::Vector<NodeTri> skirt_tris;
+
+    /** Border cache over `tris`: the distinct verts they reference but another
+     * leaf owns (the set the executor hands normal hints to), and the indices
+     * of the tris carrying at least one such vert — the only tris that can
+     * ever produce a hint, a few percent of a leaf's interior-dominated list.
+     * Both are a function of `tris` + the ownership attr, so they are rebuilt
+     * lazily whenever tris are (see SpatialTree::ensure_border_cache). */
+    util::Vector<int> foreign_verts;
+    util::Vector<int> border_tris;
+    bool foreign_verts_valid = false;
+
     Mesh *m;
   };
 
@@ -168,6 +179,15 @@ struct SpatialNode {
    * verts a brush exec may have moved is appended to the executor's refresh
    * list once per coPrev refresh generation. */
   int coPrevStamp = 0;
+
+  /** `.brush.disp.*` first-touch walk-elision, the capture-stamp idea applied to
+   * base stamping: that walk visits every element of the leaf and writes a
+   * value fixed by the stroke, so a leaf already walked for stroke `gen` under
+   * the same options has nothing left to do. `opts` distinguishes the optional
+   * extra walks (orig-normal skirt, grab dab-gen); -1 = never walked. Only
+   * consulted on topology-stable steps, as with captureStamps. */
+  uint32_t baseStampGen = 0;
+  int baseStampOpts = -1;
 
   SpatialNode()
   {
