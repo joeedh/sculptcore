@@ -808,19 +808,18 @@ struct Emit {
       emitExpr(*s.lvalue);
       out += ".v;\n";
       writeIndent();
-      out += "auto *__m = ctx.node.data->m;\n";
-      writeIndent();
       out += "for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {\n";
       indent++;
       writeIndent();
       // Neighbor co reads via the AccumMode policy: the pre-dab Jacobi snapshot
-      // (AccumLive) or the base position (AccumOrig); no/v stay live. `co` is by
-      // value because a from-base policy computes it — aggregate init does not
+      // (AccumLive) or the base position (AccumOrig); no comes through the
+      // executor's nbrNo (the domain seam), v stays live. `co` is by value
+      // because a from-base policy computes it — aggregate init does not
       // extend a temporary's lifetime through a reference member.
       out += "struct { litestl::math::float3 co; litestl::math::float3 &no; int "
              "v; } ";
       out += s.name;
-      out += " {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};\n";
+      out += " {AccMode::neighborCo(ctx, __nb_v), TYPES::nbrNo(ctx, __nb_v), __nb_v};\n";
       // Body: emit either a Block (inline) or a single statement.
       int savedLocals = (int)locals.size();
       locals.append(LocalVar{s.name, TypeKind::Unknown});
@@ -1218,53 +1217,40 @@ struct Emit {
     return string(buf);
   }
 
-  // Emit one guarded block that resolves a single `save` to a live AttrRef and,
-  // when present, appends it to the local __refs[] array and ORs its flag into
-  // __mask. Builtin co/no slice straight off the mesh; mask resolves by column
-  // name; any other name is a declared `attr` handle whose layer is taken from
-  // the resolved BrushAttrLayerOverride binding (ctx.boundAttrRef).
-  void emitSaveResolve(const SaveAttr &sv, AttrDomain dom, int &customIdx)
+  // Emit one CaptureSaveDesc initializer for a `save`: its field kind, the attr
+  // handle (declared attrs only), and the codegen-fixed undo-flag bits. The
+  // resolve/capture work itself lives in TYPES::capture_policy (the domain
+  // seam) — see brush/capture_policy.h.
+  void emitSaveDesc(const SaveAttr &sv, AttrDomain dom, int &customIdx)
   {
     const char *nm = sv.name.c_str();
     string flag = saveFlagExpr(nm, customIdx);
-    const char *letter = (dom == AttrDomain::Vertex) ? "v" : "f";
 
-    write("    {\n");
-    if (std::strcmp(nm, "mask") == 0) {
-      write("      sculptcore::mesh::AttrRef __r = m->");
-      write(letter);
-      write(".attrs.find_attribute(sculptcore::mesh::AttrType::FLOAT, \".spatial.");
-      write(letter);
-      write(".mask\");\n");
-      write("      if (__r.data) { __refs[__n] = __r; __mask |= __saver.add(__refs[__n], ");
-      write(flag);
-      write("); __n++; }\n");
+    write("    {sculptcore::brush::CaptureField::");
+    if (std::strcmp(nm, "co") == 0) {
+      if (dom != AttrDomain::Vertex)
+        err("save: 'co' is only valid on the vertex domain");
+      write("Co, nullptr, ");
+    } else if (std::strcmp(nm, "no") == 0) {
+      write("No, nullptr, ");
+    } else if (std::strcmp(nm, "mask") == 0) {
+      write("Mask, nullptr, ");
     } else {
-      string src;
-      if (std::strcmp(nm, "co") == 0 || std::strcmp(nm, "no") == 0) {
-        if (std::strcmp(nm, "co") == 0 && dom != AttrDomain::Vertex)
-          err("save: 'co' is only valid on the vertex domain");
-        src = string("&m->") + letter + "." + nm;
-      } else {
-        if (!findAttrField(stringref(nm)))
-          err("save: unknown attribute (not builtin co/no/mask, nor a declared attr)");
-        src = string("ctx.boundAttrRef(\"") + nm + "\")";
-      }
-      write("      const sculptcore::mesh::AttrRef *__r = ");
-      write(src);
-      write(";\n");
-      write("      if (__r && __r->data) { __refs[__n] = *__r; __mask |= "
-            "__saver.add(__refs[__n], ");
-      write(flag);
-      write("); __n++; }\n");
+      if (!findAttrField(stringref(nm)))
+        err("save: unknown attribute (not builtin co/no/mask, nor a declared attr)");
+      write("Attr, \"");
+      write(nm);
+      write("\", ");
     }
-    write("    }\n");
+    write("int(");
+    write(flag);
+    write(")},\n");
   }
 
-  // Pre-stage: AttrSaver-gated undo capture. For each save-domain, stamp the
-  // element-keyed gate and append touched elements' attrs to the per-step
-  // element store. Element-keyed so it survives dyntopo tree restructuring
-  // mid-stroke. An empty `save` set defaults to {vertex co, vertex no, face no}.
+  // Pre-stage: undo capture through TYPES::capture_policy. The `save` set
+  // lowers to per-domain CaptureSaveDesc arrays; the policy resolves them and
+  // captures (the mesh policy is the historical AttrSaver + parallelCapture
+  // block). An empty `save` set defaults to {vertex co, vertex no, face no}.
   void emitPreStage(const string &lowerName)
   {
     Vector<SaveAttr> saves;
@@ -1280,13 +1266,8 @@ struct Emit {
     write("template <CommandTypes TYPES>\n");
     write("static void ");
     write(lowerName);
-    write("Pre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)\n");
+    write("Pre(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)\n");
     write("{\n");
-    write("  if (!ctx.meshLog || nodes.empty()) {\n");
-    write("    return;\n");
-    write("  }\n");
-    write("  auto *m = nodes[0]->data->m;\n");
-    write("  const int __sid = ctx.meshLog->curStrokeId();\n");
 
     int customIdx = 0;
     for (AttrDomain dom : {AttrDomain::Vertex, AttrDomain::Face}) {
@@ -1299,34 +1280,19 @@ struct Emit {
         continue;
 
       const char *domEnum = (dom == AttrDomain::Vertex) ? "VERTEX" : "FACE";
-      const char *grp = (dom == AttrDomain::Vertex) ? "m->v.attrs" : "m->f.attrs";
+      const char *arr = (dom == AttrDomain::Vertex) ? "__vsaves" : "__fsaves";
 
-      write("  {\n");
-      write("    sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::");
-      write(domEnum);
-      write("> __saver;\n");
-      write("    __saver.ensure(*m);\n");
-      char buf[32];
-      std::snprintf(buf, sizeof(buf), "%d", (int)domSaves.size());
-      write("    sculptcore::mesh::AttrRef __refs[");
-      write(buf);
-      write("];\n");
-      write("    int __n = 0, __mask = 0;\n");
+      write("  static const sculptcore::brush::CaptureSaveDesc ");
+      write(arr);
+      write("[] = {\n");
       for (const SaveAttr *s : domSaves)
-        emitSaveResolve(*s, dom, customIdx);
-      write("    if (__mask) {\n");
-      write("      auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::");
+        emitSaveDesc(*s, dom, customIdx);
+      write("  };\n");
+      write("  TYPES::capture_policy::template capture<sculptcore::mesh::ElemType::");
       write(domEnum);
-      write(");\n");
-      write("      litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, "
-            "__n);\n");
-      write("      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::");
-      write(domEnum);
-      write(">(\n          *__store, ");
-      write(grp);
-      write(", nodes, __saver, __span, __sid, __mask);\n");
-      write("    }\n");
-      write("  }\n");
+      write(">(\n      ctx, nodes, std::span<const sculptcore::brush::CaptureSaveDesc>(");
+      write(arr);
+      write("));\n");
     }
     for (const auto &s : saves) {
       if (s.domain != AttrDomain::Vertex && s.domain != AttrDomain::Face)
@@ -1352,9 +1318,9 @@ struct Emit {
     write("\n");
     write("#pragma once\n");
     write("#include \"brush/brush_command.h\"\n");
+    write("#include \"brush/capture_policy.h\"\n");
     write("#include \"spatial/spatial_enums.h\"\n");
     write("#include \"mesh/mesh_iter.h\"\n");
-    write("#include \"meshlog/parallel_capture.h\"\n");
     if (usesNbr)
       write("#include \"brush/neighbor_source.h\"\n");
     write("\n");
@@ -1583,7 +1549,7 @@ struct Emit {
     write("template <CommandTypes TYPES>\n");
     write("static void ");
     write(lowerName);
-    write("Post(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)\n");
+    write("Post(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)\n");
     write("{\n");
     write("  (void)ctx; (void)nodes;\n");
     write("}\n\n");

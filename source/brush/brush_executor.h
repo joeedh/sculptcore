@@ -4,6 +4,7 @@
 #include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
+#include "capture_policy.h"
 #include "enhance.h"
 #include "brushes/all.h"
 #include "displace/compositor.h"
@@ -163,7 +164,25 @@ struct CommandExecutor {
   using vertex_iter_factory = std::function<vertex_iter(spatial::SpatialNode &)>;
   using face_iter = BasicFaceIter;
   using face_iter_factory = std::function<face_iter(spatial::SpatialNode &)>;
+  /** Domain seam (grids-native brush path): this executor iterates spatial
+   * leaves and captures undo through the meshlog. */
+  using node_type = spatial::SpatialNode;
+  using capture_policy = MeshCapturePolicy;
   using brush_command = BrushCommandDef<CommandCtx<CommandExecutor>>;
+
+  /** Neighbor-bundle normal for the generated for_neighbor loop (the domain
+   * seam replacing the emitted `node.data->m->v.no[nb]` read). */
+  template <class Ctx> static float3 &nbrNo(Ctx &ctx, int v)
+  {
+    return ctx.node.data->m->v.no[v];
+  }
+
+  /** The live vertex normal the view-normal automask evaluates, or null when
+   * unavailable (no mesh on the ctx — the historical skip). */
+  template <class Ctx> const float3 *liveVertNoPtr(Ctx &ctx, int v) const
+  {
+    return ctx.m ? &ctx.m->v.no[v] : nullptr;
+  }
 
   /** Selects how for_neighbor kernels enumerate the 1-ring: the live disk walk
    * (default) or the cached CSR adjacency (MeshTopoCache::ring1). The choice is

@@ -2,56 +2,26 @@
 // Source: source/brush/kernels/plane.sbrush
 #pragma once
 #include "brush/brush_command.h"
+#include "brush/capture_policy.h"
 #include "spatial/spatial_enums.h"
 #include "mesh/mesh_iter.h"
-#include "meshlog/parallel_capture.h"
 
 namespace sculptcore::brush::command {
 
 template <CommandTypes TYPES>
-static void planePre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)
+static void planePre(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)
 {
-  if (!ctx.meshLog || nodes.empty()) {
-    return;
-  }
-  auto *m = nodes[0]->data->m;
-  const int __sid = ctx.meshLog->curStrokeId();
-  {
-    sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::VERTEX> __saver;
-    __saver.ensure(*m);
-    sculptcore::mesh::AttrRef __refs[2];
-    int __n = 0, __mask = 0;
-    {
-      const sculptcore::mesh::AttrRef *__r = &m->v.co;
-      if (__r && __r->data) { __refs[__n] = *__r; __mask |= __saver.add(__refs[__n], sculptcore::meshlog::CO); __n++; }
-    }
-    {
-      const sculptcore::mesh::AttrRef *__r = &m->v.no;
-      if (__r && __r->data) { __refs[__n] = *__r; __mask |= __saver.add(__refs[__n], sculptcore::meshlog::NO); __n++; }
-    }
-    if (__mask) {
-      auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::VERTEX);
-      litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, __n);
-      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::VERTEX>(
-          *__store, m->v.attrs, nodes, __saver, __span, __sid, __mask);
-    }
-  }
-  {
-    sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::FACE> __saver;
-    __saver.ensure(*m);
-    sculptcore::mesh::AttrRef __refs[1];
-    int __n = 0, __mask = 0;
-    {
-      const sculptcore::mesh::AttrRef *__r = &m->f.no;
-      if (__r && __r->data) { __refs[__n] = *__r; __mask |= __saver.add(__refs[__n], sculptcore::meshlog::NO); __n++; }
-    }
-    if (__mask) {
-      auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::FACE);
-      litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, __n);
-      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::FACE>(
-          *__store, m->f.attrs, nodes, __saver, __span, __sid, __mask);
-    }
-  }
+  static const sculptcore::brush::CaptureSaveDesc __vsaves[] = {
+    {sculptcore::brush::CaptureField::Co, nullptr, int(sculptcore::meshlog::CO)},
+    {sculptcore::brush::CaptureField::No, nullptr, int(sculptcore::meshlog::NO)},
+  };
+  TYPES::capture_policy::template capture<sculptcore::mesh::ElemType::VERTEX>(
+      ctx, nodes, std::span<const sculptcore::brush::CaptureSaveDesc>(__vsaves));
+  static const sculptcore::brush::CaptureSaveDesc __fsaves[] = {
+    {sculptcore::brush::CaptureField::No, nullptr, int(sculptcore::meshlog::NO)},
+  };
+  TYPES::capture_policy::template capture<sculptcore::mesh::ElemType::FACE>(
+      ctx, nodes, std::span<const sculptcore::brush::CaptureSaveDesc>(__fsaves));
 }
 
 template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>
@@ -79,7 +49,7 @@ static void plane(CommandCtx<TYPES> &ctx)
 }
 
 template <CommandTypes TYPES>
-static void planePost(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)
+static void planePost(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)
 {
   (void)ctx; (void)nodes;
 }

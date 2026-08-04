@@ -37,6 +37,10 @@ concept CommandTypes = requires() {
   VertexIter<typename T::vertex_iter>;
   VertexIterFactory<typename T::vertex_iter_factory, typename T::vertex_iter_factory>;
   FaceIter<typename T::face_iter>;
+  // Domain seam (grids-native brush path): the spatial unit generated kernels
+  // iterate (`ctx.node`) and the undo-capture policy their Pre stage calls.
+  typename T::node_type;
+  typename T::capture_policy;
 };
 
 template <CommandTypes TYPES> struct CommandCtx;

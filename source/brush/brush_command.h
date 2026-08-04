@@ -259,12 +259,17 @@ struct CommandCtxBase {
 };
 
 template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
+  /** The executor type, reachable from the CTX parameter of BrushCommandDef
+   * (which needs its node_type for the Pre/Post signatures). */
+  using types = TYPES;
+  using node_type = typename TYPES::node_type;
+
   Brush &brush;
-  spatial::SpatialNode &node;
+  node_type &node;
   TYPES &executor;
 
   CommandCtx(const CommandCtxBase &base,
-             spatial::SpatialNode &node,
+             node_type &node,
              TYPES &executor,
              Brush &brush)
       : CommandCtxBase(base), node(node), executor(executor), brush(brush)
@@ -278,11 +283,11 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   // Per-call iterator factories. The vertex iterator is parameterized by the
   // AccumMode policy so a generated kernel reads stroke-start positions
   // (AccumOrig) or live positions (AccumLive) with no per-vertex branch.
-  template <class AccMode> auto vertexIter(spatial::SpatialNode &node)
+  template <class AccMode> auto vertexIter(node_type &node)
   {
     return executor.template makeVertexIter<AccMode>(node);
   }
-  auto faceIter(spatial::SpatialNode &node) { return executor.makeFaceIter(node); }
+  auto faceIter(node_type &node) { return executor.makeFaceIter(node); }
   /** Spatial + scalar term only: slider x distance falloff, invert-signed. The
    * per-vertex masking factors live in automasks()/masks() — a kernel that wants
    * them multiplies one of those in. Kernels with unbounded support (whose field
@@ -304,8 +309,12 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     if (automaskEnabled && automaskFactor && v >= 0) {
       s *= (*automaskFactor)[v];
     }
-    if (viewNormal.enabled && v >= 0 && m) {
-      s *= viewNormalFactor(m->v.no[v], viewNormal);
+    // The live normal comes from the executor (domain seam): the mesh
+    // executor reads ctx.m->v.no, the grids executor its domain normals.
+    if (viewNormal.enabled && v >= 0) {
+      if (const float3 *n = executor.liveVertNoPtr(*this, v)) {
+        s *= viewNormalFactor(*n, viewNormal);
+      }
     }
     return s;
   }
@@ -394,13 +403,17 @@ enum _BrushFlags { None = 0, Serial = 1 << 0 };
 MAKE_FLAGS_CLASS(BrushFlags, _BrushFlags, int);
 
 template <typename CTX> struct BrushCommandDef {
+  /** The executor's spatial unit (SpatialNode for the mesh path, the grid
+   * executor's leaf node for the grids path) — the Pre/Post span type. */
+  using node_type = typename CTX::node_type;
+
   // Optional `host` stage from the DSL — runs once per dab on CPU before
   // any per-node work. Used to mutate ctx state / populate query buffers
   // that the per-vertex stage then reads. Never lowered to GPU backends.
   std::function<void(CommandCtxBase &, Brush &)> execHost;
-  std::function<void(CommandCtxBase &, std::span<SpatialNode *>)> execPre;
+  std::function<void(CommandCtxBase &, std::span<node_type *>)> execPre;
   std::function<void(CTX &)> exec;
-  std::function<void(CommandCtxBase &, std::span<SpatialNode *>)> execPost;
+  std::function<void(CommandCtxBase &, std::span<node_type *>)> execPost;
   BrushFlags flags = BrushFlags::None;
   // Set by codegen for brushes that use for_neighbor: the executor snapshots
   // the mesh's vertex positions into ctx.co_prev before the per-node loop.

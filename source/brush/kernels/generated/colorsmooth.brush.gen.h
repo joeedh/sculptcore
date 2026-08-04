@@ -2,37 +2,21 @@
 // Source: source/brush/kernels/colorsmooth.sbrush
 #pragma once
 #include "brush/brush_command.h"
+#include "brush/capture_policy.h"
 #include "spatial/spatial_enums.h"
 #include "mesh/mesh_iter.h"
-#include "meshlog/parallel_capture.h"
 #include "brush/neighbor_source.h"
 
 namespace sculptcore::brush::command {
 
 template <CommandTypes TYPES>
-static void colorsmoothPre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)
+static void colorsmoothPre(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)
 {
-  if (!ctx.meshLog || nodes.empty()) {
-    return;
-  }
-  auto *m = nodes[0]->data->m;
-  const int __sid = ctx.meshLog->curStrokeId();
-  {
-    sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::VERTEX> __saver;
-    __saver.ensure(*m);
-    sculptcore::mesh::AttrRef __refs[1];
-    int __n = 0, __mask = 0;
-    {
-      const sculptcore::mesh::AttrRef *__r = ctx.boundAttrRef("color");
-      if (__r && __r->data) { __refs[__n] = *__r; __mask |= __saver.add(__refs[__n], sculptcore::meshlog::COLOR); __n++; }
-    }
-    if (__mask) {
-      auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::VERTEX);
-      litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, __n);
-      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::VERTEX>(
-          *__store, m->v.attrs, nodes, __saver, __span, __sid, __mask);
-    }
-  }
+  static const sculptcore::brush::CaptureSaveDesc __vsaves[] = {
+    {sculptcore::brush::CaptureField::Attr, "color", int(sculptcore::meshlog::COLOR)},
+  };
+  TYPES::capture_policy::template capture<sculptcore::mesh::ElemType::VERTEX>(
+      ctx, nodes, std::span<const sculptcore::brush::CaptureSaveDesc>(__vsaves));
 }
 
 template <CommandTypes TYPES, sculptcore::brush::NbrSource NbrSrc, sculptcore::brush::AccumMode AccMode>
@@ -51,9 +35,8 @@ static void colorsmooth(CommandCtx<TYPES> &ctx)
     float n = 0.0f;
     {
       int __outer_v = v.v;
-      auto *__m = ctx.node.data->m;
       for (int __nb_v : NbrSrc::range(ctx, __outer_v)) {
-        struct { litestl::math::float3 co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), __m->v.no[__nb_v], __nb_v};
+        struct { litestl::math::float3 co; litestl::math::float3 &no; int v; } nb {AccMode::neighborCo(ctx, __nb_v), TYPES::nbrNo(ctx, __nb_v), __nb_v};
         avg = (avg + (*__attr_color)[nb.v]);
         n = (n + 1.0f);
       }
@@ -70,7 +53,7 @@ static void colorsmooth(CommandCtx<TYPES> &ctx)
 }
 
 template <CommandTypes TYPES>
-static void colorsmoothPost(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)
+static void colorsmoothPost(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)
 {
   (void)ctx; (void)nodes;
 }

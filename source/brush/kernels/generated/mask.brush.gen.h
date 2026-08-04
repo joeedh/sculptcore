@@ -2,36 +2,20 @@
 // Source: source/brush/kernels/mask.sbrush
 #pragma once
 #include "brush/brush_command.h"
+#include "brush/capture_policy.h"
 #include "spatial/spatial_enums.h"
 #include "mesh/mesh_iter.h"
-#include "meshlog/parallel_capture.h"
 
 namespace sculptcore::brush::command {
 
 template <CommandTypes TYPES>
-static void maskPre(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)
+static void maskPre(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)
 {
-  if (!ctx.meshLog || nodes.empty()) {
-    return;
-  }
-  auto *m = nodes[0]->data->m;
-  const int __sid = ctx.meshLog->curStrokeId();
-  {
-    sculptcore::meshlog::AttrSaver<sculptcore::mesh::ElemType::VERTEX> __saver;
-    __saver.ensure(*m);
-    sculptcore::mesh::AttrRef __refs[1];
-    int __n = 0, __mask = 0;
-    {
-      sculptcore::mesh::AttrRef __r = m->v.attrs.find_attribute(sculptcore::mesh::AttrType::FLOAT, ".spatial.v.mask");
-      if (__r.data) { __refs[__n] = __r; __mask |= __saver.add(__refs[__n], sculptcore::meshlog::MASK); __n++; }
-    }
-    if (__mask) {
-      auto *__store = ctx.meshLog->elemStore(sculptcore::mesh::ElemType::VERTEX);
-      litestl::util::span<const sculptcore::mesh::AttrRef> __span(__refs, __n);
-      sculptcore::meshlog::parallelCapture<sculptcore::mesh::ElemType::VERTEX>(
-          *__store, m->v.attrs, nodes, __saver, __span, __sid, __mask);
-    }
-  }
+  static const sculptcore::brush::CaptureSaveDesc __vsaves[] = {
+    {sculptcore::brush::CaptureField::Mask, nullptr, int(sculptcore::meshlog::MASK)},
+  };
+  TYPES::capture_policy::template capture<sculptcore::mesh::ElemType::VERTEX>(
+      ctx, nodes, std::span<const sculptcore::brush::CaptureSaveDesc>(__vsaves));
 }
 
 template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>
@@ -62,7 +46,7 @@ static void mask(CommandCtx<TYPES> &ctx)
 }
 
 template <CommandTypes TYPES>
-static void maskPost(CommandCtxBase &ctx, std::span<spatial::SpatialNode *> nodes)
+static void maskPost(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)
 {
   (void)ctx; (void)nodes;
 }
