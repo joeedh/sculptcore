@@ -1,5 +1,7 @@
 #include "multires.h"
 
+#include "grid_domain.h"
+
 #include "vdm/vdm_store.h"
 
 #include "displace/frames.h"
@@ -27,13 +29,43 @@ namespace sculptcore::subdiv {
 
 Multires::~Multires()
 {
+  dropDomains(0);
   for (int i = int(slots_.size()) - 1; i >= 0; i--) {
     evictSlot(i);
   }
 }
 
+void Multires::dropDomains(int aboveLevel)
+{
+  for (int l = aboveLevel + 1; l <= int(domains_.size()); l++) {
+    if (domains_[l - 1]) {
+      alloc::Delete(domains_[l - 1]);
+      domains_[l - 1] = nullptr;
+    }
+  }
+}
+
+GridLevelDomain *Multires::gridDomain(int level)
+{
+  Assert(level >= 1 && level <= maxLevel(), "level in refined range");
+  if (int(domains_.size()) < maxLevel()) {
+    int old = int(domains_.size());
+    domains_.resize(maxLevel());
+    for (int i = old; i < maxLevel(); i++) {
+      domains_[i] = nullptr;
+    }
+  }
+  if (!domains_[level - 1]) {
+    GridLevelDomain *d = alloc::New<GridLevelDomain>("grid level domain");
+    d->build(*this, level);
+    domains_[level - 1] = d;
+  }
+  return domains_[level - 1];
+}
+
 void Multires::init(mesh::Mesh &cage, int maxLevel)
 {
+  dropDomains(0);
   for (int i = int(slots_.size()) - 1; i >= 0; i--) {
     evictSlot(i);
   }
@@ -707,6 +739,7 @@ int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
       }
     }
   }
+  dropDomains(level - 1);
   posCache_[level - 1].pos = base;
   posCache_[level - 1].valid = true;
   MultiresSlot *slot = findSlot(level);
@@ -760,6 +793,9 @@ int Multires::writeback(int level)
   }
 
   storeDispFromPositions(level, pos, &changed, /*toEditTarget=*/true);
+  // A mesh-path edit folded into the store: any grids-domain view of this
+  // level (or finer) is stale — drop it, per the fold-point contract.
+  dropDomains(level - 1);
 
   // The edited mesh is the new baseline for this level; everything finer is
   // derived from it and must re-evaluate.
@@ -987,6 +1023,8 @@ int Multires::commitCoarseFit(int level, Vector<float3> &target, Vector<float3> 
     return 0;
   }
 
+  // Both this level's and the coarse level's positions are about to change.
+  dropDomains(coarseLevel - 1);
   storeDispFromPositions(coarseLevel, coarse, &changed, /*toEditTarget=*/false);
   posCache_[coarseLevel - 1].pos = coarse;
 
@@ -1032,6 +1070,9 @@ int Multires::addLevel()
     writeback(activeLevel_); // fold pending edits into the store first
   }
   int n = maxLevel() + 1;
+  // refine() rebuilds the grid tables and posCache_.resize may move LevelPos
+  // storage — every domain's aliases dangle either way.
+  dropDomains(0);
   // refine() rebuilds all levels, but the stencil/grid tables are a pure
   // function of cage topology + level index, so levels 1..n-1 re-emit
   // bit-identically. Keep the existing cached chains + resident slots (they
@@ -1060,6 +1101,8 @@ int Multires::removeTopLevel()
     writeback(prevActive);
   }
   int n = maxLevel() - 1;
+  // See addLevel: refine() + posCache_.resize invalidate every domain alias.
+  dropDomains(0);
   // Evict residents + drop cached chains for the level being removed; the
   // surviving levels' caches stay valid (topology unchanged), so the shrink is
   // lossless too.
@@ -1081,6 +1124,7 @@ int Multires::removeTopLevel()
 
 void Multires::refreshAfterLayerChange()
 {
+  dropDomains(0);
   for (int l = 1; l <= maxLevel(); l++) {
     posCache_[l - 1].reset();
   }
@@ -1282,6 +1326,7 @@ void Multires::layerTableRestore(Vector<float> &table)
 
 void Multires::invalidateAbove(int level)
 {
+  dropDomains(level);
   for (int l = level + 1; l <= maxLevel(); l++) {
     posCache_[l - 1].reset();
   }
@@ -1294,6 +1339,7 @@ void Multires::invalidateAbove(int level)
 
 void Multires::invalidateAll()
 {
+  dropDomains(0);
   for (int l = 1; l <= maxLevel(); l++) {
     posCache_[l - 1].reset();
   }

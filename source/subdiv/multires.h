@@ -46,6 +46,8 @@ struct VdmStore;
 
 namespace sculptcore::subdiv {
 
+struct GridLevelDomain;
+
 /** One resident (materialized) level: the mesh + its spatial tree. Owned by
  * the Multires LRU; pointers are stable until the slot is evicted. */
 struct MultiresSlot {
@@ -164,6 +166,20 @@ struct Multires {
   void invalidateAll();
 
   MultiresSlot *findSlot(int level);
+
+  /** Dense editable positions for `level` (ensures the cached chain through
+   * it). The grids-native brush path edits this in place — the chain stays
+   * authoritative, so invalidateAbove/ensureChain semantics are untouched. */
+  litestl::util::Vector<litestl::math::float3> &levelPositions(int level)
+  {
+    return ensureChain(level);
+  }
+
+  /** The grids-native editable view of `level` (grid_domain.h), built lazily
+   * and owned here. Dropped whenever the level's cached chain entry resets or
+   * a mesh-path edit folds into the store (writeback / down-fit / VDM capture)
+   * — callers re-fetch after any such fold point, like slot pointers. */
+  GridLevelDomain *gridDomain(int level);
 
   /** Build a level's topology-only mesh from the grid tables (dense vert ids
    * matching the stencil rows; one quad per grid cell; positions zeroed).
@@ -345,6 +361,10 @@ private:
   bool dispNonZero(int level);
   void evictSlot(int index);
   void evictOverBudget();
+  /** Free every grid domain for levels > `aboveLevel` (0 = all). Must run at
+   * every point a level's LevelPos content is replaced or posCache_ storage
+   * moves (resize) — domains alias LevelPos::pos by address. */
+  void dropDomains(int aboveLevel);
 
   struct LevelPos {
     bool valid = false;
@@ -383,6 +403,7 @@ private:
   uint64_t useCounter_ = 0;
   litestl::util::Vector<LevelPos> posCache_; // [0] = level 1
   litestl::util::Vector<MultiresSlot> slots_;
+  litestl::util::Vector<GridLevelDomain *> domains_; // [0] = level 1; sparse
 };
 
 } // namespace sculptcore::subdiv

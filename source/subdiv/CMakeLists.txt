@@ -14,6 +14,10 @@ set(SRC
   subdiv.cc
   PUBLIC grids.h
   grids.cc
+  PUBLIC grid_domain.h
+  grid_domain.cc
+  PUBLIC grid_tree.h
+  grid_tree.cc
   PUBLIC multires.h
   multires.cc
   PUBLIC bindings.h
