@@ -100,6 +100,11 @@ struct GridLevelDomain {
   /** Land `mask` in the store channel (created on demand), writing every
    * occurrence so seam replicas stay consistent. */
   void flushMaskToStore();
+  /** Restricted flush: land only `verts` (a stroke's touched set). */
+  void flushMaskToStore(std::span<const int> verts);
+  /** Find-or-create the "mask" store channel; returns its index. A mask
+   * stroke ensures it up front so undo capture sees a live channel. */
+  int ensureMaskChannel();
 
   /** The domain's spatial structure, built lazily (grid_tree.h).
    * `leafVertTarget` <= 0 uses the GridTree default; honored on first build. */

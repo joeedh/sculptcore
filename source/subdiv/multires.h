@@ -181,6 +181,21 @@ struct Multires {
    * — callers re-fetch after any such fold point, like slot pointers. */
   GridLevelDomain *gridDomain(int level);
 
+  /** The store channel a sculpt writeback lands in right now: the edit
+   * target's channel when one is set and enabled, else channel 0 — the same
+   * rule storeDispFromPositions applies. The grids stroke log keys its
+   * store-block capture on this. */
+  int writebackChannel() const;
+
+  /** Grids-native stroke-end fold: re-express the domain-edited positions of
+   * `level`'s `changed` verts as store displacement, walking only `grids`
+   * (the touched verts' occurrence grids), then invalidate finer levels and
+   * set the down-propagation debt. The chain entry IS the edited state, so
+   * there is no baseline update — O(region), not O(level). */
+  void gridsWriteback(int level,
+                      const litestl::util::Vector<bool> &changed,
+                      const litestl::util::Vector<int> &grids);
+
   /** Build a level's topology-only mesh from the grid tables (dense vert ids
    * matching the stencil rows; one quad per grid cell; positions zeroed).
    * Caller owns the result. Used internally by materialization and by the
@@ -347,10 +362,13 @@ private:
    * channel is subtracted: the edit target's channel when `toEditTarget`
    * (writeback of sculpting), else channel 0 (structural re-expression —
    * down-refit — which must never write a layer). */
+  /** `grids` (optional) restricts the walk to that grid list — the grids-native
+   * stroke path's touched set; null walks every grid. */
   void storeDispFromPositions(int level,
                               const litestl::util::Vector<litestl::math::float3> &pos,
                               const litestl::util::Vector<bool> *mask,
-                              bool toEditTarget);
+                              bool toEditTarget,
+                              const litestl::util::Vector<int> *grids = nullptr);
   /** Shared tail of downRefit/propagateDown: commit a freshly fitted `coarse`
    * as level−1 displacement, re-express `target` (this level's unchanged
    * surface) against the new base, and refresh the affected caches + residents.

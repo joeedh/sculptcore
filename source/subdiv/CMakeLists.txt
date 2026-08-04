@@ -18,6 +18,8 @@ set(SRC
   grid_domain.cc
   PUBLIC grid_tree.h
   grid_tree.cc
+  PUBLIC grid_stroke_log.h
+  grid_stroke_log.cc
   PUBLIC multires.h
   multires.cc
   PUBLIC bindings.h

@@ -101,25 +101,22 @@ struct CavityScratch {
 };
 
 /**
- * Raw signed local-convexity estimate at vertex `v`. BFS-walks the ring1 CSR out
- * to `blur_steps + 1` rings, accumulating a wide average (all visited) and an
+ * Raw signed local-convexity estimate at vertex `v`, generic over the geometry
+ * source (grids-native brush path): `src` supplies `co(v)` / `no(v)` reads, a
+ * `neighbors(v)` 1-ring span, and `vertCap()`. BFS-walks the ring out to
+ * `blur_steps + 1` rings, accumulating a wide average (all visited) and an
  * inner average (depth <= blur_steps) of position and normal; returns
  * `dot(wideCo - innerCo, normalize(innerNo)) / meanRadius`. Sign encodes
- * convex/concave. Requires `m->topo_cache.ring1` current (caller ensures it) and
- * live `v.co` / `v.no`. Returns 0 (flat/neutral) for degenerate neighborhoods.
+ * convex/concave. Returns 0 (flat/neutral) for degenerate neighborhoods.
  */
-inline float cavityRaw(mesh::Mesh *m, int v, int blur_steps, CavityScratch &scr)
+template <class Src>
+inline float cavityRawT(const Src &src, int v, int blur_steps, CavityScratch &scr)
 {
-  const mesh::VertNbrCSR &csr = m->topo_cache.ring1;
-  if (int(csr.offsets.size()) <= v + 1) {
-    return 0.0f;
-  }
-
-  scr.ensure(m->v.count);
+  scr.ensure(src.vertCap());
   scr.token++;
   const uint32_t tok = scr.token;
 
-  const float3 originCo = m->v.co[v];
+  const float3 originCo = src.co(v);
 
   float3 wideCo{0, 0, 0}, wideNo{0, 0, 0};
   float3 innerCo{0, 0, 0}, innerNo{0, 0, 0};
@@ -127,14 +124,14 @@ inline float cavityRaw(mesh::Mesh *m, int v, int blur_steps, CavityScratch &scr)
   float lenSum = 0.0f;
 
   auto visit = [&](int idx, int depth) {
-    const float3 co = m->v.co[idx];
+    const float3 co = src.co(idx);
     wideCo += co;
-    wideNo += m->v.no[idx];
+    wideNo += src.no(idx);
     nWide++;
     lenSum += (co - originCo).length();
     if (depth <= blur_steps) {
       innerCo += co;
-      innerNo += m->v.no[idx];
+      innerNo += src.no(idx);
       nInner++;
     }
   };
@@ -148,10 +145,7 @@ inline float cavityRaw(mesh::Mesh *m, int v, int blur_steps, CavityScratch &scr)
   for (int depth = 1; depth <= maxDepth; depth++) {
     scr.nextFrontier.clear();
     for (int u : scr.frontier) {
-      uint32_t off = csr.offsets[u];
-      uint32_t end = csr.offsets[u + 1];
-      for (uint32_t k = off; k < end; k++) {
-        int nb = csr.nbr_verts[k];
+      for (int nb : src.neighbors(u)) {
         if (scr.visitStamp[nb] == tok) {
           continue;
         }
@@ -182,9 +176,43 @@ inline float cavityRaw(mesh::Mesh *m, int v, int blur_steps, CavityScratch &scr)
   const float nlen = nrm.length();
   // Opposing normals can average to ~0; fall back to the vertex normal so the
   // projection stays well-defined.
-  nrm = nlen > 1e-6f ? nrm / nlen : m->v.no[v];
+  nrm = nlen > 1e-6f ? nrm / nlen : src.no(v);
 
   return (wideCo - innerCo).dot(nrm) / meanLen;
+}
+
+/** cavityRawT source over a mesh's topo-cache ring1 + live co/no. */
+struct MeshCavitySrc {
+  mesh::Mesh *m;
+  int vertCap() const
+  {
+    return m->v.count;
+  }
+  float3 co(int v) const
+  {
+    return m->v.co[v];
+  }
+  float3 no(int v) const
+  {
+    return m->v.no[v];
+  }
+  std::span<const int> neighbors(int v) const
+  {
+    // Non-const data(): litestl Vector has no const accessor; read-only here.
+    mesh::VertNbrCSR &csr = m->topo_cache.ring1;
+    uint32_t off = csr.offsets[v];
+    return std::span<const int>(csr.nbr_verts.data() + off, csr.offsets[v + 1] - off);
+  }
+};
+
+/** The historical mesh entry: cavityRawT over the topo-cache ring1. Requires
+ * `m->topo_cache.ring1` current (caller ensures it) and live `v.co` / `v.no`. */
+inline float cavityRaw(mesh::Mesh *m, int v, int blur_steps, CavityScratch &scr)
+{
+  if (int(m->topo_cache.ring1.offsets.size()) <= v + 1) {
+    return 0.0f;
+  }
+  return cavityRawT(MeshCavitySrc{m}, v, blur_steps, scr);
 }
 
 /**

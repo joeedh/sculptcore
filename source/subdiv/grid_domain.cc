@@ -268,14 +268,32 @@ void GridLevelDomain::syncMaskFromStore()
   }
 }
 
-void GridLevelDomain::flushMaskToStore()
+int GridLevelDomain::ensureMaskChannel()
 {
   int ch = mr_->store.findChannel(util::string(kMaskChannel));
   if (ch < 0) {
     ch = mr_->store.addChannel(util::string(kMaskChannel), 1);
   }
+  return ch;
+}
+
+void GridLevelDomain::flushMaskToStore()
+{
+  int ch = ensureMaskChannel();
   mr_->store.ensureLevelResident(level_);
   for (int v = 0; v < vertCount_; v++) {
+    auto occs = occurrences(v);
+    for (size_t i = 0; i < occs.size(); i += 3) {
+      *mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]) = mask[v];
+    }
+  }
+}
+
+void GridLevelDomain::flushMaskToStore(std::span<const int> verts)
+{
+  int ch = ensureMaskChannel();
+  mr_->store.ensureLevelResident(level_);
+  for (int v : verts) {
     auto occs = occurrences(v);
     for (size_t i = 0; i < occs.size(); i += 3) {
       *mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]) = mask[v];

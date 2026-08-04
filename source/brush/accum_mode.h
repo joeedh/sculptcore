@@ -84,12 +84,15 @@ struct AccumOrigGrab : OrigNbrBase {
 };
 
 struct CommandExecutor;
+struct GridBrushExecutor;
 /** Grab-class per-dab first-touch arbitration (AccumKind::Grab). Returns true and
  * stamps `ctx.curDabGen` onto vert `v` if this is the first image to write `v`
  * this dab (so it re-bases absolutely); returns false if `v` was already written
- * this dab (a later image must add). Defined inline in brush_executor.h. Always
- * true when the dab-gen stamp is absent (single-image strokes). */
+ * this dab (a later image must add). Defined inline in brush_executor.h (mesh)
+ * and grid_executor.h (grids), overloaded on the executor type. Always true
+ * when the dab-gen stamp is absent (single-image strokes). */
 bool grabClaimFirstTouch(const CommandExecutor &exec, int v);
+bool grabClaimFirstTouch(const GridBrushExecutor &exec, int v);
 
 /** Read-base / write-live proxy standing in for a vertex's `v.co` inside a
  * generated kernel. Under AccumOrig, reads return the base position until the
@@ -117,10 +120,10 @@ bool grabClaimFirstTouch(const CommandExecutor &exec, int v);
  * When `disp` is set (the displacement path), the same delta that moves `live`
  * is accumulated into it — the §2 invariant: whoever moves a vertex as brush
  * displacement adds the same delta to `disp`. */
-template <class AccMode> struct CoProxy {
+template <class AccMode, class Exec = CommandExecutor> struct CoProxy {
   float3 &live;
   float3 base;
-  const CommandExecutor *exec = nullptr;
+  const Exec *exec = nullptr;
   mesh::AttrData<float3> *disp = nullptr;
   int v = -1;
   bool written = false;

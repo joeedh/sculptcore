@@ -599,7 +599,8 @@ MultiresSlot *Multires::materialize(int level)
 void Multires::storeDispFromPositions(int level,
                                       const Vector<float3> &pos,
                                       const Vector<bool> *mask,
-                                      bool toEditTarget)
+                                      bool toEditTarget,
+                                      const Vector<int> *grids)
 {
   SubdivLevel &lvl = refiner.levels[level - 1];
 
@@ -631,8 +632,10 @@ void Multires::storeDispFromPositions(int level,
   store.ensureLevelResident(level);
 
   int S = lvl.gridSide, w = S + 1;
-  task::parallel_for(util::IndexRange(size_t(store.gridCount())), [&](util::IndexRange range) {
-    for (int g : range) {
+  const size_t gridsN = grids ? grids->size() : size_t(store.gridCount());
+  task::parallel_for(util::IndexRange(gridsN), [&](util::IndexRange range) {
+    for (int gi : range) {
+      int g = grids ? (*grids)[gi] : gi;
       const int *gv = &lvl.gridVerts[g * w * w];
       for (int v = 0; v < w; v++) {
         for (int u = 0; u < w; u++) {
@@ -661,6 +664,33 @@ void Multires::storeDispFromPositions(int level,
       }
     }
   });
+}
+
+int Multires::writebackChannel() const
+{
+  if (cage_ && cage_->activeEditLayer >= 0) {
+    int ch = channelForLayer(cage_->activeEditLayer);
+    if (ch > 0 && cage_->sculptLayers[cage_->activeEditLayer].enabled) {
+      return ch;
+    }
+  }
+  return 0;
+}
+
+void Multires::gridsWriteback(int level,
+                              const Vector<bool> &changed,
+                              const Vector<int> &grids)
+{
+  if (level < 1 || level > maxLevel() || grids.size() == 0) {
+    return;
+  }
+  Assert(posCache_[level - 1].valid, "grids stroke edits a valid chain entry");
+  storeDispFromPositions(level, posCache_[level - 1].pos, &changed,
+                         /*toEditTarget=*/true, &grids);
+  invalidateAbove(level);
+  if (level >= 2 && level < int(downPropPending_.size())) {
+    downPropPending_[level] = true;
+  }
 }
 
 int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
