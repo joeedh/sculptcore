@@ -204,6 +204,18 @@ struct Multires {
                       const litestl::util::Vector<bool> &changed,
                       const litestl::util::Vector<int> &grids);
 
+  /** Seed `level` from grid-sample absolute positions (levelGridVertsOut
+   * layout: gridCount·(S+1)² samples, seam replicas equal, last-writer-wins)
+   * WITHOUT materializing anything: the chain + base/frames are ensured (one
+   * throwaway topo mesh for the frame provider), positions land in the chain
+   * entry in place, and the whole level re-expresses into the store. The
+   * down-propagation is NOT cascaded — the debt flag is set and the first
+   * downward switch settles it, so a top-level seed (mode enter) pays no
+   * coarse-level work up front. Any resident slot of `level` (or finer) is
+   * dropped; the caller re-activates. Returns the sample count, -1 on a
+   * count mismatch. */
+  int seedLevelPositions(int level, const float (*samples)[3], int sampleNum);
+
   /** Build a level's topology-only mesh from the grid tables (dense vert ids
    * matching the stencil rows; one quad per grid cell; positions zeroed).
    * Caller owns the result. Used internally by materialization and by the

@@ -699,6 +699,44 @@ void Multires::gridsWriteback(int level,
   }
 }
 
+int Multires::seedLevelPositions(int level, const float (*samples)[3], int sampleNum)
+{
+  if (level < 1 || level > maxLevel()) {
+    return 0;
+  }
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  if (sampleNum != int(lvl.gridVerts.size())) {
+    return -1;
+  }
+  // Chain + base/frames BEFORE the in-place edit — materializing the base
+  // lazily after the write would copy the seeded positions as the base (the
+  // posIsBase hazard the grid domain closes the same way).
+  ensureChain(level);
+  ensureBaseAndFrames(level);
+  dropDomains(level - 1);
+  Vector<float3> &pos = posCache_[level - 1].pos;
+  for (int i = 0; i < sampleNum; i++) {
+    int vid = lvl.gridVerts[i];
+    if (vid >= 0) {
+      pos[vid] = float3(samples[i][0], samples[i][1], samples[i][2]);
+    }
+  }
+  storeDispFromPositions(level, pos, nullptr, /*toEditTarget=*/false);
+  // The seed lands wholly at this level; the level below now owes (settled
+  // by the first downward switch, exactly like a writeback's debt).
+  if (level >= 2 && level < int(downPropPending_.size())) {
+    downPropPending_[level] = true;
+  }
+  invalidateAbove(level);
+  // A resident slot of this level shows pre-seed positions; drop it.
+  for (int i = int(slots_.size()) - 1; i >= 0; i--) {
+    if (slots_[i].level == level) {
+      evictSlot(i);
+    }
+  }
+  return sampleNum;
+}
+
 int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
 {
   if (level < 1 || level > int(refiner.levels.size()) ||

@@ -209,6 +209,21 @@ int Multires_fromLevelPositions(
   return changed;
 }
 
+/** Seed `level` from grid-sample absolute positions without materializing
+ * anything (Multires::seedLevelPositions — same sample layout as
+ * Multires_fromLevelPositions). Down-propagation is deferred as debt; any
+ * resident slot of the level is dropped, so call Multires_setActiveLevel
+ * afterwards. The fast mode-enter path. */
+int Multires_seedLevelPositions(
+    subdiv::Multires *mr, int level, const float (*positions)[3], int sample_num)
+{
+  if (!mr || !positions) {
+    return 0;
+  }
+  level = level < 1 ? 1 : (level > mr->maxLevel() ? mr->maxLevel() : level);
+  return mr->seedLevelPositions(level, positions, sample_num);
+}
+
 /** Geometry -> VDM capture (X4 stage 2): move `level`'s grids-store disp into
  * the Ptex VDM store's texels, zero the disp, drop the surface onto the
  * smooth base. Returns texels written; caller owns undo snapshots + the
