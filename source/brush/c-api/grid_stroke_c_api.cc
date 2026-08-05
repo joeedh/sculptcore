@@ -94,6 +94,31 @@ void GridStroke_setAnchoredGrab(GridStrokeSession *s, int anchored)
   }
 }
 
+/** Defer the touched-set normal refresh to GridStroke_flushNormals (host
+ * frame cadence — closely-spaced dabs overlap ~90%, so per-dab refresh
+ * recomputes the same fans many times). The mesh path's per-frame cadence. */
+void GridStroke_setDeferNormals(GridStrokeSession *s, int defer)
+{
+  if (s) {
+    s->exec.deferNormals = defer != 0;
+  }
+}
+
+/** Refresh every deferred normal (and mirror the refreshed verts into the
+ * slot mesh when mirroring is on). Call at the host's frame cadence;
+ * GridStroke_end flushes implicitly. */
+void GridStroke_flushNormals(GridStrokeSession *s)
+{
+  if (!s) {
+    return;
+  }
+  auto &flushed = s->exec.flushNormals();
+  if (s->mirror && flushed.size() > 0) {
+    brush::gridsMirrorToSlot(s->mr, s->level,
+                             std::span<const int>(flushed.data(), flushed.size()));
+  }
+}
+
 /** Re-bind to the current domain after a fold point. Returns 0 when the
  * session's level no longer exists, 1 when the binding was already current,
  * 2 when it re-attached — the undo history was cleared, so the host must
@@ -156,8 +181,17 @@ int GridStroke_dab(GridStrokeSession *s,
 
 void GridStroke_end(GridStrokeSession *s)
 {
-  if (s) {
-    s->exec.endStep();
+  if (!s) {
+    return;
+  }
+  // endStep flushes deferred normals internally; mirror the final normals
+  // for the whole touched set so the slot mesh releases consistent.
+  s->exec.endStep();
+  if (s->mirror) {
+    // Non-const cast: litestl Vector exposes no const data().
+    auto &tv = const_cast<litestl::util::Vector<int> &>(s->exec.strokeTouchedVerts());
+    brush::gridsMirrorToSlot(s->mr, s->level,
+                             std::span<const int>(tv.data(), tv.size()));
   }
 }
 

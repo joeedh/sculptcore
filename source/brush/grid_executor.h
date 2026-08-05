@@ -337,6 +337,14 @@ struct GridBrushExecutor {
   bool anchoredGrab = true;
   uint32_t dabGen = 0;
   uint32_t strokeGen = 0;
+  /** Defer the touched-set normal refresh to flushNormals() (host frame
+   * cadence) instead of paying it per dab. Closely-spaced dabs overlap ~90%,
+   * so per-dab refresh recomputes the same fans many times over — this is
+   * the mesh path's (and native sculpt's) per-frame normal cadence. Bounds
+   * still refresh per dab (raycast currency); kernels and raycast normals
+   * read <=1-frame-stale values, exactly like the mesh path. Off by default
+   * (the per-dab tests keep exact semantics); the addon opts in. */
+  bool deferNormals = false;
 
   /** Accumulated per-phase wall time (ms) + counters, for the G3 perf gates.
    * Always collected — a handful of steady_clock reads per dab. */
@@ -394,10 +402,14 @@ struct GridBrushExecutor {
     cavityGen_ = mesh::AttrData<int>(string(".grid.automask.gen"), vc);
     touchedStamp_.resize(vc);
     dabStamp_.resize(vc);
+    pendingNormalStamp_.resize(vc);
     for (int i = 0; i < vc; i++) {
       touchedStamp_[i] = 0;
       dabStamp_[i] = 0;
+      pendingNormalStamp_[i] = 0;
     }
+    pendingNormals_.clear();
+    flushedNormals_.clear();
     leafTouched_.resize(nodes_.size());
     for (int i = 0; i < int(leafTouched_.size()); i++) {
       leafTouched_[i] = 0;
@@ -733,9 +745,19 @@ struct GridBrushExecutor {
     }
     int moved = int(dabMoved_.size());
     if (moved > 0) {
-      auto tn = clock::now();
-      domain->refreshNormals(std::span<const int>(dabMoved_.data(), dabMoved_.size()));
-      stats.normalsMs += msSince(tn);
+      if (deferNormals) {
+        for (int v : dabMoved_) {
+          if (pendingNormalStamp_[v] != strokeSeq_) {
+            pendingNormalStamp_[v] = strokeSeq_;
+            pendingNormals_.append(v);
+          }
+        }
+      } else {
+        auto tn = clock::now();
+        domain->refreshNormals(
+            std::span<const int>(dabMoved_.data(), dabMoved_.size()));
+        stats.normalsMs += msSince(tn);
+      }
       auto tb = clock::now();
       tree->refreshBounds(std::span<const int>(dabLeaves_.data(), dabLeaves_.size()));
       stats.boundsMs += msSince(tb);
@@ -743,6 +765,31 @@ struct GridBrushExecutor {
 
     isFirstOfStep = false;
     return moved;
+  }
+
+  /** Refresh the normals of every vert moved since the last flush (the
+   * deferNormals accumulation) and return them — the host mirrors the same
+   * set. No-op (empty) when nothing is pending. */
+  Vector<int> &flushNormals()
+  {
+    if (pendingNormals_.size() > 0) {
+      auto tn = std::chrono::steady_clock::now();
+      domain->refreshNormals(
+          std::span<const int>(pendingNormals_.data(), pendingNormals_.size()));
+      stats.normalsMs +=
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                    tn)
+              .count();
+      flushedNormals_ = std::move(pendingNormals_);
+      pendingNormals_ = Vector<int>();
+      // Re-arm the dedup for the next accumulation window.
+      for (int v : flushedNormals_) {
+        pendingNormalStamp_[v] = 0;
+      }
+    } else {
+      flushedNormals_.clear();
+    }
+    return flushedNormals_;
   }
 
   /** Stroke end: fold the touched region into the grids store (restricted
@@ -753,6 +800,7 @@ struct GridBrushExecutor {
     auto t0 = std::chrono::steady_clock::now();
     isFirstOfStep = false;
     stats.strokes++;
+    flushNormals();
     gridsFoldStroke(domain, log,
                     std::span<const int>(strokeTouchedVerts_.data(),
                                          strokeTouchedVerts_.size()),
@@ -841,6 +889,9 @@ private:
 
   Vector<uint32_t> touchedStamp_;
   uint32_t strokeSeq_ = 0;
+  Vector<int> pendingNormals_;
+  Vector<int> flushedNormals_;
+  Vector<uint32_t> pendingNormalStamp_;
   Vector<int> strokeTouchedVerts_;
   Vector<int> strokeTouchedLeaves_;
   Vector<uint8_t> leafTouched_;
