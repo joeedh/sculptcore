@@ -61,6 +61,12 @@ struct GridStrokeLog {
   }
   bool undo();
   bool redo();
+  /** Evict the oldest APPLIED step (undo-limiter truncation from the front).
+   * Refused while a step is open, when empty, or when everything is undone
+   * (the front step would be redo history). Host absolute cursors stay
+   * valid: eviction removes a step below the deepest reachable seek, so
+   * seeks simply stop earlier. */
+  bool dropOldest();
 
   int stepCount() const
   {

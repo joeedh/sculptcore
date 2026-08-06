@@ -207,6 +207,19 @@ bool GridStrokeLog::redo()
   return true;
 }
 
+bool GridStrokeLog::dropOldest()
+{
+  // Only an applied step may be evicted: cursor_ counts applied steps from
+  // the front, so cursor_ == 0 means the front step is redo-only history and
+  // dropping it would corrupt the redo chain, not trim the undo tail.
+  if (open_ || steps_.size() == 0 || cursor_ < 1) {
+    return false;
+  }
+  steps_.pop_front();
+  cursor_--;
+  return true;
+}
+
 size_t GridStrokeLog::bytes() const
 {
   size_t n = 0;

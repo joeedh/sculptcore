@@ -73,6 +73,7 @@ wasm_add_symbols("
   GridStroke_canRedo
   GridStroke_undo
   GridStroke_redo
+  GridStroke_dropOldest
   GridStroke_undoBytes
   GridTree_castRay
 ")

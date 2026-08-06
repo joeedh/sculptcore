@@ -24,12 +24,18 @@ struct GridStrokeSession {
    * so extdraw and mesh-path queries stay current; the debug app mirrors
    * itself. */
   bool mirror = false;
+  /** Multires::domainGeneration() at bind time. Sync compares THIS, not the
+   * domain pointer — a drop + rebuild routinely reuses the same allocation,
+   * so pointer equality misses the rebuild and the executor's cached tree
+   * pointer dangles into freed memory. */
+  uint64_t boundGen = 0;
   subdiv::GridStrokeLog log;
   brush::GridBrushExecutor exec;
 
   GridStrokeSession(subdiv::Multires *mr, int level, brush::Brush *b)
       : mr(mr), level(level), exec(mr->gridDomain(level), b, &log)
   {
+    boundGen = mr->domainGeneration();
   }
 
   void mirrorAll()
@@ -128,9 +134,13 @@ int GridStroke_sync(GridStrokeSession *s)
   if (!s || s->level < 1 || s->level > s->mr->maxLevel()) {
     return 0;
   }
+  // Fetching the domain may rebuild it (bumping the generation); compare
+  // against the post-fetch generation so the fresh bind reads as current.
   subdiv::GridLevelDomain *d = s->mr->gridDomain(s->level);
-  if (d != s->exec.domain) {
+  const uint64_t gen = s->mr->domainGeneration();
+  if (d != s->exec.domain || gen != s->boundGen) {
     s->exec.attach(d);
+    s->boundGen = gen;
     return 2;
   }
   return 1;
@@ -226,6 +236,14 @@ int GridStroke_redo(GridStrokeSession *s)
     s->mirrorAll();
   }
   return 1;
+}
+
+/** Evict the oldest applied step (host undo-limiter truncation). Returns 1
+ * when a step was dropped. No slot mirror: eviction never changes the live
+ * surface, only the reachable history depth. */
+int GridStroke_dropOldest(GridStrokeSession *s)
+{
+  return s && s->log.dropOldest() ? 1 : 0;
 }
 
 /** Captured undo bytes across the session's history. */

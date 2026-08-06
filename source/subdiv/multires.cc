@@ -41,6 +41,7 @@ void Multires::dropDomains(int aboveLevel)
     if (domains_[l - 1]) {
       alloc::Delete(domains_[l - 1]);
       domains_[l - 1] = nullptr;
+      domainGen_++;
     }
   }
 }
@@ -65,6 +66,7 @@ GridLevelDomain *Multires::gridDomain(int level)
     // — the plan's chain-cache-coupling risk, closed here.
     ensureBaseAndFrames(level);
     domains_[level - 1] = d;
+    domainGen_++;
   }
   return domains_[level - 1];
 }

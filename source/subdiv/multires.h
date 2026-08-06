@@ -189,6 +189,16 @@ struct Multires {
     return level >= 1 && level <= int(domains_.size()) && domains_[level - 1] != nullptr;
   }
 
+  /** Monotonic domain lifecycle counter: bumped on every domain build and
+   * every drop. Consumers that cache a `GridLevelDomain *` MUST compare this,
+   * not the pointer — a drop + rebuild routinely reuses the same allocation
+   * (same size, back-to-back free/alloc), so pointer equality cannot detect
+   * a rebuild and a stale binding dangles into the freed tree. */
+  uint64_t domainGeneration() const
+  {
+    return domainGen_;
+  }
+
   /** The store channel a sculpt writeback lands in right now: the edit
    * target's channel when one is set and enabled, else channel 0 — the same
    * rule storeDispFromPositions applies. The grids stroke log keys its
@@ -442,6 +452,7 @@ private:
   litestl::util::Vector<LevelPos> posCache_; // [0] = level 1
   litestl::util::Vector<MultiresSlot> slots_;
   litestl::util::Vector<GridLevelDomain *> domains_; // [0] = level 1; sparse
+  uint64_t domainGen_ = 0;                           // see domainGeneration()
 };
 
 } // namespace sculptcore::subdiv

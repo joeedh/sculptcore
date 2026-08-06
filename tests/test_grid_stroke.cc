@@ -52,6 +52,7 @@ int GridStroke_begin(GridStrokeSession *s);
 int GridStroke_dab(GridStrokeSession *s, int tool, float ox, float oy, float oz,
                    float nx, float ny, float nz, int grabAdd);
 void GridStroke_end(GridStrokeSession *s);
+int GridStroke_sync(GridStrokeSession *s);
 int GridStroke_undo(GridStrokeSession *s);
 int GridStroke_redo(GridStrokeSession *s);
 double GridStroke_undoBytes(GridStrokeSession *s);
@@ -360,6 +361,25 @@ int main()
     TASSERT(samePosBits(cur, pos2));
     TASSERT(storeBlob(mr.store) == blob2);
     TASSERT(!log.redo());
+
+    /* dropOldest: evicting the front step shortens reachable history without
+     * touching the live surface; refused when everything is undone. */
+    const size_t bytesBefore = log.bytes();
+    TASSERT(log.dropOldest());
+    TASSERT(log.stepCount() == 1);
+    TASSERT(log.bytes() < bytesBefore);
+    snapshotPos(cur);
+    TASSERT(samePosBits(cur, pos2)); /* surface untouched */
+    TASSERT(log.undo());
+    snapshotPos(cur);
+    TASSERT(samePosBits(cur, pos1));
+    TASSERT(storeBlob(mr.store) == blob1);
+    TASSERT(!log.undo());        /* pos0 evicted with the front step */
+    TASSERT(!log.dropOldest());  /* cursor 0: front step is redo history */
+    TASSERT(log.redo());
+    snapshotPos(cur);
+    TASSERT(samePosBits(cur, pos2));
+    TASSERT(storeBlob(mr.store) == blob2);
   }
 
   /* Mask stroke: mirror + store channel round-trip with undo/redo. */
@@ -542,6 +562,34 @@ int main()
     int m3 = ex.applyDab(SculptBrushes::DRAW, float3(-0.3f, 0, 0.5f), float3(0, 0, 1));
     ex.endStep();
     TASSERT(m3 > 0);
+  }
+
+  /* Domain generation: a drop + rebuild must be observable even when the
+   * allocator hands back the same block (the pointer-ABA bug: a stale
+   * session kept its freed tree). GridStroke_sync must report the rebind. */
+  {
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    restoreStore(mr, s0);
+    mr.gridDomain(kLevel);
+    const uint64_t g0 = mr.domainGeneration();
+
+    GridStrokeSession *s = GridStroke_new(&mr, kLevel, &brush);
+    TASSERT(s != nullptr);
+    TASSERT(GridStroke_sync(s) == 1); /* fresh bind reads as current */
+
+    // A slot edit + writeback drops the domain (the fold every mesh-path
+    // stroke takes); the generation must move on drop AND on rebuild.
+    MultiresSlot *slot = mr.setActiveLevel(kLevel);
+    slot->mesh->v.co[0][2] += 0.25f;
+    TASSERT(mr.writeback(kLevel) > 0);
+    TASSERT(!mr.hasGridDomain(kLevel));
+    const uint64_t g1 = mr.domainGeneration();
+    TASSERT(g1 > g0);
+    TASSERT(GridStroke_sync(s) == 2); /* rebuild detected regardless of address */
+    TASSERT(mr.domainGeneration() > g1);
+    TASSERT(GridStroke_sync(s) == 1); /* and the rebind is now current */
+    GridStroke_free(s);
   }
 
   /* c-api session smoke: supported-tool dispatch, a stroke through the
