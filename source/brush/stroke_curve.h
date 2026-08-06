@@ -64,6 +64,12 @@ inline Point<N> lerpV(const Point<N> &a, const Point<N> &b, double t)
  * `alpha` selects the knot parameterization: 0 = uniform, 0.5 = centripetal,
  * 1 = chordal. Endpoint tangents become one-sided when a neighbor coincides
  * with its endpoint, which is how callers clamp the ends.
+ *
+ * `span` (the EPS-floored P1..P2 knot interval) is the divisor everywhere P1P2
+ * appears, not the raw `t12`: a pointer that reports the same position twice
+ * makes the segment itself degenerate, and dividing 0/0 there returned a NaN
+ * curve — which poisons the caller's walk carry and kills the rest of the
+ * stroke. Where the segment is non-degenerate the two are the same value.
  */
 template <int N>
 inline Cubic<N> crToBezier(const Point<N> &P0,
@@ -85,7 +91,7 @@ inline Cubic<N> crToBezier(const Point<N> &P0,
     }
   } else {
     for (int i = 0; i < N; i++) {
-      m1[i] = (P2[i] - P1[i]) / t12 - (P2[i] - P0[i]) / (t01 + t12) +
+      m1[i] = (P2[i] - P1[i]) / span - (P2[i] - P0[i]) / (t01 + span) +
               (P1[i] - P0[i]) / t01;
     }
   }
@@ -97,8 +103,8 @@ inline Cubic<N> crToBezier(const Point<N> &P0,
     }
   } else {
     for (int i = 0; i < N; i++) {
-      m2[i] = (P3[i] - P2[i]) / t23 - (P3[i] - P1[i]) / (t12 + t23) +
-              (P2[i] - P1[i]) / t12;
+      m2[i] = (P3[i] - P2[i]) / t23 - (P3[i] - P1[i]) / (span + t23) +
+              (P2[i] - P1[i]) / span;
     }
   }
 
