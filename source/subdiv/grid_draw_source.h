@@ -69,6 +69,8 @@ struct GridDrawSource {
     Vector<float> mask;
     AABB aabb;
     int verts = 0;
+    // First span's cage-face material_index (host ABI: one material per node).
+    int material = 0;
     uint32_t update = Update_Data | Update_Topo; // born dirty; consume-on-read
     bool refill = true;
   };
@@ -124,6 +126,11 @@ struct GridDrawSource {
 
 private:
   void buildPartition(GridLevelDomain &d, int triTarget);
+  /** Stamp each node's `material` from the cage's "material_index" face attr,
+   * via the grid -> cage-face pairing (one grid per cage corner, in cage
+   * (face id, loop order) enumeration order — subdiv.h). No-op without the
+   * attr (all nodes stay 0). */
+  void buildMaterials(int gridCount);
   void fillNode(GridLevelDomain &d, Node &n);
 
   Multires *mr_ = nullptr;

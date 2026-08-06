@@ -73,6 +73,11 @@ struct Multires {
   {
     return int(refiner.levels.size());
   }
+  /** The base cage this stack refines (not owned; set by init()). */
+  mesh::Mesh *cage()
+  {
+    return cage_;
+  }
   int activeLevel() const
   {
     return activeLevel_;

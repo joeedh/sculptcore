@@ -95,6 +95,15 @@ int extdraw_nodes_get(void * /*user_data*/,
   }
   spatial::SpatialTree &tree = *entry->tree;
 
+  // Per-node material from the bridged "material_index" face attr (absent ->
+  // all 0). One material per draw node — the first drawn face's value stands
+  // for the node (the host ABI's granularity).
+  mesh::AttrData<int> *material_data = nullptr;
+  if (tree.m->f.attrs.has(mesh::AttrType::INT, "material_index")) {
+    material_data =
+        tree.m->f.attrs.find_attribute(mesh::AttrType::INT, "material_index").get_data<int>();
+  }
+
   litestl::util::Vector<ScExternalDrawNode> &out = scratch();
   litestl::util::Vector<const void *> &attrs = attr_ptrs();
   out.clear();
@@ -137,6 +146,14 @@ int extdraw_nodes_get(void * /*user_data*/,
     dn.attrs = &attrs[base];
     dn.verts_num = gd.total_verts;
     dn.material_index = 0;
+    if (material_data != nullptr) {
+      for (const spatial::LeafSlice &slice : gd.slices) {
+        if (slice.leaf != nullptr && slice.leaf->tris().size() > 0) {
+          dn.material_index = material_data->safe_get(slice.leaf->tris()[0].f);
+          break;
+        }
+      }
+    }
     /* Custom-source ids live above the base; a mesh id crossing into that
      * namespace would let a provider flip alias a stale host batch. The id
      * generator would need ~2^30 allocations to get here — latch loudly. */

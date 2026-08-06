@@ -63,7 +63,7 @@ int grids_nodes_get(void *src_v,
     }
     dn.attrs = &attrs[base];
     dn.verts_num = n.verts;
-    dn.material_index = 0;
+    dn.material_index = n.material;
     dn.node_id = src.nodeId(i);
     dn.update_flags = SC_EXTERNAL_DRAW_UPDATE_NONE;
     if (n.update & subdiv::GridDrawSource::Update_Data) {
