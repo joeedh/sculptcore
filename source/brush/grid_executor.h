@@ -174,6 +174,9 @@ inline void gridsMirrorToSlot(subdiv::Multires *mr,
       p->flag |= spatial::Spatial_RegenBounds;
     }
   }
+  // Callers mirror every diverged vert (stroke-end touched set, undo/redo
+  // full sync), so the slot is current again — writeback may diff it.
+  mr->clearSlotStale(level);
 }
 
 /** Pull the paint mask from the resident slot mesh's `.spatial.v.mask` column

@@ -592,6 +592,42 @@ int main()
     GridStroke_free(s);
   }
 
+  /* Writeback authority: a grids fold with NO host mirror leaves the slot
+   * stale; a later writeback (reached implicitly by level switches, saves,
+   * the undo heal) must not diff that pre-stroke slot back over the grids
+   * stroke — the pressure-test's silent-data-loss scenario. */
+  {
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    restoreStore(mr, s0);
+    MultiresSlot *slot = mr.setActiveLevel(kLevel);
+    TASSERT(slot && slot->mesh);
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    GridStrokeLog log;
+    GridBrushExecutor ex(d, &brush, &log);
+
+    ex.beginStep();
+    int moved = ex.applyDab(SculptBrushes::DRAW, float3(0, 0, 0.5f), float3(0, 0, 1));
+    ex.endStep(); /* fold ran; no mirror -> slot is pre-stroke */
+    TASSERT(moved > 0);
+    TASSERT(mr.slotStale(kLevel));
+
+    const std::string post = storeBlob(mr.store);
+    TASSERT(mr.writeback(kLevel) == 0);        /* refused the stale diff */
+    TASSERT(storeBlob(mr.store) == post);      /* grids stroke survives */
+    TASSERT(!mr.slotStale(kLevel));            /* and the slot was healed */
+    bool healed = true;
+    for (int v = 0; v < d->vertCount(); v++) {
+      healed = healed &&
+               std::memcmp(&d->pos()[v], &slot->mesh->v.co[v], sizeof(float3)) == 0;
+    }
+    TASSERT(healed);
+
+    /* A real mesh-path edit on the healed slot still folds normally. */
+    slot->mesh->v.co[0][2] += 0.125f;
+    TASSERT(mr.writeback(kLevel) > 0);
+  }
+
   /* c-api session smoke: supported-tool dispatch, a stroke through the
    * session, undo/redo, and the domain raycast. */
   {

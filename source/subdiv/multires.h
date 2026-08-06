@@ -199,6 +199,28 @@ struct Multires {
     return domainGen_;
   }
 
+  /** Whether `level`'s resident slot mesh is BEHIND the store (a grids fold
+   * ran without a host mirror). While set, writeback(level) must not diff
+   * the slot — the pre-stroke slot positions would read as fresh mesh-path
+   * edits and fold OVER the grids stroke, silently destroying it (the
+   * level-switch / save / undo-heal paths all reach writeback implicitly).
+   * writeback() self-heals instead: see its guard. */
+  bool slotStale(int level) const
+  {
+    return (slotStaleMask_ >> level) & 1u;
+  }
+  /** The host mirrored every diverged vert into the slot (or the slot was
+   * rebuilt from the store): the slot is current again. */
+  void clearSlotStale(int level)
+  {
+    slotStaleMask_ &= ~(1u << level);
+  }
+  /** Copy the level's domain positions/normals over the resident slot mesh
+   * (all verts) and flag its tree for geometry re-upload + bounds regen;
+   * clears the stale bit. Rebuilds the domain if a fold dropped it (the
+   * store is current either way). No-op without a resident slot. */
+  void syncSlotFromDomain(int level);
+
   /** The store channel a sculpt writeback lands in right now: the edit
    * target's channel when one is set and enabled, else channel 0 — the same
    * rule storeDispFromPositions applies. The grids stroke log keys its
@@ -453,6 +475,7 @@ private:
   litestl::util::Vector<MultiresSlot> slots_;
   litestl::util::Vector<GridLevelDomain *> domains_; // [0] = level 1; sparse
   uint64_t domainGen_ = 0;                           // see domainGeneration()
+  uint32_t slotStaleMask_ = 0;                       // bit per level; see slotStale()
 };
 
 } // namespace sculptcore::subdiv

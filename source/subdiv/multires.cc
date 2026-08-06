@@ -600,6 +600,8 @@ MultiresSlot *Multires::materialize(int level)
   s.tree = tree;
   s.lastUse = ++useCounter_;
   slots_.append(s);
+  // Built from the chain, which is store-current by construction.
+  clearSlotStale(level);
   evictOverBudget();
   return findSlot(level);
 }
@@ -695,6 +697,9 @@ void Multires::gridsWriteback(int level,
   Assert(posCache_[level - 1].valid, "grids stroke edits a valid chain entry");
   storeDispFromPositions(level, posCache_[level - 1].pos, &changed,
                          /*toEditTarget=*/true, &grids);
+  // The store moved past the slot; until the host mirrors (or writeback
+  // heals), the slot must not be diffed as an edit source.
+  slotStaleMask_ |= 1u << level;
   invalidateAbove(level);
   if (level >= 2 && level < int(downPropPending_.size())) {
     downPropPending_[level] = true;
@@ -836,10 +841,47 @@ int Multires::captureDetailToVdm(int level, vdm::VdmStore &vstore)
   return texels;
 }
 
+void Multires::syncSlotFromDomain(int level)
+{
+  MultiresSlot *slot = findSlot(level);
+  if (!slot || !slot->mesh || !slot->tree) {
+    return;
+  }
+  GridLevelDomain *d = gridDomain(level);
+  mesh::Mesh &m = *slot->mesh;
+  const int count = d->vertCount();
+  task::parallel_for(util::IndexRange(size_t(count)), [&](util::IndexRange range) {
+    for (int v : range) {
+      m.v.co[v] = d->pos()[v];
+      m.v.no[v] = d->no[v];
+    }
+  });
+  for (auto *node : slot->tree->leaves()) {
+    // Geometry-only, same flags as the host mirror (grid_executor.h).
+    node->flag |= spatial::Spatial_UpdateGPUGeom | spatial::Spatial_RegenBounds;
+    for (spatial::SpatialNode *p = node->parent;
+         p && !(p->flag & spatial::Spatial_RegenBounds); p = p->parent)
+    {
+      p->flag |= spatial::Spatial_RegenBounds;
+    }
+  }
+  clearSlotStale(level);
+}
+
 int Multires::writeback(int level)
 {
   MultiresSlot *slot = findSlot(level);
   if (!slot) {
+    return 0;
+  }
+  if (slotStale(level)) {
+    // A grids fold already put this level's edits in the store and the host
+    // never mirrored the slot: the slot-vs-baseline diff below would read
+    // the PRE-stroke slot as fresh mesh-path edits and fold them over the
+    // grids stroke — silent data loss, reachable implicitly through
+    // setActiveLevel / addLevel / removeTopLevel / levelPositionsOut. The
+    // store is current, so there is nothing to fold; heal the slot instead.
+    syncSlotFromDomain(level);
     return 0;
   }
   Assert(posCache_[level - 1].valid, "resident level has a valid baseline");
