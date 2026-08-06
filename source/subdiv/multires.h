@@ -88,7 +88,8 @@ struct Multires {
    * to the level a step was made on, where propagating would fold the very
    * detail about to be undone into the level below. The debt is left standing,
    * so the next real user switch still settles it. */
-  MultiresSlot *setActiveLevel(int level, bool propagate = true);
+  MultiresSlot *setActiveLevel(int level, bool propagate = true,
+                               bool materializeSlot = true);
 
   /** Materialize `level` into the LRU (or refresh its stamp if resident)
    * without touching the active level. */

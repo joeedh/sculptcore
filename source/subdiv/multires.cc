@@ -1649,7 +1649,7 @@ litestl::binding::types::Struct<Multires> *Multires::defineBindings()
   return st;
 }
 
-MultiresSlot *Multires::setActiveLevel(int level, bool propagate)
+MultiresSlot *Multires::setActiveLevel(int level, bool propagate, bool materializeSlot)
 {
   if (activeLevel_ >= 1 && activeLevel_ != level) {
     writeback(activeLevel_);
@@ -1668,7 +1668,11 @@ MultiresSlot *Multires::setActiveLevel(int level, bool propagate)
   // Mark active BEFORE materializing so eviction protects the incoming level
   // (not the one being switched away from) when the budget is tight.
   activeLevel_ = level;
-  MultiresSlot *slot = materialize(level);
+  // The lazy path (grids-native hosts) skips the slot entirely: writeback +
+  // debt settling above operate on the chain, and the caller materializes on
+  // first mesh-path need (Multires::materialize) — the slot exists only for
+  // mesh-path readers.
+  MultiresSlot *slot = materializeSlot ? materialize(level) : findSlot(level);
   enforceStoreBudget();
   return slot;
 }

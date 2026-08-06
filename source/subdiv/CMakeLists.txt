@@ -36,6 +36,10 @@ wasm_add_symbols("
   Multires_new
   Multires_free
   Multires_setActiveLevel
+  Multires_setActiveLevelLazy
+  Multires_levelVertCount
+  Multires_readDomainMask
+  Multires_writeDomainMask
   Multires_activeMesh
   Multires_activeTree
   Multires_levelSampleCount

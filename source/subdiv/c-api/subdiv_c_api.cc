@@ -2,6 +2,8 @@
 #include "litestl/util/vector.h"
 #include "mesh/mesh.h"
 #include "spatial/spatial.h"
+#include "subdiv/grid_domain.h"
+#include "subdiv/grid_draw_source.h"
 #include "subdiv/multires.h"
 
 #include <cstdint>
@@ -49,6 +51,71 @@ int Multires_setActiveLevel(subdiv::Multires *mr, int level)
   level = level < 1 ? 1 : (level > mr->maxLevel() ? mr->maxLevel() : level);
   mr->setActiveLevel(level);
   return mr->activeLevel();
+}
+
+/** setActiveLevel without materializing the slot: writeback + down-prop debt
+ * settling run on the chain; the slot builds on first mesh-path need
+ * (the lazy-slot enter — grids-native hosts draw and sculpt without it).
+ * Returns the actual active level. */
+int Multires_setActiveLevelLazy(subdiv::Multires *mr, int level)
+{
+  if (!mr) {
+    return 0;
+  }
+  level = level < 1 ? 1 : (level > mr->maxLevel() ? mr->maxLevel() : level);
+  mr->setActiveLevel(level, /*propagate=*/true, /*materializeSlot=*/false);
+  return mr->activeLevel();
+}
+
+/** Dense level vert count (the grid domain / lazy-slot id space; boundary
+ * verts counted once, unlike Multires_levelSampleCount's replicas). */
+int Multires_levelVertCount(subdiv::Multires *mr, int level)
+{
+  if (!mr || level < 1 || level > mr->maxLevel()) {
+    return 0;
+  }
+  return mr->refiner.levels[level - 1].vertCount;
+}
+
+/** Copy the grid domain's dense mask into `out` (levelVertCount floats).
+ * Builds the domain if needed (mask exchange implies the level is in use). */
+int Multires_readDomainMask(subdiv::Multires *mr, int level, float *out, int count)
+{
+  if (!mr || !out || level < 1 || level > mr->maxLevel()) {
+    return 0;
+  }
+  subdiv::GridLevelDomain *d = mr->gridDomain(level);
+  if (count != d->vertCount()) {
+    return 0;
+  }
+  for (int v = 0; v < count; v++) {
+    out[v] = d->mask[v];
+  }
+  return count;
+}
+
+/** Write the grid domain's dense mask (levelVertCount floats) and land it in
+ * the store channel (all seam replicas), marking the draw source — the
+ * lazy-slot mask import path (CD_GRID_PAINT_MASK -> domain, no slot column
+ * involved). */
+int Multires_writeDomainMask(subdiv::Multires *mr, int level, const float *values, int count)
+{
+  if (!mr || !values || level < 1 || level > mr->maxLevel()) {
+    return 0;
+  }
+  subdiv::GridLevelDomain *d = mr->gridDomain(level);
+  if (count != d->vertCount()) {
+    return 0;
+  }
+  d->ensureMaskChannel();
+  for (int v = 0; v < count; v++) {
+    d->mask[v] = values[v];
+  }
+  d->flushMaskToStore();
+  if (subdiv::GridDrawSource *ds = mr->drawSource()) {
+    ds->markAllData();
+  }
+  return count;
 }
 
 /** The active level's materialized mesh / spatial tree — NON-OWNING views (the
@@ -131,22 +198,23 @@ int Multires_levelPositionsOut(subdiv::Multires *mr, int level, float (*out)[3])
     return 0;
   }
   level = level < 1 ? 1 : (level > mr->maxLevel() ? mr->maxLevel() : level);
-  mr->setActiveLevel(level);
-  subdiv::MultiresSlot *slot = mr->findSlot(level);
-  if (!slot || !slot->mesh) {
-    return 0;
-  }
-  mesh::Mesh *m = slot->mesh;
+  // Fold any pending mesh-path edits on the active level (guarded: a stale
+  // slot after grids strokes is healed, not diffed), then read the CHAIN —
+  // the same positions a materialized slot would carry, without paying the
+  // level-mesh + tree build. This used to setActiveLevel(level), so every
+  // save below top materialized the top slot.
+  mr->writeback(mr->activeLevel());
+  const litestl::util::Vector<float3> &pos = mr->levelPositions(level);
   litestl::util::Vector<int> gridVerts;
   mr->levelGridVertsOut(level, gridVerts);
   const int sample_num = int(gridVerts.size());
   for (int i = 0; i < sample_num; i++) {
     const int vid = gridVerts[i];
-    if (vid < 0) {
+    if (vid < 0 || vid >= int(pos.size())) {
       out[i][0] = out[i][1] = out[i][2] = 0.0f;
       continue;
     }
-    const float3 co = m->v.co[vid];
+    const float3 co = pos[vid];
     out[i][0] = co[0];
     out[i][1] = co[1];
     out[i][2] = co[2];
