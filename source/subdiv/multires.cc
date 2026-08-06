@@ -1,6 +1,7 @@
 #include "multires.h"
 
 #include "grid_domain.h"
+#include "grid_draw_source.h"
 
 #include "vdm/vdm_store.h"
 
@@ -29,6 +30,12 @@ namespace sculptcore::subdiv {
 
 Multires::~Multires()
 {
+  if (drawSource_) {
+    // Registry-owned; it keeps its buffers (the host may still poll) but
+    // must stop touching this stack.
+    drawSource_->onMultiresDestroyed();
+    drawSource_ = nullptr;
+  }
   dropDomains(0);
   for (int i = int(slots_.size()) - 1; i >= 0; i--) {
     evictSlot(i);

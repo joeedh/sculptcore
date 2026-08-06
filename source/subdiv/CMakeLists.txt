@@ -16,6 +16,7 @@ set(SRC
   grids.cc
   PUBLIC grid_domain.h
   grid_domain.cc
+  grid_draw_source.cc
   PUBLIC grid_tree.h
   grid_tree.cc
   PUBLIC grid_stroke_log.h
@@ -24,12 +25,14 @@ set(SRC
   multires.cc
   PUBLIC bindings.h
   bindings.cc
+  c-api/grid_draw_c_api.cc
   c-api/subdiv_c_api.cc
 )
 
 sc_add_library(subdiv "${SRC}" "${LIB}" STATIC)
 
 wasm_add_symbols("
+  sc_external_draw_register_grids
   Multires_new
   Multires_free
   Multires_setActiveLevel

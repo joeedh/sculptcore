@@ -54,6 +54,25 @@ struct ScExternalDrawProvider {
 /** Register/unregister a `SpatialTree` under an object key (Blender's original
  * `ID.session_uid`). The tree is borrowed; unregister on mode exit. */
 void sc_external_draw_register(unsigned int object_key, void *spatial_tree);
+
+/** Custom (non-SpatialTree) geometry sources — e.g. the multires grids draw
+ * source (subdiv/c-api) — register through a small vtable so this module
+ * stays independent of theirs. node_id values of custom sources must live at
+ * or above SC_EXTERNAL_DRAW_CUSTOM_ID_BASE; SpatialNode ids stay below it. */
+#define SC_EXTERNAL_DRAW_CUSTOM_ID_BASE 0x40000000u
+
+typedef struct ScExternalDrawSourceOps {
+  int (*nodes_get)(void *src, const ScExternalDrawAttrRequest *req,
+                   ScExternalDrawNode **r_nodes);
+  void (*update)(void *src);
+  void (*destroy)(void *src);
+} ScExternalDrawSourceOps;
+
+/** Register `src` (owned by the registry from here on: unregister / a
+ * replacing register calls ops->destroy). `ops` must outlive the entry. */
+void sc_external_draw_register_custom(unsigned int object_key,
+                                      void *src,
+                                      const ScExternalDrawSourceOps *ops);
 void sc_external_draw_unregister(unsigned int object_key);
 
 /** Refresh the registered tree's per-GPU-node CPU buffers (headless fill via a

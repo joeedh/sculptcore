@@ -8,6 +8,7 @@
 #include "brush/brush.h"
 #include "brush/grid_executor.h"
 #include "subdiv/grid_domain.h"
+#include "subdiv/grid_draw_source.h"
 #include "subdiv/grid_stroke_log.h"
 #include "subdiv/grid_tree.h"
 #include "subdiv/multires.h"
@@ -119,6 +120,11 @@ void GridStroke_flushNormals(GridStrokeSession *s)
     return;
   }
   auto &flushed = s->exec.flushNormals();
+  if (flushed.size() > 0) {
+    if (subdiv::GridDrawSource *ds = s->mr->drawSource()) {
+      ds->markVerts(std::span<const int>(flushed.data(), flushed.size()));
+    }
+  }
   if (s->mirror && flushed.size() > 0) {
     brush::gridsMirrorToSlot(s->mr, s->level,
                              std::span<const int>(flushed.data(), flushed.size()));
@@ -154,6 +160,9 @@ void GridStroke_syncMask(GridStrokeSession *s)
 {
   if (s && GridStroke_sync(s)) {
     brush::gridsSyncMaskFromSlot(s->mr, s->level);
+    if (subdiv::GridDrawSource *ds = s->mr->drawSource()) {
+      ds->markAllData();
+    }
   }
 }
 
@@ -181,6 +190,12 @@ int GridStroke_dab(GridStrokeSession *s,
   s->exec.setGrabAccumAdd(grabAdd != 0);
   int moved = s->exec.applyDab(brush::SculptBrushes(tool), float3(ox, oy, oz),
                                float3(nx, ny, nz));
+  if (moved > 0) {
+    if (subdiv::GridDrawSource *ds = s->mr->drawSource()) {
+      auto &mv = s->exec.lastDabMoved();
+      ds->markVerts(std::span<const int>(mv.data(), mv.size()));
+    }
+  }
   if (s->mirror && moved > 0) {
     auto &mv = s->exec.lastDabMoved();
     brush::gridsMirrorToSlot(s->mr, s->level,
@@ -197,6 +212,10 @@ void GridStroke_end(GridStrokeSession *s)
   // endStep flushes deferred normals internally; mirror the final normals
   // for the whole touched set so the slot mesh releases consistent.
   s->exec.endStep();
+  if (subdiv::GridDrawSource *ds = s->mr->drawSource()) {
+    auto &tv = const_cast<litestl::util::Vector<int> &>(s->exec.strokeTouchedVerts());
+    ds->markVerts(std::span<const int>(tv.data(), tv.size()));
+  }
   if (s->mirror) {
     // Non-const cast: litestl Vector exposes no const data().
     auto &tv = const_cast<litestl::util::Vector<int> &>(s->exec.strokeTouchedVerts());

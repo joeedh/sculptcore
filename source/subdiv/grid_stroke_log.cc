@@ -1,5 +1,7 @@
 #include "grid_stroke_log.h"
 
+#include "grid_draw_source.h"
+
 #include "grid_tree.h"
 #include "multires.h"
 
@@ -178,6 +180,18 @@ void GridStrokeLog::applySwap(Step &s)
     d_->refreshNormals(std::span<const int>(touchedVerts.data(), touchedVerts.size()));
   }
   tree_->refreshBounds(std::span<const int>(touchedLeaves.data(), touchedLeaves.size()));
+  if (GridDrawSource *ds = mr->drawSource()) {
+    // Drawn pos/no/mask of the swapped leaves changed — mark by owned verts
+    // (occurrence mapping also reaches the neighbor cells reading them).
+    Vector<int> marked;
+    for (LeafSnap &ls : s.leaves) {
+      const GridTree::Leaf &tl = tree_->leaves[ls.leaf];
+      for (int v : tl.ownedVerts) {
+        marked.append(v);
+      }
+    }
+    ds->markVerts(std::span<const int>(marked.data(), marked.size()));
+  }
   // Finer levels derive from this one's positions; the swapped state is new
   // to them either way.
   mr->invalidateAbove(level);

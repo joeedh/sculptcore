@@ -47,6 +47,7 @@ struct VdmStore;
 namespace sculptcore::subdiv {
 
 struct GridLevelDomain;
+struct GridDrawSource;
 
 /** One resident (materialized) level: the mesh + its spatial tree. Owned by
  * the Multires LRU; pointers are stable until the slot is evicted. */
@@ -220,6 +221,18 @@ struct Multires {
    * clears the stale bit. Rebuilds the domain if a fold dropped it (the
    * store is current either way). No-op without a resident slot. */
   void syncSlotFromDomain(int level);
+
+  /** The registered grids draw source, if any (grid_draw_source.h). Owned by
+   * the extdraw registry — this is a backref for the stroke/undo dirty feeds;
+   * ~Multires tells the source to detach. */
+  GridDrawSource *drawSource()
+  {
+    return drawSource_;
+  }
+  void setDrawSource(GridDrawSource *s)
+  {
+    drawSource_ = s;
+  }
 
   /** The store channel a sculpt writeback lands in right now: the edit
    * target's channel when one is set and enabled, else channel 0 — the same
@@ -476,6 +489,7 @@ private:
   litestl::util::Vector<GridLevelDomain *> domains_; // [0] = level 1; sparse
   uint64_t domainGen_ = 0;                           // see domainGeneration()
   uint32_t slotStaleMask_ = 0;                       // bit per level; see slotStale()
+  GridDrawSource *drawSource_ = nullptr;             // registry-owned backref
 };
 
 } // namespace sculptcore::subdiv

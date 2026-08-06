@@ -21,8 +21,10 @@
 #include "brush/grid_executor.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_shapes.h"
+#include "spatial/c-api/external_draw.h"
 #include "spatial/spatial.h"
 #include "subdiv/grid_domain.h"
+#include "subdiv/grid_draw_source.h"
 #include "subdiv/grid_stroke_log.h"
 #include "subdiv/grid_tree.h"
 #include "subdiv/grids.h"
@@ -43,6 +45,10 @@ test_init;
 /* Grids stroke session c-api (brush/c-api/grid_stroke_c_api.cc). */
 struct GridStrokeSession;
 extern "C" {
+void sc_external_draw_register_grids(unsigned int object_key, void *multires, int level);
+void sc_external_draw_unregister(unsigned int object_key);
+void sc_external_draw_update(unsigned int object_key);
+const ScExternalDrawProvider *sc_external_draw_provider(void);
 GridStrokeSession *GridStroke_new(sculptcore::subdiv::Multires *mr,
                                   int level,
                                   sculptcore::brush::Brush *b);
@@ -626,6 +632,130 @@ int main()
     /* A real mesh-path edit on the healed slot still folds normally. */
     slot->mesh->v.co[0][2] += 0.125f;
     TASSERT(mr.writeback(kLevel) > 0);
+  }
+
+  /* Grids draw source (extdraw provider v2): partition coverage, the
+   * born-dirty/consume-on-read contract through the c-api, and restricted
+   * dirty marking after a stroke and an undo. */
+  {
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    restoreStore(mr, s0);
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+
+    const unsigned key = 4242;
+    sc_external_draw_register_grids(key, &mr, kLevel);
+    TASSERT(mr.drawSource() != nullptr);
+
+    const ScExternalDrawProvider *prov = sc_external_draw_provider();
+    ScExternalDrawNode *nodes = nullptr;
+    int count = prov->nodes_get(prov->user_data, key, nullptr, &nodes);
+    TASSERT(count > 0);
+
+    /* Coverage: every cell drawn exactly once — corner count and position
+     * sum match an independent walk of the level's grid lattices. */
+    subdiv::SubdivLevel &lvl = mr.refiner.levels[kLevel - 1];
+    const int S = lvl.gridSide, w = S + 1;
+    const Vector<float3> &pos = d->pos();
+    double expectSum = 0.0;
+    long expectCorners = 0;
+    for (int g = 0; g < mr.store.gridCount(); g++) {
+      const int *gv = &lvl.gridVerts[g * w * w];
+      for (int cv = 0; cv < S; cv++) {
+        for (int cu = 0; cu < S; cu++) {
+          const int c4[4] = {gv[cv * w + cu], gv[cv * w + cu + 1],
+                             gv[(cv + 1) * w + cu + 1], gv[(cv + 1) * w + cu]};
+          /* 6 corners per cell: a,b,c + a,c,d. */
+          const int corner[6] = {c4[0], c4[1], c4[2], c4[0], c4[2], c4[3]};
+          for (int k = 0; k < 6; k++) {
+            const float3 &p = pos[corner[k]];
+            expectSum += double(p[0]) + double(p[1]) + double(p[2]);
+            expectCorners++;
+          }
+        }
+      }
+    }
+    double gotSum = 0.0;
+    long gotCorners = 0;
+    bool bornDirty = true, idsOk = true;
+    for (int i = 0; i < count; i++) {
+      const ScExternalDrawNode &n = nodes[i];
+      bornDirty = bornDirty && (n.update_flags & SC_EXTERNAL_DRAW_UPDATE_TOPOLOGY) &&
+                  (n.update_flags & SC_EXTERNAL_DRAW_UPDATE_DATA);
+      idsOk = idsOk && n.node_id >= SC_EXTERNAL_DRAW_CUSTOM_ID_BASE;
+      TASSERT(n.verts_num > 0 && n.verts_num % 3 == 0);
+      TASSERT(n.attrs != nullptr && n.attrs[2] != nullptr); /* mask@2 */
+      for (int v = 0; v < n.verts_num; v++) {
+        gotSum += double(n.positions[v][0]) + double(n.positions[v][1]) +
+                  double(n.positions[v][2]);
+        gotCorners++;
+      }
+    }
+    TASSERT(bornDirty);
+    TASSERT(idsOk);
+    TASSERT(gotCorners == expectCorners);
+    TASSERT(std::abs(gotSum - expectSum) < 1e-6 * std::abs(expectSum) + 1e-9);
+
+    /* Consume-on-read: a second sync with no edits reports NONE. */
+    count = prov->nodes_get(prov->user_data, key, nullptr, &nodes);
+    bool allNone = true;
+    for (int i = 0; i < count; i++) {
+      allNone = allNone && nodes[i].update_flags == SC_EXTERNAL_DRAW_UPDATE_NONE;
+    }
+    TASSERT(allNone);
+
+    /* A stroke marks a strict subset; the update refills only that subset. */
+    GridStrokeSession *s = GridStroke_new(&mr, kLevel, &brush);
+    TASSERT(GridStroke_begin(s) == 1);
+    TASSERT(GridStroke_dab(s, int(SculptBrushes::DRAW), 0, 0, 0.5f, 0, 0, 1, 0) > 0);
+    GridStroke_end(s);
+    sc_external_draw_update(key);
+    count = prov->nodes_get(prov->user_data, key, nullptr, &nodes);
+    int dirtyCount = 0;
+    for (int i = 0; i < count; i++) {
+      dirtyCount += (nodes[i].update_flags & SC_EXTERNAL_DRAW_UPDATE_DATA) ? 1 : 0;
+    }
+    fprintf(stderr, "draw source: %d nodes, %d dirty after dab\n", count, dirtyCount);
+    TASSERT(dirtyCount > 0); /* fixture fits one node; subset gated below */
+
+    /* Undo marks again (via the log's applySwap feed). */
+    TASSERT(GridStroke_undo(s) == 1);
+    sc_external_draw_update(key);
+    count = prov->nodes_get(prov->user_data, key, nullptr, &nodes);
+    dirtyCount = 0;
+    for (int i = 0; i < count; i++) {
+      dirtyCount += (nodes[i].update_flags & SC_EXTERNAL_DRAW_UPDATE_DATA) ? 1 : 0;
+    }
+    TASSERT(dirtyCount > 0);
+    GridStroke_free(s);
+    sc_external_draw_unregister(key);
+    TASSERT(mr.drawSource() == nullptr);
+
+    /* Small-target partition: many nodes, and a dab dirties a strict
+     * subset (the whole point of the sub-grid granularity). */
+    {
+      subdiv::GridDrawSource src(&mr, kLevel, /*nodeTriTarget=*/64);
+      TASSERT(src.nodeCount() > 4);
+      mr.setDrawSource(&src);
+      GridStrokeSession *s2 = GridStroke_new(&mr, kLevel, &brush);
+      src.update();
+      for (int i = 0; i < src.nodeCount(); i++) {
+        src.node(i).update = subdiv::GridDrawSource::Update_None;
+      }
+      TASSERT(GridStroke_begin(s2) == 1);
+      TASSERT(GridStroke_dab(s2, int(SculptBrushes::DRAW), 0, 0, 0.5f, 0, 0, 1, 0) > 0);
+      GridStroke_end(s2);
+      src.update();
+      int sub = 0;
+      for (int i = 0; i < src.nodeCount(); i++) {
+        sub += (src.node(i).update & subdiv::GridDrawSource::Update_Data) ? 1 : 0;
+      }
+      fprintf(stderr, "draw source small-target: %d nodes, %d dirty\n",
+              src.nodeCount(), sub);
+      TASSERT(sub > 0 && sub < src.nodeCount());
+      GridStroke_free(s2);
+      mr.setDrawSource(nullptr);
+    }
   }
 
   /* c-api session smoke: supported-tool dispatch, a stroke through the

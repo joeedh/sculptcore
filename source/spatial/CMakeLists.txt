@@ -80,6 +80,7 @@ wasm_add_symbols("
   getTreeMissingAttrSlots
   setTreeFaceDisplacementBounds
   sc_external_draw_register
+  sc_external_draw_register_custom
   sc_external_draw_unregister
   sc_external_draw_update
   sc_external_draw_enable_dynamic

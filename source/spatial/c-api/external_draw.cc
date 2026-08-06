@@ -12,6 +12,7 @@
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
+#include "litestl/util/assert.h"
 #include "litestl/util/map.h"
 #include "litestl/util/vector.h"
 
@@ -29,11 +30,30 @@ gpu::GPUManager &shared_gpu()
   return gpu;
 }
 
-/* Object key (Blender ID.session_uid) -> borrowed SpatialTree. */
-litestl::util::Map<uint32_t, spatial::SpatialTree *> &registry()
+/* Object key (Blender ID.session_uid) -> one geometry source: a borrowed
+ * SpatialTree (the mesh path) or a registry-owned custom source driven
+ * through its ops vtable (the multires grids source, subdiv/c-api). Exactly
+ * one is set per entry. */
+struct Entry {
+  spatial::SpatialTree *tree = nullptr;
+  void *custom = nullptr;
+  const ScExternalDrawSourceOps *ops = nullptr;
+};
+
+litestl::util::Map<uint32_t, Entry> &registry()
 {
-  static litestl::util::Map<uint32_t, spatial::SpatialTree *> map;
+  static litestl::util::Map<uint32_t, Entry> map;
   return map;
+}
+
+void free_entry(Entry &e)
+{
+  if (e.custom && e.ops && e.ops->destroy) {
+    e.ops->destroy(e.custom);
+  }
+  e.custom = nullptr;
+  e.ops = nullptr;
+  e.tree = nullptr;
 }
 
 /* Scratch node array returned by nodes_get; valid until the next nodes_get. The
@@ -63,11 +83,17 @@ int extdraw_nodes_get(void * /*user_data*/,
                       const ScExternalDrawAttrRequest *req,
                       ScExternalDrawNode **r_nodes)
 {
-  spatial::SpatialTree **tree_ptr = registry().lookup_ptr(object_key);
-  if (tree_ptr == nullptr || *tree_ptr == nullptr) {
+  Entry *entry = registry().lookup_ptr(object_key);
+  if (entry == nullptr) {
     return 0;
   }
-  spatial::SpatialTree &tree = **tree_ptr;
+  if (entry->custom != nullptr && entry->ops != nullptr) {
+    return entry->ops->nodes_get(entry->custom, req, r_nodes);
+  }
+  if (entry->tree == nullptr) {
+    return 0;
+  }
+  spatial::SpatialTree &tree = *entry->tree;
 
   litestl::util::Vector<ScExternalDrawNode> &out = scratch();
   litestl::util::Vector<const void *> &attrs = attr_ptrs();
@@ -111,6 +137,12 @@ int extdraw_nodes_get(void * /*user_data*/,
     dn.attrs = &attrs[base];
     dn.verts_num = gd.total_verts;
     dn.material_index = 0;
+    /* Custom-source ids live above the base; a mesh id crossing into that
+     * namespace would let a provider flip alias a stale host batch. The id
+     * generator would need ~2^30 allocations to get here — latch loudly. */
+    litestl::util::Assert(node->id >= 0 &&
+                              uint32_t(node->id) < SC_EXTERNAL_DRAW_CUSTOM_ID_BASE,
+                          "SpatialNode id collides with the custom draw-node namespace");
     dn.node_id = uint32_t(node->id);
     // DATA: positions dirty since Blender last consumed this node -> re-upload.
     // TOPOLOGY: buffers re-planned (content can change at an identical vertex
@@ -161,19 +193,46 @@ extern "C" {
 
 void sc_external_draw_register(unsigned int object_key, void *spatial_tree)
 {
-  registry()[object_key] = static_cast<spatial::SpatialTree *>(spatial_tree);
+  Entry &e = registry()[object_key];
+  free_entry(e);
+  e.tree = static_cast<spatial::SpatialTree *>(spatial_tree);
+}
+
+void sc_external_draw_register_custom(unsigned int object_key,
+                                      void *src,
+                                      const ScExternalDrawSourceOps *ops)
+{
+  if (src == nullptr || ops == nullptr || ops->nodes_get == nullptr) {
+    return;
+  }
+  Entry &e = registry()[object_key];
+  free_entry(e);
+  e.custom = src;
+  e.ops = ops;
 }
 
 void sc_external_draw_unregister(unsigned int object_key)
 {
-  registry().remove(object_key);
+  Entry *e = registry().lookup_ptr(object_key);
+  if (e != nullptr) {
+    free_entry(*e);
+    registry().remove(object_key);
+  }
 }
 
 void sc_external_draw_update(unsigned int object_key)
 {
-  spatial::SpatialTree **tree_ptr = registry().lookup_ptr(object_key);
-  if (tree_ptr != nullptr && *tree_ptr != nullptr) {
-    (*tree_ptr)->update(&shared_gpu());
+  Entry *e = registry().lookup_ptr(object_key);
+  if (e == nullptr) {
+    return;
+  }
+  if (e->custom != nullptr && e->ops != nullptr) {
+    if (e->ops->update != nullptr) {
+      e->ops->update(e->custom);
+    }
+  }
+  else if (e->tree != nullptr) {
+    e->tree->update(&shared_gpu());
   }
 }
 
