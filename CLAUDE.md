@@ -439,24 +439,30 @@ plan: [`documentation/plans/displacementAndSubSurf.md`](documentation/plans/disp
 (workstreams S/X). Gates: `test_multires`, `test_multires_stroke`.
 
 **The frame is the sharp edge here.** `pos = base + frame·d` makes the frame a
-lever arm: a perturbation of it is amplified by `|d|`. The production path still
-takes its frame from the F3 provider (`source/displace/frames.cc`) — a smoothed
-normal plus a 4-RoSy cross-field tangent — and a cross field must *choose* a
-representative from a 4-fold-symmetric tensor, with nothing pinning that choice
-across rematerializations. A rebuild can therefore land on a different image and
-decode unchanged stored `d` rotated by a multiple of 90°, which reads as detail
-flipping in one step. `test_multires`'s `gateFrameStability` measures it: nudging
-one cage vertex of a subdivided cube *reverses* a provider tangent (dot
-−0.999962).
+lever arm: a perturbation of it is amplified by `|d|`. The multires frame space
+is `Multires::parametricFrames()` — normal and tangent derived from the grid's
+own `(u,v)` lattice by finite differences on the smoothed base. Every encode
+(`storeDispFromPositions`) and decode (`applyDisp`) goes through it, so stored
+`d` never depends on a cross-field representative.
 
-`Multires::parametricFrames()` is the replacement — the frame derived from the
-grid's own `(u,v)` lattice by finite differences, which makes no choice among
-symmetric alternatives and holds at 0.999970 over the same perturbation. It is
-**present and tested but not yet wired into materialization**; do not assume the
-production path uses it. When switching it on, `captureDetailToVdm` is the one
-place two frame spaces would coexist — the VDM consumers (`vdm_bake`,
-`vdm_promote`, `vdm_splat`) read the provider's `FRAME_*_ATTR`, so capture must
-convert or refuse.
+It replaced the F3 provider (`source/displace/frames.cc` — smoothed normal plus
+a 4-RoSy cross-field tangent) on this path for **correctness first**: a cross
+field must *choose* a representative from a 4-fold-symmetric tensor, with
+nothing pinning that choice across rematerializations, so a rebuild could decode
+unchanged stored `d` rotated by a multiple of 90° — detail flipping in one step.
+`test_multires`'s `gateFrameStability` measures both: nudging one cage vertex of
+a subdivided cube *reverses* a provider tangent (dot −0.999962) where the
+lattice frame holds at 0.999970. The lattice frame is also far cheaper — it
+needs no `mesh::Mesh`, uses only `+ - * / sqrt` (so backends agree bitwise), and
+is embarrassingly parallel, where the provider's Gauss-Seidel smoothing is
+deliberately serial. That is most of what made mode-enter fast (2433 ms → 26 ms
+for the base+frames phase at 1 M verts / level 4).
+
+`captureDetailToVdm` is where the two frame spaces now coexist, and it is
+**open**: it writes texels in the lattice frame while the VDM consumers
+(`vdm_bake`, `vdm_promote`, `vdm_splat`) still decode against the provider's
+`FRAME_*_ATTR`. Capture must convert — or the VDM path must adopt the lattice
+frame — before it is wired to a host. Nothing outside the c-api reaches it today.
 
 ## Quad remeshing
 

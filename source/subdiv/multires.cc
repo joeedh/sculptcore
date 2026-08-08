@@ -287,28 +287,6 @@ bool Multires::dispNonZero(int level)
   return false;
 }
 
-/** Copy the F3 frame-provider attrs off `m` (co == smooth base) into dense
- * per-vert vectors — the cache writeback re-expression reads from. */
-static void extractFrameAttrs(mesh::Mesh &m,
-                              int vertCount,
-                              Vector<float3> &no,
-                              Vector<float3> &ta)
-{
-  auto attr = [&](const char *name) {
-    AttrRef ref = m.v.attrs.find_attribute(AttrType::FLOAT3, name);
-    return ref.exists() ? static_cast<AttrData<float3> *>(ref.data) : nullptr;
-  };
-  AttrData<float3> *fn = attr(displace::FRAME_NORMAL_ATTR);
-  AttrData<float3> *ft = attr(displace::FRAME_TANGENT_ATTR);
-  Assert(fn && ft, "frame provider attrs present");
-  no.resize(vertCount);
-  ta.resize(vertCount);
-  for (int i = 0; i < vertCount; i++) {
-    no[i] = (*fn)[i];
-    ta[i] = (*ft)[i];
-  }
-}
-
 static constexpr float FRAME_EPS = 1e-9f;
 
 static float3 safeNorm(const float3 &v)
@@ -420,28 +398,21 @@ static void gridFrame(const SubdivLevel &lvl,
 }
 
 /** Apply the level's composited displacement (Σ mix weight·channel) onto the
- * smoothed base, in the F3 frame evaluated AT the base (edit-independent).
- * `pos` must NOT alias `base` — seam verts are visited once per replica and
- * must re-read the clean base. */
+ * smoothed base, in the lattice frame evaluated AT the base (edit-independent).
+ * `no`/`ta` are #Multires::parametricFrames output, dense by level vert id —
+ * the same field storeDispFromPositions encodes against, which is what makes
+ * the round trip exact. `pos` must NOT alias `base` — seam verts are visited
+ * once per replica and must re-read the clean base. */
 static void applyDisp(GridsStore &store,
                       Refiner &refiner,
                       int level,
-                      mesh::Mesh *baseMesh,
                       const Vector<float3> &base,
+                      const Vector<float3> &no,
+                      const Vector<float3> &ta,
                       Vector<float3> &pos,
                       const Vector<Multires::ChannelMix> &mix)
 {
   Assert(&base != &pos, "applyDisp base/pos must not alias");
-  displace::FrameProviderParams params;
-  displace::updateFramesAll(*baseMesh, params);
-
-  auto attr = [&](const char *name) {
-    AttrRef ref = baseMesh->v.attrs.find_attribute(AttrType::FLOAT3, name);
-    return ref.exists() ? static_cast<AttrData<float3> *>(ref.data) : nullptr;
-  };
-  AttrData<float3> *no = attr(displace::FRAME_NORMAL_ATTR);
-  AttrData<float3> *ta = attr(displace::FRAME_TANGENT_ATTR);
-  Assert(no && ta, "frame provider attrs present");
 
   SubdivLevel &lvl = refiner.levels[level - 1];
   int S = lvl.gridSide, w = S + 1;
@@ -460,7 +431,7 @@ static void applyDisp(GridsStore &store,
           D[1] += d[1] * m.weight;
           D[2] += d[2] * m.weight;
         }
-        float3 n = (*no)[vid], t = (*ta)[vid];
+        float3 n = no[vid], t = ta[vid];
         float3 b = n.cross(t);
         float3 p = base[vid];
         p += t * D[0];
@@ -498,19 +469,13 @@ Vector<float3> &Multires::ensureChain(int level)
     if (dispNonZero(l)) {
       Vector<ChannelMix> mix;
       compositeMix(mix);
-      mesh::Mesh *tm = buildLevelTopo(l);
-      for (int i = 0; i < int(base.size()); i++) {
-        tm->v.co[i] = base[i];
-      }
-      tm->recalc_normals();
-      // applyDisp runs the frame provider on tm — cache base + frames off it
-      // so writeback re-expression skips the whole rebuild.
-      applyDisp(store, refiner, l, tm, base, lp.pos, mix);
-      extractFrameAttrs(*tm, refiner.levels[l - 1].vertCount, lp.frameNo, lp.frameTa);
+      // The decode frames are the cache's frames, so keep them — a later
+      // writeback re-expression then pays nothing.
+      parametricFrames(l, base, lp.frameNo, lp.frameTa);
+      applyDisp(store, refiner, l, base, lp.frameNo, lp.frameTa, lp.pos, mix);
       lp.base = std::move(base);
       lp.framesValid = true;
       lp.posIsBase = false;
-      alloc::Delete(tm);
     } else {
       lp.pos = std::move(base);
       lp.posIsBase = true;
@@ -551,15 +516,7 @@ void Multires::ensureBaseAndFrames(int level)
     }
     refiner.levels[level - 1].stencil.eval(*prev, lp.base);
   }
-  mesh::Mesh *tm = buildLevelTopo(level);
-  for (int i = 0; i < int(lp.base.size()); i++) {
-    tm->v.co[i] = lp.base[i];
-  }
-  tm->recalc_normals();
-  displace::FrameProviderParams params;
-  displace::updateFramesAll(*tm, params);
-  extractFrameAttrs(*tm, refiner.levels[level - 1].vertCount, lp.frameNo, lp.frameTa);
-  alloc::Delete(tm);
+  parametricFrames(level, lp.base, lp.frameNo, lp.frameTa);
   lp.framesValid = true;
 }
 
@@ -618,14 +575,12 @@ MultiresSlot *Multires::materialize(int level)
     m->v.co[i] = pos[i];
   }
   m->recalc_normals();
-  // Zero-disp materialization: this mesh's co IS the smooth base, so cache the
-  // base + frames off it now — the level's first writeback then pays nothing.
+  // Zero-disp materialization: pos IS the smooth base, so cache the base +
+  // frames now — the level's first writeback then pays nothing.
   LevelPos &lp = posCache_[level - 1];
   if (lp.posIsBase && !lp.framesValid) {
-    displace::FrameProviderParams fparams;
-    displace::updateFramesAll(*m, fparams);
-    extractFrameAttrs(*m, refiner.levels[level - 1].vertCount, lp.frameNo, lp.frameTa);
     lp.base = lp.pos;
+    parametricFrames(level, lp.base, lp.frameNo, lp.frameTa);
     lp.posIsBase = false;
     lp.framesValid = true;
   }
@@ -1640,15 +1595,20 @@ void Multires::parametricFrames(int level,
 
   no.resize(lvl.vertCount);
   ta.resize(lvl.vertCount);
-  for (int i = 0; i < lvl.vertCount; i++) {
-    int g = coords[i * 3];
-    if (g < 0) {
-      no[i] = float3(0.0f, 0.0f, 1.0f);
-      ta[i] = float3(1.0f, 0.0f, 0.0f);
-      continue;
+  // Each vert reads its own canonical grid and writes only its own slot, so
+  // the field is order-independent — unlike the cross field it replaces.
+  task::parallel_for(util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
+    for (size_t si : range) {
+      int i = int(si);
+      int g = coords[i * 3];
+      if (g < 0) {
+        no[i] = float3(0.0f, 0.0f, 1.0f);
+        ta[i] = float3(1.0f, 0.0f, 0.0f);
+        continue;
+      }
+      gridFrame(lvl, g, coords[i * 3 + 1], coords[i * 3 + 2], base, no[i], ta[i]);
     }
-    gridFrame(lvl, g, coords[i * 3 + 1], coords[i * 3 + 2], base, no[i], ta[i]);
-  }
+  });
 }
 
 void Multires::levelGridVertsOut(int level, Vector<int> &out)

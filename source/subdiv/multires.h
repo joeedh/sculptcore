@@ -321,12 +321,18 @@ struct Multires {
 
   /** Geometry→VDM capture (X4 stage 2): transfer this level's grids-store
    * displacement into `vstore`'s Ptex texels (bilinear over the disp lattice,
-   * ADDED onto existing texels — same frame space: both are frameᵀ·(pos−base)
-   * with frames on the smoothed base), zero the disp, and drop the level's
-   * surface onto the smooth base (materialized mesh + baseline updated,
-   * finer levels invalidated, skirts synced). Returns texels written.
+   * ADDED onto existing texels), zero the disp, and drop the level's surface
+   * onto the smooth base (materialized mesh + baseline updated, finer levels
+   * invalidated, skirts synced). Returns texels written.
    * Refuses (returns 0) while any enabled sculpt-layer channel contributes —
-   * capture is defined on channel 0 only (layer×VDM migration is post-V2). */
+   * capture is defined on channel 0 only (layer×VDM migration is post-V2).
+   *
+   * FRAME SPACE MISMATCH, open: the texels it writes are in the multires
+   * lattice frame (#parametricFrames), but the VDM consumers (vdm_bake /
+   * _promote / _splat) decode against the F3 provider's FRAME_*_ATTR. The two
+   * agreed while multires also used F3; they no longer do. Capture must convert
+   * — or the VDM path must adopt the lattice frame — before this is wired to a
+   * host. Unreached today: nothing outside the c-api calls it. */
   int captureDetailToVdm(int level, vdm::VdmStore &vstore);
 
   // ---- Sculpt layers on the stack (sculptLayersV2 M3) ----
@@ -398,8 +404,9 @@ struct Multires {
    * their cross product, tangent by Gram-Schmidt. Each vert uses its canonical
    * (lowest-index) owning grid, so every replica of a border vert gets one
    * value and no tangent directions are averaged. Dense by level vert id,
-   * matching the frameNo/frameTa cache layout. Gated behind tests for now —
-   * the materialization path still uses the F3 provider frames. */
+   * matching the frameNo/frameTa cache layout. This IS the multires frame
+   * space: every encode (#storeDispFromPositions) and decode (applyDisp) goes
+   * through it, so stored `d` never depends on a cross-field representative. */
   void parametricFrames(int level,
                         const litestl::util::Vector<litestl::math::float3> &base,
                         litestl::util::Vector<litestl::math::float3> &no,
@@ -431,8 +438,8 @@ private:
 
   /** Ensure the cached position chain is valid through `level`; returns it. */
   litestl::util::Vector<litestl::math::float3> &ensureChain(int level);
-  /** Ensure `level`'s LevelPos carries its smooth base + F3 frames (the chain
-   * through `level` must already be valid). Cheap when cached. */
+  /** Ensure `level`'s LevelPos carries its smooth base + lattice frames (the
+   * chain through `level` must already be valid). Cheap when cached. */
   void ensureBaseAndFrames(int level);
   /** Re-express `pos` (dense by level vert id) as level-`level` store
    * displacement: disp = frameᵀ·(pos − base), base = stencil(prev chain),
