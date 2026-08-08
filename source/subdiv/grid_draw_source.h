@@ -126,11 +126,9 @@ struct GridDrawSource {
 
 private:
   void buildPartition(GridLevelDomain &d, int triTarget);
-  /** Stamp each node's `material` from the cage's "material_index" face attr,
-   * via the grid -> cage-face pairing (one grid per cage corner, in cage
-   * (face id, loop order) enumeration order — subdiv.h). No-op without the
-   * attr (all nodes stay 0). */
-  void buildMaterials(int gridCount);
+  /** Stamp each node's `material` from the cage's materials per grid
+   * (#Multires::gridMaterials); every node stays 0 without them. */
+  void buildMaterials();
   void fillNode(GridLevelDomain &d, Node &n);
 
   Multires *mr_ = nullptr;

@@ -73,11 +73,6 @@ struct Multires {
   {
     return int(refiner.levels.size());
   }
-  /** The base cage this stack refines (not owned; set by init()). */
-  mesh::Mesh *cage()
-  {
-    return cage_;
-  }
   int activeLevel() const
   {
     return activeLevel_;
@@ -279,6 +274,19 @@ struct Multires {
    * backends, so finest-level VDM texels sample correctly from any level's
    * UVs. Called by materialize(); public for the S5-style topo-mesh hosts. */
   void assignGridUVs(mesh::Mesh &m, int level);
+
+  /** The cage's `material_index` face attribute resolved per grid, in the
+   * refiner's grid enumeration (one grid per cage corner). False — leaving
+   * `out` empty — when the cage carries no such attribute, or when the walk
+   * disagrees with the refiner's grid count; callers then treat every face as
+   * material 0, which is what both draw paths default to. */
+  bool gridMaterials(litestl::util::Vector<int> &out);
+
+  /** Stamp a level mesh's `material_index` face attribute from the cage's, one
+   * value per grid spread over that grid's cells (#gridMaterials). No-op when
+   * the cage has no materials. Called by materialize(); public alongside
+   * #assignGridUVs for the S5-style topo-mesh hosts. */
+  void assignGridMaterials(mesh::Mesh &m, int level);
 
   /** Resident-level budget; eviction is LRU by lastUse, never the active
    * level (plan: users toggle two levels constantly, so default 3). */

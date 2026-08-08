@@ -191,6 +191,54 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
   }
 }
 
+bool Multires::gridMaterials(Vector<int> &out)
+{
+  out.clear();
+  if (!cage_ || !cage_->f.attrs.has(mesh::AttrType::INT, "material_index")) {
+    return false;
+  }
+  auto *mat = cage_->f.attrs.find_attribute(mesh::AttrType::INT, "material_index").get_data<int>();
+
+  // The refiner seeds one grid per cage corner, walking cage faces in id order
+  // and each face's corners through c.next (subdiv.cc buildLevelTopo).
+  out.ensure_capacity(size_t(refiner.gridCount()));
+  for (int fi : cage_->f) {
+    const int material = mat->safe_get(fi);
+    const int c0 = cage_->l.c[cage_->f.l[fi]];
+    int cc = c0;
+    do {
+      out.append(material);
+      cc = cage_->c.next[cc];
+    } while (cc != c0);
+  }
+  if (int(out.size()) != refiner.gridCount()) {
+    out.clear();
+    return false; // enumeration drifted from the refiner's
+  }
+  return true;
+}
+
+void Multires::assignGridMaterials(mesh::Mesh &m, int level)
+{
+  Vector<int> gridMat;
+  if (!gridMaterials(gridMat)) {
+    return;
+  }
+
+  AttrRef &ref = m.f.attrs.ensure(AttrType::INT, util::string("material_index"), true);
+  auto *data = static_cast<AttrData<int> *>(ref.data);
+
+  // Faces are grid-major, one quad per cell, S*S cells per grid (buildLevelTopo).
+  const int S = refiner.levels[level - 1].gridSide;
+  int f = 0;
+  for (int g = 0; g < int(gridMat.size()); g++) {
+    for (int k = 0; k < S * S; k++, f++) {
+      data->materialize(f);
+      (*data)[f] = gridMat[g];
+    }
+  }
+}
+
 void Multires::compositeMix(Vector<ChannelMix> &out) const
 {
   out.clear();
@@ -582,6 +630,7 @@ MultiresSlot *Multires::materialize(int level)
     lp.framesValid = true;
   }
   assignGridUVs(*m, level);
+  assignGridMaterials(*m, level);
   // Level topology is derived state — brushes must never remesh it, and the
   // VDM clamp is a true ceiling here (no promotion; plan X1).
   m->topoLocked = true;

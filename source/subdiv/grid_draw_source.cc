@@ -4,8 +4,6 @@
 #include "grid_tree.h"
 #include "multires.h"
 
-#include "mesh/mesh.h"
-
 #include "litestl/util/task.h"
 
 #include <algorithm>
@@ -21,7 +19,7 @@ GridDrawSource::GridDrawSource(Multires *mr, int level, int nodeTriTarget)
   GridLevelDomain &d = *mr->gridDomain(level);
   side_ = d.gridSide();
   buildPartition(d, nodeTriTarget > 0 ? nodeTriTarget : kNodeTriTarget);
-  buildMaterials(d.gridCount());
+  buildMaterials();
   boundGen_ = mr->domainGeneration();
   update();
 }
@@ -79,33 +77,15 @@ void GridDrawSource::buildPartition(GridLevelDomain &d, int triTarget)
   flush();
 }
 
-void GridDrawSource::buildMaterials(int gridCount)
+void GridDrawSource::buildMaterials()
 {
-  mesh::Mesh *cage = mr_->cage();
-  if (cage == nullptr || !cage->f.attrs.has(mesh::AttrType::INT, "material_index")) {
-    return;
-  }
-  mesh::AttrData<int> *mat =
-      cage->f.attrs.find_attribute(mesh::AttrType::INT, "material_index").get_data<int>();
-  // Grid -> cage face, reproducing the refiner's grid enumeration (one grid
-  // per corner, cage (face id, loop order) order — buildLevelTopo).
-  Vector<int> grid_mat;
-  grid_mat.ensure_capacity(size_t(gridCount));
-  for (int fi : cage->f) {
-    const int material = mat->safe_get(fi);
-    const int c0 = cage->l.c[cage->f.l[fi]];
-    int cc = c0;
-    do {
-      grid_mat.append(material);
-      cc = cage->c.next[cc];
-    } while (cc != c0);
-  }
-  if (int(grid_mat.size()) != gridCount) {
-    return; // enumeration drifted from the refiner's: leave every node at 0
+  Vector<int> gridMat;
+  if (!mr_->gridMaterials(gridMat)) {
+    return; // no cage materials: every node stays at 0
   }
   for (Node &n : nodes_) {
     if (n.spans.size() > 0) {
-      n.material = grid_mat[n.spans[0].grid];
+      n.material = gridMat[n.spans[0].grid];
     }
   }
 }
