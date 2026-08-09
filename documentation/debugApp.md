@@ -53,13 +53,16 @@ spaces aren't supported — vectors use `=x,y,z`.
 |---|---|---|
 | `make_cube`     | `subdivs=N size=F sphere=F`                       | replaces the active mesh with a subdivided cube; `sphere` ∈ [0,1] morphs toward a sphere |
 | `triangulate`   | -                                                 | triangulates the active mesh (dyntopo operators are triangle-only; `make_cube` builds quads) |
-| `build_spatial` | `leaf_limit=N depth_limit=N`                      | (re)builds the spatial accelerator on the current mesh |
-| `set_brush`     | `radius=F strength=F spacing=F invert=0/1`        | tweaks the active `brush::Brush` props and re-syncs them through `props::StructProp`; `spacing` is the per-stroke fraction of `radius` between successive dabs (default 0.25) |
+| `build_spatial` | `leaf_limit=N depth_limit=N`                      | (re)builds the spatial accelerator on the current mesh. Refused while multires is active — the level trees belong to the stack; pass the same knobs to `multires_init` instead |
+| `multires_init` | `levels=N [level=L] [budget=B]`<br>`[leaf_limit=N depth_limit=N gpu_tri_target=N]` | turns the current mesh into a multires cage and attaches level `L` (default: finest, max 7). `mesh`/`tree` become views of that level's slot; the tree knobs override `multiresAutoTune` for every materialized level |
+| `multires_level`| `level=L`                                         | writes the active level back into the store, then materializes and attaches level `L` |
+| `set_brush`     | `radius=F strength=F spacing=F invert=0/1`        | tweaks the active `brush::Brush` props and re-syncs them through `props::StructProp`; `spacing` is the per-stroke fraction of the brush *diameter* between successive dabs (default 0.25) |
 | `set_brush_tool`| `tool=draw\|clay\|inflate\|pinch\|...`            | selects the active sculpt brush |
 | `dyntopo`       | `enabled=0/1 detail=F [min=F] [grade=F] [flip=0/1]`<br>`[smooth=0/1] [max_splits=N] [mode=both\|subdivide\|collapse]` | configures dynamic-topology remesh applied as a pre-pass to subsequent strokes (`source/dyntopo/`) |
 | `bench_dyntopo` | `detail=F radius=F center=x,y,z [grade=F flip=0/1`<br>`smooth=0/1 max_splits=N spatial=0/1 rebuild=0/1]` | A/B one dyntopo dab vs a full tree rebuild; prints splits/flips/rounds/leftover/maxValence/CV + ops/update/total ms. The M7 measurement tool |
 | `stroke`        | `origin=x,y,z normal=x,y,z`                       | one-step stroke (current `set_brush_tool`) through `brush::CommandExecutor::execBrush`; runs the dyntopo pre-pass first when `dyntopo enabled=1` |
-| `stroke_path`   | `p1=x,y,z p2=x,y,z normal=... steps=N`<br>or `... spacing=F` | sweeps a segment of `DRAW` dabs. With `steps=N` (default 8): N evenly-distributed dabs by parameter `t`. With `spacing=F`: dabs every `radius * spacing` world-space units, matching what the interactive stroke path does |
+| `stroke_path`   | `p1=x,y,z p2=x,y,z normal=... steps=N`<br>or `... spacing=F` | sweeps a segment of `DRAW` dabs. With `steps=N` (default 8): N evenly-distributed dabs by parameter `t`. With `spacing=F`: dabs every `radius * spacing` world-space units along the straight segment (a fixed-step sweep, *not* the interactive sampler — see `stroke_screen` for that) |
+| `stroke_screen` | `p1=x,y [p2=x,y] [steps=N]`<br>`[method=path\|anchored\|dragdot] [rough=0/1]` | a stroke expressed as a pointer drag: `steps` events (default 8) interpolated `p1`→`p2` in view-local pixels (top-left origin, at the current framebuffer size), fed through `brush::BrushStrokeDriver` — the same sampler the interactive mode and the TS app use, so a scripted stroke lands where a user's drag would. The driver raycasts each event and spaces dabs along a centripetal Catmull-Rom spline, so unlike `stroke_path` nothing here names a world position or a normal. Set the camera first (`view`). Events that miss the surface are dropped; a drag that misses entirely leaves no undo step. CPU executor only, one meshlog step |
 | `preview_stroke_path` | `p1=x,y,z p2=x,y,z normal=... steps=N`      | one meshlog step of N dabs along the segment where every dab but the last is wrapped in `beginPreviewDab`/`rollbackPreviewDab` (undone before the next), and only the final dab is committed — exercises the Anchored/Drag Dot live-preview rollback primitive (`meshlog::MeshLog::beginPreviewDab`/`rollbackPreviewDab`) in isolation. CPU executor only |
 | `view`          | `preset=front\|top\|side\|persp\|free`            | re-frames the camera on the mesh AABB |
 | `screenshot`    | `view=... out=relpath [leaves=0/1]`               | renders headless + writes PNG; `leaves=1` overlays spatial-leaf AABBs |
@@ -132,8 +135,9 @@ with mouse + keyboard:
 
 | input                          | action |
 |---|---|
-| LMB drag                       | brush stroke; dabs are deposited every `radius * brush.spacing` world-space units along the cursor path. Curve interpolation across dabs is future work — dabs lerp linearly between successive mouse samples. |
-| Shift+LMB drag                 | pan |
+| LMB drag                       | brush stroke, sampled by `brush::BrushStrokeDriver` (the same sampler the TS app uses): pointer events are fitted to a centripetal Catmull-Rom spline and walked at `2 * radius * brush.spacing` world-space units per dab, with the driver raycasting each event itself. A press that misses the surface opens no stroke |
+| Shift+LMB drag                 | brush stroke with the smooth brush (`currentTool` is overridden for the drag) |
+| Ctrl+LMB drag                  | pan |
 | Alt+LMB drag, RMB drag, MMB drag | orbit around `Camera::target` |
 | scroll                         | zoom (eye→target distance, clamped) |
 | Ctrl+Z                         | undo last brush step (refused mid-stroke) |

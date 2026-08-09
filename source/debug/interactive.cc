@@ -3,11 +3,9 @@
 #include "scene.h"
 
 #include "brush/brush_executor.h"
-#include "brush/stroke_spacing.h"
-#include "litestl/math/matrix.h"
-#include "litestl/util/vector.h"
+#include "brush/stroke_driver.h"
+#include "litestl/util/alloc.h"
 #include "spatial/spatial.h"
-#include "spatial/spatial_base.h"
 
 #ifdef SBRUSH_GPU_DISPATCH
 #include "gpu_stroke.h"
@@ -23,43 +21,12 @@ namespace sculptcore::debug_app {
 
 using litestl::math::float2;
 using litestl::math::float3;
-using litestl::math::mat4;
-using litestl::util::Vector;
 
 namespace {
 
 constexpr float kOrbitRadPerPx = 0.005f;
 constexpr float kZoomFactor = 1.1f;
 constexpr float kMinViewDistance = 0.05f;
-
-float framebufferAspect(const Scene &s)
-{
-  int w = s.swapchain.width > 0 ? s.swapchain.width : s.width;
-  int h = s.swapchain.height > 0 ? s.swapchain.height : s.height;
-  if (h <= 0) {
-    return 1.0f;
-  }
-  return float(w) / float(h);
-}
-
-void framebufferSize(const Scene &s, int &w, int &h)
-{
-  w = s.swapchain.width > 0 ? s.swapchain.width : s.width;
-  h = s.swapchain.height > 0 ? s.swapchain.height : s.height;
-}
-
-float3 transformPoint(const mat4 &m, float3 p)
-{
-  const float *d = static_cast<const float *>(m);
-  float x = d[0] * p[0] + d[4] * p[1] + d[8] * p[2] + d[12];
-  float y = d[1] * p[0] + d[5] * p[1] + d[9] * p[2] + d[13];
-  float z = d[2] * p[0] + d[6] * p[1] + d[10] * p[2] + d[14];
-  float w = d[3] * p[0] + d[7] * p[1] + d[11] * p[2] + d[15];
-  if (std::fabs(w) > 1e-7f) {
-    return float3(x / w, y / w, z / w);
-  }
-  return float3(x, y, z);
-}
 
 } // namespace
 
@@ -70,61 +37,32 @@ InteractiveController::~InteractiveController()
   endStroke();
 }
 
-bool InteractiveController::screenRay(float2 cursor, float3 &origin, float3 &dir) const
-{
-  int w = 0, h = 0;
-  framebufferSize(*scene_, w, h);
-  if (w <= 0 || h <= 0) {
-    return false;
-  }
-  float aspect = float(w) / float(h);
-  mat4 vp = scene_->camera.viewProj(aspect);
-  mat4 inv = vp.inverse();
-  float ndcX = (2.0f * cursor[0] / float(w)) - 1.0f;
-  float ndcY = 1.0f - (2.0f * cursor[1] / float(h));
-  float3 nearP = transformPoint(inv, float3(ndcX, ndcY, -1.0f));
-  float3 farP = transformPoint(inv, float3(ndcX, ndcY, 1.0f));
-  origin = scene_->camera.eye;
-  float3 d = farP - nearP;
-  if (d.lengthSqr() < 1e-12f) {
-    return false;
-  }
-  d.normalize();
-  dir = d;
-  return true;
-}
-
-bool InteractiveController::pickSurface(float2 cursor, float3 &hit, float3 &normal) const
-{
-  if (!scene_->tree) {
-    return false;
-  }
-  float3 origin, dir;
-  if (!screenRay(cursor, origin, dir)) {
-    return false;
-  }
-  spatial::CastRayIsect isect;
-  if (!scene_->tree->castRay(origin, dir, isect)) {
-    return false;
-  }
-  hit = isect.p;
-  normal = isect.normal;
-  return true;
-}
-
 void InteractiveController::beginStroke(float2 cursor)
 {
   if (!scene_->tree) {
     return;
   }
-  float3 hit, normal;
-  if (!pickSurface(cursor, hit, normal)) {
+
+  driver_ = litestl::alloc::New<brush::BrushStrokeDriver>("interactive stroke driver",
+                                                          scene_->tree);
+  // Path is the only stroke method the debug app's mouse handling exposes;
+  // anchored / drag-dot have no modifier bound to them here.
+  driver_->strokeMethod = brush::StrokeMethod::Path;
+
+  // Sample the press before committing to a stroke: the driver discards inputs
+  // that miss the surface, so a click over empty space must open neither an
+  // undo step nor a GPU session. The dabs stay readable until the next poll().
+  pushCursor(cursor);
+  scene_->configureStrokeDriver(*driver_);
+  int n = driver_->poll();
+  if (n == 0) {
+    litestl::alloc::Delete<brush::BrushStrokeDriver>(driver_);
+    driver_ = nullptr;
     return;
   }
 
-  strokeLastPos_ = hit;
-  strokeHasLast_ = true;
-  strokeResidual_ = 0.0f;
+  scene_->lastStroke.valid = true;
+  scene_->lastStroke.radius = scene_->brush.radius;
 
 #ifdef SBRUSH_GPU_DISPATCH
   // WGSL backend: drive the stroke through the persistent GPU compute session
@@ -147,11 +85,7 @@ void InteractiveController::beginStroke(float2 cursor)
                                                           : scene_->backend);
     }
     if (gpuSession_->begin(*scene_, err)) {
-      gpuSession_->dab(*scene_, hit, normal, err);
-      scene_->lastStroke.valid = true;
-      scene_->lastStroke.origin = hit;
-      scene_->lastStroke.normal = normal;
-      scene_->lastStroke.radius = scene_->brush.radius;
+      applyPolledDabs(n);
       return;
     }
     delete gpuSession_;
@@ -170,76 +104,92 @@ void InteractiveController::beginStroke(float2 cursor)
   exec_->keepTopoThawed = scene_->dyntopoEnabled;
   exec_->beginStep(scene_->dyntopoEnabled);
 
-  // One unified dab through the executor — same dyntopo+deform+meshlog sequence as
-  // the TS app and scripted harness, so interactive no longer diverges; dyntopo is
-  // now logged like everywhere else (the executor drives the combined callbacks).
+  // One unified dab per sample through the executor — same dyntopo+deform+meshlog
+  // sequence as the TS app and scripted harness, so interactive no longer
+  // diverges; dyntopo is logged like everywhere else (the executor drives the
+  // combined callbacks).
+  applyPolledDabs(n);
+  scene_->profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
+}
+
+void InteractiveController::pushCursor(float2 cursor)
+{
+  driver_->push(cursor[0], cursor[1],
+                /*pressure=*/1.0f, /*tiltX=*/0.0f, /*tiltY=*/0.0f, /*twist=*/0.0f,
+                scene_->brush.invert, /*useAltBrush=*/false, scene_->brush.radius,
+                scene_->brush.strength, scene_->brush.spacing);
+}
+
+void InteractiveController::applyPolledDabs(int n)
+{
+  for (int i = 0; i < n; i++) {
+    const brush::DabSample *ps = driver_->sampleAt(i);
+    if (!ps) {
+      continue;
+    }
+    // No object matrix, so the driver's object-local sample space is world space.
+    applyDab(float3(ps->p[0], ps->p[1], ps->p[2]), ps->vec, ps->radius);
+  }
+}
+
+void InteractiveController::pumpStroke(float2 cursor, bool finish)
+{
+  if (finish) {
+    driver_->end();
+  } else {
+    pushCursor(cursor);
+  }
+  // Re-snapshot the camera every batch — orbiting mid-stroke moves the rays the
+  // driver casts and the plane it projects misses onto.
+  scene_->configureStrokeDriver(*driver_);
+  applyPolledDabs(driver_->poll());
+}
+
+void InteractiveController::applyDab(float3 center, float3 normal, float radius)
+{
+#ifdef SBRUSH_GPU_DISPATCH
+  if (gpuSession_) {
+    std::string err;
+    gpuSession_->dab(*scene_, center, normal, err);
+    scene_->lastStroke.origin = center;
+    scene_->lastStroke.normal = normal;
+    return;
+  }
+#endif
+  if (!exec_) {
+    return;
+  }
   dyntopo::DynTopoParams *dtp =
       scene_->dyntopoEnabled ? &scene_->dyntopoParams : nullptr;
   auto ptDab = StrokeProfiler::now();
-  exec_->applyDab(scene_->currentTool, hit, normal, scene_->brush.radius, dtp,
-                  dyntopoSeed_++);
+  exec_->applyDab(scene_->currentTool, center, normal, radius, dtp, dyntopoSeed_++);
   scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0, 0);
   if (scene_->dyntopoEnabled) {
     scene_->tree->update(&scene_->gpu); // regen dirty leaves after remesh
   }
-  scene_->profiler.addBegin(StrokeProfiler::ms(ptBegin, StrokeProfiler::now()));
-  scene_->lastStroke.valid = true;
-  scene_->lastStroke.origin = hit;
+  scene_->lastStroke.origin = center;
   scene_->lastStroke.normal = normal;
-  scene_->lastStroke.radius = scene_->brush.radius;
+  scene_->lastStroke.radius = radius;
 }
 
 void InteractiveController::continueStroke(float2 cursor)
 {
-  if ((!exec_ && !gpuSession_) || !strokeHasLast_) {
+  if (!driver_) {
     return;
   }
-  float3 hit, normal;
-  if (!pickSurface(cursor, hit, normal)) {
-    return;
-  }
-
-  brush::StrokeSpacer spacer;
-  spacer.spacing = scene_->brush.radius * scene_->brush.spacing;
-  spacer.has_last = true;
-  spacer.last_pos = strokeLastPos_;
-  spacer.residual = strokeResidual_;
-
-  /* Skip the first emit-of-segment (which would be `strokeLastPos_` itself —
-   * already deposited). StrokeSpacer's first advance is a no-op since
-   * has_last is preset; subsequent advances will emit interior dabs. */
-  auto emit = [&](float3 p) {
-#ifdef SBRUSH_GPU_DISPATCH
-    if (gpuSession_) {
-      std::string err;
-      gpuSession_->dab(*scene_, p, normal, err);
-      scene_->lastStroke.origin = p;
-      scene_->lastStroke.normal = normal;
-      return;
-    }
-#endif
-    if (!exec_) return;
-    dyntopo::DynTopoParams *dtp =
-        scene_->dyntopoEnabled ? &scene_->dyntopoParams : nullptr;
-    auto ptDab = StrokeProfiler::now();
-    exec_->applyDab(scene_->currentTool, p, normal, scene_->brush.radius, dtp,
-                    dyntopoSeed_++);
-    scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0,
-                            0);
-    if (scene_->dyntopoEnabled) {
-      scene_->tree->update(&scene_->gpu); // regen dirty leaves after remesh
-    }
-    scene_->lastStroke.origin = p;
-    scene_->lastStroke.normal = normal;
-  };
-
-  spacer.advance(hit, emit);
-  strokeLastPos_ = spacer.last_pos;
-  strokeResidual_ = spacer.residual;
+  pumpStroke(cursor, /*finish=*/false);
 }
 
 void InteractiveController::endStroke()
 {
+  // Drain the trailing spline segment first: those dabs belong to this stroke,
+  // so they must land before the tool override is dropped and the step closed.
+  if (driver_) {
+    pumpStroke(cursor_, /*finish=*/true);
+    litestl::alloc::Delete<brush::BrushStrokeDriver>(driver_);
+    driver_ = nullptr;
+  }
+
   // Undo the shift→smooth tool override latched on press, before any early
   // return so the active tool is restored on every backend path.
   if (toolOverridden_) {
@@ -251,8 +201,6 @@ void InteractiveController::endStroke()
     gpuSession_->end(*scene_);
     delete gpuSession_;
     gpuSession_ = nullptr;
-    strokeHasLast_ = false;
-    strokeResidual_ = 0.0f;
     return;
   }
 #endif
@@ -266,8 +214,6 @@ void InteractiveController::endStroke()
   exec_->endStep();
   delete exec_;
   exec_ = nullptr;
-  strokeHasLast_ = false;
-  strokeResidual_ = 0.0f;
   scene_->profiler.addEnd(StrokeProfiler::ms(ptEnd, StrokeProfiler::now()));
   scene_->profiler.endStroke();
 }
@@ -337,7 +283,7 @@ void InteractiveController::doPan(float2 delta)
   trueUp.normalize();
 
   int w = 0, h = 0;
-  framebufferSize(*scene_, w, h);
+  scene_->framebufferSize(w, h);
   if (h <= 0) {
     return;
   }
@@ -437,7 +383,7 @@ bool InteractiveController::handle(const InputEvent &e)
     if (!ctrl) {
       return false;
     }
-    if (exec_) {
+    if (driver_) {
       /* Refuse undo/redo mid-stroke. */
       return false;
     }

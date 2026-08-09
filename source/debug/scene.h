@@ -27,6 +27,7 @@ struct GridStrokeLog;
 }
 namespace sculptcore::brush {
 struct GridBrushExecutor;
+struct BrushStrokeDriver;
 }
 
 namespace sculptcore::debug_app {
@@ -170,6 +171,18 @@ struct Scene {
   void setMesh(mesh::Mesh *m);
   void buildSpatial(int leafLimit, int depthLimit, int gpu_tri_target);
   void smoothMesh();
+
+  /** Size actually being drawn to: the swapchain when one is live, else the
+   *  offscreen target. This is the pixel space every screen-space stroke
+   *  coordinate is expressed in. */
+  void framebufferSize(int &w, int &h) const;
+
+  /** Point `driver` at this scene's spatial tree and camera for one poll batch:
+   *  view rows + params from `camera` at the current framebuffer size, and the
+   *  space modes the debug app strokes in. The mesh is not transformed, so the
+   *  driver runs with no object matrix and its samples come back in world
+   *  space. Call before every `poll()` — the camera can orbit mid-stroke. */
+  void configureStrokeDriver(brush::BrushStrokeDriver &driver) const;
 
   /* Reorder all mesh element domains to be local to their owning spatial
    * nodes, rebuild the tree, and record an undoable reorder step. No-op

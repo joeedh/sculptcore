@@ -1,7 +1,10 @@
-# Cube with a single draw-brush stroke at the +Z face center.
-make_cube subdivs=350 size=2.0 sphere=1
-build_spatial depth_limit=22 gpu_tri_target=10000
+# Multires sphere, left on its finest level for interactive sculpting.
+#
+# Cage: spherified cube, 6*(subdivs-1)^2 = 600 quads, radius 1.
+# Five Catmull-Clark levels: 600 * 4^5 = 614,400 faces / 614,402 verts at
+# level 5, which is the level multires_init leaves active.
+make_cube subdivs=11 size=2.0 sphere=1
+multires_init levels=5 level=5
 set_brush radius=0.25 strength=0.5
-stroke origin=0,0,0.5 normal=0,0,1
-dump_state out=cube_draw.json
-screenshot view=persp out=sphere_draw.png
+stroke origin=0,0,1.0 normal=0,0,1
+view preset=persp

@@ -249,9 +249,13 @@ Keeping `PaintSample` as the boundary type means `SculptPaintOp`,
 
 ## Follow-ups (not in this change)
 
-- Port `debug/interactive.cc` and `debug/script.cc`'s `stroke` verb onto the new
-  driver so headless C++ strokes match the app; retire `stroke_spacing.h` once
-  nothing uses it.
+- ~~Port `debug/interactive.cc` and `debug/script.cc`'s `stroke` verb onto the new
+  driver so headless C++ strokes match the app~~ — done: `interactive.cc` samples
+  through the driver (its `screenRay`/`pickSurface` raycasting is gone), and the
+  scripted side gained a `stroke_screen` verb that strokes from pointer pixels.
+  `stroke_spacing.h` is **not** retired: `stroke_path spacing=` still uses
+  `StrokeSpacer` for its world-space fixed-step sweep, which the
+  `tests/scripts/stroke_spacing.txt` golden pins.
 - Add `setBoundFloatVector` / `floatVectorAssign` so bound `Vector<float>`
   in-params work, then collapse `setViewRow` into a single matrix call and fix
   `CommandExecutor::setRenderMatrix`.

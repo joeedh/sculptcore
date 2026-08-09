@@ -19,8 +19,8 @@ tearing, and dyntopo that doesn't corrupt the log.
 | Interactive TS app | `scripts/editors/view3d/tools/sculptcore_ops.ts` (`SculptPaintOp`) | the complete one — symmetry, dyntopo, preview, GPU, undo |
 | TS sampling layer | `scripts/editors/view3d/tools/stroke_driver.ts` (`BrushStrokeDriver`) | input → evenly-spaced samples, geometry-free |
 | Headless world-space TS driver | `runSculptcoreStroke` (`sculptcore_ops.ts`) | no camera; the parity/test seam |
-| Native interactive | `source/debug/interactive.cc` | minimal: no symmetry, no preview, `StrokeSpacer` |
-| Native scripted | `source/debug/script.cc` | `stroke` verb |
+| Native interactive | `source/debug/interactive.cc` | the C++ `BrushStrokeDriver` wired to a real pointer; no symmetry, no preview |
+| Native scripted | `source/debug/script.cc` | `stroke` / `stroke_path` verbs feed world-space dabs straight to the dispatcher; `stroke_screen` goes through the sampler |
 
 The TS-side architecture write-up (layering, pointer plumbing, pen dynamics) is
 [`documentation/strokeDriverReport.md`](../../documentation/strokeDriverReport.md);
@@ -42,9 +42,10 @@ raw input ─▶ [ sampler ] ─▶ dabs (center, normal, radius, params)
 
 - **Sampler** — geometry-free and camera-aware: spacing, spline interpolation,
   raycasting, pen-pressure resolution, stroke methods. Emits one dab per
-  spacing step. Knows nothing about sculptcore. (`BrushStrokeDriver`;
-  `StrokeSpacer` in `source/brush/stroke_spacing.h` is the engine-side
-  minimal equivalent for world-space hosts.)
+  spacing step. Knows nothing about sculptcore. (`BrushStrokeDriver` — the TS
+  class and its C++ port in `source/brush/stroke_driver.h` are the same sampler;
+  `StrokeSpacer` in `source/brush/stroke_spacing.h` is a cut-down world-space
+  stand-in, kept only for the scripted fixed-step sweeps.)
 - **Dispatcher** — everything in this document: mirrors each dab, configures
   the `Brush` and `CommandExecutor`, and calls `applyDab`.
 

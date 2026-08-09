@@ -1,0 +1,11 @@
+# Same drag as stroke_path.txt, but expressed the way a user makes it: pointer
+# pixels through the engine's own sampler (brush::BrushStrokeDriver), which
+# raycasts each event and walks the spline at the brush's spacing. Nothing here
+# names a world position or a normal — the driver finds the surface.
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+view preset=front
+set_brush radius=0.05 strength=0.3 spacing=0.1
+stroke_screen p1=200,300 p2=600,300 steps=12
+dump_state out=stroke_screen.json
+screenshot view=persp out=stroke_screen.png

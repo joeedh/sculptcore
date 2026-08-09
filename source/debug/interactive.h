@@ -7,6 +7,7 @@
 
 namespace sculptcore::brush {
 struct CommandExecutor;
+struct BrushStrokeDriver;
 }
 
 namespace sculptcore::debug_app {
@@ -46,14 +47,19 @@ private:
   void continueStroke(float2 cursor);
   void endStroke();
 
+  /** Queue one pointer event on the driver at the brush's current params. */
+  void pushCursor(float2 cursor);
+  /** Feed the driver one pointer event (or, with `finish`, the pointer-up that
+   *  drains the trailing spline segment) and apply every dab it hands back. */
+  void pumpStroke(float2 cursor, bool finish);
+  /** Apply the `n` dabs the last `poll()` returned. */
+  void applyPolledDabs(int n);
+  /** Route one sampled dab to whichever backend the stroke opened with. */
+  void applyDab(float3 center, float3 normal, float radius);
+
   void doOrbit(float2 delta);
   void doPan(float2 delta);
   void doZoom(float deltaY);
-
-  /** Screen→world ray through `cursor` in window pixels. */
-  bool screenRay(float2 cursor, float3 &origin, float3 &dir) const;
-  /** Cast ray through cursor; emits world hit + interpolated normal. */
-  bool pickSurface(float2 cursor, float3 &hit, float3 &normal) const;
 
   Scene *scene_;
 
@@ -76,9 +82,10 @@ private:
    * chosen on press from scene_->currentBackend. */
   brush::CommandExecutor *exec_ = nullptr;
   GpuStrokeSession *gpuSession_ = nullptr;
-  float3 strokeLastPos_{0, 0, 0};
-  bool strokeHasLast_ = false;
-  float strokeResidual_ = 0.0f;
+  // Engine-side sampler (brush/stroke_driver.h) — the same one the TS app uses,
+  // so a native drag deposits the same dab sequence. Non-null exactly while a
+  // stroke is open.
+  brush::BrushStrokeDriver *driver_ = nullptr;
   uint32_t dyntopoSeed_ = 1; /* per-dab seed for the dyntopo pre-pass */
   /* Shift→smooth override: when toolOverridden_ is set, scene_->currentTool was
    * swapped to SMOOTH on press and savedTool_ holds the tool to restore on

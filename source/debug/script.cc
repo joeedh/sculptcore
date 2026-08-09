@@ -5,6 +5,7 @@
 #include "state_dump.h"
 
 #include "brush/brush_executor.h"
+#include "brush/stroke_driver.h"
 #include "brush/stroke_spacing.h"
 #include "displace/compositor.h"
 #include "displace/frames.h"
@@ -166,6 +167,19 @@ std::vector<int> parseCsvInts(const char *s, std::vector<int> defv)
     }
   }
   return out.empty() ? defv : out;
+}
+
+bool parseFloat2(const char *s, litestl::math::float2 &out)
+{
+  if (!s) {
+    return false;
+  }
+  float a = 0, b = 0;
+  if (std::sscanf(s, "%f,%f", &a, &b) != 2) {
+    return false;
+  }
+  out = litestl::math::float2(a, b);
+  return true;
 }
 
 bool parseFloat3(const char *s, float3 &out)
@@ -570,6 +584,14 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "build_spatial") {
+    // scene.tree is a non-owning view of the level slot's tree under multires;
+    // rebuilding it here would free a tree the Multires still owns.
+    if (scene.multires) {
+      err = "build_spatial: multires is active — level trees belong to the "
+            "stack (pass leaf_limit=/depth_limit=/gpu_tri_target= to "
+            "multires_init instead)";
+      return false;
+    }
     /* 0 => auto-derive from mesh size (SpatialTree::autoTuneLimits); any
      * positive value overrides that knob. */
     int leaf = getInt(args, "leaf_limit", 0);
@@ -1644,6 +1666,128 @@ bool execVerb(Scene &scene,
     }
     return true;
   }
+  if (verb == "stroke_screen") {
+    //   stroke_screen p1=x,y [p2=x,y] [steps=N] [method=..] [rough=0/1]
+    // A stroke as a pointer drag in view pixels, sampled by the same
+    // BrushStrokeDriver the app uses — it raycasts, so no world p/normal here.
+    if (!scene.mesh || !scene.tree) {
+      err = "stroke_screen: no mesh/tree";
+      return false;
+    }
+    litestl::math::float2 p1, p2;
+    if (!parseFloat2(getArg(args, "p1"), p1)) {
+      err = "stroke_screen: missing p1=x,y";
+      return false;
+    }
+    if (!parseFloat2(getArg(args, "p2"), p2)) {
+      p2 = p1;
+    }
+    int steps = getInt(args, "steps", 8);
+    if (steps < 1) {
+      steps = 1;
+    }
+
+    brush::BrushStrokeDriver driver(scene.tree);
+    std::string method = getArg(args, "method", "path");
+    if (method == "anchored") {
+      driver.strokeMethod = brush::StrokeMethod::Anchored;
+    }
+    else if (method == "dragdot") {
+      driver.strokeMethod = brush::StrokeMethod::DragDot;
+    }
+    else if (method != "path") {
+      err = "stroke_screen: unknown method '" + method + "'";
+      return false;
+    }
+    scene.configureStrokeDriver(driver);
+
+    // Nonzero every stroke (see the stroke verb): grab orig-stamps in any mode.
+    uint32_t gen = ++scene.strokeGen;
+    brush::CommandExecutor exec(scene.tree, &scene.brush);
+    exec.meshLog = &scene.meshLog;
+    exec.ctx.renderMatrix = scene.renderMatrix;
+    if (scene.useCsrNeighbors) {
+      exec.neighborMode = brush::CommandExecutor::NeighborMode::Csr;
+    }
+    exec.setNonAccum(scene.nonAccum);
+    exec.setStrokeGen(int(gen));
+    dyntopo::DynTopoParams *dtp = scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+    bool roughTrace = getBool(args, "rough", false);
+    char roughTag[64];
+
+    Vector<float3> centers;
+    float3 lastNormal{0, 0, 1};
+    bool stepOpen = false;
+    // The driver hands back a variable number of dabs per poll (it walks the
+    // spline at brush spacing, not at the pointer's sample rate), so drain it
+    // after every event and again after end() flushes the trailing segment.
+    auto drain = [&]() {
+      int n = driver.poll();
+      for (int i = 0; i < n; i++) {
+        const brush::DabSample *ps = driver.sampleAt(i);
+        if (!ps) {
+          continue;
+        }
+        // Open the step on the first dab, not before: a drag that misses the
+        // surface entirely must not leave an empty step for `undo` to eat.
+        if (!stepOpen) {
+          exec.beginStep(scene.dyntopoEnabled);
+          stepOpen = true;
+        }
+        // No object matrix (see Scene::configureStrokeDriver), so the driver's
+        // object-local sample space is world space.
+        float3 center(ps->p[0], ps->p[1], ps->p[2]);
+        exec.applyDab(scene.currentTool, center, ps->vec, ps->radius, dtp,
+                      scene.dyntopoSeed + uint32_t(centers.size()));
+        scene.cumSplits += exec.lastDynTopoStats.splits;
+        scene.cumCollapses += exec.lastDynTopoStats.collapses;
+        scene.cumFlips += exec.lastDynTopoStats.flips;
+        centers.append(center);
+        lastNormal = ps->vec;
+        if (roughTrace) {
+          std::snprintf(roughTag, sizeof(roughTag), "dab=%zu", centers.size() - 1);
+          reportRoughness(scene, roughTag, centers, scene.brush.radius, float3(0, 0, 1),
+                          0.0f);
+        }
+      }
+    };
+
+    for (int i = 0; i < steps; i++) {
+      float t = (steps == 1) ? 0.0f : float(i) / float(steps - 1);
+      litestl::math::float2 p = p1 * (1.0f - t) + p2 * t;
+      driver.push(p[0], p[1], /*pressure=*/1.0f, /*tiltX=*/0.0f, /*tiltY=*/0.0f,
+                  /*twist=*/0.0f, scene.brush.invert, /*useAltBrush=*/false,
+                  scene.brush.radius, scene.brush.strength, scene.brush.spacing);
+      drain();
+    }
+    driver.end();
+    drain();
+
+    if (stepOpen) {
+      if (scene.dyntopoEnabled) {
+        exec.endDynTopoStroke();
+      }
+      exec.endStep();
+    }
+
+    scene.tree->update(&scene.gpu);
+    multiresStrokeEnd(scene);
+
+    if (centers.size() == 0) {
+      std::printf("[stroke_screen] no dabs (every pointer event missed the surface)\n");
+      std::fflush(stdout);
+      return true;
+    }
+    scene.lastStroke.valid = true;
+    scene.lastStroke.origin = centers[centers.size() - 1];
+    scene.lastStroke.normal = lastNormal;
+    scene.lastStroke.radius = scene.brush.radius;
+    scene.lastStroke.centers.clear();
+    for (const float3 &c : centers) {
+      scene.lastStroke.centers.append(c);
+    }
+    return true;
+  }
   if (verb == "preview_stroke_path") {
     // Exercises the live-mutating preview/rollback primitive (MeshLog::
     // beginPreviewDab/rollbackPreviewDab, step 2a of the Anchored/Drag Dot
@@ -1940,10 +2084,13 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "multires_init") {
-    /* multires_init levels=N [level=L] [budget=B]: convert the current mesh
-     * into a multires cage and attach level L (default: finest). The old mesh
-     * becomes the cage (owned by the scene); mesh/tree become views of the
-     * active level's slot. */
+    /* multires_init levels=N [level=L] [budget=B] [leaf_limit=..]
+     * [depth_limit=..] [gpu_tri_target=..]: convert the current mesh into a
+     * multires cage and attach level L (default: finest). The old mesh becomes
+     * the cage (owned by the scene); mesh/tree become views of the active
+     * level's slot. The three tree knobs stand in for build_spatial, which
+     * refuses to run while the stack owns the trees; 0 keeps the
+     * multiresAutoTune default for that knob. */
     if (!scene.mesh) {
       err = "multires_init: no mesh";
       return false;
@@ -1967,6 +2114,9 @@ bool execVerb(Scene &scene,
     scene.multiresCage = cage;
     scene.multires = litestl::alloc::New<subdiv::Multires>("debug multires");
     scene.multires->lruBudget = getInt(args, "budget", 3);
+    scene.multires->treeLeafLimit = getInt(args, "leaf_limit", 0);
+    scene.multires->treeDepthLimit = getInt(args, "depth_limit", 0);
+    scene.multires->treeGpuTriTarget = getInt(args, "gpu_tri_target", 0);
     scene.multires->init(*cage, levels);
     scene.multires->setActiveLevel(level);
     scene.attachMultiresLevel();

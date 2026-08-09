@@ -152,7 +152,8 @@ struct Brush {
 
   float strength = 1;
   float radius = 1;
-  /* Fraction of `radius` between successive brush dabs along a stroke. */
+  /* Fraction of the brush *diameter* between successive dabs along a stroke,
+   * i.e. BrushStrokeDriver walks `spacing * 2 * radius` per dab. */
   float spacing = 0.25f;
   /* Plane-brush offset along surfaceNo as a fraction of radius — places the
    * projection plane above/below the stroke surface point for the clay-family

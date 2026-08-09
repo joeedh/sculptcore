@@ -1,6 +1,7 @@
 #include "scene.h"
 
 #include "brush/grid_executor.h"
+#include "brush/stroke_driver.h"
 #include "gpu/batch.h"
 #include "litestl/util/alloc.h"
 #include "mesh/utils/mesh_validate.h"
@@ -249,6 +250,37 @@ void Scene::reorderForLocality()
 
   meshLog.pushReorderStep(vmap, emap, cmap, lmap, fmap);
   tree->applyReorder(vmap, emap, cmap, lmap, fmap);
+}
+
+void Scene::framebufferSize(int &w, int &h) const
+{
+  w = swapchain.width > 0 ? swapchain.width : width;
+  h = swapchain.height > 0 ? swapchain.height : height;
+}
+
+void Scene::configureStrokeDriver(brush::BrushStrokeDriver &driver) const
+{
+  int w = 0, h = 0;
+  framebufferSize(w, h);
+  float aspect = h > 0 ? float(w) / float(h) : 1.0f;
+
+  // The debug app's brush radius is world units, so spacing walks the world
+  // curve directly and no px<->world conversion runs.
+  driver.spaceMode = brush::StrokeSpaceMode::World;
+  driver.radiusIsWorld = true;
+
+  // litestl mat4 is column-major (index = col*4 + row) and acts on column
+  // vectors; the driver's Mat4 is the row-vector transpose, so its m[r][c] is
+  // exactly the raw float at r*4 + c.
+  mat4 vp = camera.viewProj(aspect);
+  const float *d = static_cast<const float *>(vp);
+  for (int r = 0; r < 4; r++) {
+    driver.setViewRow(0, r, d[r * 4 + 0], d[r * 4 + 1], d[r * 4 + 2], d[r * 4 + 3]);
+  }
+
+  driver.setViewParams(camera.eye[0], camera.eye[1], camera.eye[2], float(w), float(h),
+                       float(w), float(h), camera.zn,
+                       /*hasObjectMatrix=*/false);
 }
 
 void Scene::applyView(ViewPreset preset)
