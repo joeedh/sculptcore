@@ -2,6 +2,7 @@
 
 #include "grid_domain.h"
 #include "grid_draw_source.h"
+#include "multires_tuning.h"
 
 #include "vdm/vdm_store.h"
 
@@ -591,15 +592,14 @@ MultiresSlot *Multires::materialize(int level)
   m->topoLocked = true;
 
   auto *tree = alloc::New<spatial::SpatialTree>("multires tree", m);
-  if (treeLeafLimit > 0) {
-    tree->leaf_limit = treeLeafLimit;
-  }
-  if (treeDepthLimit > 0) {
-    tree->depth_limit = treeDepthLimit;
-  }
-  if (treeGpuTriTarget > 0) {
-    tree->gpu_tri_target = treeGpuTriTarget;
-  }
+  /* Size-derived defaults (multires_tuning.h); an explicit app value still
+   * wins, so an adopted level tree can be made to match app-built ones. */
+  const MultiresTuning tuning = multiresAutoTune(
+      m->v.count, store.gridCount(), GridsStore::sideForLevel(level));
+  tree->leaf_limit = treeLeafLimit > 0 ? treeLeafLimit : tuning.slotLeafLimit;
+  tree->depth_limit = treeDepthLimit > 0 ? treeDepthLimit : tuning.slotDepthLimit;
+  tree->gpu_tri_target = treeGpuTriTarget > 0 ? treeGpuTriTarget :
+                                                tuning.slotGpuTriTarget;
   tree->buildAll();
   for (auto *node : tree->leaves()) {
     tree->ensure_node_tris(node);

@@ -107,6 +107,11 @@ struct GridDrawSource {
   {
     return level_;
   }
+  /** Triangles per node the partition was built to (reporting/tests). */
+  int nodeTriTarget() const
+  {
+    return triTarget_;
+  }
   Multires *multires()
   {
     return mr_;
@@ -133,7 +138,8 @@ private:
 
   Multires *mr_ = nullptr;
   int level_ = 0;
-  int side_ = 0; // cells per grid side (domain gridSide)
+  int side_ = 0;      // cells per grid side (domain gridSide)
+  int triTarget_ = 0; // tris per node the partition was built to
   uint64_t boundGen_ = 0;
   Vector<Node> nodes_;
   Vector<int> rowNode_; // grid * side_ + cellRow -> node index

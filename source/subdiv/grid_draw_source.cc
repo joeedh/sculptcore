@@ -3,6 +3,7 @@
 #include "grid_domain.h"
 #include "grid_tree.h"
 #include "multires.h"
+#include "multires_tuning.h"
 
 #include "litestl/util/task.h"
 
@@ -18,7 +19,13 @@ GridDrawSource::GridDrawSource(Multires *mr, int level, int nodeTriTarget)
 {
   GridLevelDomain &d = *mr->gridDomain(level);
   side_ = d.gridSide();
-  buildPartition(d, nodeTriTarget > 0 ? nodeTriTarget : kNodeTriTarget);
+  /* One node is one host draw call, so the target scales with the level
+   * (multires_tuning.h) instead of being a fixed tri count. */
+  buildPartition(d,
+                 nodeTriTarget > 0 ?
+                     nodeTriTarget :
+                     multiresAutoTune(d.vertCount(), d.gridCount(), d.gridSide())
+                         .drawNodeTriTarget);
   buildMaterials();
   boundGen_ = mr->domainGeneration();
   update();
@@ -28,6 +35,7 @@ GridDrawSource::~GridDrawSource() = default;
 
 void GridDrawSource::buildPartition(GridLevelDomain &d, int triTarget)
 {
+  triTarget_ = triTarget;
   GridTree *tree = d.ensureTree();
   const int S = side_;
   const int trisPerRow = 2 * S;

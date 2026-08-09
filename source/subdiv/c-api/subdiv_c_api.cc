@@ -4,7 +4,9 @@
 #include "spatial/spatial.h"
 #include "subdiv/grid_domain.h"
 #include "subdiv/grid_draw_source.h"
+#include "subdiv/grid_tree.h"
 #include "subdiv/multires.h"
+#include "subdiv/multires_tuning.h"
 
 #include <cstdint>
 #include <cstring>
@@ -75,6 +77,56 @@ int Multires_levelVertCount(subdiv::Multires *mr, int level)
     return 0;
   }
   return mr->refiner.levels[level - 1].vertCount;
+}
+
+/** Report the level's chosen acceleration granularities into `out`
+ * (8 ints; short arrays are filled up to `count`):
+ *
+ *   0 grid-tree leaf vert target   1 grid-tree leaf count
+ *   2 draw-node tri target         3 draw-node count
+ *   4 level vert count             5 grid count
+ *   6 grid side (cells)            7 slot SpatialTree leaf limit
+ *
+ * Reports what is BUILT where a structure exists (the grid tree, the draw
+ * source), and what would be chosen where one does not — so a bench can read
+ * a lazy session without materializing anything it is about to time. */
+int Multires_tuningStats(subdiv::Multires *mr, int level, int *out, int count)
+{
+  if (!mr || !out || count < 1 || level < 1 || level > mr->maxLevel()) {
+    return 0;
+  }
+  const int verts = mr->refiner.levels[level - 1].vertCount;
+  const int side = subdiv::GridsStore::sideForLevel(level);
+  const subdiv::MultiresTuning t =
+      subdiv::multiresAutoTune(verts, mr->store.gridCount(), side);
+
+  int leafTarget = t.gridLeafVertTarget, leaves = 0;
+  if (mr->hasGridDomain(level)) {
+    if (subdiv::GridTree *tree = mr->gridDomain(level)->ensureTree()) {
+      leaves = int(tree->leaves.size());
+    }
+  }
+  int triTarget = t.drawNodeTriTarget, nodes = 0;
+  if (subdiv::GridDrawSource *src = mr->drawSource()) {
+    if (src->level() == level) {
+      triTarget = src->nodeTriTarget();
+      nodes = src->nodeCount();
+    }
+  }
+
+  const int vals[8] = {leafTarget,
+                       leaves,
+                       triTarget,
+                       nodes,
+                       verts,
+                       mr->store.gridCount(),
+                       side,
+                       t.slotLeafLimit};
+  const int n = count < 8 ? count : 8;
+  for (int i = 0; i < n; i++) {
+    out[i] = vals[i];
+  }
+  return n;
 }
 
 /** Copy the grid domain's dense mask into `out` (levelVertCount floats).

@@ -2,6 +2,7 @@
 
 #include "grid_tree.h"
 #include "multires.h"
+#include "multires_tuning.h"
 
 #include "litestl/util/alloc.h"
 #include "litestl/util/assert.h"
@@ -304,6 +305,13 @@ void GridLevelDomain::flushMaskToStore(std::span<const int> verts)
 GridTree *GridLevelDomain::ensureTree(int leafVertTarget)
 {
   if (!tree_) {
+    if (leafVertTarget <= 0) {
+      /* Size-derived (multires_tuning.h): a fixed vert target would let the
+       * leaf count — and so the flat AABB scan every query pays — grow
+       * linearly with the level. */
+      leafVertTarget =
+          multiresAutoTune(vertCount(), gridCount(), side_).gridLeafVertTarget;
+    }
     tree_ = alloc::New<GridTree>("grid tree");
     tree_->build(*this, leafVertTarget);
   }

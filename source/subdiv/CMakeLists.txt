@@ -23,6 +23,8 @@ set(SRC
   grid_stroke_log.cc
   PUBLIC multires.h
   multires.cc
+  PUBLIC multires_tuning.h
+  multires_tuning.cc
   PUBLIC bindings.h
   bindings.cc
   c-api/grid_draw_c_api.cc
@@ -38,6 +40,7 @@ wasm_add_symbols("
   Multires_setActiveLevel
   Multires_setActiveLevelLazy
   Multires_levelVertCount
+  Multires_tuningStats
   Multires_readDomainMask
   Multires_writeDomainMask
   Multires_activeMesh
