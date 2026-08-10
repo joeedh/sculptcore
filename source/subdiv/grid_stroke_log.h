@@ -112,6 +112,8 @@ private:
   /** First-touch dedup stamps for the open step. */
   Vector<uint32_t> leafStamp_;
   Vector<uint32_t> gridStamp_;
+  /** Channels of `grid` already captured at gridStamp_[grid] == gen_. */
+  Vector<uint32_t> gridChannels_;
   uint32_t gen_ = 0;
 };
 

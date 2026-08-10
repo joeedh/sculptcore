@@ -203,6 +203,13 @@ struct CommandExecutor {
   int curCaptureTool = 0;
   /** Scratch for the capture walk-elision node subset (see exec()). */
   Vector<spatial::SpatialNode *> captureNodes_;
+  /** Per-dab filterNodes results, reused so the node list (tens to hundreds of
+   * pointers under a large brush) is allocated once per stroke, not per dab.
+   * The two are distinct because applyDab's dyntopo pre-pass runs inside it. */
+  Vector<spatial::SpatialNode *> dabNodes_;
+  Vector<spatial::SpatialNode *> dynTopoNodes_;
+  /** Round-0 seed verts handed to runDyntopoRemesh, likewise reused. */
+  Vector<int> dynTopoSeed_;
   /** coPrev incremental-refresh state: after the stroke's first full snapshot,
    * later needsCoPrev execs refresh only the verts of nodes an exec touched
    * since the previous refresh (coPrevDirty_, deduped by node->coPrevStamp
@@ -1959,9 +1966,17 @@ struct CommandExecutor {
     // Round-0 seed: verts of the in-region leaves, so the dab is O(brush region)
     // rather than O(mesh). The caller owns the spatial query; dyntopo stays
     // spatial-free and just receives the set.
-    Vector<spatial::SpatialNode *> hit;
+    Vector<spatial::SpatialNode *> &hit = dynTopoNodes_;
+    hit.clear();
     tree->filterNodes(center, radius, hit);
-    Vector<int> seedVerts;
+
+    Vector<int> &seedVerts = dynTopoSeed_;
+    seedVerts.clear();
+    size_t nseed = 0;
+    for (spatial::SpatialNode *n : hit) {
+      nseed += n->unique_verts().size();
+    }
+    seedVerts.ensure_capacity(nseed);
     for (spatial::SpatialNode *n : hit) {
       for (int v : n->unique_verts()) {
         seedVerts.append(v);
@@ -2017,7 +2032,8 @@ struct CommandExecutor {
         pinRadius = std::fmax(pinRadius, grabPinRadius(e.type));
       }
     }
-    Vector<spatial::SpatialNode *> nodes;
+    Vector<spatial::SpatialNode *> &nodes = dabNodes_;
+    nodes.clear();
     if (pinRadius > 0.0f) {
       grabFilterNodes(center, pinRadius, radius, nodes);
     } else {
@@ -2061,7 +2077,8 @@ struct CommandExecutor {
     // `radius` is the node-filter radius only; grab-class strokes take the
     // pinned region (see the BrushProgram overload).
     radius = std::fmax(radius, filterRadiusFloor(brushType));
-    Vector<spatial::SpatialNode *> nodes;
+    Vector<spatial::SpatialNode *> &nodes = dabNodes_;
+    nodes.clear();
     if (grabAnchoredTool(brushType)) {
       grabFilterNodes(center, grabPinRadius(brushType), radius, nodes);
     } else {

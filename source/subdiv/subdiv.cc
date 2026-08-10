@@ -198,6 +198,12 @@ static void refineStep(mesh::Mesh *m0,
 
   StencilTable &st = lvl.stencil;
   st.coarseCount = int(m0->v.capacity());
+
+  // One fine vert per coarse face/edge/vert, rows of ~4 / ~6 / ~10 entries.
+  size_t nEntries = size_t(4 * m0->f.count + 6 * m0->e.count + 10 * m0->v.count);
+  st.offsets.ensure_capacity(size_t(m0->f.count + m0->e.count + m0->v.count) + 1);
+  st.indices.ensure_capacity(nEntries);
+  st.weights.ensure_capacity(nEntries);
   st.offsets.append(0);
 
   fillNone(lvl.facePointOf, int(m0->f.capacity()));
@@ -242,6 +248,7 @@ static void refineStep(mesh::Mesh *m0,
 
   // Vertex points: corner (>=3 creases) holds, 2 creases -> the 1/8·6/8·1/8
   // crease rule, else the smooth (Q + 2R + (n-3)S)/n rule expanded.
+  Vector<int, 16> vfaces;
   for (int vi : m0->v) {
     row.clear();
 
@@ -267,7 +274,7 @@ static void refineStep(mesh::Mesh *m0,
     } else {
       double n = double(valence);
       row.add(vi, (n - 3.0) / n);
-      Vector<int> vfaces;
+      vfaces.clear();
       for (int e1 : m0->e_of_v(vi)) {
         int opp = m0->e.vs[e1][0] == vi ? m0->e.vs[e1][1] : m0->e.vs[e1][0];
         row.add(vi, 1.0 / (n * n));

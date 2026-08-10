@@ -42,13 +42,17 @@ void GridTree::build(GridLevelDomain &d, int leafVertTarget)
   for (int g = 0; g < G; g++) {
     faceOf[g] = -1;
   }
-  Vector<Vector<int>> faceGrids;
+  // Inline 8 per face: a cage face's corner cycle and its cross-edge neighbour
+  // list are both face-valence sized, so ngons are the only heap case.
+  using FaceList = litestl::util::Vector<int, 8>;
+  Vector<FaceList> faceGrids;
+  faceGrids.ensure_capacity(G);
   for (int g = 0; g < G; g++) {
     if (faceOf[g] >= 0) {
       continue;
     }
     int fid = int(faceGrids.size());
-    Vector<int> cycle;
+    FaceList cycle;
     int cur = g;
     do {
       faceOf[cur] = fid;
@@ -61,7 +65,7 @@ void GridTree::build(GridLevelDomain &d, int leafVertTarget)
 
   // Face adjacency through the cross-cage-edge links (LEFT/BOTTOM and their
   // mirror images), for cluster growth.
-  Vector<Vector<int>> faceNbrs;
+  Vector<FaceList> faceNbrs;
   faceNbrs.resize(F);
   for (int g = 0; g < G; g++) {
     for (int side = 0; side < 4; side++) {
@@ -83,13 +87,16 @@ void GridTree::build(GridLevelDomain &d, int leafVertTarget)
   for (int f = 0; f < F; f++) {
     assigned[f] = false;
   }
+  litestl::util::Vector<int, 64> frontier;
   for (int seed = 0; seed < F; seed++) {
     if (assigned[seed]) {
       continue;
     }
     Leaf leaf;
+    leaf.grids.ensure_capacity(size_t(leafVertTarget / vertsPerGrid) + 1);
+    leaf.ownedVerts.ensure_capacity(size_t(leafVertTarget));
     int leafVerts = 0;
-    Vector<int> frontier;
+    frontier.clear();
     frontier.append(seed);
     while (frontier.size() > 0 && leafVerts < leafVertTarget) {
       int best = 0;

@@ -299,7 +299,16 @@ struct SpatialTree {
     }
   }
 
-  void update_node_normals(SpatialNode *node);
+  /** Scratch for update_node_normals' incremental path. One per worker range,
+   * reused across the leaves in it — the sets are sized by the brush footprint,
+   * so the first few leaves grow them and the rest allocate nothing. */
+  struct NormalsScratch {
+    util::Vector<int, 64> moved_verts;
+    util::Vector<int, 256> affected_faces;
+    util::Vector<int, 256> affected_verts;
+  };
+
+  void update_node_normals(SpatialNode *node, NormalsScratch &scratch);
 
   /** Rebuild `node->data->{foreign_verts,border_tris}` if stale. Safe to call
    * concurrently on distinct leaves — it touches only that leaf's own data. */

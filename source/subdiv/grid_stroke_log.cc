@@ -25,14 +25,17 @@ void GridStrokeLog::attach(GridLevelDomain *d)
   gen_ = 0;
   leafStamp_.clear();
   gridStamp_.clear();
+  gridChannels_.clear();
   if (d_) {
     leafStamp_.resize(tree_->leaves.size());
     gridStamp_.resize(d_->gridCount());
+    gridChannels_.resize(d_->gridCount());
     for (int i = 0; i < int(leafStamp_.size()); i++) {
       leafStamp_[i] = 0;
     }
     for (int i = 0; i < int(gridStamp_.size()); i++) {
       gridStamp_[i] = 0;
+      gridChannels_[i] = 0;
     }
   }
 }
@@ -53,16 +56,25 @@ void GridStrokeLog::beginStep()
 
 void GridStrokeLog::captureGridBlock(Step &s, int grid, int channel)
 {
-  if (gridStamp_[grid] == gen_) {
-    // Already captured this stroke — but possibly for a different channel
-    // (a stroke writing both positions and mask). Check before skipping.
-    for (const GridBlock &b : s.blocks) {
+  // A stroke can capture the same grid on several channels (positions + mask),
+  // so the stamp carries a bitmask of the channels taken. Scanning s.blocks for
+  // that instead made the dedup quadratic over the touched-grid set.
+  const uint32_t bit = channel < 32 ? uint32_t(1) << channel : 0;
+  if (gridStamp_[grid] != gen_) {
+    gridStamp_[grid] = gen_;
+    gridChannels_[grid] = 0;
+  } else if (bit) {
+    if (gridChannels_[grid] & bit) {
+      return;
+    }
+  } else {
+    for (const GridBlock &b : s.blocks) { // channel >= 32: no bit to spend
       if (b.grid == grid && b.channel == channel) {
         return;
       }
     }
   }
-  gridStamp_[grid] = gen_;
+  gridChannels_[grid] |= bit;
 
   Multires *mr = d_->multires();
   int level = d_->level();

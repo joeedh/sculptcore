@@ -427,6 +427,7 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   }
 
   Vector<spatial::SpatialNode *> nodes;
+  nodes.ensure_capacity(64); // one alloc rather than growing 4 -> 8 -> ... per dab
   scene.tree->filterNodes(origin, scene.brush.radius, nodes);
   if (nodes.size() == 0) {
     return true;

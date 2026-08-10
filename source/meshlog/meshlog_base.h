@@ -1893,6 +1893,7 @@ struct MeshLog {
   void capturePreviewRegion(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
   {
     Vector<spatial::SpatialNode *> nodes;
+    nodes.ensure_capacity(64); // one alloc rather than growing 4 -> 8 -> ... per dab
     tree->filterNodes(center, radius, nodes);
 
     mesh::AttrGroup &grp = m->v.attrs;

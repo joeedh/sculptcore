@@ -175,6 +175,7 @@ VdmSplatStats splatDab(Mesh &m,
   }
 
   Vector<SpatialNode *> nodes;
+  nodes.ensure_capacity(64); // one alloc rather than growing 4 -> 8 -> ... per dab
   tree.filterNodes(params.center, params.radius, nodes);
 
   float res = float(store.params.resolution);
@@ -201,6 +202,11 @@ VdmSplatStats splatDab(Mesh &m,
   };
   Vector<SplatTri> tris;
 
+  // Per-face corner gather, hoisted: fresh Vectors here would allocate once per
+  // face under the dab, and a quad already overflows the default inline size.
+  Vector<int, 8> cVerts;
+  Vector<float2, 8> cUvs;
+
   for (SpatialNode *node : nodes) {
     for (int f : node->data->unique_faces) {
       if (tree.treeMesh.f.carrier[f] != int(DetailCarrier::VDM)) {
@@ -208,8 +214,8 @@ VdmSplatStats splatDab(Mesh &m,
       }
 
       // Gather the face's corners (verts + UVs) once, then fan-triangulate.
-      Vector<int> cVerts;
-      Vector<float2> cUvs;
+      cVerts.clear();
+      cUvs.clear();
       int faceGrid = -1;
       bool mixedGrid = false;
       mesh::FaceProxy face(&m, f);
@@ -277,8 +283,17 @@ VdmSplatStats splatDab(Mesh &m,
     }
   }
 
+  // The gathered tris' summed texel-space area bounds this dab's texel count,
+  // so the visited set sizes itself in one go instead of rehashing up to it.
+  size_t texelBudget = 0;
+  for (const SplatTri &T : tris) {
+    texelBudget += size_t(T.absArea2 * 0.5f) + 4;
+  }
+  visited.reserve(texelBudget);
+
   Map<int, uint8_t> faceTouched;
   Map<int, uint8_t> gridTouched; // Ptex: grids needing a skirt refresh
+  faceTouched.reserve(tris.size());
 
   // Texel identity for the per-dab visited set: atlas packs (x, y); Ptex
   // packs (grid, x, y) as 24/20/20 bits (grids < 16M, coords < ~1M).

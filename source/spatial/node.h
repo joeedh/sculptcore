@@ -241,10 +241,19 @@ struct SpatialNode {
     }
   }
 
-  void create_data()
+  /** @p reserveVerts pre-sizes the element sets for a leaf that will hold that
+   * many verts (the tree's leaf_limit). A leaf otherwise rehashes its way up
+   * from the inline capacity, once per split and once per merge. */
+  void create_data(int reserveVerts = 0)
   {
     data = alloc::New<NodeData>("Spatial Node Data");
     data->m = treeMesh->m;
+
+    if (reserveVerts > 0) {
+      data->unique_verts.reserve(size_t(reserveVerts));
+      data->unique_faces.reserve(size_t(reserveVerts));
+      data->tris.ensure_capacity(size_t(reserveVerts) * 2);
+    }
   }
 
   void delete_data()

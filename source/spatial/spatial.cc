@@ -354,23 +354,26 @@ void SpatialTree::regen_node_tris(SpatialNode *node)
    * single rebuild site. */
   node->flag |= Spatial_RegenSkirt;
 
-  node->data->tris.clear_and_contract();
+  /* clear(), not clear_and_contract(): these refill immediately (or on the next
+   * ensure_border_cache) and a live leaf regens every dab under dyntopo. */
+  node->data->tris.clear();
+  node->data->tris.ensure_capacity(node->data->unique_faces.size() * 2);
   for (int f : node->data->unique_faces) {
     appendFaceTris(m, node->data->tris, f);
   }
 
-  node->data->foreign_verts.clear_and_contract();
-  node->data->border_tris.clear_and_contract();
+  node->data->foreign_verts.clear();
+  node->data->border_tris.clear();
   node->data->foreign_verts_valid = false;
 }
 
 void SpatialTree::build_node_skirt(SpatialNode *node)
 {
   node->flag &= ~Spatial_RegenSkirt;
-  node->data->skirt_tris.clear_and_contract();
+  node->data->skirt_tris.clear();
 
   auto &node_fattr = node->treeMesh->f.node;
-  util::Set<int> seen;
+  util::Set<int, 64> seen;
 
   /* Walk each owned vert's face fan (disk cycle -> radial cycles); faces owned
    * elsewhere are this leaf's skirt. Requires live topology — callers run in
@@ -404,7 +407,7 @@ void SpatialTree::ensure_border_cache(SpatialNode *node)
   if (node->data->foreign_verts_valid) {
     return;
   }
-  util::Set<int> seen;
+  util::Set<int, 64> seen;
   const util::Vector<NodeTri> &tris = node->data->tris;
   for (int i : util::IndexRange(tris.size())) {
     bool border = false;
@@ -570,7 +573,7 @@ void SpatialTree::split_node(SpatialNode *node, int claimTag)
       child->aabb.min[axis] = child->aabb.min[axis] + size[axis] * t;
     }
 
-    child->create_data();
+    child->create_data(leaf_limit);
   }
 
   node->flag &= ~Spatial_Leaf;
@@ -807,7 +810,7 @@ void SpatialTree::merge_node(SpatialNode *parent)
    * leaf does not re-split; the skew path's win is removing the wasted level. (A
    * caller that merged an over-full pair would auto re-split here via
    * add_face_intern — the mean-split predictor guards that against thrash.) */
-  parent->create_data();
+  parent->create_data(leaf_limit);
   parent->children[0] = parent->children[1] = nullptr;
   parent->flag |= Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
                   Spatial_RegenGPU | Spatial_UpdateNormals;
@@ -1006,7 +1009,7 @@ void SpatialTree::collapse_subtree(SpatialNode *node)
   free_subtree(node->children[0]);
   free_subtree(node->children[1]);
 
-  node->create_data();
+  node->create_data(leaf_limit);
   node->children[0] = node->children[1] = nullptr;
   node->flag |= Spatial_Leaf | Spatial_RegenTris | Spatial_RegenBounds |
                 Spatial_RegenGPU | Spatial_UpdateNormals;
@@ -1593,7 +1596,7 @@ void SpatialTree::buildAllParallel()
                             Spatial_RegenGPU | Spatial_UpdateNormals;
               child->aabb.min = bmin;
               child->aabb.max = bmax;
-              child->create_data();
+              child->create_data(leaf_limit);
             }
             c0->aabb.max[axis] = split;
             c1->aabb.min[axis] = split;
@@ -2957,7 +2960,7 @@ SpatialTree::buildPointsBatch(sculptcore::gpu::GPUManager &mgr)
   return batch;
 }
 
-void SpatialTree::update_node_normals(SpatialNode *node)
+void SpatialTree::update_node_normals(SpatialNode *node, NormalsScratch &scratch)
 {
   const bool fullRebuild = bool(node->flag & Spatial_NormalsFullRebuild);
   node->flag &= ~(Spatial_UpdateNormals | Spatial_NormalsFullRebuild);
@@ -2980,24 +2983,28 @@ void SpatialTree::update_node_normals(SpatialNode *node)
     // Sorted id vectors rather than hash sets: this runs for every dirty leaf
     // of every frame, and the membership tests dominate it — a binary search
     // over a few thousand ids costs a fraction of hashing them.
-    auto sort_unique = [](Vector<int> &ids) {
+    auto sort_unique = [](auto &ids) {
       std::sort(ids.data(), ids.data() + ids.size());
       ids.resize(int(std::unique(ids.data(), ids.data() + ids.size()) - ids.data()));
     };
-    auto has = [](Vector<int> &ids, int id) {
+    auto has = [](auto &ids, int id) {
       return std::binary_search(ids.data(), ids.data() + ids.size(), id);
     };
 
-    Vector<int> moved_verts;
+    auto &moved_verts = scratch.moved_verts;
+    /* Expand to the 1-ring: any tri that touches a moved vert contributes
+     * to the affected face/vert sets. */
+    auto &affected_face_set = scratch.affected_faces;
+    auto &affected_vert_set = scratch.affected_verts;
+
+    moved_verts.clear();
+    affected_face_set.clear();
+    affected_vert_set.clear();
+
     for (int v : node->affected_verts) {
       moved_verts.append(v);
     }
     sort_unique(moved_verts);
-
-    /* Expand to the 1-ring: any tri that touches a moved vert contributes
-     * to the affected face/vert sets. */
-    Vector<int> affected_face_set;
-    Vector<int> affected_vert_set;
 
     for (int ti : IndexRange(node->data->tris.size())) {
       const auto &tri = node->data->tris[ti];
@@ -3355,12 +3362,12 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
         int node_id;
         int vert;
       };
-      Vector<Vector<HaloHint>> haloHints;
+      Vector<Vector<HaloHint, 32>> haloHints;
       haloHints.resize(primaryNormalsCount);
       litestl::task::parallel_for(
           util::IndexRange(primaryNormalsCount),
           [&](IndexRange range) {
-            Vector<int> moved;
+            Vector<int, 64> moved;
             for (int ni : range) {
               SpatialNode *node = updateNormalsNodes[ni];
               ensure_border_cache(node);
@@ -3376,7 +3383,7 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
                 std::sort(moved.data(), moved.data() + moved.size());
               }
               int *mb = moved.data(), *me = mb + moved.size();
-              Vector<HaloHint> &out = haloHints[ni];
+              Vector<HaloHint, 32> &out = haloHints[ni];
               auto scanTri = [&](const NodeTri &tri) {
                 int vs[3] = {m->c.v[tri.c[0]], m->c.v[tri.c[1]], m->c.v[tri.c[2]]};
                 if (!full && !std::binary_search(mb, me, vs[0]) &&
@@ -3425,16 +3432,18 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
 
       {
 #ifdef NO_PARALLEL_FOR
+        NormalsScratch scratch;
         for (SpatialNode *node : updateNormalsNodes) {
-          update_node_normals(node);
+          update_node_normals(node, scratch);
         }
 #else
         litestl::task::parallel_for(
             util::IndexRange(updateNormalsNodes.size()),
             [&](IndexRange range) {
+              NormalsScratch scratch;
               for (int i : range) {
                 SpatialNode *node = updateNormalsNodes[i];
-                update_node_normals(node);
+                update_node_normals(node, scratch);
               }
             },
             4);
