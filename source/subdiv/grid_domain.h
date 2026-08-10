@@ -105,6 +105,10 @@ struct GridLevelDomain {
   /** Find-or-create the "mask" store channel; returns its index. A mask
    * stroke ensures it up front so undo capture sees a live channel. */
   int ensureMaskChannel();
+  /** Whether the "mask" store channel exists at all — the draw glue gates the
+   * mask attr stream on this so a maskless session never advertises one (the
+   * host draws a whole-mesh mask overlay pass whenever the stream is there). */
+  bool maskChannelExists() const;
 
   /** The domain's spatial structure, built lazily (grid_tree.h).
    * `leafVertTarget` <= 0 uses the GridTree default; honored on first build. */

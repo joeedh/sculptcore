@@ -278,6 +278,11 @@ int GridLevelDomain::ensureMaskChannel()
   return ch;
 }
 
+bool GridLevelDomain::maskChannelExists() const
+{
+  return mr_ && mr_->store.findChannel(util::string(kMaskChannel)) >= 0;
+}
+
 void GridLevelDomain::flushMaskToStore()
 {
   int ch = ensureMaskChannel();

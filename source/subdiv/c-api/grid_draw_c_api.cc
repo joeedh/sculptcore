@@ -4,6 +4,7 @@
  * Registered per (Multires, level) via sc_external_draw_register_grids. */
 
 #include "spatial/c-api/external_draw.h"
+#include "subdiv/grid_domain.h"
 #include "subdiv/grid_draw_source.h"
 #include "subdiv/multires.h"
 
@@ -47,6 +48,16 @@ int grids_nodes_get(void *src_v,
   const int count = src.nodeCount();
   attrs.ensure_capacity(size_t(count) * attrs_per_node);
 
+  /* Advertise mask@2 only when a mask channel actually exists: the host draws
+   * a whole-mesh sculpt-mask overlay pass over every batch that carries the
+   * stream, so a maskless session exposing zeros doubles its draw cost. The
+   * mirror in Node::mask is zeros in that case anyway. When the first mask
+   * stroke creates the channel, the flip reallocs the host's node caches on
+   * the next walk (its per-node stream-set check), no update flag needed. */
+  subdiv::Multires *mr = src.multires();
+  const bool mask_live = mr != nullptr && mr->hasGridDomain(src.level()) &&
+                         mr->gridDomain(src.level())->maskChannelExists();
+
   for (int i = 0; i < count; i++) {
     subdiv::GridDrawSource::Node &n = src.node(i);
     if (n.verts == 0 || n.pos.size() == 0) {
@@ -59,7 +70,7 @@ int grids_nodes_get(void *src_v,
      * defaults, and those overlays fall back to the slot provider. */
     const size_t base = attrs.size();
     for (size_t slot = 0; slot < attrs_per_node; slot++) {
-      attrs.append(slot == 2 ? static_cast<const void *>(n.mask.data()) : nullptr);
+      attrs.append(slot == 2 && mask_live ? static_cast<const void *>(n.mask.data()) : nullptr);
     }
     dn.attrs = &attrs[base];
     dn.verts_num = n.verts;

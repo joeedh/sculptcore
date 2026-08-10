@@ -684,7 +684,10 @@ int main()
                   (n.update_flags & SC_EXTERNAL_DRAW_UPDATE_DATA);
       idsOk = idsOk && n.node_id >= SC_EXTERNAL_DRAW_CUSTOM_ID_BASE;
       TASSERT(n.verts_num > 0 && n.verts_num % 3 == 0);
-      TASSERT(n.attrs != nullptr && n.attrs[2] != nullptr); /* mask@2 */
+      /* mask@2 is gated on the store channel existing (a maskless session
+       * must not advertise a stream, or the host overlays the whole mesh). */
+      TASSERT(n.attrs != nullptr);
+      TASSERT((n.attrs[2] != nullptr) == d->maskChannelExists());
       for (int v = 0; v < n.verts_num; v++) {
         gotSum += double(n.positions[v][0]) + double(n.positions[v][1]) +
                   double(n.positions[v][2]);
@@ -727,6 +730,21 @@ int main()
       dirtyCount += (nodes[i].update_flags & SC_EXTERNAL_DRAW_UPDATE_DATA) ? 1 : 0;
     }
     TASSERT(dirtyCount > 0);
+
+    /* A mask stroke creates the store channel and flips the mask@2 gate on. */
+    TASSERT(!d->maskChannelExists());
+    TASSERT(GridStroke_begin(s) == 1);
+    TASSERT(GridStroke_dab(s, int(SculptBrushes::MASK), 0, 0, 0.5f, 0, 0, 1, 0) > 0);
+    GridStroke_end(s);
+    sc_external_draw_update(key);
+    count = prov->nodes_get(prov->user_data, key, nullptr, &nodes);
+    TASSERT(d->maskChannelExists());
+    bool maskAdvertised = count > 0;
+    for (int i = 0; i < count; i++) {
+      maskAdvertised = maskAdvertised && nodes[i].attrs[2] != nullptr;
+    }
+    TASSERT(maskAdvertised);
+
     GridStroke_free(s);
     sc_external_draw_unregister(key);
     TASSERT(mr.drawSource() == nullptr);
