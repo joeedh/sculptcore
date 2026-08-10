@@ -15,6 +15,8 @@
 
 #include "litestl/util/alloc.h"
 
+#include <cstdint>
+
 using namespace sculptcore;
 
 struct GridStrokeSession {
@@ -200,6 +202,100 @@ int GridStroke_dab(GridStrokeSession *s,
     auto &mv = s->exec.lastDabMoved();
     brush::gridsMirrorToSlot(s->mr, s->level,
                              std::span<const int>(mv.data(), mv.size()));
+  }
+  return moved;
+}
+
+/** Whether the session's binding is still current: the level's domain is
+ * alive and has not been dropped + rebuilt since bind (generation compare —
+ * see GridStrokeSession::boundGen). The batch calls check this instead of
+ * sync()ing, because a lazy rebuild here would mask the host's stale stroke
+ * as a fresh (empty) domain instead of failing it. */
+static bool gridStrokeCurrent(GridStrokeSession *s)
+{
+  return s && s->mr->hasGridDomain(s->level) &&
+         s->mr->domainGeneration() == s->boundGen && s->exec.domain != nullptr;
+}
+
+/** Batch raycast against the session's bound tree. `rays` = n x 6
+ * {origin.xyz, dir.xyz}; on hit `out6` row i = {p.xyz, normal.xyz} and
+ * `hit[i]` = 1. Returns the hit count, or -1 when the binding is no longer
+ * current (the host must end the stroke, not rebind mid-stroke). */
+int GridStroke_castBatch(GridStrokeSession *s,
+                         int n,
+                         const float *rays,
+                         float *out6,
+                         uint8_t *hit)
+{
+  if (!gridStrokeCurrent(s)) {
+    return -1;
+  }
+  subdiv::GridTree *tree = s->exec.tree;
+  int count = 0;
+  for (int i = 0; i < n; i++) {
+    const float *r = rays + i * 6;
+    subdiv::GridRayHit h;
+    if (tree->castRay(float3(r[0], r[1], r[2]), float3(r[3], r[4], r[5]), h)) {
+      float *o = out6 + i * 6;
+      o[0] = h.p[0];
+      o[1] = h.p[1];
+      o[2] = h.p[2];
+      o[3] = h.normal[0];
+      o[4] = h.normal[1];
+      o[5] = h.normal[2];
+      hit[i] = 1;
+      count++;
+    }
+    else {
+      hit[i] = 0;
+    }
+  }
+  return count;
+}
+
+/** Batch of plain spaced dabs: the host's per-dab prop cycle + apply +
+ * symmetry, engine-side. `dabs` = n x 7 {center.xyz, normal.xyz, radius};
+ * `strength`/`invert` are constant for the event (the host folds overlap
+ * attenuation and brush direction in), `pressure` refills the device sample
+ * once per logical dab when `usePressure` (shared by every mirror image, as
+ * the host loop does), and `signs` = mirrorCount x 3 reflection sign vectors
+ * applied to center and normal. Grab-class/anchored strokes stay host-side.
+ * Returns total moved verts, or -1 when the binding is no longer current. */
+int GridStroke_dabBatch(GridStrokeSession *s,
+                        int tool,
+                        int n,
+                        const float *dabs,
+                        float strength,
+                        int invert,
+                        float pressure,
+                        int usePressure,
+                        const float *signs,
+                        int mirrorCount)
+{
+  if (!gridStrokeCurrent(s)) {
+    return -1;
+  }
+  brush::Brush *b = s->exec.brush;
+  int moved = 0;
+  for (int i = 0; i < n; i++) {
+    const float *d = dabs + i * 7;
+    // Strength/radius must be rewritten every dab: the executor's loadProps
+    // assigns post-dynamics values back into the Brush fields, so a stale
+    // field would persist the decayed value into the prop store.
+    b->strength = strength;
+    b->radius = d[6];
+    b->invert = invert != 0;
+    b->writeProps();
+    if (usePressure) {
+      b->clearDeviceInputs();
+      b->pushDeviceInput(int(props::DeviceType::PRESSURE), pressure);
+    }
+    moved += GridStroke_dab(s, tool, d[0], d[1], d[2], d[3], d[4], d[5], 0);
+    for (int m = 0; m < mirrorCount; m++) {
+      const float *sg = signs + m * 3;
+      moved += GridStroke_dab(s, tool, d[0] * sg[0], d[1] * sg[1], d[2] * sg[2],
+                              d[3] * sg[0], d[4] * sg[1], d[5] * sg[2], 0);
+    }
   }
   return moved;
 }

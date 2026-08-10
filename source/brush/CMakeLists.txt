@@ -27,6 +27,7 @@ set(SRC
   PUBLIC grid_executor.h
   PUBLIC grid_gpu_session.h
   c-api/grid_stroke_c_api.cc
+  c-api/mesh_stroke_batch_c_api.cc
   PUBLIC stroke_spacing.h
   PUBLIC stroke_curve.h
   PUBLIC stroke_driver.h
@@ -68,6 +69,10 @@ wasm_add_symbols("
   Multires_hasGridDomain
   GridStroke_begin
   GridStroke_dab
+  GridStroke_castBatch
+  GridStroke_dabBatch
+  MeshStroke_castBatch
+  MeshStroke_dabBatch
   GridStroke_end
   GridStroke_canUndo
   GridStroke_canRedo
