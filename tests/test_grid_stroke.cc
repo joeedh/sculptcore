@@ -160,7 +160,8 @@ static void meshStroke(Multires &mr,
                        Brush &brush,
                        SculptBrushes tool,
                        const DabBattery &dabs,
-                       Vector<float3> &posOut)
+                       Vector<float3> &posOut,
+                       Vector<float3> *norOut = nullptr)
 {
   MultiresSlot *slot = mr.setActiveLevel(kLevel);
   TASSERT(slot && slot->mesh && slot->tree);
@@ -179,6 +180,12 @@ static void meshStroke(Multires &mr,
   posOut.resize(slot->mesh->v.count);
   for (int v = 0; v < slot->mesh->v.count; v++) {
     posOut[v] = slot->mesh->v.co[v];
+  }
+  if (norOut) {
+    norOut->resize(slot->mesh->v.count);
+    for (int v = 0; v < slot->mesh->v.count; v++) {
+      (*norOut)[v] = slot->mesh->v.no[v];
+    }
   }
   mr.writeback(kLevel);
 }
@@ -326,6 +333,34 @@ int main()
     float diff = maxPosDiff(posA, posB);
     fprintf(stderr, "E3 mirror-stamp smooth: max pos diff %.8f\n", diff);
     TASSERT(diff <= 2e-3f);
+  }
+
+  // E1 BSMOOTH A/B: both arms run the plain-Laplacian branch (grids vclass
+  // shim is all-zero; the mesh classifier derives zero on this closed,
+  // unmarked mesh). Split eps: the normal damping's v.no source differs.
+  {
+    Brush brush;
+    setupBrush(brush, 0.35f, 0.5f);
+    restoreStore(mr, s0);
+    Vector<float3> posA, norA;
+    meshStroke(mr, brush, SculptBrushes::BSMOOTH, dabs, posA, &norA);
+    restoreStore(mr, s0);
+    Vector<float3> posB;
+    gridsStroke(mr, brush, SculptBrushes::BSMOOTH, dabs, posB);
+    TASSERT(posA.size() == posB.size());
+    float maxTan = 0.0f, maxNor = 0.0f;
+    for (int i = 0; i < int(posA.size()); i++) {
+      float3 n = norA[i];
+      n.normalize();
+      float3 dv = posA[i] - posB[i];
+      float dn = dv.dot(n);
+      float3 dt = dv - n * dn;
+      maxNor = std::fmax(maxNor, std::fabs(dn));
+      maxTan = std::fmax(maxTan, dt.length());
+    }
+    fprintf(stderr, "E1 bsmooth A/B: tangent %.8f normal %.8f\n", maxTan, maxNor);
+    TASSERT(maxTan <= 2e-3f);
+    TASSERT(maxNor <= 5e-2f);
   }
 
   /* Undo fidelity: blob + positions bit-exact through undo, post state
@@ -862,7 +897,7 @@ int main()
     restoreStore(mr, s0);
 
     TASSERT(GridStroke_supported(int(SculptBrushes::DRAW)) == 1);
-    TASSERT(GridStroke_supported(int(SculptBrushes::BSMOOTH)) == 0);
+    TASSERT(GridStroke_supported(int(SculptBrushes::BSMOOTH)) == 1);
 
     float out10[10];
     int nearest = -1;

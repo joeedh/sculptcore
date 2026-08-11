@@ -419,6 +419,9 @@ struct GridBrushExecutor {
     coPrevStrokeGen_.clear();
     coPrevCopyEpoch_.clear();
     coPrevPosEpoch_.clear();
+    // The vclass shim is all-zero by construction, so a rebuild only needs
+    // the size to track the new domain (ensureVclassBinding resizes).
+    vclass_.resize(0);
     leafTouched_.resize(nodes_.size());
     for (int i = 0; i < int(leafTouched_.size()); i++) {
       leafTouched_[i] = 0;
@@ -480,6 +483,9 @@ struct GridBrushExecutor {
       return true;
     case SculptBrushes::SMOOTH:
       command::createSmoothBrush<GridBrushExecutor, GridCsrNbr, AccMode>(def);
+      return true;
+    case SculptBrushes::BSMOOTH:
+      command::createBsmoothBrush<GridBrushExecutor, GridCsrNbr, AccMode>(def);
       return true;
     case SculptBrushes::KELVINLET:
       command::createKelvinletBrush<GridBrushExecutor, AccMode>(def);
@@ -563,6 +569,19 @@ struct GridBrushExecutor {
     ctx.surfacePos = origin;
     ctx.surfaceNo = normal;
     ctx.isFirstOfStep = isFirstOfStep;
+
+    // DSL attr manifest: grids have no boundary classifier, so BSMOOTH's
+    // vclass handle binds to an executor-owned all-zero column (vclass 0 =
+    // plain Laplacian; the manifest write flag only means ensure-materialized).
+    ctx.attrBindings = nullptr;
+    if (cmd.attrs.size() > 0) {
+      for (const auto &entry : cmd.attrs) {
+        Assert(entry.handle == string("vclass"),
+               "grid executor: only the vclass shim is bindable");
+      }
+      ensureVclassBinding();
+      ctx.attrBindings = &attrBindings_;
+    }
 
     updateStrokeFrame(origin);
     brush->pushStrokeSample(origin, normal);
@@ -914,6 +933,27 @@ private:
     }
   }
 
+  /** (Re)build the vclass shim binding: a materialized all-zero int column
+   * sized to the domain, exposed under BSMOOTH's "vclass" handle. Sized
+   * lazily so vclass-free sessions never pay for it; a domain rebuild
+   * resizes on the next dab (attach() drops it). */
+  void ensureVclassBinding()
+  {
+    // New pages materialize from page.value == 0, and nothing ever writes
+    // this column, so resize alone keeps it all-zero.
+    int vc = domain->vertCount();
+    if (vclass_.size() != vc) {
+      vclass_.resize(vc);
+    }
+    if (attrBindings_.items.size() == 0) {
+      mesh::AttrRef ref;
+      ref.data = &vclass_;
+      ref.name = string(".grid.boundary.vclass");
+      ref.type = mesh::AttrType::INT;
+      attrBindings_.items.append(BrushAttrBinding{string("vclass"), ref});
+    }
+  }
+
   /** CommandExecutor::updateStrokeFrame, verbatim (Brush-only state). */
   void updateStrokeFrame(float3 origin)
   {
@@ -941,6 +981,9 @@ private:
   mesh::AttrData<int> dabGen_{string(".grid.dab.gen"), 0};
   mesh::AttrData<float> cavity_{string(".grid.automask.cavity"), 0};
   mesh::AttrData<int> cavityGen_{string(".grid.automask.gen"), 0};
+  /** All-zero vclass shim for BSMOOTH (see ensureVclassBinding). */
+  mesh::AttrData<int> vclass_{string(".grid.boundary.vclass"), 0};
+  BrushAttrBindings attrBindings_;
   Vector<float3> coPrevStorage_;
   /** co_prev validity stamps (see refreshCoPrevRegion): sized lazily with
    * coPrevStorage_, so smooth-free sessions never pay the allocation. */
