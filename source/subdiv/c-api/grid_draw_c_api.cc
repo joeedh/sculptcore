@@ -74,6 +74,11 @@ int grids_nodes_get(void *src_v,
     }
     dn.attrs = &attrs[base];
     dn.verts_num = n.verts;
+    /* On every sync, not just topology ones: the host may realloc a node's
+     * buffers on any sync (e.g. the mask-stream flip above) and needs the
+     * index data then. The arrays are engine-owned and static per node. */
+    dn.indices = n.indices.size() > 0 ? n.indices.data() : nullptr;
+    dn.indices_num = int(n.indices.size());
     dn.material_index = n.material;
     dn.node_id = src.nodeId(i);
     dn.update_flags = SC_EXTERNAL_DRAW_UPDATE_NONE;

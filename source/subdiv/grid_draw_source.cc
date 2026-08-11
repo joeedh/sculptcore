@@ -8,6 +8,7 @@
 #include "litestl/util/task.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace sculptcore::subdiv {
 
@@ -19,6 +20,8 @@ GridDrawSource::GridDrawSource(Multires *mr, int level, int nodeTriTarget)
 {
   GridLevelDomain &d = *mr->gridDomain(level);
   side_ = d.gridSide();
+  const char *env = getenv("SC_GRIDS_INDEXED");
+  indexed_ = !(env && env[0] == '0');
   /* One node is one host draw call, so the target scales with the level
    * (multires_tuning.h) instead of being a fixed tri count. */
   buildPartition(d,
@@ -49,7 +52,39 @@ void GridDrawSource::buildPartition(GridLevelDomain &d, int triTarget)
   int openRows = 0;
   auto flush = [&]() {
     if (openRows > 0) {
-      open.verts = openRows * trisPerRow * 3;
+      if (indexed_) {
+        // Shared lattice verts: rows row0..row0+rows per span, (S+1) wide.
+        int verts = 0;
+        for (const GridSpan &sp : open.spans) {
+          verts += (sp.rows + 1) * (S + 1);
+        }
+        open.verts = verts;
+        // Static per-node indices, same winding as the soup fill: per cell
+        // (a,b,c) + (a,c,e). Pure function of spans + S, built once.
+        open.indices.ensure_capacity(size_t(openRows) * trisPerRow * 3);
+        uint32_t base = 0;
+        for (const GridSpan &sp : open.spans) {
+          const uint32_t w = uint32_t(S + 1);
+          for (int r = 0; r < sp.rows; r++) {
+            for (int u = 0; u < S; u++) {
+              const uint32_t a = base + uint32_t(r) * w + uint32_t(u);
+              const uint32_t b = a + 1;
+              const uint32_t c = a + w + 1;
+              const uint32_t e = a + w;
+              open.indices.append(a);
+              open.indices.append(b);
+              open.indices.append(c);
+              open.indices.append(a);
+              open.indices.append(c);
+              open.indices.append(e);
+            }
+          }
+          base += uint32_t(sp.rows + 1) * w;
+        }
+      }
+      else {
+        open.verts = openRows * trisPerRow * 3;
+      }
       nodes_.append(std::move(open));
       open = Node();
       openRows = 0;
@@ -107,6 +142,24 @@ void GridDrawSource::fillNode(GridLevelDomain &d, Node &n)
   n.aabb.reset();
   const auto &pos = d.pos();
   int out = 0;
+  if (n.indices.size() > 0) {
+    // Indexed: the spans' lattice rows row0..row0+rows, row-major, 7 floats
+    // per vert — the triangles come from the static index stream.
+    for (const GridSpan &sp : n.spans) {
+      const int *gv = d.gridVerts(sp.grid);
+      for (int row = sp.row0; row <= sp.row0 + sp.rows; row++) {
+        for (int u = 0; u <= S; u++) {
+          const int v = gv[row * (S + 1) + u];
+          n.pos[out] = pos[v];
+          n.no[out] = d.no[v];
+          n.mask[out] = d.mask[v];
+          n.aabb.add(pos[v]);
+          out++;
+        }
+      }
+    }
+    return;
+  }
   for (const GridSpan &sp : n.spans) {
     const int *gv = d.gridVerts(sp.grid);
     for (int row = sp.row0; row < sp.row0 + sp.rows; row++) {

@@ -36,6 +36,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <string>
@@ -634,7 +635,8 @@ int main()
     TASSERT(mr.writeback(kLevel) > 0);
   }
 
-  /* Grids draw source (extdraw provider v2): partition coverage, the
+  /* Grids draw source (extdraw provider v3): partition coverage in both
+   * fill modes (indexed default / SC_GRIDS_INDEXED=0 soup), the
    * born-dirty/consume-on-read contract through the c-api, and restricted
    * dirty marking after a stroke and an undo. */
   {
@@ -683,21 +685,70 @@ int main()
       bornDirty = bornDirty && (n.update_flags & SC_EXTERNAL_DRAW_UPDATE_TOPOLOGY) &&
                   (n.update_flags & SC_EXTERNAL_DRAW_UPDATE_DATA);
       idsOk = idsOk && n.node_id >= SC_EXTERNAL_DRAW_CUSTOM_ID_BASE;
-      TASSERT(n.verts_num > 0 && n.verts_num % 3 == 0);
+      TASSERT(n.verts_num > 0);
       /* mask@2 is gated on the store channel existing (a maskless session
        * must not advertise a stream, or the host overlays the whole mesh). */
       TASSERT(n.attrs != nullptr);
       TASSERT((n.attrs[2] != nullptr) == d->maskChannelExists());
-      for (int v = 0; v < n.verts_num; v++) {
-        gotSum += double(n.positions[v][0]) + double(n.positions[v][1]) +
-                  double(n.positions[v][2]);
-        gotCorners++;
+      if (n.indices != nullptr) {
+        /* Indexed (the default): shared lattice verts, triangles via the
+         * static index stream. The corner walk through it must cover every
+         * cell exactly once, same as the soup it replaced. */
+        TASSERT(n.indices_num > 0 && n.indices_num % 3 == 0);
+        for (int k = 0; k < n.indices_num; k++) {
+          TASSERT(n.indices[k] < uint32_t(n.verts_num));
+          const float *p = n.positions[n.indices[k]];
+          gotSum += double(p[0]) + double(p[1]) + double(p[2]);
+          gotCorners++;
+        }
+      }
+      else {
+        /* Soup (SC_GRIDS_INDEXED=0 on the whole test run). */
+        TASSERT(n.indices_num == 0);
+        TASSERT(n.verts_num % 3 == 0);
+        for (int v = 0; v < n.verts_num; v++) {
+          gotSum += double(n.positions[v][0]) + double(n.positions[v][1]) +
+                    double(n.positions[v][2]);
+          gotCorners++;
+        }
       }
     }
     TASSERT(bornDirty);
     TASSERT(idsOk);
-    TASSERT(gotCorners == expectCorners);
+    TASSERT(gotCorners == expectCorners); /* == 6 x total cells */
     TASSERT(std::abs(gotSum - expectSum) < 1e-6 * std::abs(expectSum) + 1e-9);
+
+    /* Kill-switch: SC_GRIDS_INDEXED=0 (read at construction) restores the
+     * de-indexed soup — no index stream, verts a multiple of 3, and the
+     * identical corner sum. */
+    {
+      const char *prevEnv = getenv("SC_GRIDS_INDEXED");
+      const std::string prev = prevEnv ? prevEnv : "";
+#ifdef _WIN32
+      _putenv_s("SC_GRIDS_INDEXED", "0");
+#else
+      setenv("SC_GRIDS_INDEXED", "0", 1);
+#endif
+      subdiv::GridDrawSource soup(&mr, kLevel);
+#ifdef _WIN32
+      _putenv_s("SC_GRIDS_INDEXED", prev.c_str());
+#else
+      prevEnv ? setenv("SC_GRIDS_INDEXED", prev.c_str(), 1) : unsetenv("SC_GRIDS_INDEXED");
+#endif
+      double soupSum = 0.0;
+      long soupCorners = 0;
+      for (int i = 0; i < soup.nodeCount(); i++) {
+        subdiv::GridDrawSource::Node &n = soup.node(i);
+        TASSERT(n.indices.size() == 0);
+        TASSERT(n.verts > 0 && n.verts % 3 == 0);
+        for (int v = 0; v < n.verts; v++) {
+          soupSum += double(n.pos[v][0]) + double(n.pos[v][1]) + double(n.pos[v][2]);
+          soupCorners++;
+        }
+      }
+      TASSERT(soupCorners == expectCorners);
+      TASSERT(std::abs(soupSum - expectSum) < 1e-6 * std::abs(expectSum) + 1e-9);
+    }
 
     /* Consume-on-read: a second sync with no edits reports NONE. */
     count = prov->nodes_get(prov->user_data, key, nullptr, &nodes);

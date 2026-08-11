@@ -1,12 +1,15 @@
 #pragma once
 
-/** Grids-fed external-draw geometry source (extdraw provider v2).
+/** Grids-fed external-draw geometry source (extdraw provider v3).
  *
  * Feeds the host's external-draw ABI straight from a level's GridLevelDomain:
- * per draw node, an engine-owned de-indexed triangle soup (pos/no/mask, 6
- * corners per lattice cell) plus an AABB and consume-on-read update flags.
- * The materialized slot mesh is not involved — this is what lets the slot
- * (and its ~GpuData) go lazy.
+ * per draw node, engine-owned shared vertex streams (pos/no/mask, one entry
+ * per lattice vert of the node's rows) plus a static triangle index stream,
+ * an AABB and consume-on-read update flags. `SC_GRIDS_INDEXED=0` (read at
+ * construction) restores the old de-indexed 6-corners-per-cell soup with no
+ * index stream — the rollback lever, and the layout the mesh/dyntopo extdraw
+ * path still uses. The materialized slot mesh is not involved — this is what
+ * lets the slot (and its ~GpuData) go lazy.
  *
  * Partition: cell ROWS of whole grids, packed to ~kNodeTriTarget triangles.
  * Grids smaller than the target pack together in leaf-major order; grids
@@ -64,9 +67,14 @@ struct GridDrawSource {
 
   struct Node {
     Vector<GridSpan> spans;
-    Vector<float3> pos; // verts corners, 6 per cell
+    // Indexed: one entry per lattice vert of the spans' rows (row-major,
+    // spans concatenated). Soup: 6 corners per cell.
+    Vector<float3> pos;
     Vector<float3> no;
     Vector<float> mask;
+    // Triangle indices into pos/no/mask, built once at partition build (a
+    // pure function of spans + gridSide). Empty in soup mode.
+    Vector<uint32_t> indices;
     AABB aabb;
     int verts = 0;
     // First span's cage-face material_index (host ABI: one material per node).
@@ -140,6 +148,7 @@ private:
   int level_ = 0;
   int side_ = 0;      // cells per grid side (domain gridSide)
   int triTarget_ = 0; // tris per node the partition was built to
+  bool indexed_ = true; // SC_GRIDS_INDEXED=0 -> soup fill, empty indices
   uint64_t boundGen_ = 0;
   Vector<Node> nodes_;
   Vector<int> rowNode_; // grid * side_ + cellRow -> node index
