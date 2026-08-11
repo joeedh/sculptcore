@@ -23,6 +23,7 @@
 #include "automask.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
+#include "brush_program.h"
 #include "brushes/all.h"
 #include "capture_policy.h"
 
@@ -564,6 +565,238 @@ struct GridBrushExecutor {
     auto cmd = createCommand(brushType);
     brush->loadCommonProps(&brush->deviceInputCtx);
 
+    updateStrokeFrame(origin);
+    brush->pushStrokeSample(origin, normal);
+
+    stats.dabs++;
+    float floorR = cmd.unbounded ? brush->radius * brush->unboundedExtent : 0.0f;
+    if (!queryDabLeaves(cmd.grabMode, std::fmax(brush->radius, floorR), origin)) {
+      isFirstOfStep = false;
+      return 0;
+    }
+
+    dabSeq_++;
+    dabMoved_.clear();
+    execStage(cmd, origin, normal);
+    finishDab();
+
+    isFirstOfStep = false;
+    return int(dabMoved_.size());
+  }
+
+  /** One logical dab of a composite brush program — the grids mirror of
+   * CommandExecutor::execProgram. One stroke sample and one node query serve
+   * every entry; the entries run in order over that shared set with their
+   * float/invert overrides pushed onto the brush's props and rolled back
+   * after each stage, and normals/bounds refresh once at the end (the mesh
+   * path never refreshes between entries — per-stage refresh would diverge).
+   * Grab-class entries and attr-layer overrides are unsupported here.
+   * Returns the union moved-vert count across stages. */
+  int applyProgram(BrushProgram *prog, float3 origin, float3 normal)
+  {
+    if (!prog || prog->commands.size() == 0) {
+      return 0;
+    }
+
+    updateStrokeFrame(origin);
+    brush->pushStrokeSample(origin, normal);
+
+    stats.dabs++;
+    // One query serves every stage, so its radius floor is the max over them.
+    float floorR = 0.0f;
+    for (auto &entry : prog->commands) {
+      brush_command cmd = createCommand(entry.type);
+      Assert(!cmd.grabMode, "grids programs: grab-class entries unsupported");
+      Assert(entry.attrLayerOverrides.size() == 0,
+             "grids programs: attr-layer overrides unsupported");
+      if (cmd.unbounded) {
+        floorR = std::fmax(floorR, brush->radius * brush->unboundedExtent);
+      }
+    }
+    if (!queryDabLeaves(false, std::fmax(brush->radius, floorR), origin)) {
+      isFirstOfStep = false;
+      return 0;
+    }
+
+    dabSeq_++;
+    dabMoved_.clear();
+
+    for (auto &entry : prog->commands) {
+      // Push the entry's sparse overrides onto the authored props, snapshot
+      // under the resolved prop name for an exact rollback (execProgram's
+      // model; the base props survive the dab unmodified).
+      Vector<BrushFloatOverride> savedFloats;
+      for (auto &ov : entry.floatOverrides) {
+        util::string nm =
+            ov.name.size() ? ov.name : util::string(brushPropName(ov.propId));
+        BrushFloatOverride saved;
+        saved.name = nm;
+        saved.value = brush->props.lookupFloat(nm.c_str(), 0.0f);
+        savedFloats.append(std::move(saved));
+        brush->props.setFloat(nm.c_str(), ov.value);
+      }
+      bool savedInvert = brush->invert;
+      if (entry.overrideInvert) {
+        brush->props.setValue<bool>("invert", entry.invertValue);
+      }
+
+      auto cmd = createCommand(entry.type);
+      if (cmd.registerProps && brush->props.struct_def) {
+        cmd.registerProps(*brush->props.struct_def);
+      }
+      brush->loadCommonProps(&brush->deviceInputCtx);
+      if (cmd.loadUniformProps) {
+        cmd.loadUniformProps(*brush, &brush->deviceInputCtx);
+      }
+
+      execStage(cmd, origin, normal);
+
+      for (auto &s : savedFloats) {
+        brush->props.setFloat(s.name.c_str(), s.value);
+      }
+      if (entry.overrideInvert) {
+        brush->props.setValue<bool>("invert", savedInvert);
+      }
+    }
+
+    finishDab();
+    isFirstOfStep = false;
+    return int(dabMoved_.size());
+  }
+
+  /** Refresh the normals of every vert moved since the last flush (the
+   * deferNormals accumulation) and return them — the host mirrors the same
+   * set. No-op (empty) when nothing is pending. */
+  Vector<int> &flushNormals()
+  {
+    if (pendingNormals_.size() > 0) {
+      auto tn = std::chrono::steady_clock::now();
+      domain->refreshNormals(
+          std::span<const int>(pendingNormals_.data(), pendingNormals_.size()));
+      stats.normalsMs +=
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                    tn)
+              .count();
+      flushedNormals_ = std::move(pendingNormals_);
+      pendingNormals_ = Vector<int>();
+      // Re-arm the dedup for the next accumulation window.
+      for (int v : flushedNormals_) {
+        pendingNormalStamp_[v] = 0;
+      }
+    } else {
+      flushedNormals_.clear();
+    }
+    return flushedNormals_;
+  }
+
+  /** Stroke end: fold the touched region into the grids store (restricted
+   * writeback over the touched verts' occurrence grids), flush mask writes,
+   * and close the undo step. */
+  void endStep()
+  {
+    auto t0 = std::chrono::steady_clock::now();
+    isFirstOfStep = false;
+    stats.strokes++;
+    flushNormals();
+    gridsFoldStroke(domain, log,
+                    std::span<const int>(strokeTouchedVerts_.data(),
+                                         strokeTouchedVerts_.size()),
+                    strokeWroteCo_, strokeWroteMask_);
+    stats.writebackMs +=
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+            .count();
+  }
+
+  /** The stroke's accumulated moved-vert set (dense ids, deduped). */
+  const Vector<int> &strokeTouchedVerts() const
+  {
+    return strokeTouchedVerts_;
+  }
+  const Vector<int> &strokeTouchedLeaves() const
+  {
+    return strokeTouchedLeaves_;
+  }
+  /** The most recent dab's moved verts (deduped) — the per-dab mirror set.
+   * Non-const: litestl Vector exposes no const data(). */
+  Vector<int> &lastDabMoved()
+  {
+    return dabMoved_;
+  }
+
+  /** cavityRawT source over the domain's dense buffers + lattice CSR. */
+  struct GridCavitySrc {
+    subdiv::GridLevelDomain *d;
+    int vertCap() const
+    {
+      return d->vertCount();
+    }
+    float3 co(int v) const
+    {
+      return d->pos()[v];
+    }
+    float3 no(int v) const
+    {
+      return d->no[v];
+    }
+    std::span<const int> neighbors(int v) const
+    {
+      return d->neighbors(v);
+    }
+  };
+
+  /** Grab first-touch stamp storage, read by grabClaimFirstTouch. */
+  mesh::AttrData<int> *grabDabGen() const
+  {
+    return ctx.dabGen;
+  }
+  uint32_t grabCurDabGen() const
+  {
+    return ctx.curDabGen;
+  }
+
+private:
+  static double msSince(std::chrono::steady_clock::time_point t0)
+  {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                     t0)
+        .count();
+  }
+
+  /** Node filter for one logical dab: fill dabLeaves_/nodePtrs_ with the
+   * leaves within radius `r` of `origin`. Grab-class strokes pin their first
+   * dab's set (the region is fixed at stroke start — the mesh path's
+   * grabFilterNodes, without the dyntopo fallback). False when empty. */
+  bool queryDabLeaves(bool grabMode, float r, float3 origin)
+  {
+    auto t0 = std::chrono::steady_clock::now();
+    dabLeaves_.clear();
+    if (grabMode) {
+      if (!grabPinned_) {
+        tree->query(origin, r, grabLeaves_);
+        grabPinned_ = true;
+      }
+      for (int li : grabLeaves_) {
+        dabLeaves_.append(li);
+      }
+    } else {
+      tree->query(origin, r, dabLeaves_);
+    }
+    nodePtrs_.clear();
+    for (int li : dabLeaves_) {
+      nodePtrs_.append(&nodes_[li]);
+    }
+    stats.queryMs += msSince(t0);
+    return dabLeaves_.size() > 0;
+  }
+
+  /** One kernel stage over the current dabLeaves_/nodePtrs_ set: ctx setup,
+   * undo capture, co_prev/disp/automask maintenance, the parallel kernel
+   * loop, and folding the stage's writes into the logical dab's dabMoved_
+   * union. Callers own dabSeq_++/dabMoved_.clear() (once per logical dab,
+   * so the union dedups across a program's stages) and the end-of-dab
+   * finishDab() normals/bounds refresh. */
+  void execStage(brush_command &cmd, float3 origin, float3 normal)
+  {
     ctx.m = nullptr;
     ctx.meshLog = nullptr;
     ctx.surfacePos = origin;
@@ -583,9 +816,6 @@ struct GridBrushExecutor {
       ctx.attrBindings = &attrBindings_;
     }
 
-    updateStrokeFrame(origin);
-    brush->pushStrokeSample(origin, normal);
-
     if (cmd.writesMask) {
       strokeWroteMask_ = true;
       if (isFirstOfStep) {
@@ -597,40 +827,8 @@ struct GridBrushExecutor {
     }
 
     using clock = std::chrono::steady_clock;
-    auto msSince = [](clock::time_point t0) {
-      return std::chrono::duration<double, std::milli>(clock::now() - t0).count();
-    };
-    stats.dabs++;
-    auto t0 = clock::now();
-
-    // Node filter: the leaf set for this dab. Grab-class strokes pin their
-    // first dab's set (the region is fixed at stroke start — the mesh path's
-    // grabFilterNodes, without the dyntopo fallback).
-    float floorR = cmd.unbounded ? brush->radius * brush->unboundedExtent : 0.0f;
-    float r = std::fmax(brush->radius, floorR);
-    dabLeaves_.clear();
-    if (cmd.grabMode) {
-      if (!grabPinned_) {
-        tree->query(origin, r, grabLeaves_);
-        grabPinned_ = true;
-      }
-      for (int li : grabLeaves_) {
-        dabLeaves_.append(li);
-      }
-    } else {
-      tree->query(origin, r, dabLeaves_);
-    }
-    if (dabLeaves_.size() == 0) {
-      isFirstOfStep = false;
-      return 0;
-    }
-    nodePtrs_.clear();
-    for (int li : dabLeaves_) {
-      nodePtrs_.append(&nodes_[li]);
-    }
     std::span<GridExecNode *> nodeSpan(nodePtrs_.data(), nodePtrs_.size());
-    stats.queryMs += msSince(t0);
-    t0 = clock::now();
+    auto t0 = clock::now();
 
     // Undo capture (first-touch leaf snapshots, driven by the kernel's
     // `save` descriptors through GridCapturePolicy).
@@ -739,18 +937,17 @@ struct GridBrushExecutor {
 
     cmd.execPost(ctx, nodeSpan);
     stats.kernelMs += msSince(t0);
-    t0 = clock::now();
 
-    // Consume the dab's results: refresh THIS dab's moved verts' normals
-    // (+ their cell closure) and the touched leaves' bounds, and fold the
-    // moved set into the stroke's touched accumulation. No border
-    // propagation — dense ids have no replicas.
-    dabSeq_++;
-    dabMoved_.clear();
+    // Fold the stage's writes into the logical dab's union: dabStamp_ vs the
+    // caller-bumped dabSeq_ dedups, so a vert two stages touch appears once.
+    bool wrote = false;
     for (GridExecNode *node : nodeSpan) {
-      if (node->affected_verts.size() > 0 && !leafTouched_[node->leaf]) {
-        leafTouched_[node->leaf] = 1;
-        strokeTouchedLeaves_.append(node->leaf);
+      if (node->affected_verts.size() > 0) {
+        wrote = true;
+        if (!leafTouched_[node->leaf]) {
+          leafTouched_[node->leaf] = 1;
+          strokeTouchedLeaves_.append(node->leaf);
+        }
       }
       for (int v : node->affected_verts) {
         if (dabStamp_[v] != dabSeq_) {
@@ -765,130 +962,42 @@ struct GridBrushExecutor {
       node->affected_verts.clear();
       node->flag = spatial::Spatial_None;
     }
-    int moved = int(dabMoved_.size());
-    // Mark this call's writes stale for the co_prev stamps — per stage call
-    // (i.e. per mirror image), so a seam leaf in both images' query sets is
-    // re-refreshed for the mirror after the primary's writes.
-    if (moved > 0 && coPrevPosEpoch_.size() > 0) {
+    // Mark the union stale for the co_prev stamps — per stage call, so a
+    // later stage (or the mirror image) re-refreshes what this one wrote;
+    // stamping the whole union over-marks only already-copied verts.
+    if (wrote && coPrevPosEpoch_.size() > 0) {
       coPrevEpochSeq_++;
       for (int v : dabMoved_) {
         coPrevPosEpoch_[v] = coPrevEpochSeq_;
       }
     }
-    if (moved > 0) {
-      if (deferNormals) {
-        for (int v : dabMoved_) {
-          if (pendingNormalStamp_[v] != strokeSeq_) {
-            pendingNormalStamp_[v] = strokeSeq_;
-            pendingNormals_.append(v);
-          }
-        }
-      } else {
-        auto tn = clock::now();
-        domain->refreshNormals(
-            std::span<const int>(dabMoved_.data(), dabMoved_.size()));
-        stats.normalsMs += msSince(tn);
-      }
-      auto tb = clock::now();
-      tree->refreshBounds(std::span<const int>(dabLeaves_.data(), dabLeaves_.size()));
-      stats.boundsMs += msSince(tb);
-    }
-
-    isFirstOfStep = false;
-    return moved;
   }
 
-  /** Refresh the normals of every vert moved since the last flush (the
-   * deferNormals accumulation) and return them — the host mirrors the same
-   * set. No-op (empty) when nothing is pending. */
-  Vector<int> &flushNormals()
+  /** End-of-dab normals/bounds refresh over the logical dab's union moved
+   * set — once per dab even for multi-stage programs (execProgram's model:
+   * the mesh path refreshes per dab, never between entries). */
+  void finishDab()
   {
-    if (pendingNormals_.size() > 0) {
-      auto tn = std::chrono::steady_clock::now();
-      domain->refreshNormals(
-          std::span<const int>(pendingNormals_.data(), pendingNormals_.size()));
-      stats.normalsMs +=
-          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                    tn)
-              .count();
-      flushedNormals_ = std::move(pendingNormals_);
-      pendingNormals_ = Vector<int>();
-      // Re-arm the dedup for the next accumulation window.
-      for (int v : flushedNormals_) {
-        pendingNormalStamp_[v] = 0;
+    if (dabMoved_.size() == 0) {
+      return;
+    }
+    if (deferNormals) {
+      for (int v : dabMoved_) {
+        if (pendingNormalStamp_[v] != strokeSeq_) {
+          pendingNormalStamp_[v] = strokeSeq_;
+          pendingNormals_.append(v);
+        }
       }
     } else {
-      flushedNormals_.clear();
+      auto tn = std::chrono::steady_clock::now();
+      domain->refreshNormals(std::span<const int>(dabMoved_.data(), dabMoved_.size()));
+      stats.normalsMs += msSince(tn);
     }
-    return flushedNormals_;
+    auto tb = std::chrono::steady_clock::now();
+    tree->refreshBounds(std::span<const int>(dabLeaves_.data(), dabLeaves_.size()));
+    stats.boundsMs += msSince(tb);
   }
 
-  /** Stroke end: fold the touched region into the grids store (restricted
-   * writeback over the touched verts' occurrence grids), flush mask writes,
-   * and close the undo step. */
-  void endStep()
-  {
-    auto t0 = std::chrono::steady_clock::now();
-    isFirstOfStep = false;
-    stats.strokes++;
-    flushNormals();
-    gridsFoldStroke(domain, log,
-                    std::span<const int>(strokeTouchedVerts_.data(),
-                                         strokeTouchedVerts_.size()),
-                    strokeWroteCo_, strokeWroteMask_);
-    stats.writebackMs +=
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
-            .count();
-  }
-
-  /** The stroke's accumulated moved-vert set (dense ids, deduped). */
-  const Vector<int> &strokeTouchedVerts() const
-  {
-    return strokeTouchedVerts_;
-  }
-  const Vector<int> &strokeTouchedLeaves() const
-  {
-    return strokeTouchedLeaves_;
-  }
-  /** The most recent dab's moved verts (deduped) — the per-dab mirror set.
-   * Non-const: litestl Vector exposes no const data(). */
-  Vector<int> &lastDabMoved()
-  {
-    return dabMoved_;
-  }
-
-  /** cavityRawT source over the domain's dense buffers + lattice CSR. */
-  struct GridCavitySrc {
-    subdiv::GridLevelDomain *d;
-    int vertCap() const
-    {
-      return d->vertCount();
-    }
-    float3 co(int v) const
-    {
-      return d->pos()[v];
-    }
-    float3 no(int v) const
-    {
-      return d->no[v];
-    }
-    std::span<const int> neighbors(int v) const
-    {
-      return d->neighbors(v);
-    }
-  };
-
-  /** Grab first-touch stamp storage, read by grabClaimFirstTouch. */
-  mesh::AttrData<int> *grabDabGen() const
-  {
-    return ctx.dabGen;
-  }
-  uint32_t grabCurDabGen() const
-  {
-    return ctx.curDabGen;
-  }
-
-private:
   /** Refresh the Jacobi snapshot over this stage call's read set — the query
    * leaves' owned verts closed under the CSR 1-ring (for_neighbor reads the
    * full ring of every owned vert; Gaussian falloff has no compact support,

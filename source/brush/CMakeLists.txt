@@ -69,6 +69,7 @@ wasm_add_symbols("
   Multires_hasGridDomain
   GridStroke_begin
   GridStroke_dab
+  GridStroke_dabProgram
   GridStroke_castBatch
   GridStroke_dabBatch
   MeshStroke_castBatch

@@ -31,6 +31,7 @@
 #include "subdiv/multires.h"
 #include "subdiv/subdiv.h"
 
+#include "litestl/math/mix.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
 
@@ -214,6 +215,63 @@ static void gridsStroke(Multires &mr,
   }
 }
 
+/** The materialized-mesh composite path (CommandExecutor::execProgram). */
+static void meshProgramStroke(Multires &mr,
+                              Brush &brush,
+                              BrushProgram &prog,
+                              const DabBattery &dabs,
+                              Vector<float3> &posOut,
+                              Vector<float3> *norOut = nullptr)
+{
+  MultiresSlot *slot = mr.setActiveLevel(kLevel);
+  TASSERT(slot && slot->mesh && slot->tree);
+  CommandExecutor ex(slot->tree, &brush);
+  ex.setStrokeGen(1);
+  ex.beginStep(false);
+  for (int i = 0; i < int(dabs.origins.size()); i++) {
+    Vector<spatial::SpatialNode *> nodes;
+    slot->tree->filterNodes(dabs.origins[i], brush.radius, nodes);
+    ex.execProgram(&prog, &nodes, dabs.origins[i], dabs.normals[i]);
+    // execProgram leaves isFirstOfStep to its caller (applyDab's job normally).
+    ex.clearIsFirstOfStep();
+    slot->tree->updateQueries();
+    slot->tree->updateNormals();
+  }
+  ex.endStep();
+  posOut.resize(slot->mesh->v.count);
+  for (int v = 0; v < slot->mesh->v.count; v++) {
+    posOut[v] = slot->mesh->v.co[v];
+  }
+  if (norOut) {
+    norOut->resize(slot->mesh->v.count);
+    for (int v = 0; v < slot->mesh->v.count; v++) {
+      (*norOut)[v] = slot->mesh->v.no[v];
+    }
+  }
+  mr.writeback(kLevel);
+}
+
+/** The grids-native composite path (GridBrushExecutor::applyProgram). */
+static void gridsProgramStroke(Multires &mr,
+                               Brush &brush,
+                               BrushProgram &prog,
+                               const DabBattery &dabs,
+                               Vector<float3> &posOut,
+                               GridStrokeLog *log = nullptr)
+{
+  GridLevelDomain *d = mr.gridDomain(kLevel);
+  GridBrushExecutor ex(d, &brush, log);
+  ex.beginStep();
+  for (int i = 0; i < int(dabs.origins.size()); i++) {
+    ex.applyProgram(&prog, dabs.origins[i], dabs.normals[i]);
+  }
+  ex.endStep();
+  posOut.resize(d->vertCount());
+  for (int v = 0; v < d->vertCount(); v++) {
+    posOut[v] = d->pos()[v];
+  }
+}
+
 static float maxPosDiff(const Vector<float3> &a, const Vector<float3> &b)
 {
   float maxd = 0.0f;
@@ -361,6 +419,122 @@ int main()
     fprintf(stderr, "E1 bsmooth A/B: tangent %.8f normal %.8f\n", maxTan, maxNor);
     TASSERT(maxTan <= 2e-3f);
     TASSERT(maxNor <= 5e-2f);
+  }
+
+  /* E2 program A/B: a [DRAW, BSMOOTH strength-override] composite (autosmooth's
+   * shape) through execProgram vs applyProgram, then again with a strength
+   * pressure dynamic configured. Split eps as E1 (BSMOOTH's normal damping
+   * reads v.no). The base props must survive both arms — applyProgram's
+   * per-entry override rollback. */
+  {
+    Brush brush;
+    setupBrush(brush, 0.35f, 0.5f);
+    BrushProgram prog;
+    prog.addCommand(int(SculptBrushes::DRAW));
+    int smoothIdx = prog.addCommand(int(SculptBrushes::BSMOOTH));
+    prog.setCommandFloatByName(smoothIdx, util::string("strength"), 0.25f);
+
+    auto splitCompare = [&](const char *label,
+                            Vector<float3> &posA,
+                            Vector<float3> &norA,
+                            Vector<float3> &posB) {
+      TASSERT(posA.size() == posB.size());
+      float maxTan = 0.0f, maxNor = 0.0f;
+      for (int i = 0; i < int(posA.size()); i++) {
+        float3 n = norA[i];
+        n.normalize();
+        float3 dv = posA[i] - posB[i];
+        float dn = dv.dot(n);
+        float3 dt = dv - n * dn;
+        maxNor = std::fmax(maxNor, std::fabs(dn));
+        maxTan = std::fmax(maxTan, dt.length());
+      }
+      fprintf(stderr, "%s: tangent %.8f normal %.8f\n", label, maxTan, maxNor);
+      TASSERT(maxTan <= 2e-3f);
+      TASSERT(maxNor <= 5e-2f);
+    };
+
+    restoreStore(mr, s0);
+    Vector<float3> posA, norA;
+    meshProgramStroke(mr, brush, prog, dabs, posA, &norA);
+    restoreStore(mr, s0);
+    Vector<float3> posB;
+    gridsProgramStroke(mr, brush, prog, dabs, posB);
+    splitCompare("E2 program A/B", posA, norA, posB);
+    TASSERT(std::fabs(brush.props.lookupFloat("strength", 0.0f) - 0.5f) <= 1e-6f);
+
+    // Pressure case: strength MULTIPLY dynamic at pressure 0.6 must resolve
+    // identically through both arms (applyProgram runs the same
+    // loadCommonProps/loadUniformProps per entry) and actually weaken the dab.
+    brush.addPropDynamicByName(util::string("strength"),
+                               int(props::DeviceType::PRESSURE),
+                               int(BasicMix::MULTIPLY),
+                               1.0f);
+    brush.clearDeviceInputs();
+    brush.pushDeviceInput(int(props::DeviceType::PRESSURE), 0.6f);
+
+    restoreStore(mr, s0);
+    Vector<float3> posC, norC;
+    meshProgramStroke(mr, brush, prog, dabs, posC, &norC);
+    restoreStore(mr, s0);
+    Vector<float3> posD;
+    gridsProgramStroke(mr, brush, prog, dabs, posD);
+    splitCompare("E2 pressure A/B", posC, norC, posD);
+    TASSERT(maxPosDiff(posA, posC) > 1e-4f);
+    TASSERT(std::fabs(brush.props.lookupFloat("strength", 0.0f) - 0.5f) <= 1e-6f);
+  }
+
+  /* E2 program undo: a two-stage program's captured bytes must not scale with
+   * the stage count (first-touch leaf capture is shared across entries), and
+   * undo/redo restore bit-exact. */
+  {
+    Brush brush;
+    setupBrush(brush, 0.35f, 0.5f);
+
+    restoreStore(mr, s0);
+    GridStrokeLog logRef;
+    Vector<float3> posRef;
+    gridsStroke(mr, brush, SculptBrushes::BSMOOTH, dabs, posRef, &logRef);
+
+    BrushProgram prog;
+    prog.addCommand(int(SculptBrushes::DRAW));
+    int smoothIdx = prog.addCommand(int(SculptBrushes::BSMOOTH));
+    prog.setCommandFloatByName(smoothIdx, util::string("strength"), 0.25f);
+
+    restoreStore(mr, s0);
+    const std::string preBlob = storeBlob(mr.store);
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    Vector<float3> pre;
+    pre.resize(d->vertCount());
+    for (int v = 0; v < d->vertCount(); v++) {
+      pre[v] = d->pos()[v];
+    }
+
+    GridStrokeLog log;
+    Vector<float3> post;
+    gridsProgramStroke(mr, brush, prog, dabs, post, &log);
+    const std::string postBlob = storeBlob(mr.store);
+
+    fprintf(stderr, "E2 program undo: %zu bytes (single-stage ref %zu)\n",
+            log.bytes(), logRef.bytes());
+    TASSERT(log.stepCount() == 1);
+    TASSERT(log.bytes() <= logRef.bytes() * 3 / 2);
+
+    TASSERT(log.undo());
+    Vector<float3> cur;
+    cur.resize(d->vertCount());
+    for (int v = 0; v < d->vertCount(); v++) {
+      cur[v] = d->pos()[v];
+    }
+    TASSERT(samePosBits(cur, pre));
+    TASSERT(storeBlob(mr.store) == preBlob);
+
+    TASSERT(log.redo());
+    for (int v = 0; v < d->vertCount(); v++) {
+      cur[v] = d->pos()[v];
+    }
+    TASSERT(samePosBits(cur, post));
+    TASSERT(storeBlob(mr.store) == postBlob);
   }
 
   /* Undo fidelity: blob + positions bit-exact through undo, post state

@@ -206,6 +206,34 @@ int GridStroke_dab(GridStrokeSession *s,
   return moved;
 }
 
+/** One logical dab of a composite brush program (autosmooth's [main,
+ * BSMOOTH]) — GridBrushExecutor::applyProgram, with GridStroke_dab's
+ * draw-mark/mirror contract. Call once per symmetry image, like
+ * GridStroke_dab; there is no grabAdd because grab-class entries are
+ * unsupported in grids programs. Returns the union moved-vert count. */
+int GridStroke_dabProgram(GridStrokeSession *s,
+                          brush::BrushProgram *prog,
+                          float ox, float oy, float oz,
+                          float nx, float ny, float nz)
+{
+  if (!s) {
+    return 0;
+  }
+  int moved = s->exec.applyProgram(prog, float3(ox, oy, oz), float3(nx, ny, nz));
+  if (moved > 0) {
+    if (subdiv::GridDrawSource *ds = s->mr->drawSource()) {
+      auto &mv = s->exec.lastDabMoved();
+      ds->markVerts(std::span<const int>(mv.data(), mv.size()));
+    }
+  }
+  if (s->mirror && moved > 0) {
+    auto &mv = s->exec.lastDabMoved();
+    brush::gridsMirrorToSlot(s->mr, s->level,
+                             std::span<const int>(mv.data(), mv.size()));
+  }
+  return moved;
+}
+
 /** Whether the session's binding is still current: the level's domain is
  * alive and has not been dropped + rebuilt since bind (generation compare —
  * see GridStrokeSession::boundGen). The batch calls check this instead of
