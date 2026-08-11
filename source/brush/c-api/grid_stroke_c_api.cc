@@ -328,6 +328,52 @@ int GridStroke_dabBatch(GridStrokeSession *s,
   return moved;
 }
 
+/** Batch of composite-program dabs: GridStroke_dabBatch's per-dab prop cycle
+ * with GridStroke_dabProgram as the dab unit (one program run per symmetry
+ * image). Same `dabs`/`signs` layout and pressure semantics; entry-level
+ * overrides (autosmooth's pinned smooth strength/invert) supersede the
+ * per-event `strength`/`invert` for their entry. Returns total moved verts,
+ * or -1 when the binding is no longer current. */
+int GridStroke_dabBatchProgram(GridStrokeSession *s,
+                               brush::BrushProgram *prog,
+                               int n,
+                               const float *dabs,
+                               float strength,
+                               int invert,
+                               float pressure,
+                               int usePressure,
+                               const float *signs,
+                               int mirrorCount)
+{
+  if (!gridStrokeCurrent(s)) {
+    return -1;
+  }
+  brush::Brush *b = s->exec.brush;
+  int moved = 0;
+  for (int i = 0; i < n; i++) {
+    const float *d = dabs + i * 7;
+    // Strength/radius must be rewritten every dab: the executor's loadProps
+    // assigns post-dynamics values back into the Brush fields, so a stale
+    // field would persist the decayed value into the prop store.
+    b->strength = strength;
+    b->radius = d[6];
+    b->invert = invert != 0;
+    b->writeProps();
+    if (usePressure) {
+      b->clearDeviceInputs();
+      b->pushDeviceInput(int(props::DeviceType::PRESSURE), pressure);
+    }
+    moved += GridStroke_dabProgram(s, prog, d[0], d[1], d[2], d[3], d[4], d[5]);
+    for (int m = 0; m < mirrorCount; m++) {
+      const float *sg = signs + m * 3;
+      moved += GridStroke_dabProgram(s, prog, d[0] * sg[0], d[1] * sg[1],
+                                     d[2] * sg[2], d[3] * sg[0], d[4] * sg[1],
+                                     d[5] * sg[2]);
+    }
+  }
+  return moved;
+}
+
 void GridStroke_end(GridStrokeSession *s)
 {
   if (!s) {
