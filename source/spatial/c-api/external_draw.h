@@ -14,7 +14,7 @@
 
 extern "C" {
 
-#define SC_EXTERNAL_DRAW_ABI_VERSION 2
+#define SC_EXTERNAL_DRAW_ABI_VERSION 3
 
 enum ScExternalDrawUpdate {
   SC_EXTERNAL_DRAW_UPDATE_NONE = 0,
@@ -34,6 +34,12 @@ struct ScExternalDrawNode {
   uint32_t node_id;
   float bounds_min[3];
   float bounds_max[3];
+  /** Optional node-local triangle index stream: 3 indices per triangle into
+   * this node's vertex streams. Null -> non-indexed soup (verts_num is then a
+   * multiple of 3, every 3 verts a triangle). When set, normals must be
+   * provided (the consumer's flat-normal soup fallback does not apply). */
+  const uint32_t *indices;
+  int indices_num;
 };
 
 struct ScExternalDrawAttrRequest {
