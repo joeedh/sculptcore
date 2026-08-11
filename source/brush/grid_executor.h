@@ -413,6 +413,12 @@ struct GridBrushExecutor {
     }
     pendingNormals_.clear();
     flushedNormals_.clear();
+    // Drop the co_prev snapshot + stamps: a rebuild remaps dense ids, and the
+    // lazy re-allocation in refreshCoPrevRegion re-zeros the stamps.
+    coPrevStorage_.clear();
+    coPrevStrokeGen_.clear();
+    coPrevCopyEpoch_.clear();
+    coPrevPosEpoch_.clear();
     leafTouched_.resize(nodes_.size());
     for (int i = 0; i < int(leafTouched_.size()); i++) {
       leafTouched_[i] = 0;
@@ -613,18 +619,12 @@ struct GridBrushExecutor {
     stats.captureMs += msSince(t0);
     t0 = clock::now();
 
-    // Jacobi snapshot for for_neighbor kernels: the domain's dense positions,
-    // full copy (the mesh path pays the same; restricting is a follow-up).
+    // Jacobi snapshot for for_neighbor kernels: region-restricted refresh
+    // (this stage call's read set), not the old full-domain copy (O(level)
+    // per dab — ~85-170 ms/stroke at 1M verts).
     ctx.co_prev = nullptr;
     if (cmd.needsCoPrev) {
-      coPrevStorage_.resize(domain->vertCount());
-      const auto &pos = domain->pos();
-      task::parallel_for(util::IndexRange(size_t(domain->vertCount())),
-                         [&](util::IndexRange range) {
-                           for (int i : range) {
-                             coPrevStorage_[i] = pos[i];
-                           }
-                         });
+      refreshCoPrevRegion(nodeSpan);
       ctx.co_prev = &coPrevStorage_;
     }
     stats.coPrevMs += msSince(t0);
@@ -747,6 +747,15 @@ struct GridBrushExecutor {
       node->flag = spatial::Spatial_None;
     }
     int moved = int(dabMoved_.size());
+    // Mark this call's writes stale for the co_prev stamps — per stage call
+    // (i.e. per mirror image), so a seam leaf in both images' query sets is
+    // re-refreshed for the mirror after the primary's writes.
+    if (moved > 0 && coPrevPosEpoch_.size() > 0) {
+      coPrevEpochSeq_++;
+      for (int v : dabMoved_) {
+        coPrevPosEpoch_[v] = coPrevEpochSeq_;
+      }
+    }
     if (moved > 0) {
       if (deferNormals) {
         for (int v : dabMoved_) {
@@ -861,6 +870,50 @@ struct GridBrushExecutor {
   }
 
 private:
+  /** Refresh the Jacobi snapshot over this stage call's read set — the query
+   * leaves' owned verts closed under the CSR 1-ring (for_neighbor reads the
+   * full ring of every owned vert; Gaussian falloff has no compact support,
+   * so a geometric pad would be wrong) — and only where positions changed
+   * since the copy was last taken. Validity is (stroke generation, position
+   * epoch): the stroke generation invalidates everything across strokes
+   * (undo seeks and domain rebuilds happen between strokes), and the epoch,
+   * bumped per stage call from the moved set, keeps intra-stroke copies
+   * current — a program's smooth stage sees the main stage's writes, and a
+   * mirror image sees the primary's. O(region) per call. */
+  void refreshCoPrevRegion(std::span<GridExecNode *> nodes)
+  {
+    int vc = domain->vertCount();
+    if (int(coPrevStorage_.size()) != vc) {
+      coPrevStorage_.resize(vc);
+      coPrevStrokeGen_.resize(vc);
+      coPrevCopyEpoch_.resize(vc);
+      coPrevPosEpoch_.resize(vc);
+      for (int i = 0; i < vc; i++) {
+        coPrevStrokeGen_[i] = 0;
+        coPrevCopyEpoch_[i] = 0;
+        coPrevPosEpoch_[i] = 0;
+      }
+    }
+    const auto &pos = domain->pos();
+    auto refresh = [&](int v) {
+      if (coPrevStrokeGen_[v] == strokeSeq_ &&
+          coPrevCopyEpoch_[v] == coPrevPosEpoch_[v]) {
+        return;
+      }
+      coPrevStorage_[v] = pos[v];
+      coPrevStrokeGen_[v] = strokeSeq_;
+      coPrevCopyEpoch_[v] = coPrevPosEpoch_[v];
+    };
+    for (GridExecNode *node : nodes) {
+      for (int v : tree->leaves[node->leaf].ownedVerts) {
+        refresh(v);
+        for (int nb : domain->neighbors(v)) {
+          refresh(nb);
+        }
+      }
+    }
+  }
+
   /** CommandExecutor::updateStrokeFrame, verbatim (Brush-only state). */
   void updateStrokeFrame(float3 origin)
   {
@@ -889,6 +942,12 @@ private:
   mesh::AttrData<float> cavity_{string(".grid.automask.cavity"), 0};
   mesh::AttrData<int> cavityGen_{string(".grid.automask.gen"), 0};
   Vector<float3> coPrevStorage_;
+  /** co_prev validity stamps (see refreshCoPrevRegion): sized lazily with
+   * coPrevStorage_, so smooth-free sessions never pay the allocation. */
+  Vector<uint32_t> coPrevStrokeGen_;
+  Vector<uint32_t> coPrevCopyEpoch_;
+  Vector<uint32_t> coPrevPosEpoch_;
+  uint32_t coPrevEpochSeq_ = 0;
 
   Vector<uint32_t> touchedStamp_;
   uint32_t strokeSeq_ = 0;

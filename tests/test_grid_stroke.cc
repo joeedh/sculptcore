@@ -301,6 +301,33 @@ int main()
     }
   }
 
+  /* E3 mirror-stamp case: interleaved primary/mirror dab pairs whose query
+   * regions share the x=0 seam. The mesh path snapshots co_prev fully per
+   * call, so parity proves the region-restricted refresh re-copies a shared
+   * leaf for the mirror image after the primary image's writes. */
+  {
+    Brush brush;
+    setupBrush(brush, 0.35f, 0.5f);
+    DabBattery mirrored;
+    for (int i = 0; i < 4; i++) {
+      float y = -0.15f + 0.1f * float(i);
+      mirrored.origins.append(float3(0.12f, y, 0.5f));
+      mirrored.normals.append(float3(0.0f, 0.0f, 1.0f));
+      mirrored.origins.append(float3(-0.12f, y, 0.5f));
+      mirrored.normals.append(float3(0.0f, 0.0f, 1.0f));
+    }
+    restoreStore(mr, s0);
+    Vector<float3> posA;
+    meshStroke(mr, brush, SculptBrushes::SMOOTH, mirrored, posA);
+    restoreStore(mr, s0);
+    Vector<float3> posB;
+    gridsStroke(mr, brush, SculptBrushes::SMOOTH, mirrored, posB);
+    TASSERT(posA.size() == posB.size());
+    float diff = maxPosDiff(posA, posB);
+    fprintf(stderr, "E3 mirror-stamp smooth: max pos diff %.8f\n", diff);
+    TASSERT(diff <= 2e-3f);
+  }
+
   /* Undo fidelity: blob + positions bit-exact through undo, post state
    * bit-exact through redo — two strokes deep. */
   {
