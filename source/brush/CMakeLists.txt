@@ -75,6 +75,7 @@ wasm_add_symbols("
   GridStroke_dabBatchProgram
   MeshStroke_castBatch
   MeshStroke_dabBatch
+  MeshStroke_dabBatchProgram
   GridStroke_end
   GridStroke_canUndo
   GridStroke_canRedo

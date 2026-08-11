@@ -3,7 +3,7 @@
  * CommandExecutor + SpatialTree, mirroring what the Blender addon's Python
  * loop does per dab through the reflected bindings (stroke.apply_dab). The
  * grids-native equivalents live in grid_stroke_c_api.cc; grab-class,
- * anchored, program (autosmooth) and dyntopo strokes stay host-side. */
+ * anchored, and dyntopo strokes stay host-side. */
 
 #include "brush/brush.h"
 #include "brush/brush_executor.h"
@@ -97,6 +97,67 @@ int MeshStroke_dabBatch(brush::CommandExecutor *exec,
     const float *d = dabs + i * 7;
     // Rewritten every dab: loadProps assigns post-dynamics values back into
     // the Brush fields (see mapping.apply_dab_state host-side).
+    b->strength = strength;
+    b->radius = d[6];
+    b->invert = invert != 0;
+    b->writeProps();
+    if (usePressure) {
+      b->clearDeviceInputs();
+      b->pushDeviceInput(int(props::DeviceType::PRESSURE), pressure);
+    }
+    float3 center(d[0], d[1], d[2]);
+    float3 normal(d[3], d[4], d[5]);
+    total += oneImage(center, normal, d[6]);
+    for (int mi = 0; mi < mirrorCount; mi++) {
+      const float *sg = signs + mi * 3;
+      total += oneImage(float3(d[0] * sg[0], d[1] * sg[1], d[2] * sg[2]),
+                        float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]), d[6]);
+    }
+  }
+  return total;
+}
+
+/** Batch of composite-program dabs on the materialized-mesh path:
+ * MeshStroke_dabBatch's per-dab prop cycle with `execProgram` as the dab unit
+ * (the host per-dab loop is stroke.py's `apply_dab_program`). Entry-level
+ * overrides (autosmooth's pinned smooth strength/invert) supersede the
+ * per-event `strength`/`invert` for their entry; `filterMul` is the main
+ * kernel's field-radius multiplier (a chained BSMOOTH is never unbounded).
+ * Same `dabs`/`signs` layout and return as MeshStroke_dabBatch. */
+int MeshStroke_dabBatchProgram(brush::CommandExecutor *exec,
+                               spatial::SpatialTree *tree,
+                               mesh::Mesh *m,
+                               brush::Brush *b,
+                               brush::BrushProgram *prog,
+                               int n,
+                               const float *dabs,
+                               float strength,
+                               int invert,
+                               float pressure,
+                               int usePressure,
+                               float filterMul,
+                               const float *signs,
+                               int mirrorCount)
+{
+  if (!exec || !tree || !m || !b || !prog) {
+    return -1;
+  }
+  litestl::util::Vector<spatial::SpatialNode *> nodes;
+  auto oneImage = [&](float3 center, float3 normal, float radius) {
+    nodes.clear();
+    if (!tree->filterNodes(center, radius * filterMul, nodes)) {
+      return 0;
+    }
+    exec->setGrabAccumAdd(false);
+    exec->execProgram(prog, &nodes, center, normal);
+    exec->clearIsFirstOfStep();
+    int count = int(nodes.size());
+    tree->updateQueries();
+    return count;
+  };
+  int total = 0;
+  for (int i = 0; i < n; i++) {
+    const float *d = dabs + i * 7;
     b->strength = strength;
     b->radius = d[6];
     b->invert = invert != 0;
