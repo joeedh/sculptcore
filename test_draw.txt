@@ -5,6 +5,6 @@
 # level 5, which is the level multires_init leaves active.
 make_cube subdivs=11 size=2.0 sphere=1
 multires_init levels=5 level=5
-set_brush radius=0.25 strength=0.5
+set_brush radius=0.25 strength=0.5 spacing=0.03
 stroke origin=0,0,1.0 normal=0,0,1
 view preset=persp
