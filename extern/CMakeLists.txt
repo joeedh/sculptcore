@@ -28,6 +28,32 @@ if (NOT BUILD_WASM)
   # Native WebGPU backend impl (prebuilt). emdawnwebgpu covers the WASM side.
   add_subdirectory(wgpu_native)
 
+  # --- tinycc (runtime C99 JIT for texture scripts) -----------------------------
+  # Pinned mob-branch snapshot (see tinycc/README.sculptcore.md), built with the
+  # ONE_SOURCE model: libtcc.c #includes the whole compiler, and tcc.h
+  # autodetects the native target/OS, so a JIT-only embed needs no TCC_TARGET_*
+  # defines. Backtrace/bounds-check off; generated texture-script C99 includes
+  # nothing and gets its math symbols via tcc_add_symbol. No WASM tcc —
+  # precompiled kernels cover that side.
+  add_library(tinycc STATIC tinycc/libtcc.c)
+  target_compile_definitions(tinycc PRIVATE
+    ONE_SOURCE=1 CONFIG_TCC_BACKTRACE=0 CONFIG_TCC_BCHECK=0)
+  # Consumers write #include <tinycc/libtcc.h>; exposing extern/ rather than
+  # the snapshot dir keeps tcc's elf.h/coff.h/stab.h from shadowing system
+  # headers on consumer include paths.
+  target_include_directories(tinycc INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
+  set_target_properties(tinycc PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  if(MSVC)
+    target_compile_options(tinycc PRIVATE /w)
+  else()
+    target_compile_options(tinycc PRIVATE -w)
+  endif()
+  if(NOT WIN32)
+    # dlfcn for tcc_add_dll/file lookups, libm for the compiler's own use;
+    # sem_* / pthread come from the global -pthread link option.
+    target_link_libraries(tinycc PRIVATE m ${CMAKE_DL_LIBS})
+  endif()
+
   # --- Prebuilt OpenBLAS + SuiteSparse/CHOLMOD ----------------------------------
   # Built per platform/toolchain/config by tools/deps.mjs and staged in the
   # gitignored sparse clone extern/sculptcore-deps; `make.mjs configure native`

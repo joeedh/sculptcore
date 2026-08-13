@@ -39,6 +39,8 @@ set(SRC
   PUBLIC texture_eval.h
   PUBLIC texture_registry.h
   texture_registry.cc
+  PUBLIC texture_jit.h
+  texture_jit.cc
   brush_command.cc
   brush_executor.h
   brush_executor.cc
@@ -48,6 +50,16 @@ set(SRC
 )
 
 sc_add_library(brush "${SRC}" "${LIB}" STATIC)
+
+# Runtime texture-script JIT (embedded tinycc, extern/tinycc): native builds
+# only. WASM has no tcc — textureScriptCpuAvailable() compiles to false there
+# and hosts fall back to the precompiled texture registry.
+if (NOT BUILD_WASM)
+  target_compile_definitions(brush PRIVATE SCULPTCORE_HAVE_TCC=1)
+  # Plain signature — sc_add_library already links this target plain-form,
+  # and CMake forbids mixing it with the PRIVATE/PUBLIC keyword form.
+  target_link_libraries(brush tinycc)
+endif()
 
 wasm_add_symbols("
   GpuBrush_beginStroke

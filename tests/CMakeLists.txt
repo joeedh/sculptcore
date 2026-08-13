@@ -96,6 +96,10 @@ if (TARGET sbrushc_core)
 test(test_sbrush_textures.cc "sbrushc_core")
 endif()
 
+# The embedded tinycc JIT (texture-scripts T3.1): capability probe + the
+# -nostdlib/tcc_add_symbol strategy the runtime texture compiler uses.
+test(test_tcc_jit.cc "brush;tinycc")
+
 if (WITH_ABSEIL)
 test(test_map_bench.cc "absl::flat_hash_map")
 endif()
