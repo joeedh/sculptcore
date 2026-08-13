@@ -63,6 +63,10 @@ struct Emit {
   // resolution (so reduce-body `s` and vertex-body `v` route correctly).
   const Stage *currentStage = nullptr;
 
+  // Texture whose eval body is being lowered — routes `param` identifiers to
+  // the slab (sb_tex_params), gates mapPoint(), and flags sampler calls.
+  const TextureDef *currentTexture = nullptr;
+
   string out;
   Vector<string> errors;
   int indent = 0;
@@ -181,6 +185,50 @@ struct Emit {
         return &t;
     }
     return nullptr;
+  }
+
+  // Resolve a `param` name in the texture currently being lowered.
+  const TexParam *findTexParam(stringref name) const
+  {
+    if (!currentTexture)
+      return nullptr;
+    for (const auto &tp : currentTexture->texParams) {
+      if (string(tp.name).operator==(string(name.c_str())))
+        return &tp;
+    }
+    return nullptr;
+  }
+
+  bool anyTextureUsesMap() const
+  {
+    for (const auto &t : brush->textures) {
+      if (t.usesMap)
+        return true;
+    }
+    return false;
+  }
+
+  static string texDefaultsName(const TextureDef &td)
+  {
+    return string("tex") + capitalize(td.name) + "ParamDefaults";
+  }
+
+  // Format `v` as a C++ float literal (round-trip exact for float values).
+  static void appendFloatLit(string &s, double v)
+  {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.9g", v);
+    bool hasDot = false;
+    for (const char *p = buf; *p; p++) {
+      if (*p == '.' || *p == 'e' || *p == 'E') {
+        hasDot = true;
+        break;
+      }
+    }
+    s += buf;
+    if (!hasDot)
+      s += ".0";
+    s += "f";
   }
 
   bool isStageParam(stringref name) const
@@ -321,6 +369,26 @@ struct Emit {
       stringref nm(e.name.c_str());
       if (isLocal(nm) || isStageParam(nm)) {
         out += e.name;
+      } else if (const TexParam *tp = findTexParam(nm)) {
+        // Texture `param` reads. @const params fold to literals; runtime
+        // floats read their slab slot; a ramp has no scalar value — only
+        // `<name>.sample(t)` is meaningful (handled in the Call case).
+        if (tp->isConst) {
+          if (tp->kind == TexParamKind::Int) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%lld", (long long)tp->defaultValue);
+            out += buf;
+          } else {
+            appendFloatLit(out, tp->defaultValue);
+          }
+        } else if (tp->kind == TexParamKind::Ramp) {
+          errf("ramp param '%s' can only be used via .sample(t)", e.name.c_str());
+          out += "0.0f";
+        } else {
+          char buf[64];
+          std::snprintf(buf, sizeof(buf), "sb_tex_params[%d]", tp->offset);
+          out += buf;
+        }
       } else if (auto *f = findField(nm)) {
         // Uniforms live on Brush. Ctx-kind fields default to ctx.brush.X
         // too, so the DSL can name new per-stroke state without having
@@ -429,8 +497,13 @@ struct Emit {
         gradVar = savedVar;
         break;
       }
-      // Dotted call `Tex.eval(args)` -> inline texture's free function.
+      // Dotted call `Tex.eval(args)` -> the texture's free function. The eval
+      // ABI is (p, n, params, texctx): defaults slab (or nullptr) plus the
+      // stage-prologue map ctx for mapPoint textures.
       if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
+        if (currentTexture) {
+          errf("texture '%s' cannot call another texture", currentTexture->name.c_str());
+        }
         out += "tex";
         out += capitalize(td->name);
         out += "Eval(";
@@ -439,8 +512,59 @@ struct Emit {
             out += ", ";
           emitExpr(*e.args[i]);
         }
+        out += ", ";
+        out += td->slabSize > 0 ? texDefaultsName(*td) : string("nullptr");
+        out += ", ";
+        out += td->usesMap ? "sb_texctx" : "nullptr";
         out += ")";
         break;
+      }
+      // mapPoint(p) — texture-scope map-matrix transform (texture-scripts
+      // plan). Lowers to the pure texMapPoint helper on the threaded ctx.
+      if (std::strcmp(e.name.c_str(), "mapPoint") == 0) {
+        if (!currentTexture) {
+          err("mapPoint() is only valid inside a texture eval");
+        }
+        if (e.args.size() != 1) {
+          err("mapPoint() takes exactly one float3 argument");
+          out += "float3(0.0f, 0.0f, 0.0f)";
+          break;
+        }
+        out += "texMapPoint(sb_texctx, ";
+        emitExpr(*e.args[0]);
+        out += ")";
+        break;
+      }
+      // Ramp sample `<param>.sample(t)` inside a texture eval.
+      if (currentTexture) {
+        const char *dot = std::strchr(e.name.c_str(), '.');
+        if (dot && std::strcmp(dot, ".sample") == 0) {
+          string base = string(e.name.c_str()).substr(0, (int)(dot - e.name.c_str()));
+          const TexParam *tp = findTexParam(stringref(base.c_str()));
+          if (tp && tp->kind == TexParamKind::Ramp && e.args.size() == 1) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "texRampSample(sb_tex_params + %d, ",
+                          tp->offset);
+            out += buf;
+            emitExpr(*e.args[0]);
+            out += ")";
+            break;
+          }
+        }
+        // Sampler calls parse in T1 but have no host plumbing until T4.
+        bool wasSampler = false;
+        for (const auto &sm : currentTexture->samplerDeps) {
+          if (string(sm).operator==(string(e.name.c_str()))) {
+            errf("sampler '%s' cannot be called yet — host samplers are "
+                 "runtime-only (T4)",
+                 e.name.c_str());
+            out += "0.0f";
+            wasSampler = true;
+            break;
+          }
+        }
+        if (wasSampler)
+          break;
       }
       const IntrinsicDef *intr = findIntrinsic(stringref(e.name.c_str()));
       if (intr) {
@@ -975,6 +1099,7 @@ struct Emit {
     write("(CommandCtxBase &ctx, Brush &brush)\n");
     write("{\n");
     write("  (void)ctx; (void)brush;\n");
+    emitTexCtxLocal();
     indent = 1;
     currentStage = &st;
     if (st.body && st.body->kind == StmtKind::Block) {
@@ -1019,6 +1144,7 @@ struct Emit {
     }
     write(")\n");
     write("{\n");
+    emitTexCtxLocal();
     indent = 1;
     currentStage = &st;
     if (st.body && st.body->kind == StmtKind::Block) {
@@ -1033,9 +1159,63 @@ struct Emit {
     write("}\n\n");
   }
 
-  // Emit one inline texture's eval as a pure free function. It sees only
-  // its own parameters and intrinsics — no ctx/brush state — so the same
-  // text lowers identically on every backend.
+  // Stage-scope snapshot of ctx.renderMatrix for mapPoint textures — the
+  // texture-scripts plan's TexEvalCtx threading. Call sites pass `sb_texctx`
+  // for usesMap textures; every stage prologue emits it when any texture in
+  // the brush needs it, since a texture call can appear in any stage body.
+  void emitTexCtxLocal()
+  {
+    if (!anyTextureUsesMap())
+      return;
+    write("  TexEvalCtx sb_texctx_data = texEvalCtxFrom(ctx.renderMatrix);\n");
+    write("  const TexEvalCtx *sb_texctx = &sb_texctx_data; (void)sb_texctx;\n");
+  }
+
+  // Emit one texture's non-@const param defaults as a static slab the brush
+  // call sites pass when no runtime binding exists (T1: always). Ramps seed
+  // to the identity ramp.
+  void emitTextureDefaults(const TextureDef &td)
+  {
+    if (td.slabSize <= 0)
+      return;
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "[%d] = {\n", td.slabSize);
+    write("static const float ");
+    write(texDefaultsName(td));
+    write(buf);
+    for (const auto &tp : td.texParams) {
+      if (tp.isConst)
+        continue;
+      write("    // ");
+      write(tp.name);
+      write("\n    ");
+      if (tp.kind == TexParamKind::Ramp) {
+        for (int i = 0; i < kTexRampSize; i++) {
+          string lit;
+          appendFloatLit(lit, (double)((float)i / (float)(kTexRampSize - 1)));
+          write(lit);
+          write(",");
+          write((i % 8 == 7 && i != kTexRampSize - 1) ? "\n    " : " ");
+        }
+        write("\n");
+      } else {
+        string lit;
+        appendFloatLit(lit, tp.defaultValue);
+        write(lit);
+        write(",\n");
+      }
+    }
+    write("};\n");
+    std::snprintf(buf, sizeof(buf),
+                  "static_assert(kTexRampSize == %d, \"ramp slab size drifted\");\n\n",
+                  kTexRampSize);
+    write(buf);
+  }
+
+  // Emit one texture's eval as a pure free function. It sees only its own
+  // parameters, its param slab, the threaded map ctx, and intrinsics — no
+  // ctx/brush state — so the same text lowers identically on every backend
+  // and stays runtime-compilable (T3).
   void emitTextureFn(const TextureDef &td)
   {
     write("static ");
@@ -1050,13 +1230,14 @@ struct Emit {
       write(" ");
       write(td.params[i].name);
     }
-    write(")\n{\n");
+    write(", const float *sb_tex_params, const TexEvalCtx *sb_texctx)\n{\n");
     write("  using namespace litestl::math;\n");
     for (const auto &p : td.params) {
       write("  (void)");
       write(p.name);
       write(";\n");
     }
+    write("  (void)sb_tex_params; (void)sb_texctx;\n");
     indent = 1;
     // A scratch stage so identifier resolution treats the eval params as
     // stage params (bare names) rather than brush fields.
@@ -1065,6 +1246,7 @@ struct Emit {
     for (const auto &p : td.params)
       scratch.params.append(p);
     currentStage = &scratch;
+    currentTexture = &td;
     if (td.body && td.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
       for (const auto &c : td.body->stmts)
@@ -1072,9 +1254,62 @@ struct Emit {
       while ((int)locals.size() > savedLocals)
         locals.pop_back();
     }
+    currentTexture = nullptr;
     currentStage = nullptr;
     indent = 0;
     write("}\n\n");
+  }
+
+  // Defaults slab + eval fn for one texture. Imports are include-guarded:
+  // several brushes in one TU may pull the same texture, and every emission
+  // of it is byte-identical (same .stex parse), so first-wins is safe.
+  void emitTextureBlock(const TextureDef &td)
+  {
+    if (td.imported) {
+      write("#ifndef SB_TEX_DEF_");
+      write(td.name);
+      write("\n#define SB_TEX_DEF_");
+      write(td.name);
+      write("\n");
+    }
+    emitTextureDefaults(td);
+    emitTextureFn(td);
+    if (td.imported) {
+      write("#endif  // SB_TEX_DEF_");
+      write(td.name);
+      write("\n\n");
+    }
+  }
+
+  // Runtime-param manifest (non-@const params, decl order) — emitted only
+  // into .tex.gen.h units, where the registry rows point at it. Kept outside
+  // the SB_TEX_DEF_ guard: the symbol exists only in the unit header.
+  void emitTextureManifest(const TextureDef &td)
+  {
+    bool any = false;
+    for (const auto &tp : td.texParams) {
+      any = any || !tp.isConst;
+    }
+    if (!any)
+      return;
+    write("static const TexParamManifestEntry tex");
+    write(capitalize(td.name));
+    write("ParamManifest[] = {\n");
+    for (const auto &tp : td.texParams) {
+      if (tp.isConst)
+        continue;
+      string defLit, minLit, maxLit;
+      appendFloatLit(defLit, tp.kind == TexParamKind::Ramp ? 0.0 : tp.defaultValue);
+      appendFloatLit(minLit, tp.hasRange ? tp.rangeMin : 0.0);
+      appendFloatLit(maxLit, tp.hasRange ? tp.rangeMax : 0.0);
+      char buf[256];
+      std::snprintf(buf, sizeof(buf), "    {\"%s\", %s, %s, %s, %s, %s, %d},\n",
+                    tp.name.c_str(), tp.kind == TexParamKind::Ramp ? "true" : "false",
+                    defLit.c_str(), tp.hasRange ? "true" : "false", minLit.c_str(),
+                    maxLit.c_str(), tp.offset);
+      write(buf);
+    }
+    write("};\n\n");
   }
 
   static bool exprUsesGrad(const Expr *e)
@@ -1133,6 +1368,7 @@ struct Emit {
     write("  using namespace sculptcore::spatial;\n");
     write("  using namespace litestl::math;\n");
     write("  bool any_changed = false;\n");
+    emitTexCtxLocal();
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face)
         continue;
@@ -1321,6 +1557,8 @@ struct Emit {
     write("#include \"brush/capture_policy.h\"\n");
     write("#include \"spatial/spatial_enums.h\"\n");
     write("#include \"mesh/mesh_iter.h\"\n");
+    if (brush->textures.size() > 0)
+      write("#include \"brush/texture_eval.h\"\n");
     if (usesNbr)
       write("#include \"brush/neighbor_source.h\"\n");
     write("\n");
@@ -1380,10 +1618,11 @@ struct Emit {
       write("inline sbdual sbd_mix(sbdual a,sbdual b,sbdual t){return a+(b-a)*t;}\n\n");
     }
 
-    // Inline texture eval functions — pure, at namespace scope so the
-    // vertex/reduce bodies can call them.
+    // Texture eval functions (inline + `use texture` imports) — pure, at
+    // namespace scope so the vertex/reduce bodies can call them. Each is
+    // preceded by its param-defaults slab when it declares runtime params.
     for (const auto &td : brush->textures) {
-      emitTextureFn(td);
+      emitTextureBlock(td);
     }
 
     // pre-stage: AttrSaver-gated undo capture, driven by the brush's `save` set.
@@ -1438,6 +1677,7 @@ struct Emit {
       write("  using namespace sculptcore::spatial;\n");
       write("  using namespace litestl::math;\n");
       write("  bool any_moved = false;\n");
+      emitTexCtxLocal();
 
       // Bound attribute handles (resolved per-dab in the executor). A handle is
       // null only for an optional layer that was absent; write kernels declare
@@ -1796,6 +2036,20 @@ EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts)
     em.faceParamName = string("f");
   }
   em.run();
+  EmitResult r;
+  r.text = std::move(em.out);
+  r.errors = std::move(em.errors);
+  return r;
+}
+
+EmitResult emitCppTextureDefs(const Brush &brush)
+{
+  Emit em;
+  em.brush = &brush;
+  for (const auto &td : brush.textures) {
+    em.emitTextureBlock(td);
+    em.emitTextureManifest(td);
+  }
   EmitResult r;
   r.text = std::move(em.out);
   r.errors = std::move(em.errors);

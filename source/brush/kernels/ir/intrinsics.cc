@@ -1,4 +1,5 @@
 #include "intrinsics.h"
+#include "litestl/util/alloc.h"
 #include <cstring>
 
 namespace sculptcore::brush::sbrush {
@@ -135,7 +136,10 @@ static IntrinsicDef sIntrinsicsRaw[] = {
 
 static Vector<IntrinsicDef> &table()
 {
+  // One-off bootstrap allocation; guard it so the leak tracker doesn't
+  // report it in tests that link the compiler.
   static Vector<IntrinsicDef> *t = [] {
+    litestl::alloc::PermanentGuard guard;
     auto *v = new Vector<IntrinsicDef>();
     for (auto &d : sIntrinsicsRaw) v->append(d);
     return v;

@@ -39,12 +39,18 @@ struct Args {
   bool extras = false;
   // --registry mode (extra-kernel registry generation).
   bool registry = false;
+  // --texture-unit mode (.stex -> <stem>.tex.gen.h).
+  bool textureUnit = false;
+  // --texture-registry mode (all .stex units -> sculptcore_textures.gen.h).
+  bool textureRegistry = false;
   // Line endings for written files: "auto" (git's working-tree setting),
   // "lf" or "crlf".
   litestl::util::string eol = "auto";
   litestl::util::string outDir;
   litestl::util::Vector<litestl::util::string> inPaths;
   litestl::util::Vector<litestl::util::string> builtinPaths;
+  // .stex units that `use texture <Name>;` imports resolve against.
+  litestl::util::Vector<litestl::util::string> texturePaths;
   litestl::util::string reserved;
 };
 
@@ -56,11 +62,17 @@ void printUsage()
     "  --dump-tokens print token stream and exit\n"
     "  --extras      extra (out-of-repo) kernel: unlisted float uniforms use the\n"
     "                Brush.namedFloats store instead of erroring (cpp backend)\n"
+    "  --texture=<unit.stex>  texture unit whose textures satisfy the brush's\n"
+    "                `use texture <Name>;` imports (repeatable)\n"
     "  --eol=<auto|lf|crlf>  line endings for written files; auto (default)\n"
     "                follows git's core.eol / core.autocrlf working-tree setting\n"
     "Registry mode (extra-kernel enum/factory registration):\n"
     "  sbrushc --registry --out-dir=<dir> --in=<extra.sbrush>...\n"
-    "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n");
+    "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n"
+    "Texture-unit mode (precompile one .stex unit):\n"
+    "  sbrushc --texture-unit --in=<unit.stex> --out=<stem.tex.gen.h>\n"
+    "Texture-registry mode (registry over all precompiled units):\n"
+    "  sbrushc --texture-registry --out-dir=<dir> [--in=<unit.stex>...]\n");
 }
 
 bool parseArgs(int argc, char **argv, Args &out)
@@ -72,9 +84,12 @@ bool parseArgs(int argc, char **argv, Args &out)
     else if (std::strncmp(a, "--out=", 6) == 0) out.outPath = a + 6;
     else if (std::strncmp(a, "--out-dir=", 10) == 0) out.outDir = a + 10;
     else if (std::strncmp(a, "--builtin=", 10) == 0) out.builtinPaths.append(a + 10);
+    else if (std::strncmp(a, "--texture=", 10) == 0) out.texturePaths.append(a + 10);
     else if (std::strncmp(a, "--reserved=", 11) == 0) out.reserved = a + 11;
     else if (std::strncmp(a, "--eol=", 6) == 0) out.eol = a + 6;
     else if (std::strcmp(a, "--registry") == 0) out.registry = true;
+    else if (std::strcmp(a, "--texture-unit") == 0) out.textureUnit = true;
+    else if (std::strcmp(a, "--texture-registry") == 0) out.textureRegistry = true;
     else if (std::strcmp(a, "--extras") == 0) out.extras = true;
     else if (std::strcmp(a, "--dry-run") == 0) out.dryRun = true;
     else if (std::strcmp(a, "--dump-tokens") == 0) out.dumpTokens = true;
@@ -91,9 +106,15 @@ bool parseArgs(int argc, char **argv, Args &out)
     std::fprintf(stderr, "sbrushc: --eol must be auto, lf or crlf\n");
     return false;
   }
-  if (out.registry) {
+  if ((int)out.registry + (int)out.textureUnit + (int)out.textureRegistry > 1) {
+    std::fprintf(stderr,
+                 "sbrushc: --registry, --texture-unit and --texture-registry are exclusive\n");
+    return false;
+  }
+  if (out.registry || out.textureRegistry) {
     if (out.outDir.size() == 0) {
-      std::fprintf(stderr, "sbrushc: --registry requires --out-dir\n");
+      std::fprintf(stderr, "sbrushc: --%s requires --out-dir\n",
+                   out.registry ? "registry" : "texture-registry");
       return false;
     }
     return true;
@@ -219,15 +240,16 @@ bool writeFileIfChanged(const char *path, const litestl::util::string &content)
   return out.good();
 }
 
-// Lex + parse one .sbrush file; errors go to stderr, null on failure.
-// `dumpTokens` prints the token stream and returns null without parsing.
-std::unique_ptr<Brush> parseKernelFile(const litestl::util::string &path,
-                                       bool dumpTokens = false)
+// Lex + parse one DSL source file (brush or texture unit); errors go to
+// stderr, false on failure. `dumpTokens` prints the token stream and returns
+// false without parsing.
+bool parseSourceFile(const litestl::util::string &path, ParseResult &out,
+                     bool dumpTokens = false)
 {
   std::string src;
   if (!readFile(path.c_str(), src)) {
     std::fprintf(stderr, "sbrushc: cannot read '%s'\n", path.c_str());
-    return nullptr;
+    return false;
   }
 
   litestl::util::string srcLst(src.c_str());
@@ -238,7 +260,7 @@ std::unique_ptr<Brush> parseKernelFile(const litestl::util::string &path,
       std::fprintf(stderr, "%s:%d:%d: lex error: %s\n",
                    path.c_str(), e.line, e.col, e.message.c_str());
     }
-    return nullptr;
+    return false;
   }
 
   if (dumpTokens) {
@@ -246,22 +268,113 @@ std::unique_ptr<Brush> parseKernelFile(const litestl::util::string &path,
       std::fprintf(stderr, "%d:%d %s '%s'\n",
                    t.line, t.col, tokKindName(t.kind), t.text.c_str());
     }
-    return nullptr;
+    return false;
   }
 
-  auto parse_r = parse(lex_r.tokens, litestl::util::stringref(path.c_str()));
-  if (parse_r.errors.size() > 0) {
-    for (const auto &e : parse_r.errors) {
+  out = parse(lex_r.tokens, litestl::util::stringref(path.c_str()));
+  if (out.errors.size() > 0) {
+    for (const auto &e : out.errors) {
       std::fprintf(stderr, "%s:%d:%d: parse error: %s\n",
                    path.c_str(), e.line, e.col, e.message.c_str());
     }
+    return false;
+  }
+  return true;
+}
+
+// Parse one .sbrush file; null on failure (or after --dump-tokens).
+std::unique_ptr<Brush> parseKernelFile(const litestl::util::string &path,
+                                       bool dumpTokens = false)
+{
+  ParseResult r;
+  if (!parseSourceFile(path, r, dumpTokens)) {
     return nullptr;
   }
-  if (!parse_r.brush) {
+  if (!r.brush) {
     std::fprintf(stderr, "sbrushc: '%s' parsed but produced no brush\n", path.c_str());
     return nullptr;
   }
-  return std::move(parse_r.brush);
+  return std::move(r.brush);
+}
+
+// Parse one .stex texture unit; null on failure.
+std::unique_ptr<TextureUnit> parseTextureUnitFile(const litestl::util::string &path)
+{
+  ParseResult r;
+  if (!parseSourceFile(path, r)) {
+    return nullptr;
+  }
+  if (!r.unit) {
+    std::fprintf(stderr, "sbrushc: '%s' parsed but is not a texture unit\n", path.c_str());
+    return nullptr;
+  }
+  return std::move(r.unit);
+}
+
+// Resolve the brush's `use texture <Name>;` imports against the --texture=
+// units. Each resolved TextureDef is moved into brush.textures so the
+// backends treat it exactly like an inline texture.
+bool resolveUseTextures(Brush &brush,
+                        litestl::util::Vector<std::unique_ptr<TextureUnit>> &units)
+{
+  using litestl::util::string;
+  bool ok = true;
+  for (int i = 0; i < (int)brush.useTextures.size(); i++) {
+    const string &name = brush.useTextures[i];
+
+    bool skip = false;
+    for (int j = 0; j < i; j++) {
+      if (string(brush.useTextures[j].c_str()) == string(name.c_str())) {
+        std::fprintf(stderr, "sbrushc: duplicate 'use texture %s'\n", name.c_str());
+        ok = false;
+        skip = true;
+        break;
+      }
+    }
+    for (const auto &t : brush.textures) {
+      if (!skip && string(t.name.c_str()) == string(name.c_str())) {
+        std::fprintf(stderr,
+                     "sbrushc: 'use texture %s' collides with an inline texture of the same name\n",
+                     name.c_str());
+        ok = false;
+        skip = true;
+      }
+    }
+    if (skip) {
+      continue;
+    }
+
+    TextureUnit *foundIn = nullptr;
+    TextureDef *found = nullptr;
+    for (auto &up : units) {
+      for (auto &td : up->textures) {
+        if (string(td.name.c_str()) != string(name.c_str())) {
+          continue;
+        }
+        if (found) {
+          std::fprintf(stderr, "sbrushc: texture '%s' defined in both '%s' and '%s'\n",
+                       name.c_str(), foundIn->sourceFile.c_str(), up->sourceFile.c_str());
+          ok = false;
+          skip = true;
+        } else {
+          found = &td;
+          foundIn = up.get();
+        }
+      }
+    }
+    if (skip) {
+      continue;
+    }
+    if (!found) {
+      std::fprintf(stderr, "sbrushc: 'use texture %s': no such texture in any --texture= unit\n",
+                   name.c_str());
+      ok = false;
+      continue;
+    }
+    found->imported = true;
+    brush.textures.append(std::move(*found));
+  }
+  return ok;
 }
 
 // Filename minus directory and extension ("a/b/nudge.sbrush" -> "nudge").
@@ -354,6 +467,62 @@ int runRegistryMode(const Args &args)
   return 0;
 }
 
+int runTextureUnitMode(const Args &args)
+{
+  auto unit = parseTextureUnitFile(args.inPath);
+  if (!unit) {
+    return 1;
+  }
+  EmitResult er = emitTextureUnitHeader(*unit, stemOf(args.inPath));
+  if (er.errors.size() > 0) {
+    for (const auto &e : er.errors) {
+      std::fprintf(stderr, "sbrushc: emit error: %s\n", e.c_str());
+    }
+    return 1;
+  }
+  if (args.dryRun) {
+    std::fwrite(er.text.c_str(), 1, er.text.size(), stdout);
+    return 0;
+  }
+  if (!writeFileIfChanged(args.outPath.c_str(), er.text)) {
+    std::fprintf(stderr, "sbrushc: cannot write '%s'\n", args.outPath.c_str());
+    return 1;
+  }
+  return 0;
+}
+
+int runTextureRegistryMode(const Args &args)
+{
+  litestl::util::Vector<std::unique_ptr<TextureUnit>> units;
+  litestl::util::Vector<litestl::util::string> stems;
+  litestl::util::Vector<const TextureUnit *> unitPtrs;
+  for (const auto &p : args.inPaths) {
+    auto unit = parseTextureUnitFile(p);
+    if (!unit) {
+      return 1;
+    }
+    stems.append(stemOf(p));
+    units.append(std::move(unit));
+  }
+  for (const auto &up : units) {
+    unitPtrs.append(up.get());
+  }
+
+  EmitResult er = emitTextureRegistry(stems, unitPtrs);
+  if (er.errors.size() > 0) {
+    for (const auto &e : er.errors) {
+      std::fprintf(stderr, "sbrushc: texture registry error: %s\n", e.c_str());
+    }
+    return 1;
+  }
+  litestl::util::string outPath = args.outDir + "/sculptcore_textures.gen.h";
+  if (!writeFileIfChanged(outPath.c_str(), er.text)) {
+    std::fprintf(stderr, "sbrushc: cannot write '%s'\n", outPath.c_str());
+    return 1;
+  }
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -375,10 +544,28 @@ int main(int argc, char **argv)
   if (args.registry) {
     return runRegistryMode(args);
   }
+  if (args.textureRegistry) {
+    return runTextureRegistryMode(args);
+  }
+  if (args.textureUnit) {
+    return runTextureUnitMode(args);
+  }
 
   auto brush = parseKernelFile(args.inPath, args.dumpTokens);
   if (!brush) {
     return args.dumpTokens ? 0 : 1;
+  }
+
+  litestl::util::Vector<std::unique_ptr<TextureUnit>> units;
+  for (const auto &p : args.texturePaths) {
+    auto unit = parseTextureUnitFile(p);
+    if (!unit) {
+      return 1;
+    }
+    units.append(std::move(unit));
+  }
+  if (!resolveUseTextures(*brush, units)) {
+    return 1;
   }
 
   litestl::util::string backend = args.backend;

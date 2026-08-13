@@ -911,8 +911,13 @@ struct Emit {
   }
 
   // Inline texture eval — a pure device function over its params + intrinsics.
+  // T1 texture features (params, mapPoint, samplers) are cpp/wgsl-only for now.
   void emitTextureFn(const TextureDef &td)
   {
+    if (td.texParams.size() > 0 || td.usesMap || td.samplerDeps.size() > 0) {
+      errf("texture '%s' uses params/mapPoint/samplers, unsupported on the cuda backend", td.name.c_str());
+      return;
+    }
     write("__device__ ");
     write(cudaType(td.returnType));
     write(" ");

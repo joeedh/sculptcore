@@ -90,6 +90,12 @@ test(test_remesh_preset.cc "remesh;mesh;spatial")
 test(test_brush.cc "")
 test(test_stroke_driver.cc "brush;spatial;mesh")
 
+# Drives the sbrush compiler (lexer/parser/emitters) directly; the compiler
+# lib only exists when the host tool builds (SBRUSH_BACKEND_CPP).
+if (TARGET sbrushc_core)
+test(test_sbrush_textures.cc "sbrushc_core")
+endif()
+
 if (WITH_ABSEIL)
 test(test_map_bench.cc "absl::flat_hash_map")
 endif()

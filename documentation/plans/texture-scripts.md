@@ -371,7 +371,7 @@ matrix transport already exists.
 
 ## Milestones
 
-- **T1 — standalone units, precompiled.** Parser top-level dispatch +
+- **T1 — standalone units, precompiled** *(done 2026-08-13)*. Parser top-level dispatch +
   `TextureUnit`; `sbrushc --texture-unit` → `.tex.gen.h` + registry; `use
   texture` in brushes; CMake wiring beside the extras block; port
   `texdraw.sbrush`'s Rings to `rings.stex` as the proof (keep the inline form

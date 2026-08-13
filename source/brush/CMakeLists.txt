@@ -36,6 +36,9 @@ set(SRC
   PUBLIC brushes/extra.h
   PUBLIC feature_field.h
   feature_field.cc
+  PUBLIC texture_eval.h
+  PUBLIC texture_registry.h
+  texture_registry.cc
   brush_command.cc
   brush_executor.h
   brush_executor.cc
@@ -100,6 +103,18 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP)
   add_subdirectory(compiler)
 endif()
 
+# Standalone texture units (.stex) — precompiled procedural textures that
+# brushes import with `use texture <Name>;`. The checked-in
+# kernels/generated/*.tex.gen.h + sculptcore_textures.gen.h come from
+# `node make.mjs codegen`; here the units are passed (--texture=) to every
+# in-build sbrushc kernel compile so imports resolve.
+file(GLOB SB_TEX_UNITS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/kernels/*.stex")
+list(SORT SB_TEX_UNITS)
+set(SB_TEX_UNIT_FLAGS)
+foreach(SRC ${SB_TEX_UNITS})
+  list(APPEND SB_TEX_UNIT_FLAGS "--texture=${SRC}")
+endforeach()
+
 # Extra (out-of-repo) kernels: compile each configured dir's .sbrush files
 # in-build and generate the registry (enum items + factory dispatch) consumed
 # via brushes/extra.h. Gen files land in <build>/sbrush_extra/gen, which the
@@ -118,10 +133,20 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP AND SCULPTCORE_EXTRA_KERNEL_DIRS)
   set(SB_EXTRA_RESERVED "DRAW,INFLATE,CLAY,PINCH,SHARP,MASK,SMOOTH,KELVINLET,POSE,TEXDRAW,SCRAPE,FILL,WINGSCRAPE,COLOR,POLYGROUP,BSMOOTH,GRAB,SNAKEHOOK,COLORSMOOTH,FEATURE_ALIGN,LAYERDRAW,ENHANCE")
 
   set(SB_EXTRA_INPUTS)
+  set(SB_EXTRA_TEX_UNITS)
   foreach(DIR ${SCULPTCORE_EXTRA_KERNEL_DIRS})
     file(GLOB SB_EXTRA_DIR_INPUTS CONFIGURE_DEPENDS "${DIR}/*.sbrush")
     list(SORT SB_EXTRA_DIR_INPUTS)
     list(APPEND SB_EXTRA_INPUTS ${SB_EXTRA_DIR_INPUTS})
+    file(GLOB SB_EXTRA_DIR_TEX CONFIGURE_DEPENDS "${DIR}/*.stex")
+    list(SORT SB_EXTRA_DIR_TEX)
+    list(APPEND SB_EXTRA_TEX_UNITS ${SB_EXTRA_DIR_TEX})
+  endforeach()
+
+  # Extra kernels can import both in-repo and extra-dir texture units.
+  set(SB_EXTRA_TEX_FLAGS ${SB_TEX_UNIT_FLAGS})
+  foreach(SRC ${SB_EXTRA_TEX_UNITS})
+    list(APPEND SB_EXTRA_TEX_FLAGS "--texture=${SRC}")
   endforeach()
 
   set(SB_EXTRA_OUTPUTS)
@@ -132,12 +157,53 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP AND SCULPTCORE_EXTRA_KERNEL_DIRS)
     add_custom_command(
       OUTPUT "${OUT}"
       COMMAND $<TARGET_FILE:sbrushc> --backend=cpp --extras --in=${SRC} --out=${OUT}
-      DEPENDS sbrushc ${SRC}
+              ${SB_EXTRA_TEX_FLAGS}
+      DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS} ${SB_EXTRA_TEX_UNITS}
       COMMENT "sbrush extra: ${STEM}.brush.gen.h"
       VERBATIM)
     list(APPEND SB_EXTRA_OUTPUTS "${OUT}")
     list(APPEND SB_EXTRA_IN_FLAGS "--in=${SRC}")
   endforeach()
+
+  # Extra-dir texture units are precompiled in-build, and the texture registry
+  # is regenerated over in-repo + extra units into SB_EXTRA_GEN_DIR — which
+  # precedes kernels/generated on the include path, so it shadows the
+  # checked-in (in-repo-only) sculptcore_textures.gen.h.
+  if (SB_EXTRA_TEX_UNITS)
+    # The shadow registry lands *earlier* on the include path than the header
+    # texture_registry.cc's depfile recorded — invisible to ninja. Flip a
+    # define on that TU so none->some recompiles it (some->none self-dirties).
+    set_source_files_properties(texture_registry.cc PROPERTIES
+        COMPILE_DEFINITIONS SCULPTCORE_EXTRA_TEXTURES=1)
+    set(SB_EXTRA_TEX_REG_IN_FLAGS)
+    foreach(SRC ${SB_TEX_UNITS} ${SB_EXTRA_TEX_UNITS})
+      list(APPEND SB_EXTRA_TEX_REG_IN_FLAGS "--in=${SRC}")
+    endforeach()
+    foreach(SRC ${SB_EXTRA_TEX_UNITS})
+      get_filename_component(STEM "${SRC}" NAME_WE)
+      set(OUT "${SB_EXTRA_GEN_DIR}/${STEM}.tex.gen.h")
+      add_custom_command(
+        OUTPUT "${OUT}"
+        COMMAND $<TARGET_FILE:sbrushc> --texture-unit --in=${SRC} --out=${OUT}
+        DEPENDS sbrushc ${SRC}
+        COMMENT "sbrush texture unit: ${STEM}.tex.gen.h"
+        VERBATIM)
+      list(APPEND SB_EXTRA_OUTPUTS "${OUT}")
+    endforeach()
+    add_custom_command(
+      OUTPUT "${SB_EXTRA_GEN_DIR}/sculptcore_textures.gen.h"
+      COMMAND $<TARGET_FILE:sbrushc> --texture-registry --out-dir=${SB_EXTRA_GEN_DIR}
+              ${SB_EXTRA_TEX_REG_IN_FLAGS}
+      DEPENDS sbrushc ${SB_TEX_UNITS} ${SB_EXTRA_TEX_UNITS}
+      COMMENT "sbrush texture registry (with extras)"
+      VERBATIM)
+    list(APPEND SB_EXTRA_OUTPUTS "${SB_EXTRA_GEN_DIR}/sculptcore_textures.gen.h")
+  else()
+    # A shadow registry left by a since-removed extra .stex would keep
+    # overriding the checked-in one (this dir precedes kernels/generated on
+    # the include path) — drop it at configure time.
+    file(REMOVE "${SB_EXTRA_GEN_DIR}/sculptcore_textures.gen.h")
+  endif()
 
   set(SB_EXTRA_BUILTIN_FLAGS)
   foreach(SRC ${SB_EXTRA_BUILTINS})
@@ -181,9 +247,10 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_WGSL)
       add_custom_command(
         OUTPUT "${STAMP}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=wgsl --in=${SRC} --out=${OUT}
+                ${SB_TEX_UNIT_FLAGS}
         COMMAND ${SBRUSH_WGSL_VALIDATOR} ${OUT} --format=wgsl -o ${OUT}.tint.wgsl
         COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
-        DEPENDS sbrushc ${SRC}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush wgsl + tint: ${STEM}.wgsl"
         VERBATIM)
       list(APPEND WGSL_OUTPUTS "${STAMP}")
@@ -191,7 +258,8 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_WGSL)
       add_custom_command(
         OUTPUT "${OUT}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=wgsl --in=${SRC} --out=${OUT}
-        DEPENDS sbrushc ${SRC}
+                ${SB_TEX_UNIT_FLAGS}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush wgsl: ${STEM}.wgsl"
         VERBATIM)
       list(APPEND WGSL_OUTPUTS "${OUT}")
@@ -221,10 +289,11 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_SPIRV)
       add_custom_command(
         OUTPUT "${STAMP}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=spirv --in=${SRC} --out=${WGSL}
+                ${SB_TEX_UNIT_FLAGS}
         COMMAND ${SBRUSH_WGSL_VALIDATOR} ${WGSL} --format=spirv -o ${SPV}
         COMMAND ${SBRUSH_SPIRV_VALIDATOR} ${SPV}
         COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
-        DEPENDS sbrushc ${SRC}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush spirv (via tint) + spirv-val: ${STEM}.spv"
         VERBATIM)
       list(APPEND SPV_OUTPUTS "${STAMP}")
@@ -232,8 +301,9 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_SPIRV)
       add_custom_command(
         OUTPUT "${SPV}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=spirv --in=${SRC} --out=${WGSL}
+                ${SB_TEX_UNIT_FLAGS}
         COMMAND ${SBRUSH_WGSL_VALIDATOR} ${WGSL} --format=spirv -o ${SPV}
-        DEPENDS sbrushc ${SRC}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush spirv (via tint): ${STEM}.spv"
         VERBATIM)
       list(APPEND SPV_OUTPUTS "${SPV}")
@@ -268,12 +338,13 @@ macro(sb_gpu_backend name lang archflag ext)
       add_custom_command(
         OUTPUT "${STAMP}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=${name} --in=${SRC} --out=${DEV}
+                ${SB_TEX_UNIT_FLAGS}
         COMMAND ${SBRUSH_OFFLOAD_COMPILER} -x ${lang} ${archflag}
                 -nogpuinc -nogpulib --cuda-device-only
                 -Wno-parentheses-equality -Wno-unknown-cuda-version
                 -S -o ${ASM} ${DEV}
         COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
-        DEPENDS sbrushc ${SRC}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush ${name} + clang device-only: ${STEM}.${ext}"
         VERBATIM)
       list(APPEND SB_${NAME_UC}_OUTPUTS "${STAMP}")
@@ -281,7 +352,8 @@ macro(sb_gpu_backend name lang archflag ext)
       add_custom_command(
         OUTPUT "${DEV}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=${name} --in=${SRC} --out=${DEV}
-        DEPENDS sbrushc ${SRC}
+                ${SB_TEX_UNIT_FLAGS}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush ${name}: ${STEM}.${ext}"
         VERBATIM)
       list(APPEND SB_${NAME_UC}_OUTPUTS "${DEV}")
@@ -319,10 +391,11 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_OPENCL)
       add_custom_command(
         OUTPUT "${STAMP}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=opencl --in=${SRC} --out=${CL}
+                ${SB_TEX_UNIT_FLAGS}
         COMMAND ${SBRUSH_OPENCL_VALIDATOR} --cl-std=CL1.2 -inline-entry-points ${CL} -o ${SPV}
         COMMAND ${SBRUSH_SPIRV_VALIDATOR} ${SPV}
         COMMAND ${CMAKE_COMMAND} -E touch ${STAMP}
-        DEPENDS sbrushc ${SRC}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush opencl (via clspv) + spirv-val: ${STEM}.spv"
         VERBATIM)
       list(APPEND CL_OUTPUTS "${STAMP}")
@@ -330,8 +403,9 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_OPENCL)
       add_custom_command(
         OUTPUT "${SPV}"
         COMMAND $<TARGET_FILE:sbrushc> --backend=opencl --in=${SRC} --out=${CL}
+                ${SB_TEX_UNIT_FLAGS}
         COMMAND ${SBRUSH_OPENCL_VALIDATOR} --cl-std=CL1.2 -inline-entry-points ${CL} -o ${SPV}
-        DEPENDS sbrushc ${SRC}
+        DEPENDS sbrushc ${SRC} ${SB_TEX_UNITS}
         COMMENT "sbrush opencl (via clspv): ${STEM}.spv"
         VERBATIM)
       list(APPEND CL_OUTPUTS "${SPV}")

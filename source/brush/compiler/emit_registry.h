@@ -1,5 +1,6 @@
 #pragma once
 
+#include "emit_cpp.h"  // EmitResult
 #include "ir.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
@@ -38,5 +39,17 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
                             const Vector<string> &builtinStems,
                             const Vector<string> &builtinAttrNames,
                             const Vector<string> &reserved);
+
+/** Compose one `<stem>.tex.gen.h` for a .stex unit: the guarded C++ eval
+ * definitions + param manifests plus the unit's WGSL module text embedded as
+ * a string constant. Moves the unit's textures into a scratch brush (the
+ * unit is consumed). */
+EmitResult emitTextureUnitHeader(TextureUnit &unit, const string &stem);
+
+/** Emit sculptcore_textures.gen.h: one TextureRegistryEntry row per texture
+ * across all units, includes for their `<stem>.tex.gen.h`. Duplicate texture
+ * names and duplicate stems are errors. `stems` pairs with `units`. */
+EmitResult emitTextureRegistry(const Vector<string> &stems,
+                               const Vector<const TextureUnit *> &units);
 
 } // namespace sculptcore::brush::sbrush

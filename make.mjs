@@ -878,6 +878,10 @@ async function sbrushCodegen() {
   ensureDir(outDir)
 
   const inputs = fs.readdirSync(kernelsDir).filter((f) => f.endsWith('.sbrush'))
+  // Standalone texture units — precompiled to <stem>.tex.gen.h + the registry,
+  // and passed (--texture=) to every kernel compile so `use texture` resolves.
+  const stexInputs = fs.readdirSync(kernelsDir).filter((f) => f.endsWith('.stex'))
+  const texFlags = stexInputs.map((u) => `--texture="${kernelsDir}/${u}"`).join(' ')
 
   // CI / cross-compile escape hatch: trust the checked-in *.brush.gen.h headers
   // and skip building the native sbrushc host tool (which would drag in the full
@@ -887,6 +891,8 @@ async function sbrushCodegen() {
   if (process.env.SBRUSH_SKIP_NATIVE_CODEGEN === '1') {
     const missing = inputs
       .map((inp) => `${outDir}/${inp.replace(/\.sbrush$/, '')}.brush.gen.h`)
+      .concat(stexInputs.map((u) => `${outDir}/${u.replace(/\.stex$/, '')}.tex.gen.h`))
+      .concat([`${outDir}/sculptcore_textures.gen.h`])
       .concat(['typescript/sculptcore/brush/brushWgsl.ts'])
       .filter((p) => !fs.existsSync(p))
     if (missing.length) {
@@ -935,10 +941,19 @@ async function sbrushCodegen() {
     const stem = inp.replace(/\.sbrush$/, '')
     const inPath = `${kernelsDir}/${inp}`
     const outPath = `${outDir}/${stem}.brush.gen.h`
-    run(`"${sbrushc}" --backend=cpp --in="${inPath}" --out="${outPath}"`)
+    run(`"${sbrushc}" --backend=cpp --in="${inPath}" --out="${outPath}" ${texFlags}`)
   }
 
-  emitBrushWgslTs(sbrushc, kernelsDir, inputs)
+  for (const u of stexInputs) {
+    const stem = u.replace(/\.stex$/, '')
+    run(`"${sbrushc}" --texture-unit --in="${kernelsDir}/${u}" --out="${outDir}/${stem}.tex.gen.h"`)
+  }
+  // Always regenerate the registry — with zero units it emits the empty
+  // (count 0) header texture_registry.cc still needs.
+  const regIns = stexInputs.map((u) => `--in="${kernelsDir}/${u}"`).join(' ')
+  run(`"${sbrushc}" --texture-registry --out-dir="${outDir}" ${regIns}`)
+
+  emitBrushWgslTs(sbrushc, kernelsDir, inputs, texFlags)
 }
 
 // Emit the aggregated, committed WGSL kernel module the TS app dispatches from
@@ -947,7 +962,7 @@ async function sbrushCodegen() {
 // typescript/sculptcore/brush/brushWgsl.ts so both the browser bundle and NW.js
 // load kernels with zero runtime file access. Idempotent: the .ts is only
 // rewritten when its content changes.
-function emitBrushWgslTs(sbrushc, kernelsDir, inputs) {
+function emitBrushWgslTs(sbrushc, kernelsDir, inputs, texFlags) {
   const stageDir = 'build/wgsl_ts'
   ensureDir(stageDir)
 
@@ -957,7 +972,7 @@ function emitBrushWgslTs(sbrushc, kernelsDir, inputs) {
     const wgslPath = `${stageDir}/${stem}.wgsl`
     // --eol=lf keeps the staged intermediate canonical; the assembled .ts is
     // converted to the working tree's endings as a whole below.
-    run(`"${sbrushc}" --backend=wgsl --eol=lf --in="${kernelsDir}/${inp}" --out="${wgslPath}"`)
+    run(`"${sbrushc}" --backend=wgsl --eol=lf --in="${kernelsDir}/${inp}" --out="${wgslPath}" ${texFlags}`)
     const wgsl = fs.readFileSync(wgslPath, 'utf-8')
     // Escape for a JS template literal (WGSL has none of these today, but a
     // future kernel must not silently corrupt the module).

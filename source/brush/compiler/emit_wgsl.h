@@ -21,4 +21,10 @@ namespace sculptcore::brush::sbrush {
 
 EmitResult emitWgsl(const Brush &brush);
 
+/** `--texture-unit` WGSL half: the module text for a scratch brush wrapping
+ * a .stex unit's textures — defaults arrays, ramp helpers, the map-point
+ * helper when needed, and the eval functions. Embedded in the unit's
+ * .tex.gen.h for the T5 shader splice; no compute kernel around it. */
+EmitResult emitWgslTextureDefs(const Brush &brush);
+
 } // namespace sculptcore::brush::sbrush

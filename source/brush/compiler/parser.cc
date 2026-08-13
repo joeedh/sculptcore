@@ -202,6 +202,11 @@ struct Parser {
         parseStruct(*brush);
       } else if (check(TokKind::KwTexture)) {
         parseTexture(*brush);
+      } else if (check(TokKind::Ident) &&
+                 string(peek().text.c_str()).operator==(string("use")) &&
+                 peek(1).kind == TokKind::KwTexture)
+      {
+        parseUseTexture(*brush);
       } else if (check(TokKind::KwVertex) || check(TokKind::KwReduce) ||
                  check(TokKind::KwHost) || check(TokKind::KwFace)) {
         parseStage(*brush);
@@ -417,62 +422,298 @@ struct Parser {
     expect(TokKind::Semicolon, "after save declaration");
   }
 
-  // texture <Name> { <retType> eval(<params>) { body } }
-  // Exactly one `eval` function is required.
-  void parseTexture(Brush &brush)
+  // use texture <Name>;  — imports a standalone texture from a .stex unit
+  // supplied via --texture=. Name resolution happens after parse, where the
+  // resolved def is moved into Brush::textures (sbrushc_main).
+  void parseUseTexture(Brush &brush)
+  {
+    advance(); // 'use'
+    advance(); // 'texture'
+    if (!check(TokKind::Ident)) {
+      error("expected texture name after 'use texture'", peek());
+      return;
+    }
+    brush.useTextures.append(string(peek().text));
+    advance();
+    expect(TokKind::Semicolon, "after use texture declaration");
+  }
+
+  // param <float|int|ramp> <name> [= <n>] [@range(a, b)] [@const] ;
+  // Int params must be @const (folded to literals); ramps take no default,
+  // no @range, and cannot be @const.
+  void parseTexParam(TextureDef &td)
+  {
+    advance(); // 'param'
+    TexParam tp;
+    tp.line = peek().line;
+    if (!check(TokKind::Ident)) {
+      error("expected param kind (float/int/ramp) after 'param'", peek());
+      return;
+    }
+    const Token &kindTok = peek();
+    string kindName = kindTok.text;
+    advance();
+    if (kindName.operator==(string("float"))) tp.kind = TexParamKind::Float;
+    else if (kindName.operator==(string("int"))) tp.kind = TexParamKind::Int;
+    else if (kindName.operator==(string("ramp"))) tp.kind = TexParamKind::Ramp;
+    else {
+      errorf(kindTok, "unknown param kind '%s' (expected float/int/ramp)", kindName.c_str());
+      return;
+    }
+
+    if (!check(TokKind::Ident)) { error("expected param name", peek()); return; }
+    tp.name = peek().text;
+    advance();
+
+    if (match(TokKind::Assign)) {
+      if (tp.kind == TexParamKind::Ramp) {
+        error("a ramp param cannot take a default value", peek());
+      }
+      if (parseSignedNumber(tp.defaultValue)) tp.hasDefault = true;
+    }
+    while (match(TokKind::At)) {
+      if (!check(TokKind::Ident)) { error("expected attribute name after '@'", peek()); break; }
+      const Token &attrTok = peek();
+      string attr = attrTok.text;
+      advance();
+      if (attr.operator==(string("range"))) {
+        expect(TokKind::LParen, "after @range");
+        parseSignedNumber(tp.rangeMin);
+        expect(TokKind::Comma, "between @range bounds");
+        parseSignedNumber(tp.rangeMax);
+        expect(TokKind::RParen, "to close @range(...)");
+        tp.hasRange = true;
+      } else if (attr.operator==(string("const"))) {
+        tp.isConst = true;
+      } else {
+        errorf(attrTok, "unknown param attribute '%s'", attr.c_str());
+      }
+    }
+    expect(TokKind::Semicolon, "after param declaration");
+
+    if (tp.kind == TexParamKind::Int && !tp.isConst) {
+      errorAt(tp.line, "int params must be @const (runtime int params are not supported)");
+    }
+    if (tp.kind == TexParamKind::Ramp) {
+      if (tp.isConst) errorAt(tp.line, "a ramp param cannot be @const");
+      if (tp.hasRange) errorAt(tp.line, "@range is not valid on a ramp param");
+    }
+    for (const auto &prev : td.texParams) {
+      if (string(prev.name).operator==(string(tp.name))) {
+        errorAt(tp.line, "duplicate param name in texture");
+        return;
+      }
+    }
+    td.texParams.append(tp);
+  }
+
+  /** Post-parse checks and derived fields for a texture: the eval signature is
+   * pinned to `float eval(float3 p, float3 n)` (the cross-backend ABI), param
+   * slab offsets are assigned in decl order (@const params hold no slot), and
+   * usesMap records mapPoint() calls so emitters thread the map matrix in. */
+  void finalizeTextureDef(TextureDef &td)
+  {
+    if (td.body) {
+      if (td.returnType != TypeKind::Float || td.params.size() != 2 ||
+          td.params[0].type != TypeKind::Float3 || td.params[1].type != TypeKind::Float3)
+      {
+        errorAt(td.line, "texture eval must have signature 'float eval(float3 p, float3 n)'");
+      }
+      td.usesMap = findCallLine(td.body.get(), "mapPoint") >= 0;
+    }
+    int offset = 0;
+    for (auto &tp : td.texParams) {
+      if (tp.isConst) continue;
+      tp.offset = offset;
+      offset += (tp.kind == TexParamKind::Ramp) ? kTexRampSize : 1;
+    }
+    td.slabSize = offset;
+  }
+
+  // texture <Name> { [param ...;]* <retType> eval(<params>) { body } }
+  // Exactly one `eval` function is required; `param` decls may precede or
+  // follow it. Shared by inline (brush-scope) and standalone (.stex) textures.
+  bool parseTextureDef(TextureDef &td)
   {
     advance(); // 'texture'
-    if (!check(TokKind::Ident)) { error("expected texture name after 'texture'", peek()); return; }
-    TextureDef td;
+    if (!check(TokKind::Ident)) { error("expected texture name after 'texture'", peek()); return false; }
     td.line = peek().line;
     td.name = peek().text;
     advance();
-    if (!expect(TokKind::LBrace, "after texture name")) return;
+    if (!expect(TokKind::LBrace, "after texture name")) return false;
 
-    // eval function header
-    if (!check(TokKind::Ident)) { error("expected return type in texture eval", peek()); return; }
-    td.returnType = parseTypeKind(stringref(peek().text.c_str()));
-    if (td.returnType == TypeKind::Unknown) {
-      errorf(peek(), "unknown return type '%s' in texture eval", peek().text.c_str());
+    bool haveEval = false;
+    while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+      if (check(TokKind::Ident) &&
+          string(peek().text.c_str()).operator==(string("param")))
+      {
+        parseTexParam(td);
+        continue;
+      }
+      if (haveEval) {
+        error("texture body must define a single 'eval' function", peek());
+        advance();
+        continue;
+      }
+
+      // eval function header
+      if (!check(TokKind::Ident)) { error("expected return type in texture eval", peek()); return false; }
+      td.returnType = parseTypeKind(stringref(peek().text.c_str()));
+      if (td.returnType == TypeKind::Unknown) {
+        errorf(peek(), "unknown return type '%s' in texture eval", peek().text.c_str());
+      }
+      advance();
+      if (!check(TokKind::Ident) ||
+          !string(peek().text.c_str()).operator==(string("eval"))) {
+        error("texture body must define a single 'eval' function", peek());
+        return false;
+      }
+      advance(); // 'eval'
+
+      expect(TokKind::LParen, "after 'eval'");
+      while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
+        Param p;
+        if (match(TokKind::KwInout)) p.dir = ParamDir::InOut;
+        else if (match(TokKind::KwIn)) p.dir = ParamDir::In;
+        else if (match(TokKind::KwOut)) p.dir = ParamDir::Out;
+
+        if (!check(TokKind::Ident)) { error("expected param type", peek()); break; }
+        p.type = parseTypeKind(stringref(peek().text.c_str()));
+        if (p.type == TypeKind::Unknown) {
+          if (const StructDef *sd = findStruct(stringref(peek().text.c_str()))) {
+            p.type = TypeKind::Struct;
+            p.structName = sd->name;
+          } else {
+            errorf(peek(), "unknown param type '%s'", peek().text.c_str());
+          }
+        }
+        advance();
+        if (!check(TokKind::Ident)) { error("expected param name", peek()); break; }
+        p.name = peek().text;
+        advance();
+        td.params.append(p);
+        if (!check(TokKind::RParen)) {
+          if (!expect(TokKind::Comma, "between params")) break;
+        }
+      }
+      expect(TokKind::RParen, "to close eval params");
+      td.body = parseBlock();
+      haveEval = true;
+    }
+    expect(TokKind::RBrace, "to close texture body");
+    if (!haveEval) {
+      errorAt(td.line, "texture body must define a single 'eval' function");
+      return false;
+    }
+    finalizeTextureDef(td);
+    return true;
+  }
+
+  void parseTexture(Brush &brush)
+  {
+    TextureDef td;
+    if (!parseTextureDef(td)) return;
+    for (const auto &prev : brush.textures) {
+      if (string(prev.name).operator==(string(td.name))) {
+        errorAt(td.line, "duplicate texture name in brush");
+        return;
+      }
+    }
+    brush.textures.append(std::move(td));
+  }
+
+  // sampler <retType> <name>(<params>);  — a host sample-callback slot at
+  // texture-unit scope. T1 records the signature; a sampler call reaching any
+  // emitted backend errors until T4 wires host samplers through the eval ctx.
+  void parseSamplerDecl(TextureUnit &unit)
+  {
+    advance(); // 'sampler'
+    SamplerDecl sd;
+    sd.line = peek().line;
+    if (!check(TokKind::Ident)) { error("expected return type after 'sampler'", peek()); return; }
+    sd.returnType = parseTypeKind(stringref(peek().text.c_str()));
+    if (sd.returnType == TypeKind::Unknown) {
+      errorf(peek(), "unknown return type '%s' in sampler declaration", peek().text.c_str());
     }
     advance();
-    if (!check(TokKind::Ident) ||
-        !string(peek().text.c_str()).operator==(string("eval"))) {
-      error("texture body must define a single 'eval' function", peek());
-      return;
-    }
-    advance(); // 'eval'
-
-    expect(TokKind::LParen, "after 'eval'");
+    if (!check(TokKind::Ident)) { error("expected sampler name", peek()); return; }
+    sd.name = peek().text;
+    advance();
+    expect(TokKind::LParen, "after sampler name");
     while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
       Param p;
-      if (match(TokKind::KwInout)) p.dir = ParamDir::InOut;
-      else if (match(TokKind::KwIn)) p.dir = ParamDir::In;
-      else if (match(TokKind::KwOut)) p.dir = ParamDir::Out;
-
       if (!check(TokKind::Ident)) { error("expected param type", peek()); break; }
       p.type = parseTypeKind(stringref(peek().text.c_str()));
       if (p.type == TypeKind::Unknown) {
-        if (const StructDef *sd = findStruct(stringref(peek().text.c_str()))) {
-          p.type = TypeKind::Struct;
-          p.structName = sd->name;
-        } else {
-          errorf(peek(), "unknown param type '%s'", peek().text.c_str());
-        }
+        errorf(peek(), "unknown param type '%s'", peek().text.c_str());
       }
       advance();
       if (!check(TokKind::Ident)) { error("expected param name", peek()); break; }
       p.name = peek().text;
       advance();
-      td.params.append(p);
+      sd.params.append(p);
       if (!check(TokKind::RParen)) {
         if (!expect(TokKind::Comma, "between params")) break;
       }
     }
-    expect(TokKind::RParen, "to close eval params");
-    td.body = parseBlock();
-    expect(TokKind::RBrace, "to close texture body");
-    brush.textures.append(std::move(td));
+    expect(TokKind::RParen, "to close sampler params");
+    expect(TokKind::Semicolon, "after sampler declaration");
+
+    bool sigOk = sd.returnType == TypeKind::Float &&
+                 (sd.params.size() == 1 || sd.params.size() == 2);
+    for (const auto &p : sd.params) {
+      if (p.type != TypeKind::Float3) sigOk = false;
+    }
+    if (!sigOk) {
+      errorAt(sd.line, "sampler signature must be 'float(float3)' or 'float(float3, float3)'");
+    }
+    for (const auto &prev : unit.samplers) {
+      if (string(prev.name).operator==(string(sd.name))) {
+        errorAt(sd.line, "duplicate sampler name in texture unit");
+        return;
+      }
+    }
+    unit.samplers.append(std::move(sd));
+  }
+
+  std::unique_ptr<TextureUnit> parseTextureUnit()
+  {
+    auto unit = std::make_unique<TextureUnit>();
+    unit->sourceFile = filename;
+    while (!check(TokKind::Eof)) {
+      if (check(TokKind::KwTexture)) {
+        TextureDef td;
+        if (!parseTextureDef(td)) continue;
+        bool dup = false;
+        for (const auto &prev : unit->textures) {
+          if (string(prev.name).operator==(string(td.name))) {
+            errorAt(td.line, "duplicate texture name in texture unit");
+            dup = true;
+            break;
+          }
+        }
+        if (!dup) unit->textures.append(std::move(td));
+      } else if (check(TokKind::Ident) &&
+                 string(peek().text.c_str()).operator==(string("sampler")))
+      {
+        parseSamplerDecl(*unit);
+      } else {
+        errorf(peek(), "unexpected token '%s' at texture-unit scope (expected "
+                       "'texture' or 'sampler')",
+               tokKindName(peek().kind));
+        advance();
+      }
+    }
+    // Sampler deps are resolved against the whole unit, so a texture may call
+    // a sampler declared after it.
+    for (auto &td : unit->textures) {
+      for (const auto &sm : unit->samplers) {
+        if (findCallLine(td.body.get(), sm.name.c_str()) >= 0) {
+          td.samplerDeps.append(string(sm.name));
+        }
+      }
+    }
+    return unit;
   }
 
   void parseStruct(Brush &brush)
@@ -1023,7 +1264,17 @@ ParseResult parse(const Vector<Token> &tokens, stringref filename)
   p.tokens = &tokens;
   p.filename = string(filename.c_str());
   ParseResult r;
-  r.brush = p.parseBrush();
+  // A .stex unit opens with `texture` or `sampler` at file scope; anything
+  // else (including a brush's leading `@` attributes) is a brush source.
+  const Token &first = p.peek();
+  if (first.kind == TokKind::KwTexture ||
+      (first.kind == TokKind::Ident &&
+       string(first.text.c_str()).operator==(string("sampler"))))
+  {
+    r.unit = p.parseTextureUnit();
+  } else {
+    r.brush = p.parseBrush();
+  }
   r.errors = std::move(p.errors);
   return r;
 }

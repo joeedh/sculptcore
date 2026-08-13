@@ -56,6 +56,10 @@ struct Emit {
   // resolution (so reduce-body `s` and vertex-body `v` route correctly).
   const Stage *currentStage = nullptr;
 
+  // Texture whose eval body is being lowered — routes `param` identifiers to
+  // the module-scope defaults array, gates mapPoint(), and flags samplers.
+  const TextureDef *currentTexture = nullptr;
+
   string out;
   Vector<string> errors;
   int indent = 0;
@@ -164,6 +168,53 @@ struct Emit {
     return nullptr;
   }
 
+  // Module-scope defaults array for a texture's non-@const params. T1 reads
+  // params from these consts; T5 swaps them for a binding-26 slab upload.
+  static string texDefaultsName(const TextureDef &td)
+  {
+    return string("tex_") + lower(td.name) + "_defaults";
+  }
+
+  // Per-ramp-param sample helper (`colors.sample(t)` -> tex_x_ramp_colors(t)).
+  // Per-param because WGSL can't slice a module-scope array at a runtime
+  // offset; the helper bakes the param's slab offset in.
+  static string texRampSampleName(const TextureDef &td, const TexParam &tp)
+  {
+    return string("tex_") + lower(td.name) + "_ramp_" + tp.name;
+  }
+
+  const TexParam *findTexParam(stringref name) const
+  {
+    if (!currentTexture) return nullptr;
+    for (const auto &tp : currentTexture->texParams) {
+      if (string(tp.name).operator==(string(name.c_str()))) return &tp;
+    }
+    return nullptr;
+  }
+
+  bool anyTextureUsesMap() const
+  {
+    for (const auto &t : brush->textures) {
+      if (t.usesMap) return true;
+    }
+    return false;
+  }
+
+  // Format `v` as a WGSL float literal (no f suffix). Rounds through float
+  // first — same as the C++ emitter — so both backends parse back the
+  // identical f32 (9 significant digits round-trip a float exactly).
+  static void appendFloatLit(string &s, double v)
+  {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.9g", double(float(v)));
+    bool hasDot = false;
+    for (const char *p = buf; *p; p++) {
+      if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+    }
+    s += buf;
+    if (!hasDot) s += ".0";
+  }
+
   // Reduce-stage out/inout params (struct or scalar) are lowered to WGSL
   // `ptr<function, T>`, so identifier references to them have to be
   // dereferenced inline — `s.a = x` becomes `(*s).a = x`, `w = 1.0`
@@ -262,6 +313,27 @@ struct Emit {
         out += ")";
       } else if (isLocal(nm) || isStageParam(nm)) {
         out += e.name;
+      } else if (const TexParam *tp = findTexParam(nm)) {
+        // Texture `param` reads. @const params fold to literals; runtime
+        // floats read the module-scope defaults array (T5: binding 26);
+        // ramps only via .sample(t) (Call case).
+        if (tp->isConst) {
+          if (tp->kind == TexParamKind::Int) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%lld", (long long)tp->defaultValue);
+            out += buf;
+          } else {
+            appendFloatLit(out, tp->defaultValue);
+          }
+        } else if (tp->kind == TexParamKind::Ramp) {
+          errf("ramp param '%s' can only be used via .sample(t)", e.name.c_str());
+          out += "0.0";
+        } else {
+          char buf[32];
+          std::snprintf(buf, sizeof(buf), "[%d]", tp->offset);
+          out += texDefaultsName(*currentTexture);
+          out += buf;
+        }
       } else if (auto *f = findField(nm)) {
         if (f->kind == FieldKind::Uniform) {
           out += "brush_u.";
@@ -376,6 +448,14 @@ struct Emit {
         break;
       }
 
+      // Scalar casts: `float(x)` / `int(x)` -> f32()/i32().
+      if ((std::strcmp(n, "float") == 0 || std::strcmp(n, "int") == 0) && e.args.size() == 1) {
+        out += (n[0] == 'f') ? "f32(" : "i32(";
+        emitExpr(*e.args[0]);
+        out += ")";
+        break;
+      }
+
       // grad(expr, var) — forward-mode gradient, dual-number rewrite. WGSL has
       // no operator overloads, so binary ops map to sbd_add/sub/mul/div.
       if (std::strcmp(n, "grad") == 0 && e.args.size() == 2) {
@@ -385,16 +465,79 @@ struct Emit {
         gradVar = savedVar;
         break;
       }
-      // Dotted call `Tex.eval(args)` -> inline texture's eval function.
+      // Dotted call `Tex.eval(args)` -> inline texture's eval function. When
+      // the texture's body calls mapPoint() its eval takes the map matrix as a
+      // third param (T5 will thread a per-texture matrix; T1 uses the render
+      // matrix, same source as the CPU side's ctx.renderMatrix).
       if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
+        if (currentTexture) {
+          errf("texture '%s' cannot call another texture", currentTexture->name.c_str());
+          out += "0.0";
+          break;
+        }
         out += texEvalName(*td);
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
           if (i > 0) out += ", ";
           emitExpr(*e.args[i]);
         }
+        if (td->usesMap) {
+          out += ", ctx_u.render_matrix";
+        }
         out += ")";
         break;
+      }
+
+      // mapPoint(p) — texture-space transform, valid only inside a texture
+      // eval; lowers to the shared helper on the eval's own matrix param.
+      if (std::strcmp(n, "mapPoint") == 0) {
+        if (!currentTexture || e.args.size() != 1) {
+          err("mapPoint(p) is only valid inside a texture eval");
+          out += "vec3<f32>(0.0)";
+          break;
+        }
+        out += "sb_tex_map_point(sb_map, ";
+        emitExpr(*e.args[0]);
+        out += ")";
+        break;
+      }
+
+      // Ramp param sample `<ramp>.sample(t)` -> the per-param generated helper
+      // (WGSL can't index an array at a runtime slab offset, so each ramp gets
+      // its own fn with the offset baked in).
+      if (currentTexture && std::strchr(n, '.')) {
+        const char *dot = std::strchr(n, '.');
+        string base = string(e.name).substr(0, int(dot - n));
+        if (const TexParam *tp = findTexParam(stringref(base.c_str()))) {
+          if (tp->kind == TexParamKind::Ramp && string(dot + 1) == string("sample") &&
+              e.args.size() == 1)
+          {
+            out += texRampSampleName(*currentTexture, *tp);
+            out += "(";
+            emitExpr(*e.args[0]);
+            out += ")";
+            break;
+          }
+          errf("param '%s' has no such method", n);
+          out += "0.0";
+          break;
+        }
+      }
+
+      // Sampler dependencies compile only in the runtime path (T4).
+      if (currentTexture) {
+        bool wasSampler = false;
+        for (const string &dep : currentTexture->samplerDeps) {
+          if (string(dep) == string(e.name)) {
+            errf("sampler '%s' is runtime-only (T4); cannot precompile", n);
+            out += "0.0";
+            wasSampler = true;
+            break;
+          }
+        }
+        if (wasSampler) {
+          break;
+        }
       }
 
       const IntrinsicDef *intr = findIntrinsic(stringref(e.name.c_str()));
@@ -1159,12 +1302,117 @@ struct Emit {
     write("@compute @workgroup_size(1) fn nop() {}\n");
   }
 
-  // Emit one reduce stage as a WGSL function. out/inout params (struct
-  // or scalar) become `ptr<function, T>` so the callee can write back;
-  // `in` params pass by value. The body emitter dereferences ptr params
-  // automatically — see isOutPtrParam.
+  // Module-scope support for one texture's params: the defaults array
+  // (runtime params read it until T5 moves them to a binding) and one
+  // sample helper per ramp param — WGSL cannot index an array at a
+  // runtime-computed slab offset, so the offset is baked into a fn.
+  void emitTextureSupport(const TextureDef &td)
+  {
+    if (td.slabSize > 0) {
+      write("const ");
+      write(texDefaultsName(td));
+      write(" = array<f32, ");
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "%d", td.slabSize);
+      write(buf);
+      write(">(\n");
+      string body;
+      bool first = true;
+      for (const auto &tp : td.texParams) {
+        if (tp.isConst || tp.offset < 0) {
+          continue;
+        }
+        if (!first) {
+          body += ",\n";
+        }
+        first = false;
+        body += "  // ";
+        body += tp.name;
+        body += "\n  ";
+        if (tp.kind == TexParamKind::Ramp) {
+          for (int i = 0; i < kTexRampSize; i++) {
+            if (i > 0) {
+              body += (i % 8 == 0) ? ",\n  " : ", ";
+            }
+            appendFloatLit(body, double(i) / double(kTexRampSize - 1));
+          }
+        } else {
+          appendFloatLit(body, tp.hasDefault ? tp.defaultValue : 0.0);
+        }
+      }
+      write(body);
+      write("\n);\n\n");
+    }
+    for (const auto &tp : td.texParams) {
+      if (tp.kind != TexParamKind::Ramp) {
+        continue;
+      }
+      // Mirrors texRampSample (texture_eval.h) exactly, including the
+      // last-slot early-out, so CPU and GPU stay in lockstep.
+      char buf[64];
+      write("fn ");
+      write(texRampSampleName(td, tp));
+      write("(t: f32) -> f32 {\n");
+      write("  let sb_t = clamp(t, 0.0, 1.0);\n");
+      std::snprintf(buf, sizeof(buf), "  let sb_x = sb_t * %d.0;\n", kTexRampSize - 1);
+      write(buf);
+      write("  let sb_i = u32(sb_x);\n");
+      std::snprintf(buf, sizeof(buf), "  if (sb_i >= %du) {\n", kTexRampSize - 1);
+      write(buf);
+      write("    return ");
+      write(texDefaultsName(td));
+      std::snprintf(buf, sizeof(buf), "[%d];\n", tp.offset + kTexRampSize - 1);
+      write(buf);
+      write("  }\n");
+      write("  let sb_f = sb_x - f32(sb_i);\n");
+      write("  let sb_a = ");
+      write(texDefaultsName(td));
+      std::snprintf(buf, sizeof(buf), "[%du + sb_i];\n", tp.offset);
+      write(buf);
+      write("  let sb_b = ");
+      write(texDefaultsName(td));
+      std::snprintf(buf, sizeof(buf), "[%du + sb_i + 1u];\n", tp.offset);
+      write(buf);
+      write("  return sb_a + (sb_b - sb_a) * sb_f;\n");
+      write("}\n\n");
+    }
+  }
+
+  // Shared mapPoint lowering — emitted once when any texture's eval calls
+  // mapPoint(). The 1e-6 guard mirrors texMapPoint (texture_eval.h) and
+  // the `m * vec4` spelling is the brush_view_uv lockstep pairing.
+  void emitTexMapPointHelper()
+  {
+    write("fn sb_tex_map_point(m: mat4x4<f32>, p: vec3<f32>) -> vec3<f32> {\n");
+    write("  let sb_q = m * vec4<f32>(p, 1.0);\n");
+    write("  var sb_w = sb_q.w;\n");
+    write("  if (abs(sb_w) <= 1e-6) {\n");
+    write("    sb_w = 1.0;\n");
+    write("  }\n");
+    write("  return sb_q.xyz / sb_w;\n");
+    write("}\n\n");
+  }
+
+  // Emit every inline texture: the shared mapPoint helper, then per-texture
+  // defaults/ramp support and the eval fn itself. Called from both kernel
+  // paths (face and vertex) after the prelude.
+  void emitTextures()
+  {
+    if (brush->textures.size() == 0) {
+      return;
+    }
+    if (anyTextureUsesMap()) {
+      emitTexMapPointHelper();
+    }
+    for (const auto &td : brush->textures) {
+      emitTextureSupport(td);
+      emitTextureFn(td);
+    }
+  }
+
   // Emit one inline texture's eval as a pure WGSL function — sees only
-  // its params and intrinsics, no uniforms/ctx.
+  // its params and intrinsics, no uniforms/ctx. A texture that calls
+  // mapPoint() takes the map matrix as an extra trailing param.
   void emitTextureFn(const TextureDef &td)
   {
     write("fn ");
@@ -1178,6 +1426,11 @@ struct Emit {
       write(": ");
       write(wgslType(p.type));
     }
+    if (td.usesMap) {
+      if (!first) write(", ");
+      first = false;
+      write("sb_map: mat4x4<f32>");
+    }
     write(") -> ");
     write(wgslType(td.returnType));
     write(" {\n");
@@ -1186,16 +1439,22 @@ struct Emit {
     scratch.kind = StageKind::Reduce;
     for (const auto &p : td.params) scratch.params.append(p);
     currentStage = &scratch;
+    currentTexture = &td;
     if (td.body && td.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
       for (const auto &c : td.body->stmts) emitStmt(*c);
       while ((int)locals.size() > savedLocals) locals.pop_back();
     }
+    currentTexture = nullptr;
     currentStage = nullptr;
     indent = 0;
     write("}\n\n");
   }
 
+  // Emit one reduce stage as a WGSL function. out/inout params (struct
+  // or scalar) become `ptr<function, T>` so the callee can write back;
+  // `in` params pass by value. The body emitter dereferences ptr params
+  // automatically — see isOutPtrParam.
   void emitReduceStage(const Stage &st)
   {
     write("fn ");
@@ -1244,9 +1503,7 @@ struct Emit {
       err("face stage must take at least one parameter (the Face bundle)");
     }
     emitPrelude();
-    for (const auto &td : brush->textures) {
-      emitTextureFn(td);
-    }
+    emitTextures();
 
     write("@compute @workgroup_size(64)\n");
     write("fn main(\n");
@@ -1338,9 +1595,7 @@ struct Emit {
 
     // Inline texture eval functions — pure, module scope, before the
     // stages that call them.
-    for (const auto &td : brush->textures) {
-      emitTextureFn(td);
-    }
+    emitTextures();
 
     // Reduce stages — WGSL has no templates, so we just name-mangle by
     // the DSL stage name (which is brush-local in practice).
@@ -1519,6 +1774,17 @@ EmitResult emitWgsl(const Brush &brush)
     em.faceParamName = string("f");
   }
   em.run();
+  EmitResult r;
+  r.text = std::move(em.out);
+  r.errors = std::move(em.errors);
+  return r;
+}
+
+EmitResult emitWgslTextureDefs(const Brush &brush)
+{
+  Emit em;
+  em.brush = &brush;
+  em.emitTextures();
   EmitResult r;
   r.text = std::move(em.out);
   r.errors = std::move(em.errors);

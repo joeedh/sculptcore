@@ -298,9 +298,23 @@ function. The feature adds the `sin`/`cos`/`floor`/`fract` intrinsics
 `set_brush_tool tool=texdraw`) is the demo: a draw variant modulated by a
 concentric-rings `eval` exercising all four new intrinsics. `texdraw_ab`
 passes cpp-vs-wgsl, the golden, tint+spirv-val, and the Dawn `webgpu-verify`
-replay (bit-exact). Cross-brush texture *sharing* (one `@texture` reused
-across brushes) remains deferred. Image textures become `Tex2D` with a
-bilinear sample intrinsic.
+replay (bit-exact).
+
+Cross-brush texture *sharing* is implemented via standalone texture units
+(`kernels/*.stex`, milestone T1 of
+[`plans/texture-scripts.md`](plans/texture-scripts.md)): a `.stex` file holds
+top-level `texture` blocks, `sbrushc --texture-unit` precompiles each to
+`kernels/generated/<stem>.tex.gen.h` (guarded C++ eval + embedded WGSL module
+text) and `--texture-registry` emits the `sculptcore_textures.gen.h` row
+table behind `brush/texture_registry.h`. A brush imports one with
+`use texture <Name>;` — the resolved definition is emitted exactly like an
+inline texture (`tests/test_sbrush_textures.cc` holds the two forms
+byte-identical), and `SB_TEX_DEF_<name>` guards keep multiple importers
+legal in the single `brushes/all.h` TU. `texdraw` itself now imports Rings
+from `kernels/rings.stex`; extra kernel dirs
+(`SCULPTCORE_EXTRA_KERNEL_DIRS`) may add their own `.stex` units, which
+shadow the checked-in registry from `<build>/sbrush_extra/gen`. Image
+textures become `Tex2D` with a bilinear sample intrinsic.
 
 ### IR (`BrushIR`)
 

@@ -1,0 +1,16 @@
+// Rings — concentric object-space rings, quantized into bands and tilted
+// by the surface normal. The first standalone texture unit: precompiled to
+// rings.tex.gen.h + a sculptcore_textures.gen.h registry row, and imported
+// by texdraw.sbrush via `use texture Rings;`. The emitted eval is identical
+// to the former inline form (tests/test_sbrush_textures.cc holds them equal).
+
+texture Rings {
+  float eval(float3 p, float3 n) {
+    float d = length(p);
+    float rings = 0.5 + 0.5 * sin(d * 40.0);
+    float bands = fract(d * 6.0);
+    float steps = floor(bands * 4.0) * 0.25;
+    float tilt = 0.5 + 0.5 * cos(dot(n, p) * 8.0);
+    return rings * steps * tilt;
+  }
+}

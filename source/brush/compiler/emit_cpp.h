@@ -20,6 +20,11 @@ struct CppEmitOptions {
 
 EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts = {});
 
+/** `--texture-unit` C++ half: the guarded defaults + eval definitions plus
+ * the param manifests for a scratch brush wrapping a .stex unit's textures
+ * (mark them `imported` for the SB_TEX_DEF_ guards). No stage machinery. */
+EmitResult emitCppTextureDefs(const Brush &brush);
+
 /** True for the hardcoded CommandCtxBase builtins (surfaceNo, mousePos, ...),
  * which lower to `ctx.<name>` rather than `ctx.brush.<name>`. */
 bool isCtxBaseName(const char *name);

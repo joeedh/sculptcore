@@ -5,14 +5,18 @@
 #include "brush/capture_policy.h"
 #include "spatial/spatial_enums.h"
 #include "mesh/mesh_iter.h"
+#include "brush/texture_eval.h"
 
 namespace sculptcore::brush::command {
 
-static float texRingsEval(float3 p, float3 n)
+#ifndef SB_TEX_DEF_Rings
+#define SB_TEX_DEF_Rings
+static float texRingsEval(float3 p, float3 n, const float *sb_tex_params, const TexEvalCtx *sb_texctx)
 {
   using namespace litestl::math;
   (void)p;
   (void)n;
+  (void)sb_tex_params; (void)sb_texctx;
   float d = (p).length();
   float rings = (0.5f + (0.5f * std::sin((d * 40.0f))));
   float bands = (((d * 6.0f)) - std::floor((d * 6.0f)));
@@ -20,6 +24,8 @@ static float texRingsEval(float3 p, float3 n)
   float tilt = (0.5f + (0.5f * std::cos(((n).dot(p) * 8.0f))));
   return ((rings * steps) * tilt);
 }
+
+#endif  // SB_TEX_DEF_Rings
 
 template <CommandTypes TYPES>
 static void texdrawPre(CommandCtxBase &ctx, std::span<typename TYPES::node_type *> nodes)
@@ -45,7 +51,7 @@ static void texdraw(CommandCtx<TYPES> &ctx)
   bool any_moved = false;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
     float s = (ctx.strength(v.co) * ctx.masks(v.v, v.mask));
-    s *= texRingsEval(v.co, ctx.surfaceNo);
+    s *= texRingsEval(v.co, ctx.surfaceNo, nullptr, nullptr);
     if ((s == 0.0f)) {
       continue;
     }

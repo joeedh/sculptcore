@@ -242,15 +242,80 @@ struct StructDef {
   Vector<StructField> fields;
 };
 
-// An inline procedural texture: `texture <Name> { float eval(float3 p, float3 n) { ... } }`.
-// Callable within the owning brush as `<Name>.eval(p, n)`. Lowered to a free
-// function (tex<Cap>Eval in C++, tex_<name>_eval in WGSL).
+// Texture parameter kinds (`param <kind> <name> ...;` inside a texture block).
+// Non-@const params occupy slots in the texture's dense float slab: a Float is
+// one slot, a Ramp is kTexRampSize slots. Int params must be @const (folded to
+// literals at compile time) and hold no slot.
+enum class TexParamKind : int {
+  Float,
+  Int,
+  Ramp,
+};
+
+// Slots one ramp occupies in a texture's parameter slab. The runtime constant
+// in brush/texture_eval.h must match; generated headers static_assert it.
+inline constexpr int kTexRampSize = 256;
+
+struct TexParam {
+  TexParamKind kind = TexParamKind::Float;
+  string name;
+  bool hasDefault = false;
+  double defaultValue = 0.0;  // Float/Int only; ramps default to identity
+  bool hasRange = false;
+  double rangeMin = 0.0;
+  double rangeMax = 0.0;
+  // `@const`: folded into the generated code as a literal; not in the slab and
+  // not runtime-tweakable (T3 re-specializes on change). Required for Int,
+  // forbidden for Ramp.
+  bool isConst = false;
+  // First slot in the owning texture's param slab, -1 for @const params.
+  int offset = -1;
+  int line = 0;
+};
+
+// `sampler float <name>(float3 p[, float3 n]);` — a host-provided sample
+// callback slot. T1 parses and records these; calling one from any emitted
+// backend is an error until T4 wires host samplers through the eval ctx.
+struct SamplerDecl {
+  string name;
+  TypeKind returnType = TypeKind::Float;
+  Vector<Param> params;
+  int line = 0;
+};
+
+// A procedural texture: `texture <Name> { ... float eval(float3 p, float3 n) { ... } }`.
+// Either inline in a brush or standalone in a .stex unit (imported via
+// `use texture <Name>;`). Callable within the owning brush as `<Name>.eval(p, n)`.
+// Lowered to a free function (tex<Cap>Eval in C++, tex_<name>_eval in WGSL).
 struct TextureDef {
   string name;                            // e.g. "Rings"
   TypeKind returnType = TypeKind::Float;  // eval return type
   Vector<Param> params;                   // eval params
   StmtPtr body;                           // eval body
+  Vector<TexParam> texParams;             // `param ...;` decls, decl order
+  // Total float slots the non-@const params occupy (slab size).
+  int slabSize = 0;
+  // True when the body calls mapPoint() — the eval needs the map matrix
+  // threaded in (TexEvalCtx on C++, an extra mat4x4 param on WGSL).
+  bool usesMap = false;
+  // Names of unit-scope samplers the body calls (T4 runtime dependency list).
+  Vector<string> samplerDeps;
+  // True for a `use texture` import resolved from a .stex unit. The cpp
+  // emitter include-guards imported definitions: two brushes importing the
+  // same texture emit byte-identical code (same unit parse), and brushes/all.h
+  // aggregates every gen header into one TU.
+  bool imported = false;
   int line = 0;
+};
+
+// A parsed .stex file: standalone texture definitions plus the unit-scope
+// sampler declarations they may reference. sbrushc compiles one unit per
+// --texture-unit invocation; brush compiles resolve `use texture` names
+// against units passed via --texture=<path>.
+struct TextureUnit {
+  Vector<SamplerDecl> samplers;
+  Vector<TextureDef> textures;
+  string sourceFile;
 };
 
 struct Brush {
@@ -260,6 +325,10 @@ struct Brush {
   Vector<StructDef> structs;
   Vector<TextureDef> textures;
   Vector<Stage> stages;
+  // `use texture <Name>;` imports. Resolved after parse against the .stex units
+  // supplied on the command line; each resolved def is moved into `textures`
+  // so backends treat imports exactly like inline textures.
+  Vector<string> useTextures;
   // `save <domain> <name>,...;` declarations — the per-brush undo-capture set.
   // Empty means the legacy default (vertex co, vertex no, face no) applies.
   Vector<SaveAttr> saves;

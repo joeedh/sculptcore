@@ -1,29 +1,19 @@
-// TexDraw — draw brush modulated by an inline procedural texture.
+// TexDraw — draw brush modulated by a procedural texture.
 //
-// Demonstrates the `texture` DSL block: a self-contained, pure
-// `eval(p, n)` function defined inside the brush body and called as
-// `Rings.eval(...)`. It lowers to a free function on every backend
-// (texRingsEval in C++, tex_rings_eval in WGSL) and uses only its own
-// params plus intrinsics — no ctx/uniform state — so the two backends
-// produce bit-identical results. Exercises the sin/cos/floor/fract
-// intrinsics added alongside the inline-texture feature.
+// Demonstrates `use texture`: Rings lives in the standalone unit
+// kernels/rings.stex and is imported into the brush's callable-texture
+// namespace, then called exactly like an inline `texture` block
+// (`Rings.eval(...)`). It lowers to a pure free function on every backend
+// (texRingsEval in C++, tex_rings_eval in WGSL) using only its own params
+// plus intrinsics — no ctx/uniform state — so the two backends produce
+// bit-identical results. The inline form of the same texture is covered by
+// tests/test_sbrush_textures.cc.
 
 @brush("texdraw")
 brush TexDraw {
   ctx float3 surfaceNo;
 
-  texture Rings {
-    float eval(float3 p, float3 n) {
-      // Concentric rings in object space, quantized into bands and
-      // tilted by the surface normal.
-      float d = length(p);
-      float rings = 0.5 + 0.5 * sin(d * 40.0);
-      float bands = fract(d * 6.0);
-      float steps = floor(bands * 4.0) * 0.25;
-      float tilt = 0.5 + 0.5 * cos(dot(n, p) * 8.0);
-      return rings * steps * tilt;
-    }
-  }
+  use texture Rings;
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * masks();

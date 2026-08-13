@@ -13,7 +13,10 @@ struct ParseError {
 };
 
 struct ParseResult {
+  // Exactly one of these is set: `brush` for a .sbrush source, `unit` for a
+  // .stex source (top-level `texture`/`sampler` declarations).
   std::unique_ptr<Brush> brush;
+  std::unique_ptr<TextureUnit> unit;
   Vector<ParseError> errors;
 };
 

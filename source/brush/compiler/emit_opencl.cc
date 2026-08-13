@@ -533,8 +533,13 @@ struct Emit {
     write("__kernel void nop() {}\n");
   }
 
+  // T1 texture features (params, mapPoint, samplers) are cpp/wgsl-only for now.
   void emitTextureFn(const TextureDef &td)
   {
+    if (td.texParams.size() > 0 || td.usesMap || td.samplerDeps.size() > 0) {
+      errf("texture '%s' uses params/mapPoint/samplers, unsupported on the opencl backend", td.name.c_str());
+      return;
+    }
     write("inline "); write(clType(td.returnType)); write(" "); write(texEvalName(td)); write("(");
     bool first = true;
     for (const auto &p : td.params) { if (!first) write(", "); first = false; write(clType(p.type)); write(" "); write(p.name); }
