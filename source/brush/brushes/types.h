@@ -34,13 +34,16 @@ enum class _SculptBrushes {
   // Enhance details: for_neighbor kernel that subtracts the normal-direction
   // Laplacian (unsharp) to amplify surface detail — the inverse of smooth.
   ENHANCE = 21,
+  // Draw along the autodiff gradient of an imported texture field — the
+  // cross-backend gate for grad() through Tex.eval (texture-scripts T2).
+  TEXGRAD = 22,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 
 /** First id available to extra (out-of-repo) kernels; see brushes/extra.h.
  * Generated extras code references this constant, never a literal count. */
-inline constexpr int SculptBrushesBuiltinCount = 22;
-static_assert(int(_SculptBrushes::ENHANCE) == SculptBrushesBuiltinCount - 1,
+inline constexpr int SculptBrushesBuiltinCount = 23;
+static_assert(int(_SculptBrushes::TEXGRAD) == SculptBrushesBuiltinCount - 1,
               "SculptBrushesBuiltinCount must track the last built-in enum item");
 } // namespace sculptcore::brush
 
@@ -72,6 +75,7 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
     e->addItem("FEATURE_ALIGN", SculptBrushes::FEATURE_ALIGN);
     e->addItem("LAYERDRAW", SculptBrushes::LAYERDRAW);
     e->addItem("ENHANCE", SculptBrushes::ENHANCE);
+    e->addItem("TEXGRAD", SculptBrushes::TEXGRAD);
 #ifdef SCULPTCORE_EXTRA_BRUSHES
     // Extra (out-of-repo) kernels — ids follow the built-ins; see extra.h.
 #include "sculptcore_extra_brushes_enum.inc"

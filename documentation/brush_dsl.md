@@ -350,7 +350,11 @@ texture coord spaces (`GLOBAL`, `VIEWPLANE`, `VIEW_REPEAT`, `STROKE_CURVED`,
 respect to a `float3 var`: `(∂expr/∂var.x, ∂expr/∂var.y, ∂expr/∂var.z)`.
 `expr` is any scalar expression built from `var`, constants, arithmetic, and
 the differentiable intrinsics (`sin`, `cos`, `sqrt`, `abs`, `dot`, `length`,
-`mix`, and the arithmetic operators).
+`mix`, `floor`, `fract`, and the arithmetic operators). Texture `eval` calls
+(inline or `use texture` imports) work too — the eval body is differentiated
+as a whole (see `texgrad.sbrush`). An intrinsic without a derivative rule
+inside `grad()` is a compile error. A `grad()` brush is always
+non-accumulable (see [`plans/nonAccumMode.md`](plans/nonAccumMode.md)).
 
 ```sbrush
 // graddraw.sbrush — ridge the surface along a ripple field's gradient.

@@ -1,0 +1,26 @@
+// TexGrad — displace along the gradient of an imported texture's field,
+// computed by forward-mode autodiff *through* the texture call: grad()
+// dispatches Rings.eval to its dual-number twin (texRingsEvalD in C++,
+// tex_rings_eval_d in WGSL), so the derivative is exact on every backend.
+// This is the cross-backend gate for texture autodiff (texture-scripts T2);
+// tests/scripts/brush_backends/texgrad_ab.txt A/Bs cpp vs wgsl.
+//
+// Like every grad() brush it is non-accumulable (codegen emits
+// def.accumulable = false): grad over v.co is incompatible with
+// non-accumulate mode's base-read proxy (plans/nonAccumMode.md).
+
+@brush("texgrad")
+brush TexGrad {
+  ctx float3 surfaceNo;
+
+  use texture Rings;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * masks();
+    if (s == 0.0) {
+      continue;
+    }
+    float3 g = grad(Rings.eval(v.co, surfaceNo), v.co);
+    v.co += g * (s * 0.005);
+  }
+}

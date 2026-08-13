@@ -305,6 +305,18 @@ the gradient is bit-identical modulo fp. `graddraw.sbrush` is the demo; the
 slice history is in [`plans/sbrush_autodiff.md`](plans/sbrush_autodiff.md).
 Reverse-mode remains deferred.
 
+Texture calls differentiate too (texture-scripts T2): each emitter also
+emits the eval body as a dual twin — `tex<Name>EvalD` in C++ (guarded by
+`SB_TEX_DEFD_<name>`, separate from the value form's guard), `tex_<name>_eval_d`
+elsewhere — a statement-level transform where float/float3 locals become
+sbdual/sbdual3 and every expression routes through `emitDual`. A texture
+call inside `grad()` dispatches to the twin; an intrinsic without an `sbd_*`
+chain rule inside a differentiated eval is an emit error, not a wrong
+derivative. Because grad over `v.co` reads positions the non-accumulate
+base-read proxy would falsify, every `grad()` brush is emitted
+`def.accumulable = false`. `texgrad.sbrush` is the cross-backend gate
+(`texgrad_ab.txt` + the `texgrad` golden).
+
 ## Adding a backend
 
 1. Add the `BackendKind` enum member (`ir.h`) — its position indexes the

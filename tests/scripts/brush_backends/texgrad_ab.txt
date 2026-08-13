@@ -1,0 +1,20 @@
+# A/B script: texgrad stroke under the cpp then wgsl backend gate.
+# texgrad displaces along grad(Rings.eval(v.co, n), v.co) — forward-mode
+# autodiff *through* an imported texture call, dispatched to the dual-number
+# twin (texRingsEvalD / tex_rings_eval_d). Both twins use only intrinsics
+# with sbd_* chain rules, so the dumps must match exactly. The cpp dump is
+# also diffed against tests/golden/texgrad.json by `make.mjs sbrush-verify`.
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=texgrad
+set_brush radius=0.25 strength=0.5
+
+set_backend backend=cpp
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=texgrad_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke origin=0,0,0.25 normal=0,0,1
+dump_state out=texgrad_wgsl.json

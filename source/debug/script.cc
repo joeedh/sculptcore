@@ -745,6 +745,8 @@ bool execVerb(Scene &scene,
       scene.currentTool = brush::SculptBrushes::POSE;
     } else if (ts == "texdraw") {
       scene.currentTool = brush::SculptBrushes::TEXDRAW;
+    } else if (ts == "texgrad") {
+      scene.currentTool = brush::SculptBrushes::TEXGRAD;
     } else if (ts == "color") {
       scene.currentTool = brush::SculptBrushes::COLOR;
     } else if (ts == "polygroup") {

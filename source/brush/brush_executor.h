@@ -438,6 +438,9 @@ struct CommandExecutor {
       // .brush.enhance.disp, so no neighbor-source template.
       command::createEnhanceBrush<CommandExecutor, AccMode>(def);
       return true;
+    case SculptBrushes::TEXGRAD:
+      command::createTexgradBrush<CommandExecutor, AccMode>(def);
+      return true;
     default:
       // Extra (out-of-repo) kernels dispatch through the generated registry;
       // a no-op fallback compiles in when no extra kernel dirs are configured.

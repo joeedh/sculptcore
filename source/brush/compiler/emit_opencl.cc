@@ -53,14 +53,26 @@ struct Emit {
   Vector<string> errors;
   int indent = 0;
 
-  Vector<string> locals;
+  struct LocalVar {
+    string name;
+    // Lowered to sbdual/sbdual3 inside a texture EvalD body (dualBody).
+    bool dual = false;
+  };
+  Vector<LocalVar> locals;
   // out/inout reduce params lower to pointers; an identifier ref derefs.
   Vector<string> ptrParams;
+
+  // Set while emitting a texture eval body — gates texture-calls-texture.
+  const TextureDef *currentTexture = nullptr;
 
   bool usesNeighbors = false;
 
   bool gradUsed = false;
   string gradVar;  // float3 var being differentiated, rendered
+  // True while emitting a texture EvalD body: float/float3 locals lower to
+  // sbdual/sbdual3, dual contexts route through emitDual, and emitExpr
+  // projects dual names back to `.v`.
+  bool dualBody = false;
 
   struct NbBinding {
     string name;
@@ -101,7 +113,14 @@ struct Emit {
   bool isLocal(stringref name) const
   {
     for (const auto &l : locals) {
-      if (string(l).operator==(string(name.c_str()))) return true;
+      if (string(l.name).operator==(string(name.c_str()))) return true;
+    }
+    return false;
+  }
+  bool isDualLocal(stringref name) const
+  {
+    for (const auto &l : locals) {
+      if (l.dual && string(l.name).operator==(string(name.c_str()))) return true;
     }
     return false;
   }
@@ -179,6 +198,12 @@ struct Emit {
     case ExprKind::LitBool: out += e.bvalue ? "true" : "false"; break;
     case ExprKind::Ident: {
       stringref nm(e.name.c_str());
+      if (dualBody && isDualLocal(nm)) {
+        // Value context inside an EvalD body — project the dual's value.
+        out += e.name;
+        out += ".v";
+        break;
+      }
       if (isPtrParam(nm)) { out += "(*"; out += e.name; out += ")"; }
       else if (isLocal(nm) || isStageParam(nm)) out += e.name;
       else if (auto *f = findField(nm)) { out += (f->kind == FieldKind::Uniform) ? "brush_u->" : "ctx_u->"; out += e.name; }
@@ -215,6 +240,11 @@ struct Emit {
       // grad(expr, var) — forward-mode gradient, dual-number rewrite. OpenCL C
       // has no operator overloads, so binary ops map to sbd_add/sub/mul/div.
       if (std::strcmp(n, "grad") == 0 && e.args.size() == 2) {
+        if (dualBody) {
+          err("grad() cannot appear inside a texture eval differentiated by grad()");
+          out += "(float3)(0.0f)";
+          break;
+        }
         gradUsed = true;
         string savedVar = gradVar; gradVar = render(*e.args[1]);
         out += "("; emitDual(*e.args[0]); out += ").d";
@@ -267,11 +297,20 @@ struct Emit {
   void emitDual(const Expr &e)
   {
     if (isGradVar(e)) { out += "sb_seed3("; emitExpr(e); out += ")"; return; }
+    // Inside an EvalD body a dual local already carries its derivative.
+    if (dualBody && e.kind == ExprKind::Ident && isDualLocal(stringref(e.name.c_str()))) {
+      out += e.name;
+      return;
+    }
     switch (e.kind) {
     case ExprKind::LitFloat: case ExprKind::LitInt: out += "sb_c("; emitExpr(e); out += ")"; break;
-    case ExprKind::Ident: out += "sb_c3("; emitExpr(e); out += ")"; break;
+    case ExprKind::Ident: out += dualBody ? "sb_c(" : "sb_c3("; emitExpr(e); out += ")"; break;
     case ExprKind::Member:
       if (e.lhs && isGradVar(*e.lhs)) { out += "sb_comp(sb_seed3("; emitExpr(*e.lhs); out += "), "; out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")"; }
+      else if (dualBody && e.lhs && e.lhs->kind == ExprKind::Ident && isDualLocal(stringref(e.lhs->name.c_str()))) {
+        out += "sb_comp("; out += e.lhs->name; out += ", ";
+        out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")";
+      }
       else { out += "sb_c("; emitExpr(e); out += ")"; }
       break;
     case ExprKind::Paren: out += "("; emitDual(*e.lhs); out += ")"; break;
@@ -283,6 +322,35 @@ struct Emit {
     case ExprKind::Call: {
       const char *n = e.name.c_str();
       if (std::strcmp(n,"float3")==0) { out += "sb_v3("; for (int i=0;i<3;i++){if(i)out+=", ";emitDual(*e.args[i]);} out += ")"; break; }
+      // Texture call in a dual context — dispatch to the EvalD twin with
+      // dual-lifted arguments.
+      if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
+        if (currentTexture) {
+          errf("texture '%s' cannot call another texture", currentTexture->name.c_str());
+          out += "sb_c(0.0f)";
+          break;
+        }
+        out += texEvalName(*td); out += "_d(";
+        for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
+        out += ")";
+        break;
+      }
+      if (std::strcmp(n, "grad") == 0) {
+        err("nested grad() is not supported");
+        out += "sb_c(0.0f)";
+        break;
+      }
+      // Only intrinsics with an sbd_* chain rule in the prelude may appear
+      // in a differentiated expression.
+      static const char *kDualIntrinsics[] = {
+          "sin", "cos", "sqrt", "abs", "dot", "length", "mix", "floor", "fract"};
+      bool known = false;
+      for (const char *k : kDualIntrinsics) known = known || std::strcmp(n, k) == 0;
+      if (!known) {
+        errf("'%s' has no derivative rule inside grad()", n);
+        out += "sb_c(0.0f)";
+        break;
+      }
       out += "sbd_"; out += n; out += "(";
       for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
       out += ")"; break;
@@ -308,13 +376,38 @@ struct Emit {
       break;
     }
     case StmtKind::DeclLocal:
+      if (dualBody && (s.declType == TypeKind::Float || s.declType == TypeKind::Float3)) {
+        writeIndent();
+        out += (s.declType == TypeKind::Float) ? "sbdual" : "sbdual3";
+        out += " "; out += s.name;
+        if (s.expr) { out += " = "; emitDual(*s.expr); }
+        out += ";\n"; locals.append(LocalVar{s.name, /*dual=*/true});
+        break;
+      }
       writeIndent();
       out += (s.declType == TypeKind::Struct) ? s.declStructName.c_str() : clType(s.declType);
       out += " "; out += s.name;
       if (s.expr) { out += " = "; emitExpr(*s.expr); }
-      out += ";\n"; locals.append(s.name);
+      out += ";\n"; locals.append(LocalVar{s.name});
       break;
     case StmtKind::Assign:
+      if (dualBody && s.lvalue->kind == ExprKind::Ident && isDualLocal(stringref(s.lvalue->name.c_str()))) {
+        // OpenCL C has no operator overloads: compound assigns on duals expand
+        // through the sbd_* function forms.
+        writeIndent(); out += s.lvalue->name; out += " = ";
+        char opc = assignOpCSym(s.assignOp)[0];
+        if (opc != '=') {
+          const char *f = opc=='+'?"sbd_add":opc=='-'?"sbd_sub":opc=='*'?"sbd_mul":"sbd_div";
+          out += f; out += "("; out += s.lvalue->name; out += ", "; emitDual(*s.rvalue); out += ")";
+        } else emitDual(*s.rvalue);
+        out += ";\n";
+        break;
+      }
+      if (dualBody && s.lvalue->kind == ExprKind::Member && s.lvalue->lhs &&
+          s.lvalue->lhs->kind == ExprKind::Ident && isDualLocal(stringref(s.lvalue->lhs->name.c_str()))) {
+        errf("component assignment to dual '%s' is not differentiable", s.lvalue->lhs->name.c_str());
+        break;
+      }
       writeIndent(); emitExpr(*s.lvalue); out += " "; out += assignOpCSym(s.assignOp); out += " "; emitExpr(*s.rvalue); out += ";\n";
       break;
     case StmtKind::If: {
@@ -359,7 +452,7 @@ struct Emit {
       break;
     }
     case StmtKind::Continue: writeIndent(); out += "return;\n"; break;
-    case StmtKind::Return: writeIndent(); out += "return"; if (s.expr) { out += " "; emitExpr(*s.expr); } out += ";\n"; break;
+    case StmtKind::Return: writeIndent(); out += "return"; if (s.expr) { out += " "; if (dualBody) emitDual(*s.expr); else emitExpr(*s.expr); } out += ";\n"; break;
     case StmtKind::ExprStmt: writeIndent(); emitExpr(*s.expr); out += ";\n"; break;
     case StmtKind::NeighborLoop: {
       int depth = (int)nbStack.size();
@@ -419,7 +512,9 @@ struct Emit {
       write("inline sbdual sbd_abs(sbdual a) { sbdual r; r.v=fabs(a.v); r.d=a.d*(a.v<0.0f?-1.0f:1.0f); return r; }\n");
       write("inline sbdual sbd_dot(sbdual3 a, sbdual3 b) { sbdual r; r.v=dot(a.v,b.v); r.d=a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z; return r; }\n");
       write("inline sbdual sbd_length(sbdual3 a) { return sbd_sqrt(sbd_dot(a,a)); }\n");
-      write("inline sbdual sbd_mix(sbdual a, sbdual b, sbdual t) { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }\n\n");
+      write("inline sbdual sbd_mix(sbdual a, sbdual b, sbdual t) { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }\n");
+      write("inline sbdual sbd_floor(sbdual a) { sbdual r; r.v=floor(a.v); r.d=(float3)(0.0f); return r; }\n");
+      write("inline sbdual sbd_fract(sbdual a) { sbdual r; r.v=a.v-floor(a.v); r.d=a.d; return r; }\n\n");
     }
 
     for (const auto &sd : brush->structs) {
@@ -548,11 +643,44 @@ struct Emit {
     Stage scratch; scratch.kind = StageKind::Reduce;
     for (const auto &p : td.params) scratch.params.append(p);
     currentStage = &scratch;
+    currentTexture = &td;
     if (td.body && td.body->kind == StmtKind::Block) {
       int sl = (int)locals.size();
       for (const auto &c : td.body->stmts) emitStmt(*c);
       while ((int)locals.size() > sl) locals.pop_back();
     }
+    currentTexture = nullptr;
+    currentStage = nullptr; indent = 0;
+    write("}\n\n");
+  }
+
+  // Dual-number twin of a texture eval, called from grad() rewrites. The Eval
+  // emission already reported unsupported textures, so skip those silently.
+  void emitTextureFnDual(const TextureDef &td)
+  {
+    if (td.texParams.size() > 0 || td.usesMap || td.samplerDeps.size() > 0) return;
+    write("inline "); write(td.returnType == TypeKind::Float ? "sbdual" : "sbdual3");
+    write(" "); write(texEvalName(td)); write("_d(");
+    bool first = true;
+    for (const auto &p : td.params) {
+      if (!first) write(", "); first = false;
+      write(p.type == TypeKind::Float ? "sbdual" : "sbdual3"); write(" "); write(p.name);
+    }
+    write(") {\n");
+    indent = 1;
+    Stage scratch; scratch.kind = StageKind::Reduce;
+    for (const auto &p : td.params) scratch.params.append(p);
+    currentStage = &scratch;
+    currentTexture = &td;
+    dualBody = true;
+    int sl = (int)locals.size();
+    for (const auto &p : td.params) locals.append(LocalVar{p.name, /*dual=*/true});
+    if (td.body && td.body->kind == StmtKind::Block) {
+      for (const auto &c : td.body->stmts) emitStmt(*c);
+    }
+    while ((int)locals.size() > sl) locals.pop_back();
+    dualBody = false;
+    currentTexture = nullptr;
     currentStage = nullptr; indent = 0;
     write("}\n\n");
   }
@@ -591,7 +719,10 @@ struct Emit {
     usesNeighbors = hasNeighborLoop(vertexStage->body.get());
 
     emitPrelude();
-    for (const auto &td : brush->textures) emitTextureFn(td);
+    for (const auto &td : brush->textures) {
+      emitTextureFn(td);
+      if (brushUsesGrad()) emitTextureFnDual(td);
+    }
 
     Vector<const Stage *> reduceStages;
     for (const auto &st : brush->stages) if (st.kind == StageKind::Reduce) reduceStages.append(&st);

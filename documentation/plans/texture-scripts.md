@@ -35,10 +35,10 @@ the risks that kept brushes compile-time. Brushes stay compile-time.
   Duals: `sbdual {float v; float3 d}`, `sbdual3 {float3 v; sb_mat3 j}`
   (Jacobian columns = ∂/∂var.{x,y,z}). WGSL/OpenCL use `sbd_*` **functions**
   (no operator overloading) — exactly the shape a C99 backend needs.
-- **Existing gap**: `emitDual`'s Call case has no texture handling —
-  `grad(Rings.eval(p, n), p)` emits invalid `sbd_Rings.eval(...)` today. No
-  shipped kernel hits it. This plan fixes it (T2) rather than merely not
-  regressing it.
+- **Existing gap (closed by T2)**: `emitDual`'s Call case had no texture
+  handling — `grad(Rings.eval(p, n), p)` emitted invalid
+  `sbd_Rings.eval(...)`. It now dispatches to the texture's dual twin
+  (`tex<Name>EvalD`), for inline and imported textures alike.
 - The host-state bitmap texture (`Brush::tex_pixels` + `sampleBrushTex`) is a
   separate mechanism and stays; a bound texture *program* takes precedence.
   `sampleBrushTex` is folded into the `strength()` intrinsic on every backend
@@ -377,8 +377,16 @@ matrix transport already exists.
   `texdraw.sbrush`'s Rings to `rings.stex` as the proof (keep the inline form
   in a test to cover both). Docs: `brush_compute_dsl.md` sharing note flips
   to done.
-- **T2 — autodiff through textures** (above). Independent of runtime compile;
-  fixes the existing inline gap first.
+- **T2 — autodiff through textures** *(done 2026-08-13)*. Statement-level
+  dual transform (`tex<Name>EvalD` / `tex_<name>_eval_d`) on all four
+  emitters; `emitDual` Call dispatch (inline gap closed); exact
+  `sbd_mapPoint` dual; unlisted intrinsics inside `grad()` are emit errors.
+  Every `grad()` brush is emitted `def.accumulable = false` (grad over
+  `v.co` is incompatible with non-accumulate's base-read proxy). Gate:
+  `texgrad.sbrush` (new builtin, grad through the imported Rings unit) +
+  `texgrad_ab.txt` cpp-vs-WGSL + the `texgrad` golden +
+  `test_sbrush_textures` EvalD/whitelist coverage. Sampler chain-rule
+  wrappers (item 3) land with samplers in T4; the tcc A/B waits for T3.
 - **T3 — runtime CPU.** `emit_c.cc` (C99: struct float3 + fns, `sbd_*`
   prelude shared shape with OpenCL emitter); vendor libtcc under
   `extern/tinycc`; compiler linked into the engine lib;

@@ -33,6 +33,7 @@ struct GpuKernelName {
 static const GpuKernelName kGpuKernels[] = {
     {SculptBrushes::DRAW, "draw"},
     {SculptBrushes::TEXDRAW, "texdraw"},
+    {SculptBrushes::TEXGRAD, "texgrad"},
     // Clay family all runs the `plane` kernel (planeoff/planeSide select the
     // variant), mirroring brush_executor's createPlaneBrush dispatch.
     {SculptBrushes::CLAY, "plane"},

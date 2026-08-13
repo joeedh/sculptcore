@@ -78,6 +78,8 @@ struct Emit {
   struct LocalVar {
     string name;
     TypeKind type = TypeKind::Unknown;
+    // Lowered to sbdual/sbdual3 inside a texture EvalD body (dualBody).
+    bool dual = false;
   };
   Vector<LocalVar> locals;
 
@@ -88,6 +90,10 @@ struct Emit {
   bool gradUsed = false;
   // When rewriting a grad body, the float3 variable being differentiated.
   string gradVar;
+  // Set while emitting a texture EvalD body (texture-scripts T2): float/
+  // float3 locals lower to sbdual/sbdual3, and emitExpr projects dual names
+  // through `.v` so conditions/int contexts read primal values.
+  bool dualBody = false;
 
   // Element-bundle identifiers currently in scope (active for_neighbor
   // bindings) — used together with the vertex param to recognize
@@ -125,6 +131,15 @@ struct Emit {
   {
     for (const auto &l : locals) {
       if (string(l.name).operator==(string(name.c_str())))
+        return true;
+    }
+    return false;
+  }
+
+  bool isDualLocal(stringref name) const
+  {
+    for (const auto &l : locals) {
+      if (l.dual && string(l.name).operator==(string(name.c_str())))
         return true;
     }
     return false;
@@ -367,6 +382,12 @@ struct Emit {
       break;
     case ExprKind::Ident: {
       stringref nm(e.name.c_str());
+      if (dualBody && isDualLocal(nm)) {
+        // Value-context read of a dual name inside an EvalD body.
+        out += e.name;
+        out += ".v";
+        break;
+      }
       if (isLocal(nm) || isStageParam(nm)) {
         out += e.name;
       } else if (const TexParam *tp = findTexParam(nm)) {
@@ -488,6 +509,11 @@ struct Emit {
       // and `.d` reads back the float3 ∂expr/∂var. Inline (not a lambda) so
       // the same shape lowers to WGSL/OpenCL, which have no closures.
       if (std::strcmp(e.name.c_str(), "grad") == 0 && e.args.size() == 2) {
+        if (dualBody) {
+          err("grad() cannot appear inside a texture eval differentiated by grad()");
+          out += "float3(0.0f, 0.0f, 0.0f)";
+          break;
+        }
         gradUsed = true;
         string savedVar = gradVar;
         gradVar = render(*e.args[1]);
@@ -660,6 +686,13 @@ struct Emit {
 
   void emitDual(const Expr &e)
   {
+    // EvalD-body params/locals are already dual — read them verbatim;
+    // reseeding would discard the caller's incoming Jacobian.
+    if (dualBody && e.kind == ExprKind::Ident &&
+        isDualLocal(stringref(e.name.c_str()))) {
+      out += e.name;
+      return;
+    }
     if (isGradVar(e)) {
       out += "sb_seed3(";
       emitExpr(e);
@@ -674,12 +707,24 @@ struct Emit {
       out += ")";
       break;
     case ExprKind::Ident:
-      out += "sb_c3(";
+      // In an EvalD body the only non-dual idents are texture params —
+      // scalars, constant wrt the seed.
+      out += dualBody ? "sb_c(" : "sb_c3(";
       emitExpr(e);
       out += ")";
-      break; // float3 const (zero deriv)
+      break; // zero-deriv const
     case ExprKind::Member:
-      if (e.lhs && isGradVar(*e.lhs)) { // var.x/y/z picks a Jacobian row
+      if (dualBody && e.lhs && e.lhs->kind == ExprKind::Ident &&
+          isDualLocal(stringref(e.lhs->name.c_str()))) {
+        // dual3.x/y/z picks a Jacobian row of the already-dual name.
+        out += "sb_comp(";
+        out += e.lhs->name;
+        out += ", ";
+        out += (std::strcmp(e.name.c_str(), "x") == 0   ? "0"
+                : std::strcmp(e.name.c_str(), "y") == 0 ? "1"
+                                                        : "2");
+        out += ")";
+      } else if (e.lhs && isGradVar(*e.lhs)) { // var.x/y/z picks a Jacobian row
         out += "sb_comp(sb_seed3(";
         emitExpr(*e.lhs);
         out += "), ";
@@ -723,6 +768,55 @@ struct Emit {
           emitDual(*e.args[i]);
         }
         out += ")";
+        break;
+      }
+      // Texture call under grad() — dispatch to the statement-level dual
+      // eval (texture-scripts T2). Args arrive as duals already seeded by
+      // the caller; the body propagates without reseeding.
+      if (const TextureDef *td = findTextureCall(stringref(n))) {
+        if (currentTexture) {
+          errf("texture '%s' cannot call another texture", currentTexture->name.c_str());
+        }
+        out += "tex";
+        out += capitalize(td->name);
+        out += "EvalD(";
+        for (int i = 0; i < (int)e.args.size(); i++) {
+          if (i)
+            out += ", ";
+          emitDual(*e.args[i]);
+        }
+        out += ", ";
+        out += td->slabSize > 0 ? texDefaultsName(*td) : string("nullptr");
+        out += ", ";
+        out += td->usesMap ? "sb_texctx" : "nullptr";
+        out += ")";
+        break;
+      }
+      if (std::strcmp(n, "mapPoint") == 0 && e.args.size() == 1) {
+        if (!currentTexture) {
+          err("mapPoint() is only valid inside a texture eval");
+        }
+        out += "sbd_mapPoint(sb_texctx, ";
+        emitDual(*e.args[0]);
+        out += ")";
+        break;
+      }
+      if (std::strcmp(n, "grad") == 0) {
+        err("nested grad() is not supported");
+        out += "sb_c(0.0f)";
+        break;
+      }
+      // Chain-rule coverage is exactly the sbd_* prelude. Everything else —
+      // ramp .sample, samplers (T4's sbd_hs_* wrappers), unlisted intrinsics
+      // — has no derivative rule yet; error instead of emitting a broken call.
+      static const char *const kDualIntrinsics[] = {
+          "sin", "cos", "sqrt", "abs", "dot", "length", "mix", "floor", "fract"};
+      bool known = false;
+      for (const char *k : kDualIntrinsics)
+        known = known || std::strcmp(n, k) == 0;
+      if (!known) {
+        errf("'%s' has no derivative rule inside grad()", n);
+        out += "sb_c(0.0f)";
         break;
       }
       out += "sbd_";
@@ -774,6 +868,19 @@ struct Emit {
     }
     case StmtKind::DeclLocal:
       writeIndent();
+      if (dualBody && (s.declType == TypeKind::Float || s.declType == TypeKind::Float3)) {
+        // EvalD body: float/float3 locals carry their derivative.
+        out += s.declType == TypeKind::Float ? "sbdual" : "sbdual3";
+        out += " ";
+        out += s.name;
+        if (s.expr) {
+          out += " = ";
+          emitDual(*s.expr);
+        }
+        out += ";\n";
+        locals.append(LocalVar{s.name, s.declType, /*dual=*/true});
+        break;
+      }
       emitTypeRef(s.declType, s.declStructName);
       out += " ";
       out += s.name;
@@ -785,6 +892,38 @@ struct Emit {
       locals.append(LocalVar{s.name, s.declType});
       break;
     case StmtKind::Assign:
+      if (dualBody && s.lvalue->kind == ExprKind::Ident &&
+          isDualLocal(stringref(s.lvalue->name.c_str()))) {
+        // Dual assignment. Compound ops expand to `x = x <op> (rhs)` — the
+        // prelude defines only the binary operators.
+        writeIndent();
+        out += s.lvalue->name;
+        out += " = ";
+        const char *op = assignOpCSym(s.assignOp);
+        if (op[0] != '=') {
+          out += s.lvalue->name;
+          out += " ";
+          char b[2] = {op[0], 0};
+          out += b;
+          out += " (";
+          emitDual(*s.rvalue);
+          out += ")";
+        } else {
+          emitDual(*s.rvalue);
+        }
+        out += ";\n";
+        break;
+      }
+      if (dualBody && s.lvalue->kind == ExprKind::Member && s.lvalue->lhs &&
+          s.lvalue->lhs->kind == ExprKind::Ident &&
+          isDualLocal(stringref(s.lvalue->lhs->name.c_str())))
+      {
+        // Writing one component would need Jacobian row surgery — no
+        // shipped eval justifies that yet.
+        errf("component assignment to dual '%s' is not differentiable",
+             s.lvalue->lhs->name.c_str());
+        break;
+      }
       writeIndent();
       emitExpr(*s.lvalue);
       out += " ";
@@ -907,7 +1046,11 @@ struct Emit {
       out += "return";
       if (s.expr) {
         out += " ";
-        emitExpr(*s.expr);
+        if (dualBody) {
+          emitDual(*s.expr);
+        } else {
+          emitExpr(*s.expr);
+        }
       }
       out += ";\n";
       break;
@@ -1260,6 +1403,61 @@ struct Emit {
     write("}\n\n");
   }
 
+  /**
+   * Dual-number twin of emitTextureFn: the same eval body re-emitted with
+   * float/float3 locals lowered to sbdual/sbdual3 and expressions routed
+   * through emitDual, so grad() can differentiate through a texture call.
+   * Value-context expressions (conditions, int locals, indices) still go
+   * through emitExpr, which projects dual names back to `.v`.
+   */
+  void emitTextureFnDual(const TextureDef &td)
+  {
+    write("static inline ");
+    write(td.returnType == TypeKind::Float ? "sbdual" : "sbdual3");
+    write(" tex");
+    write(capitalize(td.name));
+    write("EvalD(");
+    for (int i = 0; i < (int)td.params.size(); i++) {
+      if (i > 0)
+        write(", ");
+      write(td.params[i].type == TypeKind::Float ? "sbdual" : "sbdual3");
+      write(" ");
+      write(td.params[i].name);
+    }
+    write(", const float *sb_tex_params, const TexEvalCtx *sb_texctx)\n{\n");
+    write("  using namespace litestl::math;\n");
+    for (const auto &p : td.params) {
+      write("  (void)");
+      write(p.name);
+      write(";\n");
+    }
+    write("  (void)sb_tex_params; (void)sb_texctx;\n");
+    indent = 1;
+    Stage scratch;
+    scratch.kind = StageKind::Reduce;
+    for (const auto &p : td.params)
+      scratch.params.append(p);
+    currentStage = &scratch;
+    currentTexture = &td;
+    dualBody = true;
+    int savedLocals = (int)locals.size();
+    // Params keep their DSL TypeKind but carry duals — the dual flag is what
+    // routes their reads through emitDual / `.v` projection.
+    for (const auto &p : td.params)
+      locals.append(LocalVar{p.name, p.type, /*dual=*/true});
+    if (td.body && td.body->kind == StmtKind::Block) {
+      for (const auto &c : td.body->stmts)
+        emitStmt(*c);
+    }
+    while ((int)locals.size() > savedLocals)
+      locals.pop_back();
+    dualBody = false;
+    currentTexture = nullptr;
+    currentStage = nullptr;
+    indent = 0;
+    write("}\n\n");
+  }
+
   // Defaults slab + eval fn for one texture. Imports are include-guarded:
   // several brushes in one TU may pull the same texture, and every emission
   // of it is byte-identical (same .stex parse), so first-wins is safe.
@@ -1278,6 +1476,23 @@ struct Emit {
       write("#endif  // SB_TEX_DEF_");
       write(td.name);
       write("\n\n");
+    }
+    // EvalD guards separately from Eval: a non-grad brush emitting this
+    // texture first must not swallow a later grad brush's EvalD.
+    if (brushUsesGrad()) {
+      if (td.imported) {
+        write("#ifndef SB_TEX_DEFD_");
+        write(td.name);
+        write("\n#define SB_TEX_DEFD_");
+        write(td.name);
+        write("\n");
+      }
+      emitTextureFnDual(td);
+      if (td.imported) {
+        write("#endif  // SB_TEX_DEFD_");
+        write(td.name);
+        write("\n\n");
+      }
     }
   }
 
@@ -1584,6 +1799,9 @@ struct Emit {
     // rewrite resolves. A scalar dual is (v, ∂v); a float3 dual carries a 3-col
     // Jacobian. Overloads + sbd_* chain rules drive the rewrite in emitDual.
     if (brushUsesGrad()) {
+      // Guarded like SB_TEX_DEF_: two grad brushes aggregated into one TU
+      // (brushes/all.h) must not redefine the prelude.
+      write("#ifndef SB_DUAL_PRELUDE\n#define SB_DUAL_PRELUDE\n");
       write("struct sbdual { float v; float3 d; };\n");
       write("struct sbdual3 { float3 v; float3 dx, dy, dz; };\n");
       write("inline sbdual sb_c(float x){return {x,float3(0,0,0)};}\n");
@@ -1598,7 +1816,8 @@ struct Emit {
             "1]),float3(x.d[2],y.d[2],z.d[2])};}\n");
       write("inline sbdual operator+(sbdual a,sbdual b){return {a.v+b.v,a.d+b.d};}\n");
       write("inline sbdual operator-(sbdual a,sbdual b){return {a.v-b.v,a.d-b.d};}\n");
-      write("inline sbdual operator-(sbdual a){return {-a.v,-a.d};}\n");
+      // litestl float3 has no unary minus, only the component-wise binaries.
+      write("inline sbdual operator-(sbdual a){return {-a.v,a.d*-1.0f};}\n");
       write("inline sbdual operator*(sbdual a,sbdual b){return "
             "{a.v*b.v,a.d*b.v+b.d*a.v};}\n");
       write("inline sbdual operator/(sbdual a,sbdual b){return "
@@ -1612,10 +1831,47 @@ struct Emit {
       write("inline sbdual sbd_abs(sbdual a){return "
             "{std::abs(a.v),a.d*(a.v<0?-1.0f:1.0f)};}\n");
       write("inline sbdual sbd_dot(sbdual3 a,sbdual3 b){return "
-            "{a.v.dot(b.v),a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a."
-            "v.z};}\n");
+            "{a.v.dot(b.v),a.dx*b.v[0]+b.dx*a.v[0]+a.dy*b.v[1]+b.dy*a.v[1]+a.dz*b.v[2]+b."
+            "dz*a.v[2]};}\n");
       write("inline sbdual sbd_length(sbdual3 a){return sbd_sqrt(sbd_dot(a,a));}\n");
-      write("inline sbdual sbd_mix(sbdual a,sbdual b,sbdual t){return a+(b-a)*t;}\n\n");
+      write("inline sbdual sbd_mix(sbdual a,sbdual b,sbdual t){return a+(b-a)*t;}\n");
+      write("inline sbdual sbd_floor(sbdual a){return "
+            "{std::floor(a.v),float3(0,0,0)};}\n");
+      write("inline sbdual sbd_fract(sbdual a){return {a.v-std::floor(a.v),a.d};}\n");
+      write("#endif  // SB_DUAL_PRELUDE\n\n");
+      if (brush->textures.size() > 0 && anyTextureUsesMap()) {
+        // Exact quotient-rule dual of texMapPoint: q = M*(p,1), value r.v
+        // mirrors texMapPoint's arithmetic bitwise; each Jacobian column runs
+        // c through M's linear part with the same divisor-clamp mask g.
+        write("#ifndef SB_DUAL_MAPPOINT\n#define SB_DUAL_MAPPOINT\n");
+        write("inline float3 sbd_mapCol(const float *m, float3 c, float3 q, float d, "
+              "float g){\n");
+        write("  float qx = m[0]*c[0] + m[1]*c[1] + m[2]*c[2];\n");
+        write("  float qy = m[4]*c[0] + m[5]*c[1] + m[6]*c[2];\n");
+        write("  float qz = m[8]*c[0] + m[9]*c[1] + m[10]*c[2];\n");
+        write("  float qw = (m[12]*c[0] + m[13]*c[1] + m[14]*c[2]) * g;\n");
+        write("  return float3((qx*d - q[0]*qw)/(d*d), (qy*d - q[1]*qw)/(d*d), "
+              "(qz*d - q[2]*qw)/(d*d));\n");
+        write("}\n");
+        write("inline sbdual3 sbd_mapPoint(const TexEvalCtx *ctx, sbdual3 p){\n");
+        write("  if (!ctx) { return p; }\n");
+        write("  const float *m = ctx->map_matrix;\n");
+        write("  float x = m[0]*p.v[0] + m[1]*p.v[1] + m[2]*p.v[2] + m[3];\n");
+        write("  float y = m[4]*p.v[0] + m[5]*p.v[1] + m[6]*p.v[2] + m[7];\n");
+        write("  float z = m[8]*p.v[0] + m[9]*p.v[1] + m[10]*p.v[2] + m[11];\n");
+        write("  float w = m[12]*p.v[0] + m[13]*p.v[1] + m[14]*p.v[2] + m[15];\n");
+        write("  float g = std::abs(w) > 1e-6f ? 1.0f : 0.0f;\n");
+        write("  float d = g > 0.0f ? w : 1.0f;\n");
+        write("  float3 q = float3(x, y, z);\n");
+        write("  sbdual3 r;\n");
+        write("  r.v = float3(x / d, y / d, z / d);\n");
+        write("  r.dx = sbd_mapCol(m, p.dx, q, d, g);\n");
+        write("  r.dy = sbd_mapCol(m, p.dy, q, d, g);\n");
+        write("  r.dz = sbd_mapCol(m, p.dz, q, d, g);\n");
+        write("  return r;\n");
+        write("}\n");
+        write("#endif  // SB_DUAL_MAPPOINT\n\n");
+      }
     }
 
     // Texture eval functions (inline + `use texture` imports) — pure, at
@@ -1841,9 +2097,12 @@ struct Emit {
     // default; the executor runs the AccumOrig instantiation when non-accumulate
     // mode is on for the stroke. @paint writes attributes and @unbounded fields
     // are anchored, so from-base re-derivation is meaningless for both; an
-    // @incremental kernel is driven by a per-dab delta, so it has no base.
+    // @incremental kernel is driven by a per-dab delta, so it has no base; a
+    // grad() kernel differentiates over v.co, which the base-read proxy breaks.
     write("  def.accumulable = ");
-    write((!brush->isPaint && !brush->isUnbounded && !brush->isIncremental) ? "true" : "false");
+    write((!brush->isPaint && !brush->isUnbounded && !brush->isIncremental && !brushUsesGrad()) ?
+              "true" :
+              "false");
     write(";\n");
     // `@relaxation`: relaxes the surface rather than displacing it, so it stays
     // on AccumLive and never accumulates into `.brush.disp.vec`.

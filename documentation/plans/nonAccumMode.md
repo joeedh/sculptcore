@@ -289,7 +289,10 @@ inert when the cache is absent or non-accumulate is off.
 - **In:** non-global deformation brushes — draw, inflate, pinch, plane
   (clay/scrape/fill), sharp, smooth, bsmooth, texdraw, wingscrape.
 - **Excluded:** kelvinlet, pose (global); mask, color, polygroup (paint);
-  graddraw (demo `grad()` over `v.co`). These always take the `AccumLive` path.
+  every `grad()` brush — graddraw (demo), texgrad — since grad over `v.co`
+  is incompatible with the base-read proxy (codegen emits
+  `def.accumulable = false` for `brushUsesGrad()`). These always take the
+  `AccumLive` path.
 
 ## Implementation order (waves)
 *(Prereq: rebase onto `sbrush-dynamic-uniforms` Waves 0–4.)*
