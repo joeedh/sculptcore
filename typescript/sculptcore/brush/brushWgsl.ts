@@ -129,12 +129,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -225,6 +219,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -418,12 +418,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -514,6 +508,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -713,12 +713,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -809,6 +803,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -969,12 +969,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -1067,6 +1061,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
 }
 
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
 @compute @workgroup_size(64)
 fn main(
     @builtin(local_invocation_index) lid: u32,
@@ -1081,7 +1081,6 @@ fn main(
   var v_mask: f32 = mask_buf[sb_vidx];
 
   var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
-  s *= brush_sample_tex(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
   }
@@ -1220,12 +1219,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -1316,6 +1309,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -1477,12 +1476,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -1573,6 +1566,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -1801,12 +1800,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -1897,6 +1890,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -2048,12 +2047,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -2144,6 +2137,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 struct sbdual { v: f32, d: vec3<f32> };
@@ -2318,12 +2317,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -2414,6 +2407,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -2572,12 +2571,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -2670,6 +2663,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
 }
 
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
 fn prep(a: ptr<function, f32>, b: ptr<function, f32>) {
   (*a) = (((1.0 + brush_u.nu)) / ((2.0 * brush_u.mu)));
   (*b) = ((*a) / ((4.0 * ((1.0 - brush_u.nu)))));
@@ -2704,7 +2703,7 @@ fn main(
     norm = 9.9999999999999995e-07;
   }
   disp = (disp * ((brush_u.radius / norm)));
-  v_co += ((disp * brush_masks(sb_vidx, v_mask)) * brush_unbounded_window(v_co));
+  v_co += (disp * (((brush_masks(sb_vidx, v_mask) * brush_unbounded_window(v_co)) * brush_sample_tex(v_co, ctx_u.surfaceNo))));
 
   let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;
   dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
@@ -2837,12 +2836,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -2935,6 +2928,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
 }
 
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
 @compute @workgroup_size(64)
 fn main(
     @builtin(local_invocation_index) lid: u32,
@@ -2950,7 +2949,6 @@ fn main(
   var v_slayer: vec3<f32> = attr_slayer[sb_vidx];
 
   var s: f32 = (brush_strength(v_co) * brush_masks(sb_vidx, v_mask));
-  s *= brush_sample_tex(v_co, ctx_u.surfaceNo);
   if ((s == 0.0)) {
     return;
   }
@@ -3088,12 +3086,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -3184,6 +3176,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -3338,12 +3336,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -3434,6 +3426,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -3594,12 +3592,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -3690,6 +3682,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -3829,12 +3827,6 @@ fn brush_falloff_dist(delta: vec3<f32>) -> f32 {
   return length(delta) * sb_inv_r;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 { return 1.0; }
 
 fn brush_masks(vid: u32, m: f32) -> f32 { return 1.0 - m; }
@@ -3921,6 +3913,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -4066,12 +4064,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -4162,6 +4154,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -4323,12 +4321,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -4421,6 +4413,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
 }
 
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
+}
+
 @compute @workgroup_size(64)
 fn main(
     @builtin(local_invocation_index) lid: u32,
@@ -4438,7 +4436,6 @@ fn main(
   if ((s == 0.0)) {
     return;
   }
-  s *= brush_sample_tex(v_co, ctx_u.surfaceNo);
   v_co += (((ctx_u.surfaceNo * s) * brush_u.radius) * 0.5);
   var d: vec3<f32> = (v_co - ctx_u.surfacePos);
   var t: vec3<f32> = (d - (ctx_u.surfaceNo * dot(d, ctx_u.surfaceNo)));
@@ -4588,12 +4585,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -4684,6 +4675,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -4845,12 +4842,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -4941,6 +4932,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)
@@ -5103,12 +5100,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -5199,6 +5190,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 fn tex_rings_eval(p: vec3<f32>, n: vec3<f32>) -> f32 {
@@ -5367,12 +5364,6 @@ fn brush_view_normal(vid: u32) -> f32 {
   return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;
 }
 
-fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
-  let sb_s = brush_u.strength * brush_falloff(sb_t);
-  return select(sb_s, -sb_s, brush_u.invert != 0u);
-}
-
 fn brush_automasks(vid: u32) -> f32 {
   return automask[vid] * brush_view_normal(vid);
 }
@@ -5463,6 +5454,12 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;
   let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;
   return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;
+}
+
+fn brush_strength(p: vec3<f32>) -> f32 {
+  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
+  return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
 
 @compute @workgroup_size(64)

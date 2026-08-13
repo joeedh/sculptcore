@@ -69,7 +69,7 @@ static void kelvinlet(CommandCtx<TYPES> &ctx)
       norm = 9.9999999999999995e-07f;
     }
     disp = (disp * ((ctx.brush.radius / norm)));
-    v.co += ((disp * ctx.masks(v.v, v.mask)) * ctx.unboundedWindow(v.co));
+    v.co += (disp * (((ctx.masks(v.v, v.mask) * ctx.unboundedWindow(v.co)) * ctx.sampleBrushTex(v.co, ctx.surfaceNo))));
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }

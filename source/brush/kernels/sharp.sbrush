@@ -11,7 +11,6 @@ brush Sharp {
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * masks();
     if (s == 0.0) { continue; }
-    s *= sampleBrushTex(v.co, surfaceNo);
     // Push along the brush surface normal (positive = ridge, inverted = crease)
     // so the sharp brush actually displaces the surface, then pinch the result
     // toward the brush axis to keep the feature crisp.

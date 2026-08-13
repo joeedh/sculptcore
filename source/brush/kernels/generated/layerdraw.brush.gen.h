@@ -29,7 +29,6 @@ static void layerdraw(CommandCtx<TYPES> &ctx)
   auto *__attr_slayer = ctx.template boundAttr<float3>("slayer"); (void)__attr_slayer;
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
     float s = (ctx.strength(v.co) * ctx.masks(v.v, v.mask));
-    s *= ctx.sampleBrushTex(v.co, ctx.surfaceNo);
     if ((s == 0.0f)) {
       continue;
     }

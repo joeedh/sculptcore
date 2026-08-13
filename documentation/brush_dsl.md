@@ -22,7 +22,6 @@ brush Draw {
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * masks();
-    s *= sampleBrushTex(v.co, surfaceNo);  // 1.0 when no texture is bound
     if (s == 0.0) {
       continue;                            // skip this vertex
     }
@@ -288,7 +287,7 @@ a per-emitter special form rather than a table entry. Current set:
 
 | Intrinsic | Signature | Notes |
 |---|---|---|
-| `strength(co)` | `float3 → float` | brush falloff strength at a world position — the `strength*falloff` blend (`brush.strength × falloffEval(t)`). Radius is **not** folded in; a kernel that wants radius-proportional displacement multiplies by the `radius` uniform itself (e.g. `draw` does `… * radius * 0.5`). Spatial + scalar **only** — no masking term, so pair it with `masks()` and each factor applies exactly once. Sign-flipped when the brush is inverted (how `mask` erases). Forbidden in an `@unbounded` kernel |
+| `strength(co)` | `float3 → float` | brush falloff strength at a world position — the `strength*falloff*texture` blend (`brush.strength × falloffEval(t) × sampleBrushTex(co, surfaceNo)`). Radius is **not** folded in; a kernel that wants radius-proportional displacement multiplies by the `radius` uniform itself (e.g. `draw` does `… * radius * 0.5`). Spatial + scalar **only** — no masking term, so pair it with `masks()` and each factor applies exactly once. Sign-flipped when the brush is inverted (how `mask` erases). Forbidden in an `@unbounded` kernel |
 | `masks()` | `→ float` | all per-vertex masking factors: `automasks() × (1 - painted mask)`. The common case — pair it with `strength(co)`. Argument-free on purpose: nothing here depends on position, so the signature cannot silently regrow a falloff |
 | `automasks()` | `→ float` | cavity automask × view-normal only, *without* the painted mask. For kernels that themselves **write** `v.mask` |
 | `unbounded_window(co)` | `float3 → float` | the C1 cutoff for an `@unbounded` field: 1 inside `0.8R`, smoothstepped to exactly 0 at `R = radius × unboundedExtent` — the same R the host filters spatial nodes against, so the field dies before the region boundary. `extent ≤ 0` disables it (returns 1). Required in every `@unbounded` kernel and forbidden everywhere else (both sema-enforced) |
@@ -300,7 +299,7 @@ a per-emitter special form rather than a table entry. Current set:
 In a `face` stage there is no vertex index, so `automasks()` and the painted-mask
 term are both identity.
 | `falloff(t)` | `float → float` | raw curve sample of normalized distance `t`; lower-level than `strength` |
-| `sampleBrushTex(co, no)` | `float3, float3 → float` | brush-texture modulation per the brush's coord space; returns `1.0` when no texture is bound |
+| `sampleBrushTex(co, no)` | `float3, float3 → float` | brush-texture modulation per the brush's coord space; returns `1.0` when no texture is bound. Already folded into `strength(co)` — an explicit call is only needed in `@unbounded` kernels, which cannot call `strength` |
 | `length` / `distance` | `float3[,float3] → float` | |
 | `dot` | `float3, float3 → float` | |
 | `normalize` / `cross` | `float3[,float3] → float3` | |

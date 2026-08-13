@@ -36,11 +36,12 @@ namespace {
 #define ARG3(A, B, C)   {A, B, C,                                  TypeKind::Unknown}
 
 static IntrinsicDef sIntrinsicsRaw[] = {
-  // strength(co) — brush slider x distance falloff at a world-space position,
-  // invert-signed. Spatial + scalar only: the per-vertex masking factors are
-  // automasks()/masks() below, so `strength(co) * masks()` applies each factor
-  // exactly once. Kernels whose field has unbounded support (no radius at which
-  // it dies) must not call this — the field is its own falloff.
+  // strength(co) — brush slider x distance falloff x brush-texture sample at a
+  // world-space position, invert-signed. Spatial + scalar only: the per-vertex
+  // masking factors are automasks()/masks() below, so `strength(co) * masks()`
+  // applies each factor exactly once. Kernels whose field has unbounded support
+  // (no radius at which it dies) must not call this — the field is its own
+  // falloff — and multiply sampleBrushTex() explicitly for texture parity.
   INTR_CWGO("strength", TypeKind::Float,  1, ARG1(TypeKind::Float3),
           "ctx.strength($0)",         "brush_strength($0)",     "brush_strength($0)", "brush_strength($0)"),
 
@@ -76,8 +77,10 @@ static IntrinsicDef sIntrinsicsRaw[] = {
   // sampleBrushTex(co, no) — brush-texture modulation at world point `co`
   // with surface normal `no`, mapped to UV per the brush's TexCoordSpace.
   // Returns 1.0 when no texture is bound, so kernels multiply by it freely.
-  // C++ delegates to CommandCtx::sampleBrushTex; WGSL inlines via the
-  // brush_sample_tex helper emit_wgsl writes once per kernel.
+  // Already folded into strength(), so only kernels that cannot call
+  // strength() (@unbounded) sample it explicitly. C++ delegates to
+  // CommandCtx::sampleBrushTex; WGSL inlines via the brush_sample_tex helper
+  // emit_wgsl writes once per kernel.
   INTR_CWGO("sampleBrushTex", TypeKind::Float, 2, ARG2(TypeKind::Float3, TypeKind::Float3),
           "ctx.sampleBrushTex($0, $1)", "brush_sample_tex($0, $1)", "brush_sample_tex($0, $1)", "brush_sample_tex($0, $1)"),
 

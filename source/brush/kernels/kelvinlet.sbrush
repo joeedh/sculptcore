@@ -27,6 +27,8 @@ brush Kelvinlet {
   // (so DSL `ctx float3 X` would emit `ctx.brush.X`, which is exactly
   // what we want here).
   ctx float3 grabFrom, grabTo;
+  // Brush-center surface normal, needed only as sampleBrushTex's `no` arg.
+  ctx float3 surfaceNo;
 
   // Host stage runs once per dab on the CPU before any per-node work.
   // For kelvinlet, the only thing host needs to do is keep mu/nu inside
@@ -75,7 +77,9 @@ brush Kelvinlet {
     disp = disp * (radius / norm);
     // No strength(): the kelvinlet field IS its own falloff. unbounded_window()
     // is what takes it to exactly zero at the host's node-filter radius (see
-    // @unbounded); masks() keeps automask / view-normal / painted mask acting.
-    v.co += disp * masks() * unbounded_window(v.co);
+    // @unbounded); masks() keeps automask / view-normal / painted mask acting,
+    // and the explicit sampleBrushTex() keeps texture parity with bounded
+    // kernels, which get it inside strength().
+    v.co += disp * (masks() * unbounded_window(v.co) * sampleBrushTex(v.co, surfaceNo));
   }
 }

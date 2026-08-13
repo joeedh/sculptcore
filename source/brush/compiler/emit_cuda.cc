@@ -809,11 +809,6 @@ struct Emit {
     write("  }\n");
     write("  return sc_length(delta) * sb_inv_r;\n");
     write("}\n\n");
-    write("__device__ float brush_strength(float3 p) {\n");
-    write("  float sb_t = 1.0f - fminf(brush_falloff_dist(p - ctx_u.surfacePos), 1.0f);\n");
-    write("  float sb_s = brush_u.strength * brush_falloff(sb_t);\n");
-    write("  return brush_u.invert != 0u ? -sb_s : sb_s;\n");
-    write("}\n\n");
     // No automask/view-normal binding on this backend yet, so masks() degrades
     // to the painted layer alone and automasks() to identity (the intrinsic
     // table emits 1.0f directly for the latter). `m` is the kernel's live mask.
@@ -891,6 +886,13 @@ struct Emit {
     write("  float sb_a = sb_p00 * (1.0f - sb_tx) + sb_p10 * sb_tx;\n");
     write("  float sb_b = sb_p01 * (1.0f - sb_tx) + sb_p11 * sb_tx;\n");
     write("  return sb_a * (1.0f - sb_ty) + sb_b * sb_ty;\n");
+    write("}\n\n");
+    // Spatial + scalar term only (slider x falloff x brush texture); emitted
+    // after brush_sample_tex (define-before-use). Mirrors CommandCtx::strength.
+    write("__device__ float brush_strength(float3 p) {\n");
+    write("  float sb_t = 1.0f - fminf(brush_falloff_dist(p - ctx_u.surfacePos), 1.0f);\n");
+    write("  float sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);\n");
+    write("  return brush_u.invert != 0u ? -sb_s : sb_s;\n");
     write("}\n\n");
   }
 

@@ -35,7 +35,6 @@ static void sharp(CommandCtx<TYPES> &ctx)
     if ((s == 0.0f)) {
       continue;
     }
-    s *= ctx.sampleBrushTex(v.co, ctx.surfaceNo);
     v.co += (((ctx.surfaceNo * s) * ctx.brush.radius) * 0.5f);
     float3 d = (v.co - ctx.surfacePos);
     float3 t = (d - (ctx.surfaceNo * (d).dot(ctx.surfaceNo)));

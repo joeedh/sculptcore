@@ -13,7 +13,6 @@ brush Layerdraw {
 
   vertex void apply(inout Vertex v) {
     float s = strength(v.co) * masks();
-    s *= sampleBrushTex(v.co, surfaceNo);
     if (s == 0.0) {
       continue;
     }

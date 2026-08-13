@@ -1020,13 +1020,6 @@ struct Emit {
       write("  return (ctx_u.vn_limit - sb_ang) / ctx_u.vn_falloff;\n");
       write("}\n\n");
     }
-    // Spatial + scalar term only; the masking factors are brush_automasks /
-    // brush_masks below. Mirrors CommandCtx::strength in brush_command.h.
-    write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
-    write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
-    write("  let sb_s = brush_u.strength * brush_falloff(sb_t);\n");
-    write("  return select(sb_s, -sb_s, brush_u.invert != 0u);\n");
-    write("}\n\n");
     // `vid` is the current vertex index (threaded by the `$v` placeholder). Face
     // kernels have neither automask nor a painted mask, so both collapse to 1.0
     // there. Mirrors CommandCtx::automasks / CommandCtx::masks.
@@ -1140,6 +1133,15 @@ struct Emit {
     write("  let sb_a = sb_p00 * (1.0 - sb_tx) + sb_p10 * sb_tx;\n");
     write("  let sb_b = sb_p01 * (1.0 - sb_tx) + sb_p11 * sb_tx;\n");
     write("  return sb_a * (1.0 - sb_ty) + sb_b * sb_ty;\n");
+    write("}\n\n");
+    // Spatial + scalar term only (slider x falloff x brush texture); the
+    // masking factors are brush_automasks / brush_masks above. Emitted after
+    // brush_sample_tex to keep the module declaration-ordered. Mirrors
+    // CommandCtx::strength in brush_command.h.
+    write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
+    write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
+    write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);\n");
+    write("  return select(sb_s, -sb_s, brush_u.invert != 0u);\n");
     write("}\n\n");
   }
 

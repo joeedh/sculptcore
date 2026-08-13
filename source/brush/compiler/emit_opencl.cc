@@ -482,11 +482,6 @@ struct Emit {
     write("  if (bu->falloff_shape == 2u) return fabs(dot(d, bu->falloff_dir)) * ir;\n");
     write("  return length(d) * ir;\n");
     write("}\n");
-    write("inline float sb_strength(__constant BrushUniforms* bu, __constant CtxUniforms* cu, __constant float* lut, float3 p) {\n");
-    write("  float t = 1.0f - fmin(sb_falloff_dist(bu, p - cu->surfacePos), 1.0f);\n");
-    write("  float s = bu->strength * sb_falloff(bu, lut, t);\n");
-    write("  return bu->invert != 0u ? -s : s;\n");
-    write("}\n");
     write("inline float2 sb_stroke_uv(__constant BrushUniforms* bu, __global StrokeSample* sp, float3 co) {\n");
     write("  if (bu->stroke_path_count == 0u) return (float2)(0.0f, 0.0f);\n");
     write("  if (bu->stroke_path_count == 1u) return (float2)(sp[0].arclen, length(co - sp[0].pos));\n");
@@ -514,9 +509,17 @@ struct Emit {
     write("  int x1c=(int)clamp(x0+1.0f,0.0f,(float)(w-1)), y1c=(int)clamp(y0+1.0f,0.0f,(float)(h-1));\n");
     write("  float p00=tex[y0c*w+x0c], p10=tex[y0c*w+x1c], p01=tex[y1c*w+x0c], p11=tex[y1c*w+x1c];\n");
     write("  return mix(mix(p00,p10,tx), mix(p01,p11,tx), ty);\n");
+    write("}\n");
+    // Spatial + scalar term only (slider x falloff x brush texture); defined
+    // after sb_sample_tex (define-before-use). Mirrors CommandCtx::strength.
+    write("inline float sb_strength(__constant BrushUniforms* bu, __constant CtxUniforms* cu, __constant float* lut,\n");
+    write("                         __global StrokeSample* sp, __global float* tex, int w, int h, float3 p) {\n");
+    write("  float t = 1.0f - fmin(sb_falloff_dist(bu, p - cu->surfacePos), 1.0f);\n");
+    write("  float s = bu->strength * sb_falloff(bu, lut, t) * sb_sample_tex(bu, cu, sp, tex, w, h, p, cu->surfaceNo);\n");
+    write("  return bu->invert != 0u ? -s : s;\n");
     write("}\n\n");
     write("#define brush_falloff(t) sb_falloff(brush_u, falloff_lut, (t))\n");
-    write("#define brush_strength(p) sb_strength(brush_u, ctx_u, falloff_lut, (p))\n");
+    write("#define brush_strength(p) sb_strength(brush_u, ctx_u, falloff_lut, stroke_path, brush_tex, brush_tex_w, brush_tex_h, (p))\n");
     // No automask/view-normal binding on this backend yet, so masks() degrades
     // to the painted layer alone (automasks() emits 1.0f from the table).
     write("#define brush_masks(vid, m) (1.0f - (m))\n");

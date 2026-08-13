@@ -288,14 +288,16 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     return executor.template makeVertexIter<AccMode>(node);
   }
   auto faceIter(node_type &node) { return executor.makeFaceIter(node); }
-  /** Spatial + scalar term only: slider x distance falloff, invert-signed. The
-   * per-vertex masking factors live in automasks()/masks() — a kernel that wants
-   * them multiplies one of those in. Kernels with unbounded support (whose field
-   * is its own falloff) must not call this at all. */
+  /** Spatial + scalar term only: slider x distance falloff x brush texture,
+   * invert-signed. The per-vertex masking factors live in automasks()/masks() —
+   * a kernel that wants them multiplies one of those in. Kernels with unbounded
+   * support (whose field is its own falloff) must not call this at all; they
+   * multiply sampleBrushTex() explicitly to keep texture parity. */
   float strength(float3 co)
   {
     float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
     float s = brush.strength * brush.falloffEval(t);
+    s *= sampleBrushTex(co, surfaceNo);
     return brush.invert ? -s : s;
   }
 
