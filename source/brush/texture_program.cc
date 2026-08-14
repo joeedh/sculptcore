@@ -147,6 +147,7 @@ static void appendWgslFdGrad(string &out, const string &name, float fd_step)
 TextureProgram *compileTextureScript(stringref source, stringref filename, string &error)
 {
   error = string("");
+  registerBuiltinHostSamplers();
 
   if (!textureScriptCpuAvailable()) {
     error = string("runtime texture JIT is unavailable in this process");

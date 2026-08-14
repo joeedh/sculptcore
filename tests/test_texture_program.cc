@@ -387,6 +387,48 @@ static void testSamplers()
   test_assert(ce->fn == nullptr);
 }
 
+/** Builtin vnoise: compileTextureScript registers it itself — no host
+ * registration step — with native CPU code and a WGSL twin. */
+static void testBuiltinVnoise()
+{
+  static const char *kSrc =
+      "sampler float vnoise(float3 p);\n"
+      "texture Vn { float eval(float3 p, float3 n) { float v = vnoise(p); return v; } }";
+
+  litestl::util::string error;
+  TextureProgram *p = compileTextureScript(kSrc, "vn.stex", error);
+  if (!p) {
+    fprintf(stderr, "compile error: %s\n", error.c_str());
+  }
+  test_assert(p != nullptr);
+  if (!p) {
+    return;
+  }
+  test_assert(p->gpuAvailable);
+  test_assert(std::strstr(p->wgsl.c_str(), "fn hs_vnoise(") != nullptr);
+
+  const float N[3] = {0.0f, 0.0f, 1.0f};
+  // Values stay in [0, 1) and the field is not constant.
+  float lo = 2.0f, hi = -1.0f;
+  for (int i = 0; i < 64; i++) {
+    const float P[3] = {i * 0.37f - 8.0f, i * 0.61f + 2.0f, i * -0.23f};
+    float v = p->eval(P, N, nullptr, nullptr);
+    test_assert(v >= 0.0f && v < 1.0f);
+    lo = v < lo ? v : lo;
+    hi = v > hi ? v : hi;
+  }
+  test_assert(hi - lo > 0.1f);
+
+  // C0 across a cell border (corner hashes are shared between cells).
+  const float A[3] = {2.0f - 1e-4f, 0.4f, -1.3f};
+  const float B[3] = {2.0f + 1e-4f, 0.4f, -1.3f};
+  float va = p->eval(A, N, nullptr, nullptr);
+  float vb = p->eval(B, N, nullptr, nullptr);
+  test_assert(std::abs(va - vb) < 5e-3f);
+
+  freeTextureProgram(p);
+}
+
 /** T5 splice: spliceTextureProgramWgsl's string surgery — the bitmap
  * brush_sample_tex definition renamed aside, the program WGSL appended, and a
  * wrapper calling tex_<name>_eval (with the render matrix when the program
@@ -461,6 +503,7 @@ static void runTests()
   testScaled();
   testErrors();
   testSamplers();
+  testBuiltinVnoise();
   testSplice();
 }
 

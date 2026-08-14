@@ -38,6 +38,14 @@ bool unregisterHostSampler(litestl::util::stringref name);
 
 const HostSampler *findHostSampler(litestl::util::stringref name);
 
+/** Registers the engine's builtin samplers — natively-compiled noise bases
+ * for runtime texture scripts, where the tcc JIT's unoptimized codegen makes
+ * a DSL-inlined basis the dominant per-vertex cost. Idempotent; called by
+ * compileTextureScript so every compiling process has them. Currently:
+ * `vnoise` — one octave of 3D lattice value noise in [0, 1), integer-hashed
+ * corners, smoothstep-faded trilinear blend, with a WGSL twin. */
+void registerBuiltinHostSamplers();
+
 int hostSamplerCount();
 const HostSampler *hostSamplerEntry(int i);
 

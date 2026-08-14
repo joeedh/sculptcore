@@ -297,6 +297,12 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   {
     float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
     float s = brush.strength * brush.falloffEval(t);
+    // Node iteration hands kernels every vert of every overlapping leaf, so
+    // out-of-radius verts land here with s == 0 — skip the texture eval they
+    // would zero anyway (runtime texture programs make it the dominant cost).
+    if (s == 0.0f) {
+      return 0.0f;
+    }
     s *= sampleBrushTex(co, surfaceNo);
     return brush.invert ? -s : s;
   }
