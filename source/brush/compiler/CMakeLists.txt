@@ -18,6 +18,7 @@ set(SBRUSHC_CORE_SRC
   emit_wgsl.cc
   emit_cuda.cc
   emit_opencl.cc
+  emit_c.cc
   ../kernels/ir/intrinsics.cc
 )
 

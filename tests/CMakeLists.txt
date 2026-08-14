@@ -94,6 +94,9 @@ test(test_stroke_driver.cc "brush;spatial;mesh")
 # lib only exists when the host tool builds (SBRUSH_BACKEND_CPP).
 if (TARGET sbrushc_core)
 test(test_sbrush_textures.cc "sbrushc_core")
+# The C99 backend end-to-end: emitCTextureDefs -> tinycc JIT -> parity
+# against the precompiled texture registry (texture-scripts T3.2).
+test(test_texture_c_jit.cc "sbrushc_core;brush;tinycc")
 endif()
 
 # The embedded tinycc JIT (texture-scripts T3.1): capability probe + the

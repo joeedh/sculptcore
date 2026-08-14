@@ -1,5 +1,6 @@
 #include "test_util.h"
 
+#include "brush/compiler/emit_c.h"
 #include "brush/compiler/emit_cpp.h"
 #include "brush/compiler/emit_wgsl.h"
 #include "brush/compiler/lexer.h"
@@ -128,6 +129,42 @@ brush BadGrad {
 }
 )";
 
+// C99-backend coverage (texture-scripts T3.2): params/ramp/mapPoint lowering.
+// Decl order gives scale slab offset 0 and shape offset 1 (@const holds none).
+static const char *kParamUnitSrc = R"(
+texture Bands {
+  param float scale = 2.0 @range(0.5, 8.0);
+  param int octaves = 3 @const;
+  param ramp shape;
+
+  float eval(float3 p, float3 n) {
+    float3 q = mapPoint(p);
+    float d = length(q) * scale + octaves;
+    return shape.sample(fract(d));
+  }
+}
+)";
+
+// A sampler call must be the T4 runtime-only error on the C backend.
+static const char *kSamplerUnitSrc = R"(
+sampler float noisefn(float3 p);
+
+texture Noisy {
+  float eval(float3 p, float3 n) {
+    return noisefn(p);
+  }
+}
+)";
+
+// A brush-context intrinsic has no meaning in a standalone texture script.
+static const char *kBrushCtxUnitSrc = R"(
+texture Bad {
+  float eval(float3 p, float3 n) {
+    return strength(p);
+  }
+}
+)";
+
 static ParseResult parseSrc(const char *src, const char *fname)
 {
   LexResult lr = lex(src, fname);
@@ -233,6 +270,91 @@ static void runTests()
     }
   }
   test_assert(sawWhitelistErr);
+
+  // C99 backend (T3.2). Wrap each unit in a scratch brush the way sbrushc's
+  // --backend=c path does.
+  auto unitToBrush = [](ParseResult &pr, Brush &s) {
+    s.sourceFile = pr.unit->sourceFile;
+    for (auto &td : pr.unit->textures) {
+      s.textures.append(std::move(td));
+    }
+  };
+
+  // Rings: pointer-ABI entries, the dual twin, no param slab, no ctx helpers.
+  ParseResult cRings = parseSrc(kUnitSrc, "rings.stex");
+  test_assert(cRings.errors.size() == 0 && cRings.unit != nullptr);
+  if (retval) {
+    return;
+  }
+
+  Brush ringsBrush;
+  unitToBrush(cRings, ringsBrush);
+  EmitResult ringsC = emitCTextureDefs(ringsBrush);
+  test_assert(ringsC.errors.size() == 0);
+  test_assert(std::strstr(ringsC.text.c_str(), "float tex_rings_eval(const float *") != nullptr);
+  test_assert(std::strstr(ringsC.text.c_str(), "void tex_rings_eval_d(") != nullptr);
+  test_assert(std::strstr(ringsC.text.c_str(), "static sbdual sbd_sin(") != nullptr);
+  test_assert(std::strstr(ringsC.text.c_str(), "_param_defaults") == nullptr);
+  test_assert(std::strstr(ringsC.text.c_str(), "texMapPoint") == nullptr);
+  test_assert(std::strstr(ringsC.text.c_str(), "texRampSample") == nullptr);
+
+  // Bands: runtime-param slab (scale at 0, ramp at 1; @const int holds no
+  // slot), mapPoint ctx plumbing, and the dual twin omitted — ramp.sample has
+  // no derivative rule, but that must not fail the value emission.
+  ParseResult cBands = parseSrc(kParamUnitSrc, "bands.stex");
+  test_assert(cBands.errors.size() == 0 && cBands.unit != nullptr);
+  if (retval) {
+    return;
+  }
+
+  Brush bandsBrush;
+  unitToBrush(cBands, bandsBrush);
+  EmitResult bandsC = emitCTextureDefs(bandsBrush);
+  test_assert(bandsC.errors.size() == 0);
+  test_assert(std::strstr(bandsC.text.c_str(), "const float tex_bands_param_defaults[") != nullptr);
+  test_assert(std::strstr(bandsC.text.c_str(), "sb_tex_params[0]") != nullptr);
+  test_assert(std::strstr(bandsC.text.c_str(), "texRampSample(sb_tex_params + 1, ") != nullptr);
+  test_assert(std::strstr(bandsC.text.c_str(), "texMapPoint(sb_texctx, ") != nullptr);
+  test_assert(std::strstr(bandsC.text.c_str(), "tex_bands_eval_d omitted") != nullptr);
+  test_assert(std::strstr(bandsC.text.c_str(), "void tex_bands_eval_d(") == nullptr);
+
+  // A sampler call is runtime-only (T4) on the C backend.
+  ParseResult cNoisy = parseSrc(kSamplerUnitSrc, "noisy.stex");
+  test_assert(cNoisy.errors.size() == 0 && cNoisy.unit != nullptr);
+  if (retval) {
+    return;
+  }
+
+  Brush noisyBrush;
+  unitToBrush(cNoisy, noisyBrush);
+  EmitResult noisyC = emitCTextureDefs(noisyBrush);
+  test_assert(noisyC.errors.size() != 0);
+  bool sawSamplerErr = false;
+  for (const auto &e : noisyC.errors) {
+    if (std::strstr(e.c_str(), "runtime-only (T4)") != nullptr) {
+      sawSamplerErr = true;
+    }
+  }
+  test_assert(sawSamplerErr);
+
+  // A brush-context intrinsic must be a reported error, not a stray call.
+  ParseResult cBad = parseSrc(kBrushCtxUnitSrc, "badctx.stex");
+  test_assert(cBad.errors.size() == 0 && cBad.unit != nullptr);
+  if (retval) {
+    return;
+  }
+
+  Brush badBrush;
+  unitToBrush(cBad, badBrush);
+  EmitResult badC = emitCTextureDefs(badBrush);
+  test_assert(badC.errors.size() != 0);
+  bool sawCtxErr = false;
+  for (const auto &e : badC.errors) {
+    if (std::strstr(e.c_str(), "requires brush context") != nullptr) {
+      sawCtxErr = true;
+    }
+  }
+  test_assert(sawCtxErr);
 }
 
 int main()

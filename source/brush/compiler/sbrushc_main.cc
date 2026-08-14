@@ -6,6 +6,7 @@
 // Wave 1: single brush per invocation, single backend (cpp).
 // Wave 2+ extends to multi-backend dispatch and additional emitters.
 
+#include "emit_c.h"
 #include "emit_cpp.h"
 #include "emit_cuda.h"
 #include "emit_opencl.h"
@@ -71,6 +72,7 @@ void printUsage()
     "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n"
     "Texture-unit mode (precompile one .stex unit):\n"
     "  sbrushc --texture-unit --in=<unit.stex> --out=<stem.tex.gen.h>\n"
+    "          --backend=c emits a freestanding C99 TU (JIT input) instead\n"
     "Texture-registry mode (registry over all precompiled units):\n"
     "  sbrushc --texture-registry --out-dir=<dir> [--in=<unit.stex>...]\n");
 }
@@ -473,7 +475,19 @@ int runTextureUnitMode(const Args &args)
   if (!unit) {
     return 1;
   }
-  EmitResult er = emitTextureUnitHeader(*unit, stemOf(args.inPath));
+  EmitResult er;
+  if (std::strcmp(args.backend.c_str(), "c") == 0) {
+    // C99 backend: raw .c text for the runtime tinycc JIT rather than a
+    // precompiled header, so the textures stay unguarded (imported = false).
+    Brush scratch;
+    scratch.sourceFile = unit->sourceFile;
+    for (auto &td : unit->textures) {
+      scratch.textures.append(std::move(td));
+    }
+    er = emitCTextureDefs(scratch);
+  } else {
+    er = emitTextureUnitHeader(*unit, stemOf(args.inPath));
+  }
   if (er.errors.size() > 0) {
     for (const auto &e : er.errors) {
       std::fprintf(stderr, "sbrushc: emit error: %s\n", e.c_str());
