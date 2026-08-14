@@ -387,16 +387,23 @@ matrix transport already exists.
   `texgrad_ab.txt` cpp-vs-WGSL + the `texgrad` golden +
   `test_sbrush_textures` EvalD/whitelist coverage. Sampler chain-rule
   wrappers (item 3) land with samplers in T4; the tcc A/B waits for T3.
-- **T3 — runtime CPU.** `emit_c.cc` (C99: struct float3 + fns, `sbd_*`
+- **T3 — runtime CPU** *(done 2026-08-13; the macOS MAP_JIT probe has not
+  run on hardware — `textureScriptCpuAvailable()` is the graceful-degrade
+  guard either way)*. `emit_c.cc` (C99: struct float3 + fns, `sbd_*`
   prelude shared shape with OpenCL emitter); vendor libtcc under
   `extern/tinycc`; compiler linked into the engine lib;
   `compileTextureScript` + `Brush::texture_program` + `sampleBrushTex`
   integration; c-api + binding; debug verb `set_texture script=<path>`.
   **Early gate:** MAP_JIT/entitlement probe on macOS; capability query
   (`textureScriptCpuAvailable()`) so hosts can degrade gracefully.
-- **T4 — host samplers.** Registry + c-api + `sampler` decls + chain
-  rule/FD synthesis + GPU gating (`gpuAvailable`). Addon slice: ctypes
-  registration API; optional `blender_tex` sampler.
+- **T4 — host samplers** *(done 2026-08-13)*. Registry + c-api + `sampler`
+  decls + chain rule/FD synthesis + GPU gating (`gpuAvailable`). Addon
+  slice: ctypes registration API (`texture.register_sampler`) landed; the
+  optional `blender_tex` sampler is deferred until the thread-safety
+  question below is settled. JIT note: sampler handles are TU-defined
+  `void *sb_hs_<name>` slots filled via `tcc_get_symbol` post-relocate —
+  extern data needs dllimport under tcc's PE backend, and a function
+  symbol's address resolves to a local jump thunk (see emit_c.cc).
 - **T5 — runtime GPU.** WGSL splice into the brush shader at stroke begin;
   `gpuAvailable` gating through the stroke driver; A/B gates.
 
@@ -414,3 +421,11 @@ matrix transport already exists.
   Python side; the CPU executor is multithreaded — Blender-backed samplers
   must either take the GIL in the callback (slow) or be evaluated on the
   main thread via a per-dab tile cache. Flagged for the T4 addon slice.
+  Still open post-T4: `register_sampler` ships (ctypes acquires the GIL in
+  the trampoline, so it is *safe* but serializes the executor's threads);
+  `blender_tex` waits on the tile-cache design.
+- Pre-existing unit-path gap (predates T4): `emitWgslTextureDefs` never
+  emits the WGSL dual prelude — `brushUsesGrad` inspects brush stages only,
+  so a precompiled *unit* whose importer calls `grad()` relies on the
+  importing brush's own emission to pull the prelude in. Runtime programs
+  (T4 `gpuAvailable` path) are unaffected. Revisit when T5 splices WGSL.
