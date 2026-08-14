@@ -1,6 +1,7 @@
 #pragma once
 
 #include "brush/texture_eval.h"
+#include "litestl/binding/binding.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
@@ -33,6 +34,27 @@ struct TextureProgramParam {
   float rangeMin = 0.0f;
   float rangeMax = 0.0f;
   int offset = -1;  // first slot in the param slab; -1 for @const
+
+  /** Bound read-only so hosts can enumerate a bound program's params by index
+   * (Brush::textureParamCount / queriedTextureParamEntry, the uniform-manifest
+   * pattern). Returned by pointer, never marshalled by value. */
+  static litestl::binding::types::Struct<TextureProgramParam> *defineBindings()
+  {
+    using namespace litestl;  // the BIND_ macros expand to binding::Bind<...>
+    using namespace litestl::binding;
+    types::Struct<TextureProgramParam> *st = new types::Struct<TextureProgramParam>(
+        "sculptcore::brush::TextureProgramParam", sizeof(TextureProgramParam));
+    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
+    BIND_STRUCT_MEMBER(st, name);
+    BIND_STRUCT_MEMBER(st, isRamp);
+    BIND_STRUCT_MEMBER(st, isConst);
+    BIND_STRUCT_MEMBER(st, def);
+    BIND_STRUCT_MEMBER(st, hasRange);
+    BIND_STRUCT_MEMBER(st, rangeMin);
+    BIND_STRUCT_MEMBER(st, rangeMax);
+    BIND_STRUCT_MEMBER(st, offset);
+    return st;
+  }
 };
 
 /** A texture script compiled at runtime (texture-scripts T3): the tinycc-JIT'd

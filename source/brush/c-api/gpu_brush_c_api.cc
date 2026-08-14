@@ -71,6 +71,11 @@ void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog,
   if (!info) {
     return nullptr;
   }
+  // Runtime texture programs are CPU-only until the T5 WGSL splice; a null
+  // return routes the host onto the CPU stroke path.
+  if (b->texture_program) {
+    return nullptr;
+  }
 
   // A prior CPU stroke can leave the mesh topology-frozen; the CSR/topology
   // builds below walk live links. The mesh is static for the GPU stroke, so a

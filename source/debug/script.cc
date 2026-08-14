@@ -60,6 +60,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <map>
 #include <string>
 #include <vector>
@@ -862,16 +863,32 @@ bool execVerb(Scene &scene,
     return true;
   }
   if (verb == "set_texture") {
-    // Bind a grayscale brush texture from one of three sources, checked in
-    // priority order: image=<path> (decoded via stb_image to luminance),
-    // proc=<name> (an analytic function baked onto the UV grid), or
-    // pattern=<name> (the simple synthetic test patterns). `pattern=clear`
-    // unbinds. The texel value varies across the surface so a golden test can
-    // assert the displacement tracks UV (e.g. rampx → value grows with co.x
-    // under the Global coord space).
+    // Bind a brush texture from one of four sources, priority order:
+    // script= (JIT'd .stex), image=, proc=, pattern=. `script=clear` /
+    // `pattern=clear` unbind. Full semantics: documentation/debugApp.md.
+    const char *scriptPath = getArg(args, "script");
     const char *imgPath = getArg(args, "image");
     const char *proc = getArg(args, "proc");
     const char *pat = getArg(args, "pattern", "rampx");
+
+    if (scriptPath) {
+      if (std::string(scriptPath) == "clear") {
+        scene.brush.clearTextureScript();
+        return true;
+      }
+      std::ifstream f(scriptPath, std::ios::binary);
+      if (!f) {
+        err = std::string("set_texture: cannot open script '") + scriptPath + "'";
+        return false;
+      }
+      std::string src((std::istreambuf_iterator<char>(f)),
+                      std::istreambuf_iterator<char>());
+      if (!scene.brush.setTextureScriptSource(src.c_str(), scriptPath)) {
+        err = std::string("set_texture: ") + scene.brush.texture_script_error.c_str();
+        return false;
+      }
+      return true;
+    }
 
     if (imgPath) {
       int iw = 0, ih = 0, comp = 0;

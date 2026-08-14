@@ -128,6 +128,13 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     err = "stroke(wgsl): tool has no GPU kernel";
     return false;
   }
+  // A runtime texture program has no WGSL splice until T5 — refuse here so
+  // the caller takes the CPU fallback (interactive.cc), same shape as the
+  // grids path.
+  if (scene.brush.texture_program) {
+    err = "stroke(wgsl): runtime texture program is CPU-only until T5";
+    return false;
+  }
   kernel_ = kinfo->kernel;
   needsNeighbors_ = kinfo->needsNeighbors;
   writesMask_ = kinfo->writesMask;

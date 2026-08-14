@@ -197,6 +197,7 @@ void registerBindings(litestl::binding::BindingManager &manager)
   manager.add(Bind<CommandExecutor>());
   manager.add(Bind<BrushUniformManifestEntry>());
   manager.add(Bind<BrushAttrManifestEntry>());
+  manager.add(Bind<TextureProgramParam>());
   manager.add(Bind<BrushDefFlags>());
   manager.add(Bind<BrushMetadata>());
   manager.add(Bind<StrokeSpaceMode>());

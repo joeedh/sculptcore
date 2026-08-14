@@ -342,15 +342,32 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     return t * t * (3.0f - 2.0f * t);
   }
 
-  // Sample the brush texture at world point `co` with surface normal `no`,
-  // mapping to UV per `brush.coord_space`. The `no` arg is unused — every mode
-  // (including Projected) reads the brush-center ctx surfaceNo so the C++ and
-  // WGSL paths key off the same value; the arg is kept for DSL signature parity
-  // with the generated kernel. Returns 1.0 with no texture bound (kernels
-  // multiply by this unconditionally).
+  /** Sample the brush texture at world point `co` with surface normal `no`. A
+   * runtime texture program takes precedence and consumes `no` directly (its
+   * eval does its own point mapping — `coord_space` is bitmap-path-only). The
+   * bitmap path maps co to UV per `brush.coord_space`; there `no` is unused —
+   * every mode (including Projected) reads the brush-center ctx surfaceNo so
+   * the C++ and WGSL paths key off the same value; the arg is kept for DSL
+   * signature parity with the generated kernel. Returns 1.0 with nothing
+   * bound (kernels multiply by this unconditionally). */
   float sampleBrushTex(float3 co, float3 no)
   {
-    (void)no;
+    if (const TextureProgram *tp = brush.texture_program) {
+      const float P[3] = {co[0], co[1], co[2]};
+      const float N[3] = {no[0], no[1], no[2]};
+      const float *params =
+          brush.texture_params.size() > 0 ? brush.texture_params.data() : nullptr;
+      if (tp->usesMap) {
+        // TexEvalCtx.map_matrix shares mat4's flat layout (texture_eval.h).
+        TexEvalCtx tctx;
+        const float *src = &renderMatrix[0][0];
+        for (int i = 0; i < 16; i++) {
+          tctx.map_matrix[i] = src[i];
+        }
+        return tp->eval(P, N, params, &tctx);
+      }
+      return tp->eval(P, N, params, nullptr);
+    }
     float2 uv;
     switch (brush.coord_space) {
     case TexCoordSpace::Global:

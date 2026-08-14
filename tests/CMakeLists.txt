@@ -99,6 +99,8 @@ test(test_sbrush_textures.cc "sbrushc_core")
 test(test_texture_c_jit.cc "sbrushc_core;brush;tinycc")
 # The runtime program surface over the same pipeline (T3.3).
 test(test_texture_program.cc "brush")
+# Brush-level binding + a tcc-vs-precompiled stroke A/B (T3.4).
+test(test_texture_stroke.cc "brush;spatial;mesh")
 endif()
 
 # The embedded tinycc JIT (texture-scripts T3.1): capability probe + the

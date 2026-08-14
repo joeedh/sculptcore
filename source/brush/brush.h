@@ -12,6 +12,7 @@
 #include <limits>
 
 #include "props.h"
+#include "texture_program.h"
 
 namespace sculptcore::brush {
 
@@ -219,6 +220,18 @@ struct Brush {
   litestl::util::Vector<float> tex_pixels;
   TexCoordSpace coord_space = TexCoordSpace::Global;
   float tex_repeat = 1.0f;
+
+  /** Runtime-compiled texture script (texture-scripts T3.4). When bound it
+   * takes precedence over the bitmap texture in sampleBrushTex; the script
+   * does its own point mapping, so `coord_space` does not apply to it. Owned
+   * (freed by clearTextureScript / ~Brush); Brush is never copied. */
+  TextureProgram *texture_program = nullptr;
+  // Live param slab (`texture_program->paramSlabSize` floats), seeded from
+  // the program's defaults at bind and edited via setTextureParamAt /
+  // setTextureRampAt. Read by sampleBrushTex every eval.
+  litestl::util::Vector<float> texture_params;
+  // Last setTextureScript compile error; empty after a successful bind.
+  litestl::util::string texture_script_error;
 
   // Ring buffer of recent stroke-dab centers, driving STROKE_CURVED texture
   // mapping. Pushed host-side as dabs advance (CommandExecutor::execBrush),
@@ -452,6 +465,13 @@ struct Brush {
     BIND_STRUCT_METHOD(st, setCavityCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, setTexture, MARGS("width", "height", "pixels"));
     BIND_STRUCT_METHOD(st, clearTexture, MARGS());
+    BIND_STRUCT_MEMBER(st, texture_script_error);
+    BIND_STRUCT_METHOD(st, setTextureScript, MARGS("source"));
+    BIND_STRUCT_METHOD(st, clearTextureScript, MARGS());
+    BIND_STRUCT_METHOD(st, textureParamCount, MARGS());
+    BIND_STRUCT_METHOD(st, queriedTextureParamEntry, MARGS("i"));
+    BIND_STRUCT_METHOD(st, setTextureParamAt, MARGS("i", "value"));
+    BIND_STRUCT_METHOD(st, setTextureRampAt, MARGS("i", "lut"));
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());
     BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));
@@ -605,6 +625,11 @@ struct Brush {
     structDef_.Bool("invert", "invert");
     // Per-kernel scalar uniforms (mu/nu/...) are registered on demand by the
     // active brush's generated registerProps — see sbrush-dynamic-uniforms.
+  }
+
+  ~Brush()
+  {
+    clearTextureScript();
   }
 
   // Resolve the authored property values into the cached scalar members the
@@ -775,6 +800,102 @@ struct Brush {
     tex_width = 0;
     tex_height = 0;
     tex_pixels.clear();
+  }
+
+  /** Compile `source` as a texture script and bind the program (replacing any
+   * prior one). On failure the brush is left with no program and the message
+   * lands in `texture_script_error`. `@const` params are frozen into the
+   * compiled code — to change one, edit the source and rebind (milliseconds
+   * under tcc); the param setters below refuse them. */
+  bool setTextureScriptSource(litestl::util::stringref source,
+                              litestl::util::stringref filename)
+  {
+    clearTextureScript();
+    TextureProgram *p = compileTextureScript(source, filename, texture_script_error);
+    if (!p) {
+      return false;
+    }
+    texture_program = p;
+    for (float f : p->defaults) {
+      texture_params.append(f);
+    }
+    return true;
+  }
+
+  // Marshal-safe wrapper: the binding runtime can't pass a host string into a
+  // util::string arg (see BrushProp), so script source crosses as a char
+  // Vector. NUL-terminated locally — stringref has no (ptr, size) ctor.
+  bool setTextureScript(litestl::util::Vector<char> &source)
+  {
+    litestl::util::Vector<char> buf;
+    for (char c : source) {
+      buf.append(c);
+    }
+    buf.append('\0');
+    return setTextureScriptSource(buf.data(), "<script>");
+  }
+
+  void clearTextureScript()
+  {
+    if (texture_program) {
+      freeTextureProgram(texture_program);
+      texture_program = nullptr;
+    }
+    texture_params.clear();
+    texture_script_error = litestl::util::string("");
+  }
+
+  int textureParamCount()
+  {
+    return texture_program ? (int)texture_program->params.size() : 0;
+  }
+
+  TextureProgramParam *queriedTextureParamEntry(int i)
+  {
+    if (!texture_program || i < 0 || i >= (int)texture_program->params.size()) {
+      return nullptr;
+    }
+    return &texture_program->params[i];
+  }
+
+  // Set a scalar param by manifest index, clamped to its @range. False for
+  // ramps, @const params, or an unbound/invalid index.
+  bool setTextureParamAt(int i, float value)
+  {
+    TextureProgramParam *p = queriedTextureParamEntry(i);
+    if (!p || p->isRamp || p->isConst || p->offset < 0) {
+      return false;
+    }
+    if (p->hasRange) {
+      value = value < p->rangeMin ? p->rangeMin
+                                  : (value > p->rangeMax ? p->rangeMax : value);
+    }
+    texture_params[p->offset] = value;
+    return true;
+  }
+
+  // Overwrite a ramp param's LUT — exactly kTexRampSize samples.
+  bool setTextureRampAt(int i, litestl::util::Vector<float> &lut)
+  {
+    TextureProgramParam *p = queriedTextureParamEntry(i);
+    if (!p || !p->isRamp || p->offset < 0 || (int)lut.size() != kTexRampSize) {
+      return false;
+    }
+    for (int k = 0; k < kTexRampSize; k++) {
+      texture_params[p->offset + k] = lut[k];
+    }
+    return true;
+  }
+
+  // C++-side convenience (unbound — strings can't cross the boundary).
+  int textureParamIndex(const char *name)
+  {
+    for (int i = 0; i < textureParamCount(); i++) {
+      if (texture_program->params[i].name == litestl::util::string(name)) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   // Drop all recorded stroke samples — called at the start of each stroke so
