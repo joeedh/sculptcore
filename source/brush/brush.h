@@ -214,7 +214,8 @@ struct Brush {
   // Brush texture (grayscale, row-major, `tex_width * tex_height` floats).
   // Empty means "no texture": `sampleTexBilinear` returns 1.0 so a kernel
   // multiplying by the sample is a no-op. `coord_space` maps a sample point
-  // to UV; `tex_repeat` tiles the UV under `ViewRepeat`.
+  // to UV; Global and ViewRepeat fract-wrap it (Global's tile spans world
+  // [-1,1]^2); `tex_repeat` is tiles per viewport height under ViewRepeat.
   int tex_width = 0;
   int tex_height = 0;
   litestl::util::Vector<float> tex_pixels;

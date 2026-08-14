@@ -553,9 +553,9 @@ int main()
   }
 
   /* Brush texture modulation (Wave 2). A draw stroke on the +Z face with a
-   * `rampx` grayscale texture under the GLOBAL coord space (uv = co.xy).
-   * The ramp value grows with co.x and clamps to ~0 for co.x <= 0, so the
-   * +x half of the brush footprint must rise while the -x half stays put.
+   * `rampx` grayscale texture under the GLOBAL coord space, whose tile spans
+   * world [-1, 1]^2 — texel = (co.x + 1) / 2, growing with co.x — so the +x
+   * half of the brush footprint must rise strictly more than the -x half.
    * Exercises the full path: sampleBrushTex intrinsic -> the generated
    * draw kernel -> CommandCtx::sampleBrushTex -> Brush::sampleTexBilinear,
    * plus the set_texture / set_coord_space verbs. GLOBAL is the only mode
@@ -589,9 +589,10 @@ int main()
         }
       }
     }
-    /* +x half lifted by the ramp; -x half saw texel value ~0 -> no lift. */
+    /* Both halves lift (the ramp is nonzero across the face), the +x half
+     * strictly more. */
     test_assert(maxZRight > 0.25f + 1e-3f);
-    test_assert(maxZLeft < 0.25f + 1e-4f);
+    test_assert(maxZRight > maxZLeft + 1e-3f);
 
     /* Same stroke with the texture cleared lifts both halves equally,
      * proving the asymmetry above came from the texture, not geometry. */
@@ -627,10 +628,9 @@ int main()
    * +Y on the +Z face; with a `rampx` texture sampled in stroke_curved space
    * the texel value equals the arc length along the stroke, so displacement
    * must grow from the -Y end to the +Y end. The discriminator vs GLOBAL: the
-   * stroke moves in Y while co.x stays ~0, so GLOBAL (uv.x = co.x ~= 0) would
-   * lift nothing — only the StrokePath arc-length mapping produces the
-   * gradient. Exercises Brush::strokePath / sampleStrokeUV + the executor
-   * push/reset wiring. */
+   * rampx texel field is Y-independent there, so only the StrokePath
+   * arc-length mapping produces a far-ward (+Y) gradient. Exercises
+   * Brush::strokePath / sampleStrokeUV + the executor push/reset wiring. */
   {
     Scene scene(64, 64, true);
     const char *src =
@@ -666,10 +666,11 @@ int main()
     test_assert(maxZFar > 0.25f + 1e-3f);
     test_assert(maxZFar > maxZNear + 1e-3f);
 
-    /* Same stroke under GLOBAL: uv.x = co.x, which is symmetric along the
-     * stroke's Y axis, so the +Y and -Y ends lift equally — no arc-length
-     * gradient. This isolates the STROKE_CURVED behavior above (which is the
-     * only mode whose UV tracks distance *along* the stroke). */
+    /* Same stroke under GLOBAL: the rampx texel field only varies with co.x,
+     * so the texture drives no +Y gradient — any far/near difference is
+     * dab-order accumulation, which favors the *near* end. This isolates the
+     * STROKE_CURVED behavior above (the only mode whose UV tracks distance
+     * *along* the stroke). */
     Scene scene2(64, 64, true);
     const char *src2 =
         "make_cube subdivs=16 size=0.5\n"
@@ -694,10 +695,9 @@ int main()
         }
       }
     }
-    float symG = maxZFarG - maxZNearG;
-    if (symG < 0) symG = -symG;
-    test_assert(maxZFarG > 0.25f + 1e-3f); /* the +x verts still lift */
-    test_assert(symG < 5e-3f);             /* but with no Y gradient */
+    test_assert(maxZFarG > 0.25f + 1e-3f); /* still lifts */
+    /* No texture-driven far-ward gradient (stroke_curved's discriminator). */
+    test_assert(maxZFarG - maxZNearG < 1e-3f);
   }
 
   return test_end();

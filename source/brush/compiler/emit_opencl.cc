@@ -592,12 +592,21 @@ struct Emit {
     write("                           __global float* tex, int w, int h, float3 co, float3 no) {\n");
     write("  (void)no; float2 uv;\n");
     write("  if (bu->coord_space == 1u) { float3 p = sb_mat4_mul_point(cu->render_matrix, co); uv = (float2)(p.x, p.y); }\n");
-    write("  else if (bu->coord_space == 2u) { float3 p = sb_mat4_mul_point(cu->render_matrix, co); uv = (float2)(p.x*bu->tex_repeat, p.y*bu->tex_repeat); }\n");
+    // Aspect-corrected tiled repeat; mirrors CommandCtx::sampleBrushTex.
+    write("  else if (bu->coord_space == 2u) { float3 p = sb_mat4_mul_point(cu->render_matrix, co);\n");
+    write("    __constant float* m = cu->render_matrix.m;\n");
+    write("    float r0 = sqrt(m[0]*m[0] + m[4]*m[4] + m[8]*m[8]);\n");
+    write("    float r1 = sqrt(m[1]*m[1] + m[5]*m[5] + m[9]*m[9]);\n");
+    write("    float asp = (r0 > 1e-12f && r1 > 1e-12f) ? r1 / r0 : 1.0f;\n");
+    write("    float ux = p.x*asp*bu->tex_repeat, uy = p.y*bu->tex_repeat;\n");
+    write("    uv = (float2)(ux - floor(ux), uy - floor(uy)); }\n");
     write("  else if (bu->coord_space == 3u) uv = sb_stroke_uv(bu, sp, co);\n");
     write("  else if (bu->coord_space == 4u) { float3 n = normalize(cu->surfaceNo); float3 r = (float3)(0.0f,0.0f,1.0f);\n");
     write("    if (fabs(n.z) >= 0.999f) r = (float3)(1.0f,0.0f,0.0f); float3 t1 = normalize(cross(r,n)); float3 t2 = cross(n,t1);\n");
     write("    float3 rel = co - cu->surfacePos; uv = (float2)(dot(rel,t1), dot(rel,t2)); }\n");
-    write("  else uv = (float2)(co.x, co.y);\n");
+    // GLOBAL: bitmap spans world [-1,1]^2 (host bake domain), tiled.
+    write("  else { float gx = co.x*0.5f + 0.5f, gy = co.y*0.5f + 0.5f;\n");
+    write("    uv = (float2)(gx - floor(gx), gy - floor(gy)); }\n");
     write("  float fx = uv.x*(float)w - 0.5f, fy = uv.y*(float)h - 0.5f; float x0 = floor(fx), y0 = floor(fy);\n");
     write("  float tx = fx-x0, ty = fy-y0;\n");
     write("  int x0c=(int)clamp(x0,0.0f,(float)(w-1)), y0c=(int)clamp(y0,0.0f,(float)(h-1));\n");

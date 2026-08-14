@@ -1,8 +1,9 @@
 # A/B script: VIEWREPEAT texture coord space, cpp vs wgsl backend gate.
-# Same render matrix as draw_viewplane_tex_ab, but uv is additionally scaled by
-# tex_repeat (=2.0), pushing coords outside [0,1] so the clamp-to-edge path in
-# both samplers is exercised. Parity proves the render-matrix marshal AND the
-# tex_repeat multiply agree across backends. See draw_ab.txt for the harness.
+# Same render matrix as draw_viewplane_tex_ab, but uv is aspect-corrected,
+# scaled by tex_repeat (=2.0) and fract-wrapped, so the tiling path (and the
+# view-aspect extraction from the render matrix) is exercised. Parity proves
+# the render-matrix marshal AND the repeat/wrap math agree across backends.
+# See draw_ab.txt for the harness.
 make_cube subdivs=16 size=0.5
 build_spatial leaf_limit=256 depth_limit=8
 set_brush_tool tool=draw

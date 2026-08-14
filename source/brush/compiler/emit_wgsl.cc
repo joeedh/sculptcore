@@ -1428,13 +1428,29 @@ struct Emit {
     write("  if (abs(sb_w) <= 1e-6) { sb_w = 1.0; }\n");
     write("  return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);\n");
     write("}\n\n");
+    // Viewport aspect (w/h) from the world->clip matrix's x/y row lengths;
+    // lockstep with CommandCtx::viewAspect. The uniform holds the CPU
+    // matrix's transpose, so CPU row r reads here as (m[0][r], m[1][r],
+    // m[2][r]).
+    write("fn brush_view_aspect() -> f32 {\n");
+    write("  let sb_m = ctx_u.render_matrix;\n");
+    write("  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));\n");
+    write("  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));\n");
+    write("  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }\n");
+    write("  return 1.0;\n");
+    write("}\n\n");
     write("fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {\n");
     write("  _ = no;\n");
     write("  var sb_uv: vec2<f32>;\n");
     write("  if (brush_u.coord_space == 1u) {\n");
     write("    sb_uv = brush_view_uv(co);\n");
     write("  } else if (brush_u.coord_space == 2u) {\n");
-    write("    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;\n");
+    // VIEWREPEAT tiles: aspect-correct x into viewport-height units (square
+    // tiles), scale by tiles-per-viewport-height, wrap. Lockstep with
+    // CommandCtx::sampleBrushTex.
+    write("    var sb_ruv = brush_view_uv(co);\n");
+    write("    sb_ruv.x = sb_ruv.x * brush_view_aspect();\n");
+    write("    sb_uv = fract(sb_ruv * brush_u.tex_repeat);\n");
     write("  } else if (brush_u.coord_space == 3u) {\n");
     write("    sb_uv = brush_stroke_uv(co);\n");
     write("  } else if (brush_u.coord_space == 4u) {\n");
@@ -1452,7 +1468,8 @@ struct Emit {
     write("    if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }\n");
     write("    sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);\n");
     write("  } else {\n");
-    write("    sb_uv = co.xy;\n");
+    // GLOBAL: the bitmap spans world [-1,1]^2 (host bake domain), tiled.
+    write("    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));\n");
     write("  }\n");
     // Manual clamp-to-edge bilinear with a half-texel offset, lockstep with
     // Brush::sampleTexBilinear. textureLoad fetches exact texels (NEAREST), so

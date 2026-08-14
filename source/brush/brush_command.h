@@ -371,15 +371,21 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     float2 uv;
     switch (brush.coord_space) {
     case TexCoordSpace::Global:
-      uv = float2{co[0], co[1]};
+      // The bitmap square spans world [-1, 1]^2 (the host bake domain) and
+      // tiles beyond it — unbounded sources must keep sampling past the
+      // baked square instead of clamp-streaking at its edge.
+      uv = float2{fractf(co[0] * 0.5f + 0.5f), fractf(co[1] * 0.5f + 0.5f)};
       break;
     case TexCoordSpace::ViewPlane: {
       uv = sampleViewUv(co);
       break;
     }
     case TexCoordSpace::ViewRepeat: {
+      // Aspect-correct x into viewport-height units so tiles stay square,
+      // then tile: tex_repeat is tiles per viewport height.
       uv = sampleViewUv(co);
-      uv = float2{uv[0] * brush.tex_repeat, uv[1] * brush.tex_repeat};
+      uv = float2{fractf(uv[0] * viewAspect() * brush.tex_repeat),
+                  fractf(uv[1] * brush.tex_repeat)};
       break;
     }
     case TexCoordSpace::StrokeCurved:
@@ -415,6 +421,21 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     float4 p = renderMatrix * float4{co[0], co[1], co[2], 1.0f};
     float w = std::abs(p[3]) > 1e-6f ? p[3] : 1.0f;
     return float2{p[0] / w * 0.5f + 0.5f, p[1] / w * 0.5f + 0.5f};
+  }
+
+  // Repeat-wrap into [0, 1); identical formula to WGSL fract() so backends
+  // agree bitwise.
+  static float fractf(float x) { return x - std::floor(x); }
+
+  // Viewport width/height from renderMatrix (world -> clip): its x/y rows
+  // are the projection diagonal times unit view rows, so |row1|/|row0| is
+  // w/h for perspective and ortho alike. 1.0 for identity/degenerate.
+  float viewAspect()
+  {
+    const float *m = &renderMatrix[0][0];
+    float r0 = float3{m[0], m[1], m[2]}.length();
+    float r1 = float3{m[4], m[5], m[6]}.length();
+    return (r0 > 1e-12f && r1 > 1e-12f) ? r1 / r0 : 1.0f;
   }
 };
 

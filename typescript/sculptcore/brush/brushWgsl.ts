@@ -177,13 +177,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -197,7 +207,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -466,13 +476,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -486,7 +506,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -761,13 +781,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -781,7 +811,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -1017,13 +1047,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -1037,7 +1077,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -1267,13 +1307,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -1287,7 +1337,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -1524,13 +1574,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -1544,7 +1604,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -1848,13 +1908,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -1868,7 +1938,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -2095,13 +2165,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -2115,7 +2195,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -2367,13 +2447,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -2387,7 +2477,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -2621,13 +2711,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -2641,7 +2741,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -2886,13 +2986,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -2906,7 +3016,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -3136,13 +3246,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -3156,7 +3276,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -3386,13 +3506,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -3406,7 +3536,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -3642,13 +3772,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -3662,7 +3802,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -3873,13 +4013,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -3893,7 +4043,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -4114,13 +4264,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -4134,7 +4294,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -4371,13 +4531,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -4391,7 +4561,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -4635,13 +4805,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -4655,7 +4835,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -4892,13 +5072,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -4912,7 +5102,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -5150,13 +5340,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -5170,7 +5370,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -5409,13 +5609,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -5429,7 +5639,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;
@@ -5704,13 +5914,23 @@ fn brush_view_uv(co: vec3<f32>) -> vec2<f32> {
   return sb_p.xy / sb_w * 0.5 + vec2<f32>(0.5, 0.5);
 }
 
+fn brush_view_aspect() -> f32 {
+  let sb_m = ctx_u.render_matrix;
+  let sb_r0 = length(vec3<f32>(sb_m[0][0], sb_m[1][0], sb_m[2][0]));
+  let sb_r1 = length(vec3<f32>(sb_m[0][1], sb_m[1][1], sb_m[2][1]));
+  if (sb_r0 > 1e-12 && sb_r1 > 1e-12) { return sb_r1 / sb_r0; }
+  return 1.0;
+}
+
 fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
   _ = no;
   var sb_uv: vec2<f32>;
   if (brush_u.coord_space == 1u) {
     sb_uv = brush_view_uv(co);
   } else if (brush_u.coord_space == 2u) {
-    sb_uv = brush_view_uv(co) * brush_u.tex_repeat;
+    var sb_ruv = brush_view_uv(co);
+    sb_ruv.x = sb_ruv.x * brush_view_aspect();
+    sb_uv = fract(sb_ruv * brush_u.tex_repeat);
   } else if (brush_u.coord_space == 3u) {
     sb_uv = brush_stroke_uv(co);
   } else if (brush_u.coord_space == 4u) {
@@ -5724,7 +5944,7 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
     if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }
     sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);
   } else {
-    sb_uv = co.xy;
+    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));
   }
   let sb_dim = vec2<f32>(textureDimensions(brush_tex));
   let sb_fx = sb_uv.x * sb_dim.x - 0.5;

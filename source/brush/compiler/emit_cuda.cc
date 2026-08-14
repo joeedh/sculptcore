@@ -985,8 +985,15 @@ struct Emit {
     write("  if (brush_u.coord_space == 1u) {\n");
     write("    sb_uv = sb_view_uv(ctx_u.render_matrix, co);\n");
     write("  } else if (brush_u.coord_space == 2u) {\n");
+    // Aspect-corrected tiled repeat; mirrors CommandCtx::sampleBrushTex.
     write("    float2 sb_p = sb_view_uv(ctx_u.render_matrix, co);\n");
-    write("    sb_uv = sb_make_float2(sb_p.x * brush_u.tex_repeat, sb_p.y * brush_u.tex_repeat);\n");
+    write("    const float* sb_m = ctx_u.render_matrix.m;\n");
+    write("    float sb_r0 = sqrtf(sb_m[0]*sb_m[0] + sb_m[4]*sb_m[4] + sb_m[8]*sb_m[8]);\n");
+    write("    float sb_r1 = sqrtf(sb_m[1]*sb_m[1] + sb_m[5]*sb_m[5] + sb_m[9]*sb_m[9]);\n");
+    write("    float sb_asp = (sb_r0 > 1e-12f && sb_r1 > 1e-12f) ? sb_r1 / sb_r0 : 1.0f;\n");
+    write("    float sb_ux = sb_p.x * sb_asp * brush_u.tex_repeat;\n");
+    write("    float sb_uy = sb_p.y * brush_u.tex_repeat;\n");
+    write("    sb_uv = sb_make_float2(sb_ux - floorf(sb_ux), sb_uy - floorf(sb_uy));\n");
     write("  } else if (brush_u.coord_space == 3u) {\n");
     write("    sb_uv = brush_stroke_uv(co);\n");
     write("  } else if (brush_u.coord_space == 4u) {\n");
@@ -999,7 +1006,10 @@ struct Emit {
     write("    float sb_inv_d = (brush_u.radius > 1e-6f) ? 1.0f / (2.0f * brush_u.radius) : 1.0f;\n");
     write("    sb_uv = sb_make_float2(sc_dot(sb_rel, sb_t1) * sb_inv_d + 0.5f, sc_dot(sb_rel, sb_t2) * sb_inv_d + 0.5f);\n");
     write("  } else {\n");
-    write("    sb_uv = sb_make_float2(co.x, co.y);\n");
+    // GLOBAL: bitmap spans world [-1,1]^2 (host bake domain), tiled.
+    write("    float sb_gx = co.x * 0.5f + 0.5f;\n");
+    write("    float sb_gy = co.y * 0.5f + 0.5f;\n");
+    write("    sb_uv = sb_make_float2(sb_gx - floorf(sb_gx), sb_gy - floorf(sb_gy));\n");
     write("  }\n");
     write("  float sb_dimx = (float)brush_tex_w;\n");
     write("  float sb_dimy = (float)brush_tex_h;\n");
