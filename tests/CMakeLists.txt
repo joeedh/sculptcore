@@ -97,6 +97,8 @@ test(test_sbrush_textures.cc "sbrushc_core")
 # The C99 backend end-to-end: emitCTextureDefs -> tinycc JIT -> parity
 # against the precompiled texture registry (texture-scripts T3.2).
 test(test_texture_c_jit.cc "sbrushc_core;brush;tinycc")
+# The runtime program surface over the same pipeline (T3.3).
+test(test_texture_program.cc "brush")
 endif()
 
 # The embedded tinycc JIT (texture-scripts T3.1): capability probe + the

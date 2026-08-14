@@ -41,6 +41,8 @@ set(SRC
   texture_registry.cc
   PUBLIC texture_jit.h
   texture_jit.cc
+  PUBLIC texture_program.h
+  texture_program.cc
   brush_command.cc
   brush_executor.h
   brush_executor.cc
@@ -59,6 +61,14 @@ if (NOT BUILD_WASM)
   # Plain signature — sc_add_library already links this target plain-form,
   # and CMake forbids mixing it with the PRIVATE/PUBLIC keyword form.
   target_link_libraries(brush tinycc)
+endif()
+
+# Runtime texture-script compilation (compileTextureScript): the sbrush
+# compiler objects link into the engine lib natively. WASM (and a build
+# without the cpp backend) compiles the stub that reports unavailability.
+if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP)
+  target_compile_definitions(brush PRIVATE SCULPTCORE_HAVE_TEXTURE_COMPILER=1)
+  target_link_libraries(brush sbrushc_core)
 endif()
 
 wasm_add_symbols("
