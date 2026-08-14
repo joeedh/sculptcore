@@ -145,7 +145,7 @@ texture Bands {
 }
 )";
 
-// A sampler call must be the T4 runtime-only error on the C backend.
+// A sampler call without a carried decl must be the runtime-only error.
 static const char *kSamplerUnitSrc = R"(
 sampler float noisefn(float3 p);
 
@@ -318,7 +318,8 @@ static void runTests()
   test_assert(std::strstr(bandsC.text.c_str(), "tex_bands_eval_d omitted") != nullptr);
   test_assert(std::strstr(bandsC.text.c_str(), "void tex_bands_eval_d(") == nullptr);
 
-  // A sampler call is runtime-only (T4) on the C backend.
+  // A sampler call is runtime-only on the precompiled C backend — the test
+  // brush carries no sampler decls, the registry-path shape (T4).
   ParseResult cNoisy = parseSrc(kSamplerUnitSrc, "noisy.stex");
   test_assert(cNoisy.errors.size() == 0 && cNoisy.unit != nullptr);
   if (retval) {
@@ -331,7 +332,7 @@ static void runTests()
   test_assert(noisyC.errors.size() != 0);
   bool sawSamplerErr = false;
   for (const auto &e : noisyC.errors) {
-    if (std::strstr(e.c_str(), "runtime-only (T4)") != nullptr) {
+    if (std::strstr(e.c_str(), "runtime-only") != nullptr) {
       sawSamplerErr = true;
     }
   }

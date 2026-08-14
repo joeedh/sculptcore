@@ -9,12 +9,15 @@ namespace sculptcore::brush::sbrush {
  * mirror the cpp texture path bit-for-bit (params slab, TexEvalCtx/mapPoint,
  * ramp sampling, the sbd_* dual prelude), and every differentiable texture
  * gets its dual twin up front so grad availability never needs a re-JIT; a
- * non-differentiable eval (ramp.sample, samplers) keeps its value entry and
- * simply omits the twin.
+ * non-differentiable eval (ramp.sample) keeps its value entry and simply
+ * omits the twin.
  *
  * The TU has no #includes; its only external symbols are libm's
- * sinf/cosf/sqrtf/floorf/fabsf, bound by the host via tcc_add_symbol (or -lm
- * standalone). Exported entry points use a pointer ABI:
+ * sinf/cosf/sqrtf/floorf/fabsf plus, for units calling host samplers (T4),
+ * the sb_hs_value/sb_hs_grad bridges (tcc_add_symbol, or -lm standalone;
+ * sampler units cannot run standalone). Each sampler dep also gets a
+ * TU-defined `void *sb_hs_<name>` slot the host points at the registry entry
+ * after relocation. Exported entry points use a pointer ABI:
  *   float tex_<name>_eval(const float *p, const float *n,
  *                         const float *sb_tex_params, const TexEvalCtx *ctx);
  *   void tex_<name>_eval_d(const sbdual3 *p, const sbdual3 *n,

@@ -217,6 +217,17 @@ struct Emit {
     return false;
   }
 
+  // Carried sampler decls exist only on the runtime texture-unit path (T4);
+  // the precompiled brush/registry paths leave Brush::samplers empty and
+  // sampler calls stay emit errors there.
+  const SamplerDecl *findSamplerDecl(const char *name) const
+  {
+    for (const auto &sd : brush->samplers) {
+      if (std::strcmp(sd.name.c_str(), name) == 0) return &sd;
+    }
+    return nullptr;
+  }
+
   // Format `v` as a WGSL float literal (no f suffix). Rounds through float
   // first — same as the C++ emitter — so both backends parse back the
   // identical f32 (9 significant digits round-trip a float exactly).
@@ -552,12 +563,28 @@ struct Emit {
         }
       }
 
-      // Sampler dependencies compile only in the runtime path (T4).
+      // Sampler calls lower to the registered hs_<name> impl on the runtime
+      // path (texture_program prepends its snippet); the precompiled paths
+      // carry no decls and keep erroring below.
       if (currentTexture) {
+        if (const SamplerDecl *sd = findSamplerDecl(n)) {
+          if (e.args.size() != sd->params.size()) {
+            errf("sampler '%s' called with the wrong number of arguments", n);
+            out += "0.0";
+            break;
+          }
+          out += "hs_"; out += n; out += "(";
+          emitExpr(*e.args[0]);
+          out += ", ";
+          if (e.args.size() == 2) emitExpr(*e.args[1]);
+          else out += "vec3<f32>(0.0)";
+          out += ")";
+          break;
+        }
         bool wasSampler = false;
         for (const string &dep : currentTexture->samplerDeps) {
           if (string(dep) == string(e.name)) {
-            errf("sampler '%s' is runtime-only (T4); cannot precompile", n);
+            errf("sampler '%s' is runtime-only; cannot precompile", n);
             out += "0.0";
             wasSampler = true;
             break;
@@ -710,6 +737,24 @@ struct Emit {
       if (std::strcmp(n, "grad") == 0) {
         err("nested grad() is not supported");
         out += "sb_c(0.0)";
+        break;
+      }
+      // Host samplers chain through the per-sampler sbd_hs_<name> wrapper
+      // (hs_<name>_grad dotted with p's Jacobian rows; n's derivative is
+      // not tracked, matching the CPU bridge).
+      if (currentTexture && findSamplerDecl(n)) {
+        const SamplerDecl *sd = findSamplerDecl(n);
+        if (e.args.size() != sd->params.size()) {
+          errf("sampler '%s' called with the wrong number of arguments", n);
+          out += "sb_c(0.0)";
+          break;
+        }
+        out += "sbd_hs_"; out += n; out += "(";
+        emitDual(*e.args[0]);
+        out += ", ";
+        if (e.args.size() == 2) emitDual(*e.args[1]);
+        else out += "sb_c3(vec3<f32>(0.0))";
+        out += ")";
         break;
       }
       // Only intrinsics with an sbd_* chain rule in the prelude may appear
@@ -1579,6 +1624,28 @@ struct Emit {
       emitTexMapPointHelper();
       if (brushUsesGrad()) {
         emitTexMapPointDualHelper();
+      }
+    }
+    // Chain-rule wrappers for host samplers (T4) — only where the dual
+    // machinery (sbdual prelude) is being emitted at all.
+    if (brushUsesGrad()) {
+      Vector<string> done;
+      for (const auto &td : brush->textures) {
+        for (const auto &dep : td.samplerDeps) {
+          if (!findSamplerDecl(dep.c_str())) continue;
+          bool seen = false;
+          for (const auto &d : done) {
+            if (string(d).operator==(string(dep.c_str()))) seen = true;
+          }
+          if (seen) continue;
+          done.append(dep);
+          write("fn sbd_hs_"); write(dep);
+          write("(p: sbdual3, n: sbdual3) -> sbdual {\n");
+          write("  let o = hs_"); write(dep); write("_grad(p.v, n.v);\n");
+          write("  let g = o.yzw;\n");
+          write("  return sbdual(o.x, vec3<f32>(dot(g, p.dx), dot(g, p.dy), dot(g, p.dz)));\n");
+          write("}\n\n");
+        }
       }
     }
     for (const auto &td : brush->textures) {

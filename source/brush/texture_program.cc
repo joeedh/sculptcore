@@ -1,5 +1,6 @@
 #include "texture_program.h"
 
+#include "host_sampler.h"
 #include "texture_jit.h"
 
 #include "litestl/util/alloc.h"
@@ -21,6 +22,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #endif
 
 namespace sculptcore::brush {
@@ -111,6 +113,35 @@ static string lowerName(const string &s)
   return r;
 }
 
+/** Synthesize the WGSL central-difference grad wrapper for a sampler whose
+ * snippet defines only hs_<name> — the same 6-tap FD sb_hs_grad performs on
+ * the CPU, so the two backends agree on grad() through the sampler. */
+static void appendWgslFdGrad(string &out, const string &name, float fd_step)
+{
+  char h[48];
+  std::snprintf(h, sizeof(h), "%.9g", (double)(fd_step > 0.0f ? fd_step : 1e-3f));
+  bool hasDot = false;
+  for (const char *c = h; *c; c++) {
+    if (*c == '.' || *c == 'e' || *c == 'E') {
+      hasDot = true;
+      break;
+    }
+  }
+  string step = string(h) + (hasDot ? "f" : ".0f");
+
+  const string fn = string("hs_") + name;
+  out += string("fn ") + fn + "_grad(p: vec3f, n: vec3f) -> vec4f {\n";
+  out += string("  let h = ") + step + ";\n";
+  out += string("  let v = ") + fn + "(p, n);\n";
+  out += string("  let gx = (") + fn + "(p + vec3f(h, 0.0, 0.0), n) - " + fn +
+         "(p - vec3f(h, 0.0, 0.0), n)) / (2.0 * h);\n";
+  out += string("  let gy = (") + fn + "(p + vec3f(0.0, h, 0.0), n) - " + fn +
+         "(p - vec3f(0.0, h, 0.0), n)) / (2.0 * h);\n";
+  out += string("  let gz = (") + fn + "(p + vec3f(0.0, 0.0, h), n) - " + fn +
+         "(p - vec3f(0.0, 0.0, h), n)) / (2.0 * h);\n";
+  out += "  return vec4f(v, gx, gy, gz);\n}\n";
+}
+
 TextureProgram *compileTextureScript(stringref source, stringref filename, string &error)
 {
   error = string("");
@@ -145,7 +176,22 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
   for (auto &td : pr.unit->textures) {
     scratch.textures.append(std::move(td));
   }
+  for (auto &sd : pr.unit->samplers) {
+    scratch.samplers.append(std::move(sd));
+  }
   const sbrush::TextureDef &td = scratch.textures[0];
+
+  // Every sampler the eval calls must be registered before compile — the JIT
+  // binds each sb_hs_<name> handle to its registry entry's stable address.
+  Vector<const HostSampler *> samplerEntries;
+  for (const auto &dep : td.samplerDeps) {
+    const HostSampler *hs = findHostSampler(stringref(dep.c_str()));
+    if (!hs || !hs->fn) {
+      error = string("sampler '") + dep + "' is not registered (registerHostSampler)";
+      return nullptr;
+    }
+    samplerEntries.append(hs);
+  }
 
   sbrush::EmitResult cr = sbrush::emitCTextureDefs(scratch);
   if (cr.errors.size() > 0) {
@@ -166,14 +212,32 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
             tcc_add_symbol(s, "cosf", (const void *)jitCosf) == 0 &&
             tcc_add_symbol(s, "sqrtf", (const void *)jitSqrtf) == 0 &&
             tcc_add_symbol(s, "floorf", (const void *)jitFloorf) == 0 &&
-            tcc_add_symbol(s, "fabsf", (const void *)jitFabsf) == 0 &&
-            tcc_compile_string(s, cr.text.c_str()) == 0 && tcc_relocate(s) == 0;
+            tcc_add_symbol(s, "fabsf", (const void *)jitFabsf) == 0;
+  if (ok && td.samplerDeps.size() > 0) {
+    ok = tcc_add_symbol(s, "sb_hs_value", (const void *)sb_hs_value) == 0 &&
+         tcc_add_symbol(s, "sb_hs_grad", (const void *)sb_hs_grad) == 0;
+  }
+  ok = ok && tcc_compile_string(s, cr.text.c_str()) == 0 && tcc_relocate(s) == 0;
   if (!ok) {
     if (error.size() == 0) {
       error = string("tcc failed to compile the emitted texture TU");
     }
     tcc_delete(s);
     return nullptr;
+  }
+
+  // The sb_hs_<name> handles are TU-defined pointer slots (see emit_c.cc's
+  // sampler prelude); point each at its registry entry now that the TU is
+  // relocated.
+  for (int i = 0; i < (int)td.samplerDeps.size(); i++) {
+    string handle = string("sb_hs_") + td.samplerDeps[i];
+    void **slot = (void **)tcc_get_symbol(s, handle.c_str());
+    if (!slot) {
+      error = string("JIT'd TU is missing the ") + handle + " sampler handle";
+      tcc_delete(s);
+      return nullptr;
+    }
+    *slot = (void *)(const void *)samplerEntries[i];
   }
 
   string lower = lowerName(td.name);
@@ -225,11 +289,30 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
 
   // The WGSL module feeds the T5 stroke-shader splice; a dual-only emission
   // failure there must not take down the CPU program, so it is non-fatal.
+  // Sampler WGSL snippets are prepended (FD grad wrappers synthesized when a
+  // snippet lacks one) so p->wgsl is self-contained; a sampler registered
+  // without WGSL makes the texture CPU-only.
   sbrush::EmitResult wr = sbrush::emitWgslTextureDefs(scratch);
   if (wr.errors.size() == 0) {
-    p->wgsl = wr.text;
-    // T4 refines this to "every samplerDep has a registered GPU impl".
-    p->gpuAvailable = p->samplerDeps.size() == 0;
+    bool gpu = wr.text.size() > 0;
+    string prefix;
+    for (int i = 0; gpu && i < (int)td.samplerDeps.size(); i++) {
+      const HostSampler *hs = samplerEntries[i];
+      if (hs->wgsl.size() == 0) {
+        gpu = false;
+        break;
+      }
+      prefix += hs->wgsl;
+      prefix += "\n";
+      string gradFn = string("fn hs_") + td.samplerDeps[i] + "_grad";
+      if (!std::strstr(hs->wgsl.c_str(), gradFn.c_str())) {
+        appendWgslFdGrad(prefix, td.samplerDeps[i], hs->fd_step);
+      }
+    }
+    if (gpu) {
+      p->wgsl = prefix + wr.text;
+      p->gpuAvailable = true;
+    }
   }
 
   return p;

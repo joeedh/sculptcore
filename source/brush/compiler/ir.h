@@ -324,6 +324,9 @@ struct Brush {
   Vector<Field> fields;
   Vector<StructDef> structs;
   Vector<TextureDef> textures;
+  // Unit-scope sampler decls carried through for texture-unit emission — the
+  // C/WGSL backends need each host-sampler call site's declared arity.
+  Vector<SamplerDecl> samplers;
   Vector<Stage> stages;
   // `use texture <Name>;` imports. Resolved after parse against the .stex units
   // supplied on the command line; each resolved def is moved into `textures`

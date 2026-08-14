@@ -1,5 +1,6 @@
 #include "test_util.h"
 
+#include "brush/host_sampler.h"
 #include "brush/texture_eval.h"
 #include "brush/texture_jit.h"
 #include "brush/texture_program.h"
@@ -150,14 +151,14 @@ static void testErrors()
   test_assert(p == nullptr);
   test_assert(std::strstr(error.c_str(), "not a texture unit") != nullptr);
 
-  // Sampler calls are runtime-only until T4.
+  // Sampler deps must be registered before compile (T4).
   p = compileTextureScript(
       "sampler float noisefn(float3 p);\n"
       "texture Noisy { float eval(float3 p, float3 n) { return noisefn(p); } }",
       "noisy.stex",
       error);
   test_assert(p == nullptr);
-  test_assert(std::strstr(error.c_str(), "runtime-only (T4)") != nullptr);
+  test_assert(std::strstr(error.c_str(), "not registered") != nullptr);
 
   // Exactly one texture per runtime script.
   p = compileTextureScript(
@@ -174,12 +175,225 @@ static void testErrors()
   test_assert(error.size() > 0);
 }
 
+/** Host samplers (texture-scripts T4). The field is quadratic so central
+ * differences are exact up to rounding — the FD-synthesized gradient and the
+ * analytic one must agree to float noise. The inner point is built with
+ * scalar ops (float3 ctor), since dual bodies have no float3 arithmetic. */
+static const char *kFieldSrc = R"(
+sampler float field(float3 p);
+
+texture Fielded {
+  float eval(float3 p, float3 n) {
+    return field(float3(p.x * 2.0, p.y, p.z)) * 0.5;
+  }
+}
+)";
+
+static const char *kTwoArgSrc = R"(
+sampler float nfield(float3 p, float3 n);
+
+texture TwoArg {
+  float eval(float3 p, float3 n) {
+    return nfield(p, n);
+  }
+}
+)";
+
+static float hsField(void *user, const float p[3], const float n[3])
+{
+  (void)n;
+  float bias = user ? *(const float *)user : 0.0f;
+  return p[0] * p[0] + p[1] * p[1] + p[2] * p[2] + bias;
+}
+
+static void hsFieldGrad(void *user, const float p[3], const float n[3], float out[4])
+{
+  out[0] = hsField(user, p, n);
+  out[1] = 2.0f * p[0];
+  out[2] = 2.0f * p[1];
+  out[3] = 2.0f * p[2];
+}
+
+static float hsFieldPlusOne(void *user, const float p[3], const float n[3])
+{
+  return hsField(user, p, n) + 1.0f;
+}
+
+static float hsDotN(void *user, const float p[3], const float n[3])
+{
+  (void)user;
+  return p[0] * n[0] + p[1] * n[1] + p[2] * n[2];
+}
+
+static const char *kFieldWgsl = "fn hs_field(p: vec3f, n: vec3f) -> f32 { return dot(p, p); }\n";
+static const char *kFieldWgslWithGrad =
+    "fn hs_field(p: vec3f, n: vec3f) -> f32 { return dot(p, p); }\n"
+    "fn hs_field_grad(p: vec3f, n: vec3f) -> vec4f { return vec4f(dot(p, p), 2.0 * p); }\n";
+
+static void testSamplers()
+{
+  using sculptcore::brush::findHostSampler;
+  using sculptcore::brush::HostSampler;
+  using sculptcore::brush::registerHostSampler;
+  using sculptcore::brush::unregisterHostSampler;
+
+  HostSampler bad;
+  test_assert(!registerHostSampler(bad));  // name required
+  bad.name = "field";
+  test_assert(!registerHostSampler(bad));  // fn required
+
+  HostSampler hs;
+  hs.name = "field";
+  hs.fn = hsField;
+  test_assert(registerHostSampler(hs));
+  const HostSampler *entry = findHostSampler("field");
+  test_assert(entry != nullptr && entry->fn == hsField);
+  test_assert(entry && entry->fd_step == 1e-3f);
+
+  // Wrong arity against the declared signature is an emit error (the dep
+  // itself resolves — field is registered).
+  litestl::util::string error;
+  TextureProgram *p = compileTextureScript(
+      "sampler float field(float3 p);\n"
+      "texture Bad { float eval(float3 p, float3 n) { return field(p, n); } }",
+      "bad.stex",
+      error);
+  test_assert(p == nullptr);
+  test_assert(std::strstr(error.c_str(), "wrong number of arguments") != nullptr);
+
+  p = compileTextureScript(kFieldSrc, "field.stex", error);
+  if (!p) {
+    fprintf(stderr, "compile error: %s\n", error.c_str());
+  }
+  test_assert(p != nullptr);
+  if (!p) {
+    return;
+  }
+
+  test_assert(p->samplerDeps.size() == 1);
+  test_assert(!p->gpuAvailable && p->wgsl.size() == 0);  // no WGSL registered yet
+
+  const float P[3] = {0.3f, -0.2f, 0.5f};
+  const float N[3] = {0.0f, 0.0f, 1.0f};
+  // eval = 0.5 * field(2px, py, pz) = 0.5 * (4px^2 + py^2 + pz^2)
+  float expect = 0.5f * (4.0f * P[0] * P[0] + P[1] * P[1] + P[2] * P[2]);
+  float v = p->eval(P, N, nullptr, nullptr);
+  test_assert(std::abs(v - expect) <= 1e-6f);
+
+  // grad chains through the sampler: d = (4px, py, pz). No fn_grad is
+  // registered, so this exercises sb_hs_grad's central-difference synthesis.
+  test_assert(p->evalDual != nullptr);
+  sculptcore::brush::TexDual3 dp = {{P[0], P[1], P[2]},
+                                    {1.0f, 0.0f, 0.0f},
+                                    {0.0f, 1.0f, 0.0f},
+                                    {0.0f, 0.0f, 1.0f}};
+  sculptcore::brush::TexDual3 dn = {{N[0], N[1], N[2]},
+                                    {0.0f, 0.0f, 0.0f},
+                                    {0.0f, 0.0f, 0.0f},
+                                    {0.0f, 0.0f, 0.0f}};
+  sculptcore::brush::TexDual out = {};
+  if (p->evalDual) {
+    p->evalDual(&dp, &dn, nullptr, nullptr, &out);
+    test_assert(std::abs(out.v - expect) <= 1e-6f);
+    test_assert(std::abs(out.d[0] - 4.0f * P[0]) <= 1e-3f);
+    test_assert(std::abs(out.d[1] - P[1]) <= 1e-3f);
+    test_assert(std::abs(out.d[2] - P[2]) <= 1e-3f);
+  }
+
+  // The analytic gradient takes over on re-register — same numbers, float-tight.
+  hs.fn_grad = hsFieldGrad;
+  test_assert(registerHostSampler(hs));
+  if (p->evalDual) {
+    p->evalDual(&dp, &dn, nullptr, nullptr, &out);
+    test_assert(std::abs(out.d[0] - 4.0f * P[0]) <= 1e-6f);
+    test_assert(std::abs(out.d[1] - P[1]) <= 1e-6f);
+    test_assert(std::abs(out.d[2] - P[2]) <= 1e-6f);
+  }
+
+  // Re-registering swaps the callback under a live program — no recompile.
+  HostSampler swap = hs;
+  swap.fn = hsFieldPlusOne;
+  test_assert(registerHostSampler(swap));
+  test_assert(findHostSampler("field") == entry);  // entry address is stable
+  float v2 = p->eval(P, N, nullptr, nullptr);
+  test_assert(std::abs(v2 - (expect + 0.5f)) <= 1e-6f);
+  hs.fn = hsField;
+  test_assert(registerHostSampler(hs));
+  freeTextureProgram(p);
+
+  // A WGSL snippet without a grad fn gets the FD wrapper synthesized.
+  hs.wgsl = kFieldWgsl;
+  test_assert(registerHostSampler(hs));
+  p = compileTextureScript(kFieldSrc, "field.stex", error);
+  test_assert(p != nullptr);
+  if (p) {
+    test_assert(p->gpuAvailable);
+    test_assert(std::strstr(p->wgsl.c_str(), "fn hs_field(") != nullptr);
+    test_assert(std::strstr(p->wgsl.c_str(), "fn hs_field_grad(") != nullptr);
+    test_assert(std::strstr(p->wgsl.c_str(), "tex_fielded_eval") != nullptr);
+    freeTextureProgram(p);
+  }
+
+  // A snippet with its own grad fn is used as-is — exactly one definition.
+  hs.wgsl = kFieldWgslWithGrad;
+  test_assert(registerHostSampler(hs));
+  p = compileTextureScript(kFieldSrc, "field.stex", error);
+  test_assert(p != nullptr);
+  if (p) {
+    test_assert(p->gpuAvailable);
+    const char *first = std::strstr(p->wgsl.c_str(), "fn hs_field_grad");
+    test_assert(first != nullptr);
+    test_assert(first && std::strstr(first + 1, "fn hs_field_grad") == nullptr);
+    freeTextureProgram(p);
+  }
+
+  // Two-arg samplers receive the eval's n.
+  HostSampler nh;
+  nh.name = "nfield";
+  nh.fn = hsDotN;
+  test_assert(registerHostSampler(nh));
+  p = compileTextureScript(kTwoArgSrc, "twoarg.stex", error);
+  if (!p) {
+    fprintf(stderr, "compile error: %s\n", error.c_str());
+  }
+  test_assert(p != nullptr);
+  if (p) {
+    float d = p->eval(P, N, nullptr, nullptr);
+    test_assert(std::abs(d - P[2]) <= 1e-6f);  // p . (0,0,1)
+    freeTextureProgram(p);
+  }
+
+  // Unregister: bound programs read 0.0, fresh compiles fail dep resolution.
+  p = compileTextureScript(kFieldSrc, "field.stex", error);
+  test_assert(p != nullptr);
+  test_assert(unregisterHostSampler("field"));
+  if (p) {
+    test_assert(p->eval(P, N, nullptr, nullptr) == 0.0f);
+    freeTextureProgram(p);
+  }
+  TextureProgram *q = compileTextureScript(kFieldSrc, "field.stex", error);
+  test_assert(q == nullptr);
+  test_assert(std::strstr(error.c_str(), "not registered") != nullptr);
+  test_assert(!unregisterHostSampler("never_registered"));
+
+  // The ctypes-facing c-api mirror round-trips (defaulted fd_step, no wgsl).
+  test_assert(sc_host_sampler_register("cfield", hsField, nullptr, nullptr, nullptr, 0.0f) == 1);
+  const HostSampler *ce = findHostSampler("cfield");
+  test_assert(ce != nullptr && ce->fn == hsField);
+  test_assert(ce && ce->fd_step == 1e-3f && ce->wgsl.size() == 0);
+  test_assert(sc_host_sampler_register(nullptr, hsField, nullptr, nullptr, nullptr, 0.0f) == 0);
+  test_assert(sc_host_sampler_unregister(nullptr) == 0);
+  test_assert(sc_host_sampler_unregister("cfield") == 1);
+  test_assert(ce->fn == nullptr);
+}
+
 static void runTests()
 {
   test_assert(sculptcore::brush::textureScriptCpuAvailable());
   testRings();
   testScaled();
   testErrors();
+  testSamplers();
 }
 
 int main()

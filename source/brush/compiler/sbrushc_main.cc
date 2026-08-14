@@ -484,6 +484,9 @@ int runTextureUnitMode(const Args &args)
     for (auto &td : unit->textures) {
       scratch.textures.append(std::move(td));
     }
+    for (auto &sd : unit->samplers) {
+      scratch.samplers.append(std::move(sd));
+    }
     er = emitCTextureDefs(scratch);
   } else {
     er = emitTextureUnitHeader(*unit, stemOf(args.inPath));

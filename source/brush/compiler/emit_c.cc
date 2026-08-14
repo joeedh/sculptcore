@@ -183,6 +183,21 @@ struct Emit {
     }
     return false;
   }
+  bool anyTextureUsesSampler() const
+  {
+    for (const auto &t : brush->textures) {
+      if (t.samplerDeps.size() > 0) return true;
+    }
+    return false;
+  }
+
+  const SamplerDecl *findSamplerDecl(const char *name) const
+  {
+    for (const auto &sd : brush->samplers) {
+      if (std::strcmp(sd.name.c_str(), name) == 0) return &sd;
+    }
+    return nullptr;
+  }
   bool anyTextureUsesRamp() const
   {
     for (const auto &t : brush->textures) {
@@ -254,6 +269,7 @@ struct Emit {
       if (std::strcmp(n, "grad") == 0) return TypeKind::Float3;
       const char *dot = std::strchr(n, '.');
       if (dot && std::strcmp(dot, ".sample") == 0) return TypeKind::Float;
+      if (currentTexture && findSamplerDecl(n)) return TypeKind::Float;
       if (const IntrinsicDef *intr = findIntrinsic(stringref(n))) return intr->returnType;
       return TypeKind::Unknown;
     }
@@ -432,12 +448,30 @@ struct Emit {
             break;
           }
         }
-        bool isSampler = false;
-        for (const auto &sd : currentTexture->samplerDeps) {
-          if (string(sd).operator==(string(n))) isSampler = true;
+        if (const SamplerDecl *sd = findSamplerDecl(n)) {
+          if (e.args.size() != sd->params.size()) {
+            errf("sampler '%s' called with the wrong number of arguments", n);
+            out += "0.0f";
+            break;
+          }
+          out += "sb_hs_call(sb_hs_"; out += n; out += ", ";
+          emitExpr(*e.args[0]);
+          out += ", ";
+          if (e.args.size() == 2) emitExpr(*e.args[1]);
+          else out += "sb_f3(0.0f, 0.0f, 0.0f)";
+          out += ")";
+          break;
         }
-        if (isSampler) {
-          errf("sampler '%s' cannot be called yet — host samplers are runtime-only (T4)", n);
+        // No carried decl (Brush::samplers) means this is a precompiled
+        // path, where host samplers cannot resolve.
+        bool isSamplerDep = false;
+        for (const auto &dep : currentTexture->samplerDeps) {
+          if (std::strcmp(dep.c_str(), n) == 0) {
+            isSamplerDep = true;
+          }
+        }
+        if (isSamplerDep) {
+          errf("sampler '%s' is runtime-only; cannot precompile", n);
           out += "0.0f";
           break;
         }
@@ -530,6 +564,23 @@ struct Emit {
       if (std::strcmp(n, "grad") == 0) {
         err("nested grad() is not supported");
         out += "sb_c(0.0f)";
+        break;
+      }
+      // Host samplers chain through sb_hs_grad — the p-gradient dotted with
+      // p's Jacobian rows; any dependence of the sampler on n is not tracked.
+      if (currentTexture && findSamplerDecl(n)) {
+        const SamplerDecl *sd = findSamplerDecl(n);
+        if (e.args.size() != sd->params.size()) {
+          errf("sampler '%s' called with the wrong number of arguments", n);
+          out += "sb_c(0.0f)";
+          break;
+        }
+        out += "sb_hs_call_d(sb_hs_"; out += n; out += ", ";
+        emitDual(*e.args[0]);
+        out += ", ";
+        if (e.args.size() == 2) emitDual(*e.args[1]);
+        else out += "sb_c3(sb_f3(0.0f, 0.0f, 0.0f))";
+        out += ")";
         break;
       }
       // Only intrinsics with an sbd_* chain rule in the prelude may appear
@@ -809,6 +860,39 @@ struct Emit {
       write("  return r;\n");
       write("}\n");
     }
+
+    // Host samplers (T4): the TU reaches the registry only through the two
+    // scalar-arg bridges. Each sb_hs_<name> handle is a TU-defined slot the
+    // host fills with the registry entry's address after relocation — an
+    // extern data symbol would need dllimport under tcc's PE backend, and a
+    // function symbol's address resolves to a local jump thunk, not the
+    // bound target.
+    if (anyTextureUsesSampler()) {
+      write("extern float sb_hs_value(const void *s, float px, float py, float pz, "
+            "float nx, float ny, float nz);\n");
+      write("extern void sb_hs_grad(const void *s, float px, float py, float pz, "
+            "float nx, float ny, float nz, float *out4);\n");
+      Vector<string> handles;
+      for (const auto &t : brush->textures) {
+        for (const auto &dep : t.samplerDeps) {
+          bool seen = false;
+          for (const auto &h : handles) {
+            if (string(h).operator==(string(dep.c_str()))) seen = true;
+          }
+          if (seen) continue;
+          handles.append(dep);
+          write("void *sb_hs_"); write(dep); write(" = 0;\n");
+        }
+      }
+      write("static float sb_hs_call(const void *s, float3 p, float3 n) "
+            "{ return sb_hs_value(s, p.x, p.y, p.z, n.x, n.y, n.z); }\n");
+      write("static sbdual sb_hs_call_d(const void *s, sbdual3 p, sbdual3 n) {\n");
+      write("  float o[4];\n");
+      write("  sb_hs_grad(s, p.v.x, p.v.y, p.v.z, n.v.x, n.v.y, n.v.z, o);\n");
+      write("  float3 g = sb_f3(o[1], o[2], o[3]);\n");
+      write("  return sb_dual(o[0], sb_f3(sc_dot(g, p.dx), sc_dot(g, p.dy), sc_dot(g, p.dz)));\n");
+      write("}\n");
+    }
     write("\n");
   }
 
@@ -940,9 +1024,9 @@ struct Emit {
     for (const auto &p : td.params) { write("*"); write(p.name); write(", "); }
     write("sb_tex_params, sb_texctx);\n}\n\n");
 
-    // A body with no derivative rule (ramp.sample, samplers) is still a valid
-    // value texture: drop the twin + its errors so the JIT resolves eval alone
-    // and the host leaves evalDual null.
+    // A body with no derivative rule (ramp.sample) is still a valid value
+    // texture: drop the twin + its errors so the JIT resolves eval alone and
+    // the host leaves evalDual null. Sampler calls chain through sb_hs_grad.
     if ((int)errors.size() > errMark) {
       out = out.substr(0, outMark);
       while ((int)errors.size() > errMark) errors.pop_back();

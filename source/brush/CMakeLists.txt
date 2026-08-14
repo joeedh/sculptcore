@@ -43,6 +43,8 @@ set(SRC
   texture_jit.cc
   PUBLIC texture_program.h
   texture_program.cc
+  PUBLIC host_sampler.h
+  host_sampler.cc
   brush_command.cc
   brush_executor.h
   brush_executor.cc
@@ -109,6 +111,8 @@ wasm_add_symbols("
   GridStroke_dropOldest
   GridStroke_undoBytes
   GridTree_castRay
+  sc_host_sampler_register
+  sc_host_sampler_unregister
 ")
 
 # Generated sbrush kernels (created by `node make.mjs codegen`).

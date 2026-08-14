@@ -76,7 +76,9 @@ struct TextureProgram {
                    const TexEvalCtx *ctx,
                    TexDual *out) = nullptr;
 
-  litestl::util::string wgsl;  // unit WGSL module text; empty if emission failed
+  // Self-contained unit WGSL (sampler snippets prepended); empty when
+  // emission failed or a samplerDep is CPU-only.
+  litestl::util::string wgsl;
   litestl::util::Vector<litestl::util::string> samplerDeps;
   bool gpuAvailable = false;  // wgsl present and every samplerDep has a GPU impl
   bool usesMap = false;       // eval calls mapPoint() — feed the ctx a real matrix

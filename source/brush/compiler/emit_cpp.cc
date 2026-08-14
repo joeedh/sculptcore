@@ -577,13 +577,12 @@ struct Emit {
             break;
           }
         }
-        // Sampler calls parse in T1 but have no host plumbing until T4.
+        // Host samplers resolve only on the runtime JIT path (T4); the
+        // precompiled cpp backend has no registry to bind against.
         bool wasSampler = false;
         for (const auto &sm : currentTexture->samplerDeps) {
           if (string(sm).operator==(string(e.name.c_str()))) {
-            errf("sampler '%s' cannot be called yet — host samplers are "
-                 "runtime-only (T4)",
-                 e.name.c_str());
+            errf("sampler '%s' is runtime-only; cannot precompile", e.name.c_str());
             out += "0.0f";
             wasSampler = true;
             break;
