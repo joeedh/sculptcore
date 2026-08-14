@@ -135,6 +135,12 @@ inline constexpr uint32_t kAutomaskBinding = 24;
  * beginStroke zero-fill. */
 inline constexpr uint32_t kDispBinding = 25;
 
+/* Fixed binding of the runtime texture-program param slab (spliced kernels
+ * only, and only when the program has params): TextureProgram::paramSlabSize
+ * f32s uploaded from Brush::texture_params at stroke begin. The spliced WGSL
+ * declares it as `sb_tex_params` (emitWgslTextureDefs paramsFromBinding). */
+inline constexpr uint32_t kTexParamsBinding = 26;
+
 /* binding 12 element — std430 vec2<u32>, stride 8. CSR neighbor index: for
  * global vertex i, its neighbors are nbr_verts[offset .. offset+count). */
 struct ComputeVertNbr {

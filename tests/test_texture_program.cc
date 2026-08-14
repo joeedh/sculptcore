@@ -387,6 +387,73 @@ static void testSamplers()
   test_assert(ce->fn == nullptr);
 }
 
+/** T5 splice: spliceTextureProgramWgsl's string surgery — the bitmap
+ * brush_sample_tex definition renamed aside, the program WGSL appended, and a
+ * wrapper calling tex_<name>_eval (with the render matrix when the program
+ * maps points); plus the passthrough / error paths. */
+static void testSplice()
+{
+  using sculptcore::brush::spliceTextureProgramWgsl;
+
+  // A minimal stand-in for a generated kernel: one definition site plus a
+  // call site that must survive untouched.
+  static const char *kKernel =
+      "fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {\n"
+      "  return 1.0;\n"
+      "}\n"
+      "fn brush_strength(co: vec3<f32>, no: vec3<f32>) -> f32 {\n"
+      "  return brush_sample_tex(co, no);\n"
+      "}\n";
+
+  litestl::util::string error;
+  TextureProgram *rings = compileTextureScript(kRingsSrc, "rings.stex", error);
+  test_assert(rings != nullptr && rings->gpuAvailable);
+  if (rings) {
+    litestl::util::string out = spliceTextureProgramWgsl(kKernel, *rings, error);
+    test_assert(out.size() > 0);
+    test_assert(std::strstr(out.c_str(), "fn brush_sample_tex_bitmap(") != nullptr);
+    test_assert(std::strstr(out.c_str(), "tex_rings_eval(co, no)") != nullptr);
+    test_assert(std::strstr(out.c_str(), "render_matrix") == nullptr);  // !usesMap
+    // Exactly one brush_sample_tex definition remains: the wrapper.
+    const char *def = std::strstr(out.c_str(), "fn brush_sample_tex(");
+    test_assert(def != nullptr);
+    test_assert(def && std::strstr(def + 1, "fn brush_sample_tex(") == nullptr);
+    // A no-op program flag flip is refused (CPU-only programs never splice).
+    rings->gpuAvailable = false;
+    error = "";
+    out = spliceTextureProgramWgsl(kKernel, *rings, error);
+    test_assert(out.size() == 0 && error.size() > 0);
+    freeTextureProgram(rings);
+  }
+
+  TextureProgram *scaled = compileTextureScript(kScaledSrc, "scaled.stex", error);
+  test_assert(scaled != nullptr && scaled->gpuAvailable);
+  if (scaled) {
+    // Params read the host-uploaded binding-26 slab on the runtime path, not a
+    // baked defaults const; mapPoint programs get the ctx matrix threaded in.
+    test_assert(std::strstr(scaled->wgsl.c_str(), "sb_tex_params") != nullptr);
+    test_assert(std::strstr(scaled->wgsl.c_str(), "@binding(26)") != nullptr);
+    test_assert(std::strstr(scaled->wgsl.c_str(), "tex_scaled_defaults") == nullptr);
+    litestl::util::string out = spliceTextureProgramWgsl(kKernel, *scaled, error);
+    test_assert(out.size() > 0);
+    test_assert(std::strstr(out.c_str(), "tex_scaled_eval(co, no, ctx_u.render_matrix)") !=
+                nullptr);
+
+    // A kernel that never defines brush_sample_tex (skip stub) passes through.
+    static const char *kStub = "@compute fn nop() { }\n";
+    out = spliceTextureProgramWgsl(kStub, *scaled, error);
+    test_assert(out.size() > 0 && std::strcmp(out.c_str(), kStub) == 0);
+
+    // Two definition sites are malformed input.
+    litestl::util::string twice = litestl::util::string(kKernel) + kKernel;
+    error = "";
+    out = spliceTextureProgramWgsl(twice.c_str(), *scaled, error);
+    test_assert(out.size() == 0);
+    test_assert(std::strstr(error.c_str(), "more than once") != nullptr);
+    freeTextureProgram(scaled);
+  }
+}
+
 static void runTests()
 {
   test_assert(sculptcore::brush::textureScriptCpuAvailable());
@@ -394,6 +461,7 @@ static void runTests()
   testScaled();
   testErrors();
   testSamplers();
+  testSplice();
 }
 
 int main()

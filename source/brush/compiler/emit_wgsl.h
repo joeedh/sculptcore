@@ -24,7 +24,10 @@ EmitResult emitWgsl(const Brush &brush);
 /** `--texture-unit` WGSL half: the module text for a scratch brush wrapping
  * a .stex unit's textures — defaults arrays, ramp helpers, the map-point
  * helper when needed, and the eval functions. Embedded in the unit's
- * .tex.gen.h for the T5 shader splice; no compute kernel around it. */
-EmitResult emitWgslTextureDefs(const Brush &brush);
+ * .tex.gen.h for the T5 shader splice; no compute kernel around it.
+ * `paramsFromBinding` (runtime programs) makes non-@const param reads index
+ * the host-uploaded binding-26 slab (`sb_tex_params`, kTexParamsBinding)
+ * instead of a baked module-scope defaults const. */
+EmitResult emitWgslTextureDefs(const Brush &brush, bool paramsFromBinding = false);
 
 } // namespace sculptcore::brush::sbrush

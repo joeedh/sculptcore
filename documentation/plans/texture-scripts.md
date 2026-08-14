@@ -404,8 +404,27 @@ matrix transport already exists.
   `void *sb_hs_<name>` slots filled via `tcc_get_symbol` post-relocate —
   extern data needs dllimport under tcc's PE backend, and a function
   symbol's address resolves to a local jump thunk (see emit_c.cc).
-- **T5 — runtime GPU.** WGSL splice into the brush shader at stroke begin;
-  `gpuAvailable` gating through the stroke driver; A/B gates.
+- **T5 — runtime GPU** *(done 2026-08-13; WebGPU/wgpu dispatcher only, as
+  scoped)*. `spliceTextureProgramWgsl` (texture_program.cc) rebases the
+  generated kernel's `brush_sample_tex` def onto the runtime program (def
+  renamed `_bitmap`, program WGSL + wrapper appended); runtime programs
+  emit params in binding mode — reads index the `sb_tex_params` slab at
+  `@binding(26)` (`brush::kTexParamsBinding`) instead of a baked defaults
+  const. `WgpuBrushComputeDispatch` grew `loadKernelSource` (text-entry
+  twin of `loadKernel`; auto-layout already parses binding decls from
+  module text) + `setTexParams` (stroke-constant slab upload, 1-float
+  dummy fallback in `dab()`). `GpuStrokeSession::begin` splices + uploads
+  on WgpuNative when `gpuAvailable`, refuses otherwise (CPU fallback);
+  the marshal-only c-api session still returns null with a program bound
+  (host loads kernels itself — a splice surface there is future work).
+  Gates: `testSplice` in `test_texture_program`;
+  `draw_script_tex_ab.txt` + `tests/assets/draw_script_tex.stex`
+  (param + ramp via binding 26, `mapPoint` via ctx render_matrix) under
+  `wgpu-native-verify` — sbrush-verify/webgpu-verify skip it
+  (`SCRIPT_TEX_BRUSHES` in make.mjs; the SPIR-V path refuses programs).
+  Ride-along fix: TEXGRAD was missing from script.cc's `gpuTool` set, so
+  the texgrad A/B's wgsl pass silently ran on the C++ executor in all
+  three verifiers; now dispatches for real (Dawn replay 1.49e-8).
 
 ## Open questions / risks
 
@@ -428,4 +447,6 @@ matrix transport already exists.
   emits the WGSL dual prelude — `brushUsesGrad` inspects brush stages only,
   so a precompiled *unit* whose importer calls `grad()` relies on the
   importing brush's own emission to pull the prelude in. Runtime programs
-  (T4 `gpuAvailable` path) are unaffected. Revisit when T5 splices WGSL.
+  (T4 `gpuAvailable` path) are unaffected, and the T5 splice doesn't
+  change this — it appends program WGSL to an already-emitted kernel.
+  Still open.

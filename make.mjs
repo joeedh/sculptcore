@@ -1088,6 +1088,11 @@ function readDumpJson(p) {
   }
 }
 
+// Runtime .stex texture programs reach the GPU only through the T5 WGSL splice
+// on the native wgpu path; the Vulkan/SPIR-V wgsl backend refuses them. Their
+// A/B scripts run only under wgpu-native-verify.
+const SCRIPT_TEX_BRUSHES = new Set(['draw_script_tex'])
+
 async function sbrushVerify(regen) {
   const dir = buildDir('native')
   const env = envPrefix('native')
@@ -1129,6 +1134,10 @@ async function sbrushVerify(regen) {
   let regenerated = 0
   for (const s of scripts) {
     const brush = s.replace(/_ab\.txt$/, '')
+    if (SCRIPT_TEX_BRUSHES.has(brush)) {
+      console.log(`⊘ ${brush}: skipped (runtime texture programs splice only on the native wgpu path)`)
+      continue
+    }
     const res = child_process.spawnSync(debugApp, ['--script', `${scriptDir}/${s}`, '--out', outDir, '--headless'], {
       encoding: 'utf-8',
     })
@@ -1243,6 +1252,10 @@ async function webgpuVerify() {
   let failures = 0
   for (const s of scripts) {
     const brush = s.replace(/_ab\.txt$/, '')
+    if (SCRIPT_TEX_BRUSHES.has(brush)) {
+      console.log(`⊘ ${brush}: skipped (runtime texture programs splice only on the native wgpu path)`)
+      continue
+    }
     // Scripts that never run a wgsl-backend pass (e.g. smooth_csr's cpp-vs-cpp
     // neighbor-source A/B) capture no GPU fixture — nothing to replay here.
     if (!fs.readFileSync(`${scriptDir}/${s}`, 'utf-8').includes('backend=wgsl')) {

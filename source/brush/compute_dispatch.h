@@ -61,6 +61,17 @@ struct IBrushComputeDispatch {
    * 1x1 white dummy. Call once per stroke after beginStroke when textured. */
   virtual bool setBrushTexture(const float *pixels, int width, int height) = 0;
 
+  /* Upload the runtime texture-program param slab (kTexParamsBinding, spliced
+   * kernels only): `count` floats from Brush::texture_params. Stroke-constant —
+   * call once after beginStroke. Default no-op for backends without the T5
+   * splice (only wgpu_compute implements it). */
+  virtual bool setTexParams(const float *data, int count)
+  {
+    (void)data;
+    (void)count;
+    return false;
+  }
+
   /* Read co/no/mask back into caller arrays (packed xyz / xyz / f32). Any
    * pointer may be null to skip that readback. */
   virtual bool endStroke(float *coOut, float *noOut, float *maskOut) = 0;

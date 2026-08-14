@@ -60,6 +60,10 @@ struct Emit {
   // the module-scope defaults array, gates mapPoint(), and flags samplers.
   const TextureDef *currentTexture = nullptr;
 
+  // Runtime texture programs (T5): non-@const param reads target the
+  // host-uploaded binding-26 slab instead of the baked defaults array.
+  bool texParamsFromBinding = false;
+
   string out;
   Vector<string> errors;
   int indent = 0;
@@ -190,6 +194,13 @@ struct Emit {
   static string texDefaultsName(const TextureDef &td)
   {
     return string("tex_") + lower(td.name) + "_defaults";
+  }
+
+  // The array a texture's non-@const param reads index: the baked defaults
+  // const, or the binding-26 slab on the runtime path.
+  string texParamsRef(const TextureDef &td) const
+  {
+    return texParamsFromBinding ? string("sb_tex_params") : texDefaultsName(td);
   }
 
   // Per-ramp-param sample helper (`colors.sample(t)` -> tex_x_ramp_colors(t)).
@@ -365,7 +376,7 @@ struct Emit {
         } else {
           char buf[32];
           std::snprintf(buf, sizeof(buf), "[%d]", tp->offset);
-          out += texDefaultsName(*currentTexture);
+          out += texParamsRef(*currentTexture);
           out += buf;
         }
       } else if (auto *f = findField(nm)) {
@@ -1501,7 +1512,11 @@ struct Emit {
   // runtime-computed slab offset, so the offset is baked into a fn.
   void emitTextureSupport(const TextureDef &td)
   {
-    if (td.slabSize > 0) {
+    if (td.slabSize > 0 && texParamsFromBinding) {
+      // Runtime program: the host uploads the live slab to kTexParamsBinding
+      // at stroke begin, so param edits reach the GPU without a re-emit.
+      write("@group(0) @binding(26) var<storage, read> sb_tex_params: array<f32>;\n\n");
+    } else if (td.slabSize > 0) {
       write("const ");
       write(texDefaultsName(td));
       write(" = array<f32, ");
@@ -1553,17 +1568,17 @@ struct Emit {
       std::snprintf(buf, sizeof(buf), "  if (sb_i >= %du) {\n", kTexRampSize - 1);
       write(buf);
       write("    return ");
-      write(texDefaultsName(td));
+      write(texParamsRef(td));
       std::snprintf(buf, sizeof(buf), "[%d];\n", tp.offset + kTexRampSize - 1);
       write(buf);
       write("  }\n");
       write("  let sb_f = sb_x - f32(sb_i);\n");
       write("  let sb_a = ");
-      write(texDefaultsName(td));
+      write(texParamsRef(td));
       std::snprintf(buf, sizeof(buf), "[%du + sb_i];\n", tp.offset);
       write(buf);
       write("  let sb_b = ");
-      write(texDefaultsName(td));
+      write(texParamsRef(td));
       std::snprintf(buf, sizeof(buf), "[%du + sb_i + 1u];\n", tp.offset);
       write(buf);
       write("  return sb_a + (sb_b - sb_a) * sb_f;\n");
@@ -2078,10 +2093,11 @@ EmitResult emitWgsl(const Brush &brush)
   return r;
 }
 
-EmitResult emitWgslTextureDefs(const Brush &brush)
+EmitResult emitWgslTextureDefs(const Brush &brush, bool paramsFromBinding)
 {
   Emit em;
   em.brush = &brush;
+  em.texParamsFromBinding = paramsFromBinding;
   em.emitTextures();
   EmitResult r;
   r.text = std::move(em.out);

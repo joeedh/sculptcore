@@ -1,0 +1,22 @@
+# A/B script: set_texture script=<.stex>, cpp (tinycc JIT) vs the T5 WGSL
+# splice. Runtime texture programs dispatch only on the native wgpu backend, so
+# sbrush-verify and webgpu-verify skip this script (SCRIPT_TEX_BRUSHES in
+# make.mjs); wgpu-native-verify rewrites the wgsl pass to backend=webgpu and
+# runs it for real. The program's param + ramp read the binding-26 slab on the
+# GPU (defaults-seeded Brush::texture_params); mapPoint pulls the ctx
+# render_matrix through the spliced wrapper. Path is repo-root-relative.
+make_cube subdivs=16 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=draw
+set_brush radius=0.15 strength=6.0
+set_texture script=tests/assets/draw_script_tex.stex
+
+set_backend backend=cpp
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=draw_script_tex_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 steps=8
+dump_state out=draw_script_tex_wgsl.json

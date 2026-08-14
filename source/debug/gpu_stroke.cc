@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstddef>
 #include <cstring>
+#include <fstream>
 
 // The SBRUSH_*_DIR build paths are passed unquoted by CMake (a quoted value can
 // lose its quotes through the compiler-launcher/response-file plumbing on
@@ -128,12 +129,21 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     err = "stroke(wgsl): tool has no GPU kernel";
     return false;
   }
-  // A runtime texture program has no WGSL splice until T5 — refuse here so
-  // the caller takes the CPU fallback (interactive.cc), same shape as the
-  // grids path.
-  if (scene.brush.texture_program) {
-    err = "stroke(wgsl): runtime texture program is CPU-only until T5";
-    return false;
+  // A runtime texture program reaches the GPU through the T5 WGSL splice —
+  // WgpuNative only, and only when the program emitted GPU code. Refuse
+  // otherwise so the caller takes the CPU fallback (interactive.cc).
+  brush::TextureProgram *texProg = scene.brush.texture_program;
+  if (texProg) {
+    bool spliceable = false;
+#ifdef SBRUSH_WEBGPU_COMPUTE
+    spliceable =
+        scene.currentBackend == BrushBackend::WgpuNative && texProg->gpuAvailable;
+#endif
+    if (!spliceable) {
+      err = "stroke(wgsl): runtime texture program needs the WgpuNative backend "
+            "and a GPU-capable program";
+      return false;
+    }
   }
   kernel_ = kinfo->kernel;
   needsNeighbors_ = kinfo->needsNeighbors;
@@ -187,10 +197,38 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
       err = "stroke(webgpu): wgpu-native device init failed";
       return false;
     }
-    disp_ = new webgpu::WgpuBrushComputeDispatch(wgpuCtx_);
+    auto *wdisp = new webgpu::WgpuBrushComputeDispatch(wgpuCtx_);
+    disp_ = wdisp;
     std::string wgsl =
         std::string(SBRUSH_STRINGIZE(SBRUSH_WGSL_DIR)) + "/" + kernel_ + ".wgsl";
-    if (!disp_->loadKernel(wgsl.c_str())) {
+    if (texProg) {
+      // T5 splice: rebase the generated kernel's brush_sample_tex onto the
+      // runtime program, then load the rewritten module from text.
+      std::ifstream f(wgsl, std::ios::binary | std::ios::ate);
+      if (!f) {
+        err = "stroke(webgpu): cannot open " + wgsl;
+        return false;
+      }
+      std::streamsize n = f.tellg();
+      f.seekg(0);
+      std::string ktext(size_t(n), '\0');
+      if (!f.read(ktext.data(), n)) {
+        err = "stroke(webgpu): cannot read " + wgsl;
+        return false;
+      }
+      litestl::util::string serr;
+      litestl::util::string spliced =
+          brush::spliceTextureProgramWgsl(ktext.c_str(), *texProg, serr);
+      if (spliced.size() == 0) {
+        err = "stroke(webgpu): texture-program splice failed: " + std::string(serr.c_str());
+        return false;
+      }
+      std::string label = wgsl + "+texprog";
+      if (!wdisp->loadKernelSource(spliced.c_str(), label.c_str())) {
+        err = "stroke(webgpu): failed to load spliced " + wgsl;
+        return false;
+      }
+    } else if (!disp_->loadKernel(wgsl.c_str())) {
       err = "stroke(webgpu): failed to load " + wgsl;
       return false;
     }
@@ -209,6 +247,18 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   if (!disp_->beginStroke(co.data(), no.data(), mask.data(), uploadCount)) {
     err = "stroke(wgsl): geometry upload failed";
     return false;
+  }
+
+  // Runtime texture-program param slab (binding 26): stroke-constant, from the
+  // live Brush::texture_params (setTextureProgram seeds it with the defaults).
+  if (texProg && texProg->paramSlabSize > 0) {
+    const float *slab = (int)scene.brush.texture_params.size() >= texProg->paramSlabSize
+                            ? scene.brush.texture_params.data()
+                            : texProg->defaults.data();
+    if (!disp_->setTexParams(slab, texProg->paramSlabSize)) {
+      err = "stroke(wgsl): texture-program param upload failed";
+      return false;
+    }
   }
 
   // Automask (vertex kernels only): override the identity buffer beginStroke

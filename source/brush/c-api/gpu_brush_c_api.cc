@@ -71,8 +71,9 @@ void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog,
   if (!info) {
     return nullptr;
   }
-  // Runtime texture programs are CPU-only until the T5 WGSL splice; a null
-  // return routes the host onto the CPU stroke path.
+  // This session only marshals — the host loads the kernel WGSL itself and
+  // cannot consume the T5 splice (spliceTextureProgramWgsl) or upload the
+  // binding-26 slab; a null return routes the host onto the CPU stroke path.
   if (b->texture_program) {
     return nullptr;
   }

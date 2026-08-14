@@ -78,6 +78,7 @@ WgpuBrushComputeDispatch::~WgpuBrushComputeDispatch()
   destroyBuf(disp_);
   destroyBuf(dabStamp_);
   destroyBuf(automask_);
+  destroyBuf(texParams_);
   destroyBuf(readback_);
   destroyBrushTexture();
   if (sampler_) wgpuSamplerRelease(sampler_);
@@ -195,11 +196,18 @@ bool WgpuBrushComputeDispatch::loadKernel(const char *path)
   }
   std::streamsize n = f.tellg();
   f.seekg(0);
-  std::string src(size_t(n), '\0');
-  if (!f.read(src.data(), n)) {
+  std::string text(size_t(n), '\0');
+  if (!f.read(text.data(), n)) {
     std::fprintf(stderr, "WgpuBrushComputeDispatch: cannot read '%s'\n", path);
     return false;
   }
+  return loadKernelSource(text.c_str(), path);
+}
+
+bool WgpuBrushComputeDispatch::loadKernelSource(const char *srcText,
+                                                const char *label)
+{
+  std::string src(srcText);
 
   // Parse the actual `@group(0) @binding(N) var<...> name: type;` table so the
   // bind-group layout matches the kernel's declared access qualifiers exactly
@@ -247,7 +255,7 @@ bool WgpuBrushComputeDispatch::loadKernel(const char *path)
     bindings_.append(BindingInfo{bind, kind});
   }
   if (bindings_.size() == 0) {
-    std::fprintf(stderr, "WgpuBrushComputeDispatch: no bindings in '%s'\n", path);
+    std::fprintf(stderr, "WgpuBrushComputeDispatch: no bindings in '%s'\n", label);
     return false;
   }
 
@@ -258,7 +266,7 @@ bool WgpuBrushComputeDispatch::loadKernel(const char *path)
   module_ = wgpuDeviceCreateShaderModule(ctx_->device, &smd);
   if (!module_) {
     std::fprintf(stderr, "WgpuBrushComputeDispatch: shader module failed '%s'\n",
-                 path);
+                 label);
     return false;
   }
 
@@ -306,7 +314,7 @@ bool WgpuBrushComputeDispatch::loadKernel(const char *path)
   cpd.compute.entryPoint = strView("main");
   pipeline_ = wgpuDeviceCreateComputePipeline(ctx_->device, &cpd);
   if (!pipeline_) {
-    std::fprintf(stderr, "WgpuBrushComputeDispatch: pipeline failed '%s'\n", path);
+    std::fprintf(stderr, "WgpuBrushComputeDispatch: pipeline failed '%s'\n", label);
     return false;
   }
 
@@ -393,6 +401,20 @@ bool WgpuBrushComputeDispatch::setAutomask(const float *automask, int vertCount)
   return true;
 }
 
+bool WgpuBrushComputeDispatch::setTexParams(const float *data, int count)
+{
+  if (count < 1) {
+    return false;
+  }
+  const WGPUBufferUsage ro = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+  if (!ensureBuf(texParams_, uint64_t(count) * sizeof(float), ro)) {
+    return false;
+  }
+  wgpuQueueWriteBuffer(ctx_->queue, texParams_.buffer, 0, data,
+                       size_t(count) * sizeof(float));
+  return true;
+}
+
 bool WgpuBrushComputeDispatch::setNeighbors(const ComputeVertNbr *meta,
                                             int vertCount,
                                             const uint32_t *nbrVerts,
@@ -439,6 +461,7 @@ WGPUBindGroup WgpuBrushComputeDispatch::buildBindGroup()
     case brush::kDabStampBinding: buf = &dabStamp_; break;
     case brush::kAutomaskBinding: buf = &automask_; break;
     case brush::kDispBinding: buf = &disp_; break;
+    case brush::kTexParamsBinding: buf = &texParams_; break;
     default: break;
     }
     if (buf) {
@@ -476,6 +499,13 @@ bool WgpuBrushComputeDispatch::dab(const ComputeBrushUniforms &brushU,
                  uint64_t(strokeCount < 1 ? 1 : strokeCount) *
                      sizeof(ComputeStrokeSample),
                  ro)) {
+    return false;
+  }
+  // A spliced kernel declares kTexParamsBinding; if the host never uploaded a
+  // slab (defensive — the driver always does), bind a 1-float dummy rather
+  // than a null buffer, which would fail bind-group creation.
+  if (hasBinding(brush::kTexParamsBinding) &&
+      !ensureBuf(texParams_, sizeof(float), ro)) {
     return false;
   }
 

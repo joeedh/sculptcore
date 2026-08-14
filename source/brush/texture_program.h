@@ -111,4 +111,18 @@ TextureProgram *compileTextureScript(litestl::util::stringref source,
 
 void freeTextureProgram(TextureProgram *program);
 
+/** T5 GPU splice: rebase a generated brush-kernel WGSL module onto a runtime
+ * texture program. Renames the kernel's bitmap `fn brush_sample_tex`
+ * definition out of the way and appends the program's self-contained WGSL
+ * (sampler snippets + eval fns; params read the binding-26 slab) plus a
+ * `brush_sample_tex` wrapper calling `tex_<name>_eval`, so `brush_strength`
+ * picks the program up unchanged — WGSL module-scope declarations are
+ * order-independent. Requires `p.gpuAvailable`. A kernel that never defines
+ * `brush_sample_tex` (skip stubs) is returned unchanged: it cannot sample a
+ * texture on the CPU path either. Returns empty with `error` set on a
+ * malformed kernel (multiple definition sites). */
+litestl::util::string spliceTextureProgramWgsl(litestl::util::stringref kernelSrc,
+                                               const TextureProgram &p,
+                                               litestl::util::string &error);
+
 }  // namespace sculptcore::brush

@@ -1,0 +1,17 @@
+// A/B fixture for draw_script_tex_ab.txt (texture-scripts T5): a runtime
+// .stex with a scalar param + ramp (read from the binding-26 slab on the GPU)
+// and mapPoint (threads ctx render_matrix through the spliced wrapper). No
+// samplers — the debug app registers none.
+
+texture ScriptTexAB {
+  param float scale = 3.0 @range(0.5, 8.0);
+  param ramp shape;
+
+  float eval(float3 p, float3 n) {
+    float3 q = mapPoint(p);
+    float d = length(q) * scale;
+    float rings = 0.5 + 0.5 * sin(d * 10.0);
+    float tilt = 0.5 + 0.5 * cos(dot(n, p) * 4.0);
+    return shape.sample(fract(d)) * rings * tilt;
+  }
+}

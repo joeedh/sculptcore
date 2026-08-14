@@ -32,6 +32,11 @@ struct WgpuBrushComputeDispatch : brush::IBrushComputeDispatch {
    * compute pipeline (entry point `main`). Idempotent per instance. */
   bool loadKernel(const char *path) override;
 
+  /* The text-entry twin of loadKernel — same pipeline build from an in-memory
+   * WGSL module (the T5 texture-program splice hands in rewritten kernel
+   * source). `label` names the module in error messages. */
+  bool loadKernelSource(const char *src, const char *label);
+
   bool beginStroke(const float *co, const float *no, const float *mask,
                    int vertCount) override;
 
@@ -47,6 +52,8 @@ struct WgpuBrushComputeDispatch : brush::IBrushComputeDispatch {
   bool setAutomask(const float *automask, int vertCount) override;
 
   bool setBrushTexture(const float *pixels, int width, int height) override;
+
+  bool setTexParams(const float *data, int count) override;
 
   bool endStroke(float *coOut, float *noOut, float *maskOut) override;
 
@@ -117,6 +124,10 @@ private:
   /* binding 25 (kDispBinding) — read_write accumulated brush displacement for
    * non-accumulate mode, zero-filled at beginStroke; the base is `co - disp`. */
   Buf disp_;
+  /* binding 26 (kTexParamsBinding) — read-only runtime texture-program param
+   * slab, uploaded by setTexParams; spliced kernels only. dab() falls back to
+   * a 1-float dummy if the kernel declares it but no upload happened. */
+  Buf texParams_;
 
   /* Persistent MAP_READ staging buffer reused across every readback. Allocating
    * a fresh host-visible buffer per dab churns vkAllocateMemory/vkFreeMemory on

@@ -5,6 +5,9 @@
 
 #include "litestl/util/alloc.h"
 
+#include <cctype>
+#include <string>
+
 #ifdef SCULPTCORE_HAVE_TCC
 #include <tinycc/libtcc.h>
 #endif
@@ -19,7 +22,6 @@
 #include "compiler/lexer.h"
 #include "compiler/parser.h"
 
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -292,7 +294,7 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
   // Sampler WGSL snippets are prepended (FD grad wrappers synthesized when a
   // snippet lacks one) so p->wgsl is self-contained; a sampler registered
   // without WGSL makes the texture CPU-only.
-  sbrush::EmitResult wr = sbrush::emitWgslTextureDefs(scratch);
+  sbrush::EmitResult wr = sbrush::emitWgslTextureDefs(scratch, /*paramsFromBinding=*/true);
   if (wr.errors.size() == 0) {
     bool gpu = wr.text.size() > 0;
     string prefix;
@@ -328,5 +330,45 @@ TextureProgram *compileTextureScript(stringref, stringref, string &error)
 }
 
 #endif
+
+string spliceTextureProgramWgsl(stringref kernelSrc, const TextureProgram &p, string &error)
+{
+  std::string src(kernelSrc.c_str());
+  if (!p.gpuAvailable || p.wgsl.size() == 0) {
+    error = string("texture program '") + p.name + "' has no GPU implementation";
+    return string("");
+  }
+
+  // Only the definition site starts with "fn "; call sites are bare
+  // "brush_sample_tex(". A kernel without one never samples a texture (skip
+  // stubs, kernels with no strength()) — the CPU path ignores the program on
+  // those too, so pass the module through untouched.
+  const std::string def = "fn brush_sample_tex(";
+  size_t at = src.find(def);
+  if (at == std::string::npos) {
+    return string(src.c_str());
+  }
+  if (src.find(def, at + def.size()) != std::string::npos) {
+    error = string("kernel defines brush_sample_tex more than once");
+    return string("");
+  }
+  src.replace(at, def.size(), "fn brush_sample_tex_bitmap(");
+
+  std::string lowered;
+  for (int i = 0; i < (int)p.name.size(); i++) {
+    lowered += (char)std::tolower((unsigned char)p.name.c_str()[i]);
+  }
+  src += "\n// --- runtime texture program '";
+  src += p.name.c_str();
+  src += "' (T5 splice) ---\n";
+  src += p.wgsl.c_str();
+  src += "\nfn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {\n";
+  src += "  return tex_" + lowered + "_eval(co, no";
+  if (p.usesMap) {
+    src += ", ctx_u.render_matrix";
+  }
+  src += ");\n}\n";
+  return string(src.c_str());
+}
 
 }  // namespace sculptcore::brush

@@ -1403,7 +1403,8 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::POSE ||
                    t == brush::SculptBrushes::COLOR ||
                    t == brush::SculptBrushes::POLYGROUP ||
-                   t == brush::SculptBrushes::BSMOOTH;
+                   t == brush::SculptBrushes::BSMOOTH ||
+                   t == brush::SculptBrushes::TEXGRAD;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
         gpuTool) {
@@ -1630,7 +1631,8 @@ bool execVerb(Scene &scene,
                    t == brush::SculptBrushes::POSE ||
                    t == brush::SculptBrushes::COLOR ||
                    t == brush::SculptBrushes::POLYGROUP ||
-                   t == brush::SculptBrushes::BSMOOTH;
+                   t == brush::SculptBrushes::BSMOOTH ||
+                   t == brush::SculptBrushes::TEXGRAD;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
         gpuTool) {
