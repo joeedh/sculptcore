@@ -18,6 +18,11 @@ and no undo interaction, so runtime compilation of textures carries none of
 the risks that kept brushes compile-time. Brushes stay compile-time.
 `sbrush_autodiff.md` defines the dual representation this plan builds on.
 
+> **Status: complete — T1–T5 all landed (2026-08-13).** This document is the
+> design record; the durable reference for the shipped system is
+> [`../textureScripts.md`](../textureScripts.md). Remaining items live in
+> [Open questions / risks](#open-questions--risks).
+
 ## Current state (verified)
 
 - `texture Name { float eval(float3 p, float3 n) { ... } }` exists only
@@ -204,6 +209,15 @@ void registerHostSampler(const HostSampler &s);   // + c-api + binding
   executor (which is the addon's only stroke path today anyway,
   per `customSBrushScrips.md`). Note the per-vertex Python callback cost;
   the existing 128×128 bake remains the fast default, scripts the exact one.
+- **Builtin samplers** (post-plan addition): `registerBuiltinHostSamplers()`
+  — idempotent, called from `compileTextureScript` so every compiling process
+  has the builtins with no init-order dependency — registers
+  natively-compiled bases; currently `vnoise`, one octave of 3D lattice value
+  noise with a WGSL twin. Added when the clouds port showed a DSL-inlined
+  basis under tcc's unoptimized codegen made the routed program ~23× the
+  bitmap path (21.0 → 2.66 ms/dab on a 263k-vert grid once the octave loop
+  called the sampler); the same change gated `strength()` to skip
+  `sampleBrushTex` when falloff is already zero.
 
 ## Parameters
 

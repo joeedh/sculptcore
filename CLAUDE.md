@@ -321,14 +321,18 @@ dispatches the `SculptBrushes` enum to the matching factory. At runtime
 kernel through a vertex-iterator factory. Codegen is
 `node make.mjs codegen`; cross-backend correctness is gated by
 `sbrush-validate` (per-backend compile) and `sbrush-verify` (C++ vs GPU
-A/B, bit-for-bit modulo fp). Four docs cover it:
+A/B, bit-for-bit modulo fp). Five docs cover it:
 [`documentation/brush.md`](documentation/brush.md) (runtime),
 [`documentation/brush_dsl.md`](documentation/brush_dsl.md) (the language),
 [`documentation/brush_compute.md`](documentation/brush_compute.md)
-(compiler, build wiring, verification), and
+(compiler, build wiring, verification),
 [`documentation/strokeDriverGuide.md`](documentation/strokeDriverGuide.md) (the
 host-side contract: what a driver must do around `applyDab` for correct undo,
-symmetry, grab/anchored, dyntopo and preview).
+symmetry, grab/anchored, dyntopo and preview), and
+[`documentation/textureScripts.md`](documentation/textureScripts.md)
+(standalone `.stex` texture scripts — the one runtime-compiled exception to
+"brushes stay compile-time": tcc CPU JIT + stroke-begin WGSL splice,
+host/builtin samplers, param slab).
 
 Per-kernel **policy is engine-owned, not host-owned**: the sbrush annotations
 (`@grabmode`, `@unbounded`, `@incremental`, `@relaxation`, `attr … @use(...)`)

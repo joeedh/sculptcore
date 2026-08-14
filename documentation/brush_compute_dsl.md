@@ -316,6 +316,15 @@ from `kernels/rings.stex`; extra kernel dirs
 shadow the checked-in registry from `<build>/sbrush_extra/gen`. Image
 textures become `Tex2D` with a bilinear sample intrinsic.
 
+Beyond precompilation, `.stex` sources also compile **at runtime**
+(`compileTextureScript` — in-process tcc JIT on the CPU, a stroke-begin WGSL
+splice on the GPU), with per-texture parameters/ramps updatable without
+recompiling and a top-level `sampler float <name>(float3 p);` declaration for
+host-registered sample functions (the engine ships `vnoise`, a
+natively-compiled value-noise basis, as a builtin). That system — including
+the tcc authoring pitfalls (textual intrinsic macros, no optimization) — is
+documented in [`textureScripts.md`](textureScripts.md).
+
 ### IR (`BrushIR`)
 
 Small SSA, ~30 ops: `add/sub/mul/div/fma`, `dot/cross/length/normalize`,

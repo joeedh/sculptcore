@@ -125,10 +125,12 @@ See `documentation/meshlog.md` for a detailed overview.
 
 Core: `brush.cc/.h` (Brush state + props), `brush_command.cc/.h` (`CommandCtxBase`, `CommandCtx<TYPES>`, falloff), `brush_executor.cc/.h` (`CommandExecutor`: builds + dispatches commands, owns `MeshLog` pointer), `brush_iterators.h` (`BasicVertexIter`, `PtrHelper`), `brush_concepts.h` (C++20 concepts pinning the command ABI).
 Brushes: `brushes/types.h` (`SculptBrushes` enum), `brushes/all.h`, `brushes/draw.h`.
+Textures: `texture_program.cc/.h` (runtime `.stex` compile — tcc CPU JIT via `texture_jit.cc/.h`, WGSL stroke-begin splice for the wgpu dispatcher), `texture_registry.cc/.h` (precompiled `.stex` unit table), `host_sampler.cc/.h` (host/builtin sampler registry; builtin `vnoise`).
+Compiler: `compiler/` (`sbrushc_core` static lib + thin CLI — the sbrush/`.stex` parser and every backend emitter; host tool at build time, linked into the engine for runtime texture compilation).
 Bindings: `bindings.cc/.h`.
 Misc: `props.h` (brush-property templates), `exec.h` / `test.h` (reserved).
 
-See `documentation/brush.md` for a detailed overview.
+See `documentation/brush.md` for a detailed overview and `documentation/textureScripts.md` for the texture-script system.
 
 ### `source/spatial/` — spatial acceleration
 
