@@ -44,16 +44,21 @@ export const symStore = path.join(artifactDir, 'syms')
 /** The app's manifest name (the Crashpad dir is keyed on it). */
 function manifestName() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).name || 'webgl-app-framework'
+    return JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).name || 'faber-leaf'
   } catch {
-    return 'webgl-app-framework'
+    return 'faber-leaf'
   }
 }
 
 /**
- * Where NW.js Crashpad actually writes renderer minidumps. NW.js 0.112 has no
- * setCrashDumpDir, so this is the default Chromium location keyed on the
- * manifest name. Override with $SC_CRASHDUMP_DIR.
+ * Where NW.js Crashpad writes renderer minidumps. NW.js 0.112 has no
+ * setCrashDumpDir, so absent any override this is the default Chromium location
+ * keyed on the manifest name.
+ *
+ * In practice `nwjs/launch.mjs` always passes a per-worktree `--user-data-dir`,
+ * which moves the dumps out from under this path — so set $SC_CRASHDUMP_DIR to
+ * the "crash dumps →" path the launcher prints. This default only applies when
+ * nw.exe is started without `--user-data-dir`.
  */
 function resolveCrashpadDir() {
   if (process.env.SC_CRASHDUMP_DIR) return process.env.SC_CRASHDUMP_DIR
