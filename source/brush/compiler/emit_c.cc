@@ -66,6 +66,15 @@ const CIntrinsic kCIntrinsics[] = {
     {"cos", "cosf($0)"},
     {"floor", "floorf($0)"},
     {"fract", "(($0) - floorf($0))"},
+    {"pow", "powf($0, $1)"},
+    {"atan2", "atan2f($0, $1)"},
+    {"exp", "expf($0)"},
+    {"log", "logf($0)"},
+    // Helpers, not inline expansions: tcc optimizes nothing, so a pattern
+    // that repeats `$0` repeats the work that computed it.
+    {"mod", "sb_modf($0, $1)"},
+    {"step", "sb_stepf($0, $1)"},
+    {"smoothstep", "sb_smoothstepf($0, $1, $2)"},
 };
 
 const CIntrinsic *findCIntrinsic(const char *name)
@@ -586,7 +595,8 @@ struct Emit {
       // Only intrinsics with an sbd_* chain rule in the prelude may appear
       // in a differentiated expression.
       static const char *kDualIntrinsics[] = {
-          "sin", "cos", "sqrt", "abs", "dot", "length", "mix", "floor", "fract"};
+          "sin", "cos", "sqrt", "abs", "dot", "length", "mix", "floor", "fract",
+          "pow", "exp", "log", "atan2", "mod", "step", "smoothstep"};
       bool known = false;
       for (const char *k : kDualIntrinsics) known = known || std::strcmp(n, k) == 0;
       if (!known) {
@@ -743,7 +753,11 @@ struct Emit {
     write("extern float cosf(float);\n");
     write("extern float sqrtf(float);\n");
     write("extern float floorf(float);\n");
-    write("extern float fabsf(float);\n\n");
+    write("extern float fabsf(float);\n");
+    write("extern float powf(float, float);\n");
+    write("extern float atan2f(float, float);\n");
+    write("extern float expf(float);\n");
+    write("extern float logf(float);\n\n");
 
     write("typedef struct { float x, y, z; } float3;\n");
     write("typedef struct { float map_matrix[16]; } TexEvalCtx;\n\n");
@@ -762,6 +776,13 @@ struct Emit {
     write("static float sb_minf(float a, float b) { return b < a ? b : a; }\n");
     write("static float sb_maxf(float a, float b) { return a < b ? b : a; }\n");
     write("static float sb_clampf(float x, float lo, float hi) { return x < lo ? lo : hi < x ? hi : x; }\n");
+    // GLSL/WGSL floored modulus, not C's truncated fmod: mod(-0.25, 1) is 0.75.
+    write("static float sb_modf(float a, float b) { return a - b * floorf(a / b); }\n");
+    write("static float sb_stepf(float edge, float x) { return x < edge ? 0.0f : 1.0f; }\n");
+    write("static float sb_smoothstepf(float e0, float e1, float x) {\n");
+    write("  float t = sb_clampf((x - e0) / (e1 - e0), 0.0f, 1.0f);\n");
+    write("  return t * t * (3.0f - 2.0f * t);\n");
+    write("}\n");
     write("static float sc_dot(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }\n");
     write("static float sc_length(float3 a) { return sqrtf(sc_dot(a, a)); }\n");
     // The double literal + double round-trip mirror litestl's normalize()
@@ -833,6 +854,38 @@ struct Emit {
     write("static sbdual sbd_mix(sbdual a, sbdual b, sbdual t) { return sbd_add(a, sbd_mul(sbd_sub(b, a), t)); }\n");
     write("static sbdual sbd_floor(sbdual a) { return sb_dual(floorf(a.v), sb_f3(0.0f, 0.0f, 0.0f)); }\n");
     write("static sbdual sbd_fract(sbdual a) { return sb_dual(a.v - floorf(a.v), a.d); }\n");
+    write("static sbdual sbd_exp(sbdual a) { float r = expf(a.v); return sb_dual(r, sb3_scale(a.d, r)); }\n");
+    write("static sbdual sbd_log(sbdual a) { return sb_dual(logf(a.v), sb3_divs(a.d, a.v)); }\n");
+    // d(a^b) = a^b * (b*a'/a + ln(a)*b'); the log term is dropped for a <= 0,
+    // where it is undefined and b is in practice a constant exponent anyway.
+    write("static sbdual sbd_pow(sbdual a, sbdual b) {\n");
+    write("  float r = powf(a.v, b.v);\n");
+    write("  float3 d = sb3_scale(a.d, b.v * powf(a.v, b.v - 1.0f));\n");
+    write("  if (a.v > 0.0f) d = sb3_add(d, sb3_scale(b.d, r * logf(a.v)));\n");
+    write("  return sb_dual(r, d);\n");
+    write("}\n");
+    write("static sbdual sbd_atan2(sbdual y, sbdual x) {\n");
+    write("  float den = x.v * x.v + y.v * y.v;\n");
+    write("  float3 d = sb3_sub(sb3_scale(y.d, x.v), sb3_scale(x.d, y.v));\n");
+    write("  return sb_dual(atan2f(y.v, x.v), den > 0.0f ? sb3_divs(d, den) : sb_f3(0.0f, 0.0f, 0.0f));\n");
+    write("}\n");
+    // floor() contributes nothing away from its steps, so mod differentiates
+    // to a' - floor(a/b)*b'; step and smoothstep follow the same reasoning.
+    write("static sbdual sbd_mod(sbdual a, sbdual b) {\n");
+    write("  float q = floorf(a.v / b.v);\n");
+    write("  return sb_dual(a.v - b.v * q, sb3_sub(a.d, sb3_scale(b.d, q)));\n");
+    write("}\n");
+    write("static sbdual sbd_step(sbdual edge, sbdual x) {\n");
+    write("  return sb_dual(x.v < edge.v ? 0.0f : 1.0f, sb_f3(0.0f, 0.0f, 0.0f));\n");
+    write("}\n");
+    write("static sbdual sbd_smoothstep(sbdual e0, sbdual e1, sbdual x) {\n");
+    write("  float w = e1.v - e0.v;\n");
+    write("  float u = (x.v - e0.v) / w;\n");
+    write("  float t = sb_clampf(u, 0.0f, 1.0f);\n");
+    write("  float dt = (u > 0.0f && u < 1.0f) ? 6.0f * t * (1.0f - t) / w : 0.0f;\n");
+    write("  float3 du = sb3_sub(x.d, sb3_add(sb3_scale(e0.d, 1.0f - t), sb3_scale(e1.d, t)));\n");
+    write("  return sb_dual(t * t * (3.0f - 2.0f * t), sb3_scale(du, dt));\n");
+    write("}\n");
 
     if (anyTextureUsesMap()) {
       write("static float3 sbd_mapCol(const float *m, float3 c, float3 q, float d, float g) {\n");

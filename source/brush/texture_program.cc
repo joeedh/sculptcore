@@ -105,6 +105,22 @@ static float jitFabsf(float x)
 {
   return std::abs(x);
 }
+static float jitPowf(float x, float y)
+{
+  return std::pow(x, y);
+}
+static float jitAtan2f(float y, float x)
+{
+  return std::atan2(y, x);
+}
+static float jitExpf(float x)
+{
+  return std::exp(x);
+}
+static float jitLogf(float x)
+{
+  return std::log(x);
+}
 
 static string lowerName(const string &s)
 {
@@ -215,7 +231,11 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
             tcc_add_symbol(s, "cosf", (const void *)jitCosf) == 0 &&
             tcc_add_symbol(s, "sqrtf", (const void *)jitSqrtf) == 0 &&
             tcc_add_symbol(s, "floorf", (const void *)jitFloorf) == 0 &&
-            tcc_add_symbol(s, "fabsf", (const void *)jitFabsf) == 0;
+            tcc_add_symbol(s, "fabsf", (const void *)jitFabsf) == 0 &&
+            tcc_add_symbol(s, "powf", (const void *)jitPowf) == 0 &&
+            tcc_add_symbol(s, "atan2f", (const void *)jitAtan2f) == 0 &&
+            tcc_add_symbol(s, "expf", (const void *)jitExpf) == 0 &&
+            tcc_add_symbol(s, "logf", (const void *)jitLogf) == 0;
   if (ok && td.samplerDeps.size() > 0) {
     ok = tcc_add_symbol(s, "sb_hs_value", (const void *)sb_hs_value) == 0 &&
          tcc_add_symbol(s, "sb_hs_grad", (const void *)sb_hs_grad) == 0;

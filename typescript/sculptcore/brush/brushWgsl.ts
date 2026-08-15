@@ -2246,6 +2246,32 @@ fn sbd_length(a: sbdual3) -> sbdual { return sbd_sqrt(sbd_dot(a,a)); }
 fn sbd_mix(a: sbdual, b: sbdual, t: sbdual) -> sbdual { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }
 fn sbd_floor(a: sbdual) -> sbdual { return sbdual(floor(a.v), vec3<f32>(0.0)); }
 fn sbd_fract(a: sbdual) -> sbdual { return sbdual(a.v - floor(a.v), a.d); }
+fn sbd_exp(a: sbdual) -> sbdual { let r = exp(a.v); return sbdual(r, a.d*r); }
+fn sbd_log(a: sbdual) -> sbdual { return sbdual(log(a.v), a.d/a.v); }
+fn sbd_pow(a: sbdual, b: sbdual) -> sbdual {
+  let r = pow(a.v, b.v);
+  var d = a.d*(b.v*pow(a.v, b.v - 1.0));
+  if (a.v > 0.0) { d = d + b.d*(r*log(a.v)); }
+  return sbdual(r, d);
+}
+fn sbd_atan2(y: sbdual, x: sbdual) -> sbdual {
+  let den = x.v*x.v + y.v*y.v;
+  let d = y.d*x.v - x.d*y.v;
+  return sbdual(atan2(y.v, x.v), select(vec3<f32>(0.0), d/den, den > 0.0));
+}
+fn sbd_mod(a: sbdual, b: sbdual) -> sbdual {
+  let q = floor(a.v/b.v);
+  return sbdual(a.v - b.v*q, a.d - b.d*q);
+}
+fn sbd_step(edge: sbdual, x: sbdual) -> sbdual { return sbdual(select(0.0, 1.0, x.v >= edge.v), vec3<f32>(0.0)); }
+fn sbd_smoothstep(e0: sbdual, e1: sbdual, x: sbdual) -> sbdual {
+  let w = e1.v - e0.v;
+  let u = (x.v - e0.v)/w;
+  let t = clamp(u, 0.0, 1.0);
+  let dt = select(0.0, 6.0*t*(1.0-t)/w, u > 0.0 && u < 1.0);
+  let du = x.d - (e0.d*(1.0-t) + e1.d*t);
+  return sbdual(t*t*(3.0-2.0*t), du*dt);
+}
 
 @compute @workgroup_size(64)
 fn main(
@@ -5690,6 +5716,32 @@ fn sbd_length(a: sbdual3) -> sbdual { return sbd_sqrt(sbd_dot(a,a)); }
 fn sbd_mix(a: sbdual, b: sbdual, t: sbdual) -> sbdual { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }
 fn sbd_floor(a: sbdual) -> sbdual { return sbdual(floor(a.v), vec3<f32>(0.0)); }
 fn sbd_fract(a: sbdual) -> sbdual { return sbdual(a.v - floor(a.v), a.d); }
+fn sbd_exp(a: sbdual) -> sbdual { let r = exp(a.v); return sbdual(r, a.d*r); }
+fn sbd_log(a: sbdual) -> sbdual { return sbdual(log(a.v), a.d/a.v); }
+fn sbd_pow(a: sbdual, b: sbdual) -> sbdual {
+  let r = pow(a.v, b.v);
+  var d = a.d*(b.v*pow(a.v, b.v - 1.0));
+  if (a.v > 0.0) { d = d + b.d*(r*log(a.v)); }
+  return sbdual(r, d);
+}
+fn sbd_atan2(y: sbdual, x: sbdual) -> sbdual {
+  let den = x.v*x.v + y.v*y.v;
+  let d = y.d*x.v - x.d*y.v;
+  return sbdual(atan2(y.v, x.v), select(vec3<f32>(0.0), d/den, den > 0.0));
+}
+fn sbd_mod(a: sbdual, b: sbdual) -> sbdual {
+  let q = floor(a.v/b.v);
+  return sbdual(a.v - b.v*q, a.d - b.d*q);
+}
+fn sbd_step(edge: sbdual, x: sbdual) -> sbdual { return sbdual(select(0.0, 1.0, x.v >= edge.v), vec3<f32>(0.0)); }
+fn sbd_smoothstep(e0: sbdual, e1: sbdual, x: sbdual) -> sbdual {
+  let w = e1.v - e0.v;
+  let u = (x.v - e0.v)/w;
+  let t = clamp(u, 0.0, 1.0);
+  let dt = select(0.0, 6.0*t*(1.0-t)/w, u > 0.0 && u < 1.0);
+  let du = x.d - (e0.d*(1.0-t) + e1.d*t);
+  return sbdual(t*t*(3.0-2.0*t), du*dt);
+}
 
 fn tex_rings_eval(p: vec3<f32>, n: vec3<f32>) -> f32 {
   var d: f32 = length(p);

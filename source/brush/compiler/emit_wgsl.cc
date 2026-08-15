@@ -771,7 +771,8 @@ struct Emit {
       // Only intrinsics with an sbd_* chain rule in the prelude may appear
       // in a differentiated expression.
       static const char *kDualIntrinsics[] = {
-          "sin", "cos", "sqrt", "abs", "dot", "length", "mix", "floor", "fract"};
+          "sin", "cos", "sqrt", "abs", "dot", "length", "mix", "floor", "fract",
+          "pow", "exp", "log", "atan2", "mod", "step", "smoothstep"};
       bool known = false;
       for (const char *k : kDualIntrinsics)
         known = known || std::strcmp(n, k) == 0;
@@ -1920,7 +1921,35 @@ struct Emit {
       write("fn sbd_length(a: sbdual3) -> sbdual { return sbd_sqrt(sbd_dot(a,a)); }\n");
       write("fn sbd_mix(a: sbdual, b: sbdual, t: sbdual) -> sbdual { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }\n");
       write("fn sbd_floor(a: sbdual) -> sbdual { return sbdual(floor(a.v), vec3<f32>(0.0)); }\n");
-      write("fn sbd_fract(a: sbdual) -> sbdual { return sbdual(a.v - floor(a.v), a.d); }\n\n");
+      write("fn sbd_fract(a: sbdual) -> sbdual { return sbdual(a.v - floor(a.v), a.d); }\n");
+      // Term-for-term twins of the C99 rules in emit_c.cc — see the comments
+      // there for the pow log-term and smoothstep derivations.
+      write("fn sbd_exp(a: sbdual) -> sbdual { let r = exp(a.v); return sbdual(r, a.d*r); }\n");
+      write("fn sbd_log(a: sbdual) -> sbdual { return sbdual(log(a.v), a.d/a.v); }\n");
+      write("fn sbd_pow(a: sbdual, b: sbdual) -> sbdual {\n");
+      write("  let r = pow(a.v, b.v);\n");
+      write("  var d = a.d*(b.v*pow(a.v, b.v - 1.0));\n");
+      write("  if (a.v > 0.0) { d = d + b.d*(r*log(a.v)); }\n");
+      write("  return sbdual(r, d);\n");
+      write("}\n");
+      write("fn sbd_atan2(y: sbdual, x: sbdual) -> sbdual {\n");
+      write("  let den = x.v*x.v + y.v*y.v;\n");
+      write("  let d = y.d*x.v - x.d*y.v;\n");
+      write("  return sbdual(atan2(y.v, x.v), select(vec3<f32>(0.0), d/den, den > 0.0));\n");
+      write("}\n");
+      write("fn sbd_mod(a: sbdual, b: sbdual) -> sbdual {\n");
+      write("  let q = floor(a.v/b.v);\n");
+      write("  return sbdual(a.v - b.v*q, a.d - b.d*q);\n");
+      write("}\n");
+      write("fn sbd_step(edge: sbdual, x: sbdual) -> sbdual { return sbdual(select(0.0, 1.0, x.v >= edge.v), vec3<f32>(0.0)); }\n");
+      write("fn sbd_smoothstep(e0: sbdual, e1: sbdual, x: sbdual) -> sbdual {\n");
+      write("  let w = e1.v - e0.v;\n");
+      write("  let u = (x.v - e0.v)/w;\n");
+      write("  let t = clamp(u, 0.0, 1.0);\n");
+      write("  let dt = select(0.0, 6.0*t*(1.0-t)/w, u > 0.0 && u < 1.0);\n");
+      write("  let du = x.d - (e0.d*(1.0-t) + e1.d*t);\n");
+      write("  return sbdual(t*t*(3.0-2.0*t), du*dt);\n");
+      write("}\n\n");
     }
 
     // Inline texture eval functions — pure, module scope, before the

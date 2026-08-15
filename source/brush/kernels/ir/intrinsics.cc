@@ -125,6 +125,39 @@ static IntrinsicDef sIntrinsicsRaw[] = {
           "std::floor($0)",           "floor($0)",         "floorf($0)",         "floor($0)"),
   INTR_CWGO("fract",     TypeKind::Float,  1, ARG1(TypeKind::Float),
           "(($0) - std::floor($0))",  "fract($0)",         "(($0) - floorf($0))", "(($0) - floor($0))"),
+
+  // Transcendentals + the shaping trio, added for the Blender procedural
+  // ports (wood/marble need pow; musgrave needs pow/exp; blend needs atan2).
+  // `mod` is the GLSL/WGSL floored modulus, NOT C's truncated `%`/fmod: it
+  // must stay non-negative for a negative dividend, which is what every
+  // periodic texture pattern relies on.
+  INTR_CWGO("pow",       TypeKind::Float,  2, ARG2(TypeKind::Float, TypeKind::Float),
+          "std::pow($0, $1)",         "pow($0, $1)",       "powf($0, $1)",       "pow($0, $1)"),
+  INTR_CWGO("atan2",     TypeKind::Float,  2, ARG2(TypeKind::Float, TypeKind::Float),
+          "std::atan2($0, $1)",       "atan2($0, $1)",     "atan2f($0, $1)",     "atan2($0, $1)"),
+  INTR_CWGO("exp",       TypeKind::Float,  1, ARG1(TypeKind::Float),
+          "std::exp($0)",             "exp($0)",           "expf($0)",           "exp($0)"),
+  INTR_CWGO("log",       TypeKind::Float,  1, ARG1(TypeKind::Float),
+          "std::log($0)",             "log($0)",           "logf($0)",           "log($0)"),
+  INTR_CWGO("mod",       TypeKind::Float,  2, ARG2(TypeKind::Float, TypeKind::Float),
+          "(($0) - ($1) * std::floor(($0) / ($1)))", "(($0) - ($1) * floor(($0) / ($1)))",
+          "(($0) - ($1) * floorf(($0) / ($1)))",     "(($0) - ($1) * floor(($0) / ($1)))"),
+  INTR_CWGO("step",      TypeKind::Float,  2, ARG2(TypeKind::Float, TypeKind::Float),
+          "(($1) < ($0) ? 0.0f : 1.0f)", "step($0, $1)",
+          "(($1) < ($0) ? 0.0f : 1.0f)", "step($0, $1)"),
+  // No std:: / CUDA smoothstep, so those two slots expand the Hermite inline.
+  // The triple copy is deliberate: both are optimizing compilers that CSE it
+  // back to one evaluation. The C99 texture backend, whose tcc JIT optimizes
+  // nothing, gets a real `sb_smoothstepf` helper instead (emit_c.cc).
+#define SB_SSTEP_CLAMP(CLAMPF) CLAMPF "((($2) - ($0)) / (($1) - ($0)), 0.0f, 1.0f)"
+#define SB_SSTEP(CLAMPF) \
+  "(" SB_SSTEP_CLAMP(CLAMPF) " * " SB_SSTEP_CLAMP(CLAMPF) \
+  " * (3.0f - 2.0f * " SB_SSTEP_CLAMP(CLAMPF) "))"
+  INTR_CWGO("smoothstep", TypeKind::Float, 3, ARG3(TypeKind::Float, TypeKind::Float, TypeKind::Float),
+          SB_SSTEP("std::clamp<float>"), "smoothstep($0, $1, $2)",
+          SB_SSTEP("sb_clampf"),         "smoothstep($0, $1, $2)"),
+#undef SB_SSTEP
+#undef SB_SSTEP_CLAMP
 };
 
 #undef ARG1
