@@ -1,4 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {TextureProgramParam} from './TextureProgramParam'
 import type {FalloffKind} from '../gpu/FalloffKind'
 import type {FalloffShape} from '../gpu/FalloffShape'
 import type {TexCoordSpace} from './TexCoordSpace'
@@ -71,12 +72,19 @@ export interface Brush {
   coord_space: TexCoordSpace
   tex_repeat: float
   props: StructProp
+  texture_script_error: string
   setNamedFloat(slot: int32, value: float): void
   getNamedFloat(slot: int32): float
   setFalloffCurveEntry(i: int32, f: float): void
   setCavityCurveEntry(i: int32, f: float): void
   setTexture(width: int32, height: int32, pixels: float[]): void
   clearTexture(): void
+  setTextureScript(source: int8[]): boolean
+  clearTextureScript(): void
+  textureParamCount(): int32
+  queriedTextureParamEntry(i: int32): TextureProgramParam | undefined
+  setTextureParamAt(i: int32, value: float): boolean
+  setTextureRampAt(i: int32, lut: float[]): boolean
   loadProps(): void
   writeProps(): void
   pushDeviceInput(type: int32, value: float): void

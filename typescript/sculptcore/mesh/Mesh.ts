@@ -31,6 +31,8 @@ export interface Mesh {
   recalc_normals(): void
   faceGroup(face: int32): int32
   maxFaceGroup(): int32
+  ensureFaceGroups(): int32
+  newFaceGroupId(): int32
   facesInGroup(group: int32, out: int32[]): void
   faceMaterial(face: int32): int32
   maxFaceMaterial(): int32

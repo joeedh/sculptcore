@@ -54,6 +54,7 @@ export interface SpatialTree {
   markVertsMoved(verts: int32[]): void
   update(gpu: GPUManager): boolean
   updateQueries(): boolean
+  updateNormals(): boolean
   getDrawBatch(): DrawBatch | undefined
   materialStats(perLeaf: boolean, out: int32[]): void
   castRay(orig: float3, dir: float3, out: CastRayIsect): boolean

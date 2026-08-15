@@ -23,4 +23,5 @@ export enum AttrUse {
   PolyGroup = 8,
   Select = 16,
   SculptLayer = 32,
+  DeformWeights = 64,
 }

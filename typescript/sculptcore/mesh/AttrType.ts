@@ -28,4 +28,5 @@ export enum AttrType {
   Int2 = 64,
   Int3 = 128,
   Int4 = 256,
+  Weights = 2048,
 }
