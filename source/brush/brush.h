@@ -473,6 +473,8 @@ struct Brush {
     BIND_STRUCT_METHOD(st, queriedTextureParamEntry, MARGS("i"));
     BIND_STRUCT_METHOD(st, setTextureParamAt, MARGS("i", "value"));
     BIND_STRUCT_METHOD(st, setTextureRampAt, MARGS("i", "lut"));
+    BIND_STRUCT_METHOD(st, evalTextureAt, MARGS("px", "py", "pz", "nx", "ny", "nz"));
+    BIND_STRUCT_METHOD(st, textureUsesMap, MARGS());
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());
     BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));
@@ -886,6 +888,29 @@ struct Brush {
       texture_params[p->offset + k] = lut[k];
     }
     return true;
+  }
+
+  /** Evaluate the bound texture program at one point, outside any stroke.
+   *
+   * Returns 0 with no program bound. The map context is null, so a program
+   * whose `usesMap` is set sees `mapPoint()` as identity rather than a real
+   * render matrix — check `textureUsesMap()` and drive such a program through
+   * a stroke instead.
+   */
+  float evalTextureAt(float px, float py, float pz, float nx, float ny, float nz)
+  {
+    if (!texture_program || !texture_program->eval) {
+      return 0.0f;
+    }
+    const float P[3] = {px, py, pz};
+    const float N[3] = {nx, ny, nz};
+    const float *params = texture_params.size() > 0 ? texture_params.data() : nullptr;
+    return texture_program->eval(P, N, params, nullptr);
+  }
+
+  bool textureUsesMap()
+  {
+    return texture_program ? texture_program->usesMap : false;
   }
 
   // C++-side convenience (unbound — strings can't cross the boundary).
