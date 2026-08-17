@@ -379,7 +379,12 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
   h += " * The two neighbor sources are template parameters, not literals: the mesh\n";
   h += " * executor passes CsrNbr/LiveDiskNbr, the grid executor its own GridCsrNbr.\n";
   h += " * A @fulltopo kernel always takes NbrLive — its pre-pass thaws topology, so\n";
-  h += " * a stroke-start CSR snapshot would go stale under it. */\n";
+  h += " * a stroke-start CSR snapshot would go stale under it.\n";
+  h += " *\n";
+  h += " * A kernel with a `face` stage is only instantiated for a TYPES that can\n";
+  h += " * dispatch one (`TYPES::supportsFaceStages`); for the others it reports\n";
+  h += " * unhandled, which is how a domain without a face iterator answers no\n";
+  h += " * without a host-side roster. */\n";
   h += "template <CommandTypes TYPES,\n";
   h += "          sculptcore::brush::NbrSource NbrCsr,\n";
   h += "          sculptcore::brush::NbrSource NbrLive,\n";
@@ -399,18 +404,28 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
       }
     }
     string factory = string("create") + capCopy(e.stem) + "Brush<TYPES, ";
+    string ind = e.faceStage ? string("    ") : string("  ");
+    if (e.faceStage) {
+      h += "    if constexpr (!TYPES::supportsFaceStages) {\n";
+      h += "      return false;\n";
+      h += "    }\n";
+      h += "    else {\n";
+    }
     if (!e.usesNeighbor) {
-      h += string("    ") + factory + "AccMode>(def);\n";
+      h += ind + string("  ") + factory + "AccMode>(def);\n";
     } else if (e.fullTopo) {
-      h += string("    ") + factory + "NbrLive, AccMode>(def);\n";
+      h += ind + string("  ") + factory + "NbrLive, AccMode>(def);\n";
     } else {
-      h += "    if (csrNeighbors) {\n";
-      h += string("      ") + factory + "NbrCsr, AccMode>(def);\n";
-      h += "    } else {\n";
-      h += string("      ") + factory + "NbrLive, AccMode>(def);\n";
+      h += ind + "  if (csrNeighbors) {\n";
+      h += ind + string("    ") + factory + "NbrCsr, AccMode>(def);\n";
+      h += ind + "  } else {\n";
+      h += ind + string("    ") + factory + "NbrLive, AccMode>(def);\n";
+      h += ind + "  }\n";
+    }
+    h += ind + string("  return true;\n");
+    if (e.faceStage) {
       h += "    }\n";
     }
-    h += "    return true;\n";
   }
   h += "  default:\n    return false;\n  }\n";
   h += "}\n\n";
@@ -517,12 +532,12 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
   h += "#pragma once\n";
   h += "#include \"brush/brush_command.h\"\n";
   h += "#include \"brush/brushes/types.h\"\n";
+  // Unconditional: createExtraBrush names NbrSource in its template header
+  // whether or not any extra kernel has a for_neighbor loop.
+  h += "#include \"brush/neighbor_source.h\"\n";
   bool anyNeighbor = false;
   for (const auto &e : extras) {
     anyNeighbor = anyNeighbor || e.usesNeighbor;
-  }
-  if (anyNeighbor) {
-    h += "#include \"brush/neighbor_source.h\"\n";
   }
   h += "\n";
   // Named-float store slots — declared before the kernel includes because the
@@ -629,9 +644,14 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
   h += "namespace sculptcore::brush::command {\n\n";
   h += "/** Dispatch an extra-brush id to its generated factory. Returns false when\n";
   h += " * `id` is not an extra brush (the caller falls through to its own error\n";
-  h += " * path). for_neighbor kernels select CsrNbr/LiveDiskNbr like SMOOTH; the\n";
-  h += " * named-float store is sized + default-seeded per command creation. */\n";
-  h += "template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>\n";
+  h += " * path). The neighbor sources and the face-stage guard follow\n";
+  h += " * createBuiltinBrush exactly, so an extra kernel is admitted on every\n";
+  h += " * domain its own annotations allow; the named-float store is sized +\n";
+  h += " * default-seeded per command creation. */\n";
+  h += "template <CommandTypes TYPES,\n";
+  h += "          sculptcore::brush::NbrSource NbrCsr,\n";
+  h += "          sculptcore::brush::NbrSource NbrLive,\n";
+  h += "          sculptcore::brush::AccumMode AccMode>\n";
   h += "inline bool createExtraBrush(int id, bool csrNeighbors, sculptcore::brush::Brush &brush,\n";
   h += "                             BrushCommandDef<CommandCtx<TYPES>> &def)\n";
   h += "{\n";
@@ -646,23 +666,31 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
     for (int i = 0; i < (int)extras.size(); i++) {
       const RegistryEntry &e = extras[i];
       h += string("  case ") + itoa(i) + ": // " + e.stem + "\n";
+      string factory = string("create") + e.cppName + "Brush<TYPES, ";
+      string ind = e.faceStage ? string("    ") : string("  ");
+      if (e.faceStage) {
+        h += "    if constexpr (!TYPES::supportsFaceStages) {\n";
+        h += "      return false;\n";
+        h += "    }\n";
+        h += "    else {\n";
+      }
       if (e.usesNeighbor && e.fullTopo) {
         // @fulltopo: its pre-pass thaws topology, so a stroke-start CSR snapshot
         // would go stale under it — same rule as the built-ins.
-        h += string("    create") + e.cppName +
-             "Brush<TYPES, sculptcore::brush::LiveDiskNbr, AccMode>(def);\n";
+        h += ind + string("  ") + factory + "NbrLive, AccMode>(def);\n";
       } else if (e.usesNeighbor) {
-        h += "    if (csrNeighbors) {\n";
-        h += string("      create") + e.cppName +
-             "Brush<TYPES, sculptcore::brush::CsrNbr, AccMode>(def);\n";
-        h += "    } else {\n";
-        h += string("      create") + e.cppName +
-             "Brush<TYPES, sculptcore::brush::LiveDiskNbr, AccMode>(def);\n";
-        h += "    }\n";
+        h += ind + "  if (csrNeighbors) {\n";
+        h += ind + string("    ") + factory + "NbrCsr, AccMode>(def);\n";
+        h += ind + "  } else {\n";
+        h += ind + string("    ") + factory + "NbrLive, AccMode>(def);\n";
+        h += ind + "  }\n";
       } else {
-        h += string("    create") + e.cppName + "Brush<TYPES, AccMode>(def);\n";
+        h += ind + string("  ") + factory + "AccMode>(def);\n";
       }
-      h += "    return true;\n";
+      h += ind + string("  return true;\n");
+      if (e.faceStage) {
+        h += "    }\n";
+      }
     }
     h += "  default:\n    return false;\n  }\n";
   }

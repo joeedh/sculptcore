@@ -97,7 +97,7 @@ struct GridGpuStrokeSession {
       // The @unbounded node-filter floor comes from the kernel's own def
       // (GpuKernelInfo has no unbounded bit) — same rule as the CPU path.
       GridBrushExecutor::brush_command def;
-      GridBrushExecutor::createCommandSwitch<AccumLive>(t, def);
+      GridBrushExecutor::createCommandSwitch<AccumLive>(t, b, def);
       unbounded_ = def.unbounded;
     }
     const int vc = d->vertCount();

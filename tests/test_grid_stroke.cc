@@ -108,6 +108,75 @@ using subdiv::MultiresSlot;
 
 static constexpr int kLevel = 3;
 
+/* The grids capability table, transcribed independently from the kernels' own
+ * annotations — NOT read back from supportsBrush, which is what it grades.
+ *
+ * GridBrushExecutor::supportsBrush keeps no tool list: a kernel is declined
+ * only for a capability the domain lacks. The two that can say no today are a
+ * `face` stage (no face iterator on a grid leaf) and an attr layer with no grid
+ * storage (only BSMOOTH's all-zero vclass shim binds). `why` records which one,
+ * so a mismatch below names the missing capability instead of just a bool. As
+ * the grid attribute domains land, entries flip to supported and their `why`
+ * goes away; nothing here should ever flip the other direction. */
+struct RosterGolden {
+  SculptBrushes tool;
+  bool supported;
+  const char *why;
+};
+
+static void gateGridsRoster()
+{
+  const RosterGolden golden[] = {
+      {SculptBrushes::DRAW, true, nullptr},
+      {SculptBrushes::INFLATE, true, nullptr},
+      {SculptBrushes::CLAY, true, nullptr},
+      {SculptBrushes::PINCH, true, nullptr},
+      {SculptBrushes::SHARP, true, nullptr},
+      {SculptBrushes::MASK, true, nullptr},
+      {SculptBrushes::SMOOTH, true, nullptr},
+      {SculptBrushes::KELVINLET, true, nullptr},
+      {SculptBrushes::POSE, true, nullptr},
+      {SculptBrushes::TEXDRAW, true, nullptr},
+      {SculptBrushes::SCRAPE, true, nullptr},
+      {SculptBrushes::FILL, true, nullptr},
+      {SculptBrushes::WINGSCRAPE, true, nullptr},
+      {SculptBrushes::COLOR, false, "color attr layer"},
+      {SculptBrushes::POLYGROUP, false, "face stage"},
+      {SculptBrushes::BSMOOTH, true, nullptr},
+      {SculptBrushes::GRAB, true, nullptr},
+      {SculptBrushes::SNAKEHOOK, true, nullptr},
+      {SculptBrushes::COLORSMOOTH, false, "color attr layer"},
+      {SculptBrushes::FEATURE_ALIGN, false, "crossfield attr layer"},
+      {SculptBrushes::LAYERDRAW, false, "sculpt-layer attr layer"},
+      {SculptBrushes::ENHANCE, false, "per-vert displacement attr layer"},
+      {SculptBrushes::TEXGRAD, true, nullptr},
+  };
+  // Every built-in id is covered — a new tool must state its answer here.
+  TASSERT(int(sizeof(golden) / sizeof(golden[0])) == SculptBrushesBuiltinCount);
+
+  for (const RosterGolden &g : golden) {
+    const int id = int(g.tool);
+    const bool got = GridBrushExecutor::supportsBrush(g.tool);
+    TASSERT(id >= 0 && id < SculptBrushesBuiltinCount);
+    if (got != g.supported) {
+      fprintf(stderr,
+              "grids roster %s (id %d): supportsBrush=%d, golden %d%s%s\n",
+              kBuiltinBrushNames[id], id, int(got), int(g.supported),
+              g.why ? " — declined for: " : "", g.why ? g.why : "");
+    }
+    TASSERT(got == g.supported);
+    // A face-stage kernel is declined by the generated dispatch itself, so it
+    // must not even build a def here (the attr loop never sees it).
+    if (builtinBrushFaceMode(id)) {
+      Brush scratch;
+      GridBrushExecutor::brush_command def;
+      const bool handled =
+          GridBrushExecutor::createCommandSwitch<AccumLive>(g.tool, &scratch, def);
+      TASSERT(!handled);
+    }
+  }
+}
+
 /* Smooth per-vert displacement field (mirrors test_grid_domain.cc). */
 static void injectDisp(Multires &mr)
 {
@@ -170,6 +239,10 @@ static DabBattery topFaceBattery()
   return b;
 }
 
+/** Per-dab host state both paths must set identically (snake hook's grab
+ * step); called with the dab index just before the dab executes. */
+using DabHook = std::function<void(Brush &, int)>;
+
 /** The materialized-mesh path: stroke `tool` over the active-level slot and
  * fold it into the store. Positions of the level mesh land in `posOut`. */
 static void meshStroke(Multires &mr,
@@ -177,7 +250,8 @@ static void meshStroke(Multires &mr,
                        SculptBrushes tool,
                        const DabBattery &dabs,
                        Vector<float3> &posOut,
-                       Vector<float3> *norOut = nullptr)
+                       Vector<float3> *norOut = nullptr,
+                       const DabHook &hook = nullptr)
 {
   MultiresSlot *slot = mr.setActiveLevel(kLevel);
   TASSERT(slot && slot->mesh && slot->tree);
@@ -185,6 +259,9 @@ static void meshStroke(Multires &mr,
   ex.setStrokeGen(1);
   ex.beginStep(false);
   for (int i = 0; i < int(dabs.origins.size()); i++) {
+    if (hook) {
+      hook(brush, i);
+    }
     Vector<spatial::SpatialNode *> nodes;
     slot->tree->filterNodes(dabs.origins[i], brush.radius, nodes);
     ex.execBrush(slot->mesh, tool, &nodes, dabs.origins[i], dabs.normals[i]);
@@ -212,7 +289,8 @@ static void gridsStroke(Multires &mr,
                         SculptBrushes tool,
                         const DabBattery &dabs,
                         Vector<float3> &posOut,
-                        GridStrokeLog *log = nullptr)
+                        GridStrokeLog *log = nullptr,
+                        const DabHook &hook = nullptr)
 {
   GridLevelDomain *d = mr.gridDomain(kLevel);
   GridBrushExecutor ex(d, &brush, log);
@@ -220,6 +298,9 @@ static void gridsStroke(Multires &mr,
   for (int i = 0; i < int(dabs.origins.size()); i++) {
     if (tool == SculptBrushes::GRAB || tool == SculptBrushes::KELVINLET) {
       ex.setGrabAccumAdd(false);
+    }
+    if (hook) {
+      hook(brush, i);
     }
     ex.applyDab(tool, dabs.origins[i], dabs.normals[i]);
   }
@@ -312,6 +393,8 @@ int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
+  gateGridsRoster();
+
   Mesh *cage = createCube(2, 1.0f);
   Multires mr;
   mr.init(*cage, 3);
@@ -335,6 +418,11 @@ int main()
       // Newell cell fans) — the divergence is normal-source, not kernel.
       {SculptBrushes::INFLATE, "inflate", 5e-2f},
       {SculptBrushes::SMOOTH, "smooth", 2e-3f},
+      // Newly grids-native once the roster became metadata-derived: snake hook
+      // needs the per-dab grab step (the hook below) and wing scrape needs the
+      // `host` stage, which this path used to skip entirely.
+      {SculptBrushes::SNAKEHOOK, "snakehook", 1e-6f},
+      {SculptBrushes::WINGSCRAPE, "wingscrape", 1e-6f},
   };
   for (const ToolCase &tc : cases) {
     Brush brush;
@@ -342,15 +430,32 @@ int main()
     if (tc.tool == SculptBrushes::CLAY) {
       brush.planeSide = 1.0f;
     }
+    DabHook hook = nullptr;
+    if (tc.tool == SculptBrushes::SNAKEHOOK) {
+      brush.pinch = 0.5f;
+      // grabTo is the step since the last dab, so it stays constant; grabFrom
+      // is this dab's center. Both are raw fields — the single-brush path does
+      // not run loadUniformProps, so no writeProps is needed.
+      hook = [&dabs](Brush &b, int i) {
+        b.grabFrom = dabs.origins[i];
+        b.grabTo = float3(0.0f, 0.0f, 0.03f);
+      };
+    }
+    if (tc.tool == SculptBrushes::WINGSCRAPE) {
+      // The wings meet below the surface or nothing on a flat face is above
+      // one (see wingscrape.sbrush); wingAngle keeps its authored default.
+      brush.planeoff = -0.25f;
+      brush.writeProps();
+    }
 
     restoreStore(mr, s0);
     Vector<float3> posA;
-    meshStroke(mr, brush, tc.tool, dabs, posA);
+    meshStroke(mr, brush, tc.tool, dabs, posA, nullptr, hook);
     std::string blobA = storeBlob(mr.store);
 
     restoreStore(mr, s0);
     Vector<float3> posB;
-    gridsStroke(mr, brush, tc.tool, dabs, posB);
+    gridsStroke(mr, brush, tc.tool, dabs, posB, nullptr, hook);
 
     TASSERT(posA.size() == posB.size());
     float diff = maxPosDiff(posA, posB);

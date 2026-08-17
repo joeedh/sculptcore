@@ -135,7 +135,12 @@ namespace sculptcore::brush::command {
  * The two neighbor sources are template parameters, not literals: the mesh
  * executor passes CsrNbr/LiveDiskNbr, the grid executor its own GridCsrNbr.
  * A @fulltopo kernel always takes NbrLive — its pre-pass thaws topology, so
- * a stroke-start CSR snapshot would go stale under it. */
+ * a stroke-start CSR snapshot would go stale under it.
+ *
+ * A kernel with a `face` stage is only instantiated for a TYPES that can
+ * dispatch one (`TYPES::supportsFaceStages`); for the others it reports
+ * unhandled, which is how a domain without a face iterator answers no
+ * without a host-side roster. */
 template <CommandTypes TYPES,
           sculptcore::brush::NbrSource NbrCsr,
           sculptcore::brush::NbrSource NbrLive,
@@ -187,8 +192,13 @@ inline bool createBuiltinBrush(int id, bool csrNeighbors,
     createColorBrush<TYPES, AccMode>(def);
     return true;
   case 14: // POLYGROUP
-    createPolygroupBrush<TYPES, AccMode>(def);
-    return true;
+    if constexpr (!TYPES::supportsFaceStages) {
+      return false;
+    }
+    else {
+      createPolygroupBrush<TYPES, AccMode>(def);
+      return true;
+    }
   case 15: // BSMOOTH
     if (csrNeighbors) {
       createBsmoothBrush<TYPES, NbrCsr, AccMode>(def);

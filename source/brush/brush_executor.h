@@ -52,6 +52,12 @@ struct CommandExecutor {
    * leaves and captures undo through the meshlog. */
   using node_type = spatial::SpatialNode;
   using capture_policy = MeshCapturePolicy;
+  /** A `face` stage is dispatched through makeFaceIter, which this domain has
+   * (a spatial leaf owns faces). The generated registry reads this to decide
+   * whether to instantiate a face-stage kernel at all. Declared before
+   * brush_command — the CommandTypes check runs on an incomplete class, so the
+   * bit must already be visible. */
+  static constexpr bool supportsFaceStages = true;
   using brush_command = BrushCommandDef<CommandCtx<CommandExecutor>>;
 
   /** Neighbor-bundle normal for the generated for_neighbor loop (the domain
@@ -368,8 +374,9 @@ struct CommandExecutor {
     }
     // Extra (out-of-repo) kernels dispatch through the generated registry;
     // a no-op fallback compiles in when no extra kernel dirs are configured.
-    return brushOrNull && command::createExtraBrush<CommandExecutor, AccMode>(
-                              int(brushType), csrNeighbors, *brushOrNull, def);
+    return brushOrNull &&
+           command::createExtraBrush<CommandExecutor, CsrNbr, LiveDiskNbr, AccMode>(
+               int(brushType), csrNeighbors, *brushOrNull, def);
   }
 
   /** Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
@@ -1384,11 +1391,17 @@ struct CommandExecutor {
     // Under mirror symmetry the host owns strokeDir (it reflects the primary
     // tangent per image); the shared ring buffer would otherwise interleave
     // primary + mirror origins. Derive from the buffer only when host didn't.
-    if (!brush->strokeDirHostSet && brush->strokePathCount > 0) {
-      float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
-      float len = d.length();
-      if (len > 1e-7f) {
-        brush->strokeDir = d / len;
+    if (!brush->strokeDirHostSet) {
+      if (brush->strokePathCount == 0) {
+        // First dab of the stroke: no tangent exists yet, and the previous
+        // stroke's is not one (wing scrape would lean its wings along it).
+        brush->strokeDir = float3(0.0f, 0.0f, 0.0f);
+      } else {
+        float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
+        float len = d.length();
+        if (len > 1e-7f) {
+          brush->strokeDir = d / len;
+        }
       }
     }
     // The bridge only flips the shape to Box; the direction is owned here so it

@@ -41,6 +41,11 @@ concept CommandTypes = requires() {
   // iterate (`ctx.node`) and the undo-capture policy their Pre stage calls.
   typename T::node_type;
   typename T::capture_policy;
+  // Whether a kernel's `face` stage can be dispatched on this domain. The
+  // generated registry instantiates face-stage kernels only where it is true,
+  // so a domain without a face iterator declines them without anyone keeping a
+  // list of which brushes those are.
+  { T::supportsFaceStages } -> std::convertible_to<bool>;
 };
 
 template <CommandTypes TYPES> struct CommandCtx;

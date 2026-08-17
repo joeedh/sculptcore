@@ -13,6 +13,7 @@
 #else
 
 #include "brush/brush_command.h"
+#include "brush/neighbor_source.h"
 
 namespace sculptcore::brush {
 
@@ -37,7 +38,10 @@ inline bool extraBrushFaceMode(int /*id*/)
 
 namespace sculptcore::brush::command {
 
-template <CommandTypes TYPES, sculptcore::brush::AccumMode AccMode>
+template <CommandTypes TYPES,
+          sculptcore::brush::NbrSource NbrCsr,
+          sculptcore::brush::NbrSource NbrLive,
+          sculptcore::brush::AccumMode AccMode>
 inline bool createExtraBrush(int /*id*/, bool /*csrNeighbors*/,
                              sculptcore::brush::Brush & /*brush*/,
                              BrushCommandDef<CommandCtx<TYPES>> & /*def*/)

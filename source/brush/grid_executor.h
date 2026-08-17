@@ -10,10 +10,12 @@
  * GridStrokeLog block snapshots instead of the meshlog.
  *
  * Deliberately NOT a generalization of CommandExecutor: no dyntopo, no
- * meshlog, no attr overrides, no preview machinery — just the vertex-stage
- * roster (draw, grab, smooth, inflate, kelvinlet, pinch, sharp, the plane
- * family, mask). Unsupported brushes fall back to the materialized path; the
- * dispatch rule is supportsBrush(), engine-owned metadata.
+ * meshlog, no attr overrides, no preview machinery. What it runs is whatever
+ * the generated dispatch will instantiate here — there is no tool roster in
+ * this file. A kernel is declined only for a missing capability (a `face`
+ * stage with no face domain, an attr layer with no grid storage); those
+ * brushes fall back to the materialized path. The dispatch rule is
+ * supportsBrush(), engine-owned and derived from each kernel's own def.
  *
  * Stroke shape: beginStep() → applyDab()* → endStep(). endStep folds the
  * stroke into the grids store via Multires::gridsWriteback, restricted to the
@@ -320,12 +322,21 @@ template <class AccMode> struct GridVertexIter {
 struct GridBrushExecutor {
   using vertex_iter = GridVertexIter<AccumLive>;
   using vertex_iter_factory = std::function<vertex_iter(GridExecNode &)>;
-  /** Face-stage kernels are never instantiated for grids; the typedef only
-   * satisfies the CommandTypes concept. */
+  /** Face-stage kernels are never instantiated for grids; the typedefs only
+   * satisfy the CommandTypes concept. */
   using face_iter = BasicFaceIter;
   using face_iter_factory = std::function<face_iter(spatial::SpatialNode &)>;
   using node_type = GridExecNode;
   using capture_policy = GridCapturePolicy;
+  /** A grid leaf owns verts, not faces — there is no face iterator to hand a
+   * `face` stage, so the generated registry does not instantiate one here and
+   * such a tool reports unsupported (see supportsBrush). Grid face elements
+   * are what plan phase P4 adds.
+   *
+   * Declared before brush_command: naming CommandCtx checks the CommandTypes
+   * concept against a still-incomplete class, so anything the concept requires
+   * has to be visible by then. */
+  static constexpr bool supportsFaceStages = false;
   using brush_command = BrushCommandDef<CommandCtx<GridBrushExecutor>>;
 
   Brush *brush = nullptr;
@@ -386,6 +397,22 @@ struct GridBrushExecutor {
     attach(d);
   }
 
+  /** Set `ctx.renderMatrix` (ViewPlane/ViewRepeat texture UV) from 16 flat
+   * floats, row-major — CommandExecutor::setRenderMatrix's twin, taking a raw
+   * pointer because the grids path is reached through the c-api session rather
+   * than the reflected object. Without it the texture kernels map every
+   * view-pinned sample through an identity matrix. */
+  void setRenderMatrix(const float *m16)
+  {
+    if (!m16) {
+      return;
+    }
+    float *dst = &ctx.renderMatrix[0][0];
+    for (int i = 0; i < 16; i++) {
+      dst[i] = m16[i];
+    }
+  }
+
   /** (Re)bind to a domain — required after any Multires fold point drops it.
    * Rebuilds the leaf-node array and the domain-sized stroke sidecars. */
   void attach(subdiv::GridLevelDomain *d)
@@ -440,11 +467,9 @@ struct GridBrushExecutor {
                                    ctx.dispVec, ctx.dispGen, ctx.strokeGen);
   }
 
-  BasicFaceIter makeFaceIter(spatial::SpatialNode & /*node*/)
-  {
-    // Never reached: face-stage kernels are not in the grids roster.
-    abort();
-  }
+  // No makeFaceIter: supportsFaceStages == false keeps every face-stage kernel
+  // out of the generated dispatch, so a future one reaching this domain is a
+  // compile error rather than a runtime abort().
 
   template <class Ctx> static float3 &nbrNo(Ctx &ctx, int v)
   {
@@ -458,70 +483,78 @@ struct GridBrushExecutor {
 
   // === command creation (mirrors CommandExecutor's AccumMode policy) ===
 
+  /** Type-dispatch half of createCommand, stateless so supportsBrush can reach
+   * a kernel's def without a live stroke. Both neighbor sources are GridCsrNbr:
+   * the lattice CSR is the only adjacency a grid vertex has, so a @fulltopo
+   * kernel's live-disk slot resolves to the same source rather than to nothing.
+   *
+   * The roster is the generated registry's — whatever each kernel's own
+   * annotations permit on this domain — not a switch listing tools by name.
+   * `brushOrNull` is the extras registry's uniform-default seed, as on the mesh
+   * path; a null one just means extra kernels report unhandled. */
   template <class AccMode>
-  static bool createCommandSwitch(SculptBrushes brushType, brush_command &def)
+  static bool createCommandSwitch(SculptBrushes brushType,
+                                  Brush *brushOrNull,
+                                  brush_command &def)
   {
-    switch (brushType) {
-    case SculptBrushes::DRAW:
-      command::createDrawBrush<GridBrushExecutor, AccMode>(def);
+    if (command::createBuiltinBrush<GridBrushExecutor, GridCsrNbr, GridCsrNbr, AccMode>(
+            int(brushType), /*csrNeighbors=*/true, def)) {
       return true;
-    case SculptBrushes::INFLATE:
-      command::createInflateBrush<GridBrushExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::CLAY:
-    case SculptBrushes::SCRAPE:
-    case SculptBrushes::FILL:
-      command::createPlaneBrush<GridBrushExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::PINCH:
-      command::createPinchBrush<GridBrushExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::SHARP:
-      command::createSharpBrush<GridBrushExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::MASK:
-      command::createMaskBrush<GridBrushExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::SMOOTH:
-      command::createSmoothBrush<GridBrushExecutor, GridCsrNbr, AccMode>(def);
-      return true;
-    case SculptBrushes::BSMOOTH:
-      command::createBsmoothBrush<GridBrushExecutor, GridCsrNbr, AccMode>(def);
-      return true;
-    case SculptBrushes::KELVINLET:
-      command::createKelvinletBrush<GridBrushExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::GRAB:
-      command::createGrabBrush<GridBrushExecutor, AccMode>(def);
-      return true;
-    default:
-      return false;
     }
+    return brushOrNull &&
+           command::createExtraBrush<GridBrushExecutor, GridCsrNbr, GridCsrNbr, AccMode>(
+               int(brushType), /*csrNeighbors=*/true, *brushOrNull, def);
+  }
+
+  /** Whether the domain can bind one of a kernel's declared attr layers. Only
+   * the vclass shim today (an executor-owned all-zero column — grids have no
+   * boundary classifier, and vclass 0 is the plain-Laplacian branch); real grid
+   * element channels are plan phases P1-P4. Shared with execStage's assert so
+   * the capability gate and the binding it gates cannot drift apart. */
+  static bool attrBindable(const BrushAttrManifestEntry &entry)
+  {
+    return entry.handle == string("vclass");
   }
 
   /** Engine-owned dispatch rule: can this tool run grids-native? Everything
-   * else falls back to the materialized-mesh path. */
+   * else falls back to the materialized-mesh path.
+   *
+   * Both halves of the answer come from the kernel's own def, never from a tool
+   * list: the generated dispatch declines a `face` stage on a domain with no
+   * face iterator (supportsFaceStages), and an attr layer this domain cannot
+   * bind has no storage to write. The attr term is the one that widens as the
+   * grid attribute domains land; when nothing is left that can answer no, this
+   * becomes constant true. */
   static bool supportsBrush(SculptBrushes brushType)
   {
+    Brush scratch;
     brush_command def;
-    return createCommandSwitch<AccumLive>(brushType, def);
+    if (!createCommandSwitch<AccumLive>(brushType, &scratch, def)) {
+      return false;
+    }
+    for (const auto &entry : def.attrs) {
+      if (!attrBindable(entry)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   brush_command createCommand(SculptBrushes brushType)
   {
     brush_command def;
-    bool ok = createCommandSwitch<AccumLive>(brushType, def);
+    bool ok = createCommandSwitch<AccumLive>(brushType, brush, def);
     Assert(ok, "grid executor: unsupported brush (gate on supportsBrush)");
     (void)ok;
     if (def.grabModeCapable && anchoredGrab) {
       def.grabMode = true;
       def.uniforms = decltype(def.uniforms)();
       def.attrs = decltype(def.attrs)();
-      createCommandSwitch<AccumOrigGrab>(brushType, def);
+      createCommandSwitch<AccumOrigGrab>(brushType, brush, def);
     } else if (nonAccum && def.accumulable && !def.relaxesBase) {
       def.uniforms = decltype(def.uniforms)();
       def.attrs = decltype(def.attrs)();
-      createCommandSwitch<AccumOrig>(brushType, def);
+      createCommandSwitch<AccumOrig>(brushType, brush, def);
     }
     return def;
   }
@@ -809,8 +842,8 @@ private:
     ctx.attrBindings = nullptr;
     if (cmd.attrs.size() > 0) {
       for (const auto &entry : cmd.attrs) {
-        Assert(entry.handle == string("vclass"),
-               "grid executor: only the vclass shim is bindable");
+        Assert(attrBindable(entry), "grid executor: attr layer has no grid storage");
+        (void)entry;
       }
       ensureVclassBinding();
       ctx.attrBindings = &attrBindings_;
@@ -829,6 +862,13 @@ private:
     using clock = std::chrono::steady_clock;
     std::span<GridExecNode *> nodeSpan(nodePtrs_.data(), nodePtrs_.size());
     auto t0 = clock::now();
+
+    // Per-dab `host` stage, before capture as on the mesh path: it derives ctx
+    // values the kernel then reads (kelvinlet's parameter clamp away from the
+    // 1/(1-2nu) singularity, wingscrape's rotated wing normals).
+    if (cmd.execHost) {
+      cmd.execHost(ctx, *brush);
+    }
 
     // Undo capture (first-touch leaf snapshots, driven by the kernel's
     // `save` descriptors through GridCapturePolicy).
@@ -855,7 +895,9 @@ private:
     ctx.strokeGen = 0;
     ctx.dabGen = nullptr;
     ctx.curDabGen = 0;
-    Assert(!cmd.needsOrigNormals, "no grids-roster kernel opts into orig normals");
+    // No kernel opts into orig normals today; when one does it needs a grids
+    // stampBase that saves them, not just the disp vector below.
+    Assert(!cmd.needsOrigNormals, "grid executor: orig normals are not maintained here");
     if (cmd.grabMode || (nonAccum && cmd.accumulable && !cmd.relaxesBase)) {
       ctx.dispVec = &dispVec_;
       ctx.dispGen = &dispGen_;
@@ -1066,11 +1108,17 @@ private:
   /** CommandExecutor::updateStrokeFrame, verbatim (Brush-only state). */
   void updateStrokeFrame(float3 origin)
   {
-    if (!brush->strokeDirHostSet && brush->strokePathCount > 0) {
-      float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
-      float len = d.length();
-      if (len > 1e-7f) {
-        brush->strokeDir = d / len;
+    if (!brush->strokeDirHostSet) {
+      if (brush->strokePathCount == 0) {
+        // First dab of the stroke: no tangent exists yet, and the previous
+        // stroke's is not one (wing scrape would lean its wings along it).
+        brush->strokeDir = float3(0.0f, 0.0f, 0.0f);
+      } else {
+        float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
+        float len = d.length();
+        if (len > 1e-7f) {
+          brush->strokeDir = d / len;
+        }
       }
     }
     if (brush->falloff_shape == FalloffShape::Box) {

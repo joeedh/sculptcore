@@ -87,6 +87,17 @@ void GridStroke_setMirror(GridStrokeSession *s, int enable)
   }
 }
 
+/** Object -> clip matrix for the view-mapped texture UV modes, 16 flat floats
+ * row-major (the mesh path's CommandExecutor::setRenderMatrix, which the host
+ * reaches through the reflected object instead). Set per stroke, before the
+ * first dab; a texture brush left without one maps through the identity. */
+void GridStroke_setRenderMatrix(GridStrokeSession *s, const float *m16)
+{
+  if (s) {
+    s->exec.setRenderMatrix(m16);
+  }
+}
+
 /** Stroke policy mirrors of CommandExecutor's setNonAccum/setAnchoredGrab —
  * set before begin(), like the mesh path. */
 void GridStroke_setNonAccum(GridStrokeSession *s, int nonAccum)
