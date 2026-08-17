@@ -60,11 +60,23 @@ static void runTests()
     return;
   }
 
+  // The built-ins occupy the first `count` items. A build configured with extra
+  // kernel dirs appends one item per extra kernel after them — their ids follow
+  // the built-in count, which is exactly what this pairing has to keep true — so
+  // only the no-extras build can pin the total (test_brush_metadata.cc grades the
+  // extras themselves, and it takes the whole brush lib to count them here).
+  if (int(e->items.size()) < count) {
+    std::printf("SculptBrushes has %d bound items, fewer than the %d built-ins\n",
+                int(e->items.size()), count);
+  }
+  test_assert(int(e->items.size()) >= count);
+#ifndef SCULPTCORE_EXTRA_BRUSHES
   if (int(e->items.size()) != count) {
     std::printf("SculptBrushes has %d bound items, golden has %d\n",
                 int(e->items.size()), count);
   }
   test_assert(int(e->items.size()) == count);
+#endif
 
   for (int i = 0; i < count && i < int(e->items.size()); i++) {
     const auto &item = e->items[i];

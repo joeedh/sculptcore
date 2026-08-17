@@ -92,6 +92,7 @@ test(test_brush.cc "binding_generators")
 test(test_stroke_driver.cc "brush;spatial;mesh")
 test(test_brush_metadata.cc "brush;spatial;mesh")
 test(test_brush_registry.cc "brush;spatial;mesh")
+test(test_brush_live_links.cc "brush;spatial;mesh")
 
 # Drives the sbrush compiler (lexer/parser/emitters) directly; the compiler
 # lib only exists when the host tool builds (SBRUSH_BACKEND_CPP).

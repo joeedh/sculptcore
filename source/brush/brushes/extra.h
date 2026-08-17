@@ -23,6 +23,16 @@ inline bool extraBrushUsesForNeighbor(int /*id*/)
   return false;
 }
 
+inline bool extraBrushFullTopo(int /*id*/)
+{
+  return false;
+}
+
+inline bool extraBrushFaceMode(int /*id*/)
+{
+  return false;
+}
+
 } // namespace sculptcore::brush
 
 namespace sculptcore::brush::command {

@@ -56,6 +56,18 @@ kernel is instantiated against the CSR snapshot or the live vertex disk
 according to the stroke's neighbour mode — except under `@fulltopo`, where a
 host pre-pass walks live links every dab and the live source is forced.
 
+The same reflected facts answer **whether the stroke may freeze topology at
+all**. `CommandExecutor::brushNeedsLiveLinks` is a join of three generated
+per-id predicates — `builtinBrushUsesForNeighbor` (only its live-disk
+instantiation walks links), `builtinBrushFullTopo` (unconditional), and
+`builtinBrushFaceMode` (a `face` stage reaches its verts through the face loop)
+— plus their `extraBrush*` counterparts, so an out-of-repo kernel is covered on
+the same terms. It replaced a hand-kept disjunction over enum items, which is
+the shape that silently gives a newly added kernel a frozen stroke: reading a
+dropped link page is a heap-layout-dependent use-after-free, not a wrong pixel.
+`tests/test_brush_live_links.cc` pins the answer for every id, in both neighbour
+modes, as a literal table written before the predicate was rederived.
+
 ## Core types
 
 ### `Brush` (`brush.h`)

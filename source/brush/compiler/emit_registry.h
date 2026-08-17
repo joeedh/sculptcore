@@ -21,6 +21,8 @@ struct RegistryEntry {
   string attrName; // @brush("name")
   string cppName;  // brush <CppName> { ... }; factory is create<CppName>Brush
   bool usesNeighbor = false;
+  bool fullTopo = false;  // `@fulltopo`
+  bool faceStage = false; // has a `face` stage, so it walks the face loop
   Vector<StoreUniform> storeUniforms;
 };
 
@@ -48,6 +50,7 @@ struct BuiltinEntry {
   Vector<string> tools;
   bool usesNeighbor = false;
   bool fullTopo = false;
+  bool faceStage = false;
 };
 
 struct BuiltinRegistryResult {

@@ -425,6 +425,8 @@ int runRegistryMode(const Args &args)
     e.attrName = brush->attrName;
     e.cppName = brush->cppName;
     e.usesNeighbor = brushUsesNeighborLoop(*brush);
+    e.fullTopo = brush->isFullTopo;
+    e.faceStage = brushHasFaceStage(*brush);
     for (const auto &f : brush->fields) {
       // Scalar floats not backed by a Brush member take namedFloats slots;
       // non-float unlisted uniforms are rejected by the per-kernel cpp emit.
@@ -526,6 +528,7 @@ int runBuiltinRegistryMode(const Args &args)
     e.stem = stemOf(p);
     e.usesNeighbor = brushUsesNeighborLoop(*brush);
     e.fullTopo = brush->isFullTopo;
+    e.faceStage = brushHasFaceStage(*brush);
     for (const auto &t : brush->tools) {
       e.tools.append(t);
     }

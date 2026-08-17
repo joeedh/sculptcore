@@ -114,6 +114,18 @@ inline bool builtinBrushFullTopo(int id)
   }
 }
 
+/** The kernel has a `face` stage, so it is dispatched per face and reaches
+ * its verts through the live face loop. */
+inline bool builtinBrushFaceMode(int id)
+{
+  switch (id) {
+  case 14: // POLYGROUP
+    return true;
+  default:
+    return false;
+  }
+}
+
 } // namespace sculptcore::brush
 
 namespace sculptcore::brush::command {

@@ -251,6 +251,22 @@ static void runTests()
     test_assert(builtinBrushFullTopo(id) == want);
   }
 
+  // faceMode does have a codegen'd counterpart (the per-kernel def), so cross-check
+  // the two rather than only pinning a golden: brushNeedsLiveLinks reads the cheap
+  // id-keyed form per dab, and it must agree with the def the dispatch builds.
+  for (int id = 0; id < SculptBrushesBuiltinCount; id++) {
+    Def def;
+    const bool handled =
+        command::createBuiltinBrush<Exec, CsrNbr, LiveDiskNbr, AccumLive>(id, true, def);
+    test_assert(handled);
+    if (builtinBrushFaceMode(id) != def.faceMode) {
+      std::printf("id %d (%s): faceMode=%d but def.faceMode=%d\n", id, kBuiltinBrushNames[id],
+                  int(builtinBrushFaceMode(id)), int(def.faceMode));
+    }
+    test_assert(builtinBrushFaceMode(id) == def.faceMode);
+    test_assert(builtinBrushFaceMode(id) == (id == int(SculptBrushes::POLYGROUP)));
+  }
+
   // The kernel a tool dispatches to, as a name — the readable half of the same
   // pairing, and what a mis-annotated @tool shows up as first.
   test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::CLAY)], "plane") == 0);

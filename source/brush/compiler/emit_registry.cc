@@ -356,6 +356,22 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
   }
   h += "  default:\n    return false;\n  }\n";
   h += "}\n\n";
+  h += "/** The kernel has a `face` stage, so it is dispatched per face and reaches\n";
+  h += " * its verts through the live face loop. */\n";
+  h += "inline bool builtinBrushFaceMode(int id)\n{\n";
+  h += "  switch (id) {\n";
+  bool anyFaceStage = false;
+  for (int i = 0; i < (int)toolIds.size(); i++) {
+    if (kernels[owner[i]].faceStage) {
+      h += string("  case ") + itoa(i) + ": // " + toolIds[i] + "\n";
+      anyFaceStage = true;
+    }
+  }
+  if (anyFaceStage) {
+    h += "    return true;\n";
+  }
+  h += "  default:\n    return false;\n  }\n";
+  h += "}\n\n";
   h += "} // namespace sculptcore::brush\n\n";
   h += "namespace sculptcore::brush::command {\n\n";
   h += "/** Dispatch a built-in brush id to its generated factory. Returns false when\n";
@@ -566,6 +582,49 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
     h += "  (void)id;\n  return false;\n";
   }
   h += "}\n\n";
+  // The two topology facts the executor keys stroke setup on, for extras too:
+  // an out-of-repo kernel that walks live links must not be given a
+  // topology-frozen stroke, and nothing else in the host knows it does.
+  {
+    struct Pred {
+      const char *fn;
+      const char *doc;
+      bool RegistryEntry::*member;
+    };
+    const Pred preds[] = {
+        {"extraBrushFullTopo",
+         "/** `@fulltopo`: the kernel or its host pre-pass walks live topology links\n"
+         " * every dab, so the stroke must not freeze topology. */\n",
+         &RegistryEntry::fullTopo},
+        {"extraBrushFaceMode",
+         "/** The kernel has a `face` stage, so it is dispatched per face and reaches\n"
+         " * its verts through the live face loop. */\n",
+         &RegistryEntry::faceStage},
+    };
+    for (const Pred &p : preds) {
+      bool any = false;
+      for (int i = 0; i < (int)extras.size(); i++) {
+        if (extras[i].*(p.member)) {
+          any = true;
+        }
+      }
+      h += p.doc;
+      h += string("inline bool ") + p.fn + "(int id)\n{\n";
+      if (any) {
+        h += "  switch (id - SculptBrushesBuiltinCount) {\n";
+        for (int i = 0; i < (int)extras.size(); i++) {
+          if (extras[i].*(p.member)) {
+            h += string("  case ") + itoa(i) + ": // " + extras[i].stem + "\n";
+            h += "    return true;\n";
+          }
+        }
+        h += "  default:\n    return false;\n  }\n";
+      } else {
+        h += "  (void)id;\n  return false;\n";
+      }
+      h += "}\n\n";
+    }
+  }
   h += "} // namespace sculptcore::brush\n\n";
   h += "namespace sculptcore::brush::command {\n\n";
   h += "/** Dispatch an extra-brush id to its generated factory. Returns false when\n";
@@ -587,7 +646,12 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
     for (int i = 0; i < (int)extras.size(); i++) {
       const RegistryEntry &e = extras[i];
       h += string("  case ") + itoa(i) + ": // " + e.stem + "\n";
-      if (e.usesNeighbor) {
+      if (e.usesNeighbor && e.fullTopo) {
+        // @fulltopo: its pre-pass thaws topology, so a stroke-start CSR snapshot
+        // would go stale under it — same rule as the built-ins.
+        h += string("    create") + e.cppName +
+             "Brush<TYPES, sculptcore::brush::LiveDiskNbr, AccMode>(def);\n";
+      } else if (e.usesNeighbor) {
         h += "    if (csrNeighbors) {\n";
         h += string("      create") + e.cppName +
              "Brush<TYPES, sculptcore::brush::CsrNbr, AccMode>(def);\n";

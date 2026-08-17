@@ -1141,25 +1141,35 @@ struct CommandExecutor {
     mesh::uvproj::reprojectVertUVs(m, verts, oldCo, &cb);
   }
 
-  /** SMOOTH is the only brush with a for_neighbor loop, and only its CSR
-   * instantiation reads neighbors from the cache rather than the live disk.
-   * Every other brush (and CSR-mode smooth) touches no live TOPO link during a
-   * dab, so the mesh can sit topology-frozen — dropping the link pages — for
-   * the whole stroke. A live-disk smooth dab is the lone case that needs the
-   * links back. */
+  /** Whether a stroke with this brush must keep the mesh's disk/radial link
+   * pages live. A brush that touches no live TOPO link during a dab lets the
+   * mesh sit topology-frozen — the pages dropped — for the whole stroke.
+   *
+   * Three kernel facts answer it, all reflected out of the DSL by the registry
+   * generators rather than enumerated here (a hand-kept enum list is how a new
+   * kernel silently gets a frozen stroke, and reading a dropped page is a
+   * heap-layout-dependent UAF, not a wrong pixel — graded by
+   * tests/test_brush_live_links.cc):
+   *
+   *  - a `for_neighbor` loop, which reads the 1-ring — but only its live-disk
+   *    instantiation walks links; the CSR one reads MeshTopoCache::ring1;
+   *  - `@fulltopo`, i.e. a host pre-pass that walks live topology every dab
+   *    (the cross-field and enhance-details passes) — unconditional, since the
+   *    thaw is what makes a stroke-start CSR snapshot go stale;
+   *  - a `face` stage, dispatched per face, which reaches its verts through the
+   *    live face loop.
+   *
+   * Called per dab, so every query is a switch on an int and allocates nothing.
+   */
   bool brushNeedsLiveLinks(SculptBrushes brushType) const
   {
-    // Face-stage brushes walk the face loop (live links) to compute centroids.
-    return ((brushType == SculptBrushes::SMOOTH || brushType == SculptBrushes::BSMOOTH ||
-             brushType == SculptBrushes::COLORSMOOTH) &&
-            neighborMode != NeighborMode::Csr) ||
-           brushType == SculptBrushes::POLYGROUP ||
-           // The cross-field / enhance-details pre-passes walk the vertex rings
-           // (ring1 CSR) every dab, so keep topology live for those strokes.
-           brushType == SculptBrushes::FEATURE_ALIGN ||
-           brushType == SculptBrushes::ENHANCE ||
-           // Extra kernels with for_neighbor loops mirror the SMOOTH rule.
-           (extraBrushUsesForNeighbor(int(brushType)) && neighborMode != NeighborMode::Csr);
+    const int id = int(brushType);
+    if (builtinBrushFullTopo(id) || extraBrushFullTopo(id) || builtinBrushFaceMode(id) ||
+        extraBrushFaceMode(id)) {
+      return true;
+    }
+    return (builtinBrushUsesForNeighbor(id) || extraBrushUsesForNeighbor(id)) &&
+           neighborMode != NeighborMode::Csr;
   }
 
   /** The boundary-aware smooth brush reads the lazily-derived
