@@ -80,7 +80,7 @@ int main()
       test_assert(entries.size() == 1);
       test_assert(entries[0].use == int(c.use));
       test_assert(entries[0].domain == c.domain);
-      test_assert(entries[0].write);
+      test_assert(entries[0].kernelWrites);
     }
 
     // A geometry brush retargets nothing, and bsmooth's fixed boundary-class

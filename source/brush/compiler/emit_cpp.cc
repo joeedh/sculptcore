@@ -23,9 +23,13 @@ bool isCtxBaseName(const char *n)
 
 bool isMemberBackedName(const char *name)
 {
+  // Permanent: a process-lifetime cache, so it must not read as a leak in a test
+  // that calls alloc::print_blocks before static destructors run.
   static Vector<string> names = [] {
+    litestl::alloc::pushPermanentAlloc();
     Vector<string> v;
     ::sculptcore::brush::Brush::builtinPropNames(v);
+    litestl::alloc::popPermanentAlloc();
     return v;
   }();
   for (const auto &n : names) {
@@ -69,6 +73,7 @@ struct Emit {
 
   string out;
   Vector<string> errors;
+  Vector<string> warnings;
   int indent = 0;
 
   // Locals declared in the current body. We track the declared type so a
@@ -110,6 +115,13 @@ struct Emit {
     char buf[256];
     std::snprintf(buf, sizeof(buf), fmt, arg);
     errors.append(string(buf));
+  }
+
+  void warnf(const char *fmt, const char *arg)
+  {
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), fmt, arg);
+    warnings.append(string(buf));
   }
 
   void writeIndent()
@@ -2134,9 +2146,18 @@ struct Emit {
       write("  def.writesMask = true;\n");
     }
     // Declared attribute layers — resolved + bound per dab by the executor.
+    // `materialize` is unconditionally true (a read-only handle still needs
+    // storage); `kernelWrites` is inferred from the stage bodies, because that
+    // is the bit that decides whether a write needs a destination.
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Attr)
         continue;
+      MemberWriteKind wk = brushScanMemberWrites(*brush, f.name.c_str());
+      if (wk == MemberWriteKind::Nested) {
+        errf("write through a swizzle or index of attr '%s' is not supported "
+             "(assign the whole attr instead)",
+             f.name.c_str());
+      }
       write("  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{\"");
       write(f.name);
       write("\", \"");
@@ -2146,8 +2167,30 @@ struct Emit {
       write(", ");
       write(attrDomainEnum(f.domain));
       write(", true, ");
+      write(wk == MemberWriteKind::TopLevel ? "true" : "false");
+      write(", ");
       write(attrUseEnum(f.use));
       write("});\n");
+      // Independent cross-check: every body-written attr should be in the
+      // `save` list (else its stroke does not undo) and nothing else should be
+      // (dead capture). A warning, not an error — a host-pre-pass-written attr
+      // that needs capture would be a legitimate exception.
+      bool saved = false;
+      for (const auto &s : brush->saves) {
+        if (s.name.operator==(f.name)) {
+          saved = true;
+          break;
+        }
+      }
+      if (wk == MemberWriteKind::TopLevel && !saved) {
+        warnf("attr '%s' is written but not in the save list — its stroke will "
+              "not undo",
+              f.name.c_str());
+      }
+      else if (wk == MemberWriteKind::None && saved) {
+        warnf("attr '%s' is in the save list but never written — dead capture",
+              f.name.c_str());
+      }
     }
     // Declared uniforms — the executor registers these as props and applies
     // device dynamics each dab (see sbrush-dynamic-uniforms plan). Carries the
@@ -2297,6 +2340,7 @@ EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts)
   EmitResult r;
   r.text = std::move(em.out);
   r.errors = std::move(em.errors);
+  r.warnings = std::move(em.warnings);
   return r;
 }
 

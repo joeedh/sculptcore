@@ -1,24 +1,12 @@
 #pragma once
 #include "types.h"
-#include "../kernels/generated/draw.brush.gen.h"
-#include "../kernels/generated/inflate.brush.gen.h"
-#include "../kernels/generated/plane.brush.gen.h"
-#include "../kernels/generated/wingscrape.brush.gen.h"
-#include "../kernels/generated/pinch.brush.gen.h"
-#include "../kernels/generated/sharp.brush.gen.h"
-#include "../kernels/generated/mask.brush.gen.h"
-#include "../kernels/generated/smooth.brush.gen.h"
-#include "../kernels/generated/kelvinlet.brush.gen.h"
-#include "../kernels/generated/pose.brush.gen.h"
-#include "../kernels/generated/texdraw.brush.gen.h"
-#include "../kernels/generated/color.brush.gen.h"
-#include "../kernels/generated/polygroup.brush.gen.h"
-#include "../kernels/generated/bsmooth.brush.gen.h"
-#include "../kernels/generated/grab.brush.gen.h"
-#include "../kernels/generated/snakehook.brush.gen.h"
-#include "../kernels/generated/colorsmooth.brush.gen.h"
-#include "../kernels/generated/featurealign.brush.gen.h"
-#include "../kernels/generated/layerdraw.brush.gen.h"
-#include "../kernels/generated/enhance.brush.gen.h"
-#include "../kernels/generated/texgrad.brush.gen.h"
+// Every built-in kernel header plus the id-keyed factory dispatch
+// (createBuiltinBrush), generated from the kernels' @tool annotations paired
+// with tools.txt — so adding a brush is a kernel + a tools.txt line, never an
+// edit to a dispatch switch.
+#include "generated/builtin_brushes.gen.h"
 #include "extra.h"
+
+static_assert(sculptcore::brush::builtinBrushCount ==
+                  sculptcore::brush::SculptBrushesBuiltinCount,
+              "tools.txt and the SculptBrushes enum disagree on the built-in count");

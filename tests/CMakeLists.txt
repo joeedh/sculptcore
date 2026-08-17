@@ -3,6 +3,7 @@
 # quote escaping of string-literal defines on Windows, so the macro would expand
 # unquoted and fail to compile.
 set(SCULPTCORE_ASSETS_DIR_CMAKE "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+set(SCULPTCORE_KERNELS_DIR_CMAKE "${CMAKE_SOURCE_DIR}/source/brush/kernels")
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test_config.h.in
   ${CMAKE_CURRENT_BINARY_DIR}/test_config.h @ONLY)
 
@@ -87,13 +88,16 @@ test(test_remesh_preremesh.cc "remesh;mesh;spatial")
 test(test_remesh_feature_filter.cc "remesh;mesh;spatial")
 test(test_remesh_retry.cc "remesh;mesh;spatial")
 test(test_remesh_preset.cc "remesh;mesh;spatial")
-test(test_brush.cc "")
+test(test_brush.cc "binding_generators")
 test(test_stroke_driver.cc "brush;spatial;mesh")
+test(test_brush_metadata.cc "brush;spatial;mesh")
+test(test_brush_registry.cc "brush;spatial;mesh")
 
 # Drives the sbrush compiler (lexer/parser/emitters) directly; the compiler
 # lib only exists when the host tool builds (SBRUSH_BACKEND_CPP).
 if (TARGET sbrushc_core)
 test(test_sbrush_textures.cc "sbrushc_core")
+test(test_sbrush_attr_writes.cc "sbrushc_core")
 # The C99 backend end-to-end: emitCTextureDefs -> tinycc JIT -> parity
 # against the precompiled texture registry (texture-scripts T3.2).
 test(test_texture_c_jit.cc "sbrushc_core;brush;tinycc")

@@ -10,6 +10,7 @@
 // non-accumulate mode's base-read proxy (plans/nonAccumMode.md).
 
 @brush("texgrad")
+@tool TEXGRAD
 brush TexGrad {
   ctx float3 surfaceNo;
 

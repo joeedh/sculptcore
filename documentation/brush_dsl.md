@@ -52,6 +52,8 @@ brush Snakehook { … }
 | `@relaxation` | relaxes the field it edits toward a neighborhood mean instead of displacing / adding to it, so it never contributes to accumulated brush displacement; runs live-from-live even in a non-accumulate stroke. An inverted relaxation diverges, so hosts also read `def.relaxesBase` as "this kernel ignores invert" |
 | `@unbounded` | the field has unbounded support and *is* its own falloff. `strength()` is then forbidden (sema error) and `unbounded_window()` required — the window is what makes the field vanish at the host's node-filter radius instead of tearing on a leaf boundary. Also emits `def.unbounded`, which floors that filter radius at `radius × unboundedExtent` |
 | `@incremental` | a stage input is a per-dab **delta**, not an absolute stroke quantity (snakehook's `grabTo` is the step since the last dab), so there is no stroke-start base to re-derive a dab from |
+| `@tool NAME[, NAME…]` | the `SculptBrushes` enum items this kernel implements. One kernel can serve several tools — `plane` is `@tool CLAY, SCRAPE, FILL`, because the host varies uniforms rather than code. This is what generates the id→factory dispatch (below); a kernel with no `@tool` compiles but is reachable by no tool |
+| `@fulltopo` | the kernel, or the host pre-pass that feeds it, walks live topology links every dab, so the stroke can neither freeze topology nor read neighbours from a stroke-start CSR snapshot. The generated dispatch instantiates such a kernel against the live neighbour source unconditionally, ignoring the stroke's neighbour mode |
 
 `@paint`, `@unbounded`, and `@incremental` each emit `def.accumulable = false`.
 The executor gates its whole non-accumulate path on that bit
@@ -380,15 +382,19 @@ deferred.
 
 ## Adding a brush
 
-1. Write `source/brush/kernels/<name>.sbrush`.
-2. `node make.mjs codegen` to emit `kernels/generated/<name>.brush.gen.h`.
-3. Add the include to `brushes/all.h`, an enum entry to `brushes/types.h`,
-   and a dispatch case in `CommandExecutor::createCommand()` (see
-   [`brush.md`](brush.md)).
+1. Write `source/brush/kernels/<name>.sbrush`, with `@tool <NAME>` naming the
+   enum item(s) it serves.
+2. Add `<NAME>` to the end of `brushes/tools.txt` and an entry with the matching
+   id to the `SculptBrushes` enum in `brushes/types.h`. Both lists are
+   append-only: the ids are persisted, so nothing is ever renumbered.
+3. `node make.mjs codegen` — this emits `kernels/generated/<name>.brush.gen.h`
+   *and* regenerates the built-in registry (the `Binder` item list and the
+   id→factory dispatch) from `tools.txt` plus the `@tool` annotations. There is
+   no dispatch case, and no include, to hand-edit (see [`brush.md`](brush.md)).
 4. For GPU dispatch and the A/B harness, add a `runBrushStrokeGPU` case and a
    `tests/scripts/brush_backends/<name>_ab.txt` script (see
    [`brush_compute.md`](brush_compute.md#verification)).
 
-A validate-only demo brush (like `graddraw`) can stop after step 2 — it is
-exercised by `sbrush-validate`/`sbrush-verify`'s per-backend compile gate
+A validate-only demo brush (like `graddraw`) omits `@tool` and skips step 2 — it
+is exercised by `sbrush-validate`/`sbrush-verify`'s per-backend compile gate
 without being wired as a tool.

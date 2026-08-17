@@ -53,29 +53,10 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
   {
     using namespace sculptcore::brush;
     types::Enum *e = new types::Enum("sculptcore::brush::SculptBrushes", sizeof(SculptBrushes));
-    e->addItem("DRAW", SculptBrushes::DRAW);
-    e->addItem("INFLATE", SculptBrushes::INFLATE);
-    e->addItem("CLAY", SculptBrushes::CLAY);
-    e->addItem("PINCH", SculptBrushes::PINCH);
-    e->addItem("SHARP", SculptBrushes::SHARP);
-    e->addItem("MASK", SculptBrushes::MASK);
-    e->addItem("SMOOTH", SculptBrushes::SMOOTH);
-    e->addItem("KELVINLET", SculptBrushes::KELVINLET);
-    e->addItem("POSE", SculptBrushes::POSE);
-    e->addItem("TEXDRAW", SculptBrushes::TEXDRAW);
-    e->addItem("SCRAPE", SculptBrushes::SCRAPE);
-    e->addItem("FILL", SculptBrushes::FILL);
-    e->addItem("WINGSCRAPE", SculptBrushes::WINGSCRAPE);
-    e->addItem("COLOR", SculptBrushes::COLOR);
-    e->addItem("POLYGROUP", SculptBrushes::POLYGROUP);
-    e->addItem("BSMOOTH", SculptBrushes::BSMOOTH);
-    e->addItem("GRAB", SculptBrushes::GRAB);
-    e->addItem("SNAKEHOOK", SculptBrushes::SNAKEHOOK);
-    e->addItem("COLORSMOOTH", SculptBrushes::COLORSMOOTH);
-    e->addItem("FEATURE_ALIGN", SculptBrushes::FEATURE_ALIGN);
-    e->addItem("LAYERDRAW", SculptBrushes::LAYERDRAW);
-    e->addItem("ENHANCE", SculptBrushes::ENHANCE);
-    e->addItem("TEXGRAD", SculptBrushes::TEXGRAD);
+    // Built-in items, in id order — generated from brushes/tools.txt, which is
+    // also what the id-keyed factory dispatch is generated from, so a name can
+    // never bind to one id here and dispatch as another there.
+#include "generated/builtin_brushes_enum.inc"
 #ifdef SCULPTCORE_EXTRA_BRUSHES
     // Extra (out-of-repo) kernels — ids follow the built-ins; see extra.h.
 #include "sculptcore_extra_brushes_enum.inc"

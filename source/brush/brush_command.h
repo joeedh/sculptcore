@@ -49,7 +49,15 @@ struct BrushAttrManifestEntry {
   string boundName;                              // fixed layer, or "" => handle
   mesh::AttrType type = mesh::AttrType::FLOAT;
   AttrElemDomain domain = AttrElemDomain::Vertex;
-  bool write = false;                            // writes => ensure materialized
+  // The executor must ensure the layer exists before binding it. True for every
+  // attr entry — a read-only handle still needs storage to read from. It says
+  // nothing about whether the kernel stores to the layer; that is kernelWrites.
+  bool materialize = false;
+  // The kernel body stores to this handle, inferred by codegen from the stage
+  // bodies (sbrush::brushScanMemberWrites). This is the bit that decides where a
+  // write has to land — a read-only handle like bsmooth's `vclass` is
+  // host-pre-pass scratch and needs no write-back path at all.
+  bool kernelWrites = false;
   // DSL `@use(<category>)`: the mesh::AttrUse bit a host retargets this handle
   // by (0 = untagged / engine-internal). Only meaningful when boundName is
   // empty — a fixed layer name is not retargetable.
@@ -71,7 +79,8 @@ struct BrushAttrManifestEntry {
     BIND_STRUCT_MEMBER(st, boundName);
     BIND_STRUCT_MEMBER(st, type);
     BIND_STRUCT_MEMBER(st, domain);
-    BIND_STRUCT_MEMBER(st, write);
+    BIND_STRUCT_MEMBER(st, materialize);
+    BIND_STRUCT_MEMBER(st, kernelWrites);
     BIND_STRUCT_MEMBER(st, use);
     return st;
   }

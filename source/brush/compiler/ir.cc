@@ -122,27 +122,56 @@ static bool exprIsMemberNamed(const Expr *e, const char *field)
   return e && e->kind == ExprKind::Member && e->name.operator==(string(field));
 }
 
-static bool stmtWritesMember(const Stmt *s, const char *field)
+static bool exprContainsMemberNamed(const Expr *e, const char *field)
+{
+  if (!e)
+    return false;
+  if (exprIsMemberNamed(e, field))
+    return true;
+  if (exprContainsMemberNamed(e->lhs.get(), field) ||
+      exprContainsMemberNamed(e->rhs.get(), field))
+    return true;
+  for (const auto &a : e->args)
+    if (exprContainsMemberNamed(a.get(), field))
+      return true;
+  return false;
+}
+
+// Nested is sticky and beats TopLevel: it means the scan cannot classify this
+// kernel, which the caller must surface rather than average away.
+static void stmtScanMemberWrites(const Stmt *s, const char *field, MemberWriteKind &out)
 {
   if (!s)
-    return false;
-  if (s->kind == StmtKind::Assign && exprIsMemberNamed(s->lvalue.get(), field))
-    return true;
+    return;
+  if (s->kind == StmtKind::Assign) {
+    const Expr *lv = s->lvalue.get();
+    if (exprIsMemberNamed(lv, field)) {
+      if (out == MemberWriteKind::None)
+        out = MemberWriteKind::TopLevel;
+    }
+    else if (exprContainsMemberNamed(lv, field)) {
+      out = MemberWriteKind::Nested;
+    }
+  }
   for (const auto &c : s->stmts)
-    if (stmtWritesMember(c.get(), field))
-      return true;
-  return stmtWritesMember(s->thenBranch.get(), field) ||
-         stmtWritesMember(s->elseBranch.get(), field) ||
-         stmtWritesMember(s->forInit.get(), field) ||
-         stmtWritesMember(s->forStep.get(), field);
+    stmtScanMemberWrites(c.get(), field, out);
+  stmtScanMemberWrites(s->thenBranch.get(), field, out);
+  stmtScanMemberWrites(s->elseBranch.get(), field, out);
+  stmtScanMemberWrites(s->forInit.get(), field, out);
+  stmtScanMemberWrites(s->forStep.get(), field, out);
+}
+
+MemberWriteKind brushScanMemberWrites(const Brush &brush, const char *field)
+{
+  MemberWriteKind kind = MemberWriteKind::None;
+  for (const auto &st : brush.stages)
+    stmtScanMemberWrites(st.body.get(), field, kind);
+  return kind;
 }
 
 bool brushWritesMember(const Brush &brush, const char *field)
 {
-  for (const auto &st : brush.stages)
-    if (stmtWritesMember(st.body.get(), field))
-      return true;
-  return false;
+  return brushScanMemberWrites(brush, field) != MemberWriteKind::None;
 }
 
 bool brushHasFaceStage(const Brush &brush)

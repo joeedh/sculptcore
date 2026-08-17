@@ -1,4 +1,5 @@
 @brush("mask")
+@tool MASK
 @paint
 brush Mask {
   // Undo captures the mask layer only (paint moves no geometry).

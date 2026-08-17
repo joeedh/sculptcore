@@ -10,6 +10,7 @@
 // (which need BVH queries) wait for Wave 4b.
 
 @brush("kelvinlet")
+@tool KELVINLET
 @unbounded
 @grabmode
 brush Kelvinlet {

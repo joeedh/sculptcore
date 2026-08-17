@@ -5,6 +5,9 @@
 // a 1-ring kernel, so this kernel just applies the cached displacement scaled by
 // the brush strength/falloff and paint mask. CPU-only (like feature-align).
 @brush("enhance")
+@tool ENHANCE
+// updateEnhanceRegion's N-ring BFS walks live links every dab.
+@fulltopo
 brush Enhance {
   attr vertex float3 edisp = ".brush.enhance.disp";
 

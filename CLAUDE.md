@@ -315,8 +315,15 @@ uniform block.
 (`compiler/`) to every backend: the reference C++ executor plus WGSL,
 SPIR-V, CUDA, HIP, and OpenCL. The C++ output is checked into
 `kernels/generated/<name>.brush.gen.h` and consumed directly by the WASM
-build; `brushes/all.h` aggregates them and `CommandExecutor::createCommand()`
-dispatches the `SculptBrushes` enum to the matching factory. At runtime
+build. **The enum→factory dispatch is generated as well**: each kernel's
+`@tool NAME[, …]` claims `SculptBrushes` items, `brushes/tools.txt` fixes the
+ids (append-only — they are persisted in brush assets and the addon bridge), and
+codegen emits `brushes/generated/` with `createBuiltinBrush(id, …)` plus the
+`Binder` item list. `CommandExecutor::createCommand()` calls it and falls
+through to the extras registry, so adding a brush edits no host conditional.
+`tests/test_brush_registry.cc` grades the generated roster against an
+independent transcription; `tests/test_brush.cc` pins the `{name → id}` table.
+At runtime
 `CommandExecutor::execBrush` walks `SpatialNode`s and runs the compiled
 kernel through a vertex-iterator factory. Codegen is
 `node make.mjs codegen`; cross-backend correctness is gated by

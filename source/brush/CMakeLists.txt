@@ -155,8 +155,11 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP AND SCULPTCORE_EXTRA_KERNEL_DIRS)
   list(SORT SB_EXTRA_BUILTINS)
 
   # Built-in SculptBrushes enum item names — NOT derivable from @brush names
-  # (FEATURE_ALIGN vs "featurealign"). Keep in sync with brushes/types.h.
-  set(SB_EXTRA_RESERVED "DRAW,INFLATE,CLAY,PINCH,SHARP,MASK,SMOOTH,KELVINLET,POSE,TEXDRAW,SCRAPE,FILL,WINGSCRAPE,COLOR,POLYGROUP,BSMOOTH,GRAB,SNAKEHOOK,COLORSMOOTH,FEATURE_ALIGN,LAYERDRAW,ENHANCE,TEXGRAD")
+  # (FEATURE_ALIGN vs "featurealign"), so they are read from the id table the
+  # built-in registry is generated from rather than copied here.
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/brushes/tools.txt" SB_TOOL_LINES
+       REGEX "^[A-Z_][A-Z0-9_]*$")
+  list(JOIN SB_TOOL_LINES "," SB_EXTRA_RESERVED)
 
   set(SB_EXTRA_INPUTS)
   set(SB_EXTRA_TEX_UNITS)

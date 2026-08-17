@@ -19,6 +19,7 @@
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -40,6 +41,8 @@ struct Args {
   bool extras = false;
   // --registry mode (extra-kernel registry generation).
   bool registry = false;
+  // --builtin-registry mode (built-in enum items + factory dispatch).
+  bool builtinRegistry = false;
   // --texture-unit mode (.stex -> <stem>.tex.gen.h).
   bool textureUnit = false;
   // --texture-registry mode (all .stex units -> sculptcore_textures.gen.h).
@@ -53,6 +56,8 @@ struct Args {
   // .stex units that `use texture <Name>;` imports resolve against.
   litestl::util::Vector<litestl::util::string> texturePaths;
   litestl::util::string reserved;
+  // brushes/tools.txt: the built-in SculptBrushes item names in id order.
+  litestl::util::string toolsPath;
 };
 
 void printUsage()
@@ -70,6 +75,9 @@ void printUsage()
     "Registry mode (extra-kernel enum/factory registration):\n"
     "  sbrushc --registry --out-dir=<dir> --in=<extra.sbrush>...\n"
     "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n"
+    "Builtin-registry mode (built-in enum items + id-keyed factory dispatch):\n"
+    "  sbrushc --builtin-registry --out-dir=<dir> --tools=<brushes/tools.txt>\n"
+    "          --in=<builtin.sbrush>...\n"
     "Texture-unit mode (precompile one .stex unit):\n"
     "  sbrushc --texture-unit --in=<unit.stex> --out=<stem.tex.gen.h>\n"
     "          --backend=c emits a freestanding C99 TU (JIT input) instead\n"
@@ -88,8 +96,10 @@ bool parseArgs(int argc, char **argv, Args &out)
     else if (std::strncmp(a, "--builtin=", 10) == 0) out.builtinPaths.append(a + 10);
     else if (std::strncmp(a, "--texture=", 10) == 0) out.texturePaths.append(a + 10);
     else if (std::strncmp(a, "--reserved=", 11) == 0) out.reserved = a + 11;
+    else if (std::strncmp(a, "--tools=", 8) == 0) out.toolsPath = a + 8;
     else if (std::strncmp(a, "--eol=", 6) == 0) out.eol = a + 6;
     else if (std::strcmp(a, "--registry") == 0) out.registry = true;
+    else if (std::strcmp(a, "--builtin-registry") == 0) out.builtinRegistry = true;
     else if (std::strcmp(a, "--texture-unit") == 0) out.textureUnit = true;
     else if (std::strcmp(a, "--texture-registry") == 0) out.textureRegistry = true;
     else if (std::strcmp(a, "--extras") == 0) out.extras = true;
@@ -108,15 +118,23 @@ bool parseArgs(int argc, char **argv, Args &out)
     std::fprintf(stderr, "sbrushc: --eol must be auto, lf or crlf\n");
     return false;
   }
-  if ((int)out.registry + (int)out.textureUnit + (int)out.textureRegistry > 1) {
-    std::fprintf(stderr,
-                 "sbrushc: --registry, --texture-unit and --texture-registry are exclusive\n");
+  if ((int)out.registry + (int)out.builtinRegistry + (int)out.textureUnit +
+          (int)out.textureRegistry >
+      1) {
+    std::fprintf(stderr, "sbrushc: --registry, --builtin-registry, --texture-unit and "
+                         "--texture-registry are exclusive\n");
     return false;
   }
-  if (out.registry || out.textureRegistry) {
+  if (out.builtinRegistry && out.toolsPath.size() == 0) {
+    std::fprintf(stderr, "sbrushc: --builtin-registry requires --tools\n");
+    return false;
+  }
+  if (out.registry || out.builtinRegistry || out.textureRegistry) {
     if (out.outDir.size() == 0) {
-      std::fprintf(stderr, "sbrushc: --%s requires --out-dir\n",
-                   out.registry ? "registry" : "texture-registry");
+      const char *mode = out.registry ? "registry"
+                                      : (out.builtinRegistry ? "builtin-registry"
+                                                             : "texture-registry");
+      std::fprintf(stderr, "sbrushc: --%s requires --out-dir\n", mode);
       return false;
     }
     return true;
@@ -469,6 +487,72 @@ int runRegistryMode(const Args &args)
   return 0;
 }
 
+int runBuiltinRegistryMode(const Args &args)
+{
+  std::string toolsText;
+  if (!readFile(args.toolsPath.c_str(), toolsText)) {
+    std::fprintf(stderr, "sbrushc: cannot read tool id table '%s'\n", args.toolsPath.c_str());
+    return 1;
+  }
+  litestl::util::Vector<litestl::util::string> toolIds;
+  {
+    std::string cur;
+    bool comment = false;
+    for (const char *p = toolsText.c_str();; p++) {
+      if (*p == '\n' || *p == '\r' || *p == '\0') {
+        if (!cur.empty()) {
+          toolIds.append(litestl::util::string(cur.c_str()));
+        }
+        cur.clear();
+        comment = false;
+        if (*p == '\0') {
+          break;
+        }
+      } else if (*p == '#') {
+        comment = true;
+      } else if (!comment && !std::isspace((unsigned char)*p)) {
+        cur += *p;
+      }
+    }
+  }
+
+  litestl::util::Vector<BuiltinEntry> kernels;
+  for (const auto &p : args.inPaths) {
+    auto brush = parseKernelFile(p);
+    if (!brush) {
+      return 1;
+    }
+    BuiltinEntry e;
+    e.stem = stemOf(p);
+    e.usesNeighbor = brushUsesNeighborLoop(*brush);
+    e.fullTopo = brush->isFullTopo;
+    for (const auto &t : brush->tools) {
+      e.tools.append(t);
+    }
+    kernels.append(std::move(e));
+  }
+
+  auto rr = emitBuiltinRegistry(kernels, toolIds);
+  if (rr.errors.size() > 0) {
+    for (const auto &e : rr.errors) {
+      std::fprintf(stderr, "sbrushc: builtin registry error: %s\n", e.c_str());
+    }
+    return 1;
+  }
+
+  litestl::util::string incPath = args.outDir + "/builtin_brushes_enum.inc";
+  litestl::util::string hdrPath = args.outDir + "/builtin_brushes.gen.h";
+  if (!writeFileIfChanged(incPath.c_str(), rr.enumInc)) {
+    std::fprintf(stderr, "sbrushc: cannot write '%s'\n", incPath.c_str());
+    return 1;
+  }
+  if (!writeFileIfChanged(hdrPath.c_str(), rr.genHeader)) {
+    std::fprintf(stderr, "sbrushc: cannot write '%s'\n", hdrPath.c_str());
+    return 1;
+  }
+  return 0;
+}
+
 int runTextureUnitMode(const Args &args)
 {
   auto unit = parseTextureUnitFile(args.inPath);
@@ -561,6 +645,9 @@ int main(int argc, char **argv)
   if (args.registry) {
     return runRegistryMode(args);
   }
+  if (args.builtinRegistry) {
+    return runBuiltinRegistryMode(args);
+  }
   if (args.textureRegistry) {
     return runTextureRegistryMode(args);
   }
@@ -614,6 +701,9 @@ int main(int argc, char **argv)
       std::fprintf(stderr, "sbrushc: emit error: %s\n", e.c_str());
     }
     return 1;
+  }
+  for (const auto &w : er.warnings) {
+    std::fprintf(stderr, "sbrushc: %s: warning: %s\n", args.inPath.c_str(), w.c_str());
   }
   if (args.dryRun) {
     std::fwrite(er.text.c_str(), 1, er.text.size(), stdout);

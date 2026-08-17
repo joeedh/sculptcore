@@ -15,6 +15,7 @@
 // below it; the host remaps that to this signed amount as 2 * (0.5 - factor).
 
 @brush("snakehook")
+@tool SNAKEHOOK
 // `grabTo` is the step since the last dab, not an absolute stroke drag, so a
 // dab cannot be replayed from the stroke-start base — doing so would discard
 // every earlier dab and the hook would never build. Always accumulates.

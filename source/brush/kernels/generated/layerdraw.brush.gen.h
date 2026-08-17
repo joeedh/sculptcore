@@ -54,7 +54,7 @@ static void createLayerdrawBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.exec     = layerdraw<TYPES, AccMode>;
   def.execPost = layerdrawPost<TYPES>;
   def.accumulable = true;
-  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"slayer", "", sculptcore::mesh::AttrType::FLOAT3, sculptcore::brush::AttrElemDomain::Vertex, true, int(sculptcore::mesh::AttrUse::SCULPT_LAYER)});
+  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"slayer", "", sculptcore::mesh::AttrType::FLOAT3, sculptcore::brush::AttrElemDomain::Vertex, true, true, int(sculptcore::mesh::AttrUse::SCULPT_LAYER)});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
     if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);

@@ -2,6 +2,7 @@
 // brush strength * falloff(distance to center).
 
 @brush("draw")
+@tool DRAW
 brush Draw {
   ctx float3 surfaceNo;
   uniform float radius;

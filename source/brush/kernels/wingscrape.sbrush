@@ -15,6 +15,7 @@
 // falls back to a plain flat scrape rather than a no-op.
 
 @brush("wingscrape")
+@tool WINGSCRAPE
 brush WingScrape {
   ctx float3 surfacePos;
   ctx float3 surfaceNo;

@@ -350,103 +350,26 @@ struct CommandExecutor {
   /** Type-dispatch half of createCommandImpl, stateless so `queryBrushFlags` can
    * reach a kernel's manifest without a live stroke. `brushOrNull` is only used
    * by the extra-kernel registry (uniform defaults); a null one just means extra
-   * kernels report unhandled. Returns false when `brushType` matched nothing. */
+   * kernels report unhandled. Returns false when `brushType` matched nothing.
+   *
+   * Both halves are generated: the built-ins from the kernels' @tool annotations
+   * (brushes/generated/builtin_brushes.gen.h, graded by tests/test_brush_registry.cc)
+   * and the extras from the configured extra-kernel dirs. Adding a brush touches
+   * neither this function nor any other host conditional. */
   template <class AccMode>
   static bool createCommandSwitch(SculptBrushes brushType,
                                   bool csrNeighbors,
                                   Brush *brushOrNull,
                                   brush_command &def)
   {
-    switch (brushType) {
-    case SculptBrushes::DRAW:
-      command::createDrawBrush<CommandExecutor, AccMode>(def);
+    if (command::createBuiltinBrush<CommandExecutor, CsrNbr, LiveDiskNbr, AccMode>(
+            int(brushType), csrNeighbors, def)) {
       return true;
-    case SculptBrushes::INFLATE:
-      command::createInflateBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::CLAY:
-    case SculptBrushes::SCRAPE:
-    case SculptBrushes::FILL:
-      // Clay-family plane brushes share one kernel; the bridge sets
-      // planeoff/planeSide per tool to select build-up / cut / fill.
-      command::createPlaneBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::WINGSCRAPE:
-      command::createWingscrapeBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::PINCH:
-      command::createPinchBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::SHARP:
-      command::createSharpBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::MASK:
-      command::createMaskBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::SMOOTH:
-      if (csrNeighbors) {
-        command::createSmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
-      } else {
-        command::createSmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      }
-      return true;
-    case SculptBrushes::KELVINLET:
-      command::createKelvinletBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::GRAB:
-      command::createGrabBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::SNAKEHOOK:
-      command::createSnakehookBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::POSE:
-      command::createPoseBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::TEXDRAW:
-      command::createTexdrawBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::COLOR:
-      command::createColorBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::POLYGROUP:
-      command::createPolygroupBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::BSMOOTH:
-      if (csrNeighbors) {
-        command::createBsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
-      } else {
-        command::createBsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      }
-      return true;
-    case SculptBrushes::COLORSMOOTH:
-      if (csrNeighbors) {
-        command::createColorsmoothBrush<CommandExecutor, CsrNbr, AccMode>(def);
-      } else {
-        command::createColorsmoothBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      }
-      return true;
-    case SculptBrushes::FEATURE_ALIGN:
-      // Always live-disk: the C++ cross-field pre-pass (updateCrossFieldRegion)
-      // walks the vertex disk, so topology is thawed regardless of neighborMode.
-      command::createFeaturealignBrush<CommandExecutor, LiveDiskNbr, AccMode>(def);
-      return true;
-    case SculptBrushes::LAYERDRAW:
-      command::createLayerdrawBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::ENHANCE:
-      // Not a for_neighbor kernel: it applies the host pre-pass's cached
-      // .brush.enhance.disp, so no neighbor-source template.
-      command::createEnhanceBrush<CommandExecutor, AccMode>(def);
-      return true;
-    case SculptBrushes::TEXGRAD:
-      command::createTexgradBrush<CommandExecutor, AccMode>(def);
-      return true;
-    default:
-      // Extra (out-of-repo) kernels dispatch through the generated registry;
-      // a no-op fallback compiles in when no extra kernel dirs are configured.
-      return brushOrNull && command::createExtraBrush<CommandExecutor, AccMode>(
-                                int(brushType), csrNeighbors, *brushOrNull, def);
     }
+    // Extra (out-of-repo) kernels dispatch through the generated registry;
+    // a no-op fallback compiles in when no extra kernel dirs are configured.
+    return brushOrNull && command::createExtraBrush<CommandExecutor, AccMode>(
+                              int(brushType), csrNeighbors, *brushOrNull, def);
   }
 
   /** Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
@@ -734,7 +657,7 @@ struct CommandExecutor {
         }
         bool writes = false;
         for (auto &entry : cmd.attrs) {
-          if (entry.handle == binding.handle && entry.write) {
+          if (entry.handle == binding.handle && entry.kernelWrites) {
             writes = true;
             break;
           }
@@ -2128,15 +2051,51 @@ inline bool grabClaimFirstTouch(const CommandExecutor &exec, int v)
   return true;
 }
 
-/** Build a kernel's BrushCommandDef without a live stroke. csrNeighbors=false and
- * no Brush: the manifest and the flags are identical for both neighbor policies,
- * and extra kernels (which do need a Brush for their uniform defaults) report
- * unhandled rather than reaching for stroke state. False when unhandled. */
+/** Build a kernel's BrushCommandDef without a live stroke. csrNeighbors=false:
+ * the manifest and the flags are identical for both neighbor policies. The
+ * scratch Brush is what lets an extra (out-of-repo) kernel report its manifest —
+ * createExtraBrush seeds uniform defaults into the Brush it is handed, so a null
+ * one made every extra kernel report unhandled (and therefore empty), which is
+ * precisely the case the grid-attr capability rule has to answer for. False when
+ * `brushType` matched nothing. */
 inline bool buildBrushDef(SculptBrushes brushType,
                           CommandExecutor::brush_command &def)
 {
+  Brush scratch;
   return CommandExecutor::createCommandSwitch<AccumLive>(
-      brushType, false, nullptr, def);
+      brushType, false, &scratch, def);
+}
+
+/** A kernel's declared attribute layers, into caller-owned storage. Prefer this
+ * over BrushMetadata's bound instance methods in engine code: those park the
+ * result on the query object (the binding runtime hands bound structs back by
+ * pointer and cannot marshal a Vector), so two interleaved queries clobber each
+ * other. False when `brushType` matched nothing; `out` is cleared either way. */
+inline bool brushAttrManifestFor(SculptBrushes brushType,
+                                 Vector<BrushAttrManifestEntry> &out)
+{
+  out.clear();
+  CommandExecutor::brush_command def;
+  if (!buildBrushDef(brushType, def)) {
+    return false;
+  }
+  for (const auto &a : def.attrs) {
+    out.append(a);
+  }
+  return true;
+}
+
+/** The manifest entry for one handle, or null. */
+inline const BrushAttrManifestEntry *findBrushAttrEntry(
+    const Vector<BrushAttrManifestEntry> &manifest, const char *handle)
+{
+  util::string want(handle);
+  for (const auto &a : manifest) {
+    if (a.handle.operator==(want)) {
+      return &a;
+    }
+  }
+  return nullptr;
 }
 
 /** A kernel's codegen-set policy bits, queried by tool id without a live stroke.
@@ -2157,7 +2116,7 @@ inline BrushDefFlags brushDefFlagsFor(SculptBrushes brushType)
   flags.writesMask = def.writesMask;
   flags.faceMode = def.faceMode;
   for (const auto &a : def.attrs) {
-    if (a.write && (a.use & int(mesh::AttrUse::COLOR))) {
+    if (a.kernelWrites && (a.use & int(mesh::AttrUse::COLOR))) {
       flags.writesColor = true;
     }
     if (a.boundName.operator==(util::string(".boundary.vert.class"))) {
@@ -2198,14 +2157,7 @@ struct BrushMetadata {
    * for that AttrUse category. Returns the entry count. */
   int queryAttrManifest(int brushType)
   {
-    queriedAttrs.clear();
-    CommandExecutor::brush_command def;
-    if (!buildBrushDef(static_cast<SculptBrushes>(brushType), def)) {
-      return 0;
-    }
-    for (const auto &a : def.attrs) {
-      queriedAttrs.append(a);
-    }
+    brushAttrManifestFor(static_cast<SculptBrushes>(brushType), queriedAttrs);
     return int(queriedAttrs.size());
   }
 

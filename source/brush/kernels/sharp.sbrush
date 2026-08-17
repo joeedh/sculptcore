@@ -1,4 +1,5 @@
 @brush("sharp")
+@tool SHARP
 brush Sharp {
   ctx float3 surfacePos;
   ctx float3 surfaceNo;

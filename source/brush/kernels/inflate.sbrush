@@ -3,6 +3,7 @@
 // normal instead of the brush surface normal, and respects mask.
 
 @brush("inflate")
+@tool INFLATE
 brush Inflate {
   uniform float radius;
   

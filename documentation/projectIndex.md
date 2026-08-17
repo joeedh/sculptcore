@@ -124,7 +124,7 @@ See `documentation/meshlog.md` for a detailed overview.
 ### `source/brush/` — sculpt brushes
 
 Core: `brush.cc/.h` (Brush state + props), `brush_command.cc/.h` (`CommandCtxBase`, `CommandCtx<TYPES>`, falloff), `brush_executor.cc/.h` (`CommandExecutor`: builds + dispatches commands, owns `MeshLog` pointer), `brush_iterators.h` (`BasicVertexIter`, `PtrHelper`), `brush_concepts.h` (C++20 concepts pinning the command ABI).
-Brushes: `brushes/types.h` (`SculptBrushes` enum), `brushes/all.h`, `brushes/draw.h`.
+Brushes: `brushes/types.h` (`SculptBrushes` enum), `brushes/tools.txt` (the item names in id order — the id authority codegen reads), `brushes/generated/` (generated id→factory dispatch + `Binder` item list), `brushes/all.h`, `brushes/draw.h`.
 Textures: `texture_program.cc/.h` (runtime `.stex` compile — tcc CPU JIT via `texture_jit.cc/.h`, WGSL stroke-begin splice for the wgpu dispatcher), `texture_registry.cc/.h` (precompiled `.stex` unit table), `host_sampler.cc/.h` (host/builtin sampler registry; builtin `vnoise`).
 Compiler: `compiler/` (`sbrushc_core` static lib + thin CLI — the sbrush/`.stex` parser and every backend emitter; host tool at build time, linked into the engine for runtime texture compilation).
 Bindings: `bindings.cc/.h`.

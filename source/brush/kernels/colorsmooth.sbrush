@@ -4,6 +4,7 @@
 // geometry; undo captures the color layer only. Routed from the PAINT_SMOOTH
 // tool (shift on the color brush).
 @brush("colorsmooth")
+@tool COLORSMOOTH
 @paint
 // Relaxes the color field toward its neighborhood mean — inverting that diverges,
 // so hosts drop invert here just like the geometry smooth brushes.

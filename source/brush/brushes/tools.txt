@@ -1,0 +1,33 @@
+# Built-in SculptBrushes items, in id order. The authority the codegen reads:
+# sbrushc --builtin-registry pairs each name with the kernel that claims it via
+# `@tool NAME`, and emits generated/builtin_brushes.gen.h (dispatch) +
+# generated/builtin_brushes_enum.inc (the Binder item list). CMake reads it for
+# the reserved-name list the extras registry validates against.
+#
+# The ids are persisted (saved brush assets, the addon bridge, extras ids follow
+# the count), so this list is append-only: never renumber or remove a line.
+# brushes/types.h's enum stays hand-written; tests/test_brush.cc pins the two
+# together, and every name here must be claimed by exactly one kernel.
+DRAW
+INFLATE
+CLAY
+PINCH
+SHARP
+MASK
+SMOOTH
+KELVINLET
+POSE
+TEXDRAW
+SCRAPE
+FILL
+WINGSCRAPE
+COLOR
+POLYGROUP
+BSMOOTH
+GRAB
+SNAKEHOOK
+COLORSMOOTH
+FEATURE_ALIGN
+LAYERDRAW
+ENHANCE
+TEXGRAD

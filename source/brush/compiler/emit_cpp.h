@@ -8,6 +8,9 @@ namespace sculptcore::brush::sbrush {
 struct EmitResult {
   string text;
   Vector<string> errors;
+  // Non-fatal codegen diagnostics — printed by sbrushc, they do not fail the
+  // build (see the attr write/save cross-check in emit_cpp.cc).
+  Vector<string> warnings;
 };
 
 struct CppEmitOptions {

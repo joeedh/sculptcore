@@ -875,7 +875,13 @@ function smokeNwjs(addonPath) {
 async function sbrushCodegen() {
   const kernelsDir = 'source/brush/kernels'
   const outDir = `${kernelsDir}/generated`
+  // The built-in brush registry (enum item list + id-keyed factory dispatch)
+  // lands beside types.h, not with the kernels: it is keyed by the ids in
+  // brushes/tools.txt, and brushes/ is where those ids are declared.
+  const brushesDir = 'source/brush/brushes'
+  const brushesOutDir = `${brushesDir}/generated`
   ensureDir(outDir)
+  ensureDir(brushesOutDir)
 
   const inputs = fs.readdirSync(kernelsDir).filter((f) => f.endsWith('.sbrush'))
   // Standalone texture units — precompiled to <stem>.tex.gen.h + the registry,
@@ -893,6 +899,10 @@ async function sbrushCodegen() {
       .map((inp) => `${outDir}/${inp.replace(/\.sbrush$/, '')}.brush.gen.h`)
       .concat(stexInputs.map((u) => `${outDir}/${u.replace(/\.stex$/, '')}.tex.gen.h`))
       .concat([`${outDir}/sculptcore_textures.gen.h`])
+      .concat([
+        `${brushesOutDir}/builtin_brushes.gen.h`,
+        `${brushesOutDir}/builtin_brushes_enum.inc`,
+      ])
       .concat(['typescript/sculptcore/brush/brushWgsl.ts'])
       .filter((p) => !fs.existsSync(p))
     if (missing.length) {
@@ -943,6 +953,15 @@ async function sbrushCodegen() {
     const outPath = `${outDir}/${stem}.brush.gen.h`
     run(`"${sbrushc}" --backend=cpp --in="${inPath}" --out="${outPath}" ${texFlags}`)
   }
+
+  // The built-in registry, from the kernels' @tool/@fulltopo annotations paired
+  // with brushes/tools.txt. Unconditional (unlike the extras registry, which is
+  // configure-gated): the engine's own dispatch comes from here.
+  const builtinIns = inputs.map((inp) => `--in="${kernelsDir}/${inp}"`).join(' ')
+  run(
+    `"${sbrushc}" --builtin-registry --out-dir="${brushesOutDir}" ` +
+      `--tools="${brushesDir}/tools.txt" ${builtinIns}`
+  )
 
   for (const u of stexInputs) {
     const stem = u.replace(/\.stex$/, '')

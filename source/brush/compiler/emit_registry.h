@@ -40,6 +40,30 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
                             const Vector<string> &builtinAttrNames,
                             const Vector<string> &reserved);
 
+/** One parsed built-in kernel, for the built-in registry. `tools` is the kernel's
+ * `@tool NAME[, ...]` list; a kernel with none is compiled but dispatched by no
+ * tool (it takes no id and is left out of the generated header entirely). */
+struct BuiltinEntry {
+  string stem;
+  Vector<string> tools;
+  bool usesNeighbor = false;
+  bool fullTopo = false;
+};
+
+struct BuiltinRegistryResult {
+  string enumInc;   // brushes/generated/builtin_brushes_enum.inc content
+  string genHeader; // brushes/generated/builtin_brushes.gen.h content
+  Vector<string> errors;
+};
+
+/** Emit the built-in brush registry: the `Binder<SculptBrushes>` item list and
+ * the id-keyed factory dispatch. `toolIds` is brushes/tools.txt in id order —
+ * the ids are not derivable from the kernels (one kernel serves several tools,
+ * and FEATURE_ALIGN is not "featurealign" uppercased). Every name in `toolIds`
+ * must be claimed by exactly one kernel's @tool list, and vice versa. */
+BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
+                                          const Vector<string> &toolIds);
+
 /** Compose one `<stem>.tex.gen.h` for a .stex unit: the guarded C++ eval
  * definitions + param manifests plus the unit's WGSL module text embedded as
  * a string constant. Moves the unit's textures into a scratch brush (the

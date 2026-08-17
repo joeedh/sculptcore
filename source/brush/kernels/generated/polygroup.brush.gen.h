@@ -57,7 +57,7 @@ static void createPolygroupBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPost = polygroupPost<TYPES>;
   def.accumulable = false;
   def.faceMode = true;
-  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"group", "", sculptcore::mesh::AttrType::INT, sculptcore::brush::AttrElemDomain::Face, true, int(sculptcore::mesh::AttrUse::POLYGROUP)});
+  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"group", "", sculptcore::mesh::AttrType::INT, sculptcore::brush::AttrElemDomain::Face, true, true, int(sculptcore::mesh::AttrUse::POLYGROUP)});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"activeGroup", false, false, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {
   };

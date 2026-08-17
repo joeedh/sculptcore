@@ -364,15 +364,41 @@ struct Brush {
   // base would discard every earlier dab's drag. Codegen emits
   // def.accumulable = false, which makes the executor ignore nonAccum.
   bool isIncremental = false;
+  // `@tool NAME[, NAME...]`: the SculptBrushes enum items this kernel implements.
+  // One kernel can serve several tools (plane.sbrush is CLAY/SCRAPE/FILL — the
+  // host varies uniforms, not code). Empty means the kernel is compiled but not
+  // dispatched by any tool, which is what the built-in registry generator uses to
+  // tell a live kernel from a scratch one.
+  Vector<string> tools;
+  // `@fulltopo`: the kernel (or its host pre-pass) walks live topology links every
+  // dab, so the stroke can neither freeze topology nor read neighbors from a
+  // stroke-start CSR snapshot.
+  bool isFullTopo = false;
 };
 
 /** True when any stage body contains a `for_neighbor` loop — such brushes are
  * emitted with the extra NbrSource template parameter (CsrNbr/LiveDiskNbr). */
 bool brushUsesNeighborLoop(const Brush &brush);
 
-/** True when any stage body assigns to a `.<field>` member — used to emit the
- * host-visible write flags (e.g. `v.mask = ...` -> BrushCommandDef::writesMask)
- * for builtin Vertex fields, which have no `attr` declaration to key off. */
+/** How a kernel stores to a named member, from scanning its stage bodies.
+ * `Nested` is a store *through* a swizzle or index of the member
+ * (`v.color.x = ...`), which a top-level-name test reads as "no write" — so it
+ * is reported separately and rejected by codegen rather than silently
+ * mis-classified. */
+enum class MemberWriteKind : int {
+  None,
+  TopLevel,
+  Nested,
+};
+
+/** Scan every stage body for stores to a `.<field>` member. Used to emit the
+ * host-visible write flags — BrushCommandDef::writesMask for the builtin
+ * Vertex field, and BrushAttrManifestEntry::kernelWrites for each declared
+ * `attr` handle (which the manifest's `materialize` bit cannot answer, since
+ * that is set for every attr entry). */
+MemberWriteKind brushScanMemberWrites(const Brush &brush, const char *field);
+
+/** True when any stage body assigns to a `.<field>` member, at any depth. */
 bool brushWritesMember(const Brush &brush, const char *field);
 
 /** True when the brush declares a `face` stage, i.e. it is dispatched per-face

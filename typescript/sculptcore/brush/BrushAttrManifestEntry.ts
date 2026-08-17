@@ -24,7 +24,8 @@ export interface BrushAttrManifestEntry {
   boundName: string
   type: AttrType
   domain: AttrElemDomain
-  write: boolean
+  materialize: boolean
+  kernelWrites: boolean
   use: int32
   new (): BrushAttrManifestEntry
 }

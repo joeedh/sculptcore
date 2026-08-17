@@ -38,3 +38,32 @@ static inline const char *sculptcore_test_assets_dir()
 }
 
 #define SCULPTCORE_ASSETS_DIR sculptcore_test_assets_dir()
+
+// The sbrush kernel source dir, resolved the same way — tests that drive the
+// compiler over the real .sbrush files (rather than an inline snippet) need it.
+static inline const char *sculptcore_test_kernels_dir()
+{
+  static const char *resolved = nullptr;
+  if (resolved) {
+    return resolved;
+  }
+  static const char *candidates[] = {
+      "@SCULPTCORE_KERNELS_DIR_CMAKE@",
+      "../../../source/brush/kernels", // from build/native/tests (the ctest cwd)
+      "../../source/brush/kernels",    // from build/native
+      "source/brush/kernels",          // from the sculptcore root
+  };
+  for (const char *dir : candidates) {
+    char probe[2048];
+    std::snprintf(probe, sizeof(probe), "%s/draw.sbrush", dir);
+    if (FILE *f = std::fopen(probe, "rb")) {
+      std::fclose(f);
+      resolved = dir;
+      return resolved;
+    }
+  }
+  resolved = "@SCULPTCORE_KERNELS_DIR_CMAKE@";
+  return resolved;
+}
+
+#define SCULPTCORE_KERNELS_DIR sculptcore_test_kernels_dir()

@@ -144,12 +144,29 @@ WGSL. `findIntrinsic(name)` is the lookup; emitters call it from their
 
 The cpp emitter writes a template per stage into
 `kernels/generated/<stem>.brush.gen.h` (e.g. `draw`, `drawPre`).
-`brushes/all.h` includes every `.gen.h`; `brushes/types.h` holds the
-`SculptBrushes` enum; `CommandExecutor::createCommand()` dispatches the enum
-to the matching template. So a new brush is wired by codegen + an enum entry
-+ a dispatch case (see [`brush.md`](brush.md)). The `.gen.h` files are
-committed because the WASM build consumes them directly — it never runs
-`sbrushc`.
+The wiring from there is itself generated. A second sbrushc mode,
+`--builtin-registry`, reads every kernel's `@tool NAME[, …]` annotation plus
+`brushes/tools.txt` (the enum item names in id order — non-derivable and
+persisted, so append-only) and emits `brushes/generated/`:
+
+- `builtin_brushes.gen.h` — the kernel includes, `createBuiltinBrush(id,
+  csrNeighbors, def)`, and the reflected `kBuiltinBrushNames` /
+  `builtinBrushUsesForNeighbor` / `builtinBrushFullTopo` tables.
+- `builtin_brushes_enum.inc` — the `Binder<SculptBrushes>` item list, included
+  by `brushes/types.h`, so a name binds to exactly the id it dispatches as.
+
+`brushes/all.h` pulls in that header (and the extras registry);
+`CommandExecutor::createCommand()` calls `createBuiltinBrush` and falls through
+to extras. So a new brush is wired by codegen + an enum entry + a `tools.txt`
+line — no dispatch case (see [`brush.md`](brush.md)). Every name in `tools.txt`
+must be claimed by exactly one kernel and vice versa, or the generator errors;
+a kernel with no `@tool` (like `graddraw`) is compiled but left out of the
+registry entirely.
+
+Both the kernel `.gen.h` files and `brushes/generated/` are committed because
+the WASM build consumes them directly — it never runs `sbrushc`
+(`SBRUSH_SKIP_NATIVE_CODEGEN=1` checks they are present and skips the host
+tool).
 
 From the float-uniform metadata the cpp emitter also fills, per brush, a
 uniform **manifest** and the `registerProps` / `loadUniformProps` closures on

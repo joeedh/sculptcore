@@ -5,6 +5,7 @@
 // join the layer in the undo capture.
 
 @brush("layerdraw")
+@tool LAYERDRAW
 brush Layerdraw {
   ctx float3 surfaceNo;
   uniform float radius;

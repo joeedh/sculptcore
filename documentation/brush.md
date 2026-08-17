@@ -33,17 +33,28 @@ output is generated into `kernels/generated/<name>.brush.gen.h`.
 | `stroke_spacing.h` | stroke-dab spacing helper |
 | `props.h` | brush-property templates |
 | `bindings.h` / `.cc` | `registerBindings(BindingManager&)` — exposes `Brush`, `CommandExecutor`, `Vector<SpatialNode*>` to the WASM/TS surface |
-| `brushes/types.h` | `SculptBrushes` enum + its binding |
-| `brushes/all.h` | aggregate include of every `kernels/generated/*.brush.gen.h` |
+| `brushes/types.h` | `SculptBrushes` enum + its binding (item list included from the generated registry) |
+| `brushes/tools.txt` | the enum item names in id order — the id authority codegen reads. Append-only; ids are persisted |
+| `brushes/generated/` | the built-in registry: `createBuiltinBrush` (id→factory dispatch) + the `Binder` item list, generated from `tools.txt` and the kernels' `@tool` |
+| `brushes/all.h` | pulls in the generated registry (which includes every `kernels/generated/*.brush.gen.h`) + the extras registry |
 | `kernels/*.sbrush` | brush DSL sources |
 | `kernels/generated/*.brush.gen.h` | checked-in C++ kernels (consumed directly by the WASM build) |
 | `compiler/` | the `sbrushc` host tool (see [`brush_compute.md`](brush_compute.md)) |
 | `exec.h`, `test.h` | reserved (currently unused) |
 
 Each `.brush.gen.h` defines, per brush, a `create<Name>Brush(def)` factory, a
-`<name>` kernel template, and a `<name>Pre` undo pre-pass. `brushes/all.h`
-pulls them all in; `createCommand()` dispatches the `SculptBrushes` enum to
-the matching factory.
+`<name>` kernel template, and a `<name>Pre` undo pre-pass. **The enum→factory
+dispatch is generated too**, not hand-written: each kernel's `@tool NAME[, …]`
+claims enum items, `brushes/tools.txt` fixes the ids, and codegen emits
+`createBuiltinBrush(id, csrNeighbors, def)` — which `createCommand()` calls,
+falling through to the extras registry for an id no built-in claims. So adding a
+brush edits no dispatch switch, and `tests/test_brush_registry.cc` grades the
+generated roster against an independent transcription of it.
+
+The dispatch also decides the kernel's **neighbour source**: a `for_neighbor`
+kernel is instantiated against the CSR snapshot or the live vertex disk
+according to the stroke's neighbour mode — except under `@fulltopo`, where a
+host pre-pass walks live links every dab and the live source is forced.
 
 ## Core types
 
@@ -238,10 +249,12 @@ binding changes propagate into the generated TS surface. There is no
 
 ## Adding a new brush
 
-1. Write `kernels/<name>.sbrush` (see [`brush_dsl.md`](brush_dsl.md)).
-2. `node make.mjs codegen` to emit `kernels/generated/<name>.brush.gen.h`.
-3. Add its include to `brushes/all.h`, an entry to `SculptBrushes`
-   (`brushes/types.h`), and a `createCommand()` dispatch case.
+1. Write `kernels/<name>.sbrush` (see [`brush_dsl.md`](brush_dsl.md)), annotated
+   `@tool <NAME>` with the enum item(s) it serves.
+2. Append `<NAME>` to `brushes/tools.txt` and the matching id to `SculptBrushes`
+   (`brushes/types.h`) — both append-only, since the ids are persisted.
+3. `node make.mjs codegen`: emits `kernels/generated/<name>.brush.gen.h` and
+   regenerates the registry. No include and no dispatch case to hand-edit.
 4. If new brush state is needed, add fields to `Brush` and update
    `defineBindings()` / `loadProps()`.
 5. For GPU dispatch + verification, add a `runBrushStrokeGPU` case and a

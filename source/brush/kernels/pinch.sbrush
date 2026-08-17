@@ -2,6 +2,7 @@
 // proportional to falloff*strength and gated by mask.
 
 @brush("pinch")
+@tool PINCH
 brush Pinch {
   ctx float3 surfacePos;
   uniform float radius;

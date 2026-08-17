@@ -100,7 +100,7 @@ static void createColorBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.exec     = color<TYPES, AccMode>;
   def.execPost = colorPost<TYPES>;
   def.accumulable = false;
-  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"color", "", sculptcore::mesh::AttrType::FLOAT4, sculptcore::brush::AttrElemDomain::Vertex, true, int(sculptcore::mesh::AttrUse::COLOR)});
+  def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"color", "", sculptcore::mesh::AttrType::FLOAT4, sculptcore::brush::AttrElemDomain::Vertex, true, true, int(sculptcore::mesh::AttrUse::COLOR)});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"brushColor", false, false, 0.0f, false, 0.0f, 0.0f});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"mixMode", false, false, 0.0f, false, 0.0f, 0.0f});
   def.registerProps = [](sculptcore::props::StructDef &sd) {

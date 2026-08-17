@@ -4,6 +4,7 @@
 // (8/16/64) selection arrive in the paint-brush wave; the id is a fixed test
 // value here.
 @brush("polygroup")
+@tool POLYGROUP
 @paint
 brush PolyGroup {
   attr face int group @use(polygroup);

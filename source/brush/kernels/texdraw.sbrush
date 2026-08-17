@@ -10,6 +10,7 @@
 // tests/test_sbrush_textures.cc.
 
 @brush("texdraw")
+@tool TEXDRAW
 brush TexDraw {
   ctx float3 surfaceNo;
 

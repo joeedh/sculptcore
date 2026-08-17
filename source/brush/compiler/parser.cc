@@ -148,7 +148,8 @@ struct Parser {
     currentBrush = brush.get();
 
     // Leading brush attributes: `@brush("name")` plus optional `@paint` /
-    // `@grabmode` / `@relaxation` / `@unbounded` / `@incremental` markers.
+    // `@grabmode` / `@relaxation` / `@unbounded` / `@incremental` / `@fulltopo`
+    // markers and the `@tool NAME[, NAME...]` enum-item list.
     // `brush` is a keyword so it lexes as KwBrush; the rest lex as plain Ident.
     while (match(TokKind::At)) {
       if (match(TokKind::KwBrush)) {
@@ -174,12 +175,26 @@ struct Parser {
           brush->isUnbounded = true;
         } else if (attr.operator==(string("incremental"))) {
           brush->isIncremental = true;
+        } else if (attr.operator==(string("fulltopo"))) {
+          brush->isFullTopo = true;
+        } else if (attr.operator==(string("tool"))) {
+          // `@tool NAME[, NAME...]` — the SculptBrushes enum items this kernel
+          // serves. Uppercase identifiers, validated against the id table by the
+          // registry generator (the parser cannot know the enum).
+          do {
+            if (!check(TokKind::Ident)) {
+              error("expected an enum item name after @tool", peek());
+              break;
+            }
+            brush->tools.append(string(peek().text));
+            advance();
+          } while (match(TokKind::Comma));
         } else {
           errorf(attrTok, "unknown brush attribute '%s'", attr.c_str());
         }
       } else {
         error("expected 'brush', 'paint', 'grabmode', 'relaxation', "
-              "'unbounded', or 'incremental' after '@'",
+              "'unbounded', 'incremental', 'tool', or 'fulltopo' after '@'",
               peek());
         break;
       }

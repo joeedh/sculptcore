@@ -3,6 +3,7 @@
 // blend opacity: `bl` is the fully-applied mode result, then lerped from the
 // existing color by `s`, so MIX (0) reproduces the original straight lerp.
 @brush("color")
+@tool COLOR
 @paint
 brush Color {
   attr vertex float4 color @use(color);

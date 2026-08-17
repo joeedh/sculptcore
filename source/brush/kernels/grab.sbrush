@@ -8,6 +8,7 @@
 // same from-orig + per-dab first-touch write-back.
 
 @brush("grab")
+@tool GRAB
 @grabmode
 brush Grab {
   ctx float3 grabTo;
