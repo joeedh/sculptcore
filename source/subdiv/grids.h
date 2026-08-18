@@ -5,12 +5,19 @@
  * convention, matching the Refiner's grid enumeration (cage face id order,
  * loop order within a face). Level L holds (2^(L-1)+1)^2 verts per grid.
  *
- * Channels are per-level flat float arrays over grid verts: channel 0 is the
- * always-present "disp" float3 — the level's displacement relative to the
- * smoothed previous level, expressed in the level's tangent frame (frames are
- * computed elsewhere; the store is frame-agnostic). Storage is chunked by
- * whole grids with an offset-table-headed serialized form, so a later
- * disk-backing pass can page chunks without a format change (X5).
+ * Channels are per-level flat float arrays over a grid's elements — the
+ * (S+1)^2 vert lattice or the S^2 quad cells, per the channel's GridElemDomain.
+ * Channel 0 is the always-present "disp" float3 — the level's displacement
+ * relative to the smoothed previous level, expressed in the level's tangent
+ * frame (frames are computed elsewhere; the store is frame-agnostic). Storage
+ * is chunked by whole grids with an offset-table-headed serialized form, so a
+ * later disk-backing pass can page chunks without a format change (X5).
+ *
+ * Storage is `float` regardless of a channel's declared AttrType, so the rule
+ * is **no float math on a typed channel** — see interpolatableType. A channel
+ * is also either persistent (the subdivision machinery owns it) or a *session*
+ * channel: engine-owned, allocated lazily, never re-derived, and seeded rather
+ * than blanked when a level is added.
  *
  * Topology is implicit: within a grid, neighbors are ±1 u/v strides; grid
  * boundaries carry 4 links to adjacent grids (same-face neighbors on the
@@ -20,6 +27,8 @@
  * aliases of a boundary coord so writers can keep replicas in sync (S4). */
 
 #include "io/compress.h"
+
+#include "mesh/attribute_enums.h"
 
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
@@ -34,8 +43,9 @@ struct Mesh;
 namespace sculptcore::subdiv {
 
 /** Bump when the on-disk layout changes (mirrors mesh serial versioning).
- * v2 split the single lz4 block into independently-compressed blocks. */
-inline constexpr uint32_t kGridsFormatVersion = 2;
+ * v2 split the single lz4 block into independently-compressed blocks.
+ * v3 added per-channel domain/type/persist. */
+inline constexpr uint32_t kGridsFormatVersion = 3;
 
 /** Serialized payload is cut into blocks of this size so lz4 runs in parallel.
  * Small enough that a ~23 MB store spreads over every core, large enough that
@@ -57,6 +67,14 @@ struct GridLink {
   int side = -1; // the GridSideType this seam is on the neighbor grid
 };
 
+/** Which grid element a channel carries one value per: Vertex is the (S+1)^2
+ * vert lattice (coord (u,v), 0..S), Face the S^2 quad cells (coord (u,v),
+ * 0..S-1, cell id v*S + u — global face id grid*S*S + v*S + u). */
+enum class GridElemDomain : int {
+  Vertex = 0,
+  Face = 1,
+};
+
 struct GridCoord {
   int grid = -1;
   int u = 0, v = 0;
@@ -76,13 +94,31 @@ struct GridsStore {
     return 1 << (level - 1);
   }
 
+  /** Row stride of one grid's element lattice at `level`: S+1 verts, S cells. */
+  static int elemWidth(int level, GridElemDomain domain)
+  {
+    const int S = sideForLevel(level);
+    return domain == GridElemDomain::Face ? S : S + 1;
+  }
+
+  /** Elements per grid at `level`: Vertex (S+1)^2, Face S^2. The single home of
+   * that choice — every allocation, eviction and undo block sizes through it. */
+  static int elemsPerGrid(int level, GridElemDomain domain)
+  {
+    const int w = elemWidth(level, domain);
+    return w * w;
+  }
+
   /** Derive gridCount + the 4 per-grid links from a cage mesh, enumerating
    * grids exactly like Refiner::refine. Thaws frozen topology. Resets any
-   * existing levels/channel data (topology defines the store). */
+   * existing levels/channel data (topology defines the store) — DESTRUCTIVE for
+   * session channels too, which no re-subdivision can rebuild. */
   void buildFromCage(mesh::Mesh &cage);
 
-  /** Append the next level (level == levelCount()+1 after the call); every
-   * channel gets zero-filled storage for it. */
+  /** Append the next level (level == levelCount()+1 after the call). Persistent
+   * channels get zero-filled storage (disp is a per-level delta, so zero is the
+   * identity); session channels are seeded from the level below, since nothing
+   * re-derives them. */
   void addLevel();
 
   /** Drop the finest level (level == levelCount()) from every channel — the
@@ -99,10 +135,22 @@ struct GridsStore {
     return gridCount_;
   }
 
-  /** Add a named channel of 1..4 floats per grid vert; allocates (zeroed)
-   * storage for all existing levels. Returns the channel index. Channel 0 is
-   * always "disp" (3 floats). */
-  int addChannel(const litestl::util::string &name, int floatsPerElem);
+  /** Add a named channel of 1..4 floats per element of `domain`. Returns the
+   * channel index. Channel 0 is always "disp" (3 vertex floats).
+   *
+   * Storage is `float` throughout and `type` enforces nothing — it is metadata
+   * for the host bridge and for the one decision the store itself makes
+   * (whether seeding a new level may interpolate). The invariant is
+   * **no float math on a typed channel**; interpolating consumers assert it.
+   *
+   * `persist` false marks a *session* channel: engine-owned, never re-derived
+   * from the cage, and allocated lazily per level (an untouched session channel
+   * costs nothing). Persistent channels are allocated zeroed up front. */
+  int addChannel(const litestl::util::string &name,
+                 int floatsPerElem,
+                 GridElemDomain domain = GridElemDomain::Vertex,
+                 mesh::AttrType type = mesh::AttrType::FLOAT,
+                 bool persist = true);
 
   int channelCount() const
   {
@@ -145,7 +193,45 @@ struct GridsStore {
     return channels_[channel].floatsPerElem;
   }
 
-  /** Pointer to the floatsPerElem floats of one grid vert. O(1). */
+  /** Whether values of `type` may be averaged. The guard behind the storage
+   * invariant: channel data is `float` throughout and `type` enforces nothing,
+   * so there must be **no float math on a typed channel** — interpolating
+   * consumers assert through here instead of trusting the column. */
+  static bool interpolatableType(mesh::AttrType type)
+  {
+    return type == mesh::AttrType::FLOAT || type == mesh::AttrType::FLOAT2 ||
+           type == mesh::AttrType::FLOAT3 || type == mesh::AttrType::FLOAT4;
+  }
+
+  bool channelInterpolatable(int channel) const
+  {
+    return interpolatableType(channels_[channel].type);
+  }
+
+  GridElemDomain channelDomain(int channel) const
+  {
+    return channels_[channel].domain;
+  }
+
+  mesh::AttrType channelType(int channel) const
+  {
+    return channels_[channel].type;
+  }
+
+  bool channelPersist(int channel) const
+  {
+    return channels_[channel].persist;
+  }
+
+  /** Elements per grid of `channel` at `level` — elemsPerGrid on its domain.
+   * Multiply by channelElemSize for the float count of one grid's block. */
+  int channelElemsPerGrid(int level, int channel) const
+  {
+    return elemsPerGrid(level, channels_[channel].domain);
+  }
+
+  /** Pointer to the floatsPerElem floats of one grid element. O(1). Rehydrates
+   * an evicted level and allocates a lazy session channel on the way. */
   float *elem(int level, int channel, int grid, int u, int v);
   const float *elem(int level, int channel, int grid, int u, int v) const;
 
@@ -218,11 +304,28 @@ private:
   struct Channel {
     litestl::util::string name;
     int floatsPerElem = 1;
+    GridElemDomain domain = GridElemDomain::Vertex;
+    mesh::AttrType type = mesh::AttrType::FLOAT;
+    bool persist = true;
     litestl::util::Vector<LevelData> levels; // [0] = level 1
   };
 
+  /** Append a LevelData for `level`, with chunks unless the channel is a
+   * lazily-allocated session channel. */
   void allocLevel(Channel &ch, int level);
+  /** Zeroed chunk vectors for one (channel, level), sized off ld.gridsPerChunk.
+   * The one sizing path — allocation, lazy first touch and rehydration all run
+   * through it, so an eviction round trip cannot disagree with allocation. */
+  void fillChunks(const Channel &ch, LevelData &ld, int level);
   void rehydrate(Channel &ch, LevelData &ld, int level);
+  /** elem() against a channel the store holds by reference rather than index. */
+  float *elemIn(Channel &ch, int level, int grid, int u, int v);
+  /** Compress + free one (channel, level)'s chunks. No-op when already evicted
+   * or not allocated. */
+  void evictChannelLevel(LevelData &ld);
+  /** Copy `level`'s values down from level-1 (which the caller must have just
+   * appended above), interpolating float channels and snapping typed ones. */
+  void seedLevelFromBelow(Channel &ch, int level);
 
   int gridCount_ = 0;
   int levelCount_ = 0;

@@ -22,6 +22,7 @@
 #include "grid_domain.h"
 
 #include "litestl/math/vector.h"
+#include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 
 #include <span>
@@ -89,8 +90,11 @@ private:
   };
   struct GridBlock {
     int grid = -1;
-    int channel = 0;
-    Vector<float> data; // (S+1)^2 * elemSize floats, the store block layout
+    // By NAME, not index: removeChannel shifts every later channel down, so an
+    // index captured before it would swap bytes into the wrong column (or off
+    // the end of the store) afterwards.
+    litestl::util::string channel;
+    Vector<float> data; // elemsPerGrid * elemSize floats, the store block layout
   };
   struct Step {
     Vector<LeafSnap> leaves;

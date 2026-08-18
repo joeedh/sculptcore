@@ -254,6 +254,11 @@ void Multires::compositeMix(Vector<ChannelMix> &out) const
     }
     int ch = store.findChannel(st.name);
     if (ch > 0) {
+      // Every consumer of the mix weights and subtracts these, so this is the
+      // chokepoint for the store's "no float math on a typed channel" rule.
+      Assert(store.channelDomain(ch) == GridElemDomain::Vertex &&
+                 store.channelInterpolatable(ch),
+             "composited grid channel takes float math");
       out.append({ch, st.weight});
     }
   }

@@ -28,32 +28,51 @@ namespace sculptcore::subdiv {
 // larger than the target gets a chunk to itself.
 static constexpr int kTargetChunkFloats = 64 * 1024;
 
-void GridsStore::allocLevel(Channel &ch, int level)
+void GridsStore::fillChunks(const Channel &ch, LevelData &ld, int level)
 {
-  int w = sideForLevel(level) + 1;
-  int gridFloats = w * w * ch.floatsPerElem;
-  LevelData ld;
-  ld.gridsPerChunk = gridFloats > 0 ? kTargetChunkFloats / gridFloats : 1;
-  if (ld.gridsPerChunk < 1) {
-    ld.gridsPerChunk = 1;
-  }
+  const int gridFloats = elemsPerGrid(level, ch.domain) * ch.floatsPerElem;
   for (int g0 = 0; g0 < gridCount_; g0 += ld.gridsPerChunk) {
     int grids = gridCount_ - g0 < ld.gridsPerChunk ? gridCount_ - g0 : ld.gridsPerChunk;
     Vector<float> chunk;
     chunk.resize(size_t(grids) * gridFloats); // zero-filled
     ld.chunks.append(std::move(chunk));
   }
+}
+
+void GridsStore::allocLevel(Channel &ch, int level)
+{
+  const int gridFloats = elemsPerGrid(level, ch.domain) * ch.floatsPerElem;
+  LevelData ld;
+  ld.gridsPerChunk = gridFloats > 0 ? kTargetChunkFloats / gridFloats : 1;
+  if (ld.gridsPerChunk < 1) {
+    ld.gridsPerChunk = 1;
+  }
+  // A session channel stays unallocated until elem() first touches it; the
+  // geometry above is still fixed now, so lazy and eager chunks agree.
+  if (ch.persist) {
+    fillChunks(ch, ld, level);
+  }
   ch.levels.append(std::move(ld));
 }
 
-int GridsStore::addChannel(const string &name, int floatsPerElem)
+int GridsStore::addChannel(
+    const string &name, int floatsPerElem, GridElemDomain domain, mesh::AttrType type, bool persist)
 {
   Assert(floatsPerElem >= 1 && floatsPerElem <= 4, "grid channel elem size");
   Channel ch;
   ch.name = name;
   ch.floatsPerElem = floatsPerElem;
+  ch.domain = domain;
+  ch.type = type;
+  ch.persist = persist;
   for (int l = 1; l <= levelCount_; l++) {
+    // Eviction state is per (channel, level): joining an evicted level resident
+    // would leave the level half-paged-in and never swept by evictLevel.
+    const bool evicted = !levelResident(l);
     allocLevel(ch, l);
+    if (evicted) {
+      evictChannelLevel(ch.levels.last());
+    }
   }
   channels_.append(std::move(ch));
   return int(channels_.size()) - 1;
@@ -64,6 +83,9 @@ void GridsStore::addLevel()
   levelCount_++;
   for (Channel &ch : channels_) {
     allocLevel(ch, levelCount_);
+    if (!ch.persist) {
+      seedLevelFromBelow(ch, levelCount_);
+    }
   }
 }
 
@@ -80,17 +102,65 @@ void GridsStore::dropTopLevel()
   levelCount_--;
 }
 
-float *GridsStore::elem(int level, int channel, int grid, int u, int v)
+void GridsStore::seedLevelFromBelow(Channel &ch, int level)
 {
-  Channel &ch = channels_[channel];
+  if (level < 2) {
+    return;
+  }
+  const LevelData &below = ch.levels[level - 2];
+  if (!below.chunks.size() && !below.evicted.size()) {
+    return; // never touched: the zero-fill above already matches it
+  }
+  const int fpe = ch.floatsPerElem;
+  const int w = elemWidth(level, ch.domain);
+  const bool lerp = ch.domain == GridElemDomain::Vertex && interpolatableType(ch.type);
+  for (int g = 0; g < gridCount_; g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        float *dst = elemIn(ch, level, g, u, v);
+        const int cu = u >> 1, cv = v >> 1;
+        if (!lerp) {
+          // A face cell splits into four copies of itself; a typed vert channel
+          // snaps to the coarse sample it sits on or nearest to.
+          const float *src = elemIn(ch, level - 1, g, cu, cv);
+          for (int k = 0; k < fpe; k++) {
+            dst[k] = src[k];
+          }
+          continue;
+        }
+        // One 4-tap covers copy/edge/centre alike: an even fine coord repeats
+        // its coarse sample into both taps, so duplicates collapse.
+        const int du = u & 1, dv = v & 1;
+        const float *s00 = elemIn(ch, level - 1, g, cu, cv);
+        const float *s10 = elemIn(ch, level - 1, g, cu + du, cv);
+        const float *s01 = elemIn(ch, level - 1, g, cu, cv + dv);
+        const float *s11 = elemIn(ch, level - 1, g, cu + du, cv + dv);
+        for (int k = 0; k < fpe; k++) {
+          dst[k] = 0.25f * (s00[k] + s10[k] + s01[k] + s11[k]);
+        }
+      }
+    }
+  }
+}
+
+float *GridsStore::elemIn(Channel &ch, int level, int grid, int u, int v)
+{
   LevelData &ld = ch.levels[level - 1];
   if (ld.evicted.size()) {
     rehydrate(ch, ld, level); // X5: transparent rehydration on first touch
   }
-  int w = sideForLevel(level) + 1;
-  int local = grid % ld.gridsPerChunk;
-  size_t idx = (size_t(local) * w * w + size_t(v) * w + u) * ch.floatsPerElem;
+  else if (!ld.chunks.size()) {
+    fillChunks(ch, ld, level); // lazy session channel: allocate on first touch
+  }
+  const int w = elemWidth(level, ch.domain);
+  const int local = grid % ld.gridsPerChunk;
+  const size_t idx = (size_t(local) * w * w + size_t(v) * w + u) * ch.floatsPerElem;
   return &ld.chunks[grid / ld.gridsPerChunk][int(idx)];
+}
+
+float *GridsStore::elem(int level, int channel, int grid, int u, int v)
+{
+  return elemIn(channels_[channel], level, grid, u, v);
 }
 
 const float *GridsStore::elem(int level, int channel, int grid, int u, int v) const
@@ -278,36 +348,39 @@ void GridsStore::seamMates(int level, const GridCoord &c, Vector<GridCoord> &out
   }
 }
 
+void GridsStore::evictChannelLevel(LevelData &ld)
+{
+  if (ld.evicted.size() || !ld.chunks.size()) {
+    return;
+  }
+  size_t total = 0;
+  for (Vector<float> &c : ld.chunks) {
+    total += c.size();
+  }
+  Vector<float> raw;
+  raw.resize(total);
+  size_t off = 0;
+  for (Vector<float> &c : ld.chunks) {
+    std::memcpy(raw.data() + off, c.data(), c.size() * sizeof(float));
+    off += c.size();
+  }
+  Vector<uint8_t> comp;
+  size_t compSize = io::compressBlock(raw.data(), total * sizeof(float), comp);
+  if (compSize == 0) {
+    return; // compression failed: stay resident (never lose data)
+  }
+  ld.evicted = std::move(comp);
+  ld.rawFloats = total;
+  ld.chunks = Vector<Vector<float>>();
+}
+
 void GridsStore::evictLevel(int level)
 {
   if (level < 1 || level > levelCount_) {
     return;
   }
   for (Channel &ch : channels_) {
-    LevelData &ld = ch.levels[level - 1];
-    if (ld.evicted.size() || !ld.chunks.size()) {
-      continue;
-    }
-    size_t total = 0;
-    for (Vector<float> &c : ld.chunks) {
-      total += c.size();
-    }
-    Vector<float> raw;
-    raw.resize(total);
-    size_t off = 0;
-    for (Vector<float> &c : ld.chunks) {
-      std::memcpy(raw.data() + off, c.data(), c.size() * sizeof(float));
-      off += c.size();
-    }
-    Vector<uint8_t> comp;
-    size_t compSize =
-        io::compressBlock(raw.data(), total * sizeof(float), comp);
-    if (compSize == 0) {
-      continue; // compression failed: stay resident (never lose data)
-    }
-    ld.evicted = std::move(comp);
-    ld.rawFloats = total;
-    ld.chunks = Vector<Vector<float>>();
+    evictChannelLevel(ch.levels[level - 1]);
   }
 }
 
@@ -320,18 +393,14 @@ void GridsStore::rehydrate(Channel &ch, LevelData &ld, int level)
   if (!ok) {
     return;
   }
-  // Chunk geometry is deterministic — mirror allocLevel's sizing.
-  int w = sideForLevel(level) + 1;
-  int gridFloats = w * w * ch.floatsPerElem;
+  // Chunk geometry is deterministic, and shared with allocation by construction
+  // — a round trip cannot disagree about a grid's size.
+  fillChunks(ch, ld, level);
   const float *src = reinterpret_cast<const float *>(raw.data());
   size_t off = 0;
-  for (int g0 = 0; g0 < gridCount_; g0 += ld.gridsPerChunk) {
-    int grids = gridCount_ - g0 < ld.gridsPerChunk ? gridCount_ - g0 : ld.gridsPerChunk;
-    Vector<float> chunk;
-    chunk.resize(size_t(grids) * gridFloats);
+  for (Vector<float> &chunk : ld.chunks) {
     std::memcpy(chunk.data(), src + off, chunk.size() * sizeof(float));
     off += chunk.size();
-    ld.chunks.append(std::move(chunk));
   }
   ld.evicted = Vector<uint8_t>();
   ld.rawFloats = 0;
@@ -390,7 +459,8 @@ size_t GridsStore::evictedBytes() const
 /** Serialized payload (host-endian, inside the BinFile+lz4 container):
  *   u32 gridCount; u32 levelCount
  *   gridCount*4 x { i32 grid; i32 side }
- *   u32 channelCount; per channel: string name; u32 floatsPerElem
+ *   u32 channelCount; per channel: string name; u32 floatsPerElem;
+ *     u32 domain; u32 type; u32 persist
  *   offset table, per (channel, level): u32 gridsPerChunk; u32 chunkCount;
  *     per chunk: u32 byteOffset (into the data section); u32 floatCount
  *   data section: chunk float payloads in (channel, level, chunk) order
@@ -398,7 +468,13 @@ size_t GridsStore::evictedBytes() const
  * The payload is compressed in independent kCompressBlock-sized blocks so the
  * codec runs across cores: at a level-4 million-vert cage this store is ~23 MB
  * and it is re-serialized at the end of every sculpt stroke (the multires undo
- * snapshot), where a single-threaded lz4 pass alone cost ~50 ms. */
+ * snapshot), where a single-threaded lz4 pass alone cost ~50 ms.
+ *
+ * Session channels are INCLUDED: undo is this serializer's only production
+ * consumer (the .blend is written from the flush path, which never reaches the
+ * store), so excluding them would restore an empty channel on every undo that
+ * falls back to the blob. A lazy channel simply writes zero chunks and reads
+ * back lazy. */
 bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
 {
   // The serializer walks raw chunks — rehydrate everything first.
@@ -420,6 +496,9 @@ bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
   for (Channel &ch : channels_) {
     pbf.writeString(ch.name);
     pbf.writeUint32(uint32_t(ch.floatsPerElem));
+    pbf.writeUint32(uint32_t(ch.domain));
+    pbf.writeUint32(uint32_t(ch.type));
+    pbf.writeUint32(uint32_t(ch.persist));
   }
 
   uint32_t offset = 0;
@@ -594,6 +673,9 @@ bool GridsStore::read(std::istream &in)
     Channel ch;
     ch.name = pbf.readString();
     ch.floatsPerElem = int(pbf.readUint32());
+    ch.domain = GridElemDomain(pbf.readUint32());
+    ch.type = mesh::AttrType(pbf.readUint32());
+    ch.persist = bool(pbf.readUint32());
     channels_.append(std::move(ch));
   }
 

@@ -1547,6 +1547,71 @@ int main()
     TASSERT(same);
   }
 
+  /* P1: undo blocks are keyed by channel NAME, so removeChannel — which shifts
+   * every later channel index down — cannot make a captured block restore into
+   * the wrong column or off the end of the store. */
+  {
+    restoreStore(mr, s0);
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    const int chA = mr.store.addChannel(util::string("undoA"), 1);
+    const int chB = mr.store.addChannel(util::string("undoB"), 1);
+    TASSERT(chB == chA + 1);
+
+    Vector<int> grids;
+    for (int g = 0; g < mr.store.gridCount(); g++) {
+      grids.append(g);
+    }
+    const int S = mr.store.sideForLevel(kLevel), w = S + 1;
+    auto paint = [&](int ch, float bias) {
+      for (int g : grids) {
+        for (int v = 0; v <= S; v++) {
+          for (int u = 0; u <= S; u++) {
+            *mr.store.elem(kLevel, ch, g, u, v) = bias + float(g * w * w + v * w + u);
+          }
+        }
+      }
+    };
+    auto same = [&](int ch, float bias) {
+      for (int g : grids) {
+        for (int v = 0; v <= S; v++) {
+          for (int u = 0; u <= S; u++) {
+            const float want = bias + float(g * w * w + v * w + u);
+            if (*mr.store.elem(kLevel, ch, g, u, v) != want) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    };
+
+    paint(chA, 1000.0f);
+    paint(chB, 2000.0f);
+
+    GridStrokeLog log;
+    log.attach(d);
+    log.beginStep();
+    log.captureGrids(std::span<const int>(grids.data(), grids.size()), chB);
+    log.endStep(false);
+    TASSERT(log.stepCount() == 1);
+
+    paint(chB, 5000.0f);
+    /* B slides from chA+1 down to chA; the captured block must follow it. */
+    mr.store.removeChannel(chA);
+    TASSERT(mr.store.findChannel(util::string("undoB")) == chA);
+    TASSERT(log.undo());
+    TASSERT(same(chA, 2000.0f));
+    TASSERT(log.redo());
+    TASSERT(same(chA, 5000.0f));
+
+    /* And a block whose channel is gone entirely is dropped, not applied. */
+    mr.store.removeChannel(chA);
+    TASSERT(mr.store.findChannel(util::string("undoB")) == -1);
+    TASSERT(log.undo());
+    fprintf(stderr, "undo blocks survived removeChannel\n");
+    restoreStore(mr, s0);
+  }
+
   fprintf(stderr, "grid stroke gates passed\n");
   /* Skip test_end(): attr name strings stay live in the alloc tracker
    * (mirrors the other subdiv tests). */

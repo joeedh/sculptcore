@@ -69,7 +69,7 @@ void GridStrokeLog::captureGridBlock(Step &s, int grid, int channel)
     }
   } else {
     for (const GridBlock &b : s.blocks) { // channel >= 32: no bit to spend
-      if (b.grid == grid && b.channel == channel) {
+      if (b.grid == grid && b.channel == d_->multires()->store.channelName(channel)) {
         return;
       }
     }
@@ -79,11 +79,11 @@ void GridStrokeLog::captureGridBlock(Step &s, int grid, int channel)
   Multires *mr = d_->multires();
   int level = d_->level();
   mr->store.ensureLevelResident(level);
-  int w = d_->gridSide() + 1;
-  int floats = w * w * mr->store.channelElemSize(channel);
+  int floats = mr->store.channelElemsPerGrid(level, channel) *
+               mr->store.channelElemSize(channel);
   GridBlock b;
   b.grid = grid;
-  b.channel = channel;
+  b.channel = mr->store.channelName(channel);
   b.data.resize(floats);
   const float *src = mr->store.elem(level, channel, grid, 0, 0);
   std::memcpy(b.data.data(), src, size_t(floats) * sizeof(float));
@@ -179,10 +179,17 @@ void GridStrokeLog::applySwap(Step &s)
       }
     }
   }
-  int w = d_->gridSide() + 1;
   for (GridBlock &b : s.blocks) {
-    float *dst = mr->store.elem(level, b.channel, b.grid, 0, 0);
-    int floats = w * w * mr->store.channelElemSize(b.channel);
+    const int channel = mr->store.findChannel(b.channel);
+    if (channel < 0) {
+      continue; // the channel was dropped since capture: nothing to restore to
+    }
+    const int floats = mr->store.channelElemsPerGrid(level, channel) *
+                       mr->store.channelElemSize(channel);
+    if (floats != int(b.data.size())) {
+      continue; // re-added at another size or domain — not the block's column
+    }
+    float *dst = mr->store.elem(level, channel, b.grid, 0, 0);
     for (int i = 0; i < floats; i++) {
       std::swap(b.data[i], dst[i]);
     }

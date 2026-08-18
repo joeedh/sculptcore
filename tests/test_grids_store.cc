@@ -236,10 +236,166 @@ static void checkFixture(Mesh *(*build)(), int nLevels, const char *tag)
   alloc::Delete(cage);
 }
 
+/* P1 domain infrastructure. Face-domain and session (non-persistent) channels
+ * round-trip through serialization and through an eviction cycle byte-exact;
+ * addLevel seeds a session channel from the level below instead of blanking it
+ * (a persistent channel still gets the zero-fill its delta semantics need); and
+ * a channel added while a level is evicted does not land resident under it. */
+static void gateDomainsAndSession()
+{
+  using subdiv::GridElemDomain;
+
+  Mesh *cage = buildCube();
+  GridsStore gs;
+  gs.buildFromCage(*cage);
+  const int fset =
+      gs.addChannel(util::string("fset"), 1, GridElemDomain::Face, AttrType::INT, true);
+  const int sess =
+      gs.addChannel(util::string("sess"), 4, GridElemDomain::Vertex, AttrType::FLOAT4, false);
+  const int sessF =
+      gs.addChannel(util::string("sessF"), 1, GridElemDomain::Face, AttrType::INT, false);
+  const int nLevels = 3;
+  for (int i = 0; i < nLevels; i++) {
+    gs.addLevel();
+  }
+
+  test_assert(gs.channelDomain(0) == GridElemDomain::Vertex);
+  test_assert(gs.channelDomain(fset) == GridElemDomain::Face);
+  test_assert(gs.channelPersist(fset) && !gs.channelPersist(sess) && !gs.channelPersist(sessF));
+  test_assert(gs.channelType(sess) == AttrType::FLOAT4);
+  /* Level 2 is a 2x2 cell grid: 9 verts, 4 faces. */
+  test_assert(gs.channelElemsPerGrid(2, 0) == 9 && gs.channelElemsPerGrid(2, fset) == 4);
+
+  /* A session channel costs nothing until touched; a persistent one is up front. */
+  for (int l = 1; l <= nLevels; l++) {
+    test_assert(gs.chunkCount(l, fset) > 0);
+    test_assert(gs.chunkCount(l, sess) == 0 && gs.chunkCount(l, sessF) == 0);
+  }
+
+  auto fill = [](GridsStore &g, int ch, int level) {
+    const int w = GridsStore::elemWidth(level, g.channelDomain(ch));
+    for (int grid = 0; grid < g.gridCount(); grid++) {
+      for (int v = 0; v < w; v++) {
+        for (int u = 0; u < w; u++) {
+          float *e = g.elem(level, ch, grid, u, v);
+          for (int k = 0; k < g.channelElemSize(ch); k++) {
+            e[k] = fillValue(ch, level, grid, u, v, k, w);
+          }
+        }
+      }
+    }
+  };
+  auto countDiffs = [](GridsStore &g, int ch, int level) {
+    const int w = GridsStore::elemWidth(level, g.channelDomain(ch));
+    int diffs = 0;
+    for (int grid = 0; grid < g.gridCount(); grid++) {
+      for (int v = 0; v < w; v++) {
+        for (int u = 0; u < w; u++) {
+          const float *e = g.elem(level, ch, grid, u, v);
+          for (int k = 0; k < g.channelElemSize(ch); k++) {
+            const float expect = fillValue(ch, level, grid, u, v, k, w);
+            if (std::memcmp(&e[k], &expect, sizeof(float)) != 0) {
+              diffs++;
+            }
+          }
+        }
+      }
+    }
+    return diffs;
+  };
+
+  for (int ch = 0; ch < gs.channelCount(); ch++) {
+    for (int l = 1; l <= nLevels; l++) {
+      fill(gs, ch, l);
+    }
+  }
+  test_assert(gs.chunkCount(1, sess) > 0); /* the lazy channel materialized */
+
+  /* Serialize -> fresh store: metadata and every element survive. */
+  std::stringstream blob(std::ios::in | std::ios::out | std::ios::binary);
+  test_assert(gs.write(blob));
+  GridsStore gs2;
+  test_assert(gs2.read(blob));
+  test_assert(gs2.channelCount() == gs.channelCount());
+  int diffs = 0;
+  for (int ch = 0; ch < gs.channelCount(); ch++) {
+    test_assert(gs2.channelDomain(ch) == gs.channelDomain(ch));
+    test_assert(gs2.channelType(ch) == gs.channelType(ch));
+    test_assert(gs2.channelPersist(ch) == gs.channelPersist(ch));
+    test_assert(gs2.channelElemSize(ch) == gs.channelElemSize(ch));
+    for (int l = 1; l <= nLevels; l++) {
+      diffs += countDiffs(gs2, ch, l);
+    }
+  }
+  fprintf(stderr, "domains: serialize diffs=%d\n", diffs);
+  test_assert(diffs == 0);
+
+  /* Eviction cycle: the round trip has to reproduce every domain's sizing. */
+  for (int l = 1; l <= nLevels; l++) {
+    gs2.evictLevel(l);
+    test_assert(!gs2.levelResident(l));
+  }
+  test_assert(gs2.residentBytes() == 0 && gs2.evictedBytes() > 0);
+  /* A channel joining a fully-evicted store must not land resident under it. */
+  gs2.addChannel(util::string("late"), 2);
+  test_assert(gs2.residentBytes() == 0);
+  for (int ch = 0; ch < gs.channelCount(); ch++) {
+    for (int l = 1; l <= nLevels; l++) {
+      diffs += countDiffs(gs2, ch, l);
+    }
+  }
+  fprintf(stderr, "domains: evict/rehydrate diffs=%d\n", diffs);
+  test_assert(diffs == 0);
+
+  /* addLevel: persistent channels zero-fill (disp is a per-level delta), session
+   * channels are seeded from the level below. */
+  gs.addLevel();
+  const int fine = nLevels + 1;
+  const int Sc = GridsStore::sideForLevel(nLevels);
+  for (int l = 1; l <= nLevels; l++) {
+    test_assert(countDiffs(gs, sess, l) == 0 && countDiffs(gs, sessF, l) == 0);
+  }
+  for (int grid = 0; grid < gs.gridCount(); grid++) {
+    for (int v = 0; v < Sc * 2; v++) {
+      for (int u = 0; u < Sc * 2; u++) {
+        /* Persistent face channel: blank, as before. */
+        test_assert(*gs.elem(fine, fset, grid, u, v) == 0.0f);
+        /* Session face channel: each coarse cell replicated into its four. */
+        const float expect = fillValue(sessF, nLevels, grid, u >> 1, v >> 1, 0, Sc);
+        test_assert(*gs.elem(fine, sessF, grid, u, v) == expect);
+      }
+    }
+    for (int v = 0; v <= Sc * 2; v++) {
+      for (int u = 0; u <= Sc * 2; u++) {
+        const float *e = gs.elem(fine, sess, grid, u, v);
+        const int cu = u >> 1, cv = v >> 1;
+        for (int k = 0; k < 4; k++) {
+          /* Coincident lattice sites keep the coarse value exactly; every other
+           * sample lands inside the range its coarse taps span (and so is not
+           * the zero a blanked level would hold). */
+          const float c00 = fillValue(sess, nLevels, grid, cu, cv, k, Sc + 1);
+          if (!(u & 1) && !(v & 1)) {
+            test_assert(e[k] == c00);
+            continue;
+          }
+          const float c11 =
+              fillValue(sess, nLevels, grid, cu + (u & 1), cv + (v & 1), k, Sc + 1);
+          const float lo = c00 < c11 ? c00 : c11, hi = c00 < c11 ? c11 : c00;
+          test_assert(e[k] >= lo && e[k] <= hi && e[k] > 0.0f);
+        }
+      }
+    }
+  }
+  fprintf(stderr, "domains: seeding held over %d grids\n", gs.gridCount());
+
+  alloc::Delete(cage);
+}
+
 int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
+  gateDomainsAndSession();
   checkFixture(buildCube, 3, "cube");
   checkFixture(buildFan, 2, "fan");
   checkFixture(buildPentagon, 2, "pentagon");
