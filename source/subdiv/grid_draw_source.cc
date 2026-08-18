@@ -136,23 +136,43 @@ void GridDrawSource::buildMaterials()
 void GridDrawSource::fillNode(GridLevelDomain &d, Node &n)
 {
   const int S = side_;
+  const int w = S + 1;
   n.pos.resize(n.verts);
   n.no.resize(n.verts);
   n.mask.resize(n.verts);
+  n.color.resize(colorSrc_ ? n.verts : 0);
+  n.uv.resize(uvSrc_ ? n.verts : 0);
+  n.fset.resize(fsetSrc_ ? n.verts : 0);
   n.aabb.reset();
   const auto &pos = d.pos();
   int out = 0;
+  // Derived attributes are per grid SAMPLE, not per domain vert: a seam vert
+  // exists once in the domain but carries a different UV in each grid.
+  auto fillAttrs = [&](int grid, size_t sample, int at) {
+    if (colorSrc_) {
+      n.color[at] = colorSrc_[sample];
+    }
+    if (uvSrc_) {
+      n.uv[at] = uvSrc_[sample];
+    }
+    if (fsetSrc_) {
+      n.fset[at] = fsetSrc_[grid];
+    }
+  };
   if (n.indices.size() > 0) {
     // Indexed: the spans' lattice rows row0..row0+rows, row-major, 7 floats
     // per vert — the triangles come from the static index stream.
     for (const GridSpan &sp : n.spans) {
       const int *gv = d.gridVerts(sp.grid);
+      const size_t gbase = size_t(sp.grid) * size_t(w * w);
       for (int row = sp.row0; row <= sp.row0 + sp.rows; row++) {
         for (int u = 0; u <= S; u++) {
-          const int v = gv[row * (S + 1) + u];
+          const int li = row * w + u;
+          const int v = gv[li];
           n.pos[out] = pos[v];
           n.no[out] = d.no[v];
           n.mask[out] = d.mask[v];
+          fillAttrs(sp.grid, gbase + size_t(li), out);
           n.aabb.add(pos[v]);
           out++;
         }
@@ -162,19 +182,21 @@ void GridDrawSource::fillNode(GridLevelDomain &d, Node &n)
   }
   for (const GridSpan &sp : n.spans) {
     const int *gv = d.gridVerts(sp.grid);
+    const size_t gbase = size_t(sp.grid) * size_t(w * w);
     for (int row = sp.row0; row < sp.row0 + sp.rows; row++) {
       for (int u = 0; u < S; u++) {
         // Cell corners, buildLevelTopo's split: (a,b,c) + (a,c,d).
-        const int a = gv[row * (S + 1) + u];
-        const int b = gv[row * (S + 1) + u + 1];
-        const int c = gv[(row + 1) * (S + 1) + u + 1];
-        const int e = gv[(row + 1) * (S + 1) + u];
-        const int corner[6] = {a, b, c, a, c, e};
+        const int la = row * w + u;
+        const int lb = row * w + u + 1;
+        const int lc = (row + 1) * w + u + 1;
+        const int le = (row + 1) * w + u;
+        const int corner[6] = {la, lb, lc, la, lc, le};
         for (int k = 0; k < 6; k++) {
-          const int v = corner[k];
+          const int v = gv[corner[k]];
           n.pos[out] = pos[v];
           n.no[out] = d.no[v];
           n.mask[out] = d.mask[v];
+          fillAttrs(sp.grid, gbase + size_t(corner[k]), out);
           n.aabb.add(pos[v]);
           out++;
         }
@@ -233,6 +255,21 @@ void GridDrawSource::update()
   const uint64_t gen = mr_->domainGeneration();
   if (gen != boundGen_) {
     boundGen_ = gen;
+    markAllData();
+  }
+  // Lazy builders, and a layer built for another level reallocates in place —
+  // so resolve every update on the calling thread, never in the parallel fill.
+  MultiresAttrs &ga = mr_->gridAttrs();
+  const auto *color = ga.colorSamples(level_);
+  const auto *uv = ga.uvSamples(level_);
+  const auto *fset = ga.gridFaceSetColors();
+  if (ga.generation() != attrGen_ || color != colorSrc_ || uv != uvSrc_ ||
+      fset != fsetSrc_)
+  {
+    attrGen_ = ga.generation();
+    colorSrc_ = color;
+    uvSrc_ = uv;
+    fsetSrc_ = fset;
     markAllData();
   }
   Vector<int> dirty;

@@ -14,6 +14,8 @@ set(SRC
   subdiv.cc
   PUBLIC grids.h
   grids.cc
+  PUBLIC grid_attrs.h
+  grid_attrs.cc
   PUBLIC grid_domain.h
   grid_domain.cc
   grid_draw_source.cc
@@ -57,4 +59,12 @@ wasm_add_symbols("
   Multires_removeTopLevel
   Multires_serializeStore
   Multires_restoreStore
+  Multires_declareHostGridAttr
+  Multires_clearHostGridAttrs
+  Multires_gridAttrStorage
+  Multires_setUvSmooth
+  Multires_invalidateGridAttr
+  Multires_gridAttrSamplesOut
+  Multires_setDefaultGroupId
+  Multires_syncSlotAttrs
 ")

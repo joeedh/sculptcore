@@ -78,6 +78,7 @@ wasm_add_symbols("
   setTreeRequestedAttrs
   setTreeDrawShader
   getTreeMissingAttrSlots
+  refreshTreeRequestedAttrs
   setTreeFaceDisplacementBounds
   sc_external_draw_register
   sc_external_draw_register_custom

@@ -26,6 +26,7 @@
  * that owe their neighbour below such a step are tracked in downPropPending_
  * and settled by a downward setActiveLevel(). */
 
+#include "grid_attrs.h"
 #include "grids.h"
 #include "subdiv.h"
 
@@ -72,6 +73,11 @@ struct Multires {
   int maxLevel() const
   {
     return int(refiner.levels.size());
+  }
+  /** The base cage this stack refines (not owned; null before init). */
+  mesh::Mesh *cage() const
+  {
+    return cage_;
   }
   int activeLevel() const
   {
@@ -272,14 +278,28 @@ struct Multires {
    * chart in a ⌈√G⌉-per-row cell layout with an inset gutter. A pure function
    * of (gridCount, grid id, lattice coord) — identical across levels and
    * backends, so finest-level VDM texels sample correctly from any level's
-   * UVs. Called by materialize(); public for the S5-style topo-mesh hosts. */
+   * UVs. Written to `vdm::PTEX_ATLAS_ATTR`, not to the mesh's UV map, which is
+   * the cage's (see #assignDerivedAttrs). Called by materialize(); public for
+   * the S5-style topo-mesh hosts. */
   void assignGridUVs(mesh::Mesh &m, int level);
 
-  /** The cage's `material_index` face attribute resolved per grid, in the
-   * refiner's grid enumeration (one grid per cage corner). False — leaving
-   * `out` empty — when the cage carries no such attribute, or when the walk
-   * disagrees with the refiner's grid count; callers then treat every face as
-   * material 0, which is what both draw paths default to. */
+  /** Stamp a level mesh with the subdivided cage attributes the draw path reads
+   * — corner `uv` (AttrUse::UV), vertex `color`, face `group` — from the derived
+   * grid-sample layers (#MultiresAttrs). This is what makes a materialized slot
+   * draw the same surface data as the grids source; without it a level mesh has
+   * no UV map of its own and the host's uv slot resolves nothing. Cheap to
+   * repeat, and must be repeated after anything that invalidates those layers
+   * (a cage attribute edit, a uv_smooth change). */
+  void assignDerivedAttrs(mesh::Mesh &m, int level);
+
+  /** A cage INT face attribute resolved per grid, in the refiner's grid
+   * enumeration (one grid per cage corner). False — leaving `out` empty — when
+   * the cage carries no such attribute, or when the walk disagrees with the
+   * refiner's grid count. */
+  bool gridFaceInts(const char *name, litestl::util::Vector<int> &out);
+
+  /** #gridFaceInts for `material_index`. Callers treat a false return as every
+   * face being material 0, which is what both draw paths default to. */
   bool gridMaterials(litestl::util::Vector<int> &out);
 
   /** Stamp a level mesh's `material_index` face attribute from the cage's, one
@@ -313,6 +333,13 @@ struct Multires {
 
   GridsStore store;
   Refiner refiner;
+
+  /** Per-grid-element attribute policy + the derived (subdivided-from-cage)
+   * sample layers the draw path reads. See grid_attrs.h. */
+  MultiresAttrs &gridAttrs()
+  {
+    return gridAttrs_;
+  }
 
   /** Flat S2 adjacency for a Ptex VDM store: 8 ints per grid ({grid, side}
    * × 4 sides in GridSideType order; -1 = boundary). The bound caller feeds
@@ -511,6 +538,7 @@ private:
   uint64_t domainGen_ = 0;                           // see domainGeneration()
   uint32_t slotStaleMask_ = 0;                       // bit per level; see slotStale()
   GridDrawSource *drawSource_ = nullptr;             // registry-owned backref
+  MultiresAttrs gridAttrs_{*this};
 };
 
 } // namespace sculptcore::subdiv

@@ -59,6 +59,19 @@ struct SubdivLevel {
   mesh::Mesh *mesh = nullptr; // owned by the Refiner
 };
 
+/** Rule tweaks a refine() run applies. The defaults are the position rules —
+ * everything here exists for the face-varying (UV) pass, which refines a
+ * *different* mesh (the UV cage, grid_attrs.h) under OpenSubdiv's fvar linear
+ * rules rather than the plain Catmull-Clark ones. */
+struct RefineOptions {
+  /** Hold every vertex touching a mesh boundary instead of running the
+   * crease-curve rule on it. Boundary edge points are already midpoints, so
+   * this makes a boundary polyline refine to itself — OpenSubdiv's
+   * FVAR_LINEAR_BOUNDARIES, which is what `uv_smooth` defaults to on the
+   * multires modifier. Interior sharp creases keep the smooth crease rule. */
+  bool linearBoundary = false;
+};
+
 struct Refiner {
   Refiner() = default;
   Refiner(const Refiner &) = delete;
@@ -67,7 +80,7 @@ struct Refiner {
 
   /** Uniformly refine `levelCount` times from `cage` (not owned, not mutated
    * beyond a topology thaw). Rebuilds all levels from scratch. */
-  void refine(mesh::Mesh &cage, int levelCount);
+  void refine(mesh::Mesh &cage, int levelCount, const RefineOptions &opts = {});
 
   /** Evaluate level `level` (1-based) positions from cage positions through the
    * cached stencil chain — bit-identical to the positions refine() produced.

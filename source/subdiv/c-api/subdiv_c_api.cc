@@ -456,4 +456,108 @@ int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
   }
   return 1;
 }
+
+/** Declare that the host can PERSIST attribute `name` (a mesh::AttrType) per
+ * grid element, so brushes may write it there. Blender declares exactly one:
+ * the scalar "mask". Everything undeclared and not TEMP is Derived — the brush
+ * writes the cage attribute and the grid data is re-subdivided from it. */
+void Multires_declareHostGridAttr(subdiv::Multires *mr, const char *name, int type)
+{
+  if (mr && name) {
+    mr->gridAttrs().declareHostAttr(name, mesh::AttrType(type));
+  }
+}
+
+void Multires_clearHostGridAttrs(subdiv::Multires *mr)
+{
+  if (mr) {
+    mr->gridAttrs().clearHostAttrs();
+  }
+}
+
+/** Where a write to `name` must land: 0 none, 1 host, 2 derived, 3 temp
+ * (subdiv::GridAttrStorage). `flags` is a mesh::AttrFlag bitmask. */
+int Multires_gridAttrStorage(subdiv::Multires *mr, const char *name, int type, int flags)
+{
+  if (!mr || !name) {
+    return 0;
+  }
+  return int(mr->gridAttrs().storageFor(name, mesh::AttrType(type), mesh::AttrFlag(flags)));
+}
+
+/** The OpenSubdiv face-varying linear rule for UV subdivision — Blender's
+ * `uv_smooth` enum passes through unmapped (subdiv::UvSmooth). */
+void Multires_setUvSmooth(subdiv::Multires *mr, int mode)
+{
+  if (mr && mode >= 0 && mode <= int(subdiv::UvSmooth::SmoothAll)) {
+    mr->gridAttrs().setUvSmooth(subdiv::UvSmooth(mode));
+  }
+}
+
+/** A cage attribute changed: drop its derived grid layer. A null or empty
+ * `name` drops every layer. */
+void Multires_invalidateGridAttr(subdiv::Multires *mr, const char *name)
+{
+  if (!mr) {
+    return;
+  }
+  if (name && name[0]) {
+    mr->gridAttrs().invalidate(name);
+  }
+  else {
+    mr->gridAttrs().invalidateAll();
+  }
+}
+
+/** Re-stamp a resident level mesh with the derived cage attributes (uv, color,
+ * group) after something invalidated them. No-op when the level is lazy — a
+ * later materialize() stamps it on the way in. */
+void Multires_syncSlotAttrs(subdiv::Multires *mr, int level)
+{
+  if (!mr || level < 1 || level > mr->maxLevel()) {
+    return;
+  }
+  if (subdiv::MultiresSlot *slot = mr->findSlot(level)) {
+    if (slot->mesh) {
+      mr->assignDerivedAttrs(*slot->mesh, level);
+    }
+  }
+}
+
+/** The cage's "no face set" group id (mesh::Mesh::default_group_id) — the
+ * grids fset stream leaves it untinted, mirroring what
+ * sc_external_draw_set_default_group does for the mesh path. Drops the derived
+ * face-set colors so the next draw re-tints. */
+void Multires_setDefaultGroupId(subdiv::Multires *mr, int group)
+{
+  if (!mr || !mr->cage() || mr->cage()->default_group_id == group) {
+    return;
+  }
+  mr->cage()->default_group_id = group;
+  mr->gridAttrs().invalidate("group");
+}
+
+/** Read the derived grid samples of cage attribute `name` at `level` into
+ * `out` — gridCount·(S+1)² samples of N floats, grid-major then row-major
+ * lattice order. Returns the floats written, or 0. The parity gate reads
+ * UVs through this. */
+int Multires_gridAttrSamplesOut(
+    subdiv::Multires *mr, int level, const char *name, float *out, int count)
+{
+  if (!mr || !name || !out || level < 1 || level > mr->maxLevel()) {
+    return 0;
+  }
+  int comps = 0;
+  const float *src = mr->gridAttrs().samples(level, name, &comps);
+  if (!src || comps == 0) {
+    return 0;
+  }
+  const int S = mr->refiner.levels[level - 1].gridSide;
+  const int total = mr->refiner.gridCount() * (S + 1) * (S + 1) * comps;
+  if (count < total) {
+    return 0;
+  }
+  memcpy(out, src, size_t(total) * sizeof(float));
+  return total;
+}
 }

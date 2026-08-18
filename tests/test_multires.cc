@@ -1062,9 +1062,11 @@ static void gatherGridUVs(Multires &mr,
 {
   subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
   int S = lvl.gridSide, w = S + 1;
-  AttrRef uvRef = m.c.attrs.find_attribute(AttrType::FLOAT2, "uv");
+  AttrRef uvRef = m.c.attrs.find_attribute(AttrType::FLOAT2, vdm::PTEX_ATLAS_ATTR);
   test_assert(uvRef.exists());
-  test_assert(int(uvRef.use & AttrUse::UV) != 0);
+  // The atlas is internal: the mesh's AttrUse::UV layer is the subdivided cage
+  // UV map, which is a different field entirely.
+  test_assert(int(uvRef.use & AttrUse::UV) == 0);
   auto *uv = static_cast<AttrData<float2> *>(uvRef.data);
 
   out.resize(mr.store.gridCount() * w * w);

@@ -24,6 +24,7 @@
 using namespace litestl;
 using litestl::math::float2;
 using litestl::math::float3;
+using litestl::math::float4;
 using litestl::util::Assert;
 using litestl::util::Vector;
 
@@ -88,6 +89,7 @@ void Multires::init(mesh::Mesh &cage, int maxLevel)
   posCache_.clear();
   activeLevel_ = 0;
   cage_ = &cage;
+  gridAttrs_.invalidateAll();
 
   refiner.refine(cage, maxLevel);
   refiner.releaseMeshes();
@@ -136,8 +138,11 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
   SubdivLevel &lvl = refiner.levels[level - 1];
   int S = lvl.gridSide, w = S + 1;
 
-  AttrRef &uvRef = m.c.attrs.ensure(AttrType::FLOAT2, util::string("uv"), true);
-  uvRef.use = uvRef.use | AttrUse::UV;
+  // Deliberately NOT tagged AttrUse::UV, and named alongside its `.ptex.c.*`
+  // siblings: this is an internal parameterization, not the mesh's UV map. The
+  // UV map is the cage's, subdivided by assignDerivedAttrs.
+  AttrRef &uvRef = m.c.attrs.ensure(AttrType::FLOAT2, util::string(vdm::PTEX_ATLAS_ATTR),
+                                    true);
   auto *uv = static_cast<AttrData<float2> *>(uvRef.data);
 
   // Exact Ptex parameterization alongside the packed chart uv (X2): the
@@ -192,13 +197,13 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
   }
 }
 
-bool Multires::gridMaterials(Vector<int> &out)
+bool Multires::gridFaceInts(const char *name, Vector<int> &out)
 {
   out.clear();
-  if (!cage_ || !cage_->f.attrs.has(mesh::AttrType::INT, "material_index")) {
+  if (!cage_ || !cage_->f.attrs.has(mesh::AttrType::INT, name)) {
     return false;
   }
-  auto *mat = cage_->f.attrs.find_attribute(mesh::AttrType::INT, "material_index").get_data<int>();
+  auto *mat = cage_->f.attrs.find_attribute(mesh::AttrType::INT, name).get_data<int>();
 
   // The refiner seeds one grid per cage corner, walking cage faces in id order
   // and each face's corners through c.next (subdiv.cc buildLevelTopo).
@@ -219,6 +224,11 @@ bool Multires::gridMaterials(Vector<int> &out)
   return true;
 }
 
+bool Multires::gridMaterials(Vector<int> &out)
+{
+  return gridFaceInts("material_index", out);
+}
+
 void Multires::assignGridMaterials(mesh::Mesh &m, int level)
 {
   Vector<int> gridMat;
@@ -236,6 +246,77 @@ void Multires::assignGridMaterials(mesh::Mesh &m, int level)
     for (int k = 0; k < S * S; k++, f++) {
       data->materialize(f);
       (*data)[f] = gridMat[g];
+    }
+  }
+}
+
+void Multires::assignDerivedAttrs(mesh::Mesh &m, int level)
+{
+  SubdivLevel &lvl = refiner.levels[level - 1];
+  const int S = lvl.gridSide, w = S + 1;
+
+  if (const float4 *samples = gridAttrs_.colorSamples(level)) {
+    AttrRef &ref = m.v.attrs.ensure(AttrType::FLOAT4, util::string("color"), true);
+    ref.use = ref.use | AttrUse::COLOR;
+    auto *col = static_cast<AttrData<float4> *>(ref.data);
+    // Replicated lattice points (grid seams) carry the same value, so which
+    // grid writes a shared vert last does not matter.
+    for (int g = 0; g < refiner.gridCount(); g++) {
+      const int *gv = &lvl.gridVerts[g * w * w];
+      for (int i = 0; i < w * w; i++) {
+        (*col)[gv[i]] = samples[g * w * w + i];
+      }
+    }
+  }
+
+  Vector<int> groups;
+  if (gridFaceInts("group", groups)) {
+    AttrRef &ref = m.f.attrs.ensure(AttrType::INT, util::string("group"), true);
+    ref.use = ref.use | AttrUse::POLYGROUP;
+    auto *data = static_cast<AttrData<int> *>(ref.data);
+    int f = 0;
+    for (int g = 0; g < int(groups.size()); g++) {
+      for (int k = 0; k < S * S; k++, f++) {
+        data->materialize(f);
+        (*data)[f] = groups[g];
+      }
+    }
+  }
+
+  const float2 *uvSamples = gridAttrs_.uvSamples(level);
+  if (!uvSamples) {
+    return;
+  }
+  AttrRef &uvRef = m.c.attrs.ensure(AttrType::FLOAT2, util::string("uv"), true);
+  uvRef.use = uvRef.use | AttrUse::UV;
+  auto *uv = static_cast<AttrData<float2> *>(uvRef.data);
+
+  // The face-major walk of assignGridUVs, over the same lattice: face f is
+  // grid g's cell (u,v), and each corner is matched to its lattice point by
+  // vert id rather than by an assumed corner order.
+  static const int du[4] = {0, 1, 1, 0};
+  static const int dv[4] = {0, 0, 1, 1};
+  int f = 0;
+  for (int g = 0; g < refiner.gridCount(); g++) {
+    const int *gv = &lvl.gridVerts[g * w * w];
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++, f++) {
+        int quad[4];
+        for (int j = 0; j < 4; j++) {
+          quad[j] = gv[(v + dv[j]) * w + (u + du[j])];
+        }
+        mesh::FaceProxy face(&m, f);
+        for (auto list : face.lists()) {
+          for (auto c : list) {
+            int j = 0;
+            while (j < 4 && quad[j] != c.v()) {
+              j++;
+            }
+            Assert(j < 4, "level-face corner matches a cell lattice point");
+            (*uv)[c.i] = uvSamples[g * w * w + (v + dv[j]) * w + (u + du[j])];
+          }
+        }
+      }
     }
   }
 }
@@ -592,6 +673,7 @@ MultiresSlot *Multires::materialize(int level)
   }
   assignGridUVs(*m, level);
   assignGridMaterials(*m, level);
+  assignDerivedAttrs(*m, level);
   // Level topology is derived state — brushes must never remesh it, and the
   // VDM clamp is a true ceiling here (no promotion; plan X1).
   m->topoLocked = true;
@@ -1481,6 +1563,7 @@ void Multires::invalidateAll()
     evictSlot(i);
   }
   activeLevel_ = 0;
+  gridAttrs_.invalidateAll();
 }
 
 void Multires::vdmAdjacencyOut(Vector<int> &out)

@@ -66,11 +66,29 @@ int grids_nodes_get(void *src_v,
     ScExternalDrawNode dn = {};
     dn.positions = reinterpret_cast<const float(*)[3]>(n.pos.data());
     dn.normals = reinterpret_cast<const float(*)[3]>(n.no.data());
-    /* mask@2 from the domain mirror; color/uv/fset null — the host fills
-     * defaults, and those overlays fall back to the slot provider. */
+    /* mask@2 from the domain mirror, color@0/uv@1/fset@3 from the derived
+     * grid-attribute layers (subdiv/grid_attrs.h). A stream the cage does not
+     * carry stays null and the host fills that slot's default. */
     const size_t base = attrs.size();
     for (size_t slot = 0; slot < attrs_per_node; slot++) {
-      attrs.append(slot == 2 && mask_live ? static_cast<const void *>(n.mask.data()) : nullptr);
+      const void *ptr = nullptr;
+      switch (slot) {
+        case 0:
+          ptr = n.color.size() > 0 ? static_cast<const void *>(n.color.data()) : nullptr;
+          break;
+        case 1:
+          ptr = n.uv.size() > 0 ? static_cast<const void *>(n.uv.data()) : nullptr;
+          break;
+        case 2:
+          ptr = mask_live ? static_cast<const void *>(n.mask.data()) : nullptr;
+          break;
+        case 3:
+          ptr = n.fset.size() > 0 ? static_cast<const void *>(n.fset.data()) : nullptr;
+          break;
+        default:
+          break;
+      }
+      attrs.append(ptr);
     }
     dn.attrs = &attrs[base];
     dn.verts_num = n.verts;

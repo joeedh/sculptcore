@@ -705,6 +705,10 @@ bool VdmStore::read(std::istream &in)
 /* Mirrors boundary.cc's findUvCorner (that one is file-static). */
 mesh::AttrData<float2> *findUvCornerLayer(mesh::Mesh &m)
 {
+  if (m.c.attrs.has(mesh::AttrType::FLOAT2, PTEX_ATLAS_ATTR)) {
+    return m.c.attrs.find_attribute(mesh::AttrType::FLOAT2, PTEX_ATLAS_ATTR)
+        .get_data<float2>();
+  }
   for (mesh::AttrRef &attr : m.c.attrs.attrs) {
     if (attr.type == mesh::AttrType::FLOAT2 && attr.data &&
         bool(attr.use & mesh::AttrUse::UV))

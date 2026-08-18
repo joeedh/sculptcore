@@ -182,16 +182,16 @@ void Refiner::clear()
 static void refineStep(mesh::Mesh *m0,
                        const SubdivLevel *prevLvl,
                        SubdivLevel &lvl,
-                       int gridCount)
+                       int gridCount,
+                       const RefineOptions &opts)
 {
   using namespace sculptcore::mesh;
 
   m0->thawTopo();
 
   BoolAttrView *sharp = boundary::findBoolEdgeView(m0, boundary::EDGE_SHARP);
-  auto isCrease = [&](int e) {
-    return countEdgeFaces(m0, e) != 2 || (sharp && (*sharp)[e]);
-  };
+  auto isBoundary = [&](int e) { return countEdgeFaces(m0, e) != 2; };
+  auto isCrease = [&](int e) { return isBoundary(e) || (sharp && (*sharp)[e]); };
 
   Mesh *m1 = alloc::New<Mesh>("subdiv level");
   lvl.mesh = m1;
@@ -253,9 +253,11 @@ static void refineStep(mesh::Mesh *m0,
     row.clear();
 
     int valence = 0, nCrease = 0;
+    bool onBoundary = false;
     int creaseOpp[2] = {ELEM_NONE, ELEM_NONE};
     for (int e1 : m0->e_of_v(vi)) {
       valence++;
+      onBoundary |= isBoundary(e1);
       if (isCrease(e1)) {
         int opp = m0->e.vs[e1][0] == vi ? m0->e.vs[e1][1] : m0->e.vs[e1][0];
         if (nCrease < 2) {
@@ -265,7 +267,7 @@ static void refineStep(mesh::Mesh *m0,
       }
     }
 
-    if (valence == 0 || nCrease >= 3) {
+    if (valence == 0 || nCrease >= 3 || (onBoundary && opts.linearBoundary)) {
       row.add(vi, 1.0);
     } else if (nCrease == 2) {
       row.add(vi, 0.75);
@@ -412,7 +414,7 @@ static void refineStep(mesh::Mesh *m0,
   }
 }
 
-void Refiner::refine(mesh::Mesh &cage, int levelCount)
+void Refiner::refine(mesh::Mesh &cage, int levelCount, const RefineOptions &opts)
 {
   clear();
 
@@ -425,7 +427,7 @@ void Refiner::refine(mesh::Mesh &cage, int levelCount)
   mesh::Mesh *prev = &cage;
   for (int i = 0; i < levelCount; i++) {
     SubdivLevel lvl;
-    refineStep(prev, i == 0 ? nullptr : &levels[i - 1], lvl, gridCount_);
+    refineStep(prev, i == 0 ? nullptr : &levels[i - 1], lvl, gridCount_, opts);
     levels.append(std::move(lvl));
     prev = levels.last().mesh;
   }

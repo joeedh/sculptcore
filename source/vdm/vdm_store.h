@@ -46,6 +46,10 @@ namespace util = litestl::util;
  * param in [0,1]² — exact, unlike the packed chart uv. */
 inline constexpr const char *PTEX_GRID_ATTR = ".ptex.c.grid";
 inline constexpr const char *PTEX_UV_ATTR = ".ptex.c.uv";
+/* The packed chart uv of the same walk — the atlas parameterization VDM keys
+ * on for a multires level mesh. Untagged and internally named so it cannot be
+ * mistaken for the mesh's own UV map (which such a mesh also carries). */
+inline constexpr const char *PTEX_ATLAS_ATTR = ".ptex.c.atlas";
 
 /* Parameterization backend (X2). ATLAS: one global uv·resolution texel plane.
  * PTEX: per-grid R_g×R_g lattices keyed on the `face` of sample(face,u,v). */
@@ -263,9 +267,11 @@ private:
   util::Vector<int> adjacency_; // PTEX: 8 ints per grid ({grid, side} × 4)
 };
 
-/** The mesh's active UV corner layer (first FLOAT2 CORNER attr tagged
- * AttrUse::UV), or null — the atlas parameterization every VDM read/write
- * keys on. */
+/** The atlas parameterization every VDM read/write keys on: the internal
+ * #PTEX_ATLAS_ATTR chart layer when the mesh has one (a materialized multires
+ * level, whose own UV map is the subdivided cage map and means nothing to the
+ * store), else the mesh's active UV corner layer — the first FLOAT2 CORNER
+ * attr tagged AttrUse::UV. Null when neither exists. */
 mesh::AttrData<litestl::math::float2> *findUvCornerLayer(mesh::Mesh &m);
 
 /** Per-face conservative max|D| bounds from the store's tile bounds: for each

@@ -72,6 +72,12 @@ struct GridDrawSource {
     Vector<float3> pos;
     Vector<float3> no;
     Vector<float> mask;
+    // Derived attribute streams (subdiv/grid_attrs.h), index-parallel with
+    // `pos`. Empty when the cage carries no such attribute — the c-api then
+    // publishes a null slot, which is how the host reads "absent".
+    Vector<litestl::math::float4> color;
+    Vector<litestl::math::float2> uv;
+    Vector<float3> fset;
     // Triangle indices into pos/no/mask, built once at partition build (a
     // pure function of spans + gridSide). Empty in soup mode.
     Vector<uint32_t> indices;
@@ -150,6 +156,12 @@ private:
   int triTarget_ = 0; // tris per node the partition was built to
   bool indexed_ = true; // SC_GRIDS_INDEXED=0 -> soup fill, empty indices
   uint64_t boundGen_ = 0;
+  // Resolved once per update() — the builders behind them are lazy, so they
+  // cannot be touched from the parallel fill.
+  uint64_t attrGen_ = 0;
+  const litestl::math::float4 *colorSrc_ = nullptr;
+  const litestl::math::float2 *uvSrc_ = nullptr;
+  const float3 *fsetSrc_ = nullptr;
   Vector<Node> nodes_;
   Vector<int> rowNode_; // grid * side_ + cellRow -> node index
 };
