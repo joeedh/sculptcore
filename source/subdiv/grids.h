@@ -223,6 +223,21 @@ struct GridsStore {
     return channels_[channel].persist;
   }
 
+  /** Whether `channel` has live storage for `level`. False only for a session
+   * channel no one has touched at that level yet (persistent channels are
+   * allocated up front, and an evicted level rehydrates on the next elem()) --
+   * i.e. exactly "this level holds nothing authored".  */
+  bool channelLevelAllocated(int level, int channel) const
+  {
+    if (level < 1 || level > levelCount_ || channel < 0 ||
+        channel >= int(channels_.size()))
+    {
+      return false;
+    }
+    const LevelData &ld = channels_[channel].levels[level - 1];
+    return ld.chunks.size() > 0 || ld.evicted.size() > 0;
+  }
+
   /** Elements per grid of `channel` at `level` — elemsPerGrid on its domain.
    * Multiply by channelElemSize for the float count of one grid's block. */
   int channelElemsPerGrid(int level, int channel) const

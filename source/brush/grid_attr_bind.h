@@ -212,8 +212,13 @@ struct GridAttrMirrorSet {
 
 /** Find or create the session channel backing `mirror` (persist=false: engine
  * owned, lazily allocated per level, seeded by addLevel, and in the serializer
- * so undo sees it). */
-inline int gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mirror)
+ * so undo sees it).
+ *
+ * A level with no data yet is seeded from the cage's own derived samples, so a
+ * layer the host also carries (colour) is painted *over* rather than from
+ * black. The seed is per level and one-shot: MultiresAttrs::seedSessionChannel
+ * declines a level that already holds authored values. */
+inline int gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mirror, int level)
 {
   int ch = mr->store.findChannel(mirror.layer);
   if (ch < 0) {
@@ -223,7 +228,41 @@ inline int gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mir
   Assert(mr->store.channelElemSize(ch) == mirror.floats &&
              mr->store.channelDomain(ch) == subdiv::GridElemDomain::Vertex,
          "grid attr channel re-declared at another width or domain");
+  if (!mr->store.channelLevelAllocated(level, ch)) {
+    mr->gridAttrs().seedSessionChannel(level, mirror.layer);
+  }
   return ch;
+}
+
+/** Push `verts`' mirror values into the derived draw samples of the same
+ * layer, at every grid occurrence so a seam vert stays identical in each.
+ *
+ * The draw path reads MultiresAttrs' samples, not the store, and the store
+ * only learns of a stroke at the fold — so without this a colour stroke is
+ * invisible until mouse-up. No-op when the layer has no derived samples (the
+ * cage carries no such attribute, so nothing renders it either). */
+inline void gridAttrMirrorToSamples(GridAttrMirror &mirror,
+                                    subdiv::GridLevelDomain *domain,
+                                    std::span<const int> verts)
+{
+  subdiv::Multires *mr = domain->multires();
+  const int level = domain->level();
+  int comps = 0;
+  float *dst = mr->gridAttrs().mutableSamples(level, mirror.layer, &comps);
+  if (!dst || comps != mirror.floats) {
+    return;
+  }
+  const int w = subdiv::GridsStore::elemWidth(level, subdiv::GridElemDomain::Vertex);
+  const size_t bytes = size_t(comps) * sizeof(float);
+  for (int v : verts) {
+    const void *src = mirror.column->getElemData(v);
+    auto occs = domain->occurrences(v);
+    for (size_t i = 0; i < occs.size(); i += 3) {
+      const size_t sample = (size_t(occs[i]) * size_t(w) + size_t(occs[i + 2])) * size_t(w) +
+                            size_t(occs[i + 1]);
+      std::memcpy(&dst[sample * size_t(comps)], src, bytes);
+    }
+  }
 }
 
 /** Store -> dense column, one canonical sample per vertex. */

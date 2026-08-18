@@ -388,6 +388,13 @@ static float maxPosDiff(const Vector<float3> &a, const Vector<float3> &b)
   return maxd;
 }
 
+/* litestl's math vectors have no operator==; these comparisons are bit-exact
+ * on purpose (both sides come from the same mirror column). */
+static bool sameColor(const float4 &a, const float4 &b)
+{
+  return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
+}
+
 // Non-const refs: litestl Vector::data() has no const overload.
 static bool samePosBits(Vector<float3> &a, Vector<float3> &b)
 {
@@ -1687,6 +1694,107 @@ int main()
     TASSERT(log.redo());
     TASSERT(storeBlob(mr.store) == blobPost);
     fprintf(stderr, "grid attr colour undo bit-exact\n");
+
+    setGridAttrsEnabled(false);
+    restoreStore(mr, s0);
+  }
+
+  /* P4: the derived samples the draw path reads are the session channel's
+   * mirror. Seeded from the cage so paint starts on the surface's own colour,
+   * republished per dab (the store only learns of the stroke at the fold), and
+   * re-overlaid after a rebuild or an undo. */
+  {
+    setGridAttrsEnabled(true);
+    restoreStore(mr, s0);
+
+    /* A distinct colour per cage vertex: a seeded sample can then never be
+     * mistaken for the zeros a fresh channel would hold. */
+    AttrRef &cref = cage->v.attrs.ensure(mesh::AttrType::FLOAT4, "color", /*materialize=*/true);
+    mesh::AttrData<float4> *col = cref.get_data<float4>();
+    TASSERT(col != nullptr);
+    for (int i = 0; i < cage->v.count; i++) {
+      (*col)[i] = float4(0.1f + 0.02f * float(i), 0.2f, 0.3f, 1.0f);
+    }
+    mr.gridAttrs().invalidateAll();
+
+    const int S = mr.store.sideForLevel(kLevel);
+    const int w = S + 1;
+    const size_t nSamples = size_t(mr.store.gridCount()) * size_t(w) * size_t(w);
+    Vector<float4> baseline;
+    {
+      const float4 *derived = mr.gridAttrs().colorSamples(kLevel);
+      TASSERT(derived != nullptr);
+      baseline.resize(nSamples);
+      for (size_t i = 0; i < nSamples; i++) {
+        baseline[i] = derived[i];
+      }
+    }
+    /* The gradient has to actually vary, or the checks below prove nothing. */
+    TASSERT(baseline[0][0] != baseline[nSamples - 1][0]);
+
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    brush.brushColor = float4(1.0f, 0.0f, 0.0f, 1.0f);
+    brush.mixMode = 0;
+
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    GridStrokeLog log;
+    GridBrushExecutor ex(d, &brush, &log);
+    ex.beginStep();
+    ex.applyDab(SculptBrushes::COLOR, float3(0, 0, 0.5f), float3(0, 0, 1));
+
+    /* Per-dab publish: the samples moved before endStep folded anything. */
+    int movedSamples = 0;
+    {
+      const float4 *live = mr.gridAttrs().colorSamples(kLevel);
+      TASSERT(live != nullptr);
+      for (size_t i = 0; i < nSamples; i++) {
+        movedSamples += !sameColor(live[i], baseline[i]);
+      }
+    }
+    fprintf(stderr, "grid attr colour: %d of %d samples published per dab\n",
+            movedSamples, int(nSamples));
+    TASSERT(movedSamples > 0);
+    ex.endStep();
+
+    Vector<float4> post;
+    post.resize(nSamples);
+    {
+      const float4 *afterFold = mr.gridAttrs().colorSamples(kLevel);
+      for (size_t i = 0; i < nSamples; i++) {
+        post[i] = afterFold[i];
+      }
+    }
+
+    /* A rebuild re-subdivides the cage and overlays the channel on top, so it
+     * reproduces both halves bit-exactly: the paint, and the seed under it.
+     * Without the seed the untouched samples would come back zeroed. */
+    mr.gridAttrs().invalidateAll();
+    {
+      const float4 *rebuilt = mr.gridAttrs().colorSamples(kLevel);
+      TASSERT(rebuilt != nullptr);
+      for (size_t i = 0; i < nSamples; i++) {
+        TASSERT(sameColor(rebuilt[i], post[i]));
+      }
+    }
+
+    /* Undo swaps the store back; the samples have to follow, or the viewport
+     * keeps drawing a stroke the store no longer holds. */
+    TASSERT(log.undo());
+    {
+      const float4 *undone = mr.gridAttrs().colorSamples(kLevel);
+      for (size_t i = 0; i < nSamples; i++) {
+        TASSERT(sameColor(undone[i], baseline[i]));
+      }
+    }
+    TASSERT(log.redo());
+    {
+      const float4 *redone = mr.gridAttrs().colorSamples(kLevel);
+      for (size_t i = 0; i < nSamples; i++) {
+        TASSERT(sameColor(redone[i], post[i]));
+      }
+    }
+    fprintf(stderr, "grid attr colour draw samples seeded + bit-exact through undo\n");
 
     setGridAttrsEnabled(false);
     restoreStore(mr, s0);

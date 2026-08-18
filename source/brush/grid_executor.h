@@ -1036,6 +1036,14 @@ private:
     if (dabMoved_.size() == 0) {
       return;
     }
+    // The draw path reads derived samples, and the store only learns of the
+    // stroke at the fold — so an attr stroke publishes its dab here.
+    std::span<const int> movedSpan(dabMoved_.data(), dabMoved_.size());
+    for (GridAttrMirror *m : attrMirrors_.items) {
+      if (m->dirty && m->channel >= 0) {
+        gridAttrMirrorToSamples(*m, domain, movedSpan);
+      }
+    }
     if (deferNormals) {
       for (int v : dabMoved_) {
         if (pendingNormalStamp_[v] != strokeSeq_) {
@@ -1134,7 +1142,7 @@ private:
         m->column = gridAttrNewColumn(entry.type, m->layer, vc);
         attrMirrors_.items.append(m);
       }
-      m->channel = gridAttrEnsureChannel(domain->multires(), *m);
+      m->channel = gridAttrEnsureChannel(domain->multires(), *m, domain->level());
       if (m->gatheredFor != strokeSeq_) {
         // Per step, not per bind: an undo/redo between strokes swaps store
         // bytes behind the column's back.

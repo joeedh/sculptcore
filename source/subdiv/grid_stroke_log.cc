@@ -164,6 +164,7 @@ void GridStrokeLog::applySwap(Step &s)
 
   Vector<int> touchedLeaves;
   Vector<int> touchedVerts;
+  Vector<GridBlock *> swappedSession;
   for (LeafSnap &ls : s.leaves) {
     const GridTree::Leaf &tl = tree_->leaves[ls.leaf];
     touchedLeaves.append(ls.leaf);
@@ -193,6 +194,11 @@ void GridStrokeLog::applySwap(Step &s)
     for (int i = 0; i < floats; i++) {
       std::swap(b.data[i], dst[i]);
     }
+    if (!mr->store.channelPersist(channel)) {
+      // A session channel is what the draw path's derived samples mirror, so
+      // the swap has to be pushed back out to them (no-op for the rest).
+      swappedSession.append(&b);
+    }
   }
 
   if (touchedVerts.size() > 0) {
@@ -210,6 +216,28 @@ void GridStrokeLog::applySwap(Step &s)
       }
     }
     ds->markVerts(std::span<const int>(marked.data(), marked.size()));
+  }
+  /* One pass per distinct session channel: the derived samples the draw path
+   * reads mirror the channel, so a swap has to be pushed back out to them. */
+  for (size_t i = 0; i < swappedSession.size(); i++) {
+    const litestl::util::string &name = swappedSession[i]->channel;
+    bool seen = false;
+    for (size_t j = 0; j < i && !seen; j++) {
+      seen = swappedSession[j]->channel == name;
+    }
+    if (seen) {
+      continue;
+    }
+    Vector<int> grids;
+    for (GridBlock *b : swappedSession) {
+      if (b->channel == name) {
+        grids.append(b->grid);
+      }
+    }
+    mr->gridAttrs().refreshSamplesFromChannel(name, level, grids.data(), int(grids.size()));
+    if (GridDrawSource *ds = mr->drawSource()) {
+      ds->markGrids(std::span<const int>(grids.data(), grids.size()));
+    }
   }
   // Finer levels derive from this one's positions; the swapped state is new
   // to them either way.

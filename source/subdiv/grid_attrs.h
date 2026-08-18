@@ -149,6 +149,32 @@ struct MultiresAttrs {
    * attribute or its type is not float-backed. */
   const float *samples(int level, const string &name, int *r_comps);
 
+  /** The same samples, for a live writer to update in place.
+   *
+   * A vertex layer with a *session* store channel of the same name is no
+   * longer a pure function of the cage: the channel is authored paint the cage
+   * cannot reproduce, so it wins wherever it exists (see #seedSessionChannel).
+   * A grids-native attribute stroke holds its values in a dense mirror and
+   * overlays the touched samples here per dab, which is what keeps the draw
+   * path current between the stroke's start and the fold that writes the
+   * store. Null when the layer does not build. */
+  float *mutableSamples(int level, const string &name, int *r_comps);
+
+  /** Copy `name`'s derived samples into the store's session channel of the
+   * same name, at `level` only. The seed a first bind needs: a fresh channel
+   * is zeros, and paint has to start from what the surface already shows
+   * rather than from black. No-op (false) when either side is missing, when
+   * the widths disagree, or when the channel already holds data for `level`
+   * -- seeding twice would discard the paint. */
+  bool seedSessionChannel(int level, const string &name);
+
+  /** Re-overlay just `count` grids of `name`'s derived samples from its
+   * session channel — the return route for an undo/redo, which swaps store
+   * bytes behind the samples' back. Deliberately leaves #generation alone, for
+   * the same reason #refreshFaceSetColors does: the caller knows which grids
+   * moved, and bumping it would refill every node. */
+  void refreshSamplesFromChannel(const string &name, int level, const int *gridIds, int count);
+
   /** The cage attribute changed (a brush wrote it, or the cage was replaced):
    * drop the derived layer so the next read re-subdivides. */
   void invalidate(const string &name);
@@ -179,6 +205,11 @@ private:
   GridAttrLayer *findLayer(const string &name);
   /** Build (or rebuild for a different level) `layer` from the cage. */
   bool buildLayer(GridAttrLayer &layer, int level);
+  /** Overlay the store's session channel of the same name onto a just-built
+   * vertex layer, so authored paint survives a rebuild. No-op unless the
+   * channel exists, is a vertex channel of matching width, and holds data for
+   * `level` (an untouched level has nothing to say). */
+  void overlaySessionChannel(GridAttrLayer &layer, int level);
   /** Blender's generic rule: bilinear over the four ptex-face corner values. */
   void buildBilinear(GridAttrLayer &layer, int level, mesh::Mesh &cage);
   /** The UV rule: refine the UV cage, then project onto the limit surface. */

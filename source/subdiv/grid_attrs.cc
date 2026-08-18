@@ -15,6 +15,7 @@
 #include "litestl/util/alloc.h"
 
 #include <cmath>
+#include <cstring>
 
 using namespace litestl;
 using litestl::math::float2;
@@ -429,10 +430,140 @@ bool MultiresAttrs::buildLayer(GridAttrLayer &layer, int level)
   const bool fvar = layer.uvRule && uvSmooth_ != UvSmooth::None;
   if (fvar && buildFaceVarying(layer, level, *cage)) {
     layer.valid = true;
+    overlaySessionChannel(layer, level);
     return true;
   }
   buildBilinear(layer, level, *cage);
   layer.valid = true;
+  overlaySessionChannel(layer, level);
+  return true;
+}
+
+/** Sample index of lattice coord (u, v) of `grid` -- the derived layers' order,
+ * and the store's: both are grid-major, then row-major with v the row. */
+static size_t sampleIndex(int grid, int u, int v, int w)
+{
+  return size_t(grid) * size_t(w) * size_t(w) + size_t(v) * size_t(w) + size_t(u);
+}
+
+/** The store's session channel for `name`, or -1: a persistent channel is
+ * subdivision-owned state that must never masquerade as authored paint. */
+static int sessionChannelFor(GridsStore &store, const litestl::util::string &name, int comps)
+{
+  const int ch = store.findChannel(name);
+  if (ch < 0 || store.channelPersist(ch) || store.channelElemSize(ch) != comps ||
+      store.channelDomain(ch) != GridElemDomain::Vertex)
+  {
+    return -1;
+  }
+  return ch;
+}
+
+/** Copy one grid's channel elements over the layer's samples for it. */
+static void overlayOneGrid(
+    GridAttrLayer &layer, GridsStore &store, int level, int ch, int grid, int S)
+{
+  const int w = S + 1;
+  const size_t bytes = size_t(layer.comps) * sizeof(float);
+  for (int v = 0; v <= S; v++) {
+    for (int u = 0; u <= S; u++) {
+      std::memcpy(&layer.data[sampleIndex(grid, u, v, w) * size_t(layer.comps)],
+                  store.elem(level, ch, grid, u, v), bytes);
+    }
+  }
+}
+
+/** Shared preamble of the two overlays: the session channel `layer` mirrors at
+ * `level`, or -1 when there is nothing to overlay (no channel, no data at this
+ * level, or a layer sized for something else). */
+static int overlayChannelFor(Multires &mr, GridAttrLayer &layer, int level, int *r_side)
+{
+  if (layer.corner) {
+    return -1; // corner layers have no vertex-domain channel
+  }
+  const int ch = sessionChannelFor(mr.store, layer.name, layer.comps);
+  if (ch < 0 || !mr.store.channelLevelAllocated(level, ch)) {
+    return -1;
+  }
+  const int S = mr.refiner.levels[level - 1].gridSide;
+  const size_t need = size_t(mr.refiner.gridCount()) * size_t((S + 1) * (S + 1)) *
+                      size_t(layer.comps);
+  if (layer.data.size() < need) {
+    return -1;
+  }
+  *r_side = S;
+  return ch;
+}
+
+void MultiresAttrs::overlaySessionChannel(GridAttrLayer &layer, int level)
+{
+  int S = 0;
+  const int ch = mr_ ? overlayChannelFor(*mr_, layer, level, &S) : -1;
+  if (ch < 0) {
+    return;
+  }
+  for (int g = 0; g < mr_->refiner.gridCount(); g++) {
+    overlayOneGrid(layer, mr_->store, level, ch, g, S);
+  }
+}
+
+void MultiresAttrs::refreshSamplesFromChannel(const string &name,
+                                              int level,
+                                              const int *gridIds,
+                                              int count)
+{
+  GridAttrLayer *layer = mr_ ? findLayer(name) : nullptr;
+  if (!layer || !layer->valid || layer->level != level) {
+    return; // nothing built yet; the next samples() build overlays it whole
+  }
+  int S = 0;
+  const int ch = overlayChannelFor(*mr_, *layer, level, &S);
+  if (ch < 0) {
+    return;
+  }
+  for (int i = 0; i < count; i++) {
+    const int g = gridIds[i];
+    if (g >= 0 && g < mr_->refiner.gridCount()) {
+      overlayOneGrid(*layer, mr_->store, level, ch, g, S);
+    }
+  }
+}
+
+float *MultiresAttrs::mutableSamples(int level, const string &name, int *r_comps)
+{
+  return const_cast<float *>(samples(level, name, r_comps));
+}
+
+bool MultiresAttrs::seedSessionChannel(int level, const string &name)
+{
+  if (!mr_) {
+    return false;
+  }
+  GridsStore &store = mr_->store;
+  int comps = 0;
+  // Ask for the samples first: building them may itself allocate the channel
+  // level through an overlay, and this must be the only writer of that seed.
+  const int chPre = store.findChannel(name);
+  if (chPre >= 0 && store.channelLevelAllocated(level, chPre)) {
+    return false;
+  }
+  const float *src = samples(level, name, &comps);
+  const int ch = sessionChannelFor(store, name, comps);
+  if (!src || ch < 0 || store.channelLevelAllocated(level, ch)) {
+    return false;
+  }
+  const int S = mr_->refiner.levels[level - 1].gridSide;
+  const int w = S + 1;
+  const int gridCount = mr_->refiner.gridCount();
+  const size_t bytes = size_t(comps) * sizeof(float);
+  for (int g = 0; g < gridCount; g++) {
+    for (int v = 0; v <= S; v++) {
+      for (int u = 0; u <= S; u++) {
+        std::memcpy(store.elem(level, ch, g, u, v),
+                    &src[sampleIndex(g, u, v, w) * size_t(comps)], bytes);
+      }
+    }
+  }
   return true;
 }
 
