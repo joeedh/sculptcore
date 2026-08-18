@@ -112,69 +112,77 @@ static constexpr int kLevel = 3;
  * annotations — NOT read back from supportsBrush, which is what it grades.
  *
  * GridBrushExecutor::supportsBrush keeps no tool list: a kernel is declined
- * only for a capability the domain lacks. The two that can say no today are a
- * `face` stage (no face iterator on a grid leaf) and an attr layer with no grid
- * storage (only BSMOOTH's all-zero vclass shim binds). `why` records which one,
- * so a mismatch below names the missing capability instead of just a bool. As
- * the grid attribute domains land, entries flip to supported and their `why`
- * goes away; nothing here should ever flip the other direction. */
+ * only for a capability the domain lacks — a `face` stage (no face iterator on
+ * a grid leaf) or an attr layer this domain cannot bind. `why` records which
+ * one, so a mismatch below names the missing capability instead of just a bool.
+ *
+ * Graded twice, with grid attribute channels off and on: `off` is the pre-P2
+ * roster and must never move, `on` is what the session channels widen it to.
+ * As later phases land, entries flip to supported and their `why` goes away;
+ * nothing here should ever flip the other direction. */
 struct RosterGolden {
   SculptBrushes tool;
   bool supported;
+  bool supportedWithAttrs;
   const char *why;
 };
 
 static void gateGridsRoster()
 {
   const RosterGolden golden[] = {
-      {SculptBrushes::DRAW, true, nullptr},
-      {SculptBrushes::INFLATE, true, nullptr},
-      {SculptBrushes::CLAY, true, nullptr},
-      {SculptBrushes::PINCH, true, nullptr},
-      {SculptBrushes::SHARP, true, nullptr},
-      {SculptBrushes::MASK, true, nullptr},
-      {SculptBrushes::SMOOTH, true, nullptr},
-      {SculptBrushes::KELVINLET, true, nullptr},
-      {SculptBrushes::POSE, true, nullptr},
-      {SculptBrushes::TEXDRAW, true, nullptr},
-      {SculptBrushes::SCRAPE, true, nullptr},
-      {SculptBrushes::FILL, true, nullptr},
-      {SculptBrushes::WINGSCRAPE, true, nullptr},
-      {SculptBrushes::COLOR, false, "color attr layer"},
-      {SculptBrushes::POLYGROUP, false, "face stage"},
-      {SculptBrushes::BSMOOTH, true, nullptr},
-      {SculptBrushes::GRAB, true, nullptr},
-      {SculptBrushes::SNAKEHOOK, true, nullptr},
-      {SculptBrushes::COLORSMOOTH, false, "color attr layer"},
-      {SculptBrushes::FEATURE_ALIGN, false, "crossfield attr layer"},
-      {SculptBrushes::LAYERDRAW, false, "sculpt-layer attr layer"},
-      {SculptBrushes::ENHANCE, false, "per-vert displacement attr layer"},
-      {SculptBrushes::TEXGRAD, true, nullptr},
+      {SculptBrushes::DRAW, true, true, nullptr},
+      {SculptBrushes::INFLATE, true, true, nullptr},
+      {SculptBrushes::CLAY, true, true, nullptr},
+      {SculptBrushes::PINCH, true, true, nullptr},
+      {SculptBrushes::SHARP, true, true, nullptr},
+      {SculptBrushes::MASK, true, true, nullptr},
+      {SculptBrushes::SMOOTH, true, true, nullptr},
+      {SculptBrushes::KELVINLET, true, true, nullptr},
+      {SculptBrushes::POSE, true, true, nullptr},
+      {SculptBrushes::TEXDRAW, true, true, nullptr},
+      {SculptBrushes::SCRAPE, true, true, nullptr},
+      {SculptBrushes::FILL, true, true, nullptr},
+      {SculptBrushes::WINGSCRAPE, true, true, nullptr},
+      {SculptBrushes::COLOR, false, true, "color attr layer"},
+      {SculptBrushes::POLYGROUP, false, false, "face stage"},
+      {SculptBrushes::BSMOOTH, true, true, nullptr},
+      {SculptBrushes::GRAB, true, true, nullptr},
+      {SculptBrushes::SNAKEHOOK, true, true, nullptr},
+      {SculptBrushes::COLORSMOOTH, false, true, "color attr layer"},
+      {SculptBrushes::FEATURE_ALIGN, false, false, "crossfield attr layer"},
+      {SculptBrushes::LAYERDRAW, false, false, "sculpt-layer attr layer"},
+      {SculptBrushes::ENHANCE, false, false, "per-vert displacement attr layer"},
+      {SculptBrushes::TEXGRAD, true, true, nullptr},
   };
   // Every built-in id is covered — a new tool must state its answer here.
   TASSERT(int(sizeof(golden) / sizeof(golden[0])) == SculptBrushesBuiltinCount);
 
-  for (const RosterGolden &g : golden) {
-    const int id = int(g.tool);
-    const bool got = GridBrushExecutor::supportsBrush(g.tool);
-    TASSERT(id >= 0 && id < SculptBrushesBuiltinCount);
-    if (got != g.supported) {
-      fprintf(stderr,
-              "grids roster %s (id %d): supportsBrush=%d, golden %d%s%s\n",
-              kBuiltinBrushNames[id], id, int(got), int(g.supported),
-              g.why ? " — declined for: " : "", g.why ? g.why : "");
-    }
-    TASSERT(got == g.supported);
-    // A face-stage kernel is declined by the generated dispatch itself, so it
-    // must not even build a def here (the attr loop never sees it).
-    if (builtinBrushFaceMode(id)) {
-      Brush scratch;
-      GridBrushExecutor::brush_command def;
-      const bool handled =
-          GridBrushExecutor::createCommandSwitch<AccumLive>(g.tool, &scratch, def);
-      TASSERT(!handled);
+  for (int pass = 0; pass < 2; pass++) {
+    brush::setGridAttrsEnabled(pass == 1);
+    for (const RosterGolden &g : golden) {
+      const int id = int(g.tool);
+      const bool want = pass ? g.supportedWithAttrs : g.supported;
+      const bool got = GridBrushExecutor::supportsBrush(g.tool);
+      TASSERT(id >= 0 && id < SculptBrushesBuiltinCount);
+      if (got != want) {
+        fprintf(stderr,
+                "grids roster %s (id %d, attrs %s): supportsBrush=%d, golden %d%s%s\n",
+                kBuiltinBrushNames[id], id, pass ? "on" : "off", int(got), int(want),
+                g.why ? " — declined for: " : "", g.why ? g.why : "");
+      }
+      TASSERT(got == want);
+      // A face-stage kernel is declined by the generated dispatch itself, so it
+      // must not even build a def here (the attr loop never sees it).
+      if (builtinBrushFaceMode(id)) {
+        Brush scratch;
+        GridBrushExecutor::brush_command def;
+        const bool handled =
+            GridBrushExecutor::createCommandSwitch<AccumLive>(g.tool, &scratch, def);
+        TASSERT(!handled);
+      }
     }
   }
+  brush::setGridAttrsEnabled(false);
 }
 
 /* Smooth per-vert displacement field (mirrors test_grid_domain.cc). */
@@ -1609,6 +1617,78 @@ int main()
     TASSERT(mr.store.findChannel(util::string("undoB")) == -1);
     TASSERT(log.undo());
     fprintf(stderr, "undo blocks survived removeChannel\n");
+    restoreStore(mr, s0);
+  }
+
+  /* P2: with grid attribute channels on, a colour stroke paints a session
+   * store channel; duplicate boundary samples agree, and undo/redo restores
+   * the channel bit-exactly. */
+  {
+    setGridAttrsEnabled(true);
+    restoreStore(mr, s0);
+    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::COLOR));
+
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    brush.brushColor = float4(1.0f, 0.5f, 0.25f, 1.0f);
+    brush.mixMode = 0;
+
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    GridStrokeLog log;
+    GridBrushExecutor ex(d, &brush, &log);
+    ex.beginStep();
+    ex.applyDab(SculptBrushes::COLOR, float3(0, 0, 0.5f), float3(0, 0, 1));
+    ex.endStep();
+
+    const int cch = mr.store.findChannel(util::string("color"));
+    TASSERT(cch > 0);
+    TASSERT(!mr.store.channelPersist(cch));
+    TASSERT(mr.store.channelElemSize(cch) == 4);
+    TASSERT(mr.store.channelDomain(cch) == subdiv::GridElemDomain::Vertex);
+
+    const int S = mr.store.sideForLevel(kLevel);
+    int painted = 0;
+    float maxR = 0.0f;
+    for (int g = 0; g < mr.store.gridCount(); g++) {
+      for (int v = 0; v <= S; v++) {
+        for (int u = 0; u <= S; u++) {
+          const float *c = mr.store.elem(kLevel, cch, g, u, v);
+          painted += c[0] != 0.0f;
+          maxR = c[0] > maxR ? c[0] : maxR;
+        }
+      }
+    }
+    fprintf(stderr, "grid attr colour: %d painted samples, max r %.4f\n", painted, maxR);
+    TASSERT(painted > 0);
+    TASSERT(maxR > 0.01f);
+
+    /* The scatter walks occurrences, so a vertex shared by several grids
+     * reads the same bytes from all of them. */
+    for (int v = 0; v < d->vertCount(); v++) {
+      auto occs = d->occurrences(v);
+      const float *ref = mr.store.elem(kLevel, cch, occs[0], occs[1], occs[2]);
+      const float r[4] = {ref[0], ref[1], ref[2], ref[3]};
+      for (size_t i = 3; i < occs.size(); i += 3) {
+        const float *c = mr.store.elem(kLevel, cch, occs[i], occs[i + 1], occs[i + 2]);
+        TASSERT(c[0] == r[0] && c[1] == r[1] && c[2] == r[2] && c[3] == r[3]);
+      }
+    }
+
+    const std::string blobPost = storeBlob(mr.store);
+    TASSERT(log.undo());
+    for (int g = 0; g < mr.store.gridCount(); g++) {
+      for (int v = 0; v <= S; v++) {
+        for (int u = 0; u <= S; u++) {
+          const float *c = mr.store.elem(kLevel, cch, g, u, v);
+          TASSERT(c[0] == 0.0f && c[1] == 0.0f && c[2] == 0.0f && c[3] == 0.0f);
+        }
+      }
+    }
+    TASSERT(log.redo());
+    TASSERT(storeBlob(mr.store) == blobPost);
+    fprintf(stderr, "grid attr colour undo bit-exact\n");
+
+    setGridAttrsEnabled(false);
     restoreStore(mr, s0);
   }
 

@@ -28,6 +28,7 @@
 #include "brush_program.h"
 #include "brushes/all.h"
 #include "capture_policy.h"
+#include "grid_attr_bind.h"
 
 #include "spatial/spatial.h"
 #include "subdiv/grid_domain.h"
@@ -91,12 +92,14 @@ struct GridCapturePolicy {
 /** Stroke-end fold shared by the CPU executor and the GPU session: capture
  * the touched verts' occurrence-grid store blocks into the undo log FIRST
  * (the store is untouched until this fold), then the restricted writeback
- * (positions) and/or mask flush, then close the undo step. O(region). */
+ * (positions), mask flush and attr-mirror scatter, then close the undo step.
+ * Each channel's capture precedes its own write. O(region). */
 inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
                             subdiv::GridStrokeLog *log,
                             std::span<const int> touched,
                             bool wroteCo,
-                            bool wroteMask)
+                            bool wroteMask,
+                            std::span<GridAttrMirror *const> attrMirrors = {})
 {
   subdiv::Multires *mr = domain->multires();
   int level = domain->level();
@@ -134,6 +137,15 @@ inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
         log->captureGrids(gridSpan, mr->store.findChannel(string("mask")));
       }
       domain->flushMaskToStore(touched);
+    }
+    for (GridAttrMirror *m : attrMirrors) {
+      if (!m->dirty || m->channel < 0) {
+        continue;
+      }
+      if (log) {
+        log->captureGrids(gridSpan, m->channel);
+      }
+      gridAttrScatter(*m, domain, touched);
     }
   }
   if (log) {
@@ -447,9 +459,12 @@ struct GridBrushExecutor {
     coPrevStrokeGen_.clear();
     coPrevCopyEpoch_.clear();
     coPrevPosEpoch_.clear();
-    // The vclass shim is all-zero by construction, so a rebuild only needs
-    // the size to track the new domain (ensureVclassBinding resizes).
-    vclass_.resize(0);
+    // Dense ids remap on a rebuild, so every attr column is stale: the zero
+    // column only needs resizing (ensureAttrBindings does it), the mirrors
+    // must be dropped and re-gathered from the store.
+    zeroColumn_.resize(0);
+    attrMirrors_.clear();
+    attrBindings_.items.clear();
     leafTouched_.resize(nodes_.size());
     for (int i = 0; i < int(leafTouched_.size()); i++) {
       leafTouched_[i] = 0;
@@ -506,14 +521,13 @@ struct GridBrushExecutor {
                int(brushType), /*csrNeighbors=*/true, *brushOrNull, def);
   }
 
-  /** Whether the domain can bind one of a kernel's declared attr layers. Only
-   * the vclass shim today (an executor-owned all-zero column — grids have no
-   * boundary classifier, and vclass 0 is the plain-Laplacian branch); real grid
-   * element channels are plan phases P1-P4. Shared with execStage's assert so
-   * the capability gate and the binding it gates cannot drift apart. */
+  /** Whether the domain can bind one of a kernel's declared attr layers.
+   * Routing lives in grid_attr_bind.h and reads only the entry's metadata;
+   * ensureAttrBindings asserts on the same call, so the capability gate and
+   * the binding it gates cannot drift apart. */
   static bool attrBindable(const BrushAttrManifestEntry &entry)
   {
-    return entry.handle == string("vclass");
+    return gridAttrPlan(entry, gridAttrsEnabled()) != GridAttrPlanKind::Unbindable;
   }
 
   /** Engine-owned dispatch rule: can this tool run grids-native? Everything
@@ -573,6 +587,9 @@ struct GridBrushExecutor {
     }
     strokeWroteCo_ = false;
     strokeWroteMask_ = false;
+    for (GridAttrMirror *m : attrMirrors_.items) {
+      m->dirty = false;
+    }
     grabPinned_ = false;
     grabLeaves_.clear();
     if (brush) {
@@ -734,7 +751,9 @@ struct GridBrushExecutor {
     gridsFoldStroke(domain, log,
                     std::span<const int>(strokeTouchedVerts_.data(),
                                          strokeTouchedVerts_.size()),
-                    strokeWroteCo_, strokeWroteMask_);
+                    strokeWroteCo_, strokeWroteMask_,
+                    std::span<GridAttrMirror *const>(attrMirrors_.items.data(),
+                                                     attrMirrors_.items.size()));
     stats.writebackMs +=
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
             .count();
@@ -836,17 +855,11 @@ private:
     ctx.surfaceNo = normal;
     ctx.isFirstOfStep = isFirstOfStep;
 
-    // DSL attr manifest: grids have no boundary classifier, so BSMOOTH's
-    // vclass handle binds to an executor-owned all-zero column (vclass 0 =
-    // plain Laplacian; the manifest write flag only means ensure-materialized).
+    // DSL attr manifest: each declared layer routes to a default column or a
+    // session store channel (grid_attr_bind.h).
     ctx.attrBindings = nullptr;
     if (cmd.attrs.size() > 0) {
-      for (const auto &entry : cmd.attrs) {
-        Assert(attrBindable(entry), "grid executor: attr layer has no grid storage");
-        (void)entry;
-      }
-      ensureVclassBinding();
-      ctx.attrBindings = &attrBindings_;
+      ensureAttrBindings(cmd);
     }
 
     if (cmd.writesMask) {
@@ -1084,25 +1097,57 @@ private:
     }
   }
 
-  /** (Re)build the vclass shim binding: a materialized all-zero int column
-   * sized to the domain, exposed under BSMOOTH's "vclass" handle. Sized
-   * lazily so vclass-free sessions never pay for it; a domain rebuild
-   * resizes on the next dab (attach() drops it). */
-  void ensureVclassBinding()
+  /** (Re)build `ctx.attrBindings` for this command. A read-only handle the
+   * grids domain answers with zero gets the shared all-zero column; a written
+   * vertex layer gets a dense mirror over a session store channel, gathered
+   * once per step and scattered by the stroke-end fold. Both are lazy, so an
+   * attr-free session pays nothing; attach() drops the mirrors. */
+  void ensureAttrBindings(const brush_command &cmd)
   {
-    // New pages materialize from page.value == 0, and nothing ever writes
-    // this column, so resize alone keeps it all-zero.
-    int vc = domain->vertCount();
-    if (vclass_.size() != vc) {
-      vclass_.resize(vc);
-    }
-    if (attrBindings_.items.size() == 0) {
+    const bool session = gridAttrsEnabled();
+    const int vc = domain->vertCount();
+    attrBindings_.items.clear();
+    for (const auto &entry : cmd.attrs) {
+      GridAttrPlanKind kind = gridAttrPlan(entry, session);
+      Assert(kind != GridAttrPlanKind::Unbindable,
+             "grid executor: attr layer has no grid storage");
       mesh::AttrRef ref;
-      ref.data = &vclass_;
-      ref.name = string(".grid.boundary.vclass");
-      ref.type = mesh::AttrType::INT;
-      attrBindings_.items.append(BrushAttrBinding{string("vclass"), ref});
+      if (kind == GridAttrPlanKind::DefaultColumn) {
+        // New pages materialize from page.value == 0, and nothing ever writes
+        // this column, so resize alone keeps it all-zero.
+        if (zeroColumn_.size() != vc) {
+          zeroColumn_.resize(vc);
+        }
+        ref.data = &zeroColumn_;
+        ref.name = gridAttrLayerName(entry);
+        ref.type = entry.type;
+        attrBindings_.items.append(BrushAttrBinding{entry.handle, ref});
+        continue;
+      }
+      GridAttrMirror *m = attrMirrors_.find(entry.handle);
+      if (!m) {
+        m = alloc::New<GridAttrMirror>("grid attr mirror");
+        m->handle = entry.handle;
+        m->layer = gridAttrLayerName(entry);
+        m->type = entry.type;
+        m->floats = gridAttrTypeFloats(entry.type);
+        m->column = gridAttrNewColumn(entry.type, m->layer, vc);
+        attrMirrors_.items.append(m);
+      }
+      m->channel = gridAttrEnsureChannel(domain->multires(), *m);
+      if (m->gatheredFor != strokeSeq_) {
+        // Per step, not per bind: an undo/redo between strokes swaps store
+        // bytes behind the column's back.
+        gridAttrGather(*m, domain);
+        m->gatheredFor = strokeSeq_;
+      }
+      m->dirty = true;
+      ref.data = m->column;
+      ref.name = m->layer;
+      ref.type = m->type;
+      attrBindings_.items.append(BrushAttrBinding{entry.handle, ref});
     }
+    ctx.attrBindings = attrBindings_.items.size() ? &attrBindings_ : nullptr;
   }
 
   /** CommandExecutor::updateStrokeFrame, verbatim (Brush-only state). */
@@ -1138,8 +1183,10 @@ private:
   mesh::AttrData<int> dabGen_{string(".grid.dab.gen"), 0};
   mesh::AttrData<float> cavity_{string(".grid.automask.cavity"), 0};
   mesh::AttrData<int> cavityGen_{string(".grid.automask.gen"), 0};
-  /** All-zero vclass shim for BSMOOTH (see ensureVclassBinding). */
-  mesh::AttrData<int> vclass_{string(".grid.boundary.vclass"), 0};
+  /** Shared all-zero column for read-only handles the grids domain answers
+   * with zero (BSMOOTH/FEATURE_ALIGN's vclass; see ensureAttrBindings). */
+  mesh::AttrData<int> zeroColumn_{string(".grid.attr.zero"), 0};
+  GridAttrMirrorSet attrMirrors_;
   BrushAttrBindings attrBindings_;
   Vector<float3> coPrevStorage_;
   /** co_prev validity stamps (see refreshCoPrevRegion): sized lazily with
@@ -1183,8 +1230,9 @@ inline void GridCapturePolicy::capture(CommandCtxBase & /*ctx*/,
     for (const CaptureSaveDesc &sv : saves) {
       positions |= sv.field == CaptureField::Co;
       maskToo |= sv.field == CaptureField::Mask;
-      // No: derived (refreshed after a seek). Attr: not in the grids roster.
-      Assert(sv.field != CaptureField::Attr, "attr saves need the materialized path");
+      // No: derived (refreshed after a seek). Attr: covered by the stroke-end
+      // channel capture in gridsFoldStroke, which is where the store is first
+      // written — a per-dab snapshot here would capture nothing.
     }
     if (!positions && !maskToo) {
       return;

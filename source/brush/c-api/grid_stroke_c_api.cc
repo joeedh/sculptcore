@@ -79,6 +79,19 @@ int GridStroke_supported(int tool)
   return brush::GridBrushExecutor::supportsBrush(brush::SculptBrushes(tool)) ? 1 : 0;
 }
 
+/** Grid attribute channels on/off (plan P2-P4), process-global because
+ * GridStroke_supported answers before any session exists. Off reproduces the
+ * pre-P2 roster: attr-writing brushes fall back to the mesh path. */
+void GridStroke_setGridAttrs(int enable)
+{
+  brush::setGridAttrsEnabled(enable != 0);
+}
+
+int GridStroke_gridAttrs()
+{
+  return brush::gridAttrsEnabled() ? 1 : 0;
+}
+
 /** Ride-along mirror toggle (see GridStrokeSession::mirror). */
 void GridStroke_setMirror(GridStrokeSession *s, int enable)
 {
