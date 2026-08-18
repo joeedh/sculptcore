@@ -740,4 +740,27 @@ const float3 *MultiresAttrs::gridFaceSetColors()
   return fsetColors_.data();
 }
 
+void MultiresAttrs::refreshFaceSetColors(const int *gridIds, int count)
+{
+  mesh::Mesh *cage = mr_ ? mr_->cage() : nullptr;
+  if (!cage || !fsetValid_ || !cage->f.attrs.has(AttrType::INT, "group")) {
+    return; // nothing built yet; the next gridFaceSetColors() builds it fresh
+  }
+  auto *gdata = cage->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+  Vector<GridRef> grids;
+  buildGridRefs(*cage, grids);
+  if (grids.size() != fsetColors_.size()) {
+    // The cage moved under the cache; fall back to a full rebuild.
+    fsetValid_ = false;
+    generation_++;
+    return;
+  }
+  for (int i = 0; i < count; i++) {
+    const int g = gridIds[i];
+    if (g >= 0 && g < int(fsetColors_.size())) {
+      fsetColors_[g] = faceSetColor(gdata->safe_get(grids[g].face), cage->default_group_id);
+    }
+  }
+}
+
 } // namespace sculptcore::subdiv

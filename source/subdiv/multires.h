@@ -298,6 +298,28 @@ struct Multires {
    * refiner's grid count. */
   bool gridFaceInts(const char *name, litestl::util::Vector<int> &out);
 
+  /** The cage face each grid belongs to, in the refiner's grid enumeration
+   * (one grid per cage corner, so all grids of a face are contiguous). False,
+   * leaving `out` empty, when the walk disagrees with the refiner's count. */
+  bool gridCageFaces(litestl::util::Vector<int> &out);
+
+  /** Push a materialized level mesh's per-cell INT face attribute back down
+   * onto the cage — the inverse of #assignDerivedAttrs' stamp, and the only
+   * route home for a mesh-path edit to a derived face layer (face sets).
+   *
+   * Blender writes a face set on multires to the whole base face, unweighted
+   * (sculpt_face_set.cc), so the rule here is binary: a cage face takes the
+   * value of the lowest-indexed cell, across all of its grids, that disagrees
+   * with what the cage already holds; a face no cell disagrees with is left
+   * alone. Every cell of a changed face is then re-stamped to the adopted
+   * value — leaving a face non-uniform would make the next scatter read its
+   * untouched cells as a fresh disagreement and propose reverting the face.
+   *
+   * Appends the grid ids of every changed face to `r_grids` (the draw source's
+   * partial-refill list) and returns the number of cage faces changed. Creates
+   * the cage layer on first use. 0 when `level` is not resident. */
+  int scatterFaceIntToCage(int level, const char *name, litestl::util::Vector<int> &r_grids);
+
   /** #gridFaceInts for `material_index`. Callers treat a false return as every
    * face being material 0, which is what both draw paths default to. */
   bool gridMaterials(litestl::util::Vector<int> &out);

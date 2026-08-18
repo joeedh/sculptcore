@@ -521,6 +521,90 @@ static void gateInvalidation()
   alloc::Delete(cage);
 }
 
+/* The return route (Multires::scatterFaceIntToCage): a mesh-path face-set edit
+ * lands on the SLOT's derived copy, and only this pushes it back onto the cage
+ * that actually persists. Blender's rule is per base face and unweighted, so a
+ * couple of painted cells claim their whole cage face — and the face's other
+ * cells must come back uniform, or the next scatter would read them as a fresh
+ * disagreement and revert what was just painted. */
+static void gateCageScatter()
+{
+  Mesh *cage = makeGrid(2);
+  cage->default_group_id = 1;
+  {
+    AttrRef &ref = cage->f.attrs.ensure(AttrType::INT, "group", /*materialize=*/true);
+    auto *d = ref.get_data<int>();
+    for (int f : cage->f) {
+      (*d)[f] = 1;
+    }
+  }
+  Multires mr;
+  mr.init(*cage, 2);
+  subdiv::MultiresSlot *slot = mr.setActiveLevel(2);
+  test_assert(slot && slot->mesh);
+  if (!slot || !slot->mesh) {
+    alloc::Delete(cage);
+    return;
+  }
+  Mesh &m = *slot->mesh;
+  const int S = mr.refiner.levels[1].gridSide, cells = S * S;
+  test_assert(m.f.count == mr.refiner.gridCount() * cells);
+
+  /* Tint the whole cage before the edit, so the patch path (not a fresh build)
+   * is what has to produce the new colours. */
+  const float3 *cols = mr.gridAttrs().gridFaceSetColors();
+  test_assert(cols != nullptr && cols[0][0] == 1.0f && cols[0][1] == 1.0f);
+  const uint64_t gen = mr.gridAttrs().generation();
+
+  /* Two cells of grid 0 only: a partial paint of cage face 0. */
+  auto *sgrp = m.f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+  (*sgrp)[0] = 7;
+  (*sgrp)[2] = 7;
+
+  Vector<int> touched;
+  test_assert(mr.scatterFaceIntToCage(2, "group", touched) == 1);
+
+  /* All four grids of cage face 0, and nothing else. */
+  test_assert(touched.size() == 4);
+  for (int i = 0; i < 4; i++) {
+    test_assert(touched[i] == i);
+  }
+  auto *cgrp = cage->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+  int painted = 0;
+  for (int f : cage->f) {
+    if ((*cgrp)[f] == 7) {
+      painted++;
+    }
+    else {
+      test_assert((*cgrp)[f] == 1);
+    }
+  }
+  test_assert(painted == 1);
+
+  /* The slot came back uniform over the claimed face. */
+  for (int f = 0; f < m.f.count; f++) {
+    test_assert((*sgrp)[f] == (f < 4 * cells ? 7 : 1));
+  }
+
+  /* Only the touched grids re-tinted, and the generation did NOT move — a bump
+   * would send the draw source through markAllData() and refill everything. */
+  test_assert(mr.gridAttrs().generation() == gen);
+  cols = mr.gridAttrs().gridFaceSetColors();
+  test_assert(cols != nullptr);
+  for (int g = 0; g < 4; g++) {
+    test_assert(!(cols[g][0] == 1.0f && cols[g][1] == 1.0f && cols[g][2] == 1.0f));
+  }
+  test_assert(cols[4][0] == 1.0f && cols[4][1] == 1.0f && cols[4][2] == 1.0f);
+
+  /* Idempotent: nothing disagrees any more, so a second pass proposes nothing.
+   * (Without the re-stamp above this reverts cage face 0 to 1.) */
+  test_assert(mr.scatterFaceIntToCage(2, "group", touched) == 0);
+  test_assert(touched.size() == 0);
+  test_assert((*cgrp)[0] == 7);
+
+  alloc::Delete(cage);
+}
+
 int main(int argc, char **argv)
 {
   (void)argc;
@@ -536,6 +620,7 @@ int main(int argc, char **argv)
   gateFaceSetColors();
   gateSlotAttrs();
   gateInvalidation();
+  gateCageScatter();
 
   return test_end();
 }

@@ -229,6 +229,125 @@ bool Multires::gridMaterials(Vector<int> &out)
   return gridFaceInts("material_index", out);
 }
 
+bool Multires::gridCageFaces(Vector<int> &out)
+{
+  out.clear();
+  if (!cage_) {
+    return false;
+  }
+  // Same walk gridFaceInts describes: cage faces in id order, corners via c.next.
+  out.ensure_capacity(size_t(refiner.gridCount()));
+  for (int fi : cage_->f) {
+    const int c0 = cage_->l.c[cage_->f.l[fi]];
+    int cc = c0;
+    do {
+      out.append(fi);
+      cc = cage_->c.next[cc];
+    } while (cc != c0);
+  }
+  if (int(out.size()) != refiner.gridCount()) {
+    out.clear();
+    return false; // enumeration drifted from the refiner's
+  }
+  return true;
+}
+
+int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_grids)
+{
+  r_grids.clear();
+  if (!cage_ || level < 1 || level > maxLevel()) {
+    return 0;
+  }
+  MultiresSlot *slot = findSlot(level);
+  if (!slot || !slot->mesh || !slot->mesh->f.attrs.has(AttrType::INT, name)) {
+    return 0; // nothing materialized to read back from
+  }
+  mesh::Mesh &m = *slot->mesh;
+  const int S = refiner.levels[level - 1].gridSide;
+  const int cells = S * S, gridCount = refiner.gridCount();
+  if (m.f.count != gridCount * cells) {
+    return 0; // not this level's grid mesh (holes, or a foreign topology)
+  }
+  Vector<int> gridFace;
+  if (!gridCageFaces(gridFace)) {
+    return 0;
+  }
+  const bool isGroup = strcmp(name, "group") == 0;
+  if (!cage_->f.attrs.has(AttrType::INT, name)) {
+    if (isGroup) {
+      cage_->ensureFaceGroups();
+    }
+    else {
+      cage_->f.attrs.ensure(AttrType::INT, util::string(name), true);
+    }
+  }
+  auto *cdata = cage_->f.attrs.find_attribute(AttrType::INT, name).get_data<int>();
+  auto *sdata = m.f.attrs.find_attribute(AttrType::INT, name).get_data<int>();
+  if (!cdata || !sdata) {
+    return 0;
+  }
+
+  // Pass 1: per grid, the first cell disagreeing with its cage face's value.
+  Vector<int> propVal, propHas;
+  propVal.resize(size_t(gridCount));
+  propHas.resize(size_t(gridCount));
+  task::parallel_for(util::IndexRange(size_t(gridCount)), [&](util::IndexRange range) {
+    for (size_t gi : range) {
+      const int g = int(gi);
+      const int cur = cdata->safe_get(gridFace[g]);
+      const int base = g * cells;
+      propVal[g] = 0;
+      propHas[g] = 0;
+      for (int k = 0; k < cells; k++) {
+        const int v = sdata->safe_get(base + k);
+        if (v != cur) {
+          propVal[g] = v;
+          propHas[g] = 1;
+          break;
+        }
+      }
+    }
+  });
+
+  // Pass 2: the grids of one cage face are contiguous, so walk them as runs
+  // and let the lowest-indexed proposal decide the whole face.
+  int changed = 0;
+  for (int g = 0; g < gridCount;) {
+    const int face = gridFace[g];
+    int g1 = g;
+    while (g1 < gridCount && gridFace[g1] == face) {
+      g1++;
+    }
+    int val = 0;
+    bool has = false;
+    for (int k = g; k < g1; k++) {
+      if (propHas[k]) {
+        val = propVal[k];
+        has = true;
+        break;
+      }
+    }
+    if (has) {
+      cdata->materialize(face);
+      (*cdata)[face] = val;
+      changed++;
+      for (int k = g; k < g1; k++) {
+        r_grids.append(k);
+        const int base = k * cells;
+        for (int c = 0; c < cells; c++) {
+          sdata->materialize(base + c);
+          (*sdata)[base + c] = val;
+        }
+      }
+    }
+    g = g1;
+  }
+  if (changed && isGroup) {
+    gridAttrs_.refreshFaceSetColors(r_grids.data(), int(r_grids.size()));
+  }
+  return changed;
+}
+
 void Multires::assignGridMaterials(mesh::Mesh &m, int level)
 {
   Vector<int> gridMat;
@@ -254,6 +373,13 @@ void Multires::assignDerivedAttrs(mesh::Mesh &m, int level)
 {
   SubdivLevel &lvl = refiner.levels[level - 1];
   const int S = lvl.gridSide, w = S + 1;
+
+  // A slot is a derived copy of the cage, so it inherits the host's "no face
+  // set" id — left at 0, ensureFaceGroups fills the level with zeros the cage
+  // disagrees with and scatterFaceIntToCage reads the whole mesh as changed.
+  if (cage_) {
+    m.default_group_id = cage_->default_group_id;
+  }
 
   if (const float4 *samples = gridAttrs_.colorSamples(level)) {
     AttrRef &ref = m.v.attrs.ensure(AttrType::FLOAT4, util::string("color"), true);

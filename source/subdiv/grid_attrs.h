@@ -137,6 +137,13 @@ struct MultiresAttrs {
    * One float3 per grid — a grid is one cage corner, so it is face-constant. */
   const litestl::math::float3 *gridFaceSetColors();
 
+  /** Re-tint just `count` grids of the already-built face-set color cache from
+   * the cage's current `group` values. Deliberately leaves #generation alone:
+   * a cage write-back (Multires::scatterFaceIntToCage) knows exactly which
+   * grids moved, and bumping the generation would send the draw source through
+   * markAllData() and refill every node. No-op before the cache is built. */
+  void refreshFaceSetColors(const int *gridIds, int count);
+
   /** Generic access: the derived layer for cage attribute `name`, building it
    * if needed. Returns null (leaving `*r_comps` at 0) when the cage has no such
    * attribute or its type is not float-backed. */

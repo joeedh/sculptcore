@@ -524,6 +524,34 @@ void Multires_syncSlotAttrs(subdiv::Multires *mr, int level)
   }
 }
 
+/** Push the resident level mesh's per-cell INT face attribute back onto the
+ * cage (Multires::scatterFaceIntToCage — the return route for a mesh-path
+ * face-set edit on multires) and tell both draw paths what moved: the grids
+ * source refills only the touched grids, and the slot's tree re-uploads.
+ * Returns the number of cage faces changed. */
+int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *name)
+{
+  if (!mr || !name || !name[0]) {
+    return 0;
+  }
+  litestl::util::Vector<int> touched;
+  const int changed = mr->scatterFaceIntToCage(level, name, touched);
+  if (!changed) {
+    return 0;
+  }
+  if (subdiv::GridDrawSource *ds = mr->drawSource()) {
+    ds->markGrids(std::span<const int>(touched.data(), touched.size()));
+  }
+  if (subdiv::MultiresSlot *slot = mr->findSlot(level)) {
+    if (slot->tree) {
+      for (spatial::SpatialNode *leaf : slot->tree->leaves()) {
+        leaf->flag |= spatial::Spatial_UpdateGPU;
+      }
+    }
+  }
+  return changed;
+}
+
 /** The cage's "no face set" group id (mesh::Mesh::default_group_id) — the
  * grids fset stream leaves it untinted, mirroring what
  * sc_external_draw_set_default_group does for the mesh path. Drops the derived
@@ -534,6 +562,16 @@ void Multires_setDefaultGroupId(subdiv::Multires *mr, int group)
     return;
   }
   mr->cage()->default_group_id = group;
+  // Resident slots derived their copy from the old id (assignDerivedAttrs);
+  // leaving it stale would make a face-set edit on one read as a whole-mesh
+  // change on the way back to the cage.
+  for (int level = 1; level <= mr->maxLevel(); level++) {
+    if (subdiv::MultiresSlot *slot = mr->findSlot(level)) {
+      if (slot->mesh) {
+        slot->mesh->default_group_id = group;
+      }
+    }
+  }
   mr->gridAttrs().invalidate("group");
 }
 

@@ -67,4 +67,5 @@ wasm_add_symbols("
   Multires_gridAttrSamplesOut
   Multires_setDefaultGroupId
   Multires_syncSlotAttrs
+  Multires_scatterFaceIntToCage
 ")
