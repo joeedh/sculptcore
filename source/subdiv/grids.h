@@ -14,10 +14,22 @@
  * later disk-backing pass can page chunks without a format change (X5).
  *
  * Storage is `float` regardless of a channel's declared AttrType, so the rule
- * is **no float math on a typed channel** — see interpolatableType. A channel
- * is also either persistent (the subdivision machinery owns it) or a *session*
- * channel: engine-owned, allocated lazily, never re-derived, and seeded rather
- * than blanked when a level is added.
+ * is **no float math on a typed channel** — see interpolatableType.
+ *
+ * A channel carries two independent flags, and conflating them is a bug the
+ * store has already been through once:
+ *
+ *   GridLevelRule  how the values behave across a level transition. `disp` is
+ *       a per-level Delta; everything else is Authored — a value the surface
+ *       itself carries at every level, prolonged onto a new finest level and
+ *       restricted back down when one is dropped.
+ *   persist        whether the HOST has a container for this channel and will
+ *       save and restore it. Pure host contract: the engine's own behaviour
+ *       (lazy allocation, seeding, the draw overlay, the cage write-back) keys
+ *       off the level rule, so a host that gains a container for an authored
+ *       layer flips one bit and nothing else moves. Blender has exactly one
+ *       such container (the scalar paint mask), which is why every layer the
+ *       brushes paint there is a non-persistent Authored channel.
  *
  * Topology is implicit: within a grid, neighbors are ±1 u/v strides; grid
  * boundaries carry 4 links to adjacent grids (same-face neighbors on the
@@ -44,8 +56,9 @@ namespace sculptcore::subdiv {
 
 /** Bump when the on-disk layout changes (mirrors mesh serial versioning).
  * v2 split the single lz4 block into independently-compressed blocks.
- * v3 added per-channel domain/type/persist. */
-inline constexpr uint32_t kGridsFormatVersion = 3;
+ * v3 added per-channel domain/type/persist.
+ * v4 added the per-channel GridLevelRule. */
+inline constexpr uint32_t kGridsFormatVersion = 4;
 
 /** Serialized payload is cut into blocks of this size so lz4 runs in parallel.
  * Small enough that a ~23 MB store spreads over every core, large enough that
@@ -73,6 +86,26 @@ struct GridLink {
 enum class GridElemDomain : int {
   Vertex = 0,
   Face = 1,
+};
+
+/** How a level transition treats a channel's values.
+ *
+ * Delta — the channel is a per-level correction against the level below
+ * (channel 0, "disp"). A fresh finest level means "no correction yet", i.e.
+ * zero, and the values of a dropped level say nothing about the level below,
+ * so both transitions are a blank. This is the multires displacement rule and
+ * matches Blender's own Subdivide / Delete Higher.
+ *
+ * Authored — the channel carries the surface's own value at every level
+ * (colour, face sets, any painted layer). A fresh level is prolonged from the
+ * level below and a dropped level is restricted back onto it, so an
+ * addLevel/dropTopLevel round trip is the IDENTITY: prolongation reproduces
+ * the coarse value exactly at coincident lattice sites (see seedLevelFromBelow)
+ * and restriction reads exactly those sites back (see restrictLevelToBelow).
+ * Blanking here would silently delete paint. */
+enum class GridLevelRule : int {
+  Delta = 0,
+  Authored = 1,
 };
 
 struct GridCoord {
@@ -110,19 +143,31 @@ struct GridsStore {
   }
 
   /** Derive gridCount + the 4 per-grid links from a cage mesh, enumerating
-   * grids exactly like Refiner::refine. Thaws frozen topology. Resets any
-   * existing levels/channel data (topology defines the store) — DESTRUCTIVE for
-   * session channels too, which no re-subdivision can rebuild. */
+   * grids exactly like Refiner::refine. Thaws frozen topology.
+   *
+   * **Unconditionally destructive**: every channel and every level goes,
+   * leaving only a fresh zero "disp". Cage topology *defines* the store's
+   * element set, so per-grid-element data does not survive a rebuild even
+   * when the new topology happens to match — there is no correspondence to
+   * carry it across, and a "sometimes preserved" rule would be worse than no
+   * rule at all. That makes this the store's LOAD boundary, not a refresh:
+   * a host restores by declaring its channels (addChannel) and writing their
+   * levels back afterwards, which is exactly the shape of the channel c-api
+   * (c-api/grid_channel_c_api.h). Engine-side, Multires::init is the only
+   * caller and it re-adds every level immediately. */
   void buildFromCage(mesh::Mesh &cage);
 
-  /** Append the next level (level == levelCount()+1 after the call). Persistent
-   * channels get zero-filled storage (disp is a per-level delta, so zero is the
-   * identity); session channels are seeded from the level below, since nothing
-   * re-derives them. */
+  /** Append the next level (level == levelCount()+1 after the call). A Delta
+   * channel gets zero-filled storage (no correction yet is the identity); an
+   * Authored channel is prolonged from the level below, since nothing
+   * re-derives it. */
   void addLevel();
 
   /** Drop the finest level (level == levelCount()) from every channel — the
-   * inverse of addLevel(). No-op when empty. */
+   * inverse of addLevel(). An Authored channel is restricted onto the level
+   * below on the way out, so its paint survives at the resolution the
+   * surviving level can hold; a Delta channel's correction simply goes, as
+   * multires displacement does. No-op when empty. */
   void dropTopLevel();
 
   int levelCount() const
@@ -143,14 +188,20 @@ struct GridsStore {
    * (whether seeding a new level may interpolate). The invariant is
    * **no float math on a typed channel**; interpolating consumers assert it.
    *
-   * `persist` false marks a *session* channel: engine-owned, never re-derived
-   * from the cage, and allocated lazily per level (an untouched session channel
-   * costs nothing). Persistent channels are allocated zeroed up front. */
+   * `rule` says what a level transition does to the values (see GridLevelRule)
+   * and is the flag the engine reads: an Authored channel is allocated lazily
+   * per level, so an untouched one costs nothing and channelLevelAllocated
+   * means exactly "this level holds something authored".
+   *
+   * `persist` is the HOST contract — "I have a container for this and will
+   * save and restore it" — and the engine never branches on it. Hosts read it
+   * back when enumerating what they own. */
   int addChannel(const litestl::util::string &name,
                  int floatsPerElem,
                  GridElemDomain domain = GridElemDomain::Vertex,
                  mesh::AttrType type = mesh::AttrType::FLOAT,
-                 bool persist = true);
+                 bool persist = true,
+                 GridLevelRule rule = GridLevelRule::Authored);
 
   int channelCount() const
   {
@@ -223,8 +274,30 @@ struct GridsStore {
     return channels_[channel].persist;
   }
 
-  /** Whether `channel` has live storage for `level`. False only for a session
-   * channel no one has touched at that level yet (persistent channels are
+  /** Claim (or disclaim) a channel for the host's own save/load. Nothing in
+   * the engine reads this; it exists so a host that gains a container for a
+   * layer mid-session can record the fact where the serializer will carry it. */
+  void setChannelPersist(int channel, bool persist)
+  {
+    channels_[channel].persist = persist;
+  }
+
+  GridLevelRule channelLevelRule(int channel) const
+  {
+    return channels_[channel].rule;
+  }
+
+  /** Whether `channel` carries values the surface itself holds, rather than a
+   * per-level correction. The discriminator every consumer of authored paint
+   * asks — the draw overlay, the cage write-back, the undo return route — and
+   * deliberately NOT `!channelPersist`, which asks a host-contract question. */
+  bool channelAuthored(int channel) const
+  {
+    return channels_[channel].rule == GridLevelRule::Authored;
+  }
+
+  /** Whether `channel` has live storage for `level`. False only for an
+   * Authored channel no one has touched at that level yet (a Delta channel is
    * allocated up front, and an evicted level rehydrates on the next elem()) --
    * i.e. exactly "this level holds nothing authored".  */
   bool channelLevelAllocated(int level, int channel) const
@@ -322,11 +395,12 @@ private:
     GridElemDomain domain = GridElemDomain::Vertex;
     mesh::AttrType type = mesh::AttrType::FLOAT;
     bool persist = true;
+    GridLevelRule rule = GridLevelRule::Authored;
     litestl::util::Vector<LevelData> levels; // [0] = level 1
   };
 
   /** Append a LevelData for `level`, with chunks unless the channel is a
-   * lazily-allocated session channel. */
+   * lazily-allocated Authored one. */
   void allocLevel(Channel &ch, int level);
   /** Zeroed chunk vectors for one (channel, level), sized off ld.gridsPerChunk.
    * The one sizing path — allocation, lazy first touch and rehydration all run
@@ -338,9 +412,23 @@ private:
   /** Compress + free one (channel, level)'s chunks. No-op when already evicted
    * or not allocated. */
   void evictChannelLevel(LevelData &ld);
-  /** Copy `level`'s values down from level-1 (which the caller must have just
-   * appended above), interpolating float channels and snapping typed ones. */
+  /** Prolongation: copy `level`'s values down from level-1 (which the caller
+   * must have just appended above), interpolating float channels and snapping
+   * typed ones. Exact at coincident lattice sites — an even fine coord reads
+   * its coarse sample four times, so the 4-tap collapses to a copy. */
   void seedLevelFromBelow(Channel &ch, int level);
+  /** Restriction: write `level`'s values onto level-1, by injection — coarse
+   * (u, v) takes fine (2u, 2v), the sample seedLevelFromBelow copied it into.
+   *
+   * Injection, not a weighted average, for three reasons that all point the
+   * same way: it is the exact left inverse of the prolongation above (so an
+   * addLevel/dropTopLevel round trip is bit-identical), it does no float math
+   * and so is legal on a typed channel (an INT face-set column would be
+   * destroyed by averaging), and it cannot blur across a grid seam — grid id
+   * is the cage corner, so every face-set boundary lies on one. The cost is
+   * that sub-coarse-sample detail is dropped, which is what dropping a level
+   * means. No-op when `level` holds nothing. */
+  void restrictLevelToBelow(Channel &ch, int level);
 
   int gridCount_ = 0;
   int levelCount_ = 0;

@@ -29,6 +29,8 @@ set(SRC
   multires_tuning.cc
   PUBLIC bindings.h
   bindings.cc
+  PUBLIC c-api/grid_channel_c_api.h
+  c-api/grid_channel_c_api.cc
   c-api/grid_draw_c_api.cc
   c-api/subdiv_c_api.cc
 )
@@ -68,4 +70,14 @@ wasm_add_symbols("
   Multires_setDefaultGroupId
   Multires_syncSlotAttrs
   Multires_scatterFaceIntToCage
+  Multires_gridChannelCount
+  Multires_gridChannelName
+  Multires_gridChannelFind
+  Multires_gridChannelInfo
+  Multires_gridChannelEnsure
+  Multires_gridChannelRemove
+  Multires_gridChannelGridFloats
+  Multires_gridChannelLevelAllocated
+  Multires_gridChannelRead
+  Multires_gridChannelWrite
 ")

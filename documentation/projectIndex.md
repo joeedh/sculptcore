@@ -92,6 +92,20 @@ cage rows: levels composite `ch0 + Σ w·enabled·ch`, `writeback` lands in the
 edit target's channel (else 0), and the bound layer surface
 (`layerAdd/Remove/Set*`, `setEditTarget`, `layerTableOut/Restore`) folds the
 active level first, then invalidates + rematerializes.
+Store channels carry two independent flags: `persist` is a pure host contract
+(does the embedder save it — the engine never branches on it) and
+`GridLevelRule` decides level transitions. `Delta` channels (`disp`, sculpt
+layers) hold a per-level correction, so a new finest level starts blank and a
+dropped one takes its correction with it; `Authored` channels (mask, face sets,
+colour, kernel session layers) prolong up through `seedLevelFromBelow` and
+restrict back down by injection (`restrictLevelToBelow`), which is that
+prolongation's exact left inverse and does no float math, so it is legal on an
+INT-typed channel. C API: `c-api/subdiv_c_api.cc` (levels, positions, writeback,
+grid attrs) and `c-api/grid_channel_c_api.cc/.h` — the whole interface an
+embedding host has to a multires-domain attribute: enumerate/describe/ensure a
+channel and read or write one level a grid range at a time. `buildFromCage` is
+unconditionally destructive and is the store's LOAD boundary, so a host restores
+through that same `Ensure` + `Write` pair.
 Stencil rows evaluate as an fma chain (std::fma), bit-shared with the S5 GPU
 SpMV (`source/webgpu/wgpu_stencil.{h,cc}`). Displacement plan S1–S5; see
 `documentation/plans/displacementAndSubSurf.md`.

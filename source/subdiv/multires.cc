@@ -262,10 +262,10 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
   const int cells = S * S, gridCount = refiner.gridCount();
 
   // Two possible sources of per-cell values, and the store wins: a
-  // grids-native face stroke writes a Face-domain session channel and never
+  // grids-native face stroke writes a Face-domain authored channel and never
   // materializes a slot mesh, so a slot-only read would see nothing at all.
   int ch = store.findChannel(util::string(name));
-  if (ch >= 0 && (store.channelPersist(ch) || store.channelElemSize(ch) != 1 ||
+  if (ch >= 0 && (!store.channelAuthored(ch) || store.channelElemSize(ch) != 1 ||
                   store.channelDomain(ch) != GridElemDomain::Face ||
                   !store.channelLevelAllocated(level, ch)))
   {
@@ -1537,7 +1537,15 @@ int Multires::layerAdd()
   mesh::SculptLayerSettings st;
   st.name = name;
   cage_->sculptLayers.append(std::move(st));
-  store.addChannel(name, 3);
+  // Delta, like "disp": a sculpt layer holds a per-level displacement
+  // correction, so a new finest level starts at zero and a dropped one takes
+  // its correction with it.
+  store.addChannel(name,
+                   3,
+                   GridElemDomain::Vertex,
+                   mesh::AttrType::FLOAT,
+                   /*persist=*/true,
+                   GridLevelRule::Delta);
   // A fresh zero channel at weight 1 changes no level positions: no refresh.
   return int(cage_->sculptLayers.size()) - 1;
 }

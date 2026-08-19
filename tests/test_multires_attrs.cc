@@ -18,6 +18,7 @@
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
+#include "subdiv/c-api/grid_channel_c_api.h"
 #include "subdiv/grid_attrs.h"
 #include "mesh/mesh_proxy.h"
 #include "subdiv/multires.h"
@@ -30,6 +31,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 test_init;
 
@@ -605,6 +607,120 @@ static void gateCageScatter()
   alloc::Delete(cage);
 }
 
+/* B1's channel c-api: the surface an embedding host actually consumes, so it
+ * is graded the way one would use it -- enumerate, describe, write a level,
+ * read it back, and survive a level round trip. */
+static void gateChannelCapi()
+{
+  Mesh *cage = makeGrid(2);
+  Multires mr;
+  mr.init(*cage, 2);
+
+  /* Channel 0 is disp: persistent, and the one Delta channel. */
+  test_assert(Multires_gridChannelCount(&mr) >= 1);
+  char nbuf[32] = {0};
+  test_assert(Multires_gridChannelName(&mr, 0, nbuf, sizeof(nbuf)) == 4);
+  test_assert(std::strcmp(nbuf, "disp") == 0);
+  int fpe = 0, dom = 0, type = 0, persist = 0, rule = 0;
+  test_assert(Multires_gridChannelInfo(&mr, 0, &fpe, &dom, &type, &persist, &rule));
+  test_assert(fpe == 3 && persist == 1);
+  test_assert(rule == int(subdiv::GridLevelRule::Delta));
+  /* A short buffer truncates and still reports the real length. */
+  char tiny[3] = {0};
+  test_assert(Multires_gridChannelName(&mr, 0, tiny, 3) == 4 && std::strcmp(tiny, "di") == 0);
+  test_assert(Multires_gridChannelName(&mr, 99, nbuf, sizeof(nbuf)) == -1);
+
+  /* A host-persisted authored colour layer -- the case B1 exists for. */
+  const int col = Multires_gridChannelEnsure(&mr,
+                                             "col",
+                                             4,
+                                             int(subdiv::GridElemDomain::Vertex),
+                                             int(AttrType::FLOAT4),
+                                             /*persist=*/1,
+                                             int(subdiv::GridLevelRule::Authored));
+  test_assert(col > 0 && Multires_gridChannelFind(&mr, "col") == col);
+  test_assert(Multires_gridChannelInfo(&mr, col, &fpe, &dom, &type, &persist, &rule));
+  test_assert(fpe == 4 && persist == 1 && rule == int(subdiv::GridLevelRule::Authored));
+  /* Re-declaring at another width is a failure, not a silent redefinition;
+   * re-declaring the persistence is how a host claims a layer. */
+  test_assert(Multires_gridChannelEnsure(&mr, "col", 2, int(subdiv::GridElemDomain::Vertex),
+                                         int(AttrType::FLOAT4), 1,
+                                         int(subdiv::GridLevelRule::Authored)) == -1);
+  test_assert(Multires_gridChannelEnsure(&mr, "col", 4, int(subdiv::GridElemDomain::Vertex),
+                                         int(AttrType::FLOAT4), 0,
+                                         int(subdiv::GridLevelRule::Authored)) == col);
+  test_assert(Multires_gridChannelInfo(&mr, col, nullptr, nullptr, nullptr, &persist, nullptr));
+  test_assert(persist == 0);
+  Multires_gridChannelEnsure(&mr, "col", 4, int(subdiv::GridElemDomain::Vertex),
+                             int(AttrType::FLOAT4), 1, int(subdiv::GridLevelRule::Authored));
+
+  const int level = 2, grids = mr.refiner.gridCount();
+  const int perGrid = Multires_gridChannelGridFloats(&mr, level, col);
+  const int S = mr.refiner.levels[level - 1].gridSide;
+  test_assert(perGrid == (S + 1) * (S + 1) * 4);
+
+  /* An untouched authored level reads back as zeros and stays unallocated:
+   * a host must be able to ask what is there without paying for storage. */
+  Vector<float> buf;
+  buf.resize(perGrid * grids);
+  for (int i = 0; i < int(buf.size()); i++) {
+    buf[i] = -1.0f;
+  }
+  test_assert(!Multires_gridChannelLevelAllocated(&mr, level, col));
+  test_assert(Multires_gridChannelRead(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
+              perGrid * grids);
+  for (float f : buf) {
+    test_assert(f == 0.0f);
+  }
+  test_assert(!Multires_gridChannelLevelAllocated(&mr, level, col));
+
+  /* Write a per-float pattern, read it back. */
+  for (int i = 0; i < int(buf.size()); i++) {
+    buf[i] = float(i) * 0.5f + 1.0f;
+  }
+  test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
+              perGrid * grids);
+  test_assert(Multires_gridChannelLevelAllocated(&mr, level, col));
+  Vector<float> back;
+  back.resize(buf.size());
+  test_assert(Multires_gridChannelRead(&mr, level, col, 0, grids, back.data(), back.size()) ==
+              perGrid * grids);
+  for (int i = 0; i < int(buf.size()); i++) {
+    test_assert(back[i] == buf[i]);
+  }
+  /* A grid range is addressable on its own -- a host streams, it does not have
+   * to hold a whole level. */
+  Vector<float> one;
+  one.resize(perGrid);
+  test_assert(Multires_gridChannelRead(&mr, level, col, 1, 1, one.data(), one.size()) == perGrid);
+  for (int i = 0; i < perGrid; i++) {
+    test_assert(one[i] == buf[perGrid + i]);
+  }
+  /* Out of range and undersized buffers are refusals, not overruns. */
+  test_assert(Multires_gridChannelRead(&mr, level, col, grids, 1, one.data(), one.size()) == 0);
+  test_assert(Multires_gridChannelRead(&mr, level, col, 0, 1, one.data(), perGrid - 1) == 0);
+
+  /* The level round trip an Authored channel promises: subdivide, delete
+   * higher, and the paint at the surviving level is untouched. */
+  mr.addLevel();
+  mr.removeTopLevel();
+  test_assert(Multires_gridChannelRead(&mr, level, col, 0, grids, back.data(), back.size()) ==
+              perGrid * grids);
+  int diffs = 0;
+  for (int i = 0; i < int(buf.size()); i++) {
+    diffs += back[i] != buf[i];
+  }
+  fprintf(stderr, "channel c-api: add/remove level diffs=%d\n", diffs);
+  test_assert(diffs == 0);
+
+  /* disp is not removable; the authored channel is. */
+  test_assert(Multires_gridChannelRemove(&mr, 0) == 0);
+  test_assert(Multires_gridChannelRemove(&mr, col) == 1);
+  test_assert(Multires_gridChannelFind(&mr, "col") == -1);
+
+  alloc::Delete(cage);
+}
+
 int main(int argc, char **argv)
 {
   (void)argc;
@@ -621,6 +737,7 @@ int main(int argc, char **argv)
   gateSlotAttrs();
   gateInvalidation();
   gateCageScatter();
+  gateChannelCapi();
 
   return test_end();
 }

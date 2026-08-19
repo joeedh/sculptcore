@@ -14,8 +14,10 @@
  *  - DefaultColumn: a read-only handle whose zero value is a documented,
  *    correct default on this domain (BSMOOTH's vclass 0 = plain Laplacian).
  *    Binds an executor-owned all-zero column; no storage.
- *  - SessionChannel: a kernel-written vertex or face layer, backed by a
- *    GridsStore session channel (persist=false) plus the dense mirror below.
+ *  - SessionChannel: a kernel-written vertex or face layer, backed by an
+ *    Authored GridsStore channel plus the dense mirror below. Whether that
+ *    channel is also persistent is the host's call (declareHostAttr) and
+ *    changes nothing here.
  *  - Unbindable: the brush falls back to the materialized-mesh path.
  *
  * The mirror exists because kernels index a dense mesh::AttrData by element id
@@ -228,8 +230,19 @@ inline int gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mir
 {
   int ch = mr->store.findChannel(mirror.layer);
   if (ch < 0) {
-    ch = mr->store.addChannel(mirror.layer, mirror.floats, mirror.domain, mirror.type,
-                              /*persist=*/false);
+    // The host answers the persistence half: a layer it declared through
+    // declareHostAttr has a container to be saved into, one it did not is
+    // session-only. Either way the channel is Authored, which is what the
+    // engine's own behaviour keys off.
+    const bool persist = mr->gridAttrs().storageFor(
+                             mirror.layer, mirror.type, mesh::AttrFlag::NONE) ==
+                         subdiv::GridAttrStorage::Host;
+    ch = mr->store.addChannel(mirror.layer,
+                              mirror.floats,
+                              mirror.domain,
+                              mirror.type,
+                              persist,
+                              subdiv::GridLevelRule::Authored);
   }
   Assert(mr->store.channelElemSize(ch) == mirror.floats &&
              mr->store.channelDomain(ch) == mirror.domain,

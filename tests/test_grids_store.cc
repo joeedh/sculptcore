@@ -236,11 +236,17 @@ static void checkFixture(Mesh *(*build)(), int nLevels, const char *tag)
   alloc::Delete(cage);
 }
 
-/* P1 domain infrastructure. Face-domain and session (non-persistent) channels
- * round-trip through serialization and through an eviction cycle byte-exact;
- * addLevel seeds a session channel from the level below instead of blanking it
- * (a persistent channel still gets the zero-fill its delta semantics need); and
- * a channel added while a level is evicted does not land resident under it. */
+/* P1 domain infrastructure plus B1's two independent channel axes. Face-domain
+ * and non-persistent channels round-trip through serialization and through an
+ * eviction cycle byte-exact; a channel added while a level is evicted does not
+ * land resident under it.
+ *
+ * The axes: `persist` is the host contract and drives NOTHING here, so the
+ * persistent `fset` and the session `sessF` must behave identically; the level
+ * rule is what branches. An Authored channel is lazy, prolonged onto a new
+ * finest level and restricted back off a dropped one -- an addLevel /
+ * dropTopLevel round trip is the identity. A Delta channel is eager and blanks
+ * both ways. */
 static void gateDomainsAndSession()
 {
   using subdiv::GridElemDomain;
@@ -248,12 +254,16 @@ static void gateDomainsAndSession()
   Mesh *cage = buildCube();
   GridsStore gs;
   gs.buildFromCage(*cage);
+  /* Authored, and persistent -- the layer B1 exists to make expressible. */
   const int fset =
       gs.addChannel(util::string("fset"), 1, GridElemDomain::Face, AttrType::INT, true);
   const int sess =
       gs.addChannel(util::string("sess"), 4, GridElemDomain::Vertex, AttrType::FLOAT4, false);
   const int sessF =
       gs.addChannel(util::string("sessF"), 1, GridElemDomain::Face, AttrType::INT, false);
+  /* The disp-shaped channel: persistent AND a per-level delta. */
+  const int dlt = gs.addChannel(util::string("dlt"), 1, GridElemDomain::Vertex,
+                                AttrType::FLOAT, true, subdiv::GridLevelRule::Delta);
   const int nLevels = 3;
   for (int i = 0; i < nLevels; i++) {
     gs.addLevel();
@@ -261,14 +271,22 @@ static void gateDomainsAndSession()
 
   test_assert(gs.channelDomain(0) == GridElemDomain::Vertex);
   test_assert(gs.channelDomain(fset) == GridElemDomain::Face);
-  test_assert(gs.channelPersist(fset) && !gs.channelPersist(sess) && !gs.channelPersist(sessF));
+  test_assert(gs.channelPersist(fset) && gs.channelPersist(dlt));
+  test_assert(!gs.channelPersist(sess) && !gs.channelPersist(sessF));
+  /* Orthogonal: persistence and level rule agree on neither channel. */
+  test_assert(gs.channelAuthored(fset) && gs.channelAuthored(sess) && gs.channelAuthored(sessF));
+  test_assert(!gs.channelAuthored(dlt) && !gs.channelAuthored(0)); /* 0 is disp */
+  test_assert(gs.channelLevelRule(fset) == subdiv::GridLevelRule::Authored);
+  test_assert(gs.channelLevelRule(0) == subdiv::GridLevelRule::Delta);
   test_assert(gs.channelType(sess) == AttrType::FLOAT4);
   /* Level 2 is a 2x2 cell grid: 9 verts, 4 faces. */
   test_assert(gs.channelElemsPerGrid(2, 0) == 9 && gs.channelElemsPerGrid(2, fset) == 4);
 
-  /* A session channel costs nothing until touched; a persistent one is up front. */
+  /* An Authored channel costs nothing until touched -- persistent or not; a
+   * Delta channel is allocated up front. */
   for (int l = 1; l <= nLevels; l++) {
-    test_assert(gs.chunkCount(l, fset) > 0);
+    test_assert(gs.chunkCount(l, dlt) > 0);
+    test_assert(gs.chunkCount(l, fset) == 0);
     test_assert(gs.chunkCount(l, sess) == 0 && gs.chunkCount(l, sessF) == 0);
   }
 
@@ -322,6 +340,7 @@ static void gateDomainsAndSession()
     test_assert(gs2.channelDomain(ch) == gs.channelDomain(ch));
     test_assert(gs2.channelType(ch) == gs.channelType(ch));
     test_assert(gs2.channelPersist(ch) == gs.channelPersist(ch));
+    test_assert(gs2.channelLevelRule(ch) == gs.channelLevelRule(ch));
     test_assert(gs2.channelElemSize(ch) == gs.channelElemSize(ch));
     for (int l = 1; l <= nLevels; l++) {
       diffs += countDiffs(gs2, ch, l);
@@ -337,7 +356,10 @@ static void gateDomainsAndSession()
   }
   test_assert(gs2.residentBytes() == 0 && gs2.evictedBytes() > 0);
   /* A channel joining a fully-evicted store must not land resident under it. */
-  gs2.addChannel(util::string("late"), 2);
+  /* Delta, so it allocates eagerly -- an Authored channel would pass by being
+   * lazy and never exercise the join-an-evicted-level path at all. */
+  gs2.addChannel(util::string("late"), 2, GridElemDomain::Vertex, AttrType::FLOAT, true,
+                 subdiv::GridLevelRule::Delta);
   test_assert(gs2.residentBytes() == 0);
   for (int ch = 0; ch < gs.channelCount(); ch++) {
     for (int l = 1; l <= nLevels; l++) {
@@ -347,8 +369,8 @@ static void gateDomainsAndSession()
   fprintf(stderr, "domains: evict/rehydrate diffs=%d\n", diffs);
   test_assert(diffs == 0);
 
-  /* addLevel: persistent channels zero-fill (disp is a per-level delta), session
-   * channels are seeded from the level below. */
+  /* addLevel: a Delta channel zero-fills, an Authored one is seeded from the
+   * level below -- and `fset` proves persistence has no say in that. */
   gs.addLevel();
   const int fine = nLevels + 1;
   const int Sc = GridsStore::sideForLevel(nLevels);
@@ -358,9 +380,9 @@ static void gateDomainsAndSession()
   for (int grid = 0; grid < gs.gridCount(); grid++) {
     for (int v = 0; v < Sc * 2; v++) {
       for (int u = 0; u < Sc * 2; u++) {
-        /* Persistent face channel: blank, as before. */
-        test_assert(*gs.elem(fine, fset, grid, u, v) == 0.0f);
-        /* Session face channel: each coarse cell replicated into its four. */
+        /* Both face channels: each coarse cell replicated into its four. */
+        const float expectF = fillValue(fset, nLevels, grid, u >> 1, v >> 1, 0, Sc);
+        test_assert(*gs.elem(fine, fset, grid, u, v) == expectF);
         const float expect = fillValue(sessF, nLevels, grid, u >> 1, v >> 1, 0, Sc);
         test_assert(*gs.elem(fine, sessF, grid, u, v) == expect);
       }
@@ -386,7 +408,45 @@ static void gateDomainsAndSession()
       }
     }
   }
+  for (int grid = 0; grid < gs.gridCount(); grid++) {
+    for (int v = 0; v <= Sc * 2; v++) {
+      for (int u = 0; u <= Sc * 2; u++) {
+        test_assert(*gs.elem(fine, dlt, grid, u, v) == 0.0f); /* Delta: blank */
+      }
+    }
+  }
   fprintf(stderr, "domains: seeding held over %d grids\n", gs.gridCount());
+
+  /* Restriction is the exact left inverse of that prolongation, so the round
+   * trip loses nothing an Authored channel had -- which is the whole reason
+   * dropTopLevel may not simply pop. A Delta channel is unchanged for the
+   * opposite reason: nothing is carried down at all. */
+  gs.dropTopLevel();
+  test_assert(gs.levelCount() == nLevels);
+  int rtDiffs = 0;
+  for (int ch = 0; ch < gs.channelCount(); ch++) {
+    for (int l = 1; l <= nLevels; l++) {
+      rtDiffs += countDiffs(gs, ch, l);
+    }
+  }
+  fprintf(stderr, "domains: addLevel/dropTopLevel diffs=%d\n", rtDiffs);
+  test_assert(rtDiffs == 0);
+
+  /* And it is a restriction, not a pop: paint authored only at the fine level
+   * survives onto the level it lands on. */
+  gs.addLevel();
+  for (int grid = 0; grid < gs.gridCount(); grid++) {
+    *gs.elem(fine, fset, grid, 0, 0) = 7.0f;
+    *gs.elem(fine, sess, grid, 0, 0) = 7.0f;
+    *gs.elem(fine, dlt, grid, 0, 0) = 7.0f;
+  }
+  gs.dropTopLevel();
+  for (int grid = 0; grid < gs.gridCount(); grid++) {
+    test_assert(*gs.elem(nLevels, fset, grid, 0, 0) == 7.0f);
+    test_assert(*gs.elem(nLevels, sess, grid, 0, 0) == 7.0f);
+    test_assert(*gs.elem(nLevels, dlt, grid, 0, 0) != 7.0f); /* Delta: dropped */
+  }
+  fprintf(stderr, "domains: dropTopLevel restricted authored paint down\n");
 
   alloc::Delete(cage);
 }

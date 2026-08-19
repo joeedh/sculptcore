@@ -194,8 +194,8 @@ void GridStrokeLog::applySwap(Step &s)
     for (int i = 0; i < floats; i++) {
       std::swap(b.data[i], dst[i]);
     }
-    if (!mr->store.channelPersist(channel)) {
-      // A session channel is what the draw path's derived samples mirror, so
+    if (mr->store.channelAuthored(channel)) {
+      // An authored channel is what the draw path's derived samples mirror, so
       // the swap has to be pushed back out to them (no-op for the rest).
       swappedSession.append(&b);
     }

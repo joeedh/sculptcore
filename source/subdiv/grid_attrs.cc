@@ -448,12 +448,15 @@ static size_t sampleIndex(int grid, int u, int v, int w)
   return size_t(grid) * size_t(w) * size_t(w) + size_t(v) * size_t(w) + size_t(u);
 }
 
-/** The store's session channel for `name`, or -1: a persistent channel is
- * subdivision-owned state that must never masquerade as authored paint. */
+/** The store's authored channel for `name`, or -1: a Delta channel is
+ * subdivision-owned state that must never masquerade as authored paint.
+ * Whether the host saves the channel is a different question (channelPersist)
+ * and deliberately not asked here — an authored layer overlays the derived
+ * samples the same way whether or not it has a container to go home to. */
 static int sessionChannelFor(GridsStore &store, const litestl::util::string &name, int comps)
 {
   const int ch = store.findChannel(name);
-  if (ch < 0 || store.channelPersist(ch) || store.channelElemSize(ch) != comps ||
+  if (ch < 0 || !store.channelAuthored(ch) || store.channelElemSize(ch) != comps ||
       store.channelDomain(ch) != GridElemDomain::Vertex)
   {
     return -1;
@@ -948,11 +951,11 @@ bool MultiresAttrs::seedFaceSessionChannel(int level, const string &name, int ch
 
 namespace {
 
-/** The store's Face-domain session channel for `name`, or -1. */
+/** The store's Face-domain authored channel for `name`, or -1. */
 int faceSessionChannelFor(GridsStore &store, const litestl::util::string &name)
 {
   const int ch = store.findChannel(name);
-  if (ch < 0 || store.channelPersist(ch) || store.channelElemSize(ch) != 1 ||
+  if (ch < 0 || !store.channelAuthored(ch) || store.channelElemSize(ch) != 1 ||
       store.channelDomain(ch) != GridElemDomain::Face)
   {
     return -1;

@@ -47,16 +47,20 @@ void GridsStore::allocLevel(Channel &ch, int level)
   if (ld.gridsPerChunk < 1) {
     ld.gridsPerChunk = 1;
   }
-  // A session channel stays unallocated until elem() first touches it; the
+  // An Authored channel stays unallocated until elem() first touches it; the
   // geometry above is still fixed now, so lazy and eager chunks agree.
-  if (ch.persist) {
+  if (ch.rule != GridLevelRule::Authored) {
     fillChunks(ch, ld, level);
   }
   ch.levels.append(std::move(ld));
 }
 
-int GridsStore::addChannel(
-    const string &name, int floatsPerElem, GridElemDomain domain, mesh::AttrType type, bool persist)
+int GridsStore::addChannel(const string &name,
+                           int floatsPerElem,
+                           GridElemDomain domain,
+                           mesh::AttrType type,
+                           bool persist,
+                           GridLevelRule rule)
 {
   Assert(floatsPerElem >= 1 && floatsPerElem <= 4, "grid channel elem size");
   Channel ch;
@@ -65,6 +69,7 @@ int GridsStore::addChannel(
   ch.domain = domain;
   ch.type = type;
   ch.persist = persist;
+  ch.rule = rule;
   for (int l = 1; l <= levelCount_; l++) {
     // Eviction state is per (channel, level): joining an evicted level resident
     // would leave the level half-paged-in and never swept by evictLevel.
@@ -83,7 +88,7 @@ void GridsStore::addLevel()
   levelCount_++;
   for (Channel &ch : channels_) {
     allocLevel(ch, levelCount_);
-    if (!ch.persist) {
+    if (ch.rule == GridLevelRule::Authored) {
       seedLevelFromBelow(ch, levelCount_);
     }
   }
@@ -97,6 +102,9 @@ void GridsStore::dropTopLevel()
   // pop_back destructs the tail LevelData (and its nested Vectors) cleanly;
   // the remove_at double-free noted in removeChannel is mid-vector-only.
   for (Channel &ch : channels_) {
+    if (ch.rule == GridLevelRule::Authored) {
+      restrictLevelToBelow(ch, levelCount_);
+    }
     ch.levels.pop_back();
   }
   levelCount_--;
@@ -137,6 +145,32 @@ void GridsStore::seedLevelFromBelow(Channel &ch, int level)
         const float *s11 = elemIn(ch, level - 1, g, cu + du, cv + dv);
         for (int k = 0; k < fpe; k++) {
           dst[k] = 0.25f * (s00[k] + s10[k] + s01[k] + s11[k]);
+        }
+      }
+    }
+  }
+}
+
+void GridsStore::restrictLevelToBelow(Channel &ch, int level)
+{
+  if (level < 2) {
+    return;
+  }
+  LevelData &fine = ch.levels[level - 1];
+  if (!fine.chunks.size() && !fine.evicted.size()) {
+    return; // never touched: the level below already holds what it seeded
+  }
+  const int fpe = ch.floatsPerElem;
+  const int w = elemWidth(level - 1, ch.domain);
+  for (int g = 0; g < gridCount_; g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        // Injection. Both domains index the same way: a coarse vertex sits on
+        // fine (2u, 2v), and a coarse cell's lower-left child is (2u, 2v).
+        const float *src = elemIn(ch, level, g, u * 2, v * 2);
+        float *dst = elemIn(ch, level - 1, g, u, v);
+        for (int k = 0; k < fpe; k++) {
+          dst[k] = src[k];
         }
       }
     }
@@ -194,7 +228,12 @@ void GridsStore::buildFromCage(mesh::Mesh &cage)
 
   channels_.clear();
   levelCount_ = 0;
-  addChannel(string("disp"), 3);
+  addChannel(string("disp"),
+             3,
+             GridElemDomain::Vertex,
+             mesh::AttrType::FLOAT,
+             /*persist=*/true,
+             GridLevelRule::Delta);
 
   Vector<int> gridOf;
   gridOf.resize(cage.c.capacity());
@@ -460,7 +499,7 @@ size_t GridsStore::evictedBytes() const
  *   u32 gridCount; u32 levelCount
  *   gridCount*4 x { i32 grid; i32 side }
  *   u32 channelCount; per channel: string name; u32 floatsPerElem;
- *     u32 domain; u32 type; u32 persist
+ *     u32 domain; u32 type; u32 persist; u32 levelRule
  *   offset table, per (channel, level): u32 gridsPerChunk; u32 chunkCount;
  *     per chunk: u32 byteOffset (into the data section); u32 floatCount
  *   data section: chunk float payloads in (channel, level, chunk) order
@@ -470,11 +509,11 @@ size_t GridsStore::evictedBytes() const
  * and it is re-serialized at the end of every sculpt stroke (the multires undo
  * snapshot), where a single-threaded lz4 pass alone cost ~50 ms.
  *
- * Session channels are INCLUDED: undo is this serializer's only production
- * consumer (the .blend is written from the flush path, which never reaches the
- * store), so excluding them would restore an empty channel on every undo that
- * falls back to the blob. A lazy channel simply writes zero chunks and reads
- * back lazy. */
+ * Authored channels are INCLUDED whether or not the host persists them: undo
+ * is this serializer's only production consumer (the .blend is written from the
+ * flush path, which never reaches the store), so excluding them would restore
+ * an empty channel on every undo that falls back to the blob. A lazy channel
+ * simply writes zero chunks and reads back lazy. */
 bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
 {
   // The serializer walks raw chunks — rehydrate everything first.
@@ -499,6 +538,7 @@ bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
     pbf.writeUint32(uint32_t(ch.domain));
     pbf.writeUint32(uint32_t(ch.type));
     pbf.writeUint32(uint32_t(ch.persist));
+    pbf.writeUint32(uint32_t(ch.rule));
   }
 
   uint32_t offset = 0;
@@ -676,6 +716,7 @@ bool GridsStore::read(std::istream &in)
     ch.domain = GridElemDomain(pbf.readUint32());
     ch.type = mesh::AttrType(pbf.readUint32());
     ch.persist = bool(pbf.readUint32());
+    ch.rule = GridLevelRule(pbf.readUint32());
     channels_.append(std::move(ch));
   }
 
