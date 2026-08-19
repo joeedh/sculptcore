@@ -78,6 +78,19 @@ export interface Mesh {
   boundaryGraphStats(out: int32[]): void
   edgePathCoords(vStart: int32, vEnd: int32, out: float[]): void
   generateUVFromSeams(marginMilli: int32): int32
+  liveElems(domain: int32, out: int32[]): void
+  topoStamp(): int32
+  uvCornerVerts(corners: int32[], out: int32[]): void
+  uvCornersOfVerts(
+    verts: int32[],
+    outOffsets: int32[],
+    outValues: int32[]
+  ): void
+  uvFaceRings(faces: int32[], outOffsets: int32[], outValues: int32[]): void
+  uvGather(uvIndex: int32, corners: int32[], out: float[]): void
+  uvScatter(uvIndex: int32, corners: int32[], uvs: float[]): void
+  uvFlagsGather(uvIndex: int32, corners: int32[], out: int32[]): void
+  uvFlagsScatter(uvIndex: int32, corners: int32[], flags: int32[]): void
   markAllSeams(): void
   fillVertexColorFromPosition(): void
   vertexColor(vert: int32, out: float[]): void

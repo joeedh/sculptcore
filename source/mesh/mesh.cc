@@ -1,6 +1,7 @@
 #include "mesh.h"
 
 #include "boundary.h"
+#include "mesh_iter.h"
 #include "mesh_path.h"
 #include "utils/mesh_validate.h" // faceNewellNormal
 #include "utils/modeling_walk.h" // box-modeling loop/boundary walks
@@ -1894,6 +1895,181 @@ void Mesh::reorder_faces(util::span<int> fmap, const ReorderMoved &moved,
     l.f[l1] = remap(fmap, l.f[l1]);
   }
   f.reorder(fmap);
+}
+
+/* ---- UV editing seam (P18 / W4a) ---------------------------------------- */
+
+namespace {
+
+/* The FLOAT2 corner layer at `uvIndex`, or null when the index names something
+ * else. Shared by every uv* accessor so "not a UV layer" is one rule. */
+AttrData<float2> *uvColumn(Mesh *m, int uvIndex)
+{
+  if (uvIndex < 0 || size_t(uvIndex) >= m->c.attrs.attrs.size()) {
+    return nullptr;
+  }
+  AttrRef &ref = m->c.attrs.attrs[uvIndex];
+  if (ref.type != AttrType::FLOAT2) {
+    return nullptr;
+  }
+  return static_cast<AttrData<float2> *>(ref.data);
+}
+
+/* `.uvflags:<layer>` for the UV layer at `uvIndex` -- empty when it isn't one. */
+util::string uvFlagsName(Mesh *m, int uvIndex)
+{
+  if (!uvColumn(m, uvIndex)) {
+    return util::string();
+  }
+  return util::string(".uvflags:") + m->c.attrs.attrs[uvIndex].name;
+}
+
+bool liveCorner(Mesh *m, int c)
+{
+  return c >= 0 && size_t(c) < m->c.capacity() && !m->c.freemap[c];
+}
+
+/* Append `c` and every other corner of `c`'s face, in winding order. */
+void appendFaceCorners(Mesh *m, int f, util::Vector<int> &out)
+{
+  int l = m->f.l[f];
+  while (l != ELEM_NONE) {
+    int cstart = m->l.c[l];
+    int c = cstart;
+    do {
+      out.append(c);
+      c = m->c.next[c];
+    } while (c != cstart && c != ELEM_NONE);
+    l = m->l.next[l];
+  }
+}
+
+} // namespace
+
+void Mesh::uvCornerVerts(util::Vector<int> &corners, util::Vector<int> &out)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  for (int ci : corners) {
+    out.append(liveCorner(this, ci) ? c.v[ci] : ELEM_NONE);
+  }
+}
+
+void Mesh::uvCornersOfVerts(util::Vector<int> &verts,
+                            util::Vector<int> &outOffsets,
+                            util::Vector<int> &outValues)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  for (int vi : verts) {
+    outOffsets.append(int(outValues.size()));
+    if (vi < 0 || size_t(vi) >= v.capacity() || v.freemap[vi]) {
+      continue;
+    }
+    /* Every corner at `vi` is reachable through the radial cycle of one of its
+     * disk edges; the vert test drops the far end of each edge. */
+    for (int e : EdgeOfVertIter(this, vi, v.e[vi])) {
+      int c0 = this->e.c[e];
+      if (c0 == ELEM_NONE) {
+        continue;
+      }
+      int ci = c0;
+      do {
+        if (c.v[ci] == vi) {
+          bool seen = false;
+          for (size_t i = size_t(outOffsets[outOffsets.size() - 1]); i < outValues.size(); i++) {
+            if (outValues[i] == ci) {
+              seen = true;
+              break;
+            }
+          }
+          if (!seen) {
+            outValues.append(ci);
+          }
+        }
+        ci = c.radial_next[ci];
+      } while (ci != c0 && ci != ELEM_NONE);
+    }
+  }
+  outOffsets.append(int(outValues.size()));
+}
+
+void Mesh::uvFaceRings(util::Vector<int> &faces,
+                       util::Vector<int> &outOffsets,
+                       util::Vector<int> &outValues)
+{
+  if (topo_frozen) {
+    thawTopo();
+  }
+  for (int fi : faces) {
+    outOffsets.append(int(outValues.size()));
+    if (fi < 0 || size_t(fi) >= f.capacity() || f.freemap[fi]) {
+      continue;
+    }
+    appendFaceCorners(this, fi, outValues);
+  }
+  outOffsets.append(int(outValues.size()));
+}
+
+void Mesh::uvGather(int uvIndex, util::Vector<int> &corners, util::Vector<float> &out)
+{
+  AttrData<float2> *data = uvColumn(this, uvIndex);
+  for (int ci : corners) {
+    float2 uv = data && liveCorner(this, ci) ? data->safe_get(ci) : float2(0.0f, 0.0f);
+    out.append(uv[0]);
+    out.append(uv[1]);
+  }
+}
+
+void Mesh::uvScatter(int uvIndex, util::Vector<int> &corners, util::Vector<float> &uvs)
+{
+  AttrData<float2> *data = uvColumn(this, uvIndex);
+  if (!data) {
+    return;
+  }
+  for (size_t i = 0; i < corners.size(); i++) {
+    int ci = corners[i];
+    if (!liveCorner(this, ci) || i * 2 + 1 >= uvs.size()) {
+      continue;
+    }
+    data->materialize(ci);
+    (*data)[ci] = float2(uvs[i * 2], uvs[i * 2 + 1]);
+  }
+}
+
+void Mesh::uvFlagsGather(int uvIndex, util::Vector<int> &corners, util::Vector<int> &out)
+{
+  util::string name = uvFlagsName(this, uvIndex);
+  AttrData<uint8_t> *data = nullptr;
+  if (name.size() > 0 && c.attrs.has(AttrType::BYTE, name)) {
+    data = c.attrs.find_attribute(AttrType::BYTE, name).get_data<uint8_t>();
+  }
+  for (int ci : corners) {
+    out.append(data && liveCorner(this, ci) ? int(data->safe_get(ci)) : 0);
+  }
+}
+
+void Mesh::uvFlagsScatter(int uvIndex, util::Vector<int> &corners, util::Vector<int> &flags)
+{
+  util::string name = uvFlagsName(this, uvIndex);
+  if (name.size() == 0) {
+    return;
+  }
+  AttrRef &ref = c.attrs.ensure(AttrType::BYTE, name, /*materialize=*/true);
+  AttrData<uint8_t> *data = static_cast<AttrData<uint8_t> *>(ref.data);
+  if (!data) {
+    return;
+  }
+  for (size_t i = 0; i < corners.size(); i++) {
+    int ci = corners[i];
+    if (!liveCorner(this, ci) || i >= flags.size()) {
+      continue;
+    }
+    data->materialize(ci);
+    (*data)[ci] = uint8_t(flags[i] & 0xff);
+  }
 }
 
 int Mesh::freeTrailingStorage()

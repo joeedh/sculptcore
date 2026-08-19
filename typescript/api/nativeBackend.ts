@@ -65,6 +65,8 @@ export interface NativeAddon {
    * that makes bound Vectors usable as inputs, not just out-params. See
    * IWasmInterface.setBoundIntVector. */
   intVectorAssign(vec: NativeBound, data: ArrayLike<number>): void
+  /** Vector<float> sibling of intVectorAssign; backs setBoundFloatVector. */
+  floatVectorAssign(vec: NativeBound, data: ArrayLike<number>): void
   /**
    * Typed-array view over a bound Vector's contiguous storage. NOTE: under
    * Electron's V8 sandbox this is a *copy*, not a zero-copy external buffer

@@ -27,6 +27,7 @@ char *LSTL_FormatBlock(void *mem);
 char *LSTL_FormatBlocks(bool printPermanent);
 
 void IntVector_assign(litestl::util::Vector<int> *vec, const int *data, int count);
+void FloatVector_assign(litestl::util::Vector<float> *vec, const float *data, int count);
 
 void *Mesh_createCube(int dimen, float size, float sphereFac);
 void *Mesh_makeGrid(int nx, int ny, float size);
@@ -2693,6 +2694,47 @@ napi_value NapiRuntime::IntVectorAssign(napi_env env, napi_callback_info info)
   return out;
 }
 
+// floatVectorAssign(vec, data) — IntVectorAssign for Vector<float>. Same
+// delegate-to-binding.cc discipline, so the Vector's own clear/reserve/append
+// run rather than the size field being written from here.
+napi_value NapiRuntime::FloatVectorAssign(napi_env env, napi_callback_info info)
+{
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  napi_value out;
+  napi_get_undefined(env, &out);
+
+  Wrapped *w = unwrapVector(env, argc, argv);
+  if (!w || argc < 2) {
+    return out;
+  }
+
+  bool isArray = false;
+  napi_is_array(env, argv[1], &isArray);
+  if (!isArray) {
+    return out;
+  }
+
+  uint32_t count = 0;
+  napi_get_array_length(env, argv[1], &count);
+
+  litestl::util::Vector<float> scratch;
+  scratch.ensure_capacity(size_t(count));
+  for (uint32_t i = 0; i < count; i++) {
+    napi_value el;
+    napi_get_element(env, argv[1], i, &el);
+    double v = 0.0;
+    napi_get_value_double(env, el, &v);
+    scratch.append(float(v));
+  }
+
+  FloatVector_assign(reinterpret_cast<litestl::util::Vector<float> *>(w->ptr),
+                     count ? &scratch[0] : nullptr,
+                     int(count));
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // litestl allocator introspection (binding.cc LSTL_*).
 // ---------------------------------------------------------------------------
@@ -3078,6 +3120,7 @@ void NapiRuntime::installExports(napi_value exports)
   define(exports, "vectorView", &NapiRuntime::VectorView);
   define(exports, "vectorGet", &NapiRuntime::VectorGet);
   define(exports, "intVectorAssign", &NapiRuntime::IntVectorAssign);
+  define(exports, "floatVectorAssign", &NapiRuntime::FloatVectorAssign);
   define(exports, "pointerBytes", &NapiRuntime::PointerBytes);
   define(exports, "objectAddress", &NapiRuntime::ObjectAddress);
   define(exports, "meshCreateCube", &NapiRuntime::MeshCreateCube);

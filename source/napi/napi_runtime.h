@@ -104,6 +104,9 @@ class NapiRuntime {
   // array. The JS->C++ direction; without it bound Vector params are out-params
   // only (see binding.cc IntVector_assign).
   static napi_value IntVectorAssign(napi_env, napi_callback_info);
+  // floatVectorAssign(vec, data) -> the Vector<float> sibling, for the seams
+  // that hand C++ a computed coordinate set (the UV editor's scatter).
+  static napi_value FloatVectorAssign(napi_env, napi_callback_info);
   // pointerBytes(boundObj, memberName, byteLen) -> Uint8Array over the bytes a
   // raw-pointer member (e.g. gpu::Buffer.data) points at — the native bulk-data
   // read (the pointer never crosses to JS as a number).

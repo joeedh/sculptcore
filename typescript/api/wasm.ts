@@ -42,6 +42,7 @@ interface IWasmMethods extends IWasmBase {
    * JS->C++ fill the bound-Vector out-params otherwise lack; see
    * IWasmInterface.setBoundIntVector). */
   IntVector_assign(vec: pointer, dataPtr: pointer, count: int): void
+  FloatVector_assign(vec: pointer, dataPtr: pointer, count: int): void
   /** free a Mesh (`alloc::Delete`) — created by `Mesh_createCube`/`deserializeMesh`. */
   freeMesh(mesh: pointer): void
   /** free a blob returned by `serializeMesh`. */
@@ -311,6 +312,13 @@ export interface IWasmInterface extends INeededWasm, IWasmMethods {
    * bound vector handle itself, as with getBoundVector.
    */
   setBoundIntVector(bound: SculptHandle, data: ArrayLike<number>): void
+
+  /**
+   * `setBoundIntVector` for a bound `litestl::util::Vector<float>` — the seam
+   * for handing C++ a computed coordinate set (the UV editor's scatter), where
+   * the int form only ever carried element indices.
+   */
+  setBoundFloatVector(bound: SculptHandle, data: ArrayLike<number>): void
 
   /**
    * Serialize a mesh to a versioned, lz4hc-compressed blob (the C++
@@ -612,6 +620,22 @@ export async function loadWasm(): Promise<IWasmInterface> {
       try {
         _wasm.HEAPU8.set(new Uint8Array(src.buffer, src.byteOffset, count * 4), dataPtr)
         _wasm.IntVector_assign(vecPtr, dataPtr, count)
+      } finally {
+        _wasm._rawRelease(dataPtr)
+      }
+    },
+    setBoundFloatVector(bound: SculptHandle, data: ArrayLike<number>) {
+      const vecPtr = (bound as unknown as {ptr: pointer}).ptr
+      const count = data.length
+      if (count === 0) {
+        _wasm.FloatVector_assign(vecPtr, 0 as unknown as pointer, 0)
+        return
+      }
+      const src = data instanceof Float32Array ? data : Float32Array.from(data)
+      const dataPtr = _wasm._rawAlloc(count * 4)
+      try {
+        _wasm.HEAPU8.set(new Uint8Array(src.buffer, src.byteOffset, count * 4), dataPtr)
+        _wasm.FloatVector_assign(vecPtr, dataPtr, count)
       } finally {
         _wasm._rawRelease(dataPtr)
       }

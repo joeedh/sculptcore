@@ -188,6 +188,15 @@ struct Mesh : public MeshBase {
     BIND_STRUCT_METHOD(st, boundaryGraphStats, MARGS("out"));
     BIND_STRUCT_METHOD(st, edgePathCoords, MARGS("vStart", "vEnd", "out"));
     BIND_STRUCT_METHOD(st, generateUVFromSeams, MARGS("marginMilli"));
+    BIND_STRUCT_METHOD(st, liveElems, MARGS("domain", "out"));
+    BIND_STRUCT_METHOD(st, topoStamp, MARGS());
+    BIND_STRUCT_METHOD(st, uvCornerVerts, MARGS("corners", "out"));
+    BIND_STRUCT_METHOD(st, uvCornersOfVerts, MARGS("verts", "outOffsets", "outValues"));
+    BIND_STRUCT_METHOD(st, uvFaceRings, MARGS("faces", "outOffsets", "outValues"));
+    BIND_STRUCT_METHOD(st, uvGather, MARGS("uvIndex", "corners", "out"));
+    BIND_STRUCT_METHOD(st, uvScatter, MARGS("uvIndex", "corners", "uvs"));
+    BIND_STRUCT_METHOD(st, uvFlagsGather, MARGS("uvIndex", "corners", "out"));
+    BIND_STRUCT_METHOD(st, uvFlagsScatter, MARGS("uvIndex", "corners", "flags"));
     BIND_STRUCT_METHOD(st, markAllSeams, MARGS());
     BIND_STRUCT_METHOD(st, fillVertexColorFromPosition, MARGS());
     BIND_STRUCT_METHOD(st, vertexColor, MARGS("vert", "out"));
@@ -612,6 +621,38 @@ struct Mesh : public MeshBase {
    * unwrapper walks live links). Returns the chart count. Defined in mesh.cc
    * (needs uvgen.h). */
   int generateUVFromSeams(int marginMilli);
+
+  /* ---- UV editing seam (P18 / W4a) --------------------------------------
+   * The bulk accessors the host's IUVSource adapter is built on. Everything is
+   * keyed by `uvIndex` -- a position in `c.attrs`, the same index space
+   * setAttrUse/detachAttr consume -- because names don't cross the generic
+   * method binding; an index that isn't a live FLOAT2 corner layer yields an
+   * empty result rather than an error. Handles are corner indices, so a UV
+   * element *is* a corner and a seam is two corners of one vert disagreeing.
+   * All out-params are appended to, never cleared, matching gatherVertCos.
+   * Defined in mesh.cc.
+   *
+   * The two CSR pairs write one row per input element: `outOffsets` gets
+   * `n + 1` entries, `outValues` the concatenated rows. A dead or unknown
+   * input contributes an empty row, so rows stay index-aligned with the query.
+   */
+  void uvCornerVerts(util::Vector<int> &corners, util::Vector<int> &out);
+  void uvCornersOfVerts(util::Vector<int> &verts,
+                        util::Vector<int> &outOffsets,
+                        util::Vector<int> &outValues);
+  void uvFaceRings(util::Vector<int> &faces,
+                   util::Vector<int> &outOffsets,
+                   util::Vector<int> &outValues);
+  void uvGather(int uvIndex, util::Vector<int> &corners, util::Vector<float> &out);
+  void uvScatter(int uvIndex, util::Vector<int> &corners, util::Vector<float> &uvs);
+
+  /* Per-corner UV editor flags (select/pin) for the layer at `uvIndex`, kept in
+   * a BYTE sidecar named `.uvflags:<layer>` -- named C++-side because the name
+   * derives from one that never marshals. Persistent (not TEMP): a .wproj must
+   * round-trip a UV selection. Gather answers 0 for every corner when the
+   * sidecar is absent; scatter creates it on first write. */
+  void uvFlagsGather(int uvIndex, util::Vector<int> &corners, util::Vector<int> &out);
+  void uvFlagsScatter(int uvIndex, util::Vector<int> &corners, util::Vector<int> &flags);
 
   /* Test/demo helpers (deterministic, backend-identical). markAllSeams flags
    * every edge EDGE_SEAM so generateUVFromSeams yields a per-face (cuboid) UV
@@ -1073,6 +1114,48 @@ struct Mesh : public MeshBase {
       out.append(co[1]);
       out.append(co[2]);
     }
+  }
+
+  /* Every live element of a domain (0 vert / 1 edge / 2 face / 3 corner),
+   * appended to `out` — selectedElems without the selection test. The host's
+   * element-source adapters need the full set, and iterating it TS-side would
+   * mean one binding round trip per element. */
+  void liveElems(int domain, util::Vector<int> &out)
+  {
+    switch (domain) {
+      case 0:
+        for (int i : v) {
+          out.append(i);
+        }
+        break;
+      case 1:
+        for (int i : e) {
+          out.append(i);
+        }
+        break;
+      case 2:
+        for (int i : f) {
+          out.append(i);
+        }
+        break;
+      case 3:
+        if (topo_frozen) {
+          thawTopo();
+        }
+        for (int i : c) {
+          out.append(i);
+        }
+        break;
+    }
+  }
+
+  /* topo_stamp, narrowed to a positive int for the binding (which carries no
+   * 64-bit integer). Callers only ever compare it for equality — "are the
+   * handles I am holding still valid" — so the wrap at 2^31 topology edits
+   * costs nothing. */
+  int topoStamp()
+  {
+    return int(topo_stamp & 0x7fffffffu);
   }
 
   /* Gather selected element indices for a domain into `out` (appended). Used by

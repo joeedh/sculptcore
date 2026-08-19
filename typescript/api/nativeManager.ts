@@ -124,6 +124,9 @@ export class NativeManager {
     // napi_get_element/napi_is_array want a real JS array, not a TypedArray.
     this.addon.intVectorAssign(vec, Array.isArray(data) ? data : Array.from(data))
   }
+  setBoundFloatVector(vec: NativeBound, data: ArrayLike<number>): void {
+    this.addon.floatVectorAssign(vec, Array.isArray(data) ? data : Array.from(data))
+  }
   Mesh_createCube(dimen: number, size: number, sphereFac: number): NativeBound {
     return this.addon.meshCreateCube(dimen, size, sphereFac)
   }
@@ -455,6 +458,7 @@ export function makeNativeInterface(nm: NativeManager): unknown {
     },
     getBoundVector                   : (name: string, bound: NativeBound) => nm.getBoundVector(name, bound),
     setBoundIntVector: (bound: NativeBound, data: ArrayLike<number>) => nm.setBoundIntVector(bound, data),
+    setBoundFloatVector: (bound: NativeBound, data: ArrayLike<number>) => nm.setBoundFloatVector(bound, data),
     vectorFloatView                  : (vec: NativeBound) => nm.addon.vectorView(vec),
     pointerBytes: (b: NativeBound, m: string, n: number, off?: number) => nm.pointerBytes(b, m, n, off),
     objectAddress                    : (b: NativeBound) => nm.objectAddress(b),
