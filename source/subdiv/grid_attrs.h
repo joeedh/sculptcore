@@ -137,6 +137,29 @@ struct MultiresAttrs {
    * One float3 per grid — a grid is one cage corner, so it is face-constant. */
   const litestl::math::float3 *gridFaceSetColors();
 
+  /** Per-grid-*sample* face-set colors at `level`: gridCount x (S+1)^2 float3,
+   * each sample the average of its incident cells *within its own grid* --
+   * never across the occurrence table, because grid id is the cage corner, so
+   * every face-set boundary lies on a grid seam and the indexed draw layout
+   * duplicates seam samples on purpose to keep them crisp.
+   *
+   * Null unless a Face-domain session channel named "group" holds data for
+   * `level` -- that is what a grids-native polygroup stroke allocates, and
+   * without one the per-grid #gridFaceSetColors is still the truth. */
+  const litestl::math::float3 *faceSetSampleColors(int level);
+
+  /** Recompute one grid's per-sample face-set colors from a live per-cell int
+   * source: `cells` is that grid's S^2 values in row-major order. A stroke's
+   * face values live in the executor's dense mirror, which the store does not
+   * see until the fold, so this is how a face dab reaches the draw path.
+   * No-op before the cache is built; leaves #generation alone. */
+  void refreshFaceSetSampleColorsForGrid(int level, int grid, const int *cells);
+
+  /** The same for `count` grids, sourced from the store's own Face channel --
+   * the return route for an undo/redo, which swaps store bytes behind the
+   * cache's back. */
+  void refreshFaceSetSampleColors(int level, const int *gridIds, int count);
+
   /** Re-tint just `count` grids of the already-built face-set color cache from
    * the cage's current `group` values. Deliberately leaves #generation alone:
    * a cage write-back (Multires::scatterFaceIntToCage) knows exactly which
@@ -205,6 +228,11 @@ private:
   GridAttrLayer *findLayer(const string &name);
   /** Build (or rebuild for a different level) `layer` from the cage. */
   bool buildLayer(GridAttrLayer &layer, int level);
+  /** Copy the cage's per-face `name` value into every cell of each grid of a
+   * Face-domain session channel -- #seedSessionChannel's face half, split out
+   * because a face channel has no derived sample layer to copy from. */
+  bool seedFaceSessionChannel(int level, const string &name, int channel);
+
   /** Overlay the store's session channel of the same name onto a just-built
    * vertex layer, so authored paint survives a rebuild. No-op unless the
    * channel exists, is a vertex channel of matching width, and holds data for
@@ -220,6 +248,9 @@ private:
   Vector<GridAttrLayer> layers_;
   Vector<litestl::math::float3> fsetColors_;
   bool fsetValid_ = false;
+  Vector<litestl::math::float3> fsetSamples_;
+  int fsetSamplesLevel_ = 0;
+  bool fsetSamplesValid_ = false;
   UvSmooth uvSmooth_ = UvSmooth::PreserveBoundaries;
   uint64_t generation_ = 1;
 };

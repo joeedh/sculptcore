@@ -142,7 +142,7 @@ void GridDrawSource::fillNode(GridLevelDomain &d, Node &n)
   n.mask.resize(n.verts);
   n.color.resize(colorSrc_ ? n.verts : 0);
   n.uv.resize(uvSrc_ ? n.verts : 0);
-  n.fset.resize(fsetSrc_ ? n.verts : 0);
+  n.fset.resize((fsetSrc_ || fsetSampleSrc_) ? n.verts : 0);
   n.aabb.reset();
   const auto &pos = d.pos();
   int out = 0;
@@ -155,7 +155,10 @@ void GridDrawSource::fillNode(GridLevelDomain &d, Node &n)
     if (uvSrc_) {
       n.uv[at] = uvSrc_[sample];
     }
-    if (fsetSrc_) {
+    if (fsetSampleSrc_) {
+      n.fset[at] = fsetSampleSrc_[sample];
+    }
+    else if (fsetSrc_) {
       n.fset[at] = fsetSrc_[grid];
     }
   };
@@ -263,13 +266,15 @@ void GridDrawSource::update()
   const auto *color = ga.colorSamples(level_);
   const auto *uv = ga.uvSamples(level_);
   const auto *fset = ga.gridFaceSetColors();
+  const auto *fsetSamples = ga.faceSetSampleColors(level_);
   if (ga.generation() != attrGen_ || color != colorSrc_ || uv != uvSrc_ ||
-      fset != fsetSrc_)
+      fset != fsetSrc_ || fsetSamples != fsetSampleSrc_)
   {
     attrGen_ = ga.generation();
     colorSrc_ = color;
     uvSrc_ = uv;
     fsetSrc_ = fset;
+    fsetSampleSrc_ = fsetSamples;
     markAllData();
   }
   Vector<int> dirty;

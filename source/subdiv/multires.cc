@@ -258,15 +258,32 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
   if (!cage_ || level < 1 || level > maxLevel()) {
     return 0;
   }
-  MultiresSlot *slot = findSlot(level);
-  if (!slot || !slot->mesh || !slot->mesh->f.attrs.has(AttrType::INT, name)) {
-    return 0; // nothing materialized to read back from
-  }
-  mesh::Mesh &m = *slot->mesh;
   const int S = refiner.levels[level - 1].gridSide;
   const int cells = S * S, gridCount = refiner.gridCount();
-  if (m.f.count != gridCount * cells) {
-    return 0; // not this level's grid mesh (holes, or a foreign topology)
+
+  // Two possible sources of per-cell values, and the store wins: a
+  // grids-native face stroke writes a Face-domain session channel and never
+  // materializes a slot mesh, so a slot-only read would see nothing at all.
+  int ch = store.findChannel(util::string(name));
+  if (ch >= 0 && (store.channelPersist(ch) || store.channelElemSize(ch) != 1 ||
+                  store.channelDomain(ch) != GridElemDomain::Face ||
+                  !store.channelLevelAllocated(level, ch)))
+  {
+    ch = -1;
+  }
+  mesh::Mesh *slotMesh = nullptr;
+  if (ch >= 0) {
+    store.ensureLevelResident(level);
+  }
+  else {
+    MultiresSlot *slot = findSlot(level);
+    if (!slot || !slot->mesh || !slot->mesh->f.attrs.has(AttrType::INT, name)) {
+      return 0; // nothing materialized to read back from
+    }
+    slotMesh = slot->mesh;
+    if (slotMesh->f.count != gridCount * cells) {
+      return 0; // not this level's grid mesh (holes, or a foreign topology)
+    }
   }
   Vector<int> gridFace;
   if (!gridCageFaces(gridFace)) {
@@ -282,10 +299,16 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
     }
   }
   auto *cdata = cage_->f.attrs.find_attribute(AttrType::INT, name).get_data<int>();
-  auto *sdata = m.f.attrs.find_attribute(AttrType::INT, name).get_data<int>();
-  if (!cdata || !sdata) {
+  auto *sdata = slotMesh ? slotMesh->f.attrs.find_attribute(AttrType::INT, name).get_data<int>()
+                         : nullptr;
+  if (!cdata || (!sdata && ch < 0)) {
     return 0;
   }
+  // One grid's cells are contiguous in both layouts, so the source is a base
+  // pointer per grid on the store side and an offset per grid on the slot side.
+  auto gridCells = [&](int g) -> int * {
+    return ch >= 0 ? reinterpret_cast<int *>(store.elem(level, ch, g, 0, 0)) : nullptr;
+  };
 
   // Pass 1: per grid, the first cell disagreeing with its cage face's value.
   Vector<int> propVal, propHas;
@@ -296,10 +319,11 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
       const int g = int(gi);
       const int cur = cdata->safe_get(gridFace[g]);
       const int base = g * cells;
+      const int *src = gridCells(g);
       propVal[g] = 0;
       propHas[g] = 0;
       for (int k = 0; k < cells; k++) {
-        const int v = sdata->safe_get(base + k);
+        const int v = src ? src[k] : sdata->safe_get(base + k);
         if (v != cur) {
           propVal[g] = v;
           propHas[g] = 1;
@@ -334,9 +358,19 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
       for (int k = g; k < g1; k++) {
         r_grids.append(k);
         const int base = k * cells;
+        // Re-stamp the source too: a cell still holding the pre-stroke value
+        // would disagree with the cage face just set and propose reverting it
+        // on the next fold. Per-cell detail therefore collapses to per-base-face
+        // at push time, which is the rule the mesh path already follows.
+        int *dst = gridCells(k);
         for (int c = 0; c < cells; c++) {
-          sdata->materialize(base + c);
-          (*sdata)[base + c] = val;
+          if (dst) {
+            dst[c] = val;
+          }
+          else {
+            sdata->materialize(base + c);
+            (*sdata)[base + c] = val;
+          }
         }
       }
     }
@@ -344,6 +378,9 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
   }
   if (changed && isGroup) {
     gridAttrs_.refreshFaceSetColors(r_grids.data(), int(r_grids.size()));
+    if (ch >= 0) {
+      gridAttrs_.refreshFaceSetSampleColors(level, r_grids.data(), int(r_grids.size()));
+    }
   }
   return changed;
 }

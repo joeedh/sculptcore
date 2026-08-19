@@ -14,17 +14,19 @@
  *  - DefaultColumn: a read-only handle whose zero value is a documented,
  *    correct default on this domain (BSMOOTH's vclass 0 = plain Laplacian).
  *    Binds an executor-owned all-zero column; no storage.
- *  - SessionChannel: a kernel-written vertex layer, backed by a GridsStore
- *    session channel (persist=false) plus the dense mirror below.
+ *  - SessionChannel: a kernel-written vertex or face layer, backed by a
+ *    GridsStore session channel (persist=false) plus the dense mirror below.
  *  - Unbindable: the brush falls back to the materialized-mesh path.
  *
- * The mirror exists because kernels index a dense mesh::AttrData by vertex id
- * while the store is per-grid with duplicated boundary samples. Gather is
- * canonical (one sample per vert, via GridLevelDomain::vertGrid); scatter
- * writes every occurrence, so duplicates stay in agreement — the same
- * round-trip GridLevelDomain already uses for mask. Both directions are a
- * memcpy, never float math, which is what keeps a typed (INT) channel legal
- * in a float-backed store.
+ * The mirror exists because kernels index a dense mesh::AttrData by element id
+ * while the store is per-grid with duplicated boundary samples. On the vertex
+ * domain gather is canonical (one sample per vert, via
+ * GridLevelDomain::vertGrid) and scatter writes every occurrence, so duplicates
+ * stay in agreement — the same round-trip GridLevelDomain already uses for
+ * mask. The face domain has no duplication at all: a grid cell belongs to
+ * exactly one grid, so both directions are the same flat cell walk. Every copy
+ * is a memcpy, never float math, which is what keeps a typed (INT) channel
+ * legal in a float-backed store.
  *
  * The store is untouched until the stroke-end fold, so undo capture of a
  * written channel is a stroke-end captureGrids() immediately before scatter —
@@ -116,8 +118,9 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry, bool s
   if (!sessionChannels) {
     return GridAttrPlanKind::Unbindable;
   }
-  if (entry.domain != AttrElemDomain::Vertex) {
-    // Face/edge/corner element domains reach the store in a later phase.
+  if (entry.domain != AttrElemDomain::Vertex && entry.domain != AttrElemDomain::Face) {
+    // Edge/corner element domains have no grid element to land on: the store's
+    // two domains are the (S+1)^2 vert lattice and the S^2 quad cells.
     return GridAttrPlanKind::Unbindable;
   }
   if (int(entry.use) & int(mesh::AttrUse::SCULPT_LAYER)) {
@@ -130,11 +133,12 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry, bool s
                                               GridAttrPlanKind::Unbindable;
 }
 
-/** A kernel-written vertex layer's dense column plus its store channel. */
+/** A kernel-written layer's dense column plus its store channel. */
 struct GridAttrMirror {
   string handle;
   string layer;
   mesh::AttrType type = mesh::AttrType::FLOAT;
+  subdiv::GridElemDomain domain = subdiv::GridElemDomain::Vertex;
   int floats = 0;
   int channel = -1;
   /** Stroke sequence the column was last gathered for; a re-gather per step
@@ -214,19 +218,21 @@ struct GridAttrMirrorSet {
  * owned, lazily allocated per level, seeded by addLevel, and in the serializer
  * so undo sees it).
  *
- * A level with no data yet is seeded from the cage's own derived samples, so a
- * layer the host also carries (colour) is painted *over* rather than from
- * black. The seed is per level and one-shot: MultiresAttrs::seedSessionChannel
- * declines a level that already holds authored values. */
+ * A level with no data yet is seeded from what the surface already shows — the
+ * cage's derived samples for a vertex layer, the cage's own per-face value for
+ * a face one — so a layer the host also carries (colour, face sets) is painted
+ * *over* rather than from black. The seed is per level and one-shot:
+ * MultiresAttrs::seedSessionChannel declines a level that already holds
+ * authored values. */
 inline int gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mirror, int level)
 {
   int ch = mr->store.findChannel(mirror.layer);
   if (ch < 0) {
-    ch = mr->store.addChannel(mirror.layer, mirror.floats, subdiv::GridElemDomain::Vertex,
-                              mirror.type, /*persist=*/false);
+    ch = mr->store.addChannel(mirror.layer, mirror.floats, mirror.domain, mirror.type,
+                              /*persist=*/false);
   }
   Assert(mr->store.channelElemSize(ch) == mirror.floats &&
-             mr->store.channelDomain(ch) == subdiv::GridElemDomain::Vertex,
+             mr->store.channelDomain(ch) == mirror.domain,
          "grid attr channel re-declared at another width or domain");
   if (!mr->store.channelLevelAllocated(level, ch)) {
     mr->gridAttrs().seedSessionChannel(level, mirror.layer);
@@ -297,6 +303,88 @@ inline void gridAttrScatter(GridAttrMirror &mirror,
       std::memcpy(mr->store.elem(level, mirror.channel, occs[i], occs[i + 1], occs[i + 2]),
                   src, bytes);
     }
+  }
+}
+
+/** The dense id of grid `g`'s cell `(u, v)` — grid-major, row-major, which is
+ * also the store's own element order, so a whole grid is contiguous on both
+ * sides. GridFaceIter numbers its faces by exactly this. */
+inline int gridAttrFaceIndex(int grid, int u, int v, int S)
+{
+  return (grid * S + v) * S + u;
+}
+
+/** Store -> dense column over the S^2 cells of every grid. No canonical-sample
+ * rule: a cell belongs to exactly one grid. */
+inline void gridAttrGatherFace(GridAttrMirror &mirror, subdiv::GridLevelDomain *domain)
+{
+  subdiv::Multires *mr = domain->multires();
+  const int level = domain->level();
+  mr->store.ensureLevelResident(level);
+  const size_t bytes = size_t(mirror.floats) * sizeof(float);
+  const int S = domain->gridSide();
+  const int gridCount = domain->gridCount();
+  for (int g = 0; g < gridCount; g++) {
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++) {
+        std::memcpy(mirror.column->getElemData(gridAttrFaceIndex(g, u, v, S)),
+                    mr->store.elem(level, mirror.channel, g, u, v), bytes);
+      }
+    }
+  }
+}
+
+/** Dense column -> store, for the cells of `grids` only. */
+inline void gridAttrScatterFace(GridAttrMirror &mirror,
+                                subdiv::GridLevelDomain *domain,
+                                std::span<const int> grids)
+{
+  subdiv::Multires *mr = domain->multires();
+  const int level = domain->level();
+  mr->store.ensureLevelResident(level);
+  const size_t bytes = size_t(mirror.floats) * sizeof(float);
+  const int S = domain->gridSide();
+  for (int g : grids) {
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++) {
+        std::memcpy(mr->store.elem(level, mirror.channel, g, u, v),
+                    mirror.column->getElemData(gridAttrFaceIndex(g, u, v, S)), bytes);
+      }
+    }
+  }
+}
+
+/** Push `grids`' face-set cells from the mirror into the draw path's per-sample
+ * face-set colors, so a face dab is visible before the stroke-end fold.
+ *
+ * Face-set-specific by construction: "group" is the one face layer the draw
+ * path has a consumer for, and MultiresAttrs turns cells into colors. Another
+ * face layer binds and paints exactly the same way; it just has nothing to
+ * render itself with, so this is a no-op for it. */
+inline void gridAttrMirrorFaceToSamples(GridAttrMirror &mirror,
+                                        subdiv::GridLevelDomain *domain,
+                                        std::span<const int> grids,
+                                        Vector<int> &scratch)
+{
+  if (mirror.layer != string("group") || mirror.type != mesh::AttrType::INT) {
+    return;
+  }
+  subdiv::Multires *mr = domain->multires();
+  const int level = domain->level();
+  const int S = domain->gridSide();
+  // Build the cache first if this is the stroke's first dab: a per-grid
+  // refresh is a no-op before it exists, and the lazy build that follows
+  // would source the store, which the mirror has not reached yet.
+  mr->gridAttrs().faceSetSampleColors(level);
+  scratch.resize(size_t(S) * size_t(S));
+  for (int g : grids) {
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++) {
+        scratch[v * S + u] = *static_cast<const int *>(
+            mirror.column->getElemData(gridAttrFaceIndex(g, u, v, S)));
+      }
+    }
+    mr->gridAttrs().refreshFaceSetSampleColorsForGrid(level, g, scratch.data());
   }
 }
 

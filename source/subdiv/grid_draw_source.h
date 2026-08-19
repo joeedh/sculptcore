@@ -162,6 +162,10 @@ private:
   const litestl::math::float4 *colorSrc_ = nullptr;
   const litestl::math::float2 *uvSrc_ = nullptr;
   const float3 *fsetSrc_ = nullptr;
+  /** Per-sample face-set colors, present only once a grids-native polygroup
+   * stroke has allocated the store's Face channel. It wins over the per-grid
+   * fsetSrc_ because it can express a boundary inside a grid. */
+  const float3 *fsetSampleSrc_ = nullptr;
   Vector<Node> nodes_;
   Vector<int> rowNode_; // grid * side_ + cellRow -> node index
 };

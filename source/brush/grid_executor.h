@@ -12,10 +12,10 @@
  * Deliberately NOT a generalization of CommandExecutor: no dyntopo, no
  * meshlog, no attr overrides, no preview machinery. What it runs is whatever
  * the generated dispatch will instantiate here — there is no tool roster in
- * this file. A kernel is declined only for a missing capability (a `face`
- * stage with no face domain, an attr layer with no grid storage); those
- * brushes fall back to the materialized path. The dispatch rule is
- * supportsBrush(), engine-owned and derived from each kernel's own def.
+ * this file. A kernel is declined only for a missing capability (an attr layer
+ * with no grid storage); those brushes fall back to the materialized path. The
+ * dispatch rule is supportsBrush(), engine-owned and derived from each
+ * kernel's own def.
  *
  * Stroke shape: beginStep() → applyDab()* → endStep(). endStep folds the
  * stroke into the grids store via Multires::gridsWriteback, restricted to the
@@ -32,6 +32,7 @@
 
 #include "spatial/spatial.h"
 #include "subdiv/grid_domain.h"
+#include "subdiv/grid_draw_source.h"
 #include "subdiv/grid_stroke_log.h"
 #include "subdiv/grid_tree.h"
 #include "subdiv/multires.h"
@@ -81,7 +82,9 @@ struct GridCsrNbr {
 
 /** Undo-capture policy: first-touch leaf block snapshots into GridStrokeLog.
  * `No` saves are ignored (normals are derived state, refreshed after a seek);
- * face-domain saves likewise (no face state exists on the grids domain). */
+ * face-domain saves likewise — a face kernel's cells are a store channel, and
+ * every channel is captured at the fold, which is where the store is first
+ * written (a per-dab snapshot here would capture nothing). */
 struct GridCapturePolicy {
   template <mesh::ElemType Domain>
   static void capture(CommandCtxBase &ctx,
@@ -99,7 +102,8 @@ inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
                             std::span<const int> touched,
                             bool wroteCo,
                             bool wroteMask,
-                            std::span<GridAttrMirror *const> attrMirrors = {})
+                            std::span<GridAttrMirror *const> attrMirrors = {},
+                            std::span<const int> touchedGrids = {})
 {
   subdiv::Multires *mr = domain->multires();
   int level = domain->level();
@@ -139,13 +143,26 @@ inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
       domain->flushMaskToStore(touched);
     }
     for (GridAttrMirror *m : attrMirrors) {
-      if (!m->dirty || m->channel < 0) {
+      if (!m->dirty || m->channel < 0 || m->domain != subdiv::GridElemDomain::Vertex) {
         continue;
       }
       if (log) {
         log->captureGrids(gridSpan, m->channel);
       }
       gridAttrScatter(*m, domain, touched);
+    }
+  }
+  // Face mirrors ride the stroke's touched-*grid* set instead: a face stage
+  // moves no vertex, so the occurrence walk above has nothing to derive from.
+  if (touchedGrids.size() > 0) {
+    for (GridAttrMirror *m : attrMirrors) {
+      if (!m->dirty || m->channel < 0 || m->domain != subdiv::GridElemDomain::Face) {
+        continue;
+      }
+      if (log) {
+        log->captureGrids(touchedGrids, m->channel);
+      }
+      gridAttrScatterFace(*m, domain, touchedGrids);
     }
   }
   if (log) {
@@ -331,24 +348,135 @@ template <class AccMode> struct GridVertexIter {
   }
 };
 
+/** Per-cell iteration over a leaf's grids — the grids counterpart of
+ * BasicFaceIter. A GridTree leaf owns whole grids, so the S² quad cells of
+ * each are visited exactly once with no canonical-corner rule and no shared
+ * elements; `f` is the dense cell id gridAttrFaceIndex assigns, which is what
+ * a Face-domain mirror column is indexed by.
+ *
+ * FacePtr carries no CommandExecutor: the mesh version's `ctx` member is
+ * mesh-path state and no generated face kernel reads it. */
+struct GridFaceIter {
+  struct FacePtr {
+    int f;
+    float3 center;
+    float3 &no;
+    int indexInNode = 0;
+
+    FacePtr(int f_, float3 center_, float3 &no_) : f(f_), center(center_), no(no_)
+    {
+    }
+    FacePtr(const FacePtr &b) : f(b.f), center(b.center), no(b.no), indexInNode(b.indexInNode)
+    {
+    }
+  };
+
+  subdiv::GridLevelDomain *d = nullptr;
+  const Vector<int> *grids = nullptr;
+  int S = 0;
+  int cellsPerGrid = 0;
+  int idx = 0;
+  /** Declared before `ptrs`, which holds a reference to it — and rebound by
+   * every copy, so an iterator copy never points at the source's storage. */
+  float3 noStorage_ = float3(0.0f, 0.0f, 1.0f);
+  FacePtr ptrs;
+
+  /** Never create a face iter on a leaf with no grids (mirrors BasicFaceIter). */
+  GridFaceIter(subdiv::GridLevelDomain *d, const Vector<int> *grids)
+      : d(d), grids(grids), S(d->gridSide()), cellsPerGrid(d->gridSide() * d->gridSide()),
+        ptrs(0, float3(0.0f, 0.0f, 0.0f), noStorage_)
+  {
+    loadCell(0);
+  }
+
+  GridFaceIter(const GridFaceIter &b)
+      : d(b.d), grids(b.grids), S(b.S), cellsPerGrid(b.cellsPerGrid), idx(b.idx),
+        noStorage_(b.noStorage_), ptrs(b.ptrs.f, b.ptrs.center, noStorage_)
+  {
+    ptrs.indexInNode = b.ptrs.indexInNode;
+  }
+
+  int count() const
+  {
+    return int(grids->size()) * cellsPerGrid;
+  }
+
+  /** Centroid and geometric normal of cell `i` from the four lattice corners
+   * — the same cross-of-diagonals the domain's own normal fill uses. */
+  void loadCell(int i)
+  {
+    if (i >= count()) {
+      return;
+    }
+    const int g = (*grids)[i / cellsPerGrid];
+    const int cell = i % cellsPerGrid;
+    const int u = cell % S, v = cell / S;
+    const int w = S + 1;
+    const int *gv = d->gridVerts(g);
+    const float3 &a = d->pos()[gv[v * w + u]];
+    const float3 &b = d->pos()[gv[v * w + u + 1]];
+    const float3 &c = d->pos()[gv[(v + 1) * w + u + 1]];
+    const float3 &e = d->pos()[gv[(v + 1) * w + u]];
+    noStorage_ = (c - a).cross(e - b).normalized();
+    ptrs.~FacePtr();
+    new (&ptrs) FacePtr(gridAttrFaceIndex(g, u, v, S), (a + b + c + e) * 0.25f, noStorage_);
+  }
+
+  bool operator==(const GridFaceIter &b)
+  {
+    return idx == b.idx;
+  }
+  bool operator!=(const GridFaceIter &b)
+  {
+    return idx != b.idx;
+  }
+
+  FacePtr &operator*()
+  {
+    return ptrs;
+  }
+
+  GridFaceIter &operator++()
+  {
+    idx++;
+    loadCell(idx);
+    ptrs.indexInNode = idx;
+    return *this;
+  }
+
+  GridFaceIter begin()
+  {
+    GridFaceIter it(*this);
+    it.idx = 0;
+    it.loadCell(0);
+    it.ptrs.indexInNode = 0;
+    return it;
+  }
+
+  GridFaceIter end()
+  {
+    GridFaceIter it(*this);
+    it.idx = it.count();
+    return it;
+  }
+};
+
 struct GridBrushExecutor {
   using vertex_iter = GridVertexIter<AccumLive>;
   using vertex_iter_factory = std::function<vertex_iter(GridExecNode &)>;
-  /** Face-stage kernels are never instantiated for grids; the typedefs only
-   * satisfy the CommandTypes concept. */
-  using face_iter = BasicFaceIter;
-  using face_iter_factory = std::function<face_iter(spatial::SpatialNode &)>;
+  using face_iter = GridFaceIter;
+  using face_iter_factory = std::function<face_iter(GridExecNode &)>;
   using node_type = GridExecNode;
   using capture_policy = GridCapturePolicy;
-  /** A grid leaf owns verts, not faces — there is no face iterator to hand a
-   * `face` stage, so the generated registry does not instantiate one here and
-   * such a tool reports unsupported (see supportsBrush). Grid face elements
-   * are what plan phase P4 adds.
+  /** A GridTree leaf owns whole grids, so a `face` stage has an element to
+   * iterate: the S² quad cells of each (see GridFaceIter). Their per-cell
+   * values live in a Face-domain session channel of the grids store, which is
+   * what plan phase P4b added.
    *
    * Declared before brush_command: naming CommandCtx checks the CommandTypes
    * concept against a still-incomplete class, so anything the concept requires
    * has to be visible by then. */
-  static constexpr bool supportsFaceStages = false;
+  static constexpr bool supportsFaceStages = true;
   using brush_command = BrushCommandDef<CommandCtx<GridBrushExecutor>>;
 
   Brush *brush = nullptr;
@@ -469,6 +597,14 @@ struct GridBrushExecutor {
     for (int i = 0; i < int(leafTouched_.size()); i++) {
       leafTouched_[i] = 0;
     }
+    dabGrids_.clear();
+    strokeTouchedGrids_.clear();
+    dabGridStamp_.resize(d->gridCount());
+    strokeGridStamp_.resize(d->gridCount());
+    for (int i = 0; i < d->gridCount(); i++) {
+      dabGridStamp_[i] = 0;
+      strokeGridStamp_[i] = 0;
+    }
     if (log) {
       log->attach(d);
     }
@@ -482,9 +618,17 @@ struct GridBrushExecutor {
                                    ctx.dispVec, ctx.dispGen, ctx.strokeGen);
   }
 
-  // No makeFaceIter: supportsFaceStages == false keeps every face-stage kernel
-  // out of the generated dispatch, so a future one reaching this domain is a
-  // compile error rather than a runtime abort().
+  GridFaceIter makeFaceIter(GridExecNode &node)
+  {
+    return GridFaceIter(domain, &tree->leaves[node.leaf].grids);
+  }
+
+  /** Quad cells across the level — the size of a Face-domain mirror column,
+   * and one past the largest id GridFaceIter yields. */
+  int faceCount() const
+  {
+    return domain->gridCount() * domain->gridSide() * domain->gridSide();
+  }
 
   template <class Ctx> static float3 &nbrNo(Ctx &ctx, int v)
   {
@@ -533,12 +677,10 @@ struct GridBrushExecutor {
   /** Engine-owned dispatch rule: can this tool run grids-native? Everything
    * else falls back to the materialized-mesh path.
    *
-   * Both halves of the answer come from the kernel's own def, never from a tool
-   * list: the generated dispatch declines a `face` stage on a domain with no
-   * face iterator (supportsFaceStages), and an attr layer this domain cannot
-   * bind has no storage to write. The attr term is the one that widens as the
-   * grid attribute domains land; when nothing is left that can answer no, this
-   * becomes constant true. */
+   * The answer comes from the kernel's own def, never from a tool list: an
+   * attr layer this domain cannot bind has no storage to write. That term is
+   * the one that widens as the grid attribute domains land; when nothing is
+   * left that can answer no, this becomes constant true. */
   static bool supportsBrush(SculptBrushes brushType)
   {
     Brush scratch;
@@ -582,6 +724,7 @@ struct GridBrushExecutor {
     strokeGen = strokeSeq_;
     strokeTouchedVerts_.clear();
     strokeTouchedLeaves_.clear();
+    strokeTouchedGrids_.clear();
     for (int i = 0; i < int(leafTouched_.size()); i++) {
       leafTouched_[i] = 0;
     }
@@ -627,11 +770,14 @@ struct GridBrushExecutor {
 
     dabSeq_++;
     dabMoved_.clear();
+    dabGrids_.clear();
     execStage(cmd, origin, normal);
     finishDab();
 
     isFirstOfStep = false;
-    return int(dabMoved_.size());
+    // A face stage moves no vertex, so it reports its own unit: the grids it
+    // touched. Callers read this only as "did the dab land".
+    return dabMoved_.size() > 0 ? int(dabMoved_.size()) : int(dabGrids_.size());
   }
 
   /** One logical dab of a composite brush program — the grids mirror of
@@ -641,7 +787,8 @@ struct GridBrushExecutor {
    * after each stage, and normals/bounds refresh once at the end (the mesh
    * path never refreshes between entries — per-stage refresh would diverge).
    * Grab-class entries and attr-layer overrides are unsupported here.
-   * Returns the union moved-vert count across stages. */
+   * Returns the union moved-vert count across stages, or (when no stage moved
+   * a vertex, i.e. every stage was a face stage) the touched-grid count. */
   int applyProgram(BrushProgram *prog, float3 origin, float3 normal)
   {
     if (!prog || prog->commands.size() == 0) {
@@ -670,6 +817,7 @@ struct GridBrushExecutor {
 
     dabSeq_++;
     dabMoved_.clear();
+    dabGrids_.clear();
 
     for (auto &entry : prog->commands) {
       // Push the entry's sparse overrides onto the authored props, snapshot
@@ -711,7 +859,9 @@ struct GridBrushExecutor {
 
     finishDab();
     isFirstOfStep = false;
-    return int(dabMoved_.size());
+    // Same fallback as applyDab: a face-only program moves nothing, so it
+    // reports the grids it touched rather than reading as "the brush missed".
+    return dabMoved_.size() > 0 ? int(dabMoved_.size()) : int(dabGrids_.size());
   }
 
   /** Refresh the normals of every vert moved since the last flush (the
@@ -753,7 +903,9 @@ struct GridBrushExecutor {
                                          strokeTouchedVerts_.size()),
                     strokeWroteCo_, strokeWroteMask_,
                     std::span<GridAttrMirror *const>(attrMirrors_.items.data(),
-                                                     attrMirrors_.items.size()));
+                                                     attrMirrors_.items.size()),
+                    std::span<const int>(strokeTouchedGrids_.data(),
+                                         strokeTouchedGrids_.size()));
     stats.writebackMs +=
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
             .count();
@@ -767,6 +919,16 @@ struct GridBrushExecutor {
   const Vector<int> &strokeTouchedLeaves() const
   {
     return strokeTouchedLeaves_;
+  }
+  /** The stroke's / the last dab's touched grids — a face stage's unit, empty
+   * for every vertex kernel. */
+  const Vector<int> &strokeTouchedGrids() const
+  {
+    return strokeTouchedGrids_;
+  }
+  Vector<int> &lastDabGrids()
+  {
+    return dabGrids_;
   }
   /** The most recent dab's moved verts (deduped) — the per-dab mirror set.
    * Non-const: litestl Vector exposes no const data(). */
@@ -868,7 +1030,9 @@ private:
         // The channel must exist before the log captures its blocks.
         domain->ensureMaskChannel();
       }
-    } else {
+    } else if (!cmd.faceMode) {
+      // A face stage writes cells, never positions: claiming otherwise would
+      // send the fold through gridsWriteback over an empty touched-vert set.
       strokeWroteCo_ = true;
     }
 
@@ -979,10 +1143,12 @@ private:
 
     // The parallel kernel loop — leaves own disjoint vert sets, and
     // for_neighbor reads the Jacobi snapshot, so node order is free.
+    const bool faceStage = cmd.faceMode;
     task::parallel_for(util::IndexRange(nodePtrs_.size()), [&](util::IndexRange range) {
       for (int i : range) {
         GridExecNode *node = nodePtrs_[i];
-        if (tree->leaves[node->leaf].ownedVerts.size() == 0) {
+        const subdiv::GridTree::Leaf &leaf = tree->leaves[node->leaf];
+        if ((faceStage ? leaf.grids.size() : leaf.ownedVerts.size()) == 0) {
           continue;
         }
         CommandCtx<GridBrushExecutor> finalCtx(ctx, *node, *this, *brush);
@@ -997,6 +1163,22 @@ private:
     // caller-bumped dabSeq_ dedups, so a vert two stages touch appears once.
     bool wrote = false;
     for (GridExecNode *node : nodeSpan) {
+      if (faceStage && bool(node->flag)) {
+        // A face kernel has no affected-vert list to report through — it marks
+        // the leaf instead — and a leaf owns whole grids, so leaf granularity
+        // IS grid granularity. Generated face stages flag every leaf they
+        // iterate, so this over-marks a dab's rim; the query radius bounds it.
+        for (int g : tree->leaves[node->leaf].grids) {
+          if (dabGridStamp_[g] != dabSeq_) {
+            dabGridStamp_[g] = dabSeq_;
+            dabGrids_.append(g);
+            if (strokeGridStamp_[g] != strokeSeq_) {
+              strokeGridStamp_[g] = strokeSeq_;
+              strokeTouchedGrids_.append(g);
+            }
+          }
+        }
+      }
       if (node->affected_verts.size() > 0) {
         wrote = true;
         if (!leafTouched_[node->leaf]) {
@@ -1033,6 +1215,20 @@ private:
    * the mesh path refreshes per dab, never between entries). */
   void finishDab()
   {
+    // A face dab moves no vertex, so it publishes off its own touched-grid set
+    // and marks the draw source itself — the host's per-dab refresh has only
+    // the moved-vert set to go on.
+    if (dabGrids_.size() > 0) {
+      std::span<const int> gridSpan(dabGrids_.data(), dabGrids_.size());
+      for (GridAttrMirror *m : attrMirrors_.items) {
+        if (m->dirty && m->channel >= 0 && m->domain == subdiv::GridElemDomain::Face) {
+          gridAttrMirrorFaceToSamples(*m, domain, gridSpan, faceCellScratch_);
+        }
+      }
+      if (subdiv::GridDrawSource *ds = domain->multires()->drawSource()) {
+        ds->markGrids(gridSpan);
+      }
+    }
     if (dabMoved_.size() == 0) {
       return;
     }
@@ -1040,7 +1236,7 @@ private:
     // stroke at the fold — so an attr stroke publishes its dab here.
     std::span<const int> movedSpan(dabMoved_.data(), dabMoved_.size());
     for (GridAttrMirror *m : attrMirrors_.items) {
-      if (m->dirty && m->channel >= 0) {
+      if (m->dirty && m->channel >= 0 && m->domain == subdiv::GridElemDomain::Vertex) {
         gridAttrMirrorToSamples(*m, domain, movedSpan);
       }
     }
@@ -1107,9 +1303,9 @@ private:
 
   /** (Re)build `ctx.attrBindings` for this command. A read-only handle the
    * grids domain answers with zero gets the shared all-zero column; a written
-   * vertex layer gets a dense mirror over a session store channel, gathered
-   * once per step and scattered by the stroke-end fold. Both are lazy, so an
-   * attr-free session pays nothing; attach() drops the mirrors. */
+   * vertex or face layer gets a dense mirror over a session store channel,
+   * gathered once per step and scattered by the stroke-end fold. Both are
+   * lazy, so an attr-free session pays nothing; attach() drops the mirrors. */
   void ensureAttrBindings(const brush_command &cmd)
   {
     const bool session = gridAttrsEnabled();
@@ -1132,21 +1328,28 @@ private:
         attrBindings_.items.append(BrushAttrBinding{entry.handle, ref});
         continue;
       }
+      const bool faceLayer = entry.domain == AttrElemDomain::Face;
       GridAttrMirror *m = attrMirrors_.find(entry.handle);
       if (!m) {
         m = alloc::New<GridAttrMirror>("grid attr mirror");
         m->handle = entry.handle;
         m->layer = gridAttrLayerName(entry);
         m->type = entry.type;
+        m->domain = faceLayer ? subdiv::GridElemDomain::Face : subdiv::GridElemDomain::Vertex;
         m->floats = gridAttrTypeFloats(entry.type);
-        m->column = gridAttrNewColumn(entry.type, m->layer, vc);
+        m->column = gridAttrNewColumn(entry.type, m->layer,
+                                      faceLayer ? faceCount() : vc);
         attrMirrors_.items.append(m);
       }
       m->channel = gridAttrEnsureChannel(domain->multires(), *m, domain->level());
       if (m->gatheredFor != strokeSeq_) {
         // Per step, not per bind: an undo/redo between strokes swaps store
         // bytes behind the column's back.
-        gridAttrGather(*m, domain);
+        if (faceLayer) {
+          gridAttrGatherFace(*m, domain);
+        } else {
+          gridAttrGather(*m, domain);
+        }
         m->gatheredFor = strokeSeq_;
       }
       m->dirty = true;
@@ -1185,6 +1388,15 @@ private:
   Vector<int> dabMoved_;
   Vector<uint32_t> dabStamp_;
   uint32_t dabSeq_ = 0;
+  /** Face-stage touched sets, the grid-granular twins of dabMoved_ /
+   * strokeTouchedVerts_ (a leaf owns whole grids, so a face dab's unit is a
+   * grid). Empty for every vertex kernel. */
+  Vector<int> dabGrids_;
+  Vector<uint32_t> dabGridStamp_;
+  Vector<uint32_t> strokeGridStamp_;
+  Vector<int> strokeTouchedGrids_;
+  /** One grid's S² cells, reused by the per-dab face publish. */
+  Vector<int> faceCellScratch_;
 
   mesh::AttrData<float3> dispVec_{string(".grid.disp.vec"), 0};
   mesh::AttrData<int> dispGen_{string(".grid.disp.gen"), 0};

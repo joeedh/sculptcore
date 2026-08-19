@@ -343,6 +343,7 @@ void MultiresAttrs::invalidate(const string &name)
     }
   }
   fsetValid_ = false;
+  fsetSamplesValid_ = false;
   generation_++;
 }
 
@@ -352,6 +353,7 @@ void MultiresAttrs::invalidateAll()
     l.valid = false;
   }
   fsetValid_ = false;
+  fsetSamplesValid_ = false;
   generation_++;
 }
 
@@ -512,7 +514,17 @@ void MultiresAttrs::refreshSamplesFromChannel(const string &name,
                                               const int *gridIds,
                                               int count)
 {
-  GridAttrLayer *layer = mr_ ? findLayer(name) : nullptr;
+  if (!mr_) {
+    return;
+  }
+  const int storeCh = mr_->store.findChannel(name);
+  if (storeCh >= 0 && mr_->store.channelDomain(storeCh) == GridElemDomain::Face) {
+    // A face channel has no derived sample layer -- its draw consumer is the
+    // per-sample face-set color cache.
+    refreshFaceSetSampleColors(level, gridIds, count);
+    return;
+  }
+  GridAttrLayer *layer = findLayer(name);
   if (!layer || !layer->valid || layer->level != level) {
     return; // nothing built yet; the next samples() build overlays it whole
   }
@@ -546,6 +558,9 @@ bool MultiresAttrs::seedSessionChannel(int level, const string &name)
   const int chPre = store.findChannel(name);
   if (chPre >= 0 && store.channelLevelAllocated(level, chPre)) {
     return false;
+  }
+  if (chPre >= 0 && store.channelDomain(chPre) == GridElemDomain::Face) {
+    return seedFaceSessionChannel(level, name, chPre);
   }
   const float *src = samples(level, name, &comps);
   const int ch = sessionChannelFor(store, name, comps);
@@ -891,6 +906,152 @@ void MultiresAttrs::refreshFaceSetColors(const int *gridIds, int count)
     if (g >= 0 && g < int(fsetColors_.size())) {
       fsetColors_[g] = faceSetColor(gdata->safe_get(grids[g].face), cage->default_group_id);
     }
+  }
+}
+
+
+bool MultiresAttrs::seedFaceSessionChannel(int level, const string &name, int channel)
+{
+  mesh::Mesh *cage = mr_ ? mr_->cage() : nullptr;
+  GridsStore &store = mr_->store;
+  if (!cage || store.channelElemSize(channel) != 1) {
+    return false;
+  }
+  if (!cage->f.attrs.has(AttrType::INT, name)) {
+    // A cage that never carried face sets still has an implicit one -- the
+    // host's default group. Flood-fill it rather than seeding zeros, or the
+    // scatter would push "no group" onto every face the stroke missed.
+    if (strcmp(name.c_str(), "group") != 0) {
+      return false;
+    }
+    cage->ensureFaceGroups();
+  }
+  auto *fdata = cage->f.attrs.find_attribute(AttrType::INT, name).get_data<int>();
+  Vector<GridRef> grids;
+  buildGridRefs(*cage, grids);
+  if (int(grids.size()) != mr_->refiner.gridCount() || !fdata) {
+    return false;
+  }
+  const int S = mr_->refiner.levels[level - 1].gridSide;
+  for (int g = 0; g < int(grids.size()); g++) {
+    // A grid IS one cage corner, so every cell of it starts on that corner's
+    // face value -- the coarsest state the per-face scatter can round back to.
+    const int val = fdata->safe_get(grids[g].face);
+    for (int v = 0; v < S; v++) {
+      for (int u = 0; u < S; u++) {
+        std::memcpy(store.elem(level, channel, g, u, v), &val, sizeof(int));
+      }
+    }
+  }
+  return true;
+}
+
+namespace {
+
+/** The store's Face-domain session channel for `name`, or -1. */
+int faceSessionChannelFor(GridsStore &store, const litestl::util::string &name)
+{
+  const int ch = store.findChannel(name);
+  if (ch < 0 || store.channelPersist(ch) || store.channelElemSize(ch) != 1 ||
+      store.channelDomain(ch) != GridElemDomain::Face)
+  {
+    return -1;
+  }
+  return ch;
+}
+
+/** Average the face-set colors of sample (u, v)'s incident cells, clamped to
+ * the grid: within-grid only, which is what keeps a seam crisp (plan section 7). */
+float3 sampleColorFromCells(const int *cells, int S, int u, int v, int defaultGroup)
+{
+  float3 sum(0.0f, 0.0f, 0.0f);
+  int n = 0;
+  for (int dv = -1; dv <= 0; dv++) {
+    for (int du = -1; du <= 0; du++) {
+      const int cu = u + du, cv = v + dv;
+      if (cu < 0 || cv < 0 || cu >= S || cv >= S) {
+        continue;
+      }
+      sum += faceSetColor(cells[cv * S + cu], defaultGroup);
+      n++;
+    }
+  }
+  return n > 0 ? sum / float(n) : float3(1.0f, 1.0f, 1.0f);
+}
+
+} // namespace
+
+const float3 *MultiresAttrs::faceSetSampleColors(int level)
+{
+  mesh::Mesh *cage = mr_ ? mr_->cage() : nullptr;
+  if (!cage || level < 1 || level > mr_->maxLevel()) {
+    return nullptr;
+  }
+  GridsStore &store = mr_->store;
+  const int ch = faceSessionChannelFor(store, string("group"));
+  if (ch < 0 || !store.channelLevelAllocated(level, ch)) {
+    return nullptr; // no grids-native face paint here: the per-grid cache holds
+  }
+  const int S = mr_->refiner.levels[level - 1].gridSide;
+  const int w = S + 1;
+  const int gridCount = mr_->refiner.gridCount();
+  const size_t need = size_t(gridCount) * size_t(w) * size_t(w);
+  if (fsetSamplesValid_ && fsetSamplesLevel_ == level && fsetSamples_.size() == need) {
+    return fsetSamples_.data();
+  }
+  fsetSamples_.resize(need);
+  fsetSamplesLevel_ = level;
+  fsetSamplesValid_ = true;
+  Vector<int> cells;
+  cells.resize(size_t(S) * size_t(S));
+  for (int g = 0; g < gridCount; g++) {
+    std::memcpy(cells.data(), store.elem(level, ch, g, 0, 0), cells.size() * sizeof(int));
+    refreshFaceSetSampleColorsForGrid(level, g, cells.data());
+  }
+  return fsetSamples_.data();
+}
+
+void MultiresAttrs::refreshFaceSetSampleColorsForGrid(int level, int grid, const int *cells)
+{
+  mesh::Mesh *cage = mr_ ? mr_->cage() : nullptr;
+  if (!cage || !fsetSamplesValid_ || fsetSamplesLevel_ != level || grid < 0 ||
+      grid >= mr_->refiner.gridCount())
+  {
+    return;
+  }
+  const int S = mr_->refiner.levels[level - 1].gridSide;
+  const int w = S + 1;
+  if (fsetSamples_.size() < size_t(mr_->refiner.gridCount()) * size_t(w) * size_t(w)) {
+    return;
+  }
+  const int def = cage->default_group_id;
+  for (int v = 0; v <= S; v++) {
+    for (int u = 0; u <= S; u++) {
+      fsetSamples_[sampleIndex(grid, u, v, w)] = sampleColorFromCells(cells, S, u, v, def);
+    }
+  }
+}
+
+void MultiresAttrs::refreshFaceSetSampleColors(int level, const int *gridIds, int count)
+{
+  if (!mr_ || !fsetSamplesValid_ || fsetSamplesLevel_ != level) {
+    return; // nothing built yet; the next faceSetSampleColors() builds it whole
+  }
+  GridsStore &store = mr_->store;
+  const int ch = faceSessionChannelFor(store, string("group"));
+  if (ch < 0 || !store.channelLevelAllocated(level, ch)) {
+    return;
+  }
+  const int S = mr_->refiner.levels[level - 1].gridSide;
+  Vector<int> cells;
+  cells.resize(size_t(S) * size_t(S));
+  for (int i = 0; i < count; i++) {
+    const int g = gridIds[i];
+    if (g < 0 || g >= mr_->refiner.gridCount()) {
+      continue;
+    }
+    std::memcpy(cells.data(), store.elem(level, ch, g, 0, 0), cells.size() * sizeof(int));
+    refreshFaceSetSampleColorsForGrid(level, g, cells.data());
   }
 }
 

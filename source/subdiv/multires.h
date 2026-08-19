@@ -303,9 +303,13 @@ struct Multires {
    * leaving `out` empty, when the walk disagrees with the refiner's count. */
   bool gridCageFaces(litestl::util::Vector<int> &out);
 
-  /** Push a materialized level mesh's per-cell INT face attribute back down
-   * onto the cage — the inverse of #assignDerivedAttrs' stamp, and the only
-   * route home for a mesh-path edit to a derived face layer (face sets).
+  /** Push a level's per-cell INT face attribute back down onto the cage — the
+   * inverse of #assignDerivedAttrs' stamp, and the only route home for an edit
+   * to a derived face layer (face sets).
+   *
+   * The cells come from the grids store's Face-domain session channel of that
+   * name when one holds data for `level` (what a grids-native face stroke
+   * writes), and from the materialized level mesh otherwise.
    *
    * Blender writes a face set on multires to the whole base face, unweighted
    * (sculpt_face_set.cc), so the rule here is binary: a cage face takes the
@@ -317,7 +321,7 @@ struct Multires {
    *
    * Appends the grid ids of every changed face to `r_grids` (the draw source's
    * partial-refill list) and returns the number of cage faces changed. Creates
-   * the cage layer on first use. 0 when `level` is not resident. */
+   * the cage layer on first use. 0 when neither source has this level. */
   int scatterFaceIntToCage(int level, const char *name, litestl::util::Vector<int> &r_grids);
 
   /** #gridFaceInts for `material_index`. Callers treat a false return as every

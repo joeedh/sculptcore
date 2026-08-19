@@ -112,9 +112,9 @@ static constexpr int kLevel = 3;
  * annotations — NOT read back from supportsBrush, which is what it grades.
  *
  * GridBrushExecutor::supportsBrush keeps no tool list: a kernel is declined
- * only for a capability the domain lacks — a `face` stage (no face iterator on
- * a grid leaf) or an attr layer this domain cannot bind. `why` records which
- * one, so a mismatch below names the missing capability instead of just a bool.
+ * only for a capability the domain lacks, which is now exactly one thing — an
+ * attr layer this domain cannot bind. `why` records it, so a mismatch below
+ * names the missing capability instead of just a bool.
  *
  * Graded twice, with grid attribute channels off and on: `off` is the pre-P2
  * roster and must never move, `on` is what the session channels widen it to.
@@ -144,7 +144,7 @@ static void gateGridsRoster()
       {SculptBrushes::FILL, true, true, nullptr},
       {SculptBrushes::WINGSCRAPE, true, true, nullptr},
       {SculptBrushes::COLOR, false, true, "color attr layer"},
-      {SculptBrushes::POLYGROUP, false, false, "face stage"},
+      {SculptBrushes::POLYGROUP, false, true, "group attr layer"},
       {SculptBrushes::BSMOOTH, true, true, nullptr},
       {SculptBrushes::GRAB, true, true, nullptr},
       {SculptBrushes::SNAKEHOOK, true, true, nullptr},
@@ -171,14 +171,15 @@ static void gateGridsRoster()
                 g.why ? " — declined for: " : "", g.why ? g.why : "");
       }
       TASSERT(got == want);
-      // A face-stage kernel is declined by the generated dispatch itself, so it
-      // must not even build a def here (the attr loop never sees it).
+      // A face-stage kernel instantiates here like any other: the grids domain
+      // has a face iterator (GridFaceIter over each leaf's grids), so the
+      // generated dispatch builds its def and only the attr bind can decline it.
       if (builtinBrushFaceMode(id)) {
         Brush scratch;
         GridBrushExecutor::brush_command def;
         const bool handled =
             GridBrushExecutor::createCommandSwitch<AccumLive>(g.tool, &scratch, def);
-        TASSERT(!handled);
+        TASSERT(handled);
       }
     }
   }
@@ -1795,6 +1796,107 @@ int main()
       }
     }
     fprintf(stderr, "grid attr colour draw samples seeded + bit-exact through undo\n");
+
+    setGridAttrsEnabled(false);
+    restoreStore(mr, s0);
+  }
+
+  /* P4b: a face stage runs grids-native. Polygroup iterates each leaf's quad
+   * cells (GridFaceIter), writes a Face-domain session channel, publishes
+   * per-sample face-set colours per dab, restores bit-exactly through undo,
+   * and pushes down to the cage on demand. */
+  {
+    setGridAttrsEnabled(true);
+    restoreStore(mr, s0);
+    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::POLYGROUP));
+
+    cage->default_group_id = 1;
+    cage->ensureFaceGroups();
+    mr.gridAttrs().invalidateAll();
+    /* Nothing to sample from until a stroke allocates the channel -- the
+     * per-grid cache is still the whole truth. */
+    TASSERT(mr.gridAttrs().faceSetSampleColors(kLevel) == nullptr);
+
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    brush.activeGroup = 7;
+
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    GridStrokeLog log;
+    GridBrushExecutor ex(d, &brush, &log);
+    ex.beginStep();
+    ex.applyDab(SculptBrushes::POLYGROUP, float3(0, 0, 0.5f), float3(0, 0, 1));
+
+    const int gch = mr.store.findChannel(util::string("group"));
+    TASSERT(gch > 0);
+    TASSERT(!mr.store.channelPersist(gch));
+    TASSERT(mr.store.channelElemSize(gch) == 1);
+    TASSERT(mr.store.channelDomain(gch) == subdiv::GridElemDomain::Face);
+
+    const int S = mr.store.sideForLevel(kLevel);
+    const int w = S + 1;
+    const size_t nSamples = size_t(mr.store.gridCount()) * size_t(w) * size_t(w);
+
+    /* Per-dab publish: the draw path's per-sample colours moved before endStep
+     * folded anything, and they are not uniform -- a dab that covered every
+     * sample or none would prove nothing about the cell walk. */
+    int movedSamples = 0;
+    {
+      const float3 *live = mr.gridAttrs().faceSetSampleColors(kLevel);
+      TASSERT(live != nullptr);
+      for (size_t i = 0; i < nSamples; i++) {
+        movedSamples += live[i][0] != live[0][0] || live[i][1] != live[0][1] ||
+                        live[i][2] != live[0][2];
+      }
+    }
+    fprintf(stderr, "grid attr polygroup: %d of %d samples differ per dab\n",
+            movedSamples, int(nSamples));
+    TASSERT(movedSamples > 0);
+    ex.endStep();
+
+    /* The fold wrote cells, not verts: the group channel carries the active
+     * id where the dab landed. */
+    int painted = 0;
+    for (int g = 0; g < mr.store.gridCount(); g++) {
+      for (int v = 0; v < S; v++) {
+        for (int u = 0; u < S; u++) {
+          painted += *reinterpret_cast<const int *>(mr.store.elem(kLevel, gch, g, u, v)) == 7;
+        }
+      }
+    }
+    fprintf(stderr, "grid attr polygroup: %d cells set to the active group\n", painted);
+    TASSERT(painted > 0);
+
+    const std::string blobPost = storeBlob(mr.store);
+    TASSERT(log.undo());
+    for (int g = 0; g < mr.store.gridCount(); g++) {
+      for (int v = 0; v < S; v++) {
+        for (int u = 0; u < S; u++) {
+          TASSERT(*reinterpret_cast<const int *>(mr.store.elem(kLevel, gch, g, u, v)) == 1);
+        }
+      }
+    }
+    TASSERT(log.redo());
+    TASSERT(storeBlob(mr.store) == blobPost);
+    fprintf(stderr, "grid attr polygroup undo bit-exact\n");
+
+    /* The cage push reads the store (a grids-native stroke materializes no
+     * slot mesh), adopts the painted id per base face, and re-stamps every
+     * cell of that face so the next push sees no fresh disagreement. */
+    Vector<int> touched;
+    const int changedFaces = mr.scatterFaceIntToCage(kLevel, "group", touched);
+    fprintf(stderr, "grid attr polygroup: %d cage faces adopted the group\n", changedFaces);
+    TASSERT(changedFaces > 0);
+    TASSERT(touched.size() > 0);
+    auto *cgroup = cage->f.attrs.find_attribute(mesh::AttrType::INT, "group").get_data<int>();
+    TASSERT(cgroup != nullptr);
+    int cageSet = 0;
+    for (int fi : cage->f) {
+      cageSet += cgroup->safe_get(fi) == 7;
+    }
+    TASSERT(cageSet > 0);
+    Vector<int> again;
+    TASSERT(mr.scatterFaceIntToCage(kLevel, "group", again) == 0);
 
     setGridAttrsEnabled(false);
     restoreStore(mr, s0);
