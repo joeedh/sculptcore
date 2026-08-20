@@ -93,7 +93,6 @@ wasm_add_symbols("
   GridStroke_setDeferNormals
   GridStroke_flushNormals
   GridStroke_sync
-  GridStroke_syncMask
   Multires_hasGridDomain
   GridStroke_begin
   GridStroke_dab

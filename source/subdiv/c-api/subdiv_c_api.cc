@@ -131,6 +131,16 @@ int Multires_tuningStats(subdiv::Multires *mr, int level, int *out, int count)
   return n;
 }
 
+/** The store mask channel's monotonic content counter (Multires::
+ * maskGeneration). A host caching mask state (e.g. a slot mesh's mask column)
+ * compares this against the value it recorded at its last sync: unequal means
+ * the store moved underneath it and a re-read is due. Starts at 1, so a
+ * host-side cache initialized to 0 always refreshes on first use. */
+uint64_t Multires_maskGeneration(subdiv::Multires *mr)
+{
+  return mr ? mr->maskGeneration() : 0;
+}
+
 /** Copy the grid domain's dense mask into `out` (levelVertCount floats).
  * Builds the domain if needed (mask exchange implies the level is in use). */
 int Multires_readDomainMask(subdiv::Multires *mr, int level, float *out, int count)
@@ -565,6 +575,8 @@ int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
       }
     }
   }
+  // The restored channels replaced whatever mask content the store held.
+  mr->noteMaskChange();
   return 1;
 }
 

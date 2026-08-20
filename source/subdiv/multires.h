@@ -241,6 +241,23 @@ struct Multires {
     return domainGen_;
   }
 
+  /** Monotonic mask-content counter: bumped whenever the STORE's "mask"
+   * channel content changes — seed/edit flushes, raw channel writes, blob
+   * restore, down-propagation settles, level restacks. Hosts compare it
+   * against a cached value to know when a store->cache re-sync (e.g. the
+   * resident slot mesh's mask column) is due, instead of a push protocol. */
+  uint64_t maskGeneration() const
+  {
+    return maskGen_;
+  }
+
+  /** Record that the store's mask channel content moved (see
+   * maskGeneration()). Called by every mask-channel write path. */
+  void noteMaskChange()
+  {
+    maskGen_++;
+  }
+
   /** Whether `level`'s resident slot mesh is BEHIND the store (a grids fold
    * ran without a host mirror). While set, writeback(level) must not diff
    * the slot — the pre-stroke slot positions would read as fresh mesh-path
@@ -668,6 +685,7 @@ private:
   litestl::util::Vector<MultiresSlot> slots_;
   litestl::util::Vector<GridLevelDomain *> domains_; // [0] = level 1; sparse
   uint64_t domainGen_ = 0;                           // see domainGeneration()
+  uint64_t maskGen_ = 1;                             // see maskGeneration()
   uint32_t slotStaleMask_ = 0;                       // bit per level; see slotStale()
   GridDrawSource *drawSource_ = nullptr;             // registry-owned backref
   MultiresAttrs gridAttrs_{*this};

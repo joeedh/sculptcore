@@ -1644,6 +1644,7 @@ int Multires::propagateAttrsDown(int level)
     return 0;
   }
   int n = 0;
+  const int maskCh = store.findChannel(util::string(GridLevelDomain::kMaskChannelName));
   for (int c = 0; c < store.channelCount(); c++) {
     if (!store.channelLevelDebt(level, c)) {
       continue;
@@ -1654,6 +1655,14 @@ int Multires::propagateAttrsDown(int level)
     store.setChannelLevelDebt(level, c, false);
     if (moved && level - 1 >= 2) {
       store.setChannelLevelDebt(level - 1, c, true);
+    }
+    if (moved && c == maskCh) {
+      // The settle wrote level-1's store content; an alive domain there was
+      // built from the pre-settle store and its dense mirror is now stale.
+      if (hasGridDomain(level - 1)) {
+        gridDomain(level - 1)->syncMaskFromStore();
+      }
+      noteMaskChange();
     }
     n += moved ? 1 : 0;
   }
@@ -1757,6 +1766,7 @@ int Multires::addLevel()
   refiner.refine(*cage_, n);
   refiner.releaseMeshes();
   store.addLevel(); // zero-disp finest level for every channel (disp + layers)
+  noteMaskChange();
   posCache_.resize(n);
   // The fresh level is stencil(n-1) + zero disp, so level n-1 already knows its
   // surface exactly: nothing to push down.
@@ -1790,6 +1800,7 @@ int Multires::removeTopLevel()
   refiner.refine(*cage_, n);
   refiner.releaseMeshes();
   store.dropTopLevel();
+  noteMaskChange();
   posCache_.resize(n);
   // The dropped level's detail is gone with its displacement; so is its debt.
   downPropPending_.resize(n + 1);

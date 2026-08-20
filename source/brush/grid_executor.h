@@ -211,29 +211,6 @@ inline void gridsMirrorToSlot(subdiv::Multires *mr,
   mr->clearSlotStale(level);
 }
 
-/** Pull the paint mask from the resident slot mesh's `.spatial.v.mask` column
- * into the domain's dense mirror — the mesh column is the host-side mask
- * truth (flood fills, CD_GRID_PAINT_MASK import land there), and grids-path
- * kernels read the mirror. No-op without a resident slot (the store-channel
- * mirror from the domain build stands) or when the column was never created
- * (maskless sessions must not pay an O(level) copy per stroke). */
-inline void gridsSyncMaskFromSlot(subdiv::Multires *mr, int level)
-{
-  subdiv::MultiresSlot *slot = mr->findSlot(level);
-  if (!slot || !slot->mesh || !slot->tree) {
-    return;
-  }
-  mesh::AttrRef ref = slot->mesh->v.attrs.find_attribute(mesh::AttrType::FLOAT,
-                                                         ".spatial.v.mask");
-  if (!ref.exists() || !ref.data) {
-    return;
-  }
-  subdiv::GridLevelDomain *d = mr->gridDomain(level);
-  for (int v = 0; v < d->vertCount(); v++) {
-    d->mask[v] = slot->tree->treeMesh.v.mask[v];
-  }
-}
-
 /** Per-vertex iteration over a leaf's owned-vert list, binding the domain's
  * dense buffers — the grids counterpart of BasicVertexIter, sharing
  * CoProxy<AccMode, GridBrushExecutor> so AccumOrig/AccumOrigGrab work. */

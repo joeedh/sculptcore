@@ -296,6 +296,7 @@ void GridLevelDomain::flushMaskToStore()
       *mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]) = mask[v];
     }
   }
+  mr_->noteMaskChange();
   // Deliberately no noteAttrEdit: the whole-domain flush is the host SEEDING
   // this level from its own stored mask (Multires_writeDomainMask), not an edit
   // made here. Calling it a fine edit would push the seed down the stack on the
@@ -335,6 +336,7 @@ void GridLevelDomain::flushMaskToStore(std::span<const int> verts)
                                      std::span<const float>(deltas.data(), deltas.size()));
   mr_->noteAttrEdit(level_, ch);
   mr_->refreshFinerMaskMirrors(level_);
+  mr_->noteMaskChange();
 }
 
 GridTree *GridLevelDomain::ensureTree(int leafVertTarget)

@@ -41,6 +41,7 @@ test_init;
 extern "C" {
 uint8_t *Multires_serializeStore(sculptcore::subdiv::Multires *mr, int *out_size);
 int Multires_restoreStore(sculptcore::subdiv::Multires *mr, const uint8_t *data, int size);
+uint64_t Multires_maskGeneration(sculptcore::subdiv::Multires *mr);
 void freeMeshBuffer(uint8_t *buf);
 }
 
@@ -1464,6 +1465,117 @@ static void gateMaskEditPropagation()
   alloc::Delete(cage2);
 }
 
+/* MK4 (grids-native completion): the mask sync protocol. The store's mask
+ * channel is the one truth and Multires::maskGeneration() is how caches learn
+ * it moved: every content change — seed flush, edit flush, raw channel write,
+ * blob restore, down-propagation settle, level restack — bumps it, a non-mask
+ * channel write does not, and the settle also refreshes the coarser alive
+ * domain's dense mirror in place (hosts refetch the cached domain without a
+ * rebuild, so a stale mirror would survive a pointer-equal refetch). */
+static void gateMaskSyncProtocol()
+{
+  using subdiv::GridLevelDomain;
+
+  Mesh *cage = makeGrid(2);
+  Multires mr;
+  mr.init(*cage, 3);
+  auto &st = mr.store;
+  const int grids = st.gridCount();
+
+  /* Starts nonzero so a host cache initialized to 0 always refreshes. */
+  uint64_t gen = mr.maskGeneration();
+  test_assert(gen != 0);
+  test_assert(Multires_maskGeneration(&mr) == gen);
+  test_assert(Multires_maskGeneration(nullptr) == 0);
+
+  /* Seed flush bumps. */
+  GridLevelDomain *d3 = mr.gridDomain(3);
+  for (int v = 0; v < d3->vertCount(); v++) {
+    d3->mask[v] = 0.1f + 0.04f * float(v % 5);
+  }
+  d3->flushMaskToStore();
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  const int ch = st.findChannel(util::string(GridLevelDomain::kMaskChannelName));
+  test_assert(ch >= 0);
+
+  /* Edit flush bumps (and takes level-3 debt for the settle below). */
+  Vector<int> edited;
+  const int *gv = d3->gridVerts(0);
+  const int w3 = subdiv::GridsStore::elemWidth(3, subdiv::GridElemDomain::Vertex);
+  for (int i = 0; i < w3 * w3; i++) {
+    edited.append(gv[i]);
+  }
+  for (int i = 0; i < int(edited.size()); i++) {
+    d3->mask[edited[i]] = 0.6f + 0.01f * float(i % 9);
+  }
+  d3->flushMaskToStore(std::span<const int>(edited.data(), edited.size()));
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  test_assert(st.channelLevelDebt(3, ch));
+
+  /* Settle: the restriction moves level 2's store content underneath the
+   * alive domain there, whose mirror must be refreshed IN PLACE. */
+  GridLevelDomain *d2 = mr.gridDomain(2);
+  const uint64_t dgen = mr.domainGeneration();
+  test_assert(mr.propagateAttrsDown(3) > 0);
+  test_assert(mr.domainGeneration() == dgen); /* refreshed, not rebuilt */
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  int mirrorBad = 0, coarseMoved = 0;
+  for (int v = 0; v < d2->vertCount(); v++) {
+    auto occs = d2->occurrences(v);
+    mirrorBad += d2->mask[v] != *st.elem(2, ch, occs[0], occs[1], occs[2]) ? 1 : 0;
+    coarseMoved += d2->mask[v] != 0.0f ? 1 : 0;
+  }
+  test_assert(mirrorBad == 0);
+  test_assert(coarseMoved > 0);
+
+  /* Raw channel write on the mask channel bumps and re-mirrors the alive
+   * domain at the written level. */
+  const int perGrid = Multires_gridChannelGridFloats(&mr, 3, ch);
+  test_assert(perGrid == w3 * w3);
+  Vector<float> flat;
+  flat.resize(size_t(perGrid));
+  for (int i = 0; i < perGrid; i++) {
+    flat[i] = 0.75f;
+  }
+  test_assert(Multires_gridChannelWrite(&mr, 3, ch, 0, 1, flat.data(), perGrid) == perGrid);
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  int wrBad = 0;
+  for (int i = 0; i < w3 * w3; i++) {
+    wrBad += d3->mask[gv[i]] != 0.75f ? 1 : 0;
+  }
+  test_assert(wrBad == 0);
+
+  /* A non-mask channel write is not a mask change. */
+  const int sc = Multires_gridChannelEnsure(&mr, "scratch", 1, 0, int(AttrType::FLOAT), 1, 1);
+  test_assert(sc >= 0);
+  test_assert(Multires_gridChannelWrite(&mr, 3, sc, 0, 1, flat.data(), perGrid) == perGrid);
+  test_assert(mr.maskGeneration() == gen);
+
+  /* Blob restore replaced the channels: bump. */
+  int size = 0;
+  uint8_t *blob = Multires_serializeStore(&mr, &size);
+  test_assert(blob && size > 0);
+  test_assert(Multires_restoreStore(&mr, blob, size) == 1);
+  freeMeshBuffer(blob);
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+
+  /* Level restacks change the channel's level roster: bump both ways. */
+  mr.addLevel();
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  mr.removeTopLevel();
+  test_assert(mr.maskGeneration() > gen);
+
+  printf("mask sync protocol: %d grids, gen %llu\n", grids,
+         (unsigned long long)mr.maskGeneration());
+  alloc::Delete(cage);
+}
+
 int main(int argc, char **argv)
 {
   (void)argc;
@@ -1486,6 +1598,7 @@ int main(int argc, char **argv)
   gateResidentSlotFreshness();
   gateAttrDownPropagation();
   gateMaskEditPropagation();
+  gateMaskSyncProtocol();
 
   return test_end();
 }

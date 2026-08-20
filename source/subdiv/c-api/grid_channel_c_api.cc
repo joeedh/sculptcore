@@ -218,11 +218,13 @@ int Multires_gridChannelWrite(Multires *mr,
   // A raw store write bypasses the domain, whose dense mask mirror (what the
   // grid kernels and the draw source actually read) would keep the old
   // values: re-mirror an alive domain at this level.
-  if (mr->hasGridDomain(level) &&
-      mr->store.findChannel(litestl::util::string(
+  if (mr->store.findChannel(litestl::util::string(
           subdiv::GridLevelDomain::kMaskChannelName)) == channel)
   {
-    mr->gridDomain(level)->syncMaskFromStore();
+    if (mr->hasGridDomain(level)) {
+      mr->gridDomain(level)->syncMaskFromStore();
+    }
+    mr->noteMaskChange();
   }
   return total;
 }
