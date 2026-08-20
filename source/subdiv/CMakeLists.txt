@@ -49,6 +49,7 @@ wasm_add_symbols("
   Multires_writeDomainMask
   Multires_maskGeneration
   Multires_editDomainMask
+  Multires_settleAttrsDown
   Multires_activeMesh
   Multires_activeTree
   Multires_levelSampleCount

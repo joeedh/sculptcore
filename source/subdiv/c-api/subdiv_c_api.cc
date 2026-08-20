@@ -224,6 +224,29 @@ int Multires_editDomainMask(
   return count;
 }
 
+/** Settle pending grid-channel down-debt from `level` down to the active
+ * level, exactly as a downward level switch would (Multires::setActiveLevel).
+ * The host calls this after a Multires_editDomainMask at a level *finer* than
+ * the active one (undo of a level-tagged mask edit decodes at whatever level
+ * is active): the edit's coarse debt would otherwise wait for a level switch
+ * that passes down through `level`, leaving the active level's domain — and
+ * everything reading it — stale. Returns the number of channel settlements
+ * performed; a no-op when `level` is not above the active level or no level
+ * owes anything. */
+int Multires_settleAttrsDown(subdiv::Multires *mr, int level)
+{
+  if (!mr || level < 2 || level > mr->maxLevel()) {
+    return 0;
+  }
+  int n = 0;
+  for (int l = level; l > mr->activeLevel() && l >= 2; l--) {
+    if (mr->store.anyChannelLevelDebt(l)) {
+      n += mr->propagateAttrsDown(l);
+    }
+  }
+  return n;
+}
+
 /** The active level's materialized mesh / spatial tree — NON-OWNING views (the
  * stack owns both; never free them). Null when no level is active. */
 mesh::Mesh *Multires_activeMesh(subdiv::Multires *mr)
