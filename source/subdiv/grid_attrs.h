@@ -125,6 +125,12 @@ struct MultiresAttrs {
                              mesh::AttrType type,
                              mesh::AttrFlag flags) const;
 
+  /** Whether the multires has a live sculpt-layer edit target — an enabled
+   * settings row Multires::writebackChannel() attributes into. The condition
+   * under which a SCULPT_LAYER kernel write has somewhere to land
+   * (brush/grid_attr_bind.h). */
+  bool hasLayerEditTarget() const;
+
   // ---- derived layers ----
 
   /** Subdivided samples of the cage's active UV map at `level`, or null when

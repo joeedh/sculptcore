@@ -996,9 +996,10 @@ private:
     ctx.surfaceNo = normal;
     ctx.isFirstOfStep = isFirstOfStep;
 
-    // DSL attr manifest: each declared layer routes to a default column or a
-    // session store channel (grid_attr_bind.h).
+    // DSL attr manifest: each declared layer routes to a default column,
+    // sculpt-layer scratch, or a session store channel (grid_attr_bind.h).
     ctx.attrBindings = nullptr;
+    layerScratchActive_ = false;
     if (cmd.attrs.size() > 0) {
       ensureAttrBindings(cmd);
     }
@@ -1137,6 +1138,22 @@ private:
 
     cmd.execPost(ctx, nodeSpan);
     stats.kernelMs += msSince(t0);
+
+    // Sculpt-layer fold (the mesh path's LayerEditScope, per stage): the
+    // scratch holds this stage's delta, so co += w * delta over the written
+    // verts, then re-zero for the next stage or mirror image.
+    if (layerScratchActive_) {
+      subdiv::Multires *mr = domain->multires();
+      const int li = mr->editTarget();
+      const float lw = li >= 0 ? mr->layerWeight(li) : 0.0f;
+      for (GridExecNode *node : nodeSpan) {
+        for (int v : node->affected_verts) {
+          float3 &dv = layerScratch_[v];
+          domain->pos()[v] += dv * lw;
+          dv = float3(0.0f, 0.0f, 0.0f);
+        }
+      }
+    }
 
     // Fold the stage's writes into the logical dab's union: dabStamp_ vs the
     // caller-bumped dabSeq_ dedups, so a vert two stages touch appears once.
@@ -1306,6 +1323,19 @@ private:
         attrBindings_.items.append(BrushAttrBinding{entry.handle, ref});
         continue;
       }
+      if (kind == GridAttrPlanKind::LayerScratch) {
+        // Pages materialize zero and the stage fold re-zeros every write, so
+        // resize alone keeps the column all-zero between dabs.
+        if (layerScratch_.size() != vc) {
+          layerScratch_.resize(vc);
+        }
+        ref.data = &layerScratch_;
+        ref.name = gridAttrLayerName(entry);
+        ref.type = entry.type;
+        attrBindings_.items.append(BrushAttrBinding{entry.handle, ref});
+        layerScratchActive_ = true;
+        continue;
+      }
       const bool faceLayer = entry.domain == AttrElemDomain::Face;
       GridAttrMirror *m = attrMirrors_.find(entry.handle);
       if (!m) {
@@ -1384,6 +1414,10 @@ private:
   /** Shared all-zero column for read-only handles the grids domain answers
    * with zero (BSMOOTH/FEATURE_ALIGN's vclass; see ensureAttrBindings). */
   mesh::AttrData<int> zeroColumn_{string(".grid.attr.zero"), 0};
+  /** Sculpt-layer per-dab scratch (LayerScratch plan). All-zero between dabs
+   * by the stage fold's re-zero, so it never needs a per-dab reset. */
+  mesh::AttrData<float3> layerScratch_{string(".grid.slayer.scratch"), 0};
+  bool layerScratchActive_ = false;
   GridAttrMirrorSet attrMirrors_;
   BrushAttrBindings attrBindings_;
   Vector<float3> coPrevStorage_;

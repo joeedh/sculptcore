@@ -9,16 +9,20 @@
  *
  * The routing rule is metadata-only — it reads a BrushAttrManifestEntry, never
  * a tool name — so widening it widens the grids roster with no host or
- * executor conditional to edit. Three answers:
+ * executor conditional to edit. Four answers:
  *
  *  - DefaultColumn: a read-only handle whose zero value is a documented,
  *    correct default on this domain (BSMOOTH's vclass 0 = plain Laplacian).
  *    Binds an executor-owned all-zero column; no storage.
  *  - SessionChannel: a kernel-written vertex or face layer, backed by an
- *    Authored GridsStore channel plus the dense mirror below. Only a Host- or
- *    Temp-class layer gets here: declareHostAttr is what says the host can
- *    store grid-element data for it, and a Derived layer is a cache of the
- *    cage that a brush must reach through the cage instead (grid_attrs.h).
+ *    Authored GridsStore channel plus the dense mirror below. A Host- or
+ *    Temp-class layer: declareHostAttr is what says the host can store
+ *    grid-element data for it, and a Derived layer is a cache of the cage
+ *    that a brush must reach through the cage instead (grid_attrs.h).
+ *  - LayerScratch: a written SCULPT_LAYER handle under a live edit target —
+ *    executor-owned per-dab scratch the stage fold turns into co motion,
+ *    which the stroke-end writeback attributes into the target layer's own
+ *    channel (Multires::writebackChannel). No storage of its own.
  *  - Unbindable: the brush falls back to the materialized-mesh path.
  *
  * The mirror exists because kernels index a dense mesh::AttrData by element id
@@ -57,6 +61,7 @@ enum class GridAttrPlanKind : int {
   Unbindable = 0,
   DefaultColumn,
   SessionChannel,
+  LayerScratch,
 };
 
 /** Floats one element of `type` occupies in a store channel, or 0 if the
@@ -117,10 +122,15 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry,
     return GridAttrPlanKind::Unbindable;
   }
   if (int(entry.use) & int(mesh::AttrUse::SCULPT_LAYER)) {
-    // A sculpt-layer write is a delta the displace compositor folds into
-    // positions. The grids domain runs no compositor, so writing the layer
-    // alone would move nothing.
-    return GridAttrPlanKind::Unbindable;
+    // Per-dab scratch the executor folds into co; writeback then attributes
+    // the residual into the live edit target's channel. Without a target
+    // there is nowhere to attribute it -- decline, like the mesh path's
+    // LayerEditScope, which is inert without a settings row.
+    return (attrs && attrs->hasLayerEditTarget() &&
+            entry.domain == AttrElemDomain::Vertex &&
+            entry.type == mesh::AttrType::FLOAT3) ?
+               GridAttrPlanKind::LayerScratch :
+               GridAttrPlanKind::Unbindable;
   }
   if (attrs &&
       attrs->storageFor(gridAttrLayerName(entry), entry.type, mesh::AttrFlag::NONE) ==
