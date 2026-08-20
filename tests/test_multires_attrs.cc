@@ -18,8 +18,11 @@
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
+#include "brush/brush.h"
+#include "brush/cage_smooth.h"
 #include "subdiv/c-api/grid_channel_c_api.h"
 #include "subdiv/grid_attrs.h"
+#include "subdiv/grid_domain.h"
 #include "mesh/mesh_proxy.h"
 #include "subdiv/multires.h"
 #include "subdiv/subdiv.h"
@@ -40,6 +43,7 @@ test_init;
 extern "C" {
 uint8_t *Multires_serializeStore(sculptcore::subdiv::Multires *mr, int *out_size);
 int Multires_restoreStore(sculptcore::subdiv::Multires *mr, const uint8_t *data, int size);
+uint64_t Multires_maskGeneration(sculptcore::subdiv::Multires *mr);
 void freeMeshBuffer(uint8_t *buf);
 }
 
@@ -620,6 +624,155 @@ static bool sameColor(const float4 &a, const float4 &b)
 {
   return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
 }
+
+/** Euclidean RGBA distance -- the "moved toward the mean" metric below. */
+static float colorDist(const float4 &a, const float4 &b)
+{
+  float d = 0.0f;
+  for (int i = 0; i < 4; i++) {
+    d += (a[i] - b[i]) * (a[i] - b[i]);
+  }
+  return std::sqrt(d);
+}
+
+/* CS2's engine cage-dab entry (brush/cage_smooth.h): a colour-smoothing dab on
+ * a multires level runs the generated mesh kernel over the cage colour layer
+ * directly -- falloff in limit space, neighbours the cage 1-ring, masking from
+ * the store's mask channel -- and its epilogue re-derives the touched grids so
+ * the host's trailing scatter proposes nothing. */
+static void gateCageColorSmooth()
+{
+  using subdiv::GridLevelDomain;
+
+  Mesh *cage = makeGrid(2);
+  {
+    AttrRef &ref = cage->v.attrs.ensure(AttrType::FLOAT4, "color", /*materialize=*/true);
+    ref.use = AttrUse::COLOR;
+    auto *d = ref.get_data<float4>();
+    for (int v : cage->v) {
+      const float t = float(v + 1) / 16.0f;
+      (*d)[v] = float4(t, 1.0f - t, 0.5f, 1.0f);
+    }
+    /* The linear ramp is a fixed point of ring averaging at the centre vert;
+     * black it out so the smooth has somewhere to go. */
+    (*d)[4] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+  }
+  /* Lift one boundary corner: its cage and limit positions now disagree,
+   * which is the discriminator for the space the kernel's falloff reads. */
+  cage->v.co[0][2] = 1.5f;
+
+  Multires mr;
+  mr.init(*cage, 2);
+  const int level = 2, grids = mr.refiner.gridCount();
+  subdiv::MultiresSlot *slot = mr.setActiveLevel(level);
+  test_assert(slot && slot->mesh && slot->tree);
+  if (!slot || !slot->mesh || !slot->tree) {
+    alloc::Delete(cage);
+    return;
+  }
+  const subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
+  const int w = lvl.gridSide + 1;
+
+  Vector<int> gridVert;
+  test_assert(mr.gridCageVerts(gridVert) && int(gridVert.size()) == grids);
+  auto gridOf = [&](int v) {
+    for (int g = 0; g < grids; g++) {
+      if (gridVert[g] == v) {
+        return g;
+      }
+    }
+    return -1;
+  };
+  const int gC = gridOf(4), g0 = gridOf(0), g1 = gridOf(1);
+  test_assert(gC >= 0 && g0 >= 0 && g1 >= 0);
+
+  /* Mask one ring vert through the host's channel -- the route a session's
+   * paint masking actually arrives by. */
+  GridLevelDomain *dom = mr.gridDomain(level);
+  test_assert(dom != nullptr);
+  dom->mask[dom->gridVerts(g1)[0]] = 1.0f;
+  dom->flushMaskToStore();
+
+  auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+  test_assert(cageCol != nullptr);
+  float4 before[9];
+  for (int v = 0; v < 9; v++) {
+    before[v] = (*cageCol)[v];
+  }
+  float4 ringAvg(0.0f, 0.0f, 0.0f, 0.0f);
+  for (int v : {1, 3, 5, 7}) {
+    for (int i = 0; i < 4; i++) {
+      ringAvg[i] += 0.25f * before[v][i];
+    }
+  }
+
+  const float3 centre = slot->mesh->v.co[lvl.gridVerts[size_t(gC) * w * w]];
+  const float3 limit0 = slot->mesh->v.co[lvl.gridVerts[size_t(g0) * w * w]];
+
+  const uint64_t gen = mr.gridAttrs().generation();
+  const uint64_t cgen = mr.gridAttrs().cageGeneration();
+
+  brush::Brush b;
+  b.radius = 2.0f;
+  b.strength = 0.35f;
+  b.writeProps();
+  const int tool = int(brush::SculptBrushes::COLORSMOOTH);
+
+  {
+    brush::CageSmoothSession s(&mr, level, &b);
+    test_assert(s.begin("color"));
+
+    const float dabA[7] = {centre[0], centre[1], centre[2], 0.0f, 0.0f, 1.0f, 2.0f};
+    test_assert(s.dabBatch(tool, 1, dabA, 0.35f, false, 1.0f, false, nullptr, 0) > 0);
+
+    /* The centre moved toward its cage 1-ring's mean -- the four edge
+     * midpoints, not the grid lattice. */
+    test_assert(!sameColor((*cageCol)[4], before[4]));
+    test_assert(colorDist((*cageCol)[4], ringAvg) < colorDist(before[4], ringAvg));
+    /* Verts 1 and 7 sit at the same lattice distance: the unmasked one
+     * changed, the masked one held bit-still. */
+    test_assert(!sameColor((*cageCol)[7], before[7]));
+    test_assert(sameColor((*cageCol)[1], before[1]));
+
+    /* A dab centred on the lifted corner's limit position, with a radius
+     * shorter than the cage-to-limit gap, reaches the vert only if falloff
+     * read the swapped-in limit snapshot rather than cage->v.co. */
+    float gap = 0.0f;
+    for (int i = 0; i < 3; i++) {
+      gap += (cage->v.co[0][i] - limit0[i]) * (cage->v.co[0][i] - limit0[i]);
+    }
+    gap = std::sqrt(gap);
+    test_assert(gap > 0.2f);
+    const float4 corner0 = (*cageCol)[0];
+    const float dabB[7] = {limit0[0], limit0[1], limit0[2], 0.0f, 0.0f, 1.0f, 0.5f * gap};
+    test_assert(s.dabBatch(tool, 1, dabB, 0.5f, false, 1.0f, false, nullptr, 0) > 0);
+    test_assert(!sameColor((*cageCol)[0], corner0));
+
+    s.end();
+  }
+
+  /* The epilogue left every grid's (0, 0) sample a bit-exact copy of its cage
+   * vert, so the host's trailing scatter is a no-op instead of an overwrite of
+   * the kernel's fresh cage values with stale slot ones. */
+  const float4 *samples = mr.gridAttrs().colorSamples(level);
+  test_assert(samples != nullptr);
+  if (samples) {
+    for (int g = 0; g < grids; g++) {
+      test_assert(sameColor(samples[size_t(g) * w * w], (*cageCol)[gridVert[g]]));
+    }
+  }
+  Vector<int> tg;
+  test_assert(mr.scatterVertFloat4ToCage(level, "color", nullptr, 0, tg) == 0);
+
+  /* Kernel dabs are cage edits: no derived rebuild happened, and the cage
+   * stamp is what tells every other level to re-derive on the way in. */
+  test_assert(mr.gridAttrs().generation() == gen);
+  test_assert(mr.gridAttrs().cageGeneration() > cgen);
+
+  printf("cage colour smooth: %d grids\n", grids);
+  alloc::Delete(cage);
+}
+
 
 /* B2a's vertex-domain twin of gateCageScatter. Blender has no multires
  * attribute domain, so painted colour has to land somewhere in the object's own
@@ -1272,6 +1425,308 @@ static void gateAttrDownPropagation()
   alloc::Delete(cage);
 }
 
+/* Independent transcription of the seed 4-tap, run per grid on dense lattices
+ * (delta fields here) so the edit gate is not a snapshot of the code under
+ * test. */
+static void prolongRef(const Vector<float> &coarse, int wc, Vector<float> &fine, int wf)
+{
+  fine.resize(size_t(wf) * wf);
+  for (int v = 0; v < wf; v++) {
+    for (int u = 0; u < wf; u++) {
+      const int cu = u >> 1, cv = v >> 1, du = u & 1, dv = v & 1;
+      fine[size_t(v) * wf + u] = 0.25f * (coarse[size_t(cv) * wc + cu] +
+                                          coarse[size_t(cv) * wc + cu + du] +
+                                          coarse[size_t(cv + dv) * wc + cu] +
+                                          coarse[size_t(cv + dv) * wc + cu + du]);
+    }
+  }
+}
+
+/* MK1 (grids-native completion): the mask edit contract. A whole-domain flush
+ * is a SEED and reaches no other level; a touched-verts flush is an EDIT whose
+ * delta prolongates into every finer level (added onto authored detail, alive
+ * finer domains re-mirrored) while the level below takes down-debt. Plus the
+ * add/drop round trip and the seed-on-unallocated-finer branch. */
+static void gateMaskEditPropagation()
+{
+  using subdiv::GridElemDomain;
+  using subdiv::GridLevelDomain;
+
+  Mesh *cage = makeGrid(2);
+  Multires mr;
+  mr.init(*cage, 3);
+  auto &st = mr.store;
+  const int grids = st.gridCount();
+  const int w2 = subdiv::GridsStore::elemWidth(2, GridElemDomain::Vertex);
+  const int w3 = subdiv::GridsStore::elemWidth(3, GridElemDomain::Vertex);
+
+  /* Author fine-lattice detail at the top via the seed flush. */
+  GridLevelDomain *d3 = mr.gridDomain(3);
+  for (int v = 0; v < d3->vertCount(); v++) {
+    d3->mask[v] = 0.05f * float(v % 7);
+  }
+  d3->flushMaskToStore();
+  const int ch = st.findChannel(util::string(GridLevelDomain::kMaskChannelName));
+  test_assert(ch >= 0);
+  /* A seed reaches no other level and owes nothing. */
+  test_assert(!st.channelLevelAllocated(2, ch));
+  test_assert(!st.anyChannelLevelDebt(3) && !st.anyChannelLevelDebt(2));
+
+  Vector<float> top0;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        top0.append(*st.elem(3, ch, g, u, v));
+      }
+    }
+  }
+
+  /* Edit every slot of grid 0 at level 2 through the edit path. */
+  GridLevelDomain *d2 = mr.gridDomain(2);
+  const uint64_t gen = mr.domainGeneration();
+  Vector<int> edited;
+  const int *gv = d2->gridVerts(0);
+  for (int i = 0; i < w2 * w2; i++) {
+    edited.append(gv[i]);
+  }
+  for (int i = 0; i < int(edited.size()); i++) {
+    d2->mask[edited[i]] = 0.4f + 0.02f * float(i);
+  }
+  d2->flushMaskToStore(std::span<const int>(edited.data(), edited.size()));
+  test_assert(mr.domainGeneration() == gen); /* neither domain was rebuilt */
+  test_assert(st.channelLevelDebt(2, ch));
+
+  /* Reference: dense level-2 delta per grid (level 2 held zeros, so the delta
+   * is the new value, landed on every seam replica), prolonged one step. */
+  Vector<float> delta2;
+  delta2.resize(size_t(grids) * w2 * w2);
+  for (int i = 0; i < int(delta2.size()); i++) {
+    delta2[i] = 0.0f;
+  }
+  for (int i = 0; i < int(edited.size()); i++) {
+    auto occs = d2->occurrences(edited[i]);
+    for (size_t j = 0; j < occs.size(); j += 3) {
+      delta2[(size_t(occs[j]) * w2 + occs[j + 2]) * w2 + occs[j + 1]] = d2->mask[edited[i]];
+    }
+  }
+  Vector<float> gslice, fine;
+  gslice.resize(size_t(w2) * w2);
+  int bad = 0, moved = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int i = 0; i < w2 * w2; i++) {
+      gslice[i] = delta2[size_t(g) * w2 * w2 + i];
+    }
+    prolongRef(gslice, w2, fine, w3);
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        const float expect = top0[(size_t(g) * w3 + v) * w3 + u] + fine[size_t(v) * w3 + u];
+        const float got = *st.elem(3, ch, g, u, v);
+        bad += std::fabs(got - expect) > 1e-6f ? 1 : 0;
+        moved += fine[size_t(v) * w3 + u] != 0.0f ? 1 : 0;
+      }
+    }
+  }
+  test_assert(bad == 0);   /* detail + prolonged delta, everywhere */
+  test_assert(moved > 0);  /* the edit actually reached the top */
+
+  /* The alive finer domain re-mirrored the store. */
+  int mirrorBad = 0;
+  for (int v = 0; v < d3->vertCount(); v++) {
+    auto occs = d3->occurrences(v);
+    mirrorBad += d3->mask[v] != *st.elem(3, ch, occs[0], occs[1], occs[2]) ? 1 : 0;
+  }
+  test_assert(mirrorBad == 0);
+
+  /* A later SEED at level 2 still reaches no other level and notes nothing. */
+  st.setChannelLevelDebt(2, ch, false);
+  Vector<float> top1;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        top1.append(*st.elem(3, ch, g, u, v));
+      }
+    }
+  }
+  for (int v = 0; v < d2->vertCount(); v++) {
+    d2->mask[v] = 0.25f;
+  }
+  d2->flushMaskToStore();
+  int seedBad = 0, idx = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        seedBad += *st.elem(3, ch, g, u, v) != top1[idx++] ? 1 : 0;
+      }
+    }
+  }
+  test_assert(seedBad == 0);
+  test_assert(!st.channelLevelDebt(2, ch));
+
+  /* Add/drop round trip: the new top is prolonged on the way in, injected
+   * back on the way out — bit-identical at the level that survives. */
+  st.addLevel();
+  test_assert(st.channelLevelAllocated(4, ch));
+  st.dropTopLevel();
+  int rtBad = 0;
+  idx = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        rtBad += *st.elem(3, ch, g, u, v) != top1[idx++] ? 1 : 0;
+      }
+    }
+  }
+  test_assert(rtBad == 0);
+
+  /* An edit under a finer level nothing ever authored: the finer level seeds
+   * whole from the post-edit level below (its implicit zeros want exactly the
+   * prolongation), instead of keeping a delta-only ghost. */
+  Mesh *cage2 = makeGrid(2);
+  Multires m2;
+  m2.init(*cage2, 3);
+  auto &s2 = m2.store;
+  GridLevelDomain *e2 = m2.gridDomain(2);
+  Vector<int> ed2;
+  const int *gv2 = e2->gridVerts(1);
+  for (int i = 0; i < w2 * w2; i++) {
+    ed2.append(gv2[i]);
+  }
+  for (int i = 0; i < int(ed2.size()); i++) {
+    e2->mask[ed2[i]] = 0.1f + 0.03f * float(i);
+  }
+  e2->flushMaskToStore(std::span<const int>(ed2.data(), ed2.size()));
+  const int ch2 = s2.findChannel(util::string(GridLevelDomain::kMaskChannelName));
+  test_assert(ch2 >= 0 && s2.channelLevelAllocated(3, ch2));
+  int seed2Bad = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int i = 0; i < w2 * w2; i++) {
+      gslice[i] = *s2.elem(2, ch2, g, i % w2, i / w2);
+    }
+    prolongRef(gslice, w2, fine, w3);
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        seed2Bad += std::fabs(*s2.elem(3, ch2, g, u, v) - fine[size_t(v) * w3 + u]) > 1e-6f ? 1 : 0;
+      }
+    }
+  }
+  test_assert(seed2Bad == 0);
+
+  printf("mask edit propagation: %d grids, %d fine samples moved\n", grids, moved);
+  alloc::Delete(cage);
+  alloc::Delete(cage2);
+}
+
+/* MK4 (grids-native completion): the mask sync protocol. The store's mask
+ * channel is the one truth and Multires::maskGeneration() is how caches learn
+ * it moved: every content change — seed flush, edit flush, raw channel write,
+ * blob restore, down-propagation settle, level restack — bumps it, a non-mask
+ * channel write does not, and the settle also refreshes the coarser alive
+ * domain's dense mirror in place (hosts refetch the cached domain without a
+ * rebuild, so a stale mirror would survive a pointer-equal refetch). */
+static void gateMaskSyncProtocol()
+{
+  using subdiv::GridLevelDomain;
+
+  Mesh *cage = makeGrid(2);
+  Multires mr;
+  mr.init(*cage, 3);
+  auto &st = mr.store;
+  const int grids = st.gridCount();
+
+  /* Starts nonzero so a host cache initialized to 0 always refreshes. */
+  uint64_t gen = mr.maskGeneration();
+  test_assert(gen != 0);
+  test_assert(Multires_maskGeneration(&mr) == gen);
+  test_assert(Multires_maskGeneration(nullptr) == 0);
+
+  /* Seed flush bumps. */
+  GridLevelDomain *d3 = mr.gridDomain(3);
+  for (int v = 0; v < d3->vertCount(); v++) {
+    d3->mask[v] = 0.1f + 0.04f * float(v % 5);
+  }
+  d3->flushMaskToStore();
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  const int ch = st.findChannel(util::string(GridLevelDomain::kMaskChannelName));
+  test_assert(ch >= 0);
+
+  /* Edit flush bumps (and takes level-3 debt for the settle below). */
+  Vector<int> edited;
+  const int *gv = d3->gridVerts(0);
+  const int w3 = subdiv::GridsStore::elemWidth(3, subdiv::GridElemDomain::Vertex);
+  for (int i = 0; i < w3 * w3; i++) {
+    edited.append(gv[i]);
+  }
+  for (int i = 0; i < int(edited.size()); i++) {
+    d3->mask[edited[i]] = 0.6f + 0.01f * float(i % 9);
+  }
+  d3->flushMaskToStore(std::span<const int>(edited.data(), edited.size()));
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  test_assert(st.channelLevelDebt(3, ch));
+
+  /* Settle: the restriction moves level 2's store content underneath the
+   * alive domain there, whose mirror must be refreshed IN PLACE. */
+  GridLevelDomain *d2 = mr.gridDomain(2);
+  const uint64_t dgen = mr.domainGeneration();
+  test_assert(mr.propagateAttrsDown(3) > 0);
+  test_assert(mr.domainGeneration() == dgen); /* refreshed, not rebuilt */
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  int mirrorBad = 0, coarseMoved = 0;
+  for (int v = 0; v < d2->vertCount(); v++) {
+    auto occs = d2->occurrences(v);
+    mirrorBad += d2->mask[v] != *st.elem(2, ch, occs[0], occs[1], occs[2]) ? 1 : 0;
+    coarseMoved += d2->mask[v] != 0.0f ? 1 : 0;
+  }
+  test_assert(mirrorBad == 0);
+  test_assert(coarseMoved > 0);
+
+  /* Raw channel write on the mask channel bumps and re-mirrors the alive
+   * domain at the written level. */
+  const int perGrid = Multires_gridChannelGridFloats(&mr, 3, ch);
+  test_assert(perGrid == w3 * w3);
+  Vector<float> flat;
+  flat.resize(size_t(perGrid));
+  for (int i = 0; i < perGrid; i++) {
+    flat[i] = 0.75f;
+  }
+  test_assert(Multires_gridChannelWrite(&mr, 3, ch, 0, 1, flat.data(), perGrid) == perGrid);
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  int wrBad = 0;
+  for (int i = 0; i < w3 * w3; i++) {
+    wrBad += d3->mask[gv[i]] != 0.75f ? 1 : 0;
+  }
+  test_assert(wrBad == 0);
+
+  /* A non-mask channel write is not a mask change. */
+  const int sc = Multires_gridChannelEnsure(&mr, "scratch", 1, 0, int(AttrType::FLOAT), 1, 1);
+  test_assert(sc >= 0);
+  test_assert(Multires_gridChannelWrite(&mr, 3, sc, 0, 1, flat.data(), perGrid) == perGrid);
+  test_assert(mr.maskGeneration() == gen);
+
+  /* Blob restore replaced the channels: bump. */
+  int size = 0;
+  uint8_t *blob = Multires_serializeStore(&mr, &size);
+  test_assert(blob && size > 0);
+  test_assert(Multires_restoreStore(&mr, blob, size) == 1);
+  freeMeshBuffer(blob);
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+
+  /* Level restacks change the channel's level roster: bump both ways. */
+  mr.addLevel();
+  test_assert(mr.maskGeneration() > gen);
+  gen = mr.maskGeneration();
+  mr.removeTopLevel();
+  test_assert(mr.maskGeneration() > gen);
+
+  printf("mask sync protocol: %d grids, gen %llu\n", grids,
+         (unsigned long long)mr.maskGeneration());
+  alloc::Delete(cage);
+}
+
 int main(int argc, char **argv)
 {
   (void)argc;
@@ -1289,10 +1744,13 @@ int main(int argc, char **argv)
   gateInvalidation();
   gateCageScatter();
   gateCageVertScatter();
+  gateCageColorSmooth();
   gateSubFaceDabCollapse();
   gateChannelCapi();
   gateResidentSlotFreshness();
   gateAttrDownPropagation();
+  gateMaskEditPropagation();
+  gateMaskSyncProtocol();
 
   return test_end();
 }

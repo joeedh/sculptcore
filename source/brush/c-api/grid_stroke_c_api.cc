@@ -171,20 +171,6 @@ int GridStroke_sync(GridStrokeSession *s)
   return 1;
 }
 
-/** Pull the host-side mask (the slot mesh's mask column — flood fills,
- * imported grid masks) into the domain mirror grids kernels read. O(level);
- * the host calls it only when its mask state changed (a dirty flag), not per
- * stroke. */
-void GridStroke_syncMask(GridStrokeSession *s)
-{
-  if (s && GridStroke_sync(s)) {
-    brush::gridsSyncMaskFromSlot(s->mr, s->level);
-    if (subdiv::GridDrawSource *ds = s->mr->drawSource()) {
-      ds->markAllData();
-    }
-  }
-}
-
 int GridStroke_begin(GridStrokeSession *s)
 {
   if (!s || !GridStroke_sync(s)) {

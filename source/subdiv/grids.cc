@@ -330,6 +330,131 @@ bool GridsStore::restrictChannelDown(int channel, int level)
   return true;
 }
 
+void GridsStore::prolongateChannelEditUp(int channel,
+                                          int level,
+                                          std::span<const int> coords,
+                                          std::span<const float> deltas)
+{
+  if (channel < 0 || channel >= int(channels_.size()) || level < 1 || level >= levelCount_) {
+    return; // out of range, or nothing finer to carry the edit into
+  }
+  Channel &ch = channels_[channel];
+  if (ch.domain != GridElemDomain::Vertex || !interpolatableType(ch.type)) {
+    return; // no float math on a typed channel (restrictChannelDown's rule)
+  }
+  const int fpe = ch.floatsPerElem;
+  const int n = int(coords.size()) / 3;
+  if (!n || int(deltas.size()) < n * fpe) {
+    return;
+  }
+
+  // Bucket the touched slots per grid: the prolongation never crosses a grid,
+  // and the C0 seam invariant holds because every replica arrives as its own
+  // slot (occurrences()-shaped input) carrying the same delta.
+  Vector<int> counts, offsets, order;
+  counts.resize(gridCount_);
+  for (int g = 0; g < gridCount_; g++) {
+    counts[g] = 0;
+  }
+  for (int i = 0; i < n; i++) {
+    counts[coords[i * 3]]++;
+  }
+  offsets.resize(gridCount_ + 1);
+  offsets[0] = 0;
+  for (int g = 0; g < gridCount_; g++) {
+    offsets[g + 1] = offsets[g] + counts[g];
+    counts[g] = 0;
+  }
+  order.resize(n);
+  for (int i = 0; i < n; i++) {
+    const int g = coords[i * 3];
+    order[offsets[g] + counts[g]++] = i;
+  }
+  Vector<int> touched; // grids with at least one slot
+  for (int g = 0; g < gridCount_; g++) {
+    if (offsets[g + 1] > offsets[g]) {
+      touched.append(g);
+    }
+  }
+  const int nt = int(touched.size());
+
+  // Dense per-touched-grid delta lattices at the current chain level, plus the
+  // bounding box of the nonzero region so each level only walks what the edit
+  // can reach (the box grows [2b0-1, 2b1+1] per step — one 4-tap footprint).
+  int w = elemWidth(level, GridElemDomain::Vertex);
+  Vector<float> cur, next;
+  Vector<int> box; // per touched grid: u0, u1, v0, v1
+  cur.resize(size_t(nt) * w * w * fpe);
+  std::memset(cur.data(), 0, sizeof(float) * cur.size());
+  box.resize(size_t(nt) * 4);
+  for (int t = 0; t < nt; t++) {
+    const int g = touched[t];
+    int *b = &box[t * 4];
+    b[0] = w, b[1] = -1, b[2] = w, b[3] = -1;
+    float *dst = &cur[size_t(t) * w * w * fpe];
+    for (int j = offsets[g]; j < offsets[g + 1]; j++) {
+      const int i = order[j];
+      const int u = coords[i * 3 + 1], v = coords[i * 3 + 2];
+      for (int k = 0; k < fpe; k++) {
+        dst[(size_t(v) * w + u) * fpe + k] = deltas[size_t(i) * fpe + k];
+      }
+      b[0] = u < b[0] ? u : b[0];
+      b[1] = u > b[1] ? u : b[1];
+      b[2] = v < b[2] ? v : b[2];
+      b[3] = v > b[3] ? v : b[3];
+    }
+  }
+
+  for (int f = level + 1; f <= levelCount_; f++) {
+    const int wf = elemWidth(f, GridElemDomain::Vertex);
+    // A level nothing ever authored holds implicit zeros, and zeros plus a
+    // prolonged delta is just the prolongation of the (post-edit) level below
+    // -- seed it whole instead and skip the add; the delta chain continues.
+    const bool seeded = !channelLevelAllocated(f, channel);
+    if (seeded) {
+      seedLevelFromBelow(ch, f);
+    }
+    next.resize(size_t(nt) * wf * wf * fpe);
+    std::memset(next.data(), 0, sizeof(float) * next.size());
+    for (int t = 0; t < nt; t++) {
+      int *b = &box[t * 4];
+      if (b[1] < 0) {
+        continue; // this grid's deltas were all exact zeros
+      }
+      const int g = touched[t];
+      const int fu0 = b[0] * 2 - 1 < 0 ? 0 : b[0] * 2 - 1;
+      const int fu1 = b[1] * 2 + 1 > wf - 1 ? wf - 1 : b[1] * 2 + 1;
+      const int fv0 = b[2] * 2 - 1 < 0 ? 0 : b[2] * 2 - 1;
+      const int fv1 = b[3] * 2 + 1 > wf - 1 ? wf - 1 : b[3] * 2 + 1;
+      const float *src = &cur[size_t(t) * w * w * fpe];
+      float *dst = &next[size_t(t) * wf * wf * fpe];
+      for (int v = fv0; v <= fv1; v++) {
+        for (int u = fu0; u <= fu1; u++) {
+          // seedLevelFromBelow's 4-tap, run on the delta field (zeros outside
+          // the box, so off-box taps contribute nothing).
+          const int cu = u >> 1, cv = v >> 1;
+          const int du = u & 1, dv = v & 1;
+          const float *s00 = &src[(size_t(cv) * w + cu) * fpe];
+          const float *s10 = &src[(size_t(cv) * w + cu + du) * fpe];
+          const float *s01 = &src[(size_t(cv + dv) * w + cu) * fpe];
+          const float *s11 = &src[(size_t(cv + dv) * w + cu + du) * fpe];
+          float *out = &dst[(size_t(v) * wf + u) * fpe];
+          float *store = seeded ? nullptr : elemIn(ch, f, g, u, v);
+          for (int k = 0; k < fpe; k++) {
+            out[k] = 0.25f * (s00[k] + s10[k] + s01[k] + s11[k]);
+            if (store) {
+              store[k] += out[k];
+            }
+          }
+        }
+      }
+      b[0] = fu0, b[1] = fu1, b[2] = fv0, b[3] = fv1;
+    }
+    std::swap(cur, next);
+    w = wf;
+  }
+}
+
 float *GridsStore::elemIn(Channel &ch, int level, int grid, int u, int v)
 {
   LevelData &ld = ch.levels[level - 1];

@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -130,6 +131,16 @@ int Multires_tuningStats(subdiv::Multires *mr, int level, int *out, int count)
   return n;
 }
 
+/** The store mask channel's monotonic content counter (Multires::
+ * maskGeneration). A host caching mask state (e.g. a slot mesh's mask column)
+ * compares this against the value it recorded at its last sync: unequal means
+ * the store moved underneath it and a re-read is due. Starts at 1, so a
+ * host-side cache initialized to 0 always refreshes on first use. */
+uint64_t Multires_maskGeneration(subdiv::Multires *mr)
+{
+  return mr ? mr->maskGeneration() : 0;
+}
+
 /** Copy the grid domain's dense mask into `out` (levelVertCount floats).
  * Builds the domain if needed (mask exchange implies the level is in use). */
 int Multires_readDomainMask(subdiv::Multires *mr, int level, float *out, int count)
@@ -169,6 +180,71 @@ int Multires_writeDomainMask(subdiv::Multires *mr, int level, const float *value
     ds->markAllData();
   }
   return count;
+}
+
+/** Edit-flavored mask write: land `values` on `verts` of `level`'s domain and
+ * flush them as a user edit — the prolonged delta reaches every finer level,
+ * the level below takes down-propagation debt, and the touched grids are
+ * re-marked for draw. Multires_writeDomainMask above stays the propagation-free
+ * whole-domain SEED; mask ops (flood fill, filters, gestures) come through
+ * here instead. Returns `count`, or 0 on any invalid vert. */
+int Multires_editDomainMask(
+    subdiv::Multires *mr, int level, const int *verts, const float *values, int count)
+{
+  if (!mr || !verts || !values || count < 1 || level < 1 || level > mr->maxLevel()) {
+    return 0;
+  }
+  subdiv::GridLevelDomain *d = mr->gridDomain(level);
+  for (int i = 0; i < count; i++) {
+    if (verts[i] < 0 || verts[i] >= d->vertCount()) {
+      return 0;
+    }
+  }
+  d->ensureMaskChannel();
+  for (int i = 0; i < count; i++) {
+    d->mask[verts[i]] = values[i];
+  }
+  d->flushMaskToStore(std::span<const int>(verts, size_t(count)));
+  if (subdiv::GridDrawSource *ds = mr->drawSource()) {
+    litestl::util::Vector<uint8_t> seen;
+    seen.resize(d->gridCount());
+    std::memset(seen.data(), 0, size_t(d->gridCount()));
+    litestl::util::Vector<int> grids;
+    for (int i = 0; i < count; i++) {
+      auto occs = d->occurrences(verts[i]);
+      for (size_t j = 0; j < occs.size(); j += 3) {
+        if (!seen[occs[j]]) {
+          seen[occs[j]] = 1;
+          grids.append(occs[j]);
+        }
+      }
+    }
+    ds->markGrids(std::span<const int>(grids.data(), grids.size()));
+  }
+  return count;
+}
+
+/** Settle pending grid-channel down-debt from `level` down to the active
+ * level, exactly as a downward level switch would (Multires::setActiveLevel).
+ * The host calls this after a Multires_editDomainMask at a level *finer* than
+ * the active one (undo of a level-tagged mask edit decodes at whatever level
+ * is active): the edit's coarse debt would otherwise wait for a level switch
+ * that passes down through `level`, leaving the active level's domain — and
+ * everything reading it — stale. Returns the number of channel settlements
+ * performed; a no-op when `level` is not above the active level or no level
+ * owes anything. */
+int Multires_settleAttrsDown(subdiv::Multires *mr, int level)
+{
+  if (!mr || level < 2 || level > mr->maxLevel()) {
+    return 0;
+  }
+  int n = 0;
+  for (int l = level; l > mr->activeLevel() && l >= 2; l--) {
+    if (mr->store.anyChannelLevelDebt(l)) {
+      n += mr->propagateAttrsDown(l);
+    }
+  }
+  return n;
 }
 
 /** The active level's materialized mesh / spatial tree — NON-OWNING views (the
@@ -522,6 +598,8 @@ int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
       }
     }
   }
+  // The restored channels replaced whatever mask content the store held.
+  mr->noteMaskChange();
   return 1;
 }
 
@@ -705,5 +783,107 @@ int Multires_gridAttrSamplesOut(
   }
   memcpy(out, src, size_t(total) * sizeof(float));
   return total;
+}
+
+// Sculpt-layer stack surface (multires.h "Sculpt layers on the stack").
+// Mutators fold pending active-level edits first and rematerialize slots --
+// the caller must re-fetch every slot-derived pointer afterwards, exactly as
+// after a level switch.
+
+int Multires_layerAdd(subdiv::Multires *mr)
+{
+  return mr ? mr->layerAdd() : -1;
+}
+
+void Multires_layerRemove(subdiv::Multires *mr, int li)
+{
+  if (mr) {
+    mr->layerRemove(li);
+  }
+}
+
+void Multires_layerSetWeight(subdiv::Multires *mr, int li, float weight)
+{
+  if (mr) {
+    mr->layerSetWeight(li, weight);
+  }
+}
+
+void Multires_layerSetEnabled(subdiv::Multires *mr, int li, int enabled)
+{
+  if (mr) {
+    mr->layerSetEnabled(li, enabled);
+  }
+}
+
+void Multires_layerSetFrozen(subdiv::Multires *mr, int li, int frozen)
+{
+  if (mr) {
+    mr->layerSetFrozen(li, frozen);
+  }
+}
+
+int Multires_setEditTarget(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->setEditTarget(li) : -1;
+}
+
+int Multires_editTarget(subdiv::Multires *mr)
+{
+  return mr ? mr->editTarget() : -1;
+}
+
+int Multires_layerCount(subdiv::Multires *mr)
+{
+  return mr ? mr->layerCount() : 0;
+}
+
+float Multires_layerWeight(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->layerWeight(li) : 0.0f;
+}
+
+int Multires_layerEnabled(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->layerEnabled(li) : 0;
+}
+
+int Multires_layerFrozen(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->layerFrozen(li) : 0;
+}
+
+/** Snapshot every settings row's {weight, enabled, frozen} in row (== store
+ * channel) order: 3 floats per layer. Returns the floats needed; writes only
+ * when `count` holds them all. Pair with the store blob -- together they are
+ * the layer-op undo seam (multires.h layerRemove). */
+int Multires_layerTableOut(subdiv::Multires *mr, float *out, int count)
+{
+  if (!mr) {
+    return 0;
+  }
+  litestl::util::Vector<float> table;
+  mr->layerTableOut(table);
+  const int total = int(table.size());
+  if (out && count >= total) {
+    memcpy(out, table.data(), size_t(total) * sizeof(float));
+  }
+  return total;
+}
+
+/** Rebuild the settings rows from the store's channels 1..N with fields from
+ * a layerTableOut snapshot, then refresh levels. Clears the edit target --
+ * restore it separately. Slot pointers change; re-fetch. */
+void Multires_layerTableRestore(subdiv::Multires *mr, const float *table, int count)
+{
+  if (!mr || count < 0) {
+    return;
+  }
+  litestl::util::Vector<float> t;
+  t.resize(count);
+  if (count > 0 && table) {
+    memcpy(t.data(), table, size_t(count) * sizeof(float));
+  }
+  mr->layerTableRestore(t);
 }
 }

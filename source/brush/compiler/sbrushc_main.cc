@@ -528,6 +528,7 @@ int runBuiltinRegistryMode(const Args &args)
     e.stem = stemOf(p);
     e.usesNeighbor = brushUsesNeighborLoop(*brush);
     e.fullTopo = brush->isFullTopo;
+    e.gpu = brush->isGpu;
     e.faceStage = brushHasFaceStage(*brush);
     for (const auto &t : brush->tools) {
       e.tools.append(t);

@@ -48,13 +48,11 @@ struct GpuKernelInfo {
 /** Kernel-map lookup; null when the tool has no GPU kernel. */
 const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool);
 
-/** Replicate the brush's CPU-only `host` stage clamps (kelvinlet clampParams)
- * before packing uniforms. Mutates the brush like the C++ executor does. */
-void applyGpuHostClamps(SculptBrushes tool, Brush &brush);
-
 /** Pack the per-dab brush uniforms (binding 5). `nonaccum` is the raw
- * per-stroke request; it is gated on GpuKernelInfo::accumulable here. Runs
- * applyGpuHostClamps internally (hence the mutable brush). */
+ * per-stroke request; it is gated on GpuKernelInfo::accumulable here. The
+ * appended DSL uniforms (offset 72+) are written by the kernel's generated
+ * pack fn (builtinBrushGpuPack), which also applies the DSL @range clamps
+ * that mirror CPU-only host-stage clamps -- hence the mutable brush. */
 void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
                        ComputeBrushUniforms &out);
 

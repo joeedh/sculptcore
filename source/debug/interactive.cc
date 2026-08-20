@@ -344,7 +344,9 @@ bool InteractiveController::handle(const InputEvent &e)
           lmbDrag_ = DragMode::Orbit;
         } else {
           lmbDrag_ = DragMode::Stroke;
-          // Shift temporarily strokes with the smooth brush (mirrors the TS app):
+          // Shift temporarily strokes with the smooth brush (mirrors the TS
+          // app; deliberate per-tool site — host UI convention, not tool
+          // knowledge, so the switch audit keeps it):
           // override scene_->currentTool for the drag (both C++ and GPU dab paths
           // read it) and restore it in endStroke.
           savedTool_ = scene_->currentTool;

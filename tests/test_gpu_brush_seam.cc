@@ -96,11 +96,11 @@ static void runTest()
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_UVERTS_CHANGED) == 1);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_DAB_GEN) == 1);
 
-  // Layout pins (compute_layout.h): 96-byte brush uniforms with kelvinlet's
-  // mu/nu at 72/76 (nu host-clamped), 256-byte ctx uniforms (128-byte base incl.
-  // the view-normal params at 96) with grabFrom at 128, 256-float falloff LUT,
-  // 32-byte stroke samples.
-  test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_BRUSH_UNIFORMS) == 96);
+  // Layout pins (compute_layout.h): 112-byte brush uniforms with kelvinlet's
+  // mu/nu at 72/76 (nu host-clamped) and color's mixMode tail at 96, 256-byte
+  // ctx uniforms (128-byte base incl. the view-normal params at 96) with
+  // grabFrom at 128, 256-float falloff LUT, 32-byte stroke samples.
+  test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_BRUSH_UNIFORMS) == 112);
   test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_CTX_UNIFORMS) == 256);
   test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_FALLOFF_LUT) ==
               256 * int(sizeof(float)));

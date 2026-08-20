@@ -47,6 +47,7 @@
 
 #include <cstdint>
 #include <iosfwd>
+#include <span>
 
 namespace sculptcore::mesh {
 struct Mesh;
@@ -194,6 +195,21 @@ struct GridsStore {
    *
    * False (and nothing written) when `level` holds nothing authored. */
   bool restrictChannelDown(int channel, int level);
+
+  /** Carry an edit at `level` up into every finer level, in place. `coords`
+   * is the touched lattice slots as (grid, u, v) triples — every seam replica,
+   * the shape occurrences() hands back — and `deltas` the per-slot change
+   * (new - old, floatsPerElem floats per slot). Each finer level receives the
+   * 4-tap prolongation of the *delta* added onto what it already holds, so
+   * authored fine detail rides a coarse edit instead of being overwritten;
+   * a finer level nothing ever authored is instead seeded whole from the
+   * (post-edit) level below, which is the same answer its implicit zeros
+   * want. The down half of the edit contract stays restrictChannelDown debt.
+   * Interpolatable Vertex channels only; anything else is a no-op. */
+  void prolongateChannelEditUp(int channel,
+                               int level,
+                               std::span<const int> coords,
+                               std::span<const float> deltas);
 
   /** Whether `channel` owes level-1 the values it holds at `level` (see
    * LevelData::downPending). Out-of-range reads false / is ignored. */

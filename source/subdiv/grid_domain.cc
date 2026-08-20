@@ -251,7 +251,7 @@ void GridLevelDomain::refreshNormals(std::span<const int> touched)
   });
 }
 
-static constexpr const char *kMaskChannel = "mask";
+static constexpr const char *kMaskChannel = GridLevelDomain::kMaskChannelName;
 
 void GridLevelDomain::syncMaskFromStore()
 {
@@ -296,6 +296,7 @@ void GridLevelDomain::flushMaskToStore()
       *mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]) = mask[v];
     }
   }
+  mr_->noteMaskChange();
   // Deliberately no noteAttrEdit: the whole-domain flush is the host SEEDING
   // this level from its own stored mask (Multires_writeDomainMask), not an edit
   // made here. Calling it a fine edit would push the seed down the stack on the
@@ -307,15 +308,35 @@ void GridLevelDomain::flushMaskToStore(std::span<const int> verts)
 {
   int ch = ensureMaskChannel();
   mr_->store.ensureLevelResident(level_);
+  // Delta capture rides the write: the finer levels take new - old added onto
+  // their own content (authored fine detail survives a coarse edit), so each
+  // replica's previous value is read just before it is overwritten.
+  Vector<int> coords;
+  Vector<float> deltas;
   for (int v : verts) {
     auto occs = occurrences(v);
     for (size_t i = 0; i < occs.size(); i += 3) {
-      *mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]) = mask[v];
+      float *dst = mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]);
+      const float d = mask[v] - *dst;
+      *dst = mask[v];
+      if (d != 0.0f) {
+        coords.append(occs[i]);
+        coords.append(occs[i + 1]);
+        coords.append(occs[i + 2]);
+        deltas.append(d);
+      }
     }
   }
-  // The touched-verts overload IS the edit: a stroke folds its dab through
-  // here, so the level below owes an update (Multires::propagateAttrsDown).
+  // The touched-verts overload IS the edit: finer levels take the prolonged
+  // delta now, the level below owes an update on the next level switch
+  // (Multires::propagateAttrsDown), and alive finer domains re-mirror.
+  mr_->store.prolongateChannelEditUp(ch,
+                                     level_,
+                                     std::span<const int>(coords.data(), coords.size()),
+                                     std::span<const float>(deltas.data(), deltas.size()));
   mr_->noteAttrEdit(level_, ch);
+  mr_->refreshFinerMaskMirrors(level_);
+  mr_->noteMaskChange();
 }
 
 GridTree *GridLevelDomain::ensureTree(int leafVertTarget)

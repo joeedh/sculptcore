@@ -56,6 +56,8 @@ set(SRC
 
 sc_add_library(mesh "${SRC}" "${LIB}" STATIC)
 wasm_add_symbols("
+  Mesh_sculptLayerAdd
+  Mesh_sculptLayerCount
   getAttrs
   getAttrName
   getAttr

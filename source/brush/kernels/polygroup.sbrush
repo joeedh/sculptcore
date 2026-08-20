@@ -5,6 +5,7 @@
 // value here.
 @brush("polygroup")
 @tool POLYGROUP
+@gpu
 @paint
 brush PolyGroup {
   attr face int group @use(polygroup);

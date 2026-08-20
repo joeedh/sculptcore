@@ -154,9 +154,10 @@ That's it for CPU. `node make.mjs codegen` then build.
 
 ## Part B — also dispatching on GPU
 
-If the brush has a `runBrushStrokeGPU` case (participates in `sbrush-verify` /
-real WebGPU), the field has to cross the host→GPU uniform seam. The emitter side
-is free; the host side is not.
+If the kernel declares `@gpu` (which is what makes a tool participate in
+`sbrush-verify` / real WebGPU dispatch), the field has to cross the host→GPU
+uniform seam. For a `uniform` the whole seam is generated; only `ctx` state
+still needs hand-written host code.
 
 ### B1. (automatic) The emitter spills the field into the uniform block
 
@@ -175,17 +176,23 @@ References lower to `brush_u.X` / `ctx_u.X`. `Array<T,N>` becomes
 `array<T,N>` (note: `array<vec3<f32>,N>` has **stride 16** in uniform address
 space). You don't edit this file — `codegen` regenerates it.
 
-### B2. (manual) Mirror the field in the host struct
+### B2. Mirror the field — generated for `uniform`, manual for `ctx`
 
-Add the field to the matching mirror in `source/brush/compute_layout.h`,
-**with explicit std140 padding that matches the WGSL layout**:
-
-- `uniform` → `struct ComputeBrushUniforms` (binding 5)
-- `ctx` → `struct ComputeCtxUniforms` (binding 6)
-
-These structs are the single source of truth shared by both GPU backends
-(`vk_compute`, `wgpu_compute`), so the offsets must match the shader exactly,
-independent of the C++ ABI.
+- `uniform` → **nothing to write.** `struct ComputeBrushUniforms`
+  (`source/brush/compute_layout.h`, binding 5) ends in an opaque
+  `unsigned char appended[40]` tail at offset 72, and codegen emits a
+  per-kernel `pack<Name>GpuUniforms(Brush &, unsigned char *)` into
+  `kernels/generated/<name>.brush.gen.h` that copies each declared `uniform`
+  at the offset its WGSL `BrushUniforms` block implies — std140 alignment
+  included. The marshal dispatches it through
+  `command::builtinBrushGpuPack(int(tool))`, and any `@range` bounds are
+  applied there as marshal-local clamps (the `Brush` member keeps what the
+  host set). `tests/test_gpu_uniform_pack.cc` grades the emission
+  byte-for-byte.
+- `ctx` → still manual: add the field to `struct ComputeCtxUniforms`
+  (binding 6), **with explicit std140 padding that matches the WGSL layout**.
+  This struct is shared by both GPU backends (`vk_compute`, `wgpu_compute`),
+  so the offsets must match the shader exactly, independent of the C++ ABI.
 
 **std140 cheat-sheet** (the rules you'll actually hit):
 
@@ -204,29 +211,21 @@ boundary.** Enums widen from the C++ `u8`/`int` to `u32` on the GPU. The
 existing `_pad0/_pad1` members and offset comments in `compute_layout.h` are the
 worked reference.
 
-### B3. (manual) Fill the field in the marshal
+### B3. (manual, `ctx` only) Fill the field in the marshal
 
-The per-dab marshal that populates these structs lives in `GpuStrokeSession`
-(`source/debug/gpu_stroke.cc`) — the `bu.* = scene.brush.*` / `cu.* = …` block.
-The vk/wgpu dispatchers only `memcpy` the already-filled structs, so this is the
-**one** place to add the copy:
+The `uniform` half of the marshal is the generated pack from B2 — there is no
+fill to write. `ctx` state is filled by `packCtxUniforms`
+(`source/brush/gpu_marshal.cc`), whose per-tool tail (grab-mode stroke state)
+is the one deliberately hand-written per-tool site left in the marshal:
 
 ```cpp
-bu.pinchFactor = scene.brush.pinchFactor;        // BrushUniforms
-// or, for ctx state:
-cu.global.myBrush.foo = scene.brush.foo;          // CtxUniforms tail
+cu.global.myBrush.foo = brush.foo;          // CtxUniforms tail
 ```
 
 Per-kernel `ctx` tails that don't fit the common 96-byte base are overlaid in a
 `union` in `ComputeCtxUniforms` (kelvinlet's grab vectors vs. pose's cage) —
 only one kernel is live per dispatch. If your new ctx state is brush-specific,
 add a `struct` arm to that union rather than growing the base block.
-
-> **Cautionary tale — std140 is unforgiving.** `polygroup`'s `activeGroup`
-> aliases kelvinlet's `mu` slot (offset 72, the first post-fixed field) via a
-> bit-reinterpret, pinned by a `static_assert` in `gpu_stroke.cc`. It works only
-> because the two brushes are mutually exclusive. Don't imitate this for a new
-> field — give it its own named, padded slot.
 
 ### B4. Regenerate, build, verify
 

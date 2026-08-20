@@ -224,6 +224,13 @@ struct Multires {
     return level >= 1 && level <= int(domains_.size()) && domains_[level - 1] != nullptr;
   }
 
+  /** Re-mirror the "mask" store channel into every alive domain finer than
+   * `aboveLevel` — the read-side of an edit's upward prolongation
+   * (GridsStore::prolongateChannelEditUp). Domains at or below `aboveLevel`
+   * are untouched: the edited level's own mirror is the write's source, and
+   * coarser levels move later, through down-propagation debt. */
+  void refreshFinerMaskMirrors(int aboveLevel);
+
   /** Monotonic domain lifecycle counter: bumped on every domain build and
    * every drop. Consumers that cache a `GridLevelDomain *` MUST compare this,
    * not the pointer — a drop + rebuild routinely reuses the same allocation
@@ -232,6 +239,23 @@ struct Multires {
   uint64_t domainGeneration() const
   {
     return domainGen_;
+  }
+
+  /** Monotonic mask-content counter: bumped whenever the STORE's "mask"
+   * channel content changes — seed/edit flushes, raw channel writes, blob
+   * restore, down-propagation settles, level restacks. Hosts compare it
+   * against a cached value to know when a store->cache re-sync (e.g. the
+   * resident slot mesh's mask column) is due, instead of a push protocol. */
+  uint64_t maskGeneration() const
+  {
+    return maskGen_;
+  }
+
+  /** Record that the store's mask channel content moved (see
+   * maskGeneration()). Called by every mask-channel write path. */
+  void noteMaskChange()
+  {
+    maskGen_++;
   }
 
   /** Whether `level`'s resident slot mesh is BEHIND the store (a grids fold
@@ -416,6 +440,14 @@ struct Multires {
    * slot carries no such attribute. */
   void stampSlotVertFloat4(int level, const char *name, const int *gridIds, int count);
 
+  /** The grids `dabs` (4 floats each, object-space {x, y, z, radius}) reach at
+   * `level`, appended to `out` without duplicates. Uses the level slot's own
+   * spatial tree — the one the stroke just walked — and the grid-major cell
+   * layout of its mesh, so a grid id is a leaf face id divided by S². Leaves
+   * `out` alone when the slot, its tree or that layout is missing. Public for
+   * the brush module's cage-dab visit set (brush/cage_smooth.h). */
+  void dabGrids(int level, const float *dabs, int dabCount, litestl::util::Vector<int> &out);
+
   /** #gridFaceInts for `material_index`. Callers treat a false return as every
    * face being material 0, which is what both draw paths default to. */
   bool gridMaterials(litestl::util::Vector<int> &out);
@@ -578,12 +610,6 @@ private:
   /** The store channel backing settings row `li`, or -1. */
   int channelForLayer(int li) const;
 
-  /** The grids `dabs` (4 floats each, object-space {x, y, z, radius}) reach at
-   * `level`, appended to `out` without duplicates. Uses the level slot's own
-   * spatial tree — the one the stroke just walked — and the grid-major cell
-   * layout of its mesh, so a grid id is a leaf face id divided by S². Leaves
-   * `out` alone when the slot, its tree or that layout is missing. */
-  void dabGrids(int level, const float *dabs, int dabCount, litestl::util::Vector<int> &out);
   /** Drop every cached chain + resident slot and rematerialize the active
    * level (composite changed). Does NOT write back — callers fold first. */
   void refreshAfterLayerChange();
@@ -661,6 +687,7 @@ private:
   litestl::util::Vector<MultiresSlot> slots_;
   litestl::util::Vector<GridLevelDomain *> domains_; // [0] = level 1; sparse
   uint64_t domainGen_ = 0;                           // see domainGeneration()
+  uint64_t maskGen_ = 1;                             // see maskGeneration()
   uint32_t slotStaleMask_ = 0;                       // bit per level; see slotStale()
   GridDrawSource *drawSource_ = nullptr;             // registry-owned backref
   MultiresAttrs gridAttrs_{*this};

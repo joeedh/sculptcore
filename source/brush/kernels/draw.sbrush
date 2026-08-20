@@ -3,6 +3,7 @@
 
 @brush("draw")
 @tool DRAW
+@gpu
 brush Draw {
   ctx float3 surfaceNo;
   uniform float radius;

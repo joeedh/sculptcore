@@ -326,6 +326,20 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
     h += string("    \"") + kernels[owner[i]].stem + "\",\n";
   }
   h += "};\n\n";
+  h += "/** The WGSL/SPIR-V kernel stem a tool runs on the GPU (`@gpu` on the\n";
+  h += " * kernel), or null for a CPU-only tool. gpu_marshal.cc's gpuKernelForTool\n";
+  h += " * consumes this: lighting a brush up on the GPU is `@gpu` in its .sbrush\n";
+  h += " * and nothing else. */\n";
+  h += string("inline constexpr const char *kBuiltinBrushGpuKernel[") +
+       itoa((int)toolIds.size()) + "] = {\n";
+  for (int i = 0; i < (int)toolIds.size(); i++) {
+    if (kernels[owner[i]].gpu) {
+      h += string("    \"") + kernels[owner[i]].stem + "\", // " + toolIds[i] + "\n";
+    } else {
+      h += string("    nullptr, // ") + toolIds[i] + "\n";
+    }
+  }
+  h += "};\n\n";
   h += "/** True when the kernel has a `for_neighbor` loop, i.e. it is instantiated\n";
   h += " * against a neighbor source and reads neighbors during the dab. */\n";
   h += "inline bool builtinBrushUsesForNeighbor(int id)\n{\n";
@@ -428,6 +442,26 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
     }
   }
   h += "  default:\n    return false;\n  }\n";
+  h += "}\n\n";
+
+  h += "/** Dispatch a built-in brush id to its kernel's generated GPU\n";
+  h += " * appended-uniform marshal (pack<Kernel>GpuUniforms). Total over the\n";
+  h += " * built-in ids -- kernels that append nothing have an empty pack fn --\n";
+  h += " * and null past them, so gpu_marshal's caller needs no roster. */\n";
+  h += "using BrushGpuPackFn = void (*)(sculptcore::brush::Brush &, unsigned char *);\n";
+  h += "inline BrushGpuPackFn builtinBrushGpuPack(int id)\n";
+  h += "{\n";
+  h += "  switch (id) {\n";
+  for (int u : used) {
+    const BuiltinEntry &e = kernels[u];
+    for (int i = 0; i < (int)toolIds.size(); i++) {
+      if (owner[i] == u) {
+        h += string("  case ") + itoa(i) + ": // " + toolIds[i] + "\n";
+      }
+    }
+    h += string("    return pack") + capCopy(e.stem) + "GpuUniforms;\n";
+  }
+  h += "  default:\n    return nullptr;\n  }\n";
   h += "}\n\n";
   h += "} // namespace sculptcore::brush::command\n";
 

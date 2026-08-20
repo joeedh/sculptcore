@@ -302,6 +302,11 @@ void MultiresAttrs::clearHostAttrs()
   hostAttrs_.clear();
 }
 
+bool MultiresAttrs::hasLayerEditTarget() const
+{
+  return mr_->writebackChannel() > 0;
+}
+
 GridAttrStorage MultiresAttrs::storageFor(const string &name,
                                           AttrType type,
                                           mesh::AttrFlag flags) const

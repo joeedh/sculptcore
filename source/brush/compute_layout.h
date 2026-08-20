@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace sculptcore::brush {
@@ -10,7 +11,7 @@ namespace sculptcore::brush {
  * layout independent of the C++ ABI. Shared by every GPU compute backend
  * (vk_compute, wgpu_compute) so there is one source of truth. */
 
-/* binding 5 — std140, size 96. */
+/* binding 5 — std140, size 112. */
 struct ComputeBrushUniforms {
   float strength = 0.0f;
   float radius = 1.0f;
@@ -30,21 +31,22 @@ struct ComputeBrushUniforms {
   uint32_t coord_space = 0;            // offset 60
   float tex_repeat = 1.0f;             // offset 64
   uint32_t stroke_path_count = 0;      // offset 68
-  /* Offsets 72/76 are the appended DSL-uniform slots; every kernel's dynamic
-   * uniforms start there, so per-kernel names share the slot via unions. */
-  union {
-    float mu = 1.0f;       // offset 72 — kelvinlet
-    float planeoff;        //           — plane (Clay/Scrape/Fill)
-    float pinch;           //           — pinch / sharp (toward-center/axis pull)
-  };
-  union {
-    float nu = 0.4f;       // offset 76 — kelvinlet
-    float planeSide;       //           — plane: +1 build-up, -1 cut
-  };
-  /* offset 80 — color kernel's `brushColor` vec4 (16-aligned past the scalar
-   * slots, so 72/76 are pad in that kernel's WGSL view); rounds struct to 96. */
-  float brushColor[4] = {1, 1, 1, 1};
+  /* Offsets 72..111 — the appended DSL-uniform region. Each kernel's WGSL
+   * BrushUniforms block declares its own fields here in declaration order
+   * (scalars align 4, vec3/vec4 align 16); the kernel's generated
+   * pack<Kernel>GpuUniforms writes them by offset, so the host struct keeps
+   * raw bytes instead of per-kernel named unions and a declared uniform can
+   * no longer go unmarshaled. Zero-init is safe: every field a kernel's
+   * WGSL view has is written on every pack. */
+  unsigned char appended[40] = {};
 };
+
+static_assert(offsetof(ComputeBrushUniforms, appended) == 72,
+              "appended DSL-uniform region must start right after the fixed "
+              "prelude; the generated pack fns and emit_wgsl.cc both build on "
+              "offset 72");
+static_assert(sizeof(ComputeBrushUniforms) == 112,
+              "std140 block size the WGSL kernels were emitted against");
 
 /* binding 6 — std140. Base block (surfacePos/surfaceNo/render_matrix + the
  * view-normal automask params) is 128 bytes; the global-brush tail starts at

@@ -11,6 +11,7 @@
 
 @brush("texgrad")
 @tool TEXGRAD
+@gpu
 brush TexGrad {
   ctx float3 surfaceNo;
 

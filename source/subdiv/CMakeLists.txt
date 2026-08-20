@@ -47,6 +47,9 @@ wasm_add_symbols("
   Multires_tuningStats
   Multires_readDomainMask
   Multires_writeDomainMask
+  Multires_maskGeneration
+  Multires_editDomainMask
+  Multires_settleAttrsDown
   Multires_activeMesh
   Multires_activeTree
   Multires_levelSampleCount
@@ -81,4 +84,17 @@ wasm_add_symbols("
   Multires_gridChannelLevelAllocated
   Multires_gridChannelRead
   Multires_gridChannelWrite
+  Multires_layerAdd
+  Multires_layerRemove
+  Multires_layerSetWeight
+  Multires_layerSetEnabled
+  Multires_layerSetFrozen
+  Multires_setEditTarget
+  Multires_editTarget
+  Multires_layerCount
+  Multires_layerWeight
+  Multires_layerEnabled
+  Multires_layerFrozen
+  Multires_layerTableOut
+  Multires_layerTableRestore
 ")

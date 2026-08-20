@@ -86,6 +86,36 @@ inline constexpr const char *kBuiltinBrushKernels[23] = {
     "texgrad",
 };
 
+/** The WGSL/SPIR-V kernel stem a tool runs on the GPU (`@gpu` on the
+ * kernel), or null for a CPU-only tool. gpu_marshal.cc's gpuKernelForTool
+ * consumes this: lighting a brush up on the GPU is `@gpu` in its .sbrush
+ * and nothing else. */
+inline constexpr const char *kBuiltinBrushGpuKernel[23] = {
+    "draw", // DRAW
+    "inflate", // INFLATE
+    "plane", // CLAY
+    "pinch", // PINCH
+    "sharp", // SHARP
+    "mask", // MASK
+    "smooth", // SMOOTH
+    "kelvinlet", // KELVINLET
+    "pose", // POSE
+    "texdraw", // TEXDRAW
+    "plane", // SCRAPE
+    "plane", // FILL
+    nullptr, // WINGSCRAPE
+    "color", // COLOR
+    "polygroup", // POLYGROUP
+    "bsmooth", // BSMOOTH
+    "grab", // GRAB
+    nullptr, // SNAKEHOOK
+    nullptr, // COLORSMOOTH
+    nullptr, // FEATURE_ALIGN
+    nullptr, // LAYERDRAW
+    nullptr, // ENHANCE
+    "texgrad", // TEXGRAD
+};
+
 /** True when the kernel has a `for_neighbor` loop, i.e. it is instantiated
  * against a neighbor source and reads neighbors during the dab. */
 inline bool builtinBrushUsesForNeighbor(int id)
@@ -233,6 +263,63 @@ inline bool createBuiltinBrush(int id, bool csrNeighbors,
     return true;
   default:
     return false;
+  }
+}
+
+/** Dispatch a built-in brush id to its kernel's generated GPU
+ * appended-uniform marshal (pack<Kernel>GpuUniforms). Total over the
+ * built-in ids -- kernels that append nothing have an empty pack fn --
+ * and null past them, so gpu_marshal's caller needs no roster. */
+using BrushGpuPackFn = void (*)(sculptcore::brush::Brush &, unsigned char *);
+inline BrushGpuPackFn builtinBrushGpuPack(int id)
+{
+  switch (id) {
+  case 0: // DRAW
+    return packDrawGpuUniforms;
+  case 1: // INFLATE
+    return packInflateGpuUniforms;
+  case 2: // CLAY
+  case 10: // SCRAPE
+  case 11: // FILL
+    return packPlaneGpuUniforms;
+  case 3: // PINCH
+    return packPinchGpuUniforms;
+  case 4: // SHARP
+    return packSharpGpuUniforms;
+  case 5: // MASK
+    return packMaskGpuUniforms;
+  case 6: // SMOOTH
+    return packSmoothGpuUniforms;
+  case 7: // KELVINLET
+    return packKelvinletGpuUniforms;
+  case 8: // POSE
+    return packPoseGpuUniforms;
+  case 9: // TEXDRAW
+    return packTexdrawGpuUniforms;
+  case 12: // WINGSCRAPE
+    return packWingscrapeGpuUniforms;
+  case 13: // COLOR
+    return packColorGpuUniforms;
+  case 14: // POLYGROUP
+    return packPolygroupGpuUniforms;
+  case 15: // BSMOOTH
+    return packBsmoothGpuUniforms;
+  case 16: // GRAB
+    return packGrabGpuUniforms;
+  case 17: // SNAKEHOOK
+    return packSnakehookGpuUniforms;
+  case 18: // COLORSMOOTH
+    return packColorsmoothGpuUniforms;
+  case 19: // FEATURE_ALIGN
+    return packFeaturealignGpuUniforms;
+  case 20: // LAYERDRAW
+    return packLayerdrawGpuUniforms;
+  case 21: // ENHANCE
+    return packEnhanceGpuUniforms;
+  case 22: // TEXGRAD
+    return packTexgradGpuUniforms;
+  default:
+    return nullptr;
   }
 }
 

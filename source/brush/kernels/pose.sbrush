@@ -13,6 +13,7 @@
 
 @brush("pose")
 @tool POSE
+@gpu
 brush Pose {
   uniform float strength, radius;
 

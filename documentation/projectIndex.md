@@ -180,8 +180,8 @@ See `documentation/meshlog.md` for a detailed overview.
 
 ### `source/brush/` — sculpt brushes
 
-Core: `brush.cc/.h` (Brush state + props), `brush_command.cc/.h` (`CommandCtxBase`, `CommandCtx<TYPES>`, falloff), `brush_executor.cc/.h` (`CommandExecutor`: builds + dispatches commands, owns `MeshLog` pointer), `brush_iterators.h` (`BasicVertexIter`, `PtrHelper`), `brush_concepts.h` (C++20 concepts pinning the command ABI).
-Brushes: `brushes/types.h` (`SculptBrushes` enum), `brushes/tools.txt` (the item names in id order — the id authority codegen reads), `brushes/generated/` (generated id→factory dispatch + `Binder` item list), `brushes/all.h`, `brushes/draw.h`.
+Core: `brush.cc/.h` (Brush state + props), `brush_command.cc/.h` (`CommandCtxBase`, `CommandCtx<TYPES>`, falloff), `brush_executor.cc/.h` (`CommandExecutor`: builds + dispatches commands, owns `MeshLog` pointer), `brush_hooks.cc/.h` (per-tool host passes as a hook table — `brushHooksFor` → `stepPreFreeze`/`dabPre`/`dabPost`; the executor invokes phases, never branches on a tool), `gpu_marshal.cc/.h` (host→GPU uniform marshal: `packBrushUniforms` dispatches the generated per-kernel appended-uniform packs via `command::builtinBrushGpuPack`; `packCtxUniforms` keeps the hand-written per-tool ctx tail), `compute_layout.h` (std140 host mirrors of the GPU uniform blocks), `brush_iterators.h` (`BasicVertexIter`, `PtrHelper`), `brush_concepts.h` (C++20 concepts pinning the command ABI).
+Brushes: `brushes/types.h` (`SculptBrushes` enum), `brushes/tools.txt` (the item names in id order — the id authority codegen reads), `brushes/generated/` (generated id→factory dispatch, `Binder` item list, the `@gpu` brush→GPU-kernel map `kBuiltinBrushGpuKernel` + per-kernel GPU uniform packs), `brushes/all.h`, `brushes/draw.h`.
 Grids-native: `grid_executor.h` (`GridBrushExecutor` — the same generated
 kernels run against a multires `GridLevelDomain` instead of a `mesh::Mesh`:
 GridTree leaves as the spatial unit, the domain's dense pos/normal/mask buffers
@@ -191,8 +191,15 @@ No dyntopo, no meshlog, no attr overrides, and no tool roster —
 `supportsBrush(brushType, attrs)` derives from each kernel's def),
 `grid_attr_bind.h` (`gridAttrPlan`: the storage-class rule that decides whether
 a kernel's attr layer binds to grid elements or sends the brush down the mesh
-path to write the cage; plus the per-dab cage write-back plumbing). C API:
-`c-api/grid_stroke_c_api.cc`. Test: `tests/test_grid_stroke.cc`.
+path to write the cage; plus the per-dab cage write-back plumbing),
+`cage_smooth.h` (`CageSmoothSession` — the cage-neighbour route for kernels
+that need mesh 1-rings, e.g. COLORSMOOTH: a tree-less `CommandExecutor` pass
+over the dab's grids' owning cage verts, limit-position falloff snapshot,
+per-dab re-derive of the incident grids). C API: `c-api/grid_stroke_c_api.cc`,
+`c-api/cage_smooth_c_api.cc`. Tests: `tests/test_grid_stroke.cc`; the
+generated GPU uniform packs are graded byte-for-byte by
+`tests/test_gpu_uniform_pack.cc` and end-to-end by
+`tests/test_color_mix_gpu.cc`.
 Textures: `texture_program.cc/.h` (runtime `.stex` compile — tcc CPU JIT via `texture_jit.cc/.h`, WGSL stroke-begin splice for the wgpu dispatcher), `texture_registry.cc/.h` (precompiled `.stex` unit table), `host_sampler.cc/.h` (host/builtin sampler registry; builtin `vnoise`).
 Compiler: `compiler/` (`sbrushc_core` static lib + thin CLI — the sbrush/`.stex` parser and every backend emitter; host tool at build time, linked into the engine for runtime texture compilation).
 Bindings: `bindings.cc/.h`.
