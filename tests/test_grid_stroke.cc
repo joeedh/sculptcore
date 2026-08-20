@@ -127,6 +127,63 @@ struct RosterGolden {
   const char *why;
 };
 
+/* C2: the storage class decides the route, not the kill switch. With a live
+ * stack to ask, an attr-writing kernel binds grids-native only where the host
+ * declared it can store that attribute per grid element; otherwise the cage is
+ * the author and the mesh path is the route home (grid_attr_bind.h). */
+static void gateAttrPlanStorage()
+{
+  // Its own stack: the gate declares host attrs, which must not leak into the
+  // A/B batteries below.
+  Mesh *cage = createCube(2, 1.0f);
+  Multires mr;
+  mr.init(*cage, 1);
+
+  struct Case {
+    SculptBrushes tool;
+    const char *layer;
+    AttrType type;
+  };
+  const Case cases[] = {
+      {SculptBrushes::COLOR, "color", AttrType::FLOAT4},
+      {SculptBrushes::COLORSMOOTH, "color", AttrType::FLOAT4},
+      {SculptBrushes::POLYGROUP, "group", AttrType::INT},
+  };
+  subdiv::MultiresAttrs &attrs = mr.gridAttrs();
+  brush::setGridAttrsEnabled(true);
+
+  for (const Case &c : cases) {
+    // Derived (nothing declared): refused even with channels enabled.
+    TASSERT(attrs.storageFor(c.layer, c.type, mesh::AttrFlag::NONE) ==
+            subdiv::GridAttrStorage::Derived);
+    TASSERT(!GridBrushExecutor::supportsBrush(c.tool, &attrs));
+    // Temp: engine scratch the host never stores, so per-element writes are
+    // always allowed — and that answer must not depend on the declaration.
+    TASSERT(attrs.storageFor(c.layer, c.type, mesh::AttrFlag::TEMP) ==
+            subdiv::GridAttrStorage::Temp);
+    // No stack to ask: the pre-session probe keeps the type/domain answer.
+    TASSERT(GridBrushExecutor::supportsBrush(c.tool, nullptr));
+  }
+
+  // Host: a host that does carry multires attributes gets the grids route.
+  attrs.declareHostAttr("color", AttrType::FLOAT4);
+  attrs.declareHostAttr("group", AttrType::INT);
+  for (const Case &c : cases) {
+    TASSERT(attrs.storageFor(c.layer, c.type, mesh::AttrFlag::NONE) ==
+            subdiv::GridAttrStorage::Host);
+    TASSERT(GridBrushExecutor::supportsBrush(c.tool, &attrs));
+  }
+  // A position kernel is untouched by any of this.
+  TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::DRAW, &attrs));
+
+  // Off restores the pre-P2 roster whatever the class says.
+  brush::setGridAttrsEnabled(false);
+  for (const Case &c : cases) {
+    TASSERT(!GridBrushExecutor::supportsBrush(c.tool, &attrs));
+  }
+  alloc::Delete(cage);
+}
+
 static void gateGridsRoster()
 {
   const RosterGolden golden[] = {
@@ -410,6 +467,7 @@ int main()
   setvbuf(stdout, nullptr, _IONBF, 0);
 
   gateGridsRoster();
+  gateAttrPlanStorage();
 
   Mesh *cage = createCube(2, 1.0f);
   Multires mr;

@@ -585,6 +585,108 @@ bool MultiresAttrs::seedSessionChannel(int level, const string &name)
   return true;
 }
 
+/** One grid's ptex-bilinear samples, written to `dst`, from cage values already
+ * gathered into `src`. The shared body of the whole-layer build and the
+ * per-grid re-derive; `ptex` and `faceElems` are caller-owned scratch so a loop
+ * over many grids allocates once. */
+static void bilinearOneGrid(float *dst,
+                            int comps,
+                            bool cornerDomain,
+                            mesh::Mesh &cage,
+                            const Vector<float> &src,
+                            const GridRef &gr,
+                            int S,
+                            Vector<float> &ptex,
+                            Vector<int> &faceElems)
+{
+  const int w = S + 1;
+  // Face elements in loop order: the vert or the corner itself, per domain.
+  faceElems.clear();
+  {
+    const int c0 = cage.l.c[cage.f.l[gr.face]];
+    int cc = c0;
+    do {
+      faceElems.append(cornerDomain ? cc : cage.c.v[cc]);
+      cc = cage.c.next[cc];
+    } while (cc != c0);
+  }
+  const int size = int(faceElems.size());
+  auto elemVal = [&](int i, int k) { return src[size_t(faceElems[i]) * comps + k]; };
+
+  // Where in the ptex square this grid's lattice lives: origin + the axes the
+  // engine's +u (toward the next corner) and +v (toward the previous) run
+  // along. An n-gon corner owns a whole ptex face; a quad's four corners
+  // share one, a quadrant each.
+  float org[2], du[2], dv[2];
+  if (size == 4) {
+    const int k = gr.index;
+    const float *A = kQuadPtex[k];
+    const float *B = kQuadPtex[(k + 1) % 4];
+    const float *D = kQuadPtex[(k + 3) % 4];
+    for (int i = 0; i < 2; i++) {
+      org[i] = A[i];
+      du[i] = (B[i] - A[i]) * 0.5f;
+      dv[i] = (D[i] - A[i]) * 0.5f;
+    }
+    for (int j = 0; j < 4; j++) {
+      for (int k2 = 0; k2 < comps; k2++) {
+        ptex[size_t(j) * comps + k2] = elemVal(j, k2);
+      }
+    }
+  }
+  else {
+    org[0] = org[1] = 0.0f;
+    du[0] = 1.0f;
+    du[1] = 0.0f;
+    dv[0] = 0.0f;
+    dv[1] = 1.0f;
+    const int k = gr.index;
+    const int nx = (k + 1) % size;
+    const int pv = (k + size - 1) % size;
+    for (int k2 = 0; k2 < comps; k2++) {
+      // {corner, mid-to-next, face average, mid-to-prev} -- Blender's
+      // vert_/loop_interpolation_from_corner.
+      ptex[size_t(0) * comps + k2] = elemVal(k, k2);
+      ptex[size_t(1) * comps + k2] = 0.5f * (elemVal(k, k2) + elemVal(nx, k2));
+      float avg = 0.0f;
+      for (int i = 0; i < size; i++) {
+        avg += elemVal(i, k2);
+      }
+      ptex[size_t(2) * comps + k2] = avg / float(size);
+      ptex[size_t(3) * comps + k2] = 0.5f * (elemVal(k, k2) + elemVal(pv, k2));
+    }
+  }
+
+  for (int v = 0; v < w; v++) {
+    for (int u = 0; u < w; u++) {
+      const float fu = float(u) / float(S), fv = float(v) / float(S);
+      const float pu = org[0] + du[0] * fu + dv[0] * fv;
+      const float pv2 = org[1] + du[1] * fu + dv[1] * fv;
+      // quad_weights_from_uv (subdiv_mesh.cc).
+      const float wts[4] = {(1.0f - pu) * (1.0f - pv2),
+                            pu * (1.0f - pv2),
+                            pu * pv2,
+                            (1.0f - pu) * pv2};
+      float *o = dst + (size_t(v) * w + u) * comps;
+      for (int k = 0; k < comps; k++) {
+        float acc = 0.0f;
+        for (int j = 0; j < 4; j++) {
+          acc += wts[j] * ptex[size_t(j) * comps + k];
+        }
+        o[k] = acc;
+      }
+    }
+  }
+}
+
+bool MultiresAttrs::gatherCageValues(GridAttrLayer &layer, mesh::Mesh &cage, Vector<float> &src)
+{
+  auto &group = layer.corner ? cage.c.attrs : cage.v.attrs;
+  AttrRef ref = group.find_attribute(layer.type, layer.name);
+  const size_t capacity = layer.corner ? cage.c.capacity() : cage.v.capacity();
+  return ref.exists() && gatherAttr(ref, capacity, layer.comps, src);
+}
+
 void MultiresAttrs::buildBilinear(GridAttrLayer &layer, int level, mesh::Mesh &cage)
 {
   const int comps = layer.comps;
@@ -593,11 +695,8 @@ void MultiresAttrs::buildBilinear(GridAttrLayer &layer, int level, mesh::Mesh &c
   const int gridCount = mr_->refiner.gridCount();
   layer.data.resize(size_t(gridCount) * size_t(w * w) * size_t(comps));
 
-  auto &group = layer.corner ? cage.c.attrs : cage.v.attrs;
-  AttrRef ref = group.find_attribute(layer.type, layer.name);
   Vector<float> src;
-  const size_t capacity = layer.corner ? cage.c.capacity() : cage.v.capacity();
-  if (!ref.exists() || !gatherAttr(ref, capacity, comps, src)) {
+  if (!gatherCageValues(layer, cage, src)) {
     for (size_t i = 0; i < layer.data.size(); i++) {
       layer.data[i] = 0.0f;
     }
@@ -614,86 +713,91 @@ void MultiresAttrs::buildBilinear(GridAttrLayer &layer, int level, mesh::Mesh &c
   Vector<int> faceElems;
 
   for (int g = 0; g < n; g++) {
-    const GridRef &gr = grids[g];
-    // Face elements in loop order: the vert or the corner itself, per domain.
-    faceElems.clear();
-    {
-      const int c0 = cage.l.c[cage.f.l[gr.face]];
-      int cc = c0;
-      do {
-        faceElems.append(layer.corner ? cc : cage.c.v[cc]);
-        cc = cage.c.next[cc];
-      } while (cc != c0);
-    }
-    const int size = int(faceElems.size());
-    auto elemVal = [&](int i, int k) { return src[size_t(faceElems[i]) * comps + k]; };
+    bilinearOneGrid(&layer.data[size_t(g) * size_t(w * w) * size_t(comps)],
+                    comps,
+                    layer.corner,
+                    cage,
+                    src,
+                    grids[g],
+                    S,
+                    ptex,
+                    faceElems);
+  }
+}
 
-    // Where in the ptex square this grid's lattice lives: origin + the axes the
-    // engine's +u (toward the next corner) and +v (toward the previous) run
-    // along. An n-gon corner owns a whole ptex face; a quad's four corners
-    // share one, a quadrant each.
-    float org[2], du[2], dv[2];
-    if (size == 4) {
-      const int k = gr.index;
-      const float *A = kQuadPtex[k];
-      const float *B = kQuadPtex[(k + 1) % 4];
-      const float *D = kQuadPtex[(k + 3) % 4];
-      for (int i = 0; i < 2; i++) {
-        org[i] = A[i];
-        du[i] = (B[i] - A[i]) * 0.5f;
-        dv[i] = (D[i] - A[i]) * 0.5f;
-      }
-      for (int j = 0; j < 4; j++) {
-        for (int k2 = 0; k2 < comps; k2++) {
-          ptex[size_t(j) * comps + k2] = elemVal(j, k2);
-        }
-      }
-    }
-    else {
-      org[0] = org[1] = 0.0f;
-      du[0] = 1.0f;
-      du[1] = 0.0f;
-      dv[0] = 0.0f;
-      dv[1] = 1.0f;
-      const int k = gr.index;
-      const int nx = (k + 1) % size;
-      const int pv = (k + size - 1) % size;
-      for (int k2 = 0; k2 < comps; k2++) {
-        // {corner, mid-to-next, face average, mid-to-prev} — Blender's
-        // vert_/loop_interpolation_from_corner.
-        ptex[size_t(0) * comps + k2] = elemVal(k, k2);
-        ptex[size_t(1) * comps + k2] = 0.5f * (elemVal(k, k2) + elemVal(nx, k2));
-        float avg = 0.0f;
-        for (int i = 0; i < size; i++) {
-          avg += elemVal(i, k2);
-        }
-        ptex[size_t(2) * comps + k2] = avg / float(size);
-        ptex[size_t(3) * comps + k2] = 0.5f * (elemVal(k, k2) + elemVal(pv, k2));
-      }
-    }
+int MultiresAttrs::refreshFromCage(int level, const string &name, const int *gridIds, int count)
+{
+  if (!mr_ || count <= 0 || !gridIds) {
+    return 0;
+  }
+  // Build first if the layer is not up yet: a rebuild re-overlays the session
+  // channel, so leaving it to a later samples() call would reinstate exactly
+  // the values this collapse is removing.
+  int comps0 = 0;
+  if (!samples(level, name, &comps0)) {
+    return 0; // the cage carries no such attribute
+  }
+  mesh::Mesh *cage = mr_->cage();
+  GridAttrLayer *layer = findLayer(name);
+  if (!cage || !layer || !layer->valid || layer->level != level) {
+    return 0;
+  }
+  if (layer->uvRule && uvSmooth_ != UvSmooth::None) {
+    return 0; // a face-varying layer does not re-derive one grid at a time
+  }
+  Vector<float> src;
+  if (!gatherCageValues(*layer, *cage, src)) {
+    return 0;
+  }
+  Vector<GridRef> grids;
+  buildGridRefs(*cage, grids);
+  const int comps = layer->comps;
+  const int S = mr_->refiner.levels[level - 1].gridSide, w = S + 1;
+  const int n = std::min(int(grids.size()), mr_->refiner.gridCount());
+  Vector<float> ptex;
+  ptex.resize(size_t(comps) * 4);
+  Vector<int> faceElems;
 
-    float *dst = &layer.data[size_t(g) * size_t(w * w) * size_t(comps)];
-    for (int v = 0; v < w; v++) {
-      for (int u = 0; u < w; u++) {
-        const float fu = float(u) / float(S), fv = float(v) / float(S);
-        const float pu = org[0] + du[0] * fu + dv[0] * fv;
-        const float pv2 = org[1] + du[1] * fu + dv[1] * fv;
-        // quad_weights_from_uv (subdiv_mesh.cc).
-        const float wts[4] = {(1.0f - pu) * (1.0f - pv2),
-                              pu * (1.0f - pv2),
-                              pu * pv2,
-                              (1.0f - pu) * pv2};
-        float *o = dst + (size_t(v) * w + u) * comps;
-        for (int k = 0; k < comps; k++) {
-          float acc = 0.0f;
-          for (int j = 0; j < 4; j++) {
-            acc += wts[j] * ptex[size_t(j) * comps + k];
-          }
-          o[k] = acc;
+  int done = 0;
+  for (int i = 0; i < count; i++) {
+    const int g = gridIds[i];
+    if (g < 0 || g >= n) {
+      continue;
+    }
+    bilinearOneGrid(&layer->data[size_t(g) * size_t(w * w) * size_t(comps)],
+                    comps,
+                    layer->corner,
+                    *cage,
+                    src,
+                    grids[g],
+                    S,
+                    ptex,
+                    faceElems);
+    done++;
+  }
+  // A session channel of the same name is the store's copy of these samples and
+  // overlays them on every rebuild, so leaving it would put back the values just
+  // collapsed. A persisting (Host-class) channel is the exception: there the
+  // grid data is the authority and the cage is downstream of it.
+  int chS = 0;
+  const int ch = overlayChannelFor(*mr_, *layer, level, &chS);
+  if (ch >= 0 && !mr_->store.channelPersist(ch)) {
+    const size_t bytes = size_t(comps) * sizeof(float);
+    for (int i = 0; i < count; i++) {
+      const int g = gridIds[i];
+      if (g < 0 || g >= n) {
+        continue;
+      }
+      for (int v = 0; v <= S; v++) {
+        for (int u = 0; u <= S; u++) {
+          std::memcpy(mr_->store.elem(level, ch, g, u, v),
+                      &layer->data[sampleIndex(g, u, v, w) * size_t(comps)],
+                      bytes);
         }
       }
     }
   }
+  return done;
 }
 
 bool MultiresAttrs::buildFaceVarying(GridAttrLayer &layer, int level, mesh::Mesh &cage)

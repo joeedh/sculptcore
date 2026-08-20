@@ -528,19 +528,14 @@ void Multires_syncSlotAttrs(subdiv::Multires *mr, int level)
  * cage (Multires::scatterFaceIntToCage — the return route for a mesh-path
  * face-set edit on multires) and tell both draw paths what moved: the grids
  * source refills only the touched grids, and the slot's tree re-uploads.
- * Returns the number of cage faces changed.
- *
- * `source` is subdiv::GridScatterSource (0 auto, 1 store, 2 slot): the host
- * knows which route wrote last and neither source goes stale on its own, so
- * guessing here is only safe for a session that never switched routes. */
-int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *name, int source)
+ * Returns the number of cage faces changed. */
+int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *name)
 {
   if (!mr || !name || !name[0]) {
     return 0;
   }
   litestl::util::Vector<int> touched;
-  const int changed = mr->scatterFaceIntToCage(level, name, touched,
-                                               subdiv::GridScatterSource(source));
+  const int changed = mr->scatterFaceIntToCage(level, name, touched);
   if (!changed) {
     return 0;
   }
@@ -559,25 +554,42 @@ int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *n
 
 /** Push a level's per-vertex FLOAT4 attribute back onto the cage
  * (Multires::scatterVertFloat4ToCage — the return route for painted colour on
- * multires, whose only persistent home is the base mesh). Returns the number
- * of cage verts changed.
+ * multires, whose only persistent home is the base mesh) and tell both draw
+ * paths what moved, exactly as the face twin does. Returns the number of cage
+ * verts changed.
  *
- * Nothing is marked for redraw here, unlike the face twin: the cage layer is
- * what the derived draw samples are BUILT from, so re-deriving it would
- * replace the full-resolution paint on screen with its cage-resolution
- * restriction. The store channel (or the slot column) stays the display
- * truth until the session ends.
+ * The redraw is the point, not a side effect: the scatter re-derives the
+ * touched grids from the cage it just wrote, so what is on screen after this
+ * call is the cage-resolution paint that will still be there after a reload.
+ * Called per dab, that is what makes colour a `Derived` attribute in fact and
+ * not just in name.
  *
- * `source` is subdiv::GridScatterSource, as for the face twin. Passing Slot is
- * what a mesh-path colour stroke needs whenever a grids-native one ever bound
- * this layer at this level: the channel it left behind stays allocated, and
- * under Auto it shadows the slot column the mesh path is writing. */
-int Multires_scatterVertFloat4ToCage(subdiv::Multires *mr, int level, const char *name, int source)
+ * `dabs` is that dab region, 4 floats each ({x, y, z, radius}, object space);
+ * pass null / 0 outside a stroke. Its grids re-derive even when no cage vert
+ * moved, which is how a dab finer than a base face comes out painting nothing
+ * rather than painting and then evaporating. */
+int Multires_scatterVertFloat4ToCage(
+    subdiv::Multires *mr, int level, const char *name, const float *dabs, int dab_count)
 {
   if (!mr || !name || !name[0]) {
     return 0;
   }
-  return mr->scatterVertFloat4ToCage(level, name, subdiv::GridScatterSource(source));
+  litestl::util::Vector<int> touched;
+  const int changed = mr->scatterVertFloat4ToCage(level, name, dabs, dab_count, touched);
+  if (touched.size() == 0) {
+    return 0;
+  }
+  if (subdiv::GridDrawSource *ds = mr->drawSource()) {
+    ds->markGrids(std::span<const int>(touched.data(), touched.size()));
+  }
+  if (subdiv::MultiresSlot *slot = mr->findSlot(level)) {
+    if (slot->tree) {
+      for (spatial::SpatialNode *leaf : slot->tree->leaves()) {
+        leaf->flag |= spatial::Spatial_UpdateGPU;
+      }
+    }
+  }
+  return changed;
 }
 
 /** The cage's "no face set" group id (mesh::Mesh::default_group_id) — the

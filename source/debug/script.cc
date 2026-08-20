@@ -2192,7 +2192,9 @@ bool execVerb(Scene &scene,
     if (!ensureGridSession(scene, level, err)) {
       return false;
     }
-    if (!brush::GridBrushExecutor::supportsBrush(scene.currentTool)) {
+    if (!brush::GridBrushExecutor::supportsBrush(scene.currentTool,
+                                                 &scene.multires->gridAttrs()))
+    {
       err = "grid_stroke: tool not grids-capable (see GridBrushExecutor roster)";
       return false;
     }
@@ -2213,7 +2215,8 @@ bool execVerb(Scene &scene,
       // whichever is built, wgpu first. Shares the session's undo log with
       // the CPU path, so grid_undo mixes freely.
       const brush::GpuKernelInfo *ki =
-          brush::GridGpuStrokeSession::kernelFor(scene.currentTool);
+          brush::GridGpuStrokeSession::kernelFor(scene.currentTool,
+                                                 &scene.multires->gridAttrs());
       if (!ki) {
         err = "grid_stroke: tool not grids-GPU-capable";
         return false;

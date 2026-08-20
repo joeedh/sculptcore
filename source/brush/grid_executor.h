@@ -666,22 +666,24 @@ struct GridBrushExecutor {
   }
 
   /** Whether the domain can bind one of a kernel's declared attr layers.
-   * Routing lives in grid_attr_bind.h and reads only the entry's metadata;
-   * ensureAttrBindings asserts on the same call, so the capability gate and
-   * the binding it gates cannot drift apart. */
-  static bool attrBindable(const BrushAttrManifestEntry &entry)
+   * Routing lives in grid_attr_bind.h and reads the entry's metadata plus
+   * `attrs`' storage policy; ensureAttrBindings asserts on the same call, so
+   * the capability gate and the binding it gates cannot drift apart. */
+  static bool attrBindable(const BrushAttrManifestEntry &entry,
+                           const subdiv::MultiresAttrs *attrs)
   {
-    return gridAttrPlan(entry, gridAttrsEnabled()) != GridAttrPlanKind::Unbindable;
+    return gridAttrPlan(entry, gridAttrsEnabled(), attrs) != GridAttrPlanKind::Unbindable;
   }
 
   /** Engine-owned dispatch rule: can this tool run grids-native? Everything
    * else falls back to the materialized-mesh path.
    *
    * The answer comes from the kernel's own def, never from a tool list: an
-   * attr layer this domain cannot bind has no storage to write. That term is
-   * the one that widens as the grid attribute domains land; when nothing is
-   * left that can answer no, this becomes constant true. */
-  static bool supportsBrush(SculptBrushes brushType)
+   * attr layer this domain cannot bind has no storage to write. `attrs` is the
+   * stack's storage policy — pass it whenever there is one, since a Derived
+   * layer is bindable only in its absence (grid_attr_bind.h). */
+  static bool supportsBrush(SculptBrushes brushType,
+                            const subdiv::MultiresAttrs *attrs = nullptr)
   {
     Brush scratch;
     brush_command def;
@@ -689,7 +691,7 @@ struct GridBrushExecutor {
       return false;
     }
     for (const auto &entry : def.attrs) {
-      if (!attrBindable(entry)) {
+      if (!attrBindable(entry, attrs)) {
         return false;
       }
     }
@@ -1312,7 +1314,7 @@ private:
     const int vc = domain->vertCount();
     attrBindings_.items.clear();
     for (const auto &entry : cmd.attrs) {
-      GridAttrPlanKind kind = gridAttrPlan(entry, session);
+      GridAttrPlanKind kind = gridAttrPlan(entry, session, &domain->multires()->gridAttrs());
       Assert(kind != GridAttrPlanKind::Unbindable,
              "grid executor: attr layer has no grid storage");
       mesh::AttrRef ref;

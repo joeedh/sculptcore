@@ -705,11 +705,19 @@ static void gateCageVertScatter()
   test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
               perGrid * grids);
 
+  /* The scatter now reports the grids it re-derived (C1); this gate reads only
+   * its return value, so the list is scratch. */
+  Vector<int> tg;
+  auto scatterVert = [&](const char *n) {
+    tg.clear();
+    return mr.scatterVertFloat4ToCage(level, n, nullptr, 0, tg);
+  };
+
   /* One grid's corner disagrees with white, so exactly one cage vert changes --
    * and the other eight reading white is what proves the first-ever layer was
    * flooded with the host's default colour instead of the attribute system's
    * zero. */
-  test_assert(mr.scatterVertFloat4ToCage(level, "col") == 1);
+  test_assert(scatterVert("col") == 1);
   AttrRef cref = cage->v.attrs.find_attribute(AttrType::FLOAT4, "col");
   test_assert(cref.exists());
   auto *cdata = cref.get_data<float4>();
@@ -731,16 +739,16 @@ static void gateCageVertScatter()
   }
   test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
               perGrid * grids);
-  test_assert(mr.scatterVertFloat4ToCage(level, "col") == 9);
+  test_assert(scatterVert("col") == 9);
   for (int v : cage->v) {
     const float t = float(v + 1) / 16.0f;
     test_assert(sameColor((*cdata)[v], float4(t, 1.0f - t, 0.5f, 1.0f)));
   }
 
-  /* Idempotent, with nothing re-stamped to make it so: the replicas already
-   * agree, so the second pass finds no disagreement to resolve. (The face twin
-   * has to re-stamp its face run or it oscillates.) */
-  test_assert(mr.scatterVertFloat4ToCage(level, "col") == 0);
+  /* Idempotent: the replicas already agree, and the re-derive that follows the
+   * write leaves the corners equal to the cage they were just written to, so
+   * the second pass finds no disagreement to resolve. */
+  test_assert(scatterVert("col") == 0);
 
   /* No store channel by that name: the materialized level's own column is the
    * fallback source, which is what a mesh-path stroke leaves behind. */
@@ -752,7 +760,7 @@ static void gateCageVertScatter()
     }
     (*d)[lvl.gridVerts[0]] = float4(0.0f, 0.25f, 0.5f, 1.0f);
   }
-  test_assert(mr.scatterVertFloat4ToCage(level, "slotcol") == 1);
+  test_assert(scatterVert("slotcol") == 1);
   AttrRef sref = cage->v.attrs.find_attribute(AttrType::FLOAT4, "slotcol");
   test_assert(sref.exists());
   {
@@ -764,12 +772,14 @@ static void gateCageVertScatter()
     }
   }
 
-  /* Both sources live at once, and they disagree: the channel a grids-native
-   * stroke bound stays allocated after the session switches routes, so the
-   * mesh-path dab that follows lands on the slot column with the store still
-   * holding the old paint. Auto reads the store and sees nothing -- which is
-   * why the source is the caller's to name. */
+  /* Both copies live at once, and they disagree. There is no source pick any
+   * more (C3): the store channel wins wherever one exists, because writing
+   * grid elements is the Host storage class's privilege and a Derived
+   * attribute's mesh path never gets a channel. So painting the slot column of
+   * a name that HAS a channel changes nothing -- outside this test the two are
+   * never both live. */
   const float4 D(0.125f, 0.875f, 0.375f, 1.0f);
+  const float4 held = (*cdata)[gridVert[0]];
   {
     AttrRef &ref = m.v.attrs.ensure(AttrType::FLOAT4, "col", /*materialize=*/true);
     auto *d = ref.get_data<float4>();
@@ -785,25 +795,151 @@ static void gateCageVertScatter()
                                            float4(t, 1.0f - t, 0.5f, 1.0f);
     }
   }
-  test_assert(mr.scatterVertFloat4ToCage(level, "col", subdiv::GridScatterSource::Auto) == 0);
-  test_assert(mr.scatterVertFloat4ToCage(level, "col", subdiv::GridScatterSource::Slot) == 1);
-  test_assert(sameColor((*cdata)[gridVert[0]], D));
-  /* And naming the store puts the grids-native paint back, so neither source
-   * is privileged -- the caller decides which one is the newer writer. */
-  test_assert(mr.scatterVertFloat4ToCage(level, "col", subdiv::GridScatterSource::Store) == 1);
-  {
-    const float t = float(gridVert[0] + 1) / 16.0f;
-    test_assert(sameColor((*cdata)[gridVert[0]], float4(t, 1.0f - t, 0.5f, 1.0f)));
-  }
-  /* Naming a source that has nothing is a refusal, not a fallback to the
-   * other: "slotcol" is slot-only, "col" store-only on a level with no slot. */
-  test_assert(mr.scatterVertFloat4ToCage(level, "slotcol", subdiv::GridScatterSource::Store) == 0);
+  test_assert(scatterVert("col") == 0);
+  test_assert(sameColor((*cdata)[gridVert[0]], held));
 
   /* Refusals leave no half-built cage layer behind. */
-  test_assert(mr.scatterVertFloat4ToCage(level, "nope") == 0);
+  test_assert(scatterVert("nope") == 0);
   test_assert(!cage->v.attrs.has(AttrType::FLOAT4, "nope"));
-  test_assert(mr.scatterVertFloat4ToCage(0, "col") == 0);
-  test_assert(mr.scatterVertFloat4ToCage(mr.maxLevel() + 1, "col") == 0);
+  test_assert(mr.scatterVertFloat4ToCage(0, "col", nullptr, 0, tg) == 0);
+  test_assert(mr.scatterVertFloat4ToCage(mr.maxLevel() + 1, "col", nullptr, 0, tg) == 0);
+
+  /* C1: the collapse. A non-persisting channel is the Blender case -- colour is
+   * a `Derived` attribute there, so the cage is the only author and nothing at
+   * grid resolution may survive the scatter. */
+  {
+    const int dch = Multires_gridChannelEnsure(&mr,
+                                               "dcol",
+                                               4,
+                                               int(subdiv::GridElemDomain::Vertex),
+                                               int(AttrType::FLOAT4),
+                                               /*persist=*/0,
+                                               int(subdiv::GridLevelRule::Authored));
+    test_assert(dch > 0);
+    /* Every sample of every grid, corners included: a dab paints the whole
+     * region it covers, not just the lattice corners. */
+    for (int g = 0; g < grids; g++) {
+      for (int i = 0; i < w * w; i++) {
+        float *dst = &buf[g * perGrid + i * 4];
+        const float t = float(g * w * w + i + 1) / float(grids * w * w + 1);
+        dst[0] = t;
+        dst[1] = 1.0f - t;
+        dst[2] = 0.25f;
+        dst[3] = 1.0f;
+      }
+    }
+    test_assert(Multires_gridChannelWrite(&mr, level, dch, 0, grids, buf.data(), buf.size()) ==
+                perGrid * grids);
+    tg.clear();
+    test_assert(mr.scatterVertFloat4ToCage(level, "dcol", nullptr, 0, tg) > 0);
+    /* Every cage vert moved, so every grid of every face re-derives. */
+    test_assert(int(tg.size()) == grids);
+
+    int comps = 0;
+    const float *after = mr.gridAttrs().samples(level, "dcol", &comps);
+    test_assert(after && comps == 4);
+    Vector<float> snap;
+    snap.resize(size_t(grids) * w * w * 4);
+    for (size_t i = 0; i < snap.size(); i++) {
+      snap[i] = after[i];
+    }
+
+    /* The assertion that says nothing at grid resolution is authoritative:
+     * drop the derived layer and rebuild it whole from the cage -- session
+     * channel overlay included -- and every sample must come back identical.
+     * It fails if the scatter left the channel holding the pre-collapse paint,
+     * which the overlay would then reinstate. */
+    mr.gridAttrs().invalidate("dcol");
+    const float *rebuilt = mr.gridAttrs().samples(level, "dcol", &comps);
+    test_assert(rebuilt && comps == 4);
+    for (size_t i = 0; i < snap.size(); i++) {
+      test_assert(snap[i] == rebuilt[i]);
+    }
+    /* And a second scatter has nothing to carry: the corners already agree
+     * with the cage they were just written to. */
+    tg.clear();
+    test_assert(mr.scatterVertFloat4ToCage(level, "dcol", nullptr, 0, tg) == 0);
+  }
+
+  alloc::Delete(cage);
+}
+
+/* C1: a dab finer than a base face. It moves no cage vert, so the collapse has
+ * nothing to find from the cage side -- and without the dab's own region its
+ * paint would stay on the level slot, which is exactly what the viewport draws
+ * during a mesh-path stroke. The rule is that a Derived attribute is never
+ * authoritative at grid resolution: sub-face paint must come out as no paint,
+ * not as paint that evaporates when a later dab moves a neighbour. */
+static void gateSubFaceDabCollapse()
+{
+  Mesh *cage = makeGrid(2);
+  {
+    AttrRef &ref = cage->v.attrs.ensure(AttrType::FLOAT4, "color", /*materialize=*/true);
+    ref.use = AttrUse::COLOR;
+    auto *d = ref.get_data<float4>();
+    for (int v : cage->v) {
+      const float t = float(v + 1) / 16.0f;
+      (*d)[v] = float4(t, 1.0f - t, 0.5f, 1.0f);
+    }
+  }
+  Multires mr;
+  mr.init(*cage, 2);
+
+  const int level = 2;
+  subdiv::MultiresSlot *slot = mr.setActiveLevel(level);
+  test_assert(slot && slot->mesh && slot->tree);
+  if (!slot || !slot->mesh || !slot->tree) {
+    alloc::Delete(cage);
+    return;
+  }
+  Mesh &m = *slot->mesh;
+  const subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
+  const int w = lvl.gridSide + 1;
+
+  AttrRef sref = m.v.attrs.find_attribute(AttrType::FLOAT4, "color");
+  test_assert(sref.exists());
+  auto *sdata = sref.get_data<float4>();
+  test_assert(sdata != nullptr);
+  if (!sdata) {
+    alloc::Delete(cage);
+    return;
+  }
+
+  /* The middle of grid 0's lattice: a sample no cage vert aliases, so painting
+   * it is the sub-face case by construction. */
+  const int mid = w / 2;
+  test_assert(mid > 0 && mid < w);
+  const int vid = lvl.gridVerts[size_t(mid) * w + mid];
+  const float4 before = (*sdata)[vid];
+  const float4 paint(1.0f, 0.0f, 0.0f, 1.0f);
+  test_assert(!sameColor(before, paint));
+  (*sdata)[vid] = paint;
+
+  /* A dab centred on that sample, radius a fraction of the cage cell so it
+   * cannot reach a corner even if the leaf it lands in is wider. */
+  const float3 co = m.v.co[vid];
+  const float dab[4] = {co[0], co[1], co[2], 0.05f};
+
+  Vector<int> tg;
+  test_assert(mr.scatterVertFloat4ToCage(level, "color", dab, 1, tg) == 0);
+  test_assert(tg.size() > 0);
+  /* No cage vert moved... */
+  auto *cdata = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+  test_assert(cdata != nullptr);
+  for (int v : cage->v) {
+    const float t = float(v + 1) / 16.0f;
+    test_assert(sameColor((*cdata)[v], float4(t, 1.0f - t, 0.5f, 1.0f)));
+  }
+  /* ...and the paint is gone from the copy the viewport draws. */
+  test_assert(sameColor((*sdata)[vid], before));
+
+  /* Without a region there is nothing to collapse, which is the state this
+   * gate exists to rule out: paint it again, scatter with no dab, and the
+   * slot still holds grid-resolution paint. */
+  (*sdata)[vid] = paint;
+  tg.clear();
+  test_assert(mr.scatterVertFloat4ToCage(level, "color", nullptr, 0, tg) == 0);
+  test_assert(sameColor((*sdata)[vid], paint));
 
   alloc::Delete(cage);
 }
@@ -939,6 +1075,7 @@ int main(int argc, char **argv)
   gateInvalidation();
   gateCageScatter();
   gateCageVertScatter();
+  gateSubFaceDabCollapse();
   gateChannelCapi();
 
   return test_end();

@@ -254,8 +254,7 @@ bool Multires::gridCageFaces(Vector<int> &out)
 
 int Multires::scatterFaceIntToCage(int level,
                                    const char *name,
-                                   Vector<int> &r_grids,
-                                   GridScatterSource src)
+                                   Vector<int> &r_grids)
 {
   r_grids.clear();
   if (!cage_ || level < 1 || level > maxLevel()) {
@@ -264,18 +263,15 @@ int Multires::scatterFaceIntToCage(int level,
   const int S = refiner.levels[level - 1].gridSide;
   const int cells = S * S, gridCount = refiner.gridCount();
 
-  // Two possible sources of per-cell values. Auto takes the store: a
-  // grids-native face stroke writes a Face-domain authored channel and never
-  // materializes a slot mesh, so a slot-only read would see nothing at all.
-  int ch = src == GridScatterSource::Slot ? -1 : store.findChannel(util::string(name));
+  // Two possible sources of per-cell values, and never both: writing grid
+  // elements is the Host storage class's privilege (the channel), the mesh
+  // path is the Derived one's (the slot column).
+  int ch = store.findChannel(util::string(name));
   if (ch >= 0 && (!store.channelAuthored(ch) || store.channelElemSize(ch) != 1 ||
                   store.channelDomain(ch) != GridElemDomain::Face ||
                   !store.channelLevelAllocated(level, ch)))
   {
     ch = -1;
-  }
-  if (ch < 0 && src == GridScatterSource::Store) {
-    return 0; // asked for the store, which has nothing for this level
   }
   mesh::Mesh *slotMesh = nullptr;
   if (ch >= 0) {
@@ -414,7 +410,89 @@ bool Multires::gridCageVerts(Vector<int> &out)
   return true;
 }
 
-int Multires::scatterVertFloat4ToCage(int level, const char *name, GridScatterSource src)
+/** Stamp `count` grids of a level slot's per-vertex FLOAT4 attribute from the
+ * derived samples of the same name. The partial form of the colour half of
+ * #assignDerivedAttrs, for a collapse that has just re-derived those grids. */
+void Multires::stampSlotVertFloat4(int level, const char *name, const int *gridIds, int count)
+{
+  MultiresSlot *slot = findSlot(level);
+  if (!slot || !slot->mesh || count <= 0) {
+    return;
+  }
+  AttrRef ref = slot->mesh->v.attrs.find_attribute(AttrType::FLOAT4, name);
+  if (!ref.exists()) {
+    return;
+  }
+  int comps = 0;
+  const float *samples = gridAttrs_.samples(level, util::string(name), &comps);
+  if (!samples || comps != 4) {
+    return;
+  }
+  auto *col = static_cast<mesh::AttrData<math::float4> *>(ref.data);
+  const SubdivLevel &lvl = refiner.levels[level - 1];
+  const int w = lvl.gridSide + 1, n = refiner.gridCount();
+  for (int i = 0; i < count; i++) {
+    const int g = gridIds[i];
+    if (g < 0 || g >= n) {
+      continue;
+    }
+    const int *gv = &lvl.gridVerts[size_t(g) * w * w];
+    const float *src = &samples[size_t(g) * w * w * 4];
+    for (int k = 0; k < w * w; k++) {
+      col->materialize(gv[k]);
+      (*col)[gv[k]] = math::float4(src[k * 4], src[k * 4 + 1], src[k * 4 + 2], src[k * 4 + 3]);
+    }
+  }
+}
+
+void Multires::dabGrids(int level, const float *dabs, int dabCount, Vector<int> &out)
+{
+  MultiresSlot *slot = findSlot(level);
+  if (!dabs || dabCount <= 0 || !slot || !slot->mesh || !slot->tree) {
+    return;
+  }
+  const int S = refiner.levels[level - 1].gridSide;
+  const int cells = S * S, gridCount = refiner.gridCount();
+  if (cells <= 0 || slot->mesh->f.count != gridCount * cells) {
+    return; // not this level's grid mesh, so face id / S² is not a grid id
+  }
+  Vector<uint8_t> seen;
+  seen.resize(size_t(gridCount));
+  for (size_t i = 0; i < seen.size(); i++) {
+    seen[i] = 0;
+  }
+  for (int g : out) {
+    if (g >= 0 && g < gridCount) {
+      seen[g] = 1;
+    }
+  }
+  Vector<spatial::SpatialNode *> nodes;
+  for (int i = 0; i < dabCount; i++) {
+    nodes.clear();
+    const math::float3 co(dabs[i * 4], dabs[i * 4 + 1], dabs[i * 4 + 2]);
+    if (!slot->tree->filterNodes(co, dabs[i * 4 + 3], nodes)) {
+      continue;
+    }
+    // Leaf granularity: filterNodes is an AABB test, so this takes a few grids
+    // the dab did not reach. Re-deriving one is idempotent, and the alternative
+    // (a per-vert distance test) buys nothing the collapse can observe.
+    for (spatial::SpatialNode *node : nodes) {
+      for (int f : node->data->unique_faces) {
+        const int g = f / cells;
+        if (g >= 0 && g < gridCount && !seen[g]) {
+          seen[g] = 1;
+          out.append(g);
+        }
+      }
+    }
+  }
+}
+
+int Multires::scatterVertFloat4ToCage(int level,
+                                      const char *name,
+                                      const float *dabs,
+                                      int dabCount,
+                                      Vector<int> &r_grids)
 {
   if (!cage_ || level < 1 || level > maxLevel()) {
     return 0;
@@ -422,18 +500,15 @@ int Multires::scatterVertFloat4ToCage(int level, const char *name, GridScatterSo
   const int S = refiner.levels[level - 1].gridSide, w = S + 1;
   const int gridCount = refiner.gridCount();
 
-  // Same two sources as the face twin, and Auto takes the store for the same
-  // reason: a grids-native stroke writes the channel and materializes no
-  // level mesh.
-  int ch = src == GridScatterSource::Slot ? -1 : store.findChannel(util::string(name));
+  // Same two sources as the face twin, under the same rule: the channel is
+  // written only by a Host-class attribute, the slot column only by a
+  // Derived one's mesh path.
+  int ch = store.findChannel(util::string(name));
   if (ch >= 0 && (!store.channelAuthored(ch) || store.channelElemSize(ch) != 4 ||
                   store.channelDomain(ch) != GridElemDomain::Vertex ||
                   !store.channelLevelAllocated(level, ch)))
   {
     ch = -1;
-  }
-  if (ch < 0 && src == GridScatterSource::Store) {
-    return 0; // asked for the store, which has nothing for this level
   }
   mesh::Mesh *slotMesh = nullptr;
   if (ch >= 0) {
@@ -469,6 +544,11 @@ int Multires::scatterVertFloat4ToCage(int level, const char *name, GridScatterSo
     }
   }
   const SubdivLevel &lvl = refiner.levels[level - 1];
+  Vector<uint8_t> moved;
+  moved.resize(cage_->v.capacity());
+  for (size_t i = 0; i < moved.size(); i++) {
+    moved[i] = 0;
+  }
   int changed = 0;
   for (int g = 0; g < gridCount; g++) {
     const int vert = gridVert[g];
@@ -486,8 +566,45 @@ int Multires::scatterVertFloat4ToCage(int level, const char *name, GridScatterSo
     }
     cdata->materialize(vert);
     (*cdata)[vert] = val;
+    moved[vert] = 1;
     changed++;
   }
+  // A grid's samples interpolate every corner of its cage face, so what has to
+  // re-derive is all grids of every face incident to a vert that moved, not
+  // just the grids whose own corner did. Same walk as gridCageVerts.
+  if (changed) {
+    r_grids.ensure_capacity(r_grids.size() + size_t(gridCount));
+    int g0 = 0;
+    for (int fi : cage_->f) {
+      const int c0 = cage_->l.c[cage_->f.l[fi]];
+      int cc = c0, n = 0;
+      bool hit = false;
+      do {
+        hit = hit || moved[cage_->c.v[cc]] != 0;
+        cc = cage_->c.next[cc];
+        n++;
+      } while (cc != c0);
+      if (hit) {
+        for (int k = 0; k < n; k++) {
+          r_grids.append(g0 + k);
+        }
+      }
+      g0 += n;
+    }
+  }
+  // Then the grids the dab itself painted, moved cage vert or not. A dab finer
+  // than a base face moves nothing, and its paint has to go now rather than sit
+  // on screen until a later dab happens to move a neighbouring cage vert.
+  dabGrids(level, dabs, dabCount, r_grids);
+  if (r_grids.size() == 0) {
+    return 0;
+  }
+  // The collapse: every non-corner sample of a touched grid becomes a pure
+  // function of the cage again, in the derived layer, in the store's session
+  // channel and in the level slot -- so no copy still shows grid-resolution
+  // paint the cage cannot reproduce.
+  gridAttrs_.refreshFromCage(level, util::string(name), r_grids.data(), int(r_grids.size()));
+  stampSlotVertFloat4(level, name, r_grids.data(), int(r_grids.size()));
   return changed;
 }
 

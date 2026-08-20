@@ -64,9 +64,10 @@ struct GridGpuStrokeSession {
   /** Kernel stem for `tool` when it can run grids-native on the GPU, else
    * null — the dispatch rule (both the grids roster and the GPU kernel map
    * must carry it; face-stage kernels are excluded by the roster already). */
-  static const GpuKernelInfo *kernelFor(SculptBrushes tool)
+  static const GpuKernelInfo *kernelFor(SculptBrushes tool,
+                                       const subdiv::MultiresAttrs *attrs = nullptr)
   {
-    if (!GridBrushExecutor::supportsBrush(tool)) {
+    if (!GridBrushExecutor::supportsBrush(tool, attrs)) {
       return nullptr;
     }
     return gpuKernelForTool(tool);
@@ -88,7 +89,7 @@ struct GridGpuStrokeSession {
     log = lg;
     disp = dispatch;
     tool = t;
-    info = kernelFor(t);
+    info = kernelFor(t, d->multires() ? &d->multires()->gridAttrs() : nullptr);
     if (!info) {
       err = "grid gpu stroke: tool not grids-GPU-capable";
       return false;

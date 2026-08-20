@@ -72,11 +72,17 @@ void GridStroke_free(GridStrokeSession *s)
   }
 }
 
-/** Whether `tool` (a SculptBrushes id) runs grids-native; 0 means the host
- * must fall back to the materialized-mesh path for the stroke. */
-int GridStroke_supported(int tool)
+/** Whether `tool` (a SculptBrushes id) runs grids-native on `mr`; 0 means the
+ * host must fall back to the materialized-mesh path for the stroke.
+ *
+ * `mr` may be null, but a host that has one must pass it: a kernel writing an
+ * attribute the stack classes `Derived` is refused only when the storage
+ * policy can be asked (grid_attr_bind.h), and the mesh path is that
+ * attribute's route home. */
+int GridStroke_supported(subdiv::Multires *mr, int tool)
 {
-  return brush::GridBrushExecutor::supportsBrush(brush::SculptBrushes(tool)) ? 1 : 0;
+  const subdiv::MultiresAttrs *attrs = mr ? &mr->gridAttrs() : nullptr;
+  return brush::GridBrushExecutor::supportsBrush(brush::SculptBrushes(tool), attrs) ? 1 : 0;
 }
 
 /** Grid attribute channels on/off (plan P2-P4), process-global because

@@ -145,5 +145,54 @@ int main()
   test_assert(other == 0);     // no spurious second id
   }
 
+  // --- and on a mesh with a host default group ---
+  // A first-ever `group` layer created by the *bind* has to seed the host's
+  // default set, not group 0 (Mesh::ensureFaceGroups' rule) -- otherwise every
+  // face a multires stroke missed scatters "no face set" onto its cage face.
+  {
+  Scene scene(256, 256, /*headless=*/true);
+  auto r = script::run(scene,
+                       "make_cube subdivs=12 size=0.5\n"
+                       "build_spatial leaf_limit=256 depth_limit=8\n"
+                       "set_brush_tool tool=polygroup\n"
+                       "set_brush radius=0.25 strength=1.0\n"
+                       "set_backend backend=cpp\n",
+                       ".");
+  test_assert(r.ok);
+  if (!r.ok) {
+    fprintf(stderr, "  default-group line %d: %s\n", r.line_no, r.error.c_str());
+    return 1;
+  }
+
+  Mesh *m = scene.mesh;
+  // 2, not 1: the stroke paints Brush::activeGroup, which defaults to 1, and a
+  // default that equals the painted id could not tell the two fills apart.
+  m->default_group_id = 2;
+  test_assert(!m->f.attrs.has(AttrType::INT, "group"));
+
+  r = script::run(scene, "stroke origin=0,0,0.25 normal=0,0,1\n", ".");
+  test_assert(r.ok);
+  if (!r.ok) {
+    fprintf(stderr, "  default-group stroke line %d: %s\n", r.line_no,
+            r.error.c_str());
+    return 1;
+  }
+
+  AttrData<int> *gd = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
+  test_assert(gd != nullptr);
+  int painted = 0, defaulted = 0, zeroed = 0;
+  for (int i = 0; i < m->f.count; i++) {
+    int g = (*gd)[i];
+    if (g == 1) painted++;
+    else if (g == 2) defaulted++;
+    else if (g == 0) zeroed++;
+  }
+  fprintf(stderr, "default-group painted=%d defaulted=%d zeroed=%d\n", painted,
+          defaulted, zeroed);
+  test_assert(painted > 0);     // the dab still paints activeGroup
+  test_assert(defaulted > 0);   // and the faces it missed hold the default set
+  test_assert(zeroed == 0);     // none of them read as "no group"
+  }
+
   return test_end();
 }

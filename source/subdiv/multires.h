@@ -50,20 +50,6 @@ namespace sculptcore::subdiv {
 struct GridLevelDomain;
 struct GridDrawSource;
 
-/** Which copy of a derived layer a scatter-to-cage reads.
- *
- * The two sources outlive the route that wrote them: a store channel stays
- * allocated at a level after the grids-native stroke that bound it, and a slot
- * column survives while the slot is resident. So neither is newer by
- * construction, and `Auto` (store when it has the level, else the slot) is only
- * right where the session never switched routes. A caller that knows which
- * route wrote last should say so. */
-enum class GridScatterSource : int {
-  Auto = 0,
-  Store = 1,
-  Slot = 2,
-};
-
 /** One resident (materialized) level: the mesh + its spatial tree. Owned by
  * the Multires LRU; pointers are stable until the slot is evicted. */
 struct MultiresSlot {
@@ -321,10 +307,11 @@ struct Multires {
    * inverse of #assignDerivedAttrs' stamp, and the only route home for an edit
    * to a derived face layer (face sets).
    *
-   * The cells come from whichever source `src` names; under `Auto`, the grids
-   * store's Face-domain session channel of that name when one holds data for
-   * `level` (what a grids-native face stroke writes), and the materialized
-   * level mesh otherwise.
+   * The cells come from the grids store's Face-domain session channel of that
+   * name when one holds data for `level`, and from the materialized level mesh
+   * otherwise. The two cannot both be live: only a `Host`-class attribute may
+   * be written on grid elements, and only a `Derived` one takes the mesh path
+   * (see subdiv::GridAttrStorage).
    *
    * Blender writes a face set on multires to the whole base face, unweighted
    * (sculpt_face_set.cc), so the rule here is binary: a cage face takes the
@@ -336,12 +323,11 @@ struct Multires {
    *
    * Appends the grid ids of every changed face to `r_grids` (the draw source's
    * partial-refill list) and returns the number of cage faces changed. Creates
-   * the cage layer on first use. 0 when the named source has nothing for this
-   * level. */
+   * the cage layer on first use. 0 when neither source has anything
+   * for this level. */
   int scatterFaceIntToCage(int level,
                            const char *name,
-                           litestl::util::Vector<int> &r_grids,
-                           GridScatterSource src = GridScatterSource::Auto);
+                           litestl::util::Vector<int> &r_grids);
 
   /** The cage vertex each grid's corner sample belongs to, in the refiner's
    * grid enumeration. Grid `g`'s lattice sample (0, 0) IS this cage vert: the
@@ -361,21 +347,41 @@ struct Multires {
    * them through unweighted. Spreading a fine sample back across the verts
    * that fed it would need an adjoint and is ill-posed; this needs neither.
    *
-   * The samples come from whichever source `src` names; under `Auto`, the grids
-   * store's Vertex-domain channel of that name when one holds data for `level`
-   * (what a grids-native colour stroke writes, through every seam occurrence),
-   * and the materialized level mesh otherwise. Unlike the face twin nothing is
-   * re-stamped afterwards: the replicas of a cage vert already agree, so the
-   * next scatter reads no disagreement.
+   * The samples come from the same two sources as the face twin, under the
+   * same rule: the store's Vertex-domain channel of that name when one holds
+   * data for `level`, the materialized level mesh otherwise.
+   *
+   * Then the face twin's re-stamp, for the same reason and one step wider: the
+   * grids of every cage face a moved vert belongs to are re-derived from the
+   * cage — in the sample layer, the store's session channel and the level slot
+   * — so no copy still shows grid-resolution paint the cage cannot reproduce.
+   * Their ids are appended to `r_grids` (the draw source's partial-refill
+   * list). This is what makes the attribute's `Derived` storage class true
+   * rather than nominal: run per dab, the cage is the only author.
+   *
+   * `dabs` is the region the caller just painted — 4 floats per dab, an
+   * object-space {x, y, z, radius} — and its grids re-derive too, whether or
+   * not a cage vert moved. Without it a dab finer than a base face would move
+   * nothing, re-derive nothing, and leave its grid-resolution paint on screen
+   * until some later dab happened to move a neighbouring cage vert. Pass
+   * `dabCount` 0 outside a stroke, where the moved set is the whole edit.
    *
    * The cost is a resolution collapse — only cage verts survive, so detail
    * finer than the base mesh is not persistent paint. Creates the cage layer
    * on first use, filled white (an unpainted vert must read as Blender's
    * default vertex colour, not black). Returns the number of cage verts
-   * changed; 0 when the named source has nothing for this level. */
+   * changed; 0 when neither source has anything for this level. */
   int scatterVertFloat4ToCage(int level,
                               const char *name,
-                              GridScatterSource src = GridScatterSource::Auto);
+                              const float *dabs,
+                              int dabCount,
+                              litestl::util::Vector<int> &r_grids);
+
+  /** Stamp `count` grids of a level slot's per-vertex FLOAT4 attribute from
+   * the derived samples of the same name — the partial form of the colour half
+   * of #assignDerivedAttrs. No-op when the level is not materialized or the
+   * slot carries no such attribute. */
+  void stampSlotVertFloat4(int level, const char *name, const int *gridIds, int count);
 
   /** #gridFaceInts for `material_index`. Callers treat a false return as every
    * face being material 0, which is what both draw paths default to. */
@@ -538,6 +544,13 @@ private:
   void compositeMix(litestl::util::Vector<ChannelMix> &out) const;
   /** The store channel backing settings row `li`, or -1. */
   int channelForLayer(int li) const;
+
+  /** The grids `dabs` (4 floats each, object-space {x, y, z, radius}) reach at
+   * `level`, appended to `out` without duplicates. Uses the level slot's own
+   * spatial tree — the one the stroke just walked — and the grid-major cell
+   * layout of its mesh, so a grid id is a leaf face id divided by S². Leaves
+   * `out` alone when the slot, its tree or that layout is missing. */
+  void dabGrids(int level, const float *dabs, int dabCount, litestl::util::Vector<int> &out);
   /** Drop every cached chain + resident slot and rematerialize the active
    * level (composite changed). Does NOT write back — callers fold first. */
   void refreshAfterLayerChange();

@@ -15,9 +15,10 @@
  *    correct default on this domain (BSMOOTH's vclass 0 = plain Laplacian).
  *    Binds an executor-owned all-zero column; no storage.
  *  - SessionChannel: a kernel-written vertex or face layer, backed by an
- *    Authored GridsStore channel plus the dense mirror below. Whether that
- *    channel is also persistent is the host's call (declareHostAttr) and
- *    changes nothing here.
+ *    Authored GridsStore channel plus the dense mirror below. Only a Host- or
+ *    Temp-class layer gets here: declareHostAttr is what says the host can
+ *    store grid-element data for it, and a Derived layer is a cache of the
+ *    cage that a brush must reach through the cage instead (grid_attrs.h).
  *  - Unbindable: the brush falls back to the materialized-mesh path.
  *
  * The mirror exists because kernels index a dense mesh::AttrData by element id
@@ -38,6 +39,7 @@
 
 #include "mesh/attribute.h"
 #include "mesh/attribute_enums.h"
+#include "subdiv/grid_attrs.h"
 #include "subdiv/grid_domain.h"
 #include "subdiv/grids.h"
 #include "subdiv/multires.h"
@@ -52,8 +54,10 @@
 namespace sculptcore::brush {
 
 /** Process-global kill switch for grid attribute channels, spanning plan
- * P2-P4. Off reproduces the pre-P2 roster exactly. Global because the
- * dispatch entry point (GridStroke_supported) has no session handle. */
+ * P2-P4. Off reproduces the pre-P2 roster exactly. Global because it is a
+ * development lever, not per-object state; which attributes may take the
+ * grids route at all is the storage class's answer (gridAttrPlan), not
+ * this one's. */
 inline bool g_gridAttrsEnabled = false;
 
 inline bool gridAttrsEnabled()
@@ -106,8 +110,15 @@ inline const string &gridAttrLayerName(const BrushAttrManifestEntry &entry)
   return entry.boundName.size() ? entry.boundName : entry.handle;
 }
 
-/** Route one declared attr layer onto the grids domain. */
-inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry, bool sessionChannels)
+/** Route one declared attr layer onto the grids domain.
+ *
+ * `attrs` is the live stack's storage policy (grid_attrs.h), or null where
+ * there is none to ask — the pre-session dispatch probe. Null keeps the
+ * type/domain answers and skips only the storage-class term, so a caller that
+ * can supply it always gets the narrower answer. */
+inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry,
+                                     bool sessionChannels,
+                                     const subdiv::MultiresAttrs *attrs = nullptr)
 {
   if (!entry.kernelWrites) {
     // A read-only handle needs a source, not storage. Anything else here
@@ -129,6 +140,18 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry, bool s
     // A sculpt-layer write is a delta the displace compositor folds into
     // positions. The grids domain runs no compositor, so writing the layer
     // alone would move nothing.
+    return GridAttrPlanKind::Unbindable;
+  }
+  if (attrs &&
+      attrs->storageFor(gridAttrLayerName(entry), entry.type, mesh::AttrFlag::NONE) ==
+          subdiv::GridAttrStorage::Derived)
+  {
+    // The storage class, enforced where the routing decision is made rather
+    // than left to the channel's persist flag. A Derived attribute's grid
+    // elements are a cache of the cage; a kernel that writes them is authoring
+    // data the host cannot store and the next rebuild would discard. The cage
+    // route (mesh path + Multires::scatterVertFloat4ToCage per dab) is the one
+    // a host without multires attributes has.
     return GridAttrPlanKind::Unbindable;
   }
   return gridAttrTypeFloats(entry.type) > 0 ? GridAttrPlanKind::SessionChannel :

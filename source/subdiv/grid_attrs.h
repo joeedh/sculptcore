@@ -198,6 +198,18 @@ struct MultiresAttrs {
    * moved, and bumping it would refill every node. */
   void refreshSamplesFromChannel(const string &name, int level, const int *gridIds, int count);
 
+  /** Re-derive `count` grids of `name`'s sample layer from the cage, in place.
+   *
+   * The `Derived` storage class made partial: the cage is authoritative, so a
+   * brush that just wrote cage elements uses this to bring the grids those
+   * elements touch back into agreement without rebuilding the whole layer. A
+   * non-persisting session channel of the same name is re-stamped too, since
+   * it would otherwise overlay the pre-collapse values on the next rebuild.
+   * Returns the number of grids re-derived. Deliberately leaves #generation
+   * alone, for the same reason #refreshFaceSetColors does: the caller knows
+   * which grids moved and marks them. */
+  int refreshFromCage(int level, const string &name, const int *gridIds, int count);
+
   /** The cage attribute changed (a brush wrote it, or the cage was replaced):
    * drop the derived layer so the next read re-subdivides. */
   void invalidate(const string &name);
@@ -238,6 +250,9 @@ private:
    * channel exists, is a vertex channel of matching width, and holds data for
    * `level` (an untouched level has nothing to say). */
   void overlaySessionChannel(GridAttrLayer &layer, int level);
+  /** Read `layer`'s cage attribute into a flat, elem-indexed float array.
+   * False when the cage has no such attribute. */
+  bool gatherCageValues(GridAttrLayer &layer, mesh::Mesh &cage, Vector<float> &src);
   /** Blender's generic rule: bilinear over the four ptex-face corner values. */
   void buildBilinear(GridAttrLayer &layer, int level, mesh::Mesh &cage);
   /** The UV rule: refine the UV cage, then project onto the limit surface. */

@@ -645,6 +645,19 @@ struct CommandExecutor {
                 dd->set_default(i);
             }
           });
+          // A first-ever poly-group layer means "every face in the host's
+          // default set", not group 0 -- Mesh::ensureFaceGroups' rule, applied
+          // here because the bind, not the host, created the layer.
+          if ((entry.use & int(mesh::AttrUse::POLYGROUP)) &&
+              entry.type == mesh::AttrType::INT &&
+              entry.domain == AttrElemDomain::Face && m->default_group_id != 0)
+          {
+            auto *dd = static_cast<mesh::AttrData<int> *>(ref.data);
+            for (int fi : m->f) {
+              dd->materialize(fi);
+              (*dd)[fi] = m->default_group_id;
+            }
+          }
         }
         attrBindingStorage.items.append(BrushAttrBinding{entry.handle, ref});
       }
