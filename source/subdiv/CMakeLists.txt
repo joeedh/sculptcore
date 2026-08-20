@@ -70,6 +70,7 @@ wasm_add_symbols("
   Multires_setDefaultGroupId
   Multires_syncSlotAttrs
   Multires_scatterFaceIntToCage
+  Multires_scatterVertFloat4ToCage
   Multires_gridChannelCount
   Multires_gridChannelName
   Multires_gridChannelFind

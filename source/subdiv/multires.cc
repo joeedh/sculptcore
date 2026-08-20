@@ -385,6 +385,102 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
   return changed;
 }
 
+bool Multires::gridCageVerts(Vector<int> &out)
+{
+  out.clear();
+  if (!cage_) {
+    return false;
+  }
+  // gridCageFaces' walk, taking the corner's vertex instead of its face.
+  out.ensure_capacity(size_t(refiner.gridCount()));
+  for (int fi : cage_->f) {
+    const int c0 = cage_->l.c[cage_->f.l[fi]];
+    int cc = c0;
+    do {
+      out.append(cage_->c.v[cc]);
+      cc = cage_->c.next[cc];
+    } while (cc != c0);
+  }
+  if (int(out.size()) != refiner.gridCount()) {
+    out.clear();
+    return false; // enumeration drifted from the refiner's
+  }
+  return true;
+}
+
+int Multires::scatterVertFloat4ToCage(int level, const char *name)
+{
+  if (!cage_ || level < 1 || level > maxLevel()) {
+    return 0;
+  }
+  const int S = refiner.levels[level - 1].gridSide, w = S + 1;
+  const int gridCount = refiner.gridCount();
+
+  // Same two sources as the face twin, and the store wins for the same reason:
+  // a grids-native stroke writes the channel and materializes no level mesh.
+  int ch = store.findChannel(util::string(name));
+  if (ch >= 0 && (!store.channelAuthored(ch) || store.channelElemSize(ch) != 4 ||
+                  store.channelDomain(ch) != GridElemDomain::Vertex ||
+                  !store.channelLevelAllocated(level, ch)))
+  {
+    ch = -1;
+  }
+  mesh::Mesh *slotMesh = nullptr;
+  if (ch >= 0) {
+    store.ensureLevelResident(level);
+  }
+  else {
+    MultiresSlot *slot = findSlot(level);
+    if (!slot || !slot->mesh || !slot->mesh->v.attrs.has(AttrType::FLOAT4, name)) {
+      return 0; // nothing materialized to read back from
+    }
+    slotMesh = slot->mesh;
+  }
+  Vector<int> gridVert;
+  if (!gridCageVerts(gridVert)) {
+    return 0;
+  }
+  const bool fresh = !cage_->v.attrs.has(AttrType::FLOAT4, name);
+  AttrRef &ref = cage_->v.attrs.ensure(AttrType::FLOAT4, util::string(name), true);
+  auto *cdata = static_cast<mesh::AttrData<math::float4> *>(ref.data);
+  auto *sdata = slotMesh ? static_cast<mesh::AttrData<math::float4> *>(
+                               slotMesh->v.attrs.find_attribute(AttrType::FLOAT4, name).data) :
+                           nullptr;
+  if (!cdata || (!sdata && ch < 0)) {
+    return 0;
+  }
+  if (fresh) {
+    // White, not the attribute system's zero: an unpainted vert has to read as
+    // Blender's own default vertex colour, the way ensureFaceGroups floods a
+    // first-ever group layer with the host's default id rather than 0.
+    for (int vi : cage_->v) {
+      cdata->materialize(vi);
+      (*cdata)[vi] = math::float4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+  }
+  const SubdivLevel &lvl = refiner.levels[level - 1];
+  int changed = 0;
+  for (int g = 0; g < gridCount; g++) {
+    const int vert = gridVert[g];
+    math::float4 val;
+    if (ch >= 0) {
+      const float *src = store.elem(level, ch, g, 0, 0);
+      val = math::float4(src[0], src[1], src[2], src[3]);
+    }
+    else {
+      val = sdata->safe_get(lvl.gridVerts[size_t(g) * w * w]);
+    }
+    const math::float4 cur = cdata->safe_get(vert);
+    if (val[0] == cur[0] && val[1] == cur[1] && val[2] == cur[2] && val[3] == cur[3]) {
+      continue; // includes every later grid of a vert an earlier one adopted
+    }
+    cdata->materialize(vert);
+    (*cdata)[vert] = val;
+    changed++;
+  }
+  return changed;
+}
+
 void Multires::assignGridMaterials(mesh::Mesh &m, int level)
 {
   Vector<int> gridMat;

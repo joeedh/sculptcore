@@ -607,6 +607,172 @@ static void gateCageScatter()
   alloc::Delete(cage);
 }
 
+/* Vec has no operator==, and these are exact copies, not a numeric result. */
+static bool sameColor(const float4 &a, const float4 &b)
+{
+  return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
+}
+
+/* B2a's vertex-domain twin of gateCageScatter. Blender has no multires
+ * attribute domain, so painted colour has to land somewhere in the object's own
+ * data or die with the session; the cage is that somewhere. The write is exact
+ * restriction rather than a transpose: sample (0, 0) of a grid IS its corner's
+ * cage vert, at weight one. */
+static void gateCageVertScatter()
+{
+  Mesh *cage = makeGrid(2);
+  {
+    AttrRef &ref = cage->v.attrs.ensure(AttrType::FLOAT4, "color", /*materialize=*/true);
+    ref.use = AttrUse::COLOR;
+    auto *d = ref.get_data<float4>();
+    for (int v : cage->v) {
+      const float t = float(v + 1) / 16.0f;
+      (*d)[v] = float4(t, 1.0f - t, 0.5f, 1.0f);
+    }
+  }
+  Multires mr;
+  mr.init(*cage, 2);
+
+  const int level = 2, grids = mr.refiner.gridCount();
+  subdiv::MultiresSlot *slot = mr.setActiveLevel(level);
+  test_assert(slot && slot->mesh);
+  if (!slot || !slot->mesh) {
+    alloc::Delete(cage);
+    return;
+  }
+  Mesh &m = *slot->mesh;
+  const subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
+  const int S = lvl.gridSide, w = S + 1;
+
+  Vector<int> gridVert;
+  test_assert(mr.gridCageVerts(gridVert));
+  test_assert(int(gridVert.size()) == grids && grids == 16);
+
+  /* A cage vert appears once per incident face: on a 2x2 quad grid that is four
+   * corners once, four edge verts twice and the centre four times. */
+  int seen[9] = {0};
+  for (int g = 0; g < grids; g++) {
+    test_assert(gridVert[g] >= 0 && gridVert[g] < 9);
+    seen[gridVert[g]]++;
+  }
+  int once = 0, twice = 0, quad = 0;
+  for (int i = 0; i < 9; i++) {
+    once += seen[i] == 1;
+    twice += seen[i] == 2;
+    quad += seen[i] == 4;
+  }
+  test_assert(once == 4 && twice == 4 && quad == 1);
+
+  /* The correspondence itself, checked against the rule that derives a level
+   * rather than against the walk that produced the pairing. Blender's ptex
+   * rule is bilinear within the grid, so sample (0, 0) is one-hot on the
+   * grid's own corner: the derived sample there must be a bit-exact copy of
+   * the cage value, which is what makes the write-back restriction and not a
+   * least-squares fit. (Positions are no oracle here -- they follow the
+   * Catmull-Clark limit stencil, which pulls a valence-one boundary corner
+   * inward.) */
+  {
+    const float4 *samples = mr.gridAttrs().colorSamples(level);
+    test_assert(samples != nullptr);
+    auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    test_assert(cageCol != nullptr);
+    if (samples && cageCol) {
+      for (int g = 0; g < grids; g++) {
+        test_assert(sameColor(samples[g * w * w], (*cageCol)[gridVert[g]]));
+      }
+    }
+  }
+
+  const int col = Multires_gridChannelEnsure(&mr,
+                                             "col",
+                                             4,
+                                             int(subdiv::GridElemDomain::Vertex),
+                                             int(AttrType::FLOAT4),
+                                             /*persist=*/1,
+                                             int(subdiv::GridLevelRule::Authored));
+  test_assert(col > 0);
+  const int perGrid = Multires_gridChannelGridFloats(&mr, level, col);
+  test_assert(perGrid == w * w * 4);
+  Vector<float> buf;
+  buf.resize(perGrid * grids);
+  for (int i = 0; i < int(buf.size()); i++) {
+    buf[i] = 1.0f;
+  }
+  const float4 C(0.25f, 0.5f, 0.75f, 1.0f);
+  for (int k = 0; k < 4; k++) {
+    buf[k] = C[k];
+  }
+  test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
+              perGrid * grids);
+
+  /* One grid's corner disagrees with white, so exactly one cage vert changes --
+   * and the other eight reading white is what proves the first-ever layer was
+   * flooded with the host's default colour instead of the attribute system's
+   * zero. */
+  test_assert(mr.scatterVertFloat4ToCage(level, "col") == 1);
+  AttrRef cref = cage->v.attrs.find_attribute(AttrType::FLOAT4, "col");
+  test_assert(cref.exists());
+  auto *cdata = cref.get_data<float4>();
+  for (int v : cage->v) {
+    const float4 want = v == gridVert[0] ? C : float4(1.0f, 1.0f, 1.0f, 1.0f);
+    test_assert(sameColor((*cdata)[v], want));
+  }
+
+  /* Now paint every grid, with replicas of one cage vert agreeing -- which is
+   * what a dab actually leaves behind, since gridAttrScatter writes through
+   * every occurrence of a boundary sample. */
+  for (int g = 0; g < grids; g++) {
+    const float t = float(gridVert[g] + 1) / 16.0f;
+    float *dst = &buf[g * perGrid];
+    dst[0] = t;
+    dst[1] = 1.0f - t;
+    dst[2] = 0.5f;
+    dst[3] = 1.0f;
+  }
+  test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
+              perGrid * grids);
+  test_assert(mr.scatterVertFloat4ToCage(level, "col") == 9);
+  for (int v : cage->v) {
+    const float t = float(v + 1) / 16.0f;
+    test_assert(sameColor((*cdata)[v], float4(t, 1.0f - t, 0.5f, 1.0f)));
+  }
+
+  /* Idempotent, with nothing re-stamped to make it so: the replicas already
+   * agree, so the second pass finds no disagreement to resolve. (The face twin
+   * has to re-stamp its face run or it oscillates.) */
+  test_assert(mr.scatterVertFloat4ToCage(level, "col") == 0);
+
+  /* No store channel by that name: the materialized level's own column is the
+   * fallback source, which is what a mesh-path stroke leaves behind. */
+  {
+    AttrRef &ref = m.v.attrs.ensure(AttrType::FLOAT4, "slotcol", /*materialize=*/true);
+    auto *d = ref.get_data<float4>();
+    for (int v : m.v) {
+      (*d)[v] = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+    (*d)[lvl.gridVerts[0]] = float4(0.0f, 0.25f, 0.5f, 1.0f);
+  }
+  test_assert(mr.scatterVertFloat4ToCage(level, "slotcol") == 1);
+  AttrRef sref = cage->v.attrs.find_attribute(AttrType::FLOAT4, "slotcol");
+  test_assert(sref.exists());
+  {
+    auto *d = sref.get_data<float4>();
+    for (int v : cage->v) {
+      const float4 want = v == gridVert[0] ? float4(0.0f, 0.25f, 0.5f, 1.0f) :
+                                             float4(1.0f, 1.0f, 1.0f, 1.0f);
+      test_assert(sameColor((*d)[v], want));
+    }
+  }
+
+  /* Refusals leave no half-built cage layer behind. */
+  test_assert(mr.scatterVertFloat4ToCage(level, "nope") == 0);
+  test_assert(!cage->v.attrs.has(AttrType::FLOAT4, "nope"));
+  test_assert(mr.scatterVertFloat4ToCage(0, "col") == 0);
+  test_assert(mr.scatterVertFloat4ToCage(mr.maxLevel() + 1, "col") == 0);
+
+  alloc::Delete(cage);
+}
+
 /* B1's channel c-api: the surface an embedding host actually consumes, so it
  * is graded the way one would use it -- enumerate, describe, write a level,
  * read it back, and survive a level round trip. */
@@ -737,6 +903,7 @@ int main(int argc, char **argv)
   gateSlotAttrs();
   gateInvalidation();
   gateCageScatter();
+  gateCageVertScatter();
   gateChannelCapi();
 
   return test_end();

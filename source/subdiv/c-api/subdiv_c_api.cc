@@ -552,6 +552,24 @@ int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *n
   return changed;
 }
 
+/** Push a level's per-vertex FLOAT4 attribute back onto the cage
+ * (Multires::scatterVertFloat4ToCage — the return route for painted colour on
+ * multires, whose only persistent home is the base mesh). Returns the number
+ * of cage verts changed.
+ *
+ * Nothing is marked for redraw here, unlike the face twin: the cage layer is
+ * what the derived draw samples are BUILT from, so re-deriving it would
+ * replace the full-resolution paint on screen with its cage-resolution
+ * restriction. The store channel (or the slot column) stays the display
+ * truth until the session ends. */
+int Multires_scatterVertFloat4ToCage(subdiv::Multires *mr, int level, const char *name)
+{
+  if (!mr || !name || !name[0]) {
+    return 0;
+  }
+  return mr->scatterVertFloat4ToCage(level, name);
+}
+
 /** The cage's "no face set" group id (mesh::Mesh::default_group_id) — the
  * grids fset stream leaves it untinted, mirroring what
  * sc_external_draw_set_default_group does for the mesh path. Drops the derived

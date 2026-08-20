@@ -324,6 +324,38 @@ struct Multires {
    * the cage layer on first use. 0 when neither source has this level. */
   int scatterFaceIntToCage(int level, const char *name, litestl::util::Vector<int> &r_grids);
 
+  /** The cage vertex each grid's corner sample belongs to, in the refiner's
+   * grid enumeration. Grid `g`'s lattice sample (0, 0) IS this cage vert: the
+   * subdivision weights there are one-hot on the grid's own corner in both
+   * MultiresAttrs::buildBilinear branches, so the correspondence is exact
+   * rather than a fit. A cage vert of valence n appears n times. False,
+   * leaving `out` empty, when the walk disagrees with the refiner's count. */
+  bool gridCageVerts(litestl::util::Vector<int> &out);
+
+  /** Push a level's per-vertex FLOAT4 attribute back down onto the cage — the
+   * vertex-domain twin of #scatterFaceIntToCage, and the only route home for
+   * painted colour, which neither the store (engine-owned) nor the level mesh
+   * (an evictable cache) persists.
+   *
+   * This is restriction, not a transpose: it reads only the samples that *are*
+   * cage verts (lattice (0, 0) of each grid, see #gridCageVerts) and writes
+   * them through unweighted. Spreading a fine sample back across the verts
+   * that fed it would need an adjoint and is ill-posed; this needs neither.
+   *
+   * The samples come from the grids store's Vertex-domain channel of that name
+   * when one holds data for `level` (what a grids-native colour stroke writes,
+   * through every seam occurrence), and from the materialized level mesh
+   * otherwise. Unlike the face twin nothing is re-stamped afterwards: the
+   * replicas of a cage vert already agree, so the next scatter reads no
+   * disagreement.
+   *
+   * The cost is a resolution collapse — only cage verts survive, so detail
+   * finer than the base mesh is not persistent paint. Creates the cage layer
+   * on first use, filled white (an unpainted vert must read as Blender's
+   * default vertex colour, not black). Returns the number of cage verts
+   * changed; 0 when neither source has this level. */
+  int scatterVertFloat4ToCage(int level, const char *name);
+
   /** #gridFaceInts for `material_index`. Callers treat a false return as every
    * face being material 0, which is what both draw paths default to. */
   bool gridMaterials(litestl::util::Vector<int> &out);
