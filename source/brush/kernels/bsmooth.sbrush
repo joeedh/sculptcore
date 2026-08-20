@@ -25,6 +25,7 @@
 // current. GPU dispatch of the vclass attr is wired separately (CPU for now).
 @brush("bsmooth")
 @tool BSMOOTH
+@gpu
 @relaxation
 brush BSmooth {
   attr vertex int vclass = ".boundary.vert.class";

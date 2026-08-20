@@ -274,6 +274,51 @@ static void runTests()
   test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::FILL)], "plane") == 0);
   test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::FEATURE_ALIGN)],
                           "featurealign") == 0);
+
+  // The GPU kernel map, generated from `@gpu` — graded against the hand table
+  // gpu_marshal.cc carried before it (17 tools on 15 kernels), plus the six
+  // deliberate CPU-only absences (e.g. ENHANCE's host ring-BFS pre-pass).
+  {
+    struct GpuRow {
+      SculptBrushes tool;
+      const char *kernel;
+    };
+    static const GpuRow gpuGolden[] = {
+        {SculptBrushes::DRAW, "draw"},
+        {SculptBrushes::TEXDRAW, "texdraw"},
+        {SculptBrushes::TEXGRAD, "texgrad"},
+        {SculptBrushes::CLAY, "plane"},
+        {SculptBrushes::SCRAPE, "plane"},
+        {SculptBrushes::FILL, "plane"},
+        {SculptBrushes::INFLATE, "inflate"},
+        {SculptBrushes::PINCH, "pinch"},
+        {SculptBrushes::SHARP, "sharp"},
+        {SculptBrushes::MASK, "mask"},
+        {SculptBrushes::SMOOTH, "smooth"},
+        {SculptBrushes::KELVINLET, "kelvinlet"},
+        {SculptBrushes::GRAB, "grab"},
+        {SculptBrushes::POSE, "pose"},
+        {SculptBrushes::COLOR, "color"},
+        {SculptBrushes::POLYGROUP, "polygroup"},
+        {SculptBrushes::BSMOOTH, "bsmooth"},
+    };
+    int mapped = 0;
+    for (int id = 0; id < SculptBrushesBuiltinCount; id++) {
+      if (kBuiltinBrushGpuKernel[id]) {
+        mapped++;
+      }
+    }
+    test_assert(mapped == 17);
+    for (const GpuRow &row : gpuGolden) {
+      test_assert(kBuiltinBrushGpuKernel[int(row.tool)] != nullptr);
+      test_assert(std::strcmp(kBuiltinBrushGpuKernel[int(row.tool)], row.kernel) == 0);
+    }
+    for (SculptBrushes t : {SculptBrushes::WINGSCRAPE, SculptBrushes::SNAKEHOOK,
+                            SculptBrushes::COLORSMOOTH, SculptBrushes::ENHANCE,
+                            SculptBrushes::FEATURE_ALIGN, SculptBrushes::LAYERDRAW}) {
+      test_assert(kBuiltinBrushGpuKernel[int(t)] == nullptr);
+    }
+  }
 }
 
 int main()

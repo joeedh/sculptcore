@@ -15,6 +15,7 @@
 
 @brush("plane")
 @tool CLAY, SCRAPE, FILL
+@gpu
 brush Plane {
   ctx float3 surfacePos;
   ctx float3 surfaceNo;

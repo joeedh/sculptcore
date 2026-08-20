@@ -1,5 +1,6 @@
 @brush("smooth")
 @tool SMOOTH
+@gpu
 @relaxation
 brush Smooth {
   vertex void apply(inout Vertex v) {

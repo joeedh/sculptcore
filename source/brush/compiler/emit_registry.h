@@ -51,6 +51,7 @@ struct BuiltinEntry {
   bool usesNeighbor = false;
   bool fullTopo = false;
   bool faceStage = false;
+  bool gpu = false; // `@gpu` — has a GPU (WGSL/SPIR-V) port
 };
 
 struct BuiltinRegistryResult {

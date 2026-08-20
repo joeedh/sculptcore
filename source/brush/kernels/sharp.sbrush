@@ -1,5 +1,6 @@
 @brush("sharp")
 @tool SHARP
+@gpu
 brush Sharp {
   ctx float3 surfacePos;
   ctx float3 surfaceNo;

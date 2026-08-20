@@ -11,6 +11,7 @@
 
 @brush("kelvinlet")
 @tool KELVINLET
+@gpu
 @unbounded
 @grabmode
 brush Kelvinlet {

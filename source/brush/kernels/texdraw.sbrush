@@ -11,6 +11,7 @@
 
 @brush("texdraw")
 @tool TEXDRAW
+@gpu
 brush TexDraw {
   ctx float3 surfaceNo;
 

@@ -86,6 +86,36 @@ inline constexpr const char *kBuiltinBrushKernels[23] = {
     "texgrad",
 };
 
+/** The WGSL/SPIR-V kernel stem a tool runs on the GPU (`@gpu` on the
+ * kernel), or null for a CPU-only tool. gpu_marshal.cc's gpuKernelForTool
+ * consumes this: lighting a brush up on the GPU is `@gpu` in its .sbrush
+ * and nothing else. */
+inline constexpr const char *kBuiltinBrushGpuKernel[23] = {
+    "draw", // DRAW
+    "inflate", // INFLATE
+    "plane", // CLAY
+    "pinch", // PINCH
+    "sharp", // SHARP
+    "mask", // MASK
+    "smooth", // SMOOTH
+    "kelvinlet", // KELVINLET
+    "pose", // POSE
+    "texdraw", // TEXDRAW
+    "plane", // SCRAPE
+    "plane", // FILL
+    nullptr, // WINGSCRAPE
+    "color", // COLOR
+    "polygroup", // POLYGROUP
+    "bsmooth", // BSMOOTH
+    "grab", // GRAB
+    nullptr, // SNAKEHOOK
+    nullptr, // COLORSMOOTH
+    nullptr, // FEATURE_ALIGN
+    nullptr, // LAYERDRAW
+    nullptr, // ENHANCE
+    "texgrad", // TEXGRAD
+};
+
 /** True when the kernel has a `for_neighbor` loop, i.e. it is instantiated
  * against a neighbor source and reads neighbors during the dab. */
 inline bool builtinBrushUsesForNeighbor(int id)

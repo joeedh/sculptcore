@@ -4,6 +4,7 @@
 
 @brush("inflate")
 @tool INFLATE
+@gpu
 brush Inflate {
   uniform float radius;
   

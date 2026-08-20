@@ -9,6 +9,7 @@
 
 @brush("grab")
 @tool GRAB
+@gpu
 @grabmode
 brush Grab {
   ctx float3 grabTo;

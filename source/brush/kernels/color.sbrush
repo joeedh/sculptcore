@@ -4,6 +4,7 @@
 // existing color by `s`, so MIX (0) reproduces the original straight lerp.
 @brush("color")
 @tool COLOR
+@gpu
 @paint
 brush Color {
   attr vertex float4 color @use(color);

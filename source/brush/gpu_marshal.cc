@@ -22,55 +22,30 @@ namespace sculptcore::brush {
 using litestl::math::float3;
 using litestl::util::Vector;
 
-/** Tool -> WGSL/SPIR-V kernel stem. This is the only irreducible half of the GPU
- * kernel map: which tools have a GPU port, and under what kernel name. Every
- * capability bit is derived from the kernel's own BrushCommandDef below, so
- * lighting a brush up on the GPU is one row here and nothing else. */
-struct GpuKernelName {
-  SculptBrushes tool;
-  const char *kernel;
-};
-
-static const GpuKernelName kGpuKernels[] = {
-    {SculptBrushes::DRAW, "draw"},
-    {SculptBrushes::TEXDRAW, "texdraw"},
-    {SculptBrushes::TEXGRAD, "texgrad"},
-    // Clay family all runs the `plane` kernel (planeoff/planeSide select the
-    // variant), mirroring brush_executor's createPlaneBrush dispatch.
-    {SculptBrushes::CLAY, "plane"},
-    {SculptBrushes::SCRAPE, "plane"},
-    {SculptBrushes::FILL, "plane"},
-    {SculptBrushes::INFLATE, "inflate"},
-    {SculptBrushes::PINCH, "pinch"},
-    {SculptBrushes::SHARP, "sharp"},
-    {SculptBrushes::MASK, "mask"},
-    {SculptBrushes::SMOOTH, "smooth"},
-    {SculptBrushes::KELVINLET, "kelvinlet"},
-    {SculptBrushes::GRAB, "grab"},
-    {SculptBrushes::POSE, "pose"},
-    {SculptBrushes::COLOR, "color"},
-    {SculptBrushes::POLYGROUP, "polygroup"},
-    {SculptBrushes::BSMOOTH, "bsmooth"},
-    // ENHANCE is intentionally absent — its per-vertex displacement is computed
-    // by a host ring-BFS pre-pass (enhance.h), so it runs CPU-only like
-    // FEATURE_ALIGN (which is likewise not in this GPU kernel map).
-};
-
-static constexpr size_t kGpuKernelCount =
-    sizeof(kGpuKernels) / sizeof(kGpuKernels[0]);
-
 const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool)
 {
+  // The tool -> kernel-stem map is generated: `@gpu` in a kernel's .sbrush
+  // publishes its stem per tool in kBuiltinBrushGpuKernel (null = CPU-only,
+  // e.g. ENHANCE, whose per-vertex displacement needs a host ring-BFS
+  // pre-pass — see enhance.sbrush's header). Every capability bit is derived
+  // from the kernel's own BrushCommandDef, so lighting a brush up on the GPU
+  // is `@gpu` in its .sbrush and nothing else.
+  //
   // Static storage, not a Vector: the returned pointer must outlive every
   // caller, and a heap table would still be live at the leak check tests run
   // from main. Filled once from the kernels' own codegen-set metadata.
-  static GpuKernelInfo infos[kGpuKernelCount];
+  static GpuKernelInfo infos[builtinBrushCount];
+  static bool hasGpu[builtinBrushCount];
   [[maybe_unused]] static const bool inited = []() {
-    for (size_t i = 0; i < kGpuKernelCount; i++) {
-      const BrushDefFlags flags = brushDefFlagsFor(kGpuKernels[i].tool);
-      GpuKernelInfo &info = infos[i];
-      info.tool = kGpuKernels[i].tool;
-      info.kernel = kGpuKernels[i].kernel;
+    for (int id = 0; id < builtinBrushCount; id++) {
+      hasGpu[id] = kBuiltinBrushGpuKernel[id] != nullptr;
+      if (!hasGpu[id]) {
+        continue;
+      }
+      const BrushDefFlags flags = brushDefFlagsFor(SculptBrushes(id));
+      GpuKernelInfo &info = infos[id];
+      info.tool = SculptBrushes(id);
+      info.kernel = kBuiltinBrushGpuKernel[id];
       info.needsNeighbors = flags.needsCoPrev;
       info.writesMask = flags.writesMask;
       info.writesColor = flags.writesColor;
@@ -82,12 +57,11 @@ const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool)
     return true;
   }();
 
-  for (const GpuKernelInfo &k : infos) {
-    if (k.tool == tool) {
-      return &k;
-    }
+  const int id = int(tool);
+  if (id < 0 || id >= builtinBrushCount || !hasGpu[id]) {
+    return nullptr;
   }
-  return nullptr;
+  return &infos[id];
 }
 
 void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,

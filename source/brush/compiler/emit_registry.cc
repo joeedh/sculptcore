@@ -326,6 +326,20 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
     h += string("    \"") + kernels[owner[i]].stem + "\",\n";
   }
   h += "};\n\n";
+  h += "/** The WGSL/SPIR-V kernel stem a tool runs on the GPU (`@gpu` on the\n";
+  h += " * kernel), or null for a CPU-only tool. gpu_marshal.cc's gpuKernelForTool\n";
+  h += " * consumes this: lighting a brush up on the GPU is `@gpu` in its .sbrush\n";
+  h += " * and nothing else. */\n";
+  h += string("inline constexpr const char *kBuiltinBrushGpuKernel[") +
+       itoa((int)toolIds.size()) + "] = {\n";
+  for (int i = 0; i < (int)toolIds.size(); i++) {
+    if (kernels[owner[i]].gpu) {
+      h += string("    \"") + kernels[owner[i]].stem + "\", // " + toolIds[i] + "\n";
+    } else {
+      h += string("    nullptr, // ") + toolIds[i] + "\n";
+    }
+  }
+  h += "};\n\n";
   h += "/** True when the kernel has a `for_neighbor` loop, i.e. it is instantiated\n";
   h += " * against a neighbor source and reads neighbors during the dab. */\n";
   h += "inline bool builtinBrushUsesForNeighbor(int id)\n{\n";

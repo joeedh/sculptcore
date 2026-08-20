@@ -374,6 +374,9 @@ struct Brush {
   // dab, so the stroke can neither freeze topology nor read neighbors from a
   // stroke-start CSR snapshot.
   bool isFullTopo = false;
+  // `@gpu`: the kernel has a GPU port — the built-in registry publishes its stem
+  // per tool in kBuiltinBrushGpuKernel, which gpu_marshal dispatches on.
+  bool isGpu = false;
 };
 
 /** True when any stage body contains a `for_neighbor` loop — such brushes are

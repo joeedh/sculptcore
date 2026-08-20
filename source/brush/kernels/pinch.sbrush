@@ -3,6 +3,7 @@
 
 @brush("pinch")
 @tool PINCH
+@gpu
 brush Pinch {
   ctx float3 surfacePos;
   uniform float radius;
