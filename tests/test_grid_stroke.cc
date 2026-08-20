@@ -1686,6 +1686,42 @@ int main()
     restoreStore(mr, s0);
   }
 
+  /* C4: the per-channel attribute debt rides the log the way the position debt
+   * does -- undo puts back the state the step opened on, redo the state it
+   * closed on. Without it, undoing a paint stroke would leave the level marked
+   * as owing the one below, and the next downward level switch would restrict
+   * paint the user had just taken back. */
+  {
+    restoreStore(mr, s0);
+    GridLevelDomain *d = mr.gridDomain(kLevel);
+    Vector<int> grids;
+    for (int g = 0; g < mr.refiner.gridCount(); g++) {
+      grids.append(g);
+    }
+    const int ch = d->ensureMaskChannel();
+    GridStrokeLog log;
+    log.attach(d);
+    log.beginStep();
+    log.captureGrids(std::span<const int>(grids.data(), grids.size()), ch);
+    Vector<int> touched;
+    for (int v = 0; v < d->vertCount(); v++) {
+      d->mask[v] = 0.5f;
+      touched.append(v);
+    }
+    /* The touched-verts flush is a stroke folding its dab, so it owes. */
+    d->flushMaskToStore(std::span<const int>(touched.data(), touched.size()));
+    TASSERT(mr.store.channelLevelDebt(kLevel, ch));
+    log.endStep(false);
+
+    TASSERT(log.undo());
+    TASSERT(!mr.store.channelLevelDebt(kLevel, ch));
+    TASSERT(log.redo());
+    TASSERT(mr.store.channelLevelDebt(kLevel, ch));
+    mr.store.setChannelLevelDebt(kLevel, ch, false);
+    fprintf(stderr, "attr debt round-tripped through undo/redo\n");
+    restoreStore(mr, s0);
+  }
+
   /* P2: with grid attribute channels on, a colour stroke paints a session
    * store channel; duplicate boundary samples agree, and undo/redo restores
    * the channel bit-exactly. */

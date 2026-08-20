@@ -35,6 +35,14 @@
 
 test_init;
 
+/* The undo seam (subdiv/c-api/subdiv_c_api.cc): no header declares these, the
+ * hosts reach them through the DLL's C interface. */
+extern "C" {
+uint8_t *Multires_serializeStore(sculptcore::subdiv::Multires *mr, int *out_size);
+int Multires_restoreStore(sculptcore::subdiv::Multires *mr, const uint8_t *data, int size);
+void freeMeshBuffer(uint8_t *buf);
+}
+
 using namespace sculptcore;
 using namespace sculptcore::mesh;
 using namespace litestl;
@@ -1058,6 +1066,129 @@ static void gateChannelCapi()
   alloc::Delete(cage);
 }
 
+/* C4: a paint edit at a fine level reaches every level below it on a downward
+ * level switch, the way a position edit does — but per channel, and exactly
+ * once.
+ *
+ * The debt is what makes "exactly once" possible: restriction is not the
+ * inverse of subdivision, so re-running it on a level that is already current
+ * would replace the coarse level's own paint with a blurred copy of what it
+ * seeded upward. The same argument is why the debt is per channel and not per
+ * level: a mask edit at level 3 must not drag an untouched colour layer through
+ * the filter. */
+static void gateAttrDownPropagation()
+{
+  using subdiv::GridElemDomain;
+  using subdiv::GridLevelRule;
+
+  Mesh *cage = makeGrid(2);
+  Multires mr;
+  mr.init(*cage, 3);
+  auto &st = mr.store;
+  const int col = st.addChannel(util::string("col"), 4, GridElemDomain::Vertex,
+                                AttrType::FLOAT4, true, GridLevelRule::Authored);
+  const int other = st.addChannel(util::string("other"), 4, GridElemDomain::Vertex,
+                                  AttrType::FLOAT4, true, GridLevelRule::Authored);
+  const int grids = mr.refiner.gridCount();
+  const int wf = subdiv::GridsStore::elemWidth(3, GridElemDomain::Vertex);
+  const int w2 = subdiv::GridsStore::elemWidth(2, GridElemDomain::Vertex);
+
+  mr.setActiveLevel(3);
+  /* Both channels are painted at the finest level; only `col` is reported. */
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < wf; v++) {
+      for (int u = 0; u < wf; u++) {
+        for (int k = 0; k < 4; k++) {
+          const float f = std::sin(float(g) + float(u) * 0.21f + float(v) * 0.37f + float(k));
+          st.elem(3, col, g, u, v)[k] = f;
+          st.elem(3, other, g, u, v)[k] = f;
+        }
+      }
+    }
+  }
+  mr.noteAttrEdit(3, col);
+  test_assert(st.channelLevelDebt(3, col) && !st.channelLevelDebt(3, other));
+  test_assert(st.anyChannelLevelDebt(3));
+
+  /* `other` holds paint of its own one level down, which nothing may disturb. */
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w2; v++) {
+      for (int u = 0; u < w2; u++) {
+        for (int k = 0; k < 4; k++) {
+          st.elem(2, other, g, u, v)[k] = 0.5f;
+        }
+      }
+    }
+  }
+
+  /* Down two levels: the debt is settled on the way, one step at a time. */
+  mr.setActiveLevel(1);
+  test_assert(!st.anyChannelLevelDebt(3) && !st.anyChannelLevelDebt(2));
+  int moved = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w2; v++) {
+      for (int u = 0; u < w2; u++) {
+        for (int k = 0; k < 4; k++) {
+          moved += st.elem(2, col, g, u, v)[k] != 0.0f ? 1 : 0;
+          /* Untouched channel, untouched level: still the paint we wrote. */
+          test_assert(st.elem(2, other, g, u, v)[k] == 0.5f);
+        }
+      }
+    }
+  }
+  test_assert(moved > 0);
+
+  /* Exactly once: with the debt settled, an up-then-down round trip must leave
+   * the coarse levels bit-identical. (A varying field, so a second pass of the
+   * filter would show; a constant is a fixed point and would prove nothing.) */
+  Vector<float> snap;
+  for (int l = 1; l <= 2; l++) {
+    const int wl = subdiv::GridsStore::elemWidth(l, GridElemDomain::Vertex);
+    for (int g = 0; g < grids; g++) {
+      for (int v = 0; v < wl; v++) {
+        for (int u = 0; u < wl; u++) {
+          for (int k = 0; k < 4; k++) {
+            snap.append(st.elem(l, col, g, u, v)[k]);
+          }
+        }
+      }
+    }
+  }
+  mr.setActiveLevel(3);
+  mr.setActiveLevel(1);
+  int idx = 0, diffs = 0;
+  for (int l = 1; l <= 2; l++) {
+    const int wl = subdiv::GridsStore::elemWidth(l, GridElemDomain::Vertex);
+    for (int g = 0; g < grids; g++) {
+      for (int v = 0; v < wl; v++) {
+        for (int u = 0; u < wl; u++) {
+          for (int k = 0; k < 4; k++) {
+            diffs += st.elem(l, col, g, u, v)[k] != snap[idx++] ? 1 : 0;
+          }
+        }
+      }
+    }
+  }
+  test_assert(diffs == 0);
+
+  /* The debt is not derivable from the store, so an undo snapshot carries it —
+   * by channel name, since an index outlives nothing. */
+  mr.setActiveLevel(3);
+  mr.noteAttrEdit(3, col);
+  int size = 0;
+  uint8_t *blob = Multires_serializeStore(&mr, &size);
+  test_assert(blob && size > 0);
+  st.setChannelLevelDebt(3, col, false);
+  test_assert(!st.anyChannelLevelDebt(3));
+  test_assert(Multires_restoreStore(&mr, blob, size) == 1);
+  freeMeshBuffer(blob);
+  test_assert(st.channelLevelDebt(3, st.findChannel(util::string("col"))));
+  test_assert(!st.channelLevelDebt(3, st.findChannel(util::string("other"))));
+
+  printf("attr down-propagation: %d grids, %d coarse samples moved\n", grids, moved);
+  alloc::Delete(cage);
+}
+
 int main(int argc, char **argv)
 {
   (void)argc;
@@ -1077,6 +1208,7 @@ int main(int argc, char **argv)
   gateCageVertScatter();
   gateSubFaceDabCollapse();
   gateChannelCapi();
+  gateAttrDownPropagation();
 
   return test_end();
 }

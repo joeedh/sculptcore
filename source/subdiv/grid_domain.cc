@@ -296,6 +296,11 @@ void GridLevelDomain::flushMaskToStore()
       *mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]) = mask[v];
     }
   }
+  // Deliberately no noteAttrEdit: the whole-domain flush is the host SEEDING
+  // this level from its own stored mask (Multires_writeDomainMask), not an edit
+  // made here. Calling it a fine edit would push the seed down the stack on the
+  // next level switch and overwrite the coarser levels with a filtered copy of
+  // a level the user never painted.
 }
 
 void GridLevelDomain::flushMaskToStore(std::span<const int> verts)
@@ -308,6 +313,9 @@ void GridLevelDomain::flushMaskToStore(std::span<const int> verts)
       *mr_->store.elem(level_, ch, occs[i], occs[i + 1], occs[i + 2]) = mask[v];
     }
   }
+  // The touched-verts overload IS the edit: a stroke folds its dab through
+  // here, so the level below owes an update (Multires::propagateAttrsDown).
+  mr_->noteAttrEdit(level_, ch);
 }
 
 GridTree *GridLevelDomain::ensureTree(int leafVertTarget)

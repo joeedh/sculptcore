@@ -12,6 +12,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace sculptcore;
 
@@ -358,8 +359,10 @@ int Multires_captureToVdm(subdiv::Multires *mr, void *vstore, int level)
 }
 
 /** Down-propagation debt header, written AHEAD of the grids store's own bytes:
- * magic, level count, then one byte per level (index 0 unused, mirroring
- * Multires's own indexing). The debt is genuine multires state that the grids
+ * magic, level count, then one byte of flags per level (index 0 unused,
+ * mirroring Multires's own indexing): bit 0 is the position debt, bit 1 says
+ * grid channels owe as well and is followed -- after the byte array -- by that
+ * level's list of owing channel names. The debt is genuine multires state that the grids
  * store does not hold — a level whose displacement is zero still differs from
  * the restriction of the level above it, so "does this level owe the one
  * below?" cannot be recomputed from the store — and dropping it across an undo
@@ -389,7 +392,41 @@ uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
   std::memcpy(buf.data(), kDebtMagic, sizeof(kDebtMagic));
   std::memcpy(buf.data() + sizeof(kDebtMagic), &n, sizeof(n));
   for (int l = 0; l <= n; l++) {
-    buf[int(sizeof(kDebtMagic) + sizeof(n)) + l] = mr->downPropDebt(l) ? 1 : 0;
+    // bit 0: the position debt propagateDown settles. bit 1: at least one grid
+    // channel owes the level below (propagateAttrsDown). A blob with no bit 1
+    // anywhere is byte-identical to the header this format started with.
+    uint8_t bits = mr->downPropDebt(l) ? 1 : 0;
+    if (mr->store.anyChannelLevelDebt(l)) {
+      bits |= 2;
+    }
+    buf[int(sizeof(kDebtMagic) + sizeof(n)) + l] = bits;
+  }
+  // Which channels owe, by name, for every level whose bit 1 is set — ascending
+  // level order, so the reader needs no offsets. Names, not indices, because
+  // removeChannel shifts every index above it and an undo step outlives that.
+  auto putBytes = [&buf](const void *p, size_t nbytes) {
+    const uint8_t *b = static_cast<const uint8_t *>(p);
+    for (size_t i = 0; i < nbytes; i++) {
+      buf.append(b[i]);
+    }
+  };
+  for (int l = 0; l <= n; l++) {
+    if (!mr->store.anyChannelLevelDebt(l)) {
+      continue;
+    }
+    int32_t cnt = 0;
+    for (int c = 0; c < mr->store.channelCount(); c++) {
+      cnt += mr->store.channelLevelDebt(l, c) ? 1 : 0;
+    }
+    putBytes(&cnt, sizeof(cnt));
+    for (int c = 0; c < mr->store.channelCount(); c++) {
+      if (!mr->store.channelLevelDebt(l, c)) {
+        continue;
+      }
+      const int32_t len = int32_t(mr->store.channelName(c).size());
+      putBytes(&len, sizeof(len));
+      putBytes(mr->store.channelName(c).c_str(), size_t(len));
+    }
   }
   // Fast lz4, not lz4hc: this blob is an undo snapshot taken at the end of every
   // stroke and never written to disk, so a ~20x compress stall to save a few
@@ -438,6 +475,7 @@ int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
     ss.seekg(0);
   }
   std::string debt;
+  std::vector<std::vector<std::string>> attrDebt;
   if (haveDebt) {
     debt.resize(size_t(n) + 1, 0);
     for (int l = 0; l <= n; l++) {
@@ -445,14 +483,44 @@ int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
       haveDebt = haveDebt && bool(ss.read(&b, 1));
       debt[size_t(l)] = b;
     }
+    // The per-level channel-name lists that bit 1 announces, ascending. A
+    // header written before they existed sets no bit 1 and so reads nothing
+    // here, landing on the store bytes exactly where it used to.
+    attrDebt.resize(size_t(n) + 1);
+    for (int l = 0; haveDebt && l <= n; l++) {
+      if (!(debt[size_t(l)] & 2)) {
+        continue;
+      }
+      int32_t cnt = 0;
+      haveDebt = bool(ss.read(reinterpret_cast<char *>(&cnt), sizeof(cnt))) && cnt >= 0;
+      for (int i = 0; haveDebt && i < cnt; i++) {
+        int32_t len = 0;
+        haveDebt = bool(ss.read(reinterpret_cast<char *>(&len), sizeof(len))) && len >= 0;
+        if (!haveDebt) {
+          break;
+        }
+        std::string nm;
+        nm.resize(size_t(len));
+        haveDebt = len == 0 || bool(ss.read(&nm[0], len));
+        attrDebt[size_t(l)].push_back(nm);
+      }
+    }
   }
   if (!mr->store.read(ss)) {
     return 0;
   }
   mr->invalidateAll();
   mr->clearDownPropDebt();
+  // Channel debt needs no clearing pass: store.read replaced every channel, and
+  // a freshly read level starts out owing nothing.
   for (int l = 0; haveDebt && l <= n; l++) {
-    mr->setDownPropDebt(l, debt[size_t(l)] != 0);
+    mr->setDownPropDebt(l, (debt[size_t(l)] & 1) != 0);
+    for (const std::string &nm : attrDebt[size_t(l)]) {
+      const int c = mr->store.findChannel(litestl::util::string(nm.c_str()));
+      if (c >= 0) {
+        mr->store.setChannelLevelDebt(l, c, true);
+      }
+    }
   }
   return 1;
 }

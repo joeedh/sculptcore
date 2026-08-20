@@ -1586,6 +1586,39 @@ int Multires::propagateDown(int level)
   return nChanged;
 }
 
+void Multires::noteAttrEdit(int level, int channel)
+{
+  if (level < 2 || level > maxLevel() || channel < 0 || channel >= store.channelCount()) {
+    return;
+  }
+  if (!store.channelAuthored(channel) || !store.channelPersist(channel)) {
+    return;
+  }
+  store.setChannelLevelDebt(level, channel, true);
+}
+
+int Multires::propagateAttrsDown(int level)
+{
+  if (level < 2 || level > maxLevel()) {
+    return 0;
+  }
+  int n = 0;
+  for (int c = 0; c < store.channelCount(); c++) {
+    if (!store.channelLevelDebt(level, c)) {
+      continue;
+    }
+    // Settled even when the channel turns out to hold nothing at this level:
+    // an empty level owes the one below exactly nothing.
+    const bool moved = store.restrictChannelDown(c, level);
+    store.setChannelLevelDebt(level, c, false);
+    if (moved && level - 1 >= 2) {
+      store.setChannelLevelDebt(level - 1, c, true);
+    }
+    n += moved ? 1 : 0;
+  }
+  return n;
+}
+
 int Multires::downRefit(int level)
 {
   if (level < 2 || level > maxLevel()) {
@@ -2153,6 +2186,12 @@ MultiresSlot *Multires::setActiveLevel(int level, bool propagate, bool materiali
     for (int l = activeLevel_; propagate && l > level && l >= 2; l--) {
       if (downPropPending_[l]) {
         propagateDown(l);
+      }
+      // Grid channels ride the same step, on their own per-channel debt: paint
+      // is authored surface data, so it has to follow a fine edit downward for
+      // the same reason positions do.
+      if (store.anyChannelLevelDebt(l)) {
+        propagateAttrsDown(l);
       }
     }
   }

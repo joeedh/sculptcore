@@ -105,6 +105,12 @@ void GridsStore::dropTopLevel()
     if (ch.rule == GridLevelRule::Authored) {
       restrictLevelToBelow(ch, levelCount_);
     }
+    // The level below now holds what the dropped one held, so it inherits its
+    // debt: injection is the exact left inverse of the prolongation, so a
+    // level with nothing owing lands back on what it seeded and owes nothing.
+    if (levelCount_ >= 2 && ch.levels.last().downPending) {
+      ch.levels[levelCount_ - 2].downPending = true;
+    }
     ch.levels.pop_back();
   }
   levelCount_--;
@@ -175,6 +181,150 @@ void GridsStore::restrictLevelToBelow(Channel &ch, int level)
       }
     }
   }
+}
+
+bool GridsStore::restrictChannelDown(int channel, int level)
+{
+  if (channel < 0 || channel >= int(channels_.size()) || level < 2 || level > levelCount_) {
+    return false;
+  }
+  if (!channelLevelAllocated(level, channel)) {
+    return false; // nothing authored up there to carry down
+  }
+  Channel &ch = channels_[channel];
+  if (!interpolatableType(ch.type)) {
+    // No float math on a typed channel, so injection is the only legal move --
+    // and it is the one dropTopLevel already uses.
+    restrictLevelToBelow(ch, level);
+    return true;
+  }
+
+  const int fpe = ch.floatsPerElem;
+  const int w = elemWidth(level - 1, ch.domain);
+  const int wf = elemWidth(level, ch.domain);
+
+  // Materialize both levels before taking any pointer into them: elemIn
+  // allocates (or rehydrates) on first touch, and the loops below hold a coarse
+  // pointer across fine reads. Nothing resizes a level's chunks afterwards.
+  elemIn(ch, level, 0, 0, 0);
+  elemIn(ch, level - 1, 0, 0, 0);
+
+  if (ch.domain == GridElemDomain::Face) {
+    // Cells are never shared between grids, so a coarse cell is exactly the
+    // mean of its four children and there is no seam pass to run.
+    for (int g = 0; g < gridCount_; g++) {
+      for (int v = 0; v < w; v++) {
+        for (int u = 0; u < w; u++) {
+          float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+          for (int dv = 0; dv < 2; dv++) {
+            for (int du = 0; du < 2; du++) {
+              const float *src = elemIn(ch, level, g, u * 2 + du, v * 2 + dv);
+              for (int k = 0; k < fpe; k++) {
+                acc[k] += src[k];
+              }
+            }
+          }
+          float *dst = elemIn(ch, level - 1, g, u, v);
+          for (int k = 0; k < fpe; k++) {
+            dst[k] = acc[k] * 0.25f;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  // Vertex domain: full weighting, accumulated UNNORMALIZED into the coarse
+  // level first. The seam merge below reads those partial sums straight out of
+  // the store, so the weight totals travel alongside in `wsum` and nothing is
+  // divided until every replica has been added up.
+  Vector<float> wsum;
+  wsum.resize(size_t(gridCount_) * w * w);
+
+  for (int g = 0; g < gridCount_; g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float wt = 0.0f;
+        for (int dv = -1; dv <= 1; dv++) {
+          const int fv = v * 2 + dv;
+          if (fv < 0 || fv >= wf) {
+            continue; // off this grid: a seam mate's own gather covers it
+          }
+          for (int du = -1; du <= 1; du++) {
+            const int fu = u * 2 + du;
+            if (fu < 0 || fu >= wf) {
+              continue;
+            }
+            const float t = (du ? 0.5f : 1.0f) * (dv ? 0.5f : 1.0f);
+            const float *src = elemIn(ch, level, g, fu, fv);
+            for (int k = 0; k < fpe; k++) {
+              acc[k] += t * src[k];
+            }
+            wt += t;
+          }
+        }
+        float *dst = elemIn(ch, level - 1, g, u, v);
+        for (int k = 0; k < fpe; k++) {
+          dst[k] = acc[k];
+        }
+        wsum[(size_t(g) * w + v) * w + u] = wt;
+      }
+    }
+  }
+
+  // Merge the partial sums across seams, in the same (grid, v, u) order the
+  // normalize pass walks, so a running slot index pairs them up without a
+  // per-coord side table. Every replica of a coord sees the same mate set and
+  // therefore lands on the same value -- the C0 seam invariant is restored by
+  // construction, not by a fixup afterwards.
+  Vector<float> bacc, bwt;
+  Vector<GridCoord> mates;
+  for (int g = 0; g < gridCount_; g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        if (u != 0 && v != 0 && u != w - 1 && v != w - 1) {
+          continue; // grid-interior: nothing aliases it
+        }
+        float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        const float *own = elemIn(ch, level - 1, g, u, v);
+        for (int k = 0; k < fpe; k++) {
+          acc[k] = own[k];
+        }
+        float wt = wsum[(size_t(g) * w + v) * w + u];
+        seamMates(level - 1, GridCoord{g, u, v}, mates);
+        for (const GridCoord &m : mates) {
+          const float *src = elemIn(ch, level - 1, m.grid, m.u, m.v);
+          for (int k = 0; k < fpe; k++) {
+            acc[k] += src[k];
+          }
+          wt += wsum[(size_t(m.grid) * w + m.v) * w + m.u];
+        }
+        for (int k = 0; k < 4; k++) {
+          bacc.append(acc[k]);
+        }
+        bwt.append(wt);
+      }
+    }
+  }
+
+  int slot = 0;
+  for (int g = 0; g < gridCount_; g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        const bool border = u == 0 || v == 0 || u == w - 1 || v == w - 1;
+        float *dst = elemIn(ch, level - 1, g, u, v);
+        // The centre tap is always in range, so no weight total is zero.
+        const float inv = border ? 1.0f / bwt[slot] :
+                                   1.0f / wsum[(size_t(g) * w + v) * w + u];
+        for (int k = 0; k < fpe; k++) {
+          dst[k] = (border ? bacc[slot * 4 + k] : dst[k]) * inv;
+        }
+        slot += border ? 1 : 0;
+      }
+    }
+  }
+  return true;
 }
 
 float *GridsStore::elemIn(Channel &ch, int level, int grid, int u, int v)

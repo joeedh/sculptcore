@@ -129,6 +129,26 @@ struct Multires {
    * pos_L. Slot/cache handling matches downRefit. Requires level >= 2. */
   int propagateDown(int level);
 
+  /** The attribute half of propagateDown: push every grid channel that owes it
+   * from `level` onto level-1, by GridsStore::restrictChannelDown. Channels are
+   * moved one at a time and only when they carry debt (see
+   * GridsStore::LevelData::downPending) -- restricting a channel nobody edited
+   * would replace the coarse level's own paint with a blurred copy of what it
+   * seeded upward. Returns the number of channels moved. Requires level >= 2:
+   * level 1 restricting onto the cage would write the cage attribute layer,
+   * which is the Derived route's (MultiresAttrs::storageFor), not the store's.
+   */
+  int propagateAttrsDown(int level);
+
+  /** Record that `channel` was edited at `level`, so a downward level switch
+   * carries it (propagateAttrsDown). Ignored for a Delta channel (that is
+   * displacement, and propagateDown's business), for a non-persisting Temp
+   * channel (per-stroke scratch no coarse level has a copy of) and for
+   * level < 2. Every fold point that writes a grid channel calls it:
+   * gridAttrScatter/gridAttrScatterFace and GridLevelDomain::flushMaskToStore.
+   */
+  void noteAttrEdit(int level, int channel);
+
   /** Down-propagation debt: true when `level` carries detail the level below
    * has not been given (see downPropPending_). It is NOT derivable from the
    * store — a level whose displacement is zero still differs from the

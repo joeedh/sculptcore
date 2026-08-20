@@ -101,9 +101,18 @@ private:
     Vector<GridBlock> blocks;
     bool preDebt = false;
     bool postDebt = false;
+    // The attribute half of the same debt, by channel NAME for the reason
+    // GridBlock gives, and a set rather than a flag because the debt is per
+    // channel (Multires::propagateAttrsDown).
+    Vector<litestl::util::string> preAttrDebt, postAttrDebt;
   };
 
   void captureGridBlock(Step &s, int grid, int channel);
+  /** Names of the channels owing the level below at this log's level. */
+  void snapshotAttrDebt(Vector<litestl::util::string> &out);
+  /** Make that set the live one: every other channel at this level ends up
+   * owing nothing. */
+  void applyAttrDebt(const Vector<litestl::util::string> &names);
   /** Swap a step's snapshots with the live domain/store state and refresh
    * normals/bounds/chain — symmetric, so it serves undo and redo alike. */
   void applySwap(Step &s);

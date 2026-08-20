@@ -170,6 +170,59 @@ struct GridsStore {
    * multires displacement does. No-op when empty. */
   void dropTopLevel();
 
+  /** Carry `channel`'s authored values at `level` down onto level-1, in place:
+   * full weighting for an interpolatable Vertex channel (the transpose of
+   * seedLevelFromBelow's prolongation -- the 9-point stencil, 1/4 centre, 1/8
+   * edge, 1/16 corner), the mean of the four children for an interpolatable
+   * Face channel, and injection (restrictLevelToBelow's rule) for a typed one.
+   *
+   * Unlike dropTopLevel's injection this is a *filter*, which is what a coarse
+   * level wants after a fine edit: the detail arrives as an average instead of
+   * whichever sample happened to sit on the coarse site. Weights are
+   * accumulated rather than assumed, so a stencil running off the grid still
+   * normalizes to 1 -- a constant field restricts to itself everywhere,
+   * including seams and mesh boundaries.
+   *
+   * Seams: a coord shared by several grids is stored once per grid and each
+   * replica can only reach the taps inside its own grid, so the partial sums
+   * are merged across seamMates() before normalizing and every replica is
+   * written the same value. The taps sitting *on* the seam are then counted
+   * once per incident grid, which tilts the stencil towards it (centre 1/3
+   * rather than 1/4 on a two-grid seam). The result is still a normalized
+   * average of the neighbourhood, so constants and the C0 seam invariant both
+   * hold; the deviation is a slightly narrower filter along seams.
+   *
+   * False (and nothing written) when `level` holds nothing authored. */
+  bool restrictChannelDown(int channel, int level);
+
+  /** Whether `channel` owes level-1 the values it holds at `level` (see
+   * LevelData::downPending). Out-of-range reads false / is ignored. */
+  bool channelLevelDebt(int level, int channel) const
+  {
+    if (level < 1 || level > levelCount_ || channel < 0 || channel >= int(channels_.size())) {
+      return false;
+    }
+    return channels_[channel].levels[level - 1].downPending;
+  }
+  void setChannelLevelDebt(int level, int channel, bool value)
+  {
+    if (level < 1 || level > levelCount_ || channel < 0 || channel >= int(channels_.size())) {
+      return;
+    }
+    channels_[channel].levels[level - 1].downPending = value;
+  }
+  /** Whether any channel owes level-1 at `level` — the cheap "is there work?"
+   * test a level switch runs before walking the channels. */
+  bool anyChannelLevelDebt(int level) const
+  {
+    for (int c = 0; c < int(channels_.size()); c++) {
+      if (channelLevelDebt(level, c)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   int levelCount() const
   {
     return levelCount_;
@@ -382,6 +435,12 @@ struct GridsStore {
 private:
   struct LevelData {
     int gridsPerChunk = 1;
+    /** This (channel, level) carries authored values the level below has not
+     * been given -- the attribute half of Multires::downPropPending_, kept
+     * per channel because restricting a channel that was NOT edited would
+     * smooth away whatever the user painted on the coarse level, and per
+     * LevelData so it follows addLevel/dropTopLevel without bookkeeping. */
+    bool downPending = false;
     litestl::util::Vector<litestl::util::Vector<float>> chunks;
     // X5: when non-empty, the level's chunks live here lz4-compressed and
     // `chunks` is empty; rawFloats is the concatenated float count.

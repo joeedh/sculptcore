@@ -18,6 +18,7 @@
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
@@ -451,11 +452,147 @@ static void gateDomainsAndSession()
   alloc::Delete(cage);
 }
 
+/* C4: full-weighting restriction of an authored channel onto the level below
+ * (GridsStore::restrictChannelDown) — the transpose of the prolongation
+ * addLevel runs, and the operator a fine paint edit travels down through on a
+ * downward level switch.
+ *
+ * The checks are the invariants an averaging operator owes rather than a
+ * snapshot of it: a constant field is a fixed point everywhere (true only if
+ * the per-grid partial sums are merged across seams and the weights are
+ * normalized rather than assumed), no coarse value leaves the range of the fine
+ * values it summarizes, every replica of a seam coord lands on the same number,
+ * a face cell is exactly the mean of its four children, and a typed channel
+ * moves by injection because averaging a face-set id is meaningless. The fan
+ * and pentagon fixtures carry extraordinary verts, where the stencil is most
+ * lopsided. */
+static void gateRestrictDown(Mesh *(*build)(), int nLevels, const char *name)
+{
+  using subdiv::GridElemDomain;
+
+  Mesh *cage = build();
+  GridsStore gs;
+  gs.buildFromCage(*cage);
+  const int col =
+      gs.addChannel(util::string("col"), 4, GridElemDomain::Vertex, AttrType::FLOAT4, true);
+  const int cell =
+      gs.addChannel(util::string("cell"), 1, GridElemDomain::Face, AttrType::FLOAT, true);
+  const int fset =
+      gs.addChannel(util::string("fset"), 1, GridElemDomain::Face, AttrType::INT, true);
+  for (int i = 0; i < nLevels; i++) {
+    gs.addLevel();
+  }
+  const int fine = nLevels, coarse = nLevels - 1;
+  const int wf = GridsStore::elemWidth(fine, GridElemDomain::Vertex);
+  const int w = GridsStore::elemWidth(coarse, GridElemDomain::Vertex);
+  const int sf = GridsStore::elemWidth(fine, GridElemDomain::Face);
+  const int s = GridsStore::elemWidth(coarse, GridElemDomain::Face);
+
+  /* Nothing authored up there is nothing to carry down — and no write. */
+  test_assert(!gs.restrictChannelDown(col, fine));
+  test_assert(!gs.restrictChannelDown(col, 1)); /* level 1 has no level below */
+
+  /* 1. A constant is a fixed point: seams, mesh boundary and extraordinary
+   *    corners included. */
+  for (int g = 0; g < gs.gridCount(); g++) {
+    for (int v = 0; v < wf; v++) {
+      for (int u = 0; u < wf; u++) {
+        float *e = gs.elem(fine, col, g, u, v);
+        for (int k = 0; k < 4; k++) {
+          e[k] = 0.25f * float(k + 1);
+        }
+      }
+    }
+  }
+  test_assert(gs.restrictChannelDown(col, fine));
+  for (int g = 0; g < gs.gridCount(); g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        const float *e = gs.elem(coarse, col, g, u, v);
+        for (int k = 0; k < 4; k++) {
+          test_assert(std::fabs(e[k] - 0.25f * float(k + 1)) < 1e-6f);
+        }
+      }
+    }
+  }
+
+  /* 2. A varying field: no coarse value leaves the fine range (an averaging
+   *    operator cannot overshoot what it summarizes), and every replica of a
+   *    seam coord agrees, so the restricted level is still C0 across grids. */
+  float lo = 1e30f, hi = -1e30f;
+  for (int g = 0; g < gs.gridCount(); g++) {
+    for (int v = 0; v < wf; v++) {
+      for (int u = 0; u < wf; u++) {
+        float *e = gs.elem(fine, col, g, u, v);
+        for (int k = 0; k < 4; k++) {
+          e[k] = std::sin(float(g) * 0.7f + float(u) * 0.31f + float(v) * 0.13f + float(k));
+          lo = e[k] < lo ? e[k] : lo;
+          hi = e[k] > hi ? e[k] : hi;
+        }
+      }
+    }
+  }
+  test_assert(gs.restrictChannelDown(col, fine));
+  Vector<GridCoord> mates;
+  for (int g = 0; g < gs.gridCount(); g++) {
+    for (int v = 0; v < w; v++) {
+      for (int u = 0; u < w; u++) {
+        const float *e = gs.elem(coarse, col, g, u, v);
+        for (int k = 0; k < 4; k++) {
+          test_assert(e[k] >= lo - 1e-6f && e[k] <= hi + 1e-6f);
+        }
+        gs.seamMates(coarse, GridCoord{g, u, v}, mates);
+        for (const GridCoord &m : mates) {
+          const float *o = gs.elem(coarse, col, m.grid, m.u, m.v);
+          for (int k = 0; k < 4; k++) {
+            /* Merged from the same partial sums, so equal to within the order
+             * the additions happened to run in. */
+            test_assert(std::fabs(e[k] - o[k]) < 1e-6f);
+          }
+        }
+      }
+    }
+  }
+
+  /* 3. A face cell is exactly the mean of its four children — cells belong to
+   *    one grid each, so there is no seam term to merge. */
+  for (int g = 0; g < gs.gridCount(); g++) {
+    for (int v = 0; v < sf; v++) {
+      for (int u = 0; u < sf; u++) {
+        *gs.elem(fine, cell, g, u, v) = float(g) + 0.125f * float(v * sf + u);
+        *gs.elem(fine, fset, g, u, v) = float(1 + ((g + u + v) % 5));
+      }
+    }
+  }
+  test_assert(gs.restrictChannelDown(cell, fine));
+  test_assert(gs.restrictChannelDown(fset, fine));
+  for (int g = 0; g < gs.gridCount(); g++) {
+    for (int v = 0; v < s; v++) {
+      for (int u = 0; u < s; u++) {
+        const float mean = 0.25f * (*gs.elem(fine, cell, g, u * 2, v * 2) +
+                                    *gs.elem(fine, cell, g, u * 2 + 1, v * 2) +
+                                    *gs.elem(fine, cell, g, u * 2, v * 2 + 1) +
+                                    *gs.elem(fine, cell, g, u * 2 + 1, v * 2 + 1));
+        test_assert(std::fabs(*gs.elem(coarse, cell, g, u, v) - mean) < 1e-5f);
+        /* 4. Typed: injection, so the id stays an id. */
+        test_assert(*gs.elem(coarse, fset, g, u, v) == *gs.elem(fine, fset, g, u * 2, v * 2));
+      }
+    }
+  }
+
+  printf("restrictChannelDown %s: %d grids, level %d -> %d ok\n", name, gs.gridCount(), fine,
+         coarse);
+  alloc::Delete(cage);
+}
+
 int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
   gateDomainsAndSession();
+  gateRestrictDown(buildCube, 3, "cube");
+  gateRestrictDown(buildFan, 3, "fan");
+  gateRestrictDown(buildPentagon, 3, "pentagon");
   checkFixture(buildCube, 3, "cube");
   checkFixture(buildFan, 2, "fan");
   checkFixture(buildPentagon, 2, "pentagon");

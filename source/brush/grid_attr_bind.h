@@ -340,6 +340,7 @@ inline void gridAttrScatter(GridAttrMirror &mirror,
                   src, bytes);
     }
   }
+  mr->noteAttrEdit(level, mirror.channel);
 }
 
 /** The dense id of grid `g`'s cell `(u, v)` — grid-major, row-major, which is
@@ -388,6 +389,7 @@ inline void gridAttrScatterFace(GridAttrMirror &mirror,
       }
     }
   }
+  mr->noteAttrEdit(level, mirror.channel);
 }
 
 /** Push `grids`' face-set cells from the mirror into the draw path's per-sample

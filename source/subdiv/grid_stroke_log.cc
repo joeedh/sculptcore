@@ -50,6 +50,7 @@ void GridStrokeLog::beginStep()
   steps_.append(Step());
   Step &s = steps_.last();
   s.preDebt = d_->multires()->downPropDebt(d_->level());
+  snapshotAttrDebt(s.preAttrDebt);
   open_ = true;
   gen_++;
 }
@@ -153,7 +154,35 @@ void GridStrokeLog::endStep(bool postDebt)
     return;
   }
   s.postDebt = postDebt;
+  snapshotAttrDebt(s.postAttrDebt);
   cursor_ = int(steps_.size());
+}
+
+void GridStrokeLog::snapshotAttrDebt(Vector<litestl::util::string> &out)
+{
+  Multires *mr = d_->multires();
+  const int level = d_->level();
+  out.clear();
+  for (int c = 0; c < mr->store.channelCount(); c++) {
+    if (mr->store.channelLevelDebt(level, c)) {
+      out.append(mr->store.channelName(c));
+    }
+  }
+}
+
+void GridStrokeLog::applyAttrDebt(const Vector<litestl::util::string> &names)
+{
+  Multires *mr = d_->multires();
+  const int level = d_->level();
+  for (int c = 0; c < mr->store.channelCount(); c++) {
+    mr->store.setChannelLevelDebt(level, c, false);
+  }
+  for (const litestl::util::string &nm : names) {
+    const int c = mr->store.findChannel(nm);
+    if (c >= 0) {
+      mr->store.setChannelLevelDebt(level, c, true);
+    }
+  }
 }
 
 void GridStrokeLog::applySwap(Step &s)
@@ -252,6 +281,7 @@ bool GridStrokeLog::undo()
   Step &s = steps_[cursor_ - 1];
   applySwap(s);
   d_->multires()->setDownPropDebt(d_->level(), s.preDebt);
+  applyAttrDebt(s.preAttrDebt);
   cursor_--;
   return true;
 }
@@ -264,6 +294,7 @@ bool GridStrokeLog::redo()
   Step &s = steps_[cursor_];
   applySwap(s);
   d_->multires()->setDownPropDebt(d_->level(), s.postDebt);
+  applyAttrDebt(s.postAttrDebt);
   cursor_++;
   return true;
 }
