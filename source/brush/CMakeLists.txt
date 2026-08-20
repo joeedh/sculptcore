@@ -28,6 +28,8 @@ set(SRC
   PUBLIC grid_gpu_session.h
   c-api/grid_stroke_c_api.cc
   c-api/mesh_stroke_batch_c_api.cc
+  PUBLIC cage_smooth.h
+  c-api/cage_smooth_c_api.cc
   PUBLIC stroke_spacing.h
   PUBLIC stroke_curve.h
   PUBLIC stroke_driver.h
@@ -103,6 +105,11 @@ wasm_add_symbols("
   MeshStroke_castBatch
   MeshStroke_dabBatch
   MeshStroke_dabBatchProgram
+  CageSmooth_new
+  CageSmooth_free
+  CageSmooth_begin
+  CageSmooth_dabBatch
+  CageSmooth_end
   GridStroke_end
   GridStroke_canUndo
   GridStroke_canRedo

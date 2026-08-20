@@ -440,6 +440,14 @@ struct Multires {
    * slot carries no such attribute. */
   void stampSlotVertFloat4(int level, const char *name, const int *gridIds, int count);
 
+  /** The grids `dabs` (4 floats each, object-space {x, y, z, radius}) reach at
+   * `level`, appended to `out` without duplicates. Uses the level slot's own
+   * spatial tree — the one the stroke just walked — and the grid-major cell
+   * layout of its mesh, so a grid id is a leaf face id divided by S². Leaves
+   * `out` alone when the slot, its tree or that layout is missing. Public for
+   * the brush module's cage-dab visit set (brush/cage_smooth.h). */
+  void dabGrids(int level, const float *dabs, int dabCount, litestl::util::Vector<int> &out);
+
   /** #gridFaceInts for `material_index`. Callers treat a false return as every
    * face being material 0, which is what both draw paths default to. */
   bool gridMaterials(litestl::util::Vector<int> &out);
@@ -602,12 +610,6 @@ private:
   /** The store channel backing settings row `li`, or -1. */
   int channelForLayer(int li) const;
 
-  /** The grids `dabs` (4 floats each, object-space {x, y, z, radius}) reach at
-   * `level`, appended to `out` without duplicates. Uses the level slot's own
-   * spatial tree — the one the stroke just walked — and the grid-major cell
-   * layout of its mesh, so a grid id is a leaf face id divided by S². Leaves
-   * `out` alone when the slot, its tree or that layout is missing. */
-  void dabGrids(int level, const float *dabs, int dabCount, litestl::util::Vector<int> &out);
   /** Drop every cached chain + resident slot and rematerialize the active
    * level (composite changed). Does NOT write back — callers fold first. */
   void refreshAfterLayerChange();

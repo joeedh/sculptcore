@@ -18,6 +18,8 @@
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
+#include "brush/brush.h"
+#include "brush/cage_smooth.h"
 #include "subdiv/c-api/grid_channel_c_api.h"
 #include "subdiv/grid_attrs.h"
 #include "subdiv/grid_domain.h"
@@ -622,6 +624,155 @@ static bool sameColor(const float4 &a, const float4 &b)
 {
   return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
 }
+
+/** Euclidean RGBA distance -- the "moved toward the mean" metric below. */
+static float colorDist(const float4 &a, const float4 &b)
+{
+  float d = 0.0f;
+  for (int i = 0; i < 4; i++) {
+    d += (a[i] - b[i]) * (a[i] - b[i]);
+  }
+  return std::sqrt(d);
+}
+
+/* CS2's engine cage-dab entry (brush/cage_smooth.h): a colour-smoothing dab on
+ * a multires level runs the generated mesh kernel over the cage colour layer
+ * directly -- falloff in limit space, neighbours the cage 1-ring, masking from
+ * the store's mask channel -- and its epilogue re-derives the touched grids so
+ * the host's trailing scatter proposes nothing. */
+static void gateCageColorSmooth()
+{
+  using subdiv::GridLevelDomain;
+
+  Mesh *cage = makeGrid(2);
+  {
+    AttrRef &ref = cage->v.attrs.ensure(AttrType::FLOAT4, "color", /*materialize=*/true);
+    ref.use = AttrUse::COLOR;
+    auto *d = ref.get_data<float4>();
+    for (int v : cage->v) {
+      const float t = float(v + 1) / 16.0f;
+      (*d)[v] = float4(t, 1.0f - t, 0.5f, 1.0f);
+    }
+    /* The linear ramp is a fixed point of ring averaging at the centre vert;
+     * black it out so the smooth has somewhere to go. */
+    (*d)[4] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+  }
+  /* Lift one boundary corner: its cage and limit positions now disagree,
+   * which is the discriminator for the space the kernel's falloff reads. */
+  cage->v.co[0][2] = 1.5f;
+
+  Multires mr;
+  mr.init(*cage, 2);
+  const int level = 2, grids = mr.refiner.gridCount();
+  subdiv::MultiresSlot *slot = mr.setActiveLevel(level);
+  test_assert(slot && slot->mesh && slot->tree);
+  if (!slot || !slot->mesh || !slot->tree) {
+    alloc::Delete(cage);
+    return;
+  }
+  const subdiv::SubdivLevel &lvl = mr.refiner.levels[level - 1];
+  const int w = lvl.gridSide + 1;
+
+  Vector<int> gridVert;
+  test_assert(mr.gridCageVerts(gridVert) && int(gridVert.size()) == grids);
+  auto gridOf = [&](int v) {
+    for (int g = 0; g < grids; g++) {
+      if (gridVert[g] == v) {
+        return g;
+      }
+    }
+    return -1;
+  };
+  const int gC = gridOf(4), g0 = gridOf(0), g1 = gridOf(1);
+  test_assert(gC >= 0 && g0 >= 0 && g1 >= 0);
+
+  /* Mask one ring vert through the host's channel -- the route a session's
+   * paint masking actually arrives by. */
+  GridLevelDomain *dom = mr.gridDomain(level);
+  test_assert(dom != nullptr);
+  dom->mask[dom->gridVerts(g1)[0]] = 1.0f;
+  dom->flushMaskToStore();
+
+  auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+  test_assert(cageCol != nullptr);
+  float4 before[9];
+  for (int v = 0; v < 9; v++) {
+    before[v] = (*cageCol)[v];
+  }
+  float4 ringAvg(0.0f, 0.0f, 0.0f, 0.0f);
+  for (int v : {1, 3, 5, 7}) {
+    for (int i = 0; i < 4; i++) {
+      ringAvg[i] += 0.25f * before[v][i];
+    }
+  }
+
+  const float3 centre = slot->mesh->v.co[lvl.gridVerts[size_t(gC) * w * w]];
+  const float3 limit0 = slot->mesh->v.co[lvl.gridVerts[size_t(g0) * w * w]];
+
+  const uint64_t gen = mr.gridAttrs().generation();
+  const uint64_t cgen = mr.gridAttrs().cageGeneration();
+
+  brush::Brush b;
+  b.radius = 2.0f;
+  b.strength = 0.35f;
+  b.writeProps();
+  const int tool = int(brush::SculptBrushes::COLORSMOOTH);
+
+  {
+    brush::CageSmoothSession s(&mr, level, &b);
+    test_assert(s.begin("color"));
+
+    const float dabA[7] = {centre[0], centre[1], centre[2], 0.0f, 0.0f, 1.0f, 2.0f};
+    test_assert(s.dabBatch(tool, 1, dabA, 0.35f, false, 1.0f, false, nullptr, 0) > 0);
+
+    /* The centre moved toward its cage 1-ring's mean -- the four edge
+     * midpoints, not the grid lattice. */
+    test_assert(!sameColor((*cageCol)[4], before[4]));
+    test_assert(colorDist((*cageCol)[4], ringAvg) < colorDist(before[4], ringAvg));
+    /* Verts 1 and 7 sit at the same lattice distance: the unmasked one
+     * changed, the masked one held bit-still. */
+    test_assert(!sameColor((*cageCol)[7], before[7]));
+    test_assert(sameColor((*cageCol)[1], before[1]));
+
+    /* A dab centred on the lifted corner's limit position, with a radius
+     * shorter than the cage-to-limit gap, reaches the vert only if falloff
+     * read the swapped-in limit snapshot rather than cage->v.co. */
+    float gap = 0.0f;
+    for (int i = 0; i < 3; i++) {
+      gap += (cage->v.co[0][i] - limit0[i]) * (cage->v.co[0][i] - limit0[i]);
+    }
+    gap = std::sqrt(gap);
+    test_assert(gap > 0.2f);
+    const float4 corner0 = (*cageCol)[0];
+    const float dabB[7] = {limit0[0], limit0[1], limit0[2], 0.0f, 0.0f, 1.0f, 0.5f * gap};
+    test_assert(s.dabBatch(tool, 1, dabB, 0.5f, false, 1.0f, false, nullptr, 0) > 0);
+    test_assert(!sameColor((*cageCol)[0], corner0));
+
+    s.end();
+  }
+
+  /* The epilogue left every grid's (0, 0) sample a bit-exact copy of its cage
+   * vert, so the host's trailing scatter is a no-op instead of an overwrite of
+   * the kernel's fresh cage values with stale slot ones. */
+  const float4 *samples = mr.gridAttrs().colorSamples(level);
+  test_assert(samples != nullptr);
+  if (samples) {
+    for (int g = 0; g < grids; g++) {
+      test_assert(sameColor(samples[size_t(g) * w * w], (*cageCol)[gridVert[g]]));
+    }
+  }
+  Vector<int> tg;
+  test_assert(mr.scatterVertFloat4ToCage(level, "color", nullptr, 0, tg) == 0);
+
+  /* Kernel dabs are cage edits: no derived rebuild happened, and the cage
+   * stamp is what tells every other level to re-derive on the way in. */
+  test_assert(mr.gridAttrs().generation() == gen);
+  test_assert(mr.gridAttrs().cageGeneration() > cgen);
+
+  printf("cage colour smooth: %d grids\n", grids);
+  alloc::Delete(cage);
+}
+
 
 /* B2a's vertex-domain twin of gateCageScatter. Blender has no multires
  * attribute domain, so painted colour has to land somewhere in the object's own
@@ -1593,6 +1744,7 @@ int main(int argc, char **argv)
   gateInvalidation();
   gateCageScatter();
   gateCageVertScatter();
+  gateCageColorSmooth();
   gateSubFaceDabCollapse();
   gateChannelCapi();
   gateResidentSlotFreshness();
