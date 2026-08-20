@@ -896,6 +896,20 @@ int Mesh_toArrays(
 
   return gaps ? 1 : 0;
 }
+
+/** Add a sculpt layer (settings row + zero FLOAT3 vertex column, weight 1).
+ * The first layer on a fresh mesh is named "slayer" -- the name the layerdraw
+ * kernel's manifest binds, so create-on-first-use needs no attr override.
+ * Returns the settings index, or -1. */
+int Mesh_sculptLayerAdd(Mesh *m)
+{
+  return m ? m->sculptLayerAdd() : -1;
+}
+
+int Mesh_sculptLayerCount(Mesh *m)
+{
+  return m ? m->sculptLayerCount() : 0;
+}
 }
 
 #if 0 // def WASM

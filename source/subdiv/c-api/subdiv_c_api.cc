@@ -784,4 +784,106 @@ int Multires_gridAttrSamplesOut(
   memcpy(out, src, size_t(total) * sizeof(float));
   return total;
 }
+
+// Sculpt-layer stack surface (multires.h "Sculpt layers on the stack").
+// Mutators fold pending active-level edits first and rematerialize slots --
+// the caller must re-fetch every slot-derived pointer afterwards, exactly as
+// after a level switch.
+
+int Multires_layerAdd(subdiv::Multires *mr)
+{
+  return mr ? mr->layerAdd() : -1;
+}
+
+void Multires_layerRemove(subdiv::Multires *mr, int li)
+{
+  if (mr) {
+    mr->layerRemove(li);
+  }
+}
+
+void Multires_layerSetWeight(subdiv::Multires *mr, int li, float weight)
+{
+  if (mr) {
+    mr->layerSetWeight(li, weight);
+  }
+}
+
+void Multires_layerSetEnabled(subdiv::Multires *mr, int li, int enabled)
+{
+  if (mr) {
+    mr->layerSetEnabled(li, enabled);
+  }
+}
+
+void Multires_layerSetFrozen(subdiv::Multires *mr, int li, int frozen)
+{
+  if (mr) {
+    mr->layerSetFrozen(li, frozen);
+  }
+}
+
+int Multires_setEditTarget(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->setEditTarget(li) : -1;
+}
+
+int Multires_editTarget(subdiv::Multires *mr)
+{
+  return mr ? mr->editTarget() : -1;
+}
+
+int Multires_layerCount(subdiv::Multires *mr)
+{
+  return mr ? mr->layerCount() : 0;
+}
+
+float Multires_layerWeight(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->layerWeight(li) : 0.0f;
+}
+
+int Multires_layerEnabled(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->layerEnabled(li) : 0;
+}
+
+int Multires_layerFrozen(subdiv::Multires *mr, int li)
+{
+  return mr ? mr->layerFrozen(li) : 0;
+}
+
+/** Snapshot every settings row's {weight, enabled, frozen} in row (== store
+ * channel) order: 3 floats per layer. Returns the floats needed; writes only
+ * when `count` holds them all. Pair with the store blob -- together they are
+ * the layer-op undo seam (multires.h layerRemove). */
+int Multires_layerTableOut(subdiv::Multires *mr, float *out, int count)
+{
+  if (!mr) {
+    return 0;
+  }
+  litestl::util::Vector<float> table;
+  mr->layerTableOut(table);
+  const int total = int(table.size());
+  if (out && count >= total) {
+    memcpy(out, table.data(), size_t(total) * sizeof(float));
+  }
+  return total;
+}
+
+/** Rebuild the settings rows from the store's channels 1..N with fields from
+ * a layerTableOut snapshot, then refresh levels. Clears the edit target --
+ * restore it separately. Slot pointers change; re-fetch. */
+void Multires_layerTableRestore(subdiv::Multires *mr, const float *table, int count)
+{
+  if (!mr || count < 0) {
+    return;
+  }
+  litestl::util::Vector<float> t;
+  t.resize(count);
+  if (count > 0 && table) {
+    memcpy(t.data(), table, size_t(count) * sizeof(float));
+  }
+  mr->layerTableRestore(t);
+}
 }
