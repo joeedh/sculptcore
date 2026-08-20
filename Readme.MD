@@ -16,8 +16,8 @@ host software.
 
 ## Example Integration
 
-You can find an example of sculptcore integrated in a small web DCC at [https://github.com/joeedh/webgl-app-framework](https://github.com/joeedh/webgl-app-framework).
-([Try it out here](https://joeedh.github.io/webgl-app-framework/)).
+You can find an example of sculptcore integrated in a small web DCC at [https://github.com/joeedh/faber-leaf](https://github.com/joeedh/faber-leaf).
+([Try it out here](https://joeedh.github.io/faber-leaf/)).
 
 ([Blender Addon Here](https://github.com/joeedh/sculptcore-blender-addon).
 
