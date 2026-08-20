@@ -672,7 +672,7 @@ struct GridBrushExecutor {
   static bool attrBindable(const BrushAttrManifestEntry &entry,
                            const subdiv::MultiresAttrs *attrs)
   {
-    return gridAttrPlan(entry, gridAttrsEnabled(), attrs) != GridAttrPlanKind::Unbindable;
+    return gridAttrPlan(entry, attrs) != GridAttrPlanKind::Unbindable;
   }
 
   /** Engine-owned dispatch rule: can this tool run grids-native? Everything
@@ -1310,11 +1310,10 @@ private:
    * lazy, so an attr-free session pays nothing; attach() drops the mirrors. */
   void ensureAttrBindings(const brush_command &cmd)
   {
-    const bool session = gridAttrsEnabled();
     const int vc = domain->vertCount();
     attrBindings_.items.clear();
     for (const auto &entry : cmd.attrs) {
-      GridAttrPlanKind kind = gridAttrPlan(entry, session, &domain->multires()->gridAttrs());
+      GridAttrPlanKind kind = gridAttrPlan(entry, &domain->multires()->gridAttrs());
       Assert(kind != GridAttrPlanKind::Unbindable,
              "grid executor: attr layer has no grid storage");
       mesh::AttrRef ref;

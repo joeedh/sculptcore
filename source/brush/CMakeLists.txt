@@ -86,8 +86,6 @@ wasm_add_symbols("
   GridStroke_new
   GridStroke_free
   GridStroke_supported
-  GridStroke_setGridAttrs
-  GridStroke_gridAttrs
   GridStroke_setMirror
   GridStroke_setNonAccum
   GridStroke_setAnchoredGrab

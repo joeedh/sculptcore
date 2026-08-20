@@ -55,7 +55,7 @@ GridStrokeSession *GridStroke_new(sculptcore::subdiv::Multires *mr,
                                   int level,
                                   sculptcore::brush::Brush *b);
 void GridStroke_free(GridStrokeSession *s);
-int GridStroke_supported(int tool);
+int GridStroke_supported(sculptcore::subdiv::Multires *mr, int tool);
 int GridStroke_begin(GridStrokeSession *s);
 int GridStroke_dab(GridStrokeSession *s, int tool, float ox, float oy, float oz,
                    float nx, float ny, float nz, int grabAdd);
@@ -116,18 +116,20 @@ static constexpr int kLevel = 3;
  * attr layer this domain cannot bind. `why` records it, so a mismatch below
  * names the missing capability instead of just a bool.
  *
- * Graded twice, with grid attribute channels off and on: `off` is the pre-P2
- * roster and must never move, `on` is what the session channels widen it to.
- * As later phases land, entries flip to supported and their `why` goes away;
- * nothing here should ever flip the other direction. */
+ * One column since P5 deleted the kill switch: the roster is what the kernel
+ * metadata says, full stop. Three built-ins still decline, each for a named
+ * capability this domain lacks rather than for being itself -- so the count
+ * below is the ledger P5 leaves behind: 20 of 23 run grids-native. Entries may
+ * flip to supported as those capabilities land; nothing here should ever flip
+ * the other direction. */
 struct RosterGolden {
   SculptBrushes tool;
   bool supported;
-  bool supportedWithAttrs;
   const char *why;
 };
 
-/* C2: the storage class decides the route, not the kill switch. With a live
+/* C2: the storage class decides the route -- since P5, it is the only thing
+ * that does. With a live
  * stack to ask, an attr-writing kernel binds grids-native only where the host
  * declared it can store that attribute per grid element; otherwise the cage is
  * the author and the mesh path is the route home (grid_attr_bind.h). */
@@ -150,10 +152,10 @@ static void gateAttrPlanStorage()
       {SculptBrushes::POLYGROUP, "group", AttrType::INT},
   };
   subdiv::MultiresAttrs &attrs = mr.gridAttrs();
-  brush::setGridAttrsEnabled(true);
 
   for (const Case &c : cases) {
-    // Derived (nothing declared): refused even with channels enabled.
+    // Derived (nothing declared): refused, and since P5 there is no switch
+    // that could say otherwise.
     TASSERT(attrs.storageFor(c.layer, c.type, mesh::AttrFlag::NONE) ==
             subdiv::GridAttrStorage::Derived);
     TASSERT(!GridBrushExecutor::supportsBrush(c.tool, &attrs));
@@ -176,8 +178,9 @@ static void gateAttrPlanStorage()
   // A position kernel is untouched by any of this.
   TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::DRAW, &attrs));
 
-  // Off restores the pre-P2 roster whatever the class says.
-  brush::setGridAttrsEnabled(false);
+  // Undeclare: the batteries below share the process and must not inherit a
+  // host capability this one invented.
+  attrs.clearHostAttrs();
   for (const Case &c : cases) {
     TASSERT(!GridBrushExecutor::supportsBrush(c.tool, &attrs));
   }
@@ -187,60 +190,59 @@ static void gateAttrPlanStorage()
 static void gateGridsRoster()
 {
   const RosterGolden golden[] = {
-      {SculptBrushes::DRAW, true, true, nullptr},
-      {SculptBrushes::INFLATE, true, true, nullptr},
-      {SculptBrushes::CLAY, true, true, nullptr},
-      {SculptBrushes::PINCH, true, true, nullptr},
-      {SculptBrushes::SHARP, true, true, nullptr},
-      {SculptBrushes::MASK, true, true, nullptr},
-      {SculptBrushes::SMOOTH, true, true, nullptr},
-      {SculptBrushes::KELVINLET, true, true, nullptr},
-      {SculptBrushes::POSE, true, true, nullptr},
-      {SculptBrushes::TEXDRAW, true, true, nullptr},
-      {SculptBrushes::SCRAPE, true, true, nullptr},
-      {SculptBrushes::FILL, true, true, nullptr},
-      {SculptBrushes::WINGSCRAPE, true, true, nullptr},
-      {SculptBrushes::COLOR, false, true, "color attr layer"},
-      {SculptBrushes::POLYGROUP, false, true, "group attr layer"},
-      {SculptBrushes::BSMOOTH, true, true, nullptr},
-      {SculptBrushes::GRAB, true, true, nullptr},
-      {SculptBrushes::SNAKEHOOK, true, true, nullptr},
-      {SculptBrushes::COLORSMOOTH, false, true, "color attr layer"},
-      {SculptBrushes::FEATURE_ALIGN, false, false, "crossfield attr layer"},
-      {SculptBrushes::LAYERDRAW, false, false, "sculpt-layer attr layer"},
-      {SculptBrushes::ENHANCE, false, false, "per-vert displacement attr layer"},
-      {SculptBrushes::TEXGRAD, true, true, nullptr},
+      {SculptBrushes::DRAW, true, nullptr},
+      {SculptBrushes::INFLATE, true, nullptr},
+      {SculptBrushes::CLAY, true, nullptr},
+      {SculptBrushes::PINCH, true, nullptr},
+      {SculptBrushes::SHARP, true, nullptr},
+      {SculptBrushes::MASK, true, nullptr},
+      {SculptBrushes::SMOOTH, true, nullptr},
+      {SculptBrushes::KELVINLET, true, nullptr},
+      {SculptBrushes::POSE, true, nullptr},
+      {SculptBrushes::TEXDRAW, true, nullptr},
+      {SculptBrushes::SCRAPE, true, nullptr},
+      {SculptBrushes::FILL, true, nullptr},
+      {SculptBrushes::WINGSCRAPE, true, nullptr},
+      {SculptBrushes::COLOR, true, nullptr},
+      {SculptBrushes::POLYGROUP, true, nullptr},
+      {SculptBrushes::BSMOOTH, true, nullptr},
+      {SculptBrushes::GRAB, true, nullptr},
+      {SculptBrushes::SNAKEHOOK, true, nullptr},
+      {SculptBrushes::COLORSMOOTH, true, nullptr},
+      {SculptBrushes::FEATURE_ALIGN, false, "crossfield attr layer"},
+      {SculptBrushes::LAYERDRAW, false, "sculpt-layer attr layer"},
+      {SculptBrushes::ENHANCE, false, "per-vert displacement attr layer"},
+      {SculptBrushes::TEXGRAD, true, nullptr},
   };
   // Every built-in id is covered — a new tool must state its answer here.
   TASSERT(int(sizeof(golden) / sizeof(golden[0])) == SculptBrushesBuiltinCount);
 
-  for (int pass = 0; pass < 2; pass++) {
-    brush::setGridAttrsEnabled(pass == 1);
-    for (const RosterGolden &g : golden) {
-      const int id = int(g.tool);
-      const bool want = pass ? g.supportedWithAttrs : g.supported;
-      const bool got = GridBrushExecutor::supportsBrush(g.tool);
-      TASSERT(id >= 0 && id < SculptBrushesBuiltinCount);
-      if (got != want) {
-        fprintf(stderr,
-                "grids roster %s (id %d, attrs %s): supportsBrush=%d, golden %d%s%s\n",
-                kBuiltinBrushNames[id], id, pass ? "on" : "off", int(got), int(want),
-                g.why ? " — declined for: " : "", g.why ? g.why : "");
-      }
-      TASSERT(got == want);
-      // A face-stage kernel instantiates here like any other: the grids domain
-      // has a face iterator (GridFaceIter over each leaf's grids), so the
-      // generated dispatch builds its def and only the attr bind can decline it.
-      if (builtinBrushFaceMode(id)) {
-        Brush scratch;
-        GridBrushExecutor::brush_command def;
-        const bool handled =
-            GridBrushExecutor::createCommandSwitch<AccumLive>(g.tool, &scratch, def);
-        TASSERT(handled);
-      }
+  int native = 0;
+  for (const RosterGolden &g : golden) {
+    const int id = int(g.tool);
+    const bool got = GridBrushExecutor::supportsBrush(g.tool);
+    TASSERT(id >= 0 && id < SculptBrushesBuiltinCount);
+    if (got != g.supported) {
+      fprintf(stderr,
+              "grids roster %s (id %d): supportsBrush=%d, golden %d%s%s\n",
+              kBuiltinBrushNames[id], id, int(got), int(g.supported),
+              g.why ? " declined for: " : "", g.why ? g.why : "");
+    }
+    TASSERT(got == g.supported);
+    native += got ? 1 : 0;
+    // A face-stage kernel instantiates here like any other: the grids domain
+    // has a face iterator (GridFaceIter over each leaf's grids), so the
+    // generated dispatch builds its def and only the attr bind can decline it.
+    if (builtinBrushFaceMode(id)) {
+      Brush scratch;
+      GridBrushExecutor::brush_command def;
+      const bool handled =
+          GridBrushExecutor::createCommandSwitch<AccumLive>(g.tool, &scratch, def);
+      TASSERT(handled);
     }
   }
-  brush::setGridAttrsEnabled(false);
+  /* The ledger P5 leaves behind: everything but the three named decliners. */
+  TASSERT(native == SculptBrushesBuiltinCount - 3);
 }
 
 /* Smooth per-vert displacement field (mirrors test_grid_domain.cc). */
@@ -1264,8 +1266,8 @@ int main()
     setupBrush(brush, 0.25f, 0.5f);
     restoreStore(mr, s0);
 
-    TASSERT(GridStroke_supported(int(SculptBrushes::DRAW)) == 1);
-    TASSERT(GridStroke_supported(int(SculptBrushes::BSMOOTH)) == 1);
+    TASSERT(GridStroke_supported(&mr, int(SculptBrushes::DRAW)) == 1);
+    TASSERT(GridStroke_supported(&mr, int(SculptBrushes::BSMOOTH)) == 1);
 
     float out10[10];
     int nearest = -1;
@@ -1726,9 +1728,11 @@ int main()
    * store channel; duplicate boundary samples agree, and undo/redo restores
    * the channel bit-exactly. */
   {
-    setGridAttrsEnabled(true);
+    /* A grids-native host: one that CAN store colour per grid element. That
+     * declaration is the whole precondition since P5 deleted the switch. */
+    mr.gridAttrs().declareHostAttr("color", mesh::AttrType::FLOAT4);
     restoreStore(mr, s0);
-    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::COLOR));
+    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::COLOR, &mr.gridAttrs()));
 
     Brush brush;
     setupBrush(brush, 0.25f, 0.5f);
@@ -1744,7 +1748,9 @@ int main()
 
     const int cch = mr.store.findChannel(util::string("color"));
     TASSERT(cch > 0);
-    TASSERT(!mr.store.channelPersist(cch));
+    /* Host class: the host said it can store this per grid element, so the
+     * channel is one it saves rather than session scratch. */
+    TASSERT(mr.store.channelPersist(cch));
     TASSERT(mr.store.channelElemSize(cch) == 4);
     TASSERT(mr.store.channelDomain(cch) == subdiv::GridElemDomain::Vertex);
 
@@ -1790,7 +1796,7 @@ int main()
     TASSERT(storeBlob(mr.store) == blobPost);
     fprintf(stderr, "grid attr colour undo bit-exact\n");
 
-    setGridAttrsEnabled(false);
+    mr.gridAttrs().clearHostAttrs();
     restoreStore(mr, s0);
   }
 
@@ -1799,7 +1805,7 @@ int main()
    * republished per dab (the store only learns of the stroke at the fold), and
    * re-overlaid after a rebuild or an undo. */
   {
-    setGridAttrsEnabled(true);
+    mr.gridAttrs().declareHostAttr("color", mesh::AttrType::FLOAT4);
     restoreStore(mr, s0);
 
     /* A distinct colour per cage vertex: a seeded sample can then never be
@@ -1891,7 +1897,7 @@ int main()
     }
     fprintf(stderr, "grid attr colour draw samples seeded + bit-exact through undo\n");
 
-    setGridAttrsEnabled(false);
+    mr.gridAttrs().clearHostAttrs();
     restoreStore(mr, s0);
   }
 
@@ -1900,9 +1906,9 @@ int main()
    * per-sample face-set colours per dab, restores bit-exactly through undo,
    * and pushes down to the cage on demand. */
   {
-    setGridAttrsEnabled(true);
+    mr.gridAttrs().declareHostAttr("group", mesh::AttrType::INT);
     restoreStore(mr, s0);
-    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::POLYGROUP));
+    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::POLYGROUP, &mr.gridAttrs()));
 
     cage->default_group_id = 1;
     cage->ensureFaceGroups();
@@ -1923,7 +1929,9 @@ int main()
 
     const int gch = mr.store.findChannel(util::string("group"));
     TASSERT(gch > 0);
-    TASSERT(!mr.store.channelPersist(gch));
+    /* Host class: the host said it can store this per grid element, so the
+     * channel is one it saves rather than session scratch. */
+    TASSERT(mr.store.channelPersist(gch));
     TASSERT(mr.store.channelElemSize(gch) == 1);
     TASSERT(mr.store.channelDomain(gch) == subdiv::GridElemDomain::Face);
 
@@ -1992,7 +2000,7 @@ int main()
     Vector<int> again;
     TASSERT(mr.scatterFaceIntToCage(kLevel, "group", again) == 0);
 
-    setGridAttrsEnabled(false);
+    mr.gridAttrs().clearHostAttrs();
     restoreStore(mr, s0);
   }
 

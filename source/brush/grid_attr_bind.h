@@ -53,22 +53,6 @@
 
 namespace sculptcore::brush {
 
-/** Process-global kill switch for grid attribute channels, spanning plan
- * P2-P4. Off reproduces the pre-P2 roster exactly. Global because it is a
- * development lever, not per-object state; which attributes may take the
- * grids route at all is the storage class's answer (gridAttrPlan), not
- * this one's. */
-inline bool g_gridAttrsEnabled = false;
-
-inline bool gridAttrsEnabled()
-{
-  return g_gridAttrsEnabled;
-}
-inline void setGridAttrsEnabled(bool enable)
-{
-  g_gridAttrsEnabled = enable;
-}
-
 enum class GridAttrPlanKind : int {
   Unbindable = 0,
   DefaultColumn,
@@ -117,7 +101,6 @@ inline const string &gridAttrLayerName(const BrushAttrManifestEntry &entry)
  * type/domain answers and skips only the storage-class term, so a caller that
  * can supply it always gets the narrower answer. */
 inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry,
-                                     bool sessionChannels,
                                      const subdiv::MultiresAttrs *attrs = nullptr)
 {
   if (!entry.kernelWrites) {
@@ -127,9 +110,6 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry,
     // of falling back.
     return gridAttrZeroDefault(entry) ? GridAttrPlanKind::DefaultColumn :
                                         GridAttrPlanKind::Unbindable;
-  }
-  if (!sessionChannels) {
-    return GridAttrPlanKind::Unbindable;
   }
   if (entry.domain != AttrElemDomain::Vertex && entry.domain != AttrElemDomain::Face) {
     // Edge/corner element domains have no grid element to land on: the store's
