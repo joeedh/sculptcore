@@ -17,6 +17,15 @@ tangent-frame dividend). This report assumes those and does not re-derive them.
 > system is **explicitly out of scope** — this is a fresh native (`sculptcore`)
 > design built on the C++ attribute / dyntopo / boundary primitives.
 
+> **Status (2026-08-20):** phasing step 1 has shipped —
+> `AttrUse::SCULPT_LAYER` with the settings sidecar and the compositor
+> (`source/displace/`), plus the layer c-api (`layerAdd` …
+> `layerTableRestore`) wired to the Blender addon. On the multires side a
+> layer is a per-grid store channel, edited per dab through the
+> `LayerScratch` binding when a live edit target is armed — see
+> `engine/CLAUDE.md` § *Attributes on the grid domain*. Later steps
+> (VDM regions, promotion, the tangent-frame options) remain design-stage.
+
 ---
 
 ## 1. Goals and the unifying abstraction

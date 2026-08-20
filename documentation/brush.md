@@ -129,6 +129,16 @@ nodes, origin, normal)` resolves the brush via `createCommand()` (returns a
    node, the vertex-iterator factory, and the `Brush`, then `cmd.exec`.
 3. `cmd.execPost(ctx, nodes)` — bulk post-pass.
 
+Per-tool *host* passes around that sequence live in a hook table
+(`brush_hooks.{h,cc}`), not in the executor: `brushHooksFor(brushType)`
+returns up to three phases — `stepPreFreeze` (stroke start, before any
+topology freeze; the BSMOOTH/FEATURE_ALIGN boundary-class refresh), `dabPre`
+(before the kernel; ENHANCE's region fill, FEATURE_ALIGN's cross-field
+update) and `dabPost` (after it; POLYGROUP's dirty mark). Program execution
+runs each phase once per *distinct* hook fn, so a program listing both
+BSMOOTH and FEATURE_ALIGN refreshes the boundary class once. Adding a tool
+with host passes edits the table, never the executor.
+
 `beginStep()` / `endStep()` bracket a stroke and forward to the `MeshLog`;
 `beginStep` also resets the brush `StrokePath`, and `execBrush` pushes each
 dab center onto it. `isFirstOfStep` lets commands record undo state lazily;

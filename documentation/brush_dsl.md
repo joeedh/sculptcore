@@ -53,6 +53,7 @@ brush Snakehook { … }
 | `@unbounded` | the field has unbounded support and *is* its own falloff. `strength()` is then forbidden (sema error) and `unbounded_window()` required — the window is what makes the field vanish at the host's node-filter radius instead of tearing on a leaf boundary. Also emits `def.unbounded`, which floors that filter radius at `radius × unboundedExtent` |
 | `@incremental` | a stage input is a per-dab **delta**, not an absolute stroke quantity (snakehook's `grabTo` is the step since the last dab), so there is no stroke-start base to re-derive a dab from |
 | `@tool NAME[, NAME…]` | the `SculptBrushes` enum items this kernel implements. One kernel can serve several tools — `plane` is `@tool CLAY, SCRAPE, FILL`, because the host varies uniforms rather than code. This is what generates the id→factory dispatch (below); a kernel with no `@tool` compiles but is reachable by no tool |
+| `@gpu` | the kernel has a GPU port: codegen emits its entry in the generated brush→GPU-kernel map (`kBuiltinBrushGpuKernel`, consumed through `gpuKernelForTool`) plus its per-kernel appended-uniform pack, so every GPU dispatcher lights the tool up with no host edit. Without it the tool is CPU-only and GPU strokes fall back to the C++ executor |
 | `@fulltopo` | the kernel, or the host pre-pass that feeds it, walks live topology links every dab, so the stroke can neither freeze topology nor read neighbours from a stroke-start CSR snapshot. The generated dispatch instantiates such a kernel against the live neighbour source unconditionally, ignoring the stroke's neighbour mode. It is also one of the three facts `CommandExecutor::brushNeedsLiveLinks` reads to decide whether a stroke may run topology-frozen — the others being a `for_neighbor` loop (live-disk instantiation only) and a `face` stage (walks the face loop). All three are reflected per id by the generated registry, so a new kernel is never silently given a frozen stroke; `tests/test_brush_live_links.cc` grades the whole table |
 
 `@paint`, `@unbounded`, and `@incremental` each emit `def.accumulable = false`.
@@ -117,7 +118,7 @@ uniform float planeoff, planeSide @static, radius;   // annotate one of many
 | Syntax | Meaning |
 |---|---|
 | `= <number>` | authored default; codegen emits `.Default(n)` when it auto-registers the prop |
-| `@range(a, b)` | inclusive bounds — **validation only, never a clamp**: checked once at stroke start (default inside the range, `a ≤ b`, neither NaN) |
+| `@range(a, b)` | inclusive bounds — validated once at stroke start (default inside the range, `a ≤ b`, neither NaN). On the CPU path that is all it is — never a clamp. The one place it *does* clamp is the generated GPU uniform pack, which bounds the marshalled bytes marshal-locally (the `Brush` member keeps what the host set) |
 | `@dynamic` | explicit opt *in* to device dynamics; this is already the default, so it is only ever written for emphasis |
 | `@static` | the uniform is **not** dynamic-capable: codegen skips it entirely for prop registration and uniform loading, leaving it a plain host-set `Brush` member, and the executor rejects any device dynamic bound to it |
 

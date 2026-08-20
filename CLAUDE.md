@@ -356,7 +356,7 @@ symmetry, grab/anchored, dyntopo and preview), and
 host/builtin samplers, param slab).
 
 Per-kernel **policy is engine-owned, not host-owned**: the sbrush annotations
-(`@grabmode`, `@unbounded`, `@incremental`, `@relaxation`, `attr … @use(...)`)
+(`@grabmode`, `@unbounded`, `@incremental`, `@relaxation`, `@gpu`, `attr … @use(...)`)
 are reflected out through the stateless `BrushMetadata` binding
 (`queryBrushFlags` / `queryAttrManifest` / `queriedAttrEntry`, plus
 `CommandExecutor::filterRadiusFloor`). Hosts query it instead of branching on a
@@ -536,6 +536,40 @@ on-seam *tap* is counted once per incident grid, so on a two-grid seam the
 centre weight comes out 1/3 rather than 1/4. Normalization absorbs it
 (constants stay fixed points), but the filter is mildly seam-biased and that is
 a choice, not an accident.
+
+**The mask splits into a seed and an edit, and they must not be confused.**
+`Multires_writeDomainMask` (c-api) is the whole-domain *seed* — it overwrites
+every sample of a level and owes nothing to any other level, so it runs
+propagation-free. `Multires_editDomainMask` is the *edit* flavor: it writes the
+touched samples at the edited level, prolongates the **delta** up through the
+finer levels (`GridsStore::prolongateChannelEditUp`, 4-tap and bounded to the
+touched box; a finer level nobody has authored is seeded whole instead), and
+leaves the downward direction to the ordinary restriction debt. Consumers pull:
+`Multires::maskGeneration()` bumps on `noteMaskChange()` and readers compare
+stamps — the old push protocol (`GridStroke_syncMask`) is gone.
+
+**Sculpt layers get a fourth binding answer: `LayerScratch`.** A kernel that
+writes a `SCULPT_LAYER` handle binds per-dab scratch instead of the channel
+itself — and only when the host has armed a live edit target
+(`MultiresAttrs::hasLayerEditTarget`, i.e. `Multires::writebackChannel() > 0`);
+with no target the plan declines and the brush takes the mesh path. The
+executor folds the scratch into positions after `execPost` (`co += w·delta`),
+and stroke end writes the accumulated residual back into the target layer's
+grid channel. This is what LAYERDRAW rides.
+
+**Kernels that need mesh 1-rings take the cage-smooth route.** The grid
+lattice CSR carries no cage-vertex neighbourhood, so COLORSMOOTH runs
+`CageSmoothSession` (`brush/cage_smooth.h`): a tree-less `CommandExecutor`
+pass over one synthetic `SpatialNode` holding the dab's grids' owning cage
+verts, with falloff from a limit-position snapshot; a per-dab epilogue
+re-derives the incident grids from the edited cage.
+
+The net roster is pinned by `gateGridsRoster` (`tests/test_grid_stroke.cc`):
+session-free, 20 of the 23 built-ins run grids-native
+(`SculptBrushesBuiltinCount - 3`), the decliners being FEATURE_ALIGN (cross-
+field attr layer), ENHANCE (per-vert displacement layer) and LAYERDRAW — and
+arming a sculpt-layer edit target flips LAYERDRAW to supported, leaving
+exactly 2.
 
 Gates: `test_multires_attrs` (including `gateResidentSlotFreshness` and the
 down-propagation gate) and `test_grid_stroke`. The embedding addon's headless

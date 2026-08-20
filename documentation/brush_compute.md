@@ -295,11 +295,13 @@ Three layers, weakest to strongest:
 
 `runBrushStrokeGPU` (`source/debug/script.cc`) is the native path that loads
 a kernel's `.spv`, marshals the mesh + uniforms, dispatches one ≤64-vertex
-workgroup per node-chunk per dab, and reads `co` back. Its `switch` on
-`SculptBrushes` is the authoritative brush→kernel map (DRAW→`draw`,
-SMOOTH→`smooth` with neighbors, MASK→`mask`, KELVINLET→`kelvinlet`, …). A
-brush only participates in the GPU A/B if it has both a `SculptBrushes` entry
-and a case here; `graddraw` has neither, so it is validate-only.
+workgroup per node-chunk per dab, and reads `co` back. The brush→kernel map is
+generated, not a host switch: each kernel's `@gpu` annotation emits its entry
+in `kBuiltinBrushGpuKernel` (`brushes/generated/builtin_brushes.gen.h`),
+resolved per stroke through `brush::gpuKernelForTool` — the same map every
+other GPU dispatcher reads, so there is nothing to keep in sync. A brush
+participates in the GPU A/B iff its kernel declares `@gpu`; `graddraw` claims
+no `@tool` and no `@gpu`, so it is validate-only.
 
 ## Autodiff (`grad`)
 
