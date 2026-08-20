@@ -10,7 +10,7 @@ namespace sculptcore::brush {
  * layout independent of the C++ ABI. Shared by every GPU compute backend
  * (vk_compute, wgpu_compute) so there is one source of truth. */
 
-/* binding 5 — std140, size 96. */
+/* binding 5 — std140, size 112. */
 struct ComputeBrushUniforms {
   float strength = 0.0f;
   float radius = 1.0f;
@@ -42,8 +42,13 @@ struct ComputeBrushUniforms {
     float planeSide;       //           — plane: +1 build-up, -1 cut
   };
   /* offset 80 — color kernel's `brushColor` vec4 (16-aligned past the scalar
-   * slots, so 72/76 are pad in that kernel's WGSL view); rounds struct to 96. */
+   * slots, so 72/76 are pad in that kernel's WGSL view). */
   float brushColor[4] = {1, 1, 1, 1};
+  /* offset 96 — color kernel's `mixMode` i32, appended after brushColor in its
+   * WGSL view. std140 rounds the struct to its vec4 member's 16-byte
+   * alignment, hence the tail pad and size 112. */
+  int32_t mixMode = 0;
+  uint32_t _pad2[3] = {0, 0, 0};
 };
 
 /* binding 6 — std140. Base block (surfacePos/surfaceNo/render_matrix + the

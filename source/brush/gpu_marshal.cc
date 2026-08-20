@@ -163,6 +163,11 @@ void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
     for (int i = 0; i < 4; i++) {
       out.brushColor[i] = brush.brushColor[i];
     }
+    // `mixMode` follows brushColor in color.sbrush's uniform block (offset
+    // 96); unpacked it reads the buffer's zero-init, i.e. always MIX.
+    static_assert(offsetof(ComputeBrushUniforms, mixMode) == 96,
+                  "color mixMode follows the brushColor vec4 at offset 96");
+    out.mixMode = brush.mixMode;
     break;
   default:
     break;
