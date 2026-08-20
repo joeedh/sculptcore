@@ -85,6 +85,15 @@ export interface Brush {
   queriedTextureParamEntry(i: int32): TextureProgramParam | undefined
   setTextureParamAt(i: int32, value: float): boolean
   setTextureRampAt(i: int32, lut: float[]): boolean
+  evalTextureAt(
+    px: float,
+    py: float,
+    pz: float,
+    nx: float,
+    ny: float,
+    nz: float
+  ): float
+  textureUsesMap(): boolean
   loadProps(): void
   writeProps(): void
   pushDeviceInput(type: int32, value: float): void
