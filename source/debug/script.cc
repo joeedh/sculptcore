@@ -5,6 +5,7 @@
 #include "state_dump.h"
 
 #include "brush/brush_executor.h"
+#include "brush/brushes/all.h"
 #include "brush/stroke_driver.h"
 #include "brush/stroke_spacing.h"
 #include "displace/compositor.h"
@@ -726,46 +727,23 @@ bool execVerb(Scene &scene,
     }
     std::string ts = t;
     for (auto &c : ts) c = (char)std::tolower((unsigned char)c);
-    if (ts == "draw") {
-      scene.currentTool = brush::SculptBrushes::DRAW;
-    } else if (ts == "inflate") {
-      scene.currentTool = brush::SculptBrushes::INFLATE;
-    } else if (ts == "clay") {
-      scene.currentTool = brush::SculptBrushes::CLAY;
-    } else if (ts == "pinch") {
-      scene.currentTool = brush::SculptBrushes::PINCH;
-    } else if (ts == "sharp") {
-      scene.currentTool = brush::SculptBrushes::SHARP;
-    } else if (ts == "mask") {
-      scene.currentTool = brush::SculptBrushes::MASK;
-    } else if (ts == "smooth") {
-      scene.currentTool = brush::SculptBrushes::SMOOTH;
-    } else if (ts == "kelvinlet") {
-      scene.currentTool = brush::SculptBrushes::KELVINLET;
-    } else if (ts == "pose") {
-      scene.currentTool = brush::SculptBrushes::POSE;
-    } else if (ts == "texdraw") {
-      scene.currentTool = brush::SculptBrushes::TEXDRAW;
-    } else if (ts == "texgrad") {
-      scene.currentTool = brush::SculptBrushes::TEXGRAD;
-    } else if (ts == "color") {
-      scene.currentTool = brush::SculptBrushes::COLOR;
-    } else if (ts == "polygroup") {
-      scene.currentTool = brush::SculptBrushes::POLYGROUP;
-    } else if (ts == "bsmooth") {
-      scene.currentTool = brush::SculptBrushes::BSMOOTH;
-    } else if (ts == "enhance") {
-      scene.currentTool = brush::SculptBrushes::ENHANCE;
-    } else if (ts == "grab") {
-      scene.currentTool = brush::SculptBrushes::GRAB;
-    } else if (ts == "snakehook") {
-      scene.currentTool = brush::SculptBrushes::SNAKEHOOK;
-    } else if (ts == "layerdraw") {
-      scene.currentTool = brush::SculptBrushes::LAYERDRAW;
-    } else {
+    // Reflect over the generated per-id name table (builtin_brushes.gen.h):
+    // every built-in tool is addressable by its lowercased enum name, so a
+    // new .sbrush @tool needs no edit here.
+    int found = -1;
+    for (int id = 0; id < brush::builtinBrushCount; id++) {
+      std::string name = brush::kBuiltinBrushNames[id];
+      for (auto &c : name) c = (char)std::tolower((unsigned char)c);
+      if (ts == name) {
+        found = id;
+        break;
+      }
+    }
+    if (found < 0) {
       err = std::string("set_brush_tool: unknown tool '") + t + "'";
       return false;
     }
+    scene.currentTool = brush::SculptBrushes(found);
     return true;
   }
   if (verb == "set_grab") {
@@ -1385,26 +1363,11 @@ bool execVerb(Scene &scene,
     parseFloat3(getArg(args, "normal"), normal);
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers the local per-vertex brushes, with or without a bound
-    // brush texture (sampled in-shader to match the C++ bilinear). Tools not
-    // listed here fall back to the C++ executor below; the set must stay in
-    // sync with runBrushStrokeGPU's kernel switch.
+    // GPU dispatch covers every tool with a GPU port (`@gpu` in its .sbrush;
+    // gpuKernelForTool reads the same generated map GpuStrokeSession resolves
+    // the kernel from). CPU-only tools fall back to the C++ executor below.
     brush::SculptBrushes t = scene.currentTool;
-    bool gpuTool = t == brush::SculptBrushes::DRAW ||
-                   t == brush::SculptBrushes::TEXDRAW ||
-                   t == brush::SculptBrushes::CLAY ||
-                   t == brush::SculptBrushes::INFLATE ||
-                   t == brush::SculptBrushes::PINCH ||
-                   t == brush::SculptBrushes::SHARP ||
-                   t == brush::SculptBrushes::MASK ||
-                   t == brush::SculptBrushes::SMOOTH ||
-                   t == brush::SculptBrushes::KELVINLET ||
-                   t == brush::SculptBrushes::GRAB ||
-                   t == brush::SculptBrushes::POSE ||
-                   t == brush::SculptBrushes::COLOR ||
-                   t == brush::SculptBrushes::POLYGROUP ||
-                   t == brush::SculptBrushes::BSMOOTH ||
-                   t == brush::SculptBrushes::TEXGRAD;
+    bool gpuTool = brush::gpuKernelForTool(t) != nullptr;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
         gpuTool) {
@@ -1614,25 +1577,13 @@ bool execVerb(Scene &scene,
     }
 
 #ifdef SBRUSH_GPU_DISPATCH
-    // GPU dispatch covers the local per-vertex brushes, with or without a bound
-    // brush texture (sampled in-shader to match the C++ bilinear). Tools not
-    // listed here fall back to the C++ executor below; the set must stay in
-    // sync with runBrushStrokeGPU's kernel switch.
+    // Same predicate as the single-dab verb above, except GRAB stays on the
+    // C++ executor here — deliberate: a grab-class dab re-bases from the
+    // stroke-start snapshot, and this verb's multi-origin path would stack
+    // the GPU dabs instead.
     brush::SculptBrushes t = scene.currentTool;
-    bool gpuTool = t == brush::SculptBrushes::DRAW ||
-                   t == brush::SculptBrushes::TEXDRAW ||
-                   t == brush::SculptBrushes::CLAY ||
-                   t == brush::SculptBrushes::INFLATE ||
-                   t == brush::SculptBrushes::PINCH ||
-                   t == brush::SculptBrushes::SHARP ||
-                   t == brush::SculptBrushes::MASK ||
-                   t == brush::SculptBrushes::SMOOTH ||
-                   t == brush::SculptBrushes::KELVINLET ||
-                   t == brush::SculptBrushes::POSE ||
-                   t == brush::SculptBrushes::COLOR ||
-                   t == brush::SculptBrushes::POLYGROUP ||
-                   t == brush::SculptBrushes::BSMOOTH ||
-                   t == brush::SculptBrushes::TEXGRAD;
+    bool gpuTool = brush::gpuKernelForTool(t) != nullptr &&
+                   t != brush::SculptBrushes::GRAB;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
         gpuTool) {

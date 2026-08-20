@@ -3,6 +3,7 @@
 #include "scene.h"
 
 #include "brush/brush_executor.h"
+#include "brush/brushes/all.h"
 #include "mesh/utils/triangulate.h"
 #include "vulkan/vk_context.h"
 #include "vulkan/vk_swapchain.h"
@@ -155,27 +156,17 @@ void Ui::drawPanel()
 
   ImGui::Separator();
 
-  /* Brush type — combo index maps 1:1 to SculptBrushes enum order. */
-  static const brush::SculptBrushes kTools[] = {
-      brush::SculptBrushes::DRAW,      brush::SculptBrushes::INFLATE,
-      brush::SculptBrushes::CLAY,      brush::SculptBrushes::PINCH,
-      brush::SculptBrushes::SHARP,     brush::SculptBrushes::MASK,
-      brush::SculptBrushes::SMOOTH,    brush::SculptBrushes::KELVINLET,
-      brush::SculptBrushes::POSE,      brush::SculptBrushes::TEXDRAW,
-  };
-  static const char *kToolNames[] = {"Draw",  "Inflate",   "Clay", "Pinch",
-                                     "Sharp", "Mask",      "Smooth",
-                                     "Kelvinlet", "Pose",  "TexDraw"};
-  int toolIdx = 0;
-  for (int i = 0; i < int(sizeof(kTools) / sizeof(kTools[0])); i++) {
-    if (kTools[i] == scene_->currentTool) {
-      toolIdx = i;
-      break;
-    }
+  /* Brush type — the full built-in roster from the generated name table
+   * (builtin_brushes.gen.h), combo index = enum id, so a new .sbrush @tool
+   * appears with no edit. The GPU/CPU split is not filtered here: the
+   * backend fallback picks per stroke, and the C++ executor runs them all. */
+  int toolIdx = int(scene_->currentTool);
+  if (toolIdx < 0 || toolIdx >= brush::builtinBrushCount) {
+    toolIdx = 0;
   }
-  if (ImGui::Combo("tool", &toolIdx, kToolNames,
-                   int(sizeof(kToolNames) / sizeof(kToolNames[0])))) {
-    scene_->currentTool = kTools[toolIdx];
+  if (ImGui::Combo("tool", &toolIdx, brush::kBuiltinBrushNames,
+                   brush::builtinBrushCount)) {
+    scene_->currentTool = brush::SculptBrushes(toolIdx);
   }
 
   /* Backend — WGSL drives the real Vulkan compute path, only available when
