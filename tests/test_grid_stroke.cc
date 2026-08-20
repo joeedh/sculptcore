@@ -121,7 +121,9 @@ static constexpr int kLevel = 3;
  * capability this domain lacks rather than for being itself -- so the count
  * below is the ledger P5 leaves behind: 20 of 23 run grids-native. Entries may
  * flip to supported as those capabilities land; nothing here should ever flip
- * the other direction. */
+ * the other direction. The table is the session-free answer: LAYERDRAW's
+ * decline is conditional, and flips under a live sculpt-layer edit target
+ * (asserted at the end of gateGridsRoster). */
 struct RosterGolden {
   SculptBrushes tool;
   bool supported;
@@ -243,6 +245,29 @@ static void gateGridsRoster()
   }
   /* The ledger P5 leaves behind: everything but the three named decliners. */
   TASSERT(native == SculptBrushesBuiltinCount - 3);
+
+  /* Under a live sculpt-layer edit target the LAYERDRAW decline flips -- the
+   * write has a channel to land in (LD1) -- while FEATURE_ALIGN and ENHANCE
+   * still decline: two decliners, the `- 2` ledger. */
+  {
+    Mesh *cage = createCube(2, 1.0f);
+    Multires mr;
+    mr.init(*cage, 1);
+    mr.setActiveLevel(1);
+    int li = mr.layerAdd();
+    TASSERT(li >= 0);
+    TASSERT(mr.setEditTarget(li) == li);
+    subdiv::MultiresAttrs &attrs = mr.gridAttrs();
+    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::LAYERDRAW, &attrs));
+    int decliners = 0;
+    for (const RosterGolden &g : golden) {
+      if (!g.supported && !GridBrushExecutor::supportsBrush(g.tool, &attrs)) {
+        decliners++;
+      }
+    }
+    TASSERT(decliners == 2);
+    alloc::Delete(cage);
+  }
 }
 
 /* Smooth per-vert displacement field (mirrors test_grid_domain.cc). */
@@ -1034,6 +1059,68 @@ int main()
     fprintf(stderr, "layerdraw recomposite: off %.2e on %.2e\n", offDiff, onDiff);
     TASSERT(offDiff < 1e-5f);
     TASSERT(onDiff < 1e-5f);
+  }
+
+  /* LAYERDRAW A/B (LD2): dab-for-dab parity, mesh path vs grids path, both
+   * sides configured -- the mr edit target for stroke-end attribution, and a
+   * "slayer" settings row + column on the slot mesh so the mesh executor's
+   * LayerEditScope bracket folds (it is inert without one). */
+  {
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    restoreStore(mr, s0);
+    int li = mr.layerAdd();
+    TASSERT(li >= 0);
+    TASSERT(mr.setEditTarget(li) == li);
+    int lch = mr.writebackChannel();
+    TASSERT(lch > 0);
+    const std::string s1 = storeBlob(mr.store);
+
+    // Fresh slot: "slayer" is unique there, so the settings row and the
+    // kernel's manifest binding resolve to the same attr.
+    MultiresSlot *slot = mr.setActiveLevel(kLevel);
+    TASSERT(slot && slot->mesh);
+    TASSERT(slot->mesh->findSculptLayer(string("slayer")) < 0);
+    TASSERT(slot->mesh->addSculptLayerNamed("slayer") >= 0);
+    Vector<float3> posA;
+    meshStroke(mr, brush, SculptBrushes::LAYERDRAW, dabs, posA);
+    std::string blobA = storeBlob(mr.store);
+
+    restoreStore(mr, s1);
+    Vector<float3> posB;
+    gridsStroke(mr, brush, SculptBrushes::LAYERDRAW, dabs, posB);
+
+    TASSERT(posA.size() == posB.size());
+    float diff = maxPosDiff(posA, posB);
+    fprintf(stderr, "A/B layerdraw: max pos diff %.8f\n", diff);
+    TASSERT(diff <= 1e-6f);
+
+    // Both channels: ch0 must agree (neither path may leak the delta into
+    // base displacement) and the layer channel holds the same residual.
+    {
+      subdiv::GridsStore tmp;
+      std::stringstream ss(blobA, std::ios::in | std::ios::out | std::ios::binary);
+      TASSERT(tmp.read(ss));
+      int S = subdiv::GridsStore::sideForLevel(kLevel), w = S + 1;
+      float maxd = 0.0f;
+      for (int ch : {0, lch}) {
+        for (int g = 0; g < mr.store.gridCount(); g++) {
+          for (int v = 0; v < w; v++) {
+            for (int u = 0; u < w; u++) {
+              const float *da = tmp.elem(kLevel, ch, g, u, v);
+              const float *db = mr.store.elem(kLevel, ch, g, u, v);
+              for (int k = 0; k < 3; k++) {
+                float dd = std::fabs(da[k] - db[k]);
+                maxd = dd > maxd ? dd : maxd;
+              }
+            }
+          }
+        }
+      }
+      fprintf(stderr, "A/B layerdraw store: max disp diff %.8f\n", maxd);
+      TASSERT(maxd <= 1e-6f);
+    }
+    mr.setEditTarget(-1);
   }
 
   /* Grab (anchored, from-orig) functional gate: moves verts, undoes clean. */
