@@ -278,6 +278,9 @@ bool GridsStore::restrictChannelDown(int channel, int level)
   // per-coord side table. Every replica of a coord sees the same mate set and
   // therefore lands on the same value -- the C0 seam invariant is restored by
   // construction, not by a fixup afterwards.
+  // Deliberate deviation: an on-seam tap is counted once per incident grid, so
+  // a two-grid seam's centre weight normalizes to 1/3 rather than 1/4. Mildly
+  // seam-biased; constants are still fixed points, so it cannot overshoot.
   Vector<float> bacc, bwt;
   Vector<GridCoord> mates;
   for (int g = 0; g < gridCount_; g++) {

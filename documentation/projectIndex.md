@@ -106,6 +106,49 @@ embedding host has to a multires-domain attribute: enumerate/describe/ensure a
 channel and read or write one level a grid range at a time. `buildFromCage` is
 unconditionally destructive and is the store's LOAD boundary, so a host restores
 through that same `Ensure` + `Write` pair.
+`grid_attrs.cc/.h` — `MultiresAttrs` (`Multires::gridAttrs()`), the grid domain's
+*non-displacement* half: per-level derived sample layers for UV / colour / face
+sets (ptex-bilinear on point attributes, Catmull-Clark face-varying on UV maps,
+keyed on the host's `uv_smooth`), plus the storage-class table
+`storageFor(name, type, flags)` — `Temp` (TEMP scratch), `Host` (the host
+declared it through `declareHostAttr`; Blender declares only the scalar "mask")
+or `Derived` (a cache re-subdivided from the cage, which a brush may not
+author). `brush/grid_attr_bind.h::gridAttrPlan` enforces that: a writable
+`Derived` attribute is `Unbindable`, so the kernel takes the mesh path and each
+dab writes the cage through `Multires::scatterVertFloat4ToCage` /
+`scatterFaceIntToCage`. Freshness is two stamps — `generation()` for any derived
+rebuild, `cageGeneration()`/`noteCageEdit()` for a write-back that reconciled
+only its own level; `materialize()` re-derives a resident slot whose
+`derivedGen` is behind. Attribute down-propagation is its own operator:
+`GridsStore::restrictChannelDown` (9-point full weighting, the prolongation's
+transpose) spent by `Multires::propagateAttrsDown` against per-(channel, level)
+debt (`LevelData::downPending` / `noteAttrEdit`), distinct from
+`restrictLevelToBelow`'s lossless injection on a dropped level. Test:
+`test_multires_attrs`.
+`grid_domain.cc/.h` — `GridLevelDomain`, the grids-native editable view of one
+level: positions ARE the chain cache's `LevelPos::pos`, edited in place, with
+dense normals / mask / lattice 1-ring CSR sidecars and no replica stitching
+(boundary verts exist exactly once in the dense-id layout; only the store
+exchange sees replicas). Owned by `Multires::gridDomain` and dropped whenever
+the level's chain entry resets or a mesh-path edit folds into the store.
+`grid_tree.cc/.h` — `GridTree` over that domain: leaves are clusters of WHOLE
+grids, built once per level (multires topology never changes, so no splits or
+merges ever), every level vert owned by exactly one leaf; sphere queries are a
+flat scan of leaf AABBs and `castRay` walks candidate cells as split bilinear
+quads, returning `spatial::CastRayIsect`'s hit shape. `grid_stroke_log.cc/.h`
+— `GridStrokeLog`, CCG-style block undo for that path: the first dab to touch a
+leaf snapshots its owned-vert pre-positions plus the write target's store
+blocks, and undo/redo *swap* them back, so both directions restore bit-exact
+from one snapshot. `grid_draw_source.cc/.h` — the extdraw v3 provider fed
+straight from the domain (per-node shared pos/no/mask streams plus a static
+index stream, partitioned into cell ROWS of whole grids so node ids are stable
+for the level's lifetime; `SC_GRIDS_INDEXED=0` restores the de-indexed soup),
+which is what lets the materialized slot go lazy; c-api
+`c-api/grid_draw_c_api.cc`. `multires_tuning.cc/.h` — the three acceleration
+granularities (`gridLeafVertTarget`, `drawNodeTriTarget`, `slot*`) derived from
+a level's own size rather than fixed constants, env-overridable, with
+`SC_MR_AUTOTUNE=0` as the pre-autotune A/B baseline. `bindings.cc/.h` — the
+module's binding registration.
 Stencil rows evaluate as an fma chain (std::fma), bit-shared with the S5 GPU
 SpMV (`source/webgpu/wgpu_stencil.{h,cc}`). Displacement plan S1–S5; see
 `documentation/plans/displacementAndSubSurf.md`.
@@ -139,6 +182,17 @@ See `documentation/meshlog.md` for a detailed overview.
 
 Core: `brush.cc/.h` (Brush state + props), `brush_command.cc/.h` (`CommandCtxBase`, `CommandCtx<TYPES>`, falloff), `brush_executor.cc/.h` (`CommandExecutor`: builds + dispatches commands, owns `MeshLog` pointer), `brush_iterators.h` (`BasicVertexIter`, `PtrHelper`), `brush_concepts.h` (C++20 concepts pinning the command ABI).
 Brushes: `brushes/types.h` (`SculptBrushes` enum), `brushes/tools.txt` (the item names in id order — the id authority codegen reads), `brushes/generated/` (generated id→factory dispatch + `Binder` item list), `brushes/all.h`, `brushes/draw.h`.
+Grids-native: `grid_executor.h` (`GridBrushExecutor` — the same generated
+kernels run against a multires `GridLevelDomain` instead of a `mesh::Mesh`:
+GridTree leaves as the spatial unit, the domain's dense pos/normal/mask buffers
+and lattice CSR, `GridStrokeLog` block capture instead of the meshlog, and
+`endStep` folding through `Multires::gridsWriteback` over the touched region.
+No dyntopo, no meshlog, no attr overrides, and no tool roster —
+`supportsBrush(brushType, attrs)` derives from each kernel's def),
+`grid_attr_bind.h` (`gridAttrPlan`: the storage-class rule that decides whether
+a kernel's attr layer binds to grid elements or sends the brush down the mesh
+path to write the cage; plus the per-dab cage write-back plumbing). C API:
+`c-api/grid_stroke_c_api.cc`. Test: `tests/test_grid_stroke.cc`.
 Textures: `texture_program.cc/.h` (runtime `.stex` compile — tcc CPU JIT via `texture_jit.cc/.h`, WGSL stroke-begin splice for the wgpu dispatcher), `texture_registry.cc/.h` (precompiled `.stex` unit table), `host_sampler.cc/.h` (host/builtin sampler registry; builtin `vnoise`).
 Compiler: `compiler/` (`sbrushc_core` static lib + thin CLI — the sbrush/`.stex` parser and every backend emitter; host tool at build time, linked into the engine for runtime texture compilation).
 Bindings: `bindings.cc/.h`.

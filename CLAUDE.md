@@ -325,7 +325,21 @@ through to the extras registry, so adding a brush edits no host conditional.
 independent transcription; `tests/test_brush.cc` pins the `{name → id}` table.
 At runtime
 `CommandExecutor::execBrush` walks `SpatialNode`s and runs the compiled
-kernel through a vertex-iterator factory. Codegen is
+kernel through a vertex-iterator factory.
+
+**There is a second executor.** `brush/grid_executor.h`'s `GridBrushExecutor`
+runs the *same* generated kernels against a multires `GridLevelDomain` instead
+of a materialized `mesh::Mesh`: the spatial unit is a `GridTree` leaf,
+positions/normals/mask are the domain's dense buffers, neighbours come from its
+lattice CSR, and undo capture is `GridStrokeLog` block snapshots rather than the
+meshlog. It is deliberately *not* a generalization of `CommandExecutor` — no
+dyntopo, no meshlog, no attr overrides, no preview machinery — and it holds no
+tool roster: `supportsBrush(brushType, attrs)` is derived from each kernel's own
+def, declining only for a capability the domain lacks (an attr layer with no
+grid storage, see § *Attributes on the grid domain*). Stroke shape is
+`beginStep()` → `applyDab()*` → `endStep()`, where `endStep` folds into the store
+through `Multires::gridsWriteback` restricted to the touched verts' occurrence
+grids — O(region), not O(level). Gate: `test_grid_stroke`. Codegen is
 `node make.mjs codegen`; cross-backend correctness is gated by
 `sbrush-validate` (per-backend compile) and `sbrush-verify` (C++ vs GPU
 A/B, bit-for-bit modulo fp). Five docs cover it:
@@ -474,6 +488,60 @@ for the base+frames phase at 1 M verts / level 4).
 (`vdm_bake`, `vdm_promote`, `vdm_splat`) still decode against the provider's
 `FRAME_*_ATTR`. Capture must convert — or the VDM path must adopt the lattice
 frame — before it is wired to a host. Nothing outside the c-api reaches it today.
+
+### Attributes on the grid domain
+
+`subdiv/grid_attrs.{h,cc}` (`MultiresAttrs`, reached as `Multires::gridAttrs()`)
+owns everything on the grid domain that is *not* displacement: per-grid-sample
+layers for UV, colour and face sets, ptex-bilinear for point attributes and
+Catmull-Clark face-varying for UV maps, keyed on the host's `uv_smooth`.
+
+**Where a write may land is a storage class, never a tool list.**
+`storageFor(name, type, flags)` answers with one of three:
+
+- `Temp` — `AttrFlag::TEMP` scratch the host never stores, so a kernel may
+  always author it per grid element.
+- `Host` — the host declared it through `declareHostAttr` (c-api
+  `Multires_declareHostGridAttr`), so it persists per grid element and a kernel
+  may author it. Blender declares exactly one: the scalar `mask`.
+- `Derived` — everything else. An engine-owned *cache*, re-subdivided from the
+  cage attribute, and a brush may not author a cache.
+
+`brush/grid_attr_bind.h::gridAttrPlan` is the single enforcement point: a
+writable `Derived` attribute is `Unbindable`, so that kernel takes the mesh path
+and each dab writes the **cage** (`Multires::scatterVertFloat4ToCage` /
+`scatterFaceIntToCage`), which re-derives the grids it touched from what the
+cage now holds. On a Blender host that is colour and face sets. Capability is
+the host's to declare, not the user's to toggle — a session switch that could
+override the storage class existed briefly and was deleted once the class was
+made to decide first.
+
+Two staleness stamps keep the derived layers honest. `generation()` covers any
+derived rebuild; `cageGeneration()` is bumped by `noteCageEdit()` when a cage
+write-back has reconciled *its own* level and left every other level's copy
+behind. `Multires::materialize` compares it against the slot's `derivedGen` and
+re-derives a resident slot on the way in — lazily on purpose: one whole-level
+re-derive per level switch, versus one per dab for levels nobody is looking at.
+
+**Down-propagation is a different operator from the level transition.**
+`GridsStore::restrictChannelDown` is 9-point full weighting (the transpose of
+the prolongation), spent one step at a time by `Multires::propagateAttrsDown`
+against per-(channel, level) debt (`LevelData::downPending`, set by
+`noteAttrEdit`, settled in `setActiveLevel` alongside the positional
+`propagateDown`). `restrictLevelToBelow`'s injection is the lossless left
+inverse used when a level is *dropped*, and the two must not be confused: full
+weighting re-run on a level that owes nothing would smooth the user's own coarse
+edits away, which is why the debt flag gates it. One documented deviation: an
+on-seam *tap* is counted once per incident grid, so on a two-grid seam the
+centre weight comes out 1/3 rather than 1/4. Normalization absorbs it
+(constants stay fixed points), but the filter is mildly seam-biased and that is
+a choice, not an accident.
+
+Gates: `test_multires_attrs` (including `gateResidentSlotFreshness` and the
+down-propagation gate) and `test_grid_stroke`. The embedding addon's headless
+gates — `verify_multires_color`, `verify_multires_face_sets`,
+`verify_grid_channels`, `verify_multires_uv_parity` — cover the same rules from
+the host side.
 
 ## Quad remeshing
 
