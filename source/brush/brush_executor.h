@@ -4,6 +4,7 @@
 #include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
 #include "brush_iterators.h"
+#include "brush_hooks.h"
 #include "brush_program.h"
 #include "capture_policy.h"
 #include "enhance.h"
@@ -1451,9 +1452,11 @@ struct CommandExecutor {
     // already in the target state, so this is cheap to re-check every dab).
     // Note: this is the C++ executor path only; the GPU dispatch in gpu_stroke
     // has its own neighbor handling and is unaffected.
+    const BrushHooks *hooks = brushHooksFor(brushType);
+    BrushHookCtx hookCtx{*this, m, nodes, brush, isFirstOfStep};
     if (nodes->size() > 0) {
-      if (brushType == SculptBrushes::BSMOOTH && isFirstOfStep) {
-        refreshBoundaryClassForBSmooth(m);
+      if (hooks && hooks->stepPreFreeze && isFirstOfStep) {
+        hooks->stepPreFreeze(hookCtx);
       }
       if (brushNeedsLiveLinks(brushType) || keepTopoThawed) {
         if (m->topo_frozen) {
@@ -1464,21 +1467,11 @@ struct CommandExecutor {
       }
     }
 
-    // Enhance-details pre-pass (single-tool path; mirrors the execProgram block):
-    // fill the cached per-vertex difference-of-smooths displacement over the dab
-    // region before the ENHANCE kernel reads .brush.enhance.disp. Topology is live
-    // here (brushNeedsLiveLinks(ENHANCE)).
-    if (brushType == SculptBrushes::ENHANCE && nodes->size() > 0) {
-      Vector<int> regionVerts;
-      for (spatial::SpatialNode *node : *nodes) {
-        for (int v : node->data->unique_verts) {
-          regionVerts.append(v);
-        }
-      }
-      EnhanceParams ep;
-      ep.rings = brush->enhance_rings;
-      ep.inner = brush->enhance_inner;
-      updateEnhanceRegion(*m, regionVerts, ep, strokeGen);
+    // Per-dab host pre-passes (brush_hooks.cc): ENHANCE's region fill and
+    // FEATURE_ALIGN's cross-field update — the latter previously ran only on
+    // the execProgram path. Topology is live for both (brushNeedsLiveLinks).
+    if (hooks && hooks->dabPre && nodes->size() > 0) {
+      hooks->dabPre(hookCtx);
     }
 
     // Resolve common props with device dynamics applied (a bit-identical no-op
@@ -1506,8 +1499,37 @@ struct CommandExecutor {
     exec(cmd, nodeSpan);
     curCaptureSlot = -1;
 
-    if (brushType == SculptBrushes::POLYGROUP) {
-      markPolygroupDirty(nodeSpan);
+    if (hooks && hooks->dabPost) {
+      hooks->dabPost(hookCtx);
+    }
+  }
+
+  /** Run one hook phase over a program's commands, once per distinct hook fn
+   * (BSMOOTH and FEATURE_ALIGN share the boundary-class refresh, which must
+   * not run twice for a program listing both). */
+  void runProgramHooks(BrushProgram *prog,
+                       BrushHookFn BrushHooks::*phase,
+                       BrushHookCtx &hc)
+  {
+    BrushHookFn seen[8] = {};
+    int nseen = 0;
+    for (auto &entry : prog->commands) {
+      const BrushHooks *hooks = brushHooksFor(entry.type);
+      BrushHookFn fn = hooks ? hooks->*phase : nullptr;
+      if (!fn) {
+        continue;
+      }
+      bool dup = false;
+      for (int i = 0; i < nseen; i++) {
+        dup = dup || seen[i] == fn;
+      }
+      if (dup) {
+        continue;
+      }
+      if (nseen < 8) {
+        seen[nseen++] = fn;
+      }
+      fn(hc);
     }
   }
 
@@ -1558,20 +1580,16 @@ struct CommandExecutor {
     // which is harmless for the link-agnostic commands.
     if (nodes->size() > 0) {
       bool needsLive = false;
-      bool hasBSmooth = false;
       for (auto &entry : prog->commands) {
         if (brushNeedsLiveLinks(entry.type))
           needsLive = true;
-        // BSMOOTH and FEATURE_ALIGN both read the lazily-derived
-        // `.boundary.vert.class`, so it must be refreshed at stroke start.
-        if (entry.type == SculptBrushes::BSMOOTH ||
-            entry.type == SculptBrushes::FEATURE_ALIGN)
-          hasBSmooth = true;
       }
       mesh::Mesh *m = (*nodes)[0]->data->m;
-      // Must precede the freeze below — recomputeDirty needs live links.
-      if (hasBSmooth && isFirstOfStep) {
-        refreshBoundaryClassForBSmooth(m);
+      // Stroke-start hooks (e.g. the boundary-class refresh) must precede the
+      // freeze below — they need live links.
+      if (isFirstOfStep) {
+        BrushHookCtx hookCtx{*this, m, nodes, brush, isFirstOfStep};
+        runProgramHooks(prog, &BrushHooks::stepPreFreeze, hookCtx);
       }
       // Cavity automasking's BFS blur reads the ring1 CSR. Build it here, while
       // topology links are live, before the per-dab freeze drops them: thaw a
@@ -1592,55 +1610,12 @@ struct CommandExecutor {
       }
     }
 
-    // Feature-align cross-field maintenance: before the FEATURE_ALIGN command
-    // runs, (re)seed + diffuse the per-vertex cross field over this dab's region
-    // so the kernel reads an up-to-date field. Topology is live here
-    // (brushNeedsLiveLinks(FEATURE_ALIGN)). Incremental — only the region's
-    // verts are written, so the saved field grows as the stroke covers the mesh.
+    // Per-dab host pre-passes (brush_hooks.cc), once per dab rather than per
+    // sub-command: ENHANCE's region fill, FEATURE_ALIGN's cross-field update.
+    // Topology is live for these tools (brushNeedsLiveLinks).
     if (nodes->size() > 0) {
-      bool hasFeatureAlign = false;
-      for (auto &entry : prog->commands) {
-        if (entry.type == SculptBrushes::FEATURE_ALIGN) {
-          hasFeatureAlign = true;
-          break;
-        }
-      }
-      if (hasFeatureAlign) {
-        Vector<int> regionVerts;
-        for (spatial::SpatialNode *node : *nodes) {
-          for (int v : node->data->unique_verts) {
-            regionVerts.append(v);
-          }
-        }
-        FeatureFieldParams ffParams;
-        updateCrossFieldRegion(*(*nodes)[0]->data->m, regionVerts, ffParams);
-      }
-    }
-
-    // Enhance-details pre-pass: fill the per-vertex difference-of-smooths
-    // displacement (.brush.enhance.disp) over the dab region before the ENHANCE
-    // kernel reads it. Cached per stroke (keyed by strokeGen); topology is live
-    // here (brushNeedsLiveLinks(ENHANCE)).
-    if (nodes->size() > 0) {
-      bool hasEnhance = false;
-      for (auto &entry : prog->commands) {
-        if (entry.type == SculptBrushes::ENHANCE) {
-          hasEnhance = true;
-          break;
-        }
-      }
-      if (hasEnhance) {
-        Vector<int> regionVerts;
-        for (spatial::SpatialNode *node : *nodes) {
-          for (int v : node->data->unique_verts) {
-            regionVerts.append(v);
-          }
-        }
-        EnhanceParams ep;
-        ep.rings = brush->enhance_rings;
-        ep.inner = brush->enhance_inner;
-        updateEnhanceRegion(*(*nodes)[0]->data->m, regionVerts, ep, strokeGen);
-      }
+      BrushHookCtx hookCtx{*this, (*nodes)[0]->data->m, nodes, brush, isFirstOfStep};
+      runProgramHooks(prog, &BrushHooks::dabPre, hookCtx);
     }
 
     // Stroke tangent + oriented-Box axis for this dab (Route A). Must run before
@@ -1700,8 +1675,12 @@ struct CommandExecutor {
                                                    entry.attrLayerOverrides.size()));
       curCaptureSlot = -1;
 
-      if (entry.type == SculptBrushes::POLYGROUP) {
-        markPolygroupDirty(nodeSpan);
+      if (const BrushHooks *hooks = brushHooksFor(entry.type);
+          hooks && hooks->dabPost) {
+        BrushHookCtx hookCtx{
+            *this, nodes->size() ? (*nodes)[0]->data->m : nullptr, nodes, brush,
+            isFirstOfStep};
+        hooks->dabPost(hookCtx);
       }
 
       // Roll the base props back (saved under the resolved prop name).

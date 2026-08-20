@@ -48,6 +48,8 @@ set(SRC
   PUBLIC host_sampler.h
   host_sampler.cc
   brush_command.cc
+  PUBLIC brush_hooks.h
+  brush_hooks.cc
   brush_executor.h
   brush_executor.cc
   brush.cc

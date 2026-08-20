@@ -136,6 +136,9 @@ void packCtxUniforms(const Brush &brush, SculptBrushes tool, const float3 &origi
   }
 
   // Global-brush ctx tail (offset 96): kelvinlet grab vectors or pose cage.
+  // Deliberate per-tool residue (the hook-table sweep's one keep): the ctx
+  // tail below packs grab-mode stroke state per tool, staying hand-written
+  // until a DSL uniform block covers ctx-stage state.
   if (tool == SculptBrushes::KELVINLET) {
     for (int i = 0; i < 3; i++) {
       out.global.kelvinlet.grabFrom[i] = brush.grabFrom[i];
