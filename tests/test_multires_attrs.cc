@@ -1076,6 +1076,89 @@ static void gateChannelCapi()
  * seeded upward. The same argument is why the debt is per channel and not per
  * level: a mask edit at level 3 must not drag an untouched colour layer through
  * the filter. */
+/* A cage write-back at one level leaves every OTHER resident level's derived
+ * copy behind: materialize() hands back a slot it found without re-deriving,
+ * so a slot built before the paint still carries pre-paint colour. That is not
+ * just a display gap -- scatterVertFloat4ToCage READS the level mesh, so
+ * painting on a stale slot writes stale colour back onto the cage and reverts
+ * the finer level's paint. */
+static void gateResidentSlotFreshness()
+{
+  Mesh *cage = makeGrid(2);
+  {
+    AttrRef &ref = cage->v.attrs.ensure(AttrType::FLOAT4, "color", /*materialize=*/true);
+    ref.use = AttrUse::COLOR;
+    auto *d = ref.get_data<float4>();
+    for (int v : cage->v) {
+      (*d)[v] = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+  }
+  Multires mr;
+  mr.init(*cage, 3);
+
+  /* Level 2 is visited first, so its slot predates the paint. */
+  subdiv::MultiresSlot *coarse = mr.setActiveLevel(2);
+  test_assert(coarse && coarse->mesh);
+  subdiv::MultiresSlot *fine = mr.setActiveLevel(3);
+  test_assert(fine && fine->mesh);
+  if (!coarse || !fine || !coarse->mesh || !fine->mesh) {
+    alloc::Delete(cage);
+    return;
+  }
+
+  Vector<int> gridVert;
+  test_assert(mr.gridCageVerts(gridVert));
+  const int movedCageVert = gridVert.size() > 0 ? gridVert[0] : -1;
+  test_assert(movedCageVert >= 0);
+
+  /* Paint grid 0's corner sample at level 3 and push it onto the cage. */
+  const float4 painted(0.25f, 0.5f, 0.75f, 1.0f);
+  {
+    const subdiv::SubdivLevel &lvl = mr.refiner.levels[3 - 1];
+    const int w = lvl.gridSide + 1;
+    auto *fcol = fine->mesh->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    test_assert(fcol != nullptr);
+    if (!fcol) {
+      alloc::Delete(cage);
+      return;
+    }
+    (*fcol)[lvl.gridVerts[0 * w * w]] = painted;
+  }
+  Vector<int> touched;
+  test_assert(mr.scatterVertFloat4ToCage(3, "color", nullptr, 0, touched) > 0);
+  {
+    auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    test_assert(cageCol && sameColor((*cageCol)[movedCageVert], painted));
+  }
+
+  /* Back to the level that was resident all along. Its mesh is what the mesh
+   * path reads and what the next scatter would push onto the cage, so it has
+   * to carry the paint -- not the white it was derived with. */
+  subdiv::MultiresSlot *again = mr.setActiveLevel(2);
+  test_assert(again == coarse); /* still resident: the staleness window */
+  {
+    const subdiv::SubdivLevel &lvl = mr.refiner.levels[2 - 1];
+    const int w = lvl.gridSide + 1;
+    auto *ccol = again->mesh->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    test_assert(ccol != nullptr);
+    if (ccol) {
+      test_assert(sameColor((*ccol)[lvl.gridVerts[0 * w * w]], painted));
+    }
+  }
+
+  /* And the round trip does not revert the cage: scattering the untouched
+   * coarse level writes back what it now holds, which agrees. */
+  Vector<int> tg2;
+  mr.scatterVertFloat4ToCage(2, "color", nullptr, 0, tg2);
+  {
+    auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    test_assert(cageCol && sameColor((*cageCol)[movedCageVert], painted));
+  }
+
+  printf("resident slot freshness: coarse level followed the cage write-back\n");
+  alloc::Delete(cage);
+}
+
 static void gateAttrDownPropagation()
 {
   using subdiv::GridElemDomain;
@@ -1208,6 +1291,7 @@ int main(int argc, char **argv)
   gateCageVertScatter();
   gateSubFaceDabCollapse();
   gateChannelCapi();
+  gateResidentSlotFreshness();
   gateAttrDownPropagation();
 
   return test_end();

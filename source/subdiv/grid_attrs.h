@@ -223,6 +223,25 @@ struct MultiresAttrs {
     return generation_;
   }
 
+  /** Bumped whenever the CAGE's attribute values change -- an invalidation, or
+   * a write-back that just moved cage elements (Multires::scatterVertFloat4ToCage
+   * and its face twin). Distinct from #generation, which the write-backs
+   * deliberately leave alone so the draw source refills only the grids they
+   * name: this one exists for consumers that hold a whole-level derived COPY
+   * and cannot be refreshed grid by grid -- the resident level slots, whose
+   * meshes Multires::materialize re-derives when they fall behind. */
+  uint64_t cageGeneration() const
+  {
+    return cageGen_;
+  }
+
+  /** Report a cage-element write the caller has already reconciled at its own
+   * level. Every other level's derived copy is now behind. */
+  void noteCageEdit()
+  {
+    cageGen_++;
+  }
+
   /** The fvar linear rule for UV subdivision (see #UvSmooth). Setting it
    * invalidates every UV layer. */
   void setUvSmooth(UvSmooth mode);
@@ -268,6 +287,7 @@ private:
   bool fsetSamplesValid_ = false;
   UvSmooth uvSmooth_ = UvSmooth::PreserveBoundaries;
   uint64_t generation_ = 1;
+  uint64_t cageGen_ = 1;
 };
 
 /** The name of the cage's active UV map (first FLOAT2 corner layer tagged

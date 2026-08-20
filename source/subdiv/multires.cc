@@ -384,7 +384,27 @@ int Multires::scatterFaceIntToCage(int level,
       gridAttrs_.refreshFaceSetSampleColors(level, r_grids.data(), int(r_grids.size()));
     }
   }
+  noteCageAttrEdit(level, changed != 0);
   return changed;
+}
+
+/** Book-keeping shared by the two cage write-backs: the cage changed, so every
+ * derived copy of it is behind -- except this level's, which the caller has
+ * just reconciled grid by grid. Only a slot that was current before the write
+ * is carried forward; one already behind stays behind and re-derives on its
+ * next materialize. */
+void Multires::noteCageAttrEdit(int level, bool changed)
+{
+  if (!changed) {
+    return;
+  }
+  const uint64_t prev = gridAttrs_.cageGeneration();
+  gridAttrs_.noteCageEdit();
+  if (MultiresSlot *s = findSlot(level)) {
+    if (s->derivedGen == prev) {
+      s->derivedGen = gridAttrs_.cageGeneration();
+    }
+  }
 }
 
 bool Multires::gridCageVerts(Vector<int> &out)
@@ -605,6 +625,7 @@ int Multires::scatterVertFloat4ToCage(int level,
   // paint the cage cannot reproduce.
   gridAttrs_.refreshFromCage(level, util::string(name), r_grids.data(), int(r_grids.size()));
   stampSlotVertFloat4(level, name, r_grids.data(), int(r_grids.size()));
+  noteCageAttrEdit(level, changed != 0);
   return changed;
 }
 
@@ -1038,6 +1059,15 @@ MultiresSlot *Multires::materialize(int level)
 {
   if (MultiresSlot *s = findSlot(level)) {
     s->lastUse = ++useCounter_;
+    // A cage write-back reconciles its own level only, so a slot built before
+    // one carries pre-edit derived attributes. Re-derive on the way in rather
+    // than eagerly on every write-back: this runs on a level switch, and the
+    // alternative is a whole-level rebuild per dab for levels nobody is
+    // looking at.
+    if (s->mesh && s->derivedGen != gridAttrs_.cageGeneration()) {
+      assignDerivedAttrs(*s->mesh, level);
+      s->derivedGen = gridAttrs_.cageGeneration();
+    }
     return s;
   }
 
@@ -1083,6 +1113,8 @@ MultiresSlot *Multires::materialize(int level)
   s.mesh = m;
   s.tree = tree;
   s.lastUse = ++useCounter_;
+  // Just derived from the cage as it stands.
+  s.derivedGen = gridAttrs_.cageGeneration();
   slots_.append(s);
   // Built from the chain, which is store-current by construction.
   clearSlotStale(level);

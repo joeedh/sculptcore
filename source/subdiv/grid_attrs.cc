@@ -345,6 +345,7 @@ void MultiresAttrs::invalidate(const string &name)
   fsetValid_ = false;
   fsetSamplesValid_ = false;
   generation_++;
+  cageGen_++;
 }
 
 void MultiresAttrs::invalidateAll()
@@ -355,6 +356,7 @@ void MultiresAttrs::invalidateAll()
   fsetValid_ = false;
   fsetSamplesValid_ = false;
   generation_++;
+  cageGen_++;
 }
 
 GridAttrLayer *MultiresAttrs::findLayer(const string &name)

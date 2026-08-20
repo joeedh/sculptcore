@@ -57,6 +57,13 @@ struct MultiresSlot {
   mesh::Mesh *mesh = nullptr;
   spatial::SpatialTree *tree = nullptr;
   uint64_t lastUse = 0;
+  /** MultiresAttrs::cageGeneration this slot's derived attributes were built
+   * from. A cage write-back reconciles the level it ran on and no other, so a
+   * slot that outlives one is stale -- and a stale slot is not merely a display
+   * gap: the write-back READS the level mesh, so painting on one pushes
+   * pre-edit values back onto the cage and reverts the finer level's paint.
+   * Multires::materialize re-derives when this falls behind. */
+  uint64_t derivedGen = 0;
 };
 
 struct Multires {
@@ -356,6 +363,12 @@ struct Multires {
    * rather than a fit. A cage vert of valence n appears n times. False,
    * leaving `out` empty, when the walk disagrees with the refiner's count. */
   bool gridCageVerts(litestl::util::Vector<int> &out);
+
+  /** Record that a cage write-back at `level` changed cage elements: bumps
+   * MultiresAttrs::cageGeneration so the other levels' resident slots
+   * re-derive, and carries this level's slot forward (the caller reconciled
+   * it). No-op when nothing moved. */
+  void noteCageAttrEdit(int level, bool changed);
 
   /** Push a level's per-vertex FLOAT4 attribute back down onto the cage — the
    * vertex-domain twin of #scatterFaceIntToCage, and the only route home for
