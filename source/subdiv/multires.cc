@@ -252,7 +252,10 @@ bool Multires::gridCageFaces(Vector<int> &out)
   return true;
 }
 
-int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_grids)
+int Multires::scatterFaceIntToCage(int level,
+                                   const char *name,
+                                   Vector<int> &r_grids,
+                                   GridScatterSource src)
 {
   r_grids.clear();
   if (!cage_ || level < 1 || level > maxLevel()) {
@@ -261,15 +264,18 @@ int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_g
   const int S = refiner.levels[level - 1].gridSide;
   const int cells = S * S, gridCount = refiner.gridCount();
 
-  // Two possible sources of per-cell values, and the store wins: a
+  // Two possible sources of per-cell values. Auto takes the store: a
   // grids-native face stroke writes a Face-domain authored channel and never
   // materializes a slot mesh, so a slot-only read would see nothing at all.
-  int ch = store.findChannel(util::string(name));
+  int ch = src == GridScatterSource::Slot ? -1 : store.findChannel(util::string(name));
   if (ch >= 0 && (!store.channelAuthored(ch) || store.channelElemSize(ch) != 1 ||
                   store.channelDomain(ch) != GridElemDomain::Face ||
                   !store.channelLevelAllocated(level, ch)))
   {
     ch = -1;
+  }
+  if (ch < 0 && src == GridScatterSource::Store) {
+    return 0; // asked for the store, which has nothing for this level
   }
   mesh::Mesh *slotMesh = nullptr;
   if (ch >= 0) {
@@ -408,7 +414,7 @@ bool Multires::gridCageVerts(Vector<int> &out)
   return true;
 }
 
-int Multires::scatterVertFloat4ToCage(int level, const char *name)
+int Multires::scatterVertFloat4ToCage(int level, const char *name, GridScatterSource src)
 {
   if (!cage_ || level < 1 || level > maxLevel()) {
     return 0;
@@ -416,14 +422,18 @@ int Multires::scatterVertFloat4ToCage(int level, const char *name)
   const int S = refiner.levels[level - 1].gridSide, w = S + 1;
   const int gridCount = refiner.gridCount();
 
-  // Same two sources as the face twin, and the store wins for the same reason:
-  // a grids-native stroke writes the channel and materializes no level mesh.
-  int ch = store.findChannel(util::string(name));
+  // Same two sources as the face twin, and Auto takes the store for the same
+  // reason: a grids-native stroke writes the channel and materializes no
+  // level mesh.
+  int ch = src == GridScatterSource::Slot ? -1 : store.findChannel(util::string(name));
   if (ch >= 0 && (!store.channelAuthored(ch) || store.channelElemSize(ch) != 4 ||
                   store.channelDomain(ch) != GridElemDomain::Vertex ||
                   !store.channelLevelAllocated(level, ch)))
   {
     ch = -1;
+  }
+  if (ch < 0 && src == GridScatterSource::Store) {
+    return 0; // asked for the store, which has nothing for this level
   }
   mesh::Mesh *slotMesh = nullptr;
   if (ch >= 0) {

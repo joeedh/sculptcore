@@ -528,14 +528,19 @@ void Multires_syncSlotAttrs(subdiv::Multires *mr, int level)
  * cage (Multires::scatterFaceIntToCage — the return route for a mesh-path
  * face-set edit on multires) and tell both draw paths what moved: the grids
  * source refills only the touched grids, and the slot's tree re-uploads.
- * Returns the number of cage faces changed. */
-int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *name)
+ * Returns the number of cage faces changed.
+ *
+ * `source` is subdiv::GridScatterSource (0 auto, 1 store, 2 slot): the host
+ * knows which route wrote last and neither source goes stale on its own, so
+ * guessing here is only safe for a session that never switched routes. */
+int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *name, int source)
 {
   if (!mr || !name || !name[0]) {
     return 0;
   }
   litestl::util::Vector<int> touched;
-  const int changed = mr->scatterFaceIntToCage(level, name, touched);
+  const int changed = mr->scatterFaceIntToCage(level, name, touched,
+                                               subdiv::GridScatterSource(source));
   if (!changed) {
     return 0;
   }
@@ -561,13 +566,18 @@ int Multires_scatterFaceIntToCage(subdiv::Multires *mr, int level, const char *n
  * what the derived draw samples are BUILT from, so re-deriving it would
  * replace the full-resolution paint on screen with its cage-resolution
  * restriction. The store channel (or the slot column) stays the display
- * truth until the session ends. */
-int Multires_scatterVertFloat4ToCage(subdiv::Multires *mr, int level, const char *name)
+ * truth until the session ends.
+ *
+ * `source` is subdiv::GridScatterSource, as for the face twin. Passing Slot is
+ * what a mesh-path colour stroke needs whenever a grids-native one ever bound
+ * this layer at this level: the channel it left behind stays allocated, and
+ * under Auto it shadows the slot column the mesh path is writing. */
+int Multires_scatterVertFloat4ToCage(subdiv::Multires *mr, int level, const char *name, int source)
 {
   if (!mr || !name || !name[0]) {
     return 0;
   }
-  return mr->scatterVertFloat4ToCage(level, name);
+  return mr->scatterVertFloat4ToCage(level, name, subdiv::GridScatterSource(source));
 }
 
 /** The cage's "no face set" group id (mesh::Mesh::default_group_id) — the

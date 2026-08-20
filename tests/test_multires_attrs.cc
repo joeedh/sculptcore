@@ -764,6 +764,41 @@ static void gateCageVertScatter()
     }
   }
 
+  /* Both sources live at once, and they disagree: the channel a grids-native
+   * stroke bound stays allocated after the session switches routes, so the
+   * mesh-path dab that follows lands on the slot column with the store still
+   * holding the old paint. Auto reads the store and sees nothing -- which is
+   * why the source is the caller's to name. */
+  const float4 D(0.125f, 0.875f, 0.375f, 1.0f);
+  {
+    AttrRef &ref = m.v.attrs.ensure(AttrType::FLOAT4, "col", /*materialize=*/true);
+    auto *d = ref.get_data<float4>();
+    for (int v : m.v) {
+      (*d)[v] = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+    /* Through every occurrence of the vert, the way a dab leaves it. */
+    for (int g = 0; g < grids; g++) {
+      const int vert = gridVert[g];
+      const float t = float(vert + 1) / 16.0f;
+      (*d)[lvl.gridVerts[g * w * w]] = vert == gridVert[0] ?
+                                           D :
+                                           float4(t, 1.0f - t, 0.5f, 1.0f);
+    }
+  }
+  test_assert(mr.scatterVertFloat4ToCage(level, "col", subdiv::GridScatterSource::Auto) == 0);
+  test_assert(mr.scatterVertFloat4ToCage(level, "col", subdiv::GridScatterSource::Slot) == 1);
+  test_assert(sameColor((*cdata)[gridVert[0]], D));
+  /* And naming the store puts the grids-native paint back, so neither source
+   * is privileged -- the caller decides which one is the newer writer. */
+  test_assert(mr.scatterVertFloat4ToCage(level, "col", subdiv::GridScatterSource::Store) == 1);
+  {
+    const float t = float(gridVert[0] + 1) / 16.0f;
+    test_assert(sameColor((*cdata)[gridVert[0]], float4(t, 1.0f - t, 0.5f, 1.0f)));
+  }
+  /* Naming a source that has nothing is a refusal, not a fallback to the
+   * other: "slotcol" is slot-only, "col" store-only on a level with no slot. */
+  test_assert(mr.scatterVertFloat4ToCage(level, "slotcol", subdiv::GridScatterSource::Store) == 0);
+
   /* Refusals leave no half-built cage layer behind. */
   test_assert(mr.scatterVertFloat4ToCage(level, "nope") == 0);
   test_assert(!cage->v.attrs.has(AttrType::FLOAT4, "nope"));
