@@ -3,6 +3,7 @@
 #include "automask.h"
 #include "brush/brush.h"
 #include "brush/brush_executor.h"
+#include "brush/brushes/generated/builtin_brushes.gen.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/utils/triangulate.h"
@@ -89,18 +90,6 @@ const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool)
   return nullptr;
 }
 
-void applyGpuHostClamps(SculptBrushes tool, Brush &brush)
-{
-  // Kelvinlet's host stage (clampParams) is C++-only — never lowered to a GPU
-  // backend — so replicate it before mu/nu are marshaled (mirrors
-  // kelvinlet.sbrush).
-  if (tool == SculptBrushes::KELVINLET) {
-    if (brush.nu > 0.499f) brush.nu = 0.499f;
-    if (brush.nu < 0.0f) brush.nu = 0.0f;
-    if (brush.mu < 1e-6f) brush.mu = 1e-6f;
-  }
-}
-
 void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
                        ComputeBrushUniforms &out)
 {
@@ -124,53 +113,14 @@ void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
   out.stroke_path_count = uint32_t(brush.strokePathCount);
   out.nonaccum = (nonaccum && info && info->accumulable) ? 1u : 0u;
 
-  // POLYGROUP's `activeGroup` is the first appended DSL uniform, at offset 72 —
-  // the slot the host struct gives kelvinlet's `mu`. Mutually exclusive
-  // brushes, so the i32 bits are written into the f32 `mu` as a
-  // bit-reinterpret (WGSL reads `activeGroup` as i32). FRAGILE: only works
-  // while `mu` is the first post-fixed field — the static_assert pins that. If
-  // another DSL-uniform brush is added, give it its own named slot instead.
-  static_assert(offsetof(ComputeBrushUniforms, mu) == 72,
-                "polygroup activeGroup aliases the first appended DSL uniform "
-                "slot (offset 72); update this if the layout changes");
-  switch (tool) {
-  case SculptBrushes::POLYGROUP: {
-    int ag = brush.activeGroup;
-    std::memcpy(&out.mu, &ag, sizeof(int));
-    break;
-  }
-  case SculptBrushes::KELVINLET:
-    applyGpuHostClamps(tool, brush);
-    out.mu = brush.mu;
-    out.nu = brush.nu;
-    // @unbounded cutoff — must match what the host used to size filterRadius,
-    // or the GPU field is still live at the region boundary.
-    out.unbounded_extent = brush.unboundedExtent;
-    break;
-  case SculptBrushes::PINCH:
-  case SculptBrushes::SHARP:
-    // The `@static` `pinch` uniform is the first appended DSL slot (offset 72,
-    // aliasing mu). Without this the kernel reads mu's 1.0 default.
-    out.pinch = brush.pinch;
-    break;
-  case SculptBrushes::CLAY:
-  case SculptBrushes::SCRAPE:
-  case SculptBrushes::FILL:
-    out.planeoff = brush.planeoff;
-    out.planeSide = brush.planeSide;
-    break;
-  case SculptBrushes::COLOR:
-    for (int i = 0; i < 4; i++) {
-      out.brushColor[i] = brush.brushColor[i];
-    }
-    // `mixMode` follows brushColor in color.sbrush's uniform block (offset
-    // 96); unpacked it reads the buffer's zero-init, i.e. always MIX.
-    static_assert(offsetof(ComputeBrushUniforms, mixMode) == 96,
-                  "color mixMode follows the brushColor vec4 at offset 96");
-    out.mixMode = brush.mixMode;
-    break;
-  default:
-    break;
+  // Appended DSL uniforms (offset 72+, plus @unbounded's prelude slot): the
+  // kernel's generated pack fn writes them at the offsets its WGSL block
+  // implies — one source of truth in sbrushc, so a declared-but-unmarshaled
+  // uniform (the mixMode / bsmooth-projection bug class) cannot recur. It also
+  // applies the DSL @range clamps that mirror CPU-only host-stage clamps
+  // (kelvinlet clampParams).
+  if (command::BrushGpuPackFn pack = command::builtinBrushGpuPack(int(tool))) {
+    pack(brush, reinterpret_cast<unsigned char *>(&out));
   }
 }
 

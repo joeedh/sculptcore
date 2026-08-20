@@ -1763,6 +1763,130 @@ struct Emit {
     write("}\n\n");
   }
 
+  /** GPU appended-uniform marshal for this kernel: writes each non-builtin
+   * DSL uniform into the ComputeBrushUniforms byte region after the 72-byte
+   * fixed prelude, at the offset the WGSL uniform address space gives it
+   * (scalars align 4, float3/float4 align 16 -- the layout the emitted WGSL
+   * BrushUniforms block gets implicitly). Emitted for every kernel so the
+   * registry can build a total dispatch; kernels that append nothing get an
+   * empty body. @range clamps apply here -- they mirror the kernel's CPU-side
+   * host-stage clamps (e.g. kelvinlet clampParams), which never lower to a
+   * GPU backend. */
+  void emitGpuPack(const string &camelName)
+  {
+    // emit_wgsl.cc's isBuiltinBrushName: names bound to fixed prelude slots,
+    // never appended, so they must not consume appended offsets here either.
+    auto isBuiltinBrushName = [](const char *n) {
+      return std::strcmp(n, "strength") == 0 || std::strcmp(n, "radius") == 0 ||
+             std::strcmp(n, "spacing") == 0 || std::strcmp(n, "invert") == 0 ||
+             std::strcmp(n, "falloff_kind") == 0 ||
+             std::strcmp(n, "falloff_shape") == 0 ||
+             std::strcmp(n, "falloff_dir") == 0 ||
+             std::strcmp(n, "falloff_extent") == 0 ||
+             std::strcmp(n, "unbounded_extent") == 0 ||
+             std::strcmp(n, "coord_space") == 0 ||
+             std::strcmp(n, "tex_repeat") == 0 ||
+             std::strcmp(n, "stroke_path_count") == 0;
+    };
+    write("/** Marshal this kernel's appended DSL uniforms (offset 72+) into a\n");
+    write(" * ComputeBrushUniforms buffer; offsets mirror the kernel's WGSL\n");
+    write(" * BrushUniforms block. Called via builtinBrushGpuPack from\n");
+    write(" * packBrushUniforms (gpu_marshal.cc). */\n");
+    write("inline void pack");
+    write(camelName);
+    write("GpuUniforms(sculptcore::brush::Brush &brush, unsigned char *out)\n");
+    write("{\n");
+    write("  (void)brush;\n");
+    write("  (void)out;\n");
+    if (brush->isUnbounded) {
+      write("  // @unbounded cutoff radius rides its fixed prelude slot (offset 44).\n");
+      write("  std::memcpy(out + 44, &brush.unboundedExtent, 4);\n");
+    }
+    int off = 72;
+    for (const auto &f : brush->fields) {
+      if (f.kind != FieldKind::Uniform)
+        continue;
+      if (isBuiltinBrushName(f.name.c_str()))
+        continue;
+      int align = 4, size = 4;
+      switch (f.type) {
+      case TypeKind::Float:
+      case TypeKind::Int:
+        break;
+      case TypeKind::Float2:
+        align = size = 8;
+        break;
+      case TypeKind::Float3:
+        align = 16;
+        size = 12;
+        break;
+      case TypeKind::Float4:
+        align = size = 16;
+        break;
+      default:
+        errf("GPU uniform marshal: unsupported type for uniform '%s'",
+             f.name.c_str());
+        return;
+      }
+      off = (off + align - 1) & ~(align - 1);
+      if (off + size > 112) {
+        errf("appended DSL uniforms overflow ComputeBrushUniforms (112 bytes) "
+             "at '%s'",
+             f.name.c_str());
+        return;
+      }
+      char loc[64];
+      std::snprintf(loc, sizeof(loc), "out + %d", off);
+      if (extrasMode && fieldUsesStore(f)) {
+        write("  {\n    float v = brush.getNamedFloat(kExtraSlot_");
+        write(f.name);
+        write(");\n");
+        if (f.hasRange) {
+          write("    v = v < ");
+          write(floatLit(f.rangeMin));
+          write(" ? ");
+          write(floatLit(f.rangeMin));
+          write(" : (v > ");
+          write(floatLit(f.rangeMax));
+          write(" ? ");
+          write(floatLit(f.rangeMax));
+          write(" : v);\n");
+        }
+        write("    std::memcpy(");
+        write(loc);
+        write(", &v, 4);\n  }\n");
+      }
+      else if (f.hasRange && f.type == TypeKind::Float) {
+        write("  {\n    float v = brush.");
+        write(f.name);
+        write(";\n    v = v < ");
+        write(floatLit(f.rangeMin));
+        write(" ? ");
+        write(floatLit(f.rangeMin));
+        write(" : (v > ");
+        write(floatLit(f.rangeMax));
+        write(" ? ");
+        write(floatLit(f.rangeMax));
+        write(" : v);\n    std::memcpy(");
+        write(loc);
+        write(", &v, 4);\n  }\n");
+      }
+      else {
+        char sz[16];
+        std::snprintf(sz, sizeof(sz), "%d", size);
+        write("  std::memcpy(");
+        write(loc);
+        write(", &brush.");
+        write(f.name);
+        write(", ");
+        write(sz);
+        write(");\n");
+      }
+      off += size;
+    }
+    write("}\n\n");
+  }
+
   void run()
   {
     string lowerName =
@@ -1779,6 +1903,7 @@ struct Emit {
     write(brush->sourceFile);
     write("\n");
     write("#pragma once\n");
+    write("#include <cstring>\n");
     write("#include \"brush/brush_command.h\"\n");
     write("#include \"brush/capture_policy.h\"\n");
     write("#include \"spatial/spatial_enums.h\"\n");
@@ -2271,6 +2396,8 @@ struct Emit {
     }
     write("  };\n");
     write("}\n\n");
+
+    emitGpuPack(camelName);
 
     write("} // namespace sculptcore::brush::command\n");
   }

@@ -429,6 +429,26 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
   }
   h += "  default:\n    return false;\n  }\n";
   h += "}\n\n";
+
+  h += "/** Dispatch a built-in brush id to its kernel's generated GPU\n";
+  h += " * appended-uniform marshal (pack<Kernel>GpuUniforms). Total over the\n";
+  h += " * built-in ids -- kernels that append nothing have an empty pack fn --\n";
+  h += " * and null past them, so gpu_marshal's caller needs no roster. */\n";
+  h += "using BrushGpuPackFn = void (*)(sculptcore::brush::Brush &, unsigned char *);\n";
+  h += "inline BrushGpuPackFn builtinBrushGpuPack(int id)\n";
+  h += "{\n";
+  h += "  switch (id) {\n";
+  for (int u : used) {
+    const BuiltinEntry &e = kernels[u];
+    for (int i = 0; i < (int)toolIds.size(); i++) {
+      if (owner[i] == u) {
+        h += string("  case ") + itoa(i) + ": // " + toolIds[i] + "\n";
+      }
+    }
+    h += string("    return pack") + capCopy(e.stem) + "GpuUniforms;\n";
+  }
+  h += "  default:\n    return nullptr;\n  }\n";
+  h += "}\n\n";
   h += "} // namespace sculptcore::brush::command\n";
 
   return r;
