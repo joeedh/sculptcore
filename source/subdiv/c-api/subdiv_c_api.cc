@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -167,6 +168,48 @@ int Multires_writeDomainMask(subdiv::Multires *mr, int level, const float *value
   d->flushMaskToStore();
   if (subdiv::GridDrawSource *ds = mr->drawSource()) {
     ds->markAllData();
+  }
+  return count;
+}
+
+/** Edit-flavored mask write: land `values` on `verts` of `level`'s domain and
+ * flush them as a user edit — the prolonged delta reaches every finer level,
+ * the level below takes down-propagation debt, and the touched grids are
+ * re-marked for draw. Multires_writeDomainMask above stays the propagation-free
+ * whole-domain SEED; mask ops (flood fill, filters, gestures) come through
+ * here instead. Returns `count`, or 0 on any invalid vert. */
+int Multires_editDomainMask(
+    subdiv::Multires *mr, int level, const int *verts, const float *values, int count)
+{
+  if (!mr || !verts || !values || count < 1 || level < 1 || level > mr->maxLevel()) {
+    return 0;
+  }
+  subdiv::GridLevelDomain *d = mr->gridDomain(level);
+  for (int i = 0; i < count; i++) {
+    if (verts[i] < 0 || verts[i] >= d->vertCount()) {
+      return 0;
+    }
+  }
+  d->ensureMaskChannel();
+  for (int i = 0; i < count; i++) {
+    d->mask[verts[i]] = values[i];
+  }
+  d->flushMaskToStore(std::span<const int>(verts, size_t(count)));
+  if (subdiv::GridDrawSource *ds = mr->drawSource()) {
+    litestl::util::Vector<uint8_t> seen;
+    seen.resize(d->gridCount());
+    std::memset(seen.data(), 0, size_t(d->gridCount()));
+    litestl::util::Vector<int> grids;
+    for (int i = 0; i < count; i++) {
+      auto occs = d->occurrences(verts[i]);
+      for (size_t j = 0; j < occs.size(); j += 3) {
+        if (!seen[occs[j]]) {
+          seen[occs[j]] = 1;
+          grids.append(occs[j]);
+        }
+      }
+    }
+    ds->markGrids(std::span<const int>(grids.data(), grids.size()));
   }
   return count;
 }

@@ -224,6 +224,13 @@ struct Multires {
     return level >= 1 && level <= int(domains_.size()) && domains_[level - 1] != nullptr;
   }
 
+  /** Re-mirror the "mask" store channel into every alive domain finer than
+   * `aboveLevel` — the read-side of an edit's upward prolongation
+   * (GridsStore::prolongateChannelEditUp). Domains at or below `aboveLevel`
+   * are untouched: the edited level's own mirror is the write's source, and
+   * coarser levels move later, through down-propagation debt. */
+  void refreshFinerMaskMirrors(int aboveLevel);
+
   /** Monotonic domain lifecycle counter: bumped on every domain build and
    * every drop. Consumers that cache a `GridLevelDomain *` MUST compare this,
    * not the pointer — a drop + rebuild routinely reuses the same allocation

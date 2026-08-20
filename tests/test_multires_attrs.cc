@@ -20,6 +20,7 @@
 #include "mesh/mesh_iter.h"
 #include "subdiv/c-api/grid_channel_c_api.h"
 #include "subdiv/grid_attrs.h"
+#include "subdiv/grid_domain.h"
 #include "mesh/mesh_proxy.h"
 #include "subdiv/multires.h"
 #include "subdiv/subdiv.h"
@@ -1272,6 +1273,197 @@ static void gateAttrDownPropagation()
   alloc::Delete(cage);
 }
 
+/* Independent transcription of the seed 4-tap, run per grid on dense lattices
+ * (delta fields here) so the edit gate is not a snapshot of the code under
+ * test. */
+static void prolongRef(const Vector<float> &coarse, int wc, Vector<float> &fine, int wf)
+{
+  fine.resize(size_t(wf) * wf);
+  for (int v = 0; v < wf; v++) {
+    for (int u = 0; u < wf; u++) {
+      const int cu = u >> 1, cv = v >> 1, du = u & 1, dv = v & 1;
+      fine[size_t(v) * wf + u] = 0.25f * (coarse[size_t(cv) * wc + cu] +
+                                          coarse[size_t(cv) * wc + cu + du] +
+                                          coarse[size_t(cv + dv) * wc + cu] +
+                                          coarse[size_t(cv + dv) * wc + cu + du]);
+    }
+  }
+}
+
+/* MK1 (grids-native completion): the mask edit contract. A whole-domain flush
+ * is a SEED and reaches no other level; a touched-verts flush is an EDIT whose
+ * delta prolongates into every finer level (added onto authored detail, alive
+ * finer domains re-mirrored) while the level below takes down-debt. Plus the
+ * add/drop round trip and the seed-on-unallocated-finer branch. */
+static void gateMaskEditPropagation()
+{
+  using subdiv::GridElemDomain;
+  using subdiv::GridLevelDomain;
+
+  Mesh *cage = makeGrid(2);
+  Multires mr;
+  mr.init(*cage, 3);
+  auto &st = mr.store;
+  const int grids = st.gridCount();
+  const int w2 = subdiv::GridsStore::elemWidth(2, GridElemDomain::Vertex);
+  const int w3 = subdiv::GridsStore::elemWidth(3, GridElemDomain::Vertex);
+
+  /* Author fine-lattice detail at the top via the seed flush. */
+  GridLevelDomain *d3 = mr.gridDomain(3);
+  for (int v = 0; v < d3->vertCount(); v++) {
+    d3->mask[v] = 0.05f * float(v % 7);
+  }
+  d3->flushMaskToStore();
+  const int ch = st.findChannel(util::string(GridLevelDomain::kMaskChannelName));
+  test_assert(ch >= 0);
+  /* A seed reaches no other level and owes nothing. */
+  test_assert(!st.channelLevelAllocated(2, ch));
+  test_assert(!st.anyChannelLevelDebt(3) && !st.anyChannelLevelDebt(2));
+
+  Vector<float> top0;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        top0.append(*st.elem(3, ch, g, u, v));
+      }
+    }
+  }
+
+  /* Edit every slot of grid 0 at level 2 through the edit path. */
+  GridLevelDomain *d2 = mr.gridDomain(2);
+  const uint64_t gen = mr.domainGeneration();
+  Vector<int> edited;
+  const int *gv = d2->gridVerts(0);
+  for (int i = 0; i < w2 * w2; i++) {
+    edited.append(gv[i]);
+  }
+  for (int i = 0; i < int(edited.size()); i++) {
+    d2->mask[edited[i]] = 0.4f + 0.02f * float(i);
+  }
+  d2->flushMaskToStore(std::span<const int>(edited.data(), edited.size()));
+  test_assert(mr.domainGeneration() == gen); /* neither domain was rebuilt */
+  test_assert(st.channelLevelDebt(2, ch));
+
+  /* Reference: dense level-2 delta per grid (level 2 held zeros, so the delta
+   * is the new value, landed on every seam replica), prolonged one step. */
+  Vector<float> delta2;
+  delta2.resize(size_t(grids) * w2 * w2);
+  for (int i = 0; i < int(delta2.size()); i++) {
+    delta2[i] = 0.0f;
+  }
+  for (int i = 0; i < int(edited.size()); i++) {
+    auto occs = d2->occurrences(edited[i]);
+    for (size_t j = 0; j < occs.size(); j += 3) {
+      delta2[(size_t(occs[j]) * w2 + occs[j + 2]) * w2 + occs[j + 1]] = d2->mask[edited[i]];
+    }
+  }
+  Vector<float> gslice, fine;
+  gslice.resize(size_t(w2) * w2);
+  int bad = 0, moved = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int i = 0; i < w2 * w2; i++) {
+      gslice[i] = delta2[size_t(g) * w2 * w2 + i];
+    }
+    prolongRef(gslice, w2, fine, w3);
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        const float expect = top0[(size_t(g) * w3 + v) * w3 + u] + fine[size_t(v) * w3 + u];
+        const float got = *st.elem(3, ch, g, u, v);
+        bad += std::fabs(got - expect) > 1e-6f ? 1 : 0;
+        moved += fine[size_t(v) * w3 + u] != 0.0f ? 1 : 0;
+      }
+    }
+  }
+  test_assert(bad == 0);   /* detail + prolonged delta, everywhere */
+  test_assert(moved > 0);  /* the edit actually reached the top */
+
+  /* The alive finer domain re-mirrored the store. */
+  int mirrorBad = 0;
+  for (int v = 0; v < d3->vertCount(); v++) {
+    auto occs = d3->occurrences(v);
+    mirrorBad += d3->mask[v] != *st.elem(3, ch, occs[0], occs[1], occs[2]) ? 1 : 0;
+  }
+  test_assert(mirrorBad == 0);
+
+  /* A later SEED at level 2 still reaches no other level and notes nothing. */
+  st.setChannelLevelDebt(2, ch, false);
+  Vector<float> top1;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        top1.append(*st.elem(3, ch, g, u, v));
+      }
+    }
+  }
+  for (int v = 0; v < d2->vertCount(); v++) {
+    d2->mask[v] = 0.25f;
+  }
+  d2->flushMaskToStore();
+  int seedBad = 0, idx = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        seedBad += *st.elem(3, ch, g, u, v) != top1[idx++] ? 1 : 0;
+      }
+    }
+  }
+  test_assert(seedBad == 0);
+  test_assert(!st.channelLevelDebt(2, ch));
+
+  /* Add/drop round trip: the new top is prolonged on the way in, injected
+   * back on the way out — bit-identical at the level that survives. */
+  st.addLevel();
+  test_assert(st.channelLevelAllocated(4, ch));
+  st.dropTopLevel();
+  int rtBad = 0;
+  idx = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        rtBad += *st.elem(3, ch, g, u, v) != top1[idx++] ? 1 : 0;
+      }
+    }
+  }
+  test_assert(rtBad == 0);
+
+  /* An edit under a finer level nothing ever authored: the finer level seeds
+   * whole from the post-edit level below (its implicit zeros want exactly the
+   * prolongation), instead of keeping a delta-only ghost. */
+  Mesh *cage2 = makeGrid(2);
+  Multires m2;
+  m2.init(*cage2, 3);
+  auto &s2 = m2.store;
+  GridLevelDomain *e2 = m2.gridDomain(2);
+  Vector<int> ed2;
+  const int *gv2 = e2->gridVerts(1);
+  for (int i = 0; i < w2 * w2; i++) {
+    ed2.append(gv2[i]);
+  }
+  for (int i = 0; i < int(ed2.size()); i++) {
+    e2->mask[ed2[i]] = 0.1f + 0.03f * float(i);
+  }
+  e2->flushMaskToStore(std::span<const int>(ed2.data(), ed2.size()));
+  const int ch2 = s2.findChannel(util::string(GridLevelDomain::kMaskChannelName));
+  test_assert(ch2 >= 0 && s2.channelLevelAllocated(3, ch2));
+  int seed2Bad = 0;
+  for (int g = 0; g < grids; g++) {
+    for (int i = 0; i < w2 * w2; i++) {
+      gslice[i] = *s2.elem(2, ch2, g, i % w2, i / w2);
+    }
+    prolongRef(gslice, w2, fine, w3);
+    for (int v = 0; v < w3; v++) {
+      for (int u = 0; u < w3; u++) {
+        seed2Bad += std::fabs(*s2.elem(3, ch2, g, u, v) - fine[size_t(v) * w3 + u]) > 1e-6f ? 1 : 0;
+      }
+    }
+  }
+  test_assert(seed2Bad == 0);
+
+  printf("mask edit propagation: %d grids, %d fine samples moved\n", grids, moved);
+  alloc::Delete(cage);
+  alloc::Delete(cage2);
+}
+
 int main(int argc, char **argv)
 {
   (void)argc;
@@ -1293,6 +1485,7 @@ int main(int argc, char **argv)
   gateChannelCapi();
   gateResidentSlotFreshness();
   gateAttrDownPropagation();
+  gateMaskEditPropagation();
 
   return test_end();
 }

@@ -29,6 +29,9 @@ struct Multires;
 struct GridTree;
 
 struct GridLevelDomain {
+  /** The store channel the dense `mask` mirror binds to (Host-declared). */
+  static constexpr const char *kMaskChannelName = "mask";
+
   using float3 = litestl::math::float3;
   template <typename T> using Vector = litestl::util::Vector<T>;
 

@@ -80,6 +80,15 @@ GridLevelDomain *Multires::gridDomain(int level)
   return domains_[level - 1];
 }
 
+void Multires::refreshFinerMaskMirrors(int aboveLevel)
+{
+  for (int l = aboveLevel + 1; l <= int(domains_.size()); l++) {
+    if (domains_[l - 1]) {
+      domains_[l - 1]->syncMaskFromStore();
+    }
+  }
+}
+
 void Multires::init(mesh::Mesh &cage, int maxLevel)
 {
   dropDomains(0);

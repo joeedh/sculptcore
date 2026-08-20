@@ -47,6 +47,7 @@ wasm_add_symbols("
   Multires_tuningStats
   Multires_readDomainMask
   Multires_writeDomainMask
+  Multires_editDomainMask
   Multires_activeMesh
   Multires_activeTree
   Multires_levelSampleCount
