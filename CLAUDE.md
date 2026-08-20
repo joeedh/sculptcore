@@ -580,6 +580,12 @@ design, pipeline, and status of the quad-remesh module (`source/remesh/`).
 - Keep comments minimal; explain *why* only when non-obvious.
 - Path handling: use `litestl::path` utilities rather than ad-hoc string
   manipulation or raw `std::filesystem` in engine code.
+- **Pressure-test every plan after formulation.** Launch multiple adversarial
+  agents with fresh contexts (one lens each — per-workstream buildability,
+  semantics/correctness, cross-cutting seams and gates) whose brief is to
+  *kill* the plan against the actual code, then fold every surviving finding
+  back into the plan before any phase starts. A citation audit is not a
+  substitute: it verifies references, not buildability.
 
 ## Code Comments
 
