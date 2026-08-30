@@ -68,8 +68,8 @@ struct EnhanceScratch {
  * normal over the outer one. Requires `m->topo_cache.ring1` current. Returns 0
  * for degenerate neighborhoods.
  */
-inline float3 computeEnhanceDisp(mesh::Mesh *m, int v0, const EnhanceParams &p,
-                                 EnhanceScratch &scr)
+inline float3
+computeEnhanceDisp(mesh::Mesh *m, int v0, const EnhanceParams &p, EnhanceScratch &scr)
 {
   const mesh::VertNbrCSR &csr = m->topo_cache.ring1;
   if (int(csr.offsets.size()) <= v0 + 1) {
@@ -147,12 +147,15 @@ inline float3 computeEnhanceDisp(mesh::Mesh *m, int v0, const EnhanceParams &p,
  * Ensures the two TEMP attrs and the ring1 CSR. Call from the executor before
  * the ENHANCE kernel, while topology is live.
  */
-inline void updateEnhanceRegion(mesh::Mesh &m, const litestl::util::Vector<int> &verts,
-                                const EnhanceParams &params, uint32_t strokeGen)
+inline void updateEnhanceRegion(mesh::Mesh &m,
+                                const litestl::util::Vector<int> &verts,
+                                const EnhanceParams &params,
+                                uint32_t strokeGen)
 {
   m.topo_cache.ensureRing1(m);
 
-  mesh::AttrRef &dispRef = m.v.attrs.ensure(mesh::AttrType::FLOAT3, ENHANCE_DISP_ATTR, false);
+  mesh::AttrRef &dispRef =
+      m.v.attrs.ensure(mesh::AttrType::FLOAT3, ENHANCE_DISP_ATTR, false);
   dispRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
   mesh::AttrRef &genRef = m.v.attrs.ensure(mesh::AttrType::INT, ENHANCE_GEN_ATTR, false);
   genRef.flag |= mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;

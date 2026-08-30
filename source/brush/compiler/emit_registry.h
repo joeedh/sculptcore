@@ -1,6 +1,6 @@
 #pragma once
 
-#include "emit_cpp.h"  // EmitResult
+#include "emit_cpp.h" // EmitResult
 #include "ir.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"

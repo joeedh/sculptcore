@@ -28,13 +28,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                          \
-  do {                                                                         \
-    if (!(expr)) {                                                             \
-      retval = 1;                                                              \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);        \
-      fflush(stderr);                                                          \
-    }                                                                          \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -48,10 +48,16 @@ void reportT0(const char *name, const RemeshReport &r)
   fprintf(stderr,
           "[%s] comp=%d loops=%d interior=%d irr=%d reg=%.4f maxCompIrr=%d "
           "areaR=%.4f edgeR=%.4f minAng=%.4f\n",
-          name, r.component_count, r.boundary_loop_count, r.interior_vert_count,
-          r.irregular_interior_verts, r.regular_interior_frac,
-          r.max_component_irregular, r.max_adjacent_area_ratio,
-          r.max_adjacent_edge_ratio, r.min_interior_angle);
+          name,
+          r.component_count,
+          r.boundary_loop_count,
+          r.interior_vert_count,
+          r.irregular_interior_verts,
+          r.regular_interior_frac,
+          r.max_component_irregular,
+          r.max_adjacent_area_ratio,
+          r.max_adjacent_edge_ratio,
+          r.min_interior_angle);
 }
 
 // Two unit quads separated along +X (disjoint => two face-components, two
@@ -110,7 +116,7 @@ void testGridMetrics()
   TASSERT(r.irregular_interior_verts == 0);
   TASSERT(r.regular_interior_frac == 1.0f);
   TASSERT(r.max_component_irregular == 0);
-  TASSERT(r.max_adjacent_area_ratio < 1.001f);   // uniform cells
+  TASSERT(r.max_adjacent_area_ratio < 1.001f); // uniform cells
   TASSERT(r.max_adjacent_edge_ratio < 1.001f);
   TASSERT(std::fabs(r.min_interior_angle - 1.5708f) < 0.01f); // 90deg corners
   TASSERT(r.parametrization_folds == -1); // unset (no parametrization)
@@ -175,8 +181,11 @@ void testBoundaryDeviation()
   Mesh *test = makeGrid(5, 5, 1.0f);
 
   BoundaryDeviation bd = boundaryDeviation(*ref, *test);
-  fprintf(stderr, "[bnd-dev/identical] refE=%d testV=%d mean=%g max=%g\n",
-          bd.ref_boundary_edges, bd.test_boundary_verts, bd.mean_dist,
+  fprintf(stderr,
+          "[bnd-dev/identical] refE=%d testV=%d mean=%g max=%g\n",
+          bd.ref_boundary_edges,
+          bd.test_boundary_verts,
+          bd.mean_dist,
           bd.max_dist);
   TASSERT(bd.ref_boundary_edges == 16);
   TASSERT(bd.test_boundary_verts == 16);
@@ -199,8 +208,7 @@ void testBoundaryDeviation()
     test->v.co[rim] = co;
   }
   bd = boundaryDeviation(*ref, *test);
-  fprintf(stderr, "[bnd-dev/perturbed] mean=%g max=%g\n", bd.mean_dist,
-          bd.max_dist);
+  fprintf(stderr, "[bnd-dev/perturbed] mean=%g max=%g\n", bd.mean_dist, bd.max_dist);
   TASSERT(std::fabs(bd.max_dist - 0.25f) < 1e-5f);
   TASSERT(std::fabs(bd.mean_dist - 0.25f / 16.0f) < 1e-5f);
 

@@ -20,37 +20,50 @@ namespace {
 const char *wgslType(TypeKind k)
 {
   switch (k) {
-  case TypeKind::Void: return "void";
-  case TypeKind::Bool: return "bool";
-  case TypeKind::Int: return "i32";
-  case TypeKind::Float: return "f32";
-  case TypeKind::Float2: return "vec2<f32>";
-  case TypeKind::Float3: return "vec3<f32>";
-  case TypeKind::Float4: return "vec4<f32>";
-  default: return "f32";
+  case TypeKind::Void:
+    return "void";
+  case TypeKind::Bool:
+    return "bool";
+  case TypeKind::Int:
+    return "i32";
+  case TypeKind::Float:
+    return "f32";
+  case TypeKind::Float2:
+    return "vec2<f32>";
+  case TypeKind::Float3:
+    return "vec3<f32>";
+  case TypeKind::Float4:
+    return "vec4<f32>";
+  default:
+    return "f32";
   }
 }
 
 bool hasNeighborLoop(const Stmt *s)
 {
-  if (!s) return false;
-  if (s->kind == StmtKind::NeighborLoop) return true;
+  if (!s)
+    return false;
+  if (s->kind == StmtKind::NeighborLoop)
+    return true;
   for (const auto &c : s->stmts) {
-    if (hasNeighborLoop(c.get())) return true;
+    if (hasNeighborLoop(c.get()))
+      return true;
   }
-  if (hasNeighborLoop(s->thenBranch.get())) return true;
-  if (hasNeighborLoop(s->elseBranch.get())) return true;
+  if (hasNeighborLoop(s->thenBranch.get()))
+    return true;
+  if (hasNeighborLoop(s->elseBranch.get()))
+    return true;
   return false;
 }
 
 struct Emit {
   const Brush *brush;
   const Stage *vertexStage = nullptr;
-  string vertexParamName;  // e.g. "v"
+  string vertexParamName; // e.g. "v"
   // Wave 1b: per-face GPU dispatch. A brush with a `face` stage and no vertex
   // stage (e.g. polygroup) emits a face kernel instead of the vertex kernel.
   const Stage *faceStage = nullptr;
-  string faceParamName;  // e.g. "f"
+  string faceParamName; // e.g. "f"
 
   // Stage currently being lowered — drives stage-param identifier
   // resolution (so reduce-body `s` and vertex-body `v` route correctly).
@@ -80,7 +93,7 @@ struct Emit {
   bool usesNeighbors = false;
   // Set when grad(expr, var) is used — emits the forward-mode dual prelude.
   bool gradUsed = false;
-  string gradVar;  // float3 var being differentiated, rendered
+  string gradVar; // float3 var being differentiated, rendered
   // True while emitting a texture EvalD body: float/float3 locals lower to
   // sbdual/sbdual3, dual contexts route through emitDual, and emitExpr
   // projects dual names back to `.v`.
@@ -98,7 +111,8 @@ struct Emit {
   const NbBinding *findNb(stringref name) const
   {
     for (int i = (int)nbStack.size() - 1; i >= 0; i--) {
-      if (string(nbStack[i].name).operator==(string(name.c_str()))) return &nbStack[i];
+      if (string(nbStack[i].name).operator==(string(name.c_str())))
+        return &nbStack[i];
     }
     return nullptr;
   }
@@ -109,14 +123,19 @@ struct Emit {
   string resolveVertIndex(const Expr &e)
   {
     if (e.kind == ExprKind::Ident) {
-      if (isVertexParam(stringref(e.name.c_str()))) return string("sb_vidx");
-      if (auto *nb = findNb(stringref(e.name.c_str()))) return nb->idxVar;
+      if (isVertexParam(stringref(e.name.c_str())))
+        return string("sb_vidx");
+      if (auto *nb = findNb(stringref(e.name.c_str())))
+        return nb->idxVar;
     }
     err("for_neighbor outer must be the vertex bundle or an enclosing neighbor");
     return string("sb_vidx");
   }
 
-  void err(const char *msg) { errors.append(string(msg)); }
+  void err(const char *msg)
+  {
+    errors.append(string(msg));
+  }
   void errf(const char *fmt, const char *arg)
   {
     char buf[256];
@@ -126,15 +145,23 @@ struct Emit {
 
   void writeIndent()
   {
-    for (int i = 0; i < indent; i++) out += "  ";
+    for (int i = 0; i < indent; i++)
+      out += "  ";
   }
-  void write(const char *s) { out += s; }
-  void write(const string &s) { out += s; }
+  void write(const char *s)
+  {
+    out += s;
+  }
+  void write(const string &s)
+  {
+    out += s;
+  }
 
   bool isLocal(stringref name) const
   {
     for (const auto &l : locals) {
-      if (string(l.name).operator==(string(name.c_str()))) return true;
+      if (string(l.name).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -142,7 +169,8 @@ struct Emit {
   bool isDualLocal(stringref name) const
   {
     for (const auto &l : locals) {
-      if (l.dual && string(l.name).operator==(string(name.c_str()))) return true;
+      if (l.dual && string(l.name).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -150,16 +178,19 @@ struct Emit {
   const Field *findField(stringref name) const
   {
     for (const auto &f : brush->fields) {
-      if (string(f.name).operator==(string(name.c_str()))) return &f;
+      if (string(f.name).operator==(string(name.c_str())))
+        return &f;
     }
     return nullptr;
   }
 
   bool isStageParam(stringref name) const
   {
-    if (!currentStage) return false;
+    if (!currentStage)
+      return false;
     for (const auto &p : currentStage->params) {
-      if (string(p.name).operator==(string(name.c_str()))) return true;
+      if (string(p.name).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -184,7 +215,8 @@ struct Emit {
   {
     for (const auto &t : brush->textures) {
       string full = t.name + ".eval";
-      if (string(full).operator==(string(callName.c_str()))) return &t;
+      if (string(full).operator==(string(callName.c_str())))
+        return &t;
     }
     return nullptr;
   }
@@ -213,9 +245,11 @@ struct Emit {
 
   const TexParam *findTexParam(stringref name) const
   {
-    if (!currentTexture) return nullptr;
+    if (!currentTexture)
+      return nullptr;
     for (const auto &tp : currentTexture->texParams) {
-      if (string(tp.name).operator==(string(name.c_str()))) return &tp;
+      if (string(tp.name).operator==(string(name.c_str())))
+        return &tp;
     }
     return nullptr;
   }
@@ -223,7 +257,8 @@ struct Emit {
   bool anyTextureUsesMap() const
   {
     for (const auto &t : brush->textures) {
-      if (t.usesMap) return true;
+      if (t.usesMap)
+        return true;
     }
     return false;
   }
@@ -234,7 +269,8 @@ struct Emit {
   const SamplerDecl *findSamplerDecl(const char *name) const
   {
     for (const auto &sd : brush->samplers) {
-      if (std::strcmp(sd.name.c_str(), name) == 0) return &sd;
+      if (std::strcmp(sd.name.c_str(), name) == 0)
+        return &sd;
     }
     return nullptr;
   }
@@ -248,10 +284,14 @@ struct Emit {
     std::snprintf(buf, sizeof(buf), "%.9g", double(float(v)));
     bool hasDot = false;
     for (const char *p = buf; *p; p++) {
-      if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+      if (*p == '.' || *p == 'e' || *p == 'E') {
+        hasDot = true;
+        break;
+      }
     }
     s += buf;
-    if (!hasDot) s += ".0";
+    if (!hasDot)
+      s += ".0";
   }
 
   // Reduce-stage out/inout params (struct or scalar) are lowered to WGSL
@@ -260,9 +300,11 @@ struct Emit {
   // becomes `(*w) = 1.0`.
   bool isOutPtrParam(stringref name) const
   {
-    if (!currentStage) return false;
+    if (!currentStage)
+      return false;
     for (const auto &p : currentStage->params) {
-      if (!string(p.name).operator==(string(name.c_str()))) continue;
+      if (!string(p.name).operator==(string(name.c_str())))
+        continue;
       return p.dir == ParamDir::Out || p.dir == ParamDir::InOut;
     }
     return false;
@@ -270,17 +312,22 @@ struct Emit {
 
   bool isVertexParam(stringref name) const
   {
-    if (!vertexStage) return false;
+    if (!vertexStage)
+      return false;
     // Only the first param of the vertex stage is the Vertex bundle; the
     // rest are struct-typed locals which share the regular ident path.
-    if (vertexStage->params.size() == 0) return false;
+    if (vertexStage->params.size() == 0)
+      return false;
     const auto &p = vertexStage->params[0];
     return string(p.name).operator==(string(name.c_str()));
   }
 
   // True when emitting a face kernel (a `face` stage, no vertex stage). Gates
   // the face binding layout + compute entry; the vertex path is untouched.
-  bool faceMode() const { return faceStage && !vertexStage; }
+  bool faceMode() const
+  {
+    return faceStage && !vertexStage;
+  }
 
   /** Whether this kernel derives its base from the accumulated displacement
    * field (binding 25) — the WGSL twin of CoProxy's from-base modes. Grab-class
@@ -301,10 +348,13 @@ struct Emit {
   void appendDisp(string &out, const string &idx) const
   {
     if (brush->isGrabMode) {
-      out += "sb_disp["; out += idx; out += "]";
+      out += "sb_disp[";
+      out += idx;
+      out += "]";
       return;
     }
-    out += "select(vec3<f32>(0.0), sb_disp["; out += idx;
+    out += "select(vec3<f32>(0.0), sb_disp[";
+    out += idx;
     out += "], brush_u.nonaccum != 0u)";
   }
 
@@ -312,7 +362,8 @@ struct Emit {
   // per-thread locals (f_center / f_no / f_group), mirroring the vertex param.
   bool isFaceParam(stringref name) const
   {
-    if (!faceStage || faceStage->params.size() == 0) return false;
+    if (!faceStage || faceStage->params.size() == 0)
+      return false;
     const auto &p = faceStage->params[0];
     return string(p.name).operator==(string(name.c_str()));
   }
@@ -327,10 +378,14 @@ struct Emit {
       std::snprintf(buf, sizeof(buf), "%.17g", e.fvalue);
       bool hasDot = false;
       for (const char *p = buf; *p; p++) {
-        if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+        if (*p == '.' || *p == 'e' || *p == 'E') {
+          hasDot = true;
+          break;
+        }
       }
       out += buf;
-      if (!hasDot) out += ".0";
+      if (!hasDot)
+        out += ".0";
       // No 'f' suffix — older WGSL didn't accept it, and untyped float
       // literals coerce fine in every position we emit.
       break;
@@ -395,12 +450,15 @@ struct Emit {
     case ExprKind::Member: {
       // Vertex-param member access (`v.co`, `v.no`, `v.mask`) targets
       // local mutable vars seeded from the per-thread storage loads.
-      if (e.lhs && e.lhs->kind == ExprKind::Ident && isVertexParam(stringref(e.lhs->name.c_str()))) {
+      if (e.lhs && e.lhs->kind == ExprKind::Ident &&
+          isVertexParam(stringref(e.lhs->name.c_str())))
+      {
         out += e.lhs->name;
         out += "_";
         out += e.name;
       } else if (e.lhs && e.lhs->kind == ExprKind::Ident &&
-                 isFaceParam(stringref(e.lhs->name.c_str()))) {
+                 isFaceParam(stringref(e.lhs->name.c_str())))
+      {
         // Face-param member (`f.center`, `f.no`, `f.group`, `f.f`) → the
         // per-thread locals seeded in the face kernel main (same scheme as the
         // vertex param). `f.f` (the face index) maps to its own local.
@@ -408,7 +466,8 @@ struct Emit {
         out += "_";
         out += e.name;
       } else if (e.lhs && e.lhs->kind == ExprKind::Ident &&
-                 findNb(stringref(e.lhs->name.c_str()))) {
+                 findNb(stringref(e.lhs->name.c_str())))
+      {
         // Neighbor-bundle member: read from the CSR-indexed buffers. co
         // comes from the pre-dab snapshot (Jacobi); no stays live.
         const NbBinding *nb = findNb(stringref(e.lhs->name.c_str()));
@@ -417,18 +476,25 @@ struct Emit {
           // OrigNbrBase::neighborCo: the Jacobi snapshot minus what the brush
           // put there (an untouched neighbor has disp == 0, so no fallback).
           if (wantsDisp()) {
-            out += "(co_prev["; out += nb->idxVar; out += "] - ";
+            out += "(co_prev[";
+            out += nb->idxVar;
+            out += "] - ";
             appendDisp(out, nb->idxVar);
             out += ")";
           } else {
-            out += "co_prev["; out += nb->idxVar; out += "]";
+            out += "co_prev[";
+            out += nb->idxVar;
+            out += "]";
           }
         } else if (std::strcmp(e.name.c_str(), "no") == 0) {
-          out += "no_buf["; out += nb->idxVar; out += "]";
+          out += "no_buf[";
+          out += nb->idxVar;
+          out += "]";
         } else if (std::strcmp(e.name.c_str(), "v") == 0) {
           out += nb->idxVar;
         } else if (const Field *af = findField(stringref(e.name.c_str()));
-                   af && af->kind == FieldKind::Attr) {
+                   af && af->kind == FieldKind::Attr)
+        {
           // Neighbor attribute read (e.g. nb.color / nb.vclass): index the
           // bound storage buffer directly at the neighbor's vertex index,
           // matching the CPU lowering (*__attr_<name>)[nb.v].
@@ -481,12 +547,14 @@ struct Emit {
       // by name.
       const char *n = e.name.c_str();
       if (std::strcmp(n, "float2") == 0 || std::strcmp(n, "float3") == 0 ||
-          std::strcmp(n, "float4") == 0) {
+          std::strcmp(n, "float4") == 0)
+      {
         out += "vec";
         out += n[5];
         out += "<f32>(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         out += ")";
@@ -494,7 +562,9 @@ struct Emit {
       }
 
       // Scalar casts: `float(x)` / `int(x)` -> f32()/i32().
-      if ((std::strcmp(n, "float") == 0 || std::strcmp(n, "int") == 0) && e.args.size() == 1) {
+      if ((std::strcmp(n, "float") == 0 || std::strcmp(n, "int") == 0) &&
+          e.args.size() == 1)
+      {
         out += (n[0] == 'f') ? "f32(" : "i32(";
         emitExpr(*e.args[0]);
         out += ")";
@@ -510,8 +580,11 @@ struct Emit {
           break;
         }
         gradUsed = true;
-        string savedVar = gradVar; gradVar = render(*e.args[1]);
-        out += "("; emitDual(*e.args[0]); out += ").d";
+        string savedVar = gradVar;
+        gradVar = render(*e.args[1]);
+        out += "(";
+        emitDual(*e.args[0]);
+        out += ").d";
         gradVar = savedVar;
         break;
       }
@@ -528,7 +601,8 @@ struct Emit {
         out += texEvalName(*td);
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         if (td->usesMap) {
@@ -584,11 +658,15 @@ struct Emit {
             out += "0.0";
             break;
           }
-          out += "hs_"; out += n; out += "(";
+          out += "hs_";
+          out += n;
+          out += "(";
           emitExpr(*e.args[0]);
           out += ", ";
-          if (e.args.size() == 2) emitExpr(*e.args[1]);
-          else out += "vec3<f32>(0.0)";
+          if (e.args.size() == 2)
+            emitExpr(*e.args[1]);
+          else
+            out += "vec3<f32>(0.0)";
           out += ")";
           break;
         }
@@ -623,7 +701,7 @@ struct Emit {
           rendered.append(out);
           out = saved;
         }
-        for (const char *p = pat; *p; ) {
+        for (const char *p = pat; *p;) {
           if (*p == '$' && std::isdigit((unsigned char)p[1])) {
             int idx = p[1] - '0';
             p += 2;
@@ -659,7 +737,8 @@ struct Emit {
         out += e.name;
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         out += ")";
@@ -672,8 +751,20 @@ struct Emit {
   // Dual-number rewrite for grad(). Same shape as emit_cpp but WGSL ops are
   // sbd_* functions, not overloaded operators. var seeds the Jacobian; others
   // are zero-deriv constants.
-  string render(const Expr &e) { string saved = out; out = string(""); emitExpr(e); string r = out; out = saved; return r; }
-  bool isGradVar(const Expr &e) { string r = render(e); return string(r).operator==(string(gradVar.c_str())); }
+  string render(const Expr &e)
+  {
+    string saved = out;
+    out = string("");
+    emitExpr(e);
+    string r = out;
+    out = saved;
+    return r;
+  }
+  bool isGradVar(const Expr &e)
+  {
+    string r = render(e);
+    return string(r).operator==(string(gradVar.c_str()));
+  }
   void emitDual(const Expr &e)
   {
     if (dualBody && e.kind == ExprKind::Ident && isDualLocal(stringref(e.name.c_str()))) {
@@ -681,9 +772,19 @@ struct Emit {
       out += e.name;
       return;
     }
-    if (isGradVar(e)) { out += "sb_seed3("; emitExpr(e); out += ")"; return; }
+    if (isGradVar(e)) {
+      out += "sb_seed3(";
+      emitExpr(e);
+      out += ")";
+      return;
+    }
     switch (e.kind) {
-    case ExprKind::LitFloat: case ExprKind::LitInt: out += "sb_c("; emitExpr(e); out += ")"; break;
+    case ExprKind::LitFloat:
+    case ExprKind::LitInt:
+      out += "sb_c(";
+      emitExpr(e);
+      out += ")";
+      break;
     case ExprKind::Ident:
       // In an EvalD body non-dual idents are scalar texture params; in a
       // stage body a bare ident under grad is the float3 being seeded.
@@ -698,22 +799,61 @@ struct Emit {
         out += "sb_comp(";
         out += e.lhs->name;
         out += ", ";
-        out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2");
+        out += (std::strcmp(e.name.c_str(), "x") == 0   ? "0"
+                : std::strcmp(e.name.c_str(), "y") == 0 ? "1"
+                                                        : "2");
         out += ")";
         break;
       }
-      if (e.lhs && isGradVar(*e.lhs)) { out += "sb_comp(sb_seed3("; emitExpr(*e.lhs); out += "), "; out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")"; }
-      else { out += "sb_c("; emitExpr(e); out += ")"; }
+      if (e.lhs && isGradVar(*e.lhs)) {
+        out += "sb_comp(sb_seed3(";
+        emitExpr(*e.lhs);
+        out += "), ";
+        out += (std::strcmp(e.name.c_str(), "x") == 0   ? "0"
+                : std::strcmp(e.name.c_str(), "y") == 0 ? "1"
+                                                        : "2");
+        out += ")";
+      } else {
+        out += "sb_c(";
+        emitExpr(e);
+        out += ")";
+      }
       break;
-    case ExprKind::Paren: out += "("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Paren:
+      out += "(";
+      emitDual(*e.lhs);
+      out += ")";
+      break;
     case ExprKind::Binary: {
-      const char *f = e.binop==BinOp::Add?"sbd_add":e.binop==BinOp::Sub?"sbd_sub":e.binop==BinOp::Mul?"sbd_mul":"sbd_div";
-      out += f; out += "("; emitDual(*e.lhs); out += ", "; emitDual(*e.rhs); out += ")"; break;
+      const char *f = e.binop == BinOp::Add   ? "sbd_add"
+                      : e.binop == BinOp::Sub ? "sbd_sub"
+                      : e.binop == BinOp::Mul ? "sbd_mul"
+                                              : "sbd_div";
+      out += f;
+      out += "(";
+      emitDual(*e.lhs);
+      out += ", ";
+      emitDual(*e.rhs);
+      out += ")";
+      break;
     }
-    case ExprKind::Unary: out += "sbd_neg("; emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Unary:
+      out += "sbd_neg(";
+      emitDual(*e.lhs);
+      out += ")";
+      break;
     case ExprKind::Call: {
       const char *n = e.name.c_str();
-      if (std::strcmp(n,"float3")==0) { out += "sb_v3("; for (int i=0;i<3;i++){if(i)out+=", ";emitDual(*e.args[i]);} out += ")"; break; }
+      if (std::strcmp(n, "float3") == 0) {
+        out += "sb_v3(";
+        for (int i = 0; i < 3; i++) {
+          if (i)
+            out += ", ";
+          emitDual(*e.args[i]);
+        }
+        out += ")";
+        break;
+      }
       // Texture call in a dual context — dispatch to the EvalD twin with
       // dual-lifted arguments.
       if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
@@ -725,7 +865,8 @@ struct Emit {
         out += texEvalName(*td);
         out += "_d(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i) out += ", ";
+          if (i)
+            out += ", ";
           emitDual(*e.args[i]);
         }
         if (td->usesMap) {
@@ -760,19 +901,36 @@ struct Emit {
           out += "sb_c(0.0)";
           break;
         }
-        out += "sbd_hs_"; out += n; out += "(";
+        out += "sbd_hs_";
+        out += n;
+        out += "(";
         emitDual(*e.args[0]);
         out += ", ";
-        if (e.args.size() == 2) emitDual(*e.args[1]);
-        else out += "sb_c3(vec3<f32>(0.0))";
+        if (e.args.size() == 2)
+          emitDual(*e.args[1]);
+        else
+          out += "sb_c3(vec3<f32>(0.0))";
         out += ")";
         break;
       }
       // Only intrinsics with an sbd_* chain rule in the prelude may appear
       // in a differentiated expression.
-      static const char *kDualIntrinsics[] = {
-          "sin", "cos", "sqrt", "abs", "dot", "length", "mix", "floor", "fract",
-          "pow", "exp", "log", "atan2", "mod", "step", "smoothstep"};
+      static const char *kDualIntrinsics[] = {"sin",
+                                              "cos",
+                                              "sqrt",
+                                              "abs",
+                                              "dot",
+                                              "length",
+                                              "mix",
+                                              "floor",
+                                              "fract",
+                                              "pow",
+                                              "exp",
+                                              "log",
+                                              "atan2",
+                                              "mod",
+                                              "step",
+                                              "smoothstep"};
       bool known = false;
       for (const char *k : kDualIntrinsics)
         known = known || std::strcmp(n, k) == 0;
@@ -781,16 +939,55 @@ struct Emit {
         out += "sb_c(0.0)";
         break;
       }
-      out += "sbd_"; out += n; out += "(";
-      for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
-      out += ")"; break;
+      out += "sbd_";
+      out += n;
+      out += "(";
+      for (int i = 0; i < (int)e.args.size(); i++) {
+        if (i)
+          out += ", ";
+        emitDual(*e.args[i]);
+      }
+      out += ")";
+      break;
     }
-    default: out += "sb_c(0.0)"; break;
+    default:
+      out += "sb_c(0.0)";
+      break;
     }
   }
-  static bool exprUsesGrad(const Expr *e) { if(!e)return false; if(e->kind==ExprKind::Call&&std::strcmp(e->name.c_str(),"grad")==0)return true; if(exprUsesGrad(e->lhs.get())||exprUsesGrad(e->rhs.get()))return true; for(const auto&a:e->args)if(exprUsesGrad(a.get()))return true; return false; }
-  static bool stmtUsesGrad(const Stmt *s) { if(!s)return false; if(exprUsesGrad(s->expr.get())||exprUsesGrad(s->cond.get())||exprUsesGrad(s->lvalue.get())||exprUsesGrad(s->rvalue.get()))return true; for(const auto&c:s->stmts)if(stmtUsesGrad(c.get()))return true; return stmtUsesGrad(s->thenBranch.get())||stmtUsesGrad(s->elseBranch.get())||stmtUsesGrad(s->forInit.get())||stmtUsesGrad(s->forStep.get()); }
-  bool brushUsesGrad() const { for(const auto&st:brush->stages)if(stmtUsesGrad(st.body.get()))return true; return false; }
+  static bool exprUsesGrad(const Expr *e)
+  {
+    if (!e)
+      return false;
+    if (e->kind == ExprKind::Call && std::strcmp(e->name.c_str(), "grad") == 0)
+      return true;
+    if (exprUsesGrad(e->lhs.get()) || exprUsesGrad(e->rhs.get()))
+      return true;
+    for (const auto &a : e->args)
+      if (exprUsesGrad(a.get()))
+        return true;
+    return false;
+  }
+  static bool stmtUsesGrad(const Stmt *s)
+  {
+    if (!s)
+      return false;
+    if (exprUsesGrad(s->expr.get()) || exprUsesGrad(s->cond.get()) ||
+        exprUsesGrad(s->lvalue.get()) || exprUsesGrad(s->rvalue.get()))
+      return true;
+    for (const auto &c : s->stmts)
+      if (stmtUsesGrad(c.get()))
+        return true;
+    return stmtUsesGrad(s->thenBranch.get()) || stmtUsesGrad(s->elseBranch.get()) ||
+           stmtUsesGrad(s->forInit.get()) || stmtUsesGrad(s->forStep.get());
+  }
+  bool brushUsesGrad() const
+  {
+    for (const auto &st : brush->stages)
+      if (stmtUsesGrad(st.body.get()))
+        return true;
+    return false;
+  }
 
   // === statement emitter ===
 
@@ -803,13 +1000,17 @@ struct Emit {
   {
     switch (s.kind) {
     case StmtKind::Block: {
-      writeIndent(); out += "{\n";
+      writeIndent();
+      out += "{\n";
       indent++;
       int savedLocals = (int)locals.size();
-      for (const auto &c : s.stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : s.stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       break;
     }
     case StmtKind::DeclLocal:
@@ -831,8 +1032,10 @@ struct Emit {
       out += "var ";
       out += s.name;
       out += ": ";
-      if (s.declType == TypeKind::Struct) out += s.declStructName;
-      else out += wgslType(s.declType);
+      if (s.declType == TypeKind::Struct)
+        out += s.declStructName;
+      else
+        out += wgslType(s.declType);
       if (s.expr) {
         out += " = ";
         emitExpr(*s.expr);
@@ -851,9 +1054,10 @@ struct Emit {
         out += " = ";
         const char *op = assignOpCSym(s.assignOp);
         if (op[0] != '=') {
-          const char *f = op[0] == '+' ? "sbd_add" :
-                          op[0] == '-' ? "sbd_sub" :
-                          op[0] == '*' ? "sbd_mul" : "sbd_div";
+          const char *f = op[0] == '+'   ? "sbd_add"
+                          : op[0] == '-' ? "sbd_sub"
+                          : op[0] == '*' ? "sbd_mul"
+                                         : "sbd_div";
           out += f;
           out += "(";
           out += s.lvalue->name;
@@ -891,16 +1095,20 @@ struct Emit {
         out += "{\n";
         indent++;
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
         indent--;
-        writeIndent(); out += "}";
+        writeIndent();
+        out += "}";
       } else if (s.thenBranch) {
         out += "{\n";
         indent++;
         emitStmt(*s.thenBranch);
         indent--;
-        writeIndent(); out += "}";
+        writeIndent();
+        out += "}";
       }
       if (s.elseBranch) {
         out += " else ";
@@ -908,10 +1116,13 @@ struct Emit {
           out += "{\n";
           indent++;
           int savedLocals = (int)locals.size();
-          for (const auto &c : s.elseBranch->stmts) emitStmt(*c);
-          while ((int)locals.size() > savedLocals) locals.pop_back();
+          for (const auto &c : s.elseBranch->stmts)
+            emitStmt(*c);
+          while ((int)locals.size() > savedLocals)
+            locals.pop_back();
           indent--;
-          writeIndent(); out += "}\n";
+          writeIndent();
+          out += "}\n";
         } else if (s.elseBranch->kind == StmtKind::If) {
           emitStmt(*s.elseBranch);
         } else {
@@ -919,7 +1130,8 @@ struct Emit {
           indent++;
           emitStmt(*s.elseBranch);
           indent--;
-          writeIndent(); out += "}\n";
+          writeIndent();
+          out += "}\n";
         }
       } else {
         out += "\n";
@@ -939,46 +1151,57 @@ struct Emit {
         string frag = out;
         out = saved;
         int n = (int)frag.size();
-        while (n > 0 && frag[n - 1] == '\n') n--;
-        if (stripSemi && n > 0 && frag[n - 1] == ';') n--;
+        while (n > 0 && frag[n - 1] == '\n')
+          n--;
+        if (stripSemi && n > 0 && frag[n - 1] == ';')
+          n--;
         for (int i = 0; i < n; i++) {
           char tmp[2] = {frag[i], 0};
           out += tmp;
         }
       };
-      if (s.forInit) renderFrag(*s.forInit, /*stripSemi=*/false);
+      if (s.forInit)
+        renderFrag(*s.forInit, /*stripSemi=*/false);
       out += " ";
       emitExpr(*s.cond);
       out += "; ";
-      if (s.forStep) renderFrag(*s.forStep, /*stripSemi=*/true);
+      if (s.forStep)
+        renderFrag(*s.forStep, /*stripSemi=*/true);
       out += ") ";
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
         out += "{\n";
         indent++;
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
         indent--;
-        writeIndent(); out += "}\n";
+        writeIndent();
+        out += "}\n";
       } else if (s.thenBranch) {
         out += "{\n";
         indent++;
         emitStmt(*s.thenBranch);
         indent--;
-        writeIndent(); out += "}\n";
+        writeIndent();
+        out += "}\n";
       }
       break;
     }
     case StmtKind::Continue:
-      writeIndent(); out += "return;\n";
+      writeIndent();
+      out += "return;\n";
       break;
     case StmtKind::Return:
       writeIndent();
       out += "return";
       if (s.expr) {
         out += " ";
-        if (dualBody) emitDual(*s.expr);
-        else emitExpr(*s.expr);
+        if (dualBody)
+          emitDual(*s.expr);
+        else
+          emitExpr(*s.expr);
       }
       out += ";\n";
       break;
@@ -999,29 +1222,34 @@ struct Emit {
       string metaVar = string("sb_nbr_meta") + sfx;
       string niVar = string("sb_ni") + sfx;
       string idxVar = string("sb_nb_v") + sfx;
-      writeIndent(); out += "{\n";
+      writeIndent();
+      out += "{\n";
       indent++;
       writeIndent();
       out += "let " + metaVar + " = vert_nbr_meta[" + outerIdx + "];\n";
       writeIndent();
-      out += "for (var " + niVar + " = 0u; " + niVar + " < " + metaVar + ".y; " +
-             niVar + " = " + niVar + " + 1u) {\n";
+      out += "for (var " + niVar + " = 0u; " + niVar + " < " + metaVar + ".y; " + niVar +
+             " = " + niVar + " + 1u) {\n";
       indent++;
       writeIndent();
       out += "let " + idxVar + " = nbr_verts[" + metaVar + ".x + " + niVar + "];\n";
       nbStack.append(NbBinding{s.name, idxVar});
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
       } else if (s.thenBranch) {
         emitStmt(*s.thenBranch);
       }
       nbStack.pop_back();
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       break;
     }
     }
@@ -1061,14 +1289,12 @@ struct Emit {
     // existing slot rather than getting re-emitted (and tripping tint).
     auto isBuiltinBrushName = [](const char *n) {
       return std::strcmp(n, "strength") == 0 || std::strcmp(n, "radius") == 0 ||
-             std::strcmp(n, "spacing") == 0  || std::strcmp(n, "invert") == 0 ||
+             std::strcmp(n, "spacing") == 0 || std::strcmp(n, "invert") == 0 ||
              std::strcmp(n, "falloff_kind") == 0 ||
-             std::strcmp(n, "falloff_shape") == 0 ||
-             std::strcmp(n, "falloff_dir") == 0 ||
+             std::strcmp(n, "falloff_shape") == 0 || std::strcmp(n, "falloff_dir") == 0 ||
              std::strcmp(n, "falloff_extent") == 0 ||
              std::strcmp(n, "unbounded_extent") == 0 ||
-             std::strcmp(n, "coord_space") == 0 ||
-             std::strcmp(n, "tex_repeat") == 0 ||
+             std::strcmp(n, "coord_space") == 0 || std::strcmp(n, "tex_repeat") == 0 ||
              std::strcmp(n, "stroke_path_count") == 0;
     };
     auto isBuiltinCtxName = [](const char *n) {
@@ -1141,8 +1367,10 @@ struct Emit {
     // packing trivial — scalars and vec3/vec4 align naturally on 16-byte
     // boundaries in the uniform address space.
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform) continue;
-      if (isBuiltinBrushName(f.name.c_str())) continue;
+      if (f.kind != FieldKind::Uniform)
+        continue;
+      if (isBuiltinBrushName(f.name.c_str()))
+        continue;
       write("  ");
       write(f.name);
       write(": ");
@@ -1168,8 +1396,10 @@ struct Emit {
     write("  vn_cull: u32,\n");
     write("  _vn_pad: u32,\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Ctx) continue;
-      if (isBuiltinCtxName(f.name.c_str())) continue;
+      if (f.kind != FieldKind::Ctx)
+        continue;
+      if (isBuiltinCtxName(f.name.c_str()))
+        continue;
       write("  ");
       write(f.name);
       write(": ");
@@ -1205,8 +1435,10 @@ struct Emit {
     // index array; the vertex kernel has read_write co/no/mask. Bindings 5+ are
     // shared so one host bind-group layout covers both.
     if (faceMode()) {
-      write("@group(0) @binding(0) var<storage, read>       face_centroid: array<vec3<f32>>;\n");
-      write("@group(0) @binding(1) var<storage, read>       face_no: array<vec3<f32>>;\n");
+      write("@group(0) @binding(0) var<storage, read>       face_centroid: "
+            "array<vec3<f32>>;\n");
+      write(
+          "@group(0) @binding(1) var<storage, read>       face_no: array<vec3<f32>>;\n");
       write("@group(0) @binding(3) var<storage, read>       unique_faces: array<u32>;\n");
       write("@group(0) @binding(4) var<storage, read>       nodes: array<NodeMeta>;\n");
     } else {
@@ -1226,25 +1458,30 @@ struct Emit {
     // stride forces the vec4 shape (sb_lut below recovers scalar indexing).
     // Bake-produced from Brush::falloffCurve via bake_curve_lut, so the
     // LUT-fetch is bit-identical to the C++ Curve-branch interpolation.
-    write("@group(0) @binding(7) var<uniform>             falloff_lut: array<vec4<f32>, 64>;\n");
+    write("@group(0) @binding(7) var<uniform>             falloff_lut: array<vec4<f32>, "
+          "64>;\n");
     // Brush texture + sampler. When no texture is bound the host binds a 1x1
     // white texel so `brush_sample_tex` returns 1.0 (matching the C++
     // no-texture path). brush_sample_tex does its own clamp-to-edge bilinear
     // via textureLoad (see below), so brush_samp is currently unused — it is
     // kept for descriptor-layout symmetry with the host's 14-binding superset.
-    write("@group(0) @binding(8) var                       brush_tex: texture_2d<f32>;\n");
+    write(
+        "@group(0) @binding(8) var                       brush_tex: texture_2d<f32>;\n");
     write("@group(0) @binding(9) var                       brush_samp: sampler;\n");
     // StrokePath ring buffer for STROKE_CURVED — mirrors Brush::strokePath.
     // Uniform-resident on CPU; a storage buffer here so the length can vary.
-    write("@group(0) @binding(10) var<storage, read>      stroke_path: array<StrokeSample>;\n");
+    write("@group(0) @binding(10) var<storage, read>      stroke_path: "
+          "array<StrokeSample>;\n");
     // Neighbor (for_neighbor) bindings — only emitted when the kernel needs
     // them, so non-neighbor brushes keep the 11-binding layout. The host's
     // descriptor set layout is a superset, so a single bind-group setup still
     // works across brushes. co_prev is the pre-dab vertex snapshot (Jacobi);
     // vert_nbr_meta[i] = (offset, count) into the flat nbr_verts CSR array.
     if (usesNeighbors) {
-      write("@group(0) @binding(11) var<storage, read>      co_prev: array<vec3<f32>>;\n");
-      write("@group(0) @binding(12) var<storage, read>      vert_nbr_meta: array<vec2<u32>>;\n");
+      write(
+          "@group(0) @binding(11) var<storage, read>      co_prev: array<vec3<f32>>;\n");
+      write("@group(0) @binding(12) var<storage, read>      vert_nbr_meta: "
+            "array<vec2<u32>>;\n");
       write("@group(0) @binding(13) var<storage, read>      nbr_verts: array<u32>;\n");
     }
     // Custom DSL attribute layers — one read_write storage buffer each, at
@@ -1255,7 +1492,8 @@ struct Emit {
       AttrDomain wantDomain = faceMode() ? AttrDomain::Face : AttrDomain::Vertex;
       int slot = 14;
       for (const auto &f : brush->fields) {
-        if (f.kind != FieldKind::Attr || f.domain != wantDomain) continue;
+        if (f.kind != FieldKind::Attr || f.domain != wantDomain)
+          continue;
         char buf[16];
         std::snprintf(buf, sizeof(buf), "%d", slot++);
         write("@group(0) @binding(");
@@ -1272,7 +1510,8 @@ struct Emit {
     // is a natural local name that several kernels already declare, which would
     // shadow a module-scope buffer.
     if (wantsDisp()) {
-      write("@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;\n");
+      write(
+          "@group(0) @binding(25) var<storage, read_write> sb_disp: array<vec3<f32>>;\n");
     }
     // Grab-class first-touch stamps: one u32 per vertex, compared against
     // brush_u.grab_dab_gen in the write-back — the WGSL twin of
@@ -1329,10 +1568,12 @@ struct Emit {
     // bit-for-bit: axis 0 = stroke tangent projected into the surface tangent
     // plane, axis 1 = in-plane perpendicular, axis 2 = surface normal.
     write("    let sb_n = normalize(ctx_u.surfaceNo);\n");
-    write("    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);\n");
+    write("    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, "
+          "sb_n);\n");
     write("    var sb_tl = length(sb_tang);\n");
     write("    if (sb_tl < 1e-6) {\n");
-    write("      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), abs(sb_n.z) < 0.999);\n");
+    write("      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), "
+          "abs(sb_n.z) < 0.999);\n");
     write("      sb_tang = cross(sb_ref, sb_n);\n");
     write("      sb_tl = length(sb_tang);\n");
     write("    }\n");
@@ -1400,7 +1641,8 @@ struct Emit {
     write("fn brush_stroke_uv(co: vec3<f32>) -> vec2<f32> {\n");
     write("  if (brush_u.stroke_path_count == 0u) { return vec2<f32>(0.0, 0.0); }\n");
     write("  if (brush_u.stroke_path_count == 1u) {\n");
-    write("    return vec2<f32>(stroke_path[0].arclen, length(co - stroke_path[0].pos));\n");
+    write("    return vec2<f32>(stroke_path[0].arclen, length(co - "
+          "stroke_path[0].pos));\n");
     write("  }\n");
     write("  var sb_best_dist = 3.402823e+38;\n");
     write("  var sb_best_arc = 0.0;\n");
@@ -1415,7 +1657,8 @@ struct Emit {
     write("    let sb_d = length(co - (sb_a + sb_ab * sb_t));\n");
     write("    if (sb_d < sb_best_dist) {\n");
     write("      sb_best_dist = sb_d;\n");
-    write("      sb_best_arc = stroke_path[i].arclen + (stroke_path[i + 1u].arclen - stroke_path[i].arclen) * sb_t;\n");
+    write("      sb_best_arc = stroke_path[i].arclen + (stroke_path[i + 1u].arclen - "
+          "stroke_path[i].arclen) * sb_t;\n");
     write("      sb_best_lat = sb_d;\n");
     write("    }\n");
     write("  }\n");
@@ -1466,8 +1709,10 @@ struct Emit {
     write("    let sb_t2 = cross(sb_n, sb_t1);\n");
     write("    let sb_rel = co - ctx_u.surfacePos;\n");
     write("    var sb_inv_d = 1.0;\n");
-    write("    if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }\n");
-    write("    sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + vec2<f32>(0.5, 0.5);\n");
+    write(
+        "    if (brush_u.radius > 1e-6) { sb_inv_d = 1.0 / (2.0 * brush_u.radius); }\n");
+    write("    sb_uv = vec2<f32>(dot(sb_rel, sb_t1), dot(sb_rel, sb_t2)) * sb_inv_d + "
+          "vec2<f32>(0.5, 0.5);\n");
     write("  } else {\n");
     // GLOBAL: the bitmap spans world [-1,1]^2 (host bake domain), tiled.
     write("    sb_uv = fract(co.xy * 0.5 + vec2<f32>(0.5, 0.5));\n");
@@ -1505,7 +1750,8 @@ struct Emit {
     // CommandCtx::strength in brush_command.h.
     write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
     write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
-    write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);\n");
+    write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, "
+          "ctx_u.surfaceNo);\n");
     write("  return select(sb_s, -sb_s, brush_u.invert != 0u);\n");
     write("}\n\n");
   }
@@ -1665,18 +1911,25 @@ struct Emit {
       Vector<string> done;
       for (const auto &td : brush->textures) {
         for (const auto &dep : td.samplerDeps) {
-          if (!findSamplerDecl(dep.c_str())) continue;
+          if (!findSamplerDecl(dep.c_str()))
+            continue;
           bool seen = false;
           for (const auto &d : done) {
-            if (string(d).operator==(string(dep.c_str()))) seen = true;
+            if (string(d).operator==(string(dep.c_str())))
+              seen = true;
           }
-          if (seen) continue;
+          if (seen)
+            continue;
           done.append(dep);
-          write("fn sbd_hs_"); write(dep);
+          write("fn sbd_hs_");
+          write(dep);
           write("(p: sbdual3, n: sbdual3) -> sbdual {\n");
-          write("  let o = hs_"); write(dep); write("_grad(p.v, n.v);\n");
+          write("  let o = hs_");
+          write(dep);
+          write("_grad(p.v, n.v);\n");
           write("  let g = o.yzw;\n");
-          write("  return sbdual(o.x, vec3<f32>(dot(g, p.dx), dot(g, p.dy), dot(g, p.dz)));\n");
+          write("  return sbdual(o.x, vec3<f32>(dot(g, p.dx), dot(g, p.dy), dot(g, "
+                "p.dz)));\n");
           write("}\n\n");
         }
       }
@@ -1700,14 +1953,16 @@ struct Emit {
     write("(");
     bool first = true;
     for (const auto &p : td.params) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
       write(p.name);
       write(": ");
       write(wgslType(p.type));
     }
     if (td.usesMap) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
       write("sb_map: mat4x4<f32>");
     }
@@ -1717,13 +1972,16 @@ struct Emit {
     indent = 1;
     Stage scratch;
     scratch.kind = StageKind::Reduce;
-    for (const auto &p : td.params) scratch.params.append(p);
+    for (const auto &p : td.params)
+      scratch.params.append(p);
     currentStage = &scratch;
     currentTexture = &td;
     if (td.body && td.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : td.body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : td.body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentTexture = nullptr;
     currentStage = nullptr;
@@ -1745,14 +2003,16 @@ struct Emit {
     write("_d(");
     bool first = true;
     for (const auto &p : td.params) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
       write(p.name);
       write(": ");
       write(p.type == TypeKind::Float ? "sbdual" : "sbdual3");
     }
     if (td.usesMap) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
       write("sb_map: mat4x4<f32>");
     }
@@ -1762,7 +2022,8 @@ struct Emit {
     indent = 1;
     Stage scratch;
     scratch.kind = StageKind::Reduce;
-    for (const auto &p : td.params) scratch.params.append(p);
+    for (const auto &p : td.params)
+      scratch.params.append(p);
     currentStage = &scratch;
     currentTexture = &td;
     dualBody = true;
@@ -1770,9 +2031,11 @@ struct Emit {
     for (const auto &p : td.params)
       locals.append(LocalVar{p.name, /*dual=*/true});
     if (td.body && td.body->kind == StmtKind::Block) {
-      for (const auto &c : td.body->stmts) emitStmt(*c);
+      for (const auto &c : td.body->stmts)
+        emitStmt(*c);
     }
-    while ((int)locals.size() > savedLocals) locals.pop_back();
+    while ((int)locals.size() > savedLocals)
+      locals.pop_back();
     dualBody = false;
     currentTexture = nullptr;
     currentStage = nullptr;
@@ -1791,11 +2054,11 @@ struct Emit {
     write("(");
     bool first = true;
     for (const auto &p : st.params) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
-      const char *typeSpelling = (p.type == TypeKind::Struct)
-                                     ? p.structName.c_str()
-                                     : wgslType(p.type);
+      const char *typeSpelling =
+          (p.type == TypeKind::Struct) ? p.structName.c_str() : wgslType(p.type);
       if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut) {
         write(p.name);
         write(": ptr<function, ");
@@ -1812,8 +2075,10 @@ struct Emit {
     currentStage = &st;
     if (st.body && st.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : st.body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : st.body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
@@ -1842,16 +2107,29 @@ struct Emit {
     write("  let sb_node = nodes[gid.x];\n");
     write("  if (lid >= sb_node.face_count) { return; }\n");
     write("  let sb_fidx = unique_faces[sb_node.face_offset + lid];\n");
-    write("  var "); write(faceParamName); write("_center: vec3<f32> = face_centroid[sb_fidx];\n");
-    write("  var "); write(faceParamName); write("_no: vec3<f32> = face_no[sb_fidx];\n");
-    write("  var "); write(faceParamName); write("_f: i32 = i32(sb_fidx);\n");
+    write("  var ");
+    write(faceParamName);
+    write("_center: vec3<f32> = face_centroid[sb_fidx];\n");
+    write("  var ");
+    write(faceParamName);
+    write("_no: vec3<f32> = face_no[sb_fidx];\n");
+    write("  var ");
+    write(faceParamName);
+    write("_f: i32 = i32(sb_fidx);\n");
     // Seed a mutable local per face attr from its storage buffer; member access
     // (f.<attr>) routes to <param>_<attr>, written back after the body.
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face) continue;
-      write("  var "); write(faceParamName); write("_"); write(f.name);
-      write(": "); write(wgslType(f.type));
-      write(" = attr_"); write(f.name); write("[sb_fidx];\n");
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face)
+        continue;
+      write("  var ");
+      write(faceParamName);
+      write("_");
+      write(f.name);
+      write(": ");
+      write(wgslType(f.type));
+      write(" = attr_");
+      write(f.name);
+      write("[sb_fidx];\n");
     }
     write("\n");
 
@@ -1859,8 +2137,10 @@ struct Emit {
     currentStage = faceStage;
     if (faceStage->body && faceStage->body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : faceStage->body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : faceStage->body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
@@ -1871,9 +2151,15 @@ struct Emit {
     // `if (strength>0)`): the local was seeded from the buffer at entry, so an
     // unwritten attr round-trips its original value rather than being clobbered.
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face) continue;
-      write("  attr_"); write(f.name); write("[sb_fidx] = ");
-      write(faceParamName); write("_"); write(f.name); write(";\n");
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Face)
+        continue;
+      write("  attr_");
+      write(f.name);
+      write("[sb_fidx] = ");
+      write(faceParamName);
+      write("_");
+      write(f.name);
+      write(";\n");
     }
     write("}\n");
   }
@@ -1902,29 +2188,49 @@ struct Emit {
     // Jacobian); chain rules drive grad()'s rewrite. WGSL needs sbd_* fns.
     if (brushUsesGrad()) {
       write("struct sbdual { v: f32, d: vec3<f32> };\n");
-      write("struct sbdual3 { v: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>, dz: vec3<f32> };\n");
+      write("struct sbdual3 { v: vec3<f32>, dx: vec3<f32>, dy: vec3<f32>, dz: vec3<f32> "
+            "};\n");
       write("fn sb_c(x: f32) -> sbdual { return sbdual(x, vec3<f32>(0.0)); }\n");
-      write("fn sb_c3(p: vec3<f32>) -> sbdual3 { return sbdual3(p, vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0)); }\n");
-      write("fn sb_seed3(p: vec3<f32>) -> sbdual3 { return sbdual3(p, vec3<f32>(1.0,0.0,0.0), vec3<f32>(0.0,1.0,0.0), vec3<f32>(0.0,0.0,1.0)); }\n");
-      write("fn sb_comp(a: sbdual3, i: i32) -> sbdual { return sbdual(a.v[i], vec3<f32>(a.dx[i], a.dy[i], a.dz[i])); }\n");
-      write("fn sb_v3(x: sbdual, y: sbdual, z: sbdual) -> sbdual3 { return sbdual3(vec3<f32>(x.v,y.v,z.v), vec3<f32>(x.d[0],y.d[0],z.d[0]), vec3<f32>(x.d[1],y.d[1],z.d[1]), vec3<f32>(x.d[2],y.d[2],z.d[2])); }\n");
-      write("fn sbd_add(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v+b.v, a.d+b.d); }\n");
-      write("fn sbd_sub(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v-b.v, a.d-b.d); }\n");
+      write("fn sb_c3(p: vec3<f32>) -> sbdual3 { return sbdual3(p, vec3<f32>(0.0), "
+            "vec3<f32>(0.0), vec3<f32>(0.0)); }\n");
+      write(
+          "fn sb_seed3(p: vec3<f32>) -> sbdual3 { return sbdual3(p, "
+          "vec3<f32>(1.0,0.0,0.0), vec3<f32>(0.0,1.0,0.0), vec3<f32>(0.0,0.0,1.0)); }\n");
+      write("fn sb_comp(a: sbdual3, i: i32) -> sbdual { return sbdual(a.v[i], "
+            "vec3<f32>(a.dx[i], a.dy[i], a.dz[i])); }\n");
+      write("fn sb_v3(x: sbdual, y: sbdual, z: sbdual) -> sbdual3 { return "
+            "sbdual3(vec3<f32>(x.v,y.v,z.v), vec3<f32>(x.d[0],y.d[0],z.d[0]), "
+            "vec3<f32>(x.d[1],y.d[1],z.d[1]), vec3<f32>(x.d[2],y.d[2],z.d[2])); }\n");
+      write("fn sbd_add(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v+b.v, "
+            "a.d+b.d); }\n");
+      write("fn sbd_sub(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v-b.v, "
+            "a.d-b.d); }\n");
       write("fn sbd_neg(a: sbdual) -> sbdual { return sbdual(-a.v, -a.d); }\n");
-      write("fn sbd_mul(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v*b.v, a.d*b.v + b.d*a.v); }\n");
-      write("fn sbd_div(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v/b.v, (a.d*b.v - b.d*a.v)/(b.v*b.v)); }\n");
-      write("fn sbd_sin(a: sbdual) -> sbdual { return sbdual(sin(a.v), a.d*cos(a.v)); }\n");
-      write("fn sbd_cos(a: sbdual) -> sbdual { return sbdual(cos(a.v), a.d*(-sin(a.v))); }\n");
-      write("fn sbd_sqrt(a: sbdual) -> sbdual { let r = sqrt(a.v); return sbdual(r, select(vec3<f32>(0.0), a.d*(0.5/r), r>0.0)); }\n");
-      write("fn sbd_abs(a: sbdual) -> sbdual { return sbdual(abs(a.v), a.d*select(1.0,-1.0,a.v<0.0)); }\n");
-      write("fn sbd_dot(a: sbdual3, b: sbdual3) -> sbdual { return sbdual(dot(a.v,b.v), a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z); }\n");
+      write("fn sbd_mul(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v*b.v, a.d*b.v "
+            "+ b.d*a.v); }\n");
+      write("fn sbd_div(a: sbdual, b: sbdual) -> sbdual { return sbdual(a.v/b.v, "
+            "(a.d*b.v - b.d*a.v)/(b.v*b.v)); }\n");
+      write(
+          "fn sbd_sin(a: sbdual) -> sbdual { return sbdual(sin(a.v), a.d*cos(a.v)); }\n");
+      write("fn sbd_cos(a: sbdual) -> sbdual { return sbdual(cos(a.v), a.d*(-sin(a.v))); "
+            "}\n");
+      write("fn sbd_sqrt(a: sbdual) -> sbdual { let r = sqrt(a.v); return sbdual(r, "
+            "select(vec3<f32>(0.0), a.d*(0.5/r), r>0.0)); }\n");
+      write("fn sbd_abs(a: sbdual) -> sbdual { return sbdual(abs(a.v), "
+            "a.d*select(1.0,-1.0,a.v<0.0)); }\n");
+      write("fn sbd_dot(a: sbdual3, b: sbdual3) -> sbdual { return sbdual(dot(a.v,b.v), "
+            "a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z); }\n");
       write("fn sbd_length(a: sbdual3) -> sbdual { return sbd_sqrt(sbd_dot(a,a)); }\n");
-      write("fn sbd_mix(a: sbdual, b: sbdual, t: sbdual) -> sbdual { return sbd_add(a, sbd_mul(sbd_sub(b,a), t)); }\n");
-      write("fn sbd_floor(a: sbdual) -> sbdual { return sbdual(floor(a.v), vec3<f32>(0.0)); }\n");
-      write("fn sbd_fract(a: sbdual) -> sbdual { return sbdual(a.v - floor(a.v), a.d); }\n");
+      write("fn sbd_mix(a: sbdual, b: sbdual, t: sbdual) -> sbdual { return sbd_add(a, "
+            "sbd_mul(sbd_sub(b,a), t)); }\n");
+      write("fn sbd_floor(a: sbdual) -> sbdual { return sbdual(floor(a.v), "
+            "vec3<f32>(0.0)); }\n");
+      write("fn sbd_fract(a: sbdual) -> sbdual { return sbdual(a.v - floor(a.v), a.d); "
+            "}\n");
       // Term-for-term twins of the C99 rules in emit_c.cc — see the comments
       // there for the pow log-term and smoothstep derivations.
-      write("fn sbd_exp(a: sbdual) -> sbdual { let r = exp(a.v); return sbdual(r, a.d*r); }\n");
+      write("fn sbd_exp(a: sbdual) -> sbdual { let r = exp(a.v); return sbdual(r, "
+            "a.d*r); }\n");
       write("fn sbd_log(a: sbdual) -> sbdual { return sbdual(log(a.v), a.d/a.v); }\n");
       write("fn sbd_pow(a: sbdual, b: sbdual) -> sbdual {\n");
       write("  let r = pow(a.v, b.v);\n");
@@ -1935,13 +2241,15 @@ struct Emit {
       write("fn sbd_atan2(y: sbdual, x: sbdual) -> sbdual {\n");
       write("  let den = x.v*x.v + y.v*y.v;\n");
       write("  let d = y.d*x.v - x.d*y.v;\n");
-      write("  return sbdual(atan2(y.v, x.v), select(vec3<f32>(0.0), d/den, den > 0.0));\n");
+      write("  return sbdual(atan2(y.v, x.v), select(vec3<f32>(0.0), d/den, den > "
+            "0.0));\n");
       write("}\n");
       write("fn sbd_mod(a: sbdual, b: sbdual) -> sbdual {\n");
       write("  let q = floor(a.v/b.v);\n");
       write("  return sbdual(a.v - b.v*q, a.d - b.d*q);\n");
       write("}\n");
-      write("fn sbd_step(edge: sbdual, x: sbdual) -> sbdual { return sbdual(select(0.0, 1.0, x.v >= edge.v), vec3<f32>(0.0)); }\n");
+      write("fn sbd_step(edge: sbdual, x: sbdual) -> sbdual { return sbdual(select(0.0, "
+            "1.0, x.v >= edge.v), vec3<f32>(0.0)); }\n");
       write("fn sbd_smoothstep(e0: sbdual, e1: sbdual, x: sbdual) -> sbdual {\n");
       write("  let w = e1.v - e0.v;\n");
       write("  let u = (x.v - e0.v)/w;\n");
@@ -1960,7 +2268,8 @@ struct Emit {
     // the DSL stage name (which is brush-local in practice).
     Vector<const Stage *> reduceStages;
     for (const auto &st : brush->stages) {
-      if (st.kind == StageKind::Reduce) reduceStages.append(&st);
+      if (st.kind == StageKind::Reduce)
+        reduceStages.append(&st);
     }
     for (const auto *st : reduceStages) {
       emitReduceStage(*st);
@@ -1990,25 +2299,34 @@ struct Emit {
     }
     write("  var ");
     if (wantsDisp()) {
-      write(vertexParamName); write("_co: vec3<f32> = sb_base;\n");
+      write(vertexParamName);
+      write("_co: vec3<f32> = sb_base;\n");
     } else {
-      write(vertexParamName); write("_co: vec3<f32> = co_buf[sb_vidx];\n");
+      write(vertexParamName);
+      write("_co: vec3<f32> = co_buf[sb_vidx];\n");
     }
     write("  var ");
-    write(vertexParamName); write("_no: vec3<f32> = no_buf[sb_vidx];\n");
+    write(vertexParamName);
+    write("_no: vec3<f32> = no_buf[sb_vidx];\n");
     write("  var ");
-    write(vertexParamName); write("_mask: f32 = mask_buf[sb_vidx];\n");
+    write(vertexParamName);
+    write("_mask: f32 = mask_buf[sb_vidx];\n");
 
     // Seed a mutable local for each vertex attribute from its storage buffer;
     // member access (v.<attr>) routes to these (<param>_<attr>), and they're
     // written back after the body.
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex) continue;
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex)
+        continue;
       write("  var ");
-      write(vertexParamName); write("_"); write(f.name);
+      write(vertexParamName);
+      write("_");
+      write(f.name);
       write(": ");
       write(wgslType(f.type));
-      write(" = attr_"); write(f.name); write("[sb_vidx];\n");
+      write(" = attr_");
+      write(f.name);
+      write("[sb_vidx];\n");
     }
 
     // Declare locals for the vertex stage's extra params (struct or
@@ -2020,8 +2338,10 @@ struct Emit {
       write("  var ");
       write(p.name);
       write(": ");
-      if (p.type == TypeKind::Struct) write(p.structName);
-      else write(wgslType(p.type));
+      if (p.type == TypeKind::Struct)
+        write(p.structName);
+      else
+        write(wgslType(p.type));
       write(";\n");
     }
     for (const auto *st : reduceStages) {
@@ -2030,16 +2350,20 @@ struct Emit {
       write("(");
       bool first = true;
       for (const auto &rp : st->params) {
-        if (!first) write(", ");
+        if (!first)
+          write(", ");
         first = false;
         // Match by name+type to the vertex-stage local declared above.
         bool found = false;
         for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
           const auto &vp = vertexStage->params[pi];
-          if (vp.type != rp.type) continue;
-          if (!string(vp.name).operator==(string(rp.name.c_str()))) continue;
+          if (vp.type != rp.type)
+            continue;
+          if (!string(vp.name).operator==(string(rp.name.c_str())))
+            continue;
           if (rp.type == TypeKind::Struct &&
-              !string(vp.structName).operator==(string(rp.structName.c_str()))) continue;
+              !string(vp.structName).operator==(string(rp.structName.c_str())))
+            continue;
           if (rp.dir == ParamDir::Out || rp.dir == ParamDir::InOut) {
             out += "&";
           }
@@ -2061,8 +2385,10 @@ struct Emit {
     currentStage = vertexStage;
     if (vertexStage->body && vertexStage->body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : vertexStage->body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : vertexStage->body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
@@ -2077,8 +2403,10 @@ struct Emit {
       // mirror-only verts never accumulate across dabs.
       write("  let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;\n");
       write("  dab_stamp[sb_vidx] = brush_u.grab_dab_gen;\n");
-      write("  let sb_delta = select("); write(vertexParamName);
-      write("_co - sb_base, "); write(vertexParamName);
+      write("  let sb_delta = select(");
+      write(vertexParamName);
+      write("_co - sb_base, ");
+      write(vertexParamName);
       write("_co - co_buf[sb_vidx], sb_first);\n");
       write("  co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;\n");
       write("  sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;\n");
@@ -2086,25 +2414,38 @@ struct Emit {
       // Non-accumulate write-back — the WGSL twin of CoProxy<AccumOrig>::commit
       // (accum_mode.h). The same delta lands on co and on disp, so the derived
       // base holds still for the next dab; accumulate mode leaves disp alone.
-      write("  let sb_delta = "); write(vertexParamName); write("_co - sb_base;\n");
+      write("  let sb_delta = ");
+      write(vertexParamName);
+      write("_co - sb_base;\n");
       write("  if (brush_u.nonaccum != 0u) {\n");
       write("    co_buf[sb_vidx] = co_buf[sb_vidx] + sb_delta;\n");
       write("    sb_disp[sb_vidx] = sb_disp[sb_vidx] + sb_delta;\n");
       write("  } else {\n");
-      write("    co_buf[sb_vidx] = "); write(vertexParamName); write("_co;\n");
+      write("    co_buf[sb_vidx] = ");
+      write(vertexParamName);
+      write("_co;\n");
       write("  }\n");
     } else {
       write("  co_buf[sb_vidx] = ");
-      write(vertexParamName); write("_co;\n");
+      write(vertexParamName);
+      write("_co;\n");
     }
     write("  no_buf[sb_vidx] = ");
-    write(vertexParamName); write("_no;\n");
+    write(vertexParamName);
+    write("_no;\n");
     write("  mask_buf[sb_vidx] = ");
-    write(vertexParamName); write("_mask;\n");
+    write(vertexParamName);
+    write("_mask;\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex) continue;
-      write("  attr_"); write(f.name); write("[sb_vidx] = ");
-      write(vertexParamName); write("_"); write(f.name); write(";\n");
+      if (f.kind != FieldKind::Attr || f.domain != AttrDomain::Vertex)
+        continue;
+      write("  attr_");
+      write(f.name);
+      write("[sb_vidx] = ");
+      write(vertexParamName);
+      write("_");
+      write(f.name);
+      write(";\n");
     }
     write("}\n");
   }
@@ -2117,10 +2458,16 @@ EmitResult emitWgsl(const Brush &brush)
   Emit em;
   em.brush = &brush;
   for (const auto &st : brush.stages) {
-    if (st.kind == StageKind::Vertex) { em.vertexStage = &st; break; }
+    if (st.kind == StageKind::Vertex) {
+      em.vertexStage = &st;
+      break;
+    }
   }
   for (const auto &st : brush.stages) {
-    if (st.kind == StageKind::Face) { em.faceStage = &st; break; }
+    if (st.kind == StageKind::Face) {
+      em.faceStage = &st;
+      break;
+    }
   }
   if (em.vertexStage && em.vertexStage->params.size() > 0) {
     em.vertexParamName = em.vertexStage->params[0].name;

@@ -128,8 +128,14 @@ template <class AccMode, class Exec = CommandExecutor> struct CoProxy {
   int v = -1;
   bool written = false;
 
-  float3 cur() const { return (AccMode::reads_base && !written) ? base : live; }
-  operator float3() const { return cur(); }
+  float3 cur() const
+  {
+    return (AccMode::reads_base && !written) ? base : live;
+  }
+  operator float3() const
+  {
+    return cur();
+  }
 
   void commit(const float3 &want)
   {
@@ -179,12 +185,30 @@ template <class AccMode, class Exec = CommandExecutor> struct CoProxy {
     return *this;
   }
 
-  float3 operator+(const float3 &r) const { return cur() + r; }
-  float3 operator-(const float3 &r) const { return cur() - r; }
-  float3 operator*(const float3 &r) const { return cur() * r; }
-  float3 operator/(const float3 &r) const { return cur() / r; }
-  float3 operator*(float r) const { return cur() * r; }
-  float3 operator/(float r) const { return cur() / r; }
+  float3 operator+(const float3 &r) const
+  {
+    return cur() + r;
+  }
+  float3 operator-(const float3 &r) const
+  {
+    return cur() - r;
+  }
+  float3 operator*(const float3 &r) const
+  {
+    return cur() * r;
+  }
+  float3 operator/(const float3 &r) const
+  {
+    return cur() / r;
+  }
+  float3 operator*(float r) const
+  {
+    return cur() * r;
+  }
+  float3 operator/(float r) const
+  {
+    return cur() / r;
+  }
 };
 
 } // namespace sculptcore::brush

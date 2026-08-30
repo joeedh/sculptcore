@@ -20,7 +20,8 @@ AttrData<float2> *findUvCorner(MeshBase *m)
 {
   for (AttrRef &attr : m->c.attrs.attrs) {
     if (attr.type == AttrType::FLOAT2 && attr.data &&
-        (static_cast<int>(attr.use) & static_cast<int>(AttrUse::UV)) != 0) {
+        (static_cast<int>(attr.use) & static_cast<int>(AttrUse::UV)) != 0)
+    {
       return static_cast<AttrData<float2> *>(attr.data);
     }
   }
@@ -31,10 +32,12 @@ AttrData<float2> *findUvCorner(MeshBase *m)
 int cornerOfFaceVert(MeshBase *m, int f, int v)
 {
   int l = m->f.l[f];
-  if (l == ELEM_NONE) return ELEM_NONE;
+  if (l == ELEM_NONE)
+    return ELEM_NONE;
   int c0 = m->l.c[l], c = c0;
   do {
-    if (m->c.v[c] == v) return c;
+    if (m->c.v[c] == v)
+      return c;
     c = m->c.next[c];
   } while (c != c0 && c != ELEM_NONE);
   return ELEM_NONE;
@@ -44,17 +47,21 @@ int cornerOfFaceVert(MeshBase *m, int f, int v)
 // assign different UVs to a shared endpoint) — i.e. e is a UV-chart boundary.
 bool computeUvChartBoundary(MeshBase *m, int e, AttrData<float2> *uv)
 {
-  if (!uv) return false;
+  if (!uv)
+    return false;
   int c0 = m->e.c[e];
-  if (c0 == ELEM_NONE) return false; // wire edge
+  if (c0 == ELEM_NONE)
+    return false; // wire edge
   // Collect the (up to) two incident faces.
   int fA = ELEM_NONE, fB = ELEM_NONE;
   int c = c0;
   do {
     int f = m->l.f[m->c.l[c]];
     if (f != fA && f != fB) {
-      if (fA == ELEM_NONE) fA = f;
-      else if (fB == ELEM_NONE) fB = f;
+      if (fA == ELEM_NONE)
+        fA = f;
+      else if (fB == ELEM_NONE)
+        fB = f;
     }
     c = m->c.radial_next[c];
   } while (c != c0 && c != ELEM_NONE);
@@ -67,7 +74,8 @@ bool computeUvChartBoundary(MeshBase *m, int e, AttrData<float2> *uv)
     int v = verts[vi];
     int ca = cornerOfFaceVert(m, fA, v);
     int cb = cornerOfFaceVert(m, fB, v);
-    if (ca == ELEM_NONE || cb == ELEM_NONE) continue;
+    if (ca == ELEM_NONE || cb == ELEM_NONE)
+      continue;
     if (((*uv)[ca] - (*uv)[cb]).lengthSqr() > eps2) {
       return true;
     }
@@ -78,32 +86,37 @@ bool computeUvChartBoundary(MeshBase *m, int e, AttrData<float2> *uv)
 BoolAttrView *ensureBoolEdge(MeshBase *m, const char *name, bool temp)
 {
   AttrRef &ref = m->e.attrs.ensure(AttrType::BOOL, name);
-  if (temp) ref.flag = AttrFlag::TEMP;
+  if (temp)
+    ref.flag = AttrFlag::TEMP;
   return static_cast<BoolAttrView *>(ref.data);
 }
 
 BoolAttrView *ensureBoolVert(MeshBase *m, const char *name, bool temp)
 {
   AttrRef &ref = m->v.attrs.ensure(AttrType::BOOL, name);
-  if (temp) ref.flag = AttrFlag::TEMP;
+  if (temp)
+    ref.flag = AttrFlag::TEMP;
   return static_cast<BoolAttrView *>(ref.data);
 }
 BoolAttrView *findBoolEdge(MeshBase *m, const char *name)
 {
-  if (!m->e.attrs.has(AttrType::BOOL, name)) return nullptr;
+  if (!m->e.attrs.has(AttrType::BOOL, name))
+    return nullptr;
   AttrRef ref = m->e.attrs.find_attribute(AttrType::BOOL, name);
   return static_cast<BoolAttrView *>(ref.data);
 }
 AttrData<int> *findIntFace(MeshBase *m, const char *name)
 {
-  if (!m->f.attrs.has(AttrType::INT, name)) return nullptr;
+  if (!m->f.attrs.has(AttrType::INT, name))
+    return nullptr;
   AttrRef ref = m->f.attrs.find_attribute(AttrType::INT, name);
   return static_cast<AttrData<int> *>(ref.data);
 }
 AttrData<int> *ensureIntVert(MeshBase *m, const char *name, bool temp)
 {
   AttrRef &ref = m->v.attrs.ensure(AttrType::INT, name, /*materialize=*/true);
-  if (temp) ref.flag = AttrFlag::TEMP;
+  if (temp)
+    ref.flag = AttrFlag::TEMP;
   return static_cast<AttrData<int> *>(ref.data);
 }
 
@@ -112,9 +125,11 @@ AttrData<int> *ensureIntVert(MeshBase *m, const char *name, bool temp)
 // terminate at the cycle start, so a range-for over it would spin forever.
 bool computePolygroupBoundary(MeshBase *m, int e, AttrData<int> *faceGroup)
 {
-  if (!faceGroup) return false;
+  if (!faceGroup)
+    return false;
   int c0 = m->e.c[e];
-  if (c0 == ELEM_NONE) return false; // wire edge — no adjacent faces
+  if (c0 == ELEM_NONE)
+    return false; // wire edge — no adjacent faces
   bool haveFirst = false;
   int g0 = 0;
   int c = c0;
@@ -193,11 +208,13 @@ void markAllDirty(MeshBase *m)
   BoolAttrView *eDirty = ensureBoolEdge(m, EDGE_DIRTY, true);
   const int ecap = int(m->e.capacity());
   for (int e = 0; e < ecap; e++)
-    if (!m->e.freemap[e]) eDirty->set(e, true);
+    if (!m->e.freemap[e])
+      eDirty->set(e, true);
   BoolAttrView *vDirty = ensureBoolVert(m, VERT_DIRTY, true);
   const int vcap = int(m->v.capacity());
   for (int v = 0; v < vcap; v++)
-    if (!m->v.freemap[v]) vDirty->set(v, true);
+    if (!m->v.freemap[v])
+      vDirty->set(v, true);
   m->boundaryDirty = true;
 }
 
@@ -225,7 +242,8 @@ void recomputeDirty(MeshBase *m)
   // >= count and `count` is NOT a valid loop bound.
   const int ecap = int(m->e.capacity());
   for (int e = 0; e < ecap; e++) {
-    if (m->e.freemap[e] || !eDirty->get(e)) continue;
+    if (m->e.freemap[e] || !eDirty->get(e))
+      continue;
     ePoly->set(e, computePolygroupBoundary(m, e, faceGroup));
     if (eUvDerive) {
       eUvDerive->set(e, computeUvChartBoundary(m, e, uvCorner));
@@ -239,7 +257,8 @@ void recomputeDirty(MeshBase *m)
   // incident edges' boundary flags.
   const int vcap = int(m->v.capacity());
   for (int v = 0; v < vcap; v++) {
-    if (m->v.freemap[v] || !vDirty->get(v)) continue;
+    if (m->v.freemap[v] || !vDirty->get(v))
+      continue;
     int cls = BC_NONE;
     // Count incident edges per dominant type so we can flag chain endpoints.
     // SHARP overrides the smooth types; the smooth count is per-edge (an edge
@@ -247,19 +266,28 @@ void recomputeDirty(MeshBase *m)
     int sharpCount = 0, smoothCount = 0;
     for (int e : EdgeOfVertIter(m, v, m->v.e[v])) {
       int eb = 0;
-      if (eProj && eProj->get(e)) eb |= BC_PROJECTED;
-      if (eSharp && eSharp->get(e)) eb |= BC_SHARP;
-      if (eSeam && eSeam->get(e)) eb |= BC_SEAM;
-      if (ePoly->get(e)) eb |= BC_POLYGROUP;
+      if (eProj && eProj->get(e))
+        eb |= BC_PROJECTED;
+      if (eSharp && eSharp->get(e))
+        eb |= BC_SHARP;
+      if (eSeam && eSeam->get(e))
+        eb |= BC_SEAM;
+      if (ePoly->get(e))
+        eb |= BC_POLYGROUP;
       BoolAttrView *uvView = eUvDerive ? eUvDerive : eUv;
-      if (uvView && uvView->get(e)) eb |= BC_UVCHART;
+      if (uvView && uvView->get(e))
+        eb |= BC_UVCHART;
       cls |= eb;
-      if (eb & BC_SHARP) sharpCount++;
-      if (eb & (BC_PROJECTED | BC_SEAM | BC_POLYGROUP | BC_UVCHART)) smoothCount++;
+      if (eb & BC_SHARP)
+        sharpCount++;
+      if (eb & (BC_PROJECTED | BC_SEAM | BC_POLYGROUP | BC_UVCHART))
+        smoothCount++;
     }
     int domCount = sharpCount > 0 ? sharpCount : smoothCount;
-    if (cls != BC_NONE && domCount == 1) cls |= BC_ENDPOINT;
-    if (cls != BC_NONE && domCount >= 3) cls |= BC_JUNCTION;
+    if (cls != BC_NONE && domCount == 1)
+      cls |= BC_ENDPOINT;
+    if (cls != BC_NONE && domCount >= 3)
+      cls |= BC_JUNCTION;
     (*vClass)[v] = cls;
     vDirty->set(v, false);
   }
@@ -269,7 +297,8 @@ void recomputeDirty(MeshBase *m)
 
 int vertClass(MeshBase *m, int v)
 {
-  if (!m->v.attrs.has(AttrType::INT, VERT_CLASS)) return 0;
+  if (!m->v.attrs.has(AttrType::INT, VERT_CLASS))
+    return 0;
   AttrRef ref = m->v.attrs.find_attribute(AttrType::INT, VERT_CLASS);
   return (*static_cast<AttrData<int> *>(ref.data))[v];
 }
@@ -306,7 +335,8 @@ void graphStats(MeshBase *m, litestl::util::Vector<int> &out)
   int flagged = 0;
   const int ecap = int(m->e.capacity());
   for (int e = 0; e < ecap; e++) {
-    if (m->e.freemap[e]) continue;
+    if (m->e.freemap[e])
+      continue;
     bool on = false;
     for (BoolAttrView *view : views) {
       if (view && view->get(e)) {
@@ -314,7 +344,8 @@ void graphStats(MeshBase *m, litestl::util::Vector<int> &out)
         break;
       }
     }
-    if (!on) continue;
+    if (!on)
+      continue;
     flagged++;
     int v0 = m->e.vs[e][0], v1 = m->e.vs[e][1];
     valence[v0]++;
@@ -327,10 +358,13 @@ void graphStats(MeshBase *m, litestl::util::Vector<int> &out)
 
   int graphVerts = 0, non2 = 0, components = 0;
   for (int v = 0; v < vcap; v++) {
-    if (valence[v] == 0) continue;
+    if (valence[v] == 0)
+      continue;
     graphVerts++;
-    if (valence[v] != 2) non2++;
-    if (find(v) == v) components++;
+    if (valence[v] != 2)
+      non2++;
+    if (find(v) == v)
+      components++;
   }
 
   out.append(flagged);

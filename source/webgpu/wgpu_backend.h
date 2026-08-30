@@ -36,7 +36,8 @@ struct DrawUniforms {
  *  construction (the swap-chain format for the surface path, RGBA8Unorm for
  *  offscreen). Build one backend per target format. */
 struct WebGpuBackend : public sculptcore::gpu::GPUResourceObserver {
-  WebGpuBackend(sculptcore::gpu::GPUManager *mgr, WgpuContext *ctx,
+  WebGpuBackend(sculptcore::gpu::GPUManager *mgr,
+                WgpuContext *ctx,
                 WGPUTextureFormat colorFormat);
   WebGpuBackend(const WebGpuBackend &) = delete;
   ~WebGpuBackend() override;
@@ -63,7 +64,10 @@ struct WebGpuBackend : public sculptcore::gpu::GPUResourceObserver {
   /** Drop all cached WebGPU objects. */
   void invalidate();
 
-  WgpuContext *context() const { return ctx_; }
+  WgpuContext *context() const
+  {
+    return ctx_;
+  }
 
 private:
   struct BufferEntry {

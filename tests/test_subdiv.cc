@@ -110,8 +110,8 @@ static Mesh *buildCreasedCube()
 static Mesh *buildFan()
 {
   Mesh *m = alloc::New<Mesh>("subdiv fan");
-  float co[6][3] = {{0, 0, 0},           {1, 0, 0},  {0.75f, 0.75f, 0},
-                    {0, 1, 0},           {-0.75f, 0.75f, 0}, {-1, 0, 0}};
+  float co[6][3] = {
+      {0, 0, 0}, {1, 0, 0}, {0.75f, 0.75f, 0}, {0, 1, 0}, {-0.75f, 0.75f, 0}, {-1, 0, 0}};
   int ids[6];
   for (int i = 0; i < 6; i++) {
     ids[i] = m->make_vertex(float3(co[i][0], co[i][1], co[i][2]));
@@ -234,9 +234,9 @@ static void checkBitExact(Mesh *(*build)(), int nLevels, const char *tag)
    * and compare against evaluating the CACHED tables on the perturbed coords. */
   Mesh *cage2 = build();
   for (int vi : cage2->v) {
-    cage2->v.co[vi] +=
-        float3(float(vi % 5) * 0.0625f, float((vi + 1) % 3) * 0.03125f,
-               float((vi + 2) % 7) * 0.015625f);
+    cage2->v.co[vi] += float3(float(vi % 5) * 0.0625f,
+                              float((vi + 1) % 3) * 0.03125f,
+                              float((vi + 2) % 7) * 0.015625f);
   }
   subdiv::Refiner rb;
   rb.refine(*cage2, nLevels);
@@ -248,7 +248,10 @@ static void checkBitExact(Mesh *(*build)(), int nLevels, const char *tag)
     subdiv::gatherVertCo(*rb.levels[L].mesh, direct);
     direct.resize(rb.levels[L].vertCount);
     test_assert(sameBits(evaled, direct));
-    fprintf(stderr, "%s: level %d bit-exact (%d verts)\n", tag, L + 1,
+    fprintf(stderr,
+            "%s: level %d bit-exact (%d verts)\n",
+            tag,
+            L + 1,
             rb.levels[L].vertCount);
   }
 
@@ -258,8 +261,8 @@ static void checkBitExact(Mesh *(*build)(), int nLevels, const char *tag)
   alloc::Delete(cage2);
 }
 
-static void checkLevelShape(subdiv::Refiner &r, int L, int expectV, int expectF,
-                            const char *tag)
+static void
+checkLevelShape(subdiv::Refiner &r, int L, int expectV, int expectF, const char *tag)
 {
   subdiv::SubdivLevel &lvl = r.levels[L];
   test_assert(lvl.vertCount == expectV);
@@ -268,8 +271,7 @@ static void checkLevelShape(subdiv::Refiner &r, int L, int expectV, int expectF,
   for (int fi : lvl.mesh->f) {
     test_assert(faceVertCount(*lvl.mesh, fi) == 4);
   }
-  fprintf(stderr, "%s L%d: V=%d F=%d\n", tag, L + 1, lvl.vertCount,
-          lvl.mesh->f.count);
+  fprintf(stderr, "%s L%d: V=%d F=%d\n", tag, L + 1, lvl.vertCount, lvl.mesh->f.count);
 }
 
 static void testCube()

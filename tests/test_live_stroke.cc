@@ -10,10 +10,10 @@
 // not exercise it. GPU-dependent: self-skips if no Vulkan device is available.
 #include "test_util.h"
 
+#include "debug/input.h"
+#include "debug/interactive.h"
 #include "debug/scene.h"
 #include "debug/script.h"
-#include "debug/interactive.h"
-#include "debug/input.h"
 
 #include "mesh/mesh.h"
 
@@ -27,13 +27,19 @@ static InputEvent mouseBtn(MouseButton b, ButtonAction a, float x, float y)
 {
   InputEvent e;
   e.kind = InputKind::MouseButton;
-  e.u.mb.button = b; e.u.mb.action = a; e.u.mb.mods.bits = 0; e.u.mb.x = x; e.u.mb.y = y;
+  e.u.mb.button = b;
+  e.u.mb.action = a;
+  e.u.mb.mods.bits = 0;
+  e.u.mb.x = x;
+  e.u.mb.y = y;
   return e;
 }
 static InputEvent mouseMove(float x, float y)
 {
   InputEvent e;
-  e.kind = InputKind::CursorPos; e.u.cursor.x = x; e.u.cursor.y = y;
+  e.kind = InputKind::CursorPos;
+  e.u.cursor.x = x;
+  e.u.cursor.y = y;
   return e;
 }
 
@@ -42,15 +48,14 @@ int main()
   setvbuf(stdout, nullptr, _IONBF, 0);
 
   Scene scene(256, 256, /*headless=*/true);
-  const char *src =
-      "make_cube subdivs=12 size=0.5\n"
-      "build_spatial leaf_limit=256 depth_limit=8\n"
-      "set_brush_tool tool=draw\n"
-      "set_brush radius=0.25 strength=0.5\n"
-      "set_backend backend=cpp\n"
-      "stroke origin=0,0,0.25 normal=0,0,1\n"  // freezes topology
-      "set_backend backend=wgsl\n"
-      "view preset=persp\n";
+  const char *src = "make_cube subdivs=12 size=0.5\n"
+                    "build_spatial leaf_limit=256 depth_limit=8\n"
+                    "set_brush_tool tool=draw\n"
+                    "set_brush radius=0.25 strength=0.5\n"
+                    "set_backend backend=cpp\n"
+                    "stroke origin=0,0,0.25 normal=0,0,1\n" // freezes topology
+                    "set_backend backend=wgsl\n"
+                    "view preset=persp\n";
   auto r = script::run(scene, src, ".");
   test_assert(r.ok);
   if (!r.ok) {

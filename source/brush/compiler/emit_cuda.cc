@@ -20,26 +20,39 @@ namespace {
 const char *cudaType(TypeKind k)
 {
   switch (k) {
-  case TypeKind::Void: return "void";
-  case TypeKind::Bool: return "bool";
-  case TypeKind::Int: return "int";
-  case TypeKind::Float: return "float";
-  case TypeKind::Float2: return "float2";
-  case TypeKind::Float3: return "float3";
-  case TypeKind::Float4: return "float4";
-  default: return "float";
+  case TypeKind::Void:
+    return "void";
+  case TypeKind::Bool:
+    return "bool";
+  case TypeKind::Int:
+    return "int";
+  case TypeKind::Float:
+    return "float";
+  case TypeKind::Float2:
+    return "float2";
+  case TypeKind::Float3:
+    return "float3";
+  case TypeKind::Float4:
+    return "float4";
+  default:
+    return "float";
   }
 }
 
 bool hasNeighborLoop(const Stmt *s)
 {
-  if (!s) return false;
-  if (s->kind == StmtKind::NeighborLoop) return true;
+  if (!s)
+    return false;
+  if (s->kind == StmtKind::NeighborLoop)
+    return true;
   for (const auto &c : s->stmts) {
-    if (hasNeighborLoop(c.get())) return true;
+    if (hasNeighborLoop(c.get()))
+      return true;
   }
-  if (hasNeighborLoop(s->thenBranch.get())) return true;
-  if (hasNeighborLoop(s->elseBranch.get())) return true;
+  if (hasNeighborLoop(s->thenBranch.get()))
+    return true;
+  if (hasNeighborLoop(s->elseBranch.get()))
+    return true;
   return false;
 }
 
@@ -47,7 +60,7 @@ struct Emit {
   const Brush *brush;
   BackendKind target = BackendKind::Cuda;
   const Stage *vertexStage = nullptr;
-  string vertexParamName;  // e.g. "v"
+  string vertexParamName; // e.g. "v"
 
   const Stage *currentStage = nullptr;
 
@@ -84,7 +97,8 @@ struct Emit {
   const NbBinding *findNb(stringref name) const
   {
     for (int i = (int)nbStack.size() - 1; i >= 0; i--) {
-      if (string(nbStack[i].name).operator==(string(name.c_str()))) return &nbStack[i];
+      if (string(nbStack[i].name).operator==(string(name.c_str())))
+        return &nbStack[i];
     }
     return nullptr;
   }
@@ -94,14 +108,19 @@ struct Emit {
   string resolveVertIndex(const Expr &e)
   {
     if (e.kind == ExprKind::Ident) {
-      if (isVertexParam(stringref(e.name.c_str()))) return string("sb_vidx");
-      if (auto *nb = findNb(stringref(e.name.c_str()))) return nb->idxVar;
+      if (isVertexParam(stringref(e.name.c_str())))
+        return string("sb_vidx");
+      if (auto *nb = findNb(stringref(e.name.c_str())))
+        return nb->idxVar;
     }
     err("for_neighbor outer must be the vertex bundle or an enclosing neighbor");
     return string("sb_vidx");
   }
 
-  void err(const char *msg) { errors.append(string(msg)); }
+  void err(const char *msg)
+  {
+    errors.append(string(msg));
+  }
   void errf(const char *fmt, const char *arg)
   {
     char buf[256];
@@ -111,15 +130,23 @@ struct Emit {
 
   void writeIndent()
   {
-    for (int i = 0; i < indent; i++) out += "  ";
+    for (int i = 0; i < indent; i++)
+      out += "  ";
   }
-  void write(const char *s) { out += s; }
-  void write(const string &s) { out += s; }
+  void write(const char *s)
+  {
+    out += s;
+  }
+  void write(const string &s)
+  {
+    out += s;
+  }
 
   bool isLocal(stringref name) const
   {
     for (const auto &l : locals) {
-      if (string(l.name).operator==(string(name.c_str()))) return true;
+      if (string(l.name).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -127,7 +154,8 @@ struct Emit {
   bool isDualLocal(stringref name) const
   {
     for (const auto &l : locals) {
-      if (l.dual && string(l.name).operator==(string(name.c_str()))) return true;
+      if (l.dual && string(l.name).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -135,16 +163,19 @@ struct Emit {
   const Field *findField(stringref name) const
   {
     for (const auto &f : brush->fields) {
-      if (string(f.name).operator==(string(name.c_str()))) return &f;
+      if (string(f.name).operator==(string(name.c_str())))
+        return &f;
     }
     return nullptr;
   }
 
   bool isStageParam(stringref name) const
   {
-    if (!currentStage) return false;
+    if (!currentStage)
+      return false;
     for (const auto &p : currentStage->params) {
-      if (string(p.name).operator==(string(name.c_str()))) return true;
+      if (string(p.name).operator==(string(name.c_str())))
+        return true;
     }
     return false;
   }
@@ -168,15 +199,18 @@ struct Emit {
   {
     for (const auto &t : brush->textures) {
       string full = t.name + ".eval";
-      if (string(full).operator==(string(callName.c_str()))) return &t;
+      if (string(full).operator==(string(callName.c_str())))
+        return &t;
     }
     return nullptr;
   }
 
   bool isVertexParam(stringref name) const
   {
-    if (!vertexStage) return false;
-    if (vertexStage->params.size() == 0) return false;
+    if (!vertexStage)
+      return false;
+    if (vertexStage->params.size() == 0)
+      return false;
     const auto &p = vertexStage->params[0];
     return string(p.name).operator==(string(name.c_str()));
   }
@@ -191,11 +225,15 @@ struct Emit {
       std::snprintf(buf, sizeof(buf), "%.17g", e.fvalue);
       bool hasDot = false;
       for (const char *p = buf; *p; p++) {
-        if (*p == '.' || *p == 'e' || *p == 'E') { hasDot = true; break; }
+        if (*p == '.' || *p == 'e' || *p == 'E') {
+          hasDot = true;
+          break;
+        }
       }
       out += buf;
-      if (!hasDot) out += ".0";
-      out += "f";  // single-precision device literal
+      if (!hasDot)
+        out += ".0";
+      out += "f"; // single-precision device literal
       break;
     }
     case ExprKind::LitInt: {
@@ -230,19 +268,26 @@ struct Emit {
     case ExprKind::Member: {
       // Vertex-param member access (`v.co`, `v.no`, `v.mask`) targets the
       // per-thread mutable locals seeded from the storage loads.
-      if (e.lhs && e.lhs->kind == ExprKind::Ident && isVertexParam(stringref(e.lhs->name.c_str()))) {
+      if (e.lhs && e.lhs->kind == ExprKind::Ident &&
+          isVertexParam(stringref(e.lhs->name.c_str())))
+      {
         out += e.lhs->name;
         out += "_";
         out += e.name;
       } else if (e.lhs && e.lhs->kind == ExprKind::Ident &&
-                 findNb(stringref(e.lhs->name.c_str()))) {
+                 findNb(stringref(e.lhs->name.c_str())))
+      {
         // Neighbor-bundle member: read from the CSR-indexed buffers. co
         // comes from the pre-dab snapshot (Jacobi); no stays live.
         const NbBinding *nb = findNb(stringref(e.lhs->name.c_str()));
         if (std::strcmp(e.name.c_str(), "co") == 0) {
-          out += "co_prev["; out += nb->idxVar; out += "]";
+          out += "co_prev[";
+          out += nb->idxVar;
+          out += "]";
         } else if (std::strcmp(e.name.c_str(), "no") == 0) {
-          out += "no_buf["; out += nb->idxVar; out += "]";
+          out += "no_buf[";
+          out += nb->idxVar;
+          out += "]";
         } else if (std::strcmp(e.name.c_str(), "v") == 0) {
           out += nb->idxVar;
         } else {
@@ -292,8 +337,11 @@ struct Emit {
           break;
         }
         gradUsed = true;
-        string savedVar = gradVar; gradVar = render(*e.args[1]);
-        out += "("; emitDual(*e.args[0]); out += ").d";
+        string savedVar = gradVar;
+        gradVar = render(*e.args[1]);
+        out += "(";
+        emitDual(*e.args[0]);
+        out += ").d";
         gradVar = savedVar;
         break;
       }
@@ -301,12 +349,14 @@ struct Emit {
       // (the prelude has no implicit aggregate constructors).
       const char *n = e.name.c_str();
       if (std::strcmp(n, "float2") == 0 || std::strcmp(n, "float3") == 0 ||
-          std::strcmp(n, "float4") == 0) {
+          std::strcmp(n, "float4") == 0)
+      {
         out += "sb_make_float";
         out += n[5];
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         out += ")";
@@ -318,7 +368,8 @@ struct Emit {
         out += texEvalName(*td);
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         out += ")";
@@ -342,7 +393,7 @@ struct Emit {
           rendered.append(out);
           out = saved;
         }
-        for (const char *p = pat; *p; ) {
+        for (const char *p = pat; *p;) {
           if (*p == '$' && std::isdigit((unsigned char)p[1])) {
             int idx = p[1] - '0';
             p += 2;
@@ -372,7 +423,8 @@ struct Emit {
         out += e.name;
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i > 0) out += ", ";
+          if (i > 0)
+            out += ", ";
           emitExpr(*e.args[i]);
         }
         out += ")";
@@ -384,8 +436,20 @@ struct Emit {
 
   // grad dual rewrite — CUDA prelude provides overloaded sbdual operators, so
   // binary/unary emit verbatim; sbd_* use device math + sc_*/float3 helpers.
-  string render(const Expr &e) { string s = out; out = string(""); emitExpr(e); string r = out; out = s; return r; }
-  bool isGradVar(const Expr &e) { string r = render(e); return string(r).operator==(string(gradVar.c_str())); }
+  string render(const Expr &e)
+  {
+    string s = out;
+    out = string("");
+    emitExpr(e);
+    string r = out;
+    out = s;
+    return r;
+  }
+  bool isGradVar(const Expr &e)
+  {
+    string r = render(e);
+    return string(r).operator==(string(gradVar.c_str()));
+  }
   void emitDual(const Expr &e)
   {
     if (dualBody && e.kind == ExprKind::Ident && isDualLocal(stringref(e.name.c_str()))) {
@@ -393,9 +457,19 @@ struct Emit {
       out += e.name;
       return;
     }
-    if (isGradVar(e)) { out += "sb_seed3("; emitExpr(e); out += ")"; return; }
+    if (isGradVar(e)) {
+      out += "sb_seed3(";
+      emitExpr(e);
+      out += ")";
+      return;
+    }
     switch (e.kind) {
-    case ExprKind::LitFloat: case ExprKind::LitInt: out += "sb_c("; emitExpr(e); out += ")"; break;
+    case ExprKind::LitFloat:
+    case ExprKind::LitInt:
+      out += "sb_c(";
+      emitExpr(e);
+      out += ")";
+      break;
     case ExprKind::Ident:
       // In an EvalD body non-dual idents are scalar texture params; in a
       // stage body a bare ident under grad is the float3 being seeded.
@@ -410,19 +484,58 @@ struct Emit {
         out += "sb_comp(";
         out += e.lhs->name;
         out += ", ";
-        out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2");
+        out += (std::strcmp(e.name.c_str(), "x") == 0   ? "0"
+                : std::strcmp(e.name.c_str(), "y") == 0 ? "1"
+                                                        : "2");
         out += ")";
         break;
       }
-      if (e.lhs && isGradVar(*e.lhs)) { out += "sb_comp(sb_seed3("; emitExpr(*e.lhs); out += "), "; out += (std::strcmp(e.name.c_str(),"x")==0?"0":std::strcmp(e.name.c_str(),"y")==0?"1":"2"); out += ")"; }
-      else { out += "sb_c("; emitExpr(e); out += ")"; }
+      if (e.lhs && isGradVar(*e.lhs)) {
+        out += "sb_comp(sb_seed3(";
+        emitExpr(*e.lhs);
+        out += "), ";
+        out += (std::strcmp(e.name.c_str(), "x") == 0   ? "0"
+                : std::strcmp(e.name.c_str(), "y") == 0 ? "1"
+                                                        : "2");
+        out += ")";
+      } else {
+        out += "sb_c(";
+        emitExpr(e);
+        out += ")";
+      }
       break;
-    case ExprKind::Paren: out += "("; emitDual(*e.lhs); out += ")"; break;
-    case ExprKind::Binary: out += "("; emitDual(*e.lhs); out += " "; out += binOpCSym(e.binop); out += " "; emitDual(*e.rhs); out += ")"; break;
-    case ExprKind::Unary: out += "("; out += unaryOpCSym(e.unaryop); emitDual(*e.lhs); out += ")"; break;
+    case ExprKind::Paren:
+      out += "(";
+      emitDual(*e.lhs);
+      out += ")";
+      break;
+    case ExprKind::Binary:
+      out += "(";
+      emitDual(*e.lhs);
+      out += " ";
+      out += binOpCSym(e.binop);
+      out += " ";
+      emitDual(*e.rhs);
+      out += ")";
+      break;
+    case ExprKind::Unary:
+      out += "(";
+      out += unaryOpCSym(e.unaryop);
+      emitDual(*e.lhs);
+      out += ")";
+      break;
     case ExprKind::Call: {
       const char *n = e.name.c_str();
-      if (std::strcmp(n,"float3")==0) { out += "sb_v3("; for (int i=0;i<3;i++){if(i)out+=", ";emitDual(*e.args[i]);} out += ")"; break; }
+      if (std::strcmp(n, "float3") == 0) {
+        out += "sb_v3(";
+        for (int i = 0; i < 3; i++) {
+          if (i)
+            out += ", ";
+          emitDual(*e.args[i]);
+        }
+        out += ")";
+        break;
+      }
       // Texture call in a dual context — dispatch to the EvalD twin with
       // dual-lifted arguments.
       if (const TextureDef *td = findTextureCall(stringref(e.name.c_str()))) {
@@ -434,7 +547,8 @@ struct Emit {
         out += texEvalName(*td);
         out += "_d(";
         for (int i = 0; i < (int)e.args.size(); i++) {
-          if (i) out += ", ";
+          if (i)
+            out += ", ";
           emitDual(*e.args[i]);
         }
         out += ")";
@@ -457,16 +571,55 @@ struct Emit {
         out += "sb_c(0.0f)";
         break;
       }
-      out += "sbd_"; out += n; out += "(";
-      for (int i = 0; i < (int)e.args.size(); i++) { if (i) out += ", "; emitDual(*e.args[i]); }
-      out += ")"; break;
+      out += "sbd_";
+      out += n;
+      out += "(";
+      for (int i = 0; i < (int)e.args.size(); i++) {
+        if (i)
+          out += ", ";
+        emitDual(*e.args[i]);
+      }
+      out += ")";
+      break;
     }
-    default: out += "sb_c(0.0f)"; break;
+    default:
+      out += "sb_c(0.0f)";
+      break;
     }
   }
-  static bool exprUsesGrad(const Expr *e) { if(!e)return false; if(e->kind==ExprKind::Call&&std::strcmp(e->name.c_str(),"grad")==0)return true; if(exprUsesGrad(e->lhs.get())||exprUsesGrad(e->rhs.get()))return true; for(const auto&a:e->args)if(exprUsesGrad(a.get()))return true; return false; }
-  static bool stmtUsesGrad(const Stmt *s) { if(!s)return false; if(exprUsesGrad(s->expr.get())||exprUsesGrad(s->cond.get())||exprUsesGrad(s->lvalue.get())||exprUsesGrad(s->rvalue.get()))return true; for(const auto&c:s->stmts)if(stmtUsesGrad(c.get()))return true; return stmtUsesGrad(s->thenBranch.get())||stmtUsesGrad(s->elseBranch.get())||stmtUsesGrad(s->forInit.get())||stmtUsesGrad(s->forStep.get()); }
-  bool brushUsesGrad() const { for(const auto&st:brush->stages)if(stmtUsesGrad(st.body.get()))return true; return false; }
+  static bool exprUsesGrad(const Expr *e)
+  {
+    if (!e)
+      return false;
+    if (e->kind == ExprKind::Call && std::strcmp(e->name.c_str(), "grad") == 0)
+      return true;
+    if (exprUsesGrad(e->lhs.get()) || exprUsesGrad(e->rhs.get()))
+      return true;
+    for (const auto &a : e->args)
+      if (exprUsesGrad(a.get()))
+        return true;
+    return false;
+  }
+  static bool stmtUsesGrad(const Stmt *s)
+  {
+    if (!s)
+      return false;
+    if (exprUsesGrad(s->expr.get()) || exprUsesGrad(s->cond.get()) ||
+        exprUsesGrad(s->lvalue.get()) || exprUsesGrad(s->rvalue.get()))
+      return true;
+    for (const auto &c : s->stmts)
+      if (stmtUsesGrad(c.get()))
+        return true;
+    return stmtUsesGrad(s->thenBranch.get()) || stmtUsesGrad(s->elseBranch.get()) ||
+           stmtUsesGrad(s->forInit.get()) || stmtUsesGrad(s->forStep.get());
+  }
+  bool brushUsesGrad() const
+  {
+    for (const auto &st : brush->stages)
+      if (stmtUsesGrad(st.body.get()))
+        return true;
+    return false;
+  }
 
   // === statement emitter ===
 
@@ -478,13 +631,17 @@ struct Emit {
   {
     switch (s.kind) {
     case StmtKind::Block: {
-      writeIndent(); out += "{\n";
+      writeIndent();
+      out += "{\n";
       indent++;
       int savedLocals = (int)locals.size();
-      for (const auto &c : s.stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : s.stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       break;
     }
     case StmtKind::DeclLocal:
@@ -502,8 +659,10 @@ struct Emit {
         locals.append(LocalVar{s.name, /*dual=*/true});
         break;
       }
-      if (s.declType == TypeKind::Struct) out += s.declStructName;
-      else out += cudaType(s.declType);
+      if (s.declType == TypeKind::Struct)
+        out += s.declStructName;
+      else
+        out += cudaType(s.declType);
       out += " ";
       out += s.name;
       if (s.expr) {
@@ -562,16 +721,20 @@ struct Emit {
         out += "{\n";
         indent++;
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
         indent--;
-        writeIndent(); out += "}";
+        writeIndent();
+        out += "}";
       } else if (s.thenBranch) {
         out += "{\n";
         indent++;
         emitStmt(*s.thenBranch);
         indent--;
-        writeIndent(); out += "}";
+        writeIndent();
+        out += "}";
       }
       if (s.elseBranch) {
         out += " else ";
@@ -579,10 +742,13 @@ struct Emit {
           out += "{\n";
           indent++;
           int savedLocals = (int)locals.size();
-          for (const auto &c : s.elseBranch->stmts) emitStmt(*c);
-          while ((int)locals.size() > savedLocals) locals.pop_back();
+          for (const auto &c : s.elseBranch->stmts)
+            emitStmt(*c);
+          while ((int)locals.size() > savedLocals)
+            locals.pop_back();
           indent--;
-          writeIndent(); out += "}\n";
+          writeIndent();
+          out += "}\n";
         } else if (s.elseBranch->kind == StmtKind::If) {
           emitStmt(*s.elseBranch);
         } else {
@@ -590,7 +756,8 @@ struct Emit {
           indent++;
           emitStmt(*s.elseBranch);
           indent--;
-          writeIndent(); out += "}\n";
+          writeIndent();
+          out += "}\n";
         }
       } else {
         out += "\n";
@@ -610,46 +777,57 @@ struct Emit {
         string frag = out;
         out = saved;
         int n = (int)frag.size();
-        while (n > 0 && frag[n - 1] == '\n') n--;
-        if (stripSemi && n > 0 && frag[n - 1] == ';') n--;
+        while (n > 0 && frag[n - 1] == '\n')
+          n--;
+        if (stripSemi && n > 0 && frag[n - 1] == ';')
+          n--;
         for (int i = 0; i < n; i++) {
           char tmp[2] = {frag[i], 0};
           out += tmp;
         }
       };
-      if (s.forInit) renderFrag(*s.forInit, /*stripSemi=*/false);
+      if (s.forInit)
+        renderFrag(*s.forInit, /*stripSemi=*/false);
       out += " ";
       emitExpr(*s.cond);
       out += "; ";
-      if (s.forStep) renderFrag(*s.forStep, /*stripSemi=*/true);
+      if (s.forStep)
+        renderFrag(*s.forStep, /*stripSemi=*/true);
       out += ") ";
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
         out += "{\n";
         indent++;
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
         indent--;
-        writeIndent(); out += "}\n";
+        writeIndent();
+        out += "}\n";
       } else if (s.thenBranch) {
         out += "{\n";
         indent++;
         emitStmt(*s.thenBranch);
         indent--;
-        writeIndent(); out += "}\n";
+        writeIndent();
+        out += "}\n";
       }
       break;
     }
     case StmtKind::Continue:
-      writeIndent(); out += "return;\n";
+      writeIndent();
+      out += "return;\n";
       break;
     case StmtKind::Return:
       writeIndent();
       out += "return";
       if (s.expr) {
         out += " ";
-        if (dualBody) emitDual(*s.expr);
-        else emitExpr(*s.expr);
+        if (dualBody)
+          emitDual(*s.expr);
+        else
+          emitExpr(*s.expr);
       }
       out += ";\n";
       break;
@@ -669,7 +847,8 @@ struct Emit {
       string metaVar = string("sb_nbr_meta") + sfx;
       string niVar = string("sb_ni") + sfx;
       string idxVar = string("sb_nb_v") + sfx;
-      writeIndent(); out += "{\n";
+      writeIndent();
+      out += "{\n";
       indent++;
       writeIndent();
       out += "sb_uint2 " + metaVar + " = vert_nbr_meta[" + outerIdx + "];\n";
@@ -678,20 +857,25 @@ struct Emit {
              niVar + " = " + niVar + " + 1u) {\n";
       indent++;
       writeIndent();
-      out += "unsigned int " + idxVar + " = nbr_verts[" + metaVar + ".x + " + niVar + "];\n";
+      out +=
+          "unsigned int " + idxVar + " = nbr_verts[" + metaVar + ".x + " + niVar + "];\n";
       nbStack.append(NbBinding{s.name, idxVar});
       if (s.thenBranch && s.thenBranch->kind == StmtKind::Block) {
         int savedLocals = (int)locals.size();
-        for (const auto &c : s.thenBranch->stmts) emitStmt(*c);
-        while ((int)locals.size() > savedLocals) locals.pop_back();
+        for (const auto &c : s.thenBranch->stmts)
+          emitStmt(*c);
+        while ((int)locals.size() > savedLocals)
+          locals.pop_back();
       } else if (s.thenBranch) {
         emitStmt(*s.thenBranch);
       }
       nbStack.pop_back();
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       indent--;
-      writeIndent(); out += "}\n";
+      writeIndent();
+      out += "}\n";
       break;
     }
     }
@@ -715,7 +899,8 @@ struct Emit {
     // toolchain that already defines them.
     write("#ifndef __device__\n#define __device__ __attribute__((device))\n#endif\n");
     write("#ifndef __global__\n#define __global__ __attribute__((global))\n#endif\n");
-    write("#ifndef __forceinline__\n#define __forceinline__ __attribute__((always_inline)) inline\n#endif\n\n");
+    write("#ifndef __forceinline__\n#define __forceinline__ "
+          "__attribute__((always_inline)) inline\n#endif\n\n");
 
     // Block/thread index — the only per-target difference in the lowering.
     if (cuda) {
@@ -744,24 +929,41 @@ struct Emit {
     write("struct float2 { float x, y; };\n");
     write("struct float3 { float x, y, z; };\n");
     write("struct float4 { float x, y, z, w; };\n\n");
-    write("__device__ __forceinline__ float2 sb_make_float2(float x, float y) { float2 r; r.x=x; r.y=y; return r; }\n");
-    write("__device__ __forceinline__ float3 sb_make_float3(float x, float y, float z) { float3 r; r.x=x; r.y=y; r.z=z; return r; }\n");
-    write("__device__ __forceinline__ float4 sb_make_float4(float x, float y, float z, float w) { float4 r; r.x=x; r.y=y; r.z=z; r.w=w; return r; }\n\n");
-    write("__device__ __forceinline__ float3 operator+(float3 a, float3 b) { return sb_make_float3(a.x+b.x, a.y+b.y, a.z+b.z); }\n");
-    write("__device__ __forceinline__ float3 operator-(float3 a, float3 b) { return sb_make_float3(a.x-b.x, a.y-b.y, a.z-b.z); }\n");
-    write("__device__ __forceinline__ float3 operator-(float3 a) { return sb_make_float3(-a.x, -a.y, -a.z); }\n");
-    write("__device__ __forceinline__ float3 operator*(float3 a, float s) { return sb_make_float3(a.x*s, a.y*s, a.z*s); }\n");
-    write("__device__ __forceinline__ float3 operator*(float s, float3 a) { return sb_make_float3(a.x*s, a.y*s, a.z*s); }\n");
-    write("__device__ __forceinline__ float3 operator/(float3 a, float s) { return sb_make_float3(a.x/s, a.y/s, a.z/s); }\n");
-    write("__device__ __forceinline__ float3 &operator+=(float3 &a, float3 b) { a = a + b; return a; }\n");
-    write("__device__ __forceinline__ float3 &operator-=(float3 &a, float3 b) { a = a - b; return a; }\n");
-    write("__device__ __forceinline__ float3 &operator*=(float3 &a, float s) { a = a * s; return a; }\n");
-    write("__device__ __forceinline__ float3 &operator/=(float3 &a, float s) { a = a / s; return a; }\n\n");
-    write("__device__ __forceinline__ float sc_dot(float3 a, float3 b) { return a.x*b.x + a.y*b.y + a.z*b.z; }\n");
-    write("__device__ __forceinline__ float sc_length(float3 a) { return sqrtf(sc_dot(a, a)); }\n");
-    write("__device__ __forceinline__ float3 sc_normalize(float3 a) { float l = sc_length(a); return (l > 0.0f) ? a / l : a; }\n");
+    write("__device__ __forceinline__ float2 sb_make_float2(float x, float y) { float2 "
+          "r; r.x=x; r.y=y; return r; }\n");
+    write("__device__ __forceinline__ float3 sb_make_float3(float x, float y, float z) { "
+          "float3 r; r.x=x; r.y=y; r.z=z; return r; }\n");
+    write("__device__ __forceinline__ float4 sb_make_float4(float x, float y, float z, "
+          "float w) { float4 r; r.x=x; r.y=y; r.z=z; r.w=w; return r; }\n\n");
+    write("__device__ __forceinline__ float3 operator+(float3 a, float3 b) { return "
+          "sb_make_float3(a.x+b.x, a.y+b.y, a.z+b.z); }\n");
+    write("__device__ __forceinline__ float3 operator-(float3 a, float3 b) { return "
+          "sb_make_float3(a.x-b.x, a.y-b.y, a.z-b.z); }\n");
+    write("__device__ __forceinline__ float3 operator-(float3 a) { return "
+          "sb_make_float3(-a.x, -a.y, -a.z); }\n");
+    write("__device__ __forceinline__ float3 operator*(float3 a, float s) { return "
+          "sb_make_float3(a.x*s, a.y*s, a.z*s); }\n");
+    write("__device__ __forceinline__ float3 operator*(float s, float3 a) { return "
+          "sb_make_float3(a.x*s, a.y*s, a.z*s); }\n");
+    write("__device__ __forceinline__ float3 operator/(float3 a, float s) { return "
+          "sb_make_float3(a.x/s, a.y/s, a.z/s); }\n");
+    write("__device__ __forceinline__ float3 &operator+=(float3 &a, float3 b) { a = a + "
+          "b; return a; }\n");
+    write("__device__ __forceinline__ float3 &operator-=(float3 &a, float3 b) { a = a - "
+          "b; return a; }\n");
+    write("__device__ __forceinline__ float3 &operator*=(float3 &a, float s) { a = a * "
+          "s; return a; }\n");
+    write("__device__ __forceinline__ float3 &operator/=(float3 &a, float s) { a = a / "
+          "s; return a; }\n\n");
+    write("__device__ __forceinline__ float sc_dot(float3 a, float3 b) { return a.x*b.x "
+          "+ a.y*b.y + a.z*b.z; }\n");
+    write("__device__ __forceinline__ float sc_length(float3 a) { return sqrtf(sc_dot(a, "
+          "a)); }\n");
+    write("__device__ __forceinline__ float3 sc_normalize(float3 a) { float l = "
+          "sc_length(a); return (l > 0.0f) ? a / l : a; }\n");
     write("__device__ __forceinline__ float3 sc_cross(float3 a, float3 b) {\n");
-    write("  return sb_make_float3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x);\n");
+    write("  return sb_make_float3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - "
+          "a.y*b.x);\n");
     write("}\n\n");
     write("struct sb_uint2 { unsigned int x, y; };\n");
     // Column-major 4x4, mirrors CommandCtxBase::renderMatrix for the
@@ -791,26 +993,49 @@ struct Emit {
     if (brushUsesGrad()) {
       write("struct sbdual { float v; float3 d; };\n");
       write("struct sbdual3 { float3 v; float3 dx, dy, dz; };\n");
-      write("__device__ __forceinline__ float sb_idx(float3 a, int i) { return (i==0)?a.x:(i==1)?a.y:a.z; }\n");
-      write("__device__ __forceinline__ sbdual sb_c(float x) { return {x, sb_make_float3(0,0,0)}; }\n");
-      write("__device__ __forceinline__ sbdual3 sb_c3(float3 p) { return {p, sb_make_float3(0,0,0), sb_make_float3(0,0,0), sb_make_float3(0,0,0)}; }\n");
-      write("__device__ __forceinline__ sbdual3 sb_seed3(float3 p) { return {p, sb_make_float3(1,0,0), sb_make_float3(0,1,0), sb_make_float3(0,0,1)}; }\n");
-      write("__device__ __forceinline__ sbdual sb_comp(sbdual3 a, int i) { return {sb_idx(a.v,i), sb_make_float3(sb_idx(a.dx,i), sb_idx(a.dy,i), sb_idx(a.dz,i))}; }\n");
-      write("__device__ __forceinline__ sbdual3 sb_v3(sbdual x, sbdual y, sbdual z) { return {sb_make_float3(x.v,y.v,z.v), sb_make_float3(x.d.x,y.d.x,z.d.x), sb_make_float3(x.d.y,y.d.y,z.d.y), sb_make_float3(x.d.z,y.d.z,z.d.z)}; }\n");
-      write("__device__ __forceinline__ sbdual operator+(sbdual a, sbdual b) { return {a.v+b.v, a.d+b.d}; }\n");
-      write("__device__ __forceinline__ sbdual operator-(sbdual a, sbdual b) { return {a.v-b.v, a.d-b.d}; }\n");
-      write("__device__ __forceinline__ sbdual operator-(sbdual a) { return {-a.v, -a.d}; }\n");
-      write("__device__ __forceinline__ sbdual operator*(sbdual a, sbdual b) { return {a.v*b.v, a.d*b.v + b.d*a.v}; }\n");
-      write("__device__ __forceinline__ sbdual operator/(sbdual a, sbdual b) { return {a.v/b.v, (a.d*b.v - b.d*a.v)/(b.v*b.v)}; }\n");
-      write("__device__ __forceinline__ sbdual sbd_sin(sbdual a) { return {sinf(a.v), a.d*cosf(a.v)}; }\n");
-      write("__device__ __forceinline__ sbdual sbd_cos(sbdual a) { return {cosf(a.v), a.d*(-sinf(a.v))}; }\n");
-      write("__device__ __forceinline__ sbdual sbd_sqrt(sbdual a) { float r=sqrtf(a.v); return {r, a.d*(r>0?0.5f/r:0.0f)}; }\n");
-      write("__device__ __forceinline__ sbdual sbd_abs(sbdual a) { return {fabsf(a.v), a.d*(a.v<0?-1.0f:1.0f)}; }\n");
-      write("__device__ __forceinline__ sbdual sbd_dot(sbdual3 a, sbdual3 b) { return {sc_dot(a.v,b.v), a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z}; }\n");
-      write("__device__ __forceinline__ sbdual sbd_length(sbdual3 a) { return sbd_sqrt(sbd_dot(a,a)); }\n");
-      write("__device__ __forceinline__ sbdual sbd_mix(sbdual a, sbdual b, sbdual t) { return a+(b-a)*t; }\n");
-      write("__device__ __forceinline__ sbdual sbd_floor(sbdual a) { return {floorf(a.v), sb_make_float3(0,0,0)}; }\n");
-      write("__device__ __forceinline__ sbdual sbd_fract(sbdual a) { return {a.v-floorf(a.v), a.d}; }\n\n");
+      write("__device__ __forceinline__ float sb_idx(float3 a, int i) { return "
+            "(i==0)?a.x:(i==1)?a.y:a.z; }\n");
+      write("__device__ __forceinline__ sbdual sb_c(float x) { return {x, "
+            "sb_make_float3(0,0,0)}; }\n");
+      write("__device__ __forceinline__ sbdual3 sb_c3(float3 p) { return {p, "
+            "sb_make_float3(0,0,0), sb_make_float3(0,0,0), sb_make_float3(0,0,0)}; }\n");
+      write("__device__ __forceinline__ sbdual3 sb_seed3(float3 p) { return {p, "
+            "sb_make_float3(1,0,0), sb_make_float3(0,1,0), sb_make_float3(0,0,1)}; }\n");
+      write("__device__ __forceinline__ sbdual sb_comp(sbdual3 a, int i) { return "
+            "{sb_idx(a.v,i), sb_make_float3(sb_idx(a.dx,i), sb_idx(a.dy,i), "
+            "sb_idx(a.dz,i))}; }\n");
+      write("__device__ __forceinline__ sbdual3 sb_v3(sbdual x, sbdual y, sbdual z) { "
+            "return {sb_make_float3(x.v,y.v,z.v), sb_make_float3(x.d.x,y.d.x,z.d.x), "
+            "sb_make_float3(x.d.y,y.d.y,z.d.y), sb_make_float3(x.d.z,y.d.z,z.d.z)}; }\n");
+      write("__device__ __forceinline__ sbdual operator+(sbdual a, sbdual b) { return "
+            "{a.v+b.v, a.d+b.d}; }\n");
+      write("__device__ __forceinline__ sbdual operator-(sbdual a, sbdual b) { return "
+            "{a.v-b.v, a.d-b.d}; }\n");
+      write("__device__ __forceinline__ sbdual operator-(sbdual a) { return {-a.v, "
+            "-a.d}; }\n");
+      write("__device__ __forceinline__ sbdual operator*(sbdual a, sbdual b) { return "
+            "{a.v*b.v, a.d*b.v + b.d*a.v}; }\n");
+      write("__device__ __forceinline__ sbdual operator/(sbdual a, sbdual b) { return "
+            "{a.v/b.v, (a.d*b.v - b.d*a.v)/(b.v*b.v)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_sin(sbdual a) { return {sinf(a.v), "
+            "a.d*cosf(a.v)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_cos(sbdual a) { return {cosf(a.v), "
+            "a.d*(-sinf(a.v))}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_sqrt(sbdual a) { float r=sqrtf(a.v); "
+            "return {r, a.d*(r>0?0.5f/r:0.0f)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_abs(sbdual a) { return {fabsf(a.v), "
+            "a.d*(a.v<0?-1.0f:1.0f)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_dot(sbdual3 a, sbdual3 b) { return "
+            "{sc_dot(a.v,b.v), "
+            "a.dx*b.v.x+b.dx*a.v.x+a.dy*b.v.y+b.dy*a.v.y+a.dz*b.v.z+b.dz*a.v.z}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_length(sbdual3 a) { return "
+            "sbd_sqrt(sbd_dot(a,a)); }\n");
+      write("__device__ __forceinline__ sbdual sbd_mix(sbdual a, sbdual b, sbdual t) { "
+            "return a+(b-a)*t; }\n");
+      write("__device__ __forceinline__ sbdual sbd_floor(sbdual a) { return "
+            "{floorf(a.v), sb_make_float3(0,0,0)}; }\n");
+      write("__device__ __forceinline__ sbdual sbd_fract(sbdual a) { return "
+            "{a.v-floorf(a.v), a.d}; }\n\n");
     }
 
     // User-defined struct decls.
@@ -830,13 +1055,11 @@ struct Emit {
 
     auto isBuiltinBrushName = [](const char *n) {
       return std::strcmp(n, "strength") == 0 || std::strcmp(n, "radius") == 0 ||
-             std::strcmp(n, "spacing") == 0  || std::strcmp(n, "invert") == 0 ||
+             std::strcmp(n, "spacing") == 0 || std::strcmp(n, "invert") == 0 ||
              std::strcmp(n, "falloff_kind") == 0 ||
-             std::strcmp(n, "falloff_shape") == 0 ||
-             std::strcmp(n, "falloff_dir") == 0 ||
+             std::strcmp(n, "falloff_shape") == 0 || std::strcmp(n, "falloff_dir") == 0 ||
              std::strcmp(n, "unbounded_extent") == 0 ||
-             std::strcmp(n, "coord_space") == 0 ||
-             std::strcmp(n, "tex_repeat") == 0 ||
+             std::strcmp(n, "coord_space") == 0 || std::strcmp(n, "tex_repeat") == 0 ||
              std::strcmp(n, "stroke_path_count") == 0;
     };
     auto isBuiltinCtxName = [](const char *n) {
@@ -877,8 +1100,10 @@ struct Emit {
     write("  float tex_repeat;\n");
     write("  unsigned int stroke_path_count;\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform) continue;
-      if (isBuiltinBrushName(f.name.c_str())) continue;
+      if (f.kind != FieldKind::Uniform)
+        continue;
+      if (isBuiltinBrushName(f.name.c_str()))
+        continue;
       writeFieldMember(f);
     }
     write("};\n\n");
@@ -888,8 +1113,10 @@ struct Emit {
     write("  float3 surfaceNo;\n");
     write("  sb_mat4 render_matrix;\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Ctx) continue;
-      if (isBuiltinCtxName(f.name.c_str())) continue;
+      if (f.kind != FieldKind::Ctx)
+        continue;
+      if (isBuiltinCtxName(f.name.c_str()))
+        continue;
       writeFieldMember(f);
     }
     write("};\n\n");
@@ -931,14 +1158,16 @@ struct Emit {
     write("    int sb_i = (int)floorf(sb_s);\n");
     write("    if (sb_i >= 255) { return falloff_lut[255]; }\n");
     write("    float sb_f = sb_s - (float)sb_i;\n");
-    write("    return falloff_lut[sb_i] * (1.0f - sb_f) + falloff_lut[sb_i + 1] * sb_f;\n");
+    write(
+        "    return falloff_lut[sb_i] * (1.0f - sb_f) + falloff_lut[sb_i + 1] * sb_f;\n");
     write("  }\n");
     write("  return t * t * (3.0f - 2.0f * t);\n");
     write("}\n\n");
     write("__device__ float brush_falloff_dist(float3 delta) {\n");
     write("  float sb_inv_r = 1.0f / brush_u.radius;\n");
     write("  if (brush_u.falloff_shape == 1u) {\n");
-    write("    float3 sb_a = sb_make_float3(fabsf(delta.x), fabsf(delta.y), fabsf(delta.z));\n");
+    write("    float3 sb_a = sb_make_float3(fabsf(delta.x), fabsf(delta.y), "
+          "fabsf(delta.z));\n");
     write("    return fmaxf(sb_a.x, fmaxf(sb_a.y, sb_a.z)) * sb_inv_r;\n");
     write("  } else if (brush_u.falloff_shape == 2u) {\n");
     write("    return fabsf(sc_dot(delta, brush_u.falloff_dir)) * sb_inv_r;\n");
@@ -952,14 +1181,17 @@ struct Emit {
     write("  return 1.0f - m;\n");
     write("}\n\n");
     write("__device__ float2 brush_stroke_uv(float3 co) {\n");
-    write("  if (brush_u.stroke_path_count == 0u) { return sb_make_float2(0.0f, 0.0f); }\n");
+    write("  if (brush_u.stroke_path_count == 0u) { return sb_make_float2(0.0f, 0.0f); "
+          "}\n");
     write("  if (brush_u.stroke_path_count == 1u) {\n");
-    write("    return sb_make_float2(stroke_path[0].arclen, sc_length(co - stroke_path[0].pos));\n");
+    write("    return sb_make_float2(stroke_path[0].arclen, sc_length(co - "
+          "stroke_path[0].pos));\n");
     write("  }\n");
     write("  float sb_best_dist = 3.402823e+38f;\n");
     write("  float sb_best_arc = 0.0f;\n");
     write("  float sb_best_lat = 0.0f;\n");
-    write("  for (unsigned int i = 0u; i + 1u < brush_u.stroke_path_count; i = i + 1u) {\n");
+    write("  for (unsigned int i = 0u; i + 1u < brush_u.stroke_path_count; i = i + 1u) "
+          "{\n");
     write("    float3 sb_a = stroke_path[i].pos;\n");
     write("    float3 sb_ab = stroke_path[i + 1u].pos - sb_a;\n");
     write("    float sb_len2 = sc_dot(sb_ab, sb_ab);\n");
@@ -969,7 +1201,8 @@ struct Emit {
     write("    float sb_d = sc_length(co - (sb_a + sb_ab * sb_t));\n");
     write("    if (sb_d < sb_best_dist) {\n");
     write("      sb_best_dist = sb_d;\n");
-    write("      sb_best_arc = stroke_path[i].arclen + (stroke_path[i + 1u].arclen - stroke_path[i].arclen) * sb_t;\n");
+    write("      sb_best_arc = stroke_path[i].arclen + (stroke_path[i + 1u].arclen - "
+          "stroke_path[i].arclen) * sb_t;\n");
     write("      sb_best_lat = sb_d;\n");
     write("    }\n");
     write("  }\n");
@@ -988,9 +1221,12 @@ struct Emit {
     // Aspect-corrected tiled repeat; mirrors CommandCtx::sampleBrushTex.
     write("    float2 sb_p = sb_view_uv(ctx_u.render_matrix, co);\n");
     write("    const float* sb_m = ctx_u.render_matrix.m;\n");
-    write("    float sb_r0 = sqrtf(sb_m[0]*sb_m[0] + sb_m[4]*sb_m[4] + sb_m[8]*sb_m[8]);\n");
-    write("    float sb_r1 = sqrtf(sb_m[1]*sb_m[1] + sb_m[5]*sb_m[5] + sb_m[9]*sb_m[9]);\n");
-    write("    float sb_asp = (sb_r0 > 1e-12f && sb_r1 > 1e-12f) ? sb_r1 / sb_r0 : 1.0f;\n");
+    write("    float sb_r0 = sqrtf(sb_m[0]*sb_m[0] + sb_m[4]*sb_m[4] + "
+          "sb_m[8]*sb_m[8]);\n");
+    write("    float sb_r1 = sqrtf(sb_m[1]*sb_m[1] + sb_m[5]*sb_m[5] + "
+          "sb_m[9]*sb_m[9]);\n");
+    write("    float sb_asp = (sb_r0 > 1e-12f && sb_r1 > 1e-12f) ? sb_r1 / sb_r0 : "
+          "1.0f;\n");
     write("    float sb_ux = sb_p.x * sb_asp * brush_u.tex_repeat;\n");
     write("    float sb_uy = sb_p.y * brush_u.tex_repeat;\n");
     write("    sb_uv = sb_make_float2(sb_ux - floorf(sb_ux), sb_uy - floorf(sb_uy));\n");
@@ -999,12 +1235,15 @@ struct Emit {
     write("  } else if (brush_u.coord_space == 4u) {\n");
     write("    float3 sb_n = sc_normalize(ctx_u.surfaceNo);\n");
     write("    float3 sb_ref = sb_make_float3(0.0f, 0.0f, 1.0f);\n");
-    write("    if (fabsf(sb_n.z) >= 0.999f) { sb_ref = sb_make_float3(1.0f, 0.0f, 0.0f); }\n");
+    write("    if (fabsf(sb_n.z) >= 0.999f) { sb_ref = sb_make_float3(1.0f, 0.0f, 0.0f); "
+          "}\n");
     write("    float3 sb_t1 = sc_normalize(sc_cross(sb_ref, sb_n));\n");
     write("    float3 sb_t2 = sc_cross(sb_n, sb_t1);\n");
     write("    float3 sb_rel = co - ctx_u.surfacePos;\n");
-    write("    float sb_inv_d = (brush_u.radius > 1e-6f) ? 1.0f / (2.0f * brush_u.radius) : 1.0f;\n");
-    write("    sb_uv = sb_make_float2(sc_dot(sb_rel, sb_t1) * sb_inv_d + 0.5f, sc_dot(sb_rel, sb_t2) * sb_inv_d + 0.5f);\n");
+    write("    float sb_inv_d = (brush_u.radius > 1e-6f) ? 1.0f / (2.0f * "
+          "brush_u.radius) : 1.0f;\n");
+    write("    sb_uv = sb_make_float2(sc_dot(sb_rel, sb_t1) * sb_inv_d + 0.5f, "
+          "sc_dot(sb_rel, sb_t2) * sb_inv_d + 0.5f);\n");
     write("  } else {\n");
     // GLOBAL: bitmap spans world [-1,1]^2 (host bake domain), tiled.
     write("    float sb_gx = co.x * 0.5f + 0.5f;\n");
@@ -1036,8 +1275,10 @@ struct Emit {
     // Spatial + scalar term only (slider x falloff x brush texture); emitted
     // after brush_sample_tex (define-before-use). Mirrors CommandCtx::strength.
     write("__device__ float brush_strength(float3 p) {\n");
-    write("  float sb_t = 1.0f - fminf(brush_falloff_dist(p - ctx_u.surfacePos), 1.0f);\n");
-    write("  float sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);\n");
+    write(
+        "  float sb_t = 1.0f - fminf(brush_falloff_dist(p - ctx_u.surfacePos), 1.0f);\n");
+    write("  float sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, "
+          "ctx_u.surfaceNo);\n");
     write("  return brush_u.invert != 0u ? -sb_s : sb_s;\n");
     write("}\n\n");
   }
@@ -1061,7 +1302,8 @@ struct Emit {
   void emitTextureFn(const TextureDef &td)
   {
     if (td.texParams.size() > 0 || td.usesMap || td.samplerDeps.size() > 0) {
-      errf("texture '%s' uses params/mapPoint/samplers, unsupported on the cuda backend", td.name.c_str());
+      errf("texture '%s' uses params/mapPoint/samplers, unsupported on the cuda backend",
+           td.name.c_str());
       return;
     }
     write("__device__ ");
@@ -1071,7 +1313,8 @@ struct Emit {
     write("(");
     bool first = true;
     for (const auto &p : td.params) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
       write(cudaType(p.type));
       write(" ");
@@ -1081,13 +1324,16 @@ struct Emit {
     indent = 1;
     Stage scratch;
     scratch.kind = StageKind::Reduce;
-    for (const auto &p : td.params) scratch.params.append(p);
+    for (const auto &p : td.params)
+      scratch.params.append(p);
     currentStage = &scratch;
     currentTexture = &td;
     if (td.body && td.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : td.body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : td.body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentTexture = nullptr;
     currentStage = nullptr;
@@ -1114,7 +1360,8 @@ struct Emit {
     write("_d(");
     bool first = true;
     for (const auto &p : td.params) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
       write(p.type == TypeKind::Float ? "sbdual" : "sbdual3");
       write(" ");
@@ -1124,7 +1371,8 @@ struct Emit {
     indent = 1;
     Stage scratch;
     scratch.kind = StageKind::Reduce;
-    for (const auto &p : td.params) scratch.params.append(p);
+    for (const auto &p : td.params)
+      scratch.params.append(p);
     currentStage = &scratch;
     currentTexture = &td;
     dualBody = true;
@@ -1132,9 +1380,11 @@ struct Emit {
     for (const auto &p : td.params)
       locals.append(LocalVar{p.name, /*dual=*/true});
     if (td.body && td.body->kind == StmtKind::Block) {
-      for (const auto &c : td.body->stmts) emitStmt(*c);
+      for (const auto &c : td.body->stmts)
+        emitStmt(*c);
     }
-    while ((int)locals.size() > savedLocals) locals.pop_back();
+    while ((int)locals.size() > savedLocals)
+      locals.pop_back();
     dualBody = false;
     currentTexture = nullptr;
     currentStage = nullptr;
@@ -1151,14 +1401,16 @@ struct Emit {
     write("(");
     bool first = true;
     for (const auto &p : st.params) {
-      if (!first) write(", ");
+      if (!first)
+        write(", ");
       first = false;
-      const char *typeSpelling = (p.type == TypeKind::Struct)
-                                     ? p.structName.c_str()
-                                     : cudaType(p.type);
+      const char *typeSpelling =
+          (p.type == TypeKind::Struct) ? p.structName.c_str() : cudaType(p.type);
       write(typeSpelling);
-      if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut) write(" &");
-      else write(" ");
+      if (p.dir == ParamDir::Out || p.dir == ParamDir::InOut)
+        write(" &");
+      else
+        write(" ");
       write(p.name);
     }
     write(") {\n");
@@ -1166,8 +1418,10 @@ struct Emit {
     currentStage = &st;
     if (st.body && st.body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : st.body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : st.body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
@@ -1198,7 +1452,8 @@ struct Emit {
 
     Vector<const Stage *> reduceStages;
     for (const auto &st : brush->stages) {
-      if (st.kind == StageKind::Reduce) reduceStages.append(&st);
+      if (st.kind == StageKind::Reduce)
+        reduceStages.append(&st);
     }
     for (const auto *st : reduceStages) {
       emitReduceStage(*st);
@@ -1216,11 +1471,14 @@ struct Emit {
     write("  if (lid >= sb_node.vert_count) { return; }\n");
     write("  unsigned int sb_vidx = unique_verts[sb_node.vert_offset + lid];\n");
     write("  float3 ");
-    write(vertexParamName); write("_co = co_buf[sb_vidx];\n");
+    write(vertexParamName);
+    write("_co = co_buf[sb_vidx];\n");
     write("  float3 ");
-    write(vertexParamName); write("_no = no_buf[sb_vidx];\n");
+    write(vertexParamName);
+    write("_no = no_buf[sb_vidx];\n");
     write("  float ");
-    write(vertexParamName); write("_mask = mask_buf[sb_vidx];\n");
+    write(vertexParamName);
+    write("_mask = mask_buf[sb_vidx];\n");
 
     // Declare locals for the vertex stage's extra (reduce-output) params and
     // call each reduce stage on them — matches the C++ executor's one call
@@ -1228,8 +1486,10 @@ struct Emit {
     for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
       const auto &p = vertexStage->params[pi];
       write("  ");
-      if (p.type == TypeKind::Struct) write(p.structName);
-      else write(cudaType(p.type));
+      if (p.type == TypeKind::Struct)
+        write(p.structName);
+      else
+        write(cudaType(p.type));
       write(" ");
       write(p.name);
       write(";\n");
@@ -1240,16 +1500,20 @@ struct Emit {
       write("(");
       bool first = true;
       for (const auto &rp : st->params) {
-        if (!first) write(", ");
+        if (!first)
+          write(", ");
         first = false;
         bool found = false;
         for (int pi = 1; pi < (int)vertexStage->params.size(); pi++) {
           const auto &vp = vertexStage->params[pi];
-          if (vp.type != rp.type) continue;
-          if (!string(vp.name).operator==(string(rp.name.c_str()))) continue;
+          if (vp.type != rp.type)
+            continue;
+          if (!string(vp.name).operator==(string(rp.name.c_str())))
+            continue;
           if (rp.type == TypeKind::Struct &&
-              !string(vp.structName).operator==(string(rp.structName.c_str()))) continue;
-          write(vp.name);  // out/inout pass by reference — no address-of needed
+              !string(vp.structName).operator==(string(rp.structName.c_str())))
+            continue;
+          write(vp.name); // out/inout pass by reference — no address-of needed
           found = true;
           break;
         }
@@ -1267,19 +1531,24 @@ struct Emit {
     currentStage = vertexStage;
     if (vertexStage->body && vertexStage->body->kind == StmtKind::Block) {
       int savedLocals = (int)locals.size();
-      for (const auto &c : vertexStage->body->stmts) emitStmt(*c);
-      while ((int)locals.size() > savedLocals) locals.pop_back();
+      for (const auto &c : vertexStage->body->stmts)
+        emitStmt(*c);
+      while ((int)locals.size() > savedLocals)
+        locals.pop_back();
     }
     currentStage = nullptr;
     indent = 0;
 
     write("\n");
     write("  co_buf[sb_vidx] = ");
-    write(vertexParamName); write("_co;\n");
+    write(vertexParamName);
+    write("_co;\n");
     write("  no_buf[sb_vidx] = ");
-    write(vertexParamName); write("_no;\n");
+    write(vertexParamName);
+    write("_no;\n");
     write("  mask_buf[sb_vidx] = ");
-    write(vertexParamName); write("_mask;\n");
+    write(vertexParamName);
+    write("_mask;\n");
     write("}\n");
   }
 };
@@ -1292,7 +1561,10 @@ EmitResult emitCuda(const Brush &brush, BackendKind target)
   em.brush = &brush;
   em.target = target;
   for (const auto &st : brush.stages) {
-    if (st.kind == StageKind::Vertex) { em.vertexStage = &st; break; }
+    if (st.kind == StageKind::Vertex) {
+      em.vertexStage = &st;
+      break;
+    }
   }
   if (em.vertexStage && em.vertexStage->params.size() > 0) {
     em.vertexParamName = em.vertexStage->params[0].name;

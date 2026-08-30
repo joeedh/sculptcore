@@ -120,7 +120,7 @@ int main()
     store.writeTexel(5, 5, pre); // pre-existing tile, outside the bracket
 
     store.beginDelta();
-    store.writeTexel(5, 5, float3(9.0f, 9.0f, 9.0f)); // modify existing tile
+    store.writeTexel(5, 5, float3(9.0f, 9.0f, 9.0f));     // modify existing tile
     store.writeTexel(100, 100, float3(2.0f, 0.0f, 1.0f)); // creates a new tile
     VdmDelta *delta = store.endDelta();
     test_assert(delta != nullptr);
@@ -328,8 +328,22 @@ int main()
     // vice versa; other sides are boundary. Layout: [grid*8 + side*2 +
     // {0 = grid, 1 = side}], side order LEFT, BOTTOM, RIGHT, TOP.
     int adj[16] = {
-        -1, -1, -1, -1, 1, 0, -1, -1, // grid 0: RIGHT -> {1, LEFT}
-        0, 2, -1, -1, -1, -1, -1, -1, // grid 1: LEFT  -> {0, RIGHT}
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        0,
+        -1,
+        -1, // grid 0: RIGHT -> {1, LEFT}
+        0,
+        2,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1, // grid 1: LEFT  -> {0, RIGHT}
     };
     store.setPtexAdjacency(std::span<const int>(adj, 16));
 

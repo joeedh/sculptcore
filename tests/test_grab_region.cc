@@ -38,7 +38,7 @@ struct GrabRun {
   litestl::util::Vector<float3> co;     // final vert positions
   litestl::util::Vector<int> nodeCount; // leaves per dab
   float maxPull = 0.0f;                 // peak displacement from the start mesh
-  int naiveLast = 0;                    // leaves the unpinned (drag-widened) filter would take
+  int naiveLast = 0; // leaves the unpinned (drag-widened) filter would take
 };
 
 const float3 kAnchor{0.0f, 0.0f, 0.25f};
@@ -87,7 +87,8 @@ GrabRun grabStroke(int ndabs)
     scene.brush.grabTo = float3{0, ydrag, 0};
     scene.brush.writeProps();
     exec.setGrabAccumAdd(false);
-    exec.applyDab(scene.currentTool, kAnchor, kNormal, scene.brush.radius + ydrag, nullptr, 0);
+    exec.applyDab(
+        scene.currentTool, kAnchor, kNormal, scene.brush.radius + ydrag, nullptr, 0);
     out.nodeCount.append(exec.lastDabNodeCount);
   }
 
@@ -127,8 +128,14 @@ int main()
     for (int n : many.nodeCount) {
       peak = peak > n ? peak : n;
     }
-    fprintf(stderr, "grab leaves: dab1=%d peak=%d last=%d (unpinned would be %d; drag %.2f vs radius 0.10)\n",
-            first, peak, many.nodeCount[int(many.nodeCount.size()) - 1], many.naiveLast, kTotalDrag);
+    fprintf(stderr,
+            "grab leaves: dab1=%d peak=%d last=%d (unpinned would be %d; drag %.2f vs "
+            "radius 0.10)\n",
+            first,
+            peak,
+            many.nodeCount[int(many.nodeCount.size()) - 1],
+            many.naiveLast,
+            kTotalDrag);
     test_assert(first > 0);
     test_assert(peak == first);
     test_assert(many.naiveLast > 2 * first);
@@ -139,8 +146,11 @@ int main()
     for (int i = 0; i < int(one.co.size()); i++) {
       maxDelta = std::fmax(maxDelta, (many.co[i] - one.co[i]).length());
     }
-    fprintf(stderr, "grab agreement: max|24dab - 1dab| = %.6f, max pull = %.4f / %.4f\n", maxDelta,
-            one.maxPull, many.maxPull);
+    fprintf(stderr,
+            "grab agreement: max|24dab - 1dab| = %.6f, max pull = %.4f / %.4f\n",
+            maxDelta,
+            one.maxPull,
+            many.maxPull);
     test_assert(one.maxPull > 0.5f * kTotalDrag);
     test_assert(maxDelta < 1e-4f);
   }

@@ -1,10 +1,10 @@
-#include "test_util.h"
 #include "litestl/util/map.h"
 #include "litestl/util/rand.h"
 #include "litestl/util/vector.h"
-#include <cstdio>
-#include "props/prop_types.h"
 #include "props/prop_struct.h"
+#include "props/prop_types.h"
+#include "test_util.h"
+#include <cstdio>
 
 test_init;
 

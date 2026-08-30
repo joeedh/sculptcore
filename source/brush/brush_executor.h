@@ -3,14 +3,14 @@
 #include "automask.h"
 #include "binding/binding_constructor_builder.h"
 #include "brush_command.h"
-#include "brush_iterators.h"
 #include "brush_hooks.h"
+#include "brush_iterators.h"
 #include "brush_program.h"
-#include "capture_policy.h"
-#include "enhance.h"
 #include "brushes/all.h"
+#include "capture_policy.h"
 #include "displace/compositor.h"
 #include "dyntopo/dyntopo.h"
+#include "enhance.h"
 #include "feature_field.h"
 #include "litestl/binding/binding.h"
 #include "litestl/util/map.h"
@@ -240,7 +240,9 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
     BIND_STRUCT_METHOD(st, applyDynTopoDab, MARGS("center", "radius", "params", "seed"));
     BIND_STRUCT_METHOD_SIG(
-        st, applyDab, int,
+        st,
+        applyDab,
+        int,
         MARGS("prog", "center", "normal", "radius", "params", "seed"),
         (BrushProgram *, float3, float3, float, dyntopo::DynTopoParams *, uint32_t));
     // params==nullptr disables dyntopo for the dab; mark it nullable so the
@@ -346,8 +348,7 @@ struct CommandExecutor {
   template <class AccMode>
   BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
   {
-    return BasicVertexIter<AccMode>(node, *this, ctx.dispVec, ctx.dispGen,
-                                    ctx.strokeGen);
+    return BasicVertexIter<AccMode>(node, *this, ctx.dispVec, ctx.dispGen, ctx.strokeGen);
   }
   BasicFaceIter makeFaceIter(spatial::SpatialNode &node)
   {
@@ -370,7 +371,8 @@ struct CommandExecutor {
                                   brush_command &def)
   {
     if (command::createBuiltinBrush<CommandExecutor, CsrNbr, LiveDiskNbr, AccMode>(
-            int(brushType), csrNeighbors, def)) {
+            int(brushType), csrNeighbors, def))
+    {
       return true;
     }
     // Extra (out-of-repo) kernels dispatch through the generated registry;
@@ -388,7 +390,8 @@ struct CommandExecutor {
   void createCommandImpl(SculptBrushes brushType, brush_command &def)
   {
     if (createCommandSwitch<AccMode>(
-            brushType, effectiveNeighborMode() == NeighborMode::Csr, brush, def)) {
+            brushType, effectiveNeighborMode() == NeighborMode::Csr, brush, def))
+    {
       return;
     }
     printf("Unknown brush type %d\n", static_cast<int>(brushType));
@@ -485,8 +488,8 @@ struct CommandExecutor {
     if (stepHasDyntopo) {
       // Topology and the leaf set move under the stroke, so nothing survives
       // being pinned; fall back to the drag-widened filter.
-      grabWidenRadius_ = std::fmax(grabWidenRadius_,
-                                   std::fmax(hostRadius, pinRadius + brush->grabTo.length()));
+      grabWidenRadius_ = std::fmax(
+          grabWidenRadius_, std::fmax(hostRadius, pinRadius + brush->grabTo.length()));
       tree->filterNodes(center, grabWidenRadius_, nodes);
       return;
     }
@@ -650,8 +653,8 @@ struct CommandExecutor {
           // default set", not group 0 -- Mesh::ensureFaceGroups' rule, applied
           // here because the bind, not the host, created the layer.
           if ((entry.use & int(mesh::AttrUse::POLYGROUP)) &&
-              entry.type == mesh::AttrType::INT &&
-              entry.domain == AttrElemDomain::Face && m->default_group_id != 0)
+              entry.type == mesh::AttrType::INT && entry.domain == AttrElemDomain::Face &&
+              m->default_group_id != 0)
           {
             auto *dd = static_cast<mesh::AttrData<int> *>(ref.data);
             for (int fi : m->f) {
@@ -695,10 +698,10 @@ struct CommandExecutor {
           }
         }
         displace::LayerEditScope scope;
-        if (scope.begin(*m,
-                        binding.ref.name,
-                        std::span<const int>(layerRegionVerts.data(),
-                                             layerRegionVerts.size())))
+        if (scope.begin(
+                *m,
+                binding.ref.name,
+                std::span<const int>(layerRegionVerts.data(), layerRegionVerts.size())))
         {
           layerScopes.append(std::move(scope));
         }
@@ -888,7 +891,9 @@ struct CommandExecutor {
       const int stampOpts = (ctx.origNo ? 1 : 0) | (ctx.dabGen ? 2 : 0);
       const bool elideStamp = !stepHasDyntopo && strokeGen != 0;
       for (auto *node : nodes) {
-        if (elideStamp && node->baseStampGen == strokeGen && node->baseStampOpts == stampOpts) {
+        if (elideStamp && node->baseStampGen == strokeGen &&
+            node->baseStampOpts == stampOpts)
+        {
           continue;
         }
         for (int v : node->data->unique_verts) {
@@ -1091,9 +1096,9 @@ struct CommandExecutor {
           }
         }
         if (rverts.size() > 0) {
-          reprojectUvsWithCapture(
-              m, std::span<const int>(rverts.data(), rverts.size()),
-              std::span<const float3>(rold.data(), rold.size()));
+          reprojectUvsWithCapture(m,
+                                  std::span<const int>(rverts.data(), rverts.size()),
+                                  std::span<const float3>(rold.data(), rold.size()));
         }
       } else {
         for (auto *node : nodes) {
@@ -1186,7 +1191,8 @@ struct CommandExecutor {
   {
     const int id = int(brushType);
     if (builtinBrushFullTopo(id) || extraBrushFullTopo(id) || builtinBrushFaceMode(id) ||
-        extraBrushFaceMode(id)) {
+        extraBrushFaceMode(id))
+    {
       return true;
     }
     return (builtinBrushUsesForNeighbor(id) || extraBrushUsesForNeighbor(id)) &&
@@ -1507,9 +1513,8 @@ struct CommandExecutor {
   /** Run one hook phase over a program's commands, once per distinct hook fn
    * (BSMOOTH and FEATURE_ALIGN share the boundary-class refresh, which must
    * not run twice for a program listing both). */
-  void runProgramHooks(BrushProgram *prog,
-                       BrushHookFn BrushHooks::*phase,
-                       BrushHookCtx &hc)
+  void
+  runProgramHooks(BrushProgram *prog, BrushHookFn BrushHooks::*phase, BrushHookCtx &hc)
   {
     BrushHookFn seen[8] = {};
     int nseen = 0;
@@ -1675,11 +1680,12 @@ struct CommandExecutor {
                                                    entry.attrLayerOverrides.size()));
       curCaptureSlot = -1;
 
-      if (const BrushHooks *hooks = brushHooksFor(entry.type);
-          hooks && hooks->dabPost) {
-        BrushHookCtx hookCtx{
-            *this, nodes->size() ? (*nodes)[0]->data->m : nullptr, nodes, brush,
-            isFirstOfStep};
+      if (const BrushHooks *hooks = brushHooksFor(entry.type); hooks && hooks->dabPost) {
+        BrushHookCtx hookCtx{*this,
+                             nodes->size() ? (*nodes)[0]->data->m : nullptr,
+                             nodes,
+                             brush,
+                             isFirstOfStep};
         hooks->dabPost(hookCtx);
       }
 
@@ -1720,9 +1726,8 @@ struct CommandExecutor {
     // the tangential smooth resamples the field it slides verts through. Keyed on
     // the attr actually existing (the brush's stroke-start pre-pass creates it),
     // so it can never claim a gen no command stamped.
-    params->dispGen = m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.disp.vec")
-                          ? strokeGen
-                          : 0;
+    params->dispGen =
+        m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.disp.vec") ? strokeGen : 0;
 
     // A dyntopo dab mutates topology and walks live disk/radial links; keep the
     // mesh thawed for the whole stroke (endDynTopoStroke releases it).
@@ -2073,12 +2078,10 @@ inline bool grabClaimFirstTouch(const CommandExecutor &exec, int v)
  * one made every extra kernel report unhandled (and therefore empty), which is
  * precisely the case the grid-attr capability rule has to answer for. False when
  * `brushType` matched nothing. */
-inline bool buildBrushDef(SculptBrushes brushType,
-                          CommandExecutor::brush_command &def)
+inline bool buildBrushDef(SculptBrushes brushType, CommandExecutor::brush_command &def)
 {
   Brush scratch;
-  return CommandExecutor::createCommandSwitch<AccumLive>(
-      brushType, false, &scratch, def);
+  return CommandExecutor::createCommandSwitch<AccumLive>(brushType, false, &scratch, def);
 }
 
 /** A kernel's declared attribute layers, into caller-owned storage. Prefer this
@@ -2101,8 +2104,8 @@ inline bool brushAttrManifestFor(SculptBrushes brushType,
 }
 
 /** The manifest entry for one handle, or null. */
-inline const BrushAttrManifestEntry *findBrushAttrEntry(
-    const Vector<BrushAttrManifestEntry> &manifest, const char *handle)
+inline const BrushAttrManifestEntry *
+findBrushAttrEntry(const Vector<BrushAttrManifestEntry> &manifest, const char *handle)
 {
   util::string want(handle);
   for (const auto &a : manifest) {

@@ -60,14 +60,14 @@ static void runTest()
 
   // Abort path: a session freed before any dab must leave no trace.
   {
-    void *aborted = GpuBrush_beginStroke(m, scene.tree, &scene.brush,
-                                         &scene.meshLog, int(scene.currentTool));
+    void *aborted = GpuBrush_beginStroke(
+        m, scene.tree, &scene.brush, &scene.meshLog, int(scene.currentTool));
     test_assert(aborted != nullptr);
     GpuBrush_free(aborted);
   }
 
-  void *s = GpuBrush_beginStroke(m, scene.tree, &scene.brush, &scene.meshLog,
-                                 int(scene.currentTool));
+  void *s = GpuBrush_beginStroke(
+      m, scene.tree, &scene.brush, &scene.meshLog, int(scene.currentTool));
   test_assert(s != nullptr);
   test_assert(std::strcmp(GpuBrush_kernelName(s), "kelvinlet") == 0);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_ELEM_COUNT) == m->v.count);
@@ -88,8 +88,17 @@ static void runTest()
   }
 
   // Marshal one dab at the +Z pole.
-  int chunkCount = GpuBrush_marshalDab(s, 0, 0, 0.25f, 0, 0, 1, 0.2f, 0.3f,
-                                       /*mirrorIdx=*/0, /*nonaccum=*/0);
+  int chunkCount = GpuBrush_marshalDab(s,
+                                       0,
+                                       0,
+                                       0.25f,
+                                       0,
+                                       0,
+                                       1,
+                                       0.2f,
+                                       0.3f,
+                                       /*mirrorIdx=*/0,
+                                       /*nonaccum=*/0);
   test_assert(chunkCount > 0);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_NODE_COUNT) == chunkCount);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_UNIQUE_COUNT) > 0);
@@ -106,21 +115,30 @@ static void runTest()
               256 * int(sizeof(float)));
   test_assert(GpuBrush_dataSize(s, brush::GPUBRUSH_DATA_STROKE_PATH) ==
               GpuBrush_info(s, brush::GPUBRUSH_INFO_STROKE_SAMPLE_COUNT) * 32);
-  const float *bu =
-      static_cast<const float *>(GpuBrush_dataPtr(s, brush::GPUBRUSH_DATA_BRUSH_UNIFORMS));
-  test_assert(bu[0] == 1.0f);                    // strength
-  test_assert(bu[1] == 0.2f);                    // radius
-  test_assert(bu[72 / 4] == 1.0f);               // mu
+  const float *bu = static_cast<const float *>(
+      GpuBrush_dataPtr(s, brush::GPUBRUSH_DATA_BRUSH_UNIFORMS));
+  test_assert(bu[0] == 1.0f);                          // strength
+  test_assert(bu[1] == 0.2f);                          // radius
+  test_assert(bu[72 / 4] == 1.0f);                     // mu
   test_assert(std::fabs(bu[76 / 4] - 0.499f) < 1e-6f); // nu, clamped from 0.6
   const float *cu =
       static_cast<const float *>(GpuBrush_dataPtr(s, brush::GPUBRUSH_DATA_CTX_UNIFORMS));
-  test_assert(cu[0] == 0.0f && cu[2] == 0.25f);  // surfacePos
-  test_assert(cu[128 / 4 + 2] == 0.25f);         // grabFrom.z at ctx tail
-  test_assert(cu[144 / 4 + 1] == 0.1f);          // grabTo.y
+  test_assert(cu[0] == 0.0f && cu[2] == 0.25f); // surfacePos
+  test_assert(cu[128 / 4 + 2] == 0.25f);        // grabFrom.z at ctx tail
+  test_assert(cu[144 / 4 + 1] == 0.1f);         // grabTo.y
 
   // A second identical image must not re-flag the index arrays.
-  int chunkCount2 = GpuBrush_marshalDab(s, 0, 0, 0.25f, 0, 0, 1, 0.2f, 0.3f,
-                                        /*mirrorIdx=*/1, /*nonaccum=*/0);
+  int chunkCount2 = GpuBrush_marshalDab(s,
+                                        0,
+                                        0,
+                                        0.25f,
+                                        0,
+                                        0,
+                                        1,
+                                        0.2f,
+                                        0.3f,
+                                        /*mirrorIdx=*/1,
+                                        /*nonaccum=*/0);
   test_assert(chunkCount2 == chunkCount);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_UVERTS_CHANGED) == 0);
   test_assert(GpuBrush_info(s, brush::GPUBRUSH_INFO_DAB_GEN) == 1); // mirror: no bump

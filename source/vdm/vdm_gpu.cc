@@ -43,8 +43,7 @@ VdmGpuLayout gpuLayout(VdmStore &store)
   layout.atlas_tiles_x = layout.slots < kAtlasTilesPerRow
                              ? (layout.slots > 0 ? layout.slots : 1)
                              : kAtlasTilesPerRow;
-  layout.atlas_tiles_y =
-      (layout.slots + layout.atlas_tiles_x - 1) / layout.atlas_tiles_x;
+  layout.atlas_tiles_y = (layout.slots + layout.atlas_tiles_x - 1) / layout.atlas_tiles_x;
   if (layout.atlas_tiles_y < 1) {
     layout.atlas_tiles_y = 1;
   }
@@ -74,10 +73,9 @@ void gpuPtexTable(VdmStore &store, const VdmGpuLayout & /*layout*/, Vector<int> 
   int G = store.ptexGridCount();
   int total = 1 + G * 3;
   for (int g = 0; g < G; g++) {
-    int tps = store.gridRes(g) > 0
-                  ? (store.gridRes(g) + 2 + store.params.tile_size - 1) /
-                        store.params.tile_size
-                  : 0;
+    int tps = store.gridRes(g) > 0 ? (store.gridRes(g) + 2 + store.params.tile_size - 1) /
+                                         store.params.tile_size
+                                   : 0;
     total += tps * tps;
   }
   out.resize(total);

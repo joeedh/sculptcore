@@ -111,7 +111,12 @@ static StrokeResult runStroke(bool nonAccum, float pinch)
   fprintf(stderr,
           "snakehook: pinch=%.2f touched=%d maxMove=%.6f meanDriftX=%.6f shrink=%.6f "
           "spread=%.6f\n",
-          pinch, touched, maxMove, meanDrift, worstShrink, spread);
+          pinch,
+          touched,
+          maxMove,
+          meanDrift,
+          worstShrink,
+          spread);
 
   // The stroke actually deformed something, and did so at a scale set by the
   // drag (10 dabs * 0.01) rather than by the distance to the origin.
@@ -135,15 +140,19 @@ int main()
   // inert for snakehook — both strokes build the same hook. Without it the
   // non-accumulate run replays each dab from base and only the last one
   // survives, collapsing the hook to a single step's worth of drag.
-  fprintf(stderr, "snakehook: accum=%.6f nonAccum=%.6f\n", accum.maxMove, nonAccum.maxMove);
+  fprintf(
+      stderr, "snakehook: accum=%.6f nonAccum=%.6f\n", accum.maxMove, nonAccum.maxMove);
   test_assert(std::fabs(accum.maxMove - nonAccum.maxMove) < 1e-5f);
 
   // Pinch narrows the hook and a negative pinch inflates it, both measured
   // perpendicular to the drag; neither may stop it hooking (asserted above).
   StrokeResult pinched = runStroke(/*nonAccum=*/false, 1.0f);
   StrokeResult inflated = runStroke(/*nonAccum=*/false, -1.0f);
-  fprintf(stderr, "snakehook: spread neutral=%.6f pinched=%.6f inflated=%.6f\n",
-          accum.spread, pinched.spread, inflated.spread);
+  fprintf(stderr,
+          "snakehook: spread neutral=%.6f pinched=%.6f inflated=%.6f\n",
+          accum.spread,
+          pinched.spread,
+          inflated.spread);
   test_assert(pinched.spread < accum.spread);
   test_assert(inflated.spread > accum.spread);
   return test_end();

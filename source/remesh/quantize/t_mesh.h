@@ -48,7 +48,8 @@ struct QuantGraph {
 /* Collect every cut interior edge (.remesh.e.is_cut) into a QuantGraph, recording
  * its corner classes, period and gauges. t_real / t_int are left zero for the
  * solver to fill. */
-QuantGraph buildQuantGraph(mesh::Mesh &m, const litestl::util::Vector<int> &cornerClass,
+QuantGraph buildQuantGraph(mesh::Mesh &m,
+                           const litestl::util::Vector<int> &cornerClass,
                            const litestl::util::Vector<int> &gauge,
                            const litestl::util::Vector<int> &periodEC);
 
@@ -57,7 +58,8 @@ QuantGraph buildQuantGraph(mesh::Mesh &m, const litestl::util::Vector<int> &corn
  * translation g.t_int) around each vertex; a valid integer-grid map returns to
  * the identity, so a nonzero residual means the quantized map spirals there.
  * periodEC is the full per-edge period array. */
-double loopClosureResidual(mesh::Mesh &m, const QuantGraph &g,
+double loopClosureResidual(mesh::Mesh &m,
+                           const QuantGraph &g,
                            const litestl::util::Vector<int> &periodEC);
 
 } // namespace sculptcore::remesh

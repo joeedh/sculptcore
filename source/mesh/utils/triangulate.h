@@ -22,8 +22,7 @@ namespace sculptcore::mesh {
  * multi-loop faces. Used by dyntopo to triangulate faces it encounters. */
 static inline void triangulateFaceFanCb(Mesh &m, int f, MeshCallbacks *cb = nullptr)
 {
-  if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] ||
-      m.f.list_count[f] != 1) {
+  if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] || m.f.list_count[f] != 1) {
     return;
   }
   int li = m.f.l[f];
@@ -50,14 +49,16 @@ static inline void triangulateFaceFanCb(Mesh &m, int f, MeshCallbacks *cb = null
   auto cornerOf = [&](int ff, int v) -> int {
     int l = m.f.l[ff], x0 = m.l.c[l], x = x0;
     do {
-      if (m.c.v[x] == v) return x;
+      if (m.c.v[x] == v)
+        return x;
       x = m.c.next[x];
     } while (x != x0);
     return ELEM_NONE;
   };
   auto snapForVert = [&](int v) -> const AttrRowSnapshot * {
     for (int i = 0; i < int(vs.size()); i++) {
-      if (vs[i] == v) return &csnaps[i];
+      if (vs[i] == v)
+        return &csnaps[i];
     }
     return nullptr;
   };
@@ -119,7 +120,10 @@ static inline bool loopIsConvex2D(Mesh &m, int li, const float3 &ub, const float
  * index triple back to the originating (vert, corner). Returns false (leaving
  * `tris` for the caller to truncate) on failure. */
 template <int VecStaticSize>
-static bool cdtTriangulateFace(Mesh &m, int f, const float3 &ub, const float3 &vb,
+static bool cdtTriangulateFace(Mesh &m,
+                               int f,
+                               const float3 &ub,
+                               const float3 &vb,
                                litestl::util::Vector<Tri, VecStaticSize> &tris)
 {
   using namespace litestl;
@@ -147,8 +151,11 @@ static bool cdtTriangulateFace(Mesh &m, int f, const float3 &ub, const float3 &v
   util::Vector<int> idx;
   auto ok = constrainedDelaunay2D(
       util::span<const float2>(pts.data(), pts.size()),
-      util::span<const detail_delaunay::DEdge>(segs.data(), segs.size()), idx, true);
-  if (!ok || idx.size() < 3) return false;
+      util::span<const detail_delaunay::DEdge>(segs.data(), segs.size()),
+      idx,
+      true);
+  if (!ok || idx.size() < 3)
+    return false;
 
   for (int i = 0; i + 2 < int(idx.size()); i += 3) {
     int a = idx[i], b = idx[i + 1], c = idx[i + 2];
@@ -180,7 +187,8 @@ triangulateFace(Mesh &m, int f, litestl::util::Vector<Tri, VecStaticSize> &tris)
   float3 ub, vb;
   bool planeReady = false;
   auto ensurePlane = [&]() {
-    if (planeReady) return;
+    if (planeReady)
+      return;
     litestl::util::Vector<float3, 16> outer3;
     int c0 = m.l.c[li], c = c0, guard = 0;
     do {
@@ -214,10 +222,12 @@ triangulateFace(Mesh &m, int f, litestl::util::Vector<Tri, VecStaticSize> &tris)
     ensurePlane();
     size_t before = tris.size();
     if (detail_triangulate::cdtTriangulateFace(m, f, ub, vb, tris) &&
-        tris.size() > before) {
+        tris.size() > before)
+    {
       return true;
     }
-    while (tris.size() > before) tris.pop_back(); // CDT failed -> fan fallback
+    while (tris.size() > before)
+      tris.pop_back(); // CDT failed -> fan fallback
   }
 
   // Fan fast path (and the complex-face fallback): fan from the first corner.

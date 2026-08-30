@@ -24,13 +24,14 @@ test_init;
 
 using namespace sculptcore::brush;
 using namespace sculptcore::debug_app;
-using sculptcore::mesh::Mesh;
 using litestl::math::float3;
+using sculptcore::mesh::Mesh;
 
 static bool msgContains(const UniformValidationResult &r, const char *needle)
 {
   for (const auto &m : r.messages) {
-    if (strstr(m.c_str(), needle) != nullptr) return true;
+    if (strstr(m.c_str(), needle) != nullptr)
+      return true;
   }
   return false;
 }
@@ -46,7 +47,8 @@ static Vector<BrushAttrManifestEntry> retargetable(SculptBrushes tool)
   Vector<BrushAttrManifestEntry> out;
   for (int i = 0; i < n; i++) {
     const BrushAttrManifestEntry *e = meta.queriedAttrEntry(i);
-    if (e->use != 0 && e->boundName.size() == 0) out.append(*e);
+    if (e->use != 0 && e->boundName.size() == 0)
+      out.append(*e);
   }
   return out;
 }
@@ -64,19 +66,21 @@ int main()
       sculptcore::mesh::AttrUse use;
       AttrElemDomain domain;
     } kUseCases[] = {
-        {SculptBrushes::COLOR, sculptcore::mesh::AttrUse::COLOR,
+        {SculptBrushes::COLOR, sculptcore::mesh::AttrUse::COLOR, AttrElemDomain::Vertex},
+        {SculptBrushes::COLORSMOOTH,
+         sculptcore::mesh::AttrUse::COLOR,
          AttrElemDomain::Vertex},
-        {SculptBrushes::COLORSMOOTH, sculptcore::mesh::AttrUse::COLOR,
+        {SculptBrushes::LAYERDRAW,
+         sculptcore::mesh::AttrUse::SCULPT_LAYER,
          AttrElemDomain::Vertex},
-        {SculptBrushes::LAYERDRAW, sculptcore::mesh::AttrUse::SCULPT_LAYER,
-         AttrElemDomain::Vertex},
-        {SculptBrushes::POLYGROUP, sculptcore::mesh::AttrUse::POLYGROUP,
+        {SculptBrushes::POLYGROUP,
+         sculptcore::mesh::AttrUse::POLYGROUP,
          AttrElemDomain::Face},
     };
     for (const auto &c : kUseCases) {
       auto entries = retargetable(c.tool);
-      fprintf(stderr, "manifest tool=%d retargetable=%d\n", int(c.tool),
-              int(entries.size()));
+      fprintf(
+          stderr, "manifest tool=%d retargetable=%d\n", int(c.tool), int(entries.size()));
       test_assert(entries.size() == 1);
       test_assert(entries[0].use == int(c.use));
       test_assert(entries[0].domain == c.domain);
@@ -151,7 +155,8 @@ int main()
     BrushMetadata meta;
     for (int t = 0; t < SculptBrushesBuiltinCount; t++) {
       const GpuKernelInfo *info = gpuKernelForTool(SculptBrushes(t));
-      if (!info) continue;
+      if (!info)
+        continue;
       const BrushDefFlags f = *meta.queryBrushFlags(t);
       test_assert(info->needsNeighbors == f.needsCoPrev);
       test_assert(info->writesMask == f.writesMask);
@@ -193,8 +198,8 @@ int main()
     // ...then validate against DRAW, whose manifest does not declare mu.
     auto dcmd = exec.createCommand(SculptBrushes::DRAW);
     auto res = exec.validateUniformDynamics(dcmd);
-    fprintf(stderr, "stray: ok=%d contains=%d\n", res.ok,
-            msgContains(res, "stray dynamic"));
+    fprintf(
+        stderr, "stray: ok=%d contains=%d\n", res.ok, msgContains(res, "stray dynamic"));
     test_assert(!res.ok);
     test_assert(msgContains(res, "stray dynamic"));
   }
@@ -210,8 +215,7 @@ int main()
     brush.addPropDynamicByName("wingAngle", PRESSURE, MULTIPLY, 1.0f);
 
     auto res = exec.validateUniformDynamics(cmd);
-    fprintf(stderr, "static: ok=%d contains=%d\n", res.ok,
-            msgContains(res, "@static"));
+    fprintf(stderr, "static: ok=%d contains=%d\n", res.ok, msgContains(res, "@static"));
     test_assert(!res.ok);
     test_assert(msgContains(res, "@static"));
   }
@@ -226,8 +230,7 @@ int main()
     brush.setPropDynamicSampleByName("mu", PRESSURE, 0, 1, 0.5f); // 1-entry table
 
     auto res = exec.validateUniformDynamics(cmd);
-    fprintf(stderr, "unbaked: ok=%d contains=%d\n", res.ok,
-            msgContains(res, "1 entry"));
+    fprintf(stderr, "unbaked: ok=%d contains=%d\n", res.ok, msgContains(res, "1 entry"));
     test_assert(!res.ok);
     test_assert(msgContains(res, "1 entry"));
   }
@@ -243,7 +246,9 @@ int main()
         BrushUniformManifestEntry{"badDef", true, true, 5.0f, true, 0.0f, 1.0f});
 
     auto res = exec.validateUniformDynamics(cmd);
-    fprintf(stderr, "oorange: ok=%d contains=%d\n", res.ok,
+    fprintf(stderr,
+            "oorange: ok=%d contains=%d\n",
+            res.ok,
             msgContains(res, "outside @range"));
     test_assert(!res.ok);
     test_assert(msgContains(res, "outside @range"));
@@ -258,7 +263,9 @@ int main()
         BrushUniformManifestEntry{"badRange", true, true, 0.5f, true, 1.0f, 0.0f});
 
     auto res = exec.validateUniformDynamics(cmd);
-    fprintf(stderr, "inverted: ok=%d contains=%d\n", res.ok,
+    fprintf(stderr,
+            "inverted: ok=%d contains=%d\n",
+            res.ok,
             msgContains(res, "invalid @range"));
     test_assert(!res.ok);
     test_assert(msgContains(res, "invalid @range"));
@@ -298,7 +305,8 @@ int main()
     // clearUniformDynamics by index drops the stack again.
     exec.clearUniformDynamics(0);
     dyn = brush.propDynamics(string("mu"));
-    fprintf(stderr, "wave5: cleared devices=%d (expect 0)\n",
+    fprintf(stderr,
+            "wave5: cleared devices=%d (expect 0)\n",
             dyn ? int(dyn->devices.size()) : -1);
     test_assert(dyn && dyn->devices.size() == 0);
 
@@ -329,7 +337,8 @@ int main()
     scene.brush.addPropDynamicByName("mu", PRESSURE, MULTIPLY, 1.0f);
 
     Vector<float3> before;
-    for (int i = 0; i < m->v.count; i++) before.append(m->v.co[i]);
+    for (int i = 0; i < m->v.count; i++)
+      before.append(m->v.co[i]);
 
     r = script::run(scene, "stroke origin=0,0,0.25 normal=0,0,1\n", ".");
     test_assert(r.ok); // the verb runs; the brush no-ops on failed validation
@@ -337,7 +346,8 @@ int main()
     int changed = 0;
     for (int i = 0; i < m->v.count; i++) {
       float3 a = m->v.co[i], b = before[i];
-      if (a[0] != b[0] || a[1] != b[1] || a[2] != b[2]) changed++;
+      if (a[0] != b[0] || a[1] != b[1] || a[2] != b[2])
+        changed++;
     }
     fprintf(stderr, "integration-skip: changed=%d (expect 0)\n", changed);
     test_assert(changed == 0);
@@ -357,7 +367,8 @@ int main()
     Mesh *m = scene.mesh;
 
     Vector<float3> before;
-    for (int i = 0; i < m->v.count; i++) before.append(m->v.co[i]);
+    for (int i = 0; i < m->v.count; i++)
+      before.append(m->v.co[i]);
 
     r = script::run(scene, "stroke origin=0,0,0.25 normal=0,0,1\n", ".");
     test_assert(r.ok);
@@ -365,7 +376,8 @@ int main()
     int changed = 0;
     for (int i = 0; i < m->v.count; i++) {
       float3 a = m->v.co[i], b = before[i];
-      if (a[0] != b[0] || a[1] != b[1] || a[2] != b[2]) changed++;
+      if (a[0] != b[0] || a[1] != b[1] || a[2] != b[2])
+        changed++;
     }
     fprintf(stderr, "integration-mutate: changed=%d (expect >0)\n", changed);
     test_assert(changed > 0);

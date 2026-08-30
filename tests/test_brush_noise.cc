@@ -29,12 +29,15 @@ using litestl::util::Vector;
 static bool makeGridScene(Scene &scene, int n, float size)
 {
   char src[512];
-  std::snprintf(src, sizeof(src),
+  std::snprintf(src,
+                sizeof(src),
                 "make_shape kind=grid n=%d m=%d size=%g\n"
                 "triangulate\n"
                 "build_spatial\n"
                 "set_backend backend=cpp\n",
-                n, n, double(size));
+                n,
+                n,
+                double(size));
   auto r = script::run(scene, src, ".");
   if (!r.ok) {
     std::fprintf(stderr, "  line %d: %s\n", r.line_no, r.error.c_str());
@@ -65,8 +68,12 @@ int main()
     Scene scene(64, 64, /*headless=*/true);
     test_assert(makeGridScene(scene, 32, 2.0f));
     RoughnessResult r = scoreLive(scene.mesh);
-    std::fprintf(stderr, "(a) flat verts=%d rms=%.3g max=%.3g dih=%.3g\n", r.verts,
-                 r.rms, r.maxr, r.dihedral);
+    std::fprintf(stderr,
+                 "(a) flat verts=%d rms=%.3g max=%.3g dih=%.3g\n",
+                 r.verts,
+                 r.rms,
+                 r.maxr,
+                 r.dihedral);
     test_assert(r.verts > 500);
     test_assert(r.rms < 1e-5f);
     test_assert(r.maxr < 1e-5f);
@@ -92,8 +99,11 @@ int main()
       }
       rms[k] = scoreLive(m).rms;
     }
-    std::fprintf(stderr, "(b) noise rms(a)=%.4g rms(2a)=%.4g ratio=%.3f\n", rms[0],
-                 rms[1], double(rms[1] / rms[0]));
+    std::fprintf(stderr,
+                 "(b) noise rms(a)=%.4g rms(2a)=%.4g ratio=%.3f\n",
+                 rms[0],
+                 rms[1],
+                 double(rms[1] / rms[0]));
     test_assert(rms[0] > 1e-4f);
     test_assert(rms[1] / rms[0] > 1.95f && rms[1] / rms[0] < 2.05f);
   }
@@ -114,8 +124,11 @@ int main()
       }
       rms[k] = scoreLive(m).rms;
     }
-    std::fprintf(stderr, "(c) dome rms(h)=%.4g rms(h/2)=%.4g ratio=%.3f\n", rms[0],
-                 rms[1], double(rms[1] / rms[0]));
+    std::fprintf(stderr,
+                 "(c) dome rms(h)=%.4g rms(h/2)=%.4g ratio=%.3f\n",
+                 rms[0],
+                 rms[1],
+                 double(rms[1] / rms[0]));
     test_assert(rms[0] > 0.0f);
     test_assert(rms[1] < 0.7f * rms[0]);
   }
@@ -134,8 +147,8 @@ int main()
     allVerts(m, region);
     RoughnessResult live = computeRoughness(m, region, RoughnessPoints::Live, 0);
     RoughnessResult base = computeRoughness(m, region, RoughnessPoints::Base, 0);
-    std::fprintf(stderr, "(d) unstamped live rms=%.6g base rms=%.6g\n", live.rms,
-                 base.rms);
+    std::fprintf(
+        stderr, "(d) unstamped live rms=%.6g base rms=%.6g\n", live.rms, base.rms);
     test_assert(live.rms == base.rms);
     test_assert(live.dihedral == base.dihedral);
   }
@@ -165,17 +178,25 @@ int main()
       return 1;
     }
     Vector<int> region;
-    collectRegion(scene.mesh, scene.lastStroke.centers, scene.lastStroke.radius,
-                  region);
-    RoughnessResult live = computeRoughness(scene.mesh, region,
-                                            RoughnessPoints::Live, scene.strokeGen);
-    RoughnessResult base = computeRoughness(scene.mesh, region,
-                                            RoughnessPoints::Base, scene.strokeGen);
+    collectRegion(scene.mesh, scene.lastStroke.centers, scene.lastStroke.radius, region);
+    RoughnessResult live =
+        computeRoughness(scene.mesh, region, RoughnessPoints::Live, scene.strokeGen);
+    RoughnessResult base =
+        computeRoughness(scene.mesh, region, RoughnessPoints::Base, scene.strokeGen);
     std::fprintf(stderr,
                  "(e) fixture verts=%d live rms=%.6g p95=%.6g max=%.6g dih=%.6g | "
                  "base rms=%.6g p95=%.6g max=%.6g dih=%.6g | maxz=%.6g volume=%.6g\n",
-                 live.verts, live.rms, live.p95, live.maxr, live.dihedral, base.rms,
-                 base.p95, base.maxr, base.dihedral, live.maxDisp, live.volume);
+                 live.verts,
+                 live.rms,
+                 live.p95,
+                 live.maxr,
+                 live.dihedral,
+                 base.rms,
+                 base.p95,
+                 base.maxr,
+                 base.dihedral,
+                 live.maxDisp,
+                 live.volume);
     test_assert(live.verts > 500);
     // Fidelity guard: the stroke really deposited material, so the base score
     // cannot be won by depositing less.

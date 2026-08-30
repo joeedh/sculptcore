@@ -40,7 +40,8 @@ static Vector<DeformWeight> run(std::initializer_list<DeformWeight> ws)
   return v;
 }
 
-static bool runIs(const DeformPool &pool, WeightSlot slot, std::initializer_list<DeformWeight> ws)
+static bool
+runIs(const DeformPool &pool, WeightSlot slot, std::initializer_list<DeformWeight> ws)
 {
   DeformWeight buf[16];
   const int n = pool.copyRun(slot, buf, 16);
@@ -241,7 +242,8 @@ static void testAudit()
     }
   }
 
-  test_assert(pool.auditRefcounts(span<const WeightSlot>(roots.data(), roots.size())) == 0);
+  test_assert(pool.auditRefcounts(span<const WeightSlot>(roots.data(), roots.size())) ==
+              0);
 
   // A reference the pool thinks exists but no column names — what a leaked
   // retain looks like.
@@ -249,8 +251,8 @@ static void testAudit()
   for (size_t i = 1; i < roots.size(); i++) {
     short_roots.append(roots[i]);
   }
-  test_assert(
-      pool.auditRefcounts(span<const WeightSlot>(short_roots.data(), short_roots.size())) == 1);
+  test_assert(pool.auditRefcounts(
+                  span<const WeightSlot>(short_roots.data(), short_roots.size())) == 1);
 
   for (const WeightSlot &s : roots) {
     pool.release(s);
@@ -275,7 +277,8 @@ static void testCopy()
   // references are already accounted for.
   Vector<WeightSlot> roots;
   roots.append(sa);
-  test_assert(copy.auditRefcounts(span<const WeightSlot>(roots.data(), roots.size())) == 0);
+  test_assert(copy.auditRefcounts(span<const WeightSlot>(roots.data(), roots.size())) ==
+              0);
 
   DeformPool assigned;
   assigned = pool;
@@ -341,7 +344,8 @@ static void testConcurrentIntern()
   test_assert(pool.liveSlotCount() == size_t(RUNS) + 1);
 
   // No lost or double increment anywhere in the fan-in.
-  test_assert(pool.auditRefcounts(span<const WeightSlot>(roots.data(), roots.size())) == 0);
+  test_assert(pool.auditRefcounts(span<const WeightSlot>(roots.data(), roots.size())) ==
+              0);
 
   for (const WeightSlot &s : roots) {
     pool.release(s);

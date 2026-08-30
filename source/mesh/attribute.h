@@ -609,8 +609,8 @@ struct AttrGroup {
       reverse.add(elem_map[src], src);
     }
     util::Set<int> visited;
-    util::Vector<int> cyc;       // cycles concatenated
-    util::Vector<int> cycStart;  // offsets, size = ncyc + 1
+    util::Vector<int> cyc;      // cycles concatenated
+    util::Vector<int> cycStart; // offsets, size = ncyc + 1
     cycStart.append(0);
     for (int s : movedSlots) {
       if (visited.contains(s)) {
@@ -633,7 +633,7 @@ struct AttrGroup {
       for (int ci = 0; ci < ncyc; ci++) {
         int a = cycStart[ci], b = cycStart[ci + 1];
         if (b - a < 2) {
-          continue;  // 1-cycle = identity
+          continue; // 1-cycle = identity
         }
         save(cyc[a]);
         for (int i = a; i < b - 1; i++) {
@@ -650,7 +650,7 @@ struct AttrGroup {
       detail::type_dispatch(attr.type, [&]<typename T>() {
         AttrData<T> *data = static_cast<AttrData<T> *>(attr.data);
         for (int s : movedSlots) {
-          data->materialize(s);  // touched pages may be lazily unallocated
+          data->materialize(s); // touched pages may be lazily unallocated
         }
         T tmp{};
         rotate([&](int d, int s) { (*data)[d] = std::move((*data)[s]); },
@@ -666,15 +666,18 @@ struct AttrGroup {
       rotate(
           [&](int d, int s) {
             uint8_t *dp = bool_attrs[d], *sp = bool_attrs[s];
-            for (int j = 0; j < blocksize; j++) dp[j] = sp[j];
+            for (int j = 0; j < blocksize; j++)
+              dp[j] = sp[j];
           },
           [&](int i) {
             uint8_t *p = bool_attrs[i];
-            for (int j = 0; j < blocksize; j++) tmp[j] = p[j];
+            for (int j = 0; j < blocksize; j++)
+              tmp[j] = p[j];
           },
           [&](int i) {
             uint8_t *p = bool_attrs[i];
-            for (int j = 0; j < blocksize; j++) p[j] = tmp[j];
+            for (int j = 0; j < blocksize; j++)
+              p[j] = tmp[j];
           });
     }
   }

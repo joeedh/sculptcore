@@ -76,8 +76,7 @@ function matchingArtifacts(runId, pattern) {
 
 function latestRunId(branch) {
   const json = capture(
-    `gh run list --workflow ${WORKFLOW} --branch ${branch} --status success ` +
-      `--limit 1 --json databaseId`
+    `gh run list --workflow ${WORKFLOW} --branch ${branch} --status success ` + `--limit 1 --json databaseId`
   )
   const arr = JSON.parse(json)
   if (!arr.length) {

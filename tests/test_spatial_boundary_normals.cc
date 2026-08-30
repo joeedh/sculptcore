@@ -86,8 +86,8 @@ static int compareNormals(Mesh *m, const Vector<float3> &ref, const char *label)
       bad++;
     }
   }
-  fprintf(stderr, "%s: %d mismatched normals, worst=%g at v=%d\n", label, bad, worst,
-          worstV);
+  fprintf(
+      stderr, "%s: %d mismatched normals, worst=%g at v=%d\n", label, bad, worst, worstV);
   return bad;
 }
 
@@ -144,8 +144,7 @@ static void roughnessProbe()
           int ca = m->l.c[l];
           int cb = m->c.next[ca];
           int cc = m->c.next[cb];
-          return triNormal(m->v.co[m->c.v[ca]], m->v.co[m->c.v[cb]],
-                           m->v.co[m->c.v[cc]]);
+          return triNormal(m->v.co[m->c.v[ca]], m->v.co[m->c.v[cb]], m->v.co[m->c.v[cc]]);
         };
         float3 n1 = faceN(fA), n2 = faceN(fB);
         float l1 = n1.length(), l2 = n2.length();
@@ -165,55 +164,59 @@ static void roughnessProbe()
 
     // framePerDab=true mirrors the interactive cadence (update(gpu) between
     // dabs); false is the batched headless cadence that already passed above.
-    auto runScenario = [&](bool framePerDab, bool maskOn, float &meanRough,
-                           float &maxRough) {
-      Scene s(128, 128, /*headless=*/true);
-      auto r = script::run(s,
-                           "make_cube subdivs=100 size=0.5 sphere=1\n"
-                           "build_spatial leaf_limit=64 depth_limit=16\n"
-                           "set_brush radius=0.15 strength=0.5\n"
-                           "set_brush_tool tool=draw\n"
-                           "dyntopo enabled=1 detail=0.012 flip=0 smooth=0\n",
-                           ".");
-      test_assert(r.ok);
-      Mesh *m = s.mesh;
-      m->recalc_normals();
-      s.tree->update(&s.gpu);
-      s.brush.automask_view_normal = maskOn;
-      s.brush.cull_backfaces = false;
-      s.brush.viewDir = float3{0, 0, -1};
-      s.brush.view_normal_falloff = 75.0f * kDeg;
-      s.brush.writeProps();
+    auto runScenario =
+        [&](bool framePerDab, bool maskOn, float &meanRough, float &maxRough) {
+          Scene s(128, 128, /*headless=*/true);
+          auto r = script::run(s,
+                               "make_cube subdivs=100 size=0.5 sphere=1\n"
+                               "build_spatial leaf_limit=64 depth_limit=16\n"
+                               "set_brush radius=0.15 strength=0.5\n"
+                               "set_brush_tool tool=draw\n"
+                               "dyntopo enabled=1 detail=0.012 flip=0 smooth=0\n",
+                               ".");
+          test_assert(r.ok);
+          Mesh *m = s.mesh;
+          m->recalc_normals();
+          s.tree->update(&s.gpu);
+          s.brush.automask_view_normal = maskOn;
+          s.brush.cull_backfaces = false;
+          s.brush.viewDir = float3{0, 0, -1};
+          s.brush.view_normal_falloff = 75.0f * kDeg;
+          s.brush.writeProps();
 
-      const float3 normal{0.707f, 0, 0.707f};
-      auto strokeOnce = [&]() {
-        uint32_t gen = ++s.strokeGen;
-        brush::CommandExecutor exec(s.tree, &s.brush);
-        exec.meshLog = &s.meshLog;
-        exec.setNonAccum(true);
-        exec.setStrokeGen(int(gen));
-        exec.beginStep(true);
-        const int NDABS = 8;
-        for (int d = 0; d < NDABS; d++) {
-          float t = float(d) / float(NDABS - 1);
-          float3 c{0.15f, -0.1f + 0.2f * t, 0.17f};
-          exec.applyDab(s.currentTool, c, normal, s.brush.radius, &s.dyntopoParams,
-                        s.dyntopoSeed + uint32_t(d));
-          if (framePerDab) {
+          const float3 normal{0.707f, 0, 0.707f};
+          auto strokeOnce = [&]() {
+            uint32_t gen = ++s.strokeGen;
+            brush::CommandExecutor exec(s.tree, &s.brush);
+            exec.meshLog = &s.meshLog;
+            exec.setNonAccum(true);
+            exec.setStrokeGen(int(gen));
+            exec.beginStep(true);
+            const int NDABS = 8;
+            for (int d = 0; d < NDABS; d++) {
+              float t = float(d) / float(NDABS - 1);
+              float3 c{0.15f, -0.1f + 0.2f * t, 0.17f};
+              exec.applyDab(s.currentTool,
+                            c,
+                            normal,
+                            s.brush.radius,
+                            &s.dyntopoParams,
+                            s.dyntopoSeed + uint32_t(d));
+              if (framePerDab) {
+                s.tree->update(&s.gpu);
+              }
+            }
+            exec.endDynTopoStroke();
+            exec.endStep();
             s.tree->update(&s.gpu);
-          }
-        }
-        exec.endDynTopoStroke();
-        exec.endStep();
-        s.tree->update(&s.gpu);
-      };
+          };
 
-      strokeOnce();
-      s.meshLog.undo(m, s.tree);
-      s.tree->update(&s.gpu);
-      strokeOnce();
-      roughness(s, meanRough, maxRough);
-    };
+          strokeOnce();
+          s.meshLog.undo(m, s.tree);
+          s.tree->update(&s.gpu);
+          strokeOnce();
+          roughness(s, meanRough, maxRough);
+        };
 
     float meanBatched = 0, maxBatched = 0, meanFrames = 0, maxFrames = 0;
     float meanNoMask = 0, maxNoMask = 0;
@@ -223,7 +226,12 @@ static void roughnessProbe()
     fprintf(stderr,
             "dyntopo roughness (radians): batched+mask mean=%g max=%g | "
             "frames+mask mean=%g max=%g | frames+NOmask mean=%g max=%g\n",
-            meanBatched, maxBatched, meanFrames, maxFrames, meanNoMask, maxNoMask);
+            meanBatched,
+            maxBatched,
+            meanFrames,
+            maxFrames,
+            meanNoMask,
+            maxNoMask);
     // The view mask is DYNAMIC (live normals), so cadence legitimately matters:
     // per-frame normal refreshes feed back into the factor. Bound the feedback
     // instead — a masked stroke must not roughen far beyond an unmasked one.
@@ -292,8 +300,11 @@ static void gpuStrokeNormalsProbe()
       }
     }
   }
-  fprintf(stderr, "gpu-stroke vert normals: worst=%g stale interior=%d boundary=%d\n",
-          worst, badInterior, badBoundary);
+  fprintf(stderr,
+          "gpu-stroke vert normals: worst=%g stale interior=%d boundary=%d\n",
+          worst,
+          badInterior,
+          badBoundary);
 
   // Face normals (the renderer's flat-shading source).
   int badFace = 0;
@@ -303,8 +314,7 @@ static void gpuStrokeNormalsProbe()
     int c0 = m->l.c[l];
     int c1 = m->c.next[c0];
     int c2 = m->c.next[c1];
-    float3 n = triNormal(m->v.co[m->c.v[c0]], m->v.co[m->c.v[c1]],
-                         m->v.co[m->c.v[c2]]);
+    float3 n = triNormal(m->v.co[m->c.v[c0]], m->v.co[m->c.v[c1]], m->v.co[m->c.v[c2]]);
     if (m->l.size[l] > 3) {
       int c3 = m->c.next[c2];
       n += triNormal(m->v.co[m->c.v[c0]], m->v.co[m->c.v[c2]], m->v.co[m->c.v[c3]]);
@@ -454,7 +464,9 @@ int main()
         }
       }
     }
-    fprintf(stderr, "gpu slices: %d stale positions, %d stale face-normals\n", staleCo,
+    fprintf(stderr,
+            "gpu slices: %d stale positions, %d stale face-normals\n",
+            staleCo,
             staleNo);
     test_assert(staleCo == 0);
     test_assert(staleNo == 0);
@@ -531,8 +543,8 @@ int main()
     for (int e : m->e) {
       int a = m->e.vs[e][0];
       int b = m->e.vs[e][1];
-      float jump = std::fabs((m->v.co[a] - co0[a]).length() -
-                             (m->v.co[b] - co0[b]).length());
+      float jump =
+          std::fabs((m->v.co[a] - co0[a]).length() - (m->v.co[b] - co0[b]).length());
       if (s.tree->treeMesh.v.node[a] != s.tree->treeMesh.v.node[b]) {
         maxBoundary = std::fmax(maxBoundary, jump);
         boundaryEdges++;
@@ -542,7 +554,9 @@ int main()
     }
     fprintf(stderr,
             "masked undo-restroke: %d boundary edges, max jump interior=%g boundary=%g\n",
-            boundaryEdges, maxInterior, maxBoundary);
+            boundaryEdges,
+            maxInterior,
+            maxBoundary);
     test_assert(boundaryEdges > 0);
     test_assert(maxInterior > 0.0f); // the stroke actually deformed
     // A node-aligned strength discontinuity makes boundary-edge jumps stand
@@ -611,8 +625,11 @@ int main()
         noDiff++;
       }
     }
-    fprintf(stderr, "dyntopo determinism: %d verts, co diffs=%d, no diffs=%d\n",
-            int(coA.size()), coDiff, noDiff);
+    fprintf(stderr,
+            "dyntopo determinism: %d verts, co diffs=%d, no diffs=%d\n",
+            int(coA.size()),
+            coDiff,
+            noDiff);
     test_assert(coDiff == 0);
     test_assert(noDiff == 0);
   }

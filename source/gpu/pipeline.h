@@ -1,6 +1,6 @@
 #pragma once
-#include "command.h"
 #include "batch.h"
+#include "command.h"
 #include "shader.h"
 
 namespace sculptcore::gpu {

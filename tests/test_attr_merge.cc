@@ -43,10 +43,19 @@ struct MeshPtr {
     triangulateMesh(*m);
     m->recalc_normals();
   }
-  ~MeshPtr() { litestl::alloc::Delete<Mesh>(m); }
+  ~MeshPtr()
+  {
+    litestl::alloc::Delete<Mesh>(m);
+  }
   MeshPtr(const MeshPtr &) = delete;
-  Mesh *operator->() { return m; }
-  Mesh &operator*() { return *m; }
+  Mesh *operator->()
+  {
+    return m;
+  }
+  Mesh &operator*()
+  {
+    return *m;
+  }
 };
 
 /* Any interior edge of the cube, i.e. one whose collapse the link condition
@@ -64,8 +73,10 @@ static int findCollapsibleEdge(Mesh &m)
 /* --- resolveMergePolicy / AttrGroup::ensure stamping --- */
 static void testPolicyResolution()
 {
-  test_assert(resolveMergePolicy(AttrType::FLOAT3, "positions").merge == AttrMerge::DEFAULT);
-  test_assert(resolveMergePolicy(AttrType::FLOAT3, "mycolors").merge == AttrMerge::DEFAULT);
+  test_assert(resolveMergePolicy(AttrType::FLOAT3, "positions").merge ==
+              AttrMerge::DEFAULT);
+  test_assert(resolveMergePolicy(AttrType::FLOAT3, "mycolors").merge ==
+              AttrMerge::DEFAULT);
   /* Keyed on (type, name) together: the right name at the wrong type is a
    * different layer and must not inherit the policy. */
   test_assert(resolveMergePolicy(AttrType::FLOAT, ".brush.disp.vec").merge ==
@@ -73,11 +84,13 @@ static void testPolicyResolution()
 
   AttrMergePolicy disp = resolveMergePolicy(AttrType::FLOAT3, ".brush.disp.vec");
   test_assert(disp.merge == AttrMerge::CUSTOM && disp.fn != nullptr);
-  test_assert(resolveMergePolicy(AttrType::INT, ".brush.disp.gen").merge == AttrMerge::NONE);
+  test_assert(resolveMergePolicy(AttrType::INT, ".brush.disp.gen").merge ==
+              AttrMerge::NONE);
   /* The normal snapshot shares the disp generation but not its handler. */
   AttrMergePolicy no = resolveMergePolicy(AttrType::FLOAT3, ".brush.orig.no");
   test_assert(no.merge == AttrMerge::CUSTOM && no.fn != nullptr && no.fn != disp.fn);
-  test_assert(resolveMergePolicy(AttrType::INT, ".brush.dab.gen").merge == AttrMerge::CUSTOM);
+  test_assert(resolveMergePolicy(AttrType::INT, ".brush.dab.gen").merge ==
+              AttrMerge::CUSTOM);
   test_assert(resolveMergePolicy(AttrType::FLOAT3, SCULPT_LAYER_REST_ATTR).merge ==
               AttrMerge::CUSTOM);
 
@@ -219,8 +232,7 @@ static void testCornerWedgeBlend()
     if (m->c.v[ci] == v0) {
       test_assert((got - want).length() < 1e-5f);
       at_survivor++;
-    }
-    else {
+    } else {
       test_assert((got - other).length() < 1e-5f);
       elsewhere++;
     }
@@ -251,7 +263,8 @@ static void testDispFieldSplit()
     m->v.attrs.ensure(AttrType::INT, ".brush.disp.gen");
     auto *disp =
         m->v.attrs.find_attribute(AttrType::FLOAT3, ".brush.disp.vec").get_data<float3>();
-    auto *gen = m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
+    auto *gen =
+        m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
 
     int e = findCollapsibleEdge(*m);
     test_assert(e != ELEM_NONE);
@@ -299,7 +312,13 @@ static void testDispFieldSplit()
     if (!near3(base, want)) {
       fprintf(stderr,
               "  [%s] base = %.4f,%.4f,%.4f want %.4f,%.4f,%.4f\n",
-              c.tag, base[0], base[1], base[2], want[0], want[1], want[2]);
+              c.tag,
+              base[0],
+              base[1],
+              base[2],
+              want[0],
+              want[1],
+              want[2]);
     }
     test_assert(near3(base, want));
   }
@@ -364,8 +383,8 @@ static void testSculptLayerRest()
   EdgeCollapseResult res;
   test_assert(bool(collapseEdge(*m, e, placed, 0.5f, &res)));
 
-  auto *outRest =
-      m->v.attrs.find_attribute(AttrType::FLOAT3, SCULPT_LAYER_REST_ATTR).get_data<float3>();
+  auto *outRest = m->v.attrs.find_attribute(AttrType::FLOAT3, SCULPT_LAYER_REST_ATTR)
+                      .get_data<float3>();
   float3 delta = m->v.co[v0] - outRest->safe_get(v0);
   test_assert(near3(delta, (d0 + d1) * 0.5f));
 }

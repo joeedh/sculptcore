@@ -68,7 +68,8 @@ int main()
 
   /* Reference: one unbudgeted dab refines the region fully. */
   Mesh *ref = makeTriGrid(41);
-  dyntopo::DynTopoStats r = dyntopo::runDyntopoRemesh(*ref, center, radius, params(0), seed);
+  dyntopo::DynTopoStats r =
+      dyntopo::runDyntopoRemesh(*ref, center, radius, params(0), seed);
   test_assert(!r.budget_hit);
   test_assert(r.splits > 0);
   int refFaces = ref->f.count;
@@ -99,12 +100,18 @@ int main()
 
   printf("[budget] ref: splits=%d faces=%d | budgeted(%d): dabs=%d total=%d "
          "maxInDab=%d faces=%d\n",
-         r.splits, refFaces, budget, dabs, total, maxInDab, m->f.count);
+         r.splits,
+         refFaces,
+         budget,
+         dabs,
+         total,
+         maxInDab,
+         m->f.count);
 
-  test_assert(firstHit);          /* the heavy first dab hit the cap */
+  test_assert(firstHit); /* the heavy first dab hit the cap */
   test_assert(maxInDab <= budget);
-  test_assert(dabs > 1);          /* work was genuinely deferred across dabs */
-  test_assert(converged);         /* the region still fully refines */
+  test_assert(dabs > 1);  /* work was genuinely deferred across dabs */
+  test_assert(converged); /* the region still fully refines */
   /* The budget only spreads the work — the converged mesh matches the one-shot
    * refine closely (ordering differs across dabs, so allow a small margin). */
   test_assert(m->f.count >= refFaces * 9 / 10);

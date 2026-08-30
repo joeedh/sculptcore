@@ -48,9 +48,9 @@ struct ExtractParams {
 struct ExtractStats {
   int num_grid_verts = 0;
   int num_quads = 0;
-  int num_arcs = 0;          // directed grid arcs traced
-  int open_arcs = 0;         // arcs that ran off a boundary (no neighbour quad)
-  int nonquad_cells = 0;     // cell walks that did not close in 4 steps
+  int num_arcs = 0;      // directed grid arcs traced
+  int open_arcs = 0;     // arcs that ran off a boundary (no neighbour quad)
+  int nonquad_cells = 0; // cell walks that did not close in 4 steps
   // Cap-path hole accounting: every output boundary rim (pinched rims first
   // split into simple sub-loops, counted individually) lands in exactly one
   // bucket — capped, or one open_* skip reason (holes_open sums the open_*).
@@ -71,7 +71,7 @@ struct ExtractStats {
 /* Extract the quad mesh encoded by .remesh.c.uv. The input must already carry
  * the M5 integer-grid map (run computeQuantization first). Thaws topology.
  * Returns nullptr if no map / no lattice points are present. */
-mesh::Mesh *extractQuadMesh(mesh::Mesh &m, const ExtractParams &params,
-                            ExtractStats &stats);
+mesh::Mesh *
+extractQuadMesh(mesh::Mesh &m, const ExtractParams &params, ExtractStats &stats);
 
 } // namespace sculptcore::remesh

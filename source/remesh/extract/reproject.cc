@@ -25,7 +25,8 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
 {
   ReprojectStats stats;
   out.thawTopo();
-  if (out.v.count == 0) return stats;
+  if (out.v.count == 0)
+    return stats;
 
   spatial::SpatialTree tree(&input);
   tree.buildAll();
@@ -45,7 +46,8 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
   spatial::SpatialTree *wtree = nullptr;
   Vector<int> vAnchor; // per-out-vert current anchor face on `input`
   if (work && work->v.attrs.has(mesh::AttrType::INT,
-                                litestl::util::string(kPreRemeshSrcFaceAttr))) {
+                                litestl::util::string(kPreRemeshSrcFaceAttr)))
+  {
     wanchor.ensure(work->v.attrs);
     wtree = litestl::alloc::New<spatial::SpatialTree>("Reproject work tree", work);
     wtree->buildAll();
@@ -58,24 +60,32 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
   auto anchorAlive = [&](int f) {
     return f >= 0 && f < int(input.f.capacity()) && !input.f.freemap[f];
   };
-  Vector<Vector<int>> nbrs;  // output-mesh 1-ring per vertex (smoothing only)
-  Vector<char> isBndV;       // boundary-loop vertex flag (pinned while smoothing)
-  Vector<float3> np;         // Jacobi scratch for a smoothing pass
+  Vector<Vector<int>> nbrs; // output-mesh 1-ring per vertex (smoothing only)
+  Vector<char> isBndV;      // boundary-loop vertex flag (pinned while smoothing)
+  Vector<float3> np;        // Jacobi scratch for a smoothing pass
   if (smoothing) {
     nbrs.resize(cap);
     isBndV.resize(cap);
     np.resize(cap);
-    for (int i = 0; i < cap; i++) isBndV[i] = 0;
+    for (int i = 0; i < cap; i++)
+      isBndV[i] = 0;
     if (params.pin_boundary) {
       auto isBndE = [&](int e) {
         int c0 = out.e.c[e];
-        if (c0 == ELEM_NONE) return true;
+        if (c0 == ELEM_NONE)
+          return true;
         int r = 0, cc = c0;
-        do { r++; cc = out.c.radial_next[cc]; } while (cc != c0 && r < 100);
+        do {
+          r++;
+          cc = out.c.radial_next[cc];
+        } while (cc != c0 && r < 100);
         return r == 1;
       };
       for (int e : out.e)
-        if (isBndE(e)) { isBndV[out.e.vs[e][0]] = 1; isBndV[out.e.vs[e][1]] = 1; }
+        if (isBndE(e)) {
+          isBndV[out.e.vs[e][0]] = 1;
+          isBndV[out.e.vs[e][1]] = 1;
+        }
     }
     for (int e : out.e) {
       nbrs[out.e.vs[e][0]].append(out.e.vs[e][1]);
@@ -94,15 +104,18 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
     double vote = 0.0;
     int step = out.v.count > 256 ? out.v.count / 256 : 1, k = 0;
     for (int v : out.v) {
-      if (k++ % step) continue;
+      if (k++ % step)
+        continue;
       ClosestPointResult r = findClosestPoint(tree, out.v.co[v]);
-      if (!r.hit) continue;
+      if (!r.hit)
+        continue;
       float3 a = input.v.co[input.c.v[r.tri_c[0]]];
       float3 b = input.v.co[input.c.v[r.tri_c[1]]];
       float3 c = input.v.co[input.c.v[r.tri_c[2]]];
       vote += out.v.no[v].dot((b - a).cross(c - a)) >= 0.0f ? 1.0 : -1.0;
     }
-    if (vote < 0.0) orient = -1.0f;
+    if (vote < 0.0)
+      orient = -1.0f;
   }
 
   /* Normal-coherence of v's 1-ring (|mean of unit face normals|): ~1 where the
@@ -112,7 +125,8 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
    * meant to prevent. */
   auto vertCoherence = [&](int v) -> float {
     int e0 = out.v.e[v];
-    if (e0 == ELEM_NONE) return 1.0f;
+    if (e0 == ELEM_NONE)
+      return 1.0f;
     float3 sum(0.0f, 0.0f, 0.0f);
     int cnt = 0, ec = e0, guard = 0;
     do {
@@ -132,16 +146,20 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
   for (int it = 0; it < iters; it++) {
     if (smoothing) {
       for (int s = 0; s < params.smooth_iterations; s++) {
-        for (int v : out.v) np[v] = out.v.co[v];
+        for (int v : out.v)
+          np[v] = out.v.co[v];
         for (int v : out.v) {
-          if (isBndV[v] || nbrs[v].size() == 0) continue;
+          if (isBndV[v] || nbrs[v].size() == 0)
+            continue;
           float3 avg(0, 0, 0);
-          for (int w : nbrs[v]) avg = avg + out.v.co[w];
+          for (int w : nbrs[v])
+            avg = avg + out.v.co[w];
           avg = avg * (1.0f / float(nbrs[v].size()));
           float3 cur = out.v.co[v];
           np[v] = cur + (avg - cur) * params.smooth_lambda;
         }
-        for (int v : out.v) out.v.co[v] = np[v];
+        for (int v : out.v)
+          out.v.co[v] = np[v];
       }
     }
 
@@ -181,7 +199,8 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
             vAnchor[v] = w.face;
             if (last) {
               sum += w.dist;
-              if (w.dist > mx) mx = w.dist;
+              if (w.dist > mx)
+                mx = w.dist;
               n++;
             }
             out.v.co[v] = w.point;
@@ -191,7 +210,8 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
         vAnchor[v] = -1; // walk failed — global path below re-seeds
       }
       ClosestPointResult r = findClosestPoint(tree, out.v.co[v]);
-      if (!r.hit) continue;
+      if (!r.hit)
+        continue;
       if (filtered) {
         float3 vn = out.v.no[v] * orient;
         float3 a = input.v.co[input.c.v[r.tri_c[0]]];
@@ -199,7 +219,8 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
         float3 c = input.v.co[input.c.v[r.tri_c[2]]];
         float3 tn = (b - a).cross(c - a);
         if (tn.dot(vn) < params.sheet_min_dot * tn.length() &&
-            vertCoherence(v) > kCoherence) {
+            vertCoherence(v) > kCoherence)
+        {
           ClosestPointResult rf =
               findClosestPoint(tree, out.v.co[v], &vn, params.sheet_min_dot);
           if (rf.hit && rf.dist <= kSheetRatio * r.dist) {
@@ -209,7 +230,8 @@ ReprojectStats reprojectToSurface(Mesh &out, Mesh &input, const ReprojectParams 
       }
       if (last) {
         sum += r.dist;
-        if (r.dist > mx) mx = r.dist;
+        if (r.dist > mx)
+          mx = r.dist;
         n++;
       }
       if (anchored) {

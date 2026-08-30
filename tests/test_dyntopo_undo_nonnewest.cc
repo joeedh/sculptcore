@@ -66,8 +66,12 @@ static void runCase(bool doSmooth, int &retval)
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.18f + 0.36f * t, -0.05f + 0.1f * t, 0.25f);
-    exec.applyDab(scene.currentTool, origin, normal, radius,
-                  &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(d));
+    exec.applyDab(scene.currentTool,
+                  origin,
+                  normal,
+                  radius,
+                  &scene.dyntopoParams,
+                  scene.dyntopoSeed + uint32_t(d));
   }
   exec.endDynTopoStroke();
   exec.endStep();
@@ -84,8 +88,12 @@ static void runCase(bool doSmooth, int &retval)
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.18f + 0.36f * t, -0.05f + 0.1f * t, 0.25f);
-    exec.applyDab(scene.currentTool, origin, normal, radius,
-                  /*params=*/nullptr, scene.dyntopoSeed + uint32_t(d));
+    exec.applyDab(scene.currentTool,
+                  origin,
+                  normal,
+                  radius,
+                  /*params=*/nullptr,
+                  scene.dyntopoSeed + uint32_t(d));
   }
   exec.endStep();
 

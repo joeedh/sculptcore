@@ -39,10 +39,8 @@ static inline void fireChange(const litestl::util::function<void(int)> &cb, int 
  * extrude). Single-outer-loop faces (holed faces are a follow-up). Leaves the
  * cap faces + their (duplicate) verts selected; `out.normal` = the averaged,
  * normalized face normal for the transform's default constraint axis. */
-static inline void extrudeRegion(Mesh &m,
-                                 MeshCallbacks *cb,
-                                 ExtrudeResult &out,
-                                 bool preferOpDomain = true)
+static inline void
+extrudeRegion(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out, bool preferOpDomain = true)
 {
   using litestl::util::Map;
   using litestl::util::Set;
@@ -259,7 +257,8 @@ static inline void extrudeIndividual(Mesh &m,
 
     int n = int(origVerts.size());
     for (int i = 0; i < n; i++) {
-      int quad[4] = {origVerts[i], origVerts[(i + 1) % n], capVerts[(i + 1) % n], capVerts[i]};
+      int quad[4] = {
+          origVerts[i], origVerts[(i + 1) % n], capVerts[(i + 1) % n], capVerts[i]};
       m.make_face(std::span<int>(quad, 4), cb);
     }
   }

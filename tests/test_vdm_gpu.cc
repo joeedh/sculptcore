@@ -168,8 +168,8 @@ int main()
     Vector<int> play;
     ps.gpuLayoutOut(play);
     test_assert(play[8] == int(VdmBackend::PTEX) && play[9] == 3);
-    fprintf(stderr, "vdm gpu ptex: table=%d ints occupied=%d\n", int(pt.size()),
-            occupied);
+    fprintf(
+        stderr, "vdm gpu ptex: table=%d ints occupied=%d\n", int(pt.size()), occupied);
   }
 
   return retval;

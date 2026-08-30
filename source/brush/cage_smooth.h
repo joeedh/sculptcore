@@ -208,7 +208,8 @@ struct CageSmoothSession {
       for (int mi = 0; mi < mirrorCount; mi++) {
         const float *sg = signs + mi * 3;
         oneImage(math::float3(d[0] * sg[0], d[1] * sg[1], d[2] * sg[2]),
-                 math::float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]), d[6]);
+                 math::float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]),
+                 d[6]);
       }
     }
     return total;

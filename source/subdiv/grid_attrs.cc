@@ -35,7 +35,8 @@ namespace {
 /** Ptex-face corner positions of a quad cage face, by loop order — Blender's
  * `subdiv_foreach_corner_vertices_regular_do` weights, which is what
  * `quad_weights_from_uv` interpolates against. */
-constexpr float kQuadPtex[4][2] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
+constexpr float kQuadPtex[4][2] = {
+    {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
 
 /** Which cage face + corner a grid belongs to. Grids are enumerated one per
  * cage corner, cage faces in id order and corners through `c.next` — the
@@ -70,16 +71,16 @@ void buildGridRefs(mesh::Mesh &cage, Vector<GridRef> &out)
 int attrComps(AttrType type)
 {
   switch (type) {
-    case AttrType::FLOAT:
-      return 1;
-    case AttrType::FLOAT2:
-      return 2;
-    case AttrType::FLOAT3:
-      return 3;
-    case AttrType::FLOAT4:
-      return 4;
-    default:
-      return 0;
+  case AttrType::FLOAT:
+    return 1;
+  case AttrType::FLOAT2:
+    return 2;
+  case AttrType::FLOAT3:
+    return 3;
+  case AttrType::FLOAT4:
+    return 4;
+  default:
+    return 0;
   }
 }
 
@@ -92,44 +93,44 @@ bool gatherAttr(AttrRef &ref, size_t capacity, int comps, Vector<float> &out)
     out[i] = 0.0f;
   }
   switch (ref.type) {
-    case AttrType::FLOAT: {
-      auto *d = ref.get_data<float>();
-      for (size_t i = 0; i < capacity; i++) {
-        out[i] = d->safe_get(int(i));
-      }
-      return true;
+  case AttrType::FLOAT: {
+    auto *d = ref.get_data<float>();
+    for (size_t i = 0; i < capacity; i++) {
+      out[i] = d->safe_get(int(i));
     }
-    case AttrType::FLOAT2: {
-      auto *d = ref.get_data<float2>();
-      for (size_t i = 0; i < capacity; i++) {
-        const float2 v = d->safe_get(int(i));
-        out[i * 2 + 0] = v[0];
-        out[i * 2 + 1] = v[1];
-      }
-      return true;
+    return true;
+  }
+  case AttrType::FLOAT2: {
+    auto *d = ref.get_data<float2>();
+    for (size_t i = 0; i < capacity; i++) {
+      const float2 v = d->safe_get(int(i));
+      out[i * 2 + 0] = v[0];
+      out[i * 2 + 1] = v[1];
     }
-    case AttrType::FLOAT3: {
-      auto *d = ref.get_data<float3>();
-      for (size_t i = 0; i < capacity; i++) {
-        const float3 v = d->safe_get(int(i));
-        for (int k = 0; k < 3; k++) {
-          out[i * 3 + k] = v[k];
-        }
+    return true;
+  }
+  case AttrType::FLOAT3: {
+    auto *d = ref.get_data<float3>();
+    for (size_t i = 0; i < capacity; i++) {
+      const float3 v = d->safe_get(int(i));
+      for (int k = 0; k < 3; k++) {
+        out[i * 3 + k] = v[k];
       }
-      return true;
     }
-    case AttrType::FLOAT4: {
-      auto *d = ref.get_data<float4>();
-      for (size_t i = 0; i < capacity; i++) {
-        const float4 v = d->safe_get(int(i));
-        for (int k = 0; k < 4; k++) {
-          out[i * 4 + k] = v[k];
-        }
+    return true;
+  }
+  case AttrType::FLOAT4: {
+    auto *d = ref.get_data<float4>();
+    for (size_t i = 0; i < capacity; i++) {
+      const float4 v = d->safe_get(int(i));
+      for (int k = 0; k < 4; k++) {
+        out[i * 4 + k] = v[k];
       }
-      return true;
     }
-    default:
-      return false;
+    return true;
+  }
+  default:
+    return false;
   }
 }
 
@@ -236,11 +237,10 @@ void applyLimitMask(mesh::Mesh &m, bool linearBoundary)
 
     if (valence == 0 || nCrease >= 3 || (onBoundary && linearBoundary)) {
       limit[vi] = co;
-    }
-    else if (nCrease == 2) {
-      limit[vi] = (co * 4.0f + m.v.co[creaseOpp[0]] + m.v.co[creaseOpp[1]]) * (1.0f / 6.0f);
-    }
-    else {
+    } else if (nCrease == 2) {
+      limit[vi] =
+          (co * 4.0f + m.v.co[creaseOpp[0]] + m.v.co[creaseOpp[1]]) * (1.0f / 6.0f);
+    } else {
       float3 sumE, sumF;
       for (int e : m.e_of_v(vi)) {
         sumE += m.v.co[m.e.vs[e][0] == vi ? m.e.vs[e][1] : m.e.vs[e][0]];
@@ -307,9 +307,8 @@ bool MultiresAttrs::hasLayerEditTarget() const
   return mr_->writebackChannel() > 0;
 }
 
-GridAttrStorage MultiresAttrs::storageFor(const string &name,
-                                          AttrType type,
-                                          mesh::AttrFlag flags) const
+GridAttrStorage
+MultiresAttrs::storageFor(const string &name, AttrType type, mesh::AttrFlag flags) const
 {
   if (attrComps(type) == 0 && type != AttrType::INT) {
     return GridAttrStorage::None;
@@ -460,7 +459,8 @@ static size_t sampleIndex(int grid, int u, int v, int w)
  * Whether the host saves the channel is a different question (channelPersist)
  * and deliberately not asked here — an authored layer overlays the derived
  * samples the same way whether or not it has a container to go home to. */
-static int sessionChannelFor(GridsStore &store, const litestl::util::string &name, int comps)
+static int
+sessionChannelFor(GridsStore &store, const litestl::util::string &name, int comps)
 {
   const int ch = store.findChannel(name);
   if (ch < 0 || !store.channelAuthored(ch) || store.channelElemSize(ch) != comps ||
@@ -480,7 +480,8 @@ static void overlayOneGrid(
   for (int v = 0; v <= S; v++) {
     for (int u = 0; u <= S; u++) {
       std::memcpy(&layer.data[sampleIndex(grid, u, v, w) * size_t(layer.comps)],
-                  store.elem(level, ch, grid, u, v), bytes);
+                  store.elem(level, ch, grid, u, v),
+                  bytes);
     }
   }
 }
@@ -498,8 +499,8 @@ static int overlayChannelFor(Multires &mr, GridAttrLayer &layer, int level, int 
     return -1;
   }
   const int S = mr.refiner.levels[level - 1].gridSide;
-  const size_t need = size_t(mr.refiner.gridCount()) * size_t((S + 1) * (S + 1)) *
-                      size_t(layer.comps);
+  const size_t need =
+      size_t(mr.refiner.gridCount()) * size_t((S + 1) * (S + 1)) * size_t(layer.comps);
   if (layer.data.size() < need) {
     return -1;
   }
@@ -585,7 +586,8 @@ bool MultiresAttrs::seedSessionChannel(int level, const string &name)
     for (int v = 0; v <= S; v++) {
       for (int u = 0; u <= S; u++) {
         std::memcpy(store.elem(level, ch, g, u, v),
-                    &src[sampleIndex(g, u, v, w) * size_t(comps)], bytes);
+                    &src[sampleIndex(g, u, v, w) * size_t(comps)],
+                    bytes);
       }
     }
   }
@@ -640,8 +642,7 @@ static void bilinearOneGrid(float *dst,
         ptex[size_t(j) * comps + k2] = elemVal(j, k2);
       }
     }
-  }
-  else {
+  } else {
     org[0] = org[1] = 0.0f;
     du[0] = 1.0f;
     du[1] = 0.0f;
@@ -670,10 +671,8 @@ static void bilinearOneGrid(float *dst,
       const float pu = org[0] + du[0] * fu + dv[0] * fv;
       const float pv2 = org[1] + du[1] * fu + dv[1] * fv;
       // quad_weights_from_uv (subdiv_mesh.cc).
-      const float wts[4] = {(1.0f - pu) * (1.0f - pv2),
-                            pu * (1.0f - pv2),
-                            pu * pv2,
-                            (1.0f - pu) * pv2};
+      const float wts[4] = {
+          (1.0f - pu) * (1.0f - pv2), pu * (1.0f - pv2), pu * pv2, (1.0f - pu) * pv2};
       float *o = dst + (size_t(v) * w + u) * comps;
       for (int k = 0; k < comps; k++) {
         float acc = 0.0f;
@@ -686,7 +685,9 @@ static void bilinearOneGrid(float *dst,
   }
 }
 
-bool MultiresAttrs::gatherCageValues(GridAttrLayer &layer, mesh::Mesh &cage, Vector<float> &src)
+bool MultiresAttrs::gatherCageValues(GridAttrLayer &layer,
+                                     mesh::Mesh &cage,
+                                     Vector<float> &src)
 {
   auto &group = layer.corner ? cage.c.attrs : cage.v.attrs;
   AttrRef ref = group.find_attribute(layer.type, layer.name);
@@ -732,7 +733,10 @@ void MultiresAttrs::buildBilinear(GridAttrLayer &layer, int level, mesh::Mesh &c
   }
 }
 
-int MultiresAttrs::refreshFromCage(int level, const string &name, const int *gridIds, int count)
+int MultiresAttrs::refreshFromCage(int level,
+                                   const string &name,
+                                   const int *gridIds,
+                                   int count)
 {
   if (!mr_ || count <= 0 || !gridIds) {
     return 0;
@@ -890,8 +894,8 @@ bool MultiresAttrs::buildFaceVarying(GridAttrLayer &layer, int level, mesh::Mesh
   }
   // Creases apply to every channel, so carry the cage's sharp edges across.
   if (ok) {
-    if (mesh::BoolAttrView *sharp = mesh::boundary::findBoolEdgeView(
-            &cage, mesh::boundary::EDGE_SHARP))
+    if (mesh::BoolAttrView *sharp =
+            mesh::boundary::findBoolEdgeView(&cage, mesh::boundary::EDGE_SHARP))
     {
       for (int fi : cage.f) {
         const int c0 = cage.l.c[cage.f.l[fi]];
@@ -901,8 +905,7 @@ bool MultiresAttrs::buildFaceVarying(GridAttrLayer &layer, int level, mesh::Mesh
           if ((*sharp)[cage.c.e[cc]]) {
             const int ue = uvCage->find_edge(valueOfCorner[cc], valueOfCorner[cn]);
             if (ue != ELEM_NONE) {
-              mesh::boundary::setEdgeFlag(
-                  uvCage, mesh::boundary::EDGE_SHARP, ue, true);
+              mesh::boundary::setEdgeFlag(uvCage, mesh::boundary::EDGE_SHARP, ue, true);
             }
           }
           cc = cn;
@@ -924,9 +927,7 @@ bool MultiresAttrs::buildFaceVarying(GridAttrLayer &layer, int level, mesh::Mesh
   const int gridCount = mr_->refiner.gridCount();
   const int S = mr_->refiner.levels[level - 1].gridSide;
   const int w = S + 1;
-  if (uvRefiner.gridCount() != gridCount ||
-      uvRefiner.levels[level - 1].gridSide != S)
-  {
+  if (uvRefiner.gridCount() != gridCount || uvRefiner.levels[level - 1].gridSide != S) {
     alloc::Delete(uvCage);
     return false; // enumeration drifted; bilinear is still a valid answer
   }
@@ -1018,11 +1019,11 @@ void MultiresAttrs::refreshFaceSetColors(const int *gridIds, int count)
   for (int i = 0; i < count; i++) {
     const int g = gridIds[i];
     if (g >= 0 && g < int(fsetColors_.size())) {
-      fsetColors_[g] = faceSetColor(gdata->safe_get(grids[g].face), cage->default_group_id);
+      fsetColors_[g] =
+          faceSetColor(gdata->safe_get(grids[g].face), cage->default_group_id);
     }
   }
 }
-
 
 bool MultiresAttrs::seedFaceSessionChannel(int level, const string &name, int channel)
 {
@@ -1125,7 +1126,9 @@ const float3 *MultiresAttrs::faceSetSampleColors(int level)
   return fsetSamples_.data();
 }
 
-void MultiresAttrs::refreshFaceSetSampleColorsForGrid(int level, int grid, const int *cells)
+void MultiresAttrs::refreshFaceSetSampleColorsForGrid(int level,
+                                                      int grid,
+                                                      const int *cells)
 {
   mesh::Mesh *cage = mr_ ? mr_->cage() : nullptr;
   if (!cage || !fsetSamplesValid_ || fsetSamplesLevel_ != level || grid < 0 ||
@@ -1141,7 +1144,8 @@ void MultiresAttrs::refreshFaceSetSampleColorsForGrid(int level, int grid, const
   const int def = cage->default_group_id;
   for (int v = 0; v <= S; v++) {
     for (int u = 0; u <= S; u++) {
-      fsetSamples_[sampleIndex(grid, u, v, w)] = sampleColorFromCells(cells, S, u, v, def);
+      fsetSamples_[sampleIndex(grid, u, v, w)] =
+          sampleColorFromCells(cells, S, u, v, def);
     }
   }
 }

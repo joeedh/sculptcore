@@ -64,8 +64,8 @@ int grids_nodes_get(void *src_v,
       continue; /* unfilled node: never hand the host a null positions ptr */
     }
     ScExternalDrawNode dn = {};
-    dn.positions = reinterpret_cast<const float(*)[3]>(n.pos.data());
-    dn.normals = reinterpret_cast<const float(*)[3]>(n.no.data());
+    dn.positions = reinterpret_cast<const float (*)[3]>(n.pos.data());
+    dn.normals = reinterpret_cast<const float (*)[3]>(n.no.data());
     /* mask@2 from the domain mirror, color@0/uv@1/fset@3 from the derived
      * grid-attribute layers (subdiv/grid_attrs.h). A stream the cage does not
      * carry stays null and the host fills that slot's default. */
@@ -73,20 +73,20 @@ int grids_nodes_get(void *src_v,
     for (size_t slot = 0; slot < attrs_per_node; slot++) {
       const void *ptr = nullptr;
       switch (slot) {
-        case 0:
-          ptr = n.color.size() > 0 ? static_cast<const void *>(n.color.data()) : nullptr;
-          break;
-        case 1:
-          ptr = n.uv.size() > 0 ? static_cast<const void *>(n.uv.data()) : nullptr;
-          break;
-        case 2:
-          ptr = mask_live ? static_cast<const void *>(n.mask.data()) : nullptr;
-          break;
-        case 3:
-          ptr = n.fset.size() > 0 ? static_cast<const void *>(n.fset.data()) : nullptr;
-          break;
-        default:
-          break;
+      case 0:
+        ptr = n.color.size() > 0 ? static_cast<const void *>(n.color.data()) : nullptr;
+        break;
+      case 1:
+        ptr = n.uv.size() > 0 ? static_cast<const void *>(n.uv.data()) : nullptr;
+        break;
+      case 2:
+        ptr = mask_live ? static_cast<const void *>(n.mask.data()) : nullptr;
+        break;
+      case 3:
+        ptr = n.fset.size() > 0 ? static_cast<const void *>(n.fset.data()) : nullptr;
+        break;
+      default:
+        break;
       }
       attrs.append(ptr);
     }

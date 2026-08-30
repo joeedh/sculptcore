@@ -16,7 +16,6 @@
 
 #include "litestl/binding/binding.h"
 
-
 using namespace litestl;
 using namespace litestl::util;
 
@@ -115,7 +114,7 @@ struct Buffer {
       resize(elem_count);
     }
   }
-  
+
   template <typename List> int load_data(List &list)
   {
     /* For ushort, uint, uchar. */

@@ -25,16 +25,16 @@ using namespace sculptcore::mesh;
 using namespace litestl::math;
 namespace bnd = sculptcore::mesh::boundary;
 
-static const char *SETUP =
-    "make_cube subdivs=10 size=0.5\n"
-    "build_spatial leaf_limit=256 depth_limit=8\n"
-    "set_brush radius=0.3 strength=1.0\n"
-    "set_backend backend=cpp\n";
+static const char *SETUP = "make_cube subdivs=10 size=0.5\n"
+                           "build_spatial leaf_limit=256 depth_limit=8\n"
+                           "set_brush radius=0.3 strength=1.0\n"
+                           "set_backend backend=cpp\n";
 
 static void capture(Mesh *m, std::vector<float3> &out)
 {
   out.resize(m->v.count);
-  for (int i = 0; i < m->v.count; i++) out[i] = m->v.co[i];
+  for (int i = 0; i < m->v.count; i++)
+    out[i] = m->v.co[i];
 }
 
 int main()
@@ -45,23 +45,23 @@ int main()
 
   {
     Scene s(128, 128, /*headless=*/true);
-    auto r = script::run(s,
-                         (std::string(SETUP) +
-                          "set_brush_tool tool=smooth\n"
-                          "stroke origin=0.25,0.25,0.25 normal=1,1,1\n")
-                             .c_str(),
-                         ".");
+    auto r =
+        script::run(s,
+                    (std::string(SETUP) + "set_brush_tool tool=smooth\n"
+                                          "stroke origin=0.25,0.25,0.25 normal=1,1,1\n")
+                        .c_str(),
+                    ".");
     test_assert(r.ok);
     capture(s.mesh, smoothPos);
   }
   {
     Scene s(128, 128, /*headless=*/true);
-    auto r = script::run(s,
-                         (std::string(SETUP) +
-                          "set_brush_tool tool=bsmooth\n"
-                          "stroke origin=0.25,0.25,0.25 normal=1,1,1\n")
-                             .c_str(),
-                         ".");
+    auto r =
+        script::run(s,
+                    (std::string(SETUP) + "set_brush_tool tool=bsmooth\n"
+                                          "stroke origin=0.25,0.25,0.25 normal=1,1,1\n")
+                        .c_str(),
+                    ".");
     test_assert(r.ok);
     capture(s.mesh, bsmoothPos);
   }
@@ -71,7 +71,8 @@ int main()
   double maxd = 0.0;
   for (size_t i = 0; i < smoothPos.size(); i++) {
     double d = double((bsmoothPos[i] - smoothPos[i]).length());
-    if (d > maxd) maxd = d;
+    if (d > maxd)
+      maxd = d;
   }
   fprintf(stderr, "bsmooth-vs-smooth maxdiff=%g\n", maxd);
   test_assert(maxd < 1e-4);
@@ -79,7 +80,8 @@ int main()
   {
     // B) every edge sharp -> every vert is a boundary vert -> projection active.
     Scene s(128, 128, /*headless=*/true);
-    auto r = script::run(s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
+    auto r = script::run(
+        s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
     test_assert(r.ok);
     Mesh *m = s.mesh;
     for (int e = 0; e < m->e.count; e++) {
@@ -88,7 +90,8 @@ int main()
     bnd::recomputeDirty(m);
     int sharpVerts = 0;
     for (int v = 0; v < m->v.count; v++) {
-      if (bnd::vertClass(m, v) & bnd::BC_SHARP) sharpVerts++;
+      if (bnd::vertClass(m, v) & bnd::BC_SHARP)
+        sharpVerts++;
     }
     fprintf(stderr, "sharpVerts=%d / %d\n", sharpVerts, m->v.count);
     test_assert(sharpVerts > 0);
@@ -102,8 +105,10 @@ int main()
   double maxd2 = 0.0;
   for (size_t i = 0; i < bsmoothPos.size() && i < sharpPos.size(); i++) {
     double d = double((sharpPos[i] - bsmoothPos[i]).length());
-    if (d > 1e-4) diffVerts++;
-    if (d > maxd2) maxd2 = d;
+    if (d > 1e-4)
+      diffVerts++;
+    if (d > maxd2)
+      maxd2 = d;
   }
   fprintf(stderr, "sharp-vs-bsmooth maxdiff=%g diffVerts=%d\n", maxd2, diffVerts);
   test_assert(diffVerts > 0);
@@ -114,10 +119,12 @@ int main()
   std::vector<float3> cppB, wgslB;
   {
     Scene s(128, 128, /*headless=*/true);
-    auto r = script::run(s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
+    auto r = script::run(
+        s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
     test_assert(r.ok);
     Mesh *m = s.mesh;
-    for (int e = 0; e < m->e.count; e++) bnd::setEdgeFlag(m, bnd::EDGE_SHARP, e, true);
+    for (int e = 0; e < m->e.count; e++)
+      bnd::setEdgeFlag(m, bnd::EDGE_SHARP, e, true);
     bnd::recomputeDirty(m);
     auto r2 = script::run(
         s, "set_backend backend=cpp\nstroke origin=0.25,0.25,0.25 normal=1,1,1\n", ".");
@@ -126,16 +133,20 @@ int main()
   }
   {
     Scene s(128, 128, /*headless=*/true);
-    auto r = script::run(s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
+    auto r = script::run(
+        s, (std::string(SETUP) + "set_brush_tool tool=bsmooth\n").c_str(), ".");
     test_assert(r.ok);
     if (!s.ensureGPU()) {
       fprintf(stderr, "no GPU; skipping bsmooth GPU parity\n");
     } else {
       Mesh *m = s.mesh;
-      for (int e = 0; e < m->e.count; e++) bnd::setEdgeFlag(m, bnd::EDGE_SHARP, e, true);
+      for (int e = 0; e < m->e.count; e++)
+        bnd::setEdgeFlag(m, bnd::EDGE_SHARP, e, true);
       bnd::recomputeDirty(m);
       auto r2 = script::run(
-          s, "set_backend backend=wgsl\nstroke origin=0.25,0.25,0.25 normal=1,1,1\n", ".");
+          s,
+          "set_backend backend=wgsl\nstroke origin=0.25,0.25,0.25 normal=1,1,1\n",
+          ".");
       test_assert(r2.ok);
       capture(m, wgslB);
     }
@@ -150,7 +161,8 @@ int main()
     double maxd3 = 0.0;
     for (size_t i = 0; i < cppB.size(); i++) {
       double d = double((cppB[i] - wgslB[i]).length());
-      if (d > maxd3) maxd3 = d;
+      if (d > maxd3)
+        maxd3 = d;
     }
     fprintf(stderr, "bsmooth cpp-vs-wgsl maxdiff=%g\n", maxd3);
     test_assert(maxd3 < 1e-3);

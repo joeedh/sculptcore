@@ -3,8 +3,8 @@
 #include "attribute.h"
 #include "attribute_enums.h"
 #include "litestl/binding/binding.h"
-#include "litestl/math/vector.h"
 #include "litestl/math/math_bindings.h"
+#include "litestl/math/vector.h"
 #include "litestl/util/string.h"
 #include "mesh_base.h"
 
@@ -53,7 +53,7 @@ struct BuiltinAttr : public AttrRef {
     bool ret = !group.has(type, name);
 
     AttrRef &attr = group.ensure(type, name);
-    
+
     /* AttrGroup::ensure() builds the stored AttrRef via AttrRef(type, name),
      * which does not carry the builtin's AttrFlag/AttrUse. Stamp them here so
      * group entries report TOPO/TEMP/SELECT/etc. correctly (e.g. AttrGroup::swap's

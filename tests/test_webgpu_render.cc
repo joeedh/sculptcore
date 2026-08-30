@@ -14,8 +14,7 @@
 test_init;
 
 namespace sculptcore::webgpu {
-bool webgpuRenderSceneToPNG(const char *path, int w, int h,
-                            int *outNonUniformPixels);
+bool webgpuRenderSceneToPNG(const char *path, int w, int h, int *outNonUniformPixels);
 }
 
 int main()
@@ -33,7 +32,7 @@ int main()
    * of it (background visible at the corners). Loose bounds — this guards
    * "nothing drew" / "whole frame is one color", not exact coverage. */
   printf("webgpu native render: non-background pixels = %d / %d\n", nonBg, w * h);
-  test_assert(nonBg > w * h / 100);     // >1% drawn
+  test_assert(nonBg > w * h / 100);      // >1% drawn
   test_assert(nonBg < w * h * 99 / 100); // background still visible
 
   return test_end();

@@ -223,13 +223,14 @@ bool RemeshApp::saveAssetQuadCount(std::string &err)
     err = "target_quad_count must be > 0";
     return false;
   }
-  if (!remesh::cli::saveAssetQuadCount(REMESH_DBG_ASSETS_DIR, assets[selected],
-                                       params.target_quad_count)) {
+  if (!remesh::cli::saveAssetQuadCount(
+          REMESH_DBG_ASSETS_DIR, assets[selected], params.target_quad_count))
+  {
     err = "could not write quad-counts.txt";
     return false;
   }
-  status = "saved " + assets[selected] + " quads=" +
-           std::to_string(params.target_quad_count);
+  status =
+      "saved " + assets[selected] + " quads=" + std::to_string(params.target_quad_count);
   return true;
 }
 
@@ -730,8 +731,7 @@ std::string RemeshApp::handleCommand(const std::string &line)
       << "feature_hysteresis=" << params.feature_hysteresis << "\n"
       << "feature_min_chain=" << params.feature_min_chain << "\n"
       << "use_density=" << int(params.use_density) << "\n"
-      << "quantize_direct_rounding=" << int(params.quantize_direct_rounding)
-      << "\n"
+      << "quantize_direct_rounding=" << int(params.quantize_direct_rounding) << "\n"
       << "untangle_field_max_dev=" << params.untangle_field_max_dev << "\n"
       << "reproject=" << int(params.reproject) << "\n"
       << "cap_odd_holes=" << int(params.cap_odd_holes) << "\n"

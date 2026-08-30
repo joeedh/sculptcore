@@ -25,9 +25,9 @@ static WGPUStringView strView(const char *s)
   return v;
 }
 
-static UniformBlockInstance *findInstanceByName(
-    const litestl::util::Vector<UniformBlockInstance *> &blocks,
-    const litestl::util::string &name)
+static UniformBlockInstance *
+findInstanceByName(const litestl::util::Vector<UniformBlockInstance *> &blocks,
+                   const litestl::util::string &name)
 {
   for (auto *inst : blocks) {
     if (inst && inst->def && inst->def->name == name) {
@@ -56,11 +56,9 @@ static void writeFromDrawUniforms(const UniformBlockDef *block,
     const char *nm = f->name.c_str();
     if (strcmp(nm, "drawMatrix") == 0 && avail >= sizeof(u.drawMatrix)) {
       std::memcpy(p, &u.drawMatrix, sizeof(u.drawMatrix));
-    }
-    else if (strcmp(nm, "normalMatrix") == 0 && avail >= sizeof(u.normalMatrix)) {
+    } else if (strcmp(nm, "normalMatrix") == 0 && avail >= sizeof(u.normalMatrix)) {
       std::memcpy(p, &u.normalMatrix, sizeof(u.normalMatrix));
-    }
-    else if (strcmp(nm, "uColor") == 0 && avail >= sizeof(u.uColor)) {
+    } else if (strcmp(nm, "uColor") == 0 && avail >= sizeof(u.uColor)) {
       std::memcpy(p, &u.uColor, sizeof(u.uColor));
     }
   }
@@ -70,16 +68,21 @@ static WGPUVertexFormat attrFormatWgpu(GPUType type, int elemSize)
 {
   if (type == GPUType::FLOAT32) {
     switch (elemSize) {
-    case 2: return WGPUVertexFormat_Float32x2;
-    case 3: return WGPUVertexFormat_Float32x3;
-    case 4: return WGPUVertexFormat_Float32x4;
+    case 2:
+      return WGPUVertexFormat_Float32x2;
+    case 3:
+      return WGPUVertexFormat_Float32x3;
+    case 4:
+      return WGPUVertexFormat_Float32x4;
     }
   }
   /* No other types currently used by the spatial shaders. */
   return WGPUVertexFormat_Float32x3;
 }
 
-WebGpuBackend::WebGpuBackend(GPUManager *mgr, WgpuContext *ctx, WGPUTextureFormat colorFormat)
+WebGpuBackend::WebGpuBackend(GPUManager *mgr,
+                             WgpuContext *ctx,
+                             WGPUTextureFormat colorFormat)
     : mgr_(mgr), ctx_(ctx), colorFormat_(colorFormat)
 {
   if (mgr_) {
@@ -111,33 +114,49 @@ void WebGpuBackend::invalidate()
 {
   litestl::util::Vector<Buffer *> bufKeys;
   for (auto &kv : buffer_cache_) {
-    if (kv.value.buffer) wgpuBufferRelease(kv.value.buffer);
+    if (kv.value.buffer)
+      wgpuBufferRelease(kv.value.buffer);
     bufKeys.append(kv.key);
   }
-  for (auto *k : bufKeys) buffer_cache_.remove(k);
+  for (auto *k : bufKeys)
+    buffer_cache_.remove(k);
 
   litestl::util::Vector<ShaderDef *> pipeKeys;
   for (auto &kv : pipeline_cache_) {
     auto &e = kv.value;
-    if (e.bindGroup) wgpuBindGroupRelease(e.bindGroup);
-    if (e.ubo) wgpuBufferRelease(e.ubo);
-    if (e.pipeline) wgpuRenderPipelineRelease(e.pipeline);
-    if (e.layout) wgpuPipelineLayoutRelease(e.layout);
-    if (e.bgLayout) wgpuBindGroupLayoutRelease(e.bgLayout);
-    if (e.shaderModule) wgpuShaderModuleRelease(e.shaderModule);
+    if (e.bindGroup)
+      wgpuBindGroupRelease(e.bindGroup);
+    if (e.ubo)
+      wgpuBufferRelease(e.ubo);
+    if (e.pipeline)
+      wgpuRenderPipelineRelease(e.pipeline);
+    if (e.layout)
+      wgpuPipelineLayoutRelease(e.layout);
+    if (e.bgLayout)
+      wgpuBindGroupLayoutRelease(e.bgLayout);
+    if (e.shaderModule)
+      wgpuShaderModuleRelease(e.shaderModule);
     pipeKeys.append(kv.key);
   }
-  for (auto *k : pipeKeys) pipeline_cache_.remove(k);
+  for (auto *k : pipeKeys)
+    pipeline_cache_.remove(k);
 
-  if (depthView_) { wgpuTextureViewRelease(depthView_); depthView_ = nullptr; }
-  if (depthTexture_) { wgpuTextureRelease(depthTexture_); depthTexture_ = nullptr; }
+  if (depthView_) {
+    wgpuTextureViewRelease(depthView_);
+    depthView_ = nullptr;
+  }
+  if (depthTexture_) {
+    wgpuTextureRelease(depthTexture_);
+    depthTexture_ = nullptr;
+  }
   depthW_ = depthH_ = 0;
 }
 
 WebGpuBackend::BufferEntry &WebGpuBackend::ensureBuffer(Buffer *buf)
 {
   static BufferEntry empty;
-  if (!buf || !buf->data || buf->size <= 0) return empty;
+  if (!buf || !buf->data || buf->size <= 0)
+    return empty;
 
   BufferEntry *entry = buffer_cache_.lookup_ptr(buf);
   uint64_t bytes = uint64_t(buf->size) * buf->elemsize * gpu_sizeof(buf->type);
@@ -177,15 +196,18 @@ WebGpuBackend::BufferEntry &WebGpuBackend::ensureBuffer(Buffer *buf)
 
 WebGpuBackend::PipelineEntry *WebGpuBackend::ensurePipeline(ShaderDef *def)
 {
-  if (!def) return nullptr;
+  if (!def)
+    return nullptr;
   PipelineEntry *cached = pipeline_cache_.lookup_ptr(def);
-  if (cached && cached->pipeline) return cached;
+  if (cached && cached->pipeline)
+    return cached;
   if (def->wgslSource.size() == 0) {
     fprintf(stderr, "WebGpuBackend: shader '%s' has no WGSL\n", def->name.c_str());
     return nullptr;
   }
   if (def->uniforms.size() == 0) {
-    fprintf(stderr, "WebGpuBackend: shader '%s' has no uniform blocks\n", def->name.c_str());
+    fprintf(
+        stderr, "WebGpuBackend: shader '%s' has no uniform blocks\n", def->name.c_str());
     return nullptr;
   }
 
@@ -197,7 +219,8 @@ WebGpuBackend::PipelineEntry *WebGpuBackend::ensurePipeline(ShaderDef *def)
   smd.nextInChain = &wgsl.chain;
   e.shaderModule = wgpuDeviceCreateShaderModule(ctx_->device, &smd);
   if (!e.shaderModule) {
-    fprintf(stderr, "WebGpuBackend: shader module creation failed for '%s'\n",
+    fprintf(stderr,
+            "WebGpuBackend: shader module creation failed for '%s'\n",
             def->name.c_str());
     return nullptr;
   }
@@ -292,8 +315,8 @@ WebGpuBackend::PipelineEntry *WebGpuBackend::ensurePipeline(ShaderDef *def)
   rpd.vertex.entryPoint = strView("vs_main");
   rpd.vertex.bufferCount = uint32_t(vbufs.size());
   rpd.vertex.buffers = vbufs.data();
-  rpd.primitive.topology =
-      naturallyLines ? WGPUPrimitiveTopology_LineList : WGPUPrimitiveTopology_TriangleList;
+  rpd.primitive.topology = naturallyLines ? WGPUPrimitiveTopology_LineList
+                                          : WGPUPrimitiveTopology_TriangleList;
   rpd.primitive.frontFace = WGPUFrontFace_CCW;
   rpd.primitive.cullMode = WGPUCullMode_None;
   rpd.depthStencil = &depth;
@@ -301,12 +324,18 @@ WebGpuBackend::PipelineEntry *WebGpuBackend::ensurePipeline(ShaderDef *def)
 
   e.pipeline = wgpuDeviceCreateRenderPipeline(ctx_->device, &rpd);
   if (!e.pipeline) {
-    fprintf(stderr, "WebGpuBackend: failed to create pipeline for '%s'\n", def->name.c_str());
-    if (e.bindGroup) wgpuBindGroupRelease(e.bindGroup);
-    if (e.ubo) wgpuBufferRelease(e.ubo);
-    if (e.layout) wgpuPipelineLayoutRelease(e.layout);
-    if (e.bgLayout) wgpuBindGroupLayoutRelease(e.bgLayout);
-    if (e.shaderModule) wgpuShaderModuleRelease(e.shaderModule);
+    fprintf(
+        stderr, "WebGpuBackend: failed to create pipeline for '%s'\n", def->name.c_str());
+    if (e.bindGroup)
+      wgpuBindGroupRelease(e.bindGroup);
+    if (e.ubo)
+      wgpuBufferRelease(e.ubo);
+    if (e.layout)
+      wgpuPipelineLayoutRelease(e.layout);
+    if (e.bgLayout)
+      wgpuBindGroupLayoutRelease(e.bgLayout);
+    if (e.shaderModule)
+      wgpuShaderModuleRelease(e.shaderModule);
     return nullptr;
   }
 
@@ -316,9 +345,11 @@ WebGpuBackend::PipelineEntry *WebGpuBackend::ensurePipeline(ShaderDef *def)
 
 void WebGpuBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms &u)
 {
-  if (!cmd || !cmd->shader || !pass_) return;
+  if (!cmd || !cmd->shader || !pass_)
+    return;
   PipelineEntry *pe = ensurePipeline(cmd->shader);
-  if (!pe) return;
+  if (!pe)
+    return;
 
   /* Resolve the shader's first block against (cmd, batch); else synthesize. */
   UniformBlockDef *blockDef = cmd->shader->uniforms[0];
@@ -327,14 +358,14 @@ void WebGpuBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms
     inst = findInstanceByName(batch->blocks, blockDef->name);
   }
   if (inst && inst->data.size() >= blockDef->packedBytes && blockDef->packedBytes > 0) {
-    wgpuQueueWriteBuffer(ctx_->queue, pe->ubo, 0, inst->data.data(),
-                         size_t(blockDef->packedBytes));
-  }
-  else {
+    wgpuQueueWriteBuffer(
+        ctx_->queue, pe->ubo, 0, inst->data.data(), size_t(blockDef->packedBytes));
+  } else {
     /* Stack scratch sized to the (16-aligned) UBO, scattered from `u`. */
     uint8_t scratch[256];
     size_t n = size_t(pe->uboSize);
-    if (n > sizeof(scratch)) n = sizeof(scratch);
+    if (n > sizeof(scratch))
+      n = sizeof(scratch);
     writeFromDrawUniforms(blockDef, u, scratch, n);
     wgpuQueueWriteBuffer(ctx_->queue, pe->ubo, 0, scratch, n);
   }
@@ -345,7 +376,8 @@ void WebGpuBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms
   /* Bind one vertex buffer per attribute, declaration order. */
   const auto &shader_attrs = cmd->shader->attrs;
   int n = int(cmd->attrs.size());
-  if (n > int(shader_attrs.size())) n = int(shader_attrs.size());
+  if (n > int(shader_attrs.size()))
+    n = int(shader_attrs.size());
   for (int i = 0; i < n; i++) {
     auto &be = ensureBuffer(cmd->attrs[i]);
     if (!be.buffer) {
@@ -362,7 +394,8 @@ void WebGpuBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms
 
 bool WebGpuBackend::beginFrame(WgpuTarget &target, float r, float g, float b, float a)
 {
-  if (inFrame_ || !target.colorView || !target.depthView) return false;
+  if (inFrame_ || !target.colorView || !target.depthView)
+    return false;
 
   WGPUCommandEncoderDescriptor ced = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT;
   encoder_ = wgpuDeviceCreateCommandEncoder(ctx_->device, &ced);
@@ -373,7 +406,8 @@ bool WebGpuBackend::beginFrame(WgpuTarget &target, float r, float g, float b, fl
   color.storeOp = WGPUStoreOp_Store;
   color.clearValue = {double(r), double(g), double(b), double(a)};
 
-  WGPURenderPassDepthStencilAttachment depth = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+  WGPURenderPassDepthStencilAttachment depth =
+      WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
   depth.view = target.depthView;
   depth.depthLoadOp = WGPULoadOp_Clear;
   depth.depthStoreOp = WGPUStoreOp_Store;
@@ -390,7 +424,8 @@ bool WebGpuBackend::beginFrame(WgpuTarget &target, float r, float g, float b, fl
 
 void WebGpuBackend::endFrame()
 {
-  if (!inFrame_) return;
+  if (!inFrame_)
+    return;
   wgpuRenderPassEncoderEnd(pass_);
   wgpuRenderPassEncoderRelease(pass_);
   pass_ = nullptr;
@@ -405,9 +440,16 @@ void WebGpuBackend::endFrame()
 
 void WebGpuBackend::ensureSurfaceDepth(int w, int h)
 {
-  if (depthTexture_ && depthW_ == w && depthH_ == h) return;
-  if (depthView_) { wgpuTextureViewRelease(depthView_); depthView_ = nullptr; }
-  if (depthTexture_) { wgpuTextureRelease(depthTexture_); depthTexture_ = nullptr; }
+  if (depthTexture_ && depthW_ == w && depthH_ == h)
+    return;
+  if (depthView_) {
+    wgpuTextureViewRelease(depthView_);
+    depthView_ = nullptr;
+  }
+  if (depthTexture_) {
+    wgpuTextureRelease(depthTexture_);
+    depthTexture_ = nullptr;
+  }
 
   WGPUTextureDescriptor dtd = WGPU_TEXTURE_DESCRIPTOR_INIT;
   dtd.usage = WGPUTextureUsage_RenderAttachment;
@@ -422,13 +464,16 @@ void WebGpuBackend::ensureSurfaceDepth(int w, int h)
 
 bool WebGpuBackend::beginFrameSurface(int w, int h, float r, float g, float b, float a)
 {
-  if (inFrame_ || !ctx_->surface) return false;
+  if (inFrame_ || !ctx_->surface)
+    return false;
 
   WGPUSurfaceTexture st = WGPU_SURFACE_TEXTURE_INIT;
   wgpuSurfaceGetCurrentTexture(ctx_->surface, &st);
   if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-      st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
-    fprintf(stderr, "WebGpuBackend: surface getCurrentTexture status %d\n", int(st.status));
+      st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal)
+  {
+    fprintf(
+        stderr, "WebGpuBackend: surface getCurrentTexture status %d\n", int(st.status));
     return false;
   }
   surfaceTex_ = st.texture;
@@ -444,7 +489,8 @@ bool WebGpuBackend::beginFrameSurface(int w, int h, float r, float g, float b, f
   color.storeOp = WGPUStoreOp_Store;
   color.clearValue = {double(r), double(g), double(b), double(a)};
 
-  WGPURenderPassDepthStencilAttachment depth = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+  WGPURenderPassDepthStencilAttachment depth =
+      WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
   depth.view = depthView_;
   depth.depthLoadOp = WGPULoadOp_Clear;
   depth.depthStoreOp = WGPUStoreOp_Store;
@@ -461,7 +507,8 @@ bool WebGpuBackend::beginFrameSurface(int w, int h, float r, float g, float b, f
 
 bool WebGpuBackend::endFrameSurface()
 {
-  if (!inFrame_) return true;
+  if (!inFrame_)
+    return true;
   wgpuRenderPassEncoderEnd(pass_);
   wgpuRenderPassEncoderRelease(pass_);
   pass_ = nullptr;
@@ -478,15 +525,22 @@ bool WebGpuBackend::endFrameSurface()
   wgpuSurfacePresent(ctx_->surface);
 #endif
 
-  if (surfaceView_) { wgpuTextureViewRelease(surfaceView_); surfaceView_ = nullptr; }
-  if (surfaceTex_) { wgpuTextureRelease(surfaceTex_); surfaceTex_ = nullptr; }
+  if (surfaceView_) {
+    wgpuTextureViewRelease(surfaceView_);
+    surfaceView_ = nullptr;
+  }
+  if (surfaceTex_) {
+    wgpuTextureRelease(surfaceTex_);
+    surfaceTex_ = nullptr;
+  }
   inFrame_ = false;
   return true;
 }
 
 void WebGpuBackend::draw(DrawBatch *batch, const DrawUniforms &u)
 {
-  if (!batch || !inFrame_) return;
+  if (!batch || !inFrame_)
+    return;
   for (DrawCommand *cmd : batch->commands) {
     issue(batch, cmd, u);
   }

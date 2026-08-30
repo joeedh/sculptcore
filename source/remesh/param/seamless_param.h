@@ -37,18 +37,17 @@ struct SeamlessParamParams {
 struct SeamlessParamStats {
   int num_faces = 0;
   int num_corners = 0;
-  int num_classes = 0;    // independent (u,v) variables on the cut mesh
+  int num_classes = 0; // independent (u,v) variables on the cut mesh
   int num_cut_edges = 0;
-  double grad_angle_err = 0.0;      // max |angle(∇u) − θ| over faces (rad, mod π/2)
+  double grad_angle_err = 0.0;       // max |angle(∇u) − θ| over faces (rad, mod π/2)
   double max_seam_translation = 0.0; // max ‖t‖ on non-cut edges (should be ≈ 0)
-  double min_jacobian = 0.0;        // min per-face det(∇u, ∇v) (informational)
+  double min_jacobian = 0.0;         // min per-face det(∇u, ∇v) (informational)
   bool solved = false;
 };
 
 /* Build the cut graph, gauge, and Poisson-solve the seamless (u, v). Runs
  * computeCrossField first if no .remesh.f.theta is present. Thaws topology +
  * recomputes normals. */
-SeamlessParamStats computeSeamlessParam(mesh::Mesh &m,
-                                        const SeamlessParamParams &params);
+SeamlessParamStats computeSeamlessParam(mesh::Mesh &m, const SeamlessParamParams &params);
 
 } // namespace sculptcore::remesh

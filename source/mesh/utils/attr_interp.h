@@ -171,35 +171,36 @@ static inline void interpAttrRows(AttrGroup &grp,
       }
       continue;
     }
-    detail::type_dispatch(attr.type, [&attr, &c0, &c1, &t, &dst, copy_src0]<typename T>() {
-      auto *data = static_cast<AttrData<T> *>(attr.data);
-      if (!data) {
-        return;
-      }
-      data->materialize(dst); // dst's page may be lazily unmaterialized
-      T a;
-      std::memcpy(static_cast<void *>(&a), c0.bytes, sizeof(T));
-      if (copy_src0) {
-        (*data)[dst] = a;
-        return;
-      }
-      if constexpr (std::is_floating_point_v<T>) {
-        T b;
-        std::memcpy(static_cast<void *>(&b), c1.bytes, sizeof(T));
-        (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
-      } else if constexpr (requires { typename T::value_type; }) {
-        using Scalar = typename T::value_type;
-        if constexpr (std::is_floating_point_v<Scalar>) {
-          T b;
-          std::memcpy(static_cast<void *>(&b), c1.bytes, sizeof(T));
-          (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
-        } else {
-          (*data)[dst] = a;
-        }
-      } else {
-        (*data)[dst] = a;
-      }
-    });
+    detail::type_dispatch(
+        attr.type, [&attr, &c0, &c1, &t, &dst, copy_src0]<typename T>() {
+          auto *data = static_cast<AttrData<T> *>(attr.data);
+          if (!data) {
+            return;
+          }
+          data->materialize(dst); // dst's page may be lazily unmaterialized
+          T a;
+          std::memcpy(static_cast<void *>(&a), c0.bytes, sizeof(T));
+          if (copy_src0) {
+            (*data)[dst] = a;
+            return;
+          }
+          if constexpr (std::is_floating_point_v<T>) {
+            T b;
+            std::memcpy(static_cast<void *>(&b), c1.bytes, sizeof(T));
+            (*data)[dst] = a * (T(1) - T(t)) + b * T(t);
+          } else if constexpr (requires { typename T::value_type; }) {
+            using Scalar = typename T::value_type;
+            if constexpr (std::is_floating_point_v<Scalar>) {
+              T b;
+              std::memcpy(static_cast<void *>(&b), c1.bytes, sizeof(T));
+              (*data)[dst] = a * Scalar(1.0f - t) + b * Scalar(t);
+            } else {
+              (*data)[dst] = a;
+            }
+          } else {
+            (*data)[dst] = a;
+          }
+        });
   }
 }
 

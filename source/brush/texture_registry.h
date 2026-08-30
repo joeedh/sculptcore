@@ -16,14 +16,16 @@ struct TextureRegistryEntry {
   /** The precompiled eval — the same array ABI brush call sites use. Pass
    * `defaults` (or a runtime slab of `slabSize` floats) and a TexEvalCtx
    * (null is valid; mapPoint becomes a pass-through). */
-  float (*eval)(litestl::math::float3 p, litestl::math::float3 n, const float *params,
+  float (*eval)(litestl::math::float3 p,
+                litestl::math::float3 n,
+                const float *params,
                 const TexEvalCtx *ctx);
-  const float *defaults;  // authored param defaults; null when slabSize == 0
+  const float *defaults; // authored param defaults; null when slabSize == 0
   int slabSize;
-  const TexParamManifestEntry *params;  // runtime-adjustable params, decl order
+  const TexParamManifestEntry *params; // runtime-adjustable params, decl order
   int paramCount;
-  const char *wgsl;  // the owning unit's WGSL module text
-  bool usesMap;      // eval calls mapPoint() — feed the ctx a real matrix
+  const char *wgsl; // the owning unit's WGSL module text
+  bool usesMap;     // eval calls mapPoint() — feed the ctx a real matrix
 };
 
 int textureRegistryCount();
@@ -33,4 +35,4 @@ const TextureRegistryEntry *textureRegistryEntry(int i);
  * when absent. */
 const TextureRegistryEntry *findTexture(litestl::util::stringref name);
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

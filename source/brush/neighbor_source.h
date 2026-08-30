@@ -1,8 +1,8 @@
 #pragma once
 
+#include "litestl/util/span.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
-#include "litestl/util/span.h"
 
 #include <concepts>
 #include <cstdint>

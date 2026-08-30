@@ -151,13 +151,7 @@ function findCombos(depsRoot) {
 }
 
 function manifestsEqual(a, b) {
-  return (
-    !!a &&
-    !!b &&
-    a.openblas === b.openblas &&
-    a.suitesparse === b.suitesparse &&
-    a.revision === b.revision
-  )
+  return !!a && !!b && a.openblas === b.openblas && a.suitesparse === b.suitesparse && a.revision === b.revision
 }
 
 function copyTree(src, dst) {

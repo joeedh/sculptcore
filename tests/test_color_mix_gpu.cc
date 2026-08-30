@@ -49,7 +49,8 @@ static float maxDiff(const Vector<float4> &a, const Vector<float4> &b)
   for (int i = 0; i < int(a.size()); i++) {
     for (int c = 0; c < 4; c++) {
       float d = std::fabs(a[i][c] - b[i][c]);
-      if (d > worst) worst = d;
+      if (d > worst)
+        worst = d;
     }
   }
   return worst;
@@ -140,8 +141,7 @@ int main()
   snapshot(col, m, gpuMul);
   float gpuErr = maxDiff(gpuMul, cpuMul);
   float gpuVsMix = maxDiff(gpuMul, cpuMix);
-  fprintf(stderr, "gpu vs cpu(MULTIPLY): %g   gpu vs cpu(MIX): %g\n", gpuErr,
-          gpuVsMix);
+  fprintf(stderr, "gpu vs cpu(MULTIPLY): %g   gpu vs cpu(MIX): %g\n", gpuErr, gpuVsMix);
   test_assert(gpuErr < 2e-5f);
   test_assert(gpuVsMix > 0.01f);
 

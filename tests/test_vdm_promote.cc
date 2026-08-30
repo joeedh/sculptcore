@@ -27,12 +27,12 @@ test_init;
 /* Local assert (mirrors test_spatial_raycast.cc): the shared test_assert can
  * lose an earlier failure, this latches retval. */
 #undef test_assert
-#define test_assert(expr) \
-  do { \
-    if (!(expr)) { \
-      fprintf(stderr, "%s failed\n", #expr); \
-      retval = 1; \
-    } \
+#define test_assert(expr)                                                                \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      fprintf(stderr, "%s failed\n", #expr);                                             \
+      retval = 1;                                                                        \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -119,10 +119,16 @@ int main()
   fprintf(stderr,
           "promote: geomFaces=%d (was 0), verts %d->%d, faces %d->%d, "
           "regionEdges=%d, texelMag %f->%f\n",
-          geomAfter, vertsBefore, int(scene.mesh->v.count), facesBefore,
-          int(scene.mesh->f.count), regionEdges, strokeMag, clearedMag);
+          geomAfter,
+          vertsBefore,
+          int(scene.mesh->v.count),
+          facesBefore,
+          int(scene.mesh->f.count),
+          regionEdges,
+          strokeMag,
+          clearedMag);
   test_assert(geomAfter > 0);
-  test_assert(int(scene.mesh->v.count) > vertsBefore);   // subdivision happened
+  test_assert(int(scene.mesh->v.count) > vertsBefore); // subdivision happened
   test_assert(int(scene.mesh->f.count) > facesBefore);
   test_assert(regionEdges > 0);
   // Footprint texels cleared: what's left is at most boundary residue, far
@@ -155,9 +161,12 @@ int main()
   test_assert(int(scene.mesh->f.count) == facesBefore);
   test_assert(countCarrier(scene, 1) == vdmBefore);
   test_assert(countLayerRegionEdges(scene) == 0);
-  fprintf(stderr, "undo: verts=%d faces=%d vdmFaces=%d regionEdges=%d\n",
-          int(scene.mesh->v.count), int(scene.mesh->f.count),
-          countCarrier(scene, 1), countLayerRegionEdges(scene));
+  fprintf(stderr,
+          "undo: verts=%d faces=%d vdmFaces=%d regionEdges=%d\n",
+          int(scene.mesh->v.count),
+          int(scene.mesh->f.count),
+          countCarrier(scene, 1),
+          countLayerRegionEdges(scene));
 
   // --- redo replays the promotion ---
   scene.meshLog.redo(scene.mesh, scene.tree);
@@ -180,7 +189,9 @@ int main()
     return 1;
   }
   int regionEdgesAfter = countLayerRegionEdges(scene);
-  fprintf(stderr, "dyntopo across seam: regionEdges %d -> %d\n", regionEdges,
+  fprintf(stderr,
+          "dyntopo across seam: regionEdges %d -> %d\n",
+          regionEdges,
           regionEdgesAfter);
   // Splits may add flagged child edges; the feature must never vanish.
   test_assert(regionEdgesAfter >= regionEdges);

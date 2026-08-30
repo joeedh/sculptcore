@@ -21,7 +21,10 @@ struct VkContext;
 struct Swapchain {
   Swapchain() = default;
   Swapchain(const Swapchain &) = delete;
-  ~Swapchain() { release(); }
+  ~Swapchain()
+  {
+    release();
+  }
 
   /** Build the swapchain over `ctx->surface`. Picks a B8G8R8A8_UNORM
    *  surface format (or first available), FIFO present mode, and an
@@ -41,8 +44,8 @@ struct Swapchain {
   bool acquireNext(uint32_t &outIndex);
 
   /** Begin the swapchain render pass on the active command buffer. */
-  void beginRenderPass(VkCommandBuffer cb, uint32_t imageIndex,
-                       float r, float g, float b, float a) const;
+  void beginRenderPass(
+      VkCommandBuffer cb, uint32_t imageIndex, float r, float g, float b, float a) const;
 
   /** Submit `cb` (waits on imageAvailable, signals renderComplete +
    *  inFlightFence), then present `imageIndex` (waits on

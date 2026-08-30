@@ -33,33 +33,43 @@ static bool validateMesh(Mesh &m, const char *tag)
   }
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      int next = diskEdge(m.e.disk[ec][side * 2 + 1]), prev = diskEdge(m.e.disk[ec][side * 2]);
+      int next = diskEdge(m.e.disk[ec][side * 2 + 1]),
+          prev = diskEdge(m.e.disk[ec][side * 2]);
       int sn = m.e.vs[next][0] == vi ? 0 : 1, sp = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][sn * 2] != diskPack(ec, side) || m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
+      if (m.e.disk[next][sn * 2] != diskPack(ec, side) ||
+          m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
       ec = next;
-      if (++steps > 1000000) return false;
+      if (++steps > 1000000)
+        return false;
     } while (ec != e0);
   }
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
-      if (m.c.e[cc] != ei) { fprintf(stderr, "[%s] radial c.e\n", tag); return false; }
+      if (m.c.e[cc] != ei) {
+        fprintf(stderr, "[%s] radial c.e\n", tag);
+        return false;
+      }
       int rn = m.c.radial_next[cc], rp = m.c.radial_prev[cc];
       if (m.c.radial_prev[rn] != cc || m.c.radial_next[rp] != cc) {
         fprintf(stderr, "[%s] radial mismatch e=%d c=%d\n", tag, ei, cc);
         return false;
       }
       cc = rn;
-      if (++steps > 1000000) return false;
+      if (++steps > 1000000)
+        return false;
     } while (cc != c0);
   }
   for (int fi : m.f) {
@@ -69,9 +79,13 @@ static bool validateMesh(Mesh &m, const char *tag)
     }
     int li = m.f.l[fi], c0 = m.l.c[li], cc = c0, n = 0;
     do {
-      if (m.c.l[cc] != li) return false;
+      if (m.c.l[cc] != li)
+        return false;
       int cn = m.c.next[cc];
-      if (m.c.prev[cn] != cc) { fprintf(stderr, "[%s] loop prev/next\n", tag); return false; }
+      if (m.c.prev[cn] != cc) {
+        fprintf(stderr, "[%s] loop prev/next\n", tag);
+        return false;
+      }
       int ce = m.c.e[cc], vh = m.c.v[cc], vn = m.c.v[cn];
       int ev0 = m.e.vs[ce][0], ev1 = m.e.vs[ce][1];
       if (!((ev0 == vh && ev1 == vn) || (ev1 == vh && ev0 == vn))) {
@@ -79,7 +93,8 @@ static bool validateMesh(Mesh &m, const char *tag)
         return false;
       }
       cc = cn;
-      if (++n > 1000000) return false;
+      if (++n > 1000000)
+        return false;
     } while (cc != c0);
   }
   return true;
@@ -124,9 +139,13 @@ static Mesh *makeTriGrid(int n)
 static int faceCountOfEdge(Mesh &m, int e)
 {
   int c0 = m.e.c[e];
-  if (c0 == ELEM_NONE) return 0;
+  if (c0 == ELEM_NONE)
+    return 0;
   int n = 0, cc = c0;
-  do { n++; cc = m.c.radial_next[cc]; } while (cc != c0);
+  do {
+    n++;
+    cc = m.c.radial_next[cc];
+  } while (cc != c0);
   return n;
 }
 
@@ -145,14 +164,17 @@ int main()
     for (int iter = 0; iter < N * N * 2; iter++) {
       Vector<int> cands;
       for (int e : m->e) {
-        if (faceCountOfEdge(*m, e) == 2) cands.append(e);
+        if (faceCountOfEdge(*m, e) == 2)
+          cands.append(e);
       }
-      if (cands.isEmpty()) break;
+      if (cands.isEmpty())
+        break;
       int e = cands[int(rnd.get_int() % uint32_t(cands.size()))];
 
       EdgeFlipResult res;
       auto ok = flipEdge(*m, e, &res);
-      if (!ok) continue; /* refused (e.g. pre-existing c-d edge) — fine */
+      if (!ok)
+        continue; /* refused (e.g. pre-existing c-d edge) — fine */
       flips++;
 
       if (!validateMesh(*m, "flip")) {
@@ -173,7 +195,10 @@ int main()
     /* an interior edge */
     int e = ELEM_NONE;
     for (int ei : m->e) {
-      if (faceCountOfEdge(*m, ei) == 2) { e = ei; break; }
+      if (faceCountOfEdge(*m, ei) == 2) {
+        e = ei;
+        break;
+      }
     }
     test_assert(e != ELEM_NONE);
     int a = m->e.vs[e][0], b = m->e.vs[e][1];
@@ -199,7 +224,10 @@ int main()
     Mesh *m = makeTriGrid(3);
     int be = ELEM_NONE;
     for (int ei : m->e) {
-      if (faceCountOfEdge(*m, ei) == 1) { be = ei; break; }
+      if (faceCountOfEdge(*m, ei) == 1) {
+        be = ei;
+        break;
+      }
     }
     test_assert(be != ELEM_NONE);
     EdgeFlipResult res;

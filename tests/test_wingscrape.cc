@@ -44,7 +44,10 @@ struct CutProfile {
   float atRim = 0.0f;   // mean cut depth in an outer lateral band
   float maxCut = 0.0f;
 
-  float ratio() const { return atRidge > 0.0f ? atRim / atRidge : 0.0f; }
+  float ratio() const
+  {
+    return atRidge > 0.0f ? atRim / atRidge : 0.0f;
+  }
 };
 
 // One wing-scrape dab at the given wing half-angle (radians), profiled across
@@ -100,7 +103,8 @@ CutProfile wingDab(float wingAngleRad)
     if (std::fabs(start[i][0]) > 0.3f * kRadius) {
       continue; // stay near the dab center along the stroke
     }
-    const float lat = std::fabs(start[i][1]); // lat axis = cross(surfaceNo, strokeDir) = +Y
+    const float lat =
+        std::fabs(start[i][1]); // lat axis = cross(surfaceNo, strokeDir) = +Y
     if (lat <= 0.25f * kRadius) {
       out.atRidge += cut;
       nRidge++;
@@ -130,10 +134,18 @@ int main()
     CutProfile wing = wingDab(25.0f * 3.14159265f / 180.0f);
     CutProfile flat = wingDab(0.0f);
 
-    fprintf(stderr, "wing 25deg: maxCut=%.5f ridge=%.5f rim=%.5f rim/ridge=%.3f\n", wing.maxCut,
-            wing.atRidge, wing.atRim, wing.ratio());
-    fprintf(stderr, "flat  0deg: maxCut=%.5f ridge=%.5f rim=%.5f rim/ridge=%.3f\n", flat.maxCut,
-            flat.atRidge, flat.atRim, flat.ratio());
+    fprintf(stderr,
+            "wing 25deg: maxCut=%.5f ridge=%.5f rim=%.5f rim/ridge=%.3f\n",
+            wing.maxCut,
+            wing.atRidge,
+            wing.atRim,
+            wing.ratio());
+    fprintf(stderr,
+            "flat  0deg: maxCut=%.5f ridge=%.5f rim=%.5f rim/ridge=%.3f\n",
+            flat.maxCut,
+            flat.atRidge,
+            flat.atRim,
+            flat.ratio());
 
     // It cuts at all — the "wing scrape doesn't work" regression.
     test_assert(wing.maxCut > 1e-4f);

@@ -41,8 +41,8 @@ static AttrData<float2> *assignPlanarUVs(Mesh &m, OffsetFn chartOffsetX)
 
 /** All corner UVs at vertex @p v for faces where chartOffsetX == @p off must
  * equal @p expect (within eps). Returns the number of corners checked. */
-static int checkCornerUVs(Mesh &m, AttrData<float2> *uv, int v, float offX,
-                          float2 expect, float eps = 1e-4f)
+static int checkCornerUVs(
+    Mesh &m, AttrData<float2> *uv, int v, float offX, float2 expect, float eps = 1e-4f)
 {
   int checked = 0;
   for (int c : m.c) {
@@ -52,8 +52,12 @@ static int checkCornerUVs(Mesh &m, AttrData<float2> *uv, int v, float offX,
     float2 t = uv->safe_get(c);
     t[0] -= offX;
     if ((t - expect).lengthSqr() > eps * eps) {
-      fprintf(stderr, "corner %d uv (%f, %f) != expected (%f, %f)\n", c,
-              double(t[0] + offX), double(t[1]), double(expect[0] + offX),
+      fprintf(stderr,
+              "corner %d uv (%f, %f) != expected (%f, %f)\n",
+              c,
+              double(t[0] + offX),
+              double(t[1]),
+              double(expect[0] + offX),
               double(expect[1]));
       return -1;
     }
@@ -67,8 +71,8 @@ static void buildTwoQuads(Mesh &m, int verts[6])
   // v3 -- v4 -- v5
   // |  A  |  B  |
   // v0 -- v1 -- v2
-  const float3 cos[6] = {{0, 0, 0}, {1, 0, 0}, {2, 0, 0},
-                         {0, 1, 0}, {1, 1, 0}, {2, 1, 0}};
+  const float3 cos[6] = {
+      {0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {0, 1, 0}, {1, 1, 0}, {2, 1, 0}};
   for (int i = 0; i < 6; i++) {
     verts[i] = m.make_vertex(cos[i]);
   }
@@ -104,8 +108,8 @@ int main()
     const int center = 4;
     const float3 oldP = m->v.co[center];
     m->v.co[center] = float3(0.0f, 0.0f, 0.5f);
-    uvproj::reprojectVertUVs(m, std::span<const int>(&center, 1),
-                             std::span<const float3>(&oldP, 1));
+    uvproj::reprojectVertUVs(
+        m, std::span<const int>(&center, 1), std::span<const float3>(&oldP, 1));
     test_assert(checkCornerUVs(*m, uv, center, 0.0f, float2(0.0f, 0.0f)) == 4);
     litestl::alloc::Delete<Mesh>(m);
   }
@@ -119,8 +123,8 @@ int main()
     const int v4 = verts[4]; // (1, 1, 0), shared by both quads
     const float3 oldP = m.v.co[v4];
     m.v.co[v4] = float3(1.0f, 0.7f, 0.0f); // slide along the seam
-    int changed = uvproj::reprojectVertUVs(&m, std::span<const int>(&v4, 1),
-                                           std::span<const float3>(&oldP, 1));
+    int changed = uvproj::reprojectVertUVs(
+        &m, std::span<const int>(&v4, 1), std::span<const float3>(&oldP, 1));
     fprintf(stderr, "seam slide changed=%d\n", changed);
     test_assert(changed == 2); // one corner per chart
     // Check each chart's corner against its own offset.
@@ -143,7 +147,8 @@ int main()
     const int v4 = verts[4];
     const float3 oldP = m.v.co[v4];
     m.v.co[v4] = float3(1.0f, 0.7f, 0.0f);
-    test_assert(uvproj::reprojectVertUVs(&m, std::span<const int>(&v4, 1),
+    test_assert(uvproj::reprojectVertUVs(&m,
+                                         std::span<const int>(&v4, 1),
                                          std::span<const float3>(&oldP, 1)) == 0);
   }
   {
@@ -156,8 +161,8 @@ int main()
     const float3 olds[2] = {m->v.co[4], m->v.co[7]};
     m->v.co[4] = float3(0.2f, 0.05f, 0.0f);
     m->v.co[7] = float3(0.9f, -0.1f, 0.0f);
-    uvproj::reprojectVertUVs(m, std::span<const int>(vs, 2),
-                             std::span<const float3>(olds, 2));
+    uvproj::reprojectVertUVs(
+        m, std::span<const int>(vs, 2), std::span<const float3>(olds, 2));
     test_assert(checkCornerUVs(*m, uv, 4, 0.0f, float2(0.2f, 0.05f)) == 4);
     test_assert(checkCornerUVs(*m, uv, 7, 0.0f, float2(0.9f, -0.1f)) == 2);
     litestl::alloc::Delete<Mesh>(m);

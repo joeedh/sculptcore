@@ -27,10 +27,14 @@ bool PipeServer::start(const std::wstring &pipeName, Handler handler)
 void PipeServer::acceptLoop()
 {
   while (running_.load()) {
-    HANDLE pipe = CreateNamedPipeW(
-        pipeName_.c_str(), PIPE_ACCESS_DUPLEX,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES,
-        64 * 1024, 64 * 1024, 0, nullptr);
+    HANDLE pipe = CreateNamedPipeW(pipeName_.c_str(),
+                                   PIPE_ACCESS_DUPLEX,
+                                   PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                                   PIPE_UNLIMITED_INSTANCES,
+                                   64 * 1024,
+                                   64 * 1024,
+                                   0,
+                                   nullptr);
     if (pipe == INVALID_HANDLE_VALUE) {
       // Transient failure; bail if we're shutting down, else retry.
       if (!running_.load()) {
@@ -125,8 +129,13 @@ void PipeServer::stop()
   }
   // Wake a blocked ConnectNamedPipe by self-connecting; the accept loop then
   // sees running_==false and exits.
-  HANDLE h = CreateFileW(pipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                         OPEN_EXISTING, 0, nullptr);
+  HANDLE h = CreateFileW(pipeName_.c_str(),
+                         GENERIC_READ | GENERIC_WRITE,
+                         0,
+                         nullptr,
+                         OPEN_EXISTING,
+                         0,
+                         nullptr);
   if (h != INVALID_HANDLE_VALUE) {
     CloseHandle(h);
   }

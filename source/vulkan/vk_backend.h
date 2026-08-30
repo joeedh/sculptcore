@@ -36,7 +36,9 @@ struct DrawUniforms {
  *  OffscreenTarget render pass is created — the pipelines bake in the render
  *  pass handle. Call invalidate() before tearing down VkContext. */
 struct VulkanBackend : public sculptcore::gpu::GPUResourceObserver {
-  VulkanBackend(sculptcore::gpu::GPUManager *mgr, VkContext *ctx, VkRenderPass renderPass);
+  VulkanBackend(sculptcore::gpu::GPUManager *mgr,
+                VkContext *ctx,
+                VkRenderPass renderPass);
   VulkanBackend(const VulkanBackend &) = delete;
   ~VulkanBackend() override;
 
@@ -54,8 +56,8 @@ struct VulkanBackend : public sculptcore::gpu::GPUResourceObserver {
   /** Swapchain variant: allocates the command buffer, begins it, and
    *  begins the swapchain render pass on `imageIndex`. Pair with
    *  endFrameSwapchain(). */
-  bool beginFrameSwapchain(Swapchain &sw, uint32_t imageIndex,
-                           float r, float g, float b, float a);
+  bool beginFrameSwapchain(
+      Swapchain &sw, uint32_t imageIndex, float r, float g, float b, float a);
 
   /** Issue every command in `batch` with `u` as uniforms. Must be called
    *  between beginFrame() / endFrame(). */
@@ -72,12 +74,18 @@ struct VulkanBackend : public sculptcore::gpu::GPUResourceObserver {
 
   /** Command buffer currently being recorded, between beginFrame*() and
    *  endFrame*(). Returns VK_NULL_HANDLE when not in a frame. */
-  VkCommandBuffer activeCommandBuffer() const { return activeCb_; }
+  VkCommandBuffer activeCommandBuffer() const
+  {
+    return activeCb_;
+  }
 
   /** Drop all cached Vulkan objects. Call before destroying VkContext. */
   void invalidate();
 
-  VkContext *context() const { return ctx_; }
+  VkContext *context() const
+  {
+    return ctx_;
+  }
 
   /** Force the VkBuffer backing `buf` to exist (creating/growing it) with
    *  STORAGE usage so a compute pass can write it, and return the handle.
@@ -91,7 +99,7 @@ private:
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkDeviceSize size = 0;
     bool hostVisible = false;
-    bool storage = false;  /* created with STORAGE usage (gpu_storage) */
+    bool storage = false; /* created with STORAGE usage (gpu_storage) */
   };
   struct PipelineEntry {
     VkShaderModule shaderModule = VK_NULL_HANDLE;

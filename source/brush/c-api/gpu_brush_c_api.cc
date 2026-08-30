@@ -42,8 +42,8 @@ void ensureScatter(GpuBrushSession *s, bool fillMap)
   if (fillMap ? s->scatterMapBuilt : s->scatterMetaBuilt) {
     return;
   }
-  s->tree->buildGpuScatterTables(s->scatterMeta, s->scatterMap, &s->scatterOwners,
-                                 fillMap);
+  s->tree->buildGpuScatterTables(
+      s->scatterMeta, s->scatterMap, &s->scatterOwners, fillMap);
   s->scatterMetaBuilt = true;
   s->scatterMapBuilt = fillMap;
 }
@@ -56,8 +56,7 @@ extern "C" {
  * geometry blobs (+ neighbor CSR when the kernel needs it), and reset the
  * brush stroke path. Returns null when the tool has no GPU kernel. The MeshLog
  * step must already be open (executor.beginStep), exactly as on the CPU path. */
-void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog,
-                           int tool)
+void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog, int tool)
 {
   auto *m = static_cast<mesh::Mesh *>(mesh);
   auto *t = static_cast<spatial::SpatialTree *>(tree);
@@ -128,19 +127,32 @@ int GpuBrush_info(void *session, int which)
     return 0;
   }
   switch (which) {
-  case GPUBRUSH_INFO_ELEM_COUNT: return s->elemCount;
-  case GPUBRUSH_INFO_NEEDS_NEIGHBORS: return s->info->needsNeighbors ? 1 : 0;
-  case GPUBRUSH_INFO_WRITES_MASK: return s->info->writesMask ? 1 : 0;
-  case GPUBRUSH_INFO_WRITES_COLOR: return s->info->writesColor ? 1 : 0;
-  case GPUBRUSH_INFO_ACCUMULABLE: return s->info->accumulable ? 1 : 0;
-  case GPUBRUSH_INFO_READS_VCLASS: return s->info->readsVclass ? 1 : 0;
-  case GPUBRUSH_INFO_FACE_MODE: return s->info->faceMode ? 1 : 0;
-  case GPUBRUSH_INFO_TRI_COUNT: return ensureTopo(s) ? s->topo.triCount : 0;
-  case GPUBRUSH_INFO_UVERTS_CHANGED: return s->uvertsChanged ? 1 : 0;
-  case GPUBRUSH_INFO_NODE_COUNT: return int(s->chunks.size());
-  case GPUBRUSH_INFO_UNIQUE_COUNT: return int(s->uverts.size());
-  case GPUBRUSH_INFO_STROKE_SAMPLE_COUNT: return int(s->strokePath.size());
-  case GPUBRUSH_INFO_DAB_GEN: return int(s->dabGen);
+  case GPUBRUSH_INFO_ELEM_COUNT:
+    return s->elemCount;
+  case GPUBRUSH_INFO_NEEDS_NEIGHBORS:
+    return s->info->needsNeighbors ? 1 : 0;
+  case GPUBRUSH_INFO_WRITES_MASK:
+    return s->info->writesMask ? 1 : 0;
+  case GPUBRUSH_INFO_WRITES_COLOR:
+    return s->info->writesColor ? 1 : 0;
+  case GPUBRUSH_INFO_ACCUMULABLE:
+    return s->info->accumulable ? 1 : 0;
+  case GPUBRUSH_INFO_READS_VCLASS:
+    return s->info->readsVclass ? 1 : 0;
+  case GPUBRUSH_INFO_FACE_MODE:
+    return s->info->faceMode ? 1 : 0;
+  case GPUBRUSH_INFO_TRI_COUNT:
+    return ensureTopo(s) ? s->topo.triCount : 0;
+  case GPUBRUSH_INFO_UVERTS_CHANGED:
+    return s->uvertsChanged ? 1 : 0;
+  case GPUBRUSH_INFO_NODE_COUNT:
+    return int(s->chunks.size());
+  case GPUBRUSH_INFO_UNIQUE_COUNT:
+    return int(s->uverts.size());
+  case GPUBRUSH_INFO_STROKE_SAMPLE_COUNT:
+    return int(s->strokePath.size());
+  case GPUBRUSH_INFO_DAB_GEN:
+    return int(s->dabGen);
   case GPUBRUSH_INFO_GPU_LAYOUT_GEN:
     return int(s->tree->gpuLayoutGen & 0x7fffffffu);
   case GPUBRUSH_INFO_SCATTER_NODE_COUNT:
@@ -158,9 +170,17 @@ int GpuBrush_info(void *session, int which)
  * sample); >0 are mirror images of the same logical dab. Returns the workgroup
  * (chunk) count — 0 means the dab touched nothing and there is nothing to
  * dispatch. */
-int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
-                        float ny, float nz, float radius, float filterRadius,
-                        int mirrorIdx, int nonaccum)
+int GpuBrush_marshalDab(void *session,
+                        float cx,
+                        float cy,
+                        float cz,
+                        float nx,
+                        float ny,
+                        float nz,
+                        float radius,
+                        float filterRadius,
+                        int mirrorIdx,
+                        int nonaccum)
 {
   GpuBrushSession *s = cast(session);
   if (!s) {
@@ -189,9 +209,9 @@ int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
   // uniform packing below (the 5M-tri M5 requirement).
   const bool sameNodes =
       s->nodes.size() == s->prevNodes.size() &&
-      (s->nodes.size() == 0 ||
-       std::memcmp(s->nodes.data(), s->prevNodes.data(),
-                   s->nodes.size() * sizeof(void *)) == 0);
+      (s->nodes.size() == 0 || std::memcmp(s->nodes.data(),
+                                           s->prevNodes.data(),
+                                           s->nodes.size() * sizeof(void *)) == 0);
 
   if (!sameNodes) {
     // Undo: capture each node's pre-write state now, while the CPU mesh still
@@ -248,24 +268,32 @@ int GpuBrush_dataSize(void *session, int which)
     return 0;
   }
   switch (which) {
-  case GPUBRUSH_DATA_CO: return int(s->co.size() * sizeof(float));
-  case GPUBRUSH_DATA_NO: return int(s->no.size() * sizeof(float));
-  case GPUBRUSH_DATA_MASK: return int(s->mask.size() * sizeof(float));
-  case GPUBRUSH_DATA_AUTOMASK: return int(s->automask.size() * sizeof(float));
+  case GPUBRUSH_DATA_CO:
+    return int(s->co.size() * sizeof(float));
+  case GPUBRUSH_DATA_NO:
+    return int(s->no.size() * sizeof(float));
+  case GPUBRUSH_DATA_MASK:
+    return int(s->mask.size() * sizeof(float));
+  case GPUBRUSH_DATA_AUTOMASK:
+    return int(s->automask.size() * sizeof(float));
   case GPUBRUSH_DATA_NBR_META:
     return int(s->nbrMeta.size() * sizeof(ComputeVertNbr));
-  case GPUBRUSH_DATA_NBR_VERTS: return int(s->nbrCount * sizeof(uint32_t));
+  case GPUBRUSH_DATA_NBR_VERTS:
+    return int(s->nbrCount * sizeof(uint32_t));
   case GPUBRUSH_DATA_TRI_VERTS:
     return ensureTopo(s) ? int(s->topo.triVerts.size() * sizeof(uint32_t)) : 0;
   case GPUBRUSH_DATA_VERT_TRI_META:
     return ensureTopo(s) ? int(s->topo.meta.size() * sizeof(uint32_t)) : 0;
   case GPUBRUSH_DATA_VERT_TRI_LIST:
     return ensureTopo(s) ? int(s->topo.list.size() * sizeof(uint32_t)) : 0;
-  case GPUBRUSH_DATA_UVERTS: return int(s->uverts.size() * sizeof(uint32_t));
+  case GPUBRUSH_DATA_UVERTS:
+    return int(s->uverts.size() * sizeof(uint32_t));
   case GPUBRUSH_DATA_NODE_META:
     return int(s->chunks.size() * sizeof(ComputeNodeMeta));
-  case GPUBRUSH_DATA_BRUSH_UNIFORMS: return int(sizeof(ComputeBrushUniforms));
-  case GPUBRUSH_DATA_CTX_UNIFORMS: return int(sizeof(ComputeCtxUniforms));
+  case GPUBRUSH_DATA_BRUSH_UNIFORMS:
+    return int(sizeof(ComputeBrushUniforms));
+  case GPUBRUSH_DATA_CTX_UNIFORMS:
+    return int(sizeof(ComputeCtxUniforms));
   case GPUBRUSH_DATA_FALLOFF_LUT:
     return int(s->brush->falloff_curve.size() * sizeof(float));
   case GPUBRUSH_DATA_STROKE_PATH:
@@ -291,31 +319,44 @@ const void *GpuBrush_dataPtr(void *session, int which)
     return nullptr;
   }
   switch (which) {
-  case GPUBRUSH_DATA_CO: return s->co.data();
-  case GPUBRUSH_DATA_NO: return s->no.data();
-  case GPUBRUSH_DATA_MASK: return s->mask.data();
-  case GPUBRUSH_DATA_AUTOMASK: return s->automask.data();
-  case GPUBRUSH_DATA_NBR_META: return s->nbrMeta.data();
-  case GPUBRUSH_DATA_NBR_VERTS: return s->nbrVerts;
+  case GPUBRUSH_DATA_CO:
+    return s->co.data();
+  case GPUBRUSH_DATA_NO:
+    return s->no.data();
+  case GPUBRUSH_DATA_MASK:
+    return s->mask.data();
+  case GPUBRUSH_DATA_AUTOMASK:
+    return s->automask.data();
+  case GPUBRUSH_DATA_NBR_META:
+    return s->nbrMeta.data();
+  case GPUBRUSH_DATA_NBR_VERTS:
+    return s->nbrVerts;
   case GPUBRUSH_DATA_TRI_VERTS:
     return ensureTopo(s) ? s->topo.triVerts.data() : nullptr;
   case GPUBRUSH_DATA_VERT_TRI_META:
     return ensureTopo(s) ? s->topo.meta.data() : nullptr;
   case GPUBRUSH_DATA_VERT_TRI_LIST:
     return ensureTopo(s) ? s->topo.list.data() : nullptr;
-  case GPUBRUSH_DATA_UVERTS: return s->uverts.data();
-  case GPUBRUSH_DATA_NODE_META: return s->chunks.data();
-  case GPUBRUSH_DATA_BRUSH_UNIFORMS: return &s->brushU;
-  case GPUBRUSH_DATA_CTX_UNIFORMS: return &s->ctxU;
-  case GPUBRUSH_DATA_FALLOFF_LUT: return s->brush->falloff_curve.data();
-  case GPUBRUSH_DATA_STROKE_PATH: return s->strokePath.data();
+  case GPUBRUSH_DATA_UVERTS:
+    return s->uverts.data();
+  case GPUBRUSH_DATA_NODE_META:
+    return s->chunks.data();
+  case GPUBRUSH_DATA_BRUSH_UNIFORMS:
+    return &s->brushU;
+  case GPUBRUSH_DATA_CTX_UNIFORMS:
+    return &s->ctxU;
+  case GPUBRUSH_DATA_FALLOFF_LUT:
+    return s->brush->falloff_curve.data();
+  case GPUBRUSH_DATA_STROKE_PATH:
+    return s->strokePath.data();
   case GPUBRUSH_DATA_SCATTER_META:
     ensureScatter(s, false);
     return s->scatterMeta.data();
   case GPUBRUSH_DATA_SCATTER_MAP:
     ensureScatter(s, true);
     return s->scatterMap.data();
-  case GPUBRUSH_DATA_TOUCHED_OWNERS: return s->touchedOwnerIdx.data();
+  case GPUBRUSH_DATA_TOUCHED_OWNERS:
+    return s->touchedOwnerIdx.data();
   case GPUBRUSH_DATA_LIVE_CO: {
     if (s->info->faceMode) {
       return nullptr;
@@ -362,8 +403,7 @@ void GpuBrush_applyCo(void *session, const float *co, int elemCount)
  * free the session. Pass co=null when per-dab applies already landed the final
  * state. The caller then runs spatial.update + executor.endStep as on the CPU
  * path. Vertex kernels only. */
-void GpuBrush_endStroke(void *session, const float *co, const float *no,
-                        int elemCount)
+void GpuBrush_endStroke(void *session, const float *co, const float *no, int elemCount)
 {
   GpuBrushSession *s = cast(session);
   if (!s) {

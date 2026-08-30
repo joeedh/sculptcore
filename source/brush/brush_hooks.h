@@ -47,4 +47,4 @@ struct BrushHooks {
 /** Tool-keyed hook lookup; null when the tool needs no host-side passes. */
 const BrushHooks *brushHooksFor(SculptBrushes tool);
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

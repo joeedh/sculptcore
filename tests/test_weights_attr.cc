@@ -47,10 +47,19 @@ struct MeshPtr {
     triangulateMesh(*m);
     m->recalc_normals();
   }
-  ~MeshPtr() { litestl::alloc::Delete<Mesh>(m); }
+  ~MeshPtr()
+  {
+    litestl::alloc::Delete<Mesh>(m);
+  }
   MeshPtr(const MeshPtr &) = delete;
-  Mesh *operator->() { return m; }
-  Mesh &operator*() { return *m; }
+  Mesh *operator->()
+  {
+    return m;
+  }
+  Mesh &operator*()
+  {
+    return *m;
+  }
 };
 
 static Vector<DeformWeight> run(std::initializer_list<DeformWeight> ws)
@@ -426,7 +435,9 @@ static void testConcurrentMergeAndCapture()
   // t is drawn from one small shared set, so the threads fan in onto the same
   // runs instead of each interning a private family — dedup under contention is
   // half of what is being tested.
-  auto tOf = [](int i, int iter) { return float((i + iter) % TSTEPS) / float(TSTEPS - 1); };
+  auto tOf = [](int i, int iter) {
+    return float((i + iter) % TSTEPS) / float(TSTEPS - 1);
+  };
 
   const int per = (int(verts.size()) - 2) / THREADS;
   std::thread workers[THREADS];
@@ -465,11 +476,9 @@ static void testConcurrentMergeAndCapture()
     const int v = verts[i];
     if (t <= 0.0f) {
       test_assert(w.slot(v) == w.slot(s0));
-    }
-    else if (t >= 1.0f) {
+    } else if (t >= 1.0f) {
       test_assert(w.slot(v) == w.slot(s1));
-    }
-    else {
+    } else {
       test_assert(w.runSize(v) == 3);
       test_assert(std::fabs(w.weight(v, 1) - (1.0f - t)) < 1e-6f);
       test_assert(std::fabs(w.weight(v, 2) - (0.25f + 0.5f * t)) < 1e-6f);

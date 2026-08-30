@@ -26,8 +26,13 @@ template <class AccMode> struct BasicVertexIter {
 
     CommandExecutor &ctx;
 
-    PtrHelper(float3 &co_, float3 base_, mesh::AttrData<float3> *disp_, float3 &no_,
-              float &mask_, int v, CommandExecutor &ctx)
+    PtrHelper(float3 &co_,
+              float3 base_,
+              mesh::AttrData<float3> *disp_,
+              float3 &no_,
+              float &mask_,
+              int v,
+              CommandExecutor &ctx)
         : co{co_, base_, &ctx, disp_, v}, no(no_), mask(mask_), v(v), ctx(ctx)
     {
     }
@@ -68,15 +73,19 @@ template <class AccMode> struct BasicVertexIter {
   }
 
   /** Note: do not ever create a vertex iter on an empty node with no vertices! */
-  BasicVertexIter(spatial::SpatialNode &node, CommandExecutor &ctx,
-                  mesh::AttrData<float3> *dispVec, mesh::AttrData<int> *dispGen,
+  BasicVertexIter(spatial::SpatialNode &node,
+                  CommandExecutor &ctx,
+                  mesh::AttrData<float3> *dispVec,
+                  mesh::AttrData<int> *dispGen,
                   uint32_t strokeGen)
       : ctx(ctx), dispVec(dispVec), dispGen(dispGen), strokeGen(strokeGen),
         ptrs(node.data->m->v.co[*node.data->unique_verts.begin()],
-             baseFor(node.data->m, *node.data->unique_verts.begin()), dispFor(),
+             baseFor(node.data->m, *node.data->unique_verts.begin()),
+             dispFor(),
              node.data->m->v.no[*node.data->unique_verts.begin()],
              node.treeMesh->v.mask[*node.data->unique_verts.begin()],
-             *node.data->unique_verts.begin(), ctx),
+             *node.data->unique_verts.begin(),
+             ctx),
         node(node), iter(node.data->unique_verts.begin()),
         start_iter(node.data->unique_verts.begin()),
         end_iter(node.data->unique_verts.end())
@@ -85,14 +94,16 @@ template <class AccMode> struct BasicVertexIter {
 
   BasicVertexIter(const BasicVertexIter &b)
       : ctx(b.ctx), dispVec(b.dispVec), dispGen(b.dispGen), strokeGen(b.strokeGen),
-        ptrs(b.ptrs), node(b.node),
-        iter(b.iter), start_iter(b.start_iter), end_iter(b.end_iter),
-        _nodeIndex(b._nodeIndex)
+        ptrs(b.ptrs), node(b.node), iter(b.iter), start_iter(b.start_iter),
+        end_iter(b.end_iter), _nodeIndex(b._nodeIndex)
   {
   }
 
-  BasicVertexIter(spatial::SpatialNode &node, sub_iterator iter, CommandExecutor &ctx,
-                  mesh::AttrData<float3> *dispVec, mesh::AttrData<int> *dispGen,
+  BasicVertexIter(spatial::SpatialNode &node,
+                  sub_iterator iter,
+                  CommandExecutor &ctx,
+                  mesh::AttrData<float3> *dispVec,
+                  mesh::AttrData<int> *dispGen,
                   uint32_t strokeGen)
       : BasicVertexIter(node, ctx, dispVec, dispGen, strokeGen)
   {
@@ -123,8 +134,13 @@ template <class AccMode> struct BasicVertexIter {
       int i = *iter;
 
       ptrs.~PtrHelper();
-      new (&ptrs) PtrHelper(m->v.co[i], baseFor(m, i), dispFor(), m->v.no[i],
-                            node.treeMesh->v.mask[i], i, ctx);
+      new (&ptrs) PtrHelper(m->v.co[i],
+                            baseFor(m, i),
+                            dispFor(),
+                            m->v.no[i],
+                            node.treeMesh->v.mask[i],
+                            i,
+                            ctx);
       ptrs.indexInNode = _nodeIndex++;
     }
 
@@ -173,7 +189,8 @@ struct BasicFaceIter {
       }
       l = m->l.next[l];
     }
-    if (n > 0) c /= float(n);
+    if (n > 0)
+      c /= float(n);
     return c;
   }
 
@@ -223,9 +240,18 @@ struct BasicFaceIter {
     this->iter = iter;
   }
 
-  bool operator==(const BasicFaceIter &b) { return iter == b.iter; }
-  bool operator!=(const BasicFaceIter &b) { return iter != b.iter; }
-  FacePtr &operator*() { return ptrs; }
+  bool operator==(const BasicFaceIter &b)
+  {
+    return iter == b.iter;
+  }
+  bool operator!=(const BasicFaceIter &b)
+  {
+    return iter != b.iter;
+  }
+  FacePtr &operator*()
+  {
+    return ptrs;
+  }
 
   BasicFaceIter &operator++()
   {
@@ -240,8 +266,14 @@ struct BasicFaceIter {
     return *this;
   }
 
-  BasicFaceIter begin() { return BasicFaceIter(node, start_iter, ctx); }
-  BasicFaceIter end() { return BasicFaceIter(node, end_iter, ctx); }
+  BasicFaceIter begin()
+  {
+    return BasicFaceIter(node, start_iter, ctx);
+  }
+  BasicFaceIter end()
+  {
+    return BasicFaceIter(node, end_iter, ctx);
+  }
 
 private:
   sub_iterator iter;

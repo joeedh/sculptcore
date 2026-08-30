@@ -40,8 +40,7 @@ static void checkClosed(const char *name, Mesh *m, int expectedEuler)
   test_assert(rep.degenerate_faces == 0);
   test_assert(rep.inverted_faces == 0);
   if (rep.euler != expectedEuler) {
-    fprintf(stderr, "%s: euler %d != expected %d\n", name, rep.euler,
-            expectedEuler);
+    fprintf(stderr, "%s: euler %d != expected %d\n", name, rep.euler, expectedEuler);
   }
   test_assert(rep.euler == expectedEuler);
 }
@@ -54,8 +53,8 @@ int main()
     RemeshReport rep = mesh::remeshValidate(*grid);
     test_assert(rep.manifold);
     test_assert(rep.consistent_winding);
-    test_assert(rep.all_quad);     // grid is pure quads
-    test_assert(rep.euler == 1);   // topological disk
+    test_assert(rep.all_quad);                       // grid is pure quads
+    test_assert(rep.euler == 1);                     // topological disk
     test_assert(rep.boundary_edges == (16 - 1) * 4); // open border
     test_assert(rep.degenerate_faces == 0);
     alloc::Delete<Mesh>(grid);
@@ -107,8 +106,13 @@ int main()
     fprintf(stderr,
             "[scaffold:cube] V=%d E=%d F=%d euler=%d allquad=%d manifold=%d "
             "bnd=%d inv=%d\n",
-            outRep.vert_count, outRep.edge_count, outRep.face_count, outRep.euler,
-            outRep.all_quad, outRep.manifold, outRep.boundary_edges,
+            outRep.vert_count,
+            outRep.edge_count,
+            outRep.face_count,
+            outRep.euler,
+            outRep.all_quad,
+            outRep.manifold,
+            outRep.boundary_edges,
             outRep.inverted_faces);
 
     alloc::Delete<Mesh>(out);

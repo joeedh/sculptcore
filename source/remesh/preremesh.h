@@ -30,7 +30,10 @@ namespace sculptcore::remesh {
 struct BoundaryPolyline {
   struct Cell {
     int x, y, z;
-    bool operator==(const Cell &o) const { return x == o.x && y == o.y && z == o.z; }
+    bool operator==(const Cell &o) const
+    {
+      return x == o.x && y == o.y && z == o.z;
+    }
     litestl::hash::HashInt computeHash() const
     {
       litestl::hash::HashInt h = 1469598103934665603ull;
@@ -47,10 +50,14 @@ struct BoundaryPolyline {
    * (-cos of the bend threshold) is a geometric corner — pinned, never slid. */
   float corner_dot = -0.7071f;
 
-  bool empty() const { return seg_a.size() == 0; }
+  bool empty() const
+  {
+    return seg_a.size() == 0;
+  }
   void build(mesh::Mesh &m);
   /* Nearest point on the soup within max_dist of p; false = none (caller pins). */
-  bool project(const litestl::math::float3 &p, float max_dist,
+  bool project(const litestl::math::float3 &p,
+               float max_dist,
                litestl::math::float3 &out) const;
 };
 
@@ -86,7 +93,9 @@ void classifyFeatures(mesh::Mesh &m, float sharp_angle);
  * collapse: refuse it when either endpoint's feature curve bends more than this
  * many radians from straight there (a corner the topological test can't see —
  * e.g. a square rim, whose corners carry exactly 2 same-type edges). 0 = off. */
-void bkRemeshToTarget(mesh::Mesh &m, float L, uint32_t seed,
+void bkRemeshToTarget(mesh::Mesh &m,
+                      float L,
+                      uint32_t seed,
                       const char *size_attr = nullptr,
                       bool preserve_features = false,
                       dyntopo::DynTopoTrace *trace = nullptr,
@@ -121,7 +130,10 @@ void bkRemeshToTarget(mesh::Mesh &m, float L, uint32_t seed,
  * every other boundary-touching vert is pinned. Detection is topological (1-face
  * edge count), so it works without the .boundary.* overlays (the bootstrap call).
  * null (default) = the 9c behavior, rim verts hard-pinned via the vert class. */
-void tangentialSmooth(mesh::Mesh &m, int iters, float lambda, float align,
+void tangentialSmooth(mesh::Mesh &m,
+                      int iters,
+                      float lambda,
+                      float align,
                       bool fold_guard = false,
                       const BoundaryPolyline *boundary = nullptr);
 
@@ -131,9 +143,9 @@ void tangentialSmooth(mesh::Mesh &m, int iters, float lambda, float align,
  * driver's no-op guard, not "use target_edge_length" (that resolution is the
  * pipeline's job). */
 struct PreRemeshParams {
-  int iters = 5;             // outer convergence iterations
-  float target = 0.0f;      // base pre-pass edge length; <= 0 ⇒ no-op
-  bool density = true;      // grade the BK band by a per-vertex curvature size field
+  int iters = 5;       // outer convergence iterations
+  float target = 0.0f; // base pre-pass edge length; <= 0 ⇒ no-op
+  bool density = true; // grade the BK band by a per-vertex curvature size field
   /* Bounded-gradation cap on the size field (Tier 3b): the goal length may grow
    * by at most (1 + gradation) per edge hop, applied to the density before every
    * BK pass. A steep size step between neighboring verts makes BK split/collapse
@@ -141,13 +153,13 @@ struct PreRemeshParams {
    * is on by default; 0 disables (A/B only). Typical range 0.3–1.0. */
   float gradation = 0.5f;
   int gradation_iters = 10;
-  float align = 1.0f;       // isotropic(0) ↔ field-aligned(1) smooth blend
-  int field_cadence = 2;    // recompute the rough cross field every N outer iters
-  int bootstrap_iters = 2;  // isotropic denoise sweeps before field-aligned begins
+  float align = 1.0f;      // isotropic(0) ↔ field-aligned(1) smooth blend
+  int field_cadence = 2;   // recompute the rough cross field every N outer iters
+  int bootstrap_iters = 2; // isotropic denoise sweeps before field-aligned begins
   uint32_t seed = 1u;
-  int smooth_iters = 5;        // inner field-aligned smooth sweeps per outer iter
-  float smooth_lambda = 0.5f;  // per-sweep relaxation factor
-  float density_min = 0.25f;   // size-field clamps (mirror Tier 3) when density=true
+  int smooth_iters = 5;       // inner field-aligned smooth sweeps per outer iter
+  float smooth_lambda = 0.5f; // per-sweep relaxation factor
+  float density_min = 0.25f;  // size-field clamps (mirror Tier 3) when density=true
   float density_max = 4.0f;
   /* Early-out: stop once an outer iter's field-aligned smooth moves every vertex
    * less than converge_eps · target. 0 = run all `iters`. Default mirrors the
@@ -190,7 +202,6 @@ struct PreRemeshStats {
  * size field into .remesh.v.density + an internal scale attr, and (when preserving)
  * the .boundary.* feature overlays — left in place for the caller to inspect. The
  * geometry-only pre-pass for Tier 9; reproject restores detail afterward. */
-void preRemesh(mesh::Mesh &m, const PreRemeshParams &p,
-               PreRemeshStats *stats = nullptr);
+void preRemesh(mesh::Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats = nullptr);
 
 } // namespace sculptcore::remesh

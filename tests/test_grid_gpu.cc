@@ -55,9 +55,8 @@ int main()
    * compiled in (the define is private to debug_core, so the test can't
    * check it) — treat that one error as a skip. */
   {
-    auto r = script::run(scene,
-                         "grid_stroke origin=0,0,0.25 normal=0,0,1 backend=gpu\n",
-                         ".");
+    auto r =
+        script::run(scene, "grid_stroke origin=0,0,0.25 normal=0,0,1 backend=gpu\n", ".");
     if (!r.ok) {
       if (std::strstr(r.error.c_str(), "no GPU compute backend")) {
         fprintf(stderr, "grid gpu gates skipped (%s)\n", r.error.c_str());

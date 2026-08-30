@@ -15,7 +15,7 @@ test_init;
 
 #define TASSERT(expr)                                                                    \
   do {                                                                                   \
-    if (!(expr)) {                                                                        \
+    if (!(expr)) {                                                                       \
       retval = 1;                                                                        \
       fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
       fflush(stderr);                                                                    \
@@ -53,7 +53,8 @@ bool validateMesh(Mesh &m, const char *tag)
 
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
@@ -65,7 +66,9 @@ bool validateMesh(Mesh &m, const char *tag)
       int prev = diskEdge(m.e.disk[ec][side * 2]);
       int side_n = m.e.vs[next][0] == vi ? 0 : 1;
       int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][side_n * 2] != diskPack(ec, side) || m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
+      if (m.e.disk[next][side_n * 2] != diskPack(ec, side) ||
+          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk prev/next mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
@@ -79,7 +82,8 @@ bool validateMesh(Mesh &m, const char *tag)
 
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
       if (m.c.e[cc] != ei) {
@@ -177,9 +181,11 @@ Vector<int> csrRing1(VertNbrCSR &csr, int v)
 
 bool ringEqual(const Vector<int> &a, const Vector<int> &b)
 {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (int i = 0; i < int(a.size()); i++) {
-    if (a[i] != b[i]) return false;
+    if (a[i] != b[i])
+      return false;
   }
   return true;
 }
@@ -198,10 +204,14 @@ void build_grid(Mesh &m, int N)
   for (int j = 0; j < N; j++) {
     for (int i = 0; i < N; i++) {
       int v0 = vat(i, j), v1 = vat(i + 1, j), v2 = vat(i + 1, j + 1), v3 = vat(i, j + 1);
-      if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-      if (m.find_edge(v1, v2) == ELEM_NONE) m.make_edge(v1, v2);
-      if (m.find_edge(v2, v3) == ELEM_NONE) m.make_edge(v2, v3);
-      if (m.find_edge(v3, v0) == ELEM_NONE) m.make_edge(v3, v0);
+      if (m.find_edge(v0, v1) == ELEM_NONE)
+        m.make_edge(v0, v1);
+      if (m.find_edge(v1, v2) == ELEM_NONE)
+        m.make_edge(v1, v2);
+      if (m.find_edge(v2, v3) == ELEM_NONE)
+        m.make_edge(v2, v3);
+      if (m.find_edge(v3, v0) == ELEM_NONE)
+        m.make_edge(v3, v0);
       int verts[4] = {v0, v1, v2, v3};
       m.make_face(std::span<int>(verts, 4));
     }
@@ -217,8 +227,12 @@ void assertCacheMatches(Mesh &m, const char *tag)
     Vector<int> got = csrRing1(csr, v);
     Vector<int> want = refRing1(m, v);
     if (!ringEqual(got, want)) {
-      fprintf(stderr, "[%s] vert %d 1-ring mismatch: csr=%d ref=%d\n", tag, v,
-              int(got.size()), int(want.size()));
+      fprintf(stderr,
+              "[%s] vert %d 1-ring mismatch: csr=%d ref=%d\n",
+              tag,
+              v,
+              int(got.size()),
+              int(want.size()));
       retval = 1;
     }
   }
@@ -250,9 +264,12 @@ void test_nonmanifold_fan()
   };
   for (int k = 0; k < 3; k++) {
     int vk = fans[k];
-    if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-    if (m.find_edge(v1, vk) == ELEM_NONE) m.make_edge(v1, vk);
-    if (m.find_edge(vk, v0) == ELEM_NONE) m.make_edge(vk, v0);
+    if (m.find_edge(v0, v1) == ELEM_NONE)
+      m.make_edge(v0, v1);
+    if (m.find_edge(v1, vk) == ELEM_NONE)
+      m.make_edge(v1, vk);
+    if (m.find_edge(vk, v0) == ELEM_NONE)
+      m.make_edge(vk, v0);
     int verts[3] = {v0, v1, vk};
     m.make_face(std::span<int>(verts, 3));
   }
@@ -313,26 +330,50 @@ LinkSnapshot snapshotLinks(Mesh &m)
   int Vc = int(m.v.capacity()), Ec = int(m.e.capacity()), Cc = int(m.c.capacity());
   int Lc = int(m.l.capacity()), Fc = int(m.f.capacity());
   s.v_e.resize(Vc);
-  s.e_c.resize(Ec); s.e_v0.resize(Ec); s.e_v1.resize(Ec); s.e_disk.resize(Ec);
-  s.c_v.resize(Cc); s.c_e.resize(Cc); s.c_l.resize(Cc);
-  s.c_next.resize(Cc); s.c_prev.resize(Cc); s.c_rnext.resize(Cc); s.c_rprev.resize(Cc);
-  s.l_c.resize(Lc); s.l_f.resize(Lc); s.l_next.resize(Lc); s.l_size.resize(Lc);
-  s.f_l.resize(Fc); s.f_lcount.resize(Fc);
-  for (int v : m.v) s.v_e[v] = m.v.e[v];
+  s.e_c.resize(Ec);
+  s.e_v0.resize(Ec);
+  s.e_v1.resize(Ec);
+  s.e_disk.resize(Ec);
+  s.c_v.resize(Cc);
+  s.c_e.resize(Cc);
+  s.c_l.resize(Cc);
+  s.c_next.resize(Cc);
+  s.c_prev.resize(Cc);
+  s.c_rnext.resize(Cc);
+  s.c_rprev.resize(Cc);
+  s.l_c.resize(Lc);
+  s.l_f.resize(Lc);
+  s.l_next.resize(Lc);
+  s.l_size.resize(Lc);
+  s.f_l.resize(Fc);
+  s.f_lcount.resize(Fc);
+  for (int v : m.v)
+    s.v_e[v] = m.v.e[v];
   for (int e : m.e) {
-    s.e_c[e] = m.e.c[e]; s.e_v0[e] = m.e.vs[e][0]; s.e_v1[e] = m.e.vs[e][1];
+    s.e_c[e] = m.e.c[e];
+    s.e_v0[e] = m.e.vs[e][0];
+    s.e_v1[e] = m.e.vs[e][1];
     s.e_disk[e] = m.e.disk[e];
   }
   for (int c : m.c) {
-    s.c_v[c] = m.c.v[c]; s.c_e[c] = m.c.e[c]; s.c_l[c] = m.c.l[c];
-    s.c_next[c] = m.c.next[c]; s.c_prev[c] = m.c.prev[c];
-    s.c_rnext[c] = m.c.radial_next[c]; s.c_rprev[c] = m.c.radial_prev[c];
+    s.c_v[c] = m.c.v[c];
+    s.c_e[c] = m.c.e[c];
+    s.c_l[c] = m.c.l[c];
+    s.c_next[c] = m.c.next[c];
+    s.c_prev[c] = m.c.prev[c];
+    s.c_rnext[c] = m.c.radial_next[c];
+    s.c_rprev[c] = m.c.radial_prev[c];
   }
   for (int l : m.l) {
-    s.l_c[l] = m.l.c[l]; s.l_f[l] = m.l.f[l]; s.l_next[l] = m.l.next[l];
+    s.l_c[l] = m.l.c[l];
+    s.l_f[l] = m.l.f[l];
+    s.l_next[l] = m.l.next[l];
     s.l_size[l] = m.l.size[l];
   }
-  for (int f : m.f) { s.f_l[f] = m.f.l[f]; s.f_lcount[f] = m.f.list_count[f]; }
+  for (int f : m.f) {
+    s.f_l[f] = m.f.l[f];
+    s.f_lcount[f] = m.f.list_count[f];
+  }
   return s;
 }
 
@@ -341,25 +382,44 @@ LinkSnapshot snapshotLinks(Mesh &m)
 void corruptLinks(Mesh &m)
 {
   const int X = 0x6bad;
-  for (int v : m.v) m.v.e[v] = X;
+  for (int v : m.v)
+    m.v.e[v] = X;
   for (int e : m.e) {
-    m.e.c[e] = X; m.e.vs[e][0] = X; m.e.vs[e][1] = X; m.e.disk[e] = math::int4(X);
+    m.e.c[e] = X;
+    m.e.vs[e][0] = X;
+    m.e.vs[e][1] = X;
+    m.e.disk[e] = math::int4(X);
   }
   for (int c : m.c) {
-    m.c.v[c] = X; m.c.e[c] = X; m.c.l[c] = X;
-    m.c.next[c] = X; m.c.prev[c] = X; m.c.radial_next[c] = X; m.c.radial_prev[c] = X;
+    m.c.v[c] = X;
+    m.c.e[c] = X;
+    m.c.l[c] = X;
+    m.c.next[c] = X;
+    m.c.prev[c] = X;
+    m.c.radial_next[c] = X;
+    m.c.radial_prev[c] = X;
   }
-  for (int l : m.l) { m.l.c[l] = X; m.l.f[l] = X; m.l.next[l] = X; m.l.size[l] = X; }
-  for (int f : m.f) { m.f.l[f] = X; m.f.list_count[f] = X; }
+  for (int l : m.l) {
+    m.l.c[l] = X;
+    m.l.f[l] = X;
+    m.l.next[l] = X;
+    m.l.size[l] = X;
+  }
+  for (int f : m.f) {
+    m.f.l[f] = X;
+    m.f.list_count[f] = X;
+  }
 }
 
 void compareLinks(Mesh &m, const LinkSnapshot &s, const char *tag)
 {
-  for (int v : m.v) TASSERT(m.v.e[v] == s.v_e[v]);
+  for (int v : m.v)
+    TASSERT(m.v.e[v] == s.v_e[v]);
   for (int e : m.e) {
     TASSERT(m.e.c[e] == s.e_c[e]);
     TASSERT(m.e.vs[e][0] == s.e_v0[e] && m.e.vs[e][1] == s.e_v1[e]);
-    for (int k = 0; k < 4; k++) TASSERT(m.e.disk[e][k] == s.e_disk[e][k]);
+    for (int k = 0; k < 4; k++)
+      TASSERT(m.e.disk[e][k] == s.e_disk[e][k]);
   }
   for (int c : m.c) {
     TASSERT(m.c.v[c] == s.c_v[c]);
@@ -372,7 +432,8 @@ void compareLinks(Mesh &m, const LinkSnapshot &s, const char *tag)
     TASSERT(m.l.c[l] == s.l_c[l] && m.l.f[l] == s.l_f[l]);
     TASSERT(m.l.next[l] == s.l_next[l] && m.l.size[l] == s.l_size[l]);
   }
-  for (int f : m.f) TASSERT(m.f.l[f] == s.f_l[f] && m.f.list_count[f] == s.f_lcount[f]);
+  for (int f : m.f)
+    TASSERT(m.f.l[f] == s.f_l[f] && m.f.list_count[f] == s.f_lcount[f]);
   (void)tag;
 }
 
@@ -389,9 +450,12 @@ void add_fan(Mesh &m)
   };
   for (int k = 0; k < 3; k++) {
     int vk = tips[k];
-    if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-    if (m.find_edge(v1, vk) == ELEM_NONE) m.make_edge(v1, vk);
-    if (m.find_edge(vk, v0) == ELEM_NONE) m.make_edge(vk, v0);
+    if (m.find_edge(v0, v1) == ELEM_NONE)
+      m.make_edge(v0, v1);
+    if (m.find_edge(v1, vk) == ELEM_NONE)
+      m.make_edge(v1, vk);
+    if (m.find_edge(vk, v0) == ELEM_NONE)
+      m.make_edge(vk, v0);
     int verts[3] = {v0, v1, vk};
     m.make_face(std::span<int>(verts, 3));
   }
@@ -438,14 +502,16 @@ void test_freeze_thaw(int N)
    * serving correct neighbors while the live links are gone. */
   Vector<Vector<int>> want;
   want.resize(m.v.capacity());
-  for (int v : m.v) want[v] = refRing1(m, v);
+  for (int v : m.v)
+    want[v] = refRing1(m, v);
 
   /* Snapshot c.v before freezing: it is TOPO_KEEP_FROZEN, so it must stay
    * materialized and unchanged while frozen (the per-frame spatial path reads
    * it through cached corner indices). */
   Vector<int> cv_before;
   cv_before.resize(m.c.capacity());
-  for (int c : m.c) cv_before[c] = m.c.v[c];
+  for (int c : m.c)
+    cv_before[c] = m.c.v[c];
 
   m.freezeTopo();
   TASSERT(m.topo_frozen);
@@ -453,10 +519,12 @@ void test_freeze_thaw(int N)
   TASSERT(m.topo_cache.valid(m));
   {
     VertNbrCSR &csr = const_cast<VertNbrCSR &>(m.topo_cache.ring1);
-    for (int v : m.v) TASSERT(ringEqual(csrRing1(csr, v), want[v]));
+    for (int v : m.v)
+      TASSERT(ringEqual(csrRing1(csr, v), want[v]));
   }
   /* c.v survived the page-freeing and reads back its pre-freeze values. */
-  for (int c : m.c) TASSERT(m.c.v[c] == cv_before[c]);
+  for (int c : m.c)
+    TASSERT(m.c.v[c] == cv_before[c]);
 
   /* Explicit thaw rebuilds the live links bit-identically. */
   m.thawTopo();
@@ -474,7 +542,8 @@ void test_freeze_thaw(int N)
   TASSERT(m.v.e[nv] == ELEM_NONE);
   /* Pre-existing topology survived the freeze→auto-thaw cycle intact. */
   for (int v : m.v) {
-    if (v == nv) continue;
+    if (v == nv)
+      continue;
     TASSERT(m.v.e[v] == snap.v_e[v]);
   }
   TASSERT(validateMesh(m, tag));
@@ -488,7 +557,8 @@ void test_frozen_ram()
    * N=64 => ~4k verts / ~8k tris; the TOPO link set is hundreds of KB. */
   Mesh m;
   build_grid(m, 64);
-  m.topo_cache.ensureRing1(m); /* warm the cache so its bytes are not counted as the drop */
+  m.topo_cache.ensureRing1(
+      m); /* warm the cache so its bytes are not counted as the drop */
 
   int before = alloc::getMemorySize();
   m.freezeTopo();
@@ -502,8 +572,12 @@ void test_frozen_ram()
    * exact equality isn't guaranteed by the allocator, so just bound it). */
   TASSERT(after >= frozen);
   if (!(frozen < before)) {
-    fprintf(stderr, "[%s] no RAM drop: before=%d frozen=%d after=%d\n", tag, before,
-            frozen, after);
+    fprintf(stderr,
+            "[%s] no RAM drop: before=%d frozen=%d after=%d\n",
+            tag,
+            before,
+            frozen,
+            after);
   }
   TASSERT(validateMesh(m, tag));
 }

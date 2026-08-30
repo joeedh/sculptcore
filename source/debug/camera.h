@@ -37,9 +37,15 @@ inline mat4 lookAt(float3 eye, float3 target, float3 up)
   mat4 m;
   m.identity();
   float *d = static_cast<float *>(m);
-  d[0] = s[0]; d[4] = s[1]; d[8]  = s[2];
-  d[1] = u[0]; d[5] = u[1]; d[9]  = u[2];
-  d[2] = -f[0]; d[6] = -f[1]; d[10] = -f[2];
+  d[0] = s[0];
+  d[4] = s[1];
+  d[8] = s[2];
+  d[1] = u[0];
+  d[5] = u[1];
+  d[9] = u[2];
+  d[2] = -f[0];
+  d[6] = -f[1];
+  d[10] = -f[2];
   d[12] = -s.dot(eye);
   d[13] = -u.dot(eye);
   d[14] = f.dot(eye);

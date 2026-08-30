@@ -64,7 +64,7 @@ struct DynamicDevice {
   {
     int n = int(curveTable.size());
     if (n < 2) {
-      return curDeviceValue;  // identity
+      return curDeviceValue; // identity
     }
     float x = curDeviceValue;
     x = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);

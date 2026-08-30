@@ -21,7 +21,6 @@ int lookupAssetQuadCount(const std::string &dir, const std::string &stem);
 
 /* Insert or update @p stem's entry, preserving the other lines (comments
  * included). Creates the file if absent. Returns false on I/O failure. */
-bool saveAssetQuadCount(const std::string &dir, const std::string &stem,
-                        int count);
+bool saveAssetQuadCount(const std::string &dir, const std::string &stem, int count);
 
 } // namespace sculptcore::remesh::cli

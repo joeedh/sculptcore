@@ -30,7 +30,9 @@ constexpr float kMinViewDistance = 0.05f;
 
 } // namespace
 
-InteractiveController::InteractiveController(Scene *scene) : scene_(scene) {}
+InteractiveController::InteractiveController(Scene *scene) : scene_(scene)
+{
+}
 
 InteractiveController::~InteractiveController()
 {
@@ -69,7 +71,8 @@ void InteractiveController::beginStroke(float2 cursor)
   // (upload once, dab per move, read back on release). begin() fails cleanly
   // for a tool with no GPU kernel, in which case we fall back to the C++ path.
   if (scene_->currentBackend == BrushBackend::Wgsl ||
-      scene_->currentBackend == BrushBackend::WgpuNative) {
+      scene_->currentBackend == BrushBackend::WgpuNative)
+  {
     std::string err;
     gpuSession_ = new GpuStrokeSession();
     if (scene_->currentBackend == BrushBackend::WgpuNative) {
@@ -114,10 +117,17 @@ void InteractiveController::beginStroke(float2 cursor)
 
 void InteractiveController::pushCursor(float2 cursor)
 {
-  driver_->push(cursor[0], cursor[1],
-                /*pressure=*/1.0f, /*tiltX=*/0.0f, /*tiltY=*/0.0f, /*twist=*/0.0f,
-                scene_->brush.invert, /*useAltBrush=*/false, scene_->brush.radius,
-                scene_->brush.strength, scene_->brush.spacing);
+  driver_->push(cursor[0],
+                cursor[1],
+                /*pressure=*/1.0f,
+                /*tiltX=*/0.0f,
+                /*tiltY=*/0.0f,
+                /*twist=*/0.0f,
+                scene_->brush.invert,
+                /*useAltBrush=*/false,
+                scene_->brush.radius,
+                scene_->brush.strength,
+                scene_->brush.spacing);
 }
 
 void InteractiveController::applyPolledDabs(int n)
@@ -159,8 +169,7 @@ void InteractiveController::applyDab(float3 center, float3 normal, float radius)
   if (!exec_) {
     return;
   }
-  dyntopo::DynTopoParams *dtp =
-      scene_->dyntopoEnabled ? &scene_->dyntopoParams : nullptr;
+  dyntopo::DynTopoParams *dtp = scene_->dyntopoEnabled ? &scene_->dyntopoParams : nullptr;
   auto ptDab = StrokeProfiler::now();
   exec_->applyDab(scene_->currentTool, center, normal, radius, dtp, dyntopoSeed_++);
   scene_->profiler.addDab(StrokeProfiler::ms(ptDab, StrokeProfiler::now()), 0, 0);

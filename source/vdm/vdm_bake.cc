@@ -50,10 +50,8 @@ VdmBakeStats applyToVerts(Mesh &m, VdmStore &store, bool clearStore)
       return stats;
     }
   }
-  AttrRef nref =
-      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_NORMAL_ATTR);
-  AttrRef tref =
-      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_TANGENT_ATTR);
+  AttrRef nref = m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_NORMAL_ATTR);
+  AttrRef tref = m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_TANGENT_ATTR);
   if (!nref.exists() || !tref.exists()) {
     return stats;
   }

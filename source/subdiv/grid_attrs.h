@@ -121,9 +121,8 @@ struct MultiresAttrs {
   /** Where a write to `name` must land. TEMP attributes are always Temp;
    * a declared (name, type) pair is Host; everything else is Derived, meaning
    * the caller must write the CAGE attribute and let this class re-derive. */
-  GridAttrStorage storageFor(const string &name,
-                             mesh::AttrType type,
-                             mesh::AttrFlag flags) const;
+  GridAttrStorage
+  storageFor(const string &name, mesh::AttrType type, mesh::AttrFlag flags) const;
 
   /** Whether the multires has a live sculpt-layer edit target — an enabled
    * settings row Multires::writebackChannel() attributes into. The condition
@@ -202,7 +201,8 @@ struct MultiresAttrs {
    * bytes behind the samples' back. Deliberately leaves #generation alone, for
    * the same reason #refreshFaceSetColors does: the caller knows which grids
    * moved, and bumping it would refill every node. */
-  void refreshSamplesFromChannel(const string &name, int level, const int *gridIds, int count);
+  void
+  refreshSamplesFromChannel(const string &name, int level, const int *gridIds, int count);
 
   /** Re-derive `count` grids of `name`'s sample layer from the cage, in place.
    *

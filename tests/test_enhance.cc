@@ -43,11 +43,10 @@ int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
-  const char *SETUP =
-      "build_spatial leaf_limit=256 depth_limit=8\n"
-      "set_brush radius=1.5 strength=1.0\n"
-      "set_brush_tool tool=enhance\n"
-      "set_backend backend=cpp\n";
+  const char *SETUP = "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush radius=1.5 strength=1.0\n"
+                      "set_brush_tool tool=enhance\n"
+                      "set_backend backend=cpp\n";
 
   // --- A) amplify a smooth mid-scale bump -------------------------------
   {
@@ -68,7 +67,8 @@ int main()
 
     s.brush.enhance_rings = 4;
     s.brush.enhance_inner = 1;
-    r = script::run(s, (std::string(SETUP) + "stroke origin=0,0,0.3 normal=0,0,1\n").c_str(), ".");
+    r = script::run(
+        s, (std::string(SETUP) + "stroke origin=0,0,0.3 normal=0,0,1\n").c_str(), ".");
     test_assert(r.ok);
 
     float zAfter = m->v.co[apex][2];
@@ -93,7 +93,8 @@ int main()
 
     s.brush.enhance_rings = 4;
     s.brush.enhance_inner = inner;
-    r = script::run(s, (std::string(SETUP) + "stroke origin=0,0,0 normal=0,0,1\n").c_str(), ".");
+    r = script::run(
+        s, (std::string(SETUP) + "stroke origin=0,0,0 normal=0,0,1\n").c_str(), ".");
     test_assert(r.ok);
 
     double total = 0.0;
@@ -105,8 +106,10 @@ int main()
 
   double highpass = noiseStrokeTotal(0); // classic unsharp — keeps noise
   double bandpass = noiseStrokeTotal(1); // difference-of-smooths — rejects noise
-  fprintf(stderr, "noise displacement: highpass(inner=0)=%g bandpass(inner=1)=%g\n",
-          highpass, bandpass);
+  fprintf(stderr,
+          "noise displacement: highpass(inner=0)=%g bandpass(inner=1)=%g\n",
+          highpass,
+          bandpass);
   test_assert(highpass > bandpass * 1.1); // band-pass amplifies noise less
 
   return test_end();

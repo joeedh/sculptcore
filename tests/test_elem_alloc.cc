@@ -15,7 +15,7 @@ test_init;
   do {                                                                                   \
     if (!(expr)) {                                                                       \
       retval = 1;                                                                        \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                 \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
       fflush(stderr);                                                                    \
     }                                                                                    \
   } while (0)
@@ -45,13 +45,20 @@ bool checkConsistency(ElemData &ed, Vector<bool> &live, const char *tag)
   for (int i = 0; i < int(ed.capacity()); i++) {
     bool modelLive = i < int(live.size()) ? live[i] : false;
     if (modelLive == ed.freemap[i]) {
-      fprintf(stderr, "[%s] slot %d: model live=%d freemap=%d mismatch\n", tag, i,
-              int(modelLive), int(ed.freemap[i]));
+      fprintf(stderr,
+              "[%s] slot %d: model live=%d freemap=%d mismatch\n",
+              tag,
+              i,
+              int(modelLive),
+              int(ed.freemap[i]));
       return false;
     }
   }
   if (ed.free_slots() != countFree(ed)) {
-    fprintf(stderr, "[%s] free_slots()=%d != scanned %d\n", tag, ed.free_slots(),
+    fprintf(stderr,
+            "[%s] free_slots()=%d != scanned %d\n",
+            tag,
+            ed.free_slots(),
             countFree(ed));
     return false;
   }
@@ -140,7 +147,10 @@ void test_random_churn(uint32_t seed, bool useHints)
   }
 
   TASSERT(checkConsistency(ed, live, tag));
-  printf("[%s] cap=%d live=%d free=%d\n", tag, int(ed.capacity()), int(liveList.size()),
+  printf("[%s] cap=%d live=%d free=%d\n",
+         tag,
+         int(ed.capacity()),
+         int(liveList.size()),
          ed.free_slots());
 }
 

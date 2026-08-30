@@ -71,7 +71,6 @@ inline int edgeFaces(Mesh &m, int e, int &f1, int &f2)
   return n;
 }
 
-
 struct FrameAttrs {
   AttrData<float3> *normal = nullptr;
   AttrData<float3> *tangent = nullptr;
@@ -80,10 +79,8 @@ struct FrameAttrs {
 FrameAttrs frameAttrs(Mesh &m)
 {
   FrameAttrs fa;
-  AttrRef nref =
-      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_NORMAL_ATTR);
-  AttrRef tref =
-      m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_TANGENT_ATTR);
+  AttrRef nref = m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_NORMAL_ATTR);
+  AttrRef tref = m.v.attrs.find_attribute(AttrType::FLOAT3, displace::FRAME_TANGENT_ATTR);
   fa.normal = nref.exists() ? static_cast<AttrData<float3> *>(nref.data) : nullptr;
   fa.tangent = tref.exists() ? static_cast<AttrData<float3> *>(tref.data) : nullptr;
   return fa;
@@ -146,11 +143,8 @@ float vertexFoldRadius(Mesh &m, int v, const float3 &n)
   return r > kFlatRadius ? kFlatRadius : r;
 }
 
-
-VdmSplatStats splatDab(Mesh &m,
-                       SpatialTree &tree,
-                       VdmStore &store,
-                       const VdmSplatParams &params)
+VdmSplatStats
+splatDab(Mesh &m, SpatialTree &tree, VdmStore &store, const VdmSplatParams &params)
 {
   VdmSplatStats stats;
 
@@ -183,7 +177,7 @@ VdmSplatStats splatDab(Mesh &m,
   // Matches the draw kernel's scaling: strength · falloff · radius · 0.5.
   float amp = params.strength * params.radius * 0.5f * dir;
 
-  Set<uint64_t> visited; // texels splatted this dab (shared UV edges/verts)
+  Set<uint64_t> visited;      // texels splatted this dab (shared UV edges/verts)
   Map<int, float> foldRadius; // per-vert ρ_min cache
   Vector<int> touchedFaces;
 
@@ -308,8 +302,9 @@ VdmSplatStats splatDab(Mesh &m,
 
   // Evaluate + write one texel from (possibly clamped) barycentrics. Returns
   // whether a texel was written (falloff or a degenerate frame can decline).
-  auto splatTexel = [&](const SplatTri &T, int x, int y, float w0, float w1,
-                        float w2, uint64_t key) -> bool {
+  auto splatTexel =
+      [&](const SplatTri &T, int x, int y, float w0, float w1, float w2, uint64_t key)
+      -> bool {
     if (T.grid >= 0) {
       int r = store.gridRes(T.grid);
       if (x < -1 || y < -1 || x > r || y > r) {
@@ -372,10 +367,10 @@ VdmSplatStats splatDab(Mesh &m,
     for (int y = y0; y <= y1; y++) {
       for (int x = x0; x <= x1; x++) {
         float cx = float(x) + 0.5f, cy = float(y) + 0.5f;
-        float w0 = ((T.px[1] - cx) * (T.py[2] - cy) - (T.py[1] - cy) * (T.px[2] - cx)) *
-                   T.inv;
-        float w1 = ((T.px[2] - cx) * (T.py[0] - cy) - (T.py[2] - cy) * (T.px[0] - cx)) *
-                   T.inv;
+        float w0 =
+            ((T.px[1] - cx) * (T.py[2] - cy) - (T.py[1] - cy) * (T.px[2] - cx)) * T.inv;
+        float w1 =
+            ((T.px[2] - cx) * (T.py[0] - cy) - (T.py[2] - cy) * (T.px[0] - cx)) * T.inv;
         float w2 = 1.0f - w0 - w1;
         if (w0 < kBaryEps || w1 < kBaryEps || w2 < kBaryEps) {
           continue;
@@ -397,14 +392,10 @@ VdmSplatStats splatDab(Mesh &m,
   constexpr float kSkirt = 1.5f;
   for (const SplatTri &T : tris) {
     int pad = int(std::ceil(kSkirt)) + 1;
-    int x0 =
-        int(std::floor(std::min(T.px[0], std::min(T.px[1], T.px[2])) - 0.5f)) - pad;
-    int x1 =
-        int(std::ceil(std::max(T.px[0], std::max(T.px[1], T.px[2])) + 0.5f)) + pad;
-    int y0 =
-        int(std::floor(std::min(T.py[0], std::min(T.py[1], T.py[2])) - 0.5f)) - pad;
-    int y1 =
-        int(std::ceil(std::max(T.py[0], std::max(T.py[1], T.py[2])) + 0.5f)) + pad;
+    int x0 = int(std::floor(std::min(T.px[0], std::min(T.px[1], T.px[2])) - 0.5f)) - pad;
+    int x1 = int(std::ceil(std::max(T.px[0], std::max(T.px[1], T.px[2])) + 0.5f)) + pad;
+    int y0 = int(std::floor(std::min(T.py[0], std::min(T.py[1], T.py[2])) - 0.5f)) - pad;
+    int y1 = int(std::ceil(std::max(T.py[0], std::max(T.py[1], T.py[2])) + 0.5f)) + pad;
     for (int y = y0; y <= y1; y++) {
       for (int x = x0; x <= x1; x++) {
         uint64_t key = texelKeyOf(T, x, y);
@@ -412,10 +403,10 @@ VdmSplatStats splatDab(Mesh &m,
           continue;
         }
         float cx = float(x) + 0.5f, cy = float(y) + 0.5f;
-        float w0 = ((T.px[1] - cx) * (T.py[2] - cy) - (T.py[1] - cy) * (T.px[2] - cx)) *
-                   T.inv;
-        float w1 = ((T.px[2] - cx) * (T.py[0] - cy) - (T.py[2] - cy) * (T.px[0] - cx)) *
-                   T.inv;
+        float w0 =
+            ((T.px[1] - cx) * (T.py[2] - cy) - (T.py[1] - cy) * (T.px[2] - cx)) * T.inv;
+        float w1 =
+            ((T.px[2] - cx) * (T.py[0] - cy) - (T.py[2] - cy) * (T.px[0] - cx)) * T.inv;
         float w2 = 1.0f - w0 - w1;
         if (w0 >= kBaryEps && w1 >= kBaryEps && w2 >= kBaryEps) {
           continue; // interior texel pass 1 declined (falloff) — leave it
@@ -465,11 +456,10 @@ VdmSplatStats splatDab(Mesh &m,
   // Refresh the touched faces' displacement-bound pads (bounds-only dirty).
   if (touchedFaces.size() > 0) {
     Vector<float> bounds;
-    exportFaceBounds(store, m,
-                     std::span<const int>(touchedFaces.data(), touchedFaces.size()),
-                     bounds);
-    tree.setFaceDisplacementBounds(touchedFaces.data(), bounds.data(),
-                                   int(touchedFaces.size()));
+    exportFaceBounds(
+        store, m, std::span<const int>(touchedFaces.data(), touchedFaces.size()), bounds);
+    tree.setFaceDisplacementBounds(
+        touchedFaces.data(), bounds.data(), int(touchedFaces.size()));
   }
   return stats;
 }

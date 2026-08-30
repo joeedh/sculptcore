@@ -1,5 +1,5 @@
-#include "test_util.h"
 #include "mesh_dump.h"
+#include "test_util.h"
 
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
@@ -14,8 +14,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 
 test_init;
@@ -48,7 +48,8 @@ static bool validateMesh(Mesh &m, const char *tag)
 
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
@@ -61,7 +62,8 @@ static bool validateMesh(Mesh &m, const char *tag)
       int side_n = m.e.vs[next][0] == vi ? 0 : 1;
       int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
       if (m.e.disk[next][side_n * 2] != diskPack(ec, side) ||
-          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
+          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk prev/next mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
@@ -75,7 +77,8 @@ static bool validateMesh(Mesh &m, const char *tag)
 
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
       if (m.c.e[cc] != ei) {
@@ -120,8 +123,7 @@ static bool validateMesh(Mesh &m, const char *tag)
         int v_here = m.c.v[cc];
         int v_next = m.c.v[cn];
         int ev0 = m.e.vs[ce][0], ev1 = m.e.vs[ce][1];
-        if (!((ev0 == v_here && ev1 == v_next) ||
-              (ev1 == v_here && ev0 == v_next))) {
+        if (!((ev0 == v_here && ev1 == v_next) || (ev1 == v_here && ev0 == v_next))) {
           fprintf(stderr, "[%s] corner edge-vert mismatch f=%d c=%d\n", tag, fi, cc);
           return false;
         }
@@ -162,12 +164,15 @@ static int64_t faceKeyFromMesh(Mesh &m, int fi)
   int n = int(verts.size());
   int min_i = 0;
   for (int i = 1; i < n; i++) {
-    if (verts[i] < verts[min_i]) min_i = i;
+    if (verts[i] < verts[min_i])
+      min_i = i;
   }
   Vector<int, 8> fwd, rev;
-  for (int i = 0; i < n; i++) fwd.append(verts[(min_i + i) % n]);
+  for (int i = 0; i < n; i++)
+    fwd.append(verts[(min_i + i) % n]);
   rev.append(fwd[0]);
-  for (int i = n - 1; i >= 1; i--) rev.append(fwd[i]);
+  for (int i = n - 1; i >= 1; i--)
+    rev.append(fwd[i]);
   bool useFwd = true;
   for (int i = 1; i < n; i++) {
     if (fwd[i] != rev[i]) {
@@ -190,8 +195,11 @@ static bool noDuplicateEdges(Mesh &m, const char *tag)
   for (int ei : m.e) {
     int64_t k = edgeKey(m.e.vs[ei][0], m.e.vs[ei][1]);
     if (!seen.add(k)) {
-      fprintf(stderr, "[%s] duplicate edge between %d-%d\n",
-              tag, m.e.vs[ei][0], m.e.vs[ei][1]);
+      fprintf(stderr,
+              "[%s] duplicate edge between %d-%d\n",
+              tag,
+              m.e.vs[ei][0],
+              m.e.vs[ei][1]);
       return false;
     }
   }
@@ -218,20 +226,24 @@ static int countBoundaryLoops(Mesh &m)
   Vector<int> boundaryEdges;
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue; /* wire */
+    if (c0 == ELEM_NONE)
+      continue; /* wire */
     if (m.c.radial_next[c0] == c0) {
       boundaryEdges.append(ei);
     }
   }
-  if (boundaryEdges.isEmpty()) return 0;
+  if (boundaryEdges.isEmpty())
+    return 0;
 
   Set<int> isBoundary;
-  for (int ei : boundaryEdges) isBoundary.add(ei);
+  for (int ei : boundaryEdges)
+    isBoundary.add(ei);
 
   Set<int> visited;
   int loops = 0;
   for (int ei : boundaryEdges) {
-    if (visited.contains(ei)) continue;
+    if (visited.contains(ei))
+      continue;
     /* Walk along boundary: at each end-vertex find the next boundary edge. */
     int start = ei;
     int cur = ei;
@@ -243,12 +255,15 @@ static int countBoundaryLoops(Mesh &m)
       /* Find next boundary edge incident to curV other than cur. */
       int nextE = ELEM_NONE;
       for (int ne : EdgeOfVertIter(&m, curV, m.v.e[curV])) {
-        if (ne == cur) continue;
-        if (!isBoundary.contains(ne)) continue;
+        if (ne == cur)
+          continue;
+        if (!isBoundary.contains(ne))
+          continue;
         nextE = ne;
         break;
       }
-      if (nextE == ELEM_NONE) break; /* dangling -- shouldn't happen */
+      if (nextE == ELEM_NONE)
+        break; /* dangling -- shouldn't happen */
       if (nextE == start) {
         loops++;
         break;
@@ -257,7 +272,8 @@ static int countBoundaryLoops(Mesh &m)
       prevV = curV;
       curV = (a == curV) ? b : a;
       cur = nextE;
-      if (++safety > 1000000) break;
+      if (++safety > 1000000)
+        break;
     }
   }
   return loops;
@@ -289,7 +305,8 @@ static Mesh *makeDelaunayDisc(int n, uint32_t seed)
   corners[1] = m->make_vertex(float3(1.0f, -1.0f, 0.0f));
   corners[2] = m->make_vertex(float3(1.0f, 1.0f, 0.0f));
   corners[3] = m->make_vertex(float3(-1.0f, 1.0f, 0.0f));
-  for (int c : corners) verts.append(c);
+  for (int c : corners)
+    verts.append(c);
   /* Interior. */
   Vector<float2> placed;
   int attempts = 0;
@@ -304,7 +321,8 @@ static Mesh *makeDelaunayDisc(int n, uint32_t seed)
         break;
       }
     }
-    if (dup) continue;
+    if (dup)
+      continue;
     placed.append(float2(x, y));
     verts.append(m->make_vertex(float3(x, y, 0.0f)));
   }
@@ -319,7 +337,8 @@ static Mesh *makeDelaunayDisc(int n, uint32_t seed)
 
 static int randInRange(Random &r, int lo, int hi)
 {
-  if (hi <= lo) return lo;
+  if (hi <= lo)
+    return lo;
   return lo + int(r.get_int() % uint32_t(hi - lo));
 }
 
@@ -331,11 +350,14 @@ static int pickInteriorEdge(Mesh &m, Random &rnd, const Set<int> &boundaryVerts)
   for (int ei : m.e) {
     int v0 = m.e.vs[ei][0];
     int v1 = m.e.vs[ei][1];
-    if (boundaryVerts.contains(v0) || boundaryVerts.contains(v1)) continue;
-    if (m.e.c[ei] == ELEM_NONE) continue; /* wire */
+    if (boundaryVerts.contains(v0) || boundaryVerts.contains(v1))
+      continue;
+    if (m.e.c[ei] == ELEM_NONE)
+      continue; /* wire */
     candidates.append(ei);
   }
-  if (candidates.isEmpty()) return ELEM_NONE;
+  if (candidates.isEmpty())
+    return ELEM_NONE;
   return candidates[randInRange(rnd, 0, int(candidates.size()))];
 }
 
@@ -344,7 +366,8 @@ static Set<int> collectBoundaryVerts(Mesh &m)
   Set<int> s;
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     if (m.c.radial_next[c0] == c0) {
       s.add(m.e.vs[ei][0]);
       s.add(m.e.vs[ei][1]);
@@ -359,12 +382,15 @@ struct Stats {
   int meshes = 0;
 };
 
-static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
-                               int maxCollapses, Stats &stats)
+static bool
+runCollapseSession(const char *tag, Mesh &m, Random &rnd, int maxCollapses, Stats &stats)
 {
-  if (!validateMesh(m, tag)) return false;
-  if (!noDuplicateEdges(m, tag)) return false;
-  if (!noDuplicateFaces(m, tag)) return false;
+  if (!validateMesh(m, tag))
+    return false;
+  if (!noDuplicateEdges(m, tag))
+    return false;
+  if (!noDuplicateFaces(m, tag))
+    return false;
 
   std::unique_ptr<sculptcore::mesh::dump::MeshLog> meshlog;
   if (const char *logdir = sculptcore::mesh::dump::MeshLog::envDir()) {
@@ -377,7 +403,8 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
 
   for (int iter = 0; iter < maxCollapses; iter++) {
     int ei = pickInteriorEdge(m, rnd, boundaryVerts);
-    if (ei == ELEM_NONE) break;
+    if (ei == ELEM_NONE)
+      break;
 
     int v_keep = m.e.vs[ei][0];
     int v_kill = m.e.vs[ei][1];
@@ -421,8 +448,10 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
       int common = 0;
       for (int e2 : EdgeOfVertIter(&m, v_kill, m.v.e[v_kill])) {
         int o = (m.e.vs[e2][0] == v_kill) ? m.e.vs[e2][1] : m.e.vs[e2][0];
-        if (o == v_keep) continue;
-        if (nbrKeep.contains(o)) common++;
+        if (o == v_keep)
+          continue;
+        if (nbrKeep.contains(o))
+          common++;
       }
       /* For a triangle mesh, exactly 2 common neighbors = the two triangle
        * apex verts. More than that = a fold. */
@@ -444,12 +473,14 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
       meshlog->step("collapseEdge", hl, m);
     }
     if (!validateMesh(m, tag)) {
-      fprintf(stderr, "[%s] integrity failed after collapse iter=%d ei=%d\n",
-              tag, iter, ei);
+      fprintf(
+          stderr, "[%s] integrity failed after collapse iter=%d ei=%d\n", tag, iter, ei);
       return false;
     }
-    if (!noDuplicateEdges(m, tag)) return false;
-    if (!noDuplicateFaces(m, tag)) return false;
+    if (!noDuplicateEdges(m, tag))
+      return false;
+    if (!noDuplicateFaces(m, tag))
+      return false;
 
     int dV = m.v.count - V_before;
     int dE = m.e.count - E_before;
@@ -477,7 +508,11 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
     if ((dV - dE + dF) != 0) {
       fprintf(stderr,
               "[%s] chi changed unexpectedly: dV=%d dE=%d dF=%d (iter %d)\n",
-              tag, dV, dE, dF, iter);
+              tag,
+              dV,
+              dE,
+              dF,
+              iter);
       return false;
     }
 
@@ -486,7 +521,10 @@ static bool runCollapseSession(const char *tag, Mesh &m, Random &rnd,
     if (loopsAfter != boundaryLoopsBefore) {
       fprintf(stderr,
               "[%s] boundary loop count changed: %d -> %d (iter %d)\n",
-              tag, boundaryLoopsBefore, loopsAfter, iter);
+              tag,
+              boundaryLoopsBefore,
+              loopsAfter,
+              iter);
       return false;
     }
 
@@ -500,7 +538,8 @@ static int findEdge(Mesh &m, int a, int b)
 {
   for (int ei : m.e) {
     int v0 = m.e.vs[ei][0], v1 = m.e.vs[ei][1];
-    if ((v0 == a && v1 == b) || (v0 == b && v1 == a)) return ei;
+    if ((v0 == a && v1 == b) || (v0 == b && v1 == a))
+      return ei;
   }
   return ELEM_NONE;
 }
@@ -608,7 +647,8 @@ int main()
     {
       bool found = false;
       for (int e : res.killed_edges) {
-        if (e == ei) found = true;
+        if (e == ei)
+          found = true;
       }
       test_assert(found);
     }
@@ -653,7 +693,9 @@ int main()
   }
 
   printf("edge_collapse test: %d meshes, %d collapses, %d rejected\n",
-         stats.meshes, stats.collapses, stats.rejected);
+         stats.meshes,
+         stats.collapses,
+         stats.rejected);
 
   return test_end();
 }

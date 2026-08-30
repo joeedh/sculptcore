@@ -143,8 +143,8 @@ int main()
   test_assert(viewNormalFactor(normalAt(65.0f), ph) == 0.0f);
 
   // --- Part 2: end-to-end through a draw stroke ---------------------------
-  const float3 headOn{0, 0, -1};  // eye in front of the +Z-facing grid
-  const float3 edgeOn{1, 0, 0};   // view ray parallel to the surface
+  const float3 headOn{0, 0, -1}; // eye in front of the +Z-facing grid
+  const float3 edgeOn{1, 0, 0};  // view ray parallel to the surface
   const float3 fromBehind{0, 0, 1};
 
   float off = strokeCenterDisp(/*viewNormal=*/false, /*cullBackfaces=*/false, headOn);
@@ -153,8 +153,13 @@ int main()
   float behind = strokeCenterDisp(true, false, fromBehind);
   float behindCulled = strokeCenterDisp(true, true, fromBehind);
 
-  fprintf(stderr, "center disp: off=%g on=%g edge=%g behind=%g behindCulled=%g\n",
-          off, on, edge, behind, behindCulled);
+  fprintf(stderr,
+          "center disp: off=%g on=%g edge=%g behind=%g behindCulled=%g\n",
+          off,
+          on,
+          edge,
+          behind,
+          behindCulled);
 
   // The brush must actually move the center in the baseline.
   test_assert(off > 1e-4f);
@@ -199,29 +204,32 @@ int main()
     exec.beginStep(false);
 
     float3 before = m->v.co[c];
-    exec.applyDab(s.currentTool, float3{0, 0, 0}, float3{0, 0, 1},
-                  s.brush.radius, nullptr, 1);
+    exec.applyDab(
+        s.currentTool, float3{0, 0, 0}, float3{0, 0, 1}, s.brush.radius, nullptr, 1);
     float disp1 = (m->v.co[c] - before).length();
 
     for (int v = 0; v < m->v.count; v++) {
       m->v.no[v] = float3{1, 0, 0};
     }
     before = m->v.co[c];
-    exec.applyDab(s.currentTool, float3{0, 0, 0}, float3{0, 0, 1},
-                  s.brush.radius, nullptr, 2);
+    exec.applyDab(
+        s.currentTool, float3{0, 0, 0}, float3{0, 0, 1}, s.brush.radius, nullptr, 2);
     float disp2 = (m->v.co[c] - before).length();
 
     for (int v = 0; v < m->v.count; v++) {
       m->v.no[v] = float3{0, 0, 1};
     }
     before = m->v.co[c];
-    exec.applyDab(s.currentTool, float3{0, 0, 0}, float3{0, 0, 1},
-                  s.brush.radius, nullptr, 3);
+    exec.applyDab(
+        s.currentTool, float3{0, 0, 0}, float3{0, 0, 1}, s.brush.radius, nullptr, 3);
     float disp3 = (m->v.co[c] - before).length();
     exec.endStep();
 
-    fprintf(stderr, "dynamic mask dabs: head-on=%g edge-on=%g restored=%g\n", disp1,
-            disp2, disp3);
+    fprintf(stderr,
+            "dynamic mask dabs: head-on=%g edge-on=%g restored=%g\n",
+            disp1,
+            disp2,
+            disp3);
     test_assert(disp1 > 1e-4f); // head-on: full strength
     test_assert(disp2 < 1e-9f); // edge-on live normals: masked out, same stroke
     test_assert(disp3 > 1e-4f); // restored normals: strength returns

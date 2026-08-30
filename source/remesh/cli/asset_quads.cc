@@ -79,8 +79,7 @@ int lookupAssetQuadCount(const std::string &dir, const std::string &stem)
   return 0;
 }
 
-bool saveAssetQuadCount(const std::string &dir, const std::string &stem,
-                        int count)
+bool saveAssetQuadCount(const std::string &dir, const std::string &stem, int count)
 {
   std::string path = manifestPath(dir);
   std::vector<std::string> lines = readLines(path);

@@ -26,10 +26,10 @@
 namespace sculptcore::vdm {
 
 struct VdmGpuLayout {
-  int tile_size = 0;  // texels per tile side
-  int resolution = 0; // texels across UV [0,1]
-  int grid = 0;       // page-table side: ceil(resolution / tile_size)
-  int slots = 0;      // atlas capacity in tiles (highest slot + 1)
+  int tile_size = 0;     // texels per tile side
+  int resolution = 0;    // texels across UV [0,1]
+  int grid = 0;          // page-table side: ceil(resolution / tile_size)
+  int slots = 0;         // atlas capacity in tiles (highest slot + 1)
   int atlas_tiles_x = 0; // atlas arrangement, slots laid row-major
   int atlas_tiles_y = 0;
   int atlas_w = 0; // atlas pixel dims = atlas_tiles_{x,y} · tile_size

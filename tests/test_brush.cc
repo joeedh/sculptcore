@@ -23,12 +23,12 @@ struct ToolRow {
 
 // Order is the id order. Append only; never renumber.
 static const ToolRow kTools[] = {
-    {"DRAW", 0},         {"INFLATE", 1},   {"CLAY", 2},        {"PINCH", 3},
-    {"SHARP", 4},        {"MASK", 5},      {"SMOOTH", 6},      {"KELVINLET", 7},
-    {"POSE", 8},         {"TEXDRAW", 9},   {"SCRAPE", 10},     {"FILL", 11},
-    {"WINGSCRAPE", 12},  {"COLOR", 13},    {"POLYGROUP", 14},  {"BSMOOTH", 15},
-    {"GRAB", 16},        {"SNAKEHOOK", 17}, {"COLORSMOOTH", 18}, {"FEATURE_ALIGN", 19},
-    {"LAYERDRAW", 20},   {"ENHANCE", 21},  {"TEXGRAD", 22},
+    {"DRAW", 0},        {"INFLATE", 1},    {"CLAY", 2},         {"PINCH", 3},
+    {"SHARP", 4},       {"MASK", 5},       {"SMOOTH", 6},       {"KELVINLET", 7},
+    {"POSE", 8},        {"TEXDRAW", 9},    {"SCRAPE", 10},      {"FILL", 11},
+    {"WINGSCRAPE", 12}, {"COLOR", 13},     {"POLYGROUP", 14},   {"BSMOOTH", 15},
+    {"GRAB", 16},       {"SNAKEHOOK", 17}, {"COLORSMOOTH", 18}, {"FEATURE_ALIGN", 19},
+    {"LAYERDRAW", 20},  {"ENHANCE", 21},   {"TEXGRAD", 22},
 };
 
 static void runTests()
@@ -67,22 +67,28 @@ static void runTests()
   // extras themselves, and it takes the whole brush lib to count them here).
   if (int(e->items.size()) < count) {
     std::printf("SculptBrushes has %d bound items, fewer than the %d built-ins\n",
-                int(e->items.size()), count);
+                int(e->items.size()),
+                count);
   }
   test_assert(int(e->items.size()) >= count);
 #ifndef SCULPTCORE_EXTRA_BRUSHES
   if (int(e->items.size()) != count) {
-    std::printf("SculptBrushes has %d bound items, golden has %d\n",
-                int(e->items.size()), count);
+    std::printf(
+        "SculptBrushes has %d bound items, golden has %d\n", int(e->items.size()), count);
   }
   test_assert(int(e->items.size()) == count);
 #endif
 
   for (int i = 0; i < count && i < int(e->items.size()); i++) {
     const auto &item = e->items[i];
-    if (std::strcmp(item.name.c_str(), kTools[i].name) != 0 || item.value != kTools[i].id) {
+    if (std::strcmp(item.name.c_str(), kTools[i].name) != 0 || item.value != kTools[i].id)
+    {
       std::printf("item %d: bound {%s, %d}, golden {%s, %d}\n",
-                  i, item.name.c_str(), item.value, kTools[i].name, kTools[i].id);
+                  i,
+                  item.name.c_str(),
+                  item.value,
+                  kTools[i].name,
+                  kTools[i].id);
     }
     test_assert(std::strcmp(item.name.c_str(), kTools[i].name) == 0);
     test_assert(item.value == kTools[i].id);

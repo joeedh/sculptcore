@@ -47,8 +47,11 @@ void generateAutoDensity(mesh::Mesh &m, const DensityParams &params);
  * geometric-distance-based, so a per-edge size cliff is always widened even on a
  * coarse input mesh. Only ever refines (raises density); `iters` caps total work
  * (pops per vertex). No-op when gradation ≤ 0 or no density layer exists. */
-void limitDensityGradation(mesh::Mesh &m, float target_edge_length,
-                           float gradation, int iters, float density_min,
+void limitDensityGradation(mesh::Mesh &m,
+                           float target_edge_length,
+                           float gradation,
+                           int iters,
+                           float density_min,
                            float density_max);
 
 } // namespace sculptcore::remesh

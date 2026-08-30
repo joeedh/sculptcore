@@ -159,8 +159,8 @@ Mesh *makeGrid(int nx, int ny, float size)
   return m;
 }
 
-Mesh *makeCylinder(int radialSegs, int heightSegs, float radius, float height,
-                   bool capped)
+Mesh *
+makeCylinder(int radialSegs, int heightSegs, float radius, float height, bool capped)
 {
   using namespace litestl::util;
   using namespace litestl::math;
@@ -226,8 +226,7 @@ Mesh *makeCylinder(int radialSegs, int heightSegs, float radius, float height,
   return m;
 }
 
-Mesh *makeTorus(int majorSegs, int minorSegs, float majorRadius,
-                float minorRadius)
+Mesh *makeTorus(int majorSegs, int minorSegs, float majorRadius, float minorRadius)
 {
   using namespace litestl::util;
   using namespace litestl::math;
@@ -354,14 +353,14 @@ extern "C" Mesh *Mesh_makeGrid(int nx, int ny, float size)
   return makeGrid(nx, ny, size);
 }
 
-extern "C" Mesh *Mesh_makeCylinder(int radialSegs, int heightSegs, float radius,
-                                   float height, int capped)
+extern "C" Mesh *
+Mesh_makeCylinder(int radialSegs, int heightSegs, float radius, float height, int capped)
 {
   return makeCylinder(radialSegs, heightSegs, radius, height, capped != 0);
 }
 
-extern "C" Mesh *Mesh_makeTorus(int majorSegs, int minorSegs, float majorRadius,
-                                float minorRadius)
+extern "C" Mesh *
+Mesh_makeTorus(int majorSegs, int minorSegs, float majorRadius, float minorRadius)
 {
   return makeTorus(majorSegs, minorSegs, majorRadius, minorRadius);
 }

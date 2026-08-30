@@ -6,7 +6,6 @@
 #include "spatial/shaders/spatial_shaders.h"
 #include "spatial/spatial.h"
 
-
 #include <string>
 
 #include "napi/napi_log.h"

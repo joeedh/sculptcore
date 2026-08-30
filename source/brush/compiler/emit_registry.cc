@@ -129,7 +129,8 @@ EmitResult emitTextureUnitHeader(TextureUnit &unit, const string &stem)
   h += "using litestl::math::float3;\n\n";
   h += cppR.text;
   h += "// WGSL module text for this unit's textures (the T5 shader splice).\n";
-  h += string("static const char tex") + unitSymbol(stem) + "UnitWgsl[] = R\"__sbtex__(\n";
+  h +=
+      string("static const char tex") + unitSymbol(stem) + "UnitWgsl[] = R\"__sbtex__(\n";
   h += wgslR.text;
   h += ")__sbtex__\";\n\n";
   h += "} // namespace sculptcore::brush::command\n";
@@ -188,7 +189,8 @@ EmitResult emitTextureRegistry(const Vector<string> &stems,
     h += "static const ::sculptcore::brush::TextureRegistryEntry *kTextureRegistry = "
          "nullptr;\n";
   } else {
-    h += string("static const ::sculptcore::brush::TextureRegistryEntry kTextureRegistry[") +
+    h += string(
+             "static const ::sculptcore::brush::TextureRegistryEntry kTextureRegistry[") +
          itoa(count) + "] = {\n";
     for (int i = 0; i < (int)units.size(); i++) {
       for (const auto &td : units[i]->textures) {
@@ -198,11 +200,12 @@ EmitResult emitTextureRegistry(const Vector<string> &stems,
           nParams += tp.isConst ? 0 : 1;
         }
         h += string("    {\"") + td.name + "\", &tex" + cap + "Eval, ";
-        h += (td.slabSize > 0) ? (string("tex") + cap + "ParamDefaults") : string("nullptr");
+        h += (td.slabSize > 0) ? (string("tex") + cap + "ParamDefaults")
+                               : string("nullptr");
         h += string(", ") + itoa(td.slabSize) + ", ";
         h += (nParams > 0) ? (string("tex") + cap + "ParamManifest") : string("nullptr");
-        h += string(", ") + itoa(nParams) + ", tex" + unitSymbol(stems[i]) + "UnitWgsl, " +
-             (td.usesMap ? "true" : "false") + "},\n";
+        h += string(", ") + itoa(nParams) + ", tex" + unitSymbol(stems[i]) +
+             "UnitWgsl, " + (td.usesMap ? "true" : "false") + "},\n";
       }
     }
     h += "};\n";
@@ -274,7 +277,8 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
   inc += "// (brushes/types.h). Order and ids come from brushes/tools.txt; the enum\n";
   inc += "// items themselves are hand-written there.\n";
   for (int i = 0; i < (int)toolIds.size(); i++) {
-    inc += string("e->addItem(\"") + toolIds[i] + "\", SculptBrushes::" + toolIds[i] + ");\n";
+    inc += string("e->addItem(\"") + toolIds[i] + "\", SculptBrushes::" + toolIds[i] +
+           ");\n";
   }
 
   // Kernels serving no tool are compiled (their .gen.h is checked in) but take
@@ -307,11 +311,13 @@ BuiltinRegistryResult emitBuiltinRegistry(const Vector<BuiltinEntry> &kernels,
     h += "#include \"brush/neighbor_source.h\"\n";
   }
   for (int u : used) {
-    h += string("#include \"brush/kernels/generated/") + kernels[u].stem + ".brush.gen.h\"\n";
+    h += string("#include \"brush/kernels/generated/") + kernels[u].stem +
+         ".brush.gen.h\"\n";
   }
   h += "\n";
   h += "namespace sculptcore::brush {\n\n";
-  h += string("inline constexpr int builtinBrushCount = ") + itoa((int)toolIds.size()) + ";\n\n";
+  h += string("inline constexpr int builtinBrushCount = ") + itoa((int)toolIds.size()) +
+       ";\n\n";
   h += "/** Enum item name per id — the reflected names, without a BindingManager. */\n";
   h += string("inline constexpr const char *kBuiltinBrushNames[") +
        itoa((int)toolIds.size()) + "] = {\n";
@@ -530,7 +536,8 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
         if (s.name == su.name) {
           found = true;
           if (s.def != su.def) {
-            err(string("store uniform \"") + su.name + "\" is declared with conflicting "
+            err(string("store uniform \"") + su.name +
+                "\" is declared with conflicting "
                 "defaults in two extra kernels (shared name = shared slot; align the "
                 "`= <n>` defaults or rename one)");
           }
@@ -616,7 +623,8 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
   }
   h += "\n";
   h += "namespace sculptcore::brush {\n\n";
-  h += string("inline constexpr int extraBrushCount = ") + itoa((int)extras.size()) + ";\n\n";
+  h += string("inline constexpr int extraBrushCount = ") + itoa((int)extras.size()) +
+       ";\n\n";
   h += "inline bool extraBrushUsesForNeighbor(int id)\n{\n";
   if (anyNeighbor) {
     h += "  switch (id - SculptBrushesBuiltinCount) {\n";
@@ -686,7 +694,8 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
   h += "          sculptcore::brush::NbrSource NbrCsr,\n";
   h += "          sculptcore::brush::NbrSource NbrLive,\n";
   h += "          sculptcore::brush::AccumMode AccMode>\n";
-  h += "inline bool createExtraBrush(int id, bool csrNeighbors, sculptcore::brush::Brush &brush,\n";
+  h += "inline bool createExtraBrush(int id, bool csrNeighbors, sculptcore::brush::Brush "
+       "&brush,\n";
   h += "                             BrushCommandDef<CommandCtx<TYPES>> &def)\n";
   h += "{\n";
   if (!anyNeighbor) {

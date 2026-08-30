@@ -82,7 +82,8 @@ void GridStroke_free(GridStrokeSession *s)
 int GridStroke_supported(subdiv::Multires *mr, int tool)
 {
   const subdiv::MultiresAttrs *attrs = mr ? &mr->gridAttrs() : nullptr;
-  return brush::GridBrushExecutor::supportsBrush(brush::SculptBrushes(tool), attrs) ? 1 : 0;
+  return brush::GridBrushExecutor::supportsBrush(brush::SculptBrushes(tool), attrs) ? 1
+                                                                                    : 0;
 }
 
 /** Ride-along mirror toggle (see GridStrokeSession::mirror). */
@@ -145,8 +146,8 @@ void GridStroke_flushNormals(GridStrokeSession *s)
     }
   }
   if (s->mirror && flushed.size() > 0) {
-    brush::gridsMirrorToSlot(s->mr, s->level,
-                             std::span<const int>(flushed.data(), flushed.size()));
+    brush::gridsMirrorToSlot(
+        s->mr, s->level, std::span<const int>(flushed.data(), flushed.size()));
   }
 }
 
@@ -185,16 +186,20 @@ int GridStroke_begin(GridStrokeSession *s)
  * image of the same dab); ignored by non-grab tools. */
 int GridStroke_dab(GridStrokeSession *s,
                    int tool,
-                   float ox, float oy, float oz,
-                   float nx, float ny, float nz,
+                   float ox,
+                   float oy,
+                   float oz,
+                   float nx,
+                   float ny,
+                   float nz,
                    int grabAdd)
 {
   if (!s) {
     return 0;
   }
   s->exec.setGrabAccumAdd(grabAdd != 0);
-  int moved = s->exec.applyDab(brush::SculptBrushes(tool), float3(ox, oy, oz),
-                               float3(nx, ny, nz));
+  int moved = s->exec.applyDab(
+      brush::SculptBrushes(tool), float3(ox, oy, oz), float3(nx, ny, nz));
   if (moved > 0) {
     if (subdiv::GridDrawSource *ds = s->mr->drawSource()) {
       auto &mv = s->exec.lastDabMoved();
@@ -203,8 +208,7 @@ int GridStroke_dab(GridStrokeSession *s,
   }
   if (s->mirror && moved > 0) {
     auto &mv = s->exec.lastDabMoved();
-    brush::gridsMirrorToSlot(s->mr, s->level,
-                             std::span<const int>(mv.data(), mv.size()));
+    brush::gridsMirrorToSlot(s->mr, s->level, std::span<const int>(mv.data(), mv.size()));
   }
   return moved;
 }
@@ -216,8 +220,12 @@ int GridStroke_dab(GridStrokeSession *s,
  * unsupported in grids programs. Returns the union moved-vert count. */
 int GridStroke_dabProgram(GridStrokeSession *s,
                           brush::BrushProgram *prog,
-                          float ox, float oy, float oz,
-                          float nx, float ny, float nz)
+                          float ox,
+                          float oy,
+                          float oz,
+                          float nx,
+                          float ny,
+                          float nz)
 {
   if (!s) {
     return 0;
@@ -231,8 +239,7 @@ int GridStroke_dabProgram(GridStrokeSession *s,
   }
   if (s->mirror && moved > 0) {
     auto &mv = s->exec.lastDabMoved();
-    brush::gridsMirrorToSlot(s->mr, s->level,
-                             std::span<const int>(mv.data(), mv.size()));
+    brush::gridsMirrorToSlot(s->mr, s->level, std::span<const int>(mv.data(), mv.size()));
   }
   return moved;
 }
@@ -252,11 +259,8 @@ static bool gridStrokeCurrent(GridStrokeSession *s)
  * {origin.xyz, dir.xyz}; on hit `out6` row i = {p.xyz, normal.xyz} and
  * `hit[i]` = 1. Returns the hit count, or -1 when the binding is no longer
  * current (the host must end the stroke, not rebind mid-stroke). */
-int GridStroke_castBatch(GridStrokeSession *s,
-                         int n,
-                         const float *rays,
-                         float *out6,
-                         uint8_t *hit)
+int GridStroke_castBatch(
+    GridStrokeSession *s, int n, const float *rays, float *out6, uint8_t *hit)
 {
   if (!gridStrokeCurrent(s)) {
     return -1;
@@ -276,8 +280,7 @@ int GridStroke_castBatch(GridStrokeSession *s,
       o[5] = h.normal[2];
       hit[i] = 1;
       count++;
-    }
-    else {
+    } else {
       hit[i] = 0;
     }
   }
@@ -324,8 +327,15 @@ int GridStroke_dabBatch(GridStrokeSession *s,
     moved += GridStroke_dab(s, tool, d[0], d[1], d[2], d[3], d[4], d[5], 0);
     for (int m = 0; m < mirrorCount; m++) {
       const float *sg = signs + m * 3;
-      moved += GridStroke_dab(s, tool, d[0] * sg[0], d[1] * sg[1], d[2] * sg[2],
-                              d[3] * sg[0], d[4] * sg[1], d[5] * sg[2], 0);
+      moved += GridStroke_dab(s,
+                              tool,
+                              d[0] * sg[0],
+                              d[1] * sg[1],
+                              d[2] * sg[2],
+                              d[3] * sg[0],
+                              d[4] * sg[1],
+                              d[5] * sg[2],
+                              0);
     }
   }
   return moved;
@@ -369,8 +379,13 @@ int GridStroke_dabBatchProgram(GridStrokeSession *s,
     moved += GridStroke_dabProgram(s, prog, d[0], d[1], d[2], d[3], d[4], d[5]);
     for (int m = 0; m < mirrorCount; m++) {
       const float *sg = signs + m * 3;
-      moved += GridStroke_dabProgram(s, prog, d[0] * sg[0], d[1] * sg[1],
-                                     d[2] * sg[2], d[3] * sg[0], d[4] * sg[1],
+      moved += GridStroke_dabProgram(s,
+                                     prog,
+                                     d[0] * sg[0],
+                                     d[1] * sg[1],
+                                     d[2] * sg[2],
+                                     d[3] * sg[0],
+                                     d[4] * sg[1],
                                      d[5] * sg[2]);
     }
   }
@@ -392,8 +407,7 @@ void GridStroke_end(GridStrokeSession *s)
   if (s->mirror) {
     // Non-const cast: litestl Vector exposes no const data().
     auto &tv = const_cast<litestl::util::Vector<int> &>(s->exec.strokeTouchedVerts());
-    brush::gridsMirrorToSlot(s->mr, s->level,
-                             std::span<const int>(tv.data(), tv.size()));
+    brush::gridsMirrorToSlot(s->mr, s->level, std::span<const int>(tv.data(), tv.size()));
   }
 }
 
@@ -457,8 +471,12 @@ int Multires_hasGridDomain(subdiv::Multires *mr, int level)
  * *nearestVert = the dense level vert id; 0 on miss. */
 int GridTree_castRay(subdiv::Multires *mr,
                      int level,
-                     float ox, float oy, float oz,
-                     float dx, float dy, float dz,
+                     float ox,
+                     float oy,
+                     float oz,
+                     float dx,
+                     float dy,
+                     float dz,
                      float *out10,
                      int *nearestVert)
 {

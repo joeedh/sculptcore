@@ -22,13 +22,13 @@ test_init;
 
 // The shared test_assert macro has a known retval=0-on-failure bug; use a local
 // one that flips retval (mirrors test_remesh_curvature.cc).
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;

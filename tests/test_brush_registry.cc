@@ -34,7 +34,8 @@ using Def = BrushCommandDef<CommandCtx<Exec>>;
 // The reference roster: the pre-P0b hand-written switch, verbatim in intent.
 // Returns false for an id no built-in claims (which the generated dispatcher
 // must agree about — that is the extras fallthrough).
-template <class AccMode> static bool referenceBrush(SculptBrushes tool, bool csrNeighbors, Def &def)
+template <class AccMode>
+static bool referenceBrush(SculptBrushes tool, bool csrNeighbors, Def &def)
 {
   using namespace sculptcore::brush::command;
 
@@ -139,20 +140,35 @@ template <class Sig> static const void *stageAddr(const std::function<Sig> &f)
 }
 
 template <class Sig>
-static bool sameStage(const char *what, int id, bool csr, const char *mode,
-                      const std::function<Sig> &want, const std::function<Sig> &got)
+static bool sameStage(const char *what,
+                      int id,
+                      bool csr,
+                      const char *mode,
+                      const std::function<Sig> &want,
+                      const std::function<Sig> &got)
 {
   if (bool(want) != bool(got)) {
-    std::printf("id %d (%s) csr=%d %s: %s presence mismatch (want %d, got %d)\n", id,
-                kBuiltinBrushNames[id], int(csr), mode, what, int(bool(want)), int(bool(got)));
+    std::printf("id %d (%s) csr=%d %s: %s presence mismatch (want %d, got %d)\n",
+                id,
+                kBuiltinBrushNames[id],
+                int(csr),
+                mode,
+                what,
+                int(bool(want)),
+                int(bool(got)));
     return false;
   }
   if (!want) {
     return true;
   }
   if (want.target_type() != got.target_type()) {
-    std::printf("id %d (%s) csr=%d %s: %s type mismatch: want %s, got %s\n", id,
-                kBuiltinBrushNames[id], int(csr), mode, what, want.target_type().name(),
+    std::printf("id %d (%s) csr=%d %s: %s type mismatch: want %s, got %s\n",
+                id,
+                kBuiltinBrushNames[id],
+                int(csr),
+                mode,
+                what,
+                want.target_type().name(),
                 got.target_type().name());
     return false;
   }
@@ -161,8 +177,14 @@ static bool sameStage(const char *what, int id, bool csr, const char *mode,
   // indistinguishable by target_type(). The address is what pins the kernel.
   const void *wa = stageAddr(want), *ga = stageAddr(got);
   if (wa != ga) {
-    std::printf("id %d (%s) csr=%d %s: %s target mismatch (%p vs %p)\n", id,
-                kBuiltinBrushNames[id], int(csr), mode, what, wa, ga);
+    std::printf("id %d (%s) csr=%d %s: %s target mismatch (%p vs %p)\n",
+                id,
+                kBuiltinBrushNames[id],
+                int(csr),
+                mode,
+                what,
+                wa,
+                ga);
     return false;
   }
   return true;
@@ -175,7 +197,8 @@ template <class AccMode> static void compareRoster(const char *mode)
       Def want, got;
       const bool wantHandled = referenceBrush<AccMode>(SculptBrushes(id), csr != 0, want);
       const bool gotHandled =
-          command::createBuiltinBrush<Exec, CsrNbr, LiveDiskNbr, AccMode>(id, csr != 0, got);
+          command::createBuiltinBrush<Exec, CsrNbr, LiveDiskNbr, AccMode>(
+              id, csr != 0, got);
 
       test_assert(wantHandled);
       test_assert(gotHandled == wantHandled);
@@ -230,8 +253,10 @@ static void runTests()
         command::createBuiltinBrush<Exec, CsrNbr, LiveDiskNbr, AccumLive>(id, true, def);
     test_assert(handled);
     if (builtinBrushUsesForNeighbor(id) != def.needsCoPrev) {
-      std::printf("id %d (%s): usesForNeighbor=%d but needsCoPrev=%d\n", id,
-                  kBuiltinBrushNames[id], int(builtinBrushUsesForNeighbor(id)),
+      std::printf("id %d (%s): usesForNeighbor=%d but needsCoPrev=%d\n",
+                  id,
+                  kBuiltinBrushNames[id],
+                  int(builtinBrushUsesForNeighbor(id)),
                   int(def.needsCoPrev));
     }
     test_assert(builtinBrushUsesForNeighbor(id) == def.needsCoPrev);
@@ -242,11 +267,14 @@ static void runTests()
   // annotation must be a deliberate edit here, because getting it wrong on a
   // dyntopo stroke is a use-after-free, not a wrong pixel.
   for (int id = 0; id < SculptBrushesBuiltinCount; id++) {
-    const bool want = id == int(SculptBrushes::FEATURE_ALIGN) ||
-                      id == int(SculptBrushes::ENHANCE);
+    const bool want =
+        id == int(SculptBrushes::FEATURE_ALIGN) || id == int(SculptBrushes::ENHANCE);
     if (builtinBrushFullTopo(id) != want) {
-      std::printf("id %d (%s): fullTopo=%d, golden %d\n", id, kBuiltinBrushNames[id],
-                  int(builtinBrushFullTopo(id)), int(want));
+      std::printf("id %d (%s): fullTopo=%d, golden %d\n",
+                  id,
+                  kBuiltinBrushNames[id],
+                  int(builtinBrushFullTopo(id)),
+                  int(want));
     }
     test_assert(builtinBrushFullTopo(id) == want);
   }
@@ -260,8 +288,11 @@ static void runTests()
         command::createBuiltinBrush<Exec, CsrNbr, LiveDiskNbr, AccumLive>(id, true, def);
     test_assert(handled);
     if (builtinBrushFaceMode(id) != def.faceMode) {
-      std::printf("id %d (%s): faceMode=%d but def.faceMode=%d\n", id, kBuiltinBrushNames[id],
-                  int(builtinBrushFaceMode(id)), int(def.faceMode));
+      std::printf("id %d (%s): faceMode=%d but def.faceMode=%d\n",
+                  id,
+                  kBuiltinBrushNames[id],
+                  int(builtinBrushFaceMode(id)),
+                  int(def.faceMode));
     }
     test_assert(builtinBrushFaceMode(id) == def.faceMode);
     test_assert(builtinBrushFaceMode(id) == (id == int(SculptBrushes::POLYGROUP)));
@@ -270,7 +301,8 @@ static void runTests()
   // The kernel a tool dispatches to, as a name — the readable half of the same
   // pairing, and what a mis-annotated @tool shows up as first.
   test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::CLAY)], "plane") == 0);
-  test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::SCRAPE)], "plane") == 0);
+  test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::SCRAPE)], "plane") ==
+              0);
   test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::FILL)], "plane") == 0);
   test_assert(std::strcmp(kBuiltinBrushKernels[int(SculptBrushes::FEATURE_ALIGN)],
                           "featurealign") == 0);
@@ -313,9 +345,13 @@ static void runTests()
       test_assert(kBuiltinBrushGpuKernel[int(row.tool)] != nullptr);
       test_assert(std::strcmp(kBuiltinBrushGpuKernel[int(row.tool)], row.kernel) == 0);
     }
-    for (SculptBrushes t : {SculptBrushes::WINGSCRAPE, SculptBrushes::SNAKEHOOK,
-                            SculptBrushes::COLORSMOOTH, SculptBrushes::ENHANCE,
-                            SculptBrushes::FEATURE_ALIGN, SculptBrushes::LAYERDRAW}) {
+    for (SculptBrushes t : {SculptBrushes::WINGSCRAPE,
+                            SculptBrushes::SNAKEHOOK,
+                            SculptBrushes::COLORSMOOTH,
+                            SculptBrushes::ENHANCE,
+                            SculptBrushes::FEATURE_ALIGN,
+                            SculptBrushes::LAYERDRAW})
+    {
       test_assert(kBuiltinBrushGpuKernel[int(t)] == nullptr);
     }
   }

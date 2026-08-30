@@ -41,8 +41,8 @@ int main()
     Mesh m;
     make_verts(m, 4);
     AttrSaver<ElemType::VERTEX> saver;
-    TASSERT(saver.ensure(m));        // freshly created
-    TASSERT(!saver.ensure(m));       // idempotent: already bound
+    TASSERT(saver.ensure(m));  // freshly created
+    TASSERT(!saver.ensure(m)); // idempotent: already bound
     int co = saver.add(m.v.co, CO);
     int no = saver.add(m.v.no, NO);
     TASSERT(co == CO && no == NO);
@@ -58,9 +58,9 @@ int main()
     int mask = saver.add(m.v.co, CO) | saver.add(m.v.no, NO);
 
     const int stroke = 1;
-    TASSERT(saver.needsData(2, stroke, mask));   // never saved -> needs data
+    TASSERT(saver.needsData(2, stroke, mask)); // never saved -> needs data
     saver.updateSaved(2, stroke, mask);
-    TASSERT(!saver.needsData(2, stroke, mask));  // saved this stroke -> skip
+    TASSERT(!saver.needsData(2, stroke, mask)); // saved this stroke -> skip
     /* A sibling element is independent. */
     TASSERT(saver.needsData(3, stroke, mask));
   }
@@ -75,7 +75,7 @@ int main()
 
     saver.updateSaved(0, 1, mask);
     TASSERT(!saver.needsData(0, 1, mask));
-    TASSERT(saver.needsData(0, 2, mask));        // new stroke -> needs data again
+    TASSERT(saver.needsData(0, 2, mask)); // new stroke -> needs data again
     saver.updateSaved(0, 2, mask);
     TASSERT(!saver.needsData(0, 2, mask));
   }
@@ -93,11 +93,11 @@ int main()
 
     const int stroke = 5;
     saver.updateSaved(1, stroke, co);
-    TASSERT(!saver.needsData(1, stroke, co));    // CO done
-    TASSERT(saver.needsData(1, stroke, no));     // NO still pending
-    TASSERT(saver.needsData(1, stroke, both));   // combined still pending
+    TASSERT(!saver.needsData(1, stroke, co));  // CO done
+    TASSERT(saver.needsData(1, stroke, no));   // NO still pending
+    TASSERT(saver.needsData(1, stroke, both)); // combined still pending
     saver.updateSaved(1, stroke, no);
-    TASSERT(!saver.needsData(1, stroke, both));  // both now saved
+    TASSERT(!saver.needsData(1, stroke, both)); // both now saved
   }
 
   /* resetElem clears the stamp so a recycled id re-arms even within a stroke. */

@@ -67,8 +67,12 @@ static int valence(Mesh *m, int v)
 
 /* Edges still outside the (graded) target band, max valence, both over the dab
  * region. leftover==0 proves the dab converged; maxVal bounds the hubs. */
-static void measure(Mesh *m, float3 center, float radius, const dyntopo::DynTopoParams &p,
-                    int &leftover, int &maxVal)
+static void measure(Mesh *m,
+                    float3 center,
+                    float radius,
+                    const dyntopo::DynTopoParams &p,
+                    int &leftover,
+                    int &maxVal)
 {
   const float r2 = radius * radius;
   leftover = 0;
@@ -114,7 +118,8 @@ static int runDab(float grade, bool flips, int &leftover, int &maxVal, int &flip
   p.do_flips = flips;
   p.mode = dyntopo::DynTopoMode::Subdivide;
 
-  dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(*m, center, radius, p, /*seed=*/123u);
+  dyntopo::DynTopoStats st =
+      dyntopo::runDyntopoRemesh(*m, center, radius, p, /*seed=*/123u);
   measure(m, center, radius, p, leftover, maxVal);
   flipCount = st.flips;
 
@@ -136,20 +141,29 @@ int main()
   int loB, mvB, flB;
   int splitsB = runDab(0.0f, false, loB, mvB, flB);
 
-  printf("[cascade] grade+flips: splits=%d flips=%d leftover=%d maxVal=%d\n", splitsR,
-         flR, loR, mvR);
-  printf("[cascade] grade only : splits=%d flips=%d leftover=%d maxVal=%d\n", splitsG,
-         flG, loG, mvG);
-  printf("[cascade] baseline   : splits=%d flips=%d leftover=%d maxVal=%d\n", splitsB,
-         flB, loB, mvB);
+  printf("[cascade] grade+flips: splits=%d flips=%d leftover=%d maxVal=%d\n",
+         splitsR,
+         flR,
+         loR,
+         mvR);
+  printf("[cascade] grade only : splits=%d flips=%d leftover=%d maxVal=%d\n",
+         splitsG,
+         flG,
+         loG,
+         mvG);
+  printf("[cascade] baseline   : splits=%d flips=%d leftover=%d maxVal=%d\n",
+         splitsB,
+         flB,
+         loB,
+         mvB);
 
   /* (a) The recommended config fully converges and stays well-shaped: it should
    * reach the target (leftover 0) with near-regular valence — the cascade is
    * gone. Deterministic given the seed; ~1.5x headroom on the ceilings. */
   test_assert(loR == 0);
-  test_assert(flR > 0);          /* flips actually fired */
+  test_assert(flR > 0); /* flips actually fired */
   test_assert(splitsR > 0 && splitsR < 1000);
-  test_assert(mvR < 14);         /* near-regular: no high-valence hubs */
+  test_assert(mvR < 14); /* near-regular: no high-valence hubs */
 
   /* (b) The flip sweep is load-bearing: without it (grade only) the cascade is
    * markedly worse — more splits and a much higher max valence. If flips

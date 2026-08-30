@@ -10,13 +10,13 @@
  * (plan risk #1) instead of the gate. */
 #include "test_util.h"
 
+#include "displace/frames.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
 #include "mesh/mesh_proxy.h"
 #include "mesh/mesh_shapes.h"
 #include "spatial/spatial.h"
 #include "spatial/spatial_base.h"
-#include "displace/frames.h"
 #include "subdiv/grids.h"
 #include "subdiv/multires.h"
 #include "subdiv/subdiv.h"
@@ -39,7 +39,9 @@
  * subdiv lib): the undo seam every host uses for multires, gated below. */
 extern "C" {
 uint8_t *Multires_serializeStore(sculptcore::subdiv::Multires *mr, int *out_size);
-int Multires_restoreStore(sculptcore::subdiv::Multires *mr, const uint8_t *data, int size);
+int Multires_restoreStore(sculptcore::subdiv::Multires *mr,
+                          const uint8_t *data,
+                          int size);
 void freeMeshBuffer(uint8_t *buf);
 }
 
@@ -170,7 +172,8 @@ static void gateLayerChannels()
   Vector<float> ch0After;
   ch0Snapshot(ch0After);
   test_assert(ch0Before.size() == ch0After.size());
-  test_assert(std::memcmp(ch0Before.data(), ch0After.data(),
+  test_assert(std::memcmp(ch0Before.data(),
+                          ch0After.data(),
                           ch0Before.size() * sizeof(float)) == 0);
   bool layerNonZero = false;
   {
@@ -397,7 +400,8 @@ static void gateCube()
     test_assert(std::memcmp(&s2->mesh->v.co[i], &p2[i], sizeof(float3)) == 0);
   }
 
-  fprintf(stderr, "cube: edited-vert writeback ok (drift=%g)\n",
+  fprintf(stderr,
+          "cube: edited-vert writeback ok (drift=%g)\n",
           (rederived - edited).length());
 
   alloc::Delete(cage);
@@ -493,8 +497,8 @@ static void gateAddLevel()
 static void gateFan()
 {
   Mesh *cage = alloc::New<Mesh>("multires fan");
-  float co[6][3] = {{0, 0, 0},           {1, 0, 0},  {0.75f, 0.75f, 0},
-                    {0, 1, 0},           {-0.75f, 0.75f, 0}, {-1, 0, 0}};
+  float co[6][3] = {
+      {0, 0, 0}, {1, 0, 0}, {0.75f, 0.75f, 0}, {0, 1, 0}, {-0.75f, 0.75f, 0}, {-1, 0, 0}};
   int ids[6];
   for (int i = 0; i < 6; i++) {
     ids[i] = cage->make_vertex(float3(co[i][0], co[i][1], co[i][2]));
@@ -600,7 +604,8 @@ static void checkFrames(Multires &mr, int level, const Vector<float3> &base)
 
     /* frameᵀ·dp then frame·d round-trips: the property that makes any
      * deterministic, ambiguity-free frame usable for storage. */
-    float3 dp(float(i % 7 - 3) * 0.03125f, float(i % 5 - 2) * 0.0625f,
+    float3 dp(float(i % 7 - 3) * 0.03125f,
+              float(i % 5 - 2) * 0.0625f,
               float(i % 3 - 1) * 0.125f);
     float3 d(dp.dot(t), dp.dot(b), dp.dot(n));
     float3 dp2 = t * d[0] + b * d[1] + n * d[2];
@@ -625,8 +630,8 @@ static void gateParametricFrames()
   alloc::Delete(cube);
 
   Mesh *fan = alloc::New<Mesh>("frame fan");
-  float co[6][3] = {{0, 0, 0},          {1, 0, 0},          {0.75f, 0.75f, 0},
-                    {0, 1, 0},          {-0.75f, 0.75f, 0}, {-1, 0, 0}};
+  float co[6][3] = {
+      {0, 0, 0}, {1, 0, 0}, {0.75f, 0.75f, 0}, {0, 1, 0}, {-0.75f, 0.75f, 0}, {-1, 0, 0}};
   int ids[6];
   for (int i = 0; i < 6; i++) {
     ids[i] = fan->make_vertex(float3(co[i][0], co[i][1], co[i][2]));
@@ -735,7 +740,10 @@ static void gateFrameStability()
   fprintf(stderr,
           "frame stability: parametric worst tangent dot %.6f (vert %d), "
           "provider %.6f (vert %d)\n",
-          pWorst, pAt, fWorst, fAt);
+          pWorst,
+          pAt,
+          fWorst,
+          fAt);
 
   /* Continuity, not just absence of a flip: a 0.01 cage nudge is a small
    * rotation of a finite-difference direction. */
@@ -818,8 +826,11 @@ static void gateDownRefit()
   test_assert(changed > 0);
   double resAfter = stencilResidual(mr, 3, p3);
 
-  fprintf(stderr, "downRefit: changed=%d residual %.6f -> %.6f\n", changed,
-          resBefore, resAfter);
+  fprintf(stderr,
+          "downRefit: changed=%d residual %.6f -> %.6f\n",
+          changed,
+          resBefore,
+          resAfter);
   test_assert(resAfter < resBefore * 0.5);
 
   /* Fine surface preserved: the resident slot bitwise, re-derivation within
@@ -836,7 +847,8 @@ static void gateDownRefit()
   level1DispBlob(mr, l1After);
   test_assert(l1After == l1Before);
 
-  fprintf(stderr, "downRefit: fine preserved (drift=%g), level 1 untouched\n",
+  fprintf(stderr,
+          "downRefit: fine preserved (drift=%g), level 1 untouched\n",
           maxResidual(tmp, p3));
 
   alloc::Delete(cage);
@@ -888,7 +900,8 @@ static void gatePropagateDown()
   snapshotCo(*mr.setActiveLevel(1)->mesh, l1After);
   snapshotCo(*mr.setActiveLevel(2)->mesh, l2After);
   double m2 = maxResidual(l2After, l2Before), m1 = maxResidual(l1After, l1Before);
-  fprintf(stderr, "propagateDown: level-2 max move = %g, level-1 max move = %g\n", m2, m1);
+  fprintf(
+      stderr, "propagateDown: level-2 max move = %g, level-1 max move = %g\n", m2, m1);
   test_assert(m2 > 0.1);
   test_assert(m1 > 0.01);
 
@@ -988,7 +1001,8 @@ static void gatePropagateUndo()
 
   /* Undo the stroke: the pre-stroke blob restores BOTH levels — level 2's edit
    * and the level-1 surface the propagation had overwritten. */
-  test_assert(Multires_restoreStore(&mr, reinterpret_cast<const uint8_t *>(blobPre.data()),
+  test_assert(Multires_restoreStore(&mr,
+                                    reinterpret_cast<const uint8_t *>(blobPre.data()),
                                     int(blobPre.size())) == 1);
   snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
   test_assert(sameBits(tmp, l2Pre));
@@ -1002,7 +1016,8 @@ static void gatePropagateUndo()
   /* Redo the stroke: the post-stroke blob comes back with its debt intact, so
    * the next downward switch still pushes the edit into level 1 — landing on
    * the same surface the original switch produced. */
-  test_assert(Multires_restoreStore(&mr, reinterpret_cast<const uint8_t *>(blobPost.data()),
+  test_assert(Multires_restoreStore(&mr,
+                                    reinterpret_cast<const uint8_t *>(blobPost.data()),
                                     int(blobPost.size())) == 1);
   test_assert(mr.downPropDebt(2));
   mr.setActiveLevel(2);
@@ -1044,7 +1059,8 @@ static void gatePropagateUndo()
    * is about the suppression, not about there being nothing to propagate. */
   mr.setActiveLevel(3);
   snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
-  fprintf(stderr, "propagateUndo: suppressed vs applied switch differ by %g\n",
+  fprintf(stderr,
+          "propagateUndo: suppressed vs applied switch differ by %g\n",
           maxResidual(tmp, l2Owed));
   test_assert(maxResidual(tmp, l2Owed) > 0.01);
   test_assert(!mr.downPropDebt(3));
@@ -1156,8 +1172,7 @@ static void gateGridUVs()
     }
   }
 
-  fprintf(stderr, "gridUVs: %d charts (cpr=%d), in-cell + level-consistent\n", G,
-          cpr);
+  fprintf(stderr, "gridUVs: %d charts (cpr=%d), in-cell + level-consistent\n", G, cpr);
   alloc::Delete(cage);
 }
 
@@ -1200,8 +1215,8 @@ static void gateSubsurfVdm()
   sp.strength = 1.0f;
   sp.alpha = 0.5f;
   vdm::VdmSplatStats st = vdm::splatDab(m, *slot->tree, store, sp);
-  fprintf(stderr, "subsurfVdm: touched=%d clamped=%d\n", st.texelsTouched,
-          st.texelsClamped);
+  fprintf(
+      stderr, "subsurfVdm: touched=%d clamped=%d\n", st.texelsTouched, st.texelsClamped);
   test_assert(st.texelsTouched > 0);
 
   // A near-zero α makes the fold ceiling tiny — the clamp (prompt) signal
@@ -1217,13 +1232,21 @@ static void gateSubsurfVdm()
   }
   vdm::VdmPromoteParams pp;
   pp.force = true;
-  vdm::collectPromotionCandidates(
-      m, *slot->tree, store, std::span<const int>(faces.data(), faces.size()), pp,
-      candidates);
+  vdm::collectPromotionCandidates(m,
+                                  *slot->tree,
+                                  store,
+                                  std::span<const int>(faces.data(), faces.size()),
+                                  pp,
+                                  candidates);
   test_assert(candidates.size() == 0);
-  vdm::VdmPromoteStats ps = vdm::promoteRegion(
-      m, *slot->tree, store, std::span<const int>(faces.data(), faces.size()), pp,
-      nullptr, nullptr);
+  vdm::VdmPromoteStats ps =
+      vdm::promoteRegion(m,
+                         *slot->tree,
+                         store,
+                         std::span<const int>(faces.data(), faces.size()),
+                         pp,
+                         nullptr,
+                         nullptr);
   test_assert(ps.promoted == 0 && ps.seededVerts == 0);
 
   fprintf(stderr, "subsurfVdm: lock holds (no promotion under force)\n");
@@ -1280,8 +1303,7 @@ static void gatePtexSplat()
   sp.strength = 1.0f;
   sp.alpha = 0.5f;
   vdm::VdmSplatStats st = vdm::splatDab(m, *slot->tree, store, sp);
-  fprintf(stderr, "ptexSplat: touched=%d faces=%d\n", st.texelsTouched,
-          st.facesTouched);
+  fprintf(stderr, "ptexSplat: touched=%d faces=%d\n", st.texelsTouched, st.facesTouched);
   test_assert(st.texelsTouched > 0);
   test_assert(st.facesTouched > 1);
 
@@ -1318,8 +1340,8 @@ static void gatePtexSplat()
       }
     }
   }
-  fprintf(stderr, "ptexSplat: seams checked=%d active=%d worst=%g\n", checked,
-          active, worst);
+  fprintf(
+      stderr, "ptexSplat: seams checked=%d active=%d worst=%g\n", checked, active, worst);
   test_assert(active > 0); // the dab actually reached seams
   test_assert(worst < 1e-5);
 
@@ -1360,8 +1382,15 @@ static void bench()
 
     printf("L%d: verts=%d faces=%d | init(refine)=%.0fms materialize+tree=%.0fms "
            "castRay=%.2fms(hit=%d) switchDown=%.0fms switchBackWarm=%.0fms\n",
-           maxLevel, lvl.vertCount, slot->mesh->f.count, ms(t0, t1), ms(t1, t2),
-           ms(t2, t3), int(hit), ms(t3, t4), ms(t4, t5));
+           maxLevel,
+           lvl.vertCount,
+           slot->mesh->f.count,
+           ms(t0, t1),
+           ms(t1, t2),
+           ms(t2, t3),
+           int(hit),
+           ms(t3, t4),
+           ms(t4, t5));
     fflush(stdout);
 
     alloc::Delete(cage);

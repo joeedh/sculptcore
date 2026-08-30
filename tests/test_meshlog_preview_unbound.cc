@@ -31,12 +31,12 @@ test_init;
 
 /* Local assert that actually flips retval to nonzero on failure
  * (the shared test_assert macro has retval=0 on the failure branch). */
-#define TASSERT(expr)                                                                   \
-  do {                                                                                  \
-    if (!(expr)) {                                                                      \
-      retval = 1;                                                                       \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                 \
-      fflush(stderr);                                                                   \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
     }                                                                                    \
   } while (0)
 

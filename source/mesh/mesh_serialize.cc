@@ -181,7 +181,8 @@ ElemType topoTarget(const string &name)
     return LIST;
   }
   if (is(".corner.next") || is(".corner.prev") || is(".corner.radial_next") ||
-      is(".corner.radial_prev")) {
+      is(".corner.radial_prev"))
+  {
     return CORNER;
   }
   if (is(".list.c")) {
@@ -218,23 +219,23 @@ AttrFlag mandatoryBuiltinFlags(const string &name)
     return AttrFlag::TEMP | AttrFlag::NOINTERP | AttrFlag::NOCOPY;
   }
   if (is(boundary::EDGE_POLYGROUP) || is(boundary::EDGE_UVCHART) ||
-      is(boundary::EDGE_DIRTY) || is(boundary::VERT_DIRTY) ||
-      is(boundary::VERT_CLASS)) {
+      is(boundary::EDGE_DIRTY) || is(boundary::VERT_DIRTY) || is(boundary::VERT_CLASS))
+  {
     return AttrFlag::TEMP;
   }
   /* Derived builtins the current writer drops and readMesh rebuilds
    * (rebuildDerivedTopo). A pre-v5 file still carries these columns with flag
    * DERIVED unset; re-assert the bit so the loaded mesh drops them from its next
    * save (same pattern as TEMP). Non-topology derived columns: */
-  if (is("normals") || is(".face.normal") || is(".list.size") ||
-      is(".face.list_count")) {
+  if (is("normals") || is(".face.normal") || is(".list.size") || is(".face.list_count")) {
     return AttrFlag::DERIVED;
   }
   /* Radial-edge link columns — the disk head, radial cycles, corner edges/loops,
    * and the list back-pointer, all rebuilt from .edge.vs + the face corner loops. */
   if (is(".vert.e") || is(".edge.c") || is(".edge.vs.disk") || is(".corner.e") ||
       is(".corner.l") || is(".corner.prev") || is(".corner.radial_next") ||
-      is(".corner.radial_prev") || is(".list.f")) {
+      is(".corner.radial_prev") || is(".list.f"))
+  {
     return AttrFlag::TOPO | AttrFlag::DERIVED;
   }
   return AttrFlag::NONE;
@@ -293,8 +294,11 @@ void remapWeightColumn(Vector<uint8_t> &buf, WeightRemap &remap)
   }
 }
 
-void writeDomain(
-    io::BinFile &pbf, ElemData &ed, Vector<int> *maps, bool includeTemp, WeightRemap &remap)
+void writeDomain(io::BinFile &pbf,
+                 ElemData &ed,
+                 Vector<int> *maps,
+                 bool includeTemp,
+                 WeightRemap &remap)
 {
   Vector<int> &selfMap = maps[domainIndex(ed.domain)];
   uint32_t count = uint32_t(ed.count);
@@ -538,8 +542,8 @@ void buildDomain(ElemData &ed, SerialDomain &sd)
    * mandatoryBuiltinFlags. */
   for (AttrRef &attr : ed.attrs.attrs) {
     for (SerialColumn &col : sd.cols) {
-      if (attr.type == col.type &&
-          std::strcmp(attr.name.c_str(), col.name.c_str()) == 0) {
+      if (attr.type == col.type && std::strcmp(attr.name.c_str(), col.name.c_str()) == 0)
+      {
         attr.flag = col.flag | mandatoryBuiltinFlags(col.name);
         attr.use = col.use;
       }
@@ -607,8 +611,8 @@ void restoreWeights(Mesh &mesh, SerialMesh &sm)
   for (size_t i = 0; i + 1 < sm.pool_offsets.size(); i++) {
     const int start = sm.pool_offsets[int(i)];
     const int end = sm.pool_offsets[int(i) + 1];
-    dense.append(pool->intern(
-        litestl::util::span<const DeformWeight>(sm.pool_runs.data() + start, end - start)));
+    dense.append(pool->intern(litestl::util::span<const DeformWeight>(
+        sm.pool_runs.data() + start, end - start)));
   }
 
   ElemData *eds[5] = {&mesh.v, &mesh.e, &mesh.c, &mesh.l, &mesh.f};
@@ -627,7 +631,8 @@ void restoreWeights(Mesh &mesh, SerialMesh &sm)
       const int32_t *ids = reinterpret_cast<const int32_t *>(col.bytes.data());
       for (uint32_t i = 0; i < sd.count; i++) {
         const int32_t id = ids[i];
-        WeightSlot slot = (id >= 0 && size_t(id) < dense.size()) ? dense[id] : WeightSlot(0);
+        WeightSlot slot =
+            (id >= 0 && size_t(id) < dense.size()) ? dense[id] : WeightSlot(0);
         data->materialize(int(i));
         pool->reassign((*data)[int(i)], slot);
       }
@@ -761,7 +766,7 @@ bool writeMeshRaw(Mesh &mesh, std::iostream &out)
   for (int d = 0; d < 5; d++) {
     writeDomain(pbf, *eds[d], maps, mesh.serialize_temp, remap);
   }
-  writeLayerTable(pbf, mesh);  // v3+
+  writeLayerTable(pbf, mesh);   // v3+
   writePoolSection(pbf, remap); // v6+; last, so `remap` is complete
   return bool(out);
 }

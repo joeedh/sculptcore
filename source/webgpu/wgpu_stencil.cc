@@ -44,14 +44,16 @@ void onMap(WGPUMapAsyncStatus status, WGPUStringView message, void *ud1, void *)
   auto *r = static_cast<MapReq *>(ud1);
   r->ok = status == WGPUMapAsyncStatus_Success;
   if (!r->ok) {
-    std::fprintf(stderr, "wgpu_stencil mapAsync failed: %.*s\n", int(message.length),
+    std::fprintf(stderr,
+                 "wgpu_stencil mapAsync failed: %.*s\n",
+                 int(message.length),
                  message.data ? message.data : "");
   }
   r->done = true;
 }
 
-WGPUBuffer makeBuffer(WgpuContext *ctx, uint64_t size, WGPUBufferUsage usage,
-                      const void *data)
+WGPUBuffer
+makeBuffer(WgpuContext *ctx, uint64_t size, WGPUBufferUsage usage, const void *data)
 {
   size = (size + 3u) & ~uint64_t(3u);
   if (size == 0) {
@@ -117,20 +119,32 @@ WgpuStencilAmplify::~WgpuStencilAmplify()
 void WgpuStencilAmplify::release()
 {
   for (LevelPass &lp : levels_) {
-    if (lp.bindGroup) wgpuBindGroupRelease(lp.bindGroup);
-    if (lp.offsets) wgpuBufferRelease(lp.offsets);
-    if (lp.indices) wgpuBufferRelease(lp.indices);
-    if (lp.weights) wgpuBufferRelease(lp.weights);
-    if (lp.params) wgpuBufferRelease(lp.params);
-    if (lp.dst) wgpuBufferRelease(lp.dst);
+    if (lp.bindGroup)
+      wgpuBindGroupRelease(lp.bindGroup);
+    if (lp.offsets)
+      wgpuBufferRelease(lp.offsets);
+    if (lp.indices)
+      wgpuBufferRelease(lp.indices);
+    if (lp.weights)
+      wgpuBufferRelease(lp.weights);
+    if (lp.params)
+      wgpuBufferRelease(lp.params);
+    if (lp.dst)
+      wgpuBufferRelease(lp.dst);
   }
   levels_.clear();
-  if (src_) wgpuBufferRelease(src_);
-  if (staging_) wgpuBufferRelease(staging_);
-  if (pipeline_) wgpuComputePipelineRelease(pipeline_);
-  if (pipeLayout_) wgpuPipelineLayoutRelease(pipeLayout_);
-  if (bgLayout_) wgpuBindGroupLayoutRelease(bgLayout_);
-  if (module_) wgpuShaderModuleRelease(module_);
+  if (src_)
+    wgpuBufferRelease(src_);
+  if (staging_)
+    wgpuBufferRelease(staging_);
+  if (pipeline_)
+    wgpuComputePipelineRelease(pipeline_);
+  if (pipeLayout_)
+    wgpuPipelineLayoutRelease(pipeLayout_);
+  if (bgLayout_)
+    wgpuBindGroupLayoutRelease(bgLayout_);
+  if (module_)
+    wgpuShaderModuleRelease(module_);
   src_ = staging_ = nullptr;
   pipeline_ = nullptr;
   pipeLayout_ = nullptr;
@@ -138,8 +152,10 @@ void WgpuStencilAmplify::release()
   module_ = nullptr;
 }
 
-bool WgpuStencilAmplify::init(WgpuContext *ctx, subdiv::Refiner &refiner,
-                              int fromLevel, int toLevel)
+bool WgpuStencilAmplify::init(WgpuContext *ctx,
+                              subdiv::Refiner &refiner,
+                              int fromLevel,
+                              int toLevel)
 {
   release();
   ctx_ = ctx;
@@ -205,7 +221,12 @@ bool WgpuStencilAmplify::init(WgpuContext *ctx, subdiv::Refiner &refiner,
     std::fprintf(stderr,
                  "wgpu_stencil L%d: rows=%d offsets=%.1fMB indices=%.1fMB "
                  "weights=%.1fMB dst=%.1fMB\n",
-                 l, st.fineCount, offB / 1e6, idxB / 1e6, wB / 1e6, dstB / 1e6);
+                 l,
+                 st.fineCount,
+                 offB / 1e6,
+                 idxB / 1e6,
+                 wB / 1e6,
+                 dstB / 1e6);
 
     lp.offsets = makeBuffer(ctx_, offB, ro, st.offsets.data());
     lp.indices = makeBuffer(ctx_, idxB, ro, st.indices.data());
@@ -214,10 +235,10 @@ bool WgpuStencilAmplify::init(WgpuContext *ctx, subdiv::Refiner &refiner,
     lp.wgCountX = groups < 65535u ? groups : 65535u;
     lp.wgCountY = (groups + lp.wgCountX - 1) / lp.wgCountX;
     uint32_t params[4] = {uint32_t(st.fineCount), lp.wgCountX, 0, 0};
-    lp.params = makeBuffer(ctx_, sizeof(params),
-                           WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst, params);
-    lp.dst = makeBuffer(ctx_, dstB, WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc,
-                        nullptr);
+    lp.params = makeBuffer(
+        ctx_, sizeof(params), WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst, params);
+    lp.dst = makeBuffer(
+        ctx_, dstB, WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc, nullptr);
     if (!lp.offsets || !lp.indices || !lp.weights || !lp.params || !lp.dst) {
       return false;
     }
@@ -253,8 +274,7 @@ bool WgpuStencilAmplify::dispatch(const float *srcCo, int srcCount)
     return false;
   }
   auto t0 = std::chrono::steady_clock::now();
-  wgpuQueueWriteBuffer(ctx_->queue, src_, 0, srcCo,
-                       size_t(srcCount) * 3 * sizeof(float));
+  wgpuQueueWriteBuffer(ctx_->queue, src_, 0, srcCo, size_t(srcCount) * 3 * sizeof(float));
 
   WGPUCommandEncoderDescriptor ced = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT;
   WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(ctx_->device, &ced);
@@ -274,9 +294,9 @@ bool WgpuStencilAmplify::dispatch(const float *srcCo, int srcCount)
   wgpuCommandEncoderRelease(enc);
   drain(ctx_);
 
-  lastDispatchMs = std::chrono::duration<double, std::milli>(
-                       std::chrono::steady_clock::now() - t0)
-                       .count();
+  lastDispatchMs =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+          .count();
   return true;
 }
 
@@ -289,8 +309,8 @@ bool WgpuStencilAmplify::readback(Vector<float3> &out)
   uint64_t bytes = uint64_t(last.fineCount) * 3 * sizeof(float);
 
   if (!staging_) {
-    staging_ = makeBuffer(ctx_, bytes, WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead,
-                          nullptr);
+    staging_ = makeBuffer(
+        ctx_, bytes, WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead, nullptr);
     if (!staging_) {
       return false;
     }

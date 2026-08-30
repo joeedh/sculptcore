@@ -99,10 +99,10 @@ int main()
   test_assert(r.ok);
 
   // --- accumulation: repeated dabs grow displacement, clamp bounds it ---
-  r = script::run(
-      scene,
-      "vdm_stroke origin=0,0,0 normal=0,0,1 radius=0.3 strength=1.0 repeat=50 alpha=0.02\n",
-      ".");
+  r = script::run(scene,
+                  "vdm_stroke origin=0,0,0 normal=0,0,1 radius=0.3 strength=1.0 "
+                  "repeat=50 alpha=0.02\n",
+                  ".");
   test_assert(r.ok);
   float clamped = maxTexelLen(scene.vdm);
   fprintf(stderr, "clamped max texel after 50 dabs: %f\n", clamped);
@@ -116,9 +116,8 @@ int main()
 
   // --- dilation skirts: a dab at the UV-domain edge writes gutter texels
   // (texel x < 0), so bilinear reads at the chart boundary don't fade to zero.
-  r = script::run(scene,
-                  "vdm_stroke origin=-0.5,0,0 normal=0,0,1 radius=0.2 strength=1.0\n",
-                  ".");
+  r = script::run(
+      scene, "vdm_stroke origin=-0.5,0,0 normal=0,0,1 radius=0.2 strength=1.0\n", ".");
   test_assert(r.ok);
   float skirtMag = 0.0f;
   scene.vdm->foreachTile([&](const vdm::VdmTile &t) {

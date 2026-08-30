@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../kernels/ir/intrinsics.h"  // BackendKind
-#include "emit_cpp.h"                   // re-uses EmitResult
+#include "../kernels/ir/intrinsics.h" // BackendKind
+#include "emit_cpp.h"                 // re-uses EmitResult
 #include "ir.h"
 
 namespace sculptcore::brush::sbrush {

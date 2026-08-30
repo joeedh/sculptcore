@@ -47,10 +47,14 @@ void build_grid(Mesh &m, int N)
       int v2 = vat(i + 1, j + 1);
       int v3 = vat(i, j + 1);
 
-      if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-      if (m.find_edge(v1, v2) == ELEM_NONE) m.make_edge(v1, v2);
-      if (m.find_edge(v2, v3) == ELEM_NONE) m.make_edge(v2, v3);
-      if (m.find_edge(v3, v0) == ELEM_NONE) m.make_edge(v3, v0);
+      if (m.find_edge(v0, v1) == ELEM_NONE)
+        m.make_edge(v0, v1);
+      if (m.find_edge(v1, v2) == ELEM_NONE)
+        m.make_edge(v1, v2);
+      if (m.find_edge(v2, v3) == ELEM_NONE)
+        m.make_edge(v2, v3);
+      if (m.find_edge(v3, v0) == ELEM_NONE)
+        m.make_edge(v3, v0);
 
       int verts[4] = {v0, v1, v2, v3};
       m.make_face(std::span<int>(verts, 4));

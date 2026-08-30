@@ -29,14 +29,20 @@ public:
   bool start(const std::wstring &exe, const std::vector<std::wstring> &args);
 
   /* True from a successful start() until the reader thread observes child exit. */
-  bool running() const { return running_.load(); }
+  bool running() const
+  {
+    return running_.load();
+  }
 
   /* Pop every newline-terminated stdout/stderr line captured since last call
    * (the trailing newline is stripped; \r is trimmed). */
   void drain(std::vector<std::string> &out);
 
   /* Valid once running() is false; -1 beforehand. */
-  int exitCode() const { return exitCode_.load(); }
+  int exitCode() const
+  {
+    return exitCode_.load();
+  }
 
   /* TerminateProcess + join the reader. Safe to call on the main thread. */
   void kill();

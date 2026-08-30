@@ -899,10 +899,7 @@ async function sbrushCodegen() {
       .map((inp) => `${outDir}/${inp.replace(/\.sbrush$/, '')}.brush.gen.h`)
       .concat(stexInputs.map((u) => `${outDir}/${u.replace(/\.stex$/, '')}.tex.gen.h`))
       .concat([`${outDir}/sculptcore_textures.gen.h`])
-      .concat([
-        `${brushesOutDir}/builtin_brushes.gen.h`,
-        `${brushesOutDir}/builtin_brushes_enum.inc`,
-      ])
+      .concat([`${brushesOutDir}/builtin_brushes.gen.h`, `${brushesOutDir}/builtin_brushes_enum.inc`])
       .concat(['typescript/sculptcore/brush/brushWgsl.ts'])
       .filter((p) => !fs.existsSync(p))
     if (missing.length) {
@@ -959,8 +956,7 @@ async function sbrushCodegen() {
   // configure-gated): the engine's own dispatch comes from here.
   const builtinIns = inputs.map((inp) => `--in="${kernelsDir}/${inp}"`).join(' ')
   run(
-    `"${sbrushc}" --builtin-registry --out-dir="${brushesOutDir}" ` +
-      `--tools="${brushesDir}/tools.txt" ${builtinIns}`
+    `"${sbrushc}" --builtin-registry --out-dir="${brushesOutDir}" ` + `--tools="${brushesDir}/tools.txt" ${builtinIns}`
   )
 
   for (const u of stexInputs) {
@@ -1721,11 +1717,10 @@ async function runClangFormat(mode) {
     const batch = toProcess.slice(i, i + BATCH)
     const args = batch.map((f) => f.rel)
     if (mode === 'check') {
-      const result = child_process.spawnSync(
-        'clang-format',
-        ['--dry-run', '--Werror', '-style=file', ...args],
-        {env, encoding: 'utf-8'}
-      )
+      const result = child_process.spawnSync('clang-format', ['--dry-run', '--Werror', '-style=file', ...args], {
+        env,
+        encoding: 'utf-8',
+      })
       if (result.error) {
         toolError = true
         process.stderr.write(String(result.error.message) + '\n')
@@ -2007,7 +2002,7 @@ yargs(hideBin(process.argv))
     'Run ctest',
     (y) =>
       targetPositional(y).option('exclude', {
-        type: 'string',
+        type    : 'string',
         describe: 'ctest -E regex: skip tests whose name matches (e.g. GPU-device tests in CI)',
       }),
     ({targetTest, exclude}) => {
@@ -2164,7 +2159,7 @@ yargs(hideBin(process.argv))
   .command('lint', 'lint', {}, () => {
     runCommentLint('--concise')
   })
-  // note: we handle this command ourselves to forward arguments to 
+  // note: we handle this command ourselves to forward arguments to
   // commentlint, this is here just to show up in help
   .command('lint:prose', 'lint prose with commentlint (accepts commentlint args)', {}, () => {
     //

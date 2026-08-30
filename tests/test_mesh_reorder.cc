@@ -18,7 +18,7 @@ test_init;
  * retval=0 on the failure branch). */
 #define TASSERT(expr)                                                                    \
   do {                                                                                   \
-    if (!(expr)) {                                                                        \
+    if (!(expr)) {                                                                       \
       retval = 1;                                                                        \
       fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
       fflush(stderr);                                                                    \
@@ -56,7 +56,8 @@ bool validateMesh(Mesh &m, const char *tag)
 
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
@@ -69,7 +70,8 @@ bool validateMesh(Mesh &m, const char *tag)
       int side_n = m.e.vs[next][0] == vi ? 0 : 1;
       int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
       if (m.e.disk[next][side_n * 2] != diskPack(ec, side) ||
-          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
+          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk prev/next mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
@@ -83,7 +85,8 @@ bool validateMesh(Mesh &m, const char *tag)
 
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
       if (m.c.e[cc] != ei) {
@@ -128,8 +131,7 @@ bool validateMesh(Mesh &m, const char *tag)
         int v_here = m.c.v[cc];
         int v_next = m.c.v[cn];
         int ev0 = m.e.vs[ce][0], ev1 = m.e.vs[ce][1];
-        if (!((ev0 == v_here && ev1 == v_next) ||
-              (ev1 == v_here && ev0 == v_next))) {
+        if (!((ev0 == v_here && ev1 == v_next) || (ev1 == v_here && ev0 == v_next))) {
           fprintf(stderr, "[%s] corner edge-vert mismatch f=%d c=%d\n", tag, fi, cc);
           return false;
         }
@@ -186,9 +188,11 @@ Vector<int64_t> geomEdgeSignature(Mesh &m)
 
 bool sigEqual(const Vector<int64_t> &a, const Vector<int64_t> &b)
 {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (int i = 0; i < int(a.size()); i++) {
-    if (a[i] != b[i]) return false;
+    if (a[i] != b[i])
+      return false;
   }
   return true;
 }
@@ -210,7 +214,8 @@ bool positionsMatch(Mesh &m, const Vector<float3> &snap, const char *tag)
 {
   for (int vi : m.v) {
     if (m.v.co[vi][0] != snap[vi][0] || m.v.co[vi][1] != snap[vi][1] ||
-        m.v.co[vi][2] != snap[vi][2]) {
+        m.v.co[vi][2] != snap[vi][2])
+    {
       fprintf(stderr, "[%s] vert %d position drift after round-trip\n", tag, vi);
       return false;
     }
@@ -222,7 +227,8 @@ bool positionsMatch(Mesh &m, const Vector<float3> &snap, const char *tag)
 Vector<int> randPerm(int cap, Random &rnd)
 {
   Vector<int> p;
-  for (int i = 0; i < cap; i++) p.append(i);
+  for (int i = 0; i < cap; i++)
+    p.append(i);
   for (int i = cap - 1; i > 0; i--) {
     int j = int(rnd.get_int() % uint32_t(i + 1));
     std::swap(p[i], p[j]);
@@ -249,10 +255,14 @@ void build_grid(Mesh &m, int N)
       int v1 = vat(i + 1, j);
       int v2 = vat(i + 1, j + 1);
       int v3 = vat(i, j + 1);
-      if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-      if (m.find_edge(v1, v2) == ELEM_NONE) m.make_edge(v1, v2);
-      if (m.find_edge(v2, v3) == ELEM_NONE) m.make_edge(v2, v3);
-      if (m.find_edge(v3, v0) == ELEM_NONE) m.make_edge(v3, v0);
+      if (m.find_edge(v0, v1) == ELEM_NONE)
+        m.make_edge(v0, v1);
+      if (m.find_edge(v1, v2) == ELEM_NONE)
+        m.make_edge(v1, v2);
+      if (m.find_edge(v2, v3) == ELEM_NONE)
+        m.make_edge(v2, v3);
+      if (m.find_edge(v3, v0) == ELEM_NONE)
+        m.make_edge(v3, v0);
       int verts[4] = {v0, v1, v2, v3};
       m.make_face(std::span<int>(verts, 4));
     }
@@ -280,7 +290,7 @@ void test_random_reorder(int N, uint32_t seed)
   Vector<int> lmap = randPerm(int(m.l.capacity()), rnd);
   Vector<int> fmap = randPerm(int(m.f.capacity()), rnd);
 
-  Mesh::ReorderMoved full;  // inactive → full-path reorder
+  Mesh::ReorderMoved full; // inactive → full-path reorder
   m.reorder_verts(vmap, full);
   m.reorder_edges(emap, full);
   m.reorder_corners(cmap, full);
@@ -297,9 +307,11 @@ void test_random_reorder(int N, uint32_t seed)
      * unspecified. Reconstruct liveness from the original mesh by checking
      * the new home is live and matches. */
     int newi = vmap[oldi];
-    if (m.v.freemap[newi]) continue;
+    if (m.v.freemap[newi])
+      continue;
     if (m.v.co[newi][0] != origPos[oldi][0] || m.v.co[newi][1] != origPos[oldi][1] ||
-        m.v.co[newi][2] != origPos[oldi][2]) {
+        m.v.co[newi][2] != origPos[oldi][2])
+    {
       fprintf(stderr, "[%s] vert old %d -> new %d position mismatch\n", tag, oldi, newi);
       retval = 1;
     }
@@ -410,8 +422,13 @@ void test_growth_reorder_undo(int N, int leaf, uint32_t seed)
 
   /* The decisive assertions: undo restored the exact element count + geometry. */
   if (m.v.count != v0count || m.f.count != f0count) {
-    fprintf(stderr, "[%s] count not restored: v %d->%d, f %d->%d\n", tag, v0count,
-            m.v.count, f0count, m.f.count);
+    fprintf(stderr,
+            "[%s] count not restored: v %d->%d, f %d->%d\n",
+            tag,
+            v0count,
+            m.v.count,
+            f0count,
+            m.f.count);
     retval = 1;
   }
   TASSERT(sigEqual(sig0, geomEdgeSignature(m)));

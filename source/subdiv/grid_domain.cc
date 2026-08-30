@@ -165,7 +165,9 @@ static float3 cellNormal(const GridLevelDomain &d,
                          int cv)
 {
   int w = d.gridSide() + 1;
-  int quad[4] = {gv[cv * w + cu], gv[cv * w + cu + 1], gv[(cv + 1) * w + cu + 1],
+  int quad[4] = {gv[cv * w + cu],
+                 gv[cv * w + cu + 1],
+                 gv[(cv + 1) * w + cu + 1],
                  gv[(cv + 1) * w + cu]};
   float3 n(0.0f, 0.0f, 0.0f);
   for (int k = 0; k < 4; k++) {
@@ -264,8 +266,8 @@ void GridLevelDomain::syncMaskFromStore()
   }
   mr_->store.ensureLevelResident(level_);
   for (int v = 0; v < vertCount_; v++) {
-    mask[v] = *mr_->store.elem(level_, ch, vertGrid[v * 3], vertGrid[v * 3 + 1],
-                               vertGrid[v * 3 + 2]);
+    mask[v] = *mr_->store.elem(
+        level_, ch, vertGrid[v * 3], vertGrid[v * 3 + 1], vertGrid[v * 3 + 2]);
   }
 }
 
@@ -330,10 +332,11 @@ void GridLevelDomain::flushMaskToStore(std::span<const int> verts)
   // The touched-verts overload IS the edit: finer levels take the prolonged
   // delta now, the level below owes an update on the next level switch
   // (Multires::propagateAttrsDown), and alive finer domains re-mirror.
-  mr_->store.prolongateChannelEditUp(ch,
-                                     level_,
-                                     std::span<const int>(coords.data(), coords.size()),
-                                     std::span<const float>(deltas.data(), deltas.size()));
+  mr_->store.prolongateChannelEditUp(
+      ch,
+      level_,
+      std::span<const int>(coords.data(), coords.size()),
+      std::span<const float>(deltas.data(), deltas.size()));
   mr_->noteAttrEdit(level_, ch);
   mr_->refreshFinerMaskMirrors(level_);
   mr_->noteMaskChange();

@@ -91,7 +91,10 @@ void inputAABB(mesh::Mesh &m, float3 &bmin, float3 &bmax)
     bmin = bmax = float3(0, 0, 0);
 }
 
-const char *jb(bool b) { return b ? "true" : "false"; }
+const char *jb(bool b)
+{
+  return b ? "true" : "false";
+}
 
 const char *ssName(remesh::StageStatus s)
 {
@@ -114,11 +117,21 @@ std::string jstr(const std::string &s)
   o.reserve(s.size() + 8);
   for (char c : s) {
     switch (c) {
-    case '\\': o += "\\\\"; break;
-    case '"': o += "\\\""; break;
-    case '\n': o += "\\n"; break;
-    case '\r': o += "\\r"; break;
-    case '\t': o += "\\t"; break;
+    case '\\':
+      o += "\\\\";
+      break;
+    case '"':
+      o += "\\\"";
+      break;
+    case '\n':
+      o += "\\n";
+      break;
+    case '\r':
+      o += "\\r";
+      break;
+    case '\t':
+      o += "\\t";
+      break;
     default:
       if (static_cast<unsigned char>(c) < 0x20) {
         char buf[8];
@@ -132,14 +145,21 @@ std::string jstr(const std::string &s)
   return o;
 }
 
-bool writeManifest(const char *path, const std::string &jsonName,
-                   const std::string &objPath, const std::string &inName,
-                   const std::string &inPath, int inVerts, int inFaces,
-                   const float3 &amin, const float3 &amax,
+bool writeManifest(const char *path,
+                   const std::string &jsonName,
+                   const std::string &objPath,
+                   const std::string &inName,
+                   const std::string &inPath,
+                   int inVerts,
+                   int inFaces,
+                   const float3 &amin,
+                   const float3 &amax,
                    const std::string &preset,
-                   const remesh::RemeshParams &p, const mesh::RemeshReport &r,
+                   const remesh::RemeshParams &p,
+                   const mesh::RemeshReport &r,
                    const mesh::RemeshReport &rin,
-                   const remesh::RemeshRunReport &rep, long long durationMs)
+                   const remesh::RemeshRunReport &rep,
+                   long long durationMs)
 {
   std::FILE *f = std::fopen(path, "wb");
   if (!f)
@@ -179,10 +199,9 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"feature_hysteresis\": %.9g,\n", p.feature_hysteresis);
   std::fprintf(f, "    \"feature_min_chain\": %d,\n", p.feature_min_chain);
   std::fprintf(f, "    \"use_density\": %s,\n", jb(p.use_density));
-  std::fprintf(f, "    \"quantize_direct_rounding\": %s,\n",
-               jb(p.quantize_direct_rounding));
-  std::fprintf(f, "    \"untangle_field_max_dev\": %.9g,\n",
-               p.untangle_field_max_dev);
+  std::fprintf(
+      f, "    \"quantize_direct_rounding\": %s,\n", jb(p.quantize_direct_rounding));
+  std::fprintf(f, "    \"untangle_field_max_dev\": %.9g,\n", p.untangle_field_max_dev);
   std::fprintf(f, "    \"reproject\": %s,\n", jb(p.reproject));
   std::fprintf(f, "    \"cap_odd_holes\": %s,\n", jb(p.cap_odd_holes));
   std::fprintf(f, "    \"smooth_iterations\": %d,\n", p.smooth_iterations);
@@ -190,48 +209,42 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"seed\": %u,\n", p.seed);
   std::fprintf(f, "    \"triage\": %s,\n", jb(p.triage));
   std::fprintf(f, "    \"triage_weld_rel\": %.9g,\n", p.triage_weld_rel);
-  std::fprintf(f, "    \"triage_min_component_frac\": %.9g,\n",
-               p.triage_min_component_frac);
-  std::fprintf(f, "    \"input_hole_fill_max_frac\": %.9g,\n",
-               p.input_hole_fill_max_frac);
+  std::fprintf(
+      f, "    \"triage_min_component_frac\": %.9g,\n", p.triage_min_component_frac);
+  std::fprintf(
+      f, "    \"input_hole_fill_max_frac\": %.9g,\n", p.input_hole_fill_max_frac);
   std::fprintf(f, "    \"per_component\": %s,\n", jb(p.per_component));
-  std::fprintf(f, "    \"curvature_smooth_iters\": %d,\n",
-               p.curvature_smooth_iters);
-  std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g,\n",
-               p.curvature_smooth_lambda);
+  std::fprintf(f, "    \"curvature_smooth_iters\": %d,\n", p.curvature_smooth_iters);
+  std::fprintf(f, "    \"curvature_smooth_lambda\": %.9g,\n", p.curvature_smooth_lambda);
   std::fprintf(f, "    \"field_smoothness\": %.9g,\n", p.field_smoothness);
   std::fprintf(f, "    \"curvature_weight\": %.9g,\n", p.curvature_weight);
   std::fprintf(f, "    \"singularity_cancel\": %s,\n", jb(p.singularity_cancel));
-  std::fprintf(f, "    \"singularity_cancel_max_sep\": %.9g,\n",
-               p.singularity_cancel_max_sep);
+  std::fprintf(
+      f, "    \"singularity_cancel_max_sep\": %.9g,\n", p.singularity_cancel_max_sep);
   std::fprintf(f, "    \"auto_density\": %s,\n", jb(p.auto_density));
   std::fprintf(f, "    \"density_min\": %.9g,\n", p.density_min);
   std::fprintf(f, "    \"density_max\": %.9g,\n", p.density_max);
   std::fprintf(f, "    \"density_gradation\": %.9g,\n", p.density_gradation);
-  std::fprintf(f, "    \"density_gradation_iters\": %d,\n",
-               p.density_gradation_iters);
+  std::fprintf(f, "    \"density_gradation_iters\": %d,\n", p.density_gradation_iters);
   std::fprintf(f, "    \"pre_remesh\": %s,\n", jb(p.pre_remesh));
   std::fprintf(f, "    \"pre_remesh_target\": %.9g,\n", p.pre_remesh_target);
   std::fprintf(f, "    \"pre_remesh_iters\": %d,\n", p.pre_remesh_iters);
   std::fprintf(f, "    \"pre_remesh_density\": %s,\n", jb(p.pre_remesh_density));
   std::fprintf(f, "    \"pre_remesh_gradation\": %.9g,\n", p.pre_remesh_gradation);
-  std::fprintf(f, "    \"pre_remesh_gradation_iters\": %d,\n",
-               p.pre_remesh_gradation_iters);
+  std::fprintf(
+      f, "    \"pre_remesh_gradation_iters\": %d,\n", p.pre_remesh_gradation_iters);
   std::fprintf(f, "    \"pre_remesh_align\": %.9g,\n", p.pre_remesh_align);
-  std::fprintf(f, "    \"pre_remesh_field_cadence\": %d,\n",
-               p.pre_remesh_field_cadence);
-  std::fprintf(f, "    \"pre_remesh_bootstrap_iters\": %d,\n",
-               p.pre_remesh_bootstrap_iters);
-  std::fprintf(f, "    \"pre_remesh_smooth_iters\": %d,\n",
-               p.pre_remesh_smooth_iters);
-  std::fprintf(f, "    \"pre_remesh_smooth_lambda\": %.9g,\n",
-               p.pre_remesh_smooth_lambda);
-  std::fprintf(f, "    \"pre_remesh_converge_eps\": %.9g,\n",
-               p.pre_remesh_converge_eps);
-  std::fprintf(f, "    \"pre_remesh_preserve_features\": %s,\n",
+  std::fprintf(f, "    \"pre_remesh_field_cadence\": %d,\n", p.pre_remesh_field_cadence);
+  std::fprintf(
+      f, "    \"pre_remesh_bootstrap_iters\": %d,\n", p.pre_remesh_bootstrap_iters);
+  std::fprintf(f, "    \"pre_remesh_smooth_iters\": %d,\n", p.pre_remesh_smooth_iters);
+  std::fprintf(
+      f, "    \"pre_remesh_smooth_lambda\": %.9g,\n", p.pre_remesh_smooth_lambda);
+  std::fprintf(f, "    \"pre_remesh_converge_eps\": %.9g,\n", p.pre_remesh_converge_eps);
+  std::fprintf(f,
+               "    \"pre_remesh_preserve_features\": %s,\n",
                jb(p.pre_remesh_preserve_features));
-  std::fprintf(f, "    \"pre_remesh_sharp_angle\": %.9g,\n",
-               p.pre_remesh_sharp_angle);
+  std::fprintf(f, "    \"pre_remesh_sharp_angle\": %.9g,\n", p.pre_remesh_sharp_angle);
   std::fprintf(f, "    \"pre_remesh_trace\": %s,\n", jb(p.pre_remesh_trace));
   std::fprintf(f, "    \"pre_remesh_anchors\": %s,\n", jb(p.pre_remesh_anchors));
   std::fprintf(f, "    \"auto_retry\": %s,\n", jb(p.auto_retry));
@@ -260,28 +273,22 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"degenerate_faces\": %d,\n", r.degenerate_faces);
   std::fprintf(f, "    \"inverted_faces\": %d,\n", r.inverted_faces);
   std::fprintf(f, "    \"all_quad\": %s,\n", jb(r.all_quad));
-  std::fprintf(f, "    \"irregular_interior_verts\": %d,\n",
-               r.irregular_interior_verts);
+  std::fprintf(f, "    \"irregular_interior_verts\": %d,\n", r.irregular_interior_verts);
   std::fprintf(f, "    \"interior_vert_count\": %d,\n", r.interior_vert_count);
-  std::fprintf(f, "    \"regular_interior_frac\": %.9g,\n",
-               r.regular_interior_frac);
+  std::fprintf(f, "    \"regular_interior_frac\": %.9g,\n", r.regular_interior_frac);
   std::fprintf(f, "    \"component_count\": %d,\n", r.component_count);
   std::fprintf(f, "    \"boundary_loop_count\": %d,\n", r.boundary_loop_count);
   std::fprintf(f, "    \"boundary_dev_mean\": %.9g,\n", r.boundary_dev_mean);
   std::fprintf(f, "    \"boundary_dev_max\": %.9g,\n", r.boundary_dev_max);
-  std::fprintf(f, "    \"max_component_irregular\": %d,\n",
-               r.max_component_irregular);
-  std::fprintf(f, "    \"max_adjacent_area_ratio\": %.9g,\n",
-               r.max_adjacent_area_ratio);
-  std::fprintf(f, "    \"max_adjacent_edge_ratio\": %.9g,\n",
-               r.max_adjacent_edge_ratio);
+  std::fprintf(f, "    \"max_component_irregular\": %d,\n", r.max_component_irregular);
+  std::fprintf(f, "    \"max_adjacent_area_ratio\": %.9g,\n", r.max_adjacent_area_ratio);
+  std::fprintf(f, "    \"max_adjacent_edge_ratio\": %.9g,\n", r.max_adjacent_edge_ratio);
   std::fprintf(f, "    \"min_interior_angle\": %.9g,\n", r.min_interior_angle);
   std::fprintf(f, "    \"min_angle_hist\": [");
   for (int i = 0; i < 9; i++)
     std::fprintf(f, "%s%d", i ? ", " : "", r.min_angle_hist[i]);
   std::fprintf(f, "],\n");
-  std::fprintf(f, "    \"parametrization_folds\": %d,\n",
-               r.parametrization_folds);
+  std::fprintf(f, "    \"parametrization_folds\": %d,\n", r.parametrization_folds);
   std::fprintf(f, "    \"isolines_checked\": %s,\n", jb(r.isolines_checked));
   std::fprintf(f, "    \"spiral_isolines\": %d,\n", r.spiral_isolines);
   std::fprintf(f, "    \"open_isolines\": %d,\n", r.open_isolines);
@@ -293,25 +300,19 @@ bool writeManifest(const char *path, const std::string &jsonName,
   // live here (and are mirrored into validation.parametrization_folds).
   std::fprintf(f, "  \"run\": {\n");
   std::fprintf(f, "    \"success\": %s,\n", jb(rep.success));
-  std::fprintf(f, "    \"failure_reason\": \"%s\",\n",
-               jstr(rep.failure_reason).c_str());
+  std::fprintf(f, "    \"failure_reason\": \"%s\",\n", jstr(rep.failure_reason).c_str());
   std::fprintf(f, "    \"pipeline_ms\": %lld,\n", rep.duration_ms);
   std::fprintf(f, "    \"num_singularities\": %d,\n", rep.num_singularities);
   std::fprintf(f, "    \"index_sum\": %d,\n", rep.index_sum);
-  std::fprintf(f, "    \"field_solved_eigen\": %s,\n",
-               jb(rep.field_solved_eigen));
+  std::fprintf(f, "    \"field_solved_eigen\": %s,\n", jb(rep.field_solved_eigen));
   std::fprintf(f, "    \"field_close_pairs\": %d,\n", rep.field_close_pairs);
   std::fprintf(f, "    \"field_clutter_verts\": %d,\n", rep.field_clutter_verts);
-  std::fprintf(f, "    \"cancel_attempted_pairs\": %d,\n",
-               rep.cancel_attempted_pairs);
-  std::fprintf(f, "    \"cancel_cancelled_pairs\": %d,\n",
-               rep.cancel_cancelled_pairs);
-  std::fprintf(f, "    \"cancel_reverted_rounds\": %d,\n",
-               rep.cancel_reverted_rounds);
-  std::fprintf(f, "    \"cancel_singularities_after\": %d,\n",
-               rep.cancel_singularities_after);
-  std::fprintf(f, "    \"parametrization_folds\": %d,\n",
-               rep.parametrization_folds);
+  std::fprintf(f, "    \"cancel_attempted_pairs\": %d,\n", rep.cancel_attempted_pairs);
+  std::fprintf(f, "    \"cancel_cancelled_pairs\": %d,\n", rep.cancel_cancelled_pairs);
+  std::fprintf(f, "    \"cancel_reverted_rounds\": %d,\n", rep.cancel_reverted_rounds);
+  std::fprintf(
+      f, "    \"cancel_singularities_after\": %d,\n", rep.cancel_singularities_after);
+  std::fprintf(f, "    \"parametrization_folds\": %d,\n", rep.parametrization_folds);
   std::fprintf(f, "    \"min_jacobian\": %.9g,\n", rep.min_jacobian);
   std::fprintf(f, "    \"quantize_feasible\": %s,\n", jb(rep.quantize_feasible));
   std::fprintf(f, "    \"solve_faces\": %d,\n", rep.solve_faces);
@@ -332,8 +333,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "      \"num_singularities\": %d,\n", qz.num_singularities);
   std::fprintf(f, "      \"spurious_pairs\": %d,\n", qz.spurious_pairs);
   std::fprintf(f, "      \"seamless_folds\": %d,\n", qz.seamless_folds);
-  std::fprintf(f, "      \"seamless_folds_near_pairs\": %d,\n",
-               qz.seamless_folds_near_pairs);
+  std::fprintf(
+      f, "      \"seamless_folds_near_pairs\": %d,\n", qz.seamless_folds_near_pairs);
   std::fprintf(f, "      \"field_dev_mean_deg\": %.9g,\n", qz.field_dev_mean_deg);
   std::fprintf(f, "      \"field_dev_max_deg\": %.9g,\n", qz.field_dev_max_deg);
   std::fprintf(f, "      \"field_dev_frac\": %.9g,\n", qz.field_dev_frac);
@@ -389,7 +390,8 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "    \"retry\": {\n");
   std::fprintf(f, "      \"attempts_run\": %d,\n", rep.attempts_run);
   std::fprintf(f, "      \"winner\": %d,\n", rep.winner);
-  std::fprintf(f, "      \"winner_escalation\": \"%s\",\n",
+  std::fprintf(f,
+               "      \"winner_escalation\": \"%s\",\n",
                rep.winner >= 0 ? rep.attempts[rep.winner].escalation : "");
   std::fprintf(f, "      \"attempts\": [");
   for (int i = 0; i < rep.attempts_run; i++) {
@@ -403,13 +405,23 @@ bool writeManifest(const char *path, const std::string &jsonName,
                  "\"field_smoothness\": %.9g, \"curvature_smooth_iters\": %d, "
                  "\"density_gradation\": %.9g, \"pre_remesh\": %s, "
                  "\"target_edge_length\": %.9g, \"target_quad_count\": %d}",
-                 i ? "," : "", a.escalation, jb(a.success),
-                 jstr(a.failure_reason).c_str(), a.parametrization_folds,
-                 a.num_singularities, a.inverted_faces, a.odd_residuals,
-                 a.max_adjacent_edge_ratio, jb(a.from_original), a.duration_ms,
-                 a.params.field_smoothness, a.params.curvature_smooth_iters,
-                 a.params.density_gradation, jb(a.params.pre_remesh),
-                 a.params.target_edge_length, a.params.target_quad_count);
+                 i ? "," : "",
+                 a.escalation,
+                 jb(a.success),
+                 jstr(a.failure_reason).c_str(),
+                 a.parametrization_folds,
+                 a.num_singularities,
+                 a.inverted_faces,
+                 a.odd_residuals,
+                 a.max_adjacent_edge_ratio,
+                 jb(a.from_original),
+                 a.duration_ms,
+                 a.params.field_smoothness,
+                 a.params.curvature_smooth_iters,
+                 a.params.density_gradation,
+                 jb(a.params.pre_remesh),
+                 a.params.target_edge_length,
+                 a.params.target_quad_count);
   }
   std::fprintf(f, "%s]\n", rep.attempts_run ? "\n      " : "");
   std::fprintf(f, "    },\n");
@@ -431,14 +443,11 @@ bool writeManifest(const char *path, const std::string &jsonName,
   std::fprintf(f, "  \"triage\": {\n");
   std::fprintf(f, "    \"ran\": %s,\n", jb(tg.ran));
   std::fprintf(f, "    \"welded_verts\": %d,\n", tg.welded_verts);
-  std::fprintf(f, "    \"removed_degenerate_faces\": %d,\n",
-               tg.removed_degenerate_faces);
-  std::fprintf(f, "    \"removed_duplicate_faces\": %d,\n",
-               tg.removed_duplicate_faces);
+  std::fprintf(f, "    \"removed_degenerate_faces\": %d,\n", tg.removed_degenerate_faces);
+  std::fprintf(f, "    \"removed_duplicate_faces\": %d,\n", tg.removed_duplicate_faces);
   std::fprintf(f, "    \"removed_wire_edges\": %d,\n", tg.removed_wire_edges);
   std::fprintf(f, "    \"removed_components\": %d,\n", tg.removed_components);
-  std::fprintf(f, "    \"removed_component_verts\": %d,\n",
-               tg.removed_component_verts);
+  std::fprintf(f, "    \"removed_component_verts\": %d,\n", tg.removed_component_verts);
   std::fprintf(f, "    \"non_manifold_edges\": %d,\n", tg.non_manifold_edges);
   std::fprintf(f, "    \"non_manifold_verts\": %d,\n", tg.non_manifold_verts);
   std::fprintf(f, "    \"input_holes_filled\": %d,\n", tg.input_holes_filled);
@@ -572,7 +581,10 @@ void usage()
       "greedy fallback, minimal cleanup (default 0)\n");
 }
 
-bool toBool(const char *s) { return std::atoi(s) != 0; }
+bool toBool(const char *s)
+{
+  return std::atoi(s) != 0;
+}
 
 } // namespace
 
@@ -684,8 +696,7 @@ int main(int argc, char **argv)
     else if (a == "--density-gradation")
       params.density_gradation = float(std::atof(next("--density-gradation")));
     else if (a == "--density-gradation-iters")
-      params.density_gradation_iters =
-          std::atoi(next("--density-gradation-iters"));
+      params.density_gradation_iters = std::atoi(next("--density-gradation-iters"));
     else if (a == "--pre-remesh")
       params.pre_remesh = toBool(next("--pre-remesh"));
     else if (a == "--pre-remesh-target")
@@ -695,22 +706,17 @@ int main(int argc, char **argv)
     else if (a == "--pre-remesh-density")
       params.pre_remesh_density = toBool(next("--pre-remesh-density"));
     else if (a == "--pre-remesh-gradation")
-      params.pre_remesh_gradation =
-          float(std::atof(next("--pre-remesh-gradation")));
+      params.pre_remesh_gradation = float(std::atof(next("--pre-remesh-gradation")));
     else if (a == "--pre-remesh-gradation-iters")
-      params.pre_remesh_gradation_iters =
-          std::atoi(next("--pre-remesh-gradation-iters"));
+      params.pre_remesh_gradation_iters = std::atoi(next("--pre-remesh-gradation-iters"));
     else if (a == "--pre-remesh-align")
       params.pre_remesh_align = float(std::atof(next("--pre-remesh-align")));
     else if (a == "--pre-remesh-field-cadence")
-      params.pre_remesh_field_cadence =
-          std::atoi(next("--pre-remesh-field-cadence"));
+      params.pre_remesh_field_cadence = std::atoi(next("--pre-remesh-field-cadence"));
     else if (a == "--pre-remesh-bootstrap-iters")
-      params.pre_remesh_bootstrap_iters =
-          std::atoi(next("--pre-remesh-bootstrap-iters"));
+      params.pre_remesh_bootstrap_iters = std::atoi(next("--pre-remesh-bootstrap-iters"));
     else if (a == "--pre-remesh-smooth-iters")
-      params.pre_remesh_smooth_iters =
-          std::atoi(next("--pre-remesh-smooth-iters"));
+      params.pre_remesh_smooth_iters = std::atoi(next("--pre-remesh-smooth-iters"));
     else if (a == "--pre-remesh-smooth-lambda")
       params.pre_remesh_smooth_lambda =
           float(std::atof(next("--pre-remesh-smooth-lambda")));
@@ -721,8 +727,7 @@ int main(int argc, char **argv)
       params.pre_remesh_preserve_features =
           toBool(next("--pre-remesh-preserve-features"));
     else if (a == "--pre-remesh-sharp-angle")
-      params.pre_remesh_sharp_angle =
-          float(std::atof(next("--pre-remesh-sharp-angle")));
+      params.pre_remesh_sharp_angle = float(std::atof(next("--pre-remesh-sharp-angle")));
     else if (a == "--pre-remesh-trace")
       params.pre_remesh_trace = toBool(next("--pre-remesh-trace"));
     else if (a == "--pre-remesh-anchors")
@@ -762,8 +767,7 @@ int main(int argc, char **argv)
   // No explicit sizing → the asset's recorded quad count (quad-counts.txt in
   // the assets dir) overrides the default target_quad_count.
   if (!sizing_given) {
-    int rec = remesh::cli::lookupAssetQuadCount(REMESH_CLI_ASSETS_DIR,
-                                                stem(inPath));
+    int rec = remesh::cli::lookupAssetQuadCount(REMESH_CLI_ASSETS_DIR, stem(inPath));
     if (rec > 0)
       params.target_quad_count = rec;
   }
@@ -805,13 +809,24 @@ int main(int argc, char **argv)
   // runner records the run instead of losing it, then exit non-zero.
   if (!out) {
     mesh::RemeshReport r;
-    if (writeManifest(jsonPath.c_str(), ts, objPath, name, inPath, inVerts,
-                      inFaces, amin, amax, preset, params, r, rin, rep,
+    if (writeManifest(jsonPath.c_str(),
+                      ts,
+                      objPath,
+                      name,
+                      inPath,
+                      inVerts,
+                      inFaces,
+                      amin,
+                      amax,
+                      preset,
+                      params,
+                      r,
+                      rin,
+                      rep,
                       durationMs))
       std::printf("MANIFEST %s\n", jsonPath.c_str());
     std::printf("ERROR QuadRemesh produced no mesh reason=%s\n",
-                rep.failure_reason.empty() ? "unknown"
-                                           : rep.failure_reason.c_str());
+                rep.failure_reason.empty() ? "unknown" : rep.failure_reason.c_str());
     litestl::alloc::Delete<mesh::Mesh>(in);
     return 1;
   }
@@ -836,8 +851,20 @@ int main(int argc, char **argv)
   else
     std::printf("RESULT %s\n", objPath.c_str());
 
-  if (writeManifest(jsonPath.c_str(), ts, objPath, name, inPath, inVerts,
-                    inFaces, amin, amax, preset, params, r, rin, rep,
+  if (writeManifest(jsonPath.c_str(),
+                    ts,
+                    objPath,
+                    name,
+                    inPath,
+                    inVerts,
+                    inFaces,
+                    amin,
+                    amax,
+                    preset,
+                    params,
+                    r,
+                    rin,
+                    rep,
                     durationMs))
     std::printf("MANIFEST %s\n", jsonPath.c_str());
   else
@@ -852,17 +879,38 @@ int main(int argc, char **argv)
               "triage_components=%d triage_nonmanifold_edges=%d "
               "holes_filled=%d comp_runs=%d/%d thin_frac=%.3g thin_sheet=%d "
               "derived_edge=%.4g duration_ms=%lld\n",
-              r.vert_count, r.edge_count, r.face_count, r.quad_count,
-              r.tri_count, r.ngon_count, int(r.all_quad), int(r.manifold),
-              r.euler, r.inverted_faces, r.boundary_edges, r.spiral_isolines,
-              r.irregular_interior_verts, r.regular_interior_frac,
-              r.component_count, r.boundary_loop_count, r.parametrization_folds,
-              r.min_interior_angle, r.max_adjacent_area_ratio,
-              r.boundary_dev_max, int(tg.ran),
-              tg.welded_verts, tg.removed_degenerate_faces, tg.removed_components,
-              tg.non_manifold_edges, tg.input_holes_filled,
-              rep.components_remeshed, rep.components_total, tg.thin_area_frac,
-              int(tg.thin_sheet), rep.derived_edge_length, durationMs);
+              r.vert_count,
+              r.edge_count,
+              r.face_count,
+              r.quad_count,
+              r.tri_count,
+              r.ngon_count,
+              int(r.all_quad),
+              int(r.manifold),
+              r.euler,
+              r.inverted_faces,
+              r.boundary_edges,
+              r.spiral_isolines,
+              r.irregular_interior_verts,
+              r.regular_interior_frac,
+              r.component_count,
+              r.boundary_loop_count,
+              r.parametrization_folds,
+              r.min_interior_angle,
+              r.max_adjacent_area_ratio,
+              r.boundary_dev_max,
+              int(tg.ran),
+              tg.welded_verts,
+              tg.removed_degenerate_faces,
+              tg.removed_components,
+              tg.non_manifold_edges,
+              tg.input_holes_filled,
+              rep.components_remeshed,
+              rep.components_total,
+              tg.thin_area_frac,
+              int(tg.thin_sheet),
+              rep.derived_edge_length,
+              durationMs);
 
   // Pre-remesh A/B one-liner (only when the pre-pass ran); full record is in
   // the manifest "pre_remesh" block.
@@ -872,12 +920,26 @@ int main(int argc, char **argv)
                 "edge_cv_in=%.4g fold90=%d/%d fold180=%d/%d degen=%d/%d "
                 "iters=%d/%d converged=%d coarsen=%d target=%.4g bootstrap=%d "
                 "duration_ms=%lld\n",
-                pe.verts_in, pe.verts_out, pe.faces_in, pe.faces_out,
-                pe.mean_edge_in, pe.mean_edge_out, pe.edge_cv_in, pe.fold90_in,
-                pe.fold90_out, pe.fold180_in, pe.fold180_out, pe.degen_in,
-                pe.degen_out, pe.iters_run, pe.iters_resolved,
-                int(pe.converged), int(pe.coarsen_bootstrap),
-                pe.target_resolved, pe.bootstrap_resolved, pe.duration_ms);
+                pe.verts_in,
+                pe.verts_out,
+                pe.faces_in,
+                pe.faces_out,
+                pe.mean_edge_in,
+                pe.mean_edge_out,
+                pe.edge_cv_in,
+                pe.fold90_in,
+                pe.fold90_out,
+                pe.fold180_in,
+                pe.fold180_out,
+                pe.degen_in,
+                pe.degen_out,
+                pe.iters_run,
+                pe.iters_resolved,
+                int(pe.converged),
+                int(pe.coarsen_bootstrap),
+                pe.target_resolved,
+                pe.bootstrap_resolved,
+                pe.duration_ms);
   }
 
   litestl::alloc::Delete<mesh::Mesh>(out);

@@ -16,7 +16,9 @@ struct Scene;
 class RemeshApp;
 
 struct RemeshUi : InputHandler {
-  RemeshUi(Scene *scene, RemeshApp *app) : scene_(scene), app_(app) {}
+  RemeshUi(Scene *scene, RemeshApp *app) : scene_(scene), app_(app)
+  {
+  }
   RemeshUi(const RemeshUi &) = delete;
   ~RemeshUi() override;
 

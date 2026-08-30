@@ -27,24 +27,30 @@ struct IBrushComputeDispatch {
 
   /* Upload full-mesh vertex arrays (one entry per global vertex). co/no are
    * tightly packed xyz triples; mask is one float per vertex. */
-  virtual bool beginStroke(const float *co, const float *no, const float *mask,
-                           int vertCount) = 0;
+  virtual bool
+  beginStroke(const float *co, const float *no, const float *mask, int vertCount) = 0;
 
   /* Dispatch one brush dab. uniqueVerts are global vertex indices (flattened
    * across this dab's nodes); nodes index into it with count<=64 each, one
    * workgroup per node. falloffLut is 256 floats. strokePath length must equal
    * brushU.stroke_path_count (may be 0). */
   virtual bool dab(const ComputeBrushUniforms &brushU,
-                   const ComputeCtxUniforms &ctxU, const uint32_t *uniqueVerts,
-                   int uniqueVertCount, const ComputeNodeMeta *nodes,
-                   int nodeCount, const float *falloffLut,
-                   const ComputeStrokeSample *strokePath, int strokeCount) = 0;
+                   const ComputeCtxUniforms &ctxU,
+                   const uint32_t *uniqueVerts,
+                   int uniqueVertCount,
+                   const ComputeNodeMeta *nodes,
+                   int nodeCount,
+                   const float *falloffLut,
+                   const ComputeStrokeSample *strokePath,
+                   int strokeCount) = 0;
 
   /* Upload the CSR neighbor topology for for_neighbor kernels (e.g. Smooth).
    * meta has one entry per global vertex; nbrVerts is the flat neighbor-index
    * array. Static across a stroke — call once after beginStroke. */
-  virtual bool setNeighbors(const ComputeVertNbr *meta, int vertCount,
-                            const uint32_t *nbrVerts, int nbrCount) = 0;
+  virtual bool setNeighbors(const ComputeVertNbr *meta,
+                            int vertCount,
+                            const uint32_t *nbrVerts,
+                            int nbrCount) = 0;
 
   /* Override the per-vertex cavity automask factor (binding 24). beginStroke
    * seeds identity 1.0; call this once after beginStroke when cavity masking is
@@ -78,8 +84,8 @@ struct IBrushComputeDispatch {
 
   /* Read back just the listed global vertex indices (packed xyz). coOut/noOut
    * are caller arrays of count*3 floats; either may be null. */
-  virtual bool readbackVerts(const uint32_t *verts, int count, float *coOut,
-                             float *noOut) = 0;
+  virtual bool
+  readbackVerts(const uint32_t *verts, int count, float *coOut, float *noOut) = 0;
 
   /* Upload a custom per-vertex attribute layer into the storage buffer at the
    * given binding slot (>=14, assigned by the kernel's attr manifest in

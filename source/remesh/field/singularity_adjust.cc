@@ -340,8 +340,8 @@ double crossFieldCurl(Mesh &m)
   return std::sqrt(sum);
 }
 
-SingularityPairStats findSingularityPairs(Mesh &m, int max_hops,
-                                          litestl::util::Vector<int> *pair_verts)
+SingularityPairStats
+findSingularityPairs(Mesh &m, int max_hops, litestl::util::Vector<int> *pair_verts)
 {
   SingularityPairStats stats;
 
@@ -410,8 +410,7 @@ SingularityPairStats findSingularityPairs(Mesh &m, int max_hops,
   return stats;
 }
 
-SingularityAdjustStats adjustSingularities(Mesh &m,
-                                           const SingularityAdjustParams &params)
+SingularityAdjustStats adjustSingularities(Mesh &m, const SingularityAdjustParams &params)
 {
   SingularityAdjustStats stats;
 
@@ -611,8 +610,7 @@ SingularityCancelStats cancelSingularityPairs(Mesh &m,
           if (have_pins && pinned[w]) {
             return;
           }
-          double nd =
-              du + double((m.v.co[m.e.vs[e][1]] - m.v.co[m.e.vs[e][0]]).length());
+          double nd = du + double((m.v.co[m.e.vs[e][1]] - m.v.co[m.e.vs[e][0]]).length());
           if (nd > max_dist) {
             return;
           }
@@ -664,16 +662,16 @@ SingularityCancelStats cancelSingularityPairs(Mesh &m,
       break;
     }
 
-    std::sort(cands.data(), cands.data() + cands.size(),
-              [](const Cand &a, const Cand &b) {
-                if (a.dist != b.dist) {
-                  return a.dist < b.dist;
-                }
-                if (a.s != b.s) {
-                  return a.s < b.s;
-                }
-                return a.t < b.t;
-              });
+    std::sort(
+        cands.data(), cands.data() + cands.size(), [](const Cand &a, const Cand &b) {
+          if (a.dist != b.dist) {
+            return a.dist < b.dist;
+          }
+          if (a.s != b.s) {
+            return a.s < b.s;
+          }
+          return a.t < b.t;
+        });
 
     // Greedy vertex-disjoint selection (disjoint paths ⇒ each edge flips once);
     // chain ±1 flips so every intermediate vertex's index transfer nets zero.

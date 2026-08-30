@@ -13,8 +13,8 @@
 //  3. The `save` list cross-check emits no warnings over the real kernels: every
 //     body-written attr is saved (else its stroke would not undo) and no
 //     read-only attr is (dead capture).
-#include "test_util.h"
 #include "test_config.h"
+#include "test_util.h"
 
 #include "brush/compiler/emit_cpp.h"
 #include "brush/compiler/lexer.h"
@@ -125,12 +125,16 @@ static void runTests()
     }
     MemberWriteKind wk = brushScanMemberWrites(*brush, row.attr);
     if (wk == MemberWriteKind::Nested) {
-      std::printf("%s.%s: unexpected nested (swizzle/index) store\n", row.kernel, row.attr);
+      std::printf(
+          "%s.%s: unexpected nested (swizzle/index) store\n", row.kernel, row.attr);
     }
     bool writes = wk == MemberWriteKind::TopLevel;
     if (writes != row.kernelWrites) {
       std::printf("%s.%s: kernelWrites %d, expected %d\n",
-                  row.kernel, row.attr, int(writes), int(row.kernelWrites));
+                  row.kernel,
+                  row.attr,
+                  int(writes),
+                  int(row.kernelWrites));
     }
     test_assert(writes == row.kernelWrites);
 
@@ -139,8 +143,7 @@ static void runTests()
     EmitResult er = emitCpp(*brush);
     test_assert(er.errors.size() == 0);
     char needle[512];
-    std::snprintf(needle, sizeof(needle),
-                  "BrushAttrManifestEntry{\"%s\", ", row.attr);
+    std::snprintf(needle, sizeof(needle), "BrushAttrManifestEntry{\"%s\", ", row.attr);
     const char *line = std::strstr(er.text.c_str(), needle);
     test_assert(line != nullptr);
     if (line) {
@@ -183,8 +186,12 @@ static void runTests()
 
   // --- Gate 3: write/save agreement over every attr-carrying kernel ---
   {
-    static const char *kAttrKernels[] = {"bsmooth", "color",        "colorsmooth",
-                                         "enhance", "featurealign", "layerdraw",
+    static const char *kAttrKernels[] = {"bsmooth",
+                                         "color",
+                                         "colorsmooth",
+                                         "enhance",
+                                         "featurealign",
+                                         "layerdraw",
                                          "polygroup"};
     for (const char *stem : kAttrKernels) {
       auto brush = parseKernel(stem);

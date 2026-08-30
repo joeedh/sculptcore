@@ -85,8 +85,8 @@ private:
   struct LeafSnap {
     int leaf = -1;
     bool hasPos = false, hasMask = false;
-    Vector<float3> pos;  // owned-vert order
-    Vector<float> mask;  // owned-vert order
+    Vector<float3> pos; // owned-vert order
+    Vector<float> mask; // owned-vert order
   };
   struct GridBlock {
     int grid = -1;

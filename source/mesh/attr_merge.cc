@@ -23,10 +23,8 @@ static constexpr const char *CAVITY_GEN_ATTR = ".brush.automask.gen";
 static constexpr const char *ENHANCE_DISP_ATTR = ".brush.enhance.disp";
 static constexpr const char *ENHANCE_GEN_ATTR = ".brush.enhance.gen";
 
-AttrDataBase *siblingLayer(AttrRef &attr,
-                           const AttrMergeCtx &ctx,
-                           AttrType type,
-                           const char *name)
+AttrDataBase *
+siblingLayer(AttrRef &attr, const AttrMergeCtx &ctx, AttrType type, const char *name)
 {
   if (!ctx.grp) {
     return nullptr;
@@ -58,7 +56,8 @@ void defaultMerge(AttrRef &attr, const AttrMergeCtx &ctx, bool copy_src0)
        * NOCOPY flag opt a layer back into plain src0 copy. */
       const bool or_sources = !copy_src0 && !(attr.flag & AttrFlag::NOCOPY);
       view->set(ctx.dst,
-                or_sources ? ((*view)[ctx.src0] || (*view)[ctx.src1]) : (*view)[ctx.src0]);
+                or_sources ? ((*view)[ctx.src0] || (*view)[ctx.src1])
+                           : (*view)[ctx.src0]);
     }
     return;
   }
@@ -244,8 +243,10 @@ void mergeWeights(AttrRef &attr, const AttrMergeCtx &ctx)
   }
 
   DeformWeight a[DEFORM_MAX_INFLUENCES], b[DEFORM_MAX_INFLUENCES];
-  const int na = std::min(pool->copyRun(s0, a, DEFORM_MAX_INFLUENCES), DEFORM_MAX_INFLUENCES);
-  const int nb = std::min(pool->copyRun(s1, b, DEFORM_MAX_INFLUENCES), DEFORM_MAX_INFLUENCES);
+  const int na =
+      std::min(pool->copyRun(s0, a, DEFORM_MAX_INFLUENCES), DEFORM_MAX_INFLUENCES);
+  const int nb =
+      std::min(pool->copyRun(s1, b, DEFORM_MAX_INFLUENCES), DEFORM_MAX_INFLUENCES);
 
   const float t = ctx.t;
   util::Vector<DeformWeight, DEFORM_MAX_INFLUENCES * 2> out;
@@ -292,7 +293,8 @@ void mergeWeights(AttrRef &attr, const AttrMergeCtx &ctx)
 
   // Deliberately not normalized: Blender does not, and a sculpt op silently
   // renormalizing a rigged mesh would be a worse bug than the one this fixes.
-  WeightSlot merged = pool->intern(util::span<const DeformWeight>(out.data(), out.size()));
+  WeightSlot merged =
+      pool->intern(util::span<const DeformWeight>(out.data(), out.size()));
   data->materialize(ctx.dst);
   pool->reassign((*data)[ctx.dst], merged);
   pool->release(merged);

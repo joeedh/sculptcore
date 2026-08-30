@@ -226,7 +226,8 @@ static void runTests()
   EmitResult guarded = emitCpp(*imp.brush);
   test_assert(guarded.errors.size() == 0);
   test_assert(std::strstr(guarded.text.c_str(), "#ifndef SB_TEX_DEF_Rings") != nullptr);
-  test_assert(std::strstr(guarded.text.c_str(), "#endif  // SB_TEX_DEF_Rings") != nullptr);
+  test_assert(std::strstr(guarded.text.c_str(), "#endif  // SB_TEX_DEF_Rings") !=
+              nullptr);
 
   // grad(Rings.eval(...)) dispatches to the EvalD twin, emitted under its
   // own guard (SB_TEX_DEFD_*) so a non-grad importer of the same texture
@@ -247,7 +248,8 @@ static void runTests()
   test_assert(grdCpp.errors.size() == 0);
   test_assert(std::strstr(grdCpp.text.c_str(), "texRingsEvalD") != nullptr);
   test_assert(std::strstr(grdCpp.text.c_str(), "#ifndef SB_TEX_DEFD_Rings") != nullptr);
-  test_assert(std::strstr(grdCpp.text.c_str(), "#endif  // SB_TEX_DEFD_Rings") != nullptr);
+  test_assert(std::strstr(grdCpp.text.c_str(), "#endif  // SB_TEX_DEFD_Rings") !=
+              nullptr);
 
   EmitResult grdWgsl = emitWgsl(*grd.brush);
   test_assert(grdWgsl.errors.size() == 0);
@@ -291,7 +293,8 @@ static void runTests()
   unitToBrush(cRings, ringsBrush);
   EmitResult ringsC = emitCTextureDefs(ringsBrush);
   test_assert(ringsC.errors.size() == 0);
-  test_assert(std::strstr(ringsC.text.c_str(), "float tex_rings_eval(const float *") != nullptr);
+  test_assert(std::strstr(ringsC.text.c_str(), "float tex_rings_eval(const float *") !=
+              nullptr);
   test_assert(std::strstr(ringsC.text.c_str(), "void tex_rings_eval_d(") != nullptr);
   test_assert(std::strstr(ringsC.text.c_str(), "static sbdual sbd_sin(") != nullptr);
   test_assert(std::strstr(ringsC.text.c_str(), "_param_defaults") == nullptr);
@@ -311,9 +314,11 @@ static void runTests()
   unitToBrush(cBands, bandsBrush);
   EmitResult bandsC = emitCTextureDefs(bandsBrush);
   test_assert(bandsC.errors.size() == 0);
-  test_assert(std::strstr(bandsC.text.c_str(), "const float tex_bands_param_defaults[") != nullptr);
+  test_assert(std::strstr(bandsC.text.c_str(), "const float tex_bands_param_defaults[") !=
+              nullptr);
   test_assert(std::strstr(bandsC.text.c_str(), "sb_tex_params[0]") != nullptr);
-  test_assert(std::strstr(bandsC.text.c_str(), "texRampSample(sb_tex_params + 1, ") != nullptr);
+  test_assert(std::strstr(bandsC.text.c_str(), "texRampSample(sb_tex_params + 1, ") !=
+              nullptr);
   test_assert(std::strstr(bandsC.text.c_str(), "texMapPoint(sb_texctx, ") != nullptr);
   test_assert(std::strstr(bandsC.text.c_str(), "tex_bands_eval_d omitted") != nullptr);
   test_assert(std::strstr(bandsC.text.c_str(), "void tex_bands_eval_d(") == nullptr);

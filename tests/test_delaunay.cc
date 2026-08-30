@@ -40,7 +40,8 @@ static bool validateMesh(Mesh &m)
   /* Disk cycle per vertex closes. */
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
@@ -71,7 +72,8 @@ static bool validateMesh(Mesh &m)
   /* Radial cycle per edge closes. */
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
       if (m.c.e[cc] != ei) {
@@ -118,8 +120,7 @@ static bool validateMesh(Mesh &m)
         int v_here = m.c.v[cc];
         int v_next = m.c.v[cn];
         int ev0 = m.e.vs[ce][0], ev1 = m.e.vs[ce][1];
-        if (!((ev0 == v_here && ev1 == v_next) ||
-              (ev1 == v_here && ev0 == v_next))) {
+        if (!((ev0 == v_here && ev1 == v_next) || (ev1 == v_here && ev0 == v_next))) {
           fprintf(stderr, "corner edge-vert mismatch f=%d c=%d\n", fi, cc);
           return false;
         }
@@ -141,33 +142,42 @@ static bool validateMesh(Mesh &m)
 }
 
 /* --- 2D circumcircle test for Delaunay verification. --- */
-static bool inCircumcircle2D(double ax, double ay,
-                             double bx, double by,
-                             double cx, double cy,
-                             double px, double py,
+static bool inCircumcircle2D(double ax,
+                             double ay,
+                             double bx,
+                             double by,
+                             double cx,
+                             double cy,
+                             double px,
+                             double py,
                              double eps)
 {
   /* Force CCW. */
   double orient = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-  if (std::fabs(orient) < 1e-30) return false;
+  if (std::fabs(orient) < 1e-30)
+    return false;
   double Ax = ax - px, Ay = ay - py;
   double Bx = bx - px, By = by - py;
   double Cx = cx - px, Cy = cy - py;
   double det = (Ax * Ax + Ay * Ay) * (Bx * Cy - Cx * By) -
                (Bx * Bx + By * By) * (Ax * Cy - Cx * Ay) +
                (Cx * Cx + Cy * Cy) * (Ax * By - Bx * Ay);
-  if (orient < 0) det = -det;
+  if (orient < 0)
+    det = -det;
   return det > eps;
 }
 
 static int convexHullSize(Vector<float2> &pts)
 {
   int n = int(pts.size());
-  if (n < 3) return n;
+  if (n < 3)
+    return n;
   Vector<int> order;
-  for (int i = 0; i < n; i++) order.append(i);
+  for (int i = 0; i < n; i++)
+    order.append(i);
   std::sort(order.begin(), order.end(), [&](int a, int b) {
-    if (pts[a][0] != pts[b][0]) return pts[a][0] < pts[b][0];
+    if (pts[a][0] != pts[b][0])
+      return pts[a][0] < pts[b][0];
     return pts[a][1] < pts[b][1];
   });
   Vector<int> hull;
@@ -178,7 +188,8 @@ static int convexHullSize(Vector<float2> &pts)
   /* Lower */
   for (int idx : order) {
     while (hull.size() >= 2 &&
-           cross2(hull[hull.size() - 2], hull[hull.size() - 1], idx) <= 0) {
+           cross2(hull[hull.size() - 2], hull[hull.size() - 1], idx) <= 0)
+    {
       hull.pop_back();
     }
     hull.append(idx);
@@ -187,7 +198,8 @@ static int convexHullSize(Vector<float2> &pts)
   for (int i = n - 2; i >= 0; i--) {
     int idx = order[i];
     while (hull.size() >= lower &&
-           cross2(hull[hull.size() - 2], hull[hull.size() - 1], idx) <= 0) {
+           cross2(hull[hull.size() - 2], hull[hull.size() - 1], idx) <= 0)
+    {
       hull.pop_back();
     }
     hull.append(idx);
@@ -241,8 +253,8 @@ static bool runDelaunayCase(const char *label,
   for (int fi : outFaces) {
     int li = mesh.f.l[fi];
     if (mesh.l.size[li] != 3) {
-      fprintf(stderr, "[%s] non-triangle face emitted (size=%d)\n",
-              label, mesh.l.size[li]);
+      fprintf(
+          stderr, "[%s] non-triangle face emitted (size=%d)\n", label, mesh.l.size[li]);
       return false;
     }
   }
@@ -265,10 +277,12 @@ static bool runDelaunayCase(const char *label,
 
   /* Project original points onto the same plane to validate empty-circumcircle. */
   float3 n = normal;
-  if (n.length() < 1e-6f) n = float3(0.0f, 0.0f, 1.0f);
+  if (n.length() < 1e-6f)
+    n = float3(0.0f, 0.0f, 1.0f);
   n.normalize();
   float3 ub(1, 0, 0);
-  if (std::fabs(n[0]) > 0.9f) ub = float3(0, 1, 0);
+  if (std::fabs(n[0]) > 0.9f)
+    ub = float3(0, 1, 0);
   ub.crossSelf(n);
   ub.normalize();
   float3 vb = n;
@@ -292,13 +306,18 @@ static bool runDelaunayCase(const char *label,
     /* map mesh vert idx -> input idx */
     int ia = -1, ibx = -1, ic = -1;
     for (int i = 0; i < int(verts.size()); i++) {
-      if (verts[i] == va) ia = i;
-      if (verts[i] == vb_i) ibx = i;
-      if (verts[i] == vc) ic = i;
+      if (verts[i] == va)
+        ia = i;
+      if (verts[i] == vb_i)
+        ibx = i;
+      if (verts[i] == vc)
+        ic = i;
     }
-    if (ia < 0 || ibx < 0 || ic < 0) continue;
+    if (ia < 0 || ibx < 0 || ic < 0)
+      continue;
     for (int j = 0; j < int(pts2.size()); j++) {
-      if (j == ia || j == ibx || j == ic) continue;
+      if (j == ia || j == ibx || j == ic)
+        continue;
       /* Skip duplicates: if j projects within eps of any triangle vert, ignore. */
       bool dup = false;
       int tri[3] = {ia, ibx, ic};
@@ -309,15 +328,26 @@ static bool runDelaunayCase(const char *label,
           break;
         }
       }
-      if (dup) continue;
-      if (inCircumcircle2D(pts2[ia][0], pts2[ia][1],
-                           pts2[ibx][0], pts2[ibx][1],
-                           pts2[ic][0], pts2[ic][1],
-                           pts2[j][0], pts2[j][1], 1e-5)) {
+      if (dup)
+        continue;
+      if (inCircumcircle2D(pts2[ia][0],
+                           pts2[ia][1],
+                           pts2[ibx][0],
+                           pts2[ibx][1],
+                           pts2[ic][0],
+                           pts2[ic][1],
+                           pts2[j][0],
+                           pts2[j][1],
+                           1e-5))
+      {
         stats.circumFails++;
         fprintf(stderr,
                 "[%s] empty-circumcircle violation: tri (%d,%d,%d) contains pt %d\n",
-                label, ia, ibx, ic, j);
+                label,
+                ia,
+                ibx,
+                ic,
+                j);
         return false;
       }
     }
@@ -328,8 +358,13 @@ static bool runDelaunayCase(const char *label,
     int h = convexHullSize(pts2);
     int expected = 2 * int(pts2.size()) - h - 2;
     if (int(outFaces.size()) != expected) {
-      fprintf(stderr, "[%s] triangle count %d != expected %d (n=%d, h=%d)\n",
-              label, int(outFaces.size()), expected, int(pts2.size()), h);
+      fprintf(stderr,
+              "[%s] triangle count %d != expected %d (n=%d, h=%d)\n",
+              label,
+              int(outFaces.size()),
+              expected,
+              int(pts2.size()),
+              h);
       return false;
     }
   }
@@ -386,7 +421,8 @@ int main()
     pts.append(float3(3, 0, 0));
     Mesh mesh;
     Vector<int> verts;
-    for (auto &p : pts) verts.append(mesh.make_vertex(p));
+    for (auto &p : pts)
+      verts.append(mesh.make_vertex(p));
     Vector<int> outFaces;
     auto ok = delaunayTriangulate(mesh,
                                   std::span<int>(verts.data(), verts.size()),
@@ -422,7 +458,8 @@ int main()
     pts.append(float3(1, 0, 0)); /* dup */
     Mesh mesh;
     Vector<int> verts;
-    for (auto &p : pts) verts.append(mesh.make_vertex(p));
+    for (auto &p : pts)
+      verts.append(mesh.make_vertex(p));
     Vector<int> outFaces;
     auto ok = delaunayTriangulate(mesh,
                                   std::span<int>(verts.data(), verts.size()),
@@ -442,7 +479,8 @@ int main()
       float3 nrm(1.0f, 2.0f, 3.0f);
       nrm.normalize();
       float3 ub(1, 0, 0);
-      if (std::fabs(nrm[0]) > 0.9f) ub = float3(0, 1, 0);
+      if (std::fabs(nrm[0]) > 0.9f)
+        ub = float3(0, 1, 0);
       ub.crossSelf(nrm);
       ub.normalize();
       float3 vb = nrm;
@@ -464,12 +502,14 @@ int main()
             break;
           }
         }
-        if (dup) continue;
+        if (dup)
+          continue;
         proj.append(float2(x, y));
         float3 p = ub * x + vb * y + nrm * (rnd.get_float() * 0.001f);
         pts.append(p);
       }
-      if (int(pts.size()) < N) continue;
+      if (int(pts.size()) < N)
+        continue;
 
       char label[64];
       snprintf(label, sizeof(label), "rand-N%d-t%d", N, trial);
@@ -484,7 +524,8 @@ int main()
     float3 nrm(0.3f, -0.7f, 0.5f);
     nrm.normalize();
     float3 ub(1, 0, 0);
-    if (std::fabs(nrm[0]) > 0.9f) ub = float3(0, 1, 0);
+    if (std::fabs(nrm[0]) > 0.9f)
+      ub = float3(0, 1, 0);
     ub.crossSelf(nrm);
     ub.normalize();
     float3 vb = nrm;
@@ -505,19 +546,19 @@ int main()
           break;
         }
       }
-      if (dup) continue;
+      if (dup)
+        continue;
       proj.append(float2(x, y));
       pts.append(ub * x + vb * y);
     }
 
     Mesh mesh;
     Vector<int> verts;
-    for (auto &p : pts) verts.append(mesh.make_vertex(p));
+    for (auto &p : pts)
+      verts.append(mesh.make_vertex(p));
     Vector<int> outFaces;
-    auto ok = delaunayTriangulate(mesh,
-                                  std::span<int>(verts.data(), verts.size()),
-                                  std::nullopt,
-                                  &outFaces);
+    auto ok = delaunayTriangulate(
+        mesh, std::span<int>(verts.data(), verts.size()), std::nullopt, &outFaces);
     test_assert(bool(ok));
     test_assert(validateMesh(mesh));
     /* Triangulation should produce something for 24 general-position points. */
@@ -525,7 +566,9 @@ int main()
   }
 
   printf("delaunay test: %d point sets, %d faces emitted, %d circumcircle fails\n",
-         stats.pointSets, stats.facesEmitted, stats.circumFails);
+         stats.pointSets,
+         stats.facesEmitted,
+         stats.circumFails);
 
   return test_end();
 }

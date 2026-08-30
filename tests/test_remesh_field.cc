@@ -20,13 +20,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -50,8 +50,12 @@ void testTorusField()
   remesh::CrossFieldStats st = remesh::computeCrossField(*torus, p);
 
   long chi = chiOf(*torus);
-  fprintf(stderr, "[torus] faces=%d sing=%d index_sum=%d 4chi=%ld eigen=%d\n",
-          st.num_faces, st.num_singularities, st.index_sum, 4 * chi,
+  fprintf(stderr,
+          "[torus] faces=%d sing=%d index_sum=%d 4chi=%ld eigen=%d\n",
+          st.num_faces,
+          st.num_singularities,
+          st.index_sum,
+          4 * chi,
           st.solved_eigen);
   TASSERT(st.index_sum == int(4 * chi));
   TASSERT(st.index_sum == 0);
@@ -69,8 +73,12 @@ void testSphereField()
   remesh::CrossFieldStats st = remesh::computeCrossField(*sph, p);
 
   long chi = chiOf(*sph);
-  fprintf(stderr, "[sphere] faces=%d sing=%d index_sum=%d 4chi=%ld eigen=%d\n",
-          st.num_faces, st.num_singularities, st.index_sum, 4 * chi,
+  fprintf(stderr,
+          "[sphere] faces=%d sing=%d index_sum=%d 4chi=%ld eigen=%d\n",
+          st.num_faces,
+          st.num_singularities,
+          st.index_sum,
+          4 * chi,
           st.solved_eigen);
   TASSERT(chi == 2);
   TASSERT(st.index_sum == int(4 * chi)); // == 8
@@ -109,8 +117,16 @@ void testSmoothnessSweep()
     float smoothness, weight;
   };
   const Setting settings[] = {
-      {0.25f, 1.0f}, {0.5f, 1.0f}, {1.0f, 1.0f}, {2.0f, 1.0f}, {4.0f, 1.0f},
-      {8.0f, 1.0f},  {1.0f, 0.0f}, {1.0f, 0.25f}, {1.0f, 4.0f}, {4.0f, 0.25f},
+      {0.25f, 1.0f},
+      {0.5f, 1.0f},
+      {1.0f, 1.0f},
+      {2.0f, 1.0f},
+      {4.0f, 1.0f},
+      {8.0f, 1.0f},
+      {1.0f, 0.0f},
+      {1.0f, 0.25f},
+      {1.0f, 4.0f},
+      {4.0f, 0.25f},
   };
 
   for (const Setting &set : settings) {
@@ -123,7 +139,11 @@ void testSmoothnessSweep()
     long chi = chiOf(*sph);
     fprintf(stderr,
             "[sweep] smoothness=%.2f weight=%.2f sing=%d index_sum=%d 4chi=%ld\n",
-            set.smoothness, set.weight, st.num_singularities, st.index_sum, 4 * chi);
+            set.smoothness,
+            set.weight,
+            st.num_singularities,
+            st.index_sum,
+            4 * chi);
     TASSERT(chi == 2);
     TASSERT(st.index_sum == int(4 * chi)); // Gauss-Bonnet at every setting
     TASSERT(st.num_singularities > 0);     // sphere can't be combed

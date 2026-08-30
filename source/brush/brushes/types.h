@@ -52,7 +52,8 @@ template <> struct Binder<sculptcore::brush::SculptBrushes> {
   static const types::Enum *bind()
   {
     using namespace sculptcore::brush;
-    types::Enum *e = new types::Enum("sculptcore::brush::SculptBrushes", sizeof(SculptBrushes));
+    types::Enum *e =
+        new types::Enum("sculptcore::brush::SculptBrushes", sizeof(SculptBrushes));
     // Built-in items, in id order — generated from brushes/tools.txt, which is
     // also what the id-keyed factory dispatch is generated from, so a name can
     // never bind to one id here and dispatch as another there.

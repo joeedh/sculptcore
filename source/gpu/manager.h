@@ -35,7 +35,10 @@ struct GPUManager {
   GPUManager() = default;
   ~GPUManager();
 
-  void addObserver(GPUResourceObserver *o) { observers.append(o); }
+  void addObserver(GPUResourceObserver *o)
+  {
+    observers.append(o);
+  }
   void removeObserver(GPUResourceObserver *o)
   {
     if (observers.contains(o)) {

@@ -64,7 +64,9 @@ const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool)
   return &infos[id];
 }
 
-void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
+void packBrushUniforms(Brush &brush,
+                       SculptBrushes tool,
+                       bool nonaccum,
                        ComputeBrushUniforms &out)
 {
   const GpuKernelInfo *info = gpuKernelForTool(tool);
@@ -98,8 +100,11 @@ void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
   }
 }
 
-void packCtxUniforms(const Brush &brush, SculptBrushes tool, const float3 &origin,
-                     const float3 &normal, const float *renderMatrixRowMajor,
+void packCtxUniforms(const Brush &brush,
+                     SculptBrushes tool,
+                     const float3 &origin,
+                     const float3 &normal,
+                     const float *renderMatrixRowMajor,
                      ComputeCtxUniforms &out)
 {
   out = ComputeCtxUniforms();
@@ -175,8 +180,12 @@ void packStrokePath(const Brush &brush, Vector<ComputeStrokeSample> &out)
   }
 }
 
-int packGeometry(mesh::Mesh &m, spatial::SpatialTree *tree, bool faceMode,
-                 Vector<float> &co, Vector<float> &no, Vector<float> &mask)
+int packGeometry(mesh::Mesh &m,
+                 spatial::SpatialTree *tree,
+                 bool faceMode,
+                 Vector<float> &co,
+                 Vector<float> &no,
+                 Vector<float> &mask)
 {
   if (faceMode) {
     int faceCount = m.f.count;
@@ -252,8 +261,11 @@ void packAutomask(mesh::Mesh &m, const Brush &brush, Vector<float> &out)
   }
 }
 
-void packNeighborCSR(mesh::Mesh &m, int vcount, Vector<ComputeVertNbr> &meta,
-                     const uint32_t **flatVerts, int *flatCount)
+void packNeighborCSR(mesh::Mesh &m,
+                     int vcount,
+                     Vector<ComputeVertNbr> &meta,
+                     const uint32_t **flatVerts,
+                     int *flatCount)
 {
   // Sourced from the shared frozen-topology MeshTopoCache (same EdgeOfVertIter
   // walk as the C++ kernel), so per-vertex accumulation order matches and the
@@ -309,8 +321,10 @@ void snapshotNodeForUndo(meshlog::MeshLog &log, spatial::SpatialNode *node)
   }
 }
 
-void chunkNodes(const Vector<spatial::SpatialNode *> &nodes, bool faceMode,
-                Vector<uint32_t> &uverts, Vector<ComputeNodeMeta> &chunks)
+void chunkNodes(const Vector<spatial::SpatialNode *> &nodes,
+                bool faceMode,
+                Vector<uint32_t> &uverts,
+                Vector<ComputeNodeMeta> &chunks)
 {
   uverts.clear();
   chunks.clear();
@@ -352,7 +366,8 @@ void GpuNormalTopology::build(mesh::Mesh &m)
   buildFromArrays(flat.data(), int(tris.size()), m.v.count);
 }
 
-void GpuNormalTopology::buildFromArrays(const uint32_t *tris, int triCountIn,
+void GpuNormalTopology::buildFromArrays(const uint32_t *tris,
+                                        int triCountIn,
                                         int vcountIn)
 {
   vcount = vcountIn;
@@ -398,8 +413,10 @@ void GpuNormalTopology::buildFromArrays(const uint32_t *tris, int triCountIn,
   // Dedup stamp arrays for dabWork (0 = unstamped; stampGen_ starts at 1).
   triStamp_.resize(triCount);
   vertStamp_.resize(vcount);
-  for (int t = 0; t < triCount; t++) triStamp_[t] = 0;
-  for (int v = 0; v < vcount; v++) vertStamp_[v] = 0;
+  for (int t = 0; t < triCount; t++)
+    triStamp_[t] = 0;
+  for (int v = 0; v < vcount; v++)
+    vertStamp_[v] = 0;
   stampGen_ = 0;
 }
 

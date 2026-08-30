@@ -102,12 +102,22 @@ int main()
   const float k = 180.0f / 3.14159265358979323846f;
   printf("[trace] flips-on : rounds=%d peak_thin=%d@r%d worst_minAng=%.1f "
          "end_thin=%d healed=%d swings=%d\n",
-         on.trace_rounds, rOn.peak_thin, rOn.peak_round, rOn.worst_min_angle * k,
-         rOn.end_thin, int(rOn.healed), rOn.swings);
+         on.trace_rounds,
+         rOn.peak_thin,
+         rOn.peak_round,
+         rOn.worst_min_angle * k,
+         rOn.end_thin,
+         int(rOn.healed),
+         rOn.swings);
   printf("[trace] flips-off: rounds=%d peak_thin=%d@r%d worst_minAng=%.1f "
          "end_thin=%d healed=%d swings=%d\n",
-         off.trace_rounds, rOff.peak_thin, rOff.peak_round,
-         rOff.worst_min_angle * k, rOff.end_thin, int(rOff.healed), rOff.swings);
+         off.trace_rounds,
+         rOff.peak_thin,
+         rOff.peak_round,
+         rOff.worst_min_angle * k,
+         rOff.end_thin,
+         int(rOff.healed),
+         rOff.swings);
 
   /* (a) Per-round trace was recorded for every round the dab ran. */
   test_assert(on.trace_rounds == on.stats_rounds);
@@ -141,8 +151,8 @@ int main()
    * id-layout-robust signal.) */
   test_assert(rOn.peak_thin < rOff.peak_thin);
   test_assert(rOn.worst_min_angle > rOff.worst_min_angle);
-  test_assert(rOn.end_thin < rOff.end_thin);    /* flips leave far fewer slivers */
-  test_assert(rOn.worst_min_angle > 0.087f);    /* flips-on stays > 5deg: healthy */
+  test_assert(rOn.end_thin < rOff.end_thin); /* flips leave far fewer slivers */
+  test_assert(rOn.worst_min_angle > 0.087f); /* flips-on stays > 5deg: healthy */
 
   printf("dyntopo_trace test: ok\n");
   return test_end();

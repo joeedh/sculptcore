@@ -56,8 +56,7 @@ struct EdgeFlipResult {
  * edge, a non-interior or non-triangle edge, coincident apexes, or a pre-
  * existing c-d edge. */
 static inline SuccessOrError<"edge_flip", "failed to flip edge">
-flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
-         MeshCallbacks *cb = nullptr)
+flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr, MeshCallbacks *cb = nullptr)
 {
   using namespace litestl::util;
 
@@ -96,14 +95,14 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
       if (va == a && vb == b) {
         c = apex;
         f_ab = m.l.f[li];
-        p0 = cc; /* v=a, e=edge */
-        p1 = cn; /* v=b */
+        p0 = cc;  /* v=a, e=edge */
+        p1 = cn;  /* v=b */
         p2 = cnn; /* v=c */
       } else if (va == b && vb == a) {
         d = apex;
         f_ba = m.l.f[li];
-        q0 = cc; /* v=b, e=edge */
-        q1 = cn; /* v=a */
+        q0 = cc;  /* v=b, e=edge */
+        q1 = cn;  /* v=a */
         q2 = cnn; /* v=d */
       }
       nfaces++;
@@ -139,7 +138,8 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
    * the new verts). */
   if (cb) {
     auto fire = [](const litestl::util::function<void(int)> &fn, int i) {
-      if (fn) fn(i);
+      if (fn)
+        fn(i);
     };
     fire(cb->onCornerChange, p0);
     fire(cb->onCornerChange, p1);
@@ -165,13 +165,19 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
   m.c.l[p1] = list_ba;
 
   /* Relink the two triangle loops: f_ab = p2(c)->q1(a)->p0(d). */
-  m.c.next[p2] = q1; m.c.prev[q1] = p2;
-  m.c.next[q1] = p0; m.c.prev[p0] = q1;
-  m.c.next[p0] = p2; m.c.prev[p2] = p0;
+  m.c.next[p2] = q1;
+  m.c.prev[q1] = p2;
+  m.c.next[q1] = p0;
+  m.c.prev[p0] = q1;
+  m.c.next[p0] = p2;
+  m.c.prev[p2] = p0;
   /* f_ba = q2(d)->p1(b)->q0(c). */
-  m.c.next[q2] = p1; m.c.prev[p1] = q2;
-  m.c.next[p1] = q0; m.c.prev[q0] = p1;
-  m.c.next[q0] = q2; m.c.prev[q2] = q0;
+  m.c.next[q2] = p1;
+  m.c.prev[p1] = q2;
+  m.c.next[p1] = q0;
+  m.c.prev[q0] = p1;
+  m.c.next[q0] = q2;
+  m.c.prev[q2] = q0;
 
   /* List heads must name a corner still in the (rewired) list. */
   m.l.c[list_ab] = p2;
@@ -186,7 +192,8 @@ flipEdge(Mesh &m, int edge, EdgeFlipResult *out = nullptr,
    * meshlog snapshot is order-insensitive here). */
   if (cb) {
     auto fire = [](const litestl::util::function<void(int)> &fn, int i) {
-      if (fn) fn(i);
+      if (fn)
+        fn(i);
     };
     fire(cb->onFaceChange, f_ab);
     fire(cb->onFaceChange, f_ba);

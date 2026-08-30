@@ -48,10 +48,8 @@ struct AttrMergeCtx {
 
 /** Resolve a sibling layer in the same group, memoizing its index on `attr`
  * (revalidated by name). Null if the group has no such layer. */
-AttrDataBase *siblingLayer(AttrRef &attr,
-                           const AttrMergeCtx &ctx,
-                           AttrType type,
-                           const char *name);
+AttrDataBase *
+siblingLayer(AttrRef &attr, const AttrMergeCtx &ctx, AttrType type, const char *name);
 
 /** Apply the DEFAULT/COPY_SRC0 rule to one layer. Exposed so a CUSTOM handler
  * can defer to it on the cases it does not special-case. */

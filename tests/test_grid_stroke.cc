@@ -51,36 +51,66 @@ void sc_external_draw_register_grids(unsigned int object_key, void *multires, in
 void sc_external_draw_unregister(unsigned int object_key);
 void sc_external_draw_update(unsigned int object_key);
 const ScExternalDrawProvider *sc_external_draw_provider(void);
-GridStrokeSession *GridStroke_new(sculptcore::subdiv::Multires *mr,
-                                  int level,
-                                  sculptcore::brush::Brush *b);
+GridStrokeSession *
+GridStroke_new(sculptcore::subdiv::Multires *mr, int level, sculptcore::brush::Brush *b);
 void GridStroke_free(GridStrokeSession *s);
 int GridStroke_supported(sculptcore::subdiv::Multires *mr, int tool);
 int GridStroke_begin(GridStrokeSession *s);
-int GridStroke_dab(GridStrokeSession *s, int tool, float ox, float oy, float oz,
-                   float nx, float ny, float nz, int grabAdd);
-int GridStroke_dabProgram(GridStrokeSession *s, sculptcore::brush::BrushProgram *prog,
-                          float ox, float oy, float oz, float nx, float ny, float nz);
+int GridStroke_dab(GridStrokeSession *s,
+                   int tool,
+                   float ox,
+                   float oy,
+                   float oz,
+                   float nx,
+                   float ny,
+                   float nz,
+                   int grabAdd);
+int GridStroke_dabProgram(GridStrokeSession *s,
+                          sculptcore::brush::BrushProgram *prog,
+                          float ox,
+                          float oy,
+                          float oz,
+                          float nx,
+                          float ny,
+                          float nz);
 int GridStroke_dabBatchProgram(GridStrokeSession *s,
-                               sculptcore::brush::BrushProgram *prog, int n,
-                               const float *dabs, float strength, int invert,
-                               float pressure, int usePressure, const float *signs,
+                               sculptcore::brush::BrushProgram *prog,
+                               int n,
+                               const float *dabs,
+                               float strength,
+                               int invert,
+                               float pressure,
+                               int usePressure,
+                               const float *signs,
                                int mirrorCount);
 int MeshStroke_dabBatchProgram(sculptcore::brush::CommandExecutor *exec,
                                sculptcore::spatial::SpatialTree *tree,
                                sculptcore::mesh::Mesh *m,
                                sculptcore::brush::Brush *b,
-                               sculptcore::brush::BrushProgram *prog, int n,
-                               const float *dabs, float strength, int invert,
-                               float pressure, int usePressure, float filterMul,
-                               const float *signs, int mirrorCount);
+                               sculptcore::brush::BrushProgram *prog,
+                               int n,
+                               const float *dabs,
+                               float strength,
+                               int invert,
+                               float pressure,
+                               int usePressure,
+                               float filterMul,
+                               const float *signs,
+                               int mirrorCount);
 void GridStroke_end(GridStrokeSession *s);
 int GridStroke_sync(GridStrokeSession *s);
 int GridStroke_undo(GridStrokeSession *s);
 int GridStroke_redo(GridStrokeSession *s);
 double GridStroke_undoBytes(GridStrokeSession *s);
-int GridTree_castRay(sculptcore::subdiv::Multires *mr, int level, float ox, float oy,
-                     float oz, float dx, float dy, float dz, float *out10,
+int GridTree_castRay(sculptcore::subdiv::Multires *mr,
+                     int level,
+                     float ox,
+                     float oy,
+                     float oz,
+                     float dx,
+                     float dy,
+                     float dz,
+                     float *out10,
                      int *nearestVert);
 }
 
@@ -227,8 +257,12 @@ static void gateGridsRoster()
     if (got != g.supported) {
       fprintf(stderr,
               "grids roster %s (id %d): supportsBrush=%d, golden %d%s%s\n",
-              kBuiltinBrushNames[id], id, int(got), int(g.supported),
-              g.why ? " declined for: " : "", g.why ? g.why : "");
+              kBuiltinBrushNames[id],
+              id,
+              int(got),
+              int(g.supported),
+              g.why ? " declined for: " : "",
+              g.why ? g.why : "");
     }
     TASSERT(got == g.supported);
     native += got ? 1 : 0;
@@ -736,8 +770,10 @@ int main()
     gridsProgramStroke(mr, brush, prog, dabs, post, &log);
     const std::string postBlob = storeBlob(mr.store);
 
-    fprintf(stderr, "E2 program undo: %zu bytes (single-stage ref %zu)\n",
-            log.bytes(), logRef.bytes());
+    fprintf(stderr,
+            "E2 program undo: %zu bytes (single-stage ref %zu)\n",
+            log.bytes(),
+            logRef.bytes());
     TASSERT(log.stepCount() == 1);
     TASSERT(log.bytes() <= logRef.bytes() * 3 / 2);
 
@@ -778,8 +814,8 @@ int main()
     auto stroke = [&](float xoff) {
       ex.beginStep();
       for (int i = 0; i < int(dabs.origins.size()); i++) {
-        ex.applyDab(SculptBrushes::DRAW, dabs.origins[i] + float3(xoff, 0, 0),
-                    dabs.normals[i]);
+        ex.applyDab(
+            SculptBrushes::DRAW, dabs.origins[i] + float3(xoff, 0, 0), dabs.normals[i]);
       }
       ex.endStep();
     };
@@ -838,8 +874,8 @@ int main()
     snapshotPos(cur);
     TASSERT(samePosBits(cur, pos1));
     TASSERT(storeBlob(mr.store) == blob1);
-    TASSERT(!log.undo());        /* pos0 evicted with the front step */
-    TASSERT(!log.dropOldest());  /* cursor 0: front step is redo history */
+    TASSERT(!log.undo());       /* pos0 evicted with the front step */
+    TASSERT(!log.dropOldest()); /* cursor 0: front step is redo history */
     TASSERT(log.redo());
     snapshotPos(cur);
     TASSERT(samePosBits(cur, pos2));
@@ -936,8 +972,11 @@ int main()
         }
       }
     }
-    fprintf(stderr, "layer stroke: channel %d max |d| %.6f, ch0 same %d\n", lch,
-            layerMax, int(ch0Same));
+    fprintf(stderr,
+            "layer stroke: channel %d max |d| %.6f, ch0 same %d\n",
+            lch,
+            layerMax,
+            int(ch0Same));
     TASSERT(layerMax > 1e-4f);
     TASSERT(ch0Same);
     mr.setEditTarget(-1);
@@ -953,16 +992,14 @@ int main()
     restoreStore(mr, s0);
 
     TASSERT(mr.editTarget() < 0);
-    TASSERT(!GridBrushExecutor::supportsBrush(SculptBrushes::LAYERDRAW,
-                                              &mr.gridAttrs()));
+    TASSERT(!GridBrushExecutor::supportsBrush(SculptBrushes::LAYERDRAW, &mr.gridAttrs()));
 
     int li = mr.layerAdd();
     TASSERT(li >= 0);
     TASSERT(mr.setEditTarget(li) == li);
     int lch = mr.writebackChannel();
     TASSERT(lch > 0);
-    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::LAYERDRAW,
-                                             &mr.gridAttrs()));
+    TASSERT(GridBrushExecutor::supportsBrush(SculptBrushes::LAYERDRAW, &mr.gridAttrs()));
 
     // setEditTarget rebuilt the level (refreshAfterLayerChange): fetch after.
     GridLevelDomain *d = mr.gridDomain(kLevel);
@@ -988,8 +1025,8 @@ int main()
     GridStrokeLog log;
     GridBrushExecutor ex(d, &brush, &log);
     ex.beginStep();
-    int moved = ex.applyDab(SculptBrushes::LAYERDRAW, float3(0, 0, 0.5f),
-                            float3(0, 0, 1));
+    int moved =
+        ex.applyDab(SculptBrushes::LAYERDRAW, float3(0, 0, 0.5f), float3(0, 0, 1));
     ex.endStep();
     TASSERT(moved > 0);
 
@@ -1017,8 +1054,11 @@ int main()
         }
       }
     }
-    fprintf(stderr, "layerdraw stroke: channel %d max |d| %.6f, ch0 same %d\n",
-            lch, layerMax, int(ch0Same));
+    fprintf(stderr,
+            "layerdraw stroke: channel %d max |d| %.6f, ch0 same %d\n",
+            lch,
+            layerMax,
+            int(ch0Same));
     TASSERT(layerMax > 1e-4f);
     TASSERT(ch0Same);
     const std::string blobPost = storeBlob(mr.store);
@@ -1182,7 +1222,10 @@ int main()
       mex.beginStep(false);
       Vector<spatial::SpatialNode *> nodes;
       slot->tree->filterNodes(float3(0.3f, 0, 0.5f), brush.radius, nodes);
-      mex.execBrush(slot->mesh, SculptBrushes::DRAW, &nodes, float3(0.3f, 0, 0.5f),
+      mex.execBrush(slot->mesh,
+                    SculptBrushes::DRAW,
+                    &nodes,
+                    float3(0.3f, 0, 0.5f),
                     float3(0, 0, 1));
       mex.endStep();
     }
@@ -1196,8 +1239,8 @@ int main()
     TASSERT(slot && slot->mesh);
     bool same = true;
     for (int v = 0; v < d2->vertCount(); v++) {
-      same = same &&
-             std::memcmp(&d2->pos()[v], &slot->mesh->v.co[v], sizeof(float3)) == 0;
+      same =
+          same && std::memcmp(&d2->pos()[v], &slot->mesh->v.co[v], sizeof(float3)) == 0;
     }
     TASSERT(same);
 
@@ -1257,13 +1300,13 @@ int main()
     TASSERT(mr.slotStale(kLevel));
 
     const std::string post = storeBlob(mr.store);
-    TASSERT(mr.writeback(kLevel) == 0);        /* refused the stale diff */
-    TASSERT(storeBlob(mr.store) == post);      /* grids stroke survives */
-    TASSERT(!mr.slotStale(kLevel));            /* and the slot was healed */
+    TASSERT(mr.writeback(kLevel) == 0);   /* refused the stale diff */
+    TASSERT(storeBlob(mr.store) == post); /* grids stroke survives */
+    TASSERT(!mr.slotStale(kLevel));       /* and the slot was healed */
     bool healed = true;
     for (int v = 0; v < d->vertCount(); v++) {
-      healed = healed &&
-               std::memcmp(&d->pos()[v], &slot->mesh->v.co[v], sizeof(float3)) == 0;
+      healed =
+          healed && std::memcmp(&d->pos()[v], &slot->mesh->v.co[v], sizeof(float3)) == 0;
     }
     TASSERT(healed);
 
@@ -1302,8 +1345,10 @@ int main()
       const int *gv = &lvl.gridVerts[g * w * w];
       for (int cv = 0; cv < S; cv++) {
         for (int cu = 0; cu < S; cu++) {
-          const int c4[4] = {gv[cv * w + cu], gv[cv * w + cu + 1],
-                             gv[(cv + 1) * w + cu + 1], gv[(cv + 1) * w + cu]};
+          const int c4[4] = {gv[cv * w + cu],
+                             gv[cv * w + cu + 1],
+                             gv[(cv + 1) * w + cu + 1],
+                             gv[(cv + 1) * w + cu]};
           /* 6 corners per cell: a,b,c + a,c,d. */
           const int corner[6] = {c4[0], c4[1], c4[2], c4[0], c4[2], c4[3]};
           for (int k = 0; k < 6; k++) {
@@ -1338,8 +1383,7 @@ int main()
           gotSum += double(p[0]) + double(p[1]) + double(p[2]);
           gotCorners++;
         }
-      }
-      else {
+      } else {
         /* Soup (SC_GRIDS_INDEXED=0 on the whole test run). */
         TASSERT(n.indices_num == 0);
         TASSERT(n.verts_num % 3 == 0);
@@ -1370,7 +1414,8 @@ int main()
 #ifdef _WIN32
       _putenv_s("SC_GRIDS_INDEXED", prev.c_str());
 #else
-      prevEnv ? setenv("SC_GRIDS_INDEXED", prev.c_str(), 1) : unsetenv("SC_GRIDS_INDEXED");
+      prevEnv ? setenv("SC_GRIDS_INDEXED", prev.c_str(), 1)
+              : unsetenv("SC_GRIDS_INDEXED");
 #endif
       double soupSum = 0.0;
       long soupCorners = 0;
@@ -1456,8 +1501,8 @@ int main()
       for (int i = 0; i < src.nodeCount(); i++) {
         sub += (src.node(i).update & subdiv::GridDrawSource::Update_Data) ? 1 : 0;
       }
-      fprintf(stderr, "draw source small-target: %d nodes, %d dirty\n",
-              src.nodeCount(), sub);
+      fprintf(
+          stderr, "draw source small-target: %d nodes, %d dirty\n", src.nodeCount(), sub);
       TASSERT(sub > 0 && sub < src.nodeCount());
       GridStroke_free(s2);
       mr.setDrawSource(nullptr);
@@ -1476,8 +1521,8 @@ int main()
 
     float out10[10];
     int nearest = -1;
-    int hit = GridTree_castRay(&mr, kLevel, 0.0f, 0.0f, 3.0f, 0.0f, 0.0f, -1.0f,
-                               out10, &nearest);
+    int hit = GridTree_castRay(
+        &mr, kLevel, 0.0f, 0.0f, 3.0f, 0.0f, 0.0f, -1.0f, out10, &nearest);
     TASSERT(hit == 1);
     TASSERT(nearest >= 0);
     TASSERT(out10[6] > 0.0f);
@@ -1491,8 +1536,7 @@ int main()
       pre[v] = d->pos()[v];
     }
     TASSERT(GridStroke_begin(s) == 1);
-    int moved =
-        GridStroke_dab(s, int(SculptBrushes::DRAW), 0, 0, 0.5f, 0, 0, 1, 0);
+    int moved = GridStroke_dab(s, int(SculptBrushes::DRAW), 0, 0, 0.5f, 0, 0, 1, 0);
     GridStroke_end(s);
     TASSERT(moved > 0);
     TASSERT(GridStroke_undoBytes(s) > 0.0);
@@ -1516,7 +1560,8 @@ int main()
     setupBrush(brush, 0.3f, 0.5f);
     brush.addPropDynamicByName(util::string("strength"),
                                int(props::DeviceType::PRESSURE),
-                               int(BasicMix::MULTIPLY), 1.0f);
+                               int(BasicMix::MULTIPLY),
+                               1.0f);
 
     BrushProgram prog;
     prog.addCommand(int(SculptBrushes::DRAW));
@@ -1541,8 +1586,8 @@ int main()
     GridStrokeSession *sa = GridStroke_new(&mr, kLevel, &brush);
     TASSERT(sa != nullptr);
     TASSERT(GridStroke_begin(sa) == 1);
-    int movedA = GridStroke_dabBatchProgram(sa, &prog, n, flat.data(), kStrength,
-                                            0, kPressure, 1, signs, 1);
+    int movedA = GridStroke_dabBatchProgram(
+        sa, &prog, n, flat.data(), kStrength, 0, kPressure, 1, signs, 1);
     GridStroke_end(sa);
     GridLevelDomain *d = mr.gridDomain(kLevel);
     Vector<float3> posA;
@@ -1565,11 +1610,16 @@ int main()
       brush.writeProps();
       brush.clearDeviceInputs();
       brush.pushDeviceInput(int(props::DeviceType::PRESSURE), kPressure);
-      movedB += GridStroke_dabProgram(sb, &prog, dd[0], dd[1], dd[2],
-                                      dd[3], dd[4], dd[5]);
-      movedB += GridStroke_dabProgram(sb, &prog, dd[0] * signs[0], dd[1] * signs[1],
-                                      dd[2] * signs[2], dd[3] * signs[0],
-                                      dd[4] * signs[1], dd[5] * signs[2]);
+      movedB +=
+          GridStroke_dabProgram(sb, &prog, dd[0], dd[1], dd[2], dd[3], dd[4], dd[5]);
+      movedB += GridStroke_dabProgram(sb,
+                                      &prog,
+                                      dd[0] * signs[0],
+                                      dd[1] * signs[1],
+                                      dd[2] * signs[2],
+                                      dd[3] * signs[0],
+                                      dd[4] * signs[1],
+                                      dd[5] * signs[2]);
     }
     GridStroke_end(sb);
     d = mr.gridDomain(kLevel);
@@ -1596,7 +1646,8 @@ int main()
     setupBrush(brush, 0.3f, 0.5f);
     brush.addPropDynamicByName(util::string("strength"),
                                int(props::DeviceType::PRESSURE),
-                               int(BasicMix::MULTIPLY), 1.0f);
+                               int(BasicMix::MULTIPLY),
+                               1.0f);
 
     BrushProgram prog;
     prog.addCommand(int(SculptBrushes::DRAW));
@@ -1626,9 +1677,20 @@ int main()
       CommandExecutor ex(slot->tree, &brush);
       ex.setStrokeGen(1);
       ex.beginStep(false);
-      totalA = MeshStroke_dabBatchProgram(&ex, slot->tree, slot->mesh, &brush,
-                                          &prog, n, flat.data(), kStrength, 0,
-                                          kPressure, 1, 1.0f, signs, 1);
+      totalA = MeshStroke_dabBatchProgram(&ex,
+                                          slot->tree,
+                                          slot->mesh,
+                                          &brush,
+                                          &prog,
+                                          n,
+                                          flat.data(),
+                                          kStrength,
+                                          0,
+                                          kPressure,
+                                          1,
+                                          1.0f,
+                                          signs,
+                                          1);
       ex.endStep();
       posA.resize(slot->mesh->v.count);
       for (int v = 0; v < slot->mesh->v.count; v++) {
@@ -1663,8 +1725,8 @@ int main()
         brush.writeProps();
         brush.clearDeviceInputs();
         brush.pushDeviceInput(int(props::DeviceType::PRESSURE), kPressure);
-        totalB += oneImage(float3(dd[0], dd[1], dd[2]),
-                           float3(dd[3], dd[4], dd[5]), dd[6]);
+        totalB +=
+            oneImage(float3(dd[0], dd[1], dd[2]), float3(dd[3], dd[4], dd[5]), dd[6]);
         totalB += oneImage(float3(dd[0] * signs[0], dd[1] * signs[1], dd[2] * signs[2]),
                            float3(dd[3] * signs[0], dd[4] * signs[1], dd[5] * signs[2]),
                            dd[6]);
@@ -1743,8 +1805,8 @@ int main()
     MultiresSlot *slotA = mrA.setActiveLevel(kLevel);
     for (int i = 0; i < sampleNum; i++) {
       int vid = lvlA.gridVerts[i];
-      slotA->mesh->v.co[vid] = float3(samples[size_t(i) * 3], samples[size_t(i) * 3 + 1],
-                                      samples[size_t(i) * 3 + 2]);
+      slotA->mesh->v.co[vid] = float3(
+          samples[size_t(i) * 3], samples[size_t(i) * 3 + 1], samples[size_t(i) * 3 + 2]);
     }
     mrA.writeback(kLevel);
     for (int l = kLevel; l >= 2; l--) {
@@ -1758,7 +1820,7 @@ int main()
     Multires mrB;
     mrB.init(*cageB, 3);
     int got = mrB.seedLevelPositions(
-        kLevel, reinterpret_cast<const float(*)[3]>(samples.data()), sampleNum);
+        kLevel, reinterpret_cast<const float (*)[3]>(samples.data()), sampleNum);
     TASSERT(got == sampleNum);
     TASSERT(mrB.downPropDebt(kLevel));
 
@@ -1823,7 +1885,9 @@ int main()
     for (size_t i = 0; same && i < a.list.size(); i++) {
       same = a.list[int(i)] == b.list[int(i)];
     }
-    fprintf(stderr, "normal topology arrays parity: tris=%d same=%d\n", a.triCount,
+    fprintf(stderr,
+            "normal topology arrays parity: tris=%d same=%d\n",
+            a.triCount,
             int(same));
     TASSERT(same);
   }
@@ -2015,7 +2079,8 @@ int main()
 
     /* A distinct colour per cage vertex: a seeded sample can then never be
      * mistaken for the zeros a fresh channel would hold. */
-    AttrRef &cref = cage->v.attrs.ensure(mesh::AttrType::FLOAT4, "color", /*materialize=*/true);
+    AttrRef &cref =
+        cage->v.attrs.ensure(mesh::AttrType::FLOAT4, "color", /*materialize=*/true);
     mesh::AttrData<float4> *col = cref.get_data<float4>();
     TASSERT(col != nullptr);
     for (int i = 0; i < cage->v.count; i++) {
@@ -2058,8 +2123,10 @@ int main()
         movedSamples += !sameColor(live[i], baseline[i]);
       }
     }
-    fprintf(stderr, "grid attr colour: %d of %d samples published per dab\n",
-            movedSamples, int(nSamples));
+    fprintf(stderr,
+            "grid attr colour: %d of %d samples published per dab\n",
+            movedSamples,
+            int(nSamples));
     TASSERT(movedSamples > 0);
     ex.endStep();
 
@@ -2156,8 +2223,10 @@ int main()
                         live[i][2] != live[0][2];
       }
     }
-    fprintf(stderr, "grid attr polygroup: %d of %d samples differ per dab\n",
-            movedSamples, int(nSamples));
+    fprintf(stderr,
+            "grid attr polygroup: %d of %d samples differ per dab\n",
+            movedSamples,
+            int(nSamples));
     TASSERT(movedSamples > 0);
     ex.endStep();
 
@@ -2167,7 +2236,8 @@ int main()
     for (int g = 0; g < mr.store.gridCount(); g++) {
       for (int v = 0; v < S; v++) {
         for (int u = 0; u < S; u++) {
-          painted += *reinterpret_cast<const int *>(mr.store.elem(kLevel, gch, g, u, v)) == 7;
+          painted +=
+              *reinterpret_cast<const int *>(mr.store.elem(kLevel, gch, g, u, v)) == 7;
         }
       }
     }
@@ -2179,7 +2249,8 @@ int main()
     for (int g = 0; g < mr.store.gridCount(); g++) {
       for (int v = 0; v < S; v++) {
         for (int u = 0; u < S; u++) {
-          TASSERT(*reinterpret_cast<const int *>(mr.store.elem(kLevel, gch, g, u, v)) == 1);
+          TASSERT(*reinterpret_cast<const int *>(mr.store.elem(kLevel, gch, g, u, v)) ==
+                  1);
         }
       }
     }
@@ -2192,10 +2263,12 @@ int main()
      * cell of that face so the next push sees no fresh disagreement. */
     Vector<int> touched;
     const int changedFaces = mr.scatterFaceIntToCage(kLevel, "group", touched);
-    fprintf(stderr, "grid attr polygroup: %d cage faces adopted the group\n", changedFaces);
+    fprintf(
+        stderr, "grid attr polygroup: %d cage faces adopted the group\n", changedFaces);
     TASSERT(changedFaces > 0);
     TASSERT(touched.size() > 0);
-    auto *cgroup = cage->f.attrs.find_attribute(mesh::AttrType::INT, "group").get_data<int>();
+    auto *cgroup =
+        cage->f.attrs.find_attribute(mesh::AttrType::INT, "group").get_data<int>();
     TASSERT(cgroup != nullptr);
     int cageSet = 0;
     for (int fi : cage->f) {

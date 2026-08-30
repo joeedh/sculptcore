@@ -194,12 +194,12 @@ const HostSampler *hostSamplerEntry(int i)
   return registry()[i];
 }
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush
 
 using sculptcore::brush::HostSampler;
 
-extern "C" float sb_hs_value(
-    const void *s, float px, float py, float pz, float nx, float ny, float nz)
+extern "C" float
+sb_hs_value(const void *s, float px, float py, float pz, float nx, float ny, float nz)
 {
   const HostSampler *hs = (const HostSampler *)s;
   if (!hs || !hs->fn) {
@@ -211,17 +211,13 @@ extern "C" float sb_hs_value(
   return hs->fn(hs->user, p, n);
 }
 
-extern "C" int sc_host_sampler_register(const char *name,
-                                        float (*fn)(void *user,
-                                                    const float p[3],
-                                                    const float n[3]),
-                                        void (*fn_grad)(void *user,
-                                                        const float p[3],
-                                                        const float n[3],
-                                                        float out[4]),
-                                        void *user,
-                                        const char *wgsl,
-                                        float fd_step)
+extern "C" int sc_host_sampler_register(
+    const char *name,
+    float (*fn)(void *user, const float p[3], const float n[3]),
+    void (*fn_grad)(void *user, const float p[3], const float n[3], float out[4]),
+    void *user,
+    const char *wgsl,
+    float fd_step)
 {
   HostSampler s;
   s.name = litestl::util::string(name ? name : "");
@@ -241,8 +237,14 @@ extern "C" int sc_host_sampler_unregister(const char *name)
   return sculptcore::brush::unregisterHostSampler(litestl::util::stringref(name)) ? 1 : 0;
 }
 
-extern "C" void sb_hs_grad(
-    const void *s, float px, float py, float pz, float nx, float ny, float nz, float *out4)
+extern "C" void sb_hs_grad(const void *s,
+                           float px,
+                           float py,
+                           float pz,
+                           float nx,
+                           float ny,
+                           float nz,
+                           float *out4)
 {
   const HostSampler *hs = (const HostSampler *)s;
   if (!hs || !hs->fn) {

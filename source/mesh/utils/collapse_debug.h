@@ -105,15 +105,14 @@ static inline int radialFaceCount(Mesh &m, int edge)
  * live mesh, restricted to edges incident to any vert in `verts`. Dead/edgeless
  * verts are skipped, so the same vert list works before and after the collapse
  * (v_kill simply drops out). */
-static inline void census(Mesh &m, const Vector<int> &verts, int &boundary,
-                          int &nonmanifold)
+static inline void
+census(Mesh &m, const Vector<int> &verts, int &boundary, int &nonmanifold)
 {
   boundary = 0;
   nonmanifold = 0;
   Set<int> seen;
   for (int v : verts) {
-    if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-        m.v.e[v] == ELEM_NONE) {
+    if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
       continue;
     }
     for (int e : EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -179,8 +178,7 @@ static inline void capture(Mesh &m, int edge, PatchSnapshot &snap)
   for (int ring = 0; ring < 2; ring++) {
     Vector<int> nxt;
     for (int v : cur) {
-      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] ||
-          m.v.e[v] == ELEM_NONE) {
+      if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
         continue;
       }
       for (int e : EdgeOfVertIter(&m, v, m.v.e[v])) {
@@ -219,9 +217,9 @@ static inline void capture(Mesh &m, int edge, PatchSnapshot &snap)
   snap.killLocal = localOf(snap, v_kill);
 
   for (int f : fset) {
-    Vector<int, 8> seq;       // local indices (OBJ order)
-    Vector<int, 8> gseq;      // global ids, v_kill -> v_keep remapped
-    Vector<float3, 8> pts;    // original positions, for the before normal
+    Vector<int, 8> seq;    // local indices (OBJ order)
+    Vector<int, 8> gseq;   // global ids, v_kill -> v_keep remapped
+    Vector<float3, 8> pts; // original positions, for the before normal
     int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
     do {
       int gv = m.c.v[cc];
@@ -246,7 +244,8 @@ static inline float foldCheck(Mesh &m, const PatchSnapshot &snap)
 {
   int v_keep = snap.keepGlobal;
   if (v_keep < 0 || v_keep >= int(m.v.capacity()) || m.v.freemap[v_keep] ||
-      m.v.e[v_keep] == ELEM_NONE) {
+      m.v.e[v_keep] == ELEM_NONE)
+  {
     return 1.0f;
   }
   float worst = 1.0f;
@@ -323,8 +322,8 @@ static inline bool checkAndDump(Mesh &m, const PatchSnapshot &snap)
   static const int kMaxDumps = 64;
   if (idx >= kMaxDumps) {
     if (idx == kMaxDumps) {
-      fprintf(stderr, "[collapse_debug] dump cap (%d) hit; suppressing further\n",
-              kMaxDumps);
+      fprintf(
+          stderr, "[collapse_debug] dump cap (%d) hit; suppressing further\n", kMaxDumps);
       idx++;
     }
     return true;
@@ -332,29 +331,32 @@ static inline bool checkAndDump(Mesh &m, const PatchSnapshot &snap)
 
   const char *dir = std::getenv("SCULPTCORE_COLLAPSE_DEBUG_DIR");
   char path[512];
-  std::snprintf(path, sizeof(path), "%s/collapse_defect_%04d.obj",
-                dir && dir[0] ? dir : ".", idx);
+  std::snprintf(
+      path, sizeof(path), "%s/collapse_defect_%04d.obj", dir && dir[0] ? dir : ".", idx);
   std::FILE *fp = std::fopen(path, "wb");
   if (!fp) {
     fprintf(stderr, "[collapse_debug] cannot open %s\n", path);
     return true;
   }
-  std::fprintf(fp, "# collapse defect:%s%s%s\n",
-               newNonmanifold ? " nonmanifold" : "", newHole ? " hole" : "",
+  std::fprintf(fp,
+               "# collapse defect:%s%s%s\n",
+               newNonmanifold ? " nonmanifold" : "",
+               newHole ? " hole" : "",
                fold ? " fold" : "");
-  std::fprintf(fp, "# census before: boundary=%d nonmanifold=%d\n",
-               snap.boundaryBefore, snap.nonmanifoldBefore);
+  std::fprintf(fp,
+               "# census before: boundary=%d nonmanifold=%d\n",
+               snap.boundaryBefore,
+               snap.nonmanifoldBefore);
   std::fprintf(fp, "# census after:  boundary=%d nonmanifold=%d\n", b1, nm1);
-  std::fprintf(fp, "# fold: worst normal dot = %.4g (< 0 = flipped neighbor)\n",
-               foldDot);
+  std::fprintf(fp, "# fold: worst normal dot = %.4g (< 0 = flipped neighbor)\n", foldDot);
   std::fprintf(fp,
                "# collapse_edge keep=%d kill=%d (1-based OBJ vertex indices; "
                "v_keep survives, v_kill is removed)\n",
-               snap.keepLocal + 1, snap.killLocal + 1);
+               snap.keepLocal + 1,
+               snap.killLocal + 1);
   std::fprintf(fp, "#select %d %d\n", snap.keepLocal + 1, snap.killLocal + 1);
   for (int i = 0; i < int(snap.co.size()); i++) {
-    std::fprintf(fp, "v %.7g %.7g %.7g\n", snap.co[i][0], snap.co[i][1],
-                 snap.co[i][2]);
+    std::fprintf(fp, "v %.7g %.7g %.7g\n", snap.co[i][0], snap.co[i][1], snap.co[i][2]);
   }
   for (const auto &seq : snap.faces) {
     std::fprintf(fp, "f");
@@ -367,9 +369,15 @@ static inline bool checkAndDump(Mesh &m, const PatchSnapshot &snap)
   fprintf(stderr,
           "[collapse_debug] defect%s%s%s -> %s (v_keep=%d v_kill=%d, V=%d F=%d, "
           "foldDot=%.3g)\n",
-          newNonmanifold ? " nonmanifold" : "", newHole ? " hole" : "",
-          fold ? " fold" : "", path, snap.keepGlobal, snap.killGlobal,
-          int(snap.co.size()), int(snap.faces.size()), foldDot);
+          newNonmanifold ? " nonmanifold" : "",
+          newHole ? " hole" : "",
+          fold ? " fold" : "",
+          path,
+          snap.keepGlobal,
+          snap.killGlobal,
+          int(snap.co.size()),
+          int(snap.faces.size()),
+          foldDot);
   idx++;
   return true;
 }

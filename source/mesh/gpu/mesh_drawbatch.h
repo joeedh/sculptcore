@@ -24,7 +24,7 @@ struct MeshBatchManager {
     BIND_STRUCT_MEMBER(st, m);
     BIND_STRUCT_CONSTRUCTOR(st, "main", Mesh *);
     BIND_STRUCT_METHOD(st, createMeshBatch, MARGS("gpuManager"));
-    
+
     st->setNonNull("m");
     return st;
   }

@@ -21,7 +21,9 @@ struct Scene;
  *  own chained callbacks (InstallCallbacks=true), so the handler return
  *  value is a focus gate, not an event delivery channel. */
 struct Ui : InputHandler {
-  explicit Ui(Scene *scene) : scene_(scene) {}
+  explicit Ui(Scene *scene) : scene_(scene)
+  {
+  }
   Ui(const Ui &) = delete;
   ~Ui() override;
 

@@ -204,8 +204,8 @@ bool GridTree::castRay(const float3 &orig, const float3 &dir, GridRayHit &out) c
           const int tris[2][3] = {{a, b, c}, {a, c, dd}};
           for (int k = 0; k < 2; k++) {
             math::RayTriIsect<float3> isect;
-            if (!math::rayTriIsect(orig, dir, pos[tris[k][0]], pos[tris[k][1]],
-                                   pos[tris[k][2]], isect))
+            if (!math::rayTriIsect(
+                    orig, dir, pos[tris[k][0]], pos[tris[k][1]], pos[tris[k][2]], isect))
             {
               continue;
             }

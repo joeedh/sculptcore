@@ -26,13 +26,13 @@ test_init;
 
 // The shared test_assert macro has a known retval=0-on-failure bug; use a local
 // one that flips retval (mirrors test_spatial_raycast.cc).
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -97,7 +97,12 @@ void testCylinderCurvature()
     double mKmax = sKmax / n, mKminAbs = sKminAbs / n;
     fprintf(stderr,
             "[cyl] n=%d kmaxDot=%.3f kminDot=%.3f kmax=%.3f |kmin|=%.3f (1/R=%.1f)\n",
-            n, mMaxDot, mMinDot, mKmax, mKminAbs, 1.0f / R);
+            n,
+            mMaxDot,
+            mMinDot,
+            mKmax,
+            mKminAbs,
+            1.0f / R);
     TASSERT(mMaxDot > 0.95);
     TASSERT(mMinDot > 0.95);
     TASSERT(mKmax > 1.7 && mKmax < 2.3);
@@ -123,8 +128,7 @@ void testSphereCurvature()
       continue; // equatorial band, away from the UV poles
     }
     float kmin = kval[v][0], kmax = kval[v][1];
-    float aniso =
-        std::fabs(kmax - kmin) / (std::fabs(kmax) + std::fabs(kmin) + 1e-6f);
+    float aniso = std::fabs(kmax - kmin) / (std::fabs(kmax) + std::fabs(kmin) + 1e-6f);
     sAniso += aniso;
     sKmax += kmax;
     sKmin += kmin;
@@ -133,8 +137,13 @@ void testSphereCurvature()
   TASSERT(n > 0);
   if (n > 0) {
     double mAniso = sAniso / n, mKmax = sKmax / n, mKmin = sKmin / n;
-    fprintf(stderr, "[sph] n=%d aniso=%.3f kmax=%.3f kmin=%.3f (1/R=%.1f)\n", n,
-            mAniso, mKmax, mKmin, 1.0f / R);
+    fprintf(stderr,
+            "[sph] n=%d aniso=%.3f kmax=%.3f kmin=%.3f (1/R=%.1f)\n",
+            n,
+            mAniso,
+            mKmax,
+            mKmin,
+            1.0f / R);
     TASSERT(mAniso < 0.35);
     TASSERT(mKmax > 0.6 && mKmax < 1.5);
     TASSERT(mKmin > 0.6 && mKmin < 1.5);
@@ -163,14 +172,16 @@ void testClosestPoint()
   const int N = 200;
   int fails = 0;
   for (int q = 0; q < N; q++) {
-    float3 p((rnd() * 2.0f - 1.0f) * 1.6f, (rnd() * 2.0f - 1.0f) * 1.6f,
+    float3 p((rnd() * 2.0f - 1.0f) * 1.6f,
+             (rnd() * 2.0f - 1.0f) * 1.6f,
              (rnd() * 2.0f - 1.0f) * 0.6f);
 
     float bestd = 1e30f;
     for (int f : torus->f) {
       int c0 = torus->l.c[torus->f.l[f]];
       int c1 = torus->c.next[c0], c2 = torus->c.next[c1];
-      float3 cp = math::closestPointOnTri(p, torus->v.co[torus->c.v[c0]],
+      float3 cp = math::closestPointOnTri(p,
+                                          torus->v.co[torus->c.v[c0]],
                                           torus->v.co[torus->c.v[c1]],
                                           torus->v.co[torus->c.v[c2]]);
       float d = (cp - p).length();

@@ -33,13 +33,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -57,7 +57,9 @@ long chiOf(Mesh &m)
 // Deterministic LCG noise in [-1, 1] (matches cross_field.cc's generator).
 struct Rng {
   uint32_t s;
-  explicit Rng(uint32_t seed) : s(seed ? seed : 1u) {}
+  explicit Rng(uint32_t seed) : s(seed ? seed : 1u)
+  {
+  }
   double operator()()
   {
     s = s * 1664525u + 1013904223u;
@@ -159,8 +161,12 @@ void testGridCurlDrop()
   remesh::SingularityAdjustParams sap;
   remesh::SingularityAdjustStats st = remesh::adjustSingularities(*g, sap);
 
-  fprintf(stderr, "[noisy_grid] faces=%d sing=%d curl_before=%.6f curl_after=%.6f\n",
-          st.num_faces, st.num_singularities, st.curl_before, st.curl_after);
+  fprintf(stderr,
+          "[noisy_grid] faces=%d sing=%d curl_before=%.6f curl_after=%.6f\n",
+          st.num_faces,
+          st.num_singularities,
+          st.curl_before,
+          st.curl_after);
   TASSERT(st.curl_before > 1e-3);
   TASSERT(st.curl_after <= 0.1 * st.curl_before);
   litestl::alloc::Delete<Mesh>(g);
@@ -182,8 +188,12 @@ void testDeterminism()
   for (int f : a->f) {
     maxdiff = std::fmax(maxdiff, std::fabs(double(ta[f]) - double(tb[f])));
   }
-  fprintf(stderr, "[determinism] sing(a,b)=(%d,%d) index(a,b)=(%d,%d) maxdiff=%.3e\n",
-          sa.num_singularities, sb.num_singularities, sa.index_sum, sb.index_sum,
+  fprintf(stderr,
+          "[determinism] sing(a,b)=(%d,%d) index(a,b)=(%d,%d) maxdiff=%.3e\n",
+          sa.num_singularities,
+          sb.num_singularities,
+          sa.index_sum,
+          sb.index_sum,
           maxdiff);
   TASSERT(sa.num_singularities == sb.num_singularities);
   TASSERT(sa.index_sum == sb.index_sum);
@@ -209,8 +219,12 @@ void testTorusMonotone()
   fprintf(stderr,
           "[noisy_torus] faces=%d sing=%d index_sum=%d 4chi=%ld "
           "curl_before=%.6f curl_after=%.6f\n",
-          st.num_faces, st.num_singularities, st.index_sum, 4 * chi,
-          st.curl_before, st.curl_after);
+          st.num_faces,
+          st.num_singularities,
+          st.index_sum,
+          4 * chi,
+          st.curl_before,
+          st.curl_after);
   // Curved geometry: the curl only has to drop toward the geometric floor.
   TASSERT(st.curl_after < st.curl_before);
   TASSERT(st.index_sum == int(4 * chi)); // == 0, Poincaré–Hopf preserved
@@ -255,8 +269,13 @@ void testPinHonored()
 
   long chi = chiOf(*sph);
   short after = (vpin != ELEM_NONE) ? pole[vpin] : 0;
-  fprintf(stderr, "[pin] vpin=%d before=%d after=%d index_sum=%d 4chi=%ld\n", vpin,
-          before, after, st.index_sum, 4 * chi);
+  fprintf(stderr,
+          "[pin] vpin=%d before=%d after=%d index_sum=%d 4chi=%ld\n",
+          vpin,
+          before,
+          after,
+          st.index_sum,
+          4 * chi);
   TASSERT(after == before);
   TASSERT(st.index_sum == int(4 * chi)); // == 8
   litestl::alloc::Delete<Mesh>(sph);
@@ -273,9 +292,13 @@ void testPlantedPairCancel()
   pole.ensure(g->v.attrs);
   int v0, v1;
   int npoles = collectPoles(*g, v0, v1);
-  fprintf(stderr, "[planted] sing=%d index_sum=%d poles=(%d:%d, %d:%d)\n",
-          ast.num_singularities, ast.index_sum, v0,
-          v0 != ELEM_NONE ? int(pole[v0]) : 0, v1,
+  fprintf(stderr,
+          "[planted] sing=%d index_sum=%d poles=(%d:%d, %d:%d)\n",
+          ast.num_singularities,
+          ast.index_sum,
+          v0,
+          v0 != ELEM_NONE ? int(pole[v0]) : 0,
+          v1,
           v1 != ELEM_NONE ? int(pole[v1]) : 0);
   // Sign-agnostic — frame handedness may flip both indices together.
   TASSERT(npoles == 2);
@@ -286,8 +309,11 @@ void testPlantedPairCancel()
   remesh::SingularityCancelParams tight;
   tight.target_edge_length = 0.02f; // max_dist = 0.03
   remesh::SingularityCancelStats ts = remesh::cancelSingularityPairs(*g, tight);
-  fprintf(stderr, "[cancel_tight] attempted=%d cancelled=%d sing=%d\n",
-          ts.attempted_pairs, ts.cancelled_pairs, ts.num_singularities);
+  fprintf(stderr,
+          "[cancel_tight] attempted=%d cancelled=%d sing=%d\n",
+          ts.attempted_pairs,
+          ts.cancelled_pairs,
+          ts.num_singularities);
   TASSERT(ts.attempted_pairs == 0);
   TASSERT(ts.num_singularities == 2);
 
@@ -298,8 +324,13 @@ void testPlantedPairCancel()
   fprintf(stderr,
           "[cancel_wide] rounds=%d attempted=%d cancelled=%d reverted=%d "
           "sing=%d index_sum=%d curl_after=%.6f\n",
-          ws.rounds, ws.attempted_pairs, ws.cancelled_pairs, ws.reverted_rounds,
-          ws.num_singularities, ws.index_sum, ws.curl_after);
+          ws.rounds,
+          ws.attempted_pairs,
+          ws.cancelled_pairs,
+          ws.reverted_rounds,
+          ws.num_singularities,
+          ws.index_sum,
+          ws.curl_after);
   TASSERT(ws.cancelled_pairs >= 1);
   TASSERT(ws.reverted_rounds == 0);
   TASSERT(ws.num_singularities == 0);
@@ -337,7 +368,10 @@ void testCancelInertNoTargets()
   fprintf(stderr,
           "[cancel_inert] minus=%d sing_before=%d sing_after=%d attempted=%d "
           "index_sum=%d\n",
-          minus, ast.num_singularities, cs.num_singularities, cs.attempted_pairs,
+          minus,
+          ast.num_singularities,
+          cs.num_singularities,
+          cs.attempted_pairs,
           cs.index_sum);
   TASSERT(minus == 0);
   TASSERT(cs.attempted_pairs == 0);
@@ -376,8 +410,13 @@ void testCancelPinnedSkip()
   remesh::SingularityCancelParams scp;
   scp.target_edge_length = 0.2f;
   remesh::SingularityCancelStats cs = remesh::cancelSingularityPairs(*g, scp);
-  fprintf(stderr, "[cancel_pin] vneg=%d attempted=%d sing=%d poles=(%d,%d)\n", vneg,
-          cs.attempted_pairs, cs.num_singularities, int(pole[v0]), int(pole[v1]));
+  fprintf(stderr,
+          "[cancel_pin] vneg=%d attempted=%d sing=%d poles=(%d,%d)\n",
+          vneg,
+          cs.attempted_pairs,
+          cs.num_singularities,
+          int(pole[v0]),
+          int(pole[v1]));
   TASSERT(cs.attempted_pairs == 0);
   TASSERT(cs.num_singularities == 2);
   TASSERT(pole[v0] == before0 && pole[v1] == before1);
@@ -408,8 +447,13 @@ void testCancelDeterminism()
   fprintf(stderr,
           "[cancel_determinism] attempted=(%d,%d) cancelled=(%d,%d) sing=(%d,%d) "
           "maxdiff=%.3e\n",
-          ca.attempted_pairs, cb.attempted_pairs, ca.cancelled_pairs,
-          cb.cancelled_pairs, ca.num_singularities, cb.num_singularities, maxdiff);
+          ca.attempted_pairs,
+          cb.attempted_pairs,
+          ca.cancelled_pairs,
+          cb.cancelled_pairs,
+          ca.num_singularities,
+          cb.num_singularities,
+          maxdiff);
   TASSERT(ca.attempted_pairs == cb.attempted_pairs);
   TASSERT(ca.cancelled_pairs == cb.cancelled_pairs);
   TASSERT(ca.num_singularities == cb.num_singularities);

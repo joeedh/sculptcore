@@ -66,9 +66,15 @@ static mat4 lookAtM(float3 eye, float3 target, float3 up)
   mat4 m;
   m.identity();
   float *d = static_cast<float *>(m);
-  d[0] = s[0];  d[4] = s[1];  d[8] = s[2];
-  d[1] = u[0];  d[5] = u[1];  d[9] = u[2];
-  d[2] = -f[0]; d[6] = -f[1]; d[10] = -f[2];
+  d[0] = s[0];
+  d[4] = s[1];
+  d[8] = s[2];
+  d[1] = u[0];
+  d[5] = u[1];
+  d[9] = u[2];
+  d[2] = -f[0];
+  d[6] = -f[1];
+  d[10] = -f[2];
   d[12] = -s.dot(eye);
   d[13] = -u.dot(eye);
   d[14] = f.dot(eye);
@@ -134,8 +140,7 @@ static void injectDisp(Multires &mr, int maxDispLevel)
   }
 }
 
-static bool renderMeshPNG(webgpu::WgpuContext &ctx, Mesh *m, const char *path,
-                          int *nonBg)
+static bool renderMeshPNG(webgpu::WgpuContext &ctx, Mesh *m, const char *path, int *nonBg)
 {
   const int w = 384, h = 384;
   gpu::GPUManager gpuMgr;
@@ -215,8 +220,11 @@ static void bench(webgpu::WgpuContext &ctx)
     amp.dispatch(reinterpret_cast<const float *>(src.data()), int(src.size()));
     double cold = amp.lastDispatchMs;
     amp.dispatch(reinterpret_cast<const float *>(src.data()), int(src.size()));
-    printf("bench L2->L%d: fine=%d cold=%.2fms warm=%.2fms\n", maxLevel,
-           amp.fineCount(), cold, amp.lastDispatchMs);
+    printf("bench L2->L%d: fine=%d cold=%.2fms warm=%.2fms\n",
+           maxLevel,
+           amp.fineCount(),
+           cold,
+           amp.lastDispatchMs);
     fflush(stdout);
 
     /* Bit-exactness at density (also exercises the 2D-dispatch linearization,
@@ -267,16 +275,19 @@ int main(int argc, char **argv)
 
   webgpu::WgpuStencilAmplify amp;
   test_assert(amp.init(&ctx, mr.refiner, 2, 4));
-  test_assert(amp.dispatch(reinterpret_cast<const float *>(src.data()),
-                           int(src.size())));
+  test_assert(amp.dispatch(reinterpret_cast<const float *>(src.data()), int(src.size())));
   Vector<float3> gpu4;
   test_assert(amp.readback(gpu4));
   test_assert(int(gpu4.size()) == int(cpu4.size()));
 
   int diffs = 0;
   int ulp = maxUlp(cpu4, gpu4, diffs);
-  fprintf(stderr, "amplify L2->L4: verts=%d diffs=%d maxUlp=%d dispatch=%.2fms\n",
-          int(cpu4.size()), diffs, ulp, amp.lastDispatchMs);
+  fprintf(stderr,
+          "amplify L2->L4: verts=%d diffs=%d maxUlp=%d dispatch=%.2fms\n",
+          int(cpu4.size()),
+          diffs,
+          ulp,
+          amp.lastDispatchMs);
   test_assert(diffs == 0); /* bit-consistent with the CPU discrete-CC chain */
 
   /* Screenshot A/B: same topology, CPU vs GPU positions, same render path. */

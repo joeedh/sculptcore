@@ -29,4 +29,4 @@ const TextureRegistryEntry *findTexture(litestl::util::stringref name)
   return nullptr;
 }
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

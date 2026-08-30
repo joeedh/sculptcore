@@ -234,9 +234,13 @@ static void bench_container(const char *name, size_t n, const Keys &keys, MakeFn
 
   printf("  %-16s ins %7.1f  insRes %7.1f  hit %7.1f  miss %7.1f  iter %7.1f  "
          "erase %7.1f  churn %7.1f\n",
-         name, double(t_ins) / (reps * ops), double(t_ins_res) / (reps * ops),
-         double(t_hit) / (reps * ops), double(t_miss) / (reps * ops),
-         double(t_iter) / (reps * ops), double(t_erase) / (reps * ops),
+         name,
+         double(t_ins) / (reps * ops),
+         double(t_ins_res) / (reps * ops),
+         double(t_hit) / (reps * ops),
+         double(t_miss) / (reps * ops),
+         double(t_iter) / (reps * ops),
+         double(t_erase) / (reps * ops),
          double(t_churn) / churn_ops);
 }
 
@@ -245,8 +249,7 @@ static void run_size(size_t n, bool sequential)
   printf("N=%zu (%s keys), ns/op:\n", n, sequential ? "sequential" : "random");
   Keys keys = make_keys(n, sequential);
 
-  bench_container(
-      "litestl::Map", n, keys, [] { return litestl::util::Map<int, int>(); });
+  bench_container("litestl::Map", n, keys, [] { return litestl::util::Map<int, int>(); });
   bench_container(
       "absl::flat_hash", n, keys, [] { return absl::flat_hash_map<int, int>(); });
   bench_container(

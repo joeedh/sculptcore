@@ -14,13 +14,18 @@ Mesh *makeGrid(int nx, int ny, float size = 1.0f);
 /* Z-axis cylinder: `radialSegs` around, `heightSegs` along, `radius`/`height`
  * extents. `capped` adds triangle-fan end caps. The side gives the M1 curvature
  * fixture (kmax ~ 1/radius circumferential, kmin ~ 0 axial). */
-Mesh *makeCylinder(int radialSegs, int heightSegs, float radius = 0.5f,
-                   float height = 2.0f, bool capped = true);
+Mesh *makeCylinder(int radialSegs,
+                   int heightSegs,
+                   float radius = 0.5f,
+                   float height = 2.0f,
+                   bool capped = true);
 
 /* Torus around +Z: `majorSegs` around the ring, `minorSegs` around the tube,
  * radii `majorRadius`/`minorRadius`. All quads, genus 1 → the zero-singularity
  * (chi = 0) case. */
-Mesh *makeTorus(int majorSegs, int minorSegs, float majorRadius = 1.0f,
+Mesh *makeTorus(int majorSegs,
+                int minorSegs,
+                float majorRadius = 1.0f,
                 float minorRadius = 0.3f);
 
 /* UV sphere of `radius`: `rings` latitude divisions (pole to pole), `segs`

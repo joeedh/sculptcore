@@ -82,7 +82,9 @@ int Multires_gridChannelRemove(sculptcore::subdiv::Multires *mr, int channel);
 
 /** Floats in one grid's block at `level` — elemsPerGrid · floatsPerElem, the
  * unit Read/Write move. 0 for a bad channel or level. */
-int Multires_gridChannelGridFloats(sculptcore::subdiv::Multires *mr, int level, int channel);
+int Multires_gridChannelGridFloats(sculptcore::subdiv::Multires *mr,
+                                   int level,
+                                   int channel);
 
 /** Whether `channel` holds anything at `level`. False for an Authored channel
  * nothing has written yet — Read reports it as zeros, and a host may skip

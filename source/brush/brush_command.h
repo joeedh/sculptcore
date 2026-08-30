@@ -4,10 +4,10 @@
 #include "automask.h"
 #include "brush.h"
 #include "brush_concepts.h"
-#include "mesh/mesh.h"
-#include "meshlog/meshlog.h"
 #include "litestl/math/matrix.h"
 #include "litestl/math/vector.h"
+#include "mesh/mesh.h"
+#include "meshlog/meshlog.h"
 #include "spatial/node.h"
 
 using namespace sculptcore::spatial;
@@ -45,8 +45,8 @@ namespace sculptcore::brush {
 
 // Codegen-emitted descriptor of one attribute a kernel touches.
 struct BrushAttrManifestEntry {
-  string handle;                                 // DSL field name (the handle)
-  string boundName;                              // fixed layer, or "" => handle
+  string handle;    // DSL field name (the handle)
+  string boundName; // fixed layer, or "" => handle
   mesh::AttrType type = mesh::AttrType::FLOAT;
   AttrElemDomain domain = AttrElemDomain::Vertex;
   // The executor must ensure the layer exists before binding it. True for every
@@ -70,10 +70,8 @@ struct BrushAttrManifestEntry {
   static litestl::binding::types::Struct<BrushAttrManifestEntry> *defineBindings()
   {
     using namespace litestl::binding;
-    types::Struct<BrushAttrManifestEntry> *st =
-        new types::Struct<BrushAttrManifestEntry>(
-            "sculptcore::brush::BrushAttrManifestEntry",
-            sizeof(BrushAttrManifestEntry));
+    types::Struct<BrushAttrManifestEntry> *st = new types::Struct<BrushAttrManifestEntry>(
+        "sculptcore::brush::BrushAttrManifestEntry", sizeof(BrushAttrManifestEntry));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     BIND_STRUCT_MEMBER(st, handle);
     BIND_STRUCT_MEMBER(st, boundName);
@@ -105,9 +103,8 @@ struct BrushDefFlags {
   static litestl::binding::types::Struct<BrushDefFlags> *defineBindings()
   {
     using namespace litestl::binding;
-    types::Struct<BrushDefFlags> *st =
-        new types::Struct<BrushDefFlags>("sculptcore::brush::BrushDefFlags",
-                                         sizeof(BrushDefFlags));
+    types::Struct<BrushDefFlags> *st = new types::Struct<BrushDefFlags>(
+        "sculptcore::brush::BrushDefFlags", sizeof(BrushDefFlags));
     BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
     BIND_STRUCT_MEMBER(st, needsCoPrev);
     BIND_STRUCT_MEMBER(st, accumulable);
@@ -128,11 +125,11 @@ struct BrushDefFlags {
 // loadProps, and validate dynamic bindings before a stroke. See
 // documentation/plans/sbrush-dynamic-uniforms.md.
 struct BrushUniformManifestEntry {
-  string name;             // DSL uniform field name
-  bool isFloat = false;    // scalar float — the only dynamic-capable kind
-  bool dynamic = false;    // may be driven by device dynamics (float, non-@static)
-  float def = 0.0f;        // authored default (DSL `= <n>`), Wave 1
-  bool hasRange = false;   // DSL `@range(min, max)` present, Wave 1
+  string name;           // DSL uniform field name
+  bool isFloat = false;  // scalar float — the only dynamic-capable kind
+  bool dynamic = false;  // may be driven by device dynamics (float, non-@static)
+  float def = 0.0f;      // authored default (DSL `= <n>`), Wave 1
+  bool hasRange = false; // DSL `@range(min, max)` present, Wave 1
   float rangeMin = 0.0f;
   float rangeMax = 0.0f;
   // Extra-kernel store uniforms: Brush.namedFloats index, set via
@@ -171,11 +168,15 @@ struct BrushAttrBinding {
 
 struct BrushAttrBindings {
   Vector<BrushAttrBinding> items;
-  void clear() { items.clear(); }
+  void clear()
+  {
+    items.clear();
+  }
   const mesh::AttrRef *find(const char *handle) const
   {
     for (const auto &b : items) {
-      if (b.handle == string(handle)) return &b.ref;
+      if (b.handle == string(handle))
+        return &b.ref;
     }
     return nullptr;
   }
@@ -193,7 +194,7 @@ struct CommandCtxBase {
 
   meshlog::MeshLog *meshLog = nullptr;
   mesh::Mesh *m = nullptr;
-  
+
   // Pre-dab snapshot of the whole mesh's vertex positions, owned by the
   // executor and populated before the parallel per-node loop when a brush
   // needs it (see BrushCommandDef::needsCoPrev). for_neighbor reads neighbor
@@ -247,7 +248,8 @@ struct CommandCtxBase {
   // declare their target, so it's non-null there.
   template <typename T> mesh::AttrData<T> *boundAttr(const char *handle) const
   {
-    if (!attrBindings) return nullptr;
+    if (!attrBindings)
+      return nullptr;
     const mesh::AttrRef *ref = attrBindings->find(handle);
     return ref ? static_cast<mesh::AttrData<T> *>(ref->data) : nullptr;
   }
@@ -277,10 +279,7 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   node_type &node;
   TYPES &executor;
 
-  CommandCtx(const CommandCtxBase &base,
-             node_type &node,
-             TYPES &executor,
-             Brush &brush)
+  CommandCtx(const CommandCtxBase &base, node_type &node, TYPES &executor, Brush &brush)
       : CommandCtxBase(base), node(node), executor(executor), brush(brush)
   {
   }
@@ -296,7 +295,10 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
   {
     return executor.template makeVertexIter<AccMode>(node);
   }
-  auto faceIter(node_type &node) { return executor.makeFaceIter(node); }
+  auto faceIter(node_type &node)
+  {
+    return executor.makeFaceIter(node);
+  }
   /** Spatial + scalar term only: slider x distance falloff x brush texture,
    * invert-signed. The per-vertex masking factors live in automasks()/masks() —
    * a kernel that wants them multiplies one of those in. Kernels with unbounded
@@ -340,7 +342,10 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
    * kernels want. `mask` is the kernel's own live value, threaded by the
    * intrinsic's `$vm` placeholder, so a kernel that writes v.mask still sees
    * its local copy rather than stale storage. Face stages pass 0. */
-  float masks(int v, float mask) { return automasks(v) * (1.0f - mask); }
+  float masks(int v, float mask)
+  {
+    return automasks(v) * (1.0f - mask);
+  }
 
   /** C1 cutoff window for an `@unbounded` field: 1 inside 0.8R, smoothstepped
    * to exactly 0 at R = radius * unboundedExtent. The host filters spatial
@@ -414,8 +419,8 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
       // both flip on the same |n.z| < 0.999 test against the shared ctx
       // surfaceNo.
       float3 n = surfaceNo.normalized();
-      float3 ref = std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f}
-                                           : float3{1.0f, 0.0f, 0.0f};
+      float3 ref =
+          std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f} : float3{1.0f, 0.0f, 0.0f};
       float3 t1 = ref.cross(n).normalized();
       float3 t2 = n.cross(t1);
       float3 rel = co - surfacePos;
@@ -440,7 +445,10 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
 
   // Repeat-wrap into [0, 1); identical formula to WGSL fract() so backends
   // agree bitwise.
-  static float fractf(float x) { return x - std::floor(x); }
+  static float fractf(float x)
+  {
+    return x - std::floor(x);
+  }
 
   // Viewport width/height from renderMatrix (world -> clip): its x/y rows
   // are the projection diagonal times unit view rows, so |row1|/|row0| is

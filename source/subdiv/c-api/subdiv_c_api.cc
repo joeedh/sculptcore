@@ -162,7 +162,10 @@ int Multires_readDomainMask(subdiv::Multires *mr, int level, float *out, int cou
  * the store channel (all seam replicas), marking the draw source — the
  * lazy-slot mask import path (CD_GRID_PAINT_MASK -> domain, no slot column
  * involved). */
-int Multires_writeDomainMask(subdiv::Multires *mr, int level, const float *values, int count)
+int Multires_writeDomainMask(subdiv::Multires *mr,
+                             int level,
+                             const float *values,
+                             int count)
 {
   if (!mr || !values || level < 1 || level > mr->maxLevel()) {
     return 0;
@@ -365,8 +368,10 @@ int Multires_levelPositionsOut(subdiv::Multires *mr, int level, float (*out)[3])
  * the store, so previously fetched active mesh/tree pointers are invalid —
  * re-fetch via Multires_activeMesh/Tree. Returns the changed-vert count, -1 on
  * a sample-count mismatch, 0 on failure. */
-int Multires_fromLevelPositions(
-    subdiv::Multires *mr, int level, const float (*positions)[3], int sample_num)
+int Multires_fromLevelPositions(subdiv::Multires *mr,
+                                int level,
+                                const float (*positions)[3],
+                                int sample_num)
 {
   if (!mr || !positions) {
     return 0;
@@ -411,8 +416,10 @@ int Multires_fromLevelPositions(
  * Multires_fromLevelPositions). Down-propagation is deferred as debt; any
  * resident slot of the level is dropped, so call Multires_setActiveLevel
  * afterwards. The fast mode-enter path. */
-int Multires_seedLevelPositions(
-    subdiv::Multires *mr, int level, const float (*positions)[3], int sample_num)
+int Multires_seedLevelPositions(subdiv::Multires *mr,
+                                int level,
+                                const float (*positions)[3],
+                                int sample_num)
 {
   if (!mr || !positions) {
     return 0;
@@ -430,8 +437,7 @@ int Multires_captureToVdm(subdiv::Multires *mr, void *vstore, int level)
   if (!mr || !vstore) {
     return 0;
   }
-  return mr->captureDetailToVdm(level,
-                                *static_cast<sculptcore::vdm::VdmStore *>(vstore));
+  return mr->captureDetailToVdm(level, *static_cast<sculptcore::vdm::VdmStore *>(vstore));
 }
 
 /** Down-propagation debt header, written AHEAD of the grids store's own bytes:
@@ -515,7 +521,8 @@ uint8_t *Multires_serializeStore(subdiv::Multires *mr, int *out_size)
   *out_size = int(buf.size());
   uint8_t *out = buf.steal_data();
   if (!out) {
-    out = static_cast<uint8_t *>(litestl::alloc::alloc("multires store buffer", buf.size()));
+    out = static_cast<uint8_t *>(
+        litestl::alloc::alloc("multires store buffer", buf.size()));
     std::memcpy(out, buf.data(), buf.size());
   }
   return out;
@@ -541,12 +548,12 @@ int Multires_restoreStore(subdiv::Multires *mr, const uint8_t *data, int size)
   bool haveDebt = false;
   int32_t n = 0;
   char magic[sizeof(kDebtMagic)] = {0};
-  if (ss.read(magic, sizeof(magic)) && std::memcmp(magic, kDebtMagic, sizeof(magic)) == 0 &&
+  if (ss.read(magic, sizeof(magic)) &&
+      std::memcmp(magic, kDebtMagic, sizeof(magic)) == 0 &&
       ss.read(reinterpret_cast<char *>(&n), sizeof(n)) && n >= 0)
   {
     haveDebt = true;
-  }
-  else {
+  } else {
     ss.clear();
     ss.seekg(0);
   }
@@ -628,7 +635,8 @@ int Multires_gridAttrStorage(subdiv::Multires *mr, const char *name, int type, i
   if (!mr || !name) {
     return 0;
   }
-  return int(mr->gridAttrs().storageFor(name, mesh::AttrType(type), mesh::AttrFlag(flags)));
+  return int(
+      mr->gridAttrs().storageFor(name, mesh::AttrType(type), mesh::AttrFlag(flags)));
 }
 
 /** The OpenSubdiv face-varying linear rule for UV subdivision — Blender's
@@ -649,8 +657,7 @@ void Multires_invalidateGridAttr(subdiv::Multires *mr, const char *name)
   }
   if (name && name[0]) {
     mr->gridAttrs().invalidate(name);
-  }
-  else {
+  } else {
     mr->gridAttrs().invalidateAll();
   }
 }

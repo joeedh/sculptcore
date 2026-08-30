@@ -215,14 +215,18 @@ struct GridsStore {
    * LevelData::downPending). Out-of-range reads false / is ignored. */
   bool channelLevelDebt(int level, int channel) const
   {
-    if (level < 1 || level > levelCount_ || channel < 0 || channel >= int(channels_.size())) {
+    if (level < 1 || level > levelCount_ || channel < 0 ||
+        channel >= int(channels_.size()))
+    {
       return false;
     }
     return channels_[channel].levels[level - 1].downPending;
   }
   void setChannelLevelDebt(int level, int channel, bool value)
   {
-    if (level < 1 || level > levelCount_ || channel < 0 || channel >= int(channels_.size())) {
+    if (level < 1 || level > levelCount_ || channel < 0 ||
+        channel >= int(channels_.size()))
+    {
       return;
     }
     channels_[channel].levels[level - 1].downPending = value;
@@ -400,7 +404,8 @@ struct GridsStore {
 
   /** All OTHER (grid,u,v) coords aliasing the same surface vert as `c` — the
    * replicas a seam write must sync. Empty for grid-interior coords. */
-  void seamMates(int level, const GridCoord &c, litestl::util::Vector<GridCoord> &out) const;
+  void
+  seamMates(int level, const GridCoord &c, litestl::util::Vector<GridCoord> &out) const;
 
   const GridLink &link(int grid, int side) const
   {

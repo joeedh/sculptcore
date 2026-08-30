@@ -19,7 +19,6 @@
 #include <cmath>
 #include <mutex>
 
-
 #include "gpu/batch.h"
 #include "gpu/gpu_attr_request.h"
 #include "gpu/manager.h"
@@ -84,7 +83,6 @@ struct SpatialTree {
    * any color source. Default on; toggled via setDisplayMask(), which re-fills
    * the GPU color buffers. */
   bool displayMask = true;
-
 
   /* Dynamic attribute set requested by the active material's shader (M4). Empty
    * => legacy single-color render stream + basicMeshShader (sculpt/paint
@@ -886,8 +884,7 @@ struct SpatialTree {
   /* Region selection for partial compaction: append every leaf whose vert
    * page-spread exceeds @p ratioThreshold × its ideal page count (i.e. the
    * fragmented leaves a stroke just churned). */
-  void selectFragmentedLeaves(double ratioThreshold,
-                              util::Vector<SpatialNode *> &out);
+  void selectFragmentedLeaves(double ratioThreshold, util::Vector<SpatialNode *> &out);
 
   /* Tear down every node and rebuild from the (possibly reordered) mesh. */
   void rebuild();
@@ -1044,8 +1041,7 @@ private:
                       float *dst);
   void fill_leaf_slot_verts(SpatialNode *leaf, uint32_t *out);
 
-  void
-  add_face_intern(SpatialNode *node, int f, math::float3 &fcent, int claimTag = 0);
+  void add_face_intern(SpatialNode *node, int f, math::float3 &fcent, int claimTag = 0);
 
   /* Re-absorb both (leaf) children of `parent` back into `parent` and free them
    * (M7.6b merge). Preconditions checked by the caller. */

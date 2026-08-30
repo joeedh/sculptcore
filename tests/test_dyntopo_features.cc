@@ -51,10 +51,12 @@ static Mesh *makeTriGrid(int n, util::Vector<int> &grid)
 
 static int seamDegree(Mesh *m, int v, BoolAttrView *seam)
 {
-  if (m->v.e[v] == ELEM_NONE) return 0;
+  if (m->v.e[v] == ELEM_NONE)
+    return 0;
   int n = 0;
   for (int e : EdgeOfVertIter(m, v, m->v.e[v])) {
-    if (seam->get(e)) n++;
+    if (seam->get(e))
+      n++;
   }
   return n;
 }
@@ -67,13 +69,17 @@ static int walkSeam(Mesh *m, int start, BoolAttrView *seam)
   for (int guard = 0; guard < 1000000; guard++) {
     int next = ELEM_NONE, deg = 0;
     for (int e : EdgeOfVertIter(m, cur, m->v.e[cur])) {
-      if (!seam->get(e)) continue;
+      if (!seam->get(e))
+        continue;
       deg++;
       int o = (m->e.vs[e][0] == cur) ? m->e.vs[e][1] : m->e.vs[e][0];
-      if (o != prev) next = o;
+      if (o != prev)
+        next = o;
     }
-    if (deg > 2) return ELEM_NONE; /* branch: torn */
-    if (next == ELEM_NONE) return cur; /* reached an endpoint */
+    if (deg > 2)
+      return ELEM_NONE; /* branch: torn */
+    if (next == ELEM_NONE)
+      return cur; /* reached an endpoint */
     prev = cur;
     cur = next;
   }
@@ -128,7 +134,8 @@ static Result runDab(bool preserve)
 
   int seamCount = 0;
   for (int e : m->e) {
-    if (seam && seam->get(e)) seamCount++;
+    if (seam && seam->get(e))
+      seamCount++;
   }
   r.seamCount = seamCount;
 
@@ -139,9 +146,12 @@ static Result runDab(bool preserve)
   if (seam) {
     for (int v : m->v) {
       int d = seamDegree(m, v, seam);
-      if (d == 0) continue;
-      if (d == 1) ends++;
-      else if (d != 2) simple = false;
+      if (d == 0)
+        continue;
+      if (d == 1)
+        ends++;
+      else if (d != 2)
+        simple = false;
     }
   }
   r.simple = simple && ends == 2;
@@ -161,12 +171,22 @@ int main()
 
   printf("[features] preserve=on : splits=%d collapses=%d flips=%d seam=%d "
          "simple=%d connected=%d endsAlive=%d\n",
-         on.splits, on.collapses, on.flips, on.seamCount, on.simple, on.connected,
+         on.splits,
+         on.collapses,
+         on.flips,
+         on.seamCount,
+         on.simple,
+         on.connected,
          on.endsAlive);
   printf("[features] preserve=off: splits=%d collapses=%d flips=%d seam=%d "
          "simple=%d connected=%d endsAlive=%d\n",
-         off.splits, off.collapses, off.flips, off.seamCount, off.simple,
-         off.connected, off.endsAlive);
+         off.splits,
+         off.collapses,
+         off.flips,
+         off.seamCount,
+         off.simple,
+         off.connected,
+         off.endsAlive);
 
   // With preservation: the dab still refines, and the seam survives intact — a
   // single connected simple path whose endpoints are never collapsed.

@@ -79,12 +79,12 @@ static const Row kTable[] = {
 static bool expected(Links links, bool csr)
 {
   switch (links) {
-    case Links::Never:
-      return false;
-    case Links::NonCsrOnly:
-      return !csr;
-    case Links::Always:
-      return true;
+  case Links::Never:
+    return false;
+  case Links::NonCsrOnly:
+    return !csr;
+  case Links::Always:
+    return true;
   }
   return false;
 }
@@ -109,7 +109,11 @@ int main()
       const bool want = expected(row.links, csr);
       if (got != want) {
         std::printf("%s (id %d), neighborMode=%s: needsLiveLinks=%d, table says %d\n",
-                    row.name, int(row.tool), csr ? "Csr" : "LiveDisk", int(got), int(want));
+                    row.name,
+                    int(row.tool),
+                    csr ? "Csr" : "LiveDisk",
+                    int(got),
+                    int(want));
       }
       test_assert(got == want);
     }

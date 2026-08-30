@@ -79,7 +79,11 @@ int diff_pos(mesh::Mesh &m, const PosSnapshot &ref, float eps, bool verbose = fa
     if (wasLive != isLive) {
       bad++;
       if (verbose && bad <= 10) {
-        fprintf(stderr, "    v=%d liveness mismatch: wasLive=%d isLive=%d\n", v, wasLive, isLive);
+        fprintf(stderr,
+                "    v=%d liveness mismatch: wasLive=%d isLive=%d\n",
+                v,
+                wasLive,
+                isLive);
       }
       continue;
     }
@@ -87,9 +91,16 @@ int diff_pos(mesh::Mesh &m, const PosSnapshot &ref, float eps, bool verbose = fa
       bad++;
       if (verbose && bad <= 10) {
         float3 d = m.v.co[v] - ref.pos[v];
-        fprintf(stderr, "    v=%d pos mismatch: cur=(%f,%f,%f) ref=(%f,%f,%f) delta=%f\n", v,
-               m.v.co[v][0], m.v.co[v][1], m.v.co[v][2], ref.pos[v][0], ref.pos[v][1],
-               ref.pos[v][2], d.length());
+        fprintf(stderr,
+                "    v=%d pos mismatch: cur=(%f,%f,%f) ref=(%f,%f,%f) delta=%f\n",
+                v,
+                m.v.co[v][0],
+                m.v.co[v][1],
+                m.v.co[v][2],
+                ref.pos[v][0],
+                ref.pos[v][1],
+                ref.pos[v][2],
+                d.length());
       }
     }
   }
@@ -131,7 +142,8 @@ bool treeOwnershipConsistent(spatial::SpatialTree &tree, mesh::Mesh &m, std::str
     }
     spatial::SpatialNode *n = tree.node_from_id(id);
     if (!n || !n->data) {
-      std::snprintf(buf, sizeof(buf), "live face %d owner id %d resolves to no live leaf", f, id);
+      std::snprintf(
+          buf, sizeof(buf), "live face %d owner id %d resolves to no live leaf", f, id);
       msg = buf;
       return false;
     }
@@ -143,7 +155,8 @@ bool treeOwnershipConsistent(spatial::SpatialTree &tree, mesh::Mesh &m, std::str
     }
     spatial::SpatialNode *n = tree.node_from_id(id);
     if (!n || !n->data) {
-      std::snprintf(buf, sizeof(buf), "live vert %d owner id %d resolves to no live leaf", v, id);
+      std::snprintf(
+          buf, sizeof(buf), "live vert %d owner id %d resolves to no live leaf", v, id);
       msg = buf;
       return false;
     }
@@ -161,8 +174,12 @@ bool treeOwnershipConsistent(spatial::SpatialTree &tree, mesh::Mesh &m, std::str
         return false;
       }
       if (fnode[f] != leaf->id) {
-        std::snprintf(buf, sizeof(buf), "leaf %d claims face %d but owner array says %d",
-                      leaf->id, f, fnode[f]);
+        std::snprintf(buf,
+                      sizeof(buf),
+                      "leaf %d claims face %d but owner array says %d",
+                      leaf->id,
+                      f,
+                      fnode[f]);
         msg = buf;
         return false;
       }
@@ -174,8 +191,12 @@ bool treeOwnershipConsistent(spatial::SpatialTree &tree, mesh::Mesh &m, std::str
         return false;
       }
       if (vnode[v] != leaf->id) {
-        std::snprintf(buf, sizeof(buf), "leaf %d claims vert %d but owner array says %d",
-                      leaf->id, v, vnode[v]);
+        std::snprintf(buf,
+                      sizeof(buf),
+                      "leaf %d claims vert %d but owner array says %d",
+                      leaf->id,
+                      v,
+                      vnode[v]);
         msg = buf;
         return false;
       }
@@ -205,12 +226,14 @@ bool treeOwnershipConsistent(spatial::SpatialTree &tree, mesh::Mesh &m, std::str
     ownedV += int(leaf->data->unique_verts.size());
   }
   if (ownedF != m.f.count) {
-    std::snprintf(buf, sizeof(buf), "leaf faces sum to %d but mesh has %d live", ownedF, m.f.count);
+    std::snprintf(
+        buf, sizeof(buf), "leaf faces sum to %d but mesh has %d live", ownedF, m.f.count);
     msg = buf;
     return false;
   }
   if (ownedV != m.v.count) {
-    std::snprintf(buf, sizeof(buf), "leaf verts sum to %d but mesh has %d live", ownedV, m.v.count);
+    std::snprintf(
+        buf, sizeof(buf), "leaf verts sum to %d but mesh has %d live", ownedV, m.v.count);
     msg = buf;
     return false;
   }
@@ -259,8 +282,8 @@ int main()
   exec.beginStep(true);
 
   /* Dab 1: real, committed (mirrors Anchored's first, non-preview dab). */
-  exec.applyDab(scene.currentTool, origin, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed);
+  exec.applyDab(
+      scene.currentTool, origin, normal, radius, &scene.dyntopoParams, scene.dyntopoSeed);
 
   MeshCounts afterDab1 = counts(*m);
   PosSnapshot posAfterDab1 = save_pos(*m);
@@ -273,14 +296,18 @@ int main()
   exec.beginPreviewDab(origin, previewRadius);
   test_assert(exec.previewActive());
   scene.brush.strength = 0.9f;
-  exec.applyDab(scene.currentTool, origin, normal, previewDabRadius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 1);
+  exec.applyDab(scene.currentTool,
+                origin,
+                normal,
+                previewDabRadius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 1);
 
   MeshCounts afterPreview = counts(*m);
   int movedDuringPreview = diff_pos(*m, posAfterDab1, 1e-6f);
   printf("  preview dab: counts %s, %d verts moved\n",
-        counts_equal(afterPreview, afterDab1) ? "unchanged" : "changed",
-        movedDuringPreview);
+         counts_equal(afterPreview, afterDab1) ? "unchanged" : "changed",
+         movedDuringPreview);
   /* The preview dab must have actually done SOMETHING (topology or position),
    * or this test isn't exercising the rollback at all. */
   test_assert(!counts_equal(afterPreview, afterDab1) || movedDuringPreview > 0);
@@ -291,11 +318,15 @@ int main()
 
   MeshCounts afterRollback = counts(*m);
   printf("  after rollback: v=%d (want %d) f=%d (want %d)\n",
-        afterRollback.vc, afterDab1.vc, afterRollback.fc, afterDab1.fc);
+         afterRollback.vc,
+         afterDab1.vc,
+         afterRollback.fc,
+         afterDab1.fc);
   test_assert(counts_equal(afterRollback, afterDab1));
   int badPos = diff_pos(*m, posAfterDab1, 1e-5f);
   if (badPos) {
-    fprintf(stderr, "  %d verts NOT restored to pre-preview-dab liveness/position\n", badPos);
+    fprintf(
+        stderr, "  %d verts NOT restored to pre-preview-dab liveness/position\n", badPos);
   }
   test_assert(badPos == 0);
 
@@ -305,7 +336,8 @@ int main()
   std::string treeMsg;
   bool treeOk1 = treeOwnershipConsistent(*scene.tree, *m, treeMsg);
   if (!treeOk1) {
-    fprintf(stderr, "  tree ownership diverged after first rollback: %s\n", treeMsg.c_str());
+    fprintf(
+        stderr, "  tree ownership diverged after first rollback: %s\n", treeMsg.c_str());
   }
   test_assert(treeOk1);
 
@@ -313,15 +345,21 @@ int main()
    * primitive must be reusable within the same step. */
   scene.brush.strength = 0.7f;
   exec.beginPreviewDab(origin, previewRadius);
-  exec.applyDab(scene.currentTool, origin, normal, radius * 1.1f,
-               &scene.dyntopoParams, scene.dyntopoSeed + 2);
+  exec.applyDab(scene.currentTool,
+                origin,
+                normal,
+                radius * 1.1f,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 2);
   exec.rollbackPreviewDab();
   test_assert(counts_equal(counts(*m), afterDab1));
   test_assert(diff_pos(*m, posAfterDab1, 1e-5f) == 0);
   std::string treeMsg2;
   bool treeOk2 = treeOwnershipConsistent(*scene.tree, *m, treeMsg2);
   if (!treeOk2) {
-    fprintf(stderr, "  tree ownership diverged after second rollback: %s\n", treeMsg2.c_str());
+    fprintf(stderr,
+            "  tree ownership diverged after second rollback: %s\n",
+            treeMsg2.c_str());
   }
   test_assert(treeOk2);
 
@@ -329,8 +367,12 @@ int main()
    * rollback must not have corrupted the step's own undo/redo. */
   scene.brush.strength = 0.5f;
   const float3 origin2(0.15f, 0.1f, 0.25f);
-  exec.applyDab(scene.currentTool, origin2, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 3);
+  exec.applyDab(scene.currentTool,
+                origin2,
+                normal,
+                radius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 3);
   exec.endDynTopoStroke();
   exec.endStep();
 
@@ -343,7 +385,10 @@ int main()
   scene.meshLog.undo(m, scene.tree);
   MeshCounts afterUndo = counts(*m);
   printf("  after undo: v=%d (want %d) f=%d (want %d)\n",
-        afterUndo.vc, before.vc, afterUndo.fc, before.fc);
+         afterUndo.vc,
+         before.vc,
+         afterUndo.fc,
+         before.fc);
   test_assert(counts_equal(afterUndo, before));
   int badUndoPos = diff_pos(*m, posBefore, 1e-4f, true);
   if (badUndoPos) {
@@ -352,7 +397,9 @@ int main()
   std::string treeMsgUndo;
   bool treeOkUndo = treeOwnershipConsistent(*scene.tree, *m, treeMsgUndo);
   if (!treeOkUndo) {
-    fprintf(stderr, "  tree ownership diverged after whole-step undo: %s\n", treeMsgUndo.c_str());
+    fprintf(stderr,
+            "  tree ownership diverged after whole-step undo: %s\n",
+            treeMsgUndo.c_str());
   }
   test_assert(treeOkUndo);
 
@@ -361,7 +408,10 @@ int main()
   scene.meshLog.redo(m, scene.tree);
   MeshCounts afterRedo = counts(*m);
   printf("  after redo: v=%d (want %d) f=%d (want %d)\n",
-        afterRedo.vc, afterStroke.vc, afterRedo.fc, afterStroke.fc);
+         afterRedo.vc,
+         afterStroke.vc,
+         afterRedo.fc,
+         afterStroke.fc);
   test_assert(counts_equal(afterRedo, afterStroke));
   int badRedoPos = diff_pos(*m, posAfterStroke, 1e-4f, true);
   if (badRedoPos) {
@@ -371,7 +421,9 @@ int main()
   std::string treeMsgRedo;
   bool treeOkRedo = treeOwnershipConsistent(*scene.tree, *m, treeMsgRedo);
   if (!treeOkRedo) {
-    fprintf(stderr, "  tree ownership diverged after whole-step redo: %s\n", treeMsgRedo.c_str());
+    fprintf(stderr,
+            "  tree ownership diverged after whole-step redo: %s\n",
+            treeMsgRedo.c_str());
   }
   test_assert(treeOkRedo);
 
@@ -392,15 +444,23 @@ int main()
 
   exec.beginStep(true);
   exec.beginPreviewDab(origin3, previewRadius);
-  exec.applyDab(scene.currentTool, origin3, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 4);
+  exec.applyDab(scene.currentTool,
+                origin3,
+                normal,
+                radius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 4);
   /* An intermediate preview sample, rolled back like any other. */
   exec.rollbackPreviewDab();
   /* Stroke A's "final" dab -- still wrapped as a preview, exactly like
    * applyDabOne always does (it never knows in advance which dab is last). */
   exec.beginPreviewDab(origin3, previewRadius);
-  exec.applyDab(scene.currentTool, origin3, normal, radius * 1.05f,
-               &scene.dyntopoParams, scene.dyntopoSeed + 5);
+  exec.applyDab(scene.currentTool,
+                origin3,
+                normal,
+                radius * 1.05f,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 5);
   test_assert(exec.previewActive());
   /* The fix under test: commit instead of leaving previewActive() dangling. */
   exec.commitPreviewDab();
@@ -427,13 +487,19 @@ int main()
   test_assert(counts_equal(counts(*m), afterStrokeA));
   int badLeak = diff_pos(*m, posAfterStrokeA, 1e-6f, true);
   if (badLeak) {
-    fprintf(stderr, "  %d verts corrupted by a stale cross-stroke preview rollback\n", badLeak);
+    fprintf(stderr,
+            "  %d verts corrupted by a stale cross-stroke preview rollback\n",
+            badLeak);
   }
   test_assert(badLeak == 0);
 
   exec.beginPreviewDab(origin4, previewRadius);
-  exec.applyDab(scene.currentTool, origin4, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 6);
+  exec.applyDab(scene.currentTool,
+                origin4,
+                normal,
+                radius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 6);
   test_assert(exec.previewActive());
   exec.commitPreviewDab();
   exec.endDynTopoStroke();
@@ -485,18 +551,26 @@ int main()
   test_assert(!exec.previewActive());
 
   exec.beginPreviewDab(origin5, previewRadius);
-  exec.applyDab(scene.currentTool, origin5, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 7);
+  exec.applyDab(scene.currentTool,
+                origin5,
+                normal,
+                radius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 7);
   exec.extendPreviewDab(origin5Mirror, previewRadius);
-  exec.applyDab(scene.currentTool, origin5Mirror, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 8);
+  exec.applyDab(scene.currentTool,
+                origin5Mirror,
+                normal,
+                radius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 8);
   test_assert(exec.previewActive());
 
   MeshCounts afterSymGroup1 = counts(*m);
   int movedSymGroup1 = diff_pos(*m, posBeforeSymStroke, 1e-6f);
   printf("  symmetry preview group: counts %s, %d verts moved\n",
-        counts_equal(afterSymGroup1, beforeSymStroke) ? "unchanged" : "changed",
-        movedSymGroup1);
+         counts_equal(afterSymGroup1, beforeSymStroke) ? "unchanged" : "changed",
+         movedSymGroup1);
   test_assert(!counts_equal(afterSymGroup1, beforeSymStroke) || movedSymGroup1 > 0);
 
   /* Roll the WHOLE two-region group back with a single call. */
@@ -505,24 +579,37 @@ int main()
   test_assert(counts_equal(counts(*m), beforeSymStroke));
   int badSymRollback = diff_pos(*m, posBeforeSymStroke, 1e-5f, true);
   if (badSymRollback) {
-    fprintf(stderr, "  %d verts NOT restored after symmetry-group rollback (mirror image leaked)\n", badSymRollback);
+    fprintf(
+        stderr,
+        "  %d verts NOT restored after symmetry-group rollback (mirror image leaked)\n",
+        badSymRollback);
   }
   test_assert(badSymRollback == 0);
   std::string treeMsgSym;
   bool treeOkSym = treeOwnershipConsistent(*scene.tree, *m, treeMsgSym);
   if (!treeOkSym) {
-    fprintf(stderr, "  tree ownership diverged after symmetry-group rollback: %s\n", treeMsgSym.c_str());
+    fprintf(stderr,
+            "  tree ownership diverged after symmetry-group rollback: %s\n",
+            treeMsgSym.c_str());
   }
   test_assert(treeOkSym);
 
   /* Final preview group of the stroke: same primary+mirror shape, committed
    * instead of rolled back — both sides' edits must survive together. */
   exec.beginPreviewDab(origin5, previewRadius);
-  exec.applyDab(scene.currentTool, origin5, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 9);
+  exec.applyDab(scene.currentTool,
+                origin5,
+                normal,
+                radius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 9);
   exec.extendPreviewDab(origin5Mirror, previewRadius);
-  exec.applyDab(scene.currentTool, origin5Mirror, normal, radius,
-               &scene.dyntopoParams, scene.dyntopoSeed + 10);
+  exec.applyDab(scene.currentTool,
+                origin5Mirror,
+                normal,
+                radius,
+                &scene.dyntopoParams,
+                scene.dyntopoSeed + 10);
   test_assert(exec.previewActive());
   exec.commitPreviewDab();
   test_assert(!exec.previewActive());
@@ -538,11 +625,15 @@ int main()
   scene.meshLog.undo(m, scene.tree);
   MeshCounts afterSymUndo = counts(*m);
   printf("  after symmetry-stroke undo: v=%d (want %d) f=%d (want %d)\n",
-        afterSymUndo.vc, beforeSymStroke.vc, afterSymUndo.fc, beforeSymStroke.fc);
+         afterSymUndo.vc,
+         beforeSymStroke.vc,
+         afterSymUndo.fc,
+         beforeSymStroke.fc);
   test_assert(counts_equal(afterSymUndo, beforeSymStroke));
   int badSymUndoPos = diff_pos(*m, posBeforeSymStroke, 1e-4f, true);
   if (badSymUndoPos) {
-    fprintf(stderr, "  %d verts NOT undone to pre-symmetry-stroke position\n", badSymUndoPos);
+    fprintf(
+        stderr, "  %d verts NOT undone to pre-symmetry-stroke position\n", badSymUndoPos);
   }
   test_assert(badSymUndoPos == 0);
 
@@ -550,13 +641,17 @@ int main()
   test_assert(counts_equal(counts(*m), afterSymStroke));
   int badSymRedoPos = diff_pos(*m, posAfterSymStroke, 1e-4f, true);
   if (badSymRedoPos) {
-    fprintf(stderr, "  %d verts NOT redone to post-symmetry-stroke position\n", badSymRedoPos);
+    fprintf(stderr,
+            "  %d verts NOT redone to post-symmetry-stroke position\n",
+            badSymRedoPos);
   }
   test_assert(badSymRedoPos == 0);
   std::string treeMsgSym2;
   bool treeOkSym2 = treeOwnershipConsistent(*scene.tree, *m, treeMsgSym2);
   if (!treeOkSym2) {
-    fprintf(stderr, "  tree ownership diverged after symmetry-stroke redo: %s\n", treeMsgSym2.c_str());
+    fprintf(stderr,
+            "  tree ownership diverged after symmetry-stroke redo: %s\n",
+            treeMsgSym2.c_str());
   }
   test_assert(treeOkSym2);
 

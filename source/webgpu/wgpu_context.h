@@ -54,11 +54,16 @@ struct WgpuContext {
 struct WgpuTarget {
   WgpuTarget() = default;
   WgpuTarget(const WgpuTarget &) = delete;
-  ~WgpuTarget() { release(); }
+  ~WgpuTarget()
+  {
+    release();
+  }
 
   /** Allocate color (`colorFormat`, RenderAttachment|CopySrc) + depth
    *  (depth24plus, RenderAttachment) at w×h. */
-  bool create(WgpuContext *ctx, int w, int h,
+  bool create(WgpuContext *ctx,
+              int w,
+              int h,
               WGPUTextureFormat colorFormat = WGPUTextureFormat_RGBA8Unorm);
   void release();
 

@@ -18,10 +18,14 @@ namespace sculptcore::webgpu {
 
 WgpuContext::~WgpuContext()
 {
-  if (surface) wgpuSurfaceRelease(surface);
-  if (queue) wgpuQueueRelease(queue);
-  if (device) wgpuDeviceRelease(device);
-  if (instance) wgpuInstanceRelease(instance);
+  if (surface)
+    wgpuSurfaceRelease(surface);
+  if (queue)
+    wgpuQueueRelease(queue);
+  if (device)
+    wgpuDeviceRelease(device);
+  if (instance)
+    wgpuInstanceRelease(instance);
 }
 
 bool WgpuContext::initFromEmscripten()
@@ -56,37 +60,50 @@ struct DeviceReq {
   bool done = false;
 };
 
-void onAdapter(WGPURequestAdapterStatus status, WGPUAdapter adapter,
-               WGPUStringView message, void *ud1, void *)
+void onAdapter(WGPURequestAdapterStatus status,
+               WGPUAdapter adapter,
+               WGPUStringView message,
+               void *ud1,
+               void *)
 {
   auto *r = static_cast<AdapterReq *>(ud1);
   if (status == WGPURequestAdapterStatus_Success) {
     r->adapter = adapter;
   } else {
-    fprintf(stderr, "requestAdapter failed: %.*s\n",
-            int(message.length), message.data ? message.data : "");
+    fprintf(stderr,
+            "requestAdapter failed: %.*s\n",
+            int(message.length),
+            message.data ? message.data : "");
   }
   r->done = true;
 }
 
-void onDevice(WGPURequestDeviceStatus status, WGPUDevice device,
-              WGPUStringView message, void *ud1, void *)
+void onDevice(WGPURequestDeviceStatus status,
+              WGPUDevice device,
+              WGPUStringView message,
+              void *ud1,
+              void *)
 {
   auto *r = static_cast<DeviceReq *>(ud1);
   if (status == WGPURequestDeviceStatus_Success) {
     r->device = device;
   } else {
-    fprintf(stderr, "requestDevice failed: %.*s\n",
-            int(message.length), message.data ? message.data : "");
+    fprintf(stderr,
+            "requestDevice failed: %.*s\n",
+            int(message.length),
+            message.data ? message.data : "");
   }
   r->done = true;
 }
 
-void onUncapturedError(const WGPUDevice *, WGPUErrorType type,
-                       WGPUStringView message, void *, void *)
+void onUncapturedError(
+    const WGPUDevice *, WGPUErrorType type, WGPUStringView message, void *, void *)
 {
-  fprintf(stderr, "WebGPU uncaptured error (%d): %.*s\n", int(type),
-          int(message.length), message.data ? message.data : "");
+  fprintf(stderr,
+          "WebGPU uncaptured error (%d): %.*s\n",
+          int(type),
+          int(message.length),
+          message.data ? message.data : "");
 }
 
 } // namespace
@@ -115,7 +132,8 @@ bool WgpuContext::initNative()
   while (!areq.done) {
     wgpuInstanceProcessEvents(instance);
   }
-  if (!areq.adapter) return false;
+  if (!areq.adapter)
+    return false;
 
   // Request the adapter's max storage-buffers-per-stage: the for_neighbor
   // compute kernels (e.g. smooth) bind 10 storage buffers, over the default
@@ -139,7 +157,8 @@ bool WgpuContext::initNative()
     wgpuInstanceProcessEvents(instance);
   }
   wgpuAdapterRelease(areq.adapter);
-  if (!dreq.device) return false;
+  if (!dreq.device)
+    return false;
 
   device = dreq.device;
   queue = wgpuDeviceGetQueue(device);
@@ -176,7 +195,8 @@ bool WgpuContext::createCanvasSurface(const char *cssSelector)
 
 void WgpuContext::configureSurface(int w, int h, WGPUTextureFormat format)
 {
-  if (!surface || w <= 0 || h <= 0) return;
+  if (!surface || w <= 0 || h <= 0)
+    return;
   surfaceFormat = format;
   surfaceWidth = w;
   surfaceHeight = h;
@@ -198,7 +218,8 @@ bool WgpuTarget::create(WgpuContext *ctx_, int w, int h, WGPUTextureFormat fmt)
   width = w;
   height = h;
   colorFormat = fmt;
-  if (!ctx || !ctx->device || w <= 0 || h <= 0) return false;
+  if (!ctx || !ctx->device || w <= 0 || h <= 0)
+    return false;
 
   WGPUExtent3D extent{uint32_t(w), uint32_t(h), 1};
 
@@ -227,10 +248,22 @@ bool WgpuTarget::create(WgpuContext *ctx_, int w, int h, WGPUTextureFormat fmt)
 
 void WgpuTarget::release()
 {
-  if (colorView) { wgpuTextureViewRelease(colorView); colorView = nullptr; }
-  if (depthView) { wgpuTextureViewRelease(depthView); depthView = nullptr; }
-  if (colorTexture) { wgpuTextureRelease(colorTexture); colorTexture = nullptr; }
-  if (depthTexture) { wgpuTextureRelease(depthTexture); depthTexture = nullptr; }
+  if (colorView) {
+    wgpuTextureViewRelease(colorView);
+    colorView = nullptr;
+  }
+  if (depthView) {
+    wgpuTextureViewRelease(depthView);
+    depthView = nullptr;
+  }
+  if (colorTexture) {
+    wgpuTextureRelease(colorTexture);
+    colorTexture = nullptr;
+  }
+  if (depthTexture) {
+    wgpuTextureRelease(depthTexture);
+    depthTexture = nullptr;
+  }
   width = height = 0;
 }
 

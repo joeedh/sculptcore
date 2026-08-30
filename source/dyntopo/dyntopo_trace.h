@@ -26,9 +26,9 @@ struct RoundQuality {
   int iter = 0;  // outer pre-pass iteration (0 for a bare dab); stamped by the caller
   int round = 0; // dab-local round index (resets each dab / outer iter)
   int splits = 0, collapses = 0, flips = 0, smooths = 0;
-  int tri_count = 0;          // frontier triangles measured this round
-  int thin_count = 0;         // tris with min interior angle < thin_angle
-  float min_angle = 0.0f;     // worst per-tri min interior angle this round
+  int tri_count = 0;           // frontier triangles measured this round
+  int thin_count = 0;          // tris with min interior angle < thin_angle
+  float min_angle = 0.0f;      // worst per-tri min interior angle this round
   float mean_min_angle = 0.0f; // mean of the per-tri min angles
   /* Band pressure: the candidates queued this round (before independent-set
    * filtering) and how far the worst one sits outside its own graded band. A
@@ -45,7 +45,10 @@ struct DynTopoTrace {
    * 15 degrees by default — a long thin sliver sits well under it. */
   float thin_angle = 0.2617994f;
   litestl::util::Vector<RoundQuality> rounds;
-  void clear() { rounds.clear(); }
+  void clear()
+  {
+    rounds.clear();
+  }
 };
 
 /* Verdict over a completed trace, covering the two oscillation modes the split bug
@@ -81,8 +84,8 @@ struct OscillationReport {
  * scans for the split<->collapse limit cycle: the longest run of consecutive rounds
  * doing <= churn_op_max split+collapse ops (no net topological progress) within one
  * dab — dabs are delimited by round==0, so a churn tail never spans dab/iter ends. */
-inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing = 1,
-                                           int churn_op_max = 2)
+inline OscillationReport
+detectOscillation(const DynTopoTrace &t, int min_swing = 1, int churn_op_max = 2)
 {
   OscillationReport r;
   int n = int(t.rounds.size());
@@ -95,8 +98,8 @@ inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing 
   r.peak_round = t.rounds[0].round;
   r.worst_min_angle = t.rounds[0].min_angle;
 
-  int dir = 0;                       // 0 flat, +1 rising, -1 falling
-  int ext = t.rounds[0].thin_count;  // running extreme since the last turn
+  int dir = 0;                      // 0 flat, +1 rising, -1 falling
+  int ext = t.rounds[0].thin_count; // running extreme since the last turn
   for (int i = 0; i < n; i++) {
     const RoundQuality &q = t.rounds[i];
     if (q.thin_count > r.peak_thin) {
@@ -110,7 +113,7 @@ inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing 
       if (q.thin_count > ext) {
         ext = q.thin_count; // keep climbing; track the peak
       } else if (ext - q.thin_count >= min_swing) {
-        r.swings++;         // fell back from a peak: one burst healed
+        r.swings++; // fell back from a peak: one burst healed
         dir = -1;
         ext = q.thin_count;
       }
@@ -118,7 +121,7 @@ inline OscillationReport detectOscillation(const DynTopoTrace &t, int min_swing 
       if (q.thin_count < ext) {
         ext = q.thin_count; // keep falling; track the valley
       } else if (q.thin_count - ext >= min_swing) {
-        dir = 1;            // rose back out of a valley: a new burst begins
+        dir = 1; // rose back out of a valley: a new burst begins
         ext = q.thin_count;
       }
     } else {
@@ -170,28 +173,47 @@ inline void printTraceSummary(const DynTopoTrace &t, const char *tag)
       s += q.splits;
       c += q.collapses;
       fl += q.flips;
-      if (q.thin_count > thin_peak) thin_peak = q.thin_count;
-      if (q.max_over > worstOver) worstOver = q.max_over;
-      if (q.min_under > 0.0f && q.min_under < worstUnder) worstUnder = q.min_under;
+      if (q.thin_count > thin_peak)
+        thin_peak = q.thin_count;
+      if (q.max_over > worstOver)
+        worstOver = q.max_over;
+      if (q.min_under > 0.0f && q.min_under < worstUnder)
+        worstUnder = q.min_under;
       // rounds that measured no frontier tris leave min_angle at 0 — skip them
-      if (q.tri_count > 0 && q.min_angle < worstAng) worstAng = q.min_angle;
+      if (q.tri_count > 0 && q.min_angle < worstAng)
+        worstAng = q.min_angle;
       last = &q;
     }
     std::fprintf(stderr,
                  "[%s] iter=%-2d rounds=%-3d splits=%-5d collapses=%-5d "
                  "flips=%-5d thinPeak=%-3d worstAng=%5.1f over=%.2f under=%.2f "
                  "endCands=%d/%d\n",
-                 tag, iter, rounds, s, c, fl, thin_peak,
-                 worstAng < 1e29f ? worstAng * k : 0.0f, worstOver,
+                 tag,
+                 iter,
+                 rounds,
+                 s,
+                 c,
+                 fl,
+                 thin_peak,
+                 worstAng < 1e29f ? worstAng * k : 0.0f,
+                 worstOver,
                  worstUnder < 1e29f ? worstUnder : 0.0f,
-                 last ? last->split_cands : 0, last ? last->collapse_cands : 0);
+                 last ? last->split_cands : 0,
+                 last ? last->collapse_cands : 0);
   }
   OscillationReport r = detectOscillation(t);
   std::fprintf(stderr,
                "[%s] oscillated=%d healed=%d swings=%d peakThin=%d(r%d) "
                "worstAng=%.1f churnRun=%d(it%d)\n",
-               tag, int(r.oscillated), int(r.healed), r.swings, r.peak_thin,
-               r.peak_round, r.worst_min_angle * k, r.churn_run, r.churn_iter);
+               tag,
+               int(r.oscillated),
+               int(r.healed),
+               r.swings,
+               r.peak_thin,
+               r.peak_round,
+               r.worst_min_angle * k,
+               r.churn_run,
+               r.churn_iter);
 }
 
 /* Dump the per-round trace (debug-app / test diagnostic). */
@@ -203,9 +225,21 @@ inline void printTrace(const DynTopoTrace &t, const char *tag)
                  "[%s] it%-2d r%-2d s=%-3d c=%-3d f=%-3d sm=%-3d  tris=%-4d "
                  "thin=%-3d minAng=%5.1f meanMin=%5.1f  sc=%-4d cc=%-4d "
                  "over=%5.2f under=%5.2f\n",
-                 tag, q.iter, q.round, q.splits, q.collapses, q.flips, q.smooths,
-                 q.tri_count, q.thin_count, q.min_angle * k, q.mean_min_angle * k,
-                 q.split_cands, q.collapse_cands, q.max_over, q.min_under);
+                 tag,
+                 q.iter,
+                 q.round,
+                 q.splits,
+                 q.collapses,
+                 q.flips,
+                 q.smooths,
+                 q.tri_count,
+                 q.thin_count,
+                 q.min_angle * k,
+                 q.mean_min_angle * k,
+                 q.split_cands,
+                 q.collapse_cands,
+                 q.max_over,
+                 q.min_under);
   }
 }
 

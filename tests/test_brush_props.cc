@@ -76,7 +76,8 @@ int main()
     cmd.loadUniformProps(brush, &brush.deviceInputCtx);
     test_assert(brush.planeSide == 7.0f);
 
-    fprintf(stderr, "plane: planeSide=%g (untouched), planeoff registered\n",
+    fprintf(stderr,
+            "plane: planeSide=%g (untouched), planeoff registered\n",
             brush.planeSide);
   }
 

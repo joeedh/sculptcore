@@ -36,7 +36,8 @@ struct ReprojectStats {
  * `input` is read-only (used only to build a BVH); `out` is modified in place.
  * `input` is expected to be triangulated by the caller (the SpatialTree fans
  * n-gons internally, but the pipeline already triangulates). */
-ReprojectStats reprojectToSurface(mesh::Mesh &out, mesh::Mesh &input,
+ReprojectStats reprojectToSurface(mesh::Mesh &out,
+                                  mesh::Mesh &input,
                                   const ReprojectParams &params = {});
 
 } // namespace sculptcore::remesh

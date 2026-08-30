@@ -26,7 +26,9 @@ struct VkContext;
  * over all incident triangles — they are render-only and intentionally NOT
  * bit-identical to the per-node CPU normals (see brush_compute / the plan). */
 struct GpuNormalPass {
-  explicit GpuNormalPass(VkContext *ctx) : ctx_(ctx) {}
+  explicit GpuNormalPass(VkContext *ctx) : ctx_(ctx)
+  {
+  }
   GpuNormalPass(const GpuNormalPass &) = delete;
   ~GpuNormalPass();
 
@@ -38,9 +40,12 @@ struct GpuNormalPass {
    * indices (fan-triangulated faces, matching regen_node_tris). `vtriMeta` is
    * one (offset,count) per global vertex into `vtriList`, the flat list of
    * incident triangle indices. */
-  bool setTopology(const uint32_t *triVerts, int triCount,
-                   const uint32_t *vtriMeta, int vertCount,
-                   const uint32_t *vtriList, int listCount);
+  bool setTopology(const uint32_t *triVerts,
+                   int triCount,
+                   const uint32_t *vtriMeta,
+                   int vertCount,
+                   const uint32_t *vtriList,
+                   int listCount);
 
   /* Recompute per-vertex normals into `no` from positions `co` (both the
    * dispatcher's stride-16 STORAGE buffers) over the whole mesh. Runs the face
@@ -53,8 +58,11 @@ struct GpuNormalPass {
    * recompute (a dab's affected 1-ring); pass identity lists for a full pass.
    * Call prepareNormals(), then recordNormals(cb) inside the shared command
    * buffer (a face→vert memory barrier is recorded between the two). */
-  bool prepareNormals(VkBuffer co, VkBuffer no, const uint32_t *workTris,
-                      int triWorkCount, const uint32_t *workVerts,
+  bool prepareNormals(VkBuffer co,
+                      VkBuffer no,
+                      const uint32_t *workTris,
+                      int triWorkCount,
+                      const uint32_t *workVerts,
                       int vertWorkCount);
   void recordNormals(VkCommandBuffer cb);
 
@@ -62,8 +70,12 @@ struct GpuNormalPass {
    * pos[s] = co[slotVertex[s]].xyz, nor[s] = no[slotVertex[s]].xyz. `pos`/`nor`
    * are tightly-packed float3 VkBuffers (STORAGE-capable render VBOs);
    * `slotVertex` is a uint-per-slot STORAGE buffer. */
-  bool scatter(VkBuffer co, VkBuffer no, VkBuffer slotVertex, VkBuffer pos,
-               VkBuffer nor, int slotCount);
+  bool scatter(VkBuffer co,
+               VkBuffer no,
+               VkBuffer slotVertex,
+               VkBuffer pos,
+               VkBuffer nor,
+               int slotCount);
 
   /* Record-into-cb variant of scatter() so several GPU-node scatters can ride
    * the dab+normals submit instead of each costing its own queue-wait. Call
@@ -72,8 +84,12 @@ struct GpuNormalPass {
    * dispatches). The caller is responsible for a compute-write->read barrier
    * before the first scatter (the dab/vert passes write the co/no it reads). */
   void beginScatterBatch();
-  void recordScatter(VkCommandBuffer cb, VkBuffer co, VkBuffer no,
-                     VkBuffer slotVertex, VkBuffer pos, VkBuffer nor,
+  void recordScatter(VkCommandBuffer cb,
+                     VkBuffer co,
+                     VkBuffer no,
+                     VkBuffer slotVertex,
+                     VkBuffer pos,
+                     VkBuffer nor,
                      int slotCount);
 
   /* A compute-write -> compute-read global memory barrier, for chaining
@@ -120,17 +136,17 @@ private:
 
   Pipe face_, vert_, scatter_;
 
-  Buf triVerts_;   // uint[3*triCount]
-  Buf triNo_;      // vec4[triCount] (stride-16 scratch)
-  Buf vtriMeta_;   // uvec2[vertCount]
-  Buf vtriList_;   // uint[listCount]
-  Buf workTris_;   // uint[] dispatch index list (face pass)
-  Buf workVerts_;  // uint[] dispatch index list (vert pass)
+  Buf triVerts_;  // uint[3*triCount]
+  Buf triNo_;     // vec4[triCount] (stride-16 scratch)
+  Buf vtriMeta_;  // uvec2[vertCount]
+  Buf vtriList_;  // uint[listCount]
+  Buf workTris_;  // uint[] dispatch index list (face pass)
+  Buf workVerts_; // uint[] dispatch index list (vert pass)
 
   int triCount_ = 0;
   int vertCount_ = 0;
-  int triWork_ = 0;   // current face-pass work count (for recordNormals)
-  int vertWork_ = 0;  // current vert-pass work count
+  int triWork_ = 0;  // current face-pass work count (for recordNormals)
+  int vertWork_ = 0; // current vert-pass work count
 };
 
 } // namespace sculptcore::vulkan

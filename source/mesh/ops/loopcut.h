@@ -24,10 +24,8 @@ using sculptcore::mesh::faceEdgeNearestPoint;
 
 /* Loop-cut the quad strip through `seedEdge`. Appends the created midpoint verts
  * (the new loop) to outVerts and leaves them selected. */
-static inline void loopCut(Mesh &m,
-                           MeshCallbacks *cb,
-                           int seedEdge,
-                           litestl::util::Vector<int> &outVerts)
+static inline void
+loopCut(Mesh &m, MeshCallbacks *cb, int seedEdge, litestl::util::Vector<int> &outVerts)
 {
   using litestl::util::Map;
   using litestl::util::Set;

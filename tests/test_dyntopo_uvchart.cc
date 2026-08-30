@@ -78,10 +78,12 @@ static void assignChartUVs(Mesh *m)
 
 static int chartDegree(Mesh *m, int v, BoolAttrView *flag)
 {
-  if (m->v.e[v] == ELEM_NONE) return 0;
+  if (m->v.e[v] == ELEM_NONE)
+    return 0;
   int n = 0;
   for (int e : EdgeOfVertIter(m, v, m->v.e[v])) {
-    if (flag->get(e)) n++;
+    if (flag->get(e))
+      n++;
   }
   return n;
 }
@@ -92,13 +94,17 @@ static int walkChain(Mesh *m, int start, BoolAttrView *flag)
   for (int guard = 0; guard < 1000000; guard++) {
     int next = ELEM_NONE, deg = 0;
     for (int e : EdgeOfVertIter(m, cur, m->v.e[cur])) {
-      if (!flag->get(e)) continue;
+      if (!flag->get(e))
+        continue;
       deg++;
       int o = (m->e.vs[e][0] == cur) ? m->e.vs[e][1] : m->e.vs[e][0];
-      if (o != prev) next = o;
+      if (o != prev)
+        next = o;
     }
-    if (deg > 2) return ELEM_NONE; /* branch: torn */
-    if (next == ELEM_NONE) return cur;
+    if (deg > 2)
+      return ELEM_NONE; /* branch: torn */
+    if (next == ELEM_NONE)
+      return cur;
     prev = cur;
     cur = next;
   }
@@ -112,7 +118,8 @@ static void flagSet(Mesh *m, BoolAttrView *flag, util::Vector<int64_t> &out)
   for (int e : m->e) {
     if (flag && flag->get(e)) {
       int a = m->e.vs[e][0], b = m->e.vs[e][1];
-      if (a > b) std::swap(a, b);
+      if (a > b)
+        std::swap(a, b);
       out.append((int64_t(a) << 32) | int64_t(b));
     }
   }
@@ -138,7 +145,8 @@ static void runTest()
   test_assert(uvchart != nullptr);
   int pre = 0;
   for (int e : m->e) {
-    if (uvchart->get(e)) pre++;
+    if (uvchart->get(e))
+      pre++;
   }
   test_assert(pre == n - 1);
   test_assert((bnd::vertClass(m, grid[midY * n + 5]) & bnd::BC_UVCHART) != 0);
@@ -155,8 +163,8 @@ static void runTest()
   dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(*m, float3(0, 0, 0), 0.2f, p, 7u);
   bnd::recomputeDirty(m); /* the executors' end-of-stroke incremental fold */
 
-  printf("[uvchart] splits=%d collapses=%d flips=%d\n", st.splits, st.collapses,
-         st.flips);
+  printf(
+      "[uvchart] splits=%d collapses=%d flips=%d\n", st.splits, st.collapses, st.flips);
   test_assert(st.splits > 0);
   test_assert(!m->v.freemap[leftEnd] && !m->v.freemap[rightEnd]);
 
@@ -167,9 +175,12 @@ static void runTest()
   int ends = 0;
   for (int v : m->v) {
     int d = chartDegree(m, v, uvchart);
-    if (d == 0) continue;
-    if (d == 1) ends++;
-    else if (d != 2) simple = false;
+    if (d == 0)
+      continue;
+    if (d == 1)
+      ends++;
+    else if (d != 2)
+      simple = false;
   }
   printf("[uvchart] ends=%d simple=%d\n", ends, int(simple));
   test_assert(simple && ends == 2);
@@ -182,8 +193,7 @@ static void runTest()
   bnd::markAllDirty(m);
   bnd::recomputeDirty(m);
   flagSet(m, bnd::findBoolEdgeView(m, bnd::EDGE_UVCHART), full);
-  printf("[uvchart] incremental=%d full=%d\n", int(incremental.size()),
-         int(full.size()));
+  printf("[uvchart] incremental=%d full=%d\n", int(incremental.size()), int(full.size()));
   test_assert(incremental.size() == full.size());
   for (int i = 0; i < int(incremental.size()); i++) {
     test_assert(incremental[i] == full[i]);
@@ -249,7 +259,8 @@ int main()
 
   const float driftOn = runSmoothDab(true);
   const float driftOff = runSmoothDab(false);
-  printf("[uvchart] smooth uv drift: reproject=on %g, off %g\n", double(driftOn),
+  printf("[uvchart] smooth uv drift: reproject=on %g, off %g\n",
+         double(driftOn),
          double(driftOff));
   test_assert(driftOff > 1e-4f); /* smoothing really slides UVs when off */
   test_assert(driftOn < driftOff * 0.05f);

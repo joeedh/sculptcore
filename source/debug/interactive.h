@@ -8,7 +8,7 @@
 namespace sculptcore::brush {
 struct CommandExecutor;
 struct BrushStrokeDriver;
-}
+} // namespace sculptcore::brush
 
 namespace sculptcore::debug_app {
 

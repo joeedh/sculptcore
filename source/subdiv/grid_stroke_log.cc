@@ -80,8 +80,8 @@ void GridStrokeLog::captureGridBlock(Step &s, int grid, int channel)
   Multires *mr = d_->multires();
   int level = d_->level();
   mr->store.ensureLevelResident(level);
-  int floats = mr->store.channelElemsPerGrid(level, channel) *
-               mr->store.channelElemSize(channel);
+  int floats =
+      mr->store.channelElemsPerGrid(level, channel) * mr->store.channelElemSize(channel);
   GridBlock b;
   b.grid = grid;
   b.channel = mr->store.channelName(channel);
@@ -263,7 +263,8 @@ void GridStrokeLog::applySwap(Step &s)
         grids.append(b->grid);
       }
     }
-    mr->gridAttrs().refreshSamplesFromChannel(name, level, grids.data(), int(grids.size()));
+    mr->gridAttrs().refreshSamplesFromChannel(
+        name, level, grids.data(), int(grids.size()));
     if (GridDrawSource *ds = mr->drawSource()) {
       ds->markGrids(std::span<const int>(grids.data(), grids.size()));
     }

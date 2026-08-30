@@ -65,7 +65,8 @@ static void appendErrors(string &error, const Vector<string> &errs)
 }
 
 // Lex/parse errors carry line/col separately from the message.
-template <typename ErrT> static void appendLineErrors(string &error, const Vector<ErrT> &errs)
+template <typename ErrT>
+static void appendLineErrors(string &error, const Vector<ErrT> &errs)
 {
   char buf[32];
   for (const auto &e : errs) {
@@ -264,8 +265,9 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
   }
 
   string lower = lowerName(td.name);
-  auto *eval = (float (*)(const float *, const float *, const float *, const TexEvalCtx *))
-      tcc_get_symbol(s, (string("tex_") + lower + "_eval").c_str());
+  auto *eval =
+      (float (*)(const float *, const float *, const float *, const TexEvalCtx *))
+          tcc_get_symbol(s, (string("tex_") + lower + "_eval").c_str());
   if (!eval) {
     error = string("JIT'd TU is missing tex_") + lower + "_eval";
     tcc_delete(s);
@@ -274,7 +276,8 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
 
   const float *slab = nullptr;
   if (td.slabSize > 0) {
-    slab = (const float *)tcc_get_symbol(s, (string("tex_") + lower + "_param_defaults").c_str());
+    slab = (const float *)tcc_get_symbol(
+        s, (string("tex_") + lower + "_param_defaults").c_str());
     if (!slab) {
       error = string("JIT'd TU is missing tex_") + lower + "_param_defaults";
       tcc_delete(s);
@@ -287,8 +290,9 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
   p->name = td.name;
   p->source = string(source);
   p->eval = eval;
-  p->evalDual = (void (*)(const TexDual3 *, const TexDual3 *, const float *, const TexEvalCtx *,
-                          TexDual *))tcc_get_symbol(s, (string("tex_") + lower + "_eval_d").c_str());
+  p->evalDual = (void (*)(
+      const TexDual3 *, const TexDual3 *, const float *, const TexEvalCtx *, TexDual *))
+      tcc_get_symbol(s, (string("tex_") + lower + "_eval_d").c_str());
   p->usesMap = td.usesMap;
   p->paramSlabSize = td.slabSize;
   for (int i = 0; i < td.slabSize; i++) {
@@ -315,7 +319,8 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
   // Sampler WGSL snippets are prepended (FD grad wrappers synthesized when a
   // snippet lacks one) so p->wgsl is self-contained; a sampler registered
   // without WGSL makes the texture CPU-only.
-  sbrush::EmitResult wr = sbrush::emitWgslTextureDefs(scratch, /*paramsFromBinding=*/true);
+  sbrush::EmitResult wr =
+      sbrush::emitWgslTextureDefs(scratch, /*paramsFromBinding=*/true);
   if (wr.errors.size() == 0) {
     bool gpu = wr.text.size() > 0;
     string prefix;
@@ -341,18 +346,19 @@ TextureProgram *compileTextureScript(stringref source, stringref filename, strin
   return p;
 }
 
-#else  // !SCULPTCORE_TEXTURE_PROGRAMS
+#else // !SCULPTCORE_TEXTURE_PROGRAMS
 
 TextureProgram *compileTextureScript(stringref, stringref, string &error)
 {
-  error = litestl::util::string(
-      "runtime texture compilation is not built in (WASM builds use the precompiled registry)");
+  error = litestl::util::string("runtime texture compilation is not built in (WASM "
+                                "builds use the precompiled registry)");
   return nullptr;
 }
 
 #endif
 
-string spliceTextureProgramWgsl(stringref kernelSrc, const TextureProgram &p, string &error)
+string
+spliceTextureProgramWgsl(stringref kernelSrc, const TextureProgram &p, string &error)
 {
   std::string src(kernelSrc.c_str());
   if (!p.gpuAvailable || p.wgsl.size() == 0) {
@@ -392,4 +398,4 @@ string spliceTextureProgramWgsl(stringref kernelSrc, const TextureProgram &p, st
   return string(src.c_str());
 }
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

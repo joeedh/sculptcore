@@ -37,7 +37,7 @@
 namespace sculptcore::mesh {
 struct Mesh;
 struct MeshCallbacks;
-}
+} // namespace sculptcore::mesh
 namespace sculptcore::spatial {
 struct SpatialTree;
 }

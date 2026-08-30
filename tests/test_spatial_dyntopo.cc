@@ -63,8 +63,12 @@ static int validateOwnership(spatial::SpatialTree *tree, Mesh *m, const char *ta
         return -1;
       }
       if (tree->treeMesh.f.node[f] != leaf->id) {
-        fprintf(stderr, "[%s] face %d owner %d != leaf %d\n", tag, f,
-                tree->treeMesh.f.node[f], leaf->id);
+        fprintf(stderr,
+                "[%s] face %d owner %d != leaf %d\n",
+                tag,
+                f,
+                tree->treeMesh.f.node[f],
+                leaf->id);
         return -1;
       }
       owned++;
@@ -77,8 +81,12 @@ static int validateOwnership(spatial::SpatialTree *tree, Mesh *m, const char *ta
         return -1;
       }
       if (tree->treeMesh.v.node[v] != leaf->id) {
-        fprintf(stderr, "[%s] vert %d owner %d != leaf %d\n", tag, v,
-                tree->treeMesh.v.node[v], leaf->id);
+        fprintf(stderr,
+                "[%s] vert %d owner %d != leaf %d\n",
+                tag,
+                v,
+                tree->treeMesh.v.node[v],
+                leaf->id);
         return -1;
       }
     }
@@ -86,7 +94,8 @@ static int validateOwnership(spatial::SpatialTree *tree, Mesh *m, const char *ta
   /* Every live face and vert is owned by exactly one leaf (complete coverage). */
   int ownedV = 0;
   for (auto *leaf : leaves) {
-    if (leaf->data) ownedV += int(leaf->data->unique_verts.size());
+    if (leaf->data)
+      ownedV += int(leaf->data->unique_verts.size());
   }
   if (ownedV != m->v.count) {
     fprintf(stderr, "[%s] %d verts owned but mesh has %d\n", tag, ownedV, m->v.count);
@@ -106,8 +115,7 @@ int main()
   setvbuf(stdout, nullptr, _IONBF, 0);
 
   Mesh *m = makeTriGrid(13); /* spacing ~0.083 */
-  spatial::SpatialTree *tree =
-      alloc::New<spatial::SpatialTree>("test tree", m);
+  spatial::SpatialTree *tree = alloc::New<spatial::SpatialTree>("test tree", m);
   /* Small leaf_limit so the (flip-leaned) refinement still crosses it and forces
    * a rebalance — dyntopo's geometric flips (M7.2) cut the split count, so the
    * default 512 would leave the refined region in a single leaf. */
@@ -175,8 +183,12 @@ int main()
       dp.l_min = 0.005f;
     }
     float fx = (i % 3 - 1) * 0.2f;
-    dyntopo::runDyntopoRemesh(*m, float3(fx, 0, 0), 0.25f, dp,
-                           /*seed=*/100u + i, tree->getSpatialCallbacks());
+    dyntopo::runDyntopoRemesh(*m,
+                              float3(fx, 0, 0),
+                              0.25f,
+                              dp,
+                              /*seed=*/100u + i,
+                              tree->getSpatialCallbacks());
     tree->applyDeferredNodeSplit();
     tree->applyDeferredMerge();
     for (auto *leaf : tree->leaves()) {
@@ -193,7 +205,12 @@ int main()
 
   printf("spatial_dyntopo test: ok (%d -> %d faces, %d splits, %d -> %d leaves, "
          "e2e peak %d)\n",
-         fBefore, fAfter, st.splits, leavesBefore, leavesAfter, leavesCap);
+         fBefore,
+         fAfter,
+         st.splits,
+         leavesBefore,
+         leavesAfter,
+         leavesCap);
 
   alloc::Delete(tree);
   alloc::Delete(m);

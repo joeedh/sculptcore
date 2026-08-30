@@ -26,8 +26,8 @@
  *    host-side queries only. */
 
 #include "compute_dispatch.h"
-#include "grid_executor.h"
 #include "gpu_marshal.h"
+#include "grid_executor.h"
 
 #include <chrono>
 #include <cstring>
@@ -65,7 +65,7 @@ struct GridGpuStrokeSession {
    * null — the dispatch rule (both the grids roster and the GPU kernel map
    * must carry it; face-stage kernels are excluded by the roster already). */
   static const GpuKernelInfo *kernelFor(SculptBrushes tool,
-                                       const subdiv::MultiresAttrs *attrs = nullptr)
+                                        const subdiv::MultiresAttrs *attrs = nullptr)
   {
     if (!GridBrushExecutor::supportsBrush(tool, attrs)) {
       return nullptr;
@@ -169,18 +169,16 @@ struct GridGpuStrokeSession {
       for (int i = 0; i < int(d->ring1.size()); i++) {
         nbrFlat_[i] = uint32_t(d->ring1[i]);
       }
-      if (!disp->setNeighbors(nbrMeta_.data(), vc, nbrFlat_.data(),
-                              int(nbrFlat_.size())))
+      if (!disp->setNeighbors(nbrMeta_.data(), vc, nbrFlat_.data(), int(nbrFlat_.size())))
       {
         err = "grid gpu stroke: neighbor upload failed";
         return false;
       }
     }
 
-    if (brush->tex_width > 0 && brush->tex_height > 0 && brush->tex_pixels.size() > 0)
-    {
-      if (!disp->setBrushTexture(brush->tex_pixels.data(), brush->tex_width,
-                                 brush->tex_height))
+    if (brush->tex_width > 0 && brush->tex_height > 0 && brush->tex_pixels.size() > 0) {
+      if (!disp->setBrushTexture(
+              brush->tex_pixels.data(), brush->tex_width, brush->tex_height))
       {
         err = "grid gpu stroke: brush texture upload failed";
         return false;
@@ -283,8 +281,14 @@ struct GridGpuStrokeSession {
 
     stats.hostMs += msSince(tHost);
     auto tDisp = clock::now();
-    if (!disp->dab(bu, cu, uverts_.data(), int(uverts_.size()), chunks_.data(),
-                   int(chunks_.size()), brush->falloff_curve.data(), sp.data(),
+    if (!disp->dab(bu,
+                   cu,
+                   uverts_.data(),
+                   int(uverts_.size()),
+                   chunks_.data(),
+                   int(chunks_.size()),
+                   brush->falloff_curve.data(),
+                   sp.data(),
                    int(sp.size())))
     {
       err = "grid gpu stroke: compute dispatch failed";
@@ -303,7 +307,8 @@ struct GridGpuStrokeSession {
       auto &pos = domain->pos();
       for (int i = 0; i < n; i++) {
         int v = int(uverts_[i]);
-        float3 c(coBack_[size_t(i) * 3 + 0], coBack_[size_t(i) * 3 + 1],
+        float3 c(coBack_[size_t(i) * 3 + 0],
+                 coBack_[size_t(i) * 3 + 1],
                  coBack_[size_t(i) * 3 + 2]);
         if (std::memcmp(&c, &pos[v], sizeof(float3)) != 0) {
           pos[v] = c;
@@ -315,8 +320,7 @@ struct GridGpuStrokeSession {
         }
       }
       if (dabMoved_.size() > 0) {
-        domain->refreshNormals(
-            std::span<const int>(dabMoved_.data(), dabMoved_.size()));
+        domain->refreshNormals(std::span<const int>(dabMoved_.data(), dabMoved_.size()));
         tree->refreshBounds(std::span<const int>(dabLeaves_.data(), dabLeaves_.size()));
       }
     }
@@ -337,8 +341,8 @@ struct GridGpuStrokeSession {
     if (info->writesMask) {
       maskOut.resize(vc);
     }
-    if (!disp->endStroke(coOut.data(), nullptr,
-                         info->writesMask ? maskOut.data() : nullptr))
+    if (!disp->endStroke(
+            coOut.data(), nullptr, info->writesMask ? maskOut.data() : nullptr))
     {
       err = "grid gpu stroke: readback failed";
       return false;
@@ -350,8 +354,8 @@ struct GridGpuStrokeSession {
     auto &pos = domain->pos();
     Vector<int> finalMoved;
     for (int v = 0; v < vc; v++) {
-      float3 c(coOut[size_t(v) * 3 + 0], coOut[size_t(v) * 3 + 1],
-               coOut[size_t(v) * 3 + 2]);
+      float3 c(
+          coOut[size_t(v) * 3 + 0], coOut[size_t(v) * 3 + 1], coOut[size_t(v) * 3 + 2]);
       if (std::memcmp(&c, &pos[v], sizeof(float3)) != 0) {
         pos[v] = c;
         finalMoved.append(v);
@@ -375,12 +379,12 @@ struct GridGpuStrokeSession {
       }
     }
     if (finalMoved.size() > 0) {
-      domain->refreshNormals(
-          std::span<const int>(finalMoved.data(), finalMoved.size()));
+      domain->refreshNormals(std::span<const int>(finalMoved.data(), finalMoved.size()));
     }
     tree->refreshBounds(std::span<const int>(strokeLeaves_.data(), strokeLeaves_.size()));
 
-    gridsFoldStroke(domain, log,
+    gridsFoldStroke(domain,
+                    log,
                     std::span<const int>(strokeTouched_.data(), strokeTouched_.size()),
                     /*wroteCo=*/!info->writesMask,
                     /*wroteMask=*/info->writesMask);

@@ -79,9 +79,16 @@ bool Subprocess::start(const std::wstring &exe, const std::vector<std::wstring> 
   // lpApplicationName=nullptr → the OS resolves argv[0] from the (quoted)
   // command line, doing a PATH search + ".exe" append. That lets us launch both
   // a full path (remesh_cli.exe) and a bare program on PATH (node) uniformly.
-  BOOL ok = CreateProcessW(nullptr, buf.data(), nullptr, nullptr,
-                           /*bInheritHandles=*/TRUE, CREATE_NO_WINDOW, nullptr,
-                           nullptr, &si, &pi);
+  BOOL ok = CreateProcessW(nullptr,
+                           buf.data(),
+                           nullptr,
+                           nullptr,
+                           /*bInheritHandles=*/TRUE,
+                           CREATE_NO_WINDOW,
+                           nullptr,
+                           nullptr,
+                           &si,
+                           &pi);
   // Parent never writes the child's stdout; close our copy so the reader sees
   // EOF when the child exits (else ReadFile blocks forever).
   CloseHandle(wr);

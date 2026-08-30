@@ -42,8 +42,8 @@ VdmStore::~VdmStore()
 
 VdmTile *VdmStore::findTile(int tx, int ty) const
 {
-  VdmTile *const *t = const_cast<util::Map<uint64_t, VdmTile *> &>(tiles_).lookup_ptr(
-      tileKey(tx, ty));
+  VdmTile *const *t =
+      const_cast<util::Map<uint64_t, VdmTile *> &>(tiles_).lookup_ptr(tileKey(tx, ty));
   return t ? *t : nullptr;
 }
 

@@ -19,10 +19,10 @@ struct ComputeBrushUniforms {
   uint32_t invert = 0;
   uint32_t falloff_kind = 0;
   uint32_t falloff_shape = 0;
-  uint32_t nonaccum = 0;               // offset 24 — non-accumulate stroke (accumulable kernels only)
-  uint32_t grab_dab_gen = 0;           // offset 28 — grab-class per-dab generation (@grabmode
-                                       // first-touch stamps); pad for every other kernel
-  float falloff_dir[3] = {0, 0, 1};    // offset 32
+  uint32_t nonaccum = 0; // offset 24 — non-accumulate stroke (accumulable kernels only)
+  uint32_t grab_dab_gen = 0; // offset 28 — grab-class per-dab generation (@grabmode
+                             // first-touch stamps); pad for every other kernel
+  float falloff_dir[3] = {0, 0, 1}; // offset 32
   /* offset 44 — @unbounded cutoff radius as a multiple of `radius`; fills what
    * was falloff_dir's std140 pad, so falloff_extent still lands at 48.
    * 0 disables the window (every non-unbounded kernel). */
@@ -70,17 +70,20 @@ struct ComputeCtxUniforms {
   uint32_t vn_cull = 0;           // offset 120
   uint32_t _pad2 = 0;             // offset 124; base rounds to 128
   union {
-    struct {                              // kelvinlet.wgsl CtxUniforms tail
-      float grabFrom[3]; uint32_t _kpad0;  // offset 128
-      float grabTo[3];   uint32_t _kpad1;  // offset 144
+    struct { // kelvinlet.wgsl CtxUniforms tail
+      float grabFrom[3];
+      uint32_t _kpad0; // offset 128
+      float grabTo[3];
+      uint32_t _kpad1; // offset 144
     } kelvinlet;
     struct {                    // pose.wgsl tail — std140 array<vec3> stride 16
-      float poseCageRest[4][4];  // offset 128 ([i][0..2]=xyz, [i][3]=pad)
-      float poseCageNow[4][4];   // offset 192
+      float poseCageRest[4][4]; // offset 128 ([i][0..2]=xyz, [i][3]=pad)
+      float poseCageNow[4][4];  // offset 192
     } pose;
-    struct {                              // grab.wgsl tail
-      float grabTo[3]; uint32_t _gpad0;   // offset 128 (no grabFrom — the
-                                          // kernel drags by grabTo alone)
+    struct { // grab.wgsl tail
+      float grabTo[3];
+      uint32_t _gpad0; // offset 128 (no grabFrom — the
+                       // kernel drags by grabTo alone)
     } grab;
   } global = {};
 };
@@ -90,10 +93,10 @@ struct ComputeCtxUniforms {
  * into the tail of `normal`'s 16-byte slot at offset 28, giving stride 32 (NOT
  * 48 — over-padding here makes the shader read arclen out of the wrong slot). */
 struct ComputeStrokeSample {
-  float pos[3] = {0, 0, 0};     // offset 0
-  uint32_t _pad0 = 0;           // pad to normal's 16-byte alignment
-  float normal[3] = {0, 0, 1};  // offset 16
-  float arclen = 0.0f;          // offset 28
+  float pos[3] = {0, 0, 0};    // offset 0
+  uint32_t _pad0 = 0;          // pad to normal's 16-byte alignment
+  float normal[3] = {0, 0, 1}; // offset 16
+  float arclen = 0.0f;         // offset 28
 };
 
 /* One spatial-node chunk: a (offset,count) window into the flattened element

@@ -15,15 +15,15 @@
 
 #include "test_util.h"
 
+#include "brush/brush.h"
+#include "brush/cage_smooth.h"
 #include "mesh/attribute.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_iter.h"
-#include "brush/brush.h"
-#include "brush/cage_smooth.h"
+#include "mesh/mesh_proxy.h"
 #include "subdiv/c-api/grid_channel_c_api.h"
 #include "subdiv/grid_attrs.h"
 #include "subdiv/grid_domain.h"
-#include "mesh/mesh_proxy.h"
 #include "subdiv/multires.h"
 #include "subdiv/subdiv.h"
 #include "vdm/vdm_store.h"
@@ -42,7 +42,9 @@ test_init;
  * hosts reach them through the DLL's C interface. */
 extern "C" {
 uint8_t *Multires_serializeStore(sculptcore::subdiv::Multires *mr, int *out_size);
-int Multires_restoreStore(sculptcore::subdiv::Multires *mr, const uint8_t *data, int size);
+int Multires_restoreStore(sculptcore::subdiv::Multires *mr,
+                          const uint8_t *data,
+                          int size);
 uint64_t Multires_maskGeneration(sculptcore::subdiv::Multires *mr);
 void freeMeshBuffer(uint8_t *buf);
 }
@@ -125,8 +127,8 @@ static void cornerRefs(Mesh &cage, Vector<TestCorner> &out)
         cp = cage.c.next[cp];
       }
       const int co = cage.c.next[cn];
-      out.append(TestCorner{
-          fi, cage.c.v[cc], cage.c.v[cn], cage.c.v[cp], cage.c.v[co], size});
+      out.append(
+          TestCorner{fi, cage.c.v[cc], cage.c.v[cn], cage.c.v[cp], cage.c.v[co], size});
       cc = cn;
     } while (cc != c0);
   }
@@ -135,8 +137,7 @@ static void cornerRefs(Mesh &cage, Vector<TestCorner> &out)
 /* The bilinear value at grid sample (u,v) of a quad face, from the four cage
  * corner values in the grid's own axes: A + fu/2·(B-A) + fv/2·(D-A) bilinearly
  * over the whole quad, which for a quad reduces to the standard patch. */
-static float2 expectedQuadUv(
-    float2 A, float2 B, float2 D, float2 C, float fu, float fv)
+static float2 expectedQuadUv(float2 A, float2 B, float2 D, float2 C, float fu, float fv)
 {
   const float su = fu * 0.5f, sv = fv * 0.5f;
   const float w0 = (1.0f - su) * (1.0f - sv);
@@ -588,8 +589,7 @@ static void gateCageScatter()
   for (int f : cage->f) {
     if ((*cgrp)[f] == 7) {
       painted++;
-    }
-    else {
+    } else {
       test_assert((*cgrp)[f] == 1);
     }
   }
@@ -693,7 +693,8 @@ static void gateCageColorSmooth()
   dom->mask[dom->gridVerts(g1)[0]] = 1.0f;
   dom->flushMaskToStore();
 
-  auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+  auto *cageCol =
+      cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
   test_assert(cageCol != nullptr);
   float4 before[9];
   for (int v = 0; v < 9; v++) {
@@ -773,7 +774,6 @@ static void gateCageColorSmooth()
   alloc::Delete(cage);
 }
 
-
 /* B2a's vertex-domain twin of gateCageScatter. Blender has no multires
  * attribute domain, so painted colour has to land somewhere in the object's own
  * data or die with the session; the cage is that somewhere. The write is exact
@@ -835,7 +835,8 @@ static void gateCageVertScatter()
   {
     const float4 *samples = mr.gridAttrs().colorSamples(level);
     test_assert(samples != nullptr);
-    auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    auto *cageCol =
+        cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
     test_assert(cageCol != nullptr);
     if (samples && cageCol) {
       for (int g = 0; g < grids; g++) {
@@ -863,8 +864,8 @@ static void gateCageVertScatter()
   for (int k = 0; k < 4; k++) {
     buf[k] = C[k];
   }
-  test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
-              perGrid * grids);
+  test_assert(Multires_gridChannelWrite(
+                  &mr, level, col, 0, grids, buf.data(), buf.size()) == perGrid * grids);
 
   /* The scatter now reports the grids it re-derived (C1); this gate reads only
    * its return value, so the list is scratch. */
@@ -898,8 +899,8 @@ static void gateCageVertScatter()
     dst[2] = 0.5f;
     dst[3] = 1.0f;
   }
-  test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
-              perGrid * grids);
+  test_assert(Multires_gridChannelWrite(
+                  &mr, level, col, 0, grids, buf.data(), buf.size()) == perGrid * grids);
   test_assert(scatterVert("col") == 9);
   for (int v : cage->v) {
     const float t = float(v + 1) / 16.0f;
@@ -927,8 +928,8 @@ static void gateCageVertScatter()
   {
     auto *d = sref.get_data<float4>();
     for (int v : cage->v) {
-      const float4 want = v == gridVert[0] ? float4(0.0f, 0.25f, 0.5f, 1.0f) :
-                                             float4(1.0f, 1.0f, 1.0f, 1.0f);
+      const float4 want = v == gridVert[0] ? float4(0.0f, 0.25f, 0.5f, 1.0f)
+                                           : float4(1.0f, 1.0f, 1.0f, 1.0f);
       test_assert(sameColor((*d)[v], want));
     }
   }
@@ -951,9 +952,8 @@ static void gateCageVertScatter()
     for (int g = 0; g < grids; g++) {
       const int vert = gridVert[g];
       const float t = float(vert + 1) / 16.0f;
-      (*d)[lvl.gridVerts[g * w * w]] = vert == gridVert[0] ?
-                                           D :
-                                           float4(t, 1.0f - t, 0.5f, 1.0f);
+      (*d)[lvl.gridVerts[g * w * w]] =
+          vert == gridVert[0] ? D : float4(t, 1.0f - t, 0.5f, 1.0f);
     }
   }
   test_assert(scatterVert("col") == 0);
@@ -989,8 +989,9 @@ static void gateCageVertScatter()
         dst[3] = 1.0f;
       }
     }
-    test_assert(Multires_gridChannelWrite(&mr, level, dch, 0, grids, buf.data(), buf.size()) ==
-                perGrid * grids);
+    test_assert(
+        Multires_gridChannelWrite(&mr, level, dch, 0, grids, buf.data(), buf.size()) ==
+        perGrid * grids);
     tg.clear();
     test_assert(mr.scatterVertFloat4ToCage(level, "dcol", nullptr, 0, tg) > 0);
     /* Every cage vert moved, so every grid of every face re-derives. */
@@ -1085,7 +1086,8 @@ static void gateSubFaceDabCollapse()
   test_assert(mr.scatterVertFloat4ToCage(level, "color", dab, 1, tg) == 0);
   test_assert(tg.size() > 0);
   /* No cage vert moved... */
-  auto *cdata = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+  auto *cdata =
+      cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
   test_assert(cdata != nullptr);
   for (int v : cage->v) {
     const float t = float(v + 1) / 16.0f;
@@ -1125,7 +1127,8 @@ static void gateChannelCapi()
   test_assert(rule == int(subdiv::GridLevelRule::Delta));
   /* A short buffer truncates and still reports the real length. */
   char tiny[3] = {0};
-  test_assert(Multires_gridChannelName(&mr, 0, tiny, 3) == 4 && std::strcmp(tiny, "di") == 0);
+  test_assert(Multires_gridChannelName(&mr, 0, tiny, 3) == 4 &&
+              std::strcmp(tiny, "di") == 0);
   test_assert(Multires_gridChannelName(&mr, 99, nbuf, sizeof(nbuf)) == -1);
 
   /* A host-persisted authored colour layer -- the case B1 exists for. */
@@ -1141,16 +1144,30 @@ static void gateChannelCapi()
   test_assert(fpe == 4 && persist == 1 && rule == int(subdiv::GridLevelRule::Authored));
   /* Re-declaring at another width is a failure, not a silent redefinition;
    * re-declaring the persistence is how a host claims a layer. */
-  test_assert(Multires_gridChannelEnsure(&mr, "col", 2, int(subdiv::GridElemDomain::Vertex),
-                                         int(AttrType::FLOAT4), 1,
+  test_assert(Multires_gridChannelEnsure(&mr,
+                                         "col",
+                                         2,
+                                         int(subdiv::GridElemDomain::Vertex),
+                                         int(AttrType::FLOAT4),
+                                         1,
                                          int(subdiv::GridLevelRule::Authored)) == -1);
-  test_assert(Multires_gridChannelEnsure(&mr, "col", 4, int(subdiv::GridElemDomain::Vertex),
-                                         int(AttrType::FLOAT4), 0,
+  test_assert(Multires_gridChannelEnsure(&mr,
+                                         "col",
+                                         4,
+                                         int(subdiv::GridElemDomain::Vertex),
+                                         int(AttrType::FLOAT4),
+                                         0,
                                          int(subdiv::GridLevelRule::Authored)) == col);
-  test_assert(Multires_gridChannelInfo(&mr, col, nullptr, nullptr, nullptr, &persist, nullptr));
+  test_assert(
+      Multires_gridChannelInfo(&mr, col, nullptr, nullptr, nullptr, &persist, nullptr));
   test_assert(persist == 0);
-  Multires_gridChannelEnsure(&mr, "col", 4, int(subdiv::GridElemDomain::Vertex),
-                             int(AttrType::FLOAT4), 1, int(subdiv::GridLevelRule::Authored));
+  Multires_gridChannelEnsure(&mr,
+                             "col",
+                             4,
+                             int(subdiv::GridElemDomain::Vertex),
+                             int(AttrType::FLOAT4),
+                             1,
+                             int(subdiv::GridLevelRule::Authored));
 
   const int level = 2, grids = mr.refiner.gridCount();
   const int perGrid = Multires_gridChannelGridFloats(&mr, level, col);
@@ -1165,8 +1182,8 @@ static void gateChannelCapi()
     buf[i] = -1.0f;
   }
   test_assert(!Multires_gridChannelLevelAllocated(&mr, level, col));
-  test_assert(Multires_gridChannelRead(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
-              perGrid * grids);
+  test_assert(Multires_gridChannelRead(
+                  &mr, level, col, 0, grids, buf.data(), buf.size()) == perGrid * grids);
   for (float f : buf) {
     test_assert(f == 0.0f);
   }
@@ -1176,13 +1193,14 @@ static void gateChannelCapi()
   for (int i = 0; i < int(buf.size()); i++) {
     buf[i] = float(i) * 0.5f + 1.0f;
   }
-  test_assert(Multires_gridChannelWrite(&mr, level, col, 0, grids, buf.data(), buf.size()) ==
-              perGrid * grids);
+  test_assert(Multires_gridChannelWrite(
+                  &mr, level, col, 0, grids, buf.data(), buf.size()) == perGrid * grids);
   test_assert(Multires_gridChannelLevelAllocated(&mr, level, col));
   Vector<float> back;
   back.resize(buf.size());
-  test_assert(Multires_gridChannelRead(&mr, level, col, 0, grids, back.data(), back.size()) ==
-              perGrid * grids);
+  test_assert(
+      Multires_gridChannelRead(&mr, level, col, 0, grids, back.data(), back.size()) ==
+      perGrid * grids);
   for (int i = 0; i < int(buf.size()); i++) {
     test_assert(back[i] == buf[i]);
   }
@@ -1190,20 +1208,24 @@ static void gateChannelCapi()
    * to hold a whole level. */
   Vector<float> one;
   one.resize(perGrid);
-  test_assert(Multires_gridChannelRead(&mr, level, col, 1, 1, one.data(), one.size()) == perGrid);
+  test_assert(Multires_gridChannelRead(&mr, level, col, 1, 1, one.data(), one.size()) ==
+              perGrid);
   for (int i = 0; i < perGrid; i++) {
     test_assert(one[i] == buf[perGrid + i]);
   }
   /* Out of range and undersized buffers are refusals, not overruns. */
-  test_assert(Multires_gridChannelRead(&mr, level, col, grids, 1, one.data(), one.size()) == 0);
-  test_assert(Multires_gridChannelRead(&mr, level, col, 0, 1, one.data(), perGrid - 1) == 0);
+  test_assert(
+      Multires_gridChannelRead(&mr, level, col, grids, 1, one.data(), one.size()) == 0);
+  test_assert(Multires_gridChannelRead(&mr, level, col, 0, 1, one.data(), perGrid - 1) ==
+              0);
 
   /* The level round trip an Authored channel promises: subdivide, delete
    * higher, and the paint at the surviving level is untouched. */
   mr.addLevel();
   mr.removeTopLevel();
-  test_assert(Multires_gridChannelRead(&mr, level, col, 0, grids, back.data(), back.size()) ==
-              perGrid * grids);
+  test_assert(
+      Multires_gridChannelRead(&mr, level, col, 0, grids, back.data(), back.size()) ==
+      perGrid * grids);
   int diffs = 0;
   for (int i = 0; i < int(buf.size()); i++) {
     diffs += back[i] != buf[i];
@@ -1269,7 +1291,8 @@ static void gateResidentSlotFreshness()
   {
     const subdiv::SubdivLevel &lvl = mr.refiner.levels[3 - 1];
     const int w = lvl.gridSide + 1;
-    auto *fcol = fine->mesh->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    auto *fcol =
+        fine->mesh->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
     test_assert(fcol != nullptr);
     if (!fcol) {
       alloc::Delete(cage);
@@ -1280,7 +1303,8 @@ static void gateResidentSlotFreshness()
   Vector<int> touched;
   test_assert(mr.scatterVertFloat4ToCage(3, "color", nullptr, 0, touched) > 0);
   {
-    auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    auto *cageCol =
+        cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
     test_assert(cageCol && sameColor((*cageCol)[movedCageVert], painted));
   }
 
@@ -1292,7 +1316,8 @@ static void gateResidentSlotFreshness()
   {
     const subdiv::SubdivLevel &lvl = mr.refiner.levels[2 - 1];
     const int w = lvl.gridSide + 1;
-    auto *ccol = again->mesh->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    auto *ccol =
+        again->mesh->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
     test_assert(ccol != nullptr);
     if (ccol) {
       test_assert(sameColor((*ccol)[lvl.gridVerts[0 * w * w]], painted));
@@ -1304,7 +1329,8 @@ static void gateResidentSlotFreshness()
   Vector<int> tg2;
   mr.scatterVertFloat4ToCage(2, "color", nullptr, 0, tg2);
   {
-    auto *cageCol = cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
+    auto *cageCol =
+        cage->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
     test_assert(cageCol && sameColor((*cageCol)[movedCageVert], painted));
   }
 
@@ -1321,10 +1347,18 @@ static void gateAttrDownPropagation()
   Multires mr;
   mr.init(*cage, 3);
   auto &st = mr.store;
-  const int col = st.addChannel(util::string("col"), 4, GridElemDomain::Vertex,
-                                AttrType::FLOAT4, true, GridLevelRule::Authored);
-  const int other = st.addChannel(util::string("other"), 4, GridElemDomain::Vertex,
-                                  AttrType::FLOAT4, true, GridLevelRule::Authored);
+  const int col = st.addChannel(util::string("col"),
+                                4,
+                                GridElemDomain::Vertex,
+                                AttrType::FLOAT4,
+                                true,
+                                GridLevelRule::Authored);
+  const int other = st.addChannel(util::string("other"),
+                                  4,
+                                  GridElemDomain::Vertex,
+                                  AttrType::FLOAT4,
+                                  true,
+                                  GridLevelRule::Authored);
   const int grids = mr.refiner.gridCount();
   const int wf = subdiv::GridsStore::elemWidth(3, GridElemDomain::Vertex);
   const int w2 = subdiv::GridsStore::elemWidth(2, GridElemDomain::Vertex);
@@ -1335,7 +1369,8 @@ static void gateAttrDownPropagation()
     for (int v = 0; v < wf; v++) {
       for (int u = 0; u < wf; u++) {
         for (int k = 0; k < 4; k++) {
-          const float f = std::sin(float(g) + float(u) * 0.21f + float(v) * 0.37f + float(k));
+          const float f =
+              std::sin(float(g) + float(u) * 0.21f + float(v) * 0.37f + float(k));
           st.elem(3, col, g, u, v)[k] = f;
           st.elem(3, other, g, u, v)[k] = f;
         }
@@ -1434,10 +1469,10 @@ static void prolongRef(const Vector<float> &coarse, int wc, Vector<float> &fine,
   for (int v = 0; v < wf; v++) {
     for (int u = 0; u < wf; u++) {
       const int cu = u >> 1, cv = v >> 1, du = u & 1, dv = v & 1;
-      fine[size_t(v) * wf + u] = 0.25f * (coarse[size_t(cv) * wc + cu] +
-                                          coarse[size_t(cv) * wc + cu + du] +
-                                          coarse[size_t(cv + dv) * wc + cu] +
-                                          coarse[size_t(cv + dv) * wc + cu + du]);
+      fine[size_t(v) * wf + u] =
+          0.25f *
+          (coarse[size_t(cv) * wc + cu] + coarse[size_t(cv) * wc + cu + du] +
+           coarse[size_t(cv + dv) * wc + cu] + coarse[size_t(cv + dv) * wc + cu + du]);
     }
   }
 }
@@ -1506,7 +1541,8 @@ static void gateMaskEditPropagation()
   for (int i = 0; i < int(edited.size()); i++) {
     auto occs = d2->occurrences(edited[i]);
     for (size_t j = 0; j < occs.size(); j += 3) {
-      delta2[(size_t(occs[j]) * w2 + occs[j + 2]) * w2 + occs[j + 1]] = d2->mask[edited[i]];
+      delta2[(size_t(occs[j]) * w2 + occs[j + 2]) * w2 + occs[j + 1]] =
+          d2->mask[edited[i]];
     }
   }
   Vector<float> gslice, fine;
@@ -1519,15 +1555,16 @@ static void gateMaskEditPropagation()
     prolongRef(gslice, w2, fine, w3);
     for (int v = 0; v < w3; v++) {
       for (int u = 0; u < w3; u++) {
-        const float expect = top0[(size_t(g) * w3 + v) * w3 + u] + fine[size_t(v) * w3 + u];
+        const float expect =
+            top0[(size_t(g) * w3 + v) * w3 + u] + fine[size_t(v) * w3 + u];
         const float got = *st.elem(3, ch, g, u, v);
         bad += std::fabs(got - expect) > 1e-6f ? 1 : 0;
         moved += fine[size_t(v) * w3 + u] != 0.0f ? 1 : 0;
       }
     }
   }
-  test_assert(bad == 0);   /* detail + prolonged delta, everywhere */
-  test_assert(moved > 0);  /* the edit actually reached the top */
+  test_assert(bad == 0);  /* detail + prolonged delta, everywhere */
+  test_assert(moved > 0); /* the edit actually reached the top */
 
   /* The alive finer domain re-mirrored the store. */
   int mirrorBad = 0;
@@ -1605,7 +1642,9 @@ static void gateMaskEditPropagation()
     prolongRef(gslice, w2, fine, w3);
     for (int v = 0; v < w3; v++) {
       for (int u = 0; u < w3; u++) {
-        seed2Bad += std::fabs(*s2.elem(3, ch2, g, u, v) - fine[size_t(v) * w3 + u]) > 1e-6f ? 1 : 0;
+        seed2Bad +=
+            std::fabs(*s2.elem(3, ch2, g, u, v) - fine[size_t(v) * w3 + u]) > 1e-6f ? 1
+                                                                                    : 0;
       }
     }
   }
@@ -1691,7 +1730,8 @@ static void gateMaskSyncProtocol()
   for (int i = 0; i < perGrid; i++) {
     flat[i] = 0.75f;
   }
-  test_assert(Multires_gridChannelWrite(&mr, 3, ch, 0, 1, flat.data(), perGrid) == perGrid);
+  test_assert(Multires_gridChannelWrite(&mr, 3, ch, 0, 1, flat.data(), perGrid) ==
+              perGrid);
   test_assert(mr.maskGeneration() > gen);
   gen = mr.maskGeneration();
   int wrBad = 0;
@@ -1701,9 +1741,11 @@ static void gateMaskSyncProtocol()
   test_assert(wrBad == 0);
 
   /* A non-mask channel write is not a mask change. */
-  const int sc = Multires_gridChannelEnsure(&mr, "scratch", 1, 0, int(AttrType::FLOAT), 1, 1);
+  const int sc =
+      Multires_gridChannelEnsure(&mr, "scratch", 1, 0, int(AttrType::FLOAT), 1, 1);
   test_assert(sc >= 0);
-  test_assert(Multires_gridChannelWrite(&mr, 3, sc, 0, 1, flat.data(), perGrid) == perGrid);
+  test_assert(Multires_gridChannelWrite(&mr, 3, sc, 0, 1, flat.data(), perGrid) ==
+              perGrid);
   test_assert(mr.maskGeneration() == gen);
 
   /* Blob restore replaced the channels: bump. */
@@ -1722,7 +1764,8 @@ static void gateMaskSyncProtocol()
   mr.removeTopLevel();
   test_assert(mr.maskGeneration() > gen);
 
-  printf("mask sync protocol: %d grids, gen %llu\n", grids,
+  printf("mask sync protocol: %d grids, gen %llu\n",
+         grids,
          (unsigned long long)mr.maskGeneration());
   alloc::Delete(cage);
 }

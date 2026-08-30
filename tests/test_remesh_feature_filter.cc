@@ -27,13 +27,13 @@ test_init;
 
 // The shared test_assert macro has a known retval=0-on-failure bug; use a local
 // one that flips retval (mirrors test_remesh_curvature.cc).
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -193,14 +193,20 @@ void testHysteresis()
 Mesh *makeCube()
 {
   Mesh *m = litestl::alloc::New<Mesh>("Cube");
-  static const float C[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
-                                {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
+  static const float C[8][3] = {{0, 0, 0},
+                                {1, 0, 0},
+                                {1, 1, 0},
+                                {0, 1, 0},
+                                {0, 0, 1},
+                                {1, 0, 1},
+                                {1, 1, 1},
+                                {0, 1, 1}};
   int v[8];
   for (int i = 0; i < 8; i++) {
     v[i] = m->make_vertex(float3(C[i][0], C[i][1], C[i][2]));
   }
-  static const int Q[6][4] = {{0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
-                              {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
+  static const int Q[6][4] = {
+      {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
   Vector<int> vs;
   auto tri = [&](int a, int b, int c) {
     vs.clear();
@@ -357,7 +363,9 @@ void testSpurSingularities()
   remesh::CrossFieldStats s0 = remesh::computeCrossField(*grid, cp);
   cp.feature_min_chain = 2;
   remesh::CrossFieldStats s1 = remesh::computeCrossField(*grid, cp);
-  fprintf(stderr, "[sing/field] unfiltered=%d filtered=%d\n", s0.num_singularities,
+  fprintf(stderr,
+          "[sing/field] unfiltered=%d filtered=%d\n",
+          s0.num_singularities,
           s1.num_singularities);
   TASSERT(s0.num_singularities > 0);
   TASSERT(s1.num_singularities == 0);

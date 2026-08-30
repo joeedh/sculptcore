@@ -25,31 +25,45 @@ using sculptcore::mesh::Mesh;
 
 namespace {
 
-inline double dot2(float2 a, float2 b) { return double(a[0]) * b[0] + double(a[1]) * b[1]; }
-inline float2 sub2(float2 a, float2 b) { return float2(a[0] - b[0], a[1] - b[1]); }
+inline double dot2(float2 a, float2 b)
+{
+  return double(a[0]) * b[0] + double(a[1]) * b[1];
+}
+inline float2 sub2(float2 a, float2 b)
+{
+  return float2(a[0] - b[0], a[1] - b[1]);
+}
 // Discrete CCW rotation by k*90 degrees (gauge/period automorphism of the lattice).
 inline float2 rot2(int k, float2 p)
 {
   switch (k & 3) {
-  case 0: return p;
-  case 1: return float2(-p[1], p[0]);
-  case 2: return float2(-p[0], -p[1]);
-  default: return float2(p[1], -p[0]);
+  case 0:
+    return p;
+  case 1:
+    return float2(-p[1], p[0]);
+  case 2:
+    return float2(-p[0], -p[1]);
+  default:
+    return float2(p[1], -p[0]);
   }
 }
 inline float3 cross3(float3 a, float3 b)
 {
-  return float3(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
-                a[0] * b[1] - a[1] * b[0]);
+  return float3(
+      a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
-inline float3 sub3(float3 a, float3 b) { return float3(a[0] - b[0], a[1] - b[1], a[2] - b[2]); }
+inline float3 sub3(float3 a, float3 b)
+{
+  return float3(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
 inline double distPtSeg3(float3 p, float3 a, float3 b)
 {
   float3 ab = sub3(b, a), ap = sub3(p, a);
   double L2 = double(ab[0]) * ab[0] + double(ab[1]) * ab[1] + double(ab[2]) * ab[2];
-  double t = L2 > 0.0
-                 ? (double(ap[0]) * ab[0] + double(ap[1]) * ab[1] + double(ap[2]) * ab[2]) / L2
-                 : 0.0;
+  double t =
+      L2 > 0.0
+          ? (double(ap[0]) * ab[0] + double(ap[1]) * ab[1] + double(ap[2]) * ab[2]) / L2
+          : 0.0;
   t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
   return std::sqrt(std::pow(double(p[0]) - (a[0] + t * ab[0]), 2.0) +
                    std::pow(double(p[1]) - (a[1] + t * ab[1]), 2.0) +
@@ -62,7 +76,8 @@ inline double len3(float3 a)
 inline float3 norm3(float3 a)
 {
   double l = len3(a);
-  if (l < 1e-30) return float3(0, 0, 0);
+  if (l < 1e-30)
+    return float3(0, 0, 0);
   return float3(float(a[0] / l), float(a[1] / l), float(a[2] / l));
 }
 inline float3 bary3(float3 a, float3 b, float3 c, double u, double v, double w)
@@ -77,21 +92,30 @@ inline bool baryOf(const float2 P[3], float2 q, double &u, double &v, double &w)
   double d00 = dot2(v0, v0), d01 = dot2(v0, v1), d11 = dot2(v1, v1);
   double d20 = dot2(v2, v0), d21 = dot2(v2, v1);
   double den = d00 * d11 - d01 * d01;
-  if (std::fabs(den) < 1e-20) { u = 1; v = 0; w = 0; return false; }
+  if (std::fabs(den) < 1e-20) {
+    u = 1;
+    v = 0;
+    w = 0;
+    return false;
+  }
   v = (d11 * d20 - d01 * d21) / den;
   w = (d00 * d21 - d01 * d20) / den;
   u = 1.0 - v - w;
   return true;
 }
 
-inline bool nearInt(double x, double eps) { return std::fabs(x - std::floor(x + 0.5)) < eps; }
+inline bool nearInt(double x, double eps)
+{
+  return std::fabs(x - std::floor(x + 0.5)) < eps;
+}
 
 } // namespace
 
 mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &stats)
 {
   m.thawTopo();
-  if (m.f.count == 0) return nullptr;
+  if (m.f.count == 0)
+    return nullptr;
 
   BuiltinAttr<float2, ".remesh.c.uv", AttrFlag::TEMP> uv;
   uv.ensure(m.c.attrs);
@@ -126,7 +150,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   }
   double diag = len3(sub3(bbmax, bbmin));
   double tol = params.weld_tol * (diag > 0 ? diag : 1.0);
-  if (tol <= 0) tol = 1e-7;
+  if (tol <= 0)
+    tol = 1e-7;
   double invcell = 1.0 / (2.0 * tol);
 
   // ---- per-triangle accessor (each face's own gauged chart, no perturbation:
@@ -161,12 +186,14 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       for (int dy = -1; dy <= 1; dy++)
         for (int dz = -1; dz <= 1; dz++) {
           auto it = hash.find(keyOf(ix + dx, iy + dy, iz + dz));
-          if (it == hash.end()) continue;
+          if (it == hash.end())
+            continue;
           for (int gv : it->second)
             if (len3(sub3(gvpos[gv], p)) <= tol) {
-              if (lattice) nodeLat[gv] = 1;
-              gvnrm[gv] = float3(gvnrm[gv][0] + fn[0], gvnrm[gv][1] + fn[1],
-                                 gvnrm[gv][2] + fn[2]);
+              if (lattice)
+                nodeLat[gv] = 1;
+              gvnrm[gv] = float3(
+                  gvnrm[gv][0] + fn[0], gvnrm[gv][1] + fn[1], gvnrm[gv][2] + fn[2]);
               return gv;
             }
         }
@@ -198,11 +225,17 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   // Clip the single grid line {coord[axis]==val} to triangle f, emit its nodes
   // (two boundary endpoints + interior integer lattice points) joined in order.
   // Endpoints strictly interior to a mesh edge are recorded for the cut stitch.
-  auto processLine = [&](int f, const int c[3], const float2 P[3], const float3 X[3],
-                         float3 fn, int axis, int val) {
+  auto processLine = [&](int f,
+                         const int c[3],
+                         const float2 P[3],
+                         const float3 X[3],
+                         float3 fn,
+                         int axis,
+                         int val) {
     int fixc = axis, frec = 1 - axis;
     double fd[3];
-    for (int k = 0; k < 3; k++) fd[k] = double(P[k][fixc]) - val;
+    for (int k = 0; k < 3; k++)
+      fd[k] = double(P[k][fixc]) - val;
     double crF[4]; // free coord of a boundary meeting point
     int crE[4];    // triangle-edge (corner) index, -1 at a vertex
     double crT[4]; // parameter along that edge
@@ -213,10 +246,16 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       int a = e, b = (e + 1) % 3;
       double fa = fd[a], fb = fd[b];
       bool aon = std::fabs(fa) < epsLine, bon = std::fabs(fb) < epsLine;
-      if (aon && bon) { edgeOn = true; eolE = e; }
-      else if (aon) { crF[ncr] = P[a][frec]; crE[ncr] = -1; crT[ncr] = 0; ncr++; }
-      else if (bon) { /* counted as the next edge's `aon` */ }
-      else if (fa * fb < 0) {
+      if (aon && bon) {
+        edgeOn = true;
+        eolE = e;
+      } else if (aon) {
+        crF[ncr] = P[a][frec];
+        crE[ncr] = -1;
+        crT[ncr] = 0;
+        ncr++;
+      } else if (bon) { /* counted as the next edge's `aon` */
+      } else if (fa * fb < 0) {
         double te = fa / (fa - fb);
         crF[ncr] = P[a][frec] + te * (P[b][frec] - P[a][frec]);
         crE[ncr] = e;
@@ -233,11 +272,17 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       loE = hiE = -1;
       loT = hiT = 0;
     } else {
-      if (ncr != 2) return;
+      if (ncr != 2)
+        return;
       int lo = crF[0] <= crF[1] ? 0 : 1, hi = 1 - lo;
-      loF = crF[lo]; loE = crE[lo]; loT = crT[lo];
-      hiF = crF[hi]; hiE = crE[hi]; hiT = crT[hi];
-      if (hiF - loF < epsSeg) return;
+      loF = crF[lo];
+      loE = crE[lo];
+      loT = crT[lo];
+      hiF = crF[hi];
+      hiE = crE[hi];
+      hiT = crT[hi];
+      if (hiF - loF < epsSeg)
+        return;
     }
     struct Nd {
       double fr, t;
@@ -250,7 +295,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     int j0 = int(std::ceil(loF - epsLat)), j1 = int(std::floor(hiF + epsLat));
     for (int j = j0; j <= j1 && nn < 255; j++) {
       double fr = double(j);
-      if (fr <= loF + epsLat || fr >= hiF - epsLat) continue; // already an endpoint
+      if (fr <= loF + epsLat || fr >= hiF - epsLat)
+        continue; // already an endpoint
       nds[nn++] = Nd{fr, 0, -1, false};
     }
     nds[nn++] = Nd{hiF, hiT, hiE, true};
@@ -259,17 +305,23 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       float2 q = axis == 0 ? float2(float(val), float(nds[t].fr))
                            : float2(float(nds[t].fr), float(val));
       double bu, bv, bw;
-      if (!baryOf(P, q, bu, bv, bw)) { prev = -1; continue; }
+      if (!baryOf(P, q, bu, bv, bw)) {
+        prev = -1;
+        continue;
+      }
       float3 pos = bary3(X[0], X[1], X[2], bu, bv, bw);
       int id = weld(pos, nearInt(nds[t].fr, epsLat), fn);
       if (nds[t].endpoint && nds[t].edge >= 0) {
         int e = m.c.e[c[nds[t].edge]];
         int va = m.c.v[c[nds[t].edge]];
         double tc = nds[t].t;
-        if (m.e.vs[e][0] != va) tc = 1.0 - tc; // canonical: e.vs[0] -> e.vs[1]
-        if (tc > 1e-4 && tc < 1.0 - 1e-4) bincs.append(BInc{e, f, tc, id});
+        if (m.e.vs[e][0] != va)
+          tc = 1.0 - tc; // canonical: e.vs[0] -> e.vs[1]
+        if (tc > 1e-4 && tc < 1.0 - 1e-4)
+          bincs.append(BInc{e, f, tc, id});
       }
-      if (prev >= 0 && prev != id) segs.append(Seg{prev, id});
+      if (prev >= 0 && prev != id)
+        segs.append(Seg{prev, id});
       prev = id;
     }
   };
@@ -291,7 +343,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       double a = (double(P[1][0]) - P[0][0]) * (double(P[2][1]) - P[0][1]) -
                  (double(P[2][0]) - P[0][0]) * (double(P[1][1]) - P[0][1]);
       ntot++;
-      if (a <= 1e-9) nfold++;
+      if (a <= 1e-9)
+        nfold++;
     }
     if (ntot > 0 && double(nfold) > kMaxFoldFraction * double(ntot)) {
       stats.ok = false;
@@ -310,7 +363,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     {
       double a = (double(P[1][0]) - P[0][0]) * (double(P[2][1]) - P[0][1]) -
                  (double(P[2][0]) - P[0][0]) * (double(P[1][1]) - P[0][1]);
-      if (a <= 1e-9) continue;
+      if (a <= 1e-9)
+        continue;
     }
     float3 fn = cross3(sub3(X[1], X[0]), sub3(X[2], X[0]));
     double umin = std::min({P[0][0], P[1][0], P[2][0]});
@@ -332,7 +386,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   }
 
   int NG = int(gvpos.size());
-  if (NG == 0) return nullptr;
+  if (NG == 0)
+    return nullptr;
 
   // ---- union duplicate ports on each interior mesh edge (cut-edge stitch) ----
   // Non-cut edges already 3D-welded (identity transition); cut edges differ by the
@@ -341,31 +396,41 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   // a single-edge, accumulation-free stitch that survives folds near singularities.
   Vector<int> uf;
   uf.resize(NG);
-  for (int i = 0; i < NG; i++) uf[i] = i;
+  for (int i = 0; i < NG; i++)
+    uf[i] = i;
   auto find = [&](int a) {
-    while (uf[a] != a) { uf[a] = uf[uf[a]]; a = uf[a]; }
+    while (uf[a] != a) {
+      uf[a] = uf[uf[a]];
+      a = uf[a];
+    }
     return a;
   };
   auto uni = [&](int a, int b) {
     a = find(a);
     b = find(b);
-    if (a != b) uf[a] = b;
+    if (a != b)
+      uf[a] = b;
   };
   {
     std::unordered_map<int, std::vector<int>> edgeBincs;
-    for (int i = 0; i < int(bincs.size()); i++) edgeBincs[bincs[i].e].push_back(i);
+    for (int i = 0; i < int(bincs.size()); i++)
+      edgeBincs[bincs[i].e].push_back(i);
     auto byT = [&](int x, int y) { return bincs[x].t < bincs[y].t; };
     for (auto &kv : edgeBincs) {
       auto &list = kv.second;
       int fA = -1, fB = -1;
       for (int idx : list) {
         int f = bincs[idx].f;
-        if (fA < 0 || f == fA) fA = f;
-        else if (fB < 0) fB = f;
+        if (fA < 0 || f == fA)
+          fA = f;
+        else if (fB < 0)
+          fB = f;
       }
-      if (fB < 0) continue; // boundary edge: a single face, nothing to stitch
+      if (fB < 0)
+        continue; // boundary edge: a single face, nothing to stitch
       std::vector<int> la, lb;
-      for (int idx : list) (bincs[idx].f == fA ? la : lb).push_back(idx);
+      for (int idx : list)
+        (bincs[idx].f == fA ? la : lb).push_back(idx);
       std::sort(la.begin(), la.end(), byT);
       std::sort(lb.begin(), lb.end(), byT);
       if (la.size() == lb.size()) {
@@ -379,9 +444,13 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
           int by = -1;
           for (int y : big) {
             double dd = std::fabs(bincs[y].t - bincs[x].t);
-            if (dd < bt) { bt = dd; by = y; }
+            if (dd < bt) {
+              bt = dd;
+              by = y;
+            }
           }
-          if (by >= 0) uni(bincs[x].node, bincs[by].node);
+          if (by >= 0)
+            uni(bincs[x].node, bincs[by].node);
         }
       }
     }
@@ -390,14 +459,17 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   // Collapse the unioned lattice flag + normal onto roots.
   for (int i = 0; i < NG; i++) {
     int r = find(i);
-    if (r == i) continue;
-    if (nodeLat[i]) nodeLat[r] = 1;
-    gvnrm[r] = float3(gvnrm[r][0] + gvnrm[i][0], gvnrm[r][1] + gvnrm[i][1],
-                      gvnrm[r][2] + gvnrm[i][2]);
+    if (r == i)
+      continue;
+    if (nodeLat[i])
+      nodeLat[r] = 1;
+    gvnrm[r] = float3(
+        gvnrm[r][0] + gvnrm[i][0], gvnrm[r][1] + gvnrm[i][1], gvnrm[r][2] + gvnrm[i][2]);
   }
   int latCount = 0;
   for (int i = 0; i < NG; i++)
-    if (find(i) == i && nodeLat[i]) latCount++;
+    if (find(i) == i && nodeLat[i])
+      latCount++;
   stats.num_grid_verts = latCount;
 
   // ---- adjacency over union roots ----
@@ -405,11 +477,16 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   adj.resize(NG);
   for (int s = 0; s < int(segs.size()); s++) {
     int a = find(segs[s].a), b = find(segs[s].b);
-    if (a == b) continue;
+    if (a == b)
+      continue;
     bool dup = false;
     for (int x : adj[a])
-      if (x == b) { dup = true; break; }
-    if (dup) continue;
+      if (x == b) {
+        dup = true;
+        break;
+      }
+    if (dup)
+      continue;
     adj[a].append(b);
     adj[b].append(a);
   }
@@ -424,11 +501,14 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   gvArcs.resize(NG);
   auto addArc = [&](int g, int h, float3 tan) {
     for (int ai : gvArcs[g]) {
-      if (arcs[ai].h != h) continue;
+      if (arcs[ai].h != h)
+        continue;
       float3 t2 = arcs[ai].tan;
-      double dp = double(t2[0]) * tan[0] + double(t2[1]) * tan[1] + double(t2[2]) * tan[2];
+      double dp =
+          double(t2[0]) * tan[0] + double(t2[1]) * tan[1] + double(t2[2]) * tan[2];
       double l1 = len3(tan), l2 = len3(t2);
-      if (l1 > 0 && l2 > 0 && dp / (l1 * l2) > 0.9) return; // duplicate ray
+      if (l1 > 0 && l2 > 0 && dp / (l1 * l2) > 0.9)
+        return; // duplicate ray
     }
     int id = int(arcs.size());
     arcs.append(Arc{g, h, tan});
@@ -436,18 +516,29 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   };
 
   for (int g = 0; g < NG; g++) {
-    if (find(g) != g || !nodeLat[g]) continue;
+    if (find(g) != g || !nodeLat[g])
+      continue;
     for (int n0 : adj[g]) {
       int prev = g, cur = n0, guard = 0;
       while (!nodeLat[cur]) {
-        if (int(adj[cur].size()) != 2) { cur = -1; break; }
+        if (int(adj[cur].size()) != 2) {
+          cur = -1;
+          break;
+        }
         int nx = adj[cur][0] == prev ? adj[cur][1] : adj[cur][0];
         prev = cur;
         cur = nx;
-        if (++guard > 100000) { cur = -1; break; }
+        if (++guard > 100000) {
+          cur = -1;
+          break;
+        }
       }
-      if (cur < 0) { stats.open_arcs++; continue; }
-      if (cur == g) continue;
+      if (cur < 0) {
+        stats.open_arcs++;
+        continue;
+      }
+      if (cur == g)
+        continue;
       addArc(g, cur, norm3(sub3(gvpos[n0], gvpos[g])));
     }
   }
@@ -459,14 +550,16 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   // ---- sort each gv's arcs CCW in its tangent plane (rotation system) ----
   for (int g = 0; g < NG; g++) {
     auto &al = gvArcs[g];
-    if (al.size() < 2) continue;
+    if (al.size() < 2)
+      continue;
     float3 N = norm3(gvnrm[g]);
     float3 t0 = arcs[al[0]].tan;
     // Project the first incident tangent into the gv tangent plane for the basis.
     double tn = double(t0[0]) * N[0] + double(t0[1]) * N[1] + double(t0[2]) * N[2];
-    float3 T = norm3(float3(float(t0[0] - tn * N[0]), float(t0[1] - tn * N[1]),
-                            float(t0[2] - tn * N[2])));
-    if (len3(T) < 1e-12) T = norm3(cross3(N, float3(1, 0, 0)));
+    float3 T = norm3(float3(
+        float(t0[0] - tn * N[0]), float(t0[1] - tn * N[1]), float(t0[2] - tn * N[2])));
+    if (len3(T) < 1e-12)
+      T = norm3(cross3(N, float3(1, 0, 0)));
     float3 B = norm3(cross3(N, T));
     std::vector<std::pair<double, int>> order;
     order.reserve(al.size());
@@ -476,30 +569,37 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       double y = double(t[0]) * B[0] + double(t[1]) * B[1] + double(t[2]) * B[2];
       order.push_back({std::atan2(y, x), ai});
     }
-    std::sort(order.begin(), order.end(),
+    std::sort(order.begin(),
+              order.end(),
               [](const std::pair<double, int> &a, const std::pair<double, int> &b) {
                 return a.first < b.first;
               });
-    for (int k = 0; k < int(al.size()); k++) al[k] = order[k].second;
+    for (int k = 0; k < int(al.size()); k++)
+      al[k] = order[k].second;
   }
 
   // ---- twin + position-in-ring ----
   Vector<int> posInRing;
   posInRing.resize(int(arcs.size()));
   for (int g = 0; g < NG; g++)
-    for (int p = 0; p < int(gvArcs[g].size()); p++) posInRing[gvArcs[g][p]] = p;
+    for (int p = 0; p < int(gvArcs[g].size()); p++)
+      posInRing[gvArcs[g][p]] = p;
   Vector<int> twin;
   twin.resize(int(arcs.size()));
   for (int a = 0; a < int(arcs.size()); a++) {
     twin[a] = -1;
     int g = arcs[a].g, h = arcs[a].h;
     for (int b : gvArcs[h])
-      if (arcs[b].h == g) { twin[a] = b; break; }
+      if (arcs[b].h == g) {
+        twin[a] = b;
+        break;
+      }
   }
 
   auto nextHE = [&](int a) -> int {
     int t = twin[a];
-    if (t < 0) return -1;
+    if (t < 0)
+      return -1;
     auto &ring = gvArcs[arcs[a].h];
     return ring[(posInRing[t] + 1) % int(ring.size())];
   };
@@ -508,13 +608,16 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
   Mesh *out = litestl::alloc::New<Mesh>("Mesh QuadExtract");
   Vector<int> gvOut;
   gvOut.resize(NG);
-  for (int g = 0; g < NG; g++) gvOut[g] = -1;
+  for (int g = 0; g < NG; g++)
+    gvOut[g] = -1;
   Vector<char> used;
   used.resize(int(arcs.size()));
-  for (int a = 0; a < int(arcs.size()); a++) used[a] = 0;
+  for (int a = 0; a < int(arcs.size()); a++)
+    used[a] = 0;
 
   for (int a0 = 0; a0 < int(arcs.size()); a0++) {
-    if (used[a0]) continue;
+    if (used[a0])
+      continue;
     int seq[8];
     int n = 0, a = a0;
     bool ok = true;
@@ -522,15 +625,23 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       used[a] = 1;
       seq[n++] = arcs[a].g;
       int nx = nextHE(a);
-      if (nx < 0) { ok = false; break; }
-      if (nx == a0) break;
+      if (nx < 0) {
+        ok = false;
+        break;
+      }
+      if (nx == a0)
+        break;
       a = nx;
     }
-    if (!ok || n != 4) { stats.nonquad_cells++; continue; }
+    if (!ok || n != 4) {
+      stats.nonquad_cells++;
+      continue;
+    }
     Vector<int> vs;
     for (int t = 0; t < 4; t++) {
       int g = seq[t];
-      if (gvOut[g] < 0) gvOut[g] = out->make_vertex(gvpos[g]);
+      if (gvOut[g] < 0)
+        gvOut[g] = out->make_vertex(gvpos[g]);
       vs.append(gvOut[g]);
     }
     out->make_face(vs);
@@ -551,9 +662,13 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     Mesh &o = *out;
     auto isBndIn = [&](int e) {
       int c0 = m.e.c[e];
-      if (c0 == ELEM_NONE) return true;
+      if (c0 == ELEM_NONE)
+        return true;
       int r = 0, cc = c0;
-      do { r++; cc = m.c.radial_next[cc]; } while (cc != c0 && r < 100);
+      do {
+        r++;
+        cc = m.c.radial_next[cc];
+      } while (cc != c0 && r < 100);
       return r == 1;
     };
     // Input boundary polyline segments, for per-loop real-border classification.
@@ -565,38 +680,50 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
       }
     auto isBnd = [&](int e) {
       int c0 = o.e.c[e];
-      if (c0 == ELEM_NONE) return true;
+      if (c0 == ELEM_NONE)
+        return true;
       int r = 0, cc = c0;
-      do { r++; cc = o.c.radial_next[cc]; } while (cc != c0 && r < 100);
+      do {
+        r++;
+        cc = o.c.radial_next[cc];
+      } while (cc != c0 && r < 100);
       return r == 1;
     };
     Vector<float3> singPos; // cone vertices = candidate cap centers
-    if (m.v.attrs.has(mesh::AttrType::SHORT, litestl::util::string(".remesh.v.pole_index"))) {
+    if (m.v.attrs.has(mesh::AttrType::SHORT,
+                      litestl::util::string(".remesh.v.pole_index")))
+    {
       BuiltinAttr<short, ".remesh.v.pole_index"> pole;
       pole.ensure(m.v.attrs);
       for (int sv : m.v)
-        if (pole[sv] != 0) singPos.append(m.v.co[sv]);
+        if (pole[sv] != 0)
+          singPos.append(m.v.co[sv]);
     }
     Vector<char> seen;
     seen.resize(int(o.e.capacity()));
-    for (int i = 0; i < int(o.e.capacity()); i++) seen[i] = 0;
+    for (int i = 0; i < int(o.e.capacity()); i++)
+      seen[i] = 0;
     // The next rim edge after `e` at vertex `v`, found by pivoting through v's
     // face fan from e's wedge (cross interior edges radially until the wedge's
     // far boundary edge). Disk-order "first boundary edge" is ambiguous at a
     // pinch vertex shared by two rims and can jump rims mid-trace.
     auto nextRim = [&](int e, int v) -> int {
       int cc = o.e.c[e]; // boundary edge: its single incident corner
-      if (cc == ELEM_NONE) return -1;
+      if (cc == ELEM_NONE)
+        return -1;
       for (int guard = 0; guard < 100; guard++) {
         // The face's other edge at v (one of the two corner-edges at v is the
         // edge we arrived through).
         int ca = cc, fguard = 0;
-        while (o.c.v[ca] != v && ++fguard < 100) ca = o.c.next[ca];
-        if (fguard >= 100) return -1;
+        while (o.c.v[ca] != v && ++fguard < 100)
+          ca = o.c.next[ca];
+        if (fguard >= 100)
+          return -1;
         int cb = o.c.prev[ca];
         int cnext = o.c.e[ca] == e ? cb : ca;
         int cand = o.c.e[cnext];
-        if (isBnd(cand)) return cand;
+        if (isBnd(cand))
+          return cand;
         cc = o.c.radial_next[cnext]; // cross into the adjacent face, keep pivoting
         e = cand;
       }
@@ -605,18 +732,23 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     // Collect ordered boundary loops first (capping mutates the mesh topology).
     Vector<Vector<int>> loops;
     for (int e0 : o.e) {
-      if (seen[e0] || !isBnd(e0)) continue;
+      if (seen[e0] || !isBnd(e0))
+        continue;
       Vector<int> loop;
       int e = e0, v = o.e.vs[e0][1], guard = 0;
       do {
         seen[e] = 1;
         loop.append(v);
         int nxt = nextRim(e, v);
-        if (nxt < 0) { loop.clear(); break; }
+        if (nxt < 0) {
+          loop.clear();
+          break;
+        }
         e = nxt;
         v = o.e.vs[e][0] == v ? o.e.vs[e][1] : o.e.vs[e][0];
       } while (e != e0 && ++guard < 100000);
-      if (e != e0) loop.clear(); // unclosed trace: not a cappable rim
+      if (e != e0)
+        loop.clear(); // unclosed trace: not a cappable rim
       if (loop.size()) {
         loops.append(loop);
       } else {
@@ -645,24 +777,34 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         int cn = int(cur.size()), pi = -1, pj = -1;
         for (int i = 0; i < cn && pi < 0; i++)
           for (int j = i + 1; j < cn; j++)
-            if (cur[i] == cur[j]) { pi = i; pj = j; break; }
-        if (pi < 0) continue; // simple: leave in place
+            if (cur[i] == cur[j]) {
+              pi = i;
+              pj = j;
+              break;
+            }
+        if (pi < 0)
+          continue; // simple: leave in place
         Vector<int> a, b;
-        for (int t = pi; t < pj; t++) a.append(cur[t]);
-        for (int t = 0; t < pi; t++) b.append(cur[t]);
-        for (int t = pj; t < cn; t++) b.append(cur[t]);
+        for (int t = pi; t < pj; t++)
+          a.append(cur[t]);
+        for (int t = 0; t < pi; t++)
+          b.append(cur[t]);
+        for (int t = pj; t < cn; t++)
+          b.append(cur[t]);
         simple[wi] = a;
         simple.append(b);
         wi--; // re-scan `a` (and later `b`) for further repeats
       }
-      if (int(simple.size()) > firstSub + 1) stats.holes_pinched_split++;
+      if (int(simple.size()) > firstSub + 1)
+        stats.holes_pinched_split++;
     }
     // Real-border test: a preserved input border extracts as the outermost full
     // lattice line, ~0.7 cells inside the input boundary; spurious rims measure
     // >= 1.6 cells away (fox/plane corpus), so threshold at 1 rim edge length.
     const double kBorderTol = 1.0;
     auto isBorderRim = [&](const Vector<int> &loop) -> bool {
-      if (!bndA.size()) return false;
+      if (!bndA.size())
+        return false;
       int n = int(loop.size());
       double meanD = 0.0, rimEdge = 0.0;
       for (int i = 0; i < n; i++) {
@@ -695,33 +837,40 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     auto traceStrip = [&](int e0, Vector<PathQuad> &path) -> int {
       path.clear();
       int c_in = o.e.c[e0];
-      if (c_in == ELEM_NONE) return -1;
+      if (c_in == ELEM_NONE)
+        return -1;
       std::unordered_map<int, char> visF, visE;
       visE[e0] = 1;
       for (int guard = 0; guard < 100000; guard++) {
         int f = o.l.f[o.c.l[c_in]];
-        if (visF.count(f)) return -1;
+        if (visF.count(f))
+          return -1;
         visF[f] = 1;
         int cs[4], cw = c_in;
         for (int t = 0; t < 4; t++) {
           cs[t] = cw;
           cw = o.c.next[cw];
         }
-        if (cw != c_in) return -1;
+        if (cw != c_in)
+          return -1;
         PathQuad pq;
         pq.f = f;
-        for (int t = 0; t < 4; t++) pq.w[t] = o.c.v[cs[t]];
+        for (int t = 0; t < 4; t++)
+          pq.w[t] = o.c.v[cs[t]];
         for (int t1 = 0; t1 < 4; t1++)
           for (int t2 = t1 + 1; t2 < 4; t2++)
-            if (pq.w[t1] == pq.w[t2]) return -1;
+            if (pq.w[t1] == pq.w[t2])
+              return -1;
         pq.e_in = o.c.e[cs[0]];
         pq.e_out = o.c.e[cs[2]];
-        if (visE.count(pq.e_out)) return -1; // non-manifold strip
+        if (visE.count(pq.e_out))
+          return -1; // non-manifold strip
         visE[pq.e_out] = 1;
         path.append(pq);
         int c_opp = cs[2];
         int rn = o.c.radial_next[c_opp];
-        if (rn == c_opp) return pq.e_out; // boundary: the strip exits here
+        if (rn == c_opp)
+          return pq.e_out; // boundary: the strip exits here
         c_in = rn;
       }
       return -1;
@@ -732,57 +881,75 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     if (params.cap_odd_holes) {
       std::unordered_map<int, std::pair<int, int>> rimEdgeAt; // edge -> (rim, pos)
       for (int li = 0; li < nl; li++) {
-        if (!rimOdd[li] || rimBorder[li] || !rimSized[li]) continue;
+        if (!rimOdd[li] || rimBorder[li] || !rimSized[li])
+          continue;
         Vector<int> &lp = simple[li];
         int n = int(lp.size());
         for (int i = 0; i < n; i++) {
           int e = o.find_edge(lp[i], lp[(i + 1) % n]);
-          if (e != ELEM_NONE) rimEdgeAt[e] = {li, i};
+          if (e != ELEM_NONE)
+            rimEdgeAt[e] = {li, i};
         }
       }
       auto insertAfter = [&](Vector<int> &lp, int pos, int v) {
         Vector<int> grown;
-        for (int t = 0; t <= pos; t++) grown.append(lp[t]);
+        for (int t = 0; t <= pos; t++)
+          grown.append(lp[t]);
         grown.append(v);
-        for (int t = pos + 1; t < int(lp.size()); t++) grown.append(lp[t]);
+        for (int t = pos + 1; t < int(lp.size()); t++)
+          grown.append(lp[t]);
         lp = grown;
       };
       Vector<PathQuad> path;
       for (int li = 0; li < nl; li++) {
-        if (!rimOdd[li] || rimBorder[li] || !rimSized[li] || rimPaired[li]) continue;
+        if (!rimOdd[li] || rimBorder[li] || !rimSized[li] || rimPaired[li])
+          continue;
         int n = int(simple[li].size());
         for (int i = 0; i < n && !rimPaired[li]; i++) {
           int e0 = o.find_edge(simple[li][i], simple[li][(i + 1) % n]);
-          if (e0 == ELEM_NONE) continue;
+          if (e0 == ELEM_NONE)
+            continue;
           int eout = traceStrip(e0, path);
-          if (eout < 0) continue;
+          if (eout < 0)
+            continue;
           auto it = rimEdgeAt.find(eout);
-          if (it == rimEdgeAt.end()) continue;
+          if (it == rimEdgeAt.end())
+            continue;
           int lj = it->second.first, pj = it->second.second;
-          if (lj == li || !rimOdd[lj] || rimPaired[lj] || rimBorder[lj]) continue;
+          if (lj == li || !rimOdd[lj] || rimPaired[lj] || rimBorder[lj])
+            continue;
           // Gather the split-edge midpoints first; the kills invalidate the strip.
           int P = int(path.size());
           Vector<float3> mco;
           float3 a0 = o.v.co[path[0].w[0]], b0 = o.v.co[path[0].w[1]];
-          mco.append(float3(0.5f * (a0[0] + b0[0]), 0.5f * (a0[1] + b0[1]),
-                            0.5f * (a0[2] + b0[2])));
+          mco.append(float3(
+              0.5f * (a0[0] + b0[0]), 0.5f * (a0[1] + b0[1]), 0.5f * (a0[2] + b0[2])));
           for (int t = 0; t < P; t++) {
             float3 a = o.v.co[path[t].w[2]], b = o.v.co[path[t].w[3]];
-            mco.append(float3(0.5f * (a[0] + b[0]), 0.5f * (a[1] + b[1]),
-                              0.5f * (a[2] + b[2])));
+            mco.append(
+                float3(0.5f * (a[0] + b[0]), 0.5f * (a[1] + b[1]), 0.5f * (a[2] + b[2])));
           }
-          for (int t = 0; t < P; t++) o.kill_face(path[t].f);
+          for (int t = 0; t < P; t++)
+            o.kill_face(path[t].f);
           o.kill_edge(path[0].e_in);
-          for (int t = 0; t < P; t++) o.kill_edge(path[t].e_out);
+          for (int t = 0; t < P; t++)
+            o.kill_edge(path[t].e_out);
           Vector<int> mid;
-          for (int t = 0; t <= P; t++) mid.append(o.make_vertex(mco[t]));
+          for (int t = 0; t <= P; t++)
+            mid.append(o.make_vertex(mco[t]));
           for (int t = 0; t < P; t++) {
             const PathQuad &pq = path[t];
             Vector<int> q;
-            q.append(pq.w[0]); q.append(mid[t]); q.append(mid[t + 1]); q.append(pq.w[3]);
+            q.append(pq.w[0]);
+            q.append(mid[t]);
+            q.append(mid[t + 1]);
+            q.append(pq.w[3]);
             o.make_face(q);
             q.clear();
-            q.append(mid[t]); q.append(pq.w[1]); q.append(pq.w[2]); q.append(mid[t + 1]);
+            q.append(mid[t]);
+            q.append(pq.w[1]);
+            q.append(pq.w[2]);
+            q.append(mid[t + 1]);
             o.make_face(q);
           }
           insertAfter(simple[li], i, mid[0]);
@@ -806,14 +973,18 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         cen = float3(cen[0] + o.v.co[v][0], cen[1] + o.v.co[v][1], cen[2] + o.v.co[v][2]);
       cen = float3(cen[0] / n, cen[1] / n, cen[2] / n);
       double radius = 0;
-      for (int v : lp) radius += len3(sub3(o.v.co[v], cen));
+      for (int v : lp)
+        radius += len3(sub3(o.v.co[v], cen));
       radius /= n;
       cpos = cen;
       double bd = 1e30;
       float3 best = cen;
       for (int s = 0; s < int(singPos.size()); s++) {
         double d = len3(sub3(singPos[s], cen));
-        if (d < bd) { bd = d; best = singPos[s]; }
+        if (d < bd) {
+          bd = d;
+          best = singPos[s];
+        }
       }
       if (bd > radius)
         return false;
@@ -824,7 +995,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
     // centroid). Even rims close all-quad; odd ones get one trailing triangle.
     auto fanCap = [&](const Vector<int> &lp) {
       int n = int(lp.size());
-      if (n > stats.cap_max_fan) stats.cap_max_fan = n;
+      if (n > stats.cap_max_fan)
+        stats.cap_max_fan = n;
       float3 cpos;
       enclosedCone(lp, cpos);
       int C = o.make_vertex(cpos);
@@ -930,10 +1102,12 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
         Vector<double> EL;
         float3 rcen(0, 0, 0);
         for (int t = 0; t < k; t++)
-          rcen = float3(rcen[0] + o.v.co[lp[t]][0], rcen[1] + o.v.co[lp[t]][1],
+          rcen = float3(rcen[0] + o.v.co[lp[t]][0],
+                        rcen[1] + o.v.co[lp[t]][1],
                         rcen[2] + o.v.co[lp[t]][2]);
         rcen = float3(rcen[0] / k, rcen[1] / k, rcen[2] / k);
-        for (int t = 0; t < k; t++) q.append(sub3(o.v.co[lp[t]], rcen));
+        for (int t = 0; t < k; t++)
+          q.append(sub3(o.v.co[lp[t]], rcen));
         S.append(float3(0, 0, 0));
         EL.append(0.0);
         for (int t = 0; t + 1 < k; t++) {
@@ -958,7 +1132,8 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
                 continue;
               if (pass == 0) {
                 float3 cr = cross3(q[j], q[i]);
-                float3 Na(S[j][0] - S[i][0] + cr[0], S[j][1] - S[i][1] + cr[1],
+                float3 Na(S[j][0] - S[i][0] + cr[0],
+                          S[j][1] - S[i][1] + cr[1],
                           S[j][2] - S[i][2] + cr[2]);
                 float3 Nb(Np[0] - Na[0], Np[1] - Na[1], Np[2] - Na[2]);
                 if (Na.dot(Np) <= 0.0f || Nb.dot(Np) <= 0.0f)
@@ -982,14 +1157,17 @@ mesh::Mesh *extractQuadMesh(Mesh &m, const ExtractParams &params, ExtractStats &
           continue;
         }
         Vector<int> a, b;
-        for (int t = bi; t <= bj; t++) a.append(lp[t]);
-        for (int t = bj; t != bi; t = (t + 1) % k) b.append(lp[t]);
+        for (int t = bi; t <= bj; t++)
+          a.append(lp[t]);
+        for (int t = bj; t != bi; t = (t + 1) % k)
+          b.append(lp[t]);
         b.append(lp[bi]);
         work.append(a);
         work.append(b);
       }
       stats.holes_capped++;
-      if (wasOdd) stats.holes_capped_odd++;
+      if (wasOdd)
+        stats.holes_capped_odd++;
     }
   }
 

@@ -42,7 +42,8 @@ template <CommandTypes TYPES,
           sculptcore::brush::NbrSource NbrCsr,
           sculptcore::brush::NbrSource NbrLive,
           sculptcore::brush::AccumMode AccMode>
-inline bool createExtraBrush(int /*id*/, bool /*csrNeighbors*/,
+inline bool createExtraBrush(int /*id*/,
+                             bool /*csrNeighbors*/,
                              sculptcore::brush::Brush & /*brush*/,
                              BrushCommandDef<CommandCtx<TYPES>> & /*def*/)
 {

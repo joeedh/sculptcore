@@ -41,7 +41,8 @@ static bool validateMesh(Mesh &m, const char *tag)
   }
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
@@ -53,7 +54,9 @@ static bool validateMesh(Mesh &m, const char *tag)
       int prev = diskEdge(m.e.disk[ec][side * 2]);
       int side_n = m.e.vs[next][0] == vi ? 0 : 1;
       int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][side_n * 2] != diskPack(ec, side) || m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
+      if (m.e.disk[next][side_n * 2] != diskPack(ec, side) ||
+          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk prev/next mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
@@ -66,7 +69,8 @@ static bool validateMesh(Mesh &m, const char *tag)
   }
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
       if (m.c.e[cc] != ei) {
@@ -204,7 +208,8 @@ int main()
      * original outside verts are unmoved. */
     for (int vi : m->v) {
       if (vi < int(origCo.size()) && wasOutside.size() > vi && wasOutside[vi] &&
-          !m->v.freemap[vi]) {
+          !m->v.freemap[vi])
+      {
         /* still the same original vert (subdivide never kills verts) */
         test_assert(dist(m->v.co[vi], origCo[vi]) < 1e-6f);
       }
@@ -227,8 +232,13 @@ int main()
       }
     }
 
-    printf("subdivide: V %d->%d, F %d->%d, %d splits, %d rounds%s\n", V0,
-           m->v.count, F0, m->f.count, st.splits, st.rounds,
+    printf("subdivide: V %d->%d, F %d->%d, %d splits, %d rounds%s\n",
+           V0,
+           m->v.count,
+           F0,
+           m->f.count,
+           st.splits,
+           st.rounds,
            st.capped ? " (capped)" : "");
     alloc::Delete<Mesh>(m);
   }
@@ -250,8 +260,13 @@ int main()
     test_assert(st.splits == 0);
     test_assert(m->v.count < V0 && m->f.count < F0);
 
-    printf("collapse: V %d->%d, F %d->%d, %d collapses, %d rounds%s\n", V0,
-           m->v.count, F0, m->f.count, st.collapses, st.rounds,
+    printf("collapse: V %d->%d, F %d->%d, %d collapses, %d rounds%s\n",
+           V0,
+           m->v.count,
+           F0,
+           m->f.count,
+           st.collapses,
+           st.rounds,
            st.capped ? " (capped)" : "");
     alloc::Delete<Mesh>(m);
   }

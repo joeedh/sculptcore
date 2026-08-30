@@ -19,9 +19,9 @@ namespace sculptcore::vulkan {
 using namespace sculptcore::gpu;
 
 /* Find a uniform block instance by name in a vector of layer-owned instances. */
-static UniformBlockInstance *findInstanceByName(
-    const litestl::util::Vector<UniformBlockInstance *> &blocks,
-    const litestl::util::string &name)
+static UniformBlockInstance *
+findInstanceByName(const litestl::util::Vector<UniformBlockInstance *> &blocks,
+                   const litestl::util::string &name)
 {
   for (auto *inst : blocks) {
     if (inst && inst->def && inst->def->name == name) {
@@ -55,11 +55,9 @@ static void writeFromDrawUniforms(const UniformBlockDef *block,
     const char *nm = f->name.c_str();
     if (strcmp(nm, "drawMatrix") == 0 && avail >= sizeof(u.drawMatrix)) {
       std::memcpy(p, &u.drawMatrix, sizeof(u.drawMatrix));
-    }
-    else if (strcmp(nm, "normalMatrix") == 0 && avail >= sizeof(u.normalMatrix)) {
+    } else if (strcmp(nm, "normalMatrix") == 0 && avail >= sizeof(u.normalMatrix)) {
       std::memcpy(p, &u.normalMatrix, sizeof(u.normalMatrix));
-    }
-    else if (strcmp(nm, "uColor") == 0 && avail >= sizeof(u.uColor)) {
+    } else if (strcmp(nm, "uColor") == 0 && avail >= sizeof(u.uColor)) {
       std::memcpy(p, &u.uColor, sizeof(u.uColor));
     }
   }
@@ -69,10 +67,14 @@ static VkFormat attrFormatVk(GPUType type, int elemSize)
 {
   if (type == GPUType::FLOAT32) {
     switch (elemSize) {
-    case 1: return VK_FORMAT_R32_SFLOAT;
-    case 2: return VK_FORMAT_R32G32_SFLOAT;
-    case 3: return VK_FORMAT_R32G32B32_SFLOAT;
-    case 4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+    case 1:
+      return VK_FORMAT_R32_SFLOAT;
+    case 2:
+      return VK_FORMAT_R32G32_SFLOAT;
+    case 3:
+      return VK_FORMAT_R32G32B32_SFLOAT;
+    case 4:
+      return VK_FORMAT_R32G32B32A32_SFLOAT;
     }
   }
   /* No other types currently used by the spatial shaders. */
@@ -82,10 +84,14 @@ static VkFormat attrFormatVk(GPUType type, int elemSize)
 static VkPrimitiveTopology topologyVk(GPUCmdType t)
 {
   switch (t) {
-  case GPUCmdType::DRAW_TRIS: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-  case GPUCmdType::DRAW_TRI_STRIP: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-  case GPUCmdType::DRAW_LINES: return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-  case GPUCmdType::DRAW_POINTS: return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  case GPUCmdType::DRAW_TRIS:
+    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  case GPUCmdType::DRAW_TRI_STRIP:
+    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+  case GPUCmdType::DRAW_LINES:
+    return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+  case GPUCmdType::DRAW_POINTS:
+    return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   }
   return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 }
@@ -125,17 +131,21 @@ void VulkanBackend::drainDeferredBuffers_()
     return;
   }
   for (auto &p : deferred_buffers_) {
-    if (p.buffer) vkDestroyBuffer(ctx_->device, p.buffer, nullptr);
-    if (p.memory) vkFreeMemory(ctx_->device, p.memory, nullptr);
+    if (p.buffer)
+      vkDestroyBuffer(ctx_->device, p.buffer, nullptr);
+    if (p.memory)
+      vkFreeMemory(ctx_->device, p.memory, nullptr);
   }
   deferred_buffers_.clear();
 }
 
 void VulkanBackend::invalidate()
 {
-  if (!ctx_) return;
+  if (!ctx_)
+    return;
   VkDevice d = ctx_->device;
-  if (!d) return;
+  if (!d)
+    return;
 
   /* Make sure the queue is idle before destroying any in-flight resources. */
   vkDeviceWaitIdle(d);
@@ -150,32 +160,44 @@ void VulkanBackend::invalidate()
   litestl::util::Vector<sculptcore::gpu::Buffer *> bufKeys;
   for (auto &kv : buffer_cache_) {
     auto &e = kv.value;
-    if (e.buffer) vkDestroyBuffer(d, e.buffer, nullptr);
-    if (e.memory) vkFreeMemory(d, e.memory, nullptr);
+    if (e.buffer)
+      vkDestroyBuffer(d, e.buffer, nullptr);
+    if (e.memory)
+      vkFreeMemory(d, e.memory, nullptr);
     bufKeys.append(kv.key);
   }
-  for (auto *k : bufKeys) buffer_cache_.remove(k);
+  for (auto *k : bufKeys)
+    buffer_cache_.remove(k);
 
   litestl::util::Vector<sculptcore::gpu::ShaderDef *> pipeKeys;
   for (auto &kv : pipeline_cache_) {
     auto &e = kv.value;
-    if (e.pipeline) vkDestroyPipeline(d, e.pipeline, nullptr);
-    if (e.layout) vkDestroyPipelineLayout(d, e.layout, nullptr);
-    if (e.dsLayout) vkDestroyDescriptorSetLayout(d, e.dsLayout, nullptr);
-    if (e.shaderModule) vkDestroyShaderModule(d, e.shaderModule, nullptr);
-    if (e.uboMapped) vkUnmapMemory(d, e.uboMemory);
-    if (e.uboBuffer) vkDestroyBuffer(d, e.uboBuffer, nullptr);
-    if (e.uboMemory) vkFreeMemory(d, e.uboMemory, nullptr);
+    if (e.pipeline)
+      vkDestroyPipeline(d, e.pipeline, nullptr);
+    if (e.layout)
+      vkDestroyPipelineLayout(d, e.layout, nullptr);
+    if (e.dsLayout)
+      vkDestroyDescriptorSetLayout(d, e.dsLayout, nullptr);
+    if (e.shaderModule)
+      vkDestroyShaderModule(d, e.shaderModule, nullptr);
+    if (e.uboMapped)
+      vkUnmapMemory(d, e.uboMemory);
+    if (e.uboBuffer)
+      vkDestroyBuffer(d, e.uboBuffer, nullptr);
+    if (e.uboMemory)
+      vkFreeMemory(d, e.uboMemory, nullptr);
     /* descriptorSet is freed via descriptorPool reset (or pool destroy). */
     pipeKeys.append(kv.key);
   }
-  for (auto *k : pipeKeys) pipeline_cache_.remove(k);
+  for (auto *k : pipeKeys)
+    pipeline_cache_.remove(k);
 }
 
 VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
 {
   static BufferEntry empty;
-  if (!buf || !buf->data || buf->size <= 0) return empty;
+  if (!buf || !buf->data || buf->size <= 0)
+    return empty;
 
   BufferEntry *entry = buffer_cache_.lookup_ptr(buf);
   VkDeviceSize bytes = VkDeviceSize(buf->size) * buf->elemsize * gpu_sizeof(buf->type);
@@ -184,8 +206,8 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
    * was set since (the GPU-resident stroke path flips it on pos/nor), the
    * existing VkBuffer can't be bound as a storage descriptor — recreate it. */
   bool needStorage = buf->gpu_storage;
-  if (!entry || !entry->buffer || entry->size < bytes ||
-      (needStorage && !entry->storage)) {
+  if (!entry || !entry->buffer || entry->size < bytes || (needStorage && !entry->storage))
+  {
     if (entry && (entry->buffer || entry->memory)) {
       /* Defer destruction — the old VkBuffer may still be referenced by the
        * currently-recording command buffer (we may have bound it in an earlier
@@ -214,9 +236,9 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
     vkGetBufferMemoryRequirements(ctx_->device, e.buffer, &mr);
     VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     mai.allocationSize = mr.size;
-    mai.memoryTypeIndex = ctx_->findMemoryType(
-        mr.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    mai.memoryTypeIndex = ctx_->findMemoryType(mr.memoryTypeBits,
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     vkAllocateMemory(ctx_->device, &mai, nullptr, &e.memory);
     vkBindBufferMemory(ctx_->device, e.buffer, e.memory, 0);
     buffer_cache_[buf] = e;
@@ -239,16 +261,19 @@ VulkanBackend::BufferEntry &VulkanBackend::ensureBuffer(Buffer *buf)
 
 VkBuffer VulkanBackend::ensureStorageVkBuffer(Buffer *buf)
 {
-  if (!buf) return VK_NULL_HANDLE;
+  if (!buf)
+    return VK_NULL_HANDLE;
   buf->gpu_storage = true;
   return ensureBuffer(buf).buffer;
 }
 
 VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
 {
-  if (!def) return nullptr;
+  if (!def)
+    return nullptr;
   PipelineEntry *cached = pipeline_cache_.lookup_ptr(def);
-  if (cached && cached->pipeline) return cached;
+  if (cached && cached->pipeline)
+    return cached;
   if (!def->spirv || def->spirvSize == 0) {
     fprintf(stderr, "VulkanBackend: shader '%s' has no SPIR-V\n", def->name.c_str());
     return nullptr;
@@ -268,9 +293,8 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
    * (set=0, binding=0); the layout reflects whatever `block->binding`
    * the link pass stamped. */
   if (def->uniforms.size() == 0) {
-    fprintf(stderr,
-            "VulkanBackend: shader '%s' has no uniform blocks\n",
-            def->name.c_str());
+    fprintf(
+        stderr, "VulkanBackend: shader '%s' has no uniform blocks\n", def->name.c_str());
     return nullptr;
   }
   UniformBlockDef *block0 = def->uniforms[0];
@@ -283,7 +307,8 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
   b.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   b.descriptorCount = 1;
   b.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  VkDescriptorSetLayoutCreateInfo dsci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  VkDescriptorSetLayoutCreateInfo dsci{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   dsci.bindingCount = 1;
   dsci.pBindings = &b;
   vkCreateDescriptorSetLayout(ctx_->device, &dsci, nullptr, &e.dsLayout);
@@ -304,9 +329,9 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
   vkGetBufferMemoryRequirements(ctx_->device, e.uboBuffer, &umr);
   VkMemoryAllocateInfo umai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
   umai.allocationSize = umr.size;
-  umai.memoryTypeIndex = ctx_->findMemoryType(
-      umr.memoryTypeBits,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  umai.memoryTypeIndex = ctx_->findMemoryType(umr.memoryTypeBits,
+                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   vkAllocateMemory(ctx_->device, &umai, nullptr, &e.uboMemory);
   vkBindBufferMemory(ctx_->device, e.uboBuffer, e.uboMemory, 0);
   vkMapMemory(ctx_->device, e.uboMemory, 0, e.uboSize, 0, &e.uboMapped);
@@ -430,9 +455,11 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
   gpci.layout = e.layout;
   gpci.renderPass = renderPass_;
   gpci.subpass = 0;
-  if (vkCreateGraphicsPipelines(ctx_->device, VK_NULL_HANDLE, 1, &gpci, nullptr, &e.pipeline) !=
-      VK_SUCCESS) {
-    fprintf(stderr, "VulkanBackend: failed to create pipeline for '%s'\n", def->name.c_str());
+  if (vkCreateGraphicsPipelines(
+          ctx_->device, VK_NULL_HANDLE, 1, &gpci, nullptr, &e.pipeline) != VK_SUCCESS)
+  {
+    fprintf(
+        stderr, "VulkanBackend: failed to create pipeline for '%s'\n", def->name.c_str());
     return nullptr;
   }
 
@@ -442,9 +469,11 @@ VulkanBackend::PipelineEntry *VulkanBackend::ensurePipeline(ShaderDef *def)
 
 void VulkanBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms &u)
 {
-  if (!cmd || !cmd->shader || !activeCb_) return;
+  if (!cmd || !cmd->shader || !activeCb_)
+    return;
   PipelineEntry *pe = ensurePipeline(cmd->shader);
-  if (!pe) return;
+  if (!pe)
+    return;
 
   /* Resolve the shader's first block against (cmd, batch). If neither layer
    * provides an instance, synthesize one from `u` for the duration of the
@@ -456,8 +485,7 @@ void VulkanBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms
   }
   if (inst && inst->data.size() == size_t(pe->uboSize)) {
     memcpy(pe->uboMapped, inst->data.data(), size_t(pe->uboSize));
-  }
-  else {
+  } else {
     writeFromDrawUniforms(blockDef, u, pe->uboMapped, size_t(pe->uboSize));
   }
 
@@ -474,7 +502,8 @@ void VulkanBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms
   /* Bind vertex buffers, one per attribute, in declaration order. */
   const auto &shader_attrs = cmd->shader->attrs;
   int n = int(cmd->attrs.size());
-  if (n > int(shader_attrs.size())) n = int(shader_attrs.size());
+  if (n > int(shader_attrs.size()))
+    n = int(shader_attrs.size());
   litestl::util::Vector<VkBuffer> vbufs;
   litestl::util::Vector<VkDeviceSize> voffs;
   vbufs.resize(n);
@@ -489,7 +518,8 @@ void VulkanBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms
     vbufs[i] = be.buffer;
     voffs[i] = 0;
   }
-  if (!allOk) return;
+  if (!allOk)
+    return;
   if (n > 0) {
     vkCmdBindVertexBuffers(activeCb_, 0, uint32_t(n), vbufs.data(), voffs.data());
   }
@@ -505,14 +535,17 @@ void VulkanBackend::issue(DrawBatch *batch, DrawCommand *cmd, const DrawUniforms
   }
 }
 
-bool VulkanBackend::beginFrame(OffscreenTarget &target, float r, float g, float b, float a)
+bool VulkanBackend::beginFrame(
+    OffscreenTarget &target, float r, float g, float b, float a)
 {
-  if (inFrame_) return false;
+  if (inFrame_)
+    return false;
   VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
   ai.commandPool = ctx_->commandPool;
   ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   ai.commandBufferCount = 1;
-  if (vkAllocateCommandBuffers(ctx_->device, &ai, &activeCb_) != VK_SUCCESS) return false;
+  if (vkAllocateCommandBuffers(ctx_->device, &ai, &activeCb_) != VK_SUCCESS)
+    return false;
 
   VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -524,7 +557,8 @@ bool VulkanBackend::beginFrame(OffscreenTarget &target, float r, float g, float 
 
 void VulkanBackend::endFrame()
 {
-  if (!inFrame_) return;
+  if (!inFrame_)
+    return;
   vkCmdEndRenderPass(activeCb_);
   vkEndCommandBuffer(activeCb_);
 
@@ -542,15 +576,17 @@ void VulkanBackend::endFrame()
   drainDeferredBuffers_();
 }
 
-bool VulkanBackend::beginFrameSwapchain(Swapchain &sw, uint32_t imageIndex,
-                                        float r, float g, float b, float a)
+bool VulkanBackend::beginFrameSwapchain(
+    Swapchain &sw, uint32_t imageIndex, float r, float g, float b, float a)
 {
-  if (inFrame_) return false;
+  if (inFrame_)
+    return false;
   VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
   ai.commandPool = ctx_->commandPool;
   ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   ai.commandBufferCount = 1;
-  if (vkAllocateCommandBuffers(ctx_->device, &ai, &activeCb_) != VK_SUCCESS) return false;
+  if (vkAllocateCommandBuffers(ctx_->device, &ai, &activeCb_) != VK_SUCCESS)
+    return false;
 
   VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -562,7 +598,8 @@ bool VulkanBackend::beginFrameSwapchain(Swapchain &sw, uint32_t imageIndex,
 
 bool VulkanBackend::endFrameSwapchain(Swapchain &sw, uint32_t imageIndex)
 {
-  if (!inFrame_) return true;
+  if (!inFrame_)
+    return true;
   vkCmdEndRenderPass(activeCb_);
   vkEndCommandBuffer(activeCb_);
 
@@ -584,7 +621,8 @@ bool VulkanBackend::endFrameSwapchain(Swapchain &sw, uint32_t imageIndex)
 
 void VulkanBackend::draw(DrawBatch *batch, const DrawUniforms &u)
 {
-  if (!batch || !inFrame_) return;
+  if (!batch || !inFrame_)
+    return;
   for (DrawCommand *cmd : batch->commands) {
     issue(batch, cmd, u);
   }

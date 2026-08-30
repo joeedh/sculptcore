@@ -25,10 +25,10 @@ GridDrawSource::GridDrawSource(Multires *mr, int level, int nodeTriTarget)
   /* One node is one host draw call, so the target scales with the level
    * (multires_tuning.h) instead of being a fixed tri count. */
   buildPartition(d,
-                 nodeTriTarget > 0 ?
-                     nodeTriTarget :
-                     multiresAutoTune(d.vertCount(), d.gridCount(), d.gridSide())
-                         .drawNodeTriTarget);
+                 nodeTriTarget > 0
+                     ? nodeTriTarget
+                     : multiresAutoTune(d.vertCount(), d.gridCount(), d.gridSide())
+                           .drawNodeTriTarget);
   buildMaterials();
   boundGen_ = mr->domainGeneration();
   update();
@@ -81,8 +81,7 @@ void GridDrawSource::buildPartition(GridLevelDomain &d, int triTarget)
           }
           base += uint32_t(sp.rows + 1) * w;
         }
-      }
-      else {
+      } else {
         open.verts = openRows * trisPerRow * 3;
       }
       nodes_.append(std::move(open));
@@ -98,8 +97,7 @@ void GridDrawSource::buildPartition(GridLevelDomain &d, int triTarget)
         open.spans.last().row0 + open.spans.last().rows == row0)
     {
       open.spans.last().rows += rows;
-    }
-    else {
+    } else {
       open.spans.append(GridSpan{grid, row0, rows});
     }
     openRows += rows;
@@ -157,8 +155,7 @@ void GridDrawSource::fillNode(GridLevelDomain &d, Node &n)
     }
     if (fsetSampleSrc_) {
       n.fset[at] = fsetSampleSrc_[sample];
-    }
-    else if (fsetSrc_) {
+    } else if (fsetSrc_) {
       n.fset[at] = fsetSrc_[grid];
     }
   };

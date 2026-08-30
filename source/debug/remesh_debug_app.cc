@@ -53,7 +53,9 @@ constexpr float kOverlayNudge = 0.0015f;
 // orbits, Shift+LMB or MMB pans, scroll zooms. No sculpting (unlike debug_app's
 // InteractiveController). Camera math mirrors interactive.cc.
 struct OrbitController : InputHandler {
-  OrbitController(Scene *scene) : scene_(scene) {}
+  OrbitController(Scene *scene) : scene_(scene)
+  {
+  }
 
   bool handle(const InputEvent &e) override
   {
@@ -151,8 +153,7 @@ private:
     if (h <= 0) {
       return;
     }
-    float worldPerPx =
-        (2.0f * dist * std::tan(scene_->camera.fovy * 0.5f)) / float(h);
+    float worldPerPx = (2.0f * dist * std::tan(scene_->camera.fovy * 0.5f)) / float(h);
     float3 ofs = right * (-delta[0] * worldPerPx) + up * (delta[1] * worldPerPx);
     scene_->camera.eye = scene_->camera.eye + ofs;
     scene_->camera.target = scene_->camera.target + ofs;
@@ -185,7 +186,10 @@ struct LineSink {
   litestl::util::Vector<float4> clr;
   float3 eye{0, 0, 0};
 
-  float3 nudge(float3 p) const { return p + (eye - p) * kOverlayNudge; }
+  float3 nudge(float3 p) const
+  {
+    return p + (eye - p) * kOverlayNudge;
+  }
   void seg(float3 a, float3 b, float4 c)
   {
     pos.append(nudge(a));
@@ -248,8 +252,8 @@ bool meshBBox(sculptcore::mesh::Mesh &m, float3 &bmin, float3 &bmax)
 
 // Centroid + tangent frame of face f (frame matches the solver's faceFrame, so
 // the θ stored per face is expressed in this same basis).
-void faceCenterFrame(sculptcore::mesh::Mesh &m, int f, float3 &c, float3 &X,
-                     float3 &Y, float3 &N)
+void faceCenterFrame(
+    sculptcore::mesh::Mesh &m, int f, float3 &c, float3 &X, float3 &Y, float3 &N)
 {
   sculptcore::remesh::faceFrame(m, f, X, Y, N);
   c = float3(0, 0, 0);
@@ -265,8 +269,14 @@ void faceCenterFrame(sculptcore::mesh::Mesh &m, int f, float3 &c, float3 &X,
 }
 
 // Project face f's verts into its (X,Y) tangent plane about c; returns vert count.
-int facePoly2D(sculptcore::mesh::Mesh &m, int f, const float3 &c, const float3 &X,
-               const float3 &Y, float *xs, float *ys, int maxn)
+int facePoly2D(sculptcore::mesh::Mesh &m,
+               int f,
+               const float3 &c,
+               const float3 &X,
+               const float3 &Y,
+               float *xs,
+               float *ys,
+               int maxn)
 {
   int c0 = m.l.c[m.f.l[f]], cc = c0, n = 0;
   do {
@@ -285,7 +295,8 @@ bool pnpoly(int n, const float *xs, const float *ys, float px, float py)
   bool in = false;
   for (int i = 0, j = n - 1; i < n; j = i++) {
     if (((ys[i] > py) != (ys[j] > py)) &&
-        (px < (xs[j] - xs[i]) * (py - ys[i]) / (ys[j] - ys[i]) + xs[i])) {
+        (px < (xs[j] - xs[i]) * (py - ys[i]) / (ys[j] - ys[i]) + xs[i]))
+    {
       in = !in;
     }
   }
@@ -540,9 +551,7 @@ void emitFieldEdges(Scene &scene, RemeshApp &app, LineSink &sink)
     float3 d = m.v.co[m.e.vs[e][1]] - m.v.co[m.e.vs[e][0]];
     return std::atan2(d.dot(FY[f]), d.dot(FX[f]));
   };
-  auto reduceQ = [](float x) -> float {
-    return x - kHalfPi * std::round(x / kHalfPi);
-  };
+  auto reduceQ = [](float x) -> float { return x - kHalfPi * std::round(x / kHalfPi); };
 
   for (int e : m.e) {
     int fa, fb;
@@ -655,13 +664,13 @@ void prepareOverlays(Scene &scene, RemeshApp &app)
   if (app.showCurvature || (app.showCrossField && app.crossAnisotropy)) {
     BuiltinAttr<float3, ".remesh.v.kmin_dir", AttrFlag::TEMP> kmin_dir;
     bool created = kmin_dir.ensure(m.v.attrs);
-    if (created ||
-        app.curvatureOverlayIters != app.params.curvature_smooth_iters ||
-        app.curvatureOverlayLambda != app.params.curvature_smooth_lambda) {
+    if (created || app.curvatureOverlayIters != app.params.curvature_smooth_iters ||
+        app.curvatureOverlayLambda != app.params.curvature_smooth_lambda)
+    {
       sculptcore::remesh::computeCurvature(
-          m, sculptcore::remesh::CurvatureParams{
-                 app.params.curvature_smooth_iters,
-                 app.params.curvature_smooth_lambda});
+          m,
+          sculptcore::remesh::CurvatureParams{app.params.curvature_smooth_iters,
+                                              app.params.curvature_smooth_lambda});
       app.curvatureOverlayIters = app.params.curvature_smooth_iters;
       app.curvatureOverlayLambda = app.params.curvature_smooth_lambda;
     }
@@ -673,8 +682,10 @@ void prepareOverlays(Scene &scene, RemeshApp &app)
 // enabled overlay into one world-space line batch and submits it through the
 // depth-tested line pipeline, so back-facing field elements are occluded by the
 // front surface. Reused statically — called once per frame on the main thread.
-void emitOverlays(void *user, sculptcore::gpu::GPUManager &mgr,
-                  sculptcore::vulkan::VulkanBackend &backend, const mat4 &vp)
+void emitOverlays(void *user,
+                  sculptcore::gpu::GPUManager &mgr,
+                  sculptcore::vulkan::VulkanBackend &backend,
+                  const mat4 &vp)
 {
   OverlayCtx &ctx = *static_cast<OverlayCtx *>(user);
   RemeshApp &app = *ctx.app;
@@ -702,8 +713,8 @@ void emitOverlays(void *user, sculptcore::gpu::GPUManager &mgr,
     emitStreamlines(scene, app, sink);
   }
   if (sink.pos.size() >= 2) {
-    scene.overlay.drawLines(mgr, backend, vp, sink.pos.data(), sink.clr.data(),
-                            int(sink.pos.size()));
+    scene.overlay.drawLines(
+        mgr, backend, vp, sink.pos.data(), sink.clr.data(), int(sink.pos.size()));
   }
 }
 
@@ -785,9 +796,8 @@ int main(int argc, char **argv)
 
     PipeServer pipe;
     if (!pipe.start(L"\\\\.\\pipe\\sculpt-remesh-debug",
-                    [&app](const std::string &line) {
-                      return app.handleCommand(line);
-                    })) {
+                    [&app](const std::string &line) { return app.handleCommand(line); }))
+    {
       std::fprintf(stderr, "warning: pipe server failed to start\n");
     } else {
       std::printf("pipe server: \\\\.\\pipe\\sculpt-remesh-debug\n");

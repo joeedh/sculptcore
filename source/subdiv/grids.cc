@@ -185,7 +185,8 @@ void GridsStore::restrictLevelToBelow(Channel &ch, int level)
 
 bool GridsStore::restrictChannelDown(int channel, int level)
 {
-  if (channel < 0 || channel >= int(channels_.size()) || level < 2 || level > levelCount_) {
+  if (channel < 0 || channel >= int(channels_.size()) || level < 2 || level > levelCount_)
+  {
     return false;
   }
   if (!channelLevelAllocated(level, channel)) {
@@ -318,8 +319,8 @@ bool GridsStore::restrictChannelDown(int channel, int level)
         const bool border = u == 0 || v == 0 || u == w - 1 || v == w - 1;
         float *dst = elemIn(ch, level - 1, g, u, v);
         // The centre tap is always in range, so no weight total is zero.
-        const float inv = border ? 1.0f / bwt[slot] :
-                                   1.0f / wsum[(size_t(g) * w + v) * w + u];
+        const float inv =
+            border ? 1.0f / bwt[slot] : 1.0f / wsum[(size_t(g) * w + v) * w + u];
         for (int k = 0; k < fpe; k++) {
           dst[k] = (border ? bacc[slot * 4 + k] : dst[k]) * inv;
         }
@@ -331,11 +332,13 @@ bool GridsStore::restrictChannelDown(int channel, int level)
 }
 
 void GridsStore::prolongateChannelEditUp(int channel,
-                                          int level,
-                                          std::span<const int> coords,
-                                          std::span<const float> deltas)
+                                         int level,
+                                         std::span<const int> coords,
+                                         std::span<const float> deltas)
 {
-  if (channel < 0 || channel >= int(channels_.size()) || level < 1 || level >= levelCount_) {
+  if (channel < 0 || channel >= int(channels_.size()) || level < 1 ||
+      level >= levelCount_)
+  {
     return; // out of range, or nothing finer to carry the edit into
   }
   Channel &ch = channels_[channel];
@@ -460,8 +463,7 @@ float *GridsStore::elemIn(Channel &ch, int level, int grid, int u, int v)
   LevelData &ld = ch.levels[level - 1];
   if (ld.evicted.size()) {
     rehydrate(ch, ld, level); // X5: transparent rehydration on first touch
-  }
-  else if (!ld.chunks.size()) {
+  } else if (!ld.chunks.size()) {
     fillChunks(ch, ld, level); // lazy session channel: allocate on first touch
   }
   const int w = elemWidth(level, ch.domain);
@@ -576,8 +578,8 @@ static GridCoord sideCoord(int grid, int side, int t, int S)
   }
 }
 
-bool GridsStore::neighbor(int level, const GridCoord &c, int du, int dv,
-                          GridCoord &out) const
+bool GridsStore::neighbor(
+    int level, const GridCoord &c, int du, int dv, GridCoord &out) const
 {
   Assert((du == 0) != (dv == 0), "neighbor() takes one lattice step");
   int S = sideForLevel(level);
@@ -808,7 +810,8 @@ bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
   // One blit, not 4 * gridCount stream calls: GridLink is exactly the {grid,
   // side} int pair the reader pulls back out one at a time.
   static_assert(sizeof(GridLink) == 2 * sizeof(uint32_t));
-  pbf.writeUint32Array(reinterpret_cast<const uint32_t *>(links_.data()), links_.size() * 2);
+  pbf.writeUint32Array(reinterpret_cast<const uint32_t *>(links_.data()),
+                       links_.size() * 2);
   pbf.writeUint32(uint32_t(channels_.size()));
   for (Channel &ch : channels_) {
     pbf.writeString(ch.name);
@@ -857,7 +860,8 @@ bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
     for (int i : range) {
       const size_t start = size_t(i) * kCompressBlock;
       const size_t n = std::min(size_t(kCompressBlock), rawSize - start);
-      blockSizes[i] = uint32_t(io::compressBlock(payload.data() + start, n, blocks[i], hcLevel));
+      blockSizes[i] =
+          uint32_t(io::compressBlock(payload.data() + start, n, blocks[i], hcLevel));
     }
   });
   size_t compTotal = 0;

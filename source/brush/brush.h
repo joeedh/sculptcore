@@ -391,14 +391,14 @@ struct Brush {
    * since every member a built-in kernel reads must appear here to compile. */
   static void builtinPropNames(litestl::util::Vector<litestl::util::string> &out)
   {
-    for (const char *n : {
-             "strength",    "radius",      "spacing",     "planeoff",
-             "planeSide",   "autosmooth",  "invert",      "strokeDir",
-             "wingAngle",   "wingNormalA", "wingNormalB", "activeGroup",
-             "brushColor",  "mixMode",     "mu",          "nu",
-             "unboundedExtent",
-             "pinch",       "projection",  "rake",        "grabFrom",
-             "grabTo",      "poseCageRest", "poseCageNow",
+    for (const char *n :
+         {
+             "strength",        "radius",      "spacing",      "planeoff",
+             "planeSide",       "autosmooth",  "invert",       "strokeDir",
+             "wingAngle",       "wingNormalA", "wingNormalB",  "activeGroup",
+             "brushColor",      "mixMode",     "mu",           "nu",
+             "unboundedExtent", "pinch",       "projection",   "rake",
+             "grabFrom",        "grabTo",      "poseCageRest", "poseCageNow",
          })
     {
       out.append(litestl::util::string(n));
@@ -870,8 +870,8 @@ struct Brush {
       return false;
     }
     if (p->hasRange) {
-      value = value < p->rangeMin ? p->rangeMin
-                                  : (value > p->rangeMax ? p->rangeMax : value);
+      value =
+          value < p->rangeMin ? p->rangeMin : (value > p->rangeMax ? p->rangeMax : value);
     }
     texture_params[p->offset] = value;
     return true;

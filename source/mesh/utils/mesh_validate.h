@@ -122,17 +122,15 @@ struct RemeshReport {
  * close, corner edge/vert agree, and edges reference valid distinct verts.
  * `requireTriangles` additionally asserts every face is a triangle (the dyntopo
  * consumers' precondition). Fills `err` on the first problem found. */
-static inline bool checkTopology(Mesh &m, std::string &err,
-                                 bool requireTriangles = false)
+static inline bool checkTopology(Mesh &m, std::string &err, bool requireTriangles = false)
 {
   char buf[160];
   for (int ei : m.e) {
     int v1 = m.e.vs[ei][0], v2 = m.e.vs[ei][1];
-    if (v1 < 0 || v2 < 0 || v1 >= int(m.v.capacity()) ||
-        v2 >= int(m.v.capacity()) || m.v.freemap[v1] || m.v.freemap[v2] ||
-        v1 == v2) {
-      snprintf(buf, sizeof(buf), "edge %d bad/degenerate vert refs %d %d", ei,
-               v1, v2);
+    if (v1 < 0 || v2 < 0 || v1 >= int(m.v.capacity()) || v2 >= int(m.v.capacity()) ||
+        m.v.freemap[v1] || m.v.freemap[v2] || v1 == v2)
+    {
+      snprintf(buf, sizeof(buf), "edge %d bad/degenerate vert refs %d %d", ei, v1, v2);
       err = buf;
       return false;
     }
@@ -153,7 +151,8 @@ static inline bool checkTopology(Mesh &m, std::string &err,
         return false;
       }
       if (m.e.disk[next][sn * 2] != diskPack(ec, side) ||
-          m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
+          m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side))
+      {
         snprintf(buf, sizeof(buf), "disk prev/next mismatch v=%d e=%d", vi, ec);
         err = buf;
         return false;
@@ -177,8 +176,7 @@ static inline bool checkTopology(Mesh &m, std::string &err,
       }
       int rn = m.c.radial_next[cc], rp = m.c.radial_prev[cc];
       if (m.c.radial_prev[rn] != cc || m.c.radial_next[rp] != cc) {
-        snprintf(buf, sizeof(buf), "radial prev/next mismatch e=%d c=%d", ei,
-                 cc);
+        snprintf(buf, sizeof(buf), "radial prev/next mismatch e=%d c=%d", ei, cc);
         err = buf;
         return false;
       }
@@ -191,14 +189,21 @@ static inline bool checkTopology(Mesh &m, std::string &err,
   }
   for (int fi : m.f) {
     if (m.f.list_count[fi] != 1) {
-      snprintf(buf, sizeof(buf), "face %d has %d loops (multi-loop unsupported)",
-               fi, int(m.f.list_count[fi]));
+      snprintf(buf,
+               sizeof(buf),
+               "face %d has %d loops (multi-loop unsupported)",
+               fi,
+               int(m.f.list_count[fi]));
       err = buf;
       return false;
     }
     int sz = m.l.size[m.f.l[fi]];
     if (sz < 3 || (requireTriangles && sz != 3)) {
-      snprintf(buf, sizeof(buf), "face %d has %d sides%s", fi, sz,
+      snprintf(buf,
+               sizeof(buf),
+               "face %d has %d sides%s",
+               fi,
+               sz,
                requireTriangles ? " (expected triangle)" : "");
       err = buf;
       return false;
@@ -381,8 +386,8 @@ static inline void checkIsolineClosure(Mesh &m, RemeshReport &r)
  * incident face per irregular interior vert (collected by the caller) so the
  * per-component tally needs no second boundary-detection pass. One pass each
  * over faces and edges — not a hot path. */
-static inline void computeTier0Metrics(Mesh &m, RemeshReport &r,
-                                       const litestl::util::Vector<int> &irrFaces)
+static inline void
+computeTier0Metrics(Mesh &m, RemeshReport &r, const litestl::util::Vector<int> &irrFaces)
 {
   using litestl::util::Vector;
   using math::float3;

@@ -36,11 +36,10 @@ using namespace litestl::math;
 static float drawPush(const char *strokeScript)
 {
   Scene scene(256, 256, /*headless=*/true);
-  std::string src =
-      "make_cube subdivs=12 size=0.5\n"
-      "build_spatial leaf_limit=256 depth_limit=8\n"
-      "set_brush_tool tool=draw\n"
-      "set_backend backend=cpp\n";
+  std::string src = "make_cube subdivs=12 size=0.5\n"
+                    "build_spatial leaf_limit=256 depth_limit=8\n"
+                    "set_brush_tool tool=draw\n"
+                    "set_backend backend=cpp\n";
   src += strokeScript;
   auto r = script::run(scene, src.c_str(), ".");
   test_assert(r.ok);
@@ -76,10 +75,10 @@ int main()
   float ac8 = drawPush("set_brush radius=0.25 strength=0.5 nonaccum=0\n"
                        "stroke origin=0,0,0.25 normal=0,0,1 repeat=8\n");
   fprintf(stderr, "(a) na1=%.5f na8=%.5f na16=%.5f ac8=%.5f\n", na1, na8, na16, ac8);
-  test_assert(na1 > 0.0f);                       // the dab actually pushed
+  test_assert(na1 > 0.0f);                                  // the dab actually pushed
   test_assert(std::fabs(na8 - 8.0f * na1) < 0.02f * na8);   // linear: 8 dabs == 8x
   test_assert(std::fabs(na16 - 2.0f * na8) < 0.02f * na16); // no cap: 16 == 2x 8
-  test_assert(ac8 < na8 * 0.6f);                 // accumulate tapers below non-accum
+  test_assert(ac8 < na8 * 0.6f); // accumulate tapers below non-accum
 
   // (c) Cross-stroke. Each `stroke` verb bumps the non-accumulate generation, so
   // a fresh stroke re-stamps every vert at its current (already-pushed) position
@@ -98,8 +97,8 @@ int main()
                          "stroke origin=0,0,0.25 normal=0,0,1\n");
   fprintf(stderr, "(c) na_rep4=%.5f na_x4=%.5f\n", na_rep4, na_x4);
   test_assert(std::fabs(na_rep4 - 4.0f * na1) < 0.02f * na_rep4); // one stroke: linear 4x
-  test_assert(na_x4 > 0.0f);                     // fresh strokes still push
-  test_assert(na_x4 < na_rep4 - 1e-3f);          // re-based onto the risen surface
+  test_assert(na_x4 > 0.0f);            // fresh strokes still push
+  test_assert(na_x4 < na_rep4 - 1e-3f); // re-based onto the risen surface
 
   // (b) Base fallback. A non-accum smooth on the flat +Z face: stamped verts
   // hold orig==live==0.25 and unstamped neighbors (outside the dab) must read
@@ -134,11 +133,14 @@ int main()
         interior++;
       }
     }
-    fprintf(stderr, "(b) interior=%d minInteriorZ=%.5f finite=%d\n", interior,
-            minInteriorZ, int(allFinite));
-    test_assert(allFinite);            // no NaN/inf from a bad base read
-    test_assert(interior > 0);         // we actually sampled the face
-    test_assert(minInteriorZ > 0.2f);  // face held its z (no inward collapse)
+    fprintf(stderr,
+            "(b) interior=%d minInteriorZ=%.5f finite=%d\n",
+            interior,
+            minInteriorZ,
+            int(allFinite));
+    test_assert(allFinite);           // no NaN/inf from a bad base read
+    test_assert(interior > 0);        // we actually sampled the face
+    test_assert(minInteriorZ > 0.2f); // face held its z (no inward collapse)
   }
 
   // (d) Dyntopo coherence. detail=0.08 is coarser than the base cube's ~0.042
@@ -177,12 +179,13 @@ int main()
       maxz = std::fmax(maxz, co[2]);
     }
     float push = maxz - 0.25f;
-    fprintf(stderr, "(d) verts=%d push=%.5f finite=%d\n", m->v.count, push,
-            int(allFinite));
-    test_assert(allFinite);              // coherent snapshot => no NaN/runaway
-    test_assert(m->v.count < 866);       // dab remeshed (collapsed; cube starts at 866)
-    test_assert(push > 0.0f);            // the draw moved the surface out
-    test_assert(std::fabs(push - na6) < 0.2f * na6);  // matches the non-dyntopo linear push
+    fprintf(
+        stderr, "(d) verts=%d push=%.5f finite=%d\n", m->v.count, push, int(allFinite));
+    test_assert(allFinite);        // coherent snapshot => no NaN/runaway
+    test_assert(m->v.count < 866); // dab remeshed (collapsed; cube starts at 866)
+    test_assert(push > 0.0f);      // the draw moved the surface out
+    test_assert(std::fabs(push - na6) <
+                0.2f * na6); // matches the non-dyntopo linear push
   }
 
   // (e) Envelope retention. A moving non-accum stroke (left to right across the
@@ -211,13 +214,16 @@ int main()
     float pushMid = 0.0f, pushEnd = 0.0f;
     for (int i = 0; i < m->v.count; i++) {
       float3 co = m->v.co[i];
-      if (co[2] < 0.2f || std::fabs(co[1]) > 0.1f) continue;
-      if (std::fabs(co[0]) < 0.05f) pushMid = std::fmax(pushMid, co[2] - 0.25f);
-      if (std::fabs(co[0] - 0.2f) < 0.05f) pushEnd = std::fmax(pushEnd, co[2] - 0.25f);
+      if (co[2] < 0.2f || std::fabs(co[1]) > 0.1f)
+        continue;
+      if (std::fabs(co[0]) < 0.05f)
+        pushMid = std::fmax(pushMid, co[2] - 0.25f);
+      if (std::fabs(co[0] - 0.2f) < 0.05f)
+        pushEnd = std::fmax(pushEnd, co[2] - 0.25f);
     }
     fprintf(stderr, "(e) pushMid=%.5f pushEnd=%.5f\n", pushMid, pushEnd);
-    test_assert(pushEnd > 0.0f);             // the stroke reached the far end
-    test_assert(pushMid > 0.7f * pushEnd);   // trailing edge held its push
+    test_assert(pushEnd > 0.0f);           // the stroke reached the far end
+    test_assert(pushMid > 0.7f * pushEnd); // trailing edge held its push
   }
 
   // (f) Falloff-shaped profile. With additive (Blender "Accumulate off") the
@@ -244,7 +250,8 @@ int main()
     int band = 0;
     for (int i = 0; i < m->v.count; i++) {
       float3 co = m->v.co[i];
-      if (co[2] < 0.2f || std::fabs(co[0]) > 0.1f || std::fabs(co[1]) > 0.1f) continue;
+      if (co[2] < 0.2f || std::fabs(co[0]) > 0.1f || std::fabs(co[1]) > 0.1f)
+        continue;
       minPush = std::fmin(minPush, co[2] - 0.25f);
       maxPush = std::fmax(maxPush, co[2] - 0.25f);
       band++;
@@ -252,7 +259,7 @@ int main()
     fprintf(stderr, "(f) band=%d minPush=%.5f maxPush=%.5f\n", band, minPush, maxPush);
     test_assert(band > 0);
     test_assert(maxPush > 0.0f);
-    test_assert(minPush < 0.85f * maxPush);  // falloff-shaped dome, not a plateau
+    test_assert(minPush < 0.85f * maxPush); // falloff-shaped dome, not a plateau
   }
 
   // (g) Displacement base (plans/2026-07-26-0909-brush-displacement-base-
@@ -314,12 +321,17 @@ int main()
       }
       maxInvariant = std::fmax(maxInvariant, (d - (m->v.co[i] - before[i])).length());
     }
-    fprintf(stderr, "(g) stamped=%d moved=%d maxDisp=%.5f inv=%.8f unstamped=%.8f\n",
-            stamped, moved, maxDisp, maxInvariant, maxUnstamped);
-    test_assert(stamped > 0);           // the attrs really were stamped
-    test_assert(moved > 0);             // and really accumulated a displacement
+    fprintf(stderr,
+            "(g) stamped=%d moved=%d maxDisp=%.5f inv=%.8f unstamped=%.8f\n",
+            stamped,
+            moved,
+            maxDisp,
+            maxInvariant,
+            maxUnstamped);
+    test_assert(stamped > 0); // the attrs really were stamped
+    test_assert(moved > 0);   // and really accumulated a displacement
     test_assert(maxDisp > 0.01f);
-    test_assert(maxInvariant < 1e-6f);  // disp == co - base on every stamped vert
+    test_assert(maxInvariant < 1e-6f); // disp == co - base on every stamped vert
     test_assert(maxUnstamped < 1e-6f);
   }
 

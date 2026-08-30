@@ -152,8 +152,8 @@ private:
 
   Multires *mr_ = nullptr;
   int level_ = 0;
-  int side_ = 0;      // cells per grid side (domain gridSide)
-  int triTarget_ = 0; // tris per node the partition was built to
+  int side_ = 0;        // cells per grid side (domain gridSide)
+  int triTarget_ = 0;   // tris per node the partition was built to
   bool indexed_ = true; // SC_GRIDS_INDEXED=0 -> soup fill, empty indices
   uint64_t boundGen_ = 0;
   // Resolved once per update() — the builders behind them are lazy, so they

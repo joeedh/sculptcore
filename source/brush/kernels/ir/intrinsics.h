@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../compiler/ir.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
-#include "../../compiler/ir.h"
 
 // Single declaration table for all sbrush intrinsics. Lives under
 // kernels/ir/ rather than compiler/ because intrinsics are kernel-author

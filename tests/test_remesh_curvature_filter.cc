@@ -23,13 +23,13 @@ test_init;
 
 // The shared test_assert macro has a known retval=0-on-failure bug; use a local
 // one that flips retval (mirrors test_remesh_curvature.cc).
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -100,8 +100,8 @@ void testNoisedCylinder()
     double eS = cylKmaxError(*cyl, {8, 0.5f}, nS);
     fprintf(stderr, "[clean cyl] n=%d err0=%.4f err8=%.4f\n", n0, e0, eS);
     TASSERT(n0 > 0);
-    TASSERT(eS < 0.15);        // stays well-aligned
-    TASSERT(eS < e0 + 0.05);   // not made meaningfully worse
+    TASSERT(eS < 0.15);      // stays well-aligned
+    TASSERT(eS < e0 + 0.05); // not made meaningfully worse
     litestl::alloc::Delete<Mesh>(cyl);
   }
 
@@ -125,9 +125,9 @@ void testNoisedCylinder()
     double eS = cylKmaxError(*cyl, {8, 0.5f}, nS);
     fprintf(stderr, "[noised cyl] n=%d err0=%.4f err8=%.4f\n", n0, e0, eS);
     TASSERT(n0 > 0);
-    TASSERT(e0 > 0.05);        // noise actually perturbed the field
-    TASSERT(eS < e0);          // smoothing reduced the error
-    TASSERT(eS < 0.9 * e0);    // by a meaningful margin
+    TASSERT(e0 > 0.05);     // noise actually perturbed the field
+    TASSERT(eS < e0);       // smoothing reduced the error
+    TASSERT(eS < 0.9 * e0); // by a meaningful margin
     litestl::alloc::Delete<Mesh>(cyl);
   }
 }
@@ -149,8 +149,7 @@ void testSphereIsotropy()
       continue; // equatorial band, away from the UV poles
     }
     float kmin = kval[v][0], kmax = kval[v][1];
-    float aniso =
-        std::fabs(kmax - kmin) / (std::fabs(kmax) + std::fabs(kmin) + 1e-6f);
+    float aniso = std::fabs(kmax - kmin) / (std::fabs(kmax) + std::fabs(kmin) + 1e-6f);
     sAniso += aniso;
     n++;
   }

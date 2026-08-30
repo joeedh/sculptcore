@@ -163,8 +163,11 @@ int main()
   {
     return 1;
   }
-  fprintf(stderr, "dyntopo-refused: splits=%lld collapses=%lld verts %d->%d\n",
-          (long long)scene.cumSplits, (long long)scene.cumCollapses, lockedVerts,
+  fprintf(stderr,
+          "dyntopo-refused: splits=%lld collapses=%lld verts %d->%d\n",
+          (long long)scene.cumSplits,
+          (long long)scene.cumCollapses,
+          lockedVerts,
           scene.mesh->v.count);
   test_assert(scene.cumSplits == 0 && scene.cumCollapses == 0);
   test_assert(scene.mesh->v.count == lockedVerts);

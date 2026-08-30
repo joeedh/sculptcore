@@ -30,7 +30,9 @@ using brush::kDispBinding;
  * fine for the debug app; co/no/mask persist across dabs so each dab reads the
  * previous dab's result (matching the C++ executor). */
 struct BrushComputeDispatch : brush::IBrushComputeDispatch {
-  explicit BrushComputeDispatch(VkContext *ctx) : ctx_(ctx) {}
+  explicit BrushComputeDispatch(VkContext *ctx) : ctx_(ctx)
+  {
+  }
   BrushComputeDispatch(const BrushComputeDispatch &) = delete;
   ~BrushComputeDispatch() override;
 
@@ -40,17 +42,24 @@ struct BrushComputeDispatch : brush::IBrushComputeDispatch {
 
   /* Upload full-mesh vertex arrays (one entry per global vertex). `co`/`no`
    * are tightly packed xyz triples; mask is one float per vertex. */
-  bool beginStroke(const float *co, const float *no, const float *mask,
+  bool beginStroke(const float *co,
+                   const float *no,
+                   const float *mask,
                    int vertCount) override;
 
   /* Dispatch one brush dab. `uniqueVerts` are global vertex indices (flattened
    * across this dab's nodes); `nodes` index into it with count<=64 each, one
    * workgroup per node. `falloffLut` is 256 floats. `strokePath` length must
    * equal brushU.stroke_path_count (may be 0). */
-  bool dab(const ComputeBrushUniforms &brushU, const ComputeCtxUniforms &ctxU,
-           const uint32_t *uniqueVerts, int uniqueVertCount,
-           const ComputeNodeMeta *nodes, int nodeCount, const float *falloffLut,
-           const ComputeStrokeSample *strokePath, int strokeCount) override;
+  bool dab(const ComputeBrushUniforms &brushU,
+           const ComputeCtxUniforms &ctxU,
+           const uint32_t *uniqueVerts,
+           int uniqueVertCount,
+           const ComputeNodeMeta *nodes,
+           int nodeCount,
+           const float *falloffLut,
+           const ComputeStrokeSample *strokePath,
+           int strokeCount) override;
 
   /* dab() split into a CPU prepare + a record-into-cb half, so the interactive
    * path can batch a dab and the dependent normal recompute into one submit.
@@ -58,10 +67,14 @@ struct BrushComputeDispatch : brush::IBrushComputeDispatch {
    * records the dispatch into a caller-supplied command buffer. Call
    * prepareDab() then recordDab(cb) inside the shared command buffer. */
   bool prepareDab(const ComputeBrushUniforms &brushU,
-                  const ComputeCtxUniforms &ctxU, const uint32_t *uniqueVerts,
-                  int uniqueVertCount, const ComputeNodeMeta *nodes,
-                  int nodeCount, const float *falloffLut,
-                  const ComputeStrokeSample *strokePath, int strokeCount);
+                  const ComputeCtxUniforms &ctxU,
+                  const uint32_t *uniqueVerts,
+                  int uniqueVertCount,
+                  const ComputeNodeMeta *nodes,
+                  int nodeCount,
+                  const float *falloffLut,
+                  const ComputeStrokeSample *strokePath,
+                  int strokeCount);
   void recordDab(VkCommandBuffer cb);
 
   /* Upload the CSR neighbor topology (binding 12/13) for for_neighbor kernels
@@ -69,8 +82,10 @@ struct BrushComputeDispatch : brush::IBrushComputeDispatch {
    * flat neighbor-index array. Static across a stroke — call once after
    * beginStroke. Untextured non-neighbor kernels (Draw/Clay) never call this;
    * their bindings stay bound to dummies. */
-  bool setNeighbors(const ComputeVertNbr *meta, int vertCount,
-                    const uint32_t *nbrVerts, int nbrCount) override;
+  bool setNeighbors(const ComputeVertNbr *meta,
+                    int vertCount,
+                    const uint32_t *nbrVerts,
+                    int nbrCount) override;
 
   bool setAutomask(const float *automask, int vertCount) override;
 
@@ -90,8 +105,8 @@ struct BrushComputeDispatch : brush::IBrushComputeDispatch {
    * GPU-resident path to refresh the CPU copy of the verts a dab moved (for
    * ray-pick + node bounds) without a full-mesh readback. coOut/noOut are
    * caller arrays of `count*3` floats; either may be null. */
-  bool readbackVerts(const uint32_t *verts, int count, float *coOut,
-                     float *noOut) override;
+  bool
+  readbackVerts(const uint32_t *verts, int count, float *coOut, float *noOut) override;
 
   /* Custom attribute layers (binding >=14): upload once after beginStroke,
    * read back at end. byteSize bytes in the kernel's GPU layout. */
@@ -102,9 +117,18 @@ struct BrushComputeDispatch : brush::IBrushComputeDispatch {
    * STORAGE buffers and the vertex count, so a sibling GpuNormalPass can
    * recompute normals and scatter into render VBOs with no CPU roundtrip.
    * Valid between beginStroke() and the dispatcher's destruction. */
-  VkBuffer coBuffer() const { return co_.buffer; }
-  VkBuffer noBuffer() const { return no_.buffer; }
-  int vertCount() const { return vertCount_; }
+  VkBuffer coBuffer() const
+  {
+    return co_.buffer;
+  }
+  VkBuffer noBuffer() const
+  {
+    return no_.buffer;
+  }
+  int vertCount() const
+  {
+    return vertCount_;
+  }
 
 private:
   struct Buf {
@@ -148,13 +172,13 @@ private:
   VkImageView texView_ = VK_NULL_HANDLE;
 
   int vertCount_ = 0;
-  int dabNodeCount_ = 0;  // workgroup count stashed by prepareDab for recordDab
+  int dabNodeCount_ = 0; // workgroup count stashed by prepareDab for recordDab
   bool hasNeighbors_ = false;
-  Buf co_, no_, mask_;             // bindings 0,1,2 (persistent per stroke)
-  Buf unique_, nodes_;             // bindings 3,4 (per dab)
-  Buf brushU_, ctxU_;             // bindings 5,6
-  Buf falloff_, stroke_;          // bindings 7,10
-  Buf coPrev_, nbrMeta_, nbrVerts_;  // bindings 11,12,13 (neighbor kernels)
+  Buf co_, no_, mask_;              // bindings 0,1,2 (persistent per stroke)
+  Buf unique_, nodes_;              // bindings 3,4 (per dab)
+  Buf brushU_, ctxU_;               // bindings 5,6
+  Buf falloff_, stroke_;            // bindings 7,10
+  Buf coPrev_, nbrMeta_, nbrVerts_; // bindings 11,12,13 (neighbor kernels)
   /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
    * (@grabmode kernels), zero-filled at beginStroke. */
   Buf dabStamp_;

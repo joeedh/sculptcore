@@ -5,9 +5,9 @@
  * freeze-thaw + tree-rebuild interaction. */
 #include "test_util.h"
 
+#include "dyntopo/dyntopo.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
-#include "dyntopo/dyntopo.h"
 #include "mesh/attribute.h"
 #include "mesh/boundary.h"
 #include "mesh/mesh.h"
@@ -23,11 +23,11 @@ test_init;
 
 #define TASSERT(expr)                                                                    \
   do {                                                                                   \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
       fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -65,45 +65,71 @@ bool manifold(Mesh &m, const char *tag)
   }
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
-      int next = diskEdge(m.e.disk[ec][side * 2 + 1]), prev = diskEdge(m.e.disk[ec][side * 2]);
+      int next = diskEdge(m.e.disk[ec][side * 2 + 1]),
+          prev = diskEdge(m.e.disk[ec][side * 2]);
       int sn = m.e.vs[next][0] == vi ? 0 : 1, sp = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][sn * 2] != diskPack(ec, side) || m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side)) {
+      if (m.e.disk[next][sn * 2] != diskPack(ec, side) ||
+          m.e.disk[prev][sp * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
       ec = next;
-      if (++steps > 1000000) { fprintf(stderr, "[%s] disk loop\n", tag); return false; }
+      if (++steps > 1000000) {
+        fprintf(stderr, "[%s] disk loop\n", tag);
+        return false;
+      }
     } while (ec != e0);
   }
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
-      if (m.c.e[cc] != ei) { fprintf(stderr, "[%s] radial c.e\n", tag); return false; }
+      if (m.c.e[cc] != ei) {
+        fprintf(stderr, "[%s] radial c.e\n", tag);
+        return false;
+      }
       int rn = m.c.radial_next[cc], rp = m.c.radial_prev[cc];
       if (m.c.radial_prev[rn] != cc || m.c.radial_next[rp] != cc) {
         fprintf(stderr, "[%s] radial mismatch e=%d c=%d\n", tag, ei, cc);
         return false;
       }
       cc = rn;
-      if (++steps > 1000000) { fprintf(stderr, "[%s] radial loop\n", tag); return false; }
+      if (++steps > 1000000) {
+        fprintf(stderr, "[%s] radial loop\n", tag);
+        return false;
+      }
     } while (cc != c0);
   }
   for (int fi : m.f) {
     int li = m.f.l[fi], c0 = m.l.c[li], cc = c0, n = 0;
     do {
-      if (m.c.l[cc] != li) { fprintf(stderr, "[%s] c.l\n", tag); return false; }
+      if (m.c.l[cc] != li) {
+        fprintf(stderr, "[%s] c.l\n", tag);
+        return false;
+      }
       int cn = m.c.next[cc];
-      if (m.c.prev[cn] != cc) { fprintf(stderr, "[%s] loop prev/next\n", tag); return false; }
+      if (m.c.prev[cn] != cc) {
+        fprintf(stderr, "[%s] loop prev/next\n", tag);
+        return false;
+      }
       cc = cn;
-      if (++n > 1000000) { fprintf(stderr, "[%s] face loop\n", tag); return false; }
+      if (++n > 1000000) {
+        fprintf(stderr, "[%s] face loop\n", tag);
+        return false;
+      }
     } while (cc != c0);
-    if (n != m.l.size[li]) { fprintf(stderr, "[%s] size\n", tag); return false; }
+    if (n != m.l.size[li]) {
+      fprintf(stderr, "[%s] size\n", tag);
+      return false;
+    }
   }
   return true;
 }
@@ -112,7 +138,8 @@ int findEdge(Mesh &m, int a, int b)
 {
   for (int ei : m.e) {
     int v0 = m.e.vs[ei][0], v1 = m.e.vs[ei][1];
-    if ((v0 == a && v1 == b) || (v0 == b && v1 == a)) return ei;
+    if ((v0 == a && v1 == b) || (v0 == b && v1 == a))
+      return ei;
   }
   return ELEM_NONE;
 }
@@ -168,15 +195,20 @@ int validateOwnership(spatial::SpatialTree *tree, Mesh *m, const char *tag)
 {
   int owned = 0, ownedV = 0;
   for (auto *leaf : tree->leaves()) {
-    if (!leaf->data) continue;
+    if (!leaf->data)
+      continue;
     for (int f : leaf->data->unique_faces) {
       if (m->f.freemap[f]) {
         fprintf(stderr, "[%s] leaf %d owns dead face %d\n", tag, leaf->id, f);
         return -1;
       }
       if (tree->treeMesh.f.node[f] != leaf->id) {
-        fprintf(stderr, "[%s] face %d owner %d != leaf %d\n", tag, f,
-                tree->treeMesh.f.node[f], leaf->id);
+        fprintf(stderr,
+                "[%s] face %d owner %d != leaf %d\n",
+                tag,
+                f,
+                tree->treeMesh.f.node[f],
+                leaf->id);
         return -1;
       }
       owned++;
@@ -250,7 +282,10 @@ int main()
     /* collapse an edge incident to the midpoint back. */
     int mid = -1;
     for (int vi : m.v) {
-      if (vi >= 4) { mid = vi; break; }
+      if (vi >= 4) {
+        mid = vi;
+        break;
+      }
     }
     int ce = ELEM_NONE;
     if (mid >= 0) {
@@ -380,7 +415,8 @@ int main()
       int bad = 0, total = 0;
       for (int fi : m.f) {
         total++;
-        if ((*g)[fi] != 7) bad++;
+        if ((*g)[fi] != 7)
+          bad++;
       }
       if (bad) {
         fprintf(stderr, "[%s] %d/%d faces lost their polygroup\n", tag, bad, total);
@@ -402,7 +438,9 @@ int main()
         m, float3(0, 0, 0), 0.3f, p, /*seed=*/123u, log.callbacks());
     log.endStep();
     pr("pg dab after", counts(m));
-    printf("  pg dab: %d splits, %d collapses, %d flips\n", st.splits, st.collapses,
+    printf("  pg dab: %d splits, %d collapses, %d flips\n",
+           st.splits,
+           st.collapses,
            st.flips);
     TASSERT(st.flips > 0); /* the test only detects the bug if flips ran */
     TASSERT(manifold(m, "pg-dab"));
@@ -526,11 +564,16 @@ int main()
     TASSERT((*g)[painted] == 99); /* fails pre-fix: redo restores the frozen 7 */
     TASSERT(!m.v.freemap[paintedV]);
     float4 cv = (*vc)[paintedV];
-    bool colorOk = cv[0] == sentinel[0] && cv[1] == sentinel[1] &&
-                   cv[2] == sentinel[2] && cv[3] == sentinel[3];
+    bool colorOk = cv[0] == sentinel[0] && cv[1] == sentinel[1] && cv[2] == sentinel[2] &&
+                   cv[3] == sentinel[3];
     TASSERT(colorOk); /* #13: created vert's color must survive redo too */
-    printf("  created-face repaint redo: group=%d (want 99), vcolor=(%.2f %.2f %.2f %.2f)\n",
-           (*g)[painted], cv[0], cv[1], cv[2], cv[3]);
+    printf(
+        "  created-face repaint redo: group=%d (want 99), vcolor=(%.2f %.2f %.2f %.2f)\n",
+        (*g)[painted],
+        cv[0],
+        cv[1],
+        cv[2],
+        cv[3]);
   }
 
   /* --- meshlog undo/redo WITH a live spatial tree.
@@ -544,7 +587,8 @@ int main()
    * faces, so both exercise the ownership reconcile; Both also flips (faces
    * rewired in place) and collapses (verts killed). */
   for (dyntopo::DynTopoMode mode :
-       {dyntopo::DynTopoMode::Subdivide, dyntopo::DynTopoMode::Both}) {
+       {dyntopo::DynTopoMode::Subdivide, dyntopo::DynTopoMode::Both})
+  {
     Mesh *m = makeTriGrid(13); /* spacing ~0.083 */
     auto *tree = litestl::alloc::New<spatial::SpatialTree>("undo tree", m);
     tree->leaf_limit = 96;
@@ -562,13 +606,33 @@ int main()
     mesh::MeshCallbacks *sp = tree->getSpatialCallbacks();
     {
       auto mlFC = combined.onFaceCreate, spFC = sp->onFaceCreate;
-      combined.onFaceCreate = [mlFC, spFC](int f) { if (mlFC) mlFC(f); if (spFC) spFC(f); };
+      combined.onFaceCreate = [mlFC, spFC](int f) {
+        if (mlFC)
+          mlFC(f);
+        if (spFC)
+          spFC(f);
+      };
       auto mlFK = combined.onFaceKill, spFK = sp->onFaceKill;
-      combined.onFaceKill = [mlFK, spFK](int f) { if (mlFK) mlFK(f); if (spFK) spFK(f); };
+      combined.onFaceKill = [mlFK, spFK](int f) {
+        if (mlFK)
+          mlFK(f);
+        if (spFK)
+          spFK(f);
+      };
       auto mlVK = combined.onVertKill, spVK = sp->onVertKill;
-      combined.onVertKill = [mlVK, spVK](int v) { if (mlVK) mlVK(v); if (spVK) spVK(v); };
+      combined.onVertKill = [mlVK, spVK](int v) {
+        if (mlVK)
+          mlVK(v);
+        if (spVK)
+          spVK(v);
+      };
       auto mlFCh = combined.onFaceChange, spFCh = sp->onFaceChange;
-      combined.onFaceChange = [mlFCh, spFCh](int f) { if (mlFCh) mlFCh(f); if (spFCh) spFCh(f); };
+      combined.onFaceChange = [mlFCh, spFCh](int f) {
+        if (mlFCh)
+          mlFCh(f);
+        if (spFCh)
+          spFCh(f);
+      };
     }
 
     dyntopo::DynTopoParams p;
@@ -577,8 +641,8 @@ int main()
     p.mode = mode;
 
     log.beginStep(true);
-    dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
-        *m, float3(0, 0, 0), 0.3f, p, /*seed=*/42u, &combined);
+    dyntopo::DynTopoStats st =
+        dyntopo::runDyntopoRemesh(*m, float3(0, 0, 0), 0.3f, p, /*seed=*/42u, &combined);
     log.endStep();
     TASSERT(st.splits > 0);
     int fAfter = m->f.count;
@@ -588,7 +652,12 @@ int main()
     log.undo(m, tree);
     tree->applyDeferredNodeSplit();
     printf("  tree undo (mode %d): %d -> %d faces (%d splits, %d collapses, %d flips)\n",
-           int(mode), fAfter, m->f.count, st.splits, st.collapses, st.flips);
+           int(mode),
+           fAfter,
+           m->f.count,
+           st.splits,
+           st.collapses,
+           st.flips);
     TASSERT(m->f.count == fBefore);
     TASSERT(validateOwnership(tree, m, "tree-undo") == fBefore); /* fails pre-fix */
 

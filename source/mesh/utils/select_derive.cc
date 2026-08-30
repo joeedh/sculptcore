@@ -109,10 +109,9 @@ litestl::util::Set<int> deriveVertSelection(Mesh &m)
 
 /** Shared resolve shape: explicit selection in the op's own domain, then either
  * prefer-explicit (derive only fills an empty domain) or union. */
-template<typename ExplicitFn, typename DeriveFn>
-static litestl::util::Set<int> resolveSelection(bool preferOpDomain,
-                                                ExplicitFn &&explicitSel,
-                                                DeriveFn &&derived)
+template <typename ExplicitFn, typename DeriveFn>
+static litestl::util::Set<int>
+resolveSelection(bool preferOpDomain, ExplicitFn &&explicitSel, DeriveFn &&derived)
 {
   Set<int> explicitSet = explicitSel();
   if (preferOpDomain && explicitSet.size() > 0) {

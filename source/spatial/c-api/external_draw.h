@@ -68,7 +68,8 @@ void sc_external_draw_register(unsigned int object_key, void *spatial_tree);
 #define SC_EXTERNAL_DRAW_CUSTOM_ID_BASE 0x40000000u
 
 typedef struct ScExternalDrawSourceOps {
-  int (*nodes_get)(void *src, const ScExternalDrawAttrRequest *req,
+  int (*nodes_get)(void *src,
+                   const ScExternalDrawAttrRequest *req,
                    ScExternalDrawNode **r_nodes);
   void (*update)(void *src);
   void (*destroy)(void *src);

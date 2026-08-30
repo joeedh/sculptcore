@@ -11,21 +11,27 @@
 #include <vector>
 
 namespace {
-void stdoutSink(const char *msg) {
+void stdoutSink(const char *msg)
+{
   std::fputs(msg, stdout);
   std::fputc('\n', stdout);
   std::fflush(stdout);
 }
 sc_napi_log_fn g_sink = &stdoutSink;
-}  // namespace
+} // namespace
 
-extern "C" void sc_napi_set_sink(sc_napi_log_fn sink) {
+extern "C" void sc_napi_set_sink(sc_napi_log_fn sink)
+{
   g_sink = sink ? sink : &stdoutSink;
 }
 
-extern "C" void sc_napi_log(const char *msg) { g_sink(msg ? msg : ""); }
+extern "C" void sc_napi_log(const char *msg)
+{
+  g_sink(msg ? msg : "");
+}
 
-extern "C" void sc_napi_logf(const char *fmt, ...) {
+extern "C" void sc_napi_logf(const char *fmt, ...)
+{
   char stackbuf[1024];
   std::va_list ap, ap2;
   va_start(ap, fmt);

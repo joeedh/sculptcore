@@ -728,7 +728,8 @@ void SpatialTree::applyDeferredNodeSplit()
   if (int(ordered.size()) != int(nodes.size()) - preNodes) {
     fprintf(stderr,
             "applyDeferredNodeSplit: renumber walk found %d nodes, expected %d\n",
-            int(ordered.size()), int(nodes.size()) - preNodes);
+            int(ordered.size()),
+            int(nodes.size()) - preNodes);
   }
 
   /* Clear the parallel-assigned idmap slots, then reassign sequentially. */
@@ -1376,8 +1377,7 @@ void SpatialTree::buildAll()
    * reference incremental build (A/B correctness + fallback). */
   if (getenv("SC_SERIAL_BUILD")) {
     buildAllSerial();
-  }
-  else {
+  } else {
     buildAllParallel();
   }
 }
@@ -1516,8 +1516,8 @@ void SpatialTree::buildAllParallel()
    * leaf_limit verts per leaf — matching the serial build's leaf granularity
    * (which the reorder/merge machinery is tuned for). */
   const int liveVertCount = m->v.count > 0 ? m->v.count : 1;
-  const int leafFaceLimit = std::max<int>(
-      1, int(int64_t(leaf_limit) * nfaces / liveVertCount));
+  const int leafFaceLimit =
+      std::max<int>(1, int(int64_t(leaf_limit) * nfaces / liveVertCount));
 
   /* Level-synchronous top-down partition. Each frontier node owns a disjoint
    * [start, count) slice of `faces`; splitting reorders only that slice and
@@ -1569,19 +1569,20 @@ void SpatialTree::buildAllParallel()
             float split = mean;
 
             BuildFace *base = &faces[fr.start];
-            BuildFace *mid = std::partition(
-                base, base + fr.count, [axis, split](const BuildFace &bf) {
+            BuildFace *mid =
+                std::partition(base, base + fr.count, [axis, split](const BuildFace &bf) {
                   return bf.cent[axis] <= split;
                 });
             int n0 = int(mid - base);
             if (n0 == 0 || n0 == fr.count) {
               /* Centroids coincide on one side of the mean — split by count so
                * the recursion terminates; the plane becomes the median value. */
-              std::nth_element(
-                  base, base + fr.count / 2, base + fr.count,
-                  [axis](const BuildFace &a, const BuildFace &b) {
-                    return a.cent[axis] < b.cent[axis];
-                  });
+              std::nth_element(base,
+                               base + fr.count / 2,
+                               base + fr.count,
+                               [axis](const BuildFace &a, const BuildFace &b) {
+                                 return a.cent[axis] < b.cent[axis];
+                               });
               n0 = fr.count / 2;
               split = base[n0].cent[axis];
             }
@@ -1697,7 +1698,8 @@ void SpatialTree::buildAllParallel()
               std::atomic_ref<int> slot(minFace[v]);
               int cur = slot.load(std::memory_order_relaxed);
               while (f < cur &&
-                     !slot.compare_exchange_weak(cur, f, std::memory_order_relaxed)) {
+                     !slot.compare_exchange_weak(cur, f, std::memory_order_relaxed))
+              {
               }
             }
           }
@@ -1724,8 +1726,7 @@ void SpatialTree::buildAllParallel()
           int mf = minFace[v];
           if (mf != INT_MAX) {
             vLeaf[i] = treeMesh.f.node[mf];
-          }
-          else {
+          } else {
             /* Loose vert: route by position to the containing leaf. */
             float3 vco = m->v.co[v];
             SpatialNode *leaf = root;
@@ -2230,8 +2231,7 @@ void SpatialTree::materialStats(bool perLeaf, util::Vector<int> &out)
   util::Vector<SpatialNode *> targets;
   if (perLeaf) {
     targets = leaves();
-  }
-  else {
+  } else {
     /* Same filter as the drawBatch rebuild, so triple i matches command i. */
     for (SpatialNode *node : nodes) {
       if (node->is_gpu_node && node->gpu_data && node->gpu_data->pos) {
@@ -2245,8 +2245,7 @@ void SpatialTree::materialStats(bool perLeaf, util::Vector<int> &out)
     group.clear();
     if (perLeaf) {
       group.append(node);
-    }
-    else {
+    } else {
       collect_subtree_leaves(node, group);
     }
 
@@ -2441,7 +2440,8 @@ SpatialTree::buildLeafBoundsBatch(sculptcore::gpu::GPUManager &mgr)
   return batch;
 }
 
-sculptcore::gpu::DrawBatch *SpatialTree::buildBoundsBatch(sculptcore::gpu::GPUManager &mgr)
+sculptcore::gpu::DrawBatch *
+SpatialTree::buildBoundsBatch(sculptcore::gpu::GPUManager &mgr)
 {
   using namespace sculptcore::gpu;
 
@@ -3225,8 +3225,7 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
      * frozen: only dyntopo collapses produce under-full leaves, and those
      * strokes run thawed — a frozen-mode merge would just force an O(mesh)
      * thaw in the tris phase below. */
-    if ((phases & Update_Gpu) && ++updatesSinceMerge_ >= mergeCadence_ &&
-        !m->topo_frozen)
+    if ((phases & Update_Gpu) && ++updatesSinceMerge_ >= mergeCadence_ && !m->topo_frozen)
     {
       applyDeferredMerge();
       updatesSinceMerge_ = 0;
@@ -3371,10 +3370,10 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
             for (int ni : range) {
               SpatialNode *node = updateNormalsNodes[ni];
               ensure_border_cache(node);
-              const bool full = bool(node->flag & Spatial_NormalsFullRebuild) ||
-                                node->affected_verts.size() == 0 ||
-                                node->affected_verts.size() * 4 >=
-                                    node->data->unique_verts.size();
+              const bool full =
+                  bool(node->flag & Spatial_NormalsFullRebuild) ||
+                  node->affected_verts.size() == 0 ||
+                  node->affected_verts.size() * 4 >= node->data->unique_verts.size();
               moved.clear();
               if (!full) {
                 for (int v : node->affected_verts) {
@@ -3387,7 +3386,8 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
               auto scanTri = [&](const NodeTri &tri) {
                 int vs[3] = {m->c.v[tri.c[0]], m->c.v[tri.c[1]], m->c.v[tri.c[2]]};
                 if (!full && !std::binary_search(mb, me, vs[0]) &&
-                    !std::binary_search(mb, me, vs[1]) && !std::binary_search(mb, me, vs[2]))
+                    !std::binary_search(mb, me, vs[1]) &&
+                    !std::binary_search(mb, me, vs[2]))
                 {
                   return;
                 }
@@ -3768,7 +3768,8 @@ bool SpatialTree::updateImpl(gpu::GPUManager *gpu, UpdatePhases phases)
     drawBatch->version++;
     drawBatch->aabbVersion++;
     pendingCmdAabbs_ = false;
-  } else if ((bounds || pendingCmdAabbs_) && drawBatch && drawBatch->commands.size() > 0) {
+  } else if ((bounds || pendingCmdAabbs_) && drawBatch && drawBatch->commands.size() > 0)
+  {
     /* Bounds moved without a command-list rebuild: refresh the culling AABBs
      * in place (same node iteration/filter as the rebuild loop above). */
     int idx = 0;

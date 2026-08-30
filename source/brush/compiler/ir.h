@@ -43,18 +43,34 @@ enum : int { None = 0, Unit, Color, Uv, Polygroup, Select, SculptLayer };
 int parseAttrUse(stringref name);
 
 enum class BinOp : int {
-  Add, Sub, Mul, Div,
-  Eq, Ne, Lt, Le, Gt, Ge,
-  And, Or,
-  BitAnd, BitOr, BitXor,
+  Add,
+  Sub,
+  Mul,
+  Div,
+  Eq,
+  Ne,
+  Lt,
+  Le,
+  Gt,
+  Ge,
+  And,
+  Or,
+  BitAnd,
+  BitOr,
+  BitXor,
 };
 
 enum class UnaryOp : int {
-  Neg, Not,
+  Neg,
+  Not,
 };
 
 enum class AssignOp : int {
-  Assign, AddAssign, SubAssign, MulAssign, DivAssign,
+  Assign,
+  AddAssign,
+  SubAssign,
+  MulAssign,
+  DivAssign,
 };
 
 const char *binOpCSym(BinOp op);
@@ -67,10 +83,12 @@ using ExprPtr = std::unique_ptr<Expr>;
 using StmtPtr = std::unique_ptr<Stmt>;
 
 enum class ExprKind : int {
-  LitFloat, LitInt, LitBool,
+  LitFloat,
+  LitInt,
+  LitBool,
   Ident,
-  Member,   // base.field
-  Index,    // base[index]
+  Member, // base.field
+  Index,  // base[index]
   Binary,
   Unary,
   Call,
@@ -101,15 +119,17 @@ struct Expr {
   Vector<ExprPtr> args;
 
   Expr() = default;
-  Expr(ExprKind k) : kind(k) {}
+  Expr(ExprKind k) : kind(k)
+  {
+  }
 };
 
 enum class StmtKind : int {
   Block,
-  DeclLocal,    // <type> <name> = <init>;
-  Assign,       // <lvalue> [op]= <rvalue>;
-  If,           // if (<cond>) <then> [else <else>]
-  For,          // for (<init>; <cond>; <step>) <body>
+  DeclLocal, // <type> <name> = <init>;
+  Assign,    // <lvalue> [op]= <rvalue>;
+  If,        // if (<cond>) <then> [else <else>]
+  For,       // for (<init>; <cond>; <step>) <body>
   Continue,
   Return,
   ExprStmt,
@@ -150,14 +170,16 @@ struct Stmt {
   // (re-uses existing fields to avoid bloating Stmt)
 
   Stmt() = default;
-  Stmt(StmtKind k) : kind(k) {}
+  Stmt(StmtKind k) : kind(k)
+  {
+  }
 };
 
 enum class StageKind : int {
   Vertex,
-  Reduce,  // Wave 4
-  Host,    // Wave 4
-  Face,    // per-face stage (boundary-conditions wave)
+  Reduce, // Wave 4
+  Host,   // Wave 4
+  Face,   // per-face stage (boundary-conditions wave)
 };
 
 enum class ParamDir : int {
@@ -176,7 +198,7 @@ struct Param {
 
 struct Stage {
   StageKind kind;
-  string name;          // e.g. "apply"
+  string name; // e.g. "apply"
   TypeKind returnType = TypeKind::Void;
   Vector<Param> params;
   StmtPtr body;
@@ -185,7 +207,7 @@ struct Stage {
 enum class FieldKind : int {
   Uniform,
   Ctx,
-  Attr,    // typed mesh attribute, bound to a layer by name at runtime
+  Attr, // typed mesh attribute, bound to a layer by name at runtime
 };
 
 // Which mesh element domain an `attr` field lives on.
@@ -260,7 +282,7 @@ struct TexParam {
   TexParamKind kind = TexParamKind::Float;
   string name;
   bool hasDefault = false;
-  double defaultValue = 0.0;  // Float/Int only; ramps default to identity
+  double defaultValue = 0.0; // Float/Int only; ramps default to identity
   bool hasRange = false;
   double rangeMin = 0.0;
   double rangeMax = 0.0;
@@ -288,11 +310,11 @@ struct SamplerDecl {
 // `use texture <Name>;`). Callable within the owning brush as `<Name>.eval(p, n)`.
 // Lowered to a free function (tex<Cap>Eval in C++, tex_<name>_eval in WGSL).
 struct TextureDef {
-  string name;                            // e.g. "Rings"
-  TypeKind returnType = TypeKind::Float;  // eval return type
-  Vector<Param> params;                   // eval params
-  StmtPtr body;                           // eval body
-  Vector<TexParam> texParams;             // `param ...;` decls, decl order
+  string name;                           // e.g. "Rings"
+  TypeKind returnType = TypeKind::Float; // eval return type
+  Vector<Param> params;                  // eval params
+  StmtPtr body;                          // eval body
+  Vector<TexParam> texParams;            // `param ...;` decls, decl order
   // Total float slots the non-@const params occupy (slab size).
   int slabSize = 0;
   // True when the body calls mapPoint() — the eval needs the map matrix
@@ -319,8 +341,8 @@ struct TextureUnit {
 };
 
 struct Brush {
-  string attrName;       // from @brush("draw") -> "draw"
-  string cppName;        // brush Draw { ... } -> "Draw"
+  string attrName; // from @brush("draw") -> "draw"
+  string cppName;  // brush Draw { ... } -> "Draw"
   Vector<Field> fields;
   Vector<StructDef> structs;
   Vector<TextureDef> textures;

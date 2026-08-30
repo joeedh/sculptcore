@@ -9,7 +9,6 @@
 #include "subdiv/multires.h"
 #include "vulkan/vk_screenshot.h"
 
-
 #include <cstdio>
 
 namespace sculptcore::debug_app {
@@ -278,8 +277,14 @@ void Scene::configureStrokeDriver(brush::BrushStrokeDriver &driver) const
     driver.setViewRow(0, r, d[r * 4 + 0], d[r * 4 + 1], d[r * 4 + 2], d[r * 4 + 3]);
   }
 
-  driver.setViewParams(camera.eye[0], camera.eye[1], camera.eye[2], float(w), float(h),
-                       float(w), float(h), camera.zn,
+  driver.setViewParams(camera.eye[0],
+                       camera.eye[1],
+                       camera.eye[2],
+                       float(w),
+                       float(h),
+                       float(w),
+                       float(h),
+                       camera.zn,
                        /*hasObjectMatrix=*/false);
 }
 

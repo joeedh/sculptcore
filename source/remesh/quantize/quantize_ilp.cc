@@ -124,8 +124,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   const Clock::time_point t_total = Clock::now();
   // Solver-primitive time accumulators (filled by the solve lambdas below); the
   // rounding-phase split in stats is the delta of these around the rounding loop.
-  double assemble_acc = 0.0, refactor_acc = 0.0, updown_acc = 0.0,
-         backsolve_acc = 0.0;
+  double assemble_acc = 0.0, refactor_acc = 0.0, updown_acc = 0.0, backsolve_acc = 0.0;
 
   // Liveness: long phases stream throttled running sums to stdout so an
   // early-killed run still yields usable counters (the manifest is exit-only).
@@ -189,16 +188,20 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     }
   };
   // The matching RHS term: lam * C[i]^T d per i.
-  auto rhsQuadPenalty =
-      [](Eigen::VectorXd &rhs, int n, const int *cls, const M2 *C, double dx,
-         double dy, double lam) {
-        for (int i = 0; i < n; i++) {
-          double rx, ry;
-          mv(transp(C[i]), dx, dy, rx, ry);
-          rhs[2 * cls[i] + 0] += lam * rx;
-          rhs[2 * cls[i] + 1] += lam * ry;
-        }
-      };
+  auto rhsQuadPenalty = [](Eigen::VectorXd &rhs,
+                           int n,
+                           const int *cls,
+                           const M2 *C,
+                           double dx,
+                           double dy,
+                           double lam) {
+    for (int i = 0; i < n; i++) {
+      double rx, ry;
+      mv(transp(C[i]), dx, dy, rx, ry);
+      rhs[2 * cls[i] + 0] += lam * rx;
+      rhs[2 * cls[i] + 1] += lam * ry;
+    }
+  };
 
   // Sides locked to an integer (g.t_int[s]) so far.
   Vector<char> fixed;
@@ -833,9 +836,15 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       if (!Lsimp || cc.status < CHOLMOD_OK) {
         return false;
       }
-      if (!cholmod_change_factor(CHOLMOD_REAL, /*to_ll=*/0, /*to_super=*/0,
-                                 /*to_packed=*/1, /*to_monotonic=*/1, Lsimp, &cc) ||
-          cc.status < CHOLMOD_OK) {
+      if (!cholmod_change_factor(CHOLMOD_REAL,
+                                 /*to_ll=*/0,
+                                 /*to_super=*/0,
+                                 /*to_packed=*/1,
+                                 /*to_monotonic=*/1,
+                                 Lsimp,
+                                 &cc) ||
+          cc.status < CHOLMOD_OK)
+      {
         return false;
       }
       convert_acc += msSince(tc);
@@ -995,8 +1004,8 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   double rot_max_dev = QUARTER_PI;
 
   // Area-weighted gauged gradient (grad u, grad v) of the current solution x on f.
-  auto faceGradX = [&](int f, double &gux, double &guy, double &gvx,
-                       double &gvy) -> bool {
+  auto faceGradX =
+      [&](int f, double &gux, double &guy, double &gvx, double &gvy) -> bool {
     Vector<int> cs;
     int c0 = m.l.c[m.f.l[f]], cc = c0;
     do {
@@ -1360,7 +1369,11 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // Realized translation of side s for both endpoint corner-pairs, t = B x_b -
   // A x_a (equals the un-gauged seam translation uv_b - R(p) uv_a).
   // xv overrides the solution vector read (defaults to x).
-  auto realizedT = [&](int s, double &t1x, double &t1y, double &t2x, double &t2y,
+  auto realizedT = [&](int s,
+                       double &t1x,
+                       double &t1y,
+                       double &t2x,
+                       double &t2y,
                        const double *xv = nullptr) {
     const double *xp = xv ? xv : x.data();
     M2 A = Aop[s], B = Bop[s];
@@ -1378,8 +1391,8 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   // Endpoint-averaged translation of side s and its distance to the nearest
   // integer (the seam penalty makes the two endpoints agree, so the average is
   // the well-defined per-edge translation).
-  auto sideAvg = [&](int s, double &ax, double &ay,
-                     const double *xv = nullptr) -> double {
+  auto sideAvg =
+      [&](int s, double &ax, double &ay, const double *xv = nullptr) -> double {
     double t1x, t1y, t2x, t2y;
     realizedT(s, t1x, t1y, t2x, t2y, xv);
     ax = 0.5 * (t1x + t2x);
@@ -1483,8 +1496,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     const double lam_hi = lam_seam, lam_lo = 0.1;
     const int steps = 16, inner = 3;
     rot_all = true; // retarget every face to nearest rotation (pure ARAP)
-    const double dev_end =
-        std::clamp(params.untangle_field_max_dev, 0.0, QUARTER_PI);
+    const double dev_end = std::clamp(params.untangle_field_max_dev, 0.0, QUARTER_PI);
     double mult = std::pow(lam_hi / lam_lo, 1.0 / steps);
     double lam = lam_lo;
     for (int sIdx = 0; sIdx <= steps && all_solved; sIdx++) {
@@ -1505,7 +1517,9 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       if (progressDue()) {
         std::printf("[quantize_progress] phase=arap step=%d/%d refactors=%d "
                     "elapsed=%.1fs\n",
-                    sIdx + 1, steps + 1, stats.full_refactors,
+                    sIdx + 1,
+                    steps + 1,
+                    stats.full_refactors,
                     msSince(t_total) / 1000.0);
       }
       lam *= mult;
@@ -1684,14 +1698,18 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       if (progressDue()) {
         std::printf("[quantize_progress] phase=round iter=%d locked=%d/%d "
                     "updowns=%d refactors=%d gs_rounds=%d elapsed=%.1fs\n",
-                    iter, S - remaining, S, stats.updowns, stats.full_refactors,
-                    stats.gs_rounds, msSince(t_total) / 1000.0);
+                    iter,
+                    S - remaining,
+                    S,
+                    stats.updowns,
+                    stats.full_refactors,
+                    stats.gs_rounds,
+                    msSince(t_total) / 1000.0);
       }
       if (remaining > 0) {
         if (xIsLocal) {
           dirtyTouched();
-        }
-        else {
+        } else {
           rebuildHeap();
         }
       }
@@ -1746,9 +1764,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     float3 X = sys.FX[f], Y = sys.FY[f];
     float3 p0 = m.v.co[m.c.v[cs[0]]];
     float3 d1 = m.v.co[m.c.v[cs[1]]] - p0, d2 = m.v.co[m.c.v[cs[2]]] - p0;
-    double refDet = double(d1.dot(X)) * double(d2.dot(Y)) -
-                    double(d1.dot(Y)) * double(d2.dot(X));
-    int a0 = sys.cornerClass[cs[0]], a1 = sys.cornerClass[cs[1]], a2 = sys.cornerClass[cs[2]];
+    double refDet =
+        double(d1.dot(X)) * double(d2.dot(Y)) - double(d1.dot(Y)) * double(d2.dot(X));
+    int a0 = sys.cornerClass[cs[0]], a1 = sys.cornerClass[cs[1]],
+        a2 = sys.cornerClass[cs[2]];
     double u0 = xp[2 * a0], v0 = xp[2 * a0 + 1];
     double uvDet = (xp[2 * a1] - u0) * (xp[2 * a2 + 1] - v0) -
                    (xp[2 * a1 + 1] - v0) * (xp[2 * a2] - u0);
@@ -1777,9 +1796,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
   };
   t_phase = Clock::now();
   if (all_solved && S > 0 && params.seam_relax_iters > 0) {
-    auto countF = [&]() {
-      return countFoldsPar([&](int f) { return isFolded(f); });
-    };
+    auto countF = [&]() { return countFoldsPar([&](int f) { return isFolded(f); }); };
     // Fused fold count for the 4 probe solutions in one chunked face sweep.
     Vector<int> foldPart;
     auto countFolds4 = [&](const double *xs[4], const bool feas[4], int nf[4]) {
@@ -1817,7 +1834,8 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
     Eigen::VectorXd probeCol;
     for (int round = 0; round < params.seam_relax_iters &&
                         curFold >= params.seam_relax_min_folds && all_solved;
-         round++) {
+         round++)
+    {
       // Collect the cut-edge sides bordering a folded face (deterministic order).
       std::unordered_set<int> candSet;
       Vector<int> cand;
@@ -1879,8 +1897,12 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
         if (progressDue()) {
           std::printf("[quantize_progress] phase=tier1b round=%d cand=%d/%d "
                       "probes=%d folds=%d elapsed=%.1fs\n",
-                      round, ci + 1, int(cand.size()), stats.tier1b_probes,
-                      curFold, msSince(t_total) / 1000.0);
+                      round,
+                      ci + 1,
+                      int(cand.size()),
+                      stats.tier1b_probes,
+                      curFold,
+                      msSince(t_total) / 1000.0);
         }
       }
       if (!anyAccept) {
@@ -1957,7 +1979,10 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
       if (progressDue()) {
         std::printf("[quantize_progress] phase=stiffen iter=%d/%d folds=%d "
                     "best=%d elapsed=%.1fs\n",
-                    it + 1, inj_iters, fold, bestFold,
+                    it + 1,
+                    inj_iters,
+                    fold,
+                    bestFold,
                     msSince(t_total) / 1000.0);
       }
     }
@@ -2372,8 +2397,7 @@ QuantizeStats computeQuantization(Mesh &m, const QuantizeParams &params)
           first = false;
         }
         if (gux * gux + guy * guy > 1e-20) {
-          double dev =
-              std::fabs(reduceQuarter(std::atan2(guy, gux) - double(theta[f])));
+          double dev = std::fabs(reduceQuarter(std::atan2(guy, gux) - double(theta[f])));
           dA += totA;
           dS += totA * dev;
           dM = std::fmax(dM, dev);

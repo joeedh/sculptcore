@@ -12,7 +12,8 @@ static constexpr VkDeviceSize kVec3Stride = 16; // std430 array<vec3<f32>>
 
 BrushComputeDispatch::~BrushComputeDispatch()
 {
-  if (!ctx_ || ctx_->device == VK_NULL_HANDLE) return;
+  if (!ctx_ || ctx_->device == VK_NULL_HANDLE)
+    return;
   VkDevice d = ctx_->device;
   destroyBuf(co_);
   destroyBuf(no_);
@@ -30,28 +31,38 @@ BrushComputeDispatch::~BrushComputeDispatch()
   destroyBuf(dabStamp_);
   destroyBuf(automask_);
   destroyBuf(attrDummy_);
-  for (int i = 0; i < kMaxAttrBindings; i++) destroyBuf(attrBuf_[i]);
+  for (int i = 0; i < kMaxAttrBindings; i++)
+    destroyBuf(attrBuf_[i]);
   destroyBrushTexture();
-  if (sampler_) vkDestroySampler(d, sampler_, nullptr);
-  if (whiteView_) vkDestroyImageView(d, whiteView_, nullptr);
-  if (whiteImage_) vkDestroyImage(d, whiteImage_, nullptr);
-  if (whiteMem_) vkFreeMemory(d, whiteMem_, nullptr);
-  if (pipeline_) vkDestroyPipeline(d, pipeline_, nullptr);
-  if (pipeLayout_) vkDestroyPipelineLayout(d, pipeLayout_, nullptr);
-  if (setLayout_) vkDestroyDescriptorSetLayout(d, setLayout_, nullptr);
-  if (pool_) vkDestroyDescriptorPool(d, pool_, nullptr);
-  if (module_) vkDestroyShaderModule(d, module_, nullptr);
+  if (sampler_)
+    vkDestroySampler(d, sampler_, nullptr);
+  if (whiteView_)
+    vkDestroyImageView(d, whiteView_, nullptr);
+  if (whiteImage_)
+    vkDestroyImage(d, whiteImage_, nullptr);
+  if (whiteMem_)
+    vkFreeMemory(d, whiteMem_, nullptr);
+  if (pipeline_)
+    vkDestroyPipeline(d, pipeline_, nullptr);
+  if (pipeLayout_)
+    vkDestroyPipelineLayout(d, pipeLayout_, nullptr);
+  if (setLayout_)
+    vkDestroyDescriptorSetLayout(d, setLayout_, nullptr);
+  if (pool_)
+    vkDestroyDescriptorPool(d, pool_, nullptr);
+  if (module_)
+    vkDestroyShaderModule(d, module_, nullptr);
 }
 
-bool BrushComputeDispatch::createBuf(Buf &b, VkDeviceSize size,
-                                     VkBufferUsageFlags usage)
+bool BrushComputeDispatch::createBuf(Buf &b, VkDeviceSize size, VkBufferUsageFlags usage)
 {
   VkDevice d = ctx_->device;
   VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   bi.size = size;
   bi.usage = usage;
   bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  if (vkCreateBuffer(d, &bi, nullptr, &b.buffer) != VK_SUCCESS) return false;
+  if (vkCreateBuffer(d, &bi, nullptr, &b.buffer) != VK_SUCCESS)
+    return false;
 
   VkMemoryRequirements mr;
   vkGetBufferMemoryRequirements(d, b.buffer, &mr);
@@ -61,17 +72,18 @@ bool BrushComputeDispatch::createBuf(Buf &b, VkDeviceSize size,
   // discrete GPU the plain HOST_VISIBLE|HOST_COHERENT type is write-combined —
   // uncached CPU reads there crawl, which dominated the per-dab "read" phase.
   // Fall back to the uncached type if no cached host-visible memory exists.
-  mai.memoryTypeIndex = ctx_->findMemoryType(
-      mr.memoryTypeBits,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-          VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+  mai.memoryTypeIndex = ctx_->findMemoryType(mr.memoryTypeBits,
+                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                                 VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
   if (mai.memoryTypeIndex == ~0u) {
-    mai.memoryTypeIndex = ctx_->findMemoryType(
-        mr.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    mai.memoryTypeIndex = ctx_->findMemoryType(mr.memoryTypeBits,
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   }
   if (mai.memoryTypeIndex == ~0u ||
-      vkAllocateMemory(d, &mai, nullptr, &b.mem) != VK_SUCCESS) {
+      vkAllocateMemory(d, &mai, nullptr, &b.mem) != VK_SUCCESS)
+  {
     vkDestroyBuffer(d, b.buffer, nullptr);
     b.buffer = VK_NULL_HANDLE;
     return false;
@@ -89,22 +101,26 @@ void BrushComputeDispatch::destroyBuf(Buf &b)
     vkUnmapMemory(d, b.mem);
     b.mapped = nullptr;
   }
-  if (b.buffer) vkDestroyBuffer(d, b.buffer, nullptr);
-  if (b.mem) vkFreeMemory(d, b.mem, nullptr);
+  if (b.buffer)
+    vkDestroyBuffer(d, b.buffer, nullptr);
+  if (b.mem)
+    vkFreeMemory(d, b.mem, nullptr);
   b.buffer = VK_NULL_HANDLE;
   b.mem = VK_NULL_HANDLE;
   b.size = 0;
 }
 
-bool BrushComputeDispatch::ensureBuf(Buf &b, VkDeviceSize size,
-                                     VkBufferUsageFlags usage)
+bool BrushComputeDispatch::ensureBuf(Buf &b, VkDeviceSize size, VkBufferUsageFlags usage)
 {
-  if (size == 0) size = 16;
-  if (b.buffer != VK_NULL_HANDLE && b.size >= size) return true;
+  if (size == 0)
+    size = 16;
+  if (b.buffer != VK_NULL_HANDLE && b.size >= size)
+    return true;
   destroyBuf(b);
   // Round up to reduce churn across dabs of varying size.
   VkDeviceSize rounded = 256;
-  while (rounded < size) rounded *= 2;
+  while (rounded < size)
+    rounded *= 2;
   return createBuf(b, rounded, usage);
 }
 
@@ -146,17 +162,19 @@ bool BrushComputeDispatch::createWhiteTexture()
   ici.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
   ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   ici.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-  if (vkCreateImage(d, &ici, nullptr, &whiteImage_) != VK_SUCCESS) return false;
+  if (vkCreateImage(d, &ici, nullptr, &whiteImage_) != VK_SUCCESS)
+    return false;
 
   VkMemoryRequirements mr;
   vkGetImageMemoryRequirements(d, whiteImage_, &mr);
   VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
   mai.allocationSize = mr.size;
-  mai.memoryTypeIndex = ctx_->findMemoryType(
-      mr.memoryTypeBits,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  mai.memoryTypeIndex = ctx_->findMemoryType(mr.memoryTypeBits,
+                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (mai.memoryTypeIndex == ~0u ||
-      vkAllocateMemory(d, &mai, nullptr, &whiteMem_) != VK_SUCCESS) {
+      vkAllocateMemory(d, &mai, nullptr, &whiteMem_) != VK_SUCCESS)
+  {
     return false;
   }
   vkBindImageMemory(d, whiteImage_, whiteMem_, 0);
@@ -176,9 +194,16 @@ bool BrushComputeDispatch::createWhiteTexture()
     b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     b.image = whiteImage_;
     b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_HOST_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &b);
+    vkCmdPipelineBarrier(cb,
+                         VK_PIPELINE_STAGE_HOST_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &b);
   });
 
   VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -186,7 +211,8 @@ bool BrushComputeDispatch::createWhiteTexture()
   vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
   vci.format = VK_FORMAT_R8G8B8A8_UNORM;
   vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-  if (vkCreateImageView(d, &vci, nullptr, &whiteView_) != VK_SUCCESS) return false;
+  if (vkCreateImageView(d, &vci, nullptr, &whiteView_) != VK_SUCCESS)
+    return false;
 
   VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
   sci.magFilter = VK_FILTER_LINEAR;
@@ -199,45 +225,51 @@ bool BrushComputeDispatch::createWhiteTexture()
 
 void BrushComputeDispatch::destroyBrushTexture()
 {
-  if (!ctx_ || ctx_->device == VK_NULL_HANDLE) return;
+  if (!ctx_ || ctx_->device == VK_NULL_HANDLE)
+    return;
   VkDevice d = ctx_->device;
-  if (texView_) vkDestroyImageView(d, texView_, nullptr);
-  if (texImage_) vkDestroyImage(d, texImage_, nullptr);
-  if (texMem_) vkFreeMemory(d, texMem_, nullptr);
+  if (texView_)
+    vkDestroyImageView(d, texView_, nullptr);
+  if (texImage_)
+    vkDestroyImage(d, texImage_, nullptr);
+  if (texMem_)
+    vkFreeMemory(d, texMem_, nullptr);
   texView_ = VK_NULL_HANDLE;
   texImage_ = VK_NULL_HANDLE;
   texMem_ = VK_NULL_HANDLE;
 }
 
-bool BrushComputeDispatch::setBrushTexture(const float *pixels, int width,
-                                           int height)
+bool BrushComputeDispatch::setBrushTexture(const float *pixels, int width, int height)
 {
-  if (width <= 0 || height <= 0 || !pixels) return false;
+  if (width <= 0 || height <= 0 || !pixels)
+    return false;
   VkDevice d = ctx_->device;
-  destroyBrushTexture();  // one texture per stroke; drop any previous.
+  destroyBrushTexture(); // one texture per stroke; drop any previous.
 
   VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   ici.imageType = VK_IMAGE_TYPE_2D;
-  ici.format = VK_FORMAT_R32_SFLOAT;  // exact float match for tex_pixels.
+  ici.format = VK_FORMAT_R32_SFLOAT; // exact float match for tex_pixels.
   ici.extent = {uint32_t(width), uint32_t(height), 1};
   ici.mipLevels = 1;
   ici.arrayLayers = 1;
   ici.samples = VK_SAMPLE_COUNT_1_BIT;
-  ici.tiling = VK_IMAGE_TILING_LINEAR;  // host-writable; no staging buffer.
+  ici.tiling = VK_IMAGE_TILING_LINEAR; // host-writable; no staging buffer.
   ici.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
   ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   ici.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-  if (vkCreateImage(d, &ici, nullptr, &texImage_) != VK_SUCCESS) return false;
+  if (vkCreateImage(d, &ici, nullptr, &texImage_) != VK_SUCCESS)
+    return false;
 
   VkMemoryRequirements mr;
   vkGetImageMemoryRequirements(d, texImage_, &mr);
   VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
   mai.allocationSize = mr.size;
-  mai.memoryTypeIndex = ctx_->findMemoryType(
-      mr.memoryTypeBits,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  mai.memoryTypeIndex = ctx_->findMemoryType(mr.memoryTypeBits,
+                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (mai.memoryTypeIndex == ~0u ||
-      vkAllocateMemory(d, &mai, nullptr, &texMem_) != VK_SUCCESS) {
+      vkAllocateMemory(d, &mai, nullptr, &texMem_) != VK_SUCCESS)
+  {
     return false;
   }
   vkBindImageMemory(d, texImage_, texMem_, 0);
@@ -250,7 +282,8 @@ bool BrushComputeDispatch::setBrushTexture(const float *pixels, int width,
   vkMapMemory(d, texMem_, 0, VK_WHOLE_SIZE, 0, reinterpret_cast<void **>(&base));
   base += sl.offset;
   for (int y = 0; y < height; y++) {
-    std::memcpy(base + size_t(y) * sl.rowPitch, pixels + size_t(y) * width,
+    std::memcpy(base + size_t(y) * sl.rowPitch,
+                pixels + size_t(y) * width,
                 size_t(width) * sizeof(float));
   }
   vkUnmapMemory(d, texMem_);
@@ -263,9 +296,16 @@ bool BrushComputeDispatch::setBrushTexture(const float *pixels, int width,
     b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     b.image = texImage_;
     b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_HOST_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &b);
+    vkCmdPipelineBarrier(cb,
+                         VK_PIPELINE_STAGE_HOST_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &b);
   });
 
   VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -273,7 +313,8 @@ bool BrushComputeDispatch::setBrushTexture(const float *pixels, int width,
   vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
   vci.format = VK_FORMAT_R32_SFLOAT;
   vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-  if (vkCreateImageView(d, &vci, nullptr, &texView_) != VK_SUCCESS) return false;
+  if (vkCreateImageView(d, &vci, nullptr, &texView_) != VK_SUCCESS)
+    return false;
 
   VkDescriptorImageInfo ii{};
   ii.imageView = texView_;
@@ -308,7 +349,8 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   VkShaderModuleCreateInfo smi{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
   smi.codeSize = size_t(n);
   smi.pCode = reinterpret_cast<const uint32_t *>(bytes.data());
-  if (vkCreateShaderModule(d, &smi, nullptr, &module_) != VK_SUCCESS) return false;
+  if (vkCreateShaderModule(d, &smi, nullptr, &module_) != VK_SUCCESS)
+    return false;
 
   // 14 group-0 bindings, all visible to the compute stage. Bindings 11-13
   // (co_prev + neighbor CSR) are only referenced by for_neighbor kernels, but
@@ -332,7 +374,7 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   set(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   set(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
   set(6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-  set(7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);  // falloff LUT (vec4x64 uniform)
+  set(7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // falloff LUT (vec4x64 uniform)
   set(8, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
   set(9, VK_DESCRIPTOR_TYPE_SAMPLER);
   set(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -392,15 +434,18 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   dpi.maxSets = 1;
   dpi.poolSizeCount = 4;
   dpi.pPoolSizes = ps;
-  if (vkCreateDescriptorPool(d, &dpi, nullptr, &pool_) != VK_SUCCESS) return false;
+  if (vkCreateDescriptorPool(d, &dpi, nullptr, &pool_) != VK_SUCCESS)
+    return false;
 
   VkDescriptorSetAllocateInfo dsi{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   dsi.descriptorPool = pool_;
   dsi.descriptorSetCount = 1;
   dsi.pSetLayouts = &setLayout_;
-  if (vkAllocateDescriptorSets(d, &dsi, &set_) != VK_SUCCESS) return false;
+  if (vkAllocateDescriptorSets(d, &dsi, &set_) != VK_SUCCESS)
+    return false;
 
-  if (!createWhiteTexture()) return false;
+  if (!createWhiteTexture())
+    return false;
 
   // Bind the (constant) texture + sampler once.
   VkDescriptorImageInfo ii{};
@@ -425,8 +470,10 @@ bool BrushComputeDispatch::loadKernel(const char *path)
   return true;
 }
 
-bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
-                                       const float *mask, int vertCount)
+bool BrushComputeDispatch::beginStroke(const float *co,
+                                       const float *no,
+                                       const float *mask,
+                                       int vertCount)
 {
   vertCount_ = vertCount;
   hasNeighbors_ = false;
@@ -438,7 +485,8 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
       !ensureBuf(disp_, VkDeviceSize(vertCount) * kVec3Stride, storage) ||
       !ensureBuf(dabStamp_, VkDeviceSize(vertCount) * sizeof(uint32_t), storage) ||
       !ensureBuf(automask_, VkDeviceSize(vertCount) * sizeof(float), storage) ||
-      !ensureBuf(nbrMeta_, 0, storage) || !ensureBuf(nbrVerts_, 0, storage)) {
+      !ensureBuf(nbrMeta_, 0, storage) || !ensureBuf(nbrVerts_, 0, storage))
+  {
     return false;
   }
   // Expand packed xyz into 16-byte std430 vec3 slots.
@@ -482,7 +530,8 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
   writeStorage(13, nbrVerts_);
   // Bind every custom-attribute slot to a dummy so the descriptor set is
   // complete for non-attr kernels; setAttr overwrites the slots a kernel uses.
-  if (!ensureBuf(attrDummy_, 0, storage)) return false;
+  if (!ensureBuf(attrDummy_, 0, storage))
+    return false;
   for (int i = 0; i < kMaxAttrBindings; i++) {
     writeStorage(uint32_t(kAttrBase + i), attrDummy_);
   }
@@ -490,13 +539,16 @@ bool BrushComputeDispatch::beginStroke(const float *co, const float *no,
 }
 
 bool BrushComputeDispatch::setNeighbors(const ComputeVertNbr *meta,
-                                        int vertCount, const uint32_t *nbrVerts,
+                                        int vertCount,
+                                        const uint32_t *nbrVerts,
                                         int nbrCount)
 {
   const VkBufferUsageFlags storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   if (!ensureBuf(nbrMeta_, VkDeviceSize(vertCount) * sizeof(ComputeVertNbr), storage) ||
-      !ensureBuf(nbrVerts_, VkDeviceSize(nbrCount < 1 ? 1 : nbrCount) * sizeof(uint32_t),
-                 storage)) {
+      !ensureBuf(nbrVerts_,
+                 VkDeviceSize(nbrCount < 1 ? 1 : nbrCount) * sizeof(uint32_t),
+                 storage))
+  {
     return false;
   }
   std::memcpy(nbrMeta_.mapped, meta, size_t(vertCount) * sizeof(ComputeVertNbr));
@@ -524,12 +576,14 @@ bool BrushComputeDispatch::prepareDab(const ComputeBrushUniforms &brushU,
                                       const uint32_t *uniqueVerts,
                                       int uniqueVertCount,
                                       const ComputeNodeMeta *nodes,
-                                      int nodeCount, const float *falloffLut,
+                                      int nodeCount,
+                                      const float *falloffLut,
                                       const ComputeStrokeSample *strokePath,
                                       int strokeCount)
 {
   dabNodeCount_ = nodeCount;
-  if (nodeCount == 0) return true;
+  if (nodeCount == 0)
+    return true;
   const VkBufferUsageFlags storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   const VkBufferUsageFlags uniform = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
@@ -538,21 +592,22 @@ bool BrushComputeDispatch::prepareDab(const ComputeBrushUniforms &brushU,
       !ensureBuf(brushU_, sizeof(ComputeBrushUniforms), uniform) ||
       !ensureBuf(ctxU_, sizeof(ComputeCtxUniforms), uniform) ||
       !ensureBuf(falloff_, 256 * sizeof(float), uniform) ||
-      !ensureBuf(stroke_, VkDeviceSize(strokeCount < 1 ? 1 : strokeCount) *
-                              sizeof(ComputeStrokeSample),
-                 storage)) {
+      !ensureBuf(stroke_,
+                 VkDeviceSize(strokeCount < 1 ? 1 : strokeCount) *
+                     sizeof(ComputeStrokeSample),
+                 storage))
+  {
     return false;
   }
 
-  std::memcpy(unique_.mapped, uniqueVerts,
-              size_t(uniqueVertCount) * sizeof(uint32_t));
+  std::memcpy(unique_.mapped, uniqueVerts, size_t(uniqueVertCount) * sizeof(uint32_t));
   std::memcpy(nodes_.mapped, nodes, size_t(nodeCount) * sizeof(ComputeNodeMeta));
   std::memcpy(brushU_.mapped, &brushU, sizeof(ComputeBrushUniforms));
   std::memcpy(ctxU_.mapped, &ctxU, sizeof(ComputeCtxUniforms));
   std::memcpy(falloff_.mapped, falloffLut, 256 * sizeof(float));
   if (strokeCount > 0) {
-    std::memcpy(stroke_.mapped, strokePath,
-                size_t(strokeCount) * sizeof(ComputeStrokeSample));
+    std::memcpy(
+        stroke_.mapped, strokePath, size_t(strokeCount) * sizeof(ComputeStrokeSample));
   }
 
   writeStorage(3, unique_);
@@ -573,26 +628,38 @@ bool BrushComputeDispatch::prepareDab(const ComputeBrushUniforms &brushU,
 
 void BrushComputeDispatch::recordDab(VkCommandBuffer cb)
 {
-  if (dabNodeCount_ == 0) return;
+  if (dabNodeCount_ == 0)
+    return;
   vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-  vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeLayout_, 0, 1,
-                          &set_, 0, nullptr);
+  vkCmdBindDescriptorSets(
+      cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeLayout_, 0, 1, &set_, 0, nullptr);
   vkCmdDispatch(cb, uint32_t(dabNodeCount_), 1, 1);
 }
 
 bool BrushComputeDispatch::dab(const ComputeBrushUniforms &brushU,
                                const ComputeCtxUniforms &ctxU,
-                               const uint32_t *uniqueVerts, int uniqueVertCount,
-                               const ComputeNodeMeta *nodes, int nodeCount,
+                               const uint32_t *uniqueVerts,
+                               int uniqueVertCount,
+                               const ComputeNodeMeta *nodes,
+                               int nodeCount,
                                const float *falloffLut,
                                const ComputeStrokeSample *strokePath,
                                int strokeCount)
 {
-  if (!prepareDab(brushU, ctxU, uniqueVerts, uniqueVertCount, nodes, nodeCount,
-                  falloffLut, strokePath, strokeCount)) {
+  if (!prepareDab(brushU,
+                  ctxU,
+                  uniqueVerts,
+                  uniqueVertCount,
+                  nodes,
+                  nodeCount,
+                  falloffLut,
+                  strokePath,
+                  strokeCount))
+  {
     return false;
   }
-  if (dabNodeCount_ == 0) return true;
+  if (dabNodeCount_ == 0)
+    return true;
   return ctx_->runOneShot([&](VkCommandBuffer cb) { recordDab(cb); });
 }
 
@@ -620,8 +687,10 @@ bool BrushComputeDispatch::endStroke(float *coOut, float *noOut, float *maskOut)
   return true;
 }
 
-bool BrushComputeDispatch::readbackVerts(const uint32_t *verts, int count,
-                                         float *coOut, float *noOut)
+bool BrushComputeDispatch::readbackVerts(const uint32_t *verts,
+                                         int count,
+                                         float *coOut,
+                                         float *noOut)
 {
   const auto *coSrc = static_cast<const float *>(co_.mapped);
   const auto *noSrc = static_cast<const float *>(no_.mapped);
@@ -644,9 +713,11 @@ bool BrushComputeDispatch::readbackVerts(const uint32_t *verts, int count,
 bool BrushComputeDispatch::setAttr(uint32_t slot, const void *data, size_t byteSize)
 {
   int idx = int(slot) - kAttrBase;
-  if (idx < 0 || idx >= kMaxAttrBindings) return false;
-  if (!ensureBuf(attrBuf_[idx], VkDeviceSize(byteSize),
-                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)) {
+  if (idx < 0 || idx >= kMaxAttrBindings)
+    return false;
+  if (!ensureBuf(
+          attrBuf_[idx], VkDeviceSize(byteSize), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT))
+  {
     return false;
   }
   std::memcpy(attrBuf_[idx].mapped, data, byteSize);
@@ -657,7 +728,8 @@ bool BrushComputeDispatch::setAttr(uint32_t slot, const void *data, size_t byteS
 bool BrushComputeDispatch::readbackAttr(uint32_t slot, void *out, size_t byteSize)
 {
   int idx = int(slot) - kAttrBase;
-  if (idx < 0 || idx >= kMaxAttrBindings || !attrBuf_[idx].mapped) return false;
+  if (idx < 0 || idx >= kMaxAttrBindings || !attrBuf_[idx].mapped)
+    return false;
   std::memcpy(out, attrBuf_[idx].mapped, byteSize);
   return true;
 }

@@ -63,9 +63,11 @@ static Arrays export_arrays(sculptcore::mesh::Mesh *m)
   out.corner_verts.resize(corners_num);
   out.face_offsets.resize(faces_num + 1);
   out.vert_map.resize(domain_size);
-  out.remapped = Mesh_toArrays(
-      m, out.positions.data(), out.corner_verts.data(), out.face_offsets.data(),
-      out.vert_map.data());
+  out.remapped = Mesh_toArrays(m,
+                               out.positions.data(),
+                               out.corner_verts.data(),
+                               out.face_offsets.data(),
+                               out.vert_map.data());
   return out;
 }
 
@@ -84,9 +86,17 @@ int main()
         0, 1, 0, /**/ 1, 1, 0, /**/ 2, 1, 0, /**/ 9, 9, 9,
     };
     const int corner_verts[] = {
-        0, 1, 5, 4,      /* quad */
-        1, 2, 5,         /* tri */
-        2, 3, 6, 5,      /* quad — makes vertex 5 a 4-face hub */
+        0,
+        1,
+        5,
+        4, /* quad */
+        1,
+        2,
+        5, /* tri */
+        2,
+        3,
+        6,
+        5, /* quad — makes vertex 5 a 4-face hub */
     };
     const int face_offsets[] = {0, 4, 7, 11};
 
@@ -103,8 +113,10 @@ int main()
     test_assert(int(a.corner_verts.size()) == 11);
     test_assert(a.face_offsets[3] == 11);
     test_assert(std::memcmp(a.positions.data(), positions, sizeof(positions)) == 0);
-    test_assert(std::memcmp(a.corner_verts.data(), corner_verts, sizeof(corner_verts)) == 0);
-    test_assert(std::memcmp(a.face_offsets.data(), face_offsets, sizeof(face_offsets)) == 0);
+    test_assert(std::memcmp(a.corner_verts.data(), corner_verts, sizeof(corner_verts)) ==
+                0);
+    test_assert(std::memcmp(a.face_offsets.data(), face_offsets, sizeof(face_offsets)) ==
+                0);
 
     alloc::Delete<Mesh>(m);
   }
@@ -112,7 +124,24 @@ int main()
   // Freelist gaps: killing a face + its exclusive vertex forces a remap.
   {
     const float positions[] = {
-        0, 0, 0, /**/ 1, 0, 0, /**/ 0, 1, 0, /**/ 5, 0, 0, /**/ 6, 0, 0, /**/ 5, 1, 0,
+        0,
+        0,
+        0,
+        /**/ 1,
+        0,
+        0,
+        /**/ 0,
+        1,
+        0,
+        /**/ 5,
+        0,
+        0,
+        /**/ 6,
+        0,
+        0,
+        /**/ 5,
+        1,
+        0,
     };
     const int corner_verts[] = {0, 1, 2, 3, 4, 5};
     const int face_offsets[] = {0, 3, 6};
@@ -138,8 +167,10 @@ int main()
     /* Engine verts 3,4,5 export as 0,1,2; the map records it. */
     test_assert(a.vert_map[0] == -1 && a.vert_map[1] == -1 && a.vert_map[2] == -1);
     test_assert(a.vert_map[3] == 0 && a.vert_map[4] == 1 && a.vert_map[5] == 2);
-    test_assert(a.positions[0] == 5.0f && a.positions[3] == 6.0f && a.positions[7] == 1.0f);
-    test_assert(a.corner_verts[0] == 0 && a.corner_verts[1] == 1 && a.corner_verts[2] == 2);
+    test_assert(a.positions[0] == 5.0f && a.positions[3] == 6.0f &&
+                a.positions[7] == 1.0f);
+    test_assert(a.corner_verts[0] == 0 && a.corner_verts[1] == 1 &&
+                a.corner_verts[2] == 2);
 
     alloc::Delete<Mesh>(m);
   }
@@ -183,7 +214,24 @@ int main()
   // would silently write the wrong vertex.
   {
     const float positions[] = {
-        0, 0, 0, /**/ 1, 0, 0, /**/ 0, 1, 0, /**/ 5, 0, 0, /**/ 6, 0, 0, /**/ 5, 1, 0,
+        0,
+        0,
+        0,
+        /**/ 1,
+        0,
+        0,
+        /**/ 0,
+        1,
+        0,
+        /**/ 5,
+        0,
+        0,
+        /**/ 6,
+        0,
+        0,
+        /**/ 5,
+        1,
+        0,
     };
     const int corner_verts[] = {0, 1, 2, 3, 4, 5};
     const int face_offsets[] = {0, 3, 6};
@@ -264,7 +312,8 @@ int main()
     alloc::Delete<Mesh>(m);
 
     const int wrong_total[] = {0, 5};
-    test_assert(Mesh_fromArrays(positions, 3, corner_verts, 3, wrong_total, 1) == nullptr);
+    test_assert(Mesh_fromArrays(positions, 3, corner_verts, 3, wrong_total, 1) ==
+                nullptr);
   }
 
   return test_end();

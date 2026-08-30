@@ -22,7 +22,7 @@
 namespace sculptcore::mesh {
 struct MeshBase;
 struct BoolAttrView;
-}
+} // namespace sculptcore::mesh
 
 namespace sculptcore::mesh::boundary {
 

@@ -16,10 +16,8 @@
 
 namespace sculptcore::mesh::ops {
 
-static inline void splitFacesOff(Mesh &m,
-                                 MeshCallbacks *cb,
-                                 ExtrudeResult &out,
-                                 bool preferOpDomain = true)
+static inline void
+splitFacesOff(Mesh &m, MeshCallbacks *cb, ExtrudeResult &out, bool preferOpDomain = true)
 {
   using litestl::util::Map;
   using litestl::util::Set;

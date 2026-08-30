@@ -44,7 +44,8 @@ static bool validateMesh(Mesh &m, const char *tag)
 
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
@@ -57,7 +58,8 @@ static bool validateMesh(Mesh &m, const char *tag)
       int side_n = m.e.vs[next][0] == vi ? 0 : 1;
       int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
       if (m.e.disk[next][side_n * 2] != diskPack(ec, side) ||
-          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
+          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk prev/next mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
@@ -71,7 +73,8 @@ static bool validateMesh(Mesh &m, const char *tag)
 
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
       if (m.c.e[cc] != ei) {
@@ -116,8 +119,7 @@ static bool validateMesh(Mesh &m, const char *tag)
         int v_here = m.c.v[cc];
         int v_next = m.c.v[cn];
         int ev0 = m.e.vs[ce][0], ev1 = m.e.vs[ce][1];
-        if (!((ev0 == v_here && ev1 == v_next) ||
-              (ev1 == v_here && ev0 == v_next))) {
+        if (!((ev0 == v_here && ev1 == v_next) || (ev1 == v_here && ev0 == v_next))) {
           fprintf(stderr, "[%s] corner edge-vert mismatch f=%d c=%d\n", tag, fi, cc);
           return false;
         }
@@ -151,8 +153,11 @@ static bool noDuplicateEdges(Mesh &m, const char *tag)
   for (int ei : m.e) {
     int64_t k = edgeKey(m.e.vs[ei][0], m.e.vs[ei][1]);
     if (!seen.add(k)) {
-      fprintf(stderr, "[%s] duplicate edge between %d-%d\n",
-              tag, m.e.vs[ei][0], m.e.vs[ei][1]);
+      fprintf(stderr,
+              "[%s] duplicate edge between %d-%d\n",
+              tag,
+              m.e.vs[ei][0],
+              m.e.vs[ei][1]);
       return false;
     }
   }
@@ -168,7 +173,8 @@ static int eulerChar(Mesh &m)
 static int edgeFaceCount(Mesh &m, int ei)
 {
   int c0 = m.e.c[ei];
-  if (c0 == ELEM_NONE) return 0;
+  if (c0 == ELEM_NONE)
+    return 0;
   int n = 0, cc = c0;
   do {
     n++;
@@ -284,14 +290,16 @@ static Mesh *makeTriSphere(int rings, int segs)
 
 static int randInRange(Random &r, int lo, int hi)
 {
-  if (hi <= lo) return lo;
+  if (hi <= lo)
+    return lo;
   return lo + int(r.get_int() % uint32_t(hi - lo));
 }
 
 static bool finite4(const float4 &v)
 {
   for (int i = 0; i < 4; i++) {
-    if (!std::isfinite(v[i])) return false;
+    if (!std::isfinite(v[i]))
+      return false;
   }
   return true;
 }
@@ -301,20 +309,24 @@ struct Stats {
   int meshes = 0;
 };
 
-static bool runSplitSession(const char *tag, Mesh &m, Random &rnd,
-                            int maxSplits, Stats &stats)
+static bool
+runSplitSession(const char *tag, Mesh &m, Random &rnd, int maxSplits, Stats &stats)
 {
-  if (!validateMesh(m, tag)) return false;
-  if (!noDuplicateEdges(m, tag)) return false;
+  if (!validateMesh(m, tag))
+    return false;
+  if (!noDuplicateEdges(m, tag))
+    return false;
 
   for (int iter = 0; iter < maxSplits; iter++) {
     /* Pick a random live, non-wire edge. */
     Vector<int> candidates;
     for (int ei : m.e) {
-      if (m.e.c[ei] == ELEM_NONE) continue;
+      if (m.e.c[ei] == ELEM_NONE)
+        continue;
       candidates.append(ei);
     }
-    if (candidates.isEmpty()) break;
+    if (candidates.isEmpty())
+      break;
     int ei = candidates[randInRange(rnd, 0, int(candidates.size()))];
 
     int v0 = m.e.vs[ei][0];
@@ -345,14 +357,15 @@ static bool runSplitSession(const char *tag, Mesh &m, Random &rnd,
     EdgeSplitResult res;
     auto ok = splitEdge(m, ei, &res);
     test_assert(bool(ok));
-    if (!ok) return false;
+    if (!ok)
+      return false;
 
     if (!validateMesh(m, tag)) {
-      fprintf(stderr, "[%s] integrity failed after split iter=%d ei=%d\n",
-              tag, iter, ei);
+      fprintf(stderr, "[%s] integrity failed after split iter=%d ei=%d\n", tag, iter, ei);
       return false;
     }
-    if (!noDuplicateEdges(m, tag)) return false;
+    if (!noDuplicateEdges(m, tag))
+      return false;
 
     int dV = m.v.count - V_before;
     int dE = m.e.count - E_before;
@@ -363,13 +376,24 @@ static bool runSplitSession(const char *tag, Mesh &m, Random &rnd,
       fprintf(stderr,
               "[%s] euler delta mismatch iter=%d incident=%d: "
               "dV=%d/%d dE=%d/%d dF=%d/%d\n",
-              tag, iter, incident, dV, dV_expected, dE, dE_expected,
-              dF, dF_expected);
+              tag,
+              iter,
+              incident,
+              dV,
+              dV_expected,
+              dE,
+              dE_expected,
+              dF,
+              dF_expected);
       return false;
     }
     if (chi_after != chi_before) {
-      fprintf(stderr, "[%s] chi changed %d -> %d (iter %d)\n",
-              tag, chi_before, chi_after, iter);
+      fprintf(stderr,
+              "[%s] chi changed %d -> %d (iter %d)\n",
+              tag,
+              chi_before,
+              chi_after,
+              iter);
       return false;
     }
 
@@ -382,8 +406,13 @@ static bool runSplitSession(const char *tag, Mesh &m, Random &rnd,
     float3 vmco = m.v.co[vm];
     for (int i = 0; i < 3; i++) {
       if (!std::isfinite(vmco[i]) || std::fabs(vmco[i] - mid[i]) > 1e-5f) {
-        fprintf(stderr, "[%s] midpoint mismatch iter=%d axis=%d %f vs %f\n",
-                tag, iter, i, vmco[i], mid[i]);
+        fprintf(stderr,
+                "[%s] midpoint mismatch iter=%d axis=%d %f vs %f\n",
+                tag,
+                iter,
+                i,
+                vmco[i],
+                mid[i]);
         return false;
       }
     }
@@ -398,8 +427,13 @@ static bool runSplitSession(const char *tag, Mesh &m, Random &rnd,
       }
       for (int i = 0; i < 4; i++) {
         if (std::fabs(cm[i] - expect[i]) > 1e-5f) {
-          fprintf(stderr, "[%s] color lerp mismatch iter=%d c=%d %f vs %f\n",
-                  tag, iter, i, cm[i], expect[i]);
+          fprintf(stderr,
+                  "[%s] color lerp mismatch iter=%d c=%d %f vs %f\n",
+                  tag,
+                  iter,
+                  i,
+                  cm[i],
+                  expect[i]);
           return false;
         }
       }
@@ -414,11 +448,15 @@ static bool runSplitSession(const char *tag, Mesh &m, Random &rnd,
     int createdEdges_expected = 2 + incident;
     if (int(res.created_faces.size()) != createdFaces_expected ||
         int(res.killed_faces.size()) != incident ||
-        int(res.created_edges.size()) != createdEdges_expected) {
+        int(res.created_edges.size()) != createdEdges_expected)
+    {
       fprintf(stderr,
               "[%s] result struct count mismatch iter=%d: "
               "cf=%zu kf=%zu ce=%zu\n",
-              tag, iter, res.created_faces.size(), res.killed_faces.size(),
+              tag,
+              iter,
+              res.created_faces.size(),
+              res.killed_faces.size(),
               res.created_edges.size());
       return false;
     }

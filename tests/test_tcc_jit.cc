@@ -40,11 +40,10 @@ static void runTests()
   test_assert(tcc_set_output_type(s, TCC_OUTPUT_MEMORY) == 0);
   test_assert(tcc_add_symbol(s, "host_mul", (const void *)hostMul) == 0);
 
-  static const char *src =
-      "float host_mul(float a, float b);\n"
-      "float sc_scale(const float *p, float k) {\n"
-      "  return host_mul(p[0], k) + host_mul(p[1], k) + p[2];\n"
-      "}\n";
+  static const char *src = "float host_mul(float a, float b);\n"
+                           "float sc_scale(const float *p, float k) {\n"
+                           "  return host_mul(p[0], k) + host_mul(p[1], k) + p[2];\n"
+                           "}\n";
   test_assert(tcc_compile_string(s, src) == 0);
   test_assert(tcc_relocate(s) == 0);
 

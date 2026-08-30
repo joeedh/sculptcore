@@ -125,7 +125,8 @@ uint8_t *serializeMeshRaw(Mesh *mesh, int *out_size)
   }
 
   std::string s = ss.str();
-  uint8_t *buf = static_cast<uint8_t *>(alloc::alloc("mesh serialize raw buffer", s.size()));
+  uint8_t *buf =
+      static_cast<uint8_t *>(alloc::alloc("mesh serialize raw buffer", s.size()));
   std::memcpy(buf, s.data(), s.size());
   *out_size = int(s.size());
   return buf;
@@ -455,7 +456,8 @@ int Mesh_readAttr(Mesh *m, int domain, const char *name, int type, void *out)
  * AttrType::WEIGHTS is refused: a raw write would store caller-supplied
  * DeformPool indices with no reference taken, so the pool would free runs the
  * column still names. Use the sc_mesh_weights_* entry points. */
-int Mesh_writeAttr(Mesh *m, int domain, const char *name, int type, int use, const void *in)
+int Mesh_writeAttr(
+    Mesh *m, int domain, const char *name, int type, int use, const void *in)
 {
   if (m->topo_frozen) {
     m->thawTopo();
@@ -665,8 +667,11 @@ int Mesh_edgeVertsOut(Mesh *m, int *out)
  * creates nothing). Marks the affected elements boundary-dirty; call
  * Mesh_recomputeBoundary (or rely on the executors' lazy recompute) afterwards.
  * Returns the number of edges applied. */
-int Mesh_writeEdgeFlagsByVerts(
-    Mesh *m, const char *name, const int *edge_verts, const uint8_t *values, int edges_num)
+int Mesh_writeEdgeFlagsByVerts(Mesh *m,
+                               const char *name,
+                               const int *edge_verts,
+                               const uint8_t *values,
+                               int edges_num)
 {
   if (m->topo_frozen) {
     m->thawTopo();
@@ -805,7 +810,8 @@ Mesh *Mesh_fromArrays(const float *positions,
       }
     }
 
-    if (!valid || m->make_face(std::span<int>(vs.data(), size_t(vs.size()))) == ELEM_NONE) {
+    if (!valid || m->make_face(std::span<int>(vs.data(), size_t(vs.size()))) == ELEM_NONE)
+    {
       skipped++;
     }
   }
@@ -818,8 +824,11 @@ Mesh *Mesh_fromArrays(const float *positions,
 /** Element counts for sizing Mesh_toArrays buffers. `r_verts_domain_size`
  * (optional) receives the vert index-space size (freelist gaps included) for
  * sizing the Mesh_toArrays remap table. */
-void Mesh_arraySizes(
-    Mesh *m, int *r_verts_num, int *r_corners_num, int *r_faces_num, int *r_verts_domain_size)
+void Mesh_arraySizes(Mesh *m,
+                     int *r_verts_num,
+                     int *r_corners_num,
+                     int *r_faces_num,
+                     int *r_verts_domain_size)
 {
   if (m->topo_frozen) {
     m->thawTopo();

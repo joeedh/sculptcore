@@ -37,8 +37,8 @@ static double shoelace(const Vector<float2> &poly)
 
 static double triArea2(float2 a, float2 b, float2 c)
 {
-  return 0.5 * (double(b[0] - a[0]) * (c[1] - a[1]) -
-                double(b[1] - a[1]) * (c[0] - a[0]));
+  return 0.5 *
+         (double(b[0] - a[0]) * (c[1] - a[1]) - double(b[1] - a[1]) * (c[0] - a[0]));
 }
 
 /* Even-odd ray test; eps-free (robust for the axis-aligned test polygons). */
@@ -49,7 +49,8 @@ static bool pointInPoly2(float2 pt, const Vector<float2> &poly)
   for (int i = 0, j = n - 1; i < n; j = i++) {
     float2 a = poly[i], b = poly[j];
     if (((a[1] > pt[1]) != (b[1] > pt[1])) &&
-        (pt[0] < (double(b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1])) + a[0])) {
+        (pt[0] < (double(b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1])) + a[0]))
+    {
       in = !in;
     }
   }
@@ -72,12 +73,16 @@ static bool runFaceCase(const char *label, Vector<float3> &verts3, float3 normal
 
   /* Project the face loop the same way triangulateFace does. */
   Vector<float3> outer3;
-  for (int v : vs) outer3.append(m.v.co[v]);
+  for (int v : vs)
+    outer3.append(m.v.co[v]);
   float3 nrm = detail_delaunay::fitPlaneNormal(
       util::span<const float3>(outer3.data(), outer3.size()));
-  if (normal.length() > 1e-6f) nrm = normal;
-  if (nrm.length() < 1e-6f) nrm = float3(0, 0, 1);
-  else nrm.normalize();
+  if (normal.length() > 1e-6f)
+    nrm = normal;
+  if (nrm.length() < 1e-6f)
+    nrm = float3(0, 0, 1);
+  else
+    nrm.normalize();
   float3 ub, vb;
   detail_delaunay::planeBasis(nrm, ub, vb);
 
@@ -110,7 +115,8 @@ static bool runFaceCase(const char *label, Vector<float3> &verts3, float3 normal
   }
 
   Set<int> faceVerts;
-  for (int v : vs) faceVerts.add(v);
+  for (int v : vs)
+    faceVerts.add(v);
 
   double sumArea = 0.0;
   bool signSet = false, sign = false;
@@ -154,19 +160,22 @@ static bool runFaceCase(const char *label, Vector<float3> &verts3, float3 normal
 
 /* Direct (mesh-free) CDT of a polygon-with-holes. Returns the triangle count and
  * fills out_tris; the caller asserts geometry. */
-static int runDirectCdt(Vector<float2> &pts, Vector<detail_delaunay::DEdge> &segs,
-                        Vector<int> &out)
+static int
+runDirectCdt(Vector<float2> &pts, Vector<detail_delaunay::DEdge> &segs, Vector<int> &out)
 {
   auto ok = constrainedDelaunay2D(
       util::span<const float2>(pts.data(), pts.size()),
-      util::span<const detail_delaunay::DEdge>(segs.data(), segs.size()), out, true);
+      util::span<const detail_delaunay::DEdge>(segs.data(), segs.size()),
+      out,
+      true);
   test_assert(bool(ok));
   return int(out.size()) / 3;
 }
 
 static void closeRing(Vector<detail_delaunay::DEdge> &segs, int base, int n)
 {
-  for (int i = 0; i < n; i++) segs.append({base + i, base + (i + 1) % n});
+  for (int i = 0; i < n; i++)
+    segs.append({base + i, base + (i + 1) % n});
 }
 
 int main()
@@ -197,7 +206,8 @@ int main()
   {
     Vector<float3> p;
     float coords[8][2] = {{0, 0}, {3, 0}, {3, 3}, {2, 3}, {2, 1}, {1, 1}, {1, 3}, {0, 3}};
-    for (auto &c : coords) p.append(float3(c[0], c[1], 0));
+    for (auto &c : coords)
+      p.append(float3(c[0], c[1], 0));
     test_assert(runFaceCase("concave-U", p, float3(0, 0, 0)));
   }
 
@@ -220,7 +230,8 @@ int main()
     detail_delaunay::planeBasis(nrm, ub, vb);
     Vector<float3> p;
     float coords[8][2] = {{0, 0}, {3, 0}, {3, 3}, {2, 3}, {2, 1}, {1, 1}, {1, 3}, {0, 3}};
-    for (auto &c : coords) p.append(ub * c[0] + vb * c[1]);
+    for (auto &c : coords)
+      p.append(ub * c[0] + vb * c[1]);
     test_assert(runFaceCase("concave-U-tilted", p, nrm));
   }
 
@@ -242,11 +253,14 @@ int main()
     /* Build twice: hole wound same as outer, then reversed -> identical result. */
     for (int rev = 0; rev < 2; rev++) {
       Vector<float2> pts;
-      for (auto &o : outer) pts.append(o);
+      for (auto &o : outer)
+        pts.append(o);
       if (!rev) {
-        for (auto &h : hole) pts.append(h);
+        for (auto &h : hole)
+          pts.append(h);
       } else {
-        for (int i = 3; i >= 0; i--) pts.append(hole[i]);
+        for (int i = 3; i >= 0; i--)
+          pts.append(hole[i]);
       }
       Vector<detail_delaunay::DEdge> segs;
       closeRing(segs, 0, 4);
@@ -294,7 +308,8 @@ int main()
   }
   {
     Vector<float2> pts;
-    for (int i = 0; i < 5; i++) pts.append(float2(float(i), 0)); /* collinear */
+    for (int i = 0; i < 5; i++)
+      pts.append(float2(float(i), 0)); /* collinear */
     Vector<detail_delaunay::DEdge> segs;
     closeRing(segs, 0, 5);
     Vector<int> out;

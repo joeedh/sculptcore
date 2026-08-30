@@ -13,7 +13,7 @@
 namespace sculptcore::mesh {
 struct MeshBase;
 struct MeshCallbacks;
-}
+} // namespace sculptcore::mesh
 
 namespace sculptcore::mesh::uvproj {
 

@@ -19,8 +19,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>
 #include <commdlg.h> // GetOpenFileNameW / OPENFILENAMEW (excluded by LEAN_AND_MEAN)
+#include <windows.h>
 
 #include <cstdio>
 #include <string>
@@ -57,11 +57,10 @@ std::string narrow(const std::wstring &w)
   if (w.empty()) {
     return std::string();
   }
-  int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0,
-                              nullptr, nullptr);
+  int n = WideCharToMultiByte(
+      CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
   std::string s(n, 0);
-  WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr,
-                      nullptr);
+  WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
   return s;
 }
 
@@ -91,7 +90,8 @@ bool RemeshUi::init()
     return true;
   }
   if (!scene_ || !scene_->context || !scene_->window ||
-      scene_->swapchain.renderPass == VK_NULL_HANDLE) {
+      scene_->swapchain.renderPass == VK_NULL_HANDLE)
+  {
     std::fprintf(stderr, "RemeshUi::init: scene/GPU not ready\n");
     return false;
   }
@@ -152,7 +152,8 @@ void RemeshUi::shutdown()
     initialized_ = false;
   }
   if (descriptorPool_ != VK_NULL_HANDLE && scene_ && scene_->context &&
-      scene_->context->device != VK_NULL_HANDLE) {
+      scene_->context->device != VK_NULL_HANDLE)
+  {
     vkDestroyDescriptorPool(scene_->context->device, descriptorPool_, nullptr);
     descriptorPool_ = VK_NULL_HANDLE;
   }
@@ -198,10 +199,9 @@ void RemeshUi::drawPanel()
 
   // --- Asset selection ---
   ImGui::SeparatorText("Asset");
-  const char *preview =
-      (app_->selected >= 0 && app_->selected < (int)app_->assets.size())
-          ? app_->assets[app_->selected].c_str()
-          : "(none)";
+  const char *preview = (app_->selected >= 0 && app_->selected < (int)app_->assets.size())
+                            ? app_->assets[app_->selected].c_str()
+                            : "(none)";
   if (ImGui::BeginCombo("asset", preview)) {
     for (int i = 0; i < (int)app_->assets.size(); i++) {
       bool sel = i == app_->selected;
@@ -296,8 +296,12 @@ void RemeshUi::drawPanel()
       "assets dir's quad-counts.txt — read back by Load and by the CLI when no "
       "explicit sizing is given.");
   ImGui::EndDisabled();
-  ImGui::SliderFloat("target edge len (0=auto)", &P.target_edge_length, 0.0f,
-                     1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+  ImGui::SliderFloat("target edge len (0=auto)",
+                     &P.target_edge_length,
+                     0.0f,
+                     1.0f,
+                     "%.4f",
+                     ImGuiSliderFlags_Logarithmic);
   tip("Explicit output quad edge length, in the mesh's world units; overrides "
       "the quad count above and disables the count correction. 0 = derive from "
       "target quads. This is the size auto density modulates around.");
@@ -312,8 +316,8 @@ void RemeshUi::drawPanel()
   tip("Dihedral angle (radians) above which an edge is treated as sharp. Lower = "
       "more edges count as creases. Default 0.785 = 45 degrees.");
   ImGui::BeginDisabled(!P.use_sharp_features);
-  ImGui::SliderFloat("feature hysteresis (rad)", &P.feature_hysteresis, 0.0f,
-                     0.785f, "%.3f");
+  ImGui::SliderFloat(
+      "feature hysteresis (rad)", &P.feature_hysteresis, 0.0f, 0.785f, "%.3f");
   tip("Tier 7: weak-tag band below the sharp angle. An edge in "
       "[sharp - hysteresis, sharp] is tagged only when vertex-connected to a "
       "strong sharp edge, so a crease oscillating around the threshold stays "
@@ -334,8 +338,7 @@ void RemeshUi::drawPanel()
       "infeasible map — an A/B oracle, not a quality default.");
   {
     float dev_deg = P.untangle_field_max_dev * (180.0f / 3.14159265f);
-    if (ImGui::SliderFloat("untangle max dev (deg)", &dev_deg, 0.0f, 45.0f,
-                           "%.1f")) {
+    if (ImGui::SliderFloat("untangle max dev (deg)", &dev_deg, 0.0f, 45.0f, "%.1f")) {
       P.untangle_field_max_dev = dev_deg * (3.14159265f / 180.0f);
     }
   }
@@ -371,13 +374,13 @@ void RemeshUi::drawPanel()
   ImGui::SliderFloat("triage weld rel", &P.triage_weld_rel, 0.0f, 1e-3f, "%.6f");
   tip("Weld tolerance as a fraction of the bounding-box diagonal. Verts closer "
       "than this are merged.");
-  ImGui::SliderFloat("triage min comp frac", &P.triage_min_component_frac, 0.0f,
-                     0.5f, "%.3f");
+  ImGui::SliderFloat(
+      "triage min comp frac", &P.triage_min_component_frac, 0.0f, 0.5f, "%.3f");
   tip("Drop connected components with fewer than this fraction of the total "
       "verts (removes specks / floaters). 0 = keep every component.");
   ImGui::EndDisabled();
-  ImGui::SliderFloat("hole fill max frac", &P.input_hole_fill_max_frac, 0.0f,
-                     0.5f, "%.3f");
+  ImGui::SliderFloat(
+      "hole fill max frac", &P.input_hole_fill_max_frac, 0.0f, 0.5f, "%.3f");
   tip("Tier 6: pre-solve hole policy. Triangulate-fill input boundary loops "
       "whose rim length is under this fraction of the total boundary length, so "
       "tiny punctures don't seed spurious boundary constraints; larger "
@@ -392,12 +395,16 @@ void RemeshUi::drawPanel()
       "directions are extracted, reducing noisy field alignment. 0 = off (raw "
       "per-vertex curvature).");
   ImGui::BeginDisabled(P.curvature_smooth_iters <= 0);
-  ImGui::SliderFloat("curv smooth lambda", &P.curvature_smooth_lambda, 0.0f, 1.0f,
-                     "%.2f");
+  ImGui::SliderFloat(
+      "curv smooth lambda", &P.curvature_smooth_lambda, 0.0f, 1.0f, "%.2f");
   tip("Per-sweep blend toward the neighbor-averaged tensor (0..1). Higher = more "
       "smoothing per iteration.");
   ImGui::EndDisabled();
-  ImGui::SliderFloat("field smoothness", &P.field_smoothness, 0.1f, 8.0f, "%.2f",
+  ImGui::SliderFloat("field smoothness",
+                     &P.field_smoothness,
+                     0.1f,
+                     8.0f,
+                     "%.2f",
                      ImGuiSliderFlags_Logarithmic);
   tip("Tier 4: per-edge smoothness weight of the cross-field solve. Higher = "
       "globally smoother field with fewer noise-born singularities, at the cost "
@@ -410,8 +417,7 @@ void RemeshUi::drawPanel()
       "edge periods along the geodesic path between them, then re-solving the "
       "phase field. Targets noise-born pairs on scan/messy inputs.");
   ImGui::BeginDisabled(!P.singularity_cancel);
-  ImGui::SliderFloat("cancel max sep", &P.singularity_cancel_max_sep, 0.5f, 4.0f,
-                     "%.2f");
+  ImGui::SliderFloat("cancel max sep", &P.singularity_cancel_max_sep, 0.5f, 4.0f, "%.2f");
   tip("Pair-separation gate in quad-edge-length units: only pole pairs within "
       "this geodesic distance are cancelled. Larger merges farther pairs but "
       "distorts the field over a wider area.");
@@ -443,8 +449,12 @@ void RemeshUi::drawPanel()
       "triangulation's flow. The standalone section below is for inspecting the "
       "pre-pass alone; this gate is what 'Run Remesh' uses.");
   ImGui::BeginDisabled(!P.pre_remesh);
-  ImGui::SliderFloat("pl target (0=auto)", &P.pre_remesh_target, 0.0f, 1.0f,
-                     "%.4f", ImGuiSliderFlags_Logarithmic);
+  ImGui::SliderFloat("pl target (0=auto)",
+                     &P.pre_remesh_target,
+                     0.0f,
+                     1.0f,
+                     "%.4f",
+                     ImGuiSliderFlags_Logarithmic);
   tip("Pipeline pre-pass edge length. 0 = auto: 0.7x the resolved quad edge, "
       "floored at half the median input edge.");
   ImGui::SliderInt("pl iters (0=auto)", &P.pre_remesh_iters, 0, 20);
@@ -456,32 +466,29 @@ void RemeshUi::drawPanel()
   ImGui::Checkbox("pl density", &P.pre_remesh_density);
   tip("Grade the pipeline pre-pass band by the curvature size field. Note: "
       "regenerating it overwrites a painted density map on the working copy.");
-  ImGui::SliderFloat("pl gradation (0=off)", &P.pre_remesh_gradation, 0.0f, 2.0f,
-                     "%.2f");
+  ImGui::SliderFloat("pl gradation (0=off)", &P.pre_remesh_gradation, 0.0f, 2.0f, "%.2f");
   tip("Per-edge-hop growth cap on the pipeline pre-pass size field.");
   ImGui::BeginDisabled(P.pre_remesh_gradation <= 0.0f);
   ImGui::SliderInt("pl gradation iters", &P.pre_remesh_gradation_iters, 1, 30);
   tip("Work cap for the pipeline pre-pass gradation limiter (pops per vertex).");
   ImGui::EndDisabled();
-  ImGui::SliderFloat("pl align (iso<->field)", &P.pre_remesh_align, 0.0f, 1.0f,
-                     "%.2f");
+  ImGui::SliderFloat("pl align (iso<->field)", &P.pre_remesh_align, 0.0f, 1.0f, "%.2f");
   tip("Pipeline pre-pass smooth blend: isotropic (0) to field-aligned (1).");
   ImGui::SliderInt("pl field cadence", &P.pre_remesh_field_cadence, 1, 8);
   tip("Recompute the rough cross field every N outer iters.");
   ImGui::SliderInt("pl smooth iters", &P.pre_remesh_smooth_iters, 0, 20);
   tip("Inner field-aligned smooth sweeps per outer iter.");
-  ImGui::SliderFloat("pl smooth lambda", &P.pre_remesh_smooth_lambda, 0.0f, 1.0f,
-                     "%.2f");
+  ImGui::SliderFloat("pl smooth lambda", &P.pre_remesh_smooth_lambda, 0.0f, 1.0f, "%.2f");
   tip("Per-sweep relaxation factor for the pipeline pre-pass smooth.");
-  ImGui::SliderFloat("pl converge eps (0=off)", &P.pre_remesh_converge_eps, 0.0f,
-                     0.2f, "%.3f");
+  ImGui::SliderFloat(
+      "pl converge eps (0=off)", &P.pre_remesh_converge_eps, 0.0f, 0.2f, "%.3f");
   tip("Early-out: stop once an outer iter moves every vertex less than "
       "eps x target. Clean inputs settle in 2-3 iters.");
   ImGui::Checkbox("pl preserve features", &P.pre_remesh_preserve_features);
   tip("Pin boundaries and dihedral-sharp creases through the pipeline pre-pass.");
   ImGui::BeginDisabled(!P.pre_remesh_preserve_features);
-  ImGui::SliderFloat("pl sharp angle (rad)", &P.pre_remesh_sharp_angle, 0.0f,
-                     3.14159f, "%.3f");
+  ImGui::SliderFloat(
+      "pl sharp angle (rad)", &P.pre_remesh_sharp_angle, 0.0f, 3.14159f, "%.3f");
   tip("Crease dihedral threshold for the pipeline pre-pass feature pinning.");
   ImGui::EndDisabled();
   ImGui::Checkbox("pl convergence trace", &P.pre_remesh_trace);
@@ -513,7 +520,11 @@ void RemeshUi::drawPanel()
   ImGui::SliderInt("pre iters", &PR.iters, 1, 20);
   tip("Outer convergence iterations of the pre-pass (cross field -> Botsch-Kobbelt "
       "remesh -> field-aligned smooth). Also the step count for the Step button.");
-  ImGui::SliderFloat("pre target (0=auto)", &PR.target, 0.0f, 1.0f, "%.4f",
+  ImGui::SliderFloat("pre target (0=auto)",
+                     &PR.target,
+                     0.0f,
+                     1.0f,
+                     "%.4f",
                      ImGuiSliderFlags_Logarithmic);
   tip("Base pre-pass edge length. 0 = the pipeline's auto resolution (explicit "
       "edge len, else 0.7x the count-derived quad edge with a median floor). "
@@ -547,8 +558,7 @@ void RemeshUi::drawPanel()
   tip("Inner field-aligned smooth sweeps per outer iter.");
   ImGui::SliderFloat("pre smooth lambda", &PR.smooth_lambda, 0.0f, 1.0f, "%.2f");
   tip("Per-sweep relaxation factor for the pre-pass smooth.");
-  ImGui::SliderFloat("pre converge eps (0=off)", &PR.converge_eps, 0.0f, 0.2f,
-                     "%.3f");
+  ImGui::SliderFloat("pre converge eps (0=off)", &PR.converge_eps, 0.0f, 0.2f, "%.3f");
   tip("Early-out: stop once an outer iter's smooth moves every vertex less than "
       "eps x target. 0 = always run all iters.");
   {
@@ -637,7 +647,8 @@ void RemeshUi::drawPanel()
   tip("Overlay the output quad edges on the rendered mesh.");
 
   if (app_->busy() || app_->progress > 0.0f) {
-    ImGui::ProgressBar(app_->progress, ImVec2(-1, 0),
+    ImGui::ProgressBar(app_->progress,
+                       ImVec2(-1, 0),
                        app_->stage.empty() ? nullptr : app_->stage.c_str());
   }
   ImGui::TextWrapped("%s", app_->status.c_str());

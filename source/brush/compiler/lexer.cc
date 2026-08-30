@@ -16,30 +16,18 @@ struct KW {
 };
 
 static const KW keywords[] = {
-  {"brush",    TokKind::KwBrush},
-  {"uniform",  TokKind::KwUniform},
-  {"ctx",      TokKind::KwCtx},
-  {"vertex",   TokKind::KwVertex},
-  {"reduce",   TokKind::KwReduce},
-  {"host",     TokKind::KwHost},
-  {"inout",    TokKind::KwInout},
-  {"in",       TokKind::KwIn},
-  {"out",      TokKind::KwOut},
-  {"if",       TokKind::KwIf},
-  {"else",     TokKind::KwElse},
-  {"return",   TokKind::KwReturn},
-  {"continue", TokKind::KwContinue},
-  {"true",     TokKind::KwTrue},
-  {"false",    TokKind::KwFalse},
-  {"for_neighbor", TokKind::KwForNeighbor},
-  {"for",      TokKind::KwFor},
-  {"struct",   TokKind::KwStruct},
-  {"texture",  TokKind::KwTexture},
-  {"attr",     TokKind::KwAttr},
-  {"face",     TokKind::KwFace},
-  {"edge",     TokKind::KwEdge},
-  {"corner",   TokKind::KwCorner},
-  {"save",     TokKind::KwSave},
+    {"brush", TokKind::KwBrush},       {"uniform", TokKind::KwUniform},
+    {"ctx", TokKind::KwCtx},           {"vertex", TokKind::KwVertex},
+    {"reduce", TokKind::KwReduce},     {"host", TokKind::KwHost},
+    {"inout", TokKind::KwInout},       {"in", TokKind::KwIn},
+    {"out", TokKind::KwOut},           {"if", TokKind::KwIf},
+    {"else", TokKind::KwElse},         {"return", TokKind::KwReturn},
+    {"continue", TokKind::KwContinue}, {"true", TokKind::KwTrue},
+    {"false", TokKind::KwFalse},       {"for_neighbor", TokKind::KwForNeighbor},
+    {"for", TokKind::KwFor},           {"struct", TokKind::KwStruct},
+    {"texture", TokKind::KwTexture},   {"attr", TokKind::KwAttr},
+    {"face", TokKind::KwFace},         {"edge", TokKind::KwEdge},
+    {"corner", TokKind::KwCorner},     {"save", TokKind::KwSave},
 };
 
 struct Lexer {
@@ -93,11 +81,17 @@ struct Lexer {
       if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
         advance();
       } else if (c == '/' && peek(1) == '/') {
-        while (pos < len && peek() != '\n') advance();
+        while (pos < len && peek() != '\n')
+          advance();
       } else if (c == '/' && peek(1) == '*') {
-        advance(); advance();
-        while (pos < len && !(peek() == '*' && peek(1) == '/')) advance();
-        if (pos < len) { advance(); advance(); }
+        advance();
+        advance();
+        while (pos < len && !(peek() == '*' && peek(1) == '/'))
+          advance();
+        if (pos < len) {
+          advance();
+          advance();
+        }
       } else {
         break;
       }
@@ -117,7 +111,8 @@ struct Lexer {
     }
     int n = pos - start;
     string text;
-    for (int i = 0; i < n; i++) text += src[start + i];
+    for (int i = 0; i < n; i++)
+      text += src[start + i];
 
     Token t;
     t.line = startLine;
@@ -139,17 +134,21 @@ struct Lexer {
   {
     int start = pos - 1;
     bool isFloat = false;
-    while (pos < len && isdigit((unsigned char)peek())) advance();
+    while (pos < len && isdigit((unsigned char)peek()))
+      advance();
     if (peek() == '.' && isdigit((unsigned char)peek(1))) {
       isFloat = true;
       advance();
-      while (pos < len && isdigit((unsigned char)peek())) advance();
+      while (pos < len && isdigit((unsigned char)peek()))
+        advance();
     }
     if (peek() == 'e' || peek() == 'E') {
       isFloat = true;
       advance();
-      if (peek() == '+' || peek() == '-') advance();
-      while (pos < len && isdigit((unsigned char)peek())) advance();
+      if (peek() == '+' || peek() == '-')
+        advance();
+      while (pos < len && isdigit((unsigned char)peek()))
+        advance();
     }
     if (peek() == 'f' || peek() == 'F') {
       isFloat = true;
@@ -158,11 +157,13 @@ struct Lexer {
 
     int n = pos - start;
     string text;
-    for (int i = 0; i < n; i++) text += src[start + i];
+    for (int i = 0; i < n; i++)
+      text += src[start + i];
 
     char buf[64];
     int copyN = n;
-    if (copyN >= (int)sizeof(buf)) copyN = sizeof(buf) - 1;
+    if (copyN >= (int)sizeof(buf))
+      copyN = sizeof(buf) - 1;
     std::memcpy(buf, src + start, copyN);
     buf[copyN] = 0;
     // strip trailing f for parsing
@@ -192,12 +193,24 @@ struct Lexer {
       if (c == '\\' && pos < len) {
         char e = advance();
         switch (e) {
-        case 'n': text += '\n'; break;
-        case 't': text += '\t'; break;
-        case 'r': text += '\r'; break;
-        case '"': text += '"'; break;
-        case '\\': text += '\\'; break;
-        default: text += e; break;
+        case 'n':
+          text += '\n';
+          break;
+        case 't':
+          text += '\t';
+          break;
+        case 'r':
+          text += '\r';
+          break;
+        case '"':
+          text += '"';
+          break;
+        case '\\':
+          text += '\\';
+          break;
+        default:
+          text += e;
+          break;
         }
       } else {
         text += c;
@@ -220,7 +233,8 @@ struct Lexer {
   {
     while (pos < len) {
       skipWsAndComments();
-      if (pos >= len) break;
+      if (pos >= len)
+        break;
       int sl = line, sc = col;
       char c = advance();
       if (isalpha((unsigned char)c) || c == '_') {
@@ -239,38 +253,76 @@ struct Lexer {
       t.line = sl;
       t.col = sc;
       switch (c) {
-      case '{': t.kind = TokKind::LBrace; break;
-      case '}': t.kind = TokKind::RBrace; break;
-      case '(': t.kind = TokKind::LParen; break;
-      case ')': t.kind = TokKind::RParen; break;
-      case '[': t.kind = TokKind::LBracket; break;
-      case ']': t.kind = TokKind::RBracket; break;
-      case ',': t.kind = TokKind::Comma; break;
-      case ';': t.kind = TokKind::Semicolon; break;
-      case '.': t.kind = TokKind::Dot; break;
-      case '@': t.kind = TokKind::At; break;
-      case '+': t.kind = match('=') ? TokKind::AddAssign : TokKind::Plus; break;
-      case '-': t.kind = match('=') ? TokKind::SubAssign : TokKind::Minus; break;
-      case '*': t.kind = match('=') ? TokKind::MulAssign : TokKind::Star; break;
-      case '/': t.kind = match('=') ? TokKind::DivAssign : TokKind::Slash; break;
-      case '=': t.kind = match('=') ? TokKind::Eq : TokKind::Assign; break;
-      case '!': t.kind = match('=') ? TokKind::Ne : TokKind::Not; break;
-      case '<': t.kind = match('=') ? TokKind::Le : TokKind::Lt; break;
-      case '>': t.kind = match('=') ? TokKind::Ge : TokKind::Gt; break;
+      case '{':
+        t.kind = TokKind::LBrace;
+        break;
+      case '}':
+        t.kind = TokKind::RBrace;
+        break;
+      case '(':
+        t.kind = TokKind::LParen;
+        break;
+      case ')':
+        t.kind = TokKind::RParen;
+        break;
+      case '[':
+        t.kind = TokKind::LBracket;
+        break;
+      case ']':
+        t.kind = TokKind::RBracket;
+        break;
+      case ',':
+        t.kind = TokKind::Comma;
+        break;
+      case ';':
+        t.kind = TokKind::Semicolon;
+        break;
+      case '.':
+        t.kind = TokKind::Dot;
+        break;
+      case '@':
+        t.kind = TokKind::At;
+        break;
+      case '+':
+        t.kind = match('=') ? TokKind::AddAssign : TokKind::Plus;
+        break;
+      case '-':
+        t.kind = match('=') ? TokKind::SubAssign : TokKind::Minus;
+        break;
+      case '*':
+        t.kind = match('=') ? TokKind::MulAssign : TokKind::Star;
+        break;
+      case '/':
+        t.kind = match('=') ? TokKind::DivAssign : TokKind::Slash;
+        break;
+      case '=':
+        t.kind = match('=') ? TokKind::Eq : TokKind::Assign;
+        break;
+      case '!':
+        t.kind = match('=') ? TokKind::Ne : TokKind::Not;
+        break;
+      case '<':
+        t.kind = match('=') ? TokKind::Le : TokKind::Lt;
+        break;
+      case '>':
+        t.kind = match('=') ? TokKind::Ge : TokKind::Gt;
+        break;
       case '&':
         t.kind = match('&') ? TokKind::AndAnd : TokKind::Amp;
         break;
       case '|':
         t.kind = match('|') ? TokKind::OrOr : TokKind::Pipe;
         break;
-      case '^': t.kind = TokKind::Caret; break;
-      default:
-        {
-          char buf[64];
-          std::snprintf(buf, sizeof(buf), "unexpected character '%c' (0x%02x)", c, (unsigned char)c);
-          err(buf, sl, sc);
-          continue;
-        }
+      case '^':
+        t.kind = TokKind::Caret;
+        break;
+      default: {
+        char buf[64];
+        std::snprintf(
+            buf, sizeof(buf), "unexpected character '%c' (0x%02x)", c, (unsigned char)c);
+        err(buf, sl, sc);
+        continue;
+      }
       }
       emit(t);
     }
@@ -297,66 +349,126 @@ LexResult lex(stringref source, stringref filename)
 const char *tokKindName(TokKind k)
 {
   switch (k) {
-  case TokKind::Eof: return "eof";
-  case TokKind::Ident: return "ident";
-  case TokKind::IntLit: return "int-lit";
-  case TokKind::FloatLit: return "float-lit";
-  case TokKind::StringLit: return "string-lit";
-  case TokKind::LBrace: return "{";
-  case TokKind::RBrace: return "}";
-  case TokKind::LParen: return "(";
-  case TokKind::RParen: return ")";
-  case TokKind::LBracket: return "[";
-  case TokKind::RBracket: return "]";
-  case TokKind::Comma: return ",";
-  case TokKind::Semicolon: return ";";
-  case TokKind::Dot: return ".";
-  case TokKind::At: return "@";
-  case TokKind::Plus: return "+";
-  case TokKind::Minus: return "-";
-  case TokKind::Star: return "*";
-  case TokKind::Slash: return "/";
-  case TokKind::Assign: return "=";
-  case TokKind::Eq: return "==";
-  case TokKind::Ne: return "!=";
-  case TokKind::Lt: return "<";
-  case TokKind::Le: return "<=";
-  case TokKind::Gt: return ">";
-  case TokKind::Ge: return ">=";
-  case TokKind::AddAssign: return "+=";
-  case TokKind::SubAssign: return "-=";
-  case TokKind::MulAssign: return "*=";
-  case TokKind::DivAssign: return "/=";
-  case TokKind::AndAnd: return "&&";
-  case TokKind::OrOr: return "||";
-  case TokKind::Not: return "!";
-  case TokKind::Amp: return "&";
-  case TokKind::Pipe: return "|";
-  case TokKind::Caret: return "^";
-  case TokKind::KwBrush: return "brush";
-  case TokKind::KwUniform: return "uniform";
-  case TokKind::KwCtx: return "ctx";
-  case TokKind::KwVertex: return "vertex";
-  case TokKind::KwReduce: return "reduce";
-  case TokKind::KwHost: return "host";
-  case TokKind::KwInout: return "inout";
-  case TokKind::KwIn: return "in";
-  case TokKind::KwOut: return "out";
-  case TokKind::KwIf: return "if";
-  case TokKind::KwElse: return "else";
-  case TokKind::KwReturn: return "return";
-  case TokKind::KwContinue: return "continue";
-  case TokKind::KwTrue: return "true";
-  case TokKind::KwFalse: return "false";
-  case TokKind::KwForNeighbor: return "for_neighbor";
-  case TokKind::KwFor: return "for";
-  case TokKind::KwStruct: return "struct";
-  case TokKind::KwTexture: return "texture";
-  case TokKind::KwAttr: return "attr";
-  case TokKind::KwFace: return "face";
-  case TokKind::KwEdge: return "edge";
-  case TokKind::KwCorner: return "corner";
-  case TokKind::KwSave: return "save";
+  case TokKind::Eof:
+    return "eof";
+  case TokKind::Ident:
+    return "ident";
+  case TokKind::IntLit:
+    return "int-lit";
+  case TokKind::FloatLit:
+    return "float-lit";
+  case TokKind::StringLit:
+    return "string-lit";
+  case TokKind::LBrace:
+    return "{";
+  case TokKind::RBrace:
+    return "}";
+  case TokKind::LParen:
+    return "(";
+  case TokKind::RParen:
+    return ")";
+  case TokKind::LBracket:
+    return "[";
+  case TokKind::RBracket:
+    return "]";
+  case TokKind::Comma:
+    return ",";
+  case TokKind::Semicolon:
+    return ";";
+  case TokKind::Dot:
+    return ".";
+  case TokKind::At:
+    return "@";
+  case TokKind::Plus:
+    return "+";
+  case TokKind::Minus:
+    return "-";
+  case TokKind::Star:
+    return "*";
+  case TokKind::Slash:
+    return "/";
+  case TokKind::Assign:
+    return "=";
+  case TokKind::Eq:
+    return "==";
+  case TokKind::Ne:
+    return "!=";
+  case TokKind::Lt:
+    return "<";
+  case TokKind::Le:
+    return "<=";
+  case TokKind::Gt:
+    return ">";
+  case TokKind::Ge:
+    return ">=";
+  case TokKind::AddAssign:
+    return "+=";
+  case TokKind::SubAssign:
+    return "-=";
+  case TokKind::MulAssign:
+    return "*=";
+  case TokKind::DivAssign:
+    return "/=";
+  case TokKind::AndAnd:
+    return "&&";
+  case TokKind::OrOr:
+    return "||";
+  case TokKind::Not:
+    return "!";
+  case TokKind::Amp:
+    return "&";
+  case TokKind::Pipe:
+    return "|";
+  case TokKind::Caret:
+    return "^";
+  case TokKind::KwBrush:
+    return "brush";
+  case TokKind::KwUniform:
+    return "uniform";
+  case TokKind::KwCtx:
+    return "ctx";
+  case TokKind::KwVertex:
+    return "vertex";
+  case TokKind::KwReduce:
+    return "reduce";
+  case TokKind::KwHost:
+    return "host";
+  case TokKind::KwInout:
+    return "inout";
+  case TokKind::KwIn:
+    return "in";
+  case TokKind::KwOut:
+    return "out";
+  case TokKind::KwIf:
+    return "if";
+  case TokKind::KwElse:
+    return "else";
+  case TokKind::KwReturn:
+    return "return";
+  case TokKind::KwContinue:
+    return "continue";
+  case TokKind::KwTrue:
+    return "true";
+  case TokKind::KwFalse:
+    return "false";
+  case TokKind::KwForNeighbor:
+    return "for_neighbor";
+  case TokKind::KwFor:
+    return "for";
+  case TokKind::KwStruct:
+    return "struct";
+  case TokKind::KwTexture:
+    return "texture";
+  case TokKind::KwAttr:
+    return "attr";
+  case TokKind::KwFace:
+    return "face";
+  case TokKind::KwEdge:
+    return "edge";
+  case TokKind::KwCorner:
+    return "corner";
+  case TokKind::KwSave:
+    return "save";
   }
   return "?";
 }

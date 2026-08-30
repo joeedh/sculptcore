@@ -141,10 +141,7 @@ function getVSEnv() {
   // background child holding the inherited stdout handle, so a piped execSync
   // never sees EOF and hangs long after vcvars itself has finished. The timeout
   // is a backstop for a vcvars that fails by hanging (an unreachable helper).
-  const dumpPath = Path.join(
-    fs.mkdtempSync(Path.join(os.tmpdir(), 'sculptcore-vcvars-')),
-    'env.txt'
-  )
+  const dumpPath = Path.join(fs.mkdtempSync(Path.join(os.tmpdir(), 'sculptcore-vcvars-')), 'env.txt')
   let dump
   try {
     child_process.execSync(`cmd /s /c \"call \"${path}\" && set > \"${dumpPath}\"\"`, {

@@ -335,7 +335,8 @@ void BrushStrokeDriver::ingest(const StrokeInput &input)
       world = synthesizeMiss(screen);
       normal = viewvec;
     } else if (spaceMode == StrokeSpaceMode::Screen) {
-      world = double3(origin[0] + viewvec[0], origin[1] + viewvec[1], origin[2] + viewvec[2]);
+      world =
+          double3(origin[0] + viewvec[0], origin[1] + viewvec[1], origin[2] + viewvec[2]);
       normal = viewvec;
     } else {
       // world-mode before any hit: no plane to project onto yet, discard
@@ -441,8 +442,8 @@ void BrushStrokeDriver::emitRaw(const ControlPoint &cp)
 
 void BrushStrokeDriver::emitAnchored(const ControlPoint &anchor, const ControlPoint &cur)
 {
-  DabSample ps =
-      makeSample(anchor.world, anchor.screen, anchor, anchor, 0.0, anchor.normal, anchor.hit);
+  DabSample ps = makeSample(
+      anchor.world, anchor.screen, anchor, anchor, 0.0, anchor.normal, anchor.hit);
   ps.isInterp = false;
   ps.strokeS = float(strokeS_);
   ps.dstrokeS = 0.0f;
@@ -592,8 +593,9 @@ double3 BrushStrokeDriver::projectOntoAnchorPlane(const double3 &origin,
                      (anchorCP_.world[1] - origin[1]) * n[1] +
                      (anchorCP_.world[2] - origin[2]) * n[2];
     const double s = d / denom;
-    return double3(
-        origin[0] + viewvec[0] * s, origin[1] + viewvec[1] * s, origin[2] + viewvec[2] * s);
+    return double3(origin[0] + viewvec[0] * s,
+                   origin[1] + viewvec[1] * s,
+                   origin[2] + viewvec[2] * s);
   }
 
   return anchorCP_.world;

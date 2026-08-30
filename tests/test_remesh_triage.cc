@@ -28,13 +28,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                          \
-  do {                                                                         \
-    if (!(expr)) {                                                             \
-      retval = 1;                                                              \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);        \
-      fflush(stderr);                                                          \
-    }                                                                          \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -83,14 +83,17 @@ void testNoOpOnClean()
   bool identical = true;
   for (int v : g->v) {
     float3 co = g->v.co[v];
-    if (i >= int(before.size()) || co[0] != before[i][0] ||
-        co[1] != before[i][1] || co[2] != before[i][2])
+    if (i >= int(before.size()) || co[0] != before[i][0] || co[1] != before[i][1] ||
+        co[2] != before[i][2])
       identical = false;
     i++;
   }
   TASSERT(identical);
-  fprintf(stderr, "[no-op] verts=%d faces=%d identical=%d\n", g->v.count,
-          g->f.count, int(identical));
+  fprintf(stderr,
+          "[no-op] verts=%d faces=%d identical=%d\n",
+          g->v.count,
+          g->f.count,
+          int(identical));
   litestl::alloc::Delete<Mesh>(g);
 }
 
@@ -115,8 +118,12 @@ void testWeldDoubles()
   TriageReport r;
   triageMesh(*m, p, r);
 
-  fprintf(stderr, "[weld] welded=%d verts=%d faces=%d dupF=%d\n",
-          r.welded_verts, m->v.count, m->f.count, r.removed_duplicate_faces);
+  fprintf(stderr,
+          "[weld] welded=%d verts=%d faces=%d dupF=%d\n",
+          r.welded_verts,
+          m->v.count,
+          m->f.count,
+          r.removed_duplicate_faces);
   TASSERT(r.welded_verts == 2);
   TASSERT(m->v.count == 4);
   TASSERT(m->f.count == 2);
@@ -145,8 +152,11 @@ void testDegenerateFace()
   TriageReport r;
   triageMesh(*m, p, r);
 
-  fprintf(stderr, "[degen] degen=%d wire=%d faces=%d\n",
-          r.removed_degenerate_faces, r.removed_wire_edges, m->f.count);
+  fprintf(stderr,
+          "[degen] degen=%d wire=%d faces=%d\n",
+          r.removed_degenerate_faces,
+          r.removed_wire_edges,
+          m->f.count);
   TASSERT(r.removed_degenerate_faces == 1);
   TASSERT(m->f.count == 1);
   TASSERT(r.welded_verts == 0);
@@ -170,8 +180,11 @@ void testTinyComponent()
   TriageReport r;
   triageMesh(*m, p, r);
 
-  fprintf(stderr, "[tiny-comp] comps=%d compVerts=%d verts=%d faces=%d\n",
-          r.removed_components, r.removed_component_verts, m->v.count,
+  fprintf(stderr,
+          "[tiny-comp] comps=%d compVerts=%d verts=%d faces=%d\n",
+          r.removed_components,
+          r.removed_component_verts,
+          m->v.count,
           m->f.count);
   TASSERT(r.removed_components == 1);
   TASSERT(r.removed_component_verts == 3);
@@ -199,8 +212,11 @@ void testNonManifoldDetect()
   TriageReport r;
   triageMesh(*m, p, r);
 
-  fprintf(stderr, "[nonmanifold] nmEdges=%d faces=%d degen=%d\n",
-          r.non_manifold_edges, m->f.count, r.removed_degenerate_faces);
+  fprintf(stderr,
+          "[nonmanifold] nmEdges=%d faces=%d degen=%d\n",
+          r.non_manifold_edges,
+          m->f.count,
+          r.removed_degenerate_faces);
   TASSERT(r.non_manifold_edges >= 1);
   TASSERT(m->f.count == 3); // detect-only: nothing removed
   TASSERT(r.removed_degenerate_faces == 0);
@@ -229,15 +245,22 @@ void testWeldStressSoup()
   m->recalc_normals();
   litestl::alloc::Delete<Mesh>(src);
   int soupV = m->v.count;
-  fprintf(stderr, "[soup] authored verts=%d faces=%d (target %d verts)\n",
-          m->v.count, m->f.count, srcV);
+  fprintf(stderr,
+          "[soup] authored verts=%d faces=%d (target %d verts)\n",
+          m->v.count,
+          m->f.count,
+          srcV);
 
   TriageParams p;
   TriageReport r;
   triageMesh(*m, p, r);
 
-  fprintf(stderr, "[soup] welded=%d verts=%d faces=%d degen=%d dup=%d\n",
-          r.welded_verts, m->v.count, m->f.count, r.removed_degenerate_faces,
+  fprintf(stderr,
+          "[soup] welded=%d verts=%d faces=%d degen=%d dup=%d\n",
+          r.welded_verts,
+          m->v.count,
+          m->f.count,
+          r.removed_degenerate_faces,
           r.removed_duplicate_faces);
   TASSERT(r.welded_verts == soupV - srcV);
   TASSERT(m->v.count == srcV);
@@ -310,8 +333,11 @@ void testHoleFill()
   TriageReport r;
   fillInputHoles(*m, 0.15f, r);
 
-  fprintf(stderr, "[hole-fill] filled=%d kept=%d fillFaces=%d bnd=%d\n",
-          r.input_holes_filled, r.input_holes_kept, r.input_hole_fill_faces,
+  fprintf(stderr,
+          "[hole-fill] filled=%d kept=%d fillFaces=%d bnd=%d\n",
+          r.input_holes_filled,
+          r.input_holes_kept,
+          r.input_hole_fill_faces,
           boundaryEdges());
   TASSERT(r.input_holes_filled == 1);
   TASSERT(r.input_holes_kept == 2);
@@ -355,8 +381,7 @@ void testThinSheetDetect()
         if (flip) {
           tri(m, a, c, b);
           tri(m, a, d, c);
-        }
-        else {
+        } else {
           tri(m, a, b, c);
           tri(m, a, c, d);
         }
@@ -371,8 +396,12 @@ void testThinSheetDetect()
     m->recalc_normals();
     TriageReport r;
     detectThinSheets(*m, 0.2f, r);
-    fprintf(stderr, "[thin/%s] sampled=%d paired=%d frac=%.3f sheet=%d\n", tag,
-            r.thin_sampled_faces, r.thin_paired_faces, r.thin_area_frac,
+    fprintf(stderr,
+            "[thin/%s] sampled=%d paired=%d frac=%.3f sheet=%d\n",
+            tag,
+            r.thin_sampled_faces,
+            r.thin_paired_faces,
+            r.thin_area_frac,
             int(r.thin_sheet));
     litestl::alloc::Delete<Mesh>(m);
     return r;
@@ -394,8 +423,11 @@ void testThinSheetDetect()
   s->recalc_normals();
   TriageReport rs;
   detectThinSheets(*s, 0.2f, rs);
-  fprintf(stderr, "[thin/sphere] sampled=%d paired=%d frac=%.3f sheet=%d\n",
-          rs.thin_sampled_faces, rs.thin_paired_faces, rs.thin_area_frac,
+  fprintf(stderr,
+          "[thin/sphere] sampled=%d paired=%d frac=%.3f sheet=%d\n",
+          rs.thin_sampled_faces,
+          rs.thin_paired_faces,
+          rs.thin_area_frac,
           int(rs.thin_sheet));
   TASSERT(rs.thin_sampled_faces > 0);
   TASSERT(rs.thin_paired_faces == 0);

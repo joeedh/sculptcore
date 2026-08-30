@@ -52,8 +52,10 @@ inline float2 rot90(int k, float2 p)
 
 } // namespace
 
-QuantGraph buildQuantGraph(Mesh &m, const Vector<int> &cornerClass,
-                           const Vector<int> &gauge, const Vector<int> &periodEC)
+QuantGraph buildQuantGraph(Mesh &m,
+                           const Vector<int> &cornerClass,
+                           const Vector<int> &gauge,
+                           const Vector<int> &periodEC)
 {
   QuantGraph g;
   const int ecap = int(m.e.capacity());
@@ -147,8 +149,8 @@ double loopClosureResidual(Mesh &m, const QuantGraph &g, const Vector<int> &peri
     if (!ok || (((Racc % 4) + 4) % 4) != 0) {
       continue; // boundary, degenerate, or singular vertex
     }
-    double res = std::sqrt(double(Tacc[0]) * double(Tacc[0]) +
-                           double(Tacc[1]) * double(Tacc[1]));
+    double res =
+        std::sqrt(double(Tacc[0]) * double(Tacc[0]) + double(Tacc[1]) * double(Tacc[1]));
     maxres = std::fmax(maxres, res);
   }
   return maxres;

@@ -25,7 +25,10 @@ namespace {
 // vertex key for dedup. FNV-1a mix over the three components.
 struct CellKey {
   int x, y, z;
-  bool operator==(const CellKey &o) const { return x == o.x && y == o.y && z == o.z; }
+  bool operator==(const CellKey &o) const
+  {
+    return x == o.x && y == o.y && z == o.z;
+  }
   hash::HashInt computeHash() const
   {
     hash::HashInt h = 1469598103934665603ull;
@@ -37,7 +40,10 @@ struct CellKey {
 
 struct TriKey {
   int a, b, c; // sorted ascending
-  bool operator==(const TriKey &o) const { return a == o.a && b == o.b && c == o.c; }
+  bool operator==(const TriKey &o) const
+  {
+    return a == o.a && b == o.b && c == o.c;
+  }
   hash::HashInt computeHash() const
   {
     hash::HashInt h = 1469598103934665603ull;
@@ -113,7 +119,8 @@ void triageMesh(Mesh &m, const TriageParams &params, TriageReport &report)
 
     const float inv = 1.0f / tol;
     auto cellOf = [&](const float3 &p) {
-      return CellKey{int(std::floor(p[0] * inv)), int(std::floor(p[1] * inv)),
+      return CellKey{int(std::floor(p[0] * inv)),
+                     int(std::floor(p[1] * inv)),
                      int(std::floor(p[2] * inv))};
     };
 
@@ -178,9 +185,12 @@ void triageMesh(Mesh &m, const TriageParams &params, TriageReport &report)
         }
         if (n == 3) {
           int a = rv[0], b = rv[1], c = rv[2];
-          if (a > b) std::swap(a, b);
-          if (b > c) std::swap(b, c);
-          if (a > b) std::swap(a, b);
+          if (a > b)
+            std::swap(a, b);
+          if (b > c)
+            std::swap(b, c);
+          if (a > b)
+            std::swap(a, b);
           if (!seen.add(TriKey{a, b, c})) {
             report.removed_duplicate_faces++;
             continue;
@@ -429,8 +439,7 @@ void fillInputHoles(Mesh &m, float max_frac, TriageReport &report)
     if (n == 3) {
       m.make_face(std::span<int>(loop.data(), 3));
       report.input_hole_fill_faces++;
-    }
-    else {
+    } else {
       // Centroid fan: robust on the non-convex tiny rims this targets.
       float3 cen(0.0f, 0.0f, 0.0f);
       for (int i = 0; i < n; i++)
@@ -511,8 +520,7 @@ void detectThinSheets(Mesh &m, float thickness, TriageReport &report)
   const float inv = 1.0f / cell;
   util::Map<CellKey, util::Vector<int>> grid;
   for (int i = 0; i < nt; i++) {
-    float3 a = m.v.co[tv[i * 3]], b = m.v.co[tv[i * 3 + 1]],
-           c = m.v.co[tv[i * 3 + 2]];
+    float3 a = m.v.co[tv[i * 3]], b = m.v.co[tv[i * 3 + 1]], c = m.v.co[tv[i * 3 + 2]];
     int lo[3], hi[3];
     for (int k = 0; k < 3; k++) {
       float mn = std::fmin(a[k], std::fmin(b[k], c[k]));
@@ -565,9 +573,8 @@ void detectThinSheets(Mesh &m, float thickness, TriageReport &report)
             if (shared) {
               continue;
             }
-            float3 cp = math::closestPointOnTri(cen, m.v.co[tv[j * 3]],
-                                                m.v.co[tv[j * 3 + 1]],
-                                                m.v.co[tv[j * 3 + 2]]);
+            float3 cp = math::closestPointOnTri(
+                cen, m.v.co[tv[j * 3]], m.v.co[tv[j * 3 + 1]], m.v.co[tv[j * 3 + 2]]);
             float3 d = cp - cen;
             float d2 = d.lengthSqr();
             if (d2 >= t2) {
@@ -590,8 +597,7 @@ void detectThinSheets(Mesh &m, float thickness, TriageReport &report)
       area_thin += double(tarea[i]);
     }
   }
-  report.thin_area_frac =
-      area_sampled > 0.0 ? float(area_thin / area_sampled) : 0.0f;
+  report.thin_area_frac = area_sampled > 0.0 ? float(area_thin / area_sampled) : 0.0f;
   report.thin_sheet = report.thin_area_frac > 0.5f;
 }
 

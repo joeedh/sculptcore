@@ -12,37 +12,45 @@ int findCallLine(const Stmt *s, const char *name);
  * bodies here. */
 int findCallLine(const Expr *e, const char *name)
 {
-  if (!e) return -1;
+  if (!e)
+    return -1;
   if (e->kind == ExprKind::Call && string(e->name).operator==(string(name))) {
     return e->line;
   }
   int r = findCallLine(e->lhs.get(), name);
-  if (r >= 0) return r;
+  if (r >= 0)
+    return r;
   r = findCallLine(e->rhs.get(), name);
-  if (r >= 0) return r;
+  if (r >= 0)
+    return r;
   for (const auto &a : e->args) {
     r = findCallLine(a.get(), name);
-    if (r >= 0) return r;
+    if (r >= 0)
+      return r;
   }
   return -1;
 }
 
 int findCallLine(const Stmt *s, const char *name)
 {
-  if (!s) return -1;
+  if (!s)
+    return -1;
   for (const auto &c : s->stmts) {
     int r = findCallLine(c.get(), name);
-    if (r >= 0) return r;
+    if (r >= 0)
+      return r;
   }
   for (const Expr *e : {s->expr.get(), s->lvalue.get(), s->rvalue.get(), s->cond.get()}) {
     int r = findCallLine(e, name);
-    if (r >= 0) return r;
+    if (r >= 0)
+      return r;
   }
   for (const Stmt *b :
        {s->thenBranch.get(), s->elseBranch.get(), s->forInit.get(), s->forStep.get()})
   {
     int r = findCallLine(b, name);
-    if (r >= 0) return r;
+    if (r >= 0)
+      return r;
   }
   return -1;
 }
@@ -52,7 +60,8 @@ int findCallLine(const Brush &brush, const char *name)
 {
   for (const auto &st : brush.stages) {
     int r = findCallLine(st.body.get(), name);
-    if (r >= 0) return r;
+    if (r >= 0)
+      return r;
   }
   return -1;
 }
@@ -68,22 +77,30 @@ struct Parser {
   const Token &peek(int off = 0) const
   {
     int i = pos + off;
-    if (i >= (int)tokens->size()) i = (int)tokens->size() - 1;
+    if (i >= (int)tokens->size())
+      i = (int)tokens->size() - 1;
     return (*tokens)[i];
   }
 
   const Token &advance()
   {
     const Token &t = (*tokens)[pos];
-    if (pos + 1 < (int)tokens->size()) pos++;
+    if (pos + 1 < (int)tokens->size())
+      pos++;
     return t;
   }
 
-  bool check(TokKind k) const { return peek().kind == k; }
+  bool check(TokKind k) const
+  {
+    return peek().kind == k;
+  }
 
   bool match(TokKind k)
   {
-    if (check(k)) { advance(); return true; }
+    if (check(k)) {
+      advance();
+      return true;
+    }
     return false;
   }
 
@@ -109,10 +126,17 @@ struct Parser {
 
   bool expect(TokKind k, const char *ctx)
   {
-    if (check(k)) { advance(); return true; }
+    if (check(k)) {
+      advance();
+      return true;
+    }
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "expected '%s' %s, got '%s'",
-                  tokKindName(k), ctx, tokKindName(peek().kind));
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "expected '%s' %s, got '%s'",
+                  tokKindName(k),
+                  ctx,
+                  tokKindName(peek().kind));
     error(buf, peek());
     return false;
   }
@@ -121,10 +145,20 @@ struct Parser {
   bool parseSignedNumber(double &out)
   {
     double sign = 1.0;
-    if (match(TokKind::Minus)) sign = -1.0;
-    else match(TokKind::Plus);
-    if (check(TokKind::FloatLit)) { out = sign * peek().fvalue; advance(); return true; }
-    if (check(TokKind::IntLit))   { out = sign * (double)peek().ivalue; advance(); return true; }
+    if (match(TokKind::Minus))
+      sign = -1.0;
+    else
+      match(TokKind::Plus);
+    if (check(TokKind::FloatLit)) {
+      out = sign * peek().fvalue;
+      advance();
+      return true;
+    }
+    if (check(TokKind::IntLit)) {
+      out = sign * (double)peek().ivalue;
+      advance();
+      return true;
+    }
     error("expected numeric literal", peek());
     return false;
   }
@@ -134,9 +168,11 @@ struct Parser {
   // Resolves a user-defined struct name in the current brush, or nullptr.
   const StructDef *findStruct(stringref name) const
   {
-    if (!currentBrush) return nullptr;
+    if (!currentBrush)
+      return nullptr;
     for (const auto &s : currentBrush->structs) {
-      if (string(s.name).operator==(string(name.c_str()))) return &s;
+      if (string(s.name).operator==(string(name.c_str())))
+        return &s;
     }
     return nullptr;
   }
@@ -202,11 +238,16 @@ struct Parser {
       }
     }
 
-    if (!expect(TokKind::KwBrush, "at start of brush declaration")) return brush;
-    if (!check(TokKind::Ident)) { error("expected brush identifier", peek()); return brush; }
+    if (!expect(TokKind::KwBrush, "at start of brush declaration"))
+      return brush;
+    if (!check(TokKind::Ident)) {
+      error("expected brush identifier", peek());
+      return brush;
+    }
     brush->cppName = peek().text;
     advance();
-    if (!expect(TokKind::LBrace, "after brush name")) return brush;
+    if (!expect(TokKind::LBrace, "after brush name"))
+      return brush;
 
     while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
       if (check(TokKind::KwUniform) || check(TokKind::KwCtx)) {
@@ -225,7 +266,8 @@ struct Parser {
       {
         parseUseTexture(*brush);
       } else if (check(TokKind::KwVertex) || check(TokKind::KwReduce) ||
-                 check(TokKind::KwHost) || check(TokKind::KwFace)) {
+                 check(TokKind::KwHost) || check(TokKind::KwFace))
+      {
         parseStage(*brush);
       } else {
         errorf(peek(), "unexpected token '%s' in brush body", tokKindName(peek().kind));
@@ -275,10 +317,17 @@ struct Parser {
   void parseField(Brush &brush)
   {
     FieldKind kind;
-    if (match(TokKind::KwUniform)) kind = FieldKind::Uniform;
-    else { advance(); kind = FieldKind::Ctx; }
+    if (match(TokKind::KwUniform))
+      kind = FieldKind::Uniform;
+    else {
+      advance();
+      kind = FieldKind::Ctx;
+    }
 
-    if (!check(TokKind::Ident)) { error("expected type in field declaration", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected type in field declaration", peek());
+      return;
+    }
 
     // Optional Array<elem, N> in type position.
     TypeKind ty = TypeKind::Unknown;
@@ -287,14 +336,20 @@ struct Parser {
     if (string(peek().text.c_str()).operator==(string("Array"))) {
       advance(); // Array
       expect(TokKind::Lt, "after 'Array'");
-      if (!check(TokKind::Ident)) { error("expected element type in Array<...>", peek()); return; }
+      if (!check(TokKind::Ident)) {
+        error("expected element type in Array<...>", peek());
+        return;
+      }
       arrayElem = parseTypeKind(stringref(peek().text.c_str()));
       if (arrayElem == TypeKind::Unknown) {
         errorf(peek(), "unknown element type '%s' in Array<...>", peek().text.c_str());
       }
       advance();
       expect(TokKind::Comma, "between Array element type and size");
-      if (!check(TokKind::IntLit)) { error("expected integer size in Array<...>", peek()); return; }
+      if (!check(TokKind::IntLit)) {
+        error("expected integer size in Array<...>", peek());
+        return;
+      }
       arraySize = (int)peek().ivalue;
       advance();
       expect(TokKind::Gt, "to close Array<...>");
@@ -311,7 +366,10 @@ struct Parser {
     // `@dynamic` metadata, attached per-name (consumed for scalar-float
     // uniforms; harmless elsewhere).
     while (true) {
-      if (!check(TokKind::Ident)) { error("expected field name", peek()); return; }
+      if (!check(TokKind::Ident)) {
+        error("expected field name", peek());
+        return;
+      }
       Field f;
       f.kind = kind;
       f.type = ty;
@@ -320,10 +378,14 @@ struct Parser {
       f.name = peek().text;
       advance();
       if (match(TokKind::Assign)) {
-        if (parseSignedNumber(f.defaultValue)) f.hasDefault = true;
+        if (parseSignedNumber(f.defaultValue))
+          f.hasDefault = true;
       }
       while (match(TokKind::At)) {
-        if (!check(TokKind::Ident)) { error("expected attribute name after '@'", peek()); break; }
+        if (!check(TokKind::Ident)) {
+          error("expected attribute name after '@'", peek());
+          break;
+        }
         const Token &attrTok = peek();
         string attr = attrTok.text;
         advance();
@@ -343,7 +405,8 @@ struct Parser {
         }
       }
       brush.fields.append(f);
-      if (!match(TokKind::Comma)) break;
+      if (!match(TokKind::Comma))
+        break;
     }
     expect(TokKind::Semicolon, "after field declaration");
   }
@@ -359,32 +422,48 @@ struct Parser {
     advance(); // 'attr'
     Field f;
     f.kind = FieldKind::Attr;
-    if (match(TokKind::KwVertex)) f.domain = AttrDomain::Vertex;
-    else if (match(TokKind::KwFace)) f.domain = AttrDomain::Face;
-    else if (match(TokKind::KwEdge)) f.domain = AttrDomain::Edge;
-    else if (match(TokKind::KwCorner)) f.domain = AttrDomain::Corner;
+    if (match(TokKind::KwVertex))
+      f.domain = AttrDomain::Vertex;
+    else if (match(TokKind::KwFace))
+      f.domain = AttrDomain::Face;
+    else if (match(TokKind::KwEdge))
+      f.domain = AttrDomain::Edge;
+    else if (match(TokKind::KwCorner))
+      f.domain = AttrDomain::Corner;
     else {
       error("expected attribute domain (vertex/face/edge/corner) after 'attr'", peek());
       return;
     }
 
-    if (!check(TokKind::Ident)) { error("expected type in attr declaration", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected type in attr declaration", peek());
+      return;
+    }
     f.type = parseTypeKind(stringref(peek().text.c_str()));
     if (f.type == TypeKind::Unknown) {
       errorf(peek(), "unknown type '%s' in attr declaration", peek().text.c_str());
     }
     advance();
 
-    if (!check(TokKind::Ident)) { error("expected attr name", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected attr name", peek());
+      return;
+    }
     f.name = peek().text;
     advance();
 
     if (match(TokKind::Assign)) {
-      if (check(TokKind::StringLit)) { f.boundName = peek().text; advance(); }
-      else error("expected string layer name after '=' in attr declaration", peek());
+      if (check(TokKind::StringLit)) {
+        f.boundName = peek().text;
+        advance();
+      } else
+        error("expected string layer name after '=' in attr declaration", peek());
     }
     while (match(TokKind::At)) {
-      if (!check(TokKind::Ident)) { error("expected attribute name after '@'", peek()); break; }
+      if (!check(TokKind::Ident)) {
+        error("expected attribute name after '@'", peek());
+        break;
+      }
       const Token &attrTok = peek();
       string attr = attrTok.text;
       advance();
@@ -417,23 +496,31 @@ struct Parser {
   {
     advance(); // 'save'
     AttrDomain domain;
-    if (match(TokKind::KwVertex)) domain = AttrDomain::Vertex;
-    else if (match(TokKind::KwFace)) domain = AttrDomain::Face;
-    else if (match(TokKind::KwEdge)) domain = AttrDomain::Edge;
-    else if (match(TokKind::KwCorner)) domain = AttrDomain::Corner;
+    if (match(TokKind::KwVertex))
+      domain = AttrDomain::Vertex;
+    else if (match(TokKind::KwFace))
+      domain = AttrDomain::Face;
+    else if (match(TokKind::KwEdge))
+      domain = AttrDomain::Edge;
+    else if (match(TokKind::KwCorner))
+      domain = AttrDomain::Corner;
     else {
       error("expected save domain (vertex/face/edge/corner) after 'save'", peek());
       return;
     }
 
     while (true) {
-      if (!check(TokKind::Ident)) { error("expected attribute name in save declaration", peek()); return; }
+      if (!check(TokKind::Ident)) {
+        error("expected attribute name in save declaration", peek());
+        return;
+      }
       SaveAttr s;
       s.domain = domain;
       s.name = peek().text;
       advance();
       brush.saves.append(s);
-      if (match(TokKind::Comma)) continue;
+      if (match(TokKind::Comma))
+        continue;
       break;
     }
     expect(TokKind::Semicolon, "after save declaration");
@@ -470,15 +557,22 @@ struct Parser {
     const Token &kindTok = peek();
     string kindName = kindTok.text;
     advance();
-    if (kindName.operator==(string("float"))) tp.kind = TexParamKind::Float;
-    else if (kindName.operator==(string("int"))) tp.kind = TexParamKind::Int;
-    else if (kindName.operator==(string("ramp"))) tp.kind = TexParamKind::Ramp;
+    if (kindName.operator==(string("float")))
+      tp.kind = TexParamKind::Float;
+    else if (kindName.operator==(string("int")))
+      tp.kind = TexParamKind::Int;
+    else if (kindName.operator==(string("ramp")))
+      tp.kind = TexParamKind::Ramp;
     else {
-      errorf(kindTok, "unknown param kind '%s' (expected float/int/ramp)", kindName.c_str());
+      errorf(
+          kindTok, "unknown param kind '%s' (expected float/int/ramp)", kindName.c_str());
       return;
     }
 
-    if (!check(TokKind::Ident)) { error("expected param name", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected param name", peek());
+      return;
+    }
     tp.name = peek().text;
     advance();
 
@@ -486,10 +580,14 @@ struct Parser {
       if (tp.kind == TexParamKind::Ramp) {
         error("a ramp param cannot take a default value", peek());
       }
-      if (parseSignedNumber(tp.defaultValue)) tp.hasDefault = true;
+      if (parseSignedNumber(tp.defaultValue))
+        tp.hasDefault = true;
     }
     while (match(TokKind::At)) {
-      if (!check(TokKind::Ident)) { error("expected attribute name after '@'", peek()); break; }
+      if (!check(TokKind::Ident)) {
+        error("expected attribute name after '@'", peek());
+        break;
+      }
       const Token &attrTok = peek();
       string attr = attrTok.text;
       advance();
@@ -509,11 +607,14 @@ struct Parser {
     expect(TokKind::Semicolon, "after param declaration");
 
     if (tp.kind == TexParamKind::Int && !tp.isConst) {
-      errorAt(tp.line, "int params must be @const (runtime int params are not supported)");
+      errorAt(tp.line,
+              "int params must be @const (runtime int params are not supported)");
     }
     if (tp.kind == TexParamKind::Ramp) {
-      if (tp.isConst) errorAt(tp.line, "a ramp param cannot be @const");
-      if (tp.hasRange) errorAt(tp.line, "@range is not valid on a ramp param");
+      if (tp.isConst)
+        errorAt(tp.line, "a ramp param cannot be @const");
+      if (tp.hasRange)
+        errorAt(tp.line, "@range is not valid on a ramp param");
     }
     for (const auto &prev : td.texParams) {
       if (string(prev.name).operator==(string(tp.name))) {
@@ -534,13 +635,15 @@ struct Parser {
       if (td.returnType != TypeKind::Float || td.params.size() != 2 ||
           td.params[0].type != TypeKind::Float3 || td.params[1].type != TypeKind::Float3)
       {
-        errorAt(td.line, "texture eval must have signature 'float eval(float3 p, float3 n)'");
+        errorAt(td.line,
+                "texture eval must have signature 'float eval(float3 p, float3 n)'");
       }
       td.usesMap = findCallLine(td.body.get(), "mapPoint") >= 0;
     }
     int offset = 0;
     for (auto &tp : td.texParams) {
-      if (tp.isConst) continue;
+      if (tp.isConst)
+        continue;
       tp.offset = offset;
       offset += (tp.kind == TexParamKind::Ramp) ? kTexRampSize : 1;
     }
@@ -553,11 +656,15 @@ struct Parser {
   bool parseTextureDef(TextureDef &td)
   {
     advance(); // 'texture'
-    if (!check(TokKind::Ident)) { error("expected texture name after 'texture'", peek()); return false; }
+    if (!check(TokKind::Ident)) {
+      error("expected texture name after 'texture'", peek());
+      return false;
+    }
     td.line = peek().line;
     td.name = peek().text;
     advance();
-    if (!expect(TokKind::LBrace, "after texture name")) return false;
+    if (!expect(TokKind::LBrace, "after texture name"))
+      return false;
 
     bool haveEval = false;
     while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
@@ -574,14 +681,18 @@ struct Parser {
       }
 
       // eval function header
-      if (!check(TokKind::Ident)) { error("expected return type in texture eval", peek()); return false; }
+      if (!check(TokKind::Ident)) {
+        error("expected return type in texture eval", peek());
+        return false;
+      }
       td.returnType = parseTypeKind(stringref(peek().text.c_str()));
       if (td.returnType == TypeKind::Unknown) {
         errorf(peek(), "unknown return type '%s' in texture eval", peek().text.c_str());
       }
       advance();
       if (!check(TokKind::Ident) ||
-          !string(peek().text.c_str()).operator==(string("eval"))) {
+          !string(peek().text.c_str()).operator==(string("eval")))
+      {
         error("texture body must define a single 'eval' function", peek());
         return false;
       }
@@ -590,11 +701,17 @@ struct Parser {
       expect(TokKind::LParen, "after 'eval'");
       while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
         Param p;
-        if (match(TokKind::KwInout)) p.dir = ParamDir::InOut;
-        else if (match(TokKind::KwIn)) p.dir = ParamDir::In;
-        else if (match(TokKind::KwOut)) p.dir = ParamDir::Out;
+        if (match(TokKind::KwInout))
+          p.dir = ParamDir::InOut;
+        else if (match(TokKind::KwIn))
+          p.dir = ParamDir::In;
+        else if (match(TokKind::KwOut))
+          p.dir = ParamDir::Out;
 
-        if (!check(TokKind::Ident)) { error("expected param type", peek()); break; }
+        if (!check(TokKind::Ident)) {
+          error("expected param type", peek());
+          break;
+        }
         p.type = parseTypeKind(stringref(peek().text.c_str()));
         if (p.type == TypeKind::Unknown) {
           if (const StructDef *sd = findStruct(stringref(peek().text.c_str()))) {
@@ -605,12 +722,16 @@ struct Parser {
           }
         }
         advance();
-        if (!check(TokKind::Ident)) { error("expected param name", peek()); break; }
+        if (!check(TokKind::Ident)) {
+          error("expected param name", peek());
+          break;
+        }
         p.name = peek().text;
         advance();
         td.params.append(p);
         if (!check(TokKind::RParen)) {
-          if (!expect(TokKind::Comma, "between params")) break;
+          if (!expect(TokKind::Comma, "between params"))
+            break;
         }
       }
       expect(TokKind::RParen, "to close eval params");
@@ -629,7 +750,8 @@ struct Parser {
   void parseTexture(Brush &brush)
   {
     TextureDef td;
-    if (!parseTextureDef(td)) return;
+    if (!parseTextureDef(td))
+      return;
     for (const auto &prev : brush.textures) {
       if (string(prev.name).operator==(string(td.name))) {
         errorAt(td.line, "duplicate texture name in brush");
@@ -647,30 +769,44 @@ struct Parser {
     advance(); // 'sampler'
     SamplerDecl sd;
     sd.line = peek().line;
-    if (!check(TokKind::Ident)) { error("expected return type after 'sampler'", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected return type after 'sampler'", peek());
+      return;
+    }
     sd.returnType = parseTypeKind(stringref(peek().text.c_str()));
     if (sd.returnType == TypeKind::Unknown) {
-      errorf(peek(), "unknown return type '%s' in sampler declaration", peek().text.c_str());
+      errorf(
+          peek(), "unknown return type '%s' in sampler declaration", peek().text.c_str());
     }
     advance();
-    if (!check(TokKind::Ident)) { error("expected sampler name", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected sampler name", peek());
+      return;
+    }
     sd.name = peek().text;
     advance();
     expect(TokKind::LParen, "after sampler name");
     while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
       Param p;
-      if (!check(TokKind::Ident)) { error("expected param type", peek()); break; }
+      if (!check(TokKind::Ident)) {
+        error("expected param type", peek());
+        break;
+      }
       p.type = parseTypeKind(stringref(peek().text.c_str()));
       if (p.type == TypeKind::Unknown) {
         errorf(peek(), "unknown param type '%s'", peek().text.c_str());
       }
       advance();
-      if (!check(TokKind::Ident)) { error("expected param name", peek()); break; }
+      if (!check(TokKind::Ident)) {
+        error("expected param name", peek());
+        break;
+      }
       p.name = peek().text;
       advance();
       sd.params.append(p);
       if (!check(TokKind::RParen)) {
-        if (!expect(TokKind::Comma, "between params")) break;
+        if (!expect(TokKind::Comma, "between params"))
+          break;
       }
     }
     expect(TokKind::RParen, "to close sampler params");
@@ -679,10 +815,12 @@ struct Parser {
     bool sigOk = sd.returnType == TypeKind::Float &&
                  (sd.params.size() == 1 || sd.params.size() == 2);
     for (const auto &p : sd.params) {
-      if (p.type != TypeKind::Float3) sigOk = false;
+      if (p.type != TypeKind::Float3)
+        sigOk = false;
     }
     if (!sigOk) {
-      errorAt(sd.line, "sampler signature must be 'float(float3)' or 'float(float3, float3)'");
+      errorAt(sd.line,
+              "sampler signature must be 'float(float3)' or 'float(float3, float3)'");
     }
     for (const auto &prev : unit.samplers) {
       if (string(prev.name).operator==(string(sd.name))) {
@@ -700,7 +838,8 @@ struct Parser {
     while (!check(TokKind::Eof)) {
       if (check(TokKind::KwTexture)) {
         TextureDef td;
-        if (!parseTextureDef(td)) continue;
+        if (!parseTextureDef(td))
+          continue;
         bool dup = false;
         for (const auto &prev : unit->textures) {
           if (string(prev.name).operator==(string(td.name))) {
@@ -709,14 +848,16 @@ struct Parser {
             break;
           }
         }
-        if (!dup) unit->textures.append(std::move(td));
+        if (!dup)
+          unit->textures.append(std::move(td));
       } else if (check(TokKind::Ident) &&
                  string(peek().text.c_str()).operator==(string("sampler")))
       {
         parseSamplerDecl(*unit);
       } else {
-        errorf(peek(), "unexpected token '%s' at texture-unit scope (expected "
-                       "'texture' or 'sampler')",
+        errorf(peek(),
+               "unexpected token '%s' at texture-unit scope (expected "
+               "'texture' or 'sampler')",
                tokKindName(peek().kind));
         advance();
       }
@@ -736,14 +877,19 @@ struct Parser {
   void parseStruct(Brush &brush)
   {
     advance(); // 'struct'
-    if (!check(TokKind::Ident)) { error("expected struct name after 'struct'", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected struct name after 'struct'", peek());
+      return;
+    }
     StructDef sd;
     sd.name = peek().text;
     advance();
-    if (!expect(TokKind::LBrace, "after struct name")) return;
+    if (!expect(TokKind::LBrace, "after struct name"))
+      return;
     while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
       if (!check(TokKind::Ident)) {
-        errorf(peek(), "expected field type in struct, got '%s'", tokKindName(peek().kind));
+        errorf(
+            peek(), "expected field type in struct, got '%s'", tokKindName(peek().kind));
         advance();
         continue;
       }
@@ -753,13 +899,17 @@ struct Parser {
       }
       advance();
       while (true) {
-        if (!check(TokKind::Ident)) { error("expected struct field name", peek()); break; }
+        if (!check(TokKind::Ident)) {
+          error("expected struct field name", peek());
+          break;
+        }
         StructField sf;
         sf.type = ty;
         sf.name = peek().text;
         advance();
         sd.fields.append(sf);
-        if (!match(TokKind::Comma)) break;
+        if (!match(TokKind::Comma))
+          break;
       }
       expect(TokKind::Semicolon, "after struct field declaration");
     }
@@ -770,30 +920,49 @@ struct Parser {
   void parseStage(Brush &brush)
   {
     Stage st;
-    if (match(TokKind::KwVertex)) st.kind = StageKind::Vertex;
-    else if (match(TokKind::KwReduce)) st.kind = StageKind::Reduce;
-    else if (match(TokKind::KwFace)) st.kind = StageKind::Face;
-    else { advance(); st.kind = StageKind::Host; }
+    if (match(TokKind::KwVertex))
+      st.kind = StageKind::Vertex;
+    else if (match(TokKind::KwReduce))
+      st.kind = StageKind::Reduce;
+    else if (match(TokKind::KwFace))
+      st.kind = StageKind::Face;
+    else {
+      advance();
+      st.kind = StageKind::Host;
+    }
 
-    if (!check(TokKind::Ident)) { error("expected return type in stage declaration", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected return type in stage declaration", peek());
+      return;
+    }
     st.returnType = parseTypeKind(stringref(peek().text.c_str()));
     if (st.returnType == TypeKind::Unknown) {
-      errorf(peek(), "unknown return type '%s' in stage declaration", peek().text.c_str());
+      errorf(
+          peek(), "unknown return type '%s' in stage declaration", peek().text.c_str());
     }
     advance();
 
-    if (!check(TokKind::Ident)) { error("expected stage name", peek()); return; }
+    if (!check(TokKind::Ident)) {
+      error("expected stage name", peek());
+      return;
+    }
     st.name = peek().text;
     advance();
 
     expect(TokKind::LParen, "after stage name");
     while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
       Param p;
-      if (match(TokKind::KwInout)) p.dir = ParamDir::InOut;
-      else if (match(TokKind::KwIn)) p.dir = ParamDir::In;
-      else if (match(TokKind::KwOut)) p.dir = ParamDir::Out;
+      if (match(TokKind::KwInout))
+        p.dir = ParamDir::InOut;
+      else if (match(TokKind::KwIn))
+        p.dir = ParamDir::In;
+      else if (match(TokKind::KwOut))
+        p.dir = ParamDir::Out;
 
-      if (!check(TokKind::Ident)) { error("expected param type", peek()); break; }
+      if (!check(TokKind::Ident)) {
+        error("expected param type", peek());
+        break;
+      }
       p.type = parseTypeKind(stringref(peek().text.c_str()));
       if (p.type == TypeKind::Unknown) {
         // Maybe a user-defined struct from the current brush.
@@ -805,12 +974,16 @@ struct Parser {
         }
       }
       advance();
-      if (!check(TokKind::Ident)) { error("expected param name", peek()); break; }
+      if (!check(TokKind::Ident)) {
+        error("expected param name", peek());
+        break;
+      }
       p.name = peek().text;
       advance();
       st.params.append(p);
       if (!check(TokKind::RParen)) {
-        if (!expect(TokKind::Comma, "between params")) break;
+        if (!expect(TokKind::Comma, "between params"))
+          break;
       }
     }
     expect(TokKind::RParen, "to close stage params");
@@ -824,10 +997,12 @@ struct Parser {
   {
     auto block = std::make_unique<Stmt>(StmtKind::Block);
     block->line = peek().line;
-    if (!expect(TokKind::LBrace, "to open block")) return block;
+    if (!expect(TokKind::LBrace, "to open block"))
+      return block;
     while (!check(TokKind::RBrace) && !check(TokKind::Eof)) {
       auto s = parseStmt();
-      if (s) block->stmts.append(std::move(s));
+      if (s)
+        block->stmts.append(std::move(s));
     }
     expect(TokKind::RBrace, "to close block");
     return block;
@@ -835,15 +1010,20 @@ struct Parser {
 
   StmtPtr parseStmt()
   {
-    if (check(TokKind::LBrace)) return parseBlock();
-    if (check(TokKind::KwIf)) return parseIf();
-    if (check(TokKind::KwForNeighbor)) return parseNeighborLoop();
-    if (check(TokKind::KwFor)) return parseFor();
+    if (check(TokKind::LBrace))
+      return parseBlock();
+    if (check(TokKind::KwIf))
+      return parseIf();
+    if (check(TokKind::KwForNeighbor))
+      return parseNeighborLoop();
+    if (check(TokKind::KwFor))
+      return parseFor();
     if (check(TokKind::KwReturn)) {
       auto s = std::make_unique<Stmt>(StmtKind::Return);
       s->line = peek().line;
       advance();
-      if (!check(TokKind::Semicolon)) s->expr = parseExpr();
+      if (!check(TokKind::Semicolon))
+        s->expr = parseExpr();
       expect(TokKind::Semicolon, "after return");
       return s;
     }
@@ -860,32 +1040,42 @@ struct Parser {
       const StructDef *sd = nullptr;
       if (t == TypeKind::Unknown) {
         sd = findStruct(stringref(peek().text.c_str()));
-        if (sd) t = TypeKind::Struct;
+        if (sd)
+          t = TypeKind::Struct;
       }
       if (t != TypeKind::Unknown && peek(1).kind == TokKind::Ident) {
         auto s = std::make_unique<Stmt>(StmtKind::DeclLocal);
         s->line = peek().line;
         s->declType = t;
-        if (sd) s->declStructName = sd->name;
+        if (sd)
+          s->declStructName = sd->name;
         advance(); // type
         s->name = peek().text;
         advance(); // name
-        if (match(TokKind::Assign)) s->expr = parseExpr();
+        if (match(TokKind::Assign))
+          s->expr = parseExpr();
         expect(TokKind::Semicolon, "after local declaration");
         return s;
       }
     }
     // assignment or expr stmt
     auto lhs = parseExpr();
-    if (!lhs) return nullptr;
+    if (!lhs)
+      return nullptr;
     AssignOp op;
     bool isAssign = true;
-    if (match(TokKind::Assign)) op = AssignOp::Assign;
-    else if (match(TokKind::AddAssign)) op = AssignOp::AddAssign;
-    else if (match(TokKind::SubAssign)) op = AssignOp::SubAssign;
-    else if (match(TokKind::MulAssign)) op = AssignOp::MulAssign;
-    else if (match(TokKind::DivAssign)) op = AssignOp::DivAssign;
-    else isAssign = false;
+    if (match(TokKind::Assign))
+      op = AssignOp::Assign;
+    else if (match(TokKind::AddAssign))
+      op = AssignOp::AddAssign;
+    else if (match(TokKind::SubAssign))
+      op = AssignOp::SubAssign;
+    else if (match(TokKind::MulAssign))
+      op = AssignOp::MulAssign;
+    else if (match(TokKind::DivAssign))
+      op = AssignOp::DivAssign;
+    else
+      isAssign = false;
 
     if (isAssign) {
       auto s = std::make_unique<Stmt>(StmtKind::Assign);
@@ -912,7 +1102,8 @@ struct Parser {
     s->cond = parseExpr();
     expect(TokKind::RParen, "after if-condition");
     s->thenBranch = parseStmt();
-    if (match(TokKind::KwElse)) s->elseBranch = parseStmt();
+    if (match(TokKind::KwElse))
+      s->elseBranch = parseStmt();
     return s;
   }
 
@@ -938,12 +1129,18 @@ struct Parser {
     if (stepLhs) {
       AssignOp op;
       bool isAssign = true;
-      if (match(TokKind::Assign)) op = AssignOp::Assign;
-      else if (match(TokKind::AddAssign)) op = AssignOp::AddAssign;
-      else if (match(TokKind::SubAssign)) op = AssignOp::SubAssign;
-      else if (match(TokKind::MulAssign)) op = AssignOp::MulAssign;
-      else if (match(TokKind::DivAssign)) op = AssignOp::DivAssign;
-      else isAssign = false;
+      if (match(TokKind::Assign))
+        op = AssignOp::Assign;
+      else if (match(TokKind::AddAssign))
+        op = AssignOp::AddAssign;
+      else if (match(TokKind::SubAssign))
+        op = AssignOp::SubAssign;
+      else if (match(TokKind::MulAssign))
+        op = AssignOp::MulAssign;
+      else if (match(TokKind::DivAssign))
+        op = AssignOp::DivAssign;
+      else
+        isAssign = false;
       if (isAssign) {
         auto step = std::make_unique<Stmt>(StmtKind::Assign);
         step->line = stepLhs->line;
@@ -986,7 +1183,10 @@ struct Parser {
 
   // === expressions (precedence-climbing) ===
 
-  ExprPtr parseExpr() { return parseOr(); }
+  ExprPtr parseExpr()
+  {
+    return parseOr();
+  }
 
   ExprPtr parseOr()
   {
@@ -1095,12 +1295,18 @@ struct Parser {
   ExprPtr parseRel()
   {
     auto lhs = parseAdd();
-    while (check(TokKind::Lt) || check(TokKind::Le) || check(TokKind::Gt) || check(TokKind::Ge)) {
+    while (check(TokKind::Lt) || check(TokKind::Le) || check(TokKind::Gt) ||
+           check(TokKind::Ge))
+    {
       BinOp op;
-      if (check(TokKind::Lt)) op = BinOp::Lt;
-      else if (check(TokKind::Le)) op = BinOp::Le;
-      else if (check(TokKind::Gt)) op = BinOp::Gt;
-      else op = BinOp::Ge;
+      if (check(TokKind::Lt))
+        op = BinOp::Lt;
+      else if (check(TokKind::Le))
+        op = BinOp::Le;
+      else if (check(TokKind::Gt))
+        op = BinOp::Gt;
+      else
+        op = BinOp::Ge;
       int line = peek().line;
       advance();
       auto rhs = parseAdd();
@@ -1173,7 +1379,10 @@ struct Parser {
       if (check(TokKind::Dot)) {
         int line = peek().line;
         advance();
-        if (!check(TokKind::Ident)) { error("expected member name after '.'", peek()); break; }
+        if (!check(TokKind::Ident)) {
+          error("expected member name after '.'", peek());
+          break;
+        }
         auto m = std::make_unique<Expr>(ExprKind::Member);
         m->line = line;
         m->name = peek().text;
@@ -1188,7 +1397,8 @@ struct Parser {
         if (e && e->kind == ExprKind::Ident) {
           callName = e->name;
         } else if (e && e->kind == ExprKind::Member && e->lhs &&
-                   e->lhs->kind == ExprKind::Ident) {
+                   e->lhs->kind == ExprKind::Ident)
+        {
           callName = e->lhs->name + "." + e->name;
         } else {
           error("call requires an identifier", peek());
@@ -1203,7 +1413,8 @@ struct Parser {
         while (!check(TokKind::RParen) && !check(TokKind::Eof)) {
           call->args.append(parseExpr());
           if (!check(TokKind::RParen)) {
-            if (!expect(TokKind::Comma, "between call args")) break;
+            if (!expect(TokKind::Comma, "between call args"))
+              break;
           }
         }
         expect(TokKind::RParen, "to close call");

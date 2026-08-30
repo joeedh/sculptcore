@@ -162,8 +162,8 @@ int reprojectVertUVs(MeshBase *m,
           }
           const float3 w = baryWeights(cpnt, a, b, d);
           bestD2 = d2;
-          bestUv = uv->safe_get(c) * w[0] + uv->safe_get(cn) * w[1] +
-                   uv->safe_get(cp) * w[2];
+          bestUv =
+              uv->safe_get(c) * w[0] + uv->safe_get(cn) * w[1] + uv->safe_get(cp) * w[2];
           found = true;
         }
         if (!found) {

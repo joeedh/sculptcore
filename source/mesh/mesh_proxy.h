@@ -116,6 +116,7 @@ struct Proxies {
       ret.iter = ret.iter.end();
       return ret;
     }
+
   private:
     CornerOfEdgeIter iter;
   };
@@ -391,7 +392,7 @@ struct Proxies {
 
     template <typename ProxyImpl> inline void operator=(const ProxyImpl &b)
     {
-      ProxyBaseCls::template operator=<ProxyImpl>(b);
+      ProxyBaseCls::template operator= <ProxyImpl>(b);
       return *this;
     }
 

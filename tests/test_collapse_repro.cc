@@ -115,8 +115,7 @@ float vdot(const float3 &a, const float3 &b)
 
 // Collect normals of every face incident to either endpoint, keyed by the
 // remapped sorted vertex set (so a survivor face after the collapse matches).
-void snapshotIncidentNormals(Mesh &m, int v_keep, int v_kill,
-                             Vector<FaceNrm> &out)
+void snapshotIncidentNormals(Mesh &m, int v_keep, int v_kill, Vector<FaceNrm> &out)
 {
   Set<int> seen;
   for (int side = 0; side < 2; side++) {
@@ -150,7 +149,8 @@ float worstFoldDot(Mesh &m, int v_keep, const Vector<FaceNrm> &before)
 {
   float worst = 1.0f;
   if (v_keep < 0 || v_keep >= int(m.v.capacity()) || m.v.freemap[v_keep] ||
-      m.v.e[v_keep] == ELEM_NONE) {
+      m.v.e[v_keep] == ELEM_NONE)
+  {
     return worst;
   }
   Set<int> seen;
@@ -196,12 +196,10 @@ struct Replay {
 // Replay one fixture. `reposition` chooses the dyntopo midpoint move vs leaving
 // the survivor in place (to isolate whether the fold is from repositioning or
 // the topological rebuild). `prevent_inversion` opts into the geometric guard.
-Replay replay(const char *name, bool reposition, bool prevent_inversion,
-              std::string &err)
+Replay replay(const char *name, bool reposition, bool prevent_inversion, std::string &err)
 {
   Replay r;
-  std::string path =
-      std::string(SCULPTCORE_ASSETS_DIR) + "/collapse_repro/" + name;
+  std::string path = std::string(SCULPTCORE_ASSETS_DIR) + "/collapse_repro/" + name;
   int keep1 = 0, kill1 = 0;
   if (!parseKeepKill(path.c_str(), keep1, kill1)) {
     err = "no # collapse_edge marker";
@@ -231,10 +229,14 @@ Replay replay(const char *name, bool reposition, bool prevent_inversion,
   snapshotIncidentNormals(*m, v_keep, v_kill, before);
 
   float3 mid = (m->v.co[v_keep] + m->v.co[v_kill]) * 0.5f;
-  std::optional<float3> target =
-      reposition ? std::optional<float3>(mid) : std::nullopt;
-  auto ok = collapseEdge(*m, edge, target, /*blend=*/0.5f, /*out=*/nullptr,
-                         /*cb=*/nullptr, prevent_inversion);
+  std::optional<float3> target = reposition ? std::optional<float3>(mid) : std::nullopt;
+  auto ok = collapseEdge(*m,
+                         edge,
+                         target,
+                         /*blend=*/0.5f,
+                         /*out=*/nullptr,
+                         /*cb=*/nullptr,
+                         prevent_inversion);
   if (!bool(ok)) {
     r.refused = true;
     litestl::alloc::Delete<Mesh>(m);
@@ -271,7 +273,10 @@ int main()
         replay(name, /*reposition=*/false, /*prevent_inversion=*/false, e2);
     fprintf(stderr,
             "[%s] unguarded: midpoint fold dot=%.4g no-move fold dot=%.4g%s%s\n",
-            name, bug.worst, bugNoMove.worst, e1.empty() ? "" : "  ERR=",
+            name,
+            bug.worst,
+            bugNoMove.worst,
+            e1.empty() ? "" : "  ERR=",
             e1.c_str());
     test_assert(bug.loadOk);
 
@@ -279,9 +284,13 @@ int main()
      * folded face — either refused outright or completed without a flip. */
     std::string e3;
     Replay fixed = replay(name, /*reposition=*/true, /*prevent_inversion=*/true, e3);
-    fprintf(stderr, "[%s] guarded:   %s (fold dot=%.4g)%s%s\n", name,
-            fixed.refused ? "refused" : "collapsed", fixed.worst,
-            e3.empty() ? "" : "  ERR=", e3.c_str());
+    fprintf(stderr,
+            "[%s] guarded:   %s (fold dot=%.4g)%s%s\n",
+            name,
+            fixed.refused ? "refused" : "collapsed",
+            fixed.worst,
+            e3.empty() ? "" : "  ERR=",
+            e3.c_str());
     test_assert(fixed.refused || fixed.worst >= 0.0f);
   }
 

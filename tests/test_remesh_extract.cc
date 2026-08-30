@@ -50,13 +50,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -66,8 +66,12 @@ namespace {
 
 // Run M2-M5 on m (in place), then extract. Returns the heap quad mesh (caller
 // frees) and fills `st`. Returns nullptr on extraction failure.
-Mesh *runExtract(Mesh *m, float target, remesh::ExtractStats &st,
-                 bool sharp = false, bool curvature = false, bool capOdd = false)
+Mesh *runExtract(Mesh *m,
+                 float target,
+                 remesh::ExtractStats &st,
+                 bool sharp = false,
+                 bool curvature = false,
+                 bool capOdd = false)
 {
   m->thawTopo();
   mesh::triangulateMesh(*m);
@@ -91,12 +95,27 @@ void report(const char *name, const RemeshReport &r)
           "[%s] V=%d E=%d F=%d euler=%d tri=%d quad=%d ngon=%d allquad=%d "
           "manifold=%d winding=%d nme=%d bnd=%d degen=%d inv=%d irr=%d | "
           "iso(chk=%d close=%d closed=%d open=%d spiral=%d)\n",
-          name, r.vert_count, r.edge_count, r.face_count, r.euler, r.tri_count,
-          r.quad_count, r.ngon_count, r.all_quad, r.manifold,
-          r.consistent_winding, r.non_manifold_edges, r.boundary_edges,
-          r.degenerate_faces, r.inverted_faces, r.irregular_interior_verts,
-          r.isolines_checked, r.isolines_close, r.closed_isolines,
-          r.open_isolines, r.spiral_isolines);
+          name,
+          r.vert_count,
+          r.edge_count,
+          r.face_count,
+          r.euler,
+          r.tri_count,
+          r.quad_count,
+          r.ngon_count,
+          r.all_quad,
+          r.manifold,
+          r.consistent_winding,
+          r.non_manifold_edges,
+          r.boundary_edges,
+          r.degenerate_faces,
+          r.inverted_faces,
+          r.irregular_interior_verts,
+          r.isolines_checked,
+          r.isolines_close,
+          r.closed_isolines,
+          r.open_isolines,
+          r.spiral_isolines);
   if (!r.manifold)
     fprintf(stderr, "  manifold_error: %s\n", r.manifold_error.c_str());
 }
@@ -173,14 +192,18 @@ void testPlaneHoleBorders()
   if (out) {
     RemeshReport r = remeshValidate(*out);
     report("planehole", r);
-    fprintf(stderr, "[planehole] capped=%d open=%d border=%d pinched=%d\n",
-            st.holes_capped, st.holes_open, st.holes_open_border, st.holes_pinched_split);
+    fprintf(stderr,
+            "[planehole] capped=%d open=%d border=%d pinched=%d\n",
+            st.holes_capped,
+            st.holes_open,
+            st.holes_open_border,
+            st.holes_pinched_split);
     TASSERT(st.ok);
     TASSERT(r.all_quad);
     TASSERT(r.structurallyOk());
-    TASSERT(st.holes_capped == 0);          // nothing spurious to cap
-    TASSERT(st.holes_pinched_split == 0);   // rims must not touch
-    TASSERT(st.holes_open_border == 2);     // outer rim + the hole rim, both open
+    TASSERT(st.holes_capped == 0);        // nothing spurious to cap
+    TASSERT(st.holes_pinched_split == 0); // rims must not touch
+    TASSERT(st.holes_open_border == 2);   // outer rim + the hole rim, both open
     TASSERT(st.holes_open == 2);
     TASSERT(r.boundary_loop_count == 2);
     litestl::alloc::Delete<Mesh>(out);
@@ -279,14 +302,21 @@ void testOddCapExtract()
 {
   Mesh *c = mesh::makeCylinder(24, 8, 0.5f, 2.0f, /*capped=*/true);
   remesh::ExtractStats st;
-  Mesh *out = runExtract(c, 0.15f, st, /*sharp=*/true, /*curvature=*/true,
+  Mesh *out = runExtract(c,
+                         0.15f,
+                         st,
+                         /*sharp=*/true,
+                         /*curvature=*/true,
                          /*capOdd=*/true);
   TASSERT(out != nullptr);
   if (out) {
     RemeshReport r = remeshValidate(*out);
     report("oddcap", r);
-    fprintf(stderr, "[oddcap] capped=%d capped_odd=%d paired=%d open=%d\n",
-            st.holes_capped, st.holes_capped_odd, st.odd_rims_paired,
+    fprintf(stderr,
+            "[oddcap] capped=%d capped_odd=%d paired=%d open=%d\n",
+            st.holes_capped,
+            st.holes_capped_odd,
+            st.odd_rims_paired,
             st.holes_open);
     TASSERT(st.ok);
     TASSERT(st.holes_capped_odd > 0); // the cap rims really came out odd
@@ -327,7 +357,10 @@ void testReproject()
 
     remesh::ReprojectParams rp; // pure snap (no smoothing)
     remesh::ReprojectStats rs = remesh::reprojectToSurface(*out, *s, rp);
-    fprintf(stderr, "[reproject] verts=%d max=%.4f mean=%.4f\n", rs.num_verts, rs.max_dist,
+    fprintf(stderr,
+            "[reproject] verts=%d max=%.4f mean=%.4f\n",
+            rs.num_verts,
+            rs.max_dist,
             rs.mean_dist);
     TASSERT(rs.max_dist > 0.005f); // the offset really moved verts off-surface
 
@@ -484,8 +517,11 @@ void testBoundarySurvival()
     bd = boundaryDeviation(*p, *out);
     fprintf(stderr,
             "[bnd-survival/%s] refE=%d testV=%d mean=%g max=%g loops=%d\n",
-            reproject ? "full" : "extract", bd.ref_boundary_edges,
-            bd.test_boundary_verts, bd.mean_dist, bd.max_dist,
+            reproject ? "full" : "extract",
+            bd.ref_boundary_edges,
+            bd.test_boundary_verts,
+            bd.mean_dist,
+            bd.max_dist,
             r.boundary_loop_count);
     TASSERT(r.all_quad);
     TASSERT(r.boundary_loop_count == 2); // outer perimeter + hole rim survive
@@ -587,7 +623,7 @@ void testAnimeGirlSpiral()
     RemeshReport r = remeshValidate(*out);
     report("anime", r);
     if (!cap_odd)
-      TASSERT(r.all_quad); // strict all-quad only when odd holes are left open
+      TASSERT(r.all_quad);           // strict all-quad only when odd holes are left open
     TASSERT(r.spiral_isolines == 0); // the guarantee quantization exists to make
     litestl::alloc::Delete<Mesh>(out);
   }

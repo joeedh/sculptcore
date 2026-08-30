@@ -5,4 +5,4 @@
 namespace sculptcore::props {
 /* Handles inheritance between parent and child. */
 void resolveStruct(StructProp *parent, StructProp *child);
-}
+} // namespace sculptcore::props

@@ -67,8 +67,8 @@ MultiresTuning multiresAutoTune(int64_t vertCount, int gridCount, int gridSide)
 
   const int64_t tris = int64_t(gridCount) * int64_t(gridSide) * int64_t(gridSide) * 2;
   if (autoTune && tris > 0) {
-    t.drawNodeTriTarget = int(clampi(int64_t(std::sqrt(kDrawTriShape * double(tris))),
-                                     kMinDrawTris, kMaxDrawTris));
+    t.drawNodeTriTarget = int(clampi(
+        int64_t(std::sqrt(kDrawTriShape * double(tris))), kMinDrawTris, kMaxDrawTris));
   }
 
   if (autoTune && vertCount > 0) {

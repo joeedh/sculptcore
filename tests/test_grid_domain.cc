@@ -113,8 +113,7 @@ static void gateLevel(Multires &mr, int level)
       auto mine = d->neighbors(v);
       int n = int(ring.offsets[v + 1] - ring.offsets[v]);
       if (int(mine.size()) != n) {
-        fprintf(stderr, "ring1 count mismatch v=%d: %d vs %d\n", v, int(mine.size()),
-                n);
+        fprintf(stderr, "ring1 count mismatch v=%d: %d vs %d\n", v, int(mine.size()), n);
         ok = false;
         break;
       }
@@ -198,9 +197,18 @@ static void gateLevel(Multires &mr, int level)
       fprintf(stderr,
               "  worst v=%d occs=%d nbrs=%d p=(%.4f,%.4f,%.4f) mine=(%.4f,%.4f,%.4f) "
               "mesh=(%.4f,%.4f,%.4f)\n",
-              minVert, int(d->occurrences(minVert).size() / 3),
-              int(d->neighbors(minVert).size()), p[0], p[1], p[2], mn[0], mn[1], mn[2],
-              rn[0], rn[1], rn[2]);
+              minVert,
+              int(d->occurrences(minVert).size() / 3),
+              int(d->neighbors(minVert).size()),
+              p[0],
+              p[1],
+              p[2],
+              mn[0],
+              mn[1],
+              mn[2],
+              rn[0],
+              rn[1],
+              rn[2]);
     }
     test_assert(meanDot > 0.98);
     test_assert(minDot > 0.8);
@@ -210,8 +218,8 @@ static void gateLevel(Multires &mr, int level)
    * level's total so the partition actually produces multiple leaves. */
   GridTree *t = d->ensureTree(/*leafVertTarget=*/96);
   {
-    fprintf(stderr, "tree: %d leaves over %d grids\n", int(t->leaves.size()),
-            d->gridCount());
+    fprintf(
+        stderr, "tree: %d leaves over %d grids\n", int(t->leaves.size()), d->gridCount());
     test_assert(int(t->leaves.size()) > 1);
     Vector<int> vertLeafCount, gridLeafCount;
     vertLeafCount.resize(d->vertCount());
@@ -245,8 +253,8 @@ static void gateLevel(Multires &mr, int level)
   /* Sphere query is conservative: every leaf owning a vert inside the sphere
    * is returned. */
   {
-    const float3 centers[3] = {float3(0.0f, 0.0f, 0.5f), float3(0.4f, 0.1f, 0.0f),
-                               float3(-0.3f, -0.3f, -0.3f)};
+    const float3 centers[3] = {
+        float3(0.0f, 0.0f, 0.5f), float3(0.4f, 0.1f, 0.0f), float3(-0.3f, -0.3f, -0.3f)};
     for (const float3 &c : centers) {
       float radius = 0.35f;
       Vector<int> hits;
@@ -357,8 +365,7 @@ static void gateLevel(Multires &mr, int level)
       ok = d->mask[v] == float(v % 17) / 16.0f;
       auto occs = d->occurrences(v);
       for (size_t i = 0; i < occs.size() && ok; i += 3) {
-        ok = *mr.store.elem(level, ch, occs[i], occs[i + 1], occs[i + 2]) ==
-             d->mask[v];
+        ok = *mr.store.elem(level, ch, occs[i], occs[i + 1], occs[i + 2]) == d->mask[v];
       }
     }
     test_assert(ok);

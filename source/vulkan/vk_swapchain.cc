@@ -9,8 +9,13 @@ namespace sculptcore::vulkan {
 
 namespace {
 
-bool createDepth(VkContext *ctx, int w, int h, VkFormat fmt,
-                 VkImage &image, VkDeviceMemory &memory, VkImageView &view)
+bool createDepth(VkContext *ctx,
+                 int w,
+                 int h,
+                 VkFormat fmt,
+                 VkImage &image,
+                 VkDeviceMemory &memory,
+                 VkImageView &view)
 {
   VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   ici.imageType = VK_IMAGE_TYPE_2D;
@@ -70,11 +75,13 @@ bool Swapchain::create(VkContext *c, int desiredW, int desiredH)
   vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physicalDevice, ctx->surface, &nf, nullptr);
   litestl::util::Vector<VkSurfaceFormatKHR> fmts;
   fmts.resize(nf);
-  vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physicalDevice, ctx->surface, &nf, fmts.data());
+  vkGetPhysicalDeviceSurfaceFormatsKHR(
+      ctx->physicalDevice, ctx->surface, &nf, fmts.data());
   VkSurfaceFormatKHR chosen = fmts[0];
   for (auto &f : fmts) {
     if (f.format == VK_FORMAT_B8G8R8A8_UNORM &&
-        f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+    {
       chosen = f;
       break;
     }
@@ -88,12 +95,10 @@ bool Swapchain::create(VkContext *c, int desiredW, int desiredH)
   if (caps.currentExtent.width != 0xFFFFFFFFu) {
     extent = caps.currentExtent;
   } else {
-    extent.width = std::clamp(uint32_t(desiredW),
-                              caps.minImageExtent.width,
-                              caps.maxImageExtent.width);
-    extent.height = std::clamp(uint32_t(desiredH),
-                               caps.minImageExtent.height,
-                               caps.maxImageExtent.height);
+    extent.width = std::clamp(
+        uint32_t(desiredW), caps.minImageExtent.width, caps.maxImageExtent.width);
+    extent.height = std::clamp(
+        uint32_t(desiredH), caps.minImageExtent.height, caps.maxImageExtent.height);
   }
   if (extent.width == 0 || extent.height == 0) {
     /* Window minimized — caller will recreate later. */
@@ -235,34 +240,61 @@ bool Swapchain::create(VkContext *c, int desiredW, int desiredH)
 
 void Swapchain::release()
 {
-  if (!ctx) return;
+  if (!ctx)
+    return;
   VkDevice d = ctx->device;
   if (d != VK_NULL_HANDLE) {
     vkDeviceWaitIdle(d);
   }
 
-  if (inFlightFence)  { vkDestroyFence    (d, inFlightFence,  nullptr); inFlightFence  = VK_NULL_HANDLE; }
-  if (imageAvailable) { vkDestroySemaphore(d, imageAvailable, nullptr); imageAvailable = VK_NULL_HANDLE; }
-  if (renderComplete) { vkDestroySemaphore(d, renderComplete, nullptr); renderComplete = VK_NULL_HANDLE; }
+  if (inFlightFence) {
+    vkDestroyFence(d, inFlightFence, nullptr);
+    inFlightFence = VK_NULL_HANDLE;
+  }
+  if (imageAvailable) {
+    vkDestroySemaphore(d, imageAvailable, nullptr);
+    imageAvailable = VK_NULL_HANDLE;
+  }
+  if (renderComplete) {
+    vkDestroySemaphore(d, renderComplete, nullptr);
+    renderComplete = VK_NULL_HANDLE;
+  }
 
   for (VkFramebuffer fb : framebuffers) {
-    if (fb) vkDestroyFramebuffer(d, fb, nullptr);
+    if (fb)
+      vkDestroyFramebuffer(d, fb, nullptr);
   }
   framebuffers.clear();
 
-  if (renderPass) { vkDestroyRenderPass(d, renderPass, nullptr); renderPass = VK_NULL_HANDLE; }
+  if (renderPass) {
+    vkDestroyRenderPass(d, renderPass, nullptr);
+    renderPass = VK_NULL_HANDLE;
+  }
 
-  if (depthView)   { vkDestroyImageView(d, depthView,   nullptr); depthView   = VK_NULL_HANDLE; }
-  if (depthImage)  { vkDestroyImage    (d, depthImage,  nullptr); depthImage  = VK_NULL_HANDLE; }
-  if (depthMemory) { vkFreeMemory      (d, depthMemory, nullptr); depthMemory = VK_NULL_HANDLE; }
+  if (depthView) {
+    vkDestroyImageView(d, depthView, nullptr);
+    depthView = VK_NULL_HANDLE;
+  }
+  if (depthImage) {
+    vkDestroyImage(d, depthImage, nullptr);
+    depthImage = VK_NULL_HANDLE;
+  }
+  if (depthMemory) {
+    vkFreeMemory(d, depthMemory, nullptr);
+    depthMemory = VK_NULL_HANDLE;
+  }
 
   for (VkImageView v : views) {
-    if (v) vkDestroyImageView(d, v, nullptr);
+    if (v)
+      vkDestroyImageView(d, v, nullptr);
   }
   views.clear();
   images.clear(); /* owned by swapchain itself */
 
-  if (swapchain) { vkDestroySwapchainKHR(d, swapchain, nullptr); swapchain = VK_NULL_HANDLE; }
+  if (swapchain) {
+    vkDestroySwapchainKHR(d, swapchain, nullptr);
+    swapchain = VK_NULL_HANDLE;
+  }
 
   width = height = 0;
   ctx = nullptr;
@@ -280,8 +312,8 @@ bool Swapchain::acquireNext(uint32_t &outIndex)
   vkWaitForFences(ctx->device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
   vkResetFences(ctx->device, 1, &inFlightFence);
 
-  VkResult r = vkAcquireNextImageKHR(ctx->device, swapchain, UINT64_MAX,
-                                     imageAvailable, VK_NULL_HANDLE, &outIndex);
+  VkResult r = vkAcquireNextImageKHR(
+      ctx->device, swapchain, UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &outIndex);
   if (r == VK_ERROR_OUT_OF_DATE_KHR) {
     return false;
   }
@@ -292,8 +324,8 @@ bool Swapchain::acquireNext(uint32_t &outIndex)
   return true;
 }
 
-void Swapchain::beginRenderPass(VkCommandBuffer cb, uint32_t imageIndex,
-                                float r, float g, float b, float a) const
+void Swapchain::beginRenderPass(
+    VkCommandBuffer cb, uint32_t imageIndex, float r, float g, float b, float a) const
 {
   VkClearValue clears[2]{};
   clears[0].color = {{r, g, b, a}};

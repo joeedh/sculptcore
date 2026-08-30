@@ -57,7 +57,7 @@ Quad make_quad(Mesh &m)
  * diagonal is the edge an in-place flip/split operates on. */
 struct TwoTris {
   int v[4];
-  int e_diag;  /* v0-v2 */
+  int e_diag; /* v0-v2 */
   int f[2];
 };
 
@@ -83,8 +83,8 @@ TwoTris make_two_tris(Mesh &m)
  * to start at the min vert (winding-preserving), so a flip that rewires a face
  * in place is still detected if its loop changes. */
 struct TopoSig {
-  litestl::util::Vector<float3> vco;            /* per vert id; (NAN) if free */
-  litestl::util::Vector<std::array<int, 2>> ev; /* per edge id; {-1,-1} if free */
+  litestl::util::Vector<float3> vco;                    /* per vert id; (NAN) if free */
+  litestl::util::Vector<std::array<int, 2>> ev;         /* per edge id; {-1,-1} if free */
   litestl::util::Vector<litestl::util::Vector<int>> fv; /* per face id; empty if free */
 };
 
@@ -134,7 +134,8 @@ TopoSig captureSig(Mesh &m)
 bool sig_equal(const TopoSig &a, const TopoSig &b)
 {
   if (a.vco.size() != b.vco.size() || a.ev.size() != b.ev.size() ||
-      a.fv.size() != b.fv.size()) {
+      a.fv.size() != b.fv.size())
+  {
     return false;
   }
   for (int v = 0; v < int(a.vco.size()); v++) {

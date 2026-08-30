@@ -69,7 +69,8 @@ static void testRings()
   test_assert(std::strstr(p->wgsl.c_str(), "tex_rings_eval") != nullptr);
   test_assert(p->gpuAvailable);
 
-  const sculptcore::brush::TextureRegistryEntry *ref = sculptcore::brush::findTexture("Rings");
+  const sculptcore::brush::TextureRegistryEntry *ref =
+      sculptcore::brush::findTexture("Rings");
   test_assert(ref != nullptr);
   if (ref && p->eval) {
     const float P[3] = {0.31f, -0.14f, 0.52f};
@@ -115,22 +116,34 @@ static void testScaled()
     test_assert(p->defaults[1] == 0.0f);
     test_assert(p->defaults[256] == 1.0f);
   }
-  test_assert(p->evalDual == nullptr);  // ramp.sample has no derivative rule
+  test_assert(p->evalDual == nullptr); // ramp.sample has no derivative rule
   test_assert(p->usesMap);
 
   if (p->eval) {
     sculptcore::brush::TexEvalCtx ctx = {{
-        1.5f, 0.0f, 0.0f, 0.2f,   //
-        0.0f, 0.8f, 0.0f, -0.1f,  //
-        0.0f, 0.0f, 1.1f, 0.05f,  //
-        0.0f, 0.0f, 0.0f, 1.0f,   //
+        1.5f,
+        0.0f,
+        0.0f,
+        0.2f, //
+        0.0f,
+        0.8f,
+        0.0f,
+        -0.1f, //
+        0.0f,
+        0.0f,
+        1.1f,
+        0.05f, //
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f, //
     }};
     const float P[3] = {0.31f, -0.14f, 0.52f};
     const float N[3] = {0.0f, 0.0f, 1.0f};
     float jit = p->eval(P, N, p->defaults.data(), &ctx);
 
-    litestl::math::float3 q = sculptcore::brush::texMapPoint(
-        &ctx, litestl::math::float3{P[0], P[1], P[2]});
+    litestl::math::float3 q =
+        sculptcore::brush::texMapPoint(&ctx, litestl::math::float3{P[0], P[1], P[2]});
     float len = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
     float t = len * p->defaults[0];
     t = t - std::floor(t);
@@ -147,7 +160,9 @@ static void testErrors()
 
   // A brush source is not a texture unit.
   TextureProgram *p = compileTextureScript(
-      "@brush(\"x\")\nbrush X { vertex void apply(inout Vertex v) { } }", "x.sbrush", error);
+      "@brush(\"x\")\nbrush X { vertex void apply(inout Vertex v) { } }",
+      "x.sbrush",
+      error);
   test_assert(p == nullptr);
   test_assert(std::strstr(error.c_str(), "not a texture unit") != nullptr);
 
@@ -225,10 +240,12 @@ static float hsDotN(void *user, const float p[3], const float n[3])
   return p[0] * n[0] + p[1] * n[1] + p[2] * n[2];
 }
 
-static const char *kFieldWgsl = "fn hs_field(p: vec3f, n: vec3f) -> f32 { return dot(p, p); }\n";
+static const char *kFieldWgsl =
+    "fn hs_field(p: vec3f, n: vec3f) -> f32 { return dot(p, p); }\n";
 static const char *kFieldWgslWithGrad =
     "fn hs_field(p: vec3f, n: vec3f) -> f32 { return dot(p, p); }\n"
-    "fn hs_field_grad(p: vec3f, n: vec3f) -> vec4f { return vec4f(dot(p, p), 2.0 * p); }\n";
+    "fn hs_field_grad(p: vec3f, n: vec3f) -> vec4f { return vec4f(dot(p, p), 2.0 * p); "
+    "}\n";
 
 static void testSamplers()
 {
@@ -238,9 +255,9 @@ static void testSamplers()
   using sculptcore::brush::unregisterHostSampler;
 
   HostSampler bad;
-  test_assert(!registerHostSampler(bad));  // name required
+  test_assert(!registerHostSampler(bad)); // name required
   bad.name = "field";
-  test_assert(!registerHostSampler(bad));  // fn required
+  test_assert(!registerHostSampler(bad)); // fn required
 
   HostSampler hs;
   hs.name = "field";
@@ -271,7 +288,7 @@ static void testSamplers()
   }
 
   test_assert(p->samplerDeps.size() == 1);
-  test_assert(!p->gpuAvailable && p->wgsl.size() == 0);  // no WGSL registered yet
+  test_assert(!p->gpuAvailable && p->wgsl.size() == 0); // no WGSL registered yet
 
   const float P[3] = {0.3f, -0.2f, 0.5f};
   const float N[3] = {0.0f, 0.0f, 1.0f};
@@ -283,14 +300,10 @@ static void testSamplers()
   // grad chains through the sampler: d = (4px, py, pz). No fn_grad is
   // registered, so this exercises sb_hs_grad's central-difference synthesis.
   test_assert(p->evalDual != nullptr);
-  sculptcore::brush::TexDual3 dp = {{P[0], P[1], P[2]},
-                                    {1.0f, 0.0f, 0.0f},
-                                    {0.0f, 1.0f, 0.0f},
-                                    {0.0f, 0.0f, 1.0f}};
-  sculptcore::brush::TexDual3 dn = {{N[0], N[1], N[2]},
-                                    {0.0f, 0.0f, 0.0f},
-                                    {0.0f, 0.0f, 0.0f},
-                                    {0.0f, 0.0f, 0.0f}};
+  sculptcore::brush::TexDual3 dp = {
+      {P[0], P[1], P[2]}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+  sculptcore::brush::TexDual3 dn = {
+      {N[0], N[1], N[2]}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
   sculptcore::brush::TexDual out = {};
   if (p->evalDual) {
     p->evalDual(&dp, &dn, nullptr, nullptr, &out);
@@ -314,7 +327,7 @@ static void testSamplers()
   HostSampler swap = hs;
   swap.fn = hsFieldPlusOne;
   test_assert(registerHostSampler(swap));
-  test_assert(findHostSampler("field") == entry);  // entry address is stable
+  test_assert(findHostSampler("field") == entry); // entry address is stable
   float v2 = p->eval(P, N, nullptr, nullptr);
   test_assert(std::abs(v2 - (expect + 0.5f)) <= 1e-6f);
   hs.fn = hsField;
@@ -359,7 +372,7 @@ static void testSamplers()
   test_assert(p != nullptr);
   if (p) {
     float d = p->eval(P, N, nullptr, nullptr);
-    test_assert(std::abs(d - P[2]) <= 1e-6f);  // p . (0,0,1)
+    test_assert(std::abs(d - P[2]) <= 1e-6f); // p . (0,0,1)
     freeTextureProgram(p);
   }
 
@@ -377,11 +390,13 @@ static void testSamplers()
   test_assert(!unregisterHostSampler("never_registered"));
 
   // The ctypes-facing c-api mirror round-trips (defaulted fd_step, no wgsl).
-  test_assert(sc_host_sampler_register("cfield", hsField, nullptr, nullptr, nullptr, 0.0f) == 1);
+  test_assert(
+      sc_host_sampler_register("cfield", hsField, nullptr, nullptr, nullptr, 0.0f) == 1);
   const HostSampler *ce = findHostSampler("cfield");
   test_assert(ce != nullptr && ce->fn == hsField);
   test_assert(ce && ce->fd_step == 1e-3f && ce->wgsl.size() == 0);
-  test_assert(sc_host_sampler_register(nullptr, hsField, nullptr, nullptr, nullptr, 0.0f) == 0);
+  test_assert(
+      sc_host_sampler_register(nullptr, hsField, nullptr, nullptr, nullptr, 0.0f) == 0);
   test_assert(sc_host_sampler_unregister(nullptr) == 0);
   test_assert(sc_host_sampler_unregister("cfield") == 1);
   test_assert(ce->fn == nullptr);
@@ -455,7 +470,7 @@ static void testSplice()
     test_assert(out.size() > 0);
     test_assert(std::strstr(out.c_str(), "fn brush_sample_tex_bitmap(") != nullptr);
     test_assert(std::strstr(out.c_str(), "tex_rings_eval(co, no)") != nullptr);
-    test_assert(std::strstr(out.c_str(), "render_matrix") == nullptr);  // !usesMap
+    test_assert(std::strstr(out.c_str(), "render_matrix") == nullptr); // !usesMap
     // Exactly one brush_sample_tex definition remains: the wrapper.
     const char *def = std::strstr(out.c_str(), "fn brush_sample_tex(");
     test_assert(def != nullptr);
@@ -478,8 +493,8 @@ static void testSplice()
     test_assert(std::strstr(scaled->wgsl.c_str(), "tex_scaled_defaults") == nullptr);
     litestl::util::string out = spliceTextureProgramWgsl(kKernel, *scaled, error);
     test_assert(out.size() > 0);
-    test_assert(std::strstr(out.c_str(), "tex_scaled_eval(co, no, ctx_u.render_matrix)") !=
-                nullptr);
+    test_assert(std::strstr(out.c_str(),
+                            "tex_scaled_eval(co, no, ctx_u.render_matrix)") != nullptr);
 
     // A kernel that never defines brush_sample_tex (skip stub) passes through.
     static const char *kStub = "@compute fn nop() { }\n";

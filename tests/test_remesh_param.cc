@@ -28,13 +28,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -60,8 +60,14 @@ void testGridParam()
   fprintf(stderr,
           "[grid] faces=%d corners=%d classes=%d cut=%d grad_err=%.6f "
           "seam_t=%.3e min_jac=%.6f solved=%d\n",
-          st.num_faces, st.num_corners, st.num_classes, st.num_cut_edges,
-          st.grad_angle_err, st.max_seam_translation, st.min_jacobian, st.solved);
+          st.num_faces,
+          st.num_corners,
+          st.num_classes,
+          st.num_cut_edges,
+          st.grad_angle_err,
+          st.max_seam_translation,
+          st.min_jacobian,
+          st.solved);
   TASSERT(st.solved);
   TASSERT(st.num_classes > 0);
   TASSERT(st.grad_angle_err < 0.05);       // gradient ∥ cross field
@@ -86,8 +92,13 @@ void testCylinderParam()
   fprintf(stderr,
           "[cylinder] faces=%d classes=%d cut=%d grad_err=%.6f seam_t=%.3e "
           "min_jac=%.6f solved=%d\n",
-          st.num_faces, st.num_classes, st.num_cut_edges, st.grad_angle_err,
-          st.max_seam_translation, st.min_jacobian, st.solved);
+          st.num_faces,
+          st.num_classes,
+          st.num_cut_edges,
+          st.grad_angle_err,
+          st.max_seam_translation,
+          st.min_jacobian,
+          st.solved);
   TASSERT(st.solved);
   TASSERT(st.grad_angle_err < 0.1);
   TASSERT(st.max_seam_translation < 1e-2);
@@ -111,8 +122,13 @@ void testTorusParam()
   fprintf(stderr,
           "[torus] faces=%d classes=%d cut=%d grad_err=%.6f seam_t=%.3e "
           "min_jac=%.6f solved=%d\n",
-          st.num_faces, st.num_classes, st.num_cut_edges, st.grad_angle_err,
-          st.max_seam_translation, st.min_jacobian, st.solved);
+          st.num_faces,
+          st.num_classes,
+          st.num_cut_edges,
+          st.grad_angle_err,
+          st.max_seam_translation,
+          st.min_jacobian,
+          st.solved);
   TASSERT(st.solved);
   TASSERT(st.grad_angle_err < 0.15);
   TASSERT(st.max_seam_translation < 1e-2);
@@ -167,8 +183,11 @@ void testCutGraphSpansComponents()
 
   // No pole field: pass-2 rooting must still span both components.
   remesh::CutGraphStats st = remesh::buildCutGraph(*m);
-  fprintf(stderr, "[cutgraph] interior=%d tree=%d cut=%d (no poles)\n", interior,
-          st.num_tree_edges, st.num_cut_edges);
+  fprintf(stderr,
+          "[cutgraph] interior=%d tree=%d cut=%d (no poles)\n",
+          interior,
+          st.num_tree_edges,
+          st.num_cut_edges);
   TASSERT(st.num_tree_edges == want_tree);
   TASSERT(st.num_tree_edges + st.num_cut_edges == interior);
 
@@ -183,7 +202,10 @@ void testCutGraphSpansComponents()
   st = remesh::buildCutGraph(*m);
   fprintf(stderr,
           "[cutgraph] interior=%d tree=%d cut=%d sing=%d (pole in far component)\n",
-          interior, st.num_tree_edges, st.num_cut_edges, st.num_singularities);
+          interior,
+          st.num_tree_edges,
+          st.num_cut_edges,
+          st.num_singularities);
   TASSERT(st.num_singularities == 1);
   TASSERT(st.num_tree_edges == want_tree);
   TASSERT(st.num_tree_edges + st.num_cut_edges == interior);
@@ -211,8 +233,12 @@ void testDeterminism()
   remesh::SeamlessParamStats sa = remesh::computeSeamlessParam(*a, spp);
   remesh::SeamlessParamStats sb = remesh::computeSeamlessParam(*b, spp);
 
-  fprintf(stderr, "[determinism] classes(a,b)=(%d,%d) grad(a,b)=(%.6f,%.6f)\n",
-          sa.num_classes, sb.num_classes, sa.grad_angle_err, sb.grad_angle_err);
+  fprintf(stderr,
+          "[determinism] classes(a,b)=(%d,%d) grad(a,b)=(%.6f,%.6f)\n",
+          sa.num_classes,
+          sb.num_classes,
+          sa.grad_angle_err,
+          sb.grad_angle_err);
   TASSERT(sa.num_classes == sb.num_classes);
   TASSERT(std::fabs(sa.grad_angle_err - sb.grad_angle_err) < 1e-9);
   TASSERT(std::fabs(sa.max_seam_translation - sb.max_seam_translation) < 1e-9);

@@ -1,8 +1,8 @@
 #include "test_util.h"
 
 #include "litestl/math/vector.h"
-#include "litestl/util/vector.h"
 #include "litestl/util/span.h"
+#include "litestl/util/vector.h"
 #include "mesh/attr_weights.h"
 #include "mesh/attribute.h"
 #include "mesh/boundary.h"
@@ -25,7 +25,7 @@ test_init;
 
 #define TASSERT(expr)                                                                    \
   do {                                                                                   \
-    if (!(expr)) {                                                                        \
+    if (!(expr)) {                                                                       \
       retval = 1;                                                                        \
       fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
       fflush(stderr);                                                                    \
@@ -62,7 +62,8 @@ bool validateMesh(Mesh &m, const char *tag)
 
   for (int vi : m.v) {
     int e0 = m.v.e[vi];
-    if (e0 == ELEM_NONE) continue;
+    if (e0 == ELEM_NONE)
+      continue;
     int steps = 0, ec = e0;
     do {
       int side = m.e.vs[ec][0] == vi ? 0 : 1;
@@ -74,7 +75,9 @@ bool validateMesh(Mesh &m, const char *tag)
       int prev = diskEdge(m.e.disk[ec][side * 2]);
       int side_n = m.e.vs[next][0] == vi ? 0 : 1;
       int side_p = m.e.vs[prev][0] == vi ? 0 : 1;
-      if (m.e.disk[next][side_n * 2] != diskPack(ec, side) || m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side)) {
+      if (m.e.disk[next][side_n * 2] != diskPack(ec, side) ||
+          m.e.disk[prev][side_p * 2 + 1] != diskPack(ec, side))
+      {
         fprintf(stderr, "[%s] disk prev/next mismatch v=%d e=%d\n", tag, vi, ec);
         return false;
       }
@@ -88,7 +91,8 @@ bool validateMesh(Mesh &m, const char *tag)
 
   for (int ei : m.e) {
     int c0 = m.e.c[ei];
-    if (c0 == ELEM_NONE) continue;
+    if (c0 == ELEM_NONE)
+      continue;
     int steps = 0, cc = c0;
     do {
       if (m.c.e[cc] != ei) {
@@ -183,9 +187,11 @@ Vector<int64_t> geomEdgeSignature(Mesh &m)
 
 bool sigEqual(const Vector<int64_t> &a, const Vector<int64_t> &b)
 {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (int i = 0; i < int(a.size()); i++) {
-    if (a[i] != b[i]) return false;
+    if (a[i] != b[i])
+      return false;
   }
   return true;
 }
@@ -263,11 +269,26 @@ Vector<int64_t> edgeRadialSig(Mesh &m)
 /* Deterministic, position-derived attribute values: because positions
  * round-trip bit-exactly, recomputing the expected value from the loaded
  * position reproduces the stored bits exactly — no epsilon needed. */
-float vFloat(const float3 &c) { return c[0] * 131.0f + c[1] * 17.0f + c[2] * 3.0f; }
-int vInt(const float3 &c) { return int(c[0] * 1000.0f) + int(c[1] * 100.0f) * 7; }
-float3 vF3(const float3 &c) { return float3(c[1], c[0], c[0] + c[1]); }
-bool vBool(const float3 &c) { return c[0] > 0.5f; }
-bool vSelect(const float3 &c) { return (c[0] + c[1]) > 1.0f; }
+float vFloat(const float3 &c)
+{
+  return c[0] * 131.0f + c[1] * 17.0f + c[2] * 3.0f;
+}
+int vInt(const float3 &c)
+{
+  return int(c[0] * 1000.0f) + int(c[1] * 100.0f) * 7;
+}
+float3 vF3(const float3 &c)
+{
+  return float3(c[1], c[0], c[0] + c[1]);
+}
+bool vBool(const float3 &c)
+{
+  return c[0] > 0.5f;
+}
+bool vSelect(const float3 &c)
+{
+  return (c[0] + c[1]) > 1.0f;
+}
 
 /* Sum of a face's vertex positions (no division → exact float reproduction). */
 float3 faceVertSum(Mesh &m, int fi)
@@ -286,7 +307,10 @@ float3 faceVertSum(Mesh &m, int fi)
   return sum;
 }
 
-int fInt(const float3 &s) { return int(s[0] * 128.0f) ^ int(s[1] * 64.0f); }
+int fInt(const float3 &s)
+{
+  return int(s[0] * 128.0f) ^ int(s[1] * 64.0f);
+}
 
 void build_grid(Mesh &m, int N)
 {
@@ -302,10 +326,14 @@ void build_grid(Mesh &m, int N)
   for (int j = 0; j < N; j++) {
     for (int i = 0; i < N; i++) {
       int v0 = vat(i, j), v1 = vat(i + 1, j), v2 = vat(i + 1, j + 1), v3 = vat(i, j + 1);
-      if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-      if (m.find_edge(v1, v2) == ELEM_NONE) m.make_edge(v1, v2);
-      if (m.find_edge(v2, v3) == ELEM_NONE) m.make_edge(v2, v3);
-      if (m.find_edge(v3, v0) == ELEM_NONE) m.make_edge(v3, v0);
+      if (m.find_edge(v0, v1) == ELEM_NONE)
+        m.make_edge(v0, v1);
+      if (m.find_edge(v1, v2) == ELEM_NONE)
+        m.make_edge(v1, v2);
+      if (m.find_edge(v2, v3) == ELEM_NONE)
+        m.make_edge(v2, v3);
+      if (m.find_edge(v3, v0) == ELEM_NONE)
+        m.make_edge(v3, v0);
       int verts[4] = {v0, v1, v2, v3};
       m.make_face(std::span<int>(verts, 4));
     }
@@ -339,11 +367,9 @@ void populate_attrs(Mesh &m)
     vf3.get_data<float3>()->materialize(vi);
     (*vf3.get_data<float3>())[vi] = vF3(c);
     vf4.get_data<math::float4>()->materialize(vi);
-    (*vf4.get_data<math::float4>())[vi] =
-        math::float4(c[0], c[1], c[2], vFloat(c));
+    (*vf4.get_data<math::float4>())[vi] = math::float4(c[0], c[1], c[2], vFloat(c));
     static_cast<BoolAttrView *>(vbool.data)->set(vi, vBool(c));
-    static_cast<BoolAttrView *>(
-        m.v.attrs.find_attribute(AttrType::BOOL, "select").data)
+    static_cast<BoolAttrView *>(m.v.attrs.find_attribute(AttrType::BOOL, "select").data)
         ->set(vi, vSelect(c));
   }
 
@@ -362,8 +388,13 @@ bool isDense(ElemData &ed, const char *tag, const char *dom)
     bool free = ed.freemap[i];
     bool shouldBeFree = i >= ed.count;
     if (free != shouldBeFree) {
-      fprintf(stderr, "[%s] %s slot %d free=%d but count=%d (not dense)\n", tag, dom, i,
-              int(free), ed.count);
+      fprintf(stderr,
+              "[%s] %s slot %d free=%d but count=%d (not dense)\n",
+              tag,
+              dom,
+              i,
+              int(free),
+              ed.count);
       return false;
     }
   }
@@ -638,10 +669,16 @@ void test_boundary_roundtrip()
   int v4 = m.make_vertex(float3(1, 1, 0));
   int v5 = m.make_vertex(float3(2, 1, 0));
   auto edge = [&](int a, int b) {
-    if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+    if (m.find_edge(a, b) == ELEM_NONE)
+      m.make_edge(a, b);
   };
-  edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
-  edge(v1, v2); edge(v2, v5); edge(v5, v4);
+  edge(v0, v1);
+  edge(v1, v4);
+  edge(v4, v3);
+  edge(v3, v0);
+  edge(v1, v2);
+  edge(v2, v5);
+  edge(v5, v4);
   int fa[4] = {v0, v1, v4, v3};
   int fb[4] = {v1, v2, v5, v4};
   int faceA = m.make_face(std::span<int>(fa, 4));
@@ -684,7 +721,8 @@ void test_detach_reattach()
   // Find its index in the vertex group.
   int idx = -1;
   for (int i = 0; i < int(m.v.attrs.attrs.size()); i++) {
-    if (m.v.attrs.attrs[i].name == util::string("udata")) idx = i;
+    if (m.v.attrs.attrs[i].name == util::string("udata"))
+      idx = i;
   }
   TASSERT(idx >= 0);
 
@@ -763,10 +801,12 @@ void test_nonmanifold_roundtrip()
   Mesh m;
   int v0 = m.make_vertex(float3(0, 0, 0));
   int v1 = m.make_vertex(float3(1, 0, 0));
-  int wing[3] = {m.make_vertex(float3(0.5f, 1, 0)), m.make_vertex(float3(0.5f, -1, 0)),
+  int wing[3] = {m.make_vertex(float3(0.5f, 1, 0)),
+                 m.make_vertex(float3(0.5f, -1, 0)),
                  m.make_vertex(float3(0.5f, 0, 1))};
   auto edge = [&](int a, int b) {
-    if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+    if (m.find_edge(a, b) == ELEM_NONE)
+      m.make_edge(a, b);
   };
   edge(v0, v1);
   for (int k = 0; k < 3; k++) {
@@ -972,8 +1012,11 @@ void test_load_fixture(const char *file)
   TASSERT(sigEqual(vertexDiskSig(expected), vertexDiskSig(loaded)));
   TASSERT(sigEqual(edgeRadialSig(expected), edgeRadialSig(loaded)));
   check_attrs(loaded, tag);
-  printf("  [%s] loaded verts=%d edges=%d faces=%d\n", tag, loaded.v.count,
-         loaded.e.count, loaded.f.count);
+  printf("  [%s] loaded verts=%d edges=%d faces=%d\n",
+         tag,
+         loaded.v.count,
+         loaded.e.count,
+         loaded.f.count);
 }
 
 } // namespace
@@ -993,8 +1036,12 @@ int main()
       fprintf(stderr, "gen fixture failed: %s\n", genPath);
       return 1;
     }
-    printf("wrote fixture %s (v=%u) verts=%d edges=%d faces=%d\n", genPath,
-           serial::kMeshFormatVersion, m.v.count, m.e.count, m.f.count);
+    printf("wrote fixture %s (v=%u) verts=%d edges=%d faces=%d\n",
+           genPath,
+           serial::kMeshFormatVersion,
+           m.v.count,
+           m.e.count,
+           m.f.count);
     return 0;
   }
 

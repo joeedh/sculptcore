@@ -115,9 +115,9 @@ SeamlessParamStats computeSeamlessParam(Mesh &m, const SeamlessParamParams &para
     if (!interiorEdge(m, e, fa, fb)) {
       continue;
     }
-    int c1 = m.e.c[e];            // corner in fa at vertex v(c1)
+    int c1 = m.e.c[e]; // corner in fa at vertex v(c1)
     int c2 = m.c.radial_next[c1];
-    int cb = m.c.next[c2];        // corner in fb at the same vertex
+    int cb = m.c.next[c2]; // corner in fb at the same vertex
     float2 uva = uv[c1];
     float2 uvb = uv[cb];
     float2 ra = rot(double(sys.periodEC[e]) * HALF_PI, uva);

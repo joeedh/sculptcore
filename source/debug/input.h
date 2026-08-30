@@ -22,22 +22,54 @@ enum class ButtonAction { Release = 0, Press = 1, Repeat = 2 };
 /* Mask values match GLFW (1<<0=Shift, 1<<1=Ctrl, 1<<2=Alt). */
 struct ModFlags {
   unsigned int bits = 0;
-  bool shift() const { return bits & 0x1; }
-  bool ctrl()  const { return bits & 0x2; }
-  bool alt()   const { return bits & 0x4; }
-  bool super() const { return bits & 0x8; }
+  bool shift() const
+  {
+    return bits & 0x1;
+  }
+  bool ctrl() const
+  {
+    return bits & 0x2;
+  }
+  bool alt() const
+  {
+    return bits & 0x4;
+  }
+  bool super() const
+  {
+    return bits & 0x8;
+  }
 };
 
 struct InputEvent {
   InputKind kind = InputKind::CursorPos;
   union Payload {
-    struct CursorPos { float x, y; } cursor;
-    struct MouseBtn { MouseButton button; ButtonAction action; ModFlags mods; float x, y; } mb;
-    struct Scroll { float dx, dy; } scroll;
-    struct Key { int key; int scancode; ButtonAction action; ModFlags mods; } key;
-    struct Char { unsigned int codepoint; } ch;
-    struct Fb { int width, height; } fb;
-    Payload() : cursor{0.0f, 0.0f} {}
+    struct CursorPos {
+      float x, y;
+    } cursor;
+    struct MouseBtn {
+      MouseButton button;
+      ButtonAction action;
+      ModFlags mods;
+      float x, y;
+    } mb;
+    struct Scroll {
+      float dx, dy;
+    } scroll;
+    struct Key {
+      int key;
+      int scancode;
+      ButtonAction action;
+      ModFlags mods;
+    } key;
+    struct Char {
+      unsigned int codepoint;
+    } ch;
+    struct Fb {
+      int width, height;
+    } fb;
+    Payload() : cursor{0.0f, 0.0f}
+    {
+    }
   } u;
 };
 
@@ -53,8 +85,14 @@ struct InputDispatcher {
   void attach(GLFWwindow *win);
   void detach();
 
-  void addHandler(InputHandler *h) { handlers_.append(h); }
-  void clear() { handlers_.clear(); }
+  void addHandler(InputHandler *h)
+  {
+    handlers_.append(h);
+  }
+  void clear()
+  {
+    handlers_.clear();
+  }
 
   /* Last-known cursor position (window-coords, pixels). Cached so events
    * other than CursorPos can include it. */

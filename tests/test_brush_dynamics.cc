@@ -23,7 +23,7 @@ int main()
 {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
-  constexpr int PRESSURE = (int)props::DeviceType::PRESSURE; // 0
+  constexpr int PRESSURE = (int)props::DeviceType::PRESSURE;       // 0
   constexpr int MULTIPLY = (int)litestl::math::BasicMix::MULTIPLY; // 1
 
   // 5-entry response curve. Its sample points sit at pressure j/4 (j=0..4), so a
@@ -62,8 +62,12 @@ int main()
       cmd.loadUniformProps(brush, &brush.deviceInputCtx);
 
       float expected = stored_mu * curve[j];
-      fprintf(stderr, "dab %d: pressure=%g mu=%g expected=%g\n", j, pressure,
-              brush.mu, expected);
+      fprintf(stderr,
+              "dab %d: pressure=%g mu=%g expected=%g\n",
+              j,
+              pressure,
+              brush.mu,
+              expected);
       test_assert(std::fabs(brush.mu - expected) < 1e-6f);
     }
   }
@@ -88,8 +92,8 @@ int main()
     // The static path: same prop, read with no device ctx.
     float static_path = brush.props.lookupValue<float>("mu", -999.0f);
 
-    fprintf(stderr, "no-device: dynamic_path=%g static_path=%g\n", dynamic_path,
-            static_path);
+    fprintf(
+        stderr, "no-device: dynamic_path=%g static_path=%g\n", dynamic_path, static_path);
     test_assert(std::memcmp(&dynamic_path, &static_path, sizeof(float)) == 0);
     test_assert(dynamic_path == stored_mu);
   }

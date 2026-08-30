@@ -43,7 +43,9 @@ static void runAnalysis(const char *path)
   printf("mesh: v=%d e=%d f=%d\n", m.v.count, m.e.count, m.f.count);
 
   for (auto &attr : m.v.attrs.attrs) {
-    printf("  vattr '%s' type=%d flags=0x%x\n", attr.name.c_str(), int(attr.type),
+    printf("  vattr '%s' type=%d flags=0x%x\n",
+           attr.name.c_str(),
+           int(attr.type),
            int(attr.flag));
   }
 
@@ -59,7 +61,12 @@ static void runAnalysis(const char *path)
   auto *facGen = findAttr<int>(m, AttrType::INT, ".brush.automask.gen");
   auto *vnode = findAttr<int>(m, AttrType::INT, ".spatial.v.node");
   printf("attrs: dispVec=%d origNo=%d strokeGen=%d fac=%d facGen=%d vnode=%d\n",
-         !!dispVec, !!origNo, !!strokeGen, !!fac, !!facGen, !!vnode);
+         !!dispVec,
+         !!origNo,
+         !!strokeGen,
+         !!fac,
+         !!facGen,
+         !!vnode);
 
   if (strokeGen) {
     std::map<int, int> hist;
@@ -119,8 +126,9 @@ static void runAnalysis(const char *path)
     for (auto &j : jumps) {
       nBoundary += j.boundary;
     }
-    std::sort(jumps.begin(), jumps.end(),
-              [](const EdgeJump &x, const EdgeJump &y) { return x.jump > y.jump; });
+    std::sort(jumps.begin(), jumps.end(), [](const EdgeJump &x, const EdgeJump &y) {
+      return x.jump > y.jump;
+    });
     int top = std::max(1, int(jumps.size() / 100));
     int topBoundary = 0;
     for (int i = 0; i < top; i++) {
@@ -128,14 +136,25 @@ static void runAnalysis(const char *path)
     }
     printf("%s: edges=%d base-boundary=%.1f%% | top-1%% (n=%d) max=%g "
            "boundary=%.1f%%\n",
-           label, int(jumps.size()), 100.0f * nBoundary / jumps.size(), top,
-           jumps[0].jump, 100.0f * topBoundary / top);
+           label,
+           int(jumps.size()),
+           100.0f * nBoundary / jumps.size(),
+           top,
+           jumps[0].jump,
+           100.0f * topBoundary / top);
     for (int i = 0; i < std::min(5, top); i++) {
       int e = jumps[i].e;
       int a = m.e.vs[e][0], b = m.e.vs[e][1];
-      printf("   top%d e=%d jump=%g a=%d(n%d) b=%d(n%d) co.a=(%.4f %.4f %.4f)\n", i,
-             e, jumps[i].jump, a, vnode ? vnode->safe_get(a) : -1, b,
-             vnode ? vnode->safe_get(b) : -1, m.v.co[a][0], m.v.co[a][1],
+      printf("   top%d e=%d jump=%g a=%d(n%d) b=%d(n%d) co.a=(%.4f %.4f %.4f)\n",
+             i,
+             e,
+             jumps[i].jump,
+             a,
+             vnode ? vnode->safe_get(a) : -1,
+             b,
+             vnode ? vnode->safe_get(b) : -1,
+             m.v.co[a][0],
+             m.v.co[a][1],
              m.v.co[a][2]);
     }
   };
@@ -201,8 +220,8 @@ static void runAnalysis(const char *path)
       }
       fes.push_back({std::fabs(fac->safe_get(a) - fac->safe_get(b)), e});
     }
-    std::sort(fes.begin(), fes.end(),
-              [](const FE &x, const FE &y) { return x.jump > y.jump; });
+    std::sort(
+        fes.begin(), fes.end(), [](const FE &x, const FE &y) { return x.jump > y.jump; });
     printf("seam forensics (top factor-jump edges):\n");
     for (int i = 0; i < std::min<size_t>(8, fes.size()); i++) {
       int e = fes[i].e;
@@ -217,9 +236,15 @@ static void runAnalysis(const char *path)
       }
       float dispA = dispVec->safe_get(a).length();
       float dispB = dispVec->safe_get(b).length();
-      printf("  e=%d n%d|n%d fac %.4f|%.4f origNoAngle=%.2fdeg disp %.4f|%.4f\n", e,
-             vnode ? vnode->safe_get(a) : -1, vnode ? vnode->safe_get(b) : -1,
-             fac->safe_get(a), fac->safe_get(b), ang, dispA, dispB);
+      printf("  e=%d n%d|n%d fac %.4f|%.4f origNoAngle=%.2fdeg disp %.4f|%.4f\n",
+             e,
+             vnode ? vnode->safe_get(a) : -1,
+             vnode ? vnode->safe_get(b) : -1,
+             fac->safe_get(a),
+             fac->safe_get(b),
+             ang,
+             dispA,
+             dispB);
     }
   }
 
@@ -264,8 +289,11 @@ static void runAnalysis(const char *path)
       }
       nRamp++;
     }
-    printf("factor census: stamped=%d exact-1.0=%d near-0=%d in-ramp=%d\n", nStamped,
-           nOne, nZeroish, nRamp);
+    printf("factor census: stamped=%d exact-1.0=%d near-0=%d in-ramp=%d\n",
+           nStamped,
+           nOne,
+           nZeroish,
+           nRamp);
     if (nRamp > 100) {
       // Solve the 3x3 normal equations by Cramer's rule.
       auto det3 = [](double a[3][3]) {
@@ -325,8 +353,10 @@ static void runAnalysis(const char *path)
         }
         printf("in-ramp fit RMS=%.4f (n=%d) | exact-1.0 verts: mean predicted "
                "factor under fitted ray = %.4f (n=%d)\n",
-               rampN ? std::sqrt(rampErr / rampN) : -1.0, rampN,
-               oneN ? oneSum / oneN : -1.0, oneN);
+               rampN ? std::sqrt(rampErr / rampN) : -1.0,
+               rampN,
+               oneN ? oneSum / oneN : -1.0,
+               oneN);
       }
     }
   }

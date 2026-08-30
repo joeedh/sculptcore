@@ -31,9 +31,8 @@ static UniformBlockDef *makeLineDefaultBlock()
       "UniformDef", "drawMatrix", GPUType::FLOAT32, 16, mat4().identity()));
   fields.append(New<UniformDef<float4>>(
       "UniformDef", "uColor", GPUType::FLOAT32, 4, float4(0.5f, 0.5f, 0.5f, 1.0f)));
-  return New<UniformBlockDef>("UniformBlockDef",
-                              litestl::util::string("DefaultBlock"),
-                              std::move(fields));
+  return New<UniformBlockDef>(
+      "UniformBlockDef", litestl::util::string("DefaultBlock"), std::move(fields));
 }
 
 static UniformBlockDef *makeMeshDefaultBlock()
@@ -45,9 +44,8 @@ static UniformBlockDef *makeMeshDefaultBlock()
       "UniformDef", "normalMatrix", GPUType::FLOAT32, 16, mat4().identity()));
   fields.append(New<UniformDef<float4>>(
       "UniformDef", "uColor", GPUType::FLOAT32, 4, float4(1.0f, 1.0f, 1.0f, 1.0f)));
-  return New<UniformBlockDef>("UniformBlockDef",
-                              litestl::util::string("DefaultBlock"),
-                              std::move(fields));
+  return New<UniformBlockDef>(
+      "UniformBlockDef", litestl::util::string("DefaultBlock"), std::move(fields));
 }
 
 static ShaderDef makeShader(const char *name, UniformBlockDef *block)
@@ -93,7 +91,8 @@ static void test_layout_on_block()
   UniformBlockDef *block = makeMeshDefaultBlock();
   computeStd140Layout(block);
 
-  /* drawMatrix @ 0, normalMatrix @ 64, uColor @ 128 — total 144 → padded to 144 (already 16-aligned). */
+  /* drawMatrix @ 0, normalMatrix @ 64, uColor @ 128 — total 144 → padded to 144 (already
+   * 16-aligned). */
   test_assert(block->fieldOffsets.size() == 3);
   test_assert(block->fieldOffsets[0] == 0);
   test_assert(block->fieldOffsets[1] == 64);

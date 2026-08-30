@@ -36,10 +36,16 @@ int main()
     int v5 = m.make_vertex(float3(2, 1, 0));
 
     auto edge = [&](int a, int b) {
-      if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+      if (m.find_edge(a, b) == ELEM_NONE)
+        m.make_edge(a, b);
     };
-    edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
-    edge(v1, v2); edge(v2, v5); edge(v5, v4);
+    edge(v0, v1);
+    edge(v1, v4);
+    edge(v4, v3);
+    edge(v3, v0);
+    edge(v1, v2);
+    edge(v2, v5);
+    edge(v5, v4);
 
     int fa[4] = {v0, v1, v4, v3};
     int fb[4] = {v1, v2, v5, v4};
@@ -47,7 +53,8 @@ int main()
     int faceB = m.make_face(std::span<int>(fb, 4));
 
     // Paint two poly groups (faceA=0, faceB=1).
-    AttrRef &gref = m.f.attrs.ensure(AttrType::INT, bnd::FACE_GROUP, /*materialize=*/true);
+    AttrRef &gref =
+        m.f.attrs.ensure(AttrType::INT, bnd::FACE_GROUP, /*materialize=*/true);
     AttrData<int> *g = gref.get_data<int>();
     (*g)[faceA] = 0;
     (*g)[faceB] = 1;
@@ -88,8 +95,11 @@ int main()
     test_assert((bnd::vertClass(&m, v1) & bnd::BC_ENDPOINT) != 0);
     test_assert((bnd::vertClass(&m, v3) & bnd::BC_ENDPOINT) == 0);
 
-    fprintf(stderr, "boundary: vclass v0=%d v1=%d v4=%d\n", bnd::vertClass(&m, v0),
-            bnd::vertClass(&m, v1), bnd::vertClass(&m, v4));
+    fprintf(stderr,
+            "boundary: vclass v0=%d v1=%d v4=%d\n",
+            bnd::vertClass(&m, v0),
+            bnd::vertClass(&m, v1),
+            bnd::vertClass(&m, v4));
 
     // --- shortest edge path (seam-tool compute core) ---
     // v0=(0,0) to v5=(2,1): the minimal path is 3 unit edges (no diagonals),
@@ -174,16 +184,23 @@ int main()
     int v4 = m.make_vertex(float3(1, 1, 0));
     int v5 = m.make_vertex(float3(2, 1, 0));
     auto edge = [&](int a, int b) {
-      if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+      if (m.find_edge(a, b) == ELEM_NONE)
+        m.make_edge(a, b);
     };
-    edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
-    edge(v1, v2); edge(v2, v5); edge(v5, v4);
+    edge(v0, v1);
+    edge(v1, v4);
+    edge(v4, v3);
+    edge(v3, v0);
+    edge(v1, v2);
+    edge(v2, v5);
+    edge(v5, v4);
     int fa[4] = {v0, v1, v4, v3};
     int fb[4] = {v1, v2, v5, v4};
     int faceA = m.make_face(std::span<int>(fa, 4));
     int faceB = m.make_face(std::span<int>(fb, 4));
 
-    AttrRef &gref = m.f.attrs.ensure(AttrType::INT, bnd::FACE_GROUP, /*materialize=*/true);
+    AttrRef &gref =
+        m.f.attrs.ensure(AttrType::INT, bnd::FACE_GROUP, /*materialize=*/true);
     AttrData<int> *g = gref.get_data<int>();
     (*g)[faceA] = 0;
     (*g)[faceB] = 1;

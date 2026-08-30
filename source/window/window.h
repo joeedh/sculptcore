@@ -25,7 +25,9 @@ struct WindowOptions {
 struct Window {
   using float2 = math::float2;
 
-  Window(float2 size, WindowOptions opts = {}) : size_(size), opts_(opts) {}
+  Window(float2 size, WindowOptions opts = {}) : size_(size), opts_(opts)
+  {
+  }
 
   /** Create the window. Returns false on failure. */
   bool init();
@@ -37,7 +39,10 @@ struct Window {
   {
     return handle_ ? glfwWindowShouldClose(handle_) : true;
   }
-  void poll() { glfwPollEvents(); }
+  void poll()
+  {
+    glfwPollEvents();
+  }
   void close()
   {
     if (handle_) {
@@ -45,8 +50,14 @@ struct Window {
     }
   }
 
-  GLFWwindow *handle() { return handle_; }
-  float2 size() const { return size_; }
+  GLFWwindow *handle()
+  {
+    return handle_;
+  }
+  float2 size() const
+  {
+    return size_;
+  }
 
   /** Pixel framebuffer size (may differ from window size on hi-DPI). */
   void framebufferSize(int &w, int &h) const

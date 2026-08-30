@@ -28,8 +28,10 @@ namespace binding = litestl::binding;
 namespace types = litestl::binding::types;
 
 class NapiRuntime {
- public:
-  NapiRuntime(napi_env env, binding::BindingManager *mgr) : env_(env), mgr_(mgr) {}
+public:
+  NapiRuntime(napi_env env, binding::BindingManager *mgr) : env_(env), mgr_(mgr)
+  {
+  }
 
   // Installs the runtime's functions (version, bindingCount, structNames,
   // structInfo, construct) onto `exports`.
@@ -39,7 +41,7 @@ class NapiRuntime {
   // For Pointer/Reference, `addr` is the address of the pointer; null -> undefined.
   napi_value getBoundPointer(const binding::BindingBase *binding, void *addr);
 
- private:
+private:
   napi_env env_;
   binding::BindingManager *mgr_;
   std::unordered_map<std::string, napi_ref> classRefs_;
@@ -274,4 +276,4 @@ struct MethodCtx {
   const types::Method *method;
 };
 
-}  // namespace sculptcore::napi
+} // namespace sculptcore::napi

@@ -64,7 +64,8 @@ int main()
     // The brush actually painted some verts.
     int painted = 0;
     for (int i = 0; i < m->v.count; i++) {
-      if ((*col)[i][0] > 0.01f) painted++;
+      if ((*col)[i][0] > 0.01f)
+        painted++;
     }
     fprintf(stderr, "color: painted=%d\n", painted);
     test_assert(painted > 0);
@@ -116,7 +117,8 @@ int main()
 
     int painted = 0;
     for (int i = 0; i < m->v.count; i++) {
-      if ((*mk)[i] > 0.01f) painted++;
+      if ((*mk)[i] > 0.01f)
+        painted++;
     }
     fprintf(stderr, "mask: painted=%d\n", painted);
     test_assert(painted > 0);
@@ -124,7 +126,8 @@ int main()
     scene.meshLog.undo(m, scene.tree);
     int notRestored = 0;
     for (int i = 0; i < m->v.count; i++) {
-      if ((*mk)[i] != 0.0f) notRestored++;
+      if ((*mk)[i] != 0.0f)
+        notRestored++;
     }
     fprintf(stderr, "mask: notRestored=%d\n", notRestored);
     test_assert(notRestored == 0);

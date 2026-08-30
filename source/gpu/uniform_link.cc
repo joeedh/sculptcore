@@ -169,9 +169,8 @@ static UniformBlockDef *findShaderBlock(ShaderDef *shader, const string &name)
 /* Resolve a single instance against a shader. Stamps `set`, fills missing
  * field schema from the shader, computes layout, resizes data, fills
  * defaults. */
-static LinkResult resolveInstance(UniformBlockInstance *inst,
-                                  ShaderDef *shader,
-                                  uint32_t setIndex)
+static LinkResult
+resolveInstance(UniformBlockInstance *inst, ShaderDef *shader, uint32_t setIndex)
 {
   LinkResult r;
   if (!inst || !inst->def) {
@@ -247,11 +246,9 @@ static LinkResult resolveInstance(UniformBlockInstance *inst,
         layerDef->fields.append(clone);
       }
     }
-  }
-  else if (layerDef->fields.size() != shaderDef->fields.size()) {
+  } else if (layerDef->fields.size() != shaderDef->fields.size()) {
     r.ok = false;
-    r.error = string("block '") + layerDef->name +
-              "' field count mismatch: layer has " +
+    r.error = string("block '") + layerDef->name + "' field count mismatch: layer has " +
               std::to_string(layerDef->fields.size()).c_str() + ", shader expects " +
               std::to_string(shaderDef->fields.size()).c_str();
     return r;
@@ -264,8 +261,7 @@ static LinkResult resolveInstance(UniformBlockInstance *inst,
   layerDef->binding = shaderDef->binding;
 
   inst->data.resize(layerDef->packedBytes);
-  uniform_link_detail::fillDefaults(
-      layerDef, inst->data.data(), inst->data.size());
+  uniform_link_detail::fillDefaults(layerDef, inst->data.data(), inst->data.size());
   return r;
 }
 
@@ -338,8 +334,8 @@ LinkResult linkCommand(DrawCommand &cmd)
     }
     if (!covered) {
       r.ok = false;
-      r.error = string("shader '") + cmd.shader->name +
-                "' block '" + sb->name + "' is not provided by any layer";
+      r.error = string("shader '") + cmd.shader->name + "' block '" + sb->name +
+                "' is not provided by any layer";
       return r;
     }
   }
@@ -444,8 +440,7 @@ LinkResult linkPipeline(DrawPipeline &pipe)
           if (keyEq(covered, sh, sb->name)) {
             r.ok = false;
             r.error = string("block '") + sb->name +
-                      "' covered twice (pipeline+batch) for shader '" + sh->name +
-                      "'";
+                      "' covered twice (pipeline+batch) for shader '" + sh->name + "'";
             return r;
           }
           covered.append({sh, sb->name});

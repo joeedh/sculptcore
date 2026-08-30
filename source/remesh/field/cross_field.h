@@ -30,10 +30,10 @@ struct CrossFieldParams {
   bool use_sharp_features = true;  // hard-align to sharp/boundary edges
   float sharp_angle = 0.7853982f;  // dihedral threshold for "sharp" (radians)
   float feature_hysteresis = 0.0f; // Tier 7a: weak-tag band below sharp_angle
-  int feature_min_chain = 0;       // Tier 7b: drop unanchored sharp chains shorter than this
-  float curvature_weight = 1.0f;   // soft constraint scale (× anisotropy)
-  float field_smoothness = 1.0f;   // per-edge smoothness weight (wsmooth)
-  uint32_t seed = 1u;              // determinism for the eigen-fallback seed
+  int feature_min_chain = 0; // Tier 7b: drop unanchored sharp chains shorter than this
+  float curvature_weight = 1.0f;        // soft constraint scale (× anisotropy)
+  float field_smoothness = 1.0f;        // per-edge smoothness weight (wsmooth)
+  uint32_t seed = 1u;                   // determinism for the eigen-fallback seed
   int curvature_smooth_iters = 0;       // Tier 2a: tensor-field Jacobi sweeps (0 = today)
   float curvature_smooth_lambda = 0.5f; // Tier 2a: per-sweep blend 0..1
 };
@@ -53,7 +53,10 @@ CrossFieldStats computeCrossField(mesh::Mesh &m, const CrossFieldParams &params)
  * first face edge projected into the tangent plane, Y = N × X. Deterministic
  * from geometry alone so M4's seamless param recomputes the identical frame the
  * field's θ is expressed in. */
-void faceFrame(mesh::Mesh &m, int f, litestl::math::float3 &X,
-               litestl::math::float3 &Y, litestl::math::float3 &N);
+void faceFrame(mesh::Mesh &m,
+               int f,
+               litestl::math::float3 &X,
+               litestl::math::float3 &Y,
+               litestl::math::float3 &N);
 
 } // namespace sculptcore::remesh

@@ -7,10 +7,9 @@
 #include "remesh/bindings.h"
 #include "spatial/bindings.h"
 #include "subdiv/bindings.h"
-#include "vdm/bindings.h"
 #include "util/vector.h"
+#include "vdm/bindings.h"
 #include "wasm/wasmManager.h"
-
 
 extern "C" void initBindings()
 {

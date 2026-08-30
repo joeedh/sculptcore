@@ -50,10 +50,14 @@ void build_grid(Mesh &m, int N)
       int v3 = vat(i, j + 1);
 
       /* Only create each edge once; reuse via find_edge for shared ones. */
-      if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-      if (m.find_edge(v1, v2) == ELEM_NONE) m.make_edge(v1, v2);
-      if (m.find_edge(v2, v3) == ELEM_NONE) m.make_edge(v2, v3);
-      if (m.find_edge(v3, v0) == ELEM_NONE) m.make_edge(v3, v0);
+      if (m.find_edge(v0, v1) == ELEM_NONE)
+        m.make_edge(v0, v1);
+      if (m.find_edge(v1, v2) == ELEM_NONE)
+        m.make_edge(v1, v2);
+      if (m.find_edge(v2, v3) == ELEM_NONE)
+        m.make_edge(v2, v3);
+      if (m.find_edge(v3, v0) == ELEM_NONE)
+        m.make_edge(v3, v0);
 
       int verts[4] = {v0, v1, v2, v3};
       m.make_face(std::span<int>(verts, 4));
@@ -104,7 +108,10 @@ int main()
         do {
           int v = m.c.v[cc];
           float d = (m.v.co[v] - p).length();
-          if (d < bestD) { bestD = d; best = v; }
+          if (d < bestD) {
+            bestD = d;
+            best = v;
+          }
           cc = m.c.next[cc];
         } while (cc != c0 && cc != ELEM_NONE);
         li = m.l.next[li];
@@ -174,16 +181,15 @@ int main()
     /* Genuine miss: ray pointing away from the grid. */
     {
       CastRayIsect isect;
-      bool ok = tree.castRay(
-          float3(0.5f, 0.5f, 1.0f), float3(0.0f, 0.0f, 1.0f), isect);
+      bool ok = tree.castRay(float3(0.5f, 0.5f, 1.0f), float3(0.0f, 0.0f, 1.0f), isect);
       TASSERT(!ok);
     }
 
     /* Ray outside the grid in XY must miss. */
     {
       CastRayIsect isect;
-      bool ok = tree.castRay(
-          float3(-1.0f, -1.0f, 1.0f), float3(0.0f, 0.0f, -1.0f), isect);
+      bool ok =
+          tree.castRay(float3(-1.0f, -1.0f, 1.0f), float3(0.0f, 0.0f, -1.0f), isect);
       TASSERT(!ok);
     }
 

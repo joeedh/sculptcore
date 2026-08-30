@@ -101,8 +101,8 @@ struct Multires {
    * to the level a step was made on, where propagating would fold the very
    * detail about to be undone into the level below. The debt is left standing,
    * so the next real user switch still settles it. */
-  MultiresSlot *setActiveLevel(int level, bool propagate = true,
-                               bool materializeSlot = true);
+  MultiresSlot *
+  setActiveLevel(int level, bool propagate = true, bool materializeSlot = true);
 
   /** Materialize `level` into the LRU (or refresh its stamp if resident)
    * without touching the active level. */
@@ -446,7 +446,8 @@ struct Multires {
    * layout of its mesh, so a grid id is a leaf face id divided by S². Leaves
    * `out` alone when the slot, its tree or that layout is missing. Public for
    * the brush module's cage-dab visit set (brush/cage_smooth.h). */
-  void dabGrids(int level, const float *dabs, int dabCount, litestl::util::Vector<int> &out);
+  void
+  dabGrids(int level, const float *dabs, int dabCount, litestl::util::Vector<int> &out);
 
   /** #gridFaceInts for `material_index`. Callers treat a false return as every
    * face being material 0, which is what both draw paths default to. */

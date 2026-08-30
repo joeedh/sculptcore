@@ -16,7 +16,7 @@ struct MeshLog;
 namespace sculptcore::spatial {
 struct SpatialNode;
 struct SpatialTree;
-}
+} // namespace sculptcore::spatial
 
 namespace sculptcore::brush {
 
@@ -127,16 +127,16 @@ enum GpuBrushInfoWhich : int32_t {
  * already in GPU layout per compute_layout.h. Mirrored by hand in
  * typescript/api/wasm.ts (GpuBrushData) — keep the two in sync. */
 enum GpuBrushDataWhich : int32_t {
-  GPUBRUSH_DATA_CO = 0,   // f32 xyz per element (begin snapshot)
-  GPUBRUSH_DATA_NO = 1,   // f32 xyz per element
-  GPUBRUSH_DATA_MASK = 2, // f32 per element
-  GPUBRUSH_DATA_NBR_META = 3,  // u32 pairs per vert (binding 12)
-  GPUBRUSH_DATA_NBR_VERTS = 4, // u32 flat (binding 13)
-  GPUBRUSH_DATA_TRI_VERTS = 5,     // u32, 3 per tri (builds topo lazily)
-  GPUBRUSH_DATA_VERT_TRI_META = 6, // u32 pairs per vert
-  GPUBRUSH_DATA_VERT_TRI_LIST = 7, // u32 flat incident-tri CSR
-  GPUBRUSH_DATA_UVERTS = 8,         // u32 (binding 3), last dab
-  GPUBRUSH_DATA_NODE_META = 9,      // u32 pairs (binding 4), last dab
+  GPUBRUSH_DATA_CO = 0,              // f32 xyz per element (begin snapshot)
+  GPUBRUSH_DATA_NO = 1,              // f32 xyz per element
+  GPUBRUSH_DATA_MASK = 2,            // f32 per element
+  GPUBRUSH_DATA_NBR_META = 3,        // u32 pairs per vert (binding 12)
+  GPUBRUSH_DATA_NBR_VERTS = 4,       // u32 flat (binding 13)
+  GPUBRUSH_DATA_TRI_VERTS = 5,       // u32, 3 per tri (builds topo lazily)
+  GPUBRUSH_DATA_VERT_TRI_META = 6,   // u32 pairs per vert
+  GPUBRUSH_DATA_VERT_TRI_LIST = 7,   // u32 flat incident-tri CSR
+  GPUBRUSH_DATA_UVERTS = 8,          // u32 (binding 3), last dab
+  GPUBRUSH_DATA_NODE_META = 9,       // u32 pairs (binding 4), last dab
   GPUBRUSH_DATA_BRUSH_UNIFORMS = 10, // 96 B (binding 5), last dab
   GPUBRUSH_DATA_CTX_UNIFORMS = 11,   // 224 B (binding 6), last dab
   GPUBRUSH_DATA_FALLOFF_LUT = 12,    // 256 f32 (binding 7)
@@ -160,17 +160,23 @@ enum GpuBrushDataWhich : int32_t {
  * Handles are opaque; sizes/pointers cross as bytes the caller uploads
  * verbatim. See gpu_brush_c_api.cc for per-function contracts. */
 extern "C" {
-void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog,
-                           int tool);
+void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog, int tool);
 void GpuBrush_free(void *session);
 const char *GpuBrush_kernelName(void *session);
 int GpuBrush_info(void *session, int which);
-int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
-                        float ny, float nz, float radius, float filterRadius,
-                        int mirrorIdx, int nonaccum);
+int GpuBrush_marshalDab(void *session,
+                        float cx,
+                        float cy,
+                        float cz,
+                        float nx,
+                        float ny,
+                        float nz,
+                        float radius,
+                        float filterRadius,
+                        int mirrorIdx,
+                        int nonaccum);
 int GpuBrush_dataSize(void *session, int which);
 const void *GpuBrush_dataPtr(void *session, int which);
 void GpuBrush_applyCo(void *session, const float *co, int elemCount);
-void GpuBrush_endStroke(void *session, const float *co, const float *no,
-                        int elemCount);
+void GpuBrush_endStroke(void *session, const float *co, const float *no, int elemCount);
 }

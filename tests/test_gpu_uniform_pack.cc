@@ -102,7 +102,8 @@ static void runTests()
     brush.planeoff = -0.2f;
     brush.planeSide = -1.0f;
     for (SculptBrushes tool :
-         {SculptBrushes::CLAY, SculptBrushes::SCRAPE, SculptBrushes::FILL}) {
+         {SculptBrushes::CLAY, SculptBrushes::SCRAPE, SculptBrushes::FILL})
+    {
       pack(brush, tool, bu);
       test_assert(readF(bu, 72) == -0.2f);
       test_assert(readF(bu, 76) == -1.0f);

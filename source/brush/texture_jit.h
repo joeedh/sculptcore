@@ -11,4 +11,4 @@ namespace sculptcore::brush {
  * registry when this is false; documentation/plans/texture-scripts.md (T3). */
 bool textureScriptCpuAvailable();
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

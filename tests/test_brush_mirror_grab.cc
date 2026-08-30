@@ -119,8 +119,14 @@ int main()
   for (int n : {1, 3, 6}) {
     SideMax s = symGrab(n);
     const float ratio = s.pos > 1e-6f ? s.neg / s.pos : 0.0f;
-    fprintf(stderr, "ndabs=%d  +X(primary)=%.5f  -X(mirror)=%.5f  ratio=%.3f (ideal 1.0, bug ~%.2f)\n",
-            n, s.pos, s.neg, ratio, (n + 1) * 0.5f);
+    fprintf(stderr,
+            "ndabs=%d  +X(primary)=%.5f  -X(mirror)=%.5f  ratio=%.3f (ideal 1.0, bug "
+            "~%.2f)\n",
+            n,
+            s.pos,
+            s.neg,
+            ratio,
+            (n + 1) * 0.5f);
     test_assert(s.pos > 1e-4f); // the primary actually pulled
     test_assert(s.neg > 1e-4f); // the mirror actually pulled
     // Parity: a symmetric stroke must pull both halves equally (within 15%).

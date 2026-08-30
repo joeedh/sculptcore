@@ -206,8 +206,8 @@ splitEdge(Mesh &m, int edge, EdgeSplitResult *out = nullptr, MeshCallbacks *cb =
 
   for (FaceSnap &fs : faceSnaps) {
     int a = fs.a, b = fs.b, opp = fs.opp;
-    int e_a_vm = (a == v0) ? edge : e_new;  /* child edge a->vm */
-    int e_vm_b = (b == v0) ? edge : e_new;  /* child edge vm->b */
+    int e_a_vm = (a == v0) ? edge : e_new; /* child edge a->vm */
+    int e_vm_b = (b == v0) ? edge : e_new; /* child edge vm->b */
     int spoke = m.make_edge(vm, opp, cb, edge);
 
     /* T0 = (a, vm, opp) reuses the incident face id. */

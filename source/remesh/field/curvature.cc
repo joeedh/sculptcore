@@ -216,8 +216,8 @@ void computeCurvature(Mesh &m, const CurvatureParams &params)
         }
       }
       Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(M);
-      Eigen::Vector3d ev = es.eigenvalues();    // ascending
-      Eigen::Matrix3d V = es.eigenvectors();    // columns
+      Eigen::Vector3d ev = es.eigenvalues(); // ascending
+      Eigen::Matrix3d V = es.eigenvectors(); // columns
 
       // The eigenvector nearest the surface normal is the (discarded) normal
       // direction; the other two span the tangent plane.

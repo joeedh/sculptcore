@@ -35,7 +35,7 @@
 namespace sculptcore::mesh {
 struct Mesh;
 template <typename T> struct AttrData;
-}
+} // namespace sculptcore::mesh
 
 namespace sculptcore::vdm {
 using litestl::math::float3;

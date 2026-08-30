@@ -20,7 +20,7 @@ DrawBatch *MeshBatchManager::createMeshBatch(sculptcore::gpu::GPUManager *mgr)
     return nullptr;
   }
 
-//#define TRI_DRAW_LINES
+// #define TRI_DRAW_LINES
 #ifdef TRI_DRAW_LINES
   int totalVerts = tris.size() * 6;
 #else
@@ -76,7 +76,7 @@ DrawBatch *MeshBatchManager::createMeshBatch(sculptcore::gpu::GPUManager *mgr)
     float3 no2 = no[tri.v[1]];
     float3 no3 = no[tri.v[2]];
 
-    no1 = no2 = no3 = triNo;// m->f.no[tri.f];
+    no1 = no2 = no3 = triNo; // m->f.no[tri.f];
     // printf("%d %d %d\n", tri.v[0], tri.v[1], tri.v[2]);
 
     aPos[index] = co1;

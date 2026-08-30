@@ -49,7 +49,8 @@ static bool topologyOk(mesh::Mesh *m)
  * owned leaf triangle contributes its three corner positions. This is what the
  * WASM repro reads back from gpu.buffers["position"] — built here straight from
  * the spatial tris so it bypasses GPU upload and isolates mesh/tri currency. */
-static void collectCorners(spatial::SpatialTree *tree, mesh::Mesh *m,
+static void collectCorners(spatial::SpatialTree *tree,
+                           mesh::Mesh *m,
                            litestl::util::Vector<float3> &out)
 {
   out.clear();
@@ -68,8 +69,10 @@ static void collectCorners(spatial::SpatialTree *tree, mesh::Mesh *m,
     }
   }
   std::sort(out.begin(), out.end(), [](const float3 &a, const float3 &b) {
-    if (a[0] != b[0]) return a[0] < b[0];
-    if (a[1] != b[1]) return a[1] < b[1];
+    if (a[0] != b[0])
+      return a[0] < b[0];
+    if (a[1] != b[1])
+      return a[1] < b[1];
     return a[2] < b[2];
   });
 }
@@ -93,8 +96,10 @@ static void collectGpuPos(spatial::SpatialTree *tree, litestl::util::Vector<floa
     }
   }
   std::sort(out.begin(), out.end(), [](const float3 &a, const float3 &b) {
-    if (a[0] != b[0]) return a[0] < b[0];
-    if (a[1] != b[1]) return a[1] < b[1];
+    if (a[0] != b[0])
+      return a[0] < b[0];
+    if (a[1] != b[1])
+      return a[1] < b[1];
     return a[2] < b[2];
   });
 }
@@ -144,15 +149,23 @@ int main()
   for (int d = 0; d < NDABS; d++) {
     float t = float(d) / float(NDABS - 1);
     float3 origin(-0.2f + 0.4f * t, -0.2f + 0.4f * t, 0.25f);
-    totalTopo += exec.applyDab(scene.currentTool, origin, normal, radius,
-                               &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(d));
+    totalTopo += exec.applyDab(scene.currentTool,
+                               origin,
+                               normal,
+                               radius,
+                               &scene.dyntopoParams,
+                               scene.dyntopoSeed + uint32_t(d));
   }
   exec.endDynTopoStroke();
   exec.endStep();
 
   int vAfter = m->v.count, fAfter = m->f.count;
   printf("  stroke: v %d->%d, f %d->%d (topo ops=%d)\n",
-         vBefore, vAfter, fBefore, fAfter, totalTopo);
+         vBefore,
+         vAfter,
+         fBefore,
+         fAfter,
+         totalTopo);
   test_assert(totalTopo > 0);    /* dyntopo actually did work */
   test_assert(vAfter < vBefore); /* net collapse reduced the vert count */
   test_assert(topologyOk(m));    /* heavy collapse stayed manifold */
@@ -207,7 +220,10 @@ int main()
   scene.meshLog.undo(m, scene.tree);
   scene.tree->update(&scene.gpu);
   printf("  after undo: v=%d (want %d), f=%d (want %d)\n",
-         m->v.count, vBefore, m->f.count, fBefore);
+         m->v.count,
+         vBefore,
+         m->f.count,
+         fBefore);
   test_assert(m->v.count == vBefore);
   test_assert(m->f.count == fBefore);
   test_assert(topologyOk(m));
@@ -220,7 +236,10 @@ int main()
   scene.meshLog.redo(m, scene.tree);
   scene.tree->update(&scene.gpu);
   printf("  after redo: v=%d (want %d), f=%d (want %d)\n",
-         m->v.count, vAfter, m->f.count, fAfter);
+         m->v.count,
+         vAfter,
+         m->f.count,
+         fAfter);
   test_assert(m->v.count == vAfter);
   test_assert(m->f.count == fAfter);
   test_assert(topologyOk(m));
@@ -239,8 +258,10 @@ int main()
     }
   }
   if (badLive || badPos) {
-    fprintf(stderr, "  redo positions: %d verts live-mismatch, %d verts moved\n",
-            badLive, badPos);
+    fprintf(stderr,
+            "  redo positions: %d verts live-mismatch, %d verts moved\n",
+            badLive,
+            badPos);
   }
   test_assert(badLive == 0);
   test_assert(badPos == 0);
@@ -262,7 +283,10 @@ int main()
     cornerMaxW = std::max(cornerMaxW, d);
   }
   printf("  GPU corners: forward=%d redo=%d, diff=%d maxw=%.5f\n",
-         (int)cornersForward.size(), (int)cornersRedo.size(), cornerDiff, cornerMaxW);
+         (int)cornersForward.size(),
+         (int)cornersRedo.size(),
+         cornerDiff,
+         cornerMaxW);
   test_assert(cornersForward.size() == cornersRedo.size());
   test_assert(cornerDiff == 0);
 
@@ -285,7 +309,10 @@ int main()
     gpuMaxW = std::max(gpuMaxW, d);
   }
   printf("  GPU upload pos: forward=%d redo=%d, diff=%d maxw=%.5f\n",
-         (int)gpuForward.size(), (int)gpuRedo.size(), gpuDiff, gpuMaxW);
+         (int)gpuForward.size(),
+         (int)gpuRedo.size(),
+         gpuDiff,
+         gpuMaxW);
   test_assert(gpuForward.size() == gpuRedo.size());
   test_assert(gpuDiff == 0);
 
@@ -310,7 +337,9 @@ int main()
     }
   }
   printf("  normal err vs global: forward max=%.5f, redo max=%.5f, redo-worse verts=%d\n",
-         maxForwardErr, maxRedoErr, badNo);
+         maxForwardErr,
+         maxRedoErr,
+         badNo);
   /* Redo must be no less accurate than forward (stale-normal regression guard). */
   test_assert(maxRedoErr <= maxForwardErr + 1e-3f);
   test_assert(badNo == 0);

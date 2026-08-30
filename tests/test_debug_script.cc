@@ -16,9 +16,8 @@ int main()
   /* Headless script that exercises mesh + assert verbs only — no GL. */
   {
     Scene scene(64, 64, /*headless=*/true);
-    const char *src =
-        "make_cube subdivs=4 size=1.0\n"
-        "assert_aabb min=-0.5,-0.5,-0.5 max=0.5,0.5,0.5 eps=1e-5\n";
+    const char *src = "make_cube subdivs=4 size=1.0\n"
+                      "assert_aabb min=-0.5,-0.5,-0.5 max=0.5,0.5,0.5 eps=1e-5\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -33,14 +32,13 @@ int main()
    * brush. Triangulated subdivs=6 cube starts at 152 verts / 300 tris. */
   {
     Scene scene(64, 64, /*headless=*/true);
-    const char *src =
-        "make_cube subdivs=6 size=0.5\n"
-        "triangulate\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush radius=0.2 strength=0.0\n"
-        "dyntopo enabled=1 detail=0.04 mode=subdivide\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n"
-        "assert_manifold\n";
+    const char *src = "make_cube subdivs=6 size=0.5\n"
+                      "triangulate\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush radius=0.2 strength=0.0\n"
+                      "dyntopo enabled=1 detail=0.04 mode=subdivide\n"
+                      "stroke origin=0,0,0.25 normal=0,0,1\n"
+                      "assert_manifold\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -56,17 +54,16 @@ int main()
    * The deform and the topology edit are separate steps, hence two undos. */
   {
     Scene scene(64, 64, /*headless=*/true);
-    const char *src =
-        "make_cube subdivs=6 size=0.5\n"
-        "triangulate\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush radius=0.2 strength=0.5\n"
-        "dyntopo enabled=1 detail=0.04 mode=subdivide\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n"
-        "assert_manifold\n"
-        "undo\n"
-        "undo\n"
-        "assert_manifold\n";
+    const char *src = "make_cube subdivs=6 size=0.5\n"
+                      "triangulate\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush radius=0.2 strength=0.5\n"
+                      "dyntopo enabled=1 detail=0.04 mode=subdivide\n"
+                      "stroke origin=0,0,0.25 normal=0,0,1\n"
+                      "assert_manifold\n"
+                      "undo\n"
+                      "undo\n"
+                      "assert_manifold\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -80,9 +77,8 @@ int main()
   /* Parser: unknown verb → ok=false with a line number. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=2\n"
-        "this_is_not_a_verb foo=1\n";
+    const char *src = "make_cube subdivs=2\n"
+                      "this_is_not_a_verb foo=1\n";
     auto r = script::run(scene, src, ".");
     test_assert(!r.ok);
     test_assert(r.line_no == 2);
@@ -91,11 +87,10 @@ int main()
   /* Parser: comments and blank lines must be skipped without error. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "# a comment\n"
-        "\n"
-        "make_cube subdivs=2\n"
-        "# trailing comment without newline";
+    const char *src = "# a comment\n"
+                      "\n"
+                      "make_cube subdivs=2\n"
+                      "# trailing comment without newline";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
   }
@@ -103,9 +98,8 @@ int main()
   /* assert_verts: should detect mismatches. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=2\n"
-        "assert_verts n=9999999\n";
+    const char *src = "make_cube subdivs=2\n"
+                      "assert_verts n=9999999\n";
     auto r = script::run(scene, src, ".");
     test_assert(!r.ok);
     test_assert(r.line_no == 2);
@@ -147,12 +141,11 @@ int main()
    * that v.no and v.mask resolve correctly through the iterator. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=inflate\n"
-        "set_brush radius=0.25 strength=0.5\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    const char *src = "make_cube subdivs=12 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=inflate\n"
+                      "set_brush radius=0.25 strength=0.5\n"
+                      "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -165,7 +158,8 @@ int main()
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
         float z = scene.mesh->v.co[i][2];
-        if (z > maxZ) maxZ = z;
+        if (z > maxZ)
+          maxZ = z;
       }
     }
     test_assert(maxZ > 0.25f + 5e-3f);
@@ -177,12 +171,11 @@ int main()
    * and that ctx.surfaceNo/Pos resolved correctly. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=clay\n"
-        "set_brush radius=0.5 strength=0.5\n"
-        "stroke origin=0,0,0 normal=0,0,1\n";
+    const char *src = "make_cube subdivs=12 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=clay\n"
+                      "set_brush radius=0.5 strength=0.5\n"
+                      "stroke origin=0,0,0 normal=0,0,1\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -196,9 +189,13 @@ int main()
         float x = scene.mesh->v.co[i][0];
         float y = scene.mesh->v.co[i][1];
         float z = scene.mesh->v.co[i][2];
-        if (z > -0.20f) continue;
+        if (z > -0.20f)
+          continue;
         float d = x * x + y * y;
-        if (d < bestD) { bestD = d; bestZ = z; }
+        if (d < bestD) {
+          bestD = d;
+          bestZ = z;
+        }
       }
     }
     test_assert(bestZ > -0.25f + 1e-3f);
@@ -211,12 +208,11 @@ int main()
    * the conditional guard wired correctly. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=pinch\n"
-        "set_brush radius=0.25 strength=0.1\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    const char *src = "make_cube subdivs=12 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=pinch\n"
+                      "set_brush radius=0.25 strength=0.1\n"
+                      "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -227,10 +223,12 @@ int main()
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
         float z = scene.mesh->v.co[i][2];
-        if (z < 0.245f) continue;
+        if (z < 0.245f)
+          continue;
         float r2 = scene.mesh->v.co[i][0] * scene.mesh->v.co[i][0] +
                    scene.mesh->v.co[i][1] * scene.mesh->v.co[i][1];
-        if (r2 < 0.245f * 0.245f * 0.5f) pulled++;
+        if (r2 < 0.245f * 0.245f * 0.5f)
+          pulled++;
       }
     }
     test_assert(pulled > 0);
@@ -263,8 +261,10 @@ int main()
       if (scene.mesh) {
         for (int i = 0; i < scene.mesh->v.count; i++) {
           float z = scene.mesh->v.co[i][2];
-          if (z < 0.245f) continue;
-          if (z > r_maxZ) r_maxZ = z;
+          if (z < 0.245f)
+            continue;
+          if (z > r_maxZ)
+            r_maxZ = z;
           float x = scene.mesh->v.co[i][0], y = scene.mesh->v.co[i][1];
           r_radSum += std::sqrt(double(x * x + y * y));
         }
@@ -287,12 +287,11 @@ int main()
    * proves the lvalue-vertex-field write path through emit_cpp. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=mask\n"
-        "set_brush radius=0.25 strength=0.5\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    const char *src = "make_cube subdivs=12 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=mask\n"
+                      "set_brush radius=0.25 strength=0.5\n"
+                      "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -302,7 +301,8 @@ int main()
     if (scene.mesh && scene.tree) {
       auto &mk = scene.tree->treeMesh.v.mask;
       for (int i = 0; i < scene.mesh->v.count; i++) {
-        if (mk[i] > maxMask) maxMask = mk[i];
+        if (mk[i] > maxMask)
+          maxMask = mk[i];
       }
     }
     test_assert(maxMask > 1e-4f);
@@ -315,12 +315,11 @@ int main()
    * inline neighbor-view struct exposes nb.co correctly. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=16 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=inflate\n"
-        "set_brush radius=0.05 strength=4.0\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    const char *src = "make_cube subdivs=16 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=inflate\n"
+                      "set_brush radius=0.05 strength=4.0\n"
+                      "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -330,19 +329,19 @@ int main()
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
         float z = scene.mesh->v.co[i][2];
-        if (z > spikeZ) spikeZ = z;
+        if (z > spikeZ)
+          spikeZ = z;
       }
     }
     /* The smooth kernel lerps each vert toward its neighbor average by
      * s = strength*falloff, so keep strength <= 1 (a larger factor
      * overshoots the mean and oscillates instead of settling) and repeat
      * so the spike measurably redistributes. */
-    const char *src2 =
-        "set_brush_tool tool=smooth\n"
-        "set_brush radius=0.15 strength=1.0\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    const char *src2 = "set_brush_tool tool=smooth\n"
+                       "set_brush radius=0.15 strength=1.0\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r2 = script::run(scene, src2, ".");
     test_assert(r2.ok);
     if (!r2.ok) {
@@ -352,7 +351,8 @@ int main()
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
         float z = scene.mesh->v.co[i][2];
-        if (z > smoothedZ) smoothedZ = z;
+        if (z > smoothedZ)
+          smoothedZ = z;
       }
     }
     /* Smoothing must shrink the spike by a meaningful amount. */
@@ -373,11 +373,10 @@ int main()
     float zSmoothstep = 0.0f, zGaussian = 0.0f;
     for (int pass = 0; pass < 2; pass++) {
       Scene scene(64, 64, true);
-      const char *src1 =
-          "make_cube subdivs=12 size=0.5\n"
-          "build_spatial leaf_limit=256 depth_limit=8\n"
-          "set_brush_tool tool=inflate\n"
-          "set_brush radius=0.25 strength=0.5\n";
+      const char *src1 = "make_cube subdivs=12 size=0.5\n"
+                         "build_spatial leaf_limit=256 depth_limit=8\n"
+                         "set_brush_tool tool=inflate\n"
+                         "set_brush radius=0.25 strength=0.5\n";
       auto r1 = script::run(scene, src1, ".");
       test_assert(r1.ok);
       if (pass == 1) {
@@ -390,14 +389,17 @@ int main()
       if (scene.mesh) {
         for (int i = 0; i < scene.mesh->v.count; i++) {
           float z = scene.mesh->v.co[i][2];
-          if (z > maxZ) maxZ = z;
+          if (z > maxZ)
+            maxZ = z;
         }
       }
-      if (pass == 0) zSmoothstep = maxZ;
-      else zGaussian = maxZ;
+      if (pass == 0)
+        zSmoothstep = maxZ;
+      else
+        zGaussian = maxZ;
     }
     test_assert(zSmoothstep > 0.25f + 5e-3f);
-    test_assert(zGaussian   > 0.25f + 5e-3f);
+    test_assert(zGaussian > 0.25f + 5e-3f);
     /* Gaussian falls off faster than smoothstep across the radius, so
      * the total volume of displaced verts is smaller. The peak vert
      * (closest to brush center, t≈1) sees ~1 from both curves so the
@@ -409,7 +411,8 @@ int main()
      * actually changed behavior rather than no-oping). */
     test_assert(zGaussian <= zSmoothstep + 1e-4f);
     float diff = zSmoothstep - zGaussian;
-    if (diff < 0) diff = -diff;
+    if (diff < 0)
+      diff = -diff;
     test_assert(diff > 1e-5f); /* gaussian must measurably differ */
   }
 
@@ -443,25 +446,29 @@ int main()
       if (scene.mesh) {
         for (int i = 0; i < scene.mesh->v.count; i++) {
           float z = scene.mesh->v.co[i][2];
-          if (z < 0.245f) continue;
+          if (z < 0.245f)
+            continue;
           float x = scene.mesh->v.co[i][0], y = scene.mesh->v.co[i][1];
           float d = x * x + y * y;
-          if (d < bestD) { bestD = d; centerZ = z; }
+          if (d < bestD) {
+            bestD = d;
+            centerZ = z;
+          }
         }
       }
       return centerZ;
     };
     float zSmoothstep = runInflate("");
     float zCurveDefault = runInflate("set_falloff kind=curve\n");
-    float zCurveInverse = runInflate(
-        "set_falloff_curve preset=inverse\n"
-        "set_falloff kind=curve\n");
+    float zCurveInverse = runInflate("set_falloff_curve preset=inverse\n"
+                                     "set_falloff kind=curve\n");
     /* (a) Default curve ~= smoothstep. The LUT has 255 segments so
      * linear-interp samples differ from the analytic curve by at most
      * the curvature times (1/255)^2; a 2e-3 z-tolerance is well above
      * that and well below the inverse delta. */
     float diffDefault = zSmoothstep - zCurveDefault;
-    if (diffDefault < 0) diffDefault = -diffDefault;
+    if (diffDefault < 0)
+      diffDefault = -diffDefault;
     test_assert(diffDefault < 2e-3f);
     /* (b) Inverse-LUT brush must lift the center *less* than the
      * smoothstep brush. Difference well above noise threshold. */
@@ -503,7 +510,8 @@ int main()
     test_assert(zCube > zSpherical + 1e-3);
     /* linear band differs measurably from the spherical disc */
     double dl = zLinear - zSpherical;
-    if (dl < 0) dl = -dl;
+    if (dl < 0)
+      dl = -dl;
     test_assert(dl > 1e-3);
   }
 
@@ -514,20 +522,19 @@ int main()
    * both the emitter and the script verbs. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=pose\n"
-        "set_brush radius=0.6 strength=1.0\n"
-        "set_pose_cage_rest idx=0 pos=0.5,0,0\n"
-        "set_pose_cage_rest idx=1 pos=-0.5,0,0\n"
-        "set_pose_cage_rest idx=2 pos=0,0.5,0\n"
-        "set_pose_cage_rest idx=3 pos=0,0,0.5\n"
-        "set_pose_cage_now  idx=0 pos=0.5,0,0\n"
-        "set_pose_cage_now  idx=1 pos=-0.5,0,0\n"
-        "set_pose_cage_now  idx=2 pos=0,0.5,0\n"
-        "set_pose_cage_now  idx=3 pos=0,0,0.7\n"
-        "stroke origin=0,0,0.5 normal=0,0,1\n";
+    const char *src = "make_cube subdivs=12 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=pose\n"
+                      "set_brush radius=0.6 strength=1.0\n"
+                      "set_pose_cage_rest idx=0 pos=0.5,0,0\n"
+                      "set_pose_cage_rest idx=1 pos=-0.5,0,0\n"
+                      "set_pose_cage_rest idx=2 pos=0,0.5,0\n"
+                      "set_pose_cage_rest idx=3 pos=0,0,0.5\n"
+                      "set_pose_cage_now  idx=0 pos=0.5,0,0\n"
+                      "set_pose_cage_now  idx=1 pos=-0.5,0,0\n"
+                      "set_pose_cage_now  idx=2 pos=0,0.5,0\n"
+                      "set_pose_cage_now  idx=3 pos=0,0,0.7\n"
+                      "stroke origin=0,0,0.5 normal=0,0,1\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -540,11 +547,14 @@ int main()
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
         float z = scene.mesh->v.co[i][2];
-        if (z > maxZ) maxZ = z;
+        if (z > maxZ)
+          maxZ = z;
         if (z < -0.20f) {
           float d = z + 0.25f;
-          if (d < 0) d = -d;
-          if (d > worstBottom) worstBottom = d;
+          if (d < 0)
+            d = -d;
+          if (d > worstBottom)
+            worstBottom = d;
         }
       }
     }
@@ -562,14 +572,13 @@ int main()
    * testable here because the stroke verb leaves renderMatrix unset. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=draw\n"
-        "set_brush radius=0.25 strength=10.0\n"
-        "set_texture pattern=rampx width=64 height=64\n"
-        "set_coord_space space=global\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    const char *src = "make_cube subdivs=12 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=draw\n"
+                      "set_brush radius=0.25 strength=10.0\n"
+                      "set_texture pattern=rampx width=64 height=64\n"
+                      "set_coord_space space=global\n"
+                      "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
@@ -580,12 +589,15 @@ int main()
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
         float z = scene.mesh->v.co[i][2];
-        if (z < 0.24f) continue; /* +Z face only */
+        if (z < 0.24f)
+          continue; /* +Z face only */
         float x = scene.mesh->v.co[i][0];
         if (x > 0.05f) {
-          if (z > maxZRight) maxZRight = z;
+          if (z > maxZRight)
+            maxZRight = z;
         } else if (x < -0.05f) {
-          if (z > maxZLeft) maxZLeft = z;
+          if (z > maxZLeft)
+            maxZLeft = z;
         }
       }
     }
@@ -597,29 +609,32 @@ int main()
     /* Same stroke with the texture cleared lifts both halves equally,
      * proving the asymmetry above came from the texture, not geometry. */
     Scene scene2(64, 64, true);
-    const char *src2 =
-        "make_cube subdivs=12 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=draw\n"
-        "set_brush radius=0.25 strength=10.0\n"
-        "stroke origin=0,0,0.25 normal=0,0,1\n";
+    const char *src2 = "make_cube subdivs=12 size=0.5\n"
+                       "build_spatial leaf_limit=256 depth_limit=8\n"
+                       "set_brush_tool tool=draw\n"
+                       "set_brush radius=0.25 strength=10.0\n"
+                       "stroke origin=0,0,0.25 normal=0,0,1\n";
     auto r2 = script::run(scene2, src2, ".");
     test_assert(r2.ok);
     float maxZRight2 = -1e9f, maxZLeft2 = -1e9f;
     if (scene2.mesh) {
       for (int i = 0; i < scene2.mesh->v.count; i++) {
         float z = scene2.mesh->v.co[i][2];
-        if (z < 0.24f) continue;
+        if (z < 0.24f)
+          continue;
         float x = scene2.mesh->v.co[i][0];
         if (x > 0.05f) {
-          if (z > maxZRight2) maxZRight2 = z;
+          if (z > maxZRight2)
+            maxZRight2 = z;
         } else if (x < -0.05f) {
-          if (z > maxZLeft2) maxZLeft2 = z;
+          if (z > maxZLeft2)
+            maxZLeft2 = z;
         }
       }
     }
     float sym = maxZRight2 - maxZLeft2;
-    if (sym < 0) sym = -sym;
+    if (sym < 0)
+      sym = -sym;
     test_assert(maxZLeft2 > 0.25f + 1e-3f); /* untextured: -x half rises too */
     test_assert(sym < 5e-3f);               /* and roughly symmetric */
   }
@@ -633,31 +648,32 @@ int main()
    * Brush::strokePath / sampleStrokeUV + the executor push/reset wiring. */
   {
     Scene scene(64, 64, true);
-    const char *src =
-        "make_cube subdivs=16 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=draw\n"
-        "set_brush radius=0.15 strength=8.0\n"
-        "set_texture pattern=rampx width=64 height=64\n"
-        "set_coord_space space=stroke_curved\n"
-        "stroke_path p1=0,-0.2,0.25 p2=0,0.2,0.25 steps=8\n";
+    const char *src = "make_cube subdivs=16 size=0.5\n"
+                      "build_spatial leaf_limit=256 depth_limit=8\n"
+                      "set_brush_tool tool=draw\n"
+                      "set_brush radius=0.15 strength=8.0\n"
+                      "set_texture pattern=rampx width=64 height=64\n"
+                      "set_coord_space space=stroke_curved\n"
+                      "stroke_path p1=0,-0.2,0.25 p2=0,0.2,0.25 steps=8\n";
     auto r = script::run(scene, src, ".");
     test_assert(r.ok);
     if (!r.ok) {
-      fprintf(stderr, "  stroke_curved script line %d: %s\n", r.line_no,
-              r.error.c_str());
+      fprintf(stderr, "  stroke_curved script line %d: %s\n", r.line_no, r.error.c_str());
     }
     /* Peak rise at the far (+Y) end vs the near (-Y) end of the stroke. */
     float maxZFar = -1e9f, maxZNear = -1e9f;
     if (scene.mesh) {
       for (int i = 0; i < scene.mesh->v.count; i++) {
         float z = scene.mesh->v.co[i][2];
-        if (z < 0.24f) continue; /* +Z face only */
+        if (z < 0.24f)
+          continue; /* +Z face only */
         float y = scene.mesh->v.co[i][1];
         if (y > 0.1f) {
-          if (z > maxZFar) maxZFar = z;
+          if (z > maxZFar)
+            maxZFar = z;
         } else if (y < -0.1f) {
-          if (z > maxZNear) maxZNear = z;
+          if (z > maxZNear)
+            maxZNear = z;
         }
       }
     }
@@ -672,26 +688,28 @@ int main()
      * STROKE_CURVED behavior above (the only mode whose UV tracks distance
      * *along* the stroke). */
     Scene scene2(64, 64, true);
-    const char *src2 =
-        "make_cube subdivs=16 size=0.5\n"
-        "build_spatial leaf_limit=256 depth_limit=8\n"
-        "set_brush_tool tool=draw\n"
-        "set_brush radius=0.15 strength=8.0\n"
-        "set_texture pattern=rampx width=64 height=64\n"
-        "set_coord_space space=global\n"
-        "stroke_path p1=0,-0.2,0.25 p2=0,0.2,0.25 steps=8\n";
+    const char *src2 = "make_cube subdivs=16 size=0.5\n"
+                       "build_spatial leaf_limit=256 depth_limit=8\n"
+                       "set_brush_tool tool=draw\n"
+                       "set_brush radius=0.15 strength=8.0\n"
+                       "set_texture pattern=rampx width=64 height=64\n"
+                       "set_coord_space space=global\n"
+                       "stroke_path p1=0,-0.2,0.25 p2=0,0.2,0.25 steps=8\n";
     auto r2 = script::run(scene2, src2, ".");
     test_assert(r2.ok);
     float maxZFarG = -1e9f, maxZNearG = -1e9f;
     if (scene2.mesh) {
       for (int i = 0; i < scene2.mesh->v.count; i++) {
         float z = scene2.mesh->v.co[i][2];
-        if (z < 0.24f) continue;
+        if (z < 0.24f)
+          continue;
         float y = scene2.mesh->v.co[i][1];
         if (y > 0.1f) {
-          if (z > maxZFarG) maxZFarG = z;
+          if (z > maxZFarG)
+            maxZFarG = z;
         } else if (y < -0.1f) {
-          if (z > maxZNearG) maxZNearG = z;
+          if (z > maxZNearG)
+            maxZNearG = z;
         }
       }
     }

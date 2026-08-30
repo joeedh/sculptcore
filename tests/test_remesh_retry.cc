@@ -28,13 +28,13 @@ test_init;
 
 // The shared test_assert macro has a known retval=0-on-failure bug; use a local
 // one that flips retval (mirrors test_remesh_curvature.cc).
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -50,9 +50,16 @@ void dumpTrail(const char *tag, const remesh::RemeshRunReport &rep)
     fprintf(stderr,
             "[%s] attempt %d: %s ok=%d folds=%d sing=%d inverted=%d odd=%d "
             "ratio=%.3g reason=%s\n",
-            tag, i, a.escalation, int(a.success), a.parametrization_folds,
-            a.num_singularities, a.inverted_faces, a.odd_residuals,
-            a.max_adjacent_edge_ratio, a.failure_reason.c_str());
+            tag,
+            i,
+            a.escalation,
+            int(a.success),
+            a.parametrization_folds,
+            a.num_singularities,
+            a.inverted_faces,
+            a.odd_residuals,
+            a.max_adjacent_edge_ratio,
+            a.failure_reason.c_str());
   }
 }
 
@@ -141,8 +148,7 @@ void testRetryEngagesAndImprovesFolds()
   TASSERT(rep.attempts[rep.winner].parametrization_folds <
           rep.attempts[0].parametrization_folds);
   // The top-level report must be the winner's report.
-  TASSERT(rep.parametrization_folds ==
-          rep.attempts[rep.winner].parametrization_folds);
+  TASSERT(rep.parametrization_folds == rep.attempts[rep.winner].parametrization_folds);
   for (int i = 0; i < rep.attempts_run; i++) {
     TASSERT(rep.attempts[i].from_original);
   }

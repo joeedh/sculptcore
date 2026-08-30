@@ -343,7 +343,8 @@ struct Emit {
       return TypeKind::Unknown;
     }
     case ExprKind::Index:
-      return e.lhs && isVectorType(resolveExprType(*e.lhs)) ? TypeKind::Float : TypeKind::Unknown;
+      return e.lhs && isVectorType(resolveExprType(*e.lhs)) ? TypeKind::Float
+                                                            : TypeKind::Unknown;
     case ExprKind::Binary: {
       TypeKind a = e.lhs ? resolveExprType(*e.lhs) : TypeKind::Unknown;
       TypeKind b = e.rhs ? resolveExprType(*e.rhs) : TypeKind::Unknown;
@@ -440,7 +441,8 @@ struct Emit {
           out += "ctx.";
           out += e.name;
         } else if (extrasMode && fieldUsesStore(*f)) {
-          out += inHost ? "brush.namedFloats[kExtraSlot_" : "ctx.brush.namedFloats[kExtraSlot_";
+          out += inHost ? "brush.namedFloats[kExtraSlot_"
+                        : "ctx.brush.namedFloats[kExtraSlot_";
           out += e.name;
           out += "]";
         } else {
@@ -581,8 +583,8 @@ struct Emit {
           const TexParam *tp = findTexParam(stringref(base.c_str()));
           if (tp && tp->kind == TexParamKind::Ramp && e.args.size() == 1) {
             char buf[64];
-            std::snprintf(buf, sizeof(buf), "texRampSample(sb_tex_params + %d, ",
-                          tp->offset);
+            std::snprintf(
+                buf, sizeof(buf), "texRampSample(sb_tex_params + %d, ", tp->offset);
             out += buf;
             emitExpr(*e.args[0]);
             out += ")";
@@ -699,8 +701,7 @@ struct Emit {
   {
     // EvalD-body params/locals are already dual — read them verbatim;
     // reseeding would discard the caller's incoming Jacobian.
-    if (dualBody && e.kind == ExprKind::Ident &&
-        isDualLocal(stringref(e.name.c_str()))) {
+    if (dualBody && e.kind == ExprKind::Ident && isDualLocal(stringref(e.name.c_str()))) {
       out += e.name;
       return;
     }
@@ -726,7 +727,8 @@ struct Emit {
       break; // zero-deriv const
     case ExprKind::Member:
       if (dualBody && e.lhs && e.lhs->kind == ExprKind::Ident &&
-          isDualLocal(stringref(e.lhs->name.c_str()))) {
+          isDualLocal(stringref(e.lhs->name.c_str())))
+      {
         // dual3.x/y/z picks a Jacobian row of the already-dual name.
         out += "sb_comp(";
         out += e.lhs->name;
@@ -904,7 +906,8 @@ struct Emit {
       break;
     case StmtKind::Assign:
       if (dualBody && s.lvalue->kind == ExprKind::Ident &&
-          isDualLocal(stringref(s.lvalue->name.c_str()))) {
+          isDualLocal(stringref(s.lvalue->name.c_str())))
+      {
         // Dual assignment. Compound ops expand to `x = x <op> (rhs)` — the
         // prelude defines only the binary operators.
         writeIndent();
@@ -1360,7 +1363,8 @@ struct Emit {
       }
     }
     write("};\n");
-    std::snprintf(buf, sizeof(buf),
+    std::snprintf(buf,
+                  sizeof(buf),
                   "static_assert(kTexRampSize == %d, \"ramp slab size drifted\");\n\n",
                   kTexRampSize);
     write(buf);
@@ -1529,10 +1533,16 @@ struct Emit {
       appendFloatLit(minLit, tp.hasRange ? tp.rangeMin : 0.0);
       appendFloatLit(maxLit, tp.hasRange ? tp.rangeMax : 0.0);
       char buf[256];
-      std::snprintf(buf, sizeof(buf), "    {\"%s\", %s, %s, %s, %s, %s, %d},\n",
-                    tp.name.c_str(), tp.kind == TexParamKind::Ramp ? "true" : "false",
-                    defLit.c_str(), tp.hasRange ? "true" : "false", minLit.c_str(),
-                    maxLit.c_str(), tp.offset);
+      std::snprintf(buf,
+                    sizeof(buf),
+                    "    {\"%s\", %s, %s, %s, %s, %s, %d},\n",
+                    tp.name.c_str(),
+                    tp.kind == TexParamKind::Ramp ? "true" : "false",
+                    defLit.c_str(),
+                    tp.hasRange ? "true" : "false",
+                    minLit.c_str(),
+                    maxLit.c_str(),
+                    tp.offset);
       write(buf);
     }
     write("};\n\n");
@@ -1674,8 +1684,8 @@ struct Emit {
     if (std::strcmp(nm, "color") == 0)
       return string("sculptcore::meshlog::COLOR");
     char buf[96];
-    std::snprintf(buf, sizeof(buf),
-                  "(1 << (sculptcore::meshlog::CUSTOM_START + %d))", customIdx++);
+    std::snprintf(
+        buf, sizeof(buf), "(1 << (sculptcore::meshlog::CUSTOM_START + %d))", customIdx++);
     return string(buf);
   }
 
@@ -1780,12 +1790,10 @@ struct Emit {
       return std::strcmp(n, "strength") == 0 || std::strcmp(n, "radius") == 0 ||
              std::strcmp(n, "spacing") == 0 || std::strcmp(n, "invert") == 0 ||
              std::strcmp(n, "falloff_kind") == 0 ||
-             std::strcmp(n, "falloff_shape") == 0 ||
-             std::strcmp(n, "falloff_dir") == 0 ||
+             std::strcmp(n, "falloff_shape") == 0 || std::strcmp(n, "falloff_dir") == 0 ||
              std::strcmp(n, "falloff_extent") == 0 ||
              std::strcmp(n, "unbounded_extent") == 0 ||
-             std::strcmp(n, "coord_space") == 0 ||
-             std::strcmp(n, "tex_repeat") == 0 ||
+             std::strcmp(n, "coord_space") == 0 || std::strcmp(n, "tex_repeat") == 0 ||
              std::strcmp(n, "stroke_path_count") == 0;
     };
     write("/** Marshal this kernel's appended DSL uniforms (offset 72+) into a\n");
@@ -1824,8 +1832,7 @@ struct Emit {
         align = size = 16;
         break;
       default:
-        errf("GPU uniform marshal: unsupported type for uniform '%s'",
-             f.name.c_str());
+        errf("GPU uniform marshal: unsupported type for uniform '%s'", f.name.c_str());
         return;
       }
       off = (off + align - 1) & ~(align - 1);
@@ -1855,8 +1862,7 @@ struct Emit {
         write("    std::memcpy(");
         write(loc);
         write(", &v, 4);\n  }\n");
-      }
-      else if (f.hasRange && f.type == TypeKind::Float) {
+      } else if (f.hasRange && f.type == TypeKind::Float) {
         write("  {\n    float v = brush.");
         write(f.name);
         write(";\n    v = v < ");
@@ -1870,8 +1876,7 @@ struct Emit {
         write(" : v);\n    std::memcpy(");
         write(loc);
         write(", &v, 4);\n  }\n");
-      }
-      else {
+      } else {
         char sz[16];
         std::snprintf(sz, sizeof(sz), "%d", size);
         write("  std::memcpy(");
@@ -2236,9 +2241,10 @@ struct Emit {
     // @incremental kernel is driven by a per-dab delta, so it has no base; a
     // grad() kernel differentiates over v.co, which the base-read proxy breaks.
     write("  def.accumulable = ");
-    write((!brush->isPaint && !brush->isUnbounded && !brush->isIncremental && !brushUsesGrad()) ?
-              "true" :
-              "false");
+    write((!brush->isPaint && !brush->isUnbounded && !brush->isIncremental &&
+           !brushUsesGrad())
+              ? "true"
+              : "false");
     write(";\n");
     // `@relaxation`: relaxes the surface rather than displacing it, so it stays
     // on AccumLive and never accumulates into `.brush.disp.vec`.
@@ -2311,8 +2317,7 @@ struct Emit {
         warnf("attr '%s' is written but not in the save list — its stroke will "
               "not undo",
               f.name.c_str());
-      }
-      else if (wk == MemberWriteKind::None && saved) {
+      } else if (wk == MemberWriteKind::None && saved) {
         warnf("attr '%s' is in the save list but never written — dead capture",
               f.name.c_str());
       }
@@ -2422,16 +2427,19 @@ EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts)
     }
     char buf[256];
     if (!opts.extras) {
-      std::snprintf(buf, sizeof(buf),
+      std::snprintf(buf,
+                    sizeof(buf),
                     "uniform '%s' does not resolve to a Brush member — add the member "
                     "and list it in Brush::builtinPropNames (brush.h)",
                     f.name.c_str());
       em.errors.append(string(buf));
     } else if (f.type != TypeKind::Float) {
-      std::snprintf(buf, sizeof(buf),
+      std::snprintf(buf,
+                    sizeof(buf),
                     "extra kernel uniform '%s': only scalar floats can use the named "
                     "store; a %s uniform needs an existing Brush member",
-                    f.name.c_str(), typeKindName(f.type));
+                    f.name.c_str(),
+                    typeKindName(f.type));
       em.errors.append(string(buf));
     }
   }

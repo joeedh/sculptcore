@@ -75,12 +75,12 @@ inline float texRampSample(const float *ramp, float t)
 // the name is a literal rather than a util::string.
 struct TexParamManifestEntry {
   const char *name;
-  bool isRamp;    // one float slot when false, kTexRampSize slots when true
-  float def;      // authored default (`= <n>`); ramps default to identity
-  bool hasRange;  // `@range(min, max)` present
+  bool isRamp;   // one float slot when false, kTexRampSize slots when true
+  float def;     // authored default (`= <n>`); ramps default to identity
+  bool hasRange; // `@range(min, max)` present
   float rangeMin;
   float rangeMax;
-  int offset;  // first slot in the texture's param slab
+  int offset; // first slot in the texture's param slab
 };
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

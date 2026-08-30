@@ -68,7 +68,11 @@ static int checkFixture(Mesh *m, const char *tag)
       badOrtho++;
     }
   }
-  fprintf(stderr, "%s: badLen=%d badOrtho=%d verts=%d\n", tag, badLen, badOrtho,
+  fprintf(stderr,
+          "%s: badLen=%d badOrtho=%d verts=%d\n",
+          tag,
+          badLen,
+          badOrtho,
           int(m->v.count));
   test_assert(badLen == 0);
   test_assert(badOrtho == 0);

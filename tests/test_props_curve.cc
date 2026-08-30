@@ -70,8 +70,8 @@ int main()
   /* derivative / integrate sanity. */
   {
     CurveGenSimple<PropCurves::LINEAR> lin;
-    curve_assert(approx(lin.derivative(0.5), 1.0, 1e-3));  /* d/ds(s) == 1 */
-    curve_assert(approx(lin.integrate(1.0), 0.5, 1e-2));   /* ∫₀¹ s ds == 0.5 */
+    curve_assert(approx(lin.derivative(0.5), 1.0, 1e-3)); /* d/ds(s) == 1 */
+    curve_assert(approx(lin.integrate(1.0), 0.5, 1e-2));  /* ∫₀¹ s ds == 0.5 */
 
     CurveGenSimple<PropCurves::SMOOTHSTEP> ss;
     /* smoothstep derivative is 0 at endpoints, max at 0.5 (= 1.5). */

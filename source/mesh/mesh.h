@@ -813,7 +813,8 @@ struct Mesh : public MeshBase {
     if (!f.attrs.has(AttrType::SHORT, "material")) {
       return 0;
     }
-    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    AttrData<short> *data =
+        f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
     return data ? int((*data)[face]) : 0;
   }
 
@@ -824,7 +825,8 @@ struct Mesh : public MeshBase {
     if (!f.attrs.has(AttrType::SHORT, "material")) {
       return 0;
     }
-    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    AttrData<short> *data =
+        f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
     if (!data) {
       return 0;
     }
@@ -851,7 +853,8 @@ struct Mesh : public MeshBase {
       }
       return;
     }
-    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    AttrData<short> *data =
+        f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
     if (!data) {
       return;
     }
@@ -900,7 +903,8 @@ struct Mesh : public MeshBase {
         }
       }
     }
-    AttrData<short> *data = f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
+    AttrData<short> *data =
+        f.attrs.find_attribute(AttrType::SHORT, "material").get_data<short>();
     if (!data) {
       return;
     }
@@ -1053,15 +1057,15 @@ struct Mesh : public MeshBase {
   int elemSelected(int domain, int idx)
   {
     switch (domain) {
-      case 0:
-        return idx >= 0 && idx < int(v.capacity()) && !v.freemap[idx] && v.select[idx] ? 1
-                                                                                       : 0;
-      case 1:
-        return idx >= 0 && idx < int(e.capacity()) && !e.freemap[idx] && e.select[idx] ? 1
-                                                                                       : 0;
-      case 2:
-        return idx >= 0 && idx < int(f.capacity()) && !f.freemap[idx] && f.select[idx] ? 1
-                                                                                       : 0;
+    case 0:
+      return idx >= 0 && idx < int(v.capacity()) && !v.freemap[idx] && v.select[idx] ? 1
+                                                                                     : 0;
+    case 1:
+      return idx >= 0 && idx < int(e.capacity()) && !e.freemap[idx] && e.select[idx] ? 1
+                                                                                     : 0;
+    case 2:
+      return idx >= 0 && idx < int(f.capacity()) && !f.freemap[idx] && f.select[idx] ? 1
+                                                                                     : 0;
     }
     return 0;
   }
@@ -1072,27 +1076,27 @@ struct Mesh : public MeshBase {
   {
     int count = 0;
     switch (domain) {
-      case 0:
-        for (int i : v) {
-          if (v.select[i]) {
-            count++;
-          }
+    case 0:
+      for (int i : v) {
+        if (v.select[i]) {
+          count++;
         }
-        break;
-      case 1:
-        for (int i : e) {
-          if (e.select[i]) {
-            count++;
-          }
+      }
+      break;
+    case 1:
+      for (int i : e) {
+        if (e.select[i]) {
+          count++;
         }
-        break;
-      case 2:
-        for (int i : f) {
-          if (f.select[i]) {
-            count++;
-          }
+      }
+      break;
+    case 2:
+      for (int i : f) {
+        if (f.select[i]) {
+          count++;
         }
-        break;
+      }
+      break;
     }
     return count;
   }
@@ -1123,29 +1127,29 @@ struct Mesh : public MeshBase {
   void liveElems(int domain, util::Vector<int> &out)
   {
     switch (domain) {
-      case 0:
-        for (int i : v) {
-          out.append(i);
-        }
-        break;
-      case 1:
-        for (int i : e) {
-          out.append(i);
-        }
-        break;
-      case 2:
-        for (int i : f) {
-          out.append(i);
-        }
-        break;
-      case 3:
-        if (topo_frozen) {
-          thawTopo();
-        }
-        for (int i : c) {
-          out.append(i);
-        }
-        break;
+    case 0:
+      for (int i : v) {
+        out.append(i);
+      }
+      break;
+    case 1:
+      for (int i : e) {
+        out.append(i);
+      }
+      break;
+    case 2:
+      for (int i : f) {
+        out.append(i);
+      }
+      break;
+    case 3:
+      if (topo_frozen) {
+        thawTopo();
+      }
+      for (int i : c) {
+        out.append(i);
+      }
+      break;
     }
   }
 
@@ -1163,27 +1167,27 @@ struct Mesh : public MeshBase {
   void selectedElems(int domain, util::Vector<int> &out)
   {
     switch (domain) {
-      case 0:
-        for (int i : v) {
-          if (v.select[i]) {
-            out.append(i);
-          }
+    case 0:
+      for (int i : v) {
+        if (v.select[i]) {
+          out.append(i);
         }
-        break;
-      case 1:
-        for (int i : e) {
-          if (e.select[i]) {
-            out.append(i);
-          }
+      }
+      break;
+    case 1:
+      for (int i : e) {
+        if (e.select[i]) {
+          out.append(i);
         }
-        break;
-      case 2:
-        for (int i : f) {
-          if (f.select[i]) {
-            out.append(i);
-          }
+      }
+      break;
+    case 2:
+      for (int i : f) {
+        if (f.select[i]) {
+          out.append(i);
         }
-        break;
+      }
+      break;
     }
   }
 
@@ -1232,11 +1236,13 @@ struct Mesh : public MeshBase {
   void reorder_corners(util::span<int> corner_map, const ReorderMoved &moved);
   /* @p corner_map: scoped mode only — corners are already permuted when this runs,
    * so the moved corner's c.l attribute lives at corner_map[c1]. */
-  void reorder_lists(util::span<int> list_map, const ReorderMoved &moved,
+  void reorder_lists(util::span<int> list_map,
+                     const ReorderMoved &moved,
                      util::span<int> corner_map = {});
   /* @p list_map: scoped mode only — lists are already permuted, so the moved
    * list's l.f attribute lives at list_map[l1]. */
-  void reorder_faces(util::span<int> face_map, const ReorderMoved &moved,
+  void reorder_faces(util::span<int> face_map,
+                     const ReorderMoved &moved,
                      util::span<int> list_map = {});
 
   /* Reclaim DRAM by dropping trailing all-free attribute pages from every domain

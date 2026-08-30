@@ -169,7 +169,7 @@ struct SpatialNode {
    * stroke skip the whole leaf. Only consulted for topology-stable steps (no
    * dyntopo), where a leaf's element set can't change mid-stroke. */
   struct CaptureStamp {
-    int sid = 0;  /* 0 = never walked (stroke ids stored as sid+1) */
+    int sid = 0; /* 0 = never walked (stroke ids stored as sid+1) */
     int tool = 0;
   };
   static constexpr int MAX_CAPTURE_SLOTS = 8;
@@ -337,11 +337,8 @@ struct SpatialNode {
   }
 
   /* Faces whose triangles intersect the cone (co, ray=base->tip, r1->r2). */
-  void collectConeFaces(const float3 &co,
-                        const float3 &ray,
-                        float r1,
-                        float r2,
-                        util::Set<int> &out)
+  void collectConeFaces(
+      const float3 &co, const float3 &ray, float r1, float r2, util::Set<int> &out)
   {
     if (!(flag & Spatial_Leaf)) {
       for (SpatialNode *child : children) {
@@ -365,11 +362,8 @@ struct SpatialNode {
   }
 
   /* Verts inside the cone. */
-  void collectConeVerts(const float3 &co,
-                        const float3 &ray,
-                        float r1,
-                        float r2,
-                        util::Set<int> &out)
+  void collectConeVerts(
+      const float3 &co, const float3 &ray, float r1, float r2, util::Set<int> &out)
   {
     if (!(flag & Spatial_Leaf)) {
       for (SpatialNode *child : children) {

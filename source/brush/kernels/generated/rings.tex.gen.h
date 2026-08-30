@@ -9,12 +9,14 @@ using litestl::math::float3;
 
 #ifndef SB_TEX_DEF_Rings
 #define SB_TEX_DEF_Rings
-static float texRingsEval(float3 p, float3 n, const float *sb_tex_params, const TexEvalCtx *sb_texctx)
+static float
+texRingsEval(float3 p, float3 n, const float *sb_tex_params, const TexEvalCtx *sb_texctx)
 {
   using namespace litestl::math;
   (void)p;
   (void)n;
-  (void)sb_tex_params; (void)sb_texctx;
+  (void)sb_tex_params;
+  (void)sb_texctx;
   float d = (p).length();
   float rings = (0.5f + (0.5f * std::sin((d * 40.0f))));
   float bands = (((d * 6.0f)) - std::floor((d * 6.0f)));
@@ -23,7 +25,7 @@ static float texRingsEval(float3 p, float3 n, const float *sb_tex_params, const 
   return ((rings * steps) * tilt);
 }
 
-#endif  // SB_TEX_DEF_Rings
+#endif // SB_TEX_DEF_Rings
 
 // WGSL module text for this unit's textures (the T5 shader splice).
 static const char texRingsUnitWgsl[] = R"__sbtex__(

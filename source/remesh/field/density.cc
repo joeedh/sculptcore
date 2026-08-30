@@ -29,8 +29,9 @@ void generateAutoDensity(Mesh &m, const DensityParams &params)
   // otherwise compute it now with the same smoothing so density tracks the same
   // denoised field rather than re-injecting noise the cross field filtered out.
   if (!m.v.attrs.has(AttrType::FLOAT2, litestl::util::string(".remesh.v.k"))) {
-    computeCurvature(m, CurvatureParams{params.curvature_smooth_iters,
-                                        params.curvature_smooth_lambda});
+    computeCurvature(
+        m,
+        CurvatureParams{params.curvature_smooth_iters, params.curvature_smooth_lambda});
   }
 
   BuiltinAttr<float2, ".remesh.v.k"> kval;
@@ -38,8 +39,7 @@ void generateAutoDensity(Mesh &m, const DensityParams &params)
   kval.ensure(m.v.attrs);
   density.ensure(m.v.attrs);
 
-  const float L = params.target_edge_length > 1e-12f ? params.target_edge_length
-                                                     : 1e-12f;
+  const float L = params.target_edge_length > 1e-12f ? params.target_edge_length : 1e-12f;
   const float dmin = params.density_min;
   const float dmax = params.density_max;
 
@@ -56,14 +56,17 @@ void generateAutoDensity(Mesh &m, const DensityParams &params)
   }
 }
 
-void limitDensityGradation(Mesh &m, float target_edge_length, float gradation,
-                           int iters, float density_min, float density_max)
+void limitDensityGradation(Mesh &m,
+                           float target_edge_length,
+                           float gradation,
+                           int iters,
+                           float density_min,
+                           float density_max)
 {
   if (gradation <= 0.0f) {
     return;
   }
-  if (!m.v.attrs.has(AttrType::FLOAT,
-                     litestl::util::string(".remesh.v.density"))) {
+  if (!m.v.attrs.has(AttrType::FLOAT, litestl::util::string(".remesh.v.density"))) {
     return;
   }
 

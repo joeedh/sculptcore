@@ -30,7 +30,7 @@ test_init;
   do {                                                                                   \
     if (!(expr)) {                                                                       \
       retval = 1;                                                                        \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                 \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
       fflush(stderr);                                                                    \
     }                                                                                    \
   } while (0)
@@ -62,10 +62,14 @@ void build_grid(Mesh &m, int N)
   for (int j = 0; j < N; j++) {
     for (int i = 0; i < N; i++) {
       int v0 = vat(i, j), v1 = vat(i + 1, j), v2 = vat(i + 1, j + 1), v3 = vat(i, j + 1);
-      if (m.find_edge(v0, v1) == ELEM_NONE) m.make_edge(v0, v1);
-      if (m.find_edge(v1, v2) == ELEM_NONE) m.make_edge(v1, v2);
-      if (m.find_edge(v2, v3) == ELEM_NONE) m.make_edge(v2, v3);
-      if (m.find_edge(v3, v0) == ELEM_NONE) m.make_edge(v3, v0);
+      if (m.find_edge(v0, v1) == ELEM_NONE)
+        m.make_edge(v0, v1);
+      if (m.find_edge(v1, v2) == ELEM_NONE)
+        m.make_edge(v1, v2);
+      if (m.find_edge(v2, v3) == ELEM_NONE)
+        m.make_edge(v2, v3);
+      if (m.find_edge(v3, v0) == ELEM_NONE)
+        m.make_edge(v3, v0);
       int verts[4] = {v0, v1, v2, v3};
       m.make_face(std::span<int>(verts, 4));
     }
@@ -77,7 +81,8 @@ bool validateMesh(Mesh &m, const char *tag)
   for (int ei : m.e) {
     int v1 = m.e.vs[ei][0], v2 = m.e.vs[ei][1];
     if (v1 < 0 || v2 < 0 || v1 >= int(m.v.capacity()) || v2 >= int(m.v.capacity()) ||
-        m.v.freemap[v1] || m.v.freemap[v2] || v1 == v2) {
+        m.v.freemap[v1] || m.v.freemap[v2] || v1 == v2)
+    {
       fprintf(stderr, "[%s] edge %d bad/freed/self vert refs %d %d\n", tag, ei, v1, v2);
       return false;
     }
@@ -90,7 +95,10 @@ bool validateMesh(Mesh &m, const char *tag)
         return false;
       }
       cc = m.c.next[cc];
-      if (++n > 1000000) { fprintf(stderr, "[%s] list %d open\n", tag, li); return false; }
+      if (++n > 1000000) {
+        fprintf(stderr, "[%s] list %d open\n", tag, li);
+        return false;
+      }
     } while (cc != c0);
   }
   return true;
@@ -122,8 +130,11 @@ Vector<int64_t> geomSig(Mesh &m)
 }
 bool sigEqual(const Vector<int64_t> &a, const Vector<int64_t> &b)
 {
-  if (a.size() != b.size()) return false;
-  for (int i = 0; i < int(a.size()); i++) if (a[i] != b[i]) return false;
+  if (a.size() != b.size())
+    return false;
+  for (int i = 0; i < int(a.size()); i++)
+    if (a[i] != b[i])
+      return false;
   return true;
 }
 
@@ -162,7 +173,8 @@ void compareHits(const RayHits &a, const RayHits &b, const char *tag)
       retval = 1;
       continue;
     }
-    if (!a.ok[i]) continue;
+    if (!a.ok[i])
+      continue;
     hits++;
     /* Compare the geometric hit (p/normal/t) only. faceIndex is NOT compared: on
      * shared edges / near-coplanar tris the returned face is traversal-order
@@ -173,9 +185,19 @@ void compareHits(const RayHits &a, const RayHits &b, const char *tag)
       bad |= a.p[i][k] != b.p[i][k] || a.normal[i][k] != b.normal[i][k];
     }
     if (bad) {
-      fprintf(stderr, "[%s] ray %d hit mismatch p(%.5f,%.5f,%.5f) t%.5f vs p(%.5f,%.5f,%.5f) t%.5f\n",
-              tag, i, a.p[i][0], a.p[i][1], a.p[i][2], a.t[i],
-              b.p[i][0], b.p[i][1], b.p[i][2], b.t[i]);
+      fprintf(
+          stderr,
+          "[%s] ray %d hit mismatch p(%.5f,%.5f,%.5f) t%.5f vs p(%.5f,%.5f,%.5f) t%.5f\n",
+          tag,
+          i,
+          a.p[i][0],
+          a.p[i][1],
+          a.p[i][2],
+          a.t[i],
+          b.p[i][0],
+          b.p[i][1],
+          b.p[i][2],
+          b.t[i]);
       retval = 1;
     }
   }
@@ -191,8 +213,10 @@ void scramble(Mesh &m, SpatialTree &tree, uint32_t seed)
 {
   auto randPerm = [](int cap, Random &rnd) {
     Vector<int> p;
-    for (int i = 0; i < cap; i++) p.append(i);
-    for (int i = cap - 1; i > 0; i--) std::swap(p[i], p[int(rnd.get_int() % uint32_t(i + 1))]);
+    for (int i = 0; i < cap; i++)
+      p.append(i);
+    for (int i = cap - 1; i > 0; i--)
+      std::swap(p[i], p[int(rnd.get_int() % uint32_t(i + 1))]);
     return p;
   };
   Random rnd(seed);
@@ -230,16 +254,16 @@ void test_incremental_matches_full(int N, int leaf, uint32_t seed)
   tA.computeLocalityMaps(vA, eA, cA, lA, fA);
   tB.computeLocalityMaps(vB, eB, cB, lB, fB);
 
-  tA.applyReorder(vA, eA, cA, lA, fA);               // trusted full rebuild
-  tB.applyReorderIncremental(vB, eB, cB, lB, fB);    // path under test
+  tA.applyReorder(vA, eA, cA, lA, fA);            // trusted full rebuild
+  tB.applyReorderIncremental(vB, eB, cB, lB, fB); // path under test
 
   TASSERT(validateMesh(mB, tag));
-  TASSERT(sigEqual(sig0, geomSig(mB)));               // geometry preserved
-  TASSERT(sigEqual(geomSig(mA), geomSig(mB)));        // same permutation applied
+  TASSERT(sigEqual(sig0, geomSig(mB)));        // geometry preserved
+  TASSERT(sigEqual(geomSig(mA), geomSig(mB))); // same permutation applied
 
   RayHits hA = castGrid(tA, 24);
   RayHits hB = castGrid(tB, 24);
-  compareHits(hA, hB, tag);                           // incremental tree == full tree
+  compareHits(hA, hB, tag); // incremental tree == full tree
   /* And the incremental tree still answers what it did before the reorder. */
   compareHits(beforeB, hB, tag);
 }
@@ -248,7 +272,8 @@ Vector<int> invertMap(span<int> map)
 {
   Vector<int> inv;
   inv.resize(int(map.size()));
-  for (int i = 0; i < int(map.size()); i++) inv[map[i]] = i;
+  for (int i = 0; i < int(map.size()); i++)
+    inv[map[i]] = i;
   return inv;
 }
 
@@ -280,7 +305,8 @@ void test_partial_matches_full(int N, int leaf, uint32_t seed)
   auto pickSubset = [](SpatialTree &t) {
     Vector<SpatialNode *> all = t.leaves(), sub;
     for (int i = 0; i < int(all.size()); i++)
-      if (i % 2 == 0) sub.append(all[i]);
+      if (i % 2 == 0)
+        sub.append(all[i]);
     return sub;
   };
   Vector<SpatialNode *> subA = pickSubset(tA), subB = pickSubset(tB);
@@ -289,21 +315,22 @@ void test_partial_matches_full(int N, int leaf, uint32_t seed)
   Vector<int> movedA[5], movedB[5];
   tA.computeLocalityMapsPartial(subA, vA, eA, cA, lA, fA, movedA);
   tB.computeLocalityMapsPartial(subB, vB, eB, cB, lB, fB, movedB);
-  for (int k = 0; k < 5; k++) TASSERT(movedA[k].size() == movedB[k].size());
+  for (int k = 0; k < 5; k++)
+    TASSERT(movedA[k].size() == movedB[k].size());
   /* Genuinely partial: fewer verts moved than total live verts. */
   TASSERT(int(movedB[0].size()) < mB.v.count);
 
   /* Keep copies of the forward maps for the undo round-trip below. */
   Vector<int> vB0 = vB, eB0 = eB, cB0 = cB, lB0 = lB, fB0 = fB;
 
-  tA.applyReorder(vA, eA, cA, lA, fA);            // trusted full rebuild
+  tA.applyReorder(vA, eA, cA, lA, fA); // trusted full rebuild
   /* Scoped apply (Phase 2): attribute permute restricted to the moved slots. */
-  tB.applyReorderIncremental(vB, eB, cB, lB, fB,
-                             movedB[0], movedB[1], movedB[2], movedB[3], movedB[4]);
+  tB.applyReorderIncremental(
+      vB, eB, cB, lB, fB, movedB[0], movedB[1], movedB[2], movedB[3], movedB[4]);
 
   TASSERT(validateMesh(mB, tag));
-  TASSERT(sigEqual(sig0, geomSig(mB)));           // geometry preserved
-  TASSERT(sigEqual(geomSig(mA), geomSig(mB)));    // scoped == full rebuild
+  TASSERT(sigEqual(sig0, geomSig(mB)));        // geometry preserved
+  TASSERT(sigEqual(geomSig(mA), geomSig(mB))); // scoped == full rebuild
 
   RayHits hA = castGrid(tA, 24), hB = castGrid(tB, 24);
   compareHits(hA, hB, tag);
@@ -313,8 +340,8 @@ void test_partial_matches_full(int N, int leaf, uint32_t seed)
    * layout — applied scoped too. */
   Vector<int> vi = invertMap(vB0), ei = invertMap(eB0), ci = invertMap(cB0),
               li = invertMap(lB0), fi = invertMap(fB0);
-  tB.applyReorderIncremental(vi, ei, ci, li, fi,
-                             movedB[0], movedB[1], movedB[2], movedB[3], movedB[4]);
+  tB.applyReorderIncremental(
+      vi, ei, ci, li, fi, movedB[0], movedB[1], movedB[2], movedB[3], movedB[4]);
   TASSERT(validateMesh(mB, tag));
   TASSERT(sigEqual(sig0, geomSig(mB)));
   compareHits(beforeB, castGrid(tB, 24), tag);

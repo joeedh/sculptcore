@@ -40,8 +40,10 @@ using RemeshProgressFn = void (*)(void *user, int pct, const char *stage);
  * is filled with per-stage status, solver stats, the pre-extraction fold count,
  * a duration + failure reason, and (on success) the output validation block —
  * see remesh_report.h; passing it adds one remeshValidate pass on success. */
-mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
-                       RemeshProgressFn progress = nullptr, void *user = nullptr,
+mesh::Mesh *QuadRemesh(mesh::Mesh &input,
+                       const RemeshParams &params,
+                       RemeshProgressFn progress = nullptr,
+                       void *user = nullptr,
                        RemeshRunReport *report = nullptr);
 
 /* The operative quad edge length for @p params on @p m: the explicit

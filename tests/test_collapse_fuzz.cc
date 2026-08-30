@@ -36,9 +36,9 @@ using litestl::util::Vector;
 
 namespace {
 
-const int kStopEdges = 10;    // collapse until the mesh has fewer than this
-const int kEulerFloor = 16;   // assert chi-invariance only above the degenerate endgame
-const int kCheckEvery = 50;   // run a full integrity check every N successful collapses
+const int kStopEdges = 10;  // collapse until the mesh has fewer than this
+const int kEulerFloor = 16; // assert chi-invariance only above the degenerate endgame
+const int kCheckEvery = 50; // run a full integrity check every N successful collapses
 
 // Validate the half-edge topology and (above the degenerate floor) the Euler
 // characteristic. Always aborts the test on a structural defect.
@@ -46,7 +46,10 @@ void checkIntegrity(Mesh &m, int chi0, int collapses, const char *tag)
 {
   RemeshReport r = remeshValidate(m);
   if (!r.manifold) {
-    fprintf(stderr, "[%s] non-manifold after %d collapses: %s\n", tag, collapses,
+    fprintf(stderr,
+            "[%s] non-manifold after %d collapses: %s\n",
+            tag,
+            collapses,
             r.manifold_error.c_str());
   }
   test_assert(r.manifold);
@@ -54,8 +57,15 @@ void checkIntegrity(Mesh &m, int chi0, int collapses, const char *tag)
 
   if (r.edge_count >= kEulerFloor) {
     if (r.euler != chi0) {
-      fprintf(stderr, "[%s] euler changed %d -> %d after %d collapses (V=%d E=%d F=%d)\n",
-              tag, chi0, r.euler, collapses, r.vert_count, r.edge_count, r.face_count);
+      fprintf(stderr,
+              "[%s] euler changed %d -> %d after %d collapses (V=%d E=%d F=%d)\n",
+              tag,
+              chi0,
+              r.euler,
+              collapses,
+              r.vert_count,
+              r.edge_count,
+              r.face_count);
     }
     test_assert(r.euler == chi0);
     test_assert(r.consistent_winding);
@@ -87,8 +97,13 @@ void runFuzz(uint32_t seed)
   test_assert(r0.manifold);
   test_assert(r0.consistent_winding);
   int chi0 = r0.euler;
-  fprintf(stderr, "[%s] input V=%d E=%d F=%d chi=%d\n", tag, r0.vert_count,
-          r0.edge_count, r0.face_count, chi0);
+  fprintf(stderr,
+          "[%s] input V=%d E=%d F=%d chi=%d\n",
+          tag,
+          r0.vert_count,
+          r0.edge_count,
+          r0.face_count,
+          chi0);
 
   Random rnd(seed);
   int collapses = 0, rejected = 0, passes = 0, sinceCheck = 0;
@@ -139,8 +154,15 @@ void runFuzz(uint32_t seed)
   fprintf(stderr,
           "[%s] done: %d collapses, %d rejected, %d passes -> V=%d E=%d F=%d "
           "chi=%d manifold=%d\n",
-          tag, collapses, rejected, passes, rf.vert_count, rf.edge_count,
-          rf.face_count, rf.euler, int(rf.manifold));
+          tag,
+          collapses,
+          rejected,
+          passes,
+          rf.vert_count,
+          rf.edge_count,
+          rf.face_count,
+          rf.euler,
+          int(rf.manifold));
 
   test_assert(m->e.count < kStopEdges); // drove the mesh below the edge target
   litestl::alloc::Delete<Mesh>(m);

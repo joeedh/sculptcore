@@ -93,8 +93,12 @@ static void runTest()
     checked++;
   }
 
-  fprintf(stderr, "verts=%d (base 2168) push=%.5f checked=%d worst|base.z-0.25|=%.6f\n",
-          m->v.count, push, checked, worst);
+  fprintf(stderr,
+          "verts=%d (base 2168) push=%.5f checked=%d worst|base.z-0.25|=%.6f\n",
+          m->v.count,
+          push,
+          checked,
+          worst);
   test_assert(allFinite);
   test_assert(m->v.count < 2168); // the dab really did collapse geometry
   test_assert(push > 0.0f);       // and the draw still pushed the surface out

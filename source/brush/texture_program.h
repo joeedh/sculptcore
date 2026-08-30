@@ -29,18 +29,18 @@ struct TextureProgramParam {
   litestl::util::string name;
   bool isRamp = false;
   bool isConst = false;
-  float def = 0.0f;  // Float/Int default; ramps default to identity
+  float def = 0.0f; // Float/Int default; ramps default to identity
   bool hasRange = false;
   float rangeMin = 0.0f;
   float rangeMax = 0.0f;
-  int offset = -1;  // first slot in the param slab; -1 for @const
+  int offset = -1; // first slot in the param slab; -1 for @const
 
   /** Bound read-only so hosts can enumerate a bound program's params by index
    * (Brush::textureParamCount / queriedTextureParamEntry, the uniform-manifest
    * pattern). Returned by pointer, never marshalled by value. */
   static litestl::binding::types::Struct<TextureProgramParam> *defineBindings()
   {
-    using namespace litestl;  // the BIND_ macros expand to binding::Bind<...>
+    using namespace litestl; // the BIND_ macros expand to binding::Bind<...>
     using namespace litestl::binding;
     types::Struct<TextureProgramParam> *st = new types::Struct<TextureProgramParam>(
         "sculptcore::brush::TextureProgramParam", sizeof(TextureProgramParam));
@@ -66,8 +66,10 @@ struct TextureProgram {
   /** The JIT'd value entry — same semantics as TextureRegistryEntry::eval,
    * pointer ABI. Pass `defaults.data()` or a runtime slab of `paramSlabSize`
    * floats; ctx may be null (mapPoint becomes a pass-through). */
-  float (*eval)(const float *p, const float *n, const float *params, const TexEvalCtx *ctx) =
-      nullptr;
+  float (*eval)(const float *p,
+                const float *n,
+                const float *params,
+                const TexEvalCtx *ctx) = nullptr;
   /** The dual twin, or null when the eval is not differentiable
    * (ramp.sample / sampler calls have no derivative rule). */
   void (*evalDual)(const TexDual3 *p,
@@ -80,11 +82,11 @@ struct TextureProgram {
   // emission failed or a samplerDep is CPU-only.
   litestl::util::string wgsl;
   litestl::util::Vector<litestl::util::string> samplerDeps;
-  bool gpuAvailable = false;  // wgsl present and every samplerDep has a GPU impl
-  bool usesMap = false;       // eval calls mapPoint() — feed the ctx a real matrix
+  bool gpuAvailable = false; // wgsl present and every samplerDep has a GPU impl
+  bool usesMap = false;      // eval calls mapPoint() — feed the ctx a real matrix
 
   int paramSlabSize = 0;
-  litestl::util::Vector<float> defaults;  // paramSlabSize floats
+  litestl::util::Vector<float> defaults; // paramSlabSize floats
   litestl::util::Vector<TextureProgramParam> params;
 
   /** The script source, kept for `@const` re-specialization (edit the const,
@@ -96,7 +98,7 @@ struct TextureProgram {
   TextureProgram &operator=(const TextureProgram &) = delete;
   ~TextureProgram();
 
-  void *jit_state = nullptr;  // owned TCCState
+  void *jit_state = nullptr; // owned TCCState
 };
 
 /** Compile one .stex source (exactly one texture per script) to a
@@ -125,4 +127,4 @@ litestl::util::string spliceTextureProgramWgsl(litestl::util::stringref kernelSr
                                                const TextureProgram &p,
                                                litestl::util::string &error);
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

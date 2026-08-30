@@ -100,8 +100,8 @@ int extdraw_nodes_get(void * /*user_data*/,
   // for the node (the host ABI's granularity).
   mesh::AttrData<int> *material_data = nullptr;
   if (tree.m->f.attrs.has(mesh::AttrType::INT, "material_index")) {
-    material_data =
-        tree.m->f.attrs.find_attribute(mesh::AttrType::INT, "material_index").get_data<int>();
+    material_data = tree.m->f.attrs.find_attribute(mesh::AttrType::INT, "material_index")
+                        .get_data<int>();
   }
 
   litestl::util::Vector<ScExternalDrawNode> &out = scratch();
@@ -112,8 +112,8 @@ int extdraw_nodes_get(void * /*user_data*/,
   /* Every node gets a block this wide, whether or not it owns that many
    * buffers: the host addresses slots (color@0, uv@1) and probes one whenever
    * the object carries that layer. Missing slots are null-padded below. */
-  size_t attrs_per_node = tree.requestedAttrs.size() > 0 ? size_t(tree.requestedAttrs.size()) :
-                                                           size_t(1);
+  size_t attrs_per_node =
+      tree.requestedAttrs.size() > 0 ? size_t(tree.requestedAttrs.size()) : size_t(1);
   if (req != nullptr && req->attrs_num > 0 && size_t(req->attrs_num) > attrs_per_node) {
     attrs_per_node = size_t(req->attrs_num);
   }
@@ -129,9 +129,9 @@ int extdraw_nodes_get(void * /*user_data*/,
     }
 
     ScExternalDrawNode dn = {};
-    dn.positions = static_cast<const float(*)[3]>(gd.pos->data);
-    dn.normals = (gd.nor && gd.nor->data) ? static_cast<const float(*)[3]>(gd.nor->data) :
-                                            nullptr;
+    dn.positions = static_cast<const float (*)[3]>(gd.pos->data);
+    dn.normals = (gd.nor && gd.nor->data) ? static_cast<const float (*)[3]>(gd.nor->data)
+                                          : nullptr;
     /* Expose this node's attribute buffers in slot order (== attrBufs index
      * order, see SpatialTree::setRequestedAttrs). Legacy path: a single
      * composited float4 color stream at slot 0. Dynamic path: one per requested
@@ -195,7 +195,9 @@ int extdraw_nodes_get(void * /*user_data*/,
   return int(out.size());
 }
 
-void extdraw_nodes_release(void * /*user_data*/, unsigned int /*object_key*/) {}
+void extdraw_nodes_release(void * /*user_data*/, unsigned int /*object_key*/)
+{
+}
 
 ScExternalDrawProvider g_provider = {
     SC_EXTERNAL_DRAW_ABI_VERSION,
@@ -204,7 +206,7 @@ ScExternalDrawProvider g_provider = {
     nullptr,
 };
 
-}  // namespace
+} // namespace
 
 extern "C" {
 
@@ -247,8 +249,7 @@ void sc_external_draw_update(unsigned int object_key)
     if (e->ops->update != nullptr) {
       e->ops->update(e->custom);
     }
-  }
-  else if (e->tree != nullptr) {
+  } else if (e->tree != nullptr) {
     e->tree->update(&shared_gpu());
   }
 }

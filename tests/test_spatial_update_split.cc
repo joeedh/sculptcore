@@ -198,8 +198,8 @@ static void testQueriesOnly()
   const float radius = scene.brush.radius;
 
   exec.beginStep(true);
-  exec.applyDab(scene.currentTool, center, normal, radius, &scene.dyntopoParams,
-                scene.dyntopoSeed);
+  exec.applyDab(
+      scene.currentTool, center, normal, radius, &scene.dyntopoParams, scene.dyntopoSeed);
   exec.endDynTopoStroke();
   exec.endStep();
 
@@ -255,12 +255,12 @@ static void testDeferredParity()
       float3 origin = dabOrigin(step, d, NDABS);
       uint32_t seed = sceneA.dyntopoSeed + uint32_t(step * 16 + d);
 
-      execA.applyDab(sceneA.currentTool, origin, normal, radiusA,
-                     &sceneA.dyntopoParams, seed);
+      execA.applyDab(
+          sceneA.currentTool, origin, normal, radiusA, &sceneA.dyntopoParams, seed);
       sceneA.tree->update(&sceneA.gpu); /* today's per-dab cadence */
 
-      execB.applyDab(sceneB.currentTool, origin, normal, radiusB,
-                     &sceneB.dyntopoParams, seed);
+      execB.applyDab(
+          sceneB.currentTool, origin, normal, radiusB, &sceneB.dyntopoParams, seed);
       sceneB.tree->updateQueries(); /* split-world per-dab cadence */
     }
     execA.endDynTopoStroke();

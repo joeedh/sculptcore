@@ -50,10 +50,8 @@ static inline math::float3 walkBary(const math::float3 &p,
 }
 
 /* Evaluate face f's corner fan against p; returns true if it improved best. */
-static inline bool walkEvalFace(Mesh &m,
-                                int f,
-                                const math::float3 &p,
-                                SurfaceWalkResult &best)
+static inline bool
+walkEvalFace(Mesh &m, int f, const math::float3 &p, SurfaceWalkResult &best)
 {
   int c0 = m.l.c[m.f.l[f]];
   int ca = m.c.next[c0];
@@ -90,16 +88,13 @@ static inline bool walkEvalFace(Mesh &m,
  * vertex 1-ring) and moves to the best; `converged` is set when a sweep finds
  * no improvement. An invalid/dead seed returns hit=false — callers fall back
  * to a global query. */
-static inline SurfaceWalkResult walkClosestPoint(Mesh &m,
-                                                 int start_face,
-                                                 const math::float3 &p,
-                                                 int max_steps = 32)
+static inline SurfaceWalkResult
+walkClosestPoint(Mesh &m, int start_face, const math::float3 &p, int max_steps = 32)
 {
   using namespace detail_surface_walk;
 
   SurfaceWalkResult r;
-  if (start_face < 0 || start_face >= int(m.f.capacity()) ||
-      m.f.freemap[start_face]) {
+  if (start_face < 0 || start_face >= int(m.f.capacity()) || m.f.freemap[start_face]) {
     return r;
   }
 

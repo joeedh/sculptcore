@@ -3,7 +3,6 @@
 #include "prop_base.h"
 #include "prop_enums.h"
 
-
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/array.h"

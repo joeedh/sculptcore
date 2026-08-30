@@ -65,8 +65,10 @@ static void collectGpuUnique(spatial::SpatialTree *tree,
     }
   }
   std::sort(out.begin(), out.end(), [](const float3 &a, const float3 &b) {
-    if (a[0] != b[0]) return a[0] < b[0];
-    if (a[1] != b[1]) return a[1] < b[1];
+    if (a[0] != b[0])
+      return a[0] < b[0];
+    if (a[1] != b[1])
+      return a[1] < b[1];
     return a[2] < b[2];
   });
   auto last = std::unique(out.begin(), out.end(), [](const float3 &a, const float3 &b) {
@@ -86,18 +88,20 @@ static void pump(Scene &scene)
 }
 
 static int cmpSorted(const litestl::util::Vector<float3> &a,
-                     const litestl::util::Vector<float3> &b, float &maxw);
+                     const litestl::util::Vector<float3> &b,
+                     float &maxw);
 
 /* Compare the GPU unique-position set against the UNIQUE positions of the
  * live-vert multiset. Returns the mismatch count (size gaps count too). */
 static int gpuMatchesMesh(const litestl::util::Vector<float3> &gpuUnique,
-                          const litestl::util::Vector<float3> &meshSorted, float &maxw)
+                          const litestl::util::Vector<float3> &meshSorted,
+                          float &maxw)
 {
   litestl::util::Vector<float3> meshUnique;
   for (int i = 0; i < int(meshSorted.size()); i++) {
     if (meshUnique.size() == 0 ||
-        std::memcmp(&meshSorted[i], &meshUnique[meshUnique.size() - 1],
-                    sizeof(float3)) != 0)
+        std::memcmp(&meshSorted[i], &meshUnique[meshUnique.size() - 1], sizeof(float3)) !=
+            0)
     {
       meshUnique.append(meshSorted[i]);
     }
@@ -111,7 +115,8 @@ static int gpuMatchesMesh(const litestl::util::Vector<float3> &gpuUnique,
 }
 
 static int cmpSorted(const litestl::util::Vector<float3> &a,
-                     const litestl::util::Vector<float3> &b, float &maxw)
+                     const litestl::util::Vector<float3> &b,
+                     float &maxw)
 {
   maxw = 0.0f;
   int diff = 0;
@@ -172,8 +177,10 @@ int main()
       out.append(m->v.co[v]);
     }
     std::sort(out.begin(), out.end(), [](const float3 &a, const float3 &b) {
-      if (a[0] != b[0]) return a[0] < b[0];
-      if (a[1] != b[1]) return a[1] < b[1];
+      if (a[0] != b[0])
+        return a[0] < b[0];
+      if (a[1] != b[1])
+        return a[1] < b[1];
       return a[2] < b[2];
     });
   };
@@ -185,8 +192,12 @@ int main()
       /* Sweep a different band of the +Z face each stroke. */
       float bx = -0.18f + 0.12f * float(s);
       float3 origin(bx + 0.1f * t, -0.15f + 0.3f * t, 0.25f);
-      exec.applyDab(scene.currentTool, origin, normal, radius,
-                    &scene.dyntopoParams, scene.dyntopoSeed + uint32_t(s * 16 + d));
+      exec.applyDab(scene.currentTool,
+                    origin,
+                    normal,
+                    radius,
+                    &scene.dyntopoParams,
+                    scene.dyntopoSeed + uint32_t(s * 16 + d));
     }
     exec.endDynTopoStroke();
     exec.endStep();
@@ -197,8 +208,12 @@ int main()
     {
       float mw = 0.0f;
       int gd = gpuMatchesMesh(gpuFwd[s], meshFwd[s], mw);
-      printf("  step %d: v=%d f=%d gpuUnique=%d gpu-mesh mismatch=%d\n", s,
-             m->v.count, m->f.count, (int)gpuFwd[s].size(), gd);
+      printf("  step %d: v=%d f=%d gpuUnique=%d gpu-mesh mismatch=%d\n",
+             s,
+             m->v.count,
+             m->f.count,
+             (int)gpuFwd[s].size(),
+             gd);
       test_assert(gd == 0);
     }
   }
@@ -234,7 +249,10 @@ int main()
                        ? cmpSorted(meshFwd[s], meshNow, meshMaxw)
                        : -1;
     printf("  redo step %d: meshDiff=%d meshMaxw=%.5f | gpu-mesh mismatch=%d\n",
-           s, meshDiff, meshMaxw, gd);
+           s,
+           meshDiff,
+           meshMaxw,
+           gd);
     test_assert(meshDiff == 0);
     test_assert(gd == 0);
   }

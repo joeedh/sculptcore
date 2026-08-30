@@ -2,8 +2,8 @@
 // Native log sink: route a message somewhere visible from engine code.
 //
 // sc_napi_log / sc_napi_logf live in the mesh lib (source/mesh/napi_log.cc) —
-// the lowest lib that calls them — and forward to an installable sink. The default sink is stderr; the N-API
-// addon installs a sink that calls the renderer's `console.log`
+// the lowest lib that calls them — and forward to an installable sink. The default sink
+// is stderr; the N-API addon installs a sink that calls the renderer's `console.log`
 // (source/napi/napi_runtime.cc), which shows in DevTools regardless of how
 // Electron plumbs child-process stdout. No node_api.h dependency here, so any
 // engine TU can call sc_napi_log in any build.
@@ -31,5 +31,5 @@ void sc_napi_logf(const char *fmt, ...)
     ;
 
 #ifdef __cplusplus
-}  // extern "C"
+} // extern "C"
 #endif

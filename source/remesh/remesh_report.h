@@ -120,9 +120,9 @@ struct RemeshRunReport {
     int fold90_in = 0, fold180_in = 0, degen_in = 0;
     int fold90_out = 0, fold180_out = 0, degen_out = 0;
     int iters_run = 0;
-    bool converged = false;       // converge_eps early-out fired
+    bool converged = false;         // converge_eps early-out fired
     bool coarsen_bootstrap = false; // dense input BK-coarsened before the loop
-    float target_resolved = 0.0f; // what the pre_remesh_target sentinel became
+    float target_resolved = 0.0f;   // what the pre_remesh_target sentinel became
     int iters_resolved = 0;
     int bootstrap_resolved = 0;
     long long duration_ms = 0;

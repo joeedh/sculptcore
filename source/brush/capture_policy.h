@@ -59,11 +59,9 @@ struct MeshCapturePolicy {
         break;
       case CaptureField::Mask:
         if constexpr (Domain == mesh::ElemType::VERTEX) {
-          maskRef = m->v.attrs.find_attribute(mesh::AttrType::FLOAT,
-                                              ".spatial.v.mask");
+          maskRef = m->v.attrs.find_attribute(mesh::AttrType::FLOAT, ".spatial.v.mask");
         } else {
-          maskRef = m->f.attrs.find_attribute(mesh::AttrType::FLOAT,
-                                              ".spatial.f.mask");
+          maskRef = m->f.attrs.find_attribute(mesh::AttrType::FLOAT, ".spatial.f.mask");
         }
         r = &maskRef;
         break;
@@ -83,11 +81,11 @@ struct MeshCapturePolicy {
     auto *store = ctx.meshLog->elemStore(Domain);
     litestl::util::span<const mesh::AttrRef> span(refs, n);
     if constexpr (Domain == mesh::ElemType::VERTEX) {
-      sculptcore::meshlog::parallelCapture<Domain>(*store, m->v.attrs, nodes, saver,
-                                                   span, sid, mask);
+      sculptcore::meshlog::parallelCapture<Domain>(
+          *store, m->v.attrs, nodes, saver, span, sid, mask);
     } else {
-      sculptcore::meshlog::parallelCapture<Domain>(*store, m->f.attrs, nodes, saver,
-                                                   span, sid, mask);
+      sculptcore::meshlog::parallelCapture<Domain>(
+          *store, m->f.attrs, nodes, saver, span, sid, mask);
     }
   }
 };

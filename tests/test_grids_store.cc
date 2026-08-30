@@ -41,8 +41,8 @@ static Mesh *buildCube()
 static Mesh *buildFan()
 {
   Mesh *m = alloc::New<Mesh>("grids fan");
-  float co[6][3] = {{0, 0, 0},           {1, 0, 0},  {0.75f, 0.75f, 0},
-                    {0, 1, 0},           {-0.75f, 0.75f, 0}, {-1, 0, 0}};
+  float co[6][3] = {
+      {0, 0, 0}, {1, 0, 0}, {0.75f, 0.75f, 0}, {0, 1, 0}, {-0.75f, 0.75f, 0}, {-1, 0, 0}};
   int ids[6];
   for (int i = 0; i < 6; i++) {
     ids[i] = m->make_vertex(float3(co[i][0], co[i][1], co[i][2]));
@@ -186,7 +186,11 @@ static void checkFixture(Mesh *(*build)(), int nLevels, const char *tag)
         }
       }
     }
-    fprintf(stderr, "%s L%d: crossings=%d boundaryStops=%d\n", tag, level, crossings,
+    fprintf(stderr,
+            "%s L%d: crossings=%d boundaryStops=%d\n",
+            tag,
+            level,
+            crossings,
             boundaryStops);
     test_assert(crossings > 0);
   }
@@ -258,13 +262,17 @@ static void gateDomainsAndSession()
   /* Authored, and persistent -- the layer B1 exists to make expressible. */
   const int fset =
       gs.addChannel(util::string("fset"), 1, GridElemDomain::Face, AttrType::INT, true);
-  const int sess =
-      gs.addChannel(util::string("sess"), 4, GridElemDomain::Vertex, AttrType::FLOAT4, false);
+  const int sess = gs.addChannel(
+      util::string("sess"), 4, GridElemDomain::Vertex, AttrType::FLOAT4, false);
   const int sessF =
       gs.addChannel(util::string("sessF"), 1, GridElemDomain::Face, AttrType::INT, false);
   /* The disp-shaped channel: persistent AND a per-level delta. */
-  const int dlt = gs.addChannel(util::string("dlt"), 1, GridElemDomain::Vertex,
-                                AttrType::FLOAT, true, subdiv::GridLevelRule::Delta);
+  const int dlt = gs.addChannel(util::string("dlt"),
+                                1,
+                                GridElemDomain::Vertex,
+                                AttrType::FLOAT,
+                                true,
+                                subdiv::GridLevelRule::Delta);
   const int nLevels = 3;
   for (int i = 0; i < nLevels; i++) {
     gs.addLevel();
@@ -275,7 +283,8 @@ static void gateDomainsAndSession()
   test_assert(gs.channelPersist(fset) && gs.channelPersist(dlt));
   test_assert(!gs.channelPersist(sess) && !gs.channelPersist(sessF));
   /* Orthogonal: persistence and level rule agree on neither channel. */
-  test_assert(gs.channelAuthored(fset) && gs.channelAuthored(sess) && gs.channelAuthored(sessF));
+  test_assert(gs.channelAuthored(fset) && gs.channelAuthored(sess) &&
+              gs.channelAuthored(sessF));
   test_assert(!gs.channelAuthored(dlt) && !gs.channelAuthored(0)); /* 0 is disp */
   test_assert(gs.channelLevelRule(fset) == subdiv::GridLevelRule::Authored);
   test_assert(gs.channelLevelRule(0) == subdiv::GridLevelRule::Delta);
@@ -359,7 +368,11 @@ static void gateDomainsAndSession()
   /* A channel joining a fully-evicted store must not land resident under it. */
   /* Delta, so it allocates eagerly -- an Authored channel would pass by being
    * lazy and never exercise the join-an-evicted-level path at all. */
-  gs2.addChannel(util::string("late"), 2, GridElemDomain::Vertex, AttrType::FLOAT, true,
+  gs2.addChannel(util::string("late"),
+                 2,
+                 GridElemDomain::Vertex,
+                 AttrType::FLOAT,
+                 true,
                  subdiv::GridLevelRule::Delta);
   test_assert(gs2.residentBytes() == 0);
   for (int ch = 0; ch < gs.channelCount(); ch++) {
@@ -473,8 +486,8 @@ static void gateRestrictDown(Mesh *(*build)(), int nLevels, const char *name)
   Mesh *cage = build();
   GridsStore gs;
   gs.buildFromCage(*cage);
-  const int col =
-      gs.addChannel(util::string("col"), 4, GridElemDomain::Vertex, AttrType::FLOAT4, true);
+  const int col = gs.addChannel(
+      util::string("col"), 4, GridElemDomain::Vertex, AttrType::FLOAT4, true);
   const int cell =
       gs.addChannel(util::string("cell"), 1, GridElemDomain::Face, AttrType::FLOAT, true);
   const int fset =
@@ -525,7 +538,8 @@ static void gateRestrictDown(Mesh *(*build)(), int nLevels, const char *name)
       for (int u = 0; u < wf; u++) {
         float *e = gs.elem(fine, col, g, u, v);
         for (int k = 0; k < 4; k++) {
-          e[k] = std::sin(float(g) * 0.7f + float(u) * 0.31f + float(v) * 0.13f + float(k));
+          e[k] =
+              std::sin(float(g) * 0.7f + float(u) * 0.31f + float(v) * 0.13f + float(k));
           lo = e[k] < lo ? e[k] : lo;
           hi = e[k] > hi ? e[k] : hi;
         }
@@ -575,12 +589,16 @@ static void gateRestrictDown(Mesh *(*build)(), int nLevels, const char *name)
                                     *gs.elem(fine, cell, g, u * 2 + 1, v * 2 + 1));
         test_assert(std::fabs(*gs.elem(coarse, cell, g, u, v) - mean) < 1e-5f);
         /* 4. Typed: injection, so the id stays an id. */
-        test_assert(*gs.elem(coarse, fset, g, u, v) == *gs.elem(fine, fset, g, u * 2, v * 2));
+        test_assert(*gs.elem(coarse, fset, g, u, v) ==
+                    *gs.elem(fine, fset, g, u * 2, v * 2));
       }
     }
   }
 
-  printf("restrictChannelDown %s: %d grids, level %d -> %d ok\n", name, gs.gridCount(), fine,
+  printf("restrictChannelDown %s: %d grids, level %d -> %d ok\n",
+         name,
+         gs.gridCount(),
+         fine,
          coarse);
   alloc::Delete(cage);
 }

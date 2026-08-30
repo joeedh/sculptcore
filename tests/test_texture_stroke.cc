@@ -200,8 +200,7 @@ void testStrokeAB()
   for (int v = 0; v < mA.v.count; v++) {
     maxDisp = std::max(maxDisp, std::fabs(double(mA.v.co[v][2])));
     for (int k = 0; k < 3; k++) {
-      maxErr = std::max(maxErr,
-                        std::fabs(double(mA.v.co[v][k]) - double(mB.v.co[v][k])));
+      maxErr = std::max(maxErr, std::fabs(double(mA.v.co[v][k]) - double(mB.v.co[v][k])));
     }
   }
   // The texture must actually have displaced the plane...

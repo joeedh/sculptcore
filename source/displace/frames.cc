@@ -9,13 +9,13 @@
 
 namespace sculptcore::displace {
 
+using litestl::util::Vector;
 using mesh::AttrData;
 using mesh::AttrFlag;
 using mesh::AttrRef;
 using mesh::AttrType;
 using mesh::BoolAttrView;
 using mesh::Mesh;
-using litestl::util::Vector;
 
 // The geometric helpers below mirror brush/feature_field.cc (the FEATURE_ALIGN
 // brush's incremental cross field); kept separate so displace never depends on
@@ -59,11 +59,8 @@ inline int edgeFaces(Mesh &m, int e, int &f1, int &f2)
   return n;
 }
 
-inline bool edgeIsFeature(Mesh &m,
-                          int e,
-                          BoolAttrView *sharp,
-                          BoolAttrView *seam,
-                          AttrData<int> *group)
+inline bool edgeIsFeature(
+    Mesh &m, int e, BoolAttrView *sharp, BoolAttrView *seam, AttrData<int> *group)
 {
   if (sharp && sharp->get(e)) {
     return true;
@@ -210,12 +207,14 @@ void updateFramesRegion(Mesh &m,
     return;
   }
 
-  BoolAttrView *sharp = params.use_features
-                            ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SHARP)
-                            : nullptr;
-  BoolAttrView *seam = params.use_features
-                           ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SEAM)
-                           : nullptr;
+  BoolAttrView *sharp =
+      params.use_features
+          ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SHARP)
+          : nullptr;
+  BoolAttrView *seam =
+      params.use_features
+          ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SEAM)
+          : nullptr;
   AttrData<int> *group = nullptr;
   if (params.use_features) {
     AttrRef gref = m.f.attrs.find_attribute(AttrType::INT, mesh::boundary::FACE_GROUP);

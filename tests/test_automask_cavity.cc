@@ -1,4 +1,5 @@
-// M1: cavity automasking heuristic (documentation/plans/2026-07-14-2007-cavity-automasking.md).
+// M1: cavity automasking heuristic
+// (documentation/plans/2026-07-14-2007-cavity-automasking.md).
 //
 // Builds one grid mesh and displaces it two ways with the SAME topology:
 //   * bowl  z = +A(x^2+y^2)  — concave (neighbors sit on the +normal side)
@@ -62,107 +63,108 @@ int main()
   // Scope the scratch (and its litestl Vectors) so they free before the
   // end-of-test leak check runs.
   {
-  CavityScratch scr;
+    CavityScratch scr;
 
-  // --- Flat grid: near-neutral -------------------------------------------
-  {
-    Mesh *m = makeGrid(24, 24, 2.0f);
-    m->recalc_normals();
-    m->topo_cache.ensureRing1(*m);
-    int c = centerVert(m);
-    float raw = cavityRaw(m, c, 2, scr);
-    fprintf(stderr, "flat raw=%g\n", raw);
-    test_assert(std::fabs(raw) < 1e-3f);
+    // --- Flat grid: near-neutral -------------------------------------------
+    {
+      Mesh *m = makeGrid(24, 24, 2.0f);
+      m->recalc_normals();
+      m->topo_cache.ensureRing1(*m);
+      int c = centerVert(m);
+      float raw = cavityRaw(m, c, 2, scr);
+      fprintf(stderr, "flat raw=%g\n", raw);
+      test_assert(std::fabs(raw) < 1e-3f);
+      CavityParams p;
+      p.enabled = true;
+      p.blur_steps = 2;
+      p.factor = 1.0f;
+      float f = cavityRemap(p, raw);
+      fprintf(stderr, "flat factor=%g\n", f);
+      test_assert(std::fabs(f - 0.5f) < 0.05f);
+      litestl::alloc::Delete(m);
+    }
+
+    // --- Bowl (concave) vs dome (convex): opposite signs -------------------
+    float rawBowl = 0.0f, rawDome = 0.0f;
+    {
+      Mesh *m = makeGrid(24, 24, 2.0f);
+      bend(m, 0.3f); // bowl
+      int c = centerVert(m);
+      float3 no = m->v.no[c];
+      fprintf(stderr, "bowl center normal=(%g,%g,%g)\n", no[0], no[1], no[2]);
+      test_assert(no[2] > 0.0f); // grid faces up; sanity for the sign reasoning
+      rawBowl = cavityRaw(m, c, 2, scr);
+      litestl::alloc::Delete(m);
+    }
+    {
+      Mesh *m = makeGrid(24, 24, 2.0f);
+      bend(m, -0.3f); // dome
+      int c = centerVert(m);
+      float3 no = m->v.no[c];
+      fprintf(stderr, "dome center normal=(%g,%g,%g)\n", no[0], no[1], no[2]);
+      test_assert(no[2] > 0.0f);
+      rawDome = cavityRaw(m, c, 2, scr);
+      litestl::alloc::Delete(m);
+    }
+    fprintf(stderr, "rawBowl=%g rawDome=%g\n", rawBowl, rawDome);
+    test_assert(rawBowl > 1e-4f);
+    test_assert(rawDome < -1e-4f);
+
+    // Default mode: convex (dome) masked below 0.5, concave (bowl) above 0.5.
     CavityParams p;
     p.enabled = true;
     p.blur_steps = 2;
     p.factor = 1.0f;
-    float f = cavityRemap(p, raw);
-    fprintf(stderr, "flat factor=%g\n", f);
-    test_assert(std::fabs(f - 0.5f) < 0.05f);
-    litestl::alloc::Delete(m);
-  }
+    float fBowl = cavityRemap(p, rawBowl);
+    float fDome = cavityRemap(p, rawDome);
+    fprintf(stderr, "fBowl=%g fDome=%g\n", fBowl, fDome);
+    test_assert(fBowl > 0.55f);
+    test_assert(fDome < 0.45f);
 
-  // --- Bowl (concave) vs dome (convex): opposite signs -------------------
-  float rawBowl = 0.0f, rawDome = 0.0f;
-  {
-    Mesh *m = makeGrid(24, 24, 2.0f);
-    bend(m, 0.3f); // bowl
-    int c = centerVert(m);
-    float3 no = m->v.no[c];
-    fprintf(stderr, "bowl center normal=(%g,%g,%g)\n", no[0], no[1], no[2]);
-    test_assert(no[2] > 0.0f); // grid faces up; sanity for the sign reasoning
-    rawBowl = cavityRaw(m, c, 2, scr);
-    litestl::alloc::Delete(m);
-  }
-  {
-    Mesh *m = makeGrid(24, 24, 2.0f);
-    bend(m, -0.3f); // dome
-    int c = centerVert(m);
-    float3 no = m->v.no[c];
-    fprintf(stderr, "dome center normal=(%g,%g,%g)\n", no[0], no[1], no[2]);
-    test_assert(no[2] > 0.0f);
-    rawDome = cavityRaw(m, c, 2, scr);
-    litestl::alloc::Delete(m);
-  }
-  fprintf(stderr, "rawBowl=%g rawDome=%g\n", rawBowl, rawDome);
-  test_assert(rawBowl > 1e-4f);
-  test_assert(rawDome < -1e-4f);
+    // Inverted mode flips both across 0.5.
+    CavityParams pi = p;
+    pi.inverted = true;
+    float fBowlInv = cavityRemap(pi, rawBowl);
+    float fDomeInv = cavityRemap(pi, rawDome);
+    fprintf(stderr, "fBowlInv=%g fDomeInv=%g\n", fBowlInv, fDomeInv);
+    test_assert(std::fabs(fBowlInv - (1.0f - fBowl)) < 1e-6f);
+    test_assert(std::fabs(fDomeInv - (1.0f - fDome)) < 1e-6f);
 
-  // Default mode: convex (dome) masked below 0.5, concave (bowl) above 0.5.
-  CavityParams p;
-  p.enabled = true;
-  p.blur_steps = 2;
-  p.factor = 1.0f;
-  float fBowl = cavityRemap(p, rawBowl);
-  float fDome = cavityRemap(p, rawDome);
-  fprintf(stderr, "fBowl=%g fDome=%g\n", fBowl, fDome);
-  test_assert(fBowl > 0.55f);
-  test_assert(fDome < 0.45f);
+    // --- Curve remap (M5) --------------------------------------------------
+    // A constant 0.5 LUT collapses any factor to 0.5 (before inversion); an
+    // inverting ramp (1 - t) flips the linear factor. Verifies cavityRemap
+    // consults the curve only when use_curve is set.
+    std::vector<float> flat(kCavityCurveSize, 0.5f), inv(kCavityCurveSize);
+    for (int i = 0; i < kCavityCurveSize; i++) {
+      inv[i] = 1.0f - float(i) / float(kCavityCurveSize - 1);
+    }
+    CavityParams pc = p;
+    pc.use_curve = true;
+    pc.curve_lut = flat.data();
+    test_assert(std::fabs(cavityRemap(pc, rawBowl) - 0.5f) < 1e-6f);
+    test_assert(std::fabs(cavityRemap(pc, rawDome) - 0.5f) < 1e-6f);
+    pc.curve_lut = inv.data();
+    fprintf(
+        stderr, "curve inv bowl=%g (want ~%g)\n", cavityRemap(pc, rawBowl), 1.0f - fBowl);
+    test_assert(std::fabs(cavityRemap(pc, rawBowl) - (1.0f - fBowl)) < 1e-3f);
 
-  // Inverted mode flips both across 0.5.
-  CavityParams pi = p;
-  pi.inverted = true;
-  float fBowlInv = cavityRemap(pi, rawBowl);
-  float fDomeInv = cavityRemap(pi, rawDome);
-  fprintf(stderr, "fBowlInv=%g fDomeInv=%g\n", fBowlInv, fDomeInv);
-  test_assert(std::fabs(fBowlInv - (1.0f - fBowl)) < 1e-6f);
-  test_assert(std::fabs(fDomeInv - (1.0f - fDome)) < 1e-6f);
+    // --- Monotonicity: sharper curvature -> factor further from 0.5 --------
+    {
+      Mesh *soft = makeGrid(24, 24, 2.0f);
+      bend(soft, -0.2f);
+      float rawSoft = cavityRaw(soft, centerVert(soft), 2, scr);
+      litestl::alloc::Delete(soft);
 
-  // --- Curve remap (M5) --------------------------------------------------
-  // A constant 0.5 LUT collapses any factor to 0.5 (before inversion); an
-  // inverting ramp (1 - t) flips the linear factor. Verifies cavityRemap
-  // consults the curve only when use_curve is set.
-  std::vector<float> flat(kCavityCurveSize, 0.5f), inv(kCavityCurveSize);
-  for (int i = 0; i < kCavityCurveSize; i++) {
-    inv[i] = 1.0f - float(i) / float(kCavityCurveSize - 1);
-  }
-  CavityParams pc = p;
-  pc.use_curve = true;
-  pc.curve_lut = flat.data();
-  test_assert(std::fabs(cavityRemap(pc, rawBowl) - 0.5f) < 1e-6f);
-  test_assert(std::fabs(cavityRemap(pc, rawDome) - 0.5f) < 1e-6f);
-  pc.curve_lut = inv.data();
-  fprintf(stderr, "curve inv bowl=%g (want ~%g)\n", cavityRemap(pc, rawBowl), 1.0f - fBowl);
-  test_assert(std::fabs(cavityRemap(pc, rawBowl) - (1.0f - fBowl)) < 1e-3f);
+      Mesh *hard = makeGrid(24, 24, 2.0f);
+      bend(hard, -0.5f);
+      float rawHard = cavityRaw(hard, centerVert(hard), 2, scr);
+      litestl::alloc::Delete(hard);
 
-  // --- Monotonicity: sharper curvature -> factor further from 0.5 --------
-  {
-    Mesh *soft = makeGrid(24, 24, 2.0f);
-    bend(soft, -0.2f);
-    float rawSoft = cavityRaw(soft, centerVert(soft), 2, scr);
-    litestl::alloc::Delete(soft);
-
-    Mesh *hard = makeGrid(24, 24, 2.0f);
-    bend(hard, -0.5f);
-    float rawHard = cavityRaw(hard, centerVert(hard), 2, scr);
-    litestl::alloc::Delete(hard);
-
-    float fSoft = cavityRemap(p, rawSoft);
-    float fHard = cavityRemap(p, rawHard);
-    fprintf(stderr, "fSoft=%g fHard=%g\n", fSoft, fHard);
-    test_assert(fHard < fSoft); // more convex -> lower (further below 0.5)
-  }
+      float fSoft = cavityRemap(p, rawSoft);
+      float fHard = cavityRemap(p, rawHard);
+      fprintf(stderr, "fSoft=%g fHard=%g\n", fSoft, fHard);
+      test_assert(fHard < fSoft); // more convex -> lower (further below 0.5)
+    }
   } // scratch scope
 
   return test_end();

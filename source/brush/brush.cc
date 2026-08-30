@@ -1,7 +1,7 @@
 #include "brush/props.h"
 
-#include "props/prop_struct.h"
 #include "litestl/util/function.h"
+#include "props/prop_struct.h"
 
 using litestl::util::function_ref;
 

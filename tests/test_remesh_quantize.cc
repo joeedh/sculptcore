@@ -32,13 +32,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -74,8 +74,14 @@ void testGridQuantize()
   fprintf(stderr,
           "[grid] classes=%d cut=%d int_res=%.3e loop=%.3e min_jac=%.4f iters=%d "
           "solved=%d feasible=%d\n",
-          st.num_classes, st.num_cut_edges, st.max_integer_residual,
-          st.max_loop_closure, st.min_jacobian, st.iters, st.solved, st.feasible);
+          st.num_classes,
+          st.num_cut_edges,
+          st.max_integer_residual,
+          st.max_loop_closure,
+          st.min_jacobian,
+          st.iters,
+          st.solved,
+          st.feasible);
   TASSERT(st.solved);
   TASSERT(st.num_classes > 0);
   TASSERT(st.feasible);
@@ -91,8 +97,14 @@ void testCylinderQuantize()
   fprintf(stderr,
           "[cylinder] classes=%d cut=%d int_res=%.3e loop=%.3e min_jac=%.4f iters=%d "
           "solved=%d feasible=%d\n",
-          st.num_classes, st.num_cut_edges, st.max_integer_residual,
-          st.max_loop_closure, st.min_jacobian, st.iters, st.solved, st.feasible);
+          st.num_classes,
+          st.num_cut_edges,
+          st.max_integer_residual,
+          st.max_loop_closure,
+          st.min_jacobian,
+          st.iters,
+          st.solved,
+          st.feasible);
   TASSERT(st.solved);
   TASSERT(st.feasible);
   TASSERT(st.max_integer_residual < 1e-3);
@@ -107,8 +119,14 @@ void testTorusQuantize()
   fprintf(stderr,
           "[torus] classes=%d cut=%d int_res=%.3e loop=%.3e min_jac=%.4f iters=%d "
           "solved=%d feasible=%d\n",
-          st.num_classes, st.num_cut_edges, st.max_integer_residual,
-          st.max_loop_closure, st.min_jacobian, st.iters, st.solved, st.feasible);
+          st.num_classes,
+          st.num_cut_edges,
+          st.max_integer_residual,
+          st.max_loop_closure,
+          st.min_jacobian,
+          st.iters,
+          st.solved,
+          st.feasible);
   TASSERT(st.solved);
   TASSERT(st.feasible);
   TASSERT(st.max_integer_residual < 1e-3);
@@ -122,8 +140,11 @@ void testDeterminism()
   Mesh *b = mesh::makeTorus(48, 32, 1.0f, 0.35f);
   remesh::QuantizeStats sa = runQuantize(a, 0.1f);
   remesh::QuantizeStats sb = runQuantize(b, 0.1f);
-  fprintf(stderr, "[determinism] classes(a,b)=(%d,%d) int_res(a,b)=(%.3e,%.3e)\n",
-          sa.num_classes, sb.num_classes, sa.max_integer_residual,
+  fprintf(stderr,
+          "[determinism] classes(a,b)=(%d,%d) int_res(a,b)=(%.3e,%.3e)\n",
+          sa.num_classes,
+          sb.num_classes,
+          sa.max_integer_residual,
           sb.max_integer_residual);
   TASSERT(sa.num_classes == sb.num_classes);
   TASSERT(sa.num_cut_edges == sb.num_cut_edges);
@@ -156,8 +177,12 @@ void testLocalGsParity()
   fprintf(stderr,
           "[gs-parity] gs: rounds=%d converged=%d visits=%d touched_max=%d "
           "res=%.3e | direct: res=%.3e\n",
-          sg.gs_rounds, sg.gs_converged, sg.gs_visits, sg.gs_touched_max,
-          sg.max_integer_residual, sd.max_integer_residual);
+          sg.gs_rounds,
+          sg.gs_converged,
+          sg.gs_visits,
+          sg.gs_touched_max,
+          sg.max_integer_residual,
+          sd.max_integer_residual);
   TASSERT(sg.solved && sd.solved);
   TASSERT(sg.feasible && sd.feasible);
   TASSERT(sg.gs_rounds > 0);    // the tier engaged
@@ -188,8 +213,7 @@ void testDirectRounding()
   // solve (zero greedy rounds) and must still reach a feasible integer-grid map
   // on the clean fixtures; GREEDY is the quality default and must never lose to
   // the one-shot path on fold count.
-  auto run = [](Mesh *m, float target, bool plain_field,
-                remesh::RoundingStrategy strat) {
+  auto run = [](Mesh *m, float target, bool plain_field, remesh::RoundingStrategy strat) {
     m->thawTopo();
     mesh::triangulateMesh(*m);
     remesh::CrossFieldParams p;
@@ -211,21 +235,33 @@ void testDirectRounding()
   };
   Fixture fixtures[] = {
       {"grid", 0.1f, true, mesh::makeGrid(16, 16, 1.0f), mesh::makeGrid(16, 16, 1.0f)},
-      {"cylinder", 0.15f, false, mesh::makeCylinder(32, 8, 0.5f, 2.0f, false),
+      {"cylinder",
+       0.15f,
+       false,
+       mesh::makeCylinder(32, 8, 0.5f, 2.0f, false),
        mesh::makeCylinder(32, 8, 0.5f, 2.0f, false)},
-      {"torus", 0.1f, false, mesh::makeTorus(48, 32, 1.0f, 0.35f),
+      {"torus",
+       0.1f,
+       false,
+       mesh::makeTorus(48, 32, 1.0f, 0.35f),
        mesh::makeTorus(48, 32, 1.0f, 0.35f)},
   };
   for (Fixture &f : fixtures) {
-    remesh::QuantizeStats sg = run(f.mg, f.target, f.plain_field,
-                                   remesh::RoundingStrategy::GREEDY);
-    remesh::QuantizeStats sd = run(f.md, f.target, f.plain_field,
-                                   remesh::RoundingStrategy::DIRECT);
+    remesh::QuantizeStats sg =
+        run(f.mg, f.target, f.plain_field, remesh::RoundingStrategy::GREEDY);
+    remesh::QuantizeStats sd =
+        run(f.md, f.target, f.plain_field, remesh::RoundingStrategy::DIRECT);
     fprintf(stderr,
             "[direct:%s] direct: iters=%d loop=%.3e folds=%d feasible=%d | "
             "greedy: iters=%d folds=%d feasible=%d\n",
-            f.name, sd.iters, sd.max_loop_closure, sd.parametrization_folds,
-            sd.feasible, sg.iters, sg.parametrization_folds, sg.feasible);
+            f.name,
+            sd.iters,
+            sd.max_loop_closure,
+            sd.parametrization_folds,
+            sd.feasible,
+            sg.iters,
+            sg.parametrization_folds,
+            sg.feasible);
     // DIRECT really took the one-shot path and still produced a valid map.
     TASSERT(sd.solved);
     TASSERT(sd.iters == 0);
@@ -257,8 +293,12 @@ void testOverConstrainedFallback()
   fprintf(stderr,
           "[overconstrained] cut=%d int_res=%.3e loop=%.3e min_jac=%.4f solved=%d "
           "feasible=%d\n",
-          st.num_cut_edges, st.max_integer_residual, st.max_loop_closure,
-          st.min_jacobian, st.solved, st.feasible);
+          st.num_cut_edges,
+          st.max_integer_residual,
+          st.max_loop_closure,
+          st.min_jacobian,
+          st.solved,
+          st.feasible);
   TASSERT(st.solved);            // linear solves still succeed
   TASSERT(!st.feasible);         // integrality unreachable -> fallback path
   TASSERT(st.num_cut_edges > 0); // there were sides to quantize

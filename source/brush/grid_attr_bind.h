@@ -70,17 +70,17 @@ enum class GridAttrPlanKind : int {
 inline int gridAttrTypeFloats(mesh::AttrType type)
 {
   switch (type) {
-    case mesh::AttrType::FLOAT:
-    case mesh::AttrType::INT:
-      return 1;
-    case mesh::AttrType::FLOAT2:
-      return 2;
-    case mesh::AttrType::FLOAT3:
-      return 3;
-    case mesh::AttrType::FLOAT4:
-      return 4;
-    default:
-      return 0;
+  case mesh::AttrType::FLOAT:
+  case mesh::AttrType::INT:
+    return 1;
+  case mesh::AttrType::FLOAT2:
+    return 2;
+  case mesh::AttrType::FLOAT3:
+    return 3;
+  case mesh::AttrType::FLOAT4:
+    return 4;
+  default:
+    return 0;
   }
 }
 
@@ -113,8 +113,8 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry,
     // (enhance's held displacement, the cross field) is filled by a mesh-path
     // pre-pass; binding zeros would make those brushes silent no-ops instead
     // of falling back.
-    return gridAttrZeroDefault(entry) ? GridAttrPlanKind::DefaultColumn :
-                                        GridAttrPlanKind::Unbindable;
+    return gridAttrZeroDefault(entry) ? GridAttrPlanKind::DefaultColumn
+                                      : GridAttrPlanKind::Unbindable;
   }
   if (entry.domain != AttrElemDomain::Vertex && entry.domain != AttrElemDomain::Face) {
     // Edge/corner element domains have no grid element to land on: the store's
@@ -128,9 +128,9 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry,
     // LayerEditScope, which is inert without a settings row.
     return (attrs && attrs->hasLayerEditTarget() &&
             entry.domain == AttrElemDomain::Vertex &&
-            entry.type == mesh::AttrType::FLOAT3) ?
-               GridAttrPlanKind::LayerScratch :
-               GridAttrPlanKind::Unbindable;
+            entry.type == mesh::AttrType::FLOAT3)
+               ? GridAttrPlanKind::LayerScratch
+               : GridAttrPlanKind::Unbindable;
   }
   if (attrs &&
       attrs->storageFor(gridAttrLayerName(entry), entry.type, mesh::AttrFlag::NONE) ==
@@ -144,8 +144,8 @@ inline GridAttrPlanKind gridAttrPlan(const BrushAttrManifestEntry &entry,
     // a host without multires attributes has.
     return GridAttrPlanKind::Unbindable;
   }
-  return gridAttrTypeFloats(entry.type) > 0 ? GridAttrPlanKind::SessionChannel :
-                                              GridAttrPlanKind::Unbindable;
+  return gridAttrTypeFloats(entry.type) > 0 ? GridAttrPlanKind::SessionChannel
+                                            : GridAttrPlanKind::Unbindable;
 }
 
 /** A kernel-written layer's dense column plus its store channel. */
@@ -166,7 +166,8 @@ struct GridAttrMirror {
 /** resize(), not the (name, size) constructor: that one sizes the page table
  * but leaves the pages unmaterialized, and getElemData then returns null for
  * every element the mirror gathers into. */
-template<class T> inline mesh::AttrDataBase *gridAttrNewTypedColumn(const string &name, int n)
+template <class T>
+inline mesh::AttrDataBase *gridAttrNewTypedColumn(const string &name, int n)
 {
   auto *column = alloc::New<mesh::AttrData<T>>("grid attr column", name);
   column->resize(n);
@@ -175,21 +176,22 @@ template<class T> inline mesh::AttrDataBase *gridAttrNewTypedColumn(const string
 
 /** Allocate the dense column for `type`, sized to `n` verts, or null if the
  * type is not one gridAttrTypeFloats accepts. */
-inline mesh::AttrDataBase *gridAttrNewColumn(mesh::AttrType type, const string &name, int n)
+inline mesh::AttrDataBase *
+gridAttrNewColumn(mesh::AttrType type, const string &name, int n)
 {
   switch (type) {
-    case mesh::AttrType::FLOAT:
-      return gridAttrNewTypedColumn<float>(name, n);
-    case mesh::AttrType::FLOAT2:
-      return gridAttrNewTypedColumn<float2>(name, n);
-    case mesh::AttrType::FLOAT3:
-      return gridAttrNewTypedColumn<float3>(name, n);
-    case mesh::AttrType::FLOAT4:
-      return gridAttrNewTypedColumn<float4>(name, n);
-    case mesh::AttrType::INT:
-      return gridAttrNewTypedColumn<int>(name, n);
-    default:
-      return nullptr;
+  case mesh::AttrType::FLOAT:
+    return gridAttrNewTypedColumn<float>(name, n);
+  case mesh::AttrType::FLOAT2:
+    return gridAttrNewTypedColumn<float2>(name, n);
+  case mesh::AttrType::FLOAT3:
+    return gridAttrNewTypedColumn<float3>(name, n);
+  case mesh::AttrType::FLOAT4:
+    return gridAttrNewTypedColumn<float4>(name, n);
+  case mesh::AttrType::INT:
+    return gridAttrNewTypedColumn<int>(name, n);
+  default:
+    return nullptr;
   }
 }
 
@@ -239,7 +241,8 @@ struct GridAttrMirrorSet {
  * *over* rather than from black. The seed is per level and one-shot:
  * MultiresAttrs::seedSessionChannel declines a level that already holds
  * authored values. */
-inline int gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mirror, int level)
+inline int
+gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mirror, int level)
 {
   int ch = mr->store.findChannel(mirror.layer);
   if (ch < 0) {
@@ -247,9 +250,9 @@ inline int gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mir
     // declareHostAttr has a container to be saved into, one it did not is
     // session-only. Either way the channel is Authored, which is what the
     // engine's own behaviour keys off.
-    const bool persist = mr->gridAttrs().storageFor(
-                             mirror.layer, mirror.type, mesh::AttrFlag::NONE) ==
-                         subdiv::GridAttrStorage::Host;
+    const bool persist =
+        mr->gridAttrs().storageFor(mirror.layer, mirror.type, mesh::AttrFlag::NONE) ==
+        subdiv::GridAttrStorage::Host;
     ch = mr->store.addChannel(mirror.layer,
                               mirror.floats,
                               mirror.domain,
@@ -290,8 +293,9 @@ inline void gridAttrMirrorToSamples(GridAttrMirror &mirror,
     const void *src = mirror.column->getElemData(v);
     auto occs = domain->occurrences(v);
     for (size_t i = 0; i < occs.size(); i += 3) {
-      const size_t sample = (size_t(occs[i]) * size_t(w) + size_t(occs[i + 2])) * size_t(w) +
-                            size_t(occs[i + 1]);
+      const size_t sample =
+          (size_t(occs[i]) * size_t(w) + size_t(occs[i + 2])) * size_t(w) +
+          size_t(occs[i + 1]);
       std::memcpy(&dst[sample * size_t(comps)], src, bytes);
     }
   }
@@ -308,7 +312,8 @@ inline void gridAttrGather(GridAttrMirror &mirror, subdiv::GridLevelDomain *doma
   for (int v = 0; v < n; v++) {
     const int *g = &domain->vertGrid[v * 3];
     std::memcpy(mirror.column->getElemData(v),
-                mr->store.elem(level, mirror.channel, g[0], g[1], g[2]), bytes);
+                mr->store.elem(level, mirror.channel, g[0], g[1], g[2]),
+                bytes);
   }
 }
 
@@ -326,8 +331,10 @@ inline void gridAttrScatter(GridAttrMirror &mirror,
     const void *src = mirror.column->getElemData(v);
     auto occs = domain->occurrences(v);
     for (size_t i = 0; i < occs.size(); i += 3) {
-      std::memcpy(mr->store.elem(level, mirror.channel, occs[i], occs[i + 1], occs[i + 2]),
-                  src, bytes);
+      std::memcpy(
+          mr->store.elem(level, mirror.channel, occs[i], occs[i + 1], occs[i + 2]),
+          src,
+          bytes);
     }
   }
   mr->noteAttrEdit(level, mirror.channel);
@@ -355,7 +362,8 @@ inline void gridAttrGatherFace(GridAttrMirror &mirror, subdiv::GridLevelDomain *
     for (int v = 0; v < S; v++) {
       for (int u = 0; u < S; u++) {
         std::memcpy(mirror.column->getElemData(gridAttrFaceIndex(g, u, v, S)),
-                    mr->store.elem(level, mirror.channel, g, u, v), bytes);
+                    mr->store.elem(level, mirror.channel, g, u, v),
+                    bytes);
       }
     }
   }
@@ -375,7 +383,8 @@ inline void gridAttrScatterFace(GridAttrMirror &mirror,
     for (int v = 0; v < S; v++) {
       for (int u = 0; u < S; u++) {
         std::memcpy(mr->store.elem(level, mirror.channel, g, u, v),
-                    mirror.column->getElemData(gridAttrFaceIndex(g, u, v, S)), bytes);
+                    mirror.column->getElemData(gridAttrFaceIndex(g, u, v, S)),
+                    bytes);
       }
     }
   }

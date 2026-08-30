@@ -47,7 +47,7 @@ subsequent create at idx N gets a fresh log_id and its own record. The
 two records coexist (kill-first, create-second) and replay correctly.
 */
 
-//#define MESHLOG_ABSEIL_HASHMAP
+// #define MESHLOG_ABSEIL_HASHMAP
 
 #pragma once
 
@@ -1069,8 +1069,8 @@ struct LogChunkTopo : public LogChunk {
   void markBoundaryDirty(mesh::Mesh *m, const Vector<LogElem *> &records)
   {
     for (LogElem *e : records) {
-      const int idx = e->origin == LogOrigin::Created ? e->end_mesh_index :
-                                                        e->begin_mesh_index;
+      const int idx =
+          e->origin == LogOrigin::Created ? e->end_mesh_index : e->begin_mesh_index;
       if (e->kind == LogElemKind::Vert) {
         if (idx >= 0 && idx < int(m->v.capacity()) && !m->v.freemap[idx]) {
           mesh::boundary::markVertDirty(m, idx);
@@ -1111,8 +1111,8 @@ struct LogChunkTopo : public LogChunk {
         {
           tree->flag_face_owner_normals(e->begin_mesh_index);
           tree->remove_face(e->begin_mesh_index, true);
-        } else if (e->kind == LogElemKind::Corner &&
-                   e->origin == LogOrigin::Existed && e->fate == LogFate::Live)
+        } else if (e->kind == LogElemKind::Corner && e->origin == LogOrigin::Existed &&
+                   e->fate == LogFate::Live)
         {
           /* Row swap may re-point c.v (fan membership change with no face
              record); flag the current vert's owner skirt — the post-pass flags
@@ -1436,10 +1436,8 @@ private:
    * out[from[i]] = to[i]. (from,to)=(mv,vval) gives the forward map. Slots created
    * after the reorder are free now and map to themselves, so identity-by-default
    * is the correct extension. */
-  static void reconstruct(const Vector<int> &from,
-                          const Vector<int> &to,
-                          int cap,
-                          Vector<int> &out)
+  static void
+  reconstruct(const Vector<int> &from, const Vector<int> &to, int cap, Vector<int> &out)
   {
     out.resize(cap);
     for (int i = 0; i < cap; i++) {
@@ -1567,8 +1565,9 @@ struct MeshLog {
     BIND_STRUCT_METHOD(st, selectAllElems, MARGS("m", "domain", "state"));
     BIND_STRUCT_METHOD(st, selectShortestPath, MARGS("m", "vEnd", "state"));
     BIND_STRUCT_METHOD(st, selectLoop, MARGS("m", "seedEdge", "kind", "state"));
-    BIND_STRUCT_METHOD(
-        st, selectScreenCircle, MARGS("m", "tree", "co", "ray", "r1", "r2", "domain", "state"));
+    BIND_STRUCT_METHOD(st,
+                       selectScreenCircle,
+                       MARGS("m", "tree", "co", "ray", "r1", "r2", "domain", "state"));
     BIND_STRUCT_METHOD(st,
                        selectScreenRect,
                        MARGS("m",
@@ -1890,7 +1889,10 @@ struct MeshLog {
    * the original. Claiming the gate — and seeding the element store — here
    * makes this pre-group snapshot the oldest, and thus authoritative, undo
    * body for the vertex regardless of what fires later this step. */
-  void capturePreviewRegion(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
+  void capturePreviewRegion(mesh::Mesh *m,
+                            spatial::SpatialTree *tree,
+                            float3 center,
+                            float radius)
   {
     Vector<spatial::SpatialNode *> nodes;
     nodes.ensure_capacity(64); // one alloc rather than growing 4 -> 8 -> ... per dab
@@ -1905,7 +1907,8 @@ struct MeshLog {
       }
       elemRefs.append(ref);
     }
-    litestl::util::span<const mesh::AttrRef> elemRefSpan(elemRefs.data(), elemRefs.size());
+    litestl::util::span<const mesh::AttrRef> elemRefSpan(elemRefs.data(),
+                                                         elemRefs.size());
 
     for (spatial::SpatialNode *node : nodes) {
       for (int v : node->unique_verts()) {
@@ -1934,7 +1937,8 @@ struct MeshLog {
    * Replaces any prior un-rolled-back snapshot. Under symmetry, this starts
    * the group (the primary dab); each mirror image adds its own region via
    * extendPreviewDab() so the whole group rolls back as one unit. */
-  void beginPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
+  void
+  beginPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
   {
     if (!m || !tree) {
       return;
@@ -1979,7 +1983,8 @@ struct MeshLog {
    * e.g. on the mirror plane) are left at their pre-dab snapshot, not
    * re-captured mid-group. No-op fallback: if called with no session open
    * (beginPreviewDab wasn't called first), behaves as beginPreviewDab. */
-  void extendPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
+  void
+  extendPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
   {
     if (!m || !tree) {
       return;
@@ -2219,19 +2224,19 @@ struct MeshLog {
     chunk->scoped = true;
     Vector<int> *maps[5] = {&vmap, &emap, &cmap, &lmap, &fmap};
     Vector<int> *mvs[5] = {&chunk->mv, &chunk->me, &chunk->mc, &chunk->ml, &chunk->mf};
-    Vector<int> *vals[5] = {&chunk->vval, &chunk->eval, &chunk->cval, &chunk->lval,
-                            &chunk->fval};
+    Vector<int> *vals[5] = {
+        &chunk->vval, &chunk->eval, &chunk->cval, &chunk->lval, &chunk->fval};
     for (int k = 0; k < 5; k++) {
-      *mvs[k] = moved[k];  // moved slots (from)
+      *mvs[k] = moved[k]; // moved slots (from)
       vals[k]->resize(int(moved[k].size()));
       for (int i = 0; i < int(moved[k].size()); i++) {
-        (*vals[k])[i] = (*maps[k])[moved[k][i]];  // target slots (to)
+        (*vals[k])[i] = (*maps[k])[moved[k][i]]; // target slots (to)
       }
     }
     curEntry().chunks.append(chunk);
 
-    tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap, moved[0], moved[1],
-                                  moved[2], moved[3], moved[4]);
+    tree->applyReorderIncremental(
+        vmap, emap, cmap, lmap, fmap, moved[0], moved[1], moved[2], moved[3], moved[4]);
     /* Element ids just moved; the recorded-in-chunk stamps are id-keyed. */
     chunk_stamp_.bump();
     return true;
@@ -2319,7 +2324,8 @@ struct MeshLog {
     }
     setActiveMesh(m);
     beginStep(false);
-    mesh::ops::subdivideEdges(*m, callbacks(), numCuts, outVerts, selectFlushPreferOpDomain);
+    mesh::ops::subdivideEdges(
+        *m, callbacks(), numCuts, outVerts, selectFlushPreferOpDomain);
     endStep();
   }
 
@@ -2375,8 +2381,8 @@ struct MeshLog {
       return;
     }
     setActiveMesh(m);
-    mesh::ops::insetRegion(*m, callbacks(), insetVerts, baseCo, tangent,
-                          selectFlushPreferOpDomain);
+    mesh::ops::insetRegion(
+        *m, callbacks(), insetVerts, baseCo, tangent, selectFlushPreferOpDomain);
   }
 
   /* Bevel the selected verts (parametric modal; does NOT self-bracket, like
@@ -2390,8 +2396,8 @@ struct MeshLog {
       return;
     }
     setActiveMesh(m);
-    mesh::ops::bevelVerts(*m, callbacks(), verts, baseCo, tangent,
-                          selectFlushPreferOpDomain);
+    mesh::ops::bevelVerts(
+        *m, callbacks(), verts, baseCo, tangent, selectFlushPreferOpDomain);
   }
 
   /* -------------------- Box-modeling selection (undoable) --------------------
@@ -2420,12 +2426,12 @@ struct MeshLog {
   static LogElemKind selectDomainKind(int domain)
   {
     switch (domain) {
-      case 0:
-        return LogElemKind::Vert;
-      case 1:
-        return LogElemKind::Edge;
-      default:
-        return LogElemKind::Face;
+    case 0:
+      return LogElemKind::Vert;
+    case 1:
+      return LogElemKind::Edge;
+    default:
+      return LogElemKind::Face;
     }
   }
 
@@ -2437,15 +2443,15 @@ struct MeshLog {
     }
     getTopoChunk()->onChange(selectDomainKind(domain), m, idx);
     switch (domain) {
-      case 0:
-        m->v.select.set(idx, state);
-        break;
-      case 1:
-        m->e.select.set(idx, state);
-        break;
-      case 2:
-        m->f.select.set(idx, state);
-        break;
+    case 0:
+      m->v.select.set(idx, state);
+      break;
+    case 1:
+      m->e.select.set(idx, state);
+      break;
+    case 2:
+      m->f.select.set(idx, state);
+      break;
     }
   }
 
@@ -2476,21 +2482,21 @@ struct MeshLog {
     }
     bool s = state != 0;
     switch (domain) {
-      case 0:
-        for (int i : m->v) {
-          selectOne(m, 0, i, s);
-        }
-        break;
-      case 1:
-        for (int i : m->e) {
-          selectOne(m, 1, i, s);
-        }
-        break;
-      case 2:
-        for (int i : m->f) {
-          selectOne(m, 2, i, s);
-        }
-        break;
+    case 0:
+      for (int i : m->v) {
+        selectOne(m, 0, i, s);
+      }
+      break;
+    case 1:
+      for (int i : m->e) {
+        selectOne(m, 1, i, s);
+      }
+      break;
+    case 2:
+      for (int i : m->f) {
+        selectOne(m, 2, i, s);
+      }
+      break;
     }
   }
 
@@ -2582,31 +2588,31 @@ struct MeshLog {
       return;
     }
     switch (domain) {
-      case 0:
-        for (int v : verts) {
-          selectOne(m, 0, v, state);
-        }
-        break;
-      case 2:
-        for (int f : faces) {
-          selectOne(m, 2, f, state);
-        }
-        break;
-      case 1: {
-        util::Set<int> vset;
-        for (int v : verts) {
-          vset.add(v);
-        }
-        for (int v : verts) {
-          for (int e : m->e_of_v(v)) {
-            int other = m->e.vs[e][0] == v ? m->e.vs[e][1] : m->e.vs[e][0];
-            if (vset.contains(other)) {
-              selectOne(m, 1, e, state);
-            }
+    case 0:
+      for (int v : verts) {
+        selectOne(m, 0, v, state);
+      }
+      break;
+    case 2:
+      for (int f : faces) {
+        selectOne(m, 2, f, state);
+      }
+      break;
+    case 1: {
+      util::Set<int> vset;
+      for (int v : verts) {
+        vset.add(v);
+      }
+      for (int v : verts) {
+        for (int e : m->e_of_v(v)) {
+          int other = m->e.vs[e][0] == v ? m->e.vs[e][1] : m->e.vs[e][0];
+          if (vset.contains(other)) {
+            selectOne(m, 1, e, state);
           }
         }
-        break;
       }
+      break;
+    }
     }
   }
 
@@ -2655,7 +2661,8 @@ struct MeshLog {
       m->thawTopo();
     }
     util::Vector<int> faces, verts;
-    tree->castScreenRect(near0, near1, near2, near3, far0, far1, far2, far3, faces, verts);
+    tree->castScreenRect(
+        near0, near1, near2, near3, far0, far1, far2, far3, faces, verts);
     selectFromSets(m, domain, faces, verts, state != 0);
   }
 
@@ -2663,15 +2670,15 @@ struct MeshLog {
   void setActiveElem(int domain, int idx)
   {
     switch (domain) {
-      case 0:
-        active_vert_ = idx;
-        break;
-      case 1:
-        active_edge_ = idx;
-        break;
-      case 2:
-        active_face_ = idx;
-        break;
+    case 0:
+      active_vert_ = idx;
+      break;
+    case 1:
+      active_edge_ = idx;
+      break;
+    case 2:
+      active_face_ = idx;
+      break;
     }
   }
 
@@ -2768,7 +2775,6 @@ private:
     std::swap(active_edge_, e.snapActiveEdge);
     std::swap(active_face_, e.snapActiveFace);
   }
-
 
   /* Topo chunks restore elements with raw alloc/release + attr memcpys,
    * bypassing the auto-thawing topology mutators. On a frozen mesh the live

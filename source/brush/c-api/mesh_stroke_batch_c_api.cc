@@ -19,11 +19,8 @@ extern "C" {
 
 /** Batch raycast: `rays` = n x 6 {origin.xyz, dir.xyz}; on hit `out6` row i =
  * {p.xyz, normal.xyz} and `hit[i]` = 1. Returns the hit count. */
-int MeshStroke_castBatch(spatial::SpatialTree *tree,
-                         int n,
-                         const float *rays,
-                         float *out6,
-                         uint8_t *hit)
+int MeshStroke_castBatch(
+    spatial::SpatialTree *tree, int n, const float *rays, float *out6, uint8_t *hit)
 {
   if (!tree) {
     return -1;
@@ -42,8 +39,7 @@ int MeshStroke_castBatch(spatial::SpatialTree *tree,
       o[5] = isect.normal[2];
       hit[i] = 1;
       count++;
-    }
-    else {
+    } else {
       hit[i] = 0;
     }
   }
@@ -111,7 +107,8 @@ int MeshStroke_dabBatch(brush::CommandExecutor *exec,
     for (int mi = 0; mi < mirrorCount; mi++) {
       const float *sg = signs + mi * 3;
       total += oneImage(float3(d[0] * sg[0], d[1] * sg[1], d[2] * sg[2]),
-                        float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]), d[6]);
+                        float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]),
+                        d[6]);
     }
   }
   return total;
@@ -172,7 +169,8 @@ int MeshStroke_dabBatchProgram(brush::CommandExecutor *exec,
     for (int mi = 0; mi < mirrorCount; mi++) {
       const float *sg = signs + mi * 3;
       total += oneImage(float3(d[0] * sg[0], d[1] * sg[1], d[2] * sg[2]),
-                        float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]), d[6]);
+                        float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]),
+                        d[6]);
     }
   }
   return total;

@@ -58,28 +58,54 @@ void setTreeDrawShader(void *tree, const char *wgsl);
 int getTreeMissingAttrSlots(void *tree, int *out, int maxOut);
 void refreshTreeRequestedAttrs(void *tree);
 // GPU brush-stroke seam (source/brush/c-api/gpu_brush_c_api.cc).
-void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog,
-                           int tool);
+void *GpuBrush_beginStroke(void *mesh, void *tree, void *brush, void *meshLog, int tool);
 void GpuBrush_free(void *session);
 const char *GpuBrush_kernelName(void *session);
 int GpuBrush_info(void *session, int which);
-int GpuBrush_marshalDab(void *session, float cx, float cy, float cz, float nx,
-                        float ny, float nz, float radius, float filterRadius,
-                        int mirrorIdx, int nonaccum);
+int GpuBrush_marshalDab(void *session,
+                        float cx,
+                        float cy,
+                        float cz,
+                        float nx,
+                        float ny,
+                        float nz,
+                        float radius,
+                        float filterRadius,
+                        int mirrorIdx,
+                        int nonaccum);
 int GpuBrush_dataSize(void *session, int which);
 const void *GpuBrush_dataPtr(void *session, int which);
 void GpuBrush_applyCo(void *session, const float *co, int elemCount);
-void GpuBrush_endStroke(void *session, const float *co, const float *no,
-                        int elemCount);
+void GpuBrush_endStroke(void *session, const float *co, const float *no, int elemCount);
 // VDM engine seam (source/vdm/c-api/vdm_c_api.cc).
 void *VdmStore_new(int resolution, int tileSize);
 void VdmStore_free(void *store);
-int Mesh_vdmSplatDab(void *mesh, void *tree, void *store, float cx, float cy,
-                     float cz, float nx, float ny, float nz, float radius,
-                     float strength, float alpha, int invert);
-int Mesh_vdmSplatDabLogged(void *mesh, void *tree, void *store, void *log,
-                           float cx, float cy, float cz, float nx, float ny,
-                           float nz, float radius, float strength, float alpha,
+int Mesh_vdmSplatDab(void *mesh,
+                     void *tree,
+                     void *store,
+                     float cx,
+                     float cy,
+                     float cz,
+                     float nx,
+                     float ny,
+                     float nz,
+                     float radius,
+                     float strength,
+                     float alpha,
+                     int invert);
+int Mesh_vdmSplatDabLogged(void *mesh,
+                           void *tree,
+                           void *store,
+                           void *log,
+                           float cx,
+                           float cy,
+                           float cz,
+                           float nx,
+                           float ny,
+                           float nz,
+                           float radius,
+                           float strength,
+                           float alpha,
                            int invert);
 uint8_t *VdmStore_serialize(void *store, int *out_size);
 int Mesh_vdmApplyToVerts(void *mesh, void *store, int clearStore);
@@ -96,8 +122,8 @@ void Mesh_layerRemove(void *mesh, int li);
 int Mesh_setActiveEditLayer(void *mesh, int li);
 void Mesh_layerFold(void *mesh);
 // Multires seam (source/subdiv/c-api/subdiv_c_api.cc).
-void *Multires_new(void *cage, int levels, int leafLimit, int depthLimit,
-                   int gpuTriTarget);
+void *
+Multires_new(void *cage, int levels, int leafLimit, int depthLimit, int gpuTriTarget);
 void Multires_free(void *mr);
 int Multires_setActiveLevel(void *mr, int level);
 void *Multires_activeMesh(void *mr);
@@ -1923,9 +1949,19 @@ napi_value NapiRuntime::MeshVdmSplatDab(napi_env env, napi_callback_info info)
   }
   int32_t invert = 0;
   napi_get_value_int32(env, argv[12], &invert);
-  int n = Mesh_vdmSplatDab(mw->ptr, tw->ptr, sw->ptr, float(f[0]), float(f[1]),
-                           float(f[2]), float(f[3]), float(f[4]), float(f[5]),
-                           float(f[6]), float(f[7]), float(f[8]), invert);
+  int n = Mesh_vdmSplatDab(mw->ptr,
+                           tw->ptr,
+                           sw->ptr,
+                           float(f[0]),
+                           float(f[1]),
+                           float(f[2]),
+                           float(f[3]),
+                           float(f[4]),
+                           float(f[5]),
+                           float(f[6]),
+                           float(f[7]),
+                           float(f[8]),
+                           invert);
   napi_create_int32(env, n, &out);
   return out;
 }
@@ -1955,9 +1991,19 @@ napi_value NapiRuntime::MeshVdmSplatDabLogged(napi_env env, napi_callback_info i
   }
   int32_t invert = 0;
   napi_get_value_int32(env, argv[13], &invert);
-  int n = Mesh_vdmSplatDabLogged(mw->ptr, tw->ptr, sw->ptr, lw->ptr, float(f[0]),
-                                 float(f[1]), float(f[2]), float(f[3]), float(f[4]),
-                                 float(f[5]), float(f[6]), float(f[7]), float(f[8]),
+  int n = Mesh_vdmSplatDabLogged(mw->ptr,
+                                 tw->ptr,
+                                 sw->ptr,
+                                 lw->ptr,
+                                 float(f[0]),
+                                 float(f[1]),
+                                 float(f[2]),
+                                 float(f[3]),
+                                 float(f[4]),
+                                 float(f[5]),
+                                 float(f[6]),
+                                 float(f[7]),
+                                 float(f[8]),
                                  invert);
   napi_create_int32(env, n, &out);
   return out;
@@ -2079,8 +2125,8 @@ napi_value NapiRuntime::VdmStoreDeserialize(napi_env env, napi_callback_info inf
   if (!bytes || byteLen == 0) {
     return out;
   }
-  void *store =
-      VdmStore_deserialize(static_cast<const uint8_t *>(bytes), static_cast<int>(byteLen));
+  void *store = VdmStore_deserialize(static_cast<const uint8_t *>(bytes),
+                                     static_cast<int>(byteLen));
   const binding::BindingBase *st = rt->lookup("sculptcore::vdm::VdmStore");
   if (!store || !st || st->type != BindingType::Struct) {
     if (store) {
@@ -2142,8 +2188,9 @@ napi_value NapiRuntime::MeshUpdateFrames(napi_env env, napi_callback_info info)
 
 // Shared body of the sculpt-layer settings mutators: unwrap (mesh, li[, f]) and
 // forward to the displace C-API, which keeps evaluated v.co current.
-template<typename Fn>
-static napi_value meshLayerMutate(napi_env env, napi_callback_info info, bool hasValue, Fn fn)
+template <typename Fn>
+static napi_value
+meshLayerMutate(napi_env env, napi_callback_info info, bool hasValue, Fn fn)
 {
   size_t argc = 3;
   napi_value argv[3];
@@ -2152,8 +2199,9 @@ static napi_value meshLayerMutate(napi_env env, napi_callback_info info, bool ha
   napi_get_undefined(env, &undef);
   Wrapped *mw = nullptr;
   size_t need = hasValue ? 3 : 2;
-  if (argc >= need && napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok &&
-      mw && mw->ptr)
+  if (argc >= need &&
+      napi_unwrap(env, argv[0], reinterpret_cast<void **>(&mw)) == napi_ok && mw &&
+      mw->ptr)
   {
     int32_t li = -1;
     napi_get_value_int32(env, argv[1], &li);
@@ -2194,9 +2242,8 @@ napi_value NapiRuntime::MeshLayerSetFrozen(napi_env env, napi_callback_info info
 // drops its settings row + attribute column (destructive; caller snapshots).
 napi_value NapiRuntime::MeshLayerRemove(napi_env env, napi_callback_info info)
 {
-  return meshLayerMutate(env, info, false, [](void *m, int li, double) {
-    Mesh_layerRemove(m, li);
-  });
+  return meshLayerMutate(
+      env, info, false, [](void *m, int li, double) { Mesh_layerRemove(m, li); });
 }
 
 // meshSetActiveEditLayer(mesh, li) -> int. Make layer li the V2 edit target
@@ -2294,7 +2341,7 @@ napi_value NapiRuntime::MultiresFree(napi_env env, napi_callback_info info)
 }
 
 // Shared body: unwrap (mr, level) and forward to an int-returning C-API call.
-template<typename Fn>
+template <typename Fn>
 static napi_value multiresLevelCall(napi_env env, napi_callback_info info, Fn fn)
 {
   size_t argc = 2;
@@ -2821,7 +2868,8 @@ napi_value NapiRuntime::FormatBlocks(napi_env env, napi_callback_info info)
 // directly from C++ (not the console.log sink) and flushes, so a headless test
 // can assert whether native-side stdout reaches the launched NW.js process's
 // captured output. Defaults to a fixed marker when called with no argument.
-napi_value NapiRuntime::TestPrint(napi_env env, napi_callback_info info) {
+napi_value NapiRuntime::TestPrint(napi_env env, napi_callback_info info)
+{
   size_t argc = 1;
   napi_value argv[1];
   napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
@@ -2851,7 +2899,8 @@ napi_value NapiRuntime::TestPrint(napi_env env, napi_callback_info info) {
 // sculptcore_node, so a minidump carries a native stack symbolicated by the
 // addon's CodeView PDB. Driven by the harness --apptest-crash flag; see
 // documentation/plans/crashpad.md.
-napi_value NapiRuntime::CrashTest(napi_env env, napi_callback_info info) {
+napi_value NapiRuntime::CrashTest(napi_env env, napi_callback_info info)
+{
   (void)info;
   volatile int *sculptcoreCrashTestNullDeref = nullptr;
   *sculptcoreCrashTestNullDeref = 0xC0FFEE;
@@ -2865,7 +2914,8 @@ napi_value NapiRuntime::CrashTest(napi_env env, napi_callback_info info) {
 // plain printf is written to a dead fd and lost; pointing stdout at a launcher-
 // supplied file gives later TestPrint output a real destination the wrapper
 // reads back — the standard Windows GUI-subsystem stdout workaround.
-napi_value NapiRuntime::RedirectStdout(napi_env env, napi_callback_info info) {
+napi_value NapiRuntime::RedirectStdout(napi_env env, napi_callback_info info)
+{
   size_t argc = 1;
   napi_value argv[1];
   napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
@@ -2922,8 +2972,7 @@ const float *floatsArg(napi_env env, napi_value v, size_t *outLen)
   napi_typedarray_type type;
   size_t len = 0;
   void *data = nullptr;
-  if (napi_get_typedarray_info(env, v, &type, &len, &data, nullptr, nullptr) !=
-          napi_ok ||
+  if (napi_get_typedarray_info(env, v, &type, &len, &data, nullptr, nullptr) != napi_ok ||
       type != napi_float32_array)
   {
     return nullptr;
@@ -3020,9 +3069,17 @@ napi_value NapiRuntime::GpuBrushMarshalDab(napi_env env, napi_callback_info info
   int32_t mirrorIdx = 0, nonaccum = 0;
   napi_get_value_int32(env, argv[9], &mirrorIdx);
   napi_get_value_int32(env, argv[10], &nonaccum);
-  int n = GpuBrush_marshalDab(s, float(f[0]), float(f[1]), float(f[2]), float(f[3]),
-                              float(f[4]), float(f[5]), float(f[6]), float(f[7]),
-                              mirrorIdx, nonaccum);
+  int n = GpuBrush_marshalDab(s,
+                              float(f[0]),
+                              float(f[1]),
+                              float(f[2]),
+                              float(f[3]),
+                              float(f[4]),
+                              float(f[5]),
+                              float(f[6]),
+                              float(f[7]),
+                              mirrorIdx,
+                              nonaccum);
   napi_create_int32(env, n, &out);
   return out;
 }

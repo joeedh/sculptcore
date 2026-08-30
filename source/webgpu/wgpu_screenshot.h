@@ -14,7 +14,9 @@ struct WgpuTarget;
  *  If `outNonUniformPixels` is non-null it receives the count of pixels that
  *  differ from the top-left (background) pixel — a cheap "did anything draw?"
  *  signal for the parity test, avoiding a PNG re-read. */
-bool captureTargetToPNG(const char *path, WgpuContext &ctx, WgpuTarget &target,
+bool captureTargetToPNG(const char *path,
+                        WgpuContext &ctx,
+                        WgpuTarget &target,
                         int *outNonUniformPixels = nullptr);
 
 } // namespace sculptcore::webgpu

@@ -82,7 +82,7 @@ struct VertexData : public ElemData {
 
   /* is not instantiated until first use */
   BuiltinAttr<bool, ".boundary.vertex.dirty"> boundaryDirty;
-  
+
   /* Move vsrc into vdst; vdst must be freed. */
   void move_elem(Mesh *m, int vsrc, int vdst);
   void swap_elems(Mesh *m, int v1, int v2);
@@ -213,7 +213,8 @@ struct FaceData : public ElemData {
   static binding::types::Struct<FaceData> *defineBindings()
   {
     using binding::types::Struct;
-    Struct<FaceData> *st = new Struct<FaceData>("sculptcore::mesh::FaceData", sizeof(FaceData));
+    Struct<FaceData> *st =
+        new Struct<FaceData>("sculptcore::mesh::FaceData", sizeof(FaceData));
     st->inherit(ElemData::defineBindings());
     BIND_STRUCT_MEMBER(st, list_count);
     BIND_STRUCT_MEMBER(st, l);

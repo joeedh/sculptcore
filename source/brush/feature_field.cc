@@ -64,11 +64,8 @@ inline int edgeFaces(Mesh &m, int e, int &f1, int &f2)
 
 /* An edge is a feature if it is flagged sharp/seam, separates two face-set
  * groups, or is a mesh border (a single incident face). */
-inline bool edgeIsFeature(Mesh &m,
-                          int e,
-                          BoolAttrView *sharp,
-                          BoolAttrView *seam,
-                          AttrData<int> *group)
+inline bool edgeIsFeature(
+    Mesh &m, int e, BoolAttrView *sharp, BoolAttrView *seam, AttrData<int> *group)
 {
   if (sharp && sharp->get(e)) {
     return true;
@@ -202,11 +199,13 @@ void updateCrossFieldRegion(Mesh &m,
   }
 
   BoolAttrView *sharp =
-      params.use_features ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SHARP)
-                          : nullptr;
+      params.use_features
+          ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SHARP)
+          : nullptr;
   BoolAttrView *seam =
-      params.use_features ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SEAM)
-                         : nullptr;
+      params.use_features
+          ? mesh::boundary::findBoolEdgeView(&m, mesh::boundary::EDGE_SEAM)
+          : nullptr;
   AttrData<int> *group = nullptr;
   if (params.use_features) {
     AttrRef gref = m.f.attrs.find_attribute(AttrType::INT, mesh::boundary::FACE_GROUP);

@@ -115,8 +115,9 @@ static SeamStats runDab(bool defeatFloor)
     }
   }
   st.sampleCount = int(samples.size());
-  std::sort(samples.begin(), samples.end(),
-            [](const float2 &a, const float2 &b) { return a[0] < b[0]; });
+  std::sort(samples.begin(), samples.end(), [](const float2 &a, const float2 &b) {
+    return a[0] < b[0];
+  });
 
   // Walk outward tracking the smallest displacement seen so far. A vertex that
   // displaces more than one nearer the center inverts the field's monotonicity,
@@ -137,8 +138,12 @@ int main()
   setvbuf(stdout, nullptr, _IONBF, 0);
 
   SeamStats fixed = runDab(/*defeatFloor=*/false);
-  fprintf(stderr, "floored:   n=%d peak=%.6f inversion=%.6f rim=%.8f\n",
-          fixed.sampleCount, fixed.peakDisp, fixed.worstInversion, fixed.dispAtRim);
+  fprintf(stderr,
+          "floored:   n=%d peak=%.6f inversion=%.6f rim=%.8f\n",
+          fixed.sampleCount,
+          fixed.peakDisp,
+          fixed.worstInversion,
+          fixed.dispAtRim);
   test_assert(fixed.sampleCount > 500); // enough of the face to see a seam
   test_assert(fixed.peakDisp > 1e-4f);  // the dab actually deformed something
   // Monotone in radius to within fp noise: no vertex was skipped.
@@ -152,8 +157,12 @@ int main()
   // leaves beyond it never run and their verts stay put while their equidistant
   // neighbors inside an included leaf move the full amount.
   SeamStats torn = runDab(/*defeatFloor=*/true);
-  fprintf(stderr, "unfloored: n=%d peak=%.6f inversion=%.6f rim=%.8f\n",
-          torn.sampleCount, torn.peakDisp, torn.worstInversion, torn.dispAtRim);
+  fprintf(stderr,
+          "unfloored: n=%d peak=%.6f inversion=%.6f rim=%.8f\n",
+          torn.sampleCount,
+          torn.peakDisp,
+          torn.worstInversion,
+          torn.dispAtRim);
   test_assert(torn.worstInversion > 0.2f);
 
   return test_end();

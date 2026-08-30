@@ -92,7 +92,8 @@ struct SeamlessSystem {
  * graph, gauge, corner classes, and the base FEM system into `out`. Thaws
  * topology + recomputes normals. Writes .remesh.e.period and .remesh.e.is_cut
  * (both TEMP). Returns false if the mesh is degenerate (no faces / no classes). */
-bool buildSeamlessSystem(mesh::Mesh &m, const SeamlessParamParams &params,
+bool buildSeamlessSystem(mesh::Mesh &m,
+                         const SeamlessParamParams &params,
                          SeamlessSystem &out);
 
 } // namespace sculptcore::remesh

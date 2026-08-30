@@ -15,7 +15,7 @@ namespace sculptcore::vulkan {
 struct BrushComputeDispatch;
 struct GpuNormalPass;
 struct VulkanBackend;
-}
+} // namespace sculptcore::vulkan
 namespace sculptcore::brush {
 struct IBrushComputeDispatch;
 }
@@ -40,7 +40,7 @@ struct Scene;
  * One session per stroke: BrushComputeDispatch keeps co/no/mask across dabs so
  * each dab reads the previous dab's result, matching CommandExecutor. */
 class GpuStrokeSession {
- public:
+public:
   GpuStrokeSession() = default;
   ~GpuStrokeSession();
   GpuStrokeSession(const GpuStrokeSession &) = delete;
@@ -49,7 +49,10 @@ class GpuStrokeSession {
   /* Write a --gpu-capture JSON fixture for this stroke (batch path only). Call
    * before begin(); `prefix` is the file-name stem. Interactive mode never
    * captures. */
-  void enableCapture(const std::string &prefix) { capturePrefix_ = prefix; }
+  void enableCapture(const std::string &prefix)
+  {
+    capturePrefix_ = prefix;
+  }
 
   /* Opt into the GPU-resident live-render path (interactive mode only). Call
    * before begin() with the backend that renders the scene (swapchain in a
@@ -68,7 +71,10 @@ class GpuStrokeSession {
    * live-render path; instead each dab reads its moved verts back to the CPU
    * mesh and marks the touched nodes dirty so the Vulkan path redraws them. Off
    * in batch/verify (the full readback at end() suffices there). */
-  void enableInteractiveReadback() { interactiveReadback_ = true; }
+  void enableInteractiveReadback()
+  {
+    interactiveReadback_ = true;
+  }
 
   /* Resolve the kernel from scene.currentTool, bring up the device, upload the
    * mesh + (if needed) neighbor topology + bound texture, and open a meshlog
@@ -78,8 +84,10 @@ class GpuStrokeSession {
 
   /* Dispatch one dab at `origin` with surface `normal`. A dab that touches no
    * nodes is a no-op returning true. */
-  bool dab(Scene &scene, litestl::math::float3 origin,
-           litestl::math::float3 normal, std::string &err);
+  bool dab(Scene &scene,
+           litestl::math::float3 origin,
+           litestl::math::float3 normal,
+           std::string &err);
 
   /* Read the result back into the mesh, snapshot the touched nodes for undo,
    * write the capture fixture (if enabled), and close the meshlog step. Safe to
@@ -93,7 +101,7 @@ class GpuStrokeSession {
    * enableInteractiveReadback() was set and a dab has landed. */
   void flushInteractiveReadback(Scene &scene);
 
- private:
+private:
   /* Owned dispatcher — a vulkan::BrushComputeDispatch (Wgsl) or a
    * webgpu::WgpuBrushComputeDispatch (WgpuNative). vkDisp_ aliases it (non-owning)
    * only for the Vulkan backend, used by the Vulkan-only live-render extras
@@ -106,11 +114,12 @@ class GpuStrokeSession {
   const char *kernel_ = nullptr;
   bool needsNeighbors_ = false;
   bool writesMask_ = false;
-  bool writesColor_ = false;  // COLOR kernel: float4 vertex "color" attr at slot 14
+  bool writesColor_ = false; // COLOR kernel: float4 vertex "color" attr at slot 14
   // Local deformation kernel (neither @global nor @paint) — eligible for
   // non-accumulate mode; mirrors brush_command::accumulable.
   bool accumulable_ = false;
-  bool readsVclass_ = false;  // BSMOOTH kernel: int vertex boundary-class attr at slot 14 (read-only)
+  bool readsVclass_ =
+      false; // BSMOOTH kernel: int vertex boundary-class attr at slot 14 (read-only)
   // POLYGROUP (Wave 1b): a per-FACE kernel. The dispatch threads over faces, not
   // verts — bindings 0/1/3 carry face centroids/normals/unique_faces and the int
   // "group" attr (slot 14) is the read+write target. faceCount_ is the element
@@ -159,7 +168,8 @@ class GpuStrokeSession {
   /* Finalize the live stroke (sync CPU mesh, resolve normals per end-mode, give
    * the render VBOs back to the CPU path). coOut/maskOut are the final readback
    * end() already fetched. */
-  void finishLive(Scene &scene, litestl::util::Vector<float> &coOut,
+  void finishLive(Scene &scene,
+                  litestl::util::Vector<float> &coOut,
                   litestl::util::Vector<float> &maskOut);
 
   /* --gpu-capture state (populated only when enableCapture was called). Held
@@ -167,7 +177,7 @@ class GpuStrokeSession {
   std::string capturePrefix_;
   bool cap_ = false;
   std::string capCo_, capNo_, capMask_, capNbrMeta_, capNbrVerts_, capTexture_;
-  std::string capAttrIn_;  // face: initial slot-14 attr (group) bytes for replay
+  std::string capAttrIn_; // face: initial slot-14 attr (group) bytes for replay
   std::vector<std::string> capDabs_;
 };
 

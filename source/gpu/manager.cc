@@ -160,7 +160,7 @@ void GPUManager::destroyCommand(DrawCommand *cmd, bool destroy_buffers)
       destroyBuffer(buf);
     }
   }
-  
+
   // note: cmd's destructor removes itself from commands
   alloc::Delete(cmd);
 }

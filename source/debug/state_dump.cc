@@ -71,16 +71,26 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
   for (mesh::AttrRef &a : m->v.attrs.attrs) {
     const char *nm = a.name.c_str();
     if (nm[0] == '.' || std::strcmp(nm, "positions") == 0 ||
-        std::strcmp(nm, "normals") == 0 || std::strcmp(nm, "select") == 0) {
+        std::strcmp(nm, "normals") == 0 || std::strcmp(nm, "select") == 0)
+    {
       continue;
     }
     int comps = 0;
     switch (a.type) {
-    case mesh::AttrType::FLOAT:  comps = 1; break;
-    case mesh::AttrType::FLOAT2: comps = 2; break;
-    case mesh::AttrType::FLOAT3: comps = 3; break;
-    case mesh::AttrType::FLOAT4: comps = 4; break;
-    default: continue;
+    case mesh::AttrType::FLOAT:
+      comps = 1;
+      break;
+    case mesh::AttrType::FLOAT2:
+      comps = 2;
+      break;
+    case mesh::AttrType::FLOAT3:
+      comps = 3;
+      break;
+    case mesh::AttrType::FLOAT4:
+      comps = 4;
+      break;
+    default:
+      continue;
     }
     double sum = 0.0, sqs = 0.0;
     for (int i = 0; i < m->v.count; i++) {
@@ -90,21 +100,30 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
         c[0] = static_cast<mesh::AttrData<float> *>(a.data)->safe_get(i);
         break;
       case mesh::AttrType::FLOAT2: {
-        auto v = static_cast<mesh::AttrData<litestl::math::float2> *>(a.data)->safe_get(i);
-        c[0] = v[0]; c[1] = v[1];
+        auto v =
+            static_cast<mesh::AttrData<litestl::math::float2> *>(a.data)->safe_get(i);
+        c[0] = v[0];
+        c[1] = v[1];
         break;
       }
       case mesh::AttrType::FLOAT3: {
         auto v = static_cast<mesh::AttrData<float3> *>(a.data)->safe_get(i);
-        c[0] = v[0]; c[1] = v[1]; c[2] = v[2];
+        c[0] = v[0];
+        c[1] = v[1];
+        c[2] = v[2];
         break;
       }
       case mesh::AttrType::FLOAT4: {
-        auto v = static_cast<mesh::AttrData<litestl::math::float4> *>(a.data)->safe_get(i);
-        c[0] = v[0]; c[1] = v[1]; c[2] = v[2]; c[3] = v[3];
+        auto v =
+            static_cast<mesh::AttrData<litestl::math::float4> *>(a.data)->safe_get(i);
+        c[0] = v[0];
+        c[1] = v[1];
+        c[2] = v[2];
+        c[3] = v[3];
         break;
       }
-      default: break;
+      default:
+        break;
       }
       for (int k = 0; k < comps; k++) {
         sum += c[k];
@@ -112,8 +131,13 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
       }
     }
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "%s\"%s\":{\"sum\":%.9g,\"sqsum\":%.9g}",
-                  attrsJson.empty() ? "" : ",", nm, sum, sqs);
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "%s\"%s\":{\"sum\":%.9g,\"sqsum\":%.9g}",
+                  attrsJson.empty() ? "" : ",",
+                  nm,
+                  sum,
+                  sqs);
     attrsJson += buf;
   }
   if (!attrsJson.empty()) {
@@ -149,11 +173,17 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
         }
       }
       char buf[320];
-      std::snprintf(buf, sizeof(buf),
+      std::snprintf(buf,
+                    sizeof(buf),
                     "%s\"%s\":{\"entries\":%lld,\"group_sum\":%lld,\"sum\":%.9g,"
                     "\"sqsum\":%.9g,\"slots\":%zu}",
-                    wattrsJson.empty() ? "" : ",", a.name.c_str(), entries, groupSum, sum,
-                    sqs, pool->liveSlotCount());
+                    wattrsJson.empty() ? "" : ",",
+                    a.name.c_str(),
+                    entries,
+                    groupSum,
+                    sum,
+                    sqs,
+                    pool->liveSlotCount());
       wattrsJson += buf;
     }
   }
@@ -196,8 +226,13 @@ void dumpMesh(std::FILE *f, mesh::Mesh *m, bool &first)
       continue;
     }
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "%s\"%s\":{\"sum\":%.9g,\"sqsum\":%.9g}",
-                  fattrsJson.empty() ? "" : ",", nm, sum, sqs);
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "%s\"%s\":{\"sum\":%.9g,\"sqsum\":%.9g}",
+                  fattrsJson.empty() ? "" : ",",
+                  nm,
+                  sum,
+                  sqs);
     fattrsJson += buf;
   }
   if (!fattrsJson.empty()) {
@@ -225,8 +260,7 @@ void dumpSpatial(std::FILE *f, spatial::SpatialTree *tree, bool &first)
       std::fputs(",", f);
     }
     std::fputs("\n      {", f);
-    std::fprintf(f, "\"id\":%d,\"depth\":%d,\"flag\":%d",
-                 n->id, n->depth, int(n->flag));
+    std::fprintf(f, "\"id\":%d,\"depth\":%d,\"flag\":%d", n->id, n->depth, int(n->flag));
     std::fputs(",\"aabb_min\":", f);
     writeFloat3(f, n->aabb.min);
     std::fputs(",\"aabb_max\":", f);

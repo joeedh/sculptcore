@@ -49,17 +49,23 @@ void registerBuiltinHostSamplers();
 int hostSamplerCount();
 const HostSampler *hostSamplerEntry(int i);
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush
 
 /** JIT bridges: the emitted C TU reaches host samplers only through these two
  * (bound via tcc_add_symbol), with `s` = the registry entry. Scalar float
  * args sidestep any small-struct ABI mismatch between tcc and the engine
  * compiler. sb_hs_grad writes {value, gx, gy, gz}, synthesizing central
  * differences when the sampler registered no analytic gradient. */
-extern "C" float sb_hs_value(
-    const void *s, float px, float py, float pz, float nx, float ny, float nz);
-extern "C" void sb_hs_grad(
-    const void *s, float px, float py, float pz, float nx, float ny, float nz, float *out4);
+extern "C" float
+sb_hs_value(const void *s, float px, float py, float pz, float nx, float ny, float nz);
+extern "C" void sb_hs_grad(const void *s,
+                           float px,
+                           float py,
+                           float pz,
+                           float nx,
+                           float ny,
+                           float nz,
+                           float *out4);
 
 /** C-api mirror of registerHostSampler for external hosts (the Blender
  * addon's ctypes bridge): the callbacks use the HostSampler signatures, and
@@ -67,15 +73,11 @@ extern "C" void sb_hs_grad(
  * lifetime of `fn`/`fn_grad`/`user` until the sampler is unregistered or
  * re-registered — for ctypes that means keeping the CFUNCTYPE objects alive.
  * Both return 1 on success, 0 on the corresponding false case above. */
-extern "C" int sc_host_sampler_register(const char *name,
-                                        float (*fn)(void *user,
-                                                    const float p[3],
-                                                    const float n[3]),
-                                        void (*fn_grad)(void *user,
-                                                        const float p[3],
-                                                        const float n[3],
-                                                        float out[4]),
-                                        void *user,
-                                        const char *wgsl,
-                                        float fd_step);
+extern "C" int sc_host_sampler_register(
+    const char *name,
+    float (*fn)(void *user, const float p[3], const float n[3]),
+    void (*fn_grad)(void *user, const float p[3], const float n[3], float out[4]),
+    void *user,
+    const char *wgsl,
+    float fd_step);
 extern "C" int sc_host_sampler_unregister(const char *name);

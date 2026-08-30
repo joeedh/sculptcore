@@ -56,8 +56,8 @@ struct SingularityPairStats {
  * vertex hops — the spurious clutter a pair-cancellation pass could annihilate.
  * Reads .remesh.v.pole_index (computeCrossField must have run). @p pair_verts,
  * when given, receives the participating pole verts (deterministic order). */
-SingularityPairStats findSingularityPairs(mesh::Mesh &m, int max_hops,
-                                          litestl::util::Vector<int> *pair_verts = nullptr);
+SingularityPairStats findSingularityPairs(
+    mesh::Mesh &m, int max_hops, litestl::util::Vector<int> *pair_verts = nullptr);
 
 /* Re-solve the smoothest phase field for the M2 period jumps and rewrite
  * .remesh.f.theta / .remesh.e.period / .remesh.v.pole_index. Runs

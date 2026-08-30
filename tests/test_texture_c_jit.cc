@@ -137,7 +137,8 @@ struct CDual3 {
 };
 
 using EvalFn = float (*)(const float *, const float *, const float *, const void *);
-using EvalDFn = void (*)(const CDual3 *, const CDual3 *, const float *, const void *, CDual *);
+using EvalDFn =
+    void (*)(const CDual3 *, const CDual3 *, const float *, const void *, CDual *);
 
 static bool emitUnit(const char *src, const char *fname, EmitResult &er)
 {
@@ -211,7 +212,8 @@ static void testRings()
   EvalFn eval = (EvalFn)tcc_get_symbol(s, "tex_rings_eval");
   test_assert(eval != nullptr);
 
-  const sculptcore::brush::TextureRegistryEntry *ref = sculptcore::brush::findTexture("Rings");
+  const sculptcore::brush::TextureRegistryEntry *ref =
+      sculptcore::brush::findTexture("Rings");
   test_assert(ref != nullptr);
 
   if (eval && ref) {
@@ -263,7 +265,8 @@ static void testRings()
       float hi[3] = {P[0], P[1], P[2]};
       lo[i] -= h;
       hi[i] += h;
-      float fd = (eval(hi, N, nullptr, nullptr) - eval(lo, N, nullptr, nullptr)) / (2.0f * h);
+      float fd =
+          (eval(hi, N, nullptr, nullptr) - eval(lo, N, nullptr, nullptr)) / (2.0f * h);
       test_assert(std::abs(out.d[i] - fd) <= 2e-2f * (1.0f + std::abs(fd)));
     }
   }
@@ -300,18 +303,30 @@ static void testScaled()
 
   if (eval && defaults) {
     sculptcore::brush::TexEvalCtx ctx = {{
-        1.5f, 0.0f, 0.0f, 0.2f,   //
-        0.0f, 0.8f, 0.0f, -0.1f,  //
-        0.0f, 0.0f, 1.1f, 0.05f,  //
-        0.0f, 0.0f, 0.0f, 1.0f,   //
+        1.5f,
+        0.0f,
+        0.0f,
+        0.2f, //
+        0.0f,
+        0.8f,
+        0.0f,
+        -0.1f, //
+        0.0f,
+        0.0f,
+        1.1f,
+        0.05f, //
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f, //
     }};
     const float P[3] = {0.31f, -0.14f, 0.52f};
     const float N[3] = {0.0f, 0.0f, 1.0f};
 
     float jit = eval(P, N, defaults, &ctx);
 
-    litestl::math::float3 q = sculptcore::brush::texMapPoint(
-        &ctx, litestl::math::float3{P[0], P[1], P[2]});
+    litestl::math::float3 q =
+        sculptcore::brush::texMapPoint(&ctx, litestl::math::float3{P[0], P[1], P[2]});
     float len = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
     float t = len * defaults[0];
     t = t - std::floor(t);
@@ -376,7 +391,8 @@ static void testMath()
       float hi[3] = {P[0], P[1], P[2]};
       lo[i] -= h;
       hi[i] += h;
-      float fd = (eval(hi, N, nullptr, nullptr) - eval(lo, N, nullptr, nullptr)) / (2.0f * h);
+      float fd =
+          (eval(hi, N, nullptr, nullptr) - eval(lo, N, nullptr, nullptr)) / (2.0f * h);
       test_assert(std::abs(out.d[i] - fd) <= 2e-2f * (1.0f + std::abs(fd)));
     }
   }

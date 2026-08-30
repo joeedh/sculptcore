@@ -103,8 +103,8 @@ int main()
   p.mode = dyntopo::DynTopoMode::Collapse;
   p.l_min = 0.3f;
   p.l_max = 0.6f;
-  dyntopo::runDyntopoRemesh(*m, float3(0, 0, 0), 2.0f, p, /*seed=*/9u,
-                         tree->getSpatialCallbacks());
+  dyntopo::runDyntopoRemesh(
+      *m, float3(0, 0, 0), 2.0f, p, /*seed=*/9u, tree->getSpatialCallbacks());
   test_assert(m->v.count < vBefore); /* the dab actually removed geometry */
   test_assert(validateOwnership(tree, m, "post-collapse"));
 
@@ -117,7 +117,7 @@ int main()
   }
 
   int leavesAfter = int(tree->leaves().size());
-  test_assert(leavesAfter < leavesPeak);          /* merged down */
+  test_assert(leavesAfter < leavesPeak); /* merged down */
   test_assert(validateOwnership(tree, m, "post-merge"));
 
   /* Idempotent: a second pass with no new shrinkage is a no-op and stays valid. */
@@ -125,8 +125,11 @@ int main()
   test_assert(int(tree->leaves().size()) == leavesAfter);
   test_assert(validateOwnership(tree, m, "post-merge-2"));
 
-  printf("spatial_merge test: ok (%d verts -> %d, leaves %d -> %d)\n", vBefore,
-         m->v.count, leavesPeak, leavesAfter);
+  printf("spatial_merge test: ok (%d verts -> %d, leaves %d -> %d)\n",
+         vBefore,
+         m->v.count,
+         leavesPeak,
+         leavesAfter);
 
   /* M7.6c rebalance: a lopsided subtree (one near-empty child + a fuller sibling,
    * combined still above the under-full watermark) must be folded/collapsed back
@@ -144,8 +147,8 @@ int main()
   sub.mode = dyntopo::DynTopoMode::Subdivide;
   sub.l_max = 0.03f;
   sub.l_min = 0.005f;
-  dyntopo::runDyntopoRemesh(*m2, float3(0, 0, 0), 0.28f, sub, /*seed=*/3u,
-                         tree2->getSpatialCallbacks());
+  dyntopo::runDyntopoRemesh(
+      *m2, float3(0, 0, 0), 0.28f, sub, /*seed=*/3u, tree2->getSpatialCallbacks());
   tree2->applyDeferredNodeSplit();
   test_assert(validateOwnership(tree2, m2, "r-refine"));
   int leavesRefined = int(tree2->leaves().size());
@@ -157,8 +160,12 @@ int main()
   col.mode = dyntopo::DynTopoMode::Collapse;
   col.l_min = 0.25f;
   col.l_max = 0.5f;
-  dyntopo::runDyntopoRemesh(*m2, float3(0.12f, 0.05f, 0), 0.12f, col, /*seed=*/4u,
-                         tree2->getSpatialCallbacks());
+  dyntopo::runDyntopoRemesh(*m2,
+                            float3(0.12f, 0.05f, 0),
+                            0.12f,
+                            col,
+                            /*seed=*/4u,
+                            tree2->getSpatialCallbacks());
   test_assert(validateOwnership(tree2, m2, "r-collapse"));
 
   /* Alternating rebalance/merge cycles: must reach a stable leaf count (the
@@ -182,7 +189,8 @@ int main()
   test_assert(leavesRebalanced <= leavesRefined); /* rebalance never grew the tree */
 
   printf("spatial_rebalance test: ok (leaves refined %d -> rebalanced %d)\n",
-         leavesRefined, leavesRebalanced);
+         leavesRefined,
+         leavesRebalanced);
 
   alloc::Delete(tree2);
   alloc::Delete(m2);

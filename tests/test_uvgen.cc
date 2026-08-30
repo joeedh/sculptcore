@@ -27,10 +27,16 @@ static void buildTwoQuads(Mesh &m, int &v1o, int &v4o)
   int v4 = m.make_vertex(float3(1, 1, 0));
   int v5 = m.make_vertex(float3(2, 1, 0));
   auto edge = [&](int a, int b) {
-    if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+    if (m.find_edge(a, b) == ELEM_NONE)
+      m.make_edge(a, b);
   };
-  edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
-  edge(v1, v2); edge(v2, v5); edge(v5, v4);
+  edge(v0, v1);
+  edge(v1, v4);
+  edge(v4, v3);
+  edge(v3, v0);
+  edge(v1, v2);
+  edge(v2, v5);
+  edge(v5, v4);
   int fa[4] = {v0, v1, v4, v3};
   int fb[4] = {v1, v2, v5, v4};
   m.make_face(std::span<int>(fa, 4));
@@ -41,7 +47,8 @@ static void buildTwoQuads(Mesh &m, int &v1o, int &v4o)
 
 static bool uvsInUnit(Mesh &m, const char *name)
 {
-  if (!m.c.attrs.has(AttrType::FLOAT2, name)) return false;
+  if (!m.c.attrs.has(AttrType::FLOAT2, name))
+    return false;
   AttrRef ref = m.c.attrs.find_attribute(AttrType::FLOAT2, name);
   auto *uv = ref.get_data<float2>();
   for (int c = 0; c < m.c.count; c++) {
@@ -93,7 +100,8 @@ int main()
     Mesh m;
     int v1, v4;
     buildTwoQuads(m, v1, v4);
-    for (int e : m.e) bnd::setEdgeFlag(&m, bnd::EDGE_SEAM, e, true);
+    for (int e : m.e)
+      bnd::setEdgeFlag(&m, bnd::EDGE_SEAM, e, true);
     int charts = generateUVFromSeams(&m, "uv");
     fprintf(stderr, "uvgen all-seam charts=%d\n", charts);
     test_assert(charts == 2); // 2 faces, fully cut

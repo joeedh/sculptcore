@@ -42,7 +42,8 @@ const BindingBase *Binder<sculptcore::brush::AttrElemDomain>::bind()
 const BindingBase *Binder<sculptcore::brush::TexCoordSpace>::bind()
 {
   using namespace sculptcore::brush;
-  types::Enum *e = new types::Enum("sculptcore::brush::TexCoordSpace", sizeof(TexCoordSpace));
+  types::Enum *e =
+      new types::Enum("sculptcore::brush::TexCoordSpace", sizeof(TexCoordSpace));
 
   e->addItem("GLOBAL", TexCoordSpace::Global);
   e->addItem("VIEW_PLANE", TexCoordSpace::ViewPlane);
@@ -64,7 +65,8 @@ const BindingBase *Binder<sculptcore::brush::StrokeSpaceMode>::bind()
 const BindingBase *Binder<sculptcore::brush::StrokeMethod>::bind()
 {
   using namespace sculptcore::brush;
-  types::Enum *e = new types::Enum("sculptcore::brush::StrokeMethod", sizeof(StrokeMethod));
+  types::Enum *e =
+      new types::Enum("sculptcore::brush::StrokeMethod", sizeof(StrokeMethod));
 
   e->addItem("PATH", StrokeMethod::Path);
   e->addItem("ANCHORED", StrokeMethod::Anchored);

@@ -12,7 +12,8 @@ namespace sculptcore::vulkan {
 
 bool captureToPNG(const char *path, VkContext &ctx, OffscreenTarget &target)
 {
-  if (target.width <= 0 || target.height <= 0) return false;
+  if (target.width <= 0 || target.height <= 0)
+    return false;
 
   /* Linear, host-visible image we can vkCmdCopyImage into and map. */
   VkImage dstImage = VK_NULL_HANDLE;
@@ -29,17 +30,19 @@ bool captureToPNG(const char *path, VkContext &ctx, OffscreenTarget &target)
   ici.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  if (vkCreateImage(ctx.device, &ici, nullptr, &dstImage) != VK_SUCCESS) return false;
+  if (vkCreateImage(ctx.device, &ici, nullptr, &dstImage) != VK_SUCCESS)
+    return false;
 
   VkMemoryRequirements mr;
   vkGetImageMemoryRequirements(ctx.device, dstImage, &mr);
   VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
   mai.allocationSize = mr.size;
-  mai.memoryTypeIndex = ctx.findMemoryType(
-      mr.memoryTypeBits,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  mai.memoryTypeIndex = ctx.findMemoryType(mr.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (mai.memoryTypeIndex == ~0u ||
-      vkAllocateMemory(ctx.device, &mai, nullptr, &dstMem) != VK_SUCCESS) {
+      vkAllocateMemory(ctx.device, &mai, nullptr, &dstMem) != VK_SUCCESS)
+  {
     vkDestroyImage(ctx.device, dstImage, nullptr);
     return false;
   }
@@ -58,7 +61,12 @@ bool captureToPNG(const char *path, VkContext &ctx, OffscreenTarget &target)
                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0,
-                         0, nullptr, 0, nullptr, 1, &b);
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &b);
 
     VkImageCopy region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
@@ -81,7 +89,12 @@ bool captureToPNG(const char *path, VkContext &ctx, OffscreenTarget &target)
                          VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_HOST_BIT,
                          0,
-                         0, nullptr, 0, nullptr, 1, &b);
+                         0,
+                         nullptr,
+                         0,
+                         nullptr,
+                         1,
+                         &b);
   });
 
   /* Walk the host-visible image and copy rows into a packed buffer. */
@@ -91,17 +104,19 @@ bool captureToPNG(const char *path, VkContext &ctx, OffscreenTarget &target)
   void *p = nullptr;
   vkMapMemory(ctx.device, dstMem, 0, VK_WHOLE_SIZE, 0, &p);
   size_t row_bytes = size_t(target.width) * 4;
-  unsigned char *pixels = static_cast<unsigned char *>(std::malloc(row_bytes * size_t(target.height)));
+  unsigned char *pixels =
+      static_cast<unsigned char *>(std::malloc(row_bytes * size_t(target.height)));
   bool ok = false;
   if (pixels) {
     const unsigned char *src = static_cast<const unsigned char *>(p) + layout.offset;
     for (int y = 0; y < target.height; y++) {
-      std::memcpy(pixels + size_t(y) * row_bytes,
-                  src + size_t(y) * layout.rowPitch,
-                  row_bytes);
+      std::memcpy(
+          pixels + size_t(y) * row_bytes, src + size_t(y) * layout.rowPitch, row_bytes);
     }
-    ok = stbi_write_png(path, target.width, target.height, 4, pixels, int(row_bytes)) != 0;
-    if (!ok) fprintf(stderr, "captureToPNG: stbi_write_png failed for '%s'\n", path);
+    ok =
+        stbi_write_png(path, target.width, target.height, 4, pixels, int(row_bytes)) != 0;
+    if (!ok)
+      fprintf(stderr, "captureToPNG: stbi_write_png failed for '%s'\n", path);
     std::free(pixels);
   }
   vkUnmapMemory(ctx.device, dstMem);

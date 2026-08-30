@@ -30,13 +30,13 @@
 #include "mesh/utils/triangulate.h"
 #include "obj_load.h"
 #include "remesh/extract/reproject.h"
-#include "test_config.h"
 #include "remesh/field/cross_field.h"
 #include "remesh/field/density.h"
 #include "remesh/preremesh.h"
 #include "remesh/remesh.h"
 #include "remesh/remesh_params.h"
 #include "remesh/remesh_report.h"
+#include "test_config.h"
 
 #include <cmath>
 #include <cstdio>
@@ -45,13 +45,13 @@
 
 test_init;
 
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                         \
-      retval = 1;                                                                          \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                      \
-    }                                                                                      \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -64,7 +64,9 @@ namespace {
 // stays meaningful). LCG, no <random>, no global state.
 struct Lcg {
   uint32_t s;
-  explicit Lcg(uint32_t seed) : s(seed) {}
+  explicit Lcg(uint32_t seed) : s(seed)
+  {
+  }
   float next() // in [-1, 1)
   {
     s = s * 1664525u + 1013904223u;
@@ -96,8 +98,10 @@ void bbox(Mesh &m, float3 &lo, float3 &hi)
       continue;
     }
     for (int i = 0; i < 3; i++) {
-      if (p[i] < lo[i]) lo[i] = p[i];
-      if (p[i] > hi[i]) hi[i] = p[i];
+      if (p[i] < lo[i])
+        lo[i] = p[i];
+      if (p[i] > hi[i])
+        hi[i] = p[i];
     }
   }
 }
@@ -170,8 +174,12 @@ void testFieldAlignedBounded()
   bbox(*sph, lo1, hi1);
   float diag0 = (hi0 - lo0).length();
   float diag1 = (hi1 - lo1).length();
-  fprintf(stderr, "[bounded] verts=%d diag0=%.4f diag1=%.4f finite=%d\n", vcount0,
-          diag0, diag1, finiteCo(*sph));
+  fprintf(stderr,
+          "[bounded] verts=%d diag0=%.4f diag1=%.4f finite=%d\n",
+          vcount0,
+          diag0,
+          diag1,
+          finiteCo(*sph));
 
   TASSERT(finiteCo(*sph));
   TASSERT(sph->v.count == vcount0);       // smooth never edits topology
@@ -245,7 +253,8 @@ void testFieldAlignedSteers()
     for (int v : g->v) {
       float3 c = g->v.co[v];
       if (c[0] <= lo[0] + 1e-4f || c[0] >= hi[0] - 1e-4f || c[1] <= lo[1] + 1e-4f ||
-          c[1] >= hi[1] - 1e-4f) {
+          c[1] >= hi[1] - 1e-4f)
+      {
         continue;
       }
       c[0] += 0.10f * rng.next();
@@ -264,8 +273,7 @@ void testFieldAlignedSteers()
   double e_iso = axisMisalign(*iso);
   double e_fld = axisMisalign(*fld);
 
-  fprintf(stderr, "[steers] noised=%.5f iso=%.5f field=%.5f\n", e_noised, e_iso,
-          e_fld);
+  fprintf(stderr, "[steers] noised=%.5f iso=%.5f field=%.5f\n", e_noised, e_iso, e_fld);
   TASSERT(e_fld < e_noised);            // field-aligned improved on the noise
   TASSERT(e_fld < e_iso * 1.05 + 1e-6); // and is no worse than isotropic (±5%)
   litestl::alloc::Delete<Mesh>(iso);
@@ -347,8 +355,12 @@ void testSizeFieldGrades()
     }
     double loMean = loN ? loSum / loN : 0.0;
     double hiMean = hiN ? hiSum / hiN : 0.0;
-    fprintf(stderr, "[sizefield/graded] loN=%d loMean=%.4f hiN=%d hiMean=%.4f\n",
-            loN, loMean, hiN, hiMean);
+    fprintf(stderr,
+            "[sizefield/graded] loN=%d loMean=%.4f hiN=%d hiMean=%.4f\n",
+            loN,
+            loMean,
+            hiN,
+            hiMean);
     TASSERT(finiteCo(*g));
     TASSERT(loN > 0 && hiN > 0);
     TASSERT(loMean < hiMean * 0.75); // low-scale region is clearly finer
@@ -375,7 +387,6 @@ Mesh *prolateEllipsoid(int nlat, int nlon, float ax)
   return e;
 }
 
-
 // 9b driver, validity + convergence: the full bootstrap → field → BK → smooth loop
 // on a noised sphere produces a finite, bounded mesh near the target edge length,
 // and the converge_eps early-out path runs without exploding.
@@ -398,19 +409,24 @@ void testDriverConverges()
   p.align = 1.0f;
   p.density = false;
   p.preserve_features = false; // isolate 9b convergence (see note above)
-  p.converge_eps = 1e-3f; // exercise the early-out measure
+  p.converge_eps = 1e-3f;      // exercise the early-out measure
   remesh::preRemesh(*sph, p);
 
   float3 lo1, hi1;
   bbox(*sph, lo1, hi1);
   float diag1 = (hi1 - lo1).length();
   double mean = meanEdgeLen(*sph);
-  fprintf(stderr, "[driver] verts=%d diag0=%.3f diag1=%.3f mean=%.4f L=%.3f\n",
-          sph->v.count, diag0, diag1, mean, L);
+  fprintf(stderr,
+          "[driver] verts=%d diag0=%.3f diag1=%.3f mean=%.4f L=%.3f\n",
+          sph->v.count,
+          diag0,
+          diag1,
+          mean,
+          L);
 
   TASSERT(finiteCo(*sph));
   TASSERT(sph->v.count > 0);
-  TASSERT(diag1 < diag0 * 1.20f + 1e-4f); // BK + smooth don't blow the mesh up
+  TASSERT(diag1 < diag0 * 1.20f + 1e-4f);    // BK + smooth don't blow the mesh up
   TASSERT(mean > L * 0.5 && mean < L * 1.6); // tracks the uniform target band
   litestl::alloc::Delete<Mesh>(sph);
 }
@@ -460,10 +476,14 @@ void testDriverDensityGrades()
   double hiMean = hiN ? hiSum / hiN : 0.0, loMean = loN ? loSum / loN : 0.0;
   fprintf(stderr,
           "[driver/density] verts=%d hiN=%d hiMean=%.4f loN=%d loMean=%.4f\n",
-          g->v.count, hiN, hiMean, loN, loMean);
+          g->v.count,
+          hiN,
+          hiMean,
+          loN,
+          loMean);
   TASSERT(finiteCo(*g));
-  TASSERT(hiN > 0 && loN > 0);            // the field genuinely graded (contrast)
-  TASSERT(hiMean < loMean * 0.8);         // and edges track it: denser ⇒ finer
+  TASSERT(hiN > 0 && loN > 0);    // the field genuinely graded (contrast)
+  TASSERT(hiMean < loMean * 0.8); // and edges track it: denser ⇒ finer
   litestl::alloc::Delete<Mesh>(g);
 }
 
@@ -498,8 +518,8 @@ void testDriverPreservesFeatures()
   // The 8 cube corners (extreme in all three axes) — pinned ⇒ immortal + fixed.
   float3 corners[8];
   for (int i = 0; i < 8; i++) {
-    corners[i] = float3((i & 1) ? hi0[0] : lo0[0], (i & 2) ? hi0[1] : lo0[1],
-                        (i & 4) ? hi0[2] : lo0[2]);
+    corners[i] = float3(
+        (i & 1) ? hi0[0] : lo0[0], (i & 2) ? hi0[1] : lo0[1], (i & 4) ? hi0[2] : lo0[2]);
   }
 
   // How many of the 8 original corners still have a vertex essentially on them.
@@ -509,9 +529,11 @@ void testDriverPreservesFeatures()
       float best = 1e30f;
       for (int v : m.v) {
         float dd = (m.v.co[v] - corners[i]).length();
-        if (dd < best) best = dd;
+        if (dd < best)
+          best = dd;
       }
-      if (best < 1e-3f) kept++;
+      if (best < 1e-3f)
+        kept++;
     }
     return kept;
   };
@@ -520,7 +542,7 @@ void testDriverPreservesFeatures()
   p.target = L;
   p.iters = 5;
   p.align = 1.0f;
-  p.bootstrap_iters = 0;       // clean input: keep features crisp from iter 0
+  p.bootstrap_iters = 0; // clean input: keep features crisp from iter 0
   p.preserve_features = true;
   remesh::preRemesh(*cube, p);
   float3 lo1, hi1;
@@ -537,13 +559,18 @@ void testDriverPreservesFeatures()
   int cornersKept2 = countCorners(*cube2);
 
   fprintf(stderr,
-          "[driver/features] verts=%d diag0=%.4f diag1=%.4f corners pinned=%d/8 unpinned=%d/8\n",
-          cube->v.count, diag0, diag1, cornersKept, cornersKept2);
+          "[driver/features] verts=%d diag0=%.4f diag1=%.4f corners pinned=%d/8 "
+          "unpinned=%d/8\n",
+          cube->v.count,
+          diag0,
+          diag1,
+          cornersKept,
+          cornersKept2);
 
   TASSERT(finiteCo(*cube));
   TASSERT(cube->v.count > 0);
-  TASSERT(cornersKept == 8);          // every corner pinned in place (immortal + fixed)
-  TASSERT(diag1 > diag0 * 0.98f);     // pinned silhouette never collapses inward
+  TASSERT(cornersKept == 8);           // every corner pinned in place (immortal + fixed)
+  TASSERT(diag1 > diag0 * 0.98f);      // pinned silhouette never collapses inward
   TASSERT(cornersKept2 < cornersKept); // pinning preserves corners the plain flow loses
   litestl::alloc::Delete<Mesh>(cube);
   litestl::alloc::Delete<Mesh>(cube2);
@@ -577,17 +604,21 @@ void testBoundarySliding()
   float3 lo0, hi0;
   bbox(*g, lo0, hi0);
   const float z0 = lo0[2];
-  float3 corners[4] = {float3(lo0[0], lo0[1], z0), float3(hi0[0], lo0[1], z0),
-                       float3(hi0[0], hi0[1], z0), float3(lo0[0], hi0[1], z0)};
+  float3 corners[4] = {float3(lo0[0], lo0[1], z0),
+                       float3(hi0[0], lo0[1], z0),
+                       float3(hi0[0], hi0[1], z0),
+                       float3(lo0[0], hi0[1], z0)};
   auto countCorners = [&](Mesh &m) {
     int kept = 0;
     for (int i = 0; i < 4; i++) {
       float best = 1e30f;
       for (int v : m.v) {
         float dd = (m.v.co[v] - corners[i]).length();
-        if (dd < best) best = dd;
+        if (dd < best)
+          best = dd;
       }
-      if (best < 1e-3f) kept++;
+      if (best < 1e-3f)
+        kept++;
     }
     return kept;
   };
@@ -611,7 +642,8 @@ void testBoundarySliding()
       bv.add(m.e.vs[e][1]);
       for (int i = 0; i < 4; i++) {
         if ((a - corners[i]).length() < 1e-3f || (b - corners[i]).length() < 1e-3f) {
-          if (l < minCornerEdge) minCornerEdge = l;
+          if (l < minCornerEdge)
+            minCornerEdge = l;
         }
       }
     }
@@ -655,24 +687,37 @@ void testBoundarySliding()
   // look like clean curve interiors to the topological test, so collapse eats them.
   Mesh *g2 = triGrid(n, size);
   remesh::classifyFeatures(*g2, 0.785398f);
-  remesh::bkRemeshToTarget(*g2, p.target, 4242u, nullptr, /*preserve_features=*/true,
-                           nullptr, /*feature_corner_angle=*/0.0f);
+  remesh::bkRemeshToTarget(*g2,
+                           p.target,
+                           4242u,
+                           nullptr,
+                           /*preserve_features=*/true,
+                           nullptr,
+                           /*feature_corner_angle=*/0.0f);
   int cornersNoGate = countCorners(*g2);
 
   fprintf(stderr,
           "[driver/bndslide] verts=%d bndVerts %d->%d perim %.4f->%.4f "
           "minCornerEdge %.4f->%.4f corners=%d/4 noGate=%d/4\n",
-          g->v.count, bnd0, bnd1, len0, len1, mce0, mce1, cornersKept, cornersNoGate);
+          g->v.count,
+          bnd0,
+          bnd1,
+          len0,
+          len1,
+          mce0,
+          mce1,
+          cornersKept,
+          cornersNoGate);
 
   TASSERT(finiteCo(*g));
-  TASSERT(planar);                    // tangential flow never leaves the plane
-  TASSERT(cornersKept == 4);          // corner gate + corner-angle pin: immortal
-  TASSERT(bnd1 < bnd0 / 2);           // the rim genuinely coarsened...
+  TASSERT(planar);           // tangential flow never leaves the plane
+  TASSERT(cornersKept == 4); // corner gate + corner-angle pin: immortal
+  TASSERT(bnd1 < bnd0 / 2);  // the rim genuinely coarsened...
   TASSERT(std::fabs(len1 - len0) < 0.05 * len0); // ...without shrinking the loop
-  TASSERT(mce1 > 1.5f * spacing);     // sliding: corner-adjacent verts migrated out
-                                      // (collapse alone can't grow these — the gate
-                                      // refuses corner-endpoint collapses)
-  TASSERT(cornersNoGate < 4);         // the gate is load-bearing
+  TASSERT(mce1 > 1.5f * spacing); // sliding: corner-adjacent verts migrated out
+                                  // (collapse alone can't grow these — the gate
+                                  // refuses corner-endpoint collapses)
+  TASSERT(cornersNoGate < 4);     // the gate is load-bearing
   litestl::alloc::Delete<Mesh>(g);
   litestl::alloc::Delete<Mesh>(g2);
 }
@@ -708,38 +753,55 @@ void testPrepassTrace()
   bool ordered = true, contiguous = true;
   for (int i = 0; i < n; i++) {
     int it = trace.rounds[i].iter;
-    if (it < prevIter) ordered = false;
-    if (it > maxIter + 1) contiguous = false;
-    if (it > maxIter) maxIter = it;
+    if (it < prevIter)
+      ordered = false;
+    if (it > maxIter + 1)
+      contiguous = false;
+    if (it > maxIter)
+      maxIter = it;
     prevIter = it;
   }
   for (int it = 0; it <= maxIter; it++) {
     int rounds = 0, maxThin = 0, churn = 0, churnRun = 0;
     float worstAng = 6.2832f;
     for (int i = 0; i < n; i++) {
-      if (trace.rounds[i].iter != it) continue;
+      if (trace.rounds[i].iter != it)
+        continue;
       const dyntopo::RoundQuality &q = trace.rounds[i];
       rounds++;
-      if (q.thin_count > maxThin) maxThin = q.thin_count;
-      if (q.min_angle < worstAng) worstAng = q.min_angle;
+      if (q.thin_count > maxThin)
+        maxThin = q.thin_count;
+      if (q.min_angle < worstAng)
+        worstAng = q.min_angle;
       churn = (q.splits + q.collapses) <= 2 ? churn + 1 : 0;
-      if (churn > churnRun) churnRun = churn;
+      if (churn > churnRun)
+        churnRun = churn;
     }
     fprintf(stderr,
             "[prepass] iter=%d rounds=%-3d maxThin=%-2d worstMinAng=%5.1f "
             "churnRun=%d\n",
-            it, rounds, maxThin, worstAng * k, churnRun);
+            it,
+            rounds,
+            maxThin,
+            worstAng * k,
+            churnRun);
   }
   fprintf(stderr,
           "[prepass/trace] rounds=%d iters=%d peak_thin=%d worstMinAng=%.1f "
           "swings=%d healed=%d churn_run=%d@iter%d\n",
-          n, maxIter + 1, r.peak_thin, r.worst_min_angle * k, r.swings,
-          int(r.healed), r.churn_run, r.churn_iter);
+          n,
+          maxIter + 1,
+          r.peak_thin,
+          r.worst_min_angle * k,
+          r.swings,
+          int(r.healed),
+          r.churn_run,
+          r.churn_iter);
 
-  TASSERT(n > 0);          // the trace captured rounds
-  TASSERT(maxIter >= 1);   // genuinely multi-iter (more than one dab)
-  TASSERT(ordered);        // rounds appended in outer-iter order
-  TASSERT(contiguous);     // every outer iter contributed at least one round
+  TASSERT(n > 0);        // the trace captured rounds
+  TASSERT(maxIter >= 1); // genuinely multi-iter (more than one dab)
+  TASSERT(ordered);      // rounds appended in outer-iter order
+  TASSERT(contiguous);   // every outer iter contributed at least one round
   TASSERT(finiteCo(*sph));
   // Regression gate for the limit-cycle early-out (DynTopoParams::max_stall_rounds,
   // default 16): no dab may churn longer than the cap before bailing. Pre-fix this
@@ -772,8 +834,7 @@ void testDriverNoOp()
   for (int v : g->v) {
     d = std::fmax(d, double((g->v.co[v] - co0[v]).length()));
   }
-  fprintf(stderr, "[driver/noop] vcount %d->%d maxdelta=%.3e\n", vcount0,
-          g->v.count, d);
+  fprintf(stderr, "[driver/noop] vcount %d->%d maxdelta=%.3e\n", vcount0, g->v.count, d);
   TASSERT(g->v.count == vcount0);
   TASSERT(d == 0.0); // target <= 0 returns before any edit
   litestl::alloc::Delete<Mesh>(g);
@@ -797,9 +858,17 @@ void testPipelinePreRemeshClean()
   fprintf(stderr,
           "[pipeline/clean] ok=%d V=%d->%d mean=%.4f->%.4f fold90=%d->%d "
           "iters=%d/%d conv=%d ms=%lld\n",
-          int(rep.success), pe.verts_in, pe.verts_out, pe.mean_edge_in,
-          pe.mean_edge_out, pe.fold90_in, pe.fold90_out, pe.iters_run,
-          pe.iters_resolved, int(pe.converged), pe.duration_ms);
+          int(rep.success),
+          pe.verts_in,
+          pe.verts_out,
+          pe.mean_edge_in,
+          pe.mean_edge_out,
+          pe.fold90_in,
+          pe.fold90_out,
+          pe.iters_run,
+          pe.iters_resolved,
+          int(pe.converged),
+          pe.duration_ms);
 
   TASSERT(out != nullptr);
   TASSERT(rep.success);
@@ -809,9 +878,14 @@ void testPipelinePreRemeshClean()
   TASSERT(pe.degen_out == 0);
   if (out) {
     RemeshReport r = mesh::remeshValidate(*out);
-    fprintf(stderr, "[pipeline/clean] out V=%d F=%d allquad=%d manifold=%d "
-            "inverted=%d\n", r.vert_count, r.face_count, int(r.all_quad),
-            int(r.manifold), r.inverted_faces);
+    fprintf(stderr,
+            "[pipeline/clean] out V=%d F=%d allquad=%d manifold=%d "
+            "inverted=%d\n",
+            r.vert_count,
+            r.face_count,
+            int(r.all_quad),
+            int(r.manifold),
+            r.inverted_faces);
     // Watertight default (cap_odd_holes on): unpairable odd rims close with
     // one cap triangle each (<=1% of faces); everything else stays quads.
     TASSERT(r.ngon_count == 0);
@@ -844,8 +918,11 @@ void testPipelineCountMode()
   fprintf(stderr,
           "[pipeline/count] ok=%d target=%d actual=%d derived_edge=%.4f "
           "ms=%lld\n",
-          int(rep.success), p.target_quad_count, rep.quad_count_actual,
-          rep.derived_edge_length, rep.duration_ms);
+          int(rep.success),
+          p.target_quad_count,
+          rep.quad_count_actual,
+          rep.derived_edge_length,
+          rep.duration_ms);
 
   TASSERT(out != nullptr);
   TASSERT(rep.success);
@@ -885,8 +962,13 @@ void testPipelinePreRemeshEdgeBudget()
   fprintf(stderr,
           "[pipeline/budget] ok=%d F=%d->%d mean=%.4f->%.4f target=%.4f "
           "bootstrap=%d\n",
-          int(rep.success), pe.faces_in, pe.faces_out, pe.mean_edge_in,
-          pe.mean_edge_out, pe.target_resolved, int(pe.coarsen_bootstrap));
+          int(rep.success),
+          pe.faces_in,
+          pe.faces_out,
+          pe.mean_edge_in,
+          pe.mean_edge_out,
+          pe.target_resolved,
+          int(pe.coarsen_bootstrap));
 
   TASSERT(rep.success);
   TASSERT(pe.ran);
@@ -933,11 +1015,25 @@ void testPipelinePreRemeshNoisy()
           "[pipeline/pre] ok=%d stage=%d V=%d->%d F=%d->%d mean=%.4f->%.4f "
           "cv=%.3f fold90=%d->%d degen=%d->%d iters=%d/%d conv=%d coarsen=%d "
           "target=%.4f bootstrap=%d ms=%lld\n",
-          int(rep.success), int(rep.pre_remesh), pe.verts_in, pe.verts_out,
-          pe.faces_in, pe.faces_out, pe.mean_edge_in, pe.mean_edge_out,
-          pe.edge_cv_in, pe.fold90_in, pe.fold90_out, pe.degen_in, pe.degen_out,
-          pe.iters_run, pe.iters_resolved, int(pe.converged),
-          int(pe.coarsen_bootstrap), pe.target_resolved, pe.bootstrap_resolved,
+          int(rep.success),
+          int(rep.pre_remesh),
+          pe.verts_in,
+          pe.verts_out,
+          pe.faces_in,
+          pe.faces_out,
+          pe.mean_edge_in,
+          pe.mean_edge_out,
+          pe.edge_cv_in,
+          pe.fold90_in,
+          pe.fold90_out,
+          pe.degen_in,
+          pe.degen_out,
+          pe.iters_run,
+          pe.iters_resolved,
+          int(pe.converged),
+          int(pe.coarsen_bootstrap),
+          pe.target_resolved,
+          pe.bootstrap_resolved,
           pe.duration_ms);
 
   TASSERT(out != nullptr);
@@ -954,8 +1050,11 @@ void testPipelinePreRemeshNoisy()
   // fixture a stray degenerate face is run-order-sensitive (pointer-ordered BK).
   if (out) {
     RemeshReport r = mesh::remeshValidate(*out);
-    fprintf(stderr, "[pipeline/pre]  out manifold=%d inverted=%d fold90=%d\n",
-            int(r.manifold), r.inverted_faces, r.fold90_edges);
+    fprintf(stderr,
+            "[pipeline/pre]  out manifold=%d inverted=%d fold90=%d\n",
+            int(r.manifold),
+            r.inverted_faces,
+            r.fold90_edges);
     litestl::alloc::Delete<Mesh>(out);
   }
 
@@ -969,8 +1068,11 @@ void testPipelinePreRemeshNoisy()
   TASSERT(!rep0.pre_remesh_effect.ran);
   if (out0) {
     RemeshReport r0 = mesh::remeshValidate(*out0);
-    fprintf(stderr, "[pipeline/base] ok=%d manifold=%d inverted=%d fold90=%d\n",
-            int(rep0.success), int(r0.manifold), r0.inverted_faces,
+    fprintf(stderr,
+            "[pipeline/base] ok=%d manifold=%d inverted=%d fold90=%d\n",
+            int(rep0.success),
+            int(r0.manifold),
+            r0.inverted_faces,
             r0.fold90_edges);
     litestl::alloc::Delete<Mesh>(out0);
   }
@@ -984,7 +1086,11 @@ void printFolds(const char *stage, Mesh &m)
   mesh::FoldCounts fc = mesh::countGeometricFolds(m);
   fprintf(stderr,
           "[fold] %-22s V=%-6d F=%-6d fold90=%-4d fold180=%-4d degen=%-3d\n",
-          stage, m.v.count, m.f.count, fc.fold90, fc.fold180,
+          stage,
+          m.v.count,
+          m.f.count,
+          fc.fold90,
+          fc.fold180,
           fc.degenerate_faces);
 }
 
@@ -1028,12 +1134,14 @@ void testFoldDiagnostic()
   if (const char *e = std::getenv("REMESH_TARGET")) {
     p.target = float(std::atof(e));
   }
-  fprintf(stderr, "[fold] asset=%s mean_edge=%.5f target=%.4f\n", path, mean_e,
-          p.target);
+  fprintf(stderr, "[fold] asset=%s mean_edge=%.5f target=%.4f\n", path, mean_e, p.target);
   printFolds("input", *m);
 
   if (p.bootstrap_iters > 0) {
-    remesh::tangentialSmooth(*m, p.bootstrap_iters, p.smooth_lambda, 0.0f,
+    remesh::tangentialSmooth(*m,
+                             p.bootstrap_iters,
+                             p.smooth_lambda,
+                             0.0f,
                              /*fold_guard=*/true);
     printFolds("bootstrap-smooth", *m);
   }
@@ -1057,16 +1165,18 @@ void testFoldDiagnostic()
       dpa.density_min = p.density_min;
       dpa.density_max = p.density_max;
       remesh::generateAutoDensity(*m, dpa);
-      remesh::limitDensityGradation(*m, p.target, p.gradation, p.gradation_iters,
-                                    p.density_min, p.density_max);
+      remesh::limitDensityGradation(
+          *m, p.target, p.gradation, p.gradation_iters, p.density_min, p.density_max);
       mesh::BuiltinAttr<float, ".remesh.v.density"> density;
       mesh::BuiltinAttr<float, ".remesh.v.presize"> size;
       density.ensure(m->v.attrs);
       size.ensure(m->v.attrs);
       for (int v : m->v) {
         float d = density[v];
-        if (d < p.density_min) d = p.density_min;
-        if (d > p.density_max) d = p.density_max;
+        if (d < p.density_min)
+          d = p.density_min;
+        if (d > p.density_max)
+          d = p.density_max;
         size[v] = d > 1e-12f ? 1.0f / std::sqrt(d) : 1.0f;
       }
       size_attr = ".remesh.v.presize";
@@ -1075,8 +1185,8 @@ void testFoldDiagnostic()
       remesh::classifyFeatures(*m, p.sharp_angle);
     }
     size_t r0 = trace.rounds.size();
-    remesh::bkRemeshToTarget(*m, p.target, p.seed + uint32_t(it) + 1u, size_attr,
-                             p.preserve_features, &trace);
+    remesh::bkRemeshToTarget(
+        *m, p.target, p.seed + uint32_t(it) + 1u, size_attr, p.preserve_features, &trace);
     for (size_t i = r0; i < trace.rounds.size(); i++) {
       trace.rounds[i].iter = it;
     }
@@ -1092,15 +1202,23 @@ void testFoldDiagnostic()
         rounds++;
         s += q.splits;
         c += q.collapses;
-        if (q.max_over > worstOver) worstOver = q.max_over;
-        if (q.min_under > 0.0f && q.min_under < worstUnder) worstUnder = q.min_under;
+        if (q.max_over > worstOver)
+          worstOver = q.max_over;
+        if (q.min_under > 0.0f && q.min_under < worstUnder)
+          worstUnder = q.min_under;
         last = &q;
       }
       fprintf(stderr,
               "[conv] iter=%d rounds=%-3d splits=%-5d collapses=%-5d "
               "worstOver=%.2f worstUnder=%.2f endCands=%d/%d\n",
-              it, rounds, s, c, worstOver, worstUnder < 1e29f ? worstUnder : 0.0f,
-              last ? last->split_cands : 0, last ? last->collapse_cands : 0);
+              it,
+              rounds,
+              s,
+              c,
+              worstOver,
+              worstUnder < 1e29f ? worstUnder : 0.0f,
+              last ? last->split_cands : 0,
+              last ? last->collapse_cands : 0);
       char buf[64];
       std::snprintf(buf, sizeof(buf), "iter%d-bk", it);
       printFolds(buf, *m);
@@ -1108,7 +1226,10 @@ void testFoldDiagnostic()
     if (p.preserve_features) {
       mesh::boundary::recomputeDirty(m);
     }
-    remesh::tangentialSmooth(*m, p.smooth_iters, p.smooth_lambda, p.align,
+    remesh::tangentialSmooth(*m,
+                             p.smooth_iters,
+                             p.smooth_lambda,
+                             p.align,
                              /*fold_guard=*/true);
     {
       char buf[64];
@@ -1146,7 +1267,8 @@ void testSurfaceWalkMatchesGlobal()
   for (int q = 0; q < 64; q++) {
     float3 dir(rng.next(), rng.next(), rng.next());
     float dl = dir.length();
-    if (dl < 1e-3f) continue;
+    if (dl < 1e-3f)
+      continue;
     dir = dir * (1.0f / dl);
     float3 p = dir * (q % 2 ? 1.4f : 0.6f); // alternate outside / inside
 
@@ -1165,15 +1287,22 @@ void testSurfaceWalkMatchesGlobal()
     }
     SurfaceWalkResult w = walkClosestPoint(*s, seed, p);
     TASSERT(w.hit);
-    if (!w.converged) nonconv++;
-    double rel = std::fabs(double(w.dist) - double(g.dist)) /
-                 std::fmax(1e-9, double(g.dist));
-    if (rel > max_rel) max_rel = rel;
-    if (rel > 1e-4) mismatches++;
+    if (!w.converged)
+      nonconv++;
+    double rel =
+        std::fabs(double(w.dist) - double(g.dist)) / std::fmax(1e-9, double(g.dist));
+    if (rel > max_rel)
+      max_rel = rel;
+    if (rel > 1e-4)
+      mismatches++;
     n++;
   }
-  fprintf(stderr, "[walk/global] n=%d mismatches=%d nonconv=%d max_rel=%.3e\n", n,
-          mismatches, nonconv, max_rel);
+  fprintf(stderr,
+          "[walk/global] n=%d mismatches=%d nonconv=%d max_rel=%.3e\n",
+          n,
+          mismatches,
+          nonconv,
+          max_rel);
   TASSERT(n > 50);
   TASSERT(mismatches == 0); // convex: every walk reaches the global minimum
   TASSERT(nonconv == 0);
@@ -1227,13 +1356,21 @@ void testPreRemeshAnchors()
     }
     SurfaceWalkResult w = walkClosestPoint(*src, f, m->v.co[v]);
     TASSERT(w.hit);
-    if (!w.converged) nonconv++;
-    if (w.dist > max_d) max_d = w.dist;
+    if (!w.converged)
+      nonconv++;
+    if (w.dist > max_d)
+      max_d = w.dist;
     ClosestPointResult g = findClosestPoint(tree, m->v.co[v]);
-    if (w.dist > g.dist + 1e-4f) drift++;
+    if (w.dist > g.dist + 1e-4f)
+      drift++;
   }
-  fprintf(stderr, "[anchors] verts=%d dead=%d nonconv=%d drift=%d max_d=%.4f\n", n,
-          dead, nonconv, drift, max_d);
+  fprintf(stderr,
+          "[anchors] verts=%d dead=%d nonconv=%d drift=%d max_d=%.4f\n",
+          n,
+          dead,
+          nonconv,
+          drift,
+          max_d);
   TASSERT(n > 0);
   TASSERT(dead == 0);
   TASSERT(nonconv == 0);
@@ -1255,8 +1392,11 @@ void testPipelineAnchorsSmoke()
     p.pre_remesh_anchors = anchors != 0;
     remesh::RemeshRunReport rep;
     Mesh *out = remesh::QuadRemesh(*s, p, nullptr, nullptr, &rep);
-    fprintf(stderr, "[pipeline/anchors=%d] ok=%d quads=%d\n", anchors,
-            int(rep.success), rep.quad_count_actual);
+    fprintf(stderr,
+            "[pipeline/anchors=%d] ok=%d quads=%d\n",
+            anchors,
+            int(rep.success),
+            rep.quad_count_actual);
     TASSERT(out != nullptr);
     TASSERT(rep.success);
     if (out) {

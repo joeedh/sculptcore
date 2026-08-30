@@ -68,8 +68,8 @@ struct RegionTri {
 };
 
 /* Barycentrics of texel-space point (cx, cy) in T (unnormalized eps-tolerant). */
-inline bool triBary(const RegionTri &T, float cx, float cy, float &w0, float &w1,
-                    float &w2)
+inline bool
+triBary(const RegionTri &T, float cx, float cy, float &w0, float &w1, float &w2)
 {
   w0 = ((T.px[1] - cx) * (T.py[2] - cy) - (T.py[1] - cy) * (T.px[2] - cx)) * T.inv;
   w1 = ((T.px[2] - cx) * (T.py[0] - cy) - (T.py[2] - cy) * (T.px[0] - cx)) * T.inv;
@@ -79,8 +79,8 @@ inline bool triBary(const RegionTri &T, float cx, float cy, float &w0, float &w1
 }
 
 /* Splat-identical displaced position at `uv` from a snapshot triangle. */
-inline float3 displacedAt(const RegionTri &T, VdmStore &store, const float2 &uv,
-                          float w0, float w1, float w2)
+inline float3 displacedAt(
+    const RegionTri &T, VdmStore &store, const float2 &uv, float w0, float w1, float w2)
 {
   float3 base = T.co[0] * w0 + T.co[1] * w1 + T.co[2] * w2;
   float3 n = safeNormalize(T.no[0] * w0 + T.no[1] * w1 + T.no[2] * w2);
@@ -127,8 +127,8 @@ bool gatherFaceTris(Mesh &m,
       T.no[j] = frames.normal->safe_get(vert);
       T.tan[j] = frames.tangent->safe_get(vert);
     }
-    float area2 =
-        (T.px[1] - T.px[0]) * (T.py[2] - T.py[0]) - (T.py[1] - T.py[0]) * (T.px[2] - T.px[0]);
+    float area2 = (T.px[1] - T.px[0]) * (T.py[2] - T.py[0]) -
+                  (T.py[1] - T.py[0]) * (T.px[2] - T.px[0]);
     if (std::fabs(area2) < 1e-12f) {
       continue;
     }
@@ -319,7 +319,10 @@ VdmPromoteStats promoteRegion(Mesh &m,
     };
   }
   Vector<int> cutVerts;
-  mesh::ops::subdivideEdges(m, &wrapped, params.subdiv_cuts, cutVerts,
+  mesh::ops::subdivideEdges(m,
+                            &wrapped,
+                            params.subdiv_cuts,
+                            cutVerts,
                             /*preferOpDomain=*/false);
 
   // Pattern subdivide restores only the ORIGINAL corners' attrs; corners on
@@ -622,8 +625,8 @@ void VdmEdgeFlagLogChunk::undo(mesh::Mesh *m, spatial::SpatialTree * /*tree*/)
 {
   for (const Mark &mark : marks) {
     if (size_t(mark.edge) < m->e.capacity() && !m->e.freemap[mark.edge]) {
-      mesh::boundary::setEdgeFlag(m, mesh::boundary::EDGE_LAYER_REGION, mark.edge,
-                                  mark.before);
+      mesh::boundary::setEdgeFlag(
+          m, mesh::boundary::EDGE_LAYER_REGION, mark.edge, mark.before);
     }
   }
 }
@@ -632,8 +635,7 @@ void VdmEdgeFlagLogChunk::redo(mesh::Mesh *m, spatial::SpatialTree * /*tree*/)
 {
   for (const Mark &mark : marks) {
     if (size_t(mark.edge) < m->e.capacity() && !m->e.freemap[mark.edge]) {
-      mesh::boundary::setEdgeFlag(m, mesh::boundary::EDGE_LAYER_REGION, mark.edge,
-                                  true);
+      mesh::boundary::setEdgeFlag(m, mesh::boundary::EDGE_LAYER_REGION, mark.edge, true);
     }
   }
 }

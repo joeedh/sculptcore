@@ -1,6 +1,6 @@
 #pragma once
-#include "mesh.h"
 #include "litestl/binding/manager.h"
+#include "mesh.h"
 
 namespace sculptcore::mesh {
 void registerBindings(litestl::binding::BindingManager &manager);

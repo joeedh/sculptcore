@@ -50,7 +50,8 @@ constexpr float FLAT_CURV = 0.5f;
 constexpr float AMBIENT_W = 1.0f;
 } // namespace
 
-void gatherConstraints(Mesh &m, const CrossFieldParams &params,
+void gatherConstraints(Mesh &m,
+                       const CrossFieldParams &params,
                        Vector<FaceConstraint> &out)
 {
   m.recalc_normals();
@@ -63,12 +64,13 @@ void gatherConstraints(Mesh &m, const CrossFieldParams &params,
 
   // M1 inputs, computed on demand.
   if (params.use_curvature) {
-    computeCurvature(m, CurvatureParams{params.curvature_smooth_iters,
-                                        params.curvature_smooth_lambda});
+    computeCurvature(
+        m,
+        CurvatureParams{params.curvature_smooth_iters, params.curvature_smooth_lambda});
   }
   if (params.use_sharp_features) {
-    computeFeatureTags(m, params.sharp_angle, params.feature_hysteresis,
-                       params.feature_min_chain);
+    computeFeatureTags(
+        m, params.sharp_angle, params.feature_hysteresis, params.feature_min_chain);
   }
 
   BuiltinAttr<float3, ".remesh.v.kmax_dir"> kmax_dir;
@@ -106,16 +108,19 @@ void gatherConstraints(Mesh &m, const CrossFieldParams &params,
   for (int v : m.v) {
     float3 p = m.v.co[v];
     for (int i = 0; i < 3; i++) {
-      if (!bbinit || p[i] < bbmin[i]) bbmin[i] = p[i];
-      if (!bbinit || p[i] > bbmax[i]) bbmax[i] = p[i];
+      if (!bbinit || p[i] < bbmin[i])
+        bbmin[i] = p[i];
+      if (!bbinit || p[i] > bbmax[i])
+        bbmax[i] = p[i];
     }
     bbinit = true;
   }
   float bbdiag = bbinit ? std::sqrt((bbmax[0] - bbmin[0]) * (bbmax[0] - bbmin[0]) +
                                     (bbmax[1] - bbmin[1]) * (bbmax[1] - bbmin[1]) +
                                     (bbmax[2] - bbmin[2]) * (bbmax[2] - bbmin[2]))
-                         : 1.0f;
-  if (bbdiag < 1e-8f) bbdiag = 1.0f;
+                        : 1.0f;
+  if (bbdiag < 1e-8f)
+    bbdiag = 1.0f;
 
   for (int f : m.f) {
     float3 X, Y, N;
@@ -218,9 +223,8 @@ void gatherConstraints(Mesh &m, const CrossFieldParams &params,
     if (params.use_curvature) {
       float len = std::sqrt(sx * sx + sy * sy);
       if (len > 1e-8f && nverts > 0) {
-        out[f] = FaceConstraint{sx / len, sy / len,
-                                params.curvature_weight * len / float(nverts),
-                                false};
+        out[f] = FaceConstraint{
+            sx / len, sy / len, params.curvature_weight * len / float(nverts), false};
       }
     }
   }

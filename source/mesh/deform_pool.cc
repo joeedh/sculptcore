@@ -32,7 +32,8 @@ void canonicalize(span<const DeformWeight> run, Vector<DeformWeight> &out)
   }
 
   // Comparator returns negative/zero/positive, not a bool.
-  out.sort([](const DeformWeight &a, const DeformWeight &b) { return a.group - b.group; });
+  out.sort(
+      [](const DeformWeight &a, const DeformWeight &b) { return a.group - b.group; });
 
   int write = 0;
   for (int i = 1; i < int(out.size()); i++) {

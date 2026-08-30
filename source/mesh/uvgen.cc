@@ -28,7 +28,8 @@ float3 faceAreaNormal(MeshBase *m, int f)
     int c = cstart;
     do {
       int cn = m->c.next[c];
-      if (cn == ELEM_NONE) cn = cstart;
+      if (cn == ELEM_NONE)
+        cn = cstart;
       float3 cur = m->v.co[m->c.v[c]];
       float3 nxt = m->v.co[m->c.v[cn]];
       n[0] += (cur[1] - nxt[1]) * (cur[2] + nxt[2]);
@@ -53,12 +54,14 @@ int generateUVFromSeams(MeshBase *m, const char *uvName, float margin)
   BoolAttrView *seam = boundary::findBoolEdgeView(m, boundary::EDGE_SEAM);
   Vector<int> chartId;
   chartId.resize(nf);
-  for (int f = 0; f < nf; f++) chartId[f] = -1;
+  for (int f = 0; f < nf; f++)
+    chartId[f] = -1;
 
   int nCharts = 0;
   Vector<int> stack;
   for (int f0 = 0; f0 < nf; f0++) {
-    if (chartId[f0] != -1) continue;
+    if (chartId[f0] != -1)
+      continue;
     chartId[f0] = nCharts;
     stack.clear();
     stack.append(f0);
@@ -91,21 +94,24 @@ int generateUVFromSeams(MeshBase *m, const char *uvName, float margin)
     }
     nCharts++;
   }
-  if (nCharts == 0) return 0;
+  if (nCharts == 0)
+    return 0;
 
   // 2. Per-chart group normal + tangent basis.
   Vector<float3> nrmSum, t1s, t2s;
   nrmSum.resize(nCharts);
   t1s.resize(nCharts);
   t2s.resize(nCharts);
-  for (int c = 0; c < nCharts; c++) nrmSum[c] = float3(0.0f, 0.0f, 0.0f);
-  for (int f = 0; f < nf; f++) nrmSum[chartId[f]] += faceAreaNormal(m, f);
+  for (int c = 0; c < nCharts; c++)
+    nrmSum[c] = float3(0.0f, 0.0f, 0.0f);
+  for (int f = 0; f < nf; f++)
+    nrmSum[chartId[f]] += faceAreaNormal(m, f);
   for (int c = 0; c < nCharts; c++) {
     float3 nrm = nrmSum[c];
     float len = nrm.length();
     nrm = len > 1e-12f ? nrm / len : float3(0.0f, 0.0f, 1.0f);
-    float3 up = std::abs(nrm[2]) < 0.999f ? float3(0.0f, 0.0f, 1.0f)
-                                          : float3(1.0f, 0.0f, 0.0f);
+    float3 up =
+        std::abs(nrm[2]) < 0.999f ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
     float3 t1 = up.cross(nrm);
     float tl = t1.length();
     t1 = tl > 1e-12f ? t1 / tl : float3(1.0f, 0.0f, 0.0f);
@@ -131,10 +137,14 @@ int generateUVFromSeams(MeshBase *m, const char *uvName, float margin)
     float u = p.dot(t1s[ch]);
     float v = p.dot(t2s[ch]);
     rawUV[c] = float2(u, v);
-    if (u < minX[ch]) minX[ch] = u;
-    if (v < minY[ch]) minY[ch] = v;
-    if (u > maxX[ch]) maxX[ch] = u;
-    if (v > maxY[ch]) maxY[ch] = v;
+    if (u < minX[ch])
+      minX[ch] = u;
+    if (v < minY[ch])
+      minY[ch] = v;
+    if (u > maxX[ch])
+      maxX[ch] = u;
+    if (v > maxY[ch])
+      maxY[ch] = v;
   }
 
   // 4. Shelf box-pack chart bounding boxes (world scale preserved), wrapping at
@@ -149,7 +159,8 @@ int generateUVFromSeams(MeshBase *m, const char *uvName, float margin)
     sumArea += double(w) * h;
   }
   float rowLimit = float(std::sqrt(sumArea));
-  if (!(rowLimit > 0.0f)) rowLimit = 1.0f;
+  if (!(rowLimit > 0.0f))
+    rowLimit = 1.0f;
 
   float cx = 0.0f, cy = 0.0f, rowH = 0.0f, packW = 0.0f;
   for (int c = 0; c < nCharts; c++) {
@@ -163,8 +174,10 @@ int generateUVFromSeams(MeshBase *m, const char *uvName, float margin)
     offX[c] = cx + margin; // chart bbox-min maps here
     offY[c] = cy + margin;
     cx += w;
-    if (h > rowH) rowH = h;
-    if (cx > packW) packW = cx;
+    if (h > rowH)
+      rowH = h;
+    if (cx > packW)
+      packW = cx;
   }
   float packH = cy + rowH;
   float scale = 1.0f / std::max(std::max(packW, packH), 1e-6f);

@@ -6,13 +6,12 @@
 
 #include "brush/brush_executor.h"
 #include "brush/brushes/all.h"
+#include "brush/grid_executor.h"
+#include "brush/grid_gpu_session.h"
 #include "brush/stroke_driver.h"
 #include "brush/stroke_spacing.h"
 #include "displace/compositor.h"
 #include "displace/frames.h"
-#include "vdm/vdm_promote.h"
-#include "vdm/vdm_splat.h"
-#include "vdm/vdm_undo.h"
 #include "litestl/util/alloc.h"
 #include "litestl/util/vector.h"
 #include "mesh/attr_weights.h"
@@ -32,8 +31,9 @@
 #include "remesh/remesh_params.h"
 #include "spatial/spatial.h"
 #include "stb/stb_image.h"
-#include "brush/grid_executor.h"
-#include "brush/grid_gpu_session.h"
+#include "vdm/vdm_promote.h"
+#include "vdm/vdm_splat.h"
+#include "vdm/vdm_undo.h"
 #ifdef SBRUSH_WEBGPU_COMPUTE
 #include "webgpu/wgpu_compute.h"
 #include "webgpu/wgpu_context.h"
@@ -56,11 +56,11 @@
 #include <cfloat>
 #include <chrono>
 #include <cmath>
-#include <fstream>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iterator>
 #include <map>
 #include <string>
@@ -205,8 +205,7 @@ std::string joinPath(const char *base, const char *rel)
   if (!base || base[0] == 0) {
     return std::string(rel);
   }
-  if (rel[0] == '/' || rel[0] == '\\' ||
-      (std::strlen(rel) > 1 && rel[1] == ':')) {
+  if (rel[0] == '/' || rel[0] == '\\' || (std::strlen(rel) > 1 && rel[1] == ':')) {
     return std::string(rel);
   }
   std::string out(base);
@@ -228,7 +227,9 @@ std::string joinPath(const char *base, const char *rel)
 // Geometry must match the C++ path bit-modulo-fp; that is what
 // `make.mjs sbrush-verify` asserts via the <brush>_ab.txt A/B scripts.
 // --gpu-capture writes a JSON fixture per stroke for the Dawn/WebGPU harness.
-bool runBrushStrokeGPU(Scene &scene, const Vector<float3> &origins, float3 normal,
+bool runBrushStrokeGPU(Scene &scene,
+                       const Vector<float3> &origins,
+                       float3 normal,
                        std::string &err)
 {
   GpuStrokeSession session;
@@ -264,16 +265,14 @@ bool firstTreeDivergence(spatial::SpatialTree *tree, mesh::Mesh *m, std::string 
    *    owns the old occupant. */
   for (int f = 0; f < int(m->f.capacity()); f++) {
     if (m->f.freemap[f] && fnode[f] != 0) {
-      std::snprintf(buf, sizeof(buf),
-                    "dead face %d still owned by leaf %d", f, fnode[f]);
+      std::snprintf(buf, sizeof(buf), "dead face %d still owned by leaf %d", f, fnode[f]);
       msg = buf;
       return false;
     }
   }
   for (int v = 0; v < int(m->v.capacity()); v++) {
     if (m->v.freemap[v] && vnode[v] != 0) {
-      std::snprintf(buf, sizeof(buf),
-                    "dead vert %d still owned by leaf %d", v, vnode[v]);
+      std::snprintf(buf, sizeof(buf), "dead vert %d still owned by leaf %d", v, vnode[v]);
       msg = buf;
       return false;
     }
@@ -288,8 +287,8 @@ bool firstTreeDivergence(spatial::SpatialTree *tree, mesh::Mesh *m, std::string 
     }
     spatial::SpatialNode *n = tree->node_from_id(id);
     if (!n || !n->data) {
-      std::snprintf(buf, sizeof(buf),
-                    "live face %d owner id %d resolves to no live leaf", f, id);
+      std::snprintf(
+          buf, sizeof(buf), "live face %d owner id %d resolves to no live leaf", f, id);
       msg = buf;
       return false;
     }
@@ -301,8 +300,8 @@ bool firstTreeDivergence(spatial::SpatialTree *tree, mesh::Mesh *m, std::string 
     }
     spatial::SpatialNode *n = tree->node_from_id(id);
     if (!n || !n->data) {
-      std::snprintf(buf, sizeof(buf),
-                    "live vert %d owner id %d resolves to no live leaf", v, id);
+      std::snprintf(
+          buf, sizeof(buf), "live vert %d owner id %d resolves to no live leaf", v, id);
       msg = buf;
       return false;
     }
@@ -322,9 +321,12 @@ bool firstTreeDivergence(spatial::SpatialTree *tree, mesh::Mesh *m, std::string 
         return false;
       }
       if (fnode[f] != leaf->id) {
-        std::snprintf(buf, sizeof(buf),
+        std::snprintf(buf,
+                      sizeof(buf),
                       "leaf %d claims face %d but owner array says %d",
-                      leaf->id, f, fnode[f]);
+                      leaf->id,
+                      f,
+                      fnode[f]);
         msg = buf;
         return false;
       }
@@ -336,9 +338,12 @@ bool firstTreeDivergence(spatial::SpatialTree *tree, mesh::Mesh *m, std::string 
         return false;
       }
       if (vnode[v] != leaf->id) {
-        std::snprintf(buf, sizeof(buf),
+        std::snprintf(buf,
+                      sizeof(buf),
                       "leaf %d claims vert %d but owner array says %d",
-                      leaf->id, v, vnode[v]);
+                      leaf->id,
+                      v,
+                      vnode[v]);
         msg = buf;
         return false;
       }
@@ -370,14 +375,20 @@ bool firstTreeDivergence(spatial::SpatialTree *tree, mesh::Mesh *m, std::string 
     ownedV += int(leaf->data->unique_verts.size());
   }
   if (ownedF != m->f.count) {
-    std::snprintf(buf, sizeof(buf),
-                  "leaf faces sum to %d but mesh has %d live", ownedF, m->f.count);
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "leaf faces sum to %d but mesh has %d live",
+                  ownedF,
+                  m->f.count);
     msg = buf;
     return false;
   }
   if (ownedV != m->v.count) {
-    std::snprintf(buf, sizeof(buf),
-                  "leaf verts sum to %d but mesh has %d live", ownedV, m->v.count);
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "leaf verts sum to %d but mesh has %d live",
+                  ownedV,
+                  m->v.count);
     msg = buf;
     return false;
   }
@@ -463,8 +474,7 @@ static bool ensureGridSession(Scene &scene, int level, std::string &err)
     scene.gridLevel = level;
     scene.gridLog = litestl::alloc::New<subdiv::GridStrokeLog>("grid verb log");
     scene.gridExec = litestl::alloc::New<brush::GridBrushExecutor>(
-        "grid verb exec", scene.multires->gridDomain(level), &scene.brush,
-        scene.gridLog);
+        "grid verb exec", scene.multires->gridDomain(level), &scene.brush, scene.gridLog);
   } else {
     // Fold points (mesh-path writeback, level ops) drop the domain — re-bind.
     subdiv::GridLevelDomain *d = scene.multires->gridDomain(level);
@@ -478,8 +488,8 @@ static bool ensureGridSession(Scene &scene, int level, std::string &err)
 /* Interim ride-along mirror — the shared brush::gridsMirrorToSlot helper. */
 static void gridMirrorSync(Scene &scene, int level, litestl::util::Vector<int> &verts)
 {
-  brush::gridsMirrorToSlot(scene.multires, level,
-                           std::span<const int>(verts.data(), verts.size()));
+  brush::gridsMirrorToSlot(
+      scene.multires, level, std::span<const int>(verts.data(), verts.size()));
 }
 
 /* Stroke-verb epilogue when multires is active: fold the stroke's positions
@@ -494,8 +504,8 @@ static void multiresStrokeEnd(Scene &scene)
   int changed = scene.multires->writeback(level);
   scene.mrUndoLevels.append(level);
   scene.mrRedoLevels.clear();
-  std::fprintf(stdout, "[script] multires writeback level=%d changed=%d\n", level,
-               changed);
+  std::fprintf(
+      stdout, "[script] multires writeback level=%d changed=%d\n", level, changed);
 }
 /** Print the brush-noise metrics over the region swept by `centers`/`radius`
  * (plan 2026-07-26-0909 §9.1): one-ring normal roughness of the live surface
@@ -510,17 +520,27 @@ static void reportRoughness(Scene &scene,
 {
   Vector<int> region;
   collectRegion(scene.mesh, centers, radius, region);
-  RoughnessResult live = computeRoughness(scene.mesh, region, RoughnessPoints::Live,
-                                          scene.strokeGen, up, rest);
-  RoughnessResult base = computeRoughness(scene.mesh, region, RoughnessPoints::Base,
-                                          scene.strokeGen, up, rest);
+  RoughnessResult live = computeRoughness(
+      scene.mesh, region, RoughnessPoints::Live, scene.strokeGen, up, rest);
+  RoughnessResult base = computeRoughness(
+      scene.mesh, region, RoughnessPoints::Base, scene.strokeGen, up, rest);
   std::fprintf(stdout,
                "[roughness] %s verts=%d edges=%d | live rms=%.6g p95=%.6g max=%.6g "
                "dih=%.6g | base rms=%.6g p95=%.6g max=%.6g dih=%.6g | maxdisp=%.6g "
                "vol=%.6g\n",
-               tag, live.verts, live.edges, live.rms, live.p95, live.maxr,
-               live.dihedral, base.rms, base.p95, base.maxr, base.dihedral,
-               live.maxDisp, live.volume);
+               tag,
+               live.verts,
+               live.edges,
+               live.rms,
+               live.p95,
+               live.maxr,
+               live.dihedral,
+               base.rms,
+               base.p95,
+               base.maxr,
+               base.dihedral,
+               live.maxDisp,
+               live.volume);
   std::fflush(stdout);
 }
 
@@ -551,23 +571,26 @@ bool execVerb(Scene &scene,
       return false;
     }
     std::string ks = kind;
-    for (auto &c : ks) c = (char)std::tolower((unsigned char)c);
+    for (auto &c : ks)
+      c = (char)std::tolower((unsigned char)c);
     mesh::Mesh *m = nullptr;
     if (ks == "grid" || ks == "plane") {
-      m = mesh::makeGrid(getInt(args, "n", 16), getInt(args, "m", 16),
-                         getFloat(args, "size", 1.0f));
+      m = mesh::makeGrid(
+          getInt(args, "n", 16), getInt(args, "m", 16), getFloat(args, "size", 1.0f));
     } else if (ks == "cylinder") {
-      m = mesh::makeCylinder(getInt(args, "n", 24), getInt(args, "m", 8),
+      m = mesh::makeCylinder(getInt(args, "n", 24),
+                             getInt(args, "m", 8),
                              getFloat(args, "radius", 0.5f),
                              getFloat(args, "height", 2.0f),
                              getBool(args, "capped", true));
     } else if (ks == "torus") {
-      m = mesh::makeTorus(getInt(args, "n", 32), getInt(args, "m", 16),
+      m = mesh::makeTorus(getInt(args, "n", 32),
+                          getInt(args, "m", 16),
                           getFloat(args, "radius", 1.0f),
                           getFloat(args, "minor", 0.3f));
     } else if (ks == "sphere" || ks == "uvsphere") {
-      m = mesh::makeUVSphere(getInt(args, "n", 16), getInt(args, "m", 24),
-                             getFloat(args, "radius", 1.0f));
+      m = mesh::makeUVSphere(
+          getInt(args, "n", 16), getInt(args, "m", 24), getFloat(args, "radius", 1.0f));
     } else {
       err = std::string("make_shape: unknown kind '") + kind +
             "' (grid|cylinder|torus|sphere)";
@@ -634,7 +657,8 @@ bool execVerb(Scene &scene,
     scene.dyntopoSeed = (uint32_t)getInt(args, "seed", (int)scene.dyntopoSeed);
     const char *mode = getArg(args, "mode", "both");
     std::string ms = mode;
-    for (auto &c : ms) c = (char)std::tolower((unsigned char)c);
+    for (auto &c : ms)
+      c = (char)std::tolower((unsigned char)c);
     if (ms == "subdivide") {
       scene.dyntopoParams.mode = dyntopo::DynTopoMode::Subdivide;
     } else if (ms == "collapse") {
@@ -642,8 +666,7 @@ bool execVerb(Scene &scene,
     } else if (ms == "both") {
       scene.dyntopoParams.mode = dyntopo::DynTopoMode::Both;
     } else {
-      err = std::string("dyntopo: unknown mode '") + mode +
-            "' (both|subdivide|collapse)";
+      err = std::string("dyntopo: unknown mode '") + mode + "' (both|subdivide|collapse)";
       return false;
     }
     return true;
@@ -671,7 +694,8 @@ bool execVerb(Scene &scene,
       return false;
     }
     std::string bs = b;
-    for (auto &c : bs) c = (char)std::tolower((unsigned char)c);
+    for (auto &c : bs)
+      c = (char)std::tolower((unsigned char)c);
     if (bs == "cpp") {
       scene.currentBackend = BrushBackend::Cpp;
     } else if (bs == "wgsl") {
@@ -682,7 +706,8 @@ bool execVerb(Scene &scene,
       // CI uses to verify the WGSL pipeline configured cleanly.
       scene.currentBackend = BrushBackend::Wgsl;
 #else
-      err = "set_backend: WGSL backend not compiled in (configure with --backends=cpp,wgsl)";
+      err = "set_backend: WGSL backend not compiled in (configure with "
+            "--backends=cpp,wgsl)";
       return false;
 #endif
     } else if (bs == "webgpu") {
@@ -695,7 +720,8 @@ bool execVerb(Scene &scene,
       return false;
 #endif
     } else {
-      err = std::string("set_backend: unknown backend '") + b + "' (valid: cpp, wgsl, webgpu)";
+      err = std::string("set_backend: unknown backend '") + b +
+            "' (valid: cpp, wgsl, webgpu)";
       return false;
     }
     return true;
@@ -707,7 +733,8 @@ bool execVerb(Scene &scene,
       return false;
     }
     std::string ms = mode;
-    for (auto &c : ms) c = (char)std::tolower((unsigned char)c);
+    for (auto &c : ms)
+      c = (char)std::tolower((unsigned char)c);
     if (ms == "livedisk") {
       scene.useCsrNeighbors = false;
     } else if (ms == "csr") {
@@ -726,14 +753,16 @@ bool execVerb(Scene &scene,
       return false;
     }
     std::string ts = t;
-    for (auto &c : ts) c = (char)std::tolower((unsigned char)c);
+    for (auto &c : ts)
+      c = (char)std::tolower((unsigned char)c);
     // Reflect over the generated per-id name table (builtin_brushes.gen.h):
     // every built-in tool is addressable by its lowercased enum name, so a
     // new .sbrush @tool needs no edit here.
     int found = -1;
     for (int id = 0; id < brush::builtinBrushCount; id++) {
       std::string name = brush::kBuiltinBrushNames[id];
-      for (auto &c : name) c = (char)std::tolower((unsigned char)c);
+      for (auto &c : name)
+        c = (char)std::tolower((unsigned char)c);
       if (ts == name) {
         found = id;
         break;
@@ -770,7 +799,8 @@ bool execVerb(Scene &scene,
     }
     if (k) {
       std::string ks = k;
-      for (auto &c : ks) c = (char)std::tolower((unsigned char)c);
+      for (auto &c : ks)
+        c = (char)std::tolower((unsigned char)c);
       if (ks == "smoothstep") {
         scene.brush.falloff_kind = brush::FalloffKind::Smoothstep;
       } else if (ks == "linear") {
@@ -787,7 +817,8 @@ bool execVerb(Scene &scene,
     }
     if (sh) {
       std::string ss = sh;
-      for (auto &c : ss) c = (char)std::tolower((unsigned char)c);
+      for (auto &c : ss)
+        c = (char)std::tolower((unsigned char)c);
       if (ss == "spherical") {
         scene.brush.falloff_shape = brush::FalloffShape::Spherical;
       } else if (ss == "cube") {
@@ -827,12 +858,17 @@ bool execVerb(Scene &scene,
       return false;
     }
     std::string ps = p;
-    for (auto &c : ps) c = (char)std::tolower((unsigned char)c);
+    for (auto &c : ps)
+      c = (char)std::tolower((unsigned char)c);
     using CP = brush::Brush::CurvePreset;
-    if      (ps == "smoothstep") scene.brush.setFalloffCurvePreset(CP::Smoothstep);
-    else if (ps == "linear")     scene.brush.setFalloffCurvePreset(CP::Linear);
-    else if (ps == "inverse")    scene.brush.setFalloffCurvePreset(CP::Inverse);
-    else if (ps == "gaussian")   scene.brush.setFalloffCurvePreset(CP::Gaussian);
+    if (ps == "smoothstep")
+      scene.brush.setFalloffCurvePreset(CP::Smoothstep);
+    else if (ps == "linear")
+      scene.brush.setFalloffCurvePreset(CP::Linear);
+    else if (ps == "inverse")
+      scene.brush.setFalloffCurvePreset(CP::Inverse);
+    else if (ps == "gaussian")
+      scene.brush.setFalloffCurvePreset(CP::Gaussian);
     else {
       err = std::string("set_falloff_curve: unknown preset '") + p +
             "' (valid: smoothstep, linear, inverse, gaussian)";
@@ -889,7 +925,8 @@ bool execVerb(Scene &scene,
     }
 
     std::string ps = pat;
-    for (auto &c : ps) c = (char)std::tolower((unsigned char)c);
+    for (auto &c : ps)
+      c = (char)std::tolower((unsigned char)c);
     if (!proc && ps == "clear") {
       scene.brush.tex_width = 0;
       scene.brush.tex_height = 0;
@@ -910,7 +947,8 @@ bool execVerb(Scene &scene,
     std::string procName;
     if (proc) {
       procName = proc;
-      for (auto &c : procName) c = (char)std::tolower((unsigned char)c);
+      for (auto &c : procName)
+        c = (char)std::tolower((unsigned char)c);
     }
     constexpr float kTwoPi = 6.28318530717958647692f;
     for (int y = 0; y < h; y++) {
@@ -962,7 +1000,8 @@ bool execVerb(Scene &scene,
     }
     if (sp) {
       std::string ss = sp;
-      for (auto &c : ss) c = (char)std::tolower((unsigned char)c);
+      for (auto &c : ss)
+        c = (char)std::tolower((unsigned char)c);
       if (ss == "global") {
         scene.brush.coord_space = brush::TexCoordSpace::Global;
       } else if (ss == "viewplane") {
@@ -995,10 +1034,24 @@ bool execVerb(Scene &scene,
       return false;
     }
     float v[16];
-    int n = std::sscanf(
-        m, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f", &v[0], &v[1],
-        &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11],
-        &v[12], &v[13], &v[14], &v[15]);
+    int n = std::sscanf(m,
+                        "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
+                        &v[0],
+                        &v[1],
+                        &v[2],
+                        &v[3],
+                        &v[4],
+                        &v[5],
+                        &v[6],
+                        &v[7],
+                        &v[8],
+                        &v[9],
+                        &v[10],
+                        &v[11],
+                        &v[12],
+                        &v[13],
+                        &v[14],
+                        &v[15]);
     if (n != 16) {
       err = "set_render_matrix: m= must list exactly 16 floats";
       return false;
@@ -1012,8 +1065,10 @@ bool execVerb(Scene &scene,
   if (verb == "set_kelvinlet_params") {
     const char *muArg = getArg(args, "mu");
     const char *nuArg = getArg(args, "nu");
-    if (muArg) scene.brush.mu = float(std::atof(muArg));
-    if (nuArg) scene.brush.nu = float(std::atof(nuArg));
+    if (muArg)
+      scene.brush.mu = float(std::atof(muArg));
+    if (nuArg)
+      scene.brush.nu = float(std::atof(nuArg));
     return true;
   }
   if (verb == "set_pose_cage_rest" || verb == "set_pose_cage_now") {
@@ -1032,8 +1087,10 @@ bool execVerb(Scene &scene,
       err = std::string(verb) + ": missing pos=x,y,z";
       return false;
     }
-    if (verb == "set_pose_cage_rest") scene.brush.poseCageRest[idx] = pos;
-    else                              scene.brush.poseCageNow[idx]  = pos;
+    if (verb == "set_pose_cage_rest")
+      scene.brush.poseCageRest[idx] = pos;
+    else
+      scene.brush.poseCageNow[idx] = pos;
     return true;
   }
   // layer_add name=<s> [weight=f] [enabled=0/1] [frozen=0/1] — create a sculpt
@@ -1069,8 +1126,7 @@ bool execVerb(Scene &scene,
       mesh::AttrRef &uvRef =
           m->c.attrs.ensure(mesh::AttrType::FLOAT2, litestl::util::string("uv"), true);
       uvRef.use = uvRef.use | mesh::AttrUse::UV;
-      auto *uv =
-          static_cast<mesh::AttrData<litestl::math::float2> *>(uvRef.data);
+      auto *uv = static_cast<mesh::AttrData<litestl::math::float2> *>(uvRef.data);
       for (int c : m->c) {
         float3 co = m->v.co[m->c.v[c]];
         (*uv)[c] = litestl::math::float2((co[0] - mn[0]) * sx, (co[1] - mn[1]) * sy);
@@ -1160,8 +1216,10 @@ bool execVerb(Scene &scene,
     }
     if (pp.force) {
       Vector<float> bounds;
-      vdm::exportFaceBounds(*scene.vdm, *scene.mesh,
-                            std::span<const int>(pool.data(), pool.size()), bounds);
+      vdm::exportFaceBounds(*scene.vdm,
+                            *scene.mesh,
+                            std::span<const int>(pool.data(), pool.size()),
+                            bounds);
       Vector<int> bounded;
       for (int i = 0; i < int(pool.size()); i++) {
         if (bounds[i] > 1e-8f) {
@@ -1171,9 +1229,12 @@ bool execVerb(Scene &scene,
       pool = std::move(bounded);
     }
     Vector<int> candidates;
-    vdm::collectPromotionCandidates(*scene.mesh, *scene.tree, *scene.vdm,
+    vdm::collectPromotionCandidates(*scene.mesh,
+                                    *scene.tree,
+                                    *scene.vdm,
                                     std::span<const int>(pool.data(), pool.size()),
-                                    pp, candidates);
+                                    pp,
+                                    candidates);
     if (candidates.size() == 0) {
       std::printf("vdm_promote: no candidates (pool=%d)\n", int(pool.size()));
       return true;
@@ -1215,10 +1276,14 @@ bool execVerb(Scene &scene,
     scene.meshLog.setActiveMesh(scene.mesh);
     scene.meshLog.beginStep(/*hasDyntopo=*/true);
     scene.vdm->beginDelta();
-    vdm::VdmPromoteStats ps = vdm::promoteRegion(
-        *scene.mesh, *scene.tree, *scene.vdm,
-        std::span<const int>(candidates.data(), candidates.size()), pp, &combined,
-        &scene.meshLog);
+    vdm::VdmPromoteStats ps =
+        vdm::promoteRegion(*scene.mesh,
+                           *scene.tree,
+                           *scene.vdm,
+                           std::span<const int>(candidates.data(), candidates.size()),
+                           pp,
+                           &combined,
+                           &scene.meshLog);
     vdm::VdmDelta *delta = scene.vdm->endDelta();
     if (delta) {
       auto *chunk = litestl::alloc::New<vdm::VdmLogChunk>(
@@ -1370,13 +1435,15 @@ bool execVerb(Scene &scene,
     bool gpuTool = brush::gpuKernelForTool(t) != nullptr;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
-        gpuTool) {
+        gpuTool)
+    {
       Vector<float3> origins;
       // repeat=N unifies N identical dabs into the one stroke (same as the
       // C++ branch below) — the discriminator for grab-class from-orig
       // semantics: repeated dabs with a fixed grabTo must re-base, not stack.
       int repeat = getInt(args, "repeat", 1);
-      if (repeat < 1) repeat = 1;
+      if (repeat < 1)
+        repeat = 1;
       for (int i = 0; i < repeat; i++) {
         origins.append(origin);
       }
@@ -1393,7 +1460,8 @@ bool execVerb(Scene &scene,
       // read as unstamped. `repeat`ed dabs below share this one stamp.
       uint32_t gen = ++scene.strokeGen;
       int repeat = getInt(args, "repeat", 1);
-      if (repeat < 1) repeat = 1;
+      if (repeat < 1)
+        repeat = 1;
       // One stroke verb = one meshlog step of `repeat` unified dabs through the
       // executor (same path as the TS app). Previously dyntopo was a separate undo
       // step, so one undo couldn't revert a stroke (tools/repro/repro_single_undo.txt).
@@ -1417,8 +1485,7 @@ bool execVerb(Scene &scene,
         }
         exec.defaultAttrOverrides.append(brush::BrushAttrLayerOverride{0, attrIdx});
       }
-      dyntopo::DynTopoParams *dtp =
-          scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+      dyntopo::DynTopoParams *dtp = scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
       // rough=1: print the §9.1 noise metrics after every dab, inside the one
       // stroke — a separate `roughness` verb per dab is impossible, since each
       // `stroke` verb bumps strokeGen and so resets the base.
@@ -1432,7 +1499,11 @@ bool execVerb(Scene &scene,
         // stroke-start position per dab instead of adding with an idle
         // dab counter (curDabGen 0 == fresh stamps -> add mode).
         exec.setGrabAccumAdd(false);
-        exec.applyDab(scene.currentTool, origin, normal, scene.brush.radius, dtp,
+        exec.applyDab(scene.currentTool,
+                      origin,
+                      normal,
+                      scene.brush.radius,
+                      dtp,
                       scene.dyntopoSeed + uint32_t(i));
         scene.cumSplits += exec.lastDynTopoStats.splits;
         scene.cumCollapses += exec.lastDynTopoStats.collapses;
@@ -1440,8 +1511,8 @@ bool execVerb(Scene &scene,
         if (roughTrace) {
           roughCenters.append(origin);
           std::snprintf(roughTag, sizeof(roughTag), "dab=%d", i);
-          reportRoughness(scene, roughTag, roughCenters, scene.brush.radius,
-                          float3(0, 0, 1), 0.0f);
+          reportRoughness(
+              scene, roughTag, roughCenters, scene.brush.radius, float3(0, 0, 1), 0.0f);
         }
       }
       if (scene.dyntopoEnabled) {
@@ -1488,8 +1559,8 @@ bool execVerb(Scene &scene,
       return false;
     }
     float3 p1, p2, normal{0, 0, 1};
-    if (!parseFloat3(getArg(args, "p1"), p1) &&
-        !parseFloat3(getArg(args, "origin"), p1)) {
+    if (!parseFloat3(getArg(args, "p1"), p1) && !parseFloat3(getArg(args, "origin"), p1))
+    {
       err = "stroke_folded: missing p1=x,y,z";
       return false;
     }
@@ -1498,7 +1569,8 @@ bool execVerb(Scene &scene,
     }
     parseFloat3(getArg(args, "normal"), normal);
     int dabs = getInt(args, "dabs", getInt(args, "repeat", 1));
-    if (dabs < 1) dabs = 1;
+    if (dabs < 1)
+      dabs = 1;
 
     // Nonzero every stroke (see the stroke verb): grab orig-stamps in any mode.
     uint32_t gen = ++scene.strokeGen;
@@ -1522,9 +1594,12 @@ bool execVerb(Scene &scene,
       }
       // One unified dab (dyntopo → deform → per-dab topo-chunk seal), matching
       // SculptPaintOp.applyDab on the TS side.
-      dyntopo::DynTopoParams *dtp =
-          scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
-      exec.applyDab(scene.currentTool, c, normal, scene.brush.radius, dtp,
+      dyntopo::DynTopoParams *dtp = scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+      exec.applyDab(scene.currentTool,
+                    c,
+                    normal,
+                    scene.brush.radius,
+                    dtp,
                     scene.dyntopoSeed + uint32_t(i));
     }
     if (scene.dyntopoEnabled) {
@@ -1546,8 +1621,7 @@ bool execVerb(Scene &scene,
       return false;
     }
     float3 p1, p2, normal{0, 0, 1};
-    if (!parseFloat3(getArg(args, "p1"), p1) ||
-        !parseFloat3(getArg(args, "p2"), p2)) {
+    if (!parseFloat3(getArg(args, "p1"), p1) || !parseFloat3(getArg(args, "p2"), p2)) {
       err = "stroke_path: missing p1/p2";
       return false;
     }
@@ -1582,11 +1656,12 @@ bool execVerb(Scene &scene,
     // stroke-start snapshot, and this verb's multi-origin path would stack
     // the GPU dabs instead.
     brush::SculptBrushes t = scene.currentTool;
-    bool gpuTool = brush::gpuKernelForTool(t) != nullptr &&
-                   t != brush::SculptBrushes::GRAB;
+    bool gpuTool =
+        brush::gpuKernelForTool(t) != nullptr && t != brush::SculptBrushes::GRAB;
     if ((scene.currentBackend == BrushBackend::Wgsl ||
          scene.currentBackend == BrushBackend::WgpuNative) &&
-        gpuTool) {
+        gpuTool)
+    {
       if (!runBrushStrokeGPU(scene, origins, normal, err)) {
         return false;
       }
@@ -1602,21 +1677,24 @@ bool execVerb(Scene &scene,
       exec.ctx.renderMatrix = scene.renderMatrix;
       exec.setNonAccum(scene.nonAccum);
       exec.setStrokeGen(int(gen));
-      dyntopo::DynTopoParams *dtp =
-          scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
+      dyntopo::DynTopoParams *dtp = scene.dyntopoEnabled ? &scene.dyntopoParams : nullptr;
       // rough=1: per-dab noise trace over the swept-so-far region (see `stroke`).
       bool roughTrace = getBool(args, "rough", false);
       Vector<float3> roughCenters;
       char roughTag[64];
       exec.beginStep(scene.dyntopoEnabled);
       for (size_t i = 0; i < origins.size(); i++) {
-        exec.applyDab(scene.currentTool, origins[i], normal, scene.brush.radius,
-                      dtp, scene.dyntopoSeed + uint32_t(i));
+        exec.applyDab(scene.currentTool,
+                      origins[i],
+                      normal,
+                      scene.brush.radius,
+                      dtp,
+                      scene.dyntopoSeed + uint32_t(i));
         if (roughTrace) {
           roughCenters.append(origins[i]);
           std::snprintf(roughTag, sizeof(roughTag), "dab=%zu", i);
-          reportRoughness(scene, roughTag, roughCenters, scene.brush.radius,
-                          float3(0, 0, 1), 0.0f);
+          reportRoughness(
+              scene, roughTag, roughCenters, scene.brush.radius, float3(0, 0, 1), 0.0f);
         }
       }
       if (scene.dyntopoEnabled) {
@@ -1663,11 +1741,9 @@ bool execVerb(Scene &scene,
     std::string method = getArg(args, "method", "path");
     if (method == "anchored") {
       driver.strokeMethod = brush::StrokeMethod::Anchored;
-    }
-    else if (method == "dragdot") {
+    } else if (method == "dragdot") {
       driver.strokeMethod = brush::StrokeMethod::DragDot;
-    }
-    else if (method != "path") {
+    } else if (method != "path") {
       err = "stroke_screen: unknown method '" + method + "'";
       return false;
     }
@@ -1709,7 +1785,11 @@ bool execVerb(Scene &scene,
         // No object matrix (see Scene::configureStrokeDriver), so the driver's
         // object-local sample space is world space.
         float3 center(ps->p[0], ps->p[1], ps->p[2]);
-        exec.applyDab(scene.currentTool, center, ps->vec, ps->radius, dtp,
+        exec.applyDab(scene.currentTool,
+                      center,
+                      ps->vec,
+                      ps->radius,
+                      dtp,
                       scene.dyntopoSeed + uint32_t(centers.size()));
         scene.cumSplits += exec.lastDynTopoStats.splits;
         scene.cumCollapses += exec.lastDynTopoStats.collapses;
@@ -1718,8 +1798,8 @@ bool execVerb(Scene &scene,
         lastNormal = ps->vec;
         if (roughTrace) {
           std::snprintf(roughTag, sizeof(roughTag), "dab=%zu", centers.size() - 1);
-          reportRoughness(scene, roughTag, centers, scene.brush.radius, float3(0, 0, 1),
-                          0.0f);
+          reportRoughness(
+              scene, roughTag, centers, scene.brush.radius, float3(0, 0, 1), 0.0f);
         }
       }
     };
@@ -1727,9 +1807,17 @@ bool execVerb(Scene &scene,
     for (int i = 0; i < steps; i++) {
       float t = (steps == 1) ? 0.0f : float(i) / float(steps - 1);
       litestl::math::float2 p = p1 * (1.0f - t) + p2 * t;
-      driver.push(p[0], p[1], /*pressure=*/1.0f, /*tiltX=*/0.0f, /*tiltY=*/0.0f,
-                  /*twist=*/0.0f, scene.brush.invert, /*useAltBrush=*/false,
-                  scene.brush.radius, scene.brush.strength, scene.brush.spacing);
+      driver.push(p[0],
+                  p[1],
+                  /*pressure=*/1.0f,
+                  /*tiltX=*/0.0f,
+                  /*tiltY=*/0.0f,
+                  /*twist=*/0.0f,
+                  scene.brush.invert,
+                  /*useAltBrush=*/false,
+                  scene.brush.radius,
+                  scene.brush.strength,
+                  scene.brush.spacing);
       drain();
     }
     driver.end();
@@ -1774,8 +1862,7 @@ bool execVerb(Scene &scene,
       return false;
     }
     float3 p1, p2, normal{0, 0, 1};
-    if (!parseFloat3(getArg(args, "p1"), p1) ||
-        !parseFloat3(getArg(args, "p2"), p2)) {
+    if (!parseFloat3(getArg(args, "p1"), p1) || !parseFloat3(getArg(args, "p2"), p2)) {
       err = "preview_stroke_path: missing p1/p2";
       return false;
     }
@@ -1802,7 +1889,11 @@ bool execVerb(Scene &scene,
     for (size_t i = 0; i < origins.size(); i++) {
       bool isLast = (i + 1 == origins.size());
       exec.beginPreviewDab(origins[i], scene.brush.radius);
-      exec.applyDab(scene.currentTool, origins[i], normal, scene.brush.radius, dtp,
+      exec.applyDab(scene.currentTool,
+                    origins[i],
+                    normal,
+                    scene.brush.radius,
+                    dtp,
                     scene.dyntopoSeed + uint32_t(i));
       // Per-dab spatial-query update mirrors a live pointer-move gesture,
       // where the tree must stay current between preview dabs for the next
@@ -1829,11 +1920,16 @@ bool execVerb(Scene &scene,
   if (verb == "view") {
     const char *v = getArg(args, "preset", "persp");
     ViewPreset p = ViewPreset::Persp;
-    if (std::strcmp(v, "front") == 0) p = ViewPreset::Front;
-    else if (std::strcmp(v, "top") == 0) p = ViewPreset::Top;
-    else if (std::strcmp(v, "side") == 0) p = ViewPreset::Side;
-    else if (std::strcmp(v, "persp") == 0) p = ViewPreset::Persp;
-    else if (std::strcmp(v, "free") == 0) p = ViewPreset::Free;
+    if (std::strcmp(v, "front") == 0)
+      p = ViewPreset::Front;
+    else if (std::strcmp(v, "top") == 0)
+      p = ViewPreset::Top;
+    else if (std::strcmp(v, "side") == 0)
+      p = ViewPreset::Side;
+    else if (std::strcmp(v, "persp") == 0)
+      p = ViewPreset::Persp;
+    else if (std::strcmp(v, "free") == 0)
+      p = ViewPreset::Free;
     scene.applyView(p);
     return true;
   }
@@ -1913,16 +2009,24 @@ bool execVerb(Scene &scene,
     auto t1 = std::chrono::steady_clock::now();
     double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     int64_t total = 0;
-    for (spatial::SpatialNode *leaf : leaves) total += leaf->unique_verts().size();
-    std::printf("[time_gather] leaves=%d verts/pass=%lld passes=%d total=%.2fms per_pass=%.4fms (sink=%.1f)\n",
-                int(leaves.size()), (long long)total, passes, ms, ms / double(passes), sink);
+    for (spatial::SpatialNode *leaf : leaves)
+      total += leaf->unique_verts().size();
+    std::printf("[time_gather] leaves=%d verts/pass=%lld passes=%d total=%.2fms "
+                "per_pass=%.4fms (sink=%.1f)\n",
+                int(leaves.size()),
+                (long long)total,
+                passes,
+                ms,
+                ms / double(passes),
+                sink);
     std::fflush(stdout);
     return true;
   }
   if (verb == "dyntopo_stats") {
     /* Print cumulative dyntopo op counts since the last reset; `reset=1` zeroes. */
     std::printf("[dyntopo_stats] splits=%lld collapses=%lld flips=%lld\n",
-                (long long)scene.cumSplits, (long long)scene.cumCollapses,
+                (long long)scene.cumSplits,
+                (long long)scene.cumCollapses,
                 (long long)scene.cumFlips);
     std::fflush(stdout);
     if (getBool(args, "reset", false)) {
@@ -1991,17 +2095,23 @@ bool execVerb(Scene &scene,
 
     std::printf("[reorder_partial] thresh=%.2f scoped=%d dirtyLeaves=%d/%d build=%.2fms "
                 "moved v=%d e=%d c=%d l=%d f=%d (liveV=%d liveF=%d)\n",
-                thresh, int(scoped), int(dirty.size()),
+                thresh,
+                int(scoped),
+                int(dirty.size()),
                 scene.tree->fragmentationStats().leaves,
                 std::chrono::duration<double, std::milli>(tb1 - tb0).count(),
-                int(moved[0].size()), int(moved[1].size()), int(moved[2].size()),
-                int(moved[3].size()), int(moved[4].size()),
-                scene.mesh->v.count, scene.mesh->f.count);
+                int(moved[0].size()),
+                int(moved[1].size()),
+                int(moved[2].size()),
+                int(moved[3].size()),
+                int(moved[4].size()),
+                scene.mesh->v.count,
+                scene.mesh->f.count);
 
     auto t0 = std::chrono::steady_clock::now();
     if (scoped) {
-      scene.tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap, moved[0],
-                                          moved[1], moved[2], moved[3], moved[4]);
+      scene.tree->applyReorderIncremental(
+          vmap, emap, cmap, lmap, fmap, moved[0], moved[1], moved[2], moved[3], moved[4]);
     } else {
       scene.tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
     }
@@ -2020,12 +2130,18 @@ bool execVerb(Scene &scene,
     }
     auto s = scene.tree->fragmentationStats();
     std::printf("[frag_stats] leaves=%d\n", s.leaves);
-    std::printf("[frag_stats]   verts: count=%lld pagesActual=%lld pagesIdeal=%lld ratio=%.3f\n",
-                (long long)s.vertCount, (long long)s.vertPagesActual,
-                (long long)s.vertPagesIdeal, s.vertRatio);
-    std::printf("[frag_stats]   faces: count=%lld pagesActual=%lld pagesIdeal=%lld ratio=%.3f\n",
-                (long long)s.faceCount, (long long)s.facePagesActual,
-                (long long)s.facePagesIdeal, s.faceRatio);
+    std::printf(
+        "[frag_stats]   verts: count=%lld pagesActual=%lld pagesIdeal=%lld ratio=%.3f\n",
+        (long long)s.vertCount,
+        (long long)s.vertPagesActual,
+        (long long)s.vertPagesIdeal,
+        s.vertRatio);
+    std::printf(
+        "[frag_stats]   faces: count=%lld pagesActual=%lld pagesIdeal=%lld ratio=%.3f\n",
+        (long long)s.faceCount,
+        (long long)s.facePagesActual,
+        (long long)s.facePagesIdeal,
+        s.faceRatio);
     std::fflush(stdout);
     return true;
   }
@@ -2035,8 +2151,8 @@ bool execVerb(Scene &scene,
       return false;
     }
     float3 emn, emx;
-    if (!parseFloat3(getArg(args, "min"), emn) ||
-        !parseFloat3(getArg(args, "max"), emx)) {
+    if (!parseFloat3(getArg(args, "min"), emn) || !parseFloat3(getArg(args, "max"), emx))
+    {
       err = "assert_aabb: need min=x,y,z max=x,y,z";
       return false;
     }
@@ -2046,9 +2162,15 @@ bool execVerb(Scene &scene,
     for (int i = 0; i < 3; i++) {
       if (std::fabs(amn[i] - emn[i]) > eps || std::fabs(amx[i] - emx[i]) > eps) {
         char buf[256];
-        std::snprintf(buf, sizeof(buf),
+        std::snprintf(buf,
+                      sizeof(buf),
                       "assert_aabb mismatch: got [%g,%g,%g]..[%g,%g,%g]",
-                      amn[0], amn[1], amn[2], amx[0], amx[1], amx[2]);
+                      amn[0],
+                      amn[1],
+                      amn[2],
+                      amx[0],
+                      amx[1],
+                      amx[2]);
         err = buf;
         return false;
       }
@@ -2092,8 +2214,12 @@ bool execVerb(Scene &scene,
     scene.multires->init(*cage, levels);
     scene.multires->setActiveLevel(level);
     scene.attachMultiresLevel();
-    std::fprintf(stdout, "[script] multires_init levels=%d level=%d verts=%d faces=%d\n",
-                 levels, level, scene.mesh->v.count, scene.mesh->f.count);
+    std::fprintf(stdout,
+                 "[script] multires_init levels=%d level=%d verts=%d faces=%d\n",
+                 levels,
+                 level,
+                 scene.mesh->v.count,
+                 scene.mesh->f.count);
     return true;
   }
   if (verb == "multires_level") {
@@ -2109,7 +2235,9 @@ bool execVerb(Scene &scene,
     }
     scene.multires->setActiveLevel(level);
     scene.attachMultiresLevel();
-    std::fprintf(stdout, "[script] multires_level level=%d verts=%d\n", level,
+    std::fprintf(stdout,
+                 "[script] multires_level level=%d verts=%d\n",
+                 level,
                  scene.mesh->v.count);
     return true;
   }
@@ -2126,8 +2254,7 @@ bool execVerb(Scene &scene,
     }
     int changed = scene.multires->downRefit(level);
     scene.attachMultiresLevel();
-    std::fprintf(stdout, "[script] multires_refit level=%d changed=%d\n", level,
-                 changed);
+    std::fprintf(stdout, "[script] multires_refit level=%d changed=%d\n", level, changed);
     return true;
   }
   if (verb == "grid_stroke") {
@@ -2165,19 +2292,21 @@ bool execVerb(Scene &scene,
       // (engine-owned device) or the Vulkan SPIR-V compute path; `gpu` takes
       // whichever is built, wgpu first. Shares the session's undo log with
       // the CPU path, so grid_undo mixes freely.
-      const brush::GpuKernelInfo *ki =
-          brush::GridGpuStrokeSession::kernelFor(scene.currentTool,
-                                                 &scene.multires->gridAttrs());
+      const brush::GpuKernelInfo *ki = brush::GridGpuStrokeSession::kernelFor(
+          scene.currentTool, &scene.multires->gridAttrs());
       if (!ki) {
         err = "grid_stroke: tool not grids-GPU-capable";
         return false;
       }
-      auto runGpuStroke = [&](brush::IBrushComputeDispatch &d,
-                              const char *tag) -> bool {
+      auto runGpuStroke = [&](brush::IBrushComputeDispatch &d, const char *tag) -> bool {
         brush::GridGpuStrokeSession gs;
         std::string serr;
-        if (!gs.begin(scene.multires->gridDomain(level), &scene.brush,
-                      scene.currentTool, &d, scene.gridLog, serr))
+        if (!gs.begin(scene.multires->gridDomain(level),
+                      &scene.brush,
+                      scene.currentTool,
+                      &d,
+                      scene.gridLog,
+                      serr))
         {
           err = "grid_stroke: " + serr;
           return false;
@@ -2201,7 +2330,11 @@ bool execVerb(Scene &scene,
         std::fprintf(stdout,
                      "[script] grid_stroke(%s) level=%d dabs=%d moved=%d "
                      "undo_bytes=%zu\n",
-                     tag, level, dabs, int(touched.size()), scene.gridLog->bytes());
+                     tag,
+                     level,
+                     dabs,
+                     int(touched.size()),
+                     scene.gridLog->bytes());
         return true;
       };
 #ifdef SBRUSH_WEBGPU_COMPUTE
@@ -2212,8 +2345,8 @@ bool execVerb(Scene &scene,
           return false;
         }
         webgpu::WgpuBrushComputeDispatch disp(&wctx);
-        std::string wgsl = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_WGSL_DIR)) +
-                           "/" + ki->kernel + ".wgsl";
+        std::string wgsl = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_WGSL_DIR)) + "/" +
+                           ki->kernel + ".wgsl";
         if (!disp.loadKernel(wgsl.c_str())) {
           err = "grid_stroke: failed to load " + wgsl;
           return false;
@@ -2228,8 +2361,8 @@ bool execVerb(Scene &scene,
           return false;
         }
         vulkan::BrushComputeDispatch disp(scene.context);
-        std::string spv = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_SPV_DIR)) +
-                          "/" + ki->kernel + ".spv";
+        std::string spv = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_SPV_DIR)) + "/" +
+                          ki->kernel + ".spv";
         if (!disp.loadKernel(spv.c_str())) {
           err = "grid_stroke: failed to load " + spv;
           return false;
@@ -2258,7 +2391,10 @@ bool execVerb(Scene &scene,
     gridMirrorSync(scene, level, touched);
     std::fprintf(stdout,
                  "[script] grid_stroke level=%d dabs=%d moved=%d undo_bytes=%zu\n",
-                 level, dabs, moved, scene.gridLog->bytes());
+                 level,
+                 dabs,
+                 moved,
+                 scene.gridLog->bytes());
     return true;
   }
   if (verb == "grid_undo" || verb == "grid_redo") {
@@ -2315,11 +2451,16 @@ bool execVerb(Scene &scene,
     std::fprintf(stdout,
                  "[grid_bench] cage %d faces; level %d: %d verts, %d grids, %d "
                  "leaves\n",
-                 cage->f.count, levels, d->vertCount(), d->gridCount(),
+                 cage->f.count,
+                 levels,
+                 d->vertCount(),
+                 d->gridCount(),
                  int(tree->leaves.size()));
     std::fprintf(stdout,
                  "[grid_bench] init=%.1fms domain=%.1fms tree=%.1fms\n",
-                 ms(t0, t1), ms(t1, t2), ms(t2, t3));
+                 ms(t0, t1),
+                 ms(t1, t2),
+                 ms(t2, t3));
 
     brush::Brush benchBrush;
     benchBrush.radius = radius;
@@ -2338,9 +2479,7 @@ bool execVerb(Scene &scene,
         int movedTotal = 0;
         for (int s = 0; s < strokes; s++) {
           std::string serr;
-          if (!gs.begin(d, &benchBrush, brush::SculptBrushes::DRAW, &disp, &log,
-                        serr))
-          {
+          if (!gs.begin(d, &benchBrush, brush::SculptBrushes::DRAW, &disp, &log, serr)) {
             std::fprintf(stdout, "[grid_bench] gpu begin failed: %s\n", serr.c_str());
             return false;
           }
@@ -2363,11 +2502,16 @@ bool execVerb(Scene &scene,
         std::fprintf(stdout,
                      "[grid_bench] gpu(%s) %d strokes x %d dabs: total=%.1fms "
                      "moved=%d\n",
-                     tag, strokes, dabs, ms(t4, t5), movedTotal);
+                     tag,
+                     strokes,
+                     dabs,
+                     ms(t4, t5),
+                     movedTotal);
         std::fprintf(stdout,
                      "[grid_bench] gpu per-dab ms: host=%.4f dispatch=%.4f "
                      "readback=%.4f\n",
-                     gst.hostMs / gst.dabs, gst.dispatchMs / gst.dabs,
+                     gst.hostMs / gst.dabs,
+                     gst.dispatchMs / gst.dabs,
                      gst.readbackMs / gst.dabs);
         return true;
       };
@@ -2379,8 +2523,8 @@ bool execVerb(Scene &scene,
         webgpu::WgpuContext wctx;
         if (ki && wctx.initNative()) {
           webgpu::WgpuBrushComputeDispatch disp(&wctx);
-          std::string wgsl = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_WGSL_DIR)) +
-                             "/" + ki->kernel + ".wgsl";
+          std::string wgsl = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_WGSL_DIR)) + "/" +
+                             ki->kernel + ".wgsl";
           if (disp.loadKernel(wgsl.c_str())) {
             ok = runGpuBench(disp, "wgpu");
           }
@@ -2393,8 +2537,8 @@ bool execVerb(Scene &scene,
             brush::GridGpuStrokeSession::kernelFor(brush::SculptBrushes::DRAW);
         if (ki && scene.ensureGPU() && scene.context) {
           vulkan::BrushComputeDispatch disp(scene.context);
-          std::string spv = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_SPV_DIR)) +
-                            "/" + ki->kernel + ".spv";
+          std::string spv = std::string(SBRUSH_SCRIPT_STRINGIZE(SBRUSH_SPV_DIR)) + "/" +
+                            ki->kernel + ".spv";
           if (disp.loadKernel(spv.c_str())) {
             ok = runGpuBench(disp, "wgsl");
           }
@@ -2421,8 +2565,8 @@ bool execVerb(Scene &scene,
       float y = -0.4f + 0.8f * float(s) / float(strokes > 1 ? strokes - 1 : 1);
       for (int i = 0; i < dabs; i++) {
         float x = -0.45f + 0.9f * float(i) / float(dabs > 1 ? dabs - 1 : 1);
-        moved += ex.applyDab(brush::SculptBrushes::DRAW, float3(x, y, 0.5f),
-                             float3(0, 0, 1));
+        moved +=
+            ex.applyDab(brush::SculptBrushes::DRAW, float3(x, y, 0.5f), float3(0, 0, 1));
       }
       ex.endStep();
     }
@@ -2432,21 +2576,33 @@ bool execVerb(Scene &scene,
     double totalMs = ms(t4, t5);
     std::fprintf(stdout,
                  "[grid_bench] %d strokes x %d dabs: total=%.1fms moved=%d\n",
-                 strokes, dabs, totalMs, moved);
+                 strokes,
+                 dabs,
+                 totalMs,
+                 moved);
     std::fprintf(stdout,
                  "[grid_bench] per-dab ms: query=%.4f capture=%.4f coPrev=%.4f "
                  "stamp=%.4f automask=%.4f kernel=%.4f normals=%.4f bounds=%.4f\n",
-                 st.queryMs / st.dabs, st.captureMs / st.dabs, st.coPrevMs / st.dabs,
-                 st.stampMs / st.dabs, st.automaskMs / st.dabs, st.kernelMs / st.dabs,
-                 st.normalsMs / st.dabs, st.boundsMs / st.dabs);
+                 st.queryMs / st.dabs,
+                 st.captureMs / st.dabs,
+                 st.coPrevMs / st.dabs,
+                 st.stampMs / st.dabs,
+                 st.automaskMs / st.dabs,
+                 st.kernelMs / st.dabs,
+                 st.normalsMs / st.dabs,
+                 st.boundsMs / st.dabs);
     double core = st.perDabCoreMs();
     double wb = st.strokes > 0 ? st.writebackMs / st.strokes : 0.0;
     double undoMB = double(log.bytes()) / (1024.0 * 1024.0);
     std::fprintf(stdout,
                  "[grid_bench] gates: per-dab core %.4fms (<=0.35) %s | writeback "
                  "%.2fms/stroke (<=3) %s | undo %.1fMB (<=20) %s\n",
-                 core, core <= 0.35 ? "PASS" : "FAIL", wb, wb <= 3.0 ? "PASS" : "FAIL",
-                 undoMB, undoMB <= 20.0 ? "PASS" : "FAIL");
+                 core,
+                 core <= 0.35 ? "PASS" : "FAIL",
+                 wb,
+                 wb <= 3.0 ? "PASS" : "FAIL",
+                 undoMB,
+                 undoMB <= 20.0 ? "PASS" : "FAIL");
 
     litestl::alloc::Delete(mrb);
     litestl::alloc::Delete(cage);
@@ -2461,8 +2617,11 @@ bool execVerb(Scene &scene,
     int level = getInt(args, "level", scene.multires->activeLevel());
     std::string name = getArg(args, "id", "default");
     gatherDisp(*scene.multires, level, g_dispSnapshots[name]);
-    std::fprintf(stdout, "[script] save_disp id=%s level=%d floats=%zu\n", name.c_str(),
-                 level, g_dispSnapshots[name].size());
+    std::fprintf(stdout,
+                 "[script] save_disp id=%s level=%d floats=%zu\n",
+                 name.c_str(),
+                 level,
+                 g_dispSnapshots[name].size());
     return true;
   }
   if (verb == "assert_disp") {
@@ -2497,13 +2656,20 @@ bool execVerb(Scene &scene,
         worst = d > worst ? d : worst;
       }
     }
-    std::fprintf(stdout, "[script] assert_disp id=%s level=%d diffs=%d worst=%g\n",
-                 name.c_str(), level, diffs, worst);
+    std::fprintf(stdout,
+                 "[script] assert_disp id=%s level=%d diffs=%d worst=%g\n",
+                 name.c_str(),
+                 level,
+                 diffs,
+                 worst);
     if (wantChanged ? diffs == 0 : diffs > 0) {
       char buf[160];
-      std::snprintf(buf, sizeof(buf), "assert_disp: %s (diffs=%d worst=%g)",
+      std::snprintf(buf,
+                    sizeof(buf),
+                    "assert_disp: %s (diffs=%d worst=%g)",
                     wantChanged ? "expected change, none found" : "unexpected diffs",
-                    diffs, worst);
+                    diffs,
+                    worst);
       err = buf;
       return false;
     }
@@ -2530,12 +2696,17 @@ bool execVerb(Scene &scene,
       err = "roughness: no center= and no prior stroke";
       return false;
     }
-    float radius = getFloat(
-        args, "radius",
-        scene.lastStroke.valid ? scene.lastStroke.radius : scene.brush.radius);
+    float radius =
+        getFloat(args,
+                 "radius",
+                 scene.lastStroke.valid ? scene.lastStroke.radius : scene.brush.radius);
     float3 up{0, 0, 1};
     parseFloat3(getArg(args, "up"), up);
-    reportRoughness(scene, getArg(args, "tag", "region"), centers, radius, up,
+    reportRoughness(scene,
+                    getArg(args, "tag", "region"),
+                    centers,
+                    radius,
+                    up,
                     getFloat(args, "rest", 0.0f));
     return true;
   }
@@ -2550,8 +2721,8 @@ bool execVerb(Scene &scene,
     for (int v : scene.mesh->v) {
       snap.emplace_back(v, scene.mesh->v.co[v]);
     }
-    std::fprintf(stdout, "[script] save_pos id=%s verts=%zu\n", name.c_str(),
-                 snap.size());
+    std::fprintf(
+        stdout, "[script] save_pos id=%s verts=%zu\n", name.c_str(), snap.size());
     return true;
   }
   if (verb == "assert_pos") {
@@ -2572,13 +2743,15 @@ bool execVerb(Scene &scene,
       int v = pr.first;
       if (v >= int(scene.mesh->v.capacity()) || scene.mesh->v.freemap[v]) {
         dead++;
-        if (firstBad < 0) firstBad = v;
+        if (firstBad < 0)
+          firstBad = v;
         continue;
       }
       float d = (scene.mesh->v.co[v] - pr.second).length();
       if (d > eps) {
         moved++;
-        if (firstBad < 0) firstBad = v;
+        if (firstBad < 0)
+          firstBad = v;
         if (d > worst) {
           worst = d;
           worstIdx = v;
@@ -2588,12 +2761,22 @@ bool execVerb(Scene &scene,
     std::fprintf(
         stdout,
         "[script] assert_pos id=%s checked=%zu dead=%d moved=%d worst=%g (vert %d)\n",
-        name.c_str(), it->second.size(), dead, moved, worst, worstIdx);
+        name.c_str(),
+        it->second.size(),
+        dead,
+        moved,
+        worst,
+        worstIdx);
     if (dead > 0 || moved > 0) {
       char buf[256];
-      std::snprintf(buf, sizeof(buf),
+      std::snprintf(buf,
+                    sizeof(buf),
                     "assert_pos: %d dead, %d moved (worst %g at vert %d, first %d)",
-                    dead, moved, worst, worstIdx, firstBad);
+                    dead,
+                    moved,
+                    worst,
+                    worstIdx,
+                    firstBad);
       err = buf;
       /* soft=1 reports the divergence but lets the script continue. */
       return getBool(args, "soft", false);
@@ -2623,14 +2806,18 @@ bool execVerb(Scene &scene,
     mesh::WeightsRef w = mesh::ensureVertWeights(*scene.mesh, name);
     int n = 0;
     for (int v : scene.mesh->v) {
-      const float weight = value ? float(std::atof(value))
-                                 : (scene.mesh->v.co[v][2] - zlo) / span;
+      const float weight =
+          value ? float(std::atof(value)) : (scene.mesh->v.co[v][2] - zlo) / span;
       mesh::DeformWeight dw{group, weight};
       w.setRun(v, litestl::util::span<const mesh::DeformWeight>(&dw, 1));
       n++;
     }
-    std::fprintf(stdout, "[script] set_weights name=%s group=%d verts=%d slots=%zu\n",
-                 name, group, n, scene.mesh->deformPool().liveSlotCount());
+    std::fprintf(stdout,
+                 "[script] set_weights name=%s group=%d verts=%d slots=%zu\n",
+                 name,
+                 group,
+                 n,
+                 scene.mesh->deformPool().liveSlotCount());
     return true;
   }
   if (verb == "save_weights") {
@@ -2652,8 +2839,11 @@ bool execVerb(Scene &scene,
       const int cnt = w.getRun(v, buf, mesh::DEFORM_MAX_INFLUENCES);
       snap.emplace_back(v, std::vector<mesh::DeformWeight>(buf, buf + cnt));
     }
-    std::fprintf(stdout, "[script] save_weights id=%s name=%s verts=%zu\n", id.c_str(),
-                 name, snap.size());
+    std::fprintf(stdout,
+                 "[script] save_weights id=%s name=%s verts=%zu\n",
+                 id.c_str(),
+                 name,
+                 snap.size());
     return true;
   }
   if (verb == "assert_weights") {
@@ -2682,13 +2872,15 @@ bool execVerb(Scene &scene,
       const int v = pr.first;
       if (v >= int(scene.mesh->v.capacity()) || scene.mesh->v.freemap[v]) {
         dead++;
-        if (firstBad < 0) firstBad = v;
+        if (firstBad < 0)
+          firstBad = v;
         continue;
       }
       const int cnt = w.getRun(v, buf, mesh::DEFORM_MAX_INFLUENCES);
       if (cnt != int(pr.second.size())) {
         reshaped++;
-        if (firstBad < 0) firstBad = v;
+        if (firstBad < 0)
+          firstBad = v;
         continue;
       }
       // Both runs are canonicalized group-ascending, so this compares entry for
@@ -2699,7 +2891,8 @@ bool execVerb(Scene &scene,
                             : std::fabs(buf[i].weight - pr.second[i].weight);
         if (d > eps) {
           changed++;
-          if (firstBad < 0) firstBad = v;
+          if (firstBad < 0)
+            firstBad = v;
           if (d > worst) {
             worst = d;
             worstIdx = v;
@@ -2711,13 +2904,25 @@ bool execVerb(Scene &scene,
     std::fprintf(stdout,
                  "[script] assert_weights id=%s checked=%zu dead=%d reshaped=%d "
                  "changed=%d worst=%g (vert %d)\n",
-                 id.c_str(), it->second.size(), dead, reshaped, changed, worst, worstIdx);
+                 id.c_str(),
+                 it->second.size(),
+                 dead,
+                 reshaped,
+                 changed,
+                 worst,
+                 worstIdx);
     if (dead > 0 || reshaped > 0 || changed > 0) {
       char buf2[256];
-      std::snprintf(buf2, sizeof(buf2),
+      std::snprintf(buf2,
+                    sizeof(buf2),
                     "assert_weights: %d dead, %d reshaped, %d changed (worst %g at "
                     "vert %d, first %d)",
-                    dead, reshaped, changed, worst, worstIdx, firstBad);
+                    dead,
+                    reshaped,
+                    changed,
+                    worst,
+                    worstIdx,
+                    firstBad);
       err = buf2;
       // soft=1 reports the divergence but lets the script continue.
       return getBool(args, "soft", false);
@@ -2858,10 +3063,21 @@ bool execVerb(Scene &scene,
     float r2 = radius * radius;
 
     std::printf("[bench] mesh verts=%d faces=%d  radius=%.4f dabs=%d depth=%d\n",
-                scene.mesh->v.count, scene.mesh->f.count, radius, dabs, depth);
-    std::printf("[bench] %-6s %-7s | %9s %7s %8s | %10s %9s %9s %6s\n", "leaf",
-                "gputri", "build_ms", "leaves", "gpunodes", "filter_us",
-                "wset_v", "inr_v", "waste");
+                scene.mesh->v.count,
+                scene.mesh->f.count,
+                radius,
+                dabs,
+                depth);
+    std::printf("[bench] %-6s %-7s | %9s %7s %8s | %10s %9s %9s %6s\n",
+                "leaf",
+                "gputri",
+                "build_ms",
+                "leaves",
+                "gpunodes",
+                "filter_us",
+                "wset_v",
+                "inr_v",
+                "waste");
 
     for (int leaf : leafs) {
       for (int gt : gputris) {
@@ -2898,8 +3114,15 @@ bool execVerb(Scene &scene,
                            dabs;
         double waste = inr > 0 ? double(wset) / double(inr) : 0.0;
         std::printf("[bench] %-6d %-7d | %9.2f %7d %8d | %10.1f %9ld %9ld %6.2f\n",
-                    leaf, gt, build_ms, leafCount, gpuNodeCount, filter_us,
-                    wset / dabs, inr / dabs, waste);
+                    leaf,
+                    gt,
+                    build_ms,
+                    leafCount,
+                    gpuNodeCount,
+                    filter_us,
+                    wset / dabs,
+                    inr / dabs,
+                    waste);
         std::fflush(stdout);
       }
     }
@@ -2932,9 +3155,9 @@ bool execVerb(Scene &scene,
     if (doRebuild) {
       auto t0 = std::chrono::steady_clock::now();
       scene.buildSpatial(leaf, depth, 0);
-      rebuild_ms = std::chrono::duration<double, std::milli>(
-                       std::chrono::steady_clock::now() - t0)
-                       .count();
+      rebuild_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+              .count();
 
       /* Warm-up: build the GPU buffers once so the measured update() below is an
        * INCREMENTAL one (per-frame in the real app), not the cold first build. */
@@ -2970,17 +3193,21 @@ bool execVerb(Scene &scene,
     scene.mesh->thawTopo();
     auto t1 = std::chrono::steady_clock::now();
     dyntopo::DynTopoStats st = dyntopo::runDyntopoRemesh(
-        *scene.mesh, center, radius, scene.dyntopoParams, 7u,
+        *scene.mesh,
+        center,
+        radius,
+        scene.dyntopoParams,
+        7u,
         useSpatial ? scene.tree->getSpatialCallbacks() : nullptr,
         litestl::util::span<const int>(seedVerts.data(), seedVerts.size()));
-    double ops_ms = std::chrono::duration<double, std::milli>(
-                        std::chrono::steady_clock::now() - t1)
-                        .count();
+    double ops_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1)
+            .count();
     auto t2 = std::chrono::steady_clock::now();
     scene.tree->update(&scene.gpu);
-    double update_ms = std::chrono::duration<double, std::milli>(
-                           std::chrono::steady_clock::now() - t2)
-                           .count();
+    double update_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t2)
+            .count();
     double dab_ms = ops_ms + update_ms;
 
     /* Convergence check: any in-region edge still longer than its (graded)
@@ -2993,12 +3220,14 @@ bool execVerb(Scene &scene,
     double lsum = 0.0, lsq = 0.0;
     int lcount = 0;
     for (int e : scene.mesh->e) {
-      if (scene.mesh->e.c[e] == ELEM_NONE) continue;
+      if (scene.mesh->e.c[e] == ELEM_NONE)
+        continue;
       float3 a = scene.mesh->v.co[scene.mesh->e.vs[e][0]];
       float3 b = scene.mesh->v.co[scene.mesh->e.vs[e][1]];
       float3 mid = (a + b) * 0.5f;
       float d2 = (mid - center).lengthSqr();
-      if (d2 > r2) continue;
+      if (d2 > r2)
+        continue;
       float target = detail;
       if (grade > 0.0f && radius > 0.0f) {
         target *= 1.0f + grade * (std::sqrt(d2) / radius);
@@ -3029,17 +3258,30 @@ bool execVerb(Scene &scene,
         int side = mm.e.vs[e][0] == v ? 0 : 1;
         e = mesh::diskEdge(mm.e.disk[e][side * 2 + 1]);
       } while (e != e0 && n < 100000);
-      if (n > maxVal) maxVal = n;
+      if (n > maxVal)
+        maxVal = n;
     }
 
     std::printf("[bench_dyntopo] faces %d->%d  splits=%d flips=%d smooths=%d "
                 "rounds=%d leftover=%d maxValence=%d cv=%.3f%s%s | "
                 "full_rebuild=%.2fms | incremental: ops=%.2fms update=%.2fms "
                 "total=%.2fms  speedup=%.1fx\n",
-                fBefore, scene.mesh->f.count, st.splits, st.flips, st.smooths,
-                st.rounds, leftover, maxVal, lcv, st.budget_hit ? " BUDGET" : "",
-                (st.capped && !st.budget_hit) ? " CAPPED" : "", rebuild_ms, ops_ms,
-                update_ms, dab_ms, dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
+                fBefore,
+                scene.mesh->f.count,
+                st.splits,
+                st.flips,
+                st.smooths,
+                st.rounds,
+                leftover,
+                maxVal,
+                lcv,
+                st.budget_hit ? " BUDGET" : "",
+                (st.capped && !st.budget_hit) ? " CAPPED" : "",
+                rebuild_ms,
+                ops_ms,
+                update_ms,
+                dab_ms,
+                dab_ms > 0.0 ? rebuild_ms / dab_ms : 0.0);
     std::fflush(stdout);
     return true;
   }
@@ -3060,8 +3302,11 @@ bool execVerb(Scene &scene,
       err = "save_mesh: write failed: " + path;
       return false;
     }
-    std::printf("[save_mesh] %s verts=%d edges=%d faces=%d\n", path.c_str(),
-                scene.mesh->v.count, scene.mesh->e.count, scene.mesh->f.count);
+    std::printf("[save_mesh] %s verts=%d edges=%d faces=%d\n",
+                path.c_str(),
+                scene.mesh->v.count,
+                scene.mesh->e.count,
+                scene.mesh->f.count);
     return true;
   }
   if (verb == "load_mesh") {
@@ -3082,7 +3327,11 @@ bool execVerb(Scene &scene,
     int problems = nm->validateAndRepair();
     scene.setMesh(nm);
     std::printf("[load_mesh] %s verts=%d edges=%d faces=%d problems=%d\n",
-                path.c_str(), nm->v.count, nm->e.count, nm->f.count, problems);
+                path.c_str(),
+                nm->v.count,
+                nm->e.count,
+                nm->f.count,
+                problems);
     return true;
   }
   if (verb == "remesh") {
@@ -3103,8 +3352,7 @@ bool execVerb(Scene &scene,
     params.use_sharp_features = getBool(args, "sharp", params.use_sharp_features);
     params.sharp_angle = getFloat(args, "sharp_angle", params.sharp_angle);
     params.field_smoothness = getFloat(args, "smoothness", params.field_smoothness);
-    params.curvature_weight =
-        getFloat(args, "curvature_weight", params.curvature_weight);
+    params.curvature_weight = getFloat(args, "curvature_weight", params.curvature_weight);
     params.curvature_smooth_iters =
         getInt(args, "curvature_smooth_iters", params.curvature_smooth_iters);
     params.curvature_smooth_lambda =
@@ -3134,14 +3382,23 @@ bool execVerb(Scene &scene,
     std::printf("[remesh_validate] V=%d E=%d F=%d euler=%d | tris=%d quads=%d "
                 "ngons=%d all_quad=%d | manifold=%d winding=%d nonmanifold_e=%d "
                 "boundary_e=%d degenerate_f=%d inverted_f=%d | irregular_v=%d\n",
-                rep.vert_count, rep.edge_count, rep.face_count, rep.euler,
-                rep.tri_count, rep.quad_count, rep.ngon_count, rep.all_quad,
-                rep.manifold, rep.consistent_winding, rep.non_manifold_edges,
-                rep.boundary_edges, rep.degenerate_faces, rep.inverted_faces,
+                rep.vert_count,
+                rep.edge_count,
+                rep.face_count,
+                rep.euler,
+                rep.tri_count,
+                rep.quad_count,
+                rep.ngon_count,
+                rep.all_quad,
+                rep.manifold,
+                rep.consistent_winding,
+                rep.non_manifold_edges,
+                rep.boundary_edges,
+                rep.degenerate_faces,
+                rep.inverted_faces,
                 rep.irregular_interior_verts);
     if (!rep.manifold) {
-      std::printf("[remesh_validate]   topology error: %s\n",
-                  rep.manifold_error.c_str());
+      std::printf("[remesh_validate]   topology error: %s\n", rep.manifold_error.c_str());
     }
     std::fflush(stdout);
     if (getBool(args, "assert", false) && !rep.structurallyOk()) {
@@ -3176,8 +3433,10 @@ bool execVerb(Scene &scene,
       sKmax += kval[v][1];
       n++;
     }
-    std::printf("[remesh_curvature] verts=%d mean kmin=%.4f kmax=%.4f\n", n,
-                n > 0 ? sKmin / n : 0.0, n > 0 ? sKmax / n : 0.0);
+    std::printf("[remesh_curvature] verts=%d mean kmin=%.4f kmax=%.4f\n",
+                n,
+                n > 0 ? sKmin / n : 0.0,
+                n > 0 ? sKmax / n : 0.0);
     std::fflush(stdout);
     return true;
   }
@@ -3206,8 +3465,8 @@ bool execVerb(Scene &scene,
       }
       n++;
     }
-    std::printf("[remesh_feature_tag] edges=%d sharp=%d boundary=%d\n", n, sharp,
-                boundary);
+    std::printf(
+        "[remesh_feature_tag] edges=%d sharp=%d boundary=%d\n", n, sharp, boundary);
     std::fflush(stdout);
     return true;
   }
@@ -3225,13 +3484,20 @@ bool execVerb(Scene &scene,
     for (auto *node : tree.leaves()) {
       tree.ensure_node_tris(node);
     }
-    float3 p(getFloat(args, "x", 0.0f), getFloat(args, "y", 0.0f),
-             getFloat(args, "z", 0.0f));
+    float3 p(
+        getFloat(args, "x", 0.0f), getFloat(args, "y", 0.0f), getFloat(args, "z", 0.0f));
     mesh::ClosestPointResult res = mesh::findClosestPoint(tree, p);
     std::printf("[remesh_closest_point] q=(%.3f,%.3f,%.3f) hit=%d dist=%.5f "
                 "face=%d point=(%.4f,%.4f,%.4f)\n",
-                p[0], p[1], p[2], res.hit, res.dist, res.face, res.point[0],
-                res.point[1], res.point[2]);
+                p[0],
+                p[1],
+                p[2],
+                res.hit,
+                res.dist,
+                res.face,
+                res.point[0],
+                res.point[1],
+                res.point[2]);
     std::fflush(stdout);
     return true;
   }
@@ -3262,7 +3528,10 @@ bool execVerb(Scene &scene,
     long chi = long(m.v.count) - long(m.e.count) + long(m.f.count);
     std::printf("[remesh_cross_field] faces=%d singularities=%d index_sum=%d "
                 "4chi=%ld eigen=%d\n",
-                st.num_faces, st.num_singularities, st.index_sum, 4 * chi,
+                st.num_faces,
+                st.num_singularities,
+                st.index_sum,
+                4 * chi,
                 st.solved_eigen);
     std::fflush(stdout);
     return true;
@@ -3286,8 +3555,12 @@ bool execVerb(Scene &scene,
     long chi = long(m.v.count) - long(m.e.count) + long(m.f.count);
     std::printf("[remesh_adjust_singularities] faces=%d singularities=%d "
                 "index_sum=%d 4chi=%ld curl_before=%.6f curl_after=%.6f\n",
-                st.num_faces, st.num_singularities, st.index_sum, 4 * chi,
-                st.curl_before, st.curl_after);
+                st.num_faces,
+                st.num_singularities,
+                st.index_sum,
+                4 * chi,
+                st.curl_before,
+                st.curl_after);
     if (getBool(args, "cancel", false)) {
       remesh::SingularityCancelParams scp;
       scp.target_edge_length =
@@ -3298,8 +3571,12 @@ bool execVerb(Scene &scene,
       remesh::SingularityCancelStats cs = remesh::cancelSingularityPairs(m, scp);
       std::printf("[remesh_cancel_pairs] rounds=%d attempted=%d cancelled=%d "
                   "reverted=%d singularities=%d index_sum=%d curl_after=%.6f\n",
-                  cs.rounds, cs.attempted_pairs, cs.cancelled_pairs,
-                  cs.reverted_rounds, cs.num_singularities, cs.index_sum,
+                  cs.rounds,
+                  cs.attempted_pairs,
+                  cs.cancelled_pairs,
+                  cs.reverted_rounds,
+                  cs.num_singularities,
+                  cs.index_sum,
                   cs.curl_after);
     }
     std::fflush(stdout);
@@ -3316,16 +3593,20 @@ bool execVerb(Scene &scene,
     }
     mesh::Mesh &m = *scene.mesh;
     remesh::SeamlessParamParams spp;
-    spp.target_edge_length =
-        getFloat(args, "target_edge_length", spp.target_edge_length);
+    spp.target_edge_length = getFloat(args, "target_edge_length", spp.target_edge_length);
     spp.use_density = getBool(args, "use_density", spp.use_density);
     spp.gauge_eps = getFloat(args, "gauge_eps", spp.gauge_eps);
     remesh::SeamlessParamStats st = remesh::computeSeamlessParam(m, spp);
     std::printf("[remesh_seamless] faces=%d corners=%d classes=%d cut_edges=%d "
                 "grad_angle_err=%.6f max_seam_translation=%.6e min_jacobian=%.6f "
                 "solved=%d\n",
-                st.num_faces, st.num_corners, st.num_classes, st.num_cut_edges,
-                st.grad_angle_err, st.max_seam_translation, st.min_jacobian,
+                st.num_faces,
+                st.num_corners,
+                st.num_classes,
+                st.num_cut_edges,
+                st.grad_angle_err,
+                st.max_seam_translation,
+                st.min_jacobian,
                 st.solved);
     std::fflush(stdout);
     return true;
@@ -3362,42 +3643,73 @@ bool execVerb(Scene &scene,
     qp.use_supernodal = getBool(args, "supernodal", qp.use_supernodal);
     qp.seam_relax_iters =
         int(getFloat(args, "seam_relax_iters", float(qp.seam_relax_iters)));
-    qp.seam_relax_min_folds = int(
-        getFloat(args, "seam_relax_min_folds", float(qp.seam_relax_min_folds)));
-    qp.untangle_fold_threshold = getFloat(args, "untangle_threshold",
-                                          float(qp.untangle_fold_threshold));
+    qp.seam_relax_min_folds =
+        int(getFloat(args, "seam_relax_min_folds", float(qp.seam_relax_min_folds)));
+    qp.untangle_fold_threshold =
+        getFloat(args, "untangle_threshold", float(qp.untangle_fold_threshold));
     qp.untangle_field_max_dev =
         getFloat(args, "untangle_max_dev", float(qp.untangle_field_max_dev));
     remesh::QuantizeStats st = remesh::computeQuantization(m, qp);
     std::printf("[remesh_quantize] faces=%d corners=%d classes=%d cut_edges=%d "
                 "int_residual=%.6e loop_closure=%.6e min_jacobian=%.6f folds=%d "
                 "iters=%d solved=%d feasible=%d\n",
-                st.num_faces, st.num_corners, st.num_classes, st.num_cut_edges,
-                st.max_integer_residual, st.max_loop_closure, st.min_jacobian,
-                st.parametrization_folds, st.iters, st.solved, st.feasible);
+                st.num_faces,
+                st.num_corners,
+                st.num_classes,
+                st.num_cut_edges,
+                st.max_integer_residual,
+                st.max_loop_closure,
+                st.min_jacobian,
+                st.parametrization_folds,
+                st.iters,
+                st.solved,
+                st.feasible);
     std::printf("[remesh_quantize:profile] total_ms=%.1f setup=%.1f init=%.1f "
                 "arap=%.1f rounding=%.1f (assemble=%.1f refactor=%.1f "
                 "updown=%.1f backsolve=%.1f) convert=%.1f tier1b=%.1f "
                 "stiffen=%.1f tier3=%.1f refactors=%d updowns=%d refreshes=%d "
                 "back_solves=%d probes=%d\n",
-                st.total_ms, st.setup_ms, st.initial_factor_ms, st.arap_ms,
-                st.rounding_ms, st.round_assemble_ms, st.round_refactor_ms,
-                st.round_updown_ms, st.round_backsolve_ms, st.convert_ms,
-                st.tier1b_ms, st.stiffen_ms, st.tier3_ms, st.full_refactors,
-                st.updowns, st.simp_refreshes, st.back_solves, st.tier1b_probes);
+                st.total_ms,
+                st.setup_ms,
+                st.initial_factor_ms,
+                st.arap_ms,
+                st.rounding_ms,
+                st.round_assemble_ms,
+                st.round_refactor_ms,
+                st.round_updown_ms,
+                st.round_backsolve_ms,
+                st.convert_ms,
+                st.tier1b_ms,
+                st.stiffen_ms,
+                st.tier3_ms,
+                st.full_refactors,
+                st.updowns,
+                st.simp_refreshes,
+                st.back_solves,
+                st.tier1b_probes);
     std::printf("[remesh_quantize:gs] rounds=%d converged=%d visits=%d "
                 "touched_total=%d touched_max=%d gs_ms=%.1f resort_full=%d "
                 "resort_incr=%d resort_keys=%d\n",
-                st.gs_rounds, st.gs_converged, st.gs_visits, st.gs_touched_total,
-                st.gs_touched_max, st.gs_ms, st.resort_full, st.resort_incr,
+                st.gs_rounds,
+                st.gs_converged,
+                st.gs_visits,
+                st.gs_touched_total,
+                st.gs_touched_max,
+                st.gs_ms,
+                st.resort_full,
+                st.resort_incr,
                 st.resort_keys);
     std::printf("[remesh_quantize:pairs] singularities=%d spurious_pairs=%d "
                 "seamless_folds=%d near_pairs=%d\n",
-                st.num_singularities, st.spurious_pairs, st.seamless_folds,
+                st.num_singularities,
+                st.spurious_pairs,
+                st.seamless_folds,
                 st.seamless_folds_near_pairs);
     std::printf("[remesh_quantize:align] field_dev_mean_deg=%.2f "
                 "field_dev_max_deg=%.2f field_dev_frac=%.4f\n",
-                st.field_dev_mean_deg, st.field_dev_max_deg, st.field_dev_frac);
+                st.field_dev_mean_deg,
+                st.field_dev_max_deg,
+                st.field_dev_frac);
     std::fflush(stdout);
     return true;
   }

@@ -134,8 +134,9 @@ int main(int argc, char **argv)
         return 2;
 #endif
       } else {
-        std::fprintf(
-            stderr, "--backend: unknown value '%s' (valid: cpp, wgsl, webgpu)\n", backendArg);
+        std::fprintf(stderr,
+                     "--backend: unknown value '%s' (valid: cpp, wgsl, webgpu)\n",
+                     backendArg);
         return 2;
       }
     }

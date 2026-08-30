@@ -54,7 +54,8 @@ bool Ui::init()
     return true;
   }
   if (!scene_ || !scene_->context || !scene_->window ||
-      scene_->swapchain.renderPass == VK_NULL_HANDLE) {
+      scene_->swapchain.renderPass == VK_NULL_HANDLE)
+  {
     std::fprintf(stderr, "Ui::init: scene/GPU not ready\n");
     return false;
   }
@@ -116,7 +117,8 @@ void Ui::shutdown()
     initialized_ = false;
   }
   if (descriptorPool_ != VK_NULL_HANDLE && scene_ && scene_->context &&
-      scene_->context->device != VK_NULL_HANDLE) {
+      scene_->context->device != VK_NULL_HANDLE)
+  {
     vkDestroyDescriptorPool(scene_->context->device, descriptorPool_, nullptr);
     descriptorPool_ = VK_NULL_HANDLE;
   }
@@ -164,8 +166,8 @@ void Ui::drawPanel()
   if (toolIdx < 0 || toolIdx >= brush::builtinBrushCount) {
     toolIdx = 0;
   }
-  if (ImGui::Combo("tool", &toolIdx, brush::kBuiltinBrushNames,
-                   brush::builtinBrushCount)) {
+  if (ImGui::Combo("tool", &toolIdx, brush::kBuiltinBrushNames, brush::builtinBrushCount))
+  {
     scene_->currentTool = brush::SculptBrushes(toolIdx);
   }
 
@@ -175,8 +177,8 @@ void Ui::drawPanel()
 #ifdef SBRUSH_WEBGPU_COMPUTE
   static const char *kBackendNames[] = {"C++", "WGSL", "WebGPU"};
   const int kBackendCount = 3;
-  const BrushBackend kBackends[] = {BrushBackend::Cpp, BrushBackend::Wgsl,
-                                    BrushBackend::WgpuNative};
+  const BrushBackend kBackends[] = {
+      BrushBackend::Cpp, BrushBackend::Wgsl, BrushBackend::WgpuNative};
 #else
   static const char *kBackendNames[] = {"C++", "WGSL"};
   const int kBackendCount = 2;
@@ -226,13 +228,14 @@ void Ui::drawPanel()
   }
   {
     float detail = scene_->dyntopoParams.l_max;
-    if (ImGui::SliderFloat("goal edge len", &detail, 0.005f, 0.5f, "%.4f",
-                           ImGuiSliderFlags_Logarithmic)) {
+    if (ImGui::SliderFloat(
+            "goal edge len", &detail, 0.005f, 0.5f, "%.4f", ImGuiSliderFlags_Logarithmic))
+    {
       scene_->dyntopoParams.l_max = detail;
       scene_->dyntopoParams.l_min = detail * 0.4f; /* collapse below 0.4x */
     }
-    ImGui::SliderFloat("grade (rim relax)", &scene_->dyntopoParams.grade, 0.0f,
-                       6.0f, "%.1f");
+    ImGui::SliderFloat(
+        "grade (rim relax)", &scene_->dyntopoParams.grade, 0.0f, 6.0f, "%.1f");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip("Relax the goal edge length outward from the brush "
                         "center (sizing field).\n0 = uniform; higher = finer "
@@ -244,9 +247,11 @@ void Ui::drawPanel()
                         "round (M7.2).\nBreaks the refinement cascade: far fewer "
                         "splits, near-regular valence. Leave on.");
     }
-    ImGui::SliderInt("split budget/dab", &scene_->dyntopoParams.max_splits, 0,
-                     8000, scene_->dyntopoParams.max_splits == 0 ? "unlimited"
-                                                                 : "%d");
+    ImGui::SliderInt("split budget/dab",
+                     &scene_->dyntopoParams.max_splits,
+                     0,
+                     8000,
+                     scene_->dyntopoParams.max_splits == 0 ? "unlimited" : "%d");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip("Cap splits per dab (safety valve). 0 = unlimited.\nA "
                         "heavy refine that exceeds the cap finishes over the "
@@ -259,8 +264,8 @@ void Ui::drawPanel()
                         "without shrinking the surface. Quality nicety.");
     }
     if (scene_->dyntopoParams.do_smooth) {
-      ImGui::SliderFloat("smooth strength", &scene_->dyntopoParams.smooth_lambda,
-                         0.0f, 1.0f, "%.2f");
+      ImGui::SliderFloat(
+          "smooth strength", &scene_->dyntopoParams.smooth_lambda, 0.0f, 1.0f, "%.2f");
     }
     static const char *kModes[] = {"Subdivide", "Collapse", "Both"};
     int modeIdx = int(scene_->dyntopoParams.mode);

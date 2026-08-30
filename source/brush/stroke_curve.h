@@ -48,8 +48,7 @@ template <int N> inline double dist(const Point<N> &a, const Point<N> &b)
   return std::sqrt(sum);
 }
 
-template <int N>
-inline Point<N> lerpV(const Point<N> &a, const Point<N> &b, double t)
+template <int N> inline Point<N> lerpV(const Point<N> &a, const Point<N> &b, double t)
 {
   Point<N> out;
   for (int i = 0; i < N; i++) {
@@ -91,8 +90,8 @@ inline Cubic<N> crToBezier(const Point<N> &P0,
     }
   } else {
     for (int i = 0; i < N; i++) {
-      m1[i] = (P2[i] - P1[i]) / span - (P2[i] - P0[i]) / (t01 + span) +
-              (P1[i] - P0[i]) / t01;
+      m1[i] =
+          (P2[i] - P1[i]) / span - (P2[i] - P0[i]) / (t01 + span) + (P1[i] - P0[i]) / t01;
     }
   }
 
@@ -103,8 +102,8 @@ inline Cubic<N> crToBezier(const Point<N> &P0,
     }
   } else {
     for (int i = 0; i < N; i++) {
-      m2[i] = (P3[i] - P2[i]) / t23 - (P3[i] - P1[i]) / (span + t23) +
-              (P2[i] - P1[i]) / span;
+      m2[i] =
+          (P3[i] - P2[i]) / t23 - (P3[i] - P1[i]) / (span + t23) + (P2[i] - P1[i]) / span;
     }
   }
 

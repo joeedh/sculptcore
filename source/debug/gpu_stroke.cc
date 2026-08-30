@@ -23,9 +23,9 @@
 
 #include "litestl/math/geom.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <cstddef>
 #include <cstring>
 #include <fstream>
 
@@ -220,7 +220,8 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
       litestl::util::string spliced =
           brush::spliceTextureProgramWgsl(ktext.c_str(), *texProg, serr);
       if (spliced.size() == 0) {
-        err = "stroke(webgpu): texture-program splice failed: " + std::string(serr.c_str());
+        err =
+            "stroke(webgpu): texture-program splice failed: " + std::string(serr.c_str());
         return false;
       }
       std::string label = wgsl + "+texprog";
@@ -280,11 +281,13 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     mesh::AttrRef gref = g.ensure(mesh::AttrType::INT, "group", /*materialize=*/true);
     auto *gd = gref.get_data<int>();
     if (!existed) {
-      for (int i = 0; i < faceCount_; i++) gd->set_default(i);
+      for (int i = 0; i < faceCount_; i++)
+        gd->set_default(i);
     }
     Vector<int> gbuf;
     gbuf.resize(faceCount_);
-    for (int i = 0; i < faceCount_; i++) gbuf[i] = (*gd)[i];
+    for (int i = 0; i < faceCount_; i++)
+      gbuf[i] = (*gd)[i];
     if (!disp_->setAttr(14, gbuf.data(), size_t(faceCount_) * sizeof(int))) {
       err = "stroke(wgsl): group attr upload failed";
       return false;
@@ -321,9 +324,11 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   // only upload when one is set. coord_space/tex_repeat ride in on the per-dab
   // uniforms below.
   if (scene.brush.tex_width > 0 && scene.brush.tex_height > 0 &&
-      scene.brush.tex_pixels.size() > 0) {
-    if (!disp_->setBrushTexture(scene.brush.tex_pixels.data(),
-                                scene.brush.tex_width, scene.brush.tex_height)) {
+      scene.brush.tex_pixels.size() > 0)
+  {
+    if (!disp_->setBrushTexture(
+            scene.brush.tex_pixels.data(), scene.brush.tex_width, scene.brush.tex_height))
+    {
       err = "stroke(wgsl): brush texture upload failed";
       return false;
     }
@@ -348,7 +353,8 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
     mesh::AttrRef cref = g.ensure(mesh::AttrType::FLOAT4, "color", /*materialize=*/true);
     auto *cd = cref.get_data<litestl::math::float4>();
     if (!existed) {
-      for (int i = 0; i < vcount_; i++) cd->set_default(i);
+      for (int i = 0; i < vcount_; i++)
+        cd->set_default(i);
     }
     Vector<float> cbuf;
     cbuf.resize(size_t(vcount_) * 4);
@@ -371,12 +377,14 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
   if (readsVclass_) {
     Vector<int> vc;
     vc.resize(vcount_);
-    for (int i = 0; i < vcount_; i++) vc[i] = 0;
+    for (int i = 0; i < vcount_; i++)
+      vc[i] = 0;
     if (m->v.attrs.has(mesh::AttrType::INT, mesh::boundary::VERT_CLASS)) {
       mesh::AttrRef ref =
           m->v.attrs.find_attribute(mesh::AttrType::INT, mesh::boundary::VERT_CLASS);
       auto *cd = ref.get_data<int>();
-      for (int i = 0; i < vcount_; i++) vc[i] = (*cd)[i];
+      for (int i = 0; i < vcount_; i++)
+        vc[i] = (*cd)[i];
     }
     if (!disp_->setAttr(14, vc.data(), size_t(vcount_) * sizeof(int))) {
       err = "stroke(wgsl): vclass attr upload failed";
@@ -419,8 +427,11 @@ bool GpuStrokeSession::begin(Scene &scene, std::string &err)
 void GpuStrokeSession::buildNormalTopology(Scene &scene)
 {
   topo_.build(*scene.mesh);
-  normalPass_->setTopology(topo_.triVerts.data(), topo_.triCount,
-                           topo_.meta.data(), vcount_, topo_.list.data(),
+  normalPass_->setTopology(topo_.triVerts.data(),
+                           topo_.triCount,
+                           topo_.meta.data(),
+                           vcount_,
+                           topo_.list.data(),
                            int(topo_.list.size()));
 }
 
@@ -443,8 +454,8 @@ void GpuStrokeSession::liveScatterAll(Scene &scene)
     if (!pos || !nor || !slotV) {
       continue;
     }
-    normalPass_->scatter(vkDisp_->coBuffer(), vkDisp_->noBuffer(), slotV, pos, nor,
-                         gd.total_verts);
+    normalPass_->scatter(
+        vkDisp_->coBuffer(), vkDisp_->noBuffer(), slotV, pos, nor, gd.total_verts);
   }
 }
 
@@ -458,8 +469,7 @@ void GpuStrokeSession::snapshotNode(Scene &scene, spatial::SpatialNode *node)
   brush::snapshotNodeForUndo(scene.meshLog, node);
 }
 
-bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
-                           std::string &err)
+bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal, std::string &err)
 {
   // Phase timestamps for --profile (now() is cheap; addDab() no-ops when off).
   // cpu = pt0..ptCpu (marshal/work-list/target resolve), gpu = ptCpu..ptGpu
@@ -513,8 +523,8 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   }
 
   vulkan::ComputeCtxUniforms cu;
-  brush::packCtxUniforms(scene.brush, scene.currentTool, origin, normal,
-                         scene.renderMatrix, cu);
+  brush::packCtxUniforms(
+      scene.brush, scene.currentTool, origin, normal, scene.renderMatrix, cu);
 
   Vector<vulkan::ComputeStrokeSample> sp;
   brush::packStrokePath(scene.brush, sp);
@@ -525,17 +535,26 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
   // keeps the simple one-submit-per-dab dab() call so sbrush-verify is
   // unaffected.
   if (liveBackend_) {
-    if (!vkDisp_->prepareDab(bu, cu, uverts.data(), int(uverts.size()),
-                           chunks.data(), int(chunks.size()),
-                           scene.brush.falloff_curve.data(), sp.data(),
-                           int(sp.size()))) {
+    if (!vkDisp_->prepareDab(bu,
+                             cu,
+                             uverts.data(),
+                             int(uverts.size()),
+                             chunks.data(),
+                             int(chunks.size()),
+                             scene.brush.falloff_curve.data(),
+                             sp.data(),
+                             int(sp.size())))
+    {
       err = "stroke(wgsl): compute dispatch failed";
       return false;
     }
     topo_.dabWork(uverts, workTris_, workVerts_);
-    normalPass_->prepareNormals(vkDisp_->coBuffer(), vkDisp_->noBuffer(),
-                                workTris_.data(), int(workTris_.size()),
-                                workVerts_.data(), int(workVerts_.size()));
+    normalPass_->prepareNormals(vkDisp_->coBuffer(),
+                                vkDisp_->noBuffer(),
+                                workTris_.data(),
+                                int(workTris_.size()),
+                                workVerts_.data(),
+                                int(workVerts_.size()));
 
     // Resolve each touched GPU owner's render VBOs up front (host-side; may
     // create/upload buffers) so the scatter dispatches can ride this dab's
@@ -578,16 +597,23 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
       normalPass_->recordNormals(cb);
       vulkan::GpuNormalPass::computeBarrier(cb);
       for (auto &t : targets) {
-        normalPass_->recordScatter(cb, vkDisp_->coBuffer(), vkDisp_->noBuffer(),
-                                   t.slotV, t.pos, t.nor, t.count);
+        normalPass_->recordScatter(
+            cb, vkDisp_->coBuffer(), vkDisp_->noBuffer(), t.slotV, t.pos, t.nor, t.count);
       }
     });
     ptGpu = StrokeProfiler::now();
   } else {
     ptCpu = StrokeProfiler::now();
-    if (!disp_->dab(bu, cu, uverts.data(), int(uverts.size()), chunks.data(),
-                    int(chunks.size()), scene.brush.falloff_curve.data(),
-                    sp.data(), int(sp.size()))) {
+    if (!disp_->dab(bu,
+                    cu,
+                    uverts.data(),
+                    int(uverts.size()),
+                    chunks.data(),
+                    int(chunks.size()),
+                    scene.brush.falloff_curve.data(),
+                    sp.data(),
+                    int(sp.size())))
+    {
       err = "stroke(wgsl): compute dispatch failed";
       return false;
     }
@@ -642,19 +668,15 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal,
 
   if (cap_) {
     // falloff_curve is the 256-entry LUT the dab() contract expects.
-    std::string d = "{\"nodeCount\":" + std::to_string(chunks.size()) +
-                    ",\"unique\":\"" +
-                    b64encode(uverts.data(), uverts.size() * sizeof(uint32_t)) +
-                    "\",\"nodes\":\"" +
-                    b64encode(chunks.data(),
-                              chunks.size() * sizeof(vulkan::ComputeNodeMeta)) +
-                    "\",\"brushU\":\"" + b64encode(&bu, sizeof(bu)) +
-                    "\",\"ctxU\":\"" + b64encode(&cu, sizeof(cu)) +
-                    "\",\"falloff\":\"" +
-                    b64encode(scene.brush.falloff_curve.data(), 256 * sizeof(float)) +
-                    "\",\"stroke\":\"" +
-                    b64encode(sp.data(), sp.size() * sizeof(vulkan::ComputeStrokeSample)) +
-                    "\"}";
+    std::string d =
+        "{\"nodeCount\":" + std::to_string(chunks.size()) + ",\"unique\":\"" +
+        b64encode(uverts.data(), uverts.size() * sizeof(uint32_t)) + "\",\"nodes\":\"" +
+        b64encode(chunks.data(), chunks.size() * sizeof(vulkan::ComputeNodeMeta)) +
+        "\",\"brushU\":\"" + b64encode(&bu, sizeof(bu)) + "\",\"ctxU\":\"" +
+        b64encode(&cu, sizeof(cu)) + "\",\"falloff\":\"" +
+        b64encode(scene.brush.falloff_curve.data(), 256 * sizeof(float)) +
+        "\",\"stroke\":\"" +
+        b64encode(sp.data(), sp.size() * sizeof(vulkan::ComputeStrokeSample)) + "\"}";
     capDabs_.push_back(std::move(d));
   }
   return true;
@@ -676,7 +698,8 @@ void GpuStrokeSession::end(Scene &scene)
       mesh::AttrRef gref = m->f.attrs.find_attribute(mesh::AttrType::INT, "group");
       if (gref.exists()) {
         auto *gd = gref.get_data<int>();
-        for (int i = 0; i < faceCount_; i++) (*gd)[i] = gout[i];
+        for (int i = 0; i < faceCount_; i++)
+          (*gd)[i] = gout[i];
       }
     }
     if (cap_) {
@@ -750,8 +773,10 @@ void GpuStrokeSession::end(Scene &scene)
     j += "  \"co\": \"" + capCo_ + "\",\n";
     j += "  \"no\": \"" + capNo_ + "\",\n";
     j += "  \"mask\": \"" + capMask_ + "\",\n";
-    j += "  \"nbrMeta\": " + (capNbrMeta_.empty() ? "null" : "\"" + capNbrMeta_ + "\"") + ",\n";
-    j += "  \"nbrVerts\": " + (capNbrVerts_.empty() ? "null" : "\"" + capNbrVerts_ + "\"") + ",\n";
+    j += "  \"nbrMeta\": " + (capNbrMeta_.empty() ? "null" : "\"" + capNbrMeta_ + "\"") +
+         ",\n";
+    j += "  \"nbrVerts\": " +
+         (capNbrVerts_.empty() ? "null" : "\"" + capNbrVerts_ + "\"") + ",\n";
     j += "  \"texture\": " + (capTexture_.empty() ? "null" : capTexture_) + ",\n";
     j += "  \"dabs\": [";
     for (size_t i = 0; i < capDabs_.size(); i++) {
@@ -762,8 +787,9 @@ void GpuStrokeSession::end(Scene &scene)
     j += "  \"expectCo\": \"" +
          b64encode(coOut.data(), size_t(vcount_) * 3 * sizeof(float)) + "\",\n";
     j += "  \"expectMask\": " +
-         (writesMask_ ? "\"" + b64encode(maskOut.data(), size_t(vcount_) * sizeof(float)) + "\""
-                      : std::string("null")) +
+         (writesMask_
+              ? "\"" + b64encode(maskOut.data(), size_t(vcount_) * sizeof(float)) + "\""
+              : std::string("null")) +
          "\n";
     j += "}\n";
 
@@ -813,8 +839,8 @@ void GpuStrokeSession::end(Scene &scene)
       cbuf.resize(size_t(vcount_) * 4);
       if (disp_->readbackAttr(14, cbuf.data(), size_t(vcount_) * 4 * sizeof(float))) {
         for (int i = 0; i < vcount_; i++) {
-          (*cd)[i] = litestl::math::float4(cbuf[i * 4 + 0], cbuf[i * 4 + 1],
-                                           cbuf[i * 4 + 2], cbuf[i * 4 + 3]);
+          (*cd)[i] = litestl::math::float4(
+              cbuf[i * 4 + 0], cbuf[i * 4 + 1], cbuf[i * 4 + 2], cbuf[i * 4 + 3]);
         }
       }
     }
@@ -870,7 +896,8 @@ void GpuStrokeSession::flushInteractiveReadback(Scene &scene)
 // back to the CPU draw path, and queue the right dirty bits. Per-dab readback
 // already kept touched verts in sync for picking; this guarantees everything
 // (untouched-by-readback verts, mask, normals) is consistent at release.
-void GpuStrokeSession::finishLive(Scene &scene, litestl::util::Vector<float> &coOut,
+void GpuStrokeSession::finishLive(Scene &scene,
+                                  litestl::util::Vector<float> &coOut,
                                   litestl::util::Vector<float> &maskOut)
 {
   mesh::Mesh *m = scene.mesh;
@@ -913,8 +940,7 @@ void GpuStrokeSession::finishLive(Scene &scene, litestl::util::Vector<float> &co
         int v1 = m->c.v[tri.c[0]];
         int v2 = m->c.v[tri.c[1]];
         int v3 = m->c.v[tri.c[2]];
-        m->f.no[tri.f] += litestl::math::triNormal(m->v.co[v1], m->v.co[v2],
-                                                   m->v.co[v3]);
+        m->f.no[tri.f] += litestl::math::triNormal(m->v.co[v1], m->v.co[v2], m->v.co[v3]);
       }
       for (int f : node->unique_faces()) {
         m->f.no[f].normalize();

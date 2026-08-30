@@ -21,8 +21,9 @@ void RegisterRuntime(napi_env env, napi_value exports);
 
 namespace {
 
-napi_value Init(napi_env env, napi_value exports) {
-  initBindings();  // populate the reflection registry (same call the WASM loader makes)
+napi_value Init(napi_env env, napi_value exports)
+{
+  initBindings(); // populate the reflection registry (same call the WASM loader makes)
 
   // One runtime per module init; lives for the process. Wires version /
   // bindingCount / structNames / structInfo / construct onto exports.
@@ -31,6 +32,6 @@ napi_value Init(napi_env env, napi_value exports) {
   return exports;
 }
 
-}  // namespace
+} // namespace
 
 NAPI_MODULE(sculptcore_node, Init)

@@ -40,7 +40,10 @@ struct PhaseStat {
     count += o.count;
   }
 
-  double avg_ms() const { return count > 0 ? total_ms / double(count) : 0.0; }
+  double avg_ms() const
+  {
+    return count > 0 ? total_ms / double(count) : 0.0;
+  }
 };
 
 /* Lightweight wall-clock profiler for the debug app's stroke paths, enabled by
@@ -60,13 +63,16 @@ struct StrokeProfiler {
   {
     return std::chrono::duration<double, std::milli>(b - a).count();
   }
-  static Clock::time_point now() { return Clock::now(); }
+  static Clock::time_point now()
+  {
+    return Clock::now();
+  }
 
   /* ---- per-stroke (reset in beginStroke) ---- */
-  PhaseStat dab_;       // whole dab()
-  PhaseStat dabCpu_;    // host marshal / work-list / target resolve
-  PhaseStat dabGpu_;    // GPU submit + queue-wait (runOneShot)
-  PhaseStat dabRead_;   // readback + node bounds update
+  PhaseStat dab_;     // whole dab()
+  PhaseStat dabCpu_;  // host marshal / work-list / target resolve
+  PhaseStat dabGpu_;  // GPU submit + queue-wait (runOneShot)
+  PhaseStat dabRead_; // readback + node bounds update
   double begin_ms_ = 0.0;
   double end_ms_ = 0.0;
   Clock::time_point strokeStart_;
@@ -137,12 +143,17 @@ struct StrokeProfiler {
     strokeCount_++;
     strokeWall_.add(wall);
 
-    std::printf(
-        "[profile] stroke %ld: %.2f ms wall, %ld dabs (begin %.2f, end %.2f)\n",
-        strokeCount_, wall, dab_.count, begin_ms_, end_ms_);
+    std::printf("[profile] stroke %ld: %.2f ms wall, %ld dabs (begin %.2f, end %.2f)\n",
+                strokeCount_,
+                wall,
+                dab_.count,
+                begin_ms_,
+                end_ms_);
     if (dab_.count > 0) {
       std::printf("[profile]   dab      avg %.3f  min %.3f  max %.3f  ms\n",
-                  dab_.avg_ms(), dab_.min_ms, dab_.max_ms);
+                  dab_.avg_ms(),
+                  dab_.min_ms,
+                  dab_.max_ms);
       printPhase("    cpu  ", dabCpu_);
       printPhase("    gpu  ", dabGpu_);
       printPhase("    read ", dabRead_);
@@ -155,8 +166,7 @@ struct StrokeProfiler {
     if (!enabled || strokeCount_ == 0) {
       return;
     }
-    std::printf("\n[profile] === session summary: %ld strokes ===\n",
-                strokeCount_);
+    std::printf("\n[profile] === session summary: %ld strokes ===\n", strokeCount_);
     printPhase("  stroke ", strokeWall_);
     printPhase("  begin  ", beginWall_);
     printPhase("  end    ", endWall_);
@@ -175,7 +185,12 @@ private:
     }
     std::printf("[profile] %s n=%-5ld total %8.2f  avg %7.3f  min %7.3f  "
                 "max %7.3f  ms\n",
-                name, s.count, s.total_ms, s.avg_ms(), s.min_ms, s.max_ms);
+                name,
+                s.count,
+                s.total_ms,
+                s.avg_ms(),
+                s.min_ms,
+                s.max_ms);
   }
 };
 

@@ -133,7 +133,9 @@ mesh::Mesh *Multires::buildLevelTopo(int level)
     const int *gv = &lvl.gridVerts[g * w * w];
     for (int v = 0; v < S; v++) {
       for (int u = 0; u < S; u++) {
-        int quad[4] = {gv[v * w + u], gv[v * w + u + 1], gv[(v + 1) * w + u + 1],
+        int quad[4] = {gv[v * w + u],
+                       gv[v * w + u + 1],
+                       gv[(v + 1) * w + u + 1],
                        gv[(v + 1) * w + u]};
         m->make_face(std::span<int>(quad, 4));
       }
@@ -150,8 +152,8 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
   // Deliberately NOT tagged AttrUse::UV, and named alongside its `.ptex.c.*`
   // siblings: this is an internal parameterization, not the mesh's UV map. The
   // UV map is the cage's, subdivided by assignDerivedAttrs.
-  AttrRef &uvRef = m.c.attrs.ensure(AttrType::FLOAT2, util::string(vdm::PTEX_ATLAS_ATTR),
-                                    true);
+  AttrRef &uvRef =
+      m.c.attrs.ensure(AttrType::FLOAT2, util::string(vdm::PTEX_ATLAS_ATTR), true);
   auto *uv = static_cast<AttrData<float2> *>(uvRef.data);
 
   // Exact Ptex parameterization alongside the packed chart uv (X2): the
@@ -261,9 +263,7 @@ bool Multires::gridCageFaces(Vector<int> &out)
   return true;
 }
 
-int Multires::scatterFaceIntToCage(int level,
-                                   const char *name,
-                                   Vector<int> &r_grids)
+int Multires::scatterFaceIntToCage(int level, const char *name, Vector<int> &r_grids)
 {
   r_grids.clear();
   if (!cage_ || level < 1 || level > maxLevel()) {
@@ -285,8 +285,7 @@ int Multires::scatterFaceIntToCage(int level,
   mesh::Mesh *slotMesh = nullptr;
   if (ch >= 0) {
     store.ensureLevelResident(level);
-  }
-  else {
+  } else {
     MultiresSlot *slot = findSlot(level);
     if (!slot || !slot->mesh || !slot->mesh->f.attrs.has(AttrType::INT, name)) {
       return 0; // nothing materialized to read back from
@@ -304,14 +303,14 @@ int Multires::scatterFaceIntToCage(int level,
   if (!cage_->f.attrs.has(AttrType::INT, name)) {
     if (isGroup) {
       cage_->ensureFaceGroups();
-    }
-    else {
+    } else {
       cage_->f.attrs.ensure(AttrType::INT, util::string(name), true);
     }
   }
   auto *cdata = cage_->f.attrs.find_attribute(AttrType::INT, name).get_data<int>();
-  auto *sdata = slotMesh ? slotMesh->f.attrs.find_attribute(AttrType::INT, name).get_data<int>()
-                         : nullptr;
+  auto *sdata =
+      slotMesh ? slotMesh->f.attrs.find_attribute(AttrType::INT, name).get_data<int>()
+               : nullptr;
   if (!cdata || (!sdata && ch < 0)) {
     return 0;
   }
@@ -377,8 +376,7 @@ int Multires::scatterFaceIntToCage(int level,
         for (int c = 0; c < cells; c++) {
           if (dst) {
             dst[c] = val;
-          }
-          else {
+          } else {
             sdata->materialize(base + c);
             (*sdata)[base + c] = val;
           }
@@ -442,7 +440,10 @@ bool Multires::gridCageVerts(Vector<int> &out)
 /** Stamp `count` grids of a level slot's per-vertex FLOAT4 attribute from the
  * derived samples of the same name. The partial form of the colour half of
  * #assignDerivedAttrs, for a collapse that has just re-derived those grids. */
-void Multires::stampSlotVertFloat4(int level, const char *name, const int *gridIds, int count)
+void Multires::stampSlotVertFloat4(int level,
+                                   const char *name,
+                                   const int *gridIds,
+                                   int count)
 {
   MultiresSlot *slot = findSlot(level);
   if (!slot || !slot->mesh || count <= 0) {
@@ -469,7 +470,8 @@ void Multires::stampSlotVertFloat4(int level, const char *name, const int *gridI
     const float *src = &samples[size_t(g) * w * w * 4];
     for (int k = 0; k < w * w; k++) {
       col->materialize(gv[k]);
-      (*col)[gv[k]] = math::float4(src[k * 4], src[k * 4 + 1], src[k * 4 + 2], src[k * 4 + 3]);
+      (*col)[gv[k]] =
+          math::float4(src[k * 4], src[k * 4 + 1], src[k * 4 + 2], src[k * 4 + 3]);
     }
   }
 }
@@ -517,11 +519,8 @@ void Multires::dabGrids(int level, const float *dabs, int dabCount, Vector<int> 
   }
 }
 
-int Multires::scatterVertFloat4ToCage(int level,
-                                      const char *name,
-                                      const float *dabs,
-                                      int dabCount,
-                                      Vector<int> &r_grids)
+int Multires::scatterVertFloat4ToCage(
+    int level, const char *name, const float *dabs, int dabCount, Vector<int> &r_grids)
 {
   if (!cage_ || level < 1 || level > maxLevel()) {
     return 0;
@@ -542,8 +541,7 @@ int Multires::scatterVertFloat4ToCage(int level,
   mesh::Mesh *slotMesh = nullptr;
   if (ch >= 0) {
     store.ensureLevelResident(level);
-  }
-  else {
+  } else {
     MultiresSlot *slot = findSlot(level);
     if (!slot || !slot->mesh || !slot->mesh->v.attrs.has(AttrType::FLOAT4, name)) {
       return 0; // nothing materialized to read back from
@@ -557,9 +555,10 @@ int Multires::scatterVertFloat4ToCage(int level,
   const bool fresh = !cage_->v.attrs.has(AttrType::FLOAT4, name);
   AttrRef &ref = cage_->v.attrs.ensure(AttrType::FLOAT4, util::string(name), true);
   auto *cdata = static_cast<mesh::AttrData<math::float4> *>(ref.data);
-  auto *sdata = slotMesh ? static_cast<mesh::AttrData<math::float4> *>(
-                               slotMesh->v.attrs.find_attribute(AttrType::FLOAT4, name).data) :
-                           nullptr;
+  auto *sdata = slotMesh
+                    ? static_cast<mesh::AttrData<math::float4> *>(
+                          slotMesh->v.attrs.find_attribute(AttrType::FLOAT4, name).data)
+                    : nullptr;
   if (!cdata || (!sdata && ch < 0)) {
     return 0;
   }
@@ -585,8 +584,7 @@ int Multires::scatterVertFloat4ToCage(int level,
     if (ch >= 0) {
       const float *src = store.elem(level, ch, g, 0, 0);
       val = math::float4(src[0], src[1], src[2], src[3]);
-    }
-    else {
+    } else {
       val = sdata->safe_get(lvl.gridVerts[size_t(g) * w * w]);
     }
     const math::float4 cur = cdata->safe_get(vert);
@@ -632,7 +630,8 @@ int Multires::scatterVertFloat4ToCage(int level,
   // function of the cage again, in the derived layer, in the store's session
   // channel and in the level slot -- so no copy still shows grid-resolution
   // paint the cage cannot reproduce.
-  gridAttrs_.refreshFromCage(level, util::string(name), r_grids.data(), int(r_grids.size()));
+  gridAttrs_.refreshFromCage(
+      level, util::string(name), r_grids.data(), int(r_grids.size()));
   stampSlotVertFloat4(level, name, r_grids.data(), int(r_grids.size()));
   noteCageAttrEdit(level, changed != 0);
   return changed;
@@ -827,8 +826,8 @@ static void buildVertGridCoords(const SubdivLevel &lvl, int gridCount, Vector<in
 /** Newell normal of the cells incident to lattice point (u,v), summed in
  * ascending (cell v, cell u) order — the deterministic fallback when the
  * lattice differences at the point are degenerate. */
-static float3 cellNewellNormal(const SubdivLevel &lvl, const int *gv, int u, int v,
-                               const Vector<float3> &base)
+static float3 cellNewellNormal(
+    const SubdivLevel &lvl, const int *gv, int u, int v, const Vector<float3> &base)
 {
   int S = lvl.gridSide, w = S + 1;
   float3 n(0.0f, 0.0f, 0.0f);
@@ -838,7 +837,9 @@ static float3 cellNewellNormal(const SubdivLevel &lvl, const int *gv, int u, int
         continue;
       }
       // buildLevelTopo's quad winding for cell (cu,cv).
-      int quad[4] = {gv[cv * w + cu], gv[cv * w + cu + 1], gv[(cv + 1) * w + cu + 1],
+      int quad[4] = {gv[cv * w + cu],
+                     gv[cv * w + cu + 1],
+                     gv[(cv + 1) * w + cu + 1],
                      gv[(cv + 1) * w + cu]};
       for (int k = 0; k < 4; k++) {
         const float3 &p = base[quad[k]], &q = base[quad[(k + 1) & 3]];
@@ -1106,12 +1107,12 @@ MultiresSlot *Multires::materialize(int level)
   auto *tree = alloc::New<spatial::SpatialTree>("multires tree", m);
   /* Size-derived defaults (multires_tuning.h); an explicit app value still
    * wins, so an adopted level tree can be made to match app-built ones. */
-  const MultiresTuning tuning = multiresAutoTune(
-      m->v.count, store.gridCount(), GridsStore::sideForLevel(level));
+  const MultiresTuning tuning =
+      multiresAutoTune(m->v.count, store.gridCount(), GridsStore::sideForLevel(level));
   tree->leaf_limit = treeLeafLimit > 0 ? treeLeafLimit : tuning.slotLeafLimit;
   tree->depth_limit = treeDepthLimit > 0 ? treeDepthLimit : tuning.slotDepthLimit;
-  tree->gpu_tri_target = treeGpuTriTarget > 0 ? treeGpuTriTarget :
-                                                tuning.slotGpuTriTarget;
+  tree->gpu_tri_target =
+      treeGpuTriTarget > 0 ? treeGpuTriTarget : tuning.slotGpuTriTarget;
   tree->buildAll();
   for (auto *node : tree->leaves()) {
     tree->ensure_node_tris(node);
@@ -1220,8 +1221,11 @@ void Multires::gridsWriteback(int level,
     return;
   }
   Assert(posCache_[level - 1].valid, "grids stroke edits a valid chain entry");
-  storeDispFromPositions(level, posCache_[level - 1].pos, &changed,
-                         /*toEditTarget=*/true, &grids);
+  storeDispFromPositions(level,
+                         posCache_[level - 1].pos,
+                         &changed,
+                         /*toEditTarget=*/true,
+                         &grids);
   // The store moved past the slot; until the host mirrors (or writeback
   // heals), the slot must not be diffed as an edit source.
   slotStaleMask_ |= 1u << level;
@@ -1385,7 +1389,8 @@ void Multires::syncSlotFromDomain(int level)
     // Geometry-only, same flags as the host mirror (grid_executor.h).
     node->flag |= spatial::Spatial_UpdateGPUGeom | spatial::Spatial_RegenBounds;
     for (spatial::SpatialNode *p = node->parent;
-         p && !(p->flag & spatial::Spatial_RegenBounds); p = p->parent)
+         p && !(p->flag & spatial::Spatial_RegenBounds);
+         p = p->parent)
     {
       p->flag |= spatial::Spatial_RegenBounds;
     }
@@ -1421,15 +1426,16 @@ int Multires::writeback(int level)
   // Vector<bool> is a byte per element (no bitset specialization), so ranges
   // write disjoint bytes.
   std::atomic<int> changedCount(0);
-  task::parallel_for(util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
-    int local = 0;
-    for (int i : range) {
-      pos[i] = lm.v.co[i];
-      changed[i] = std::memcmp(&pos[i], &baseline[i], sizeof(float3)) != 0;
-      local += changed[i] ? 1 : 0;
-    }
-    changedCount.fetch_add(local, std::memory_order_relaxed);
-  });
+  task::parallel_for(
+      util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
+        int local = 0;
+        for (int i : range) {
+          pos[i] = lm.v.co[i];
+          changed[i] = std::memcmp(&pos[i], &baseline[i], sizeof(float3)) != 0;
+          local += changed[i] ? 1 : 0;
+        }
+        changedCount.fetch_add(local, std::memory_order_relaxed);
+      });
   int nChanged = changedCount.load(std::memory_order_relaxed);
   if (nChanged == 0) {
     return 0;
@@ -1442,13 +1448,14 @@ int Multires::writeback(int level)
 
   // The edited mesh is the new baseline for this level; everything finer is
   // derived from it and must re-evaluate.
-  task::parallel_for(util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
-    for (int i : range) {
-      if (changed[i]) {
-        baseline[i] = pos[i];
-      }
-    }
-  });
+  task::parallel_for(util::IndexRange(size_t(lvl.vertCount)),
+                     [&](util::IndexRange range) {
+                       for (int i : range) {
+                         if (changed[i]) {
+                           baseline[i] = pos[i];
+                         }
+                       }
+                     });
   invalidateAbove(level);
   // Coarser levels are NOT derived from this one, so they still show the
   // pre-edit surface until a downward switch restricts it into them.
@@ -1484,8 +1491,8 @@ static double vecDot(const Vector<float3> &a, const Vector<float3> &b)
 {
   double s = 0.0;
   for (int i = 0; i < int(a.size()); i++) {
-    s += double(a[i][0]) * b[i][0] + double(a[i][1]) * b[i][1] +
-         double(a[i][2]) * b[i][2];
+    s +=
+        double(a[i][0]) * b[i][0] + double(a[i][1]) * b[i][1] + double(a[i][2]) * b[i][2];
   }
   return s;
 }
@@ -2164,18 +2171,19 @@ void Multires::parametricFrames(int level,
   ta.resize(lvl.vertCount);
   // Each vert reads its own canonical grid and writes only its own slot, so
   // the field is order-independent — unlike the cross field it replaces.
-  task::parallel_for(util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
-    for (size_t si : range) {
-      int i = int(si);
-      int g = coords[i * 3];
-      if (g < 0) {
-        no[i] = float3(0.0f, 0.0f, 1.0f);
-        ta[i] = float3(1.0f, 0.0f, 0.0f);
-        continue;
-      }
-      gridFrame(lvl, g, coords[i * 3 + 1], coords[i * 3 + 2], base, no[i], ta[i]);
-    }
-  });
+  task::parallel_for(
+      util::IndexRange(size_t(lvl.vertCount)), [&](util::IndexRange range) {
+        for (size_t si : range) {
+          int i = int(si);
+          int g = coords[i * 3];
+          if (g < 0) {
+            no[i] = float3(0.0f, 0.0f, 1.0f);
+            ta[i] = float3(1.0f, 0.0f, 0.0f);
+            continue;
+          }
+          gridFrame(lvl, g, coords[i * 3 + 1], coords[i * 3 + 2], base, no[i], ta[i]);
+        }
+      });
 }
 
 void Multires::levelGridVertsOut(int level, Vector<int> &out)

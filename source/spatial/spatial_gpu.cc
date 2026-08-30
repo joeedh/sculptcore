@@ -58,7 +58,10 @@ static float4 polyGroupColor(int group)
  *   bit 0 (1) = vertex `color` attr, bit 1 (2) = per-face `group` id (hashed).
  * Both bits set composites them (painted color modulated by the group color).
  * Neither set renders plain white. */
-void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, float4 *col)
+void SpatialTree::fill_leaf_slice(SpatialNode *leaf,
+                                  float3 *pos,
+                                  float3 *nor,
+                                  float4 *col)
 {
   const bool smooth_shading = false;
   Mesh *m = this->m;
@@ -77,7 +80,8 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
   // vert attr; absent until first painted, so guard and treat missing as 0.
   AttrData<float> *mdata = nullptr;
   if (col && displayMask && m->v.attrs.has(AttrType::FLOAT, ".spatial.v.mask")) {
-    mdata = m->v.attrs.find_attribute(AttrType::FLOAT, ".spatial.v.mask").get_data<float>();
+    mdata =
+        m->v.attrs.find_attribute(AttrType::FLOAT, ".spatial.v.mask").get_data<float>();
   }
   if (col) {
     if (show_vcol) {
@@ -89,7 +93,8 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
       // must re-set displayColorAttr (via _syncDisplayAttrs) after any such edit.
       int ci = displayColorAttr;
       if (ci >= 0 && ci < int(m->v.attrs.attrs.size()) &&
-          m->v.attrs.attrs[ci].type == AttrType::FLOAT4) {
+          m->v.attrs.attrs[ci].type == AttrType::FLOAT4)
+      {
         cdata = m->v.attrs.attrs[ci].get_data<float4>();
       } else if (m->v.attrs.has(AttrType::FLOAT4, "color")) {
         cdata = m->v.attrs.find_attribute(AttrType::FLOAT4, "color").get_data<float4>();
@@ -98,7 +103,8 @@ void SpatialTree::fill_leaf_slice(SpatialNode *leaf, float3 *pos, float3 *nor, f
     if (show_group) {
       int gi = displayGroupAttr;
       if (gi >= 0 && gi < int(m->f.attrs.attrs.size()) &&
-          m->f.attrs.attrs[gi].type == AttrType::INT) {
+          m->f.attrs.attrs[gi].type == AttrType::INT)
+      {
         gdata = m->f.attrs.attrs[gi].get_data<int>();
       } else if (m->f.attrs.has(AttrType::INT, "group")) {
         gdata = m->f.attrs.find_attribute(AttrType::INT, "group").get_data<int>();
@@ -187,9 +193,9 @@ void SpatialTree::fill_leaf_attr(SpatialNode *leaf,
     for (int i : util::IndexRange(tris.size())) {
       auto &tri = tris[i];
       const int group = gdata ? gdata->safe_get(tri.f) : 0;
-      const float4 c = (group != 0 && group != m->default_group_id) ?
-                           polyGroupColor(group) :
-                           float4(1.0f, 1.0f, 1.0f, 1.0f);
+      const float4 c = (group != 0 && group != m->default_group_id)
+                           ? polyGroupColor(group)
+                           : float4(1.0f, 1.0f, 1.0f, 1.0f);
       for (int j = 0; j < 3; j++, vert_i++) {
         float *o = dst + vert_i * dn;
         o[0] = c[0];
@@ -232,7 +238,8 @@ void SpatialTree::fill_leaf_attr(SpatialNode *leaf,
   bool handled = false;
   mesh::detail::type_dispatch(AttrType(req.srcType), [&]<typename T>() {
     if constexpr (std::is_same_v<T, float> || std::is_same_v<T, math::float2> ||
-                  std::is_same_v<T, math::float3> || std::is_same_v<T, math::float4>) {
+                  std::is_same_v<T, math::float3> || std::is_same_v<T, math::float4>)
+    {
       AttrData<T> *data = src->get_data<T>();
       const int sn = int(sizeof(T) / sizeof(float));
       int vert_i = 0;
@@ -241,9 +248,15 @@ void SpatialTree::fill_leaf_attr(SpatialNode *leaf,
         for (int j = 0; j < 3; j++, vert_i++) {
           int idx;
           switch (req.domain) {
-          case 4:  idx = tri.c[j];          break; /* CORNER */
-          case 16: idx = tri.f;             break; /* FACE */
-          default: idx = m->c.v[tri.c[j]];  break; /* VERTEX */
+          case 4:
+            idx = tri.c[j];
+            break; /* CORNER */
+          case 16:
+            idx = tri.f;
+            break; /* FACE */
+          default:
+            idx = m->c.v[tri.c[j]];
+            break; /* VERTEX */
           }
           T val = data->safe_get(idx);
           const float *s = reinterpret_cast<const float *>(&val);
@@ -440,7 +453,8 @@ void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
     gd.attrBufs.append(color);
   } else {
     for (const gpu::RequestedAttr &req : requestedAttrs) {
-      gpu::Buffer *b = gpu->createBuffer(req.name, req.gpuType, req.elemSize, total_verts);
+      gpu::Buffer *b =
+          gpu->createBuffer(req.name, req.gpuType, req.elemSize, total_verts);
       b->update_buffer = true;
       gd.attrBufs.append(b);
     }
@@ -452,7 +466,8 @@ void SpatialTree::plan_regen_gpu_node(SpatialNode *gpu_node,
   if (dynamic) {
     for (const gpu::RequestedAttr &req : requestedAttrs) {
       AttrGroup *grp = m->attrGroupForDomainFlag(req.domain);
-      srcRefs.append(grp ? grp->find_attribute(AttrType(req.srcType), req.name) : AttrRef());
+      srcRefs.append(grp ? grp->find_attribute(AttrType(req.srcType), req.name)
+                         : AttrRef());
     }
   }
 
@@ -571,8 +586,10 @@ bool SpatialTree::update_gpu_node_slice(SpatialNode *gpu_node,
       for (int ai : util::IndexRange(requestedAttrs.size())) {
         const gpu::RequestedAttr &req = requestedAttrs[ai];
         AttrGroup *grp = m->attrGroupForDomainFlag(req.domain);
-        AttrRef ref = grp ? grp->find_attribute(AttrType(req.srcType), req.name) : AttrRef();
-        float *adst = gd.attrBufs[ai]->get_data<float>() + slice->vert_start * req.elemSize;
+        AttrRef ref =
+            grp ? grp->find_attribute(AttrType(req.srcType), req.name) : AttrRef();
+        float *adst =
+            gd.attrBufs[ai]->get_data<float>() + slice->vert_start * req.elemSize;
         fill_leaf_attr(leaf, req, ref.exists() ? &ref : nullptr, adst);
       }
     }

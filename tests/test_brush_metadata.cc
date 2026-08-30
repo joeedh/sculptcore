@@ -57,7 +57,9 @@ int main()
       const BrushAttrManifestEntry *e = findBrushAttrEntry(manifest, row.attr);
       if (!e) {
         std::printf("%s: no manifest entry for attr '%s' (%d entries)\n",
-                    row.toolName, row.attr, int(manifest.size()));
+                    row.toolName,
+                    row.attr,
+                    int(manifest.size()));
       }
       test_assert(e != nullptr);
       if (!e) {
@@ -66,7 +68,9 @@ int main()
       test_assert(e->materialize);
       if (e->kernelWrites != row.kernelWrites) {
         std::printf("%s.%s: kernelWrites %d, expected %d\n",
-                    row.toolName, row.attr, int(e->kernelWrites),
+                    row.toolName,
+                    row.attr,
+                    int(e->kernelWrites),
                     int(row.kernelWrites));
       }
       test_assert(e->kernelWrites == row.kernelWrites);

@@ -24,7 +24,9 @@ class RemeshApp {
 public:
   enum class Job { None, Remesh, Meshy };
 
-  RemeshApp(Scene &scene) : scene_(scene) {}
+  RemeshApp(Scene &scene) : scene_(scene)
+  {
+  }
 
   /* Scan the assets dir for *.obj and refresh `assets`. Keeps the current
    * selection if its name still exists. */
@@ -74,13 +76,19 @@ public:
   /* Resolve <app-dir>/remesh_cli.exe (copied next to the app at build). */
   static std::wstring remeshCliPath();
 
-  Scene &scene() { return scene_; }
-  bool busy() const { return job_ != Job::None && proc_.running(); }
+  Scene &scene()
+  {
+    return scene_;
+  }
+  bool busy() const
+  {
+    return job_ != Job::None && proc_.running();
+  }
 
   // --- State the UI reads/writes directly (all main-thread) ---
   remesh::RemeshParams params;
   std::vector<std::string> assets;
-  int selected = -1;          // index into `assets`, or -1
+  int selected = -1; // index into `assets`, or -1
   bool showWireframe = true;
   bool showCurvature = false;
   // Principal-curvature overlay line length, as a fraction of the mesh bbox
@@ -127,9 +135,9 @@ public:
   std::string meshyPrompt;
 
   // Live job feedback.
-  float progress = 0.0f;      // 0..1
-  std::string stage;          // last PROGRESS stage tag
-  std::string status;         // human-readable status line (errors land here)
+  float progress = 0.0f; // 0..1
+  std::string stage;     // last PROGRESS stage tag
+  std::string status;    // human-readable status line (errors land here)
 
   std::string stats;
 
@@ -137,8 +145,9 @@ public:
   std::string lastObj;
   std::string lastManifest;
   std::string lastStats;
-  
+
   void updateStats();
+
 private:
   bool loadObjFile(const std::string &path, std::string &err);
   /* Tier 9e: snap the current (pre-passed) mesh back onto the original input
@@ -146,8 +155,10 @@ private:
    * parenthetical status note ("" if nothing to report, e.g. reprojected or
    * disabled; " (reproject skipped: ...)" when it couldn't run). */
   std::string reprojectToInput();
-  bool startJob(Job kind, const std::wstring &exe,
-                const std::vector<std::wstring> &args, const std::string &label);
+  bool startJob(Job kind,
+                const std::wstring &exe,
+                const std::vector<std::wstring> &args,
+                const std::string &label);
   void handleLine(const std::string &line);
   std::string assetPath(const std::string &name) const;
 

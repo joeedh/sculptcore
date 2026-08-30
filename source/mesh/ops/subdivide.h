@@ -59,15 +59,16 @@ static inline void subdivMakeFace(Mesh &m,
 /* Fill one face given its per-corner cut lists. `verts` are the corner verts in
  * loop order; `edgeCuts[i]` are the cut verts on the edge leaving verts[i]
  * (oriented verts[i] -> verts[i+1]), empty if that edge isn't cut. */
-static inline void subdivFillFace(Mesh &m,
-                                  MeshCallbacks *cb,
-                                  int f,
-                                  const litestl::util::Vector<int> &verts,
-                                  const litestl::util::Vector<litestl::util::Vector<int>> &edgeCuts,
-                                  int numCuts,
-                                  const AttrRowSnapshot &fsnap,
-                                  const litestl::util::Vector<int> &origVerts,
-                                  const litestl::util::Vector<AttrRowSnapshot> &origSnaps)
+static inline void
+subdivFillFace(Mesh &m,
+               MeshCallbacks *cb,
+               int f,
+               const litestl::util::Vector<int> &verts,
+               const litestl::util::Vector<litestl::util::Vector<int>> &edgeCuts,
+               int numCuts,
+               const AttrRowSnapshot &fsnap,
+               const litestl::util::Vector<int> &origVerts,
+               const litestl::util::Vector<AttrRowSnapshot> &origSnaps)
 {
   using litestl::util::Vector;
 
@@ -103,17 +104,18 @@ static inline void subdivFillFace(Mesh &m,
     grid[M][M] = verts[2];
     grid[M][0] = verts[3];
     for (int j = 1; j < M; j++) {
-      grid[0][j] = edgeCuts[0][j - 1];          // A->B
-      grid[M][j] = edgeCuts[2][N - j];          // D->C (reverse of C->D)
+      grid[0][j] = edgeCuts[0][j - 1]; // A->B
+      grid[M][j] = edgeCuts[2][N - j]; // D->C (reverse of C->D)
     }
     for (int i = 1; i < M; i++) {
-      grid[i][M] = edgeCuts[1][i - 1];          // B->C
-      grid[i][0] = edgeCuts[3][N - i];          // A->D (reverse of D->A)
+      grid[i][M] = edgeCuts[1][i - 1]; // B->C
+      grid[i][0] = edgeCuts[3][N - i]; // A->D (reverse of D->A)
     }
     for (int i = 1; i < M; i++) {
       for (int j = 1; j < M; j++) {
         float u = float(i) / float(M), v = float(j) / float(M);
-        math::float3 co = A * ((1 - u) * (1 - v)) + B * ((1 - u) * v) + C * (u * v) + D * (u * (1 - v));
+        math::float3 co =
+            A * ((1 - u) * (1 - v)) + B * ((1 - u) * v) + C * (u * v) + D * (u * (1 - v));
         int iv = m.make_vertex(co, cb);
         // best-effort attrs: copy corner A's vertex attrs
         AttrRowSnapshot s;
@@ -135,7 +137,8 @@ static inline void subdivFillFace(Mesh &m,
   if (n == 4 && (cutMask == 0b0101 || cutMask == 0b1010)) {
     // Rotate so the cut pair is edges 0 and 2.
     int s = (cutMask == 0b0101) ? 0 : 1;
-    int a = verts[s], b = verts[(s + 1) % 4], c = verts[(s + 2) % 4], d = verts[(s + 3) % 4];
+    int a = verts[s], b = verts[(s + 1) % 4], c = verts[(s + 2) % 4],
+        d = verts[(s + 3) % 4];
     const Vector<int> &eAB = edgeCuts[s];           // a->b
     const Vector<int> &eCD = edgeCuts[(s + 2) % 4]; // c->d
     // top a..b, bottom d..c (= reverse of c->d).

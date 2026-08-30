@@ -53,9 +53,9 @@ static bool strokeDome(const char *backend, std::vector<float3> &out)
   }
 
   std::string script = std::string("build_spatial leaf_limit=256 depth_limit=8\n"
-                                    "set_brush radius=1.5 strength=0.5\n"
-                                    "set_brush_tool tool=draw\n"
-                                    "set_backend backend=") +
+                                   "set_brush radius=1.5 strength=0.5\n"
+                                   "set_brush_tool tool=draw\n"
+                                   "set_backend backend=") +
                        backend + "\n" + "stroke origin=0,0,0 normal=0,0,1\n";
   r = script::run(s, script.c_str(), ".");
   test_assert(r.ok);

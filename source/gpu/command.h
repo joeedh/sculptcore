@@ -1,12 +1,12 @@
 #pragma once
 
-#include <concepts>
-#include "types.h"
 #include "litestl/binding/binding_base.h"
 #include "litestl/binding/binding_struct.h"
 #include "litestl/util/vector.h"
 #include "shader.h"
+#include "types.h"
 #include "vbo.h"
+#include <concepts>
 
 namespace sculptcore::gpu {
 struct GPUManager;

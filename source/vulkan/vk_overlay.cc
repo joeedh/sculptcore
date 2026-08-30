@@ -30,12 +30,12 @@ sculptcore::gpu::DrawBatch *buildLineBatch(sculptcore::gpu::GPUManager &mgr,
                                            int vertCount)
 {
   using namespace sculptcore::gpu;
-  Buffer *posBuf = mgr.createBuffer(
-      litestl::util::string("position"), GPUType::FLOAT32, 3, vertCount);
-  Buffer *colorBuf = mgr.createBuffer(
-      litestl::util::string("color"), GPUType::FLOAT32, 4, vertCount);
-  Buffer *uvBuf = mgr.createBuffer(
-      litestl::util::string("uv"), GPUType::FLOAT32, 2, vertCount);
+  Buffer *posBuf =
+      mgr.createBuffer(litestl::util::string("position"), GPUType::FLOAT32, 3, vertCount);
+  Buffer *colorBuf =
+      mgr.createBuffer(litestl::util::string("color"), GPUType::FLOAT32, 4, vertCount);
+  Buffer *uvBuf =
+      mgr.createBuffer(litestl::util::string("uv"), GPUType::FLOAT32, 2, vertCount);
 
   float3 *pos = posBuf->get_data<float3>();
   float4 *clr = colorBuf->get_data<float4>();
@@ -71,14 +71,20 @@ void Overlay::drawAxes(sculptcore::gpu::GPUManager &mgr,
                        float scale)
 {
   float3 pos[6] = {
-      float3(0, 0, 0), float3(scale, 0, 0),
-      float3(0, 0, 0), float3(0, scale, 0),
-      float3(0, 0, 0), float3(0, 0, scale),
+      float3(0, 0, 0),
+      float3(scale, 0, 0),
+      float3(0, 0, 0),
+      float3(0, scale, 0),
+      float3(0, 0, 0),
+      float3(0, 0, scale),
   };
   float4 clr[6] = {
-      float4(1, 0, 0, 1), float4(1, 0, 0, 1),
-      float4(0, 1, 0, 1), float4(0, 1, 0, 1),
-      float4(0, 0, 1, 1), float4(0, 0, 1, 1),
+      float4(1, 0, 0, 1),
+      float4(1, 0, 0, 1),
+      float4(0, 1, 0, 1),
+      float4(0, 1, 0, 1),
+      float4(0, 0, 1, 1),
+      float4(0, 0, 1, 1),
   };
   auto *batch = buildLineBatch(mgr, pos, clr, 6);
   DrawUniforms u;

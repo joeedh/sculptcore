@@ -50,10 +50,15 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, buildLeafBoundsBatch, MARGS("batch"));
   BIND_STRUCT_METHOD(st, buildBoundsBatch, MARGS("mgr"));
   BIND_STRUCT_METHOD(st, buildSeamBatch, MARGS("mgr", "includePolyGroup"));
-  BIND_STRUCT_METHOD(
-      st,
-      buildSelectionBatch,
-      MARGS("mgr", "activeVert", "activeEdge", "activeFace", "hoverVert", "hoverEdge", "hoverFace"));
+  BIND_STRUCT_METHOD(st,
+                     buildSelectionBatch,
+                     MARGS("mgr",
+                           "activeVert",
+                           "activeEdge",
+                           "activeFace",
+                           "hoverVert",
+                           "hoverEdge",
+                           "hoverFace"));
   BIND_STRUCT_METHOD(st, buildWireframeBatch, MARGS("mgr"));
   BIND_STRUCT_METHOD(st, buildPointsBatch, MARGS("mgr"));
   BIND_STRUCT_METHOD(st, markVertsMoved, MARGS("verts"));
@@ -68,7 +73,8 @@ types::Struct<SpatialTree> *SpatialTree::defineBindings()
   BIND_STRUCT_METHOD(st, setDisplayColorAttr, MARGS("index"));
   BIND_STRUCT_METHOD(st, setDisplayGroupAttr, MARGS("index"));
   BIND_STRUCT_METHOD(st, setDisplayMask, MARGS("on"));
-  BIND_STRUCT_METHOD(st, castScreenCircle, MARGS("co", "ray", "r1", "r2", "faces", "verts"));
+  BIND_STRUCT_METHOD(
+      st, castScreenCircle, MARGS("co", "ray", "r1", "r2", "faces", "verts"));
   BIND_STRUCT_METHOD(st,
                      castScreenRect,
                      MARGS("near0",

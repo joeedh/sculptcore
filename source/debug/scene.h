@@ -24,11 +24,11 @@
 namespace sculptcore::subdiv {
 struct Multires;
 struct GridStrokeLog;
-}
+} // namespace sculptcore::subdiv
 namespace sculptcore::brush {
 struct GridBrushExecutor;
 struct BrushStrokeDriver;
-}
+} // namespace sculptcore::brush
 
 namespace sculptcore::debug_app {
 
@@ -110,8 +110,9 @@ struct Scene {
   /* Owned GPU bits (created on first ensureGPU()). */
   window::Window *window = nullptr;
   vulkan::VkContext *context = nullptr;
-  vulkan::VulkanBackend *backend = nullptr;        /* offscreen render pass */
-  vulkan::VulkanBackend *backendWindow = nullptr;  /* swapchain render pass; only when !headless */
+  vulkan::VulkanBackend *backend = nullptr; /* offscreen render pass */
+  vulkan::VulkanBackend *backendWindow =
+      nullptr; /* swapchain render pass; only when !headless */
   vulkan::OffscreenTarget offscreen;
   vulkan::Swapchain swapchain;
   vulkan::Overlay overlay;
@@ -219,7 +220,8 @@ struct Scene {
    *  after the axes+cursor overlays and before the ImGui post-draw hook. Lets
    *  callers submit world-space line geometry (e.g. field overlays) that the
    *  rendered surface occludes. Pass nullptr to clear. */
-  using OverlayDrawCB = void (*)(void *user, gpu::GPUManager &mgr,
+  using OverlayDrawCB = void (*)(void *user,
+                                 gpu::GPUManager &mgr,
                                  vulkan::VulkanBackend &backend,
                                  const litestl::math::mat4 &vp);
   void setOverlayDrawCB(OverlayDrawCB cb, void *user)

@@ -29,11 +29,11 @@
 #include "mesh/mesh.h"
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_iter.h"
-#include "mesh/uv_reproject.h"
 #include "mesh/utils/edge_collapse.h"
 #include "mesh/utils/edge_flip.h"
 #include "mesh/utils/edge_split.h"
 #include "mesh/utils/triangulate.h"
+#include "mesh/uv_reproject.h"
 
 #include "dyntopo/dyntopo_trace.h"
 
@@ -476,7 +476,10 @@ struct DispField {
     }
     return vec->safe_get(v);
   }
-  explicit operator bool() const { return vec != nullptr && gen != nullptr; }
+  explicit operator bool() const
+  {
+    return vec != nullptr && gen != nullptr;
+  }
 };
 
 /* Tangential-smoothing target for vertex v (M7.4): slide v toward the
@@ -839,10 +842,9 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
      * walk, and frontier-set inserts for all of them — to then apply only the
      * budgeted few. Capped-out edges are simply next dab's work, like the
      * budget itself. */
-    const int splitCandCap =
-        (doSplit && p.max_splits > 0)
-            ? std::max(64, 8 * (p.max_splits - stats.splits))
-            : 0;
+    const int splitCandCap = (doSplit && p.max_splits > 0)
+                                 ? std::max(64, 8 * (p.max_splits - stats.splits))
+                                 : 0;
     const int collapseCandCap =
         (doCollapse && p.max_collapses > 0)
             ? std::max(64, 8 * (p.max_collapses - stats.collapses))
@@ -1150,8 +1152,10 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
          * every moved vert's old position rides `sold`, so neighbors read
          * pre-pass geometry). */
         mesh::uvproj::reprojectVertUVs(
-            &m, std::span<const int>(sverts.data(), sverts.size()),
-            std::span<const math::float3>(sold.data(), sold.size()), cb);
+            &m,
+            std::span<const int>(sverts.data(), sverts.size()),
+            std::span<const math::float3>(sold.data(), sold.size()),
+            cb);
       }
       stats.smooths += int(sverts.size());
     }

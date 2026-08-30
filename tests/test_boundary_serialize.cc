@@ -34,10 +34,16 @@ void buildTwoGroupQuads(Mesh &m, int &vShared0, int &vShared1, int &vOuter)
   int v5 = m.make_vertex(float3(2, 1, 0));
 
   auto edge = [&](int a, int b) {
-    if (m.find_edge(a, b) == ELEM_NONE) m.make_edge(a, b);
+    if (m.find_edge(a, b) == ELEM_NONE)
+      m.make_edge(a, b);
   };
-  edge(v0, v1); edge(v1, v4); edge(v4, v3); edge(v3, v0);
-  edge(v1, v2); edge(v2, v5); edge(v5, v4);
+  edge(v0, v1);
+  edge(v1, v4);
+  edge(v4, v3);
+  edge(v3, v0);
+  edge(v1, v2);
+  edge(v2, v5);
+  edge(v5, v4);
 
   int fa[4] = {v0, v1, v4, v3};
   int fb[4] = {v1, v2, v5, v4};
@@ -104,8 +110,12 @@ int main()
     test_assert(shared != ELEM_NONE);
     test_assert(bnd::edgeFlag(&dst, bnd::EDGE_POLYGROUP, shared) == true);
 
-    fprintf(stderr, "boundary_serialize: v1 cls %d -> %d, v4 cls %d -> %d\n", clsV1,
-            bnd::vertClass(&dst, v1), clsV4, bnd::vertClass(&dst, v4));
+    fprintf(stderr,
+            "boundary_serialize: v1 cls %d -> %d, v4 cls %d -> %d\n",
+            clsV1,
+            bnd::vertClass(&dst, v1),
+            clsV4,
+            bnd::vertClass(&dst, v4));
   }
 
   return test_end();

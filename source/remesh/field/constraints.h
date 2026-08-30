@@ -30,7 +30,8 @@ struct FaceConstraint {
 /* Fill `out` (indexed by face id, sized to m.f.capacity()) with per-face
  * constraints. Reads .remesh.f.stroke_dir (optional) and computes curvature +
  * feature tags (M1) as needed. Faces are visited via the shared faceFrame(). */
-void gatherConstraints(mesh::Mesh &m, const CrossFieldParams &params,
+void gatherConstraints(mesh::Mesh &m,
+                       const CrossFieldParams &params,
                        litestl::util::Vector<FaceConstraint> &out);
 
 } // namespace sculptcore::remesh

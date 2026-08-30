@@ -332,7 +332,8 @@ collapseEdge(Mesh &m,
     /* The survivor lands at merged_co, not at the blend of the two endpoints, so
      * hand it to the merge policies (attr_merge.h) — a snapshot/rest column has
      * to be reconstructed against where the vertex actually ends up. */
-    const litestl::math::float3 *mco = merged_co.has_value() ? &merged_co.value() : nullptr;
+    const litestl::math::float3 *mco =
+        merged_co.has_value() ? &merged_co.value() : nullptr;
     interpAttrs(m.v.attrs, v_keep, v_keep, v_kill, blend, &m, mco);
   }
 
@@ -595,8 +596,7 @@ collapseEdge(Mesh &m,
           auto dist2 = [](const T &a, const T &b) {
             if constexpr (std::is_same_v<T, float>) {
               return (a - b) * (a - b);
-            }
-            else {
+            } else {
               return (a - b).lengthSqr();
             }
           };

@@ -62,49 +62,67 @@ struct Args {
 
 void printUsage()
 {
-  std::fprintf(stderr,
-    "Usage: sbrushc --backend=<cpp|wgsl|spirv|cuda|hip|opencl> --in=<input.sbrush> --out=<output>\n"
-    "  --dry-run     do not write output\n"
-    "  --dump-tokens print token stream and exit\n"
-    "  --extras      extra (out-of-repo) kernel: unlisted float uniforms use the\n"
-    "                Brush.namedFloats store instead of erroring (cpp backend)\n"
-    "  --texture=<unit.stex>  texture unit whose textures satisfy the brush's\n"
-    "                `use texture <Name>;` imports (repeatable)\n"
-    "  --eol=<auto|lf|crlf>  line endings for written files; auto (default)\n"
-    "                follows git's core.eol / core.autocrlf working-tree setting\n"
-    "Registry mode (extra-kernel enum/factory registration):\n"
-    "  sbrushc --registry --out-dir=<dir> --in=<extra.sbrush>...\n"
-    "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n"
-    "Builtin-registry mode (built-in enum items + id-keyed factory dispatch):\n"
-    "  sbrushc --builtin-registry --out-dir=<dir> --tools=<brushes/tools.txt>\n"
-    "          --in=<builtin.sbrush>...\n"
-    "Texture-unit mode (precompile one .stex unit):\n"
-    "  sbrushc --texture-unit --in=<unit.stex> --out=<stem.tex.gen.h>\n"
-    "          --backend=c emits a freestanding C99 TU (JIT input) instead\n"
-    "Texture-registry mode (registry over all precompiled units):\n"
-    "  sbrushc --texture-registry --out-dir=<dir> [--in=<unit.stex>...]\n");
+  std::fprintf(
+      stderr,
+      "Usage: sbrushc --backend=<cpp|wgsl|spirv|cuda|hip|opencl> --in=<input.sbrush> "
+      "--out=<output>\n"
+      "  --dry-run     do not write output\n"
+      "  --dump-tokens print token stream and exit\n"
+      "  --extras      extra (out-of-repo) kernel: unlisted float uniforms use the\n"
+      "                Brush.namedFloats store instead of erroring (cpp backend)\n"
+      "  --texture=<unit.stex>  texture unit whose textures satisfy the brush's\n"
+      "                `use texture <Name>;` imports (repeatable)\n"
+      "  --eol=<auto|lf|crlf>  line endings for written files; auto (default)\n"
+      "                follows git's core.eol / core.autocrlf working-tree setting\n"
+      "Registry mode (extra-kernel enum/factory registration):\n"
+      "  sbrushc --registry --out-dir=<dir> --in=<extra.sbrush>...\n"
+      "          --builtin=<builtin.sbrush>... --reserved=<NAME,NAME,...>\n"
+      "Builtin-registry mode (built-in enum items + id-keyed factory dispatch):\n"
+      "  sbrushc --builtin-registry --out-dir=<dir> --tools=<brushes/tools.txt>\n"
+      "          --in=<builtin.sbrush>...\n"
+      "Texture-unit mode (precompile one .stex unit):\n"
+      "  sbrushc --texture-unit --in=<unit.stex> --out=<stem.tex.gen.h>\n"
+      "          --backend=c emits a freestanding C99 TU (JIT input) instead\n"
+      "Texture-registry mode (registry over all precompiled units):\n"
+      "  sbrushc --texture-registry --out-dir=<dir> [--in=<unit.stex>...]\n");
 }
 
 bool parseArgs(int argc, char **argv, Args &out)
 {
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
-    if (std::strncmp(a, "--backend=", 10) == 0) out.backend = a + 10;
-    else if (std::strncmp(a, "--in=", 5) == 0) out.inPaths.append(a + 5);
-    else if (std::strncmp(a, "--out=", 6) == 0) out.outPath = a + 6;
-    else if (std::strncmp(a, "--out-dir=", 10) == 0) out.outDir = a + 10;
-    else if (std::strncmp(a, "--builtin=", 10) == 0) out.builtinPaths.append(a + 10);
-    else if (std::strncmp(a, "--texture=", 10) == 0) out.texturePaths.append(a + 10);
-    else if (std::strncmp(a, "--reserved=", 11) == 0) out.reserved = a + 11;
-    else if (std::strncmp(a, "--tools=", 8) == 0) out.toolsPath = a + 8;
-    else if (std::strncmp(a, "--eol=", 6) == 0) out.eol = a + 6;
-    else if (std::strcmp(a, "--registry") == 0) out.registry = true;
-    else if (std::strcmp(a, "--builtin-registry") == 0) out.builtinRegistry = true;
-    else if (std::strcmp(a, "--texture-unit") == 0) out.textureUnit = true;
-    else if (std::strcmp(a, "--texture-registry") == 0) out.textureRegistry = true;
-    else if (std::strcmp(a, "--extras") == 0) out.extras = true;
-    else if (std::strcmp(a, "--dry-run") == 0) out.dryRun = true;
-    else if (std::strcmp(a, "--dump-tokens") == 0) out.dumpTokens = true;
+    if (std::strncmp(a, "--backend=", 10) == 0)
+      out.backend = a + 10;
+    else if (std::strncmp(a, "--in=", 5) == 0)
+      out.inPaths.append(a + 5);
+    else if (std::strncmp(a, "--out=", 6) == 0)
+      out.outPath = a + 6;
+    else if (std::strncmp(a, "--out-dir=", 10) == 0)
+      out.outDir = a + 10;
+    else if (std::strncmp(a, "--builtin=", 10) == 0)
+      out.builtinPaths.append(a + 10);
+    else if (std::strncmp(a, "--texture=", 10) == 0)
+      out.texturePaths.append(a + 10);
+    else if (std::strncmp(a, "--reserved=", 11) == 0)
+      out.reserved = a + 11;
+    else if (std::strncmp(a, "--tools=", 8) == 0)
+      out.toolsPath = a + 8;
+    else if (std::strncmp(a, "--eol=", 6) == 0)
+      out.eol = a + 6;
+    else if (std::strcmp(a, "--registry") == 0)
+      out.registry = true;
+    else if (std::strcmp(a, "--builtin-registry") == 0)
+      out.builtinRegistry = true;
+    else if (std::strcmp(a, "--texture-unit") == 0)
+      out.textureUnit = true;
+    else if (std::strcmp(a, "--texture-registry") == 0)
+      out.textureRegistry = true;
+    else if (std::strcmp(a, "--extras") == 0)
+      out.extras = true;
+    else if (std::strcmp(a, "--dry-run") == 0)
+      out.dryRun = true;
+    else if (std::strcmp(a, "--dump-tokens") == 0)
+      out.dumpTokens = true;
     else if (std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0) {
       printUsage();
       std::exit(0);
@@ -113,16 +131,20 @@ bool parseArgs(int argc, char **argv, Args &out)
       return false;
     }
   }
-  if (std::strcmp(out.eol.c_str(), "auto") != 0 && std::strcmp(out.eol.c_str(), "lf") != 0 &&
-      std::strcmp(out.eol.c_str(), "crlf") != 0) {
+  if (std::strcmp(out.eol.c_str(), "auto") != 0 &&
+      std::strcmp(out.eol.c_str(), "lf") != 0 &&
+      std::strcmp(out.eol.c_str(), "crlf") != 0)
+  {
     std::fprintf(stderr, "sbrushc: --eol must be auto, lf or crlf\n");
     return false;
   }
   if ((int)out.registry + (int)out.builtinRegistry + (int)out.textureUnit +
           (int)out.textureRegistry >
-      1) {
-    std::fprintf(stderr, "sbrushc: --registry, --builtin-registry, --texture-unit and "
-                         "--texture-registry are exclusive\n");
+      1)
+  {
+    std::fprintf(stderr,
+                 "sbrushc: --registry, --builtin-registry, --texture-unit and "
+                 "--texture-registry are exclusive\n");
     return false;
   }
   if (out.builtinRegistry && out.toolsPath.size() == 0) {
@@ -131,15 +153,16 @@ bool parseArgs(int argc, char **argv, Args &out)
   }
   if (out.registry || out.builtinRegistry || out.textureRegistry) {
     if (out.outDir.size() == 0) {
-      const char *mode = out.registry ? "registry"
-                                      : (out.builtinRegistry ? "builtin-registry"
-                                                             : "texture-registry");
+      const char *mode =
+          out.registry ? "registry"
+                       : (out.builtinRegistry ? "builtin-registry" : "texture-registry");
       std::fprintf(stderr, "sbrushc: --%s requires --out-dir\n", mode);
       return false;
     }
     return true;
   }
-  if (out.backend.size() == 0) out.backend = "cpp";
+  if (out.backend.size() == 0)
+    out.backend = "cpp";
   if (out.inPaths.size() != 1) {
     std::fprintf(stderr, "sbrushc: exactly one --in is required\n");
     return false;
@@ -155,7 +178,8 @@ bool parseArgs(int argc, char **argv, Args &out)
 bool readFile(const char *path, std::string &dst)
 {
   std::ifstream f(path, std::ios::binary);
-  if (!f) return false;
+  if (!f)
+    return false;
   std::ostringstream ss;
   ss << f.rdbuf();
   dst = ss.str();
@@ -177,7 +201,8 @@ std::string gitConfigValue(const char *key)
   cmd += " 2>/dev/null";
   FILE *pipe = popen(cmd.c_str(), "r");
 #endif
-  if (!pipe) return "";
+  if (!pipe)
+    return "";
 
   std::string out;
   char buf[256];
@@ -190,8 +215,9 @@ std::string gitConfigValue(const char *key)
   pclose(pipe);
 #endif
 
-  while (out.size() > 0 && (out.back() == '\n' || out.back() == '\r' || out.back() == ' ' ||
-                            out.back() == '\t')) {
+  while (out.size() > 0 && (out.back() == '\n' || out.back() == '\r' ||
+                            out.back() == ' ' || out.back() == '\t'))
+  {
     out.pop_back();
   }
   return out;
@@ -204,11 +230,14 @@ const std::string &nativeEOL()
   static const std::string eol = [] {
     // core.eol pins the working-tree ending outright and wins over core.autocrlf.
     std::string coreEol = gitConfigValue("core.eol");
-    if (coreEol == "lf") return std::string("\n");
-    if (coreEol == "crlf") return std::string("\r\n");
+    if (coreEol == "lf")
+      return std::string("\n");
+    if (coreEol == "crlf")
+      return std::string("\r\n");
 
     std::string autocrlf = gitConfigValue("core.autocrlf");
-    if (autocrlf == "input" || autocrlf == "false") return std::string("\n");
+    if (autocrlf == "input" || autocrlf == "false")
+      return std::string("\n");
     // 'true', or unset with core.eol=native → OS-native EOL
 #ifdef _WIN32
     return std::string("\r\n");
@@ -227,7 +256,8 @@ std::string applyEOL(const litestl::util::string &text, const std::string &eol)
   const char *p = text.c_str();
   for (size_t i = 0, n = (size_t)text.size(); i < n; i++) {
     if (p[i] == '\r') {
-      if (i + 1 < n && p[i + 1] == '\n') i++;
+      if (i + 1 < n && p[i + 1] == '\n')
+        i++;
       out += eol;
     } else if (p[i] == '\n') {
       out += eol;
@@ -254,7 +284,8 @@ bool writeFileIfChanged(const char *path, const litestl::util::string &content)
     }
   }
   std::ofstream out(path, std::ios::binary);
-  if (!out) return false;
+  if (!out)
+    return false;
   std::printf("sbrushc: %s\n", path);
   out.write(text.data(), (std::streamsize)text.size());
   return out.good();
@@ -263,7 +294,8 @@ bool writeFileIfChanged(const char *path, const litestl::util::string &content)
 // Lex + parse one DSL source file (brush or texture unit); errors go to
 // stderr, false on failure. `dumpTokens` prints the token stream and returns
 // false without parsing.
-bool parseSourceFile(const litestl::util::string &path, ParseResult &out,
+bool parseSourceFile(const litestl::util::string &path,
+                     ParseResult &out,
                      bool dumpTokens = false)
 {
   std::string src;
@@ -277,16 +309,20 @@ bool parseSourceFile(const litestl::util::string &path, ParseResult &out,
                    litestl::util::stringref(path.c_str()));
   if (lex_r.errors.size() > 0) {
     for (const auto &e : lex_r.errors) {
-      std::fprintf(stderr, "%s:%d:%d: lex error: %s\n",
-                   path.c_str(), e.line, e.col, e.message.c_str());
+      std::fprintf(stderr,
+                   "%s:%d:%d: lex error: %s\n",
+                   path.c_str(),
+                   e.line,
+                   e.col,
+                   e.message.c_str());
     }
     return false;
   }
 
   if (dumpTokens) {
     for (const auto &t : lex_r.tokens) {
-      std::fprintf(stderr, "%d:%d %s '%s'\n",
-                   t.line, t.col, tokKindName(t.kind), t.text.c_str());
+      std::fprintf(
+          stderr, "%d:%d %s '%s'\n", t.line, t.col, tokKindName(t.kind), t.text.c_str());
     }
     return false;
   }
@@ -294,8 +330,12 @@ bool parseSourceFile(const litestl::util::string &path, ParseResult &out,
   out = parse(lex_r.tokens, litestl::util::stringref(path.c_str()));
   if (out.errors.size() > 0) {
     for (const auto &e : out.errors) {
-      std::fprintf(stderr, "%s:%d:%d: parse error: %s\n",
-                   path.c_str(), e.line, e.col, e.message.c_str());
+      std::fprintf(stderr,
+                   "%s:%d:%d: parse error: %s\n",
+                   path.c_str(),
+                   e.line,
+                   e.col,
+                   e.message.c_str());
     }
     return false;
   }
@@ -325,7 +365,8 @@ std::unique_ptr<TextureUnit> parseTextureUnitFile(const litestl::util::string &p
     return nullptr;
   }
   if (!r.unit) {
-    std::fprintf(stderr, "sbrushc: '%s' parsed but is not a texture unit\n", path.c_str());
+    std::fprintf(
+        stderr, "sbrushc: '%s' parsed but is not a texture unit\n", path.c_str());
     return nullptr;
   }
   return std::move(r.unit);
@@ -354,7 +395,8 @@ bool resolveUseTextures(Brush &brush,
     for (const auto &t : brush.textures) {
       if (!skip && string(t.name.c_str()) == string(name.c_str())) {
         std::fprintf(stderr,
-                     "sbrushc: 'use texture %s' collides with an inline texture of the same name\n",
+                     "sbrushc: 'use texture %s' collides with an inline texture of the "
+                     "same name\n",
                      name.c_str());
         ok = false;
         skip = true;
@@ -372,8 +414,11 @@ bool resolveUseTextures(Brush &brush,
           continue;
         }
         if (found) {
-          std::fprintf(stderr, "sbrushc: texture '%s' defined in both '%s' and '%s'\n",
-                       name.c_str(), foundIn->sourceFile.c_str(), up->sourceFile.c_str());
+          std::fprintf(stderr,
+                       "sbrushc: texture '%s' defined in both '%s' and '%s'\n",
+                       name.c_str(),
+                       foundIn->sourceFile.c_str(),
+                       up->sourceFile.c_str());
           ok = false;
           skip = true;
         } else {
@@ -386,7 +431,8 @@ bool resolveUseTextures(Brush &brush,
       continue;
     }
     if (!found) {
-      std::fprintf(stderr, "sbrushc: 'use texture %s': no such texture in any --texture= unit\n",
+      std::fprintf(stderr,
+                   "sbrushc: 'use texture %s': no such texture in any --texture= unit\n",
                    name.c_str());
       ok = false;
       continue;
@@ -493,7 +539,8 @@ int runBuiltinRegistryMode(const Args &args)
 {
   std::string toolsText;
   if (!readFile(args.toolsPath.c_str(), toolsText)) {
-    std::fprintf(stderr, "sbrushc: cannot read tool id table '%s'\n", args.toolsPath.c_str());
+    std::fprintf(
+        stderr, "sbrushc: cannot read tool id table '%s'\n", args.toolsPath.c_str());
     return 1;
   }
   litestl::util::Vector<litestl::util::string> toolIds;
@@ -683,7 +730,8 @@ int main(int argc, char **argv)
     cppOpts.extras = args.extras;
     er = emitCpp(*brush, cppOpts);
   } else if (litestl::util::string(backend.c_str()) == litestl::util::string("wgsl") ||
-             litestl::util::string(backend.c_str()) == litestl::util::string("spirv")) {
+             litestl::util::string(backend.c_str()) == litestl::util::string("spirv"))
+  {
     // SPIR-V is reached by lowering the WGSL through tint (--format=spirv);
     // sbrushc's job for the spirv backend is to emit the WGSL that tint
     // consumes, so both backends share emitWgsl. A future slice can swap in a

@@ -11,7 +11,9 @@ struct MeshBase;
 // vEnd is unreachable. The compute core of the seam/boundary marking tool
 // (Wave 5): the tool calls this between the click-anchored start vertex and the
 // vertex under the cursor, then flags the path edges. Requires live disk links.
-bool shortestEdgePath(MeshBase *m, int vStart, int vEnd,
+bool shortestEdgePath(MeshBase *m,
+                      int vStart,
+                      int vEnd,
                       litestl::util::Vector<int> &outVerts);
 
 } // namespace sculptcore::mesh

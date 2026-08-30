@@ -8,9 +8,10 @@
  * both sides) — so the amplified positions are bit-identical to the CPU chain
  * (a composed single-SpMV can't be; see the S1 status note). Caveat: WGSL
  * permits (but desktop drivers don't do) unfused fma lowering — the gate
- * test asserts bit-equality, so a deviating driver is caught, not silent. Deliberately VDM- and displacement-agnostic: stored
- * deltas above the edit level are the CPU chain's job; this pass gives fine
- * DISPLAY density from an edit level (X3 reuses it for the tessellated tier).
+ * test asserts bit-equality, so a deviating driver is caught, not silent. Deliberately
+ * VDM- and displacement-agnostic: stored deltas above the edit level are the CPU chain's
+ * job; this pass gives fine DISPLAY density from an edit level (X3 reuses it for the
+ * tessellated tier).
  *
  * The result buffer stays on-device (tight xyz f32 triplets, Storage|CopySrc
  * usage) for a future draw tier; readback() is the test/verify path. */

@@ -175,9 +175,7 @@ inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
  * owning spatial leaves, so extdraw and mesh-path queries stay current while
  * the grids path does the real work. No-op when the slot is not resident.
  * The mirror is write-only — the domain stays authoritative. */
-inline void gridsMirrorToSlot(subdiv::Multires *mr,
-                              int level,
-                              std::span<const int> verts)
+inline void gridsMirrorToSlot(subdiv::Multires *mr, int level, std::span<const int> verts)
 {
   subdiv::MultiresSlot *slot = mr->findSlot(level);
   if (!slot || !slot->mesh || !slot->tree) {
@@ -201,7 +199,8 @@ inline void gridsMirrorToSlot(subdiv::Multires *mr,
     // GPU partition recompute) on each draw refresh.
     node->flag |= spatial::Spatial_UpdateGPUGeom | spatial::Spatial_RegenBounds;
     for (spatial::SpatialNode *p = node->parent;
-         p && !(p->flag & spatial::Spatial_RegenBounds); p = p->parent)
+         p && !(p->flag & spatial::Spatial_RegenBounds);
+         p = p->parent)
     {
       p->flag |= spatial::Spatial_RegenBounds;
     }
@@ -224,8 +223,13 @@ template <class AccMode> struct GridVertexIter {
 
     GridBrushExecutor *exec;
 
-    PtrHelper(float3 &co_, float3 base_, mesh::AttrData<float3> *disp_, float3 &no_,
-              float &mask_, int v, GridBrushExecutor *exec)
+    PtrHelper(float3 &co_,
+              float3 base_,
+              mesh::AttrData<float3> *disp_,
+              float3 &no_,
+              float &mask_,
+              int v,
+              GridBrushExecutor *exec)
         : co{co_, base_, exec, disp_, v}, no(no_), mask(mask_), v(v), exec(exec)
     {
     }
@@ -271,9 +275,13 @@ template <class AccMode> struct GridVertexIter {
                  mesh::AttrData<int> *dispGen,
                  uint32_t strokeGen)
       : d(d), verts(verts), exec(exec), dispVec(dispVec), dispGen(dispGen),
-        strokeGen(strokeGen),
-        ptrs(d->pos()[(*verts)[0]], baseFor((*verts)[0]), dispFor(),
-             d->no[(*verts)[0]], d->mask[(*verts)[0]], (*verts)[0], exec)
+        strokeGen(strokeGen), ptrs(d->pos()[(*verts)[0]],
+                                   baseFor((*verts)[0]),
+                                   dispFor(),
+                                   d->no[(*verts)[0]],
+                                   d->mask[(*verts)[0]],
+                                   (*verts)[0],
+                                   exec)
   {
   }
 
@@ -343,7 +351,8 @@ struct GridFaceIter {
     FacePtr(int f_, float3 center_, float3 &no_) : f(f_), center(center_), no(no_)
     {
     }
-    FacePtr(const FacePtr &b) : f(b.f), center(b.center), no(b.no), indexInNode(b.indexInNode)
+    FacePtr(const FacePtr &b)
+        : f(b.f), center(b.center), no(b.no), indexInNode(b.indexInNode)
     {
     }
   };
@@ -396,7 +405,8 @@ struct GridFaceIter {
     const float3 &e = d->pos()[gv[(v + 1) * w + u]];
     noStorage_ = (c - a).cross(e - b).normalized();
     ptrs.~FacePtr();
-    new (&ptrs) FacePtr(gridAttrFaceIndex(g, u, v, S), (a + b + c + e) * 0.25f, noStorage_);
+    new (&ptrs)
+        FacePtr(gridAttrFaceIndex(g, u, v, S), (a + b + c + e) * 0.25f, noStorage_);
   }
 
   bool operator==(const GridFaceIter &b)
@@ -591,8 +601,12 @@ struct GridBrushExecutor {
 
   template <class AccMode> GridVertexIter<AccMode> makeVertexIter(GridExecNode &node)
   {
-    return GridVertexIter<AccMode>(domain, &tree->leaves[node.leaf].ownedVerts, this,
-                                   ctx.dispVec, ctx.dispGen, ctx.strokeGen);
+    return GridVertexIter<AccMode>(domain,
+                                   &tree->leaves[node.leaf].ownedVerts,
+                                   this,
+                                   ctx.dispVec,
+                                   ctx.dispGen,
+                                   ctx.strokeGen);
   }
 
   GridFaceIter makeFaceIter(GridExecNode &node)
@@ -629,12 +643,12 @@ struct GridBrushExecutor {
    * `brushOrNull` is the extras registry's uniform-default seed, as on the mesh
    * path; a null one just means extra kernels report unhandled. */
   template <class AccMode>
-  static bool createCommandSwitch(SculptBrushes brushType,
-                                  Brush *brushOrNull,
-                                  brush_command &def)
+  static bool
+  createCommandSwitch(SculptBrushes brushType, Brush *brushOrNull, brush_command &def)
   {
     if (command::createBuiltinBrush<GridBrushExecutor, GridCsrNbr, GridCsrNbr, AccMode>(
-            int(brushType), /*csrNeighbors=*/true, def)) {
+            int(brushType), /*csrNeighbors=*/true, def))
+    {
       return true;
     }
     return brushOrNull &&
@@ -853,8 +867,7 @@ struct GridBrushExecutor {
       domain->refreshNormals(
           std::span<const int>(pendingNormals_.data(), pendingNormals_.size()));
       stats.normalsMs +=
-          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                    tn)
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tn)
               .count();
       flushedNormals_ = std::move(pendingNormals_);
       pendingNormals_ = Vector<int>();
@@ -877,14 +890,15 @@ struct GridBrushExecutor {
     isFirstOfStep = false;
     stats.strokes++;
     flushNormals();
-    gridsFoldStroke(domain, log,
-                    std::span<const int>(strokeTouchedVerts_.data(),
-                                         strokeTouchedVerts_.size()),
-                    strokeWroteCo_, strokeWroteMask_,
-                    std::span<GridAttrMirror *const>(attrMirrors_.items.data(),
-                                                     attrMirrors_.items.size()),
-                    std::span<const int>(strokeTouchedGrids_.data(),
-                                         strokeTouchedGrids_.size()));
+    gridsFoldStroke(
+        domain,
+        log,
+        std::span<const int>(strokeTouchedVerts_.data(), strokeTouchedVerts_.size()),
+        strokeWroteCo_,
+        strokeWroteMask_,
+        std::span<GridAttrMirror *const>(attrMirrors_.items.data(),
+                                         attrMirrors_.items.size()),
+        std::span<const int>(strokeTouchedGrids_.data(), strokeTouchedGrids_.size()));
     stats.writebackMs +=
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
             .count();
@@ -1279,8 +1293,8 @@ private:
     }
     const auto &pos = domain->pos();
     auto refresh = [&](int v) {
-      if (coPrevStrokeGen_[v] == strokeSeq_ &&
-          coPrevCopyEpoch_[v] == coPrevPosEpoch_[v]) {
+      if (coPrevStrokeGen_[v] == strokeSeq_ && coPrevCopyEpoch_[v] == coPrevPosEpoch_[v])
+      {
         return;
       }
       coPrevStorage_[v] = pos[v];
@@ -1343,10 +1357,10 @@ private:
         m->handle = entry.handle;
         m->layer = gridAttrLayerName(entry);
         m->type = entry.type;
-        m->domain = faceLayer ? subdiv::GridElemDomain::Face : subdiv::GridElemDomain::Vertex;
+        m->domain =
+            faceLayer ? subdiv::GridElemDomain::Face : subdiv::GridElemDomain::Vertex;
         m->floats = gridAttrTypeFloats(entry.type);
-        m->column = gridAttrNewColumn(entry.type, m->layer,
-                                      faceLayer ? faceCount() : vc);
+        m->column = gridAttrNewColumn(entry.type, m->layer, faceLayer ? faceCount() : vc);
         attrMirrors_.items.append(m);
       }
       m->channel = gridAttrEnsureChannel(domain->multires(), *m, domain->level());

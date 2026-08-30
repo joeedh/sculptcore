@@ -57,8 +57,15 @@ int CageSmooth_dabBatch(CageSmoothSession *s,
   if (!s) {
     return -1;
   }
-  return s->dabBatch(tool, n, dabs, strength, invert != 0, pressure, usePressure != 0,
-                     signs, mirrorCount);
+  return s->dabBatch(tool,
+                     n,
+                     dabs,
+                     strength,
+                     invert != 0,
+                     pressure,
+                     usePressure != 0,
+                     signs,
+                     mirrorCount);
 }
 
 /** Stroke-end: close the executor step and restore the brush's policy bits.

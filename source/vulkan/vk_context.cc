@@ -10,39 +10,56 @@ namespace sculptcore::vulkan {
 static const char *vk_result_str(VkResult r)
 {
   switch (r) {
-  case VK_SUCCESS: return "VK_SUCCESS";
-  case VK_NOT_READY: return "VK_NOT_READY";
-  case VK_TIMEOUT: return "VK_TIMEOUT";
-  case VK_EVENT_SET: return "VK_EVENT_SET";
-  case VK_EVENT_RESET: return "VK_EVENT_RESET";
-  case VK_INCOMPLETE: return "VK_INCOMPLETE";
-  case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
-  case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-  case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
-  case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
-  case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
-  case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
-  case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
-  case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
-  case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
-  default: return "VK_ERROR_<other>";
+  case VK_SUCCESS:
+    return "VK_SUCCESS";
+  case VK_NOT_READY:
+    return "VK_NOT_READY";
+  case VK_TIMEOUT:
+    return "VK_TIMEOUT";
+  case VK_EVENT_SET:
+    return "VK_EVENT_SET";
+  case VK_EVENT_RESET:
+    return "VK_EVENT_RESET";
+  case VK_INCOMPLETE:
+    return "VK_INCOMPLETE";
+  case VK_ERROR_OUT_OF_HOST_MEMORY:
+    return "VK_ERROR_OUT_OF_HOST_MEMORY";
+  case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+    return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+  case VK_ERROR_INITIALIZATION_FAILED:
+    return "VK_ERROR_INITIALIZATION_FAILED";
+  case VK_ERROR_DEVICE_LOST:
+    return "VK_ERROR_DEVICE_LOST";
+  case VK_ERROR_MEMORY_MAP_FAILED:
+    return "VK_ERROR_MEMORY_MAP_FAILED";
+  case VK_ERROR_LAYER_NOT_PRESENT:
+    return "VK_ERROR_LAYER_NOT_PRESENT";
+  case VK_ERROR_EXTENSION_NOT_PRESENT:
+    return "VK_ERROR_EXTENSION_NOT_PRESENT";
+  case VK_ERROR_FEATURE_NOT_PRESENT:
+    return "VK_ERROR_FEATURE_NOT_PRESENT";
+  case VK_ERROR_INCOMPATIBLE_DRIVER:
+    return "VK_ERROR_INCOMPATIBLE_DRIVER";
+  default:
+    return "VK_ERROR_<other>";
   }
 }
 
-#define VK_CHECK(expr)                                                                  \
-  do {                                                                                  \
-    VkResult _r = (expr);                                                               \
-    if (_r != VK_SUCCESS) {                                                             \
-      fprintf(stderr, "%s:%d: %s -> %s\n", __FILE__, __LINE__, #expr, vk_result_str(_r)); \
-      return false;                                                                     \
-    }                                                                                   \
+#define VK_CHECK(expr)                                                                   \
+  do {                                                                                   \
+    VkResult _r = (expr);                                                                \
+    if (_r != VK_SUCCESS) {                                                              \
+      fprintf(                                                                           \
+          stderr, "%s:%d: %s -> %s\n", __FILE__, __LINE__, #expr, vk_result_str(_r));    \
+      return false;                                                                      \
+    }                                                                                    \
   } while (0)
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    VkDebugUtilsMessageTypeFlagsEXT /*types*/,
-    const VkDebugUtilsMessengerCallbackDataEXT *data,
-    void * /*userData*/)
+static VKAPI_ATTR
+    VkBool32 VKAPI_CALL debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                       VkDebugUtilsMessageTypeFlagsEXT /*types*/,
+                                       const VkDebugUtilsMessengerCallbackDataEXT *data,
+                                       void * /*userData*/)
 {
   if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
     fprintf(stderr, "[vk] %s\n", data->pMessage);
@@ -58,7 +75,8 @@ static bool layerAvailable(const char *name)
   layers.resize(count);
   vkEnumerateInstanceLayerProperties(&count, layers.data());
   for (const auto &l : layers) {
-    if (strcmp(l.layerName, name) == 0) return true;
+    if (strcmp(l.layerName, name) == 0)
+      return true;
   }
   return false;
 }
@@ -68,25 +86,34 @@ VkContext::~VkContext()
   /* The device must be idle before any of its objects are destroyed (Vulkan
    * spec). runOneShot waits per-submit, but make the teardown invariant
    * explicit rather than relying on every caller having drained the queue. */
-  if (device) vkDeviceWaitIdle(device);
-  if (oneShotFence) vkDestroyFence(device, oneShotFence, nullptr);
-  if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-  if (commandPool) vkDestroyCommandPool(device, commandPool, nullptr);
-  if (device) vkDestroyDevice(device, nullptr);
-  if (surface) vkDestroySurfaceKHR(instance, surface, nullptr);
+  if (device)
+    vkDeviceWaitIdle(device);
+  if (oneShotFence)
+    vkDestroyFence(device, oneShotFence, nullptr);
+  if (descriptorPool)
+    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+  if (commandPool)
+    vkDestroyCommandPool(device, commandPool, nullptr);
+  if (device)
+    vkDestroyDevice(device, nullptr);
+  if (surface)
+    vkDestroySurfaceKHR(instance, surface, nullptr);
   if (debugMessenger) {
     auto fn = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
         instance, "vkDestroyDebugUtilsMessengerEXT");
-    if (fn) fn(instance, debugMessenger, nullptr);
+    if (fn)
+      fn(instance, debugMessenger, nullptr);
   }
-  if (instance) vkDestroyInstance(instance, nullptr);
+  if (instance)
+    vkDestroyInstance(instance, nullptr);
 }
 
 uint32_t VkContext::findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props) const
 {
   for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
     if ((typeBits & (1u << i)) &&
-        (memoryProperties.memoryTypes[i].propertyFlags & props) == props) {
+        (memoryProperties.memoryTypes[i].propertyFlags & props) == props)
+    {
       return i;
     }
   }
@@ -107,7 +134,8 @@ bool VkContext::init(GLFWwindow *glfwWindow, bool validation)
   if (glfwWindow) {
     uint32_t n = 0;
     const char **glfwExts = glfwGetRequiredInstanceExtensions(&n);
-    for (uint32_t i = 0; i < n; i++) instExts.append(glfwExts[i]);
+    for (uint32_t i = 0; i < n; i++)
+      instExts.append(glfwExts[i]);
   }
   if (validation && layerAvailable("VK_LAYER_KHRONOS_validation")) {
     instExts.append(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -166,7 +194,8 @@ bool VkContext::init(GLFWwindow *glfwWindow, bool validation)
       break;
     }
   }
-  if (!physicalDevice) physicalDevice = devs[0];
+  if (!physicalDevice)
+    physicalDevice = devs[0];
   vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
 
   /* --- queue families --- */
@@ -178,12 +207,14 @@ bool VkContext::init(GLFWwindow *glfwWindow, bool validation)
 
   for (uint32_t i = 0; i < nq; i++) {
     if (qfs[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-      if (graphicsQueueFamily == ~0u) graphicsQueueFamily = i;
+      if (graphicsQueueFamily == ~0u)
+        graphicsQueueFamily = i;
     }
     if (surface) {
       VkBool32 supports = VK_FALSE;
       vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &supports);
-      if (supports && presentQueueFamily == ~0u) presentQueueFamily = i;
+      if (supports && presentQueueFamily == ~0u)
+        presentQueueFamily = i;
     }
   }
   if (graphicsQueueFamily == ~0u) {
@@ -214,7 +245,8 @@ bool VkContext::init(GLFWwindow *glfwWindow, bool validation)
   }
 
   litestl::util::Vector<const char *> devExts;
-  if (surface) devExts.append(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  if (surface)
+    devExts.append(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
   VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   dci.queueCreateInfoCount = uint32_t(qci.size());
@@ -224,7 +256,8 @@ bool VkContext::init(GLFWwindow *glfwWindow, bool validation)
   VK_CHECK(vkCreateDevice(physicalDevice, &dci, nullptr, &device));
 
   vkGetDeviceQueue(device, graphicsQueueFamily, 0, &graphicsQueue);
-  if (surface) vkGetDeviceQueue(device, presentQueueFamily, 0, &presentQueue);
+  if (surface)
+    vkGetDeviceQueue(device, presentQueueFamily, 0, &presentQueue);
 
   /* --- pools --- */
   VkCommandPoolCreateInfo cpi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -276,7 +309,8 @@ static bool createImage(VkContext *ctx,
   ici.usage = usage;
   ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  if (vkCreateImage(ctx->device, &ici, nullptr, image) != VK_SUCCESS) return false;
+  if (vkCreateImage(ctx->device, &ici, nullptr, image) != VK_SUCCESS)
+    return false;
 
   VkMemoryRequirements mr;
   vkGetImageMemoryRequirements(ctx->device, *image, &mr);
@@ -285,8 +319,10 @@ static bool createImage(VkContext *ctx,
   mai.allocationSize = mr.size;
   mai.memoryTypeIndex =
       ctx->findMemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  if (mai.memoryTypeIndex == ~0u) return false;
-  if (vkAllocateMemory(ctx->device, &mai, nullptr, memory) != VK_SUCCESS) return false;
+  if (mai.memoryTypeIndex == ~0u)
+    return false;
+  if (vkAllocateMemory(ctx->device, &mai, nullptr, memory) != VK_SUCCESS)
+    return false;
   vkBindImageMemory(ctx->device, *image, *memory, 0);
 
   VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -314,7 +350,8 @@ bool OffscreenTarget::create(VkContext *c, int w, int h)
                    VK_IMAGE_ASPECT_COLOR_BIT,
                    &colorImage,
                    &colorMemory,
-                   &colorView)) {
+                   &colorView))
+  {
     release();
     return false;
   }
@@ -326,7 +363,8 @@ bool OffscreenTarget::create(VkContext *c, int w, int h)
                    VK_IMAGE_ASPECT_DEPTH_BIT,
                    &depthImage,
                    &depthMemory,
-                   &depthView)) {
+                   &depthView))
+  {
     release();
     return false;
   }
@@ -386,16 +424,41 @@ bool OffscreenTarget::create(VkContext *c, int w, int h)
 
 void OffscreenTarget::release()
 {
-  if (!ctx) return;
+  if (!ctx)
+    return;
   VkDevice d = ctx->device;
-  if (framebuffer) { vkDestroyFramebuffer(d, framebuffer, nullptr); framebuffer = VK_NULL_HANDLE; }
-  if (renderPass)  { vkDestroyRenderPass (d, renderPass,  nullptr); renderPass  = VK_NULL_HANDLE; }
-  if (colorView)   { vkDestroyImageView  (d, colorView,   nullptr); colorView   = VK_NULL_HANDLE; }
-  if (colorImage)  { vkDestroyImage      (d, colorImage,  nullptr); colorImage  = VK_NULL_HANDLE; }
-  if (colorMemory) { vkFreeMemory        (d, colorMemory, nullptr); colorMemory = VK_NULL_HANDLE; }
-  if (depthView)   { vkDestroyImageView  (d, depthView,   nullptr); depthView   = VK_NULL_HANDLE; }
-  if (depthImage)  { vkDestroyImage      (d, depthImage,  nullptr); depthImage  = VK_NULL_HANDLE; }
-  if (depthMemory) { vkFreeMemory        (d, depthMemory, nullptr); depthMemory = VK_NULL_HANDLE; }
+  if (framebuffer) {
+    vkDestroyFramebuffer(d, framebuffer, nullptr);
+    framebuffer = VK_NULL_HANDLE;
+  }
+  if (renderPass) {
+    vkDestroyRenderPass(d, renderPass, nullptr);
+    renderPass = VK_NULL_HANDLE;
+  }
+  if (colorView) {
+    vkDestroyImageView(d, colorView, nullptr);
+    colorView = VK_NULL_HANDLE;
+  }
+  if (colorImage) {
+    vkDestroyImage(d, colorImage, nullptr);
+    colorImage = VK_NULL_HANDLE;
+  }
+  if (colorMemory) {
+    vkFreeMemory(d, colorMemory, nullptr);
+    colorMemory = VK_NULL_HANDLE;
+  }
+  if (depthView) {
+    vkDestroyImageView(d, depthView, nullptr);
+    depthView = VK_NULL_HANDLE;
+  }
+  if (depthImage) {
+    vkDestroyImage(d, depthImage, nullptr);
+    depthImage = VK_NULL_HANDLE;
+  }
+  if (depthMemory) {
+    vkFreeMemory(d, depthMemory, nullptr);
+    depthMemory = VK_NULL_HANDLE;
+  }
   width = height = 0;
   /* Null ctx so a second release() hits the early-out instead of reading
    * ctx->device through a freed pointer: Scene::~Scene calls release()
@@ -404,11 +467,8 @@ void OffscreenTarget::release()
   ctx = nullptr;
 }
 
-void OffscreenTarget::beginRenderPass(VkCommandBuffer cb,
-                                       float r,
-                                       float g,
-                                       float b,
-                                       float a) const
+void OffscreenTarget::beginRenderPass(
+    VkCommandBuffer cb, float r, float g, float b, float a) const
 {
   VkClearValue clears[2]{};
   clears[0].color = {{r, g, b, a}};
@@ -423,10 +483,12 @@ void OffscreenTarget::beginRenderPass(VkCommandBuffer cb,
   vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
 
   VkViewport vp{};
-  vp.x = 0; vp.y = 0;
+  vp.x = 0;
+  vp.y = 0;
   vp.width = float(width);
   vp.height = float(height);
-  vp.minDepth = 0; vp.maxDepth = 1;
+  vp.minDepth = 0;
+  vp.maxDepth = 1;
   vkCmdSetViewport(cb, 0, 1, &vp);
 
   VkRect2D sc{};

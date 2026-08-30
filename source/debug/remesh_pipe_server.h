@@ -37,7 +37,10 @@ public:
    * reply promise so the accept thread can respond. Call once per frame. */
   void drainMainThreadQueue();
 
-  bool running() const { return running_.load(); }
+  bool running() const
+  {
+    return running_.load();
+  }
 
 private:
   struct Command {

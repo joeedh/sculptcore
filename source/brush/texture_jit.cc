@@ -46,4 +46,4 @@ bool textureScriptCpuAvailable()
 #endif
 }
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

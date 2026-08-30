@@ -23,7 +23,9 @@ struct WgpuContext;
  * GPU-resident live-scatter extras (prepareDab/recordDab/coBuffer) have no
  * WebGPU analogue here — the IBrushComputeDispatch surface is the whole API. */
 struct WgpuBrushComputeDispatch : brush::IBrushComputeDispatch {
-  explicit WgpuBrushComputeDispatch(WgpuContext *ctx) : ctx_(ctx) {}
+  explicit WgpuBrushComputeDispatch(WgpuContext *ctx) : ctx_(ctx)
+  {
+  }
   WgpuBrushComputeDispatch(const WgpuBrushComputeDispatch &) = delete;
   ~WgpuBrushComputeDispatch() override;
 
@@ -37,17 +39,25 @@ struct WgpuBrushComputeDispatch : brush::IBrushComputeDispatch {
    * source). `label` names the module in error messages. */
   bool loadKernelSource(const char *src, const char *label);
 
-  bool beginStroke(const float *co, const float *no, const float *mask,
+  bool beginStroke(const float *co,
+                   const float *no,
+                   const float *mask,
                    int vertCount) override;
 
   bool dab(const brush::ComputeBrushUniforms &brushU,
-           const brush::ComputeCtxUniforms &ctxU, const uint32_t *uniqueVerts,
-           int uniqueVertCount, const brush::ComputeNodeMeta *nodes,
-           int nodeCount, const float *falloffLut,
-           const brush::ComputeStrokeSample *strokePath, int strokeCount) override;
+           const brush::ComputeCtxUniforms &ctxU,
+           const uint32_t *uniqueVerts,
+           int uniqueVertCount,
+           const brush::ComputeNodeMeta *nodes,
+           int nodeCount,
+           const float *falloffLut,
+           const brush::ComputeStrokeSample *strokePath,
+           int strokeCount) override;
 
-  bool setNeighbors(const brush::ComputeVertNbr *meta, int vertCount,
-                    const uint32_t *nbrVerts, int nbrCount) override;
+  bool setNeighbors(const brush::ComputeVertNbr *meta,
+                    int vertCount,
+                    const uint32_t *nbrVerts,
+                    int nbrCount) override;
 
   bool setAutomask(const float *automask, int vertCount) override;
 
@@ -57,8 +67,8 @@ struct WgpuBrushComputeDispatch : brush::IBrushComputeDispatch {
 
   bool endStroke(float *coOut, float *noOut, float *maskOut) override;
 
-  bool readbackVerts(const uint32_t *verts, int count, float *coOut,
-                     float *noOut) override;
+  bool
+  readbackVerts(const uint32_t *verts, int count, float *coOut, float *noOut) override;
 
 private:
   /* Mirrors parseBindings/layoutEntry in tests/webgpu/replay.mjs. */
@@ -106,15 +116,15 @@ private:
   WGPUTextureView whiteView_ = nullptr;
   WGPUSampler sampler_ = nullptr;
   WGPUTexture texTexture_ = nullptr;
-  WGPUTextureView texView_ = nullptr;  // bound at binding 8 (white or real)
+  WGPUTextureView texView_ = nullptr; // bound at binding 8 (white or real)
 
   int vertCount_ = 0;
   bool hasNeighbors_ = false;
-  Buf co_, no_, mask_;               // bindings 0,1,2
-  Buf unique_, nodes_;               // bindings 3,4
-  Buf brushU_, ctxU_;                // bindings 5,6
-  Buf falloff_, stroke_;             // bindings 7,10
-  Buf coPrev_, nbrMeta_, nbrVerts_;  // bindings 11,12,13
+  Buf co_, no_, mask_;              // bindings 0,1,2
+  Buf unique_, nodes_;              // bindings 3,4
+  Buf brushU_, ctxU_;               // bindings 5,6
+  Buf falloff_, stroke_;            // bindings 7,10
+  Buf coPrev_, nbrMeta_, nbrVerts_; // bindings 11,12,13
   /* binding 23 (kDabStampBinding) — grab-class per-vertex first-touch stamps
    * (@grabmode kernels), zero-filled at beginStroke. */
   Buf dabStamp_;

@@ -256,8 +256,7 @@ void appendMesh(Mesh &dst, Mesh &src)
 /* Tier 6.4: fold one successful sub-run's report into the per-component
  * aggregate — statuses max-merge (Failed > Ok > Skipped), counters/timings
  * sum, feasibility flags AND, extrema min/max-merge. */
-void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src,
-                          bool first)
+void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src, bool first)
 {
   auto status = [](StageStatus &d, StageStatus s) {
     if (int(s) > int(d)) {
@@ -284,8 +283,8 @@ void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src,
   dst.solve_faces += src.solve_faces;
   dst.min_jacobian =
       first ? src.min_jacobian : std::fmin(dst.min_jacobian, src.min_jacobian);
-  dst.quantize_feasible = first ? src.quantize_feasible
-                                : (dst.quantize_feasible && src.quantize_feasible);
+  dst.quantize_feasible =
+      first ? src.quantize_feasible : (dst.quantize_feasible && src.quantize_feasible);
 
   QuantizeStats &dq = dst.quantize_stats;
   const QuantizeStats &sq = src.quantize_stats;
@@ -296,8 +295,7 @@ void mergeComponentReport(RemeshRunReport &dst, const RemeshRunReport &src,
     dq.num_corners += sq.num_corners;
     dq.num_classes += sq.num_classes;
     dq.num_cut_edges += sq.num_cut_edges;
-    dq.max_integer_residual =
-        std::fmax(dq.max_integer_residual, sq.max_integer_residual);
+    dq.max_integer_residual = std::fmax(dq.max_integer_residual, sq.max_integer_residual);
     dq.max_loop_closure = std::fmax(dq.max_loop_closure, sq.max_loop_closure);
     dq.min_jacobian = std::fmin(dq.min_jacobian, sq.min_jacobian);
     dq.parametrization_folds += sq.parametrization_folds;
@@ -403,8 +401,11 @@ void compProgressThunk(void *user, int pct, const char *stage)
 /* Tier 6.4 driver: run QuadRemesh on each piece with the shared global scale
  * and merge the outputs. Failed pieces are dropped + counted; returns nullptr
  * only when every piece fails (failure_reason = the first piece's tag). */
-Mesh *remeshPerComponent(util::Vector<Mesh *> &pieces, const RemeshParams &params,
-                         float L_quad, RemeshProgressFn progress, void *user,
+Mesh *remeshPerComponent(util::Vector<Mesh *> &pieces,
+                         const RemeshParams &params,
+                         float L_quad,
+                         RemeshProgressFn progress,
+                         void *user,
                          RemeshRunReport *report)
 {
   RemeshParams sub = params;
@@ -421,9 +422,11 @@ Mesh *remeshPerComponent(util::Vector<Mesh *> &pieces, const RemeshParams &param
   for (int i = 0; i < total; i++) {
     CompProgress cp{progress, user, i, total};
     RemeshRunReport sr;
-    Mesh *piece_out =
-        QuadRemesh(*pieces[i], sub, progress ? compProgressThunk : nullptr,
-                   progress ? &cp : nullptr, report ? &sr : nullptr);
+    Mesh *piece_out = QuadRemesh(*pieces[i],
+                                 sub,
+                                 progress ? compProgressThunk : nullptr,
+                                 progress ? &cp : nullptr,
+                                 report ? &sr : nullptr);
     if (!piece_out) {
       failed++;
       if (firstFailure.empty()) {
@@ -526,8 +529,8 @@ float countDerivedLength(Mesh &m, int target_quads, bool use_density)
   if (target_quads <= 0) {
     return 0.0f;
   }
-  bool weight = use_density && m.v.attrs.has(mesh::AttrType::FLOAT,
-                                             util::string(".remesh.v.density"));
+  bool weight = use_density &&
+                m.v.attrs.has(mesh::AttrType::FLOAT, util::string(".remesh.v.density"));
   mesh::BuiltinAttr<float, ".remesh.v.density"> density;
   if (weight) {
     density.ensure(m.v.attrs);
@@ -575,8 +578,8 @@ float resolveTargetEdgeLength(mesh::Mesh &m, const RemeshParams &params)
   if (params.target_edge_length > 0.0f) {
     return params.target_edge_length;
   }
-  float L = countDerivedLength(m, params.target_quad_count,
-                               params.use_density || params.auto_density);
+  float L = countDerivedLength(
+      m, params.target_quad_count, params.use_density || params.auto_density);
   return L > 0.0f ? L : 0.1f;
 }
 
@@ -591,8 +594,7 @@ float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
   EdgeStats es = measureEdges(m);
   float L = params.target_edge_length > 0.0f
                 ? params.target_edge_length
-                : std::fmax(0.7f * resolveTargetEdgeLength(m, params),
-                            0.5f * es.median);
+                : std::fmax(0.7f * resolveTargetEdgeLength(m, params), 0.5f * es.median);
   // Edge budget: an auto target may not coarsen away more than 20% of the
   // input edges. E scales ~1/L^2, so E_out/E_in >= 0.8 ==> L <= mean/sqrt(0.8).
   float L_budget = es.mean > 0.0f ? es.mean / std::sqrt(0.8f) : 0.0f;
@@ -601,11 +603,14 @@ float resolvePreRemeshTarget(mesh::Mesh &m, const RemeshParams &params)
 
 const char *remeshPresetName(int i)
 {
-  static const char *names[] = {"organic-clean", "organic-noisy",
-                                "messy-character", "scan", "hard-surface",
-                                "cad", "fast"};
-  return (i >= 0 && i < int(sizeof(names) / sizeof(names[0]))) ? names[i]
-                                                               : nullptr;
+  static const char *names[] = {"organic-clean",
+                                "organic-noisy",
+                                "messy-character",
+                                "scan",
+                                "hard-surface",
+                                "cad",
+                                "fast"};
+  return (i >= 0 && i < int(sizeof(names) / sizeof(names[0]))) ? names[i] : nullptr;
 }
 
 /* Preset deltas encode the tier sweep results: feature_min_chain=3 everywhere
@@ -653,8 +658,8 @@ bool applyRemeshPreset(RemeshParams &params, const char *name)
     // strips on cylinders, often multi-part assemblies.
     base.sharp_angle = 0.5235988f;
     base.density_gradation = 0.3f;
-    base.per_component = true; // isolate each solid's solve
-    base.pre_remesh = true;    // re-flow the anisotropic tessellation
+    base.per_component = true;                // isolate each solid's solve
+    base.pre_remesh = true;                   // re-flow the anisotropic tessellation
     base.pre_remesh_sharp_angle = 0.5235988f; // pin the same shallow bevels
   } else if (std::strcmp(name, "fast") == 0) {
     // Preview-quality speed bundle: solve on a decimated copy, cheap quantize
@@ -673,13 +678,14 @@ bool applyRemeshPreset(RemeshParams &params, const char *name)
  * retry loop; with auto_retry off it is called exactly once (legacy path). */
 static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
                                      const RemeshParams &params,
-                                     RemeshProgressFn progress, void *user,
+                                     RemeshProgressFn progress,
+                                     void *user,
                                      RemeshRunReport *report)
 {
-#define PROG(pct, stage)                                                        \
-  do {                                                                          \
-    if (progress)                                                               \
-      progress(user, (pct), (stage));                                           \
+#define PROG(pct, stage)                                                                 \
+  do {                                                                                   \
+    if (progress)                                                                        \
+      progress(user, (pct), (stage));                                                    \
   } while (0)
 
   auto t_start = std::chrono::steady_clock::now();
@@ -740,8 +746,7 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     splitComponents(*work, pieces);
     if (pieces.size() > 1) {
       PROG(8, "components");
-      Mesh *merged =
-          remeshPerComponent(pieces, params, L_quad, progress, user, report);
+      Mesh *merged = remeshPerComponent(pieces, params, L_quad, progress, user, report);
       for (Mesh *p : pieces) {
         alloc::Delete<Mesh>(p);
       }
@@ -801,8 +806,7 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     // Edge budget (auto targets only — explicit pre_remesh_target wins):
     // the pre-pass may not coarsen away more than 20% of the edges it
     // receives. E scales ~1/L^2, so E_out/E_in >= 0.8 ==> L <= mean/sqrt(0.8).
-    const bool budgeted =
-        params.pre_remesh_target <= 0.0f && es.mean > 0.0f;
+    const bool budgeted = params.pre_remesh_target <= 0.0f && es.mean > 0.0f;
     float L_budget = budgeted ? es.mean / std::sqrt(0.8f) : 0.0f;
     if (budgeted) {
       L_pre = std::fmin(L_pre, L_budget);
@@ -992,15 +996,17 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
   } else if (count_mode) {
     // Re-derive on the current geometry: the pre-remesh shifted the surface
     // area (and a painted density field) the initial estimate used.
-    float L_new = countDerivedLength(*work, params.target_quad_count,
-                                     consume_density);
+    float L_new = countDerivedLength(*work, params.target_quad_count, consume_density);
     if (L_new > 0.0f) {
       L_quad = L_new;
     }
   }
   if (params.density_gradation > 0.0f) {
-    limitDensityGradation(*work, L_quad, params.density_gradation,
-                          params.density_gradation_iters, params.density_min,
+    limitDensityGradation(*work,
+                          L_quad,
+                          params.density_gradation,
+                          params.density_gradation_iters,
+                          params.density_min,
                           params.density_max);
     // The limiter only ever raises density — recompute L once so the count
     // target still holds under the gradation-widened field.
@@ -1034,8 +1040,7 @@ static mesh::Mesh *quadRemeshAttempt(mesh::Mesh &input,
     qp.local_untangle_iters = 0;
   }
   QuantizeStats qs = computeQuantization(*work, qp);
-  if (params.fast_quantize && !params.quantize_direct_rounding &&
-      !qs.feasible) {
+  if (params.fast_quantize && !params.quantize_direct_rounding && !qs.feasible) {
     // DIRECT couldn't reach an integral map — pay for one greedy run rather
     // than extracting a spiraled lattice.
     qp.rounding = RoundingStrategy::GREEDY;
@@ -1139,13 +1144,14 @@ void coarsenTarget(RemeshParams &cur)
   if (cur.target_edge_length > 0.0f) {
     cur.target_edge_length *= 1.25f;
   } else {
-    cur.target_quad_count =
-        std::max(500, int(0.7f * float(cur.target_quad_count)));
+    cur.target_quad_count = std::max(500, int(0.7f * float(cur.target_quad_count)));
   }
 }
 
-void fillRetryAttempt(RemeshRunReport::RetryAttempt &a, const RemeshParams &p,
-                      const char *escalation, const RemeshRunReport &rep)
+void fillRetryAttempt(RemeshRunReport::RetryAttempt &a,
+                      const RemeshParams &p,
+                      const char *escalation,
+                      const RemeshRunReport &rep)
 {
   a.params = p;
   a.escalation = escalation;
@@ -1153,8 +1159,8 @@ void fillRetryAttempt(RemeshRunReport::RetryAttempt &a, const RemeshParams &p,
   a.success = rep.success;
   a.failure_reason = rep.failure_reason;
   a.parametrization_folds = rep.parametrization_folds;
-  a.num_singularities = p.singularity_cancel ? rep.cancel_singularities_after
-                                             : rep.num_singularities;
+  a.num_singularities =
+      p.singularity_cancel ? rep.cancel_singularities_after : rep.num_singularities;
   a.inverted_faces = rep.validation_filled ? rep.validation.inverted_faces : 0;
   a.odd_residuals =
       rep.extract_stats.holes_open_odd +
@@ -1183,13 +1189,13 @@ bool retryBetter(const RemeshRunReport::RetryAttempt &a,
 
 /* Pick the next escalation from the last attempt's outcome: mutate `cur` and
  * return the rung tag, or nullptr to stop (result acceptable / ladder spent). */
-const char *escalateParams(RemeshParams &cur, RetryLadder &used,
+const char *escalateParams(RemeshParams &cur,
+                           RetryLadder &used,
                            const RemeshRunReport::RetryAttempt &last,
                            const RemeshRunReport &rep)
 {
   // Fold tolerance scales with the solve mesh; the floor keeps tiny meshes sane.
-  const int fold_limit =
-      std::max(10, rep.solve_faces > 0 ? rep.solve_faces / 100 : 10);
+  const int fold_limit = std::max(10, rep.solve_faces > 0 ? rep.solve_faces / 100 : 10);
   const bool noisy_folds = last.parametrization_folds > fold_limit;
   // Pole budget: ~5% of the realized (or requested) quad count.
   const int pole_denom =
@@ -1200,15 +1206,13 @@ const char *escalateParams(RemeshParams &cur, RetryLadder &used,
     cur.field_smoothness *= 2.0f;
     return "field_smoothness";
   }
-  if (last.num_singularities > std::max(4, pole_denom / 20) &&
-      !used.curvature_smooth) {
+  if (last.num_singularities > std::max(4, pole_denom / 20) && !used.curvature_smooth) {
     used.curvature_smooth = true;
     cur.curvature_smooth_iters = std::max(2, cur.curvature_smooth_iters * 2);
     cur.singularity_cancel = true;
     return "curvature_smooth";
   }
-  if (last.success && last.max_adjacent_edge_ratio > 4.0f &&
-      !used.density_gradation) {
+  if (last.success && last.max_adjacent_edge_ratio > 4.0f && !used.density_gradation) {
     // Steeper limiting = LOWER growth-rate cap; the field must also be consumed
     // (auto_density) or the tightened gradation would never reach the quantizer.
     used.density_gradation = true;
@@ -1251,16 +1255,17 @@ const char *escalateParams(RemeshParams &cur, RetryLadder &used,
 
 } // namespace
 
-mesh::Mesh *QuadRemesh(mesh::Mesh &input, const RemeshParams &params,
-                       RemeshProgressFn progress, void *user,
+mesh::Mesh *QuadRemesh(mesh::Mesh &input,
+                       const RemeshParams &params,
+                       RemeshProgressFn progress,
+                       void *user,
                        RemeshRunReport *report)
 {
   if (!params.auto_retry) {
     return quadRemeshAttempt(input, params, progress, user, report);
   }
 
-  const int cap =
-      std::clamp(params.max_attempts, 1, RemeshRunReport::MAX_RETRY_ATTEMPTS);
+  const int cap = std::clamp(params.max_attempts, 1, RemeshRunReport::MAX_RETRY_ATTEMPTS);
   RemeshParams cur = params;
   cur.auto_retry = false;
   RetryLadder used;

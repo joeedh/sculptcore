@@ -1,8 +1,8 @@
 #include "prop_curve.h"
 
 #include "litestl/util/hash.h"
-#include "litestl/util/vector.h"
 #include "litestl/util/memory.h"
+#include "litestl/util/vector.h"
 
 using namespace litestl;
 using namespace litestl::util;

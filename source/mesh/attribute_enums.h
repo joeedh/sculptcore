@@ -108,7 +108,8 @@ enum class _AttrUse {
   UV = 1 << 2,        /** for uv-maps */
   POLYGROUP = 1 << 3, /** per-face poly-group id */
   SELECT = 1 << 4,    /** per-element selection bool (box-modeling) */
-  SCULPT_LAYER = 1 << 5, /** float3 vertex sculpt-layer delta (see mesh/sculpt_layers.h) */
+  SCULPT_LAYER =
+      1 << 5, /** float3 vertex sculpt-layer delta (see mesh/sculpt_layers.h) */
   DEFORM_WEIGHTS = 1 << 6, /** vertex-group weights (see mesh/deform_pool.h) */
 };
 MAKE_FLAGS_CLASS(AttrUse, _AttrUse, int);

@@ -38,7 +38,8 @@ int gridFloats(Multires *mr, int level, int channel)
   if (!validChannel(mr, channel) || !validLevel(mr, level)) {
     return 0;
   }
-  return mr->store.channelElemsPerGrid(level, channel) * mr->store.channelElemSize(channel);
+  return mr->store.channelElemsPerGrid(level, channel) *
+         mr->store.channelElemSize(channel);
 }
 
 } // namespace
@@ -156,8 +157,13 @@ int Multires_gridChannelLevelAllocated(Multires *mr, int level, int channel)
   return mr->store.channelLevelAllocated(level, channel) ? 1 : 0;
 }
 
-int Multires_gridChannelRead(
-    Multires *mr, int level, int channel, int gridStart, int gridCount, float *out, int outFloats)
+int Multires_gridChannelRead(Multires *mr,
+                             int level,
+                             int channel,
+                             int gridStart,
+                             int gridCount,
+                             float *out,
+                             int outFloats)
 {
   const int perGrid = gridFloats(mr, level, channel);
   if (!perGrid || !out || gridStart < 0 || gridCount < 1 ||
@@ -218,8 +224,8 @@ int Multires_gridChannelWrite(Multires *mr,
   // A raw store write bypasses the domain, whose dense mask mirror (what the
   // grid kernels and the draw source actually read) would keep the old
   // values: re-mirror an alive domain at this level.
-  if (mr->store.findChannel(litestl::util::string(
-          subdiv::GridLevelDomain::kMaskChannelName)) == channel)
+  if (mr->store.findChannel(
+          litestl::util::string(subdiv::GridLevelDomain::kMaskChannelName)) == channel)
   {
     if (mr->hasGridDomain(level)) {
       mr->gridDomain(level)->syncMaskFromStore();

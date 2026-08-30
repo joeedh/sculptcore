@@ -156,8 +156,12 @@ bool BoundaryPolyline::project(const float3 &p, float max_dist, float3 &out) con
   return found;
 }
 
-void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
-                      bool preserve_features, dyntopo::DynTopoTrace *trace,
+void bkRemeshToTarget(Mesh &m,
+                      float L,
+                      uint32_t seed,
+                      const char *size_attr,
+                      bool preserve_features,
+                      dyntopo::DynTopoTrace *trace,
                       float feature_corner_angle)
 {
   m.thawTopo();
@@ -172,8 +176,10 @@ void bkRemeshToTarget(Mesh &m, float L, uint32_t seed, const char *size_attr,
       continue;
     }
     for (int i = 0; i < 3; i++) {
-      if (co[i] < bmin[i]) bmin[i] = co[i];
-      if (co[i] > bmax[i]) bmax[i] = co[i];
+      if (co[i] < bmin[i])
+        bmin[i] = co[i];
+      if (co[i] > bmax[i])
+        bmax[i] = co[i];
     }
   }
   if (!have) {
@@ -268,8 +274,8 @@ void liftFieldToVerts(Mesh &m, util::Vector<float3> &vU, util::Vector<float3> &v
     n = n * (1.0f / nl);
     vN[v] = n;
     // A reference tangent (least-aligned world axis projected into the plane).
-    float3 a = std::fabs(n[0]) < 0.9f ? float3(1.0f, 0.0f, 0.0f)
-                                      : float3(0.0f, 1.0f, 0.0f);
+    float3 a =
+        std::fabs(n[0]) < 0.9f ? float3(1.0f, 0.0f, 0.0f) : float3(0.0f, 1.0f, 0.0f);
     float3 t1 = a - n * a.dot(n);
     float t1l = t1.length();
     if (t1l < 1e-20f) {
@@ -329,7 +335,11 @@ void liftFieldToVerts(Mesh &m, util::Vector<float3> &vU, util::Vector<float3> &v
 
 } // namespace
 
-void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_guard,
+void tangentialSmooth(Mesh &m,
+                      int iters,
+                      float lambda,
+                      float align,
+                      bool fold_guard,
                       const BoundaryPolyline *boundary)
 {
   m.thawTopo();
@@ -451,7 +461,8 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
         continue;
       }
       math::float3 cen{};
-      for (int i = 0; i < k; i++) cen += ring[i];
+      for (int i = 0; i < k; i++)
+        cen += ring[i];
       cen = cen * (1.0f / float(k));
 
       // Tier 9a: bend the target centroid toward a cross-field-aligned one so the
@@ -466,7 +477,8 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
         for (int i = 0; i < k; i++) {
           float3 e = ring[i] - vco;
           float el = e.length();
-          if (el < 1e-20f) continue;
+          if (el < 1e-20f)
+            continue;
           float3 eh = e * (1.0f / el);
           float au = std::fabs(eh.dot(u)), aw = std::fabs(eh.dot(w));
           float wgt = 1.0f + kAlignBoost * std::pow(au > aw ? au : aw, kAlignPow);
@@ -487,7 +499,8 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
         nrm += a.cross(b);
         fan += (ring[i] - vco).cross(ring[(i + 1) % k] - vco);
         float el = (ring[i] - vco).length();
-        if (el < minlen) minlen = el;
+        if (el < minlen)
+          minlen = el;
       }
       // Project out the off-surface component. The field path uses the fan normal
       // (sum of v's incident-triangle normals): for a flat-face vert whose 1-ring
@@ -507,7 +520,8 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
       // Clamp to half the shortest incident edge (matching dyntopo's
       // smoothTangent): a full-edge move can land past a neighbor and fold the fan.
       float dmax = 0.5f * minlen;
-      if (dl > dmax && dl > 1e-20f) d = d * (dmax / dl);
+      if (dl > dmax && dl > 1e-20f)
+        d = d * (dmax / dl);
       math::float3 np = vco + d * lambda;
       // Fold guard (opt-in): cancel a move that NEWLY folds the fan — a tri that
       // agreed with the fan normal flipping against it, or a previously-unfolded
@@ -527,8 +541,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
         for (int i = 0; i < k && !flips; i++) {
           int j = (i + 1) % k;
           flips = (fan_nb[i].dot(fan) >= 0.0f && fan_na[i].dot(fan_after) < 0.0f) ||
-                  (fan_nb[i].dot(fan_nb[j]) >= 0.0f &&
-                   fan_na[i].dot(fan_na[j]) < 0.0f);
+                  (fan_nb[i].dot(fan_nb[j]) >= 0.0f && fan_na[i].dot(fan_na[j]) < 0.0f);
         }
         if (flips) {
           np = vco;
@@ -569,8 +582,7 @@ void tangentialSmooth(Mesh &m, int iters, float lambda, float align, bool fold_g
           fsum += n;
         }
         for (int i = 0; i < k; i++) {
-          if (fan_nb[i].dot(fsum) < 0.0f ||
-              fan_nb[i].dot(fan_nb[(i + 1) % k]) < 0.0f) {
+          if (fan_nb[i].dot(fsum) < 0.0f || fan_nb[i].dot(fan_nb[(i + 1) % k]) < 0.0f) {
             return true;
           }
         }
@@ -619,8 +631,10 @@ void writeSizeScale(Mesh &m, float dmin, float dmax)
   size.ensure(m.v.attrs);
   for (int v : m.v) {
     float d = density[v];
-    if (d < dmin) d = dmin;
-    if (d > dmax) d = dmax;
+    if (d < dmin)
+      d = dmin;
+    if (d > dmax)
+      d = dmax;
     size[v] = d > 1e-12f ? 1.0f / std::sqrt(d) : 1.0f;
   }
 }
@@ -728,8 +742,12 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
   //    (on a noisy input a 45° dihedral test would otherwise pin the noise). Clean
   //    input that should keep crisp features from the start sets bootstrap_iters=0.
   if (p.bootstrap_iters > 0) {
-    tangentialSmooth(m, p.bootstrap_iters, p.smooth_lambda, 0.0f,
-                     /*fold_guard=*/true, bndp);
+    tangentialSmooth(m,
+                     p.bootstrap_iters,
+                     p.smooth_lambda,
+                     0.0f,
+                     /*fold_guard=*/true,
+                     bndp);
     if (anchors) {
       anchors->update(m);
     }
@@ -761,8 +779,8 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
       // Tier 3b gradation limit: bound the size field's growth rate so the BK
       // band never steps sharply across an edge (a size cliff makes the
       // split/collapse loop churn pathologically at the boundary).
-      limitDensityGradation(m, L, p.gradation, p.gradation_iters, p.density_min,
-                            p.density_max);
+      limitDensityGradation(
+          m, L, p.gradation, p.gradation_iters, p.density_min, p.density_max);
       writeSizeScale(m, p.density_min, p.density_max);
       size_attr = kSizeAttr;
     }
@@ -778,8 +796,13 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
     //    With a trace attached, stamp this dab's rounds with the outer iter so the
     //    accumulated series reads as one continuous multi-iter time-line.
     size_t trace0 = p.trace ? p.trace->rounds.size() : 0;
-    bkRemeshToTarget(m, L, p.seed + uint32_t(it) + 1u, size_attr,
-                     p.preserve_features, p.trace, p.sharp_angle);
+    bkRemeshToTarget(m,
+                     L,
+                     p.seed + uint32_t(it) + 1u,
+                     size_attr,
+                     p.preserve_features,
+                     p.trace,
+                     p.sharp_angle);
     if (p.trace) {
       for (size_t i = trace0; i < p.trace->rounds.size(); i++) {
         p.trace->rounds[i].iter = it;
@@ -802,8 +825,12 @@ void preRemesh(Mesh &m, const PreRemeshParams &p, PreRemeshStats *stats)
         preSmooth[v] = m.v.co[v];
       }
     }
-    tangentialSmooth(m, p.smooth_iters, p.smooth_lambda, p.align,
-                     /*fold_guard=*/true, bndp);
+    tangentialSmooth(m,
+                     p.smooth_iters,
+                     p.smooth_lambda,
+                     p.align,
+                     /*fold_guard=*/true,
+                     bndp);
     if (anchors) {
       anchors->update(m);
     }

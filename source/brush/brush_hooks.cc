@@ -86,4 +86,4 @@ const BrushHooks *brushHooksFor(SculptBrushes tool)
   }
 }
 
-}  // namespace sculptcore::brush
+} // namespace sculptcore::brush

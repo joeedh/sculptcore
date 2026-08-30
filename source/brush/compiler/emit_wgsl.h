@@ -1,6 +1,6 @@
 #pragma once
 
-#include "emit_cpp.h"  // re-uses EmitResult
+#include "emit_cpp.h" // re-uses EmitResult
 #include "ir.h"
 
 namespace sculptcore::brush::sbrush {

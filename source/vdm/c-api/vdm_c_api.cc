@@ -128,13 +128,13 @@ int Mesh_vdmSplatDabLogged(mesh::Mesh *m,
     return 0;
   }
   store->beginDelta();
-  int n = Mesh_vdmSplatDab(m, tree, store, cx, cy, cz, nx, ny, nz, radius, strength,
-                           alpha, invert);
+  int n = Mesh_vdmSplatDab(
+      m, tree, store, cx, cy, cz, nx, ny, nz, radius, strength, alpha, invert);
   vdm::VdmDelta *delta = store->endDelta();
   if (delta) {
     if (log) {
-      auto *chunk = litestl::alloc::New<vdm::VdmLogChunk>(
-          "VdmLogChunk", store, std::move(*delta));
+      auto *chunk =
+          litestl::alloc::New<vdm::VdmLogChunk>("VdmLogChunk", store, std::move(*delta));
       log->appendChunk(chunk);
     }
     litestl::alloc::Delete(delta);
@@ -170,7 +170,8 @@ uint8_t *VdmStore_serialize(vdm::VdmStore *store, int *out_size)
     return nullptr;
   }
   std::string s = ss.str();
-  uint8_t *buf = static_cast<uint8_t *>(litestl::alloc::alloc("vdm store buffer", s.size()));
+  uint8_t *buf =
+      static_cast<uint8_t *>(litestl::alloc::alloc("vdm store buffer", s.size()));
   std::memcpy(buf, s.data(), s.size());
   *out_size = int(s.size());
   return buf;

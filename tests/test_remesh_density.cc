@@ -23,13 +23,13 @@ test_init;
 
 // The shared test_assert macro has a known retval=0-on-failure bug; use a local
 // one that flips retval (mirrors test_remesh_curvature.cc).
-#define TASSERT(expr)                                                                     \
-  do {                                                                                    \
-    if (!(expr)) {                                                                        \
-      retval = 1;                                                                         \
-      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                   \
-      fflush(stderr);                                                                     \
-    }                                                                                     \
+#define TASSERT(expr)                                                                    \
+  do {                                                                                   \
+    if (!(expr)) {                                                                       \
+      retval = 1;                                                                        \
+      fprintf(stderr, "%s:%d: %s failed\n", __FILE__, __LINE__, #expr);                  \
+      fflush(stderr);                                                                    \
+    }                                                                                    \
   } while (0)
 
 using namespace sculptcore;
@@ -85,15 +85,16 @@ void testAutoDensity()
   Mesh *grid = mesh::makeGrid(24, 24, 1.0f);
   remesh::generateAutoDensity(*grid, dp);
   double gridMean = meanDensity(*grid);
-  fprintf(stderr, "[auto-density] grid mean=%.4f (min=%.2f)\n", gridMean,
-          dp.density_min);
+  fprintf(stderr, "[auto-density] grid mean=%.4f (min=%.2f)\n", gridMean, dp.density_min);
   TASSERT(gridMean < dp.density_min + 0.05); // ~ at the floor
 
   // Small (high-curvature) sphere: k ~ 1/R large -> density clamps to the ceiling.
   Mesh *sph = mesh::makeUVSphere(24, 32, 0.03f);
   remesh::generateAutoDensity(*sph, dp);
   double sphMean = meanDensity(*sph);
-  fprintf(stderr, "[auto-density] small-sphere mean=%.4f (max=%.2f)\n", sphMean,
+  fprintf(stderr,
+          "[auto-density] small-sphere mean=%.4f (max=%.2f)\n",
+          sphMean,
           dp.density_max);
   TASSERT(sphMean > dp.density_max - 0.4); // ~ at the ceiling
   TASSERT(sphMean > gridMean + 0.1);       // curvature raises density
@@ -119,8 +120,12 @@ void testGradationStep()
   fprintf(stderr, "[gradation] worst-ratio before=%.4f\n", before);
   TASSERT(before > 7.0); // the planted step is a hard 8:1 jump
 
-  remesh::limitDensityGradation(*grid, L, /*gradation=*/0.5f, /*iters=*/30,
-                                /*density_min=*/0.25f, /*density_max=*/8.0f);
+  remesh::limitDensityGradation(*grid,
+                                L,
+                                /*gradation=*/0.5f,
+                                /*iters=*/30,
+                                /*density_min=*/0.25f,
+                                /*density_max=*/8.0f);
 
   double after = worstAdjacentRatio(*grid);
   // The fine region's peak density must survive (limiter only refines, never
@@ -131,11 +136,11 @@ void testGradationStep()
       peakAfter = density[v];
     }
   }
-  fprintf(stderr, "[gradation] worst-ratio after=%.4f peak after=%.4f\n", after,
-          peakAfter);
+  fprintf(
+      stderr, "[gradation] worst-ratio after=%.4f peak after=%.4f\n", after, peakAfter);
 
-  TASSERT(after < before);        // the step smeared
-  TASSERT(after < 0.6 * before);  // by a meaningful margin
+  TASSERT(after < before);               // the step smeared
+  TASSERT(after < 0.6 * before);         // by a meaningful margin
   TASSERT(peakAfter > 0.9 * peakBefore); // fine region preserved
 
   litestl::alloc::Delete<Mesh>(grid);

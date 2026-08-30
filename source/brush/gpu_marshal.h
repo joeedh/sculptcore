@@ -17,7 +17,7 @@ struct MeshLog;
 namespace sculptcore::spatial {
 struct SpatialNode;
 struct SpatialTree;
-}
+} // namespace sculptcore::spatial
 
 namespace sculptcore::brush {
 
@@ -53,27 +53,32 @@ const GpuKernelInfo *gpuKernelForTool(SculptBrushes tool);
  * appended DSL uniforms (offset 72+) are written by the kernel's generated
  * pack fn (builtinBrushGpuPack), which also applies the DSL @range clamps
  * that mirror CPU-only host-stage clamps -- hence the mutable brush. */
-void packBrushUniforms(Brush &brush, SculptBrushes tool, bool nonaccum,
+void packBrushUniforms(Brush &brush,
+                       SculptBrushes tool,
+                       bool nonaccum,
                        ComputeBrushUniforms &out);
 
 /** Pack the per-dab ctx uniforms (binding 6). `renderMatrixRowMajor` is 16
  * floats in litestl row-major order, transposed here into the shader's
  * column-major layout; null leaves identity. */
-void packCtxUniforms(const Brush &brush, SculptBrushes tool,
+void packCtxUniforms(const Brush &brush,
+                     SculptBrushes tool,
                      const litestl::math::float3 &origin,
                      const litestl::math::float3 &normal,
-                     const float *renderMatrixRowMajor, ComputeCtxUniforms &out);
+                     const float *renderMatrixRowMajor,
+                     ComputeCtxUniforms &out);
 
 /** Flatten the brush's stroke path into the binding-10 storage layout. */
-void packStrokePath(const Brush &brush,
-                    litestl::util::Vector<ComputeStrokeSample> &out);
+void packStrokePath(const Brush &brush, litestl::util::Vector<ComputeStrokeSample> &out);
 
 /** Pack full-mesh geometry for beginStroke: tightly packed xyz co/no plus one
  * mask float per element. Vertex mode reads m.v.* and the tree mesh's mask
  * (zeros when `tree` is null); face mode packs face centroids/normals with a
  * zero dummy mask (face kernels never read binding 2). Returns the element
  * count (verts or faces). Face mode walks live topology — thaw first. */
-int packGeometry(mesh::Mesh &m, spatial::SpatialTree *tree, bool faceMode,
+int packGeometry(mesh::Mesh &m,
+                 spatial::SpatialTree *tree,
+                 bool faceMode,
                  litestl::util::Vector<float> &co,
                  litestl::util::Vector<float> &no,
                  litestl::util::Vector<float> &mask);
@@ -86,16 +91,17 @@ int packGeometry(mesh::Mesh &m, spatial::SpatialTree *tree, bool faceMode,
  * evaluates it dynamically per dab from the ctx uniforms + no_buf
  * (brush_view_normal), so symmetry images each carry their own reflected ray.
  * Vertex kernels only — face kernels never bind it. */
-void packAutomask(mesh::Mesh &m, const Brush &brush,
-                  litestl::util::Vector<float> &out);
+void packAutomask(mesh::Mesh &m, const Brush &brush, litestl::util::Vector<float> &out);
 
 /** Derive the per-vertex {offset,count} CSR meta (binding 12) from the mesh's
  * shared ring-1 topo cache, building the cache if needed. `flatVerts`/
  * `flatCount` return a view of the cache's flat neighbor array (binding 13) —
  * valid while the cache is (static across a stroke). */
-void packNeighborCSR(mesh::Mesh &m, int vcount,
+void packNeighborCSR(mesh::Mesh &m,
+                     int vcount,
                      litestl::util::Vector<ComputeVertNbr> &meta,
-                     const uint32_t **flatVerts, int *flatCount);
+                     const uint32_t **flatVerts,
+                     int *flatCount);
 
 /** Capture a node's pre-write co/no/f.no into the open MeshLog step, once per
  * node per stroke (element-keyed AttrSaver gate, so repeat calls are cheap
@@ -107,7 +113,8 @@ void snapshotNodeForUndo(meshlog::MeshLog &log, spatial::SpatialNode *node);
  * 3) plus <=64-wide per-workgroup chunks (binding 4). Face kernels chunk
  * unique_faces, vertex kernels unique_verts. */
 void chunkNodes(const litestl::util::Vector<spatial::SpatialNode *> &nodes,
-                bool faceMode, litestl::util::Vector<uint32_t> &uverts,
+                bool faceMode,
+                litestl::util::Vector<uint32_t> &uverts,
                 litestl::util::Vector<ComputeNodeMeta> &chunks);
 
 /** Global triangle topology + vertex->incident-tri CSR for a GPU normal pass,
@@ -142,7 +149,7 @@ struct GpuNormalTopology {
                litestl::util::Vector<uint32_t> &workTris,
                litestl::util::Vector<uint32_t> &workVerts);
 
- private:
+private:
   litestl::util::Vector<uint32_t> triStamp_, vertStamp_;
   uint32_t stampGen_ = 0;
 };

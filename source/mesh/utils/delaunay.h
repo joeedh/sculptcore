@@ -96,14 +96,18 @@ static inline float3 fitPlaneNormal(litestl::util::span<const float3> pts)
   }
   float3 ext = mx - mn;
   int axis = 0;
-  if (ext[1] > ext[axis]) axis = 1;
-  if (ext[2] > ext[axis]) axis = 2;
+  if (ext[1] > ext[axis])
+    axis = 1;
+  if (ext[2] > ext[axis])
+    axis = 2;
 
   /* Find two extreme points along that axis. */
   int ia = 0, ib = 0;
   for (size_t i = 0; i < pts.size(); i++) {
-    if (pts[i][axis] < pts[ia][axis]) ia = int(i);
-    if (pts[i][axis] > pts[ib][axis]) ib = int(i);
+    if (pts[i][axis] < pts[ia][axis])
+      ia = int(i);
+    if (pts[i][axis] > pts[ib][axis])
+      ib = int(i);
   }
   if (ia == ib) {
     return float3(0.0f, 0.0f, 1.0f);
@@ -201,11 +205,13 @@ static inline bool cdtSegCross(float2 a, float2 b, float2 c, float2 d)
 static inline int cdtFindEdgeTri(const litestl::util::Vector<CDTri> &tris, int a, int b)
 {
   for (int t = 0; t < int(tris.size()); t++) {
-    if (!tris[t].alive) continue;
+    if (!tris[t].alive)
+      continue;
     const int *v = tris[t].v;
     bool ha = v[0] == a || v[1] == a || v[2] == a;
     bool hb = v[0] == b || v[1] == b || v[2] == b;
-    if (ha && hb) return t;
+    if (ha && hb)
+      return t;
   }
   return -1;
 }
@@ -214,27 +220,31 @@ static inline int cdtFindEdgeTri(const litestl::util::Vector<CDTri> &tris, int a
 static inline int cdtApex(const CDTri &T, int a, int b)
 {
   for (int i = 0; i < 3; i++) {
-    if (T.v[i] != a && T.v[i] != b) return T.v[i];
+    if (T.v[i] != a && T.v[i] != b)
+      return T.v[i];
   }
   return -1;
 }
 
 /** The other alive triangle sharing edge (a,b), excluding `exclude`, else -1. */
-static inline int cdtOtherTri(const litestl::util::Vector<CDTri> &tris, int a, int b, int exclude)
+static inline int
+cdtOtherTri(const litestl::util::Vector<CDTri> &tris, int a, int b, int exclude)
 {
   for (int t = 0; t < int(tris.size()); t++) {
-    if (t == exclude || !tris[t].alive) continue;
+    if (t == exclude || !tris[t].alive)
+      continue;
     const int *v = tris[t].v;
     bool ha = v[0] == a || v[1] == a || v[2] == a;
     bool hb = v[0] == b || v[1] == b || v[2] == b;
-    if (ha && hb) return t;
+    if (ha && hb)
+      return t;
   }
   return -1;
 }
 
 /** Flip the diagonal shared by t1,t2 from (c,d) to (e,g). */
-static inline void cdtFlip(litestl::util::Vector<CDTri> &tris, int t1, int t2,
-                           int c, int d, int e, int g)
+static inline void
+cdtFlip(litestl::util::Vector<CDTri> &tris, int t1, int t2, int c, int d, int e, int g)
 {
   tris[t1].v[0] = e;
   tris[t1].v[1] = g;
@@ -250,32 +260,42 @@ static inline void cdtFlip(litestl::util::Vector<CDTri> &tris, int t1, int t2,
 static inline bool cdtRecoverEdge(litestl::util::Vector<CDTri> &tris,
                                   const litestl::util::Vector<float2> &pts,
                                   const litestl::util::Set<int64_t> &constraintKeys,
-                                  int ca, int cb)
+                                  int ca,
+                                  int cb)
 {
   int cap = 4 * int(tris.size()) + 64;
   while (cdtFindEdgeTri(tris, ca, cb) < 0) {
-    if (--cap < 0) return false;
+    if (--cap < 0)
+      return false;
     bool flipped = false;
     for (int t = 0; t < int(tris.size()) && !flipped; t++) {
-      if (!tris[t].alive) continue;
+      if (!tris[t].alive)
+        continue;
       for (int s = 0; s < 3; s++) {
         int c = tris[t].v[s];
         int d = tris[t].v[(s + 1) % 3];
-        if (c == ca || c == cb || d == ca || d == cb) continue;
-        if (constraintKeys.contains(cdtEdgeKey(c, d))) continue;
-        if (!cdtSegCross(pts[ca], pts[cb], pts[c], pts[d])) continue;
+        if (c == ca || c == cb || d == ca || d == cb)
+          continue;
+        if (constraintKeys.contains(cdtEdgeKey(c, d)))
+          continue;
+        if (!cdtSegCross(pts[ca], pts[cb], pts[c], pts[d]))
+          continue;
         int t2 = cdtOtherTri(tris, c, d, t);
-        if (t2 < 0) continue;
+        if (t2 < 0)
+          continue;
         int e = cdtApex(tris[t], c, d);
         int g = cdtApex(tris[t2], c, d);
-        if (e < 0 || g < 0 || e == g) continue;
-        if (!cdtSegCross(pts[c], pts[d], pts[e], pts[g])) continue; // non-convex
+        if (e < 0 || g < 0 || e == g)
+          continue;
+        if (!cdtSegCross(pts[c], pts[d], pts[e], pts[g]))
+          continue; // non-convex
         cdtFlip(tris, t, t2, c, d, e, g);
         flipped = true;
         break;
       }
     }
-    if (!flipped) return false;
+    if (!flipped)
+      return false;
   }
   return true;
 }
@@ -291,17 +311,22 @@ static inline void cdtLawsonRestore(litestl::util::Vector<CDTri> &tris,
   while (changed && --cap > 0) {
     changed = false;
     for (int t = 0; t < int(tris.size()) && !changed; t++) {
-      if (!tris[t].alive) continue;
+      if (!tris[t].alive)
+        continue;
       for (int s = 0; s < 3; s++) {
         int c = tris[t].v[s];
         int d = tris[t].v[(s + 1) % 3];
-        if (constraintKeys.contains(cdtEdgeKey(c, d))) continue;
+        if (constraintKeys.contains(cdtEdgeKey(c, d)))
+          continue;
         int t2 = cdtOtherTri(tris, c, d, t);
-        if (t2 < 0) continue;
+        if (t2 < 0)
+          continue;
         int e = cdtApex(tris[t], c, d);
         int g = cdtApex(tris[t2], c, d);
-        if (e < 0 || g < 0) continue;
-        if (!cdtSegCross(pts[c], pts[d], pts[e], pts[g])) continue; // non-convex
+        if (e < 0 || g < 0)
+          continue;
+        if (!cdtSegCross(pts[c], pts[d], pts[e], pts[g]))
+          continue; // non-convex
         if (inCircumcircle(pts[c], pts[d], pts[e], pts[g])) {
           cdtFlip(tris, t, t2, c, d, e, g);
           changed = true;
@@ -318,9 +343,11 @@ static inline void cdtBuildAdjacency(const litestl::util::Vector<CDTri> &tris,
 {
   int T = int(tris.size());
   nbr.clear();
-  for (int i = 0; i < T * 3; i++) nbr.append(-1);
+  for (int i = 0; i < T * 3; i++)
+    nbr.append(-1);
   for (int t = 0; t < T; t++) {
-    if (!tris[t].alive) continue;
+    if (!tris[t].alive)
+      continue;
     for (int s = 0; s < 3; s++) {
       nbr[t * 3 + s] = cdtOtherTri(tris, tris[t].v[s], tris[t].v[(s + 1) % 3], t);
     }
@@ -338,10 +365,12 @@ static inline void cdtFloodInterior(const litestl::util::Vector<CDTri> &tris,
 {
   int T = int(tris.size());
   inside.clear();
-  for (int i = 0; i < T; i++) inside.append(-1);
+  for (int i = 0; i < T; i++)
+    inside.append(-1);
   litestl::util::Vector<int> stack;
   for (int t = 0; t < T; t++) {
-    if (!tris[t].alive) continue;
+    if (!tris[t].alive)
+      continue;
     const int *v = tris[t].v;
     if ((v[0] >= N || v[1] >= N || v[2] >= N) && inside[t] == -1) {
       inside[t] = 0;
@@ -353,7 +382,8 @@ static inline void cdtFloodInterior(const litestl::util::Vector<CDTri> &tris,
     stack.pop_back();
     for (int s = 0; s < 3; s++) {
       int nb = nbr[t * 3 + s];
-      if (nb < 0 || inside[nb] != -1) continue;
+      if (nb < 0 || inside[nb] != -1)
+        continue;
       bool cross =
           constraintKeys.contains(cdtEdgeKey(tris[t].v[s], tris[t].v[(s + 1) % 3]));
       inside[nb] = cross ? (inside[t] ^ 1) : inside[t];
@@ -361,7 +391,8 @@ static inline void cdtFloodInterior(const litestl::util::Vector<CDTri> &tris,
     }
   }
   for (int t = 0; t < T; t++) {
-    if (tris[t].alive && inside[t] == -1) inside[t] = 1;
+    if (tris[t].alive && inside[t] == -1)
+      inside[t] = 1;
   }
 }
 
@@ -399,9 +430,10 @@ delaunayTriangulate(Mesh &m,
   }
 
   /* Choose plane. */
-  float3 n = plane_normal.has_value() ?
-                 plane_normal.value() :
-                 fitPlaneNormal(litestl::util::span<const float3>(pos3.data(), pos3.size()));
+  float3 n =
+      plane_normal.has_value()
+          ? plane_normal.value()
+          : fitPlaneNormal(litestl::util::span<const float3>(pos3.data(), pos3.size()));
   if (n.length() < 1e-6f) {
     n = float3(0.0f, 0.0f, 1.0f);
   } else {
@@ -463,7 +495,8 @@ delaunayTriangulate(Mesh &m,
   float2 c = (mn + mx) * 0.5f;
   float2 ext = mx - mn;
   float r = std::max(ext[0], ext[1]);
-  if (r < 1.0f) r = 1.0f;
+  if (r < 1.0f)
+    r = 1.0f;
   r *= 64.0f;
 
   int N = int(pts2.size());
@@ -482,7 +515,8 @@ delaunayTriangulate(Mesh &m,
     util::Vector<DEdge> boundary;
 
     for (int t = 0; t < int(tris.size()); t++) {
-      if (!tris[t].alive) continue;
+      if (!tris[t].alive)
+        continue;
       DTri &T = tris[t];
       if (inCircumcircle(pts2[T.a], pts2[T.b], pts2[T.c], p)) {
         DEdge edges[3] = {{T.a, T.b}, {T.b, T.c}, {T.c, T.a}};
@@ -512,8 +546,10 @@ delaunayTriangulate(Mesh &m,
   /* Drop tris touching the super-triangle. */
   util::Vector<DTri> finalTris;
   for (const DTri &T : tris) {
-    if (!T.alive) continue;
-    if (T.a >= N || T.b >= N || T.c >= N) continue;
+    if (!T.alive)
+      continue;
+    if (T.a >= N || T.b >= N || T.c >= N)
+      continue;
     finalTris.append(T);
   }
 
@@ -564,7 +600,8 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
 
   out_tris.clear();
   int rawN = int(points.size());
-  if (rawN < 3) return true;
+  if (rawN < 3)
+    return true;
 
   // Dedup near-duplicate points; map raw->unique and unique->first-raw.
   const float dup_eps = 1e-7f;
@@ -574,7 +611,8 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
     int found = -1;
     for (int j = 0; j < int(pts.size()); j++) {
       if (std::fabs(points[i][0] - pts[j][0]) < dup_eps &&
-          std::fabs(points[i][1] - pts[j][1]) < dup_eps) {
+          std::fabs(points[i][1] - pts[j][1]) < dup_eps)
+      {
         found = j;
         break;
       }
@@ -587,15 +625,18 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
     rawToUniq.append(found);
   }
   int N = int(pts.size());
-  if (N < 3) return true;
+  if (N < 3)
+    return true;
 
   // Constraint edge set (remapped, undirected, degenerate dropped).
   util::Set<int64_t> constraintKeys;
   util::Vector<DEdge> constraintEdges;
   for (const DEdge &e : constraints) {
-    if (e.a < 0 || e.b < 0 || e.a >= rawN || e.b >= rawN) continue;
+    if (e.a < 0 || e.b < 0 || e.a >= rawN || e.b >= rawN)
+      continue;
     int a = rawToUniq[e.a], b = rawToUniq[e.b];
-    if (a == b) continue;
+    if (a == b)
+      continue;
     if (constraintKeys.add(cdtEdgeKey(a, b))) {
       constraintEdges.append({a, b});
     }
@@ -611,7 +652,8 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
         break;
       }
     }
-    if (collinear) return true;
+    if (collinear)
+      return true;
   }
 
   // Super-triangle around the AABB.
@@ -623,7 +665,8 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
   float2 cen = (mn + mx) * 0.5f;
   float2 ext = mx - mn;
   float r = std::max(ext[0], ext[1]);
-  if (r < 1.0f) r = 1.0f;
+  if (r < 1.0f)
+    r = 1.0f;
   r *= 64.0f;
   pts.append(float2(cen[0] - 2.0f * r, cen[1] - r));
   pts.append(float2(cen[0] + 2.0f * r, cen[1] - r));
@@ -637,7 +680,8 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
     float2 p = pts[pi];
     util::Vector<DEdge> boundary;
     for (int t = 0; t < int(tris.size()); t++) {
-      if (!tris[t].alive) continue;
+      if (!tris[t].alive)
+        continue;
       CDTri &T = tris[t];
       if (inCircumcircle(pts[T.v[0]], pts[T.v[1]], pts[T.v[2]], p)) {
         DEdge edges[3] = {{T.v[0], T.v[1]}, {T.v[1], T.v[2]}, {T.v[2], T.v[0]}};
@@ -650,7 +694,8 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
               break;
             }
           }
-          if (!found) boundary.append(e);
+          if (!found)
+            boundary.append(e);
         }
         T.alive = false;
       }
@@ -678,9 +723,11 @@ constrainedDelaunay2D(litestl::util::span<const litestl::math::float2> points,
   cdtFloodInterior(tris, nbr, constraintKeys, N, inside);
 
   for (int t = 0; t < int(tris.size()); t++) {
-    if (!tris[t].alive || inside[t] != 1) continue;
+    if (!tris[t].alive || inside[t] != 1)
+      continue;
     int a = tris[t].v[0], b = tris[t].v[1], c = tris[t].v[2];
-    if (a >= N || b >= N || c >= N) continue;
+    if (a >= N || b >= N || c >= N)
+      continue;
     if (dt_cross2(pts[b] - pts[a], pts[c] - pts[a]) < 0.0f) {
       int tmp = b;
       b = c;

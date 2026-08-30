@@ -22,7 +22,6 @@ int main()
 
     alloc::Delete<Mesh>(cube);
 
-
     Mesh mesh;
 
     int v1 = mesh.make_vertex(float3(0.0, 0.1, 0.2));
@@ -65,7 +64,7 @@ int main()
 
     CornerProxy c(&mesh, 0);
     c = 0;
-    c.next() = 2; 
+    c.next() = 2;
 
     printf("edges:\n");
     auto iter = vert1.edges();

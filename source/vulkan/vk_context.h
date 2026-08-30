@@ -68,7 +68,10 @@ struct VkContext {
 struct OffscreenTarget {
   OffscreenTarget() = default;
   OffscreenTarget(const OffscreenTarget &) = delete;
-  ~OffscreenTarget() { release(); }
+  ~OffscreenTarget()
+  {
+    release();
+  }
 
   bool create(VkContext *ctx, int w, int h);
   void release();

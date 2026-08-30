@@ -25,8 +25,13 @@ namespace {
  * count; reports whether any incident boundary edge exists and the one sharp
  * edge != skip (meaningful when the count is exactly 2). */
 template <typename SharpT, typename BoundaryT>
-int unionDegree(Mesh &m, int v, int skip, SharpT &is_sharp,
-                BoundaryT &is_boundary, bool &has_boundary, int &other_sharp)
+int unionDegree(Mesh &m,
+                int v,
+                int skip,
+                SharpT &is_sharp,
+                BoundaryT &is_boundary,
+                bool &has_boundary,
+                int &other_sharp)
 {
   has_boundary = false;
   other_sharp = ELEM_NONE;
@@ -55,7 +60,9 @@ int unionDegree(Mesh &m, int v, int skip, SharpT &is_sharp,
 
 } // namespace
 
-void computeFeatureTags(Mesh &m, float sharp_angle, float feature_hysteresis,
+void computeFeatureTags(Mesh &m,
+                        float sharp_angle,
+                        float feature_hysteresis,
                         int feature_min_chain)
 {
   m.recalc_normals(); // thaws topology
@@ -164,8 +171,8 @@ void computeFeatureTags(Mesh &m, float sharp_angle, float feature_hysteresis,
           while (true) {
             bool has_boundary;
             int other_sharp;
-            int deg = unionDegree(m, v, e, is_sharp, is_boundary, has_boundary,
-                                  other_sharp);
+            int deg =
+                unionDegree(m, v, e, is_sharp, is_boundary, has_boundary, other_sharp);
             if (deg == 2 && !has_boundary && other_sharp != ELEM_NONE) {
               if (other_sharp == e_start) {
                 loop = true; // closed all-degree-2 ring
