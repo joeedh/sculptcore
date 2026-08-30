@@ -642,7 +642,35 @@ scaffolding). The C++-specific additions:
   so doc comments are visually distinct from non-doc `//` comments. They are not
   subject to the 3-line length limit, but stay concise.
 
+## Prose linting (commentlint)
+
+`comment-lint` (pnpm devDependency, pinned in `package.json`) scores code
+comments and this file's prose against the rules above with a small trained
+model, catching AI-slop patterns a human reviewer would otherwise have to spot
+by eye. Source checkout for reading the tool itself: `c:/dev/commentlint`.
+
+- `node make.mjs lint` — concise scan of the whole tree (excludes + config
+  below applied), the pre-commit gate.
+- `node make.mjs lint:prose <args>` — forwards `<args>` straight to
+  `commentlint` (concise output); use for scanning a specific path or scoring
+  one comment (`lint:prose "some comment"`).
+- `node make.mjs lint:prose:full <args>` — same forwarding, verbose output.
+- Config is `.commentlintrc.jsonc` (sculptcore root): excludes `build/**`,
+  `**/generated/**`, `**/extern/**`; disables rule `P10`; markdown scanning is
+  off except this file (`CLAUDE.md`) is always checked via `markdownFiles`.
+- `<!-- commentlint-off -->` / `<!-- commentlint-on -->` markers (each on
+  their own line) exempt the text between them from scanning — used below to
+  keep the Prose section's own bad-prose examples from tripping the linter.
+- A comment that is a deliberate, approved exception
+  (`approvedLongComments.md` entries, `CLAUDENOTE:` scaffolding) is a style
+  call this repo already made — don't treat a commentlint finding on one as
+  authoritative over those rules; report a false positive with
+  `commentlint --false-positive` instead of hand-editing the comment to
+  satisfy the model.
+
 ## Prose
+
+<!-- commentlint-off -->
 
 These rules govern every piece of prose in the repository. They apply to code comments, to
 this file, and to everything under `documentation/`.
@@ -701,3 +729,5 @@ this file, and to everything under `documentation/`.
   it unclear whether the second comma closes an interpolation or opens a new clause. Write
   "Dropping onto itself (or onto a neighbor it would split against) is not a rip". Drop any comma
   that would follow the closing bracket — it separates the subject from its verb.
+<!-- commentlint-on -->
+

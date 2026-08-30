@@ -1547,7 +1547,7 @@ async function ensureKernelsExtraConfigured(target, kernelsExtra) {
 }
 
 function runCommentLint(extraArgs) {
-  return run(`node node_modules/comment-lint/bin/commentlint.js ${extraArgs}`)
+  return run(`pnpm exec commentlint ${extraArgs}`, {shell: true})
 }
 
 // Known sbrush backends, matching the SBRUSH_BACKEND_<X> CMake options.
@@ -1912,7 +1912,14 @@ yargs(hideBin(process.argv))
   .command('fetch-wgpu-native', 'Download the pinned wgpu-native prebuilt (native WebGPU backend)', {}, () => {
     run('node extern/wgpu_native/fetch.mjs')
   })
-  .command('format', 'format', {}, () => {})
+  .command('format:check', 'checks code formatting (does not correct)', {}, () => {
+    // implement me
+  })
+  .command('format', 'format', {}, () => {
+    // implement me
+    // should invoke clang-format and the @pathtx/prettier fork with --cache
+    // 
+  })
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')
     run('git clone https://github.com/emscripten-core/emsdk.git emsdk')
@@ -1925,7 +1932,7 @@ yargs(hideBin(process.argv))
     fs.appendFileSync('emsdk/.gitignore', '\ncmake\n')
   })
   .command('lint', 'lint', {}, () => {
-    //
+    runCommentLint('--concise')
   })
   // note: we handle this command ourselves to forward arguments to 
   // commentlint, this is here just to show up in help

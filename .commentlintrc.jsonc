@@ -46,7 +46,7 @@
   // Always check these markdown files, regardless of "markdown". Once this
   // is non-empty it replaces the directory walk: only the named files are
   // checked, not the whole tree.
-  "markdownFiles": [],
+  "markdownFiles": ["CLAUDE.md"],
 
   // Rule ids never to report. The gate that decides whether a comment is
   // flagged at all still runs over every rule; disabling one only changes
