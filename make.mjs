@@ -1550,6 +1550,218 @@ function runCommentLint(extraArgs) {
   return run(`pnpm exec commentlint ${extraArgs}`, {shell: true})
 }
 
+// format / format:check drive clang-format (C++) and the @pathtx/prettier
+// fork (JS/TS). clang-format has no --cache flag, so the code below
+// hand-rolls one; vendored trees are excluded via .prettierignore / .clang-format-ignore.
+
+const PRETTIER_GLOB = '"**/*.{js,jsx,ts,tsx,mjs,cjs}"'
+const CLANG_FORMAT_CACHE_PATH = '.cache/clang-format-cache.json'
+const CLANG_FORMAT_EXTS = new Set(['.h', '.hpp', '.hh', '.cc', '.cpp', '.cxx', '.inl'])
+const CLANG_FORMAT_SKIP_DIRS = new Set([
+  'build',
+  'emsdk',
+  'node_modules',
+  'extern',
+  '.cache',
+  '.git',
+  '.vs',
+  '.vscode',
+  '.github',
+  '.devcontainer',
+  '.windsurf',
+  '.turbo',
+])
+
+// Run a command without exiting the process on failure (unlike `run()`), so
+// format:check can run both formatters and report combined results. Returns
+// the exit code (0 on success).
+function runStatus(cmd) {
+  try {
+    child_process.execSync(cmd, {stdio: 'inherit', shell: true})
+    return 0
+  } catch (error) {
+    return typeof error.status === 'number' ? error.status : 1
+  }
+}
+
+let cachedFormatEnv = null
+
+// Env clang-format needs to be reachable: on Windows it ships as part of the
+// VS "C++ Clang tools" component, only on PATH after vcvars — the same env
+// configureEnv.mjs sets up for the native cmake toolchain. Captured once
+// (vcvars itself takes ~1-2s) and reused across every clang-format spawn
+// rather than re-shelling through configureEnv.mjs per invocation.
+function getFormatEnv() {
+  if (cachedFormatEnv) return cachedFormatEnv
+  if (process.platform !== 'win32') {
+    cachedFormatEnv = process.env
+    return cachedFormatEnv
+  }
+  const dump = child_process.execSync('node configureEnv.mjs --output-env', {encoding: 'utf-8'})
+  const env = {...process.env}
+  for (const line of dump.replace(/\r/g, '').split('\n')) {
+    if (!line) continue
+    const eq = line.indexOf('=')
+    if (eq <= 0) continue
+    env[line.slice(0, eq)] = line.slice(eq + 1)
+  }
+  cachedFormatEnv = env
+  return env
+}
+
+// Recursively collect clang-format target files under `dir`, skipping
+// vendored/generated directories by name so the walk never touches e.g.
+// source/litestl/extern/eigen.
+function walkClangFormatFiles(dir, out = []) {
+  for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+    if (entry.isDirectory()) {
+      if (CLANG_FORMAT_SKIP_DIRS.has(entry.name)) continue
+      walkClangFormatFiles(Path.join(dir, entry.name), out)
+    } else if (CLANG_FORMAT_EXTS.has(Path.extname(entry.name))) {
+      out.push(Path.join(dir, entry.name))
+    }
+  }
+  return out
+}
+
+const styleFileCache = new Map()
+
+// The nearest .clang-format above `fileDir` (clang-format's own -style=file
+// resolution — e.g. files under source/litestl pick up its .clang-format,
+// not the root one), memoized per directory since many files share a parent.
+// Used only to fold a style-file edit into the cache key below; the actual
+// formatting still goes through clang-format's own -style=file lookup.
+function nearestClangFormatStyle(fileDir) {
+  const chain = []
+  let dir = fileDir
+  while (true) {
+    if (styleFileCache.has(dir)) {
+      const result = styleFileCache.get(dir)
+      for (const d of chain) styleFileCache.set(d, result)
+      return result
+    }
+    chain.push(dir)
+    const candidate = Path.join(dir, '.clang-format')
+    if (fs.existsSync(candidate)) {
+      const st = fs.statSync(candidate)
+      const result = {path: candidate.replace(/\\/g, '/'), mtimeMs: st.mtimeMs}
+      for (const d of chain) styleFileCache.set(d, result)
+      return result
+    }
+    const parent = Path.dirname(dir)
+    if (parent === dir) {
+      for (const d of chain) styleFileCache.set(d, null)
+      return null
+    }
+    dir = parent
+  }
+}
+
+function loadClangFormatCache(version) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CLANG_FORMAT_CACHE_PATH, 'utf-8'))
+    if (raw.clangFormatVersion === version) return raw.entries
+  } catch {
+    /* missing/corrupt/stale cache -> start fresh */
+  }
+  return {}
+}
+
+function saveClangFormatCache(version, entries) {
+  ensureDir('.cache')
+  fs.writeFileSync(CLANG_FORMAT_CACHE_PATH, JSON.stringify({clangFormatVersion: version, entries}))
+}
+
+// Runs clang-format over every tracked C++ file, either as a --dry-run check
+// (mode 'check') or an in-place format (mode 'write'). A file is skipped
+// entirely (not even handed to clang-format) when its cached {mtime, size,
+// style-file-key} still matches and it was already known-formatted -- the
+// eslint/prettier --cache pattern, hand-rolled since clang-format has none.
+// Returns an exit code (0 on success).
+async function runClangFormat(mode) {
+  const env = getFormatEnv()
+  let version
+  try {
+    version = child_process.execSync('clang-format --version', {env, encoding: 'utf-8'}).trim()
+  } catch {
+    process.stderr.write(
+      'clang-format not found on PATH (expected via the native toolchain env; see configureEnv.mjs)\n'
+    )
+    return 1
+  }
+
+  const files = walkClangFormatFiles('.')
+  const cache = loadClangFormatCache(version)
+  const nextCache = {}
+  const toProcess = []
+
+  for (const file of files) {
+    const rel = Path.relative('.', file).replace(/\\/g, '/')
+    const st = fs.statSync(file)
+    const style = nearestClangFormatStyle(Path.dirname(file))
+    const styleKey = style ? `${style.path}@${style.mtimeMs}` : 'none'
+    const prev = cache[rel]
+    if (prev && prev.ok && prev.mtimeMs === st.mtimeMs && prev.size === st.size && prev.styleKey === styleKey) {
+      nextCache[rel] = prev
+      continue
+    }
+    toProcess.push({rel, styleKey})
+  }
+
+  console.log(
+    `format:${mode} (${version}): ${files.length} files, ${toProcess.length} to ${
+      mode === 'check' ? 'check' : 'format'
+    }, ${files.length - toProcess.length} unchanged (cached)`
+  )
+
+  const failed = new Set()
+  let toolError = false
+  const BATCH = 60
+  for (let i = 0; i < toProcess.length; i += BATCH) {
+    const batch = toProcess.slice(i, i + BATCH)
+    const args = batch.map((f) => f.rel)
+    if (mode === 'check') {
+      const result = child_process.spawnSync(
+        'clang-format',
+        ['--dry-run', '--Werror', '-style=file', ...args],
+        {env, encoding: 'utf-8'}
+      )
+      if (result.error) {
+        toolError = true
+        process.stderr.write(String(result.error.message) + '\n')
+        continue
+      }
+      const out = (result.stdout || '') + (result.stderr || '')
+      for (const m of out.matchAll(/^(.+?):\d+:\d+: error: code should be clang-formatted/gm)) {
+        failed.add(m[1].replace(/\\/g, '/'))
+      }
+    } else {
+      const result = child_process.spawnSync('clang-format', ['-i', '-style=file', ...args], {
+        env,
+        encoding: 'utf-8',
+      })
+      if (result.error || result.status) {
+        toolError = true
+        process.stderr.write(result.stderr || String(result.error?.message) || '\n')
+        continue
+      }
+    }
+    for (const f of batch) {
+      if (failed.has(f.rel)) continue
+      const st = fs.statSync(f.rel) // re-stat: -i may have rewritten the file
+      nextCache[f.rel] = {mtimeMs: st.mtimeMs, size: st.size, styleKey: f.styleKey, ok: true}
+    }
+  }
+
+  saveClangFormatCache(version, nextCache)
+
+  if (failed.size > 0) {
+    process.stderr.write(termColor(`clang-format: ${failed.size} file(s) need formatting:\n`, 'red'))
+    for (const f of [...failed].sort()) process.stderr.write(`  ${f}\n`)
+  }
+  return failed.size > 0 || toolError ? 1 : 0
+}
+
 // Known sbrush backends, matching the SBRUSH_BACKEND_<X> CMake options.
 const SBRUSH_BACKENDS = ['cpp', 'wgsl', 'spirv', 'cuda', 'hip', 'opencl']
 
@@ -1912,13 +2124,31 @@ yargs(hideBin(process.argv))
   .command('fetch-wgpu-native', 'Download the pinned wgpu-native prebuilt (native WebGPU backend)', {}, () => {
     run('node extern/wgpu_native/fetch.mjs')
   })
-  .command('format:check', 'checks code formatting (does not correct)', {}, () => {
-    // implement me
-  })
-  .command('format', 'format', {}, () => {
-    // implement me
-    // should invoke clang-format and the @pathtx/prettier fork with --cache
-    // 
+  .command(
+    'format:check',
+    'Check code formatting (clang-format + @pathtx/prettier), no changes written',
+    {},
+    async () => {
+      ensureDir('.cache')
+      const prettierCode = runStatus(
+        `pnpm exec prettier --cache --cache-location .cache/prettier-cache.json --check ${PRETTIER_GLOB}`
+      )
+      const clangCode = await runClangFormat('check')
+      if (prettierCode || clangCode) {
+        process.stderr.write(termColor('format:check failed -- run `node make.mjs format` to fix\n', 'red'))
+        process.exit(1)
+      }
+    }
+  )
+  .command('format', 'Format code in place (clang-format + @pathtx/prettier)', {}, async () => {
+    ensureDir('.cache')
+    const prettierCode = runStatus(
+      `pnpm exec prettier --cache --cache-location .cache/prettier-cache.json --write ${PRETTIER_GLOB}`
+    )
+    const clangCode = await runClangFormat('write')
+    if (prettierCode || clangCode) {
+      process.exit(1)
+    }
   })
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')

@@ -1,0 +1,10 @@
+# Vendored / generated trees clang-format should never touch. Patterns use
+# clang-format's own glob syntax (gitignore-flavored but NOT full gitignore —
+# a bare name only matches at the exact depth given, so every entry needs an
+# explicit **/ prefix to match at any depth and /** to match everything below
+# it; verified against clang-format 22).
+**/build/**
+**/emsdk/**
+**/node_modules/**
+**/extern/**
+**/.cache/**
