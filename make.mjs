@@ -1546,6 +1546,10 @@ async function ensureKernelsExtraConfigured(target, kernelsExtra) {
   }
 }
 
+function runCommentLint(extraArgs) {
+  return run(`node node_modules/comment-lint/bin/commentlint.js ${extraArgs}`)
+}
+
 // Known sbrush backends, matching the SBRUSH_BACKEND_<X> CMake options.
 const SBRUSH_BACKENDS = ['cpp', 'wgsl', 'spirv', 'cuda', 'hip', 'opencl']
 
@@ -1580,6 +1584,22 @@ const kernelsExtraOption = (y) =>
     describe:
       'extra sbrush kernel dir(s) -> SCULPTCORE_EXTRA_KERNEL_DIRS (repeatable or path.delimiter-separated; native targets only; pass an empty value to clear)',
   })
+
+// `commentlint` forwards every arg after the command name straight to
+// commentlint.js, ahead of yargs, so `--help` reaches the tool itself
+// instead of make.mjs's own --help.
+{
+  const rawArgs = hideBin(process.argv)
+  if (rawArgs[0] === 'lint:prose') {
+    const quote = (a) => `"${a.replace(/"/g, '\\"')}"`
+    runCommentLint(`--concise ${rawArgs.slice(1).map(quote).join(' ')}`)
+    process.exit(0)
+  } else if (rawArgs[0] === 'lint:prose:full') {
+    const quote = (a) => `"${a.replace(/"/g, '\\"')}"`
+    runCommentLint(`${rawArgs.slice(1).map(quote).join(' ')}`)
+    process.exit(0)
+  }
+}
 
 yargs(hideBin(process.argv))
   .scriptName('make.mjs')
@@ -1892,6 +1912,7 @@ yargs(hideBin(process.argv))
   .command('fetch-wgpu-native', 'Download the pinned wgpu-native prebuilt (native WebGPU backend)', {}, () => {
     run('node extern/wgpu_native/fetch.mjs')
   })
+  .command('format', 'format', {}, () => {})
   .command('install-emsdk', 'Install pinned emsdk', {}, () => {
     console.log('Installing emsdk...')
     run('git clone https://github.com/emscripten-core/emsdk.git emsdk')
@@ -1902,6 +1923,17 @@ yargs(hideBin(process.argv))
     run(`cd emsdk && bash emsdk activate ${EMSDK_VERSION} cmake-4.2.0-rc3-64bit ninja-git-release-64bit --permanent `)
     // emsdk annoyingly is missing a .gitignore for their cmake binary folder
     fs.appendFileSync('emsdk/.gitignore', '\ncmake\n')
+  })
+  .command('lint', 'lint', {}, () => {
+    //
+  })
+  // note: we handle this command ourselves to forward arguments to 
+  // commentlint, this is here just to show up in help
+  .command('lint:prose', 'lint prose with commentlint (accepts commentlint args)', {}, () => {
+    //
+  })
+  .command('lint:prose:full', 'lint prose with commentlint, verbose output (accepts commentlint args)', {}, () => {
+    //
   })
   .demandCommand(1, 'Specify a command (see --help)')
   .strict()

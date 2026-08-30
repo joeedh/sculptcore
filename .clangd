@@ -1,2 +1,5 @@
-Diagnostics:
-  Suppress: [drv_unsupported_opt_for_target]
+{
+  "Diagnostics": {
+    "Suppress": ["drv_unsupported_opt_for_target"]
+  }
+}

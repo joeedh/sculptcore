@@ -17,6 +17,9 @@ importers:
       cmake-js:
         specifier: ^8.0.0
         version: 8.0.0
+      comment-lint:
+        specifier: ^0.3.6
+        version: 0.3.6
       yargs:
         specifier: ^18.0.0
         version: 18.0.0
@@ -1105,6 +1108,11 @@ packages:
 
   color-name@1.1.4:
     resolution: {integrity: sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==}
+
+  comment-lint@0.3.6:
+    resolution: {integrity: sha512-dtSc60kC2GYku4NaUFaTJYLgFrzShYC3gLilN4Nf8T4G9d2Gq7puoa7PBJXC89GtdVzsLzMyEf5VBhWVtllrTg==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
@@ -3048,6 +3056,8 @@ snapshots:
       color-name: 1.1.4
 
   color-name@1.1.4: {}
+
+  comment-lint@0.3.6: {}
 
   concat-map@0.0.1: {}
 
