@@ -503,8 +503,9 @@ int main()
     Mesh *m = s.mesh;
     m->recalc_normals();
 
-    // Eye looks down -Z; the +X side of the sphere is the silhouette band,
-    // where the view-normal ramp (limit 90, falloff 25 degrees) is live.
+    // The eye looks down -Z, so the +X side of the sphere sits in the
+    // silhouette band, where the view-normal ramp (limit 90, falloff 25
+    // degrees) is live.
     s.brush.automask_view_normal = true;
     s.brush.cull_backfaces = false;
     s.brush.viewDir = float3{0, 0, -1};

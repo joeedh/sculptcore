@@ -431,10 +431,10 @@ static void gateDomainsAndSession()
   }
   fprintf(stderr, "domains: seeding held over %d grids\n", gs.gridCount());
 
-  /* Restriction is the exact left inverse of that prolongation, so the round
-   * trip loses nothing an Authored channel had -- which is the whole reason
-   * dropTopLevel may not simply pop. A Delta channel is unchanged for the
-   * opposite reason: nothing is carried down at all. */
+  // Restriction is the exact left inverse of that prolongation, so the round
+  // trip loses nothing an Authored channel had. That is why dropTopLevel must
+  // not simply pop the top level. A Delta channel is unchanged for a
+  // different reason. It never carries anything down in the first place.
   gs.dropTopLevel();
   test_assert(gs.levelCount() == nLevels);
   int rtDiffs = 0;

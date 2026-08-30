@@ -165,9 +165,9 @@ int main()
   test_assert(splitsR > 0 && splitsR < 1000);
   test_assert(mvR < 14); /* near-regular: no high-valence hubs */
 
-  /* (b) The flip sweep is load-bearing: without it (grade only) the cascade is
-   * markedly worse — more splits and a much higher max valence. If flips
-   * silently no-op, these trip. */
+  // (b) Disabling the flip sweep (grade only) makes the cascade markedly worse,
+  // with more splits and a much higher max valence. These assertions trip if
+  // flips silently no-op.
   test_assert(splitsR < splitsG);
   test_assert(mvR < mvG);
 

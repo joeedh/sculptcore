@@ -317,7 +317,7 @@ void testPlantedPairCancel()
   TASSERT(ts.attempted_pairs == 0);
   TASSERT(ts.num_singularities == 2);
 
-  // Gate above it: the pair must annihilate.
+  // Gate above the pair separation: the pair must annihilate.
   remesh::SingularityCancelParams wide;
   wide.target_edge_length = 0.2f; // max_dist = 0.3
   remesh::SingularityCancelStats ws = remesh::cancelSingularityPairs(*g, wide);

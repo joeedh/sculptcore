@@ -164,7 +164,7 @@ struct CommandExecutor {
    * instantiation, so deformation is measured from the derived stroke-start
    * base `co - disp`. */
   bool nonAccum = false;
-  /** Whether this stroke anchors its origin, which is what makes a `@grabmode`
+  /** True when this stroke anchors its origin, which makes a `@grabmode`
    * kernel take the from-orig fixed-region policy. It is a stroke property, not
    * a kernel one — the same kelvinlet dragged along a path accumulates like any
    * other brush — so the host owns it (TS: `strokeMethod === ANCHORED`).

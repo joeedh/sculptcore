@@ -30,7 +30,7 @@ using namespace sculptcore::brush;
 
 /** When a tool needs live topology links. */
 enum class Links {
-  Never,      // safe to freeze topology for the whole stroke
+  Never,      // topology can be frozen safely for the whole stroke
   NonCsrOnly, // has a for_neighbor loop: needs the links unless neighbors come from CSR
   Always,     // walks live links every dab regardless of the neighbor source
 };

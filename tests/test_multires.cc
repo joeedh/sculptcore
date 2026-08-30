@@ -749,8 +749,9 @@ static void gateFrameStability()
    * rotation of a finite-difference direction. */
   test_assert(pWorst > 0.9);
   test_assert(worstDot(pNo, pNo2, pAt) > 0.9);
-  /* The provider is the thing being replaced: it must not be MORE stable, or
-   * this gate is not measuring the defect it exists for. */
+  // This gate is measuring a defect in the provider, the thing being replaced.
+  // If the provider comes out MORE stable than the parametric frame, the gate
+  // is not measuring that defect.
   test_assert(fWorst <= pWorst);
 
   alloc::Delete(cage);
@@ -1055,8 +1056,10 @@ static void gatePropagateUndo()
   test_assert(sameBits(tmp, l2Owed));
   test_assert(mr.downPropDebt(3));
 
-  /* The same switch WITH propagation does move it — i.e. the assertion above
-   * is about the suppression, not about there being nothing to propagate. */
+  // Switching to level 2 again, this time with propagation enabled, does change
+  // its geometry. That confirms the assertion above was verifying that
+  // propagate=false suppressed the update, not that nothing was there to
+  // propagate.
   mr.setActiveLevel(3);
   snapshotCo(*mr.setActiveLevel(2)->mesh, tmp);
   fprintf(stderr,

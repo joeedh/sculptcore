@@ -296,7 +296,7 @@ int main()
       fprintf(stderr, "  (g) stroke line %d: %s\n", rs.line_no, rs.error.c_str());
       return 1;
     }
-    // Static topology: the vert set the stroke saw is the one snapshotted.
+    // Topology stays static, so the stroke sees the same vert set snapshotted before it ran.
     test_assert(m->v.count == int(before.size()));
 
     test_assert(m->v.attrs.has(AttrType::FLOAT3, ".brush.disp.vec"));

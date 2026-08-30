@@ -12,4 +12,5 @@ ignoredBuiltDependencies:
 
 onlyBuiltDependencies:
   - unrs-resolver
+  - comment-lint
   - "@kmamal/gpu"

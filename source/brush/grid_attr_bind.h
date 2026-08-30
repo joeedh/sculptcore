@@ -246,10 +246,10 @@ gridAttrEnsureChannel(subdiv::Multires *mr, const GridAttrMirror &mirror, int le
 {
   int ch = mr->store.findChannel(mirror.layer);
   if (ch < 0) {
-    // The host answers the persistence half: a layer it declared through
-    // declareHostAttr has a container to be saved into, one it did not is
-    // session-only. Either way the channel is Authored, which is what the
-    // engine's own behaviour keys off.
+    // The host answers the persistence half. A layer it declared through
+    // declareHostAttr has a container to be saved into; a layer it did not
+    // declare is session-only. Either way the channel is marked Authored, and
+    // the engine's own behaviour keys off that flag.
     const bool persist =
         mr->gridAttrs().storageFor(mirror.layer, mirror.type, mesh::AttrFlag::NONE) ==
         subdiv::GridAttrStorage::Host;

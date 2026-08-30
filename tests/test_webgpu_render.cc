@@ -28,9 +28,10 @@ int main()
   bool ok = sculptcore::webgpu::webgpuRenderSceneToPNG(path, w, h, &nonBg);
   test_assert(ok);
 
-  /* The framed spherified cube should cover a chunk of the frame but not all
-   * of it (background visible at the corners). Loose bounds — this guards
-   * "nothing drew" / "whole frame is one color", not exact coverage. */
+  // The framed spherified cube should cover part of the frame but not all of it,
+  // leaving background visible at the corners. The bounds below are loose. They
+  // catch the case of nothing having drawn or the whole frame being one color;
+  // they do not check exact coverage.
   printf("webgpu native render: non-background pixels = %d / %d\n", nonBg, w * h);
   test_assert(nonBg > w * h / 100);      // >1% drawn
   test_assert(nonBg < w * h * 99 / 100); // background still visible

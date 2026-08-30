@@ -140,8 +140,8 @@ int main()
     test_assert(peak == first);
     test_assert(many.naiveLast > 2 * first);
 
-    // Correctness: 24 growing dabs == 1 dab of the whole drag, and the stroke
-    // actually moved something.
+    // The 24 growing dabs must produce the same result as one dab covering the
+    // whole drag. The stroke must also have actually moved something.
     float maxDelta = 0.0f;
     for (int i = 0; i < int(one.co.size()); i++) {
       maxDelta = std::fmax(maxDelta, (many.co[i] - one.co[i]).length());

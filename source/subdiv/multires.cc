@@ -149,9 +149,10 @@ void Multires::assignGridUVs(mesh::Mesh &m, int level)
   SubdivLevel &lvl = refiner.levels[level - 1];
   int S = lvl.gridSide, w = S + 1;
 
-  // Deliberately NOT tagged AttrUse::UV, and named alongside its `.ptex.c.*`
-  // siblings: this is an internal parameterization, not the mesh's UV map. The
-  // UV map is the cage's, subdivided by assignDerivedAttrs.
+  // This attribute is deliberately not tagged AttrUse::UV, and it is named
+  // alongside its `.ptex.c.*` siblings, because it is an internal
+  // parameterization rather than the mesh's UV map. The UV map belongs to the
+  // cage and is subdivided by assignDerivedAttrs.
   AttrRef &uvRef =
       m.c.attrs.ensure(AttrType::FLOAT2, util::string(vdm::PTEX_ATLAS_ATTR), true);
   auto *uv = static_cast<AttrData<float2> *>(uvRef.data);

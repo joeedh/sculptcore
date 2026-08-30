@@ -1172,7 +1172,8 @@ struct Emit {
     write("static float sb_maxf(float a, float b) { return a < b ? b : a; }\n");
     write("static float sb_clampf(float x, float lo, float hi) { return x < lo ? lo : hi "
           "< x ? hi : x; }\n");
-    // GLSL/WGSL floored modulus, not C's truncated fmod: mod(-0.25, 1) is 0.75.
+    // This computes GLSL/WGSL floored modulus rather than C's truncated fmod.
+    // For example, mod(-0.25, 1) equals 0.75.
     write("static float sb_modf(float a, float b) { return a - b * floorf(a / b); }\n");
     write("static float sb_stepf(float edge, float x) { return x < edge ? 0.0f : 1.0f; "
           "}\n");

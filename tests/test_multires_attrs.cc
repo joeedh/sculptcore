@@ -300,10 +300,11 @@ static void gateFaceVaryingUv(UvSmooth mode, bool withSeam)
   alloc::Delete(cage);
 }
 
-/* The planar gates above are deliberately a Catmull-Clark fixed point, so a
- * regression that quietly routed UVs down the bilinear path would still pass
- * them. Distort one interior vertex's UV and the two rules must disagree:
- * SMOOTH_ALL is smooth everywhere, NONE is FVAR_LINEAR_ALL. */
+// The planar gates above are deliberately a Catmull-Clark fixed point, so a
+// regression that quietly routed UVs down the bilinear path would still pass
+// them. This gate instead distorts one interior vertex's UV, which makes the
+// two rules disagree: SMOOTH_ALL keeps the surface smooth everywhere, while
+// NONE (FVAR_LINEAR_ALL) does not.
 static void gateFaceVaryingIsNotBilinear()
 {
   Mesh *cage = makeGrid(4);
@@ -579,7 +580,7 @@ static void gateCageScatter()
   Vector<int> touched;
   test_assert(mr.scatterFaceIntToCage(2, "group", touched) == 1);
 
-  /* All four grids of cage face 0, and nothing else. */
+  // The touched list holds all four grids of cage face 0, and nothing else.
   test_assert(touched.size() == 4);
   for (int i = 0; i < 4; i++) {
     test_assert(touched[i] == i);
@@ -657,8 +658,8 @@ static void gateCageColorSmooth()
      * black it out so the smooth has somewhere to go. */
     (*d)[4] = float4(0.0f, 0.0f, 0.0f, 1.0f);
   }
-  /* Lift one boundary corner: its cage and limit positions now disagree,
-   * which is the discriminator for the space the kernel's falloff reads. */
+  // Lifting one boundary corner makes its cage and limit positions disagree,
+  // so the test can tell which space the kernel's falloff reads.
   cage->v.co[0][2] = 1.5f;
 
   Multires mr;
@@ -1204,8 +1205,8 @@ static void gateChannelCapi()
   for (int i = 0; i < int(buf.size()); i++) {
     test_assert(back[i] == buf[i]);
   }
-  /* A grid range is addressable on its own -- a host streams, it does not have
-   * to hold a whole level. */
+  // A host can address a single grid range on its own, without holding a
+  // whole level, so it can stream grids in instead of loading everything.
   Vector<float> one;
   one.resize(perGrid);
   test_assert(Multires_gridChannelRead(&mr, level, col, 1, 1, one.data(), one.size()) ==
@@ -1241,16 +1242,16 @@ static void gateChannelCapi()
   alloc::Delete(cage);
 }
 
-/* C4: a paint edit at a fine level reaches every level below it on a downward
- * level switch, the way a position edit does — but per channel, and exactly
- * once.
- *
- * The debt is what makes "exactly once" possible: restriction is not the
- * inverse of subdivision, so re-running it on a level that is already current
- * would replace the coarse level's own paint with a blurred copy of what it
- * seeded upward. The same argument is why the debt is per channel and not per
- * level: a mask edit at level 3 must not drag an untouched colour layer through
- * the filter. */
+// This gate (C4) checks that a paint edit at a fine level reaches every
+// level below it on a downward level switch, the same way a position edit
+// does, but per channel and exactly once.
+//
+// The debt makes that single pass possible. Restriction is not the inverse
+// of subdivision, so re-running it on a level that is already current would
+// replace the coarse level's own paint with a blurred copy of what it seeded
+// upward. The debt is tracked per channel and not per level for the same
+// reason. A mask edit at level 3 must not drag an untouched colour layer
+// through the filter.
 /* A cage write-back at one level leaves every OTHER resident level's derived
  * copy behind: materialize() hands back a slot it found without re-deriving,
  * so a slot built before the paint still carries pre-paint colour. That is not

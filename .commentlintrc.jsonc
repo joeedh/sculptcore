@@ -51,7 +51,7 @@
   // Rule ids never to report. The gate that decides whether a comment is
   // flagged at all still runs over every rule; disabling one only changes
   // which rule a finding is named after.
-  "disableRules": ["P10"]
+  "disableRules": ["P10", "C2"]
 
   // Rule ids to turn back on even though they ship off by default (C10,
   // C11, C13 -- style calls the taxonomy can't settle for every codebase).

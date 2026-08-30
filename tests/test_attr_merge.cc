@@ -137,8 +137,9 @@ static void testGenericPolicies()
 
     EdgeSplitResult res;
     test_assert(bool(splitEdge(*m, e, &res)));
-    /* Re-find: `attr` may dangle if the split grew the layer set (it does not,
-     * but the AttrData pointer is what matters here). */
+    // `attr` may dangle if the split grew the layer set, so the test looks up
+    // the attribute again by name below. The split does not grow the layer set
+    // in this test, but the AttrData pointer returned is what the assertion uses.
     auto *out = m->v.attrs.find_attribute(AttrType::FLOAT, "userdata").get_data<float>();
     test_assert(std::fabs(out->safe_get(res.new_vert) - c.want) < 1e-5f);
   }
@@ -159,7 +160,7 @@ static void testBoolOrMerge()
   };
 
   for (const Case &c : cases) {
-    /* Split: dst is the fresh midpoint vertex. */
+    // Splitting the edge produces dst, the fresh midpoint vertex.
     {
       MeshPtr m(3);
       AttrRef &attr = m->v.attrs.ensure(AttrType::BOOL, "flag", true);
@@ -299,7 +300,8 @@ static void testDispFieldSplit()
         m->v.attrs.find_attribute(AttrType::INT, ".brush.disp.gen").get_data<int>();
 
     if (!c.s0 && !c.s1) {
-      /* Nothing to preserve — the stamp must not be laundered into existence. */
+      // Neither source vertex carries the generation stamp, so the split must
+      // not fabricate one for the new midpoint vertex.
       test_assert(outGen->safe_get(vm) == 0);
       continue;
     }

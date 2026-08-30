@@ -217,7 +217,7 @@ static void testElementReuse()
   test_assert(auditMesh(*m, "weights") == 0);
 
   const int vnew = m->make_vertex(math::float3(0.0f, 0.0f, 0.0f));
-  test_assert(vnew == v0); // the freed slot is reused, which is the point
+  test_assert(vnew == v0); // make_vertex reuses the freed slot; this test exercises that reuse deliberately
   test_assert(w.slot(vnew).index == 0);
   test_assert(auditMesh(*m, "weights") == 0);
 
@@ -324,8 +324,9 @@ static void testMergeInterpolates()
   test_assert(w.weight(dst, 1) == 0.5f); // only in a: lerp(1, 0)
   test_assert(w.weight(dst, 2) == 0.5f); // in both: lerp(0.25, 0.75)
   test_assert(w.weight(dst, 5) == 0.5f); // only in b: lerp(0, 1)
-  // Sums to 1.5. Blender does not renormalize on interpolation and neither does
-  // this — silently rescaling a rigged mesh mid-sculpt would be the worse bug.
+  // The interpolated weights sum to 1.5. Neither Blender nor this test
+  // renormalizes on interpolation, so a rigged mesh's weights are never
+  // silently rescaled mid-sculpt.
   test_assert(auditMesh(*m, "weights") == 0);
 }
 

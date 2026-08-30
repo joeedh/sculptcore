@@ -157,7 +157,7 @@ void testSphereIsotropy()
   if (n > 0) {
     double mAniso = sAniso / n;
     fprintf(stderr, "[sph smoothed] n=%d aniso=%.4f\n", n, mAniso);
-    TASSERT(mAniso < 0.35); // umbilic isotropy preserved (not amplified)
+    TASSERT(mAniso < 0.35); // Smoothing keeps the sphere's near-umbilic curvature isotropic instead of amplifying it into anisotropy.
   }
   litestl::alloc::Delete<Mesh>(sph);
 }

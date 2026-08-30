@@ -101,8 +101,8 @@ int main()
     litestl::alloc::Delete<Mesh>(m);
   }
   {
-    // Normal-only motion: closest point on the old fan is the old position,
-    // so the UV must not change.
+    // Moving the vertex only along the normal leaves the closest point on the
+    // old fan at the old position, so the UV must not change.
     Mesh *m = makeGrid(3, 3, 2.0f);
     auto *uv = assignPlanarUVs(*m, [](int) { return 0.0f; });
     const int center = 4;

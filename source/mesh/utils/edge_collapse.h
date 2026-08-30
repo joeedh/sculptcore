@@ -329,9 +329,9 @@ collapseEdge(Mesh &m,
    * (0 = keep v_keep unchanged, 0.5 = midpoint). Reads v_kill, so it must run
    * before v_kill is killed below. Position is overridden by merged_co if set. */
   if (blend > 0.0f) {
-    /* The survivor lands at merged_co, not at the blend of the two endpoints, so
-     * hand it to the merge policies (attr_merge.h) — a snapshot/rest column has
-     * to be reconstructed against where the vertex actually ends up. */
+    // The survivor's position ends up at merged_co, not at the blend of the two
+    // endpoints. The merge policies (attr_merge.h) must reconstruct a
+    // snapshot/rest column against where the vertex actually ends up.
     const litestl::math::float3 *mco =
         merged_co.has_value() ? &merged_co.value() : nullptr;
     interpAttrs(m.v.attrs, v_keep, v_keep, v_kill, blend, &m, mco);

@@ -147,7 +147,7 @@ static inline bool symmetrizeMesh(Mesh &m, int axis, int keepSign, float thresho
     for (int vi : kept) {
       if (side(vi) == 0) {
         m.v.co[vi][axis] = 0.0f; // snap exactly onto the plane
-        mirror[vi] = vi;         // shared by original + mirror — this is the weld
+        mirror[vi] = vi;         // The original and mirror share this vertex, welding them at the plane
         continue;
       }
       int nv = m.make_vertex(m.v.co[vi]);
@@ -197,7 +197,7 @@ static inline bool symmetrizeMesh(Mesh &m, int axis, int keepSign, float thresho
         cc = m.c.next[cc];
       } while (cc != c0);
 
-      // A face entirely on the plane is its own mirror — don't duplicate it.
+      // A face entirely on the plane maps to itself under mirroring, so it must not be duplicated.
       bool allShared = true;
       for (int vi : fv) {
         if (mirror[vi] != vi) {

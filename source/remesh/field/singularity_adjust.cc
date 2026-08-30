@@ -727,8 +727,9 @@ SingularityCancelStats cancelSingularityPairs(Mesh &m,
     long new_isum = 0;
     countPoles(new_sing, new_isum);
 
-    // Accept only if the index sum is conserved and the pole count strictly
-    // drops; otherwise the flips moved energy somewhere worse — roll back.
+    // This round is accepted only when the index sum is conserved and the pole
+    // count strictly drops. Otherwise the flips moved energy somewhere worse,
+    // so the round is rolled back below.
     if (!res.solved || new_isum != cur_isum || new_sing >= cur_sing) {
       for (int f : m.f) {
         theta[f] = theta_snap[f];

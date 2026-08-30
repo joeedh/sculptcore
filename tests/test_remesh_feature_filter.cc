@@ -174,8 +174,8 @@ void testHysteresis()
 
   litestl::alloc::Delete<Mesh>(tent);
 
-  // All-weak tent: no strong seed, so hysteresis must tag nothing (it is a
-  // connectivity gate, not a lowered threshold).
+  // An all-weak tent has no strong seed, so hysteresis must tag nothing.
+  // Hysteresis gates on connectivity, not on a lowered threshold.
   float weakSlope[NY];
   for (int j = 0; j < NY; j++) {
     weakSlope[j] = sWeak;

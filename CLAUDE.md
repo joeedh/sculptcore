@@ -416,9 +416,9 @@ part is whatever you bolt on to localize a spike:
   inert in normal runs, and remember scripted/batch runs won't reproduce
   a live-path-only hitch — hand the user a setup-only script + `--interactive`.
 
-Like the source-line prints above, this instrumentation is **not** meant
-to live in the tree: once the fix is confirmed, delete every SPIKE /
-FRAME-SPIKE counter and printf you added and leave only `StrokeProfiler`.
+Like the source-line prints above, this instrumentation should not live in
+the tree. Once the fix is confirmed, delete every SPIKE / FRAME-SPIKE
+counter and printf you added, leaving only `StrokeProfiler`.
 
 ## Dynamic topology
 
@@ -434,17 +434,18 @@ the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentati
   the `mesh::Mesh`); the caller threads `MeshCallbacks` to keep the spatial tree
   and meshlog current, and passes `seedVerts` (the in-region leaves' verts) so a
   dab is O(brush region), not O(mesh).
-- **The round loop** is the Botsch-Kobbelt quartet over maximal independent sets:
-  split / collapse / **flip** / **smooth**, with a **graded** target. The
-  performance levers are all here and all CPU — chiefly the **length-criterion
-  flip sweep** (`do_flips`, M7.2), which breaks the split-spoke cascade (it is
-  *not* optional). `DynTopoParams` also has `grade` (sizing field), `do_smooth`
-  (tangential, default off), and `max_splits` (per-dab safety valve).
+- The round loop applies the Botsch-Kobbelt quartet of split, collapse,
+  **flip**, and **smooth** passes to maximal independent sets, against a
+  **graded** target. The performance levers are all here and all CPU, chiefly the
+  **length-criterion flip sweep** (`do_flips`, M7.2), which breaks the
+  split-spoke cascade and is not optional. `DynTopoParams` also has `grade`
+  (sizing field), `do_smooth` (tangential, default off), and `max_splits`
+  (per-dab safety valve).
 - **Spatial currency** is incremental (`source/spatial/`, M7.6): `add_face_at`
   O(1) anchor placement, deferred batched leaf rebalance, and cadenced merge of
   under-full leaves — `tree->update()` is 2–11 ms at 5 M vs a ~68 s full rebuild.
-- **The GPU offload is now optional**, not required — see the design doc's
-  post-M7 banner before touching it.
+- GPU offload is optional now, not required — see the design doc's post-M7
+  banner before touching it.
 - Regression gates (ctest): `test_dyntopo_cascade` / `_budget` / `_smooth`,
   `test_spatial_dyntopo` / `_merge`. The `bench_dyntopo` debug-app verb is the
   A/B measurement tool (`flip=`, `grade=`, `smooth=`, `max_splits=`, `rebuild=`).
@@ -483,11 +484,11 @@ is embarrassingly parallel, where the provider's Gauss-Seidel smoothing is
 deliberately serial. That is most of what made mode-enter fast (2433 ms → 26 ms
 for the base+frames phase at 1 M verts / level 4).
 
-`captureDetailToVdm` is where the two frame spaces now coexist, and it is
-**open**: it writes texels in the lattice frame while the VDM consumers
+`captureDetailToVdm` is where the two frame spaces now coexist, and the seam
+is open. It writes texels in the lattice frame, but the VDM consumers
 (`vdm_bake`, `vdm_promote`, `vdm_splat`) still decode against the provider's
-`FRAME_*_ATTR`. Capture must convert — or the VDM path must adopt the lattice
-frame — before it is wired to a host. Nothing outside the c-api reaches it today.
+`FRAME_*_ATTR`. Capture must convert, or the VDM path must adopt the lattice
+frame, before it is wired to a host. Nothing outside the c-api reaches it today.
 
 ### Attributes on the grid domain
 
@@ -496,16 +497,17 @@ owns everything on the grid domain that is *not* displacement: per-grid-sample
 layers for UV, colour and face sets, ptex-bilinear for point attributes and
 Catmull-Clark face-varying for UV maps, keyed on the host's `uv_smooth`.
 
-**Where a write may land is a storage class, never a tool list.**
-`storageFor(name, type, flags)` answers with one of three:
+A write's storage class is decided by policy, never by a tool list.
+`storageFor(name, type, flags)` returns one of three classes:
 
 - `Temp` — `AttrFlag::TEMP` scratch the host never stores, so a kernel may
   always author it per grid element.
 - `Host` — the host declared it through `declareHostAttr` (c-api
   `Multires_declareHostGridAttr`), so it persists per grid element and a kernel
   may author it. Blender declares exactly one: the scalar `mask`.
-- `Derived` — everything else. An engine-owned *cache*, re-subdivided from the
-  cage attribute, and a brush may not author a cache.
+- `Derived` — any attribute that is neither `Temp` nor `Host`: an
+  engine-owned cache, re-subdivided from the cage attribute, that a brush
+  may not author.
 
 `brush/grid_attr_bind.h::gridAttrPlan` is the single enforcement point: a
 writable `Derived` attribute is `Unbindable`, so that kernel takes the mesh path
@@ -523,30 +525,30 @@ behind. `Multires::materialize` compares it against the slot's `derivedGen` and
 re-derives a resident slot on the way in — lazily on purpose: one whole-level
 re-derive per level switch, versus one per dab for levels nobody is looking at.
 
-**Down-propagation is a different operator from the level transition.**
-`GridsStore::restrictChannelDown` is 9-point full weighting (the transpose of
-the prolongation), spent one step at a time by `Multires::propagateAttrsDown`
-against per-(channel, level) debt (`LevelData::downPending`, set by
-`noteAttrEdit`, settled in `setActiveLevel` alongside the positional
-`propagateDown`). `restrictLevelToBelow`'s injection is the lossless left
-inverse used when a level is *dropped*, and the two must not be confused: full
-weighting re-run on a level that owes nothing would smooth the user's own coarse
-edits away, which is why the debt flag gates it. One documented deviation: an
-on-seam *tap* is counted once per incident grid, so on a two-grid seam the
-centre weight comes out 1/3 rather than 1/4. Normalization absorbs it
-(constants stay fixed points), but the filter is mildly seam-biased and that is
-a choice, not an accident.
+Down-propagation and the level transition are different operators, and the
+two must not be confused. `GridsStore::restrictChannelDown` is 9-point full
+weighting (the transpose of the prolongation), spent one step at a time by
+`Multires::propagateAttrsDown` against per-(channel, level) debt
+(`LevelData::downPending`, set by `noteAttrEdit`, settled in
+`setActiveLevel` alongside the positional `propagateDown`).
+`restrictLevelToBelow`'s injection is the lossless left inverse used when a
+level is dropped. Full weighting re-run on a level that owes nothing would
+smooth the user's own coarse edits away, which is why the debt flag gates
+it. One documented deviation: an on-seam tap is counted once per incident
+grid, so on a two-grid seam the centre weight comes out 1/3 rather than
+1/4. Normalization absorbs it (constants stay fixed points), but the filter
+is mildly seam-biased, and that is a deliberate choice.
 
-**The mask splits into a seed and an edit, and they must not be confused.**
-`Multires_writeDomainMask` (c-api) is the whole-domain *seed* — it overwrites
+A mask write is either a seed or an edit, and the two must not be confused.
+`Multires_writeDomainMask` (c-api) is the whole-domain seed — it overwrites
 every sample of a level and owes nothing to any other level, so it runs
-propagation-free. `Multires_editDomainMask` is the *edit* flavor: it writes the
-touched samples at the edited level, prolongates the **delta** up through the
-finer levels (`GridsStore::prolongateChannelEditUp`, 4-tap and bounded to the
-touched box; a finer level nobody has authored is seeded whole instead), and
-leaves the downward direction to the ordinary restriction debt. Consumers pull:
-`Multires::maskGeneration()` bumps on `noteMaskChange()` and readers compare
-stamps — the old push protocol (`GridStroke_syncMask`) is gone.
+propagation-free. `Multires_editDomainMask` writes the touched samples at the edited level,
+prolongates the **delta** up through the finer levels
+(`GridsStore::prolongateChannelEditUp`, 4-tap and bounded to the touched box;
+a finer level nobody has authored is seeded whole instead), and leaves the
+downward direction to the ordinary restriction debt. Consumers
+pull: `Multires::maskGeneration()` bumps on `noteMaskChange()`, and readers
+compare stamps. The old push protocol (`GridStroke_syncMask`) is gone.
 
 **Sculpt layers get a fourth binding answer: `LayerScratch`.** A kernel that
 writes a `SCULPT_LAYER` handle binds per-dab scratch instead of the channel

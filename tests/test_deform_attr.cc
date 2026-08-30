@@ -77,7 +77,7 @@ static void testCanonicalization()
   test_assert(sa == sc);
   test_assert(runIs(pool, sa, {{0, 0.75f}, {2, 0.25f}}));
 
-  // A run that cancels to nothing is the empty run, not a two-entry one.
+  // A run whose weights cancel to zero interns as the empty run, not a two-entry run.
   auto cancels = run({{3, 0.5f}, {3, -0.5f}});
   test_assert(pool.intern(asRun(cancels)).index == 0);
 

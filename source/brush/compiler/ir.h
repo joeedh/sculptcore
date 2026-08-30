@@ -373,11 +373,11 @@ struct Brush {
   // plans/2026-07-26-0909-brush-displacement-base-attribute.md). Such a kernel
   // runs live-from-live even in a non-accumulate stroke; see def.relaxesBase.
   bool isRelaxation = false;
-  // `@unbounded`: the kernel's field has unbounded support and is its own
-  // falloff, so `strength()` is forbidden in it (sema errors) and
-  // `unbounded_window()` is required — the window is what makes the field
-  // vanish at the host's node-filter radius instead of tearing on a leaf
-  // boundary. Non-accumulate-ineligible for now — unlike @incremental, whose
+  // A kernel marked `@unbounded` has a field with unbounded support that is its
+  // own falloff, so `strength()` is forbidden in it (sema errors) and
+  // `unbounded_window()` is required — the window makes the field vanish at the
+  // host's node-filter radius instead of tearing on a leaf boundary. It is
+  // non-accumulate-ineligible for now, unlike `@incremental`, whose
   // non-accumulability is structural. See the Open list in the wave-5 plan.
   bool isUnbounded = false;
   // `@incremental`: a stage input is a per-dab *delta* rather than an absolute

@@ -491,9 +491,9 @@ template <typename CTX> struct BrushCommandDef {
   // non-accumulate stroke — reading and writing the live surface is exactly "move
   // co, leave disp alone". Hosts also read it as "inverting this diverges".
   bool relaxesBase = false;
-  // Set by codegen from `@grabmode`: the kernel *can* run the grab policy. Says
-  // nothing about whether it does — that is the stroke's business, not the
-  // kernel's, so `CommandExecutor::anchoredGrab` is the other half.
+  // Set by codegen from `@grabmode`, meaning the kernel supports running the grab
+  // policy. The stroke, not the kernel, decides whether it actually runs; that
+  // decision is made in `CommandExecutor::anchoredGrab`.
   bool grabModeCapable = false;
   // Set by codegen from `@unbounded`: the field carries no distance falloff of
   // its own, only `unboundedWindow`'s cutoff at R = radius * unboundedExtent.

@@ -153,12 +153,12 @@ int main()
     test_assert(live.dihedral == base.dihedral);
   }
 
-  // (e) The plan's fixture, and the M3 gate. Flat grid so the stroke-start
-  // surface is exactly z = 0 and displacement *is* z; dyntopo with tangential
-  // smoothing on, which is what the app ships. `rough=1` prints the per-dab
-  // live/base trace. The derived base (`co - disp`) must stay on the plane even
-  // though the tangential smooth slides verts across a displaced surface --
-  // that is the disp resampling in smoothTangent.
+  // Case (e) provides the plan's fixture for the M3 gate. The grid is flat, so
+  // the stroke-start surface sits exactly at z = 0 and displacement equals z;
+  // dyntopo runs with tangential smoothing on, matching what the app ships.
+  // `rough=1` prints the per-dab live/base trace. The derived base (`co - disp`)
+  // must stay on the plane even though tangential smoothing slides verts across
+  // a displaced surface, because smoothTangent resamples disp to compensate.
   {
     Scene scene(64, 64, /*headless=*/true);
     auto r = script::run(scene,

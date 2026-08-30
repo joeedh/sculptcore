@@ -807,8 +807,9 @@ bool GridsStore::writeBytes(Vector<uint8_t> &out, int hcLevel)
 
   pbf.writeUint32(uint32_t(gridCount_));
   pbf.writeUint32(uint32_t(levelCount_));
-  // One blit, not 4 * gridCount stream calls: GridLink is exactly the {grid,
-  // side} int pair the reader pulls back out one at a time.
+  // This writes links_ in one blit instead of 4 * gridCount stream calls,
+  // because GridLink is exactly the {grid, side} int pair the reader pulls
+  // back out one at a time.
   static_assert(sizeof(GridLink) == 2 * sizeof(uint32_t));
   pbf.writeUint32Array(reinterpret_cast<const uint32_t *>(links_.data()),
                        links_.size() * 2);

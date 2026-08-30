@@ -275,9 +275,10 @@ int GridLevelDomain::ensureMaskChannel()
 {
   int ch = mr_->store.findChannel(util::string(kMaskChannel));
   if (ch < 0) {
-    // Both defaults are deliberate: the paint mask is Authored (subdividing
-    // carries it up, deleting a level restricts it back) and persistent —
-    // it is the one grid layer Blender itself has a container for.
+    // Both defaults are deliberate. The paint mask defaults to Authored, so
+    // subdividing carries it up and deleting a level restricts it back down.
+    // The paint mask also defaults to persistent, because Blender itself
+    // provides a container for exactly this one grid layer.
     ch = mr_->store.addChannel(util::string(kMaskChannel), 1);
   }
   return ch;

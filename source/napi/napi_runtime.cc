@@ -821,7 +821,7 @@ marshalArg(napi_env env, const binding::BindingBase *pt, napi_value a, uint64_t 
     return slot;
   }
   case BindingType::Pointer:
-    // arg_t is T*: the thunk reads *(T**)args[i], so args[i] -> a void* slot.
+    // For a pointer-typed argument, the thunk reads *(T**)args[i], so args[i] holds a void* slot.
     *slot = reinterpret_cast<uint64_t>(unwrapPtr(env, a));
     return slot;
   case BindingType::Reference:

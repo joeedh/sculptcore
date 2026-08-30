@@ -652,7 +652,7 @@ int main()
       }
       test_assert(found);
     }
-    /* blend=0.5 -> survivor color is the midpoint of the two endpoints. */
+    // With blend=0.5, the survivor color is the midpoint of the two endpoints.
     {
       float4 cm = (*cd)[v_keep];
       float4 expect = ckeep * 0.5f + ckill * 0.5f;

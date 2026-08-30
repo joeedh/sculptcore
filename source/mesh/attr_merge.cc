@@ -291,8 +291,9 @@ void mergeWeights(AttrRef &attr, const AttrMergeCtx &ctx)
     out.resize(DEFORM_MAX_INFLUENCES);
   }
 
-  // Deliberately not normalized: Blender does not, and a sculpt op silently
-  // renormalizing a rigged mesh would be a worse bug than the one this fixes.
+  // The merged weights are deliberately left unnormalized. Blender does not
+  // normalize them either, and a sculpt op silently renormalizing a rigged
+  // mesh would be a worse bug than the one this fixes.
   WeightSlot merged =
       pool->intern(util::span<const DeformWeight>(out.data(), out.size()));
   data->materialize(ctx.dst);

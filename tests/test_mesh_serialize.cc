@@ -840,12 +840,12 @@ void test_nonmanifold_roundtrip()
   TASSERT(cnt == 3);
 }
 
-/** An AttrType::WEIGHTS column is the one column whose stored value is an index
- * into a side table, so it is the one that cannot survive on its own bytes. This
- * pins all three halves of that: the pool travels with the file, the indices are
+/** An AttrType::WEIGHTS column stores an index into a side table rather than a
+ * value, so it cannot survive on its own bytes. This test checks the three
+ * things that follow from that: the pool travels with the file, the indices are
  * compacted (a saved pool has no holes, whatever the live one looked like), and
- * the loaded columns hold real references — auditRefcounts is what proves the
- * last one, since a raw byte copy would install indices nothing retained. */
+ * the loaded columns hold real references — auditRefcounts confirms the last
+ * one, since a raw byte copy would install indices that nothing retained. */
 void test_weights_roundtrip()
 {
   const char *tag = "weights";
@@ -853,8 +853,8 @@ void test_weights_roundtrip()
   Mesh m;
   build_grid(m, 4); // 25 verts
 
-  // Deterministic, position-derived runs, one of three shapes — so several verts
-  // interning to one slot is the common case, not the exception.
+  // Each vertex gets one of three deterministic, position-derived weight runs,
+  // so several verts interning to one slot is the common case, not the exception.
   auto runFor = [](const float3 &c, Vector<DeformWeight> &out) {
     out.resize(0);
     switch (int(c[0] * 4.0f + c[1] * 4.0f) % 3) {
