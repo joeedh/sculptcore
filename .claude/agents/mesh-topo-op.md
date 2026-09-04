@@ -177,7 +177,7 @@ later.
   (`source/mesh/gpu/`) — those are downstream of the topology layer and
   not your concern.
 - Do not invent new attribute fields on the core domains. Operators may
-  need temporary per-element scratch — store it in a local `util::Array`
+  need temporary per-element scratch — store it in a local `util::Vector`
   keyed by index, not as a new `BuiltinAttr`.
 - Do not invoke cmake/ninja/ctest directly; let the user drive
   `node make.mjs`.

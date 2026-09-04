@@ -5,7 +5,6 @@
 
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
-#include "litestl/util/array.h"
 #include "litestl/util/hash.h"
 #include "litestl/util/vector.h"
 
@@ -28,7 +27,6 @@ enum class PropCurves {
 };
 
 namespace detail::curve {
-using litestl::util::Array;
 
 struct CurveGenBase {
   PropCurves type;
@@ -162,7 +160,7 @@ template <PropCurves type_> struct CurveGenSimple : public CurveGenBase {
 };
 
 struct CurveGenTable : CurveGenBase {
-  Array<double> table;
+  util::Vector<double> table;
   using HashInt = litestl::hash::HashInt;
 
   CurveGenTable() : CurveGenBase(PropCurves::TABLE)

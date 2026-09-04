@@ -8,7 +8,6 @@
 
 #include "litestl/binding/binding.h"
 #include "litestl/util/alloc.h"
-#include "litestl/util/array.h"
 #include "litestl/util/assert.h"
 #include "litestl/util/index_range.h"
 #include "litestl/util/set.h"
@@ -532,7 +531,8 @@ struct AttrGroup {
     /* reverse[new] = old, so each pass below can pull each destination slot
      * from its source. elem_map[old] = new, so iterate old indices — iterating
      * elem_map by value would index it by a new-slot number. */
-    util::Array<int> reverse(n);
+    util::Vector<int> reverse;
+    reverse.resize(n);
     for (int oldi : util::IndexRange(int(elem_map.size()))) {
       reverse[elem_map[oldi]] = oldi;
     }
@@ -553,8 +553,7 @@ struct AttrGroup {
          * every slot (including never-written source pages). */
         data->materialize_all();
 
-        /* A sibling AttrData as scratch: it value-inits pages (no ambiguous
-         * T(0) cast that util::Array would force on vector types) and destructs
+        /* A sibling AttrData as scratch: it value-inits pages and destructs
          * cleanly at scope end, freeing only its own pages. */
         AttrData<T> scratch(attr.name, data->size());
         scratch.materialize_all();
@@ -572,7 +571,8 @@ struct AttrGroup {
      * scratch copy. */
     int blocksize = bool_attrs.blocksize();
     if (blocksize > 0) {
-      util::Array<uint8_t> scratch(size_t(n) * blocksize);
+      util::Vector<uint8_t> scratch;
+      scratch.resize(size_t(n) * blocksize);
       for (int i = 0; i < n; i++) {
         uint8_t *src = bool_attrs[i];
         for (int j = 0; j < blocksize; j++) {
@@ -662,7 +662,8 @@ struct AttrGroup {
     int blocksize = bool_attrs.blocksize();
     if (blocksize > 0) {
       size_t bsz = size_t(blocksize);
-      util::Array<uint8_t> tmp(bsz);
+      util::Vector<uint8_t> tmp;
+      tmp.resize(bsz);
       rotate(
           [&](int d, int s) {
             uint8_t *dp = bool_attrs[d], *sp = bool_attrs[s];
