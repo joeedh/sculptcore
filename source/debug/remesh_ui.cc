@@ -19,8 +19,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <commdlg.h> // GetOpenFileNameW / OPENFILENAMEW (excluded by LEAN_AND_MEAN)
 #include <windows.h>
+#include <commdlg.h> // GetOpenFileNameW / OPENFILENAMEW (excluded by LEAN_AND_MEAN)
 
 #include <cstdio>
 #include <string>

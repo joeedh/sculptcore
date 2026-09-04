@@ -5,28 +5,28 @@
 // @fulltopo annotations and brushes/tools.txt.
 #pragma once
 #include "brush/brush_command.h"
-#include "brush/kernels/generated/bsmooth.brush.gen.h"
-#include "brush/kernels/generated/color.brush.gen.h"
-#include "brush/kernels/generated/colorsmooth.brush.gen.h"
-#include "brush/kernels/generated/draw.brush.gen.h"
-#include "brush/kernels/generated/enhance.brush.gen.h"
-#include "brush/kernels/generated/featurealign.brush.gen.h"
-#include "brush/kernels/generated/grab.brush.gen.h"
-#include "brush/kernels/generated/inflate.brush.gen.h"
-#include "brush/kernels/generated/kelvinlet.brush.gen.h"
-#include "brush/kernels/generated/layerdraw.brush.gen.h"
-#include "brush/kernels/generated/mask.brush.gen.h"
-#include "brush/kernels/generated/pinch.brush.gen.h"
-#include "brush/kernels/generated/plane.brush.gen.h"
-#include "brush/kernels/generated/polygroup.brush.gen.h"
-#include "brush/kernels/generated/pose.brush.gen.h"
-#include "brush/kernels/generated/sharp.brush.gen.h"
-#include "brush/kernels/generated/smooth.brush.gen.h"
-#include "brush/kernels/generated/snakehook.brush.gen.h"
-#include "brush/kernels/generated/texdraw.brush.gen.h"
-#include "brush/kernels/generated/texgrad.brush.gen.h"
-#include "brush/kernels/generated/wingscrape.brush.gen.h"
 #include "brush/neighbor_source.h"
+#include "brush/kernels/generated/draw.brush.gen.h"
+#include "brush/kernels/generated/inflate.brush.gen.h"
+#include "brush/kernels/generated/plane.brush.gen.h"
+#include "brush/kernels/generated/pinch.brush.gen.h"
+#include "brush/kernels/generated/sharp.brush.gen.h"
+#include "brush/kernels/generated/mask.brush.gen.h"
+#include "brush/kernels/generated/smooth.brush.gen.h"
+#include "brush/kernels/generated/kelvinlet.brush.gen.h"
+#include "brush/kernels/generated/pose.brush.gen.h"
+#include "brush/kernels/generated/texdraw.brush.gen.h"
+#include "brush/kernels/generated/wingscrape.brush.gen.h"
+#include "brush/kernels/generated/color.brush.gen.h"
+#include "brush/kernels/generated/polygroup.brush.gen.h"
+#include "brush/kernels/generated/bsmooth.brush.gen.h"
+#include "brush/kernels/generated/grab.brush.gen.h"
+#include "brush/kernels/generated/snakehook.brush.gen.h"
+#include "brush/kernels/generated/colorsmooth.brush.gen.h"
+#include "brush/kernels/generated/featurealign.brush.gen.h"
+#include "brush/kernels/generated/layerdraw.brush.gen.h"
+#include "brush/kernels/generated/enhance.brush.gen.h"
+#include "brush/kernels/generated/texgrad.brush.gen.h"
 
 namespace sculptcore::brush {
 
@@ -34,18 +34,56 @@ inline constexpr int builtinBrushCount = 23;
 
 /** Enum item name per id — the reflected names, without a BindingManager. */
 inline constexpr const char *kBuiltinBrushNames[23] = {
-    "DRAW",        "INFLATE",       "CLAY",      "PINCH",   "SHARP",   "MASK",
-    "SMOOTH",      "KELVINLET",     "POSE",      "TEXDRAW", "SCRAPE",  "FILL",
-    "WINGSCRAPE",  "COLOR",         "POLYGROUP", "BSMOOTH", "GRAB",    "SNAKEHOOK",
-    "COLORSMOOTH", "FEATURE_ALIGN", "LAYERDRAW", "ENHANCE", "TEXGRAD",
+    "DRAW",
+    "INFLATE",
+    "CLAY",
+    "PINCH",
+    "SHARP",
+    "MASK",
+    "SMOOTH",
+    "KELVINLET",
+    "POSE",
+    "TEXDRAW",
+    "SCRAPE",
+    "FILL",
+    "WINGSCRAPE",
+    "COLOR",
+    "POLYGROUP",
+    "BSMOOTH",
+    "GRAB",
+    "SNAKEHOOK",
+    "COLORSMOOTH",
+    "FEATURE_ALIGN",
+    "LAYERDRAW",
+    "ENHANCE",
+    "TEXGRAD",
 };
 
 /** The kernel's .sbrush stem, for diagnostics and roster tests. */
 inline constexpr const char *kBuiltinBrushKernels[23] = {
-    "draw",        "inflate",      "plane",     "pinch",   "sharp",   "mask",
-    "smooth",      "kelvinlet",    "pose",      "texdraw", "plane",   "plane",
-    "wingscrape",  "color",        "polygroup", "bsmooth", "grab",    "snakehook",
-    "colorsmooth", "featurealign", "layerdraw", "enhance", "texgrad",
+    "draw",
+    "inflate",
+    "plane",
+    "pinch",
+    "sharp",
+    "mask",
+    "smooth",
+    "kelvinlet",
+    "pose",
+    "texdraw",
+    "plane",
+    "plane",
+    "wingscrape",
+    "color",
+    "polygroup",
+    "bsmooth",
+    "grab",
+    "snakehook",
+    "colorsmooth",
+    "featurealign",
+    "layerdraw",
+    "enhance",
+    "texgrad",
 };
 
 /** The WGSL/SPIR-V kernel stem a tool runs on the GPU (`@gpu` on the
@@ -53,29 +91,29 @@ inline constexpr const char *kBuiltinBrushKernels[23] = {
  * consumes this: lighting a brush up on the GPU is `@gpu` in its .sbrush
  * and nothing else. */
 inline constexpr const char *kBuiltinBrushGpuKernel[23] = {
-    "draw",      // DRAW
-    "inflate",   // INFLATE
-    "plane",     // CLAY
-    "pinch",     // PINCH
-    "sharp",     // SHARP
-    "mask",      // MASK
-    "smooth",    // SMOOTH
+    "draw", // DRAW
+    "inflate", // INFLATE
+    "plane", // CLAY
+    "pinch", // PINCH
+    "sharp", // SHARP
+    "mask", // MASK
+    "smooth", // SMOOTH
     "kelvinlet", // KELVINLET
-    "pose",      // POSE
-    "texdraw",   // TEXDRAW
-    "plane",     // SCRAPE
-    "plane",     // FILL
-    nullptr,     // WINGSCRAPE
-    "color",     // COLOR
+    "pose", // POSE
+    "texdraw", // TEXDRAW
+    "plane", // SCRAPE
+    "plane", // FILL
+    nullptr, // WINGSCRAPE
+    "color", // COLOR
     "polygroup", // POLYGROUP
-    "bsmooth",   // BSMOOTH
-    "grab",      // GRAB
-    nullptr,     // SNAKEHOOK
-    nullptr,     // COLORSMOOTH
-    nullptr,     // FEATURE_ALIGN
-    nullptr,     // LAYERDRAW
-    nullptr,     // ENHANCE
-    "texgrad",   // TEXGRAD
+    "bsmooth", // BSMOOTH
+    "grab", // GRAB
+    nullptr, // SNAKEHOOK
+    nullptr, // COLORSMOOTH
+    nullptr, // FEATURE_ALIGN
+    nullptr, // LAYERDRAW
+    nullptr, // ENHANCE
+    "texgrad", // TEXGRAD
 };
 
 /** True when the kernel has a `for_neighbor` loop, i.e. it is instantiated
@@ -83,7 +121,7 @@ inline constexpr const char *kBuiltinBrushGpuKernel[23] = {
 inline bool builtinBrushUsesForNeighbor(int id)
 {
   switch (id) {
-  case 6:  // SMOOTH
+  case 6: // SMOOTH
   case 15: // BSMOOTH
   case 18: // COLORSMOOTH
   case 19: // FEATURE_ALIGN
@@ -137,8 +175,8 @@ template <CommandTypes TYPES,
           sculptcore::brush::NbrSource NbrCsr,
           sculptcore::brush::NbrSource NbrLive,
           sculptcore::brush::AccumMode AccMode>
-inline bool
-createBuiltinBrush(int id, bool csrNeighbors, BrushCommandDef<CommandCtx<TYPES>> &def)
+inline bool createBuiltinBrush(int id, bool csrNeighbors,
+                               BrushCommandDef<CommandCtx<TYPES>> &def)
 {
   switch (id) {
   case 0: // DRAW
@@ -147,7 +185,7 @@ createBuiltinBrush(int id, bool csrNeighbors, BrushCommandDef<CommandCtx<TYPES>>
   case 1: // INFLATE
     createInflateBrush<TYPES, AccMode>(def);
     return true;
-  case 2:  // CLAY
+  case 2: // CLAY
   case 10: // SCRAPE
   case 11: // FILL
     createPlaneBrush<TYPES, AccMode>(def);
@@ -186,7 +224,8 @@ createBuiltinBrush(int id, bool csrNeighbors, BrushCommandDef<CommandCtx<TYPES>>
   case 14: // POLYGROUP
     if constexpr (!TYPES::supportsFaceStages) {
       return false;
-    } else {
+    }
+    else {
       createPolygroupBrush<TYPES, AccMode>(def);
       return true;
     }
@@ -239,7 +278,7 @@ inline BrushGpuPackFn builtinBrushGpuPack(int id)
     return packDrawGpuUniforms;
   case 1: // INFLATE
     return packInflateGpuUniforms;
-  case 2:  // CLAY
+  case 2: // CLAY
   case 10: // SCRAPE
   case 11: // FILL
     return packPlaneGpuUniforms;
